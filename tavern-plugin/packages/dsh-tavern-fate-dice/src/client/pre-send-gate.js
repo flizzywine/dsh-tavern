@@ -243,16 +243,17 @@ async function fdResolvePreSendGate(action, power) {
   const ui = fdPreSendGate.ui
   if (!payload || !payload.gateId || fdPreSendGate.busy) return
   const isReroll = action === 'fate' || action === 'push'
+  const launchPower = isReroll ? Math.max(0, Number(power) || 0) : 0
   fdPreSendGate.busy = true
   fdPreSendGate.resolvingMode = isReroll ? action : ''
-  fdPreSendGate.pendingPower = isReroll ? Math.max(0, Number(power) || 0) : 0
+  fdPreSendGate.pendingPower = launchPower
   fdSetGateBusy(true, action)
   fdSetGateNotice('')
 
   const activeStage = isReroll && typeof fdGetActiveFloorRollStage === 'function'
     ? fdGetActiveFloorRollStage()
     : null
-  if (activeStage && !activeStage.charging && typeof activeStage.startButtonCharge === 'function') {
+  if (launchPower > 0.1 && activeStage && !activeStage.charging && typeof activeStage.startButtonCharge === 'function') {
     try { activeStage.startButtonCharge(action) } catch {}
   }
 
@@ -493,11 +494,16 @@ function fdProbePreSendGate(hintGameId) {
 
 function fdSchedulePreSendGateProbes(hintGameId) {
   if (!fdPreSendGate.ui || fdPreSendGate.disposed) return
+  const targetId = String(hintGameId || fdGetActiveGameId() || fdPreSendGate.gameId || '').trim()
+  if (typeof fdMayNeedPreSendGate === 'function' && !fdMayNeedPreSendGate(targetId)) return
   fdClearGateProbeTimers()
-  const delays = [180, 650, 1500, 2800]
+  const delays = [260, 1100]
   for (let i = 0; i < delays.length; i++) {
     const timer = setTimeout(() => {
-      if (!fdPreSendGate.disposed && !fdPreSendGate.payload) fdProbePreSendGate(hintGameId)
+      if (!fdPreSendGate.disposed && !fdPreSendGate.payload) {
+        if (typeof fdMayNeedPreSendGate === 'function' && !fdMayNeedPreSendGate(targetId)) return
+        fdProbePreSendGate(hintGameId)
+      }
     }, delays[i])
     fdPreSendGate.probeTimers.push(timer)
   }
@@ -524,7 +530,9 @@ function fdMountPreSendGate(ui) {
     try { fdPreSendGate.offWatch() } catch {}
     fdPreSendGate.gameId = id
     fdPreSendGate.offWatch = fdWatch(ui, id, FD_GATE_STATE, data => fdApplyPreSendGatePayload(data, id))
-    fdProbePreSendGate(id)
+    if (typeof fdMayNeedPreSendGate !== 'function' || fdMayNeedPreSendGate(id)) {
+      fdProbePreSendGate(id)
+    }
   }
 
   fdPreSendGate.offGame = fdSubscribeActiveGameId(bindGame)
@@ -582,6 +590,7 @@ function fdMountPreSendGate(ui) {
 
   const active = fdGetActiveGameId()
   if (active) bindGame(active)
+  else if (typeof fdBootstrapActiveGame === 'function') fdBootstrapActiveGame(ui)
   else fdCall(ui, FD_RPC.status, {}).then(res => {
     const nextActive = res && res.ok && res.data && (res.data.activeGameId || res.data.gameId)
     if (nextActive) fdNoteActiveGameId(String(nextActive))
@@ -596,6 +605,7 @@ function fdMountPreSendGate(ui) {
     fdPreSendGate.offWatch = fdNoop
     fdPreSendGate.offGame = fdNoop
     fdPreSendGate.offEvents = fdNoop
+    fdPreSendGate.gameId = ''
     fdClearPreSendGate()
     const node = fdPreSendGate.root
     fdPreSendGate.root = null

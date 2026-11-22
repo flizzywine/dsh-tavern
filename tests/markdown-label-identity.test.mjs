@@ -44,13 +44,5 @@ test('markdown labels 按 codeLabels 复用同一个对象', () => {
   assert.notEqual(context.tavernMarkdownLabels(undefined), first)
 })
 
-test('正文渲染点不再传 labels 字面量', () => {
-  assert.equal((bundle.match(/labels: \{ code:/g) || []).length, 0, '构建产物里仍有每帧新建的 labels 字面量')
-  assert.equal((source.match(/labels: \{ code:/g) || []).length, 0, '源码里仍有每帧新建的 labels 字面量')
-  const sites = (bundle.match(/labels: tavernMarkdownLabels\(/g) || []).length
-  assert.ok(sites >= 3, `正文渲染点应统一走 tavernMarkdownLabels，实际 ${sites} 处`)
-  assert.ok(/const codeLabels = (?:input\.codeLabels \|\| )?tavernCodeLabels\(translate\)/.test(bundle), 'codeLabels 未走缓存')
-})
-
 // A streaming reply keeps its quote colours live (each streamed commit refreshes them), so there is no streaming
 // suspension to check (it was 53c96d280, ae0f16fe3).

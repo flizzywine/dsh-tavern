@@ -39,12 +39,17 @@
   ],
   "bin/profile-installation.mjs": [
     "@deepseek-ai/dsh-client-ui-chat",
+    "@deepseek-ai/dsh-client-ui-settings-models",
     "@deepseek-ai/dsh-client-ui-theme",
     "@deepseek-ai/dsh-llm-deepseek",
     "@deepseek-ai/dsh-llm-pi-ai"
   ],
   "bin/service-lifecycle.mjs": [
-    "@deepseek-ai/dsh-client-ui-chat"
+    "@deepseek-ai/dsh-client-ui-chat",
+    "@deepseek-ai/dsh-client-ui-settings-models"
+  ],
+  "bin/settings-models-endpoints-patch.mjs": [
+    "@deepseek-ai/dsh-client-ui-settings-models"
   ],
   "bin/test-runtime.mjs": [
     "@deepseek-ai/dsh-app-boot",
@@ -60,6 +65,9 @@
   "tavern-plugin/lib/agent-compaction.js": [
     "@deepseek-ai/dsh-agent",
     "@deepseek-ai/dsh-compaction"
+  ],
+  "tavern-plugin/lib/asset-engine-settings-owner.js": [
+    "@deepseek-ai/schemastery"
   ],
   "tavern-plugin/lib/background-agent-sessions.js": [
     "@deepseek-ai/dsh-subagent"
@@ -129,7 +137,9 @@
     "@deepseek-ai/dsh-tools"
   ],
   "tavern-plugin/lib/domain/workspace-instruction-presentation.js": [
+    "@deepseek-ai/dsh-",
     "@deepseek-ai/dsh-agent-instructions",
+    "@deepseek-ai/dsh-tool-registry",
     "@deepseek-ai/dsh-user-approval"
   ],
   "tavern-plugin/lib/host/tools.js": [

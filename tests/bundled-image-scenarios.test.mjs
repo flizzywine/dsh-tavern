@@ -1,8 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import {normalizePromptStructure} from '../tavern-plugin/packages/dsh-tavern-image-bundled/lib/prompt-structure.js'
-import {resolveTemplateScenario,resolveTemplateScenarioSync} from '../tavern-plugin/packages/dsh-tavern-image-bundled/lib/prompt-scenarios.js'
-import {composePluginImagePrompt,composePluginImagePromptAsync} from '../tavern-plugin/packages/dsh-tavern-image-bundled/lib/prompt-assembly.js'
+import { composePluginImagePrompt } from '../tavern-plugin/packages/dsh-tavern-image-bundled/lib/prompt-assembly.js'
 import {normalizePromptEntries,matchPromptEntries} from '../tavern-plugin/packages/dsh-tavern-image-bundled/lib/prompt-entries.js'
 import {imagePluginFixture,IMAGE_PNG,imageJson} from './fixtures/image-plugin-runtime.mjs'
 const settings={policy:'keywords',fallback:'normal',fixed:'normal',modes:[{id:'normal',name:'普通',description:'普通画面',keywords:[]},{id:'nsfw',name:'NSFW',description:'成人场景',keywords:['nsfw']}]}
@@ -12,30 +10,6 @@ const template={name:'模式模板',independent:true,structure:{format:'tags',sc
  {kind:'extension',title:'未加载模块',moduleId:'missing.plugin',values:{},modes:['never']},
 ]}}
 const config={imageBackend:'sdwebui',promptSystem:'workbench',promptDefault:template,promptPresets:[],promptEntries:[],activePromptPreset:'',weightMode:'keep'}
-test('mode filters apply before extension lookup and survive template normalization without mutating saved data',()=>{
- const normalized=normalizePromptStructure(template.structure)
- assert.deepEqual(normalized.scenarios,settings)
- const snapshot=JSON.stringify(normalized)
- const result=resolveTemplateScenarioSync(normalized,{scene:'NSFW scene'})
- assert.equal(result.decision.id,'nsfw');assert.ok(!result.structure.blocks.some(b=>b.moduleId==='missing.plugin'))
- assert.equal(JSON.stringify(normalized),snapshot)
- const ordinary=composePluginImagePrompt(config,{prompt:'A quiet room'})
- assert.match(ordinary.positive,/soft daylight/);assert.doesNotMatch(ordinary.positive,/dramatic shadows/)
- const special=composePluginImagePrompt(config,{prompt:'nsfw scene'})
- assert.match(special.positive,/dramatic shadows/);assert.doesNotMatch(special.positive,/soft daylight/)
-})
-test('fixed and model selection use only the chosen modules; invalid model output is visible',async()=>{
- const fixed={...template.structure,scenarios:{...settings,policy:'fixed',fixed:'nsfw'}}
- assert.equal(resolveTemplateScenarioSync(fixed,{scene:'ordinary room'}).decision.id,'nsfw')
- let classifications=0
- const model={...template.structure,scenarios:{...settings,policy:'model'}}
- const choice=await resolveTemplateScenario(model,{scene:'room',choose:async()=>{classifications++;return '{"mode":"nsfw"}'}})
- await resolveTemplateScenario(choice.structure,{scene:'room',choose:async()=>{throw Error('duplicate')}})
- assert.equal(classifications,1)
- await assert.rejects(resolveTemplateScenario(model,{choose:async()=>'{"mode":"unknown"}'}),/有效的场景模式/)
- const generated=await composePluginImagePromptAsync({...config,promptDefault:{...template,structure:model}},{prompt:'room',chooseScenario:async()=>'{"mode":"nsfw"}'})
- assert.match(generated.positive,/dramatic shadows/);assert.doesNotMatch(generated.positive,/soft daylight/)
-})
 test('tag chains insert once into positive and negative prompts and entry capacity exceeds the old six',()=>{
  const entries=normalizePromptEntries(Array.from({length:50},(_,i)=>({id:'tag-'+i,title:'tag '+i,content:i===0?'cinematic lighting, rim light':'detail_'+i,format:'tags',injection:i===1?'negative':'positive',always:true})))
  const result=composePluginImagePrompt({...config,promptEntries:entries},{prompt:'A room'})

@@ -60,7 +60,10 @@ export function createConversationHandlers(deps) {
       return await exportConversation(args && args.chatId, args && args.sessionId, args && args.title)
     },
     async importGameSave(args) {
-      return await importGameSave(args)
+      if (!args?.uploadId) return await importGameSave(args)
+      const upload = await deps.uploads.take(args.uploadId)
+      try { return await importGameSave(args, { file: upload.file }) }
+      finally { await upload.remove() }
     },
     async exportGameSave(args) {
       return await exportGameSave(args && args.sessionId, { images: args && args.images !== false })

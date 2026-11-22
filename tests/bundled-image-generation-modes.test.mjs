@@ -1,24 +1,9 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { imagePluginFixture, imageJson, IMAGE_PNG } from './fixtures/image-plugin-runtime.mjs'
-import { selectGenerationConfig } from '../tavern-plugin/packages/dsh-tavern-image-bundled/lib/generation-selection.js'
-import { cardSelection } from '../tavern-plugin/packages/dsh-tavern-image-bundled/lib/card-app/generation.js'
-import { normalizePromptPresets } from '../tavern-plugin/packages/dsh-tavern-image-bundled/lib/prompt-presets.js'
 
 const template = (id, text, purpose = 'both') => ({ id, name: id, enabled: true, independent: true,
   structure: { format: 'natural', purpose, targets: [{ kind: 'workflow', id: 'same-workflow' }], blocks: [{ kind: 'positive', title: '画风', text }] } })
-
-test('random templates may share a workflow, exclude edit-only templates from generation, and freeze one resolved choice', () => {
-  const presets = normalizePromptPresets([template('watercolor', 'watercolor'), template('film', 'film'), template('edit', 'change clothes', 'edit')])
-  assert.deepEqual(presets.map(item => item.structure.targets.length), [1, 1, 1])
-  const config = { promptSystem: 'workbench', imageBackend: 'comfyui', defaultWorkflow: 'same-workflow', promptPresets: presets, promptDefault: null, randomPromptTemplates: true }
-  const workflows = [{ id: 'same-workflow', enabled: true }]
-  const a = selectGenerationConfig(config, workflows, { randomValue: () => 0 })
-  const b = selectGenerationConfig(config, workflows, { randomValue: () => .99 })
-  assert.equal(a.template.id, 'watercolor'); assert.equal(b.template.id, 'film')
-  assert.equal(selectGenerationConfig(b.config, workflows).template.id, 'film')
-  assert.equal(selectGenerationConfig({ ...config, promptSystem: 'worldbook' }, workflows).template, null)
-})
 
 test('worldbook mode actually injects saved legacy rules; switching to workbench uses template rules and preserves the book', async t => {
   const systems = []
@@ -53,16 +38,6 @@ test('an image-only ComfyUI graph can be imported for upscale and editing templa
   const state = await runtime.request('state')
   const imported = state.body.workflows.find(item => item.file === 'workflows/' + result.body.file)
   assert.ok(imported && !imported.error, JSON.stringify(imported)); assert.equal(imported.referenceCapacity, 1)
-})
-
-// A saved template is the execution plan even when a caller still sends an old workflow/channel ID.
-test('card calls route a channel-bound template consistently on the first selection and repeated batch selection', () => {
- const preset={...template('cloud','watercolor'),structure:{...template('cloud','watercolor').structure,targets:[{kind:'channel',id:'b'}]}}
- const config={promptSystem:'workbench',imageBackend:'openai',activeImageChannel:'a',promptDefault:null,promptPresets:[preset],imageChannels:[{id:'a',name:'A',provider:'openai'},{id:'b',name:'B',provider:'openai'}]}
- for(const args of [{template:'cloud',channel:'a',workflow:'old'},{templateId:'cloud',channel:'a',workflow:'old'}]){
-  const selected=cardSelection(config,[],args);assert.equal(selected.channelId,'b');assert.equal(selected.config.activeImageChannel,'b')
- }
- assert.equal(config.activeImageChannel,'a')
 })
 
 

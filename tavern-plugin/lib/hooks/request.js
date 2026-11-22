@@ -71,8 +71,11 @@ export function registerRequestHooks({
     // agents, plugin agents, DSH subagents) never get a turn frame or status.
     // parentSession alone does not mark a child: a native fork of a game also
     // carries it, but has its own Tavern chat.
-    if (backgroundAgentRunner.owns(sessionId) || (payload.agent.session.header?.parentSession && !await chatForSession(sessionId))) return next()
-    if (gameModes && ['story', 'script'].includes((await chatForSession(sessionId))?.mode) && await gameModes.active(sessionId)) throw new Error('本局由玩法插件接管，请在玩法面板中行动')
+    if (backgroundAgentRunner.owns(sessionId)) return next()
+    const hasParent = Boolean(payload.agent.session.header?.parentSession)
+    const initialChat = (hasParent || gameModes) ? await chatForSession(sessionId) : null
+    if (hasParent && !initialChat) return next()
+    if (gameModes && ['story', 'script'].includes(initialChat?.mode) && await gameModes.active(sessionId)) throw new Error('本局由玩法插件接管，请在玩法面板中行动')
     if (Number(payload.step) === 1) await openingRequest?.beforeFirstStep(sessionId)
     const decision = await next()
     if (decision.kind === 'reject') return decision

@@ -51,6 +51,20 @@ test('v2 control and binary upload install a complete ordinary pack; no v1 dispa
   const events = await (await f.fetch(request(PACK_CHANGES_PATH + '?since=0',{headers:{origin:''}}))).json()
   assert.equal(events.changes[0].packId,PACK_ID)
 })
+test('exportPack reports its archive progress under the browser-named progressId while it runs',async t => {
+  const seen = []
+  const f = await fixture(t), {snapshot} = await f.install()
+  const progressId = 'export-progress-1'
+  // the poll during the call sees a {done,total} row; the service gets the callback, never the id.
+  assert.equal((await (await f.control('exportProgress',{progressId})).json()),null)
+  const running = f.control('exportPack',{packId:PACK_ID,expectedRevision:snapshot.revision,progressId})
+  for (let i = 0; i < 50 && !seen.length; i++) { const row = await (await f.control('exportProgress',{progressId})).json(); if (row) seen.push(row); else await new Promise(r => setTimeout(r, 1)) }
+  const exported = await (await running).json()
+  assert.ok(exported.download.ticket, JSON.stringify(exported))
+  assert.ok(seen.length && Number.isSafeInteger(seen[0].done) && Number.isSafeInteger(seen[0].total))
+  assert.equal(await (await f.control('exportProgress',{progressId})).json(),null,'the row ends with the call')
+  assert.equal((await f.control('exportPack',{packId:PACK_ID,expectedRevision:snapshot.revision,progressId:'bad id!'})).status,400)
+})
 test('card bundle route accepts the explicit widget consent choice',async t => {
   const f = await fixture(t)
   for (const disableWidgets of [false,true]) {

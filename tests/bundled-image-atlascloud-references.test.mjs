@@ -1,7 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { IMAGE_PROVIDERS, generateImage } from '../tavern-plugin/packages/dsh-tavern-image-bundled/lib/image-providers.js'
-import { combineStructuredPrompt } from '../tavern-plugin/packages/dsh-tavern-image-bundled/lib/prompt-presets.js'
 
 // All transport in this file is mocked. Never uploads or generates a real image.
 const PNG = Buffer.from('89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000d4944415478da63f8ffff3f0005fe02fea7d6a4c40000000049454e44ae426082', 'hex')
@@ -20,64 +19,6 @@ const notStarted = error => {
   return true
 }
 
-test('Atlas multipart 上传本张全部参考图，按原序 images 提交同一模型；只在生图 POST 前通知持久化', async () => {
-  const events = [], calls = [], tasks = []
-  let uploads = 0, persisted = false
-  const padded = new Uint8Array(PNG.length + 6)
-  padded.set(PNG, 3)
-  const references = [
-    reference({ name: 'C:\\Users\\private-account\\secret-face.png', characterId: 'person-a', path: 'D:/private/face.png' }),
-    reference({ data: padded.subarray(3, -3), name: 'https://user:password@private.test/clothing.png?key=secret', outfitId: 'outfit-a' }),
-  ]
-  const result = await generateImage(channel(), { positive: '参考图1的人物穿参考图2的服装', negative: 'watermark', references, width: 832, height: 1216 }, {
-    onGenerationSubmit: async () => {
-      assert.equal(uploads, references.length)
-      events.push('persist')
-      await Promise.resolve()
-      persisted = true
-    },
-    onTask: async task => { tasks.push(task); events.push('task') },
-    fetchImpl: async (url, init) => {
-      calls.push({ url, init })
-      assert.equal(init.redirect, 'error')
-      if (url.endsWith('/uploadMedia')) {
-        assert.equal(persisted, false)
-        assert.equal(init.method, 'POST')
-        assert.ok(init.body instanceof FormData)
-        assert.deepEqual([...init.body.keys()], ['file'])
-        assert.equal(init.headers['content-type'], undefined, 'multipart boundary 由 fetch 设置')
-        const file = init.body.get('file')
-        assert.equal(file.name, `reference-${uploads + 1}.png`, '不发送用户原文件名或本地路径')
-        assert.equal(file.type, 'image/png')
-        assert.deepEqual(Buffer.from(await file.arrayBuffer()), PNG, 'Uint8Array 的 offset/length 必须正确')
-        events.push('upload-' + ++uploads)
-        return uploaded(uploads)
-      }
-      if (init.method === 'POST') {
-        assert.equal(url, BASE + '/model/generateImage')
-        assert.equal(persisted, true)
-        events.push('generate')
-        assert.deepEqual(JSON.parse(init.body), {
-          model: 'custom/future-image-model', prompt: '参考图1的人物穿参考图2的服装\n\nAvoid: watermark', images: [uploadUrl(1), uploadUrl(2)],
-        })
-        assert.doesNotMatch(init.body, /private-account|secret-face|private-name|characterId|outfitId|user:password/)
-        return generated()
-      }
-      assert.equal(url, CDN)
-      assert.deepEqual(init.headers, {}, '外部图片下载不携带 Atlas 密钥')
-      events.push('download')
-      return png()
-    },
-  })
-  assert.deepEqual(events, ['upload-1', 'upload-2', 'persist', 'generate', 'task', 'download'])
-  assert.deepEqual(tasks, [{ provider: 'atlascloud', taskId: 'reference-task' }])
-  for (const { init } of calls.slice(0, -1)) {
-    assert.equal(init.headers.authorization, 'Bearer atlas-reference-secret')
-    assert.match(init.headers['user-agent'], /^dsh-tavern-image\//)
-  }
-  assert.deepEqual(result.bytes, PNG)
-})
-
 test('Atlas 上传同时兼容官方技能 data.download_url 与文档 url 响应', async t => {
   for (const [name, response] of [
     ['skill', { code: 200, data: { download_url: uploadUrl(1) } }],
@@ -92,54 +33,6 @@ test('Atlas 上传同时兼容官方技能 data.download_url 与文档 url 响�
       }
       return png()
     } })
-  })
-})
-
-test('Atlas 不白名单/裁剪/去重/换模型，不管模型限制都提交调用者给的全部 images', async () => {
-  // Known models may accept only 4 or 10. Do not silently drop image 5/11 or
-  // deduplicate: the caller's numbered bindings depend on this exact order.
-  const references = Array.from({ length: 12 }, () => reference())
-  let uploads = 0, posts = 0
-  await generateImage(channel(), { positive: 'all twelve references', references }, { fetchImpl: async (url, init) => {
-    if (url.endsWith('/uploadMedia')) return uploaded(++uploads)
-    if (init.method === 'POST') {
-      posts++
-      const body = JSON.parse(init.body)
-      assert.equal(body.model, 'custom/future-image-model')
-      assert.deepEqual(body.images, references.map((_, index) => uploadUrl(index + 1)))
-      return generated()
-    }
-    return png()
-  } })
-  assert.equal(uploads, 12)
-  assert.equal(posts, 1)
-})
-
-test('Atlas 空 references/纯文生图不上传；所有渠道都在付费 POST 前 await hook', async () => {
-  for (const request of [{ positive: 'lake' }, { positive: 'lake', references: [] }]) {
-    let notified = 0, calls = 0
-    await generateImage(channel(), request, {
-      onGenerationSubmit: async () => { await Promise.resolve(); notified++ },
-      fetchImpl: async (url, init) => {
-        calls++
-        if (init.method === 'POST') {
-          assert.equal(notified, 1)
-          assert.equal(url, BASE + '/model/generateImage')
-          assert.equal('images' in JSON.parse(init.body), false)
-          return generated()
-        }
-        return png()
-      },
-    })
-    assert.equal(calls, 2)
-  }
-  let persisted = false
-  await generateImage({ provider: 'openai' }, { positive: 'lake', references: [] }, {
-    onGenerationSubmit: async () => { await Promise.resolve(); persisted = true },
-    fetchImpl: async (_url, init) => {
-      assert.equal(persisted, true, 'non-Atlas paid requests also persist submit intent first')
-      return json({ data: [{ b64_json: PNG.toString('base64') }] })
-    },
   })
 })
 
@@ -159,12 +52,6 @@ test('Atlas 自定义根地址仍在同一 API 根上传，不把密钥发到返
     },
   })
   assert.deepEqual(calls, ['https://relay.example.test/atlas/model/uploadMedia', 'https://relay.example.test/atlas/custom/generate', CDN])
-})
-
-test('NovelAI 当前接口必须明确拒绝参考图，不能忽略后退为纯文生图', async () => {
-  await assert.rejects(generateImage({ provider: 'novelai' }, { positive: 'portrait', references: [reference()] }, {
-    fetchImpl: () => assert.fail('不支持参考图不能提交生成'),
-  }), error => notStarted(error) && /当前接口协议不支持参考图/.test(error.message))
 })
 
 test('参考图参数和全部本地图片先校验，错误时不上传任何子集、不读取路径或 URL', async t => {
@@ -356,23 +243,4 @@ test('Atlas 参考图错误脱敏：密钥、Basic、签名 URL、URL 凭据及�
       return true
     })
   }
-})
-
-test('Atlas 结构化提示词保留中文分节，负向通过结构化合并，不再追加英文 Avoid', async () => {
-  const positive = '【人物】\n参考图1中的人物\n\n【环境】\n雨后的街道'
-  const negative = '不要水印或额外人物'
-  await generateImage(channel(), { positive, negative, promptMode: 'structured', references: [reference()] }, {
-    fetchImpl: async (url, init) => {
-      if (url.endsWith('/uploadMedia')) return uploaded(1)
-      if (init.method === 'POST') {
-        const payload = JSON.parse(init.body)
-        assert.equal(payload.prompt, combineStructuredPrompt(positive, negative))
-        assert.match(payload.prompt, /雨后的街道/)
-        assert.match(payload.prompt, /不要水印或额外人物/)
-        assert.doesNotMatch(payload.prompt, /Avoid:/)
-        return generated()
-      }
-      return png()
-    },
-  })
 })

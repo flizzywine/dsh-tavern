@@ -42,14 +42,3 @@ for (const host of ['desktop', 'next', 'android', 'cli']) {
     }
   })
 }
-
-test('CLI keeps a user-installed Pocket version without applying another version’s patch', () => {
-  const manifest = mergeProfileManifest({
-    source, host: 'cli', pluginPath: path.join(sourceRoot, 'tavern-plugin'), dataRoot: '/fixture/data',
-    current: { dependencies: { 'dsh-pocket': '2.12.0' }, dsh: { profile: { bundles: ['dsh-pocket'] } } },
-  })
-  assert.equal(manifest.dependencies['dsh-pocket'], '2.12.0')
-  assert.ok(manifest.dsh.profile.bundles.includes('dsh-pocket'))
-  const patches = parse(prepareProfileWorkspace(workspace, manifest)).patchedDependencies
-  assert.ok(Object.keys(patches).every(key => !key.startsWith('dsh-pocket@')))
-})

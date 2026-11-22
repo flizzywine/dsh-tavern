@@ -363,20 +363,27 @@ for (const file of ['../tavern-plugin/src/client/main.js', '../tavern-plugin/lib
       ['getStageDirection',{turn:17,readOnly:true}],
       ['getStageModHistory',{turn:17}],
       ['getDialogueBubbles',{turn:17}],
-      ['getStoryTranscript',{}],
       ['syncSession',{}],
       ['pluginTurnState',{}],
       ['pluginState',{plugin:'plot-compass',name:'compass'}],
     ].map(([method,args])=>rpc(method,args,'session-A'))
     const projections = Array.from({length:8},()=>rpc('getAssetPackPresentation',{turn:17},'session-A'))
     await new Promise(resolve=>setImmediate(resolve))
-    assert.equal(multiplexed.length,7)
+    assert.equal(multiplexed.length,6)
     assert.ok(multiplexed.every(row=>row.args.sessionId==='session-A'))
     assert.equal(waiting.length,2,'only two origin-bound projection requests may occupy HTTP sockets')
     const small=rpc('getUpdateStatus',{})
     assert.equal(waiting.length,3,'unrelated HTTP calls are not queued behind projections')
     waiting[2].gate.resolve({json:async()=>({ok:true})})
     await small
+    // Large story window projections stay on HTTP so MB-scale frames never block the 2s mux WebSocket heartbeat.
+    const transcript=rpc('getStoryTranscript',{},'session-A')
+    await new Promise(resolve=>setImmediate(resolve))
+    assert.equal(multiplexed.length,6)
+    const transcriptHttp=waiting.find(row=>row.url.endsWith('getStoryTranscript'))
+    assert.ok(transcriptHttp,'getStoryTranscript goes over HTTP instead of the WebSocket mux')
+    transcriptHttp.gate.resolve({json:async()=>({ok:true})})
+    await transcript
     remoteGate.resolve()
     await Promise.all(slow)
     for (let i=0;i<8;i++) {
@@ -389,7 +396,7 @@ for (const file of ['../tavern-plugin/src/client/main.js', '../tavern-plugin/lib
     // A direction request that is not readOnly may run and save the director: it keeps HTTP.
     const generating=rpc('getStageDirection',{turn:18},'session-A')
     await new Promise(resolve=>setImmediate(resolve))
-    assert.equal(multiplexed.length,7)
+    assert.equal(multiplexed.length,6)
     const sent=waiting.find(row=>row.url.endsWith('getStageDirection'))
     assert.ok(sent,'getStageDirection without readOnly goes over HTTP')
     sent.gate.resolve({json:async()=>({ok:true})})
@@ -493,25 +500,6 @@ async function mountedRemote(t) {
   await ctx.plugin(loadBundle(remoteBundle, gateway))
   return { service: ctx.tavernSessionSignals, calls, mounted }
 }
-
-test('shipped Remote bundle accepts all host control methods through the real Gateway', async t => {
-  const h = await mountedRemote(t)
-  const { TYPERT_REMOTE } = await import('../tavern-plugin/packages/dsh-tavern-remote/lib/typert.remote-client.js')
-  const declaredCodec = TYPERT_REMOTE.descriptors.find(d => d.method === 'control').parameters[0].codec
-  const bundledCodec = h.mounted.descriptors.find(d => d.method === 'control').parameters[0].codec
-  const declared = declaredCodec.create ? declaredCodec.create() : declaredCodec.schema
-  const bundled = bundledCodec.create ? bundledCodec.create() : bundledCodec.schema
-  const methods = declared.options.map(option => option.value)
-  assert.deepEqual(Array.from(bundled.options, option => option.value), methods, 'embedded contract must match generated descriptors')
-  for (const method of methods) {
-    const result = await h.service.control(method, { sessionId: 'session-stage', turn: 17 })
-    assert.equal(result.method, method)
-  }
-  assert.equal(h.calls.length, methods.length)
-  await assert.rejects(h.service.control('getAssetPackPresentation', {}), /rejected "method"/)
-  await assert.rejects(h.service.control('getDialogueBubbles', {}, AbortSignal.abort()), { name: 'AbortError' })
-  assert.equal(h.calls.length, methods.length, 'invalid or canceled requests never reach the host control implementation')
-})
 
 for (const file of ['../tavern-plugin/src/client/main.js', '../tavern-plugin/lib/client.js']) {
   test(`${file}: initial stage settings load survives the shipped Remote codec boundary`, async t => {

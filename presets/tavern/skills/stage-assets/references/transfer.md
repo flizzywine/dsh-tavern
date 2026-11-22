@@ -25,7 +25,7 @@
 
 ## 导出
 
-`export-pack {packs:[{packId, expectedRevision}], output}` 把一个或多个包导出为工作台里的 ZIP。`output` 指向一个还不存在的文件，已存在会被拒绝。全局启用状态和执行授权不会导出。
+`export-pack {packs:[{packId, expectedRevision}], output}` 把一个或多个包导出为工作台里的 ZIP。`output` 指向一个还不存在的文件，已存在会被拒绝。全局启用状态、执行授权和标记为私用的声音参考录音不会导出（[声音数据](voice-data.md)）。带素材的人物卡也遵循同样的录音排除规则。
 
 ## 完成标准
 

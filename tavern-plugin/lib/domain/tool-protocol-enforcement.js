@@ -20,6 +20,9 @@ const directiveStorage = new AsyncLocalStorage()
 const capturedSignatures = new Map()
 const MAX_CAPTURED_SIGNATURES = 512
 const fetchPatches = new WeakMap()
+const adapterTimeoutPatches = new WeakMap()
+
+export const TOOL_CALL_STREAM_IDLE_TIMEOUT_MS = 600_000
 
 function str(value) {
   return typeof value === 'string' ? value : value == null ? '' : String(value)
@@ -199,6 +202,36 @@ export function createCapabilityQuirkStore() {
 export const defaultCapabilityQuirks = createCapabilityQuirkStore()
 
 /**
+ * 检测当前出站请求是否已启用渠道原生思考（未被剥离且未显式关闭），
+ * 避免开启原生思考时再叠加 submit_story 工具内思考槽造成双倍思考。
+ */
+export function detectNativeThinkingEnabled(body, protocol) {
+  if (!body || typeof body !== 'object') return false
+  if (protocol === 'gemini-native') {
+    const tc = body.generationConfig?.thinkingConfig
+    if (!tc || typeof tc !== 'object') return false
+    if (tc.thinkingBudget === 0 || tc.includeThoughts === false) return false
+    const level = str(tc.thinkingLevel).trim().toUpperCase()
+    if (level === 'NONE' || level === 'OFF') return false
+    return tc.includeThoughts === true || (typeof tc.thinkingBudget === 'number' && tc.thinkingBudget !== 0) || level !== ''
+  }
+  if (protocol === 'anthropic-messages') {
+    return Boolean(body.thinking && typeof body.thinking === 'object' && body.thinking.type !== 'disabled')
+  }
+  if (protocol === 'openai-completions' || protocol === 'openai-responses') {
+    const effort = str(body.reasoning_effort).trim().toLowerCase()
+    if (effort && effort !== 'none' && effort !== 'off') return true
+    if (body.reasoning && typeof body.reasoning === 'object') {
+      const nestedEffort = str(body.reasoning.effort).trim().toLowerCase()
+      if (nestedEffort && nestedEffort !== 'none' && nestedEffort !== 'off') return true
+      if (typeof body.reasoning.max_tokens === 'number' && body.reasoning.max_tokens > 0) return true
+    }
+    if (body.enable_thinking === true) return true
+  }
+  return false
+}
+
+/**
  * Transform a parsed outbound LLM request JSON object according to a Tavern tool protocol directive.
  */
 export function enhanceToolProtocolPayload(body, { url = '', headers = undefined, directive = null, quirks = defaultCapabilityQuirks } = {}) {
@@ -241,9 +274,11 @@ export function enhanceToolProtocolPayload(body, { url = '', headers = undefined
     }
   }
 
-  // Resolve per-tool schema overrides (e.g. promoting or omitting `think` on `submit_story`).
+  const hasNativeThinking = detectNativeThinkingEnabled(nextBody, protocol)
+
+  // Resolve per-tool schema overrides (e.g. promoting or omitting think slot on `submit_story`).
   const resolveSchemaSpec = typeof directive.resolveToolSchema === 'function'
-    ? name => directive.resolveToolSchema(name, { protocol, modelId, providerId, anthropicThinkingStripped, forceToolChoice: forceWanted })
+    ? name => directive.resolveToolSchema(name, { protocol, modelId, providerId, anthropicThinkingStripped, hasNativeThinking, forceToolChoice: forceWanted })
     : name => directive.toolSchemas?.[name] || null
 
   if (protocol === 'gemini-native') {
@@ -485,7 +520,8 @@ export function currentToolProtocolDirective() {
 
 /**
  * Install a ref-counted AsyncLocalStorage-scoped global fetch wrapper.
- * Requests outside `runWithToolProtocolDirective` pass straight through untouched.
+ * Tool directives apply only within `runWithToolProtocolDirective`; ModelScope
+ * role compatibility applies to that endpoint on any call.
  */
 export function installToolProtocolFetchPatch(target = globalThis, { quirks = defaultCapabilityQuirks } = {}) {
   if (!target || typeof target.fetch !== 'function') return () => {}
@@ -494,9 +530,12 @@ export function installToolProtocolFetchPatch(target = globalThis, { quirks = de
     const original = target.fetch
     const replacement = async function patchedToolProtocolFetch(input, init) {
       const directive = directiveStorage.getStore()
-      if (!directive || !init || typeof init.body !== 'string') {
+      if (!init || typeof init.body !== 'string') {
         return original.call(this, input, init)
       }
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : str(input?.url)
+      const modelScope = /^https:\/\/api-inference\.modelscope\.cn(?::443)?\/v1\/chat\/completions(?:\?|$)/i.test(url)
+      if (!directive && !modelScope) return original.call(this, input, init)
       const method = str(init.method || (input && typeof input === 'object' ? input.method : 'GET')).toUpperCase()
       if (method !== 'POST') return original.call(this, input, init)
 
@@ -507,7 +546,14 @@ export function installToolProtocolFetchPatch(target = globalThis, { quirks = de
         return original.call(this, input, init)
       }
 
-      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : str(input?.url)
+      // Older pi-ai sends the system prompt as developer for reasoning models.
+      // ModelScope's OpenAI-compatible endpoint accepts it as system.
+      if (modelScope && Array.isArray(parsedBody?.messages) && parsedBody.messages.some(message => message?.role === 'developer')) {
+        parsedBody.messages = parsedBody.messages.map(message => message?.role === 'developer' ? { ...message, role: 'system' } : message)
+        init = { ...init, body: JSON.stringify(parsedBody) }
+      }
+      if (!directive) return original.call(this, input, init)
+
       let currentAttempt = enhanceToolProtocolPayload(parsedBody, {
         url,
         headers: init.headers,
@@ -571,5 +617,120 @@ export function installToolProtocolFetchPatch(target = globalThis, { quirks = de
     if (--patch.users) return
     if (target.fetch === patch.replacement) target.fetch = patch.original
     fetchPatches.delete(target)
+  }
+}
+
+function raisedIdleTimeout(current, minTimeoutMs) {
+  return typeof current === 'number' && Number.isFinite(current) && current < minTimeoutMs
+    ? minTimeoutMs
+    : current
+}
+
+function attachAdapterIdleTimeout(adapter, minTimeoutMs) {
+  if (!adapter || typeof adapter !== 'object') return () => {}
+  const hasProfileOf = typeof adapter.profileOf === 'function'
+  const hasGenerate = typeof adapter.generate === 'function'
+  if (!hasProfileOf && !hasGenerate) return () => {}
+
+  let state = adapterTimeoutPatches.get(adapter)
+  if (!state) {
+    state = {
+      floors: new Set(),
+      minTimeoutMs: 0,
+      profileOf: null,
+      generate: null
+    }
+    if (hasProfileOf) {
+      const original = adapter.profileOf
+      const replacement = function patchedToolCallProfileOf(...args) {
+        const profile = original.apply(this, args)
+        const directive = directiveStorage.getStore()
+        if (directive?.storyOutputToolCall === true && profile && typeof profile === 'object') {
+          const nextTimeout = raisedIdleTimeout(profile.streamIdleTimeoutMs, state.minTimeoutMs)
+          if (nextTimeout !== profile.streamIdleTimeoutMs) {
+            return { ...profile, streamIdleTimeoutMs: nextTimeout }
+          }
+        }
+        return profile
+      }
+      adapter.profileOf = replacement
+      state.profileOf = { original, replacement }
+    }
+    if (hasGenerate) {
+      const original = adapter.generate
+      const replacement = function patchedToolCallGenerate(options, connection, ...rest) {
+        const directive = directiveStorage.getStore()
+        if (directive?.storyOutputToolCall === true && connection && typeof connection === 'object') {
+          const nextTimeout = raisedIdleTimeout(connection.streamIdleTimeoutMs, state.minTimeoutMs)
+          if (nextTimeout !== connection.streamIdleTimeoutMs) {
+            return original.call(this, options, { ...connection, streamIdleTimeoutMs: nextTimeout }, ...rest)
+          }
+        }
+        return original.call(this, options, connection, ...rest)
+      }
+      adapter.generate = replacement
+      state.generate = { original, replacement }
+    }
+    adapterTimeoutPatches.set(adapter, state)
+  }
+
+  const token = { minTimeoutMs }
+  state.floors.add(token)
+  state.minTimeoutMs = Math.max(state.minTimeoutMs, minTimeoutMs)
+
+  let active = true
+  return () => {
+    if (!active) return
+    active = false
+    state.floors.delete(token)
+    if (state.floors.size > 0) {
+      let maxFloor = 0
+      for (const entry of state.floors) {
+        if (entry.minTimeoutMs > maxFloor) maxFloor = entry.minTimeoutMs
+      }
+      state.minTimeoutMs = maxFloor
+      return
+    }
+    if (state.profileOf && adapter.profileOf === state.profileOf.replacement) {
+      adapter.profileOf = state.profileOf.original
+    }
+    if (state.generate && adapter.generate === state.generate.replacement) {
+      adapter.generate = state.generate.original
+    }
+    adapterTimeoutPatches.delete(adapter)
+  }
+}
+
+/**
+ * 开启「输出走工具调用」时，将宿主 LLM 适配器的流式静默超时下限上调到 600s，
+ * 避免部分渠道在批量生成长 tool_call 参数时触发默认 300s idle timeout。
+ * 未开启工具调用输出或用户已配置更高超时时保持原值不变。
+ */
+export function installToolCallIdleTimeoutPatch(ctx, { minTimeoutMs = TOOL_CALL_STREAM_IDLE_TIMEOUT_MS } = {}) {
+  const attached = new Map()
+  let active = true
+
+  function sync() {
+    if (!active) return
+    const adapters = ctx?.llm?.adapters
+    if (!(adapters instanceof Map)) return
+    for (const registration of adapters.values()) {
+      const adapter = registration?.adapter
+      if (!adapter || attached.has(adapter)) continue
+      attached.set(adapter, attachAdapterIdleTimeout(adapter, minTimeoutMs))
+    }
+  }
+
+  sync()
+  const off = typeof ctx?.on === 'function'
+    ? ctx.on('llm/adapters-updated', sync, { global: true })
+    : null
+
+  return () => {
+    if (!active) return
+    active = false
+    if (typeof off === 'function') off()
+    for (const restore of attached.values()) restore()
+    attached.clear()
   }
 }

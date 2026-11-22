@@ -368,7 +368,7 @@ test('title actions: the line waits behind the page, 回想 and 履历 stand ove
   await frameOf(page, 'title').locator('#backlog').click()
   await page.locator('.fork-gal-backlog').waitFor()
   assert.equal(await openPage(page), 'title')
-  assert.equal(await page.evaluate(() => Boolean(document.elementFromPoint(innerWidth / 2, innerHeight / 2)?.closest('.fork-gal-backlog'))), true, '履历 stands over the page')
+  await page.waitForFunction(() => Boolean(document.elementFromPoint(innerWidth / 2, innerHeight / 2)?.closest('.fork-gal-backlog')))
   await page.keyboard.press('Escape')
   await page.locator('.fork-gal-backlog').waitFor({state: 'detached'})
   assert.equal(await openPage(page), 'title')

@@ -143,6 +143,8 @@ export function createStreamingPackDirector({input, identity, runAgent, current,
       kernel.update(units)
       if (closed) prepareEarly()
     },
+    // The reply stream stopped on its own: the remainder window starts now instead of at the body commit.
+    end(units) {kernel.end(units)},
     complete(binding, count) {
       const snapshot = kernel.snapshot(), end = structuredClone(snapshot.state)
       if (snapshot.phase !== 'settled') throw new Error('Streaming direction incomplete')

@@ -34,8 +34,9 @@ function vNorm(a) {
   return [a[0] / l, a[1] / l, a[2] / l]
 }
 
-const ATLAS_GRID = 8
-const TILE_PX = 256
+const ATLAS_GRID = 16       // 16 x 16 = 256 tiles
+const TILE_PX = 128         // 16 * 128 = 2048x2048 (Power-of-Two)
+const STYLE_TILE_STRIDE = 42 // 6 * 42 = 252 <= 256
 
 const GLYPH_TILE_MAP = Object.freeze({
   '0': 0, '1': 1, '2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7,
@@ -46,6 +47,70 @@ const GLYPH_TILE_MAP = Object.freeze({
   '+': 37, '−': 38, '◯': 39,
   '?': 40
 })
+
+// 手工精绘 5x7 纯像素点阵字模（专供 16-Bit 勇者地牢像素风，100% 锋利整数像素）
+const PIXEL_FONT_5X7 = {
+  '0': ['01110', '10001', '10011', '10101', '11001', '10001', '01110'],
+  '1': ['00100', '01100', '00100', '00100', '00100', '00100', '01110'],
+  '2': ['01110', '10001', '00001', '00110', '01000', '10000', '11111'],
+  '3': ['11110', '00001', '00001', '01110', '00001', '00001', '11110'],
+  '4': ['00010', '00110', '01010', '10010', '11111', '00010', '00010'],
+  '5': ['11111', '10000', '11110', '00001', '00001', '10001', '01110'],
+  '6': ['00110', '01000', '10000', '11110', '10001', '10001', '01110'],
+  '7': ['11111', '10001', '00010', '00100', '01000', '01000', '01000'],
+  '8': ['01110', '10001', '10001', '01110', '10001', '10001', '01110'],
+  '9': ['01110', '10001', '10001', '01111', '00001', '00010', '01100'],
+  '+': ['00000', '00100', '00100', '11111', '00100', '00100', '00000'],
+  '−': ['00000', '00000', '00000', '11111', '00000', '00000', '00000'],
+  '◯': ['01110', '10001', '10001', '10001', '10001', '10001', '01110'],
+  '?': ['01110', '10001', '00010', '00100', '00100', '00000', '00100']
+}
+
+function drawPixelBitmapString(ctx, text, isMoat, underline, crown) {
+  const chars = String(text).split('')
+  const px = chars.length >= 2 ? 7 : 9
+  const charW = 5
+  const charH = 7
+  const gap = 1
+  const totalCols = chars.length * charW + (chars.length - 1) * gap
+  const startX = -Math.floor((totalCols * px) / 2)
+  const startY = -Math.floor((charH * px) / 2) + (crown ? px : (underline ? -Math.floor(px * 0.5) : 0))
+  const pad = isMoat ? px : 0
+
+  const putBlock = (gx, gy, w = 1, h = 1) => {
+    ctx.fillRect(
+      startX + gx * px - pad,
+      startY + gy * px - pad,
+      w * px + pad * 2,
+      h * px + pad * 2
+    )
+  }
+
+  chars.forEach((ch, ci) => {
+    const bmp = PIXEL_FONT_5X7[ch] || PIXEL_FONT_5X7['0']
+    const ox = ci * (charW + gap)
+    for (let r = 0; r < charH; r++) {
+      const row = bmp[r]
+      for (let c = 0; c < charW; c++) {
+        if (row[c] === '1') putBlock(ox + c, r, 1, 1)
+      }
+    }
+  })
+
+  if (underline) {
+    const uw = Math.min(totalCols, 5)
+    const ux = Math.floor((totalCols - uw) / 2)
+    putBlock(ux, charH + 1, uw, 1)
+  }
+
+  if (crown) {
+    const cx = Math.floor(totalCols / 2) - 2
+    putBlock(cx, -3, 1, 2)
+    putBlock(cx + 2, -3, 1, 2)
+    putBlock(cx + 4, -3, 1, 2)
+    putBlock(cx, -2, 5, 1)
+  }
+}
 
 function buildEngravedAtlasCanvas() {
   const size = ATLAS_GRID * TILE_PX
@@ -59,14 +124,8 @@ function buildEngravedAtlasCanvas() {
   moatCv.height = size
   const octx = moatCv.getContext('2d', { willReadFrequently: true })
 
-  const haloCv = document.createElement('canvas')
-  haloCv.width = size
-  haloCv.height = size
-  const hctx = haloCv.getContext('2d', { willReadFrequently: true })
-
   mctx.clearRect(0, 0, size, size)
   octx.clearRect(0, 0, size, size)
-  hctx.clearRect(0, 0, size, size)
 
   const entries = [
     ...Array.from({ length: 21 }, (_, i) => ({ id: i, text: String(i), underline: i === 6 || i === 9, crown: i === 20 })),
@@ -88,143 +147,203 @@ function buildEngravedAtlasCanvas() {
     6: [[-0.42, -0.50], [0.42, -0.50], [-0.42, 0], [0.42, 0], [-0.42, 0.50], [0.42, 0.50]]
   }
 
-  // mode: 'mask' | 'moat' | 'halo'
-  function drawGlyphPass(ctx, mode) {
+  // 六套独立艺术雕刻字体规格（幻想系列共享 styleIdx=4 锐利几何无衬线字形）
+  const STYLE_TYPO = [
+    { font: sz => `700 ${sz}px "Georgia", "Times New Roman", "Noto Serif", serif`, s1: 78, s2: 62, stroke: 1.5, dotMark: true },
+    { pixel: true },
+    { font: sz => `italic 700 ${sz}px "Palatino Linotype", "Book Antiqua", "Georgia", serif`, s1: 76, s2: 60, stroke: 1.0, sunCrown: true },
+    { font: sz => `800 ${sz}px "STKaiti", "KaiTi", "Songti SC", "Noto Serif SC", "Georgia", serif`, s1: 78, s2: 62, stroke: 2.0, bigAcePip: true },
+    { font: sz => `800 ${sz}px "Inter", "Helvetica Neue", "Segoe UI", system-ui, sans-serif`, s1: 76, s2: 62, stroke: 2.0, geoCrown: true },
+    { font: sz => `600 ${sz}px "Garamond", "Baskerville", "Times New Roman", serif`, s1: 80, s2: 64, stroke: 0.8, starCrown: true }
+  ]
+
+  function drawAllStylesPass(ctx, mode) {
     ctx.save()
     const isMoat = mode === 'moat'
-    const isHalo = mode === 'halo'
-    if (isHalo) {
-      ctx.shadowColor = '#ffffff'
-      ctx.shadowBlur = 24
-    }
     ctx.fillStyle = '#ffffff'
     ctx.strokeStyle = '#ffffff'
-    ctx.lineCap = 'round'
-    ctx.lineJoin = 'round'
 
-    for (const item of entries) {
-      const col = item.id % ATLAS_GRID
-      const row = Math.floor(item.id / ATLAS_GRID)
-      const cx = col * TILE_PX + TILE_PX * 0.5
-      const cy = row * TILE_PX + TILE_PX * 0.5
+    for (let styleIdx = 0; styleIdx < 6; styleIdx++) {
+      const spec = STYLE_TYPO[styleIdx]
+      ctx.imageSmoothingEnabled = !spec.pixel
 
-      ctx.save()
-      ctx.translate(cx, cy)
+      for (const item of entries) {
+        const globalId = styleIdx * STYLE_TILE_STRIDE + item.id
+        const col = globalId % ATLAS_GRID
+        const row = Math.floor(globalId / ATLAS_GRID)
+        const cx = col * TILE_PX + TILE_PX * 0.5
+        const cy = row * TILE_PX + TILE_PX * 0.5
 
-      if (item.pip) {
-        const pts = PIP_COORDS[item.pip]
-        const span = TILE_PX * 0.30
-        const pad = isMoat ? 11 : 0
-        for (const [px, py] of pts) {
-          const x = px * span
-          const y = py * span
-          if (item.pip === 1) {
-            ctx.beginPath()
-            ctx.arc(x, y, TILE_PX * 0.145 + pad, 0, Math.PI * 2)
-            ctx.fill()
+        ctx.save()
+        ctx.translate(cx, cy)
+        ctx.lineCap = spec.pixel ? 'butt' : 'round'
+        ctx.lineJoin = spec.pixel ? 'miter' : 'round'
+
+        if (item.pip) {
+          const pts = PIP_COORDS[item.pip]
+          const span = TILE_PX * 0.30
+          if (spec.pixel) {
+            const pSize = item.pip === 1 ? 26 : 16
+            const pad = isMoat ? 8 : 0
+            for (const [px, py] of pts) {
+              const x = Math.round(px * span - pSize * 0.5)
+              const y = Math.round(py * span - pSize * 0.5)
+              ctx.fillRect(x - pad, y - pad, pSize + pad * 2, pSize + pad * 2)
+            }
+          } else if (styleIdx === 2) {
+            const pad = isMoat ? 5 : 0
+            for (const [px, py] of pts) {
+              const r = (item.pip === 1 ? TILE_PX * 0.14 : TILE_PX * 0.082) + pad
+              ctx.beginPath()
+              ctx.arc(px * span, py * span, r, 0, Math.PI * 2)
+              if (isMoat) ctx.fill()
+              else {
+                ctx.lineWidth = 4.5
+                ctx.stroke()
+                ctx.beginPath()
+                ctx.arc(px * span, py * span, r * 0.38, 0, Math.PI * 2)
+                ctx.fill()
+              }
+            }
           } else {
+            const pad = isMoat ? 5.5 : 0
+            for (const [px, py] of pts) {
+              const aceBoost = (spec.bigAcePip && item.pip === 1) ? 0.195 : 0.135
+              const r = (item.pip === 1 ? TILE_PX * aceBoost : TILE_PX * 0.084) + pad
+              ctx.beginPath()
+              ctx.arc(px * span, py * span, r, 0, Math.PI * 2)
+              ctx.fill()
+            }
+          }
+        } else if (item.fateBlank) {
+          if (spec.pixel) {
+            drawPixelBitmapString(ctx, '◯', isMoat, false, false)
+          } else {
+            ctx.lineWidth = isMoat ? 15 : 6.5
             ctx.beginPath()
-            ctx.arc(x, y, TILE_PX * 0.082 + pad, 0, Math.PI * 2)
+            ctx.arc(0, 0, TILE_PX * 0.16, 0, Math.PI * 2)
+            ctx.stroke()
+          }
+        } else if (item.eyeSeal) {
+          if (spec.pixel) {
+            drawPixelBitmapString(ctx, '?', isMoat, false, false)
+          } else {
+            ctx.lineWidth = isMoat ? 13 : 5.5
+            ctx.beginPath()
+            ctx.moveTo(-36, 0)
+            ctx.quadraticCurveTo(0, -26, 36, 0)
+            ctx.quadraticCurveTo(0, 26, -36, 0)
+            ctx.closePath()
+            ctx.stroke()
+            ctx.beginPath()
+            ctx.arc(0, 0, isMoat ? 13 : 8.5, 0, Math.PI * 2)
             ctx.fill()
           }
-        }
-      } else if (item.fateBlank) {
-        ctx.lineWidth = isMoat ? 32 : 14
-        ctx.beginPath()
-        ctx.arc(0, 0, TILE_PX * 0.16, 0, Math.PI * 2)
-        ctx.stroke()
-      } else if (item.eyeSeal) {
-        ctx.lineWidth = isMoat ? 28 : 12
-        ctx.beginPath()
-        ctx.moveTo(-72, 0)
-        ctx.quadraticCurveTo(0, -54, 72, 0)
-        ctx.quadraticCurveTo(0, 54, -72, 0)
-        ctx.closePath()
-        ctx.stroke()
-        ctx.beginPath()
-        ctx.ellipse(0, 0, isMoat ? 24 : 15, isMoat ? 40 : 32, 0, 0, Math.PI * 2)
-        ctx.fill()
-      } else {
-        const txt = item.text
-        const fontSize = txt.length >= 2 ? 124 : 152
-        // 采用高开口、超粗无衬线几何字形，小尺寸与倾斜视角下依然清晰锐利
-        ctx.font = `900 ${fontSize}px system-ui, -apple-system, "Segoe UI", "Arial Black", "PingFang SC", sans-serif`
-        ctx.textAlign = 'center'
-        ctx.textBaseline = 'middle'
-        const yOff = item.crown ? 8 : (item.underline ? -4 : 2)
-
-        if (isMoat) {
-          ctx.lineWidth = 26
-          ctx.strokeText(txt, 0, yOff)
+        } else if (spec.pixel) {
+          drawPixelBitmapString(ctx, item.text, isMoat, item.underline, item.crown)
         } else {
-          ctx.lineWidth = 4
-          ctx.strokeText(txt, 0, yOff)
-        }
-        ctx.fillText(txt, 0, yOff)
+          const txt = item.text
+          const fontSize = txt.length >= 2 ? spec.s2 : spec.s1
+          ctx.font = spec.font(fontSize)
+          ctx.textAlign = 'center'
+          ctx.textBaseline = 'middle'
+          const yOff = item.crown ? 5 : (item.underline ? -3 : 1)
 
-        if (item.underline) {
-          const pad = isMoat ? 9 : 0
-          ctx.beginPath()
-          ctx.roundRect(-34 - pad, 62 - pad, 68 + pad * 2, 12 + pad * 2, 6)
-          ctx.fill()
+          if (isMoat) {
+            ctx.lineWidth = 12.5
+            ctx.strokeText(txt, 0, yOff)
+          } else if (spec.stroke > 0) {
+            ctx.lineWidth = spec.stroke
+            ctx.strokeText(txt, 0, yOff)
+          }
+          ctx.fillText(txt, 0, yOff)
+
+          if (item.underline) {
+            const pad = isMoat ? 4.5 : 0
+            if (spec.dotMark) {
+              ctx.beginPath()
+              ctx.arc(0, 33, 4.2 + pad, 0, Math.PI * 2)
+              ctx.fill()
+            } else {
+              ctx.beginPath()
+              ctx.roundRect(-16 - pad, 31 - pad, 32 + pad * 2, 5.5 + pad * 2, 3)
+              ctx.fill()
+            }
+          }
+
+          if (item.crown) {
+            const pad = isMoat ? 4 : 0
+            if (spec.geoCrown) {
+              ctx.lineWidth = isMoat ? 9 : 3.5
+              ctx.beginPath()
+              ctx.arc(0, -34, 6.5, 0, Math.PI * 2)
+              ctx.stroke()
+            } else if (spec.starCrown || spec.sunCrown) {
+              ctx.beginPath()
+              const rOut = 10 + pad, rIn = 3.2 + pad * 0.4
+              for (let k = 0; k < 8; k++) {
+                const a = (k * Math.PI) / 4 - Math.PI / 2
+                const r = (k & 1) === 0 ? rOut : rIn
+                const px = Math.cos(a) * r, py = -33 + Math.sin(a) * r
+                if (k === 0) ctx.moveTo(px, py)
+                else ctx.lineTo(px, py)
+              }
+              ctx.closePath()
+              ctx.fill()
+            } else {
+              ctx.lineWidth = isMoat ? 9.5 : 3.8
+              ctx.beginPath()
+              ctx.moveTo(-17, -30)
+              ctx.lineTo(-8, -38)
+              ctx.lineTo(0, -30)
+              ctx.lineTo(8, -38)
+              ctx.lineTo(17, -30)
+              ctx.stroke()
+            }
+          }
         }
-        if (item.crown) {
-          ctx.lineWidth = isMoat ? 20 : 8
-          ctx.beginPath()
-          ctx.moveTo(-38, -60)
-          ctx.lineTo(-18, -76)
-          ctx.lineTo(0, -60)
-          ctx.lineTo(18, -76)
-          ctx.lineTo(38, -60)
-          ctx.stroke()
-        }
+        ctx.restore()
       }
-      ctx.restore()
     }
     ctx.restore()
   }
 
-  drawGlyphPass(mctx, 'mask')
-  drawGlyphPass(octx, 'moat')
-  drawGlyphPass(hctx, 'halo')
+  drawAllStylesPass(mctx, 'mask')
+  drawAllStylesPass(octx, 'moat')
 
   const maskData = mctx.getImageData(0, 0, size, size).data
   const moatData = octx.getImageData(0, 0, size, size).data
-  const haloData = hctx.getImageData(0, 0, size, size).data
-  const outImg = mctx.createImageData(size, size)
-  const dst = outImg.data
+  const rawBytes = new Uint8Array(size * size * 4)
 
   const stride = size * 4
   for (let y = 0; y < size; y++) {
-    const yPrev = Math.max(0, y - 2)
-    const yNext = Math.min(size - 1, y + 2)
+    const yPrev = Math.max(0, y - 1)
+    const yNext = Math.min(size - 1, y + 1)
     for (let x = 0; x < size; x++) {
       const idx = y * stride + x * 4
-      const xPrev = Math.max(0, x - 2)
-      const xNext = Math.min(size - 1, x + 2)
+      const xPrev = Math.max(0, x - 1)
+      const xNext = Math.min(size - 1, x + 1)
 
       const hL = maskData[y * stride + xPrev * 4 + 3]
       const hR = maskData[y * stride + xNext * 4 + 3]
       const hU = maskData[yPrev * stride + x * 4 + 3]
       const hD = maskData[yNext * stride + x * 4 + 3]
 
-      // 左上受光凹槽斜率合成单通道法线高度偏导
       const bevel = ((hR - hL) * 0.707 + (hD - hU) * 0.707) / 255
 
-      dst[idx] = maskData[idx + 3]     // R: 超清锐利字芯蒙版
-      dst[idx + 1] = moatData[idx + 3] // G: 外扩暗槽描边保护环
-      dst[idx + 2] = Math.max(0, Math.min(255, Math.round((bevel * 0.5 + 0.5) * 255))) // B: 刻槽立体凹凸受光
-      dst[idx + 3] = haloData[idx + 3] // A: 柔和能量外晕
+      rawBytes[idx] = maskData[idx + 3]     // R: 锐利字芯蒙版
+      rawBytes[idx + 1] = moatData[idx + 3] // G: 护城衬底蒙版
+      rawBytes[idx + 2] = Math.max(0, Math.min(255, Math.round((bevel * 0.5 + 0.5) * 255))) // B: 精确无损凹凸斜率
+      rawBytes[idx + 3] = 255               // A: 固定 255 杜绝预乘 Alpha 损毁法线通道
     }
   }
 
-  mctx.putImageData(outImg, 0, 0)
-  return maskCv
+  return { width: size, height: size, data: rawBytes }
 }
 
 const VERTEX_FLOATS = 19
 
-function buildBeveledPolyhedron(kind, rawVerts, rawFaces, labels, faceValues, uvScale = 1.18) {
+function buildBeveledPolyhedron(kind, rawVerts, rawFaces, labels, faceValues, maxVal, uvScale = 1.18) {
   const normVerts = rawVerts.map(vNorm)
   const faces = []
   const triData = []
@@ -277,6 +396,7 @@ function buildBeveledPolyhedron(kind, rawVerts, rawFaces, labels, faceValues, uv
     if (kind === 'd100_tens' && labelStr === '10') tileKey = '10_d'
     const defaultTile = GLYPH_TILE_MAP[tileKey] !== undefined ? GLYPH_TILE_MAP[tileKey] : 20
     const pipTile = kind === 'd6' ? (GLYPH_TILE_MAP[`pip_${faceValues[f]}`] ?? defaultTile) : defaultTile
+    const isMaxFace = faceValues[f] === maxVal
 
     faces.push({
       index: f,
@@ -287,6 +407,7 @@ function buildBeveledPolyhedron(kind, rawVerts, rawFaces, labels, faceValues, uv
       inRadius,
       label: labelStr,
       value: faceValues[f],
+      isMaxFace,
       defaultTile,
       pipTile
     })
@@ -366,7 +487,7 @@ function assignOppositeNumbers(faces, verts, maxNum) {
   return values
 }
 
-function createTrapezohedron(kind, labels, values) {
+function createTrapezohedron(kind, labels, values, maxVal) {
   const cos36 = Math.cos(Math.PI / 5)
   const hUnit = (1 - cos36) / (1 + cos36)
   const rUnit = Math.sqrt(1 - hUnit * hUnit)
@@ -382,7 +503,7 @@ function createTrapezohedron(kind, labels, values) {
   const faces = []
   for (let k = 0; k < 5; k++) faces.push([0, 2 + k, 7 + k, 2 + ((k + 1) % 5)])
   for (let k = 0; k < 5; k++) faces.push([1, 7 + ((k + 1) % 5), 2 + ((k + 1) % 5), 7 + k])
-  return buildBeveledPolyhedron(kind, verts, faces, labels, values, 1.16)
+  return buildBeveledPolyhedron(kind, verts, faces, labels, values, maxVal, 1.16)
 }
 
 function createD12() {
@@ -410,7 +531,7 @@ function createD12() {
     d12Faces.push(inc)
   }
   const vals = assignOppositeNumbers(d12Faces, d12Verts, 12)
-  return buildBeveledPolyhedron('d12', d12Verts, d12Faces, vals, vals, 1.22)
+  return buildBeveledPolyhedron('d12', d12Verts, d12Faces, vals, vals, 12, 1.22)
 }
 
 const GL_MESHES = Object.freeze({
@@ -418,34 +539,34 @@ const GL_MESHES = Object.freeze({
     'd4',
     [[1, 1, 1], [1, -1, -1], [-1, 1, -1], [-1, -1, 1]],
     [[0, 2, 1], [0, 1, 3], [0, 3, 2], [1, 2, 3]],
-    [1, 2, 3, 4], [1, 2, 3, 4], 1.18
+    [1, 2, 3, 4], [1, 2, 3, 4], 4, 1.18
   ),
   d6: buildBeveledPolyhedron(
     'd6',
     [[-1, -1, 1], [1, -1, 1], [1, 1, 1], [-1, 1, 1], [-1, -1, -1], [1, -1, -1], [1, 1, -1], [-1, 1, -1]],
     [[3, 2, 1, 0], [6, 7, 4, 5], [2, 6, 5, 1], [7, 3, 0, 4], [7, 6, 2, 3], [0, 1, 5, 4]],
-    ['6', '1', '2', '5', '3', '4'], [6, 1, 2, 5, 3, 4], 1.24
+    ['6', '1', '2', '5', '3', '4'], [6, 1, 2, 5, 3, 4], 6, 1.24
   ),
   df: buildBeveledPolyhedron(
     'df',
     [[-1, -1, 1], [1, -1, 1], [1, 1, 1], [-1, 1, 1], [-1, -1, -1], [1, -1, -1], [1, 1, -1], [-1, 1, -1]],
     [[3, 2, 1, 0], [6, 7, 4, 5], [2, 6, 5, 1], [7, 3, 0, 4], [7, 6, 2, 3], [0, 1, 5, 4]],
-    ['+', '−', '+', '−', '◯', '◯'], [1, -1, 1, -1, 0, 0], 1.24
+    ['+', '−', '+', '−', '◯', '◯'], [1, -1, 1, -1, 0, 0], 1, 1.24
   ),
   d8: buildBeveledPolyhedron(
     'd8',
     [[0, 0, 1], [0, 0, -1], [1, 0, 0], [0, 1, 0], [-1, 0, 0], [0, -1, 0]],
     [[0, 2, 3], [1, 4, 5], [0, 3, 4], [1, 5, 2], [0, 4, 5], [1, 2, 3], [0, 5, 2], [1, 3, 4]],
-    [8, 1, 2, 7, 6, 3, 4, 5], [8, 1, 2, 7, 6, 3, 4, 5], 1.18
+    [8, 1, 2, 7, 6, 3, 4, 5], [8, 1, 2, 7, 6, 3, 4, 5], 8, 1.18
   ),
-  d10: createTrapezohedron('d10', ['10', '2', '4', '6', '8', '1', '9', '7', '5', '3'], [10, 2, 4, 6, 8, 1, 9, 7, 5, 3]),
-  d100_tens: createTrapezohedron('d100_tens', ['00', '20', '40', '60', '80', '10', '90', '70', '50', '30'], [0, 20, 40, 60, 80, 10, 90, 70, 50, 30]),
-  d100_ones: createTrapezohedron('d100_ones', ['0', '2', '4', '6', '8', '1', '9', '7', '5', '3'], [0, 2, 4, 6, 8, 1, 9, 7, 5, 3]),
+  d10: createTrapezohedron('d10', ['10', '2', '4', '6', '8', '1', '9', '7', '5', '3'], [10, 2, 4, 6, 8, 1, 9, 7, 5, 3], 10),
+  d100_tens: createTrapezohedron('d100_tens', ['00', '20', '40', '60', '80', '10', '90', '70', '50', '30'], [0, 20, 40, 60, 80, 10, 90, 70, 50, 30], 0),
+  d100_ones: createTrapezohedron('d100_ones', ['0', '2', '4', '6', '8', '1', '9', '7', '5', '3'], [0, 2, 4, 6, 8, 1, 9, 7, 5, 3], 0),
   d12: createD12(),
   d20: (() => {
     const ico = buildIcosahedronRaw()
     const vals = assignOppositeNumbers(ico.faces, ico.verts, 20)
-    return buildBeveledPolyhedron('d20', ico.verts, ico.faces, vals, vals, 1.16)
+    return buildBeveledPolyhedron('d20', ico.verts, ico.faces, vals, vals, 20, 1.16)
   })()
 })
 
@@ -477,7 +598,7 @@ out vec4 fragColor;
 uniform mat4 u_invViewProj;
 uniform vec3 u_camPos;
 uniform float u_time;
-uniform int u_theme;       // 0:astral 1:prism 2:inferno 3:cyber 4:jianxin 5:singularity
+uniform int u_theme;       // 0..5: 幻想皮肤, 6..11: 典藏皮肤 (6:atelier 7:pixel 8:etching 9:urushi 10:bauhaus 11:murano)
 uniform int u_tier;        // 0:normal 1:critical 2:success 3:costly 4:failure 5:fumble
 uniform float u_climax;    // 0..1 落定高潮强度
 uniform float u_charge;    // 0..1 按住蓄力旋涡强度
@@ -516,7 +637,6 @@ float fbm(vec2 p) {
   return v;
 }
 
-// 返回 vec2(d1: 最近点距离, d2 - d1: 精确多边形裂隙边界距离！0 即在晶界裂纹正中心)
 vec2 voronoiEdge(vec2 x, float animSpeed) {
   vec2 n = floor(x);
   vec2 f = fract(x);
@@ -545,7 +665,42 @@ mat2 rot2(float a) {
   return mat2(c, -s, s, c);
 }
 
-// 黄金秘法星盘精细蚀刻几何环函数
+float bayer4x4(vec2 fragCoord) {
+  ivec2 p = ivec2(mod(fragCoord, 4.0));
+  int idx = p.y * 4 + p.x;
+  const float m[16] = float[16](
+     0.0,  8.0,  2.0, 10.0,
+    12.0,  4.0, 14.0,  6.0,
+     3.0, 11.0,  1.0,  9.0,
+    15.0,  7.0, 13.0,  5.0
+  );
+  return (m[idx] + 0.5) / 16.0;
+}
+
+float silverAstrolabeInlay(vec2 p) {
+  float r = length(p);
+  float a = atan(p.y, p.x);
+  float aa = max(0.0032, fwidth(r) * 1.25);
+
+  float rings = smoothstep(aa, 0.0, abs(r - 0.94))
+              + smoothstep(aa * 0.85, 0.0, abs(r - 0.88)) * 0.75
+              + smoothstep(aa * 0.85, 0.0, abs(r - 0.58)) * 0.80
+              + smoothstep(aa * 0.75, 0.0, abs(r - 0.26)) * 0.65;
+
+  float rEcl = length(p - vec2(0.0, 0.16));
+  float ecliptic = smoothstep(aa * 1.05, 0.0, abs(rEcl - 0.68)) * step(r, 0.94) * 0.85;
+
+  float crossLine = (smoothstep(aa * 0.8, 0.0, abs(p.x)) + smoothstep(aa * 0.8, 0.0, abs(p.y)))
+                  * step(0.26, r) * step(r, 0.94) * 0.48;
+  float ticks = 0.0;
+  if (r > 0.88 && r < 0.94) {
+    ticks = smoothstep(0.11, 0.0, abs(sin(a * 36.0))) * 0.7;
+  } else if (r > 0.55 && r < 0.61) {
+    ticks = smoothstep(0.09, 0.0, abs(sin(a * 24.0))) * 0.5;
+  }
+  return clamp(rings + ecliptic + crossLine + ticks, 0.0, 1.2);
+}
+
 float astrolabePattern(vec2 p, float rotSpeed, float scale) {
   vec2 q = rot2(u_time * rotSpeed) * (p * scale);
   float r = length(q);
@@ -555,17 +710,14 @@ float astrolabePattern(vec2 p, float rotSpeed, float scale) {
               + smoothstep(aa * 0.85, 0.0, abs(r - 0.91))
               + smoothstep(aa * 0.9, 0.0, abs(r - 0.66))
               + smoothstep(aa * 0.75, 0.0, abs(r - 0.38));
-  // 十二星宫精密刻度齿
   float ticks = 0.0;
   if (r > 0.91 && r < 1.0) {
     ticks = smoothstep(0.14, 0.0, abs(sin(a * 36.0))) * 0.75;
   }
-  // 神圣六芒星阵（两组正反交错正三角形极坐标方程）
   float triA = 0.48 / max(0.35, cos(mod(a + PI / 3.0, TAU / 3.0) - PI / 3.0));
   float triB = 0.48 / max(0.35, cos(mod(a + PI + PI / 3.0, TAU / 3.0) - PI / 3.0));
   float hexagram = smoothstep(aa * 1.2, 0.0, abs(r - triA)) * step(r, 0.92)
                  + smoothstep(aa * 1.2, 0.0, abs(r - triB)) * step(r, 0.92);
-  // 星轨符文虚线环
   float glyphs = 0.0;
   if (r > 0.70 && r < 0.87) {
     float seg = abs(fract(a * 12.0 / TAU) - 0.5);
@@ -584,195 +736,485 @@ void main() {
 
   vec3 col = vec3(0.015, 0.018, 0.03);
 
-  // 求与桌面 z = 0 的精确三维交点
   if (rayDir.z < -0.001) {
     float tHit = -u_camPos.z / rayDir.z;
     vec3 hit = u_camPos + rayDir * tHit;
-    vec2 p = hit.xy * 0.0038; // 归一化舞台坐标（半径 ~1.0 对应 ~260 世界单位）
+    vec2 p = hit.xy * 0.0038;
     float rad = length(p);
-    float distFade = exp(-rad * rad * 0.42);
 
-    // 1. 六大主题程序化 3D 台面材质（带真实深度视差层！）
-    if (u_theme == 0) {
-      // [0] 星穹秘法·天命司南：三层深度视差黄金星盘 + 曜石星云深渊
-      vec2 pDeep1 = (u_camPos + rayDir * ((-46.0 - u_camPos.z) / rayDir.z)).xy * 0.0034;
-      vec2 pDeep2 = (u_camPos + rayDir * ((-105.0 - u_camPos.z) / rayDir.z)).xy * 0.0029;
-      float neb = fbm(pDeep2 * 2.8 + vec2(u_time * 0.04, -u_time * 0.03));
-      col = mix(vec3(0.008, 0.007, 0.022), vec3(0.055, 0.025, 0.12), neb * distFade);
-
-      // 细密圆润深空星辰点（基于格内局部圆心距离，杜绝方块像素感）
-      vec2 starGrid = pDeep2 * 78.0;
-      float starSeed = hash21(floor(starGrid));
-      if (starSeed > 0.965) {
-        float sd = length(fract(starGrid) - 0.5);
-        float twinkle = 0.45 + 0.55 * sin(u_time * 3.2 + starSeed * 90.0);
-        col += vec3(1.5, 1.3, 1.9) * smoothstep(0.18, 0.0, sd) * twinkle * distFade;
+    if (u_theme >= 6) {
+      int v2 = u_theme - 6;
+      float distFade = exp(-rad * rad * 0.36);
+      vec3 lightDir = normalize(vec3(-0.36, -0.44, 0.82));
+      float rawOcc = 0.0;
+      for (int i = 0; i < 24; i++) {
+        if (i >= u_diceCount) break;
+        vec4 sp = u_diceSpheres[i];
+        float h = max(0.0, sp.z - sp.w * 0.62);
+        vec2 shCenter = sp.xy - lightDir.xy * (h * 0.58);
+        float shRadius = sp.w * (0.94 + h * 0.0075);
+        float d = length(hit.xy - shCenter);
+        float occ = smoothstep(shRadius * 1.32, shRadius * 0.22, d) * exp(-h * 0.0105);
+        rawOcc = 1.0 - (1.0 - rawOcc) * (1.0 - occ);
       }
 
-      float boost = 1.0 + u_climax * (u_tier == 1 ? 1.35 : 0.45) + u_charge * 1.2;
-      float layer0 = astrolabePattern(p, 0.13 * boost, 1.02);
-      float layer1 = astrolabePattern(pDeep1, -0.21 * boost, 1.18) * 0.48;
-      float layer2 = astrolabePattern(pDeep2, 0.09 * boost, 1.36) * 0.26;
+      if (v2 == 0) {
+        // [6: atelier] 绅士赌桌：北美黑胡桃木镶铜托盘 + 英式精纺墨绿细绒呢
+        vec2 q = abs(hit.xy) / vec2(268.0, 178.0);
+        float traySDF = length(max(q - vec2(0.74, 0.68), 0.0)) - 0.24;
+        float lampSpot = exp(-dot(p * vec2(0.85, 1.05), p * vec2(0.85, 1.05)) * (0.58 - u_charge * 0.14)) * (1.0 + u_charge * 0.20);
 
-      vec3 goldCol = u_tier == 5
-        ? vec3(1.25, 0.20, 1.95)
-        : vec3(1.38, 0.92, 0.28); // 克制丝滑金线，凸显前景黑曜鎏金骰子主体！
-      col += goldCol * (layer0 + layer1 + layer2) * distFade * (0.48 + 0.36 * boost);
+        if (traySDF < 0.0) {
+          float weave = sin(hit.x * 1.8) * sin(hit.y * 1.8) * 0.015;
+          float woolFine = fbm(hit.xy * 0.22) * 0.065 + noise2(hit.xy * 1.35) * 0.035;
+          vec3 baizeBase = vec3(0.038, 0.148, 0.096) + vec3(0.012, 0.032, 0.018) * (woolFine + weave);
+          float grazing = pow(1.0 - abs(rayDir.z), 2.6);
+          baizeBase += vec3(0.035, 0.085, 0.052) * grazing * 0.55;
 
-      if (u_charge > 0.01) {
-        float vortex = smoothstep(0.55, 0.0, rad) * (sin(rad * 28.0 - u_time * 14.0) * 0.5 + 0.5);
-        col += vec3(2.2, 1.45, 0.5) * vortex * smoothstep(0.65, 0.0, rad) * u_charge;
-      }
-    } else if (u_theme == 1) {
-      // [1] 时停棱镜·碎星圣晶：深海极光镜湖 + 锐利双层 Voronoi 晶界焦散光网！
-      float n1 = fbm(p * 2.2 + vec2(0.0, u_time * 0.12));
-      vec3 aurora = mix(vec3(0.02, 0.14, 0.32), vec3(0.10, 0.38, 0.42), sin(p.x * 3.0 + n1 * 4.0 + u_time * 0.4) * 0.5 + 0.5);
-      col = vec3(0.006, 0.012, 0.028) + aurora * 0.42 * distFade;
+          float brassFillet = smoothstep(0.009, 0.002, abs(traySDF + 0.028));
+          vec3 brassCol = vec3(0.68, 0.53, 0.24) * (0.75 + 0.45 * lampSpot);
+          col = mix(baizeBase * (0.48 + 0.72 * lampSpot), brassCol, brassFillet * 0.85);
 
-      vec2 ve1 = voronoiEdge(p * 3.8 + vec2(u_time * 0.06, -u_time * 0.04), 0.85);
-      vec2 ve2 = voronoiEdge(p * 6.4 - vec2(u_time * 0.05, u_time * 0.07), 1.15);
-      float caus1 = smoothstep(0.085, 0.0, ve1.y);
-      float caus2 = smoothstep(0.065, 0.0, ve2.y) * 0.45;
-      col += vec3(0.45, 1.55, 2.35) * (caus1 + caus2) * 0.88 * distFade;
+          float wallShadow = smoothstep(-0.11, 0.0, traySDF);
+          col *= (1.0 - wallShadow * 0.48);
 
-      float ring = smoothstep(0.009, 0.0, abs(rad - 0.95));
-      col += vec3(0.7, 1.7, 2.5) * ring * distFade;
-    } else if (u_theme == 2) {
-      // [2] 焚天熔炉·孤注一掷：玄武岩多边形龟裂板块 + 地底涌动炽金岩浆裂脉！
-      vec2 pLava = (u_camPos + rayDir * ((-26.0 - u_camPos.z) / rayDir.z)).xy * 0.004;
-      vec2 warp = vec2(fbm(p * 4.5), fbm(p * 4.5 + 9.2)) * 0.18;
-      vec2 ve = voronoiEdge(p * 3.2 + warp, 0.22);
+          for (int i = 0; i < 8; i++) {
+            vec4 imp = u_impacts[i];
+            if (imp.w <= 0.001 || imp.z > 0.85) continue;
+            float pr = imp.z / 0.85;
+            float d = length(hit.xy - imp.xy);
+            float dent = exp(-abs(d - (14.0 + pr * 48.0)) / 5.0) * (1.0 - pr) * imp.w;
+            col += vec3(0.08, 0.11, 0.06) * dent * 0.35;
+          }
 
-      float rock = fbm(p * 6.5);
-      col = mix(vec3(0.018, 0.012, 0.011), vec3(0.052, 0.036, 0.030), rock);
-      // 岩石边缘受热暗红过渡 + 缝隙中心炽白金黄岩浆！
-      float crackGlow = smoothstep(0.13, 0.015, ve.y);
-      float crackCore = smoothstep(0.032, 0.003, ve.y);
-      float magmaFlow = fbm(pLava * 4.2 + vec2(u_time * 0.28, -u_time * 0.20));
-      vec3 lavaHDR = mix(vec3(1.85, 0.24, 0.02), vec3(4.2, 1.95, 0.28), magmaFlow * 0.6 + crackCore * 0.5);
-      col += lavaHDR * (crackGlow * 0.55 + crackCore * 0.95) * distFade * (0.65 + 0.65 * u_climax + u_charge);
+          vec3 warmBounce = vec3(0.0);
+          for (int i = 0; i < 24; i++) {
+            if (i >= u_diceCount) break;
+            vec4 sp = u_diceSpheres[i];
+            float d3 = length(vec3(hit.xy - sp.xy, sp.z));
+            warmBounce += vec3(0.26, 0.19, 0.07) * ((sp.w * sp.w) / (d3 * d3 + sp.w * sp.w * 1.4));
+          }
+          col = col * (1.0 - rawOcc * 0.78) + warmBounce * 0.24;
+        } else {
+          vec2 woodUV = hit.xy * vec2(0.018, 0.075);
+          float grain = sin(woodUV.x * 9.0 + fbm(woodUV * 3.5) * 5.5) * 0.5 + 0.5;
+          float pores = noise2(hit.xy * vec2(0.35, 1.2));
+          vec3 walnut = mix(vec3(0.058, 0.032, 0.018), vec3(0.165, 0.096, 0.052), pow(grain, 1.4));
+          walnut *= (0.88 + 0.16 * pores);
+          float rimBevel = exp(-traySDF * 26.0);
+          vec3 specWood = vec3(0.36, 0.25, 0.14) * rimBevel * 0.65;
+          col = (walnut + specWood) * (0.42 + 0.68 * lampSpot) * (1.0 - rawOcc * 0.65);
+        }
+      } else if (v2 == 1) {
+        // [7: pixel] 勇者地牢：16-Bit 整数像素网格 + 4x4 Bayer 有序抖动
+        vec2 pixWorld = floor(hit.xy / 5.0);
+        vec2 localInBrick = mod(pixWorld, vec2(12.0, 6.0));
+        float rowIdx = floor(pixWorld.y / 6.0);
+        if (mod(rowIdx, 2.0) > 0.5) {
+          localInBrick.x = mod(pixWorld.x + 6.0, 12.0);
+        }
+        vec2 brickId = vec2(
+          floor((pixWorld.x + (mod(rowIdx, 2.0) > 0.5 ? 6.0 : 0.0)) / 12.0),
+          rowIdx
+        );
 
-      float anvilRim = smoothstep(0.011, 0.0, abs(max(abs(p.x) * 0.82, abs(p.y)) - 0.90));
-      col += vec3(2.1, 0.65, 0.10) * anvilRim * distFade;
-    } else if (u_theme == 3) {
-      // [3] 赛博超频·霓虹矩阵：全息透视网格 + 脉冲扫描波
-      col = vec3(0.010, 0.007, 0.028);
-      vec2 gp = hit.xy / 38.0;
-      vec2 grid = abs(fract(gp - 0.5) - 0.5) / fwidth(gp);
-      float line = 1.0 - min(min(grid.x, grid.y), 1.0);
-      float scan = exp(-abs(rad - fract(u_time * 0.38) * 1.6) * 14.0);
-      vec3 neon = mix(vec3(0.0, 1.75, 2.25), vec3(2.25, 0.15, 1.45), smoothstep(-0.8, 0.8, p.y));
-      col += neon * line * (0.30 + scan * 1.35) * distFade;
-      float oct = max(max(abs(p.x), abs(p.y)), (abs(p.x) + abs(p.y)) * 0.7071);
-      col += vec3(2.3, 0.2, 1.5) * smoothstep(0.011, 0.0, abs(oct - 0.96)) * distFade;
-    } else if (u_theme == 4) {
-      // [4] 水墨剑心·太虚玉简：古宣远山云海 + 中央温润苍青端砚圆盘衬托羊脂白玉骰！
-      float paperFiber = fbm(p * 14.0) * 0.055 + fbm(p * 3.2) * 0.085;
-      vec3 xuan = vec3(0.74, 0.70, 0.62) - paperFiber;
-      float m1 = smoothstep(0.12, -0.22, p.y + 0.50 + 0.16 * fbm(vec2(p.x * 2.5, 1.2)));
-      float m2 = smoothstep(0.08, -0.18, p.y + 0.30 + 0.12 * fbm(vec2(p.x * 3.8 + 4.0, 2.5)));
-      xuan = mix(xuan, vec3(0.40, 0.42, 0.42), m1 * 0.52);
-      xuan = mix(xuan, vec3(0.22, 0.25, 0.27), m2 * 0.42);
+        float brickHash = hash21(brickId);
+        bool isMortar = (localInBrick.x < 1.0) || (localInBrick.y < 1.0);
+        bool isHiEdge = !isMortar && (localInBrick.y >= 5.0 || localInBrick.x == 1.0);
 
-      // 中央淡墨砚台圆韵与书法枯笔圆环，让白玉鎏金骰子对比鲜明！
-      float inkWash = smoothstep(0.86, 0.15, rad + 0.06 * fbm(p * 4.5));
-      xuan = mix(xuan, vec3(0.50, 0.49, 0.45), inkWash * 0.35);
-      float brushRing = smoothstep(0.024, 0.002, abs(rad - 0.84 + 0.022 * fbm(p * 6.5 + u_time * 0.15)));
-      xuan = mix(xuan, vec3(0.08, 0.09, 0.11), brushRing * 0.75);
-      xuan *= mix(0.38, 1.0, distFade);
-      col = xuan;
-    } else {
-      // [5] 虚空星噬·克苏鲁奇点：黑洞吸积盘引力透镜旋涡！
-      float rSafe = max(rad, 0.04);
-      float twist = 2.6 / (rSafe + 0.18) - u_time * 0.85;
-      vec2 swirled = rot2(twist) * p;
-      float disk = fbm(swirled * 3.6);
-      float horizon = smoothstep(0.16, 0.24, rad);
-      float photonRing = exp(-abs(rad - 0.19) * 32.0);
-      vec3 plasma = mix(vec3(0.12, 1.85, 1.45), vec3(1.45, 0.25, 2.35), disk);
-      col = plasma * disk * smoothstep(1.35, 0.18, rad) * horizon * 0.85;
-      col += vec3(1.8, 2.8, 2.5) * photonRing * 1.6;
-      // 异界七芒几何虚线
-      float a7 = atan(p.y, p.x);
-      float sigil = smoothstep(0.012, 0.0, abs(rad - (0.72 + 0.12 * cos(a7 * 7.0 - u_time * 0.5))));
-      col += vec3(0.3, 1.9, 1.5) * sigil * 0.45 * distFade;
-    }
+        float flicker = sin(u_time * 7.0) * 0.025 + cos(u_time * 13.0) * 0.015;
+        float torchR = length(floor(hit.xy / 5.0) * 5.0 * 0.0038);
+        float lightVal = clamp(1.08 - torchR * 0.88 + flicker + u_climax * 0.25 + u_charge * 0.3, 0.0, 1.2);
+        float dither = bayer4x4(gl_FragCoord.xy);
+        float litBand = floor(lightVal * 3.2 + dither) / 3.0;
 
-    // 2. 落地能量涟漪 / 熔岩灼痕 / 水墨晕染贴花（支持最多 8 处并发撞击！）
-    for (int i = 0; i < 8; i++) {
-      vec4 imp = u_impacts[i];
-      if (imp.w <= 0.001) continue;
-      float age = imp.z;
-      float life = u_theme == 4 ? 2.4 : 1.15;
-      if (age > life) continue;
-      float prog = age / life;
-      vec2 dVec = hit.xy - imp.xy;
-      float dist = length(dVec);
+        vec3 cMortar    = vec3(0.055, 0.045, 0.085);
+        vec3 cStoneLo   = vec3(0.115, 0.105, 0.185);
+        vec3 cStoneMid  = vec3(0.205, 0.185, 0.285);
+        vec3 cStoneHi   = vec3(0.355, 0.295, 0.365);
+        vec3 cTorchWarm = vec3(0.540, 0.405, 0.345);
 
-      if (u_theme == 4) {
-        // 水墨剑心：宣纸有机分形墨晕扩散！
-        float maxR = (28.0 + imp.w * 56.0) * (0.35 + 0.65 * (1.0 - pow(1.0 - prog, 3.0)));
-        float nEdge = fbm(dVec * 0.055 + float(i) * 3.1) * 18.0;
-        float blot = smoothstep(maxR, maxR * 0.45, dist + nEdge - 8.0);
-        float fade = (1.0 - smoothstep(0.55, 1.0, prog)) * 0.62 * imp.w;
-        col = mix(col, vec3(0.06, 0.07, 0.09), blot * fade);
-      } else if (u_theme == 2) {
-        // 焚天熔炉：炽热放射状熔岩裂痕！
-        float ang = atan(dVec.y, dVec.x);
-        float rays = pow(abs(cos(ang * 5.0 + float(i) * 2.1)), 14.0);
-        float reach = (35.0 + imp.w * 85.0) * smoothstep(0.0, 0.15, prog);
-        float scorch = rays * smoothstep(reach, 0.0, dist) * (1.0 - prog);
-        col += vec3(4.5, 1.4, 0.15) * scorch * imp.w * 1.8;
+        float varShift = (brickHash - 0.5) * 0.22;
+        float band = clamp(litBand + varShift, 0.0, 1.0);
+        vec3 stone = band > 0.72 ? cTorchWarm
+                   : band > 0.42 ? cStoneHi
+                   : band > 0.16 ? cStoneMid
+                                 : cStoneLo;
+
+        if (!isMortar && brickHash > 0.84 && hash21(pixWorld * 1.7) > 0.78) {
+          stone = mix(stone, vec3(0.16, 0.34, 0.22), 0.75);
+        }
+        if (isHiEdge) stone *= 1.18;
+        if (isMortar) stone = cMortar;
+
+        for (int i = 0; i < 8; i++) {
+          vec4 imp = u_impacts[i];
+          if (imp.w <= 0.001 || imp.z > 0.75) continue;
+          float pr = imp.z / 0.75;
+          vec2 dp = abs(floor(hit.xy / 5.0) * 5.0 - imp.xy);
+          float boxDist = max(dp.x, dp.y);
+          float targetR = floor((15.0 + pr * 75.0) / 5.0) * 5.0;
+          if (abs(boxDist - targetR) < 5.2) {
+            stone = u_tier == 5 ? vec3(0.85, 0.22, 0.38) : vec3(0.98, 0.78, 0.28);
+          }
+        }
+
+        if (rawOcc > 0.52 || (rawOcc > 0.22 && dither > 0.5)) {
+          stone *= 0.38;
+        }
+        col = stone;
+      } else if (v2 == 2) {
+        // [8: etching] 达芬奇手稿：暖象牙羊皮纸 + 圆规几何作图线 + 45° 双交叉钢笔排线阴影
+        float fiber = fbm(hit.xy * 0.045) * 0.055 + noise2(hit.xy * 0.42) * 0.025;
+        float ageStain = fbm(p * 2.4 + 3.7) * 0.065;
+        vec3 vellum = vec3(0.925, 0.876, 0.778) - fiber - vec3(0.05, 0.06, 0.08) * ageStain;
+        vellum *= mix(0.76, 1.0, exp(-rad * rad * 0.28));
+
+        vec3 ironInk = vec3(0.155, 0.118, 0.088);
+        vec3 cinnabarInk = vec3(0.695, 0.195, 0.145);
+
+        float r = length(p);
+        float a = atan(p.y, p.x);
+        float aa = max(0.003, fwidth(r) * 1.25);
+
+        float compassOuter = smoothstep(aa, 0.0, abs(r - 0.92));
+        float compassInner = smoothstep(aa * 0.9, 0.0, abs(r - 0.86)) * 0.7;
+        float goldenCircle = smoothstep(aa * 0.9, 0.0, abs(r - 0.568)) * 0.65;
+
+        float diag1 = smoothstep(aa * 0.75, 0.0, abs(p.x)) + smoothstep(aa * 0.75, 0.0, abs(p.y));
+        float diag2 = (smoothstep(aa * 0.75, 0.0, abs(p.x - p.y) * 0.707) + smoothstep(aa * 0.75, 0.0, abs(p.x + p.y) * 0.707)) * 0.55;
+        float rulerLines = clamp(diag1 + diag2, 0.0, 1.0) * step(0.18, r) * step(r, 1.08) * 0.34;
+
+        float degreeTicks = 0.0;
+        if (r > 0.86 && r < 0.92) {
+          degreeTicks = smoothstep(0.12, 0.0, abs(sin(a * 36.0))) * 0.75;
+        }
+
+        float inkMask = clamp(compassOuter + compassInner + goldenCircle + rulerLines + degreeTicks, 0.0, 1.0);
+        col = mix(vellum, ironInk, inkMask * 0.72 * distFade);
+
+        float sqBox = max(abs(p.x), abs(p.y));
+        float redDiagram = smoothstep(aa * 1.1, 0.0, abs(sqBox - 0.568)) * 0.45
+                         + smoothstep(aa * 1.1, 0.0, abs(r - 0.35)) * 0.42;
+        col = mix(col, cinnabarInk, clamp(redDiagram, 0.0, 1.0) * distFade * (0.65 + 0.35 * max(u_climax, u_charge)));
+
+        for (int i = 0; i < 8; i++) {
+          vec4 imp = u_impacts[i];
+          if (imp.w <= 0.001 || imp.z > 1.3) continue;
+          float pr = imp.z / 1.3;
+          float d = length(hit.xy - imp.xy);
+          float ringR = 16.0 + pr * 68.0;
+          float inkWave = (smoothstep(1.8, 0.0, abs(d - ringR)) + smoothstep(1.4, 0.0, abs(d - ringR * 0.78)) * 0.6) * (1.0 - pr);
+          col = mix(col, cinnabarInk, clamp(inkWave * imp.w, 0.0, 0.85));
+        }
+
+        if (rawOcc > 0.05) {
+          float sCoord1 = (hit.x + hit.y) * 2.35 + fbm(hit.xy * 0.08) * 1.4;
+          float sCoord2 = (hit.x - hit.y) * 2.35;
+          float aaS = clamp(fwidth(sCoord1) * 0.9, 0.15, 0.65);
+          float hLine1 = smoothstep(0.28 + aaS, 0.28 - aaS, abs(sin(sCoord1)));
+          float hLine2 = smoothstep(0.24 + aaS, 0.24 - aaS, abs(sin(sCoord2)));
+          float hatchShadow = hLine1 * smoothstep(0.05, 0.34, rawOcc) * 0.58
+                            + hLine2 * smoothstep(0.32, 0.72, rawOcc) * 0.52;
+          col = mix(col, ironInk, clamp(hatchShadow, 0.0, 0.72));
+        }
+      } else if (v2 == 3) {
+        // [9: urushi] 京都黑漆：镜面黑吕色推光大漆茶盘 + 梨地金砂 + 虚像倒影
+        float subtleGrain = fbm(hit.xy * 0.015) * 0.006;
+        col = vec3(0.014, 0.011, 0.012) + subtleGrain;
+
+        vec2 goldCell = hit.xy * 0.32;
+        float gSeed = hash21(floor(goldCell));
+        if (gSeed > 0.962) {
+          float gd = length(fract(goldCell) - 0.5);
+          col += vec3(0.58, 0.43, 0.15) * smoothstep(0.18, 0.0, gd) * (gSeed - 0.96) * 11.0 * distFade;
+        }
+
+        float r = length(p);
+        float aa = max(0.0026, fwidth(r) * 1.25);
+        float outerLacquerGold = smoothstep(aa, 0.0, abs(r - 0.90)) * 0.58
+                               + smoothstep(aa * 0.8, 0.0, abs(r - 0.878)) * 0.26;
+        float moonCrescent = smoothstep(aa * 1.4, 0.0, abs(length(p - vec2(0.05, 0.0)) - 0.56))
+                           * smoothstep(-0.15, 0.38, p.x) * 0.36;
+        vec3 makieGold = vec3(0.76, 0.58, 0.24) * (1.0 + u_charge * 0.45);
+        col += makieGold * (outerLacquerGold + moonCrescent) * distFade;
+
+        if (u_climax > 0.02 && u_tier == 1) {
+          float kCurve = p.y * 0.75 + 0.14 * sin(p.x * 4.2) + 0.045 * fbm(p * 9.5);
+          float kAa = max(0.0028, fwidth(kCurve) * 1.35);
+          float vein = smoothstep(kAa, 0.0, abs(kCurve));
+          col += vec3(1.25, 0.92, 0.32) * vein * u_climax * 0.78 * distFade;
+        }
+
+        for (int i = 0; i < 8; i++) {
+          vec4 imp = u_impacts[i];
+          if (imp.w <= 0.001 || imp.z > 1.5) continue;
+          float pr = imp.z / 1.5;
+          float d = length(hit.xy - imp.xy);
+          float ripple = exp(-abs(d - (14.0 + pr * 78.0)) / 2.2) * (1.0 - pr) * imp.w;
+          col += vec3(0.92, 0.70, 0.26) * ripple * 0.65;
+        }
+
+        vec3 reflDir = reflect(rayDir, vec3(0.0, 0.0, 1.0));
+        vec3 mirrorCol = vec3(0.0);
+        for (int i = 0; i < 24; i++) {
+          if (i >= u_diceCount) break;
+          vec4 sp = u_diceSpheres[i];
+          vec3 oc = hit - sp.xyz;
+          float b = dot(oc, reflDir);
+          float c = dot(oc, oc) - sp.w * sp.w * 0.92;
+          float disc = b * b - c;
+          if (b < 0.0 && disc > 0.0) {
+            float edgeSoft = smoothstep(0.0, sp.w * sp.w * 0.65, disc);
+            bool isShuRed = ((i & 1) == 0);
+            vec3 reflTint = isShuRed ? vec3(0.28, 0.042, 0.032) : vec3(0.06, 0.05, 0.04);
+            mirrorCol = mix(mirrorCol, reflTint + vec3(0.08, 0.06, 0.025) * edgeSoft, edgeSoft * 0.34 * exp(-sp.z * 0.010));
+          }
+        }
+        float skySpec = smoothstep(0.68, 0.98, reflDir.z) * 0.026;
+        col = (col + mirrorCol + vec3(0.9, 0.85, 0.78) * skySpec) * (1.0 - rawOcc * 0.76);
+      } else if (v2 == 4) {
+        // [10: bauhaus] 包豪斯白瓷：浅灰微喷砂瑞士网格建筑台面 + 博朗信号橙刻度环
+        float microSand = (hash21(floor(hit.xy * 1.5)) - 0.5) * 0.018 + fbm(hit.xy * 0.02) * 0.015;
+        vec3 matteAlum = mix(vec3(0.825, 0.818, 0.798), vec3(0.905, 0.900, 0.885), exp(-rad * rad * 0.35)) + microSand;
+
+        vec2 gCell = mod(hit.xy + 36.0, 72.0) - 36.0;
+        float crossArm = min(
+          max(abs(gCell.x) - 4.2, abs(gCell.y) - 0.55),
+          max(abs(gCell.y) - 4.2, abs(gCell.x) - 0.55)
+        );
+        float fiducial = smoothstep(0.8, 0.0, crossArm) * 0.28 * distFade;
+        col = mix(matteAlum, vec3(0.32, 0.33, 0.35), fiducial);
+
+        float r = length(p);
+        float a = atan(p.y, p.x);
+        float aa = max(0.0028, fwidth(r) * 1.2);
+        float dialRing = smoothstep(aa, 0.0, abs(r - 0.86)) * 0.38;
+        float vernierTicks = 0.0;
+        if (r > 0.82 && r < 0.86) {
+          vernierTicks = smoothstep(0.08, 0.0, abs(sin(a * 60.0))) * 0.32;
+        }
+        col = mix(col, vec3(0.24, 0.25, 0.27), (dialRing + vernierTicks) * distFade);
+
+        vec3 braunOrange = u_tier == 5 ? vec3(0.82, 0.14, 0.14) : vec3(1.0, 0.31, 0.0);
+        float orangeAccent = smoothstep(aa * 1.3, 0.0, abs(r - 0.89)) * (0.28 + 0.72 * max(u_climax, u_charge)) * distFade;
+        col = mix(col, braunOrange, clamp(orangeAccent, 0.0, 1.0));
+
+        for (int i = 0; i < 8; i++) {
+          vec4 imp = u_impacts[i];
+          if (imp.w <= 0.001 || imp.z > 0.95) continue;
+          float pr = imp.z / 0.95;
+          float d = length(hit.xy - imp.xy);
+          float pulse = smoothstep(2.2, 0.0, abs(d - (16.0 + pr * 64.0))) * (1.0 - pr) * imp.w;
+          col = mix(col, braunOrange, clamp(pulse * 0.85, 0.0, 0.9));
+        }
+
+        col *= (1.0 - rawOcc * 0.44);
       } else {
-        // 秘法/棱镜/赛博/虚空：高精度双环能量冲击波
-        float ringR = (18.0 + prog * (95.0 + imp.w * 75.0));
-        float w = 3.5 + prog * 6.0;
-        float wave = exp(-abs(dist - ringR) / w) * (1.0 - prog) * imp.w;
-        vec3 rCol = u_theme == 0 ? vec3(2.8, 1.85, 0.55)
-                  : u_theme == 1 ? vec3(0.8, 2.2, 3.0)
-                  : u_theme == 3 ? vec3(0.2, 2.6, 2.8)
-                                 : vec3(0.4, 2.4, 1.9);
-        col += rCol * wave * 1.35;
+        // [11: murano] 深海星仪：普鲁士蓝灰板岩 + 925 纯银镶嵌古典星盘 + 海琉璃焦散光池
+        float h0 = fbm(hit.xy * 0.022);
+        float hx = fbm(hit.xy * 0.022 + vec2(0.08, 0.0));
+        float hy = fbm(hit.xy * 0.022 + vec2(0.0, 0.08));
+        vec3 slateN = normalize(vec3((h0 - hx) * 1.8, (h0 - hy) * 1.8, 1.0));
+        float slateDiff = max(dot(slateN, lightDir), 0.0);
+
+        vec3 slateBase = mix(vec3(0.028, 0.048, 0.078), vec3(0.068, 0.112, 0.168), h0);
+        col = slateBase * (0.55 + 0.75 * slateDiff) * mix(0.45, 1.0, distFade);
+
+        float silverMask = silverAstrolabeInlay(p);
+        vec3 H = normalize(lightDir - rayDir);
+        float silverSpec = pow(max(dot(slateN, H), 0.0), 36.0);
+        vec3 silverCol = vec3(0.62, 0.68, 0.75) * (0.48 + 0.62 * slateDiff + u_charge * 0.32) + vec3(0.95, 0.98, 1.0) * silverSpec * (0.85 + u_charge * 0.35);
+        col = mix(col, silverCol, clamp(silverMask * (0.82 + u_charge * 0.15) * distFade, 0.0, 1.0));
+
+        for (int i = 0; i < 8; i++) {
+          vec4 imp = u_impacts[i];
+          if (imp.w <= 0.001 || imp.z > 1.25) continue;
+          float pr = imp.z / 1.25;
+          float d = length(hit.xy - imp.xy);
+          float causticWave = exp(-abs(d - (16.0 + pr * 74.0)) / 3.8) * (1.0 - pr) * imp.w;
+          col += vec3(0.42, 0.82, 0.88) * causticWave * 0.72;
+        }
+
+        vec3 causticGI = vec3(0.0);
+        for (int i = 0; i < 24; i++) {
+          if (i >= u_diceCount) break;
+          vec4 sp = u_diceSpheres[i];
+          vec2 shCenter = sp.xy - lightDir.xy * max(0.0, sp.z - sp.w * 0.6) * 0.55;
+          float d = length(hit.xy - shCenter);
+          float cFocus = exp(-pow(d / (sp.w * 0.62), 2.0)) * exp(-sp.z * 0.008);
+          causticGI += vec3(0.24, 0.62, 0.68) * cFocus * 0.55;
+        }
+        col = col * (1.0 - rawOcc * 0.52) + causticGI;
       }
+    } else {
+      float distFade = exp(-rad * rad * 0.42);
+
+      // 幻想皮肤 3D 台面材质 (0..5)
+      if (u_theme == 0) {
+        vec2 pDeep1 = (u_camPos + rayDir * ((-46.0 - u_camPos.z) / rayDir.z)).xy * 0.0034;
+        vec2 pDeep2 = (u_camPos + rayDir * ((-105.0 - u_camPos.z) / rayDir.z)).xy * 0.0029;
+        float neb = fbm(pDeep2 * 2.8 + vec2(u_time * 0.04, -u_time * 0.03));
+        col = mix(vec3(0.008, 0.007, 0.022), vec3(0.055, 0.025, 0.12), neb * distFade);
+
+        vec2 starGrid = pDeep2 * 78.0;
+        float starSeed = hash21(floor(starGrid));
+        if (starSeed > 0.965) {
+          float sd = length(fract(starGrid) - 0.5);
+          float twinkle = 0.45 + 0.55 * sin(u_time * 3.2 + starSeed * 90.0);
+          col += vec3(1.5, 1.3, 1.9) * smoothstep(0.18, 0.0, sd) * twinkle * distFade;
+        }
+
+        float boost = 1.0 + u_climax * (u_tier == 1 ? 1.35 : 0.45) + u_charge * 1.2;
+        float layer0 = astrolabePattern(p, 0.13 * boost, 1.02);
+        float layer1 = astrolabePattern(pDeep1, -0.21 * boost, 1.18) * 0.48;
+        float layer2 = astrolabePattern(pDeep2, 0.09 * boost, 1.36) * 0.26;
+
+        vec3 goldCol = u_tier == 5 ? vec3(1.25, 0.20, 1.95) : vec3(1.38, 0.92, 0.28);
+        col += goldCol * (layer0 + layer1 + layer2) * distFade * (0.48 + 0.36 * boost);
+
+        if (u_charge > 0.01) {
+          float vortex = smoothstep(0.55, 0.0, rad) * (sin(rad * 28.0 - u_time * 14.0) * 0.5 + 0.5);
+          col += vec3(2.2, 1.45, 0.5) * vortex * smoothstep(0.65, 0.0, rad) * u_charge;
+        }
+      } else if (u_theme == 1) {
+        float n1 = fbm(p * 2.2 + vec2(0.0, u_time * 0.12));
+        vec3 aurora = mix(vec3(0.02, 0.14, 0.32), vec3(0.10, 0.38, 0.42), sin(p.x * 3.0 + n1 * 4.0 + u_time * 0.4) * 0.5 + 0.5);
+        col = vec3(0.006, 0.012, 0.028) + aurora * 0.42 * distFade;
+
+        vec2 ve1 = voronoiEdge(p * 3.8 + vec2(u_time * 0.06, -u_time * 0.04), 0.85);
+        vec2 ve2 = voronoiEdge(p * 6.4 - vec2(u_time * 0.05, u_time * 0.07), 1.15);
+        float caus1 = smoothstep(0.085, 0.0, ve1.y);
+        float caus2 = smoothstep(0.065, 0.0, ve2.y) * 0.45;
+        col += vec3(0.45, 1.55, 2.35) * (caus1 + caus2) * 0.88 * distFade;
+
+        float ring = smoothstep(0.009, 0.0, abs(rad - 0.95));
+        col += vec3(0.7, 1.7, 2.5) * ring * distFade;
+      } else if (u_theme == 2) {
+        vec2 pLava = (u_camPos + rayDir * ((-26.0 - u_camPos.z) / rayDir.z)).xy * 0.004;
+        vec2 warp = vec2(fbm(p * 4.5), fbm(p * 4.5 + 9.2)) * 0.18;
+        vec2 ve = voronoiEdge(p * 3.2 + warp, 0.22);
+
+        float rock = fbm(p * 6.5);
+        col = mix(vec3(0.018, 0.012, 0.011), vec3(0.052, 0.036, 0.030), rock);
+        float crackGlow = smoothstep(0.13, 0.015, ve.y);
+        float crackCore = smoothstep(0.032, 0.003, ve.y);
+        float magmaFlow = fbm(pLava * 4.2 + vec2(u_time * 0.28, -u_time * 0.20));
+        vec3 lavaHDR = mix(vec3(1.85, 0.24, 0.02), vec3(4.2, 1.95, 0.28), magmaFlow * 0.6 + crackCore * 0.5);
+        col += lavaHDR * (crackGlow * 0.55 + crackCore * 0.95) * distFade * (0.65 + 0.65 * u_climax + u_charge);
+
+        float anvilRim = smoothstep(0.011, 0.0, abs(max(abs(p.x) * 0.82, abs(p.y)) - 0.90));
+        col += vec3(2.1, 0.65, 0.10) * anvilRim * distFade;
+      } else if (u_theme == 3) {
+        col = vec3(0.010, 0.007, 0.028);
+        vec2 gp = hit.xy / 38.0;
+        vec2 grid = abs(fract(gp - 0.5) - 0.5) / fwidth(gp);
+        float line = 1.0 - min(min(grid.x, grid.y), 1.0);
+        float scan = exp(-abs(rad - fract(u_time * 0.38) * 1.6) * 14.0);
+        vec3 neon = mix(vec3(0.0, 1.75, 2.25), vec3(2.25, 0.15, 1.45), smoothstep(-0.8, 0.8, p.y));
+        col += neon * line * (0.30 + scan * 1.35) * distFade;
+        float oct = max(max(abs(p.x), abs(p.y)), (abs(p.x) + abs(p.y)) * 0.7071);
+        col += vec3(2.3, 0.2, 1.5) * smoothstep(0.011, 0.0, abs(oct - 0.96)) * distFade;
+      } else if (u_theme == 4) {
+        float paperFiber = fbm(p * 14.0) * 0.055 + fbm(p * 3.2) * 0.085;
+        vec3 xuan = vec3(0.74, 0.70, 0.62) - paperFiber;
+        float m1 = smoothstep(0.12, -0.22, p.y + 0.50 + 0.16 * fbm(vec2(p.x * 2.5, 1.2)));
+        float m2 = smoothstep(0.08, -0.18, p.y + 0.30 + 0.12 * fbm(vec2(p.x * 3.8 + 4.0, 2.5)));
+        xuan = mix(xuan, vec3(0.40, 0.42, 0.42), m1 * 0.52);
+        xuan = mix(xuan, vec3(0.22, 0.25, 0.27), m2 * 0.42);
+
+        float inkWash = smoothstep(0.86, 0.15, rad + 0.06 * fbm(p * 4.5));
+        xuan = mix(xuan, vec3(0.50, 0.49, 0.45), inkWash * 0.35);
+        float brushRing = smoothstep(0.024, 0.002, abs(rad - 0.84 + 0.022 * fbm(p * 6.5 + u_time * 0.15)));
+        xuan = mix(xuan, vec3(0.08, 0.09, 0.11), brushRing * 0.75);
+        xuan *= mix(0.38, 1.0, distFade);
+        col = xuan;
+      } else {
+        float rSafe = max(rad, 0.04);
+        float twist = 2.6 / (rSafe + 0.18) - u_time * 0.85;
+        vec2 swirled = rot2(twist) * p;
+        float disk = fbm(swirled * 3.6);
+        float horizon = smoothstep(0.16, 0.24, rad);
+        float photonRing = exp(-abs(rad - 0.19) * 32.0);
+        vec3 plasma = mix(vec3(0.12, 1.85, 1.45), vec3(1.45, 0.25, 2.35), disk);
+        col = plasma * disk * smoothstep(1.35, 0.18, rad) * horizon * 0.85;
+        col += vec3(1.8, 2.8, 2.5) * photonRing * 1.6;
+        float a7 = atan(p.y, p.x);
+        float sigil = smoothstep(0.012, 0.0, abs(rad - (0.72 + 0.12 * cos(a7 * 7.0 - u_time * 0.5))));
+        col += vec3(0.3, 1.9, 1.5) * sigil * 0.45 * distFade;
+      }
+
+      for (int i = 0; i < 8; i++) {
+        vec4 imp = u_impacts[i];
+        if (imp.w <= 0.001) continue;
+        float age = imp.z;
+        float life = u_theme == 4 ? 2.4 : 1.15;
+        if (age > life) continue;
+        float prog = age / life;
+        vec2 dVec = hit.xy - imp.xy;
+        float dist = length(dVec);
+
+        if (u_theme == 4) {
+          float maxR = (28.0 + imp.w * 56.0) * (0.35 + 0.65 * (1.0 - pow(1.0 - prog, 3.0)));
+          float nEdge = fbm(dVec * 0.055 + float(i) * 3.1) * 18.0;
+          float blot = smoothstep(maxR, maxR * 0.45, dist + nEdge - 8.0);
+          float fade = (1.0 - smoothstep(0.55, 1.0, prog)) * 0.62 * imp.w;
+          col = mix(col, vec3(0.06, 0.07, 0.09), blot * fade);
+        } else if (u_theme == 2) {
+          float ang = atan(dVec.y, dVec.x);
+          float rays = pow(abs(cos(ang * 5.0 + float(i) * 2.1)), 14.0);
+          float reach = (35.0 + imp.w * 85.0) * smoothstep(0.0, 0.15, prog);
+          float scorch = rays * smoothstep(reach, 0.0, dist) * (1.0 - prog);
+          col += vec3(4.5, 1.4, 0.15) * scorch * imp.w * 1.8;
+        } else {
+          float ringR = (18.0 + prog * (95.0 + imp.w * 75.0));
+          float w = 3.5 + prog * 6.0;
+          float wave = exp(-abs(dist - ringR) / w) * (1.0 - prog) * imp.w;
+          vec3 rCol = u_theme == 0 ? vec3(2.8, 1.85, 0.55)
+                    : u_theme == 1 ? vec3(0.8, 2.2, 3.0)
+                    : u_theme == 3 ? vec3(0.2, 2.6, 2.8)
+                                   : vec3(0.4, 2.4, 1.9);
+          col += rCol * wave * 1.35;
+        }
+      }
+
+      float shadow = 1.0;
+      vec3 bounceGI = vec3(0.0);
+      vec3 lightDir = normalize(vec3(-0.35, -0.42, 0.84));
+      for (int i = 0; i < 24; i++) {
+        if (i >= u_diceCount) break;
+        vec4 sp = u_diceSpheres[i];
+        float h = max(0.0, sp.z - sp.w * 0.65);
+        vec2 shCenter = sp.xy - lightDir.xy * (h * 0.55);
+        float shRadius = sp.w * (0.95 + h * 0.008);
+        float d = length(hit.xy - shCenter);
+        float occ = smoothstep(shRadius * 1.28, shRadius * 0.25, d) * exp(-h * 0.011);
+        shadow *= (1.0 - occ * (u_theme == 4 ? 0.48 : 0.76));
+
+        float dDirect = length(vec3(hit.xy - sp.xy, sp.z));
+        float giAtten = (sp.w * sp.w) / (dDirect * dDirect + sp.w * sp.w * 0.8);
+        vec3 giTint = u_theme == 0 ? vec3(1.4, 0.9, 0.25)
+                    : u_theme == 1 ? vec3(0.4, 1.3, 1.9)
+                    : u_theme == 2 ? vec3(2.2, 0.55, 0.08)
+                    : u_theme == 3 ? vec3(0.1, 1.5, 1.8)
+                    : u_theme == 4 ? vec3(0.8, 0.15, 0.12)
+                                   : vec3(0.3, 1.5, 1.2);
+        bounceGI += giTint * giAtten * (0.28 + 0.65 * u_climax);
+      }
+
+      col = col * shadow + bounceGI * (u_theme == 4 ? 0.18 : 0.45);
     }
-
-    // 3. 真实三维多面体软接触阴影 (Ambient Occlusion) + 底部彩色漫反射发光 (Bounce GI)！
-    float shadow = 1.0;
-    vec3 bounceGI = vec3(0.0);
-    vec3 lightDir = normalize(vec3(-0.35, -0.42, 0.84));
-    for (int i = 0; i < 24; i++) {
-      if (i >= u_diceCount) break;
-      vec4 sp = u_diceSpheres[i];
-      // 沿逆光方向投射偏移阴影中心
-      float h = max(0.0, sp.z - sp.w * 0.65);
-      vec2 shCenter = sp.xy - lightDir.xy * (h * 0.55);
-      float shRadius = sp.w * (0.95 + h * 0.008);
-      float d = length(hit.xy - shCenter);
-      float occ = smoothstep(shRadius * 1.28, shRadius * 0.25, d) * exp(-h * 0.011);
-      shadow *= (1.0 - occ * (u_theme == 4 ? 0.48 : 0.76));
-
-      // 骰子自身能量向桌面投射的近场点光源漫反射！
-      float dDirect = length(vec3(hit.xy - sp.xy, sp.z));
-      float giAtten = (sp.w * sp.w) / (dDirect * dDirect + sp.w * sp.w * 0.8);
-      vec3 giTint = u_theme == 0 ? vec3(1.4, 0.9, 0.25)
-                  : u_theme == 1 ? vec3(0.4, 1.3, 1.9)
-                  : u_theme == 2 ? vec3(2.2, 0.55, 0.08)
-                  : u_theme == 3 ? vec3(0.1, 1.5, 1.8)
-                  : u_theme == 4 ? vec3(0.8, 0.15, 0.12)
-                                 : vec3(0.3, 1.5, 1.2);
-      bounceGI += giTint * giAtten * (0.28 + 0.65 * u_climax);
-    }
-
-    col = col * shadow + bounceGI * (u_theme == 4 ? 0.18 : 0.45);
   } else {
-    // 远景天穹微光渐变
     float skyH = clamp(rayDir.z * 3.0, 0.0, 1.0);
-    col = u_theme == 4
-      ? mix(vec3(0.58, 0.56, 0.52), vec3(0.32, 0.34, 0.36), skyH)
-      : mix(vec3(0.04, 0.03, 0.08), vec3(0.005, 0.006, 0.015), skyH);
+    if (u_theme == 8) col = mix(vec3(0.76, 0.71, 0.62), vec3(0.62, 0.57, 0.49), skyH);
+    else if (u_theme == 10) col = mix(vec3(0.80, 0.79, 0.77), vec3(0.72, 0.71, 0.69), skyH);
+    else if (u_theme == 6) col = mix(vec3(0.05, 0.035, 0.022), vec3(0.015, 0.012, 0.008), skyH);
+    else if (u_theme >= 6) col = mix(vec3(0.03, 0.035, 0.055), vec3(0.008, 0.01, 0.018), skyH);
+    else if (u_theme == 4) col = mix(vec3(0.58, 0.56, 0.52), vec3(0.32, 0.34, 0.36), skyH);
+    else col = mix(vec3(0.04, 0.03, 0.08), vec3(0.005, 0.006, 0.015), skyH);
   }
 
-  fragColor = vec4(max(col, vec3(0.0)), 1.0);
+  fragColor = vec4(max(col, vec3(0.0)), u_theme == 7 ? 0.0 : 1.0);
 }
 `
 
@@ -836,10 +1278,29 @@ uniform vec3 u_camPos;
 uniform float u_time;
 uniform int u_theme;
 uniform int u_tier;
+uniform int u_dieIndex;
+uniform int u_contestSide; // 0: normal, 1: ally (left/emerald), 2: rival (right/crimson)
 uniform int u_winningFace;
+uniform int u_maxFaceIdx;
+uniform int u_styleAtlasOffset;
 uniform float u_settled;
 uniform float u_climax;
 uniform int u_faceTiles[20];
+
+const float PI = 3.14159265359;
+
+vec3 applyContestSideTint(vec3 col, float glyphMask, float edgeLine, float rim) {
+  if (u_contestSide == 1) {
+    vec3 bodyTint = col * vec3(0.84, 1.06, 0.96) + vec3(0.01, 0.04, 0.03);
+    col = mix(col, bodyTint, 0.36 * (1.0 - glyphMask));
+    col += vec3(0.22, 0.88, 0.64) * (edgeLine * 0.34 + rim * 0.28) * (1.0 - glyphMask * 0.7);
+  } else if (u_contestSide == 2) {
+    vec3 bodyTint = col * vec3(1.18, 0.60, 0.54) + vec3(0.14, 0.02, 0.02);
+    col = mix(col, bodyTint, 0.54 * (1.0 - glyphMask));
+    col += vec3(0.98, 0.34, 0.24) * (edgeLine * 0.44 + rim * 0.34) * (1.0 - glyphMask * 0.7);
+  }
+  return max(col, vec3(0.0));
+}
 
 float hash31(vec3 p) {
   p = fract(p * 0.1031);
@@ -860,7 +1321,51 @@ float noise3(vec3 x) {
   );
 }
 
-// 伪环境反射采样，营造奢华宝石/黑曜石/鎏金镜面高光流转感
+float bayer4x4(vec2 fragCoord) {
+  ivec2 p = ivec2(mod(fragCoord, 4.0));
+  int idx = p.y * 4 + p.x;
+  const float m[16] = float[16](
+     0.0,  8.0,  2.0, 10.0,
+    12.0,  4.0, 14.0,  6.0,
+     3.0, 11.0,  1.0,  9.0,
+    15.0,  7.0, 13.0,  5.0
+  );
+  return (m[idx] + 0.5) / 16.0;
+}
+
+float refractedAstrolabe(vec2 p) {
+  float r = length(p);
+  float aa = 0.009;
+  float rings = smoothstep(aa, 0.0, abs(r - 0.94))
+              + smoothstep(aa, 0.0, abs(r - 0.58))
+              + smoothstep(aa, 0.0, abs(r - 0.26));
+  float rEcl = length(p - vec2(0.0, 0.16));
+  float ecl = smoothstep(aa * 1.1, 0.0, abs(rEcl - 0.68)) * step(r, 0.94);
+  float axes = (smoothstep(aa, 0.0, abs(p.x)) + smoothstep(aa, 0.0, abs(p.y))) * step(r, 0.94) * 0.5;
+  return clamp(rings + ecl + axes, 0.0, 1.0);
+}
+
+vec3 sampleStudioEnv(vec3 R, int v2Theme) {
+  float up = clamp(R.z * 0.5 + 0.5, 0.0, 1.0);
+  float softboxMain = smoothstep(0.76, 0.96, dot(R, normalize(vec3(-0.42, -0.36, 0.83))));
+  float softboxFill = smoothstep(0.70, 0.94, dot(R, normalize(vec3(0.64, 0.28, 0.71))));
+
+  if (v2Theme == 0) {
+    vec3 env = mix(vec3(0.04, 0.11, 0.07), vec3(0.24, 0.19, 0.13), up);
+    return env + vec3(2.15, 1.82, 1.32) * softboxMain + vec3(0.95, 0.85, 0.72) * softboxFill * 0.65;
+  }
+  if (v2Theme == 3) {
+    vec3 env = mix(vec3(0.03, 0.02, 0.02), vec3(0.18, 0.15, 0.13), up);
+    return env + vec3(2.45, 2.25, 1.95) * softboxMain + vec3(0.9, 0.55, 0.35) * softboxFill * 0.45;
+  }
+  if (v2Theme == 4) {
+    vec3 env = mix(vec3(0.62, 0.61, 0.59), vec3(0.95, 0.95, 0.94), up);
+    return env + vec3(0.85) * softboxMain;
+  }
+  vec3 env = mix(vec3(0.04, 0.08, 0.14), vec3(0.18, 0.30, 0.42), up);
+  return env + vec3(2.1, 2.35, 2.55) * softboxMain + vec3(0.65, 1.15, 1.35) * softboxFill * 0.7;
+}
+
 vec3 sampleEnvMap(vec3 R, int theme) {
   float horizon = pow(1.0 - abs(R.z), 4.0);
   float studioStrip1 = smoothstep(0.86, 0.98, dot(R, normalize(vec3(-0.45, -0.35, 0.82))));
@@ -877,7 +1382,6 @@ vec3 sampleEnvMap(vec3 R, int theme) {
   return baseEnv + rimTint * horizon * 0.65 + vec3(3.2, 3.0, 2.7) * studioStrip1 + rimTint * studioStrip2 * 1.4;
 }
 
-// 薄膜干涉彩虹光谱函数（供时停水晶棱镜使用）
 vec3 spectralIridescence(float cosTheta, float phase) {
   return 0.5 + 0.5 * cos(6.28318 * (cosTheta * 1.65 + phase + vec3(0.0, 0.33, 0.67)));
 }
@@ -885,31 +1389,302 @@ vec3 spectralIridescence(float cosTheta, float phase) {
 void main() {
   vec3 V = normalize(u_camPos - v_worldPos);
 
-  // 1. 窄倒角：圆角只吃掉最外 5% 边沿，面内 95% 严格保持平面法线（切面必须平，否则会像球）
-  float bevelMask = 1.0 - smoothstep(0.008, 0.052, v_edgeDist);
-  float ridgeLine = smoothstep(0.032, 0.004, v_edgeDist);
-  vec3 N = normalize(mix(v_faceN, v_smoothN, bevelMask * 0.55));
-
-  // 2. 采样 2048x2048 高对比四通道雕文图集（R:锐利字芯, G:暗槽描边保护环, B:刻槽斜率, A:外晕）
   float glyphMask = 0.0;
   float moatMask  = 0.0;
-  float glyphHalo = 0.0;
   float bumpSlope = 0.0;
 
   if (v_uv.x > 0.03 && v_uv.x < 0.97 && v_uv.y > 0.03 && v_uv.y < 0.97) {
-    int tileId = u_faceTiles[clamp(v_faceIdx, 0, 19)];
-    vec2 tileOrigin = vec2(float(tileId & 7), float(tileId >> 3)) * 0.125;
-    vec2 atlasUV = tileOrigin + clamp(v_uv, 0.02, 0.98) * 0.125;
+    int localTile = u_faceTiles[clamp(v_faceIdx, 0, 19)];
+    int globalTile = clamp(u_styleAtlasOffset + localTile, 0, 255);
+    vec2 tileOrigin = vec2(float(globalTile & 15), float(globalTile >> 4)) * 0.0625;
+    vec2 atlasUV = tileOrigin + clamp(v_uv, 0.025, 0.975) * 0.0625;
     vec4 tex = texture(u_atlas, atlasUV);
-    // 收紧字芯阈值：缩小到 30~50px 时，宽软边会把笔画糊成一团灰白
-    float aa = max(0.035, fwidth(tex.r) * 0.8);
-    glyphMask = smoothstep(0.56 - aa, 0.56 + aa, tex.r);
-    moatMask  = clamp(smoothstep(0.34, 0.60, tex.g) - glyphMask, 0.0, 1.0);
-    bumpSlope = (tex.b * 2.0 - 1.0);
-    glyphHalo = clamp(tex.a - glyphMask * 0.85, 0.0, 1.0);
+
+    if (u_theme == 7) {
+      glyphMask = step(0.48, tex.r);
+      moatMask  = clamp(step(0.42, tex.g) - glyphMask, 0.0, 1.0);
+      bumpSlope = 0.0;
+    } else {
+      float aa = max(0.035, fwidth(tex.r) * 0.82);
+      glyphMask = smoothstep(0.54 - aa, 0.54 + aa, tex.r);
+      moatMask  = clamp(smoothstep(0.32, 0.58, tex.g) - glyphMask, 0.0, 1.0);
+      bumpSlope = (tex.b * 2.0 - 1.0);
+    }
   }
 
-  // 刻槽边缘立体法线扰动（仅作用于字芯边缘，保持字芯内部平坦锐利不眩光）
+  // ==========================================================================
+  // 典藏级六大跨媒介艺术皮肤 (theme 6..11)
+  // ==========================================================================
+  if (u_theme >= 6) {
+    int v2 = u_theme - 6;
+    float bevelSpan = v2 == 1 ? 0.018 : (v2 == 0 ? 0.056 : (v2 == 4 ? 0.046 : 0.052));
+    float bevelMask = 1.0 - smoothstep(0.006, bevelSpan, v_edgeDist);
+    float ridgeLine = smoothstep(0.034, 0.004, v_edgeDist);
+    vec3 N = normalize(mix(v_faceN, v_smoothN, bevelMask * (v2 == 1 ? 0.15 : 0.62)));
+
+    if (v2 != 1 && v2 != 2) {
+      N = normalize(N - (v_tan + v_bitan) * (bumpSlope * 0.45));
+    }
+
+    vec3 L1 = normalize(vec3(-0.38, -0.45, 0.81));
+    vec3 L2 = normalize(vec3(0.65, 0.50, 0.57));
+    float diff1 = max(dot(N, L1), 0.0);
+    float diff2 = max(dot(N, L2), 0.0);
+    float NdotV = max(dot(N, V), 0.001);
+    vec3 R = reflect(-V, N);
+    vec3 H1 = normalize(L1 + V);
+    float fresnel = pow(1.0 - NdotV, 4.0);
+
+    bool isWinFace = (v_faceIdx == u_winningFace) && (u_settled > 0.5);
+    bool isMaxFace = (v_faceIdx == u_maxFaceIdx);
+    float objIdAlpha = float(u_dieIndex + 1) / 32.0;
+    float focusDim = (u_settled > 0.5 && !isWinFace) ? 0.72 : 1.0;
+
+    if (v2 == 1) {
+      // [7: pixel] 勇者地牢：纯阶梯像素着色 + Bayer 抖动 + 1px 清脆棱线
+      float faceLit = max(dot(v_faceN, L1), 0.0) * 0.82 + max(dot(v_faceN, L2), 0.0) * 0.25;
+      float dither = bayer4x4(gl_FragCoord.xy);
+      int shadeBand = int(clamp(floor(faceLit * 3.4 + dither), 0.0, 3.0));
+
+      int pal = u_dieIndex & 3;
+      vec3 cDark, cMid, cBright, cRim;
+      if (pal == 0) {
+        cDark = vec3(0.28, 0.05, 0.11); cMid = vec3(0.58, 0.11, 0.19);
+        cBright = vec3(0.86, 0.22, 0.26); cRim = vec3(1.0, 0.58, 0.45);
+      } else if (pal == 1) {
+        cDark = vec3(0.06, 0.13, 0.34); cMid = vec3(0.13, 0.29, 0.64);
+        cBright = vec3(0.24, 0.52, 0.88); cRim = vec3(0.62, 0.86, 1.0);
+      } else if (pal == 2) {
+        cDark = vec3(0.05, 0.24, 0.16); cMid = vec3(0.11, 0.48, 0.30);
+        cBright = vec3(0.22, 0.74, 0.44); cRim = vec3(0.68, 0.96, 0.68);
+      } else {
+        cDark = vec3(0.32, 0.16, 0.05); cMid = vec3(0.64, 0.36, 0.09);
+        cBright = vec3(0.92, 0.62, 0.16); cRim = vec3(1.0, 0.88, 0.48);
+      }
+
+      vec3 body = shadeBand >= 3 ? cRim : (shadeBand == 2 ? cBright : (shadeBand == 1 ? cMid : cDark));
+      if (v_edgeDist < 0.036 && glyphMask < 0.5 && moatMask < 0.5) {
+        body = faceLit > 0.32 ? cRim : cDark * 0.65;
+      }
+
+      vec3 pixInk = (isMaxFace || (isWinFace && u_tier == 1))
+        ? vec3(1.0, 0.90, 0.32)
+        : vec3(0.98, 0.96, 0.90);
+      body = mix(body, vec3(0.06, 0.04, 0.09), moatMask);
+      body = mix(body, pixInk, glyphMask);
+      if (u_settled > 0.5 && !isWinFace) body *= 0.68;
+
+      fragColor = vec4(applyContestSideTint(body, glyphMask, ridgeLine, fresnel), objIdAlpha);
+      return;
+    }
+
+    if (v2 == 2) {
+      // [8: etching] 达芬奇手稿：实时三层钢笔交叉排线阴影 + 朱砂墨刻
+      float paperNoise = noise3(v_localPos * 14.0) * 0.035;
+      vec3 vellum = vec3(0.945, 0.898, 0.808) - paperNoise;
+      vec3 ironInk = vec3(0.135, 0.102, 0.078);
+      vec3 cinnabar = vec3(0.715, 0.175, 0.125);
+
+      float shade = clamp(dot(v_faceN, L1) * 0.78 + dot(v_faceN, L2) * 0.22, 0.0, 1.0);
+      vec2 hUV = v_uv * 44.0 + vec2(float(v_faceIdx) * 3.7, float(u_dieIndex) * 2.3);
+      float w1 = sin((hUV.x + hUV.y * 0.85) * PI);
+      float w2 = sin((hUV.x * 0.85 - hUV.y) * PI);
+      float w3 = sin((hUV.y * 1.35 + hUV.x * 0.25) * PI);
+
+      float aaH = clamp(fwidth(hUV.x) * 1.6, 0.08, 0.45);
+      float line1 = smoothstep(0.36 + aaH, 0.36 - aaH, abs(w1));
+      float line2 = smoothstep(0.34 + aaH, 0.34 - aaH, abs(w2));
+      float line3 = smoothstep(0.32 + aaH, 0.32 - aaH, abs(w3));
+
+      float hatch = 0.0;
+      float clearGlyphZone = clamp(glyphMask + moatMask * 0.92, 0.0, 1.0);
+      if (shade < 0.72) hatch = max(hatch, line1 * smoothstep(0.72, 0.45, shade) * 0.62);
+      if (shade < 0.44) hatch = max(hatch, line2 * smoothstep(0.44, 0.20, shade) * 0.72);
+      if (shade < 0.20) hatch = max(hatch, line3 * smoothstep(0.20, 0.02, shade) * 0.82);
+      hatch *= (1.0 - clearGlyphZone);
+
+      vec3 col = mix(vellum, ironInk, hatch);
+      float penEdge = smoothstep(0.042, 0.010, v_edgeDist) * (1.0 - glyphMask);
+      col = mix(col, ironInk, penEdge * 0.86);
+
+      float innerFrame = smoothstep(0.095, 0.080, v_edgeDist) * smoothstep(0.065, 0.080, v_edgeDist) * (1.0 - clearGlyphZone);
+      col = mix(col, ironInk, innerFrame * 0.35);
+
+      bool redInkGlyph = isMaxFace || isWinFace;
+      col = mix(col, vellum, moatMask * 0.85);
+      col = mix(col, redInkGlyph ? cinnabar : ironInk, glyphMask);
+      if (u_settled > 0.5 && !isWinFace) col = mix(vellum * 0.88, col, 0.76);
+
+      fragColor = vec4(applyContestSideTint(col, glyphMask, ridgeLine, fresnel), objIdAlpha);
+      return;
+    }
+
+    if (v2 == 0) {
+      // [6: atelier] 绅士赌桌：手工线性拉丝做旧黄铜 & 传世猛犸骨瓷双材质
+      bool isBrass = ((u_dieIndex & 1) == 0);
+      vec3 env = sampleStudioEnv(R, 0);
+      float antiGlare = 1.0 - glyphMask * 0.92;
+
+      if (isBrass) {
+        float brushFine = sin(v_uv.x * 260.0 + noise3(v_localPos * 12.0) * 1.8) * 0.5 + 0.5;
+        float patinaNoise = noise3(v_localPos * 5.2);
+        float edgePolish = clamp(bevelMask * 0.95 + ridgeLine * 0.85 + smoothstep(0.13, 0.015, v_edgeDist) * 0.48, 0.0, 1.0);
+
+        vec3 agedBronze    = vec3(0.45, 0.32, 0.14) * (0.88 + 0.22 * patinaNoise);
+        vec3 polishedBrass = vec3(0.95, 0.78, 0.43);
+        vec3 metalAlbedo   = mix(agedBronze, polishedBrass, edgePolish * (1.0 - glyphMask));
+        metalAlbedo *= (0.97 + 0.055 * brushFine * (1.0 - glyphMask));
+
+        vec3 enamelInk = (isMaxFace || (isWinFace && u_tier == 1))
+          ? vec3(0.95, 0.91, 0.82)
+          : vec3(0.025, 0.023, 0.022);
+        float edgeLip = clamp(abs(bumpSlope) * 1.6, 0.0, 1.0) * (1.0 - glyphMask);
+        metalAlbedo = mix(metalAlbedo, polishedBrass * 1.12, edgeLip * 0.58);
+
+        float rough = mix(0.28 - edgePolish * 0.14 + brushFine * 0.04, 0.22, glyphMask);
+        float metal = mix(0.88, 0.04, glyphMask);
+
+        vec3 F0 = mix(vec3(0.04), metalAlbedo, metal);
+        vec3 F  = F0 + (1.0 - F0) * fresnel;
+        float specPow = mix(98.0, 18.0, rough);
+        float spec1 = pow(max(dot(N, H1), 0.0), specPow) * 1.48;
+        float chamferGlint = bevelMask * pow(max(dot(v_smoothN, H1), 0.0), 48.0) * 1.9;
+
+        vec3 base = mix(metalAlbedo, enamelInk, glyphMask);
+        vec3 diffuse = base * (1.0 - metal * 0.82) * (0.34 + 0.78 * diff1 + 0.25 * diff2);
+        vec3 specular = (F * env * (1.0 - rough * 0.42) + F * (spec1 + chamferGlint) * vec3(1.15, 1.02, 0.84)) * antiGlare;
+        specular += vec3(0.06) * pow(max(dot(v_faceN, H1), 0.0), 64.0) * glyphMask;
+
+        fragColor = vec4(applyContestSideTint((diffuse + specular) * focusDim, glyphMask, ridgeLine, fresnel), objIdAlpha);
+        return;
+      } else {
+        float boneGrain = sin((v_localPos.x * 15.0 + v_localPos.y * 13.0) + noise3(v_localPos * 4.5) * 2.2) * 0.5 + 0.5;
+        vec3 ivory = vec3(0.92, 0.875, 0.78) - vec3(0.03, 0.036, 0.045) * boneGrain * 0.48;
+        float wrapDiff = max(0.0, (dot(N, L1) + 0.45) / 1.45);
+
+        vec3 brassTrim = vec3(0.84, 0.67, 0.34);
+        float trimMask = ridgeLine * 0.82 * (1.0 - glyphMask);
+        vec3 inkCol = isMaxFace ? vec3(0.62, 0.12, 0.09) : vec3(0.09, 0.07, 0.055);
+
+        vec3 col = ivory * (0.44 + 0.66 * wrapDiff + 0.18 * diff2);
+        col = mix(col, brassTrim * (0.45 + 0.75 * diff1) + env * 0.38, trimMask);
+        col = mix(col, inkCol, glyphMask);
+        float spec = pow(max(dot(N, H1), 0.0), 54.0) * 0.26 * antiGlare;
+        col += vec3(1.0, 0.96, 0.88) * spec + env * fresnel * 0.14 * antiGlare;
+
+        fragColor = vec4(applyContestSideTint(col * focusDim, glyphMask, ridgeLine, fresnel), objIdAlpha);
+        return;
+      }
+    }
+
+    if (v2 == 3) {
+      // [9: urushi] 京都黑漆：正朱砂推光大漆 / 吕色乌漆 + 夜光贝螺钿棱镶 + 金泥莳绘
+      bool isShuRed = ((u_dieIndex & 1) == 0);
+      vec3 env = sampleStudioEnv(R, 3);
+
+      float depthCloud = noise3(v_localPos * 5.2) * 0.10;
+      vec3 lacquerBase = isShuRed
+        ? vec3(0.56, 0.075, 0.054) * (0.90 + depthCloud)
+        : vec3(0.018, 0.015, 0.017) + vec3(0.012, 0.008, 0.010) * depthCloud;
+
+      float pearlGrain = noise3(v_localPos * 18.0);
+      float radenMask = smoothstep(0.028, 0.005, v_edgeDist) * (1.0 - glyphMask);
+      float pearlPhase = NdotV * 2.8 + pearlGrain * 4.5 + float(v_faceIdx) * 0.7;
+      vec3 motherOfPearl = vec3(0.74, 0.82, 0.80) + 0.22 * cos(pearlPhase + vec3(0.0, 1.85, 3.5));
+
+      float goldSparkle = noise3(v_worldPos * 26.0) * 0.14;
+      vec3 makieGold = (isWinFace ? vec3(0.96, 0.80, 0.42) : vec3(0.88, 0.70, 0.32)) + goldSparkle;
+      if (!isShuRed && isMaxFace) {
+        makieGold = vec3(0.80, 0.15, 0.11);
+      }
+
+      vec3 diffuse = lacquerBase * (0.38 + 0.72 * diff1 + 0.22 * diff2);
+      diffuse = mix(diffuse, motherOfPearl * (0.55 + 0.55 * diff1), radenMask * 0.82);
+      diffuse = mix(diffuse, makieGold * (0.60 + 0.58 * diff1), glyphMask);
+
+      float clearcoatSpec = pow(max(dot(N, H1), 0.0), 148.0) * 1.65 * (1.0 - glyphMask * 0.85);
+      float coatFresnel = 0.04 + 0.96 * fresnel;
+      vec3 specular = (env * coatFresnel * 0.42 + vec3(1.2, 1.12, 1.0) * clearcoatSpec) * (1.0 - glyphMask * 0.75);
+      specular += makieGold * pow(max(dot(N, H1), 0.0), 26.0) * 0.42 * glyphMask;
+
+      fragColor = vec4(applyContestSideTint((diffuse + specular) * focusDim, glyphMask, ridgeLine, fresnel), objIdAlpha);
+      return;
+    }
+
+    if (v2 == 4) {
+      // [10: bauhaus] 包豪斯白瓷：哑光氧化锆白瓷 / 石墨铝 + 博朗信号橙
+      bool isGraphite = ((u_dieIndex % 3) == 1);
+      vec3 braunOrange = u_tier == 5 ? vec3(0.84, 0.14, 0.14) : vec3(1.0, 0.30, 0.0);
+
+      vec3 ceramicWhite = vec3(0.96, 0.955, 0.942);
+      vec3 graphiteBody = vec3(0.14, 0.145, 0.156);
+
+      bool orangeCap = isMaxFace && !isGraphite;
+      vec3 bodyAlbedo = orangeCap ? braunOrange : (isGraphite ? graphiteBody : ceramicWhite);
+      vec3 glyphAlbedo = orangeCap
+        ? ceramicWhite
+        : (isMaxFace || (isWinFace && u_tier == 1))
+          ? braunOrange
+          : (isGraphite ? ceramicWhite : vec3(0.10, 0.105, 0.115));
+
+      float softLight = 0.58 + 0.44 * max(dot(v_faceN, L1), 0.0) + 0.18 * max(dot(v_faceN, L2), 0.0);
+      float bevelSheen = bevelMask * pow(max(dot(v_smoothN, H1), 0.0), 22.0) * (isGraphite ? 0.22 : 0.14);
+
+      vec3 col = bodyAlbedo * softLight + vec3(bevelSheen);
+      if (isWinFace && !orangeCap) {
+        float ringD = abs(length(v_uv - 0.5) - 0.42);
+        float ringM = smoothstep(0.015, 0.005, ringD) * (1.0 - glyphMask);
+        col = mix(col, braunOrange, ringM * 0.85);
+      }
+      col = mix(col, glyphAlbedo * (0.76 + 0.28 * max(dot(v_faceN, L1), 0.0)), glyphMask);
+      if (u_settled > 0.5 && !isWinFace) col *= 0.85;
+
+      fragColor = vec4(applyContestSideTint(col, glyphMask, ridgeLine, fresnel), objIdAlpha);
+      return;
+    }
+
+    // [11: murano] 深海星仪：威尼斯微磨砂海琉璃 & 斯涅尔真实背景星轨折射
+    vec3 env = sampleStudioEnv(R, 5);
+    vec3 refrDir = refract(-V, N, 1.0 / 1.51);
+    float tFloor = -v_worldPos.z / min(-0.18, refrDir.z);
+    vec2 refrHit = v_worldPos.xy + refrDir.xy * tFloor;
+    vec2 refrP = refrHit * 0.0038;
+
+    float refrAstro = refractedAstrolabe(refrP);
+    float refrSlate = noise3(vec3(refrHit * 0.03, 1.0));
+    vec3 transmittedBg = mix(vec3(0.035, 0.09, 0.155), vec3(0.085, 0.19, 0.27), refrSlate)
+                       + vec3(0.78, 0.90, 0.96) * refrAstro * 0.88;
+
+    float thickness = mix(1.0, 0.35, fresnel);
+    float internalVeil = noise3(v_localPos * 4.8 - V * 0.28) * 0.5 + noise3(v_localPos * 11.0) * 0.25;
+    vec3 glassTint = u_tier == 5
+      ? mix(vec3(0.42, 0.35, 0.68), vec3(0.14, 0.08, 0.28), thickness)
+      : mix(vec3(0.58, 0.88, 0.90), vec3(0.07, 0.27, 0.38), thickness);
+
+    vec3 body = transmittedBg * glassTint * 1.48 + glassTint * internalVeil * 0.22;
+    body += vec3(0.58, 0.84, 0.88) * pow(1.0 - NdotV, 2.6) * 0.35;
+
+    vec3 silverTrim = vec3(0.78, 0.84, 0.90);
+    vec3 silverGlyph = isWinFace ? vec3(0.99, 1.0, 1.0) : vec3(0.90, 0.95, 0.99);
+    float tightShadow = clamp(abs(bumpSlope) * 1.4, 0.0, 1.0) * (1.0 - glyphMask);
+    body = mix(body, vec3(0.02, 0.08, 0.14), tightShadow * 0.65);
+    body = mix(body, silverTrim * (0.46 + 0.64 * diff1) + env * 0.35, ridgeLine * 0.72 * (1.0 - glyphMask));
+    body = mix(body, silverGlyph, glyphMask);
+
+    float antiGlare = 1.0 - glyphMask * 0.94;
+    float spec = pow(max(dot(N, H1), 0.0), 78.0) * 1.35;
+    vec3 specular = (env * (0.06 + 0.82 * fresnel) * 0.52 + vec3(1.15, 1.25, 1.3) * spec) * antiGlare;
+
+    fragColor = vec4(applyContestSideTint((body + specular) * focusDim, glyphMask, ridgeLine, fresnel), objIdAlpha);
+    return;
+  }
+
+  // ==========================================================================
+  // 幻想皮肤管线 (theme 0..5)
+  // ==========================================================================
+  float bevelMask = 1.0 - smoothstep(0.008, 0.052, v_edgeDist);
+  float ridgeLine = smoothstep(0.032, 0.004, v_edgeDist);
+  vec3 N = normalize(mix(v_faceN, v_smoothN, bevelMask * 0.55));
   N = normalize(N - (v_tan + v_bitan) * (bumpSlope * 0.52));
 
   float NdotV = max(dot(N, V), 0.001);
@@ -937,7 +1712,6 @@ void main() {
   float clearZone = clamp(glyphMask + moatMask * 0.95, 0.0, 1.0);
 
   if (u_theme == 0) {
-    // [0] 星穹秘法：深邃黑曜石底 + 纯黑描边护城槽 + 零过曝高锐度鎏金亮白数字（对比度 > 18:1）
     vec3 deepNebula = mix(vec3(0.008, 0.006, 0.024), vec3(0.08, 0.03, 0.18), interiorNoise) * (1.0 - clearZone);
     deepNebula += vec3(0.45, 0.28, 0.08) * pow(interiorFine, 4.0) * 0.35 * (1.0 - clearZone);
     deepNebula = mix(deepNebula, vec3(0.004, 0.003, 0.010), moatMask);
@@ -950,12 +1724,9 @@ void main() {
     roughness = mix(0.10, 0.45, glyphMask);
 
     vec3 auraCol = u_tier == 5 ? vec3(2.1, 0.28, 3.0) : vec3(2.4, 1.52, 0.38);
-    // 仅棱脊高光触发 HDR Bloom，字芯保持在 0.95 以内，100% 锐利零糊边！
     emissive = auraCol * (ridgeLine * 0.52 * winPulse) * (1.0 - clearZone)
              + numColor * (glyphMask * 0.42);
   } else if (u_theme == 1) {
-    // [1] 时停棱镜：深海蓝宝石棱镜 + 深靛黑护城槽 + 纯白高锐度刻字
-    // 每个切面一个色相：相位由面法线决定（面内恒定），彩虹只沿棱脊流动，面内不再出现油膜斑块
     float faceNdotV = max(dot(v_faceN, V), 0.001);
     vec3 irid = spectralIridescence(faceNdotV, float(v_faceIdx) * 0.13 + u_time * 0.05);
     vec3 refractedCore = mix(vec3(0.016, 0.082, 0.215), irid * 0.30, (0.34 + 0.10 * interiorFine) * (1.0 - clearZone));
@@ -968,7 +1739,6 @@ void main() {
     emissive  = irid * (fresnel * 0.42 + ridgeLine * 0.9) * (1.0 - clearZone)
               + numCol * (glyphMask * 0.62);
   } else if (u_theme == 2) {
-    // [2] 焚天熔炉：锻打黑铁壳 + 纯黑隔热槽 + 亮金白清晰数字
     float coreHeat = pow(clamp(interiorNoise * 0.65 + interiorFine * 0.55, 0.0, 1.0), 2.2);
     vec3 magmaCore = mix(vec3(1.6, 0.18, 0.01), vec3(3.8, 1.85, 0.32), coreHeat);
     float fissure = smoothstep(0.66, 0.88, interiorFine) * (1.0 - bevelMask * 0.5) * (1.0 - clearZone);
@@ -981,7 +1751,6 @@ void main() {
     emissive  = magmaCore * (fissure * 0.85 + ridgeLine * 0.88) * (1.0 - clearZone)
               + hotNum * (glyphMask * 0.44);
   } else if (u_theme == 3) {
-    // [3] 赛博超频：深黑装甲玻璃 + 纯黑护城槽 + 高对比荧光冰青白数码字
     float scanPlane = exp(-abs(fract(v_worldPos.z * 0.035 - u_time * 0.85) - 0.5) * 18.0) * (1.0 - clearZone);
     vec3 holoTint = (v_faceIdx & 1) == 0 ? vec3(0.05, 2.2, 2.5) : vec3(2.4, 0.18, 1.75);
     vec3 body = mix(vec3(0.010, 0.016, 0.038), vec3(0.002, 0.004, 0.010), moatMask);
@@ -993,7 +1762,6 @@ void main() {
     emissive  = holoTint * (ridgeLine * 1.25 + scanPlane * 0.48) * (1.0 - clearZone)
               + cyberNum * (glyphMask * 0.44);
   } else if (u_theme == 4) {
-    // [4] 水墨剑心：温润羊脂白玉 + 素白净空衬底 + 浓黑徽墨 / 深沉朱砂阴文（印刷级清晰度！）
     float jadeCloud = interiorNoise * 0.09 * (1.0 - clearZone);
     vec3 jadeBody = vec3(0.91, 0.92, 0.88) - vec3(0.05, 0.03, 0.04) * jadeCloud;
     float wrapDiff = max(0.0, (dot(N, L1) + 0.55) / 1.55);
@@ -1010,7 +1778,6 @@ void main() {
     roughness = mix(0.16, 0.82, glyphMask);
     metallic  = ridgeLine * 0.65 * (1.0 - clearZone);
   } else {
-    // [5] 虚空星噬：深渊黑骨 + 纯黑护城槽 + 锐利薄荷白秘文
     float vein = pow(1.0 - abs(interiorFine * 2.0 - 1.0), 6.0) * (1.0 - clearZone);
     vec3 bone = mix(vec3(0.015, 0.026, 0.032), vec3(0.06, 0.10, 0.09), interiorNoise * (1.0 - clearZone));
     bone = mix(bone, vec3(0.003, 0.006, 0.008), moatMask);
@@ -1024,14 +1791,12 @@ void main() {
              + voidNum * (glyphMask * 0.42);
   }
 
-  // 3. 落定后"赢面聚焦"：判定面全亮，其余四个面压暗到 42%，多面数字不再互相干扰读数
   if (u_settled > 0.5) {
     float faceFocus = isWinFace ? 1.0 : 0.42;
     baseColor *= faceFocus;
     emissive *= faceFocus;
   }
 
-  // 4. PBR 高光与环境反射合成（字芯与暗槽 98% 消光抗眩，任何视角绝不反光糊字！）
   float specPow = mix(128.0, 14.0, roughness);
   float spec1 = pow(max(dot(N, H1), 0.0), specPow) * (1.8 - roughness);
   float spec2 = pow(max(dot(N, H2), 0.0), specPow * 0.6) * 0.65;
@@ -1049,17 +1814,16 @@ void main() {
 
   specular += F * bevelMask * pow(max(dot(v_smoothN, H1), 0.0), 42.0) * 1.75 * antiGlare;
 
-  vec3 finalHDR = diffuse + specular + emissive;
+  vec3 finalHDR = applyContestSideTint(diffuse + specular + emissive, glyphMask, ridgeLine, fresnel);
   fragColor = vec4(max(finalHDR, vec3(0.0)), 1.0);
 }
 `
 
-// 3D 能量拖尾丝带 & 书法飞白/剑气着色器
 const RIBBON_VERT = `#version 300 es
 precision highp float;
 layout(location = 0) in vec3 a_pos;
-layout(location = 1) in vec2 a_uv;    // x: 0(头部)..1(尾部), y: -1..+1 宽度横截面
-layout(location = 2) in vec4 a_color; // rgb(HDR), a
+layout(location = 1) in vec2 a_uv;
+layout(location = 2) in vec4 a_color;
 
 uniform mat4 u_viewProj;
 out vec2 v_uv;
@@ -1079,7 +1843,7 @@ in vec4 v_color;
 out vec4 fragColor;
 
 uniform float u_time;
-uniform int u_isInk; // 1: 水墨飞白浓墨混合, 0: 能量发光丝带
+uniform int u_isInk; // 0: 能量发光丝带, 1: 水墨飞白浓墨, 2: 圆规铁胆细墨线, 3: 柔和微光游丝
 
 float hash21(vec2 p) {
   p = fract(p * vec2(123.34, 456.21));
@@ -1097,16 +1861,25 @@ float noise2(vec2 p) {
 void main() {
   float across = abs(v_uv.y);
   float tailFade = pow(max(0.0, 1.0 - v_uv.x), 1.45);
-  float n = noise2(vec2(v_uv.x * 10.0 - u_time * 6.5, v_uv.y * 3.5));
 
-  if (u_isInk == 1) {
-    // 书法飞白：边缘与尾部呈现干笔纤维断续纹理！
+  if (u_isInk == 2) {
+    float line = smoothstep(0.65, 0.15, across);
+    float alpha = line * tailFade * v_color.a;
+    if (alpha < 0.01) discard;
+    fragColor = vec4(v_color.rgb, alpha);
+  } else if (u_isInk == 3) {
+    float core = exp(-across * across * 6.5);
+    float alpha = core * tailFade * v_color.a;
+    if (alpha < 0.005) discard;
+    fragColor = vec4(v_color.rgb * alpha, alpha);
+  } else if (u_isInk == 1) {
     float bristle = noise2(vec2(v_uv.x * 18.0, v_uv.y * 14.0));
     float dryMask = smoothstep(0.22 + v_uv.x * 0.45, 0.78, bristle * (1.0 - across * 0.55));
     float alpha = dryMask * tailFade * v_color.a;
     if (alpha < 0.01) discard;
     fragColor = vec4(v_color.rgb, alpha);
   } else {
+    float n = noise2(vec2(v_uv.x * 10.0 - u_time * 6.5, v_uv.y * 3.5));
     float core = exp(-across * across * 5.5);
     float erode = smoothstep(v_uv.x * 0.65, 1.0, n * 0.55 + core * 0.75);
     float alpha = core * erode * tailFade * v_color.a;
@@ -1116,37 +1889,50 @@ void main() {
 }
 `
 
-// 速度拉伸 3D 火星粒子 & 冲天光柱着色器
+// 多媒介粒子与光柱着色器
+// mode: 0=速度拉伸火星, 1=冲天光柱, 2=纯正方形像素尘埃, 3=像素十字闪星, 4=24K摇曳金箔叶, 5=柔和微尘/微墨点
 const PARTICLE_VERT = `#version 300 es
 precision highp float;
 layout(location = 0) in vec3 a_center;
 layout(location = 1) in vec3 a_vel;
-layout(location = 2) in vec2 a_corner; // [-1..1, -1..1]
-layout(location = 3) in vec4 a_color;  // HDR rgb + alpha
-layout(location = 4) in vec2 a_sizeMode; // x: size, y: mode (0:spark, 1:pillar)
+layout(location = 2) in vec2 a_corner;
+layout(location = 3) in vec4 a_color;
+layout(location = 4) in vec2 a_sizeMode;
 
 uniform mat4 u_viewProj;
 uniform vec3 u_camPos;
+uniform float u_time;
 
 out vec2 v_corner;
 out vec4 v_color;
 flat out float v_mode;
+flat out float v_seed;
 
 void main() {
   v_corner = a_corner;
   v_color = a_color;
   v_mode = a_sizeMode.y;
   float sz = a_sizeMode.x;
+  v_seed = fract(sin(dot(a_center, vec3(12.9898, 78.233, 37.719))) * 43758.5453);
 
   vec3 toCam = normalize(u_camPos - a_center);
   vec3 worldPos;
-  if (a_sizeMode.y > 0.5) {
-    // 冲天暴击光柱：沿 Z 轴垂直拔地而起！
+  if (a_sizeMode.y > 0.5 && a_sizeMode.y < 1.5) {
     vec3 up = vec3(0.0, 0.0, 1.0);
     vec3 side = normalize(cross(toCam, up));
     worldPos = a_center + side * (a_corner.x * sz) + up * ((a_corner.y * 0.5 + 0.5) * a_vel.z);
+  } else if (a_sizeMode.y > 3.5 && a_sizeMode.y < 4.5) {
+    vec3 right = normalize(cross(vec3(0.0, 0.0, 1.0), toCam));
+    vec3 up = normalize(cross(toCam, right));
+    float flutter = u_time * 5.5 + v_seed * 6.28;
+    float c = cos(flutter), s = sin(flutter);
+    vec2 rotC = vec2(a_corner.x * c - a_corner.y * s, (a_corner.x * s + a_corner.y * c) * (0.45 + 0.55 * abs(sin(flutter * 0.7))));
+    worldPos = a_center + right * (rotC.x * sz) + up * (rotC.y * sz);
+  } else if (a_sizeMode.y > 1.5) {
+    vec3 right = normalize(cross(vec3(0.0, 0.0, 1.0), toCam));
+    vec3 up = normalize(cross(toCam, right));
+    worldPos = a_center + right * (a_corner.x * sz) + up * (a_corner.y * sz);
   } else {
-    // 速度方向动态拉伸火星：真实高快门流光残影！
     float spd = length(a_vel);
     vec3 dir = spd > 1.0 ? (a_vel / spd) : vec3(0.0, 0.0, 1.0);
     vec3 side = cross(toCam, dir);
@@ -1165,27 +1951,44 @@ precision highp float;
 in vec2 v_corner;
 in vec4 v_color;
 flat in float v_mode;
+flat in float v_seed;
 out vec4 fragColor;
 
 void main() {
-  if (v_mode > 0.5) {
-    // 冲天圣光柱 / 深渊裂柱：中心极亮、向上与向两侧丝滑衰减
+  if (v_mode > 0.5 && v_mode < 1.5) {
     float radial = exp(-v_corner.x * v_corner.x * 5.2);
     float h = v_corner.y * 0.5 + 0.5;
     float vert = smoothstep(0.0, 0.08, h) * pow(max(0.0, 1.0 - h), 1.6);
     float a = radial * vert * v_color.a;
     fragColor = vec4(v_color.rgb * a, a);
-  } else {
-    float d2 = dot(v_corner, v_corner);
-    if (d2 > 1.0) discard;
-    float glow = exp(-d2 * 4.2) * (1.0 - d2);
-    float a = glow * v_color.a;
-    fragColor = vec4(v_color.rgb * glow * v_color.a, a);
+    return;
   }
+  if (v_mode >= 1.5 && v_mode < 2.5) {
+    if (max(abs(v_corner.x), abs(v_corner.y)) > 0.85) discard;
+    fragColor = vec4(v_color.rgb, 0.95);
+    return;
+  }
+  if (v_mode >= 2.5 && v_mode < 3.5) {
+    vec2 ac = abs(v_corner);
+    bool inCross = (ac.x < 0.26 && ac.y < 0.95) || (ac.y < 0.26 && ac.x < 0.95) || (ac.x < 0.52 && ac.y < 0.52);
+    if (!inCross) discard;
+    fragColor = vec4(v_color.rgb, 0.95);
+    return;
+  }
+  if (v_mode >= 3.5 && v_mode < 4.5) {
+    float diamond = abs(v_corner.x) * 0.85 + abs(v_corner.y) * 1.15;
+    if (diamond > 0.92) discard;
+    fragColor = vec4(v_color.rgb * v_color.a, v_color.a);
+    return;
+  }
+  float d2 = dot(v_corner, v_corner);
+  if (d2 > 1.0) discard;
+  float glow = exp(-d2 * 4.0) * (1.0 - d2);
+  float a = glow * v_color.a;
+  fragColor = vec4(v_color.rgb * a, a);
 }
 `
 
-// Dual-Kawase 13-tap / 5-tap 降采样与阈值提取
 const BLOOM_DOWN_FRAG = `#version 300 es
 precision highp float;
 in vec2 v_uv;
@@ -1214,7 +2017,6 @@ void main() {
 }
 `
 
-// Tent 9-tap 升采样叠加
 const BLOOM_UP_FRAG = `#version 300 es
 precision highp float;
 in vec2 v_uv;
@@ -1240,7 +2042,6 @@ void main() {
 }
 `
 
-// 最终屏幕合成：光学冲击波透镜扭曲 + 动态色差 + 子弹时间边缘冷焦 + ACES Filmic 色调映射
 const COMPOSITE_FRAG = `#version 300 es
 precision highp float;
 in vec2 v_uv;
@@ -1249,9 +2050,11 @@ out vec4 fragColor;
 uniform sampler2D u_sceneTex;
 uniform sampler2D u_bloomTex;
 uniform vec2 u_resolution;
-uniform vec4 u_shockwave;  // xy: 屏幕 UV (0..1), z: 半径, w: 扭曲强度
-uniform float u_chroma;    // 边缘色差强度 (撞击/赛博故障时飙升)
-uniform float u_bulletTime;// 0..1 子弹时间滤镜强度
+uniform vec2 u_sceneTexSize;
+uniform int u_theme;
+uniform vec4 u_shockwave;
+uniform float u_chroma;
+uniform float u_bulletTime;
 uniform float u_bloomStrength;
 uniform float u_time;
 
@@ -1264,11 +2067,70 @@ vec3 acesFilm(vec3 x) {
   return clamp((x * (a * x + b)) / (x * (c * x + d) + e), 0.0, 1.0);
 }
 
+vec3 neutralFilmic(vec3 x) {
+  const float a = 2.15;
+  const float b = 0.04;
+  const float c = 1.95;
+  const float d = 0.56;
+  const float e = 0.14;
+  return clamp((x * (a * x + b)) / (x * (c * x + d) + e), 0.0, 1.0);
+}
+
 void main() {
+  // 1. 像素风专属 (theme 7)：整数像素点采样 + 1px 纯正深墨黑像素外轮廓描边
+  if (u_theme == 7) {
+    ivec2 texDim = ivec2(u_sceneTexSize);
+    ivec2 tc = clamp(ivec2(v_uv * u_sceneTexSize), ivec2(0), texDim - ivec2(1));
+    vec4 center = texelFetch(u_sceneTex, tc, 0);
+    vec3 pixCol = center.rgb;
+
+    float idC = center.a;
+    float idL = texelFetch(u_sceneTex, clamp(tc + ivec2(-1,  0), ivec2(0), texDim - ivec2(1)), 0).a;
+    float idR = texelFetch(u_sceneTex, clamp(tc + ivec2( 1,  0), ivec2(0), texDim - ivec2(1)), 0).a;
+    float idU = texelFetch(u_sceneTex, clamp(tc + ivec2( 0,  1), ivec2(0), texDim - ivec2(1)), 0).a;
+    float idD = texelFetch(u_sceneTex, clamp(tc + ivec2( 0, -1), ivec2(0), texDim - ivec2(1)), 0).a;
+
+    bool cIsBg = idC < 0.01;
+    bool neighborIsDie = (idL > 0.01 && idL < 0.9) || (idR > 0.01 && idR < 0.9) ||
+                         (idU > 0.01 && idU < 0.9) || (idD > 0.01 && idD < 0.9);
+    bool dieSeam = (idC > 0.01 && idC < 0.9) && (
+      (idR > 0.01 && idR < 0.9 && abs(idC - idR) > 0.015) ||
+      (idU > 0.01 && idU < 0.9 && abs(idC - idU) > 0.015)
+    );
+
+    if ((cIsBg && neighborIsDie) || dieSeam) {
+      pixCol = vec3(0.055, 0.042, 0.082);
+    }
+    fragColor = vec4(clamp(pixCol, 0.0, 1.0), 1.0);
+    return;
+  }
+
+  // 2. 典藏级皮肤合成管线 (theme 6..11)：亮调保真 / 中性温润胶片曲线
+  if (u_theme >= 6) {
+    vec3 hdr = texture(u_sceneTex, clamp(v_uv, 0.001, 0.999)).rgb;
+    if (u_bloomStrength > 0.001) {
+      vec3 bloom = texture(u_bloomTex, clamp(v_uv, 0.001, 0.999)).rgb;
+      hdr += bloom * u_bloomStrength;
+    }
+    vec2 fromCenter = v_uv - 0.5;
+    if (u_theme == 8 || u_theme == 10) {
+      float lightVig = 1.0 - dot(fromCenter, fromCenter) * (u_theme == 8 ? 0.18 : 0.10);
+      vec3 c = hdr * lightVig;
+      c = c / (1.0 + max(vec3(0.0), c - 0.92) * 0.8);
+      fragColor = vec4(clamp(c, 0.0, 1.0), 1.0);
+      return;
+    }
+    float vig = 1.0 - dot(fromCenter, fromCenter) * 0.28;
+    vec3 mapped = neutralFilmic(hdr * vig);
+    mapped = pow(mapped, vec3(1.0 / 2.15));
+    fragColor = vec4(mapped, 1.0);
+    return;
+  }
+
+  // 3. 幻想皮肤合成管线 (theme 0..5)
   vec2 uv = v_uv;
   float aspect = u_resolution.x / max(1.0, u_resolution.y);
 
-  // 1. 屏幕空间径向冲击波光学折射透镜！
   if (u_shockwave.w > 0.001) {
     vec2 delta = uv - u_shockwave.xy;
     delta.x *= aspect;
@@ -1279,7 +2141,6 @@ void main() {
     uv -= dir * band * u_shockwave.w * 0.042;
   }
 
-  // 2. 径向色差分离 (Chromatic Aberration)
   vec2 fromCenter = uv - 0.5;
   float ca = u_chroma * dot(fromCenter, fromCenter) * 0.032;
   vec3 hdr;
@@ -1294,7 +2155,6 @@ void main() {
   vec3 bloom = texture(u_bloomTex, clamp(uv, 0.001, 0.999)).rgb;
   hdr += bloom * u_bloomStrength;
 
-  // 3. 子弹时间边缘冰蓝凝滞滤镜
   if (u_bulletTime > 0.01) {
     float edgeMask = smoothstep(0.18, 0.78, length(fromCenter));
     float luma = dot(hdr, vec3(0.2126, 0.7152, 0.0722));
@@ -1302,7 +2162,6 @@ void main() {
     hdr = mix(hdr, coldTint, edgeMask * u_bulletTime * 0.65);
   }
 
-  // 4. 电影级暗角 + ACES 色调映射 + sRGB Gamma 校正
   float vig = 1.0 - dot(fromCenter, fromCenter) * 0.42;
   vec3 mapped = acesFilm(hdr * vig);
   mapped = pow(mapped, vec3(1.0 / 2.2));
@@ -1539,7 +2398,8 @@ class WebGLDiceRenderer {
     this.diceProg = cacheUniforms(linkProgram(gl, DICE_VERT, DICE_FRAG), [
       'u_viewProj', 'u_rotMat', 'u_diePos', 'u_dieRadius',
       'u_atlas', 'u_camPos', 'u_time', 'u_theme', 'u_tier',
-      'u_winningFace', 'u_settled', 'u_climax', 'u_faceTiles[0]'
+      'u_dieIndex', 'u_contestSide', 'u_winningFace', 'u_maxFaceIdx', 'u_styleAtlasOffset',
+      'u_settled', 'u_climax', 'u_faceTiles[0]'
     ])
 
     this.ribbonProg = cacheUniforms(linkProgram(gl, RIBBON_VERT, RIBBON_FRAG), [
@@ -1547,7 +2407,7 @@ class WebGLDiceRenderer {
     ])
 
     this.particleProg = cacheUniforms(linkProgram(gl, PARTICLE_VERT, PARTICLE_FRAG), [
-      'u_viewProj', 'u_camPos'
+      'u_viewProj', 'u_camPos', 'u_time'
     ])
 
     this.bloomDownProg = cacheUniforms(linkProgram(gl, FULLSCREEN_VERT, BLOOM_DOWN_FRAG), [
@@ -1559,8 +2419,9 @@ class WebGLDiceRenderer {
     ])
 
     this.compositeProg = cacheUniforms(linkProgram(gl, FULLSCREEN_VERT, COMPOSITE_FRAG), [
-      'u_sceneTex', 'u_bloomTex', 'u_resolution', 'u_shockwave',
-      'u_chroma', 'u_bulletTime', 'u_bloomStrength', 'u_time'
+      'u_sceneTex', 'u_bloomTex', 'u_resolution', 'u_sceneTexSize',
+      'u_theme', 'u_shockwave', 'u_chroma', 'u_bulletTime',
+      'u_bloomStrength', 'u_time'
     ])
 
     this.emptyVAO = gl.createVertexArray()
@@ -1568,17 +2429,17 @@ class WebGLDiceRenderer {
 
   _initAtlasTexture() {
     const gl = this.gl
-    const atlasCanvas = getSharedAtlasCanvas()
+    const atlas = getSharedAtlasCanvas()
     const tex = gl.createTexture()
     gl.bindTexture(gl.TEXTURE_2D, tex)
     gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false)
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE, atlasCanvas)
+    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false)
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, atlas.width, atlas.height, 0, gl.RGBA, gl.UNSIGNED_BYTE, atlas.data)
     gl.generateMipmap(gl.TEXTURE_2D)
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR)
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
-    // 倾斜的顶面在 mipmap 下极易把笔画糊成灰边，各向异性过滤能救回一大截锐度
     const anisoExt = gl.getExtension('EXT_texture_filter_anisotropic') ||
       gl.getExtension('WEBKIT_EXT_texture_filter_anisotropic') ||
       gl.getExtension('MOZ_EXT_texture_filter_anisotropic')
@@ -1601,7 +2462,6 @@ class WebGLDiceRenderer {
       gl.bindBuffer(gl.ARRAY_BUFFER, vbo)
       gl.bufferData(gl.ARRAY_BUFFER, mesh.vertexBufferData, gl.STATIC_DRAW)
 
-      // 0: pos(3), 1: faceN(3), 2: smoothN(3), 3: tan(3), 4: bitan(3), 5: uv(2), 6: edge(1), 7: faceIdx(1)
       const attrs = [
         [0, 3, 0],
         [1, 3, 12],
@@ -1617,14 +2477,18 @@ class WebGLDiceRenderer {
         gl.vertexAttribPointer(loc, size, gl.FLOAT, false, stride, offset)
       }
       gl.bindVertexArray(null)
-      this.meshGPU[key] = { vao, vbo, vertexCount: mesh.vertexCount, mesh }
+
+      let maxFaceIdx = 0
+      for (let f = 0; f < mesh.faces.length; f++) {
+        if (mesh.faces[f].isMaxFace) { maxFaceIdx = f; break }
+      }
+      this.meshGPU[key] = { vao, vbo, vertexCount: mesh.vertexCount, mesh, maxFaceIdx }
     }
   }
 
   _initDynamicBuffers() {
     const gl = this.gl
 
-    // Ribbon VAO (pos:3, uv:2, color:4 => 9 floats = 36 bytes)
     this.ribbonData = new Float32Array(MAX_RIBBON_VERTS * 9)
     this.ribbonVAO = gl.createVertexArray()
     this.ribbonVBO = gl.createBuffer()
@@ -1638,7 +2502,6 @@ class WebGLDiceRenderer {
     gl.enableVertexAttribArray(2)
     gl.vertexAttribPointer(2, 4, gl.FLOAT, false, 36, 20)
 
-    // Particle VAO (center:3, vel:3, corner:2, color:4, sizeMode:2 => 14 floats = 56 bytes)
     this.particleData = new Float32Array(MAX_PARTICLE_VERTS * 14)
     this.particleVAO = gl.createVertexArray()
     this.particleVBO = gl.createBuffer()
@@ -1659,18 +2522,19 @@ class WebGLDiceRenderer {
     gl.bindVertexArray(null)
   }
 
-  _createColorTarget(w, h, withDepth) {
+  _createColorTarget(w, h, withDepth, nearestFilter = false) {
     const gl = this.gl
+    const filter = nearestFilter ? gl.NEAREST : gl.LINEAR
     const tryCreate = useFloat => {
       const tex = gl.createTexture()
       gl.bindTexture(gl.TEXTURE_2D, tex)
-      if (useFloat) {
+      if (useFloat && !nearestFilter) {
         gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA16F, w, h, 0, gl.RGBA, gl.HALF_FLOAT, null)
       } else {
         gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null)
       }
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, filter)
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, filter)
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
 
@@ -1697,7 +2561,7 @@ class WebGLDiceRenderer {
       return { fbo, tex, depthRb, w, h }
     }
 
-    if (this.hasFloatFBO) {
+    if (this.hasFloatFBO && !nearestFilter) {
       const res = tryCreate(true)
       if (res) return res
       this.hasFloatFBO = false
@@ -1708,7 +2572,7 @@ class WebGLDiceRenderer {
   _destroyFBOs() {
     if (!this.fbos) return
     const gl = this.gl
-    const list = [this.fbos.scene, ...this.fbos.bloomMips]
+    const list = [this.fbos.scene, this.fbos.pixelScene, ...this.fbos.bloomMips]
     for (const item of list) {
       if (!item) continue
       gl.deleteFramebuffer(item.fbo)
@@ -1729,21 +2593,26 @@ class WebGLDiceRenderer {
     this.canvas.height = h
     this._destroyFBOs()
 
-    const scene = this._createColorTarget(w, h, true)
+    const scene = this._createColorTarget(w, h, true, false)
+
+    // 专供 16-Bit 像素风的原生低分辨率整数网格 FBO
+    const targetPixH = h < 220 ? 84 : 172
+    const pixScale = Math.max(2, Math.round(h / targetPixH))
+    const pw = Math.max(64, Math.round(w / pixScale))
+    const ph = Math.max(44, Math.round(h / pixScale))
+    const pixelScene = this._createColorTarget(pw, ph, true, true)
+
     const bloomMips = []
     let bw = Math.max(16, w >> 1)
     let bh = Math.max(16, h >> 1)
     for (let i = 0; i < 4; i++) {
-      bloomMips.push(this._createColorTarget(bw, bh, false))
+      bloomMips.push(this._createColorTarget(bw, bh, false, false))
       bw = Math.max(8, bw >> 1)
       bh = Math.max(8, bh >> 1)
     }
-    this.fbos = { scene, bloomMips }
+    this.fbos = { scene, pixelScene, bloomMips }
   }
 
-  /**
-   * 投影世界坐标到归一化屏幕 UV [0..1, 0..1]（供冲击波与 2D 印章/准星对齐）
-   */
   projectToUV(wx, wy, wz, out) {
     const vp = this._viewProj
     const cx = vp[0] * wx + vp[4] * wy + vp[8] * wz + vp[12]
@@ -1759,9 +2628,6 @@ class WebGLDiceRenderer {
     return out
   }
 
-  /**
-   * 反投影屏幕归一化坐标 (ndcX ∈ [-1,1], ndcY ∈ [-1,1]) 到指定世界高度平面 z = planeZ
-   */
   unprojectToPlane(ndcX, ndcY, planeZ, out) {
     const ivp = this._invViewProj
     const transform = (zNdc, dst) => {
@@ -1782,9 +2648,6 @@ class WebGLDiceRenderer {
     return out
   }
 
-  /**
-   * 渲染完整 HDR 帧！
-   */
   render(frame) {
     const gl = this.gl
     if (!this.fbos || !this.fbos.scene) return
@@ -1797,6 +2660,10 @@ class WebGLDiceRenderer {
       usePipsForD6, hiddenMask, bloomEnabled
     } = frame
 
+    const isPixelTheme = themeId === 7
+    const isCuratedV2 = themeId >= 6
+    const activeTarget = (isPixelTheme && this.fbos.pixelScene) ? this.fbos.pixelScene : this.fbos.scene
+
     const aspect = this.width / Math.max(1, this.height)
     mat4Perspective(this._proj, camFovRad, aspect, 18.0, 2600.0)
     mat4LookAt(this._view, camEye, camTarget, [0, 0, 1])
@@ -1804,13 +2671,13 @@ class WebGLDiceRenderer {
     mat4Invert(this._invViewProj, this._viewProj)
 
     // ========================================================================
-    // PASS 1: 渲染 3D HDR 场景到离屏浮点帧缓冲
+    // PASS 1: 场景渲染（高清浮点 FBO 或 原生低分辨率像素 FBO）
     // ========================================================================
-    gl.bindFramebuffer(gl.FRAMEBUFFER, this.fbos.scene.fbo)
-    gl.viewport(0, 0, this.width, this.height)
+    gl.bindFramebuffer(gl.FRAMEBUFFER, activeTarget.fbo)
+    gl.viewport(0, 0, activeTarget.w, activeTarget.h)
     gl.clear(gl.DEPTH_BUFFER_BIT)
 
-    // 1A. 3D 光线投射程序化舞台 + 软接触阴影 + 落地涟漪
+    // 1A. 舞台台面
     gl.disable(gl.DEPTH_TEST)
     gl.disable(gl.BLEND)
     gl.useProgram(this.arenaProg.prog)
@@ -1851,7 +2718,7 @@ class WebGLDiceRenderer {
     gl.bindVertexArray(this.emptyVAO)
     gl.drawArrays(gl.TRIANGLES, 0, 3)
 
-    // 1B. 渲染高精度倒角 + 4通道法线凹凸雕文 + 内部视差多面体
+    // 1B. 多面体骰具渲染
     gl.enable(gl.DEPTH_TEST)
     gl.depthFunc(gl.LEQUAL)
     gl.depthMask(true)
@@ -1860,15 +2727,21 @@ class WebGLDiceRenderer {
 
     gl.useProgram(this.diceProg.prog)
     const du = this.diceProg.u
+    const styleSlot = isCuratedV2 ? (themeId - 6) : 4
     gl.uniformMatrix4fv(du.u_viewProj, false, this._viewProj)
     gl.uniform3f(du.u_camPos, camEye[0], camEye[1], camEye[2])
     gl.uniform1f(du.u_time, time)
     gl.uniform1i(du.u_theme, themeId)
     gl.uniform1i(du.u_tier, tierCode)
+    gl.uniform1i(du.u_styleAtlasOffset, styleSlot * STYLE_TILE_STRIDE)
     gl.uniform1f(du.u_climax, climax)
 
     gl.activeTexture(gl.TEXTURE0)
     gl.bindTexture(gl.TEXTURE_2D, this.atlasTex)
+    if (isPixelTheme) {
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
+    }
     gl.uniform1i(du.u_atlas, 0)
 
     const eyeSealTile = GLYPH_TILE_MAP['?']
@@ -1882,7 +2755,10 @@ class WebGLDiceRenderer {
       gl.uniformMatrix3fv(du.u_rotMat, false, this._rot3)
       gl.uniform3f(du.u_diePos, d.x, d.y, d.z)
       gl.uniform1f(du.u_dieRadius, d.radius)
+      gl.uniform1i(du.u_dieIndex, i)
+      gl.uniform1i(du.u_contestSide, d.side === 'ally' ? 1 : (d.side === 'rival' ? 2 : 0))
       gl.uniform1i(du.u_winningFace, d.targetFace ? d.targetFace.index : 0)
+      gl.uniform1i(du.u_maxFaceIdx, gpu.maxFaceIdx)
       gl.uniform1f(du.u_settled, d.settled ? 1.0 : 0.0)
 
       const faces = gpu.mesh.faces
@@ -1903,41 +2779,67 @@ class WebGLDiceRenderer {
       gl.drawArrays(gl.TRIANGLES, 0, gpu.vertexCount)
     }
 
+    if (isPixelTheme) {
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR)
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
+    }
     gl.disable(gl.CULL_FACE)
 
-    // 1C. 渲染 3D 体积拖尾丝带 + 水墨飞白 + 凌空剑气斩痕
-    gl.depthMask(false)
-    gl.enable(gl.BLEND)
-    const isShuimo = themeId === 4
-    if (isShuimo) {
-      // 水墨浓墨正常 Alpha 混合；大成功金剑气仍可高亮
-      gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
-    } else {
-      gl.blendFunc(gl.ONE, gl.ONE)
+    // 1C. 轨迹丝带：典藏皮肤仅在版画墨丝(8)、黑漆金雾(9)、海琉璃水纹(11)绘制纤细游丝；黄铜/像素/包豪斯零冗余丝带
+    if (!isCuratedV2) {
+      gl.depthMask(false)
+      gl.enable(gl.BLEND)
+      if (themeId === 4) {
+        gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+      } else {
+        gl.blendFunc(gl.ONE, gl.ONE)
+      }
+      this._drawRibbonsAndSlashes(dice, slashes, camEye, time, themeId, tierCode)
+    } else if (themeId === 8 || themeId === 9 || themeId === 11) {
+      gl.depthMask(false)
+      gl.enable(gl.BLEND)
+      if (themeId === 8) {
+        gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+      } else {
+        gl.blendFunc(gl.ONE, gl.ONE)
+      }
+      this._drawSubtleCuratedTrails(dice, camEye, time, themeId)
     }
-    this._drawRibbonsAndSlashes(dice, slashes, camEye, time, themeId, tierCode)
 
-    // 1D. 渲染速度拉伸火星粒子与冲天光柱（始终使用 HDR 加法混合以触发璀璨辉光）
-    gl.blendFunc(gl.ONE, gl.ONE)
-    this._drawParticlesAndPillars(particles, camEye)
+    // 1D. 粒子与微尘渲染
+    if (isPixelTheme) {
+      gl.depthMask(true)
+      gl.disable(gl.BLEND)
+    } else {
+      gl.depthMask(false)
+      gl.enable(gl.BLEND)
+      if (themeId === 8 || themeId === 9 || themeId === 10) {
+        gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA)
+      } else {
+        gl.blendFunc(gl.ONE, gl.ONE)
+      }
+    }
+    this._drawParticlesAndPillars(particles, camEye, time)
 
     gl.depthMask(true)
     gl.disable(gl.BLEND)
     gl.disable(gl.DEPTH_TEST)
 
     // ========================================================================
-    // PASS 2: Dual-Kawase 4 级 HDR Bloom 辉光提取与扩散
+    // PASS 2: Dual-Kawase HDR Bloom（像素/版画/包豪斯严格零辉光糊边）
     // ========================================================================
+    const isShuimo = themeId === 4
+    const wantBloom = bloomEnabled && !isPixelTheme && themeId !== 8 && themeId !== 10
     const mips = this.fbos.bloomMips
-    if (bloomEnabled && mips.length > 0 && mips[0]) {
+    if (wantBloom && mips.length > 0 && mips[0]) {
       gl.useProgram(this.bloomDownProg.prog)
       gl.bindVertexArray(this.emptyVAO)
       const bdu = this.bloomDownProg.u
       gl.uniform1i(bdu.u_tex, 0)
 
-      let srcTex = this.fbos.scene.tex
-      let srcW = this.width
-      let srcH = this.height
+      let srcTex = activeTarget.tex
+      let srcW = activeTarget.w
+      let srcH = activeTarget.h
 
       for (let i = 0; i < mips.length; i++) {
         const dst = mips[i]
@@ -1946,14 +2848,13 @@ class WebGLDiceRenderer {
         gl.activeTexture(gl.TEXTURE0)
         gl.bindTexture(gl.TEXTURE_2D, srcTex)
         gl.uniform2f(bdu.u_texelSize, 1.0 / srcW, 1.0 / srcH)
-        gl.uniform1f(bdu.u_threshold, i === 0 ? (isShuimo ? 1.25 : 1.18) : -1.0)
+        gl.uniform1f(bdu.u_threshold, i === 0 ? (isCuratedV2 ? 1.15 : (isShuimo ? 1.25 : 1.18)) : -1.0)
         gl.drawArrays(gl.TRIANGLES, 0, 3)
         srcTex = dst.tex
         srcW = dst.w
         srcH = dst.h
       }
 
-      // Tent 9-tap 逐级向上叠加融合
       gl.useProgram(this.bloomUpProg.prog)
       const buu = this.bloomUpProg.u
       gl.uniform1i(buu.u_tex, 0)
@@ -1968,14 +2869,14 @@ class WebGLDiceRenderer {
         gl.activeTexture(gl.TEXTURE0)
         gl.bindTexture(gl.TEXTURE_2D, src.tex)
         gl.uniform2f(buu.u_texelSize, 1.0 / src.w, 1.0 / src.h)
-        gl.uniform1f(buu.u_intensity, 0.85)
+        gl.uniform1f(buu.u_intensity, isCuratedV2 ? 0.72 : 0.85)
         gl.drawArrays(gl.TRIANGLES, 0, 3)
       }
       gl.disable(gl.BLEND)
     }
 
     // ========================================================================
-    // PASS 3: 最终屏幕光学扭曲 + 色差 + ACES Filmic 色调映射输出
+    // PASS 3: 最终自适应合成输出
     // ========================================================================
     gl.bindFramebuffer(gl.FRAMEBUFFER, null)
     gl.viewport(0, 0, this.width, this.height)
@@ -1983,18 +2884,26 @@ class WebGLDiceRenderer {
     const cu = this.compositeProg.u
 
     gl.activeTexture(gl.TEXTURE0)
-    gl.bindTexture(gl.TEXTURE_2D, this.fbos.scene.tex)
+    gl.bindTexture(gl.TEXTURE_2D, activeTarget.tex)
     gl.uniform1i(cu.u_sceneTex, 0)
 
     gl.activeTexture(gl.TEXTURE1)
-    gl.bindTexture(gl.TEXTURE_2D, (bloomEnabled && mips[0]) ? mips[0].tex : this.fbos.scene.tex)
+    gl.bindTexture(gl.TEXTURE_2D, (wantBloom && mips[0]) ? mips[0].tex : activeTarget.tex)
     gl.uniform1i(cu.u_bloomTex, 1)
 
+    const bloomStr = !wantBloom
+      ? 0.0
+      : isCuratedV2
+        ? (themeId === 6 ? 0.16 : 0.24)
+        : (isShuimo ? 0.35 : 0.52)
+
     gl.uniform2f(cu.u_resolution, this.width, this.height)
+    gl.uniform2f(cu.u_sceneTexSize, activeTarget.w, activeTarget.h)
+    gl.uniform1i(cu.u_theme, themeId)
     gl.uniform4f(cu.u_shockwave, shockwave[0], shockwave[1], shockwave[2], shockwave[3])
     gl.uniform1f(cu.u_chroma, chroma)
     gl.uniform1f(cu.u_bulletTime, bulletTime)
-    gl.uniform1f(cu.u_bloomStrength, bloomEnabled ? (isShuimo ? 0.35 : 0.52) : 0.0)
+    gl.uniform1f(cu.u_bloomStrength, bloomStr)
     gl.uniform1f(cu.u_time, time)
 
     gl.bindVertexArray(this.emptyVAO)
@@ -2002,16 +2911,95 @@ class WebGLDiceRenderer {
     gl.bindVertexArray(null)
   }
 
+  _drawSubtleCuratedTrails(dice, camEye, time, themeId) {
+    const buf = this.ribbonData
+    let vCount = 0
+
+    let cr = 0.85, cg = 0.65, cb = 0.28, ca = 0.35, widthScale = 0.28, inkMode = 3
+    if (themeId === 8) {
+      cr = 0.16; cg = 0.12; cb = 0.09; ca = 0.42; widthScale = 0.14; inkMode = 2
+    } else if (themeId === 11) {
+      cr = 0.45; cg = 0.82; cb = 0.88; ca = 0.32; widthScale = 0.24; inkMode = 3
+    }
+
+    const prev = { has: false, lx: 0, ly: 0, lz: 0, rx: 0, ry: 0, rz: 0, u: 0, a: 1 }
+
+    for (let dIdx = 0; dIdx < dice.length; dIdx++) {
+      const d = dice[dIdx]
+      if (d.trailCount < 3 || d.settled) continue
+      prev.has = false
+      const n = d.trailCount
+
+      for (let i = 0; i < n; i++) {
+        const curIdx = (d.trailHead - i + 28) % 28
+        const nxtIdx = (d.trailHead - Math.min(n - 1, i + 1) + 28) % 28
+        const prvIdx = (d.trailHead - Math.max(0, i - 1) + 28) % 28
+
+        const px = d.trailX[curIdx], py = d.trailY[curIdx], pz = d.trailZ[curIdx]
+        let tx = d.trailX[prvIdx] - d.trailX[nxtIdx]
+        let ty = d.trailY[prvIdx] - d.trailY[nxtIdx]
+        let tz = d.trailZ[prvIdx] - d.trailZ[nxtIdx]
+        const tLen = Math.hypot(tx, ty, tz)
+        if (tLen < 0.05) continue
+        tx /= tLen; ty /= tLen; tz /= tLen
+
+        const vx = camEye[0] - px, vy = camEye[1] - py, vz = camEye[2] - pz
+        let sx = ty * vz - tz * vy
+        let sy = tz * vx - tx * vz
+        let sz = tx * vy - ty * vx
+        const sLen = Math.hypot(sx, sy, sz) || 1
+        const u = i / (n - 1)
+        const halfW = d.radius * widthScale * (1 - u * 0.85)
+        sx = (sx / sLen) * halfW
+        sy = (sy / sLen) * halfW
+        sz = (sz / sLen) * halfW
+
+        const lX = px - sx, lY = py - sy, lZ = pz - sz
+        const rX = px + sx, rY = py + sy, rZ = pz + sz
+        if (prev.has && vCount + 6 <= MAX_RIBBON_VERTS) {
+          const writeV = (x, y, z, uCoord, vCoord, aVal) => {
+            const o = vCount * 9
+            buf[o] = x; buf[o + 1] = y; buf[o + 2] = z
+            buf[o + 3] = uCoord; buf[o + 4] = vCoord
+            buf[o + 5] = cr; buf[o + 6] = cg; buf[o + 7] = cb; buf[o + 8] = aVal
+            vCount++
+          }
+          writeV(prev.lx, prev.ly, prev.lz, prev.u, -1, prev.a)
+          writeV(prev.rx, prev.ry, prev.rz, prev.u, +1, prev.a)
+          writeV(lX, lY, lZ, u, -1, ca)
+
+          writeV(prev.rx, prev.ry, prev.rz, prev.u, +1, prev.a)
+          writeV(rX, rY, rZ, u, +1, ca)
+          writeV(lX, lY, lZ, u, -1, ca)
+        }
+        prev.lx = lX; prev.ly = lY; prev.lz = lZ
+        prev.rx = rX; prev.ry = rY; prev.rz = rZ
+        prev.u = u; prev.a = ca; prev.has = true
+      }
+    }
+
+    if (vCount === 0) return
+    const gl = this.gl
+    gl.useProgram(this.ribbonProg.prog)
+    gl.uniformMatrix4fv(this.ribbonProg.u.u_viewProj, false, this._viewProj)
+    gl.uniform1f(this.ribbonProg.u.u_time, time)
+    gl.uniform1i(this.ribbonProg.u.u_isInk, inkMode)
+
+    gl.bindVertexArray(this.ribbonVAO)
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.ribbonVBO)
+    gl.bufferSubData(gl.ARRAY_BUFFER, 0, buf.subarray(0, vCount * 9))
+    gl.drawArrays(gl.TRIANGLES, 0, vCount)
+  }
+
   _drawRibbonsAndSlashes(dice, slashes, camEye, time, themeId, tierCode) {
     const buf = this.ribbonData
     let vCount = 0
 
-    // 主题拖尾色彩预设 (HDR RGB + Alpha)
     let rCol = [2.6, 1.7, 0.45, 0.9]
     if (themeId === 1) rCol = [0.65, 2.2, 3.2, 0.95]
     else if (themeId === 2) rCol = [4.2, 1.25, 0.15, 0.95]
     else if (themeId === 3) rCol = [0.1, 2.5, 2.8, 0.92]
-    else if (themeId === 4) rCol = [0.06, 0.07, 0.09, 0.88] // 浓墨飞白
+    else if (themeId === 4) rCol = [0.06, 0.07, 0.09, 0.88]
     else if (themeId === 5) rCol = [0.35, 2.4, 1.85, 0.9]
 
     const pushQuadStripPoint = (px, py, pz, sx, sy, sz, u, cr, cg, cb, ca, prev) => {
@@ -2040,14 +3028,12 @@ class WebGLDiceRenderer {
 
     const prev = { has: false, lx: 0, ly: 0, lz: 0, rx: 0, ry: 0, rz: 0, u: 0, a: 1 }
 
-    // 1. 每颗运动骰子的 3D 摄像机朝向流光/墨韵飘带
     for (let dIdx = 0; dIdx < dice.length; dIdx++) {
       const d = dice[dIdx]
       if (d.trailCount < 3) continue
       prev.has = false
       const n = d.trailCount
 
-      // 赛博双色或棱镜彩虹偏移
       let cr = rCol[0], cg = rCol[1], cb = rCol[2]
       if (themeId === 3 && (dIdx & 1) === 1) { cr = 2.8; cg = 0.2; cb = 1.9 }
       if (themeId === 1) {
@@ -2085,7 +3071,6 @@ class WebGLDiceRenderer {
       }
     }
 
-    // 2. 结算时的 3D 弧形剑气斩痕 / 黄金命运星环轨 (slashes)
     if (slashes && slashes.length) {
       for (let s = 0; s < slashes.length; s++) {
         const sl = slashes[s]
@@ -2105,7 +3090,6 @@ class WebGLDiceRenderer {
           const u = k / segs
           const a = startA + u * arcSpan
           const ca = Math.cos(a), sa = Math.sin(a)
-          // 倾斜 3D 圆弧平面
           const lx = ca * sl.radius
           const ly = sa * sl.radius * Math.cos(sl.tilt)
           const lz = sa * sl.radius * Math.sin(sl.tilt)
@@ -2133,7 +3117,7 @@ class WebGLDiceRenderer {
     gl.drawArrays(gl.TRIANGLES, 0, vCount)
   }
 
-  _drawParticlesAndPillars(particles, camEye) {
+  _drawParticlesAndPillars(particles, camEye, time) {
     if (!particles || particles.aliveCount === 0) return
     const buf = this.particleData
     let vCount = 0
@@ -2149,17 +3133,24 @@ class WebGLDiceRenderer {
       if (vCount + 6 > MAX_PARTICLE_VERTS) break
 
       const p = age[i] / life[i]
-      const fade = mode[i] > 0.5
-        ? Math.sin(Math.min(1, p * 4.5) * Math.PI * 0.5) * Math.pow(1 - p, 1.35)
-        : (1 - p * p)
+      const pm = mode[i]
+      let fade, sz
+      if (pm > 0.5 && pm < 1.5) {
+        fade = Math.sin(Math.min(1, p * 4.5) * Math.PI * 0.5) * Math.pow(1 - p, 1.35)
+        sz = size[i] * (0.7 + 0.5 * p)
+      } else if (pm >= 1.5 && pm < 3.5) {
+        fade = 1.0
+        sz = size[i] * (p > 0.7 ? (1 - (p - 0.7) / 0.3) : 1.0)
+      } else {
+        fade = 1 - p * p
+        sz = size[i] * (pm >= 3.5 && pm < 4.5 ? (1 - p * 0.25) : (1 - p * 0.65))
+      }
       const alpha = a[i] * fade
-      if (alpha <= 0.005) continue
+      if (alpha <= 0.005 || sz <= 0.05) continue
 
-      const sz = mode[i] > 0.5 ? size[i] * (0.7 + 0.5 * p) : size[i] * (1 - p * 0.65)
       const px = x[i], py = y[i], pz = z[i]
       const pvx = vx[i], pvy = vy[i], pvz = vz[i]
       const cr = r[i], cg = g[i], cb = b[i]
-      const pm = mode[i]
 
       for (let c = 0; c < 6; c++) {
         const o = vCount * 14
@@ -2177,6 +3168,7 @@ class WebGLDiceRenderer {
     gl.useProgram(this.particleProg.prog)
     gl.uniformMatrix4fv(this.particleProg.u.u_viewProj, false, this._viewProj)
     gl.uniform3f(this.particleProg.u.u_camPos, camEye[0], camEye[1], camEye[2])
+    gl.uniform1f(this.particleProg.u.u_time, time)
 
     gl.bindVertexArray(this.particleVAO)
     gl.bindBuffer(gl.ARRAY_BUFFER, this.particleVBO)
@@ -2186,10 +3178,10 @@ class WebGLDiceRenderer {
 }
 
 // ============================================================================
-// demo/audio.js — 零外部资源 Web Audio 立体声物理合成音效引擎 v2
-// 支持：3D 空间声像定位 (StereoPanner) + 按住蓄力引力旋涡嗡鸣 + 子弹时间下潜低频 +
-//       6 大次世代视觉主题专属物理碰撞与裁定高潮交响和弦。
+// 多媒介物理声学 & 8-Bit 复古芯片合成音效引擎
 // ============================================================================
+
+const CURATED_SOUND_PRESETS = new Set(['atelier', 'pixel', 'etching', 'urushi', 'bauhaus', 'murano'])
 
 class ProceduralDiceAudio {
   constructor() {
@@ -2200,7 +3192,11 @@ class ProceduralDiceAudio {
     this.lastBounceAt = 0
     this.activeVoices = 0
     this.chargeOsc = null
+    this.chargeSubOsc = null
     this.chargeGain = null
+    this._chargePreset = 'atelier'
+    this._chargeMode = 'normal'
+    this.lastRattleAt = 0
   }
 
   ensureContext() {
@@ -2210,7 +3206,7 @@ class ProceduralDiceAudio {
       if (!AC) return null
       this.ctx = new AC()
       this.masterGain = this.ctx.createGain()
-      this.masterGain.gain.value = 0.42
+      this.masterGain.gain.value = 0.38
       this.masterGain.connect(this.ctx.destination)
       const len = Math.floor(this.ctx.sampleRate * 0.45)
       const buf = this.ctx.createBuffer(1, len, this.ctx.sampleRate)
@@ -2228,7 +3224,7 @@ class ProceduralDiceAudio {
     this.enabled = Boolean(flag)
     if (!this.enabled) this.stopChargeHum()
     if (this.masterGain && this.ctx) {
-      this.masterGain.gain.setTargetAtTime(this.enabled ? 0.42 : 0, this.ctx.currentTime, 0.02)
+      this.masterGain.gain.setTargetAtTime(this.enabled ? 0.38 : 0, this.ctx.currentTime, 0.02)
     }
   }
 
@@ -2244,20 +3240,67 @@ class ProceduralDiceAudio {
     }
   }
 
-  startChargeHum(preset = 'astral') {
+  startChargeHum(preset = 'atelier', mode = 'normal') {
     const ctx = this.ensureContext()
     if (!ctx || this.chargeOsc) return
     const now = ctx.currentTime
     const osc = ctx.createOscillator()
     const g = ctx.createGain()
-    osc.type = preset === 'cyber' ? 'sawtooth' : preset === 'inferno' ? 'triangle' : 'sine'
-    osc.frequency.setValueAtTime(95, now)
-    g.gain.setValueAtTime(0.001, now)
-    g.gain.linearRampToValueAtTime(0.09, now + 0.12)
+    const m = mode || 'normal'
+    this._chargePreset = preset
+    this._chargeMode = m
+
+    if (preset === 'pixel') {
+      osc.type = 'square'
+      osc.frequency.setValueAtTime(m === 'push' ? 82.41 : (m === 'fate' ? 196.0 : 130.81), now)
+      g.gain.setValueAtTime(0.001, now)
+      g.gain.linearRampToValueAtTime(0.045, now + 0.12)
+    } else if (CURATED_SOUND_PRESETS.has(preset)) {
+      if (m === 'push') {
+        osc.type = 'triangle'
+        osc.frequency.setValueAtTime(58, now)
+      } else if (m === 'fate') {
+        osc.type = 'sine'
+        osc.frequency.setValueAtTime(174.61, now)
+      } else {
+        osc.type = preset === 'bauhaus' ? 'triangle' : 'sine'
+        osc.frequency.setValueAtTime(88, now)
+      }
+      g.gain.setValueAtTime(0.001, now)
+      g.gain.linearRampToValueAtTime(0.068, now + 0.12)
+    } else {
+      osc.type = preset === 'cyber' ? 'sawtooth' : (preset === 'inferno' || m === 'push') ? 'triangle' : 'sine'
+      osc.frequency.setValueAtTime(m === 'push' ? 62 : (m === 'fate' ? 185 : 95), now)
+      g.gain.setValueAtTime(0.001, now)
+      g.gain.linearRampToValueAtTime(0.09, now + 0.12)
+    }
     osc.connect(g)
     g.connect(this.masterGain)
     osc.start(now)
+
+    let subOsc = null
+    if (m === 'fate' && preset !== 'pixel') {
+      subOsc = ctx.createOscillator()
+      const sg = ctx.createGain()
+      subOsc.type = 'sine'
+      subOsc.frequency.setValueAtTime(CURATED_SOUND_PRESETS.has(preset) ? 261.63 : 277.18, now)
+      sg.gain.setValueAtTime(0.45, now)
+      subOsc.connect(sg)
+      sg.connect(g)
+      subOsc.start(now)
+    } else if (m === 'push' && preset !== 'pixel') {
+      subOsc = ctx.createOscillator()
+      const sg = ctx.createGain()
+      subOsc.type = 'sawtooth'
+      subOsc.frequency.setValueAtTime(60.5, now)
+      sg.gain.setValueAtTime(0.22, now)
+      subOsc.connect(sg)
+      sg.connect(g)
+      subOsc.start(now)
+    }
+
     this.chargeOsc = osc
+    this.chargeSubOsc = subOsc
     this.chargeGain = g
   }
 
@@ -2265,8 +3308,30 @@ class ProceduralDiceAudio {
     if (!this.chargeOsc || !this.ctx) return
     const now = this.ctx.currentTime
     const c = Math.max(0, Math.min(1, charge01))
-    this.chargeOsc.frequency.setTargetAtTime(95 + c * 240, now, 0.04)
-    this.chargeGain.gain.setTargetAtTime(0.04 + c * 0.11, now, 0.04)
+    const m = this._chargeMode || 'normal'
+    if (this._chargePreset === 'pixel') {
+      const base = m === 'push' ? 82.41 : (m === 'fate' ? 196.0 : 130.81)
+      const steps = m === 'fate' ? Math.floor(c * 14) : Math.floor(c * 10)
+      const stepFreq = base * Math.pow(2, steps / 12)
+      this.chargeOsc.frequency.setValueAtTime(stepFreq, now)
+      this.chargeGain.gain.setTargetAtTime(0.038 + c * 0.045, now, 0.03)
+    } else if (m === 'fate') {
+      const f = (CURATED_SOUND_PRESETS.has(this._chargePreset) ? 174.61 : 185) + c * 225
+      this.chargeOsc.frequency.setTargetAtTime(f, now, 0.04)
+      if (this.chargeSubOsc) this.chargeSubOsc.frequency.setTargetAtTime(f * 1.498, now, 0.04)
+      this.chargeGain.gain.setTargetAtTime(0.038 + c * 0.08, now, 0.04)
+    } else if (m === 'push') {
+      const f = (CURATED_SOUND_PRESETS.has(this._chargePreset) ? 58 : 62) + c * c * 125
+      this.chargeOsc.frequency.setTargetAtTime(f, now, 0.03)
+      if (this.chargeSubOsc) this.chargeSubOsc.frequency.setTargetAtTime(f * 1.04 + c * 6, now, 0.03)
+      this.chargeGain.gain.setTargetAtTime(0.042 + c * 0.09, now, 0.03)
+    } else if (CURATED_SOUND_PRESETS.has(this._chargePreset)) {
+      this.chargeOsc.frequency.setTargetAtTime(88 + c * 175, now, 0.04)
+      this.chargeGain.gain.setTargetAtTime(0.03 + c * 0.07, now, 0.04)
+    } else {
+      this.chargeOsc.frequency.setTargetAtTime(95 + c * 240, now, 0.04)
+      this.chargeGain.gain.setTargetAtTime(0.04 + c * 0.11, now, 0.04)
+    }
   }
 
   stopChargeHum() {
@@ -2274,32 +3339,175 @@ class ProceduralDiceAudio {
     const now = this.ctx.currentTime
     try {
       this.chargeGain.gain.cancelScheduledValues(now)
-      this.chargeGain.gain.setTargetAtTime(0.0001, now, 0.03)
-      this.chargeOsc.stop(now + 0.12)
+      this.chargeGain.gain.setTargetAtTime(0.0001, now, 0.025)
+      this.chargeOsc.stop(now + 0.1)
+      if (this.chargeSubOsc) this.chargeSubOsc.stop(now + 0.1)
     } catch {}
     this.chargeOsc = null
+    this.chargeSubOsc = null
     this.chargeGain = null
   }
 
-  playThrowWhoosh(preset = 'astral', power = 1.0) {
+  playChargeRattle(preset = 'atelier', intensity = 0.5) {
+    const ctx = this.ensureContext()
+    if (!ctx) return
+    const now = ctx.currentTime
+    if (now - this.lastRattleAt < 0.042 || this.activeVoices >= 8) return
+    this.lastRattleAt = now
+    const amp = Math.min(1, Math.max(0.15, intensity))
+    const osc = ctx.createOscillator()
+    const g = ctx.createGain()
+    const jitter = 0.92 + Math.random() * 0.18
+    if (preset === 'pixel') {
+      osc.type = 'square'
+      osc.frequency.setValueAtTime((520 + amp * 280) * jitter, now)
+      g.gain.setValueAtTime(0.032 * amp, now)
+      g.gain.exponentialRampToValueAtTime(0.0008, now + 0.022)
+      osc.connect(g); g.connect(this.masterGain)
+      osc.start(now); osc.stop(now + 0.025)
+      return
+    }
+    osc.type = (preset === 'bauhaus' || preset === 'cyber') ? 'triangle' : 'sine'
+    const baseF = preset === 'atelier' ? 1860 : (preset === 'murano' || preset === 'prism') ? 2150 : preset === 'urushi' ? 1240 : 1080
+    osc.frequency.setValueAtTime(baseF * jitter, now)
+    osc.frequency.exponentialRampToValueAtTime(baseF * 0.58, now + 0.026)
+    g.gain.setValueAtTime(0.042 * amp, now)
+    g.gain.exponentialRampToValueAtTime(0.0008, now + 0.03)
+    osc.connect(g)
+    this._connectPanned(g, (Math.random() - 0.5) * 0.5)
+    osc.start(now)
+    osc.stop(now + 0.034)
+  }
+
+  playFateApexChime(preset = 'atelier', power = 0.5) {
+    const ctx = this.ensureContext()
+    if (!ctx) return
+    const now = ctx.currentTime
+    const p = Math.max(0.2, Math.min(1, power))
+    if (preset === 'pixel') {
+      const notes = [659.25, 987.77, 1318.5]
+      notes.forEach((f, i) => {
+        const osc = ctx.createOscillator()
+        const g = ctx.createGain()
+        osc.type = 'square'
+        osc.frequency.setValueAtTime(f, now + i * 0.032)
+        g.gain.setValueAtTime(0.048 * p, now + i * 0.032)
+        g.gain.exponentialRampToValueAtTime(0.0008, now + i * 0.032 + 0.14)
+        osc.connect(g); g.connect(this.masterGain)
+        osc.start(now + i * 0.032); osc.stop(now + i * 0.032 + 0.15)
+      })
+      return
+    }
+    const o1 = ctx.createOscillator()
+    const o2 = ctx.createOscillator()
+    const g = ctx.createGain()
+    o1.type = 'sine'; o2.type = 'sine'
+    const root = (preset === 'urushi' || preset === 'jianxin') ? 587.33 : (preset === 'murano' || preset === 'prism') ? 783.99 : 659.25
+    o1.frequency.setValueAtTime(root, now)
+    o2.frequency.setValueAtTime(root * 1.5, now)
+    g.gain.setValueAtTime(0.001, now)
+    g.gain.linearRampToValueAtTime(0.068 * (0.65 + p * 0.45), now + 0.02)
+    g.gain.exponentialRampToValueAtTime(0.0008, now + 0.36)
+    o1.connect(g); o2.connect(g)
+    g.connect(this.masterGain)
+    o1.start(now); o2.start(now)
+    o1.stop(now + 0.38); o2.stop(now + 0.38)
+  }
+
+  playThrowWhoosh(preset = 'atelier', power = 1.0, mode = 'normal') {
     this.stopChargeHum()
     const ctx = this.ensureContext()
-    if (!ctx || !this.noiseBuffer) return
+    if (!ctx) return
     const now = ctx.currentTime
+    const pwr = Math.max(0.6, Math.min(1.8, Number(power) || 1.0))
+
+    if (preset === 'pixel') {
+      const osc = ctx.createOscillator()
+      const g = ctx.createGain()
+      osc.type = 'square'
+      if (mode === 'push') {
+        osc.frequency.setValueAtTime(440 * pwr * 0.85, now)
+        osc.frequency.exponentialRampToValueAtTime(73.42, now + 0.11)
+      } else if (mode === 'fate') {
+        osc.frequency.setValueAtTime(220, now)
+        osc.frequency.setValueAtTime(329.63, now + 0.03)
+        osc.frequency.setValueAtTime(523.25, now + 0.065)
+        osc.frequency.setValueAtTime(659.25, now + 0.10)
+      } else {
+        osc.frequency.setValueAtTime(196, now)
+        osc.frequency.setValueAtTime(293.66, now + 0.035)
+        osc.frequency.setValueAtTime(440 * Math.min(1.3, pwr), now + 0.07)
+      }
+      g.gain.setValueAtTime(0.075 * Math.min(1.25, pwr), now)
+      g.gain.exponentialRampToValueAtTime(0.001, now + 0.14)
+      osc.connect(g)
+      g.connect(this.masterGain)
+      osc.start(now)
+      osc.stop(now + 0.15)
+      return
+    }
+
+    if (mode === 'push') {
+      const slam = ctx.createOscillator()
+      const sg = ctx.createGain()
+      slam.type = 'sine'
+      slam.frequency.setValueAtTime(155 * Math.min(1.3, pwr), now)
+      slam.frequency.exponentialRampToValueAtTime(42, now + 0.12)
+      sg.gain.setValueAtTime(0.16 * Math.min(1.4, pwr), now)
+      sg.gain.exponentialRampToValueAtTime(0.001, now + 0.14)
+      slam.connect(sg); sg.connect(this.masterGain)
+      slam.start(now); slam.stop(now + 0.15)
+    }
+
+    if (!this.noiseBuffer) return
     const src = ctx.createBufferSource()
     src.buffer = this.noiseBuffer
-
     const filter = ctx.createBiquadFilter()
+    const gain = ctx.createGain()
+
+    if (CURATED_SOUND_PRESETS.has(preset)) {
+      filter.type = 'bandpass'
+      const baseFreq = preset === 'murano' ? 1200 : preset === 'bauhaus' ? 980 : 540
+      if (mode === 'fate') {
+        filter.frequency.setValueAtTime(baseFreq * 0.45, now)
+        filter.frequency.exponentialRampToValueAtTime(baseFreq * (1.85 + pwr * 0.45), now + 0.18)
+      } else if (mode === 'push') {
+        filter.frequency.setValueAtTime(baseFreq * (1.65 + pwr * 0.45), now)
+        filter.frequency.exponentialRampToValueAtTime(baseFreq * 0.32, now + 0.15)
+      } else {
+        filter.frequency.setValueAtTime(baseFreq * 0.6, now)
+        filter.frequency.exponentialRampToValueAtTime(baseFreq * (1.4 + pwr * 0.4), now + 0.07)
+        filter.frequency.exponentialRampToValueAtTime(baseFreq * 0.4, now + 0.22)
+      }
+      filter.Q.value = 2.6
+      gain.gain.setValueAtTime(0.001, now)
+      gain.gain.linearRampToValueAtTime(0.11 * Math.min(1.45, pwr), now + 0.035)
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.22)
+      src.connect(filter)
+      filter.connect(gain)
+      gain.connect(this.masterGain)
+      src.start(now)
+      src.stop(now + 0.24)
+      return
+    }
+
     filter.type = preset === 'cyber' ? 'bandpass' : 'lowpass'
     const baseFreq = preset === 'prism' ? 1550 : preset === 'inferno' ? 360 : 760
-    filter.frequency.setValueAtTime(baseFreq * 0.5, now)
-    filter.frequency.exponentialRampToValueAtTime(baseFreq * (1.9 + power * 0.6), now + 0.08)
-    filter.frequency.exponentialRampToValueAtTime(baseFreq * 0.35, now + 0.26)
+    if (mode === 'fate') {
+      filter.frequency.setValueAtTime(baseFreq * 0.45, now)
+      filter.frequency.exponentialRampToValueAtTime(baseFreq * (2.1 + pwr * 0.5), now + 0.18)
+    } else if (mode === 'push') {
+      filter.frequency.setValueAtTime(baseFreq * (1.9 + pwr * 0.5), now)
+      filter.frequency.exponentialRampToValueAtTime(baseFreq * 0.32, now + 0.16)
+    } else {
+      filter.frequency.setValueAtTime(baseFreq * 0.5, now)
+      filter.frequency.exponentialRampToValueAtTime(baseFreq * (1.9 + pwr * 0.6), now + 0.08)
+      filter.frequency.exponentialRampToValueAtTime(baseFreq * 0.35, now + 0.26)
+    }
     filter.Q.value = preset === 'jianxin' ? 5.2 : 2.2
 
-    const gain = ctx.createGain()
     gain.gain.setValueAtTime(0.001, now)
-    gain.gain.linearRampToValueAtTime(0.18 * Math.min(1.4, power), now + 0.045)
+    gain.gain.linearRampToValueAtTime(0.18 * Math.min(1.45, pwr), now + 0.04)
     gain.gain.exponentialRampToValueAtTime(0.001, now + 0.26)
 
     src.connect(filter)
@@ -2326,7 +3534,7 @@ class ProceduralDiceAudio {
     osc.stop(now + 0.38)
   }
 
-  playBounce(preset = 'astral', strength = 0.6, pan = 0) {
+  playBounce(preset = 'atelier', strength = 0.6, pan = 0) {
     const ctx = this.ensureContext()
     if (!ctx) return
     const now = ctx.currentTime
@@ -2335,7 +3543,114 @@ class ProceduralDiceAudio {
     this.activeVoices++
 
     const amp = Math.min(1, Math.max(0.08, strength))
-    const jitter = 0.92 + Math.random() * 0.18
+    const jitter = 0.94 + Math.random() * 0.14
+
+    if (preset === 'pixel') {
+      const osc = ctx.createOscillator()
+      const g = ctx.createGain()
+      osc.type = 'square'
+      const f = (330 + Math.round(amp * 3) * 110) * (Math.random() > 0.5 ? 1 : 1.125)
+      osc.frequency.setValueAtTime(f, now)
+      osc.frequency.setValueAtTime(f * 0.5, now + 0.025)
+      g.gain.setValueAtTime(0.095 * amp, now)
+      g.gain.exponentialRampToValueAtTime(0.001, now + 0.055)
+      osc.connect(g)
+      this._connectPanned(g, pan)
+      osc.onended = () => { this.activeVoices = Math.max(0, this.activeVoices - 1) }
+      osc.start(now); osc.stop(now + 0.06)
+      return
+    }
+
+    if (preset === 'atelier') {
+      const thud = ctx.createOscillator()
+      const tg = ctx.createGain()
+      thud.type = 'sine'
+      thud.frequency.setValueAtTime(135 * jitter, now)
+      thud.frequency.exponentialRampToValueAtTime(46, now + 0.075)
+      tg.gain.setValueAtTime(0.26 * amp, now)
+      tg.gain.exponentialRampToValueAtTime(0.001, now + 0.085)
+      thud.connect(tg)
+      this._connectPanned(tg, pan)
+
+      const bell = ctx.createOscillator()
+      const bg = ctx.createGain()
+      bell.type = 'sine'
+      bell.frequency.setValueAtTime(2180 * jitter, now)
+      bg.gain.setValueAtTime(0.055 * amp * amp, now)
+      bg.gain.exponentialRampToValueAtTime(0.0008, now + 0.09)
+      bell.connect(bg)
+      this._connectPanned(bg, pan)
+
+      thud.onended = () => { this.activeVoices = Math.max(0, this.activeVoices - 1) }
+      thud.start(now); bell.start(now)
+      thud.stop(now + 0.09); bell.stop(now + 0.095)
+      return
+    }
+
+    if (preset === 'bauhaus') {
+      const osc = ctx.createOscillator()
+      const g = ctx.createGain()
+      osc.type = 'triangle'
+      osc.frequency.setValueAtTime(1920 * jitter, now)
+      osc.frequency.exponentialRampToValueAtTime(620, now + 0.028)
+      g.gain.setValueAtTime(0.18 * amp, now)
+      g.gain.exponentialRampToValueAtTime(0.001, now + 0.034)
+      osc.connect(g)
+      this._connectPanned(g, pan)
+      osc.onended = () => { this.activeVoices = Math.max(0, this.activeVoices - 1) }
+      osc.start(now); osc.stop(now + 0.038)
+      return
+    }
+
+    if (preset === 'murano') {
+      const o1 = ctx.createOscillator()
+      const o2 = ctx.createOscillator()
+      const g = ctx.createGain()
+      o1.type = 'sine'; o2.type = 'sine'
+      const f0 = 1360 * jitter
+      o1.frequency.setValueAtTime(f0, now)
+      o2.frequency.setValueAtTime(f0 * 2.58, now)
+      g.gain.setValueAtTime(0.15 * amp, now)
+      g.gain.exponentialRampToValueAtTime(0.001, now + 0.16)
+      o1.connect(g); o2.connect(g)
+      this._connectPanned(g, pan)
+      o1.onended = () => { this.activeVoices = Math.max(0, this.activeVoices - 1) }
+      o1.start(now); o2.start(now)
+      o1.stop(now + 0.17); o2.stop(now + 0.17)
+      return
+    }
+
+    if (preset === 'urushi' || preset === 'etching') {
+      const osc = ctx.createOscillator()
+      const g = ctx.createGain()
+      osc.type = 'sine'
+      const base = preset === 'urushi' ? 880 : 560
+      osc.frequency.setValueAtTime(base * jitter, now)
+      osc.frequency.exponentialRampToValueAtTime(base * 0.52, now + 0.048)
+      g.gain.setValueAtTime(0.20 * amp, now)
+      g.gain.exponentialRampToValueAtTime(0.001, now + 0.055)
+      osc.connect(g)
+      this._connectPanned(g, pan)
+
+      if (this.noiseBuffer) {
+        const nSrc = ctx.createBufferSource()
+        nSrc.buffer = this.noiseBuffer
+        const nf = ctx.createBiquadFilter()
+        nf.type = 'bandpass'
+        nf.frequency.value = preset === 'urushi' ? 2600 * jitter : 1450 * jitter
+        nf.Q.value = 4.5
+        const ng = ctx.createGain()
+        ng.gain.setValueAtTime(0.12 * amp, now)
+        ng.gain.exponentialRampToValueAtTime(0.001, now + 0.024)
+        nSrc.connect(nf); nf.connect(ng)
+        this._connectPanned(ng, pan)
+        nSrc.start(now); nSrc.stop(now + 0.028)
+      }
+
+      osc.onended = () => { this.activeVoices = Math.max(0, this.activeVoices - 1) }
+      osc.start(now); osc.stop(now + 0.06)
+      return
+    }
 
     if (preset === 'prism' || preset === 'astral') {
       const f0 = (preset === 'prism' ? 1480 : 940) * jitter
@@ -2372,7 +3687,6 @@ class ProceduralDiceAudio {
       return
     }
 
-    // 物理刚体碰撞合成：inferno 玄武熔铁 / jianxin 羊脂白玉剑鸣 / singularity 古骨奇点
     const osc = ctx.createOscillator()
     const g = ctx.createGain()
     osc.type = preset === 'inferno' ? 'triangle' : 'sine'
@@ -2403,10 +3717,69 @@ class ProceduralDiceAudio {
     osc.start(now); osc.stop(now + 0.09)
   }
 
-  playSettle(preset = 'astral', tier = 'success') {
+  playSettle(preset = 'atelier', tier = 'success') {
     const ctx = this.ensureContext()
     if (!ctx) return
     const now = ctx.currentTime
+
+    if (preset === 'pixel') {
+      let notes = [523.25, 659.25, 783.99]
+      if (tier === 'critical') notes = [523.25, 659.25, 783.99, 1046.5, 1318.5, 1567.98]
+      else if (tier === 'costly') notes = [440, 523.25, 659.25]
+      else if (tier === 'failure') notes = [392.0, 349.23, 311.13]
+      else if (tier === 'fumble') notes = [311.13, 277.18, 246.94, 185.0]
+
+      notes.forEach((freq, i) => {
+        const t0 = now + i * 0.048
+        const dur = i === notes.length - 1 ? 0.24 : 0.055
+        const osc = ctx.createOscillator()
+        const g = ctx.createGain()
+        osc.type = 'square'
+        osc.frequency.setValueAtTime(freq, t0)
+        g.gain.setValueAtTime(0.075, t0)
+        g.gain.exponentialRampToValueAtTime(0.001, t0 + dur)
+        osc.connect(g)
+        g.connect(this.masterGain)
+        osc.start(t0)
+        osc.stop(t0 + dur + 0.01)
+      })
+      return
+    }
+
+    if (CURATED_SOUND_PRESETS.has(preset)) {
+      let notes = preset === 'urushi' ? [440, 587.33] : [440, 554.37]
+      if (tier === 'critical') {
+        notes = preset === 'urushi'
+          ? [440, 493.88, 587.33, 659.25, 880]
+          : [440, 554.37, 659.25, 880]
+      } else if (tier === 'costly') {
+        notes = [392.0, 466.16, 587.33]
+      } else if (tier === 'failure') {
+        notes = [329.63, 293.66]
+      } else if (tier === 'fumble') {
+        notes = [246.94, 207.65, 164.81]
+      }
+
+      const wave = preset === 'etching' ? 'triangle' : 'sine'
+      const pitchMul = preset === 'murano' ? 1.25 : preset === 'atelier' ? 0.85 : 1.0
+
+      notes.forEach((freq, i) => {
+        const t0 = now + i * (preset === 'bauhaus' ? 0.038 : 0.065)
+        const dur = preset === 'bauhaus' ? 0.18 : (tier === 'critical' ? 0.52 : 0.32)
+        const osc = ctx.createOscillator()
+        const g = ctx.createGain()
+        osc.type = wave
+        osc.frequency.setValueAtTime(freq * pitchMul, t0)
+        g.gain.setValueAtTime(0.001, t0)
+        g.gain.linearRampToValueAtTime(preset === 'bauhaus' ? 0.065 : 0.085, t0 + 0.015)
+        g.gain.exponentialRampToValueAtTime(0.0008, t0 + dur)
+        osc.connect(g)
+        g.connect(this.masterGain)
+        osc.start(t0)
+        osc.stop(t0 + dur + 0.02)
+      })
+      return
+    }
 
     let notes = [523.25, 659.25]
     if (tier === 'critical') notes = [523.25, 659.25, 783.99, 1046.5, 1318.5]
@@ -2443,7 +3816,6 @@ class ProceduralDiceAudio {
       osc.start(t0); osc.stop(t0 + dur + 0.02)
     })
 
-    // 剑鸣清音 / 重锤低音轰鸣
     if (tier === 'critical' || tier === 'fumble') {
       const sub = ctx.createOscillator()
       const sg = ctx.createGain()
@@ -2467,6 +3839,72 @@ class ProceduralDiceAudio {
 // 4. 零 GC 粒子与冲天光柱发射器 + 屏幕空间光学冲击波折射驱动 + 2D 矢量战术准星/朱砂印章叠层
 // ============================================================================
 const NEXTGEN_THEMES = Object.freeze([
+  {
+    id: 'atelier',
+    themeIndex: 6,
+    name: '绅士赌桌 · 胡桃木与古董黄铜',
+    subtitle: 'Walnut & Patina Brass',
+    badge: '胡桃木 · 车削黄铜',
+    desc: '北美黑胡桃木实木托盘与英式精纺墨绿呢绒，手工车削做旧拉丝黄铜骰与猛犸骨瓷骰同台磕碰。',
+    accent: '#d4a853',
+    swatch: 'radial-gradient(circle at 35% 30%, #2b593f 0%, #102a1d 60%, #2a180d 100%)',
+    soundPreset: 'atelier'
+  },
+  {
+    id: 'pixel',
+    themeIndex: 7,
+    name: '勇者地牢 · 16-Bit 黄金像素',
+    subtitle: '16-Bit Sovereign Pixel',
+    badge: '整数像素 · Bayer 抖动',
+    desc: '原生低分整数像素栅格、4×4 Bayer 有序网点抖动、1px 纯黑像素外轮廓与手工 8-Bit 点阵字模，配像素方块烟尘与芯片方波琶音。',
+    accent: '#f2b63d',
+    swatch: 'linear-gradient(135deg, #211d38 0%, #3d335c 52%, #d99b26 100%)',
+    soundPreset: 'pixel'
+  },
+  {
+    id: 'etching',
+    themeIndex: 8,
+    name: '达芬奇手稿 · 羊皮纸铜版蚀刻',
+    subtitle: 'Codex Vellum & Etching',
+    badge: '古羊皮纸 · 钢笔排线',
+    desc: '暖象牙小牛羊皮纸与圆规几何作图线，背光面实时解算为三层铁胆墨水交叉钢笔排线与 45° 斜排线投射阴影，古典朱砂红墨点睛。',
+    accent: '#b63526',
+    swatch: 'linear-gradient(135deg, #efe2c8 0%, #d4c19c 62%, #7a291e 100%)',
+    soundPreset: 'etching'
+  },
+  {
+    id: 'urushi',
+    themeIndex: 9,
+    name: '京都黑漆 · 螺钿金泥莳绘',
+    subtitle: 'Kyoto Urushi & Raden',
+    badge: '镜面黑漆 · 螺钿莳绘',
+    desc: '寒潭镜面黑吕色推光大漆茶盘实时倒映正朱砂漆与乌漆骰影，棱边镶嵌天然夜光贝螺钿微虹切片，空中缓落 24K 纯金箔碎叶。',
+    accent: '#c93b2b',
+    swatch: 'radial-gradient(circle at 40% 35%, #8f1d14 0%, #1c1212 58%, #070506 100%)',
+    soundPreset: 'urushi'
+  },
+  {
+    id: 'bauhaus',
+    themeIndex: 10,
+    name: '包豪斯白瓷 · 博朗信号橙',
+    subtitle: 'Braun & Ceramic Atelier',
+    badge: '哑光白瓷 · 信号橙',
+    desc: '浅灰微喷砂瑞士网格建筑台面配哑光氧化锆白瓷与深石墨铝骰，唯最高点面点缀博朗国际信号橙。',
+    accent: '#ff4f00',
+    swatch: 'linear-gradient(135deg, #f4f3ef 0%, #cfcdc6 65%, #ff4f00 100%)',
+    soundPreset: 'bauhaus'
+  },
+  {
+    id: 'murano',
+    themeIndex: 11,
+    name: '深海星仪 · 威尼斯折射海琉璃',
+    subtitle: 'Murano Sea-Glass & Silver',
+    badge: '海琉璃 · 斯涅尔折射',
+    desc: '深普鲁士天然板岩镶嵌 925 纯银偏心星盘，微磨砂冰青海琉璃依斯涅尔定律实时折射弯曲下方银丝星轨，投下清透水色焦散。',
+    accent: '#78cad2',
+    swatch: 'radial-gradient(circle at 35% 30%, #4ea8b4 0%, #14364a 58%, #08131f 100%)',
+    soundPreset: 'murano'
+  },
   {
     id: 'astral',
     themeIndex: 0,
@@ -2535,6 +3973,10 @@ const NEXTGEN_THEMES = Object.freeze([
   }
 ])
 
+const THEME_BY_ID = Object.freeze(
+  Object.fromEntries(NEXTGEN_THEMES.map(item => [item.id, item]))
+)
+
 const TIER_CODE_MAP = {
   normal: 0,
   critical: 1,
@@ -2553,11 +3995,213 @@ const SEAL_TEXT_BY_TIER = {
   fumble: '大失败'
 }
 
-function drawThemeSealOverlay(ctx, { themeIndex, tier, settleTime, sx, sy, scaleMul = 1, fadeStart = 1.9 }) {
+const SEAL_CODE_BY_TIER = {
+  normal: 'SETTLED',
+  critical: 'CRITICAL',
+  success: 'SUCCESS',
+  costly: 'PARTIAL',
+  failure: 'FAILURE',
+  fumble: 'FUMBLE'
+}
+
+function drawCuratedSignatureOverlay(ctx, { v2Index, tier, total = 0, settleTime, sx, sy, scaleMul = 1, fadeStart = 1.9, pinSettled = false }) {
+  const word = SEAL_TEXT_BY_TIER[tier] || '成功'
+  const code = SEAL_CODE_BY_TIER[tier] || 'SUCCESS'
+  const appear = Math.min(1, settleTime / 0.22)
+  const easeOut = 1 - Math.pow(1 - appear, 3)
+  const fade = (!pinSettled && settleTime > fadeStart) ? Math.max(0, 1 - (settleTime - fadeStart) / 0.65) : 1.0
+  if (fade <= 0.01) return
+
+  const totalText = total !== undefined && total !== null && total !== '' ? String(total) : ''
+
+  ctx.save()
+  ctx.translate(sx, sy + (1 - easeOut) * 6)
+  ctx.scale(scaleMul * (0.94 + 0.06 * easeOut), scaleMul * (0.94 + 0.06 * easeOut))
+  ctx.globalAlpha = easeOut * fade
+
+  if (v2Index === 0) {
+    // [atelier] 绅士赌桌：英伦压花拉丝黄铜乌木铭牌
+    const w = 114, h = 44
+    ctx.fillStyle = 'rgba(22, 15, 10, 0.92)'
+    ctx.beginPath()
+    ctx.roundRect(-w / 2, -h / 2, w, h, 4)
+    ctx.fill()
+
+    ctx.strokeStyle = '#c89d4c'
+    ctx.lineWidth = 1.4
+    ctx.stroke()
+
+    ctx.strokeStyle = 'rgba(200, 157, 76, 0.42)'
+    ctx.lineWidth = 0.8
+    ctx.strokeRect(-w / 2 + 4, -h / 2 + 4, w - 8, h - 8)
+
+    ctx.fillStyle = '#d9b366'
+    ctx.beginPath()
+    ctx.arc(-w / 2 + 9, 0, 1.8, 0, Math.PI * 2)
+    ctx.arc(w / 2 - 9, 0, 1.8, 0, Math.PI * 2)
+    ctx.fill()
+
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    ctx.fillStyle = tier === 'critical' ? '#f5d589' : (tier === 'fumble' ? '#e08a7e' : '#ebd7b2')
+    ctx.font = '700 15px "Georgia", "Songti SC", "Noto Serif SC", serif'
+    ctx.fillText(word, 0, -4)
+    ctx.fillStyle = 'rgba(217, 179, 102, 0.68)'
+    ctx.font = '600 9px "Georgia", serif'
+    ctx.fillText(totalText ? `ATELIER · ${totalText}` : 'ATELIER', 0, 11)
+  } else if (v2Index === 1) {
+    // [pixel] 勇者地牢：16-Bit JRPG 宝蓝底双白像素窗口
+    ctx.imageSmoothingEnabled = false
+    const w = 118, h = 44
+    const x0 = -Math.round(w / 2), y0 = -Math.round(h / 2)
+    ctx.fillStyle = '#0e0b16'
+    ctx.fillRect(x0 - 3, y0, w + 6, h)
+    ctx.fillRect(x0, y0 - 3, w, h + 6)
+    ctx.fillStyle = tier === 'critical' ? '#ffd84d' : (tier === 'fumble' ? '#ff5978' : '#f4f1ea')
+    ctx.fillRect(x0, y0, w, h)
+    ctx.fillStyle = '#182452'
+    ctx.fillRect(x0 + 3, y0 + 3, w - 6, h - 6)
+    ctx.fillStyle = '#101738'
+    ctx.fillRect(x0 + 3, y0 + Math.round(h * 0.52), w - 6, Math.round(h * 0.48) - 3)
+
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    ctx.fillStyle = tier === 'critical' ? '#ffe46b' : '#ffffff'
+    ctx.font = '700 14px ui-monospace, "Courier New", "PingFang SC", monospace'
+    ctx.fillText(`▸ ${word}`, 0, -4)
+    ctx.fillStyle = '#8fa8ff'
+    ctx.font = '700 9.5px ui-monospace, "Courier New", monospace'
+    ctx.fillText(totalText ? `${code} [${totalText}]` : code, 0, 11)
+  } else if (v2Index === 2) {
+    // [etching] 达芬奇手稿：文艺复兴羊皮纸细墨双框古典铭签
+    const w = 116, h = 46
+    ctx.fillStyle = 'rgba(242, 231, 209, 0.94)'
+    ctx.fillRect(-w / 2, -h / 2, w, h)
+
+    ctx.strokeStyle = '#2b2119'
+    ctx.lineWidth = 1.3
+    ctx.strokeRect(-w / 2, -h / 2, w, h)
+    ctx.lineWidth = 0.7
+    ctx.strokeRect(-w / 2 + 4, -h / 2 + 4, w - 8, h - 8)
+
+    ctx.fillStyle = '#b63526'
+    for (const [dx, dy] of [[-w / 2 + 4, -h / 2 + 4], [w / 2 - 4, -h / 2 + 4], [-w / 2 + 4, h / 2 - 4], [w / 2 - 4, h / 2 - 4]]) {
+      ctx.fillRect(dx - 1.5, dy - 1.5, 3, 3)
+    }
+
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    ctx.fillStyle = (tier === 'critical' || tier === 'fumble') ? '#a8281c' : '#241b14'
+    ctx.font = 'italic 700 15px "Palatino Linotype", "Georgia", "Songti SC", serif'
+    ctx.fillText(word, 0, -4)
+    ctx.fillStyle = '#6b5744'
+    ctx.font = 'italic 600 9.5px "Georgia", serif'
+    ctx.fillText(totalText ? `FIG. ${totalText} · ${code}` : code, 0, 11)
+  } else if (v2Index === 3) {
+    // [urushi] 京都黑漆：青田石金石篆刻朱文方印
+    const s = 54
+    ctx.rotate(-0.035)
+    ctx.fillStyle = '#9c1e16'
+    ctx.beginPath()
+    ctx.roundRect(-s / 2, -s / 2, s, s, 2.5)
+    ctx.fill()
+
+    ctx.strokeStyle = '#f6ece0'
+    ctx.lineWidth = 1.8
+    ctx.strokeRect(-s / 2 + 4, -s / 2 + 4, s - 8, s - 8)
+    ctx.fillStyle = '#9c1e16'
+    ctx.fillRect(-s / 2 + 3, -8, 3, 5)
+    ctx.fillRect(s / 2 - 6, 9, 3, 4)
+
+    ctx.fillStyle = '#faf2e6'
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    if (word.length <= 2) {
+      ctx.font = '800 19px "STKaiti", "KaiTi", "Songti SC", "Noto Serif SC", serif'
+      ctx.fillText(word[0], 0, -10)
+      ctx.fillText(word[1] || '印', 0, 11)
+    } else if (word.length === 3) {
+      ctx.font = '800 14.5px "STKaiti", "KaiTi", "Songti SC", "Noto Serif SC", serif'
+      ctx.fillText(word[0], 0, -14)
+      ctx.fillText(word[1], 0, 0)
+      ctx.fillText(word[2], 0, 14)
+    } else {
+      ctx.font = '800 13.5px "STKaiti", "KaiTi", "Songti SC", "Noto Serif SC", serif'
+      ctx.fillText(word.slice(0, 2), 0, -8)
+      ctx.fillText(word.slice(2), 0, 10)
+    }
+  } else if (v2Index === 4) {
+    // [bauhaus] 包豪斯白瓷：瑞士国际主义工业设计规格标签
+    const w = 120, h = 44
+    ctx.fillStyle = 'rgba(250, 249, 246, 0.96)'
+    ctx.fillRect(-w / 2, -h / 2, w, h)
+    ctx.strokeStyle = 'rgba(24, 24, 26, 0.22)'
+    ctx.lineWidth = 1
+    ctx.strokeRect(-w / 2, -h / 2, w, h)
+
+    ctx.fillStyle = tier === 'fumble' ? '#cc2424' : '#ff4f00'
+    ctx.fillRect(-w / 2, -h / 2, 5, h)
+
+    ctx.textAlign = 'left'
+    ctx.textBaseline = 'middle'
+    ctx.fillStyle = '#686a70'
+    ctx.font = '700 8.5px ui-monospace, SFMono-Regular, Menlo, monospace'
+    ctx.fillText(totalText ? `${code} // ${totalText.padStart(2, '0')}` : code, -w / 2 + 13, -9)
+
+    ctx.fillStyle = '#141517'
+    ctx.font = '700 14.5px "Inter", "Helvetica Neue", "PingFang SC", sans-serif'
+    ctx.fillText(word, -w / 2 + 13, 8)
+  } else {
+    // [murano] 深海星仪：925 纯银天球仪弦弧标
+    const w = 118, h = 44
+    ctx.fillStyle = 'rgba(10, 22, 34, 0.88)'
+    ctx.beginPath()
+    ctx.roundRect(-w / 2, -h / 2, w, h, 22)
+    ctx.fill()
+
+    ctx.strokeStyle = 'rgba(186, 218, 232, 0.72)'
+    ctx.lineWidth = 1.2
+    ctx.stroke()
+
+    ctx.strokeStyle = 'rgba(120, 202, 210, 0.35)'
+    ctx.lineWidth = 0.8
+    ctx.beginPath()
+    ctx.roundRect(-w / 2 + 4, -h / 2 + 4, w - 8, h - 8, 18)
+    ctx.stroke()
+
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    ctx.fillStyle = '#eef8fc'
+    ctx.font = '600 15px "Garamond", "Georgia", "Songti SC", serif'
+    ctx.fillText(`✦ ${word} ✦`, 0, -4)
+    ctx.fillStyle = 'rgba(148, 212, 222, 0.78)'
+    ctx.font = '600 9px "Georgia", serif'
+    ctx.fillText(totalText ? `MURANO · ${totalText}` : 'MURANO', 0, 11)
+  }
+
+  ctx.restore()
+}
+
+function drawThemeSealOverlay(ctx, { themeIndex, tier, total = 0, settleTime, sx, sy, scaleMul = 1, fadeStart = 1.9, pinSettled = false }) {
+  if (themeIndex >= 6) {
+    drawCuratedSignatureOverlay(ctx, {
+      v2Index: themeIndex - 6,
+      tier,
+      total,
+      settleTime,
+      sx,
+      sy,
+      scaleMul,
+      fadeStart,
+      pinSettled
+    })
+    return
+  }
+
   const sealWord = SEAL_TEXT_BY_TIER[tier] || '成功'
   const slamT = Math.min(1, settleTime / 0.14)
   const scale = (slamT < 1 ? (2.1 - 1.1 * slamT) : 1.0) * scaleMul
-  const fade = settleTime > fadeStart ? Math.max(0, 1 - (settleTime - fadeStart) / 0.65) : 1.0
+  const fade = (!pinSettled && settleTime > fadeStart) ? Math.max(0, 1 - (settleTime - fadeStart) / 0.65) : 1.0
   const horizFontSize = sealWord.length >= 4 ? 19 : (sealWord.length === 3 ? 23 : 26)
 
   ctx.save()
@@ -2566,7 +4210,6 @@ function drawThemeSealOverlay(ctx, { themeIndex, tier, settleTime, sx, sy, scale
   ctx.globalAlpha = fade * 0.94
 
   if (themeIndex === 4) {
-    // 水墨剑心：落定拍案篆体「朱砂红印」
     ctx.rotate(-0.08)
     ctx.fillStyle = '#b91c1c'
     ctx.strokeStyle = '#fef2f2'
@@ -2596,7 +4239,6 @@ function drawThemeSealOverlay(ctx, { themeIndex, tier, settleTime, sx, sy, scale
       ctx.fillText(sealWord[3], 0, 26)
     }
   } else if (themeIndex === 0) {
-    // 星穹秘法：24K 鎏金星盘印章
     ctx.rotate(-0.04)
     ctx.fillStyle = 'rgba(14, 9, 34, 0.92)'
     ctx.beginPath()
@@ -2636,7 +4278,6 @@ function drawThemeSealOverlay(ctx, { themeIndex, tier, settleTime, sx, sy, scale
     ctx.font = `900 ${horizFontSize}px "Songti SC", "Noto Serif SC", "STKaiti", serif`
     ctx.fillText(sealWord, 0, 1)
   } else if (themeIndex === 1) {
-    // 时停棱镜：碎星圣晶棱形徽章
     ctx.fillStyle = 'rgba(8, 36, 56, 0.88)'
     ctx.beginPath()
     ctx.moveTo(0, -44)
@@ -2672,7 +4313,6 @@ function drawThemeSealOverlay(ctx, { themeIndex, tier, settleTime, sx, sy, scale
     ctx.font = `900 ${horizFontSize}px "PingFang SC", "Microsoft YaHei", system-ui, sans-serif`
     ctx.fillText(sealWord, 0, 2)
   } else if (themeIndex === 2) {
-    // 焚天熔炉：锻铁熔岩六角徽记
     ctx.rotate(-0.04)
     ctx.fillStyle = 'rgba(26, 8, 5, 0.93)'
     ctx.beginPath()
@@ -2709,7 +4349,6 @@ function drawThemeSealOverlay(ctx, { themeIndex, tier, settleTime, sx, sy, scale
     ctx.font = `900 ${horizFontSize}px "PingFang SC", "Microsoft YaHei", system-ui, sans-serif`
     ctx.fillText(sealWord, 0, 1)
   } else if (themeIndex === 3) {
-    // 赛博超频：霓虹全息战术铭牌
     const neon = tier === 'fumble' ? '#ff2a85' : '#00f5d4'
     const cut = 10
     const hw = 48
@@ -2737,7 +4376,6 @@ function drawThemeSealOverlay(ctx, { themeIndex, tier, settleTime, sx, sy, scale
     ctx.font = `900 ${horizFontSize}px "PingFang SC", "Microsoft YaHei", system-ui, sans-serif`
     ctx.fillText(sealWord, 0, 1)
   } else {
-    // 虚空星噬：诡秘奇点蚀环印
     ctx.fillStyle = 'rgba(8, 6, 18, 0.94)'
     ctx.beginPath()
     ctx.arc(0, 0, 46, 0, Math.PI * 2)
@@ -2768,8 +4406,15 @@ function drawThemeSealOverlay(ctx, { themeIndex, tier, settleTime, sx, sy, scale
 }
 
 const SIM_DT = 1 / 120
-const MAX_STEPS = 320 // 2.67s 120Hz 高精度轨迹（支撑宽幅剧场长弧线投掷）
+const MAX_STEPS = 380
 const PARTICLE_CAP = 900
+
+function dieFloorZ(meshKey, radius) {
+  if (meshKey === 'd4') return radius / 3
+  if (meshKey === 'd6' || meshKey === 'df' || meshKey === 'd8') return radius * 0.57735
+  if (meshKey === 'd10' || meshKey === 'd100_tens' || meshKey === 'd100_ones') return radius * 0.6687
+  return radius * 0.7947
+}
 
 function qMul(ax, ay, az, aw, bx, by, bz, bw, out) {
   out[0] = aw * bx + ax * bw + ay * bz - az * by
@@ -2806,7 +4451,7 @@ function qSlerp(a, ao, b, bo, t, out) {
   out[0] = ax * wa + bx * wb
   out[1] = ay * wa + by * wb
   out[2] = az * wa + bz * wb
-  out[3] = aw * wa + bz * 0 + bw * wb
+  out[3] = aw * wa + bw * wb
 }
 
 function mat3ToQuat(m00, m10, m20, m01, m11, m21, m02, m12, m22, out) {
@@ -2851,9 +4496,10 @@ class CinematicDiceStage {
     this.onRollSettled = options.onRollSettled || null
     this.compactMode = Boolean(options.compact)
     this.theaterMode = Boolean(options.theater)
+    this.pinSettled = Boolean(options.pinSettled)
 
-    this.theme = NEXTGEN_THEMES[0]
-    this.quality = 'ultra' // 'ultra' | 'balanced' | 'lite'
+    this.theme = THEME_BY_ID.atelier
+    this.quality = 'ultra'
     this.usePipsForD6 = false
     this.cinematicCamEnabled = !this.compactMode
 
@@ -2861,7 +4507,6 @@ class CinematicDiceStage {
     this.cssH = 520
     this.dpr = 1
 
-    // 引擎运行与帧率遥测
     this.running = false
     this.rafId = 0
     this.clock = 0
@@ -2872,10 +4517,9 @@ class CinematicDiceStage {
     this.fpsFrames = 0
     this.fps = 60
 
-    // 投掷状态与模式
     this.dice = []
     this.tier = 'success'
-    this.mode = 'normal' // 'normal' | 'fate' | 'push' | 'hidden'
+    this.mode = 'normal'
     this.revealed = false
     this.total = 20
     this.checkName = '命运裁定'
@@ -2889,36 +4533,38 @@ class CinematicDiceStage {
     this.bulletTimeAmount = 0
     this.bulletSoundPlayed = false
 
-    // 交互式按住蓄力旋涡 & 拖拽甩投状态
     this.charging = false
+    this.buttonCharging = false
+    this.chargeMode = 'normal'
     this.chargeTime = 0
-    this.chargeWorld = { x: 0, y: -60, z: 95 }
-    this.dragHistory = [] // [{ x, y, t }]
+    this.lastChargePower = 0
+    this.fateApexTime = 0.22
+    this.fateApexChimePlayed = false
+    this.fateSlowAmount = 0
+    this.nextChargeRattleAt = 0
+    this.chargeWorld = { x: 0, y: -40, z: 92 }
+    this.dragHistory = []
     this.pendingSpecBuilder = options.buildSpecOnDragRelease || null
 
-    // 电影级弹簧摄像机状态
-    this.baseEye = [0, -395, 435]
-    this.camEye = [0, -395, 435]
-    this.camTarget = [0, 8, 14]
+    this.baseEye = [0, -148, 485]
+    this.camEye = [0, -148, 485]
+    this.camTarget = [0, 4, 12]
     this.camFov = (38 * Math.PI) / 180
     this.shakeAmp = 0
     this.chroma = 0.06
-    this.shockwave = [0.5, 0.5, 0, 0] // u, v, radius, strength
+    this.shockwave = [0.5, 0.5, 0, 0]
     this.shockAge = 99
 
-    // 桌面撞击贴花槽 (8个)
     this.impacts = Array.from({ length: 8 }, () => ({ x: 0, y: 0, age: 0, strength: 0 }))
     this.impactCursor = 0
     this.bounceQueue = []
     this.bouncePlayCursor = 0
 
-    // 3D 弧形剑气 / 星环轨槽 (8条)
     this.slashes = Array.from({ length: 8 }, () => ({
       active: false, cx: 0, cy: 0, cz: 20, radius: 90, tilt: 0.4, angle: 0, width: 10, age: 0, life: 0.6, r: 1, g: 1, b: 1
     }))
     this.slashCursor = 0
 
-    // SoA GPU 粒子与冲天光柱池
     this.particles = {
       capacity: PARTICLE_CAP,
       aliveCount: 0,
@@ -2939,7 +4585,7 @@ class CinematicDiceStage {
       g: new Float32Array(PARTICLE_CAP),
       b: new Float32Array(PARTICLE_CAP),
       a: new Float32Array(PARTICLE_CAP),
-      mode: new Float32Array(PARTICLE_CAP) // 0: 速度拉伸火星, 1: 冲天光柱
+      mode: new Float32Array(PARTICLE_CAP)
     }
 
     this._qTmp = new Float32Array(4)
@@ -2969,11 +4615,11 @@ class CinematicDiceStage {
     }
 
     const aspect = w / Math.max(1, h)
-    // 宽扁横幅或竖窄屏幕自适应视野距离（拉近约 22%，让多面体与数字饱满清晰）
     const distScale = aspect > 2.1 ? 0.66 : aspect < 0.9 ? 1.15 : 0.88
     this.baseEye[0] = 0
-    this.baseEye[1] = -335 * distScale
-    this.baseEye[2] = 395 * distScale
+    this.baseEye[1] = -148 * distScale
+    this.baseEye[2] = 485 * distScale
+    if (!this.running) this._snapCameraToRest()
     this.renderSingleFrame()
   }
 
@@ -2999,25 +4645,41 @@ class CinematicDiceStage {
     this.wake()
   }
 
-  /**
-   * 手动按钮长按蓄力 API：按住重投/投掷按钮时，骰群升空进入中心引力聚能旋涡！
-   */
-  startButtonCharge(modeHint) {
+  startButtonCharge(modeHint = 'normal') {
     if (this.charging) return
     this.themeBeforeCharge = this.theme
-    if (modeHint === 'fate') this.setTheme(NEXTGEN_THEMES[1])
-    else if (modeHint === 'push') this.setTheme(NEXTGEN_THEMES[2])
-    // 若舞台当前尚无骰子，先放置一颗默认多面体参与蓄力旋涡演出
+    if (this.theme && this.theme.id === 'astral') {
+      if (modeHint === 'fate') this.setTheme(THEME_BY_ID.prism)
+      else if (modeHint === 'push') this.setTheme(THEME_BY_ID.inferno)
+    }
     if (!this.dice || this.dice.length === 0) {
       this.setStaticRoll({ diceSpecs: [{ meshKey: 'd20', sides: 20, targetValue: 20 }], tier: 'success', mode: 'normal' })
     }
+    const cm = modeHint === 'fate' || modeHint === 'push' ? modeHint : 'normal'
+    for (let i = 0; i < this.dice.length; i++) {
+      const d = this.dice[i]
+      d._preChargeX = d.x; d._preChargeY = d.y; d._preChargeZ = d.z
+      d._preChargeQx = d.qx; d._preChargeQy = d.qy; d._preChargeQz = d.qz; d._preChargeQw = d.qw
+    }
+    this.chargeMode = cm
     this.charging = true
     this.buttonCharging = true
     this.chargeTime = 0
-    this.chargeWorld.x = 0
-    this.chargeWorld.y = -12
-    this.chargeWorld.z = 92
-    if (this.audio) this.audio.startChargeHum(this.theme.soundPreset)
+    this.nextChargeRattleAt = 0.08
+    if (cm === 'fate') {
+      this.chargeWorld.x = 0
+      this.chargeWorld.y = -4
+      this.chargeWorld.z = 84
+    } else if (cm === 'push') {
+      this.chargeWorld.x = 0
+      this.chargeWorld.y = -24
+      this.chargeWorld.z = 94
+    } else {
+      this.chargeWorld.x = 0
+      this.chargeWorld.y = -12
+      this.chargeWorld.z = 88
+    }
+    if (this.audio) this.audio.startChargeHum(this.theme.soundPreset, cm)
     this.wake()
   }
 
@@ -3028,17 +4690,24 @@ class CinematicDiceStage {
     if (!this.charging) return
     this.charging = false
     this.buttonCharging = false
+    this.chargeMode = 'normal'
     if (this.audio) this.audio.stopChargeHum()
-    // 恢复落定态原坐标与姿态
     for (let i = 0; i < this.dice.length; i++) {
       const d = this.dice[i]
-      const ep = (MAX_STEPS - 1) * 3
-      const eq = (MAX_STEPS - 1) * 4
-      d.x = d.trajPos[ep]; d.y = d.trajPos[ep + 1]; d.z = d.trajPos[ep + 2]
-      d.qx = d.trajQuat[eq]; d.qy = d.trajQuat[eq + 1]; d.qz = d.trajQuat[eq + 2]; d.qw = d.trajQuat[eq + 3]
+      if (d._preChargeX !== undefined) {
+        d.x = d._preChargeX; d.y = d._preChargeY; d.z = d._preChargeZ
+        d.qx = d._preChargeQx; d.qy = d._preChargeQy; d.qz = d._preChargeQz; d.qw = d._preChargeQw
+      } else {
+        const ep = (MAX_STEPS - 1) * 3
+        const eq = (MAX_STEPS - 1) * 4
+        d.x = d.trajPos[ep]; d.y = d.trajPos[ep + 1]; d.z = d.trajPos[ep + 2]
+        d.qx = d.trajQuat[eq]; d.qy = d.trajQuat[eq + 1]; d.qz = d.trajQuat[eq + 2]; d.qw = d.trajQuat[eq + 3]
+      }
       d.trailCount = 0
       d.settled = true
     }
+    this.particles.active.fill(0)
+    this.particles.aliveCount = 0
     this.settled = true
     // 无损取消：蓄力期间临时换上的逆命/熔炉主题必须还原，否则这张卡片会一直停留在熔炉皮肤
     if (this.themeBeforeCharge) {
@@ -3049,23 +4718,27 @@ class CinematicDiceStage {
   }
 
   /**
-   * 松开蓄力按钮：带着蓄力能量将旋涡中的骰群爆发砸向指定真骰结果！
+   * 松开蓄力按钮：带着蓄力能量将悬停/剧颤中的骰群无缝爆发投向真骰结果！
    */
   releaseButtonCharge(spec, charge01 = 0.6) {
-    const power = Math.max(0, Math.min(1, Number(charge01) || 0))
+    const rawC = Number(charge01) || 0
+    const power = rawC > 0.1 ? Math.max(0.18, Math.min(1, rawC)) : 0
+    const activeMode = (spec && spec.mode && spec.mode !== 'normal')
+      ? spec.mode
+      : (this.chargeMode !== 'normal' ? this.chargeMode : ((spec && spec.mode) || 'normal'))
+    const fromPositions = this.dice && this.dice.length
+      ? this.dice.map(d => ({ x: d.x, y: d.y, z: d.z }))
+      : null
     this.charging = false
     this.buttonCharging = false
+    this.chargeMode = 'normal'
     this.themeBeforeCharge = null
     if (this.audio) this.audio.stopChargeHum()
-    const enriched = { ...(spec || {}) }
-    if (power > 0.12) {
-      const angle = (Math.random() - 0.5) * 1.1 + Math.PI * 0.5
-      const spd = 220 + power * 420
-      enriched.launchOrigin = { x: 0, y: -24, z: 98 + power * 48 }
-      enriched.launchVelocity = {
-        vx: Math.cos(angle) * spd * 0.55,
-        vy: Math.sin(angle) * spd * 0.55
-      }
+    const enriched = {
+      ...(spec || {}),
+      mode: activeMode,
+      chargePower: power,
+      fromPositions
     }
     this.throwDice(enriched)
   }
@@ -3091,6 +4764,7 @@ class CinematicDiceStage {
     }
     this.particles.active.fill(0)
     this.particles.aliveCount = 0
+    this._snapCameraToRest()
     this.renderSingleFrame()
   }
 
@@ -3105,19 +4779,22 @@ class CinematicDiceStage {
 
     el.addEventListener('pointerdown', e => {
       if (e.button !== 0) return
-      // 若当前处于暗骰落定待揭晓状态，轻点直接撕开封印揭晓！
       if (this.mode === 'hidden' && !this.revealed && this.settled) {
         this.revealHidden()
         return
       }
       el.setPointerCapture(e.pointerId)
+      const cm = this.mode === 'fate' || this.mode === 'push' ? this.mode : 'normal'
+      this.chargeMode = cm
       this.charging = true
+      this.buttonCharging = false
       this.chargeTime = 0
+      this.nextChargeRattleAt = 0.08
       const wp = toWorld(e.clientX, e.clientY, 85)
       this.chargeWorld.x = Math.max(-210, Math.min(210, wp.x))
       this.chargeWorld.y = Math.max(-165, Math.min(165, wp.y))
       this.dragHistory = [{ x: this.chargeWorld.x, y: this.chargeWorld.y, t: performance.now() }]
-      if (this.audio) this.audio.startChargeHum(this.theme.soundPreset)
+      if (this.audio) this.audio.startChargeHum(this.theme.soundPreset, cm)
       this.wake()
     })
 
@@ -3133,10 +4810,12 @@ class CinematicDiceStage {
 
     const finishDrag = () => {
       if (!this.charging) return
+      const heldTime = this.chargeTime
+      const fromPositions = this.dice.map(d => ({ x: d.x, y: d.y, z: d.z }))
       this.charging = false
+      this.chargeMode = 'normal'
       if (this.audio) this.audio.stopChargeHum()
 
-      // 计算甩投初速度向量
       let vx = 0, vy = 0
       if (this.dragHistory.length >= 2) {
         const first = this.dragHistory[0]
@@ -3153,12 +4832,15 @@ class CinematicDiceStage {
 
       const spec = this.pendingSpecBuilder ? this.pendingSpecBuilder() : null
       if (spec) {
-        if (speed > 65 || this.chargeTime > 0.18) {
-          spec.launchOrigin = { x: this.chargeWorld.x, y: this.chargeWorld.y, z: 95 + Math.min(1, this.chargeTime) * 45 }
-          spec.launchVelocity = {
-            vx: speed > 65 ? vx : -this.chargeWorld.x * 2.4 + (Math.random() - 0.5) * 180,
-            vy: speed > 65 ? vy : -this.chargeWorld.y * 2.4 + (Math.random() - 0.5) * 180
-          }
+        const dragPower = Math.min(1, Math.max(0, (heldTime - 0.14) / 0.85))
+        if (speed > 65) {
+          spec.launchOrigin = { x: this.chargeWorld.x, y: this.chargeWorld.y, z: 95 + dragPower * 45 }
+          spec.launchVelocity = { vx, vy }
+          spec.chargePower = Math.max(0.25, dragPower)
+          spec.fromPositions = fromPositions
+        } else if (dragPower > 0.1) {
+          spec.chargePower = dragPower
+          spec.fromPositions = fromPositions
         }
         this.throwDice(spec)
       }
@@ -3204,7 +4886,80 @@ class CinematicDiceStage {
     p.g[i] = opts.g !== undefined ? opts.g : 1.6
     p.b[i] = opts.b !== undefined ? opts.b : 0.4
     p.a[i] = opts.a !== undefined ? opts.a : 1.0
-    p.mode[i] = opts.pillar ? 1.0 : 0.0
+    p.mode[i] = opts.mode !== undefined ? opts.mode : (opts.pillar ? 1.0 : 0.0)
+  }
+
+  _spawnMediumAccentParticle(x, y, z, vx, vy, vz, scale = 1.0, preferStar = false) {
+    const id = this.theme.themeIndex
+    if (id < 6) {
+      const col = this._themeHDRColor()
+      this._spawnSpark({
+        x, y, z, vx, vy, vz,
+        size: 2.6 * scale,
+        life: 0.36 + Math.random() * 0.2,
+        grav: preferStar ? 40 : 120,
+        drag: 1.4,
+        r: col[0], g: col[1], b: col[2], a: 0.92,
+        mode: 0.0
+      })
+      return
+    }
+    const v2 = id - 6
+    if (v2 === 1) {
+      this._spawnSpark({
+        x, y, z, vx, vy, vz,
+        size: (preferStar ? 6.0 : 4.5) * scale,
+        life: 0.34 + Math.random() * 0.22,
+        grav: preferStar ? 60 : 210, drag: 2.0,
+        r: preferStar ? 1.0 : 0.92, g: preferStar ? 0.88 : 0.84, b: preferStar ? 0.28 : 0.72, a: 1.0,
+        mode: preferStar ? 3.0 : 2.0
+      })
+    } else if (v2 === 3) {
+      this._spawnSpark({
+        x, y, z, vx, vy, vz,
+        size: (3.4 + Math.random() * 1.8) * scale,
+        life: 0.75 + Math.random() * 0.4,
+        grav: 46, drag: 2.2,
+        r: 0.96, g: 0.78, b: 0.34, a: 0.92,
+        mode: 4.0
+      })
+    } else if (v2 === 2) {
+      this._spawnSpark({
+        x, y, z, vx, vy, vz,
+        size: (1.9 + Math.random() * 1.2) * scale,
+        life: 0.38 + Math.random() * 0.22,
+        grav: preferStar ? 65 : 380, drag: 1.9,
+        r: preferStar ? 0.70 : 0.16, g: preferStar ? 0.18 : 0.11, b: preferStar ? 0.13 : 0.08, a: 0.68,
+        mode: 5.0
+      })
+    } else if (v2 === 4) {
+      this._spawnSpark({
+        x, y, z, vx, vy, vz,
+        size: (2.0 + Math.random() * 1.2) * scale,
+        life: 0.36 + Math.random() * 0.2,
+        grav: preferStar ? 55 : 320, drag: 2.0,
+        r: 1.0, g: 0.31, b: 0.02, a: 0.72,
+        mode: 5.0
+      })
+    } else if (v2 === 5) {
+      this._spawnSpark({
+        x, y, z, vx, vy, vz,
+        size: (2.1 + Math.random() * 1.5) * scale,
+        life: 0.48 + Math.random() * 0.28,
+        grav: 85, drag: 1.8,
+        r: 0.66, g: 0.92, b: 0.98, a: 0.62,
+        mode: 5.0
+      })
+    } else {
+      this._spawnSpark({
+        x, y, z, vx, vy, vz,
+        size: (1.9 + Math.random() * 1.3) * scale,
+        life: 0.50 + Math.random() * 0.3,
+        grav: 50, drag: 2.3,
+        r: 0.96, g: 0.79, b: 0.42, a: 0.44,
+        mode: 5.0
+      })
+    }
   }
 
   _spawnSlash(cx, cy, cz, radius, tilt, angle, width, life, r, g, b) {
@@ -3232,7 +4987,7 @@ class CinematicDiceStage {
   }
 
   /**
-   * 触发一次高精度真骰投掷！
+   * 触发一次高精度真骰投掷（区分普通点按/长按、✦逆命重投点按/长按、🔥孤注一掷点按/长按）
    */
   throwDice(spec = {}) {
     /* pace < 1 = 慢镜投骰（正文中央的演出用它拉长整套投掷动作；胶囊/蓄力默认 1 保持原速） */
@@ -3242,16 +4997,32 @@ class CinematicDiceStage {
       : [{ meshKey: 'd20', sides: 20, targetValue: 20 }]
     const count = diceSpecs.length
 
+    const prevDiceSnap = (!spec.silentStatic && this.dice && this.dice.length)
+      ? this.dice.map(d => ({ x: d.x, y: d.y, z: d.z }))
+      : null
+
+    if (!spec.silentStatic) {
+      this.charging = false
+      this.buttonCharging = false
+      this.chargeMode = 'normal'
+    }
+
     this.tier = spec.tier || 'success'
     this.mode = spec.mode || 'normal'
+    this.contestMeta = spec.contestMeta || null
     this.revealed = false
     this.total = spec.total !== undefined ? spec.total : diceSpecs.reduce((s, d) => s + d.targetValue, 0)
     this.checkName = spec.checkName || '命运裁定'
 
+    const power = spec.silentStatic ? 0 : Math.max(0, Math.min(1, Number(spec.chargePower) || 0))
+    this.lastChargePower = power
+    this.fateApexChimePlayed = false
+    this.fateSlowAmount = 0
+
     // 清空上一轮瞬态残迹
     this.particles.active.fill(0)
     this.particles.aliveCount = 0
-    for (const imp of this.impacts) imp.strength = 0
+    for (const imp of this.impacts) { imp.strength = 0; imp._delay = 0 }
     for (const sl of this.slashes) sl.active = false
     this.shockAge = 99
     this.shockwave[3] = 0
@@ -3262,7 +5033,7 @@ class CinematicDiceStage {
     const baseR = count <= 1 ? 42 : count <= 2 ? 37 : count <= 4 ? 31 : count <= 8 ? 25 : count <= 14 ? 20 : 16
     const aspect = this.cssW / Math.max(1, this.cssH)
     const boundX = Math.min(this.theaterMode ? 285 : 225, Math.max(92, 155 * aspect)) - baseR
-    const boundY = (this.compactMode ? 88 : 138) - baseR
+    const boundY = (this.compactMode ? 88 : (this.theaterMode ? 124 : 138)) - baseR
 
     const dice = []
     for (let i = 0; i < count; i++) {
@@ -3276,22 +5047,150 @@ class CinematicDiceStage {
         }
       }
 
-      let startX, startY, startZ, vx, vy, vz
+      const radius = baseR * (ds.meshKey === 'd4' ? 1.12 : 1.0)
+      const floorZ = dieFloorZ(ds.meshKey, radius)
+      const fromPos = !spec.silentStatic && spec.fromPositions && spec.fromPositions[i] ? spec.fromPositions[i] : null
+      const prevPos = prevDiceSnap && prevDiceSnap[i] ? prevDiceSnap[i] : null
+
+      let startX, startY, startZ, vx, vy, vz, wx, wy, wz
+
       if (spec.launchOrigin && spec.launchVelocity) {
         const spreadA = (i / Math.max(1, count)) * Math.PI * 2
         const spreadR = count > 1 ? 18 + (i % 3) * 10 : 0
-        startX = spec.launchOrigin.x + Math.cos(spreadA) * spreadR
-        startY = spec.launchOrigin.y + Math.sin(spreadA) * spreadR
-        startZ = spec.launchOrigin.z + (i % 4) * 12
-        vx = spec.launchVelocity.vx + (Math.random() - 0.5) * 95
-        vy = spec.launchVelocity.vy + (Math.random() - 0.5) * 95
-        vz = 140 + Math.random() * 130
+        startX = fromPos ? fromPos.x : spec.launchOrigin.x + Math.cos(spreadA) * spreadR
+        startY = fromPos ? fromPos.y : spec.launchOrigin.y + Math.sin(spreadA) * spreadR
+        startZ = fromPos ? Math.max(floorZ + 20, fromPos.z) : spec.launchOrigin.z + (i % 4) * 12
+        vx = spec.launchVelocity.vx + (Math.random() - 0.5) * 90
+        vy = spec.launchVelocity.vy + (Math.random() - 0.5) * 90
+        vz = this.mode === 'push' ? -(260 + power * 420) : (130 + Math.random() * 115)
+        const spinMul = 1.0 + power * 1.25
+        wx = (Math.random() < 0.5 ? -1 : 1) * (15 + Math.random() * 12) * spinMul
+        wy = (Math.random() < 0.5 ? -1 : 1) * (14 + Math.random() * 12) * spinMul
+        wz = (Math.random() - 0.5) * 18 * spinMul
+      } else if (!spec.silentStatic && this.mode === 'fate') {
+        // ✦ 逆命重投专属动作：拔地反重力升天 -> 穹顶时停凝滞翻转 -> 天命钦定落座！
+        const ringR = count === 1
+          ? 0
+          : (this.theaterMode
+            ? baseR * (1.0 + Math.sqrt(count) * 0.48)
+            : Math.min(boundX * 0.46, baseR * (1.28 + Math.sqrt(count) * 0.54)))
+        const slotA = (i / count) * Math.PI * 2 + Math.PI * 0.25
+        const aimX = Math.cos(slotA) * ringR * 0.88
+        const aimY = Math.sin(slotA) * ringR * 0.66 + 2
+
+        if (power > 0) {
+          const fallbackA = (i / Math.max(1, count)) * Math.PI * 2
+          const fallbackR = count === 1 ? 0 : 44
+          const maxHoldZ = this.theaterMode ? 82 : 104
+          startX = fromPos ? fromPos.x : Math.cos(fallbackA) * fallbackR
+          startY = fromPos ? fromPos.y : -4 + Math.sin(fallbackA) * fallbackR * 0.62
+          startZ = fromPos ? Math.min(maxHoldZ + 8, Math.max(floorZ + 28, fromPos.z)) : (maxHoldZ - 12 + power * 14)
+          vz = (this.theaterMode ? 155 : 205) + power * (this.theaterMode ? 95 : 145) + (i % 2) * 14
+          const tArc = 0.48 + power * 0.12
+          vx = (aimX - startX) / tArc + (Math.random() - 0.5) * 20
+          vy = (aimY - startY) / tArc + (Math.random() - 0.5) * 20
+          const fSpin = 28 + power * 28
+          const dir = i % 2 === 0 ? -1 : 1
+          wx = -fSpin * (0.88 + Math.random() * 0.24)
+          wy = dir * fSpin * (0.62 + Math.random() * 0.25)
+          wz = -dir * (14 + power * 18)
+        } else {
+          const originA = (i / Math.max(1, count)) * Math.PI * 2 + Math.PI
+          const originR = count === 1 ? 0 : Math.min(boundX * 0.36, 38 + count * 6)
+          startX = prevPos ? Math.max(-boundX * 0.85, Math.min(boundX * 0.85, prevPos.x)) : Math.cos(originA) * originR
+          startY = prevPos ? Math.max(-boundY * 0.85, Math.min(boundY * 0.85, prevPos.y)) : (Math.sin(originA) * originR * 0.7 - 6)
+          startZ = floorZ + 4 + (i % 3) * 3
+          vz = (this.theaterMode ? 410 : 485) + Math.random() * 36 + (i % 2) * 14
+          const tArc = (this.theaterMode ? 0.54 : 0.60) + Math.random() * 0.04
+          vx = (aimX - startX) / tArc + (Math.random() - 0.5) * 24
+          vy = (aimY - startY) / tArc + (Math.random() - 0.5) * 24
+          wx = -(23 + Math.random() * 10)
+          wy = (i % 2 === 0 ? 1 : -1) * (19 + Math.random() * 9)
+          wz = (Math.random() - 0.5) * 16
+        }
+
+        if (i < 4) {
+          const imp = this.impacts[this.impactCursor % this.impacts.length]
+          this.impactCursor++
+          imp.x = startX; imp.y = startY; imp.age = 0.001; imp.strength = 0.42 + power * 0.35
+        }
+      } else if (!spec.silentStatic && this.mode === 'push') {
+        // 🔥 孤注一掷专属动作：掌心紧攥剧颤 -> 雷霆陨石俯冲猛砸 -> 狂暴高弹互撞！
+        const ringR = count === 1
+          ? 0
+          : (this.theaterMode
+            ? baseR * (1.15 + Math.sqrt(count) * 0.56)
+            : Math.min(boundX * 0.55, baseR * (1.42 + Math.sqrt(count) * 0.62)))
+        const slotA = (i / count) * Math.PI * 2 + (Math.random() - 0.5) * 0.4
+        const aimX = Math.cos(slotA) * ringR
+        const aimY = Math.sin(slotA) * ringR * 0.70 + (this.theaterMode ? 4 : 8)
+
+        if (power > 0) {
+          const jitterA = (i / Math.max(1, count)) * Math.PI * 2
+          startX = fromPos ? fromPos.x : Math.cos(jitterA) * (count > 1 ? 16 : 0)
+          startY = fromPos ? fromPos.y : -24 + Math.sin(jitterA) * (count > 1 ? 10 : 0)
+          startZ = fromPos ? Math.max(floorZ + 44, fromPos.z) : ((this.theaterMode ? 80 : 96) + power * (this.theaterMode ? 26 : 42))
+          vz = -(480 + power * 640 + Math.random() * 75)
+          const slamSpread = 165 + power * 260
+          vx = (aimX - startX) * (2.8 + power * 1.8) + (Math.random() - 0.5) * slamSpread
+          vy = (aimY - startY) * (3.0 + power * 1.6) + (Math.random() - 0.5) * slamSpread * 0.85
+          const pSpin = 40 + power * 38
+          wx = (Math.random() < 0.5 ? -1 : 1) * (pSpin + Math.random() * 14)
+          wy = (Math.random() < 0.5 ? -1 : 1) * (pSpin * 0.92 + Math.random() * 14)
+          wz = (Math.random() - 0.5) * pSpin * 1.15
+        } else {
+          startX = (i - (count - 1) * 0.5) * Math.min(34, (boundX * 1.2) / Math.max(1, count)) + (Math.random() - 0.5) * 18
+          startY = -boundY * 0.90
+          startZ = baseR + (this.theaterMode ? 102 : 124) + (i % 3) * 12 + Math.random() * 18
+          vz = -(380 + Math.random() * 110)
+          vx = (aimX - startX) * 2.8 + (Math.random() - 0.5) * 155
+          vy = (aimY - startY) * 3.0 + (Math.random() - 0.5) * 115
+          wx = (Math.random() < 0.5 ? -1 : 1) * (32 + Math.random() * 16)
+          wy = (Math.random() < 0.5 ? -1 : 1) * (30 + Math.random() * 16)
+          wz = (Math.random() - 0.5) * 36
+        }
+      } else if (!spec.silentStatic && power > 0) {
+        // 🎲 普通投掷 · 长按蓄力松手：从空中八字旋涡切向高速离心甩射
+        const fallbackA = (i / Math.max(1, count)) * Math.PI * 2
+        startX = fromPos ? fromPos.x : Math.cos(fallbackA) * 28
+        startY = fromPos ? fromPos.y : -14 + Math.sin(fallbackA) * 24
+        startZ = fromPos ? Math.max(floorZ + 32, fromPos.z) : ((this.theaterMode ? 76 : 88) + power * 28)
+        const flingAngle = (i % 2 === 0 ? 0.35 : Math.PI - 0.35) + (Math.random() - 0.5) * 0.55
+        const flingSpd = 380 + power * 420
+        vx = Math.cos(flingAngle) * flingSpd + (Math.random() - 0.5) * 90
+        vy = Math.abs(Math.sin(flingAngle)) * flingSpd * 0.68 + (Math.random() - 0.5) * 85
+        vz = -(220 + power * 360)
+        const nSpin = (18 + Math.random() * 12) * (1.0 + power * 1.55)
+        wx = (Math.random() < 0.5 ? -1 : 1) * nSpin
+        wy = (Math.random() < 0.5 ? -1 : 1) * nSpin * 0.92
+        wz = (Math.random() - 0.5) * nSpin * 1.1
+      } else if (!spec.silentStatic && this.mode === 'contest') {
+        // ⚔️ 双边分庭对抗：我方在左半场独立落骰，对手在右半场独立落骰，中线硬隔离绝不串边混杂
+        const isRival = ds.side === 'rival'
+        const sideSign = isRival ? 1 : -1
+        const allyCount = Math.max(1, diceSpecs.filter(s => s.side !== 'rival').length)
+        const sideLane = isRival ? Math.max(0, i - allyCount) : i
+        const laneCount = isRival ? Math.max(1, count - allyCount) : allyCount
+        const laneOffset = laneCount > 1 ? ((sideLane / (laneCount - 1)) - 0.5) : 0
+        startX = sideSign * boundX * (0.94 + Math.random() * 0.05)
+        startY = -boundY * (0.64 + (sideLane % 2) * 0.22) + (Math.random() - 0.5) * 12
+        startZ = baseR + (this.theaterMode ? 116 : 96) + sideLane * 14 + Math.random() * 22
+        const halfCenter = Math.max(boundX * 0.48, baseR * 2.1)
+        const aimX = sideSign * Math.min(boundX * 0.78, halfCenter + (sideLane % 2 === 0 ? -baseR * 0.45 : baseR * 0.55))
+        const aimY = laneOffset * Math.min(boundY * 0.72, baseR * 1.65) + 4
+        const tFlight = (this.theaterMode ? 0.46 : 0.35) + Math.random() * 0.05
+        vx = (aimX - startX) / tFlight + (Math.random() - 0.5) * 28
+        vy = (aimY - startY) / tFlight + (Math.random() - 0.5) * 28
+        vz = (this.theaterMode ? 148 : 126) + Math.random() * 64
+        wx = (Math.random() < 0.5 ? -1 : 1) * (16 + Math.random() * 12)
+        wy = (Math.random() < 0.5 ? -1 : 1) * (15 + Math.random() * 12)
+        wz = (Math.random() - 0.5) * 18
       } else {
-        // 默认从近景两侧帅气弧线抛入舞台正中央星盘！剧场横幅模式从宽翼起跳，向中心黄金圆环精准聚拢碰撞
+        // 🎲 普通短按投掷（及静态摆盘）：经典双翼弧线抛入
         const side = (i % 2 === 0 ? -1 : 1) * (0.86 + Math.random() * 0.12)
         startX = this.theaterMode ? side * boundX * 0.96 : side * boundX * 0.88
         startY = -boundY * (0.72 + Math.random() * 0.30)
-        startZ = baseR + (this.theaterMode ? 132 : 105) + Math.random() * 68 + (i % 4) * 14
+        startZ = baseR + (this.theaterMode ? 126 : 105) + Math.random() * 62 + (i % 4) * 14
 
         const ringR = count === 1
           ? 0
@@ -3305,7 +5204,10 @@ class CinematicDiceStage {
         const jitter = this.theaterMode ? 36 : 65
         vx = (aimX - startX) / tFlight + (Math.random() - 0.5) * jitter
         vy = (aimY - startY) / tFlight + (Math.random() - 0.5) * jitter
-        vz = (this.theaterMode ? 168 : 135) + Math.random() * 105
+        vz = (this.theaterMode ? 162 : 135) + Math.random() * 98
+        wx = (Math.random() < 0.5 ? -1 : 1) * (14 + Math.random() * 12)
+        wy = (Math.random() < 0.5 ? -1 : 1) * (13 + Math.random() * 12)
+        wz = (Math.random() - 0.5) * 16
       }
 
       dice.push({
@@ -3314,13 +5216,13 @@ class CinematicDiceStage {
         meshKey: ds.meshKey,
         sides: ds.sides || mesh.faceCount,
         faceValue: ds.targetValue,
+        side: ds.side || null,
+        ownerLabel: ds.ownerLabel || '',
         targetFace,
-        radius: baseR * (ds.meshKey === 'd4' ? 1.12 : 1.0),
+        radius,
         x: startX, y: startY, z: startZ,
         vx, vy, vz,
-        wx: (Math.random() < 0.5 ? -1 : 1) * (14 + Math.random() * 12),
-        wy: (Math.random() < 0.5 ? -1 : 1) * (13 + Math.random() * 12),
-        wz: (Math.random() - 0.5) * 16,
+        wx, wy, wz,
         qx: 0, qy: 0, qz: 0, qw: 1,
         speed: Math.hypot(vx, vy, vz),
         settled: false,
@@ -3347,24 +5249,64 @@ class CinematicDiceStage {
     this.bouncePlayCursor = 0
 
     if (this.audio && !spec.silentStatic) {
-      this.audio.playThrowWhoosh(this.theme.soundPreset, 1.1)
+      this.audio.playThrowWhoosh(this.theme.soundPreset, 0.95 + power * 0.75, this.mode)
     }
-    if (!spec.silentStatic) this.wake()
+    if (!spec.silentStatic) {
+      this._renderAll()
+      this.wake()
+    }
   }
 
-  _bakeTrajectoriesAndExactLanding(dice, boundX, boundY) {
+  _runSinglePhysicsTake(dice, boundX, boundY, takeJitter) {
     const count = dice.length
     const gravity = 1680
-    this.bounceQueue.length = 0
+    const isFate = this.mode === 'fate'
+    const isPush = this.mode === 'push'
+    const isContest = this.mode === 'contest'
+    const power = this.lastChargePower || 0
+    const maxBounces = isFate ? 2 : (isPush ? (power > 0 ? 6 : 5) : (power > 0 ? 5 : 4))
+    const minBounceImpV = (isPush || power > 0) ? 38 : 60
+    const wallRest = isPush ? 0.80 : (power > 0 ? 0.74 : 0.68)
+    const wallSpin = isPush ? 8.5 : 5.0
+    const maxReboundVz = this.theaterMode ? 405 : 510
+
+    const sim = dice.map((d, idx) => {
+      const a = takeJitter ? (idx * 2.39996 + takeJitter) : 0
+      const dvx = takeJitter ? Math.cos(a) * takeJitter * 18 : 0
+      const dvy = takeJitter ? Math.sin(a) * takeJitter * 16 : 0
+      return {
+        x: d.x, y: d.y, z: d.z,
+        vx: d.vx + dvx, vy: d.vy + dvy, vz: d.vz,
+        wx: d.wx, wy: d.wy, wz: d.wz,
+        qx: d.qx, qy: d.qy, qz: d.qz, qw: d.qw,
+        radius: d.radius,
+        meshKey: d.meshKey,
+        side: d.side,
+        bounces: 0,
+        _simSettled: false,
+        settleStep: MAX_STEPS - 1,
+        trajPos: new Float32Array(MAX_STEPS * 3),
+        trajQuat: new Float32Array(MAX_STEPS * 4),
+        trajSpeed: new Float32Array(MAX_STEPS)
+      }
+    })
+
+    const bounceQueue = []
     const dq = new Float32Array(4)
     const qNext = new Float32Array(4)
     let maxSettleStep = 48
+    let peakAvgZ = -Infinity
+    let peakStep = 24
+    let pairCollisions = 0
+    const contestDivider = isContest
+      ? Math.min(boundX * 0.26, Math.max(18, (dice[0]?.radius || 18) * 1.25))
+      : 0
 
     for (let step = 0; step < MAX_STEPS; step++) {
+      let sumZ = 0
       for (let i = 0; i < count; i++) {
-        const d = dice[i]
-        // 内切距离使多面体真实贴合 z=0 台面
-        const floorZ = d.radius * (d.meshKey === 'd4' ? 0.52 : d.meshKey === 'd6' || d.meshKey === 'df' ? 0.62 : 0.76)
+        const d = sim[i]
+        const floorZ = dieFloorZ(d.meshKey, d.radius)
 
         if (!d._simSettled) {
           d.vz -= gravity * SIM_DT
@@ -3375,39 +5317,57 @@ class CinematicDiceStage {
           d.vx *= 0.996
           d.vy *= 0.996
 
-          if (d.x < -boundX) { d.x = -boundX; d.vx = Math.abs(d.vx) * 0.68; d.wz += 5 }
-          else if (d.x > boundX) { d.x = boundX; d.vx = -Math.abs(d.vx) * 0.68; d.wz -= 5 }
-          if (d.y < -boundY) { d.y = -boundY; d.vy = Math.abs(d.vy) * 0.68; d.wx += 5 }
-          else if (d.y > boundY) { d.y = boundY; d.vy = -Math.abs(d.vy) * 0.68; d.wx -= 5 }
+          if (d.x < -boundX) { d.x = -boundX; d.vx = Math.abs(d.vx) * wallRest; d.wz += wallSpin }
+          else if (d.x > boundX) { d.x = boundX; d.vx = -Math.abs(d.vx) * wallRest; d.wz -= wallSpin }
+          if (isContest && d.side === 'ally' && d.x > -contestDivider) {
+            d.x = -contestDivider
+            d.vx = -Math.abs(d.vx) * wallRest
+            d.wz -= wallSpin * 0.8
+          } else if (isContest && d.side === 'rival' && d.x < contestDivider) {
+            d.x = contestDivider
+            d.vx = Math.abs(d.vx) * wallRest
+            d.wz += wallSpin * 0.8
+          }
+          if (d.y < -boundY) { d.y = -boundY; d.vy = Math.abs(d.vy) * wallRest; d.wx += wallSpin }
+          else if (d.y > boundY) { d.y = boundY; d.vy = -Math.abs(d.vy) * wallRest; d.wx -= wallSpin }
 
           if (d.z <= floorZ) {
             d.z = floorZ
             const impV = -d.vz
-            if (impV > 60 && d.bounces < 5) {
-              const rest = Math.max(0.24, 0.58 - d.bounces * 0.09)
-              d.vz = impV * rest
-              d.vx *= this.theaterMode ? 0.56 : 0.75
-              d.vy *= this.theaterMode ? 0.64 : 0.75
-              d.wx = d.wx * 0.65 - d.vy * 0.05 + (Math.random() - 0.5) * 6.5
-              d.wy = d.wy * 0.65 + d.vx * 0.05 + (Math.random() - 0.5) * 6.5
-              d.wz *= 0.72
-              this.bounceQueue.push({
+            if (impV > minBounceImpV && d.bounces < maxBounces) {
+              const baseRest = isFate
+                ? (0.28 + power * 0.05)
+                : (isPush ? (0.64 + power * 0.10) : (power > 0 ? 0.58 + power * 0.08 : 0.54))
+              const decay = isFate ? 0.13 : ((isPush || power > 0) ? 0.068 : 0.10)
+              const rest = Math.max(0.24, baseRest - d.bounces * decay)
+              d.vz = Math.min(maxReboundVz, impV * rest)
+              const xyKeepX = isFate ? 0.52 : (isPush ? 0.80 : (this.theaterMode ? 0.58 : 0.75))
+              const xyKeepY = isFate ? 0.54 : (isPush ? 0.80 : (this.theaterMode ? 0.65 : 0.75))
+              d.vx *= xyKeepX
+              d.vy *= xyKeepY
+              const spinKick = isPush ? (9.0 + power * 6.0) : (isFate ? 3.2 : 6.2)
+              d.wx = d.wx * (isFate ? 0.55 : 0.66) - d.vy * 0.05 + (Math.random() - 0.5) * spinKick
+              d.wy = d.wy * (isFate ? 0.55 : 0.66) + d.vx * 0.05 + (Math.random() - 0.5) * spinKick
+              d.wz *= isFate ? 0.58 : 0.72
+              const strengthBoost = (d.bounces === 0 && (isPush || power > 0)) ? (0.18 + power * 0.25) : 0
+              bounceQueue.push({
                 simTime: step * SIM_DT,
                 x: d.x,
                 y: d.y,
                 z: 3,
-                strength: Math.min(1, impV / 540),
+                strength: Math.min(1.25, impV / 520 + strengthBoost),
                 bounceIndex: d.bounces,
                 dieIndex: i
               })
               d.bounces++
             } else {
               d.vz = 0
-              d.vx *= 0.80
-              d.vy *= 0.80
-              d.wx *= 0.76
-              d.wy *= 0.76
-              d.wz *= 0.76
+              d.vx *= isFate ? 0.68 : 0.80
+              d.vy *= isFate ? 0.68 : 0.80
+              // 地面摩擦滚动耦合：线性滑移顺势带出细腻角速度衰减
+              d.wx = d.wx * (isFate ? 0.66 : 0.76) - d.vy * 0.004
+              d.wy = d.wy * (isFate ? 0.66 : 0.76) + d.vx * 0.004
+              d.wz *= isFate ? 0.66 : 0.76
               if (Math.hypot(d.vx, d.vy) < 5.5 && Math.hypot(d.wx, d.wy, d.wz) < 0.42 && step > 40) {
                 d.vx = 0; d.vy = 0; d.vz = 0
                 d.wx = 0; d.wy = 0; d.wz = 0
@@ -3428,12 +5388,21 @@ class CinematicDiceStage {
             d.qx = qNext[0]; d.qy = qNext[1]; d.qz = qNext[2]; d.qw = qNext[3]
           }
         }
+        sumZ += d.z
       }
 
-      // 多骰 3D 球体刚性互撞弹开
+      if (step <= 95) {
+        const avgZ = sumZ / Math.max(1, count)
+        if (avgZ > peakAvgZ) {
+          peakAvgZ = avgZ
+          peakStep = step
+        }
+      }
+
+      const pairRest = isPush ? 0.90 : (isContest ? 0.92 : 0.84)
       for (let i = 0; i < count; i++) {
         for (let j = i + 1; j < count; j++) {
-          const a = dice[i], b = dice[j]
+          const a = sim[i], b = sim[j]
           const minDist = (a.radius + b.radius) * 0.96
           const dx = b.x - a.x, dy = b.y - a.y, dz = b.z - a.z
           const d2 = dx * dx + dy * dy + dz * dz
@@ -3443,10 +5412,17 @@ class CinematicDiceStage {
             const overlap = (minDist - dist) * 0.52
             a.x -= nx * overlap; a.y -= ny * overlap
             b.x += nx * overlap; b.y += ny * overlap
+            if (isContest) {
+              if (a.side === 'ally' && a.x > -contestDivider) a.x = -contestDivider
+              if (a.side === 'rival' && a.x < contestDivider) a.x = contestDivider
+              if (b.side === 'ally' && b.x > -contestDivider) b.x = -contestDivider
+              if (b.side === 'rival' && b.x < contestDivider) b.x = contestDivider
+            }
             const rvx = b.vx - a.vx, rvy = b.vy - a.vy, rvz = b.vz - a.vz
             const vn = rvx * nx + rvy * ny + rvz * nz
             if (vn < 0) {
-              const imp = -0.84 * vn
+              pairCollisions += 1
+              const imp = -pairRest * vn
               a.vx -= nx * imp; a.vy -= ny * imp; a.vz -= nz * imp * 0.35
               b.vx += nx * imp; b.vy += ny * imp; b.vz += nz * imp * 0.35
               if (imp > 18) {
@@ -3454,13 +5430,13 @@ class CinematicDiceStage {
                 b._simSettled = false
               }
               const hs = Math.min(1, imp / 260)
-              if (hs > 0.25 && this.bounceQueue.length < 96) {
-                this.bounceQueue.push({
+              if (hs > 0.25 && bounceQueue.length < 96) {
+                bounceQueue.push({
                   simTime: step * SIM_DT,
                   x: (a.x + b.x) * 0.5,
                   y: (a.y + b.y) * 0.5,
                   z: (a.z + b.z) * 0.5,
-                  strength: hs * 0.85,
+                  strength: hs * (isPush ? 1.0 : 0.85),
                   bounceIndex: 1,
                   dieIndex: i
                 })
@@ -3471,7 +5447,7 @@ class CinematicDiceStage {
       }
 
       for (let i = 0; i < count; i++) {
-        const d = dice[i]
+        const d = sim[i]
         const po = step * 3
         d.trajPos[po] = d.x; d.trajPos[po + 1] = d.y; d.trajPos[po + 2] = d.z
         d.trajSpeed[step] = Math.hypot(d.vx, d.vy, d.vz)
@@ -3481,15 +5457,79 @@ class CinematicDiceStage {
     }
 
     for (let i = 0; i < count; i++) {
-      if (!dice[i]._simSettled) {
-        dice[i].settleStep = MAX_STEPS - 2
+      if (!sim[i]._simSettled) {
+        sim[i].settleStep = MAX_STEPS - 2
         maxSettleStep = MAX_STEPS - 2
       }
     }
-    this.maxSimDuration = maxSettleStep * SIM_DT
+
+    // 构图质量评分（越低越好）：中心聚集度 + 防重叠 + 防过散 + 对抗阵营不串边
+    let centerX = 0
+    let centerY = 0
+    for (let i = 0; i < count; i++) {
+      centerX += sim[i].x
+      centerY += sim[i].y
+    }
+    centerX /= Math.max(1, count)
+    centerY /= Math.max(1, count)
+    const targetHalfX = Math.max(boundX * 0.46, (dice[0]?.radius || 18) * 2.1)
+    let layoutCost = isContest ? Math.abs(centerY) * 0.8 : Math.hypot(centerX, centerY) * 0.9
+    for (let i = 0; i < count; i++) {
+      const a = sim[i]
+      if (isContest && a.side === 'ally') {
+        layoutCost += Math.abs(a.x + targetHalfX) * 0.85
+        if (a.x > -contestDivider) layoutCost += (a.x + contestDivider) * 8.0
+      } else if (isContest && a.side === 'rival') {
+        layoutCost += Math.abs(a.x - targetHalfX) * 0.85
+        if (a.x < contestDivider) layoutCost += (contestDivider - a.x) * 8.0
+      }
+      for (let j = i + 1; j < count; j++) {
+        const b = sim[j]
+        const sep = Math.hypot(a.x - b.x, a.y - b.y)
+        const minSep = (a.radius + b.radius) * 1.15
+        const maxSep = (a.radius + b.radius) * 4.2
+        if (sep < minSep) layoutCost += (minSep - sep) * 4.5
+        else if (!isContest || a.side === b.side) {
+          if (sep > maxSep) layoutCost += (sep - maxSep) * 1.4
+        }
+      }
+    }
+
+    return { sim, bounceQueue, maxSettleStep, peakStep, layoutCost }
+  }
+
+  _bakeTrajectoriesAndExactLanding(dice, boundX, boundY) {
+    const count = dice.length
+    const isFate = this.mode === 'fate'
+    const isContest = this.mode === 'contest'
+    const takeCount = (count >= 2 && (this.mode === 'normal' || isContest)) ? 8 : 1
+    let best = null
+    for (let t = 0; t < takeCount; t++) {
+      const jitter = t === 0 ? 0 : (t * 0.95)
+      const candidate = this._runSinglePhysicsTake(dice, boundX, boundY, jitter)
+      if (!best || candidate.layoutCost < best.layoutCost) best = candidate
+    }
+
+    for (let i = 0; i < count; i++) {
+      const d = dice[i]
+      const s = best.sim[i]
+      d.x = s.x; d.y = s.y; d.z = s.z
+      d.vx = s.vx; d.vy = s.vy; d.vz = s.vz
+      d.wx = s.wx; d.wy = s.wy; d.wz = s.wz
+      d.qx = s.qx; d.qy = s.qy; d.qz = s.qz; d.qw = s.qw
+      d.bounces = s.bounces
+      d.settleStep = s.settleStep
+      d.trajPos = s.trajPos
+      d.trajQuat = s.trajQuat
+      d.trajSpeed = s.trajSpeed
+    }
+
+    this.bounceQueue = best.bounceQueue
+    this.maxSimDuration = best.maxSettleStep * SIM_DT
+    this.fateApexTime = Math.max(0.08, best.peakStep * SIM_DT)
     this.bounceQueue.sort((a, b) => a.simTime - b.simTime)
 
-    // 逆向四元数对齐：确保目标面最终稳稳朝上微倾面向摄像机，且 det(W * L^T) = (-1)*(-1) = +1 严格属于 SO(3)！
+    // 逆向四元数对齐：确保骰子底面平贴台面（D4 以对面平放桌面、目标面斜朝向镜头，其余骰目标面严格朝上），且 det(W * L^T) = (-1)*(-1) = +1 严格属于 SO(3)！
     const qDesired = new Float32Array(4)
     const qInit = new Float32Array(4)
     const qBaked = new Float32Array(4)
@@ -3497,17 +5537,21 @@ class CinematicDiceStage {
     for (let i = 0; i < count; i++) {
       const d = dice[i]
       const tf = d.targetFace
-      // 落定面法线向摄像机方向适度前倾 (0.28 rad ≈ 16°)，消除透视压缩，让顶面大号数字正对视线！
-      const tiltCam = d.meshKey === 'd4' ? 0.44 : 0.28
-      const wnX = 0, wnY = -Math.sin(tiltCam), wnZ = Math.cos(tiltCam)
+      const tiltCam = d.meshKey === 'd4' ? Math.acos(1 / 3) : 0
+      const wn0Y = -Math.sin(tiltCam), wn0Z = Math.cos(tiltCam)
+      const wv0Y = -Math.cos(tiltCam), wv0Z = -Math.sin(tiltCam)
 
-      // 保持极轻微偏航角 (±6°)，端正大气易读
-      const yaw = (Math.random() - 0.5) * 0.22
+      const yaw = (Math.random() - 0.5) * (isFate ? 0.10 : 0.22)
       const cy = Math.cos(yaw), sy = Math.sin(yaw)
-      // 基准 Wv 指向屏幕下方 (-Y 侧)，绕 Wn 偏航后并设 Wu = cross(Wn, Wv) 以严格对齐 gl-meshes 切空间手性
-      const wvX = sy
-      const wvY = -cy * Math.cos(tiltCam)
-      const wvZ = -cy * Math.sin(tiltCam)
+
+      // 绕世界 Z 轴施加偏航 yaw，保证无论是否为 D4，底面都平贴水平桌面
+      const wnX = -sy * wn0Y
+      const wnY = cy * wn0Y
+      const wnZ = wn0Z
+
+      const wvX = -sy * wv0Y
+      const wvY = cy * wv0Y
+      const wvZ = wv0Z
 
       const wuX = wnY * wvZ - wnZ * wvY
       const wuY = wnZ * wvX - wnX * wvZ
@@ -3526,7 +5570,7 @@ class CinematicDiceStage {
       const m21 = wuZ * uy + wvZ * vy + wnZ * ny
 
       const m02 = wuX * uz + wvX * vz + wnX * nz
-      const m12 = wuY * uz + wvY * vz + wnZ * nz
+      const m12 = wuY * uz + wvY * vz + wnY * nz
       const m22 = wuZ * uz + wvZ * vz + wnZ * nz
 
       mat3ToQuat(m00, m10, m20, m01, m11, m21, m02, m12, m22, qDesired)
@@ -3558,36 +5602,180 @@ class CinematicDiceStage {
   }
 
   _onBounceEvent(b) {
-    // 1. 桌面涟漪 / 熔岩裂痕 / 水墨晕染贴花
+    const id = this.theme.themeIndex
+    const isPush = this.mode === 'push'
+    const isFate = this.mode === 'fate'
+    const power = this.lastChargePower || 0
+    const heavyFirstHit = b.bounceIndex === 0 && (isPush || power > 0.25)
+
     const imp = this.impacts[this.impactCursor % this.impacts.length]
     this.impactCursor++
     imp.x = b.x
     imp.y = b.y
     imp.age = 0.001
     imp.strength = b.strength
+    imp._delay = 0
 
-    // 2. 镜头物理微震动 + 赛博色差脉冲
-    this.shakeAmp = Math.min(18, this.shakeAmp + b.strength * (this.theme.themeIndex === 2 ? 12 : 7))
-    if (this.theme.themeIndex === 3) {
-      this.chroma = Math.min(1.6, this.chroma + b.strength * 0.9)
+    // 孤注一掷或高蓄力首击：额外激发一圈滞后双震波涟漪，增强重锤砸桌质感
+    if (heavyFirstHit) {
+      const imp2 = this.impacts[this.impactCursor % this.impacts.length]
+      this.impactCursor++
+      imp2.x = b.x; imp2.y = b.y; imp2.age = 0.001; imp2.strength = 0
+      imp2._delay = 0.065; imp2._queuedStrength = b.strength * 0.78
     }
 
-    // 3. 迸射速度拉伸 3D 火星粒子
+    if (id >= 6) {
+      const v2 = id - 6
+      const shakeCap = isPush ? (9.5 + power * 4.5) : (6.0 + power * 3.5)
+      const shakeGain = (v2 === 1 ? 4.5 : 2.2) * (heavyFirstHit ? (1.65 + power * 0.85) : 1.0)
+      this.shakeAmp = Math.min(shakeCap, this.shakeAmp + b.strength * shakeGain)
+      const burstMul = heavyFirstHit ? (1.8 + power * 1.4) : (isFate && b.bounceIndex === 0 ? (1.35 + power * 0.7) : 1.0)
+
+      if (v2 === 1) {
+        const n = Math.max(2, Math.round(5 * b.strength * burstMul))
+        for (let i = 0; i < n; i++) {
+          const a = Math.random() * Math.PI * 2
+          const spd = (35 + Math.random() * 95) * b.strength * (heavyFirstHit ? 1.35 : 1.0)
+          this._spawnSpark({
+            x: b.x + (Math.random() - 0.5) * 12,
+            y: b.y + (Math.random() - 0.5) * 12,
+            z: 6 + Math.random() * 8,
+            vx: Math.cos(a) * spd,
+            vy: Math.sin(a) * spd,
+            vz: (55 + Math.random() * 90) * (heavyFirstHit ? 1.3 : 1.0),
+            size: 5.0 + Math.floor(Math.random() * 2) * 2.5,
+            life: 0.28 + Math.random() * 0.22,
+            grav: 240,
+            drag: 2.2,
+            r: heavyFirstHit && isPush ? 1.0 : 0.88,
+            g: heavyFirstHit && isPush ? 0.62 : 0.84,
+            b: heavyFirstHit && isPush ? 0.36 : 0.78,
+            a: 1.0,
+            mode: 2.0
+          })
+        }
+      } else if (v2 === 0 && (b.strength > 0.36 || heavyFirstHit)) {
+        const n = Math.round(3 * burstMul)
+        for (let i = 0; i < n; i++) {
+          const a = Math.random() * Math.PI * 2
+          const spd = (32 + Math.random() * 44) * (heavyFirstHit ? 1.4 : 1.0)
+          this._spawnSpark({
+            x: b.x, y: b.y, z: 6,
+            vx: Math.cos(a) * spd, vy: Math.sin(a) * spd, vz: (35 + Math.random() * 50) * (heavyFirstHit ? 1.3 : 1.0),
+            size: 1.8 + Math.random() * 1.4,
+            life: 0.55 + Math.random() * 0.35,
+            grav: 45, drag: 2.5,
+            r: 0.95, g: 0.78, b: 0.42, a: heavyFirstHit ? 0.50 : 0.35,
+            mode: 5.0
+          })
+        }
+      } else if (v2 === 2 && (b.strength > 0.32 || heavyFirstHit)) {
+        const n = Math.round(4 * burstMul)
+        for (let i = 0; i < n; i++) {
+          const a = Math.random() * Math.PI * 2
+          const spd = (40 + Math.random() * 80) * (heavyFirstHit ? 1.35 : 1.0)
+          this._spawnSpark({
+            x: b.x, y: b.y, z: 5,
+            vx: Math.cos(a) * spd, vy: Math.sin(a) * spd, vz: 60 + Math.random() * 80,
+            size: 1.8 + Math.random() * 1.5,
+            life: 0.35 + Math.random() * 0.25,
+            grav: 480, drag: 1.8,
+            r: heavyFirstHit ? 0.70 : 0.16,
+            g: heavyFirstHit ? 0.18 : 0.11,
+            b: heavyFirstHit ? 0.13 : 0.08,
+            a: 0.68,
+            mode: 5.0
+          })
+        }
+      } else if (v2 === 3) {
+        const n = Math.round(2 * burstMul)
+        for (let i = 0; i < n; i++) {
+          const a = Math.random() * Math.PI * 2
+          const spd = (28 + Math.random() * 34) * (heavyFirstHit ? 1.35 : 1.0)
+          this._spawnSpark({
+            x: b.x + (Math.random() - 0.5) * 16, y: b.y + (Math.random() - 0.5) * 16, z: 12 + Math.random() * 16,
+            vx: Math.cos(a) * spd, vy: Math.sin(a) * spd, vz: (48 + Math.random() * 60) * (heavyFirstHit ? 1.25 : 1.0),
+            size: 3.6 + Math.random() * 2.2,
+            life: 0.85 + Math.random() * 0.45,
+            grav: 58, drag: 2.4,
+            r: 0.94, g: 0.76, b: 0.32, a: 0.92,
+            mode: 4.0
+          })
+        }
+      } else if (v2 === 4 && (heavyFirstHit || b.strength > 0.5)) {
+        const n = Math.round(3 * burstMul)
+        for (let i = 0; i < n; i++) {
+          const a = Math.random() * Math.PI * 2
+          const spd = 45 + Math.random() * 75
+          this._spawnSpark({
+            x: b.x, y: b.y, z: 6,
+            vx: Math.cos(a) * spd, vy: Math.sin(a) * spd, vz: 55 + Math.random() * 70,
+            size: 2.0 + Math.random() * 1.2,
+            life: 0.32 + Math.random() * 0.2,
+            grav: 360, drag: 2.0,
+            r: 1.0, g: 0.31, b: 0.02, a: 0.72,
+            mode: 5.0
+          })
+        }
+      } else if (v2 === 5) {
+        const n = Math.round(4 * burstMul)
+        for (let i = 0; i < n; i++) {
+          const a = Math.random() * Math.PI * 2
+          const spd = (48 + Math.random() * 44) * (heavyFirstHit ? 1.35 : 1.0)
+          this._spawnSpark({
+            x: b.x, y: b.y, z: 6,
+            vx: Math.cos(a) * spd, vy: Math.sin(a) * spd, vz: 52 + Math.random() * 75,
+            size: 2.0 + Math.random() * 1.8,
+            life: 0.45 + Math.random() * 0.3,
+            grav: 120, drag: 1.9,
+            r: 0.65, g: 0.92, b: 0.96, a: 0.58,
+            mode: 5.0
+          })
+        }
+      }
+
+      if (this.audio) {
+        const pan = Math.max(-0.85, Math.min(0.85, b.x / 220))
+        this.audio.playBounce(this.theme.soundPreset, Math.min(1, b.strength * (heavyFirstHit ? 1.2 : 1.0)), pan)
+      }
+      return
+    }
+
+    const fanCap = isPush ? 24 : 18
+    const fanGain = (id === 2 || isPush ? 12 : 7) * (heavyFirstHit ? 1.35 : 1.0)
+    this.shakeAmp = Math.min(fanCap, this.shakeAmp + b.strength * fanGain)
+    if (id === 3 || heavyFirstHit) {
+      this.chroma = Math.min(1.6, this.chroma + b.strength * (id === 3 ? 0.9 : 0.45))
+    }
+    if (heavyFirstHit && isPush) {
+      const uv = this.renderer.projectToUV(b.x, b.y, 6, this._uvTmp)
+      if (uv.visible) {
+        this.shockwave[0] = uv.u
+        this.shockwave[1] = uv.v
+        this.shockwave[2] = 0.02
+        this.shockwave[3] = Math.min(0.95, 0.45 + power * 0.45)
+        this.shockAge = 0
+      }
+    }
+
     const col = this._themeHDRColor()
-    const sparkCount = (this.quality === 'lite' ? 4 : this.quality === 'balanced' ? 9 : 15) * (b.bounceIndex === 0 ? 1.4 : 0.8)
+    const sparkCount = Math.round(
+      (this.quality === 'lite' ? 4 : this.quality === 'balanced' ? 9 : 15)
+      * (heavyFirstHit ? (1.9 + power * 0.8) : (b.bounceIndex === 0 ? 1.4 : 0.8))
+    )
     for (let i = 0; i < sparkCount; i++) {
       const ang = Math.random() * Math.PI * 2
-      const spd = (65 + Math.random() * 220) * b.strength
+      const spd = (65 + Math.random() * 220) * b.strength * (heavyFirstHit ? 1.3 : 1.0)
       this._spawnSpark({
         x: b.x,
         y: b.y,
         z: Math.max(4, b.z),
         vx: Math.cos(ang) * spd,
         vy: Math.sin(ang) * spd,
-        vz: (95 + Math.random() * 240) * b.strength,
+        vz: (95 + Math.random() * 240) * b.strength * (heavyFirstHit ? 1.25 : 1.0),
         size: 2.2 + Math.random() * 2.8,
         life: 0.32 + Math.random() * 0.36,
-        grav: this.theme.themeIndex === 5 ? 90 : 620,
+        grav: id === 5 ? 90 : 620,
         drag: 1.8,
         r: col[0], g: col[1], b: col[2],
         a: 1.0
@@ -3596,23 +5784,91 @@ class CinematicDiceStage {
 
     if (this.audio) {
       const pan = Math.max(-0.85, Math.min(0.85, b.x / 220))
-      this.audio.playBounce(this.theme.soundPreset, b.strength, pan)
+      this.audio.playBounce(this.theme.soundPreset, Math.min(1, b.strength * (heavyFirstHit ? 1.2 : 1.0)), pan)
     }
   }
 
   _triggerClimaxFX() {
     if (!this.dice.length) return
+    const id = this.theme.themeIndex
     const isCrit = this.tier === 'critical'
     const isFumble = this.tier === 'fumble'
     const isDramatic = isCrit || isFumble || this.mode === 'fate' || this.mode === 'push'
+    const power = this.lastChargePower || 0
 
-    // 计算骰群几何中心并投影到屏幕 UV，触发光学径向折射冲击波！
+    if (id >= 6) {
+      const v2 = id - 6
+      this.shakeAmp = Math.max(this.shakeAmp, isCrit ? 6.5 : (this.mode === 'push' ? 4.8 + power * 2.4 : 3.2))
+
+      for (let idx = 0; idx < this.dice.length; idx++) {
+        const d = this.dice[idx]
+        const imp = this.impacts[this.impactCursor % this.impacts.length]
+        this.impactCursor++
+        imp.x = d.x; imp.y = d.y; imp.age = 0.001; imp._delay = 0
+        imp.strength = isCrit ? 1.0 : (isDramatic ? 0.80 + power * 0.2 : 0.6)
+
+        if (v2 === 1 && (isCrit || this.mode === 'fate')) {
+          const count = isCrit ? 8 : 6
+          for (let k = 0; k < count; k++) {
+            const a = (k / count) * Math.PI * 2
+            this._spawnSpark({
+              x: d.x + Math.cos(a) * d.radius * 0.9,
+              y: d.y + Math.sin(a) * d.radius * 0.9,
+              z: d.radius * 0.9 + (k % 2) * 14,
+              vx: Math.cos(a) * 55,
+              vy: Math.sin(a) * 55,
+              vz: 85 + Math.random() * 75,
+              size: 6.5,
+              life: 0.55 + Math.random() * 0.25,
+              grav: 90, drag: 1.8,
+              r: 1.0, g: 0.88, b: 0.28, a: 1.0,
+              mode: 3.0
+            })
+          }
+        } else if (v2 === 3 && (isCrit || this.mode === 'fate')) {
+          const count = isCrit ? 10 : 6
+          for (let k = 0; k < count; k++) {
+            const a = (k / count) * Math.PI * 2 + Math.random() * 0.3
+            this._spawnSpark({
+              x: d.x + Math.cos(a) * 18,
+              y: d.y + Math.sin(a) * 18,
+              z: d.radius * 1.2 + Math.random() * 35,
+              vx: Math.cos(a) * (35 + Math.random() * 45),
+              vy: Math.sin(a) * (35 + Math.random() * 45),
+              vz: 55 + Math.random() * 65,
+              size: 4.2 + Math.random() * 2.4,
+              life: 1.15 + Math.random() * 0.5,
+              grav: 48, drag: 2.1,
+              r: 0.98, g: 0.80, b: 0.35, a: 0.95,
+              mode: 4.0
+            })
+          }
+        } else if (isDramatic && idx < 6) {
+          const count = 4 + Math.round(power * 4)
+          for (let k = 0; k < count; k++) {
+            const a = (k / count) * Math.PI * 2 + Math.random() * 0.3
+            this._spawnMediumAccentParticle(
+              d.x + Math.cos(a) * d.radius * 0.7,
+              d.y + Math.sin(a) * d.radius * 0.7,
+              d.radius * 0.8,
+              Math.cos(a) * (42 + power * 35),
+              Math.sin(a) * (42 + power * 35),
+              65 + Math.random() * 55,
+              1.0,
+              true
+            )
+          }
+        }
+      }
+      return
+    }
+
     let cx = 0, cy = 0, cz = 0
     for (const d of this.dice) { cx += d.x; cy += d.y; cz += d.z }
     cx /= this.dice.length; cy /= this.dice.length; cz /= this.dice.length
 
     const uv = this.renderer.projectToUV(cx, cy, cz, this._uvTmp)
-    if (uv.visible && (isDramatic || this.theme.themeIndex === 0 || this.theme.themeIndex === 2)) {
+    if (uv.visible && (isDramatic || id === 0 || id === 2)) {
       this.shockwave[0] = uv.u
       this.shockwave[1] = uv.v
       this.shockwave[2] = 0.02
@@ -3627,12 +5883,10 @@ class CinematicDiceStage {
 
     for (let idx = 0; idx < this.dice.length; idx++) {
       const d = this.dice[idx]
-      // 在每颗落定骰子底部加一道强烈桌面能量光环
       const imp = this.impacts[this.impactCursor % this.impacts.length]
       this.impactCursor++
-      imp.x = d.x; imp.y = d.y; imp.age = 0.001; imp.strength = isCrit ? 1.25 : 0.85
+      imp.x = d.x; imp.y = d.y; imp.age = 0.001; imp._delay = 0; imp.strength = isCrit ? 1.25 : 0.85
 
-      // 大成功 / 孤注一掷 / 大失败：在骰子后方升起圣光背光柱，衬托轮廓而绝不遮挡正面数字！
       if ((isCrit || isFumble || this.mode === 'push') && idx < 6) {
         this._spawnSpark({
           x: d.x, y: d.y + d.radius * 0.85, z: d.radius * 0.9,
@@ -3646,11 +5900,10 @@ class CinematicDiceStage {
         })
       }
 
-      // 水墨剑心 / 星穹秘法 / 时停棱镜：凌空交错 3D 弧形剑气或星轨斩痕！
-      if ((this.theme.themeIndex === 4 || isCrit) && idx < 4) {
+      if ((id === 4 || isCrit) && idx < 4) {
         const slashCount = isCrit ? 3 : 2
         for (let s = 0; s < slashCount; s++) {
-          const isGold = this.theme.themeIndex === 4 && isCrit && s === 0
+          const isGold = id === 4 && isCrit && s === 0
           this._spawnSlash(
             d.x, d.y, d.z + 10,
             d.radius * (2.6 + s * 0.75),
@@ -3658,14 +5911,13 @@ class CinematicDiceStage {
             s * 2.1 + idx,
             d.radius * 0.32,
             0.72 + s * 0.15,
-            isGold ? 2.8 : (this.theme.themeIndex === 4 ? 0.06 : col[0]),
-            isGold ? 1.8 : (this.theme.themeIndex === 4 ? 0.07 : col[1]),
-            isGold ? 0.3 : (this.theme.themeIndex === 4 ? 0.09 : col[2])
+            isGold ? 2.8 : (id === 4 ? 0.06 : col[0]),
+            isGold ? 1.8 : (id === 4 ? 0.07 : col[1]),
+            isGold ? 0.3 : (id === 4 ? 0.09 : col[2])
           )
         }
       }
 
-      // 礼花式高速粒子喷泉爆发
       const burstN = isCrit ? (this.quality === 'lite' ? 14 : 38) : (this.quality === 'lite' ? 6 : 16)
       for (let k = 0; k < burstN; k++) {
         const a = (k / burstN) * Math.PI * 2 + Math.random() * 0.25
@@ -3712,8 +5964,7 @@ class CinematicDiceStage {
         this._emitTelemetry(true)
       }
 
-      // 智能 0% GPU 休眠门控：落定超过 2.6s 且无蓄力/无存活粒子/无未消散贴花 => 自动休眠！
-      const hasImpacts = this.impacts.some(imp => imp.strength > 0.001)
+      const hasImpacts = this.impacts.some(imp => imp.strength > 0.001 || (imp._delay && imp._delay > 0))
       const hasSlashes = this.slashes.some(sl => sl.active)
       const hiddenIdle = this.mode === 'hidden' && !this.revealed && this.settleTime < 3.2
       const sleepAfter = this.theaterMode ? 3.8 : 2.6
@@ -3761,88 +6012,270 @@ class CinematicDiceStage {
 
   _step(rawDt) {
     this.clock += rawDt
+    const isCuratedV2 = this.theme.themeIndex >= 6
 
-    // 1. 按住蓄力旋涡交互阶段：骰群围绕光标悬浮高速自旋聚能！
     if (this.charging) {
       this.chargeTime += rawDt
-      const c01 = Math.min(1, this.chargeTime / 0.85)
+      const c01 = Math.min(1, this.chargeTime / 0.88)
       if (this.audio) this.audio.updateChargeHum(c01)
+      this.fateSlowAmount *= Math.max(0, 1 - rawDt * 10)
+      this.bulletTimeAmount *= Math.max(0, 1 - rawDt * 10)
 
+      const cm = this.chargeMode || 'normal'
       const n = this.dice.length
-      for (let i = 0; i < n; i++) {
-        const d = this.dice[i]
-        const orbitR = n === 1 ? 6 : (26 + (1 - c01 * 0.35) * 28)
-        const ang = this.clock * (6.5 + c01 * 8.0) + (i / Math.max(1, n)) * Math.PI * 2
-        const tx = this.chargeWorld.x + Math.cos(ang) * orbitR
-        const ty = this.chargeWorld.y + Math.sin(ang) * orbitR
-        const tz = 82 + c01 * 38 + Math.sin(this.clock * 9 + i) * 8
-        d.x += (tx - d.x) * Math.min(1, rawDt * 18)
-        d.y += (ty - d.y) * Math.min(1, rawDt * 18)
-        d.z += (tz - d.z) * Math.min(1, rawDt * 18)
-        d.settled = false
 
-        // 高速聚能自转
-        const spin = (12 + c01 * 22) * rawDt * 0.5
-        qMul(Math.sin(spin) * 0.7, Math.sin(spin) * 0.7, 0, Math.cos(spin), d.qx, d.qy, d.qz, d.qw, this._qTmp)
-        qNorm(this._qTmp)
-        d.qx = this._qTmp[0]; d.qy = this._qTmp[1]; d.qz = this._qTmp[2]; d.qw = this._qTmp[3]
+      if (cm === 'fate') {
+        // ✦ 逆命重投蓄力动作：骰群反重力拔地悬升，呈横向舒展浑天星盘逆向公转/进动！
+        const baseZ = (this.theaterMode ? 50 : 58) + c01 * (this.theaterMode ? 28 : 44)
+        this.chargeWorld.z = baseZ
+        for (let i = 0; i < n; i++) {
+          const d = this.dice[i]
+          const orbitRx = n === 1 ? 0 : (52 + Math.sqrt(n) * 18) * (1 - c01 * 0.28)
+          const orbitRy = orbitRx * (this.theaterMode ? 0.44 : 0.65)
+          const ang = -this.clock * (3.0 + c01 * 5.8) + (i / Math.max(1, n)) * Math.PI * 2
+          const tx = this.chargeWorld.x + Math.cos(ang) * orbitRx
+          const ty = this.chargeWorld.y + Math.sin(ang) * orbitRy
+          const tz = baseZ + Math.sin(this.clock * 5.2 + i * 1.4) * 4
+          const followRate = Math.min(1, rawDt * (9.5 + c01 * 8.0))
+          d.x += (tx - d.x) * followRate
+          d.y += (ty - d.y) * followRate
+          d.z += (tz - d.z) * followRate
+          d.settled = false
 
-        const th = (d.trailHead + 1) % 28
-        d.trailHead = th
-        d.trailX[th] = d.x; d.trailY[th] = d.y; d.trailZ[th] = d.z
-        if (d.trailCount < 18) d.trailCount++
-      }
+          const spin = -(6.5 + c01 * 18.0) * rawDt * 0.5
+          const s = Math.sin(spin)
+          qMul(s * 0.38, s * 0.52, s * 0.76, Math.cos(spin), d.qx, d.qy, d.qz, d.qw, this._qTmp)
+          qNorm(this._qTmp)
+          d.qx = this._qTmp[0]; d.qy = this._qTmp[1]; d.qz = this._qTmp[2]; d.qw = this._qTmp[3]
 
-      // 蓄力吸入星尘粒子
-      const col = this._themeHDRColor()
-      if (Math.random() < 0.85) {
-        const a = Math.random() * Math.PI * 2
-        const rad = 75 + Math.random() * 65
-        this._spawnSpark({
-          x: this.chargeWorld.x + Math.cos(a) * rad,
-          y: this.chargeWorld.y + Math.sin(a) * rad,
-          z: 20 + Math.random() * 60,
-          vx: -Math.cos(a) * 180,
-          vy: -Math.sin(a) * 180,
-          vz: 120,
-          size: 2.6,
-          life: 0.35,
-          grav: 0,
-          drag: 1.2,
-          r: col[0], g: col[1], b: col[2],
-          a: 0.9
-        })
+          const th = (d.trailHead + 1) % 28
+          d.trailHead = th
+          d.trailX[th] = d.x; d.trailY[th] = d.y; d.trailZ[th] = d.z
+          if (d.trailCount < 20) d.trailCount++
+        }
+
+        if (Math.random() < (isCuratedV2 ? (0.45 + c01 * 0.45) : 0.85)) {
+          const a = Math.random() * Math.PI * 2
+          const r = 64 + Math.random() * 52
+          this._spawnMediumAccentParticle(
+            this.chargeWorld.x + Math.cos(a) * r,
+            this.chargeWorld.y + Math.sin(a) * r * 0.7,
+            16 + Math.random() * 38,
+            -Math.cos(a) * (110 + c01 * 75),
+            -Math.sin(a) * (90 + c01 * 60),
+            85 + c01 * 55,
+            0.9,
+            true
+          )
+        }
+      } else if (cm === 'push') {
+        // 🔥 孤注一掷蓄力动作：高举紧攥成团 + 随蓄力急剧加剧的狂暴高频剧颤与互撞！
+        const baseZ = (this.theaterMode ? 60 : 72) + c01 * (this.theaterMode ? 24 : 44)
+        this.chargeWorld.z = baseZ
+        const tremor = 1.4 + c01 * c01 * 8.8
+        for (let i = 0; i < n; i++) {
+          const d = this.dice[i]
+          const packR = n === 1 ? 0 : (18 + Math.sqrt(n) * 8) * (1 - c01 * 0.22)
+          const slotA = (i / Math.max(1, n)) * Math.PI * 2 + this.clock * 1.4
+          const jx = Math.sin(this.clock * 47.0 + i * 2.7) * tremor + (Math.random() - 0.5) * tremor * 0.85
+          const jy = Math.cos(this.clock * 53.0 + i * 1.9) * tremor + (Math.random() - 0.5) * tremor * 0.85
+          const jz = Math.sin(this.clock * 61.0 + i * 3.3) * tremor * 0.65
+          const tx = this.chargeWorld.x + Math.cos(slotA) * packR + jx
+          const ty = this.chargeWorld.y + Math.sin(slotA) * packR * 0.65 + jy
+          const tz = baseZ + (i % 2) * 5 + jz
+          const snap = Math.min(1, rawDt * 22)
+          d.x += (tx - d.x) * snap
+          d.y += (ty - d.y) * snap
+          d.z += (tz - d.z) * snap
+          d.settled = false
+
+          const spin = (15 + c01 * 32) * rawDt * 0.5
+          const ax = Math.sin(this.clock * 11 + i)
+          const ay = Math.cos(this.clock * 13 + i * 2)
+          const az = Math.sin(this.clock * 17 - i)
+          const invL = 1 / (Math.hypot(ax, ay, az) || 1)
+          const s = Math.sin(spin)
+          qMul(ax * invL * s, ay * invL * s, az * invL * s, Math.cos(spin), d.qx, d.qy, d.qz, d.qw, this._qTmp)
+          qNorm(this._qTmp)
+          d.qx = this._qTmp[0]; d.qy = this._qTmp[1]; d.qz = this._qTmp[2]; d.qw = this._qTmp[3]
+
+          const th = (d.trailHead + 1) % 28
+          d.trailHead = th
+          d.trailX[th] = d.x; d.trailY[th] = d.y; d.trailZ[th] = d.z
+          if (d.trailCount < 16) d.trailCount++
+        }
+
+        if (c01 > 0.42) {
+          this.shakeAmp = Math.max(this.shakeAmp, (c01 - 0.42) * 1.6)
+        }
+
+        if (this.audio && this.chargeTime >= this.nextChargeRattleAt) {
+          this.audio.playChargeRattle(this.theme.soundPreset, 0.35 + c01 * 0.65)
+          this.nextChargeRattleAt = this.chargeTime + Math.max(0.052, 0.135 - c01 * 0.08)
+        }
+
+        if (Math.random() < (isCuratedV2 ? (0.35 + c01 * 0.55) : 0.85)) {
+          const a = Math.random() * Math.PI * 2
+          const spd = 55 + c01 * 115
+          this._spawnMediumAccentParticle(
+            this.chargeWorld.x + (Math.random() - 0.5) * 18,
+            this.chargeWorld.y + (Math.random() - 0.5) * 18,
+            baseZ + (Math.random() - 0.5) * 14,
+            Math.cos(a) * spd,
+            Math.sin(a) * spd,
+            40 + Math.random() * 80,
+            0.85,
+            false
+          )
+        }
+      } else {
+        // 🎲 普通投掷蓄力动作：手摇八字螺旋升空聚势
+        const baseZ = (this.theaterMode ? 56 : 70) + c01 * (this.theaterMode ? 24 : 38)
+        this.chargeWorld.z = baseZ
+        const swayX = Math.sin(this.clock * 7.8) * (10 + c01 * 14)
+        for (let i = 0; i < n; i++) {
+          const d = this.dice[i]
+          const orbitR = n === 1 ? 8 : (26 + (1 - c01 * 0.35) * 26)
+          const ang = this.clock * (6.2 + c01 * 7.8) + (i / Math.max(1, n)) * Math.PI * 2
+          const tx = this.chargeWorld.x + swayX + Math.cos(ang) * orbitR
+          const ty = this.chargeWorld.y + Math.sin(ang) * orbitR * 0.72
+          const tz = baseZ + Math.sin(this.clock * 9 + i) * 6
+          d.x += (tx - d.x) * Math.min(1, rawDt * 18)
+          d.y += (ty - d.y) * Math.min(1, rawDt * 18)
+          d.z += (tz - d.z) * Math.min(1, rawDt * 18)
+          d.settled = false
+
+          const spin = (12 + c01 * 20) * rawDt * 0.5
+          qMul(Math.sin(spin) * 0.7, Math.sin(spin) * 0.7, 0, Math.cos(spin), d.qx, d.qy, d.qz, d.qw, this._qTmp)
+          qNorm(this._qTmp)
+          d.qx = this._qTmp[0]; d.qy = this._qTmp[1]; d.qz = this._qTmp[2]; d.qw = this._qTmp[3]
+
+          const th = (d.trailHead + 1) % 28
+          d.trailHead = th
+          d.trailX[th] = d.x; d.trailY[th] = d.y; d.trailZ[th] = d.z
+          if (d.trailCount < 18) d.trailCount++
+        }
+
+        if (n > 1 && this.audio && this.chargeTime >= this.nextChargeRattleAt) {
+          this.audio.playChargeRattle(this.theme.soundPreset, 0.25 + c01 * 0.4)
+          this.nextChargeRattleAt = this.chargeTime + Math.max(0.085, 0.16 - c01 * 0.06)
+        }
+
+        if (Math.random() < (isCuratedV2 ? (0.28 + c01 * 0.35) : 0.82)) {
+          const a = Math.random() * Math.PI * 2
+          const rad = 58 + Math.random() * 48
+          this._spawnMediumAccentParticle(
+            this.chargeWorld.x + swayX + Math.cos(a) * rad,
+            this.chargeWorld.y + Math.sin(a) * rad,
+            22 + Math.random() * 46,
+            -Math.cos(a) * 120,
+            -Math.sin(a) * 120,
+            90,
+            0.85,
+            false
+          )
+        }
       }
     } else if (!this.settled) {
-      // 2. 子弹时间慢镜判定：时停棱镜主题、✦逆命重投 或 大成功/大失败 临近落定前的最后 0.28s！
       const remainingSim = this.maxSimDuration - this.simTime
-      const wantBullet =
-        (this.theme.themeIndex === 1 || this.mode === 'fate' || this.tier === 'critical' || this.tier === 'fumble') &&
-        remainingSim > 0.03 &&
-        remainingSim < 0.30 &&
-        this.dice.length <= 6
-      const wantTheaterEase =
-        !wantBullet &&
-        this.theaterMode &&
-        remainingSim > 0.02 &&
-        remainingSim < 0.24 &&
-        this.dice.length <= 6
+      const prog = this.simTime / Math.max(0.35, this.maxSimDuration)
+      const pwr = this.lastChargePower || 0
+      const apexT = this.fateApexTime || 0.22
 
-      const targetBT = wantBullet ? 1.0 : (wantTheaterEase ? 0.56 : 0.0)
-      this.bulletTimeAmount += (targetBT - this.bulletTimeAmount) * Math.min(1, rawDt * 12)
-      if (wantBullet && !this.bulletSoundPlayed) {
-        this.bulletSoundPlayed = true
-        if (this.audio && (this.theme.themeIndex === 1 || this.mode === 'fate')) {
-          this.audio.playBulletTimeDrop()
+      // ✦ 逆命重投专属：精准锚定烘焙最高点时刻触发「穹顶时停凝滞改命」，清晰展现空中翻转改写点数！
+      const inFateApex = this.mode === 'fate'
+        && this.simTime >= Math.max(0.03, apexT - 0.09)
+        && this.simTime <= apexT + 0.16 + pwr * 0.10
+        && this.dice.length <= 12
+      this.fateSlowAmount += ((inFateApex ? 1.0 : 0.0) - this.fateSlowAmount) * Math.min(1, rawDt * 18)
+
+      if (inFateApex && !this.fateApexChimePlayed) {
+        this.fateApexChimePlayed = true
+        if (this.audio) this.audio.playFateApexChime(this.theme.soundPreset, Math.max(0.35, pwr))
+        for (let i = 0; i < Math.min(6, this.dice.length); i++) {
+          const d = this.dice[i]
+          for (let k = 0; k < 4; k++) {
+            const a = (k / 4) * Math.PI * 2 + i
+            this._spawnMediumAccentParticle(
+              d.x + Math.cos(a) * d.radius * 0.85,
+              d.y + Math.sin(a) * d.radius * 0.85,
+              d.z,
+              Math.cos(a) * 42,
+              Math.sin(a) * 42,
+              26,
+              0.95,
+              true
+            )
+          }
         }
       }
 
-      const timeScale = 1.0 - this.bulletTimeAmount * 0.76 // 最低放慢至 0.24x 超清折射慢镜！
+      let timeScale = 1.0
+      if (this.mode === 'fate') {
+        if (!isCuratedV2) {
+          this.bulletTimeAmount += (this.fateSlowAmount - this.bulletTimeAmount) * Math.min(1, rawDt * 14)
+        } else {
+          this.bulletTimeAmount = 0
+        }
+        if (this.fateSlowAmount > 0.02) {
+          const apexMinScale = 0.21 - pwr * 0.05
+          timeScale = 1.0 - this.fateSlowAmount * (1.0 - apexMinScale)
+        } else if (this.simTime > apexT + 0.16 + pwr * 0.10 && remainingSim > 0.14) {
+          timeScale = 1.14 + pwr * 0.12
+        } else if (this.theaterMode && remainingSim > 0.02 && remainingSim < 0.20) {
+          timeScale = 0.72
+        }
+      } else if (isCuratedV2) {
+        this.bulletTimeAmount = 0
+        if (this.mode === 'push') {
+          if (prog < 0.22) timeScale = 1.10 + pwr * 0.12
+          else if ((this.tier === 'critical' || this.tier === 'fumble') && remainingSim > 0.02 && remainingSim < 0.18 && this.dice.length <= 6) {
+            timeScale = 0.45
+          } else if (this.theaterMode && remainingSim > 0.02 && remainingSim < 0.22) {
+            timeScale = 0.68
+          }
+        } else {
+          const wantSlow = this.tier === 'critical' && remainingSim > 0.03 && remainingSim < 0.24 && this.dice.length <= 6
+          timeScale = wantSlow ? 0.44 : (this.theaterMode && remainingSim > 0.02 && remainingSim < 0.22 ? 0.65 : 1.0)
+        }
+      } else {
+        const wantBullet =
+          (this.theme.themeIndex === 1 || this.tier === 'critical' || this.tier === 'fumble') &&
+          remainingSim > 0.03 &&
+          remainingSim < 0.30 &&
+          this.dice.length <= 6
+        const wantTheaterEase =
+          !wantBullet &&
+          this.theaterMode &&
+          remainingSim > 0.02 &&
+          remainingSim < 0.24 &&
+          this.dice.length <= 6
+
+        const targetBT = wantBullet ? 1.0 : (wantTheaterEase ? 0.56 : 0.0)
+        this.bulletTimeAmount += (targetBT - this.bulletTimeAmount) * Math.min(1, rawDt * 12)
+        if (wantBullet && !this.bulletSoundPlayed) {
+          this.bulletSoundPlayed = true
+          if (this.audio && this.theme.themeIndex === 1) {
+            this.audio.playBulletTimeDrop()
+          }
+        }
+        if (this.mode === 'push' && prog < 0.22 && !wantBullet) {
+          timeScale = 1.12 + pwr * 0.12
+        } else {
+          timeScale = 1.0 - this.bulletTimeAmount * 0.76
+        }
+      }
+
       const simDelta = rawDt * timeScale
       this.rollTime += rawDt
       this.simTime += simDelta * (this.simPace || 1)
 
-      const fStep = this.simTime / SIM_DT
+      // 像素风在空中运动阶段呈现 30fps 黄金精灵动画帧韵律，落定前及逆命慢镜期间恢复全精度对位
+      const quantizedTime = (this.theme.themeIndex === 7 && remainingSim > 0.14 && this.fateSlowAmount < 0.2)
+        ? Math.floor(this.simTime * 30) / 30
+        : this.simTime
+
+      const fStep = quantizedTime / SIM_DT
       const s0 = Math.min(MAX_STEPS - 2, Math.max(0, fStep | 0))
       const alpha = Math.max(0, Math.min(1, fStep - s0))
       const s1 = s0 + 1
@@ -3876,6 +6309,7 @@ class CinematicDiceStage {
         this.settled = true
         this.settleTime = 0
         this.bulletTimeAmount = 0
+        this.fateSlowAmount = 0
         this.climax = 1.0
         for (let i = 0; i < this.dice.length; i++) {
           const d = this.dice[i]
@@ -3896,16 +6330,25 @@ class CinematicDiceStage {
       this.settleTime += rawDt
       this.climax = Math.max(0, 1.0 - this.settleTime * 0.48)
       this.bulletTimeAmount *= Math.max(0, 1 - rawDt * 10)
+      this.fateSlowAmount *= Math.max(0, 1 - rawDt * 10)
       for (let i = 0; i < this.dice.length; i++) {
         if (this.dice[i].trailCount > 0) this.dice[i].trailCount = Math.max(0, this.dice[i].trailCount - 2)
       }
     }
 
-    // 3. 更新贴花、剑气、光学冲击波与粒子池
     for (const imp of this.impacts) {
+      if (imp._delay && imp._delay > 0) {
+        imp._delay -= rawDt
+        if (imp._delay <= 0) {
+          imp._delay = 0
+          imp.age = 0.001
+          imp.strength = imp._queuedStrength || 0.6
+        }
+        continue
+      }
       if (imp.strength <= 0) continue
       imp.age += rawDt
-      const maxL = this.theme.themeIndex === 4 ? 2.4 : 1.15
+      const maxL = this.theme.themeIndex === 4 ? 2.4 : (isCuratedV2 ? 1.6 : 1.15)
       if (imp.age > maxL) imp.strength = 0
     }
 
@@ -3927,7 +6370,8 @@ class CinematicDiceStage {
       }
     }
 
-    this._stepParticles(rawDt * (1 - this.bulletTimeAmount * 0.65))
+    const slowParticleFactor = Math.max(this.bulletTimeAmount * 0.65, this.fateSlowAmount * 0.55)
+    this._stepParticles(rawDt * (1 - slowParticleFactor))
     this._updateSpringCamera(rawDt)
   }
 
@@ -3944,55 +6388,83 @@ class CinematicDiceStage {
       }
       alive++
       p.age[i] = age
-      if (p.mode[i] < 0.5) {
+      if (p.mode[i] < 0.5 || p.mode[i] > 1.5) {
         const drag = Math.max(0, 1 - p.drag[i] * dt)
         p.vx[i] *= drag
         p.vy[i] *= drag
         p.vz[i] = p.vz[i] * drag - p.grav[i] * dt
+        if (p.mode[i] > 3.5 && p.mode[i] < 4.5) {
+          p.x[i] += Math.sin(this.clock * 4.5 + i) * 18 * dt
+        }
         p.x[i] += p.vx[i] * dt
         p.y[i] += p.vy[i] * dt
         p.z[i] += p.vz[i] * dt
         if (p.z[i] < 2) {
           p.z[i] = 2
-          p.vz[i] = Math.abs(p.vz[i]) * 0.45
-          p.vx[i] *= 0.78
-          p.vy[i] *= 0.78
+          p.vz[i] = Math.abs(p.vz[i]) * 0.42
+          p.vx[i] *= 0.74
+          p.vy[i] *= 0.74
         }
       }
     }
     p.aliveCount = alive
   }
 
-  _updateSpringCamera(dt) {
-    let cx = 0, cy = 8, cz = 14
+  _computeCameraFocus() {
+    let cx = 0, cy = 4, cz = 12
     if (this.dice.length > 0) {
       let sx = 0, sy = 0, sz = 0
       for (const d of this.dice) { sx += d.x; sy += d.y; sz += d.z }
-      cx = (sx / this.dice.length) * 0.42
-      cy = (sy / this.dice.length) * 0.42
-      cz = Math.min(48, (sz / this.dice.length) * 0.35)
+      cx = (sx / this.dice.length) * 0.52
+      cy = (sy / this.dice.length) * 0.52
+      const zWeight = (this.charging && this.chargeMode === 'fate') || this.fateSlowAmount > 0.05 ? 0.46 : 0.35
+      cz = Math.min(this.theaterMode ? 54 : 66, (sz / this.dice.length) * zWeight)
     }
+    return [cx, cy, cz]
+  }
+
+  _snapCameraToRest() {
+    const [cx, cy, cz] = this._computeCameraFocus()
+    this.camTarget[0] = cx
+    this.camTarget[1] = cy
+    this.camTarget[2] = cz
+    this.camEye[0] = cx * 0.65
+    this.camEye[1] = this.baseEye[1] + cy * 0.72
+    this.camEye[2] = this.baseEye[2] + cz * 0.35
+  }
+
+  _updateSpringCamera(dt) {
+    const [cx, cy, cz] = this._computeCameraFocus()
 
     let zoom = 1.0
     if (this.cinematicCamEnabled) {
       if (this.charging) {
-        zoom = 1.08 + Math.min(1, this.chargeTime) * 0.08 // 蓄力拉远蓄势
+        const c01 = Math.min(1, this.chargeTime / 0.88)
+        if (this.chargeMode === 'fate') {
+          zoom = 1.02 - c01 * 0.06
+        } else if (this.chargeMode === 'push') {
+          zoom = 1.06 + c01 * 0.11
+        } else {
+          zoom = 1.05 + c01 * 0.08
+        }
+      } else if (this.fateSlowAmount > 0.04) {
+        zoom = 1.0 - this.fateSlowAmount * (0.14 + (this.lastChargePower || 0) * 0.06)
       } else if (this.bulletTimeAmount > 0.05) {
-        zoom = 1.0 - this.bulletTimeAmount * 0.24 // 子弹时间戏剧性推镜特写！
+        zoom = 1.0 - this.bulletTimeAmount * 0.24
       } else if (this.settled && this.settleTime < 1.1 && (this.tier === 'critical' || this.tier === 'fumble') && this.dice.length <= 4) {
-        zoom = 0.84 + (this.settleTime / 1.1) * 0.16
+        const pushIn = this.theme.themeIndex >= 6 ? 0.10 : 0.16
+        zoom = (1.0 - pushIn) + (this.settleTime / 1.1) * pushIn
       }
     }
 
-    // 震屏衰减
     this.shakeAmp *= Math.max(0, 1 - dt * 14)
     const shakeX = (Math.random() - 0.5) * 2 * this.shakeAmp
     const shakeY = (Math.random() - 0.5) * 2 * this.shakeAmp
     const shakeZ = (Math.random() - 0.5) * 1.4 * this.shakeAmp
 
-    const targetEyeX = cx * 0.35 + shakeX
-    const targetEyeY = this.baseEye[1] * zoom + cy * 0.25 + shakeY
-    const targetEyeZ = this.baseEye[2] * zoom + shakeZ
+    const targetEyeX = cx * 0.65 + shakeX
+    const targetEyeY = this.baseEye[1] * zoom + cy * 0.72 + shakeY
+    const targetEyeZ = this.baseEye[2] * zoom + cz * 0.35 + shakeZ
 
     const smooth = Math.min(1, dt * 8.5)
     this.camEye[0] += (targetEyeX - this.camEye[0]) * smooth
@@ -4003,19 +6475,119 @@ class CinematicDiceStage {
     this.camTarget[1] += (cy - this.camTarget[1]) * smooth
     this.camTarget[2] += (cz - this.camTarget[2]) * smooth
 
-    const baseChroma = this.theme.themeIndex === 3 ? 0.22 : 0.05
+    const baseChroma = this.theme.themeIndex >= 6 ? 0.0 : (this.theme.themeIndex === 3 ? 0.22 : 0.05)
     this.chroma += (baseChroma - this.chroma) * Math.min(1, dt * 6.0)
+  }
+
+  _drawChargeAndFateHud(ctx, W, H, isLightSurface) {
+    const drawPill = (text, cx, cy, borderCol) => {
+      ctx.save()
+      ctx.font = '600 11.5px system-ui, -apple-system, "PingFang SC", sans-serif'
+      const tw = Math.ceil(ctx.measureText(text).width)
+      const pw = tw + 20
+      const ph = 22
+      ctx.fillStyle = isLightSurface ? 'rgba(250, 245, 235, 0.90)' : 'rgba(12, 12, 16, 0.84)'
+      ctx.beginPath()
+      if (typeof ctx.roundRect === 'function') {
+        ctx.roundRect(cx - pw / 2, cy - ph / 2, pw, ph, 11)
+      } else {
+        ctx.rect(cx - pw / 2, cy - ph / 2, pw, ph)
+      }
+      ctx.fill()
+      ctx.strokeStyle = borderCol || this.theme.accent
+      ctx.globalAlpha = 0.65
+      ctx.lineWidth = 1
+      ctx.stroke()
+      ctx.globalAlpha = 1
+      ctx.fillStyle = isLightSurface ? '#1e1915' : '#f7f3eb'
+      ctx.textAlign = 'center'
+      ctx.textBaseline = 'middle'
+      ctx.fillText(text, cx, cy + 0.5)
+      ctx.restore()
+    }
+
+    if (this.charging) {
+      const uv = this.renderer.projectToUV(this.chargeWorld.x, this.chargeWorld.y, this.chargeWorld.z || 76, this._uvTmp)
+      if (uv.visible) {
+        const cm = this.chargeMode || 'normal'
+        const c01 = Math.min(1, this.chargeTime / 0.88)
+        const jitterX = cm === 'push' ? Math.sin(this.clock * 52) * c01 * 2.2 : 0
+        const jitterY = cm === 'push' ? Math.cos(this.clock * 59) * c01 * 2.2 : 0
+        const sx = uv.u * W + jitterX
+        const sy = Math.max(38, Math.min(H - 40, (1 - uv.v) * H)) + jitterY
+        const r = Math.min(H * 0.22, 30 + c01 * 16)
+        let ringCol = this.theme.accent
+
+        ctx.save()
+        if (cm === 'fate') {
+          ctx.strokeStyle = ringCol
+          ctx.lineWidth = 2.1
+          ctx.beginPath()
+          ctx.arc(sx, sy, r, -Math.PI * 0.5, -Math.PI * 0.5 + Math.PI * 2 * c01)
+          ctx.stroke()
+
+          ctx.save()
+          ctx.translate(sx, sy)
+          ctx.rotate(-this.clock * 1.8)
+          if (typeof ctx.setLineDash === 'function') ctx.setLineDash([4, 5])
+          ctx.lineWidth = 1.2
+          ctx.globalAlpha = 0.5 + c01 * 0.42
+          ctx.beginPath()
+          ctx.arc(0, 0, r * 0.76, 0, Math.PI * 2)
+          ctx.stroke()
+          ctx.restore()
+        } else if (cm === 'push') {
+          ringCol = isLightSurface ? '#b6291c' : (c01 > 0.65 ? '#ff6438' : this.theme.accent)
+          ctx.strokeStyle = ringCol
+          ctx.lineWidth = 2.4 + c01 * 0.8
+          const rr = r * (1.12 - c01 * 0.16)
+          ctx.beginPath()
+          ctx.arc(sx, sy, rr, -Math.PI * 0.5, -Math.PI * 0.5 + Math.PI * 2 * c01)
+          ctx.stroke()
+
+          ctx.lineWidth = 1.4
+          ctx.globalAlpha = 0.42 + c01 * 0.52
+          for (let k = 0; k < 8; k++) {
+            const ka = (k / 8) * Math.PI * 2 + this.clock * 0.8
+            ctx.beginPath()
+            ctx.moveTo(sx + Math.cos(ka) * (rr + 3), sy + Math.sin(ka) * (rr + 3))
+            ctx.lineTo(sx + Math.cos(ka) * (rr + 8), sy + Math.sin(ka) * (rr + 8))
+            ctx.stroke()
+          }
+        } else {
+          ctx.strokeStyle = ringCol
+          ctx.lineWidth = 2.2
+          ctx.beginPath()
+          ctx.arc(sx, sy, r, -Math.PI * 0.5, -Math.PI * 0.5 + Math.PI * 2 * c01)
+          ctx.stroke()
+        }
+        ctx.restore()
+
+        const pct = Math.round(c01 * 100)
+        const label = this.buttonCharging
+          ? (cm === 'fate'
+            ? `✦ 逆命改运 ${pct}% · 松手逆转天命`
+            : (cm === 'push' ? `🔥 孤注搏命 ${pct}% · 松手重注猛砸` : `蓄力 ${pct}% · 松手甩投`))
+          : '松开或划动甩投'
+        drawPill(label, sx, Math.min(H - 16, sy + r + 19), ringCol)
+      }
+    } else if (!this.settled && this.mode === 'fate' && this.fateSlowAmount > 0.25 && !this.compactMode) {
+      ctx.save()
+      ctx.globalAlpha = Math.min(1, (this.fateSlowAmount - 0.25) / 0.5)
+      drawPill('✦ 穹顶悬停 · 逆转天命 ✦', W * 0.5, Math.min(H - 16, H * 0.85), this.theme.accent)
+      ctx.restore()
+    }
   }
 
   _renderAll() {
     const hiddenMask = this.mode === 'hidden' && !this.revealed
-    const tierCode = hiddenMask || !this.settled ? 0 : (TIER_CODE_MAP[this.tier] || 2)
+    const tierCode = hiddenMask || !this.settled || this.charging ? 0 : (TIER_CODE_MAP[this.tier] || 2)
 
     this.renderer.render({
       time: this.clock,
       themeId: this.theme.themeIndex,
       tierCode,
-      climax: this.climax,
+      climax: this.charging ? 0 : this.climax,
       charge: this.charging ? Math.min(1, this.chargeTime / 0.8) : 0,
       camEye: this.camEye,
       camTarget: this.camTarget,
@@ -4041,51 +6613,27 @@ class CinematicDiceStage {
     const ctx = this.hudCtx
     const W = this.cssW
     const H = this.cssH
+    const isLightSurface = this.theme.themeIndex === 8 || this.theme.themeIndex === 10
     ctx.save()
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0)
     ctx.clearRect(0, 0, W, H)
 
-    // 1. 按住蓄力环与甩投引导提示
-    if (this.charging) {
-      const uv = this.renderer.projectToUV(this.chargeWorld.x, this.chargeWorld.y, 85, this._uvTmp)
-      if (uv.visible) {
-        const sx = uv.u * W
-        const sy = (1 - uv.v) * H
-        const c01 = Math.min(1, this.chargeTime / 0.85)
-        const r = 38 + c01 * 22
-        ctx.strokeStyle = this.theme.accent
-        ctx.lineWidth = 2.2
-        ctx.beginPath()
-        ctx.arc(sx, sy, r, -Math.PI * 0.5, -Math.PI * 0.5 + Math.PI * 2 * c01)
-        ctx.stroke()
+    this._drawChargeAndFateHud(ctx, W, H, isLightSurface)
 
-        ctx.font = '700 11.5px system-ui, sans-serif'
-        ctx.fillStyle = '#ffffff'
-        ctx.textAlign = 'center'
-        ctx.fillText(
-          this.buttonCharging
-            ? `⚡ 聚能蓄力 ${Math.round(c01 * 100)}% · 松开按钮爆发投掷`
-            : '松开或划动甩投！',
-          sx,
-          sy + r + 18
-        )
-      }
-    }
-
-    // 2. 全皮肤专属：落定拍案主题印章 / 铭牌（六套主题各有专属形态与醒目汉字）
-    if (this.settled && !hiddenMask && this.settleTime < 2.5 && !this.compactMode) {
+    if (this.settled && !this.charging && !hiddenMask && this.settleTime < 2.5 && !this.compactMode) {
       drawThemeSealOverlay(ctx, {
         themeIndex: this.theme.themeIndex,
         tier: this.tier,
+        total: this.total,
         settleTime: this.settleTime,
         sx: W - Math.min(115, W * 0.14),
         sy: Math.min(125, H * 0.25),
-        scaleMul: 1
+        scaleMul: 1,
+        pinSettled: this.pinSettled
       })
     }
 
-    // 3. 赛博超频专属：实时投影追踪骰子的全息锁定战术准星！
-    if (this.theme.themeIndex === 3 && this.settled && !hiddenMask && this.settleTime < 2.4 && this.dice.length <= 6) {
+    if (this.theme.themeIndex === 3 && this.settled && !this.charging && !hiddenMask && this.settleTime < 2.4 && this.dice.length <= 6) {
       const fade = this.settleTime > 1.8 ? Math.max(0, 1 - (this.settleTime - 1.8) / 0.6) : Math.min(1, this.settleTime * 5)
       ctx.save()
       ctx.globalAlpha = fade
@@ -4104,7 +6652,6 @@ class CinematicDiceStage {
         const len = 9
 
         ctx.beginPath()
-        // 四角折线锁定框
         ctx.moveTo(px - box, py - box + len); ctx.lineTo(px - box, py - box); ctx.lineTo(px - box + len, py - box)
         ctx.moveTo(px + box - len, py - box); ctx.lineTo(px + box, py - box); ctx.lineTo(px + box, py - box + len)
         ctx.moveTo(px - box, py + box - len); ctx.lineTo(px - box, py + box); ctx.lineTo(px - box + len, py + box)
@@ -4118,11 +6665,12 @@ class CinematicDiceStage {
       ctx.restore()
     }
 
-    // 4. 暗骰未揭晓：悬浮呼吸全视秘眼环
-    if (hiddenMask && this.settled) {
+    if (hiddenMask && this.settled && !this.charging) {
       ctx.save()
       const pulse = 0.55 + 0.45 * Math.sin(this.clock * 4.2)
-      ctx.strokeStyle = `rgba(122, 252, 214, ${0.45 + pulse * 0.4})`
+      ctx.strokeStyle = isLightSurface
+        ? `rgba(168, 40, 28, ${0.42 + pulse * 0.35})`
+        : `rgba(122, 252, 214, ${0.45 + pulse * 0.4})`
       ctx.lineWidth = 1.8
       for (let i = 0; i < Math.min(6, this.dice.length); i++) {
         const d = this.dice[i]
@@ -4196,18 +6744,16 @@ class CinematicDiceStage {
   }
 
   function resolveTheme(animationPref, mode, hidden) {
-    const pref = String(animationPref || "bounce")
+    const pref = String(animationPref || "atelier")
     if (pref === "none" || pref === "compact") return null
-    if (pref === "prism") return NEXTGEN_THEMES[1]
-    if (pref === "inferno") return NEXTGEN_THEMES[2]
-    if (pref === "cyber") return NEXTGEN_THEMES[3]
-    if (pref === "jianxin") return NEXTGEN_THEMES[4]
-    if (pref === "singularity") return NEXTGEN_THEMES[5]
-    // 默认 bounce = 智能 3D 星穹秘法（随 ✦逆命 / 🔥孤注 / 👁️暗骰 自动切换专属高潮视效）
-    if (mode === "fate") return NEXTGEN_THEMES[1]
-    if (mode === "push") return NEXTGEN_THEMES[2]
-    if (hidden) return NEXTGEN_THEMES[5]
-    return NEXTGEN_THEMES[0]
+    if (pref === "bounce") {
+      if (mode === "fate") return THEME_BY_ID.prism
+      if (mode === "push") return THEME_BY_ID.inferno
+      if (hidden) return THEME_BY_ID.singularity
+      return THEME_BY_ID.astral
+    }
+    if (THEME_BY_ID[pref]) return THEME_BY_ID[pref]
+    return THEME_BY_ID.atelier
   }
 
   function meshKeyForSides(sides) {
@@ -4260,6 +6806,37 @@ class CinematicDiceStage {
     const rawDice = Array.isArray(roll.dice) && roll.dice.length ? roll.dice : [Number(roll.rawTotal ?? roll.total) || 1]
     const mode = resolveThemeMode(roll, roll.hidden)
     const tier = fdTierOf(roll.tier)
+
+    if (roll.checkType === "contest" && roll.contest && Array.isArray(roll.contest.rivalDice) && roll.contest.rivalDice.length && !roll.hidden) {
+      const cSides = rule === "d20" ? 20 : rule === "d10" ? 10 : rule === "d100" ? 10 : (Number(roll.sides) || 6)
+      const cMk = meshKeyForSides(cSides)
+      const cMax = GL_MESHES[cMk] ? GL_MESHES[cMk].faceCount : cSides
+      const toSpec = (v, side, label) => ({
+        meshKey: cMk,
+        sides: cSides,
+        targetValue: rule === "d100"
+          ? Math.max(1, Math.min(cMax, Math.ceil((Number(v) || 50) / 10)))
+          : Math.max(1, Math.min(cMax, Math.round(Number(v) || 1))),
+        side,
+        ownerLabel: label
+      })
+      const allySpecs = rawDice.slice(0, 6).map(v => toSpec(v, "ally", "我方"))
+      const rivalSpecs = roll.contest.rivalDice.slice(0, 6).map(v => toSpec(v, "rival", roll.contest.rivalName || "对手"))
+      return {
+        diceSpecs: [...allySpecs, ...rivalSpecs],
+        tier,
+        mode: mode === "normal" ? "contest" : mode,
+        total: Number(roll.total) || 0,
+        checkName: roll.check || "交锋对抗",
+        contestMeta: {
+          allyLabel: "我方",
+          rivalLabel: roll.contest.rivalName || "对手",
+          allyTotal: Number(roll.total),
+          rivalTotal: Number(roll.contest.rivalTotal),
+          margin: Number(roll.contest.margin) || 0
+        }
+      }
+    }
 
     if (rule === "d100") {
       const pct = Math.max(1, Math.min(100, Math.round(Number(rawDice[0]) || Number(roll.total) || 50)))
@@ -4341,11 +6918,9 @@ class CinematicDiceStage {
       const aspect = w / Math.max(1, h)
       const distScale = aspect > 2.15 ? 0.64 : aspect < 0.9 ? 1.12 : 0.84
       this.baseEye[0] = 0
-      this.baseEye[1] = -325 * distScale
-      this.baseEye[2] = 385 * distScale
-      this.camEye[0] = this.baseEye[0]
-      this.camEye[1] = this.baseEye[1]
-      this.camEye[2] = this.baseEye[2]
+      this.baseEye[1] = -142 * distScale
+      this.baseEye[2] = 475 * distScale
+      if (!this.running) this._snapCameraToRest()
     }
 
     _renderAll() {
@@ -4356,13 +6931,13 @@ class CinematicDiceStage {
       this.renderer = sharedR
 
       const hiddenMask = this.mode === "hidden" && !this.revealed
-      const tierCode = hiddenMask || !this.settled ? 0 : (TIER_CODE_MAP[this.tier] || 2)
+      const tierCode = hiddenMask || !this.settled || this.charging ? 0 : (TIER_CODE_MAP[this.tier] || 2)
 
       sharedR.render({
         time: this.clock,
         themeId: this.theme.themeIndex,
         tierCode,
-        climax: this.climax,
+        climax: this.charging ? 0 : this.climax,
         charge: this.charging ? Math.min(1, this.chargeTime / 0.8) : 0,
         camEye: this.camEye,
         camTarget: this.camTarget,
@@ -4384,7 +6959,7 @@ class CinematicDiceStage {
       this.displayCtx.drawImage(sharedR.canvas, 0, 0, pw, ph, 0, 0, pw, ph)
       this.displayCtx.restore()
 
-      // 叠加锐利矢量前景（蓄力百分比圆环 / 水墨朱砂方印 / 赛博锁定准星）
+      // 叠加锐利矢量前景（三形态蓄力环 / 逆命穹顶悬停签 / 典藏铭牌 / 赛博准星）
       this.hudCtx = this.displayCtx
       this._renderCrispVectorOverlayNoClear(hiddenMask)
     }
@@ -4393,45 +6968,125 @@ class CinematicDiceStage {
       const ctx = this.displayCtx
       const W = this.cssW
       const H = this.cssH
+      const isLightSurface = this.theme.themeIndex === 8 || this.theme.themeIndex === 10
       ctx.save()
       ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0)
 
-      if (this.charging) {
-        const uv = this.renderer.projectToUV(this.chargeWorld.x, this.chargeWorld.y, 85, this._uvTmp)
-        if (uv.visible) {
-          const sx = uv.u * W
-          const sy = (1 - uv.v) * H
-          const c01 = Math.min(1, this.chargeTime / 0.90)
-          const r = Math.min(H * 0.34, 32 + c01 * 18)
-          ctx.strokeStyle = this.theme.accent
-          ctx.lineWidth = 2.4
-          ctx.beginPath()
-          ctx.arc(sx, sy, r, -Math.PI * 0.5, -Math.PI * 0.5 + Math.PI * 2 * c01)
-          ctx.stroke()
-
-          ctx.font = "700 11.5px system-ui, sans-serif"
-          ctx.fillStyle = "#fff8e7"
-          ctx.shadowColor = "rgba(0,0,0,0.85)"
-          ctx.shadowBlur = 6
-          ctx.textAlign = "center"
-          ctx.fillText("⚡ 聚能蓄力 " + Math.round(c01 * 100) + "% · 松开按钮爆发投掷", sx, Math.min(H - 8, sy + r + 16))
-        }
-      }
+      this._drawChargeAndFateHud(ctx, W, H, isLightSurface)
 
       const sealWindow = this.pinSettled ? Infinity : (this.theaterMode ? 3.5 : 2.5)
-      if (this.settled && !hiddenMask && this.settleTime < sealWindow && !this.compactMode) {
+      if (this.mode !== "contest" && this.settled && !this.charging && !hiddenMask && this.settleTime < sealWindow && !this.compactMode) {
+        const panelRightMargin = this.theme.themeIndex >= 6 ? 56 : 46
         drawThemeSealOverlay(ctx, {
           themeIndex: this.theme.themeIndex,
           tier: this.tier,
+          total: this.total,
           settleTime: this.settleTime,
-          sx: this.theaterMode ? Math.min(W - 96, Math.round(W * 0.5 + Math.min(295, W * 0.27))) : W - 46,
+          sx: this.theaterMode ? Math.min(W - 96, Math.round(W * 0.5 + Math.min(295, W * 0.27))) : W - panelRightMargin,
           sy: this.theaterMode ? Math.round(H * 0.42) : Math.max(44, H * 0.36),
           scaleMul: this.theaterMode ? 1.04 : 0.78,
-          fadeStart: this.pinSettled ? Infinity : (this.theaterMode ? 2.85 : 1.9)
+          fadeStart: this.pinSettled ? Infinity : (this.theaterMode ? 2.85 : 1.9),
+          pinSettled: Boolean(this.pinSettled)
         })
       }
 
-      if (this.theme.themeIndex === 3 && this.settled && !hiddenMask && (this.pinSettled || this.settleTime < 2.4) && this.dice.length <= 4 && !this.compactMode) {
+      if (this.mode === "contest" && !this.charging && !hiddenMask && !this.compactMode) {
+        const settleFade = (!this.settled || this.pinSettled)
+          ? 1
+          : (this.settleTime > 2.6 ? Math.max(0, 1 - (this.settleTime - 2.6) / 0.8) : 1)
+        if (settleFade > 0.01) {
+          ctx.save()
+          ctx.globalAlpha = settleFade
+
+          // 左右阵营环境色微染色，一眼区分半场
+          const leftGrad = ctx.createLinearGradient(0, 0, W * 0.48, 0)
+          leftGrad.addColorStop(0, isLightSurface ? "rgba(16, 185, 129, 0.14)" : "rgba(52, 211, 153, 0.13)")
+          leftGrad.addColorStop(1, "rgba(52, 211, 153, 0)")
+          ctx.fillStyle = leftGrad
+          ctx.fillRect(0, 0, W * 0.5, H)
+
+          const rightGrad = ctx.createLinearGradient(W, 0, W * 0.52, 0)
+          rightGrad.addColorStop(0, isLightSurface ? "rgba(225, 29, 72, 0.14)" : "rgba(244, 63, 94, 0.14)")
+          rightGrad.addColorStop(1, "rgba(244, 63, 94, 0)")
+          ctx.fillStyle = rightGrad
+          ctx.fillRect(W * 0.5, 0, W * 0.5, H)
+
+          // 中央垂直分割线 + 发光 VS 徽章
+          const midX = Math.round(W * 0.5) + 0.5
+          const midY = Math.round(H * 0.52)
+          const lineGrad = ctx.createLinearGradient(midX, 16, midX, H - 16)
+          lineGrad.addColorStop(0, "rgba(255, 215, 140, 0)")
+          lineGrad.addColorStop(0.22, isLightSurface ? "rgba(180, 130, 60, 0.48)" : "rgba(255, 215, 140, 0.42)")
+          lineGrad.addColorStop(0.5, isLightSurface ? "rgba(180, 130, 60, 0.78)" : "rgba(255, 224, 158, 0.78)")
+          lineGrad.addColorStop(0.78, isLightSurface ? "rgba(180, 130, 60, 0.48)" : "rgba(255, 215, 140, 0.42)")
+          lineGrad.addColorStop(1, "rgba(255, 215, 140, 0)")
+          ctx.strokeStyle = lineGrad
+          ctx.lineWidth = 1.5
+          ctx.setLineDash([4, 4])
+          ctx.beginPath()
+          ctx.moveTo(midX, 18)
+          ctx.lineTo(midX, H - 18)
+          ctx.stroke()
+          ctx.setLineDash([])
+
+          const vsR = this.theaterMode ? 17 : 14
+          ctx.fillStyle = isLightSurface ? "rgba(252, 246, 236, 0.94)" : "rgba(14, 16, 26, 0.92)"
+          ctx.strokeStyle = isLightSurface ? "rgba(180, 128, 52, 0.85)" : "rgba(245, 200, 118, 0.85)"
+          ctx.lineWidth = 1.5
+          ctx.beginPath()
+          ctx.arc(midX, midY, vsR, 0, Math.PI * 2)
+          ctx.fill()
+          ctx.stroke()
+
+          ctx.font = `800 ${this.theaterMode ? 11.5 : 10}px system-ui, -apple-system, "PingFang SC", sans-serif`
+          ctx.textAlign = "center"
+          ctx.textBaseline = "middle"
+          ctx.fillStyle = isLightSurface ? "#9a5d14" : "#f7d488"
+          ctx.fillText("VS", midX, midY + 0.5)
+
+          // 左右半场顶部阵营铭牌（投掷全程常驻，落定后亮出总点数）
+          const meta = this.contestMeta || {}
+          const allyName = meta.allyLabel || "我方"
+          const rivalName = meta.rivalLabel || (this.dice.find(d => d.side === "rival")?.ownerLabel) || "对手"
+          const showScore = this.settled && Number.isFinite(meta.allyTotal) && Number.isFinite(meta.rivalTotal)
+          const allyWin = showScore && meta.allyTotal > meta.rivalTotal
+          const rivalWin = showScore && meta.rivalTotal > meta.allyTotal
+          const pills = [
+            {
+              cx: W * 0.25,
+              text: showScore ? `⚔ ${allyName} · ${meta.allyTotal}` : `⚔ ${allyName}`,
+              color: isLightSurface ? "#0f766e" : "#4ad295",
+              win: allyWin
+            },
+            {
+              cx: W * 0.75,
+              text: showScore ? `🛡 ${rivalName} · ${meta.rivalTotal}` : `🛡 ${rivalName}`,
+              color: isLightSurface ? "#be123c" : "#fb7185",
+              win: rivalWin
+            }
+          ]
+          ctx.font = `700 ${this.theaterMode ? 12 : 11}px system-ui, -apple-system, "PingFang SC", sans-serif`
+          const pillY = this.theaterMode ? 52 : 24
+          for (const p of pills) {
+            const tw = Math.ceil(ctx.measureText(p.text).width) + 20
+            const ph = this.theaterMode ? 24 : 21
+            ctx.fillStyle = isLightSurface ? "rgba(250, 246, 238, 0.92)" : "rgba(10, 12, 20, 0.86)"
+            ctx.strokeStyle = p.color
+            ctx.lineWidth = p.win ? 2.0 : 1.2
+            ctx.beginPath()
+            if (typeof ctx.roundRect === "function") ctx.roundRect(p.cx - tw / 2, pillY - ph / 2, tw, ph, ph / 2)
+            else ctx.rect(p.cx - tw / 2, pillY - ph / 2, tw, ph)
+            ctx.fill()
+            ctx.stroke()
+            ctx.fillStyle = p.color
+            ctx.fillText(p.text, p.cx, pillY + 0.5)
+          }
+
+          ctx.restore()
+        }
+      }
+
+      if (this.theme.themeIndex === 3 && this.settled && !this.charging && !hiddenMask && (this.pinSettled || this.settleTime < 2.4) && this.dice.length <= 4 && !this.compactMode) {
         const fade = (!this.pinSettled && this.settleTime > 1.8) ? Math.max(0, 1 - (this.settleTime - 1.8) / 0.6) : Math.min(1, this.settleTime * 5)
         ctx.save()
         ctx.globalAlpha = fade
@@ -4463,6 +7118,7 @@ class CinematicDiceStage {
     resolveTheme,
     resolveThemeMode,
     rollToStageSpec,
+    CinematicDiceStage,
     SharedBlitDiceStage,
     NEXTGEN_THEMES
   }
@@ -4477,13 +7133,13 @@ const FD_HOLD_FULL_MS = 960
 function fdGetCachedAnimationPref() {
   return fdSafe(() => {
     const saved = fdReadJson(FD_STORAGE_KEYS.settings, null)
-    return (saved && saved.animation) || "bounce"
-  }, "bounce")
+    return (saved && saved.animation) || "atelier"
+  }, "atelier")
 }
 
 /**
  * 原生 DOM 按钮绑定「点按即投 + 长按蓄力旋涡 + 移出无损取消」
- * （供楼层顶栏原生面板与 Demo 复用）
+ * （供楼层顶栏原生面板与发前逆命弹窗复用）
  */
 function fdAttachHoldChargeToDomBtn(btn, options) {
   if (!btn || typeof btn.addEventListener !== "function") return
@@ -4493,11 +7149,19 @@ function fdAttachHoldChargeToDomBtn(btn, options) {
   let downAt = 0
   let charging = false
   let pointerHandled = false
+  let capturedPointerId = null
 
-  const titleEl = btn.querySelector(".fd-reroll-btn-title")
+  const titleEl = btn.querySelector ? btn.querySelector(".fd-reroll-btn-title") : null
   const origTitle = baseLabel || (titleEl ? titleEl.textContent : btn.textContent)
 
   const nowMs = () => (typeof performance !== "undefined" ? performance.now() : Date.now())
+
+  const releaseCapture = () => {
+    if (capturedPointerId !== null && typeof btn.releasePointerCapture === "function") {
+      try { btn.releasePointerCapture(capturedPointerId) } catch {}
+    }
+    capturedPointerId = null
+  }
 
   const setChargingCls = on => {
     if (btn.classList) {
@@ -4524,6 +7188,7 @@ function fdAttachHoldChargeToDomBtn(btn, options) {
   const cleanup = () => {
     if (holdTimer) { clearTimeout(holdTimer); holdTimer = 0 }
     if (rafId && typeof cancelAnimationFrame === "function") { cancelAnimationFrame(rafId); rafId = 0 }
+    releaseCapture()
     setChargingCls(false)
     setChargeVar(null)
     if (titleEl) titleEl.textContent = origTitle
@@ -4532,18 +7197,39 @@ function fdAttachHoldChargeToDomBtn(btn, options) {
   const tick = () => {
     if (!charging) return
     const pct = Math.min(1, Math.max(0, (nowMs() - downAt - FD_HOLD_THRESHOLD_MS) / FD_HOLD_FULL_MS))
-    setChargeVar(Math.round(pct * 100) + "%")
+    const pctNum = Math.round(pct * 100)
+    setChargeVar(pctNum + "%")
     if (titleEl) {
-      titleEl.textContent = (mode === "push" ? "🔥 熔炉蓄力 " : "✦ 逆命蓄力 ") + Math.round(pct * 100) + "% · 松手爆发"
+      titleEl.textContent = mode === "push"
+        ? `🔥 搏命蓄力 ${pctNum}% · 松手猛砸`
+        : (mode === "fate" ? `✦ 逆命蓄力 ${pctNum}% · 松手改命` : `蓄力 ${pctNum}% · 松手甩投`)
     }
     if (typeof requestAnimationFrame === "function") rafId = requestAnimationFrame(tick)
   }
 
+  const cancel = () => {
+    if (!downAt && !charging) return
+    downAt = 0
+    const wasCharging = charging
+    charging = false
+    cleanup()
+    if (wasCharging) {
+      const stg = typeof getStage === "function" ? getStage() : null
+      if (stg && typeof stg.cancelButtonCharge === "function") stg.cancelButtonCharge()
+    }
+  }
+
   btn.addEventListener("pointerdown", e => {
-    if (btn.disabled || (e.button !== undefined && e.button !== 0)) return
+    if (btn.disabled || (e && e.button !== undefined && e.button !== 0)) return
     pointerHandled = false
     charging = false
     downAt = nowMs()
+    if (e && e.pointerId !== undefined && typeof btn.setPointerCapture === "function") {
+      try {
+        btn.setPointerCapture(e.pointerId)
+        capturedPointerId = e.pointerId
+      } catch {}
+    }
     holdTimer = setTimeout(() => {
       charging = true
       setChargingCls(true)
@@ -4551,6 +7237,16 @@ function fdAttachHoldChargeToDomBtn(btn, options) {
       if (stg && typeof stg.startButtonCharge === "function") stg.startButtonCharge(mode)
       tick()
     }, FD_HOLD_THRESHOLD_MS)
+  })
+
+  btn.addEventListener("pointermove", e => {
+    if ((!downAt && !charging) || capturedPointerId === null || !e || typeof btn.getBoundingClientRect !== "function") return
+    const r = btn.getBoundingClientRect()
+    if (!r || r.width <= 0 || r.height <= 0) return
+    const pad = 14
+    if (e.clientX < r.left - pad || e.clientX > r.right + pad || e.clientY < r.top - pad || e.clientY > r.bottom + pad) {
+      cancel()
+    }
   })
 
   btn.addEventListener("pointerup", () => {
@@ -4567,19 +7263,9 @@ function fdAttachHoldChargeToDomBtn(btn, options) {
     if (typeof onTrigger === "function") onTrigger(mode, power)
   })
 
-  const cancel = () => {
-    if (!downAt && !charging) return
-    downAt = 0
-    const wasCharging = charging
-    charging = false
-    cleanup()
-    if (wasCharging) {
-      const stg = typeof getStage === "function" ? getStage() : null
-      if (stg) stg.cancelButtonCharge()
-    }
-  }
-
-  btn.addEventListener("pointerleave", cancel)
+  btn.addEventListener("pointerleave", () => {
+    if (capturedPointerId === null) cancel()
+  })
   btn.addEventListener("pointercancel", cancel)
   btn.addEventListener("click", e => {
     if (pointerHandled) {
@@ -4751,7 +7437,7 @@ function Fd3DDiceStage(props) {
 
     // 智能切换（bounce）下，✦逆命 / 🔥孤注 的专属皮肤只属于投掷那一刻：
     // 重开楼层、复用锁定骰这类静态摆盘一律回到默认星穹，避免熔炉/棱镜皮肤长期滞留在卡片上
-    const pref = String(animPref || "bounce")
+    const pref = String(animPref || "atelier")
     const staticTheme = pref === "bounce" ? FD3D.resolveTheme(pref, hidden ? "hidden" : "normal", hidden) : null
     stg.setTheme((isStaticPlate && staticTheme) || theme)
     if (isStaticPlate) {

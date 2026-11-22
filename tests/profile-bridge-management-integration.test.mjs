@@ -60,8 +60,23 @@ test('unregistered external profile and symlinked registry fail closed', async t
 })
 for (const host of ['desktop', 'next']) test(`standalone worker removes Tavern from the active session (${host})`, async t => {
   const f = fixture(t, host)
+  // The process fence has its own tests. Give the POSIX worker a stable inventory
+  // so an unrelated DSH desktop on the machine cannot block this test.
+  const tools = path.join(f.root, 'tools')
+  if (process.platform !== 'win32') {
+    fs.mkdirSync(tools)
+    fs.writeFileSync(path.join(tools, 'ps'), '#!/bin/sh\nprintf "42 /usr/bin/fixture-idle\\n"\n', { mode: 0o755 })
+  }
   const run = async request => {
-    const receipt = scheduleSwitch({ ...request, stamp: String(Date.now()), pids: [], relaunch: undefined })
+    const savedPath = process.env.PATH
+    let receipt
+    try {
+      if (process.platform !== 'win32') process.env.PATH = [tools, savedPath].filter(Boolean).join(path.delimiter)
+      receipt = scheduleSwitch({ ...request, stamp: String(Date.now()), pids: [], relaunch: undefined })
+    } finally {
+      if (savedPath === undefined) delete process.env.PATH
+      else process.env.PATH = savedPath
+    }
     const end = Date.now() + 15000
     let result
     do {

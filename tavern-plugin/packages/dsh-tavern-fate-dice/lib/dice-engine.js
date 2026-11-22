@@ -182,8 +182,127 @@ export function evaluateOutcome({
   return make(tier, total)
 }
 
+const RIVAL_BONUS_BY_RULE = Object.freeze({
+  '2d6': Object.freeze({ trivial: -2, easy: -1, moderate: 0, hard: 2, extreme: 4 }),
+  d10: Object.freeze({ trivial: -2, easy: -1, moderate: 0, hard: 2, extreme: 4 }),
+  d20: Object.freeze({ trivial: -3, easy: -1, moderate: 0, hard: 3, extreme: 6 }),
+  d100: Object.freeze({ trivial: -15, easy: -8, moderate: 0, hard: 12, extreme: 25 })
+})
+
 /**
- * 执行一次密码学级真随机检定掷骰。
+ * 实力碾压免掷骰判断（Take-0）：当难度不高且角色净加值足以在最低骰面下稳跨目标值时直通成功。
+ */
+export function canAutoSucceed({
+  rule = '2d6',
+  skillBonus = 0,
+  modifier = 0,
+  difficulty = 'moderate',
+  customTarget = null,
+  checkType = 'normal',
+  allowAutoSuccess = true
+} = {}) {
+  if (!allowAutoSuccess || checkType === 'contest') return false
+  const tierDifficulty = normalizeDifficulty(difficulty)
+  if (tierDifficulty !== 'trivial' && tierDifficulty !== 'easy') return false
+  const activeRule = normalizeRule(rule)
+  const skill = clampSkillBonus(skillBonus, activeRule)
+  const mod = clampModifier(modifier)
+  const target = resolveTarget({ rule: activeRule, difficulty: tierDifficulty, customTarget })
+  if (activeRule === 'd100') {
+    const effTarget = clamp(target + skill + mod * 5, 5, 99)
+    return effTarget >= 96 && skill + mod * 5 >= 10
+  }
+  const minDieSum = activeRule === '2d6' ? 2 : 1
+  return minDieSum + skill + mod >= target
+}
+
+function drawRuleDice(rule, draw = randomInt) {
+  if (rule === '2d6') return [draw(1, 7), draw(1, 7)]
+  if (rule === 'd10') return [draw(1, 11)]
+  if (rule === 'd20') return [draw(1, 21)]
+  return [draw(1, 101)]
+}
+
+/**
+ * 纯函数交锋对抗裁定：我方与对手各掷一轮，按净差值 z 决定压制、拼平或反击。
+ */
+export function evaluateContestOutcome({
+  rule,
+  dice,
+  rivalDice,
+  skillBonus = 0,
+  modifier = 0,
+  difficulty = 'moderate',
+  rivalBonus = null
+} = {}) {
+  const activeRule = normalizeRule(rule)
+  const tierDifficulty = normalizeDifficulty(difficulty)
+  const allyFaces = Array.isArray(dice) ? dice.map(n => Math.trunc(toFinite(n, 1))) : []
+  const rivalFaces = Array.isArray(rivalDice) ? rivalDice.map(n => Math.trunc(toFinite(n, 1))) : []
+  const allyRaw = allyFaces.reduce((s, n) => s + n, 0)
+  const rivalRaw = rivalFaces.reduce((s, n) => s + n, 0)
+  const skill = clampSkillBonus(skillBonus, activeRule)
+  const mod = clampModifier(modifier)
+  const rBonus = Number.isFinite(Number(rivalBonus))
+    ? Math.trunc(Number(rivalBonus))
+    : (RIVAL_BONUS_BY_RULE[activeRule][tierDifficulty] ?? 0)
+
+  let allyTotal
+  let rivalTotal
+  let margin
+  if (activeRule === 'd100') {
+    // 百分制下比较成功余量（目标线 - 骰出值），正值越高表现越佳
+    const allyCap = clamp(50 + skill + mod * 5, 10, 95)
+    const rivalCap = clamp(50 + rBonus, 10, 95)
+    allyTotal = allyRaw
+    rivalTotal = rivalRaw
+    margin = (allyCap - allyRaw) - (rivalCap - rivalRaw)
+  } else {
+    allyTotal = allyRaw + skill + mod
+    rivalTotal = rivalRaw + rBonus
+    margin = allyTotal - rivalTotal
+  }
+
+  const sides = SIDES_BY_RULE[activeRule]
+  const allyCrit = activeRule === '2d6'
+    ? (allyFaces.length === 2 && allyFaces[0] === 6 && allyFaces[1] === 6)
+    : (activeRule === 'd100' ? allyRaw <= 5 : allyRaw === sides)
+  const allyFumble = activeRule === '2d6'
+    ? (allyFaces.length === 2 && allyFaces[0] === 1 && allyFaces[1] === 1)
+    : (activeRule === 'd100' ? allyRaw >= 96 : allyRaw === 1)
+  const rivalCrit = activeRule === '2d6'
+    ? (rivalFaces.length === 2 && rivalFaces[0] === 6 && rivalFaces[1] === 6)
+    : (activeRule === 'd100' ? rivalRaw <= 5 : rivalRaw === sides)
+
+  const bigLead = activeRule === 'd100' ? 25 : (activeRule === 'd20' ? 7 : 4)
+  let tier = 'failure'
+  if ((allyCrit && margin >= 0) || margin >= bigLead) tier = 'critical'
+  else if (margin > 0) tier = 'success'
+  else if (margin === 0) tier = 'costly'
+  else if ((allyFumble && margin < 0) || (rivalCrit && margin < 0) || margin <= -bigLead) tier = 'fumble'
+
+  return {
+    rule: activeRule,
+    difficulty: tierDifficulty,
+    dice: allyFaces,
+    rawTotal: allyRaw,
+    total: allyTotal,
+    target: rivalTotal,
+    tier,
+    skillBonus: skill,
+    modifier: mod,
+    modifierEffect: activeRule === 'd100' ? mod * 5 : mod,
+    rivalDice: rivalFaces,
+    rivalRawTotal: rivalRaw,
+    rivalBonus: rBonus,
+    rivalTotal,
+    margin,
+    counterAttack: margin < 0
+  }
+}
+
+/**
+ * 执行一次密码学级真随机检定掷骰（支持实力碾压免骰与交锋双边对抗）。
  */
 export function rollCheck(options = {}, draw = randomInt) {
   const rule = normalizeRule(options.rule)
@@ -200,20 +319,108 @@ export function rollCheck(options = {}, draw = randomInt) {
     ? null
     : Number(options.customTarget)
   const hidden = Boolean(options.hidden)
+  const checkType = options.checkType === 'contest' && !hidden ? 'contest' : 'normal'
   const attempt = typeof options.attempt === 'string' ? options.attempt.trim().slice(0, 200) : ''
   const reason = typeof options.reason === 'string' ? options.reason.trim().slice(0, 200) : ''
   const stakes = typeof options.stakes === 'string' ? options.stakes.trim().slice(0, 200) : ''
 
-  let dice
-  if (rule === '2d6') dice = [draw(1, 7), draw(1, 7)]
-  else if (rule === 'd10') dice = [draw(1, 11)]
-  else if (rule === 'd20') dice = [draw(1, 21)]
-  else dice = [draw(1, 101)]
+  if (!options.forceRoll && canAutoSucceed({
+    rule,
+    skillBonus,
+    modifier,
+    difficulty,
+    customTarget,
+    checkType,
+    allowAutoSuccess: options.allowAutoSuccess !== false
+  })) {
+    const target = resolveTarget({ rule, difficulty, customTarget })
+    const minDie = rule === '2d6' ? 2 : (rule === 'd100' ? 1 : 1)
+    const floorTotal = rule === 'd100' ? clamp(target + skillBonus + modifier * 5, 5, 99) : (minDie + skillBonus + modifier)
+    return {
+      rule,
+      sides: ruleSides(rule),
+      checkType: 'auto',
+      autoSuccess: true,
+      check: skillName,
+      skillId,
+      skillName,
+      skillBonus,
+      modifier,
+      totalModifier: skillBonus + modifier,
+      modifierEffect: rule === 'd100' ? modifier * 5 : modifier,
+      dice: [],
+      rawTotal: 0,
+      total: floorTotal,
+      target,
+      tier: 'success',
+      tierLabel: '稳妥达成',
+      difficulty,
+      difficultyLabel: DIFFICULTY_LABELS[difficulty],
+      hidden: false,
+      attempt,
+      reason: reason ? `${reason}（能力稳压 · 免骰直通）` : '角色能力稳压当前阻力，直接达成无需掷骰',
+      stakes,
+      rolledAt: Date.now()
+    }
+  }
 
+  if (checkType === 'contest') {
+    const allyDice = drawRuleDice(rule, draw)
+    const rivalDice = drawRuleDice(rule, draw)
+    const ev = evaluateContestOutcome({
+      rule,
+      dice: allyDice,
+      rivalDice,
+      skillBonus,
+      modifier,
+      difficulty,
+      rivalBonus: options.rivalBonus
+    })
+    const rivalName = typeof options.rivalName === 'string' && options.rivalName.trim()
+      ? options.rivalName.trim().slice(0, 20)
+      : '对手'
+    return {
+      rule,
+      sides: ruleSides(rule),
+      checkType: 'contest',
+      check: skillName,
+      skillId,
+      skillName,
+      skillBonus,
+      modifier,
+      totalModifier: skillBonus + modifier,
+      modifierEffect: ev.modifierEffect,
+      dice: allyDice,
+      rawTotal: ev.rawTotal,
+      total: ev.total,
+      target: ev.rivalTotal,
+      tier: ev.tier,
+      tierLabel: OUTCOME_LABELS[ev.tier],
+      difficulty,
+      difficultyLabel: DIFFICULTY_LABELS[difficulty],
+      hidden: false,
+      contest: {
+        rivalName,
+        rivalDice,
+        rivalRawTotal: ev.rivalRawTotal,
+        rivalBonus: ev.rivalBonus,
+        rivalTotal: ev.rivalTotal,
+        margin: ev.margin,
+        counterAttack: ev.counterAttack
+      },
+      attempt,
+      reason,
+      stakes,
+      rolledAt: Date.now()
+    }
+  }
+
+  const dice = drawRuleDice(rule, draw)
   const evaluated = evaluateOutcome({ rule, dice, skillBonus, modifier, difficulty, customTarget })
   return {
     rule,
     sides: ruleSides(rule),
+    checkType: 'normal',
     check: skillName,
     skillId,
     skillName,
@@ -234,6 +441,84 @@ export function rollCheck(options = {}, draw = randomInt) {
     reason,
     stakes,
     rolledAt: Date.now()
+  }
+}
+
+const TAPE_SYMBOLS = ['①', '②', '③', '④', '⑤', '⑥', '⑦', '⑧']
+
+/** 生成一轮「宿命序列」预掷密码学真骰带（用于无决策模型时的轻量多检定）。 */
+export function generateFateTape({ rule = '2d6', count = 6 } = {}, draw = randomInt) {
+  const activeRule = normalizeRule(rule)
+  const size = Math.max(1, Math.min(TAPE_SYMBOLS.length, Math.trunc(Number(count) || 6)))
+  const slots = []
+  for (let i = 0; i < size; i += 1) {
+    const dice = drawRuleDice(activeRule, draw)
+    const rawTotal = dice.reduce((s, n) => s + n, 0)
+    slots.push({
+      index: i + 1,
+      symbol: TAPE_SYMBOLS[i],
+      dice,
+      rawTotal
+    })
+  }
+  return {
+    rule: activeRule,
+    sides: ruleSides(activeRule),
+    slots,
+    createdAt: Date.now()
+  }
+}
+
+/** 从模型输出正文中提取宿命序列使用标记，并换算为标准 roll 结果供胶囊登记。 */
+export function parseTapeUsageFromText(text, tape) {
+  const raw = String(text || '')
+  if (!raw || !tape || !Array.isArray(tape.slots) || !tape.slots.length) return null
+  const matches = [...raw.matchAll(/<!--\s*fate-dice-tape:\s*([^>]+?)\s*-->/gi)]
+  if (!matches.length) return null
+  const lastBody = matches.at(-1)[1]
+  const slotMatch = /([①②③④⑤⑥⑦⑧]|\d+)/.exec(lastBody)
+  if (!slotMatch) return null
+  const token = slotMatch[1]
+  const slot = tape.slots.find(s => s.symbol === token || String(s.index) === token) || tape.slots[0]
+  if (!slot) return null
+  const checkMatch = /check=([^|;,\s]+)/i.exec(lastBody)
+  const diffMatch = /diff=(trivial|easy|moderate|hard|extreme)/i.exec(lastBody)
+  const modMatch = /mod=(-?\d+)/i.exec(lastBody)
+  const difficulty = normalizeDifficulty(diffMatch ? diffMatch[1] : 'moderate')
+  const skillBonus = clampSkillBonus(modMatch ? Number(modMatch[1]) : 0, tape.rule)
+  const evaluated = evaluateOutcome({
+    rule: tape.rule,
+    dice: slot.dice,
+    skillBonus,
+    modifier: 0,
+    difficulty
+  })
+  const checkName = (checkMatch ? checkMatch[1] : '宿命检定').replace(/检定$/, '').slice(0, 16) || '宿命'
+  return {
+    rule: tape.rule,
+    sides: tape.sides,
+    checkType: 'tape',
+    tapeSlot: slot.symbol,
+    check: checkName,
+    skillId: 'tape',
+    skillName: checkName,
+    skillBonus,
+    modifier: 0,
+    totalModifier: skillBonus,
+    modifierEffect: evaluated.modifierEffect,
+    dice: slot.dice,
+    rawTotal: evaluated.rawTotal,
+    total: evaluated.total,
+    target: evaluated.target,
+    tier: evaluated.tier,
+    tierLabel: OUTCOME_LABELS[evaluated.tier],
+    difficulty,
+    difficultyLabel: DIFFICULTY_LABELS[difficulty],
+    hidden: false,
+    attempt: '',
+    reason: `宿命序列 ${slot.symbol} 顺位取骰（无小模型序列模式）`,
+    stakes: '',
+    rolledAt: tape.createdAt || Date.now()
   }
 }
 

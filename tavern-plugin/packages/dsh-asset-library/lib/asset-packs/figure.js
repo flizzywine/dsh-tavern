@@ -126,7 +126,7 @@ export function validateFigure(value, path = '$', voiceLibrary) {
   unique(value.outfits.map(outfit => outfit.key), path + '.outfits')
   value.outfits.forEach((outfit, index) => {
     const p = path + '.outfits[' + index + ']'
-    validateShortId(outfit.key, p + '.key'); shape(outfit, ['key', 'label', 'enabled', 'defaultEmotion', 'fallbackEmotions', 'fallbackTo', 'genPrompts', 'genRecords', 'recall', 'guidance', 'remark', 'outfitAppearance', 'settei', 'setteiParentVersion', 'live2d', 'spine', 'sprite', 'avatars', 'avatarCrop', 'extensions'], ['key', 'label', 'enabled'], p)
+    validateShortId(outfit.key, p + '.key'); shape(outfit, ['key', 'label', 'enabled', 'defaultEmotion', 'fallbackEmotions', 'fallbackTo', 'genPrompts', 'genRecords', 'recall', 'guidance', 'remark', 'outfitAppearance', 'settei', 'setteiParts', 'setteiParentVersion', 'live2d', 'spine', 'sprite', 'avatars', 'avatarCrop', 'extensions'], ['key', 'label', 'enabled'], p)
     text(outfit.label, p + '.label'); bool(outfit.enabled, p + '.enabled')
     validateOutfitEmotions(value,outfit,p)
     // optional 使用情景 — when the director should switch to this outfit.
@@ -134,6 +134,11 @@ export function validateFigure(value, path = '$', voiceLibrary) {
     if (outfit.guidance !== undefined) text(outfit.guidance, p + '.guidance', 80, 0)
     if (outfit.outfitAppearance !== undefined) check(typeof outfit.outfitAppearance === 'string' && outfit.outfitAppearance.length <= 4000, p + '.outfitAppearance')
     if (outfit.settei !== undefined) validateHash(outfit.settei, p + '.settei')
+    // The settei is one or two sheets: settei the four views, setteiParts the eye and the pieces over the colour card.
+    if (outfit.setteiParts !== undefined) {
+      validateHash(outfit.setteiParts, p + '.setteiParts')
+      check(Boolean(outfit.settei), p + '.setteiParts', 'A parts sheet requires the four-view sheet')
+    }
     if (outfit.setteiParentVersion !== undefined) {
       text(outfit.setteiParentVersion, p + '.setteiParentVersion', 160)
       check(Boolean(outfit.settei), p + '.setteiParentVersion', 'Parent version requires an outfit board')
@@ -195,11 +200,12 @@ export function validateFigureClosure(manifest, figures, sprites) {
     check(['audio/wav','audio/mpeg'].includes(manifest.blobs[ref.media]?.mime), '$.voiceLibrary', 'References require WAV or MP3 media', 'MISSING_DEPENDENCY')
   }
   for (const figure of Object.values(figures)) {
-    if (figure.identitySettei) blob(figure.identitySettei.board, 'image/')
+    if (figure.identitySettei) { blob(figure.identitySettei.board, 'image/'); if (figure.identitySettei.parts) blob(figure.identitySettei.parts, 'image/') }
     for (const outfit of figure.outfits) {
       if (outfit.live2d) check(manifest.bundles[outfit.live2d.bundleKey]?.kind === 'live2d', '$.outfits.live2d', 'Missing Live2D bundle', 'MISSING_DEPENDENCY')
       if (outfit.spine) check(manifest.bundles[outfit.spine.bundleKey]?.kind === 'spine', '$.outfits.spine', 'Missing Spine bundle', 'MISSING_DEPENDENCY')
       if (outfit.settei) blob(outfit.settei, 'image/')
+      if (outfit.setteiParts) blob(outfit.setteiParts, 'image/')
       for (const hash of Object.values(outfit.avatars || {})) blob(hash, 'image/')
       if (!outfit.sprite) continue
       const sprite = sprites[outfit.sprite.manifestKey]

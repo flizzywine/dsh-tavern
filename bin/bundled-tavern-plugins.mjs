@@ -1,13 +1,14 @@
 import { createHash } from 'node:crypto'
 import { copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
-import { comparePluginVersions } from './bundled-scene-image-plugin.mjs'
+import { comparePluginVersions } from '../tavern-plugin/lib/domain/plugin-manifest.js'
+import { BUNDLED_PLUGIN_RUNTIME_FILES, bundledPluginRelease, bundledReleaseCompatibilityProblem } from '../tavern-plugin/lib/domain/bundled-plugin-release.js'
 
 /**
  * 随酒馆发行、但身份是「酒馆插件」的内置插件（第一个是剧情罗盘）。
  *
  * 这类插件必须真的躺在 `<data>/plugins/<文件夹>`：Tavern 只把这个目录写成 profile 补丁条目，
- * 宿主据此加载，插件页也只会把这里的文件夹列成插件（可停用、随酒馆更新、不可删除）。
+ * 宿主据此加载，插件页也只会把这里的文件夹列成插件。
  * `tavern-plugin/packages/<包>` 只是发行副本，安装/更新时复制过去；插件自己的数据走
  * plugin-data 存储，不在这个目录里，所以整目录替换不会碰到用户数据。
  *
@@ -37,12 +38,12 @@ export const BUNDLED_TAVERN_PLUGINS = Object.freeze([
   },
 ])
 
-/** 内置副本必须齐备的文件；缺一个就当这份发行版没内置插件，不去猜。 */
-const REQUIRED = ['package.json', 'lib/index.js', 'client.js']
 /** 与 image 插件一致：构建输入、测试、仓库元数据都不进插件目录。 */
 const SKIP_NAMES = new Set(['node_modules', '.git', 'src', 'tests', 'build.mjs', '.github'])
 /** 内置来源标记，插件页据此显示「内置插件」并拒绝删除。 */
 export const SOURCE_FILE = '.tavern-source.json'
+/** 插件页停用插件后会在目录内留下该标记；整目录替换升级时需原样保留。 */
+const DISABLED_FILE = '.tavern-disabled'
 
 function readJson(file) {
   try { return JSON.parse(readFileSync(file, 'utf8')) } catch { return null }
@@ -88,7 +89,7 @@ export function readBundledTavernPlugin(sourceRoot, definition) {
   const version = String(pkg?.version ?? '').trim()
   if (!pkg || pkg.name !== definition.packageName) return { ok: false, directory, reason: '内置插件副本的名称不是 ' + definition.packageName }
   if (!version) return { ok: false, directory, reason: '内置插件副本的 package.json 没有版本号' }
-  for (const file of REQUIRED) {
+  for (const file of BUNDLED_PLUGIN_RUNTIME_FILES) {
     if (!existsSync(path.join(directory, file))) return { ok: false, directory, reason: '内置插件副本不完整，缺少 ' + file }
   }
   return { ok: true, directory, version, packageName: pkg.name, description: String(pkg.description ?? '') }
@@ -112,25 +113,35 @@ function installOne({ sourceRoot, dataRoot, profileDir, profileDependencies, def
     return { action: 'skipped', reason: 'profile 仍登记着同名插件包，保持单一来源', version: bundled.version, installedVersion, target, packageName: definition.packageName }
   }
 
-  if (existsNoFollow(target)) {
+  const replacing = existsNoFollow(target)
+  let recorded
+  if (replacing) {
     const stat = lstatSync(target)
     if (stat.isSymbolicLink() || !stat.isDirectory()) return { action: 'skipped', reason: '目标插件目录不是普通目录，保留现有内容', version: bundled.version, installedVersion, target, packageName: definition.packageName }
     if (existsNoFollow(path.join(target, '.git'))) return { action: 'skipped', reason: '目标插件是 Git 检出，保留现有内容', version: bundled.version, installedVersion, target, packageName: definition.packageName }
     if (installed?.name !== definition.packageName || !installedVersion) return { action: 'skipped', reason: '目标插件目录不是可识别的同名插件，保留现有内容', version: bundled.version, installedVersion, target, packageName: definition.packageName }
+    recorded = readJson(path.join(target, SOURCE_FILE))
+    const release = bundledPluginRelease(definition.folder, installed.name)
+    if (release && recorded?.kind === 'builtin' && recorded.releaseRepo === release.owner + '/' + release.repo
+      && comparePluginVersions(installedVersion, bundled.version) === 1 && !bundledReleaseCompatibilityProblem(installed)
+      && BUNDLED_PLUGIN_RUNTIME_FILES.every(file => existsSync(path.join(target, file)))) {
+      return { action: 'skipped', reason: '保留已单独更新的兼容版本', version: bundled.version, installedVersion, target, packageName: definition.packageName }
+    }
   }
 
   mkdirSync(pluginsDir, { recursive: true })
   const staging = mkdtempSync(path.join(pluginsDir, '.tavern-bundled-'))
-  const replacing = existsNoFollow(target)
   const retired = replacing ? path.join(pluginsDir, '.tavern-bundled-old-' + process.pid) : ''
   try {
     const files = copyTree(bundled.directory, staging)
     const staged = readJson(path.join(staging, 'package.json'))
     if (staged?.name !== definition.packageName || String(staged?.version ?? '').trim() !== bundled.version) throw new Error('内置插件复制后的包名或版本校验失败')
-    for (const file of REQUIRED) if (!existsSync(path.join(staging, file))) throw new Error('内置插件复制后缺少 ' + file)
+    for (const file of BUNDLED_PLUGIN_RUNTIME_FILES) if (!existsSync(path.join(staging, file))) throw new Error('内置插件复制后缺少 ' + file)
     const digest = treeDigest(staging)
-    const recorded = readJson(path.join(target, SOURCE_FILE))
+    // The old installer wrote an empty marker. The plugin manager records manual disables as JSON.
+    const restoreLoadDefault = recorded?.kind === 'builtin' && recorded.defaultDisabled === true
     const unchanged = replacing
+      && !restoreLoadDefault
       && comparePluginVersions(bundled.version, installedVersion || '') === 0
       && String(recorded?.digest || '') === digest
     if (unchanged) {
@@ -138,6 +149,13 @@ function installOne({ sourceRoot, dataRoot, profileDir, profileDependencies, def
       return { action: 'skipped', reason: '已装的插件与内置副本相同，保留现有内容', version: bundled.version, installedVersion, target, packageName: definition.packageName }
     }
     writeFileSync(path.join(staging, SOURCE_FILE), JSON.stringify({ kind: 'builtin', bundled: true, version: bundled.version, digest, installedAt: new Date().toISOString() }, null, 2) + '\n')
+    const disabledFile = path.join(target, DISABLED_FILE)
+    if (replacing && existsNoFollow(disabledFile)) {
+      const marker = lstatSync(disabledFile)
+      if (marker.isFile() && (!restoreLoadDefault || marker.size > 0)) {
+        copyFileSync(disabledFile, path.join(staging, DISABLED_FILE))
+      }
+    }
     if (replacing) {
       rmSync(retired, { recursive: true, force: true })
       renameSync(target, retired)

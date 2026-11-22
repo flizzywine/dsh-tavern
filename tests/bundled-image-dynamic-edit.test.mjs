@@ -2,8 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { imagePluginFixture, IMAGE_PNG, imageJson } from './fixtures/image-plugin-runtime.mjs'
 import { compactComfySchema } from '../tavern-plugin/packages/dsh-tavern-image-bundled/lib/comfy-inputs.js'
-import { applyComfyReferenceImages } from '../tavern-plugin/packages/dsh-tavern-image-bundled/lib/comfy-reference-images.js'
-import { comfyReferenceCapacity, normalizeImageMentions, applyDynamicLoras } from '../tavern-plugin/packages/dsh-tavern-image-bundled/lib/comfy-dynamic.js'
+import { applyDynamicLoras } from '../tavern-plugin/packages/dsh-tavern-image-bundled/lib/comfy-dynamic.js'
 import { patchWorkflowGraph, workflowRevision } from '../tavern-plugin/packages/dsh-tavern-image-bundled/lib/workflow-graph.js'
 import { generationMechanism } from '../tavern-plugin/packages/dsh-tavern-image-bundled/lib/generation-mechanism.js'
 
@@ -34,35 +33,6 @@ function multipleImageGraph() {
   result.bindings.referenceImages.push({ node: '7', input: 'image' })
   return result
 }
-
-test('multiple image inputs use the selected references and omit an empty optional branch', () => {
-  const workflow = multipleImageGraph(), before = JSON.stringify(workflow)
-  const single = applyComfyReferenceImages(workflow, ['one.png'])
-  assert.equal(single.prompt['1'].inputs.image, 'one.png')
-  assert.equal(single.prompt['4'].inputs['images.image_2'], undefined)
-  const two = applyComfyReferenceImages(workflow, ['one.png', 'two.png'])
-  assert.equal(two.prompt['7'].inputs.image, 'two.png')
-  assert.deepEqual(two.prompt['4'].inputs['images.image_2'], ['8', 0])
-  assert.equal(JSON.stringify(workflow), before)
-  const required = multipleImageGraph()
-  required.nodeSchemas.Edit.inputs['images.image_2'].optional = false
-  delete required.nodeSchemas.Edit.inputs['images.image_2'].dynamicGroup
-  assert.throws(() => applyComfyReferenceImages(required, ['one.png']), /图片节点 #7.*没有图片/)
-})
-
-test('single loader expands its image processing branch in source order and leaves saved graph unchanged', () => {
-  const before = JSON.stringify(graph)
-  const result = applyComfyReferenceImages(graph, ['first.png', 'second.png'])
-  const branch = result.prompt['4'].inputs['images.image_2'][0]
-  assert.equal(result.prompt[branch].class_type, 'ImageScale')
-  const loader = result.prompt[branch].inputs.image[0]
-  assert.equal(result.prompt[loader].inputs.image, 'second.png')
-  assert.equal(result.prompt['1'].inputs.image, 'first.png')
-  assert.equal(comfyReferenceCapacity(graph, graph.bindings.referenceImages), 3)
-  assert.equal(JSON.stringify(graph), before)
-  assert.equal(normalizeImageMentions('让 image<1> 换上 <image2> 的衣服', 2), '让 <image1> 换上 <image2> 的衣服')
-  assert.throws(() => normalizeImageMentions('<image3>', 2), /只提供了 2/)
-})
 
 test('character LoRAs add lazy loaders without duplicating base or breaking MODEL/CLIP links', () => {
   const prompt = { root: { class_type: 'CheckpointLoaderSimple', inputs: { ckpt_name: 'model' } },

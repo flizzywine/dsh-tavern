@@ -14,8 +14,9 @@ function shortText(value, limit, label, required) {
 }
 
 /** Check one plugin's declaration and return it in a plain, frozen-ready form. */
-export function normalizeGameSettings({ title, fields } = {}) {
+export function normalizeGameSettings({ title, fields, present } = {}) {
   const heading = shortText(title, 20, 'title', false)
+  if (present !== undefined && typeof present !== 'function') throw invalid('present 必须是函数')
   if (!Array.isArray(fields) || !fields.length || fields.length > MAX_FIELDS) throw invalid('fields 需要 1–' + MAX_FIELDS + ' 项')
   const keys = new Set()
   const normalized = fields.map((field, index) => {
@@ -54,7 +55,7 @@ export function normalizeGameSettings({ title, fields } = {}) {
     }
     return result
   })
-  return { title: heading, fields: normalized }
+  return { title: heading, fields: normalized, present }
 }
 
 /** A value the player (or a card) gives one field, or undefined when it does not fit. */

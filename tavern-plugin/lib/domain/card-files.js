@@ -3,7 +3,7 @@ import { createReadStream } from 'node:fs'
 import { copyFile, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
-import { StoredFile } from '../../packages/dsh-asset-library/lib/pack-v2/service.js'
+import { StoredFile, writePackZip } from '../../packages/dsh-asset-library/lib/pack-v2/service.js'
 import { exportDshCardSnapshot } from './dsh-card-export.js'
 import { withoutPlayerChoices } from './card-export-settings.js'
 import { readCardArchive } from './card-archive.js'
@@ -13,7 +13,7 @@ import { rawData } from './card-preparation.js'
 import { createCardImportIdentity } from './card-import-identity.js'
 import { normalizeResourcePath } from './file-resources.js'
 import { openCardZip } from './card-encryption.js'
-import { writeZipEntries } from './zip-entries.js'
+import { MAX_SHARED_PRESET_BYTES } from './preset-reading.js'
 
 function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
@@ -27,7 +27,7 @@ const packConflict = preview => preview.choices.includes('update') && !(preview.
 // Card files in and out of the card library. pluginApi is a getter: it is built after the library.
 // backupPack(file, {packId, expectedRevision}) writes an installed pack, unchanged, to a private file (the asset
 // library's assetLibraryPackBackup): an update keeps the versions it replaces so 撤回 can put them back.
-export function createCardFiles({ cardPreparation, fileResources, castAssets, assetPacks, cardPlugins, cardSummaries, presetLibrary, importPreset, readCardWorkspace, worldBooks, pluginApi, assetLibrary = () => null, withCardBackup, backupPack, exportRoot = os.tmpdir(), syncBubbles = async () => {} }) {
+export function createCardFiles({ cardPreparation, fileResources, castAssets, assetPacks, cardPlugins, cardSummaries, presetLibrary, importPreset, readCardWorkspace, worldBooks, pluginApi, assetLibrary = () => null, prepareCardAssets, withCardBackup, backupPack, exportRoot = os.tmpdir(), syncBubbles = async () => {} }) {
   const cardImportIdentity = createCardImportIdentity({ cardPaths: () => fileResources.list('card'), castAssets, readCardText: cardPath => fileResources.readText(cardPath) })
   async function importCard(input, options = {}) {
     // A CHARX is stored as PNG or JSON; the material any card file carries goes to its character material.
@@ -41,11 +41,12 @@ export function createCardFiles({ cardPreparation, fileResources, castAssets, as
     try {
       const entries = []
       for (const entry of zip.entries.values()) {
-        if (entry.path.startsWith(pack.prefix) && entry.path.length > pack.prefix.length && !entry.path.endsWith('/'))
-          entries.push({ path: entry.path.slice(pack.prefix.length), content: await zip.readBuffer(entry, 512 * 1024 * 1024) })
+        if (!entry.path.startsWith(pack.prefix) || entry.path.length === pack.prefix.length || entry.path.endsWith('/')) continue
+        if (entry.size > 512 * 1024 ** 2) throw new Error('素材包文件超过 512 MiB：' + entry.path)
+        entries.push({ path: entry.path.slice(pack.prefix.length), stream: () => zip.stream(entry) })
       }
       const archive = path.join(dir, 'pack.zip')
-      await writeFile(archive, writeZipEntries(entries))
+      await writePackZip(archive, entries)
       return await use(await library.inspectImportFile({ file: archive }))
     } finally { await rm(dir, { recursive: true, force: true }) }
   }
@@ -320,7 +321,9 @@ export function createCardFiles({ cardPreparation, fileResources, castAssets, as
     }
     if (material.startDefaults?.presetPath) {
       defaults.preset = { path: 'presets/default.json', title: material.startDefaults.presetPath.split('/').pop().replace(/\.json$/i, '') }
-      entries.push({ path: defaults.preset.path, data: Buffer.from(await fileResources.readText(material.startDefaults.presetPath)) })
+      const preset = Buffer.from(await fileResources.readText(material.startDefaults.presetPath))
+      if (preset.length > MAX_SHARED_PRESET_BYTES) throw new Error('卡包内的默认预设超过 ' + MAX_SHARED_PRESET_BYTES / 1024 ** 2 + ' MiB')
+      entries.push({ path: defaults.preset.path, data: preset })
     }
     const cover = await fileResources.readCardImage(cardPath)
     await mkdir(exportRoot, { recursive: true })
@@ -351,6 +354,7 @@ export function createCardFiles({ cardPreparation, fileResources, castAssets, as
       // Only bound library packs need the card adapter supplied by the optional stage runtime.
       const library = backup || boundIds.length ? assetLibrary() : undefined
       if (!backup && (ids.length || chosen && boundIds.length) && !library) throw Object.assign(new Error('素材库尚未就绪'), { code: 'TAVERN_EXPORT_UNAVAILABLE' })
+      if (library) await prepareCardAssets?.()
       // Replacement owns the card, not its installed packs: retain references without copying media.
       const selection = backup
         ? { path: cardPath, packIds: [], keepPackIds: [...boundIds, ...(material.packs || []).map(ref => ref.id), ...(document.data?.extensions?.dsh_tavern?.modConfigPackId ? [document.data.extensions.dsh_tavern.modConfigPackId] : [])] }

@@ -9,8 +9,9 @@ import { Transform } from 'node:stream'
 // until the call that uses them; never read into memory or encoded as base64.
 
 const ID = /^[0-9a-f-]{36}$/
+export const MAX_CARD_UPLOAD_BYTES = 1024 * 1024 * 1024
 
-export function createUploads({ root, maxBytes = 1024 * 1024 * 1024, maxAgeMs = 24 * 60 * 60 * 1000 }) {
+export function createUploads({ root, maxBytes = MAX_CARD_UPLOAD_BYTES, maxAgeMs = 24 * 60 * 60 * 1000 }) {
   const dir = path.join(path.resolve(root), 'tmp-uploads')
   const fileOf = id => ID.test(String(id)) ? path.join(dir, id) : null
 

@@ -171,7 +171,7 @@ function useBustThumb(key,url,head,frame,limit) {
 // Explicit whole-art framing is independent of height: tall non-humans need not have a human face crop.
 function thumbnailHead(bust,figure) {
   const F=FIGURE_FIT,head=bust.head,cm=figure?.heightCm;
-  const whole=figure?.extensions?.['dsh.thumbnail']?.framing==='whole'||figure?.extensions?.['dsh.height']?.heightSource==='none'||cm>0&&cm/F.refCm<=F.smallShare||bust.sure&&head.fig>0&&(head.chin-head.top)/head.fig>=F.chibiHead;
+  const whole=figure?.extensions?.['dsh.thumbnail']?.framing==='whole'||figure?.extensions?.['dsh.height']?.heightSource==='none'||cm>0&&cm<=F.smallCm||bust.sure&&head.fig>0&&(head.chin-head.top)/head.fig>=F.chibiHead;
   return whole?{...head,whole:true}:head;
 }
 function BustArt({binding,packId,bust,figure,frame=OUTFIT_BUST}) {
@@ -756,30 +756,28 @@ function pictureInk(img) {
 // One deterministic rule for every sprite, on its opaque bounding box (never the canvas), computed once per picture
 // (pictureInk is cached) and applied by CSS against the card's live size. Inputs: the drawn aspect a = ink width / ink
 // height (px), whether the drawing is cut by the canvas's bottom edge, the figure's declared height (cm), its head share
-// (head ÷ figure height, calibrated anatomy only) and the ink's natural height in px. Output:
-//   share  — the figure's height on the card (1 = the full card; r7: no headroom, the controls float). A declared height
-//            counts against a 160 cm adult (clamped 0.6–1: a 120 cm chibi stands at 0.75); without one, a chibi /
-//            SD build (head ≥ 0.28 of the figure, ≈ 3.5 heads or fewer) stands at 0.78; anything else at 1.
+// (head ÷ figure height, calibrated anatomy only) and the ink's natural height in px. Every figure is scaled by its own
+// drawn box to fill the card (r7: no headroom, the controls float; the ink box keeps a 2% margin all round): a declared
+// height never shrinks the preview — comparing heights is the stage's job, where figures share a scene. Output:
 //   spill  — how wide the drawing may be against the card (1 = exactly the card's width): 1.5 (a quarter cropped each
 //            side) for a ≤ 0.7 aspect — normal, tall / slim, long robes; easing linearly to 1 at a ≥ 1.1 — wings, capes,
 //            props, seated poses, mascots: the wider, the less is cropped, and landscape / lying / group sprites fit
 //            whole. A drawing cut by the bottom edge (bust, half-body) always spills 1.5: it fills the height. A small
-//            figure (share ≤ 0.8 — ≤ 128 cm declared — or a chibi / SD build) never spills (r4b): it is shown whole at its
-//            smaller height, so a wide chibi (big tail, spread arms) is not blown up to crop at the sides — even when
+//            figure (≤ 128 cm declared, or a chibi / SD build: head ≥ 0.28 of the figure, ≈ 3.5 heads or fewer) never
+//            spills (r4b): it is shown whole (contain), so a wide chibi (big tail, spread arms) is not blown up to crop at the sides — even when
 //            its feet touch the canvas edge (a tightly cropped full body reads as `cut`; small wins).
 //   maxPx  — crispness: never more than 2× the ink's own pixels (a tiny source stays small instead of blurring).
-// Displayed height = min(share × card height, spill × card width ÷ a, maxPx); width = height × a; standing on the floor,
+// Displayed height = min(card height, spill × card width ÷ a, maxPx); width = height × a; standing on the floor,
 // centred on the ink box. The user zooms / pans from there. figureBox mirrors the CSS for tests.
-const FIGURE_FIT={refCm:160,minShare:0.6,chibiHead:0.28,chibiShare:0.78,smallShare:0.8,spillMax:1.5,spillFrom:0.7,spillTo:1.1,maxUpscale:2};
+const FIGURE_FIT={smallCm:128,chibiHead:0.28,spillMax:1.5,spillFrom:0.7,spillTo:1.1,maxUpscale:2};
 function figureFit({aspect,cut=false,heightCm,headShare,inkPx}={}) {
   const F=FIGURE_FIT,a=aspect>0&&Number.isFinite(aspect)?aspect:0.5,cm=Number(heightCm);
-  const share=cm>0?Math.min(1,Math.max(F.minShare,cm/F.refCm)):headShare>=F.chibiHead?F.chibiShare:1;
-  const small=share<=F.smallShare||headShare>=F.chibiHead;
+  const small=cm>0&&cm<=F.smallCm||headShare>=F.chibiHead;
   const spill=small?1:cut?F.spillMax:F.spillMax-(F.spillMax-1)*Math.min(1,Math.max(0,(a-F.spillFrom)/(F.spillTo-F.spillFrom)));
-  return {share,spill:+spill.toFixed(4),maxPx:inkPx>0?Math.round(inkPx*F.maxUpscale):null};
+  return {spill:+spill.toFixed(4),maxPx:inkPx>0?Math.round(inkPx*F.maxUpscale):null};
 }
 function figureBox(fit,aspect,W,H) {
-  const height=Math.min(fit.share*H,fit.spill*W/aspect,fit.maxPx??Infinity),width=height*aspect;
+  const height=Math.min(H,fit.spill*W/aspect,fit.maxPx??Infinity),width=height*aspect;
   return {width,height,cropEachSide:Math.max(0,(width-W)/2/W),heightShare:height/H};
 }
 // The head share of a calibrated anatomy (an estimated / derived head says nothing about the build).
@@ -797,7 +795,7 @@ function StandArt({binding,packId,hash,label,heightCm,headShare,overlay}) {
   const rule=ready?figureFit({aspect,cut:!!r.cut,heightCm,headShare,inkPx:fit.h*sh}):null,place={left:pct(-r.left/sw),top:pct(-r.top/sh),width:pct(1/sw),height:pct(1/sh)};
   return h('span',{className:'ap-stand ap-stand-fit',role:'img','aria-label':label},
     !ready&&h(Spinner,{key:hash,fill:true}),
-    url&&h('span',{className:'ap-stand-box',style:ready?{'--fit-a':aspect.toFixed(4),'--fit-share':rule.share.toFixed(3),'--fit-spill':String(rule.spill),...(rule.maxPx?{'--fit-max':rule.maxPx+'px'}:{})}:{visibility:'hidden'}},
+    url&&h('span',{className:'ap-stand-box',style:ready?{'--fit-a':aspect.toFixed(4),'--fit-spill':String(rule.spill),...(rule.maxPx?{'--fit-max':rule.maxPx+'px'}:{})}:{visibility:'hidden'}},
       // the big picture decodes off the main thread (decoding async, then decode) before its
       // ink box is measured, so the measuring canvas never forces a synchronous decode of a full-size sprite.
       h(RevealImg,{src:url,alt:'',draggable:false,decoding:'async',style:place,onError:broken,
@@ -1009,7 +1007,7 @@ function FigureDetail({binding,pack,figure,commitFigure,assignFigureVoice,commit
   const empty=h(SlotMissing,{className:'ap-stand is-empty',mark:!emptyGen&&!drawing&&!isModelKind(kind)},drawing?h(GenStageWait,{cell:pickedCell}):
     emptyGen?h('button',{type:'button',className:'ap-slot-gen',tabIndex:-1,'aria-hidden':true,title:'生成…',onClick:()=>openDialog(kind,picked.id,'gen')},h(Glyph,{name:'spark'})):null);
   const candidatePreview=pickedCell?.state==='candidate'?h(GenStageCandidate,{gen,binding,packId,cell:pickedCell,kind,emotionId:picked.id,settei:outfit?.settei}):null;
-  const headShare=anatomyHeadShare(outfit?.sprite?.anatomy?.[state?.id]||outfit?.sprite?.anatomy?.[outfit.defaultEmotion]),liveFit={share:figureFit({heightCm:figure.heightCm,headShare}).share,spill:aspect=>figureFit({aspect,heightCm:figure.heightCm,headShare}).spill};
+  const headShare=anatomyHeadShare(outfit?.sprite?.anatomy?.[state?.id]||outfit?.sprite?.anatomy?.[outfit.defaultEmotion]),liveFit={spill:aspect=>figureFit({aspect,heightCm:figure.heightCm,headShare}).spill};
   // a talking 立绘 (its 差分 has mouth frames: !takes) moves its mouth over the still
   // while the 声音 page is open and a voice plays; Live2D does it on its model. Anything else has no mouth to move.
   const talking=voiceOpen&&kind==='sprite'&&!!state&&!takes(picked.id),lipSynced=talking||kind==='live2d'&&!!live;
@@ -1104,8 +1102,8 @@ function FigureDetail({binding,pack,figure,commitFigure,assignFigureVoice,commit
   const setStand=(id,v)=>{setError('');return figureActions.setFallback(outfit.key,id,!!v,v&&v!==outfit.defaultEmotion?v:undefined).catch(e=>setError(errorText(e)));};
   const runTile=fn=>Promise.resolve().then(fn).catch(e=>{if(e?.code==='TARGET_CHANGED')return;setError(errorText(e));});
   const askRemoveImage=(r,k,dynamic=false)=>{const noun=k==='avatar'?'头像':'立绘',kept=k==='avatar'?'立绘、模型':'头像、模型';
-    setConfirm({title:'只删「'+outfit.label+'」的这张'+noun+'？',body:'只删除「'+outfit.label+'」里「'+r.label+'」的这张'+(dynamic?'动态立绘，连同它的口型和眨眼':noun)+'；'+(list.length>1?'其他服装的「'+r.label+'」不受影响，':'')+'差分「'+r.label+'」和它的'+kept+'都保留，格子变回空位。',confirmLabel:'删除',danger:true,
-    onConfirm:()=>removeFigureImage(figure.id,outfit.key,r.id,k)});};
+    askDelete(setConfirm,'asset-figure-image',{title:'只删「'+outfit.label+'」的这张'+noun+'？',body:'只删除「'+outfit.label+'」里「'+r.label+'」的这张'+(dynamic?'动态立绘，连同它的口型和眨眼':noun)+'；'+(list.length>1?'其他服装的「'+r.label+'」不受影响，':'')+'差分「'+r.label+'」和它的'+kept+'都保留，格子变回空位。',confirmLabel:'删除',danger:true},
+    ()=>removeFigureImage(figure.id,outfit.key,r.id,k),setError);};
   // A 动态立绘 replaced by one picture: 重画 deletes it first, then opens the dialog on the empty slot; 替换 deletes it only
   // once the new picture is framed (finishFraming), so cancelling the picker keeps it.
   const askReplace=(r,how)=>setConfirm(how==='redraw'?{title:'重画「'+r.label+'」？',body:'先删除「'+outfit.label+'」的这张动态立绘（连同口型和眨眼），再生成新图；新图不会动嘴、眨眼。',confirmLabel:'删除并重画',danger:true,
@@ -1116,8 +1114,8 @@ function FigureDetail({binding,pack,figure,commitFigure,assignFigureVoice,commit
     const goes=[['张立绘',o=>emotionMapped('sprite',o,o.sprite&&pack.sprites?.[o.sprite.manifestKey],r.id)],['张头像',o=>!!o.avatars?.[outfitImageId(o,r.id)]],['个模型表情',o=>!!(o.live2d?.emotionMap?.[r.id]||o.spine?.emotionMap?.[r.id])]]
       .map(([noun,has])=>[noun,list.filter(has).length]).filter(([,n])=>n).map(([noun,n])=>n+' '+noun);
     if(figure.voice?.emotionVariants?.[r.id])goes.push('声音设置');
-    setConfirm({title:(list.length>1?'从所有服装删除「'+r.label+'」？':'删除差分「'+r.label+'」？'),body:'从'+(list.length>1?'全部 '+list.length+' 套服装':'服装「'+outfit.label+'」')+'删除「'+r.label+'」'+(goes.length?'，连同 '+goes.join('、'):'')+'；其他差分不变。',confirmLabel:'删除',danger:true,
-      onConfirm:async()=>{await figureActions.removeEmotion(r.id);if(r.id===face)setFace(rows.find(x=>x.id!==r.id)?.id||'');}});};
+    askDelete(setConfirm,'asset-emotion',{title:(list.length>1?'从所有服装删除「'+r.label+'」？':'删除差分「'+r.label+'」？'),body:'从'+(list.length>1?'全部 '+list.length+' 套服装':'服装「'+outfit.label+'」')+'删除「'+r.label+'」'+(goes.length?'，连同 '+goes.join('、'):'')+'；其他差分不变。',confirmLabel:'删除',danger:true},
+      async()=>{await figureActions.removeEmotion(r.id);if(r.id===face)setFace(rows.find(x=>x.id!==r.id)?.id||'');},setError);};
   const menuFor=outfit?(r,close,page,setPage)=>{
     const cell=faces[r.id]?.cell,state=cell?.state||'idle',k=kind,has=!!faces[r.id]?.mapped,target={packId,figureId:figure.id,outfitKey:outfit.key,kind:k,emotionId:r.id};
     const go=fn=>()=>{close();fn();},gate=genView?cellGate(k,r.id):'',dynamic=k==='sprite'&&has&&!takes(r.id);
@@ -1176,8 +1174,8 @@ function FigureDetail({binding,pack,figure,commitFigure,assignFigureVoice,commit
     h(Button,{className:'ap-manage ap-gen-fill',disabled:!!upload.busy,onClick:()=>setModelOpen(true)},h(Glyph,{name:'upload'}),'导入模型'));
   if(figure.emotions?.length===1 && figure.emotions[0].label!==undefined)kindExtras.push({icon:'reset',label:'设为无差分',onClick:()=>write(f=>({emotions:[{id:f.emotions[0].id}]}))});
   // 「删除模型…」 of one outfit — the 模型 heading's ⋯, the outfit tile's menu and the model preview's menu ask the same.
-  const askRemoveModel=o=>setConfirm({title:'删除「'+o.label+'」的模型？',body:'这套服装的 '+(o.live2d?'Live2D':'Spine')+' 模型会被移除；立绘和头像保留。',confirmLabel:'删除',danger:true,
-    onConfirm:()=>figureActions.removeModel(o.key)});
+  const askRemoveModel=o=>askDelete(setConfirm,'asset-model',{title:'删除「'+o.label+'」的模型？',body:'这套服装的 '+(o.live2d?'Live2D':'Spine')+' 模型会被移除；立绘和头像保留。',confirmLabel:'删除',danger:true},
+    ()=>figureActions.removeModel(o.key),setError);
   const modelRemovable=o=>!!o&&!!(o.live2d||o.spine)&&!!figureActions?.removeModel;
   if(isModelKind(kind)&&modelRemovable(outfit))kindExtras.push({icon:'remove',label:'删除模型',menu:'删除模型…',danger:true,onClick:()=>askRemoveModel(outfit)});
   const tool=h(PreviewActions,{key:(outfit?.key||'')+':'+kind+':'+picked.id,actions:viewActions,disabled:!!upload.busy});
@@ -1187,8 +1185,8 @@ function FigureDetail({binding,pack,figure,commitFigure,assignFigureVoice,commit
   const pickedOutfits=list.filter(o=>outfitSel.ids?.has(o.key));
   const names=items=>items.map(x=>'「'+x.label+'」').join('');
   const askRemoveOutfits=chosen=>{const keys=new Set(chosen.map(o=>o.key));if(!chosen.length)return;
-    setConfirm({title:chosen.length===1?'删除服装「'+chosen[0].label+'」？':'删除 '+chosen.length+' 套服装？',body:(chosen.length>1?names(chosen)+' 将':'')+'从素材包「'+pack.manifest.name+'」中删除，所有使用此人物的卡都会受影响。',confirmLabel:'删除',danger:true,
-      onConfirm:async()=>{await commitFigure(figure.id,f=>figureOutfitRemoval(f,keys));setPicking(null);}});};
+    askDelete(setConfirm,'asset-outfit',{title:chosen.length===1?'删除服装「'+chosen[0].label+'」？':'删除 '+chosen.length+' 套服装？',body:(chosen.length>1?names(chosen)+' 将':'')+'从素材包「'+pack.manifest.name+'」中删除，所有使用此人物的卡都会受影响。',confirmLabel:'删除',danger:true},
+      async()=>{await commitFigure(figure.id,f=>figureOutfitRemoval(f,keys));setPicking(null);},setError);};
   const deleteOutfits=()=>askRemoveOutfits(pickedOutfits);
   // An outfit tile's right click / long press (it selects the outfit first): 导入模型… (the 模型 heading's sheet, for this
   // outfit), 删除模型… and 删除服装… — the same confirmations as the heading's ⋯ and the grid's delete mode.
@@ -1226,9 +1224,9 @@ function FigureDetail({binding,pack,figure,commitFigure,assignFigureVoice,commit
   const enable=h('span',{className:'ap-figure-lamp-slot'},h(LampMenu,{label:'人物灯',named:true,mode:outfitLamp(figure),onChange:mode=>write(f=>mode==='off'?{enabled:false}:{enabled:true,recall:{...f.recall,mode}})}));
   const paneRef=React.useRef(null),[automaticReview,setAutomaticReview]=React.useState(false);
   const imageChoice=React.useRef(null);
-  const removeFigure=()=>{imageChoice.current=null;setConfirm({title:'删除人物「'+figure.name+'」？',body:'从素材包「'+pack.manifest.name+'」中删除，所有使用此人物的卡都会受影响。',confirmLabel:'删除',danger:true,
-    children:h(FigureImageRemoval,{binding,target:{packId:pack.manifest.id,figureId:figure.id},choice:imageChoice}),
-    onConfirm:async()=>{const record=imageChoice.current;if(record)await binding.rpc('deleteFigureImageCharacter',{packId:pack.manifest.id,figureId:figure.id,providerId:record.providerId,characterId:record.character.id,expected:record.character});await figureActions.remove();}});};
+  const removeFigure=()=>{imageChoice.current=null;askDelete(setConfirm,'asset-figure',{title:'删除人物「'+figure.name+'」？',body:'从素材包「'+pack.manifest.name+'」中删除，所有使用此人物的卡都会受影响。',confirmLabel:'删除',danger:true,
+    children:h(FigureImageRemoval,{binding,target:{packId:pack.manifest.id,figureId:figure.id},choice:imageChoice})},
+    async()=>{const record=imageChoice.current;if(record)await binding.rpc('deleteFigureImageCharacter',{packId:pack.manifest.id,figureId:figure.id,providerId:record.providerId,characterId:record.character.id,expected:record.character});await figureActions.remove();},setError);};
   const more=(figureActions?.copy||figureActions?.remove)&&h(FigureMoreMenu,{figure,actions:figureActions,onRemove:removeFigure});
   return h('div',{ref:paneRef,className:'ap-detail-pane ap-figure-pane ap-figure-editor','data-narrow':narrow||undefined,'data-tab':tab,'data-disabled':figure.enabled===false||undefined,style:{'--figure-color':figureColor(figure)}},
     // Phone: one header only (r4) — ‹ · the name · lamp slot · × replaces the drawer's own title bar.

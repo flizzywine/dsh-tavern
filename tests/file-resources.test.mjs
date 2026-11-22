@@ -4,7 +4,10 @@ import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
 
+import { createCardStorage } from '../tavern-plugin/lib/card-storage.js'
+import { createCardDeletion } from '../tavern-plugin/lib/domain/card-deletion.js'
 import { createFileResourceStore, stripPngTextChunks } from '../tavern-plugin/lib/domain/file-resources.js'
+import { createProfileDataStore } from '../tavern-plugin/lib/profile-data-store.js'
 
 function pngCardBuffer(card) {
   const signature = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
@@ -38,6 +41,29 @@ test('人物卡或世界书重命名与删除会同步绑定关系', async () =>
     await store.remove(renamedCard)
     assert.deepEqual(JSON.parse(await readFile(path.join(root, '.worldbook-bindings.json'), 'utf8')), {})
   } finally { await rm(root, { recursive: true, force: true }) }
+})
+
+test('人物卡删除可重试，也支持缺少 ID 的旧卡', async t => {
+  const dataRoot = await mkdtemp(path.join(os.tmpdir(), 'dsh-tavern-card-deletion-'))
+  t.after(() => rm(dataRoot, { recursive: true, force: true }))
+  const resources = createFileResourceStore({ dataRoot })
+  const profileData = createProfileDataStore({ dataRoot })
+  const cardStorage = createCardStorage({ dataRoot, profileData })
+  const deletion = createCardDeletion({ resources, cardStorage })
+  const material = await resources.importText('source', { name: '剧本.txt', text: '剧本正文' })
+
+  for (const card of [{ name: '新版', meta: { id: 'new-card' } }, { name: '旧版' }]) {
+    const cardPath = await resources.importCard({ name: card.name + '.json' }, card)
+    await resources.bindMaterial(cardPath, material)
+
+    const deleted = { deleted: true, cardPath }
+    assert.deepEqual(await deletion.remove(cardPath), deleted)
+    assert.deepEqual(await deletion.remove(cardPath), deleted)
+    assert.equal(await resources.readCard(cardPath), undefined)
+    assert.equal(await profileData.readText('originals/' + cardPath), undefined)
+    assert.deepEqual(await resources.cardsForMaterial(material), [])
+    await assert.rejects(cardStorage.resolve(cardPath), /Card has no identity/)
+  }
 })
 
 test('标准酒馆预设从资料库迁移到预设库并同步对话引用', async () => {

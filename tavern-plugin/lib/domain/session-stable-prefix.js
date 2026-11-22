@@ -157,8 +157,11 @@ function fixedContextMessage(session, text) {
 export async function ensureSessionStablePrefix(session, text, storage, revision = 0) {
   ensureSessionSystemHead(session)
   const existing = readSessionStablePrefix(session)
-  if (existing && revision > existing.revision && str(text).trim()) {
-    const message = fixedContextMessage(session, str(text).trim())
+  const trimmed = str(text).trim()
+  if (existing && revision > existing.revision && trimmed) {
+    // 前缀正文未变化时不追加重复的 revision 事件，避免向轨迹插入空消息打断 Prompt Cache。
+    if (trimmed === existing.text && hasReleasedSnapshot(existing.message)) return existing
+    const message = fixedContextMessage(session, trimmed)
     message.id += ':revision-' + revision
     return messageRecord(appendSessionEvent(session, 'user/message', message, { surfaceOp: 'append' }))
   }

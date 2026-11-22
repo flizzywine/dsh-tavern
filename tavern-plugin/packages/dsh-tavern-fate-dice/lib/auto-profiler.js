@@ -84,18 +84,30 @@ export function tierToRuleBonus(tier, rule = '2d6') {
   }
 }
 
-/** 递归扫描 MVU 变量，抽取关键数值/状态键值对与紧凑摘要。 */
+const MVU_PRIORITY_HIGH = /力量|敏捷|感知|知识|魅力|魔力|信仰|智力|体质|意志|幸运|耐力|武艺|生命|血量|体力|精力|护甲|防御|理智|架势|伤势|受伤|重伤|中毒|疲劳|虚弱|境界|等级|阶级|实力|位格|level|rank|hp|mp|sp|san|str|dex|con|int|wis|cha|armor|wound|fatigue|injury/i
+const MVU_PRIORITY_MID = /武器|防具|装备|饰品|技能|专长|天气|气候|时段|地形|地点|所在地|环境|警戒|警觉|关系|信任|好感|防线|张力|压力|buff|debuff|status|weather|location|stance|guard|trust/i
+const MVU_NOISE_KEY = /(?:^|[._])(id|uuid|hash|timestamp|createdAt|updatedAt|avatar|icon|url|version)$/i
+
+function scoreMvuEntry(pathStr, keyStr) {
+  const combined = `${pathStr} ${keyStr}`
+  if (MVU_NOISE_KEY.test(keyStr)) return 0
+  if (MVU_PRIORITY_HIGH.test(combined)) return 100
+  if (MVU_PRIORITY_MID.test(combined)) return 60
+  return 10
+}
+
+/** 递归扫描 MVU 变量，按跑团关键度提权采样，抽取属性/伤势/环境键值对与紧凑摘要。 */
 export function summarizeMvuVariables(variables) {
   const source = variables && typeof variables === 'object'
     ? (variables.stat_data && typeof variables.stat_data === 'object' ? variables.stat_data : variables)
     : null
-  const entries = []
-  if (!source) return { entries, summary: '', keyCount: 0 }
+  const collected = []
+  if (!source) return { entries: [], highlights: [], summary: '', keyCount: 0, environmentCues: [] }
 
   const walk = (node, prefix, depth) => {
-    if (!node || typeof node !== 'object' || depth > 4 || entries.length >= MVU_MAX_ITEMS) return
+    if (!node || typeof node !== 'object' || depth > 4 || collected.length >= 120) return
     for (const [rawKey, value] of Object.entries(node)) {
-      if (entries.length >= MVU_MAX_ITEMS) return
+      if (collected.length >= 120) return
       const key = String(rawKey)
       if (!key || key.startsWith('$')) continue
       const path = prefix ? `${prefix}.${key}` : key
@@ -104,31 +116,49 @@ export function summarizeMvuVariables(variables) {
         continue
       }
       if (value === null || value === undefined) continue
+      const score = scoreMvuEntry(path, key)
       if (typeof value === 'boolean') {
-        entries.push({ key: key.slice(0, 40), path: path.slice(0, 80), value })
+        collected.push({ key: key.slice(0, 40), path: path.slice(0, 80), value, score, depth })
         continue
       }
       if (typeof value === 'number') {
-        entries.push({ key: key.slice(0, 40), path: path.slice(0, 80), value })
+        collected.push({ key: key.slice(0, 40), path: path.slice(0, 80), value, score, depth })
         continue
       }
       const str = String(value).trim()
       if (!str) continue
       if (/^-?\d+(\.\d+)?$/.test(str) && str.length <= 24) {
-        entries.push({ key: key.slice(0, 40), path: path.slice(0, 80), value: Number(str) })
+        collected.push({ key: key.slice(0, 40), path: path.slice(0, 80), value: Number(str), score, depth })
         continue
       }
       if (str.length > 80) continue
-      entries.push({ key: key.slice(0, 40), path: path.slice(0, 80), value: clip(str, 60) })
+      collected.push({ key: key.slice(0, 40), path: path.slice(0, 80), value: clip(str, 60), score, depth })
     }
   }
   walk(source, '', 0)
 
-  const summary = entries
+  const ranked = collected
+    .map((item, idx) => ({ ...item, idx }))
+    .sort((a, b) => (b.score - a.score) || (a.depth - b.depth) || (a.idx - b.idx))
+    .slice(0, MVU_MAX_ITEMS)
+    .map(({ key, path, value }) => ({ key, path, value }))
+
+  const environmentCues = []
+  for (const item of ranked) {
+    const label = `${item.path}=${item.value}`
+    if (/天气|暴雨|大雨|暴雪|浓雾|大雾|风暴|雷雨|沙尘|酷热|极寒/.test(label)) {
+      environmentCues.push({ source: 'mvu-weather', label: `天气·${String(item.value).slice(0, 18)}` })
+    } else if (/重伤|受伤|中毒|虚弱|疲惫|疲劳|眩晕|束缚|破势|debuff/i.test(label) && item.value !== false && item.value !== 0 && item.value !== '无') {
+      environmentCues.push({ source: 'mvu-status', label: `状态·${item.key}` })
+    }
+    if (environmentCues.length >= 3) break
+  }
+
+  const summary = ranked
     .map(item => `${item.path}=${typeof item.value === 'boolean' ? (item.value ? '是' : '否') : item.value}`)
     .join('；')
     .slice(0, 760)
-  return { entries, summary, keyCount: entries.length }
+  return { entries: ranked, highlights: ranked, summary, keyCount: ranked.length, environmentCues }
 }
 
 async function safeCall(fn, payload) {
@@ -283,10 +313,46 @@ export const PROFILE_SYSTEM_PROMPT = [
   '要求：',
   '1. 只输出纯 JSON，不要任何解释、前后缀或代码块标记；',
   '2. JSON 结构：{"characterName":"...","archetype":"一句话实力与当前状态定位","traits":[{"name":"不超过8字的能力/状态名","tier":-2到3的整数,"hidden":布尔(感知洞察类为true),"source":"角色卡|世界书|MVU|正文","reason":"简短依据"}]}；',
-  '3. traits 提取 4~8 条：既要贴合设定的特长，也要有短板，以及当前的伤病、装备或境界状态；',
+  '3. traits 提取 4~8 条：既要贴合设定的特长，也要有短板，以及当前的伤病、装备或境界状态；若 MVU 中已写明具体属性数值或品阶/阶级，请将其对应为稳定的 tier；',
   '4. tier 含义：-2 明显短板/受创，-1 稍弱，0 普通，1 训练有素，2 职业专精，3 世界书级别的压制性位格；',
   '5. 不得臆造素材中不存在的能力。'
 ].join('\n')
+
+/** 对比两份角色画像的实质演进差异，供楼层胶囊轻量提示。 */
+export function diffCharacterProfiles(prevProfile, nextProfile) {
+  const prevTraits = Array.isArray(prevProfile?.traits) ? prevProfile.traits : []
+  const nextTraits = Array.isArray(nextProfile?.traits) ? nextProfile.traits : []
+  if (!nextTraits.length) return []
+  if (!prevTraits.length) {
+    return [{ kind: 'init', name: '初始能力建档', count: nextTraits.length }]
+  }
+  const prevMap = new Map()
+  for (const item of prevTraits) {
+    if (item && item.name) prevMap.set(String(item.name).trim(), Number(item.tier) || 0)
+  }
+  const nextMap = new Map()
+  const changes = []
+  for (const item of nextTraits) {
+    if (!item || !item.name) continue
+    const name = String(item.name).trim()
+    const tier = Number(item.tier) || 0
+    nextMap.set(name, tier)
+    if (!prevMap.has(name)) {
+      changes.push({ kind: 'added', name, tier, delta: tier })
+    } else {
+      const oldTier = prevMap.get(name)
+      if (oldTier !== tier) {
+        changes.push({ kind: 'changed', name, prevTier: oldTier, tier, delta: tier - oldTier })
+      }
+    }
+  }
+  for (const [name, oldTier] of prevMap.entries()) {
+    if (!nextMap.has(name)) {
+      changes.push({ kind: 'removed', name, prevTier: oldTier, delta: -oldTier })
+    }
+  }
+  return changes.slice(0, 4)
+}
 
 export function normalizeCharacterProfile(raw, rule = '2d6') {
   const source = raw && typeof raw === 'object' ? raw : {}

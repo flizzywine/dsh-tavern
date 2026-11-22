@@ -30,9 +30,9 @@ import { buildOutfitPrompt, clampBatchCount, mergeOutfits, parseOutfits } from '
  *   GET  /plugins/dsh-tavern-image/jobs?id=&image=1  查作业 / 取图
  */
 import { createHash, randomUUID, randomInt } from 'node:crypto'
-import { chmod, copyFile, mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises'
+import { chmod, copyFile, lstat, mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { createReadStream } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { buildTemplateMarkerPrompt } from './prompts.js'
 import { installTavernBridge, removeMountedPicture } from './tavern-bridge.js'
@@ -45,8 +45,11 @@ import { createComfyProgress } from './comfy-progress.js'
 import { CHARACTER_LIBRARY_VERSION, createCharacterLibrary } from './character-library.js'
 import { createDefinitionsStore } from './definitions-store.js'
 import { libraryImageDetails, libraryPromptFields, libraryPromptOverride } from './library-prompts.js'
+import { OUTFIT_FIELDS, collectOutfitParts, needsOutfitMigration, normalizeOutfitParts } from './outfit-parts.js'
 import { wardrobeSection } from './wardrobe-hints.js'
 import { runCardImage, submitCardImage } from './card-app/generation.js'
+import { cardImageExtension, createCardGallery } from './card-app/gallery.js'
+import { serialQueue } from './card-app/storage.js'
 export { stageImageProvider } from './image-catalog.js'
 import { IMAGE_API_PROTOCOLS, effectiveImageProvider, supportsImageReferences, imageReferenceLimit, imageTransparency } from './image-provider-capabilities.js'
 import { normalizeChannels, publicChannels, activeChannel, channelConfigPatch, migrateLegacyImageConfig } from './image-channels.js'
@@ -80,6 +83,10 @@ const ROOT = dirname(dirname(fileURLToPath(import.meta.url)))
 // Tavern 的数据根目录（data/），用来读它设置里的「默认后台模型」
 const TAVERN_DATA = dirname(dirname(ROOT))
 const TAVERN_SETTINGS = join(TAVERN_DATA, 'tavern-settings.json')
+// 卡片工作台的图直接落进卡片画廊的图片目录（card-app 的 data/images）：画廊、插件控制台、
+// 正文插图从此读同一份文件，不再从 cache 复制第二份。游玩图照旧留在 cache/<id>.img。
+const CARD_GALLERY_DIR = join(TAVERN_DATA, 'image-cache', 'dsh-tavern-gen')
+const CARD_IMAGE_DIR = join(CARD_GALLERY_DIR, 'images')
 const BASE = '/plugins/dsh-tavern-image'
 const LEGACY_BASE = '/plugins/dsh-tavern-comfy'
 const CONFIG_PATH = join(ROOT, 'config.json')
@@ -311,8 +318,7 @@ const stripMacros = text => repairMacros(text).replace(MACRO_BLOCK, ' ')
 /** 「当前穿着」记录写的是没穿（全脱了）：什么衣服都不补，也不写 "is wearing naked" 这种句子。 */
 const NOTHING_WORN = /^(?:nude|naked|nothing|no clothes|completely (?:nude|naked))\b|^(?:全裸|裸体|赤裸|一丝不挂|没穿|什么都没穿)/i
 
-/** 通用服装库的字段（跨角色复用的一套衣服）。 */
-const OUTFIT_FIELDS = ['body', 'full', 'bodyBack', 'fullBack', 'negative']
+/** 服装字段（新字段与旧通用库字段）统一由 outfit-parts.js 定义。 */
 
 function referenceFields(raw) {
   const fields = {}
@@ -322,6 +328,7 @@ function referenceFields(raw) {
 }
 
 export function normalizeOutfit(raw, index) {
+  const merged = normalizeOutfitParts(raw ?? {})
   const item = {
     ...referenceFields(raw),
     ...libraryPromptFields(raw),
@@ -330,19 +337,29 @@ export function normalizeOutfit(raw, index) {
     enabled: raw?.enabled !== false,
     ...(raw?.nsfw === true ? { nsfw: true } : {}),
   }
-  for (const key of OUTFIT_FIELDS) item[key] = String(raw?.[key] ?? '')
+  for (const key of OUTFIT_FIELDS) item[key] = String(merged[key] ?? '')
   return item
 }
 
 function sharedOutfitParts(outfit) {
-  return { ...outfit, upper: outfit.upper || outfit.body, back: outfit.back || outfit.fullBack || outfit.bodyBack }
+  // 通用服装与角色服装同构：旧 body/fullBack/bodyBack 在归一化时映射到 upper/back。
+  return normalizeOutfitParts(outfit)
 }
 
-function characterOutfits(person, definitions) {
+// 服装名去掉括号里的这一刻状态：「黑白女仆装（裙摆挽起）」和「黑白女仆装」是同一套。
+const outfitBareName = (value) => String(value ?? '').replace(/[（(][^（）()]*[）)]/g, '').replace(/\s+/g, '')
+
+// 这个人能穿的通用库服装：绑在 outfitRefs 上的，加上宏里点名的那一套。
+// 宏只写服装名时也要能取到通用库；否则名字对不上人物自己的服装，就被当成库外名字整块丢掉。
+function characterOutfits(person, definitions, asked) {
   const owned = person.outfits ?? []
-  if (!person.outfitRefs?.length || !definitions?.outfits?.length) return owned
-  return [...owned, ...definitions.outfits.filter(outfit => outfit?.enabled !== false &&
-    person.outfitRefs.includes(outfit?.id) && !owned.some(item => item.id === outfit.id))
+  const refs = person.outfitRefs ?? []
+  const shared = definitions?.outfits ?? []
+  if (!shared.length) return owned
+  const key = outfitBareName(asked)
+  return [...owned, ...shared.filter(outfit => outfit?.enabled !== false &&
+    (refs.includes(outfit?.id) || (key && outfitBareName(outfit?.name) === key)) &&
+    !owned.some(item => item.id === outfit.id))
     .map(sharedOutfitParts)]
 }
 
@@ -520,7 +537,10 @@ export function expandRosterCalls(text, scoped, mode, options = {}) {
           // 「服装名（状态）」：括号前是服装库里的名字，括号里是这一刻的临时状态（袖子挽起、赤足、沾了土）。
           // 整串拿去对服装库会对不上，于是被当成一句自写描述，模型不知道「常服」长什么样，衣服每张都变。
           const outfitAsked = stripUsualSuffix(parsed.outfit ?? parsed.clothes ?? parsed['服装'])
-          const promptPerson = outfitAsked && person.outfitRefs?.length ? { ...person, outfits: characterOutfits(person, scoped) } : person
+          // 人物自带的服装优先，名字对不上时到通用服装库里找同一套（宏只写服装名的常见写法）。
+          const promptPerson = outfitAsked && (person.outfitRefs?.length || scoped?.outfits?.length)
+            ? { ...person, outfits: characterOutfits(person, scoped, outfitAsked) }
+            : person
           const enabledOutfits = (promptPerson.outfits ?? []).filter((o) => o && o.enabled !== false)
           const exactHit = enabledOutfits.some((o) => o.name === outfitAsked)
           const stated = exactHit ? null : /^(.+?)\s*[（(]([^（()）]*)[）)]\s*$/.exec(outfitAsked)
@@ -552,8 +572,8 @@ export function expandRosterCalls(text, scoped, mode, options = {}) {
             if (macroText) wear = outfitName
             else if (!outfitName && !autoOff && person.current?.outfit) {
               // 这一轮正文里换过衣服：按这张图的画面描述判断是换之前还是换之后。
-              const afterWear = resolveWearText(person, person.current.outfit)
-              const beforeWear = person.current.previous ? resolveWearText(person, person.current.previous) : ''
+              const afterWear = resolveWearText(person, person.current.outfit, false, scoped?.outfits)
+              const beforeWear = person.current.previous ? resolveWearText(person, person.current.previous, false, scoped?.outfits) : ''
               const moment = person.current.previous ? pickOutfitForScene(sceneText, beforeWear || person.current.previous, afterWear) : 'after'
               wear = moment === 'before' ? beforeWear : afterWear
               wearMoment = person.current.previous ? moment : ''
@@ -572,7 +592,7 @@ export function expandRosterCalls(text, scoped, mode, options = {}) {
           // 宏里明确标了下身 nsfw 的照常写。
           const closeShot = natural && closeShotScene(personScene || globalFraming) && lower !== 'nsfw' && !lowerShot
           if (closeShot && wear) {
-            if (!outfitAsked && person.current?.outfit) wear = resolveWearText(person, person.current[wearMoment === 'before' ? 'previous' : 'outfit'], true)
+            if (!outfitAsked && person.current?.outfit) wear = resolveWearText(person, person.current[wearMoment === 'before' ? 'previous' : 'outfit'], true, scoped?.outfits)
             wear = dropFootwear(wear, false)
           }
           const picked = characterTags(promptPerson, {
@@ -1033,11 +1053,19 @@ function outfitDescription(outfit, cropped = false) {
 }
 
 /** 「当前穿着」记录可能是英文描述，也可能是服装库里的名字；是名字就展开成那套衣服。 */
-function resolveWearText(person, text, cropped = false) {
+function resolveWearText(person, text, cropped = false, sharedOutfits = []) {
   const value = String(text ?? '').trim()
   if (!value || NOTHING_WORN.test(value) || unknownOutfit(value)) return ''
   const n = v => String(v ?? '').toLowerCase().replace(/[\s_\-.'"（）()]+/g, '').replace(/常穿$/, '')
-  const find = piece => (person?.outfits ?? []).find(o => o && o.enabled !== false && n(o.name) && n(o.name) === n(piece))
+  // 先找他自己的服装，再找通用服装库：正文里写「换上黑白女仆装」这种通用库名字也要能展开。
+  const find = piece => {
+    const key = n(piece)
+    if (!key) return null
+    const owned = (person?.outfits ?? []).find(o => o && o.enabled !== false && n(o.name) && n(o.name) === key)
+    if (owned) return owned
+    const external = (sharedOutfits ?? []).find(o => o && o.enabled !== false && n(o.name) && n(o.name) === key)
+    return external ? sharedOutfitParts(external) : null
+  }
   const whole = find(value)
   if (whole) return outfitDescription(whole, cropped) || (!cropped && libraryPromptOverride(whole) === null ? value : '')
   // 中文人物的「当前穿着」记录本身就是一句中文描述：整句保留，不按逗号拆。
@@ -1112,24 +1140,19 @@ function characterTags(character, options = {}) {
       tags.push(outfitPrompt)
       origins.push({ field: 'outfit.imagePrompt', outfitId: outfit.id, text: outfitPrompt })
     }
-    for (const key of outfitPrompt === null ? ['upper', 'lower', 'shoes', 'accessory', 'full'] : []) {
-      // 宏里标了 hidden 或 nsfw 的部位，对应的衣服不写：hidden 是出了画框，nsfw 是那个部位露着，
-      // 写上衣或裤子会让模型把衣服画回去。半身、近景（只有下身 hidden）照样写下装，
-      // 不写的话模型常把下摆画到大腿、下面却什么都没穿；鞋照旧不写。
-      if (key === 'shoes' && (lowerPart === 'hidden' || lowerPart === 'nsfw')) continue
-      if (key === 'lower' && (lowerPart === 'nsfw' || (lowerPart === 'hidden' && upperPart === 'hidden'))) continue
-      if (key === 'upper' && (upperPart === 'hidden' || upperPart === 'nsfw')) continue
-      // full 是整套打扮的总述，任何一个部位裸露或出框都不能再用它，否则会画出「裸体但穿着夏日休闲装」。
-      if (key === 'full' && (upperPart === 'hidden' || upperPart === 'nsfw' || lowerPart === 'hidden' || lowerPart === 'nsfw')) continue
-      if (options.croppedOutfit && ['lower', 'shoes', 'full'].includes(key)) continue
-      if (options.barefoot && !options.keepSocks && key === 'shoes') continue
-      if (key === 'full' && options.tags && (String(outfit.upper ?? '').trim() || String(outfit.lower ?? '').trim())) continue
-      const value = options.barefoot ? dropFootwear(outfit[key], options.keepSocks) : String(outfit[key] ?? '').trim()
-      if (value && !PLACEHOLDER_VALUE.test(value)) { tags.push(value); origins.push({ field: 'outfit.' + key, outfitId: outfit.id, text: value }) }
-    }
-    if (!options.croppedOutfit && outfitPrompt === null && options.back === true && String(outfit.back ?? '').trim()) {
-      tags.push(String(outfit.back).trim())
-      origins.push({ field: 'outfit.back', outfitId: outfit.id, text: String(outfit.back).trim() })
+    // 部位规则只有一份（lib/outfit-parts.js）：通用服装和角色自带服装走完全相同的展开路径。
+    if (outfitPrompt === null) for (const piece of collectOutfitParts(outfit, {
+      mode: options.tags ? 'tags' : 'natural',
+      upper: upperPart,
+      lower: lowerPart,
+      back: options.back === true,
+      cropped: options.croppedOutfit === true,
+      barefoot: options.barefoot === true,
+      keepSocks: options.keepSocks === true,
+      dropFootwear,
+    })) {
+      tags.push(piece.text)
+      origins.push({ field: 'outfit.' + piece.field, outfitId: outfit.id, text: piece.text })
     }
     if ([upperPart, lowerPart].includes('sfw')) for (const text of libraryImageDetails(outfit)) {
       tags.push(text)
@@ -1144,16 +1167,20 @@ function characterTags(character, options = {}) {
 export function apply(ctx, config = {}) {
   const logger = ctx.logger ?? console
   const deps = { llm: null, attachments: null, subagents: null, sessions: null }
+  let runtime = null
+  const cardGallery = createCardGallery(CARD_GALLERY_DIR, {
+    onImageRemoved: async (id, file) => (await runtime?.catch(() => null))?.forgetCardImage(id, file),
+  })
+  deps.cardGallery = cardGallery
   // 诊断用：DSH 往 index.html 注入的 script 行，就是客户端模块的加载清单
   const indexTap = { rows: null, at: 0, htmlLength: 0 }
   deps.indexTap = indexTap
-  let runtime = null
   const ready = () => (runtime ??= createRuntime(ctx, config, logger, deps))
   // Optional card UI and tools share this runtime; late imports cannot resurrect a disposed plugin.
   const installCard = () => {
     let disposed = false, close
     void import('./card-app/index.js').then(mod => {
-      if (!disposed) close = mod.apply(ctx, { ready })
+      if (!disposed) close = mod.apply(ctx, { ready, data: CARD_GALLERY_DIR, gallery: cardGallery })
     }).catch(error => logger.warn?.('dsh-tavern-image: 工作台模块加载失败 ' + error.message))
     return () => { disposed = true; close?.() }
   }
@@ -1346,11 +1373,17 @@ function createRuntime(ctx, overrides, logger, deps) {
     config.workflows = await scanWorkflows(config)
     const promptRevision = () => createHash('sha256').update(JSON.stringify([config.promptPresets, config.promptDefault, config.activePromptPreset, config.promptEntries])).digest('hex')
     let definitions = await loadDefinitions()
-    const definitionStore = createDefinitionsStore({ initial: definitions, persist: saveDefinitions, onCommit: next => { definitions = next } })
-    const referenceStore = createReferenceImageStore(join(ROOT, 'reference-images'), { maxBytes: 32 * 1024 * 1024 })
+    // Every save goes through Tavern's linked figures first: a linked record's name, 触发词 and outfit names are that figure's.
+    const definitionStore = createDefinitionsStore({ initial: definitions, persist: saveDefinitions, onCommit: next => { definitions = next },
+      commit: (previous, value, save) => saveLinkedNames(deps.tavern, previous, value, save) })
+    const referenceStore = createReferenceImageStore(join(ROOT, 'reference-images'), { maxBytes: 32 * 1024 * 1024, refreshUploadTime: true })
+    const referenceWrites = serialQueue()
+    const putReferenceImage = input => referenceWrites(() => referenceStore.put(input))
+    let referenceGcPreview
     const characterLibrary = createCharacterLibrary({
-      getDefinitions: () => definitions, updateDefinitions: change => definitionStore.update(change),
-      normalizeCharacter, traitKeys: CHARACTER_TRAITS.map(([key]) => key), putImage: input => referenceStore.put(input), readImage: reference => referenceStore.read(reference),
+      getDefinitions: () => definitions,
+      updateDefinitions: change => definitionStore.update(change, { failIfBusy: deps.tavern?.writingFigureRecords?.() === true }),
+      normalizeCharacter, traitKeys: CHARACTER_TRAITS.map(([key]) => key), putImage: putReferenceImage, readImage: reference => referenceStore.read(reference),
     })
     let workflows = []
     const jobs = new Map()
@@ -1376,7 +1409,7 @@ function createRuntime(ctx, overrides, logger, deps) {
       return channel && supportsImageTaskResume(channel) ? channel : null
     }
 
-    // ---- 作业落盘：图文件本来就在 cache/ 里，缺的是这份元数据 ----
+    // ---- 作业落盘：图文件在 cache 或卡片画廊目录，单独保存这份元数据 ----
     const JOBS_STORE = join(ROOT, 'jobs-store.json')
     function restoreJobs() {
       return (async () => {
@@ -1393,10 +1426,13 @@ function createRuntime(ctx, overrides, logger, deps) {
               // 老记录有两处会让取图永久 404，这里在内存里补正（不写回盘，每次启动重算）：
               //   ① file 指着改名前的 cache 目录（…\tools\dsh-tavern-image\cache\…），文件其实已搬到 dsh-tavern-image；
               //   ② byteLength 被早期兜底恢复写成了 0，而取图门槛正是 `if (!job.file || !job.byteLength)`。
+              // 另外：卡片图现在直接落在卡片画廊目录，老的还在 cache，所以两个目录都要找一遍。
               if (!job.file || !(await fileExists(job.file))) {
-                for (const ext of ['.img', '.png', '.jpg', '.jpeg', '.webp']) {
-                  const guess = join(cacheRoot(config), String(job.id) + ext)
-                  if (await fileExists(guess)) { job.file = guess; break }
+                search: for (const dir of [cacheRoot(config), CARD_IMAGE_DIR]) {
+                  for (const ext of ['.img', '.png', '.jpg', '.jpeg', '.webp', '.gif']) {
+                    const guess = join(dir, String(job.id) + ext)
+                    if (await fileExists(guess)) { job.file = guess; break search }
+                  }
                 }
               }
               if (job.file) {
@@ -1414,7 +1450,9 @@ function createRuntime(ctx, overrides, logger, deps) {
                       job.error = undefined
                     }
                   }
-                } catch { /* 文件真的不在就保持原样 */ }
+                } catch (error) {
+                  if (error.code === 'ENOENT') { job.file = undefined; job.byteLength = 0 }
+                }
               }
               if (!job.mediaType) {
                 try { job.mediaType = (await readImageFileMetadata(job.file)).mediaType || 'image/png' }
@@ -1433,36 +1471,33 @@ function createRuntime(ctx, overrides, logger, deps) {
             }
           }
         } catch { /* 读不到就当没有 */ }
-        // 兜底：cache 目录里有图但没记录的，按"已完成"补回来
+        // 兜底：目录里有图但没记录的，按"已完成"补回来
         try {
-          const dir = cacheRoot(config)
-          const names = await readdir(dir).catch(() => [])
+          // 卡片图直接落在卡片画廊的图片目录，游玩图留在 cache —— 两处都要扫，
+          // 否则 jobs-store 一旦丢失，卡片作业就再也补不回来（重启后控制台历史整片消失）。
+          const dirs = [cacheRoot(config), CARD_IMAGE_DIR]
           const cardIds = new Set()
           try {
-            const gallery = await readJson(join(ROOT, '../../image-cache/dsh-tavern-gen/jobs.json'), [])
+            const gallery = await readJson(join(CARD_GALLERY_DIR, 'jobs.json'), [])
             if (Array.isArray(gallery)) for (const item of gallery) if (typeof item?.id === 'string') cardIds.add(item.id)
           } catch { /* A damaged optional card index must not block ordinary cache recovery. */ }
           let added = 0
-          for (const name of names) {
-            const hit = /^((?:card-)?[0-9a-f-]{36})\.(?:img|png|jpe?g|webp)$/i.exec(name)
-            if (!hit) continue
-            const id = hit[1]
-            if (jobs.has(id)) continue
-            let size = null
-            // byteLength 必须填成文件的真实字节数：取图路由的门槛是 `if (!job.file || !job.byteLength)`，
-            // 填 0 会让这个作业永远被判成「图片还没生成好」而返回 404 —— 列表里明明有图却打不开。
-            let bytes = 0
-            let imageMetadata = null
-            // 用文件修改时间当作生成时间：图库按 createdAt 排序，写 Date.now() 会让所有历史图每次重启都跑到最前面
-            let createdAt = Date.now()
-            try {
-              imageMetadata = await readImageFileMetadata(join(dir, name))
-              bytes = imageMetadata.byteLength
-              if (imageMetadata.width !== null && imageMetadata.height !== null) size = { width: imageMetadata.width, height: imageMetadata.height }
-              createdAt = imageMetadata.mtimeMs || createdAt
-            } catch { /* 读不到尺寸就算了 */ }
-            jobs.set(id, { id, source: id.startsWith('card-') || cardIds.has(id) ? 'card' : 'play', state: 'done', percent: 100, createdAt, fromCache: true, file: join(dir, name), size, params: {}, label: '历史图片', byteLength: bytes, mediaType: imageMetadata?.mediaType || (/\.jpe?g$/i.test(name) ? 'image/jpeg' : /\.webp$/i.test(name) ? 'image/webp' : 'image/png') })
-            added++
+          for (const dir of dirs) {
+            const names = await readdir(dir).catch(() => [])
+            for (const name of names) {
+              const hit = /^((?:card-)?[0-9a-f-]{36})\.(?:img|png|jpe?g|webp|gif)$/i.exec(name)
+              if (!hit) continue
+              const id = hit[1]
+              if (jobs.has(id)) continue
+              const file = join(dir, name)
+              const metadata = await readImageFileMetadata(file).catch(() => null)
+              if (!metadata?.byteLength) continue
+              const { byteLength, width, height, mtimeMs, mediaType } = metadata
+              const size = width !== null && height !== null ? { width, height } : null
+              const source = dir === CARD_IMAGE_DIR || id.startsWith('card-') || cardIds.has(id) ? 'card' : 'play'
+              jobs.set(id, { id, source, state: 'done', percent: 100, createdAt: mtimeMs || Date.now(), fromCache: true, file, size, params: {}, label: '历史图片', byteLength, mediaType: mediaType || (/\.jpe?g$/i.test(name) ? 'image/jpeg' : /\.webp$/i.test(name) ? 'image/webp' : /\.gif$/i.test(name) ? 'image/gif' : 'image/png') })
+              added++
+            }
           }
           if (added) logger.info?.('dsh-tavern-image: 从 cache 补回 ' + added + ' 张历史图片')
         } catch { /* 忽略 */ }
@@ -1794,7 +1829,8 @@ function createRuntime(ctx, overrides, logger, deps) {
             if (result.usage) job.usage = structuredClone(result.usage)
             const output = await transcodeImageOutputAsync(result.bytes, result.mediaType, imageOutputConfig(job), { maxOutputBytes: config.maxImageBytes, signal })
             if (stopped()) return
-            const file = join(cacheRoot(config), `${job.id}.img`)
+            const file = outputFileFor(job, config, output.mediaType)
+            await mkdir(dirname(file), { recursive: true })
             await writeFile(file, output.bytes)
             if (stopped()) { await rm(file, { force: true }); return }
             Object.assign(job, { size: output.size || job.size, file, mediaType: output.mediaType, byteLength: output.bytes.length, imageOutputWarning: output.warning || '', percent: 100, state: 'done', requestMayHaveSucceeded: false, completedAt: Date.now(), error: '' })
@@ -1887,11 +1923,13 @@ function createRuntime(ctx, overrides, logger, deps) {
               const signal = job.controller?.signal
               const output = await transcodeImageOutputAsync(bytes, sourceType, imageOutputConfig(job), { maxOutputBytes: config.maxImageBytes, signal })
               if (signal?.aborted || job.state === 'cancelled') return
+              const file = outputFileFor(job, config, output.mediaType)
+              await mkdir(dirname(file), { recursive: true })
+              await writeFile(file, output.bytes)
+              if (signal?.aborted || job.state === 'cancelled' || !jobs.has(job.id)) { await rm(file, { force: true }); return }
+              job.file = file
               job.mediaType = output.mediaType
               job.imageOutputWarning = output.warning || ''
-              job.file = join(cacheRoot(config), `${job.id}.img`)
-              await writeFile(job.file, output.bytes)
-              if (signal?.aborted || job.state === 'cancelled') { await rm(job.file, { force: true }); return }
               job.byteLength = output.bytes.byteLength
               job.percent = 100
               job.state = 'done'
@@ -1938,11 +1976,13 @@ function createRuntime(ctx, overrides, logger, deps) {
         if (comfyProgress.active) {
           comfyProgress.sweep(endpointOf(config.comfyUrl), job => jobs.get(job.id) === job && (job.submitting || job.state === 'pending' || job.state === 'running'))
         }
+        if (jobs.size === 0) return
         for (const job of jobs.values()) {
           if ((job.state === 'pending' || job.state === 'running' || job.state === 'uncertain')
             && (job.comfyId || (resumableChannelForJob(job) && job.providerTaskId))) refresh(job).catch(() => {})
         }
       }, 3000)
+      timer.unref?.()
       return () => clearInterval(timer)
     }
     if (typeof ctx.effect === 'function') ctx.effect(startJobSweeper, 'dsh-tavern-image: job sweeper')
@@ -2016,7 +2056,8 @@ function createRuntime(ctx, overrides, logger, deps) {
             if (!jobs.has(job.id)) return
             const output = await transcodeImageOutputAsync(result.bytes, result.mediaType, imageOutputConfig(job), { maxOutputBytes: maxImageBytes, signal: job.controller.signal })
             job.controller.signal.throwIfAborted()
-            const file = join(cacheRoot(config), `${job.id}.img`)
+            const file = outputFileFor(job, config, output.mediaType)
+            await mkdir(dirname(file), { recursive: true })
             await writeFile(file, output.bytes)
             if (job.controller.signal.aborted || !jobs.has(job.id)) { await rm(file, { force: true }); return }
             Object.assign(job, { size: output.size || job.size, file, mediaType: output.mediaType, byteLength: output.bytes.length, imageOutputWarning: output.warning || '', percent: 100, state: 'done', completedAt: Date.now() })
@@ -2416,6 +2457,14 @@ function createRuntime(ctx, overrides, logger, deps) {
 
     function getJob(id) { return jobs.get(id) ?? null }
 
+    function forgetCardImage(id, file) {
+      const job = jobs.get(id)
+      if (job?.file && resolve(job.file) === resolve(file)) {
+        job.file = undefined
+        job.byteLength = 0
+      }
+    }
+
     /**
      * 删一张图：作业记录、缓存文件、计划里的引用，以及挂在对话里的那张（同进同退）。
      * 玩家在对话里删图时 Tavern 通知过来（onMediaRemoved），那边已经删了，传 withMedia: false。
@@ -2425,7 +2474,9 @@ function createRuntime(ctx, overrides, logger, deps) {
       const job = jobs.get(id)
       job?.controller?.abort()
       if (withMedia && job?.gameId) await removeMountedPicture(deps.tavern, job).catch(error => logger.warn?.('dsh-tavern-image: 撤下对话里的图失败：' + (error?.message ?? error)))
-      if (job?.file) await rm(job.file, { force: true })
+      if (job?.file && resolve(dirname(job.file)) === CARD_IMAGE_DIR) {
+        await deps.cardGallery.remove(id, undefined, { unregisteredFile: job.file })
+      } else if (job?.file) await rm(job.file, { force: true })
       // 接住返回值：不存在的话就是 0，别报假成功
       const existed = jobs.delete(id) ? 1 : 0
       try { await persistJobs({ required: true }) }
@@ -2962,9 +3013,15 @@ function createRuntime(ctx, overrides, logger, deps) {
       const card = await currentCard(sessionId, turn)
       const timelineDefinitions = applyCharacterSnapshot(definitions, historySnapshot)
       let visualSnapshot = historySnapshot ?? emptyCharacterSnapshot()
+      const norm = value => String(value ?? '').toLowerCase().replace(/[\s_\-.'"（）()]+/g, '')
+      const registered = scopeCharacters(timelineDefinitions.characters, card)
+      const packCharacters = imageGeneration && sessionId && Number.isSafeInteger(turn)
+        ? (await deps.tavern?.imagePackCharacters?.({ gameId: sessionId, turn }) ?? []).filter(person =>
+          !registered.some(record => record.figureId === person.figureId && record.figurePackId === person.figurePackId || norm(record.name) === norm(person.name)))
+        : []
       const scoped = {
         ...timelineDefinitions,
-        characters: scopeCharacters(timelineDefinitions.characters, card),
+        characters: [...registered, ...packCharacters],
       }
       const plannerMaterials = selectPromptMaterials(plannerInputs.structure, scoped, { usage: trial?.usage,
         subjects: trial?.subjects, mode: plannerMode, traitMode: cfg.traitMode })
@@ -2990,7 +3047,6 @@ function createRuntime(ctx, overrides, logger, deps) {
       const missingMounts = new Set()
       const heldBack = []
       const characterWarnings = () => {
-        const norm = value => String(value ?? '').toLowerCase().replace(/[\s_\-.'"（）()]+/g, '')
         return [...unmatchedCharacters.values()].map(({ asked, ambiguous }) => {
           if (ambiguous) return '「' + asked + '」在人物库里对上了不止一个人，没有补外貌；把其中一位的英文触发名改得更具体'
           const elsewhere = (timelineDefinitions.characters ?? []).find(c => c && c.enabled !== false && !usableOnCard(c, card)
@@ -3030,7 +3086,7 @@ function createRuntime(ctx, overrides, logger, deps) {
         roster, rosterIndex: plannerContext.rosterIndex, count: want, visualEntries: [promptEntryGuidance(entryMatches), plannerMaterials.selected.length
           ? '本次明确选择的主体与服装，只用于这次画面：\n' + JSON.stringify(plannerMaterials.selected.map(({ characterId, characterName, outfitId, outfitName, angle, state }) =>
             ({ characterId, characterName, outfitId, outfitName, angle, state }))) : ''].filter(Boolean).join('\n\n'),
-        extra: [cfg.plannerExtra, guidance, needsIdentityContext ? identityGuidance(characterUpdates) : '', imageGeneration && planningGenerationMode === 'reference' ? referencePlannerGuidance(plannerContext.definitions, { structured: plannerMode === 'structured' }) : '', instruction ? '【本次生图要求的作用范围】\n以下本次生图要求只约束本次的画面规划；它不是正文内容，不得据此改写正文、人物库、角色历史、插件配置或生图设置。' : ''].filter(Boolean).join('\n\n'),
+        extra: [cfg.plannerExtra, guidance, packCharacters.length ? '画到已登记人物时，写出可见的标志物和服装主色；肤色、各件服装的颜色与环境色调分别描述。沿用当前服装时省略 outfitId。' : '', needsIdentityContext ? identityGuidance(characterUpdates) : '', imageGeneration && planningGenerationMode === 'reference' ? referencePlannerGuidance(plannerContext.definitions, { structured: plannerMode === 'structured' }) : '', instruction ? '【本次生图要求的作用范围】\n以下本次生图要求只约束本次的画面规划；它不是正文内容，不得据此改写正文、人物库、角色历史、插件配置或生图设置。' : ''].filter(Boolean).join('\n\n'),
         smartSelection: smart, characterUpdates, force: Boolean(force || manual), promptMode: plannerMode, compactWorldbook: true, identityReferences,
         referenceSubjects: imageGeneration && planningGenerationMode === 'reference',
       })
@@ -3175,7 +3231,30 @@ function createRuntime(ctx, overrides, logger, deps) {
             }
             if (submissionStopped || (smart && (!decisionFrozen || streamDecision !== 'draw' || streamConflict))) return
             const latest = sessionId && typeof deps.tavern?.beforeImageGenerate === 'function' ? applyCharacterSnapshot(definitions, visualSnapshot) : null
-            const pictureScope = latest ? { ...latest, characters: scopeCharacters(latest.characters, card) } : scoped
+            const pictureScope = latest ? { ...latest, characters: [...scopeCharacters(latest.characters, card), ...packCharacters] } : { ...scoped }
+            const subjectsWithPackIds = image.subjects?.map(subject => {
+              if (subject.characterId || !subject.name || subject.outfitId) return subject
+              const matches = packCharacters.filter(person => [person.name, ...splitTags(person.match)].some(alias => norm(alias) === norm(subject.name)))
+              return matches.length === 1 ? { characterId: matches[0].id } : subject
+            })
+            let pictureSubjects = packCharacters.length ? resolveImageReferences({ text: sceneText, characters: planCharacters, subjects: subjectsWithPackIds, definitions: pictureScope }).subjects : image.subjects
+            const selected = pictureSubjects?.filter(subject => packCharacters.some(person => person.id === subject.characterId)) ?? []
+            const packFacts = []
+            if (selected.length) {
+              const dressed = await deps.tavern.imagePackCharacters({ gameId: sessionId, turn, anchor: image.mount, subjects: selected, includeReferences: planningGenerationMode === 'reference' })
+              for (const { id, name, consistencyText, outfitId, reference } of dressed) {
+                const person = pictureScope.characters.find(item => item.id === id)
+                const outfit = person.outfits.find(item => item.id === outfitId)
+                if (!outfit) continue
+                const identity = person.traits?.face || consistencyText
+                if (identity || outfit.upper) packFacts.push([name, identity && `外观：${identity}`, outfit.upper && `服装：${outfit.upper}`].filter(Boolean).join('；'))
+                if (reference && planningGenerationMode === 'reference') {
+                  const characterOutfitImage = await putReferenceImage(reference)
+                  pictureScope.characters = pictureScope.characters.map(item => item.id === id ? { ...item, outfits: item.outfits.map(row => row.id === outfitId ? { ...row, characterOutfitImage } : row) } : item)
+                }
+                pictureSubjects = pictureSubjects.map(subject => subject.characterId === id ? { ...subject, outfitId } : subject)
+              }
+            }
             const key = ('plan|' + planningGenerationMode + '|' + (manualBatch ? 'manual:' + manualBatch + '|' : '') + (messageId ?? '') + '|' + image.mount + '|' + promptIdentity).slice(0, 3800)
             const imageIndex = ++traceImageIndex
             const macros = traceId ? [] : null
@@ -3188,7 +3267,8 @@ function createRuntime(ctx, overrides, logger, deps) {
             }
             // Reference jobs must expand against the per-picture reference scope,
             // not the full library here (which would reintroduce conflicting traits).
-            const normalizedTag = planningGenerationMode === 'reference' ? sceneText : expandOne(sceneText, true)
+            const groundedScene = packFacts.length ? sceneText + '\n\n【已登记的人物外观与服装】\n' + packFacts.join('\n') : sceneText
+            const normalizedTag = planningGenerationMode === 'reference' ? groundedScene : expandOne(groundedScene, true)
             const ambiguous = ambiguousAliases(pictureScope.characters)
             for (const [key, alias] of ambiguous) {
               // A shared short name inside a unique full name isn't an unresolved mention.
@@ -3209,8 +3289,8 @@ function createRuntime(ctx, overrides, logger, deps) {
             }
             const job = await startJob({
               tag: normalizedTag,
-              rawTag: sceneText, negative: image.negative || '', characters, subjects: image.subjects, generationMode: plannedJobMode, size: image.size, key, sessionId, turn, textVersion, characterSnapshot: visualSnapshot,
-            }, { label: 'agent 规划', jobConfig: planningJobConfig, diagTrace: traceId ? { traceId, imageIndex } : null })
+              rawTag: groundedScene, negative: image.negative || '', characters, subjects: pictureSubjects, generationMode: plannedJobMode, size: image.size, key, sessionId, turn, textVersion, characterSnapshot: visualSnapshot,
+            }, { label: 'agent 规划', jobConfig: planningJobConfig, jobDefinitions: selected.length ? pictureScope : undefined, diagTrace: traceId ? { traceId, imageIndex } : null })
             if (traceId) diag.record(traceId, 'image-job', { jobId: job.id, status: job.status }, { imageIndex })
             // startJob 返回的是 publicJob，size 已经是 "896x1152" 这样的文字。
             const item = { ...image, jobId: job.id, status: job.status, sizeText: sizeLabel(job.size) }
@@ -3591,10 +3671,16 @@ function createRuntime(ctx, overrides, logger, deps) {
 
     function sweep() {
       if (jobs.size <= 200) return
-      const ordered = [...jobs.values()].filter(job => !['pending', 'running', 'uncertain'].includes(job.state) && !job.favorite && !job.trashedAt && !job.requestMayHaveSucceeded && !job.cancelMayHaveContinued && !(job.state === 'cancelled' && job.requestStarted === true)).sort((a, b) => a.createdAt - b.createdAt)
-      for (const job of ordered.slice(0, jobs.size - 200)) {
-        jobs.delete(job.id)
-        if (job.key) byKey.delete(job.key)
+      // 两种来源各保留 200 条，避免任一来源的历史挤掉另一边仍要查看的结果。
+      for (const source of ['play', 'card']) {
+        const history = [...jobs.values()].filter(job => jobSource(job) === source)
+        if (history.length <= 200) continue
+        const ordered = history.filter(job => !['pending', 'running', 'uncertain'].includes(job.state) && !job.favorite && !job.trashedAt && !job.requestMayHaveSucceeded && !job.cancelMayHaveContinued && !(job.state === 'cancelled' && job.requestStarted === true))
+          .sort((a, b) => a.createdAt - b.createdAt)
+        for (const job of ordered.slice(0, history.length - 200)) {
+          jobs.delete(job.id)
+          if (job.key) byKey.delete(job.key)
+        }
       }
     }
 
@@ -3602,6 +3688,10 @@ function createRuntime(ctx, overrides, logger, deps) {
       if (job.source === 'card' || job.source === 'play') return job.source
       return String(job.id || '').startsWith('card-') || job.label === '卡片工作台' && String(job.key || '').startsWith('card-') ? 'card' : 'play'
     }
+
+    const outputFileFor = (job, config, mediaType) => jobSource(job) === 'card'
+      ? join(CARD_IMAGE_DIR, `${job.id}.${cardImageExtension(mediaType)}`)
+      : join(cacheRoot(config), `${job.id}.img`)
 
     function publicJob(job) {
       return {
@@ -3646,8 +3736,11 @@ function createRuntime(ctx, overrides, logger, deps) {
 
     function sendImage(response, job, rangeHeader) {
       const total = job.byteLength
-      if (!job.file || !total) { sendJson(response, 404, { ok: false, error: '图片还没生成好' }); return }
+      const file = job.file
+      if (!file || !total) { sendJson(response, 404, { ok: false, error: '图片文件不存在' }); return }
       const type = job.mediaType || 'image/png'
+      const headers = { 'content-type': type, 'content-length': total, 'accept-ranges': 'bytes', 'cache-control': 'private, max-age=1800' }
+      let status = 200, range
       const match = /^bytes=(\d*)-(\d*)$/.exec(String(rangeHeader ?? '').trim())
       if (match) {
         let start = match[1] === '' ? null : Number(match[1])
@@ -3659,15 +3752,18 @@ function createRuntime(ctx, overrides, logger, deps) {
           response.end()
           return
         }
-        response.writeHead(206, {
-          'content-type': type, 'content-length': end - start + 1,
-          'content-range': `bytes ${start}-${end}/${total}`, 'accept-ranges': 'bytes', 'cache-control': 'private, max-age=1800',
-        })
-        createReadStream(job.file, { start, end }).pipe(response)
-        return
+        status = 206
+        range = { start, end }
+        headers['content-length'] = end - start + 1
+        headers['content-range'] = `bytes ${start}-${end}/${total}`
       }
-      response.writeHead(200, { 'content-type': type, 'content-length': total, 'accept-ranges': 'bytes', 'cache-control': 'private, max-age=1800' })
-      createReadStream(job.file).pipe(response)
+      const stream = createReadStream(file, range)
+      stream.once('open', () => { response.writeHead(status, headers); stream.pipe(response) })
+      stream.on('error', error => {
+        if (response.headersSent) response.destroy?.()
+        else sendJson(response, error.code === 'ENOENT' ? 404 : 500, { ok: false, error: '无法读取图片文件' })
+      })
+      response.once?.('close', () => stream.destroy())
     }
 
     async function readBody(request, limit = 4 * 1024 * 1024) {
@@ -4098,7 +4194,7 @@ function createRuntime(ctx, overrides, logger, deps) {
           if (source) {
             if (source.state !== 'done' || !source.file) throw new Error('原图尚未生成完成')
             const data = await readFile(source.file)
-            sourceImages.push(await referenceStore.put({ data: data.toString('base64'), mediaType: source.mediaType, name: '已有图片 ' + source.id.slice(0, 8) }))
+            sourceImages.push(await putReferenceImage({ data: data.toString('base64'), mediaType: source.mediaType, name: '已有图片 ' + source.id.slice(0, 8) }))
           } else if (input.jobId) throw new Error('找不到原图')
           for (const value of input.sourceImages || []) {
             const image = normalizeReferenceImage(value)
@@ -4127,9 +4223,74 @@ function createRuntime(ctx, overrides, logger, deps) {
               sendJson(response, 403, { ok: false, error: '请从配图设置上传参考图' }); return
             }
             const input = await readBody(request, 44 * 1024 * 1024)
-            const referenceImage = await referenceStore.put({ data: input.data, mediaType: input.mediaType, name: input.name })
+            const referenceImage = await putReferenceImage({ data: input.data, mediaType: input.mediaType, name: input.name })
             sendJson(response, 200, { ok: true, referenceImage })
           } else sendJson(response, 405, { ok: false, error: 'method-not-allowed' })
+        } catch (error) { sendJson(response, 400, { ok: false, error: String(error?.message ?? error) }) }
+        return
+      }
+      if (action === 'reference-gc') {
+        try {
+          if (!['GET', 'POST'].includes(request.method)) {
+            sendJson(response, 405, { ok: false, error: 'method-not-allowed' }); return
+          }
+          let token
+          if (request.method === 'POST') {
+            const origin = request.headers.origin
+            if ((origin && origin !== _url.origin) || !String(request.headers['content-type'] || '').toLowerCase().startsWith('application/json')) {
+              sendJson(response, 403, { ok: false, error: '请从生图设置里清理参考图' }); return
+            }
+            token = (await readBody(request, 1024))?.token
+          }
+          await referenceWrites(async () => {
+            const preview = referenceGcPreview
+            if (request.method === 'POST') {
+              if (!preview || token !== preview.token || Date.now() >= preview.expiresAt) {
+                sendJson(response, 409, { ok: false, error: '清理预览已失效，请重新统计' }); return
+              }
+              referenceGcPreview = undefined
+            }
+            const directory = await referenceStore.prepareDirectory()
+            const cutoff = Date.now() - 24 * 60 * 60 * 1000
+            const files = new Map()
+            for (const id of await readdir(directory)) {
+              if (!/^[0-9a-f]{64}$/.test(id)) continue
+              const info = await lstat(join(directory, id)).catch(error => {
+                if (error.code !== 'ENOENT') throw error
+              })
+              if (info?.isFile() && info.nlink === 1) files.set(id, info)
+            }
+            const savedJobs = await readJson(JOBS_STORE, null)
+            const referenced = new Set()
+            const collect = value => {
+              for (const id of JSON.stringify(value).match(/\b[0-9a-f]{64}\b/g) || []) referenced.add(id)
+            }
+            collect(savedJobs)
+            collect(config)
+            collect(definitions)
+            for (const job of jobs.values()) collect(job.referenceSnapshot ?? null)
+            const unreferenced = [...files].filter(([id]) => !referenced.has(id))
+            const orphans = unreferenced.filter(([, info]) => info.mtimeMs < cutoff)
+            if (request.method === 'GET') {
+              const token = randomUUID()
+              referenceGcPreview = { token, files: new Map(orphans), expiresAt: Date.now() + 10 * 60 * 1000 }
+              sendJson(response, 200, { ok: true, token, total: files.size, totalBytes: [...files.values()].reduce((sum, info) => sum + info.size, 0),
+                referenced: files.size - unreferenced.length, protectedCount: unreferenced.length - orphans.length,
+                orphanCount: orphans.length, orphanBytes: orphans.reduce((sum, [, info]) => sum + info.size, 0) })
+              return
+            }
+            const candidates = orphans.filter(([id, info]) => {
+              const before = preview.files.get(id)
+              return before && info.dev === before.dev && info.ino === before.ino && info.mtimeMs === before.mtimeMs && info.ctimeMs === before.ctimeMs
+            })
+            // Start deletion while the live reference snapshot is still current. Uploads use the same queue.
+            const results = await Promise.allSettled(candidates.map(([id]) => rm(join(directory, id))))
+            let removed = 0, removedBytes = 0
+            results.forEach((result, index) => {
+              if (result.status === 'fulfilled') { removed += 1; removedBytes += candidates[index][1].size }
+            })
+            sendJson(response, 200, { ok: true, removed, removedBytes, kept: files.size - removed, failed: results.length - removed })
+          })
         } catch (error) { sendJson(response, 400, { ok: false, error: String(error?.message ?? error) }) }
         return
       }
@@ -5028,6 +5189,12 @@ function createRuntime(ctx, overrides, logger, deps) {
               position: x.position === 'suffix' ? 'suffix' : 'prefix',
               enabled: x.enabled !== false,
               params: normalizePresetParams(x.params),
+              // 画风示例图只存 descriptor；图片字节留在本机 reference-images/，不写进 config。
+              samples: (Array.isArray(x.samples) ? x.samples : [])
+                .map(normalizeReferenceImage)
+                .filter(Boolean)
+                .slice(0, 8)
+                .map(item => ({ id: item.id, mediaType: item.mediaType, name: item.name, byteLength: item.byteLength })),
             }))
         }
         if (typeof patch.activePreset === 'string') config.activePreset = patch.activePreset.slice(0, 60)
@@ -5458,7 +5625,6 @@ function createRuntime(ctx, overrides, logger, deps) {
         try {
           await definitionStore.update(() => normalized, {
             expectedRevision: next.revision, requireRevision: true,
-            commit: (previous, value, save) => saveLinkedNames(deps.tavern, previous, value, save),
           })
         } catch (error) {
           sendJson(response, error.code === 'REVISION_CONFLICT' ? 409 : error.code === 'FIGURE_EDIT_FAILED' ? 400 : 500, { ok: false, code: error.code, error: error.message })
@@ -5978,7 +6144,7 @@ function createRuntime(ctx, overrides, logger, deps) {
         for (const [index, reference] of references.entries()) {
           signal?.throwIfAborted()
           if (!(reference?.data instanceof Uint8Array)) throw new Error('输入图片需要原始图片数据')
-          sourceImages.push(await referenceStore.put({ data: Buffer.from(reference.data).toString('base64'), mediaType: reference.mediaType, name: reference.name || '输入图片 ' + (index + 1) }))
+          sourceImages.push(await putReferenceImage({ data: Buffer.from(reference.data).toString('base64'), mediaType: reference.mediaType, name: reference.name || '输入图片 ' + (index + 1) }))
         }
         const result = await runCardImage({ config: () => generationConfig, workflows: usable,
           startJob: (params, options) => startJob(params, { ...options, jobDefinitions }), getJob, refresh, cancelJob }, {
@@ -6049,10 +6215,49 @@ function createRuntime(ctx, overrides, logger, deps) {
       templateModels: templateModels,
       generateTemplateAsset: generateTemplateAsset,
       cardWorkflows: () => usable(),
+      forgetCardImage,
       generateCardImage: (args, options) => runCardImage({ config: () => config, workflows: usable, startJob, getJob, refresh, cancelJob }, args, options),
       // 工作台的异步工具走同一个适配器：渠道解析、队列、参考图快照与恢复逻辑只此一份。
       submitCardImage: (args, options) => submitCardImage({ config: () => config, workflows: usable, startJob, getJob, refresh, cancelJob }, args, options),
       saveCardDefinitions: (value, expectedRevision) => definitionStore.update(current => normalizeDefinitions({ ...current, ...value }), { expectedRevision, requireRevision: true }),
+      // 单条修改：只重建目标记录，其余条目原样带过。id 不参与合并（不允许改 id）。
+      // traits 按 key 合并、outfits 按 id 合并；其余字段浅合并，未知字段照旧交给归一化丢弃。
+      patchCardDefinition: (target, item, expectedRevision) => {
+        const key = target === 'outfits' ? 'outfits' : 'characters'
+        if (!item || typeof item !== 'object' || Array.isArray(item)) throw Object.assign(new Error('item 必须是对象'), { code: 'INVALID_ARGUMENT' })
+        const id = typeof item.id === 'string' ? item.id.trim() : ''
+        if (!id) throw Object.assign(new Error('item.id 必填'), { code: 'INVALID_ARGUMENT' })
+        const patch = { ...item }
+        delete patch.id
+        const invalid = message => Object.assign(new Error(message), { code: 'INVALID_ARGUMENT' })
+        if (key === 'characters') {
+          if (Object.hasOwn(patch, 'traits') && (!patch.traits || typeof patch.traits !== 'object' || Array.isArray(patch.traits))) throw invalid('item.traits 必须是对象')
+          if (Object.hasOwn(patch, 'outfits')) {
+            if (!Array.isArray(patch.outfits) || patch.outfits.some(outfit => !outfit || typeof outfit.id !== 'string' || !outfit.id.trim())) throw invalid('item.outfits 必须是包含有效服装 ID 的数组')
+            patch.outfits = patch.outfits.map(outfit => ({ ...outfit, id: outfit.id.trim() }))
+            if (new Set(patch.outfits.map(outfit => outfit.id)).size !== patch.outfits.length) throw invalid('item.outfits 的服装 ID 不能重复')
+          }
+        }
+        return definitionStore.update(current => {
+          const list = Array.isArray(current[key]) ? current[key] : []
+          const index = list.findIndex(entry => String(entry?.id ?? '') === id)
+          if (index < 0) throw Object.assign(new Error('人物库里没有这条记录：' + id), { code: 'NOT_FOUND' })
+          const previous = list[index]
+          const merged = { ...previous, ...patch }
+          if (key === 'characters') {
+            if (patch.traits && typeof patch.traits === 'object' && !Array.isArray(patch.traits)) merged.traits = { ...previous.traits, ...patch.traits }
+            if (Array.isArray(patch.outfits)) {
+              const byId = new Map(patch.outfits.map(outfit => [String(outfit?.id ?? ''), outfit]))
+              merged.outfits = (previous.outfits ?? [])
+                .map(outfit => byId.has(String(outfit?.id ?? '')) ? { ...outfit, ...byId.get(String(outfit?.id ?? '')) } : outfit)
+                .concat(patch.outfits.filter(outfit => !(previous.outfits ?? []).some(entry => String(entry?.id ?? '') === String(outfit?.id ?? ''))))
+            }
+          }
+          const next = list.slice()
+          next[index] = merged
+          return normalizeDefinitions({ ...current, [key]: next })
+        }, { expectedRevision, requireRevision: true })
+      },
       // 手动配图：读这一轮的 textVersion 与正文，再交给官方桥 attach
       attachTurn: async ({ gameId, turn, instruction = '' }) => {
         if (typeof instruction !== 'string') throw new Error('instruction 必须是字符串')
@@ -6345,25 +6550,31 @@ function normalizeCharacter(raw, index) {
   for (const [key] of CHARACTER_TRAITS) item.traits[key] = String(traits[key] ?? '')
   const outfits = Array.isArray(raw?.outfits) ? raw.outfits.slice() : []
   if (!outfits.length && raw?.outfit) outfits.push({ id: 'o1', name: '常服', body: String(raw.outfit), default: true })
-  item.outfits = outfits.map((outfit, j) => ({
-    ...referenceFields(outfit),
-    ...libraryPromptFields(outfit),
-    ...(Object.hasOwn(outfit ?? {}, 'characterOutfitImage') ? {
-      characterOutfitImage: normalizeReferenceImage(outfit.characterOutfitImage),
-    } : {}),
-    id: String(outfit?.id ?? `outfit-${index + 1}-${j + 1}`),
-    name: String(outfit?.name ?? `服装 ${j + 1}`),
-    upper: String(outfit?.upper ?? outfit?.body ?? ''),
-    lower: String(outfit?.lower ?? ''),
-    shoes: String(outfit?.shoes ?? ''),
-    accessory: String(outfit?.accessory ?? outfit?.bodyBack ?? ''),
-    full: String(outfit?.full ?? ''),
-    back: String(outfit?.back ?? outfit?.fullBack ?? ''),
-    negative: String(outfit?.negative ?? ''),
-    enabled: outfit?.enabled !== false,
-    default: outfit?.default === true,
-    ...(outfit?.nsfw === true ? { nsfw: true } : {}),
-  }))
+  item.outfits = outfits.map((outfit, j) => {
+    // 与通用服装库同一套字段：旧 body/bodyBack/fullBack 只做读入兼容（body→upper、fullBack/bodyBack→back）。
+    const parts = normalizeOutfitParts(outfit)
+    return {
+      ...referenceFields(outfit),
+      ...libraryPromptFields(outfit),
+      ...(Object.hasOwn(outfit ?? {}, 'characterOutfitImage') ? {
+        characterOutfitImage: normalizeReferenceImage(outfit.characterOutfitImage),
+      } : {}),
+      id: String(outfit?.id ?? `outfit-${index + 1}-${j + 1}`),
+      name: String(outfit?.name ?? `服装 ${j + 1}`),
+      upper: String(parts.upper ?? ''),
+      lower: String(outfit?.lower ?? ''),
+      shoes: String(outfit?.shoes ?? ''),
+      // 角色服装的老字段 bodyBack 以前被当成配饰（旧版就是 accessory ?? bodyBack），保持这个读法，
+      // 背面只认 back / fullBack，免得老的配饰升级后跑到背面去。
+      accessory: String(outfit?.accessory ?? outfit?.bodyBack ?? ''),
+      full: String(outfit?.full ?? ''),
+      back: String(outfit?.back ?? outfit?.fullBack ?? ''),
+      negative: String(outfit?.negative ?? ''),
+      enabled: outfit?.enabled !== false,
+      default: outfit?.default === true,
+      ...(outfit?.nsfw === true ? { nsfw: true } : {}),
+    }
+  })
   return item
 }
 
@@ -6378,8 +6589,25 @@ function normalizeDefinition(kind, raw, index) {
   return item
 }
 
+/** 旧版通用服装库只有 body/full/bodyBack/fullBack；人物条目里的旧字段同理。 */
+function definitionsNeedOutfitMigration(raw) {
+  if (!raw || typeof raw !== 'object') return false
+  const list = (value) => Array.isArray(value) ? value : []
+  if (list(raw.outfits).some(outfit => needsOutfitMigration(outfit, { shared: true }))) return true
+  return list(raw.characters).some(character => list(character?.outfits).some(outfit => needsOutfitMigration(outfit)))
+}
+
 async function loadDefinitions() {
-  return normalizeDefinitions(await readJson(DEFS_PATH, null))
+  const raw = await readJson(DEFS_PATH, null)
+  const definitions = normalizeDefinitions(raw)
+  // 旧服装数据在读取时已经归一，出图不受影响；这里再把归一结果写回磁盘一次，
+  // 让升级后即使不点保存、磁盘上也是统一字段。旧字段原样保留，回滚旧版本仍能读。
+  if (definitionsNeedOutfitMigration(raw)) {
+    try {
+      await writeJsonSafe(DEFS_PATH, { ...raw, ...definitions }, join(ROOT, 'backups'))
+    } catch { /* 写不回去也不影响使用：内存里已经是归一后的数据 */ }
+  }
+  return definitions
 }
 
 function normalizeDefinitions(raw) {
@@ -6886,10 +7114,12 @@ function workflowSummary(raw) {
 // 提示词处理
 // =====================================================================
 
-// The figure owns linked names and aliases. Save their canonical projection with the page.
+// A linked record's name, aliases and outfit names are its figure's: every save tells Tavern what changed for each linked
+// figure, and which links end (the record deleted or linked elsewhere), and saves the canonical projection it returns.
 async function saveLinkedNames(tavern, previous, next, save) {
   if (typeof tavern?.editLinkedFigures !== 'function') return await save(next)
   const oldById = new Map(previous.characters.map(item => [item.id, item]))
+  const nextById = new Map(next.characters.map(item => [item.id, item]))
   const changes = []
   for (const character of next.characters) {
     const old = oldById.get(character.id)
@@ -6897,12 +7127,22 @@ async function saveLinkedNames(tavern, previous, next, save) {
     const was = new Set(splitTags(old.match)), now = new Set(splitTags(character.match))
     const addAliases = [...now].filter(word => !was.has(word))
     const removeAliases = [...was].filter(word => !now.has(word))
-    if (old.name === character.name && !addAliases.length && !removeAliases.length) {
+    const outfits = Object.fromEntries((character.outfits || []).filter(outfit => {
+      const before = (old.outfits || []).find(item => item.id === outfit.id)
+      return before && String(outfit.name ?? '').trim() && String(outfit.name).trim() !== String(before.name ?? '').trim()
+    }).map(outfit => [outfit.id, String(outfit.name).trim()]))
+    if (old.name === character.name && !addAliases.length && !removeAliases.length && !Object.keys(outfits).length) {
       character.match = old.match
       continue
     }
     changes.push({ packId: character.figurePackId, figureId: character.figureId,
-      ...(old.name === character.name ? {} : { name: character.name }), addAliases, removeAliases })
+      ...(old.name === character.name ? {} : { name: character.name }), addAliases, removeAliases, ...(Object.keys(outfits).length ? { outfits } : {}) })
+  }
+  for (const old of previous.characters) {
+    if (!old.figureId || !old.figurePackId) continue
+    const now = nextById.get(old.id)
+    if (now?.figureId === old.figureId && now.figurePackId === old.figurePackId) continue
+    changes.push({ packId: old.figurePackId, figureId: old.figureId, addAliases: [], removeAliases: [], release: true })
   }
   if (!changes.length) return await save(next)
   const receipt = { file: DEFS_PATH, id: randomUUID() }
@@ -7196,13 +7436,13 @@ export function injectDefinitions(text, definitions, config = {}, options = {}) 
     // 规划已经在画面里写了这个人穿什么（没用人物宏、直接写衣服）时，不再补「当前穿着」或常穿：
     // 两套衣服同时进提示词会打架（brown leather boots 对上 black leather boots）。
     const dressedByPlanner = !natural && PLANNER_GARMENT.test(footText)
-    const recordedRaw = bare || dressedByPlanner ? '' : resolveWearText(character, character.current?.outfit)
+    const recordedRaw = bare || dressedByPlanner ? '' : resolveWearText(character, character.current?.outfit, false, definitions?.outfits)
     const footwearScene = footwearSceneFor(character)
     const personBarefoot = isBarefoot(footwearScene)
     const shoesOff = !personBarefoot && footwearOverridden(footwearScene, personWearText(character, recordedRaw))
     const noShoes = personBarefoot || shoesOff
     const closeShot = natural && closeShotScene(footwearScene || (sceneCharacters.length <= 1 ? footText : ''))
-    const visibleWear = closeShot && recordedRaw ? resolveWearText(character, character.current?.outfit, true) : recordedRaw
+    const visibleWear = closeShot && recordedRaw ? resolveWearText(character, character.current?.outfit, true, definitions?.outfits) : recordedRaw
     const recorded = noShoes || closeShot ? dropFootwear(visibleWear, shoesOff && !closeShot) : visibleWear
     const picked = characterTags(character, { nsfw, back, full: full && !closeShot, croppedOutfit: closeShot,
       mode: config.traitMode, barefoot: noShoes || closeShot, keepSocks: shoesOff && !closeShot,

@@ -2,6 +2,7 @@ import { join } from 'node:path'
 import { installSettingsSection, settingsSectionProvider } from './shared/native-settings.js'
 import { installTtsSettingsMigration } from './settings-config.js'
 export { Config } from './settings-config.js'
+import { createModelEndpoints } from './model-endpoints.js'
 import { createReadingPresetStore } from './reading-presets.js'
 import { createTts } from './service.js'
 import { createCache } from './cache.js'
@@ -20,15 +21,20 @@ export function apply(ctx, config = {}) {
   const cacheLimits = value => ({maxBytes:value.cacheMaxGB * 1024 ** 3, maxAgeDays:value.cacheMaxAgeDays})
   const cache = createCache({dataDir:config.dataDir,...cacheLimits(entry),onBoot:row => ctx.logger.info('TAVERN_BOOT %s',JSON.stringify(row))})
   const tts = createTts({ profileId:config.profileId, dataDir:config.dataDir,
-    cache, reading:() => readingOf(source()), globalReadings:() => readings.activeEntries() })
+    cache, reading:() => readingOf(source()), globalReadings:() => readings.activeEntries(), fishVoiceIdService:() => source().fishVoiceIdService })
   // 'readingChanged' fires once per real change, whether written through setReading or edited in the settings document.
-  let lastReading = canonical(readingOf(source()))
+  let lastReading = canonical(readingOf(source())), lastFishVoiceIdService = entry.fishVoiceIdService
+  function syncVoiceRouting() {
+    const next = source().fishVoiceIdService
+    if (next !== lastFishVoiceIdService) { lastFishVoiceIdService = next; tts.voiceRoutingChanged() }
+  }
   function syncReading() {
     const next = canonical(readingOf(source()))
     if (next !== lastReading) { lastReading = next; tts.readingChanged() }
   }
   const samples = config.dataDir ? createSampleCache({dataDir:config.dataDir}) : undefined
   // Pilot files and its cumulative budget follow the host's stable plugin data directory.
+  const modelEndpoints = createModelEndpoints({credentials:() => ctx.get('credentials'), settings:() => ctx.get('settings')})
   const services = createServiceSettings({ tts, samples, pilotBudgetRoot:config.dataDir, get:() => source(), changed:() => tts.servicesChanged(), credentials:() => ctx.get('credentials'), warn:message => ctx.logger.warn(message),
     replace: async value => { const settings = settingsSectionProvider(ctx, 'tts'); if (!settings) fail('SETTINGS_UNAVAILABLE'); await settings.replace('tts',validateSettings(value),settings.describe().find(row => row.ns === 'tts')?.revision) },
   })
@@ -92,7 +98,7 @@ export function apply(ctx, config = {}) {
   }
   async function changed() {
     const mine = ++generation, value = source(); validateSettings(value)
-    await syncEnabled(); services.sync(); syncReading()
+    await syncEnabled(); services.sync(); syncReading(); syncVoiceRouting()
     await cache.configure(cacheLimits(value), {lazy:true})
   }
   // the separate 字母词 list (settings
@@ -123,7 +129,9 @@ export function apply(ctx, config = {}) {
   services.sync()
   void syncEnabled()
   void settingsReady.then(async ok => { ready = ok; if (ok) await changed() }).catch(error => ctx.logger.warn(error))
-  registerEnabledRoute(ctx, { get:() => ready && source().enabled, subscribe(fn) { enabledListeners.add(fn); return () => enabledListeners.delete(fn) } })
+  const enabledState = Object.freeze({ get:() => ready && source().enabled, subscribe(fn) { enabledListeners.add(fn); return () => enabledListeners.delete(fn) } })
+  registerEnabledRoute(ctx, enabledState)
+  ctx.provide('ttsEnabledState', enabledState)
   const control=async (method,args = {}) => {
     switch (method) {
       case 'getEnabled': return {enabled:ready && source().enabled}
@@ -137,7 +145,14 @@ export function apply(ctx, config = {}) {
       case 'setReading': return tts.setReading(args)
       case 'capabilities': return tts.capabilities()
       case 'settings': return { ...source(), providers:await services.list() }
-      case 'services': return { configured:await services.list(), running:await runningStatus(await tts.listServices()) }
+      case 'services': return { configured:await services.list(), running:runningStatus(await tts.listServices()), fishVoiceIdService:source().fishVoiceIdService }
+      case 'setFishVoiceIdService': {
+        if (typeof args.serviceId !== 'string' || (args.serviceId && !source().providers.some(p => p.id === args.serviceId && p.kind === 'fish-audio'))) fail('INVALID_INPUT')
+        const settings = settingsSectionProvider(ctx, 'tts'); if (!settings) fail('SETTINGS_UNAVAILABLE')
+        await settings.replace('tts',validateSettings({...source(),fishVoiceIdService:args.serviceId}),settings.describe().find(row => row.ns === 'tts')?.revision)
+        syncVoiceRouting()
+        return {fishVoiceIdService:source().fishVoiceIdService}
+      }
       case 'voiceServices': return services.voiceServices()
       case 'providerKinds': return services.kinds()
       case 'listRecommendedFishVoices': return services.listRecommendedFishVoices(args)
@@ -157,6 +172,13 @@ export function apply(ctx, config = {}) {
       case 'listVoices': { const result = await providerVoices(args); return {...result,models:undefined} }
       case 'saveService': return services.save(args)
       case 'deleteService': return services.delete(args)
+      case 'useEndpoint': return services.useEndpoint(args)
+      case 'addEndpoint': return services.addEndpoint(args)
+      case 'renameEndpoint': return services.renameEndpoint(args)
+      case 'forgetEndpoint': return services.forgetEndpoint(args)
+      case 'clearEndpoints': return services.clearEndpoints(args)
+      // 设置 › 模型's 最近用过的网址 (model-endpoints.js): list · use · forget · clear
+      case 'modelEndpoints': if (!['list','use','forget','clear'].includes(args.op)) fail('INVALID_INPUT'); return modelEndpoints[args.op](args)
       // how many figures speak with a service (the registered usage sources); asked before deleting one in use.
       case 'serviceUsage': return {count:(await tts.inspectUsage(id(args.id))).reduce((n,u) => n + u.count,0)}
       case 'testService': return services.test(args)

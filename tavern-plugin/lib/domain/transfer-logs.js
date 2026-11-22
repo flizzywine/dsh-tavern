@@ -84,19 +84,21 @@ export function createTransferLogs(deps) {
     return items
   }
 
-  async function collect(keys) {
+  async function collect(keys, options = {}) {
     const map = await games()
     const items = []
     const seen = new Set()
     const requested = (Array.isArray(keys) ? keys : [keys]).map(k => str(k).trim()).filter(Boolean)
     const deduplicateGlobals = requested.length > 1
     const seenGlobalEntries = new Map()
+    const onItem = options && typeof options.onItem === 'function' ? options.onItem : null
     for (const value of requested) {
       if (seen.has(value)) continue
       seen.add(value)
       const session = map.get(value)
       if (!session) throw new Error('日志不存在：' + value)
       const title = str(session.title) || str(session.cardName) || '未命名对话'
+      if (onItem) onItem({ phase: 'start', key: value, title })
       let exported
       try { exported = await exportLogs(str(session.sessionId) || str(session.chatId)) } catch (error) { throw new Error('导出「' + title + '」日志失败：' + errorText(error)) }
       const base64 = str(exported && exported.base64)
@@ -106,6 +108,7 @@ export function createTransferLogs(deps) {
       const rawBytes = Buffer.from(base64, 'base64')
       const content = deduplicateGlobals ? deduplicateDiagnosticsZip(rawBytes, fileName, seenGlobalEntries) : rawBytes
       items.push({ key: value, title, fileName, content })
+      if (onItem) onItem({ phase: 'done', key: value, title })
     }
     return items
   }

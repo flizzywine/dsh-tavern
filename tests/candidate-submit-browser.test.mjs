@@ -13,7 +13,7 @@ const clientSource = await readFile(new URL('../tavern-plugin/lib/client.js', im
 
 // Mount the shipped sidebar and dock. listSessions populates mode through the
 // real sidebar, so this exercises the registered click handler and HTTP client.
-async function mount(t, outcome, { mode = 'story', settings, browser: sharedBrowser, viewport, hasTouch } = {}) {
+async function mount(t, outcome, { mode = 'story', settings, browser: sharedBrowser, viewport, hasTouch, completedChoices, savedChoices } = {}) {
   const browser = sharedBrowser || await chromium.launch({ headless: true })
   if (!sharedBrowser) t.after(() => browser.close())
   const page = await browser.newPage({ viewport, hasTouch })
@@ -38,13 +38,16 @@ async function mount(t, outcome, { mode = 'story', settings, browser: sharedBrow
       if (outcome === 'network' || outcome === 'recover' && attempts === 1) return route.abort('failed')
       if (outcome === 'reject') result = { ok: false, error: '候选输入已过期' }
       else {
-        task = { taskId: 'candidate-1', kind: 'candidate', input: { messageId: 'reply-1' }, status: 'queued', busy: true }
+        task = { taskId: `candidate-${attempts}`, kind: 'candidate', input: { messageId: 'reply-1' }, status: 'queued', busy: true }
         result = { ok: true, sync: sync() }
       }
     } else if (settings && ['getCandidateGuidanceShortcuts', 'saveCandidateGuidanceShortcuts'].includes(method)) {
       try { result = { ok: true, ...await settings[method](args) } }
       catch (error) { result = { ok: false, error: error.message, errorCode: error.code } }
     } else {
+      if (method === 'syncSession' && task?.busy && completedChoices) {
+        task = { ...task, status: 'succeeded', busy: false, terminal: true, result: { candidates: { choices: completedChoices } } }
+      }
       const responses = {
         listCards: { cards: [] },
         getCardOrganization: { organization: { groups: [], assignments: {} } },
@@ -57,7 +60,9 @@ async function mount(t, outcome, { mode = 'story', settings, browser: sharedBrow
         getSession: { view: { mode, latestAssistantTurn: 1, activity: { busy: false }, tavernHelper: { messages: [] } } },
         getActiveInterfaceSkin: { css: '' },
         getTavernSettings: { settings: {} }, // composer and sidebar preferences
-        getChoices: { candidates: settings ? { choices: ['继续走近'] } : null },
+        getCandidatePreferences: { candidateDismissMode: 'after-send' },
+        getCandidateGuidanceShortcuts: { shortcuts: { story: [] } },
+        getChoices: { candidates: savedChoices ?? (settings ? { choices: ['继续走近'] } : null) },
         loadSessionPreviews: { previews: {} },
         cardPluginScopes: { scopes: {} }, // plugin composer actions wait for which plugins belong to which cards
       }
@@ -70,14 +75,14 @@ async function mount(t, outcome, { mode = 'story', settings, browser: sharedBrow
   await page.addScriptTag({ content: await browserReactScript() })
   await page.addScriptTag({ content: `window.__ModuleLoader__={load(d){window.client=d.factory(name=>modules[name]||{});}};` })
   await page.addScriptTag({ content: clientSource })
-  await page.evaluate(() => {
+  await page.evaluate(showResults => {
     const slots = {}, noop = () => () => {}
     const sessionState = { current: '', byId: {} }
     const ctx = {
       inject() { return { dispose() {} } },
       get() {}, provide() {},
       effect(run, label) {
-        if (['dsh-tavern: Tavern workspace browser', 'dsh-tavern: candidate dock actions', 'dsh-tavern: candidate guide panel'].includes(label)) return run()
+        if (['dsh-tavern: Tavern workspace browser', 'dsh-tavern: candidate dock actions', 'dsh-tavern: candidate guide panel'].includes(label) || (showResults && label === 'dsh-tavern: candidate question panel')) return run()
         return () => {}
       },
       slots: { inject(_name, run) { return run() }, register(spec, component) { slots[spec.id || spec.name] = component; return () => {} } },
@@ -91,16 +96,72 @@ async function mount(t, outcome, { mode = 'story', settings, browser: sharedBrow
       wide: true, useSessions: select => select(sessionState), useWorkspaces: select => select({ items: [] }), renderSlot: () => null,
     }))
     // A top-level play session shows its round actions in the composer (input.left).
-    const props = {
-      sessionId: 'game', messageId: 'reply-1', useSession: select => select({ running: false }), useInput: select => select({ draft: '' }),
-      useChat: select => select({ legacy: { nodes: [{ kind: 'assistant', messageId: 'reply-1' }] } }),
+    let draft = ''
+    const root = modules['react-dom/client'].createRoot(document.querySelector('#dock'))
+    window.renderCandidateRound = (running, messageId) => {
+      const props = {
+        sessionId: 'game', useSession: select => select({ running }), useInput: select => select({ draft }),
+        useChat: select => select({ legacy: { nodes: [{ kind: 'assistant', messageId }] } }),
+        inputActions: { setDraft(value) { draft = value } }
+      }
+      root.render(React.createElement(React.Fragment, null,
+        React.createElement(slots['dsh-tavern-candidate-actions'], props), React.createElement(slots['dsh-tavern-candidate-guide'], props),
+        showResults ? React.createElement(slots['dsh-tavern-question'], props) : null))
     }
-    modules['react-dom/client'].createRoot(document.querySelector('#dock')).render(React.createElement(React.Fragment, null,
-      React.createElement(slots['dsh-tavern-candidate-actions'], props), React.createElement(slots['dsh-tavern-candidate-guide'], props)))
-  })
-  await page.getByRole('button', { name: settings ? '重新生成候选项' : '生成候选项', exact: true }).waitFor()
-  return { page, calls, errors, unexpected }
+    window.renderCandidateRound(false, 'reply-1')
+  }, Boolean(completedChoices || savedChoices))
+  await page.getByRole('button', { name: settings || savedChoices ? '重新生成候选项' : '生成候选项', exact: true }).waitFor()
+  return { page, calls, errors, unexpected, setSavedChoices: value => { savedChoices = value } }
 }
+
+test('填入候选并发送后移除上一轮面板，新候选只在正文落盘后显示', async t => {
+  const { page, calls, errors, setSavedChoices } = await mount(t, 'success', { savedChoices: { choices: ['走到门前'] } })
+  const panel = page.locator('.dsh-tavern-candidate-question')
+  await page.getByRole('button', { name: '展开行动列表', exact: true }).click()
+  await panel.getByRole('button', { name: '走到门前' }).click()
+  await panel.locator('.dsh-tavern-question-option[aria-pressed="true"]').waitFor()
+  // DSH publishes the new reply id while the previous candidates are still saved.
+  await page.evaluate(() => window.renderCandidateRound(true, 'reply-2'))
+  await panel.waitFor({ state: 'detached' })
+  setSavedChoices(null)
+  const postCommit = page.waitForResponse(response => response.url().endsWith('/getChoices')
+    && response.request().postDataJSON().messageId === 'reply-2')
+  await page.evaluate(() => window.renderCandidateRound(false, 'reply-2'))
+  await postCommit
+  await page.getByRole('button', { name: '生成候选项', exact: true }).waitFor()
+  assert.equal(await panel.count(), 0)
+  assert.equal(calls.filter(call => call.method === 'getChoices' && call.args.messageId === 'reply-2').length, 1)
+
+  // Foreground-generated candidates for a later reply still appear normally.
+  await page.evaluate(() => window.renderCandidateRound(true, 'reply-3'))
+  setSavedChoices({ choices: ['查看信件'] })
+  await page.evaluate(() => window.renderCandidateRound(false, 'reply-3'))
+  await panel.waitFor()
+  await page.getByRole('button', { name: '展开行动列表', exact: true }).click()
+  await panel.getByRole('button', { name: '查看信件' }).waitFor()
+  assert.equal(await panel.getByRole('button', { name: '走到门前' }).count(), 0)
+  assert.deepEqual(errors, [])
+})
+
+test('手动生成和重新生成完成后，自动展开分组候选项', async t => {
+  const completedChoices = [
+    { type: 'action', actor: '甲', text: '甲打开门' },
+    { type: 'action', actor: '乙', text: '乙检查窗户' },
+    { type: 'event', text: '有人敲门' },
+    { type: 'featured', actors: ['甲', '乙'], text: '甲和乙一起查找线索' },
+  ]
+  const { page, errors } = await mount(t, 'success', { completedChoices })
+  const featured = page.getByRole('tab', { name: '精选', selected: true })
+  await page.getByRole('button', { name: '生成候选项', exact: true }).click()
+  await featured.waitFor()
+  for (const name of ['甲', '乙', '全局']) await page.getByRole('tab', { name }).waitFor()
+  await page.getByRole('button', { name: '收起行动列表', exact: true }).click()
+  await featured.waitFor({ state: 'hidden' })
+  await page.getByRole('button', { name: '重新生成候选项', exact: true }).click()
+  await page.getByRole('button', { name: '重新生成', exact: true }).click()
+  await featured.waitFor()
+  assert.deepEqual(errors, [])
+})
 
 test('候选快捷提示可保存、编辑和排序，重开后按模式读回并恢复默认', async t => {
   const dataRoot = await mkdtemp(join(tmpdir(), 'tavern-candidate-shortcuts-'))

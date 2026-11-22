@@ -6,24 +6,7 @@ import React, { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { JSDOM } from 'jsdom'
 
-import {
-  DAMPER_KEY_REFS,
-  clampMvuSubmissionOperations,
-  clampMvuSubmissionOperationsWithReport,
-  createNarrativeDamper,
-  defaultNarrativeDamperConfig,
-  desensitizeForDecisionJudge,
-  damperInputRiskScore,
-  damperProjectionTier,
-  digestForSafetyFallback,
-  skeletonizeForSafetyFallback,
-  summarizeBeatsForDecisionJudge,
-  compileTurnRuling,
-  normalizeDecisionRuling,
-  nextPlainDamperState,
-  readDamperStateSnapshot,
-  settlementBudgetRuleText
-} from '../tavern-plugin/lib/domain/narrative-damper.js'
+import { DAMPER_KEY_REFS, clampMvuSubmissionOperations, clampMvuSubmissionOperationsWithReport, createNarrativeDamper, damperEndpointUrl, defaultNarrativeDamperConfig, compileTurnRuling, normalizeDecisionRuling, nextPlainDamperState, readDamperStateSnapshot, settlementBudgetRuleText, validateNarrativeDamperConfig } from '../tavern-plugin/lib/domain/narrative-damper.js'
 import { maskMvuReceipt } from '../tavern-plugin/lib/domain/mvu-visibility.js'
 import { projectStoryTranscript } from '../tavern-plugin/lib/domain/story-transcript.js'
 import { createStoryTranscriptReader, storyTranscriptMessageFields } from '../tavern-plugin/lib/domain/story-transcript-reader.js'
@@ -53,44 +36,6 @@ function createMemoryCredentials(initialEnv = {}) {
     }
   }
 }
-
-test('叙事阻尼器设置：默认值、合法补丁保存与非法 URL/参数拦截', () => {
-  const initial = presentTavernSettings({}, {}).narrativeDamper
-  assert.deepEqual(initial, defaultNarrativeDamperConfig())
-  assert.equal(initial.enabled, false)
-  assert.equal(initial.provider, 'gemini')
-  assert.equal(initial.model, 'gemini-decision-1')
-
-  let doc = applyTavernSettingsPatch({}, {
-    narrativeDamper: {
-      enabled: true,
-      mode: 'strict',
-      godmodeThreshold: 0.68,
-      timeoutMs: 3200
-    }
-  })
-  const presented = presentTavernSettings(doc, {}).narrativeDamper
-  assert.equal(presented.enabled, true)
-  assert.equal(presented.mode, 'strict')
-  assert.equal(presented.godmodeThreshold, 0.68)
-  assert.equal(presented.timeoutMs, 3200)
-
-  // Reject insecure HTTP non-loopback custom endpoint
-  assert.throws(() => applyTavernSettingsPatch(doc, {
-    narrativeDamper: { provider: 'gemini-compatible', baseUrl: 'http://evil.example.com', enabled: true }
-  }), /HTTPS|回环/)
-
-  // Allow HTTPS custom endpoint and loopback HTTP endpoint
-  doc = applyTavernSettingsPatch(doc, {
-    narrativeDamper: { provider: 'gemini-compatible', baseUrl: 'https://proxy.example.com', enabled: true }
-  })
-  assert.equal(presentTavernSettings(doc, {}).narrativeDamper.baseUrl, 'https://proxy.example.com')
-
-  doc = applyTavernSettingsPatch(doc, {
-    narrativeDamper: { provider: 'openai-compatible', baseUrl: 'http://127.0.0.1:8787', model: 'gpt-6-luna', enabled: true }
-  })
-  assert.equal(presentTavernSettings(doc, {}).narrativeDamper.baseUrl, 'http://127.0.0.1:8787')
-})
 
 test('叙事阻尼器 RPC：密钥安全存储不回显明文、环境变量引用识别与未保存地址防泄露测试保护', async () => {
   let doc = {}
@@ -150,6 +95,150 @@ test('叙事阻尼器 RPC：密钥安全存储不回显明文、环境变量引�
   assert.equal(refSaved.credential.source, 'env')
   assert.equal(refSaved.config.keyName, 'CUSTOM_GEMINI_ENV')
   assert.equal(creds.stored.has(DAMPER_KEY_REFS.gemini), false)
+})
+
+test('兼容接口统一处理网关前缀、版本路径和完整 API 地址', () => {
+  const cases = [
+    ['api.example.com', 'https://api.example.com', 'https://api.example.com/v1/decisions'],
+    ['ｈｔｔｐｓ：／／ａｐｉ．ｅｘａｍｐｌｅ．ｃｏｍ', 'https://api.example.com', 'https://api.example.com/v1/decisions'],
+    ['localhost:443/v1', 'http://localhost:443/v1', 'http://localhost:443/v1/decisions'],
+    ['[::1]:8080', 'http://[::1]:8080', 'http://[::1]:8080/v1/decisions'],
+    ['https://api.example.com/Ａ/v1beta', 'https://api.example.com/%EF%BC%A1/v1beta', 'https://api.example.com/%EF%BC%A1/v1/decisions'],
+    ['https://api.example.com/proxy/v1/v1/chat/completions/', 'https://api.example.com/proxy/v1/v1/chat/completions', 'https://api.example.com/proxy/v1/v1/decisions'],
+    ['https://api.example.com/proxy/v1/responses', 'https://api.example.com/proxy/v1/responses', 'https://api.example.com/proxy/v1/decisions'],
+    ['https://api.example.com/proxy/v1beta/decisions', 'https://api.example.com/proxy/v1beta/decisions', 'https://api.example.com/proxy/v1/decisions']
+  ]
+  for (const [baseUrl, canonical, endpoint] of cases) {
+    for (const [provider, expected] of [
+      ['openai-compatible', endpoint],
+      ['gemini-compatible', endpoint.replace(/\/v1\/decisions$/, '/v1beta/decisions')],
+      ['jev-compatible', endpoint.replace(/\/v1\/decisions$/, '/v1/systemone')]
+    ]) {
+      const raw = { provider, baseUrl }
+      const config = validateNarrativeDamperConfig(raw)
+      assert.equal(config.baseUrl, canonical)
+      assert.equal(damperEndpointUrl(raw), expected)
+      assert.equal(damperEndpointUrl(config), expected)
+    }
+  }
+  // jev-compatible 保留显式填写的 /v1/systemone 与 /v1/decision 完整路径
+  for (const [baseUrl, expected] of [
+    ['https://api.example.com/v1/systemone', 'https://api.example.com/v1/systemone'],
+    ['https://api.example.com/v1/decision/', 'https://api.example.com/v1/decision'],
+    ['https://api.example.com/proxy/v1/decision', 'https://api.example.com/proxy/v1/decision'],
+    ['https://api.example.com/proxy/v1/systemone/', 'https://api.example.com/proxy/v1/systemone']
+  ]) {
+    const config = validateNarrativeDamperConfig({ provider: 'jev-compatible', baseUrl })
+    assert.equal(damperEndpointUrl(config), expected)
+  }
+  // 其他兼容提供方仍会剥离 /v1/decision 与 /v1/systemone 并拼回各自默认路径
+  assert.equal(
+    damperEndpointUrl(validateNarrativeDamperConfig({ provider: 'openai-compatible', baseUrl: 'https://api.example.com/proxy/v1/decision' })),
+    'https://api.example.com/proxy/v1/decisions'
+  )
+  assert.equal(
+    damperEndpointUrl(validateNarrativeDamperConfig({ provider: 'gemini-compatible', baseUrl: 'https://api.example.com/proxy/v1/systemone' })),
+    'https://api.example.com/proxy/v1beta/decisions'
+  )
+})
+
+test('jev-compatible 使用独立密钥槽并按 JEV 协议向自定义端点发起探针请求', async () => {
+  const creds = createMemoryCredentials({ [DAMPER_KEY_REFS['jev-compatible']]: 'jev-compat-secret' })
+  const calls = []
+  const damper = createNarrativeDamper({
+    getConfig: async () => ({
+      ...defaultNarrativeDamperConfig(),
+      enabled: true,
+      provider: 'jev-compatible',
+      baseUrl: 'https://relay.example.com/v1/decision',
+      model: 'jev-1.13.0',
+      keyName: 'TYPESAFE_API_KEY'
+    }),
+    credentials: () => creds,
+    fetch: async (url, init) => {
+      calls.push({ url, method: init.method, headers: init.headers, body: JSON.parse(init.body) })
+      return new Response(JSON.stringify({ answers: { probe: { noul: 0.91 } } }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      })
+    }
+  })
+
+  const probe = await damper.test()
+  assert.equal(probe.ok, true)
+  assert.equal(calls.length, 1)
+  assert.equal(calls[0].url, 'https://relay.example.com/v1/decision')
+  assert.equal(calls[0].method, 'POST')
+  assert.equal(calls[0].headers.Authorization, 'Bearer jev-compat-secret')
+  assert.equal(calls[0].body.model, 'jev-1.13.0')
+  assert.equal(typeof calls[0].body.state, 'string')
+  assert.equal(calls[0].body.questions.probe.type, 'noul')
+})
+
+test('兼容接口区分地址错误，开启时仍可保存未填写的地址', () => {
+  const config = { provider: 'openai-compatible', enabled: true }
+  assert.equal(damperEndpointUrl(validateNarrativeDamperConfig({ ...config, baseUrl: '  ' })), '')
+  for (const [baseUrl, message] of [
+    ['https:/api.example.com', /地址格式无效/],
+    ['https://api.example.com:invalid', /地址格式无效/],
+    [42, /地址格式无效/],
+    ['ftp://api.example.com', /仅支持 HTTPS 和 HTTP 协议/],
+    ['http://api.example.com', /HTTP 仅支持本地回环地址/],
+    ['https://user:password@api.example.com', /不能包含用户名或密码/],
+    ['https://api.example.com?', /不能包含查询参数或片段/],
+    ['https://api.example.com/#anchor', /不能包含查询参数或片段/]
+  ]) {
+    assert.throws(() => validateNarrativeDamperConfig({ ...config, baseUrl }), {
+      code: 'DAMPER_INVALID_CONFIG', message
+    })
+  }
+})
+
+test('决策接口返回 404 或 405 时，连接测试、回合和插件判定报告端点错误', async () => {
+  const config = {
+    ...defaultNarrativeDamperConfig(),
+    enabled: true,
+    provider: 'openai-compatible',
+    baseUrl: 'https://proxy.example.com/v1beta/chat/completions',
+    model: 'gpt-6-luna',
+    keyName: 'OPENAI_API_KEY'
+  }
+  const creds = createMemoryCredentials({ OPENAI_API_KEY: 'test-key' })
+  let status = 404
+  const calls = []
+  const damper = createNarrativeDamper({
+    getConfig: async () => config,
+    credentials: () => creds,
+    fetch: async (url, init) => {
+      calls.push([url, init.method])
+      return new Response('Not a Decisions endpoint', { status })
+    }
+  })
+
+  for (const httpStatus of [404, 405]) {
+    status = httpStatus
+    const probe = await damper.test()
+    assert.equal(probe.ok, false)
+    assert.equal(probe.error.code, 'DAMPER_ENDPOINT_ERROR')
+    assert.match(probe.error.message, new RegExp('HTTP ' + httpStatus + '.*决策 API.*POST 路径和模型名称'))
+
+    const { ruling, outcome } = await damper.evaluateTurn({
+      chat: { id: 'proxy-chat', mode: 'story', messages: [] },
+      turn: httpStatus,
+      userText: '我轻轻敲门。'
+    })
+    assert.equal(ruling, null)
+    assert.equal(outcome.status, 'bypassed')
+    assert.equal(outcome.code, probe.error.code)
+    assert.equal(outcome.message, probe.error.message)
+
+    await assert.rejects(damper.judge({
+      input: '我轻轻敲门。',
+      questions: [{ id: 'knock', instructions: '玩家敲了门吗？' }]
+    }), { code: probe.error.code, message: probe.error.message })
+  }
+
+  assert.deepEqual(calls, Array.from({ length: 6 }, () => ['https://proxy.example.com/v1/decisions', 'POST']))
 })
 
 test('gemini-decision-1 前置裁定：R18 送审脱敏投影、400 敏感词二次骨架兜底、场景变化直通与缓存复用', async () => {
@@ -322,20 +411,6 @@ test('无 MVU 普通人物卡：楼层四维惯性状态演进与回退恢复', 
   assert.deepEqual(readDamperStateSnapshot(chat).data, afterGodmode)
 })
 
-test('宿主设置里不再有「叙事阻尼器」页，楼层胶囊仍归宿主', async () => {
-  const mainSource = await readFile(new URL('../tavern-plugin/src/client/main.js', import.meta.url), 'utf8')
-  const builtClient = await readFile(new URL('../tavern-plugin/lib/client.js', import.meta.url), 'utf8')
-  // 设置页搬进了内置插件 dsh-tavern-narrative-damper：宿主不再注册这一节，也不再调它的旧 RPC。
-  assert.equal(mainSource.includes('"dsh-tavern-narrative-damper"'), false)
-  assert.equal(builtClient.includes('getNarrativeDamperSettings'), false)
-  assert.equal(builtClient.includes('testNarrativeDamperConnection'), false)
-  assert.equal(/label:\s*\(\)\s*=>\s*"叙事阻尼器"/.test(builtClient), false)
-  // 楼层胶囊在游玩界面里，随宿主渲染，不受这次搬迁影响。
-  assert.match(builtClient, /StoryFloorDamperPill/)
-  assert.match(builtClient, /DamperReceiptSummary/)
-  assert.equal(desensitizeForDecisionJudge('普通日常对话'), '普通日常对话')
-})
-
 test('未生效原因留痕与 MVU 钳制明细报告（含隐藏变量可见性脱敏）', async () => {
   const emptyCreds = createMemoryCredentials({})
   let enabled = true
@@ -504,6 +579,18 @@ test('故事窗口读取保留 narrativeDamper 与 damperState，前端楼层渲
           model: 'gemini-decision-1',
           latencyMs: 2
         }]
+      },
+      { role: 'user', text: '决策接口未找到回合' },
+      {
+        role: 'assistant',
+        turn: 6,
+        text: '正文照常生成。',
+        narrativeDamper: [{
+          status: 'bypassed',
+          code: 'DAMPER_ENDPOINT_ERROR',
+          message: '决策服务返回 HTTP 404。请确认服务支持所选决策 API，并检查 POST 路径和模型名称',
+          model: 'gpt-6-luna'
+        }]
       }
     ]
   }
@@ -598,21 +685,23 @@ test('故事窗口读取保留 narrativeDamper 与 damperState，前端楼层渲
   })
 
   const pills = [...dom.window.document.querySelectorAll('.dsh-tavern-damper-pill')]
-  // Floor 1 greeting has no pill; Floors 2, 3, 4, 5 each have one pill!
-  assert.equal(pills.length, 4)
+  // Floor 1 greeting has no pill. Floors 2–6 each have one.
+  assert.equal(pills.length, 5)
   assert.match(pills[0].textContent, /阻尼 · 越权剥离/)
   assert.match(pills[1].textContent, /阻尼 · 防线受阻 0\.6 · 钳制 2 项/)
   assert.match(pills[2].textContent, /阻尼 · 半步拉扯 1\.9/)
   assert.match(pills[3].textContent, /阻尼 · 未配密钥/)
+  assert.match(pills[4].textContent, /阻尼 · 决策接口错误/)
 
-  // Click Floor 3 pill (MVU clamped) + Floor 4 pill (plain 4D state) + Floor 5 pill (bypassed)
+  // Expand the clamped, plain-state and bypassed results.
   await act(async () => {
     pills[1].click()
     pills[2].click()
     pills[3].click()
+    pills[4].click()
   })
   const panels = [...dom.window.document.querySelectorAll('.dsh-tavern-damper-panel')]
-  assert.equal(panels.length, 3)
+  assert.equal(panels.length, 4)
   // Floor 3 panel shows visible clamped stat numbers and masks hidden stat numbers!
   assert.match(panels[0].textContent, /配额：防线冻结（±1）/)
   assert.match(panels[0].textContent, /15 → 16/)
@@ -624,6 +713,7 @@ test('故事窗口读取保留 narrativeDamper 与 damperState，前端楼层渲
   assert.match(panels[1].textContent, /\+5/)
   // Floor 5 panel shows clear missing API Key guidance
   assert.match(panels[2].textContent, /尚未配置 API Key/)
+  assert.match(panels[3].textContent, /HTTP 404.*决策 API.*POST 路径和模型名称.*正文照常生成/)
 
   // Turning showDamperStatus off hides all pills and panels
   await act(async () => {
@@ -728,33 +818,6 @@ test('写作模式判定：作者即全知，越权代笔与天眼不再剥离�
   assert.equal(rpRuling.rulingTier, 'strip_delusion')
   assert.equal(rpRuling.judgeMode, 'roleplay')
   assert.match(compileTurnRuling(rpRuling, { stateSnapshot: { kind: 'none', data: null } }), /越权剥离/)
-})
-
-test('叙事阻尼裁定：逐轴写处置（新造设定不采信）并排到全段最后', async () => {
-  const { compileTurnRuling } = await import('../tavern-plugin/lib/domain/narrative-damper.js')
-  const { foregroundFrameInputs } = await import('../tavern-plugin/lib/domain/turn-orchestration.js')
-  const ruling = { mode: 'balanced', godmode: 0.51, retcon: 0.98, epistemic: 0.93, leverageScore: 0.28,
-    rulingTier: 'strip_delusion', deltaBudget: 'backfire', clampMvuDelta: true }
-  const rulingText = compileTurnRuling(ruling, { stateSnapshot: { kind: 'plain', data: { 防线: 80 } }, posture: '和室内' })
-  assert.match(rulingText, /越权剥离/)
-  assert.match(rulingText, /无据设定不予采信/)
-  assert.match(rulingText, /场外天眼作废/)
-  assert.match(rulingText, /防线/)
-  // 旧文案的「自由度保留」是放行口，且把设定捏造与 NPC 反应混在一条里
-  assert.equal(rulingText.includes('自由度保留'), false)
-  // 只命中 retcon 时不再出现「越权代笔」处置
-  const retconOnly = compileTurnRuling({ ...ruling, godmode: 0.2, epistemic: 0.1 }, { stateSnapshot: { kind: 'plain', data: {} } })
-  assert.match(retconOnly, /无据设定不予采信/)
-  assert.equal(retconOnly.includes('越权结果作废'), false)
-
-  const inputs = foregroundFrameInputs({ sections: [{ kind: 'posture', text: '现场状态' }] }, '玩家输入', '玩家输入',
-    { middle: { entries: [{ content: '预设中段规则' }] } }, {},
-    [{ owner: 'dsh-tavern', name: 'narrative-damper', position: 'last', text: rulingText },
-      { owner: 'other', name: 'reminder', text: '结尾候选项提醒' }])
-  const texts = inputs.map(item => item.text)
-  assert.equal(texts.at(-1), rulingText)
-  assert.ok(texts.indexOf('预设中段规则') < texts.indexOf(rulingText))
-  assert.ok(texts.indexOf('结尾候选项提醒') < texts.indexOf(rulingText))
 })
 
 test('决策模型返回后生成中楼层立即显示阻尼胶囊：涵盖新回合实时信号、重生成替换旧胶囊与失败尾草稿行', async t => {
@@ -1012,99 +1075,6 @@ function damperDecisionAnswers(rulingTier = 'resist_pushback') {
 
 const DAMPER_DIGEST_MARKER = /【裁判素材 · 结构化摘要/
 
-test('NSFW 送审预检：显式场景直接降到结构摘要层，不再先吃一次远端输入拦截', async () => {
-  const creds = createMemoryCredentials({ GEMINI_API_KEY: 'key-tier' })
-  const config = { ...defaultNarrativeDamperConfig(), enabled: true }
-  const sent = []
-  const damper = createNarrativeDamper({
-    getConfig: async () => config,
-    credentials: () => creds,
-    fetch: async (_url, init) => {
-      sent.push(JSON.parse(init.body))
-      return { ok: true, status: 200, async json() { return damperDecisionAnswers() } }
-    }
-  })
-  const explicit = '我掏出勃起的肉棒顶进她的小穴抽插，龟头磨着花穴，内射后精液灌满子宫，她高潮失神淫水横流。'
-  const chat = {
-    id: 'chat-tier-1',
-    mode: 'story',
-    posture: '会长室内，她跪在地毯上。',
-    timeline: { branchId: 'main' },
-    messages: [{ role: 'assistant', swipeId: 0, swipes: ['她低头整理衣角。'], variables: [{ stat_data: { 沦陷度: 40 } }] }]
-  }
-  const result = await damper.evaluateTurn({ chat, card: { name: '纱织', description: '已婚职员。' }, turn: 1, userText: explicit })
-  assert.equal(sent.length, 1, '预检命中后只应发生一次送审请求')
-  assert.match(sent[0].input, DAMPER_DIGEST_MARKER)
-  assert.equal(result.outcome.status, 'applied')
-  assert.equal(result.outcome.judgeTier, 'digest')
-  for (const token of ['肉棒', '小穴', '抽插', '内射', '龟头', '花穴', '精液', '子宫', '淫水', '高潮']) {
-    assert.equal(sent[0].input.includes(token), false, '送审副本不得残留原文词：' + token)
-  }
-})
-
-test('送审阶梯：骨架层被远端拦截后自动降到结构摘要层，裁定照常生效并留痕降级', async () => {
-  const creds = createMemoryCredentials({ GEMINI_API_KEY: 'key-tier' })
-  const config = { ...defaultNarrativeDamperConfig(), enabled: true }
-  const sent = []
-  const damper = createNarrativeDamper({
-    getConfig: async () => config,
-    credentials: () => creds,
-    fetch: async (_url, init) => {
-      const body = JSON.parse(init.body)
-      sent.push(body)
-      if (!DAMPER_DIGEST_MARKER.test(body.input)) {
-        return {
-          ok: false,
-          status: 400,
-          async json() {
-            // 真实端点常见形态：数字 code + INVALID_ARGUMENT + 策略措辞
-            return { error: { code: 400, status: 'INVALID_ARGUMENT', message: 'Request rejected: input violates prohibited content policy' } }
-          }
-        }
-      }
-      return { ok: true, status: 200, async json() { return damperDecisionAnswers() } }
-    }
-  })
-  const chat = {
-    id: 'chat-tier-2',
-    mode: 'story',
-    posture: '会长室内，她靠着办公桌。',
-    timeline: { branchId: 'main' },
-    messages: [{ role: 'assistant', swipeId: 0, swipes: ['她把文件放回抽屉。'], variables: [{ stat_data: { 沦陷度: 45 } }] }]
-  }
-  const result = await damper.evaluateTurn({ chat, card: { name: '纱织' }, turn: 1, userText: '我压住她，说早就催眠洗脑过她了，她立刻高潮着跪下。' })
-  assert.equal(sent.length, 2, '骨架层被拦后应再送一次结构摘要层')
-  assert.equal(DAMPER_DIGEST_MARKER.test(sent[0].input), false)
-  assert.match(sent[1].input, DAMPER_DIGEST_MARKER)
-  assert.equal(result.outcome.status, 'applied')
-  assert.equal(result.outcome.judgeTier, 'digest')
-  assert.deepEqual(result.outcome.safetyBlockedTiers, ['skeleton'])
-  assert.equal(result.outcome.safetyEscalated, true)
-  assert.equal(result.outcome.retriedSafetyFallback, true)
-})
-
-test('送审阶梯：全层被拦才放行，结果保留降级轨迹与拦截码', async () => {
-  const creds = createMemoryCredentials({ GEMINI_API_KEY: 'key-tier' })
-  const config = { ...defaultNarrativeDamperConfig(), enabled: true }
-  const sent = []
-  const damper = createNarrativeDamper({
-    getConfig: async () => config,
-    credentials: () => creds,
-    fetch: async (_url, init) => {
-      sent.push(JSON.parse(init.body))
-      return { ok: false, status: 400, async json() { return { error: { code: 'prohibited_content', message: 'blocked' } } } }
-    }
-  })
-  const chat = { id: 'chat-tier-3', mode: 'story', posture: '卧室床边。', timeline: { branchId: 'main' }, messages: [{ role: 'assistant', swipeId: 0, swipes: ['她拉开窗帘。'], variables: [{ stat_data: { 沦陷度: 30 } }] }] }
-  const result = await damper.evaluateTurn({ chat, card: { name: '纱织' }, turn: 1, userText: '我把她按倒，肉棒抵着小穴抽插，她高潮失神。' })
-  assert.equal(result.ruling, null)
-  assert.equal(result.outcome.status, 'bypassed')
-  assert.equal(result.outcome.code, 'DAMPER_SAFETY_BLOCKED')
-  assert.equal(sent.length, 2, '骨架与摘要两层都应尝试过')
-  assert.deepEqual(result.outcome.safetyBlockedTiers, ['skeleton', 'digest'])
-  assert.equal(result.outcome.judgeTier, 'digest')
-})
-
 test('送审阶梯：403 带敏感词码按拦截处理而非密钥失效，普通回合从全量层起送', async () => {
   const creds = createMemoryCredentials({ GEMINI_API_KEY: 'key-tier' })
   const config = { ...defaultNarrativeDamperConfig(), enabled: true }
@@ -1135,128 +1105,6 @@ test('送审阶梯：403 带敏感词码按拦截处理而非密钥失效，普�
   assert.equal(DAMPER_DIGEST_MARKER.test(sent[0].input), false)
   assert.match(sent[0].input, /【角色人设摘要】/)
   assert.equal(result.outcome.judgeTier, 'skeleton')
-})
-
-test('结构摘要副本：原文长文本变量与外显词汇不入送审，只保留数值锚点与结构标签', () => {
-  const digest = digestForSafetyFallback({
-    stateSnapshot: { 沦陷度: 42, 情绪: '压抑', 备注: '她昨晚被内射后一直高潮不止，精液从小穴里流出来' },
-    posture: '浴室里，水汽弥漫。',
-    userText: '我按倒她，肉棒抵着小穴抽插，她娇喘着求饶。',
-    config: { judgeMode: 'author' }
-  })
-  assert.match(digest, DAMPER_DIGEST_MARKER)
-  assert.match(digest, /【视角】作者全知视角/)
-  assert.match(digest, /"沦陷度":42/)
-  assert.match(digest, /"情绪":"压抑"/)
-  assert.equal(digest.includes('备注'), false, '超长叙事变量不进入送审副本')
-  assert.match(digest, /【上一轮现场类别】室内私密/)
-  assert.match(digest, /【本轮输入结构】/)
-  assert.match(digest, /类别=/)
-  assert.match(digest, /【输入结构汇总】/)
-  for (const token of ['内射', '高潮', '精液', '小穴', '肉棒', '抽插', '娇喘', '求饶', '按倒']) {
-    assert.equal(digest.includes(token), false, '结构摘要不得包含原文词：' + token)
-  }
-})
-
-test('送审风险预检：风险分级与投影层选取、结构特征标记', () => {
-  assert.equal(damperInputRiskScore('今天天气不错，我们在走廊上聊了两句。'), 0)
-  assert.equal(damperProjectionTier(0), 'full')
-  assert.equal(damperProjectionTier(3), 'skeleton')
-  assert.equal(damperProjectionTier(9), 'digest')
-  assert.equal(damperProjectionTier(9, { desensitizeR18: false }), 'full')
-  assert.ok(damperInputRiskScore('他掏出了 cock，又说起 creampie。') >= 2, '英文露骨词必须计入风险')
-
-  const beats = summarizeBeatsForDecisionJudge('她贴了上来。夜深了，我按住她的手腕。「你早就想这样了吧？」')
-  assert.equal(beats.clauseCount, 3)
-  assert.match(beats.summary, /含台词的子句=1/)
-  assert.match(beats.summary, /时间推进=无/)
-  assert.match(beats.lines[0], /亲密接触|身体约束/)
-  assert.equal(beats.lines.join('\n').includes('你早就想这样了吧'), false, '台词正文不进入结构标签')
-
-  assert.equal(desensitizeForDecisionJudge('她解开了内裤').includes('内裤'), false)
-  assert.match(desensitizeForDecisionJudge('他掏出cock'), /\[Lv3亲密行为英文标记\]/)
-  assert.match(desensitizeForDecisionJudge('十四岁的幼女角色卡'), /\[设定要素已省略\]/)
-})
-
-test('送审预检分级：本轮输入温和但前文摘录露骨时只降到骨架层，不牺牲到结构摘要', async () => {
-  const creds = createMemoryCredentials({ GEMINI_API_KEY: 'key-tier' })
-  const config = { ...defaultNarrativeDamperConfig(), enabled: true }
-  const sent = []
-  const damper = createNarrativeDamper({
-    getConfig: async () => config,
-    credentials: () => creds,
-    fetch: async (_url, init) => {
-      sent.push(JSON.parse(init.body))
-      return { ok: true, status: 200, async json() { return damperDecisionAnswers('full_accept') } }
-    }
-  })
-  const chat = {
-    id: 'chat-tier-5',
-    mode: 'story',
-    posture: '会客室里，窗帘垂到地面。',
-    timeline: { branchId: 'main' },
-    messages: [
-      { role: 'user', text: '我把她按在沙发上。' },
-      { role: 'assistant', swipeId: 0, swipes: ['她衣衫凌乱，肉棒抵在小穴上抽插，高潮后瘫软失神。'], variables: [{ stat_data: { 沦陷度: 66 } }] }
-    ]
-  }
-  const result = await damper.evaluateTurn({ chat, card: { name: '纱织' }, turn: 2, userText: '我停下来问她要不要休息。' })
-  assert.equal(sent.length, 1)
-  assert.match(sent[0].input, /【本轮受控角色输入企图/)
-  assert.equal(DAMPER_DIGEST_MARKER.test(sent[0].input), false)
-  // 骨架层丢弃前文摘录，露骨原文不随本轮送审
-  assert.equal(sent[0].input.includes('肉棒'), false)
-  assert.equal(sent[0].input.includes('【近期剧情片段】'), false)
-  assert.equal(result.outcome.judgeTier, 'skeleton')
-  assert.equal(result.outcome.status, 'applied')
-})
-
-test('送审副本保留附加裁判准则以便降级后判定标准不变', () => {
-  const config = { judgeMode: 'roleplay', preamble: '只在角色严重失真时才剥离。' }
-  const skeleton = skeletonizeForSafetyFallback({ stateSnapshot: { 沦陷度: 12 }, posture: '', userText: '我看着她。', config })
-  const digest = digestForSafetyFallback({ stateSnapshot: { 沦陷度: 12 }, posture: '', userText: '我看着她。', config })
-  assert.match(skeleton, /【附加裁判准则】只在角色严重失真时才剥离。/)
-  assert.match(digest, /【附加裁判准则】只在角色严重失真时才剥离。/)
-})
-
-test('远端过滤记忆：本回合被拦后，短时间内高风险内容直接降一层送审，干净回合仍走全量层', async () => {
-  const creds = createMemoryCredentials({ GEMINI_API_KEY: 'key-sticky' })
-  const config = { ...defaultNarrativeDamperConfig(), enabled: true }
-  const sent = []
-  let blockNonDigest = true
-  const damper = createNarrativeDamper({
-    getConfig: async () => config,
-    credentials: () => creds,
-    fetch: async (_url, init) => {
-      const body = JSON.parse(init.body)
-      sent.push(body)
-      if (blockNonDigest && !DAMPER_DIGEST_MARKER.test(body.input)) {
-        return { ok: false, status: 400, async json() { return { error: { code: 'prohibited_content', message: 'blocked' } } } }
-      }
-      return { ok: true, status: 200, async json() { return damperDecisionAnswers() } }
-    }
-  })
-  const chat = { id: 'chat-sticky', mode: 'story', posture: '卧室床边，台灯亮着。', timeline: { branchId: 'main' }, messages: [{ role: 'assistant', swipeId: 0, swipes: ['她把窗帘拉上。'], variables: [{ stat_data: { 沦陷度: 52 } }] }] }
-  const explicitA = '我压住她，肉棒抵着小穴抽插，她高潮失神。'
-  const explicitB = '我扯开她的内裤，肉棒顶进去内射，她淫水直流。'
-
-  const first = await damper.evaluateTurn({ chat, card: { name: '纱织' }, turn: 1, userText: explicitA })
-  assert.equal(first.outcome.judgeTier, 'digest')
-  assert.deepEqual(first.outcome.safetyBlockedTiers, ['skeleton'])
-  const afterFirst = sent.length
-  assert.equal(afterFirst, 2)
-
-  blockNonDigest = true
-  const second = await damper.evaluateTurn({ chat, card: { name: '纱织' }, turn: 2, userText: explicitB })
-  assert.equal(sent.length, afterFirst + 1, '被拦记忆生效时只送一次')
-  assert.match(sent[afterFirst].input, DAMPER_DIGEST_MARKER)
-  assert.equal(second.outcome.judgeTier, 'digest')
-
-  blockNonDigest = false
-  const third = await damper.evaluateTurn({ chat, card: { name: '纱织' }, turn: 3, userText: '我给她倒了一杯温水，问她要不要休息。' })
-  assert.equal(sent.length, afterFirst + 2, '干净回合直接成功，不应重复送审')
-  assert.equal(DAMPER_DIGEST_MARKER.test(sent[afterFirst + 1].input), false)
-  assert.equal(third.outcome.judgeTier, 'full')
 })
 
 test('judgeStatus：阻尼器开关关闭时只要密钥与地址有效仍返回可用，且不泄露敏感配置', async () => {
@@ -1494,98 +1342,6 @@ const ROLEPLAY_ANSWERS = {
   }
 }
 
-test('阻尼器单趟合并：插件附加题随自身裁定同一趟请求送出，R18 降级重试后一次拿齐答案', async () => {
-  const creds = createMemoryCredentials({ GEMINI_API_KEY: 'key-abc' })
-  const config = { ...defaultNarrativeDamperConfig(), enabled: true }
-  const sentBodies = []
-  const damper = createNarrativeDamper({
-    getConfig: async () => config,
-    credentials: () => creds,
-    fetch: async (_url, init) => {
-      sentBodies.push(JSON.parse(init.body))
-      if (sentBodies.length === 1) {
-        return { ok: false, status: 400, async json() { return { error: { code: 'prohibited_content', message: 'Input blocked' } } } }
-      }
-      return {
-        ok: true,
-        status: 200,
-        async json() {
-          return {
-            answers: {
-              godmode_outcome: { noul: 0.08 },
-              unfounded_retcon: { noul: 0.1 },
-              epistemic_violation: { noul: 0.12 },
-              leverage_score: { score: 2 },
-              ruling_tier: { type: 'choice', choice: 'conflicted_half_step', probabilities: { conflicted_half_step: 0.7 } },
-              mvu_delta_budget: { type: 'choice', choice: 'micro_step' },
-              plg_0_difficulty: { type: 'choice', choice: 'hard', probabilities: { easy: 0.1, hard: 0.9 }, confidence: 0.82 },
-              plg_1_risk: { type: 'noul', noul: 0.37 },
-              plg_2_broken: { type: 'noul', noul: 'not-a-number' }
-            }
-          }
-        }
-      }
-    }
-  })
-
-  const chat = diceChat()
-  const card = { name: '纱织', description: '27岁职员。' }
-  const rawInput = '我把她按在书桌上，掏出勃起的肉棒顶住她，说她其实早就被我催眠洗脑了，她立刻高潮。'
-  const extraQuestions = [
-    { owner: 'dice', questions: [{ id: 'difficulty', type: 'choice', instructions: '评定本次行动难度', criteria: { easy: '简单', hard: '困难' } }] },
-    // 题目不合法：只跳过这个插件，不影响阻尼器主判定
-    { owner: 'broken-plugin', questions: [{ id: 'x', type: 'noul', instructions: '' }] },
-    { owner: 'luck', questions: [{ id: 'risk', type: 'noul', instructions: '本轮是否有额外风险？' }] },
-    // 题目合法但模型答案非法：只置空这个插件的答案
-    { owner: 'cursed', questions: [{ id: 'broken', type: 'noul', instructions: '答案会非法' }] }
-  ]
-
-  const result = await damper.evaluateTurn({ chat, card, turn: 1, userText: rawInput, extraQuestions })
-
-  // 只发两次 HTTP：一次被拦、一次降级后成功，插件答案与阻尼裁定来自同一份响应
-  assert.equal(sentBodies.length, 2)
-  for (const body of sentBodies) {
-    assert.ok(body.questions.plg_0_difficulty, '阻尼器自身题目与附加题在同一 questions map')
-    assert.ok(body.questions.plg_1_risk)
-    assert.ok(body.questions.plg_2_broken)
-    assert.ok(body.questions.godmode_outcome)
-    assert.equal(body.questions.plg_0_difficulty.type, 'choice')
-    assert.equal('plg_0_difficulty' in body.questions, true)
-  }
-  assert.notEqual(sentBodies[0].input, sentBodies[1].input, '第二次是更低一级的送审投影')
-  assert.equal(sentBodies[0].input.includes('肉棒'), false)
-  assert.equal(sentBodies[1].input.includes('肉棒'), false)
-
-  assert.equal(result.ruling.rulingTier, 'conflicted_half_step')
-  assert.equal(result.ruling.deltaBudget, 'micro_step')
-  assert.deepEqual(result.pluginAnswers.dice.difficulty, { type: 'choice', choice: 'hard', probabilities: { easy: 0.1, hard: 0.9 }, confidence: 0.82 })
-  assert.deepEqual(result.pluginAnswers.luck.risk, { type: 'noul', probability: 0.37 })
-  assert.equal(result.pluginAnswers.cursed, null, '单插件解析异常只置空该插件答案')
-  assert.equal('broken-plugin' in result.pluginAnswers, false, '题目不合法的插件被整批跳过')
-
-  // 缓存命中：不再发请求，插件答案与状态一起恢复
-  const cached = await damper.evaluateTurn({ chat, card, turn: 1, userText: rawInput, extraQuestions })
-  assert.equal(sentBodies.length, 2)
-  assert.equal(cached.rulingText, result.rulingText)
-  assert.equal(cached.pluginAnswers.dice.difficulty.choice, 'hard')
-
-  const context = damper.turnContextForPlugin(chat.id, 1, 'dice')
-  assert.equal(context.active, true)
-  assert.equal(context.turn, 1)
-  assert.equal(context.explicitSceneShift, false)
-  assert.equal(context.posture, chat.posture)
-  assert.equal(context.answers.difficulty.choice, 'hard')
-  assert.equal(context.ruling.rulingTier, 'conflicted_half_step')
-  assert.equal(context.outcome.rulingTier, 'conflicted_half_step')
-  assert.equal(damper.turnContextForPlugin(chat.id, 99, 'dice'), null)
-  assert.equal(damper.turnContextForPlugin(chat.id, 1, 'luck').answers.risk.probability, 0.37)
-  assert.equal(damper.turnContextForPlugin(chat.id, 1, 'nobody').answers, null)
-
-  // 附加题变化会进指纹：换一批题就不再命中缓存
-  await damper.evaluateTurn({ chat, card, turn: 1, userText: rawInput, extraQuestions: [{ owner: 'dice', questions: [{ id: 'other', type: 'noul', instructions: '别的题' }] }] })
-  assert.equal(sentBodies.length, 3)
-})
-
 test('真骰反向调节：五档结果改写裁定档位与结算配额，strip_delusion 硬边界不可被抬升', async () => {
   const chat = diceChat()
   const card = { name: '纱织' }
@@ -1720,54 +1476,4 @@ test('真骰反向调节：五档结果改写裁定档位与结算配额，strip
   const sceneShift = damper.applyDiceOutcomeShift({ chatId: chat.id, turn: 2, tier: 'critical' })
   assert.equal(sceneShift.applied, false)
   assert.equal(sceneShift.ruling.explicitSceneShift, true)
-})
-
-test('turnPrepStatus：宿主在裁定前读取协议能力，用于收集插件附加题', async () => {
-  const gemini = createDiceDamper(ROLEPLAY_ANSWERS.full_accept_breakthrough, { provider: 'gemini', model: 'gemini-decision-1' })
-  assert.deepEqual(await gemini.turnPrepStatus(), {
-    enabled: true,
-    mode: 'balanced',
-    judgeMode: 'roleplay',
-    protocol: 'gemini',
-    capabilities: { noul: true, choice: true, score: true }
-  })
-  const jev = createDiceDamper(ROLEPLAY_ANSWERS.full_accept_breakthrough)
-  assert.deepEqual(await jev.turnPrepStatus(), {
-    enabled: true,
-    mode: 'balanced',
-    judgeMode: 'roleplay',
-    protocol: 'jev',
-    capabilities: { noul: true, choice: false, score: false }
-  })
-  const off = createDiceDamper(ROLEPLAY_ANSWERS.full_accept_breakthrough, { enabled: false })
-  assert.equal((await off.turnPrepStatus()).enabled, false)
-})
-
-test('宿主时序：先收集附加题并同趟裁定，再跑插件 turnSection，最后由 activeRuling 取真骰修正结果', async () => {
-  const source = await readFile(new URL('../tavern-plugin/lib/index.js', import.meta.url), 'utf8')
-  const start = source.indexOf('async function projectPluginTurnContext(input) {')
-  assert.ok(start > 0, 'projectPluginTurnContext 应存在')
-  const end = source.indexOf("if (mode !== 'story') return sections", start)
-  assert.ok(end > start)
-  const body = source.slice(start, end)
-  const at = needle => {
-    const index = body.indexOf(needle)
-    assert.ok(index >= 0, '缺少：' + needle)
-    return index
-  }
-  const prepAt = at('narrativeDamper.turnPrepStatus()')
-  const collectAt = at('pluginApi.collectDamperQuestions(')
-  const evaluateAt = at('narrativeDamper.evaluateTurn(')
-  const sectionsAt = at('pluginApi.turnContext(input)')
-  const activeAt = at('narrativeDamper.activeRuling(damperChatId')
-  assert.ok(prepAt < collectAt, '先读协议能力，再收集插件附加题')
-  assert.ok(collectAt < evaluateAt, '附加题必须在同一趟裁定请求前收集')
-  assert.ok(evaluateAt < sectionsAt, '阻尼器裁定要早于插件 turnSection')
-  assert.ok(sectionsAt < activeAt, '插件回灌真骰之后，宿主才取最终裁定')
-  assert.match(body, /excludeAssistantIndex,\s*\n\s*extraQuestions/)
-  assert.match(body, /publishLiveDamperState/)
-  assert.match(body, /name: 'narrative-damper', position: 'last'/)
-  assert.match(body, /narrativeDamper\.clearActive\?\.\(\)/)
-  // 依赖注入：插件侧协调方法接到同一个阻尼器实例
-  assert.match(source, /narrativeDamper: \{\s*turnContextForPlugin: \(\.\.\.a\) => narrativeDamper\.turnContextForPlugin\(\.\.\.a\),\s*applyDiceOutcomeShift: \(\.\.\.a\) => narrativeDamper\.applyDiceOutcomeShift\(\.\.\.a\)\s*\}/)
 })

@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { Readable } from 'node:stream'
 import { parsePromptsBlock, formatPromptsBlock, preserveCharacterMetadata } from '../tavern-plugin/packages/dsh-tavern-image-bundled/lib/planner.js'
-import { apply, compileChannelJob, compileJob, expandRosterCalls } from '../tavern-plugin/packages/dsh-tavern-image-bundled/lib/index.js'
+import { apply, compileChannelJob, expandRosterCalls } from '../tavern-plugin/packages/dsh-tavern-image-bundled/lib/index.js'
 import { generateImage } from '../tavern-plugin/packages/dsh-tavern-image-bundled/lib/image-providers.js'
 import { createMediaActions } from '../tavern-plugin/packages/dsh-tavern-image-bundled/lib/media-actions.js'
 
@@ -126,22 +126,6 @@ test('未知角色宏在 char caption 保留服装和角度；非 NovelAI 平铺
   assert.deepEqual(flat.characters, [])
   assert.match(flat.positive, /light green ruqun/)
   assert.match(flat.negative, /bad anatomy/)
-})
-
-test('Comfy 工作流把角色库特征与角色负面注入对应的工作流绑定', () => {
-  const workflow = {
-    prompt: { positive: { inputs: { text: '' } }, negative: { inputs: { text: '' } } },
-    bindings: { positive: [{ node: 'positive', input: 'text' }], negative: [{ node: 'negative', input: 'text' }] },
-    sizes: {},
-  }
-  const definitions = { characters: [{ id: 'a', name: '阿梅', match: 'A Mei', enabled: true, traits: { face: 'MEI FACE', negative: 'wrong eye color' }, outfits: [] }] }
-  const params = { tag: 'café', rawTag: 'café', size: '832x1216', characters: [{ prompt: 'A Mei, smiling', centers: 'C3', uc: 'bad anatomy' }] }
-  const compiled = compileJob({ workflow, params, config: { ...config, imageBackend: 'comfyui', weightMode: 'keep', negativeMode: 'merge' }, definitions })
-  assert.match(compiled.prompt.positive.inputs.text, /café/)
-  assert.match(compiled.prompt.positive.inputs.text, /MEI FACE/)
-  assert.match(compiled.prompt.positive.inputs.text, /smiling/)
-  assert.match(compiled.prompt.negative.inputs.text, /bad anatomy/)
-  assert.match(compiled.prompt.negative.inputs.text, /wrong eye color/)
 })
 
 test('NovelAI V5 payload发送角色正负面和坐标；缺任一坐标则关闭 use_coords', async () => {

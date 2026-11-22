@@ -2,7 +2,7 @@ import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { Readable } from 'node:stream'
+import { Readable, Writable } from 'node:stream'
 
 export const IMAGE_PLUGIN_SOURCE = new URL('../../tavern-plugin/packages/dsh-tavern-image-bundled/', import.meta.url)
 export const IMAGE_PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAEElEQVR4nGP8zwACTGCSAQANHQEDgslx/wAAAABJRU5ErkJggg==', 'base64')
@@ -59,14 +59,23 @@ export async function imagePluginFixture(t, { config = {}, definitions, files = 
         return new Promise((done, reject) => {
           const request = Readable.from(body === undefined ? [] : [Buffer.from(JSON.stringify(body))])
           Object.assign(request, { method, url, headers: { host: 'localhost', 'content-type': 'application/json', ...headers } })
-          const response = { headersSent: false,
-            writeHead(status, headers) { this.status = status; this.headers = headers; this.headersSent = true },
-            end(value) {
-              const bytes = Buffer.from(value || '')
-              try { done({ status: this.status, headers: this.headers, bytes, body: /json/.test(this.headers?.['content-type'] || '') ? JSON.parse(bytes.toString()) : null }) }
-              catch (error) { reject(error) }
-            },
+          const chunks = []
+          const response = new Writable({
+            write(chunk, _encoding, callback) { chunks.push(chunk); callback() },
+          })
+          response.headersSent = false
+          response.writeHead = (status, headers) => {
+            response.status = status
+            response.headers = headers
+            response.headersSent = true
           }
+          response.once('error', reject)
+          response.once('finish', () => {
+            const bytes = Buffer.concat(chunks)
+            const { status, headers } = response
+            try { done({ status, headers, bytes, body: /json/.test(headers?.['content-type'] || '') ? JSON.parse(bytes.toString()) : null }) }
+            catch (error) { reject(error) }
+          })
           Promise.resolve(handler(request, response)).catch(reject)
         })
       },

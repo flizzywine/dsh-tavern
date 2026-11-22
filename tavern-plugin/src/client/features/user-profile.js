@@ -12,6 +12,7 @@
 			const refreshRef = React.useRef(null);
 			const [error, setError] = usePersistentError("长期偏好");
             const [saveNotice, setSaveNotice] = React.useState("");
+            const [reveal, setReveal] = React.useState(false);
 			function applyResult(result) {
 				const next = result && result.userProfile || null;
 				setRecord(next);
@@ -64,7 +65,9 @@
 				setBusy(true); setError(""); setSaveNotice("");
 				if (refreshRef.current) refreshRef.current.invalidate();
 				try {
-					const result = await rpc("setConversationUserProfileEnabled", { sessionId: sessionId, enabled: enabled, profileId: enabled ? (profileId || record.profileId) : undefined }, sessionId);
+					const write = rpc("setConversationUserProfileEnabled", { sessionId: sessionId, enabled: enabled, profileId: enabled ? (profileId || record.profileId) : undefined }, sessionId);
+					// 本局设置 counts this write in its page head (正在保存… / 已保存).
+					const result = await (props.track ? props.track(write) : write);
 					if (refreshRef.current) refreshRef.current.invalidate();
 					applyResult(result); setSaveNotice("已保存");
 					notifyTavernDataChanged(["user-profile", "sessions"], "user-profile");
@@ -94,16 +97,22 @@
 			const active = currentConversation && currentConversation.enabled ? profiles.find(function (item) { return item.id === (currentConversation.profileId || "default"); }) : null;
 			const outdated = active && active.confirmedRevision > currentConversation.revision;
 			const header = h("div", { className: "dsh-tavern-status-head" }, h("div", { className: "dsh-tavern-status-title" }, "长期偏好"));
-			const gameControls = currentConversation ? h("section", { className: "dsh-tavern-profile-game", "aria-label": "当前游戏长期偏好" },
-                    h("select", { className: "dsh-tavern-settings-select", "aria-label": "本局长期偏好", value: currentConversation.enabled ? currentConversation.profileId || "default" : "", disabled: busy || editing, onChange: function (event) { return toggleCurrent(Boolean(event.target.value), event.target.value); } },
-                        h("option", { value: "" }, "不使用长期偏好"),
-                        currentConversation.enabled && !profiles.some(function (item) { return item.id === currentConversation.profileId && item.hasConfirmed; }) ? h("option", { value: currentConversation.profileId || "default" }, "当前长期偏好（库中已不可用）") : null,
-                        profiles.filter(function (item) { return item.hasConfirmed; }).map(function (item) { return h("option", { key: item.id, value: item.id }, item.name); })),
-                    h("p", { className: "dsh-tavern-settings-desc" }, "选择后从下一轮生效；查看内容可核对本局使用的长期偏好。"),
-                    currentConversation.enabled ? h("details", null, h("summary", null, "查看内容"), h("div", { className: "dsh-tavern-user-profile-text" }, currentConversation.content || "暂无长期偏好内容")) : null,
-                    outdated ? h("div", { className: "dsh-tavern-profile-update" }, h("span", null, "长期偏好已修改，这局仍使用修改前的内容。"), h("button", { className: "dsh-tavern-btn", disabled: busy || editing, onClick: function () { toggleCurrent(true, active.id); } }, "更新到当前游戏")) : null
-                ) : null;
-			if (props.conversationOnly) return h("section", { className: "dsh-local-profile dsh-local-field", "aria-label": "本局长期偏好" }, h("div", { className: "dsh-local-label" }, "长期偏好"), record ? gameControls : h("p", null, "正在读取长期偏好…"), error ? h("p", { role: "alert" }, error) : h("span", { role: "status", className: "dsh-local-feedback" }, busy ? "保存中…" : saveNotice));
+			// 本局设置 › 玩法: one row of the page (props.Field is its InlineField) — the menu, 「查看」 the content this game
+			// uses below it, and the way to take a newer saved version.
+			if (props.conversationOnly) {
+				const current = currentConversation, on = Boolean(current && current.enabled), chosen = on ? current.profileId || "default" : "";
+				const options = [{ value: "", label: "不使用长期偏好" }]
+					.concat(on && !profiles.some(function (item) { return item.id === current.profileId && item.hasConfirmed; }) ? [{ value: chosen, label: "当前长期偏好（库中已不可用）" }] : [])
+					.concat(profiles.filter(function (item) { return item.hasConfirmed; }).map(function (item) { return { value: item.id, label: item.name }; }));
+				return h(React.Fragment, null,
+					h(props.Field, { kind: "menu", label: "长期偏好", controlLabel: "本局长期偏好", value: chosen, options: options, placeholder: current ? undefined : "正在读取…",
+						help: h(HelpTip, { label: "长期偏好说明" }, "选择已确认的游玩和写作偏好，作为本局生成时的参考。"),
+						disabled: !current || busy || editing, error: error, onCommit: function (value) { return toggleCurrent(Boolean(value), value); },
+						trail: on ? h("button", { type: "button", className: "ap-link dsh-session-reveal", "aria-expanded": reveal, onClick: function () { setReveal(!reveal); } }, reveal ? "收起" : "查看") : null }),
+					on && reveal ? h("div", { className: "dsh-session-profile-text" }, current.content || "暂无长期偏好内容") : null,
+					outdated ? h("p", { className: "ap-notice dsh-session-profile-update" }, h("span", null, "长期偏好已修改，这局仍使用修改前的内容。"),
+						h("button", { type: "button", className: "ap-hint-chip", disabled: busy || editing, onClick: function () { toggleCurrent(true, active.id); } }, "更新到当前游戏")) : null);
+			}
 			const controls = record ? h("div", { className: "dsh-tavern-profile-controls" },
 				h("section", { className: "dsh-tavern-profile-default" }, h("label", { htmlFor: "tavern-profile-default" }, "默认长期偏好"), h("select", { id: "tavern-profile-default", value: record.defaultProfileId || "", disabled: busy || editing, onChange: function (event) { manageProfile("default", event.target.value); } }, h("option", { value: "" }, "不启用"), profiles.filter(function (item) { return item.hasConfirmed; }).map(function (item) { return h("option", { key: item.id, value: item.id }, item.name); })), h("small", null, "用于新开的游戏和卡片会话，已有会话保留原偏好。")),
 				h("section", { className: "dsh-tavern-profile-library" }, h("div", { className: "dsh-tavern-profile-section-title" }, "长期偏好库"), h("div", { className: "dsh-tavern-profile-library-bar" }, h("select", { "aria-label": "查看长期偏好", value: record.profileId, disabled: busy || editing, onChange: function (event) { manageProfile("select", event.target.value); } }, profiles.map(function (item) { return h("option", { key: item.id, value: item.id }, item.name); })), h("button", { className: "dsh-tavern-btn", disabled: busy || editing, onClick: function () { manageProfile("create"); } }, "新建"), h("button", { className: "dsh-tavern-btn", disabled: busy || editing, onClick: function () { manageProfile("rename", record.profileId); } }, "重命名"), h("button", { className: "dsh-tavern-btn", disabled: busy || editing || !record.hasConfirmed, title: record.hasConfirmed ? "把这份长期偏好单独导出成一个文件" : "确认后才能导出", onClick: function () { void exportProfile(); } }, "导出")), h("small", null, "在这里查看和编辑，不会改变游戏使用的长期偏好。"))

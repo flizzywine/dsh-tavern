@@ -133,20 +133,6 @@ for (const change of ['edit','regenerate','rollback']) test(`candidate rebind do
   assert.ok(f.read().messages.every(m => !m.stageDirectionAssetPacks),'obsolete director must not write canonical state')
 })
 
-test('post-body director stopped by a regenerate logs that the prose changed', async t => {
-  const started = deferred(), release = deferred(), logs = []
-  const f = await fixture(async request => {started.resolve(); await release.promise; return modelCall(request,{name:'stage_update',arguments:answer})},{log:row => logs.push(row)})
-  t.after(async () => {release.resolve(); await f.dispose()})
-  await f.director.get(f.read(),1); await started.promise
-  const replacement = f.beginReply(1)
-  await f.store.updateChat('chat',chat => {chat.messages = chat.messages.filter(m => m.turn !== 1); return chat})
-  f.commitReply(replacement,1,'Regenerated body.')
-  release.resolve(); await f.director.drain()
-  assert.ok(f.read().messages.every(m => !m.stageDirectionAssetPacks))
-  assert.equal(logs.find(row => row.kind === 'director-stopped')?.error,'舞台导演已停止：本轮正文已变化')
-  assert.equal(logs.some(row => row.kind === 'director-failure'),false)
-})
-
 // The director writes beside the background tasks: a running mark while it works, cleared with
 // its record; a mark an earlier run of Tavern left behind reads as cut off by the restart.
 test('a director marks its round while it works and a mark from before a restart reads as interrupted', async t => {

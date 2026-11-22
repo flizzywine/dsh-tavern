@@ -35,7 +35,7 @@ export function createAssetPackSpeech({presentation, getEngine, getTts, getBindi
     if (next !== current) {
       offTts?.(); clear(); current = next
       offTts = current?.apiVersion === 1 ? current.subscribe(event => {
-        if (['disposed','providerChanged','providerRemoved','cacheInvalidated','readingChanged'].includes(event.type)) clear()
+        if (['disposed','providerChanged','providerRemoved','cacheInvalidated','readingChanged','voiceRoutingChanged'].includes(event.type)) clear()
       }) : undefined
     }
     if (current?.apiVersion !== 1) throw failure('TTS_UNAVAILABLE')

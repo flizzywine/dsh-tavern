@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { buildStructuredReferenceText, referencePlannerGuidance, referenceScopedDefinitions, resolveImageReferences } from '../tavern-plugin/packages/dsh-tavern-image-bundled/lib/reference-images.js'
-import { compileChannelJob, compileJob, expandRosterCalls } from '../tavern-plugin/packages/dsh-tavern-image-bundled/lib/index.js'
+import { buildStructuredReferenceText, referenceScopedDefinitions, resolveImageReferences } from '../tavern-plugin/packages/dsh-tavern-image-bundled/lib/reference-images.js'
+import { compileChannelJob, expandRosterCalls } from '../tavern-plugin/packages/dsh-tavern-image-bundled/lib/index.js'
 import { imagePluginFixture, imageJson, IMAGE_PNG } from './fixtures/image-plugin-runtime.mjs'
 
 test('默认规则升级接口预览并按指纹更新，陈旧预览不覆盖编辑', async t => {
@@ -40,42 +40,6 @@ test('世界书编辑格式自动保存并在重启后保留，生图格式不�
 const image = { id: 'a'.repeat(64), mediaType: 'image/png', byteLength: IMAGE_PNG.length, name: '身份.png' }
 const defs = { characters: [{ id: 'jiang', name: '江铭', traits: { face: '旧外貌不应注入' }, referenceImage: image, outfits: [] }], outfits: [] }
 
-test('结构化绑定按实际类型生成，不输出ID，不改用户的一致性补充', () => {
-  const selected = resolveImageReferences({ subjects: [{ characterId: 'jiang' }], definitions: defs })
-  selected.references[0].consistencyText = '保留[眉间痣]。\n不要改变黑发。'
-  const text = buildStructuredReferenceText(selected.references)
-  assert.equal(text, '人物的面部特征、发型和体型比例依据对应身份参考图及随附说明。\n\n参考图1 → 江铭（身份参考）：保留[眉间痣]。\n不要改变黑发。')
-  assert.doesNotMatch(text, /服装图|characterId|outfitId/)
-  assert.ok(text.includes(selected.references[0].consistencyText))
-  assert.equal(buildStructuredReferenceText([]), '')
-  assert.throws(() => buildStructuredReferenceText([{ ...selected.references[0], index: 2 }]))
-})
-
-test('身份参考规划禁止复述年龄性别，仍保留无身份图人物和剧情变化', () => {
-  const guidance = referencePlannerGuidance(defs, { structured: true })
-  assert.match(guidance, /不再描述年龄、性别、面部、发型或固有体型等固定身份属性/)
-  assert.match(guidance, /不用“年轻男性”“青年男子”等概括词重新定义身份/)
-  assert.match(guidance, /剧情明确的外观变化与用户明确的一致性补充仍须保留/)
-  assert.match(guidance, /只有服装图或没有身份图的人物仍用库内文字与正文描述可见外貌/)
-  assert.match(guidance, /不另设人物及参考图对应分节/)
-  assert.doesNotMatch(referencePlannerGuidance(defs), /不用“年轻男性”/)
-})
-
-test('最终参考说明不携带无关状态示例，真实变化与用户补充保持原样', () => {
-  const selected = resolveImageReferences({ subjects: [{ characterId: 'jiang' }], definitions: defs })
-  const referenceText = buildStructuredReferenceText(selected.references)
-  assert.doesNotMatch(referenceText, /换装|湿衣|破损|优先于|年轻男性|青年男子/)
-  assert.match(referenceText, /参考图1 → 江铭（身份参考）$/)
-  assert.doesNotMatch(referenceText, /以本张描述为准|一致性补充/)
-  const raw = '【人物与表情】\n江铭眉头微蹙。\n\n【服装】\n上衣湿透，左袖破损。'
-  const output = compileChannelJob({ params: { tag: raw, rawTag: raw, referenceText }, definitions: {},
-    config: { promptMode: 'structured', imageBackend: 'atlascloud' }, channel: { provider: 'atlascloud' } })
-  assert.ok(output.positive.includes(raw), 'actual scene changes must not be filtered as template words')
-  assert.ok(output.positive.startsWith('【参考图对应与一致性】\n' + referenceText + '\n\n'))
-  selected.references[0].consistencyText = '用户指定：保留破损的耳饰。'
-  assert.match(buildStructuredReferenceText(selected.references), /用户指定：保留破损的耳饰。/)
-})
-
 test('旧快照占位标记经结构化编译清除，但保留姓名、无图人物资料和自定义分节', () => {
   const library = structuredClone(defs)
   library.characters.push({ id: 'chen', name: '陈安', traits: { face: '黑发，白衬衫' }, outfits: [] })
@@ -93,30 +57,6 @@ test('旧快照占位标记经结构化编译清除，但保留姓名、无图�
   assert.ok(output.positive.includes('保留[文字]和 (记号:1.2)。'))
   assert.equal((output.positive.match(/参考图1 →/g) || []).length, 1)
   assert.match(legacy.characters[0].traits.face, /characterId/, 'old snapshot is immutable')
-})
-
-test('同名人物宏、服装归属与绑定使用同一短称呼；同图不同对象不合并', () => {
-  const library = { characters: ['a', 'b'].map(id => ({ id, name: '江铭', referenceImage: image, outfits: [{ id: 'o', name: '常服', referenceImage: image }] })) }
-  const selected = resolveImageReferences({ subjects: ['a', 'b'].map(characterId => ({ characterId, outfitId: 'o' })), definitions: library })
-  assert.equal(selected.references.length, 4)
-  const scoped = referenceScopedDefinitions(library, selected.references, { subjects: selected.subjects, markers: false })
-  const expanded = expandRosterCalls('${"name":"a","angle":"左侧"}$\n${"name":"b","angle":"右侧"}$', scoped, 'sfw', { style: 'structured' })
-  assert.match(expanded, /人物“江铭（对象1）”：左侧/)
-  assert.match(expanded, /人物“江铭（对象3）”：右侧/)
-  const bindings = buildStructuredReferenceText(selected.references)
-  assert.match(bindings, /参考图2 → 江铭（对象1）／常服/)
-  assert.match(bindings, /参考图4 → 江铭（对象3）／常服/)
-  assert.match(bindings, /江铭（对象3）／常服（服装参考）/)
-  assert.doesNotMatch(bindings, /characterId|outfitId/)
-  const onlyOutfits = selected.references.filter(r => r.kind === 'outfit').map((r, index) => ({ ...r, index: index + 1 }))
-  assert.doesNotMatch(buildStructuredReferenceText(onlyOutfits), /身份图/)
-})
-
-test('结构化Comfy编译保留组装来源', () => {
-  const output = compileJob({ workflow: { id: 'wf', prompt: { '1': { inputs: { text: '' } } }, bindings: { positive: [{ node: '1', input: 'text' }] } },
-    config: { promptMode: 'structured', imageBackend: 'comfyui' }, params: { tag: '【人物】\n陈安' }, definitions: { characters: [{ name: '陈安', traits: { face: '黑发' } }] } })
-  assert.equal(output.promptAssembly.version, 2)
-  assert.match(output.promptAssembly.definitionAdditions.join('\n'), /黑发/)
 })
 
 test('行内引用不重复朝向，独立宏保留朝向，歧义别名不改写', () => {

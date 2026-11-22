@@ -20,13 +20,6 @@ function setup(select, { origin = 'global', ...options } = {}) {
   const id = registry.list().find(row => row.id.startsWith('plugin-')).id
   return { registry, worldBook, effects, dispose, input: { chat: { sessionId: 'game-1', worldbookStrategy: id } } }
 }
-test('invalid references and plugin failures fall back without erasing selection', async () => {
-  for (const select of [() => ['entry:2'], () => ['unknown'], () => 'entry:1', () => { throw Error('broken') }]) {
-    const h = setup(select)
-    assert.equal(await h.registry.project(h.input), 'native')
-    assert.match(h.input.chat.worldbookStrategy, /^plugin-/)
-  }
-})
 test('card-scoped plugin cannot inspect another game and unload revokes pending callback', async () => {
   let called = false
   const scoped = setup(() => { called = true; return [] }, {

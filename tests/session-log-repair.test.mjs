@@ -7,6 +7,7 @@ import test from 'node:test'
 import { createRequire } from 'node:module'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { installSessionLogAutoRepair, repairCurrentSessionBuffer, repairCurrentSessionFile, repairStoredSessionLog, restoreSurfaceHead } from '../tavern-plugin/lib/domain/session-log-repair.js'
+import { readHostSessionEvents } from '../tavern-plugin/lib/host/sessions.js'
 
 // The host catalog is the only judge of whether a log opens, so these tests use it
 // instead of a stand-in. Without a boot module the whole file is skipped.
@@ -146,6 +147,10 @@ test('a read of a broken log repairs it in place and then succeeds', needsHost, 
   const dataRoot = path.join(root, 'data')
   let repairs = 0
   const restore = installSessionLogAutoRepair({ persistence, repair: id => { repairs += 1; return repairStoredSessionLog(dataRoot, id, async () => catalog) } })
+  const before = await readFile(file)
+  await assert.rejects(readHostSessionEvents({ sessions: new Map(), agents: new Map(), persistence }, header.id), /turn\/start does not open the expected turn/)
+  assert.equal(repairs, 0)
+  assert.deepEqual(await readFile(file), before)
   const handle = await persistence.open(header.id, 'read')
   const { events } = await handle.read(0)
   await handle.close()

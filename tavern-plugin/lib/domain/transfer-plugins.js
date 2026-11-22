@@ -1,5 +1,6 @@
 import path from 'node:path'
 import { existingTransferFolder, folderBytes, folderZipName, importFolderZip, namedFolderBase, packFolderZip, readFolderFiles } from './transfer-folder.js'
+import { PLUGIN_ZIP_LIMITS } from './user-plugin-install.js'
 
 // 导出/导入里的插件子模块：只负责 zip 与文件读写，manifest 由调用方自己管。
 function str(value) {
@@ -52,7 +53,10 @@ export function createTransferPlugins(deps) {
       const dir = existingTransferFolder(pluginsDir, folder, '插件')
       const known = plugins.find(plugin => str(plugin && plugin.folder) === folder)
       const title = str(known && known.name) || folder
-      const content = packFolderZip(await readFolderFiles(dir), { kind: '插件', title })
+      if (await folderBytes(dir) > PLUGIN_ZIP_LIMITS.maxExpandedBytes) {
+        fail('插件「' + title + '」超过 ' + PLUGIN_ZIP_LIMITS.maxExpandedBytes / 1024 ** 2 + ' MiB')
+      }
+      const content = packFolderZip(await readFolderFiles(dir), { kind: '插件', title, limits: PLUGIN_ZIP_LIMITS })
       items.push({ key: folder, title, fileName: folderZipName(folder), content })
     }
     return items
@@ -60,7 +64,7 @@ export function createTransferPlugins(deps) {
 
   async function importOne(payload) {
     const { name: folder, ...result } = await importFolderZip(pluginsDir, payload, {
-      label: '插件包', baseName: (key, title) => namedFolderBase(str(key) || str(title), '插件'), suffixed: (base, index) => base + ' (' + index + ')'
+      label: '插件包', limits: PLUGIN_ZIP_LIMITS, baseName: (key, title) => namedFolderBase(str(key) || str(title), '插件'), suffixed: (base, index) => base + ' (' + index + ')'
     })
     return { folder, ...result }
   }

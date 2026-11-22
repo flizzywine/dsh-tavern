@@ -25,6 +25,10 @@ test('插件面板：注册为当前游戏的侧栏页，卸载时移除；没�
   const dispose = plugin.registerPanel({ id: 'state', title: '记忆', render: ({ gameId }) => { seen.push(gameId); return 'panel:' + gameId } })
   const tab = tabs.get('tavern-plugin:memory-plugin:state')
   assert.equal(tab.title, '记忆')
+  assert.equal(tab.keepMounted, false, '插件面板默认不跨对话常驻挂载')
+  const disposeKeep = plugin.registerPanel({ id: 'sticky', title: '常驻', keepMounted: true, render: () => 'sticky' })
+  assert.equal(tabs.get('tavern-plugin:memory-plugin:sticky').keepMounted, true, '显式声明 keepMounted: true 时透传保留')
+  disposeKeep()
   assert.equal(ui.service.apiVersion, 10)
   const rendered = tab.component({ scope: { sessionId: 'game-1' } })
   assert.equal(rendered.type, 'Boundary')
@@ -330,6 +334,7 @@ test('状态分节与正文视图：注册校验；正文视图拿到 Tavern 自
   let input = null
   plugin.registerTurnView({ id: 'bubble', label: '气泡', render: value => { input = value; return value.settled ? ['wrapped', value.children] : null } })
   plugin.registerStatusSection({ id: 'scene', title: '当前场景', render: ({ gameId }) => 'scene:' + gameId })
+  plugin.registerStatusSection({ id: 'hidden', title: '隐藏标题', render: () => null })
   assert.throws(() => plugin.registerTurnView({ id: 'bubble', label: '重复', render() {} }), /已注册/)
   assert.throws(() => plugin.registerStatusSection({ id: 'Bad', title: 'x', render() {} }), /id/)
   assert.throws(() => plugin.registerStatusSection({ id: 'x', title: '', render() {} }), /title/)
@@ -356,11 +361,13 @@ test('状态分节与正文视图：注册校验；正文视图拿到 Tavern 自
   assert.equal(view.tavernTurnViewElement(null, {}, 'tavern-body'), 'tavern-body')
 
   const page = view.TavernPluginStatusSections({ sessionId: 'game-1' })
-  const [turnSwitch, section] = page.children
+  const [turnSwitch, sectionBoundary, hiddenBoundary] = page.children
   assert.equal(turnSwitch.children[0].children[0], '正文样式')
+  const content = sectionBoundary.children[0]
+  const section = content.type(content.props)
   assert.equal(section.children[0].children[0], '当前场景')
-  const content = section.children[1].children[0]
-  assert.equal(content.type(content.props), 'scene:game-1')
+  assert.equal(section.children[1], 'scene:game-1')
+  assert.equal(hiddenBoundary.children[0].type(hiddenBoundary.children[0].props), null)
 })
 
 test('消息按钮：when 拿得到这条消息的正文，可以只在合适的消息下显示', () => {
@@ -377,4 +384,29 @@ test('消息按钮：when 拿得到这条消息的正文，可以只在合适的
   assert.equal(render('小茂向你发起挑战。\n【进入本轮战斗】'), null)
   assert.equal(render('小茂说：来比一场吧。').children[0].children[0], '接受剧情对战')
   assert.deepEqual(JSON.parse(JSON.stringify(seen.at(-1))), { gameId: 'game-1', turn: 2, settled: true, text: '小茂说：来比一场吧。' })
+})
+
+test('replyStates 仅保留有界数量的无订阅空闲会话，不随切换对话无限累积', () => {
+  const ui = loadWith({ tavernSessionSignals: { subscribe() { return () => {} } } })
+  const plugin = { ctx: { fiber: { name: 'reply-watcher' } } }
+  Object.setPrototypeOf(plugin, ui.service)
+  const seen = []
+  const stop = plugin.watchReply('watched-session', state => seen.push(state))
+  ui.publishReply({ sessionId: 'watched-session', mode: 'play', turn: 1, text: '首轮正文', streaming: false, busy: false })
+  for (let i = 1; i <= 25; i += 1) {
+    ui.publishReply({ sessionId: 'idle-' + i, mode: 'play', turn: i, text: '正文-' + i, streaming: false, busy: false })
+  }
+  const probe = []
+  const stopWatchedAgain = plugin.watchReply('watched-session', state => probe.push(state))
+  assert.equal(probe.at(-1)?.text, '首轮正文', '有订阅者的会话状态不得被逐出')
+  const evictedProbe = []
+  const stopOldIdle = plugin.watchReply('idle-1', state => evictedProbe.push(state))
+  assert.equal(evictedProbe.at(-1)?.text, '', '超出上限的最老空闲会话回复缓存应已被淘汰')
+  const recentProbe = []
+  const stopRecentIdle = plugin.watchReply('idle-25', state => recentProbe.push(state))
+  assert.equal(recentProbe.at(-1)?.text, '正文-25', '最近切过的空闲会话仍保留在有界缓存内')
+  stop()
+  stopWatchedAgain()
+  stopOldIdle()
+  stopRecentIdle()
 })

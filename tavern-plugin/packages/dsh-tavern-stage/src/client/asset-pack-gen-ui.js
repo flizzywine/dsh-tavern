@@ -594,7 +594,7 @@
     const drop=()=>run(async()=>{await gen.reject(job);gen.closeSheet();});
     const references=job?.references||[];
     const first=figure&&genDefaultId(figure,outfit);
-    const refName=r=>r.redraw?'上一张':r.hash===figure?.identitySettei?.board?'人物设定图':r.hash===outfit?.settei?'服装设定图':r.hash===outfit?.avatars?.[first]?'首个差分头像':r.purpose==='emotion-sprite'?'同差分立绘':'参考图';
+    const refName=r=>r.redraw?'上一张':r.hash===figure?.identitySettei?.board?'人物设定图':r.hash===figure?.identitySettei?.parts?'人物设定图·配件':r.hash===outfit?.settei?'服装设定图':r.hash===outfit?.setteiParts?'服装设定图·配件':r.hash===outfit?.avatars?.[first]?'首个差分头像':r.purpose==='emotion-sprite'?'同差分立绘':'参考图';
     // The stage: progress, the candidate (a sheet as its eight cut cells or whole), the failure, or the current picture.
     const sliceWarnings=sheetSlices?Object.entries(sheetSlices).flatMap(([id,s])=>(s.checks?.warnings||[]).map(w=>({...w,id}))):[];
     const names=figure?Object.fromEntries(figureEditorEmotions(figure).map(r=>[r.id,r.label])):{};
@@ -721,8 +721,8 @@
       h('span',{className:'ap-gw-slot-art ap-gw-slot-empty'},
         h('span',{className:'ap-gw-slot-tools'},h(IconButton,{icon:'upload',label:'上传'+name,className:'ap-icon-button ap-gw-round',onClick:()=>file.current?.click?.()}),
           h(IconButton,{icon:'spark',label:'生成'+name+'…',className:'ap-icon-button ap-gw-round',onClick:()=>c.open(target,{mode:'gen'})})),genFlag(cell)),input);
-    const remove=()=>c.ask({title:'删除'+name+'？',body:fig?'立绘、头像和服装设定图都不受影响。':'「'+outfit.label+'」的立绘和头像不受影响。',confirmLabel:'删除',danger:true,
-      onConfirm:()=>fig?c.identityBoard.remove(figure.id):c.settei.remove(figure.id,outfit.key)});
+    const remove=()=>askDelete(c.ask,'asset-settei',{title:'删除'+name+'？',body:fig?'立绘、头像和服装设定图都不受影响。':'「'+outfit.label+'」的立绘和头像不受影响。',confirmLabel:'删除',danger:true},
+      ()=>fig?c.identityBoard.remove(figure.id):c.settei.remove(figure.id,outfit.key),c.onError);
     return h('div',{...base,'data-state':'filled'},
       h(Popover,{label:name+' 操作',className:'ap-face-menu-anchor',float:true,fit:true,limit:420,
         trigger:({toggle,open})=>h('button',{type:'button',className:'ap-gw-slot-hit','aria-label':name,title:name,...cellMenuTrigger({open,toggle})},
@@ -782,8 +782,8 @@
     const art=spriteHash?h(Thumb,{binding,packId,hash:spriteHash,label:row.label}):hasSprite&&c.bust(id)?h(BustArt,{binding,packId,bust:c.bust(id),figure:c.figure,frame:CAST_FACE}):h(Thumb,{binding,packId,hash:avatarHash,label:row.label});
     // 下载: the tile's own picture file — its still 立绘, or the 头像 of a 差分 without one (a model / parts 立绘 has no single file).
     const fileHash=spriteHash||(!hasSprite&&avatarHash),fileName=c.figure.name+'-'+outfit.label+'-'+row.label+(spriteHash?'立绘':'头像');
-    const remove=()=>c.ask({title:'删除「'+row.label+'」？',body:'「'+outfit.label+'」里「'+row.label+'」的立绘和头像会被删除；差分本身和其他服装不受影响。',confirmLabel:'删除',danger:true,
-      onConfirm:async()=>{if(hasSprite)await c.removeFigureImage(c.figure.id,outfit.key,id,'sprite');if(avatarHash)await c.removeFigureImage(c.figure.id,outfit.key,id,'avatar');}});
+    const remove=()=>askDelete(c.ask,'asset-figure-image',{title:'删除「'+row.label+'」？',body:'「'+outfit.label+'」里「'+row.label+'」的立绘和头像会被删除；差分本身和其他服装不受影响。',confirmLabel:'删除',danger:true},
+      async()=>{if(hasSprite)await c.removeFigureImage(c.figure.id,outfit.key,id,'sprite');if(avatarHash)await c.removeFigureImage(c.figure.id,outfit.key,id,'avatar');},c.onError);
     return h('div',{...base,'data-state':'filled'},
       h(Popover,{label:row.label+' 操作',className:'ap-face-menu-anchor',float:true,fit:true,limit:460,
         trigger:({toggle,open})=>h('button',{type:'button',className:'ap-gw-hit','aria-label':row.label,title:failed?genFailTitle(failed):undefined,...cellMenuTrigger({open,toggle,onMenu:()=>c.onPick?.(id)})},
@@ -807,7 +807,7 @@
     const endCoach=()=>{if(coach){genCoachDone();setCoach(false);}};
     const open=(target,extra={})=>{endCoach();gen.openDialog(target,{...extra,onOutfit});};
     const manifest=outfit?.sprite&&pack.sprites?.[outfit.sprite.manifestKey],rows=outfit?outfitEmotionRows(figure,outfit,manifest):[],look=useFigureLook(binding,packId,figure.id);
-    const c={gen,binding,pack,packId,figure,outfit,rows,look,write,writeOutfit,settei,identityBoard,uploadSprite,removeFigureImage,setFallback,onPick,run,accept,open,ask:setConfirm,
+    const c={gen,binding,pack,packId,figure,outfit,rows,look,write,writeOutfit,settei,identityBoard,uploadSprite,removeFigureImage,setFallback,onPick,run,accept,open,ask:setConfirm,onError:setError,
       acceptAll:list=>{setAccepting(true);return gen.acceptAll(list).finally(()=>setAccepting(false));},
       at:(kind,emotionId)=>({packId,figureId:figure.id,outfitKey:outfit.key,kind,emotionId}),
       sprite:id=>genOwnSprite(outfit,manifest,id),avatar:id=>outfit?.avatars?.[outfitImageId(outfit,id)]||null,hasSprite:id=>!!outfit&&emotionMapped('sprite',outfit,manifest,id),

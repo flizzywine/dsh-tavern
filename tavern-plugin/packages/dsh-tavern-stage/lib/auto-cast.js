@@ -51,7 +51,8 @@ export function castChanges(speakers, decided) {
     else {
       // 外貌 goes with the figure to its 配图 人物库 record (looks), its 人物介绍 into the pack (description).
       const looks = decided?.appearance[name], about = decided?.about?.[name]
-      changes.push({op:'create', kind:'figures', value:{name, aliases, ...(about ? {description:about} : {})}, ...(looks ? {looks} : {}),
+      const description = [about, voice?.reason && '配音选择：' + voice.reason].filter(Boolean).join('\n\n')
+      changes.push({op:'create', kind:'figures', value:{name, aliases, ...(description ? {description} : {})}, ...(looks ? {looks} : {}),
         ...(voice ? {voice:{from:voice.from}} : {})})
       if (voice?.from) sources.push({packId:voice.from.packId, revision:voice.revision})
     }

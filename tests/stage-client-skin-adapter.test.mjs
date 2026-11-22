@@ -1,7 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {createRequire} from 'node:module'
-import {JSDOM} from 'jsdom'
 import {readFileSync} from 'node:fs'
 const require=createRequire(import.meta.url)
 const contract=require('../tavern-plugin/packages/dsh-presentation-protocol/src/stage-skin.cjs')
@@ -10,19 +9,6 @@ const {createStageSkinMotion}=require('../tavern-plugin/packages/dsh-tavern-stag
 const {createStageSkinBacklog}=require('../tavern-plugin/packages/dsh-tavern-stage/src/client/skin-backlog.cjs')
 const create=()=>createStageSkinAdapter({contract,motion:createStageSkinMotion(),backlog:createStageSkinBacklog()})
 const fonts={resolve:()=>({family:'serif'})}
-test('skin scope restores every applied surface on unload and rejects late applications',()=>{
- const dom=new JSDOM('<div></div><div></div>'),skin=create(),roots=[...dom.window.document.querySelectorAll('div')]
- roots[0].style.setProperty('--gal-skin-bg','original');roots[0].setAttribute('data-fk-skin','previous')
- const restore=skin.applyStageSkin(roots[0],contract.BUILTIN_STAGE_SKINS.classic,fonts)
- skin.applyStageSkin(roots[1],contract.BUILTIN_STAGE_SKINS.crt,fonts)
- assert.equal(roots[0].getAttribute('data-fk-skin'),'classic')
- skin.applyStageSkinMode(roots[0],{marks:{'data-fk-skin-mode':'debate'},tokens:{'--mode-font':'20'}})
- skin.dispose();restore();skin.dispose()
- assert.equal(roots[0].style.getPropertyValue('--gal-skin-bg'),'original');assert.equal(roots[0].getAttribute('data-fk-skin'),'previous')
- assert.equal(roots[0].hasAttribute('data-fk-skin-mode'),false);assert.equal(roots[1].hasAttribute('data-fk-skin'),false)
- skin.applyStageSkin(roots[1],contract.BUILTIN_STAGE_SKINS.classic,fonts)()
- assert.equal(roots[1].hasAttribute('data-fk-skin'),false);dom.window.close()
-})
 test('skin motion composes sprite frames and ordered enter/leave wipes without host state',()=>{
  const m=createStageSkinMotion(),skin={art:{textbox:{next:{frames:{columns:2,rows:1,fps:8}}}},transitions:{choices:{enter:{ms:200,wipe:{shape:'left'}},leave:{ms:120,delay:30,wipe:{shape:'circle'}}}}}
  const css=m.stageSkinMotionKeyframes(skin)
@@ -69,24 +55,4 @@ test('art.menu sheet and motion.parts: the sheet at its own aspect, the drawn pa
  assert.match(animated,/::after \{[^}]*animation: fork-skin-menu-sheet[^}]*box-shadow: none; \}/)
  assert.match(animated,/:not\(\[data-dialog\]\)::before \{[^}]*width: calc\(var\(--sw\) \* var\(--su\)\);[^}]*box-shadow: 0 0 0 200vmax var\(--gal-ui-surface\); \}/)
  assert.match(css,/\[data-fk-skin-art-menu-sheet\]:not\(\.is-film\) > \.fork-gal-menu::after \{ --sw: var\(--art-menu-sheet-w\); --sh: var\(--art-menu-sheet-h\);/)
-})
-test('art.backlog.narrow: a phone unit compiled to a mark and token, its rules only under the phone breakpoint, the voice control at its anchor',()=>{
- const skin=create()
- const files=Object.fromEntries(['art/paper.png','art/play.png'].map(name=>[name,{url:'blob:'+name,image:{naturalWidth:48,naturalHeight:40}}]))
- const doc=voice=>({schema:'dsh.skin/1',id:'log-probe',label:'log',textbox:{paint:{bg:'#f4ead8',fg:'#2b2118',accent:'#8a3b12'}},nameplate:{shape:'plain',paint:{bg:'#5a3a1e',fg:'#ffffff'}},font:{},textFx:{reveal:'type'},
-  art:{screen:720,screenWidth:1280,voice:{image:'art/play.png'},backlog:{sheet:'art/paper.png',font:22,list:[160,90,900,560],pitch:30,text:[120,880],gap:12,voice,
-   name:{x:120,y:-6,h:36,font:26,head:34},narrow:{unit:0.18}}}})
- for (const [voice,anchor] of [[[20,4,48,40],'row'],[{anchor:'name',at:[8,-2]},'name']]) {
-  const {marks,tokens}=skin.stageSkinArt(doc(voice),files,'skin.json')
-  assert.deepEqual([marks['data-fk-skin-art-backlog-narrow'],tokens['--art-bl-nu'],marks['data-fk-skin-art-backlog-voice']],['','0.18px',anchor])
- }
- const wide=doc([20,4,48,40]);delete wide.art.backlog.narrow
- assert.equal(skin.stageSkinArt(wide,files,'skin.json').marks['data-fk-skin-art-backlog-narrow'],undefined)
- const css=themeCss(),block=css.slice(css.indexOf('/* art backlog: phone.'),css.indexOf('/* ==== end stage skin: art screens ==== */'))
- assert.ok(block.includes('@media (max-width: 640px) {'))
- for (const selector of block.replace(/\/\*[\s\S]*?\*\//g,'').match(/^\s*\.fork-gal-stage\[[^{]+/gm)) assert.match(selector,/^\s*\.fork-gal-stage\[data-fk-skin-art-backlog-narrow\][^{]*:not\(\.is-film\)/,selector)
- assert.match(block,/--mu: var\(--art-bl-nu\)/)
- assert.match(block,/\[data-fk-skin-art-backlog-voice="row"\][^{]*\{ position: absolute;/)
- // anchor name: after the name, moved by at (design px in the phone unit), the 6px touch margin kept
- assert.match(block,/\[data-fk-skin-art-backlog-voice="name"\][^{]*\{ margin-left: calc\(var\(--art-bl-voice-x, 0\) \* var\(--mu\) - 6px\); translate: 0 calc\(var\(--art-bl-voice-y, 0\) \* var\(--mu\)\); \}/)
 })

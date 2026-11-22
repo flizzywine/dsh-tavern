@@ -7,12 +7,12 @@ import { registerTavernHttpRoutes } from '../tavern-plugin/lib/http/routes.js'
 import {createTavernClientAssets} from '../tavern-plugin/lib/domain/tavern-client-assets.js'
 import {registerStageClientAssets} from '../tavern-plugin/packages/dsh-tavern-stage/lib/client-assets.js'
 
-// 只为了拿到 handleTavernRequest：registerTavernHttpRoutes 在没有 webServer 时
-// 只做一次 exposeHandler 回调，不注册任何路由，也不读取其它依赖。
 function handle(clientAssets, overrides = {}) {
   let handler
   // every HTTP request passes the host Connection first (routes.js); this one admits all.
-  const ctx = { get: name => name === 'connection' ? { requestRejection: () => undefined, trustedHosts: [] } : undefined, effect: () => {} }
+  const webServer = { register(route) { if (route.path === '/api/dsh-tavern') handler = route.handler; return () => {} } }
+  const connection = { requestRejection: () => undefined, trustedHosts: [] }
+  const ctx = { get: name => ({ webServer, connection })[name], effect: fn => fn() }
   registerTavernHttpRoutes({
     ctx,
     clientAssets,
@@ -24,7 +24,7 @@ function handle(clientAssets, overrides = {}) {
     str: String, tavernRemoteAssets: {}, tavernStaticResources: {},
     castAssets: {}, assetLibrary: undefined, speech: {},
     exportCardFile: async () => {}, assetPacks: {}, uploads: {},
-    exposeHandler: (fn) => { handler = fn }, ...overrides,
+    ...overrides,
   })
   return handler
 }
@@ -182,12 +182,12 @@ test('模组与舞台操作：桌面端转发的已登录请求获得本 Host �
   assert.deepEqual(routes.authority(), { origin: undefined })
 })
 
-// in-process calls go through the same Connection check, so they fail closed too.
-test('鉴权服务缺失时 HTTP 与进程内调用都失败关闭', async () => {
+test('浏览器鉴权服务缺失时仍拒绝 HTTP，内部脚本没有浏览器权限', async () => {
   const routes = externalRoutes(undefined)
   assert.equal((await operation(routes.external)).status, 503)
-  assert.equal((await operation(routes.internal)).status, 503)
   assert.equal(routes.calls(), 0)
+  assert.equal((await operation(routes.internal, { host: 'tavern.invalid' }, '/api/dsh-tavern/getSession')).status, 200)
+  assert.deepEqual(routes.authority(), { origin: undefined })
 })
 
 test('CLI 的非回环监听地址可免 Cookie 读取 zod，可信范围限于实际地址和端口', async () => {

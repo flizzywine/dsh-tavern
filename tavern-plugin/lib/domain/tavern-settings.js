@@ -7,14 +7,6 @@ import { normalizeNarrativeDamperConfig, validateNarrativeDamperConfig } from '.
 
 const RESERVED_KEYS = new Set(['__proto__', 'constructor', 'prototype'])
 
-export function normalizeDefaultBodyGeneration(value) {
-  const input = object(value)
-  const mode = ['host', 'plugin-direct', 'plugin-tool-call'].includes(input.mode) ? input.mode : 'inherit'
-  const provider = typeof input.provider === 'string' ? input.provider.slice(0, 300) : ''
-  const hostRegex = typeof input.hostRegex === 'boolean' ? input.hostRegex : null
-  return { mode: mode.startsWith('plugin-') && !provider.trim() ? 'inherit' : mode, provider, hostRegex }
-}
-
 export function normalizeDefaultPluginGameSettings(value) {
   const result = {}
   for (const [owner, fields] of Object.entries(object(value))) {
@@ -239,14 +231,18 @@ export function normalizeConfiguredBackgroundTasks(value) {
 }
 
 
-export function normalizePlayDefaults(value) {
+export function normalizePlayDefaults(value, legacyCandidateTabs) {
   const input = object(value)
   return { playerName: typeof input.playerName === 'string' ? input.playerName.trim().slice(0, 80) || '你' : '你',
     worldbookStrategy: 'native-skills',
     statusBarPlacement: input.statusBarPlacement === 'body' ? 'body' : 'sidebar',
-    // New games get 文风联想 unless the defaults turn it off; an existing game without the key stays off.
-    backgroundTasks: { ...normalizeConfiguredBackgroundTasks(input.backgroundTasks), styleReference: object(input.backgroundTasks).styleReference !== false },
+    candidateTabs: typeof input.candidateTabs === 'boolean' ? input.candidateTabs : legacyCandidateTabs === true,
+    backgroundTasks: normalizeConfiguredBackgroundTasks(input.backgroundTasks),
     webSearchEnabled: input.webSearchEnabled === true }
+}
+
+export function conversationUsesExpandedCandidates(chat, legacyCandidateTabs) {
+  return typeof chat?.candidateTabs === 'boolean' ? chat.candidateTabs : legacyCandidateTabs === true
 }
 
 export function applyTavernSettingsPatch(current, patch) {
@@ -267,7 +263,8 @@ export function applyTavernSettingsPatch(current, patch) {
     if (Object.hasOwn(patch, 'playerName') && (typeof patch.playerName !== 'string' || patch.playerName.length > 80)) throw new Error('玩家称呼最多 80 字')
     if (Object.hasOwn(patch, 'statusBarPlacement') && !['body', 'sidebar'].includes(patch.statusBarPlacement)) throw new Error('状态栏位置无效')
     for (const key of ['posture', 'styleReference', 'foregroundCandidates', 'preset']) if (Object.hasOwn(object(patch.backgroundTasks), key) && typeof patch.backgroundTasks[key] !== 'boolean') throw new Error('默认结算开关必须为布尔值')
-    const current = normalizePlayDefaults(next.defaultPlaySettings)
+    if (Object.hasOwn(patch, 'candidateTabs') && typeof patch.candidateTabs !== 'boolean') throw new Error('无效的候选项数量设置')
+    const current = normalizePlayDefaults(next.defaultPlaySettings, next.candidateTabs)
     next.defaultPlaySettings = normalizePlayDefaults({ ...current, ...patch, backgroundTasks: { ...current.backgroundTasks, ...object(patch.backgroundTasks) } })
   }
   if (Object.hasOwn(input, 'defaultWritingSkill')) {
@@ -284,23 +281,12 @@ export function applyTavernSettingsPatch(current, patch) {
     if (!Array.isArray(input.defaultDisabledForegroundTools)) throw new Error('前台工具默认配置无效')
     next.defaultDisabledForegroundTools = normalizeDisabledForegroundTools(input.defaultDisabledForegroundTools)
   }
-  if (Object.hasOwn(input, 'defaultBodyGeneration')) {
-    const body = input.defaultBodyGeneration
-    if (body !== null && (typeof body !== 'object' || Array.isArray(body))) throw new Error('默认正文生成设置无效')
-    if (body !== null) {
-      if (Object.hasOwn(body, 'mode') && !['inherit', 'host', 'plugin-direct', 'plugin-tool-call'].includes(body.mode)) throw new Error('正文生成方式无效')
-      if (Object.hasOwn(body, 'provider') && (typeof body.provider !== 'string' || body.provider.length > 300)) throw new Error('正文生成插件标识无效')
-      if (Object.hasOwn(body, 'hostRegex') && body.hostRegex !== null && typeof body.hostRegex !== 'boolean') throw new Error('插件正文宿主正则设置无效')
-      if (body.mode?.startsWith('plugin-') && !body.provider?.trim()) throw new Error('请先选择正文生成插件')
-    }
-    next.defaultBodyGeneration = normalizeDefaultBodyGeneration(body)
-  }
   if (Object.hasOwn(input, 'defaultPluginGameSettings')) {
     if (input.defaultPluginGameSettings !== null && (typeof input.defaultPluginGameSettings !== 'object' || Array.isArray(input.defaultPluginGameSettings))) throw new Error('默认插件本局设置无效')
     next.defaultPluginGameSettings = normalizeDefaultPluginGameSettings(input.defaultPluginGameSettings)
   }
   // polishModel: 精修's own model for every game; null follows each game's story model.
-  for (const name of ['defaultForegroundModel', 'defaultBackgroundModel', 'defaultWorkbenchModel', 'polishModel']) {
+  for (const name of ['defaultForegroundModel', 'defaultBackgroundModel', 'defaultWorkbenchModel', 'defaultCompactionModel', 'polishModel']) {
     if (!Object.hasOwn(input, name)) continue
     const selection = normalizeBackgroundModel(input[name])
     if (input[name] !== null && !selection) throw new Error('默认模型配置无效')
@@ -321,9 +307,9 @@ export function applyTavernSettingsPatch(current, patch) {
     if (typeof input.candidateAutoGenerate !== 'boolean') throw new Error('无效的自动生成候选项设置')
     next.candidateAutoGenerate = input.candidateAutoGenerate
   }
-  // 设置 › 高级 › 候选多角色 / 全局 Tab：默认关闭，候选项只显示精选一组。
+  // Keep the legacy preference for saves that predate per-game candidate counts.
   if (Object.hasOwn(input, 'candidateTabs')) {
-    if (typeof input.candidateTabs !== 'boolean') throw new Error('无效的候选 Tab 设置')
+    if (typeof input.candidateTabs !== 'boolean') throw new Error('无效的候选项数量设置')
     next.candidateTabs = input.candidateTabs
   }
   if (Object.hasOwn(input, 'candidateGuidanceShortcuts')) {
@@ -337,9 +323,17 @@ export function applyTavernSettingsPatch(current, patch) {
     if (typeof input.hideContextAndReasoning !== 'boolean') throw new Error('无效的对话显示设置')
     next.hideContextAndReasoning = input.hideContextAndReasoning
   }
+  if (Object.hasOwn(input, 'polishEnabled')) {
+    if (typeof input.polishEnabled !== 'boolean') throw new Error('无效的精修设置')
+    next.polishEnabled = input.polishEnabled
+  }
   if (Object.hasOwn(input, 'polishPrereview')) {
     if (typeof input.polishPrereview !== 'boolean') throw new Error('无效的自动精修设置')
     next.polishPrereview = input.polishPrereview
+  }
+  if (Object.hasOwn(input, 'candidatePickMode')) {
+    if (!['fill', 'send'].includes(input.candidatePickMode)) throw new Error('无效的候选项点击方式')
+    next.candidatePickMode = input.candidatePickMode
   }
   if (Object.hasOwn(input, 'candidateDismissMode')) {
     if (!['after-fill', 'after-send'].includes(input.candidateDismissMode)) throw new Error('无效的候选项收起方式')
@@ -506,31 +500,32 @@ export function presentTavernSettings(document, defaults) {
   const story = prompts.find(function (item) { return item.name === 'story' }) || { text: '', customized: false }
   const storyToolCalls = storyToolCallSettings(document)
   return {
-    defaultPlaySettings: normalizePlayDefaults(object(document).defaultPlaySettings),
+    defaultPlaySettings: normalizePlayDefaults(object(document).defaultPlaySettings, document?.candidateTabs),
     scriptChunkSize: Number.isSafeInteger(object(document).scriptChunkSize) && document.scriptChunkSize >= 100 && document.scriptChunkSize <= 10000 ? document.scriptChunkSize : 500,
     defaultDisabledWritingSkills: Array.isArray(object(document).defaultDisabledWritingSkills) ? object(document).defaultDisabledWritingSkills.filter(name => typeof name === 'string') : [],
     defaultDisabledForegroundTools: normalizeDisabledForegroundTools(object(document).defaultDisabledForegroundTools),
-    defaultBodyGeneration: normalizeDefaultBodyGeneration(object(document).defaultBodyGeneration),
     defaultPluginGameSettings: normalizeDefaultPluginGameSettings(object(document).defaultPluginGameSettings),
     modModels: structuredClone(object(document).modModels || {}),
     defaultForegroundModel: normalizeBackgroundModel(object(document).defaultForegroundModel),
     defaultBackgroundModel: normalizeBackgroundModel(object(document).defaultBackgroundModel),
     polishModel: normalizeBackgroundModel(object(document).polishModel),
     defaultWorkbenchModel: normalizeBackgroundModel(object(document).defaultWorkbenchModel),
+    defaultCompactionModel: normalizeBackgroundModel(object(document).defaultCompactionModel),
     contextCompaction: compactionPolicy(object(document).contextCompaction),
     showPlayProcess: object(document).showPlayProcess === true,
     hideContextAndReasoning: object(document).hideContextAndReasoning === true,
     headerItems: readHeaderItems(object(document).headerItems),
     viewTabs: readViewTabs(object(document).viewTabs),
+    candidatePickMode: document?.candidatePickMode === 'send' ? 'send' : 'fill',
     candidateDismissMode: object(document).candidateDismissMode === 'after-fill' ? 'after-fill' : 'after-send',
     // existing profiles stay manual until explicitly enabled.
     
     candidateAutoGenerate: object(document).candidateAutoGenerate === true,
-    // 设置 › 高级 › 候选多角色 / 全局 Tab：默认关闭，候选卡只显示精选一组。
+    // Older games without a saved count keep their original five-choice default.
     candidateTabs: object(document).candidateTabs === true,
     candidateGuidanceShortcuts: readCandidateGuidanceShortcuts(document?.candidateGuidanceShortcuts),
-    // 自动精修: off by default, since it reviews and rewords every reply.
-    polishPrereview: object(document).polishPrereview === true,
+    polishEnabled: document?.polishEnabled === true,
+    polishPrereview: document?.polishEnabled === true && document?.polishPrereview === true,
     storyGenerationMode: ['plugin-direct', 'plugin-tool-call'].includes(document?.storyGenerationMode) ? document.storyGenerationMode : 'host',
     storyGenerationProvider: typeof document?.storyGenerationProvider === 'string' ? document.storyGenerationProvider : '',
     storyPluginOutputRegex: document?.storyPluginOutputRegex === true,

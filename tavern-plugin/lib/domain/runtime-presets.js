@@ -100,7 +100,13 @@ export function resolveRuntimePresetMacros(snapshot, options = {}) {
   let state = macroState
   const diagnostics = []
   const resolvedPhases = {}
+  const targetPhases = Array.isArray(options.phases) && options.phases.length > 0 ? options.phases : ['front', 'middle', 'back']
+  const allPhases = targetPhases.length === 3 && targetPhases[0] === 'front' && targetPhases[1] === 'middle' && targetPhases[2] === 'back'
   for (const phase of ['front', 'middle', 'back']) {
+    if (!targetPhases.includes(phase)) {
+      resolvedPhases[phase] = rawPhases[phase]
+      continue
+    }
     const entries = []
     for (const entry of rawPhases[phase].entries) {
       const rendered = resolveRuntimeMacroText(entry.content, {
@@ -120,13 +126,17 @@ export function resolveRuntimePresetMacros(snapshot, options = {}) {
     }
     resolvedPhases[phase] = phaseValue(entries)
   }
-  const text = ['front', 'middle', 'back'].map(function (phase) { return resolvedPhases[phase].text }).filter(Boolean).join('\n\n')
+  const text = allPhases
+    ? ['front', 'middle', 'back'].map(function (phase) { return resolvedPhases[phase].text }).filter(Boolean).join('\n\n')
+    : resolvedPhases.front.text
   const resolved = Object.assign({}, snapshot, {
     front: resolvedPhases.front,
     middle: resolvedPhases.middle,
     back: resolvedPhases.back,
     text,
-    digest: createHash('sha256').update(JSON.stringify({ front: resolvedPhases.front, middle: resolvedPhases.middle, back: resolvedPhases.back, regexScripts: snapshot.regexScripts || [] })).digest('hex')
+    digest: allPhases
+      ? createHash('sha256').update(JSON.stringify({ front: resolvedPhases.front, middle: resolvedPhases.middle, back: resolvedPhases.back, regexScripts: snapshot.regexScripts || [] })).digest('hex')
+      : snapshot.digest
   })
   return {
     snapshot: resolved,

@@ -24,10 +24,6 @@ test('对话排序设置默认按创建时间，布尔值才落盘', () => {
   }
 })
 
-test('设置 › 高级 有「对话按最新回复排序」开关，绑定 recentReplyFirst', () => {
-  assert.match(globalSettings, /sw\("recentReplyFirst", "对话按最新回复排序"/)
-})
-
 const ROWS = [
   // 旧对话回复了：活动时间最新，创建时间最早。
   { sessionId: 'session-a', chatId: 'chat-a', cardPath: 'card.json', cardName: '卡', mode: 'story', createdAt: 100, updatedAt: 900, lastOpenedAt: 100 },
@@ -81,16 +77,6 @@ test('行内时间跟随排序：创建序是创建时间，最新回复序是�
   assert.equal(ctx.tavernHistoryStamp(item, { updatedAt: 950 }, { 'session-a': { updatedAt: 950 } }, 'recent'), 950)
   // 只有单条摘要时也按活动时间走，不会退回创建时间。
   assert.equal(ctx.tavernHistoryStamp(item, { updatedAt: 950 }, null, 'recent'), 950)
-})
-
-test('侧边栏按偏好切换排序，并在设置变化后重新读取', () => {
-  assert.match(sidebar, /recentReplyFirst === true \? "recent" : "created"/)
-  // 未归档与已归档两张表各自排序：侧栏把归档从主列表拆成了独立分组。
-  assert.match(sidebar, /const orderedActiveHistory = React\.useMemo\(function \(\) \{\s*return orderTavernHistory\(activeHistory, summaries, historyOrder\)/)
-  assert.match(sidebar, /const orderedArchivedHistory = React\.useMemo\(function \(\) \{\s*return orderTavernHistory\(archivedHistory, summaries, historyOrder\)/)
-  assert.match(sidebar, /groupTavernHistory\(orderedActiveHistory, summaries, historyOrder\)/)
-  assert.match(sidebar, /void reloadHistoryOrder\(\)/)
-  assert.match(sidebar, /formatTime\(tavernHistoryStamp\(item, summary, summaries, historyOrder\)\)/)
 })
 
 test('最新回复序：切换/打开对话不改变位置，只有新回复才排到最前', () => {

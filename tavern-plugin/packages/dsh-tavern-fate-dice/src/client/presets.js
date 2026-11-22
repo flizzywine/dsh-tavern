@@ -16,6 +16,7 @@ const FD_STORAGE_KEYS = {
 const FD_RPC = {
   status: 'fate-dice:status',
   readTurn: 'fate-dice:read-turn',
+  readTurns: 'fate-dice:read-turns',
   rerollTurn: 'fate-dice:reroll-turn',
   gateResolve: 'fate-dice:gate-resolve',
   gatePeek: 'fate-dice:gate-peek',
@@ -48,12 +49,18 @@ const FD_TONE_OPTIONS = [
 ]
 
 const FD_ANIMATION_OPTIONS = [
-  { value: 'bounce', label: '3D 星穹秘法 · 智能切换（默认）' },
-  { value: 'prism', label: '3D 时停棱镜 · 碎星圣晶（子弹时间）' },
-  { value: 'inferno', label: '3D 焚天熔炉 · 玄武熔铁（烈焰光柱）' },
-  { value: 'cyber', label: '3D 赛博超频 · 霓虹矩阵（战术准星）' },
-  { value: 'jianxin', label: '3D 水墨剑心 · 太虚白玉（剑气朱印）' },
-  { value: 'singularity', label: '3D 虚空星噬 · 诡秘奇点（引力透镜）' },
+  { value: 'atelier', label: '典藏 · 绅士赌桌（胡桃木与车削黄铜 · 默认）' },
+  { value: 'pixel', label: '典藏 · 勇者地牢（16-Bit 黄金像素与芯片音）' },
+  { value: 'etching', label: '典藏 · 达芬奇手稿（古羊皮纸铜版钢笔排线）' },
+  { value: 'urushi', label: '典藏 · 京都黑漆（镜面大漆螺钿与金泥莳绘）' },
+  { value: 'bauhaus', label: '典藏 · 包豪斯白瓷（哑光氧化锆与博朗信号橙）' },
+  { value: 'murano', label: '典藏 · 深海星仪（威尼斯折射海琉璃与银星盘）' },
+  { value: 'bounce', label: '幻想 · 星穹秘法（智能切换）' },
+  { value: 'prism', label: '幻想 · 时停棱镜（碎星圣晶 · 子弹时间）' },
+  { value: 'inferno', label: '幻想 · 焚天熔炉（玄武熔铁 · 烈焰光柱）' },
+  { value: 'cyber', label: '幻想 · 赛博超频（霓虹矩阵 · 战术准星）' },
+  { value: 'jianxin', label: '幻想 · 水墨剑心（太虚白玉 · 剑气朱印）' },
+  { value: 'singularity', label: '幻想 · 虚空星噬（诡秘奇点 · 引力透镜）' },
   { value: 'compact', label: '2D 极简闪现（轻量徽标）' },
   { value: 'none', label: '关闭动画（直接显示结果）' }
 ]
@@ -69,6 +76,11 @@ const FD_PRE_SEND_WAIT_OPTIONS = [
   { value: '24', label: '24 秒（慢慢想）' }
 ]
 
+const FD_REVEAL_TIMING_OPTIONS = [
+  { value: 'immediate', label: '判定即播（发送后立即投骰）' },
+  { value: 'stream-end', label: '随正文落定揭晓（防发前剧透）' }
+]
+
 const FD_DEFAULT_SETTINGS = {
   enabled: false,
   sensitivity: 'normal',
@@ -77,7 +89,11 @@ const FD_DEFAULT_SETTINGS = {
   autoHidden: true,
   damperLinkage: true,
   allowHeuristicFallback: false,
-  animation: 'bounce',
+  tapeFallbackEnabled: false,
+  autoSuccessEnabled: true,
+  contestEnabled: true,
+  revealTiming: 'immediate',
+  animation: 'atelier',
   preSendPause: false,
   preSendScope: 'both',
   preSendWait: 18

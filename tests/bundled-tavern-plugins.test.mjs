@@ -1,24 +1,25 @@
 // 随酒馆发行、但身份是「酒馆插件」的内置插件：装进 <data>/plugins，插件页才列得出来。
 import assert from 'node:assert/strict'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
 
-import {
-  BUNDLED_TAVERN_PLUGINS,
-  SOURCE_FILE,
-  installBundledTavernPlugins,
-  readBundledTavernPlugin,
-} from '../bin/bundled-tavern-plugins.mjs'
+import { SOURCE_FILE } from '../bin/bundled-tavern-plugins.mjs'
+import { syncBundledTavernPlugins } from '../bin/service-lifecycle.mjs'
+import { createUserPluginInstaller } from '../tavern-plugin/lib/domain/user-plugin-install.js'
+import { DISABLED_FILE, RESTART_FILE, syncUserPlugins } from '../tavern-plugin/lib/domain/user-plugins.js'
+import { TAVERN_PLUGIN_API_VERSION } from '../tavern-plugin/lib/domain/plugin-manifest.js'
+import { writeZipEntries } from '../tavern-plugin/lib/domain/zip-entries.js'
 
 const FOLDER = 'dsh-tavern-plot-compass'
 const quiet = { warn() {}, log() {} }
 
-function makeSource(t, { version = '1.0.0', name = FOLDER } = {}) {
+function makeSource(t, { version = '1.0.0', folder = FOLDER, name = folder } = {}) {
   const root = mkdtempSync(path.join(tmpdir(), 'tavern-plugin-src-'))
   t.after(() => rmSync(root, { recursive: true, force: true }))
-  const dir = path.join(root, 'tavern-plugin', 'packages', FOLDER)
+  const dir = path.join(root, 'tavern-plugin', 'packages', folder)
   mkdirSync(path.join(dir, 'lib'), { recursive: true })
   mkdirSync(path.join(dir, 'src', 'client'), { recursive: true })
   writeFileSync(path.join(dir, 'package.json'), JSON.stringify({
@@ -34,120 +35,157 @@ function makeSource(t, { version = '1.0.0', name = FOLDER } = {}) {
   return { root, dir }
 }
 
-function makeData(t) {
-  const root = mkdtempSync(path.join(tmpdir(), 'tavern-plugin-data-'))
-  t.after(() => rmSync(root, { recursive: true, force: true }))
-  return root
+test('服务启动同步函数会更新数据目录下的内置插件并在无改动时安静跳过', t => {
+  const source = makeSource(t, { version: '1.0.0' })
+  const dshHome = mkdtempSync(path.join(tmpdir(), 'tavern-service-home-'))
+  t.after(() => rmSync(dshHome, { recursive: true, force: true }))
+  const profileDir = path.join(dshHome, 'profiles', 'tavern')
+  mkdirSync(profileDir, { recursive: true })
+
+  const logs = []
+  const logger = { log: message => logs.push(message), warn: message => logs.push(message) }
+  const first = syncBundledTavernPlugins({ sourceRoot: source.root, dshHome, profileDir, logger })
+  assert.equal(first[0].action, 'installed')
+  assert.ok(logs.some(line => line.includes(`已内置插件 ${FOLDER} 1.0.0`)))
+
+  logs.length = 0
+  const second = syncBundledTavernPlugins({ sourceRoot: source.root, dshHome, profileDir, logger })
+  assert.equal(second[0].action, 'skipped')
+  assert.equal(logs.length, 0)
+
+  writeFileSync(path.join(source.dir, 'client.js'), '// rebuilt client\n')
+  const third = syncBundledTavernPlugins({ sourceRoot: source.root, dshHome, profileDir, logger })
+  assert.equal(third[0].action, 'upgraded')
+  assert.ok(logs.some(line => line.includes(`已同步内置插件 ${FOLDER}：已同步最新副本（1.0.0）`)))
+  assert.equal(
+    readFileSync(path.join(dshHome, 'profile-data', 'tavern', 'data', 'plugins', FOLDER, 'client.js'), 'utf8'),
+    '// rebuilt client\n',
+  )
+})
+
+test('startService 在拉起 DSH 进程前调用 syncBundledTavernPlugins', () => {
+  const lifecycle = readFileSync(new URL('../bin/service-lifecycle.mjs', import.meta.url), 'utf8')
+  const start = lifecycle.slice(lifecycle.indexOf('export async function startService('))
+  const syncIndex = start.indexOf('syncBundledTavernPlugins()')
+  const spawnIndex = start.indexOf('child = spawn(')
+  assert.ok(syncIndex > 0, 'startService 应调用 syncBundledTavernPlugins()')
+  assert.ok(spawnIndex > syncIndex, 'syncBundledTavernPlugins() 应在拉起进程前执行')
+})
+
+async function checkBundledLoadDefault(t, folder) {
+  const source = makeSource(t, { folder })
+  const dshHome = mkdtempSync(path.join(tmpdir(), 'tavern-service-home-'))
+  t.after(() => rmSync(dshHome, { recursive: true, force: true }))
+  const dataRoot = path.join(dshHome, 'profile-data', 'tavern', 'data')
+  const profileDir = path.join(dshHome, 'profiles', 'tavern')
+  mkdirSync(profileDir, { recursive: true })
+  writeFileSync(path.join(profileDir, 'package.json'), '{}')
+
+  const syncBundled = () => syncBundledTavernPlugins({ sourceRoot: source.root, dshHome, dataRoot, profileDir, logger: quiet })
+    .find(item => item.packageName === folder)
+  const sync = () => syncUserPlugins({ dataRoot, dshHome, logger: quiet })
+  const installer = createUserPluginInstaller({ dataRoot, sync })
+  const patch = path.join(profileDir, 'cordis.patch.yml')
+  const patchHasPlugin = () => readFileSync(patch, 'utf8').includes(`tavern-user-plugin-${folder}`)
+  const installed = syncBundled()
+  assert.equal(installed.action, 'installed')
+  assert.equal((await installer.list())[0].enabled, true)
+  await sync()
+  assert.equal(patchHasPlugin(), true)
+
+  // Simulate the old installer's automatic marker without a change to the package digest.
+  const sourceFile = path.join(installed.target, SOURCE_FILE)
+  const recorded = JSON.parse(readFileSync(sourceFile, 'utf8'))
+  const legacySource = JSON.stringify({ ...recorded, defaultDisabled: true })
+  writeFileSync(sourceFile, legacySource)
+  writeFileSync(path.join(installed.target, DISABLED_FILE), '')
+  assert.equal((await installer.list())[0].state, 'disabled')
+  assert.equal(syncBundled().action, 'upgraded')
+  assert.equal((await installer.list())[0].enabled, true)
+  assert.equal(syncBundled().action, 'skipped')
+
+  // A manual disable must survive migration and later updates.
+  await installer.disable(folder)
+  writeFileSync(sourceFile, legacySource)
+  assert.equal(syncBundled().action, 'upgraded')
+  assert.equal((await installer.list())[0].state, 'disabled')
+  assert.deepEqual((await sync()).plugins, [])
+  assert.equal(patchHasPlugin(), false)
+
+  writeFileSync(path.join(source.dir, 'client.js'), '// updated client\n')
+  assert.equal(syncBundled().action, 'upgraded')
+  assert.equal((await installer.list())[0].state, 'disabled')
 }
 
-test('首装：副本进 plugins/，代码齐备，构建输入不落地，来源标成内置', t => {
-  const source = makeSource(t)
-  const dataRoot = makeData(t)
-  const [result] = installBundledTavernPlugins({ sourceRoot: source.root, dataRoot, logger: quiet })
-  assert.equal(result.action, 'installed')
-  assert.equal(result.version, '1.0.0')
-  const target = path.join(dataRoot, 'plugins', FOLDER)
-  assert.equal(result.target, target)
-  for (const file of ['package.json', 'lib/index.js', 'client.js', 'cordis.patch.yml', SOURCE_FILE]) {
-    assert.ok(existsSync(path.join(target, file)), '缺少 ' + file)
-  }
-  for (const file of ['build.mjs', 'src']) assert.equal(existsSync(path.join(target, file)), false, file + ' 不该进插件目录')
-  const record = JSON.parse(readFileSync(path.join(target, SOURCE_FILE), 'utf8'))
-  assert.equal(record.kind, 'builtin')
-  assert.equal(record.bundled, true)
-  assert.equal(record.version, '1.0.0')
-})
+for (const folder of ['dsh-tavern-fate-dice', 'dsh-tavern-plot-compass']) {
+  test(`${folder} 默认加载，迁移旧版自动停用标记并保留手动停用`, t => checkBundledLoadDefault(t, folder))
+}
 
-test('profile 仍登记同名包时让位，不再放一份永远不会加载的副本', t => {
-  const source = makeSource(t)
-  const dataRoot = makeData(t)
-  const profileDir = mkdtempSync(path.join(tmpdir(), 'tavern-plugin-profile-'))
-  t.after(() => rmSync(profileDir, { recursive: true, force: true }))
-  mkdirSync(path.join(profileDir, 'node_modules', FOLDER), { recursive: true })
-  writeFileSync(path.join(profileDir, 'node_modules', FOLDER, 'package.json'), JSON.stringify({ name: FOLDER, version: '0.9.0' }))
-  const [result] = installBundledTavernPlugins({ sourceRoot: source.root, dataRoot, profileDir, logger: quiet })
-  assert.equal(result.action, 'skipped')
-  assert.match(result.reason, /单一来源/)
-  assert.equal(existsSync(path.join(dataRoot, 'plugins', FOLDER)), false)
-})
+test('命运之骰只安装校验通过的 Release，酒馆同步保留较新的兼容版本', async t => {
+  const folder = 'dsh-tavern-fate-dice'
+  const repo = 'bigmalove/' + folder
+  const dataRoot = mkdtempSync(path.join(tmpdir(), 'tavern-release-data-'))
+  t.after(() => rmSync(dataRoot, { recursive: true, force: true }))
+  const sync = source => syncBundledTavernPlugins({ sourceRoot: source.root, dataRoot, profileDir: path.join(dataRoot, 'profile'), logger: quiet })
+    .find(item => item.packageName === folder)
+  const oldSource = makeSource(t, { version: '1.4.2', folder })
+  const { target: installed } = sync(oldSource)
+  const manifest = () => JSON.parse(readFileSync(path.join(installed, 'package.json'), 'utf8'))
+  const record = () => JSON.parse(readFileSync(path.join(installed, SOURCE_FILE), 'utf8'))
+  const zipFor = (version, minimumApi) => writeZipEntries([
+    { path: 'package.json', content: JSON.stringify({ ...manifest(), version, dsh: { compatibility: { tavernApiVersion: minimumApi } } }) },
+    { path: 'lib/index.js', content: 'export const independent = true' },
+    { path: 'client.js', content: '// independent release' },
+  ])
+  const api = 'https://api.github.com/repos/' + repo + '/releases/latest'
+  const releaseZip = 'https://github.com/' + repo + '/releases/download/v1.5.0/fate-dice-1.5.0.zip'
+  const sha256 = zip => 'sha256:' + createHash('sha256').update(zip).digest('hex')
+  let archive = zipFor('1.5.0', TAVERN_PLUGIN_API_VERSION + 1)
+  let digest = sha256(archive)
+  let downloaded = archive
+  const calls = []
+  const installer = createUserPluginInstaller({ dataRoot, fetchImpl: async url => {
+    calls.push(url)
+    if (url === api) return Response.json({ tag_name: 'v1.5.0', assets: [{ name: 'fate-dice-1.5.0.zip', size: archive.length, digest }] })
+    assert.equal(url, releaseZip)
+    return new Response(downloaded)
+  } })
+  assert.equal((await installer.list())[0].source.releaseRepo, repo)
 
-test('从旧版本升上来：以这次算出的 profile 清单为准，磁盘上的旧链接不算数', t => {
-  const source = makeSource(t)
-  const dataRoot = makeData(t)
-  const profileDir = mkdtempSync(path.join(tmpdir(), 'tavern-plugin-profile-'))
-  t.after(() => rmSync(profileDir, { recursive: true, force: true }))
-  // pnpm install 还没跑：node_modules 里仍留着上一次安装的链接。
-  mkdirSync(path.join(profileDir, 'node_modules', FOLDER), { recursive: true })
-  writeFileSync(path.join(profileDir, 'node_modules', FOLDER, 'package.json'), JSON.stringify({ name: FOLDER, version: '1.0.0' }))
+  const [blocked] = await installer.checkUpdates()
+  assert.equal(blocked.status, 'blocked')
+  assert.match(blocked.reason, /请先更新酒馆/)
+  assert.equal(manifest().version, '1.4.2')
+  await assert.rejects(installer.update(folder, 'v1.5.0:' + digest), /请先更新酒馆/)
 
-  const dependency = installBundledTavernPlugins({ sourceRoot: source.root, dataRoot, profileDir, logger: quiet })[0]
-  assert.equal(dependency.action, 'skipped', '没有清单时看磁盘：旧版本里它还是 profile 包')
+  archive = zipFor('1.5.0', TAVERN_PLUGIN_API_VERSION)
+  digest = sha256(archive)
+  downloaded = archive
+  const [available] = await installer.checkUpdates({ fresh: true })
+  assert.equal(available.status, 'available')
+  assert.equal(available.latest, 'v1.5.0')
+  assert.deepEqual(await installer.checkUpdates(), [available])
+  assert.deepEqual(calls, [api, releaseZip, api, releaseZip], '重复检查复用同一发布包的校验结果')
+  await assert.rejects(installer.update(folder, 'stale-target'), /重新检查更新/)
+  const corrupted = Buffer.from(archive)
+  corrupted[0] ^= 1
+  downloaded = corrupted
+  await assert.rejects(installer.update(folder, available.target), /SHA-256 校验失败/)
+  assert.equal(manifest().version, '1.4.2')
 
-  const [result] = installBundledTavernPlugins({ sourceRoot: source.root, dataRoot, profileDir, profileDependencies: {}, logger: quiet })
-  assert.equal(result.action, 'installed', '新清单里已经没有同名包，这次就该装进 plugins/')
-
-  const dataRoot2 = makeData(t)
-  const [kept] = installBundledTavernPlugins({ sourceRoot: source.root, dataRoot: dataRoot2, profileDependencies: { [FOLDER]: 'link:./tavern-plugin/packages/' + FOLDER }, logger: quiet })
-  assert.equal(kept.action, 'skipped')
-  assert.match(kept.reason, /单一来源/)
-})
-
-test('同版本不动；内置更新时整份替换代码，来源标记跟着版本走', t => {
-  const dataRoot = makeData(t)
-  const first = makeSource(t, { version: '1.0.0' })
-  assert.equal(installBundledTavernPlugins({ sourceRoot: first.root, dataRoot, logger: quiet })[0].action, 'installed')
-
-  const same = makeSource(t, { version: '1.0.0' })
-  const [unchanged] = installBundledTavernPlugins({ sourceRoot: same.root, dataRoot, logger: quiet })
-  assert.equal(unchanged.action, 'skipped')
-  assert.match(unchanged.reason, /与内置副本相同/)
-
-  // 版本号不动但代码变了（酒馆日常更新就是这样）：靠内容摘要判定，替换副本。
-  const edited = makeSource(t, { version: '1.0.0' })
-  writeFileSync(path.join(edited.dir, 'lib', 'index.js'), 'export const bundled = "edited"\n')
-  const [refreshed] = installBundledTavernPlugins({ sourceRoot: edited.root, dataRoot, logger: quiet })
-  assert.equal(refreshed.action, 'upgraded')
-  assert.match(readFileSync(path.join(dataRoot, 'plugins', FOLDER, 'lib', 'index.js'), 'utf8'), /edited/)
-
-  const newer = makeSource(t, { version: '1.2.0' })
-  const [upgraded] = installBundledTavernPlugins({ sourceRoot: newer.root, dataRoot, logger: quiet })
-  assert.equal(upgraded.action, 'upgraded')
-  assert.equal(upgraded.installedVersion, '1.0.0')
-  const target = path.join(dataRoot, 'plugins', FOLDER)
-  assert.match(readFileSync(path.join(target, 'lib', 'index.js'), 'utf8'), /1\.2\.0/)
-  assert.equal(JSON.parse(readFileSync(path.join(target, SOURCE_FILE), 'utf8')).version, '1.2.0')
-})
-
-test('目标目录是符号链接、别的插件时一律保留现有内容', t => {
-  const source = makeSource(t)
-  const dataRoot = makeData(t)
-  const plugins = path.join(dataRoot, 'plugins')
-  mkdirSync(plugins, { recursive: true })
-
-  const elsewhere = mkdtempSync(path.join(tmpdir(), 'tavern-plugin-link-'))
-  t.after(() => rmSync(elsewhere, { recursive: true, force: true }))
-  writeFileSync(path.join(elsewhere, 'package.json'), JSON.stringify({ name: FOLDER, version: '0.1.0' }))
-  symlinkSync(elsewhere, path.join(plugins, FOLDER))
-  let [result] = installBundledTavernPlugins({ sourceRoot: source.root, dataRoot, logger: quiet })
-  assert.equal(result.action, 'skipped')
-  assert.match(result.reason, /普通目录/)
-  rmSync(path.join(plugins, FOLDER))
-
-  mkdirSync(path.join(plugins, FOLDER))
-  writeFileSync(path.join(plugins, FOLDER, 'package.json'), JSON.stringify({ name: 'someone-else', version: '0.1.0' }))
-  ;[result] = installBundledTavernPlugins({ sourceRoot: source.root, dataRoot, logger: quiet })
-  assert.equal(result.action, 'skipped')
-  assert.match(result.reason, /同名插件/)
-  assert.equal(JSON.parse(readFileSync(path.join(plugins, FOLDER, 'package.json'), 'utf8')).name, 'someone-else')
-})
-
-test('发行副本不完整时报 unavailable，不去猜', t => {
-  const source = makeSource(t)
-  rmSync(path.join(source.dir, 'client.js'))
-  const dataRoot = makeData(t)
-  const [definition] = BUNDLED_TAVERN_PLUGINS
-  assert.match(readBundledTavernPlugin(source.root, definition).reason, /不完整/)
-  const [result] = installBundledTavernPlugins({ sourceRoot: source.root, dataRoot, logger: quiet })
-  assert.equal(result.action, 'unavailable')
-  assert.equal(existsSync(path.join(dataRoot, 'plugins', FOLDER)), false)
+  downloaded = archive
+  await installer.disable(folder)
+  const updated = await installer.update(folder, available.target)
+  assert.equal(updated.replaced, true)
+  assert.equal(manifest().version, '1.5.0')
+  assert.equal(record().kind, 'builtin')
+  assert.equal(record().releaseRepo, repo)
+  assert.equal(JSON.parse(readFileSync(path.join(installed, RESTART_FILE), 'utf8')).previousVersion, '1.4.2')
+  assert.equal((await installer.list())[0].state, 'disabled')
+  await assert.rejects(installer.remove(folder), /内置插件/)
+  assert.equal(sync(oldSource).action, 'skipped')
+  assert.equal(manifest().version, '1.5.0')
+  assert.equal(sync(makeSource(t, { version: '1.5.1', folder })).action, 'upgraded')
+  assert.equal(manifest().version, '1.5.1')
+  assert.equal((await installer.list())[0].state, 'disabled')
 })

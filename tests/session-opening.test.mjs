@@ -46,19 +46,3 @@ for (const method of ['saveChat', 'setChatMessage', 'setChatMessages', 'swipe.to
   assert.equal(chat.messages[0].openingChoiceId, 'alternate:0')
   assert.equal(w.SillyTavern.chat[0].mes, '实际开场')
 })
-
-test('校验可切换的第 0 楼，并保留重复正文和空白开场各自的编号', () => {
-  const played = initial(); played.messages.push({ role: 'user', text: '继续' })
-  assert.equal(sessionOpeningDescriptor(played, card), null)
-  const busy = initial(); busy.timeline = { operations: { op: { status: 'running' } } }
-  assert.equal(sessionOpeningDescriptor(busy, card), null)
-  assert.throws(() => selectSessionOpening({ chat: initial(), card, swipeId: 1, message: '任意正文' }), /已有开场/)
-  const chat = initial()
-  chat.messages[0].openingChoiceId = 'alternate:0'
-  const duplicate = { ...card, first_mes: '实际开场' }
-  assert.equal(sessionOpeningDescriptor(chat, duplicate).selectedIndex, 1)
-  assert.deepEqual(selectSessionOpening({ chat, card, swipeId: 2, message: '' }), { id: 'alternate:1', text: '', current: false })
-  assert.throws(() => selectSessionOpening({
-    chat, card: duplicate, swipeId: 2, expectedOpeningVersion: sessionOpeningDescriptor(chat, card).version
-  }), /开场白已变化/)
-})

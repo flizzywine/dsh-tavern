@@ -18,6 +18,7 @@ test('stage overlay builds and imports with only its own package files, the shar
   await copyFile(new URL('build.mjs',pkg),path.join(root,'build.mjs'))
   await mkdir(path.join(root,'lib/client'),{recursive:true})
   await copyFile(new URL('lib/client-assets.js',pkg),path.join(root,'lib/client-assets.js'))
+  await copyFile(new URL('lib/theme-parts.js',pkg),path.join(root,'lib/theme-parts.js'))
   await copyFile(new URL('lib/client/skin-overlay-timing.cjs',pkg),path.join(root,'lib/client/skin-overlay-timing.cjs'))
   for(const name of ['lifetime.cjs','entry.cjs','resources.cjs','runtime-store.cjs','session.cjs','director-source.cjs','resource-runner.cjs','runtime-kernel.cjs'])await copyFile(new URL('lib/client/'+name,pkg),path.join(root,'lib/client',name))
   const run = args => spawnSync(process.execPath,[path.join(root,'build.mjs'),...args],{encoding:'utf8'})

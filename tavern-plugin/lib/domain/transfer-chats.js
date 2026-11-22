@@ -176,10 +176,12 @@ export function createTransferChats(deps) {
   async function collect(keys, options = {}) {
     const map = await games()
     const items = []
+    const onItem = options && typeof options.onItem === 'function' ? options.onItem : null
     for (const key of wanted(keys)) {
       const chat = map.get(key)
       if (!chat) throw new Error('对话不存在：' + key)
       const title = titleOf(chat)
+      if (onItem) onItem({ phase: 'start', key, title })
       let exported
       try {
         exported = await exportSave(chat.sessionId, { images: options.images !== false,
@@ -189,6 +191,7 @@ export function createTransferChats(deps) {
       const base64 = str(exported && exported.base64)
       if (!base64) throw new Error('导出「' + title + '」失败：存档内容为空')
       items.push({ key, title, fileName: fileNameOf(exported, title), content: Buffer.from(base64, 'base64') })
+      if (onItem) onItem({ phase: 'done', key, title })
     }
     return items
   }

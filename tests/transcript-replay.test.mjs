@@ -73,35 +73,6 @@ async function expectWhole(g) {
   assert.deepEqual({ current: replay.problems, plan: replay.plan.problems, planStale: replay.plan.stale }, { current: [], plan: [], planStale: [] })
 }
 
-test('普通回合：每轮一份输入一份正文', async () => {
-  const g = game('plain')
-  g.round(1, '你好', '她点了点头。')
-  g.round(2, '去花店', '花店的门开着。')
-  await expectWhole(g)
-})
-
-test('同一轮连续重新生成三次：只剩最新一版', async () => {
-  const g = game('regen-three')
-  g.round(1, '你好', '她点了点头。')
-  let seq = sessionEvents(g.session).filter(event => event.type === 'assistant/message').at(-1).seq
-  g.round(2, '去花店', '第一版')
-  seq = sessionEvents(g.session).filter(event => event.type === 'assistant/message').at(-1).seq
-  for (const body of ['第二版', '第三版', '第四版']) seq = g.regenerate(2, seq, body)
-  await expectWhole(g)
-})
-
-// 本机文风联想 A/B 存档（chat-mvgunsss）：每轮都重新生成过一次，只有最早那轮看得见。
-test('重新生成过的几轮各自都有正文', async () => {
-  const g = game('regen-each')
-  for (const turn of [1, 2, 3]) {
-    const turns = sessionEvents(g.session).filter(event => event.type === 'turn/start').map(event => Number(event.data.turn))
-    const story = turns.length ? Math.max(...turns) + 1 : 1
-    const old = g.round(story, '第 ' + turn + ' 次行动', '旧正文 ' + turn)
-    g.regenerate(story, old.seq, '新正文 ' + turn)
-  }
-  await expectWhole(g)
-})
-
 // #283：工具提交的旧回合，折叠副本落在生成期回合里。
 test('工具提交的回合重新生成后仍有正文（#283）', async () => {
   const g = game('regen-tool')

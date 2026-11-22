@@ -9,7 +9,7 @@ import { assetPackDigest } from './stage-asset-pack-catalogue.js'
 import { canonicalJson } from '../../../dsh-presentation-protocol/src/asset-pack-json.js'
 import { captureStageTarget } from '../../../../lib/domain/stage-incremental.js'
 import { createStageHistoryCache, isPerformanceChainBoundary } from './stage-history-cache.js'
-import { isImmutableJson } from '../../../../lib/domain/freeze-json.js'
+import { freezeJson, isImmutableJson } from '../../../../lib/domain/freeze-json.js'
 import { sceneTarget } from '../../../../lib/domain/scene-illustration.js'
 import { stageParagraphs } from '../../../../lib/domain/stage-paragraphs.js'
 import { roundBody } from '../../../../lib/domain/round-body.js'
@@ -43,6 +43,45 @@ const BOOT = randomUUID()
 // naming an asset removed since degrades in projection like any history.
 const withoutRevision = ({revision, ...target}) => target
 
+// A frozen chat view's scene targets and a frozen round body's director units and digests cannot change: the read-only
+// requests of one page (presentation, phone, timer, items) compute them once.
+const sceneTargets = new WeakMap(), bodyUnits = new WeakMap()
+function viewSceneTarget(chat, turn) {
+  if (!isImmutableJson(chat)) return sceneTarget(chat, turn)
+  let targets = sceneTargets.get(chat)
+  if (!targets) sceneTargets.set(chat, targets = new Map())
+  if (!targets.has(turn)) targets.set(turn, Object.freeze(sceneTarget(chat, turn)))
+  return targets.get(turn)
+}
+function roundUnits(round) {
+  const known = bodyUnits.get(round)
+  if (known) return known
+  const displayUnits = round.displayUnits, units = cleanDirectorUnits(displayUnits), pageIndex = stagePageIndex(displayUnits)
+  const value = {units, pageIndex, unitsDigest:assetPackDigest(units), pageDigest:assetPackDigest(pageIndex), displayDigest:assetPackDigest(displayUnits)}
+  if (isImmutableJson(round)) bodyUnits.set(round, freezeJson(value))
+  return value
+}
+
+// A round's reply projection (its host body) by chat view, turn and persisted: the presentation, phone, timer and items
+// requests of one page all read the same round. A frozen round view (the stage chat cache's) cannot change, so its round
+// is projected once per asset revision (`revision()`: a card edit bumps it) and shared frozen; any other chat is
+// projected on each call.
+export function createRoundProjections({project, revision}) {
+  const views = new WeakMap()
+  return (chat, turn, persisted) => {
+    if (!isImmutableJson(chat)) return project(chat, turn, persisted)
+    let rows = views.get(chat)
+    if (!rows) views.set(chat, rows = new Map())
+    const key = JSON.stringify([turn, persisted, revision()])
+    if (!rows.has(key)) {
+      const value = project(chat, turn, persisted).then(freezeJson)
+      value.catch(() => { if (rows.get(key) === value) rows.delete(key) })
+      rows.set(key, value)
+    }
+    return rows.get(key)
+  }
+}
+
 function playerInputBefore(chat, index, raw) {
   const previous = chat.messages.slice(0, index).findLast(message => ['user','assistant'].includes(message.role))
   return previous?.role === 'user' ? projectAgentMessageText(previous, {charName:raw?.name || raw?.data?.name, macroState:chat.macroState}) : ''
@@ -55,6 +94,10 @@ export function createStageDirector(deps) {
   const jobs = new Map(), failures = new Map(), tasks = new Set(), versions = new Map(), listeners = new Set(), openingAssets = new Map()
   const streams = new Map(), streamStarts = new Map(), judgeResults = new Map(), retryPreparations = new Map(), openingCommits = new Map()
   const historyCache = createStageHistoryCache({readChanges:deps.readChanges,readRecords:deps.readRecords})
+  // A sealed round's read-only observation by the frozen chat view it was read from (stage-chat-cache shares one view per
+  // revision): one page's requests (presentation, phone, timer, their authority checks) read the round once. The key holds
+  // what else the observation reads: the turn, the asset revision and the card's 物品 switch.
+  const sealedReads = new WeakMap()
   let revision = Date.now()
   let disposed = false
   const key = (chat, turn) => JSON.stringify([chat.id, turn])
@@ -388,7 +431,9 @@ export function createStageDirector(deps) {
     }
     const serial = ++job.serial
     // closed: the last unit's text is final (its paragraph break arrived) though no next unit exists yet.
-    return {update(body, closed = false) {if (job.serial === serial) job.pack.update(typeof body === 'string' ? stageParagraphs(body) : body, closed)},
+    const units = body => typeof body === 'string' ? stageParagraphs(body) : body
+    return {update(body, closed = false) {if (job.serial === serial) job.pack.update(units(body), closed)},
+      finish(body) {if (job.serial === serial) job.pack.end(units(body))},
       discard() {if (job.serial === serial) job.pack.kernel.update([])},
       cancel() {if (job.serial === serial) stop(job)}}
   }
@@ -633,6 +678,17 @@ export function createStageDirector(deps) {
     const index = messageIndex(chat, turn)
     // A chain-only view restores its own round and the earlier rounds it names, never another floor's identity row.
     if (index >= 0 && stageReadIdentityOnly(chat,index)) throw Object.assign(new Error('This stage view does not carry round ' + turn),{code:'STAGE_HISTORY_UNLOADED'})
+    const items = await deps.itemsEnabled?.(chat) !== false
+    // While a director task of this session runs, its stream and task state answer instead of the chat alone.
+    const sealedKey = Object.isFrozen(chat) && !options.history && ![...jobs.values(),...streams.values()].some(job=>job.sessionId===chat.sessionId)
+      ? JSON.stringify([turn,deps.assets.revision || 0,items]) : null
+    const known = sealedKey && sealedReads.get(chat)?.get(sealedKey)
+    if (known) {
+      const result = observation(chat,turn,known.body,known.displayDigest,known.unitsDigest,known.pageDigest,options)
+      if (result.unchanged || !options.includePredecessor) return result
+      known.predecessor ||= known.loadPredecessor()
+      return {...result,predecessor:await known.predecessor}
+    }
     const history = await measure('direction.historyIdentity', () => historyCache.read(chat,index))
     // The round's own record, or the predecessor whose end an undirected round shows (one sub-path read when thin).
     if (index >= 0) await measure('direction.historyRecord', () => history.load(chat,index))
@@ -642,16 +698,15 @@ export function createStageDirector(deps) {
       return observation(chat,turn,body,body.target.sourceDigest,body.binding.unitsDigest,body.binding.pageDigest,options)
     }
     const target = index >= 0 ? history.target(index,chat) : null
-    const source = target ? sceneTarget(chat,turn) : null
+    const source = target ? viewSceneTarget(chat,turn) : null
     const round = await measure('direction.roundBody', async () => source ? deps.bodyForTurn ? await deps.bodyForTurn(chat,source,{persisted:true})
       : roundBody(await deps.paragraphParts?.(chat,source,{persisted:true}) || [{kind:'markdown',text:source.source}],{chatId:chat.id,branchId:chat.timeline?.branchId,turn}) : roundBody([]))
     const value = await measure('direction.record', () => getValue(chat, turn, config, {generate:false,history,observed:true,round}))
     const displayUnits = round.displayUnits
-    const units = cleanDirectorUnits(displayUnits), pageIndex = stagePageIndex(displayUnits)
+    const {units, pageIndex, unitsDigest, pageDigest, displayDigest} = roundUnits(round)
     const preview = value.preview ? readAssetPackPreview(value.preview) : null, record = value.record
     const binding = record?.binding || preview?.binding || null
     const legacyPlayback = !!record && binding.unitsDigest === undefined
-    const unitsDigest = assetPackDigest(units), pageDigest = assetPackDigest(pageIndex)
     if (binding && (binding.target.sourceKey !== target.sourceKey || binding.target.sourceDigest !== target.sourceDigest)) throw expired() // preview.units are bound by binding.unitsDigest at seal time
     const generation = chat.messages[index]?.stageDirectionGeneration || 0
     const prefixRevision = preview?.prefixRevision ?? (record ? record.entries.length + units.length + 1 : undefined)
@@ -662,12 +717,20 @@ export function createStageDirector(deps) {
       ...(binding ? {binding, bindingKey:token.bindingKey, prefixRevision, baseline:record?.baseline || preview.baseline,
         entries:record?.entries || preview.entries} : value.baseline ? {baseline:value.baseline} : {}),
       ...(record ? {record} : {}), ...(preview ? {preview} : {}), ...(value.opening ? {opening:value.opening} : {}), ...(value.error ? {error:value.error, ...(value.code ? {code:value.code} : {})} : {})}
-    Object.assign(body,roundPerformances(chat,index,target,{binding,record,preview,items:await deps.itemsEnabled?.(chat) !== false}))
-    const result = observation(chat,turn,body,assetPackDigest(displayUnits),unitsDigest,pageDigest,options)
-    if (result.unchanged || !options.includePredecessor) return result
+    Object.assign(body,roundPerformances(chat,index,target,{binding,record,preview,items}))
     // a page folds the performance chain only; a round that starts at a boundary needs no earlier record.
     const checked = record || preview
-    return {...result,predecessor:checked && !isPerformanceChainBoundary(checked) ? (await history.load(chat,index - 1,{chain:true})).records : []}
+    const loadPredecessor = async () => checked && !isPerformanceChainBoundary(checked) ? (await history.load(chat,index - 1,{chain:true})).records : []
+    // Only a sealed record is the same answer for the same view; an opening follows today's card and a preview its task.
+    if (sealedKey && record && !value.opening) {
+      if (!sealedReads.has(chat)) sealedReads.set(chat,new Map())
+      sealedReads.get(chat).set(sealedKey,{body:freezeJson(body),displayDigest,unitsDigest,pageDigest,loadPredecessor})
+    }
+    const result = observation(chat,turn,body,displayDigest,unitsDigest,pageDigest,options)
+    if (result.unchanged || !options.includePredecessor) return result
+    const entry = sealedKey && sealedReads.get(chat)?.get(sealedKey)
+    if (entry) return {...result,predecessor:await (entry.predecessor ||= loadPredecessor())}
+    return {...result,predecessor:await loadPredecessor()}
   }
   // The round's stored performances (modPerformances, modCorrectionRevision): mod corrections for its source and core
   // items sealed against its record, or the item intents of an in-flight preview. Of the record it reads only the

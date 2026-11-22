@@ -667,7 +667,7 @@ function CatalogueSourcesSheet({binding,adding,onClose}) {
           h(CatOrigin,{official:s.official}),
           h('button',{type:'button',className:'ap-cat-toggle','aria-pressed':s.enabled,'aria-label':(s.enabled?'停用 ':'启用 ')+sourceName(s,catalogueOf(s.sourceId)),disabled:work.busy,
             onClick:()=>save(v=>({...v,sources:v.sources.map(x=>x.sourceId===s.sourceId?{...x,enabled:!s.enabled}:x)}))},h(Glyph,{name:s.enabled?'stateCard':'stateOff'}),s.enabled?'启用':'关闭'),
-          s.official?h('span',{className:'ap-cat-remove-gap'}):h(IconButton,{icon:'remove',label:'移除 '+sourceName(s,catalogueOf(s.sourceId)),disabled:work.busy,onClick:()=>setRemoving(s)})))),
+          s.official?h('span',{className:'ap-cat-remove-gap'}):h(IconButton,{icon:'remove',label:'移除 '+sourceName(s,catalogueOf(s.sourceId)),disabled:work.busy,onClick:()=>hiddenConfirms.has('catalogue-source')?removeSource(s):setRemoving(s)})))),
         // InlineAdd — the dashed ＋ becomes the address box in place.
         h(InlineAdd,{open:draft!==null,onOpen:()=>{setDraft('');setProblem('');},onCancel:()=>{setDraft(null);setProblem('');},onConfirm:add,
             value:draft||'',onChange:v=>{setDraft(v);setProblem('');},inputRef:input,className:'ap-pack-row is-new ap-cat-new-source',inputClassName:'ap-new-input',
@@ -682,6 +682,6 @@ function CatalogueSourcesSheet({binding,adding,onClose}) {
           values.mirrorPrefix&&h(IconButton,{icon:'close',label:'清除加速镜像',disabled:work.busy,onClick:()=>save(v=>({...v,mirrorPrefix:''}))})),
         values.mirrorPrefix&&h('div',{className:'ap-cat-mirror-example'},h('span',null,'下载时的地址会像这样'),h(CatUrl,{url:values.mirrorPrefix+'https://github.com/example/packs/releases/download/v1.0.0/pack.zip'}))),
       h(ErrorBox,{error:work.error})),
-    removing&&h(ConfirmDialog,{title:'移除「'+sourceName(removing,catalogueOf(removing.sourceId))+'」？',body:'已安装的素材包会保留，但不再从这个目录检查更新。',confirmLabel:'移除',danger:true,onClose:()=>setRemoving(null),
+    removing&&h(ConfirmDialog,{title:'移除「'+sourceName(removing,catalogueOf(removing.sourceId))+'」？',body:'已安装的素材包会保留，但不再从这个目录检查更新。',confirmLabel:'移除',danger:true,hide:'catalogue-source',onClose:()=>setRemoving(null),
       onConfirm:()=>saveCatalogueSettings(binding,v=>({...v,sources:v.sources.filter(x=>x.sourceId!==removing.sourceId)}))}));
 }

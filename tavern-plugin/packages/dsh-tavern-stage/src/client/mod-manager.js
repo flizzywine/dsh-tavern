@@ -1,4 +1,4 @@
-// 设置 › 舞台 › 舞台模组
+// 舞台配置 › 舞台模组
 // and the managed mods' text switches. Host RPCs: managedModsList / managedModDetail /
 // managedModPlan / managedModSwitchPlan / managedModApply.
 // Included in the asset-pack UI factory (mod-library.js): it uses the panel's one Modal / SubpageHead / StageSection /
@@ -37,16 +37,16 @@ function modManagerError(error, nameOf) {
 // The managed mods of the profile (and of a card, with `cardId`). Every surface re-reads after any applied change
 // (dsh-tavern-mods-changed), so 高级设置 and 舞台设置 never disagree.
 function useManagedMods(rpc, cardId) {
-  const [data, setData] = React.useState(null), [error, setError] = React.useState(''), [busy, setBusy] = React.useState(false), life = React.useRef(0), latest = React.useRef(null);
+  const [data, setData] = React.useState(null), [error, setError] = React.useState(''), [busy, setBusy] = React.useState(false), life = React.useRef(0), latest = React.useRef(null), loadFailed = React.useRef(false);
   latest.current = data;
   const nameOf = id => latest.current?.mods.find(row => row.id === id)?.name;
   const reload = async () => {
     const own = life.current;
-    try { const next = await rpc('managedModsList', cardId ? { cardId } : {}); if (own === life.current) { setData(next); setError(''); } return next; }
-    catch (e) { if (own === life.current) setError(modManagerError(e, nameOf)); }
+    try { const next = await rpc('managedModsList', cardId ? { cardId } : {}); if (own === life.current) { const cleared = loadFailed.current; loadFailed.current = false; setData(next); setError(shown => cleared ? '' : shown); } return next; }
+    catch (e) { if (own === life.current) { loadFailed.current = true; setError(modManagerError(e, nameOf)); } }
   };
   React.useEffect(() => {
-    life.current++; setData(null); setError(''); reload();
+    life.current++; setData(null); loadFailed.current = false; setError(''); reload();
     const changed = () => reload(), events = typeof window === 'undefined' ? null : window;
     events?.addEventListener('dsh-tavern-mods-changed', changed);
     return () => { life.current++; events?.removeEventListener('dsh-tavern-mods-changed', changed); };
@@ -54,7 +54,7 @@ function useManagedMods(rpc, cardId) {
   // One host call at a time; a failure shows here in words and is rethrown to stop the caller.
   async function task(run) {
     const own = life.current;
-    setBusy(true); setError('');
+    setBusy(true); loadFailed.current = false; setError('');
     try { return await run(latest.current); }
     catch (e) { if (own === life.current) setError(modManagerError(e, nameOf)); throw e; }
     finally { if (own === life.current) setBusy(false); }
@@ -173,7 +173,7 @@ function ManagedModSection({ rpc, cardId, onOpen, takeFocus }) {
   const mods = useManagedMods(rpc, cardId), plans = useModPlans(rpc, mods), change = useModSwitchChange(rpc, mods, plans, cardId);
   const rows = mods.data?.mods.filter(row => row.installed && !row.internal) || [], byId = id => mods.data?.mods.find(row => row.id === id);
   return h(StageSection, { title: '模组', meta: mods.data ? rows.length : undefined, className: 'ap-widget-section fork-mod-section',
-      help: '全局开启 / 关闭对所有卡生效，并清除这张卡的设置；本卡开启 / 关闭只在这张卡生效。安装与卸载在 设置 › 舞台 › 舞台模组。' },
+      help: '全局开启 / 关闭对所有卡生效，并清除这张卡的设置；本卡开启 / 关闭只在这张卡生效。安装与卸载在侧栏首页的 舞台装置 › 舞台配置 › 舞台模组。' },
     h(ErrorBox, { error: mods.error, reload: mods.data ? null : mods.reload }),
     plans.notice ? h('p', { className: 'ap-notice', role: 'status' }, h(Glyph, { name: 'check' }), h('span', null, plans.notice)) : null,
     !mods.data ? !mods.error && h(Loading) : rows.length ? rows.map(row => h(ManagedModRow, { key: row.id, row, cardId, busy: mods.busy, byId, change, onOpen, takeFocus,
@@ -197,7 +197,7 @@ function useManagedModControls({ rpc, cardId, modId, name }) {
   return { toggle, notices, dialog: plans.dialog };
 }
 
-// 设置 › 舞台 › 舞台模组: a row with the installed count and ›; it opens the manager.
+// 舞台配置 › 舞台模组: a row with the installed count and ›; it opens the manager.
 function ModManagerEntry({ rpc, Row }) {
   const [open, setOpen] = React.useState(false), mods = useManagedMods(rpc), count = mods.data?.mods.filter(row => row.installed && !row.internal).length;
   return h(React.Fragment, null,
@@ -212,14 +212,12 @@ function ModManager({ rpc, onClose }) {
   const mods = useManagedMods(rpc), plans = useModPlans(rpc, mods), change = useModSwitchChange(rpc, mods, plans);
   const [openId, setOpenId] = React.useState(null), back = React.useRef(null), importInput = React.useRef(null);
   const importFile = file => plans.execute(async () => {
-    if (file.size > 48 * 1024 ** 2) throw Object.assign(new Error('模组文件不能超过 48 MiB'), { code: 'MOD_INVALID' });
-    const bytesBase64 = await new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(String(reader.result).split(',')[1]);
-      reader.onerror = () => reject(reader.error);
-      reader.readAsDataURL(file);
-    });
-    const plan = await rpc('managedModInspect', { bytesBase64 });
+    if (!/\.dshmod$/i.test(file.name)) throw Object.assign(new Error('请选择 .dshmod 模组文件'), { code: 'MOD_INVALID' });
+    if (file.size > 128 * 1024 ** 2) throw Object.assign(new Error('模组文件不能超过 128 MiB'), { code: 'MOD_INVALID' });
+    const response = await fetch('/api/dsh-tavern/card-upload', { method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: file });
+    const upload = await response.json().catch(() => null);
+    if (!response.ok || !upload?.ok) throw Object.assign(new Error(upload?.error || '模组上传失败（HTTP ' + response.status + '）'), { code: 'MOD_INVALID' });
+    const plan = await rpc('managedModInspect', { uploadId: upload.uploadId });
     await mods.reload();
     return plan;
   });
@@ -237,7 +235,7 @@ function ModManager({ rpc, onClose }) {
             h(Help, { label: '模组管理 说明', text: '模组是引擎的能力，安装后默认全局关闭。每个模组只运行一个版本；本卡开启与关闭在 舞台设置 › 模组。' })),
           h('span', { className: 'ap-subhead-tools' },
             h(Button, { disabled: mods.busy, onClick: () => importInput.current?.click() }, '导入模组…'),
-            h('input', { ref: importInput, type: 'file', hidden: true, tabIndex: -1, accept: '.dshmod', onChange: event => { const file = event.target.files?.[0]; event.target.value = ''; if (file) importFile(file); } }),
+            h('input', { ref: importInput, type: 'file', hidden: true, tabIndex: -1, onChange: event => { const file = event.target.files?.[0]; event.target.value = ''; if (file) importFile(file); } }),
             h(IconButton, { icon: 'close', label: '关闭', onClick: onClose }))),
         h(ErrorBox, { error: mods.error, reload: mods.data ? null : mods.reload }), notice,
         !mods.data ? !mods.error && h(Loading) : h(React.Fragment, null,
@@ -280,9 +278,12 @@ function ModManagerDetail({ rpc, mods, plans, change, row, notice, onBack }) {
   async function uninstall() {
     let ready;
     try { ready = await mods.task(() => rpc('managedModPlan', { action: 'uninstall', modId: row.id })); } catch (_) { return; }
+    // 「以后不再显示」 on 卸载模组 hides the kind 'mod-uninstall' (hidden-confirms.js); the host plan is still applied as planned.
+    if (hiddenConfirms.has('mod-uninstall')) { try { await applyPlan(ready); } catch (_) {} return; }
     setConfirm(ready);
   }
-  const apply = async () => { await mods.task(() => rpc('managedModApply', { token: confirm.token, revision: confirm.revision, answers: {} })); mods.changed(); onBack(); };
+  const applyPlan = async ready => { await mods.task(() => rpc('managedModApply', { token: ready.token, revision: ready.revision, answers: {} })); mods.changed(); onBack(); };
+  const apply = () => applyPlan(confirm);
   const deps = row.dependencies || [], depNotice = id => (detail?.dependencies || row.notices || []).find(item => item.dependencyId === id), byId = id => mods.data?.mods.find(item => item.id === id);
   const config = detail?.config, labels = list => list?.length ? list.map(field => field.label).join('、') : '无';
   const conflicts = detail?.conflicts || [], assets = detail?.assetKinds, dependents = (detail?.dependents || []).map(item => modQuote(byId(item.consumerId)?.name || item.consumerId));
@@ -312,7 +313,7 @@ function ModManagerDetail({ rpc, mods, plans, change, row, notice, onBack }) {
         h(ModInfoRow, { label: '玩家偏好', help: MOD_DATA_HELP.preferences }, h('span', { className: 'fork-mod-info-list' }, labels(config?.preferenceFields))),
         assets ? h(ModInfoRow, { label: '素材', help: MOD_DATA_HELP.assets }, h('span', { className: 'fork-mod-info-list' }, labels(assets))) : null)),
     row.installed && row.globalRoot !== false ? h('div', { className: 'fork-mod-danger' }, h(Button, { className: 'ap-danger-text', disabled: mods.busy, onClick: uninstall }, '卸载模组…')) : null,
-    confirm && h(ConfirmDialog, { title: '卸载' + modQuote(row.name), danger: true, confirmLabel: '卸载', onConfirm: apply, onClose: () => setConfirm(null),
+    confirm && h(ConfirmDialog, { title: '卸载' + modQuote(row.name), danger: true, confirmLabel: '卸载', hide: 'mod-uninstall', onConfirm: apply, onClose: () => setConfirm(null),
       body: confirm.retainedByCards?.length ? confirm.retainedByCards.length + ' 张卡仍在用它，这些卡保留它的代码；其他卡会缺少这个模组。' : '用到它的卡会缺少这个模组；卡里的选择和设置保留。',
       extra: dependents.length ? dependents.join('、') + '需要它。' : undefined }));
 }

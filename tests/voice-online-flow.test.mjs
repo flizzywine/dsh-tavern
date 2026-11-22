@@ -13,13 +13,15 @@ import {createServiceSettings} from '../tavern-plugin/packages/dsh-tavern-tts/sr
 import {FIGURE_ID} from './fixtures/asset-packs/pack.mjs'
 import {pcmWav} from '../tavern-plugin/packages/dsh-tavern-tts/src/providers/audio.js'
 import {createRequire} from 'node:module'
-const figureResolution=createRequire(import.meta.url)('../tavern-plugin/packages/dsh-presentation-protocol/src/figure-resolution.cjs')
+const require=createRequire(import.meta.url)
+const figureResolution=require('../tavern-plugin/packages/dsh-presentation-protocol/src/figure-resolution.cjs')
+const {effectiveVoiceLanguage}=require('../tavern-plugin/src/client/bubble-line.cjs')
 
 const source=await readFile(new URL('../tavern-plugin/src/client/asset-pack-voice-ui.js',import.meta.url),'utf8')
 const h=(type,props,...children)=>({type,props:props||{},children:children.flat(Infinity).filter(Boolean)})
 const nodes=tree=>tree&&typeof tree==='object'?[tree,...(tree.children||[]).flatMap(nodes)]:[]
 function ui(){
-  const ctx={h,structuredClone,figureResolution,PackSearchBox:'search',InlineGrid:'inline-grid',React:{Fragment:'fragment',useState:v=>[v,()=>{}],useRef:v=>({current:v}),useEffect:()=>{}},Button:'button',Glyph:'glyph',Spinner:'spinner',SearchBox:'search',Segmented:'segmented',Popover:'popover',InlineRow:'inline-row',InlineGrid:'inline-grid',InlineField:'inline-field',EmptyState:'empty',sessionStorage:{setItem:()=>{}}}
+  const ctx={h,structuredClone,figureResolution,PackSearchBox:'search',InlineGrid:'inline-grid',React:{Fragment:'fragment',useState:v=>[typeof v==='function'?v():v,()=>{}],useRef:v=>({current:v}),useEffect:()=>{}},Button:'button',Glyph:'glyph',Spinner:'spinner',SearchBox:'search',Segmented:'segmented',Popover:'popover',InlineRow:'inline-row',InlineGrid:'inline-grid',InlineField:'inline-field',EmptyState:'empty',sessionStorage:{setItem:()=>{}}}
   vm.createContext(ctx);vm.runInContext(source,ctx)
   vm.runInContext('useVoiceLoad=()=>({value:{voices:testVoices,models:[]}});this.catalogServices=catalogServices;',ctx)
   return ctx
@@ -86,6 +88,22 @@ test('新建声音 services: the catalog order, without 浏览器朗读 or a ser
   assert.equal(ctx.catalogServices({services:[{id:'browser',kind:'browser',sources:['preset']}]}).length,0)
   const listed=ctx.catalogServices({services:[{id:'q',kind:'qwen',sources:['preset']},{id:'x',kind:'minimax',sources:[]},{id:'m',kind:'minimax',sources:['preset']}]})
   assert.deepEqual(listed.map(s=>s.id),['q','m'])
+})
+
+test('the inline editor shows saved reference clips and auditions the unchanged figure binding',async()=>{
+  const ctx=ui(),calls=[]
+  Object.assign(ctx,{StageSection:'section',effectiveVoiceLanguage})
+  const refs=[{media:'clip',text:'こんにちは',language:'ja'}]
+  const spec={name:'声',language:'ja',defaultSource:'fish',sources:{fish:{kind:'reference-list',provider:'fish-audio',references:refs}}}
+  const readiness=Object.assign(()=>null,{loaded:true,services:[{id:'fish',kind:'fish-audio',sources:['reference-list']}]})
+  const saved={packId:'pack',figureId:'figure',expectedRevision:'rev'}
+  const tree=ctx.VoiceEditor({inline:true,binding:{tts:{}},pack:{manifest:{id:'pack'}},figure:{id:'figure'},language:'ja',edit:{spec,sourceId:'fish'},readiness,
+    candidate:voiceSpec=>({...saved,...(voiceSpec?{voiceSpec}:{})}),preview:{of:()=>null,play:(_key,request)=>calls.push(request)}})
+  assert.equal(tree.type,'section')
+  assert.equal(nodes(tree).find(n=>n.type===ctx.VoiceCloneClips).props.items[0].text,refs[0].text)
+  assert.equal(nodes(tree).find(n=>n.type==='button'&&n.children.includes('保存')).props.disabled,true)
+  await nodes(tree).find(n=>n.type===ctx.VoiceSay).props.onPlay()
+  assert.deepEqual(JSON.parse(JSON.stringify(calls)),[{...saved,mood:'calm'}])
 })
 
 test('preview warning is per failed audition, not the selected provider',()=>{

@@ -119,14 +119,22 @@ export function createNativeConversationStorage({dataRoot,onIO}){
   if(view&&(view.metadata?.format!=='conversation-state-v2'||view.metadata.settings?.runtimeLayout!==1))throw failure('CHAT_STORAGE_FORMAT','Unsupported native runtime layout')
   return view
  }
- async function version(id){const view=await head(id);return view?'native:'+view.snapshotCursor.snapshotId:null}
+ const snapshotStamp=view=>'native:'+view.snapshotCursor.snapshotId
+ async function version(id){const view=await head(id);return view?snapshotStamp(view):null}
  async function readRevisionMetadata(id){
   const view=await head(id)
-  return view?{revision:view.state.chatRevision,messageCount:view.messageCount,stamp:'native:'+view.snapshotCursor.snapshotId}:null
+  return view?{revision:view.state.chatRevision,messageCount:view.messageCount,stamp:snapshotStamp(view)}:null
  }
  function result(chat,view){return {chat,revision:chat._storageRevision,native:{view},legacy:false,snapshot:null,open:null,openFrameCount:0,openInvalidLine:0}}
- async function headAtRevision(id,revision=Infinity){
+ async function headAtRevision(id,revision=Infinity,stamp){
   if(revision!==Infinity&&(!Number.isSafeInteger(revision)||revision<1))throw failure('DSH_TAVERN_REVISION_NOT_FOUND','Invalid native Chat revision')
+  if(stamp!==undefined){
+   if(typeof stamp!=='string'||!/^native:[a-f\d]{64}$/.test(stamp))return null
+   try{
+    const view=await head(id,stamp.slice('native:'.length))
+    return view&&(revision===Infinity||view.state.chatRevision===revision)?view:null
+   }catch(error){if(error.code==='ENOENT')return null;throw error}
+  }
   let view=await head(id)
   if(!view)return null
   if(revision!==Infinity&&revision<view.metadata.settings?.legacyInitialRevision)return null
@@ -191,9 +199,9 @@ export function createNativeConversationStorage({dataRoot,onIO}){
  }
  // A window is explicitly NOT a writable Chat: coordinates refer to the pinned
  // full archive, while chat.messages contains only this bounded page.
- async function readWindow(id,{limit=48,before,revision,includeCheckpoints=false,requirePartial=false,fields,messageFields}={}){
+ async function readWindow(id,{limit=48,before,revision,stamp,includeCheckpoints=false,requirePartial=false,fields,messageFields}={}){
   if(!Number.isSafeInteger(limit)||limit<1||limit>500)throw Error('Invalid history window limit')
-  const view=await headAtRevision(id,revision??Infinity)
+  const view=await headAtRevision(id,revision??Infinity,stamp)
   if(!view)return null
   const end=before??view.messageCount
   if(!Number.isSafeInteger(end)||end<0||end>view.messageCount)throw Error('Invalid history window cursor')
@@ -207,7 +215,7 @@ export function createNativeConversationStorage({dataRoot,onIO}){
   const paths=messageFields?.map(field=>pointer(field.split('.')))
   chat.messages=await mapRead(page.messages,row=>paths===undefined
    ? t.get(row.message.runtimeRef) : t.getFields(row.message.runtimeRef,paths),true)
-  return {chat,messageCount:view.messageCount,from,to:end-1,revision:view.state.chatRevision,worldMessage:view.state.worldMessage??null,
+  return {chat,messageCount:view.messageCount,from,to:end-1,revision:view.state.chatRevision,stamp:snapshotStamp(view),worldMessage:view.state.worldMessage??null,
    worldMessageUid:view.state.worldMessageUid??null,worldSwipe:view.state.worldSwipe,
    ...(messageFields===undefined?{}:{messageFields:[...messageFields]})}
  }
@@ -243,15 +251,16 @@ export function createNativeConversationStorage({dataRoot,onIO}){
  // Floor summaries (role, turn, greeting, MVU flags) of the latest `count` floors, from
  // the page entries' inline summaries: never the bodies, never the whole history.
  async function readRecentSummaries(id,count,options={}){
-  const view=await headAtRevision(id,options.revision??Infinity)
+  const view=await headAtRevision(id,options.revision??Infinity,options.stamp)
   if(!view)return null
+  const stamp=snapshotStamp(view)
   const start=Math.max(0,view.messageCount-Math.max(0,Number(count)||0))
   if(start===0){
    // Session projections already build and cache this exact full-summary snapshot.
    // Reuse it instead of walking every page again for each story-window read;
    // project fresh rows so caller mutation cannot poison the shared cache.
    const {messages}=await sessionSummaries(id,view)
-   return {messageCount:view.messageCount,from:0,messages:messages.map(projectSessionMessage),revision:view.state.chatRevision}
+   return {messageCount:view.messageCount,from:0,messages:messages.map(projectSessionMessage),revision:view.state.chatRevision,stamp}
   }
   const messages=new Array(view.messageCount-start),t=tree(id),started=performance.now()
   let cursor=view.snapshotCursor
@@ -266,7 +275,7 @@ export function createNativeConversationStorage({dataRoot,onIO}){
    cursor=page.previousCursor
   }
   onIO?.({kind:'phase',name:'chat.native.summary-scan',chatId:id,durationMs:performance.now()-started})
-  return {messageCount:view.messageCount,from:start,messages,revision:view.state.chatRevision}
+  return {messageCount:view.messageCount,from:start,messages,revision:view.state.chatRevision,stamp}
  }
  async function readSlice(id,indices=[],fields,pinned){
   const view=pinned||await head(id)

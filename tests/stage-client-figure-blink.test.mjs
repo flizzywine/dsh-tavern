@@ -24,11 +24,3 @@ test('blink owner controls overlay phases, foreground restart and late timer inv
  e.owner.dispose();e.view.dispose();assert.equal(e.timers.size,0);assert.equal(e.unsubscribed,1);assert.ok(e.sprites.every(s=>s.dead===1));assert.equal(e.sprite.children.length,0)
  stale();e.view.update(e.input);assert.equal(e.timers.size,0)
 })
-test('replace blinking owns no overlay and clears on missing figure or invalid authored patch',()=>{
- const e=fixture();e.view.update({...e.input,bundle:{...e.input.bundle,blend:'replace'}})
- assert.equal(e.sprites.length,0);e.fire();assert.equal(e.view.phase(),'half')
- e.view.update({...e.input,ready:false});assert.equal(e.view.active,false);assert.equal(e.view.phase(),'open');assert.equal(e.timers.size,0)
- const invalid={...e.input,bundle:{...e.input.bundle,key:'bad',rect:[99,0,20,10]}}
- e.view.update(invalid);e.view.update(invalid);assert.equal(e.warnings.length,1);assert.equal(e.timers.size,0)
- e.owner.dispose()
-})

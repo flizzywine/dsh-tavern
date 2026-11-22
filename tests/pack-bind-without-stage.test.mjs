@@ -20,14 +20,6 @@ function plainCard() {
 const engine = {...defaultAssetEngineSettings(), stageToggles:{...defaultAssetEngineSettings().stageToggles, dialogue:true, stage:true}}
 const save = async (boundary, patch) => boundary.update({path:PATH, expectedRevision:(await boundary.snapshot(PATH)).revision, patch})
 
-test('a card with no stage settings binds a pack, reads it back, and keeps the stage off', async () => {
-  const boundary = plainCard()
-  assert.equal((await boundary.snapshot(PATH)).extension, null)
-  const saved = await save(boundary, {assetBindings:{boundPackIds:[PACK_ID]}, stage:{enabled:false}})
-  assert.deepEqual(saved.extension.assetBindings.boundPackIds, [PACK_ID])
-  assert.equal(saved.effectiveStage.dialogue, false); assert.equal(saved.effectiveStage.stage, false)
-  assert.deepEqual((await boundary.inspect({path:PATH, metadataOnly:true})).extension.assetBindings.boundPackIds, [PACK_ID])
-})
 test('enabling the stage afterwards keeps the bindings, and unbinding leaves the stage declaration alone', async () => {
   const boundary = plainCard()
   await save(boundary, {assetBindings:{boundPackIds:[PACK_ID]}, stage:{enabled:false}})

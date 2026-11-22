@@ -327,8 +327,8 @@ export function createRegenerationRecovery({ chats, sessions, isActive }) {
       let agent = sessions.get(sessionId)
       if (agent?.phase?.kind === 'running') return
       let session = agent?.session || sessions.getSession?.(sessionId)
-      if (!session && typeof sessions.resume === 'function') {
-        handle = await sessions.resume(sessionId)
+      if (sessions.acquire || (!session && typeof sessions.resume === 'function')) {
+        handle = await (sessions.acquire || sessions.resume)(sessionId)
         agent = handle.agent
         session = agent?.session
       }

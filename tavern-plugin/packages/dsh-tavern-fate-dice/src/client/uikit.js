@@ -28,9 +28,10 @@ function FdChip(props) {
 }
 
 function FdSwitch(props) {
-  const { on, onChange, label } = props || {}
+  const { on, onChange, label, disabled } = props || {}
   return h('button', {
     type: 'button',
+    disabled,
     className: 'fd-switch' + (on ? ' is-on' : ''),
     role: 'switch',
     'aria-checked': on ? 'true' : 'false',

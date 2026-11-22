@@ -60,7 +60,8 @@ function rawStageRects({root, host = globalThis, document:doc = root.ownerDocume
         let rebind = false, changed = false;
         for (const record of records) {
             if (record.type === 'attributes') changed ||= (record.target === root || Object.values(elements).includes(record.target) || elements.widgets.includes(record.target)) && geometric(record);
-            else if(record.type === 'characterData') changed = true;
+            // Text typed into the box changes no box: its size is the ResizeObserver's. Only the name plate's text is read.
+            else if(record.type === 'characterData') changed ||= Boolean(elements.name?.contains(record.target));
             else rebind ||= [...record.addedNodes,...record.removedNodes].some(node => node.nodeType === 1 && (Object.values(selectors).some(selector => node.matches?.(selector) || node.querySelector?.(selector)) || node.matches?.(widgetSelector) || node.querySelector?.(widgetSelector)));
         }
         if (rebind) bind(); if (changed || rebind) invalidate();

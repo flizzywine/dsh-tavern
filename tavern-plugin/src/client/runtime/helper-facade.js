@@ -529,14 +529,9 @@
 			const helperNames = ["formatAsTavernRegexedString", "isCharacterTavernRegexesEnabled", "getMessageId", "getIframeName", "errorCatched", "retrieveDisplayedMessage", "initializeGlobal", "waitGlobalInitialized", "triggerSlash", "generateRaw", "injectPrompts", "uninjectPrompts", "getScriptId", "getScriptName", "getScriptInfo", "replaceScriptInfo", "getScriptButtons", "getAllEnabledScriptButtons", "replaceScriptButtons", "updateScriptButtonsWith", "appendInexistentScriptButtons", "getButtonEvent", "getCharData", "getCurrentCharacterName", "getCurrentMessageId", "getLastMessageId", "getChatMessages", "setChatMessages", "createChatMessages", "getVariables", "getAllVariables", "replaceVariables", "insertOrAssignVariables", "insertVariables", "updateVariablesWith", "deleteVariable", "getTavernRegexes", "replaceTavernRegexes", "updateTavernRegexesWith", "importRawTavernRegex", "replaceWorldbook", "createWorldbookEntries", "deleteWorldbookEntries", "setLorebookEntries", "createLorebookEntries", "deleteLorebookEntries", "getLorebooks", "getWorldbookNames", "getCharWorldbookNames", "getGlobalWorldbookNames", "getChatWorldbookName", "getWorldbook", "getLorebookEntries", "getCharLorebooks", "getCurrentCharPrimaryLorebook", "getLorebookSettings", "setLorebookSettings", "updateWorldbookWith", "getTavernHelperVersion", "substitudeMacros", "iframe_events", "tavern_events"];
 			for (const name of helperNames) Object.defineProperty(helper, name, { enumerable: true, configurable: true, get: function () { return window[name]; }, set: function (value) { window[name] = value; } });
 			window.TavernHelper = helper;
-			const eventSource = { on: window.eventOn, once: window.eventOnce, off: window.eventOff, removeListener: window.eventOff, makeFirst: window.eventMakeFirst, makeLast: window.eventMakeLast, emit: window.eventEmit };
 			const sillyTavern = {
-				TavernHelper: helper,
                 variables: Object.freeze({ local: localVariables.api }),
 				substituteParams: function (value) { return window.substitudeMacros(value); },
-				getContext: function () { return sillyTavern; },
-				eventSource: eventSource,
-				eventTypes: window.tavern_events,
 				Popup: HelperPopup,
 				POPUP_TYPE: Object.freeze({ DISPLAY: "display", TEXT: "text", CONFIRM: "confirm", INPUT: "input" }),
 				POPUP_RESULT: Object.freeze({ AFFIRMATIVE: 1, NEGATIVE: 0, CANCELLED: null, CUSTOM1: 2 }),
@@ -575,7 +570,6 @@
 					functionTools.set(name, tool);
 				},
 				unregisterFunctionTool: function (name) { functionTools.delete(String(name || "")); },
-				getCurrentChatId: function () { return String(context().chatId || ""); },
 				getCurrentLocale: function () { return "zh-CN"; },
 				getCharacterCardFields: function () { const character = options.readCharacter ? options.readCharacter() : context().character; return copy(character && (character.data || character) || {}); },
 				loadWorldInfo: async function (name) {
@@ -615,16 +609,10 @@
 					catch (_) { return false; }
 				}
 			};
-			Object.defineProperties(sillyTavern, {
-				chatId: { enumerable: true, get: function () { return String(context().chatId || ""); } },
-				name1: { enumerable: true, get: function () { return String(context().playerName || "你"); } },
-				chat: { enumerable: true, get: chatData.chat },
-				chatMetadata: { enumerable: true, get: chatData.metadata },
-				name2: { enumerable: true, get: function () { return String(context().characterName || "角色"); } }
-			});
+			Object.defineProperty(sillyTavern, "chatMetadata", { enumerable: true, get: chatData.metadata });
+			options.installContext({ window, facade: sillyTavern, context, readChat: chatData.chat });
 			options.installCompatibility({ catalog: context().compatibilityCapabilities, surfaces: { TavernHelper: helper, SillyTavern: sillyTavern }, window: window, currentScript: options.currentScript, post: options.post });
 			window.SillyTavern = Object.freeze(sillyTavern);
-			window.getContext = sillyTavern.getContext;
 			window.errorCatched = function (factory) { return function () { try { return factory.apply(this, arguments); } catch (error) { console.error(error); return {}; } }; };
 			// Trusted card scripts reach the displayed message like in SillyTavern.
 			window.retrieveDisplayedMessage = function (messageId) {

@@ -32,8 +32,17 @@ test('实际 CLI 创建、复用、重启和停止自己的子进程，不修改
   const childScript = path.join(root, 'fixture.mjs')
   await writeFile(childScript, `import { createServer } from 'node:http';
 const port=Number(process.argv[process.argv.indexOf('--port')+1]);
-const server=createServer((req,res)=>res.end('fixture service'));
-setTimeout(()=>server.listen(port,'127.0.0.1',()=>console.log('dsh web: http://127.0.0.1:'+port+'/')),1500);
+const base = 'http://127.0.0.1:' + port;
+let tokenRequests = 0;
+const server = createServer((req, res) => {
+  const token = new URL(req.url, base).searchParams.get('token');
+  if (token === 'fixture-token' && ++tokenRequests > 1) res.writeHead(303, { location: '/' });
+  else res.writeHead(401);
+  res.end();
+});
+setTimeout(() => server.listen(port, '127.0.0.1', () => {
+  setTimeout(() => console.log('dsh web: ' + base + '/?token=fixture-token'), 5500);
+}), 1500);
 process.on('SIGTERM',()=>server.close(()=>process.exit(0)));
 `)
   await writeFile(path.join(bin, 'dsh'), '#!/bin/sh\nexec '+quote(process.execPath)+' '+quote(childScript)+' "$@"\n', { mode: 0o755 })
@@ -54,16 +63,22 @@ process.on('SIGTERM',()=>server.close(()=>process.exit(0)));
   assert.equal(JSON.parse(await readFile(pidFile, 'utf8')).pid, ownedPid,
     'a timed-out follower must preserve the original starter and its record')
   const secondStart = await run('start')
-  assert.match((await firstResult).stdout, /已启动/)
+  const { stdout: firstOutput } = await firstResult
+  assert.match(firstOutput, /已启动/)
+  const expectedUrl = `打开网页（请复制完整地址）：http://127.0.0.1:${port}/?token=fixture-token`
+  assert.ok(firstOutput.includes(expectedUrl), firstOutput)
   assert.match(secondStart.stdout, /正在等待已有 DSH Tavern/)
   assert.match(secondStart.stdout, /已经在运行/)
+  assert.ok(secondStart.stdout.includes(expectedUrl), secondStart.stdout)
   assert.equal(JSON.parse(await readFile(pidFile, 'utf8')).pid, ownedPid)
   ownedPid = JSON.parse(await readFile(pidFile, 'utf8')).pid
   assert.notEqual(ownedPid, process.pid)
   assert.match((await run('start')).stdout, /已经在运行/)
   assert.equal(JSON.parse(await readFile(pidFile, 'utf8')).pid, ownedPid)
   assert.match((await run('status')).stdout, /运行/)
-  assert.match((await run('restart')).stdout, /已启动/)
+  const restarted = await run('restart')
+  assert.match(restarted.stdout, /已启动/)
+  assert.ok(restarted.stdout.includes(expectedUrl), restarted.stdout)
   const restartedPid = JSON.parse(await readFile(pidFile, 'utf8')).pid
   assert.notEqual(restartedPid, ownedPid)
   ownedPid = restartedPid
@@ -71,14 +86,16 @@ process.on('SIGTERM',()=>server.close(()=>process.exit(0)));
   ownedPid = undefined
   await assert.rejects(readFile(pidFile), { code: 'ENOENT' })
   assert.match((await run('stop')).stdout, /已停止/)
-  // The real start command must clean up its detached child before it fails.
-  await writeFile(childScript, `import {writeFileSync} from 'node:fs';
-writeFileSync(${JSON.stringify(path.join(root, 'slow.pid'))}, String(process.pid));
-setInterval(()=>{},1000);
+  // An HTTP listener without a usable URL must time out and clean up its detached child.
+  await writeFile(childScript, `import { writeFileSync } from 'node:fs';
+import { createServer } from 'node:http';
+createServer((req, res) => res.writeHead(401).end()).listen(${port}, '127.0.0.1', () => {
+  writeFileSync(${JSON.stringify(path.join(root, 'slow.pid'))}, String(process.pid));
+});
 `)
   await assert.rejects(execute(process.execPath, [launcher, 'start'], {
-    env: { ...env, DSH_TAVERN_START_TIMEOUT: '0.3' }, timeout: 12000
-  }), error => error.code === 1 && /启动超时/.test(error.stderr))
+    env: { ...env, DSH_TAVERN_START_TIMEOUT: '1' }, timeout: 12000
+  }), error => error.code === 1 && /启动超时/.test(error.stderr) && !error.stdout.includes('已启动'))
   const slowPid = Number(await readFile(path.join(root, 'slow.pid'), 'utf8'))
   assert.throws(() => process.kill(slowPid, 0), {code:'ESRCH'})
   await assert.rejects(readFile(pidFile), {code:'ENOENT'})

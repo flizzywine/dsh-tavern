@@ -31,7 +31,7 @@ async function fakeDesktopApp(root) {
   const runtime = path.join(app, 'Resources/runtime/primary-runtime/dependencies')
   const host = path.join(app, 'Resources/app/dsh/node_modules/@deepseek-ai/dsh-desktop-host/lib')
   await mkdir(path.join(app, 'MacOS'), { recursive: true })
-  await symlink(process.execPath, path.join(app, 'MacOS/Fake DSH'))
+  await symlink(process.env.DSH_TEST_NODE_EXECUTABLE || process.execPath, path.join(app, 'MacOS/Fake DSH'))
   await mkdir(host, { recursive: true })
   await writeFile(path.join(app, 'Resources/app/package.json'), '{"name":"@deepseek-ai/dsh-desktop"}')
   await writeFile(path.join(host, 'cli.js'), 'console.log(' + JSON.stringify(adaptedDshVersion) + ')\n')
@@ -48,7 +48,7 @@ test('实际 Unix 安装脚本更新程序两次，用户工具、清单和 Skil
   const desktop = await fakeDesktopApp(root)
   // Mock external package installation and the launcher; run the actual release
   // download/extract/copy path against a local Git repository (no network).
-  await writeFile(path.join(source, 'package.json'), '{"name":"user-extension-update-fixture"}')
+  await writeFile(path.join(source, 'package.json'), '{"name":"user-extension-update-fixture","type":"module"}')
   await writeFile(path.join(source, 'bin/dsh-tavern.mjs'), '')
   for (const file of ['pnpm-lock.yaml', 'pnpm-workspace.yaml', 'cordis.patch.yml', 'install.ps1', 'install.sh', 'config/fixture', 'presets/fixture', 'tavern-plugin/fixture', 'patches/fixture.patch']) {
     await mkdir(path.dirname(path.join(source, file)), { recursive: true })

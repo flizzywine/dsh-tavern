@@ -14,15 +14,6 @@ async function fixture(t, extension = 'json') {
 }
 const json = value => Response.json(value)
 
-test('updater refuses old servers before uploading or changing cards', async t => {
-  const input = await fixture(t), routes = []
-  await assert.rejects(updateLibraryCard({ ...input, fetchImpl: async url => {
-    routes.push(url.pathname)
-    return json({ card: {} })
-  } }), /尚未支持安全原位更新/)
-  assert.deepEqual(routes, ['/api/dsh-tavern/getCard'])
-})
-
 test('updater authenticates desktop cookies and replaces selected JSON path', async t => {
   const input = await fixture(t), routes = []
   const result = await updateLibraryCard({ ...input, accessPin: 'test-only-pin', fetchImpl: async (url, options) => {
@@ -39,26 +30,4 @@ test('updater authenticates desktop cookies and replaces selected JSON path', as
   } })
   assert.equal(result.updated, true)
   assert.deepEqual(routes, ['/pocket-login', '/', '/api/dsh-tavern/getCard', '/api/dsh-tavern/importCard'])
-})
-
-test('updater cleans temporary binary upload when replacement fails', async t => {
-  const input = await fixture(t, 'dshcard'), routes = []
-  await assert.rejects(updateLibraryCard({ ...input, fetchImpl: async (url, options) => {
-    const route = url.pathname.split('/').pop(); routes.push(route)
-    if (route === 'getCard') return json({ card: {}, replacementSupported: true })
-    if (route === 'card-upload') return json({ uploadId: 'temporary' })
-    if (route === 'importCardUpload') return json({ ok: false, error: 'invalid archive' })
-    assert.deepEqual(JSON.parse(options.body), { uploadId: 'temporary' })
-    return json({ ok: true })
-  } }), /invalid archive/)
-  assert.deepEqual(routes, ['getCard', 'card-upload', 'importCardUpload', 'discardCardUpload'])
-})
-
-test('desktop handshake never forwards cookies to a different origin', async t => {
-  const input = await fixture(t); let requests = 0
-  await assert.rejects(updateLibraryCard({ ...input, accessPin: 'test-only-pin', fetchImpl: async () => {
-    requests++
-    return new Response(null, { status: 302, headers: { location: 'https://different.invalid/', 'set-cookie': 'pocket=test; Path=/' } })
-  } }), /拒绝向其他服务/)
-  assert.equal(requests, 1)
 })

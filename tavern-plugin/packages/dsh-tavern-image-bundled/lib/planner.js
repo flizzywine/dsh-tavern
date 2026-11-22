@@ -624,6 +624,15 @@ export function dedupeTags(text) {
   return kept.join(', ')
 }
 
+function plannerSessionId(sessionId) {
+  const id = String(sessionId ?? '').trim()
+  if (!id) return ''
+  // Avoid passing a raw game foreground sessionId into llm.stream, which would
+  // cause Tavern's llm/stream hook to classify this background planner call as
+  // a foreground turn of that game.
+  return id.startsWith('dsh-image-') ? id : 'dsh-image-planner:' + id
+}
+
 /** 真正调一次模型，把流式文本收完。 */
 export async function runPlanner(llm, { provider, model, system, text, maxTokens = 12000, temperature = 1, signal, onDelta, images, reasoningEffort, sessionId }) {
   signal?.throwIfAborted()
@@ -664,8 +673,9 @@ export async function runPlanner(llm, { provider, model, system, text, maxTokens
       if (info?.reasoning?.efforts?.some(item => String(item.id) === String(reasoningEffort))) selectedEffort = String(reasoningEffort)
     } catch { /* if capability lookup is unavailable, retain the DSH default */ }
   }
+  const scopedSessionId = plannerSessionId(sessionId)
   const chunks = llm.stream({
-    ...(sessionId ? { sessionId: String(sessionId) } : {}),
+    ...(scopedSessionId ? { sessionId: scopedSessionId } : {}),
     provider,
     model,
     ...(selectedEffort ? { reasoningEffort: selectedEffort } : {}),

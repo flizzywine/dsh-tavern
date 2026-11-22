@@ -74,7 +74,7 @@ tavern_update_card({ rawOperations: [
 | 世界书 | `getCharWorldbookNames().primary` 取本卡世界书名，再 `getWorldbook(name)`、`updateWorldbookWith(name, entries => entries)`：这个聊天有自己的世界书副本时只改这个聊天，否则改人物卡库里的世界书，用它的其他聊天都会看到 |
 | 事件 | `eventOn`、`eventOff`、`tavern_events` |
 
-`Mvu` 只在本卡启用 MVU 时存在，脚本先判断再用。变量写入失败时 Helper 会抛错（例如聊天已变化），页面把错误显示给玩家，不要吞掉。
+`Mvu` 只在本卡启用 MVU 时存在。状态页先从最新 `stat_data` 渲染，再订阅 `VARIABLE_UPDATE_ENDED`；打开时尚无状态就显示「暂无状态」，不要填默认数值冒充结算。`onData` 负责舞台快照，不能代替 MVU 事件。展示页不写变量；若页面确有用户主动触发的写入，Helper 拒绝时把错误显示给玩家。
 
 ## DshCardPage
 
@@ -89,9 +89,11 @@ tavern_update_card({ rawOperations: [
 | `close()` | 关闭本页；进入舞台时打开的 showOn 页是返回主页面。 |
 | `open(id)` | 关闭本页，打开另一页。 |
 | `openSettings()` | 在本页上面打开舞台 CONFIG，本页保持打开。 |
+| `openPluginPanel({plugin, panelId})` | 打开本卡已启用插件通过 `registerPanel({stage: true, …})` 开放的面板。`plugin` 为插件浏览器端的 `name`，`panelId` 为注册的 ID。宿主将本页 ID 作为 `stagePageId` 传给插件面板。成功返回 `{opened: true}`。插件或面板不可用、参数无效、页面已有覆盖窗口时会拒绝。手机上面板铺满，关闭后返回本页并保留页面状态。旧宿主可先检查方法是否存在。 |
 | `fillInput(text)` | 把文字填进舞台「自由输入」：关闭本页、跳到最新一轮末尾并显示草稿，不发送。 |
 | `asset(ref)` | 本卡绑定素材包里的媒体，返回 `Promise<blob: URL>`。`ref` 是 `{kind, id, variant?, file?, size?}`：图片按 `variant`（默认该条目的默认差分），视频包按 `file`（默认入口文件，`'poster'` 是封面）；`size` 取缩略图。不在本卡绑定包里时 Promise 拒绝，报「本卡的素材包里没有」。 |
-| `assets(kind)` | 本卡绑定包里某类已启用条目的列表，返回 `Promise<[{id, name, description?, variants?, files?}]>`，同一 id 以绑定顺序靠前的包为准。 |
+| `assets(kind)` | 本卡绑定包里某类已启用条目的列表，返回 `Promise<[{id, name, description?, variants?, files?}]>`，同一 id 以绑定顺序靠前的包为准。`assets('figures')` 的 `variants` 是可用服装的键。 |
+| `asset({kind:'figures', id, variant, file})` | `id` 是已启用人物的 ID 或准确名称，`variant` 是服装键；`file` 省略或传 `'avatar'` 取头像，`'sprite'` 取默认差分立绘，传差分 ID 取对应立绘。没有静态立绘时尝试头像，不加载 Live2D/Spine 运行时。 |
 | `opening(userName)` | 只用于开局页：本卡的开局，返回 `Promise<{userName, setup, openings}>`。`userName` 是名字框里的名字（空时用玩家默认名，返回的 `userName` 就是它）；`setup` 是本卡的 v2 开局设置（字段、消息）；`openings` 是每段开场白 `{id, text, state?, scene?}`：`text` 是按这个名字投影好的正文，`state` 是它 `<initvar>` 里的起点变量，`scene` 是作者给它配的画面 `{title?, background?, music?, timeOfDay?}`（素材 id，名称用 `assets(kind)` 查）。 |
 | `startGame(choice)` | 只用于开局页：开局。`choice` 是 `{openingId, values, withoutGreeting?}`：`openingId` 是 `openings` 里的一段，`values` 是开局设置字段的值（键是字段的 `key`，和「游戏准备」表单交的一样），`withoutGreeting:true` 时不用这段开场白，由 AI 按开局消息写第一幕。宿主用和「游戏准备」同一份开局设置结算（字段校验、变量路由、开局消息），开出的一局取代这个没玩过的空档，舞台从第一幕开始；值不合格时 Promise 拒绝，报错写明哪个字段，页面显示给玩家。 |
 | `newGame()` | 本卡有开局页时打开开局页（本局已存档时先确认、另开一局，舞台直接进那一局的开局页）。其余：本局还没存档（`saved` 不为 true，玩家还没说过话）时，这一局就是新游戏，不另开一局：本卡有开局设置（`openingSetup`）时离开舞台、打开「游戏准备」，在那里开始的一局取代这个没玩过的空档；没有开局设置时和 `continueGame()` 一样关闭本页、从开场进入舞台。本局已存档时先弹确认框，确认后离开舞台、打开本卡的「游戏准备」开一局新的（与人物卡列表的开始游戏相同，旧的一局留在游玩记录里）；玩家取消时得到 `{started: false}`，页面保持打开。 |
@@ -146,7 +148,7 @@ tavern_update_card({ rawOperations: [
 开局页（`opening:true`）让卡在舞台里用自己的画面完成开局，代替通用的「游戏准备」。玩家从人物卡开始游戏、或在标题页点「新游戏」时，宿主开一个没玩过的空档并进入舞台，舞台打开开局页（有标题页时先是标题页，它的 `newGame()` 到开局页）。页面：
 
 1. `opening(名字)` 读开场白和开局设置；名字改了再读一次，正文里的 `{{user}}` 就是新名字。
-2. 让玩家选一段开场白（可以给一个「不用开场白」）、填开局设置的字段；字段的含义、必填和开局消息都是卡的 `openingSetup`（`docs/specs/opening-setup-v2.md`），页面只画。
+2. 让玩家选一段开场白（可以给一个「不用开场白」）、填开局设置的字段；字段的含义、必填和开局消息都是卡的 `openingSetup`（和游戏准备表单共用同一份声明），页面只画。
 3. `startGame({openingId, values, withoutGreeting})` 开局；页面在 Promise 结束前禁用开始按钮，拒绝时把报错显示出来。
 
 开局页要自己画返回（通常回标题页 `open('title')`）并声明 `closeControl:"page"`；支持键盘（方向键选、Enter 开始、Esc 返回）和手机宽度。

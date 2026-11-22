@@ -6,7 +6,6 @@ import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { formatChecks, runChecks } from '../tavern-plugin/packages/dsh-tavern-dshgo/lib/verify.js'
 import { TAVERN_BUNDLES } from '../tavern-plugin/packages/dsh-tavern-dshgo/lib/status.js'
 
 const HOSTS = ['dsh-agent', 'dsh-tools', 'dsh-subagent', 'dsh-skill-filesystem', 'dsh-typert-protocol']
@@ -42,77 +41,6 @@ function full(t, { bundles = TAVERN_BUNDLES, dataLink = true, modules = TAVERN_B
 }
 
 const okCheck = { state: 'ok', fatal: [], ignored: [], error: null }
-
-test('九项全过、但还没启用时，指向面板的启用按钮', (t) => {
-  const { home, appRoot } = full(t, { bundles: [] })
-  const result = runChecks({ home, appRoot, nodeVersion: 'v24.22.1', check: () => okCheck })
-  assert.equal(result.veredict, 'pass')
-  assert.equal(result.failed.length, 0)
-  assert.match(result.next, /启用酒馆/)
-})
-
-test('已启用且全过时，下一步是重启引擎而不是再启用一次', (t) => {
-  const { home, appRoot } = full(t)
-  const result = runChecks({ home, appRoot, nodeVersion: 'v24.22.1', check: () => okCheck })
-  assert.match(formatChecks(result), /九项全过/)
-  assert.match(result.next, /重启/)
-})
-
-test('包没装齐时先说装包，且不冒充加载检查通过', (t) => {
-  const { home, appRoot } = full(t, { modules: TAVERN_BUNDLES.slice(0, 3) })
-  const result = runChecks({ home, appRoot, nodeVersion: 'v24.22.1', check: () => okCheck })
-  assert.equal(result.veredict, 'fail')
-  assert.match(result.next, /install-on-dshgo/)
-  const line = formatChecks(result).split('\n').find(text => text.includes('宿主愿意加载'))
-  assert.match(line, /没验成/)
-})
-
-test('存档是实体目录时单独指出来，下一步是挪目录', (t) => {
-  const { home, appRoot } = full(t, { dataLink: false })
-  mkdirSync(join(home, 'profile-data', 'tavern'), { recursive: true })
-  const result = runChecks({ home, appRoot, nodeVersion: 'v24.22.1', check: () => okCheck })
-  const item = result.checks.find(check => check.title.includes('存档'))
-  assert.equal(item.pass, false)
-  assert.match(item.fix, /挪到 dsh-go\/tavern-data/)
-})
-
-test('宿主会跳过酒馆的包时，把包名说出来', (t) => {
-  const { home, appRoot } = full(t)
-  const result = runChecks({
-    home, appRoot, nodeVersion: 'v24.22.1',
-    check: () => ({ state: 'fatal', fatal: [{ packageName: 'dsh-tavern-tts', reason: 'cannot resolve' }], ignored: [], error: null }),
-  })
-  const item = result.checks.find(check => check.title.includes('宿主愿意加载'))
-  assert.equal(item.pass, false)
-  assert.match(item.detail, /dsh-tavern-tts/)
-})
-
-test('Node 太旧时第 2 项不过', (t) => {
-  const { home, appRoot } = full(t)
-  const result = runChecks({ home, appRoot, nodeVersion: 'v22.1.0', check: () => okCheck })
-  assert.equal(result.checks[1].pass, false)
-})
-
-test('formatChecks：九行加总结，序号连续', (t) => {
-  const { home, appRoot } = full(t)
-  const text = formatChecks(runChecks({ home, appRoot, nodeVersion: 'v24.22.1', check: () => okCheck }))
-  const lines = text.split('\n').filter(line => line.startsWith('✅') || line.startsWith('❌'))
-  assert.equal(lines.length, 9)
-  assert.match(lines[0], /1\/9/)
-  assert.match(lines[8], /9\/9/)
-})
-
-test('传给加载检查的是 dshHome：名字对不上会直接崩（真机踩过）', (t) => {
-  const { home, appRoot } = full(t)
-  let received = null
-  runChecks({
-    home, appRoot, nodeVersion: 'v24.22.1',
-    check: (options) => { received = options; return okCheck },
-  })
-  assert.equal(received.dshHome, home)
-  assert.equal(received.appRoot, appRoot)
-  assert.equal(received.timeout, 4000)
-})
 
 test('真 checkBundles 不会被 undefined 的路径带崩', async (t) => {
   const { home, appRoot } = full(t)

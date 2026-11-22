@@ -12,7 +12,7 @@ import widgetContract from '../shared/widget-schema.cjs'
 import {validatePerformancePack, validatePerformanceKeyframeBundle} from './performance-bundle.js'
 import {decodeSkinSvg} from './skin-svg.js'
 const {validateStageSkin, stageSkinFiles} = skinContract
-import { imageKind, audioKind, imageDimensions, pngSize, wavInfo, STAGE_IMAGE_MAX_BYTES } from './media.js'
+import { imageKind, audioKind, imageDimensions, pngSize, wavInfo, MEDIA_PURPOSE_LIMITS, STAGE_IMAGE_MAX_BYTES } from './media.js'
 import { modelReferences } from './model.js'
 import { BLOB_MIME_TYPES, FIGURE_IMAGE_EXTENSION, figureImageReferenceMedia, validatePackIdentities, validateFigureClosure, verifyPackHashes, verifyPackFiles, computeContentHash, computeBundleHash, canonicalJson, parseJson, sha256 } from '../asset-packs/index.js'
 import { check, relativePath, compareCodePoints } from '../asset-packs/common.js'
@@ -42,7 +42,7 @@ export async function inspectMedia(input, descriptor, decodeMedia, {settei = fal
   const bytes = Buffer.from(input), ext = imageKind(bytes) || audioKind(bytes)
   check(ext && descriptor.ext === ext && descriptor.mime === BLOB_MIME_TYPES[ext] && descriptor.size === bytes.length, '$.blobs', 'Media signature/ext/MIME mismatch')
   const image = descriptor.mime.startsWith('image/')
-  check(image&&settei || bytes.length <= (image ? STAGE_IMAGE_MAX_BYTES : 60 * 1024 ** 2), '$.media', 'Media byte limit', 'LIMIT_EXCEEDED')
+  check(image&&settei || bytes.length <= (image ? STAGE_IMAGE_MAX_BYTES : MEDIA_PURPOSE_LIMITS.audio), '$.media', 'Media byte limit', 'LIMIT_EXCEEDED')
   const dimensions = image ? imageDimensions(bytes, ext) : null
   if (dimensions) check(dimensions.every(n => Number.isInteger(n) && n > 0 && n <= 8192) && dimensions[0] * dimensions[1] <= 32 * 1024 ** 2, '$.media', 'Image dimensions exceed limit', 'LIMIT_EXCEEDED')
   let decoded
@@ -129,8 +129,9 @@ export async function verifyBytes(manifest, files, {limits = PACK_LIMITS, decode
   const boards = new Set(), stageMedia = new Set()
   for(const figure of Object.values(figures)) {
     if(figure.identitySettei?.board)boards.add(figure.identitySettei.board)
+    if(figure.identitySettei?.parts)boards.add(figure.identitySettei.parts)
     for(const hash of figureImageReferenceMedia(figure.extensions?.[FIGURE_IMAGE_EXTENSION]))boards.add(hash)
-    for(const outfit of figure.outfits){if(outfit.settei)boards.add(outfit.settei);for(const hash of [...Object.values(outfit.avatars||{}),...Object.values(outfit.sprite?.assets||{})])stageMedia.add(hash)}
+    for(const outfit of figure.outfits){if(outfit.settei)boards.add(outfit.settei);if(outfit.setteiParts)boards.add(outfit.setteiParts);for(const hash of [...Object.values(outfit.avatars||{}),...Object.values(outfit.sprite?.assets||{})])stageMedia.add(hash)}
   }
   for(const icon of manifest.tagIcons || [])stageMedia.add(icon.media)
   for(const hash of manifest.backgroundStyle?.references || [])boards.add(hash)
@@ -199,7 +200,7 @@ export async function verifyBytes(manifest, files, {limits = PACK_LIMITS, decode
       }
       continue
     }
-    // a video bundle is exactly its entry's video (a WebM / MP4 container, at most 96 MiB)
+    // A video bundle is exactly its entry's WebM or MP4 file.
     // and poster (an image of the video's aspect ratio that passes the media checks).
     if (bundle.kind === 'video') {
       const owner = assets.find(asset => asset.kind === 'videos' && asset.bundleKey === key)
@@ -207,7 +208,7 @@ export async function verifyBytes(manifest, files, {limits = PACK_LIMITS, decode
       const [video, poster] = videoContract.stageVideoFiles(owner).map(name => prefix + name)
       check(entries.length === 2 && files.has(video) && files.has(poster), prefix, 'A video bundle holds exactly its video and poster', 'FILE_CLOSURE_MISMATCH')
       const bytes = await materialize(video)
-      check(bytes.length <= videoContract.STAGE_VIDEO_MAX_BYTES, video, 'Video exceeds 96 MiB', 'LIMIT_EXCEEDED')
+      check(bytes.length <= videoContract.STAGE_VIDEO_MAX_BYTES, video, 'Video exceeds ' + videoContract.STAGE_VIDEO_MAX_BYTES / 1024 ** 2 + ' MiB', 'LIMIT_EXCEEDED')
       check(videoContract.stageVideoSignature(bytes) === owner.entry.slice(owner.entry.lastIndexOf('.') + 1), video, 'Video signature/extension mismatch')
       const posterBytes = await materialize(poster), ext = imageKind(posterBytes)
       check(ext && ['webp', 'png', 'jpeg'].includes(ext), poster, 'Poster must be a WebP, PNG or JPEG image')
@@ -307,7 +308,7 @@ export async function verifyBytes(manifest, files, {limits = PACK_LIMITS, decode
     await walk(sprite)
   }
   // Retain the established per-use byte limits in addition to the aggregate cap.
-  for (const asset of manifest.assets) if (asset.kind === 'backgrounds') for (const {hash} of assetContentMedia(asset)) check(manifest.blobs[hash].size <= 4 * 1024 ** 2, '$.backgrounds', 'Background byte limit', 'LIMIT_EXCEEDED')
+  for (const asset of manifest.assets) if (asset.kind === 'backgrounds') for (const {hash} of assetContentMedia(asset)) check(manifest.blobs[hash].size <= MEDIA_PURPOSE_LIMITS.background, '$.backgrounds', 'Background byte limit', 'LIMIT_EXCEEDED')
   for (const figure of Object.values(figures)) for (const outfit of figure.outfits) for (const hash of Object.values(outfit.avatars || {})) check(manifest.blobs[hash].size <= 3 * 1024 ** 2, '$.avatars', 'Avatar byte limit', 'LIMIT_EXCEEDED')
   const skins = Object.fromEntries(manifest.assets.filter(a => a.kind === 'skins').map(a => [a.id,readDocument(files.get('bundles/' + assetContent(a).bundleKey + '/' + assetContent(a).entry))]))
   const performances = Object.fromEntries(manifest.assets.filter(a => a.kind === 'performances').map(a => [a.id, readDocument(files.get('bundles/' + assetContent(a).bundleKey + '/' + assetContent(a).entry))]))

@@ -39,3 +39,44 @@ test('DSH 0.2.1 宿主没有 AgentModel 时复用不报错', async t => {
   assert.equal(h.agents.size, 1)
   assert.deepEqual(h.selections, [])
 })
+
+test('持久后台会话校验失败（stored session failed validation）时自动放弃并重建干净会话', async t => {
+  let sequence = 0
+  const resumedIds = []
+  const createdIds = []
+  const agents = new Map()
+  const parent = { id: 'game', session: { header: {}, events: [], append() {} } }
+  const runner = createBackgroundAgentSessions({
+    id: () => `background-fresh-${++sequence}`,
+    agents: {
+      get: id => id === 'game' ? parent : agents.get(id),
+      resume: async ({ resumeSessionId }) => {
+        resumedIds.push(resumeSessionId)
+        throw new Error(`stored session "${resumeSessionId}" failed validation: Error: session event at seq 16 message must have role "user"`)
+      },
+      create: async ({ sessionId }) => {
+        createdIds.push(sessionId)
+        const agent = {
+          session: { id: sessionId, header: { id: sessionId }, events: [], append(type, data) { this.events.push({ type, data }) } }
+        }
+        agents.set(sessionId, agent)
+        return { agent, async dispose() { agents.delete(sessionId) } }
+      }
+    }
+  }, {
+    setup: () => () => {},
+    execute: async ({ traceSessionId }) => ({ ok: true, traceSessionId })
+  })
+  t.after(() => runner.dispose())
+
+  const first = await runner.run({ ...base, persistentSessionId: 'background-corrupted-1' })
+  assert.equal(first.ok, true)
+  assert.equal(first.traceSessionId, 'background-fresh-1')
+  assert.deepEqual(resumedIds, ['background-corrupted-1'])
+  assert.deepEqual(createdIds, ['background-fresh-1'])
+
+  // 即使上游仍传入旧的损坏 ID，也不应再反复尝试 resume 它
+  const second = await runner.run({ ...base, persistentSessionId: 'background-corrupted-1' })
+  assert.equal(second.ok, true)
+  assert.deepEqual(resumedIds, ['background-corrupted-1'])
+})

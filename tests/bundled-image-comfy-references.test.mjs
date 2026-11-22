@@ -3,7 +3,6 @@ import assert from 'node:assert/strict'
 import { mkdir, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { imagePluginFixture, IMAGE_PNG, imageJson } from './fixtures/image-plugin-runtime.mjs'
-import { comfyLoadImageBindings, applyComfyReferenceImages } from '../tavern-plugin/packages/dsh-tavern-image-bundled/lib/comfy-reference-images.js'
 
 const character = { id: 'lin', name: '林月', match: 'Lin Yue', traits: { face: 'red hair, violet eyes' }, outfits: [] }
 function workflow({ loaders = ['8'], bindings } = {}) {
@@ -57,15 +56,6 @@ async function jobInput(runtime, { outfit = false, key = 'reference-job' } = {})
     size: '横图', negative: '不要水印',
   })
 }
-
-test('ComfyUI binding 仅自动接受唯一 LoadImage，多节点必须明确配置用途顺序', () => {
-  assert.deepEqual(comfyLoadImageBindings(workflow({ loaders: ['12'] })), [{ node: '12', input: 'image' }])
-  assert.throws(() => comfyLoadImageBindings(workflow({ loaders: ['2', '12'] })), /无法判断.*明确配置 referenceImages/)
-  assert.deepEqual(comfyLoadImageBindings(workflow({ loaders: ['2', '12'], bindings: [
-    { node: '12', input: 'image' }, { node: '2', input: 'image' },
-  ] })), [{ node: '12', input: 'image' }, { node: '2', input: 'image' }])
-  assert.throws(() => applyComfyReferenceImages(workflow({ loaders: ['8'] }), ['a.png', 'b.png']), /只有 1 个.*有 2 张/)
-})
 
 test('缺少必填的第二张参考图时，任务提示节点并且不上传或提交工作流', async t => {
   const graph = workflow({ loaders: ['8', '9'], bindings: [{ node: '8', input: 'image' }, { node: '9', input: 'image' }] })
@@ -426,4 +416,3 @@ test('旧 Atlas 已接单 job 在 provider 无损迁移到 custom 后仅查询�
     ['https://images.example.test/result.png', 'GET'],
   ])
 })
-

@@ -1,5 +1,65 @@
 // Shared synchronous public API semantics for script and message iframes.
 // Keep factories self-contained: the document builders serialize their source.
+function installTavernHelperContext({window, facade, context, readChat}) {
+    function chatId() { return String(context().chatId || ''); }
+    let source, chat;
+    function readMessageChat() {
+        const messages = context().messages || [];
+        if (messages === source) return chat;
+        source = messages;
+        chat = new Array(messages.length);
+        for (let id = 0; id < messages.length; id++) {
+            Object.defineProperty(chat, id, { enumerable: true, get() {
+                // Only an indexed read of an old floor loads it from the host.
+                // A held view cannot accidentally read a different conversation.
+                const row = context().messages === messages
+                    ? window.getChatMessages(id)[0] : structuredClone(messages[id]);
+                if (!row) return undefined;
+                return { ...row.pluginData, ...row, mes: String(row.message || ''),
+                    is_user: row.role === 'user', variables: row.swipes_data || [] };
+            } });
+        }
+        return chat;
+    }
+    const events = { on: 'eventOn', once: 'eventOnce', off: 'eventOff', removeListener: 'eventOff',
+        makeFirst: 'eventMakeFirst', makeLast: 'eventMakeLast', emit: 'eventEmit' };
+    const eventSource = Object.fromEntries(Object.entries(events).map(([key, name]) =>
+        [key, (...args) => window[name](...args)]));
+    Object.defineProperties(facade, {
+        chatId: { enumerable: true, get: chatId },
+        name1: { enumerable: true, get: () => String(context().playerName || '你') },
+        name2: { enumerable: true, get: () => String(context().characterName || '角色') },
+        TavernHelper: { enumerable: true, configurable: true, get: () => window.TavernHelper },
+        eventTypes: { enumerable: true, get: () => window.tavern_events }
+    });
+    if (!Object.hasOwn(facade, 'chat')) Object.defineProperty(facade, 'chat', {
+        enumerable: true, get: readChat || readMessageChat
+    });
+    facade.getCurrentChatId = chatId;
+    facade.getContext = () => facade;
+    facade.eventSource = eventSource;
+    window.getContext = () => window.SillyTavern.getContext();
+}
+
+function isCurrentTavernHelperContext(current, incoming) {
+    if (incoming.chatId && current.chatId && incoming.chatId !== current.chatId) return false;
+    const next = Number(incoming.lifecycleRevision || 0), previous = Number(current.lifecycleRevision || 0);
+    return next > previous || next === previous && Number(incoming.stateRevision || 0) >= Number(current.stateRevision || 0);
+}
+
+function createTavernHelperMessageWriter({context, copy, request}) {
+    return async function (patches) {
+        const {chatId, lifecycleRevision} = context();
+        const result = await request('updateTavernHelperMessages', {messages: copy(patches || [])});
+        const current = context();
+        if (result?.stale || chatId !== current.chatId || lifecycleRevision !== current.lifecycleRevision) {
+            throw Object.assign(new Error('聊天已变化，请重新读取消息'), {code: 'TAVERN_HELPER_STALE'});
+        }
+        if (result?.updated !== true) throw new Error('消息修改未保存');
+        return result;
+    };
+}
+
 function createTavernHelperMessageReader(options) {
     return function (target, settings) {
         const state = options.context(), count = (state.messages || []).length;

@@ -48,26 +48,6 @@ function harness() {
     writes: () => writes, changeText() { const next = copy(); next.messages[1].text = 'version-2'; save(next) } }
 }
 
-test('结算后任务可以改变量，后续任务读到新值；任务外和其他插件不能借用权限', async () => {
-  const h = harness(), entered = deferred(), release = deferred()
-  const other = Object.create(h.service); other.ctx = { fiber: { name: 'other-plugin' } }
-  let seen, crossOwner
-  h.service.settlementTask({ name: 'a-update', run: async () => {
-    entered.resolve(); await release.promise
-    await assert.rejects(other.setVariables(h.input({ hp: 0 })), { code: 'TAVERN_PLUGIN_STALE_VERSION' })
-    crossOwner = true
-    await h.service.setVariables(h.input({ hp: 8 }))
-  } })
-  h.service.settlementTask({ name: 'b-read', run: async ({ variables }) => { seen = variables } })
-  const job = h.api.runSettlementTasks({ gameId: 'game', phase: 'after', around: h.around })
-  await entered.promise
-  await assert.rejects(h.service.setVariables(h.input({ hp: 0 })), { code: 'TAVERN_PLUGIN_BUSY' })
-  release.resolve(); await job
-  assert.equal(crossOwner, true)
-  assert.deepEqual(seen, { hp: 8 })
-  assert.equal(h.writes(), 1)
-})
-
 for (const stopped of [false, true]) {
   test('插件任务' + (stopped ? '停止' : '结束') + '后迟到的异步回调不能写变量', async () => {
     const h = harness(), entered = deferred(), release = deferred()

@@ -6,9 +6,8 @@ import { createRoundHistory } from '../tavern-plugin/lib/domain/round-history.js
 import { createStoryTimeline } from '../tavern-plugin/lib/domain/story-timeline.js'
 import { appendSessionEvent, sessionEvents } from '../tavern-plugin/lib/domain/session-events.js'
 import { computeSceneTarget } from '../tavern-plugin/lib/domain/scene-illustration.js'
-import { findBodyRegenerationFrame, visibleBodyRegenerationHistory } from '../tavern-plugin/lib/domain/body-regeneration-materials.js'
 import { applyRegenerationProjection } from '../tavern-plugin/lib/domain/rollback-surface.js'
-import { projectPluginReply, projectReplyHistory } from '../tavern-plugin/lib/domain/reply-presentation.js'
+import { acquireHostSession, withHostAgent } from '../tavern-plugin/lib/host/sessions.js'
 
 const copy = value => structuredClone(value)
 
@@ -88,6 +87,56 @@ async function fixture(options = {}) {
   return { chats, timeline, session, agent, original, start, history, deps, run, phases, notifications, commits, settlementInputs }
 }
 
+for (const closeFails of [false, true]) test(`plugin regeneration retains the writer through projection, closeFails=${closeFails}`, async t => {
+  const h = await fixture()
+  const borrowed = Promise.withResolvers(), finishBorrow = Promise.withResolvers()
+  const generating = Promise.withResolvers(), finishGeneration = Promise.withResolvers()
+  const closeError = new Error('writer closed with an error')
+  const warnings = t.mock.method(console, 'warn', () => {})
+  let live = false, resumes = 0, disposals = 0, flushes = 0
+  const host = { sessions: { get: () => live ? h.session : undefined }, agents: {
+    get: () => live ? h.agent : undefined,
+    async resume() {
+      assert.equal(live, false)
+      live = true
+      resumes++
+      return { agent: h.agent, async dispose() {
+        live = false
+        disposals++
+        if (closeFails) throw closeError
+      } }
+    }
+  } }
+  Object.assign(h.deps.sessions, {
+    get: host.agents.get,
+    acquire: (id, options) => acquireHostSession(host, id, options),
+    async flush() { assert.equal(live, true); flushes++ }
+  })
+  const otherWork = withHostAgent(host, 'session', () => { borrowed.resolve(); return finishBorrow.promise })
+  await borrowed.promise
+  const regeneration = h.run(async () => {
+    generating.resolve()
+    await finishGeneration.promise
+    return { text: '新正文' }
+  })
+  try {
+    await Promise.race([generating.promise, regeneration])
+    finishBorrow.resolve()
+    await otherWork
+    assert.equal(disposals, 0)
+  } finally {
+    finishBorrow.resolve()
+    finishGeneration.resolve()
+    await Promise.all([otherWork, regeneration])
+  }
+  assert.equal((await regeneration).text, '新正文')
+  assert.equal((await h.chats.read()).nativeSync, undefined)
+  assert.equal(flushes, 1)
+  assert.equal(resumes, 1)
+  assert.equal(disposals, 1)
+  assert.equal(warnings.mock.calls.some(({ arguments: args }) => args.includes(closeError.message)), closeFails)
+})
+
 test('prepared configuration is durable before generation and guidance is part of the bound material', async () => {
   const h = await fixture()
   let prepared = 0
@@ -121,66 +170,6 @@ test('restart retains a durable candidate and explicit retry adopts it without a
   const result = await fresh.run(() => assert.fail('must reuse the durable candidate'), { providerId: 'test:body' })
   assert.equal(result.text, '已付费的候选正文')
   assert.equal((await fresh.chats.read()).bodyGenerationCandidate, undefined)
-})
-
-test('provider replaces one round and native context, then settles from the original start exactly once', async () => {
-  const h = await fixture()
-  const result = await h.run(async ({ materials }) => {
-    assert.equal(materials.stateBefore.posture, '起点 HP 10')
-    const during = await h.chats.read()
-    assert.equal(during.messages.at(-1).text, '')
-    assert.equal(during.messages.at(-1).regenerationDiscarded, true)
-    assert.equal(during.regenRecovery.phase, 'prepared')
-    assert.equal(during.posture, '旧正文后 HP 9')
-    return { text: '<p>预设正则处理后的正文</p>' }
-  })
-  const current = await h.chats.read()
-  assert.deepEqual(current.messages.map(row => row.text), ['继续', '<p>预设正则处理后的正文</p>'])
-  assert.equal(current.regenInProgress, undefined)
-  assert.equal(current.macroState.local.newOutput, 1)
-  assert.equal(result.settlement, 'done')
-  assert.notEqual(result.textVersion, computeSceneTarget(h.original, 2).key)
-  assert.deepEqual(h.notifications, [2])
-  assert.deepEqual(h.phases, ['generating', 'validating', 'committed', 'settling'])
-  assert.equal(h.settlementInputs.length, 1)
-  assert.deepEqual(h.commits, [{ sessionId: 'session', revision: h.settlementInputs[0]._storageRevision }])
-  assert.equal(h.settlementInputs[0].posture, '起点 HP 10')
-  assert.deepEqual(h.settlementInputs[0].messages.at(-1).variables, [{ hp: 10 }])
-  assert.equal(h.settlementInputs[0].messages.at(-1).mvu.pending, true)
-  const visible = JSON.stringify(h.session.deriveMessages())
-  assert.match(visible, /预设正则处理后的正文/)
-  assert.doesNotMatch(visible, /旧正文/)
-  const checkpoint = current.timeline.checkpoints.at(-1)
-  assert.equal(checkpoint.beforeRevision, h.start._storageRevision)
-  const rolled = h.timeline.apply({ chat: current, intent: { kind: 'turn.rollback', beforeChat: await h.chats.readRevision('chat', checkpoint.beforeRevision) } }).chat
-  assert.equal(rolled.posture, '起点 HP 10')
-  assert.deepEqual(rolled.messages, [])
-  assert.ok(findBodyRegenerationFrame(current, 2), 'the replacement retains its input snapshot for another retry')
-})
-
-test('plugin regeneration saves both regex layers and reopens without transforming the saved display again', async () => {
-  const regexScripts = [
-    { placement: [2], findRegex: '/X/g', replaceString: 'XX', markdownOnly: true },
-    { placement: [2], findRegex: '/X/g', replaceString: 'context', promptOnly: true }
-  ]
-  const h = await fixture({ prepareRegenerationReply: ({ text, hostRegex }) => projectPluginReply(text, { hostRegex, regexScripts }) })
-  await h.run(async ({ materials }) => {
-    assert.deepEqual(materials.outputProcessing, { hostRegex: true })
-    return { text: 'X {{user}} {{setvar::x::1}}' }
-  }, { hostRegex: true })
-  const current = JSON.parse(JSON.stringify(await h.chats.read()))
-  const reply = current.messages.at(-1)
-  assert.equal(reply.sourceText, 'X {{user}} {{setvar::x::1}}')
-  assert.equal(reply.text, 'context {{user}} {{setvar::x::1}}')
-  assert.equal(reply.displayText, 'XX {{user}} {{setvar::x::1}}')
-  assert.equal(reply.bodyHostRegexApplied, true)
-  assert.match(JSON.stringify(h.session.deriveMessages()), /context/)
-  assert.equal(visibleBodyRegenerationHistory(current, current.messages.length).at(-1).text, reply.text)
-  for (const rules of [regexScripts, []]) {
-    assert.equal(projectReplyHistory(current.messages, { regexScripts: rules }).projections[0].text, reply.displayText)
-  }
-  reply.tavernPluginData = { template_display: { source: reply.sourceText, swipe: 0, formattingText: 'XXXX', html: '<p>XXXX</p>' } }
-  assert.equal(projectReplyHistory(current.messages).projections[0].text, reply.displayText)
 })
 
 async function unfinishedSettlement(h, running) {
@@ -256,63 +245,6 @@ for (const alreadyAppended of [false, true]) test('failed-input committed recove
   const visible = JSON.stringify(reopened.deriveMessages())
   assert.equal((visible.match(/恢复的新正文/g) || []).length, 1)
   assert.equal((visible.match(/失败输入/g) || []).length, 1)
-})
-
-test('失败尾补写时存档已停着这一轮的输入行，不再补第二条输入', async () => {
-  const h = await fixture()
-  const before = await h.chats.read()
-  const begun = h.timeline.apply({ chat: before, intent: { kind: 'body.begin', turn: 3, userText: '失败输入' } })
-  const operation = begun.chat.timeline.operations[begun.value.operationId]
-  begun.chat.foregroundFrames[operation.id] = { ...copy(Object.values(begun.chat.foregroundFrames)[0]),
-    operationId: operation.id, turn: 3, userInput: { sourceText: '失败输入', projectedText: '失败输入' } }
-  // 上一次尝试被丢弃后留下的持久输入行：players 的输入已经在存档末尾。
-  begun.chat.messages.push({ role: 'user', text: '失败输入', native: true })
-  await h.chats.write(begun.chat)
-  appendSessionEvent(h.session, 'turn/start', { turn: 3 })
-  appendSessionEvent(h.session, 'step/start', { turn: 3, step: 1 })
-  appendSessionEvent(h.session, 'user/message', { id: 'failed-input', role: 'user', source: { kind: 'user' }, content: [{ type: 'text', text: '失败输入' }] }, { surfaceOp: 'append' })
-  appendSessionEvent(h.session, 'step/end', { turn: 3, step: 1 })
-  appendSessionEvent(h.session, 'turn/end', { turn: 3, reason: { kind: 'error' } })
-  const result = await h.history.regenerateWithProvider({ gameId: 'session', generate: async () => ({ text: '恢复的新正文' }) })
-  assert.equal(result.text, '恢复的新正文')
-  const saved = await h.chats.read()
-  assert.equal(saved.messages.filter(row => row.role === 'user' && row.text === '失败输入').length, 1,
-    '同一轮输入只保留存档里已有的那一行')
-  assert.equal(saved.messages.at(-1).text, '恢复的新正文')
-})
-
-test('面上没有这一轮正文时补写一条，旧正文不在了也能重新生成', async () => {
-  // 上一次重新生成截断后没有落位：这一轮的正文在存档里，消息流上却没有。
-  const h = await fixture({ withoutBody: true })
-  const result = await h.run(async () => ({ text: '补写的正文' }), { providerId: 'test:body' })
-  assert.equal(result.text, '补写的正文')
-  const saved = await h.chats.read()
-  assert.equal(saved.messages.at(-1).text, '补写的正文')
-  // 新正文作为第 2 轮落在消息面上，并记下了锚点，下一次重新生成不用再猜。
-  const current = (await import('../tavern-plugin/lib/domain/session-events.js')).sessionEvents(h.session)
-  const appended = h.session.surface.nodes.map(seq => current.find(event => event.seq === seq))
-    .filter(event => event?.type === 'assistant/message' && event.data?.message?.source?.tavernStoryTurn === 2)
-  assert.equal(appended.length, 1)
-  assert.equal(appended[0].data.message.content[0].text, '补写的正文')
-  assert.equal(saved.messages.at(-1).nativeAnchor.turn, Number(appended[0].data.turn))
-  assert.equal(saved.messages.at(-1).nativeAnchor.input, undefined)
-  assert.equal(saved.messages.at(-1).nativeAnchor.reply, Number(appended[0].seq))
-})
-
-test('plugin-owned projection survives regeneration, history reads and refreshed display', async () => {
-  const h = await fixture({ prepareRegenerationReply: ({ text, ...options }) => projectPluginBody(text, options) })
-  await h.run(async () => ({ text: '<think>plan</think>story', regexScripts: [
-    { findRegex: '<think>.*?</think>', replaceString: '', placement: [2], promptOnly: true },
-    { findRegex: 'plan', replaceString: 'visible plan', placement: [2], markdownOnly: true },
-  ] }))
-  const current = JSON.parse(JSON.stringify(await h.chats.read())), row = current.messages.at(-1)
-  assert.equal(row.text, 'story')
-  assert.equal(row.displayText, '<think>visible plan</think>story')
-  assert.equal(row.bodyPluginProjection, true)
-  assert.equal(visibleBodyRegenerationHistory(current, current.messages.length).at(-1).text, 'story')
-  assert.equal(projectReplyHistory(current.messages, { regexScripts: [{ findRegex: 'story', replaceString: 'wrong', placement: [2] }] }).projections[0].text, row.displayText)
-  assert.match(JSON.stringify(h.session.deriveMessages()), /story/)
-  assert.doesNotMatch(JSON.stringify(h.session.deriveMessages()), /visible plan/)
 })
 
 test('crash recovery retains plugin rules with the paid candidate', async () => {

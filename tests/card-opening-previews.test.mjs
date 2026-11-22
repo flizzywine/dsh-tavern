@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
+import vm from 'node:vm'
 import { chromium } from 'playwright'
 
 import { projectCardOpeningPreviews } from '../tavern-plugin/lib/domain/card-opening-previews.js'
-import { projectOpeningCommit, projectRuntimeReply } from '../tavern-plugin/lib/domain/runtime-content-projection.js'
+import { projectAgentContent, projectOpeningCommit, projectOpeningPreview, projectRuntimeReply } from '../tavern-plugin/lib/domain/runtime-content-projection.js'
 import { browserReactScript } from './fixtures/browser-react.mjs'
 
 const rule = (findRegex, replaceString) => ({ findRegex, replaceString, placement: [2], markdownOnly: true })
@@ -79,6 +80,50 @@ test('chained rules render the same button beside story text in previews, commit
   assert.deepEqual(preview.openings[0].projection.parts, expected)
   assert.deepEqual(opening.displayParts, expected)
   assert.deepEqual(reply.displayParts, expected)
+})
+
+test('committing an HTML opening preserves nested JavaScript state and resolves Tavern macros', () => {
+  const script = '<script>const state = {"player":{"name":"{{user}}"}};</script>\n'
+  const source = '{{unsupported}}\n```html\n' + script + '```'
+  const result = projectOpeningCommit(source, { macroState: { userName: '玩家' } })
+  assert.equal(result.sessionText, source.replace('{{user}}', '玩家'))
+  assert.deepEqual(result.displayParts, [
+    { kind: 'markdown', text: '{{unsupported}}\n' },
+    { kind: 'html', content: script.replace('{{user}}', '玩家') }
+  ])
+})
+
+test('opening preview, save and history preserve code blocks and template braces', () => {
+  const script = 'if (true) {{ const value = 1; globalThis.result = value; }}'
+  const html = '<div v-if="ready">{{ count }}</div><script>' + script + '</script>'
+  const card = '<section>' + html + '</section>'
+  for (const render of [projectOpeningPreview, projectOpeningCommit]) {
+    const result = render(card)
+    assert.equal(result.sessionText, card)
+    assert.equal(result.displayParts[0].content, card)
+    const source = result.displayParts[0].content.match(/<script>([\s\S]*?)<\/script>/)[1]
+    const sandbox = {}
+    vm.runInNewContext(source, sandbox)
+    assert.equal(sandbox.result, 1)
+    assert.deepEqual(projectRuntimeReply(result.renderedText).displayParts, result.displayParts)
+  }
+  const worldbookExample = '```js\n' + script + '\n```'
+  assert.equal(projectAgentContent(worldbookExample).agentText, worldbookExample)
+})
+
+test('opening names are encoded for HTML and inline JavaScript literals in both paths', () => {
+  const source = '<section><p title="{{user}}">{{user}}</p>'
+    + '<script>globalThis.names = ["{{user}}", \'<user>\', `{{user}}`, {{user}}];</script></section>'
+  const userName = 'Alex "Ace" & O\'Neil `name`'
+  for (const render of [projectOpeningPreview, projectOpeningCommit]) {
+    const result = render(source, { macroState: { userName } })
+    const html = result.displayParts[0].content
+    assert.match(html, /<p title="Alex &quot;Ace&quot; &amp; O&#39;Neil `name`">Alex &quot;Ace&quot; &amp; O&#39;Neil `name`<\/p>/)
+    const sandbox = {}
+    vm.runInNewContext(html.match(/<script>([\s\S]*?)<\/script>/)[1], sandbox)
+    assert.deepEqual(Array.from(sandbox.names), Array(4).fill(userName))
+    assert.equal(result.macroState.userName, userName)
+  }
 })
 
 test('a fenced status panel keeps its own frame beside an HTML opening', async () => {

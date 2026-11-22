@@ -3,7 +3,9 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import { createModelRequestLog } from '../tavern-plugin/lib/domain/model-request-log.js'
+import { createForegroundOrchestrationStrategies } from '../tavern-plugin/lib/domain/foreground-orchestration-strategies.js'
 import { registerModelStreamHooks } from '../tavern-plugin/lib/hooks/model-stream.js'
+import { createInitializationNative } from './fixtures/conversation-initialization-native.mjs'
 
 function memoryLog() {
   const files = new Map()
@@ -17,6 +19,50 @@ function memoryLog() {
     now: () => ++stamp, id: () => 'r' + stamp
   })
 }
+
+test('Tavern sends and logs the same request after a template renders blank prompts', { skip: !process.env.DSH_BOOT_MODULE }, async t => {
+  const log = memoryLog()
+  const received = []
+  const h = await createInitializationNative(process.env.DSH_BOOT_MODULE, {
+    modelStream: async function * (input) {
+      if (input.messages.some(message => message.content.every(block => block.type === 'text' && !block.text.trim()))) {
+        throw Error('400: message content cannot be empty')
+      }
+      received.push(input.messages)
+      yield { type: 'finish', reason: { kind: 'stop' } }
+    }
+  })
+  t.after(() => h.dispose())
+  const sessionId = h.target.agent.session.id
+  const chat = { id: 'template-game', mode: 'story', requestMode: 'dsh' }
+  let renders = 0
+  registerModelStreamHooks({
+    ctx: h.ctx, sessionStore: h.ctx.sessions, agentRegistry: h.ctx.agents,
+    backgroundAgentRunner: { owns: () => false, requestContext: () => undefined },
+    chatForSession: async () => chat, chatHeaderForSession: async id => id === sessionId ? chat : undefined,
+    foregroundStrategies: createForegroundOrchestrationStrategies({ nativePlay: {} }),
+    fullTemplateRuntime: { forSession: () => ({ async projectRequestProjection({ messages }) {
+      renders++
+      return { system: ' \n', messages: [{ ...messages[0], content: [{ type: 'text', text: '' }] }, messages[1]] }
+    } }) },
+    modelRequestLog: log, worldbookRecallLog: { requested: async () => {} }, requestCoordinates: new Map(),
+    str: value => typeof value === 'string' ? value : ''
+  })
+  const hidden = { role: 'user', content: [{ type: 'text', text: '<% if (false) { %>旧提示<% } %>' }] }
+  const visible = { role: 'user', content: [{ type: 'text', text: '继续故事' }] }
+  const original = Object.freeze({ sessionId, provider: 'initialization-fixture', model: 'text', system: '模板规则', messages: Object.freeze([hidden, visible]) })
+  const before = structuredClone(original)
+  const events = await Array.fromAsync(h.ctx.llm.stream(original))
+
+  assert.equal(events.at(-1)?.reason.kind, 'stop', JSON.stringify(events.at(-1)))
+  assert.equal(renders, 1)
+  assert.deepEqual(received.map(messages => messages.flatMap(message => message.content.map(block => block.text))), [['继续故事']])
+  const { requests } = await log.evidence(chat.id)
+  assert.equal(requests.length, 1)
+  assert.deepEqual(requests[0].request.messages, [visible])
+  assert.equal(requests[0].request.system, undefined)
+  assert.deepEqual(original, before)
+})
 
 function install(log, headers, pluginSettlementProgress, beginReplyObserver, emitted, agentRegistry = { get: () => undefined }, worldbookRecallLog = { requested: async () => {} }) {
   let stream

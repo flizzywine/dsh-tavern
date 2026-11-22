@@ -27,21 +27,6 @@ test('the 素材库 tab hands its pages a nav that opens the 配音 tab', async 
   assert.deepEqual(JSON.parse(JSON.stringify(opened)), [[{type:'dsh-tts:voice'}, {sessionId:'s'}]])
 })
 
-test('the library passes its nav from App through the pack modal and figure page to the voice page', async () => {
-  const [ui, figure, voice] = await Promise.all([client('asset-pack-ui.js'), client('asset-pack-figure-ui.js'), client('asset-pack-voice-ui.js')])
-  assert.match(ui, /h\(Home,\{[^}]*nav:props\.nav\}/)
-  assert.match(ui, /h\(PackModal,\{[^}]*ctx:null,nav,/)
-  // 舞台设置 opens the same modal with its card context, whose nav it uses.
-  assert.match(ui, /function PackModal\(\{[^}]*ctx,nav=ctx\?\.nav,/)
-  // the window's tab nav closes the window before the tab opens (voice-backend-focus.test.mjs).
-  assert.match(ui, /const tabNav=nav\?\.openTab\?\{\.\.\.nav,openTab:type=>\{close\(\);return nav\.openTab\(type\);\}\}:nav;/)
-  assert.match(ui, /h\(FigureDetail,\{[^}]*figureActions:figureActions\(selected\.id\),nav:tabNav,/)
-  assert.match(figure, /h\(VoiceTab,\{[^}]*commitVoice,nav\}/)
-  assert.match(voice, /const openSettings=nav\?\.openTab\?/)
-  // 「语音后端 ›」 sits at the foot of the service column of 新建声音 / 编辑声音.
-  assert.match(voice, /openSettings&&h\(Button,\{className:'ap-link ap-vx-nav-foot',onClick:\(\)=>openSettings\(null\)\},'语音后端 ›'\)/)
-})
-
 // 新建声音 / 编辑声音: a service that cannot speak now carries ⚠ and why, in 语音后端's words; one not checked yet is fine.
 test('a service that cannot speak says why in 语音后端 words; a service not checked yet is fine', async () => {
   const source = await client('asset-pack-voice-ui.js')

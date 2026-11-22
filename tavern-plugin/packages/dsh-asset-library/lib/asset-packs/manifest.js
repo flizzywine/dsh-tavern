@@ -147,8 +147,10 @@ export function validateAssetContent(kind, content, path = '$') {
   // authored gain never relaxes playback true-peak protection.
   if (value.gainDb !== undefined) check(Number.isFinite(value.gainDb) && value.gainDb >= -18 && value.gainDb <= 8, path + '.gainDb')
   if (value.loudness !== undefined) {
-    shape(value.loudness, ['v', 'lufs', 'peak'], ['v', 'lufs', 'peak'], path + '.loudness')
+    shape(value.loudness, ['v', 'lufs', 'peak', 'brightnessDb', 'durationMs'], ['v', 'lufs', 'peak'], path + '.loudness')
     check(value.loudness.v === 1, path + '.loudness.v')
+    for (const [key, max] of [['brightnessDb', 5], ['durationMs', Infinity]]) if (value.loudness[key] !== undefined)
+      check(Number.isFinite(value.loudness[key]) && value.loudness[key] >= 0 && value.loudness[key] <= max, path + '.loudness.' + key)
     for (const [key, max] of [['lufs', 10], ['peak', 20]]) check(Number.isFinite(value.loudness[key]) && value.loudness[key] >= -100 && value.loudness[key] <= max, path + '.loudness.' + key)
   }
   if (value.gainDb > 0) check(value.loudness !== undefined, path + '.loudness', 'Positive SFX gain requires a measured loudness and true peak')
@@ -194,6 +196,23 @@ export function validatePackManifest(value, path = '$') {
   validateUuid(value.id, path + '.id'); text(value.name, path + '.name'); validateHash(value.contentHash, path + '.contentHash'); validateMetadata(value, path)
   array(value.assets, path + '.assets'); value.assets.forEach((asset, i) => validateAsset(asset, `${path}.assets[${i}]`))
   unique(value.assets.map(a => `${a.kind}/${a.id}`), path + '.assets')
+  const order = value.extensions?.['dsh.entry-order']
+  if (order !== undefined) {
+    const at = path + '.extensions.dsh.entry-order'
+    shape(order, ['groups', 'entries'], ['groups', 'entries'], at)
+    array(order.groups, at + '.groups')
+    order.groups.forEach(group => validateShortId(group, at + '.groups'))
+    unique(order.groups, at + '.groups')
+    const groups = new Set(order.groups)
+    record(order.entries, at + '.entries', (rank, p, key) => {
+      const [kind, id, extra] = key.split('/')
+      check(extra === undefined && (kind === 'figures' || ASSET_KINDS.includes(kind)), p, 'Expected kind/id')
+      if (kind === 'figures') validateUuid(id, p)
+      else validateShortId(id, p)
+      check(Array.isArray(rank) && rank.length === 2 && groups.has(rank[0]), p, 'Expected [group, position] using a declared group')
+      integer(rank[1], p, 1)
+    })
+  }
   array(value.figures, path + '.figures'); value.figures.forEach(id => validateUuid(id, path + '.figures')); unique([value.id, ...value.figures], path + '.figures')
   record(value.sprites, path + '.sprites', (file, p, key) => { validateShortId(key, p); check(file === `sprites/${key}/manifest.json`, p) })
   record(value.bundles, path + '.bundles', (bundle, p, key) => {

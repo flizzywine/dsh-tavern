@@ -103,17 +103,26 @@ export function createMvuSettlementTransactions({ resolveChat, resolveSettlement
     return transaction === undefined ? await resolveChat(sessionId) : transaction.draft
   }
 
+  function projectCommand(transaction, messages) {
+    const message = messages.find(row => row.message_id === transaction.messageId)
+    if (!message || message.swipe_id !== transaction.swipeId) return
+    // The command belongs only to the executor's view of this draft.
+    message.message = transaction.internalText
+    message.swipes[transaction.swipeId] = transaction.internalText
+  }
+
   async function transactionResult(sessionId, target, multiple = false, eventId = '') {
     const transaction = settlementTransactions.get(str(sessionId))
     assertTransactionEvent(transaction, eventId)
     if (transaction === undefined) return null
     transaction.mutations++
+    const projection = transaction.compact ? projectMvuReceipt(transaction.work, multiple ? target : [target]) : await fullContext(transaction.draft)
+    projectCommand(transaction, projection.messages)
     return {
       updated: true,
       transactional: true,
       ...(multiple ? { targets: target } : { target }),
-      ...(transaction.compact ? { contextDelta: projectMvuReceipt(transaction.work, multiple ? target : [target]) }
-        : { context: await fullContext(transaction.draft) })
+      ...(transaction.compact ? { contextDelta: projection } : { context: projection })
     }
   }
 
@@ -173,6 +182,7 @@ export function createMvuSettlementTransactions({ resolveChat, resolveSettlement
       eventId,
       messageId,
       swipeId,
+      internalText: variableEdit ? originalText : str(input.storyText).trim() + '\n\n' + command,
       mutations: 0
     }
     if (input.baselineVariables) {
@@ -182,7 +192,6 @@ export function createMvuSettlementTransactions({ resolveChat, resolveSettlement
     }
     settlementTransactions.set(sessionId, transaction)
     try {
-      const internalText = variableEdit ? originalText : str(input.storyText).trim() + '\n\n' + command
       const hasMvuSnapshot = value => value && value.stat_data !== undefined && value.schema !== undefined
       const baselineStatData = input.baselineVariables?.stat_data
       const useCurrentVariables = baselineStatData !== null && typeof baselineStatData === 'object' && !Array.isArray(baselineStatData)
@@ -211,10 +220,7 @@ export function createMvuSettlementTransactions({ resolveChat, resolveSettlement
         }
         if (indices) indices=[...new Set([...indices,messageId])].filter(i=>i<current.messages.length)
         const projected = await context(sessionId, transaction.draft, '', indices)
-        const target = indices ? projected.messages.find(row=>row.message_id===messageId) : projected.messages[messageId]
-        target.message=internalText
-        if (!Array.isArray(target.swipes)) target.swipes=[originalText]
-        target.swipes[swipeId]=internalText
+        projectCommand(transaction, projected.messages)
         if (transaction.compact) projected.transaction={eventId,sequence:work.sequence}
         if (!indices) return projected
         const {messages,...header}=projected
@@ -389,8 +395,7 @@ export function createMvuSettlementTransactions({ resolveChat, resolveSettlement
     const transaction=settlementTransactions.get(str(sessionId))
     assertTransactionEvent(transaction,eventId)
     if (!transaction) return context(sessionId)
-    if (transaction.work.sequence === 0) return transaction.executionContext({workContextVersion:1,full:true})
-    return {...await context(sessionId,transaction.draft),transaction:{eventId:transaction.eventId,sequence:transaction.work.sequence}}
+    return transaction.executionContext({workContextVersion:1,full:true})
   }
   // Tokens carry draft identity, not the private transaction registry. A resumed
   // worldbook write must still belong to the same live settlement.

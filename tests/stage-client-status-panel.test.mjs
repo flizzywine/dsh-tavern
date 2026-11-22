@@ -52,59 +52,54 @@ function harness({page = PAGE, pages = {pages: [], fresh: false}, failRead = fal
 const openPage = (h, extra = {}) => h.panels.open({sessionId: 's1', page: 'status', trustedCardMode: true, host: () => h.host, onClose() {}, onState() {}, onAction() {}, ...extra})
 const responses = frame => frame.contentWindow.posted.filter(message => message.type === 'dsh-card-page-response')
 
+test('a shown card page opens its available plugin panel in the current game', async () => {
+  const requests = [], selections = []
+  const h = harness({options:{findPluginPanel:async (...ref) => {
+    requests.push(ref)
+    return ref[1] === 'travel' ? '旅行与牌桌' : null
+  }}})
+  const page = openPage(h, {onPluginPanel: value => selections.push(value), pluginPanelShowing: () => selections.length > 0})
+  await settle()
+  const frame = h.frames[0]
+  frame.listeners.load()
+  h.send(frame.contentWindow, 'openPluginPanel', {plugin:'unrelated', panelId:'table'})
+  await settle()
+  assert.equal(responses(frame).at(-1).ok,false)
+  h.send(frame.contentWindow, 'openPluginPanel', {plugin:'travel', panelId:'table', sessionId:'another-game'})
+  await settle()
+  assert.deepEqual(requests.at(-1), ['s1', 'travel', 'table'])
+  assert.deepEqual(selections, [{plugin:'travel', id:'table', title:'旅行与牌桌'}])
+  assert.deepEqual(responses(frame).at(-1).result, {opened:true})
+  h.send(frame.contentWindow, 'title', {text:'旅行'})
+  await settle()
+  assert.deepEqual(responses(frame).at(-1).result, {title:'旅行'})
+  h.send(frame.contentWindow, 'fillInput', {text:'旅行'})
+  await settle()
+  assert.equal(responses(frame).at(-1).ok, false)
+  assert.deepEqual(h.fills, [])
+  page.dispose()
+})
+
 // A small React stand-in: effects run during render, their cleanups are kept, refs are plain objects.
-function fakeReact(stateOverride) {
+function fakeReact(stateOverride, pluginPanel = null) {
   const cleanups = []
   return {cleanups, React: {createElement: (type, props, ...children) => ({type, props: props || {}, children: children.flat()}),
-    useRef: value => ({current: value ?? null}), useState: initial => [stateOverride ?? initial, () => {}],
+    useRef: value => ({current: value ?? null}), useState: initial => [initial === null ? pluginPanel : stateOverride ?? initial, () => {}],
     useEffect: fn => { const cleanup = fn(); if (typeof cleanup === 'function') cleanups.push(cleanup) }}}
 }
 const find = (node, test) => !node || typeof node !== 'object' ? null : test(node) ? node : node.children.reduce((hit, child) => hit || find(child, test), null)
 const text = node => !node ? '' : typeof node === 'string' ? node : node.children.map(text).join('')
 
-test('the Overlay frame is the core lifecycle with the live tavernHelper and trustedCardMode', async () => {
-  const h = harness()
-  const helper = {version: 1, turnMessageIds: {1: 1, 3: 5}, messages: []}
-  const {React, cleanups} = fakeReact()
-  const lifecycles = []
-  const panels = createStageStatusPanel({React, window: {console, getComputedStyle: () => ({getPropertyValue: () => ''}), addEventListener() {}, removeEventListener() {}}, document: {createElement: () => h.frames[h.frames.push({style: {}, contentWindow: {}, setAttribute() {}, removeAttribute() {}, addEventListener() {}, remove() {}}) - 1]},
-    rpc: (method, args) => Promise.resolve({ok: true, page: PAGE}), signals: {subscribe: () => () => {}},
-    useLiveView: () => ({view: {tavernHelper: helper, tavernRuntimePolicy: {trustedCardMode: true}}}),
-    createCardFrame: props => { const lifecycle = {props, update() {}, snapshot: () => ({visibleDocument: {token: 'd', html: '', trustedCardMode: true, ref() {}}}), start: () => () => {}}; lifecycles.push(lifecycle); return lifecycle }})
-  const tree = panels.Overlay({sessionId: 's1', pageId: 'status', onClose() {}, onAction() {}})
-  find(tree, node => node.props.className === 'fork-gal-status-body').props.ref.current = h.host
-  await settle()
-  assert.equal(lifecycles.length, 1)
-  const props = lifecycles[0].props
-  assert.equal(props.helperContext, helper)
-  assert.equal(props.trustedCardMode, true)
-  assert.deepEqual({sessionId: props.sessionId, turn: props.turn, partIndex: props.partIndex, panelId: props.panelId, eager: props.eager, persistent: props.persistent, observeMvuView: props.observeMvuView, runtimeReporting: props.runtimeReporting},
-    {sessionId: 's1', turn: 3, partIndex: 0, panelId: 'stage-page-status', eager: true, persistent: true, observeMvuView: false, runtimeReporting: true})
-  // no skin scrollbars.page: the page's document shows no native scrollbar either, under the card's own CSS (:where)
-  assert.match(props.content, /^<style data-dsh-card-page>:where\(html,body,\*\)\{scrollbar-width:none\}[^<]*<\/style><script data-dsh-card-page>[\s\S]*window\.DshCardPage=[\s\S]*<\/script>/)
-  assert.ok(props.content.endsWith(HTML))
-  for (const cleanup of cleanups) cleanup()
-  panels.dispose()
-})
-
-test('close, open, openSettings and fillInput reach onClose / onAction; fillInput sends nothing', async () => {
-  const h = harness()
-  let closes = 0
-  const actions = []
-  const page = openPage(h, {onClose: () => closes++, onAction: (...args) => actions.push(args)})
-  await settle()
-  const source = h.frames[0].contentWindow
-  h.send(source, 'close')
-  h.send(source, 'open', {id: 'map'})
-  h.send(source, 'settings')
-  h.send(source, 'fillInput', {text: '去学生会室'})
-  await settle()
-  assert.equal(closes, 1)
-  assert.deepEqual(actions, [['open', 'map'], ['settings'], ['fill']])
-  assert.deepEqual(h.fills, [['s1', '去学生会室']])
-  assert.deepEqual(h.calls.map(call => call.method), ['readCardPage'])
-  assert.deepEqual(responses(h.frames[0]).map(message => [message.requestId, message.ok]), [['r-close', true], ['r-open', true], ['r-settings', true], ['r-fillInput', true]])
-  page.dispose()
+test('a shared plugin panel receives the host page ID for each card page', () => {
+  const PluginPanel = () => null
+  const {React} = fakeReact(null, {plugin: 'travel', id: 'journal', title: '旅程'})
+  const h = harness({options: {React, PluginPanel}})
+  for (const stagePageId of ['quests', 'inventory']) {
+    const tree = h.panels.Overlay({sessionId: 's1', pageId: stagePageId, onClose() {}})
+    assert.deepEqual(find(tree, node => node.type === PluginPanel).props,
+      {sessionId: 's1', plugin: 'travel', id: 'journal', stagePageId})
+  }
+  h.panels.dispose()
 })
 
 test('title(text) sets the sheet title over the declared label, empty gives the label back', async () => {

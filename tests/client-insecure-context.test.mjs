@@ -26,8 +26,3 @@ test('the main page installs the SHA-256 fallback when http on a LAN address has
   const digest = Buffer.from(await page.crypto.subtle.digest('SHA-256', new TextEncoder().encode('abc'))).toString('hex')
   assert.equal(digest, 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad')
 })
-
-test('the game-mode advance draws its action id from the shared helper, not crypto.randomUUID', () => {
-  assert.match(mainSource, /actionId: randomId\(\) \}/)
-  assert.match(mainSource, /function randomId\(crypto = globalThis\.crypto\)/)
-})

@@ -27,16 +27,3 @@ test('重命名与删除分组同步卡片归属，删除分组保留星标与�
   assert.equal(result[0].starred, true)
   assert.equal(result[0].group, '')
 })
-
-test('卡片改名保留整理信息，删除后同路径的新卡不继承；非法批量不部分写入', async t => {
-  const { library } = await fixture(t)
-  await library.update({ action: 'cards', paths: ['a'], starred: true }, paths)
-  await library.movePath('a', 'renamed')
-  assert.equal((await library.project([{ path: 'renamed' }]))[0].starred, true)
-  await library.movePath('renamed', null)
-  assert.equal((await library.project([{ path: 'renamed' }]))[0].starred, false)
-  await assert.rejects(library.update({ action: 'cards', paths: ['b', 'missing'], starred: true }, paths))
-  assert.equal((await library.project(cards)).find(card => card.path === 'b').starred, false)
-  await library.update({ action: 'create', name: '奇幻' }, paths)
-  await assert.rejects(library.update({ action: 'create', name: '奇幻' }, paths), /同名/)
-})

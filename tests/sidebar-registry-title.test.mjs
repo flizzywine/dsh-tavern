@@ -18,5 +18,8 @@ for (const file of clients) {
     // A renamed panel must not keep the title its tab record stored when it was opened.
     assert.ok(block.includes(rule), block)
     assert.ok(block.indexOf('const descriptor = ') < block.indexOf(rule))
+    // Native right-sidebar registration respects descriptor.keepMounted !== false and sets files takeover to false.
+    assert.ok(source.includes('keepMounted: descriptor.keepMounted !== false'), `${file} must respect descriptor.keepMounted`)
+    assert.ok(source.includes('kind: FILES_KIND,\n\t\t\t\t\t\tkeepMounted: false,'), `${file} must disable keepMounted for files takeover`)
   })
 }

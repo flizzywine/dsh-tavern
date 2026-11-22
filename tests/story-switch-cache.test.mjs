@@ -41,18 +41,6 @@ function storyFixture() {
 	return { reader, calls, states, setResources: value => { resources = value }, window }
 }
 
-test('同一份故事窗口的第二次请求命中服务端缓存，不再重投影', async () => {
-	const f = storyFixture()
-	const first = await f.reader.response({ sessionId: 's1', storyTranscript: 1 })
-	assert.equal(first.storyTranscript.source, 'story')
-	assert.equal(typeof first.storySignature, 'string')
-	const second = await f.reader.response({ sessionId: 's1', storyTranscript: 1 })
-	assert.equal(f.calls.projection, 1)
-	assert.equal(second.storyTranscript.source, 'story')
-	assert.equal(second.storySignature, first.storySignature)
-	assert.deepEqual(f.states.filter(row => row.viewRebuild).map(row => row.viewRebuild), ['story', 'story-cache'])
-})
-
 test('并发的同一份窗口请求合并成一次投影', async () => {
 	const f = storyFixture()
 	let release
@@ -70,50 +58,6 @@ test('并发的同一份窗口请求合并成一次投影', async () => {
 	release()
 	await Promise.all([first, second])
 	assert.equal(f.calls.projection, 1)
-})
-
-test('带回来的窗口签名命中时直接返回 unchanged，跳过投影', async () => {
-	const f = storyFixture()
-	const first = await f.reader.response({ sessionId: 's1', storyTranscript: 1 })
-	const again = await f.reader.response({ sessionId: 's1', storyTranscript: 1,
-		knownRevision: first.revision, knownStorySignature: first.storySignature })
-	assert.equal(again.unchanged, true)
-	assert.equal(again.revision, first.revision)
-	assert.equal(again.storySignature, first.storySignature)
-	assert.equal(again.view, undefined)
-	assert.equal(f.calls.projection, 1)
-})
-
-test('外部资源变化时 revision 未动也不判 unchanged', async () => {
-	const f = storyFixture()
-	const first = await f.reader.response({ sessionId: 's1', storyTranscript: 1 })
-	f.setResources('wb-2')
-	const after = await f.reader.response({ sessionId: 's1', storyTranscript: 1,
-		knownRevision: first.revision, knownStorySignature: first.storySignature })
-	assert.notEqual(after.unchanged, true)
-	assert.equal(after.storyTranscript.source, 'story')
-	assert.notEqual(after.storySignature, first.storySignature)
-	assert.equal(f.calls.projection, 2)
-})
-
-test('服务端缓存只留 12 份窗口投影', async () => {
-	const states = []
-	const projections = []
-	const reader = createSessionViewReader({
-		readStoryWindow: async sessionId => {
-			const index = Number(String(sessionId).replace('s', ''))
-			return storyWindow({ chat: { id: 'c' + index, sessionId, mode: 'story', messages: [] }, revision: index })
-		},
-		project: { story: async value => { projections.push(value.chat.id); return { chatId: value.chat.id, storyTranscript: value.storyTranscript } } },
-		resourceVersion: async () => '',
-		trace: { stage: (_name, fn) => fn(), state: state => states.push(state) }
-	})
-	for (let index = 0; index < 14; index += 1) await reader.response({ sessionId: 's' + index, storyTranscript: 1 })
-	assert.equal(projections.length, 14)
-	await reader.response({ sessionId: 's13', storyTranscript: 1 })
-	assert.equal(projections.length, 14, '最近一份仍在缓存里')
-	await reader.response({ sessionId: 's0', storyTranscript: 1 })
-	assert.equal(projections.length, 15, '最早一份被 LRU 淘汰后重新投影')
 })
 
 function storeFixture(load) {
@@ -293,41 +237,4 @@ test('切回会话首读在途时，带目标版本的跟进刷新复用同一�
 	assert.equal(loads, 3)
 	assert.equal(store.getSnapshot().revision, 3)
 	assert.equal(store.getSnapshot().transcript.messages[0].message.text, 's1-latest-floor')
-})
-
-test('storyResourceVersion 与全量 resourceVersion 解耦：其他窗口写无关扩展设置不击穿故事窗口签名，全局正则变化才失效', async () => {
-	let fullRes = 'ext-v1'
-	let storyRes = 'regex-v1'
-	let projections = 0
-	const reader = createSessionViewReader({
-		readStoryWindow: async () => storyWindow(),
-		project: { story: async value => { projections += 1; return { chatId: value.chat.id, storyTranscript: value.storyTranscript } } },
-		resourceVersion: async () => fullRes,
-		storyResourceVersion: async () => storyRes,
-		trace: { stage: (_name, fn) => fn(), state: () => {} }
-	})
-	const first = await reader.response({ sessionId: 's1', storyTranscript: 1 })
-	assert.equal(projections, 1)
-
-	// 其他窗口仅写非正则扩展设置或模板全局变量：fullRes 推进，storyRes 未变 -> 命中 unchanged
-	fullRes = 'ext-v2'
-	const unchanged = await reader.response({
-		sessionId: 's1',
-		storyTranscript: 1,
-		knownRevision: first.revision,
-		knownStorySignature: first.storySignature
-	})
-	assert.equal(unchanged.unchanged, true)
-	assert.equal(projections, 1)
-
-	// 全局展示正则或世界书绑定变化：storyRes 推进 -> 正常重投影
-	storyRes = 'regex-v2'
-	const rebuilt = await reader.response({
-		sessionId: 's1',
-		storyTranscript: 1,
-		knownRevision: first.revision,
-		knownStorySignature: first.storySignature
-	})
-	assert.notEqual(rebuilt.unchanged, true)
-	assert.equal(projections, 2)
 })

@@ -1,13 +1,13 @@
 import { createHash } from 'node:crypto'
 
-export const CHAT_IMPORT_MAX_BYTES = 8 * 1024 * 1024
-export const CHAT_IMPORT_MAX_MESSAGES = 2000
+export const CHAT_IMPORT_MAX_BYTES = 24 * 1024 * 1024
+export const CHAT_IMPORT_MAX_MESSAGES = 5000
 const object = value => value !== null && typeof value === 'object' && !Array.isArray(value)
 const copy = value => structuredClone(value)
 
 /** Parse untrusted ST exports as data; never retain unselected swipes or reasoning. */
 export function parseChatHistory(text) {
-  if (typeof text !== 'string' || Buffer.byteLength(text) > CHAT_IMPORT_MAX_BYTES) throw new Error('聊天文件最大支持 8 MB')
+  if (typeof text !== 'string' || Buffer.byteLength(text) > CHAT_IMPORT_MAX_BYTES) throw new Error('聊天文件最大支持 ' + CHAT_IMPORT_MAX_BYTES / 1024 ** 2 + ' MiB')
   if (text.startsWith('PK\u0003\u0004')) throw new Error('这是压缩包（.dshtransfer / .dshsave），请在侧栏「导出与导入 → 导入」或「导入存档 → DSH Tavern 存档」中导入')
   const lines = text.replace(/^\uFEFF/, '').split(/\r?\n/)
   const rows = []
@@ -45,7 +45,7 @@ export function parseChatHistory(text) {
       sourceLine: line, sourceSwipe: swipe,
       ...(previous === undefined ? {} : { variables: copy(previous) }),
       stateSourceLine: previousLine, stateInherited: !valid })
-    if (messages.length > CHAT_IMPORT_MAX_MESSAGES) fail('最多支持 2000 条消息')
+    if (messages.length > CHAT_IMPORT_MAX_MESSAGES) fail('最多支持 ' + CHAT_IMPORT_MAX_MESSAGES + ' 条消息')
   }
   if (!messages.length) throw new Error('文件中没有可导入的聊天消息')
   if (excluded) warnings.push(`已跳过 ${excluded} 条系统提示消息`)

@@ -1,5 +1,6 @@
 import {createHash} from 'node:crypto'
 import {Readable} from 'node:stream'
+import {stat} from 'node:fs/promises'
 import {openZip,zipPath} from '../../packages/dsh-asset-library/lib/zip.js'
 import {modVersionMatches} from './mod-system-semver.js'
 import {validateDistributionManifest} from './mod-system.js'
@@ -8,18 +9,21 @@ const sha=bytes=>createHash('sha256').update(bytes).digest('hex')
 const json=value=>Buffer.from(JSON.stringify(value,null,2)+'\n')
 export const modPackageIdentity=files=>sha(Buffer.from([...files].sort((a,b)=>a.path.localeCompare(b.path)).map(f=>f.path+'\0'+f.sha256+'\n').join('')))
 const packageHash=modPackageIdentity
-export const MOD_PACKAGE_LIMIT=64*1024**2
-const limit=MOD_PACKAGE_LIMIT
+export const MOD_PACKAGE_LIMIT=128*1024**2
+const PACKAGE_DESCRIPTION_LIMIT=8*1024**2
 export function validateModPackageIdentity(manifest,pkg) {
   try{validateDistributionManifest(manifest)}catch(error){error.details={id:manifest?.id,packageName:manifest?.packageName,...error.details};throw error}
   if(!modVersionMatches(MOD_HOST_API,manifest.hostApi))throw modError('MOD_HOST_API','This package requires a different host API',{id:manifest.id,required:manifest.hostApi,hostApi:MOD_HOST_API})
   if(pkg?.name!==manifest.packageName || pkg.version!==manifest.version || pkg.type!=='module' || pkg.exports?.['.']!=='./'+manifest.entry || pkg.scripts)throw modError('MOD_INVALID','package.json must match name/version, use type=module and exports[.]=./<entry>, and omit scripts',{id:manifest.id,packageName:manifest.packageName})
 }
 export async function inspectModPackage(file) {
-  const zip=await openZip(file),entries=new Map(zip.entries.map(e=>[e.path,e])),header=entries.get('dsh-mod-package.json')
-  if(!header || header.size>8*1024**2)throw modError('MOD_INVALID','Expected dsh-mod-package.json in a .dshmod ZIP')
+  const {size}=await stat(file)
+  if(!size || size>MOD_PACKAGE_LIMIT)throw modError('MOD_INVALID','模组文件必须是非空 ZIP，最大 '+MOD_PACKAGE_LIMIT/1024**2+' MiB')
+  const zip=await openZip(file,{entrySize:MOD_PACKAGE_LIMIT,totalSize:MOD_PACKAGE_LIMIT+PACKAGE_DESCRIPTION_LIMIT})
+  const entries=new Map(zip.entries.map(e=>[e.path,e])),header=entries.get('dsh-mod-package.json')
+  if(!header || header.size>PACKAGE_DESCRIPTION_LIMIT)throw modError('MOD_INVALID','Expected dsh-mod-package.json in a .dshmod ZIP')
   const descriptor=JSON.parse((await zip.read(header)).toString('utf8'));validateModSystem('package',descriptor)
-  if(descriptor.manifest!=='mod.json' || descriptor.files.reduce((n,f)=>n+f.size,0)>limit)throw modError('MOD_INVALID','Unsupported manifest path or package exceeds 64 MiB')
+  if(descriptor.manifest!=='mod.json' || descriptor.files.reduce((n,f)=>n+f.size,0)>MOD_PACKAGE_LIMIT)throw modError('MOD_INVALID','Unsupported manifest path or package exceeds '+MOD_PACKAGE_LIMIT/1024**2+' MiB')
   const code=new Map(),expected=new Map(),folder='local',prefix='plugins/'+folder+'/'
   for(const row of descriptor.files) {
     zipPath(row.path);const entry=entries.get(row.path)

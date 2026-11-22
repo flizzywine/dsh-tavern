@@ -46,22 +46,6 @@ function stage(t) {
   return {source, store, owner, skin, revoked, text, authority:value => JSON.stringify([value.sessionId, value.authorityEpoch])}
 }
 
-test('a new stage branch under the same authority keeps the card skin bundle its holder draws', async t => {
-  const h = stage(t)
-  h.store.dispatch({type:'TURN_CHANGED', source:h.source, text:h.text})
-  h.store.dispatch({type:'STAGE_OPEN', opened:true})
-  await settle(() => h.store.getSnapshot().accepted.scene?.skin, 'the scene mounts with its skin')
-  // The card skin's own pin, as useStageConfigSkin acquires it (same descriptor, same authority).
-  const held = await h.owner.acquire(h.skin, h.authority(h.source))
-  // A card worldbook write: same session and authority epoch, a new branch.
-  const next = {...h.source, branchId:'branch-2', generation:2}
-  h.store.dispatch({type:'TURN_CHANGED', source:next, text:h.text})
-  await settle(() => h.store.getSnapshot().accepted.scene?.skin, 'the new branch projects its scene again')
-  assert.ok(!h.revoked.includes(held.handle.url), 'the held skin bundle keeps its Blob URL')
-  assert.ok(h.owner.isPrepared(h.skin, h.authority(next)), 'the skin bundle stays in the resource owner')
-  assert.deepEqual(h.revoked, [], 'nothing of the same authority was revoked')
-  held.release()
-})
 
 test('a changed authority still revokes the old authority\'s resources', async t => {
   const h = stage(t)

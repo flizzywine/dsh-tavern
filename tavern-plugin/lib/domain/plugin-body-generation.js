@@ -15,19 +15,19 @@ const error = (message, stage) => Object.assign(new Error(message), {
   code: 'TAVERN_PLUGIN_BODY_GENERATION_FAILED', ...(stage ? { stage, [routeMismatch]: stage === 'route' } : {}) })
 const digest = value => createHash('sha256').update(JSON.stringify(value)).digest('hex')
 
-export function configuredBodyGeneration(chat, settings) {
-  return { mode: chat?.storyGenerationMode ?? settings?.storyGenerationMode ?? 'host',
-    provider: chat?.storyGenerationProvider ?? settings?.storyGenerationProvider ?? '',
-    hostRegex: (chat?.storyPluginOutputRegex ?? settings?.storyPluginOutputRegex) === true }
+export function configuredBodyGeneration(settings) {
+  return { mode: settings?.storyGenerationMode ?? 'host',
+    provider: settings?.storyGenerationProvider ?? '',
+    hostRegex: settings?.storyPluginOutputRegex === true }
 }
 
 /** The selected route is frozen in the frame; changing global settings affects the next turn. */
-export function bodyGenerationRoute(chat, settings, turn) {
+export function bodyGenerationRoute(chat, settings, turn, control) {
   if (!chat || !['story', 'script'].includes(chat.mode || 'story')) return { mode: 'host', provider: '' }
   const frames = Object.values(chat?.foregroundFrames || {})
   const frame = turn ? frames.findLast(item => Number(item.turn) === Number(turn)) : frames.findLast(item =>
     chat?.timeline?.operations?.[item.operationId]?.status === 'running')
-  return frame?.source?.bodyGeneration || configuredBodyGeneration(chat, settings)
+  return frame?.source?.bodyGeneration || { ...configuredBodyGeneration(settings), ...control }
 }
 
 export function createPluginBodyGeneration({ chatForSession, routeChatForSession = chatForSession, readRevision, updateChat, settings, providers,
@@ -36,7 +36,7 @@ export function createPluginBodyGeneration({ chatForSession, routeChatForSession
   async function route(sessionId, turn) {
     const chat = await routeChatForSession(sessionId)
     const control = chat && ['story', 'script'].includes(chat.mode || 'story') ? await providers.controlRoute?.(sessionId) : null
-    return bodyGenerationRoute(control ? { ...chat, storyGenerationMode: control.mode, storyGenerationProvider: control.provider } : chat, await settings(), turn)
+    return bodyGenerationRoute(chat, await settings(), turn, control)
   }
   async function materialsFor(chat, turn) {
     const frame = findBodyRegenerationFrame(chat, turn)
@@ -190,7 +190,7 @@ export function createPluginBodyGeneration({ chatForSession, routeChatForSession
       }
     },
     async regenerate(gameId, guidance = '') {
-      const configured = configuredBodyGeneration(await routeChatForSession(gameId), await settings())
+      const configured = configuredBodyGeneration(await settings())
       const selected = { ...configured, ...await providers.controlRoute?.(gameId) }
       if (!selected.mode?.startsWith('plugin-')) return null
       // A tail player row has no assistant body of its own to replace: the native

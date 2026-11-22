@@ -1,5 +1,5 @@
 diff --git a/lib/client-registry.js b/lib/client-registry.js
-index f38251fe3fb92e5609901c6e3fdb82c9f1f490dd..73faaf32aa5d057af8471451868c76b48c138467 100644
+index f38251fe3fb92e5609901c6e3fdb82c9f1f490dd..abb7b06239ca32c7dbc7e9b7a1a1ff2d37133408 100755
 --- a/lib/client-registry.js
 +++ b/lib/client-registry.js
 @@ -29879,8 +29879,9 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
@@ -13,8 +13,26 @@ index f38251fe3fb92e5609901c6e3fdb82c9f1f490dd..73faaf32aa5d057af8471451868c76b4
  			const path = record?.tab.path ?? paramsOf?.(info)?.path;
  			const glyph = (path !== void 0 && descriptorId === EDITOR_KIND$1 ? service.fileIcon(path, CHIP_ICON_SIZE) : void 0) ?? (typeof descriptor?.icon === "function" ? descriptor.icon(CHIP_ICON_SIZE) : descriptor?.icon);
  			const unread = (0, react.useSyncExternalStore)((listener) => service.subscribeState(listener), () => isUnread(service.getSnapshot().state, record?.tab.type ?? descriptorId));
+@@ -30176,7 +30177,7 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
+ 					const disposeType = tabs.register({
+ 						id,
+ 						kind: descriptor.id,
+-						keepMounted: true,
++						keepMounted: descriptor.keepMounted !== false,
+ 						...isEditor ? {
+ 							patterns: ["dsh-resource://file/**"],
+ 							canOpen: (address) => {
+@@ -30221,7 +30222,7 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
+ 					const disposeType = tabs.register({
+ 						id,
+ 						kind: FILES_KIND,
+-						keepMounted: true,
++						keepMounted: false,
+ 						priority: "extension",
+ 						title: () => t("files"),
+ 						guide: [{
 diff --git a/lib/client.js b/lib/client.js
-index 00ee3b118e13dcdb66374638960812850931c6ca..93468a2eccd2ada54c623af7dc197a04e027c97c 100644
+index 00ee3b118e13dcdb66374638960812850931c6ca..963b5c3dc774dc3c6e2baf05802aa48a3df15bbd 100755
 --- a/lib/client.js
 +++ b/lib/client.js
 @@ -29879,8 +29879,9 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
@@ -28,8 +46,26 @@ index 00ee3b118e13dcdb66374638960812850931c6ca..93468a2eccd2ada54c623af7dc197a04
  			const path = record?.tab.path ?? paramsOf?.(info)?.path;
  			const glyph = (path !== void 0 && descriptorId === EDITOR_KIND$1 ? service.fileIcon(path, CHIP_ICON_SIZE) : void 0) ?? (typeof descriptor?.icon === "function" ? descriptor.icon(CHIP_ICON_SIZE) : descriptor?.icon);
  			const unread = (0, react.useSyncExternalStore)((listener) => service.subscribeState(listener), () => isUnread(service.getSnapshot().state, record?.tab.type ?? descriptorId));
+@@ -30176,7 +30177,7 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
+ 					const disposeType = tabs.register({
+ 						id,
+ 						kind: descriptor.id,
+-						keepMounted: true,
++						keepMounted: descriptor.keepMounted !== false,
+ 						...isEditor ? {
+ 							patterns: ["dsh-resource://file/**"],
+ 							canOpen: (address) => {
+@@ -30221,7 +30222,7 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
+ 					const disposeType = tabs.register({
+ 						id,
+ 						kind: FILES_KIND,
+-						keepMounted: true,
++						keepMounted: false,
+ 						priority: "extension",
+ 						title: () => t("files"),
+ 						guide: [{
 diff --git a/lib/index.js b/lib/index.js
-index a87bddbdde55c23260324611e99d855f161e3491..82d5b1cd2dea6a4fbb64a353d2e3c6981c38f91c 100644
+index a87bddbdde55c23260324611e99d855f161e3491..82d5b1cd2dea6a4fbb64a353d2e3c6981c38f91c 100755
 --- a/lib/index.js
 +++ b/lib/index.js
 @@ -5921,10 +5921,14 @@ function inheritedPendingIds(events, inheritedEventCount) {
@@ -50,3 +86,16 @@ index a87bddbdde55c23260324611e99d855f161e3491..82d5b1cd2dea6a4fbb64a353d2e3c698
  	for (let index = events.length - 1; index >= 0; index--) if (events[index]?.type === "session/end-seed") return events.slice(index + 1);
  	return [...events];
  }
+diff --git a/lib/types/client/service.d.ts b/lib/types/client/service.d.ts
+index b50e98ab37c28db9cdde47d70573462a0311f3e2..5cc35a815367021a1763454c8f3f7f51ac773dea 100755
+--- a/lib/types/client/service.d.ts
++++ b/lib/types/client/service.d.ts
+@@ -191,6 +191,8 @@ export interface TabDescriptor {
+      * are given. Builtins: explorer/git/subagent use `single: true`.
+      */
+     single?: boolean;
++    /** Whether DSH's native right Sidebar keeps this tab's body mounted across tab and session switches (defaults to true). */
++    keepMounted?: boolean;
+     /**
+      * If provided, opening a tab whose `dedupeKey(tab)` matches an existing
+      * tab's key focuses the existing one instead of creating a new one.

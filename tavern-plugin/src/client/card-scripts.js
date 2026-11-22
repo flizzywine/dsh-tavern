@@ -1,8 +1,54 @@
-// a sidebar tab listing the current game's card helper
-// scripts (Tavern Helper), with a per-card switch to keep one from running during play — e.g. a card's
-// own BGM player when the stage music is in use. The card itself is never edited; upstream's card
-// detail page shows the scripts read-only. Host: lib/card-scripts.js (getCardScripts,
-// setCardScriptMuted); a change reaches the game on the next session view refresh.
+// The current game’s helper scripts, with read-only source and machine-local runtime switches.
+
+// Shared read-only viewer for the card workspace and the current game's script snapshot.
+function TavernScriptCode({ label, content, collapsible }) {
+    const h = React.createElement;
+    const text = String(content || "（空）");
+    const lineCount = text.split(/\r\n|\r|\n/).length;
+    function render() {
+        return h("div", { className: "dsh-tavern-script-code-scroll", tabIndex: 0, role: "region", "aria-label": label },
+            h("div", { className: "dsh-tavern-script-code-lines", "aria-hidden": true }, Array.from({ length: lineCount }, (_, index) => index + 1).join("\n")),
+            h("pre", null, h("code", null, text)));
+    }
+    if (!collapsible) return h("div", { className: "dsh-tavern-script-code" }, render());
+    return h(TavernLazyDetails, { className: "dsh-tavern-script-code", render,
+        summary: h("summary", null, label, h("span", { className: "dsh-tavern-script-code-count" }, lineCount + " 行 · 只读")) });
+}
+
+function CardScriptSource({ sessionId, script }) {
+    const h = React.createElement;
+    const [result, setResult] = React.useState(null);
+    const [retry, setRetry] = React.useState(0);
+    React.useEffect(() => {
+        const controller = new AbortController();
+        rpc("getCardScriptSource", { ref: script.ref, id: script.id }, sessionId, { signal: controller.signal }).then(
+            data => { if (!controller.signal.aborted) setResult(data); },
+            error => { if (!controller.signal.aborted) setResult({ error: String(error?.message || error) }); });
+        return () => controller.abort();
+    }, [sessionId, script.ref, script.id, retry]);
+    if (!result) return h("p", { role: "status", className: "fork-bubble-hint" }, "正在读取代码…");
+    if (result.error) return h("div", { className: "fork-scripts-source-error" },
+        h("p", { role: "alert", className: "fork-bubble-note is-error" }, result.error),
+        h("button", { type: "button", className: "dsh-tavern-btn", onClick: () => { setResult(null); setRetry(value => value + 1); } }, "重试"));
+    return h(TavernScriptCode, { label: (script.name || "未命名脚本") + " 代码", content: result.content });
+}
+
+function CardScriptRow({ sessionId, script, busy, onToggle }) {
+    const h = React.createElement;
+    const [expanded, setExpanded] = React.useState(false);
+    const running = script.enabled && !script.muted;
+    const name = script.name || "未命名脚本";
+    return h("li", { className: "fork-scripts-row" + (running ? "" : " is-off") },
+        h("span", { className: "fork-scripts-icon", "aria-hidden": true }, h(Icon, { name: script.audio ? (running ? "speaker" : "speaker-off") : "card", size: 15 })),
+        h("span", { className: "fork-scripts-name" },
+            h("button", { type: "button", className: "fork-scripts-open", title: expanded ? "收起代码" : "查看代码",
+                "aria-expanded": expanded, "aria-label": name + (expanded ? " · 收起代码" : " · 查看代码"), onClick: () => setExpanded(value => !value) },
+                h("b", null, name), h(Icon, { name: "chevron", size: 14 })),
+            h("small", null, !script.enabled ? "卡片里已关闭" : script.muted ? "本机已停用" : script.audio ? "运行中 · 会播放声音" : "运行中")),
+        h(Switch, { title: !script.enabled ? "卡片里已关闭" : running ? "停用这个脚本" : "恢复运行", label: (script.name || "脚本") + " 运行",
+            checked: running, disabled: !script.enabled || busy, onChange: onToggle }),
+        expanded ? h("div", { className: "fork-scripts-source" }, h(CardScriptSource, { sessionId, script })) : null);
+}
 
 function CardScriptsTab(props) {
     const h = React.createElement;
@@ -22,9 +68,9 @@ function CardScriptsTab(props) {
         setState(value => ({ ...value, busy: script.id, error: "" }));
         try {
             const next = await rpc("setCardScriptMuted", { id: script.id, muted: !script.muted }, sessionId);
-            setState({ sessionId, data: next, error: "", busy: "" });
+            setState(value => value.sessionId === sessionId ? { sessionId, data: next, error: "", busy: "" } : value);
             if (typeof liveTavernView !== "undefined" && liveTavernView.invalidate) liveTavernView.invalidate(sessionId);
-        } catch (error) { setState(value => ({ ...value, busy: "", error: String(error && error.message || error) })); }
+        } catch (error) { setState(value => value.sessionId === sessionId ? { ...value, busy: "", error: String(error && error.message || error) } : value); }
     }
     const scripts = data ? data.scripts || [] : [];
     return h("div", { className: "fork-scripts-tab" },
@@ -36,14 +82,7 @@ function CardScriptsTab(props) {
         state.error ? h("p", { className: "fork-bubble-note is-error", role: "alert" }, state.error) : null,
         !data && !state.error ? h("p", { className: "fork-bubble-hint" }, "正在读取…") : null,
         data && !scripts.length ? h("p", { className: "fork-bubble-hint" }, "这张卡没有脚本。") : null,
-        scripts.length ? h("ul", { className: "fork-scripts-list" }, scripts.map(function (script) {
-            const running = script.enabled && !script.muted;
-            return h("li", { key: script.id, className: "fork-scripts-row" + (running ? "" : " is-off") },
-                h("span", { className: "fork-scripts-icon", "aria-hidden": true }, h(Icon, { name: script.audio ? (running ? "speaker" : "speaker-off") : "card", size: 15 })),
-                h("span", { className: "fork-scripts-name" }, h("b", null, script.name || "未命名脚本"),
-                    h("small", null, !script.enabled ? "卡片里已关闭" : script.muted ? "本机已停用" : script.audio ? "运行中 · 会播放声音" : "运行中")),
-                // the one switch (inline-field.js Switch).
-                h(Switch, { title: !script.enabled ? "卡片里已关闭" : running ? "停用这个脚本" : "恢复运行", label: (script.name || "脚本") + " 运行",
-                    checked: running, disabled: !script.enabled || state.busy === script.id, onChange: () => toggle(script) }));
-        })) : null);
+        scripts.length ? h("ul", { className: "fork-scripts-list" }, scripts.map(script =>
+            h(CardScriptRow, { key: JSON.stringify([sessionId, data.cardId, script.ref]), sessionId, script,
+                busy: state.busy === script.id, onToggle: () => toggle(script) }))) : null);
 }

@@ -1,10 +1,13 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { mkdtemp, rm } from 'node:fs/promises'
+import { Readable } from 'node:stream'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { buildGameSave } from '../tavern-plugin/lib/domain/game-save.js'
 import { createGameSaveImporter } from '../tavern-plugin/lib/domain/game-save-import.js'
+import { createConversationHandlers } from '../tavern-plugin/lib/rpc/conversations.js'
+import { createUploads } from '../tavern-plugin/lib/domain/uploads.js'
 
 function archive(world = null) {
   const state = { id: 'old-chat', sessionId: 'old-session', mode: 'story', cardPath: 'cards/a.json',
@@ -32,8 +35,17 @@ async function harness(t, fail = '', options = {}) {
       flush: () => op('flush'), attach: () => op('attach'), detach: () => op('detach'), remove: () => op('remove-session') },
     ...options
   })
-  return { run, calls, states, metadata, hold(promise) { release = promise } }
+  return { dataRoot, run, calls, states, metadata, hold(promise) { release = promise } }
 }
+
+test('import RPC reads a raw uploaded save and releases the upload', async t => {
+  const h = await harness(t)
+  const uploads = createUploads({ root: h.dataRoot })
+  const { id } = await uploads.receive(Readable.from([Buffer.from(archive().fileB64, 'base64')]))
+  const handlers = createConversationHandlers({ importGameSave: h.run, uploads })
+  assert.equal((await handlers.importGameSave({ uploadId: id })).sessionId, 'new-session')
+  await assert.rejects(uploads.take(id), { code: 'TAVERN_NOT_FOUND' })
+})
 
 for (const failure of ['create', 'flush', 'plugins', 'publish']) test('import compensates after ' + failure + ' failure and releases admission', async t => {
   const h = await harness(t, failure)

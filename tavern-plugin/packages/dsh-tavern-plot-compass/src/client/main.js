@@ -50,7 +50,9 @@ function apply(ctx) {
     pcRegisterSafely(ctx, 'plot-compass: status section', () => ui.registerStatusSection({
       id: 'plot-compass-status',
       title: '剧情罗盘',
-      render: ({ gameId } = {}) => h(PlotCompassStatusSection, { ui, gameId })
+      render: function RenderPlotCompassStatus({ gameId }) {
+        return PlotCompassStatusSection({ ui, gameId })
+      }
     }))
   }
 }
@@ -66,10 +68,12 @@ exports.__test = {
   PC_PLUGIN_ID,
   PC_PRESET_ARCHETYPES,
   PC_HORIZON_META,
+  PC_GOAL_HORIZON_OPTIONS,
   PC_PACE_OPTIONS,
   PC_MODEL_OPTIONS,
   PC_AUTO_UPDATE_PRESETS,
   pcEmptyCompass,
+  pcActiveGoal,
   pcMidPhaseLabel,
   pcActiveCompassSummary
 }

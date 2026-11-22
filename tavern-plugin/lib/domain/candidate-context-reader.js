@@ -5,7 +5,7 @@ import { projectAgentMessageText } from './runtime-content-projection.js'
 // Candidate preparation does not need card scripts, images, old message bodies
 // or checkpoint snapshots. Keep this projection separate from writable Chat.
 export const candidateContextFields = Object.freeze([...taskStateFields,
-  'macroState','guides','posture','backgroundTasks','backgroundModelSelection','backgroundModelRevision',
+  'macroState','guides','posture','backgroundTasks','candidateTabs','backgroundModelSelection','backgroundModelRevision',
   'webSearchEnabled','scriptState','settleStatus','settleError','cardContextRevision',
   'variables','promptTemplateInput','promptTemplateInitialVariables','worldBookRandomState','openingWorldbookSnapshot',
   ...['name','description','personality','scenario','mes_example','system_prompt','post_history_instructions']

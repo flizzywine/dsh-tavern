@@ -110,7 +110,8 @@ export function createChatHistoryImportService({ initialization, cards, worldBoo
             if (projected.randomState) chat.worldBookRandomState = projected.randomState
             if (projected.virtualState) chat.worldBookVirtualState = projected.virtualState
             const plan = await planner.plan({ purpose: 'body', card, chat: projected.macroState ? { ...chat, macroState: projected.macroState } : chat,
-              userText, sessionId: input.sessionId, nativeTurn: turn, scriptReference: null, worldBookContext: projected.context })
+              userText, sessionId: input.sessionId, nativeTurn: turn, scriptReference: null,
+              worldBookContext: projected.context, worldBookTitleHints: projected.titleHints })
             return { ...plan, ...(projected.virtualState ? { virtualWorldbook: { scope: projected.virtualState.scope,
               entries: Object.fromEntries((projected.changedVirtualRefs || []).map(ref => [ref, projected.virtualState.entries[ref]?.renderHash])) } } : {}) }
           }

@@ -98,7 +98,7 @@ test('侧栏历史只挂第一屏的行，滚到底部再按屏追加', async t 
   assert.ok(grown > first.rows, '滚到底部后按屏追加：' + first.rows + ' -> ' + grown)
   assert.ok(grown < SESSIONS, '追加是一屏一屏来的，不会一次把整张表都挂上：' + grown)
 
-  // 后续追加不改变已挂行：第一行仍然是同一条对话。
-  assert.equal(await page.locator('.dsh-tavern-side-row').first().innerText().then(text => text.includes('工作台对话')), true)
+  // 后续追加不改变已挂行：第一行仍然是同一条对话（已滚出视口的行受 content-visibility:auto 影响，innerText 为空）。
+  assert.equal(await page.locator('.dsh-tavern-side-row').first().textContent().then(text => text.includes('工作台对话')), true)
   if (errors.length) throw Error(errors.join('\n'))
 })

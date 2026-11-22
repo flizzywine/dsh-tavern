@@ -15,6 +15,19 @@ const send = message => { if (process.connected) process.send(message) }
 const log = (level, ...args) => send({ type: 'log', level, message: args.map(item => item && typeof item === 'object' && 'message' in item ? String(item.stack || item.message) : typeof item === 'string' ? item : safeJson(item)).join(' ').slice(0, 4000) })
 function safeJson(value) { try { return JSON.stringify(value) } catch { return String(value) } }
 
+const promiseWindows = new WeakMap()
+process.on('unhandledRejection', (reason, promise) => {
+  let prototype = Object.getPrototypeOf(promise)
+  let window
+  while (prototype && !(window = promiseWindows.get(prototype))) prototype = Object.getPrototypeOf(prototype)
+  if (!window) throw reason
+  if (!window.document) return
+  // In a browser this reaches the card's diagnostic listener without killing its frame.
+  const event = new window.Event('unhandledrejection', { cancelable: true })
+  Object.defineProperties(event, { promise: { value: promise }, reason: { value: reason } })
+  window.dispatchEvent(event)
+})
+
 // ---- HTTP bridge -----------------------------------------------------------
 let fetchSequence = 0
 const fetches = new Map()
@@ -44,7 +57,8 @@ function bridgeFetch(Response) {
       fetches.set(id, { resolve, reject })
       send({ type: 'fetch', id, path: url.pathname + url.search, method: String(init.method || 'GET').toUpperCase(), headers: init.headers || {}, body })
     })
-    return new Response(Buffer.from(result.body, 'base64'), { status: result.status, headers: result.headers })
+    const bodyBytes = result.body ? Buffer.from(result.body, 'base64') : null
+    return new Response(bodyBytes, { status: result.status, headers: result.headers })
   }
 }
 
@@ -127,16 +141,27 @@ function createHeadlessFrame(hostWindow, virtualConsole) {
   })
   for (const key of ['sandbox', 'referrerPolicy', 'title']) element[key] = ''
   async function boot(html) {
-    child = new JSDOM(html, { url: ORIGIN + '/', runScripts: 'outside-only', pretendToBeVisual: true, virtualConsole })
-    const w = child.window
+    const frame = new JSDOM(html, { url: ORIGIN + '/', runScripts: 'outside-only', pretendToBeVisual: true, virtualConsole })
+    child = frame
+    const w = frame.window
+    // jsdom finishes loading before our manual scripts have installed their listeners.
+    const nativeLoad = new Promise(resolve => {
+      w.addEventListener('load', event => {
+        event.stopImmediatePropagation()
+        resolve()
+      }, { capture: true, once: true })
+    })
     installWindowBasics(w)
     Object.defineProperty(w, 'parent', { value: proxyParent, configurable: true })
     try { Object.defineProperty(w, 'top', { value: proxyParent, configurable: true }) } catch {}
+    Object.defineProperty(w, 'frameElement', { get: () => element.sandbox ? null : element, configurable: true })
     w.postMessage = function (data) {
       const copy = structuredClone(data)
       setTimeout(() => w.dispatchEvent(messageEvent(w, copy, proxyParent)), 0)
     }
-    await runDocumentScripts(w, child.getInternalVMContext())
+    await Promise.all([nativeLoad, runDocumentScripts(w, frame.getInternalVMContext())])
+    if (child !== frame) return
+    w.dispatchEvent(new w.Event('load'))
     element.dispatchEvent(new hostWindow.Event('load'))
   }
   element.remove = function () { if (child) child.window.close(); child = null; hostWindow.Element.prototype.remove.call(element) }
@@ -179,6 +204,7 @@ async function runDocumentScripts(w, context) {
 }
 
 function installWindowBasics(w) {
+  promiseWindows.set(w.Promise.prototype, w)
   const bridged = bridgeFetch(Response)
   // Object URLs: the helper loader hands large sources to modules as blobs.
   const blobs = new Map()
@@ -260,9 +286,17 @@ async function start(sessionId) {
   }
   const transition = { getSnapshot: () => null, subscribe: () => () => {} }
   async function readView(id, request) {
-    const response = await w.fetch('/api/dsh-tavern/getSession', { method: 'POST', body: JSON.stringify({ sessionId: id, openingWindow: 1 }), signal: request?.signal })
-    const result = await response.json()
-    if (!result.ok) throw new Error(result.error || '读取会话失败')
+    const load = async args => {
+      const response = await w.fetch('/api/dsh-tavern/getSession', { method: 'POST', body: JSON.stringify({ sessionId: id, ...args }), signal: request?.signal })
+      if (!response.ok) throw new Error('读取会话失败（HTTP ' + response.status + '）')
+      const result = await response.json()
+      if (!result.ok) throw new Error(result.error || '读取会话失败')
+      return result
+    }
+    const result = await load({ openingWindow: 1, viewSync: 1 })
+    const view = result.view
+    if (view && !view.historyWindow?.onDemand && !view.tavernHelper?.historyAccess
+      && (view.historyWindow || view.tavernHelper?.messagesPending)) return load({ fullView: true })
     return result.view && result.view.historyWindow ? { ...result, view: exports.expandTavernOpeningWindow(result.view) } : result
   }
   const liveView = exports.createLiveTavernViewModule({ deduplicateViews: true, loadTimeoutMs: 30000, cacheRetentionMs: 600000, timeoutRetryDelayMs: 5000, load: readView, shouldPoll: () => false, pollWhileBusy: false })

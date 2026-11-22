@@ -14,6 +14,8 @@ const React={...react,createElement(type,props,...children){
 },deps);}};
 function useStageReading(){return React.useSyncExternalStore(stageReading.subscribe,stageReading.get);}
 function useStageQuality(){return React.useSyncExternalStore(stageQuality.subscribe,stageQuality.get);}
+function useStageQualitySetting(){return React.useSyncExternalStore(stageQuality.subscribe,stageQuality.setting);}
+const GAL_QUALITY_NAMES = { high: "高", medium: "中", saver: "省电" };
 function check(){if(disposed)throw Object.assign(new Error('舞台已停用'),{code:'STAGE_DISABLED'});}
 const galConfigSaves = new Map();
 function galConfigSaveSkin(sessionId, choice) {
@@ -157,7 +159,7 @@ function GalConfigSkinSelect(props) {
 // player's choice over the skin's hud.reveal, ↺ back to the skin's); 效果 - quality, frame cap, motion, flashes.
 function GalConfigScreenTab(props) {
     const h = React.createElement;
-    const quality = useStageQuality();
+    const quality = useStageQuality(), qualitySetting = useStageQualitySetting();
     const reading = useStageReading();
     const stage = props.data && props.data.config && props.data.config.stage || {};
     const choices = stage.skinChoices || STAGE_THEMES.map(([value, label]) => ({ value, label }));
@@ -192,10 +194,11 @@ function GalConfigScreenTab(props) {
             galConfigRow("顶栏按钮", hudRow, h(React.Fragment, null, h("span", null, "背景、BGM、声音、手机、电影模式这一排按钮。"),
                 h("span", null, "自动隐藏：鼠标移到画面上方、打开菜单或用 Tab 时出现，地点或曲子变化时标签也会出现几秒。默认跟随皮肤。")))),
         galConfigGroup("效果", null,
-            galConfigRow("特效质量", galConfigSegmented({ label: "特效质量", value: quality, options: [["high", "高"], ["low", "低"]], onChange: value => stageQuality.set(value) }),
-                "低：分辨率和帧率降低，粒子减少，去掉颗粒、泛光、景深等重滤镜，更省电。"),
-            galConfigRow("帧率上限", galConfigSegmented({ label: "帧率上限", value: String(galFrameRate("high", true, Infinity, reading.frameCap, galDeviceHandheld())), options: [["30", "30"], ["60", "60"], ["120", "120"], ["0", "跟随屏幕"]], onChange: value => stageReading.set({ frameCap: Number(value) }) }),
-                "上限越高越流畅，但会增加 GPU 负载和耗电。跟随屏幕不额外限帧；静止场景自动降至 30 帧。低特效质量仍限制为 30 帧。"),
+            galConfigRow("画质", galConfigSegmented({ label: "画质", value: qualitySetting, options: [["auto", "自动"], ["high", "高"], ["medium", "中"], ["saver", "省电"]], onChange: value => stageQuality.set(value) }),
+                h(React.Fragment, null, h("span", null, "自动：电脑用「高」，手机和平板用「中」，电量低或性能弱时用「省电」。这台设备现在是「" + GAL_QUALITY_NAMES[quality] + "」。"),
+                    h("span", null, "中：人物和背景的分辨率降低，逐字出现的文字不再淡入，画面静止时每秒 15 帧。省电：分辨率再降，去掉颗粒、泛光、景深等重滤镜，粒子减少，静止时每秒 10 帧。只记在这台设备上。"))),
+            galConfigRow("帧率上限", galConfigSegmented({ label: "帧率上限", value: String(galFrameRate(quality, true, Infinity, reading.frameCap, galDeviceHandheld())), options: [["30", "30"], ["60", "60"], ["120", "120"], ["0", "跟随屏幕"]], onChange: value => stageReading.set({ frameCap: Number(value) }) }),
+                "上限越高越流畅，但会增加 GPU 负载和耗电。跟随屏幕不额外限帧；静止场景自动降帧。画质为「省电」时仍限制为 30 帧。"),
             galConfigRow("减少动态", h(GalConfigSwitch, { label: "减少动态", checked: reading.reducedMotion === true, onChange: on => stageReading.set({ reducedMotion: on }) }), "演出装饰保持静态并关闭震动；系统的减少动态设置同样生效。"),
             galConfigRow("光敏保护", h(GalConfigSwitch, { label: "光敏保护", checked: reading.photosensitive === true, onChange: on => stageReading.set({ photosensitive: on }) }), "默认开启：闪光保留颜色但减弱强度，红闪改为暗红。整个舞台每秒最多三次闪光。")));
 }

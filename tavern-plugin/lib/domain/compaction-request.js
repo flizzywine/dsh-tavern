@@ -1,21 +1,17 @@
 import { boundedCompaction } from './bounded-compaction.js'
 import { markRequestHandled, requestHandledBy } from './request-lineage.js'
-import { isPluginSource, sourceProducerName } from './message-source.js'
 import { withoutReplayReasoning } from './prefix-bound-reasoning.js'
+import { hasProviderContent } from './provider-message-content.js'
 
-// Internal metadata-only events are persisted on the Session surface but are
-// not user utterances. Native compaction replays that surface independently of
-// the normal request projection, so omit them at this request boundary too.
+// Native compaction replays the Session surface independently of the normal
+// request projection. Filter metadata-only events in the request copy too.
 export function projectCompactionRequest(request) {
   if (request?.purpose !== 'compaction' || !Array.isArray(request.messages)) return request
   const messages = request.messages.flatMap(message => {
-    if (message?.role === 'user' && Array.isArray(message.content) && message.content.length === 0 &&
-      isPluginSource(message.source) &&
-      ['dsh-tavern', 'dsh-tavern-failed-turn-cleanup'].includes(sourceProducerName(message.source))) return []
     // Summary projection changes the signed prefix, and the summary reads story, not
     // reasoning: every message drops it, only in this copy.
     const kept = withoutReplayReasoning(message)
-    return kept ? [kept] : []
+    return kept && hasProviderContent(kept) ? [kept] : []
   })
   return messages.length === request.messages.length && messages.every((message, index) => message === request.messages[index])
     ? request : { ...request, messages }

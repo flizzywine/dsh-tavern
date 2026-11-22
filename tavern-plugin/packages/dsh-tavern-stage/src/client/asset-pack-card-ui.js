@@ -553,7 +553,9 @@ function StagePointedChoice({ctx,row,onChanged}) {
     preview.dialog);
 }
 function StageVoicePage({ctx,onBack}) {
-  const root=React.useRef(null),pointed=useStagePointed(ctx);
+  const root=React.useRef(null),pointed=useStagePointed(ctx),[library,setLibrary]=React.useState(false);
+  const targets=(pointed.rows||[]).filter(row=>row.figure?.voice?.voice).map(row=>({packId:row.ref.packId,figureId:row.ref.figureId,voiceId:row.figure.voice.voice}));
+  const openSettings=ctx.nav?.openTab?(provider,options)=>openVoiceSettings(ctx.nav,provider,options):null;
   React.useEffect(()=>{root.current?.querySelector('button')?.focus();},[]);
   const narrator=narratorLayers(ctx.ext,ctx.writer.reading),bubble=ctx.active.dialogue;
   const narratorTag=h(StageSwitchTag,{name:'旁白配音',global:narrator.global.enabled===true,card:narratorCardSwitch(narrator.card),disabled:!bubble,
@@ -562,12 +564,14 @@ function StageVoicePage({ctx,onBack}) {
     h(SubpageHead,{parent:'舞台设置',title:'配音',help:h(Help,{text:VOICE_HELP.page,label:'配音 说明'}),onBack}),
     h(StageVoiceProblems,{ctx}),
     // 通用声音 · 旁白声音 · 角色声音: three sections side by side, each row a figure and its voice.
-    h(StageSection,{title:'通用声音',foldKey:'voice/general',help:VOICE_HELP.general,action:stageVoiceBackendLink(ctx)},
+    h(StageSection,{title:'通用声音',foldKey:'voice/general',help:VOICE_HELP.general,action:h(React.Fragment,null,
+      h(Button,{className:'ap-link',onClick:()=>setLibrary(true)},'声音库 ›'),stageVoiceBackendLink(ctx))},
       h(StagePointedVoice,{ctx,row:pointed.rows?.[0],onChanged:pointed.reload})),
     // 旁白's four-state switch sits in its section head; its figure under it while it speaks.
     h(StageSection,{title:'旁白声音',foldKey:'voice/narrator',help:bubble?VOICE_HELP.narr:VOICE_HELP.needBubble,action:narratorTag},
       narrator.effective.enabled?h(StagePointedVoice,{ctx,row:pointed.rows?.[1],onChanged:pointed.reload}):null),
-    h(StageCastVoices,{ctx}));
+    h(StageCastVoices,{ctx}),
+    library&&h(VoiceAddDialog,{catalogue:true,binding:ctx.binding,targets,openSettings,onClose:()=>{setLibrary(false);pointed.reload();}}));
 }
 // 「语音后端 ›」 at the right of a section head (the TTS plugin's tab), like the 素材库 voice page's.
 const stageVoiceBackendLink=ctx=>ctx.nav?.openTab?h(Button,{className:'ap-link ap-voice-backend',onClick:()=>ctx.nav.openTab('dsh-tts:voice')},'语音后端 ›'):null;
@@ -665,14 +669,15 @@ function StageAutoCastPage({ctx,onBack}) {
     notes.map((text,index)=>h('p',{key:index,className:'ap-reading-note',role:'status'},h('span',null,text))));
 }
 // 可选声音: the voices the casting assistant may give a new figure. Preset 「默认」: every installed
-// voice with a 使用情景 or 「通用」 in its name (defaultCastVoices → voiceAutoCast, the one rule library-search.js also reads). A row: ▶ · name +
+// voice with a 使用情景 and every voice of the packs 通用声音 / 旁白 point at (defaultCastVoices → voiceAutoCast, the one rule
+// library-search.js also reads). A row: ▶ · name +
 // 语言 · its 使用情景 on a second line, edited in place (R23; one not written is a grey placeholder). The 使用情景 is the voice's
 // own `guidance` (≤ 60 字), saved in its pack.
-const AUTO_CAST_VOICES_HELP='素材助手给新人物配声音时，只从这里的声音里挑。「默认」自动包含写了使用情景的声音和名字带「通用」的声音，不能逐个开关；想自己增减，先复制成新预设再改。';
+const AUTO_CAST_VOICES_HELP='素材助手给新人物配声音时，只从这里的声音里挑。「默认」自动包含写了使用情景的声音，以及通用声音、旁白声音所在素材包里的声音，不能逐个开关；想自己增减，先复制成新预设再改。';
 function AutoCastVoices({ctx}) {
   const {binding}=ctx,[error,setError]=React.useState('');
   const list=useVoiceLoad(()=>binding.service.listVoiceCatalogue(),[binding],{keep:true}),preview=useVoicePreview(binding,null);
-  const rows=list.value?defaultCastVoices(list.value):null;
+  const systemPacks=useSystemVoicePacks(binding),rows=list.value?defaultCastVoices(list.value,systemPacks):null;
   // Two voices of one name (each pack may have its own 「通用男性声音」) are told apart by their pack.
   const shared=new Set((rows||[]).map(v=>v.name).filter((name,i,all)=>all.indexOf(name)!==i));
   const save=async(v,text)=>{
@@ -697,7 +702,7 @@ function AutoCastVoices({ctx}) {
     error&&h('p',{className:'ap-alert',role:'alert'},error),
     list.error&&!list.value?h(VoiceLoadError,{error:voiceErrorText(list.error),retry:list.reload}):
     rows===null?h(VoiceLoading,{count:3}):rows.length?h('ul',{className:'ap-vx-rows','aria-label':'可选声音'},rows.map(row)):
-      h(EmptyState,{compact:true,text:'还没有可选声音：给声音写上使用情景，或在名字里带「通用」'}),
+      h(EmptyState,{compact:true,text:'还没有可选声音：给声音写上使用情景'}),
     preview.dialog);
 }
 // the quiet 「›」 on a 基础设置 row — the 素材库 at that kind's tab (nav.openLibrary, the same
@@ -775,22 +780,13 @@ function StagePackSection({ctx,ready,state}) {
 // card-files.js exportCardFile): the card's bound packs are listed with sizes and the checked total; the card's own packs
 // (they hold its figures or carry its name) start checked, shared ones such as 通用背景 stay home unless checked, and an
 // unchecked pack also leaves the exported card's bindings (packIds). Figures of the checked packs can be left out (e.g. the one the player plays). The cover shows at the top.
-// Packing first (an indeterminate bar), then the download counts its bytes; closing
-// the sheet stops it. The file is saved through binding.download, like every other export.
+// 导出 first asks where to save (binding.pickSave, the native save-as dialog; none on phones), then packing (an indeterminate
+// bar: the route sends nothing until the archive is built) and the bytes as they stream to the file; closing the sheet stops it.
+// The file is saved through binding.download like every other export; the sheet then says where it went.
 const DSHCARD_FAILURE={404:'找不到这张人物卡。',409:'人物卡刚刚改过，请再导出一次。'};
 function dshCardExportUrl(path,excludeFigures,packIds) {
   return '/api/dsh-tavern/card-export?path='+encodeURIComponent(path)+(excludeFigures.length?'&excludeFigures='+encodeURIComponent(JSON.stringify(excludeFigures)):'')
     +'&packIds='+encodeURIComponent(JSON.stringify(packIds));
-}
-async function dshCardDownload({path,excludeFigures,packIds,signal,onProgress}) {
-  const response=await fetch(dshCardExportUrl(path,excludeFigures,packIds),{credentials:'same-origin',signal});
-  // a 400 says why in plain words (a bad pack or figure list); other statuses get their sentence.
-  if(!response.ok){const detail=await response.text();throw Object.assign(new Error(response.status===400&&detail||DSHCARD_FAILURE[response.status]||'没能导出，请重试。'),{status:response.status});}
-  const total=Number(response.headers.get('content-length'))||0,reader=response.body.getReader(),chunks=[];let loaded=0;
-  onProgress({loaded,total});
-  for(let part=await reader.read();!part.done;part=await reader.read()){chunks.push(part.value);loaded+=part.value.byteLength;onProgress({loaded,total});}
-  const named=/filename\*=UTF-8''([^;]+)/i.exec(response.headers.get('content-disposition')||'');
-  return {bytes:new Blob(chunks,{type:response.headers.get('content-type')||'application/zip'}),filename:named?decodeURIComponent(named[1]):'人物卡.dshcard'};
 }
 function DshCardExportSheet({binding,path,cardName,onClose}) {
   const state=useLoad(binding,async()=>{
@@ -813,14 +809,23 @@ function DshCardExportSheet({binding,path,cardName,onClose}) {
   const sizes=packs.map(stagePackBytes),total=sizes.reduce((sum,n,index)=>sum+(picked.has(packs[index].manifest.id)&&n||0),0);
   const toggle=(current,id)=>{const next=new Set(current);if(next.has(id))next.delete(id);else next.add(id);return next;};
   const flip=id=>setLeft(current=>toggle(current,id)),flipPack=id=>setChosen(toggle(picked,id));
+  // `saved`: where the file went ({names, picked}), shown in place of the progress until the sheet is closed.
+  const [saved,setSaved]=React.useState(null),picking=React.useRef(false);
   async function run(){
-    if(work||!value)return;
-    const controller=new AbortController();abort.current=controller;setProblem('');setWork({loaded:0,total:0});
+    if(work||picking.current||!value)return;
+    setProblem('');setSaved(null);
+    // the save-as dialog needs the click's activation, so it opens before anything is fetched; closing it is no error.
+    let target=null;picking.current=true;
+    try{target=binding.pickSave?await binding.pickSave({name:cardName||'人物卡',description:'DSH 人物卡',extension:'.dshcard'}):null;}
+    catch(error){if(error?.name!=='AbortError'&&mounted.current)setProblem('没能打开保存位置，请重试。');return;}
+    finally{picking.current=false;}
+    if(!mounted.current)return;
+    const controller=new AbortController();abort.current=controller;setWork({loaded:0,total:0});
     try{
-      const file=await dshCardDownload({path,excludeFigures:figures.filter(f=>left.has(f.id)).map(f=>f.id),packIds,signal:controller.signal,onProgress:next=>{if(mounted.current)setWork(next);}});
-      await binding.download(file);
-      if(mounted.current)onClose();
-    }catch(error){if(mounted.current&&!controller.signal.aborted)setProblem(error.status?error.message:'没能导出，请重试。');}
+      const url=dshCardExportUrl(path,figures.filter(f=>left.has(f.id)).map(f=>f.id),packIds);
+      const result=await binding.download({url,filename:'人物卡.dshcard'},{target,name:cardName,signal:controller.signal,onProgress:next=>{if(mounted.current)setWork(next);}});
+      if(mounted.current)setSaved(result);
+    }catch(error){if(mounted.current&&!controller.signal.aborted)setProblem(error.status===400&&error.message||DSHCARD_FAILURE[error.status]||'没能导出，请重试。');}
     finally{abort.current=null;if(mounted.current)setWork(null);}
   }
   const head=(title,meta,extra,help)=>h('header',{className:'ap-section-head'},h('h3',null,title,meta!==undefined&&h('span',{className:'ap-section-meta'},meta),help&&h(Help,{label:title+' 说明',text:help})),extra);
@@ -838,9 +843,10 @@ function DshCardExportSheet({binding,path,cardName,onClose}) {
     work&&h('div',{className:'ap-dshcard-progress'},
       h('div',{className:'ap-cat-progress','data-indeterminate':packing||undefined,role:'progressbar','aria-label':'导出进度','aria-valuemin':0,'aria-valuemax':100,'aria-valuenow':packing?undefined:Math.round(pct)},h('span',{style:packing?undefined:{width:pct+'%'}})),
       h('p',{className:'ap-cat-job-meta',role:'status'},packing?'正在打包…':stageBytesText(work.loaded)+' / '+stageBytesText(work.total))),
+    saved&&h('p',{className:'ap-notice ap-dshcard-saved',role:'status'},h('span',null,(saved.picked?'已导出到 ':'已开始下载 ')+saved.names.map(n=>'「'+n+'」').join(''))),
     problem&&h(CatBand,{role:'alert'},problem));
   return h(CatSheet,{title:'导出 DSH 人物卡',className:'ap-dshcard-sheet',onClose,initialFocus:'dialog',
-      foot:h(React.Fragment,null,h(Button,{onClick:onClose},'取消'),h(Button,{primary:true,disabled:!!work||!value,onClick:run},catBusyLabel(!!work,work?'正在导出…':'导出')))},
+      foot:saved?h(Button,{primary:true,onClick:onClose},'完成'):h(React.Fragment,null,h(Button,{onClick:onClose},'取消'),h(Button,{primary:true,disabled:!!work||!value,onClick:run},catBusyLabel(!!work,work?'正在导出…':'导出')))},
     h('div',{className:'ap-cat-hero'},h(CardCover,{name:cardName||'',path}),h('div',{className:'ap-cat-hero-text'},h('h3',{className:'ap-cat-hero-name'},cardName||'人物卡'),h(CatSub,null,'.dshcard 文件'))),
     body);
 }
@@ -1072,6 +1078,8 @@ function ReadingPresetsEditor({call}) {
     try{const summary=await call(method,args),value=await call('readingPreset',{id:summary.active});if(live.current){setList(summary);show(value);setQuery('');setNote(null);}return true;}
     catch(e){await fail(e);return false;}finally{if(live.current)setBusy(false);}
   });
+  const askRemove=()=>{const p=current.current;askDelete(setConfirm,'reading-preset',{title:'删除预设',body:'删除「'+p.name+'」及其 '+p.entries.length+' 条读音？',confirmLabel:'删除',danger:true},
+    async()=>{if(!await presetOp('deleteReadingPreset',{id:p.id}))throw new Error('删除失败');},()=>{});};
   async function exportPreset(){
     try{const doc=await call('exportReadingPreset',{id:current.current.id});
       const url=URL.createObjectURL(new Blob([JSON.stringify(doc,null,2)+'\n'],{type:'application/json'})),a=document.createElement('a');
@@ -1129,7 +1137,7 @@ function ReadingPresetsEditor({call}) {
         h(MenuItem,{key:'export',onClick:()=>{close();exportPreset();}},'导出'),
         h(MenuItem,{key:'import',onClick:()=>{close();picker.current?.click?.();}},'导入'),
         h(MenuItem,{key:'merge',disabled:entries.length<2,onClick:()=>{close();countMerge();}},'合并同读音…'),
-        h(MenuItem,{key:'delete',danger:true,disabled:only,title:only?'至少保留一个预设':undefined,onClick:()=>{close();setConfirm(true);}},'删除…')]});
+        h(MenuItem,{key:'delete',danger:true,disabled:only,title:only?'至少保留一个预设':undefined,onClick:()=>{close();askRemove();}},'删除…')]});
     const head=naming?h(InlineAdd,{open:true,className:'fork-readings-name',label:naming.mode==='create'?'新预设名称':'预设名称',placeholder:'预设名称',maxLength:40,busy,
         value:naming.value,onChange:value=>setNaming(n=>n&&{...n,value}),onCancel:()=>setNaming(null),
         onConfirm:async name=>{const ok=naming.mode==='create'?await presetOp('createReadingPreset',{name}):name===preset.name||await presetOp('renameReadingPreset',{id:preset.id,name});if(ok&&live.current)setNaming(null);return ok;}})
@@ -1160,8 +1168,7 @@ function ReadingPresetsEditor({call}) {
     merging&&preset&&h(ConfirmDialog,{title:'合并同读音',confirmLabel:'合并',
       body:merging.groups+' 组读音相同的条目各合并为一条，写法用逗号分开（'+merging.before+' → '+(merging.before-merging.removed)+' 条）。',
       onConfirm:async()=>{try{await runMerge();}catch(e){await fail(e);throw e;}},onClose:()=>setMerging(null)}),
-    confirm&&preset&&h(ConfirmDialog,{title:'删除预设',body:'删除「'+preset.name+'」及其 '+preset.entries.length+' 条读音？',confirmLabel:'删除',danger:true,
-      onConfirm:async()=>{if(!await presetOp('deleteReadingPreset',{id:preset.id}))throw new Error('删除失败');},onClose:()=>setConfirm(false)}));
+    confirm&&preset&&h(ConfirmDialog,{...confirm,onClose:()=>setConfirm(false)}));
 }
 // the card export helpers of 「素材包」 — a pack's size,
 // and the image packs a chosen pack's 模组 need but that stay behind. A 全局 pack that goes with the card is bound to

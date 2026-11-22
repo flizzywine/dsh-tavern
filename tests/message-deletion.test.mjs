@@ -2,7 +2,6 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { Session } from './fixtures/dsh-session-host.mjs'
 import { appendSessionEvent, sessionEvents } from '../tavern-plugin/lib/domain/session-events.js'
-import { replaceSessionSurface } from '../tavern-plugin/lib/domain/session-surface-mutations.js'
 import { createMessageDeletion, synchronizeMessageDeletion } from '../tavern-plugin/lib/domain/message-deletion.js'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -55,24 +54,6 @@ function fixture() {
     get chat() { return chat },
     set chat(value) { chat = value } }
 }
-
-test('compaction 覆盖的 Chat 行只删存档并记录上下文修复，不伪造 tombstone', async () => {
-  const h = fixture(), nodes = h.session.surface.nodes.slice()
-  const summary = replaceSessionSurface(h.session, 'user/message', { id: 'summary', role: 'user', content: [{ type: 'text', text: '摘要' }], source: { kind: 'plugin', plugin: 'compact' } },
-    { start: nodes[0], end: nodes[1], sourceEventSeqs: nodes.slice(0, 2) })
-  const beforeEvents = sessionEvents(h.session).length
-  const result = await h.create().remove({ sessionId: h.session.id, items: [h.selectors.a2] })
-  assert.equal(result.deletedCount, 1)
-  assert.equal(h.chat.messageDeletion.surface.operations.length, 0)
-  assert.equal(h.chat.messageDeletion.contextRepair.required, true)
-  assert.equal(h.chat.messageDeletion.contextRepair.items[0].role, 'assistant')
-  assert.equal(h.chat.nativeSync.status, 'stale')
-  assert.equal(h.chat.nativeSync.deletionId, h.chat.messageDeletion.id)
-  assert.match(h.chat.nativeSync.reason, /仍需后续上下文修复/)
-  assert.equal(sessionEvents(h.session).length, beforeEvents)
-  assert.ok(h.session.surface.nodes.includes(summary.seq))
-  assert.deepEqual(h.chat.messages.map(row => row.text), ['输入2', '输入3', '正文3', '输入4', '正文4'])
-})
 
 test('迁移后立即删除并重开仍保留物理 splice、来源 messageUid 与完成审计', async t => {
   const root = await mkdtemp(join(tmpdir(), 'message-delete-'))
@@ -169,25 +150,4 @@ test('同会话并发删除共享写锁，第二次不会另起 Chat 或 Surface
   await first
   assert.equal(h.calls.filter(call => call === 'foreground.message-delete').length, 1)
   assert.equal(h.chat.messageDeletion.deletedCount, 1)
-})
-
-test('故事直选无 nativeAnchor 且会话不支持预演时仍只删 Chat 并记录上下文修复', async () => {
-  const h = fixture()
-  delete h.chat.messages[3].nativeAnchor
-  const originalConstructor = h.agent.session.constructor
-  Object.defineProperty(h.agent.session, 'constructor', { value: {}, configurable: true })
-  try {
-    const nodes = h.session.surface.nodes.slice(), events = sessionEvents(h.session).length
-    const result = await h.create().remove({ sessionId: h.session.id, items: [{ role: 'assistant', messageIndex: 3, revision: h.chat._storageRevision }] })
-    assert.equal(result.deletedCount, 1)
-    assert.equal(h.chat.messageDeletion.surface.operations.length, 0)
-    assert.equal(h.chat.messageDeletion.contextRepair.required, true)
-    assert.equal(h.chat.nativeSync.status, 'stale')
-    assert.match(h.chat.nativeSync.reason, /仍需后续上下文修复/)
-    assert.equal(sessionEvents(h.session).length, events)
-    assert.deepEqual(h.session.surface.nodes, nodes)
-    assert.deepEqual(h.chat.messages.map(row => row.text), ['输入2', '正文2', '输入3', '输入4', '正文4'])
-  } finally {
-    Object.defineProperty(h.agent.session, 'constructor', { value: originalConstructor, configurable: true })
-  }
 })

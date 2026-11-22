@@ -28,12 +28,17 @@ export function cardAssetExtensionPointer(raw) { return (rawData(raw) === raw ? 
 // A read of stored card data: the raw was checked when it was written or imported, so it is not walked again here (a
 // long chat's projections read it per figure, per request).
 export function readCardAssetExtension(raw) {
+  const extension = cardAssetExtensionView(raw)
+  // The stage was checked when it was written or imported; a read keeps fields this version does not know.
+  return extension === undefined ? undefined : structuredClone(extension)
+}
+// The same extension without a copy, for readers that only look at it (a stage switch, the skin): it is the card's own
+// object, never to be changed or handed on.
+export function cardAssetExtensionView(raw) {
   const data = rawData(raw)
   if (data.extensions === undefined) return undefined
   check(object(data.extensions), '$.extensions')
-  if (!Object.hasOwn(data.extensions, 'dsh_tavern')) return undefined
-  // The stage was checked when it was written or imported; a read keeps fields this version does not know.
-  return structuredClone(data.extensions.dsh_tavern)
+  return Object.hasOwn(data.extensions, 'dsh_tavern') ? data.extensions.dsh_tavern : undefined
 }
 export function cardAssetRawOperations(raw, patch) {
   assertJson(raw); assertJson(patch)

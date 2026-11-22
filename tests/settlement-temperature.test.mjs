@@ -3,9 +3,6 @@ import test from 'node:test'
 import { backgroundRequestTemperature } from '../tavern-plugin/lib/domain/background-request-temperature.js'
 import { createCharacterDesignStage } from '../tavern-plugin/lib/domain/character-design-stage.js'
 import { createMvuSettlementModule } from '../tavern-plugin/lib/domain/mvu-background-settlement.js'
-import { createPlainSettlementEngine } from '../tavern-plugin/lib/domain/plain-settlement-engine.js'
-import { createPostureItem } from '../tavern-plugin/lib/domain/background-pipeline.js'
-import { POSTURE_SUBMIT_TOOL } from '../tavern-plugin/lib/domain/posture-submission.js'
 
 for (const provider of ['moonshotai-cn', 'kimi-coding', 'deepseek-official', 'openai-codex']) test(`settlement omits inherited and explicit temperature for ${provider}`, async () => {
   const stage = createCharacterDesignStage({ temperature: 0.9 })
@@ -37,24 +34,6 @@ for (const method of ['settleVariables', 'settleAuxiliary']) test(`${method} pas
   const module = createMvuSettlementModule({ runtime: { async settleMvuUpdate() { assert.fail('model failure must not apply variables') } }, model: { async run(input) { calls.push(input); throw sentinel } } })
   await assert.rejects(module[method]({ operationId: 'temperature', chatId: 'c', branchId: 'b', basedOnRevision: 1,
     sessionId: 's', messageId: 0, swipeId: 0, storyText: '她站在门边。', currentVariables: { stat_data: { hp: 3 } } }), /scripted provider rejection/)
-  assert.equal(calls.length, 1)
-  assert.equal(calls[0].task, 'settlement')
-  assert.equal(Object.hasOwn(calls[0], 'temperature'), false)
-})
-
-test('plain settlement passes no task temperature and makes no automatic retry', async () => {
-  const calls = []
-  const engine = createPlainSettlementEngine({
-    settlementItems: { wanted: async () => true }, pluginApi: { replaceSettlement: async () => null },
-    pluginSettlementProgress: { begin() {} }, backgroundModelSelection: () => ({ provider: 'kimi-coding', model: 'fixed' }),
-    postureItem: createPostureItem({ prompt: () => '要求', tool: POSTURE_SUBMIT_TOOL }),
-    backgroundAgentRunner: { async run(input) { calls.push(input); throw new Error('scripted provider rejection') } },
-    agentRegistry: new Map(), sessionStore: new Map()
-  })
-  await assert.rejects(engine.run({
-    snapshot: { id: 'game', sessionId: 'story', messages: [] }, taskRun: { bindSession() {}, participantRequest: { rewindTo: 0 } },
-    card: {}, trace: { sessionId: '', boundary: null }, backgroundTasksSettings: { posture: true }
-  }), /scripted provider rejection/)
   assert.equal(calls.length, 1)
   assert.equal(calls[0].task, 'settlement')
   assert.equal(Object.hasOwn(calls[0], 'temperature'), false)

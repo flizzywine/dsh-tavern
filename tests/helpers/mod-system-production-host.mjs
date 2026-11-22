@@ -3,12 +3,14 @@ import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import {pathToFileURL} from 'node:url'
+import {createHash} from 'node:crypto'
 import {createTavernPluginApi} from '../../tavern-plugin/lib/plugin-api.js'
 import {registerTavernHttpRoutes} from '../../tavern-plugin/lib/http/routes.js'
 import {createManagedModProduction} from '../../tavern-plugin/packages/dsh-tavern-stage/lib/mod-system-production.js'
 import {createCardPlugins} from '../../tavern-plugin/lib/domain/card-plugins.js'
 import {createCardPreparation} from '../../tavern-plugin/lib/domain/card-preparation.js'
 import {firstPartyDistributions} from '../../tavern-plugin/lib/mod-system-distributions.js'
+import {writeZipEntries} from '../../tavern-plugin/lib/domain/zip-entries.js'
 
 export async function fixture(t,{root:shared,...options}={}) {
   const root=shared || await fs.mkdtemp(path.join(os.tmpdir(),'managed-rpc-'))
@@ -61,12 +63,16 @@ export async function installedFixture(t,{enabled=[]}={}) {
 }
 
 export async function authoredPackage(root) {
-  const {packageMod}=await import('../../bin/lib/mod-system-package.mjs')
-  const source=path.join(root,'author');await fs.mkdir(source)
   const manifest={format:'dsh-tavern-mod',schemaVersion:5,performances:[],id:'example.author',name:'Authored',packageName:'example-author',version:'1.0.0',hostApi:'>=1.0.0 <2.0.0',dependencies:[],config:{version:1,schema:{type:'object',properties:{},additionalProperties:false},defaults:{}},preferences:{schema:{type:'object',properties:{},additionalProperties:false},defaults:{}},dataVersion:1,coreAssets:[],permissions:[],entry:'plugin.mjs'}
-  await fs.writeFile(path.join(source,'mod.json'),JSON.stringify(manifest))
-  await fs.writeFile(path.join(source,'package.json'),JSON.stringify({name:manifest.packageName,version:manifest.version,type:'module',exports:{'.':'./plugin.mjs'}}))
-  await fs.writeFile(path.join(source,'plugin.mjs'),"throw new Error('Inspection must never execute');export const name='example-author',inject=['tavern'];export function apply(ctx){}")
-  const file=path.join(root,'author.dshmod');await packageMod(source,file)
-  return {file,bytes:await fs.readFile(file)}
+  const entries=[
+    {path:'mod.json',content:JSON.stringify(manifest)},
+    {path:'package.json',content:JSON.stringify({name:manifest.packageName,version:manifest.version,type:'module',exports:{'.':'./plugin.mjs'}})},
+    {path:'plugin.mjs',content:"throw new Error('Inspection must never execute');export const name='example-author',inject=['tavern'];export function apply(ctx){}"},
+  ]
+  const files=entries.map(entry=>({path:entry.path,size:Buffer.byteLength(entry.content),sha256:createHash('sha256').update(entry.content).digest('hex')}))
+  const header={format:'dsh-mod-package',formatVersion:1,manifest:'mod.json',files}
+  const bytes=writeZipEntries([{path:'dsh-mod-package.json',content:JSON.stringify(header)},...entries])
+  const file=path.join(root,'author.dshmod')
+  await fs.writeFile(file,bytes)
+  return {file,bytes}
 }

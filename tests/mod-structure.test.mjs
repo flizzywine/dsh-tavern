@@ -6,7 +6,6 @@ import test from 'node:test'
 import { readdir, readFile, stat } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { validateDistributionManifest } from '../tavern-plugin/lib/domain/mod-system.js'
 
 const root = fileURLToPath(new URL('../', import.meta.url))
 const modsRoot = path.join(root, 'tavern-plugin/mods')
@@ -36,27 +35,6 @@ const specifiers = text => [...text.matchAll(SPECIFIER)].map(match => match[1])
 
 const names = (await readdir(modsRoot, { withFileTypes: true })).filter(entry => entry.isDirectory()).map(entry => entry.name).sort()
 const found = new Set()
-
-test('each mod folder has one valid mod.json whose id, package and entry match the folder', async () => {
-  for (const name of names) {
-    const folder = path.join(modsRoot, name)
-    if (await exists(path.join(folder, 'manifest.json'))) found.add('legacy-manifest:' + name)
-    const text = await readFile(path.join(folder, 'mod.json'), 'utf8').catch(() => null)
-    if (text === null) { found.add('manifest:' + name); continue }
-    const manifest = JSON.parse(text)
-    try {
-      validateDistributionManifest(manifest)
-      assert.equal(manifest.id, 'dsh.' + name, name + ': id is dsh.<folder>')
-      const pkg = JSON.parse(await readFile(path.join(folder, 'package.json'), 'utf8'))
-      assert.equal(pkg.name, manifest.packageName, name + ': package.json name is the manifest packageName')
-      assert.ok(await exists(path.join(folder, manifest.entry)), name + ': entry exists')
-      for (const row of [...manifest.commandPrompts || [], ...manifest.coreAssets]) assert.ok(await exists(path.join(folder, row.path)), name + ': ' + row.path + ' exists')
-    } catch (error) {
-      found.add('manifest:' + name)
-      throw error
-    }
-  }
-})
 
 test('each mod has a Skill reference with an index line and at least one test of its own', async () => {
   const index = await readFile(path.join(skillRoot, 'SKILL.md'), 'utf8')

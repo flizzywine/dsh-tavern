@@ -3,6 +3,9 @@
  * 三处挂载点在无数据时均返回 null 或原 children（零占位、零样式污染）
  * ------------------------------------------------------------------ */
 
+const FD_STREAM_POLL_DELAYS = [1200, 2800, 5500]
+const FD_POST_SETTLE_DELAYS = [600, 1600]
+
 function DieGlyph(props) {
   const { sides, label, rolling, tier, hidden } = props || {}
   const faceCount = fdNumber(sides, 6)
@@ -43,11 +46,37 @@ function DieGlyph(props) {
 function formatRollSummary(roll, revealed) {
   if (!roll) return ''
   if (roll.hidden && !revealed) return `${roll.check}暗骰 · 等待揭晓`
+  if (roll.autoSuccess) return `${roll.check}稳压 · 免骰直通`
+  if (roll.checkType === 'contest' && roll.contest) {
+    const z = Number(roll.contest.margin) || 0
+    const zText = z > 0 ? `+${z}` : String(z)
+    return `${roll.check}交锋 · ${roll.total} vs ${roll.contest.rivalTotal}(z${zText}) · ${roll.tierLabel}`
+  }
   const mod = roll.modifier ? (roll.modifier > 0 ? `+${roll.modifier}` : String(roll.modifier)) : ''
   const dicePart = Array.isArray(roll.dice) && roll.dice.length > 1
     ? `[${roll.dice.join('+')}]${mod}=${roll.total}`
     : `${roll.total}${mod ? `(${mod})` : ''}`
   return `${roll.check}检定 · ${dicePart} · ${roll.tierLabel}`
+}
+
+function fdFormatProfileChanges(changes) {
+  if (!Array.isArray(changes) || !changes.length) return ''
+  return changes.map(item => {
+    if (!item) return ''
+    if (item.kind === 'init') return `初始建档(${item.count}项)`
+    if (item.kind === 'removed') return `移除「${item.name}」`
+    const val = Number(item.delta)
+    const sign = Number.isFinite(val) && val > 0 ? `+${val}` : (Number.isFinite(val) ? String(val) : '')
+    return `${item.name}${sign ? `(${sign})` : ''}`
+  }).filter(Boolean).join('、')
+}
+
+function fdCollectResistanceFactors(roll) {
+  const fromRoll = Array.isArray(roll && roll.resistanceFactors) ? roll.resistanceFactors : []
+  const fromBd = Array.isArray(roll && roll.modifierBreakdown && roll.modifierBreakdown.resistanceFactors)
+    ? roll.modifierBreakdown.resistanceFactors
+    : []
+  return fromRoll.length ? fromRoll : fromBd
 }
 
 function fdDamperChip(roll) {
@@ -85,10 +114,12 @@ function LiveRollBanner(props) {
   const [tickFace, setTickFace] = useState('?')
   const [revealed, setRevealed] = useState(false)
 
-  const animation = event && event.animation ? event.animation : 'bounce'
+  const animation = event && event.animation ? event.animation : 'atelier'
   const isSetup = Boolean(event && event.kind === 'setup-required')
   const isSkipped = Boolean(event && event.kind === 'skipped')
+  const isTape = Boolean(event && event.kind === 'tape')
   const isFree = Boolean(event && event.kind === 'free')
+  const isDelayedReveal = Boolean(event && event.kind === 'check' && event.revealTiming === 'stream-end' && !(event.roll && event.roll.autoSuccess))
   const roll = isFree ? null : (event && event.roll) || null
   const isReused = Boolean((event && event.reused) || (roll && roll.reusedOnRegenerate))
   const freeResult = isFree ? (event && event.result) || null : null
@@ -105,12 +136,12 @@ function LiveRollBanner(props) {
       }, 5000)
       return () => clearTimeout(closer)
     }
-    /* 本轮无需检定：只留一行浅提示，6 秒后自动收起，不播骰子动画 */
-    if (isSkipped) {
+    /* 本轮无需检定 / 宿命序列就绪 / 正文落定后揭晓：只留一行轻量提示，不播骰子动画 */
+    if (isSkipped || isTape || isDelayedReveal) {
       setRolling(false)
       const closer = setTimeout(() => {
         if (typeof onDismiss === 'function') onDismiss()
-      }, 6000)
+      }, isDelayedReveal ? 3200 : 6000)
       return () => clearTimeout(closer)
     }
     /* 重新生成复用本轮已锁定的首次真骰结果：直接展示原骰面，不再假播滚动随机点数 */
@@ -168,20 +199,23 @@ function LiveRollBanner(props) {
       '请前往酒馆「设置 › 叙事阻尼器」填写决策模型与 API Key（轻触收起）')))
   }
 
-  if (isSkipped) {
+  if (isSkipped || isTape || isDelayedReveal) {
+    const noteText = isTape
+      ? (event.message || '宿命序列已就绪')
+      : (isDelayedReveal ? '命运真骰已暗定，待本轮正文落定揭晓' : (event.message || '本轮无需检定'))
     return h('div', { className: 'fd-root', style: { padding: '2px 0' } },
       h('div', {
         className: 'fd-skip-note',
         role: 'status',
         'aria-live': 'polite',
-        title: event.reason ? String(event.reason) : '本轮未被判定为需要检定',
+        title: event.reason ? String(event.reason) : noteText,
         onClick: () => {
           if (typeof onDismiss === 'function') onDismiss()
         }
       },
-      h('span', { className: 'fd-skip-icon', 'aria-hidden': 'true' }, '🎲'),
-      h('span', { className: 'fd-skip-text' }, event.message || '本轮无需检定'),
-      event.check ? h('span', { className: 'fd-skip-check' }, `· ${event.check}`) : null))
+      h('span', { className: 'fd-skip-icon', 'aria-hidden': 'true' }, isTape ? '📜' : '🎲'),
+      h('span', { className: 'fd-skip-text' }, noteText),
+      event.check && !isDelayedReveal ? h('span', { className: 'fd-skip-check' }, `· ${event.check}`) : null))
   }
 
   if (!roll && !freeResult) return null
@@ -433,29 +467,17 @@ function ComposerDicePopover(props) {
       }, '×'))),
   roll
     ? h(Fragment, null,
-      h(Fd3DDiceStage, {
-        roll,
-        revealed: !covered,
-        animation: record && record.animation,
-        compact: true,
-        animateOnMount: false,
-        stageRef
-      }),
-      h('dl', { className: 'fd-turn-details' },
-        h('dt', { className: 'fd-turn-dt' }, '骰面算式'),
-        h('dd', { className: 'fd-turn-dd' },
-          `${roll.rule || '2d6'} 原骰 [${(roll.dice || []).join(', ')}] = ${roll.total}（目标${roll.rule === 'd100' ? ' ≤ ' : ' ≥ '}${roll.target === undefined ? '—' : roll.target}）`),
-        h('dt', { className: 'fd-turn-dt' }, '能力修正'),
-        h('dd', { className: 'fd-turn-dd' },
-          `${roll.check || '检定'} ${skillBonus >= 0 ? '+' : ''}${skillBonus}${roll.modifier ? `（环境/基调修正 ${roll.modifier > 0 ? '+' : ''}${roll.modifier}）` : ''}`),
-        damper
-          ? h(Fragment, null,
-            h('dt', { className: 'fd-turn-dt' }, '叙事阻尼器'),
-            h('dd', { className: 'fd-turn-dd' },
-              `${damper.applied === false ? '未联动' : '双向联动'}${quota ? ` · 配额 ${quota}` : ''}${damper.reason ? ` · ${damper.reason}` : ''}`))
-          : null,
-        h('dt', { className: 'fd-turn-dt' }, '难度理由'),
-        h('dd', { className: 'fd-turn-dd' }, `${roll.difficultyLabel || '判定'} · ${roll.reason || 'AI 综合评定'}`)),
+      !roll.autoSuccess
+        ? h(Fd3DDiceStage, {
+          roll,
+          revealed: !covered,
+          animation: record && record.animation,
+          compact: true,
+          animateOnMount: false,
+          stageRef
+        })
+        : null,
+      fdBuildTurnDetails(record, !covered),
       h(FdRerollActionBox, {
         rerollState,
         fate,
@@ -527,7 +549,7 @@ function ComposerLiveDock(props) {
       }
     }
 
-    const loadLatest = () => {
+    const loadLatest = opts => {
       if (!alive) return
       if (retryTimerRef.current) {
         clearTimeout(retryTimerRef.current)
@@ -537,37 +559,48 @@ function ComposerLiveDock(props) {
       reqSeqRef.current = seq
       const dom = fdLatestDomFloorInfo()
       const streamingHint = Boolean(dom.streaming || replyStreamingRef.current)
-      fdCall(ui, FD_RPC.readTurn, {
+      if (streamingHint && fdIsEnabledForGame(stateKey) === false) {
+        return
+      }
+      fdReadTurnBatched(ui, {
         gameId: stateKey,
         turn: dom.turn,
         latest: true,
-        streaming: streamingHint
+        streaming: streamingHint,
+        force: Boolean(opts && opts.force)
       }).then(res => {
         if (!alive || reqSeqRef.current !== seq) return
         const data = res && res.ok && res.data && typeof res.data === 'object' ? res.data : null
         if (data) {
+          fdNoteRuntimeFlags(stateKey, data)
           syncTurnReset(data.turn)
           setRecord(data)
         }
+        const pluginActive = fdIsEnabledForGame(stateKey) !== false
+          && !(data && (data.enabled === false || data.autoCheck === false))
         const hasPayload = Boolean(data && (data.roll || data.setupRequiredReason || (data.judged && data.judged.shouldRoll === false)))
         const stillStreaming = Boolean(streamingHint || (data && data.streaming))
-        if (stillStreaming && !hasPayload && retryCountRef.current < 40) {
+        if (pluginActive && stillStreaming && !hasPayload && retryCountRef.current < FD_STREAM_POLL_DELAYS.length) {
+          const delay = FD_STREAM_POLL_DELAYS[retryCountRef.current]
           retryCountRef.current += 1
-          retryTimerRef.current = setTimeout(loadLatest, 500)
+          retryTimerRef.current = setTimeout(() => loadLatest({ force: true }), delay)
         }
       })
     }
 
     const acceptLive = data => {
       if (!alive) return
+      if (retryTimerRef.current) {
+        clearTimeout(retryTimerRef.current)
+        retryTimerRef.current = 0
+      }
       if (!data) {
         setLiveEvent(null)
         return
       }
       syncTurnReset(data.turn)
       setRecord(prev => fdRecordFromLiveEvent(stateKey, data.turn, data, prev) || prev)
-      retryCountRef.current = 0
-      loadLatest()
+      retryCountRef.current = FD_STREAM_POLL_DELAYS.length
       /* 关闭动画时不再展示骰面卡，但未配置决策模型的引导提示仍需露面 */
       if (data.animation === 'none' && data.kind !== 'setup-required' && data.kind !== 'skipped') {
         setLiveEvent(null)
@@ -581,18 +614,38 @@ function ComposerLiveDock(props) {
 
     const refresh = () => {
       retryCountRef.current = 0
-      loadLatest()
+      loadLatest({ force: true })
     }
 
     loadLatest()
     const offs = []
+    let lastTurnObserved = 0
+    let lastSettledObserved = true
     keys.forEach(key => {
       offs.push(fdWatch(ui, key, 'live-roll', acceptLive))
-      offs.push(fdWatch(ui, key, 'turn-check', refresh))
-      offs.push(fdWatch(ui, key, 'workbench-sync', refresh))
+      offs.push(fdWatch(ui, key, 'turn-check', data => {
+        fdInvalidateTurnCache(key, data && data.turn)
+        refresh()
+      }))
+      offs.push(fdWatch(ui, key, 'workbench-sync', payload => {
+        fdNoteRuntimeFlags(key, payload)
+        if (payload && (payload.settings || payload.rule || payload.binding)) {
+          refresh()
+        } else if (payload && payload.fate) {
+          setRecord(prev => (prev && typeof prev === 'object' ? { ...prev, fate: fdNormalizeFate(payload.fate) } : prev))
+        }
+      }))
       if (ui && typeof ui.watchTurnState === 'function') {
         try {
-          const offTurn = ui.watchTurnState(key, refresh)
+          const offTurn = ui.watchTurnState(key, st => {
+            if (fdIsEnabledForGame(key) === false) return
+            const nextTurn = fdNumber(st && st.turn, 0)
+            const nextSettled = Boolean(st && st.settled)
+            const settledChanged = nextSettled && (!lastSettledObserved || nextTurn !== lastTurnObserved)
+            lastTurnObserved = nextTurn
+            lastSettledObserved = nextSettled
+            if (settledChanged) refresh()
+          })
           if (typeof offTurn === 'function') offs.push(offTurn)
         } catch {}
       }
@@ -602,7 +655,8 @@ function ComposerLiveDock(props) {
             const nextStreaming = Boolean(reply && (reply.streaming || reply.busy))
             const changed = nextStreaming !== replyStreamingRef.current
             replyStreamingRef.current = nextStreaming
-            if (changed || (reply && reply.turn > 0)) refresh()
+            if (fdIsEnabledForGame(key) === false) return
+            if (changed) refresh()
           })
           if (typeof offReply === 'function') offs.push(offReply)
         } catch {}
@@ -612,7 +666,8 @@ function ComposerLiveDock(props) {
     const onWindowStoryEvent = ev => {
       const sid = ev && ev.detail && ev.detail.sessionId
       if (sid && String(sid).trim() !== String(stateKey)) return
-      refresh()
+      if (ev && ev.type !== 'dsh-tavern-session-changed' && fdIsEnabledForGame(stateKey) === false) return
+      if (ev && ev.type === 'dsh-tavern-session-changed') refresh()
     }
     if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
       window.addEventListener('dsh-tavern-session-changed', onWindowStoryEvent)
@@ -684,7 +739,7 @@ function ComposerLiveDock(props) {
   const effectiveTurn = fdNumber((record && record.turn) || dom.turn, 0)
   const pillMeta = fdResolveFloorToneAndLabel(record, peeked, awaitingLiveRoll)
 
-  const handleReroll = mode => {
+  const handleReroll = (mode, power) => {
     if (rerolling || !effectiveTurn) return
     setRerolling(true)
     setRerollHint('')
@@ -693,6 +748,7 @@ function ComposerLiveDock(props) {
         const data = res && res.ok ? res.data : null
         const nextRoll = data && data.ok !== false && data.roll ? data.roll : null
         if (nextRoll) {
+          fdInvalidateTurnCache(stateKey, effectiveTurn)
           setRecord(prev => ({
             ...(prev || {}),
             turn: effectiveTurn,
@@ -700,6 +756,7 @@ function ComposerLiveDock(props) {
             fate: data.fate || (prev && prev.fate),
             rerollState: data.rerollState || { allowed: false, reason: '本轮已重投锁定（每轮限 1 次）' }
           }))
+          fdPlayFloorRollAnim(null, null, nextRoll, record && record.animation, { power })
           setRerollHint(data.mode === 'push'
             ? '🔥 已孤注一掷并同步配额！现在点下方「重新生成正文」即可按新结果与代价改写剧情'
             : '✦ 已消耗 1 点命运点逆命重投！现在点下方「重新生成正文」即可按新点数改写剧情')
@@ -725,11 +782,12 @@ function ComposerLiveDock(props) {
     setOpen(nextOpen)
     if (nextOpen) {
       const latestDom = fdLatestDomFloorInfo()
-      fdCall(ui, FD_RPC.readTurn, {
+      fdReadTurnBatched(ui, {
         gameId: stateKey,
         turn: latestDom.turn,
         latest: true,
-        streaming: Boolean(latestDom.streaming || replyStreamingRef.current)
+        streaming: Boolean(latestDom.streaming || replyStreamingRef.current),
+        force: true
       }).then(res => {
         const data = res && res.ok && res.data && typeof res.data === 'object' ? res.data : null
         if (data) setRecord(data)
@@ -791,16 +849,36 @@ function fdBuildTurnDetails(record, peeked) {
   }
 
   const rows = []
-  rows.push(h('dt', { key: 'dt-rule', className: 'fd-turn-dt' }, '骰面算式'))
-  rows.push(h('dd', { key: 'dd-rule', className: 'fd-turn-dd' },
-    `${roll.rule || 'd6'} 原骰 [${(roll.dice || []).join(', ')}]`
-    + ` = ${roll.total}（目标${roll.rule === 'd100' ? ' ≤ ' : ' ≥ '}${roll.target === undefined ? '—' : roll.target}）`))
+  if (roll.autoSuccess) {
+    rows.push(h('dt', { key: 'dt-rule', className: 'fd-turn-dt' }, '免骰直通'))
+    rows.push(h('dd', { key: 'dd-rule', className: 'fd-turn-dd' },
+      `⚡ 能力稳压「${roll.difficultyLabel || '容易'}」（保底 ${roll.total} ≥ 目标 ${roll.target === undefined ? '—' : roll.target}）· 直接达成`))
+  } else if (roll.checkType === 'contest' && roll.contest) {
+    const c = roll.contest
+    const zSign = c.margin > 0 ? `+${c.margin}` : String(c.margin)
+    rows.push(h('dt', { key: 'dt-rule', className: 'fd-turn-dt' }, '交锋对抗'))
+    rows.push(h('dd', { key: 'dd-rule', className: 'fd-turn-dd' },
+      `我方 ${roll.rule || '2d6'} [${(roll.dice || []).join(', ')}] = ${roll.total} vs ${c.rivalName || '对手'} [${(c.rivalDice || []).join(', ')}] = ${c.rivalTotal}（差值 z = ${zSign}）`))
+  } else {
+    rows.push(h('dt', { key: 'dt-rule', className: 'fd-turn-dt' }, '骰面算式'))
+    rows.push(h('dd', { key: 'dd-rule', className: 'fd-turn-dd' },
+      `${roll.rule || 'd6'} 原骰 [${(roll.dice || []).join(', ')}]`
+      + ` = ${roll.total}（目标${roll.rule === 'd100' ? ' ≤ ' : ' ≥ '}${roll.target === undefined ? '—' : roll.target}）`))
+  }
 
   const skillBonus = fdNumber(breakdown.skillBonus ?? roll.skillBonus, 0)
   rows.push(h('dt', { key: 'dt-skill', className: 'fd-turn-dt' }, '角色能力修正'))
   rows.push(h('dd', { key: 'dd-skill', className: 'fd-turn-dd' },
     `${roll.check || '检定'} ${skillBonus >= 0 ? '+' : ''}${skillBonus}`
     + (roll.modifier ? `（总修正 ${roll.modifier > 0 ? '+' : ''}${roll.modifier}）` : '')))
+
+  const factors = fdCollectResistanceFactors(roll)
+  if (factors.length) {
+    rows.push(h('dt', { key: 'dt-factors', className: 'fd-turn-dt' }, '外部阻力'))
+    rows.push(h('dd', { key: 'dd-factors', className: 'fd-turn-dd' },
+      h('div', { className: 'fd-factor-row' },
+        factors.map((f, idx) => h('span', { key: idx, className: 'fd-factor-chip' }, `${f.label} ${f.delta}`)))))
+  }
 
   if (fdNumber(breakdown.varModifier, 0) || (Array.isArray(breakdown.matchedVars) && breakdown.matchedVars.length)) {
     const matched = Array.isArray(breakdown.matchedVars) ? breakdown.matchedVars : []
@@ -823,6 +901,12 @@ function fdBuildTurnDetails(record, peeked) {
 
   rows.push(h('dt', { key: 'dt-diff', className: 'fd-turn-dt' }, '难度理由'))
   rows.push(h('dd', { key: 'dd-diff', className: 'fd-turn-dd' }, `${roll.difficultyLabel || '判定'} · ${roll.reason || '本地启发式快判'}`))
+
+  const deltaText = fdFormatProfileChanges(record.profileChanges)
+  if (deltaText) {
+    rows.push(h('dt', { key: 'dt-delta', className: 'fd-turn-dt' }, '能力演进'))
+    rows.push(h('dd', { key: 'dd-delta', className: 'fd-turn-dd' }, `✦ ${deltaText}`))
+  }
 
   return h('dl', { className: 'fd-turn-details' }, rows)
 }
@@ -853,8 +937,8 @@ function TurnRollCapsule(props) {
       return undefined
     }
     let alive = true
-    const reload = () => {
-      fdCall(ui, FD_RPC.readTurn, { gameId, turn }).then(res => {
+    const reload = opts => {
+      fdReadTurnBatched(ui, { gameId, turn, force: Boolean(opts && opts.force) }).then(res => {
         if (!alive) return
         const data = res && res.ok ? res.data : null
         setRecord(data && typeof data === 'object' ? data : null)
@@ -864,8 +948,14 @@ function TurnRollCapsule(props) {
     setPeeked(false)
     setRerollHint('')
     reload()
-    const offSync = fdWatch(ui, gameId, 'workbench-sync', () => {
-      if (alive) reload()
+    const offSync = fdWatch(ui, gameId, 'workbench-sync', payload => {
+      if (!alive) return
+      fdNoteRuntimeFlags(gameId, payload)
+      if (payload && (payload.settings || payload.rule || payload.binding || fdNumber(payload.turn, 0) === fdNumber(turn, 0))) {
+        reload({ force: true })
+      } else if (payload && payload.fate) {
+        setRecord(prev => (prev && typeof prev === 'object' ? { ...prev, fate: fdNormalizeFate(payload.fate) } : prev))
+      }
     })
     return () => {
       alive = false
@@ -899,7 +989,7 @@ function TurnRollCapsule(props) {
           : ((roll.tier === 'critical' || roll.tier === 'success') ? '检定已达成成功，无需重投' : ''))
     }
 
-  const manualReroll = mode => {
+  const manualReroll = (mode, power) => {
     if (rerolling || !gameId || !turn) return
     setRerolling(true)
     setRerollHint('')
@@ -908,13 +998,14 @@ function TurnRollCapsule(props) {
         const data = res && res.ok ? res.data : null
         const nextRoll = data && data.ok !== false && data.roll ? data.roll : null
         if (nextRoll) {
+          fdInvalidateTurnCache(gameId, turn)
           setRecord(prev => ({
             ...(prev || {}),
             roll: nextRoll,
             fate: data.fate || (prev && prev.fate) || fate,
             rerollState: data.rerollState || { allowed: false, reason: '本轮已重投锁定（每轮限 1 次）' }
           }))
-          fdPlayFloorRollAnim(null, null, nextRoll, record && record.animation)
+          fdPlayFloorRollAnim(null, null, nextRoll, record && record.animation, { power })
           setRerollHint(data.mode === 'push'
             ? '已孤注一掷并同步配额（点酒馆「重新生成」按新结果与代价重写正文）'
             : '已消耗 1 点命运点逆命重投（点酒馆「重新生成」按新点数重写正文）')
@@ -990,13 +1081,13 @@ function FdRerollActionBox(props) {
     mode: 'fate',
     disabled: Boolean(rerolling),
     stageRef,
-    onTrigger: mode => (typeof onReroll === 'function' ? onReroll(mode) : undefined)
+    onTrigger: (mode, power) => (typeof onReroll === 'function' ? onReroll(mode, power) : undefined)
   })
   const pushHold = useFdHoldCharge({
     mode: 'push',
     disabled: Boolean(rerolling),
     stageRef,
-    onTrigger: mode => (typeof onReroll === 'function' ? onReroll(mode) : undefined)
+    onTrigger: (mode, power) => (typeof onReroll === 'function' ? onReroll(mode, power) : undefined)
   })
 
   if (isStreaming) {
@@ -1017,7 +1108,7 @@ function FdRerollActionBox(props) {
             type: 'button',
             className: 'fd-reroll-btn is-fate' + (fateHold.charging ? ' is-charging' : ''),
             disabled: Boolean(rerolling),
-            title: '消耗 1 点命运点稳妥重掷（点按即投；长按按钮激活 3D 星晶聚能旋涡蓄力，移出按钮可无损取消）',
+            title: '消耗 1 点命运点稳妥重掷（点按即投；长按按钮激活反重力星轨蓄力，松手冲霄逆命，移出按钮可无损取消）',
             ...fateHold.bindProps
           },
           h('span', { className: 'fd-reroll-btn-top' },
@@ -1026,22 +1117,22 @@ function FdRerollActionBox(props) {
                 ? '⏳ 重投中…'
                 : (fateHold.charging ? `✦ 逆命蓄力 ${fateHold.chargePct}% · 松手改命` : '✦ 逆命重投')),
             h('span', { className: 'fd-reroll-btn-tag' }, `-1 点 · 余 ${remPoints}/${maxPoints} ▸`)),
-          h('span', { className: 'fd-reroll-btn-sub' }, '无恶化与挂彩惩罚 · 长按按钮可聚能蓄力'))
+          h('span', { className: 'fd-reroll-btn-sub' }, '无恶化与挂彩惩罚 · 长按反重力星轨蓄力'))
           : null,
         h('button', {
           type: 'button',
           className: 'fd-reroll-btn is-push' + (pushHold.charging ? ' is-charging' : ''),
           disabled: Boolean(rerolling),
-          title: '不耗命运点强行一搏（点按即投；长按按钮激活 3D 焚天熔炉蓄力，移出按钮可无损取消）',
+          title: '不耗命运点强行一搏（点按即投；长按按钮激活掌心紧攥剧颤蓄力，松手雷霆猛砸，移出按钮可无损取消）',
           ...pushHold.bindProps
         },
         h('span', { className: 'fd-reroll-btn-top' },
           h('span', { className: 'fd-reroll-btn-title' },
             rerolling
               ? '⏳ 搏命中…'
-              : (pushHold.charging ? `🔥 熔炉蓄力 ${pushHold.chargePct}% · 松手搏命` : '🔥 孤注一掷')),
+              : (pushHold.charging ? `🔥 搏命蓄力 ${pushHold.chargePct}% · 松手猛砸` : '🔥 孤注一掷')),
           h('span', { className: 'fd-reroll-btn-tag' }, '0 点 · 成王败寇 ▸')),
-        h('span', { className: 'fd-reroll-btn-sub' }, '败则恶化大失败 · 长按按钮可熔炉蓄力'))),
+        h('span', { className: 'fd-reroll-btn-sub' }, '败则恶化大失败 · 长按紧攥剧颤蓄力'))),
       h('div', { className: 'fd-reroll-foot' },
         rerollHint || '直接点「重新生成正文」将自动复用原骰点；不重投认栽可攒回命运点'))
   }
@@ -1079,6 +1170,10 @@ function MediaTurnRollCapsule(props) {
 
 function fdFormatCompactDice(roll) {
   if (!roll) return ''
+  if (roll.autoSuccess) return '免骰直通'
+  if (roll.checkType === 'contest' && roll.contest) {
+    return `${roll.total}vs${roll.contest.rivalTotal}`
+  }
   if (roll.rule === 'd100') {
     return `${roll.total}/${roll.target === undefined ? 100 : roll.target}`
   }
@@ -1103,11 +1198,12 @@ function StoryFloorDiceItem(props) {
   useEffect(() => {
     if (!turn) return undefined
     let alive = true
-    const load = () => {
-      fdCall(ui, FD_RPC.readTurn, {
+    const load = opts => {
+      fdReadTurnBatched(ui, {
         gameId: gameId || '',
         turn,
-        streaming: Boolean(streaming)
+        streaming: Boolean(streaming),
+        force: Boolean(opts && opts.force)
       }).then(res => {
         if (!alive) return
         const data = res && res.ok ? res.data : null
@@ -1116,9 +1212,30 @@ function StoryFloorDiceItem(props) {
     }
     load()
     const watchKey = gameId || fdGetActiveGameId()
-    const offCheck = watchKey ? fdWatch(ui, watchKey, 'turn-check', () => { if (alive) load() }) : fdNoop
-    const offSync = watchKey ? fdWatch(ui, watchKey, 'workbench-sync', () => { if (alive) load() }) : fdNoop
-    const offLive = watchKey ? fdWatch(ui, watchKey, 'live-roll', () => { if (alive) load() }) : fdNoop
+    const offCheck = watchKey ? fdWatch(ui, watchKey, 'turn-check', data => {
+      if (!alive) return
+      const evTurn = fdNumber(data && data.turn, 0)
+      const affected = fdInvalidateTurnCache(watchKey, evTurn)
+      if (!evTurn || evTurn === fdNumber(turn, 0) || affected.includes(fdNumber(turn, 0))) {
+        load({ force: true })
+      }
+    }) : fdNoop
+    const offSync = watchKey ? fdWatch(ui, watchKey, 'workbench-sync', data => {
+      if (!alive) return
+      fdNoteRuntimeFlags(watchKey, data)
+      if (data && (data.settings || data.rule || data.binding)) {
+        load({ force: true })
+      } else if (data && data.fate) {
+        setRecord(prev => (prev && typeof prev === 'object' ? { ...prev, fate: fdNormalizeFate(data.fate) } : prev))
+      }
+    }) : fdNoop
+    const offLive = watchKey ? fdWatch(ui, watchKey, 'live-roll', data => {
+      if (!alive || !data) return
+      const evTurn = fdNumber(data.turn, 0)
+      if (streaming || (evTurn && evTurn === fdNumber(turn, 0))) {
+        setRecord(prev => fdRecordFromLiveEvent(watchKey, turn, data, prev) || prev)
+      }
+    }) : fdNoop
     return () => {
       alive = false
       offCheck()
@@ -1187,7 +1304,7 @@ function StoryFloorDiceItem(props) {
     ? record.rerollState
     : { allowed: false, reason: '本轮无重投项' }
 
-  const runManualReroll = mode => {
+  const runManualReroll = (mode, power) => {
     if (rerolling || !effectiveTurn) return
     setRerolling(true)
     setRerollHint('')
@@ -1196,12 +1313,14 @@ function StoryFloorDiceItem(props) {
         const data = res && res.ok ? res.data : null
         const nextRoll = data && data.ok !== false && data.roll ? data.roll : null
         if (nextRoll) {
+          fdInvalidateTurnCache(gameId || fdGetActiveGameId(), effectiveTurn)
           setRecord(prev => ({
             ...(prev || {}),
             roll: nextRoll,
             fate: data.fate || (prev && prev.fate) || fate,
             rerollState: data.rerollState || { allowed: false, reason: '本轮已重投锁定（每轮限 1 次）' }
           }))
+          fdPlayFloorRollAnim(null, null, nextRoll, record && record.animation, { power })
           setRerollHint(data.mode === 'push'
             ? '已孤注一掷并同步阻尼配额！点击下方「重新生成正文」即可按新结果与代价改写剧情'
             : '已消耗 1 点命运点逆命重投！点击下方「重新生成正文」即可按新点数改写剧情')
@@ -1319,6 +1438,8 @@ function fdRecordFromLiveEvent(gameId, fallbackTurn, data, prevRecord) {
     gameId: gameId || (prevRecord && prevRecord.gameId) || '',
     turn: fdNumber(data.turn, fallbackTurn) || fallbackTurn || 0,
     streaming: true,
+    revealTiming: data.revealTiming || (prevRecord && prevRecord.revealTiming) || 'immediate',
+    animation: data.animation || (prevRecord && prevRecord.animation) || 'atelier',
     textVersion: null,
     roll: kind === 'check' && data.roll ? data.roll : null,
     setupRequiredReason: kind === 'setup-required' ? String(data.reason || 'SETUP_REQUIRED') : null,
@@ -1441,11 +1562,18 @@ function fdGetActiveFloorRollStage() {
   return ov && ov.stage ? ov.stage : null
 }
 
-function fdBuildFloorRollKickerText(roll, hidden, mode) {
+function fdBuildFloorRollKickerText(roll, hidden, mode, power) {
   const checkTitle = String((roll && roll.check) || '行动')
   if (hidden) return `✦ 命运暗骰 · ${checkTitle}检定 ✦`
   const diffTitle = roll && roll.difficultyLabel ? ` · ${roll.difficultyLabel}` : ''
-  const rerollBadge = mode === 'push' ? ' · 🔥孤注一掷' : (mode === 'fate' ? ' · ✦逆命重投' : '')
+  const pwrNum = Number(power) || 0
+  const pwrText = pwrNum > 0.1 ? `（蓄力 ${Math.round(pwrNum * 100)}%）` : ''
+  const rerollBadge = mode === 'push'
+    ? ` · 🔥孤注一掷${pwrText}`
+    : (mode === 'fate' ? ` · ✦逆命重投${pwrText}` : (pwrText ? ` · ${pwrText}` : ''))
+  if (roll && roll.checkType === 'contest' && roll.contest && !rerollBadge) {
+    return `⚔ 双骰交锋对抗 · ${checkTitle} vs ${roll.contest.rivalName || '对手'}${diffTitle} ✦`
+  }
   return `✦ 命运真骰裁定 · ${checkTitle}检定${diffTitle}${rerollBadge} ✦`
 }
 
@@ -1457,6 +1585,18 @@ function fdPopulateFloorRollReadout(doc, readout, roll, hidden) {
   if (hidden) {
     readout.appendChild(fdEl(doc, 'span', 'fd-floor-roll-readout-formula', `${checkTitle}检定`))
     readout.appendChild(fdEl(doc, 'span', 'fd-floor-roll-readout-tier', '暗骰封存'))
+    return
+  }
+  if (roll.checkType === 'contest' && roll.contest) {
+    const c = roll.contest
+    const zSign = c.margin > 0 ? `+${c.margin}` : String(c.margin)
+    readout.appendChild(fdEl(
+      doc,
+      'span',
+      'fd-floor-roll-readout-formula',
+      `我方 ${roll.total} vs ${c.rivalName || '对手'} ${c.rivalTotal}（z = ${zSign}）`
+    ))
+    readout.appendChild(fdEl(doc, 'span', 'fd-floor-roll-readout-tier', roll.tierLabel || '判定'))
     return
   }
   const rawDiceText = Array.isArray(roll.dice) && roll.dice.length ? `[${roll.dice.join('+')}]` : String(roll.total ?? '')
@@ -1524,7 +1664,7 @@ function fdDisposeFloorRollOverlay(entry) {
 }
 
 function fdPlayFloorRollAnim(article, entry, roll, animationPref, options) {
-  if (!roll) return false
+  if (!roll || roll.autoSuccess) return false
   if (entry && entry.disposed) return false
   const baseKey = fdFloorRollAnimKey(roll)
   const eventKey = options && options.eventKey ? String(options.eventKey) : ''
@@ -1545,7 +1685,7 @@ function fdPlayFloorRollAnim(article, entry, roll, animationPref, options) {
     if (baseKey && !eventKey && fdPlayedRollAnimKeys.has(baseKey)) return false
   }
 
-  const pref = String(animationPref || fdGetCachedAnimationPref() || 'bounce')
+  const pref = String(animationPref || fdGetCachedAnimationPref() || 'atelier')
   const hidden = Boolean(roll.hidden)
   const mode = FD3D.resolveThemeMode(roll, hidden)
   let theme = null
@@ -1600,6 +1740,7 @@ function fdPlayFloorRollAnim(article, entry, roll, animationPref, options) {
   const wrap = fdEl(doc, 'div', 'fd-floor-roll-overlay')
   wrap.setAttribute('aria-hidden', 'true')
   wrap.setAttribute('data-tier', tier)
+  if (theme && theme.id) wrap.setAttribute('data-skin', theme.id)
 
   const backdrop = fdEl(doc, 'div', 'fd-floor-roll-backdrop')
   const stageMask = fdEl(doc, 'div', 'fd-floor-roll-stage-mask')
@@ -1608,7 +1749,7 @@ function fdPlayFloorRollAnim(article, entry, roll, animationPref, options) {
 
   const topRail = fdEl(doc, 'div', 'fd-floor-roll-rail is-top')
   const bottomRail = fdEl(doc, 'div', 'fd-floor-roll-rail is-bottom')
-  const kicker = fdEl(doc, 'div', 'fd-floor-roll-kicker', fdBuildFloorRollKickerText(roll, hidden, mode))
+  const kicker = fdEl(doc, 'div', 'fd-floor-roll-kicker', fdBuildFloorRollKickerText(roll, hidden, mode, power))
   const readout = fdEl(doc, 'div', 'fd-floor-roll-readout')
   fdPopulateFloorRollReadout(doc, readout, roll, hidden)
 
@@ -1838,16 +1979,20 @@ function fdPlayFloorRollAnim(article, entry, roll, animationPref, options) {
     fdToggleNodeClass(wrap, 'is-fading', false)
     fdToggleNodeClass(wrap, 'has-presend-gate', ov.pinnedByGate)
     wrap.setAttribute('data-tier', next.tier)
-    kicker.textContent = fdBuildFloorRollKickerText(next.roll, next.hidden, next.mode)
+    if (next.theme && next.theme.id) wrap.setAttribute('data-skin', next.theme.id)
+    kicker.textContent = fdBuildFloorRollKickerText(next.roll, next.hidden, next.mode, next.power)
     fdPopulateFloorRollReadout(doc, readout, next.roll, next.hidden)
     try {
       ov.stage.setTheme(next.theme)
       syncPaneGeometry()
       ov.stage.resize()
       const launchPower = Math.max(0, Number(next.power) || 0)
-      if ((launchPower > 0.1 || ov.stage.charging) && typeof ov.stage.releaseButtonCharge === 'function') {
-        ov.stage.releaseButtonCharge(next.spec, Math.max(launchPower, 0.48))
+      if (launchPower > 0.1 && typeof ov.stage.releaseButtonCharge === 'function') {
+        ov.stage.releaseButtonCharge(next.spec, launchPower)
       } else {
+        if (ov.stage.charging && typeof ov.stage.cancelButtonCharge === 'function') {
+          ov.stage.cancelButtonCharge()
+        }
         ov.stage.throwDice(next.spec)
       }
     } catch {}
@@ -1972,29 +2117,51 @@ function fdMountImperativeFloorHeaders(ui) {
   let latestLiveEvent = null
   let stopWatches = fdNoop
 
-  const refreshAll = () => {
+  const refreshAll = opts => {
     if (disposed) return
     entries.forEach(entry => {
       entry.retryCount = 0
-      loadEntry(entry)
+      loadEntry(entry, opts)
+    })
+  }
+
+  const refreshTurns = (affectedTurns, opts) => {
+    if (disposed) return
+    const turnSet = new Set((affectedTurns || []).map(t => fdNumber(t, 0)).filter(t => t > 0))
+    entries.forEach(entry => {
+      const allowWasOpen = Boolean(entry.record && entry.record.rerollState && entry.record.rerollState.allowed)
+      if (entry.streaming || allowWasOpen || turnSet.has(entry.turn)) {
+        entry.retryCount = 0
+        loadEntry(entry, opts)
+      }
     })
   }
 
   const applyLiveEventToStreamingEntries = (gameId, data) => {
-    if (disposed || !data || typeof data !== 'object') return
+    if (disposed || !data || typeof data !== 'object') return false
+    let matched = false
     entries.forEach(entry => {
       if (!entry.streaming) return
       const optimistic = fdRecordFromLiveEvent(gameId, entry.turn, data, entry.record)
       if (!optimistic) return
+      matched = true
+      if (entry.retryTimer) {
+        clearTimeout(entry.retryTimer)
+        entry.retryTimer = 0
+      }
+      entry.retryCount = FD_STREAM_POLL_DELAYS.length
       entry.record = optimistic
       entry.gotLiveStreamRecord = true
-      /* 判定结果一落定立刻在正文中央投骰，不等正文写完、也不进胶囊 */
+      /* 若设了随正文落定揭晓且当前正流式生成中（且未触发发前暂停），暂不提前剧透投骰剧场 */
       const evTurn = fdNumber(data && data.turn, 0)
-      if (optimistic.roll && (!evTurn || !entry.turn || evTurn === entry.turn)) {
+      const deferReveal = data.revealTiming === 'stream-end'
+        && !(typeof fdIsPreSendGateHoldingOverlay === 'function' && fdIsPreSendGateHoldingOverlay())
+      if (optimistic.roll && !deferReveal && (!evTurn || !entry.turn || evTurn === entry.turn)) {
         fdPlayFloorRollAnim(entry.article, entry, optimistic.roll, data.animation)
       }
       renderEntry(entry)
     })
+    return matched
   }
 
   const bindGameWatches = nextId => {
@@ -2006,31 +2173,86 @@ function fdMountImperativeFloorHeaders(ui) {
     stopWatches()
     watchedGameId = id
     latestLiveEvent = null
-    const off1 = fdWatch(ui, id, 'turn-check', refreshAll)
+    let lastObservedTurn = 0
+    let lastObservedSettled = true
+
+    const off1 = fdWatch(ui, id, 'turn-check', data => {
+      const evTurn = fdNumber(data && data.turn, 0)
+      const affected = fdInvalidateTurnCache(id, evTurn)
+      if (evTurn > 0 || affected.length > 0) {
+        refreshTurns(affected, { force: true })
+      } else {
+        refreshAll({ force: true })
+      }
+    })
     const off2 = fdWatch(ui, id, 'live-roll', data => {
       latestLiveEvent = data && typeof data === 'object' ? { gameId: id, data } : null
       if (data && typeof data === 'object') {
-        /* 决策模型结果一落定即刻在对话视口正中央起全宽剧场，绝不等流式楼层 DOM 插入 */
+        /* 决策模型结果一落定即刻在对话视口正中央起全宽剧场（除非选择了随正文落定揭晓），绝不等流式楼层 DOM 插入 */
         if (data.kind === 'check' && data.roll) {
           const ts = fdNumber(data.emittedAt, fdNumber(data.roll.rolledAt, 0))
           const isFresh = !ts || Math.abs(Date.now() - ts) < 25000
-          if (isFresh) {
+          const deferForStreamEnd = data.revealTiming === 'stream-end'
+          if (isFresh && !deferForStreamEnd) {
             fdPlayFloorRollAnim(null, null, data.roll, data.animation, { eventKey: data.id || '' })
           }
-          if (!data.roll.hidden && (data.roll.tier === 'failure' || data.roll.tier === 'fumble') && typeof fdProbePreSendGate === 'function') {
+          if (
+            !data.roll.hidden
+            && (data.roll.tier === 'failure' || data.roll.tier === 'fumble')
+            && typeof fdProbePreSendGate === 'function'
+            && (typeof fdMayNeedPreSendGate !== 'function' || fdMayNeedPreSendGate(id))
+          ) {
             setTimeout(() => fdProbePreSendGate(id), 60)
             setTimeout(() => fdProbePreSendGate(id), 260)
           }
         }
-        applyLiveEventToStreamingEntries(id, data)
+        const matched = applyLiveEventToStreamingEntries(id, data)
+        const evTurn = fdNumber(data.turn, 0)
+        if (!matched && evTurn > 0) {
+          refreshTurns([evTurn], { force: true })
+        }
       }
-      refreshAll()
     })
-    const off3 = fdWatch(ui, id, 'workbench-sync', refreshAll)
+    const off3 = fdWatch(ui, id, 'workbench-sync', data => {
+      fdNoteRuntimeFlags(id, data)
+      if (data && (data.settings || data.rule || data.binding)) {
+        fdInvalidateTurnCache(id)
+        refreshAll({ force: true })
+        return
+      }
+      if (data && data.fate) {
+        const nextFate = fdNormalizeFate(data.fate)
+        entries.forEach(entry => {
+          if (entry.record && typeof entry.record === 'object') {
+            entry.record = { ...entry.record, fate: nextFate }
+            if (entry.record.rerollState && entry.record.rerollState.allowed) {
+              entry.record.rerollState = {
+                ...entry.record.rerollState,
+                fatePoints: nextFate.points,
+                fateMax: nextFate.max,
+                canFate: nextFate.points > 0
+              }
+            }
+            renderEntry(entry)
+          }
+        })
+      }
+    })
     let off4 = fdNoop
     if (ui && typeof ui.watchTurnState === 'function') {
       try {
-        const stopTurnState = ui.watchTurnState(id, () => refreshAll())
+        const stopTurnState = ui.watchTurnState(id, st => {
+          if (fdIsEnabledForGame(id) === false) return
+          const nextTurn = fdNumber(st && st.turn, 0)
+          const nextSettled = Boolean(st && st.settled)
+          const settledChanged = nextSettled && (!lastObservedSettled || (nextTurn > 0 && nextTurn !== lastObservedTurn))
+          lastObservedTurn = nextTurn
+          lastObservedSettled = nextSettled
+          if (settledChanged) {
+            const affected = fdInvalidateTurnCache(id, nextTurn)
+            refreshTurns(affected.length ? affected : [nextTurn], { force: true })
+          }
+        })
         if (typeof stopTurnState === 'function') off4 = stopTurnState
       } catch {}
     }
@@ -2050,9 +2272,9 @@ function fdMountImperativeFloorHeaders(ui) {
     if (sid) fdNoteActiveGameId(String(sid))
     if (disposed) return
     schedule()
-    if (!sid || String(sid).trim() === prevId) {
+    if (ev && ev.type === 'dsh-tavern-session-changed' && (!sid || String(sid).trim() === prevId)) {
       entries.forEach(entry => {
-        if (entry.streaming || !entry.record) {
+        if (!entry.loadedOnce) {
           entry.retryCount = 0
           loadEntry(entry)
         }
@@ -2066,6 +2288,8 @@ function fdMountImperativeFloorHeaders(ui) {
   }
   if (fdGetActiveGameId()) {
     bindGameWatches(fdGetActiveGameId())
+  } else if (typeof fdBootstrapActiveGame === 'function') {
+    fdBootstrapActiveGame(ui)
   } else {
     fdCall(ui, FD_RPC.status, {}).then(res => {
       const active = res && res.ok && res.data && (res.data.activeGameId || res.data.gameId)
@@ -2090,8 +2314,10 @@ function fdMountImperativeFloorHeaders(ui) {
     const hasRecordPayload = Boolean(
       record && (record.roll || record.setupRequiredReason || (record.judged && record.judged.shouldRoll === false))
     )
+    const pluginActive = fdIsEnabledForGame(watchedGameId || fdGetActiveGameId()) !== false
+      && !(record && (record.enabled === false || record.autoCheck === false))
     const awaitingLiveRoll = Boolean(
-      entry.streaming && (!hasRecordPayload || (record.streaming !== true && !entry.gotLiveStreamRecord))
+      pluginActive && entry.streaming && (!hasRecordPayload || (record.streaming !== true && !entry.gotLiveStreamRecord))
     )
     const hasContent = awaitingLiveRoll || hasRecordPayload
     if (!hasContent) {
@@ -2132,8 +2358,9 @@ function fdMountImperativeFloorHeaders(ui) {
     const judged = record.judged || null
     const setupReason = record.setupRequiredReason || ''
     const fate = fdNormalizeFate(record.fate)
-    const covered = Boolean(roll && roll.hidden && !entry.peeked)
     const isStreaming = Boolean(entry.streaming || record.streaming)
+    const delayedCover = Boolean(roll && !roll.autoSuccess && record.revealTiming === 'stream-end' && isStreaming)
+    const covered = Boolean(roll && ((roll.hidden && !entry.peeked) || delayedCover))
 
     let tone = 'skipped'
     let pillText = '真骰 · 免检定'
@@ -2141,7 +2368,10 @@ function fdMountImperativeFloorHeaders(ui) {
 
     if (roll) {
       tone = covered ? 'hidden' : fdTierOf(roll.tier)
-      if (covered) {
+      if (delayedCover) {
+        pillText = `🎲 ${roll.check || '检定'} · 待正文落定揭晓`
+        tooltip = '已设置随正文落定揭晓（点击可提前偷看，或待正文写完自动播骰）'
+      } else if (covered) {
         pillText = `暗骰 · ${roll.check || '感知'} · 点按偷看`
         tooltip = '感知/洞察暗骰（点击揭晓并展开详情）'
       } else {
@@ -2229,7 +2459,7 @@ function fdMountImperativeFloorHeaders(ui) {
     if (roll) {
       const animPref = (record && record.animation) || fdGetCachedAnimationPref()
       // 胶囊里只出静态骰面：智能切换（bounce）下重投专属皮肤不外带，静止展示一律回默认星穹
-      const animPrefStr = String(animPref || 'bounce')
+      const animPrefStr = String(animPref || 'atelier')
       const theme3d = FD3D.resolveTheme(
         animPref,
         animPrefStr === 'bounce' ? 'normal' : FD3D.resolveThemeMode(roll, false),
@@ -2269,16 +2499,33 @@ function fdMountImperativeFloorHeaders(ui) {
         dl.appendChild(fdEl(doc, 'dt', 'fd-turn-dt', label))
         dl.appendChild(fdEl(doc, 'dd', 'fd-turn-dd', value))
       }
-      addRow(
-        '骰面算式',
-        `${roll.rule || '2d6'} 原骰 [${(roll.dice || []).join(', ')}] = ${roll.total}（目标${roll.rule === 'd100' ? ' ≤ ' : ' ≥ '}${roll.target === undefined ? '—' : roll.target}）`
-      )
+      if (roll.autoSuccess) {
+        addRow('免骰直通', `⚡ 能力稳压「${roll.difficultyLabel || '容易'}」（保底 ${roll.total} ≥ 目标 ${roll.target === undefined ? '—' : roll.target}）· 直接达成`)
+      } else if (roll.checkType === 'contest' && roll.contest) {
+        const c = roll.contest
+        const zSign = c.margin > 0 ? `+${c.margin}` : String(c.margin)
+        addRow('交锋对抗', `我方 ${roll.rule || '2d6'} [${(roll.dice || []).join(', ')}] = ${roll.total} vs ${c.rivalName || '对手'} [${(c.rivalDice || []).join(', ')}] = ${c.rivalTotal}（差值 z = ${zSign}）`)
+      } else {
+        addRow(
+          '骰面算式',
+          `${roll.rule || '2d6'} 原骰 [${(roll.dice || []).join(', ')}] = ${roll.total}（目标${roll.rule === 'd100' ? ' ≤ ' : ' ≥ '}${roll.target === undefined ? '—' : roll.target}）`
+        )
+      }
       const breakdown = roll.modifierBreakdown || {}
       const skillBonus = fdNumber(breakdown.skillBonus ?? roll.skillBonus, 0)
       addRow(
         '能力修正',
         `${roll.check || '检定'} ${skillBonus >= 0 ? '+' : ''}${skillBonus}${roll.modifier ? `（环境/基调修正 ${roll.modifier > 0 ? '+' : ''}${roll.modifier}）` : ''}`
       )
+      const factors = fdCollectResistanceFactors(roll)
+      if (factors.length) {
+        dl.appendChild(fdEl(doc, 'dt', 'fd-turn-dt', '外部阻力'))
+        const ddFactors = fdEl(doc, 'dd', 'fd-turn-dd')
+        const row = fdEl(doc, 'div', 'fd-factor-row')
+        factors.forEach(f => row.appendChild(fdEl(doc, 'span', 'fd-factor-chip', `${f.label} ${f.delta}`)))
+        ddFactors.appendChild(row)
+        dl.appendChild(ddFactors)
+      }
       const damper = roll.damper || roll.damperSync || null
       if (damper) {
         const quota = damper.quota || damper.quotaSync || ''
@@ -2288,6 +2535,10 @@ function fdMountImperativeFloorHeaders(ui) {
         )
       }
       addRow('难度理由', `${roll.difficultyLabel || '判定'} · ${roll.reason || 'AI 综合评定'}`)
+      const deltaText = fdFormatProfileChanges(record.profileChanges)
+      if (deltaText) {
+        addRow('能力演进', `✦ ${deltaText}`)
+      }
       panel.appendChild(dl)
 
       const rerollState = record.rerollState && typeof record.rerollState === 'object'
@@ -2309,17 +2560,20 @@ function fdMountImperativeFloorHeaders(ui) {
           entry.rerolling = true
           entry.rerollHint = ''
           renderEntry(entry)
-          fdCall(ui, FD_RPC.rerollTurn, { gameId: fdGetActiveGameId(), turn: effectiveTurn, mode })
+          const activeId = fdGetActiveGameId()
+          fdCall(ui, FD_RPC.rerollTurn, { gameId: activeId, turn: effectiveTurn, mode })
             .then(res => {
               const data = res && res.ok ? res.data : null
               const nextRoll = data && data.ok !== false && data.roll ? data.roll : null
               if (nextRoll) {
+                fdInvalidateTurnCache(activeId, effectiveTurn)
                 entry.record = {
                   ...(entry.record || {}),
                   roll: nextRoll,
                   fate: data.fate || fate,
                   rerollState: data.rerollState || { allowed: false, reason: '本轮已重投锁定（每轮限 1 次）' }
                 }
+                fdRememberTurnRecord(activeId, effectiveTurn, entry.record)
                 /* 重投同样是「结果一到就投」：中央爆发，胶囊里只更新静态骰面 */
                 fdPlayFloorRollAnim(entry.article, entry, nextRoll, entry.record.animation, { power })
                 entry.rerollHint = data.mode === 'push'
@@ -2402,7 +2656,7 @@ function fdMountImperativeFloorHeaders(ui) {
     panelSlot.appendChild(panel)
   }
 
-  function loadEntry(entry) {
+  function loadEntry(entry, opts) {
     if (disposed) return
     if (entry.retryTimer) {
       clearTimeout(entry.retryTimer)
@@ -2411,42 +2665,64 @@ function fdMountImperativeFloorHeaders(ui) {
     const reqSeq = (entry.reqSeq || 0) + 1
     entry.reqSeq = reqSeq
     const activeGameId = fdGetActiveGameId()
-    fdCall(ui, FD_RPC.readTurn, {
+    if (entry.streaming && fdIsEnabledForGame(activeGameId) === false) {
+      entry.loadedOnce = true
+      entry.record = null
+      renderEntry(entry)
+      return
+    }
+    fdReadTurnBatched(ui, {
       gameId: activeGameId,
       turn: entry.turn,
-      streaming: Boolean(entry.streaming)
+      streaming: Boolean(entry.streaming),
+      force: Boolean(opts && opts.force)
     }).then(res => {
       if (disposed || entry.disposed || entry.reqSeq !== reqSeq) return
       const data = res && res.ok ? res.data : null
       if (data && data.gameId) fdNoteActiveGameId(String(data.gameId))
       const nextRecord = data && typeof data === 'object' ? data : null
       if (nextRecord) {
+        fdNoteRuntimeFlags(data.gameId || activeGameId, nextRecord)
         if (nextRecord.streaming === true) entry.gotLiveStreamRecord = true
+        const finishedNow = Boolean(entry.justFinishedStream && !entry.streaming && nextRecord.streaming !== true)
         entry.justFinishedStream = false
         entry.record = nextRecord
-        /* 生成期间首次读到本轮真骰（实时事件可能先到）：同样在正文中央补播一次 */
-        if (nextRecord.roll && (nextRecord.streaming === true || entry.streaming)) {
+        const deferReveal = nextRecord.revealTiming === 'stream-end' && (nextRecord.streaming === true || entry.streaming)
+        /* 判定即播：流式期间首次读到真骰立即播；随正文落定揭晓：等到正文刚落定（finishedNow）时再在视口中央补播 */
+        if (nextRecord.roll && !deferReveal && (nextRecord.streaming === true || entry.streaming || (finishedNow && nextRecord.revealTiming === 'stream-end'))) {
           fdPlayFloorRollAnim(entry.article, entry, nextRecord.roll, nextRecord.animation)
         }
       } else if (entry.streaming && entry.gotLiveStreamRecord && entry.record) {
         /* 保持已收到的实时检定快照，避免轮询间隙闪回「定难中」 */
-      } else if (!entry.streaming && entry.justFinishedStream && entry.gotLiveStreamRecord && entry.record && (entry.retryCount || 0) < 8) {
+      } else if (!entry.streaming && entry.justFinishedStream && entry.gotLiveStreamRecord && entry.record && (entry.retryCount || 0) < FD_POST_SETTLE_DELAYS.length) {
         /* 流式刚结束、后台结算正在写入的极短窗口内保留流式检定显示并继续重试确认 */
         entry.record = { ...entry.record, streaming: false }
       } else {
         entry.record = null
       }
+      if (!entry.streaming && !(nextRecord && nextRecord.streaming === true)) {
+        entry.loadedOnce = true
+      }
       renderEntry(entry)
+      const pluginActive = fdIsEnabledForGame(activeGameId) !== false
+        && !(nextRecord && (nextRecord.enabled === false || nextRecord.autoCheck === false))
       const hasPayload = Boolean(
         entry.record && (entry.record.roll || entry.record.setupRequiredReason || (entry.record.judged && entry.record.judged.shouldRoll === false))
       )
       const awaitingLive = Boolean(
-        entry.streaming && (!hasPayload || (entry.record.streaming !== true && !entry.gotLiveStreamRecord))
+        pluginActive && entry.streaming && (!hasPayload || (entry.record.streaming !== true && !entry.gotLiveStreamRecord))
       )
-      const awaitingPostStreamSettle = Boolean(!entry.streaming && entry.justFinishedStream && !nextRecord && (entry.retryCount || 0) < 8)
-      if ((awaitingLive && (entry.retryCount || 0) < 40) || awaitingPostStreamSettle) {
+      const awaitingPostStreamSettle = Boolean(
+        pluginActive && !entry.streaming && entry.justFinishedStream && !nextRecord && (entry.retryCount || 0) < FD_POST_SETTLE_DELAYS.length
+      )
+      if (awaitingLive && (entry.retryCount || 0) < FD_STREAM_POLL_DELAYS.length) {
+        const delay = FD_STREAM_POLL_DELAYS[entry.retryCount || 0]
         entry.retryCount = (entry.retryCount || 0) + 1
-        entry.retryTimer = setTimeout(() => loadEntry(entry), awaitingPostStreamSettle ? 400 : 500)
+        entry.retryTimer = setTimeout(() => loadEntry(entry, { force: true }), delay)
+      } else if (awaitingPostStreamSettle) {
+        const delay = FD_POST_SETTLE_DELAYS[entry.retryCount || 0]
+        entry.retryCount = (entry.retryCount || 0) + 1
+        entry.retryTimer = setTimeout(() => loadEntry(entry, { force: true }), delay)
       } else if (!entry.streaming) {
         entry.justFinishedStream = false
       }
@@ -2479,6 +2755,7 @@ function fdMountImperativeFloorHeaders(ui) {
       if (!entry || entry.head !== head || entry.host !== host) {
         const inheritedRecord = entry && entry.gotLiveStreamRecord && entry.record ? entry.record : null
         const inheritedLive = Boolean(entry && entry.gotLiveStreamRecord)
+        const wasStreaming = Boolean(entry && entry.streaming)
         if (entry) {
           entry.disposed = true
           if (entry.retryTimer) clearTimeout(entry.retryTimer)
@@ -2511,7 +2788,8 @@ function fdMountImperativeFloorHeaders(ui) {
           streaming,
           record: seedRecord,
           gotLiveStreamRecord: seedGotLive,
-          justFinishedStream: false,
+          justFinishedStream: Boolean(wasStreaming && !streaming),
+          loadedOnce: false,
           expanded: false,
           peeked: false,
           rerolling: false,
@@ -2526,10 +2804,12 @@ function fdMountImperativeFloorHeaders(ui) {
         }
         entries.set(article, entry)
         if (seedRecord) {
-          if (seedRecord.roll && streaming) fdPlayFloorRollAnim(article, entry, seedRecord.roll, seedRecord.animation)
+          if (seedRecord.roll && streaming && seedRecord.revealTiming !== 'stream-end') {
+            fdPlayFloorRollAnim(article, entry, seedRecord.roll, seedRecord.animation)
+          }
           renderEntry(entry)
         }
-        loadEntry(entry)
+        loadEntry(entry, { force: Boolean(wasStreaming && !streaming) })
       } else {
         const prevStreaming = entry.streaming
         const changed = entry.turn !== turn || prevStreaming !== streaming
@@ -2549,8 +2829,9 @@ function fdMountImperativeFloorHeaders(ui) {
           host.appendChild(entry.panelSlot)
         }
         if (changed) {
+          entry.loadedOnce = false
           entry.retryCount = 0
-          loadEntry(entry)
+          loadEntry(entry, { force: Boolean(prevStreaming && !streaming) })
         }
       }
     }
@@ -2663,7 +2944,7 @@ function StatusDiceSection(props) {
     !enabled
       ? h('div', { className: 'fd-guide-banner is-lite', role: 'note' },
         h('div', { className: 'fd-guide-banner-step' },
-          '命运之骰当前已关闭（默认关闭），可在右侧「插件 › 命运之骰 › 检定设置」中开启'))
+          '在「命运之骰」面板标题旁可开启检定'))
       : (judgeReady
         ? null
         : h('div', { className: 'fd-guide-banner is-lite', role: 'note' },

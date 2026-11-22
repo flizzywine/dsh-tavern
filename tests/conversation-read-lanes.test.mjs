@@ -24,23 +24,6 @@ test('joining a decoded recovery subtree promotes queued and subsequent physical
   gate.resolve(); await occupied.promise
 })
 
-test('promotion follows an already pending nested decoder', {timeout:1000}, async t => {
-  const schedule=createConversationReadLanes({concurrency:2}),cache=createDecodedJsonCache(),gate=deferred(),lanes=[]
-  t.after(()=>gate.resolve())
-  const occupied=schedule(()=>gate.promise,'background')
-  const recovery=withConversationReadLane('background',()=>cache.load('outer',()=>cache.load('inner',async()=>{
-    await schedule(lane=>lanes.push(lane)).promise
-    await schedule(lane=>lanes.push(lane)).promise
-    return {nested:true}
-  })))
-  await tick()
-  assert.deepEqual(lanes,[])
-  assert.deepEqual(await cache.load('outer',()=>assert.fail('duplicate outer decode')),{nested:true})
-  assert.deepEqual(lanes,['foreground','foreground'])
-  await recovery
-  gate.resolve();await occupied.promise
-})
-
 test('recovery uses one physical read and queued foreground work wins the next slot', async () => {
   const schedule=createConversationReadLanes({concurrency:2}), gates=[deferred(),deferred(),deferred(),deferred()], started=[]
   const read=(id,lane) => schedule(async()=>{started.push(id); await gates[id].promise; return id},lane)

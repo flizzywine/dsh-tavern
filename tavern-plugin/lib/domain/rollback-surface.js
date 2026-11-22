@@ -9,7 +9,7 @@ import { createSurfaceOwnership, planSurfaceRecovery, planSurfaceRange, SurfaceR
 import { randomUUID } from 'node:crypto'
 import { inputKind, isTurnInput, isNewTurnInput, isNewPlayerInput, isFailedTurnEnd } from './session-turn-input.js'
 import { resolveRoundAnchor } from './round-anchor.js'
-import { isPluginSource, isProducerSource, sourceProducerName } from './message-source.js'
+import { isProducerSource, sourceProducerName } from './message-source.js'
 
 function object(value) {
   return value !== null && typeof value === 'object' ? value : null
@@ -741,7 +741,7 @@ export function locateRollbackSurface(input) {
     if (isCompactionCheckpoint(event)) return null
     // The round starts at its input: messages other plugins or card scripts add
     // around it belong to the round and go with it, never stand in for it.
-    if (event && event.type === 'user/message' && (isTurnInput(event.data) || !isPluginSource(event.data?.source)) && !isRollbackUserTombstone(event)) {
+    if (event?.type === 'user/message' && (isTurnInput(event.data) || !event.data?.source)) {
       userIndex = index
       break
     }
@@ -803,9 +803,10 @@ export function reshadowRolledBackRounds(session, turns) {
     try { target = locateRollbackSurface({ events: sessionEvents(session), nodes: session.surface?.nodes || [] }) }
     catch (error) { if (error instanceof SurfaceRecoveryError) break; throw error }
     if (!target || !turns.has(target.turn) || done.includes(target.turn)) break
+    const { toolReplay: _toolReplay, replayState: _replayState, ...source } = target.source
     replaceSessionSurface(session, 'assistant/message', {
       turn: target.turn, step: target.step,
-      message: { id: 'tavern-rollback-repair:' + target.turn + ':' + target.assistantSeq, role: 'assistant', content: [], source: target.source }
+      message: { id: 'tavern-rollback-repair:' + target.turn + ':' + target.assistantSeq, role: 'assistant', content: [], source }
     }, { start: target.userSeq, end: target.endSeq, sourceEventSeqs: [...target.shadowedSeqs] })
     done.push(target.turn)
   }
@@ -1188,6 +1189,35 @@ function incompleteReplyTarget(chat, failedTurns) {
   return failedTurn === undefined ? null : { kind: 'failed-tail', turn: failedTurn }
 }
 
+function alreadyShadowedRollbackTarget(chat, latest, events, nodes) {
+  const turn = Number(latest?.turn)
+  const checkpoint = chat.timeline?.checkpoints?.at(-1)
+  if (!Number.isSafeInteger(turn) || turn <= 1 || Number(checkpoint?.turn) !== turn || latest.placeholder || latest.incomplete) return null
+  const resolved = resolveRoundAnchor({ events, nodes }, latest.nativeAnchor)
+  if (!resolved || resolved.input === null || resolved.reply === null) return null
+  const reply = eventAt(events, resolved.reply)
+  const replyIndex = nodes.indexOf(resolved.reply)
+  if (replyIndex < 0 || !isRollbackAssistantTombstone(reply, events)) return null
+  const storyBoundary = seq => {
+    const event = eventAt(events, seq)
+    return isCompactionCheckpoint(event) || (event?.type === 'user/message' && (isTurnInput(event.data) || !event.data?.source)) ||
+      (event?.type === 'assistant/message' && modelSourceOf(event) !== null && !isRollbackAssistantTombstone(event, events))
+  }
+  // The reply's lineage proves it was shadowed. A newer story or compaction
+  // boundary makes it unsafe to restore just this checkpoint.
+  if (nodes.slice(replyIndex + 1).some(storyBoundary)) return null
+  if (resolved.input === resolved.reply) return { turn, alreadyShadowed: true }
+  // Older rollbacks could start at injected context, leaving the actual input
+  // visible. Include that anchored input only when it still ends at this shadow.
+  const input = eventAt(events, resolved.input)
+  const inputIndex = nodes.indexOf(resolved.input)
+  if (inputIndex < 0 || inputIndex >= replyIndex || input?.type !== 'user/message' || !isTurnInput(input.data)
+    || nodes.slice(inputIndex + 1, replyIndex).some(storyBoundary)) return null
+  const cleanup = { userSeq: resolved.input, endSeq: resolved.reply, shadowedSeqs: nodes.slice(inputIndex, replyIndex + 1),
+    source: modelSourceOf(reply) }
+  return { turn, alreadyShadowed: true, cleanup }
+}
+
 // UI and mutation share the same native target and failed-tail precedence.
 function planRollbackAvailability(chat, { events = [], nodes = [] } = {}) {
   const unclearedTurns = unclearedFailedTail(chat, events, nodes)
@@ -1196,16 +1226,16 @@ function planRollbackAvailability(chat, { events = [], nodes = [] } = {}) {
   if (failedTurns.length) return { canRollback: true, canClearIncompleteReply: true, clearIncompleteReplyTarget, failedTurns, unclearedTurns, target: null, reason: '' }
   const messages = Array.isArray(chat.messages) ? chat.messages : []
   const latest = messages.findLast(message => message?.role === 'assistant' && message.greeting !== true)
-  const target = locateRollbackSurface({ events, nodes, anchor: latest?.nativeAnchor })
   if (isRescuedHistoryMessage(chat, latest)) return { canRollback: false, canClearIncompleteReply: false, failedTurns, target: null, reason: '存档救援导入的历史不可回退，请发送新消息继续' }
+  const hasMessages = hasRollbackMessages(messages)
+  const target = locateRollbackSurface({ events, nodes, anchor: latest?.nativeAnchor })
   const turn = Number(latest?.turn)
   const matchesTurn = Boolean(target && (!(turn > 0) || target.turn === turn || target.turn === Number(chat.regeneratedDshTurns?.[String(turn)])))
   // 投影/修复写回的正文会带着别的剧情轮号：存档行记着它指的就是这一条，就还是这一轮。
   const matchesAnchor = Boolean(target && !matchesTurn && anchoredToSaveRow(target, latest))
-  const matches = matchesTurn || matchesAnchor
-  const hasMessages = hasRollbackMessages(messages)
-  const canRollback = hasMessages && Boolean(matches)
-  return { canRollback, canClearIncompleteReply: clearIncompleteReplyTarget !== null, clearIncompleteReplyTarget, failedTurns, target: canRollback ? target : null,
+  const rollbackTarget = !hasMessages ? null : matchesTurn || matchesAnchor ? target : alreadyShadowedRollbackTarget(chat, latest, events, nodes)
+  const canRollback = rollbackTarget !== null
+  return { canRollback, canClearIncompleteReply: clearIncompleteReplyTarget !== null, clearIncompleteReplyTarget, failedTurns, target: rollbackTarget,
     reason: canRollback ? '' : hasMessages ? '当前轮次已不在可回退的消息流中，请继续发送新消息；历史正文仍保留。' : '当前没有可回退的已提交轮次' }
 }
 

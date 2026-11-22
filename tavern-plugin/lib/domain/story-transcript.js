@@ -10,6 +10,8 @@ import { legacyMessageUid } from './message-uid.js'
 // A page or summary set that cannot be aligned with the full history throws
 // instead of projecting silently wrong floors.
 
+export const isStoryFloor = row => row?.role === 'assistant'
+
 const isPositiveTurn = turn => typeof turn === 'number' && Number.isInteger(turn) && turn > 0
 
 const isRecord = value => Boolean(value) && typeof value === 'object' && !Array.isArray(value)
@@ -87,7 +89,7 @@ export function projectStoryTranscript(window, summaries) {
     if (typeof entry.role !== 'string' || entry.role === '') {
       fail(`故事窗口不连续：${label}[${index}] 缺少 role`)
     }
-    assistantPrefix[index + 1] = assistantPrefix[index] + (entry.role === 'assistant' ? 1 : 0)
+    assistantPrefix[index + 1] = assistantPrefix[index] + (isStoryFloor(entry) ? 1 : 0)
     if (isPositiveTurn(entry.turn)) turnCounts.set(entry.turn, (turnCounts.get(entry.turn) ?? 0) + 1)
   }
 
@@ -115,7 +117,7 @@ export function projectStoryTranscript(window, summaries) {
       absoluteIndex,
       key,
       legacyTurn,
-      floorNo: summary.role === 'assistant' ? assistantPrefix[absoluteIndex] + 1 : null,
+      floorNo: isStoryFloor(summary) ? assistantPrefix[absoluteIndex] + 1 : null,
       messageUid: legacyMessageUid(message, absoluteIndex),
       message
     })

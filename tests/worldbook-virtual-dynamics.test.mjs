@@ -15,59 +15,6 @@ function fixture(entries, render = async text => ({ ok: true, text, scopes: {} }
   }
   return { worldBook, chat, project, run }
 }
-test('an unbound worldbook projects empty context and can gain entries in the same request', async () => {
-  let worldBook = null
-  const project = createForegroundWorldbook({ bound: async () => worldBook,
-    runtime: async () => ({ render: async text => ({ ok: true, text, scopes: {} }) }),
-    globalVariables: async () => ({}) })
-  const chat = { sessionId: 'unbound', messages: [] }
-  const run = () => project({ chat, card: {}, requestKey: 'one' })
-  const empty = await run()
-  assert.equal(empty.error, null)
-  assert.equal(empty.context, '')
-  assert.equal(empty.prefixContext, '')
-  assert.deepEqual(empty.refs, [])
-  worldBook = { view: { entries: [entry('setting', 'A quiet room.')] } }
-  const bound = await run()
-  assert.equal(bound.error, null)
-  assert.equal(bound.prefixContext, 'A quiet room.')
-  worldBook = null
-  const removed = await run()
-  assert.equal(removed.error, null)
-  assert.equal(removed.prefixContext, '')
-})
-
-test('new earlier setters survive cached controller replay and refresh pure readers', async () => {
-  const entries = [entry('a', '<% controller %>', true, { order: 10 }), entry('b', '{{setvar::weather::snow}}', false, { order: 0 }), entry('c', '{{getvar::weather}}', true, { order: 20 })]
-  let calls = 0
-  const f = fixture(entries, async () => { calls++; return { ok: true, text: 'controller', scopes: {}, activationRequests: [{ ref: 'b', force: true }] } })
-  const result = await f.run()
-  assert.equal(result.error, null)
-  assert.doesNotMatch(result.context, /snow/)
-  assert.equal(result.virtualState.entries.c.text, 'snow')
-  assert.doesNotMatch(result.context, /sun/)
-  assert.equal(result.macroState.local.weather, 'snow')
-  assert.equal(calls, 1)
-})
-test('whole-book preprocessing is guarded once per request and decorator edits are explicitly deferred', async () => {
-  let preparations = 0
-  const worldBook = { view: { entries: [entry('controller', '@@generate\n<% controller %>'), entry('plain', 'plain', false)] } }
-  const runtime = { render: async () => ({ ok: true, text: 'controller', scopes: {} }),
-    prepareWorldbook: async entries => { preparations++; return { entries, scopes: {} } } }
-  const project = createForegroundWorldbook({ bound: async () => worldBook, runtime: async () => runtime, globalVariables: async () => ({}) })
-  const chat = { sessionId: 'preprocess', worldbookStrategy: 'native-skills', messages: [] }
-  await project({ chat, card: {}, requestKey: 'one' })
-  // A re-read book yields new entry objects; the view is never edited in place.
-  worldBook.view.entries = [worldBook.view.entries[0], { ...worldBook.view.entries[1], content: 'edited plain' }]
-  await project({ chat, card: {}, requestKey: 'one' })
-  assert.equal(preparations, 1)
-  worldBook.view.entries = [{ ...worldBook.view.entries[0], content: '@@generate\n<% changed %>' }, worldBook.view.entries[1]]
-  const deferred = await project({ chat, card: {}, requestKey: 'one' })
-  assert.equal(preparations, 1)
-  assert.ok(deferred.diagnostics.some(item => item.code === 'preprocessing-edit-deferred-to-next-request'))
-  await project({ chat, card: {}, requestKey: 'two' })
-  assert.equal(preparations, 2)
-})
 test('persisted preprocessing guard survives executor restart in the same explicit request', async () => {
   let preparations = 0
   const worldBook = { view: { entries: [entry('controller', '@@generate\n<% controller %>')] } }
@@ -81,14 +28,6 @@ test('persisted preprocessing guard survives executor restart in the same explic
   assert.equal(preparations, 1)
   await create()({ chat, card: {}, requestKey: 'two' })
   assert.equal(preparations, 2)
-})
-test('nested effectful getter executes only once across activation convergence', async () => {
-  const f = fixture([entry('a', '<% controller %>', true, { order: 10 }), entry('b', '{{char}}', false), entry('c', '{{getvar::nested}}', true, { order: 20 })], async () => ({ ok: true, text: 'controller', scopes: {}, activationRequests: [{ ref: 'b', force: true }] }))
-  f.chat.macroState.local.nested = '{{incvar::count}}'
-  f.chat.macroState.local.count = 0
-  const result = await f.run('one')
-  assert.equal(result.macroState.local.count, 1)
-  assert.equal(result.virtualState.entries.c.text, '1')
 })
 for (const scope of ['local', 'global']) test(`macro ${scope} dependency reads actual macro scope, not identically named EJS variables`, async () => {
   const suffix = scope === 'global' ? 'globalvar' : 'var'

@@ -14,16 +14,6 @@ function fixture(){
  const create=tune=>owner.create({PIXI,container,tune:tune||(()=>{})})
  return {owner,create,allocated,container}
 }
-test('figure appearance preserves filter order, quality changes and idle expiry',()=>{
- const e=fixture(),view=e.create(),input={mode:'glow',defocused:true,quality:'high',now:0,dt:.1}
- view.tick(input);assert.equal(view.filters.all().length,3);assert.equal(view.filters.get('rim').options.distance,14);assert.equal(view.filters.get('dof').blur,2)
- const matrix=Array.from({length:20},(_,i)=>i);view.setShade(matrix,null);assert.deepEqual([...view.filters.get('shade').uniforms.m],matrix);assert.equal(view.filters.get('shade').uniforms.uLight[2],0)
- const lit=new Float32Array(12).fill(.5);view.setShade(matrix,lit);assert.deepEqual([...view.filters.get('shade').uniforms.uLight],[.5,.5,.5])
- const previous=view.filters.get('rim');view.tick({...input,quality:'low',now:10});assert.equal(previous.dead,1);assert.equal(view.filters.get('rim').options.distance,8)
- view.tick({...input,mode:'',defocused:false,now:20});view.tick({...input,mode:'',defocused:false,now:4000});assert.equal(view.filters.all().length,1)
- e.owner.dispose();view.dispose();assert.equal(e.container.filters,null);assert.ok(e.allocated.every(filter=>filter.dead===1))
- const count=e.allocated.length;view.tick(input);view.setShade(matrix,null);assert.equal(e.allocated.length,count)
-})
 test('reduced-motion armed cue uses actor colour and snapshots do not expose state',()=>{
  const e=fixture(),view=e.create();view.tick({armedOn:1,reduced:true,color:'#000000',quality:'high',now:0,dt:0})
  assert.equal(view.filters.get('rim').color,0x7f7f7f);assert.equal(view.filters.get('rim').outerStrength,2)

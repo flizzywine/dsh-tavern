@@ -8,8 +8,10 @@ import {
   RULE_LABELS,
   RULE_TARGETS,
   SKILL_BUDGET_SPECS,
+  generateFateTape,
   normalizeDifficulty,
   normalizeRule,
+  parseTapeUsageFromText,
   rollCheck,
   rollExpression
 } from './dice-engine.js'
@@ -17,13 +19,14 @@ import {
   SKILL_CATEGORIES,
   buildProfileDigest,
   collectCharacterMaterial,
+  diffCharacterProfiles,
   normalizeCharacterProfile,
   refreshProfileWithBackgroundLlm,
   summarizeMvuVariables
 } from './auto-profiler.js'
 import { buildDamperJudgeQuestions, resolveCheckFromDamperContext } from './damper-bridge.js'
 import { judgeActionDifficulty } from './difficulty-judge.js'
-import { buildTurnInjection, extractContextSnippet } from './prompt-builder.js'
+import { buildEncounterInjection, buildFateTapeInjection, buildTurnInjection, extractContextSnippet } from './prompt-builder.js'
 import {
   PRE_SEND_GATE_HOST_BUDGET_MS,
   PRE_SEND_GATE_IDLE_MS,
@@ -42,6 +45,12 @@ export const PLUGIN_VERSION = '1.4.2'
 const TONE_BIAS_BONUS = Object.freeze({ balanced: 0, heroic: 1, gritty: -1 })
 const SENSITIVITY_VALUES = Object.freeze(['strict', 'normal', 'rare'])
 const ANIMATION_VALUES = Object.freeze([
+  'atelier',
+  'pixel',
+  'etching',
+  'urushi',
+  'bauhaus',
+  'murano',
   'bounce',
   'prism',
   'inferno',
@@ -52,6 +61,7 @@ const ANIMATION_VALUES = Object.freeze([
   'none'
 ])
 const TONE_VALUES = Object.freeze(Object.keys(TONE_BIAS_BONUS))
+const REVEAL_TIMING_VALUES = Object.freeze(['immediate', 'stream-end'])
 const GLOBAL_GAME_ID = '__fate_dice_global__'
 const MAX_CACHE_ENTRIES = 60
 const MAX_SETTLED_LOCKS = 60
@@ -65,11 +75,15 @@ export const DEFAULT_GLOBAL_SETTINGS = Object.freeze({
   alwaysRoll: false,
   damperLinkage: true,
   allowHeuristicFallback: false,
+  tapeFallbackEnabled: false,
+  autoSuccessEnabled: true,
+  contestEnabled: true,
+  revealTiming: 'immediate',
   rule: '2d6',
   sensitivity: 'normal',
   toneBias: 'balanced',
   allowHidden: true,
-  animation: 'bounce',
+  animation: 'atelier',
   /* 失败 / 大失败时暂停正文发送，等玩家选择是否用命运点逆命重投或孤注一掷 */
   preSendPause: false,
   preSendScope: 'both',
@@ -97,7 +111,10 @@ function settingsCacheSignature(settings) {
     settings.alwaysRoll ? 1 : 0,
     settings.allowHidden ? 1 : 0,
     settings.damperLinkage ? 1 : 0,
-    settings.allowHeuristicFallback ? 1 : 0
+    settings.allowHeuristicFallback ? 1 : 0,
+    settings.tapeFallbackEnabled ? 1 : 0,
+    settings.autoSuccessEnabled !== false ? 1 : 0,
+    settings.contestEnabled !== false ? 1 : 0
   ].join(':')
 }
 
@@ -170,7 +187,11 @@ function sanitizeSettings(input = {}, fallback = DEFAULT_GLOBAL_SETTINGS) {
   const base = { ...DEFAULT_GLOBAL_SETTINGS, ...(fallback || {}) }
   const next = { ...base }
   const source = input && typeof input === 'object' ? input : {}
-  for (const key of ['enabled', 'autoCheck', 'alwaysRoll', 'damperLinkage', 'allowHidden', 'allowHeuristicFallback', 'preSendPause']) {
+  for (const key of [
+    'enabled', 'autoCheck', 'alwaysRoll', 'damperLinkage',
+    'allowHidden', 'allowHeuristicFallback', 'tapeFallbackEnabled',
+    'autoSuccessEnabled', 'contestEnabled', 'preSendPause'
+  ]) {
     if (source[key] !== undefined) next[key] = Boolean(source[key])
   }
   if (source.autoHidden !== undefined && source.allowHidden === undefined) next.allowHidden = Boolean(source.autoHidden)
@@ -181,6 +202,7 @@ function sanitizeSettings(input = {}, fallback = DEFAULT_GLOBAL_SETTINGS) {
   if (source.sensitivity !== undefined && SENSITIVITY_VALUES.includes(source.sensitivity)) next.sensitivity = source.sensitivity
   if (source.animation !== undefined && ANIMATION_VALUES.includes(source.animation)) next.animation = source.animation
   if (source.toneBias !== undefined && TONE_VALUES.includes(source.toneBias)) next.toneBias = source.toneBias
+  if (source.revealTiming !== undefined && REVEAL_TIMING_VALUES.includes(source.revealTiming)) next.revealTiming = source.revealTiming
   if (source.preSendScope !== undefined) next.preSendScope = source.preSendScope
   if (source.preSendWait !== undefined) next.preSendWait = source.preSendWait
   const gateDefaults = normalizePreSendGateSettings(next)
@@ -191,9 +213,13 @@ function sanitizeSettings(input = {}, fallback = DEFAULT_GLOBAL_SETTINGS) {
 
 function normalizeGlobalStore(raw) {
   const data = raw && typeof raw === 'object' ? raw : {}
+  const prevVersion = toInt(data.version, 0)
+  const settings = sanitizeSettings(data.settings, DEFAULT_GLOBAL_SETTINGS)
+  /* v4 起命运之骰的开启/关闭改为按会话记忆：迁移旧版存盘（version < 4）时重置历史全局 enabled，避免污染所有会话 */
+  if (prevVersion > 0 && prevVersion < 4) settings.enabled = false
   return {
-    version: 3,
-    settings: sanitizeSettings(data.settings, DEFAULT_GLOBAL_SETTINGS),
+    version: 4,
+    settings,
     updatedAt: toInt(data.updatedAt, Date.now())
   }
 }
@@ -396,20 +422,100 @@ export function apply(ctx) {
   const turnCacheByGame = new Map()
   const pendingByGame = new Map()
   const pendingProfileByGame = new Map()
+  const pendingEncounterByGame = new Map()
+  const pendingTapeByGame = new Map()
   const attachedCapsuleKeys = new Set()
+  const gameStateCache = new Map()
+  const gameReadInflight = new Map()
+  const liveTurnCache = new Map()
+  const storedTurnDataCache = new Map()
+  const MAX_GAME_CACHE = 32
+  const MAX_STORED_TURN_CACHE = 512
+  const LIVE_TURN_TTL_MS = 250
   /* 发前重投闸门：一次「暂停发送」= 一个 broker 等待，由浏览器 RPC 或超时收口 */
   const preSendGateBroker = createPreSendGateBroker()
   const activeGatePayloadByGame = new Map()
   let globalCache = null
   let lastActiveGameId = ''
 
+  function rememberBounded(map, key, value, limit) {
+    if (map.has(key)) map.delete(key)
+    map.set(key, value)
+    while (map.size > limit) {
+      const oldest = map.keys().next().value
+      if (oldest === undefined) break
+      map.delete(oldest)
+    }
+    return value
+  }
+
+  function invalidateGameReadCaches(gameId, turn = 0) {
+    if (!gameId) return
+    liveTurnCache.delete(gameId)
+    if (turn > 0) {
+      storedTurnDataCache.delete(`${gameId}:${turn}`)
+      return
+    }
+    gameStateCache.delete(gameId)
+    gameReadInflight.delete(gameId)
+    for (const key of [...storedTurnDataCache.keys()]) {
+      if (key.startsWith(`${gameId}:`)) storedTurnDataCache.delete(key)
+    }
+  }
+
+  function gameHasAnyHistory(game) {
+    if (!game || typeof game !== 'object') return false
+    if (toInt(game.lastTurn, 0) > 0 || Boolean(game.lastRoll)) return true
+    if (game.settledRolls && Object.keys(game.settledRolls).length > 0) return true
+    if (game.summary && toInt(game.summary.total, 0) > 0) return true
+    return false
+  }
+
+  async function readStoredTurnCached(gameId, turn, game = null) {
+    const turnNum = toInt(turn, 0)
+    if (!gameId || turnNum <= 0 || typeof tavern.readTurnData !== 'function') return null
+    // saveTurnData 仅在 writeGame 写入本局历史之后才会被调用；空局无需扫描历史楼层
+    if (game && typeof tavern.readGameData === 'function' && !gameHasAnyHistory(game)) {
+      return null
+    }
+    const cacheKey = `${gameId}:${turnNum}`
+    if (storedTurnDataCache.has(cacheKey)) {
+      const cached = storedTurnDataCache.get(cacheKey)
+      return cached ? structuredClone(cached) : null
+    }
+    let stored = null
+    try {
+      const raw = await tavern.readTurnData({ gameId, turn: turnNum })
+      if (raw && toInt(raw.turn, 0) === turnNum && raw.data) {
+        stored = raw
+      }
+    } catch {
+      stored = null
+    }
+    rememberBounded(storedTurnDataCache, cacheKey, stored ? structuredClone(stored) : null, MAX_STORED_TURN_CACHE)
+    return stored
+  }
+
   async function readLiveLatestTurn(gameId) {
     if (!gameId || typeof tavern.getTurnState !== 'function') return 0
-    try {
-      const st = await tavern.getTurnState({ gameId })
-      if (st && st.greeting !== true) return Math.max(0, toInt(st.turn, 0))
-    } catch {}
-    return 0
+    const now = Date.now()
+    const entry = liveTurnCache.get(gameId)
+    if (entry) {
+      if (entry.inflight) return entry.inflight
+      if (now - entry.at < LIVE_TURN_TTL_MS) return entry.turn
+    }
+    const inflight = (async () => {
+      try {
+        const st = await tavern.getTurnState({ gameId })
+        if (st && st.greeting !== true) return Math.max(0, toInt(st.turn, 0))
+      } catch {}
+      return 0
+    })().then(value => {
+      liveTurnCache.set(gameId, { turn: value, at: Date.now(), inflight: null })
+      return value
+    })
+    rememberBounded(liveTurnCache, gameId, { turn: entry ? entry.turn : 0, at: now, inflight }, MAX_GAME_CACHE)
+    return inflight
   }
 
   async function readGlobal() {
@@ -453,18 +559,39 @@ export function apply(ctx) {
 
   async function readGame(gameId, fallbackRule = '2d6') {
     if (!gameId) return normalizeGameState(null, fallbackRule)
-    let raw = null
-    try {
-      if (typeof tavern.readGameData === 'function') raw = await tavern.readGameData({ gameId })
-    } catch {
-      raw = null
+    if (gameStateCache.has(gameId)) {
+      return normalizeGameState(structuredClone(gameStateCache.get(gameId)), fallbackRule)
     }
-    return normalizeGameState(raw && raw.data !== undefined ? raw.data : raw, fallbackRule)
+    if (gameReadInflight.has(gameId)) {
+      const shared = await gameReadInflight.get(gameId)
+      return normalizeGameState(structuredClone(shared), fallbackRule)
+    }
+    const work = (async () => {
+      let raw = null
+      let loaded = false
+      try {
+        if (typeof tavern.readGameData === 'function') {
+          raw = await tavern.readGameData({ gameId })
+          loaded = true
+        }
+      } catch {
+        raw = null
+      }
+      const normalized = normalizeGameState(raw && raw.data !== undefined ? raw.data : raw, fallbackRule)
+      if (loaded) rememberBounded(gameStateCache, gameId, structuredClone(normalized), MAX_GAME_CACHE)
+      return normalized
+    })().finally(() => {
+      if (gameReadInflight.get(gameId) === work) gameReadInflight.delete(gameId)
+    })
+    gameReadInflight.set(gameId, work)
+    const result = await work
+    return structuredClone(result)
   }
 
   async function writeGame(gameId, data) {
     if (!gameId) return data
     const next = { ...data, updatedAt: Date.now() }
+    rememberBounded(gameStateCache, gameId, structuredClone(next), MAX_GAME_CACHE)
     try {
       if (typeof tavern.saveGameData === 'function') await tavern.saveGameData({ gameId, data: next })
     } catch {}
@@ -565,6 +692,10 @@ export function apply(ctx) {
       alwaysRoll: Boolean(settings.alwaysRoll),
       damperLinkage: settings.damperLinkage,
       allowHeuristicFallback: Boolean(settings.allowHeuristicFallback),
+      tapeFallbackEnabled: Boolean(settings.tapeFallbackEnabled),
+      autoSuccessEnabled: settings.autoSuccessEnabled !== false,
+      contestEnabled: settings.contestEnabled !== false,
+      revealTiming: settings.revealTiming || 'immediate',
       animation: settings.animation,
       preSendPause: Boolean(settings.preSendPause),
       preSendScope: normalizePreSendGateSettings(settings).scope,
@@ -769,6 +900,7 @@ export function apply(ctx) {
     let judged = null
     let damperUsed = false
     let setupRequiredReason = ''
+    let fateTape = null
 
     if (settings.damperLinkage) {
       const damperContext = (await readDamperContext(gameId, damperTurn))
@@ -776,9 +908,9 @@ export function apply(ctx) {
       if (damperContext) {
         const bypassedCode = damperContext.outcome?.status === 'bypassed' ? String(damperContext.outcome.code || '') : ''
         const unconfiguredDamper = bypassedCode === 'DAMPER_NO_KEY' || bypassedCode === 'DAMPER_INVALID_CONFIG' || bypassedCode === 'DAMPER_AUTH_ERROR'
-        if (unconfiguredDamper && !settings.allowHeuristicFallback) {
+        if (unconfiguredDamper && !settings.allowHeuristicFallback && !settings.tapeFallbackEnabled) {
           setupRequiredReason = bypassedCode
-        } else {
+        } else if (!unconfiguredDamper || settings.allowHeuristicFallback) {
           damperUsed = true
           judged = resolveCheckFromDamperContext({
             damperContext,
@@ -806,7 +938,12 @@ export function apply(ctx) {
         }
       }
       if (!judgeReady && !settings.allowHeuristicFallback) {
-        setupRequiredReason = judgeReason
+        if (settings.tapeFallbackEnabled) {
+          fateTape = generateFateTape({ rule: activeRule, count: 6 })
+          pendingTapeByGame.set(gameId, { turn: storyTurn, rawTurn: damperTurn, tape: fateTape })
+        } else {
+          setupRequiredReason = judgeReason
+        }
       } else {
         const material = await collectCharacterMaterial({ tavern, gameId, turn: storyTurn }).catch(() => null)
         const characterMaterial = buildProfileDigest(
@@ -850,8 +987,24 @@ export function apply(ctx) {
       const toneBonus = TONE_BIAS_BONUS[settings.toneBias] || 0
       const edgeBonus = Number(judged.edgeBonus) || 0
       const skillBonus = Number(judged.skillBonus) || 0
+      const resistanceFactors = [
+        ...(Array.isArray(judged.resistanceFactors) ? judged.resistanceFactors : []),
+        ...(Array.isArray(mvuNow.environmentCues)
+          ? mvuNow.environmentCues.map(c => ({ label: c.label, delta: '场景', source: c.source }))
+          : [])
+      ]
+      if (toneBonus > 0) resistanceFactors.push({ label: '英雄基调', delta: `+${toneBonus}`, source: 'tone' })
+      else if (toneBonus < 0) resistanceFactors.push({ label: '严苛基调', delta: `${toneBonus}`, source: 'tone' })
+
+      const checkType = settings.contestEnabled !== false && judged.checkType === 'contest' && !judged.hidden
+        ? 'contest'
+        : 'normal'
+
       roll = rollCheck({
         rule: activeRule,
+        checkType,
+        allowAutoSuccess: settings.autoSuccessEnabled !== false && !rerollMode,
+        forceRoll: Boolean(rerollMode),
         skillId: judged.skillId,
         skillName: judged.skillName || judged.check,
         check: judged.check,
@@ -863,12 +1016,14 @@ export function apply(ctx) {
         reason: judged.reason,
         stakes: '成功推动预期进展；失败产生真实阻力与新变化'
       })
+      roll.resistanceFactors = resistanceFactors.slice(0, 6)
       roll.modifierBreakdown = {
         skillBonus,
         edgeBonus,
         varModifier: 0,
         matchedVars: mvuNow.highlights?.slice(0, 4).map(h => ({ label: h.key, value: h.value })) || [],
-        toneBonus
+        toneBonus,
+        resistanceFactors: roll.resistanceFactors
       }
       roll.judgeSource = judged.source || 'heuristic'
       roll.judgeTier = judged.judgeTier || null
@@ -896,7 +1051,12 @@ export function apply(ctx) {
       settings
     })
 
-    const injection = buildTurnInjection(roll)
+    const encounterRoll = pendingEncounterByGame.get(gameId) || null
+    const baseInjection = roll ? buildTurnInjection(roll) : (fateTape ? buildFateTapeInjection(fateTape) : '')
+    const encounterInjection = encounterRoll ? buildEncounterInjection(encounterRoll) : ''
+    const injection = [baseInjection, encounterInjection].filter(Boolean).join('\n\n')
+    const revealTiming = roll?.autoSuccess ? 'immediate' : (settings.revealTiming || 'immediate')
+
     const record = {
       gameId,
       turn: storyTurn,
@@ -906,6 +1066,9 @@ export function apply(ctx) {
       injection,
       roll,
       judged,
+      fateTape,
+      encounterRoll,
+      revealTiming,
       damperUsed,
       damperShiftResult,
       rerollCount: rerollMode ? 1 : 0,
@@ -930,8 +1093,22 @@ export function apply(ctx) {
           turn: storyTurn,
           kind: 'check',
           roll,
+          revealTiming,
           animation: settings.animation,
           emittedAt: Date.now()
+        }
+      }).catch(() => {})
+    } else if (fateTape) {
+      await tavern.publishState?.({
+        gameId,
+        name: 'live-roll',
+        data: {
+          id: `tape-${storyTurn}-${fateTape.createdAt}`,
+          turn: storyTurn,
+          kind: 'tape',
+          tape: fateTape,
+          message: `宿命序列已注入 ${fateTape.slots.length} 组 ${fateTape.rule} 真骰（按需顺位取用）`,
+          animation: 'compact'
         }
       }).catch(() => {})
     } else if (setupRequiredReason) {
@@ -1143,13 +1320,26 @@ export function apply(ctx) {
     return injection
   }
 
+  function isGameDisabledFast(gameId) {
+    if (!gameId || !globalCache || !gameStateCache.has(gameId)) return false
+    const cached = gameStateCache.get(gameId)
+    const effectiveEnabled = cached?.config?.enabled !== undefined ? cached.config.enabled : globalCache.settings?.enabled
+    return effectiveEnabled === false
+  }
+
+  async function readGameView(gameId, fallbackRule = '2d6') {
+    if (!gameId) return normalizeGameState(null, fallbackRule)
+    if (gameStateCache.has(gameId)) return gameStateCache.get(gameId)
+    return await readGame(gameId, fallbackRule)
+  }
+
   // ── 发前无感检定注入 ────────────────────────────────────────────
   if (typeof tavern.turnSection === 'function') {
     tavern.turnSection({
       name: 'fate-dice',
       position: 'after',
       async text({ gameId, turn, input } = {}) {
-        if (!gameId) return ''
+        if (!gameId || isGameDisabledFast(gameId)) return ''
         const startedAt = Date.now()
         const record = await computeTurn({ gameId, turn, input })
         if (!record?.injection) {
@@ -1167,8 +1357,9 @@ export function apply(ctx) {
       tavern.damperTurnQuestions({
         name: 'fate-dice-judge',
         async questions({ gameId, protocol: dynamicProtocol, capabilities: dynCaps } = {}) {
+          if (isGameDisabledFast(gameId)) return []
           const globalStore = await readGlobal()
-          const game = await readGame(gameId, globalStore.settings.rule)
+          const game = await readGameView(gameId, globalStore.settings.rule)
           const settings = effectiveSettings(globalStore, game)
           if (!settings.enabled || !settings.autoCheck || !settings.damperLinkage) return []
           const activeRule = normalizeRule(settings.rule)
@@ -1186,6 +1377,14 @@ export function apply(ctx) {
   }
 
   // ── 后台结算：自动建立与演进主角能力画像 ─────────────────────────
+  async function profileSyncContext(gameId) {
+    if (!gameId || isGameDisabledFast(gameId)) return null
+    const globalStore = await readGlobal()
+    const game = await readGameView(gameId, globalStore.settings.rule)
+    const settings = effectiveSettings(globalCache || globalStore, gameStateCache.get(gameId) || game)
+    return settings.enabled && settings.autoCheck ? { game, settings } : null
+  }
+
   function buildProfileSyncSection(game, settings) {
     const profile = game.characterProfile
     const traits = Array.isArray(profile?.traits) ? profile.traits.filter(item => item && item.name) : []
@@ -1212,11 +1411,8 @@ export function apply(ctx) {
       async text({ gameId } = {}) {
         if (!gameId) return ''
         lastActiveGameId = gameId
-        const globalStore = await readGlobal()
-        const game = await readGame(gameId, globalStore.settings.rule)
-        const settings = effectiveSettings(globalStore, game)
-        if (!settings.enabled || !settings.autoCheck) return ''
-        return buildProfileSyncSection(game, settings)
+        const context = await profileSyncContext(gameId)
+        return context ? buildProfileSyncSection(context.game, context.settings) : ''
       }
     })
   }
@@ -1224,7 +1420,8 @@ export function apply(ctx) {
   const profileSyncTool = async (rawCall = {}, toolCtx = {}) => {
     const envelope = rawCall && typeof rawCall === 'object' ? rawCall : {}
     const payload = envelope.arguments && typeof envelope.arguments === 'object' ? envelope.arguments : envelope
-    const gameId = payload.gameId || envelope.gameId || toolCtx?.gameId || lastActiveGameId || ''
+    const gameId = envelope.gameId || toolCtx?.gameId || ''
+    if (!await profileSyncContext(gameId)) return { ok: false, error: '本局未启用命运之骰自动画像' }
     const rawTraits = Array.isArray(payload.traits) ? payload.traits : (Array.isArray(payload.report?.traits) ? payload.report.traits : [])
     const report = {
       characterName: String(payload.characterName || envelope.characterName || ''),
@@ -1241,10 +1438,10 @@ export function apply(ctx) {
     tavern.settlementTool({
       name: 'fate_dice_profile_sync',
       description: '提交/更新主角能力画像（能力、短板与当前伤病/装备/境界状态）。首次建档必调，之后仅在实质变化时调用。',
+      enabledFor: async ({ gameId }) => Boolean(await profileSyncContext(gameId)),
       parameters: {
         type: 'object',
         properties: {
-          gameId: { type: 'string', description: '当前对局 id（宿主上下文已提供时可省略）' },
           characterName: { type: 'string', description: '受控主角名' },
           archetype: { type: 'string', description: '一句话实力与当前状态定位' },
           traits: {
@@ -1274,25 +1471,31 @@ export function apply(ctx) {
       if (!gameId) return
       lastActiveGameId = gameId
       const pending = pendingByGame.get(gameId)
-      const syncedProfile = pendingProfileByGame.get(gameId)
+      const queuedProfile = pendingProfileByGame.get(gameId)
       const matchesPending = Boolean(
         pending && (
           Number(pending.turn) === Number(turn)
           || (Number(pending.rawTurn) > 0 && Number(pending.rawTurn) === Number(turn))
         )
       )
-      if (!matchesPending && !syncedProfile) return
+      if (!matchesPending && !queuedProfile) return
       const activePending = matchesPending ? pending : null
 
       try {
         const globalStore = await readGlobal()
         const game = await readGame(gameId, globalStore.settings.rule)
-        const settings = pending?.settings || effectiveSettings(globalStore, game)
+        const currentSettings = effectiveSettings(globalCache || globalStore, gameStateCache.get(gameId) || game)
+        if (!currentSettings.enabled) return
+        const syncedProfile = currentSettings.autoCheck ? queuedProfile : null
+        if (!activePending && !syncedProfile) return
+        const settings = activePending?.settings || currentSettings
         const activeRule = normalizeRule(settings.rule)
 
         const latestVars = (await readLatestContextAndVars(gameId, Number(turn) + 1)).variables
         const mvuNow = summarizeMvuVariables(latestVars)
-        let characterProfile = profileOf(game, activeRule)
+        const prevCharacterProfile = profileOf(game, activeRule)
+        let characterProfile = prevCharacterProfile
+        let profileChanges = []
         if (syncedProfile) {
           characterProfile = normalizeCharacterProfile({
             ...characterProfile,
@@ -1304,8 +1507,28 @@ export function apply(ctx) {
             updatedTurn: Number(turn) || game.lastTurn,
             updatedAt: Date.now()
           }, activeRule)
+          profileChanges = diffCharacterProfiles(prevCharacterProfile, characterProfile)
         } else if (mvuNow.highlights?.length) {
           characterProfile = { ...characterProfile, mvuHighlights: mvuNow.highlights.slice(0, 12) }
+        }
+
+        // 若本轮走了无小模型「宿命序列」模式，在结算时读取正文里的隐藏取骰标记并落盘为胶囊
+        const pendingTape = pendingTapeByGame.get(gameId)
+        if (activePending && !activePending.roll && pendingTape && pendingTape.tape && typeof tavern.getTurn === 'function') {
+          try {
+            const settledTurnSnap = await tavern.getTurn({ gameId, turn: Number(turn) })
+            const turnText = String(settledTurnSnap?.text || settledTurnSnap?.content || settledTurnSnap?.output || '')
+            const tapeRoll = parseTapeUsageFromText(turnText, pendingTape.tape)
+            if (tapeRoll) {
+              activePending.roll = tapeRoll
+            }
+          } catch {}
+        }
+        if (pendingTape && Number(pendingTape.turn) === Number(turn)) {
+          pendingTapeByGame.delete(gameId)
+        }
+        if (activePending?.encounterRoll && pendingEncounterByGame.get(gameId) === activePending.encounterRoll) {
+          pendingEncounterByGame.delete(gameId)
         }
 
         const turnNum = toInt(turn, 0)
@@ -1410,31 +1633,45 @@ export function apply(ctx) {
           lastTurn: turnNum > 0 ? turnNum : toInt(game.lastTurn, 0),
           updatedAt: Date.now()
         }
+        const latestSettings = effectiveSettings(globalCache || globalStore, gameStateCache.get(gameId) || game)
+        if (!latestSettings.enabled || (syncedProfile && !latestSettings.autoCheck)) return
         await writeGame(gameId, nextGame)
 
+        const savedTurnPayload = {
+          input: effectiveInput,
+          inputHash: effectiveInputHash,
+          damperUsed: effectiveDamperUsed,
+          rerollCount: effectiveRerollCount,
+          preSendHandled: effectivePreSendHandled,
+          roll: effectiveRoll,
+          judged: effectiveJudged,
+          characterProfile,
+          profileChanges
+        }
         try {
           await tavern.saveTurnData?.({
             gameId,
             turn,
             textVersion,
-            data: {
-              input: effectiveInput,
-              inputHash: effectiveInputHash,
-              damperUsed: effectiveDamperUsed,
-              rerollCount: effectiveRerollCount,
-              preSendHandled: effectivePreSendHandled,
-              roll: effectiveRoll,
-              judged: effectiveJudged,
-              characterProfile
-            }
+            data: savedTurnPayload
           })
-        } catch {}
+          if (turnNum > 0) {
+            rememberBounded(storedTurnDataCache, `${gameId}:${turnNum}`, {
+              turn: turnNum,
+              textVersion: textVersion ?? null,
+              data: structuredClone(savedTurnPayload)
+            }, MAX_STORED_TURN_CACHE)
+          }
+        } catch {
+          invalidateGameReadCaches(gameId, turnNum)
+        }
+        liveTurnCache.delete(gameId)
 
         // 必须在 writeGame 与 saveTurnData 都完成后再移除内存 pending，杜绝结算异步窗口期前端 read-turn 读空导致胶囊闪烁消失
         if (activePending && pendingByGame.get(gameId) === activePending) {
           pendingByGame.delete(gameId)
         }
-        if (syncedProfile && pendingProfileByGame.get(gameId) === syncedProfile) {
+        if (queuedProfile && pendingProfileByGame.get(gameId) === queuedProfile) {
           pendingProfileByGame.delete(gameId)
         }
 
@@ -1476,6 +1713,8 @@ export function apply(ctx) {
             fate: nextFate,
             summary: nextSummary,
             characterProfile,
+            profileChanges,
+            pendingEncounter: pendingEncounterByGame.get(gameId) || null,
             lastRoll: nextGame.lastRoll
           }
         }).catch(() => {})
@@ -1493,7 +1732,7 @@ export function apply(ctx) {
         if (activePending && pendingByGame.get(gameId) === activePending) {
           pendingByGame.delete(gameId)
         }
-        if (syncedProfile && pendingProfileByGame.get(gameId) === syncedProfile) {
+        if (queuedProfile && pendingProfileByGame.get(gameId) === queuedProfile) {
           pendingProfileByGame.delete(gameId)
         }
       }
@@ -1508,7 +1747,9 @@ export function apply(ctx) {
       if (kind !== 'regenerate' && kind !== 'edit') {
         pendingByGame.delete(gameId)
         pendingProfileByGame.delete(gameId)
+        pendingTapeByGame.delete(gameId)
       }
+      invalidateGameReadCaches(gameId)
       for (const key of [...turnCacheByGame.keys()]) {
         if (key.startsWith(`${gameId}:`)) turnCacheByGame.delete(key)
       }
@@ -1520,6 +1761,9 @@ export function apply(ctx) {
       if (!gameId) return
       pendingByGame.delete(gameId)
       pendingProfileByGame.delete(gameId)
+      pendingEncounterByGame.delete(gameId)
+      pendingTapeByGame.delete(gameId)
+      invalidateGameReadCaches(gameId)
       for (const key of [...turnCacheByGame.keys()]) {
         if (key.startsWith(`${gameId}:`)) turnCacheByGame.delete(key)
       }
@@ -1533,6 +1777,7 @@ export function apply(ctx) {
 
   async function buildWorkbenchView(params = {}) {
     const gameId = params.gameId || ''
+    if (gameId) lastActiveGameId = gameId
     const globalStore = await readGlobal()
     const game = await readGame(gameId, globalStore.settings.rule)
     const settings = effectiveSettings(globalStore, game)
@@ -1576,12 +1821,13 @@ export function apply(ctx) {
       autoCheck: settings.autoCheck,
       characterProfile,
       contextSources: buildContextSources(characterProfile, profileMaterial),
-      binding: { autoCheck: settings.autoCheck, rule: activeRule },
+      binding: { enabled: Boolean(settings.enabled), autoCheck: settings.autoCheck, rule: activeRule },
       damper: { available: Boolean(tavern.capabilities?.narrativeDamper), linkage: settings.damperLinkage },
       damperBridgeAvailable: Boolean(tavern.capabilities?.narrativeDamper),
       damperLinkage: settings.damperLinkage,
       judgeStatus,
       fate: game.fate,
+      pendingEncounter: gameId ? (pendingEncounterByGame.get(gameId) || null) : null,
       summary: game.summary || emptySummary(),
       lastRoll: game.lastRoll,
       lastTurn: game.lastTurn,
@@ -1597,14 +1843,18 @@ export function apply(ctx) {
     const globalStore = await readGlobal()
     const incoming = params.settings || params.data || params.config || params
     const settings = sanitizeSettings(incoming, globalStore.settings)
-    const saved = await saveGlobal({ ...globalStore, settings })
+    const saved = await saveGlobal({ ...globalStore, version: 4, settings })
     turnCacheByGame.clear()
+    storedTurnDataCache.clear()
     const clientSettings = settingsForClient(saved.settings)
-    if (lastActiveGameId) {
+    const syncGameId = params.gameId || lastActiveGameId || ''
+    if (syncGameId) {
+      const activeGame = await readGameView(syncGameId, saved.settings.rule)
+      const effectiveClient = settingsForClient(effectiveSettings(saved, activeGame))
       await tavern.publishState?.({
-        gameId: lastActiveGameId,
+        gameId: syncGameId,
         name: 'workbench-sync',
-        data: { settings: clientSettings }
+        data: { settings: effectiveClient }
       }).catch(() => {})
     }
     return { ok: true, settings: clientSettings }
@@ -1615,6 +1865,7 @@ export function apply(ctx) {
   async function handleSaveBinding(params = {}) {
     const gameId = params.gameId
     if (!gameId) return { ok: false, error: '缺少 gameId' }
+    lastActiveGameId = gameId
     const globalStore = await readGlobal()
     const game = await readGame(gameId, globalStore.settings.rule)
     const incoming = params.binding || params.config || params.settings || params
@@ -1624,11 +1875,37 @@ export function apply(ctx) {
     if (typeof incoming.rule === 'string' && incoming.rule) config.rule = normalizeRule(incoming.rule)
     const activeRule = normalizeRule(config.rule || globalStore.settings.rule)
     const characterProfile = profileOf(game, activeRule)
-    await writeGame(gameId, { ...game, config, characterProfile })
+    const nextGame = await writeGame(gameId, { ...game, config, characterProfile })
     for (const key of [...turnCacheByGame.keys()]) {
       if (key.startsWith(`${gameId}:`)) turnCacheByGame.delete(key)
     }
-    return { ok: true, config, rule: activeRule, autoCheck: config.autoCheck ?? globalStore.settings.autoCheck }
+    for (const key of [...storedTurnDataCache.keys()]) {
+      if (key.startsWith(`${gameId}:`)) storedTurnDataCache.delete(key)
+    }
+    const effective = effectiveSettings(globalStore, nextGame)
+    const clientSettings = settingsForClient(effective)
+    if (!effective.enabled) {
+      await publishPreSendGate(gameId, null)
+    }
+    await tavern.publishState?.({
+      gameId,
+      name: 'workbench-sync',
+      data: {
+        settings: clientSettings,
+        binding: { enabled: Boolean(effective.enabled), autoCheck: effective.autoCheck, rule: activeRule },
+        rule: activeRule,
+        autoCheck: effective.autoCheck
+      }
+    }).catch(() => {})
+    return {
+      ok: true,
+      gameId,
+      enabled: Boolean(effective.enabled),
+      config,
+      settings: clientSettings,
+      rule: activeRule,
+      autoCheck: effective.autoCheck
+    }
   }
   handle('fate-dice:save-binding', handleSaveBinding)
   handle('fate-dice:save-game-config', handleSaveBinding)
@@ -1677,6 +1954,7 @@ export function apply(ctx) {
         const nextRule = normalizeRule(params.rule)
         const saved = await saveGlobal({ ...globalStore, settings: { ...globalStore.settings, rule: nextRule } })
         turnCacheByGame.clear()
+        storedTurnDataCache.clear()
         return { ok: true, rule: saved.settings.rule, characterProfile: null, contextSources: null }
       }
       return { ok: false, error: '缺少 gameId' }
@@ -1695,6 +1973,9 @@ export function apply(ctx) {
     for (const key of [...turnCacheByGame.keys()]) {
       if (key.startsWith(`${gameId}:`)) turnCacheByGame.delete(key)
     }
+    for (const key of [...storedTurnDataCache.keys()]) {
+      if (key.startsWith(`${gameId}:`)) storedTurnDataCache.delete(key)
+    }
     const contextSources = buildContextSources(characterProfile)
     await tavern.publishState?.({
       gameId,
@@ -1705,40 +1986,48 @@ export function apply(ctx) {
   }
   handle('fate-dice:save-profile-note', handleSaveProfileNote)
 
-  async function handleReadTurn(params = {}) {
-    const gameId = params.gameId || lastActiveGameId || ''
-    const wantLatest = Boolean(params.latest)
-    let turn = toInt(params.turn, 0)
-    if (!gameId || (turn <= 0 && !params.streaming && !wantLatest)) return null
-    const globalStore = await readGlobal()
-    const game = await readGame(gameId, globalStore.settings.rule)
-    const settings = effectiveSettings(globalStore, game)
-    const pending = pendingByGame.get(gameId)
-    const liveLatestTurn = await readLiveLatestTurn(gameId)
+  function inferLatestTurn({ game, pending, liveLatestTurn }) {
+    const settledTurns = Object.keys(game.settledRolls || {}).map(k => toInt(k, 0)).filter(n => n > 0)
+    const recentTurn = Array.isArray(game.summary?.recent) && game.summary.recent[0] ? toInt(game.summary.recent[0].turn, 0) : 0
+    const storedLatest = (liveLatestTurn > 0 && toInt(game.lastTurn, 0) > liveLatestTurn && !game.settledRolls?.[String(game.lastTurn)])
+      ? liveLatestTurn
+      : toInt(game.lastTurn, 0)
+    return Math.max(
+      0,
+      toInt(pending?.turn, 0),
+      storedLatest,
+      recentTurn,
+      settledTurns.length ? Math.max(...settledTurns) : 0
+    )
+  }
+
+  async function resolveSingleTurnView({
+    gameId,
+    turn: rawTurn,
+    streaming = false,
+    wantLatest = false,
+    game,
+    settings,
+    pending,
+    liveLatestTurn
+  }) {
+    let turn = toInt(rawTurn, 0)
     if (turn <= 0 && wantLatest) {
-      const settledTurns = Object.keys(game.settledRolls || {}).map(k => toInt(k, 0)).filter(n => n > 0)
-      const recentTurn = Array.isArray(game.summary?.recent) && game.summary.recent[0] ? toInt(game.summary.recent[0].turn, 0) : 0
-      const storedLatest = (liveLatestTurn > 0 && toInt(game.lastTurn, 0) > liveLatestTurn && !game.settledRolls?.[String(game.lastTurn)])
-        ? liveLatestTurn
-        : toInt(game.lastTurn, 0)
-      turn = Math.max(
-        0,
-        toInt(pending?.turn, 0),
-        storedLatest,
-        recentTurn,
-        settledTurns.length ? Math.max(...settledTurns) : 0
-      )
+      turn = inferLatestTurn({ game, pending, liveLatestTurn })
     }
     const baseMeta = {
+      enabled: Boolean(settings.enabled),
       rule: normalizeRule(settings.rule),
       autoCheck: Boolean(settings.autoCheck),
-      animation: settings.animation || 'bounce'
+      preSendPause: Boolean(settings.preSendPause),
+      revealTiming: settings.revealTiming || 'immediate',
+      animation: settings.animation || 'atelier'
     }
     // 重新生成流式期间，DOM 楼层带目标 storyTurn 且 streaming=true，兼容 storyTurn / rawTurn / streaming 读取
     if (pending && (
       Number(pending.turn) === turn
       || (Number(pending.rawTurn) > 0 && Number(pending.rawTurn) === turn)
-      || Boolean(params.streaming)
+      || Boolean(streaming)
     )) {
       const pTurn = turn > 0 ? turn : toInt(pending.turn, turn)
       const pLock = game.settledRolls?.[String(pTurn)] || null
@@ -1757,30 +2046,27 @@ export function apply(ctx) {
       }
     }
     const settledLock = turn > 0 ? (game.settledRolls?.[String(turn)] || null) : null
-    let stored = null
-    try {
-      if (turn > 0) stored = await tavern.readTurnData?.({ gameId, turn })
-    } catch {
-      stored = null
-    }
     if (settledLock?.roll) {
-      const storedRolledAt = Number(stored?.data?.roll?.rolledAt) || 0
+      const memTurnKey = `${gameId}:${turn}`
+      const memStored = storedTurnDataCache.has(memTurnKey) ? storedTurnDataCache.get(memTurnKey) : null
+      const storedRolledAt = Number(memStored?.data?.roll?.rolledAt) || 0
       const lockRolledAt = Number(settledLock.roll?.rolledAt) || 0
-      if (!stored?.data?.roll || lockRolledAt >= storedRolledAt) {
+      if (!memStored?.data?.roll || lockRolledAt >= storedRolledAt) {
         return {
           ...baseMeta,
           gameId,
           turn,
           streaming: false,
-          textVersion: stored?.textVersion ?? null,
+          textVersion: memStored?.textVersion ?? null,
           roll: settledLock.roll,
-          judged: settledLock.judged || stored?.data?.judged || null,
-          characterProfile: stored?.data?.characterProfile || game.characterProfile || null,
+          judged: settledLock.judged || memStored?.data?.judged || null,
+          characterProfile: memStored?.data?.characterProfile || game.characterProfile || null,
           fate: game.fate,
           rerollState: evaluateRerollEligibility({ turn, game, roll: settledLock.roll, settledLock, liveLatestTurn })
         }
       }
     }
+    const stored = turn > 0 ? await readStoredTurnCached(gameId, turn, game) : null
     const legacyLastRoll = (!settledLock?.roll && !stored?.data?.roll && !stored?.data?.judged && turn === toInt(game.lastTurn, 0) && game.lastRoll)
       ? game.lastRoll
       : null
@@ -1809,6 +2095,7 @@ export function apply(ctx) {
         roll: storedRoll,
         judged: stored.data.judged || null,
         characterProfile: stored.data.characterProfile || null,
+        profileChanges: Array.isArray(stored.data.profileChanges) ? stored.data.profileChanges : [],
         fate: game.fate,
         rerollState: evaluateRerollEligibility({
           turn,
@@ -1836,7 +2123,117 @@ export function apply(ctx) {
     }
     return null
   }
+
+  async function handleReadTurn(params = {}) {
+    const gameId = params.gameId || lastActiveGameId || ''
+    const wantLatest = Boolean(params.latest)
+    const turn = toInt(params.turn, 0)
+    if (!gameId || (turn <= 0 && !params.streaming && !wantLatest)) return null
+    const globalStore = await readGlobal()
+    const game = await readGame(gameId, globalStore.settings.rule)
+    const settings = effectiveSettings(globalStore, game)
+    const pending = pendingByGame.get(gameId)
+    const needsLiveTurn = wantLatest || Boolean(pending) || gameHasAnyHistory(game) || typeof tavern.readGameData !== 'function'
+    const liveLatestTurn = needsLiveTurn ? await readLiveLatestTurn(gameId) : 0
+    return resolveSingleTurnView({
+      gameId,
+      turn,
+      streaming: Boolean(params.streaming),
+      wantLatest,
+      game,
+      settings,
+      pending,
+      liveLatestTurn
+    })
+  }
   handle('fate-dice:read-turn', handleReadTurn)
+
+  async function handleReadTurns(params = {}) {
+    const gameId = params.gameId || lastActiveGameId || ''
+    const rawTurns = Array.isArray(params.turns) ? params.turns : []
+    const streamingTurn = toInt(params.streamingTurn, 0)
+    const includeStreamingOnly = Boolean(params.streaming) && streamingTurn <= 0 && rawTurns.length === 0
+    const includeLatest = Boolean(params.includeLatest)
+    const globalStore = await readGlobal()
+    const game = gameId ? await readGame(gameId, globalStore.settings.rule) : normalizeGameState(null, globalStore.settings.rule)
+    const settings = effectiveSettings(globalStore, game)
+    const baseResponse = {
+      ok: true,
+      gameId: gameId || null,
+      enabled: Boolean(settings.enabled),
+      autoCheck: Boolean(settings.autoCheck),
+      preSendPause: Boolean(settings.preSendPause),
+      rule: normalizeRule(settings.rule),
+      animation: settings.animation || 'atelier',
+      fate: game.fate,
+      turns: {},
+      latest: null
+    }
+    if (!gameId) return baseResponse
+
+    const uniqueTurns = []
+    const seen = new Set()
+    for (let i = 0; i < rawTurns.length && uniqueTurns.length < 200; i++) {
+      const t = toInt(rawTurns[i], 0)
+      if (t > 0 && !seen.has(t)) {
+        seen.add(t)
+        uniqueTurns.push(t)
+      }
+    }
+    if (streamingTurn > 0 && !seen.has(streamingTurn)) {
+      seen.add(streamingTurn)
+      uniqueTurns.push(streamingTurn)
+    }
+
+    const pending = pendingByGame.get(gameId)
+    const hasHistory = gameHasAnyHistory(game) || Boolean(pending) || typeof tavern.readGameData !== 'function'
+    const liveLatestTurn = (hasHistory || includeLatest) ? await readLiveLatestTurn(gameId) : 0
+
+    for (let i = 0; i < uniqueTurns.length; i++) {
+      const t = uniqueTurns[i]
+      const isStream = streamingTurn > 0 && t === streamingTurn
+      if (!hasHistory && !isStream) {
+        baseResponse.turns[String(t)] = null
+        continue
+      }
+      baseResponse.turns[String(t)] = await resolveSingleTurnView({
+        gameId,
+        turn: t,
+        streaming: isStream,
+        wantLatest: false,
+        game,
+        settings,
+        pending,
+        liveLatestTurn
+      })
+    }
+    if (includeStreamingOnly) {
+      baseResponse.streamingRecord = await resolveSingleTurnView({
+        gameId,
+        turn: 0,
+        streaming: true,
+        wantLatest: false,
+        game,
+        settings,
+        pending,
+        liveLatestTurn
+      })
+    }
+    if (includeLatest) {
+      baseResponse.latest = await resolveSingleTurnView({
+        gameId,
+        turn: toInt(params.latestTurn, 0),
+        streaming: Boolean(params.latestStreaming),
+        wantLatest: true,
+        game,
+        settings,
+        pending,
+        liveLatestTurn
+      })
+    }
+    return baseResponse
+  }
+  handle('fate-dice:read-turns', handleReadTurns)
 
   async function handleRerollTurn(params = {}) {
     const gameId = params.gameId || lastActiveGameId || ''
@@ -1849,12 +2246,7 @@ export function apply(ctx) {
 
     const turnKey = String(turn)
     const settledLock = game.settledRolls?.[turnKey] || null
-    let storedTurn = null
-    try {
-      storedTurn = await tavern.readTurnData?.({ gameId, turn })
-    } catch {
-      storedTurn = null
-    }
+    const storedTurn = await readStoredTurnCached(gameId, turn, game)
 
     const activePending = pendingRecord && Number(pendingRecord.turn) === turn ? pendingRecord : null
     const liveLatestTurn = await readLiveLatestTurn(gameId)
@@ -1908,6 +2300,7 @@ export function apply(ctx) {
     }
 
     const wasSettled = Boolean((settledLock || storedTurn?.data?.roll || legacyRoll) && !activePending)
+    invalidateGameReadCaches(gameId, turn)
     for (const key of [...turnCacheByGame.keys()]) {
       if (key.startsWith(`${gameId}:${turn}:`)) turnCacheByGame.delete(key)
     }
@@ -1951,22 +2344,30 @@ export function apply(ctx) {
         updatedAt: Date.now()
       }
       await writeGame(gameId, nextGame)
+      const rerolledPayload = {
+        input: record.input,
+        inputHash: record.inputHash,
+        damperUsed: Boolean(record.damperUsed),
+        rerollCount: 1,
+        roll: record.roll || null,
+        judged: record.judged || null,
+        characterProfile: record.characterProfile || game.characterProfile
+      }
       try {
         await tavern.saveTurnData?.({
           gameId,
           turn,
           textVersion: storedTurn?.textVersion ?? undefined,
-          data: {
-            input: record.input,
-            inputHash: record.inputHash,
-            damperUsed: Boolean(record.damperUsed),
-            rerollCount: 1,
-            roll: record.roll || null,
-            judged: record.judged || null,
-            characterProfile: record.characterProfile || game.characterProfile
-          }
+          data: rerolledPayload
         })
-      } catch {}
+        rememberBounded(storedTurnDataCache, `${gameId}:${turn}`, {
+          turn,
+          textVersion: storedTurn?.textVersion ?? null,
+          data: structuredClone(rerolledPayload)
+        }, MAX_STORED_TURN_CACHE)
+      } catch {
+        invalidateGameReadCaches(gameId, turn)
+      }
       await tavern.publishState?.({ gameId, name: 'summary', data: nextSummary }).catch(() => {})
       await tavern.publishState?.({
         gameId,
@@ -2082,18 +2483,45 @@ export function apply(ctx) {
 
   async function handleFreeRoll(params = {}) {
     const gameId = params.gameId || ''
+    if (params.clearEncounter && gameId) {
+      pendingEncounterByGame.delete(gameId)
+      for (const key of [...turnCacheByGame.keys()]) {
+        if (key.startsWith(`${gameId}:`)) turnCacheByGame.delete(key)
+      }
+      await tavern.publishState?.({
+        gameId,
+        name: 'workbench-sync',
+        data: { pendingEncounter: null }
+      }).catch(() => {})
+      return { ok: true, cleared: true }
+    }
     const globalStore = await readGlobal()
     const game = gameId ? await readGame(gameId, globalStore.settings.rule) : null
     const settings = effectiveSettings(globalStore, game)
     const result = rollExpression(params.expression || '2d6')
+    const injectAsEncounter = Boolean(params.injectAsEncounter && gameId)
+    if (injectAsEncounter) {
+      result.injectAsEncounter = true
+      pendingEncounterByGame.set(gameId, result)
+      for (const key of [...turnCacheByGame.keys()]) {
+        if (key.startsWith(`${gameId}:`)) turnCacheByGame.delete(key)
+      }
+    }
     if (gameId) {
       await tavern.publishState?.({
         gameId,
         name: 'live-roll',
         data: { id: `free-${result.rolledAt}`, turn: 0, kind: 'free', result, animation: settings.animation }
       }).catch(() => {})
+      if (injectAsEncounter) {
+        await tavern.publishState?.({
+          gameId,
+          name: 'workbench-sync',
+          data: { pendingEncounter: result }
+        }).catch(() => {})
+      }
     }
-    return { ok: true, result }
+    return { ok: true, result, injectAsEncounter }
   }
   handle('fate-dice:free-roll', handleFreeRoll)
 }

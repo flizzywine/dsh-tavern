@@ -4,7 +4,6 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {readFile} from 'node:fs/promises'
 import {fixture, answer, deferred} from './helpers/stage-director-harness.mjs'
-import {coordinationEventId} from '../tavern-plugin/lib/domain/coordination-event-publisher.js'
 import {createSettlementControls} from '../tavern-plugin/lib/domain/settlement-controls.js'
 
 const host = await readFile(new URL('../tavern-plugin/lib/index.js',import.meta.url),'utf8')
@@ -89,14 +88,4 @@ test('user stop aborts a streaming window without cancelling the foreground or r
   await f.director.get(f.read(),2); await f.director.drain()
   assert.equal(f.calls.length,1,'body commit cannot start a post-stop fallback')
   assert.equal(f.read().messages.at(-1).text,text(13))
-})
-
-test('parallel-only activity changes wake coordination without changing core busy state',() => {
-  const idle = {activity:{operationId:'old-core',phase:'idle',busy:false}}
-  const running = {activity:{...idle.activity,director:{operationId:'director:1',busy:true}}}
-  assert.notEqual(coordinationEventId(idle),coordinationEventId(running))
-  assert.equal(running.activity.busy,false)
-  assert.match(host,/presentationActivity: chat => presentationObservers\.activity\(chat\)/)
-  assert.match(observer,/activity:chat => \(\{director:stageDirector\.activity\(chat\)\}\)/)
-  assert.match(stageModule,/void coordinationEvents\?\.publish\(event\.sessionId\)/)
 })

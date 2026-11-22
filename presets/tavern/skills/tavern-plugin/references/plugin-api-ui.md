@@ -351,7 +351,9 @@ const overlay = ctx.tavernUi.openOverlay({
 - 按 Esc 关闭；`dismissible: false` 时 Esc 不关闭，只能调用 `close`。
 - 关闭时调用一次 `onClose`。插件卸载时界面自动关闭。界面出错时显示一行错误和关闭按钮。
 
-## `registerPanel({ id, title, render })`（第 2 版）
+## `registerPanel({ id, title, render, stage? })`（第 2 版）
+
+随卡插件可以设置 `stage: true`，让本卡舞台页面调用 `await DshCardPage.openPluginPanel({ plugin: '插件名', panelId: 'memory' })`。其中 `plugin` 填插件浏览器端注册的 `name`。只接受当前游戏所属卡片中已启用且明确开放给舞台的面板。舞台内的 `render({ gameId, visible, stagePageId })` 收到当前游戏 ID、`visible: true` 和宿主确认的来源卡页 ID，可用同一个面板处理多个页面入口。侧栏与旧宿主中 `stagePageId` 为 `undefined`。关闭面板会回到原卡片页面。旧宿主中可检查 `typeof DshCardPage.openPluginPanel === 'function'` 后再显示入口。
 
 在右侧栏加一页插件自己的面板，比如记忆、锚点或状态一览。玩家从侧栏的「＋」里打开，面板显示在「插件」一组。
 
@@ -420,6 +422,7 @@ ctx.tavernUi.registerStatusSection({ id: 'scene', title: '当前场景', render:
 ```
 
 - `id` 规则同 `registerPanel`；`title` 1–20 字，Tavern 画成这一节的标题。
+- `render` 返回 `null` 时隐藏整节。`render` 可以是使用 React hooks 的组件函数，直接返回 `null` 或该节的内容。
 - 出错时这一节只显示一行错误，状态页其余部分照常。卡内插件的分节只出现在它那张卡的局里。插件卸载时自动移除。
 
 ## `registerTurnView({ id, label, render })`（第 3 版）
@@ -454,11 +457,11 @@ ctx.tavernUi.registerTurnView({
 
 ## `registerStageView`（已停用）
 
-插件不能再替换舞台画面。舞台由 Tavern 按人物卡绑定的素材包绘制：给人物卡绑定素材包并打开这张卡的舞台即可。调用 `registerStageView` 不会注册任何视图，只在错误提示里报告这次调用。
+插件不能再替换舞台画面。舞台由 Tavern 按人物卡绑定的素材包绘制：给人物卡绑定素材包并打开这张卡的舞台即可。调用 `registerStageView` 不会注册任何视图，只在错误提示里报告这次调用。要在舞台里给玩家一个整页界面（状态、地图等），写成人物卡自带的卡页面（`stage-status-panel`），不需要插件。
 
 ## `speak({ gameId, speaker?, text, emotion?, narration? })`、`stopSpeech()`（第 2 版）
 
-在当前页面朗读一句，用玩家选的配音渠道和这个人物的声音（浏览器朗读也可以）。返回的 Promise 在读完时为 `true`，被打断、配音关闭或失败时为 `false`。同一时间只读一句，新的一句会打断正在读的；`stopSpeech()` 立即停止。适合插件的舞台画面、自己的面板逐句朗读。
+在当前页面朗读一句，用玩家选的配音渠道和这个人物的声音（浏览器朗读也可以）。返回的 Promise 在读完时为 `true`，被打断、配音关闭或失败时为 `false`。同一时间只读一句，新的一句会打断正在读的；`stopSpeech()` 立即停止。适合在插件自己的面板里逐句朗读。
 
 ## `components`（第 9 版）
 

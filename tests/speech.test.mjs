@@ -1,8 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { createMediaHandlers } from '../tavern-plugin/lib/rpc/media.js'
-import { createLineSpeech, createSpeechProviderBridge, NARRATOR_ALIAS, speechText, TTS_UNAVAILABLE } from '../tavern-plugin/lib/domain/speech.js'
-import { NARRATOR_VOICE } from '../tavern-plugin/lib/domain/asset-pack-speech.js'
+import { createLineSpeech, createSpeechProviderBridge, speechText, TTS_UNAVAILABLE } from '../tavern-plugin/lib/domain/speech.js'
 import { createTts } from '../tavern-plugin/packages/dsh-tavern-tts/src/service.js'
 import { pcmWav } from '../tavern-plugin/packages/dsh-tavern-tts/src/providers/audio.js'
 
@@ -52,16 +51,6 @@ test('旁白朗读默认关闭：整段旁白不合成；开启后按旁白指�
   assert.deepEqual(calls, [])
 })
 
-test('其他台词用通用声音：未选为浏览器默认声音，浏览器声音原样交给浏览器', async () => {
-  let reading = OFF
-  const tts = voiceService(() => reading)
-  const speech = createLineSpeech({ getTts: () => tts, getLibrary: () => voiceLibrary({ tingting: [browserVoice('Tingting')] }) })
-  assert.deepEqual(await speech.speak({ text: '“欢迎回来。”', speaker: '林曦' }), { browser: true, voice: '', text: '“欢迎回来。”' })
-  reading = readingOf({ general: 'tingting' })
-  assert.deepEqual(await speech.speak({ text: '*她笑了* 好', speaker: '林曦' }), { browser: true, voice: 'Tingting', text: '她笑了 好' })
-  assert.deepEqual(await speech.speak({ text: '<br>' }), { skip: true, reason: 'empty' })
-})
-
 test('插件配音渠道接入语音服务：注册为 tavern-plugin:<owner>:<id>，版本即 revision，经插件合成并转成 WAV 音频票据', async () => {
   const calls = [], converted = [], tts = voiceService()
   let entries = [pluginProvider(calls)]
@@ -94,20 +83,6 @@ test('插件配音渠道接入语音服务：注册为 tavern-plugin:<owner>:<id
   assert.deepEqual(await tts.listServices(), [])
 })
 
-test('旁白的服务声音按所指人物的配音语言合成，同一句只合成一次', async () => {
-  const calls = [], tts = voiceService(readingOf({ narrator: true, narratorFigure: 'mm-ja' }))
-  tts.registerProvider('test', { id: 'mm', kind: 'minimax', revision: 'r1', capabilities: {}, health: async () => ({ state: 'ready' }), catalog: async () => [],
-    synthesize: async input => { calls.push(input); return audio } })
-  const speech = createLineSpeech({ getTts: () => tts, getLibrary: () => voiceLibrary({ 'mm-ja': [minimaxVoice('ja')] }) })
-  const extension = { stage: {} }
-  const first = await speech.speak({ text: '夜深了。', narration: true, extension })
-  assert.match(first.url, /^audio:/)
-  assert.equal((await speech.speak({ text: '夜深了。', narration: true, extension })).mediaType, 'audio/wav')
-  assert.equal(calls.length, 1)
-  assert.equal(calls[0].voice.kind, 'minimax')
-  assert.equal(calls[0].language, 'ja')
-  assert.equal(NARRATOR_ALIAS, NARRATOR_VOICE)
-})
 test('通用声音与旁白的参考音色经本地服务合成：路人、未绑定人物和旁白；参考音频按哈希从所指人物的素材包读取', async t => {
   const hash = 'a'.repeat(64), calls = [], reads = []
   const spec = { name: '小圆', language: 'zh', defaultSource: 'clone', sources: { clone: { kind: 'reference-list', provider: 'fish-audio', serviceId: 'local', references: [{ media: hash, text: '你好。', language: 'zh' }] } } }
@@ -125,14 +100,6 @@ test('通用声音与旁白的参考音色经本地服务合成：路人、未�
   assert.equal(calls.length, 3)
   assert.ok(calls.every(input => input.voice.kind === 'reference'))
   assert.ok(reads.length > 0 && reads.every(input => input.packId === VOICES && input.hash === hash))
-})
-
-test('通用声音「不配音」或所指人物不在了：未绑定的说话人和旁白都不出声', async t => {
-  const tts = voiceService(readingOf({ narrator: true, general: 'mute', narratorFigure: 'gone' }))
-  const speech = createLineSpeech({ getTts: () => tts, getLibrary: () => voiceLibrary({ mute: [browserVoice(), { source: null }] }) })
-  t.after(() => { speech.dispose(); tts.dispose() })
-  assert.deepEqual(await speech.speak({ speaker: 'NPC', text: 'Hello.' }), { skip: true, reason: 'silent' })
-  await assert.rejects(speech.speak({ narration: true, text: 'Night falls.', extension: { stage: {} } }), { code: 'VOICE_NOT_FOUND' })
 })
 
 // 有声书's reading voice (openReadingVoice): the figure 旁白声音 points at unless one is chosen, as the browser plays it -

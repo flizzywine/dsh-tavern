@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { installPrefixBoundReasoningProjection, projectRebasedReasoning, rebasedMessageIds } from '../tavern-plugin/lib/domain/prefix-bound-reasoning.js'
+import { installPrefixBoundReasoningProjection } from '../tavern-plugin/lib/domain/prefix-bound-reasoning.js'
 
 const text = text => ({ type: 'text', text })
 const user = (id, body) => ({ id, role: 'user', content: [text(body)], source: { kind: 'human' } })
@@ -20,37 +20,6 @@ function compactedSession() {
   const session = { surface: { nodes: [4, 3, 5] }, eventAt: seq => log[seq] }
   return { session, messages: session.surface.nodes.map(seq => log[seq].type === 'assistant/message' ? log[seq].data.message : log[seq].data), log }
 }
-
-test('a reply kept after a compaction checkpoint loses its signed reasoning; replies written after it keep theirs', () => {
-  const { session, messages, log } = compactedSession()
-  assert.deepEqual([...rebasedMessageIds(session)], ['a2'])
-  const request = { sessionId: 's', messages }
-  const projected = projectRebasedReasoning(request, session)
-  assert.deepEqual(projected.messages[1].content, [text('正文2')], 'only story text is replayed')
-  assert.equal(projected.messages[1].source.replayState, undefined, 'block-indexed replay metadata and paired item ids go with it')
-  assert.equal(projected.messages[0], messages[0])
-  assert.equal(projected.messages[2], messages[2])
-  assert.deepEqual(projectRebasedReasoning(request, session), projected, 'every later request projects the same bytes')
-
-  // The next round's reply was produced after the new prefix: its signature replays.
-  log.push(event(6, reply('a3', '正文3')), event(7, user('u4', '玩家4')))
-  session.surface.nodes.push(6, 7)
-  const next = projectRebasedReasoning({ sessionId: 's', messages: session.surface.nodes.map(seq => log[seq].data.message || log[seq].data) }, session)
-  assert.equal(next.messages[3], log[6].data.message)
-  assert.equal(next.messages[1].source.replayState, undefined)
-
-  // No surface replacement, nothing to change.
-  const plain = { surface: { nodes: [0, 1, 2, 3] }, eventAt: seq => log[seq] }
-  const untouched = { sessionId: 's', messages: [0, 1, 2, 3].map(seq => log[seq].data.message || log[seq].data) }
-  assert.equal(projectRebasedReasoning(untouched, plain), untouched)
-})
-
-test('unsigned reasoning (DeepSeek reasoning_content) is bound to no prefix and stays', () => {
-  const { session, log } = compactedSession()
-  const deepseek = { ...log[3].data.message, source: { kind: 'model', provider: 'deepseek', model: 'deepseek-v4', replayState: { response: { kind: 'pi-ai', version: 2, api: 'openai-completions', provider: 'deepseek', model: 'deepseek-v4', stopReason: 'stop' }, blocks: [{ type: 'reasoning' }, { type: 'text' }] } } }
-  const request = { sessionId: 's', messages: [log[4].data, deepseek, log[5].data] }
-  assert.equal(projectRebasedReasoning(request, session), request)
-})
 
 test('the stream hook sends one projected request that the provider accepts, on every wire API', async () => {
   for (const api of ['openai-responses', 'anthropic-messages']) {

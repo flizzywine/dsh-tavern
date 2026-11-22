@@ -27,7 +27,7 @@ function script() {
   }
 }
 
-function harness({ mode = 'story', taskProjection = false, outputs, initialCandidates, initialCandidateAgent, initialSettleStatus, messages, initialScriptCursor = 0, initialScriptEnded = false, scriptData, cardData, macroState, waitUntilSettled, writeChatHook, modelSelection, planHook, worldBookContext }) {
+function harness({ mode = 'story', taskProjection = false, outputs, initialCandidates, initialCandidateAgent, initialSettleStatus, messages, initialScriptCursor = 0, initialScriptEnded = false, scriptData, cardData, macroState, waitUntilSettled, writeChatHook, modelSelection, planHook, worldBookContext, expandedCandidates }) {
   const continuity = createScriptContinuity()
   const activeScript = scriptData || script()
   let scriptState = mode === 'script' ? continuity.start(activeScript, initialScriptCursor) : null
@@ -117,7 +117,7 @@ function harness({ mode = 'story', taskProjection = false, outputs, initialCandi
     return {...task,chat:{...task.chat,messages:[],macroState:{userName:'你'}}}
   }} : coordinator
   const candidates = createCandidateGenerator({
-    store, model, planner, prompt, scripts: continuity, worldBookContext, tasks,
+    store, model, planner, prompt, scripts: continuity, worldBookContext, tasks, expandedCandidates,
     characterDesign: { async execute() { return JSON.stringify({ ok: true }) } },
     async stableWorldBookContext(currentChat, currentCard) {
       assert.equal(currentChat.id, chat.id)
@@ -188,7 +188,11 @@ test('自由故事只保存完整的 4 action + 1 scene', async () => {
   assert.equal(run.modelRequests[0].persistent, true)
   assert.equal(run.modelRequests[0].maxTokens, undefined)
   assert.equal(run.plannerCalls[0].purpose, 'candidate')
-  assert.match(run.plannerCalls[0].task, /You generate plot choices/)
+  assert.match(run.plannerCalls[0].task, /exactly five/)
+  const schema = run.modelRequests[0].tools.find(tool => tool.name === 'candidate_submit_choices').parameters
+  assert.deepEqual(Object.keys(schema.properties), ['actions', 'scene'])
+  assert.equal(schema.properties.actions.minItems, 4)
+  assert.equal(schema.properties.actions.maxItems, 4)
 
   const saved = await run.candidates.find({ sessionId: 'session-1', messageId: 'message-1' })
   assert.deepEqual(saved, result)
@@ -276,7 +280,10 @@ test('a synced background session still receives the latest story, renamed playe
 test('前台生成候选项：提示词门控与正文尾部 <story_choices> 提取、宏替换与剥离', () => {
   assert.equal(foregroundCandidatePrompt({ mode: 'story', backgroundTasks: { foregroundCandidates: false } }), '')
   assert.equal(foregroundCandidatePrompt({ mode: 'script', backgroundTasks: { foregroundCandidates: true } }), '')
-  assert.match(foregroundCandidatePrompt({ mode: 'story', backgroundTasks: { foregroundCandidates: true } }), /<foreground_story_candidates>/)
+  const foreground = { mode: 'story', backgroundTasks: { foregroundCandidates: true } }
+  assert.match(foregroundCandidatePrompt(foreground), /"actions":\["\.\.\.","\.\.\.","\.\.\.","\.\.\."\],"scene"/)
+  assert.doesNotMatch(foregroundCandidatePrompt(foreground), /"actors"|"featured"/)
+  assert.match(foregroundCandidatePrompt(foreground, true), /"actors".*"featured"/)
 
   const raw = [
     '雨夜的钟声回荡在走廊尽头。',
@@ -374,6 +381,10 @@ test('前台生成候选项：提示词门控与正文尾部 <story_choices> 提
   assert.deepEqual(structured.choices[2], { type: 'action', actor: '陆沉', text: '陆沉不动声色挡在苏晚身前' })
   assert.deepEqual(structured.choices[7], { type: 'event', text: '钟楼方向突然传来急促的警钟声打破对峙' })
   assert.deepEqual(structured.choices[8], { type: 'scene', text: '深夜众人散去后转入地下密室议事' })
+  const compact = extractForegroundStoryChoices(structuredRaw, {
+    card: { name: '阿芙拉' }, chat: { macroState: { userName: '陆沉' } }, expanded: false
+  })
+  assert.deepEqual(compact.choices, [...structured.choices.slice(0, 4).map(({ type, text }) => ({ type, text })), structured.choices[8]])
 
   // 前台 <story_choices> 附带 AI 融合精选（featured）且总条数超过 16 时完整保留不截断（4 角色各 3 条 + event + scene + 4 featured = 18 条）
   const foregroundFeaturedRaw = [
@@ -431,6 +442,7 @@ test('前台生成候选项：提示词门控与正文尾部 <story_choices> 提
 test('自由故事支持按焦点角色优先的多主体分组 + 全局突发事件与场景切换 + AI 融合精选，并完整持久化', async () => {
   const errors = []
   const run = harness({
+    expandedCandidates: chat => chat.candidateTabs,
     outputs: [async function (options) {
       const bad = JSON.parse(await options.onToolCall({
         name: 'candidate_submit_choices',
@@ -468,8 +480,9 @@ test('自由故事支持按焦点角色优先的多主体分组 + 全局突发�
         }
       })
       return ''
-    }]
+    }, JSON.stringify({ choices: storyChoices })]
   })
+  run.mutateChat(chat => { chat.candidateTabs = true })
   const result = await run.candidates.generate({ sessionId: 'session-1', messageId: 'message-actors', guidance: '加强角色互动' })
   assert.equal(errors[0].ok, false)
   assert.equal(errors[0].retryable, true)
@@ -496,4 +509,11 @@ test('自由故事支持按焦点角色优先的多主体分组 + 全局突发�
 
   const saved = await run.candidates.find({ sessionId: 'session-1', messageId: 'message-actors' })
   assert.deepEqual(saved, result)
+  assert.match(run.plannerCalls[0].task, /`featured`/)
+  assert.ok(run.modelRequests[0].tools.find(tool => tool.name === 'candidate_submit_choices').parameters.properties.actors)
+
+  run.mutateChat(chat => { chat.candidateTabs = false })
+  const regenerated = await run.candidates.generate({ sessionId: 'session-1', messageId: 'message-actors', requestId: 'compact-request' })
+  assert.deepEqual(regenerated.choices, storyChoices)
+  assert.match(run.plannerCalls[1].task, /exactly five/)
 })

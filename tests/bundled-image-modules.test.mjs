@@ -133,7 +133,7 @@ test('frontend build is reproducible and rejects stale or invalid sources before
   t.after(() => rm(directory, { recursive: true, force: true }))
   await mkdir(join(directory, 'lib/client'), { recursive: true })
   await cp(new URL('src', packageRoot), join(directory, 'src'), { recursive: true })
-  for (const file of ['lib/client/transport.js', 'lib/image-provider-capabilities.js', 'lib/library-prompts.js', 'lib/prompt-entry-catalog.js', 'client.js']) await cp(new URL(file, packageRoot), join(directory, file))
+  for (const file of ['lib/client/transport.js', 'lib/image-provider-capabilities.js', 'lib/outfit-parts.js', 'lib/library-prompts.js', 'lib/prompt-entry-catalog.js', 'client.js']) await cp(new URL(file, packageRoot), join(directory, file))
   const target = join(directory, 'client.js'), original = await readFile(target, 'utf8')
   await writeFile(join(directory, 'src/client/settings.js'), '\nfunction broken( {')
   await assert.rejects(buildImageClient({ packageRoot: fixture }), SyntaxError)
@@ -154,7 +154,7 @@ test('runtime manifests retain independent SDK entries and the browser artifact,
   for (const name of ['pnpm-lock.yaml', 'pnpm-workspace.yaml', 'cordis.patch.yml', 'install.ps1', 'install.sh']) await writeFile(join(directory, name), '')
   await writeFile(join(directory, 'package.json'), JSON.stringify({ version: '3.10.0' }))
   const base = 'tavern-plugin/packages/dsh-tavern-image-bundled/'
-  const included = ['client.js', 'lib/model-provider.js', 'lib/library-provider.js', 'lib/library-prompts.js', 'lib/api/generation.d.ts', 'lib/client/transport.js']
+  const included = ['client.js', 'lib/model-provider.js', 'lib/library-provider.js', 'lib/library-prompts.js', 'lib/outfit-parts.js', 'lib/api/generation.d.ts', 'lib/client/transport.js']
   for (const name of [...included, 'src/client/main.js', 'src/client/settings.js']) {
     const target = join(directory, base + name)
     await mkdir(join(target, '..'), { recursive: true }); await writeFile(target, 'fixture')

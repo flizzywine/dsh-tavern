@@ -50,6 +50,7 @@ const CSS_TEXT = `
 }
 .fd-wb-top {
   flex: 0 0 auto;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -87,10 +88,10 @@ const CSS_TEXT = `
 
 .fd-wb-head {
   display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
+  align-items: center;
   gap: 10px;
   flex-wrap: wrap;
+  min-width: 0;
 }
 .fd-wb-title {
   margin: 0;
@@ -101,15 +102,13 @@ const CSS_TEXT = `
   align-items: center;
   gap: 6px;
 }
-.fd-wb-sub {
+.fd-wb-toggle {
   font-size: 12px;
-  opacity: 0.72;
-  margin: 2px 0 0;
 }
 
 .fd-tabbar {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 4px;
   padding: 3px;
   border-radius: 12px;
@@ -117,7 +116,7 @@ const CSS_TEXT = `
   border: 1px solid var(--fd-line-soft);
 }
 .fd-tab {
-  flex: 1 1 auto;
+  min-width: 0;
   min-height: 34px;
   padding: 5px 10px;
   border-radius: 9px;
@@ -130,6 +129,8 @@ const CSS_TEXT = `
   cursor: pointer;
   touch-action: manipulation;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   opacity: 0.78;
   transition: background 0.15s ease, opacity 0.15s ease;
 }
@@ -301,6 +302,7 @@ const CSS_TEXT = `
   opacity: 0.55;
   transition: transform 0.16s ease, opacity 0.16s ease;
 }
+.fd-switch:disabled { opacity: 0.55; cursor: default; }
 .fd-switch.is-on {
   background: var(--fd-accent-soft);
   border-color: color-mix(in oklab, var(--fd-accent) 55%, transparent);
@@ -1437,6 +1439,56 @@ article.dsh-tavern-story-floor {
   animation: none;
 }
 
+/* 典藏级皮肤宽银幕剧场专属导轨与亮色底面文字高对比适配 */
+.fd-floor-roll-overlay[data-skin="atelier"] {
+  --fd-theater-accent: #d4a853;
+}
+.fd-floor-roll-overlay[data-skin="pixel"] {
+  --fd-theater-accent: #ffd84d;
+}
+.fd-floor-roll-overlay[data-skin="pixel"] .fd-floor-roll-stage-mask {
+  mask-image: none;
+  -webkit-mask-image: none;
+}
+.fd-floor-roll-overlay[data-skin="pixel"] .fd-floor-roll-rail {
+  height: 3px;
+  background: #f4f1ea;
+  box-shadow: 0 3px 0 #0e0b16, 0 -3px 0 #0e0b16;
+}
+.fd-floor-roll-overlay[data-skin="pixel"] .fd-floor-roll-kicker,
+.fd-floor-roll-overlay[data-skin="pixel"] .fd-floor-roll-readout {
+  font-family: ui-monospace, "Courier New", "PingFang SC", monospace;
+  text-shadow: 2px 2px 0 #0e0b16, -1px -1px 0 #0e0b16;
+}
+.fd-floor-roll-overlay[data-skin="etching"] {
+  --fd-theater-accent: #9c2519;
+}
+.fd-floor-roll-overlay[data-skin="etching"] .fd-floor-roll-backdrop {
+  background: linear-gradient(180deg, rgba(42, 31, 21, 0) 0%, rgba(235, 222, 198, 0.88) 18%, rgba(235, 222, 198, 0.94) 82%, rgba(42, 31, 21, 0) 100%);
+}
+.fd-floor-roll-overlay[data-skin="etching"] .fd-floor-roll-kicker {
+  color: #3d2c1e;
+  text-shadow: 0 1px 0 rgba(255, 250, 240, 0.9);
+}
+.fd-floor-roll-overlay[data-skin="etching"] .fd-floor-roll-readout {
+  color: #1e150e;
+  text-shadow: 0 1px 0 rgba(255, 250, 240, 0.92);
+}
+.fd-floor-roll-overlay[data-skin="bauhaus"] {
+  --fd-theater-accent: #ff4f00;
+}
+.fd-floor-roll-overlay[data-skin="bauhaus"] .fd-floor-roll-backdrop {
+  background: linear-gradient(180deg, rgba(220, 218, 212, 0) 0%, rgba(232, 230, 225, 0.90) 18%, rgba(232, 230, 225, 0.95) 82%, rgba(220, 218, 212, 0) 100%);
+}
+.fd-floor-roll-overlay[data-skin="bauhaus"] .fd-floor-roll-kicker {
+  color: #46484d;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+.fd-floor-roll-overlay[data-skin="bauhaus"] .fd-floor-roll-readout {
+  color: #141517;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.92);
+}
+
 /* 离场：天际线向中心回缩 + 宽银幕沿水平中线合拢消散 */
 .fd-floor-roll-overlay.is-fading {
   animation: fd-theater-close 0.86s cubic-bezier(0.65, 0, 0.35, 1) forwards;
@@ -1858,6 +1910,14 @@ article.dsh-tavern-story-floor {
   transform: scale(0.985);
   box-shadow: 0 0 18px rgba(245, 185, 66, 0.42);
 }
+.fd-reroll-btn.is-fate.is-charging,
+.fd-hold-btn.is-fate.is-charging {
+  box-shadow: 0 0 18px rgba(120, 210, 226, 0.44);
+}
+.fd-reroll-btn.is-push.is-charging,
+.fd-hold-btn.is-push.is-charging {
+  box-shadow: 0 0 18px rgba(255, 92, 46, 0.46);
+}
 .fd-reroll-btn.is-charging::after,
 .fd-hold-btn.is-charging::after {
   content: "";
@@ -1869,6 +1929,16 @@ article.dsh-tavern-story-floor {
   background: linear-gradient(90deg, rgba(255, 255, 255, 0.08), rgba(255, 240, 180, 0.36));
   border-right: 2px solid rgba(255, 255, 255, 0.85);
   pointer-events: none;
+}
+.fd-reroll-btn.is-fate.is-charging::after,
+.fd-hold-btn.is-fate.is-charging::after {
+  background: linear-gradient(90deg, rgba(112, 206, 224, 0.10), rgba(164, 232, 246, 0.34));
+  border-right-color: rgba(210, 248, 255, 0.92);
+}
+.fd-reroll-btn.is-push.is-charging::after,
+.fd-hold-btn.is-push.is-charging::after {
+  background: linear-gradient(90deg, rgba(235, 68, 36, 0.12), rgba(255, 118, 56, 0.38));
+  border-right-color: rgba(255, 178, 120, 0.94);
 }
 
 @keyframes fd-tumble {
@@ -1889,8 +1959,9 @@ article.dsh-tavern-story-floor {
 
 /* ---------- 手机竖屏 / 窄栏单列 ---------- */
 @media (max-width: 720px) {
+  .fd-wb-top { gap: 6px; padding-bottom: 6px; }
   .fd-tabbar { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .fd-tab { flex: 1 1 auto; }
+  .fd-tab { min-height: 30px; padding: 4px 8px; }
   .fd-live-sub { white-space: normal; }
   .fd-row { align-items: flex-start; }
 }
@@ -1914,8 +1985,34 @@ article.dsh-tavern-story-floor {
   .dsh-tavern-story-row-actions > .fd-floor-head-slot { flex: 0 0 auto; }
 }
 @media (max-width: 420px) {
-  .fd-tabbar { grid-template-columns: 1fr; }
   .fd-stat-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+
+.fd-factor-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  align-items: center;
+}
+.fd-factor-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  font-size: 11px;
+  line-height: 1.4;
+  background: color-mix(in srgb, var(--fd-fg, currentColor) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--fd-fg, currentColor) 18%, transparent);
+}
+.fd-profile-delta {
+  margin-top: 4px;
+  padding: 5px 9px;
+  border-radius: 7px;
+  font-size: 11.5px;
+  line-height: 1.45;
+  background: color-mix(in srgb, var(--fd-ok, #2f8f66) 11%, transparent);
+  border: 1px solid color-mix(in srgb, var(--fd-ok, #2f8f66) 32%, transparent);
 }
 
 @media (prefers-reduced-motion: reduce) {

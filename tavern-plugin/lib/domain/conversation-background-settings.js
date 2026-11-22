@@ -5,16 +5,17 @@ import { normalizeConfiguredBackgroundTasks } from './tavern-settings.js'
 
 /** Validate model choices, patch only current configuration and trigger newly enabled work. */
 export function createConversationBackgroundSettings({ readConfig, readChat, updateChat, modelCatalog, modelReasoning,
-  isPlayMode, extraTools = async () => [], presentExtras = () => ({}), readExtras = async () => ({}), validatePatch = async () => {},
+  isPlayMode, expandedCandidates = chat => chat.candidateTabs === true, extraTools = async () => [], presentExtras = () => ({}), readExtras = async () => ({}), validatePatch = async () => {},
   worldbookStrategies = { list: () => [{ id: 'native-skills', label: '主动检索' }], has: id => id === 'native-skills' } }) {
   function requirePlay(chat) {
     if (!chat || !isPlayMode(chat.mode)) throw new Error('请先打开游玩会话')
     return chat
   }
-  function present(chat) {
+  async function present(chat) {
     return { ...presentExtras(chat), backgroundModel: chat.backgroundModelSelection || null,
       worldbookStrategy: (!chat.worldbookStrategy || chat.worldbookStrategy === 'legacy') ? 'native-skills' : chat.worldbookStrategy,
       backgroundTasks: normalizeConfiguredBackgroundTasks(chat.backgroundTasks), webSearchEnabled: chat.webSearchEnabled === true,
+      candidateTabs: await expandedCandidates(chat),
       disabledForegroundTools: normalizeDisabledForegroundTools(chat.disabledForegroundTools) }
   }
   async function toolCatalog(chat, sessionId) {
@@ -32,7 +33,7 @@ export function createConversationBackgroundSettings({ readConfig, readChat, upd
   }
   async function read(sessionId) {
     const chat = requirePlay(await readConfig(String(sessionId || '')))
-    return { ...present(chat), ...await readExtras(chat), worldbookStrategies: await worldbookStrategies.list(), foregroundTools: await toolCatalog(chat, String(sessionId || '')), mvuCard: chat.mvu?.enabled === true && chat.mvu.owner === 'official', modelCatalog: await modelCatalog() }
+    return { ...await present(chat), ...await readExtras(chat), worldbookStrategies: await worldbookStrategies.list(), foregroundTools: await toolCatalog(chat, String(sessionId || '')), mvuCard: chat.mvu?.enabled === true && chat.mvu.owner === 'official', modelCatalog: await modelCatalog() }
   }
   async function checkModel(value, label) {
     const selection = normalizeBackgroundModel(value)

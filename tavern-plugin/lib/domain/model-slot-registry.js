@@ -7,10 +7,10 @@ export function createModelSlotRegistry({warn = () => {}} = {}) {
     providers.set(owner,entry)
     return () => {if(providers.get(owner) === entry)providers.delete(owner)}
   }
-  async function rows() {
+  async function rows(context) {
     const result = await Promise.all([...providers].map(async([owner,provider]) => {
       try {
-        const rows = await provider.rows()
+        const rows = await provider.rows(context)
         // each row names the provider that registered it: a settings page lists the slots of its own owner.
         return providers.get(owner) === provider ? structuredClone(rows).map(row => ({...row, owner})) : []
       } catch(error) {try{warn(error)}catch{};return []}

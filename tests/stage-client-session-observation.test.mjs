@@ -8,7 +8,7 @@ function fixture({characters=[],failCleanup=false}={}){
  const subscribe=fn=>{listeners.add(fn);return ()=>listeners.delete(fn)}
  const state={source:{sessionId:'a',authorityEpoch:1,turn:1},latestSource:{turn:1},settings:{config:{}},textIndex:new Map([[1,{text:{pages:[{voice:'v',anchor:{paragraphId:1}}]}}]]),opened:true}
  const store={getSnapshot:()=>state,dispatch:event=>calls.push(event.type),select:()=>({subscribe,dispose(){disposedSelectors++;if(failCleanup)throw Error('selector cleanup')}})}
- const media=Object.fromEntries(['music','background','ambience'].map(key=>[key,{activate:id=>calls.push([key,id]),invalidate:()=>calls.push([key,'invalidate']),kick(){},resume(){}}]))
+ const media=Object.fromEntries(['music','background','ambience'].map(key=>[key,{subscribe,get:()=>({loopsPaused:false}),activate:id=>calls.push([key,id]),invalidate:()=>calls.push([key,'invalidate']),kick(){},resume(){},hold(){}}]))
  const input={owner:{get:id=>id==='a'?store:null},resources:{invalidate:id=>calls.push(['invalidate',id]),suspend:id=>calls.push(['suspend',id]),revoke:id=>calls.push(['revoke',id])},
  resourceOwner:{acquire:()=>new Promise(resolve=>pending.push(resolve)),invalidateDerived:()=>calls.push('derived')},
  selection:{current:()=>selected,list:{subscribe,getSnapshot:()=>({byId:{a:{}}})}},settings:{subscribe,get:()=>({config:{characters}})},

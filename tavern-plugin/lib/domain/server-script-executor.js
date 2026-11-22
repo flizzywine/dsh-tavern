@@ -4,7 +4,8 @@
 import { fork } from 'node:child_process'
 import { createRequire } from 'node:module'
 import { dirname } from 'node:path'
-import { Readable } from 'node:stream'
+import { Readable, Writable } from 'node:stream'
+import { finished } from 'node:stream/promises'
 import { fileURLToPath } from 'node:url'
 
 const require = createRequire(import.meta.url)
@@ -22,7 +23,9 @@ const ALLOWED_METHODS = new Set([
   'recordMvuRuntimeDiagnostic', 'recordTavernCompatibilityCalls', 'saveTavernExtensionSettings', 'saveTavernWorldInfo', 'saveTavernChatData',
   'getFullPromptTemplateState', 'releaseFullTemplateRuntime', 'heartbeatFullTemplateRuntime', 'claimFullTemplateWork', 'completeFullTemplateWork'
 ])
-const ALLOWED_GET = /^\/api\/dsh-tavern\/(?:vendor\/|client-assets\/|remote-assets\/|static-assets|helper-history|session-resource|plugin-assets\/)/
+const API_PREFIX = '/api/dsh-tavern/'
+const SCRIPT_ORIGIN = 'http://tavern.invalid'
+const ALLOWED_GET = /^\/api\/dsh-tavern\/(?:vendor\/|client-assets\/|remote-assets\/|plugin-assets\/|(?:static-assets|helper-history|session-resource)$)/
 
 // Like a page, only the game being played runs: a runtime lives while a page
 // shows its game in the foreground or a settlement waits for it, and stops
@@ -34,7 +37,11 @@ const ALLOWED_GET = /^\/api\/dsh-tavern\/(?:vendor\/|client-assets\/|remote-asse
 // after a minute, must find its runtime still warm. Thirty seconds reaped the
 // child in the middle of ordinary play, and every later card-script event then
 // paid a full cold boot before it could run.
-export function createServerScriptExecutor({ handle, subscribeSignals, busy = () => false, lingerMs = 5 * 60 * 1000, reapIntervalMs = Math.max(1000, Math.floor(lingerMs / 3)), maxSessions = 4, spawn = fork, logger = console, now = Date.now }) {
+function isMobileRuntime() {
+  return process.platform === 'android' || Boolean(process.env.TERMUX_VERSION || process.env.ANDROID_ROOT || process.env.DSH_ANDROID_HOST)
+}
+
+export function createServerScriptExecutor({ handle, subscribeSignals, busy = () => false, lingerMs = isMobileRuntime() ? 2 * 60 * 1000 : 5 * 60 * 1000, reapIntervalMs = Math.max(1000, Math.floor(lingerMs / 3)), maxSessions = isMobileRuntime() ? 1 : 4, spawn = fork, logger = console, now = Date.now }) {
   const records = new Map(), retryAfter = new Map()
   let failures = 0, disabled = false
   function failed(id) {
@@ -68,12 +75,13 @@ export function createServerScriptExecutor({ handle, subscribeSignals, busy = ()
   async function answer(record, message) {
     const reply = data => { if (record.child.connected) record.child.send({ type: 'fetch-result', id: message.id, ...data }, () => {}) }
     try {
-      const path = String(message.path || '')
-      const pathname = new URL(path, 'http://x').pathname
+      const url = new URL(String(message.path || ''), SCRIPT_ORIGIN)
+      const { pathname } = url
       // SillyTavern feature probe served outside /api/dsh-tavern.
-      if (pathname === '/version') { reply({ status: 200, headers: { 'content-type': 'application/json' }, body: Buffer.from(JSON.stringify({ pkgVersion: '1.12.14' })).toString('base64') }); return }
-      const method = pathname.slice('/api/dsh-tavern/'.length)
-      if (message.method === 'POST' ? !ALLOWED_METHODS.has(method) : !(message.method === 'GET' && ALLOWED_GET.test(pathname))) {
+      if (url.origin === SCRIPT_ORIGIN && pathname === '/version' && message.method === 'GET') { reply({ status: 200, headers: { 'content-type': 'application/json' }, body: Buffer.from(JSON.stringify({ pkgVersion: '1.12.14' })).toString('base64') }); return }
+      const allowed = message.method === 'POST' ? pathname.startsWith(API_PREFIX) && ALLOWED_METHODS.has(pathname.slice(API_PREFIX.length))
+        : message.method === 'GET' && ALLOWED_GET.test(pathname)
+      if (url.origin !== SCRIPT_ORIGIN || !allowed) {
         logger.warn('dsh-tavern: 服务端卡脚本运行时请求被拒绝', message.method, pathname)
         reply({ status: 403, headers: { 'content-type': 'application/json' }, body: Buffer.from(JSON.stringify({ ok: false, error: 'server script runtime may not call ' + pathname })).toString('base64') })
         return
@@ -86,22 +94,25 @@ export function createServerScriptExecutor({ handle, subscribeSignals, busy = ()
         body = JSON.stringify(payload)
       }
       const req = Readable.from(body === undefined ? [] : [Buffer.from(body)])
-      Object.assign(req, { url: path, method: message.method, headers: { host: 'tavern.invalid', 'content-type': 'application/json' } })
+      Object.assign(req, { url: pathname + url.search, method: message.method, headers: { host: url.host, 'content-type': 'application/json' } })
       const chunks = []
-      let status = 200, headers = {}
-      await new Promise((resolve, reject) => {
-        const res = {
-          headersSent: false,
-          writeHead(code, values) { status = code; Object.assign(headers, values || {}); this.headersSent = true; return this },
-          setHeader(name, value) { headers[name] = value },
-          getHeader(name) { return headers[name] },
-          write(chunk) { chunks.push(Buffer.from(chunk)); return true },
-          end(chunk) { if (chunk !== undefined && chunk !== null) chunks.push(Buffer.from(chunk)); resolve() },
-          on() { return this }, once() { return this }
-        }
-        Promise.resolve(handle(req, res)).catch(reject)
+      let status = 200
+      const headers = {}
+      const res = new Writable({ write(chunk, _encoding, done) { chunks.push(chunk); done() } })
+      Object.assign(res, {
+        headersSent: false,
+        writeHead(code, values) {
+          status = code
+          for (const [name, value] of Object.entries(values || {})) this.setHeader(name, value)
+          this.headersSent = true
+          return this
+        },
+        setHeader(name, value) { headers[name.toLowerCase()] = value },
+        getHeader(name) { return headers[name.toLowerCase()] }
       })
-      const plain = Object.fromEntries(Object.entries(headers).map(([key, value]) => [key.toLowerCase(), String(value)]))
+      try { await Promise.all([finished(res, { cleanup: true }), Promise.resolve().then(() => handle(req, res))]) }
+      finally { if (!res.writableFinished) res.destroy() }
+      const plain = Object.fromEntries(Object.entries(headers).map(([key, value]) => [key, String(value)]))
       reply({ status, headers: plain, body: Buffer.concat(chunks).toString('base64') })
     } catch (error) {
       reply({ error: String(error?.message || error) })

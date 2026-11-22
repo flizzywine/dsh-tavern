@@ -64,7 +64,8 @@ export function createStreamingDirector({identity, baseline, system, tools, run,
   if (![batchSize, firstWindowSize, maxWindow, maxCalls].every(value => Number.isSafeInteger(value) && value > 0) || maxWindow < batchSize || firstWindowSize > maxWindow) throw new Error('Invalid streaming budget')
   const source = immutable(clone(identity)), initial = immutable(clone(baseline)), fixedTools = immutable(clone(tools))
   const index = createStreamingParagraphs()
-  let paragraphs = [], epoch = 0, highWater = 0, calls = 0, committed = false, cancelled = false
+  // ended: every paragraph is final (the reply stream stopped on its own); the remainder window need not wait for the commit.
+  let paragraphs = [], epoch = 0, highWater = 0, calls = 0, committed = false, ended = false, cancelled = false
   let accounting = {counts:{},totalOps:0}, diagnostics = []
   let failure = null, flight = null, scheduled = false, state = initial, through = 0, published = [], records = new Map()
   const tasks = new Set()
@@ -101,15 +102,15 @@ export function createStreamingDirector({identity, baseline, system, tools, run,
     if (flight || cancelled || failure) return
     reuse()
     const available = sealed() - through
-    const opening = (remainderOnCommit || firstWindowSize < batchSize) && through === 0 && !committed
-    if (remainderOnCommit && through > 0 && !committed) { notify(); return }
-    if (!available || !committed && available < (opening ? firstWindowSize : batchSize)) { notify(); return }
+    const opening = (remainderOnCommit || firstWindowSize < batchSize) && through === 0 && !ended
+    if (remainderOnCommit && through > 0 && !ended) { notify(); return }
+    if (!available || !ended && available < (opening ? firstWindowSize : batchSize)) { notify(); return }
     if (calls >= budget()) {
       if (committed) failure = {code:'STREAMING_BUDGET_EXHAUSTED', message:'Text is readable; director call budget exhausted'}
       notify(); return
     }
     // Keep the first visible prefix independent of a coalesced body backlog.
-    const window = paragraphs.slice(through, through + (opening ? firstWindowSize : remainderOnCommit && committed ? available : maxWindow))
+    const window = paragraphs.slice(through, through + (opening ? firstWindowSize : remainderOnCommit && ended ? available : maxWindow))
       .filter(item => item.sealed)
     // Stop before a reusable island so an unchanged carried state can save a call.
     // The carried state is fixed during the scan: hash it once (only if any later paragraph has a record).
@@ -156,7 +157,8 @@ export function createStreamingDirector({identity, baseline, system, tools, run,
     })
     tasks.add(task)
   }
-  function update(units, final = false) {
+  // final: every paragraph is final; commit: and the body is saved (only a commit settles the stream).
+  function update(units, final = false, commit = final) {
     if (cancelled || committed) return snapshot()
     const previous = paragraphs, changed = index.reconcile(units, final)
     paragraphs = changed.paragraphs
@@ -169,12 +171,12 @@ export function createStreamingDirector({identity, baseline, system, tools, run,
       const live = new Set(paragraphs.map(item => item.id))
       records = new Map([...records].filter(([id]) => live.has(id)))
     }
-    committed = final
+    ended = final; committed = commit
     notify(); schedule()
     return snapshot()
   }
   return {
-    update, commit:units => update(units, true), snapshot,
+    update, end:units => update(units, true, false), commit:units => update(units, true), snapshot,
     cancel() { if (!cancelled) {cancelled = true; flight?.controller.abort(); notify()} },
     fail(error) {
       failure = {code:error.code || 'STREAMING_DIRECTOR_FAILED',message:String(error.message || error)}

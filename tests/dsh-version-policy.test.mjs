@@ -45,7 +45,7 @@ test('安装脚本以 --check 执行检查：范围内退出码 0，范围外非
 
 test('Unix 工具准备只处理 pnpm，不提前复用或更换 DSH', { skip: process.platform === 'win32' }, () => {
   const start = unix.indexOf('# Read the downloaded release')
-  const end = unix.indexOf('if [ "${INSTALL_HOST}" = "cli" ] && [ -f', start)
+  const end = unix.indexOf('\n# Validate the downloaded release', start)
   assert.ok(start >= 0 && end > start)
   const block = unix.slice(start, end)
   // Run the real shell branch while replacing all installation/filesystem effects.

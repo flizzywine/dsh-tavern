@@ -20,7 +20,7 @@ export function patchToolReplyStreamChatSource(text) {
     '  if (typeof raw !== "string" || raw === "") return { think: "", content: "" };',
     '  var state = 0, keyBuf = "", curKey = "", esc = 0, hex = "", hi = null, depth = 0, inStr = false, nEsc = false;',
     '  var out = { think: "", content: "" };',
-    '  function emit(ch, isKey) { if (isKey) keyBuf += ch; else if (curKey === "think" || curKey === "content") out[curKey] += ch; }',
+    '  function emit(ch, isKey) { if (isKey) keyBuf += ch; else if (curKey === "think" || curKey === "analysis") out.think += ch; else if (curKey === "content") out.content += ch; }',
     '  function flushHi(isKey) { if (hi !== null) { emit(String.fromCharCode(hi), isKey); hi = null; } }',
     '  function stepStr(ch, isKey) {',
     '    if (esc === 0) {',

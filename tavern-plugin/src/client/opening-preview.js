@@ -166,6 +166,7 @@ function installOpeningPreviewBridge(token, preview) {
       await window.setChatMessages([{ message_id: 0, swipe_id: savedIndex }]);
     }
   });
+  window.getContext = () => window.SillyTavern.getContext();
   window.getCurrentMessageId = window.getLastMessageId = function () { return contextChat().length - 1; };
   window.getChatMessages = function (id, options) {
     if (original) return original.getChatMessages(id, options);

@@ -45,7 +45,7 @@ export function createPolishDraft(texts, onChange = () => {}) {
 }
 
 /** Native child history survives idle disposal/restart. Only new material is appended. */
-export function createPolishReviewer({ latestFloors, readCard, prompt, runAgent, selection, data }) {
+export function createPolishReviewer({ latestFloors, readCard, prompt, runAgent, selection, data, withForegroundAgent = (_id, work) => work() }) {
   const queues = new Map(), progress = new Map()
   async function run(sessionId, texts, guidance, signal) {
     signal?.throwIfAborted()
@@ -77,9 +77,9 @@ export function createPolishReviewer({ latestFloors, readCard, prompt, runAgent,
     const draft = createPolishDraft(texts, edits => { status.edits = edits.map(edit => ({ ...edit })) })
     try {
       await data.saveGame({ chatId: chat.id, owner: OWNER, data: state })
-      const result = await runAgent({
+      const input = {
         task: 'polish', sessionId, persistent: true, persistentSessionId: reusable ? previous.traceSessionId : '', newSession: !reusable,
-        selection: await selection(sessionId), signal, system, webSearchEnabled: false,
+        signal, system, webSearchEnabled: false,
         tools: POLISH_TOOLS, maxToolCalls: 32, toolLimitMessage: '精修调用次数已达上限，请结束任务。',
         onToolCall: call => draft.call(call), stopToolsWhen: () => draft.finished, acceptWithoutText: () => draft.finished,
         async onPersistentSessionReady(id) {
@@ -105,6 +105,12 @@ export function createPolishReviewer({ latestFloors, readCard, prompt, runAgent,
           sections.push(promptSection('polish_task', guidance ? '只按意见修改：' + guidance.slice(0, 1000) : '原则精修'))
           return sections.join('\n\n')
         }
+      }
+      const result = await withForegroundAgent(sessionId, async () => {
+        signal?.throwIfAborted()
+        const model = await selection(sessionId)
+        signal?.throwIfAborted()
+        return runAgent({ ...input, selection: model })
       })
       signal?.throwIfAborted()
       if (!draft.finished) throw new Error('精修 Agent 未调用完成工具，草稿未保存，请重试')

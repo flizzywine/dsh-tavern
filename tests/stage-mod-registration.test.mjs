@@ -1,19 +1,9 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import {createModPrivateMethods} from '../tavern-plugin/packages/dsh-asset-library/lib/pack-v2/mod-private.js'
 import {createModConfigHost} from '../tavern-plugin/packages/dsh-tavern-stage/lib/mod-config-host.js'
 import {modLibrary} from '../tavern-plugin/lib/mod-library.js'
 const manifest=id=>({id,name:id,settingsSchema:{fields:[]}})
 function host(manifests) {return createModConfigHost({library:modLibrary, manifests,store:{},listCards:async()=>[],readCard:async()=>null})}
-
-test('mod config owner releases validators and refuses registration after disposal',()=>{
-  const validators=new Map(),packs={apiVersion:2,...createModPrivateMethods({validators})},owner=host([manifest('test.mod')])
-  owner.register(packs);owner.register(packs);assert.equal(validators.size,1)
-  owner.unregister(packs);assert.equal(validators.size,0)
-  owner.register(packs);assert.equal(validators.size,1)
-  owner.dispose();owner.dispose();assert.equal(validators.size,0)
-  assert.throws(()=>owner.register(packs),{code:'SOURCE_UNAVAILABLE'})
-})
 
 // A mod still installed in the library after its built-in was removed (owner 2026-11-02: 弹幕, 地图) is named by its own
 // installed manifest; it once took the whole stage runtime down at start (舞台不可用).

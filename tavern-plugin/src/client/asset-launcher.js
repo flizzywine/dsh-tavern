@@ -71,9 +71,9 @@ function PackWorkbench({sessionId,cardPath,cardName,cardStamp,loading,page = 'li
     const transport = packTransport, service = packClient(), tts=forkTtsScope?.get('ttsClient');
     const binding = React.useMemo(() => service ? createAssetPackBinding({service,tts,
         rpc:workbenchRpc(sessionId), engineRpc:engineRpc, settings:transport.settings,
-        download:result => transport.download(result), readExport:result => transport.bytes(result),
+        download:(result,options) => transport.download(result,options), pickSave:options => transport.pickSave(options), readExport:result => transport.bytes(result),
         onUnavailable:fn => transport.onUnavailable(fn)
-    }) : {rpc:workbenchRpc(sessionId),engineRpc:engineRpc,download:result=>transport.download(result),tts}, [transport,service,sessionId,tts]);
+    }) : {rpc:workbenchRpc(sessionId),engineRpc:engineRpc,download:(result,options)=>transport.download(result,options),pickSave:options=>transport.pickSave(options),tts}, [transport,service,sessionId,tts]);
     const nav = React.useMemo(() => stageNav(sessionId), [sessionId]);
     // the library's deep links (packNav) plus the sidebar tabs its pages open (the voice page's 「语音后端 ›」).
     const libraryNav = React.useMemo(() => ({ take: packNav.take, subscribe: packNav.subscribe, openTab: nav.openTab }), [nav]);
@@ -143,7 +143,17 @@ function installTavernAssetLaunchers(ctx, slots) {
         child.effect(() => () => {off();offRate();if(forkTtsScope!==child)return;forkTtsScope=undefined;voicePlayer.setEnabled(false);voicePlayer.invalidate();notifyPackChange();});
     });
     ctx.effect(() => {
-        const transport = createPackTransport(); packTransport = transport;
+        const wsClient = typeof tavernWsRpc !== 'undefined' ? tavernWsRpc : null;
+        const transport = createPackTransport(wsClient && typeof wsClient.subscribe === 'function' ? {
+            subscribeChanges: handlers => wsClient.subscribe('asset-pack-changes', {
+                getArgs: () => ({since: handlers.getSince()}),
+                onEvent: handlers.onEvent,
+                onUnavailable: handlers.onUnavailable,
+                onFallback: handlers.onFallback,
+                onReconnected: handlers.onReconnected
+            })
+        } : undefined);
+        packTransport = transport;
         const stop = transport.service.subscribe(notifyPackChange);
         transport.start();
         return () => { stop(); transport.dispose(); if (packTransport === transport) packTransport = undefined; notifyPackChange(); };

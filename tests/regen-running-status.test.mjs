@@ -6,16 +6,20 @@ import { createPlayHandlers } from '../tavern-plugin/lib/rpc/play.js'
 // 这段时间里按键还是「发送」；请求一进门就先报运行中，结束再交还。
 function harness(options = {}) {
   const emitted = [], releases = []
-  let attempts = 0
+  let attempts = 0, phaseKind = options.phaseKind || 'idle'
   const handlers = createPlayHandlers({
     str: String,
     ctx: { emit: (...args) => emitted.push(args) },
+    agentRegistry: { get: () => ({ phase: { kind: phaseKind } }) },
     autoChoices: { cancel() {} },
     requestPerformance: { stage: async (_name, run) => run() },
     reconcileStory: async () => {},
     polishPrereview: { cancel() {}, start: async () => {} },
     notifyPluginTimeline() {},
-    pluginApi: { gameModes: { active: async () => options.blocked === true } },
+    pluginApi: { gameModes: { active: async () => {
+      if (options.holdMode === true) await new Promise(resolve => releases.push(resolve))
+      return options.blocked === true
+    } } },
     regenBody: async () => {
       attempts += 1
       if (attempts > 1) throw new Error('正文正在重新生成，请等待完成')
@@ -24,7 +28,8 @@ function harness(options = {}) {
       return { view: { mode: 'story' } }
     }
   })
-  return { emitted, handlers, attempts: () => attempts, release: () => releases.splice(0).forEach(resolve => resolve()) }
+  return { emitted, handlers, attempts: () => attempts, setPhase: kind => { phaseKind = kind },
+    release: () => releases.splice(0).forEach(resolve => resolve()) }
 }
 
 test('同时到达的重新生成只报一次运行中、一次空闲', async () => {

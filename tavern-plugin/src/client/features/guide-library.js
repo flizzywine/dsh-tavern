@@ -39,7 +39,7 @@
                 finally { setBusy(false); }
             }
             async function remove(item) {
-                if (!await askConfirm("删除 Guide 方案“" + item.name + "”吗？\n已加载到游戏的指导不受影响。")) return;
+                if (!await askConfirm("已加载到游戏的指导不受影响。", { title: "删除 Guide 方案“" + item.name + "”？", confirmText: "删除", danger: true, hide: "guide" })) return;
                 setBusy(true); setError(""); setNotice("");
                 try {
                     await rpc("deleteGuideLibrary", { id: item.id, expected: item }, sessionId);

@@ -52,12 +52,11 @@
 				const revision = galleryRevision.current;
 				const sessionId = props.gallerySessionId;
 				const hasProviderItems = list.some(function (shot) { return Boolean(shot.item.provider); });
-				if (!list.length || !await askConfirm(list.length === 1 ? list[0].item.provider
-					? "删除「" + list[0].item.provider + "」图库里的这张图片？这会调用插件的删除方法，可能同时删除本地图片文件。"
-					: "删除第 " + list[0].item.turn + " 轮的这张图片？只移除图片，不影响正文与存档。"
-					: "删除选中的 " + list.length + " 张图片？" + (hasProviderItems
-						? "这会调用对应插件的删除方法，可能同时删除本地图片文件。"
-						: "只移除图片，不影响正文与存档。"))) return;
+				if (!list.length || !await askConfirm(hasProviderItems
+					? (list.length === 1 ? "这会调用插件的删除方法，可能同时删除本地图片文件。" : "这会调用对应插件的删除方法，可能同时删除本地图片文件。")
+					: "只移除图片，不影响正文与存档。", {
+					title: list.length > 1 ? "删除选中的 " + list.length + " 张图片？" : list[0].item.provider ? "删除「" + list[0].item.provider + "」图库里的这张图片？" : "删除第 " + list[0].item.turn + " 轮的这张图片？",
+					confirmText: "删除", danger: true, hide: list.length > 1 ? "scene-image-bulk" : "scene-image" })) return;
 				if (revision !== galleryRevision.current) return;
 				setBusy(true); setNotice("");
 				try {

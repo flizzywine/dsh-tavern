@@ -48,7 +48,7 @@ async function createLayout(directory) {
   await writeFile(path.join(profile, 'package.json'), JSON.stringify({ name: 'dsh-profile-tavern' }))
   await writeFile(path.join(profile, 'pnpm-workspace.yaml'), 'patchedDependencies:\n')
 
-  const mock = path.join(directory, 'mock')
+  const mock = path.join(tavernRoot, 'tools', 'bin')
   await mkdir(mock, { recursive: true })
   await writeFile(path.join(mock, 'dsh-tavern'), '#!/usr/bin/env bash\nexit 0\n')
   await writeFile(path.join(mock, 'pnpm'), '#!/usr/bin/env bash\nexit 0\n')
@@ -114,6 +114,8 @@ test('容器内切换：保留 data 与 node_modules、写标记与备份记录'
   // 移动版布局补丁要补回来
   const profileManifest = await readFile(path.join(layout.profile, 'package.json'), 'utf8')
   assert.match(profileManifest, /dsh-web-mobile/)
+  const workspace = await readFile(path.join(layout.profile, 'pnpm-workspace.yaml'), 'utf8')
+  assert.match(workspace, /^patchedDependencies:\n  dsh-web-mobile@3\.1\.0: patches\/dsh-web-mobile@3\.1\.0\.patch$/m)
 })
 
 test('容器内回退：恢复旧版本并清掉记录', async (t) => {

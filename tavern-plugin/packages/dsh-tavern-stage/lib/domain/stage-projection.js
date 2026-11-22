@@ -3,6 +3,7 @@ import {resolution} from '../../../../lib/domain/figure-catalogue.js'
 import { effectiveBubbleMoods } from '../../../../lib/domain/dialogue-bubbles.js'
 import { matchBubbleMood } from '../../../../src/client/bubble-line.cjs'
 import { stageAssetRefs } from './stage-asset-pack-catalogue.js'
+import { cgPlaybackAvailable } from '../scene-cg.js'
 import { foldAssetPackEntries } from './stage-asset-pack-director.js'
 import {foldPerformanceAt, performanceWidgetDefaults} from './performance-projection.js'
 import { reuseStagePlayback, stagePlaybackKey, stagePlaybackRuler, stagePlaybackEmotions, stagePlaybackWriter } from './stage-playback.js'
@@ -184,7 +185,8 @@ async function readCurrentProjection({trace, expectedDirectionToken, readDirecti
     await measure('projection.referencedAssets', async () => { for (const ref of referenced) {
       const resolved = consumer.allowedPackIds.includes(ref.packId)
         ? await presentation[ref.figureId ? 'resolveFigure' : 'resolveAsset'](ref) : null
-      if (!resolved?.value?.enabled || resolved.value.pendingMedia) {missing.push(ref); unavailable.add(refKey(ref))}
+      const asset = resolved?.value
+      if (!(ref.kind === 'cg' ? cgPlaybackAvailable(asset) : asset?.enabled && !asset.pendingMedia)) {missing.push(ref); unavailable.add(refKey(ref))}
     } })
     const available = ref => !ref || !unavailable.has(refKey(ref))
     // revocation removes only the affected projection element, not the

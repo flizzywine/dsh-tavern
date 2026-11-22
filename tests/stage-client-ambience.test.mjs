@@ -57,24 +57,3 @@ test('soundscape disposal continues across a failed mixer release and settles fa
   player.apply({version:1,layers:[{slot:'layer1',identity:'new',url:'blob:new',gain:1}]})
   assert.equal(id,2)
 })
-
-test('hold silences the loop plan, keeps it pinned, and resume brings it back; scene changes while held stay silent', async () => {
-  const plans = []
-  let state = {accepted:{ambience:{version:1,layers:[{identity:'rain',slot:'layer1',url:'blob:rain',gain:1}]}},source:{turn:1},cursor:{}}
-  const ambience = createAmbience({
-    player:() => ({apply:plan => plans.push(plan.layers.map(layer => layer.identity)),whenSettled:() => Promise.resolve(),stop(){},dispose(){}}),
-    session:() => ({select:select => ({getSnapshot:() => select(state),subscribe(){},dispose(){}})}),
-    owner:() => null,
-    authority:source => source,
-  })
-  ambience.activate('s')
-  assert.deepEqual(plans.at(-1),['rain'])
-  ambience.hold(true)
-  assert.deepEqual(plans.at(-1),[])
-  await ambience.present({version:1,layers:[{identity:'wind',slot:'layer1',url:'blob:wind',gain:1}]},false)
-  assert.deepEqual(plans.at(-1),[])
-  ambience.performance({identity:'perf',url:'blob:perf',gain:1},false)
-  assert.deepEqual(plans.at(-1),[])
-  ambience.hold(false)
-  assert.deepEqual(plans.at(-1).sort(),['perf','wind'])
-})

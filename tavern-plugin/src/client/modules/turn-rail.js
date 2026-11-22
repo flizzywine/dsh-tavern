@@ -523,7 +523,16 @@ function createStoryFloorRail(root, options) {
 		// 已排了一次同步：sync() 会重新 findScope() 并读实时 DOM，不必再扫这批变更。
 		if (frame) return false;
 		const scopeAlive = !!(scope && scope !== doc.body && scope.isConnected !== false);
-		const scopeRenderable = scopeAlive && isRenderableScope(scope);
+		// 刻度列显示着时，滚动容器外、又不是它祖先的变更不再量容器：容器尺寸变了有 ResizeObserver，祖先的
+		// hidden/class/style 下面单独判断。getBoundingClientRect 会强制排版，舞台每帧改样式时每批变更都量一次，
+		// 手机主线程被占满。没有 ResizeObserver 的环境照旧量。
+		let scopeRenderable;
+		const lost = function () {
+			if (!scopeAlive) return true;
+			if (resize) return false;
+			if (scopeRenderable === undefined) scopeRenderable = isRenderableScope(scope);
+			return !scopeRenderable;
+		};
 		const railHidden = !rail || rail.hidden || rail.style.display === "none";
 		for (let i = 0; i < mutations.length; i++) {
 			const m = mutations[i];
@@ -532,7 +541,7 @@ function createStoryFloorRail(root, options) {
 				const attr = m.attributeName;
 				if (attr === "data-conversation-session" || attr === "data-content-phase") return true;
 				if (scopeAlive && m.target !== scope && typeof scope.contains === "function" && scope.contains(m.target)) continue;
-				if (railHidden || !scopeRenderable) return true;
+				if (railHidden || lost()) return true;
 				if (m.target === doc.documentElement || m.target === doc.body
 					|| (scopeAlive && m.target && typeof m.target.contains === "function" && m.target.contains(scope))) return true;
 				continue;
@@ -543,8 +552,8 @@ function createStoryFloorRail(root, options) {
 				const node = touched[j];
 				if (!node || isOwnNode(node)) continue;
 				// MutationObserver 在 DOM 变更生效之后回调：抽屉/遮罩移除时 scope 可能刚刚恢复可见，
-				// 但 rail 仍停在上一轮的 hidden，因此也要看 railHidden 而不能只看 !scopeRenderable。
-				if (railHidden || !scopeRenderable) return true;
+				// 但 rail 仍停在上一轮的 hidden，因此也要看 railHidden 而不能只看容器量不量得到。
+				if (railHidden || lost()) return true;
 				// 流式正文往气泡里塞的是文本和行内节点：文本永远匹配不到滚动容器。
 				if (node.nodeType !== 1) continue;
 				if (node.matches && (node.matches("[data-conversation-scroll]") || node.matches("[data-conversation-session]"))) return true;

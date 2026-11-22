@@ -4,16 +4,43 @@ import { createRequire } from 'node:module'
 // A card cover has to be a PNG (the card rides in its text chunks). PNGs pass through untouched;
 // JPEG and WebP are decoded and re-encoded as PNG at their own size.
 const require = createRequire(import.meta.url)
-let codecs
+
+// Every codec is compiled on first use, per format: a JPEG cover never pays for the WebP decoder.
+const DECODERS = {
+  'image/jpeg': { name: 'jpeg', source: '@jsquash/jpeg/decode.js', binary: '@jsquash/jpeg/codec/dec/mozjpeg_dec.wasm' },
+  'image/webp': { name: 'webp', source: '@jsquash/webp/decode.js', binary: '@jsquash/webp/codec/dec/webp_dec.wasm' }
+}
+let decoders = {}
+let encoder
+const compiles = { jpeg: 0, webp: 0, encoder: 0 }
 
 async function wasm(file) { return await WebAssembly.compile(await readFile(require.resolve(file))) }
 
-async function loadCodecs() {
-  const [png, jpeg, webp] = await Promise.all([import('@jsquash/png/encode.js'), import('@jsquash/jpeg/decode.js'), import('@jsquash/webp/decode.js')])
+async function loadDecoder(type) {
+  const { source, binary } = DECODERS[type]
+  const decoder = await import(source)
+  await decoder.init(await wasm(binary))
+  return decoder.default
+}
+
+async function loadEncoder() {
+  const png = await import('@jsquash/png/encode.js')
   await png.init(await wasm('@jsquash/png/codec/pkg/squoosh_png_bg.wasm'))
-  await jpeg.init(await wasm('@jsquash/jpeg/codec/dec/mozjpeg_dec.wasm'))
-  await webp.init(await wasm('@jsquash/webp/codec/dec/webp_dec.wasm'))
-  return { 'image/jpeg': jpeg.default, 'image/webp': webp.default, encode: png.default }
+  return png.default
+}
+
+/** Which codecs have been compiled so far — read-only, for diagnostics and the laziness test. */
+export function codecLoadState() { return { decoders: Object.keys(decoders), encoder: Boolean(encoder), compiles: { ...compiles } } }
+
+function decoderFor(type) {
+  const { name } = DECODERS[type]
+  return decoders[name] ??= loadDecoder(type).then(decoder => { compiles[name]++; return decoder },
+    error => { delete decoders[name]; throw error })
+}
+
+function encoderFor() {
+  return encoder ??= loadEncoder().then(encode => { compiles.encoder++; return encode },
+    error => { encoder = undefined; throw error })
 }
 
 export function coverImageType(data) {
@@ -28,8 +55,7 @@ export async function coverImageAsPng(data) {
   const type = coverImageType(data)
   if (!type) throw new Error('封面只支持 PNG、JPG、WebP 图片')
   if (type === 'image/png') return data
-  codecs ??= loadCodecs().catch(error => { codecs = undefined; throw error })
-  const loaded = await codecs
-  const pixels = await loaded[type](data)
-  return Buffer.from(await loaded.encode(pixels))
+  const [decode, encode] = await Promise.all([decoderFor(type), encoderFor()])
+  const pixels = await decode(data)
+  return Buffer.from(await encode(pixels))
 }

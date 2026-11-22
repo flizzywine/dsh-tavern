@@ -42,7 +42,7 @@ const BACKGROUND_WRITE_KEYS = ['macroState', 'variables', 'posture', 'scriptStat
 export function createPluginBodyRegeneration(deps) {
   const { chats, sessions, timeline, queueSettlement, replyCommitted, cancelSettlement,
     sessionPatch, readRegenerationMaterials, prepareRegenerationReply, notifyRegeneration,
-    recovery, pendingRegenerations, pendingRollbacks, selectTarget } = deps
+    recovery, acquireAgent, pendingRegenerations, pendingRollbacks, selectTarget } = deps
 
   return async function regenerateWithProvider({ gameId, sessionId = gameId, turn, textVersion, generate, prepare, providerId, hostRegex = false, validateProvider, guidance = '', signal, onPhase } = {}) {
     if (typeof generate !== 'function') throw new TypeError('generate 必须是函数')
@@ -57,10 +57,11 @@ export function createPluginBodyRegeneration(deps) {
     if (pendingRegenerations.has(chatId) || pendingRollbacks.has(chatId)) throw error('TAVERN_PLUGIN_BUSY', '当前对话正在重新生成或回退')
     pendingRegenerations.add(chatId)
     const operationId = randomUUID()
-    let committed = false, startedAttempt, interruptedSettlement = null
+    let committed = false, startedAttempt, interruptedSettlement = null, handle
     const phase = async value => { try { if (typeof onPhase === 'function') await onPhase(value) } catch { /* Observers never change commit semantics. */ } }
     try {
-      let agent = sessions.get(sessionId)
+      handle = await acquireAgent(sessionId)
+      const agent = handle.agent
       if (!agent?.session) throw new Error('无法访问当前 DSH 会话')
       if (agent.phase?.kind === 'running') throw error('TAVERN_PLUGIN_BUSY', '前台正在生成，请先停止')
       original = await chats.read(chatId)
@@ -328,7 +329,11 @@ export function createPluginBodyRegeneration(deps) {
         }
       }
       throw cause
-    } finally { pendingRegenerations.delete(chatId) }
+    } finally {
+      try { await handle?.dispose() }
+      catch (error) { console.warn('dsh-tavern: 释放插件重新生成会话句柄失败:', sessionId, String(error?.message || error)) }
+      finally { pendingRegenerations.delete(chatId) }
+    }
   }
 }
 

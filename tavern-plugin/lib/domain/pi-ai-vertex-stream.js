@@ -66,6 +66,13 @@ export function normalizeVertexProject(value) {
   return project
 }
 
+/** A Vertex location/region name such as `global`, `us-central1`, `asia-southeast1`. */
+export function normalizeVertexLocation(value) {
+  const location = typeof value === 'string' ? value.trim().toLowerCase() : ''
+  if (!location || !/^[a-z][a-z0-9-]{1,62}$/.test(location)) return null
+  return location
+}
+
 /** The project named by a `.../projects/<project>/locations/<location>` URL, or null. */
 export function vertexProjectFromBaseUrl(baseUrl) {
   if (typeof baseUrl !== 'string') return null
@@ -73,12 +80,92 @@ export function vertexProjectFromBaseUrl(baseUrl) {
   return match ? normalizeVertexProject(match[1]) : null
 }
 
+/** The location named by a Vertex endpoint URL (`.../locations/<loc>` or `https://<loc>-aiplatform...`), or null. */
+export function vertexLocationFromBaseUrl(baseUrl) {
+  if (typeof baseUrl !== 'string') return null
+  const pathMatch = baseUrl.match(/\/projects\/[A-Za-z0-9.:-]+\/locations\/([A-Za-z0-9-]+)/)
+  if (pathMatch) return normalizeVertexLocation(pathMatch[1])
+  const hostMatch = baseUrl.match(/^https?:\/\/([a-z0-9-]+)-aiplatform\.googleapis\.com(?:[/:]|$)/i)
+  if (hostMatch) return normalizeVertexLocation(hostMatch[1])
+  return null
+}
+
+/**
+ * The Vertex collection endpoint for one project and location.
+ * `global` lives at `https://aiplatform.googleapis.com/v1/projects/<project>/locations/global`;
+ * regional endpoints live at `https://<region>-aiplatform.googleapis.com/v1/projects/<project>/locations/<region>`.
+ */
+export function vertexBaseUrlForLocation(project, location) {
+  const id = normalizeVertexProject(project)
+  const loc = normalizeVertexLocation(location)
+  if (!id || !loc) return null
+  const host = loc === VERTEX_GLOBAL_LOCATION ? 'aiplatform.googleapis.com' : `${loc}-aiplatform.googleapis.com`
+  return `https://${host}/v1/projects/${id}/locations/${loc}`
+}
+
 /** The global collection endpoint for one project; Vertex Gemini 3/4 live only here. */
 export function vertexGlobalBaseUrl(project) {
-  const id = normalizeVertexProject(project)
-  if (!id) return null
-  return `https://aiplatform.googleapis.com/v1/projects/${id}/locations/${VERTEX_GLOBAL_LOCATION}`
+  return vertexBaseUrlForLocation(project, VERTEX_GLOBAL_LOCATION)
 }
+
+/**
+ * The project behind an API key, read from Vertex's own answer: a key issued for a region
+ * addresses `v1/publishers/google/models/<id>`, and the resulting 404 names the project it
+ * resolved to (`projects/<project>/locations/<region>`).
+ * @returns the project, or null when the request fails or answers nothing project-shaped.
+ */
+export async function discoverVertexProject({ apiKey, model = 'gemini-4-carbon', request = fetch, timeoutMs = 8000 } = {}) {
+  const key = typeof apiKey === 'string' ? apiKey.trim() : ''
+  if (!key) return null
+  const url = `https://aiplatform.googleapis.com/v1/publishers/google/models/${encodeURIComponent(model)}:generateContent`
+  try {
+    const response = await request(url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-goog-api-key': key },
+      body: JSON.stringify({ contents: [{ role: 'user', parts: [{ text: 'ping' }] }], generationConfig: { maxOutputTokens: 1 } }),
+      signal: AbortSignal.timeout(timeoutMs),
+    })
+    const text = await response.text()
+    const match = text.match(/(?:^|[^A-Za-z0-9])projects\/([A-Za-z0-9.:-]+)\/locations\//)
+    return match ? normalizeVertexProject(match[1]) : null
+  } catch {
+    return null
+  }
+}
+
+export const VERTEX_REGIONS = Object.freeze([
+  Object.freeze({ id: 'global', label: '全球' }),
+  Object.freeze({ id: 'asia-east1', label: '台湾' }),
+  Object.freeze({ id: 'asia-east2', label: '香港' }),
+  Object.freeze({ id: 'asia-northeast1', label: '东京' }),
+  Object.freeze({ id: 'asia-northeast3', label: '首尔' }),
+  Object.freeze({ id: 'asia-south1', label: '孟买' }),
+  Object.freeze({ id: 'asia-southeast1', label: '新加坡' }),
+  Object.freeze({ id: 'asia-southeast2', label: '雅加达' }),
+  Object.freeze({ id: 'australia-southeast1', label: '悉尼' }),
+  Object.freeze({ id: 'us-central1', label: '爱荷华' }),
+  Object.freeze({ id: 'us-east1', label: '南卡罗来纳' }),
+  Object.freeze({ id: 'us-east4', label: '北弗吉尼亚' }),
+  Object.freeze({ id: 'us-east5', label: '俄亥俄' }),
+  Object.freeze({ id: 'us-south1', label: '达拉斯' }),
+  Object.freeze({ id: 'us-west1', label: '俄勒冈' }),
+  Object.freeze({ id: 'us-west4', label: '拉斯维加斯' }),
+  Object.freeze({ id: 'northamerica-northeast1', label: '蒙特利尔' }),
+  Object.freeze({ id: 'southamerica-east1', label: '圣保罗' }),
+  Object.freeze({ id: 'europe-central2', label: '华沙' }),
+  Object.freeze({ id: 'europe-north1', label: '芬兰' }),
+  Object.freeze({ id: 'europe-southwest1', label: '马德里' }),
+  Object.freeze({ id: 'europe-west1', label: '比利时' }),
+  Object.freeze({ id: 'europe-west2', label: '伦敦' }),
+  Object.freeze({ id: 'europe-west3', label: '法兰克福' }),
+  Object.freeze({ id: 'europe-west4', label: '荷兰' }),
+  Object.freeze({ id: 'europe-west6', label: '苏黎世' }),
+  Object.freeze({ id: 'europe-west8', label: '米兰' }),
+  Object.freeze({ id: 'europe-west9', label: '巴黎' }),
+  Object.freeze({ id: 'me-central1', label: '多哈' }),
+  Object.freeze({ id: 'me-central2', label: '达曼' }),
+  Object.freeze({ id: 'me-west1', label: '特拉维夫' }),
+])
 
 function vertexModel(id, name, cost, options = {}) {
   return {
@@ -114,7 +201,8 @@ export const LATEST_GOOGLE_VERTEX_MODELS = Object.freeze({
   'chat:gemini-3.8-flash': vertexModel('gemini-3.8-flash', 'Gemini 3.8 Flash', { input: 0.75, output: 3.75, cacheRead: 0.075 }, { thinkingLevelMap: THINKING_LEVEL_ALL }),
   'chat:gemini-4-argon': vertexModel('gemini-4-argon', 'Gemini 4 Argon', { input: 2, output: 10, cacheRead: 0.1 }, { thinkingLevelMap: THINKING_LEVEL_LOW_HIGH }),
   'chat:gemini-4-carbon': vertexModel('gemini-4-carbon', 'Gemini 4 Carbon', { input: 2, output: 10, cacheRead: 0.1 }, { thinkingLevelMap: THINKING_LEVEL_LOW_HIGH }),
-  'chat:gemini-4-hydrogen': vertexModel('gemini-4-hydrogen', 'Gemini 4 Hydrogen', { input: 1.5, output: 7.5, cacheRead: 0.075 }, { thinkingLevelMap: THINKING_LEVEL_LOW_HIGH }),
+  'chat:gemini-4-hydrogen': vertexModel('gemini-4-hydrogen', 'Gemini 4 Hydrogen', { input: 2, output: 10, cacheRead: 0.1 }, { thinkingLevelMap: THINKING_LEVEL_LOW_HIGH }),
+  'chat:gemini-4-neon': vertexModel('gemini-4-neon', 'Gemini 4 Neon', { input: 2, output: 10, cacheRead: 0.1 }, { thinkingLevelMap: THINKING_LEVEL_LOW_HIGH }),
 })
 
 /**

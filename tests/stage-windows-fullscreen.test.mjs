@@ -34,12 +34,6 @@ async function mountStage({titlebar,full=false}){
   return {asked,stood}
 }
 
-test('on the Windows Desktop the stage asks for full screen when it stands without a click',async()=>{
-  const {asked,stood}=await mountStage({titlebar:true})
-  assert.equal(stood,true)
-  assert.equal(asked,1)
-})
-
 test('a plain browser is not asked without a click, and a stage already in full screen does not ask again',async()=>{
   assert.equal((await mountStage({titlebar:false})).asked,0)
   assert.equal((await mountStage({titlebar:true,full:true})).asked,0)

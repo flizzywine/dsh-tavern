@@ -54,7 +54,7 @@ function ContextSourceCell(props) {
 }
 
 function ChecksTab(props) {
-  const { ui, gameId, hasGame, view, actions, notify, checking, onRecheck, onOpenSettings } = props || {}
+  const { ui, gameId, hasGame, view, actions, notify, checking, onRecheck } = props || {}
   const judge = view.judgeStatus || { available: false }
   const damper = view.damper || { available: false, linkage: false }
   const fate = fdNormalizeFate(view.fate)
@@ -120,26 +120,6 @@ function ChecksTab(props) {
   const nameText = profile.characterName || context.cardName || context.playerName || '主角'
 
   return h(Fragment, null,
-    !settings.enabled
-      ? h('div', { className: 'fd-guide-banner', role: 'note' },
-        h('div', { className: 'fd-guide-banner-head' },
-          h('span', { className: 'fd-guide-banner-title' }, '命运之骰当前已关闭'),
-          h('div', { className: 'fd-btn-row', style: { marginLeft: 'auto' } },
-            h(FdBtn, {
-              small: true,
-              primary: true,
-              onClick: () => {
-                if (actions && typeof actions.persistSettings === 'function') {
-                  actions.persistSettings({ enabled: true })
-                  if (notify) notify('已开启命运之骰')
-                }
-              }
-            }, '立即开启'),
-            typeof onOpenSettings === 'function'
-              ? h(FdChip, { onClick: onOpenSettings }, '检定设置')
-              : null)),
-        h('div', { className: 'fd-guide-banner-meta' }, '默认关闭，不会在对话中自动触发检定或注入提示词；已有记录与能力画像会保留。'))
-      : null,
     /* ---------------- 0. 状态徽章行 + 未配模型引导 ---------------- */
     h('div', { className: 'fd-badge-row' },
       h(FdBadge, { tone: judge.available ? 'ok' : (settings.allowHeuristicFallback ? 'off' : 'warn') },
@@ -389,6 +369,13 @@ function ChecksTab(props) {
               h('span', { className: 'fd-hint' }, item.hidden ? '暗骰' : `${item.total} ${item.tierLabel}`)))))
         : h('div', { className: 'fd-hint' }, '本局尚无检定记录，发送一轮行动后开始记录')),
 
-    /* ---------------- 5. 自由骰小工具（默认折叠） ---------------- */
-    h(FreeRollCard, { ui, gameId, notify, animation: settings.animation }))
+    /* ---------------- 5. 自由骰 / 局势奇遇骰（默认折叠） ---------------- */
+    h(FreeRollCard, {
+      ui,
+      gameId,
+      notify,
+      animation: settings.animation,
+      pendingEncounter: view.pendingEncounter || null,
+      onEncounterChange: enc => (actions && actions.setPendingEncounter ? actions.setPendingEncounter(enc) : undefined)
+    }))
 }

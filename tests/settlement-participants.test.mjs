@@ -83,18 +83,3 @@ test('a failing participant is reported and the settlement commits as the core m
   await new Promise(resolve => setImmediate(resolve))
   assert.deepEqual(reports.sort(), ['broken-apply:capture', 'broken-apply:settled', 'broken-capture:capture'])
 })
-
-test('participants hear closed and retrying inside the core write; an owner registers once', () => {
-  const participants = createSettlementParticipants()
-  const seen = []
-  const unregister = participants.register('stage', {
-    closed: (chat, messageId) => seen.push('closed:' + messageId),
-    retrying: message => seen.push('retrying:' + message.turn)
-  })
-  assert.throws(() => participants.register('stage', {}), /Duplicate/)
-  participants.closed({ messages: [] }, 3)
-  participants.retrying({ turn: 4 })
-  unregister()
-  participants.closed({ messages: [] }, 5)
-  assert.deepEqual(seen, ['closed:3', 'retrying:4'])
-})

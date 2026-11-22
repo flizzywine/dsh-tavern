@@ -108,10 +108,11 @@ test('removing a registered hook excludes that frame from the generation barrier
   assert.equal(h.submissions.length, 1)
 })
 
-function serializedBridge(host, token) {
-  const html = client.buildTavernFrameDocument({ content: '<div>floor</div>', token, helperContext: { messages: [] }, turn: 2 })
+function serializedBridge(host, token, helperContext = { messages: [] }) {
+  const html = client.buildTavernFrameDocument({ content: '<div>floor</div>', token, helperContext, turn: 2 })
   const helper = html.match(/<script data-dsh-tavern-helper>([\s\S]*?)<\/script>/)[1]
   const interactive = html.match(/<script data-dsh-tavern-interactive-helper>([\s\S]*?)<\/script>/)[1]
+  const chatContext = html.match(/<script data-dsh-tavern-frame-chat-context>([\s\S]*?)<\/script>/)[1]
   const sent = [], listeners = []
   const parent = { postMessage(message) { sent.push(structuredClone(message)) } }
   const scope = { structuredClone, parent, console, setTimeout: host.setTimeout, clearTimeout: host.clearTimeout,
@@ -120,10 +121,25 @@ function serializedBridge(host, token) {
   vm.createContext(scope)
   vm.runInContext(helper.replace(/var ready=Promise\.all\([\s\S]*?\);/, 'var ready=Promise.resolve(true);'), scope)
   vm.runInContext(interactive, scope)
+  vm.runInContext(chatContext, scope)
   return { window: scope, sent, receive(data) {
     for (const listener of listeners) listener({ source: parent, data: { token, ...data } })
   } }
 }
+
+test('message iframe exposes the live chat identity to opening scripts', t => {
+  const h = harness(t)
+  const bridge = serializedBridge(h.host, 'chat-identity', { chatId: 'game-a', messages: [] })
+  const { window } = bridge
+  assert.equal(window.getContext().chatId, 'game-a')
+  assert.equal(window.SillyTavern.getContext(), window.getContext())
+  assert.equal(window.SillyTavern.getCurrentChatId(), 'game-a')
+  bridge.receive({ type: 'dsh-tavern-helper-context-update', update: {
+    version: 1, kind: 'snapshot', context: { chatId: 'game-b', messages: [] }, turn: 1
+  } })
+  assert.equal(window.getContext().chatId, 'game-b')
+  assert.equal(window.SillyTavern.getCurrentChatId(), 'game-b')
+})
 
 test('serialized bridge reports hook removal and a failed injection as a failed flush acknowledgement', async t => {
   const h = harness(t), bridge = serializedBridge(h.host, 'bridge-failure')

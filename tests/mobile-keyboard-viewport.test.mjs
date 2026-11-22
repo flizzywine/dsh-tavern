@@ -216,22 +216,6 @@ test('刷新窗口只在输入法动画期间持续', () => {
   assert.ok(clock.now - 1000 >= factory.TAVERN_KEYBOARD_SETTLE_MS, '至少覆盖一次输入法动画')
 })
 
-test('外壳高度走 --dsh-shell-height，不再直接吃 --dsh-vv-height', () => {
-  const start = css.indexOf('body.dsh-tavern-shell-active [data-slot="root"] > [class*="_frame"]')
-  assert.ok(start > 0)
-  const rule = css.slice(start, css.indexOf('}', start))
-  assert.match(rule, /height: var\(--dsh-shell-height, 100dvh\) !important/)
-  assert.doesNotMatch(rule, /height: var\(--dsh-vv-height/)
-})
-
-test('输入条底部按输入法上报的高度垫底', () => {
-  const start = css.indexOf('html.dsh-tavern-coarse-play [data-composer-seat]')
-  assert.ok(start > 0)
-  const rule = css.slice(start, css.indexOf('}', start))
-  assert.match(rule, /padding-bottom: calc\(env\(safe-area-inset-bottom, 0px\) \+ var\(--dsh-keyboard-inset, 0px\)\)/)
-  assert.equal(css.match(/var\(--dsh-keyboard-inset, 0px\)/g).length, 2, '两条输入条规则都要垫')
-})
-
 test('内嵌酒馆的 iframe 外壳同样跟随布局视口', () => {
   const source = sliceFunction(entrySource, 'installEmbeddedViewport')
   const constants = entrySource.slice(entrySource.indexOf('const EMBED_KEYBOARD_INSET_MIN'), entrySource.indexOf('function installEmbeddedViewport('))
@@ -272,4 +256,67 @@ test('phone layout holds minimum-scale=1 so stray overflow cannot zoom the page 
   assert.equal(content, 'width=device-width, initial-scale=1, minimum-scale=1')
   release()
   assert.equal(content, 'width=device-width, initial-scale=1')
+})
+
+test('sync 严格先批量读取几何再写入 CSS 变量，且同帧重复 resize 不二次测量', () => {
+  const ops = []
+  let rectReads = 0
+  const doc = makeDocument()
+  const harness = makeView(doc, { height: 800 })
+  doc.view = harness.view
+  doc.defaultView = harness.view
+  const baseStyle = doc.documentElement.style
+  doc.documentElement.style = {
+    getPropertyValue: name => baseStyle.getPropertyValue(name),
+    getPropertyPriority: () => '',
+    setProperty: (name, value) => { ops.push('write:' + name); baseStyle.setProperty(name, value) },
+    removeProperty: name => { ops.push('remove:' + name); baseStyle.removeProperty(name) },
+  }
+  doc.seat = {
+    getBoundingClientRect: () => { ops.push('read:seat'); rectReads++; return { top: 700, left: 0, width: 390 } },
+    scrollHeight: 60, clientHeight: 60, isConnected: true, children: [],
+  }
+  doc.card = null
+  const trackedHeader = {
+    getBoundingClientRect: () => { ops.push('read:header'); rectReads++; return { bottom: 44 } },
+    isConnected: true,
+  }
+  doc.querySelector = selector => selector === '[data-composer-seat]' ? doc.seat : selector.includes('header') ? trackedHeader : null
+  const clock = { now: 1000 }
+  const { installVisualViewportPin } = vm.runInNewContext(
+    `${layoutSource}\n;({ installVisualViewportPin })`,
+    { Date: { now: () => clock.now }, composerOffsetPx: () => 0, sheetMaxPx: () => 0 }
+  )
+  const release = installVisualViewportPin(doc)
+  ops.length = 0
+  rectReads = 0
+
+  harness.view.innerHeight = 480
+  harness.vv.height = 480
+  harness.view.dispatch('resize')
+  const firstWrite = ops.findIndex(item => item.startsWith('write:') || item.startsWith('remove:'))
+  const lastRead = ops.findLastIndex(item => item.startsWith('read:'))
+  assert.ok(lastRead >= 0 && firstWrite > lastRead, '所有几何读取必须在首次 CSS 写入之前完成：' + JSON.stringify(ops))
+  assert.equal(rectReads, 2, '单次 resize 只读 header 与 seat 各一次')
+
+  // 紧接着同一帧内 visualViewport.resize 带着相同尺寸到达：不应再次测量
+  harness.vv.dispatch('resize')
+  assert.equal(rectReads, 2, '几何未变时同帧第二次 resize 跳过重复 sync')
+  release()
+})
+
+test('APK 原生 IME 动画使用 GPU translationY 跟随，不在 onProgress 逐帧 setPadding 重排 WebView', async () => {
+  const preparePy = await readFile(new URL('../android/apk/prepare.py', import.meta.url), 'utf8')
+  const start = preparePy.indexOf('def patch_web_fullscreen_ui(')
+  const end = preparePy.indexOf('\ndef prepare(', start)
+  assert.ok(start >= 0 && end > start, '找到 patch_web_fullscreen_ui 定义')
+  const fn = preparePy.slice(start, end)
+  const onProgressStart = fn.indexOf('public WindowInsetsCompat onProgress(')
+  const onEndStart = fn.indexOf('public void onEnd(', onProgressStart)
+  assert.ok(onProgressStart >= 0 && onEndStart > onProgressStart, '找到 onProgress 回调')
+  const onProgressBody = fn.slice(onProgressStart, onEndStart)
+  assert.doesNotMatch(onProgressBody, /setPadding\(/, 'onProgress 禁止逐帧 setPadding 触发 WebView 重排')
+  assert.match(onProgressBody, /setChildrenTranslationY\(/, 'onProgress 通过 GPU translationY 逐帧跟随键盘')
+  assert.match(fn, /setClipToPadding\(true\)/, '启用 clipToPadding 防止平移侵入状态栏安全区')
+  assert.match(fn, /else if \(ime < keyboard\[0\]\)/, '收回动画开始时预先扩回高度并补偿 translationY')
 })

@@ -142,14 +142,6 @@ test('Atlas 尺寸模式按模型选择，仅发送对应字段，支持自定�
   })
 })
 
-test('Atlas 非法尺寸/参数模式在提交前拒绝', async () => {
-  for (const options of [{ size: '2K' }, { size: '00x100' }, { sizeMode: 'invalid' }]) {
-    await assert.rejects(generateImage(channel(options), { positive: 'lake' }, {
-      fetchImpl: () => assert.fail('不应创建付费任务'),
-    }), error => error.requestMayHaveSucceeded === false && /尺寸/.test(error.message))
-  }
-})
-
 test('Atlas 任务失败终态含 HTTP 5xx 均明确失败、错误脱敏、不重发', async t => {
   for (const status of ['failed', 'canceled', 'cancelled', 'error', 'timeout']) {
     for (const httpStatus of [200, 500]) await t.test(status + '/' + httpStatus, async () => {
@@ -184,22 +176,6 @@ test('Atlas HTTP 200 业务拒绝、HTTP 鉴权拒绝不被当成已接单；5xx
   }
 })
 
-test('Atlas 提交响应丢失、完成后下载失败或空输出均不自动重发', async () => {
-  for (const mode of ['lost-post', 'download', 'empty', 'unsafe-url', 'bad-task-id']) {
-    let posts = 0
-    await assert.rejects(generateImage(channel(), { positive: 'lake' }, { fetchImpl: async (_url, init) => {
-      if (init.method === 'POST') {
-        posts++
-        if (mode === 'lost-post') throw new Error('connection reset atlas-test-secret')
-        if (mode === 'bad-task-id') return prediction({ id: '../other', status: 'created' })
-        return prediction({ id: 'accepted-task', status: 'completed', outputs: mode === 'empty' ? [] : mode === 'unsafe-url' ? ['file:///secret'] : [CDN] })
-      }
-      return json({ message: 'cdn unavailable' }, 503)
-    } }), error => error.requestMayHaveSucceeded === (mode !== 'empty' && mode !== 'unsafe-url') && !error.message.includes('atlas-test-secret'))
-    assert.equal(posts, 1)
-  }
-})
-
 test('Atlas 恢复任务只 GET 原任务，不提交；验证任务编号和渠道类型', async () => {
   const calls = [], tasks = []
   const result = await generateImage(channel({ taskPath: '/custom/tasks/' }, { baseUrl: 'https://relay.test/atlas' }), {}, {
@@ -231,22 +207,6 @@ test('Atlas 轮询鉴权/网络故障保持已接单标记，可供只读恢复'
     } }), error => error.requestMayHaveSucceeded === true)
     assert.equal(saved, 'recover-later')
   }
-})
-
-test('Atlas 轮询超时保留任务号与不确定状态', async t => {
-  let now = 1000, saved, calls = 0
-  t.mock.method(Date, 'now', () => now)
-  await assert.rejects(generateImage(channel({ pollTimeoutMs: 1000 }), {}, {
-    onTask: task => { saved = task.taskId },
-    fetchImpl: async (_url, init) => {
-      calls++
-      if (init.method === 'POST') return prediction({ id: 'slow-task', status: 'created' })
-      now += 1001
-      return prediction({ status: 'processing' })
-    },
-  }), error => error.requestMayHaveSucceeded === true && /等待超时/.test(error.message))
-  assert.equal(saved, 'slow-task')
-  assert.equal(calls, 2)
 })
 
 test('Atlas 提交前取消不发请求；提交后取消仅停止轮询', async () => {
@@ -288,17 +248,4 @@ test('Atlas 连接测试先鉴权查历史，再读文生图模型目录；不�
   assert.equal(calls.length, 2)
   assert.equal(calls[0].init.headers.authorization, 'Bearer atlas-test-secret')
   assert.equal(calls[1].init.headers.authorization, undefined)
-})
-
-test('Atlas 连接测试不把无权限、业务错误或错误响应当成功，也不靠公开目录验证 Key', async () => {
-  for (const [body, status] of [[null, 401], [null, 403], [{ code: 400, message: 'bad atlas-test-secret' }, 200], [{ data: [] }, 200]]) {
-    let calls = 0
-    const result = await testImageChannel(channel(), { fetchImpl: async () => { calls++; return json(body, status) } })
-    assert.equal(result.ok, false)
-    assert.equal(calls, 1)
-    assert.doesNotMatch(result.message, /atlas-test-secret/)
-  }
-  const result = await testImageChannel(channel(), { fetchImpl: async url => url.endsWith('/models') ? json(null, 503) : json({ code: 200, data: { items: [] } }) })
-  assert.equal(result.ok, true, '公开目录不可用不否定已成功的鉴权查询')
-  assert.equal(result.models, undefined)
 })

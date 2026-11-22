@@ -25,17 +25,19 @@ const fields = Object.freeze({
   startPackDownload:['selection','url','useMirrorPrefix'], getPackDownload:['jobId'], controlPackDownload:['jobId','action'],
   getStageSetupStatus:['path','autoOpened'], mergeStageSetupPack:['path','expectedCardRevision','expectedLibraryRevision','selections','name','figure'],
   listPackSummaries:[], getPackSnapshot:['packId'],
-  listAutomaticWrites:['packId','cursor','limit'], reviewAutomaticWrite:['packId','expectedRevision','writeId'], undoAutomaticWrite:['packId','expectedRevision','writeId'],
+  listAutomaticWrites:['packId','cursor','limit'], reviewAutomaticWrite:['packId','expectedRevision','writeId'], undoAutomaticWrite:['packId','expectedRevision','writeId'], adoptAutomaticPack:['path','packId','expectedRevision'],
   savePackVoice:['figureId','packId','expectedRevision','voiceId','voiceSpec','confirmShared'], saveFigureVoiceBinding:['packId','figureId','expectedRevision','binding'], createAndAssignPackVoice:['packId','figureId','expectedRevision','voiceSpec'],
   savePackVoiceVariant:['figureId','packId','expectedRevision','voiceId','variantId','variant','confirmShared'],
   deletePackVoiceVariant:['figureId','packId','expectedRevision','voiceId','variantId','confirmShared'],
   listVoiceCatalogue:[], listVoiceTemplates:[], saveVoiceTemplate:['templateId','expectedRevision','packId','packRevision','voiceId','binding'],
   deleteVoiceTemplate:['templateId','expectedRevision'], assignVoiceTemplate:['templateId','templateRevision','packId','figureId','expectedRevision'],
   assignPackVoiceCopy:['sourcePackId','voiceId','packId','figureId','expectedRevision'], deletePackVoice:['packId','expectedRevision','voiceId'],
-  createPack:['name','description','expectedRevision'], patchPack:['packId','expectedRevision','patch','fileUpdates'], removePack:['packId','expectedRevision'],
+  createPack:['name','description','expectedRevision'], patchPack:['packId','expectedRevision','patch','fileUpdates','dryRun'], removePack:['packId','expectedRevision'],
   putBlob:['packId','expectedRevision','bytes','descriptor'], removeBlob:['packId','expectedRevision','hash'],
   putBundle:['packId','expectedRevision','bundleKey','descriptor','files'], removeBundle:['packId','expectedRevision','bundleKey'],
   copyFigure:['source','target'], copyItems:['sourcePackId','itemRefs','target'],
+  publishSkins:['packId','expectedRevision','sources','dryRun'],
+  consolidatePacks:['packId','expectedRevision','sources','name','card','assetNames','dryRun','approvedContentHash'],
   createSimpleSprite:['packId','expectedRevision','spriteKey','images','name'],
   setFigureAvatarCrop:['packId','expectedRevision','figureId','outfitKey','scope','stateId','crop'],
   createFigure:['packId','expectedRevision','figure'], patchFigure:['packId','expectedRevision','figureId','patch'], removeFigure:['packId','expectedRevision','figureId'],
@@ -43,7 +45,7 @@ const fields = Object.freeze({
   removeFigureEmotion:['packId','expectedRevision','figureId','emotionId'],
   migrateFigureVariants:['packId','expectedRevision','dryRun'],
   resolveAssets:['refs'], resolveFigures:['refs'], inspectImport:['bytes','copy'],
-  applyImport:['inspectionId','expectedRevision','decision','acceptScriptRisk','adoptLooks'], exportPack:['packId','expectedRevision'], exportPacks:['packs'],
+  applyImport:['inspectionId','expectedRevision','decision','acceptScriptRisk','adoptLooks'], exportPack:['packId','expectedRevision','progressId'], exportPacks:['packs','progressId'], exportProgress:['progressId'],
   exportCardBundle:['path','expectedRevision','packIds'], inspectCardBundle:['path','bytes'], inspectCardBundleUrl:['path','url'], previewCardBundleDecisions:['inspectionId','decisions'],
   applyCardBundle:['inspectionId','expectedRevision','cancel','decisions','acceptScriptRisk','disableWidgets'],
   leaseMedia:['packId','hash'], leaseBundle:['packId','bundleKey'], releaseLease:['ticket'], discardUpload:['ticket']
@@ -94,7 +96,7 @@ async function readBytes(request, maximum, reserve = () => {}, unreserve = () =>
 /** Owns one v2 service and its exact authenticated routes. No v1 adapter or disk reader. */
 export function createAssetPackTransport({settings, ...options}) {
   const now = options.now || Date.now, limits = {...PACK_LIMITS, ...options.limits}
-  const uploads = new Map(), downloads = new Map(), leases = new Map(), changes = [], outbox = new Set(), cleanup = new Set()
+  const uploads = new Map(), downloads = new Map(), exportJobs = new Map(), leases = new Map(), changes = [], outbox = new Set(), cleanup = new Set()
   const outboxBytes = () => [...outbox].reduce((sum,item) => sum + item.size,0)
   function removeArchive(item) {
     for (const owned of outbox) if (owned.file === item.file) outbox.delete(owned)
@@ -250,6 +252,15 @@ export function createAssetPackTransport({settings, ...options}) {
         } else if (input.method === 'discardUpload') result = {released:drop(uploads,args.ticket)}
         else if (input.method === 'releaseLease') result = {released:release(args.ticket)}
         else if (input.method === 'leaseMedia' || input.method === 'leaseBundle') result = await issue(input.method,{...args,scope:PRINCIPAL,origin:packRequestOrigin(request)})
+        else if (input.method === 'exportProgress') result = exportJobs.get(args.progressId) || null
+        else if (input.method === 'exportPack' || input.method === 'exportPacks') {
+          // progressId: the browser's own name for this export; it polls exportProgress with it while this call runs.
+          const {progressId, ...rest} = args, tracked = progressId !== undefined
+          check(!tracked || typeof progressId === 'string' && /^[\w-]{8,64}$/.test(progressId) && !exportJobs.has(progressId), '$.args.progressId')
+          if (tracked) exportJobs.set(progressId, {done:0, total:0})
+          try { result = await core[input.method](rest, tracked ? {onProgress:progress => exportJobs.set(progressId, progress)} : {}) }
+          finally { if (tracked) exportJobs.delete(progressId) }
+        }
         else result = await core[input.method](args)
         alive()
         function transfer(result) {
@@ -318,8 +329,20 @@ export function createAssetPackTransport({settings, ...options}) {
     leaseMedia:input => issue('leaseMedia',input), leaseBundle:input => issue('leaseBundle',input), leaseWidget:input => issue('leaseWidget',input), releaseLease:release,
     async dispose() { if (!active) return; active = false; detach(); stopChanges(); stopSettings?.(); clearInterval(timer); await thumbnails.dispose(); await core.dispose(); await Promise.all(cleanup) }
   })
+  const feed = Object.freeze({
+    capabilities: () => ({apiVersion:core.apiVersion, capabilities:[...core.capabilities]}),
+    read(since = 0) {
+      const from = Number.isSafeInteger(since) && since >= 0 ? since : 0
+      return {sequence, reset:from > sequence || from < (changes[0]?.sequence || 1) - 1, changes:changes.filter(event => event.sequence > from)}
+    },
+    subscribe(fn) {
+      const stream = {send: () => fn()}
+      changeStreams.add(stream)
+      return () => { changeStreams.delete(stream) }
+    }
+  })
   const timer = setInterval(sweep,30000); timer.unref?.()
-  return Object.freeze({service,
+  return Object.freeze({service, feed,
     attach(carrier) {
       alive(); check(!connection && carrier?.fetch?.register, '$.connection', 'Transport already attached or invalid')
       connection = carrier

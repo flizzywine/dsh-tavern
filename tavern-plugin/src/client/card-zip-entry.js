@@ -46,7 +46,7 @@ function useCardPackBinding(given, service, sessionId, open) {
         if (given) return given;
         if (!open || !service || typeof packTransport === "undefined" || !packTransport) return null;
         return createAssetPackBinding({ service, tts: typeof forkTtsScope !== "undefined" && forkTtsScope && forkTtsScope.get("ttsClient"), rpc: workbenchRpc(sessionId), settings: packTransport.settings,
-            download: function (result) { return packTransport.download(result); }, readExport: function (result) { return packTransport.bytes(result); },
+            download: function (result, options) { return packTransport.download(result, options); }, pickSave: function (options) { return packTransport.pickSave(options); }, readExport: function (result) { return packTransport.bytes(result); },
             onUnavailable: function (fn) { return packTransport.onUnavailable(fn); } });
     }, [given, service, sessionId, open]);
     React.useEffect(function () { return function () { if (binding && binding !== given && binding.dispose) binding.dispose(); }; }, [binding]);

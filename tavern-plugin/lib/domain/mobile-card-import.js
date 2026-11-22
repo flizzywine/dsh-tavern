@@ -3,9 +3,11 @@ import path from 'node:path'
 
 import { pngCardPayload } from './card-assets.js'
 import { renderPngThumbnail } from './png-thumbnail.js'
+import { MAX_CARD_UPLOAD_BYTES } from './uploads.js'
 
 const CARD_EXTENSIONS = new Set(['.json', '.png', '.charx', '.dshcard'])
-const DEFAULT_MAX_BYTES = 25 * 1024 * 1024
+const CARD_ARCHIVE_EXTENSIONS = new Set(['.charx', '.dshcard'])
+const DEFAULT_MAX_BYTES = 32 * 1024 * 1024
 const DEFAULT_THUMBNAIL_CACHE = 240
 
 function defaultRoots() {
@@ -29,7 +31,7 @@ export function pngPayload(buffer, name) {
 
 export function createMobileCardImport(options = {}) {
   const enabled = options.runtimeHost === 'android'
-  const maxBytes = Number.isFinite(options.maxBytes) ? options.maxBytes : DEFAULT_MAX_BYTES
+  const maxBytes = Number.isFinite(options.maxBytes) ? options.maxBytes : undefined
   const roots = (options.roots || defaultRoots()).map(function (root) {
     return { id: String(root.id), label: String(root.label), path: path.resolve(String(root.path)) }
   })
@@ -38,11 +40,13 @@ export function createMobileCardImport(options = {}) {
   const thumbnailCache = new Map()
 
   async function inspect(root, name) {
-    if (path.basename(name) !== name || !CARD_EXTENSIONS.has(path.extname(name).toLowerCase())) return null
+    const extension = path.extname(name).toLowerCase()
+    if (path.basename(name) !== name || !CARD_EXTENSIONS.has(extension)) return null
+    const limit = maxBytes ?? (CARD_ARCHIVE_EXTENSIONS.has(extension) ? MAX_CARD_UPLOAD_BYTES : DEFAULT_MAX_BYTES)
     const target = path.join(root.path, name)
     let info
     try { info = await lstat(target) } catch { return null }
-    if (!info.isFile() || info.isSymbolicLink() || info.size <= 0 || info.size > maxBytes) return null
+    if (!info.isFile() || info.isSymbolicLink() || info.size <= 0 || info.size > limit) return null
     return { id: root.id + ':' + encodeName(name), name, directory: root.label, size: info.size, modifiedAt: info.mtimeMs }
   }
 
@@ -70,14 +74,15 @@ export function createMobileCardImport(options = {}) {
     if (!enabled) throw new Error('当前宿主不允许从手机下载目录导入')
     const entry = await resolve(id)
     const file = path.join(entry.root.path, entry.item.name)
-    return /\.(charx|dshcard)$/i.test(entry.item.name) ? { file, name: entry.item.name } : null
+    return CARD_ARCHIVE_EXTENSIONS.has(path.extname(entry.item.name).toLowerCase()) ? { file, name: entry.item.name } : null
   }
 
   async function read(id) {
     if (!enabled) throw new Error('当前宿主不允许从手机下载目录导入')
     const entry = await resolve(id)
-    const buffer = await readFile(path.join(entry.root.path, entry.item.name))
     const extension = path.extname(entry.item.name).toLowerCase()
+    if (extension === '.dshcard') throw new Error('请通过卡包入口导入 .dshcard 文件')
+    const buffer = await readFile(path.join(entry.root.path, entry.item.name))
     if (extension === '.charx') return { kind: 'charx', name: entry.item.name, fileB64: buffer.toString('base64') }
     return extension === '.json'
       ? { kind: 'text', name: entry.item.name, text: buffer.toString('utf8') }

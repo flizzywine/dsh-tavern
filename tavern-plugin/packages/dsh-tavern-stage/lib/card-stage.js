@@ -1,10 +1,10 @@
 import {directionStyles} from '../../../lib/domain/direction-styles.js'
 import {figureCatalogue} from '../../../lib/domain/figure-catalogue.js'
 import skinContract from '../../dsh-presentation-protocol/src/stage-skin.cjs'
-import { effectiveCardStage, cardStageSkin, effectiveNarrator } from '../../../lib/domain/card-stage-settings.js'
+import { effectiveCardStage, cardStageSkin, cardStageSkinPackIds, effectiveNarrator } from '../../../lib/domain/card-stage-settings.js'
 import { selectStageEntrance } from './domain/stage-entrance.js'
 import { rawData } from '../../../lib/domain/card-preparation.js'
-import { readCardAssetExtension } from '../../../lib/domain/card-asset-bindings.js'
+import { readCardAssetExtension, cardAssetExtensionView } from '../../../lib/domain/card-asset-bindings.js'
 import { hasCardAssetBindings } from '../../../lib/card-asset-bindings.js'
 import { normalizeBubbleConfig, syncDialogueBubbleWorldbook } from '../../../lib/domain/dialogue-bubbles.js'
 import { selectPackFigure } from './domain/asset-pack-presentation.js'
@@ -48,9 +48,30 @@ export function cardLorePieces(raw, chat) {
 // the source's own serviceId, else the sole service of its provider; none = no voice-direction flag.
 // globalNarrator: 旁白配音's global layer, getTts().reading().narrator; none = off. pointed: the figures 通用声音 and 旁白 point
 // at ({general, narrator}, each {ref, pack, figure} read from tts.reading(), or null = the browser's default voice).
+// A pack skin's bundle descriptor, the one the scene projection carries (asset-pack-presentation.js).
+const skinResource = (pack, asset, ref) => {
+  const hash = pack.manifest.bundles?.[asset.bundleKey]?.contentHash
+  return hash ? {resource:{resource:true,kind:'bundle',ref:{...ref},revision:pack.revision,hash,bundleKey:asset.bundleKey,identity:`${ref.packId}:skins:${ref.assetId}:${hash}`}} : {}
+}
+// The skin the card's stage opens with (config.stage.skin) and the choice it comes from (cardStageSkin). packSnapshots: at
+// least the packs cardStageSkinPackIds names.
+// Initial open needs a skin before any director record or media projection exists.
+// bundleKey/entry let the entry veil lease the skin's loader art alone, before the scene's skin bundle (gal-entry.js).
+// resource: the bundle's descriptor, so the stage draws a newly chosen skin's art at once from the resource owner, not after
+// the next projection (useStageConfigSkin).
+export function cardStageSkinView(extension, engine, packSnapshots = []) {
+  const chosen = cardStageSkin(extension, engine, packSnapshots.map(pack => pack.manifest))
+  const selection = typeof chosen.skin === 'object' ? chosen.skin : null
+  const ref = selection ? {packId:selection.packId,kind:'skins',assetId:selection.assetId} : null, pack = ref && packSnapshots.find(p => p.manifest.id === ref.packId)
+  const asset = pack?.manifest.assets.find(a => a.kind === 'skins' && a.id === ref.assetId)
+  const document = typeof chosen.skin === 'string' ? skinContract.BUILTIN_STAGE_SKINS[chosen.skin] : asset && pack.skins?.[ref.assetId]
+  const skin = document ? {document:structuredClone(document),...(ref ? {ref,bundleKey:asset.bundleKey,entry:asset.entry,
+    ...skinResource(pack,asset,ref)} : {builtin:true})} : {builtin:true,document:structuredClone(skinContract.BUILTIN_STAGE_SKINS.classic)}
+  return {chosen, skin}
+}
 export function cardBubbleConfig(raw, engine, packSnapshots = [], globalEnabledPackIds = [], services = [], chooseService = () => undefined, globalNarrator = null, pointed = {}) {
   const extension = raw && hasCardAssetBindings(raw) ? readCardAssetExtension(raw) : null
-  const stage = effectiveCardStage(extension, engine), chosen = cardStageSkin(extension, engine, packSnapshots.map(pack => pack.manifest))
+  const stage = effectiveCardStage(extension, engine), {chosen, skin} = cardStageSkinView(extension, engine, packSnapshots)
   const dialogue = engine.dialogue, models = []
   const rows = figureCatalogue({snapshots:packSnapshots,bindings:extension?.assetBindings,globalEnabledPackIds}).filter(row => row.enabled)
   const figuresByAlias = new Map(rows.map(row => [row.actorKey, row]))
@@ -108,29 +129,26 @@ export function cardBubbleConfig(raw, engine, packSnapshots = [], globalEnabledP
   config.stage.sfx = stage.sfx; config.stage.ambience = stage.ambience;
   // every option carries a small palette for the CONFIG skin select's mini preview, and a pack
   // skin its bundle descriptor, so the select warms the bundle while the player points at it (「切换皮肤需要一段时间」).
-  const skinResource = (pack, asset, ref) => {
-    const hash = pack.manifest.bundles?.[asset.bundleKey]?.contentHash
-    return hash ? {resource:{resource:true,kind:'bundle',ref:{...ref},revision:pack.revision,hash,bundleKey:asset.bundleKey,identity:`${ref.packId}:skins:${ref.assetId}:${hash}`}} : {}
-  }
   config.stage.skinChoices = Object.values(skinContract.BUILTIN_STAGE_SKINS).map(document=>({value:document.id,label:document.label,preview:stageSkinPreview(document)}));
   // 本卡皮肤 offers the skins of the packs this card may use: bound (本卡开启) or globally enabled (a skin pack
   // such as 通用皮肤 is switched on globally with its lamp). A switched-off pack's skins are not offered.
-  const skinPackIds = extension ? [...extension.assetBindings.boundPackIds, ...globalEnabledPackIds] : []
-  for(const pack of packSnapshots) if(skinPackIds.includes(pack.manifest.id))
-    for(const asset of pack.manifest.assets.filter(a=>a.kind==='skins')) {
-      const document=pack.skins?.[asset.id], value={packId:pack.manifest.id,kind:'skins',assetId:asset.id}
-      if(document)config.stage.skinChoices.push({value,label:document.label,preview:stageSkinPreview(document),...skinResource(pack,asset,value)});
+  const skinPackIds = extension ? new Set([...extension.assetBindings.boundPackIds, ...globalEnabledPackIds]) : new Set()
+  const skinRows = new Map()
+  for (const packId of skinPackIds) {
+    const pack = packSnapshots.find(row => row.manifest.id === packId)
+    for (const asset of pack?.manifest.assets || []) {
+      if (asset.kind !== 'skins') continue
+      const document = pack.skins?.[asset.id], value = {packId,kind:'skins',assetId:asset.id}
+      if (!document) continue
+      const hash = pack.manifest.bundles?.[asset.bundleKey]?.contentHash
+      const key = hash ? `${asset.id}:${hash}` : `${packId}:${asset.id}`
+      const selected = stage.defaultSkin?.packId === packId && stage.defaultSkin.assetId === asset.id
+      // Prefer the card's bound copy when choosing, but keep an already stored equivalent ref selected.
+      if (!skinRows.has(key) || selected) skinRows.set(key, {value,label:document.label,preview:stageSkinPreview(document),...skinResource(pack,asset,value)})
     }
-  // Initial open needs a skin before any director record or media projection exists.
-  const selection=typeof chosen.skin==='object' ? chosen.skin : null;
-  const ref=selection ? {packId:selection.packId,kind:'skins',assetId:selection.assetId} : null, pack=ref && packSnapshots.find(p=>p.manifest.id===ref.packId);
-  const asset=pack?.manifest.assets.find(a=>a.kind==='skins' && a.id===ref.assetId);
-  const document=typeof chosen.skin==='string' ? skinContract.BUILTIN_STAGE_SKINS[chosen.skin] : asset && pack.skins?.[ref.assetId];
-  // bundleKey/entry let the entry veil lease the skin's loader art alone, before the scene's skin bundle (gal-entry.js).
-  // resource: the bundle's descriptor, the same one the scene projection carries (asset-pack-presentation.js), so the stage
-  // draws a newly chosen skin's art at once from the resource owner, not after the next projection (useStageConfigSkin).
-  config.stage.skin = document ? {document:structuredClone(document),...(ref?{ref,bundleKey:asset.bundleKey,entry:asset.entry,
-    ...skinResource(pack,asset,ref)}:{builtin:true})} : {builtin:true,document:structuredClone(skinContract.BUILTIN_STAGE_SKINS.classic)};
+  }
+  config.stage.skinChoices.push(...skinRows.values())
+  config.stage.skin = skin
   config.stage.enabled = !!extension && stage.stage
   // the 入场演出 this card's stage opens with (stage-entrance.js), or null.
   config.stage.entrance = extension ? selectStageEntrance(extension, packSnapshots, engine) : null
@@ -242,5 +260,13 @@ export function createCardStage({cardStorage, getEngine, getAssetLibrary = () =>
       return syncDialogueBubbleWorldbook(worldBooks, cardPath, await bubbles.read(cardPath))
     }
   }
-  return {bubbles}
+  // The card's stage skin alone (the bubble config's stage.skin), from the packs its choice names: the mods resolve their
+  // options against it on every stage request, which must not project the whole bubble config.
+  async function skin(cardPath) {
+    const raw = cardPath ? (await workspace(cardPath))?.raw : null
+    const extension = raw && hasCardAssetBindings(raw) ? cardAssetExtensionView(raw) : null, engine = getEngine(), service = getAssetLibrary()
+    const reads = await Promise.allSettled(cardStageSkinPackIds(extension, engine, getGlobalEnabledPackIds()).map(packId => service?.getPackSnapshot({packId})))
+    return cardStageSkinView(extension, engine, reads.filter(result => result.status === 'fulfilled' && result.value).map(result => result.value)).skin
+  }
+  return {bubbles, skin}
 }

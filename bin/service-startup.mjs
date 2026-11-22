@@ -20,7 +20,8 @@ export async function waitForServiceStartup(options) {
   try {
     while (now() < deadline) {
       if (!options.alive()) throw new Error('DSH Tavern 启动进程已退出')
-      if (await options.ready()) return
+      const ready = await options.ready()
+      if (ready) return ready
       if (!slow && now() - started >= 15000) { slow = true; options.onSlow?.() }
       await pause(Math.min(200, Math.max(0, deadline - now())))
     }

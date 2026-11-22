@@ -502,6 +502,7 @@ body.dsh-tavern-shell-active [role="status"][class*="_turnStatus"] {
 .fork-status-guides > li > span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .fork-status-guides > li > button { flex: none; width: 20px; height: 20px; padding: 0; border: 0; border-radius: 5px; background: transparent; color: var(--fork-ink-3); font-size: var(--fork-fs-body); line-height: 20px; cursor: pointer; }
 .fork-status-guides > li > button:hover:not(:disabled) { background: var(--fork-hover); color: var(--dsh-tavern-accent-error); }
+.fork-status-guide-links { margin-bottom: 6px; }
 textarea.fork-status-guide-input { box-sizing: border-box; display: block; width: 100%; min-height: 32px; padding: 6px 10px; resize: none; field-sizing: content; max-height: 120px;
   border: 1px solid var(--fork-hairline); border-radius: 8px; background: transparent; color: var(--fork-ink); font: 12px/1.5 var(--fork-font-ui); }
 textarea.fork-status-guide-input:focus { outline: none; border-color: color-mix(in srgb, var(--fork-accent) 60%, transparent); box-shadow: 0 0 0 3px var(--fork-accent-soft); }
@@ -732,7 +733,8 @@ textarea.fork-status-guide-input:focus { outline: none; border-color: color-mix(
 }
 [data-dsh-card-stage] .dsh-tavern-assistant { color: var(--stage-text, var(--fork-ink)); font-family: var(--fork-font-reading); }
 [data-dsh-card-stage] .dsh-tavern-mvu-receipt { color: var(--stage-muted, var(--fork-ink-3)); }
-[data-dsh-card-stage] .dsh-tavern-dock-actions .dsh-tavern-choice-trigger { background: rgb(from var(--stage-panel, var(--fk-s-base-bgSolid)) r g b); color: var(--stage-text, var(--fork-ink-2)); border-color: var(--stage-border, var(--fork-hairline)); }
+[data-dsh-card-stage] .dsh-tavern-dock-actions .dsh-tavern-choice-trigger,
+[data-dsh-card-stage] .dsh-tavern-mobile-dock-toggle-tab { background: rgb(from var(--stage-panel, var(--fk-s-base-bgSolid)) r g b); color: var(--stage-text, var(--fork-ink-2)); border-color: var(--stage-border, var(--fork-hairline)); }
 @media (prefers-reduced-motion: reduce) and (update: none) {
   .dsh-card-stage-layer { opacity: .6; }
 }
@@ -815,6 +817,13 @@ textarea.fork-status-guide-input:focus { outline: none; border-color: color-mix(
 }
 .dsh-tavern-prompt:focus, .dsh-tavern-prompt:focus-visible { outline: none; }
 .dsh-tavern-prompt-panel { font: 14px/1.6 var(--fork-font-ui); }
+/* 「以后不再显示」: bottom left of the action row, the same round tick as the asset dialogs' (.ap-confirm-hide). */
+.dsh-tavern-prompt-hide { display: inline-flex; align-items: center; gap: 8px; min-height: 30px; margin: 0 auto 0 0; padding: 0 8px 0 4px; border: 0; border-radius: 15px; background: none; color: var(--fork-ink-2); font: inherit; font-size: var(--fork-fs-body); cursor: pointer; }
+.dsh-tavern-prompt-hide:hover { background: var(--fork-hover); color: var(--fork-ink); }
+.dsh-tavern-prompt-hide:focus-visible { outline: var(--fork-focus); }
+.dsh-tavern-prompt-hide-mark { display: grid; flex: none; place-items: center; width: 18px; height: 18px; border-radius: 50%; box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--fork-ink) 38%, transparent); }
+.dsh-tavern-prompt-hide[aria-checked=true] .dsh-tavern-prompt-hide-mark { background: var(--fork-accent-fill, var(--fork-accent)); box-shadow: none; }
+.dsh-tavern-prompt-hide[aria-checked=true] .dsh-tavern-prompt-hide-mark::after { content: ""; width: 8px; height: 4px; margin-top: -2px; border: solid var(--fork-on-accent); border-width: 0 0 2px 2px; transform: rotate(-45deg); }
 .fork-bubble-avatar-zoom { padding: 0; border: 0; font: inherit; /* buttons do not inherit font size; the avatar is sized in em */ cursor: zoom-in; transition: transform 140ms var(--fork-ease), box-shadow 140ms var(--fork-ease); }
 .fork-bubble-avatar-zoom:hover { transform: translateY(-1px); box-shadow: 0 3px 10px rgb(0 0 0 / .18); }
 .fork-bubble-avatar-zoom:focus-visible { outline: 2px solid var(--bubble-color); outline-offset: 2px; }
@@ -1383,6 +1392,14 @@ body[data-ds-dark-theme] :is([role="menu"]:not(.fork-gal-choices, .fork-gal-menu
 .fork-scripts-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid var(--fork-hairline); border-radius: var(--fork-radius-lg); background: var(--fork-raised, transparent); transition: opacity .15s var(--fork-ease); }
 .fork-scripts-icon { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 8px; background: var(--fork-accent-soft); color: var(--fork-accent); }
 .fork-scripts-name { display: grid; gap: 2px; min-width: 0; }
+.fork-scripts-open { display: flex; align-items: center; gap: 4px; justify-self: start; min-width: 0; max-width: 100%; padding: 0; border: 0; border-radius: 3px; background: none; text-align: start; cursor: pointer; }
+.fork-scripts-open svg { flex: 0 0 auto; color: var(--fork-ink-3); }
+.fork-scripts-open[aria-expanded="true"] svg { transform: rotate(180deg); }
+.fork-scripts-open:hover b { text-decoration: underline; }
+.fork-scripts-open:focus-visible { outline: 2px solid var(--fork-accent); outline-offset: 2px; }
+.fork-scripts-source { grid-column: 1 / -1; min-width: 0; }
+.fork-scripts-source .dsh-tavern-script-code-scroll { border-top: 0; }
+.fork-scripts-source-error { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
 .fork-scripts-name b { overflow: hidden; color: var(--fork-ink); font-size: var(--fork-fs-body); font-weight: 600; white-space: nowrap; text-overflow: ellipsis; }
 .fork-scripts-name small { color: var(--fork-ink-3); font-size: var(--fork-fs-meta); }
 .fork-scripts-row.is-off .fork-scripts-icon { background: var(--fork-hover); color: var(--fork-ink-3); }
@@ -2070,7 +2087,39 @@ body[data-ds-dark-theme] .fork-popover { color-scheme: dark; }
 .ap-stage .ap-section-head { min-height: 34px; margin-bottom: 4px; padding-bottom: 6px; border-bottom: 1px solid var(--ap-border); }
 .ap-stage .ap-section-head h3, .ap-stage legend { gap: 8px; font-size: var(--fork-fs-body); letter-spacing: .24em; }
 .ap-stage .ap-section-body > .ap-opening-picker:not(.is-compact) { max-width: 420px; }
+/* 本局设置 (conversation-settings.js) speaks the same language in the same right panel: caption sections, one row per
+   setting with its name on the left and its value, menu or switch on the right edge, one dashed line between rows like
+   基础设置's. A head line says the scope (「?」: the cache cost), the save state and the one 模板 menu. */
+.ap-ui.dsh-session-settings { max-width: 760px; padding: 6px 20px 28px; background: transparent; }
+.dsh-session-bar { display: flex; align-items: center; gap: 10px; min-height: 36px; }
+.dsh-session-scope { display: inline-flex; align-items: center; gap: 2px; min-width: 0; margin-right: auto; color: var(--fork-ink-3); font-size: var(--fork-fs-meta); }
+.dsh-session-bar > .ap-save-state { position: static; min-height: 0; white-space: nowrap; }
+.ap-ui button.dsh-session-template-trigger { gap: 2px; min-height: 28px; padding: 0 8px 0 12px; }
+.dsh-session-template-trigger .ap-glyph { width: 14px; height: 14px; color: var(--fork-ink-2); }
+.dsh-session-settings > .ap-notice { margin: 2px 0 0; color: var(--fork-ink-2); font-size: var(--fork-fs-meta); }
+.dsh-session-problem > .ap-hint-line, .dsh-session-settings .ap-section-body > .ap-hint-line { margin: 6px 0 2px; }
+.dsh-session-rows { display: grid; min-width: 0; }
+.dsh-session-rows > :is(.fork-inline-field, .ap-switch-row) + :is(.fork-inline-field, .ap-switch-row) { border-top: 1px dashed var(--ap-border); }
+.dsh-session-rows > .fork-inline-field { grid-template-columns: minmax(4em, max-content) minmax(0, 1fr); min-height: 42px; }
+.dsh-session-rows > .fork-inline-field > .fork-inline-label { color: var(--fork-ink); font-weight: 500; }
+.dsh-session-rows > .fork-inline-field > .fork-inline-value { justify-content: flex-end; margin: 0 -6px 0 0; }
+.dsh-session-rows > .fork-inline-field > .fork-inline-error { grid-column: 1 / -1; justify-self: end; margin-top: -6px; text-align: right; }
+.dsh-session-rows > .fork-inline-field input.fork-inline-input { text-align: right; }
+/* 后台模型: model · effort side by side at the right edge, the effort wrapping under the model when the row is narrow. */
+.dsh-session-model-picks { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 0 2px; min-width: 0; }
+.dsh-session-model-picks > .fork-inline-field { min-width: 0; min-height: 0; }
+.dsh-session-rows > .fork-inline-field.dsh-session-model > .fork-inline-value { margin-right: -6px; }
+/* 舞台: the row into 舞台设置, its state at the right edge where 基础设置 puts its switches. */
+.ap-switch-main > .dsh-session-stage-state { display: inline-flex; align-items: center; order: 3; color: var(--fork-ink-2); font-weight: 400; white-space: nowrap; }
+.ap-switch-main > .dsh-session-tool-source { order: 2; }
+.ap-ui button.dsh-session-reveal { min-height: 24px; padding: 0 6px; }
+.dsh-session-profile-text { max-height: 240px; margin: 0 0 10px; padding: 10px 12px; overflow-y: auto; border-radius: var(--fork-radius); background: var(--fork-hover); color: var(--fork-ink-2); font-size: var(--fork-fs-meta); line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
+.ap-notice.dsh-session-profile-update { padding: 2px 0 10px; color: var(--fork-ink-2); font-size: var(--fork-fs-meta); }
+@media (max-width: 720px) { .ap-ui.dsh-session-settings { padding: 4px 16px 24px; } .dsh-session-rows > .fork-inline-field { min-height: 44px; } }
 .ap-loading { display: flex; align-items: center; gap: 8px; margin: 14px 0; color: var(--ap-ink-3); }
+/* 导出: 「正在导出「名」… 43%」 — the percent keeps its width while it counts. */
+.ap-export-state { margin: 8px 0; color: var(--fork-ink-2); }
+.ap-export-pct { font-variant-numeric: tabular-nums; }
 
 /* Controls. */
 .ap-ui button, .ap-file-button {
@@ -3160,6 +3209,22 @@ body[data-ds-dark-theme] .fork-popover { color-scheme: dark; }
   --dsw-alias-interactive-bg-hover: var(--fk-current-hover); --dsw-alias-interactive-bg-active: var(--fk-current-selected); --dsw-alias-border-l2: var(--fk-current-line);
   background: var(--fk-current-bgSolid, Canvas); color: var(--fk-current-fg, CanvasText);
 }
+.ap-ui:is(.dsh-session-settings, .fork-readings, .dsh-opening-setup):not(.fork-gal-theme-scope) {
+  /* Embedded panels sit on the host surface. Match their text and interactive fills to that surface. */
+  --fk-current-bgSolid: var(--dsh-tavern-accent-cream, Canvas);
+  --fk-current-fg: var(--dsh-tavern-accent-ink, CanvasText);
+  --fk-current-fgMuted: var(--dsh-tavern-accent-muted, GrayText);
+  --fk-current-hover: color-mix(in srgb, var(--fk-current-fg) 6%, var(--fk-current-bgSolid));
+  --fk-current-selected: color-mix(in srgb, var(--fk-current-fg) 13%, var(--fk-current-bgSolid));
+  background: transparent;
+}
+.ap-ui.dsh-opening-setup:not(.fork-gal-theme-scope) {
+  --fk-current-bgSolid: var(--dsh-opening-surface, var(--dsh-opening-bg, var(--dsh-tavern-accent-cream, Canvas)));
+  --fk-current-fg: var(--dsh-opening-text, var(--dsh-tavern-accent-ink, CanvasText));
+  --fk-current-fgMuted: var(--dsh-opening-muted, var(--dsh-tavern-accent-muted, GrayText));
+  --dsw-alias-bg-base: var(--fk-current-bgSolid);
+  background: var(--dsh-opening-bg, transparent);
+}
 /* Accent fills everywhere in chat: the table's fill (the accent deepened just enough for white glyphs) and its glyph. */
 body { --fork-accent-fill: var(--fk-s-base-fill, var(--fork-accent)); --fork-on-accent: var(--fk-s-base-onAccent, #fff); }
 /* Image-preserving narration. The stage supplies the mode; skins supply only design-space paint and geometry.
@@ -3488,7 +3553,7 @@ body { --fork-accent-fill: var(--fk-s-base-fill, var(--fork-accent)); --fork-on-
 .ap-item.is-picking[aria-selected=true] { background: none; }
 .ap-item.is-picking[aria-selected=true]:hover { background: var(--fork-hover); }
 .ap-item.is-picking[aria-selected=true] > .ap-item-lead-box > :not(.ap-check-mark) { box-shadow: 0 0 0 1.5px var(--fork-accent); }
-/* The selection bar takes the search row's place and height: 全选 check · 已选 N …… 取消 · 复制到… on one line at every width. */
+/* The selection bar takes the search row's place: 全选 · 已选 N · 当前结果 …… 取消 · 操作. */
 .ap-select-bar { display: flex; flex: none; align-items: center; gap: 6px; min-width: 0; min-height: 56px; padding: 12px 12px 10px 16px; }
 .ap-ui .ap-select-bar > button.ap-pack-check { display: grid; flex: none; place-items: center; width: 30px; height: 30px; min-height: 0; margin: 0 -2px 0 -6px; padding: 0; border: 0; border-radius: 50%; background: none; }
 .ap-ui .ap-select-bar > button.ap-pack-check:hover:not(:disabled) { background: var(--fork-hover); }
@@ -3497,6 +3562,8 @@ body { --fork-accent-fill: var(--fk-s-base-fill, var(--fork-accent)); --fork-on-
 .ap-select-bar .ap-check-dash { display: block; width: 8px; height: 2px; border-radius: 1px; background: currentColor; }
 .ap-select-count { flex: 1 1 auto; min-width: 0; overflow: hidden; font-size: var(--fork-fs-body); text-overflow: ellipsis; white-space: nowrap; }
 .ap-select-count b { font-weight: 600; font-variant-numeric: tabular-nums; }
+.ap-select-scope { margin-inline-end: auto; color: var(--fork-ink-3); font-size: var(--fork-fs-meta); white-space: nowrap; }
+.ap-select-bar:has(.ap-select-scope) .ap-select-count { flex: 0 1 auto; }
 .ap-ui .ap-select-bar button.ap-manage { flex: none; height: 28px; padding: 0 11px; white-space: nowrap; }
 .ap-copy-anchor { flex: none; }
 .ap-copy-anchor .ap-popover { min-width: 248px; max-height: 360px; }
@@ -4057,7 +4124,7 @@ body { --fork-accent-fill: var(--fk-s-base-fill, var(--fork-accent)); --fork-on-
 .ap-gen-stage-wait > .fork-spinner { --fork-spinner-size: 36px; color: var(--fork-accent); }
 .ap-gen-face-time { position: absolute; left: 0; right: 0; bottom: 3px; z-index: 2; color: var(--fork-ink-2); font-size: var(--fork-fs-meta); font-variant-numeric: tabular-nums; line-height: 1; text-align: center; }
 .ap-gen-queue { position: absolute; left: 50%; top: 50%; z-index: 2; padding: 1px 6px; border-radius: 8px; background: var(--fork-hover); color: var(--fork-ink-2); font-size: var(--fork-fs-meta); line-height: 16px; transform: translate(-50%, -50%); white-space: nowrap; }
-.ap-gen-badge { position: absolute; left: 50%; bottom: 3px; z-index: 2; padding: 0 5px; border-radius: 6px; background: var(--fork-accent-fill, var(--fork-accent)); color: var(--fork-on-accent, Canvas);
+.ap-gen-badge { position: absolute; left: 50%; bottom: 3px; z-index: 2; padding: 0 5px; border-radius: 6px; background: var(--fork-accent-fill, var(--fork-accent)); color: var(--fork-on-accent);
   font-size: var(--fork-fs-meta); font-weight: 600; line-height: 15px; transform: translateX(-50%) scale(.86); transform-origin: center bottom; white-space: nowrap; }
 .ap-face-art > .ap-gen-flag { left: 3px; right: auto; top: 3px; bottom: auto; }
 /* The 差分 header's asset switch (模型 · 立绘 · 头像); an asset this outfit lacks reads lighter. */
@@ -5056,9 +5123,10 @@ body.dsh-tavern-shell-active [data-sidebar-right-panel="fullscreen"][data-sideba
 .ap-ui button.ap-voice-more { justify-self: start; gap: 6px; margin: 0; }
 .ap-voice-more .fork-spinner { --fork-spinner-size: 14px; }
 /* A local model trained for this figure: an accent tag after its name; the engine version is quiet text. */
-/* 付费试听: 「不再提示」 under the sentence, left-aligned. */
-.ap-ui button.ap-check-row.ap-voice-quiet { align-self: flex-start; justify-self: start; margin: 4px 0 0; }
-.ap-voice-quiet .ap-check-mark { box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--fork-ink) 38%, transparent); }
+/* 「以后不再显示」 (HideCheck): bottom left of a confirmation's action row; the host dialog's twin is .dsh-tavern-prompt-hide. */
+.ap-ui button.ap-check-row.ap-confirm-hide { margin: 0 auto 0 0; padding-left: 4px; background: none; color: var(--fork-ink-2); }
+.ap-ui button.ap-check-row.ap-confirm-hide:hover:not(:disabled) { background: var(--fork-hover); color: var(--fork-ink); }
+.ap-confirm-hide .ap-check-mark { box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--fork-ink) 38%, transparent); }
 
 /* 参考音频 / 本地引擎 clips: № · ▶ · what it says · language · length / size · ⋯; the dashed ＋ row adds clips. */
 .ap-clips { margin: 0; padding: 0; list-style: none; }
@@ -5120,37 +5188,32 @@ body.dsh-tavern-shell-active [data-sidebar-right-panel="fullscreen"][data-sideba
 .ap-voice-mood-row > .ap-popover-anchor { margin-left: auto; }
 .ap-voice-dialog { width: min(460px, 100%); }
 
-/* ---- 声音 tab: 配音 · the voice (▶ · name ⌄ · one line of where it comes from · 试听) · 参考音频;
-   选择声音 (a floating list), 新建声音 / 编辑声音 (services | what one needs), 舞台设置 › 配音 rows. One voice row (.ap-vx-row) for all. */
+/* ---- 声音 tab, its inline editor, 声音库, and 舞台设置 › 配音. */
 .ap-vx-tab { display: flex; flex-direction: column; min-width: 0; }
 .ap-vx-onoff { margin: 0 0 12px; }
 .ap-vx-onoff .ap-switch-row { padding: 0; border: 0; }
 .ap-vx-onoff .ap-switch-name { font-size: var(--fork-fs-heading); font-weight: 600; color: var(--fork-ink); }
-.ap-vx-hero { display: grid; grid-template-columns: 56px minmax(0, 1fr); column-gap: 16px; align-items: center; padding: 4px 0 24px; }
-.ap-vx-hero > .ap-vx-say, .ap-vx-hero > .ap-vx-try-error { grid-column: 2; }
-/* 不配音: the voice stays, greyed out — quiet ink, no accent (no translucency: ui-surfaces). */
-.ap-vx-hero[data-off] { filter: grayscale(1); }
-.ap-vx-hero[data-off], .ap-vx-hero[data-off] * { color: color-mix(in srgb, var(--fork-ink) 40%, var(--fork-surface)) !important; }
-.ap-vx-disc { display: grid; place-items: center; width: 56px; height: 56px; border-radius: 50%; background: var(--fork-accent-soft); color: var(--fork-accent); }
-.ap-vx-disc .ap-glyph { width: 24px; height: 24px; }
-.ap-vx-disc[data-state="off"] { background: var(--fork-hover); color: var(--fork-ink-3); }
-.ap-vx-hero-main { display: grid; gap: 2px; min-width: 0; }
-.ap-vx-hero-line { display: flex; align-items: center; gap: 8px; min-width: 0; min-height: 32px; }
+.ap-vx-inline { min-width: 0; padding-top: 12px; border-top: 1px solid var(--fork-hairline); }
+.ap-vx-inline h3, .ap-vx-ident h3 { margin: 0; font-size: var(--fork-fs-title); font-weight: 600; }
+.ap-vx-inline .ap-vx-ident { gap: 8px; justify-content: space-between; flex-wrap: wrap; padding: 0; }
+.ap-vx-rename { display: flex; min-width: 0; }
+.ap-vx-inline .ap-vx-rename { margin-left: -8px; }
+.ap-vx-inline .ap-vx-pane { padding: 12px 0 0; overflow: visible; }
+.ap-vx-inline .ap-vx-add-foot { align-items: stretch; flex-direction: column; gap: 12px; padding: 12px 0 0; border: 0; }
+.ap-vx-inline .ap-vx-add-foot > .ap-vx-say { flex: auto; }
+.ap-ui .ap-vx-inline button.ap-vx-new { width: 36px; height: 36px; min-height: 36px; }
+.ap-vx-fallback > .ap-vx-say { margin-top: 0; }
 .ap-ui button.ap-vx-name { display: inline-flex; align-items: center; gap: 6px; min-width: 0; max-width: 100%; height: 32px; padding: 0 6px 0 8px; border: 0; border-radius: var(--fork-radius); background: none; color: var(--fork-ink); font-size: var(--fork-fs-title); font-weight: 600; cursor: pointer; }
 .ap-ui button.ap-vx-name > span { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .ap-ui button.ap-vx-name .ap-glyph { flex: none; width: 14px; height: 14px; color: var(--fork-ink-2); }
 .ap-ui button.ap-vx-name:hover, .ap-ui button.ap-vx-name[aria-expanded="true"] { background: var(--fork-hover); }
-.ap-vx-hero-line > .ap-vx-pick-anchor, .ap-vx-stage-row > .ap-vx-pick-anchor { display: inline-flex; flex: 0 1 auto; min-width: 0; }
-/* the name's hover ground reaches past its text: the anchor (not the button, whose max-width is the anchor's) sits 8 px left. */
-.ap-vx-hero-line > .ap-vx-pick-anchor { margin-left: -8px; }
+.ap-vx-stage-row > .ap-vx-pick-anchor { display: inline-flex; flex: 0 1 auto; min-width: 0; }
 /* ▶ / ■ read as solid shapes. */
 .ap-ui button.ap-vx-say-play .ap-glyph path, .ap-ui button.ap-vx-row-play .ap-glyph path { fill: currentColor; }
 .ap-ui input.ap-vx-name-input { font-size: var(--fork-fs-title); font-weight: 600; }
-.ap-vx-spark { display: inline-flex; color: var(--fork-accent); }
-.ap-vx-spark .ap-glyph { width: 14px; height: 14px; }
 .ap-vx-tag { flex: none; padding: 0 7px; border-radius: 9px; background: var(--fork-hover); color: var(--fork-ink-2); font-size: var(--fork-fs-meta); font-weight: 400; line-height: 18px; }
-.ap-vx-name-tools { display: inline-flex; align-items: center; gap: 2px; flex: none; margin-left: -4px; }
-.ap-vx-hero-tools { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; flex: none; --fork-spinner-size: 16px; }
+.ap-vx-name-tools { display: inline-flex; align-items: center; gap: 4px; flex: none; margin-left: auto; }
+.ap-vx-name-tools .ap-glyph { vertical-align: middle; }
 .ap-vx-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 0 6px; min-height: 28px; color: var(--fork-ink-2); font-size: var(--fork-fs-body); }
 /* 试听 is one field: the frame is the field's edge (as fork-edit draws it), the ▶ 试听 button and the 语气 pick sit inside. */
 .ap-vx-say { display: flex; align-items: center; gap: 4px; min-height: 40px; margin-top: 10px; padding: 0 4px; border-radius: 6px; background: var(--dsw-alias-bg-base); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--fork-ink) 28%, transparent); }
@@ -5229,7 +5292,7 @@ body.dsh-tavern-shell-active [data-sidebar-right-panel="fullscreen"][data-sideba
 .ap-ui button.ap-vx-nav-foot { margin-top: auto; align-self: flex-start; padding: 0 10px; color: var(--fork-ink-2); }
 .ap-vx-ident { display: flex; align-items: center; min-width: 0; min-height: 36px; padding: 12px 20px 0 8px; }
 .ap-ui .ap-vx-ident input.ap-vx-name-input:not([data-ap-a]):not([data-ap-b]):not([data-ap-c]) { flex: 1; min-width: 0; height: 36px; padding: 0 8px; font-size: var(--fork-fs-title); font-weight: 600; }
-.ap-ui .ap-vx-ident > button.ap-vx-name[data-empty] > span { color: var(--fork-ink-3); }
+.ap-ui .ap-vx-ident button.ap-vx-name[data-empty] > span { color: var(--fork-ink-3); }
 .ap-vx-pane { display: flex; flex-direction: column; min-width: 0; min-height: 0; padding: 10px 20px 0 16px; overflow-y: auto; }
 .ap-vx-pane > .ap-vx-try-error { margin: 0 0 8px; }
 .ap-vx-pane-tools { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
@@ -5249,7 +5312,8 @@ body.dsh-tavern-shell-active [data-sidebar-right-panel="fullscreen"][data-sideba
 .ap-vx-set > .ap-vx-param-text { width: 100%; }
 .ap-vx-add-foot { display: flex; align-items: center; gap: 14px; padding: 12px 20px 14px 24px; border-top: 1px solid var(--fork-hairline); }
 .ap-vx-add-foot > .ap-vx-say { flex: 1; min-width: 0; margin-top: 0; }
-.ap-ui .ap-vx-add-foot button.ap-primary { flex: none; min-width: 96px; height: 34px; border-radius: 17px; font-weight: 600; }
+.ap-vx-save { display: flex; justify-content: flex-end; align-items: center; flex-wrap: wrap; gap: 8px; }
+.ap-ui .ap-vx-save button.ap-primary { flex: none; min-height: 36px; border-radius: 18px; font-weight: 600; }
 
 .ap-vx-auto-row { display: flex; align-items: center; gap: 12px; min-height: 64px; padding: 8px 0; border-bottom: 1px solid var(--fork-hairline); }
 .ap-ui .ap-vx-auto-row > button.ap-vx-row-play { width: 36px; height: 36px; background: var(--fork-accent-soft); color: var(--fork-accent); }
@@ -5266,9 +5330,9 @@ body.dsh-tavern-shell-active [data-sidebar-right-panel="fullscreen"][data-sideba
 .ap-ui .ap-vx-stage-row button.ap-vx-go:hover { background: var(--fork-hover); }
 
 @media (max-width: 720px) {
-  /* 声音 tab on a phone: the 试听 line under the whole hero; 选择声音 a bottom sheet; 新建声音 / 编辑声音 full screen, one
-     column that scrolls — the name, the services in a row that wraps, what the service needs — over the fixed footer. */
-  .ap-vx-hero > .ap-vx-say, .ap-vx-hero > .ap-vx-try-error { grid-column: 1 / -1; margin-top: 10px; }
+  /* 选择声音 is a bottom sheet; 声音库 has one scrolling column above its footer. */
+  .ap-ui .ap-vx-inline :is(button.ap-vx-name, .ap-vx-name-tools button, button.ap-voice-pick, button.ap-vx-say-play, .ap-voice-mood) { min-height: 36px; }
+  .ap-vx-save { margin-left: auto; }
   .ap-ui .ap-popover.is-floating:has(> .ap-vx-pick) { top: auto !important; bottom: 0; left: 0 !important; right: 0; width: auto !important; max-width: none !important; max-height: 85dvh !important; border-radius: 16px 16px 0 0; padding: 12px 12px 20px; }
   .ap-vx-pick { flex: 1; width: auto; max-width: none; }
   .ap-vx-row { min-height: 44px; }
@@ -5286,7 +5350,6 @@ body.dsh-tavern-shell-active [data-sidebar-right-panel="fullscreen"][data-sideba
   .ap-vx-set-label { min-height: 40px; }
   .ap-vx-add-foot { flex-wrap: wrap; gap: 10px; padding: 10px 12px 14px; }
   .ap-vx-add-foot > .ap-vx-say { flex: 1 1 100%; }
-  .ap-vx-add-foot > .ap-primary { margin-left: auto; }
   .ap-ui button.ap-clip-rec { min-height: 44px; }
   /* Phone: the 声音 tab is the figure's top bar, its tabs and the voice — no preview stage. */
   .ap-figure-editor[data-tab="voice"] > .ap-figure-stage { display: none; }
@@ -5309,11 +5372,12 @@ body.dsh-tavern-shell-active [data-sidebar-right-panel="fullscreen"][data-sideba
   .ap-ui .ap-voice-row button.ap-voice-play, .ap-ui .ap-voice-row button.ap-icon-button { width: 36px; height: 36px; }
   .ap-ui .ap-voice-search input:not([data-ap-a]):not([data-ap-b]):not([data-ap-c]), .ap-ui .ap-voice-search button.ap-voice-find { height: 36px; }
   /* a clip is one line: ▶, its text, its language, ⋯ (the count, length and size are in the line above the list). */
-  .ap-clip { grid-template-columns: 36px minmax(0, 1fr) auto 36px; gap: 6px; min-height: 44px; padding: 4px 0; }
-  .ap-clip-no, .ap-clip-meta { display: none; }
+  .ap-clip { grid-template-columns: 16px 36px minmax(0, 1fr) auto 36px; gap: 0 6px; padding: 4px 0; }
+  .ap-clip-text { grid-column: 3 / -1; min-width: 0; }
+  .ap-clip-lang { grid-column: 3; }
   .ap-ui button.ap-clip-play { width: 36px; height: 36px; }
-  .ap-ui .ap-clip input.ap-clip-text:not([data-ap-a]):not([data-ap-b]):not([data-ap-c]) { height: 36px; font-size: 14px; }
-  .ap-ui .ap-clip-menu .ap-icon-button { width: 36px; height: 36px; }
+  .ap-ui .ap-clip input.ap-clip-text:not([data-ap-a]):not([data-ap-b]):not([data-ap-c]) { height: 36px; font-size: var(--fork-fs-body); }
+  .ap-ui .ap-clip-menu .ap-icon-button, .ap-ui .ap-clip-lang button.ap-voice-pick { min-height: 36px; }
   .ap-clip-add { height: 44px; }
   .ap-voice-tune-row > .fork-inline-value > .ap-tune { flex: 1; }
   .ap-voice-moods { grid-template-columns: minmax(0, 1fr); }
@@ -5613,6 +5677,10 @@ body.dsh-tavern-shell-active [data-sidebar-right-panel="fullscreen"][data-sideba
 /* 导出 DSH 人物卡 (DshCardExportSheet): the card on top, then hairline pack rows (✓ · name · size, the total in the head)
    and figure rows (✓ · name; an unticked one stays home, its name dimmed); the progress bar is the download sheet's. */
 .ap-dshcard-list { margin: 0; padding: 0; list-style: none; }
+/* no lines between the rows: a row is one tick and a name, it opens
+   nothing; only the section line between 素材包 and 人物 stays, and the foot has no line above 完成 / 导出. */
+.ap-dshcard-list > .ap-dshcard-row { min-height: 36px; border-bottom: 0; }
+.ap-dshcard-sheet .ap-cat-foot { border-top: 0; }
 .ap-dshcard-name { flex: 1 1 auto; min-width: 0; overflow: hidden; font-size: var(--fork-fs-body); text-overflow: ellipsis; white-space: nowrap; }
 .ap-dshcard-row > .ap-pack-size { min-width: 0; text-align: right; }
 .ap-dshcard-row:has(.ap-pack-check[aria-checked=false]) .ap-dshcard-name { color: var(--fork-ink-3); }
@@ -6429,7 +6497,7 @@ body.dsh-tavern-shell-active [data-sidebar-right-panel="fullscreen"][data-sideba
     .dsh-tavern-gallery-row,
     .dsh-tavern-panel-tabs,
     body.dsh-tavern-shell-active :is([data-phase] > header, [data-slot="conversation.header"] > header) [class*="_tabs"],
-    body.dsh-tavern-shell-active [data-slot="root"] > [class*="_frame"]:not([data-mobile-nav]) [role="dialog"]:has(> nav[class*="_nav"]) > nav,
+    :root:not([data-dsh-app-layout="drawer"]) body.dsh-tavern-shell-active:has([data-slot="root"] > [class*="_frame"]:not([data-mobile-nav]):not([data-sidebar-drawer])) [role="dialog"]:has(> nav[class*="_nav"]) > nav,
     .fork-cg-gallery-strip,
     .fork-gal-config[data-layout="compact"] .fork-gal-config-tabs
   ) {
@@ -6729,6 +6797,8 @@ html.dsh-fork-phone-play [data-dsh-fork-session="play"] .fork-bubble .fork-bubbl
 /* Manual compaction uses player copy, with the successful summary on demand. */
 /* A later successful compaction supersedes an earlier failure line (flow items are siblings). */
 [data-chat-flow-kind="manual-compaction"]:has([data-fork-compaction="failed"]):has(~ [data-chat-flow-kind] [data-fork-compaction="succeeded"]) { display: none; }
+.fork-compaction-line { display: flex; align-items: center; justify-content: center; gap: 6px; padding: 6px 0; color: var(--fork-ink-2); font-size: var(--fork-fs-meta, 12px); line-height: 1.5; }
+.fork-compaction-text { display: inline-flex; align-items: center; gap: 6px; }
 .fork-compaction-result > summary { cursor: pointer; color: var(--fork-ink-2); }
 .fork-compaction-summary { white-space: pre-wrap; overflow-wrap: anywhere; padding: 8px 0; }
 
@@ -6768,16 +6838,31 @@ html.dsh-fork-phone-play [data-dsh-fork-session="play"] .fork-bubble .fork-bubbl
 .dsh-local-settings .fork-inline-trigger:focus-visible,
 .dsh-local-settings select:focus-visible,
 .dsh-local-settings input.fork-edit:focus-visible { outline: 2px solid var(--fork-accent); outline-offset: 1px; }
-.dsh-local-settings .dsh-local-profile > .dsh-local-feedback { grid-column: 2; }
+.dsh-local-settings .dsh-local-profile > [role="alert"] { grid-column: 1 / -1; }
+.dsh-local-background-model { display: flex; align-items: center; gap: 8px; }
+.dsh-local-background-model > .fork-inline-field:first-child { flex: 1; }
+.dsh-local-settings .dsh-local-background-model > .fork-inline-field[data-bare] { grid-template-columns: minmax(0, 1fr); max-width: 40%; }
 @container (max-width: 479px) {
   .dsh-local-settings .fork-inline-field,
   .dsh-local-settings .dsh-local-profile { grid-template-columns: minmax(0, 1fr); gap: 6px; }
-  .dsh-local-settings .dsh-local-profile > .dsh-local-feedback { grid-column: 1; }
+  .dsh-local-settings .dsh-local-background-model > .fork-inline-field:first-child { grid-template-columns: max-content minmax(0, 1fr); }
 }
 .dsh-local-settings .fork-inline-field button.fork-inline-trigger:not([data-fi-a]):not([data-fi-b]):not([data-fi-c]):not([data-fi-d]) { min-height: 36px; height: auto; padding: 7px 10px; border: 1px solid color-mix(in srgb, var(--fork-ink) 30%, transparent); background: var(--dsw-alias-bg-base); justify-content: space-between; }
 .dsh-local-settings .dsh-local-profile .dsh-tavern-profile-game { min-width: 0; padding: 0; margin: 0; }
 .dsh-local-settings .dsh-local-profile select.dsh-tavern-settings-select { max-width: none; margin: 0; }
-.dsh-local-settings .fork-inline-field > .fork-inline-value { margin: 0; }
+.dsh-local-settings .fork-inline-field[data-kind] > .fork-inline-value { margin: 0; }
+.dsh-local-play-settings .fork-inline-field { min-height: 36px; }
+.dsh-local-play-settings .dsh-local-profile > .dsh-local-label { display: flex; align-items: center; gap: 4px; }
+.dsh-local-settings .dsh-local-play-settings .fork-inline-field .fork-inline-value :is(button.fork-inline-trigger, input.fork-inline-input.fork-edit):not([data-fi-a]):not([data-fi-b]):not([data-fi-c]):not([data-fi-d]),
+.dsh-local-settings .dsh-local-play-settings select.dsh-tavern-settings-select {
+  height: 36px; min-height: 36px; padding-block: 0; padding-inline-start: 10px;
+  border: 1px solid color-mix(in srgb, var(--fork-ink) 30%, transparent);
+  border-radius: 6px; background-color: var(--dsw-alias-bg-base); box-shadow: none;
+  color: var(--fork-ink);
+}
+.dsh-local-settings .dsh-local-play-settings .fork-inline-field .fork-inline-value input.fork-inline-input.fork-edit:not([data-fi-a]):not([data-fi-b]):not([data-fi-c]):not([data-fi-d]):focus-visible {
+  outline: 2px solid var(--fork-accent); outline-offset: 1px;
+}
 
 /* Polish settings and results share a compact, clearly bounded layout. */
 .dsh-tavern-polish-compare { container-type: inline-size; padding: 24px; }

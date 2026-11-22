@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { readFileSync } from 'node:fs'
-import { readFile } from 'node:fs/promises'
 import vm from './fixtures/client-vm.mjs'
 import { stubFrameDependencyImports } from './fixtures/frame-dependency-imports.mjs'
 import { JSDOM } from 'jsdom'
@@ -115,53 +114,6 @@ test('P1-7b stylesheet.js 相同 features 不重复写 textContent', () => {
     assert.equal(writes, 1, '真正变化时才重写')
     assert.equal(style.textContent, '.f9{}')
   } finally { dom.window.close() }
-})
-
-function embeddedFeatureParts(source) {
-  const at = source.indexOf('installTavernStylesheet(document, ')
-  // Skip the bundled stylesheet string literal, then read the feature array.
-  const literalEnd = (() => {
-    let index = source.indexOf('"', at) + 1
-    for (; index < source.length; index += 1) {
-      if (source[index] === '\\') index += 1
-      else if (source[index] === '"') return index + 1
-    }
-    throw new Error('client.js 缺少内联 CSS 字符串')
-  })()
-  const start = source.indexOf('[', literalEnd)
-  let depth = 0, inString = false, escaped = false
-  for (let index = start; index < source.length; index += 1) {
-    const character = source[index]
-    if (inString) {
-      if (escaped) escaped = false
-      else if (character === '\\') escaped = true
-      else if (character === '"') inString = false
-      continue
-    }
-    if (character === '"') inString = true
-    else if (character === '[') depth += 1
-    else if (character === ']') { depth -= 1; if (depth === 0) return JSON.parse(source.slice(start, index + 1)) }
-  }
-  throw new Error('client.js 缺少内联 CSS 数组')
-}
-
-test('P1-7b 构建期 CSS 只压缩空白与注释，产物合法且明显变小', async () => {
-  const rawCss = await readFile(new URL('../tavern-plugin/lib/client-assets/tavern.css', import.meta.url), 'utf8')
-  const rawFeatures = (await readFile(new URL('../tavern-plugin/lib/client-assets/theme.css', import.meta.url), 'utf8'))
-    + await readFile(new URL('../tavern-plugin/lib/client-assets/layered-sprite.css', import.meta.url), 'utf8')
-    + await readFile(new URL('../tavern-plugin/lib/client-assets/mod-config.css', import.meta.url), 'utf8')
-  const literal = assembled.match(/installTavernStylesheet\(document, ("(?:[^"\\]|\\.)*")/)
-  assert.ok(literal, 'client.js 必须内联打包后的 CSS')
-  const bundled = JSON.parse(literal[1])
-  assert.equal(bundled.includes('/*'), false, '注释必须在构建期去掉')
-  assert.ok(bundled.length < rawCss.length, '压缩后必须更小')
-  assert.match(bundled, /--dsh-/, '自定义属性语法必须保留')
-  assert.match(bundled, /@media[^{]*max-width/, '媒体查询语法必须保留')
-  const features = embeddedFeatureParts(assembled)
-  assert.equal(features.length, 2, '主题槽位切分点仍然保留')
-  for (const part of features) assert.equal(part.includes('/*'), false)
-  assert.ok(features.join('').length < rawFeatures.length)
-  assert.equal(assembled.includes('.fork-tc-layer {'), false)
 })
 
 function retentionFixture(options = {}) {

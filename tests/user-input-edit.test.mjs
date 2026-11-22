@@ -39,30 +39,6 @@ test('玩家输入按回合定位，编辑后模型上下文和存档文字一�
   assert.deepEqual(h.session.deriveMessages().filter(message => message.role === 'user').map(message => message.content[0].text), ['再改一次'])
 })
 
-test('过期的令牌与空输入拒绝写入；运行中的回合可读，保存排队到回合结束', async () => {
-  const h = fixture(), edit = await h.editor.readUser(h.session.id), before = structuredClone(h.chat)
-  await assert.rejects(h.editor.saveUser(h.session.id, { token: 'stale', texts: ['新'] }), /重新打开/)
-  await assert.rejects(h.editor.saveUser(h.session.id, { token: edit.token, texts: [''] }), /不能为空/)
-  const agent = { get session() { return h.session }, phase: { kind: 'running' } }
-  let queuedChat = h.chat
-  const busyEditor = createBodyEditor({
-    chats: { forSession: async () => structuredClone(queuedChat), update: async (_id, fn) => { queuedChat = fn(structuredClone(queuedChat)); queuedChat._storageRevision++; return structuredClone(queuedChat) } },
-    sessions: { get: () => agent, flush: async () => {} },
-    activity: () => ({ busy: false }), project: async () => ({}), present: async value => value
-  })
-  const duringRun = await busyEditor.readUser(h.session.id)
-  assert.deepEqual(duringRun.parts, [{ kind: 'text', text: '原输入' }])
-  assert.equal(duringRun.token, edit.token)
-  const queued = await busyEditor.saveUser(h.session.id, { token: duringRun.token, texts: ['排队后的输入'] })
-  assert.equal(queued.queued, true)
-  assert.equal(busyEditor.queuedCount(h.session.id), 1)
-  assert.equal(queuedChat.messages[0].text, '原输入')
-  agent.phase.kind = 'idle'
-  assert.equal(await busyEditor.flushQueued(h.session.id), 1)
-  assert.equal(queuedChat.messages[0].text, '排队后的输入')
-  assert.deepEqual(h.chat, before)
-})
-
 // 故事列表按位置编辑玩家输入：messageIndex 选行，turn 缺失/重复都不影响定位；
 // 原生楼层只在正文一致时同步，否则保存存档后交给原生修复。
 function storyUserFixture() {

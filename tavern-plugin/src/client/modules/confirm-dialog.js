@@ -2,9 +2,12 @@
 // Keep product dialogs in the DOM. Never replace window.confirm with a Promise:
 // callers expecting a boolean would treat even a cancelled Promise as approval.
 let activeTavernConfirmation = null;
+// options: confirmText / cancelText, `title` (default 「确认操作」; the message is then the consequence), `danger` (the
+// confirm button in the danger colour), `hide` (a kind of confirmation: offers 「以后不再显示」 and, once ticked, resolves true at once).
 function askTavernConfirm(message, options) {
     const opts = options || {};
     if (typeof document === 'undefined' || opts.signal?.aborted || activeTavernConfirmation) return Promise.resolve(false);
+    if (opts.hide && hiddenConfirms.has(opts.hide)) return Promise.resolve(true);
     return new Promise(resolve => {
         const opener = document.activeElement;
         const dialog = document.createElement('dialog');
@@ -14,7 +17,7 @@ function askTavernConfirm(message, options) {
         panel.className = 'dsh-tavern-prompt-panel';
         const title = document.createElement('div');
         title.className = 'dsh-tavern-prompt-title';
-        title.textContent = '确认操作';
+        title.textContent = opts.title || '确认操作';
         const description = document.createElement('div');
         description.textContent = String(message);
         description.style.whiteSpace = 'pre-wrap';
@@ -23,7 +26,17 @@ function askTavernConfirm(message, options) {
         const cancel = document.createElement('button');
         cancel.type = 'button'; cancel.className = 'dsh-tavern-btn'; cancel.textContent = opts.cancelText || '取消';
         const confirm = document.createElement('button');
-        confirm.type = 'button'; confirm.className = 'dsh-tavern-btn primary'; confirm.textContent = opts.confirmText || '确认';
+        confirm.type = 'button'; confirm.className = 'dsh-tavern-btn ' + (opts.danger ? 'danger' : 'primary'); confirm.textContent = opts.confirmText || '确认';
+        let hide = null;
+        if (opts.hide) {
+            hide = document.createElement('button');
+            hide.type = 'button'; hide.className = 'dsh-tavern-prompt-hide'; hide.setAttribute('role', 'checkbox'); hide.setAttribute('aria-checked', 'false');
+            const mark = document.createElement('span'); mark.className = 'dsh-tavern-prompt-hide-mark'; mark.setAttribute('aria-hidden', 'true');
+            const label = document.createElement('span'); label.textContent = '以后不再显示';
+            hide.append(mark, label);
+            hide.addEventListener('click', () => hide.setAttribute('aria-checked', String(hide.getAttribute('aria-checked') !== 'true')));
+            actions.append(hide);
+        }
         actions.append(cancel, confirm); panel.append(title, description, actions); dialog.append(panel);
         let settled = false;
         function finish(value, restoreFocus = true) {
@@ -41,7 +54,7 @@ function askTavernConfirm(message, options) {
         }
         function abort() { finish(false, false); }
         cancel.addEventListener('click', () => finish(false));
-        confirm.addEventListener('click', () => finish(true));
+        confirm.addEventListener('click', () => { if (hide?.getAttribute('aria-checked') === 'true') hiddenConfirms.hide(opts.hide); finish(true); });
         dialog.addEventListener('cancel', event => { event.preventDefault(); finish(false); });
         dialog.addEventListener('close', () => finish(false));
         dialog.addEventListener('click', event => { if (event.target === dialog) finish(false); });

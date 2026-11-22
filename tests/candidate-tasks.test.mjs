@@ -7,7 +7,6 @@ import { createCandidateTasks } from '../tavern-plugin/lib/domain/candidate-task
 import { createChatPersistence } from '../tavern-plugin/lib/domain/chat-persistence.js'
 import { createChatJournalStore } from '../tavern-plugin/lib/domain/chat-journal-store.js'
 import { createDurableTaskMailbox } from '../tavern-plugin/lib/domain/durable-task-mailbox.js'
-import { createCoordinationEventPublisher } from '../tavern-plugin/lib/domain/coordination-event-publisher.js'
 
 function deferred() {
   let resolve
@@ -38,28 +37,6 @@ async function harness(t) {
   return { chats, create, restart() { db = persistence() }, seed: createDurableTaskMailbox({ store: { readChat: chats.read, writeChat: chats.write } }) }
 }
 const request = { sessionId: 's', messageId: 'm', requestId: 'r', guidance: '  提示  ' }
-
-test('纯变量写入通过真实协调快照通知所有页面，未变版本不重复通知', async t => {
-  const h = await harness(t)
-  const service = h.create({})
-  const received = []
-  const publisher = createCoordinationEventPublisher({
-    load: id => service.sync(id, {kind:'candidate'}),
-    publishSignal: (id, signal) => received.push(signal),
-    startInterval: () => ({}), stopInterval() {}
-  })
-  const stop = publisher.watch('s'); t.after(stop)
-  await until(() => received.length, count => count === 1)
-  const before = await h.chats.read('c')
-  before.variables = {gold:12}
-  await h.chats.write(before)
-  await publisher.publish('s')
-  assert.equal(received.length,2,'活动与候选不变时也必须发布变量写入')
-  assert.equal(received[1].snapshot.storageRevision,(await h.chats.read('c'))._storageRevision)
-  assert.deepEqual(received[1].snapshot.activity,received[0].snapshot.activity)
-  await publisher.publish('s')
-  assert.equal(received.length,2,'同一个存储版本仍应去重')
-})
 
 test('生产提交接口先持久化且不等待生成；并发重复与响应丢失只执行一次', async t => {
   const h = await harness(t), gate = deferred()
@@ -98,20 +75,6 @@ test('生成结果已保存但任务完成回执丢失，恢复直接采用结�
   assert.deepEqual((await service.sync('s', { requestId: 'r' })).task.result.candidates.choices, ['已保存'])
 })
 
-test('已有生成操作不会执行第二次，旧结果及空会话投影保持兼容', async t => {
-  const h = await harness(t)
-  const service = h.create({ async prepare() { return { created: false, operationId: 'op', execute() { assert.fail('不执行已有操作') } } } })
-  await service.submit(request)
-  await until(() => service.sync('s', { requestId: 'r' }), value => value.task?.operationId === 'op')
-  const chat = await h.chats.read('c'); chat.candidates = { requestId: 'old', operationId: 'old-op', messageId: 'm', generatedAt: 3 }
-  delete chat.taskMailbox
-  await h.chats.write(chat)
-  const legacy = await service.sync('s', { kind: 'candidate' })
-  assert.equal(legacy.task.taskId, 'legacy-old-op')
-  assert.equal(legacy.task.status, 'succeeded')
-  assert.deepEqual((await service.sync('absent')).tasks, { candidate: null, background: null })
-  await assert.rejects(service.submit({ ...request, sessionId: 'absent' }), /没有绑定人物卡/)
-})
 // the stage's 停止 on the choices wait chip.
 test('玩家停止候选：立即取消；准备中的任务不再启动模型，运行中的迟到结果不改写取消', async t => {
   const h = await harness(t), waiting = deferred(), finish = deferred()

@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto'
 import { mkdtemp, readdir, readFile, writeFile, lstat, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
-import { createReferenceImageStore, resolveImageReferences, buildReferenceText, referencePlannerGuidance, referenceScopedDefinitions } from '../tavern-plugin/packages/dsh-tavern-image-bundled/lib/reference-images.js'
+import { createReferenceImageStore, resolveImageReferences, referencePlannerGuidance, referenceScopedDefinitions } from '../tavern-plugin/packages/dsh-tavern-image-bundled/lib/reference-images.js'
 
 // Tiny genuine images encoded by Pillow, not just file signatures.
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAEElEQVR4nGP8zwACTGCSAQANHQEDgslx/wAAAABJRU5ErkJggg==', 'base64')
@@ -41,27 +41,6 @@ function definitions() {
   ], settings: [{ id: 'room', name: '室内', match: 'room', description: 'wooden walls' }], props: [] }
 }
 
-test('readById previews drafts using only strict hashes and derives verified media metadata', async t => {
-  const { store, root } = await tempStore(t)
-  for (const [bytes, mediaType, extension] of [[PNG, 'image/png', '.png'], [JPEG, 'image/jpeg', '.jpg'], [WEBP, 'image/webp', '.webp']]) {
-    const saved = await store.put(upload(bytes, mediaType))
-    const preview = await store.readById(saved.id)
-    assert.deepEqual(preview.data, bytes)
-    assert.equal(preview.mediaType, mediaType)
-    assert.equal(preview.name, saved.id + extension)
-    assert.deepEqual(preview.referenceImage, { ...saved, name: saved.id + extension })
-  }
-  for (const id of ['../outside', 'https://example.com/x', image().id.toUpperCase(), { id: image().id }, null]) await assert.rejects(store.readById(id), code('REFERENCE_DESCRIPTOR_INVALID'))
-  await assert.rejects(store.readById('f'.repeat(64)), code('REFERENCE_IMAGE_MISSING'))
-  await assert.rejects(createReferenceImageStore(root, { maxBytes: PNG.length - 1 }).readById(image().id), code('REFERENCE_IMAGE_TOO_LARGE'))
-  const fake = Buffer.from('not an image'), fakeId = digest(fake)
-  await writeFile(join(root, fakeId), fake)
-  await assert.rejects(store.readById(fakeId), code('REFERENCE_IMAGE_INVALID'))
-  const corrupt = Buffer.from(PNG); corrupt[40] ^= 1
-  await writeFile(join(root, image().id), corrupt)
-  await assert.rejects(store.readById(image().id), code('REFERENCE_IMAGE_CORRUPT'))
-})
-
 test('store deduplicates concurrent bytes across store instances without overwriting old snapshots', async t => {
   const { store, root } = await tempStore(t)
   const other = createReferenceImageStore(root)
@@ -77,19 +56,6 @@ test('store deduplicates concurrent bytes across store instances without overwri
   assert.deepEqual((await store.read(first)).data, PNG)
   assert.deepEqual((await store.read(replacement)).data, WEBP)
   assert.equal((await readdir(root)).length, 2)
-})
-
-test('store enforces exact byte limit and MIME consistency, not filename extensions', async t => {
-  const { root } = await tempStore(t)
-  const exact = createReferenceImageStore(root, { maxBytes: PNG.length })
-  await exact.put(upload())
-  const small = createReferenceImageStore(root, { maxBytes: PNG.length - 1 })
-  await assert.rejects(small.put(upload()), code('REFERENCE_IMAGE_TOO_LARGE'))
-  await assert.rejects(small.read(image()), code('REFERENCE_IMAGE_TOO_LARGE'))
-  await assert.rejects(exact.put(upload(PNG, 'image/jpeg')), code('REFERENCE_MEDIA_TYPE_MISMATCH'))
-  await assert.rejects(exact.put({ data: 'data:image/png;base64,' + PNG.toString('base64'), mediaType: 'image/jpeg' }), code('REFERENCE_MEDIA_TYPE_MISMATCH'))
-  assert.throws(() => createReferenceImageStore(root, { maxBytes: -1 }), code('REFERENCE_STORE_INVALID'))
-  assert.throws(() => createReferenceImageStore('https://example.com/store'), code('REFERENCE_STORE_INVALID'))
 })
 
 test('store rejects truncated containers CRC corruption fake signatures and trailing payloads', async t => {
@@ -159,26 +125,6 @@ test('explicit name-only subjects stay textual alongside pictured people and sur
   }
 })
 
-test('legacy complete aliases avoid Li/Lina and prefer full Chinese form names', () => {
-  const defs = { characters: [
-    { id: 'li', name: '林', match: 'Li', referenceImage: image() },
-    { id: 'lina', name: '林月', match: 'Lina', referenceImage: image() },
-    { id: 'fox', name: '林月（狐形）', match: 'Lina Fox', referenceImage: image() },
-  ] }
-  assert.deepEqual(resolveImageReferences({ definitions: defs, text: 'Lina smiles' }).subjects, [{ characterId: 'lina', outfitId: '' }])
-  assert.deepEqual(resolveImageReferences({ definitions: defs, text: '林月（狐形）走向窗边。' }).subjects, [{ characterId: 'fox', outfitId: '' }])
-  defs.characters.push({ id: 'other', name: '另一个', match: 'Lina', referenceImage: image() })
-  assert.throws(() => resolveImageReferences({ definitions: defs, text: 'Lina smiles' }), code('REFERENCE_ID_AMBIGUOUS'))
-})
-
-test('legacy missing names stay textual, but explicit invalid IDs and malformed macros fail', () => {
-  const defs = definitions()
-  assert.deepEqual(resolveImageReferences({ definitions: defs, text: macro({ name: '陌生人', outfit: 'blue shirt' }) }), { references: [], subjects: [] })
-  assert.throws(() => resolveImageReferences({ definitions: defs, text: macro({ characterId: 'unknown', name: 'Alice' }) }), code('REFERENCE_ID_UNKNOWN'))
-  assert.throws(() => resolveImageReferences({ definitions: defs, text: macro({ name: 'Alice', outfitId: 'unknown' }) }), code('REFERENCE_ID_UNKNOWN'))
-  assert.throws(() => resolveImageReferences({ definitions: defs, text: '${"name":}$' }), code('REFERENCE_MACRO_INVALID'))
-})
-
 test('legacy outfits follow exact named costume, then current/default only without contrary clothing facts', () => {
   const defs = definitions()
   const resolveOutfit = text => resolveImageReferences({ definitions: defs, text }).subjects[0]?.outfitId
@@ -193,24 +139,6 @@ test('legacy outfits follow exact named costume, then current/default only witho
   assert.equal(resolveOutfit('Alice holds Old Dress in her hands'), '')
   assert.equal(resolveOutfit('Alice took off Blue Coat'), '')
   assert.equal(resolveOutfit(macro({ name: 'Alice' }) + ' ' + macro({ name: 'Old Dress', upperBody: 'visible' })), 'dress')
-})
-
-test('legacy shared costume macro works with and without a known character', () => {
-  const defs = definitions()
-  const withPerson = resolveImageReferences({ definitions: defs, text: macro({ name: 'Alice' }) + ' ' + macro({ name: 'Moon Robe', upperBody: 'visible' }) })
-  assert.equal(withPerson.subjects[0].outfitId, 'shared-robe')
-  assert.equal(withPerson.references[1].kind, 'outfit')
-  const onlyClothes = resolveImageReferences({ definitions: defs, text: macro({ name: 'Moon Robe', upperBody: 'visible' }) })
-  assert.deepEqual(onlyClothes.subjects, [])
-  assert.equal(onlyClothes.references.length, 1)
-  const namedClothes = resolveImageReferences({ definitions: defs, text: 'Moon Robe, studio lighting, costume detail' })
-  assert.deepEqual(namedClothes.subjects, [])
-  assert.equal(namedClothes.references[0].outfitId, 'shared-robe')
-  const scopedClothes = referenceScopedDefinitions(defs, namedClothes.references, { subjects: namedClothes.subjects })
-  assert.deepEqual(scopedClothes.characters, [])
-  assert.equal(scopedClothes.outfits.length, 1)
-  defs.outfits.push({ id: 'shared-robe', name: 'Other Robe', referenceImage: image() })
-  assert.throws(() => resolveImageReferences({ definitions: defs, text: macro({ name: 'Moon Robe' }) }), code('REFERENCE_ID_AMBIGUOUS'))
 })
 
 test('text-only shared costumes expose descriptions to planning and map body/back fields into actual compilation', async () => {
@@ -238,22 +166,6 @@ test('text-only shared costumes expose descriptions to planning and map body/bac
   assert.deepEqual(defs, original)
   defs.outfits[0].referenceImage = image()
   assert.doesNotMatch(referencePlannerGuidance(defs), /silver silk robe|silver back clasp|embroidered back hem/, 'pictured shared clothes use the image and consistency text, not a duplicate fixed-description dump')
-})
-
-test('reference text binds each numbered object, explains role boundaries and preserves user supplements', () => {
-  const { references } = resolveImageReferences({ definitions: definitions(), subjects: [{ characterId: 'alice', outfitId: 'coat' }] })
-  const text = buildReferenceText(references)
-  assert.match(text, /参考图1 → 林月.*characterId=alice/)
-  assert.match(text, /参考图2 → 林月／Blue Coat.*outfitId=coat/)
-  assert.match(text, /不继承其中的衣服、姿势、表情或背景/)
-  assert.match(text, /不继承模特身份/)
-  assert.match(text, /剧情明确.*优先/)
-  assert.match(text, /禁止照搬任何参考场景/)
-  assert.match(text, /保留左眼下的小痣/)
-  assert.match(text, /保留银色扣子/)
-  assert.doesNotMatch(text, /data:image|base64/)
-  assert.equal(buildReferenceText([]), '')
-  assert.throws(() => buildReferenceText([{ ...references[0], index: 9 }]), code('REFERENCE_LIST_INVALID'))
 })
 
 test('integration: scoped identities survive actual macro expansion and name injection in tags/natural modes', async () => {

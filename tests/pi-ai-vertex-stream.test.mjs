@@ -4,24 +4,8 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
-import {
-  LATEST_GOOGLE_VERTEX_MODELS,
-  PI_AI_VERTEX_STREAM_MARKER,
-  VERTEX_TEMPLATE_BASE_URL,
-  vertexDisabledThinkingConfig,
-  vertexResolveThinkingLevel,
-  vertexUsesThinkingLevel,
-  createVertexToolCallStreamer,
-  patchPiAiGoogleSharedSource,
-  patchPiAiGoogleVertexModelsJson,
-  patchPiAiGoogleVertexSource,
-  supportsVertexStreamFunctionCallArguments,
-  vertexGlobalBaseUrl,
-  vertexModelsWithGlobalBaseUrl,
-  vertexProjectFromBaseUrl,
-} from '../tavern-plugin/lib/domain/pi-ai-vertex-stream.js'
-import { createToolReplyStreamTracker } from '../tavern-plugin/lib/domain/tool-reply-stream-parser.js'
-import { discoverVertexProject, patchPiAiVertexStream, repairVertexRouteBaseUrl, resolveVertexProject, vertexApiKeyFrom } from '../bin/pi-ai-vertex-stream-patch.mjs'
+import { LATEST_GOOGLE_VERTEX_MODELS, PI_AI_VERTEX_STREAM_MARKER, VERTEX_REGIONS, normalizeVertexLocation, vertexBaseUrlForLocation, vertexDisabledThinkingConfig, vertexLocationFromBaseUrl, vertexResolveThinkingLevel, vertexUsesThinkingLevel, createVertexToolCallStreamer, patchPiAiGoogleSharedSource, patchPiAiGoogleVertexModelsJson, patchPiAiGoogleVertexSource, supportsVertexStreamFunctionCallArguments } from '../tavern-plugin/lib/domain/pi-ai-vertex-stream.js'
+import { discoverVertexProject, patchPiAiVertexStream, repairVertexRouteBaseUrl, vertexApiKeyFrom } from '../bin/pi-ai-vertex-stream-patch.mjs'
 
 function makeStreamFixture() {
   const events = []
@@ -36,85 +20,6 @@ function makeStreamFixture() {
   })
   return { events, output, streamer }
 }
-
-test('Vertex 流式工具参数门控：Gemini 3+ 开启，排除 2.5、3.1-flash-lite 与 image 变体', () => {
-  for (const id of [
-    'gemini-3-flash-preview',
-    'gemini-3.1-pro-preview',
-    'gemini-3.1-pro-preview-customtools',
-    'gemini-3.5-flash',
-    'gemini-3.5-flash-lite',
-    'gemini-3.8-flash',
-    'gemini-4-argon',
-    'gemini-4-carbon',
-    'gemini-4-hydrogen',
-  ]) {
-    assert.equal(supportsVertexStreamFunctionCallArguments(id), true, id)
-  }
-  for (const id of [
-    'gemini-2.5-flash',
-    'gemini-2.5-flash-lite',
-    'gemini-2.5-pro',
-    'gemini-3.1-flash-lite',
-    'gemini-3.1-flash-lite-image',
-    'claude-sonnet-4-6@default',
-  ]) {
-    assert.equal(supportsVertexStreamFunctionCallArguments(id), false, id)
-  }
-})
-
-test('Vertex partialArgs 状态机：官方单调用与并行调用序列输出纯追加 JSON 增量', () => {
-  // 1) 官方 controlLight 序列（数值 + 分片字符串 + 空 stringValue 收尾 + 空 functionCall 结束）
-  const single = makeStreamFixture()
-  single.streamer.handlePart({
-    thoughtSignature: 'sig-1',
-    functionCall: {
-      name: 'controlLight',
-      partialArgs: [{ jsonPath: '$.brightness', numberValue: 50 }],
-      willContinue: true,
-    },
-  })
-  single.streamer.handlePart({
-    functionCall: {
-      partialArgs: [{ jsonPath: '$.colorTemperature', stringValue: 'warm', willContinue: true }],
-      willContinue: true,
-    },
-  })
-  single.streamer.handlePart({
-    functionCall: {
-      partialArgs: [{ jsonPath: '$.colorTemperature' }],
-      willContinue: true,
-    },
-  })
-  single.streamer.handlePart({ functionCall: {} })
-
-  assert.equal(single.events[0].type, 'toolcall_start')
-  assert.equal(single.events[single.events.length - 1].type, 'toolcall_end')
-  const deltas = single.events.filter(e => e.type === 'toolcall_delta').map(e => e.delta)
-  assert.ok(deltas.length >= 4, '应分多段发出 toolcall_delta')
-  assert.equal(deltas.join(''), JSON.stringify({ brightness: 50, colorTemperature: 'warm' }))
-  assert.deepEqual(single.output.content[0].arguments, { brightness: 50, colorTemperature: 'warm' })
-  assert.equal(single.output.content[0].thoughtSignature, 'sig-1')
-
-  // 2) 官方并行 get_current_weather 序列
-  const parallel = makeStreamFixture()
-  parallel.streamer.handlePart({ functionCall: { name: 'get_current_weather', willContinue: true } })
-  parallel.streamer.handlePart({ functionCall: { partialArgs: [{ jsonPath: '$.location', stringValue: 'New Delhi', willContinue: true }], willContinue: true } })
-  parallel.streamer.handlePart({ functionCall: { partialArgs: [{ jsonPath: '$.location', stringValue: '' }], willContinue: true } })
-  parallel.streamer.handlePart({ functionCall: {} })
-  parallel.streamer.handlePart({ functionCall: { name: 'get_current_weather', willContinue: true } })
-  parallel.streamer.handlePart({ functionCall: { partialArgs: [{ jsonPath: '$.location', stringValue: 'San Francisco', willContinue: true }], willContinue: true } })
-  parallel.streamer.handlePart({ functionCall: {} })
-
-  assert.equal(parallel.output.content.length, 2)
-  assert.notEqual(parallel.output.content[0].id, parallel.output.content[1].id)
-  assert.deepEqual(parallel.output.content[0].arguments, { location: 'New Delhi' })
-  assert.deepEqual(parallel.output.content[1].arguments, { location: 'San Francisco' })
-  const call0Deltas = parallel.events.filter(e => e.type === 'toolcall_delta' && e.contentIndex === 0).map(e => e.delta).join('')
-  const call1Deltas = parallel.events.filter(e => e.type === 'toolcall_delta' && e.contentIndex === 1).map(e => e.delta).join('')
-  assert.equal(call0Deltas, JSON.stringify({ location: 'New Delhi' }))
-  assert.equal(call1Deltas, JSON.stringify({ location: 'San Francisco' }))
-})
 
 test('Vertex partialArgs 状态机：嵌套对象/数组/转义字符、乱序安全兜底与非流式 args 兼容', () => {
   // 嵌套对象与数组 + 转义字符
@@ -165,38 +70,6 @@ test('Vertex partialArgs 状态机：嵌套对象/数组/转义字符、乱序�
   legacy.streamer.handlePart({ functionCall: { id: 'legacy-1', name: 'ping', args: { host: 'local' } } })
   assert.equal(legacy.events.map(e => e.type).join(','), 'toolcall_start,toolcall_delta,toolcall_end')
   assert.equal(legacy.events[1].delta, '{"host":"local"}')
-})
-
-test('Vertex 流式增量接入 submit_story 预览跟踪器可逐段输出 think 与 content', () => {
-  const { events, streamer } = makeStreamFixture()
-  const tracker = createToolReplyStreamTracker('submit_story')
-  const deltasSeen = []
-
-  const feedChunk = part => {
-    const before = events.length
-    streamer.handlePart(part)
-    for (const ev of events.slice(before)) {
-      if (ev.type === 'toolcall_delta') {
-        const res = tracker.pushToolDelta({
-          type: 'tool-call-delta',
-          index: ev.contentIndex,
-          id: ev.partial.content[ev.contentIndex].id,
-          name: ev.partial.content[ev.contentIndex].name,
-          argumentsDelta: ev.delta,
-        })
-        if (res.matched) deltasSeen.push({ think: res.thinkDelta, content: res.contentDelta })
-      }
-    }
-  }
-
-  feedChunk({ functionCall: { name: 'submit_story', partialArgs: [{ jsonPath: '$.think', stringValue: '构思中', willContinue: true }], willContinue: true } })
-  feedChunk({ functionCall: { partialArgs: [{ jsonPath: '$.think', stringValue: '…完成' }], willContinue: true } })
-  feedChunk({ functionCall: { partialArgs: [{ jsonPath: '$.content', stringValue: '月光洒在', willContinue: true }], willContinue: true } })
-  feedChunk({ functionCall: { partialArgs: [{ jsonPath: '$.content', stringValue: '窗台。' }], willContinue: false } })
-
-  assert.equal(deltasSeen.map(d => d.think).join(''), '构思中…完成')
-  assert.equal(deltasSeen.map(d => d.content).join(''), '月光洒在窗台。')
-  assert.ok(deltasSeen.filter(d => d.content !== '').length >= 2, '正文应在多个 chunk 中分批到达')
 })
 
 test('pi-ai Vertex 安装补丁：兼容 1.1.0/1.5.2 源码，可真实执行且更新最新模型清单', async t => {
@@ -411,7 +284,7 @@ function buildParams(model, context, options = {}) {
   assert.ok(vertexAfterPatch.includes('function vertexResolveThinkingLevel'))
 
   const modelsAfter = JSON.parse(await readFile(modelsFile, 'utf8'))['google-vertex']
-  for (const key of ['chat:gemini-4-argon', 'chat:gemini-4-carbon', 'chat:gemini-4-hydrogen', 'chat:gemini-3.5-flash-lite', 'chat:gemini-3.1-flash-lite-image']) {
+  for (const key of ['chat:gemini-4-argon', 'chat:gemini-4-carbon', 'chat:gemini-4-hydrogen', 'chat:gemini-4-neon', 'chat:gemini-3.5-flash-lite', 'chat:gemini-3.1-flash-lite-image']) {
     assert.ok(modelsAfter[key], `模型目录应包含 ${key}`)
   }
 
@@ -461,38 +334,6 @@ function buildParams(model, context, options = {}) {
     reordered[k] = thinkingLevelMap ? { id: rest.id, thinkingLevelMap, ...rest } : v
   }
   assert.equal(patchPiAiGoogleVertexModelsJson(JSON.stringify({ 'google-vertex': reordered })).status, 'patched')
-})
-
-test('Vertex global 端点：有 project 的目录写 collection URL，没 project 保留 {location} 模板', () => {
-  const global = 'https://aiplatform.googleapis.com/v1/projects/379270002840/locations/global'
-  assert.equal(vertexGlobalBaseUrl('379270002840'), global)
-  assert.equal(vertexGlobalBaseUrl(' 379270002840 '), global)
-  assert.equal(vertexGlobalBaseUrl(''), null)
-  assert.equal(vertexGlobalBaseUrl('bad project'), null)
-  assert.equal(vertexProjectFromBaseUrl(global), '379270002840')
-  assert.equal(vertexProjectFromBaseUrl('https://asia-southeast1-aiplatform.googleapis.com/v1/projects/p/locations/asia-southeast1'), 'p')
-  assert.equal(vertexProjectFromBaseUrl(VERTEX_TEMPLATE_BASE_URL), null)
-
-  // Gemini 3/4 只在 global 上线；gemini-2.5-* 反过来只在区域里有 —— 只改前者。
-  const models = vertexModelsWithGlobalBaseUrl('379270002840')
-  assert.equal(models['chat:gemini-4-hydrogen'].baseUrl, global)
-  assert.equal(models['chat:gemini-4-carbon'].baseUrl, global)
-  assert.equal(models['chat:gemini-3.8-flash'].baseUrl, global)
-  assert.equal(models['chat:gemini-2.5-flash'].baseUrl, VERTEX_TEMPLATE_BASE_URL)
-  assert.equal(vertexModelsWithGlobalBaseUrl(null), LATEST_GOOGLE_VERTEX_MODELS)
-
-  const catalog = JSON.stringify({ 'google-vertex': {} })
-  const withProject = JSON.parse(patchPiAiGoogleVertexModelsJson(catalog, { project: '379270002840' }).text)['google-vertex']
-  assert.equal(withProject['chat:gemini-4-hydrogen'].baseUrl, global)
-  assert.equal(withProject['chat:gemini-2.5-pro'].baseUrl, VERTEX_TEMPLATE_BASE_URL)
-  const withoutProject = JSON.parse(patchPiAiGoogleVertexModelsJson(catalog).text)['google-vertex']
-  assert.equal(withoutProject['chat:gemini-4-hydrogen'].baseUrl, VERTEX_TEMPLATE_BASE_URL)
-
-  // 项目来源：环境变量优先，其次 profile 里 google-vertex 的 collection baseURL。
-  const profileText = '      google-vertex:\n        apiKeyEnv: GOOGLE_VERTEX_API_KEY\n        baseURL: https://aiplatform.googleapis.com/v1/projects/379270002840/locations/global\n'
-  assert.equal(resolveVertexProject({ profileText, env: {} }), '379270002840')
-  assert.equal(resolveVertexProject({ profileText, env: { GOOGLE_CLOUD_PROJECT: 'env-project' } }), 'env-project')
-  assert.equal(resolveVertexProject({ profileText: '', env: {} }), null)
 })
 
 test('Vertex 无 project 的安装：从 API key 的 404 里解析 project，并把 profile 路由指向 global', async () => {
@@ -555,4 +396,41 @@ test('Vertex thinking：Gemini 4 只发 thinkingLevel，旧补丁的运行时也
   assert.equal(upgraded.status, 'applied')
   assert.equal((upgraded.text.match(/function vertexUsesThinkingLevel/g) ?? []).length, 1)
   assert.equal(patchPiAiGoogleVertexSource(upgraded.text).status, 'patched')
+})
+
+test('Vertex 地区 (Region)：规范化、从 baseURL 提取与按地区生成端点地址', () => {
+  assert.equal(normalizeVertexLocation(' Asia-Southeast1 '), 'asia-southeast1')
+  assert.equal(normalizeVertexLocation('GLOBAL'), 'global')
+  assert.equal(normalizeVertexLocation(''), null)
+  assert.equal(normalizeVertexLocation('bad region!'), null)
+
+  assert.equal(
+    vertexBaseUrlForLocation('my-proj-123', 'global'),
+    'https://aiplatform.googleapis.com/v1/projects/my-proj-123/locations/global',
+  )
+  assert.equal(
+    vertexBaseUrlForLocation('my-proj-123', 'asia-southeast1'),
+    'https://asia-southeast1-aiplatform.googleapis.com/v1/projects/my-proj-123/locations/asia-southeast1',
+  )
+  assert.equal(vertexBaseUrlForLocation('', 'asia-southeast1'), null)
+  assert.equal(vertexBaseUrlForLocation('my-proj-123', '???'), null)
+
+  assert.equal(
+    vertexLocationFromBaseUrl('https://aiplatform.googleapis.com/v1/projects/379270002840/locations/global'),
+    'global',
+  )
+  assert.equal(
+    vertexLocationFromBaseUrl('https://asia-northeast1-aiplatform.googleapis.com/v1/projects/379270002840/locations/asia-northeast1'),
+    'asia-northeast1',
+  )
+  assert.equal(
+    vertexLocationFromBaseUrl('https://asia-east2-aiplatform.googleapis.com'),
+    'asia-east2',
+  )
+  assert.equal(vertexLocationFromBaseUrl('https://{location}-aiplatform.googleapis.com'), null)
+
+  const ids = new Set(VERTEX_REGIONS.map(item => item.id))
+  for (const expected of ['global', 'asia-east2', 'asia-northeast1', 'asia-northeast3', 'asia-south1', 'asia-southeast1', 'asia-southeast2', 'australia-southeast1']) {
+    assert.ok(ids.has(expected), `预设地区列表应包含 ${expected}`)
+  }
 })

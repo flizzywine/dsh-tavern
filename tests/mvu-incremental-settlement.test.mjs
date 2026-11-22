@@ -61,7 +61,11 @@ for(const append of [false,true]) for(const rows of [20,400]) test(`MVU ${rows} 
   assert.ok(JSON.stringify(receipt).length<12000)
   browser=helperClient.applyTavernVariableReceipt(browser,receipt.contextDelta)
   assert.equal(browser.messages[index].variables.stat_data.hp,7)
+  assert.match(browser.messages[targetId].message, /UpdateVariable/, 'a variable receipt must keep the pending command')
  }
+ const recoveredAfterWrite=await adapter.transactionContext('s',offer.event.id)
+ assert.equal(recoveredAfterWrite.transaction.sequence,2)
+ assert.match(recoveredAfterWrite.messages[targetId].swipes[0], /UpdateVariable/, 'recovering after writes must keep the pending command')
  gate.complete('s',offer.event.id,[targetId],'browser',offer.leaseToken)
  const result=await settlement
  assert.equal(result.context,undefined)
@@ -74,6 +78,7 @@ for(const append of [false,true]) for(const rows of [20,400]) test(`MVU ${rows} 
  assert.deepEqual(disk.timeline.checkpoints,Array.from({length:rows},(_,i)=>({id:'checkpoint-'+i,beforeRevision:i})),'scoped metadata must preserve historical rollback checkpoints')
  assert.equal(disk.messages[2].variables[0].stat_data.hp,7)
  assert.equal(disk.messages.at(-1).mvu.pending,false)
+ assert.doesNotMatch(disk.messages.at(-1).text,/UpdateVariable/,'commands stay out of saved story text')
  assert.equal(disk.messages[0].displayRuntime.captured,true)
  assert.equal(disk.messages[3].variables[0].stat_data.hp,10)
  await assert.rejects(adapter.updateVariables('s',{type:'message',message_id:2},{},0,offer.event.id),/迟到/)

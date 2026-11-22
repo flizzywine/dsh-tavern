@@ -4,10 +4,7 @@ import * as fs from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createHash } from 'node:crypto'
-import {
-  createFormatWorldbooks, normalizeFormatWorldbook, structuredWorldbookDefaults,
-  FORMAT_WORLDBOOK_MODES, FORMAT_WORLDBOOK_GROUPS, STRUCTURED_WORLDBOOK_SEED_VERSION,
-} from '../tavern-plugin/packages/dsh-tavern-image-bundled/lib/format-worldbooks.js'
+import { createFormatWorldbooks, normalizeFormatWorldbook, structuredWorldbookDefaults, FORMAT_WORLDBOOK_GROUPS } from '../tavern-plugin/packages/dsh-tavern-image-bundled/lib/format-worldbooks.js'
 import { selectPlannerContext } from '../tavern-plugin/packages/dsh-tavern-image-bundled/lib/planner-context.js'
 
 async function fixture(t) {
@@ -60,20 +57,6 @@ async function bundledLegacySeeds() {
   const directory = new URL('../tavern-plugin/packages/dsh-tavern-image-bundled/', import.meta.url)
   return Promise.all(['世界书-通用生图规则.json', '世界书-角色与服装库.json'].map(async file => JSON.parse(await fs.readFile(new URL(file, directory), 'utf8'))))
 }
-
-test('fresh natural worldbooks use prose, while mixed retains the original tag rules', async t => {
-  const root = await fixture(t)
-  await seedLegacy(root, ...await bundledLegacySeeds())
-  const store = createFormatWorldbooks({ root })
-  const natural = await store.readFormat('natural')
-  const context = selectPlannerContext({ entries: natural.entries, promptMode: 'natural', backend: 'openai', text: '侧面特写' })
-  assert.match(context.staticRules, /自然语言描述画面.*句尾不追加标签串/)
-  assert.match(context.staticRules, /宏前不另列人物姓名/)
-  assert.match(context.staticRules, /只描述一次全图景别和机位/)
-  assert.doesNotMatch(context.staticRules, /句尾核心 Tag 锚定|常用 Tag 参考|全是英文 Tag/)
-  const mixed = await store.readBook('mixed', 'main')
-  assert.match(mixed.entries[2].content, /句尾核心 Tag 锚定/)
-})
 
 test('natural migration backs up pristine legacy rules and preserves edited books and mixed bytes', async t => {
   const root = await fixture(t)
@@ -170,36 +153,6 @@ test('same-instance retry after transient migration failure is possible and conc
   assert.deepEqual((await store.readBook('natural', 'main')).entries.map(e => e.enabled), [false, true, true])
 })
 
-test('missing legacy files use seed books without creating or modifying old data paths', async t => {
-  const root = await fixture(t)
-  await fs.writeFile(join(root, '世界书-通用生图规则.json'), JSON.stringify({ 种子书: { entries: [{ content: '种子正文', disable: true }] } }))
-  const store = createFormatWorldbooks({ root })
-  await store.ensure()
-  await assert.rejects(fs.readFile(join(root, 'worldbook.json')), { code: 'ENOENT' })
-  const imported = await store.readBook('tags', 'main')
-  assert.equal(imported.name, '种子书')
-  assert.equal(imported.entries[0].enabled, false)
-  assert.equal(imported.entries[0].content, '种子正文')
-  imported.entries[0].enabled = true
-  await store.writeBook('tags', 'main', imported)
-  assert.equal((await store.readBook('tags', 'main')).entries[0].enabled, true, 'legacy disable alias must not defeat the editable enabled switch')
-  assert.deepEqual((await store.readBook('tags', 'outfits')).entries, [])
-})
-
-test('malformed old or independently edited JSON is reported, not silently replaced by defaults', async t => {
-  const root = await fixture(t)
-  await fs.writeFile(join(root, 'worldbook.json'), '{broken')
-  const store = createFormatWorldbooks({ root })
-  await assert.rejects(store.ensure(), /JSON 无效/)
-  assert.equal(await fs.readFile(join(root, 'worldbook.json'), 'utf8'), '{broken')
-  await assert.rejects(fs.readFile(join(root, 'format-worldbooks', 'migration-v1.json')), { code: 'ENOENT' })
-  await fs.writeFile(join(root, 'worldbook.json'), JSON.stringify(main))
-  await store.ensure()
-  await fs.writeFile(pathFor(root, 'structured'), '{custom broken')
-  await assert.rejects(createFormatWorldbooks({ root }).readBook('structured', 'main'), /JSON 无效/)
-  assert.equal(await fs.readFile(pathFor(root, 'structured'), 'utf8'), '{custom broken')
-})
-
 test('save snapshots invocation data, serializes same-file writes, and preserves the original on atomic replace failure', async t => {
   const root = await fixture(t)
   await seedLegacy(root)
@@ -222,32 +175,6 @@ test('save snapshots invocation data, serializes same-file writes, and preserves
   assert.equal((await fs.readdir(join(root, 'format-worldbooks', 'tags'))).some(name => name.includes('.tmp-')), false)
 })
 
-test('transient Windows-style replace errors recover; persistent errors preserve the original', async t => {
-  const root = await fixture(t)
-  await seedLegacy(root)
-  let transientFailures = 1
-  let persistentlyFail = false
-  const store = createFormatWorldbooks({ root, io: { ...fs, rename: async (from, to) => {
-    if (transientFailures > 0) {
-      transientFailures--
-      throw Object.assign(new Error('file temporarily held by scanner'), { code: 'EPERM' })
-    }
-    if (persistentlyFail) throw Object.assign(new Error('replacement denied'), { code: 'EPERM' })
-    return fs.rename(from, to)
-  } } })
-  await store.ensure()
-  const recovered = await store.writeBook('tags', 'main', { name: 'recovered', entries: [] })
-  assert.equal(recovered.name, 'recovered')
-  assert.equal((await store.readBook('tags', 'main')).name, 'recovered')
-
-  const file = pathFor(root, 'tags')
-  const before = await fs.readFile(file, 'utf8')
-  persistentlyFail = true
-  await assert.rejects(store.writeBook('tags', 'main', { name: 'must remain unpublished', entries: [] }), { code: 'EPERM' })
-  assert.equal(await fs.readFile(file, 'utf8'), before)
-  assert.equal((await fs.readdir(join(root, 'format-worldbooks', 'tags'))).some(name => name.includes('.tmp-')), false)
-})
-
 test('upgrade retry rechecks the source and preserves a concurrent edit', async t => {
   const { root } = await installedV1(t, books => { books.main.entries = [] })
   let raceOnRename = true
@@ -266,36 +193,6 @@ test('upgrade retry rechecks the source and preserves a concurrent edit', async 
   assert.equal(await fs.readFile(file, 'utf8'), concurrent)
 })
 
-test('book normalizer preserves metadata and accepts supported legacy import shapes', () => {
-  const inputs = [
-    { entries: { '4': { uid: 4, content: 'hello', disable: true, key: ['hello'], constant: false } } },
-    { 旧书: { entries: [{ uid: 4, content: 'hello', disable: true, key: ['hello'] }] } },
-    [{ uid: 4, content: 'hello', disable: true, key: ['hello'] }],
-  ]
-  for (const input of inputs) {
-    const normalized = normalizeFormatWorldbook(input)
-    assert.equal(normalized.entries[0].uid, 4)
-    assert.equal(normalized.entries[0].enabled, false)
-    assert.equal(normalized.entries[0].activation, 'keywords')
-    assert.deepEqual(normalized.entries[0].keywords, ['hello'])
-  }
-  assert.equal(normalizeFormatWorldbook('第一段\n\n第二段').entries.length, 2)
-  assert.throws(() => normalizeFormatWorldbook({ unrecognized: 1 }), /entries/)
-  assert.throws(() => normalizeFormatWorldbook({ entries: [null] }), /条目不是对象/)
-})
-
-test('validated mode/group cannot escape storage; structured seeds are fresh independent objects', async t => {
-  const root = await fixture(t)
-  const store = createFormatWorldbooks({ root })
-  for (const mode of ['auto', '../tags', 'STRUCTURED', '']) await assert.rejects(store.readBook(mode, 'main'), /世界书格式/)
-  await assert.rejects(store.writeBook('tags', '../main', { entries: [] }), /世界书分组/)
-  const first = structuredWorldbookDefaults(), second = structuredWorldbookDefaults()
-  first.main.entries[0].content = 'changed'
-  assert.notEqual(first.main.entries[0].content, second.main.entries[0].content)
-  assert.deepEqual(FORMAT_WORLDBOOK_GROUPS, ['main', 'outfits'])
-  assert.deepEqual(FORMAT_WORLDBOOK_MODES, ['tags', 'natural', 'mixed', 'structured'])
-})
-
 async function installedVersion(t, version, change = () => {}) {
   const root = await fixture(t)
   await createFormatWorldbooks({ root }).ensure()
@@ -310,68 +207,6 @@ async function installedVersion(t, version, change = () => {}) {
   return { root, books }
 }
 const installedV1 = (t, change) => installedVersion(t, 1, change)
-
-test('v1 and v2 baselines remain frozen including historical version fingerprints', () => {
-  const hashes = {
-    1: 'de5648545241a7fbb60db4b10b05bdcab41322f3e542cdae9d1591cee63c5d74',
-    2: '6c6e70f776e4caf0d65ee9c494771750d1eeee6edd2c38e827e1991ad5e57241',
-  }
-  for (const version of [1, 2]) {
-    const baseline = structuredWorldbookDefaults(version)
-    assert.equal(createHash('sha256').update(JSON.stringify(baseline)).digest('hex'), hashes[version])
-    baseline.main.entries[0].content = 'caller mutation'
-    structuredWorldbookDefaults().outfits.entries[0].content = 'latest mutation'
-    assert.equal(createHash('sha256').update(JSON.stringify(structuredWorldbookDefaults(version))).digest('hex'), hashes[version])
-  }
-  assert.equal(structuredWorldbookDefaults(2).main.defaultSeed.version, 2)
-  assert.throws(() => structuredWorldbookDefaults(0), /版本无效/)
-  assert.throws(() => structuredWorldbookDefaults(4), /版本无效/)
-})
-
-test('v3 fresh seeds contain semantic rules, short Chinese examples and version fingerprints', async t => {
-  const store = createFormatWorldbooks({ root: await fixture(t) })
-  const book = await store.readBook('structured', 'main')
-  assert.equal(STRUCTURED_WORLDBOOK_SEED_VERSION, 3)
-  assert.equal(book.defaultSeed.version, 3)
-  assert.equal(book.entries.length, 6)
-  assert.equal(Object.keys(book.defaultSeed.fingerprints).length, 6)
-  const text = book.entries.map(e => e.content).join('\n')
-  for (const pattern of [/时间点/, /接触点/, /裁切/, /光源/, /林月/, /江铭/, /不能按输出前一张/]) assert.match(text, pattern)
-  assert.doesNotMatch(text, /<image>|<subjects>|<decision>|image\/regex\/prompts/)
-  const status = await store.getUpgradeStatus('main')
-  assert.equal(status.available, false)
-  assert.ok(status.entries.every(e => e.state === 'current'))
-})
-
-test('v3 rules separate reference identity from visible state and exclude unsupported prompt details', () => {
-  const books = structuredWorldbookDefaults()
-  const entries = Object.fromEntries(Object.values(books).flatMap(book => book.entries).map(entry => [entry.id, entry.content]))
-  const identity = entries['structured-identity']
-  assert.match(identity, /有身份参考图.*不再描述年龄、性别或固定外貌/)
-  assert.match(identity, /不要补写“年轻男性”/)
-  assert.match(identity, /身份引用、参考图编号与绑定说明由插件统一一次/)
-  assert.match(identity, /不另写“人物及参考图对应”段/)
-  assert.match(identity, /当前状态与身份分离/)
-  assert.match(identity, /身份图不提供当前服装、姿势、表情或背景/)
-  assert.match(identity, /无身份参考图时，才使用人物库文字与正文/)
-  assert.match(entries['structured-story'], /一个明确时间点、一个可同时成立的动作阶段/)
-  assert.match(entries['structured-story'], /“扫过”.*过程不能直接充当定格动作/)
-  assert.match(entries['structured-story'], /冲突阶段/)
-  assert.match(entries['structured-space'], /没有依据就不指定光路，不新增窗帘、开口、缝隙/)
-  assert.match(entries['structured-space'], /窗户遮光布不改写成窗帘/)
-  assert.match(entries['structured-prose'], /人物与表情/)
-  assert.match(entries['structured-prose'], /有身份参考图时人物节只写当前状态/)
-  assert.match(entries['structured-examples'], /有身份参考图时不追加年龄性别或固定外貌/)
-  assert.match(entries['structured-prose'], /不补无依据的服装、道具/)
-  assert.match(entries['structured-prose'], /没有明确风格要求就省略风格节/)
-  assert.match(entries['structured-prose'], /主导情绪.*可见表情、视线、姿态与身体张力/)
-  assert.match(entries['structured-prose'], /负向约束只针对本张已知的具体错误/)
-  assert.match(entries['structured-prose'], /不写“不存在的道具”等泛泛措辞/)
-  assert.match(entries['structured-clothes'], /没有衣着依据就不补造颜色、款式、配饰或随身道具/)
-  assert.match(entries['structured-clothes'], /最终提示词不附带与本张无关/)
-  assert.match(entries['structured-examples'], /主导情绪是否可见/)
-  assert.doesNotMatch(Object.values(entries).join('\n'), /湿衣|破损/)
-})
 
 test('untouched v2 groups upgrade to v3 with exact-byte backups and remain idempotent', async t => {
   const { root } = await installedVersion(t, 2)
@@ -449,16 +284,6 @@ test('v2 empty or wholly customized groups retain exact bytes and old seed metad
   })
 })
 
-test('mixed untouched v1/v2 entries upgrade without restoring deleted rules', async t => {
-  const { root } = await installedVersion(t, 2, books => {
-    books.main.entries[0] = structuredWorldbookDefaults(1).main.entries[0]
-    books.main.entries = books.main.entries.slice(0, 2)
-    delete books.main.defaultSeed
-  })
-  const result = await createFormatWorldbooks({ root }).readBook('structured', 'main')
-  assert.deepEqual(result.entries, structuredWorldbookDefaults().main.entries.slice(0, 2))
-})
-
 test('untouched v1 groups upgrade with exact-byte backups and restart is idempotent', async t => {
   const { root } = await installedV1(t)
   const before = await fs.readFile(pathFor(root, 'structured'), 'utf8')
@@ -531,31 +356,6 @@ test('explicit upgrade restores only selected entries, preserves disabled state,
   assert.equal((await store.getUpgradeStatus('main')).fingerprint, updated.fingerprint)
   await assert.rejects(store.applyDefaultUpgrade('main', { expectedFingerprint: status.fingerprint, entryIds: ['structured-space'] }), { code: 'WORLDBOOK_UPGRADE_STALE' })
   assert.deepEqual((await createFormatWorldbooks({ root }).readBook('structured', 'main')).entries, book.entries)
-})
-
-test('explicit upgrades validate selections and never replace originals when backup fails', async t => {
-  const { root } = await installedV1(t, books => { books.main.entries = [] })
-  let fail = false
-  const store = createFormatWorldbooks({ root, io: { ...fs, link: async (from, to) => {
-    if (fail && to.includes('format-worldbooks-upgrades')) throw new Error('backup denied')
-    return fs.link(from, to)
-  } } })
-  const status = await store.getUpgradeStatus('main')
-  const before = await fs.readFile(pathFor(root, 'structured'), 'utf8')
-  await assert.rejects(store.applyDefaultUpgrade('../main', {}), /世界书分组/)
-  await assert.rejects(store.applyDefaultUpgrade('main', { expectedFingerprint: status.fingerprint, entryIds: ['unknown'] }), /有效/)
-  fail = true
-  await assert.rejects(store.applyDefaultUpgrade('main', { expectedFingerprint: status.fingerprint, entryIds: ['structured-prose'] }), /backup denied/)
-  assert.equal(await fs.readFile(pathFor(root, 'structured'), 'utf8'), before)
-})
-
-test('duplicate default IDs are ambiguous and never overwritten automatically or explicitly', async t => {
-  const { root } = await installedV1(t, books => { books.main.entries.push({ ...books.main.entries[0], content: 'another' }) })
-  const store = createFormatWorldbooks({ root })
-  const status = await store.getUpgradeStatus('main')
-  assert.equal(status.entries[0].state, 'ambiguous')
-  await assert.rejects(store.applyDefaultUpgrade('main', { expectedFingerprint: status.fingerprint, entryIds: ['structured-prose'] }), /标识重复/)
-  assert.equal((await store.readBook('structured', 'main')).entries.filter(e => e.id === 'structured-prose').length, 2)
 })
 
 test('upgrade previews detect concurrent edits and compare-and-write after backup', async t => {

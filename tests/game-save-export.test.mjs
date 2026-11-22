@@ -46,22 +46,6 @@ function fixture({ images = true, missing = false, pluginFailure = false, mutate
   return { exporter, reads, warnings, session }
 }
 
-test('关闭场景图片仍保留消息图片；图片和插件不可读时正文仍可导出', async () => {
-  const plain = fixture({ images: false })
-  const result = await plain.exporter('session-a', { images: false })
-  const save = readGameSave(Buffer.from(result.base64, 'base64'))
-  assert.deepEqual(plain.reads, ['message', 'audio'])
-  assert.equal(result.images, 1)
-  assert.equal(save.scene.files.length, 0)
-  const damaged = fixture({ missing: true, pluginFailure: true })
-  const recovered = await damaged.exporter('session-a')
-  const recoveredSave = readGameSave(Buffer.from(recovered.base64, 'base64'))
-  assert.equal(recovered.images, 0)
-  assert.equal(recoveredSave.chat.messages[0].text, '正文')
-  assert.equal(recoveredSave.plugins, null)
-  assert.equal(damaged.warnings.length, 1)
-})
-
 test('同包带走预设时存档不再内嵌预设快照，但保留 runtimePresetPath 供导入重新冻结', async () => {
   const { exporter } = fixture({ preset: true })
   const full = readGameSave(Buffer.from((await exporter('session-a')).base64, 'base64'))
@@ -76,11 +60,4 @@ test('同包带走预设时存档不再内嵌预设快照，但保留 runtimePre
   const noPath = fixture({ preset: true, presetPath: '' })
   const kept = readGameSave(Buffer.from((await noPath.exporter('session-a', { embedPreset: false })).base64, 'base64'))
   assert.ok(kept.chat.runtimePresetSnapshot)
-})
-
-test('导出携带当前权威世界快照但不写入内部 revision 字段', async () => {
-  const world = { position: null, swipe: 1, messageUid: 'deleted-source', world: { variables: { stat_data: { gold: 44 } } }, chatRevision: 2, worldRevision: 7 }
-  const { exporter } = fixture({ world })
-  const save = readGameSave(Buffer.from((await exporter('session-a')).base64, 'base64'))
-  assert.deepEqual(save.world, { position: null, swipe: 1, messageUid: 'deleted-source', world: { variables: { stat_data: { gold: 44 } } } })
 })

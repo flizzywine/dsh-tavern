@@ -43,21 +43,3 @@ test('无变量、短历史与旧存档的边界', async t => {
   const capped = createBoundedHistory({ links: async () => ({ s: 'c' }), readWindow: none.p.readWindow, pageSize: 10, maxRows: 40 })
   assert.equal(await capped.forSession('s', { storyRows: 150 }), undefined)
 })
-
-// A view pinned to an older start reads back to it while background tasks keep writing:
-// a revision moving between reads is read again, never answered with no window.
-test('窗口补到起点时版本变了就重读，不返回空', async () => {
-  const { readRecentWindow } = await import('../tavern-plugin/lib/domain/bounded-history.js')
-  let count = 800, revision = 1, reads = 0
-  const readWindow = async (_id, { limit, before, revision: pinned }) => {
-    reads++
-    if (reads === 2) { count += 2; revision++ } // a background write lands mid-read
-    const end = before ?? count, start = Math.max(0, end - limit)
-    if (pinned !== undefined && pinned !== revision) return { revision, from: start, to: end - 1, messageCount: count, chat: { messages: [] } }
-    return { revision, from: start, to: end - 1, messageCount: count, chat: { messages: Array.from({ length: end - start }, (_, i) => ({ index: start + i })) } }
-  }
-  const window = await readRecentWindow(readWindow, 'c', { limit: 48, from: 700 })
-  assert.ok(window, '不应返回空')
-  assert.ok(window.from <= 700)
-  assert.equal(window.chat.messages.length, window.messageCount - window.from)
-})

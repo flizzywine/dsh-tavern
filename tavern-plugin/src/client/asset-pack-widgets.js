@@ -207,23 +207,23 @@ function mergeProps(...list) {
   return out;
 }
 function MenuItem({onClick,disabled,title,danger,children}) { return h('button',{type:'button',role:'menuitem',className:'ap-menu-item'+(danger?' is-danger':''),disabled,title,onClick},children); }
-// 删除 asks first, unless 「不再显示此提示」 was ticked once: one machine-wide UI preference (localStorage, like the voice preview's),
-// shared by every 删除 (one entry, the 多选 删除); the pack's ⋯ 「删除条目前确认」 turns it back on. askDelete shows `spec` (a ConfirmDialog's props) or runs at once.
-const DELETE_ASK_KEY='dsh-tavern:asset-delete-ask';
-const deleteAsk={
-  get(){try{return localStorage.getItem(DELETE_ASK_KEY)!=='off';}catch(_){return true;}},
-  set(on){try{if(on)localStorage.removeItem(DELETE_ASK_KEY);else localStorage.setItem(DELETE_ASK_KEY,'off');}catch(_){}}};
-const askDelete=(ask,spec,run)=>deleteAsk.get()?ask({...spec,quiet:true,onConfirm:run}):run();
-function ConfirmDialog({title,body,extra,confirmLabel,danger,quiet,onConfirm,onClose,children}) {
+// 删除 asks first, unless 「以后不再显示」 was ticked on that kind of confirmation (`kind`: 'asset-entry', 'asset-outfit' …; the one
+// store is confirm-dialog.js hiddenConfirms, shared with the host's dialogs; 设置 › 「已隐藏的确认」 restores them).
+// askDelete shows `spec` (a ConfirmDialog's props) or runs at once; a failure then goes to `onError` (the dialog would have shown it).
+const askDelete=(ask,kind,spec,run,onError)=>hiddenConfirms.has(kind)?Promise.resolve().then(run).catch(e=>onError?onError(errorText(e)):Promise.reject(e)):ask({...spec,hide:kind,onConfirm:run});
+// 「以后不再显示」 — the first item of a confirmation's action row (bottom left); the caller stores it on confirm, never on tick.
+function HideCheck({checked,disabled,onToggle}) {
+  return h('button',{type:'button',role:'checkbox','aria-checked':checked,className:'ap-check-row ap-confirm-hide',disabled,onClick:onToggle},
+    h('span',{className:'ap-check-mark','aria-hidden':true},checked&&h(Glyph,{name:'check'})),h('span',null,'以后不再显示'));
+}
+function ConfirmDialog({title,body,extra,confirmLabel,danger,hide,onConfirm,onClose,children}) {
   const [busy,setBusy]=React.useState(false),[muted,setMuted]=React.useState(false),[error,setError]=React.useState(''),[uncertain,setUncertain]=React.useState(false);
   async function run(){setBusy(true);setError('');let timer;
     // A pack write can outlive its response. Stop waiting, not the transaction; never offer a blind retry.
-    try{if(quiet&&muted)deleteAsk.set(false);await Promise.race([Promise.resolve().then(onConfirm),new Promise((_,reject)=>{timer=setTimeout(()=>reject(Object.assign(new Error('操作超时：素材包服务未及时返回，结果尚未确认；请关闭此提示并重新打开素材包检查，勿重复删除。'),{code:'CONFIRM_TIMEOUT'})),8000);})]);onClose();}
+    try{if(hide&&muted)hiddenConfirms.hide(hide);await Promise.race([Promise.resolve().then(onConfirm),new Promise((_,reject)=>{timer=setTimeout(()=>reject(Object.assign(new Error('操作超时：素材包服务未及时返回，结果尚未确认；请关闭此提示并重新打开素材包检查，勿重复删除。'),{code:'CONFIRM_TIMEOUT'})),8000);})]);onClose();}
     catch(e){setError(errorText(e));setUncertain(e?.code==='CONFIRM_TIMEOUT');setBusy(false);}finally{clearTimeout(timer);}}
   return h(Modal,{title,onClose,busy,closable:false,className:'ap-confirm'},
     h('p',null,body),extra&&h('p',{className:'ap-confirm-extra'},extra),children,
-    quiet&&h('button',{type:'button',role:'checkbox','aria-checked':muted,className:'ap-check-row ap-voice-quiet',disabled:busy,onClick:()=>setMuted(v=>!v)},
-      h('span',{className:'ap-check-mark','aria-hidden':true},muted&&h(Glyph,{name:'check'})),h('span',null,'不再显示此提示')),
     error&&h('p',{className:'ap-alert',role:'alert'},error),
-    h(Actions,null,busy&&h('span',{className:'ap-busy'},h(Spinner),'正在处理…'),h(Button,{disabled:busy,onClick:onClose},uncertain?'关闭并检查':'取消'),h(Button,{className:danger?'ap-danger-text':'',disabled:busy||uncertain,onClick:run},confirmLabel)));
+    h(Actions,null,hide&&h(HideCheck,{checked:muted,disabled:busy,onToggle:()=>setMuted(v=>!v)}),busy&&h('span',{className:'ap-busy'},h(Spinner),'正在处理…'),h(Button,{disabled:busy,onClick:onClose},uncertain?'关闭并检查':'取消'),h(Button,{className:danger?'ap-danger-text':'',disabled:busy||uncertain,onClick:run},confirmLabel)));
 }

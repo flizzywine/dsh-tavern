@@ -49,6 +49,8 @@
 # 没有自己界面的插件（如 dsh-ops）只能在那里改配置。
 - id: ui-agent-preset
   disabled: true
+- id: skill-office
+  disabled: true
 - insert:
     - id: tavern-cordis-inspect
       name: dsh-tavern-plugin/cordis-inspect

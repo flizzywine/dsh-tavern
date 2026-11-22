@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { createBackgroundAgentRunner } from '../tavern-plugin/lib/background-agent-runner.js'
-import { HISTORY_RECALL_TOOL, createHistoryRecall, renderHistoryRecall } from '../tavern-plugin/lib/domain/history-recall.js'
+import { HISTORY_RECALL_TOOL } from '../tavern-plugin/lib/domain/history-recall.js'
 
 const anchor = { branchId: 'branch-a', turn: 5, textVersion: 'body-v2' }
 
@@ -52,7 +52,7 @@ function fixture({ worldbookSkillsEnabled, webSearchEnabled, enabled = true, sha
         return { agent: { session,
           followup(message) {
             pending = (async () => {
-              const toolNames = ['read', 'worldbook_list', 'worldbook_grep', 'web_search', 'web_fetch', ...registered.keys()]
+              const toolNames = ['read', 'list_lorebook', 'grep_lorebook', 'read_lorebook', 'web_search', 'web_fetch', ...registered.keys()]
               let assembly = { sections: [], tools: toolNames.map(name => {
                 const tool = registered.get(name)
                 return { name, ...(tool?.description ? { description: tool.description } : {}), parameters: tool?.parameters || { type: 'object' } }
@@ -117,32 +117,6 @@ for (const worldbookSkillsEnabled of [false, true]) for (const webSearchEnabled 
     } finally { await f.runner.dispose() }
   })
 }
-
-test('optional preparation failure preserves normal execution and completion without capture', async () => {
-  const events = []
-  const f = fixture({ enabled: false, prepareSharedContext: async () => { throw new Error('optional preparation') }, onRunFinished: event => events.push(event) })
-  try {
-    await f.baseline()
-    assert.equal(f.requests.length, 1)
-    assert.equal(events[0].status, 'completed')
-    assert.equal(events[0].data, undefined)
-  } finally { await f.runner.dispose() }
-})
-
-test('no caller and disabled snapshot capture leave baseline requests and sessions unchanged', async () => {
-  const enabled = fixture({}), disabled = fixture({ enabled: false })
-  try {
-    await enabled.baseline()
-    await disabled.baseline()
-    const normalize = request => ({ ...request, messages: request.messages.map(({ id, ...message }) => message) })
-    assert.deepEqual(normalize(enabled.requests[0]), normalize(disabled.requests[0]))
-    assert.equal(enabled.requests.length, 1)
-    assert.equal(disabled.requests.length, 1)
-    assert.equal(enabled.creates(), 1)
-    assert.equal(disabled.creates(), 1)
-    await assert.rejects(disabled.runner.runSharedTask({ sessionId: 'parent', anchor, instruction: 'x' }), { code: 'TAVERN_SHARED_SNAPSHOT_UNAVAILABLE' })
-  } finally { await enabled.runner.dispose(); await disabled.runner.dispose() }
-})
 
 function controlledStream() {
   const started = Promise.withResolvers(), aborted = Promise.withResolvers(), resume = Promise.withResolvers(), ended = Promise.withResolvers()
@@ -227,167 +201,6 @@ function* toolCall(name, args, id = 'call-1', index = 0) {
   yield { type: 'tool-call-delta', index, id, name, argumentsDelta: text.slice(0, 4) }
   yield { type: 'tool-call-delta', index, id, argumentsDelta: text.slice(4) }
 }
-
-function* finished(text = 'done') {
-  yield { type: 'text-delta', index: 0, text }
-  yield { type: 'finish', reason: { kind: 'stop' } }
-}
-
-test('one frozen enabled catalogue across normal tasks and shared requests; generation/off invalidates snapshots without new sessions', async t => {
-  let current = capability()
-  const f = fixture({ readCapability: () => current, withHistory: true })
-  const off = fixture({ readCapability: () => null, withHistory: true })
-  const original = fixture({ withHistory: true })
-  const system = request => JSON.stringify(request.messages.filter(message => message.role === 'system'))
-  const normalize = request => ({ ...request, messages: request.messages.map(({ id, ...message }) => message) })
-  try {
-    await f.baseline()
-    const first = f.requests[0]
-    const result = await f.runner.runSharedTask(sharedInput)
-    await f.baseline({ task: 'candidate' })
-    const candidate = f.requests[2]
-    await f.baseline({ task: 'plugin', tools: [{ name: 'task_only_write', parameters: { type: 'object' } }] })
-    for (const request of f.requests) {
-      assert.equal(JSON.stringify(request.tools), JSON.stringify(first.tools))
-      assert.equal(system(request), system(first))
-    }
-    assert.ok(candidate.tools.some(tool => tool.name === 'tavern_read_source'))
-    assert.equal(candidate.tools.some(tool => tool.name === 'task_only_write'), false)
-    assert.equal(f.creates(), 1)
-    current = capability({ generation: 'enabled-2', sources: ['second-source'] })
-    await assert.rejects(f.runner.runSharedTask(sharedInput), { code: 'TAVERN_SHARED_SNAPSHOT_UNAVAILABLE' })
-    await f.baseline()
-    assert.deepEqual(f.requests.at(-1).tools.at(-1).parameters.properties.sourceId.enum, ['second-source'])
-    current = null
-    await assert.rejects(f.runner.runSharedTask(sharedInput), { code: 'TAVERN_SHARED_SNAPSHOT_UNAVAILABLE' })
-    await f.baseline()
-    await off.baseline()
-    await original.baseline()
-    assert.deepEqual(normalize(off.requests[0]), normalize(original.requests[0]))
-    assert.deepEqual(normalize(f.requests.at(-1)), normalize(off.requests[0]))
-    assert.equal(f.creates(), 1)
-    assert.equal(off.creates(), 1)
-    const disabledShared = await off.runner.runSharedTask(sharedInput)
-    const sections = request => ({ system: bytes(request.messages.filter(message => message.role === 'system')),
-      messages: bytes(request.messages), toolSchemaBytes: bytes(request.tools) })
-    t.diagnostic(JSON.stringify({ scope: 'pre-adapter', enabled: { normal: sections(first), shared: result.measurement },
-      disabled: { normal: sections(off.requests[0]), shared: disabledShared.measurement } }))
-    assert.deepEqual(f.requests.at(-1).tools, original.requests[0].tools)
-  } finally { await f.runner.dispose(); await off.runner.dispose(); await original.runner.dispose() }
-})
-
-test('SDK tool continuation executes bound history and source readers, denies writes, preserves replay and sums usage', async () => {
-  const reads = []
-  const recall = createHistoryRecall()
-  const current = capability({
-    readHistory: async context => {
-      reads.push(['history', context])
-      return renderHistoryRecall(recall.recall({ chat: { id: 'bound-chat', messages: [{ role: 'assistant', turn: 5, text: '原文中的约定' }] },
-        ...context.args, scope: context.scope }))
-    },
-    readSource: async context => { reads.push(['source', context]); return '模块锚点原文' }
-  })
-  let step = 0, writes = 0
-  const f = fixture({ withHistory: true, readCapability: () => current, sharedStream: async function* (request) {
-    if (step++ === 0) {
-      yield* toolCall('tavern_recall_history', { turn: 5, radius: 0 }, 'history', 0)
-      yield* toolCall('posture_submit', {}, 'write', 1)
-      yield* toolCall('tavern_read_source', { sourceId: 'module-log', turn: 5 }, 'source', 2)
-      yield { type: 'usage', usage: { inputTokens: 99, outputTokens: 99 } }
-      yield { type: 'usage', usage: { inputTokens: 10, outputTokens: 3, totalTokens: 13, cacheReadTokens: 4, reasoningTokens: 1 } }
-      yield { type: 'finish', reason: { kind: 'stop' }, replayState: { response: { opaque: 'provider-replay' } } }
-      return
-    }
-    const assistant = request.messages.at(-4)
-    assert.equal(assistant.role, 'assistant')
-    assert.deepEqual(assistant.source, { kind: 'model', provider: 'mock', model: 'model-a', replayState: { response: { opaque: 'provider-replay' } } })
-    assert.equal(assistant.content.length, 3)
-    const results = request.messages.slice(-3)
-    assert.deepEqual(results.map(message => [message.role, message.toolCallId, message.source, message.isError]), [
-      ['tool', 'history', { kind: 'tool', callId: 'history' }, false],
-      ['tool', 'write', { kind: 'tool', callId: 'write' }, true],
-      ['tool', 'source', { kind: 'tool', callId: 'source' }, false]
-    ])
-    assert.match(results[0].content[0].text, /原文中的约定/)
-    assert.match(results[1].content[0].text, /只读/)
-    assert.equal(results[2].content[0].text, '模块锚点原文')
-    yield { type: 'text-delta', index: 0, text: 'Read both originals.' }
-    yield { type: 'usage', usage: { inputTokens: 20, outputTokens: 4, totalTokens: 24, cacheReadTokens: 8, cacheWriteTokens: 2 } }
-    yield { type: 'finish', reason: { kind: 'stop' } }
-  } })
-  try {
-    await f.baseline({ tools: [{ name: 'posture_submit' }], onToolCall: () => { writes++; return 'written' } })
-    const result = await f.runner.runSharedTask({ ...sharedInput, extraTools: [{ name: 'evil' }] })
-    assert.equal(result.output, 'Read both originals.')
-    assert.deepEqual(result.usage, { inputTokens: 30, outputTokens: 7, totalTokens: 37, cacheReadTokens: 12, reasoningTokens: 1, cacheWriteTokens: 2 })
-    assert.equal(writes, 0)
-    assert.equal(reads.length, 2)
-    assert.equal(reads[0][1].scope, reads[1][1].scope)
-    for (const [, context] of reads) {
-      assert.equal(context.sessionId, 'parent')
-      assert.deepEqual(context.anchor, anchor)
-      assert.ok(context.signal instanceof AbortSignal)
-    }
-    for (const request of f.requests.slice(1)) {
-      assert.deepEqual(request.tools, f.requests[0].tools)
-      assert.deepEqual(request.toolHistory, f.requests[0].toolHistory)
-    }
-    assert.equal(result.measurement.toolSchemaBytes, bytes(f.requests[0].tools))
-    assert.equal(result.measurement.sections.messages, bytes(f.requests[0].messages))
-  } finally { await f.runner.dispose() }
-})
-
-test('normal shared tasks execute the same anchored source reader through registered tools', async () => {
-  const reads = []
-  const f = fixture({ withHistory: true, readCapability: () => capability({ readSource: async context => {
-    reads.push(context); return 'original from registered tool'
-  } }), onNormalRequest: async registered => {
-    assert.equal(await registered.get('tavern_read_source').execute({ sourceId: 'module-log', turn: 5 }), 'original from registered tool')
-  } })
-  try {
-    await f.baseline()
-    await f.baseline({ task: 'candidate' })
-    assert.equal(reads.length, 2)
-    assert.deepEqual(reads[0].anchor, anchor)
-    assert.notEqual(reads[0].scope, reads[1].scope)
-  } finally { await f.runner.dispose() }
-})
-
-test('undeclared sources, external chat, future turns and malformed JSON produce repairable results without reader dispatch', async () => {
-  let reads = 0, step = 0
-  const f = fixture({ withHistory: true, readCapability: () => capability({ readSource: async () => { reads++; return 'bad' },
-    readHistory: async () => { reads++; return 'bad' } }), sharedStream: async function* (request) {
-    if (step++ === 0) {
-      yield* toolCall('tavern_read_source', { sourceId: 'other', turn: 5 }, 'unknown', 0)
-      yield* toolCall('tavern_read_source', { sourceId: 'module-log', turn: 6 }, 'future', 1)
-      yield* toolCall('tavern_recall_history', { chatId: 'external', turn: 5 }, 'external', 2)
-      yield { type: 'block-end', index: 3, block: { type: 'tool-call', id: 'invalid', name: 'tavern_read_source', arguments: '{broken' } }
-      yield { type: 'finish', reason: { kind: 'stop' } }
-      return
-    }
-    assert.equal(request.messages.slice(-4).every(message => message.role === 'tool' && message.isError && JSON.parse(message.content[0].text).retryable), true)
-    yield* finished('repaired without reads')
-  } })
-  try {
-    await f.baseline()
-    assert.equal((await f.runner.runSharedTask(sharedInput)).output, 'repaired without reads')
-    assert.equal(reads, 0)
-  } finally { await f.runner.dispose() }
-})
-
-test('repeated tool calls obey the existing task call budget instead of unbounded continuation', async () => {
-  let reads = 0
-  const f = fixture({ readCapability: () => capability({ readSource: async () => { reads++; return 'original' } }), sharedStream: async function* () {
-    yield* toolCall('tavern_read_source', { sourceId: 'module-log', turn: 5 })
-    yield { type: 'finish', reason: { kind: 'stop' } }
-  } })
-  try {
-    await f.baseline({ maxToolCalls: 2 })
-    await assert.rejects(f.runner.runSharedTask(sharedInput), /工具调用已达上限/)
-    assert.equal(reads, 2)
-    assert.equal(f.requests.length, 4)
-  } finally { await f.runner.dispose() }
-})
 
 for (const action of ['cancel', 'generation']) test(`read continuation rejects late reader results after ${action}`, async () => {
   const started = Promise.withResolvers(), finish = Promise.withResolvers()

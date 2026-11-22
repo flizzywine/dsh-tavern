@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { createTranscriptFold, planTranscriptRows, planTranscriptWindow, planShowsRow, planStoryTurn } from '../tavern-plugin/lib/domain/transcript-row-plan.js'
+import { createTranscriptFold, planTranscriptRows, planShowsRow, planStoryTurn } from '../tavern-plugin/lib/domain/transcript-row-plan.js'
 
 const model = { kind: 'model', provider: 'test', model: 'test' }
 const story = n => ({ source: { ...model, tavernStoryTurn: n } })
@@ -50,38 +50,6 @@ test('逐条喂入日志、按变化喂入存档，结果和一次喂完完全�
 })
 
 // A long game, every 5th round regenerated once (attempt turn + projection edit turn).
-function longGame(rounds) {
-  const events = [], save = []
-  let turn = 0
-  for (let index = 1; index <= rounds; index++) {
-    const own = ++turn, seq = events.length
-    events.push(...round(seq, own, '第 ' + index + ' 轮'))
-    save.push(...floors([own]))
-    if (index % 5 === 0) {
-      const attempt = ++turn, edit = ++turn, at = events.length
-      events.push(mark(at, 'turn/start', attempt), input(at + 1, { kind: 'plugin', plugin: 'dsh-tavern-regen' }), reply(at + 2, attempt, '新'), mark(at + 3, 'step/end', attempt), mark(at + 4, 'turn/end', attempt),
-        mark(at + 5, 'turn/start', edit), { seq: at + 6, type: 'assistant/message', surfaceOp: { op: 'replace', start: seq + 2, end: at + 2 }, data: { turn: edit, step: 1, message: { role: 'assistant', content: [{ type: 'text', text: '新' }], ...story(own) } } },
-        mark(at + 7, 'step/end', edit), mark(at + 8, 'turn/end', edit))
-    }
-  }
-  return { events, save }
-}
-
-test('按窗口算：窗口内每个原生轮的结论与全量计算相同，窗口之前原样显示', () => {
-  const { events, save } = longGame(60)
-  const whole = planTranscriptRows({ chat: { messages: save }, events })
-  const window = planTranscriptWindow({ messages: save.slice(-48), events, partial: true })
-  assert.ok(window.from > 1)
-  for (let turn = 1; turn <= events.filter(event => event.type === 'turn/start').length + 5; turn++) {
-    for (const kind of ['user', 'turn-trigger', 'assistant-step', 'turn-tail']) {
-      const planned = planShowsRow(window.turns, { turn, kind }, window.from)
-      // Before the window: shown as the host draws it, until scrolling widens the window.
-      if (turn < window.from) assert.equal(planned, true)
-      else assert.equal(planned, planShowsRow(whole, { turn, kind }), `原生轮 ${turn} ${kind}`)
-    }
-  }
-})
-
 // Count the log events the window plan touches: it must not grow with the game.
 // #311: an old save repaired many times and rolled back twice. The log's prose is
 // replaced by placeholders (tests/fixtures/transcript/issue-311.json); the save holds the

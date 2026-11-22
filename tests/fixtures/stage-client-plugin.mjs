@@ -9,6 +9,9 @@ const bundle = new URL('../../tavern-plugin/packages/dsh-tavern-stage/lib/client
 // through the module loader any more, so a call to it fails loudly.
 export async function loadStageClientPlugin(sandbox = {}, options) {
   sandbox.window ??= {}
+  // The theme sheet (theme-sheet.cjs) watches the document for theme and skin marks; a stub document has none to add.
+  sandbox.window.MutationObserver ??= class {observe() {} disconnect() {}}
+  if (sandbox.document) sandbox.document.documentElement ??= {}
   sandbox.window.__ModuleLoader__ ??= {load() { throw new Error('stage client must not register through window.__ModuleLoader__') }}
   return vm.runInNewContext(stageClientModuleAsScript(await readFile(bundle, 'utf8')), sandbox, options)
 }

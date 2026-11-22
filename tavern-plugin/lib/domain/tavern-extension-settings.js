@@ -39,5 +39,5 @@ export function createTavernExtensionSettings(profileData) {
     return project(saved ?? {})
   }
 
-  return Object.freeze({ read, save })
+  return Object.freeze({ read, save, version: () => profileData.version(settingsPath) })
 }

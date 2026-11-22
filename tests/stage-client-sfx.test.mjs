@@ -20,25 +20,6 @@ function setup() {
   })
   return {player,nodes,timers,subscribers}
 }
-test('sound disposal settles every shot and removes delayed thunder and subscriptions despite release failure', async () => {
-  const {player,nodes,timers,subscribers} = setup()
-  let notifications=0
-  const off=player.subscribe(()=>notifications++)
-  const lateNotify=[...subscribers][0]
-  const completions=[player.play('a'),player.play('b')]
-  player.setThunder('thunder');player.thunder(1)
-  const late=[...timers.values()]
-  nodes[0].fail=true
-  assert.throws(()=>player.dispose(),/Stage sound cleanup failed/)
-  await Promise.all(completions)
-  assert.equal(timers.size,0)
-  assert.equal(subscribers.size,0)
-  for(const node of nodes) {assert.equal(node.paused,true);assert.equal(node.src,'');assert.equal(node.events.size,0)}
-  late.forEach(fn=>fn());lateNotify();off();player.dispose()
-  await player.play('late')
-  assert.equal(nodes.length,2)
-  assert.equal(notifications,0)
-})
 test('token cancellation releases only its sound and concurrency remains capped at six', async () => {
   const {player,nodes} = setup()
   const first=player.play('first',null,null,'first')

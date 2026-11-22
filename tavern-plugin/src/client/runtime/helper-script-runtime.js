@@ -806,7 +806,7 @@
 						closeEventId(eventId);
 						hostWindow.clearTimeout(pending.timer);
                         post(record, { type: "dsh-tavern-helper-event-ack", eventId: eventId });
-                        if (record.deferredContext) {
+                        if (record.deferredContext && !pendingEvents.has(record.context.transaction?.eventId)) {
                             const committed = record.deferredContext;
                             const deferredEvents = record.deferredEvents || [];
                             record.deferredContext = null;
@@ -1091,7 +1091,11 @@
                     const contextBaseline=baseline ? {workContextVersion:1,appendContextVersion:1,chatId:baseline.chatId,stateRevision:baseline.stateRevision,
                         lifecycleRevision:Number(baseline.lifecycleRevision)||0,messageCount:(baseline.messages||[]).length,
                         transaction:baseline.transaction,historyWindowVersion:baseline.historyAccess?1:undefined,complete:!baseline.messagesPending && (applyTavernVariableReceipt.indexApi.info(baseline.messages)?.complete ?? false)} : {workContextVersion:1,full:true};
-                    return { contextBaseline:contextBaseline, sessionId: activeSessionId, frameCount: record && !record.frameDisposed ? 1 : 0, scriptIds: scripts.map(function (script) { return script.id; }), scripts: scripts, ...(record && record.scripts.has("__dsh_official_mvu__") ? { mvuDataReady: mvuDataReady(record) } : {}), ...(record && record.mvuLoadState ? { mvuLoadState: record.mvuLoadState } : {}), ...(initializationError ? { initializationError: initializationError } : {}) };
+                    return { contextBaseline:contextBaseline, sessionId: activeSessionId, documentToken: record && !record.reloading ? record.token : undefined,
+                        frameCount: record && !record.frameDisposed ? 1 : 0, scriptIds: scripts.map(function (script) { return script.id; }), scripts: scripts,
+                        ...(record && record.scripts.has("__dsh_official_mvu__") ? { mvuDataReady: mvuDataReady(record) } : {}),
+                        ...(record && record.mvuLoadState ? { mvuLoadState: record.mvuLoadState } : {}),
+                        ...(initializationError ? { initializationError: initializationError } : {}) };
 				}
 			});
 		}

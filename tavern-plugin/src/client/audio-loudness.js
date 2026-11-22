@@ -1,6 +1,7 @@
 // @include-shared pcm-loudness.cjs
+// @include-shared ambience-brightness.cjs
 
-async function measureAudioBufferLoudness(audio) {
+async function measureAudioBufferLoudness(audio, kind) {
   const channels = Array.from({length:audio.numberOfChannels}, (_, i) => audio.getChannelData(i));
   let measured;
   if (audio.duration < 10) measured = measurePcmLoudness(channels, audio.sampleRate);
@@ -18,15 +19,16 @@ async function measureAudioBufferLoudness(audio) {
       });
     } finally { worker?.terminate(); URL.revokeObjectURL(url); }
   }
-  return {v:1, lufs:measured.lufs ?? -100, peak:Math.max(-100, measured.truePeak ?? -100)};
+  return {v:1, lufs:measured.lufs ?? -100, peak:Math.max(-100, measured.truePeak ?? -100),
+    ...(kind === "ambience" ? {brightnessDb:measureAmbienceBrightness(channels, audio.sampleRate),durationMs:audio.length * 1000 / audio.sampleRate} : {})};
 }
 
-async function measureBrowserAudio(bytes) {
+async function measureBrowserAudio(bytes, kind) {
   const context = new AudioContext();
   try {
     let audio;
     try { audio = await context.decodeAudioData(bytes.slice().buffer); }
     catch { throw new Error('浏览器无法解码此音频，请转换为 WAV 或浏览器支持的音频格式后重试'); }
-    return await measureAudioBufferLoudness(audio);
+    return await measureAudioBufferLoudness(audio, kind);
   } finally { await context.close(); }
 }

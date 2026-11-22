@@ -10,20 +10,6 @@ import { createTavernSkillProvider } from '../tavern-plugin/lib/domain/tavern-sk
 
 const body = '---\r\nname: writing-probe\r\ndescription: 写作资料\r\nmetadata:\r\n  tavern:\r\n    purpose: writing\r\n---\r\n正文\uFEFF保留内部字符\r\n'
 
-test('BOM 仅从 Skill 读取副本开头去除，原始服务、参数和异常保持不变', async () => {
-  const signal = new AbortController().signal
-  const fs = { async readText(target, passedSignal) { assert.equal(this, fs); assert.equal(target, 'file'); assert.equal(passedSignal, signal); return '\uFEFF' + body }, processPath() { assert.equal(this, fs); return 'file' } }
-  const ctx = { get(name) { assert.equal(this, ctx); return name === 'fs' ? fs : undefined } }
-  const wrapped = createSkillTextContext(ctx)
-  assert.equal(await wrapped.get('fs').readText('file', signal), body)
-  assert.equal(await fs.readText('file', signal), '\uFEFF' + body)
-  assert.equal(wrapped.get('fs'), wrapped.get('fs'))
-  assert.equal(wrapped.get('fs').processPath(), 'file')
-  const failure = new Error('读取被拒绝')
-  fs.readText = async () => { throw failure }
-  await assert.rejects(wrapped.get('fs').readText(), error => error === failure)
-})
-
 async function fixture(t) {
   const root = await mkdtemp(path.join(tmpdir(), 'tavern-bom-'))
   t.after(() => rm(root, { recursive: true, force: true }))

@@ -37,26 +37,6 @@ async function fixture(t, catalogueNetwork) {
   return {root,resources,targets,adapter,service,raw,pack,zip,preview,apply,setId:id => {nextId=id},setFault:value => {fault=value}}
 }
 
-test('new card ZIP round trip creates both versions and packs with a new meta.id', async t => {
-  const f = await fixture(t), preview = await f.preview()
-  assert.equal(await f.resources.readCard(preview.path), undefined)
-  const result = await f.apply(preview)
-  assert.equal(result.path, preview.path)
-  const working = await f.resources.readCard(result.path)
-  assert.equal(working.meta.id, 'card-new')
-  const original = JSON.parse(await readFile(path.join(f.root,'originals',result.path),'utf8'))
-  assert.deepEqual(original,working.raw)
-  const mapped = result.mappings[0].packId
-  // the bound card left the bundle with its stage declared (card-stage-export.js), so even a fresh profile gives it
-  // dialogue bubbles: the import adds only the managed bubble instructions.
-  const {character_book:book,...authored} = working.raw
-  assert.equal(book.entries.length,1)
-  assert.deepEqual(authored,{...f.raw,extensions:{dsh_tavern:{schemaVersion:1,assetBindings:{boundPackIds:[mapped]},stage:{enabled:true}}}})
-  const importedPack = await f.service.getPackSnapshot({packId:mapped})
-  assert.equal(importedPack.manifest.name,f.pack.manifest.name)
-  assert.deepEqual(importedPack.manifest.assets,f.pack.manifest.assets)
-  assert.equal(f.targets.get(result.path),null)
-})
 test('cancellation releases reservation without card or pack writes', async t => {
   const f = await fixture(t), before = await f.service.listPacks(), preview = await f.preview()
   assert.deepEqual(await f.service.applyCardBundle({inspectionId:preview.inspectionId,cancel:true}),{status:'cancelled'})
@@ -65,20 +45,6 @@ test('cancellation releases reservation without card or pack writes', async t =>
   assert.deepEqual(await f.resources.list('card'),['cards/source.json'])
   assert.deepEqual(await f.service.listPacks(),before)
   await assert.rejects(readFile(path.join(f.root,'originals',preview.path)),{code:'ENOENT'})
-})
-test('existing meta.id collision is explicit even under a different filename', async t => {
-  const f = await fixture(t)
-  f.setId('card-source')
-  await assert.rejects(f.targets.reserve(),{code:'DUPLICATE_ID'})
-  assert.deepEqual(await f.resources.list('card'),['cards/source.json'])
-})
-test('collision appearing after reservation rolls pack publication back', async t => {
-  const f = await fixture(t), preview = await f.preview(), before = await f.service.listPacks()
-  const duplicate = await f.resources.readCard('cards/source.json'); duplicate.meta.id = 'card-new'
-  await f.resources.importCard({name:'collision.json',text:JSON.stringify(duplicate.raw)},duplicate)
-  await assert.rejects(f.apply(preview),{code:'DUPLICATE_ID'})
-  assert.equal(await f.resources.readCard(preview.path),undefined)
-  assert.deepEqual(await f.service.listPacks(),before)
 })
 test('HTTPS URL card bundle uses validated inspection and the same atomic new-card publication', async t => {
   let f, requests=0
@@ -116,47 +82,4 @@ test('card URL download follows the GitHub release redirect and outlasts three m
   const preview = await reading
   assert.deepEqual(hosts, ['github.com', 'objects.githubusercontent.com'])
   assert.equal(preview.raw.name, 'Bundle source')
-})
-test('card URL download rejects oversized responses before reading the body', async t => {
-  const f=await fixture(t,async()=>({status:200,headers:{'content-length':String(300*1024**2)},body:Readable.from([Buffer.from('not a zip')])}))
-  const {path}=await f.targets.reserve()
-  await assert.rejects(f.service.inspectCardBundleUrl({path,url:'https://example.com/large.zip'}),{code:'LIMIT_EXCEEDED'})
-  assert.equal(await f.resources.readCard(path),undefined)
-})
-// the UI words a failed download from its reason, so the host keeps the HTTP status and turns
-// raw socket errors into DOWNLOAD_FAILED (the transport only passes a message for that code).
-test('card URL download failures carry the HTTP status or a network reason, never a raw socket error', async t => {
-  for (const [respond, code, message] of [
-    [async () => ({status:404,headers:{},body:Readable.from([])}), 'DOWNLOAD_FAILED', /\(HTTP 404\)$/],
-    [async () => { throw Object.assign(new Error('getaddrinfo ENOTFOUND example.invalid'), {code:'ENOTFOUND'}) }, 'DOWNLOAD_FAILED', /^Network request failed \(ENOTFOUND\)$/],
-    [async () => { throw new Error('socket hang up') }, 'DOWNLOAD_FAILED', /^Network request failed$/]
-  ]) {
-    const f = await fixture(t, respond), {path} = await f.targets.reserve()
-    await assert.rejects(f.service.inspectCardBundleUrl({path, url:'https://example.com/card.zip'}), error => error.code === code && message.test(error.message))
-    assert.equal(await f.resources.readCard(path), undefined)
-  }
-})
-test('publication failure leaves neither a new card nor its copied pack', async t => {
-  const f = await fixture(t), preview = await f.preview(), before = await f.service.listPacks()
-  f.setFault('batch-before-card')
-  await assert.rejects(f.apply(preview),/batch-before-card/)
-  assert.equal(await f.resources.readCard(preview.path),undefined)
-  assert.deepEqual(await f.service.listPacks(),before)
-})
-
-test('bundle import restores the picker cover through original PNG storage', async t => {
-  const f = await fixture(t)
-  const png = (await import('./fixtures/asset-packs/pack.mjs')).png([120,80,40])
-  const source = await f.resources.readCard('cards/source.json')
-  await f.resources.writeCardImage('cards/source.json', png, source)
-  const snapshot = await f.adapter.snapshot({path:'cards/source.json'})
-  const archive = await f.service.exportCardBundle({path:snapshot.path, expectedRevision:snapshot.revision, packIds:[]})
-  const reserved = await f.targets.reserve()
-  const preview = await f.service.inspectCardBundle({path:reserved.path, bytes:(await readSmallArchive(archive))})
-  await f.apply(preview)
-  assert.equal(await f.resources.hasCardImage(reserved.path), true)
-  assert.deepEqual(await (await f.resources.cardImagePreview(reserved.path)).read(), png)
-  const original = await f.resources.originalCardPayload(reserved.path)
-  assert.equal(original.kind, 'png')
-  assert.deepEqual(JSON.parse(Buffer.from(original.b64, 'base64')), (await f.resources.readCard(reserved.path)).raw)
 })

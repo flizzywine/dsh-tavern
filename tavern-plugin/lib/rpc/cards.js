@@ -12,6 +12,14 @@ export function createCardHandlers(deps) {
     importCard, importCardArchiveFile, importPluginCardFile, previewCardArchiveFile, replaceCard, revertCardUpdate, listCards, mobileCardImport, pluginApi,
     readCardWorkspace, runtimePrompt, sessionStore, setCardPlugins, sleep, str, updateCard, uploads,
     worldBooks } = deps
+
+  async function readSessionScripts(sessionId) {
+    const chat = await chatForSession(sessionId)
+    if (!chat?.cardPath) throw new Error('找不到对话或人物卡')
+    const extensions = await deps.readCardExtensions(chat.cardPath, chat, true)
+    return { chat, scripts: (extensions?.helperScripts || []).filter(script => script.type === 'script') }
+  }
+
   return {
     async getCardOrganization(args) {
       return { groups: (await cardOrganization.read()).groups }
@@ -195,18 +203,22 @@ return cardZipTargets.release(normalizeResourcePath(args && args.path, 'card'))
       const { duplicateCard, path } = deps
 return { card: await duplicateCard(args && args.path, args && args.name) }
     },
-    async setCardScriptMuted(args, method, serverTemplate, authority) {
-      const { cardScripts, resolveCardId, chatForSession, readCardExtensions, str } = deps
-        const chat = await chatForSession(args && args.sessionId)
-        if (!chat?.cardPath) throw new Error('找不到对话或人物卡')
-        const extensions = await readCardExtensions(chat.cardPath, chat, true)
-        const scripts = await cardScripts.list(extensions?.helperScripts, chat.cardPath)
-        if (method === 'setCardScriptMuted') {
-          const id = typeof args?.id === 'string' ? args.id.trim() : ''
-          if (!scripts.scripts.some(script => script.id === id)) throw new Error('Unknown card script ID')
-          await cardScripts.setMuted(chat.cardPath, id, args.muted)
-        }
-        return { cardName: str(chat.cardName), cardId: await resolveCardId(chat.cardPath), ...(await cardScripts.list(extensions?.helperScripts, chat.cardPath)) }
+    async getCardScriptSource(args) {
+      const { scripts } = await readSessionScripts(args?.sessionId)
+      const ref = str(args?.ref).trim(), id = str(args?.id).trim()
+      const script = ref && scripts.find(item => item.ref === ref && item.id === id)
+      if (!script) throw new Error('找不到该脚本，请重新打开卡片脚本页')
+      return { content: script.content }
+    },
+    async setCardScriptMuted(args, method) {
+      const { chat, scripts } = await readSessionScripts(args?.sessionId)
+      if (method === 'setCardScriptMuted') {
+        const id = str(args?.id).trim()
+        if (!scripts.some(script => script.id === id)) throw new Error('Unknown card script ID')
+        await deps.cardScripts.setMuted(chat.cardPath, id, args.muted)
+      }
+      return { cardName: str(chat.cardName), cardId: await deps.resolveCardId(chat.cardPath),
+        ...await deps.cardScripts.list(scripts, chat.cardPath) }
     },
   }
 }

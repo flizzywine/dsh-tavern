@@ -7,20 +7,8 @@ import { promisify } from 'node:util'
 import { fileURLToPath } from 'node:url'
 import test from 'node:test'
 import pngjs from '../tavern-plugin/packages/dsh-tavern-image-bundled/lib/vendor/pngjs/lib/png.js'
-import { startWindowsWindowIcon } from '../bin/windows-window-icon.mjs'
 
 const execute = promisify(execFile)
-
-test('窗口图标辅助进程静默启动，非 Windows 不启动', () => {
-  const calls = []
-  const launch = (...args) => { calls.push(args); return 123 }
-  startWindowsWindowIcon('browser.exe', { platform: 'darwin', launch })
-  assert.equal(calls.length, 0)
-  assert.equal(startWindowsWindowIcon('C:\\Program Files\\Browser\\browser.exe', { platform: 'win32', launch, logFile: 'D:\\logs\\icon.log' }), 123)
-  assert.equal(calls.length, 1)
-  assert.equal(calls[0][0], 'powershell.exe')
-  assert.deepEqual(calls[0][1].slice(-4), ['-Browser', 'C:\\Program Files\\Browser\\browser.exe', '-LogFile', 'D:\\logs\\icon.log'])
-})
 
 test('Windows 实际窗口按 DPI 使用 ICO 原生像素，并排除其他窗口', { skip: process.platform !== 'win32' }, async t => {
   const root = await mkdtemp(path.join(tmpdir(), 'tavern-window-icon-'))

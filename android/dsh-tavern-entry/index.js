@@ -1,6 +1,6 @@
 import { createEmbeddedProxy } from './embedded-proxy.mjs'
 import { spawn } from 'node:child_process'
-import { existsSync, readFileSync } from 'node:fs'
+import { closeSync, existsSync, fstatSync, openSync, readFileSync, readSync } from 'node:fs'
 import net from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
@@ -60,16 +60,34 @@ function webUrlFromLogChunk(source) {
   return matches.length > 0 ? matches[matches.length - 1][1] : ''
 }
 
+function readLogTail(logPath, offset, maxBytes = 256 * 1024) {
+  let fd
+  try {
+    fd = openSync(logPath, 'r')
+    const size = fstatSync(fd).size
+    const start = Math.max(offset, size - maxBytes, 0)
+    const length = Math.max(0, size - start)
+    if (length === 0) return ''
+    const buffer = Buffer.allocUnsafe(length)
+    const bytesRead = readSync(fd, buffer, 0, length, start)
+    return buffer.subarray(0, bytesRead).toString('utf8')
+  } catch {
+    return ''
+  } finally {
+    if (fd !== undefined) {
+      try { closeSync(fd) } catch {}
+    }
+  }
+}
+
 async function resolveAccessUrl({ dshHome, port, request }) {
   const origin = `http://127.0.0.1:${port}`
-  let log = Buffer.alloc(0)
   let offset = 0
-  try { log = readFileSync(path.join(dshHome, 'logs', 'tavern.log')) } catch {}
   try {
     const processRecord = record(JSON.parse(readFileSync(path.join(dshHome, 'logs', 'tavern.pid.json'), 'utf8')))
     if (Number(processRecord.port) === port && Number.isSafeInteger(processRecord.logOffset) && processRecord.logOffset >= 0) offset = processRecord.logOffset
   } catch {}
-  const candidate = webUrlFromLogChunk(log.subarray(offset).toString('utf8'))
+  const candidate = webUrlFromLogChunk(readLogTail(path.join(dshHome, 'logs', 'tavern.log'), offset))
   const candidates = []
   try {
     const url = new URL(candidate)

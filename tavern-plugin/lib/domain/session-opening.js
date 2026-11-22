@@ -8,6 +8,7 @@ import { projectOpeningCommit } from './runtime-content-projection.js'
 import { projectReplyLayers } from './reply-presentation.js'
 import { replyProse, writeReplyProse } from './reply-prose.js'
 import { composeTavernRegexScripts } from './card-extension-reading.js'
+import { encodeOpeningIdentity, replaceOpeningIdentities } from './opening-identity.js'
 
 /** Only an untouched greeting may switch openings. */
 export function sessionOpeningDescriptor(chat, card) {
@@ -80,29 +81,44 @@ export function replaceSessionOpening(session, chat) {
 export function renameOpeningPlayerSlots(row, { previousName, playerName, charName }) {
   if (!row?.greeting || typeof row.sourceText !== 'string' || typeof row.projectionText !== 'string') return null
   const segments = [['']]
+  const syntaxBySegment = [[]]
+  const syntaxes = []
+  replaceOpeningIdentities(row.sourceText, (_name, syntax, token) => {
+    syntaxes.push(syntax)
+    return token
+  })
   const tokens = row.sourceText.split(/(\{\{[^{}]*\}\}|<(?:user|char)>)/gi)
+  let slot = 0
   for (let index = 0; index < tokens.length; index++) {
     const text = tokens[index], parts = segments.at(-1)
     if (index % 2 === 0) {
-      if (/\{\{|\}\}/.test(text)) return null
       parts[parts.length - 1] += text
-    } else if (/^(?:\{\{\s*user\s*\}\}|<user>)$/i.test(text)) parts.push('')
-    else if (/^(?:\{\{\s*char\s*\}\}|<char>)$/i.test(text)) parts[parts.length - 1] += charName
-    else segments.push([''])
+    } else if (/^(?:\{\{\s*user\s*\}\}|<user>)$/i.test(text)) {
+      parts.push('')
+      syntaxBySegment.at(-1).push(syntaxes[slot++])
+    } else if (/^(?:\{\{\s*char\s*\}\}|<char>)$/i.test(text)) {
+      parts[parts.length - 1] += encodeOpeningIdentity(charName, syntaxes[slot++] || 'text')
+    } else {
+      segments.push([''])
+      syntaxBySegment.push([])
+    }
   }
   if (!segments.some(parts => parts.length > 1)) return null
+  const join = (parts, index, name) => parts[0] + parts.slice(1).map((text, position) =>
+    encodeOpeningIdentity(name, syntaxBySegment[index][position] || 'text') + text).join('')
   const value = row.projectionText
   if (segments.length === 1) {
     // Infer the name actually rendered, including saves renamed by older versions.
     const parts = segments[0]
+    if (join(parts, 0, previousName) === value) return join(parts, 0, playerName)
     const length = (value.length - parts.join('').length) / (parts.length - 1)
     if (!Number.isInteger(length) || length < 1) return null
     const renderedName = value.slice(parts[0].length, parts[0].length + length)
-    return parts.join(renderedName) === value ? parts.join(playerName) : null
+    return parts.join(renderedName) === value ? join(parts, 0, playerName) : null
   }
   // Stateful and random macros separate literal runs. Only rewrite a run when
   // its earliest and latest possible positions agree in the saved projection.
-  const chunks = segments.map(parts => parts.join(previousName))
+  const chunks = segments.map((parts, index) => join(parts, index, previousName))
   const end = value.length - chunks.at(-1).length
   if (!value.startsWith(chunks[0]) || !value.endsWith(chunks.at(-1))) return null
   const positions = [0]
@@ -124,7 +140,7 @@ export function renameOpeningPlayerSlots(row, { previousName, playerName, charNa
   cursor = 0
   for (const [index, parts] of segments.entries()) {
     if (parts.length === 1) continue
-    renamed += value.slice(cursor, positions[index]) + parts.join(playerName)
+    renamed += value.slice(cursor, positions[index]) + join(parts, index, playerName)
     cursor = positions[index] + chunks[index].length
   }
   return renamed + value.slice(cursor)

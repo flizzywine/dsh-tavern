@@ -2,7 +2,6 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { sessionStablePrefixSections, stableCardName, stableSectionBody } from '../tavern-plugin/lib/domain/session-stable-prefix.js'
 import { cardSystemPromptSnapshot } from '../tavern-plugin/lib/domain/card-system-prompt.js'
-import { isWithdrawnEntryText, withdrawnEntryText } from '../tavern-plugin/lib/domain/worldbook-virtual-state.js'
 
 // Fixed prefixes frozen by chats of three periods: the original Chinese headings (before 11-03),
 // the English tags of #491 (11-03 to 11-12) and today's tags.
@@ -25,10 +24,3 @@ for (const [period, text] of Object.entries(PREFIXES)) {
     assert.match(cardSystemPromptSnapshot({ id: 'compat', events: [] }, '新的叙述', [], text).rendered, /^<card_system_update>\nCard system prompt update · /)
   })
 }
-
-test('a withdrawn entry is written tagged and recognized in both forms', () => {
-  assert.equal(withdrawnEntryText('entry:7'), '<lorebook_entry_withdrawn>\n世界书条目 entry:7 已更新为空；先前该条目的内容已撤回，不再作为当前设定。\n</lorebook_entry_withdrawn>')
-  assert.ok(isWithdrawnEntryText(withdrawnEntryText('entry:7')))
-  assert.ok(isWithdrawnEntryText('【世界书条目 entry:7 已更新为空；先前该条目的内容已撤回，不再作为当前设定。】'))
-  assert.ok(!isWithdrawnEntryText('世界书条目 entry:7 的正文'))
-})

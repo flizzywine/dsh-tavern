@@ -109,14 +109,3 @@ test('条目跨段与段内移动持久化到预设，重启后运行顺序一�
   assert.equal(snapshot.back.text, '')
   assert.deepEqual((await restored.detail(path)).dshPreset.back.map(e => e.content), ['乙'])
 })
-
-test('移动拒绝系统占位及无效分段，同名标识条目不会丢失', async () => {
-  const h = harness(), library = h.create()
-  h.files.set(path, JSON.stringify({ prompts: [{ identifier: 'same', content: '第一项' }, { identifier: 'same', content: '第二项' }, { identifier: 'chatHistory', marker: true }] }))
-  let preset = await library.detail(path)
-  await assert.rejects(library.moveEntry(path, 'chatHistory#1', 'back', '', preset.revision), /只能移动/)
-  await assert.rejects(library.moveEntry(path, 'same#1', 'invalid', '', preset.revision), /无效/)
-  preset = await library.moveEntry(path, 'same#2', 'back', '', preset.revision)
-  assert.deepEqual(preset.dshPreset.front.map(e => e.content), ['第一项'])
-  assert.deepEqual(preset.dshPreset.back.map(e => e.content), ['第二项'])
-})

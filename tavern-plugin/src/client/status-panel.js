@@ -106,7 +106,7 @@ function StatusPanelView(p) {
                             h("span", null, guide.text),
                             h("button", { type: "button", "aria-label": "删除这条指引", title: "删除", disabled: p.guideBusy, onClick: function () { p.removeGuide(guide, index); } }, "×"));
                     })) : null,
-                    h("div", { className: "dsh-tavern-guide-actions" },
+                    h("div", { className: "dsh-tavern-status-resource-links fork-status-guide-links" },
                         h("button", { type: "button", onClick: () => p.props.openStyleTab("dsh-tavern:guide-library") }, "打开 Guide 库 ↗"),
                         h("button", { type: "button", disabled: p.guideBusy || !guides.length, onClick: p.saveGuideLibrary }, "保存到 Guide 库")),
                     p.guideNotice ? h("p", { role: "status" }, p.guideNotice) : null,

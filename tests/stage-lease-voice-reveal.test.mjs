@@ -35,7 +35,7 @@ const seams=[["const host = ctx.get('tavernStageFrontend');","const host = Objec
 
 async function openStage(browser){
   const page=await browser.newPage({viewport:{width:1280,height:720}}),errors=[]
-  page.on('pageerror',e=>errors.push(e.message))
+  page.on('pageerror',e=>errors.push(e.stack || e.message))
   await page.route('**/*',r=>r.request().isNavigationRequest()?r.fulfill({contentType:'text/html',body:'<!doctype html><meta charset="utf-8">'}):r.abort())
   await page.goto('https://stage.test/')
   await page.addStyleTag({content:await stageThemeCss()+'\nmain{position:fixed;inset:0}.fork-gal-stage{position:absolute;inset:0;background:#556}*,*::before,*::after{animation-duration:0s!important;animation-delay:0s!important;transition:none!important}'})

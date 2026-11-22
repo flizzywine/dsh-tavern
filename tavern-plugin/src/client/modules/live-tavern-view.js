@@ -13,11 +13,14 @@ function createLiveTavernViewModule(options) {
 	const idlePollIntervalMs = Number(options.idlePollIntervalMs) > 0 ? Number(options.idlePollIntervalMs) : 0;
 	const pollWhileBusy = options.pollWhileBusy !== false;
 	const cacheRetentionMs = Number(options.cacheRetentionMs) || 0;
-	function initialState() { return { phase: "idle", view: null, error: "", updatedAt: 0 }; }
+	const maxIdleRecords = Number.isSafeInteger(options.maxIdleRecords) && options.maxIdleRecords >= 0 ? options.maxIdleRecords : 8;
+	const IDLE_STATE = Object.freeze({ phase: "idle", view: null, error: "", updatedAt: 0 });
+	let idleSequence = 0;
+	function initialState() { return IDLE_STATE; }
 	function recordFor(sessionId) {
 		const id = String(sessionId || "");
 		if (!records.has(id)) {
-			const record = { id: id, state: initialState(), listeners: new Set(), passiveListeners: 0, paths: dependencyNode(), watchdog: null, optimisticBusy: false, eviction: null, refresh: null, seededView: undefined, emptyReads: 0 };
+			const record = { id: id, state: initialState(), listeners: new Set(), passiveListeners: 0, paths: dependencyNode(), watchdog: null, optimisticBusy: false, eviction: null, refresh: null, seededView: undefined, emptyReads: 0, idleOrder: ++idleSequence };
 			record.refresh = createRefresh(record);
 			records.set(id, record);
 		}
@@ -207,6 +210,22 @@ function createLiveTavernViewModule(options) {
 			record.refresh.request();
 		});
 	}
+	function touchIdle(record) {
+		record.idleOrder = ++idleSequence;
+	}
+	function pruneIdleRecords(keepId) {
+		const idle = [];
+		for (const item of records.values()) {
+			if (item.listeners.size === 0 && item.id !== keepId) idle.push(item);
+		}
+		const keepIsIdle = keepId !== undefined && records.get(keepId)?.listeners.size === 0;
+		const excess = idle.length + (keepIsIdle ? 1 : 0) - maxIdleRecords;
+		if (excess <= 0) return;
+		idle.sort(function (left, right) { return left.idleOrder - right.idleOrder; });
+		for (let i = 0; i < Math.min(excess, idle.length); i += 1) {
+			evict(idle[i].id);
+		}
+	}
 	function evict(sessionId) {
 		const record = records.get(String(sessionId || ""));
 		if (!record || record.listeners.size) return false;
@@ -259,12 +278,16 @@ function createLiveTavernViewModule(options) {
 			return { getSnapshot: snapshot, subscribe: function (notify) { return module.subscribe(sessionId, notify, paths); } };
 		},
 		evict: evict,
-		getSnapshot: function (sessionId) { return recordFor(sessionId).state; },
+		getSnapshot: function (sessionId) {
+			const record = records.get(String(sessionId || ""));
+			return record ? record.state : IDLE_STATE;
+		},
 		seed: function (sessionId, view) {
 			// 没有视图就没有可种的东西：种一个空视图会让这一局在别人眼里「没有正文」，
 			// 而 phase 还是 ready，再没人去重读。
 			if (view === null || view === undefined) return;
 			const record = recordFor(sessionId);
+			touchIdle(record);
 			const revisionOf = function (value) { return Number((value && value.historyWindow && value.historyWindow.revision) ?? (value && value.tavernHelper && value.tavernHelper.stateRevision)); };
 			const nextRevision = revisionOf(view), currentRevision = revisionOf(record.state.view);
 			if (record.state.view && Number.isSafeInteger(nextRevision) && Number.isSafeInteger(currentRevision) && nextRevision < currentRevision) return;
@@ -276,9 +299,11 @@ function createLiveTavernViewModule(options) {
 			record.seededView = result;
 			publish(record, { phase: "ready", view: view, error: "", updatedAt: Date.now() }, result);
 			if (record.listeners.size) record.refresh.request();
+			else pruneIdleRecords(record.id);
 		},
 		setView: function (sessionId, view) {
 			const record = recordFor(sessionId);
+			touchIdle(record);
 			// 调用方拿回来的结果偶尔没有 view（失败、被取消、只回了一行状态）。那不是
 			// 「这一局没有正文」：当真视图 publish 进去，phase 还是 ready，之后没人再读，
 			// 按钮就会一直说「还没有可重新生成的正文」。宁可丢掉这次写入，再读一次。
@@ -293,6 +318,7 @@ function createLiveTavernViewModule(options) {
 			record.optimisticBusy = shouldPoll(view);
 			publish(record, { phase: "ready", view: view, error: "", updatedAt: Date.now() });
 			if (pollWhileBusy && shouldPoll(view)) record.refresh.request();
+			else if (record.listeners.size === 0) pruneIdleRecords(record.id);
 			let released = false;
 			return function () {
 				if (released) return;
@@ -326,12 +352,14 @@ function createLiveTavernViewModule(options) {
 				if (record.listeners.size === 0) {
 					record.optimisticBusy = false;
 					record.optimisticOwner = null;
+					touchIdle(record);
 					if (cacheRetentionMs > 0 && record.eviction === null) record.eviction = scheduleTimer(function () {
 						record.eviction = null;
 						if (records.get(record.id) === record) evict(record.id);
 					}, cacheRetentionMs);
 					record.refresh.stop();
 					if (record.watchdog !== null) { stopWatchdog(record.watchdog); record.watchdog = null; }
+					pruneIdleRecords(record.id);
 				}
 			};
 		},

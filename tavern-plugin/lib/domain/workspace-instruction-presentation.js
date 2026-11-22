@@ -2,22 +2,102 @@ import { markRequestHandled, requestHandledBy } from './request-lineage.js'
 import { isPluginSource, sourceProducerName, isSystemPromptSource } from './message-source.js'
 
 // Request-only filtering: preserve files and durable Session reconciliation state.
-const blockedSections = new Set(['approval:policy', 'deployment:persona-prefix'])
-const instructionPlugins = new Set(['agent-instructions', '@deepseek-ai/dsh-agent-instructions', 'user-approval', '@deepseek-ai/dsh-user-approval'])
+const blockedSections = new Set([
+  'approval:policy',
+  'deployment:persona-prefix',
+  'sandbox:policy',
+  'working-directory:current',
+  'plan:policy',
+  'subagent:delegation',
+  'harness:source',
+  'app:web-surface',
+  'team:identity',
+  'team:policy',
+  'tool:jobs',
+  'cordis-dynamic',
+])
+const isBlockedSection = name => blockedSections.has(name) || /^tool:[^:]+:depth$/.test(name || '')
+
+const blockedUserKinds = new Set([
+  'agent-instructions',
+  'user-approval',
+  'model-selection',
+  'time-context',
+  'working-directory',
+  'plan-mode',
+  'repeat-tool-reminder',
+  'tmux-context',
+  'cordis-host-runner',
+  'tool-jobs',
+  'action-cards',
+  'subagent-settled',
+])
+const blockedUserPlugins = new Set([...blockedUserKinds].flatMap(name => [name, '@deepseek-ai/dsh-' + name]))
+
+const blockedDeveloperKinds = new Set(['tool-registry'])
+const blockedDeveloperPlugins = new Set(['tool-registry', '@deepseek-ai/dsh-tool-registry'])
+
+const officeSkillName = /^office(?:-docx|-pptx|-xlsx)?$/
+const officeCatalogLine = /^- `office(?:-docx|-pptx|-xlsx)?`: [^\n]*\n/gm
+
+// The Tavern profile disables the provider. Old sessions can still replay its catalog.
+function presentSkillCatalog(message) {
+  const { source } = message
+  let changed = false
+  const content = message.content.map(block => {
+    if (block?.type !== 'text' || typeof block.text !== 'string') return block
+    const text = block.text.replace(officeCatalogLine, '')
+    if (text === block.text) return block
+    changed = true
+    return { ...block, text }
+  })
+  if (!changed) return message
+  if (!source.update && !source.incomplete && content.length === 1 &&
+    /<available_skills>\s*<\/available_skills>/.test(content[0].text)) return null
+  const entries = Array.isArray(source.entries) ? source.entries.filter(entry => !officeSkillName.test(entry?.name)) : undefined
+  return { ...message, content, source: entries ? { ...source, entries } : source }
+}
+
+function isBlockedHostMessage(message) {
+  const source = message?.source
+  if (!source || typeof source !== 'object') return false
+  if (message.role === 'user') {
+    return blockedUserKinds.has(source.kind) ||
+      (isPluginSource(source) && blockedUserPlugins.has(sourceProducerName(source)))
+  }
+  if (message.role === 'developer') {
+    return blockedDeveloperKinds.has(source.kind) ||
+      (isPluginSource(source) && blockedDeveloperPlugins.has(sourceProducerName(source)))
+  }
+  return false
+}
 
 export function presentWorkspaceInstructions(request) {
   if (!Array.isArray(request?.messages)) return request
   let changed = false
   const messages = request.messages.flatMap(message => {
     const source = message?.source
-    if (message?.role === 'user' && (source?.kind === 'agent-instructions' ||
-      (isPluginSource(source) && instructionPlugins.has(sourceProducerName(source))))) {
+    if (message?.role === 'user' && source?.kind === 'skill-catalog' && Array.isArray(message.content)) {
+      const catalog = presentSkillCatalog(message)
+      changed ||= catalog !== message
+      return catalog ? [catalog] : []
+    }
+    if (isBlockedHostMessage(message)) {
       changed = true
       return []
     }
-    if (!isSystemPromptSource(source) ||
-      !['system', 'user'].includes(message.role) || !Array.isArray(source.sections)) return [message]
-    const sections = source.sections.filter(section => !blockedSections.has(section.name))
+    const isRuntimeContext = message?.role === 'user' &&
+      (source?.kind === 'runtime-context' || isSystemPromptSource(source))
+    const isSystemPrompt = message?.role === 'system' && isSystemPromptSource(source)
+    if (!isRuntimeContext && !isSystemPrompt) return [message]
+    if (!Array.isArray(source.sections)) {
+      if (isRuntimeContext) {
+        changed = true
+        return []
+      }
+      return [message]
+    }
+    const sections = source.sections.filter(section => !isBlockedSection(section?.name))
     if (sections.length === source.sections.length) return [message]
     changed = true
     const body = sections.map(section => section.text).filter(Boolean).join('\n\n')

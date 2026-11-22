@@ -1,5 +1,5 @@
 /* ------------------------------------------------------------------ *
- * tab-settings.js —— 页签 2「检定设置」：全局总开关与检定参数
+ * tab-settings.js —— 页签 2「检定设置」：检定参数
  * 每一项都即时生效并自动保存（无草稿、无保存按钮），? 就地展开详细说明。
  * ------------------------------------------------------------------ */
 
@@ -9,7 +9,7 @@ function SettingsTab(props) {
   /* 单一事实源：控件值直接来自 view.settings；改动立刻写回并落盘 */
   const apply = patch => {
     if (!actions || typeof actions.persistSettings !== 'function') return
-    actions.persistSettings({ ...settings, ...(patch || {}) })
+    return actions.persistSettings(patch)
   }
 
   return h(Fragment, null,
@@ -19,22 +19,9 @@ function SettingsTab(props) {
       help: [
         '这一屏是全局检定设置：每改一项就立即生效并对全部对话生效，不需要再点保存。',
         '改动会同时写进酒馆的插件数据与本地缓存，重开面板、切换对话都保持你改后的值。',
-        '参数分三类：① 总开关与触发难度（启用命运之骰、触发灵敏度、叙事基调修正）；② 表现层（掷骰动画、感知自动暗骰）；③ 联动与兜底（叙事阻尼器双向联动、无决策模型时本地关键词兜底）。',
         '每项标题右侧的 ? 可展开详细说明，收起后界面保持清爽单列布局。'
       ].join('\n')
     },
-      h(FdRow, {
-        plain: true,
-        title: '启用命运之骰',
-        sub: settings.enabled ? '已开启：发送行动时自动判难并投掷真骰' : '默认关闭：开启后才会在对话中自动检定',
-        help: [
-          '命运之骰全局总开关（默认关闭）。',
-          '开启后，发送行动时会自动判断难度、投掷密码学真骰并把结果注入本轮提示词；关闭后完全静默，不触发自动检定、不向叙事阻尼器追加提问、也不占用后台画像结算。',
-          '关闭期间已有的本局检定记录、命运点与角色能力画像都会安全保留，重新开启后可立即恢复使用。'
-        ].join('\n')
-      },
-      h(FdSwitch, { on: Boolean(settings.enabled), label: '启用命运之骰', onChange: next => apply({ enabled: next }) })),
-
       h(FdField, {
         label: '触发灵敏度',
         help: [
@@ -71,15 +58,48 @@ function SettingsTab(props) {
       h(FdSelect, { value: settings.toneBias, options: FD_TONE_OPTIONS, onChange: value => apply({ toneBias: value }) })),
 
       h(FdField, {
-        label: '掷骰动画',
+        label: '掷骰动画与皮肤',
         help: [
-          '骰子结果的呈现方式，纯表现层，不影响任何密码学真骰判定结果。',
-          '6 款 3D WebGL2 HDR 风格：共享全局单一离屏 GPU 管线，落定后自动 0% GPU 休眠省电；默认「星穹秘法」还会在触发 ✦ 逆命重投 / 🔥 孤注一掷 / 👁️ 暗骰 时智能切换专属光效。',
-          '手动重投或自由投掷时，长按「✦ 逆命重投」「🔥 孤注一掷」或「🎲 投掷」按钮即可激活 3D 聚能旋涡蓄力，松手爆发甩出（蓄力中途移出按钮可无损取消）。',
+          '骰子结果的呈现方式与媒介质感，纯表现层，不影响任何密码学真骰判定结果。',
+          '6 款「典藏」跨媒介皮肤：默认「绅士赌桌」（胡桃木托盘与手工车削黄铜/骨瓷），并提供 16-Bit 黄金像素地牢、达芬奇羊皮纸铜版钢笔排线、京都镜面黑漆螺钿、包豪斯哑光白瓷信号橙与威尼斯折射海琉璃，各自配备独立光学/像素管线与材质声学。',
+          '6 款「幻想」高能视效皮肤：星穹秘法、时停棱镜、焚天熔炉、赛博超频、水墨剑心与虚空星噬；所有 3D 皮肤共享单一离屏 GPU 管线，落定后自动 0% GPU 休眠省电。',
+          '手动重投或自由投掷时，长按「✦ 逆命重投」「🔥 孤注一掷」或「🎲 投掷」按钮即可激活 3D 悬停蓄力，松手甩出（移出按钮可无损取消）。',
           '2D 极简闪现 / 关闭动画：不渲染 3D 舞台，仅展示紧凑结果，适合批量推剧情或低功耗设备。'
         ].join('\n')
       },
       h(FdSelect, { value: settings.animation, options: FD_ANIMATION_OPTIONS, onChange: value => apply({ animation: value }) })),
+
+      h(FdField, {
+        label: '结果揭晓时机',
+        help: [
+          '决定 3D 投骰剧场什么时候拉开帷幕。',
+          '判定即播（默认）：点发送后决策模型一出结果立刻全宽甩骰，最爽快直观。',
+          '随正文落定揭晓：发送后先保持悬念静默生成正文，等这一轮正文流式写完落定后再揭晓骰面，避免还没读剧情先被大成功/大失败剧透。开启「失败时暂停发送」并在本轮命中拦截时仍会照常发前弹出。'
+        ].join('\n')
+      },
+      h(FdSelect, { value: settings.revealTiming || 'immediate', options: FD_REVEAL_TIMING_OPTIONS, onChange: value => apply({ revealTiming: value }) })),
+
+      h(FdRow, {
+        plain: true,
+        title: '实力碾压免骰直通',
+        sub: '默认开启：能力稳压常规难度时直接达成，杜绝满级翻车',
+        help: [
+          '开启后，当行动难度为「极易」或「容易」，且角色能力加值 + 环境修正即便掷出最低骰面也稳跨目标值时，系统会直接判为「⚡ 稳妥达成（免骰直通）」。',
+          '可彻底避免高阶高手做寻常小事却骰出双 1 滑稽大失败的违和感；困难及以上或双骰对抗仍正常投骰。'
+        ].join('\n')
+      },
+      h(FdSwitch, { on: settings.autoSuccessEnabled !== false, label: '实力碾压免骰直通', onChange: next => apply({ autoSuccessEnabled: next }) })),
+
+      h(FdRow, {
+        plain: true,
+        title: '正面交锋双骰对抗',
+        sub: '默认开启：战斗拼刀/追逃/迎战时双边同台对撞掷骰',
+        help: [
+          '开启后，识别到战斗挥砍、格挡、追击、决斗等正面交锋行动时，我方与对手各掷一组真骰在 3D 舞台左右迎面对撞，按净差值 z 裁定胜负：',
+          'z > 0 我方占优压制；z = 0 势均力敌胶着僵持；z < 0 对手化解攻势并立即反击抢先手。'
+        ].join('\n')
+      },
+      h(FdSwitch, { on: settings.contestEnabled !== false, label: '正面交锋双骰对抗', onChange: next => apply({ contestEnabled: next }) })),
 
       h(FdRow, {
         plain: true,
@@ -116,7 +136,18 @@ function SettingsTab(props) {
           '本地兜底的判定明显不如决策模型精细（不懂上下文、不辨语气、容易把「假装要打」当成「打」），只适合试玩、离线演示或临时救急；一旦配好 API Key 建议关回默认。'
         ].join('\n')
       },
-      h(FdSwitch, { on: Boolean(settings.allowHeuristicFallback), label: '无决策模型时使用本地关键词兜底', onChange: next => apply({ allowHeuristicFallback: next }) }))),
+      h(FdSwitch, { on: Boolean(settings.allowHeuristicFallback), label: '无决策模型时使用本地关键词兜底', onChange: next => apply({ allowHeuristicFallback: next }) })),
+
+      h(FdRow, {
+        plain: true,
+        title: '无决策模型时启用宿命序列真骰带',
+        sub: '默认关闭：每轮预掷 6 组真骰随主正文按需顺位取用',
+        help: [
+          '未配置决策模型且未开本地关键词兜底时生效：每轮发送行动前用密码学真随机预掷 6 组（①~⑥）骰点注入上下文，由主模型仅在遇到不确定性或连续事件时按顺序取骰并在末尾静默回传标记。',
+          '零小模型 API 消耗、且能在一个楼层内自然支撑连续多段检定；日常无阻力对话时主模型会自动跳过取骰。'
+        ].join('\n')
+      },
+      h(FdSwitch, { on: Boolean(settings.tapeFallbackEnabled), label: '无决策模型时启用宿命序列真骰带', onChange: next => apply({ tapeFallbackEnabled: next }) }))),
 
     h(FdSection, {
       title: '✦ 失败时暂停发送',
