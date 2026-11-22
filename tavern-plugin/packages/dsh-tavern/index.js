@@ -14,7 +14,6 @@ import { consumeProfileContinuation, initializeDefaultProfile, setDefaultProfile
 /** Shared RPC channel owned by this plugin; the browser half calls it by name. */
 const CHANNEL = '/profile-bridge'
 const LOGO_PATH = `${CHANNEL}/logo.png`
-const MEDAL_PATH = `${CHANNEL}/achievement-medal.webp`
 
 /** Control requests are tiny; anything larger is refused instead of buffered. */
 const BODY_LIMIT_BYTES = 64 * 1024
@@ -245,7 +244,9 @@ export function apply(ctx) {
   }
   for (const [route, filename, type] of [
     [LOGO_PATH, 'dsh-tavern-app-icon-192.png', 'image/png'],
-    [MEDAL_PATH, 'achievement-medal.webp', 'image/webp'],
+    ...['medal', 'badges', 'paper'].map(asset => [
+      `${CHANNEL}/achievement-${asset}.webp`, `achievement-${asset}.webp`, 'image/webp',
+    ]),
   ]) {
     const image = readFileSync(new URL('./assets/' + filename, import.meta.url))
     ctx.effect(() => ctx.webServer.register({
