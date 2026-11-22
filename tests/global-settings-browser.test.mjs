@@ -4,7 +4,6 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { openTavernSettings } from './fixtures/tavern-settings-browser.mjs'
 import { applyTavernSettingsPatch, presentTavernSettings } from '../tavern-plugin/lib/domain/tavern-settings.js'
-import { createSettingsHandlers } from '../tavern-plugin/lib/rpc/settings.js'
 
 function fixture() {
   let fail = false
@@ -43,24 +42,23 @@ test('状态栏位置是全局显示偏好，保存后通知现有对局刷新',
 
 test('候选项点击方式由全局设置保存，重新打开仍然生效', async t => {
   let document = { candidateDismissMode: 'after-fill' }
-  const readTavernSettings = async () => presentTavernSettings(document, {})
-  const { getCandidatePreferences } = createSettingsHandlers({ readTavernSettings })
-  const respond = async (method, args) => {
-    if (method === 'getCandidatePreferences') return getCandidatePreferences()
+  const respond = (method, args) => {
+    if (method === 'getTavernSettings') return { settings: presentTavernSettings(document, {}) }
     if (method === 'updateTavernSettings') {
       document = applyTavernSettingsPatch(document, args.patch)
-      return { settings: await readTavernSettings() }
+      return { settings: presentTavernSettings(document, {}) }
     }
   }
 
   const { page, calls } = await openTavernSettings(t, { respond })
-  const mode = page.locator('button[aria-label^="点击候选项："]')
-  const dismiss = page.getByRole('button', { name: '候选项收起时机：选择一项后即隐藏' })
+  const candidates = page.getByRole('region', { name: '候选项', exact: true })
+  const mode = candidates.locator('button[aria-label^="点击候选项："]')
+  const dismiss = candidates.getByRole('button', { name: '候选项收起时机：选择一项后即隐藏' })
   await dismiss.waitFor()
   assert.equal(await mode.getAttribute('aria-label'), '点击候选项：填入输入框')
   await mode.click()
   await page.getByRole('menuitemradio', { name: '直接发送' }).click()
-  await page.locator('.dsh-tavern-candidate-setting [role="status"]').getByText('已保存').waitFor()
+  await candidates.getByRole('status').getByText('已保存').waitFor()
   assert.equal(await mode.getAttribute('aria-label'), '点击候选项：直接发送')
   assert.deepEqual(calls.find(call => call.method === 'updateTavernSettings').args.patch, { candidatePickMode: 'send' })
   assert.equal(await dismiss.count(), 0)
@@ -155,17 +153,14 @@ test('全局皮肤覆盖大 PR 视觉变量，移除插件后回到基础样式'
 })
 
 
-test('功能区分别保存自动候选和精修，正文生成有独立分组', async t => {
+test('精修留在开局默认功能区，正文生成有独立分组', async t => {
   const backend = fixture()
   const {page, calls} = await openTavernSettings(t, {respond:backend.respond})
   const features = page.getByRole('region', {name:'开局默认', exact:true}).getByRole('region', {name:'功能', exact:true})
-  for (const [name, key] of [['自动生成候选项', 'candidateAutoGenerate'], ['启用精修', 'polishEnabled']]) {
-    const toggle = features.getByRole('switch', {name, exact:true})
-    await toggle.waitFor()
-    await toggle.press('Space')
-    await features.getByRole('switch', {name, exact:true, checked:true}).waitFor()
-    assert.deepEqual(calls.filter(call=>call.method==='updateTavernSettings').at(-1).args.patch, {[key]:true})
-  }
+  const polish = features.getByRole('switch', { name: '启用精修', exact: true })
+  await polish.press('Space')
+  await features.getByRole('switch', { name: '启用精修', exact: true, checked: true }).waitFor()
+  assert.deepEqual(calls.filter(call => call.method === 'updateTavernSettings').at(-1).args.patch, { polishEnabled: true })
   await page.getByRole('region', {name:'正文生成', exact:true}).getByRole('switch', {name:'插件生成正文后仍应用宿主正则', exact:true}).waitFor()
   assert.equal(await page.getByRole('region', {name:'剧情', exact:true}).count(),0)
   assert.equal(await page.getByRole('heading', {name:'插件', exact:true}).count(),0)
@@ -258,19 +253,30 @@ test('开局默认功能区包含“后台任务附加预设”开关，默认�
   )
 })
 
-test('候选项数量位于开局默认，默认少量，并保存到新局模板', async t => {
+test('候选项生成集中在独立分组，各项仍按原有范围保存', async t => {
   const backend = fixture()
   const {page, calls} = await openTavernSettings(t, {respond:backend.respond})
-  const defaults = page.getByRole('region', { name: '开局默认' })
-  const menu = defaults.locator('button[aria-label^="候选项数量："]')
-  await defaults.locator('button[aria-label="候选项数量：少量候选"]:enabled').waitFor()
-  assert.equal(await page.getByRole('region', { name: '高级' }).locator('button[aria-label^="候选项数量："]').count(), 0)
+  const candidates = page.getByRole('region', { name: '候选项', exact: true })
+  const defaults = page.getByRole('region', { name: '开局默认', exact: true })
+  for (const [name, patch] of [
+    ['自动生成候选项', { candidateAutoGenerate: true }],
+    ['前台生成候选项', { defaultPlaySettings: { backgroundTasks: { foregroundCandidates: true } } }],
+  ]) {
+    await candidates.getByRole('switch', { name, exact: true }).press('Space')
+    await candidates.getByRole('switch', { name, exact: true, checked: true }).waitFor()
+    assert.deepEqual(calls.filter(call => call.method === 'updateTavernSettings').at(-1).args.patch, patch)
+    assert.equal(await defaults.getByRole('switch', { name, exact: true }).count(), 0)
+  }
+
+  const menu = candidates.locator('button[aria-label^="候选项数量："]')
+  await candidates.locator('button[aria-label="候选项数量：少量候选"]:enabled').waitFor()
+  assert.equal(await defaults.locator('button[aria-label^="候选项数量："]').count(), 0)
   await menu.click()
   await page.getByRole('menuitemradio', { name: '大量候选' }).click()
-  await defaults.locator('button[aria-label="候选项数量：大量候选"]:enabled').waitFor()
+  await candidates.locator('button[aria-label="候选项数量：大量候选"]:enabled').waitFor()
   assert.deepEqual(calls.filter(call=>call.method==='updateTavernSettings').at(-1).args.patch, { defaultPlaySettings: { candidateTabs: true } })
   await menu.click()
   await page.getByRole('menuitemradio', { name: '少量候选' }).click()
-  await defaults.locator('button[aria-label="候选项数量：少量候选"]:enabled').waitFor()
+  await candidates.locator('button[aria-label="候选项数量：少量候选"]:enabled').waitFor()
   assert.deepEqual(calls.filter(call=>call.method==='updateTavernSettings').at(-1).args.patch, { defaultPlaySettings: { candidateTabs: false } })
 })

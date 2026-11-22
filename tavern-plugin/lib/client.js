@@ -50460,32 +50460,6 @@ function askTavernCardPackWay(file, staged) {
             return preferences;
         }
 
-        function CandidatePreferencesSettings() {
-            const { candidatePickMode = "fill", candidateDismissMode = "after-send" } = useCandidatePreferences();
-            const [busy, setBusy] = React.useState(false);
-            const [notice, setNotice] = React.useState("");
-            async function save(patch) {
-                if (busy) return;
-                setBusy(true); setNotice("");
-                try {
-                    const result = await rpc("updateTavernSettings", { patch });
-                    window.dispatchEvent(new CustomEvent("dsh-tavern-candidate-preferences", { detail: result.settings }));
-                    setNotice("已保存");
-                } catch (error) { setNotice("保存失败：" + String(error.message || error)); }
-                finally { setBusy(false); }
-            }
-            const h = React.createElement;
-            return h(React.Fragment, null,
-                h(TavernSettingRow, { title: "点击候选项", help: "选择点击候选项时填入输入框还是直接发送，对所有游戏生效。", note: notice, className: "dsh-tavern-candidate-setting" },
-                    h(InlineField, { kind: "menu", label: "点击候选项", hideLabel: true, value: candidatePickMode, disabled: busy,
-                        onCommit: value => save({ candidatePickMode: value }),
-                        options: [{ value: "fill", label: "填入输入框" }, { value: "send", label: "直接发送" }] })),
-                candidatePickMode === "fill" ? h(TavernSettingRow, { title: "候选项收起时机" },
-                    h(InlineField, { kind: "menu", label: "候选项收起时机", hideLabel: true, value: candidateDismissMode, disabled: busy,
-                        onCommit: value => save({ candidateDismissMode: value }),
-                        options: [{ value: "after-fill", label: "选择一项后即隐藏" }, { value: "after-send", label: "可选择多项发送后才隐藏" }] })) : null);
-        }
-
         // 设置 → 酒馆插件：安装插件并管理已装的插件。
         const canCheckPluginUpdates = ({ source }) => source?.kind === "github" || (source?.kind === "builtin" && Boolean(source.releaseRepo));
         function TavernUserPluginsSettings(props = {}) {
@@ -50650,7 +50624,7 @@ function askTavernCardPackWay(file, staged) {
         }
 
         // Settings owns its initial snapshot; each editor saves only its own resource.
-        function createGlobalSettingsModule({ React, rpc, notifySettingsChanged, TavernDefaultModelSetting, TavernModelSlotGroups, TavernConversationWritingSkills, DisplayPreferencesSettings, CandidatePreferencesSettings, PromptTemplateSettingsEntry, ContextCompactionSettings, HeaderItemsSettings, TavernUserPluginsSettings, DebugSetting, SpineRuntimeEntry, ForkModManagerEntry, TavernSettingRow, InlineField, Switch, HelpTip }) {
+        function createGlobalSettingsModule({ React, rpc, notifySettingsChanged, TavernDefaultModelSetting, TavernModelSlotGroups, TavernConversationWritingSkills, DisplayPreferencesSettings, PromptTemplateSettingsEntry, ContextCompactionSettings, HeaderItemsSettings, TavernUserPluginsSettings, DebugSetting, SpineRuntimeEntry, ForkModManagerEntry, TavernSettingRow, InlineField, Switch, HelpTip }) {
             // explanations live in a 「?」 beside the name (ui-design R3), never as grey lines.
             const help = (label, text) => HelpTip && text ? React.createElement(HelpTip, { label: label + "说明" }, text) : null;
             // the one place that brings back every confirmation hidden with 「以后不再显示」 (confirm-dialog.js hiddenConfirms).
@@ -50709,9 +50683,6 @@ function askTavernCardPackWay(file, staged) {
                     h("section", { className: "dsh-local-section", "aria-label": "功能" }, h("h3", null, "功能"),
                         toggle("posture", "人物姿势", "总结本轮结束时人物的位置、动作和姿势。", true),
                         toggle("styleReference", "文风联想", "仅自由模式。前台写正文前，结合本轮场景联想一段笔调参考；与写作共享上下文，不另开后台任务。", true),
-                        toggle("foregroundCandidates", "前台生成候选项", "仅自由模式。让主模型在正文结尾后直接生成本轮候选项，写完即显示，不等待后台任务。", true),
-                        menu("候选项数量", data?.candidateTabs === true ? "expanded" : "compact", [{ value: "compact", label: "少量候选" }, { value: "expanded", label: "大量候选" }],
-                            value => save({ candidateTabs: value === "expanded" }), "新开的自由故事继承此设置。少量候选为 4 条行动和 1 条场景切换，大量候选按角色和全局事件分组，另有精选。剧本模式固定生成 1 条。"),
                         children,
                         toggle("preset", "后台任务附加预设", "默认关闭。开启后，新游戏的全部后台 Agent 任务在生成时也会附加当前对局的三段预设提示词，不执行预设正则。", true),
                         toggle("webSearchEnabled", "联网搜索", "允许新游戏的前台和后台按需搜索。")),
@@ -50719,11 +50690,11 @@ function askTavernCardPackWay(file, staged) {
             }
 
             function TavernSettingsSection({ renderSlot }) {
-                const [state, setState] = React.useState({ loading: true, busy: false, defaultForegroundModel: null, defaultBackgroundModel: null, defaultWorkbenchModel: null, defaultCompactionModel: null, notice: "", settings: null, modelCatalog: [], modModelSlots: [], error: "" });
+                const [state, setState] = React.useState({ loading: true, busy: false, notice: "", settings: null, modelCatalog: [], modModelSlots: [], error: "" });
                 React.useEffect(function () {
                     let active = true;
                     rpc("getTavernSettings").then(function (result) {
-                        if (active) setState({ loading: false, busy: false, defaultForegroundModel: result.settings?.defaultForegroundModel || null, defaultBackgroundModel: result.settings?.defaultBackgroundModel || null, defaultWorkbenchModel: result.settings?.defaultWorkbenchModel || null, defaultCompactionModel: result.settings?.defaultCompactionModel || null, notice: "", bodyGenerationProviders: result.bodyGenerationProviders || [], settings: result.settings, modModelSlots: result.modModelSlots || [], scoringCatalog: result.scoringCatalog || [], modelCatalog: Array.isArray(result.modelCatalog) ? result.modelCatalog : [], error: "" });
+                        if (active) setState({ loading: false, busy: false, notice: "", bodyGenerationProviders: result.bodyGenerationProviders || [], settings: result.settings, modModelSlots: result.modModelSlots || [], scoringCatalog: result.scoringCatalog || [], modelCatalog: Array.isArray(result.modelCatalog) ? result.modelCatalog : [], error: "" });
                     }, function (error) {
                         if (active) setState(function (current) { return Object.assign({}, current, { loading: false, busy: false, error: String(error && error.message || error) }); });
                     });
@@ -50735,17 +50706,21 @@ function askTavernCardPackWay(file, staged) {
                     window.addEventListener('dsh-tavern-mods-changed',refresh);
                     return ()=>{active=false;window.removeEventListener('dsh-tavern-mods-changed',refresh);};
                 },[]);
-                async function saveDefault(name, selection) {
+                async function saveDefault(name, selection, noticeGroup = "默认模型") {
                     if (state.loading || state.busy) return;
-                    setState(current => ({ ...current, busy: true, error: "", notice: "" }));
+                    setState(current => ({ ...current, busy: true, error: "", notice: "", noticeGroup }));
                     try {
                         const result = await rpc("updateTavernSettings", { patch: { [name]: selection } });
-                        notifySettingsChanged();
-                        setState(current => ({ ...current, [name]: result.settings[name], settings: result.settings, busy: false, notice: "已保存" }));
+                        if (name === "candidatePickMode" || name === "candidateDismissMode") {
+                            window.dispatchEvent(new CustomEvent("dsh-tavern-candidate-preferences", { detail: result.settings }));
+                        } else if (name !== "defaultPlaySettings") {
+                            notifySettingsChanged();
+                        }
+                        setState(current => ({ ...current, settings: result.settings, busy: false, notice: "已保存" }));
                     } catch (err) { setState(current => ({ ...current, busy: false, error: String(err.message || err) })); }
                 }
                 async function saveSlot(modModelSelection) {
-                    setState(current=>({...current,busy:true,error:"",notice:""}));
+                    setState(current=>({...current,busy:true,error:"",notice:"",noticeGroup:"默认模型"}));
                     try { const result = await rpc("updateTavernSettings", {patch:{modModelSelection}}); notifySettingsChanged(); setState(current=>({...current,settings:result.settings,busy:false,notice:"已保存"})); }
                     catch(error) { setState(current=>({...current,busy:false,error:String(error.message || error)})); }
                 }
@@ -50761,23 +50736,27 @@ function askTavernCardPackWay(file, staged) {
                 }
                 const card = (...rows) => h("div", { className: "dsh-tavern-gs-card" }, ...rows);
                 // a switch row of the page (Switch, explanation in the 「?」); `on` is the shipped default.
-                const sw = (name, title, text, on) => h(TavernSettingRow, { key: name, title, help: text },
-                    h(Switch, { label: title, disabled: state.loading || state.busy, checked: on ? (state[name] ?? state.settings?.[name]) !== false : (state[name] ?? state.settings?.[name]) === true, onChange: value => saveDefault(name, value) }));
+                const disabled = state.loading || state.busy;
+                const sw = (name, title, text, on, save = saveDefault) => h(TavernSettingRow, { key: name, title, help: text },
+                    h(Switch, { label: title, disabled, checked: on ? state.settings?.[name] !== false : state.settings?.[name] === true, onChange: value => save(name, value) }));
+                const candidateDefaults = state.settings?.defaultPlaySettings;
+                const candidatePickMode = state.settings?.candidatePickMode || "fill";
+                const saveCandidate = (name, selection) => saveDefault(name, selection, "候选项");
+                const settingsStatus = state.error ? h("span", { className: "dsh-tavern-gs-notice is-alert", role: "alert" }, "⚠ 保存失败：" + state.error)
+                    : state.notice ? h("span", { className: "dsh-tavern-gs-notice", role: "status" }, state.notice) : null;
                 return h("div", { className: "dsh-tavern-settings-section dsh-tavern-global-settings", "aria-busy": state.loading || undefined },
                     group("默认模型", { help: "用于新游戏和新的卡片工作台对话，已有对话保持当前配置。建议使用 High 推理强度；Max 容易过度思考、增加等待。",
-                        status: state.error ? h("span", { className: "dsh-tavern-gs-notice is-alert", role: "alert" }, "⚠ 保存失败：" + state.error)
-                            : state.notice ? h("span", { className: "dsh-tavern-gs-notice", role: "status" }, state.notice) : null },
+                        status: state.noticeGroup === "候选项" ? null : settingsStatus },
                     h("div", { className: "dsh-tavern-gs-card" },
-                    React.createElement(TavernDefaultModelSetting, { label: "默认前台模型", title: "前台模型", description: "写正文、扮演角色，直接决定剧情质量", fallback: "使用 DSH 默认模型", selection: state.defaultForegroundModel, catalog: state.modelCatalog, disabled: state.loading || state.busy, onChange: selection => saveDefault("defaultForegroundModel", selection) }),
-                    React.createElement(TavernDefaultModelSetting, { label: "默认后台模型", title: "后台模型", description: "变量结算、世界书筛选、候选回复、手机消息等幕后任务", fallback: "跟随前台", selection: state.defaultBackgroundModel, catalog: state.modelCatalog, disabled: state.loading || state.busy, onChange: selection => saveDefault("defaultBackgroundModel", selection) }),
-                    React.createElement(TavernDefaultModelSetting, { label: "卡片工作台默认模型", title: "工作台模型", description: "卡片工作台里创建和修改人物卡", fallback: "跟随前台", selection: state.defaultWorkbenchModel, catalog: state.modelCatalog, disabled: state.loading || state.busy, onChange: selection => saveDefault("defaultWorkbenchModel", selection) }),
-                    React.createElement(TavernDefaultModelSetting, { label: "前台对话压缩模型", title: "压缩模型", description: "用于整理较早的前台对话内容（手动 /compact 与自动压缩）；设为「跟随前台」时使用当前对话的前台模型", fallback: "跟随前台", selection: state.defaultCompactionModel, catalog: state.modelCatalog, disabled: state.loading || state.busy, onChange: selection => saveDefault("defaultCompactionModel", selection) }),
+                    React.createElement(TavernDefaultModelSetting, { label: "默认前台模型", title: "前台模型", description: "写正文、扮演角色，直接决定剧情质量", fallback: "使用 DSH 默认模型", selection: state.settings?.defaultForegroundModel || null, catalog: state.modelCatalog, disabled: state.loading || state.busy, onChange: selection => saveDefault("defaultForegroundModel", selection) }),
+                    React.createElement(TavernDefaultModelSetting, { label: "默认后台模型", title: "后台模型", description: "变量结算、世界书筛选、候选回复、手机消息等幕后任务", fallback: "跟随前台", selection: state.settings?.defaultBackgroundModel || null, catalog: state.modelCatalog, disabled: state.loading || state.busy, onChange: selection => saveDefault("defaultBackgroundModel", selection) }),
+                    React.createElement(TavernDefaultModelSetting, { label: "卡片工作台默认模型", title: "工作台模型", description: "卡片工作台里创建和修改人物卡", fallback: "跟随前台", selection: state.settings?.defaultWorkbenchModel || null, catalog: state.modelCatalog, disabled: state.loading || state.busy, onChange: selection => saveDefault("defaultWorkbenchModel", selection) }),
+                    React.createElement(TavernDefaultModelSetting, { label: "前台对话压缩模型", title: "压缩模型", description: "用于整理较早的前台对话内容（手动 /compact 与自动压缩）；设为「跟随前台」时使用当前对话的前台模型", fallback: "跟随前台", selection: state.settings?.defaultCompactionModel || null, catalog: state.modelCatalog, disabled: state.loading || state.busy, onChange: selection => saveDefault("defaultCompactionModel", selection) }),
                     null),
                         // the core's own slots; the stage's and its mods' (手机 · 通话模型) are on 舞台配置 › 舞台模型.
                         h(TavernModelSlotGroups,{slots:state.modModelSlots.filter(slot=>slot.owner === 'core'),values:state.settings?.modModels,catalog:state.modelCatalog,scoringCatalog:state.scoringCatalog,disabled:state.loading || state.busy,onChange:saveSlot})),
-                    group("开局默认", "新对局继承开局设置。自动生成候选项和精修适用于所有对局。",
+                    group("开局默认", "新对局继承开局设置。精修适用于所有对局。",
                         state.settings ? h(GlobalPlayDefaults, { settings: state.settings },
-                            sw("candidateAutoGenerate", "自动生成候选项", "正文写完后自动生成候选项；关闭后仍可手动生成。只对之后的新回复生效。", false),
                             sw("polishEnabled", "启用精修", "开启后可在重新生成面板中手动精修，并在顶部「精修」页查看对比、撤销或开启自动精修。", false)) : null,
                         h(TavernConversationWritingSkills, { globalDefaults: true })),
                     group("正文生成", "所有游戏都按这些设置，下一轮生效。",
@@ -50794,13 +50773,31 @@ function askTavernCardPackWay(file, staged) {
                                     value: state.settings?.storyGenerationMode || "host", options: [{ value: "host", label: "宿主生成" }, { value: "plugin-direct", label: "插件直接生成" }, { value: "plugin-tool-call", label: "前台检索后由插件生成" }],
                                     onCommit: value => saveDefault("storyGenerationMode", value) })),
                             sw("storyPluginOutputRegex", "插件生成正文后仍应用宿主正则", "插件处理完成后，继续应用全局、预设和人物卡正则。若两边配置相同规则，可能先后执行。", false))),
+                    group("候选项", { status: state.noticeGroup === "候选项" ? settingsStatus : null },
+                        card(
+                            sw("candidateAutoGenerate", "自动生成候选项", "正文写完后自动生成候选项。关闭后可手动生成。适用于所有对局之后的新回复。", false, saveCandidate),
+                            h(TavernSettingRow, { title: "前台生成候选项", help: "新开的自由故事继承此设置。让主模型在正文结尾后直接生成本轮候选项，写完即显示，不等待后台任务。" },
+                                h(Switch, { label: "前台生成候选项", disabled, checked: candidateDefaults?.backgroundTasks?.foregroundCandidates === true,
+                                    onChange: value => saveCandidate("defaultPlaySettings", { backgroundTasks: { foregroundCandidates: value } }) })),
+                            h(TavernSettingRow, { title: "候选项数量", help: "新开的自由故事继承此设置。少量候选为 4 条行动和 1 条场景切换，大量候选按角色和全局事件分组，另有精选。剧本模式固定生成 1 条。" },
+                                h(InlineField, { kind: "menu", label: "候选项数量", hideLabel: true, disabled, value: candidateDefaults?.candidateTabs === true ? "expanded" : "compact",
+                                    options: [{ value: "compact", label: "少量候选" }, { value: "expanded", label: "大量候选" }],
+                                    onCommit: value => saveCandidate("defaultPlaySettings", { candidateTabs: value === "expanded" }) })),
+                            h(TavernSettingRow, { title: "点击候选项", help: "选择点击候选项时填入输入框还是直接发送，对所有游戏生效。" },
+                                h(InlineField, { kind: "menu", label: "点击候选项", hideLabel: true, disabled, value: candidatePickMode,
+                                    options: [{ value: "fill", label: "填入输入框" }, { value: "send", label: "直接发送" }],
+                                    onCommit: value => saveCandidate("candidatePickMode", value) })),
+                            candidatePickMode === "fill" ? h(TavernSettingRow, { title: "候选项收起时机" },
+                                h(InlineField, { kind: "menu", label: "候选项收起时机", hideLabel: true, disabled, value: state.settings?.candidateDismissMode || "after-send",
+                                    options: [{ value: "after-fill", label: "选择一项后即隐藏" }, { value: "after-send", label: "可选择多项发送后才隐藏" }],
+                                    onCommit: value => saveCandidate("candidateDismissMode", value) })) : null)),
                     // one card per group; each entry (incl. the UI plugin's 界面大小 slot) is a row of it.
                     group("显示与交互", "",
                         card(sw("autoOpenStatusPanel", "进入游戏时打开酒馆状态", "进入或切换到一局游戏时，右侧面板自动展开并显示本局设置和酒馆状态。关闭后右侧面板保持你上次的样子。", true),
                             h(DisplayPreferencesSettings),
                             renderSlot("settings.tavern.appearance", {}),
                             DebugSetting ? h(DebugSetting) : null,
-                            h(CandidatePreferencesSettings), h(HiddenConfirmsSetting), h(HeaderItemsSettings))),
+                            h(HiddenConfirmsSetting), h(HeaderItemsSettings))),
                     // the anti-truncation block: the tool-call plumbing that keeps long outputs from being
                     // cut mid-body on channels that support tool calls (Gemini especially), grouped out of 高级.
                     group("防截断", "本区域可以帮助支持工具调用的渠道改善 Gemini 模型输出截断问题。",
@@ -50867,7 +50864,7 @@ function askTavernCardPackWay(file, staged) {
             React, rpc, notifySettingsChanged: () => { window.dispatchEvent(new CustomEvent("dsh-tavern-settings-changed")); notifyTavernDataChanged(["sessions"], "global-settings"); },
             // Process visibility and developer chrome have separate rows; 配音 has its own settings page.
             TavernDefaultModelSetting, TavernModelSlotGroups, TavernConversationWritingSkills, DisplayPreferencesSettings, HeaderItemsSettings,
-            CandidatePreferencesSettings, PromptTemplateSettingsEntry, ContextCompactionSettings, TavernUserPluginsSettings, DebugSetting, SpineRuntimeEntry,
+            PromptTemplateSettingsEntry, ContextCompactionSettings, TavernUserPluginsSettings, DebugSetting, SpineRuntimeEntry,
             // 舞台配置 › 舞台模组 (mod-manager.js), drawn once the stage client binds it.
             ForkModManagerEntry: () => React.createElement(StagePackView, { view: ui => ui.ModManagerEntry, rpc, Row: TavernSettingRow }),
             // the shared row and controls of the page.

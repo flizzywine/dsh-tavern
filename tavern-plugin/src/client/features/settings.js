@@ -402,32 +402,6 @@
             return preferences;
         }
 
-        function CandidatePreferencesSettings() {
-            const { candidatePickMode = "fill", candidateDismissMode = "after-send" } = useCandidatePreferences();
-            const [busy, setBusy] = React.useState(false);
-            const [notice, setNotice] = React.useState("");
-            async function save(patch) {
-                if (busy) return;
-                setBusy(true); setNotice("");
-                try {
-                    const result = await rpc("updateTavernSettings", { patch });
-                    window.dispatchEvent(new CustomEvent("dsh-tavern-candidate-preferences", { detail: result.settings }));
-                    setNotice("已保存");
-                } catch (error) { setNotice("保存失败：" + String(error.message || error)); }
-                finally { setBusy(false); }
-            }
-            const h = React.createElement;
-            return h(React.Fragment, null,
-                h(TavernSettingRow, { title: "点击候选项", help: "选择点击候选项时填入输入框还是直接发送，对所有游戏生效。", note: notice, className: "dsh-tavern-candidate-setting" },
-                    h(InlineField, { kind: "menu", label: "点击候选项", hideLabel: true, value: candidatePickMode, disabled: busy,
-                        onCommit: value => save({ candidatePickMode: value }),
-                        options: [{ value: "fill", label: "填入输入框" }, { value: "send", label: "直接发送" }] })),
-                candidatePickMode === "fill" ? h(TavernSettingRow, { title: "候选项收起时机" },
-                    h(InlineField, { kind: "menu", label: "候选项收起时机", hideLabel: true, value: candidateDismissMode, disabled: busy,
-                        onCommit: value => save({ candidateDismissMode: value }),
-                        options: [{ value: "after-fill", label: "选择一项后即隐藏" }, { value: "after-send", label: "可选择多项发送后才隐藏" }] })) : null);
-        }
-
         // 设置 → 酒馆插件：安装插件并管理已装的插件。
         const canCheckPluginUpdates = ({ source }) => source?.kind === "github" || (source?.kind === "builtin" && Boolean(source.releaseRepo));
         function TavernUserPluginsSettings(props = {}) {
@@ -596,7 +570,7 @@
             React, rpc, notifySettingsChanged: () => { window.dispatchEvent(new CustomEvent("dsh-tavern-settings-changed")); notifyTavernDataChanged(["sessions"], "global-settings"); },
             // Process visibility and developer chrome have separate rows; 配音 has its own settings page.
             TavernDefaultModelSetting, TavernModelSlotGroups, TavernConversationWritingSkills, DisplayPreferencesSettings, HeaderItemsSettings,
-            CandidatePreferencesSettings, PromptTemplateSettingsEntry, ContextCompactionSettings, TavernUserPluginsSettings, DebugSetting, SpineRuntimeEntry,
+            PromptTemplateSettingsEntry, ContextCompactionSettings, TavernUserPluginsSettings, DebugSetting, SpineRuntimeEntry,
             // 舞台配置 › 舞台模组 (mod-manager.js), drawn once the stage client binds it.
             ForkModManagerEntry: () => React.createElement(StagePackView, { view: ui => ui.ModManagerEntry, rpc, Row: TavernSettingRow }),
             // the shared row and controls of the page.
