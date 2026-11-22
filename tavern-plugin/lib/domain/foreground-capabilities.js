@@ -8,7 +8,7 @@ import {estimateDirectorTokens} from './stage-director-tokens.js'
 import {managedForegroundEntries} from './mod-system-prompt-adapter.js'
 
 const managed = entry => !!entry.rawEntry?.extensions?.dsh_tavern_helper_extra?.forkDialogueBubbles || entry.foregroundCapability === true
-const replace = (book, entries) => ({...book,view:{...book?.view,entries:[...(book?.view?.entries || []).filter(entry=>!managed(entry)),...structuredClone(entries)]}})
+export const replaceDialogueWorldbookEntries = (book, entries) => ({...book,view:{...book?.view,entries:[...(book?.view?.entries || []).filter(entry=>!managed(entry)),...structuredClone(entries)]}})
 
 // Only a completed native replacement before this turn can change its prefix.
 export function foregroundCapabilityEpoch(session) {
@@ -71,11 +71,11 @@ export function createForegroundCapabilities({session,readConfig,render,save,mod
   const pending=new Map(),accepted=new Map()
   // A frozen prefix may name mods from an earlier run with the stage active.
   const activeEntries = snapshot => modPromptsAvailable() ? snapshot.entries : snapshot.entries.filter(entry => !entry.capabilityPart?.modId)
-  const roundKey = (chat,epoch,native) => JSON.stringify([chat.id,chat.sessionId,epoch,
+  const roundKey = (chat,epoch,native) => JSON.stringify([chat.id,chat.sessionId,epoch,chat.dialogueSettings,
     sessionEvents(native).findLast(event=>event.type==='turn/start')?.data?.turn ?? chat.messages?.at(-1)?.turn ?? 0])
   async function capture(chat,epoch,userText,config) {
     assertCurrent()
-    config ||= await readConfig(chat.cardPath)
+    config ||= await readConfig(chat.cardPath,chat)
     assertCurrent()
     const aliases=foregroundRecalledFigures(config,chat,{userText,judge:judge()})
     const builtin=foregroundCapabilityEntries(config,chat,{aliases})
@@ -89,7 +89,7 @@ export function createForegroundCapabilities({session,readConfig,render,save,mod
       position:0,...config.injection?.placement,order:Number(config.injection?.placement?.order ?? 100)+2+index}))
     const entries=[...builtin,...extras]
     // Author macros resolve once; managed Markdown is literal even on its first projection.
-    const rendered=await render(chat,replace(null,entries.map(entry=>entry.capabilityPart?.modId ? entry :
+    const rendered=await render(chat,replaceDialogueWorldbookEntries(null,entries.map(entry=>entry.capabilityPart?.modId ? entry :
       (({foregroundCapability,...value})=>value)(entry))))
     assertCurrent()
     if(rendered.diagnostics?.length)throw new Error('Foreground capability template projection failed')
@@ -105,13 +105,13 @@ export function createForegroundCapabilities({session,readConfig,render,save,mod
     const native=session(chat.sessionId),old=chat.foregroundCapabilities
     const epoch=native ? foregroundCapabilityEpoch(native) : old?.epoch || ''
     const key=roundKey(chat,epoch,native)
-    const config=nextRound ? await previewConfig(chat.cardPath) : null
+    const config=nextRound ? await previewConfig(chat.cardPath,chat) : null
     const matches=old?.sessionId===chat.sessionId && old.epoch===epoch && !!old.figures && (!nextRound || rosterUnchanged(old,config))
     const saved=matches ? old : nextRound ? undefined : accepted.get(key) || (pending.has(key) ? await pending.get(key) : undefined)
-    const snapshot=saved ?? await capture(chat,epoch,userText,config ?? await previewConfig(chat.cardPath))
+    const snapshot=saved ?? await capture(chat,epoch,userText,config ?? await previewConfig(chat.cardPath,chat))
     // Preview never accepts/persists a new epoch. Frozen entries render in the actual body order.
     const visible = activeEntries(snapshot)
-    const rendered=await render(chat,replace(null,visible))
+    const rendered=await render(chat,replaceDialogueWorldbookEntries(null,visible))
     assertCurrent()
     if(rendered.diagnostics?.length)throw new Error('Foreground capability template projection failed')
     const entries=new Map(visible.map(entry=>[entry.ref,entry]))
@@ -128,9 +128,9 @@ export function createForegroundCapabilities({session,readConfig,render,save,mod
     const native=session(chat.sessionId),old=chat.foregroundCapabilities
     const epoch=native ? foregroundCapabilityEpoch(native) : old?.epoch || ''
     const key=roundKey(chat,epoch,native)
-    if(accepted.has(key)) {chat.foregroundCapabilities=structuredClone(accepted.get(key));return replace(book,activeEntries(accepted.get(key)))}
+    if(accepted.has(key)) {chat.foregroundCapabilities=structuredClone(accepted.get(key));return replaceDialogueWorldbookEntries(book,activeEntries(accepted.get(key)))}
     if(!pending.has(key))pending.set(key,(async()=>{
-      const config=await readConfig(chat.cardPath)
+      const config=await readConfig(chat.cardPath,chat)
       assertCurrent()
       const unchanged=old?.sessionId===chat.sessionId && old.epoch===epoch && !!old.figures && rosterUnchanged(old,config)
       const snapshot=unchanged ? old : await capture(chat,epoch,userText,config)
@@ -145,12 +145,12 @@ export function createForegroundCapabilities({session,readConfig,render,save,mod
       const snapshot=await pending.get(key)
       assertCurrent()
       chat.foregroundCapabilities=structuredClone(snapshot)
-      return replace(book,activeEntries(chat.foregroundCapabilities))
+      return replaceDialogueWorldbookEntries(book,activeEntries(chat.foregroundCapabilities))
     } finally {pending.delete(key)}
   }
   async function project(chat,book,options) {
-    if(!active)return replace(book,[])
-    try {return await projectActive(chat,book,options)} catch(error) {if(!active)return replace(book,[]);throw error}
+    if(!active)return replaceDialogueWorldbookEntries(book,[])
+    try {return await projectActive(chat,book,options)} catch(error) {if(!active)return replaceDialogueWorldbookEntries(book,[]);throw error}
   }
   async function refresh(chat, expectedInjection) {
     assertCurrent()
@@ -171,7 +171,7 @@ export function createForegroundCapabilities({session,readConfig,render,save,mod
   // the next recompute (session start, compaction, configuration change, or a snapshot saved without figures) moves it into the roster.
   async function rosterAddendum(chat,{userText='',snapshot=chat.foregroundCapabilities,read=readConfig}={}) {
     if(!active || !snapshot?.figures || snapshot.sessionId!==chat.sessionId)return ''
-    const config=await read(chat.cardPath)
+    const config=await read(chat.cardPath,chat)
     if(!active || !rosterUnchanged(snapshot,config))return ''
     const frozenAliases=new Set(snapshot.figures)
     const aliases=new Set([...foregroundRecalledFigures(config,chat,{userText,judge:judge()})].filter(alias=>!frozenAliases.has(alias)))

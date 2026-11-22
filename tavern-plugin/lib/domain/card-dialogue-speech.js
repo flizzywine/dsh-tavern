@@ -21,13 +21,15 @@ export function createCardDialogueSpeech({readWorkspace, getEngine, getLibrary, 
       }
     }
   }
-  async function forGame({cardPath, sessionId}, origin) {
+  async function forGame({cardPath, sessionId, dialogueSettings}, origin) {
     if (!origin) throw new Error('Authenticated same-origin carrier required')
     const workspace = await readWorkspace(cardPath)
     if (!active) return null
     let entry = entries.get(sessionId)
     const raw = workspace?.raw
-    const revision = raw && hasCardAssetBindings(raw) ? cardAssetWorkspaceRevision(workspace) : null
+    const cardExtension = raw && hasCardAssetBindings(raw) ? readCardAssetExtension(raw) : null
+    const revision = cardExtension || dialogueSettings?.dialogue === true
+      ? JSON.stringify([workspace ? cardAssetWorkspaceRevision(workspace) : null, dialogueSettings?.dialogue, dialogueSettings?.voice]) : null
     if (entry && (entry.cardPath !== cardPath || entry.origin !== origin || entry.revision !== revision)) {
       entries.delete(sessionId)
       entry.speech.dispose()
@@ -35,7 +37,7 @@ export function createCardDialogueSpeech({readWorkspace, getEngine, getLibrary, 
     }
     if (!revision) return null
     if (entry) return entry.speech
-    const extension = readCardAssetExtension(raw)
+    const extension = cardExtension || {assetBindings:{boundPackIds:[]}}
     const listeners = new Set(), snapshots = new Map()
     const allowedPacks = () => [...new Set([...extension.assetBindings.boundPackIds, ...getGlobalEnabledPackIds()])]
     const snapshot = packId => {
@@ -64,7 +66,7 @@ export function createCardDialogueSpeech({readWorkspace, getEngine, getLibrary, 
         return result.bytes
       }
     }
-    const speech = createAssetPackSpeech({presentation, getEngine, getLibrary, getTts, scope:'dsh-browser'})
+    const speech = createAssetPackSpeech({presentation, getEngine, getLibrary, getTts, dialogueSettings, scope:'dsh-browser'})
     entries.set(sessionId, {cardPath, origin, revision, snapshots, listeners, speech})
     return speech
   }

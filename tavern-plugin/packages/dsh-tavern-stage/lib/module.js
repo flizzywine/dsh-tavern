@@ -241,7 +241,7 @@ export async function createStageModule(core) {
     async presenting(chat) {
       const latest = chat.messages?.findLast(message => message.role === 'assistant')
       if (!latest?.greeting || !['story','script'].includes(chat.mode)) return
-      await stageDirector.get(chat, Number(latest.turn || 1), await core.dialogueBubbles.read(chat.cardPath))
+      await stageDirector.get(chat, Number(latest.turn || 1), await core.dialogueBubbles.read(chat.cardPath, {dialogueSettings:chat.dialogueSettings}))
       // 自动选角 (积极 / 全部): the opening's speakers are cast and drawn at once, apart from the opening's director.
       if (autoCast) void (async () => {
         const body = await roundBody(chat, Number(latest.turn || 1))

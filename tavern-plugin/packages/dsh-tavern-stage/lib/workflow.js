@@ -9,16 +9,16 @@ export function createStageWorkflow({workflow, chatHeaderForSession, dialogueBub
   let active = true
   async function enabled(sessionId) {
     if (!active) return false
-    const header = await chatHeaderForSession(String(sessionId), ['cardPath','mode','regenInProgress'])
+    const header = await chatHeaderForSession(String(sessionId), ['cardPath','mode','regenInProgress','dialogueSettings'])
     if (!active || !header?.cardPath || !['story','script'].includes(header.mode) || header.regenInProgress) return false
-    const config = await dialogueBubbles.read(header.cardPath)
+    const config = await dialogueBubbles.read(header.cardPath, {dialogueSettings:header.dialogueSettings})
     return active && config?.enabled === true
   }
   async function directRound(sessionId) {
     if (!await enabled(sessionId)) return
     const chat = await chatForSession(String(sessionId))
     if (!active || !chat || !['story','script'].includes(chat.mode) || chat.regenInProgress) return
-    const config = await dialogueBubbles.read(chat.cardPath)
+    const config = await dialogueBubbles.read(chat.cardPath, {dialogueSettings:chat.dialogueSettings})
     if (active && config?.enabled) return stageDirector.get(chat,0,config)
   }
   const stop = workflow.job({taskInfo:STAGE_DIRECTOR_TASK,id:'stage-director',task:'stage-director',name:'舞台导演',on:'reply-committed',

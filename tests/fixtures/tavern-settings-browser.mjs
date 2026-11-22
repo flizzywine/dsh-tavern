@@ -47,6 +47,8 @@ export async function openTavernSettings(t, { settings, respond, exposeModelSlot
       else if (method === 'checkUserPluginUpdates') result = { plugins: [] }
       else if (method === 'getActiveInterfaceSkin') result = { id: null, css: '' }
       else if (method === 'listInterfaceSkins') result = { active: null, skins: [] }
+      else if (method === 'getConversationDialogueSettings') result = { dialogue: false, voice: true }
+      else if (method === 'getDialogueBubbles') result = { config: { enabled: false, characters: [] } }
       else if (method === 'getSpeechSettings') result = { enabled: false, provider: 'browser', providers: [{ id: 'browser', label: '浏览器朗读', browser: true, key: false, fields: [], voices: [], voice: '', narratorVoice: '' }] }
       else throw new Error('Unexpected settings request: ' + method)
     }

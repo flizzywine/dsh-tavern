@@ -1,4 +1,4 @@
-import {cardStageChoice,effectiveCardStage} from './domain/card-stage-settings.js'
+import {cardStageChoice,effectiveCardStage,effectiveConversationStage} from './domain/card-stage-settings.js'
 import {cardAssetExtensionView} from './domain/card-asset-bindings.js'
 import {hasCardAssetBindings} from './card-asset-bindings.js'
 
@@ -57,13 +57,14 @@ export async function createOptionalStage(core,{enabled=true,load,onStatus=()=>{
     try {await work} finally {if(enabling===work)enabling=null}
   }
   if(enabled)try {runtime=(await loadImplementation()).createStageRuntime(core);setState('loaded')}catch(error){failed(error)}
-  async function cardStageMode(cardPath) {
+  async function cardStageMode(cardPath, dialogueSettings) {
     const raw=(await core.readCardWorkspace(cardPath))?.raw
     const extension=raw && hasCardAssetBindings(raw) ? cardAssetExtensionView(raw) : null
-    const effective=extension ? effectiveCardStage(extension,core.assetEngineSettings?.read().values) : null
-    if (state !== 'ready' && (effective?.stage || effective?.dialogue && core.needsStageFeatures?.(raw, extension))) await core.ensureStage?.()
-    return {dialogue:effective?.dialogue===true,
-      stage:state==='ready' && effective?.stage===true,isStageCard:cardStageChoice(extension?.stage,'stage')==='on'}
+    const engine = core.assetEngineSettings?.read().values
+    const current = effectiveConversationStage(extension, engine, dialogueSettings)
+    if (state !== 'ready' && current.dialogue && (current.stage || extension && effectiveCardStage(extension, engine).dialogue && core.needsStageFeatures?.(raw, extension))) await core.ensureStage?.()
+    return {dialogue:current.dialogue===true,
+      stage:state==='ready' && current.stage===true,isStageCard:cardStageChoice(extension?.stage,'stage')==='on'}
   }
   const api = Object.freeze({assets:{cardStageMode},enable,disable,
     modPrompts:(...args) => state === 'ready' ? runtime.modPrompts(...args) : undefined,

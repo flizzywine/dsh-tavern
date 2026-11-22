@@ -10,6 +10,7 @@ function matches(cached, next) {
   return cached && ['cardPath', 'cardContextRevision', 'mode', 'isCard', 'resourceVersion'].every(key => cached[key] === next[key])
 }
 function canProjectDirty(previous, chat, indices, changedHeaderFields) {
+  if (changedHeaderFields?.includes('dialogueSettings')) return false
   // A deferred resource must never retain a capability for an outdated snapshot.
   if (previous?.cardResourceAccess && (!Array.isArray(changedHeaderFields)
     || changedHeaderFields.some(key => ['cardDefinitionSnapshot', 'openingWorldbookSnapshot'].includes(key)))) return false

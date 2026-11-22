@@ -397,7 +397,7 @@ return assetEngineSettings.exportPreset(args || {})
 
         const chat = await chatForSession(str(args && args.sessionId))
         if (!chat) throw new Error('找不到当前对话')
-        return await stageDirector.preview(chat, Number(args?.turn) || 0, await dialogueBubbles.read(chat.cardPath))
+        return await stageDirector.preview(chat, Number(args?.turn) || 0, await dialogueBubbles.read(chat.cardPath, {dialogueSettings:chat.dialogueSettings}))
 
     },
     async getRoundBody(args, method, serverTemplate, authority) {
@@ -437,7 +437,7 @@ return assetEngineSettings.exportPreset(args || {})
 
         const chat = await chatForSession(args?.sessionId)
         if (!chat) throw new Error('找不到当前对话')
-        return await stageDirector.generate(chat, Number(args?.turn), await dialogueBubbles.read(chat.cardPath))
+        return await stageDirector.generate(chat, Number(args?.turn), await dialogueBubbles.read(chat.cardPath, {dialogueSettings:chat.dialogueSettings}))
 
     },
     async retryStageDirection(args, method, serverTemplate, authority) {
@@ -448,7 +448,7 @@ return assetEngineSettings.exportPreset(args || {})
         // explicit redirection replaces even a successful record; observers remain read-only.
         const turn = Number(args?.turn)
         const reset = await stageDirector.retry(chat, turn, {regenerate:true})
-        await stageDirector.get(reset.chat, turn, await dialogueBubbles.read(chat.cardPath), {generate:true, guidance:str(args?.guidance).trim()})
+        await stageDirector.get(reset.chat, turn, await dialogueBubbles.read(chat.cardPath, {dialogueSettings:chat.dialogueSettings}), {generate:true, guidance:str(args?.guidance).trim()})
         return reset
 
     },

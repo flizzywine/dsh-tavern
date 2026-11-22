@@ -1,7 +1,7 @@
 import {directionStyles} from './direction-styles.js'
 import {figureCatalogue} from './figure-catalogue.js'
 import skinContract from '../../packages/dsh-presentation-protocol/src/stage-skin.cjs'
-import { effectiveCardStage, cardStageSkin, cardStageSkinPackIds, effectiveNarrator } from './card-stage-settings.js'
+import { effectiveConversationStage, cardStageSkin, cardStageSkinPackIds, effectiveNarrator } from './card-stage-settings.js'
 import { selectStageEntrance } from './stage-entrance.js'
 import { rawData } from './card-preparation.js'
 import { readCardAssetExtension, cardAssetExtensionView } from './card-asset-bindings.js'
@@ -56,9 +56,9 @@ export function cardStageSkinView(extension, engine, packSnapshots = []) {
     ...skinResource(pack,asset,ref)} : {builtin:true})} : {builtin:true,document:structuredClone(skinContract.BUILTIN_STAGE_SKINS.classic)}
   return {chosen, skin}
 }
-export function cardBubbleConfig(raw, engine, packSnapshots = [], globalEnabledPackIds = [], services = [], chooseService = () => undefined, globalNarrator = null, pointed = {}) {
+export function cardBubbleConfig(raw, engine, packSnapshots = [], globalEnabledPackIds = [], services = [], chooseService = () => undefined, globalNarrator = null, pointed = {}, dialogueSettings) {
   const extension = raw && hasCardAssetBindings(raw) ? readCardAssetExtension(raw) : null
-  const stage = effectiveCardStage(extension, engine), {chosen, skin} = cardStageSkinView(extension, engine, packSnapshots)
+  const stage = effectiveConversationStage(extension, engine, dialogueSettings), {chosen, skin} = cardStageSkinView(extension, engine, packSnapshots)
   const dialogue = engine.dialogue, models = []
   const rows = figureCatalogue({snapshots:packSnapshots,bindings:extension?.assetBindings,globalEnabledPackIds}).filter(row => row.enabled)
   const figuresByAlias = new Map(rows.map(row => [row.actorKey, row]))
@@ -85,7 +85,7 @@ export function cardBubbleConfig(raw, engine, packSnapshots = [], globalEnabledP
   })
   // the one place bubbles are decided — the card's own switch; a card without stage
   // settings has no figures to show and writes plain text (no dialogue-format injection) until 「开启对话气泡」.
-  const config = normalizeBubbleConfig({...dialogue, enabled:!!extension && stage.dialogue, characters,
+  const config = normalizeBubbleConfig({...dialogue, enabled:stage.dialogue, characters,
     stage:{theme:typeof chosen.skin === 'string' ? chosen.skin : 'classic',enabled:!!extension && stage.stage,director:!!extension && stage.stage,music:stage.music,widgets:stage.widgets}})
   // These are resolved catalogue rows. Their normalized emotions need no speaker lookup.
   config.characters = config.characters.map(({avatar, moods, full, ...character}) => {
@@ -141,18 +141,18 @@ export function cardBubbleConfig(raw, engine, packSnapshots = [], globalEnabledP
   config.stage.entrance = extension ? selectStageEntrance(extension, packSnapshots, engine) : null
   // enabled = this card's 角色配音 switch. Whether a line has a voice is each figure's own state: a card whose figures are all
   // unbound still speaks them with 通用声音, so the switch must not depend on any figure having a voice of its own.
-  config.voice = {enabled:stage.voice}
+  config.voice = {enabled:dialogueSettings ? stage.dialogue && stage.voice : stage.voice}
   // Neither reaches the dialogue-format prompt (normalizeBubbleConfig keeps only voice.enabled).
   // 通用声音 / 旁白 speak as the figure they point at: its voice key (the cast's, so the clips are shared) and its 配音语言,
   // which decides 配音补译; neither reaches the prompt. 「不配音」 is silent; a figure gone has no key (silent, a 配音页 problem).
   const general = pointedVoice(pointed.general, extension)
-  if (stage.voice && general) Object.assign(config.voice, {general:general.voiceKey, generalLanguage:general.language})
+  if (config.voice.enabled && general) Object.assign(config.voice, {general:general.voiceKey, generalLanguage:general.language})
   // 旁白配音: present only while it speaks on this card (on, 配音 on, its voice not 不配音). It never changes config.voice,
   // so the dialogue-format prompt is the same with it on or off.
   const narrator = pointedVoice(pointed.narrator, extension)
   // wholeParagraph: 旁白 reads in another language, so each narration paragraph is translated whole (配音补译) and read from
   // its first page (bubble-line.cjs narrationVoiceKey); in 中文 it reads page by page.
-  if (extension && stage.voice && effectiveNarrator(extension, globalNarrator).enabled && narrator) config.narrator = {...narrator, ...(voiceTranslates(narrator.language) ? {wholeParagraph:true} : {})}
+  if ((extension || stage.dialogue) && config.voice.enabled && effectiveNarrator(extension, globalNarrator).enabled && narrator) config.narrator = {...narrator, ...(voiceTranslates(narrator.language) ? {wholeParagraph:true} : {})}
   config.spriteDialogue = collectSpriteDialogue(config, models)
   return config
 }
@@ -216,11 +216,12 @@ export function createCardStage({cardStorage, getEngine, getAssetLibrary = () =>
   const workspace = cardStorage.readWorkspace
   const bubbles = {
     async read(cardPath, options) { return (await bubbles.snapshot(cardPath, options)).config },
-    async snapshot(cardPath, {requireAvailable = false} = {}) {
+    async snapshot(cardPath, {requireAvailable = false, dialogueSettings} = {}) {
       const opened = cardPath ? await measure('bubbles.workspace', () => workspace(cardPath)) : null, raw = opened?.raw || null
       const extension = raw && hasCardAssetBindings(raw) ? readCardAssetExtension(raw) : null
       const service = getAssetLibrary(), packs = []
-      const packIds = [...new Set([...(extension?.assetBindings.boundPackIds || []),...(extension ? getGlobalEnabledPackIds() : [])])]
+      const useAssets = Boolean(extension || dialogueSettings?.dialogue === true)
+      const packIds = [...new Set([...(extension?.assetBindings.boundPackIds || []),...(useAssets ? getGlobalEnabledPackIds() : [])])]
       // Queue the scope together: serial awaits rejoin the busy publication gate once per pack.
       const reads = await measure('bubbles.packs', () => Promise.allSettled(packIds.map(packId => service?.getPackSnapshot({packId}))))
       function assertAvailable() {
@@ -231,15 +232,15 @@ export function createCardStage({cardStorage, getEngine, getAssetLibrary = () =>
       }
       if (requireAvailable) assertAvailable()
       for (const result of reads) if (result.status === 'fulfilled' && result.value) packs.push(result.value)
-      const services = extension ? await measure('bubbles.voiceServices', () => getTts()?.listServices()) || [] : []
+      const services = useAssets ? await measure('bubbles.voiceServices', () => getTts()?.listServices()) || [] : []
       // 通用声音 / 旁白: the figures tts.reading() points at, from any installed pack (already read when the card uses it).
-      const reading = extension ? getTts()?.reading() : null, pointAt = async ref => {
+      const reading = useAssets ? getTts()?.reading() : null, pointAt = async ref => {
         if (!ref) return null
         const pack = packs.find(row => row.manifest.id === ref.packId) || await service?.getPackSnapshot({packId:ref.packId})
         return {ref, pack, figure:pack?.figures[ref.figureId]}
       }
       const pointed = {general:await pointAt(reading?.general?.figure), narrator:await pointAt(reading?.narrator?.figure)}
-      const config = await measure('bubbles.project', () => cardBubbleConfig(raw, getEngine(), packs, getGlobalEnabledPackIds(), services, (source, list) => getTts()?.chooseService(source, list), reading?.narrator, pointed))
+      const config = await measure('bubbles.project', () => cardBubbleConfig(raw, getEngine(), packs, getGlobalEnabledPackIds(), services, (source, list) => getTts()?.chooseService(source, list), reading?.narrator, pointed, dialogueSettings))
       // One request may also preview a prompt. Reuse its catalogue, but retain strict admission failures.
       return {config, requireAvailable() { assertAvailable(); return config }}
     },

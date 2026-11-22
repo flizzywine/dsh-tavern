@@ -285,7 +285,7 @@ import { createStageReads, markStageRead, stageReadCarries, stageReadScope } fro
 import { modStageContributions } from './domain/mods/stage-contributions.js'
 import {createCardStage, watchFigureBubbleBooks} from './domain/card-dialogue.js'
 import {createCardDialogueSpeech} from './domain/card-dialogue-speech.js'
-import {createForegroundCapabilities} from './domain/foreground-capabilities.js'
+import {createForegroundCapabilities, foregroundCapabilityEntries, replaceDialogueWorldbookEntries} from './domain/foreground-capabilities.js'
 import {createVoiceBackfill} from './domain/voice-backfill.js'
 import {migrateServiceSourceModels} from './domain/service-model-migration.js'
 import {migrateReadingVoices} from './domain/reading-voice-migration.js'
@@ -295,7 +295,7 @@ import {createOptionalStage} from './optional-stage.js'
 import {createStageSwitch} from './stage-switch.js'
 import {createAssetEngineSettings} from './asset-engine-settings-owner.js'
 import {cardAssetExtensionPointer, readCardAssetExtension} from './domain/card-asset-bindings.js'
-import {activeStageSkin, AUTO_CAST_DEFAULTS, effectiveAutoCast, validateAutoCastLayer} from './domain/card-stage-settings.js'
+import {activeStageSkin, effectiveConversationStage, AUTO_CAST_DEFAULTS, effectiveAutoCast, validateAutoCastLayer} from './domain/card-stage-settings.js'
 import {createAutoCastSettings} from './auto-cast-settings.js'
 import {createManagedModSettingsOwner} from './mod-system-settings.js'
 import {resolveSwitch} from './domain/mod-system.js'
@@ -2430,7 +2430,7 @@ export async function apply(ctx) {
     tavernExtensionSettings,
     readCardExtensions: (cardPath, chat, settings) => readCardExtensions(cardPath, chat, false, settings),
     readLiveCardStage, stageReadScope, readStageChat,
-    readCardStageMode: cardPath => stageRuntime.assets.cardStageMode(cardPath),
+    readCardStageMode: stageRuntime.assets.cardStageMode,
     readCardResourceVersions,
     tavernRemoteAssets,
     liveCardUpdate,
@@ -2541,7 +2541,7 @@ export async function apply(ctx) {
     modPromptsAvailable:() => stageRuntime.status() === 'ready',
     modPrompts:(chat, options) => stageRuntime.modPrompts(chat, {...options, cardGoverns}),
     judge:() => dialogueEngine().judge,
-    readConfig: cardPath => dialogueBubbles.read(cardPath, {requireAvailable:true}),
+    readConfig: (cardPath, chat) => dialogueBubbles.read(cardPath, {requireAvailable:true, dialogueSettings:chat?.dialogueSettings}),
     render: async (chat, worldBook) => {
       if (stageReadScope(chat) && worldBook.view.entries.some(isWorldBookTemplateEntry)) chat = await readStageChat(chat.sessionId)
       return projectWorldBookTemplates({worldBook,includeConstants:true,
@@ -3246,9 +3246,9 @@ export async function apply(ctx) {
     return own
   }
   async function castCardOf(sessionId) {
-    const header = await chatHeaderForSession(str(sessionId), ['cardPath', 'cardName', 'mode', 'macroState'])
+    const header = await chatHeaderForSession(str(sessionId), ['cardPath', 'cardName', 'mode', 'macroState', 'dialogueSettings'])
     if (!header || !header.cardPath || !['story', 'script'].includes(header.mode || 'story')) throw new Error('这一局没有绑定人物卡')
-    return { path: str(header.cardPath), name: str(header.cardName), player: str(header.macroState && header.macroState.userName).trim() || '你' }
+    return { path: str(header.cardPath), name: str(header.cardName), player: str(header.macroState && header.macroState.userName).trim() || '你', dialogueSettings:header.dialogueSettings }
   }
   // Each turn's spoken lines (getCast, onCastAnnotated, getStage, registerTurnView): its round body's bubble paragraphs,
   // as the chat shows them (the read getRoundBody makes); the round view names the earlier turns so their floors carry their text.
@@ -3286,7 +3286,7 @@ export async function apply(ctx) {
     const manifest = await castAssets.read(card.path)
     const background = (manifest.backgrounds || [])[0]
     // Whether this card's games show the stage: the player's 舞台 switch, for a card with bound packs.
-    return { enabled: (await dialogueBubbles.read(card.path).catch(() => null))?.stage?.enabled === true, player: card.player, card: { name: card.name, imageUrl: '/api/dsh-tavern/card-image?path=' + encodeURIComponent(card.path) },
+    return { enabled: (await dialogueBubbles.read(card.path, {dialogueSettings:card.dialogueSettings}).catch(() => null))?.stage?.enabled === true, player: card.player, card: { name: card.name, imageUrl: '/api/dsh-tavern/card-image?path=' + encodeURIComponent(card.path) },
       background: background ? '/api/dsh-tavern/cast-asset?' + new URLSearchParams({ card: castAssets.keyOf(card.path), file: background.file }).toString() : '',
       cast: await castView(sessionId, card.path, manifest), turns }
   }
@@ -3295,7 +3295,7 @@ export async function apply(ctx) {
   // a page's authenticated origin opens; without it the line uses the 台词朗读 voice.
   async function speakLine(sessionId, { speaker, text, emotion, narration } = {}, origin) {
     const card = await castCardOf(str(sessionId)).catch(() => null)
-    const figures = card && origin ? await dialogueSpeech.forGame({ sessionId: str(sessionId), cardPath: card.path }, origin) : null
+    const figures = card && origin ? await dialogueSpeech.forGame({ sessionId: str(sessionId), cardPath: card.path, dialogueSettings:card.dialogueSettings }, origin) : null
     const extension = card && !figures && narration === true ? await cardStageExtension(card.path).catch(() => null) : null
     return speech.speak({ text, speaker: str(speaker), emotion: str(emotion) || 'neutral', narration: narration === true, figures, extension: extension || undefined })
   }
@@ -4048,8 +4048,15 @@ export async function apply(ctx) {
     return name
   }
   // ---------- 后台结算 ----------
-  const { playWorldBook, worldBookScanDepth, mvuUpdateRules } = createPlayWorldBook({ worldBooks, readChatCard, pluginApi, runtime: promptTemplateRuntime, globalVariables: readPromptTemplateGlobalVariables })
+  const { playWorldBook: readPlayWorldBook, worldBookScanDepth, mvuUpdateRules } = createPlayWorldBook({ worldBooks, readChatCard, pluginApi, runtime: promptTemplateRuntime, globalVariables: readPromptTemplateGlobalVariables })
   const boundedHistory = createBoundedHistory({ links: readSessionMap, readWindow: chatPersistence.readWindow })
+  async function playWorldBook(chat, card) {
+    const book = await readPlayWorldBook(chat, card)
+    if (!chat?.dialogueSettings || !chat.cardPath || groupOfMode(chat.mode) !== 'play') return book
+    // The authored card entry remains a default for other games on the same card.
+    const config = await dialogueBubbles.read(chat.cardPath, {dialogueSettings:chat.dialogueSettings, requireAvailable:true})
+    return replaceDialogueWorldbookEntries(book, foregroundCapabilityEntries(config, chat))
+  }
   // A story request reads the header, every floor its world book scans (plus the
   // current input or latest body), the latest reply and the latest variable floor.
   // Card mode, old saves and unknown depths keep the complete Chat.
@@ -4074,7 +4081,7 @@ export async function apply(ctx) {
       : synced === undefined ? await wholeReads.allow('本进程首次同步', () => chatForSession(sessionId)) : await chatForSession(sessionId)
     if (chat?._storageRevision !== undefined) surfaceSyncedRevisions.set(str(sessionId), chat._storageRevision)
     if (chat?.cardPath && groupOfMode(chat.mode) === 'play' && stageRuntime.status() !== 'ready') {
-      await stageRuntime.assets.cardStageMode(chat.cardPath)
+      await stageRuntime.assets.cardStageMode(chat.cardPath, chat.dialogueSettings)
     }
     return chat
   }
@@ -4834,13 +4841,36 @@ export async function apply(ctx) {
   rpcHandlers.getStageRuntimeStatus = async () => stageSwitch.read()
   rpcHandlers.prepareStageWorkbench = () => stageSwitch.ensure()
   rpcHandlers.prepareCardStage = args => stageRuntime.assets.cardStageMode(args?.path)
+  async function dialogueGame(sessionId) {
+    const chat = await chatHeaderForSession(str(sessionId), ['cardPath', 'dialogueSettings'])
+    if (!chat?.cardPath || groupOfMode(chat.mode) !== 'play') throw new Error('请选择一个游玩对话')
+    return chat
+  }
+  async function dialoguePreferences(cardPath, settings) {
+    const extension = await cardStageExtension(cardPath)
+    const {dialogue, voice} = effectiveConversationStage(extension, dialogueEngine(), settings)
+    return {dialogue, voice}
+  }
+  rpcHandlers.getConversationDialogueSettings = async args => {
+    const chat = await dialogueGame(args?.sessionId)
+    return dialoguePreferences(chat.cardPath, chat.dialogueSettings)
+  }
+  rpcHandlers.setConversationDialogueSettings = async args => {
+    const changes = Object.fromEntries(['dialogue', 'voice'].filter(key => Object.hasOwn(args || {}, key)).map(key => [key, args[key]]))
+    if (!Object.keys(changes).length || Object.values(changes).some(value => typeof value !== 'boolean')) throw new TypeError('对话气泡和配音的设置必须是布尔值')
+    const chat = await dialogueGame(args?.sessionId)
+    const saved = await updateChatHeader(chat.id, ['dialogueSettings'],
+      current => ({dialogueSettings:{...current.dialogueSettings, ...changes}}), {source:'conversation.dialogue-settings'})
+    sessionSignals.publish(chat.sessionId, {kind:'dialogue-settings', version:uid('dialogue')})
+    return dialoguePreferences(chat.cardPath, saved.dialogueSettings)
+  }
   rpcHandlers.getDialogueBubbles = async args => {
     const chat = await requestPerformance.stage('config.chat', () => readStageChat.view(args?.sessionId, {configOnly:true}))
-    const prepared = await requestPerformance.stage('config.bubbles', () => dialogueBubbles.snapshot(chat?.cardPath))
+    const prepared = await requestPerformance.stage('config.bubbles', () => dialogueBubbles.snapshot(chat?.cardPath, {dialogueSettings:chat?.dialogueSettings}))
     const config = prepared.config, userName = str(chat?.macroState?.userName)
     const placement = chat?.cardPath ? await requestPerformance.stage('config.placement', () => readDialogueBubblePlacement(worldBooks, chat.cardPath, config.injection.placement)) : null
     const nativeForeground = chat && chat.requestMode !== 'sillytavern' && ['story','script'].includes(chat.mode || 'story')
-    const injection = nativeForeground ? await requestPerformance.stage('config.foreground', () => foregroundCapabilities.preview(chat, {readConfig:() => prepared.requireAvailable()}))
+    const injection = nativeForeground ? await requestPerformance.stage('config.foreground', () => foregroundCapabilities.preview(chat, {nextRound:Boolean(chat.dialogueSettings), readConfig:() => prepared.requireAvailable()}))
       : bubbleInjection(config, {userName})
     return {engineSettings:assetEngineSettings.read(), cardPath:str(chat?.cardPath), cardName:str(chat?.cardName), userName,
       config, defaultTemplate:DEFAULT_BUBBLE_TEMPLATE, presets:await dialogueBubblePresets.list(),

@@ -48,7 +48,7 @@ function StageSection({title,meta,help,need,active,onEnable,children,className,a
 // `tag` (基础设置): a four-state text switch (StageSwitchTag) in place of the on/off switch; the row is then never a <label>.
 function SwitchRow({label,ariaLabel,icon,help,checked,disabled,onChange,status,onOpen,tag}) {
   const name=h('span',{className:'ap-switch-name'},icon&&h(Glyph,{name:icon}),h('span',null,label),help&&h(Help,{text:help,label:label+' 说明'}));
-  if(tag)return h('div',{className:'ap-switch-row has-tag'+(onOpen?' is-openable':''),'data-disabled':disabled||undefined,onClick:onOpen?switchRowClick(onOpen):undefined},
+  if(tag || onOpen && checked === undefined && !onChange)return h('div',{className:'ap-switch-row'+(tag?' has-tag':'')+(onOpen?' is-openable':''),'data-disabled':disabled||undefined,onClick:onOpen?switchRowClick(onOpen):undefined},
     h('div',{className:'ap-switch-main'},name,status||null,tag));
   // The switch comes first in the DOM (CSS order puts it on the right) so the label's control is the switch, not the 「?」.
   const toggle=h(Switch,{bare:true,label:ariaLabel||label,checked,disabled,onChange}); // the one switch (inline-field.js)

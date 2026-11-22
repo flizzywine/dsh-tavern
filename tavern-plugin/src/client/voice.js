@@ -67,6 +67,9 @@ function useVoiceBubbles(props,segments,_cardPath,config) {
         const off=packTransport?.service.subscribe(invalidate), host=tavernSessionSignals?.subscribe(props.sessionId,'tavern-state',invalidate);
         return()=>{off?.();host?.();if(voicePlayer.get()?.owner===owner)voicePlayer.stop();};
     },[owner]);
+    React.useEffect(() => {
+        if (config?.voice?.enabled === false && voicePlayer.get()?.owner === owner) voicePlayer.stop();
+    }, [owner, config?.voice?.enabled]);
     const voiceOrdinals = new Map(galParagraphs([{segments,streaming:false}]).map((unit,n)=>[unit.index,n]));
     const handles = Object.fromEntries(available ? segments.flatMap((segment,index)=>{
         const input = segmentSpeechInput(segment,config);

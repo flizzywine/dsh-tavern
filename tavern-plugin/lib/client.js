@@ -6794,7 +6794,7 @@ window.__ModuleLoader__.load({
 		  // `tag` (基础设置): a four-state text switch (StageSwitchTag) in place of the on/off switch; the row is then never a <label>.
 		  function SwitchRow({label,ariaLabel,icon,help,checked,disabled,onChange,status,onOpen,tag}) {
 		    const name=h('span',{className:'ap-switch-name'},icon&&h(Glyph,{name:icon}),h('span',null,label),help&&h(Help,{text:help,label:label+' 说明'}));
-		    if(tag)return h('div',{className:'ap-switch-row has-tag'+(onOpen?' is-openable':''),'data-disabled':disabled||undefined,onClick:onOpen?switchRowClick(onOpen):undefined},
+		    if(tag || onOpen && checked === undefined && !onChange)return h('div',{className:'ap-switch-row'+(tag?' has-tag':'')+(onOpen?' is-openable':''),'data-disabled':disabled||undefined,onClick:onOpen?switchRowClick(onOpen):undefined},
 		      h('div',{className:'ap-switch-main'},name,status||null,tag));
 		    // The switch comes first in the DOM (CSS order puts it on the right) so the label's control is the switch, not the 「?」.
 		    const toggle=h(Switch,{bare:true,label:ariaLabel||label,checked,disabled,onChange}); // the one switch (inline-field.js)
@@ -27734,6 +27734,9 @@ function tavernModelRefusalNotice(text) {
 		        const off=packTransport?.service.subscribe(invalidate), host=tavernSessionSignals?.subscribe(props.sessionId,'tavern-state',invalidate);
 		        return()=>{off?.();host?.();if(voicePlayer.get()?.owner===owner)voicePlayer.stop();};
 		    },[owner]);
+		    React.useEffect(() => {
+		        if (config?.voice?.enabled === false && voicePlayer.get()?.owner === owner) voicePlayer.stop();
+		    }, [owner, config?.voice?.enabled]);
 		    const voiceOrdinals = new Map(galParagraphs([{segments,streaming:false}]).map((unit,n)=>[unit.index,n]));
 		    const handles = Object.fromEntries(available ? segments.flatMap((segment,index)=>{
 		        const input = segmentSpeechInput(segment,config);
@@ -28501,6 +28504,8 @@ function tavernModelRefusalNotice(text) {
 		            let watch = watches.get(sessionId);
 		            if (!watch) {
 		                const refresh = () => load(sessionId, true);
+		                const stopSettings = typeof tavernSessionSignals === "undefined" ? null
+		                    : tavernSessionSignals?.subscribe(sessionId, "dialogue-settings", refresh);
 		                const timer = setInterval(refresh, 60000);
 		                timer.unref?.();
 		                const resourceChanged = event => { if (tavernDataChangeAffects(event, ["cards", "worldbooks", "asset-packs"])) refresh(); };
@@ -28508,6 +28513,7 @@ function tavernModelRefusalNotice(text) {
 		                window.addEventListener("dsh-tavern-data-changed", resourceChanged);
 		                watch = {count:0, stop() {
 		                    clearInterval(timer);
+		                    stopSettings?.();
 		                    if (typeof document !== "undefined") document.removeEventListener("visibilitychange", refresh);
 		                    window.removeEventListener("dsh-tavern-data-changed", resourceChanged);
 		                }};
@@ -61381,6 +61387,25 @@ function createConversationSettingsModule({
             problemLine(problem || reasonProblem));
     }
 
+    function SessionDialogueSection({ sessionId }) {
+        const config = useSessionSettings(sessionId, { readMethod: "getConversationDialogueSettings",
+            writeMethod: "setConversationDialogueSettings", signalId: sessionId, signalKinds: ["dialogue-settings"] });
+        const [problem, write] = useSectionWriter(config);
+        const data = config.data;
+        const change = async (key, enabled) => {
+            if (await write({ [key]: enabled }, { [key]: enabled })) bubbleStore.load(sessionId, true);
+        };
+        return h(packUi.StageSection, { title: "对话", foldKey: FOLD("对话") },
+            rows(
+                h(packUi.SwitchRow, { label: "对话气泡", checked: data?.dialogue === true, disabled: !data || config.busy,
+                    onChange: enabled => void change("dialogue", enabled) }),
+                h(packUi.SwitchRow, { label: "配音", checked: data?.dialogue === true && data.voice === true,
+                    disabled: !data || config.busy || !data.dialogue, help: "开启对话气泡后，角色台词可以配音。",
+                    onChange: enabled => void change("voice", enabled) })),
+            problemLine(config.error ? "读取失败：" + config.error : "", config.error ? config.load : null),
+            problemLine(problem));
+    }
+
     // ---------- 舞台: one row into 舞台设置 ----------
     // 舞台设置 is a stage tab, registered once the stage client runs (a card without the stage does not load it): the row holds
     // the client from its first click until this page closes, then opens the tab (focused when it is already open).
@@ -61414,7 +61439,7 @@ function createConversationSettingsModule({
             for (const slot of chosen) if (!await write({ modModelSelection: { modId: slot.modId, slotId: slot.id, selection: null } })) return;
         }
         return h(packUi.StageSection, { title: "舞台", foldKey: FOLD("舞台"),
-                help: "对话气泡、舞台模式、配音、手机等舞台功能都在「舞台设置」里；舞台用的模型在侧栏首页的 舞台装置 › 舞台配置 › 舞台模型。" },
+                help: "舞台模式、素材和模组在「舞台设置」里；舞台用的模型在侧栏首页的 舞台装置 › 舞台配置 › 舞台模型。" },
             rows(h(packUi.SwitchRow, { label: "舞台设置", icon: "stage", onOpen: () => void open(),
                 tag: h("span", { className: "dsh-session-stage-state" }, opening ? h(Spinner, { label: "正在打开舞台设置" }) : word),
                 status: h("button", { type: "button", className: "ap-kind-jump", "aria-label": "打开舞台设置", title: "打开舞台设置", onClick: () => void open() }, h(packUi.Glyph, { name: "chevRight" })) })),
@@ -61546,6 +61571,7 @@ function createConversationSettingsModule({
                     h(UserPreferenceProfileTab, { scope: { sessionId }, conversationOnly: true, Field: InlineField,
                         track: promise => trackTavernSettingsWrite(sessionId, promise) }),
                     h(SessionCandidateCount, { sessionId, config }))),
+            h(SessionDialogueSection, { sessionId }),
             stage?.isStageCard === true ? h(SessionStageSection, { sessionId, config, stage }) : null,
             h(SessionModelSection, { sessionId, config }),
             h(SessionFeatureSection, { config }),

@@ -94,6 +94,8 @@ const bubbleStore = (function () {
             let watch = watches.get(sessionId);
             if (!watch) {
                 const refresh = () => load(sessionId, true);
+                const stopSettings = typeof tavernSessionSignals === "undefined" ? null
+                    : tavernSessionSignals?.subscribe(sessionId, "dialogue-settings", refresh);
                 const timer = setInterval(refresh, 60000);
                 timer.unref?.();
                 const resourceChanged = event => { if (tavernDataChangeAffects(event, ["cards", "worldbooks", "asset-packs"])) refresh(); };
@@ -101,6 +103,7 @@ const bubbleStore = (function () {
                 window.addEventListener("dsh-tavern-data-changed", resourceChanged);
                 watch = {count:0, stop() {
                     clearInterval(timer);
+                    stopSettings?.();
                     if (typeof document !== "undefined") document.removeEventListener("visibilitychange", refresh);
                     window.removeEventListener("dsh-tavern-data-changed", resourceChanged);
                 }};

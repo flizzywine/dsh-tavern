@@ -87,6 +87,44 @@ try {
   assert.equal(host.services.has('tavernManagedModules'), false)
   assert.equal(await clientAssets.read('/api/dsh-tavern/client-assets/stage-client.mjs'), undefined)
   assert.equal(await clientAssets.read(overlay),undefined)
+  const plainArgs = {sessionId:'plain-chat'}, otherArgs = {sessionId:'plain-other'}
+  await writeFile(join(dataRoot, 'sessions.json'), JSON.stringify({
+    [args.sessionId]:'dialogue-chat', [plainArgs.sessionId]:'plain-save', [otherArgs.sessionId]:'other-save'
+  }))
+  for (const [id, input] of [['plain-save', plainArgs], ['other-save', otherArgs]]) {
+    await createChatJournalStore({dataRoot}).update(id, () => ({
+      id, _storageRevision:1, ...input, mode:'story', cardPath:imported.card.path,
+      backgroundConfigVersion:1, conversationFeaturesVersion:1,
+      messages:[{role:'assistant', turn:1, text:'Hello', sourceText:'Hello'}]
+    }))
+    host.services.get('sessions').set(input.sessionId, {id:input.sessionId, events:[]})
+  }
+  const gameDialogue = async input => {
+    const {dialogue, voice} = await host.rpc('getConversationDialogueSettings', input)
+    return {dialogue, voice}
+  }
+  const save = patch => host.rpc('setConversationDialogueSettings', {...plainArgs, ...patch})
+  const openVoice = () => host.rpc('openAssetPackVoice', {...plainArgs, general:true}, {origin:'http://localhost:3081'})
+  assert.deepEqual(await gameDialogue(plainArgs), {dialogue:false, voice:true})
+  assert.equal((await host.rpc('getSession', plainArgs)).view.stage.dialogue, false)
+  await assert.rejects(save({dialogue:'yes'}), /布尔值/)
+  await save({dialogue:true})
+  assert.deepEqual(await gameDialogue(plainArgs), {dialogue:true, voice:true})
+  assert.deepEqual((await host.rpc('getSession', plainArgs)).view.stage, {dialogue:true, stage:false, isStageCard:false})
+  const projected = await host.rpc('getDialogueBubbles', plainArgs)
+  assert.equal(projected.config.enabled, true)
+  assert.ok(projected.injection.some(part => part.text.includes('@bubble:')))
+  assert.deepEqual((await openVoice()).browser, {voice:''})
+  assert.deepEqual(await gameDialogue(otherArgs), {dialogue:false, voice:true}, 'the other game keeps the card default')
+  assert.equal((await host.rpc('getDialogueBubbles', otherArgs)).config.enabled, false)
+  await save({voice:false})
+  assert.equal((await host.rpc('getDialogueBubbles', plainArgs)).config.voice.enabled, false)
+  assert.equal((await openVoice()).available, false)
+  await save({dialogue:false})
+  assert.equal((await host.rpc('getSession', plainArgs)).view.stage.dialogue, false)
+  assert.deepEqual((await host.rpc('getDialogueBubbles', plainArgs)).injection, [])
+  assert.equal((await host.rpc('getStageRuntimeStatus')).status, 'disabled')
+  assert.equal(await clientAssets.read('/api/dsh-tavern/client-assets/stage-client.mjs'), undefined)
   const control=host.services.get('tavernStageControl')
   for(let cycle=0;cycle<(process.env.DSH_TEST_STAGE_UNAVAILABLE ? 0 : 2);cycle++) {
     await control.enable(() => import('../../tavern-plugin/packages/dsh-tavern-stage/lib/runtime.js'))

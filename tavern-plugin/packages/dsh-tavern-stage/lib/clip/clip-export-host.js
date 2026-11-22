@@ -35,7 +35,7 @@ export function createClipHost(options) {
   async function readSnapshot(sessionId,chatId,range,args) {
     const chat=await readChat(sessionId)
     if(!chat || chat.id!==chatId || chat.sessionId!==sessionId)throw clipUserError('对话与所选内容不匹配，请重新打开对话后选择片段')
-    const [display,config,workspace]=await Promise.all([readDisplay(chat),readConfig(chat.cardPath),readWorkspace(chat.cardPath)])
+    const [display,config,workspace]=await Promise.all([readDisplay(chat),readConfig(chat.cardPath, chat),readWorkspace(chat.cardPath)])
     const paragraphs=display.projections.flatMap(({turn,body})=>(body?.paragraphs || []).filter(row=>!row.pending).map(row=>({turn,para:row.para,kind:row.kind,text:row.text,source:row.source,segment:row.segment,...(row.speech!==undefined?{speech:row.speech}:{}),...(row.voiceHold?{voiceHold:true}:{})}))).sort((a,b)=>a.turn-b.turn || a.para-b.para)
     if(!range)return {chatId,paragraphs}
     const selected=clipRange(paragraphs,range)
