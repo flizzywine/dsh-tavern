@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "228e8921cf456efe9e76183334e95e85453ace14",
-  "releaseSequence": 1929,
+  "revision": "63ab909bbf29183d21cb159238337212a017f75d",
+  "releaseSequence": 1930,
   "version": "3.4.0",
   "files": [
     {
@@ -83,6 +83,126 @@
       "path": "android/LICENSE",
       "sha256": "06dcddbb6908a0c6dd4a9e8ec822eea41d5a460a53089fecccc8a68049e99241",
       "size": 1056
+    },
+    {
+      "path": "android/native/apk-deps-update-smoke.mjs",
+      "sha256": "8ef2d40117df87c57295c953aea512e06c9b10490a526db83c0292666256317e",
+      "size": 12483
+    },
+    {
+      "path": "android/native/apk-launcher-smoke.mjs",
+      "sha256": "5031ff939a46195ceda073424b03fca1131b31a283ed53d217afe8e8979e3052",
+      "size": 15179
+    },
+    {
+      "path": "android/native/apk-smoke.mjs",
+      "sha256": "828c4e9592e2906cde4de1d9d2f9a5d29687afa1ce0aa06ec0f7445559629d42",
+      "size": 11979
+    },
+    {
+      "path": "android/native/apk-upgrade-smoke.mjs",
+      "sha256": "168d9fcef19ec75cc5834ffe4cfde4df759fccd9d056fa029f033222f645a374",
+      "size": 12416
+    },
+    {
+      "path": "android/native/app/AndroidManifest.xml",
+      "sha256": "12d130ebd84ceffc945ce7ee07b4dc8d2bd4e427177a718bc858e8169803ba03",
+      "size": 2475
+    },
+    {
+      "path": "android/native/app/src/io/github/flizzywine/dshtavern/bionic/MainActivity.java",
+      "sha256": "0eaeb14ca2463d9d40ce70e1d1072cfcfac19ea973bcc06abfc6d6bf183c168c",
+      "size": 35444
+    },
+    {
+      "path": "android/native/app/src/io/github/flizzywine/dshtavern/bionic/TarExtractor.java",
+      "sha256": "c9dd3fe68736f36ae30268d62f84ce62c3f0968e311616f8f2ed23b0b30cc6f0",
+      "size": 8219
+    },
+    {
+      "path": "android/native/app/src/io/github/flizzywine/dshtavern/bionic/TavernService.java",
+      "sha256": "48bb71c45b2abd87f6bd9bead9e92f15aa119a679f81a8cf6d3317a493a2107e",
+      "size": 34695
+    },
+    {
+      "path": "android/native/app/src/io/github/flizzywine/dshtavern/bionic/UpdatedReceiver.java",
+      "sha256": "49dfc8d32854e0efd118c5a9d7e2e0c557c00ea5d181d422962092d2726e4b2b",
+      "size": 817
+    },
+    {
+      "path": "android/native/build-apk.sh",
+      "sha256": "30cbeaea80eefbb08529c26dabe25f4030abb98a3cba534c215264b576820e70",
+      "size": 6015
+    },
+    {
+      "path": "android/native/device-smoke.mjs",
+      "sha256": "2ad4510e0abdfa36b21ec923697af7855f7b22ecc289f18baaf59769fbd198d8",
+      "size": 10266
+    },
+    {
+      "path": "android/native/fetch-npm-packages.py",
+      "sha256": "d3fe512f2b65902da6dfb29b9b3031fb56afb46cf9fc19807b6fdf4825c32822",
+      "size": 3178
+    },
+    {
+      "path": "android/native/fetch-termux-node.py",
+      "sha256": "9562d8412254062200ec54284445d863974bae7ebd43220aaea91d2123f3c089",
+      "size": 4471
+    },
+    {
+      "path": "android/native/make-icons.py",
+      "sha256": "b43b5eb91ff641ff380fa6c14e8467f17aabb21a1db77c8b308c50069cfee4af",
+      "size": 4024
+    },
+    {
+      "path": "android/native/make-test-release.sh",
+      "sha256": "84ddcecf9324ee0bda4190c0b792fc90f5fe82c9b14065deef8c83f37112dbcd",
+      "size": 2330
+    },
+    {
+      "path": "android/native/pack-jnilibs.py",
+      "sha256": "014eb01a807d290a5fb1a31bef15290dc2e12c84df9e42b976035a472ec72ae4",
+      "size": 4904
+    },
+    {
+      "path": "android/native/patch-runpath.py",
+      "sha256": "a0f1ca43b5db1edbb3637ad1a12b103eb612e91c6752f9191acca023c8ea88c8",
+      "size": 2550
+    },
+    {
+      "path": "android/native/README.md",
+      "sha256": "d37dcdbb9df806732d27f975eea9e3607ee9927d4015c5518bf1724773d19791",
+      "size": 17066
+    },
+    {
+      "path": "android/native/seed-static-cache.mjs",
+      "sha256": "4078713b7fd8e5f79ee5d4f63084cf273530abd759b0ceb195fcca2439d1dca1",
+      "size": 2229
+    },
+    {
+      "path": "android/native/shims/android-preload.cjs",
+      "sha256": "69988d265edb8ad62546427625e0aa26b6aed395a1ca43c1d9394f53dd0d772c",
+      "size": 7508
+    },
+    {
+      "path": "android/native/shims/node-addon-require-builtin/lib/index.js",
+      "sha256": "194b3135040497c0a3fca39ea42b3d92a69c7a76e4046ac5e5f84c4ce5781b72",
+      "size": 2309
+    },
+    {
+      "path": "android/native/shims/node-addon-system/lib/flock.js",
+      "sha256": "31a3a31c3e26f5847fde176229478fa0510520f14c13c479a2a7a6e86763fae3",
+      "size": 649
+    },
+    {
+      "path": "android/native/shims/source-update.mjs",
+      "sha256": "919ee140e099ba64514bbac96f1275a9f693945eef9a926f119613dd4e5d2bf2",
+      "size": 20331
+    },
+    {
+      "path": "android/native/stage-payload.sh",
+      "sha256": "aafe387cdd52b91bdca25e1d8488de227123e53ab189a17fe411832867f685bb",
+      "size": 11924
     },
     {
       "path": "android/README.md",
@@ -381,8 +501,8 @@
     },
     {
       "path": "bin/profile-configuration.mjs",
-      "sha256": "994dc165532739ce317def32efa48a12dde0d0394fbef81029ea7bb13b867467",
-      "size": 14376
+      "sha256": "3ec0e35a1b5444e05f0e5dee094ed49094828cbed67d78eb3f6ae84be93f7d35",
+      "size": 14569
     },
     {
       "path": "bin/profile-installation.mjs",
@@ -986,8 +1106,8 @@
     },
     {
       "path": "tavern-plugin/lib/application-updater.js",
-      "sha256": "68f3b404d0aa960c1c2f32bad27ede5143254c945f3e975ef0b3ddcab899d012",
-      "size": 49977
+      "sha256": "574c28108017de8fc36e59cdf4b6c7551bd1801fa6b0ac586de9978b5241c792",
+      "size": 50417
     },
     {
       "path": "tavern-plugin/lib/asset-engine-settings-owner.js",
@@ -9266,8 +9386,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern/lib/proxy-environment.mjs",
-      "sha256": "ad3bc50b788759d724906e2bad1d4e55fc7cd4a01a7297a4579ab7094fcbd1cf",
-      "size": 7383
+      "sha256": "d4def21837f12c6c5fb9f983e681c1a0d16ba2eb5526a5a67fbdb8a547c0ff12",
+      "size": 7527
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern/lib/quit.mjs",
@@ -9711,9 +9831,9 @@
     }
   ],
   "archive": {
-    "commit": "bbc6411c5ef9dea11ceb8dbe7b531dcfbc6285d5",
+    "commit": "5dbdb3c3a74c56aa233d0927f3c026bb8229f60f",
     "path": "runtime.zip",
-    "sha256": "03e32316532ba3e0ca0f2e67c07e88e3cc54e885debbf13cdef80c73a5d35305",
-    "size": 17169013
+    "sha256": "a41b79a09f4e7829111d0ab103a3f634db0472655a718e26310defcbdfae558e",
+    "size": 17263962
   }
 }
