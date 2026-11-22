@@ -4,7 +4,7 @@ window.__ModuleLoader__.load({
     const React = require('react')
     const h = React.createElement
     const plugin = 'dsh-tavern-story-director'
-    const fields = { intent: '玩家意图', story: '剧情', pacing: '节奏', style: '文风' }
+    const fields = { story: '剧情', pacing: '节奏', style: '文风' }
 
     function DirectorPanel({ ui, gameId, visible }) {
       const [state, setState] = React.useState(null)
@@ -72,6 +72,7 @@ window.__ModuleLoader__.load({
         }
       }
 
+      const guide = state?.enabled ? state.guide : state?.plan
       const waiting = sending || state?.phase === 'chat'
       const review = !waiting && state?.phase === 'review'
       const disabled = !state || Boolean(waiting) || switching || state.phase === 'switch'
@@ -79,8 +80,8 @@ window.__ModuleLoader__.load({
         state?.plan ? h('div', { className: 'tavern-story-director-controls' },
           h('details', null,
             h('summary', null, state.enabled ? '当前 Guide' : '导演已暂停'),
-            h('dl', null, Object.entries(fields).map(([key, label]) =>
-              h('div', { key }, h('dt', null, label), h('dd', null, state.plan[key]))))),
+            h('dl', null, Object.entries(fields).filter(([key]) => guide?.[key]).map(([key, label]) =>
+              h('div', { key }, h('dt', null, label), h('dd', null, guide[key]))))),
           h('button', { type: 'button', onClick: toggle, disabled: switching || state.phase === 'switch' }, state.enabled ? '暂停' : '恢复')) : null,
         h('div', { className: 'tavern-story-director-log', role: 'log', ref: log },
           state ? state.turns.map(turn => h(React.Fragment, { key: turn.id },

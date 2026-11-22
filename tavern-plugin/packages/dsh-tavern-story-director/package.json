@@ -1,6 +1,6 @@
 {
   "name": "dsh-tavern-story-director",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "在侧栏与玩家讨论剧情，按进度自动调整剧情与文风 Guide。",
   "type": "module",
   "exports": { ".": "./lib/index.js", "./client": "./client.js" },
