@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "6a904817b9cc607eeac7042f1c230ee0037f846e",
-  "releaseSequence": 1933,
+  "revision": "1b588c0843e51de26de43352537c7fa7bf7fecc0",
+  "releaseSequence": 1934,
   "version": "3.4.0",
   "files": [
     {
@@ -271,8 +271,8 @@
     },
     {
       "path": "bin/bundled-tavern-plugins.mjs",
-      "sha256": "d553673f1cdb044c088e8bf9560961974095514d7b241c519dc35b62c5526856",
-      "size": 10968
+      "sha256": "633ac0d4e29cf0138a3dd47623047a48e6e9524394d6719c456cf5a071d9a2f0",
+      "size": 11139
     },
     {
       "path": "bin/chat-answer-step-patch.mjs",
@@ -7490,6 +7490,31 @@
       "size": 7600
     },
     {
+      "path": "tavern-plugin/packages/dsh-tavern-adventure-medal/client.js",
+      "sha256": "43a3c899fd2718e4af6ef8db8a86c733cf30bcadbb9676d67ff4ab5024f6cc93",
+      "size": 16494
+    },
+    {
+      "path": "tavern-plugin/packages/dsh-tavern-adventure-medal/lib/index.js",
+      "sha256": "4d0c8f4d7928bb9f1191365e3cd2071120133d4657baaa79f140e7d22233844d",
+      "size": 27040
+    },
+    {
+      "path": "tavern-plugin/packages/dsh-tavern-adventure-medal/LICENSE",
+      "sha256": "417aa0c3de49c2c8e29932e867061e5028ce6fafba6fd7dcc9e3b16fb2d15549",
+      "size": 1096
+    },
+    {
+      "path": "tavern-plugin/packages/dsh-tavern-adventure-medal/package.json",
+      "sha256": "3c085646449127c1e0b110f4e1bdc3aacb222ab86db21d3624c85d0b9e7e52bd",
+      "size": 713
+    },
+    {
+      "path": "tavern-plugin/packages/dsh-tavern-adventure-medal/README.md",
+      "sha256": "8ed4f92c8e84a01b18142a0c470be10fdde8014bb5e5a4baca4ee9b15d817366",
+      "size": 1376
+    },
+    {
       "path": "tavern-plugin/packages/dsh-tavern-audiobook/build.mjs",
       "sha256": "807e7c82554c52511836b2735fdf032ddcd6cceabc9c85a07bc74ca76e9cc298",
       "size": 3007
@@ -9330,6 +9355,31 @@
       "size": 56
     },
     {
+      "path": "tavern-plugin/packages/dsh-tavern/assets/achievement-art.css",
+      "sha256": "79014038470b9f914608e77f14e5c763e1d1a0dd09a66e4def4374f5f5de8f4f",
+      "size": 7544
+    },
+    {
+      "path": "tavern-plugin/packages/dsh-tavern/assets/achievement-badges.webp",
+      "sha256": "6ad76a20790d5ef7b9b8abcf786441c00831151179cfb10a801634004a51ec7c",
+      "size": 17338
+    },
+    {
+      "path": "tavern-plugin/packages/dsh-tavern/assets/achievement-icons.webp",
+      "sha256": "c09a1636b8b65c556b09e5238299005b0f222db8781fcd012c19255c85f6aa71",
+      "size": 1984
+    },
+    {
+      "path": "tavern-plugin/packages/dsh-tavern/assets/achievement-medal.webp",
+      "sha256": "b49b6213f55f143b91f1e3f91c907db79a625500d808736ccdb34b126868104a",
+      "size": 18486
+    },
+    {
+      "path": "tavern-plugin/packages/dsh-tavern/assets/achievement-paper.webp",
+      "sha256": "e0bb8006c98a86ff38c6c1782cf2659e0604d441163948dcaef17ba8370c7978",
+      "size": 12686
+    },
+    {
       "path": "tavern-plugin/packages/dsh-tavern/assets/dsh-tavern-app-icon-192.png",
       "sha256": "6414fe6862b7062be85e4d3a23556d955ad7c9e1c13be2fba4c438f596174ba1",
       "size": 12656
@@ -9346,8 +9396,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern/client.js",
-      "sha256": "6801311477b2a300ebabb60205fc3bb2705de2060f6aa6dbc019d9f16d2b732f",
-      "size": 48509
+      "sha256": "409ccf01302a2793a6b34afd82d8facdfe16eaeb489eec38c4a37596403741d8",
+      "size": 53294
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern/cordis.patch.yml",
@@ -9361,8 +9411,13 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern/index.js",
-      "sha256": "a91c5e769498c60092fda80883505e55bd8b4bd2fc4bcf209d53e946238ee8fa",
-      "size": 16008
+      "sha256": "a5aa198498d50bed9efa328726996e5b196d91e3931b7da0b543c2ea2bbed682",
+      "size": 16541
+    },
+    {
+      "path": "tavern-plugin/packages/dsh-tavern/lib/achievements.mjs",
+      "sha256": "45475af206891141566d161e256d42eeebd19a2adf399e9abfb5f1ff5187885c",
+      "size": 2014
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern/lib/helper.mjs",
@@ -9431,8 +9486,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern/LICENSE",
-      "sha256": "15523c22de101f2931c5e0ce8b6d3f23847147e1eb061321ae8b23ad5c1c6c1f",
-      "size": 1088
+      "sha256": "72e4f9840a4968034460959bae26390ae804f8d26d8c804453da18ec8662882c",
+      "size": 1235
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern/locale/en.json",
@@ -9836,9 +9891,9 @@
     }
   ],
   "archive": {
-    "commit": "1f4f09b9f1ebe01645fd6ed6f9b7def984f520cd",
+    "commit": "2e8ab5d7109e3e780609205d3a457611d0ee6628",
     "path": "runtime.zip",
-    "sha256": "75478ece53036b58a956a40f5c92edf72f711c32037964cadd54ec92a50a6c1a",
-    "size": 17267275
+    "sha256": "32287b2fe555017d21f67984930b69360831b8a6e7feb3dc490c484596a72bc2",
+    "size": 17340330
   }
 }
