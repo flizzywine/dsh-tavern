@@ -57327,7 +57327,18 @@ function CardExportMenu({ disabled, hasImage, onExport }) {
             }
             components.sort((a, b) => b.count - a.count);
             if (!components.length || components[0].count < 16) return invalid("tiny-bounds");
-            const b = components[0].bounds, sx = original[0] / width, sy = original[1] / height;
+            // The body is the largest part plus every part stacked on top of it: a head drawn apart from the body (a floating
+            // mask or symbol head, a hat over a gap) sits within the body's width with its bottom at the body's top. Parts beside
+            // or below it (sparkles, a floor shadow) stay out.
+            const b = [...components[0].bounds], gap = Math.max(1, Math.round(height * 0.02));
+            for (let grown = true; grown;) {
+                grown = false;
+                for (const c of components) {
+                    const [l, t, r, bt] = c.bounds;
+                    if (t < b[1] && bt >= b[1] - gap && bt <= b[3] && r >= b[0] && l <= b[2]) { b[0] = Math.min(b[0], l); b[1] = t; b[2] = Math.max(b[2], r); grown = true; }
+                }
+            }
+            const sx = original[0] / width, sy = original[1] / height;
             const rect = a => [a[0] * sx, a[1] * sy, (a[2] - a[0] + 1) * sx, (a[3] - a[1] + 1) * sy];
             let edgeRows = 0;
             for (let y = Math.max(0, height - 4); y < height; y++) {
