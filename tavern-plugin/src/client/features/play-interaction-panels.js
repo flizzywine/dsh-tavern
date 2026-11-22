@@ -34,7 +34,6 @@ function createPlayInteractionPanels({ interactions, useCandidatePanel, useCandi
         function setExpanded(value) {
             if (panel) setCandidatePanel(Object.assign({}, panel, { expanded: value }));
         }
-        React.useEffect(() => { if (running && panel?.expanded) setExpanded(false); }, [running, panel]);
         React.useEffect(function () {
                 if (typeof document === "undefined" || !panel?.expanded) return;
                 function onComposerFocus(event) {
@@ -48,11 +47,10 @@ function createPlayInteractionPanels({ interactions, useCandidatePanel, useCandi
                 setAdded([]);
                 setActiveTab("featured");
             }, [panel?.choices]);
-        // 候选项属于这一局最近一轮（服务端只留那一份）。页面手里的消息 id 可能为空（宿主
-        // 没有投影节点）或另一套 id，判断只认这一局，不认两个 id 是否相等。
-        // A failure the page recorded carries the page's own id: a newer round on the page hides it.
-        const staleError = panel?.phase === "error" && !!panel.messageId && !!latestMessageId && panel.messageId !== latestMessageId;
-        if (!isPlayMode(sessionMode) || !panel || panel.sessionId !== props.sessionId || running || staleError) {
+        // The panel is tagged with the page's reply id when loaded, even if
+        // the server stored it under a different id. Some hosts have no id.
+        const stalePanel = panel?.messageId && latestMessageId && panel.messageId !== latestMessageId;
+        if (!isPlayMode(sessionMode) || !panel || panel.sessionId !== props.sessionId || running || stalePanel) {
             return null;
         }
         const h = React.createElement;

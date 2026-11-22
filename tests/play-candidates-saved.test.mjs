@@ -21,4 +21,18 @@ test('前台候选项：这一轮没存候选项时报空，已显示的面板�
   assert.equal(await interactions.loadSavedCandidates('a', 'm'), interactions.candidates.getSnapshot())
   assert.deepEqual(calls, [], '已显示的面板不再重读')
   assert.equal(await interactions.loadSavedCandidates('a', 'm2'), null)
+  assert.equal(interactions.candidates.getSnapshot(), null)
+})
+
+test('已取消的读取晚到时不会覆盖新一轮候选项', async () => {
+  const pending = Promise.withResolvers()
+  const interactions = flow([], ({ messageId }) => messageId === 'old' ? pending.promise : { candidates: saved })
+  const controller = new AbortController()
+  const oldRead = interactions.loadSavedCandidates('a', 'old', controller.signal)
+  controller.abort()
+  const current = await interactions.loadSavedCandidates('a', 'new')
+  pending.resolve({ candidates: { choices: ['上一轮'] } })
+  assert.equal(await oldRead, null)
+  assert.equal(interactions.candidates.getSnapshot(), current)
+  assert.equal(current.messageId, 'new')
 })

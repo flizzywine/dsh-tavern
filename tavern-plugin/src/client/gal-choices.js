@@ -11,9 +11,10 @@ function GalChoices(props) {
     const task = coordination.view && coordination.view.task;
     const taskForMessage = task && task.kind === "candidate" && task.input && String(task.input.messageId || "") === String(messageId || "") ? task : null;
     const panel = panelState && panelState.sessionId === sessionId && panelState.messageId === messageId ? panelState : null;
+    useSavedCandidates(sessionId, messageId, running, taskForMessage?.taskId);
     // Mirror mailbox progress and failures too: a hidden composer must not leave us waiting forever.
     React.useEffect(function () {
-        if (!taskForMessage) return;
+        if (running || !taskForMessage) return;
         if (taskForMessage.busy)
             setCandidatePanel({ sessionId, messageId, phase: "loading", choices: [], error: "" });
         else if (taskForMessage.status === "succeeded" && taskForMessage.result && taskForMessage.result.candidates)
@@ -23,11 +24,6 @@ function GalChoices(props) {
         else if (taskForMessage.terminal)
             setCandidatePanel({ sessionId, messageId, phase: "error", choices: [], error: playerErrorText(taskForMessage.error || "选项生成未完成", { fallback: "选项生成未完成" }) });
     }, [sessionId, messageId, taskForMessage && taskForMessage.taskId, taskForMessage && taskForMessage.version, taskForMessage && taskForMessage.status]);
-    // 前台候选项随正文存好，没有任务送到页面：这一轮落地后按消息读一次。
-    React.useEffect(function () {
-        if (!sessionId || taskForMessage) return;
-        loadSavedCandidates(sessionId, messageId || null).catch(function () {});
-    }, [sessionId, messageId, taskForMessage && taskForMessage.taskId]);
     const commands={
         clear:()=>setCandidatePanel(null),
         async stop(taskId){try{await rpc('stopChoices',{taskId},sessionId);setCandidatePanel(null);}finally{liveTavernView.invalidate(sessionId);tavernCoordination.invalidate(sessionId);}},

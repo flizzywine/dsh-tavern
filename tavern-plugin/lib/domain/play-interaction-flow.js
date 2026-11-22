@@ -70,14 +70,18 @@ function createPlayInteractionFlow({ rpc, coordinationView, coordination, applyB
     // 所以落地后要按这一轮的消息读一次，否则「写完即显示」只在生成的那一页成立。
     // 面板认页面手里的这一轮消息 id：存下来的 id 可能是工具回复或重新生成的那一套，
     // 跟宿主给页面的 id 不一致，对不上不该当成「没有候选项」。
-    async function loadSavedCandidates(sessionId, messageId) {
-        if (!sessionId) return null;
+    async function loadSavedCandidates(sessionId, messageId, signal) {
+        if (!sessionId || signal?.aborted) return null;
         const key = panelMessageKey(messageId);
         const shown = panel => panel && panel.sessionId === sessionId && panelMessageKey(panel.messageId) === key && panel.phase !== "error";
         if (shown(candidates.getSnapshot())) return candidates.getSnapshot();
         let result = null;
-        try { result = await rpc("getChoices", { sessionId, messageId: key, latest: true }, sessionId); }
-        catch (error) { console.warn("[dsh-tavern] 读取前台候选项失败", error); return null; }
+        try { result = await rpc("getChoices", { sessionId, messageId: key, latest: true }, sessionId, { signal }); }
+        catch (error) {
+            if (!signal?.aborted) console.warn("[dsh-tavern] 读取前台候选项失败", error);
+            return null;
+        }
+        if (signal?.aborted) return null;
         const saved = result && result.candidates;
         if (!saved || !Array.isArray(saved.choices) || saved.choices.length === 0) {
             // 这一轮没有候选项：上一轮留下的、已经显示好的选项不能继续挂在新的正文下面。

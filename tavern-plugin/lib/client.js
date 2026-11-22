@@ -61887,14 +61887,18 @@ function createPlayInteractionFlow({ rpc, coordinationView, coordination, applyB
     // 所以落地后要按这一轮的消息读一次，否则「写完即显示」只在生成的那一页成立。
     // 面板认页面手里的这一轮消息 id：存下来的 id 可能是工具回复或重新生成的那一套，
     // 跟宿主给页面的 id 不一致，对不上不该当成「没有候选项」。
-    async function loadSavedCandidates(sessionId, messageId) {
-        if (!sessionId) return null;
+    async function loadSavedCandidates(sessionId, messageId, signal) {
+        if (!sessionId || signal?.aborted) return null;
         const key = panelMessageKey(messageId);
         const shown = panel => panel && panel.sessionId === sessionId && panelMessageKey(panel.messageId) === key && panel.phase !== "error";
         if (shown(candidates.getSnapshot())) return candidates.getSnapshot();
         let result = null;
-        try { result = await rpc("getChoices", { sessionId, messageId: key, latest: true }, sessionId); }
-        catch (error) { console.warn("[dsh-tavern] 读取前台候选项失败", error); return null; }
+        try { result = await rpc("getChoices", { sessionId, messageId: key, latest: true }, sessionId, { signal }); }
+        catch (error) {
+            if (!signal?.aborted) console.warn("[dsh-tavern] 读取前台候选项失败", error);
+            return null;
+        }
+        if (signal?.aborted) return null;
         const saved = result && result.candidates;
         if (!saved || !Array.isArray(saved.choices) || saved.choices.length === 0) {
             // 这一轮没有候选项：上一轮留下的、已经显示好的选项不能继续挂在新的正文下面。
@@ -62316,7 +62320,6 @@ function createPlayInteractionPanels({ interactions, useCandidatePanel, useCandi
         function setExpanded(value) {
             if (panel) setCandidatePanel(Object.assign({}, panel, { expanded: value }));
         }
-        React.useEffect(() => { if (running && panel?.expanded) setExpanded(false); }, [running, panel]);
         React.useEffect(function () {
                 if (typeof document === "undefined" || !panel?.expanded) return;
                 function onComposerFocus(event) {
@@ -62330,11 +62333,10 @@ function createPlayInteractionPanels({ interactions, useCandidatePanel, useCandi
                 setAdded([]);
                 setActiveTab("featured");
             }, [panel?.choices]);
-        // 候选项属于这一局最近一轮（服务端只留那一份）。页面手里的消息 id 可能为空（宿主
-        // 没有投影节点）或另一套 id，判断只认这一局，不认两个 id 是否相等。
-        // A failure the page recorded carries the page's own id: a newer round on the page hides it.
-        const staleError = panel?.phase === "error" && !!panel.messageId && !!latestMessageId && panel.messageId !== latestMessageId;
-        if (!isPlayMode(sessionMode) || !panel || panel.sessionId !== props.sessionId || running || staleError) {
+        // The panel is tagged with the page's reply id when loaded, even if
+        // the server stored it under a different id. Some hosts have no id.
+        const stalePanel = panel?.messageId && latestMessageId && panel.messageId !== latestMessageId;
+        if (!isPlayMode(sessionMode) || !panel || panel.sessionId !== props.sessionId || running || stalePanel) {
             return null;
         }
         const h = React.createElement;
@@ -63813,9 +63815,10 @@ function createPlayInteractionPanels({ interactions, useCandidatePanel, useCandi
 		    const task = coordination.view && coordination.view.task;
 		    const taskForMessage = task && task.kind === "candidate" && task.input && String(task.input.messageId || "") === String(messageId || "") ? task : null;
 		    const panel = panelState && panelState.sessionId === sessionId && panelState.messageId === messageId ? panelState : null;
+		    useSavedCandidates(sessionId, messageId, running, taskForMessage?.taskId);
 		    // Mirror mailbox progress and failures too: a hidden composer must not leave us waiting forever.
 		    React.useEffect(function () {
-		        if (!taskForMessage) return;
+		        if (running || !taskForMessage) return;
 		        if (taskForMessage.busy)
 		            setCandidatePanel({ sessionId, messageId, phase: "loading", choices: [], error: "" });
 		        else if (taskForMessage.status === "succeeded" && taskForMessage.result && taskForMessage.result.candidates)
@@ -63825,11 +63828,6 @@ function createPlayInteractionPanels({ interactions, useCandidatePanel, useCandi
 		        else if (taskForMessage.terminal)
 		            setCandidatePanel({ sessionId, messageId, phase: "error", choices: [], error: playerErrorText(taskForMessage.error || "选项生成未完成", { fallback: "选项生成未完成" }) });
 		    }, [sessionId, messageId, taskForMessage && taskForMessage.taskId, taskForMessage && taskForMessage.version, taskForMessage && taskForMessage.status]);
-		    // 前台候选项随正文存好，没有任务送到页面：这一轮落地后按消息读一次。
-		    React.useEffect(function () {
-		        if (!sessionId || taskForMessage) return;
-		        loadSavedCandidates(sessionId, messageId || null).catch(function () {});
-		    }, [sessionId, messageId, taskForMessage && taskForMessage.taskId]);
 		    const commands={
 		        clear:()=>setCandidatePanel(null),
 		        async stop(taskId){try{await rpc('stopChoices',{taskId},sessionId);setCandidatePanel(null);}finally{liveTavernView.invalidate(sessionId);tavernCoordination.invalidate(sessionId);}},
@@ -63944,6 +63942,21 @@ function createPlayInteractionPanels({ interactions, useCandidatePanel, useCandi
         function useCandidatePanel() { return useInteractionPanel(interactions.candidates); }
         function useCandidateGuidePanel() { return useInteractionPanel(interactions.guide); }
         function useRegenPanel() { return useInteractionPanel(interactions.regeneration); }
+        function useSavedCandidates(sessionId, messageId, running, taskId) {
+            React.useEffect(function () {
+                if (!sessionId) return;
+                const panel = interactions.candidates.getSnapshot();
+                if (panel?.sessionId === sessionId && (running || (panel.messageId && messageId && panel.messageId !== messageId))) {
+                    setCandidatePanel(null);
+                }
+                // The host can expose the next reply's id while it is streaming.
+                // The save still holds the previous round's choices until the reply commits.
+                if (running || taskId) return;
+                const controller = new AbortController();
+                void loadSavedCandidates(sessionId, messageId, controller.signal);
+                return () => controller.abort();
+            }, [sessionId, messageId, running, taskId]);
+        }
 		// a dismissed candidate failure stays dismissed
 		// across a reload; only the latest dismissed task is kept because only the latest round can show one.
 		const CANDIDATE_ERROR_DISMISSED_KEY = "dsh-tavern:candidate-error-dismissed";
@@ -64387,14 +64400,10 @@ function createPlayInteractionPanels({ interactions, useCandidatePanel, useCandi
 			}, [canRollback, frontRunning, compacting, regenBusy, activity.busy, props.sessionId, latestMessageId]);
 			const [withdrawBusy, setWithdrawBusy] = React.useState(false);
 			const draft = props.useInput(snapshot => snapshot.draft);
-			// 前台候选项随正文一起存好，没有任务送到页面：这一轮落地后按消息读一次。
-			React.useEffect(function () {
-				if (!props.sessionId || taskForMessage) return;
-				loadSavedCandidates(props.sessionId, props.messageId || null).catch(function () {});
-			}, [props.sessionId, props.messageId, taskForMessage && taskForMessage.taskId]);
+			useSavedCandidates(props.sessionId, props.messageId, frontRunning, taskForMessage?.taskId);
 			const projectedTaskRef = React.useRef("");
 			React.useEffect(function () {
-				if (!taskForMessage) return;
+				if (frontRunning || !taskForMessage) return;
 				const projection = String(taskForMessage.taskId || "") + ":" + String(taskForMessage.version || 0) + ":" + String(taskForMessage.status || "");
 				if (projectedTaskRef.current === projection) return;
 				projectedTaskRef.current = projection;
@@ -64410,7 +64419,7 @@ function createPlayInteractionPanels({ interactions, useCandidatePanel, useCandi
 				if (taskForMessage.terminal && !candidateErrorDismissed(projection)) {
 					setCandidatePanel({ sessionId: props.sessionId, messageId: props.messageId, phase: "error", choices: [], taskKey: projection, error: playerErrorText(taskForMessage.error || "候选生成未完成", { fallback: "候选生成未完成" }) });
 				}
-			}, [props.sessionId, props.messageId, taskForMessage && taskForMessage.taskId, taskForMessage && taskForMessage.version, taskForMessage && taskForMessage.status]);
+			}, [props.sessionId, props.messageId, frontRunning, taskForMessage && taskForMessage.taskId, taskForMessage && taskForMessage.version, taskForMessage && taskForMessage.status]);
 			const reconciledActivityRef = React.useRef("");
 			React.useEffect(function () {
 				if (!activityState.view || activity.busy) return;
@@ -64455,14 +64464,14 @@ function createPlayInteractionPanels({ interactions, useCandidatePanel, useCandi
 			}
 			const h = React.createElement;
 			const isScript = sessionMode === "script";
-			// 这一局最近一轮的候选项：页面拿不到宿主消息 id 时也照样算数（服务端只留最近一轮）。
-			const hasReadyPanel = candidatePanelState !== null && candidatePanelState.sessionId === props.sessionId && candidatePanelState.phase === "ready";
+			const currentPanel = !frontRunning && candidatePanelState?.sessionId === props.sessionId
+				&& (!candidatePanelState.messageId || !props.messageId || candidatePanelState.messageId === props.messageId) ? candidatePanelState : null;
+			const hasReadyPanel = currentPanel?.phase === "ready";
 			if (!isPlayMode(sessionMode)) return null;
 			// 收起的「接下来的行动」在手机上不再单占一行：它的入口并进这一行操作，
 			// 点开还是同一个候选抽屉（候选卡自己在手机上隐藏收起态，见 tavern.css）。
-			const openablePanel = !props.only && candidatePanelState && candidatePanelState.sessionId === props.sessionId
-				&& candidatePanelState.expanded !== true && Array.isArray(candidatePanelState.choices) && candidatePanelState.choices.length > 0
-				? candidatePanelState : null;
+			const openablePanel = !props.only && hasReadyPanel && currentPanel.expanded !== true && Array.isArray(currentPanel.choices) && currentPanel.choices.length > 0
+				? currentPanel : null;
 			// only="choices" in the composer, only="regen" under the latest reply.
 			return h(React.Fragment, null,
 				openablePanel ? h("button", { className: "dsh-tavern-choice-trigger dsh-tavern-candidate-entry", "data-fork-action": "open-choices", title: "展开接下来可以做的 " + openablePanel.choices.length + " 个行动", "aria-label": "展开接下来的行动（" + openablePanel.choices.length + " 个）", onClick: function () { setCandidatePanel(Object.assign({}, openablePanel, { expanded: true })); } }, "行动 " + openablePanel.choices.length + " ⌃") : null,
