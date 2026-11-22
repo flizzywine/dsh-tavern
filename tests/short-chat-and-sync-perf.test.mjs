@@ -200,7 +200,7 @@ register('syncSession 的失败不会留在 in-flight 表里', async () => {
 if (FIXTURE) {
   console.log('short-chat-and-sync-perf: ' + JSON.stringify(await runServiceFixture()))
 } else {
-  test('真实服务：短对话首屏不再全量读、滚回第 0 楼仍取完整视图、readIndex 按版本缓存', async () => {
+  test('真实服务：长对话首屏只取最近十条，历史按需补读，readIndex 按版本缓存', async () => {
     const root = await mkdtemp(join(tmpdir(), 'tavern-short-chat-service-'))
     try {
       const childEnv = { ...process.env, DSH_HOME: root, [FIXTURE_FLAG]: '1' }
@@ -217,7 +217,9 @@ if (FIXTURE) {
       assert.equal(result.short.from, 0, '短对话首屏走裁剪窗口')
       assert.equal(result.short.count, 6)
       assert.equal(result.short.replies, 3, '六层楼三条回复全部投影进首屏')
-      assert.equal(result.long.from > 0, true, '长对话仍是裁剪窗口')
+      assert.deepEqual(result.long, { from: 50, to: 59, count: 60 }, '长对话首屏只取最近十条')
+      assert.deepEqual(result.transcript, { from: 50, to: 59, count: 10, lastFloor: 30 })
+      assert.deepEqual(result.older, { from: 40, to: 59, count: 20, lastFloor: 30 }, '客户端请求旧楼层后向前扩窗，楼层编号保持一致')
       assert.equal(result.scrolled.historyWindow, null, '滚回第 0 楼请求完整视图')
       assert.equal(result.scrolled.replies, 3)
       assert.equal(result.index.rename, true, 'updateIndex 之后列表立刻反映新标题')
@@ -263,6 +265,8 @@ async function runServiceFixture() {
 
     const short = (await host.rpc('getSession', { sessionId: 's-short', openingWindow: 1, viewSync: 1 })).view
     const long = (await host.rpc('getSession', { sessionId: 's-long', openingWindow: 1, viewSync: 1 })).view
+    const { storyTranscript: transcript } = await host.rpc('getStoryTranscript', { sessionId: 's-long' })
+    const { storyTranscript: older } = await host.rpc('getStoryTranscript', { sessionId: 's-long', historyFrom: 40 })
     const scrolled = (await host.rpc('getSession', { sessionId: 's-short', historyFrom: 0 })).view
 
     // 列表读取的第一次与命中版本缓存的第二次；索引故意做厚，让解析开销可辨。
@@ -285,7 +289,9 @@ async function runServiceFixture() {
 
     return {
       short: { from: short?.historyWindow?.from, count: short?.historyWindow?.messageCount, replies: short?.replyProjections?.length ?? 0 },
-      long: { from: long?.historyWindow?.from, count: long?.historyWindow?.messageCount },
+      long: { from: long?.historyWindow?.from, to: long?.historyWindow?.to, count: long?.historyWindow?.messageCount },
+      transcript: { from: transcript.from, to: transcript.to, count: transcript.messages.length, lastFloor: transcript.floorCount },
+      older: { from: older.from, to: older.to, count: older.messages.length, lastFloor: older.floorCount },
       scrolled: { historyWindow: scrolled?.historyWindow ?? null, replies: scrolled?.replyProjections?.length ?? 0 },
       index: { firstMs: first.ms, cachedMs: cached.ms, rename: renamed.title === '改过的标题' && afterRename?.title === '改过的标题',
         external: afterExternal?.title === '外部标题' }

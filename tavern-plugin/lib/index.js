@@ -2407,6 +2407,7 @@ export async function apply(ctx) {
   })
   function view(...args) { return sessionProjection.view(...args) }
   function projectOpeningWindow(...args) { return sessionProjection.project.opening(...args) }
+  const STORY_OPENING_WINDOW = 10
   // `historyFrom`: the oldest floor the browser has scrolled to; the window grows
   // to cover it instead of switching the whole session to a complete view.
   //
@@ -2419,14 +2420,14 @@ export async function apply(ctx) {
   // left to fill, and the projected window is the complete view without that cost.
   // Scrolling back to the first floor still asks for the complete view: the page then
   // needs the floors the window never carried, and only that reader can grow from there.
-  async function readOpeningWindow(sessionId, historyFrom) {
+  async function readOpeningWindow(sessionId, historyFrom, limit = STORY_OPENING_WINDOW) {
     const chatId = (await readSessionMap())[str(sessionId)]
     if (!chatId) return null
     // Scrolled back to the first floor: the window would be the whole history, read page by
     // page only to be refused. The complete view refreshes from changed floors instead.
     if (historyFrom === 0) return null
     const scrolled = Number.isSafeInteger(historyFrom) && historyFrom > 0
-    const window = await readRecentWindow(chatPersistence.readWindow,chatId,{limit:HELPER_MESSAGE_COLD_WINDOW,from:historyFrom,requirePartial:scrolled,messageFields:sessionViewMessageFields})
+    const window = await readRecentWindow(chatPersistence.readWindow,chatId,{limit,from:historyFrom,requirePartial:scrolled,messageFields:sessionViewMessageFields})
     if (!window || window.chat.sessionId!==sessionId
       || window.chat.backgroundConfigVersion!==1 || window.chat.conversationFeaturesVersion!==1
       || !['story','script'].includes(window.chat.mode || 'story')
@@ -2434,7 +2435,7 @@ export async function apply(ctx) {
     // `from === 0` is only usable when this window is the whole history (every floor is a
     // real row, nothing outside it): otherwise the page would lose the floors above it.
     if (window.from === 0) {
-      const complete = windowCoversHistory(window) && window.messageCount <= HELPER_MESSAGE_COLD_WINDOW
+      const complete = windowCoversHistory(window) && window.messageCount <= limit
       if (!complete) return null
     }
     return window
@@ -2452,7 +2453,7 @@ export async function apply(ctx) {
       }
     },
     messageFields: storyTranscriptMessageFields,
-    limit: HELPER_MESSAGE_COLD_WINDOW
+    limit: STORY_OPENING_WINDOW
   })
   // Results of story operations: the same bounded window the browser keeps in
   // sync, never a complete-history view. Short and old saves keep view().
@@ -2934,7 +2935,7 @@ export async function apply(ctx) {
       if (taskPolicy(input).cardContext === false) return undefined
       // The server template engine owns absolute history and reads old floors
       // on demand. Only its variable scope needs a proven latest snapshot here.
-      const recent = await readOpeningWindow(input.sessionId)
+      const recent = await readOpeningWindow(input.sessionId, undefined, HELPER_MESSAGE_COLD_WINDOW)
       const chat = recent && (recent.chat.promptTemplateInput?.message || lastTavernHelperVariables(recent.chat.messages) !== undefined)
         ? recent.chat : await chatForSession(input.sessionId)
       return chat ? await nativeWorldBookTemplateContext(chat, await readChatCard(chat)) : undefined
