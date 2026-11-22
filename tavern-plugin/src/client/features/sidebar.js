@@ -176,6 +176,7 @@
 			const [managerQuery, setManagerQuery] = React.useState("");
 			const [managerCardFilter, setManagerCardFilter] = React.useState("all");
 			const [managerStatusFilter, setManagerStatusFilter] = React.useState("all");
+			const [managerFoldedGroups, setManagerFoldedGroups] = React.useState(() => new Set());
 			const [managerArchiveExpanded, setManagerArchiveExpanded] = React.useState(false);
 			const [managerRenaming, setManagerRenaming] = React.useState(null);
 			const managerMenu = useInlinePopup({ alignEnd: true });
@@ -1591,8 +1592,11 @@
 					managerGroups.push({ ...archiveHistoryGroup, items: archiveHistoryGroup.items.filter(matchesManagerFilters) });
 				}
 			}
-			const managerArchiveFolded = managerStatusFilter === "all" && !managerArchiveExpanded;
-			const managerVisible = managerGroups.flatMap(group => group.key === archiveHistoryGroup.key && managerArchiveFolded ? [] : group.items);
+			function isManagerGroupFolded(group) {
+				if (group.key === archiveHistoryGroup.key) return managerStatusFilter === "all" && !managerArchiveExpanded;
+				return managerFoldedGroups.has(group.key);
+			}
+			const managerVisible = managerGroups.flatMap(group => isManagerGroupFolded(group) ? [] : group.items);
 			const managerSelectedItems = managerPool.filter(function (item) { return selectedChats.includes(item.chatId); });
 			const managerSelectedActive = managerSelectedItems.filter(function (item) { return !archivedSessions.has(item.sessionId); }).length;
 			const managerSelectedArchived = managerSelectedItems.length - managerSelectedActive;
@@ -1652,13 +1656,24 @@
 				if (!group.items.length) return null;
 				if (!group.name) return group.items.map(item => renderManagerRow(item));
 				const archived = group.key === archiveHistoryGroup.key;
-				const count = h("span", { className: "dsh-tavern-history-group-count" }, group.items.length);
-				const header = archived && managerStatusFilter === "all"
-					? h("button", { type: "button", className: "dsh-tavern-history-manager-group-head", "aria-expanded": !managerArchiveFolded, onClick: () => setManagerArchiveExpanded(value => !value) },
-						h("span", { "aria-hidden": true }, managerArchiveFolded ? "▸" : "▾"), h("span", null, group.name), count)
-					: h("h3", { className: "dsh-tavern-history-manager-group-head" }, group.name, count);
+				const folded = isManagerGroupFolded(group);
+				const label = h(React.Fragment, null, h("span", { className: "dsh-tavern-history-manager-group-name" }, group.name),
+					h("span", { className: "dsh-tavern-history-group-count" }, group.items.length));
+				const header = archived && managerStatusFilter === "archived"
+					? h("h3", { className: "dsh-tavern-history-manager-group-head" }, label)
+					: h("h3", { className: "dsh-tavern-history-manager-group-heading" },
+						h("button", { type: "button", className: "dsh-tavern-history-manager-group-head", "aria-expanded": !folded, title: group.path || group.name, onClick: function () {
+							managerMenu.setOpen(false);
+							if (archived) setManagerArchiveExpanded(value => !value);
+							else setManagerFoldedGroups(function (previous) {
+								const next = new Set(previous);
+								if (previous.has(group.key)) next.delete(group.key);
+								else next.add(group.key);
+								return next;
+							});
+						} }, h(Icon, { name: "chevron", size: 14 }), label));
 				return h("section", { key: group.key, className: "dsh-tavern-history-manager-group", "aria-label": group.name }, header,
-					archived && managerArchiveFolded ? null : group.items.map(item => renderManagerRow(item, archived ? "" : group.name)));
+					folded ? null : group.items.map(item => renderManagerRow(item, archived ? "" : group.name)));
 			}
 			const historyManagerPanel = historyManagerOpen ? h("div", { key: "history-manager", className: "dsh-tavern-picker-overlay dsh-tavern-history-manager-overlay", onMouseDown: function (event) { if (event.target === event.currentTarget) closeHistoryManager(); } },
 				h("div", { className: "dsh-tavern-history-manager", role: "dialog", "aria-modal": "true", "aria-label": "会话管理" },

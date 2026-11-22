@@ -1271,9 +1271,14 @@ body.dsh-tavern-shell-active [data-dsh-panel-host] { overflow: clip; }
 .dsh-tavern-history-manager-group { flex: none; min-width: 0; }
 .dsh-tavern-history-manager-group + .dsh-tavern-history-manager-group,
 .dsh-tavern-history-manager-row + .dsh-tavern-history-manager-group { margin-top: 4px; border-top: 1px solid var(--dsw-alias-border-l2); }
+.dsh-tavern-history-manager-group-heading { margin: 0; }
 .dsh-tavern-history-manager-group-head { display: flex; align-items: center; gap: 8px; width: 100%; box-sizing: border-box; margin: 0; border: 0; border-radius: 6px; padding: 7px 10px; background: transparent; color: inherit; font: inherit; font-size: 13px; font-weight: 650; text-align: left; }
-button.dsh-tavern-history-manager-group-head { cursor: pointer; }
+button.dsh-tavern-history-manager-group-head { min-height: 32px; cursor: pointer; }
 button.dsh-tavern-history-manager-group-head:hover { background: var(--dsw-alias-interactive-bg-hover); }
+button.dsh-tavern-history-manager-group-head:focus-visible { outline: 2px solid currentColor; outline-offset: -2px; }
+.dsh-tavern-history-manager-group-head > .fork-icon { flex: none; color: var(--dsw-alias-label-secondary); }
+.dsh-tavern-history-manager-group-head[aria-expanded="false"] > .fork-icon { transform: rotate(-90deg); }
+.dsh-tavern-history-manager-group-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dsh-tavern-history-manager-empty { padding: 28px 8px; color: var(--dsw-alias-label-secondary); font-size: 13px; text-align: center; }
 .dsh-tavern-history-manager-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: start; gap: 10px; padding: 10px 6px; border-bottom: 1px solid var(--dsw-alias-border-l2); }
 .dsh-tavern-history-manager-row:has(.dsh-tavern-history-manager-check:enabled) { cursor: pointer; }
