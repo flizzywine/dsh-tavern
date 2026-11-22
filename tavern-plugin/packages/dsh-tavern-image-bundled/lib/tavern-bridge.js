@@ -271,13 +271,11 @@ export function installTavernBridge({ tavern, attachments, engine, getConfig, lo
           await assertCurrent(task)
         }
         let historySnapshot = null
-        let historySavedTurn = null
         if (api2 && typeof tavern.readTurnData === 'function') {
           try {
             const saved = await tavern.readTurnData({ gameId, turn })
             if (saved?.data && typeof saved.data === 'object') {
               historySnapshot = saved.data
-              historySavedTurn = saved.turn
             }
           } catch (error) { warn('读取角色历史失败：' + (error?.message ?? error)) }
         }
@@ -292,8 +290,9 @@ export function installTavernBridge({ tavern, attachments, engine, getConfig, lo
           signal: task.controller.signal, onPlan: beginImage,
         })
         const snapshot = value?.characterSnapshot
-        const changed = snapshot?.changes?.some(change => change.turn === turn && change.textVersion === textVersion)
-        if (saveHistory && snapshot && (changed || historySavedTurn === null && Object.keys(snapshot.characters ?? {}).length)
+        const changed = snapshot && Object.keys(snapshot.characters ?? {}).length
+          && JSON.stringify(snapshot.characters) !== JSON.stringify(historySnapshot?.characters ?? {})
+        if (saveHistory && changed
             && typeof tavern.saveTurnData === 'function') {
           try {
             await assertCurrent(task)
