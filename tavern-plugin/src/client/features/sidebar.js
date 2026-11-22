@@ -287,7 +287,13 @@
 			const [importProgress, setImportProgress] = React.useState("");
 			const chatImportFile = React.useRef(null);
 			const [pendingOpen, setPendingOpen] = React.useState(null);
-			const [menuSession, setMenuSession] = React.useState(null);
+			const historyMenu = useInlinePopup({ alignEnd: true });
+			const [menuSessionId, setMenuSessionId] = React.useState(null);
+			const menuSession = historyMenu.open ? menuSessionId : null;
+			function setMenuSession(sessionId) {
+				setMenuSessionId(sessionId);
+				historyMenu.setOpen(sessionId !== null);
+			}
 			const [archiveExpanded, setArchiveExpanded] = React.useState(false);
 			const [selectedChats, setSelectedChats] = React.useState([]);
 			const [deleteNotice, setDeleteNotice] = React.useState("");
@@ -296,7 +302,10 @@
 			const sideListRef = React.useRef(null);
 			React.useEffect(function () {
 				// 收起来就收回一屏窗口：下次展开仍然只排第一屏。
-				if (collapsed) setHistoryWindow(SIDE_HISTORY_WINDOW);
+				if (collapsed) {
+					setHistoryWindow(SIDE_HISTORY_WINDOW);
+					setMenuSession(null);
+				}
 			}, [collapsed]);
 			React.useEffect(function () {
 				setSelectedChats([]);
@@ -1463,9 +1472,12 @@
 				const expanded = preview.hasPreview && expandedPreviews[item.sessionId] === true;
 				const stamp = tavernHistoryStamp(item, summary, summaries, historyOrder);
 				const stampIsInTitle = !item.title && isPlayMode(item.mode || "story") && Boolean(formatTime(stamp)) && title.indexOf(formatTime(stamp)) >= 0;
-				return h("div", { key: item.sessionId, className: "dsh-tavern-side-row" + (current === item.sessionId ? " active" : "") + (generating ? " is-generating" : "") + (preview.hasPreview ? " has-preview" : "") },
+				const menuOpen = menuSession === item.sessionId;
+				return h("div", { key: item.sessionId, ref: menuOpen ? historyMenu.root : undefined, onKeyDown: menuOpen ? historyMenu.keys : undefined,
+					className: "dsh-tavern-side-row" + (current === item.sessionId ? " active" : "") + (generating ? " is-generating" : "") + (preview.hasPreview ? " has-preview" : "") },
 					h("button", { className: "dsh-tavern-side-row-main", disabled: busy, title: preview.hasPreview && !expanded && preview.tooltip ? preview.tooltip : undefined, onClick: async function () {
-						if (archived) { setMenuSession(menuSession === item.sessionId ? null : item.sessionId); return; }
+						if (archived) { setMenuSession(menuOpen ? null : item.sessionId); return; }
+						setMenuSession(null);
 						try {
 							if (summary && summary.blank) await call("ensureOpening", { sessionId: item.sessionId });
 							await openSessionWhenReady(item.sessionId);
@@ -1482,15 +1494,16 @@
 							// 自动标题本身就是「11/7 20:25 开局」，再重复一次时间只是占宽度。
 							generating || !stampIsInTitle ? h("span", null, generating ? "生成中" : formatTime(stamp)) : null)),
 					preview.hasPreview ? h("button", { className: "dsh-tavern-side-row-expand", title: expanded ? "收起预览" : "展开预览", "aria-label": (expanded ? "收起预览：" : "展开预览：") + title, "aria-expanded": expanded ? "true" : "false", onClick: function (event) { event.stopPropagation(); togglePreview(item); } }, expanded ? "▴" : "▾") : null,
-					h("button", { className: "dsh-tavern-side-row-more", title: "对话操作", "aria-label": "对话操作", "aria-expanded": menuSession === item.sessionId ? "true" : "false", onClick: function () { setMenuSession(menuSession === item.sessionId ? null : item.sessionId); } }, "⋯"),
-					menuSession === item.sessionId ? h("div", { className: "dsh-tavern-side-row-menu" },
+					h("button", { type: "button", ref: menuOpen ? historyMenu.trigger : undefined, className: "dsh-tavern-side-row-more", title: "对话操作", "aria-label": "对话操作", "aria-haspopup": "menu", "aria-expanded": menuOpen,
+						onClick: () => setMenuSession(menuOpen ? null : item.sessionId) }, "⋯"),
+					menuOpen ? historyMenu.layer({ className: "fork-inline-pop dsh-tavern-side-row-menu", role: "menu", "aria-label": "对话操作", onKeyDown: inlineMenuKeys },
 						// 触屏没有悬停的 ▾，展开/收起预览收进菜单，行内不再多占一列。
-						preview.hasPreview ? h("button", { disabled: busy, "aria-pressed": expanded ? "true" : "false", onClick: function () { togglePreview(item); } }, expanded ? "收起预览" : "展开预览") : null,
-						!archived ? h("button", { disabled: busy, onClick: function () { renameConversation(item, title); } }, "重命名") : null,
-						h("button", { disabled: busy, onClick: () => changeConversationArchive(item, !archived) }, archived ? "恢复到历史" : "归档"),
-                        !archived && isPlayMode(item.mode || "story") ? h("button", { disabled: busy, onClick: () => rescueConversation(item) }, "存档救援") : null,
-                        !archived && isPlayMode(item.mode || "story") ? h("button", { disabled: busy, title: "存档打不开或迁移失败时，导出会话结构发给开发者；不含剧情正文", onClick: () => { setMenuSession(null); downloadSessionDiagnostics({ chatId: item.chatId }).catch(err => setError("导出诊断文件失败：" + String(err.message || err))); } }, "导出诊断文件") : null,
-						h("button", { className: "danger", disabled: busy, onClick: function () { deleteConversation(item, title); } }, "彻底删除")
+						preview.hasPreview ? h("button", { type: "button", role: "menuitem", disabled: busy, onClick: () => togglePreview(item) }, expanded ? "收起预览" : "展开预览") : null,
+						!archived ? h("button", { type: "button", role: "menuitem", disabled: busy, onClick: () => renameConversation(item, title) }, "重命名") : null,
+						h("button", { type: "button", role: "menuitem", disabled: busy, onClick: () => changeConversationArchive(item, !archived) }, archived ? "恢复到历史" : "归档"),
+						!archived && isPlayMode(item.mode || "story") ? h("button", { type: "button", role: "menuitem", disabled: busy, onClick: () => { setMenuSession(null); void rescueConversation(item); } }, "存档救援") : null,
+						!archived && isPlayMode(item.mode || "story") ? h("button", { type: "button", role: "menuitem", disabled: busy, title: "存档打不开或迁移失败时，导出会话结构发给开发者；不含剧情正文", onClick: () => { setMenuSession(null); downloadSessionDiagnostics({ chatId: item.chatId }).catch(err => setError("导出诊断文件失败：" + String(err.message || err))); } }, "导出诊断文件") : null,
+						h("button", { type: "button", role: "menuitem", className: "danger", disabled: busy, onClick: () => deleteConversation(item, title) }, "彻底删除")
 					) : null
 				);
 			}
@@ -1517,6 +1530,7 @@
 			function onSideListScroll(event) {
 				const el = event && event.currentTarget;
 				if (!el) return;
+				if (menuSession) setMenuSession(null);
 				if (el.scrollHeight - el.scrollTop - el.clientHeight > 240) return;
 				growHistoryWindow();
 			}

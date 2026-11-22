@@ -40,7 +40,7 @@ async function mountSidebar(t, { initialHistory, archived, recentReplyFirst = fa
   })
   await page.goto('http://tavern.test/')
   await page.addScriptTag({ content: await browserReactScript() })
-  await page.addScriptTag({ content: 'window.__ModuleLoader__={load(d){window.client=d.factory(name=>name==="react"?modules.react:{});}};' })
+  await page.addScriptTag({ content: 'window.__ModuleLoader__={load(d){window.client=d.factory(name=>modules[name]||{});}};' })
   await page.addScriptTag({ content: await readFile(new URL('../tavern-plugin/lib/client.js', import.meta.url), 'utf8') })
   await page.evaluate(archived => {
     const slots = {}, listeners = new Set()
@@ -83,7 +83,7 @@ test('侧栏归档可恢复，点击管理直接打开宽屏页批量删除', as
     ],
   })
   const row = title => page.locator('.dsh-tavern-side-row').filter({ hasText: title })
-  const button = name => page.getByRole('button', { name, exact: true })
+  const rowAction = name => page.getByRole('menu', { name: '对话操作' }).getByRole('menuitem', { name, exact: true })
   const menu = title => row(title).getByRole('button', { name: '对话操作' }).click()
   const archiveToggle = page.locator('.dsh-tavern-side-list').getByRole('button', { name: /^已归档/ })
   await page.getByRole('button', { name: /^测试卡/ }).click()
@@ -92,13 +92,13 @@ test('侧栏归档可恢复，点击管理直接打开宽屏页批量删除', as
   assert.equal(await archiveToggle.getAttribute('aria-expanded'), 'false')
   assert.equal(await row('旧归档').count(), 0)
   await menu('普通存档')
-  await button('归档').click()
+  await rowAction('归档').click()
   await row('普通存档').waitFor({ state: 'detached' })
   assert.deepEqual(deleteCalls, [])
 
   await archiveToggle.click()
   await menu('普通存档')
-  await button('恢复到历史').click()
+  await rowAction('恢复到历史').click()
   await row('普通存档').waitFor()
   await row('旧归档').waitFor()
 
@@ -146,7 +146,7 @@ test('侧栏归档可恢复，点击管理直接打开宽屏页批量删除', as
 
   // 彻底删除先归档再删记录：删除还没完成时，这条不能出现在「已归档」里给人点「恢复到历史」。
   await menu('普通存档')
-  await button('彻底删除').click()
+  await rowAction('彻底删除').click()
   await page.getByRole('dialog').getByRole('button', { name: '彻底删除', exact: true }).click()
   await row('普通存档').waitFor({ state: 'detached' })
   assert.equal(await page.locator('.dsh-tavern-side-row').count(), 0)
@@ -286,5 +286,50 @@ test('人物卡筛选限高滚动，支持搜索、区分同名卡和清除', as
   await trigger.click()
   await list.getByRole('menuitemradio', { name: '全部人物卡', exact: true }).click()
   assert.equal((await titles()).length, initialHistory.length)
+  assert.deepEqual(errors, [])
+})
+
+test('纸感主题下长预览的三点菜单不遮住按钮，点击外部或 Esc 也能关', async t => {
+  const { page, errors } = await mountSidebar(t, {
+    archived: [],
+    initialHistory: [{
+      sessionId: 'long', chatId: 'chat-long', mode: 'story', title: '长预览',
+      cardName: '示例卡', cardPath: 'example.png',
+      preview: { turnCount: 1, replyText: '这是一段足够长的预览内容。'.repeat(160) },
+    }],
+  })
+  await page.setViewportSize({ width: 1100, height: 680 })
+  for (const asset of ['../tavern-plugin/lib/client-assets/tavern.css', '../tavern-plugin/lib/client-assets/theme.css', '../tavern-plugin/packages/dsh-dream-skin/lib/skins/paper.css']) {
+    await page.addStyleTag({ content: await readFile(new URL(asset, import.meta.url), 'utf8') })
+  }
+  await page.addStyleTag({ content: 'main { width: 260px; }' })
+  const sidebar = page.locator('.dsh-tavern-sidebar')
+  await sidebar.getByRole('button', { name: /^示例卡/ }).click()
+  await sidebar.getByRole('button', { name: '展开预览：长预览' }).press('Enter')
+  const trigger = sidebar.getByRole('button', { name: '对话操作' })
+  const popup = page.getByRole('menu', { name: '对话操作' })
+  await trigger.click()
+  await popup.waitFor()
+  assert.equal(await popup.getByRole('menuitem').count(), 6)
+  const triggerHit = await trigger.evaluate(button => {
+    const rect = button.getBoundingClientRect()
+    const hit = document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2)
+    const menu = document.querySelector('.dsh-tavern-side-row-menu')
+    return { clickable: button.contains(hit), hit: hit?.className, trigger: rect.toJSON(), menu: menu.getBoundingClientRect().toJSON(), styles: menu.getAttribute('style') }
+  })
+  assert.equal(triggerHit.clickable, true, JSON.stringify(triggerHit))
+  await trigger.click()
+  await popup.waitFor({ state: 'detached' })
+
+  await trigger.click()
+  await popup.waitFor()
+  await page.mouse.click(500, 100)
+  await popup.waitFor({ state: 'detached' })
+
+  await trigger.click()
+  await popup.waitFor()
+  await page.keyboard.press('Escape')
+  await popup.waitFor({ state: 'detached' })
+  assert.equal(await trigger.evaluate(button => document.activeElement === button), true)
   assert.deepEqual(errors, [])
 })

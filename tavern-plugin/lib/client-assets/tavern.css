@@ -379,9 +379,9 @@ body.dsh-tavern-shell-active span:has(.dsh-tavern-hero-lockup) + span { display:
    关掉渐变后内容只是正常滚到卡片后面，文字不再被“吃掉”一行。桌面与手机同一条规则，表现一致。 */
 [class*="_composerSeat"] { background-image: none !important; }
 .dsh-tavern-side-row-more { width: 28px; height: 28px; flex: none; margin-right: 3px; border: 0; border-radius: 7px; background: transparent; color: var(--dsw-alias-label-secondary); cursor: pointer; opacity: 0; }
-.dsh-tavern-side-row:hover .dsh-tavern-side-row-more, .dsh-tavern-side-row-more[aria-expanded="true"] { opacity: 1; }
+.dsh-tavern-side-row:hover .dsh-tavern-side-row-more, .dsh-tavern-side-row-more:is(:focus-visible, [aria-expanded="true"]) { opacity: 1; }
 .dsh-tavern-side-row-more:hover { background: var(--dsw-alias-interactive-bg-hover); color: inherit; }
-.dsh-tavern-side-row-menu { position: absolute; z-index: 30; top: 32px; right: 4px; min-width: 96px; padding: 4px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 9px; background: var(--dsw-specific-sidebar-fill); box-shadow: 0 8px 24px rgba(0,0,0,.14); transform-origin: top right; animation: dsh-tavern-menu-in 150ms cubic-bezier(0.23, 1, 0.32, 1); }
+.fork-inline-pop.dsh-tavern-side-row-menu { min-width: 128px; overscroll-behavior: contain; }
 .dsh-tavern-side-row-menu button { display: block; width: 100%; border: 0; border-radius: 6px; padding: 7px 10px; text-align: left; background: transparent; color: inherit; cursor: pointer; }
 .dsh-tavern-side-row-menu button:hover { background: var(--dsw-alias-interactive-bg-hover); }
 .dsh-tavern-side-row-menu button.danger { color: #c34f4f; }
@@ -3639,9 +3639,8 @@ body.dsh-tavern-shell-active [data-slot="root"] > [class*="_frame"][data-sidebar
   }
 }
 /* 首屏前 15 项在抽屉屏外成帧拍即完成排版与绘制，避免滑入视口首帧才同步解冻掉帧；
-   第 16 项及之后的视口下方长列表仍启用 content-visibility: auto 跳过布局绘制，打开行内操作菜单时不裁切。 */
-.dsh-tavern-side-list > .dsh-tavern-history-group:nth-child(n + 16):not(:has(.dsh-tavern-side-row-menu)),
-.dsh-tavern-side-list > .dsh-tavern-side-row:nth-child(n + 16):not(:has(.dsh-tavern-side-row-menu)) {
+   第 16 项及之后的视口下方长列表仍启用 content-visibility: auto 跳过布局绘制，展开菜单时保留锚点位置。 */
+.dsh-tavern-side-list > :is(.dsh-tavern-history-group, .dsh-tavern-side-row):nth-child(n + 16):not(:has(.dsh-tavern-side-row-more[aria-expanded="true"])) {
   content-visibility: auto;
   contain-intrinsic-size: auto 56px;
 }
