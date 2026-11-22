@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "da90af9d5918a80025eab96cb341a4e81ad66b0d",
-  "releaseSequence": 1911,
+  "revision": "045b7a5ce04bbaf8dcab32ae7524f814c05c4a3c",
+  "releaseSequence": 1912,
   "version": "3.4.0",
   "files": [
     {
@@ -1101,8 +1101,8 @@
     },
     {
       "path": "tavern-plugin/lib/client.js",
-      "sha256": "439618be7fed2b5558d09b287753886f474c2f340b2ba711bc98e193838e0087",
-      "size": 6456486
+      "sha256": "82c1a04f7048a4cce9ba99b5445b1382519d1d24e491ad934ca723c4ee050af1",
+      "size": 6455788
     },
     {
       "path": "tavern-plugin/lib/cordis-inspect.js",
@@ -2196,8 +2196,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/image-character-appearance.js",
-      "sha256": "959de070df3f0019fac972c293905569c3f3e8daaf25e844077b63fde0660051",
-      "size": 11740
+      "sha256": "3c1598ac0e200440dc46adf5f4885469194699e4c3141ec365f771b507ae564a",
+      "size": 12504
     },
     {
       "path": "tavern-plugin/lib/domain/immutable-json-projection.js",
@@ -4201,13 +4201,13 @@
     },
     {
       "path": "tavern-plugin/lib/image-character-follow.js",
-      "sha256": "1eae1290c963690d48c419e49e41a6e528377c84001f199f248c057ff95ce717",
-      "size": 7701
+      "sha256": "94cf3c200a3d738125bd0f8d70bf96d5345e0f5bcf1e20805acc391801f7baad",
+      "size": 7284
     },
     {
       "path": "tavern-plugin/lib/image-character-records.js",
-      "sha256": "47304fcc7e8a5dc27811a28fb32a45b934bd1c45a9a63a63a37e756367775625",
-      "size": 11242
+      "sha256": "1de925768b5f906f5efd6c24e587cffa954ce868f0315d4e0a3f22752430e423",
+      "size": 10940
     },
     {
       "path": "tavern-plugin/lib/index.js",
@@ -4316,8 +4316,8 @@
     },
     {
       "path": "tavern-plugin/lib/rpc/image-characters.js",
-      "sha256": "b535ae690f6d1b6abcd658e88dc3419b3acf9acc99120a3b92acbaf4d683b2ff",
-      "size": 8096
+      "sha256": "50a37ff634c8f6036a7268042146ae099663a8b9ab820d03b817bb2d777e625d",
+      "size": 8912
     },
     {
       "path": "tavern-plugin/lib/rpc/maintenance.js",
@@ -9681,9 +9681,9 @@
     }
   ],
   "archive": {
-    "commit": "59ba0b78786a62f9cf2409af2e2465066fdcd76a",
+    "commit": "2fa6ded1ef6e67736046a6d7da517cfa5ac0e8df",
     "path": "runtime.zip",
-    "sha256": "319760babdea20cb700bb52c8954fbf469cb74e380e55da00bd6e256e57648c5",
-    "size": 17127045
+    "sha256": "47553282e4ebe38efe34ca5e08887d21900441f989a3deb9db02f66feb4a45a0",
+    "size": 17127119
   }
 }
