@@ -934,6 +934,41 @@ function chineseCharacterPhrase(person, traits, outfit, extras, wear, look, labe
  * 画面里有几个人：取「人物宏里不同的名字数」和「画面里是三个人 / 三女一男」里写的人数中较大的那个。
  */
 const ZH_DIGIT = { 一: 1, 二: 2, 两: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9, 十: 10 }
+export function uniqueImageAnchor(body, anchor) {
+  if (anchor.length < 2) return false
+  const first = body.indexOf(anchor)
+  return first >= 0 && body.indexOf(anchor, first + 1) < 0
+}
+
+export function shotConflict(text, mount = '') {
+  const scene = stripMacros(text)
+  const counts = [...scene.matchAll(/画面(?:里|中)(?:是|有|只有|共有)([一二两三四五六七八九十]|\d+)(?:个人|人|位|名)/g)]
+    .map(match => ZH_DIGIT[match[1]] ?? Number(match[1]))
+  const namedMacros = new Set([...repairMacros(text).matchAll(MACRO_BLOCK)].flatMap(match => {
+    try {
+      const row = JSON.parse('{' + match[1] + '}')
+      if (row.upperBody === 'visible') return []
+      return [String(row.name ?? row['名称'] ?? row['角色'] ?? '').trim()].filter(Boolean)
+    } catch { return [] }
+  }))
+  const unnamedActor = /(?:^|[。；\n])\s*(?:另[一一个位]*|那(?:个|位)|[一1](?:个|位)|镜头(?:边缘|前方)的)[^。；\n]{0,16}(?:男[子人]|女[子人]|女孩|男孩|路人|店员|服务员|乘客|游客)/m.test(scene)
+  if (new Set(counts).size > 1 || counts.length && (sceneHeadcount(text) > counts[0] || namedMacros.size >= 3 && namedMacros.size < counts[0] && !unnamedActor)) {
+    return '镜头的人物名单与人数句不一致，请核对本图出镜者'
+  }
+  const anchored = /(?:^|[，。；])\s*([二两三四五六七八九十]|\d+)(?:个)?人(?:一起)?(?:围坐|并排|同框|站在)/.exec(mount)
+  const pov = /第一人称|主观视角|观看者视角/.test(scene)
+  const subset = /只拍|只取|仅拍|局部|画外|不入镜/.test(scene)
+  if (anchored && counts.length && !pov && !subset && counts[0] < (ZH_DIGIT[anchored[1]] ?? Number(anchored[1]))) {
+    return '旁观镜头人数少于正文的同框人数，请补齐入镜名单或写明局部取景'
+  }
+  for (const side of ['左', '右']) {
+    const empty = new RegExp('画面' + side + '(?:边|侧|半幅)(?:留出大片|留白|只留|仅留)')
+    const occupied = new RegExp('(?:站|蹲|坐|跪|靠|位于)[^。；，,]{0,10}画面' + side + '(?:边|侧|半幅)')
+    if (empty.test(scene) && occupied.test(scene)) return '画面' + side + '侧同时被指定留空和安排人物，请统一站位'
+  }
+  return ''
+}
+
 export function sceneHeadcount(text) {
   const raw = String(text ?? '')
   const names = new Set([...repairMacros(raw).matchAll(MACRO_BLOCK)].map(m => {
@@ -2557,6 +2592,10 @@ function createRuntime(ctx, overrides, logger, deps) {
       const hasStructuredPrompt = /<scene_composition|<character_\d/i.test(submitted)
       const blocks = hasStructuredPrompt ? parsePromptsBlock(submitted) : null
       const rawTag = blocks ? blocks.scene : submitted
+      if (source.promptMode === 'natural' && prompt != null) {
+        const issue = shotConflict(rawTag)
+        if (issue) throw Object.assign(new Error(issue), { submissionNotStarted: true, code: 'IMAGE_PLAN_CONFLICT' })
+      }
       const originalPrompt = source.params?.rawTag ?? source.params?.tag ?? ''
       const replacedPrompt = prompt != null && submitted !== originalPrompt
       const characterSource = blocks ? blocks.characters
@@ -2564,11 +2603,14 @@ function createRuntime(ctx, overrides, logger, deps) {
       if (!rawTag.trim() && !(Array.isArray(characterSource) && characterSource.length)) throw Object.assign(new Error('原作业没有可用提示词'), { submissionNotStarted: true })
       const sourceContextMatches = source.gameId === session && Number(source.turn) === Number(turn) && source.textVersion === textVersion
       let characterSnapshot = sourceContextMatches ? source.characterSnapshot : null
-      if (!characterSnapshot && textVersion && typeof deps.tavern?.readTurnData === 'function') {
+      if (session && textVersion && Number(turn) > 0 && typeof deps.tavern?.readTurnData === 'function') {
         try {
-          const saved = await deps.tavern.readTurnData({ gameId: session, turn: Number(turn) })
-          if (saved?.textVersion === textVersion && saved?.data) characterSnapshot = saved.data
-        } catch {}
+          const current = await deps.tavern.getTurn?.({ gameId: session, turn: Number(turn) })
+          if (current?.textVersion === textVersion) {
+            const saved = await deps.tavern.readTurnData({ gameId: session, turn: Number(turn) })
+            if (saved?.data) characterSnapshot = mergeShotHistory(characterSnapshot, saved.data, turn)
+          }
+        } catch (error) { logger.warn?.('读取重绘穿搭历史失败：' + (error?.message ?? error)) }
       }
       let card
       try { card = await currentCard(session, turn) }
@@ -3011,8 +3053,8 @@ function createRuntime(ctx, overrides, logger, deps) {
       const plannerBackend = promptBackendContext(plannerConfig, plannerWorkflow)
       const plannerMode = resolvePromptMode(plannerConfig, plannerBackend)
       const card = await currentCard(sessionId, turn)
-      const timelineDefinitions = applyCharacterSnapshot(definitions, historySnapshot)
-      let visualSnapshot = historySnapshot ?? emptyCharacterSnapshot()
+      let visualSnapshot = { ...(historySnapshot ?? emptyCharacterSnapshot()), turn: Number(turn) || 0 }
+      const timelineDefinitions = applyCharacterSnapshot(definitions, visualSnapshot)
       const norm = value => String(value ?? '').toLowerCase().replace(/[\s_\-.'"（）()]+/g, '')
       const registered = scopeCharacters(timelineDefinitions.characters, card)
       const packCharacters = imageGeneration && sessionId && Number.isSafeInteger(turn)
@@ -3041,9 +3083,8 @@ function createRuntime(ctx, overrides, logger, deps) {
       }
       // 挂载句按客户端放图时的同一套规则比对（去掉空白、Markdown 记号和 HTML 标签），
       // 能放上去的图就该画；对不上的收集起来告诉用户。
-      const anchorText = value => String(value ?? '').replace(/<\/?[a-zA-Z][^<>]*>/g, '').replace(/[\s*_~`#>|\u200b]/g, '')
-      const bodyAnchorText = anchorText(body)
-      const mountInBody = mount => { const needle = anchorText(mount); return needle.length >= 2 && bodyAnchorText.includes(needle) }
+      const bodyAnchorText = imageAnchorText(body)
+      const mountInBody = mount => uniqueImageAnchor(bodyAnchorText, imageAnchorText(mount))
       const missingMounts = new Set()
       const heldBack = []
       const characterWarnings = () => {
@@ -3190,7 +3231,7 @@ function createRuntime(ctx, overrides, logger, deps) {
           if (!sceneText.trim() && !planCharacters.length) continue
           if (!mountInBody(image.mount)) {
             // 规划抄挂载句时改了几个字：换成正文里最像的那一句，图照画、照样挂在那一句后面。
-            const nearest = resolveMountFallback(plannerConfig, image.mount, body, anchorText)
+            const nearest = resolveMountFallback(plannerConfig, image.mount, body, imageAnchorText)
             if (nearest && mountInBody(nearest)) image = { ...image, mount: nearest, mountAsked: image.mount }
             else {
               // 以前逐字比对、静默跳过：规划少抄一个 * 或换行就整张图不画，全部跳过时还报成「没有返回可用的 <image> 块」。
@@ -3201,7 +3242,10 @@ function createRuntime(ctx, overrides, logger, deps) {
           }
           // 中文自然语言：画面没写时间时从正文状态栏补一句（夜里补「窗外漆黑」）；三个人以上把竖图改成横图。
           if (rosterStyle(plannerConfig, plannerWorkflow) === 'natural' && chineseAllowed(plannerConfig, plannerWorkflow)) {
-            const timed = addSceneTime(image.prompts, body, image.mount)
+            const issue = shotConflict(sceneText, image.mount)
+            if (issue) { heldBack.push(issue); continue }
+            const shot = reconcilePlannerHair(sceneText, scoped.characters, body, image.mount, priorTail, instruction)
+            const timed = addSceneTime(shot, body, image.mount)
             const size = crowdSize(image.size, image.prompts)
             if (timed !== image.prompts || size !== String(image.size ?? '').trim()) image = { ...image, prompts: timed, size, sizeAsked: image.size }
             sceneText = String(image.prompts ?? '')
@@ -3410,7 +3454,7 @@ function createRuntime(ctx, overrides, logger, deps) {
         throw error
       }
       if (imageGeneration && !skipped && !plans.length && missingMounts.size) failure ||= new Error('规划给的挂载句在正文里都找不到（例如「' + [...missingMounts][0] + '」），没有画图；可以重新配图')
-      if (imageGeneration && !skipped && !plans.length) failure ||= new Error('模型没有返回可用的 <image> 块')
+      if (imageGeneration && !skipped && !plans.length) failure ||= new Error(heldBack[0] || '模型没有返回可用的 <image> 块')
       if (smart && parsed.decision === 'draw' && !plans.length) failure ||= new Error('选择配图后没有返回可用的 <image> 块')
       finishTask(task, failure)
       if (traceId) diag.record(traceId, 'planner-finished', { plans: plans.map(p => ({ jobId: p.jobId, status: p.status })), skipped, error: failure ? String(failure?.message ?? failure) : null })
@@ -3418,7 +3462,7 @@ function createRuntime(ctx, overrides, logger, deps) {
         + (result.usage ? '（token ' + result.usage.inputTokens + '+' + result.usage.outputTokens + '）' : ''))
 
       const characterSnapshot = characterUpdates ? visualSnapshot : null
-      const plan = { messageId: String(messageId ?? ''), turn, generationMode: planningGenerationMode, promptMode: plannerMode, templateKey, at: Date.now(), plans, skipped, reason: parsed.reason, characterSnapshot, historyWarning, raw: plans.length ? '' : String(result.text || streamed).slice(0, 4000), card: card?.name ?? null }
+      const plan = { messageId: String(messageId ?? ''), turn, partial: Boolean(heldBack.length || missingMounts.size), generationMode: planningGenerationMode, promptMode: plannerMode, templateKey, at: Date.now(), plans, skipped, reason: parsed.reason, characterSnapshot, historyWarning, raw: plans.length ? '' : String(result.text || streamed).slice(0, 4000), card: card?.name ?? null }
       const warnings = characterWarnings()
       if (warnings.length) plan.characterWarnings = warnings
       if (failure) plan.error = String(failure?.message ?? failure)
@@ -4064,7 +4108,7 @@ function createRuntime(ctx, overrides, logger, deps) {
             const turn = Number.isSafeInteger(requestedTurn) && requestedTurn > 0
               ? requestedTurn
               : Number.isSafeInteger(seenTurn) && seenTurn > 0 ? seenTurn : Number.MAX_SAFE_INTEGER
-            const saved = await tavern.readTurnData({ gameId, turn })
+            const saved = await tavern.readTurnData({ gameId, turn, includeVisualChanges: true })
             sendJson(response, 200, { ok: true, available: true, turn: saved?.turn ?? null, currentTurn: lastTurn.get(gameId) ?? null, textVersion: saved?.textVersion ?? null, snapshot: saved?.data ?? emptyCharacterSnapshot() })
             return
           }
@@ -4085,7 +4129,7 @@ function createRuntime(ctx, overrides, logger, deps) {
           const restore = async () => {
             // The request may have waited behind another same-game planner in the history lock.
             assertCurrentTurn()
-            const latest = await tavern.readTurnData({ gameId, turn: currentTurn })
+            const latest = await tavern.readTurnData({ gameId, turn: currentTurn, includeVisualChanges: true })
             assertCurrentTurn()
             const changes = Array.isArray(latest?.data?.changes) ? latest.data.changes : []
             const change = changes[changeIndex]
@@ -4103,9 +4147,13 @@ function createRuntime(ctx, overrides, logger, deps) {
             snapshot.characters ||= {}
             const overlay = snapshot.characters[String(character.id)] ||= { traits: {} }
             overlay.traits ||= {}
-            const before = String(overlay.traits[change.field] ?? character.traits?.[change.field] ?? '')
+            const outfit = change.field === 'current.outfit'
+            const before = String(outfit ? overlay.current?.outfit ?? '' : overlay.traits[change.field] ?? character.traits?.[change.field] ?? '')
             const after = String(change.before ?? '')
-            if (after) overlay.traits[change.field] = after
+            if (outfit) {
+              if (after) overlay.current = { outfit: after, previous: before, turn: currentTurn, textVersion: current.textVersion }
+              else delete overlay.current
+            } else if (after) overlay.traits[change.field] = after
             else delete overlay.traits[change.field]
             snapshot.turn = currentTurn
             snapshot.textVersion = current.textVersion

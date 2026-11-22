@@ -271,10 +271,14 @@ export function installTavernBridge({ tavern, attachments, engine, getConfig, lo
           await assertCurrent(task)
         }
         let historySnapshot = null
+        let historySavedTurn = null
         if (api2 && typeof tavern.readTurnData === 'function') {
           try {
             const saved = await tavern.readTurnData({ gameId, turn })
-            if (saved?.data && typeof saved.data === 'object') historySnapshot = saved.data
+            if (saved?.data && typeof saved.data === 'object') {
+              historySnapshot = saved.data
+              historySavedTurn = saved.turn
+            }
           } catch (error) { warn('读取角色历史失败：' + (error?.message ?? error)) }
         }
         const value = await engine.planMessage({
@@ -287,13 +291,18 @@ export function installTavernBridge({ tavern, attachments, engine, getConfig, lo
           instruction: task.instruction,
           signal: task.controller.signal, onPlan: beginImage,
         })
-        if (saveHistory && value?.characterSnapshot && typeof tavern.saveTurnData === 'function') {
+        const snapshot = value?.characterSnapshot
+        const changed = snapshot?.changes?.some(change => change.turn === turn && change.textVersion === textVersion)
+        if (saveHistory && snapshot && (changed || historySavedTurn === null && Object.keys(snapshot.characters ?? {}).length)
+            && typeof tavern.saveTurnData === 'function') {
           try {
             await assertCurrent(task)
             await tavern.saveTurnData({ gameId, turn, textVersion, data: value.characterSnapshot })
           } catch (error) {
             if (task.controller.signal.aborted) throw error
-            warn('保存角色历史失败：' + (error?.message ?? error))
+            const reason = '本轮角色穿搭未保存：' + (error?.message ?? error)
+            value.historyWarning = [value.historyWarning, reason].filter(Boolean).join('；')
+            warn(reason)
           }
         }
         return value
@@ -305,11 +314,12 @@ export function installTavernBridge({ tavern, attachments, engine, getConfig, lo
       const results = await Promise.all(pending.values())
       await assertCurrent(task)
       const result = { attached: results.reduce((sum, value) => sum + value, 0), total: plans.length }
-      if (Array.isArray(plan?.characterWarnings) && plan.characterWarnings.length) result.warnings = plan.characterWarnings.map(text => String(text).slice(0, 200))
+      const warnings = [...(plan?.characterWarnings ?? []), plan?.historyWarning].filter(Boolean)
+      if (warnings.length) result.warnings = warnings.map(text => String(text).slice(0, 200))
       if (plan?.error) result.error = String(plan.error).slice(0, 500)
       else if (plan?.skipped) { result.skipped = true; result.reason = String(plan.reason ?? '').slice(0, 500) }
       else if (!plans.length && shouldGenerate) result.error = '规划没有产出画面'
-      if (task.manual && result.total > 0 && result.attached === result.total && !plan?.error) {
+      if (task.manual && result.total > 0 && result.attached === result.total && !plan?.error && !plan?.partial) {
         // A complete redraw replaces the whole prior batch, including items
         // with changed anchors. Only remove media from the initial scoped list.
         for (const old of existing) {
@@ -318,7 +328,7 @@ export function installTavernBridge({ tavern, attachments, engine, getConfig, lo
         }
       }
       const successfulEmpty = result.total === 0 && !result.error && (result.skipped || !shouldGenerate)
-      if (!task.manual && (ready || config.imageEnabled === false || config.plannerEnabled === false) && (successfulEmpty || (result.total > 0 && result.attached === result.total)) && !result.error) {
+      if (!task.manual && (ready || config.imageEnabled === false || config.plannerEnabled === false) && (successfulEmpty || (result.total > 0 && result.attached === result.total)) && !result.error && !plan?.partial) {
         completed.set(versionKey(task), { result, jobIds: plans.map(item => String(item.jobId ?? '')) })
         if (completed.size > 200) completed.delete(completed.keys().next().value)
       }
