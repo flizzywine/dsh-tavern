@@ -1248,6 +1248,7 @@ function clipReplayCore() {
 			replyActions: {
 				Receipt: playControlsFeature.TurnReceiptButton,
 				Latest: playControlsFeature.LatestReplyActions,
+				Menu: playControlsFeature.TurnMenu,
 				RollbackTo: playControlsFeature.RollbackToTurnButton,
 				Illustrate: assistantRendererFeature.IllustrateTurnAction,
 				IllustrationDraft: TavernIllustrationDraft,

@@ -11,15 +11,15 @@ const seedMessages = session => session.events.filter(event => {
   return source?.form === 'synthetic-trajectory' || source?.model === 'synthetic-trajectory'
 })
 
-test('新局默认大量候选，修改开局默认只影响之后创建的对局', async () => {
+test('新局默认少量候选，修改开局默认只影响之后创建的对局', async () => {
   const h = initializationFixture()
   const first = await h.make().start(h.input)
-  assert.equal(h.saved.get(first.id).candidateTabs, true)
-  h.state.settings.defaultPlaySettings = { candidateTabs: false }
+  assert.equal(h.saved.get(first.id).candidateTabs, false)
+  h.state.settings.defaultPlaySettings = { candidateTabs: true }
   const next = await h.make().start({ ...h.input, sessionId: 'next-candidates' })
-  assert.equal(h.saved.get(next.id).candidateTabs, false)
+  assert.equal(h.saved.get(next.id).candidateTabs, true)
   const reopened = await h.make().start(h.input)
-  assert.equal(h.saved.get(reopened.id).candidateTabs, true)
+  assert.equal(h.saved.get(reopened.id).candidateTabs, false)
 })
 
 test('删除默认模型渠道后仍可创建游玩对话和卡片工作台', async () => {

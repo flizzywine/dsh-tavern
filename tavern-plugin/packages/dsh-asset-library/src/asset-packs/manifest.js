@@ -147,8 +147,10 @@ export function validateAssetContent(kind, content, path = '$') {
   // authored gain never relaxes playback true-peak protection.
   if (value.gainDb !== undefined) check(Number.isFinite(value.gainDb) && value.gainDb >= -18 && value.gainDb <= 8, path + '.gainDb')
   if (value.loudness !== undefined) {
-    shape(value.loudness, ['v', 'lufs', 'peak'], ['v', 'lufs', 'peak'], path + '.loudness')
+    shape(value.loudness, ['v', 'lufs', 'peak', 'brightnessDb', 'durationMs'], ['v', 'lufs', 'peak'], path + '.loudness')
     check(value.loudness.v === 1, path + '.loudness.v')
+    for (const [key, max] of [['brightnessDb', 5], ['durationMs', Infinity]]) if (value.loudness[key] !== undefined)
+      check(Number.isFinite(value.loudness[key]) && value.loudness[key] >= 0 && value.loudness[key] <= max, path + '.loudness.' + key)
     for (const [key, max] of [['lufs', 10], ['peak', 20]]) check(Number.isFinite(value.loudness[key]) && value.loudness[key] >= -100 && value.loudness[key] <= max, path + '.loudness.' + key)
   }
   if (value.gainDb > 0) check(value.loudness !== undefined, path + '.loudness', 'Positive SFX gain requires a measured loudness and true peak')

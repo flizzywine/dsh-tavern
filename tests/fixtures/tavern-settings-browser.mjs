@@ -41,7 +41,6 @@ export async function openTavernSettings(t, { settings, respond, exposeModelSlot
       else if (method === 'confirmSessionPatch') result = {}
       else if (method === 'getTavernModelCatalog') result = { modelCatalog: [] }
       else if (method === 'getDefaultWritingSkills') result = { skills: [] }
-      else if (method === 'getBodyGenerationSettings') result = { inherited: true, mode: 'host', provider: '', providers: [] }
       else if (method === 'listUserPlugins') result = { plugins: [], dir: '/tmp/tavern/plugins' }
       else if (method === 'managedModsList') result = { revision: 'fixture', mods: [] }
       else if (method === 'listLegacyPlugins') result = { plugins: [] }

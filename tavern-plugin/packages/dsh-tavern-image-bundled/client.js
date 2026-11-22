@@ -1891,6 +1891,105 @@ function versionsOf(jobId) {
         source && error ? h('div', { role: 'alert', style: { position: 'fixed', zIndex: 2147483250, top: 70, left: '10%', background: 'Canvas', color: 'CanvasText', padding: 16 } }, error,
           h('button', { type: 'button', onClick: () => setSource(null) }, '关闭')) : null)
     }
+    /**
+     * 服装字段与展开规则的唯一一份实现。
+     *
+     * 角色自带的服装、通用服装库都使用同一套分部位字段：
+     *   upper / lower / shoes / accessory / full / back / negative
+     * 旧的通用库字段 body / bodyBack / fullBack 只作为读入兼容，
+     * 分别映射到 upper 和 back；保存时保留原值，便于旧版本回滚。
+     *
+     * 宿主侧（lib/index.js、lib/library-prompts.js、lib/library-provider.js、
+     * lib/reference-images.js）与浏览器侧（client.js）都用这里的规则，
+     * 不要在别处再写第二份字段判断。
+     */
+
+    /** 逐字段写进提示词的部位，顺序即输出顺序。 */
+    const OUTFIT_PART_KEYS = ['upper', 'lower', 'shoes', 'accessory', 'full']
+    /** 会落盘的服装字段：新字段在前，旧字段仅兼容读入。 */
+    const OUTFIT_FIELDS = [...OUTFIT_PART_KEYS, 'back', 'negative', 'body', 'bodyBack', 'fullBack']
+    /** 旧版通用服装库的字段。 */
+    const LEGACY_OUTFIT_FIELDS = ['body', 'bodyBack', 'fullBack']
+
+    const PLACEHOLDER = /^(?:none|n\/a|null|undefined|无|没有)$/i
+    const text = (value) => String(value ?? '').trim()
+
+    /**
+     * 旧字段 → 统一字段。upper 优先于 body。
+     * 背面沿用旧读法：bodyBack（背面上身）与 fullBack（背面整套）都要，按顺序接成一段；
+     * 旧版就是这么拼的，只取其中一个会丢掉另一段描述。
+     */
+    function normalizeOutfitParts(outfit = {}) {
+      const source = outfit ?? {}
+      const upper = text(source.upper ?? source.body)
+      const back = source.back == null ? [source.bodyBack, source.fullBack].map(text).filter(Boolean).join('\n') : text(source.back)
+      return { ...source, upper, back }
+    }
+
+    /**
+     * 这条服装还要不要写回统一字段：只有旧字段、没有对应新字段时为真。
+     * 迁移后新字段有值，条件自然变假，所以每次加载都安全地检查一次即可。
+     * shared=true 时按通用库读法把 bodyBack 也算作背面；人物自带服装的 bodyBack 是旧的配饰字段，不参与。
+     */
+    function needsOutfitMigration(outfit, { shared = false } = {}) {
+      const item = outfit ?? {}
+      if (!item || typeof item !== 'object' || Array.isArray(item)) return false
+      const upperStale = item.upper == null && Boolean(text(item.body))
+      const backStale = item.back == null && Boolean(text(item.fullBack) || (shared && text(item.bodyBack)))
+      return upperStale || backStale
+    }
+
+    /**
+     * 按部位状态取这套衣服这一刻该写的字段。
+     * upper / lower 取 'sfw' | 'nsfw' | 'hidden'；back 为真时追加背面字段。
+     * dropFootwear 由调用方注入（鞋袜词表在宿主侧），默认不过滤。
+     */
+    function collectOutfitParts(outfit, options = {}) {
+      const item = normalizeOutfitParts(outfit)
+      const tags = options.tags ?? (options.mode !== 'natural' && options.mode !== 'structured')
+      const level = (value) => {
+        const v = String(value ?? '').toLowerCase()
+        return v === 'hidden' || v === 'nsfw' ? v : 'sfw'
+      }
+      const upperPart = level(options.upper)
+      const lowerPart = level(options.lower)
+      const cropped = options.cropped === true
+      const barefoot = options.barefoot === true
+      const keepSocks = options.keepSocks === true
+      const dropFootwear = typeof options.dropFootwear === 'function' ? options.dropFootwear : (value) => value
+      const accept = (value) => {
+        const next = text(value)
+        return next && !PLACEHOLDER.test(next) ? next : ''
+      }
+      const parts = []
+      for (const field of OUTFIT_PART_KEYS) {
+        // 标了 hidden 的部位出了画框、标了 nsfw 的部位露着，对应衣服都不能写。
+        if (field === 'shoes' && (lowerPart === 'hidden' || lowerPart === 'nsfw')) continue
+        // 只有上下都出框时才连下装一起省掉；只拍上半身照样写下装，否则下摆会画到大腿。
+        if (field === 'lower' && (lowerPart === 'nsfw' || (lowerPart === 'hidden' && upperPart === 'hidden'))) continue
+        if (field === 'upper' && (upperPart === 'hidden' || upperPart === 'nsfw')) continue
+        // full 是整套的总述，任何一个部位裸露或出框都不能再用它。
+        if (field === 'full' && (upperPart !== 'sfw' || lowerPart !== 'sfw')) continue
+        if (cropped && (field === 'lower' || field === 'shoes' || field === 'full')) continue
+        if (barefoot && !keepSocks && field === 'shoes') continue
+        // 标签写法里已经有上衣下装时，整套总述只是噪音。
+        if (field === 'full' && tags && (text(item.upper) || text(item.lower))) continue
+        const value = accept(barefoot ? dropFootwear(item[field], keepSocks) : item[field])
+        if (value) parts.push({ field, text: value })
+      }
+      if (!cropped && options.back === true) {
+        const back = accept(item.back)
+        if (back) parts.push({ field: 'back', text: back })
+      }
+      return parts
+    }
+
+    /** 把一套服装按同一套规则拼成一段提示词。 */
+    function outfitPromptText(outfit, { mode = 'tags', back = false, upper = 'sfw', lower = 'sfw', cropped = false } = {}) {
+      const parts = collectOutfitParts(outfit, { mode, back, upper, lower, cropped })
+      return parts.map((part) => part.text).join(mode === 'tags' ? ', ' : '\n')
+    }
+
     function libraryPromptOverride(record) {
       return typeof record?.imagePrompt === 'string' ? record.imagePrompt.trim() : null
     }
@@ -1922,12 +2021,10 @@ function versionsOf(jobId) {
         .map(libraryPromptPart).filter(Boolean).join(mode === 'tags' ? ', ' : '\n')
     }
 
-    function outfitLibraryPrompt(record, { mode = 'tags', shared = false, back = false } = {}) {
-      const upper = shared ? record?.body : record?.upper
-      const lower = shared ? '' : record?.lower
-      const full = mode === 'tags' && (libraryPromptPart(upper) || libraryPromptPart(lower)) ? '' : record?.full
-      return libraryPromptOverride(record) ?? (back ? [shared ? record?.bodyBack : record?.back, shared ? record?.fullBack : '', record?.shoes, record?.accessory] : [upper, lower, record?.shoes, record?.accessory, full])
-        .map(libraryPromptPart).filter(Boolean).join(mode === 'tags' ? ', ' : '\n')
+    // 角色自带服装与通用服装库走同一套字段和部位规则（见 outfit-parts.js）。
+    // 旧签名里的 shared 参数保留给现有调用方，字段归一已在 collectOutfitParts 里完成。
+    function outfitLibraryPrompt(record, { mode = 'tags', back = false } = {}) {
+      return libraryPromptOverride(record) ?? outfitPromptText(record, { mode, back: back === true })
     }
     const S = {
       surface: { background: 'transparent', color: 'var(--dsw-alias-label-primary)' },
@@ -2503,25 +2600,28 @@ function versionsOf(jobId) {
 
     }
 
+    const OUTFIT_PROMPT_PARTS = [['upper', '上衣'], ['lower', '下装'], ['shoes', '鞋袜'], ['accessory', '配饰'], ['full', '整套'], ['back', '背面']]
     const LIBRARY_PROMPT_PARTS = {
       '角色': [['face', '外貌正面'], ['faceBack', '外貌背面'], ['bodySFW', '穿衣上身正面'], ['bodySFWBack', '穿衣上身背面'],
         ['lowerSFW', '穿衣下身正面'], ['lowerSFWBack', '穿衣下身背面'], ['bodyNSFW', '裸露上身正面'], ['bodyNSFWBack', '裸露上身背面'],
         ['lowerNSFW', '裸露下身正面'], ['lowerNSFWBack', '裸露下身背面'], ['feature', '性格（规划用）']],
-      '服装': [['upper', '上衣'], ['lower', '下装'], ['shoes', '鞋袜'], ['accessory', '配饰'], ['full', '整套'], ['back', '背面']],
-      '通用服装': [['body', '正面上身'], ['full', '正面整套'], ['bodyBack', '背面上身'], ['fullBack', '背面整套']],
+      // 两套服装库字段已统一，编辑面板共用同一份字段表。
+      '服装': OUTFIT_PROMPT_PARTS,
+      '通用服装': OUTFIT_PROMPT_PARTS,
     }
 
     function LibraryPromptEditor({ record, kind, mode, traitMode, editable, detailsEditable, onChange }) {
       const custom = libraryPromptOverride(record) !== null
       const character = kind === '角色'
-      const parts = character ? record.traits || {} : record
+      // 通用服装与角色服装同字段；旧 body/fullBack 数据在这里先归一，编辑面板不会显示成空。
+      const parts = character ? record.traits || {} : normalizeOutfitParts(record)
       const fields = LIBRARY_PROMPT_PARTS[kind]
       const filled = fields.filter(([key]) => String(parts[key] || '').trim())
       const [view, setView] = React.useState(() => !custom && filled.length > 1 ? 'all' : 'prompt')
       const [selected, select] = React.useState('')
       const updatePart = (key, value) => onChange(character ? { traits: { ...parts, [key]: value } } : { [key]: value })
       const fallback = character ? characterLibraryPrompt(record, { mode, traitMode })
-        : outfitLibraryPrompt(record, { mode, shared: kind === '通用服装' })
+        : outfitLibraryPrompt(record, { mode })
       const imageDetails = libraryImageDetails(record)
       const editor = (label, value, onEdit, rows, readOnly = false) => h('label', { style: { display: 'grid', gap: 4, margin: '8px 0', minWidth: 0 } },
         h('span', { style: { fontSize: 12, fontWeight: 600 } }, label),
@@ -6749,7 +6849,7 @@ function versionsOf(jobId) {
               )
             })(),
             h('div', { style: S.row },
-              h('button', { style: buttonStyle, onClick: () => setLibraryData(Object.assign({}, dataRef.current, { outfits: (data.outfits || []).concat([{ id: 'of' + Date.now(), name: '新套装', body: '', full: '', bodyBack: '', fullBack: '', negative: '', enabled: true }]) })) }, '新增套装'),
+              h('button', { style: buttonStyle, onClick: () => setLibraryData(Object.assign({}, dataRef.current, { outfits: (data.outfits || []).concat([{ id: 'of' + Date.now(), name: '新套装', upper: '', lower: '', shoes: '', accessory: '', full: '', back: '', negative: '', enabled: true }]) })) }, '新增套装'),
               h('button', { style: buttonStyle, onClick: () => commit() }, '保存服装库'),
               h('button', { style: buttonStyle, title: '把角色库、两本世界书、渠道配置、历史记录打包成一个 JSON', onClick: exportAllData }, '导出全部数据'),
               h('button', { style: buttonStyle, title: '从备份 JSON 恢复；会先自动备份当前数据', onClick: importAllData }, '导入全部数据'),
@@ -7320,7 +7420,7 @@ function versionsOf(jobId) {
           h('span', null,
             h('span', { style: { display: 'block', fontSize: '14px', fontWeight: 600 } }, '启用配图'),
             h('span', { style: { display: 'block', fontSize: '12px', color: 'var(--dsw-alias-label-tertiary)', marginTop: '2px' } },
-              config.imageEnabled === false ? '已关闭：不再自动或手动配图，正文里不显示配图按钮；已有插图照常显示' : '为剧情自动或手动配图；关掉后正文里不显示配图按钮，已有插图照常显示')),
+              config.imageEnabled === false ? '已关闭配图和对话顶部的画廊。已有插图照常显示。' : '为剧情自动或手动配图，并在对话顶部显示画廊。')),
           h('input', { type: 'checkbox', role: 'switch', className: 'dti-switch', 'aria-label': '启用配图', checked: config.imageEnabled !== false, onChange: e => save({ imageEnabled: e.target.checked }) })),
         h('div', { style: S.row }, promptField('生图模式', h('select', { 'aria-label': '生图系统模式', style: S.input, value: config.promptSystem || 'worldbook', onChange: async event => { const mode = event.target.value; if (await save({ promptSystem: mode })) setTab(mode === 'worldbook' ? 'worldbook' : 'style') } },
           h('option', { value: 'worldbook' }, '世界书模式（默认）'), h('option', { value: 'workbench' }, '生图工作台（高级模式）')))),
@@ -7936,9 +8036,10 @@ function versionsOf(jobId) {
         })
       } catch (error) { reportHost('apply-report-failed', { message: String(error && error.message) }) }
       try {
-        const settings = { smartImageSelection: true, imageEnabled: true }
+        const settings = { smartImageSelection: true, imageEnabled: false }
         // 配图总开关变化时重新登记 illustrator（关掉时不给 draw，Tavern 就不显示配图按钮）。
         let refreshIllustrator = null
+        let receivedImageConfig = false
         const applyImageEnabled = value => {
           const next = value !== false
           if (next === settings.imageEnabled) return
@@ -7947,6 +8048,7 @@ function versionsOf(jobId) {
         }
         const updateImageConfig = event => {
           if (!event.detail) return
+          receivedImageConfig = true
           applyImageEnabled(event.detail.imageEnabled)
           applyImagePlacement(event.detail)
         }
@@ -7954,7 +8056,7 @@ function versionsOf(jobId) {
         ctx.effect?.(() => () => window.removeEventListener('dsh-tavern-image:config', updateImageConfig), 'dsh-tavern-image: display config')
         jsonFetch(`${BASE}/state`).then(state => {
           if (state?.config) {
-            applyImageEnabled(state.config.imageEnabled)
+            if (!receivedImageConfig) applyImageEnabled(state.config.imageEnabled)
             // 正文插图统一宽度：每次启动都从 /state 读回来，所以刷新 / 重启之后依然生效。
             applyImageWidth(state.config.imageDisplayWidth)
             applyImagePlacement(state.config)

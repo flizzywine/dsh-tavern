@@ -7,7 +7,7 @@ import { OFFICIAL_MVU_VERSION } from './official-mvu-assets.js'
 import { createScriptContinuity } from './script-continuity.js'
 import { normalizeBackgroundModel } from './background-model-selection.js'
 import { normalizeDisabledForegroundTools } from './foreground-tools.js'
-import { normalizeConfiguredBackgroundTasks, normalizeDefaultBodyGeneration, normalizeDefaultPluginGameSettings, normalizePlayDefaults } from './tavern-settings.js'
+import { normalizeConfiguredBackgroundTasks, normalizeDefaultPluginGameSettings, normalizePlayDefaults } from './tavern-settings.js'
 import { ensureSessionSeedTrajectory } from './session-seed-trajectory.js'
 import { defaultUserPreferenceProfile } from './user-preference-profile.js'
 import { replyProse } from './reply-prose.js'
@@ -208,14 +208,6 @@ export function createConversationInitialization(options) {
     chat.backgroundModelSelection = groupOfMode(chat.mode) === 'play' ? normalizeBackgroundModel(currentSettings.defaultBackgroundModel) : null
     chat.disabledWritingSkills = groupOfMode(chat.mode) === 'play' ? [...(currentSettings.defaultDisabledWritingSkills || [])] : []
     chat.disabledForegroundTools = groupOfMode(chat.mode) === 'play' ? normalizeDisabledForegroundTools(currentSettings.defaultDisabledForegroundTools) : []
-    if (groupOfMode(chat.mode) === 'play') {
-      const bodyDefaults = normalizeDefaultBodyGeneration(currentSettings.defaultBodyGeneration)
-      if (bodyDefaults.mode !== 'inherit') {
-        chat.storyGenerationMode = bodyDefaults.mode
-        chat.storyGenerationProvider = bodyDefaults.provider
-      }
-      if (typeof bodyDefaults.hostRegex === 'boolean') chat.storyPluginOutputRegex = bodyDefaults.hostRegex
-    }
     chat.backgroundConfigVersion = 1
     chat.backgroundTasks = normalizeConfiguredBackgroundTasks(groupOfMode(chat.mode) === 'play' ? defaults.backgroundTasks : {})
     chat.mvu = usesMvu ? {

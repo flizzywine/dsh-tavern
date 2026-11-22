@@ -51,11 +51,12 @@ function ResetButton(props) {
 // or above it when the window has more room there, kept inside the window edges (the same rule as the stage panel's
 // popoverPlace). An overflow: hidden / scrolling panel or dialog therefore never clips it. It follows scrolling and
 // closes when its value scrolls out of sight. Without a DOM portal (tests, SSR) it stays inline, absolutely positioned.
-function inlinePlace(anchor, size, view) {
+function inlinePlace(anchor, size, view, alignEnd) {
     const gap = 4, edge = 8, below = view.height - anchor.bottom - gap - edge, above = anchor.top - gap - edge, up = size.height > below && above > below;
     const maxHeight = Math.max(0, Math.floor(up ? above : below)), height = Math.min(size.height, maxHeight);
     const top = up ? Math.max(edge, anchor.top - gap - height) : Math.max(edge, Math.min(anchor.bottom + gap, view.height - edge - height));
-    const left = Math.max(edge, Math.min(anchor.left - 6, view.width - edge - size.width));
+    const start = alignEnd ? anchor.right - size.width : anchor.left - 6;
+    const left = Math.max(edge, Math.min(start, view.width - edge - size.width));
     return { top: Math.round(top), left: Math.round(left), maxHeight: Math.min(320, maxHeight), up };
 }
 function inlineCanPortal() { return typeof ReactDOM !== "undefined" && !!ReactDOM && typeof ReactDOM.createPortal === "function" && typeof document !== "undefined" && !!document.body; }
@@ -150,7 +151,7 @@ function useWindowFullscreen(open, options) {
         return holdWindowFullscreen({ onLost: () => latest.current.onLost && latest.current.onLost(), topLayer: () => latest.current.topLayer && latest.current.topLayer() });
     }, [open]);
 }
-function useInlinePopup() {
+function useInlinePopup({ focusSelector, alignEnd = false } = {}) {
     const [open, setOpen] = React.useState(false), [place, setPlace] = React.useState(null), root = React.useRef(null), trigger = React.useRef(null), pop = React.useRef(null);
     const close = refocus => { setOpen(false); setPlace(null); if (refocus && trigger.current && trigger.current.focus) trigger.current.focus(); };
     const floating = inlineCanPortal();
@@ -162,7 +163,7 @@ function useInlinePopup() {
             const anchor = trigger.current && trigger.current.getBoundingClientRect ? trigger.current.getBoundingClientRect() : null, node = pop.current;
             if (!anchor || !node) return;
             if (anchor.bottom < 0 || anchor.top > window.innerHeight) { setOpen(false); setPlace(null); return; }
-            const next = inlinePlace(anchor, { width: node.offsetWidth, height: Math.min(320, Math.max(node.offsetHeight, node.scrollHeight)) }, { width: window.innerWidth, height: window.innerHeight });
+            const next = inlinePlace(anchor, { width: node.offsetWidth, height: Math.min(320, Math.max(node.offsetHeight, node.scrollHeight)) }, { width: window.innerWidth, height: window.innerHeight }, alignEnd);
             setPlace(p => p && p.top === next.top && p.left === next.left && p.maxHeight === next.maxHeight ? p : next);
         };
         update(); window.addEventListener("resize", update); window.addEventListener("scroll", update, true);
@@ -170,12 +171,12 @@ function useInlinePopup() {
         const watch = typeof ResizeObserver === "function" && pop.current ? new ResizeObserver(update) : null;
         if (watch) watch.observe(pop.current);
         return () => { if (watch) watch.disconnect(); window.removeEventListener("resize", update); window.removeEventListener("scroll", update, true); };
-    }, [open, floating, Boolean(place)]);
+    }, [open, floating, Boolean(place), alignEnd]);
     React.useEffect(function () {
         // A portalled menu is hidden until measured; focusing it earlier silently fails.
         const node = pop.current; if (!open || (floating && !place) || !node || !node.querySelector) return;
         if (!floating && node.scrollIntoView) node.scrollIntoView({ block: "nearest" });
-        const first = node.querySelector('[aria-checked="true"]:not(:disabled),[aria-pressed="true"]') || node.querySelector("button:not(:disabled),input");
+        const first = (focusSelector && node.querySelector(focusSelector)) || node.querySelector('[aria-checked="true"]:not(:disabled),[aria-pressed="true"]') || node.querySelector("button:not(:disabled),input");
         if (first && first.focus) first.focus({ preventScroll: true });
     }, [open, floating, Boolean(place)]);
     const keys = event => {

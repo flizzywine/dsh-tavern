@@ -39,8 +39,12 @@ for (const textOnly of [false,true]) test(`历史导入与旧预筛调用均不�
  await createChatHistoryImportService(h.options).import({...input,textOnly})
  assert.equal(calls,0)
  const frames=foregroundContexts(h.session)
+ assert.equal(frames.length, 2)
  assert.doesNotMatch(frames[0],/walk rule/);assert.doesNotMatch(frames[1],/rest rule/)
- assert.match(frames[0],/<lorebook_title_hints>/);assert.match(frames[1],/<lorebook_title_hints>/)
+ for (const frame of frames) {
+  assert.match(frame, /<lorebook_title_hints>\n可能用到的世界书条目：[^\n]+\n<\/lorebook_title_hints>/)
+  assert.doesNotMatch(frame, /<lorebook_activated>/)
+ }
  await project({chat:{id:'live',sessionId:'session',messages:[]},card:{},userText:'walk',worldBook})
  assert.equal(calls,0,'发送正文不等待模型筛选')
  await project({chat:{id:'live',sessionId:'session',backgroundTasks:{worldbookScreening:true},messages:[{role:'assistant',turn:1,text:'walk'}]},card:{},userText:'',worldBook,purpose:'prefilter'})

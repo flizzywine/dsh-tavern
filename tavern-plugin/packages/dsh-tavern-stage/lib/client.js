@@ -4066,6 +4066,8 @@ function createSoundscapePlayer(deps) {
     // performance: the stage performance's own ambience layer (ambience.cjs).
     const slots = { layer1: { current: null, outgoing: null }, layer2: { current: null, outgoing: null }, performance: { current: null, outgoing: null } };
     const duration = 1200, openCutoff = 24000;
+    const establishMs = 6000, retreatMs = 8000, bedGain = 10 ** (-4 / 20);
+    const delay = deps.setTimeout || setTimeout, cancelDelay = deps.clearTimeout || clearTimeout;
     let frame = null, disposed = false, warnings = [];
     const settled = new Set();
     function acknowledge() { for (const resolve of settled) resolve(); settled.clear(); }
@@ -4111,6 +4113,7 @@ function createSoundscapePlayer(deps) {
     function release(track) {
         if (!track || !track.alive) return;
         track.alive = false; track.ticket++;
+        cancelDelay(track.retreatTimer);
         cleanupAll([
             () => track.node.removeEventListener('error', track.onError),
             () => mixer.level(track.node, 0), () => clearMedia(track.node),
@@ -4127,7 +4130,19 @@ function createSoundscapePlayer(deps) {
         try {
             Promise.resolve(track.node.play()).then(() => {
                 if (!track.alive) { clearMedia(track.node); return; }
-                if (!disposed && track.ticket === ticket) { track.status = 'playing'; track.error = null; }
+                if (!disposed && track.ticket === ticket) {
+                    track.status = 'playing'; track.error = null;
+                    if (track.retreatTimer == null && !track.inBed) {
+                        track.retreatTimer = delay(() => {
+                            track.retreatTimer = null;
+                            if (!Object.values(slots).some(slot => slot.current === track)) return;
+                            track.inBed = true;
+                            target(track, track.gain * bedGain, track.lowpassHz, false, retreatMs);
+                            schedule();
+                        }, establishMs);
+                        track.retreatTimer?.unref?.();
+                    }
+                }
             }, failed);
         } catch (_) { failed(); }
     }
@@ -4152,11 +4167,11 @@ function createSoundscapePlayer(deps) {
         track.cutoff = value;
         if (typeof mixer.filter === 'function') mixer.filter(track.node, value);
     }
-    function target(track, gain, cutoff, snap) {
+    function target(track, gain, cutoff, snap, fadeMs = duration) {
         if (snap) {
             track.transition = null; mixer.level(track.node, gain); setCutoff(track, cutoff); return;
         }
-        track.transition = { at: now(), from: mixer.level(track.node), to: gain, cutoffFrom: track.cutoff, cutoffTo: cutoff };
+        track.transition = { at: now(), fadeMs, from: mixer.level(track.node), to: gain, cutoffFrom: track.cutoff, cutoffTo: cutoff };
     }
     function step() {
         frame = null;
@@ -4164,7 +4179,7 @@ function createSoundscapePlayer(deps) {
         for (const slot of Object.values(slots)) for (const key of ['current', 'outgoing']) {
             const track = slot[key], fade = track && track.transition;
             if (!fade) continue;
-            const t = Math.max(0, Math.min(1, (now() - fade.at) / duration));
+            const t = Math.max(0, Math.min(1, (now() - fade.at) / fade.fadeMs));
             mixer.level(track.node, fade.from + (fade.to - fade.from) * t);
             if (fade.cutoffFrom !== fade.cutoffTo) setCutoff(track, t === 1 ? fade.cutoffTo :
                 (fade.cutoffFrom || openCutoff) + ((fade.cutoffTo || openCutoff) - (fade.cutoffFrom || openCutoff)) * t);
@@ -4195,7 +4210,7 @@ function createSoundscapePlayer(deps) {
         for (const [name, slot] of Object.entries(slots)) {
             const layer = layers.find(item => item.slot === name), current = slot.current;
             if (layer && current && current.identity === layer.identity) {
-                if (current.gain !== layer.gain || current.lowpassHz !== layer.lowpassHz || snap) target(current, layer.gain, layer.lowpassHz, snap);
+                if (current.gain !== layer.gain || current.lowpassHz !== layer.lowpassHz || snap) target(current, layer.gain * (current.inBed ? bedGain : 1), layer.lowpassHz, snap);
                 if (current.volume !== layer.volume && typeof mixer.trim === 'function') mixer.trim(current.node, layer.volume);
                 current.url = layer.url; current.id = layer.id; current.gain = layer.gain; current.volume = layer.volume; current.lowpassHz = layer.lowpassHz;
                 play(current);
@@ -4208,6 +4223,7 @@ function createSoundscapePlayer(deps) {
             }
             release(slot.outgoing); slot.outgoing = current; slot.current = null;
             if (current) {
+                cancelDelay(current.retreatTimer);
                 if (snap) { release(current); slot.outgoing = null; }
                 else target(current, 0, current.cutoff, false);
             }
@@ -28272,7 +28288,7 @@ async function mountClipReplay(snapshot, transport, stagePlugin) {
         // source form: they run here over that closure's names (core = packUi.stageScope.names, asset-pack-ui.js) and the core binds
         // the names it uses from them (stageScope.bind). Both lists are exact.
         function createStageAssetPackViews(core) {
-            const {useFigureLook, CastVoiceList, useReadingPointers, VoicePicker, VoiceRowPlay, VoiceAddDialog, VoiceLangChip, VoiceOptionPick, VoiceLoading, VoiceLoadError, defaultCastVoices, voiceErrorText, CommitInput, useVoicePreview, useVoiceReadiness, useVoiceWriter, figureVoiceSpec, voiceSourceId, figureVoiceLanguage, sampleText, voiceServiceName, voiceLanguageName, primaryLanguage, openVoiceSettings, voiceSourceUnset, React, Actions, BustArt, Button, CAST_FACE, CardCover, CardImportSheet, CatAddTile, CatBand, CatSheet, CatSub, ConfirmDialog, askDelete, hiddenConfirms, ErrorBox, FigureCastFace, Glyph, Help, HintLine, IconButton, ImageFramer, KIND_ORDER, KindSortTools, LampMenu, Loading, MOD_GLYPHS, MenuItem, ModEntries, Modal, NewFigurePage, PackImageView, PackList, PackModal, PackRow, PackSearchBox, Popover, RevealImg, STAGE_NAMES, Silhouette, StageItemsPage, StageModPage, StageModSection, StageOpenings, StageSection, StageSetupWizard, SubpageHead, SwitchRow, Thumb, UploadButton, VOICE_PROVIDERS, catBusyLabel, cellMenuTrigger, clone, downloadPackMedia, emotionMapped, emotionState, errorText, figureAvatar, figureEditorEmotions, figureOutfitView, globalFirst, glyphs, h, holdMedia, keywordProblem, kindGlyphs, kinds, loadPackDetail, loadPackRows, newResourceKey, openingMenuFocus, openingMenuKeys, orderPacks, outfitEmotionRows, outfitHead, outfitImageId, packCount, packFilter, packRowClick, splitKeywords, spriteSlotTakesStill, stageMissing, stageSetupCardPack, stageSetupReady, standInValue, stateBust, subpageKeys, switchRowClick, useLoad, usePackScope, usePackSort, useStageFold, useStageSetupAutoOpen, useVoiceLoad, useVoiceRefresh, validDraft, voiceIssueText, voiceNeedle, voiceMatches,
+            const {useFigureLook, CastVoiceList, useReadingPointers, useSystemVoicePacks, VoicePicker, VoiceRowPlay, VoiceAddDialog, VoiceLangChip, VoiceOptionPick, VoiceLoading, VoiceLoadError, defaultCastVoices, voiceErrorText, CommitInput, useVoicePreview, useVoiceReadiness, useVoiceWriter, figureVoiceSpec, voiceSourceId, figureVoiceLanguage, sampleText, voiceServiceName, voiceLanguageName, primaryLanguage, openVoiceSettings, voiceSourceUnset, React, Actions, BustArt, Button, CAST_FACE, CardCover, CardImportSheet, CatAddTile, CatBand, CatSheet, CatSub, ConfirmDialog, askDelete, hiddenConfirms, ErrorBox, FigureCastFace, Glyph, Help, HintLine, IconButton, ImageFramer, KIND_ORDER, KindSortTools, LampMenu, Loading, MOD_GLYPHS, MenuItem, ModEntries, Modal, NewFigurePage, PackImageView, PackList, PackModal, PackRow, PackSearchBox, Popover, RevealImg, STAGE_NAMES, Silhouette, StageItemsPage, StageModPage, StageModSection, StageOpenings, StageSection, StageSetupWizard, SubpageHead, SwitchRow, Thumb, UploadButton, VOICE_PROVIDERS, catBusyLabel, cellMenuTrigger, clone, downloadPackMedia, emotionMapped, emotionState, errorText, figureAvatar, figureEditorEmotions, figureOutfitView, globalFirst, glyphs, h, holdMedia, keywordProblem, kindGlyphs, kinds, loadPackDetail, loadPackRows, newResourceKey, openingMenuFocus, openingMenuKeys, orderPacks, outfitEmotionRows, outfitHead, outfitImageId, packCount, packFilter, packRowClick, splitKeywords, spriteSlotTakesStill, stageMissing, stageSetupCardPack, stageSetupReady, standInValue, stateBust, subpageKeys, switchRowClick, useLoad, usePackScope, usePackSort, useStageFold, useStageSetupAutoOpen, useVoiceLoad, useVoiceRefresh, validDraft, voiceIssueText, voiceNeedle, voiceMatches,
                 EmptyState, InlineAdd, InlineField, InlineGrid, InlineRow, OverrideDot, ResetButton, ScopeSwitch, Segmented, Spinner, Switch, TextArea, browserSpeechVoiceList, directorCommands, playerErrorText, selectFigureAvatar, selectPackAvatar} = core;
             // dsh-presentation-protocol card-stage-mode.cjs, the card page's `// @include-protocol` (the core bundle no longer includes it).
             'use strict';
@@ -28881,7 +28897,7 @@ if (typeof window === 'undefined' && typeof module !== 'undefined') module.expor
     const drop=()=>run(async()=>{await gen.reject(job);gen.closeSheet();});
     const references=job?.references||[];
     const first=figure&&genDefaultId(figure,outfit);
-    const refName=r=>r.redraw?'上一张':r.hash===figure?.identitySettei?.board?'人物设定图':r.hash===outfit?.settei?'服装设定图':r.hash===outfit?.avatars?.[first]?'首个差分头像':r.purpose==='emotion-sprite'?'同差分立绘':'参考图';
+    const refName=r=>r.redraw?'上一张':r.hash===figure?.identitySettei?.board?'人物设定图':r.hash===figure?.identitySettei?.parts?'人物设定图·配件':r.hash===outfit?.settei?'服装设定图':r.hash===outfit?.setteiParts?'服装设定图·配件':r.hash===outfit?.avatars?.[first]?'首个差分头像':r.purpose==='emotion-sprite'?'同差分立绘':'参考图';
     // The stage: progress, the candidate (a sheet as its eight cut cells or whole), the failure, or the current picture.
     const sliceWarnings=sheetSlices?Object.entries(sheetSlices).flatMap(([id,s])=>(s.checks?.warnings||[]).map(w=>({...w,id}))):[];
     const names=figure?Object.fromEntries(figureEditorEmotions(figure).map(r=>[r.id,r.label])):{};
@@ -29795,14 +29811,15 @@ function StageAutoCastPage({ctx,onBack}) {
     notes.map((text,index)=>h('p',{key:index,className:'ap-reading-note',role:'status'},h('span',null,text))));
 }
 // 可选声音: the voices the casting assistant may give a new figure. Preset 「默认」: every installed
-// voice with a 使用情景 or 「通用」 in its name (defaultCastVoices → voiceAutoCast, the one rule library-search.js also reads). A row: ▶ · name +
+// voice with a 使用情景 and every voice of the packs 通用声音 / 旁白 point at (defaultCastVoices → voiceAutoCast, the one rule
+// library-search.js also reads). A row: ▶ · name +
 // 语言 · its 使用情景 on a second line, edited in place (R23; one not written is a grey placeholder). The 使用情景 is the voice's
 // own `guidance` (≤ 60 字), saved in its pack.
-const AUTO_CAST_VOICES_HELP='素材助手给新人物配声音时，只从这里的声音里挑。「默认」自动包含写了使用情景的声音和名字带「通用」的声音，不能逐个开关；想自己增减，先复制成新预设再改。';
+const AUTO_CAST_VOICES_HELP='素材助手给新人物配声音时，只从这里的声音里挑。「默认」自动包含写了使用情景的声音，以及通用声音、旁白声音所在素材包里的声音，不能逐个开关；想自己增减，先复制成新预设再改。';
 function AutoCastVoices({ctx}) {
   const {binding}=ctx,[error,setError]=React.useState('');
   const list=useVoiceLoad(()=>binding.service.listVoiceCatalogue(),[binding],{keep:true}),preview=useVoicePreview(binding,null);
-  const rows=list.value?defaultCastVoices(list.value):null;
+  const systemPacks=useSystemVoicePacks(binding),rows=list.value?defaultCastVoices(list.value,systemPacks):null;
   // Two voices of one name (each pack may have its own 「通用男性声音」) are told apart by their pack.
   const shared=new Set((rows||[]).map(v=>v.name).filter((name,i,all)=>all.indexOf(name)!==i));
   const save=async(v,text)=>{
@@ -29827,7 +29844,7 @@ function AutoCastVoices({ctx}) {
     error&&h('p',{className:'ap-alert',role:'alert'},error),
     list.error&&!list.value?h(VoiceLoadError,{error:voiceErrorText(list.error),retry:list.reload}):
     rows===null?h(VoiceLoading,{count:3}):rows.length?h('ul',{className:'ap-vx-rows','aria-label':'可选声音'},rows.map(row)):
-      h(EmptyState,{compact:true,text:'还没有可选声音：给声音写上使用情景，或在名字里带「通用」'}),
+      h(EmptyState,{compact:true,text:'还没有可选声音：给声音写上使用情景'}),
     preview.dialog);
 }
 // the quiet 「›」 on a 基础设置 row — the 素材库 at that kind's tab (nav.openLibrary, the same

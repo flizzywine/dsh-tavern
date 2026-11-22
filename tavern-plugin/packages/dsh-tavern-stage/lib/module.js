@@ -296,7 +296,7 @@ export async function createStageModule(core) {
         const raw = (await deps.readCardWorkspace(cardPath))?.raw, extension = raw && hasCardAssetBindings(raw) ? readCardAssetExtension(raw) : null
         return effectiveAutoCast(extension, autoCastSettings.read().values, effectiveCardStage(extension, core.assetEngineSettings.read().values).dialogue)
       }
-      const autoCastLibrary = createAutoCastLibrary({getLibrary:() => ctx.get('assetLibrary')})
+      const autoCastLibrary = createAutoCastLibrary({getLibrary:() => ctx.get('assetLibrary'), getReading:() => ctx.get('tts')?.reading?.() ?? null})
       autoCast = createAutoCast({store:deps.profileData, settings:castSettings,
         library:autoCastLibrary,
 

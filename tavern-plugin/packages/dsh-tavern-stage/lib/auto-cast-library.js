@@ -2,11 +2,16 @@ import {cardFigureRows} from './card-stage.js'
 import {selectPackFigure} from './domain/asset-pack-presentation.js'
 import {figureDefaultEmotion, STANDARD_FIGURE_EMOTIONS} from '../../dsh-asset-library/lib/asset-packs/figure-emotions.js'
 import {castingVoiceKey} from '../../dsh-asset-library/lib/pack-v2/library-search.js'
+import voiceAutoCastRule from '../../dsh-asset-library/lib/shared/voice-auto-cast.cjs'
+
+const {readingPackIds} = voiceAutoCastRule
 
 // 自动选角's one port to the asset library and the shared figure records: the library's
 // automatic writer `auto-cast` for context, whole-library search (figures and 通用声音) and writes. A library without that writer leaves writable() false: nothing runs.
-export function createAutoCastLibrary({getLibrary}) {
+// getReading: tts.reading() (null without the TTS plugin); the packs 通用声音 / 旁白 point at hold 通用声音 too.
+export function createAutoCastLibrary({getLibrary, getReading = () => null}) {
   let owner, writer = null
+  const systemPacks = () => readingPackIds(getReading())
   function port() {
     const library = getLibrary()
     if (!library) return null
@@ -38,9 +43,9 @@ export function createAutoCastLibrary({getLibrary}) {
       const voiceKeys = new Set(rows.map(({ref, figure}) => castingVoiceKey(byPack.get(ref.packId)?.[figure.voice?.voice], figure.voice)).filter(Boolean))
       return {cardId:context.card.cardId, missingPackIds:context.missingPackIds, packId:pack?.manifest.id ?? null, revision:pack?.revision ?? null, raw:context.card.raw, rows, voiceKeys, figures:figuresOf(pack)}
     },
-    search:query => port().writer.searchLibrary({query, limit:8}),
+    search:query => port().writer.searchLibrary({query, limit:8, systemPacks:systemPacks()}),
     // every library 通用声音 (the assistant reads them all rather than guess the words of their names).
-    libraryVoices:() => port().writer.listLibraryVoices({limit:60}),
+    libraryVoices:() => port().writer.listLibraryVoices({limit:60, systemPacks:systemPacks()}),
     // A picture by its hash (content-addressed): read at the pack's current revision, so a landing of another picture
     // between the queue's read and this one does not fail the job (11-12 验收: a 立绘 lost to REVISION_CONFLICT).
     async readMedia({packId, hash}) {

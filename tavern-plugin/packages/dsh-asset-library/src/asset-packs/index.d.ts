@@ -17,7 +17,7 @@ export interface AssetContentMap {
   timers: TimerContent;
   music: {media:Sha256|null;pendingMedia?:boolean;usage?:string;volume?:number;tags?:string[];loopStart?:number;loopEnd?:number;loudness?:{v:1;lufs:number;peak:number}};
   sfx: {media:Sha256|null;pendingMedia?:boolean;loop?:false;durationMs?:number;volume?:number;tags?:string[];gainDb?:number;loudness?:{v:1;lufs:number;peak:number}};
-  ambience: {media:Sha256|null;pendingMedia?:boolean;loop?:boolean;durationMs?:number;volume?:number;tags?:string[];loudness?:{v:1;lufs:number;peak:number}};
+  ambience: {media:Sha256|null;pendingMedia?:boolean;loop?:boolean;durationMs?:number;volume?:number;tags?:string[];loudness?:{v:1;lufs:number;peak:number;brightnessDb?:number;durationMs?:number}};
   looks: {params:Extensions;layer:'mood';event?:boolean};
   skins: {bundleKey:string;entry:string};
   performances: {bundleKey:string;entry:string};
@@ -55,6 +55,8 @@ export interface Outfit { key: string; defaultEmotion?: string; fallbackEmotions
   guidance?: string;
   outfitAppearance?: string;
   settei?: Sha256;
+  /** The second settei sheet: the eye and the pieces over the colour card (the four views are settei). */
+  setteiParts?: Sha256;
   setteiParentVersion?: string;
   avatars?: Record<string, Sha256>;
 }
@@ -65,7 +67,7 @@ export function figureSingleImage(figure?: Pick<Figure, 'emotions'>): string | n
 export function figureEmotionRows(figure?: Pick<Figure, 'emotions'>): Array<FigureEmotion & {label: string; color?: string}>;
 export function figureOutfitEmotionRows(figure: Pick<Figure, 'emotions'>, outfit: Figure['outfits'][number], sprites?: Record<string, SpriteManifest>): ReturnType<typeof figureEmotionRows>;
 // board versions belong to the identity, never to outfit accessories.
-export interface IdentitySettei { board: Sha256; version: string; palette: Array<{role: string; hex: string; zone: string}> }
+export interface IdentitySettei { board: Sha256; parts?: Sha256; version: string; palette: Array<{role: string; hex: string; zone: string}> }
 export interface Figure { schemaVersion: 1; id: UUID; name: string; aliases?: string[]; description?: string; guidance?: string; remark?: string; enabled: boolean; recall: FigureRecall; appearance: 'live2d' | 'spine' | 'sprite' | 'avatar'; identityAppearance?: string; identitySettei?: IdentitySettei; heightCm?: number; heightBasis?: 'standing' | 'seated'; elevationCm?: number; imageColor?: string; autoColor?: string; emotions?: FigureEmotion[]; voice?: Voice; outfits: Outfit[]; extensions?: Extensions }
 export interface Rect { x: number; y: number; w: number; h: number }
 export type MouthEvent = 'closed' | 'small' | 'mid' | 'open';

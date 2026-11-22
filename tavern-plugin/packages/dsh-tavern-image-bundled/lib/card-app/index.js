@@ -10,6 +10,7 @@ import { resolvePromptMode } from '../prompt-presets.js'
 import { CARD_SIZES, SEED_CONTROLS, TERMINAL_STATES, cardImageResult, cardSelection } from './generation.js'
 import { atomicWrite, readJson, serialQueue } from './storage.js'
 import { createCardWorldbook } from './worldbook.js'
+import { normalizeOutfitParts } from '../outfit-parts.js'
 
 const ROOT = fileURLToPath(new URL('../..', import.meta.url))
 const BASE = '/dsh-tavern-gen'
@@ -54,7 +55,11 @@ export function apply(ctx, { ready, data, gallery }) {
   const source = async () => (await ready()).currentDefinitions()
   const outfits = async () => (await source()).outfits.filter(item => item.enabled !== false)
   const parts = item => Object.fromEntries(PARTS.map(key => [key, text(item[key])]))
-  const sharedParts = item => Object.fromEntries(SHARED_PARTS.map(key => [key, text(item[key])]))
+  // 通用服装与角色服装同字段；旧字段非空时一并带上，方便调用方看到原始值。
+  const sharedParts = item => ({
+    ...parts(normalizeOutfitParts(item)),
+    ...Object.fromEntries(SHARED_PARTS.filter(key => text(item[key])).map(key => [key, text(item[key])])),
+  })
   const context = exec => ({ sessionId: String(exec?.agent?.session?.id || ''), signal: exec?.signal ? AbortSignal.any([exec.signal, controller.signal]) : controller.signal })
 
   async function seeds(picked, args, count) {
@@ -276,7 +281,7 @@ export function apply(ctx, { ready, data, gallery }) {
     },
   }
   const outfit = {
-    name: 'read_outfit', description: '查询共用通用服装库，返回精确 ID。通用服装使用 body/full/bodyBack/fullBack/negative（上身、整套及对应背面），角色自带七分部位服装从 read_character 读取。保存时保留读取到的实际字段。', parameters: schema(named), output: output(),
+    name: 'read_outfit', description: '查询共用通用服装库，返回精确 ID。通用服装与角色自带服装使用同一套字段：upper/lower/shoes/accessory/full/back/negative（上身、下身、鞋袜、配饰、整套、背面、负面词）；旧字段 body/bodyBack/fullBack 作为兼容值一并返回。保存时保留读取到的实际字段。', parameters: schema(named), output: output(),
     async execute(args) {
       await assertOpen()
       const list = await outfits(), item = pick(list, args.name)
@@ -418,6 +423,11 @@ export function apply(ctx, { ready, data, gallery }) {
         if (payload.target === 'config') return forward(engine, 'config', { config: content }, request, response, url)
         if (payload.target === 'characters' || payload.target === 'outfits') {
           const key = payload.target === 'characters' ? 'characters' : 'outfits'
+          // 带 item 的是单条修改：只动目标记录，不重写整个库。没有 item 仍走整包。
+          if (Object.hasOwn(content, 'item')) {
+            const next = await engine.patchCardDefinition(payload.target, content.item, content.revision)
+            return send(response, 200, { ok: true, revision: next.revision, characters: structuredClone(next) })
+          }
           if (!Array.isArray(content[key])) throw fail('INVALID_ARGUMENT', key + ' 必须是数组')
           const next = await engine.saveCardDefinitions({ [key]: content[key] }, content.revision)
           return send(response, 200, { ok: true, revision: next.revision, characters: structuredClone(next) })
@@ -429,7 +439,7 @@ export function apply(ctx, { ready, data, gallery }) {
       if (method === 'POST' && route === 'test-channel') return forward(await ready(), 'image-channel-test', await body(request), request, response, url)
       if (method === 'GET' && route === 'comfy-state') return forward(await ready(), 'comfy-test', {}, request, response, url)
       return send(response, 404, { ok: false, error: '没有这个工作台接口' })
-    } catch (error) { send(response, error.code === 'FORBIDDEN' ? 403 : error.code === 'REVISION_CONFLICT' ? 409 : error.code === 'INVALID_ARGUMENT' ? 400 : 500, { ok: false, code: error.code, error: error.message }) }
+    } catch (error) { send(response, error.code === 'FORBIDDEN' ? 403 : error.code === 'NOT_FOUND' ? 404 : error.code === 'REVISION_CONFLICT' ? 409 : error.code === 'INVALID_ARGUMENT' ? 400 : 500, { ok: false, code: error.code, error: error.message }) }
   }
   const image = async (request, response) => {
     try {

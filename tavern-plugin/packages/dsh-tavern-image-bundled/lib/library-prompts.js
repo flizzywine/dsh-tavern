@@ -1,3 +1,5 @@
+import { outfitPromptText } from './outfit-parts.js'
+
 export function libraryPromptOverride(record) {
   return typeof record?.imagePrompt === 'string' ? record.imagePrompt.trim() : null
 }
@@ -29,10 +31,8 @@ export function characterLibraryPrompt(record, { mode = 'tags', traitMode = 'aut
     .map(libraryPromptPart).filter(Boolean).join(mode === 'tags' ? ', ' : '\n')
 }
 
-export function outfitLibraryPrompt(record, { mode = 'tags', shared = false, back = false } = {}) {
-  const upper = shared ? record?.body : record?.upper
-  const lower = shared ? '' : record?.lower
-  const full = mode === 'tags' && (libraryPromptPart(upper) || libraryPromptPart(lower)) ? '' : record?.full
-  return libraryPromptOverride(record) ?? (back ? [shared ? record?.bodyBack : record?.back, shared ? record?.fullBack : '', record?.shoes, record?.accessory] : [upper, lower, record?.shoes, record?.accessory, full])
-    .map(libraryPromptPart).filter(Boolean).join(mode === 'tags' ? ', ' : '\n')
+// 角色自带服装与通用服装库走同一套字段和部位规则（见 outfit-parts.js）。
+// 旧签名里的 shared 参数保留给现有调用方，字段归一已在 collectOutfitParts 里完成。
+export function outfitLibraryPrompt(record, { mode = 'tags', back = false } = {}) {
+  return libraryPromptOverride(record) ?? outfitPromptText(record, { mode, back: back === true })
 }
