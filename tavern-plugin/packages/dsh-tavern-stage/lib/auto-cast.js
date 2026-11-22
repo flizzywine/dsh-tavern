@@ -53,7 +53,7 @@ export function castChanges(speakers, decided) {
       const looks = decided?.appearance[name], about = decided?.about?.[name]
       const description = [about, voice?.reason && '配音选择：' + voice.reason].filter(Boolean).join('\n\n')
       changes.push({op:'create', kind:'figures', value:{name, aliases, ...(description ? {description} : {})}, ...(looks ? {looks} : {}),
-        ...(voice ? {voice:{from:voice.from}} : {})})
+        ...(voice ? {voice:{from:voice.from, ...(voice.language ? {language:voice.language} : {})}} : {})})
       if (voice?.from) sources.push({packId:voice.from.packId, revision:voice.revision})
     }
     entries.push({name, copied:!!copy, ...(!copy && decided?.appearance[name] ? {appearance:decided.appearance[name]} : {}), ...(!copy && decided?.importance?.[name] ? {importance:decided.importance[name]} : {})})

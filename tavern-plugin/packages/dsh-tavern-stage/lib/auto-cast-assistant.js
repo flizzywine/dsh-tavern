@@ -1,6 +1,7 @@
 import {readFile} from 'node:fs/promises'
 import resolution from '../../dsh-presentation-protocol/src/figure-resolution.cjs'
 import {AUTO_CAST_TIERS} from './domain/auto-cast-priority.js'
+import {voiceTranslates} from '../../../src/client/bubble-line.cjs'
 
 const {resolveFigureName, normalizeCatalogueText} = resolution
 // 选角助理: one background model task per round with new speakers, apart from the director;
@@ -10,6 +11,11 @@ const {resolveFigureName, normalizeCatalogueText} = resolution
 export const AUTO_CAST_TASK = 'auto-cast'
 const PROMPT = new URL('../../../presets/auto-cast/assistant.md', import.meta.url)
 const SNIPPET = 600, RESULTS = 8, TEXT = 400, CALLS_PER_SPEAKER = 9
+// The 配音语言 a new speaker gets with the 通用声音 assigned to it. A 通用声音's language says what that voice speaks, not what
+// the speaker speaks, and nothing in the data says a new speaker speaks another language (a figure's own voice or the
+// card's cast would; copy_figure keeps those): it speaks 中文. Bound only when the voice's own language is another, so an
+// unset language stays the voice's default (bubble-line.cjs effectiveVoiceLanguage).
+const castVoiceLanguage = row => voiceTranslates(row.language) ? {language:'zh'} : {}
 
 // The round the new speakers came on in: the player's input (the round's latest user message) and the reply as the story shows
 // it (the round body auto-cast counts: a line is its speaker's name and words).
@@ -120,7 +126,7 @@ export async function runCastingAssistant({runAgent, selection, sessionId, turn,
       reason = String(reason || '').trim()
       if (!reason || reason.length > TEXT) return fail('用一句话说明音色或说话方式为什么符合人设，不超过 ' + TEXT + ' 字')
       picked.set(target.name, row.sound)
-      result.voice[target.name] = {from:{packId, voiceId}, revision:row.revision, reason}
+      result.voice[target.name] = {from:{packId, voiceId}, ...castVoiceLanguage(row), revision:row.revision, reason}
       return JSON.stringify({ok:true})
     },
     finish() { result.finished = true; return JSON.stringify({ok:true}) },

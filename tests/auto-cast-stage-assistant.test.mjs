@@ -93,6 +93,22 @@ test('every library 通用声音 is listed with its name, 使用情景, language
   assert.deepEqual(result.voice['林澈'], {from:{packId:'p-system', voiceId:'v-male'}, revision:'r1', reason:'说话随和，适合自然的成年男声'})
 })
 
+test('a 通用声音 in another language is assigned to speak 中文: its language is the voice\'s, not the new speaker\'s', async () => {
+  const japanese = {packId:'p-system', packName:'系统', revision:'r1', voiceId:'v-ja', name:'沉稳男声（日语）', language:'ja', guidance:'适合成年男性', sound:'ja-male'}
+  const chinese = {packId:'p-system', packName:'系统', revision:'r1', voiceId:'v-zh', name:'沉稳男声', language:'zh-CN', guidance:'适合成年男性', sound:'zh-male'}
+  const result = await runCastingAssistant({selection:{}, speakers:[{name:'卫兵', aliases:[]}, {name:'队长', aliases:[]}], rows:[], pieces:[], search:null,
+    libraryVoices:async () => ({voices:[japanese, chinese], more:0}), runAgent:async ({onToolCall}) => {
+      const call = (name, args = {}) => onToolCall({name, arguments:args})
+      await call('list_library_voices')
+      await call('assign_voice', {figure:'卫兵', packId:'p-system', voiceId:'v-ja', reason:'低沉稳重，适合守门的卫兵'})
+      await call('assign_voice', {figure:'队长', packId:'p-system', voiceId:'v-zh', reason:'威严干脆，适合带队的队长'})
+    }})
+  assert.equal(result.voice['卫兵'].language, 'zh')
+  assert.equal(result.voice['队长'].language, undefined, 'a Chinese voice keeps the unset language: its default is already 中文')
+  const changes = castChanges([{name:'卫兵', aliases:[]}, {name:'队长', aliases:[]}], result).changes
+  assert.deepEqual(changes.map(change => change.voice), [{from:{packId:'p-system', voiceId:'v-ja'}, language:'zh'}, {from:{packId:'p-system', voiceId:'v-zh'}}])
+})
+
 test('a new actor cannot take the same sound through another pack in the same casting run', async () => {
   const base = {packId:OWN, voiceId:'v-direct', revision:'r1', name:'干练女声', language:'zh', sound:'direct'}
   const copy = {...base, packId:LIB, voiceId:'copied'}
