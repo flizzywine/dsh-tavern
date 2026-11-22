@@ -2,7 +2,6 @@ window.__ModuleLoader__.load({
   id: 'dsh-tavern-adventure-medal',
   factory() {
     const name = 'dsh-tavern-adventure-medal'
-    const PREVIEW_EVENT = name + ':preview'
     const UNLOCK_EVENT = name + ':unlocked'
     const SETTINGS_BUTTON = '[data-slot="settings.launcher"] button, button[aria-label="设置"], button[aria-label="Settings"]'
     const DISPLAY_MS = 3400
@@ -119,7 +118,6 @@ window.__ModuleLoader__.load({
         let unwatch
         let celebration
         let timer
-        let previewRequest = 0
 
         function element(tag, part, text, family = 'adventure-celebration') {
           const node = document.createElement(tag)
@@ -209,7 +207,7 @@ window.__ModuleLoader__.load({
             .then(() => { if (celebration === layer) clearCelebration() })
         }
 
-        function show(achievement, preview = false) {
+        function show(achievement) {
           clearCelebration()
           const layer = celebration = element('div')
           layer.dataset.tier = achievement.id
@@ -265,7 +263,7 @@ window.__ModuleLoader__.load({
             document.createTextNode(' 轮！'))
           const result = art('div', 'result')
           result.append(sticker, art('strong', 'title', achievement.title))
-          const footer = art('div', 'footer', (preview ? '成就预览' : 'DSH Tavern 游玩纪念') + ' · ' + date(achievement.unlockedAt))
+          const footer = art('div', 'footer', 'DSH Tavern 游玩纪念 · ' + date(achievement.unlockedAt))
           card.append(motto, medal, stars, badge, pills, result, footer)
           layer.append(shade, aura, card)
           if (typeof layer.showPopover === 'function') layer.setAttribute('popover', 'manual')
@@ -312,28 +310,11 @@ window.__ModuleLoader__.load({
           }) : undefined
         }
 
-        function preview(event) {
-          const { id, complete } = event.detail || {}
-          if (typeof id !== 'string' || typeof complete !== 'function') return
-          event.preventDefault()
-          const selectedGame = mainGameId(sessions)
-          const request = ++previewRequest
-          if (!selectedGame) return complete(null)
-          void ui.callHost(name + '/preview-achievement', { gameId: selectedGame, id }).then(achievement => {
-            if (disposed || request !== previewRequest) return
-            if (!achievement || mainGameId(sessions) !== selectedGame) return complete(null)
-            show(achievement, true)
-            complete(achievement)
-          }, () => { if (!disposed && request === previewRequest) complete(null) })
-        }
-
         const unsubscribe = sessions.list.subscribe(followGame)
-        window.addEventListener(PREVIEW_EVENT, preview)
         followGame()
         return () => {
           disposed = true
           unsubscribe()
-          window.removeEventListener(PREVIEW_EVENT, preview)
           unwatch?.()
           clearCelebration()
           style.remove()

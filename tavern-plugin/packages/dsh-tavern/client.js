@@ -13,7 +13,6 @@ window.__ModuleLoader__.load({
 
     /** Shared RPC channel owned by this plugin's Host half. */
     const CHANNEL = '/profile-bridge'
-    const ACHIEVEMENT_PREVIEW_EVENT = 'dsh-tavern-adventure-medal:preview'
     const ACHIEVEMENT_UNLOCK_EVENT = 'dsh-tavern-adventure-medal:unlocked'
     /** Locale namespace of this page. */
     const NS = 'profileBridge'
@@ -44,7 +43,6 @@ window.__ModuleLoader__.load({
       operationDone: "上次操作已完成。",
       updates: '酒馆版本与更新',
       achievements: '成就库',
-      achievementRounds: '轮',
       achievementCharacter: '人物卡',
       achievementTotalChars: '总字数',
       achievementStartedAt: '开始游玩',
@@ -53,9 +51,6 @@ window.__ModuleLoader__.load({
       achievementMemento: 'DSH Tavern 游玩纪念',
       achievementMotto: '愿每一次游玩，都有星光作伴',
       achievementCharUnit: '字',
-      achievementTest: '成就测试',
-      achievementTestCard: '测试卡牌',
-      achievementTestUnavailable: '请先打开一段游玩对话，并确认新版成就插件已启用。',
       installedBuild: '当前安装',
       latestBuild: '最新发布',
       unknownBuild: '构建未知',
@@ -161,7 +156,6 @@ window.__ModuleLoader__.load({
       operationDone: "The last operation completed.",
       updates: 'Tavern version and updates',
       achievements: 'Achievements',
-      achievementRounds: 'rounds',
       achievementCharacter: 'Character card',
       achievementTotalChars: 'Total characters',
       achievementStartedAt: 'Started playing',
@@ -169,9 +163,6 @@ window.__ModuleLoader__.load({
       achievementMilestoneSuffix: 'rounds!',
       achievementMemento: 'DSHTavern Memento',
       achievementCharUnit: 'characters',
-      achievementTest: 'Test achievements',
-      achievementTestCard: 'Preview card',
-      achievementTestUnavailable: 'Open a playable conversation with the updated achievement plugin enabled.',
       installedBuild: 'Installed build',
       latestBuild: 'Latest release',
       unknownBuild: 'Unknown build',
@@ -300,9 +291,6 @@ window.__ModuleLoader__.load({
 .pb-achievement-library h3 { margin: 0; font-size: 14px; }
 .pb-achievements { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 220px), 1fr)); gap: 14px; margin: 0; padding: 0; list-style: none; }
 .pb-achievement-card { min-width: 0; width: 100%; max-width: 290px; aspect-ratio: 3 / 4; }
-.pb-achievement-preview-grid { grid-template-columns: min(100%, 290px); }
-.pb-achievement-preview-status { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
-.pb-achievement-test .pb-actions, .pb-achievement-test .pb-achievements { margin-top: 10px; }
 .pb-pre { margin: 0; padding: 10px 12px; border-radius: 8px; background: var(--pb-fill); max-height: 200px; overflow: auto; font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; word-break: break-all; }
 `
 
@@ -325,7 +313,7 @@ window.__ModuleLoader__.load({
           : t('unknownBuild'))
     }
 
-    function AchievementCard({ tier, t, preview = false }) {
+    function AchievementCard({ tier, t }) {
       const number = value => Number.isSafeInteger(value) && value >= 0 ? value.toLocaleString() : '—'
       const date = value => value ? new Intl.DateTimeFormat('sv-SE', { year: 'numeric', month: '2-digit', day: '2-digit' })
         .format(value).replaceAll('-', '.') : '—'
@@ -353,50 +341,32 @@ window.__ModuleLoader__.load({
           h('div', { className: 'achievement-art-sticker' },
             t('achievementReached') + ' ', h('b', null, tier.rounds), ' ' + t('achievementMilestoneSuffix')),
           h('strong', { className: 'achievement-art-title' }, tier.title)),
-        h('div', { className: 'achievement-art-footer' }, t(preview ? 'achievementTestCard' : 'achievementMemento'),
+        h('div', { className: 'achievement-art-footer' }, t('achievementMemento'),
           unlocked ? h(React.Fragment, null, ' · ', h('time', { dateTime: unlocked.toISOString() }, date(unlocked))) : null))
     }
 
     function AchievementLibrary({ call, t }) {
-      const [tiers, setTiers] = React.useState([])
-      const [preview, setPreview] = React.useState(undefined)
-      const previewRequest = React.useRef(0)
+      const [earned, setEarned] = React.useState([])
       React.useEffect(() => {
         let request = 0
         function refresh() {
           const current = ++request
           call('achievements', {}).then(result => {
-            if (current === request && result?.ok === true && Array.isArray(result.value)) setTiers(result.value)
+            if (current === request && result?.ok === true && Array.isArray(result.value)) {
+              setEarned(result.value.filter(tier => tier.earned === true))
+            }
           }, () => {})
         }
         window.addEventListener(ACHIEVEMENT_UNLOCK_EVENT, refresh)
         refresh()
         return () => {
           request++
-          previewRequest.current++
           window.removeEventListener(ACHIEVEMENT_UNLOCK_EVENT, refresh)
         }
       }, [call])
-      function previewTier(id) {
-        const request = ++previewRequest.current
-        const complete = result => { if (request === previewRequest.current) setPreview(result) }
-        const event = new window.CustomEvent(ACHIEVEMENT_PREVIEW_EVENT, { cancelable: true, detail: { id, complete } })
-        if (window.dispatchEvent(event)) complete(null)
-      }
-      const earned = tiers.filter(tier => tier.earned === true)
-      return h(React.Fragment, null,
-        earned.length ? h('section', { className: 'pb-achievement-library', 'aria-label': t('achievements') },
-          h('h3', null, t('achievements')),
-          h('ul', { className: 'pb-achievements' }, earned.map(tier => h(AchievementCard, { key: tier.id, tier, t })))) : null,
-        inTavern() && tiers.length ? h('details', { className: 'pb-fold pb-achievement-test' },
-          h('summary', null, t('achievementTest')),
-          h('div', { className: 'pb-actions' }, tiers.map(tier => h('button', {
-            key: tier.id, type: 'button', className: 'pb-btn pb-btn-quiet', onClick: () => previewTier(tier.id),
-          }, tier.title + ' · ' + tier.rounds + ' ' + t('achievementRounds')))),
-          preview === null ? h('p', { role: 'status' }, t('achievementTestUnavailable')) : null,
-          preview ? h(React.Fragment, null,
-            h('p', { role: 'status', className: 'pb-achievement-preview-status' }, [t('achievementTestCard'), preview.cardName].filter(Boolean).join(' · ')),
-            h('ul', { className: 'pb-achievements pb-achievement-preview-grid' }, h(AchievementCard, { tier: preview, t, preview: true }))) : null) : null)
+      return earned.length ? h('section', { className: 'pb-achievement-library', 'aria-label': t('achievements') },
+        h('h3', null, t('achievements')),
+        h('ul', { className: 'pb-achievements' }, earned.map(tier => h(AchievementCard, { key: tier.id, tier, t })))) : null
     }
 
     /** @param {{ t: Function, rpcCall: Function }} props */

@@ -582,16 +582,8 @@ function createAchievementSnapshot(dataRoot) {
 }
 
 function readAchievementChat(dataRoot, row) {
-  // A recent preview may have populated the stats cache before this turn was saved.
+  // Stats reads may have cached the chat before this turn was saved.
   return readFullChat(dataRoot, row.id, { fresh: true }).catch(() => null)
-}
-
-async function previewAchievement(dataRoot, snapshot, { gameId, id } = {}) {
-  const tier = ACHIEVEMENTS.find(item => item.id === id)
-  if (!tier || !gameId) return null
-  const row = (await readIndex(dataRoot)).find(chat => chat?.sessionId === gameId)
-  if (!achievementChat(row) || await isAutomationTestChat(dataRoot, row)) return null
-  return { ...tier, unlockedAt: Date.now(), ...await snapshot(row) }
 }
 
 function createAchievementRecorder(tavern, dataRoot, snapshot) {
@@ -693,10 +685,6 @@ export function apply(ctx) {
   ctx.effect(
     () => tavern.handle(NS + '/claim-achievement', achievements.claim),
     'adventure-medal: claim achievement notification',
-  )
-  ctx.effect(
-    () => tavern.handle(NS + '/preview-achievement', args => previewAchievement(dataRoot, snapshot, args)),
-    'adventure-medal: preview achievement',
   )
   ctx.effect(() => {
     void achievements.initialize().catch(error => console.warn('[adventure-medal] 成就库初始化失败:', error.message))

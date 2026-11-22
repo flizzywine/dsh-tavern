@@ -109,7 +109,7 @@ test('原版 Profile 的启动器只显示已解锁的成就卡，空库完全�
   }
 })
 
-test('五档测试只预览卡牌，正式解锁后刷新已经打开的成就库', async () => {
+test('正式启动器没有成就测试入口，解锁后刷新已经打开的成就库', async () => {
   let tiers = [
     ['starter', '佳作', 50], ['bronze', '名篇', 100], ['silver', '传奇', 300],
     ['gold', '史诗', 500], ['rainbow', '神话', 1000],
@@ -119,38 +119,16 @@ test('五档测试只预览卡牌，正式解锁后刷新已经打开的成就�
     rpc: async endpoint => ({ ok: true, value: endpoint === 'achievements' ? tiers : status }) })
   try {
     const win = page.dom.window
-    let cardName = '测试卡甲'
-    let cover = coverA
-    let contextChars = 6500
-    win.addEventListener('dsh-tavern-adventure-medal:preview', event => {
-      event.preventDefault()
-      event.detail.complete({ ...tiers.find(tier => tier.id === event.detail.id), cardName, cover, contextChars })
-    })
-    const testing = win.document.querySelector('.pb-achievement-test')
-    const buttons = [...testing.querySelectorAll('button')]
-    assert.deepEqual(buttons.map(button => button.textContent),
-      ['佳作 · 50 轮', '名篇 · 100 轮', '传奇 · 300 轮', '史诗 · 500 轮', '神话 · 1000 轮'])
-    await page.act(async () => { testing.open = true; buttons[0].click() })
-    assert.match(testing.textContent, /测试卡牌 · 测试卡甲/)
-    assert.equal(testing.querySelector('.pb-achievement-card').dataset.tier, 'starter')
-    assert.equal(testing.querySelector('.achievement-art-badge').textContent, '50')
-    assert.equal(testing.querySelector('.achievement-art-cover').getAttribute('src'), coverA)
-    assert.equal(testing.querySelector('[data-stat="words"] b').textContent, contextChars.toLocaleString() + ' 字')
-    cardName = '测试卡乙'
-    cover = coverB
-    contextChars = 0
-    await page.act(async () => buttons[4].click())
-    assert.match(testing.textContent, /测试卡牌 · 测试卡乙/)
-    assert.equal(testing.querySelector('.pb-achievement-card').dataset.tier, 'rainbow')
-    assert.equal(testing.querySelector('.achievement-art-cover').getAttribute('src'), coverB)
-    assert.equal(testing.querySelector('[data-stat="words"] b').textContent, '0 字')
+    assert.doesNotMatch(page.text(), /成就测试|神话/)
     assert.equal(win.document.querySelector('.pb-achievement-library'), null)
-    tiers = [{ ...tiers[0], earned: true, cardName, cover, contextChars: 9800 }, ...tiers.slice(1)]
+    const contextChars = 9800
+    tiers = [{ ...tiers[0], earned: true, cardName: '测试卡乙', cover: coverB, contextChars }, ...tiers.slice(1)]
     await page.act(async () => win.dispatchEvent(new win.Event('dsh-tavern-adventure-medal:unlocked')))
     const library = win.document.querySelector('.pb-achievement-library')
+    assert.doesNotMatch(page.text(), /成就测试|神话/)
     assert.equal(library.querySelector('.pb-achievement-card').dataset.tier, 'starter')
     assert.equal(library.querySelector('.achievement-art-cover').getAttribute('src'), coverB)
-    assert.match(library.textContent, /总字数.*字/)
+    assert.equal(library.querySelector('[data-stat="words"] b').textContent, contextChars.toLocaleString() + ' 字')
   } finally {
     await page.dispose()
   }
