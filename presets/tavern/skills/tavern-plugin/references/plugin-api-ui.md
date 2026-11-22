@@ -351,11 +351,13 @@ const overlay = ctx.tavernUi.openOverlay({
 - 按 Esc 关闭；`dismissible: false` 时 Esc 不关闭，只能调用 `close`。
 - 关闭时调用一次 `onClose`。插件卸载时界面自动关闭。界面出错时显示一行错误和关闭按钮。
 
-## `registerPanel({ id, title, render, stage? })`（第 2 版）
+## `registerPanel({ id, title, render, stage?, stageOnly?, stageSize? })`（第 2 版）
 
 随卡插件可以设置 `stage: true`，让本卡舞台页面调用 `await DshCardPage.openPluginPanel({ plugin: '插件名', panelId: 'memory' })`。其中 `plugin` 填插件浏览器端注册的 `name`。只接受当前游戏所属卡片中已启用且明确开放给舞台的面板。舞台内的 `render({ gameId, visible, stagePageId })` 收到当前游戏 ID、`visible: true` 和宿主确认的来源卡页 ID，可用同一个面板处理多个页面入口。侧栏与旧宿主中 `stagePageId` 为 `undefined`。关闭面板会回到原卡片页面。旧宿主中可检查 `typeof DshCardPage.openPluginPanel === 'function'` 后再显示入口。
 
 在右侧栏加一页插件自己的面板，比如记忆、锚点或状态一览。玩家从侧栏的「＋」里打开，面板显示在「插件」一组。
+
+设置 `stage: true` 时，可以用 `stageOnly: true` 只注册舞台入口，用 `stageSize: 'full'` 让面板铺满舞台。默认仍提供侧栏入口，舞台内使用窗口尺寸。全屏面板也可用关闭按钮或 Esc 回到来源卡页。
 
 ```js
 ctx.tavernUi.registerPanel({ id: 'memory', title: '记忆', render: ({ gameId, visible }) => h(MemoryPanel, { gameId }) })

@@ -38564,7 +38564,7 @@ function tavernFloorHeightRecall(key, width) {
 					if (data === undefined) return Promise.reject(new TypeError("savePluginData 需要 data；要清除请传 null"));
 					return rpc("pluginData", { plugin: owner, op: "save", data: data }).then(function () {});
 				},
-				// A sidebar page of the plugin's own, for the game open beside it (apiVersion 2).
+				// A plugin page for the game open beside it (apiVersion 2).
 				registerPanel(input) {
 					if (!input || typeof input.id !== "string" || !/^[a-z0-9][a-z0-9._-]{0,63}$/.test(input.id)) throw new TypeError("registerPanel 的 id 只能用小写字母、数字、点、下划线和连字符");
 					if (typeof input.title !== "string" || !input.title.trim() || input.title.length > 40) throw new TypeError("registerPanel 需要 1–40 字的 title");
@@ -38572,20 +38572,23 @@ function tavernFloorHeightRecall(key, width) {
 					const owner = ownerOf(this);
 					const tabId = "tavern-plugin:" + owner + ":" + input.id;
 					const render = input.render, title = input.title.trim();
+					const stage = input.stage === true;
+					const sidebar = !stage || input.stageOnly !== true;
+					const stageSize = stage && input.stageSize === "full" ? "full" : "window";
 					return owned(this, function () {
 						if (panels.has(tabId)) throw new Error("面板 " + input.id + " 已注册");
-						if (!host || !host.betterSidebar || typeof host.betterSidebar.registerTab !== "function") throw new Error("当前界面没有侧栏，无法注册插件面板");
+						if (sidebar && typeof host?.betterSidebar?.registerTab !== "function") throw new Error("当前界面没有侧栏，无法注册插件面板");
 						// a plugin panel's tab carries the host plugin glyph like every other tab.
 						const PluginIcon = DshUi && DshUi.IconCordisPluginOutline14;
-						const dispose = host.betterSidebar.registerTab({ id: tabId, title: title, order: 60, single: true, keepMounted: input.keepMounted === true,
+						const dispose = sidebar ? host.betterSidebar.registerTab({ id: tabId, title: title, order: 60, single: true, keepMounted: input.keepMounted === true,
 							...(PluginIcon ? { icon: function (size) { return React.createElement(PluginIcon, { size: size || 16, width: size || 16, height: size || 16 }); } } : {}),
 							component: function (props) {
 								const gameId = props.scope && props.scope.sessionId || "";
 								if (gameId && !tavernPluginAllowed(owner, gameId)) return React.createElement("p", { className: "dsh-tavern-plugin-panel-empty" }, "这是另一张人物卡的插件面板。");
 								return React.createElement(tavernPluginBoundary(), { owner: owner, fallback: React.createElement("p", { className: "dsh-tavern-plugin-panel-error" }, "插件 " + owner + " 的面板出错了") },
 									gameId ? React.createElement(render, { gameId: gameId, visible: props.visible !== false }) : React.createElement("p", { className: "dsh-tavern-plugin-panel-empty" }, "请先打开一局游戏。"));
-							} });
-						panels.set(tabId, { owner, title, render, stage: input.stage === true });
+							} }) : null;
+						panels.set(tabId, { owner, title, render, stage, stageSize });
 						changed();
 						return function () { if (typeof dispose === "function") dispose(); panels.delete(tabId); changed(); };
 					}, "tavernUi.registerPanel()");
@@ -39199,7 +39202,8 @@ function tavernFloorHeightRecall(key, width) {
 		}
 		async function findTavernStagePluginPanel(sessionId, plugin, id) {
 			await tavernCardPluginScopes.load();
-			return tavernUiExtensions.stagePanel(sessionId, plugin, id)?.title || null;
+			const panel = tavernUiExtensions.stagePanel(sessionId, plugin, id);
+			return panel ? {title: panel.title, size: panel.stageSize} : null;
 		}
 
 		// Created on first use: React is the host's, not available at bundle load.
