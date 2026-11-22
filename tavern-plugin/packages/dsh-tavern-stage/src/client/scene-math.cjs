@@ -354,7 +354,7 @@ function galCallView(video, inputs, { skipping = false, sessionId } = {}) {
         const input = figure ? inputs(figure, { audio, speaking: Boolean(audio), skipping, voiceKey: "facetime:" + role, sessionId }).stage : null;
         return input ? { ...input, key: "call:" + role, alias: figure.alias, offstage: true, x: 0.5, visible: true, enter: "none", exit: "none", shade: 1, speaking: Boolean(audio),
             figureSizing: { pack: true, heightCm: figure.heightCm, version: 1, source: figure.geometry?.stage, sourceUrl: input.src, heightBasis: figure.heightBasis, outfitKey: figure.outfitKey,
-                anatomy: figure.anatomy, head: figure.head, assetScale: figure.anatomy?.assetScale ?? 1, elevationCm: figure.elevationCm } } : null;
+                anatomy: figure.anatomy, head: figure.head, face: figure.face, assetScale: figure.anatomy?.assetScale ?? 1, elevationCm: figure.elevationCm } } : null;
     };
     return { frame: video.layout.frame, backdrop: video.layout.backdrop, glass: video.layout.glass || null, frozen: video.frozen === true,
         views: video.layout.views.map(view => ({ ...view, figure: view.role === "remote" ? party("remote", video.remote, video.audio) : party("self", video.self, null) })) };
@@ -580,11 +580,46 @@ function galSlotGap(count) {
 function galSlots(count, skinSlots) {
     return skinSlots?.[count] || Array.from({ length: count }, (_, i) => (i + galSlotEdge(count)) * galSlotGap(count));
 }
+// Where figures of different widths stand: spaced by their measured widths rather than shrunk together.
+// extents: [{left, right, reach, face}] px at fit 1 in stage order (the ink either side of the stand point, the farther of
+// the two, half the face's width); edge: galSlotEdge. Between neighbours a and b the stand points are at least
+// max(a.reach + b.face, b.reach + a.face) apart - no picture over a face beside it, whichever way either figure turns - and
+// would like to be a.right + b.left + gap: the pictures as drawn clear by an equal gap. Each screen edge counts as a mirror:
+// edge x the pair a figure would make with its own reflection - at least edge (reach + face) and never closer than a face
+// width from the face's centre (half a face of margin), ideally edge (2 x its outer side + gap), so the outer faces keep a
+// margin and, with room, the outer pictures half a gap (2-3 figures). One gap for the
+// whole row, as large as the width allows; a pair at its least distance stays there and the rest share what is left.
+// A turned figure (gaze) keeps its place: the faces stay clear, only the pictures' gap differs.
+// Equal extents land exactly on the default slots (galSlots); a broad figure takes the room its picture needs.
+// -> { least: px the row needs at fit 1, at(fit, W): stand points 0..1 at that fit on a W px stage }
+function galSpacing(extents, edge) {
+    const n = extents.length, pairs = [];
+    for (let i = 1; i < n; i++) {
+        const a = extents[i - 1], b = extents[i];
+        pairs.push({ least: Math.max(a.reach + b.face, b.reach + a.face), clear: a.right + b.left });
+    }
+    const sides = [[extents[0], extents[0].left], [extents[n - 1], extents[n - 1].right]]
+        .map(([e, outer]) => ({ least: Math.max(edge * (e.reach + e.face), 2 * e.face), clear: edge * 2 * outer, share: edge }));
+    const parts = pairs.map(p => ({ ...p, share: 1 })).concat(sides);
+    const least = parts.reduce((sum, p) => sum + p.least, 0);
+    const at = (fit, W) => {
+        const span = g => parts.map(p => Math.max(p.least * fit, p.clear * fit + p.share * g));
+        const total = g => span(g).reduce((sum, v) => sum + v, 0);
+        // total(g) never falls as the gap grows: halve the bracket down to the gap that fills the width.
+        let lo = -Math.max(...parts.map(p => p.clear / p.share)) * fit, hi = W;
+        for (let i = 0; i < 60; i++) { const mid = (lo + hi) / 2; if (total(mid) < W) lo = mid; else hi = mid; }
+        const lengths = span(hi), sum = lengths.reduce((s, v) => s + v, 0), x = [];
+        // lengths: the n - 1 neighbour distances, then the left and the right edge.
+        for (let i = 0, at = lengths[n - 1]; i < n; at += lengths[i++]) x.push(at / sum);
+        return x;
+    };
+    return { least, at };
+}
 // { W, H, boxTop, hMax, groundRatio, cast: ids in stage order, priority: ids, most important first,
 //   crops: { id: share of the head-to-feet span missing below the picture }, slots: the skin's figureSlots,
 //   max: the skin's maxFigures, phone: its phoneFigures (portrait cap, omitted = 1), framing: the skin's figures {scale, top},
 //   sizes: { id: { cm, ground } } of the cast's calibrated figures (ground: their groundRatio),
-//   widths: { id: { reach, face } } of the measured pictures: how far the ink reaches either side of the stand point and the
+//   widths: { id: { left, right, face } } of the measured pictures: how far the ink reaches either side of the stand point and the
 //   face's half width, per displayed body }
 // -> { count, fit, drop, top (head line px), framed, head (shown head span px), x: { id: 0..1 }, visible: ids in stage order }
 // One framing for the whole cast; face visibility is handled by the renderer's existing lift, not a per-figure zoom.
@@ -618,13 +653,23 @@ function galFigureLayout(input) {
     // Every face stays clear of its neighbours' pictures: a figure whose ink reaches far across (widths: reach and face half
     // width per displayed body, measured on the picture) - plate armour, a hammer on the shoulder - must not stand over the
     // face beside it (三角机构 雷蒙德 over 罗蕾莱). The same shared fit as the nominal bound; figures without a width keep only that.
-    const faceFit = ids => {
-        const slots = galSlots(ids.length, input.slots), body = id => input.sizes?.[id] && figureDisplayCm(input.sizes[id].cm, hMax, framing?.spread ?? 1) * figurePixelsPerCm(H, hMax) * zoom;
-        let need = 1;
+    const body = id => input.sizes?.[id] && figureDisplayCm(input.sizes[id].cm, hMax, framing?.spread ?? 1) * figurePixelsPerCm(H, hMax) * zoom;
+    // Each figure's extent in px at fit 1: reach (its ink's farthest side from the stand point) and face (half the face's
+    // width). Measured pictures bring their own; the others are the nominal body (bodyHeads head spans of the ruler's head,
+    // its face such that two nominal bodies overlap by maxOverlap with the faces just clear: the former bound, unchanged).
+    const half = head * zoom * c.bodyHeads / 2, nominal = { left: half, right: half, reach: half, face: head * zoom * c.bodyHeads * (0.5 - c.maxOverlap) };
+    const extent = id => {
+        const w = input.widths?.[id], px = body(id);
+        return w && px ? { left: w.left * px, right: w.right * px, reach: Math.max(w.left, w.right) * px, face: w.face * px } : nominal;
+    };
+    // A skin's figureSlots stay where its original stood them: the cast only shrinks there, as far as the default gap's
+    // nominal bound and every face clear of its neighbours' pictures need.
+    const skinFit = ids => {
+        const slots = input.slots[ids.length];
+        let need = Math.min(1, W * gapOf(ids.length) / (head * zoom * c.bodyHeads * (1 - c.maxOverlap)));
         for (let i = 1; i < ids.length; i++) {
-            const a = input.widths?.[ids[i - 1]], b = input.widths?.[ids[i]], pa = body(ids[i - 1]), pb = body(ids[i]);
-            if (!a || !b || !pa || !pb) continue;
-            const span = Math.max(a.reach * pa + b.face * pb, b.reach * pb + a.face * pa);
+            if (!input.widths?.[ids[i - 1]] || !input.widths?.[ids[i]]) continue;
+            const a = extent(ids[i - 1]), b = extent(ids[i]), span = Math.max(a.reach + b.face, b.reach + a.face);
             if (span > 0) need = Math.min(need, W * (slots[i] - slots[i - 1]) / span);
         }
         return need;
@@ -635,8 +680,8 @@ function galFigureLayout(input) {
         fit = lone;
     } else {
         for (; count > 1; count--) {
-            // A skin's slots never fit more or larger figures than the default gap; closer ones shrink more.
-            fit = Math.min(1, W * gapOf(count) / (head * zoom * c.bodyHeads * (1 - c.maxOverlap)), faceFit(drawnOf(count)));
+            const ids = drawnOf(count);
+            fit = input.slots?.[count] ? skinFit(ids) : Math.min(1, W / galSpacing(ids.map(extent), galSlotEdge(count)).least);
             if (fit >= floor) break;
         }
         if (count <= 1) fit = lone;
@@ -646,7 +691,8 @@ function galFigureLayout(input) {
     // Over the whole cast, so a speaker swap never moves the figures that stay.
     const crop = Math.max(0, ...cast.map(id => input.crops && input.crops[id] || 0));
     const drop = Math.min(framedGround - fitGround, Math.max(0, input.boxTop + H * c.feetBelow + crop * (fitGround - top) - fitGround));
-    const slots = galSlots(visible.length, input.slots);
+    const slots = portrait || visible.length < 2 || input.slots?.[visible.length] ? galSlots(visible.length, input.slots)
+        : galSpacing(visible.map(extent), galSlotEdge(visible.length)).at(fit, W);
     visible.forEach((id, i) => { x[id] = slots[i]; });
     // A figure the cap leaves out does not stand on the ruler: a tall one nobody sees would sink the cast that is drawn (head line,
     // size, ground). The ruler is the tallest drawn figure's; with the cast it is the scene's again.

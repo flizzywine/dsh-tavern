@@ -6,8 +6,11 @@ function createStageFigureAssets({spineFigures,metrics}) {
     // (the centre of its opaque bounds) moves with a tail, a raised arm or a prop on one side - a long tail put
     // one figure 4% of the stage width off her slot. undefined when unreadable or empty. Once per
     // picture and head band.
-    function headCentre(document, key, texture, top, chin) {
-        const id = key + ":head-x:" + top + ":" + chin;
+    // face: [left, right] canvas fractions where the pack framed the face (asset-pack-presentation packFaceSpan); only ink
+    // inside it counts, so a hammer head or a scythe blade beside the head does not pull the centre over (三角机构 雷蒙德
+    // stood on his hammer). Omitted = the whole width.
+    function headCentre(document, key, texture, top, chin, face) {
+        const id = key + ":head-x:" + top + ":" + chin + ":" + (face ? face.join(",") : "");
         if (headCentres.has(id)) return headCentres.get(id);
         let result;
         try {
@@ -18,8 +21,9 @@ function createStageFigureAssets({spineFigures,metrics}) {
             const y0 = Math.max(0, Math.floor(top * canvas.height)), y1 = Math.min(canvas.height, Math.ceil(chin * canvas.height));
             if (y1 > y0) {
                 const data = ctx.getImageData(0, y0, canvas.width, y1 - y0).data, columns = new Float64Array(canvas.width);
+                const x0 = face ? Math.max(0, Math.floor(face[0] * canvas.width)) : 0, x1 = face ? Math.min(canvas.width, Math.ceil(face[1] * canvas.width)) : canvas.width;
                 let total = 0;
-                for (let i = 3; i < data.length; i += 4) if (data[i] >= 64) { columns[((i - 3) / 4) % canvas.width]++; total++; }
+                for (let i = 3; i < data.length; i += 4) { const x = ((i - 3) / 4) % canvas.width; if (data[i] >= 64 && x >= x0 && x < x1) { columns[x]++; total++; } }
                 if (total >= 16) {
                     let seen = 0, low = -1, high = -1;
                     for (let x = 0; x < canvas.width; x++) { seen += columns[x]; if (low < 0 && seen >= total * 0.1) low = x; if (high < 0 && seen >= total * 0.9) high = x; }
@@ -79,7 +83,7 @@ function createStageFigureAssets({spineFigures,metrics}) {
                     candidate = sprite.figureInput.pack && sprite.figureInput.anatomy ? null : metrics.measure(sprite.figureInput.source, texture);
                     if (sprite.figureInput.pack) {
                         // Sized by the picture's head (its crop) unless its anatomy really knows head and feet (metrics.anatomy).
-                        const canvas = [texture.width, texture.height], anatomy = centred(metrics.anatomy(sprite.figureInput, canvas, candidate), canvas, anatomy => headCentre(document, src, texture, anatomy.headTop, anatomy.chin));
+                        const canvas = [texture.width, texture.height], anatomy = centred(metrics.anatomy(sprite.figureInput, canvas, candidate), canvas, anatomy => headCentre(document, src, texture, anatomy.headTop, anatomy.chin, sprite.figureInput.face));
                         sprite.figureInput = { ...sprite.figureInput, anatomy, metrics: metrics.record({ ...sprite.figureInput, anatomy }, canvas, candidate) };
                     }
                     const sizing = metrics.resolve({ ...sprite.figureInput, W: screen.width, H: screen.height, canvas: [texture.width, texture.height] });

@@ -1123,7 +1123,7 @@ function GalStage(props) {
             ...(member.lease ? {emotion:member.lease.emotion,focus:member.lease.focus,dim:member.lease.dim} : null),
             // reopening/restoring is not a new entrance (same policy as the background cut).
             visible:true,enter:forwardReading&&!skipping?'soft':'none',exit:'soft',gaze:stageViews.speaker.gaze(member.gaze,member.x,xs),act:shotHere&&shot.acts[member.id]?{name:shot.acts[member.id],nonce:shot.n}:null,
-            figureSizing:{pack:true,heightCm:selected.heightCm,version:1,source:selected.geometry.stage,sourceUrl:input.src,heightBasis:selected.heightBasis,outfitKey:selected.outfitKey,anatomy:selected.anatomy,head:selected.head,assetScale:selected.anatomy?.assetScale ?? 1,elevationCm:selected.elevationCm}};
+            figureSizing:{pack:true,heightCm:selected.heightCm,version:1,source:selected.geometry.stage,sourceUrl:input.src,heightBasis:selected.heightBasis,outfitKey:selected.outfitKey,anatomy:selected.anatomy,head:selected.head,face:selected.face,assetScale:selected.anatomy?.assetScale ?? 1,elevationCm:selected.elevationCm}};
     });
     const quality = useStageQuality();
     // core stage behaviour; tap reactions borrow the figure's own emotionMap entries.

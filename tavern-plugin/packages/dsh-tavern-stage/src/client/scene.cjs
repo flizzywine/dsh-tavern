@@ -425,7 +425,9 @@ function galCreateScene(host, options, own) {
     const GAL_NO_FIGURES = [];
     // the viewport layout of the directed cast (galFigureLayout), recomputed only
     // when the stage size, text box, ruler, cast or priority change. The fit eases like the face rest (700 ms).
-    let castMeasure=null;
+    // widthSeen: each present figure's widest measured picture so far, so the cast does not shift whenever one of them
+    // changes expression or pose; forgotten when the figure leaves.
+    let castMeasure=null;const widthSeen=new Map();
     function figureLayout(desc,W,H,now) {
         // Missing lower-body artwork contributes to the shared viewport fit; each figure's height and ground stand the ruler
         // on the drawn cast. Measured when the descriptors or the loads change, not per frame.
@@ -447,9 +449,15 @@ function galCreateScene(host, options, own) {
             // How far the picture's ink reaches either side of where it stands, and its face's half width, per displayed
             // body: the layout keeps every face clear of its neighbours' pictures (galFigureLayout widths).
             const ink=!entry?.model&&entry?.sprite?.forkInkX;
-            if(size?.mode==='physical'&&ink&&size.restHead&&size.displayPx>0)
-                widths[figure.alias]={reach:Math.max(size.supportX-ink[0],ink[1]-size.supportX)*size.scale/size.displayPx,face:size.restHead.width/2/size.displayPx};
+            const seen=widthSeen.get(figure.alias);
+            if(size?.mode==='physical'&&ink&&size.restHead&&size.displayPx>0){
+                const per=size.scale/size.displayPx,now={left:(size.supportX-ink[0])*per,right:(ink[1]-size.supportX)*per,face:size.restHead.width/2/size.displayPx};
+                widthSeen.set(figure.alias,seen?{left:Math.max(seen.left,now.left),right:Math.max(seen.right,now.right),face:Math.max(seen.face,now.face)}:now);
+            }
+            if(widthSeen.has(figure.alias))widths[figure.alias]=widthSeen.get(figure.alias);
         }
+        const present=new Set((desc.figures||[]).map(figure=>figure?.alias));
+        for(const alias of widthSeen.keys())if(!present.has(alias))widthSeen.delete(alias);
         return {figures:desc.figures,loads:state.figureLoads,crops,sizes,widths};
     }
     // One report for the stage: the layout plus where the camera settles (its goal, sampled when the shot or the stage size
