@@ -172,9 +172,9 @@ function openCardPage({sessionId, page, label, size, shortcut, closeControl, sav
             const {plugin, panelId: id} = args || {};
             if (typeof plugin !== 'string' || plugin.length > 160 || !plugin || typeof id !== 'string' || !/^[a-z0-9][a-z0-9._-]{0,63}$/.test(id))
                 throw new Error('openPluginPanel 需要插件名和面板 ID');
-            const title = onPluginPanel && await findPluginPanel?.(sessionId, plugin, id);
-            if (!title || closed || !shown) throw new Error('当前卡的舞台插件面板不可用');
-            onPluginPanel({plugin, id, title});
+            const panel = onPluginPanel && await findPluginPanel?.(sessionId, plugin, id);
+            if (!panel || closed || !shown) throw new Error('当前卡的舞台插件面板不可用');
+            onPluginPanel({plugin, id, title: panel.title, size: panel.size});
             return {opened: true};
         }
         if (method === 'fillInput') {
@@ -455,14 +455,15 @@ function Overlay({sessionId, pageId, label: declaredLabel, shortcut, size, close
     const title = pluginPanel?.title || state.title || label;
     const closeLabel = pluginPanel ? '返回' + label : entry ? '返回主页面' : '关闭' + label;
     const pageCloses = !pluginPanel && owned && state.shown && state.phase === 'ready';
-    return h('div', {className: 'fork-gal-status', 'data-size': pluginPanel ? 'window' : state.size, 'data-page': pageId, 'data-entry-page': entry ? '' : undefined, 'data-plugin-panel': pluginPanel ? '' : undefined, 'data-close-control': pageCloses ? 'page' : undefined, 'data-bare': entry && !state.shown && (state.phase === 'loading' || state.phase === 'ready') ? '' : undefined, onClick: event => { event.stopPropagation(); if (event.target === event.currentTarget) request(); },
+    const displaySize = pluginPanel ? pluginPanel.size || 'window' : state.size;
+    return h('div', {className: 'fork-gal-status', 'data-size': displaySize, 'data-page': pageId, 'data-entry-page': entry ? '' : undefined, 'data-plugin-panel': pluginPanel ? '' : undefined, 'data-close-control': pageCloses ? 'page' : undefined, 'data-bare': entry && !state.shown && (state.phase === 'loading' || state.phase === 'ready') ? '' : undefined, onClick: event => { event.stopPropagation(); if (event.target === event.currentTarget) request(); },
         onWheel: event => event.stopPropagation(), onContextMenu: event => { event.preventDefault(); event.stopPropagation(); request(); }},
         h('section', {ref: root, tabIndex: -1, className: 'fork-gal-status-sheet', role: 'dialog', 'aria-modal': 'true', 'aria-label': title, 'data-phase': state.phase},
             // the empty first child: dsh-pocket's phone stylesheet otherwise takes a page-closed sheet whose body ends in 重试 for DSH's
             // settings dialog — the stopgap of Modal in src/client/asset-pack-ui.js (bug:asset-figure-dialog-phone), deleted with it.
             h('i', {hidden: true}),
             pageCloses ? null : h('header', {className: 'fork-gal-status-head'},
-                state.size === 'full' && !pluginPanel ? null : h('b', {className: 'fork-gal-status-title'}, title),
+                displaySize === 'full' ? null : h('b', {className: 'fork-gal-status-title'}, title),
                 h('button', {type: 'button', className: 'fork-gal-status-close', title: closeLabel, 'aria-label': closeLabel, onClick: request},
                     h('svg', {viewBox: '0 0 24 24', width: 18, height: 18, fill: 'none', stroke: 'currentColor', strokeWidth: 1.6, strokeLinecap: 'round', 'aria-hidden': true, focusable: 'false'}, h('path', {d: 'M7 7l10 10M17 7L7 17'})))),
             pluginPanel ? h('div', {className: 'fork-gal-status-plugin', onContextMenu: event => event.stopPropagation()},
