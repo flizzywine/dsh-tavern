@@ -96,8 +96,8 @@ function endpoints(current) {
     metadataUrl: process.env.DSH_TAVERN_CDN_METADATA_URL || `https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@runtime-archive-${branch}/dsh-tavern-runtime.json`,
     rootUrl: (process.env.DSH_TAVERN_CDN_ROOT_URL || 'https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern').replace(/\/+$/, ''),
     exact: Boolean(process.env.DSH_TAVERN_CDN_METADATA_URL),
-    // 原生版安装包用固定标签的滚动发布（预发布，不会成为仓库的「最新 Release」，与 DSHA 版互不影响）。
-    apkFeed: process.env.DSH_NATIVE_APK_FEED || 'https://github.com/flizzywine/dsh-tavern/releases/download/android-native-beta/dsh-tavern-native.json',
+    // 原生版安装包随酒馆版本一起发布：资产放在仓库「最新 Release」（如 v3.4）里。
+    apkFeed: process.env.DSH_NATIVE_APK_FEED || 'https://github.com/flizzywine/dsh-tavern/releases/latest/download/dsh-tavern-native.json',
   }
 }
 

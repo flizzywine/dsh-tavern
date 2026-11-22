@@ -118,12 +118,13 @@ node android/native/apk-smoke.mjs            # 卸载 → 安装 → 验收；�
   本机 15 份历史缓存的统计里，只有这 20 个是所有安装都会取的；其余是各卡片自己的图片、字体，不预置。
   MVU 依赖、jQuery、Vue、lodash、zod 等早已随酒馆内置（`tavern-plugin/lib/vendor`）。
 - **正式版构建**：`RELEASE=1` 关闭 debuggable、用发布密钥签名、WebView 远程调试随之关闭；发布信息里的 `url` 用 `APK_URL`
-  给绝对地址（GitHub 资产会重定向到别的域名，相对地址解析会错）。更新源默认读固定标签 `android-native-beta` 的
-  `dsh-tavern-native.json`（预发布，不会成为仓库的「最新 Release」）。调试版与正式版签名不同，不能互相覆盖安装。
+  给绝对地址（GitHub 资产会重定向到别的域名，相对地址解析会错）。安装包随酒馆版本发布：APK、`.sha256` 与
+  `dsh-tavern-native.json` 上传到对应的酒馆 Release（如 `v3.4`），更新源默认读「最新 Release」里的 `dsh-tavern-native.json`，
+  所以每个新的酒馆 Release 都要带上这三个文件，否则启动页显示「还没有发布原生版安装包」。调试版与正式版签名不同，不能互相覆盖安装。
   正式版不可调试，`run-as` 用不了：设备验收脚本照旧用调试版跑；正式版用 `release-smoke.mjs` 走界面冒烟
   （全新安装 → 首次启动 → 进酒馆 → 回启动页 → 检查更新）。发布密钥在打包机的 `~/.config/dsh-tavern-android/`（不进仓库），
   丢了就无法给已安装的用户发覆盖更新，务必备份。
-- **1.0.0-beta.1**（versionCode 6，基于 `63ab909bb`）：模拟器上正式版冒烟通过，首次启动 22 秒就绪、冷启动 6 秒，
+- **1.0.0-beta.1**（versionCode 6，发布在 `v3.4`）：模拟器上正式版冒烟通过，首次启动 22 秒就绪、冷启动 6 秒，
   检查更新显示「已是最新」。
 
 ## 命令行验证（2026-11-22，同一模拟器）
