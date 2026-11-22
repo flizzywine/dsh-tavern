@@ -54,10 +54,30 @@
   color: #5e3a28; font-size: calc(9 * var(--am-unit)); font-weight: 800;
   filter: drop-shadow(0 2px 4px #3c231440);
 }
-.achievement-art[data-tier="silver"] { --am-badge-offset: 25%; }
-.achievement-art[data-tier="gold"] { --am-badge-offset: 50%; }
-.achievement-art[data-tier="rainbow"] { --am-badge-offset: 75%; }
-.achievement-art[data-tier="starter"] { --am-badge-offset: 100%; }
+.achievement-art[data-tier="starter"] {
+  --am-badge-offset: 100%;
+  --am-title-fill: #a9ead7;
+  --am-title-stroke: #244739;
+}
+.achievement-art[data-tier="bronze"] {
+  --am-title-fill: #8ed5ff;
+  --am-title-stroke: #20385d;
+}
+.achievement-art[data-tier="silver"] {
+  --am-badge-offset: 25%;
+  --am-title-fill: #ffc45c;
+  --am-title-stroke: #663318;
+}
+.achievement-art[data-tier="gold"] {
+  --am-badge-offset: 50%;
+  --am-title-fill: #dab0ff;
+  --am-title-stroke: #3f1a64;
+}
+.achievement-art[data-tier="rainbow"] {
+  --am-badge-offset: 75%;
+  --am-title-fill: #ffb4ea;
+  --am-title-stroke: #2c143f;
+}
 .achievement-art[data-tier="rainbow"] .achievement-art-badge { font-size: calc(7.5 * var(--am-unit)); }
 .achievement-art-pills {
   position: absolute; left: calc(60 * var(--am-unit)); top: calc(231 * var(--am-unit));
@@ -111,10 +131,27 @@
   filter: drop-shadow(0 calc(2 * var(--am-unit)) #5e3a28);
 }
 .achievement-art-title {
-  color: #fff3cf;
+  color: var(--am-title-fill, #fff3cf);
   font-size: calc(48 * var(--am-unit)); font-weight: inherit; line-height: 1.04;
   letter-spacing: .07em; text-indent: .07em;
   -webkit-text-stroke-width: calc(8 * var(--am-unit));
+  -webkit-text-stroke-color: var(--am-title-stroke, #5e3a28);
+}
+.achievement-art[data-tier="gold"] .achievement-art-title {
+  filter: drop-shadow(0 0 calc(5 * var(--am-unit)) #a354f6c7);
+}
+@supports (background-clip: text) {
+  @media (forced-colors: none) {
+    .achievement-art[data-tier="rainbow"] .achievement-art-title {
+      background: linear-gradient(108deg, #7bfff0 8%, #a7c1ff 33%, #ff97e3 59%, #ffe57c 94%) text;
+      color: transparent;
+      -webkit-text-stroke-width: 0;
+      filter:
+        drop-shadow(0 0 calc(1.6 * var(--am-unit)) var(--am-title-stroke))
+        drop-shadow(0 calc(1.5 * var(--am-unit)) calc(1.6 * var(--am-unit)) var(--am-title-stroke))
+        drop-shadow(0 0 calc(5 * var(--am-unit)) #f98cdfb3);
+    }
+  }
 }
 .achievement-art-footer {
   position: absolute; inset: auto 0 calc(8 * var(--am-unit)); text-align: center;
