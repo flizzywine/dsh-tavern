@@ -44,7 +44,7 @@ test('panels use the flow interface and candidate selection preserves user edits
       }
       if (method === 'polishProgress') return { progress: { edits: [{ reason: '更具体', find: '原句', replace: '改句' }] } }
     }, window: dom.window, document: dom.window.document,
-    useCandidatePreferences: () => 'after-send', useTavernSessionMode: () => 'story',
+    useCandidatePreferences: () => ({ candidateDismissMode: 'after-send' }), useTavernSessionMode: () => 'story',
     latestTavernAssistantMessageId: () => 'm', isPlayMode: () => true, TAVERN_MOBILE_QUERY: '(max-width: 1023px)',
     useLiveTavernView: () => ({ view: {} }), tavernPlayEvents: { emit: (...args) => playEvents.push(args) } })
   vm.runInContext(shortcutsSource + '\n' + source, context)
@@ -212,7 +212,7 @@ test('多角色与全局候选默认停在 [精选]，焦点角色排前，支�
   const context = vm.createContext({ React, ...clientControls(React), candidateTabs, candidatePanelForRound,
     tavernSessionSignals: signals, liveTavernView: { invalidate() {} }, rpc: async () => ({}),
     window: dom.window, document: dom.window.document,
-    useCandidatePreferences: () => 'after-send', useTavernSessionMode: () => 'story',
+    useCandidatePreferences: () => ({ candidateDismissMode: 'after-send' }), useTavernSessionMode: () => 'story',
     latestTavernAssistantMessageId: () => 'm-1', isPlayMode: () => true, TAVERN_MOBILE_QUERY: '(max-width: 1023px)',
     useLiveTavernView: () => ({ view: {} }), tavernPlayEvents: { emit() {} } })
   vm.runInContext(source, context)
@@ -250,7 +250,7 @@ test('多角色与全局候选默认停在 [精选]，焦点角色排前，支�
   assert.equal(featuredOptions[4].querySelector('.dsh-tavern-question-tag-event').textContent, '突发事件')
   assert.equal(featuredOptions[5].querySelector('.dsh-tavern-question-tag-scene').textContent, '场景变化')
 
-  // 切到 [苏晚] Tab 点选第 1 条，再切到 [全局] Tab 点选突发事件，草稿按行拼接且 [苏晚] Tab 显示 ✓1
+  // 切到 [苏晚] Tab 点选第 1 条，再切到 [全局] Tab 点选突发事件，草稿按行拼接且 [苏晚] Tab 显示 ✓
   await act(async () => tabs[1].click())
   const suwanOptions = [...dom.window.document.querySelectorAll('.dsh-tavern-question-option')]
   assert.equal(suwanOptions.length, 3)
@@ -259,7 +259,7 @@ test('多角色与全局候选默认停在 [精选]，焦点角色排前，支�
   await act(async () => root.render(React.createElement(panels.CandidateQuestion, makeProps())))
 
   const updatedTabs = [...dom.window.document.querySelectorAll('.dsh-tavern-question-tab')]
-  assert.equal(updatedTabs[1].querySelector('.dsh-tavern-question-tab-count').textContent, '✓1')
+  assert.equal(updatedTabs[1].querySelector('.dsh-tavern-question-tab-picked').textContent, '✓')
   await act(async () => updatedTabs[3].click())
   const globalOptions = [...dom.window.document.querySelectorAll('.dsh-tavern-question-option')]
   assert.equal(globalOptions.length, 2)
@@ -269,7 +269,7 @@ test('多角色与全局候选默认停在 [精选]，焦点角色排前，支�
   await act(async () => root.unmount())
 })
 
-test('AI 融合精选条目独占 [精选] Tab，渲染多角色/事件/场景徽章并在选中时显示 ✓ 计数与场景前缀', async t => {
+test('AI 融合精选条目独占 [精选] Tab，渲染多角色/事件/场景徽章并在选中时显示 ✓与场景前缀', async t => {
   const dom = new JSDOM('<main></main>', { pretendToBeVisual: true })
   const previous = { window: globalThis.window, document: globalThis.document, act: globalThis.IS_REACT_ACT_ENVIRONMENT }
   Object.assign(globalThis, { window: dom.window, document: dom.window.document, IS_REACT_ACT_ENVIRONMENT: true })
@@ -282,7 +282,7 @@ test('AI 融合精选条目独占 [精选] Tab，渲染多角色/事件/场景�
   const context = vm.createContext({ React, ...clientControls(React), candidateTabs, candidatePanelForRound,
     tavernSessionSignals: signals, liveTavernView: { invalidate() {} }, rpc: async () => ({}),
     window: dom.window, document: dom.window.document,
-    useCandidatePreferences: () => 'after-send', useTavernSessionMode: () => 'story',
+    useCandidatePreferences: () => ({ candidateDismissMode: 'after-send' }), useTavernSessionMode: () => 'story',
     latestTavernAssistantMessageId: () => 'm-featured', isPlayMode: () => true, TAVERN_MOBILE_QUERY: '(max-width: 1023px)',
     useLiveTavernView: () => ({ view: {} }), tavernPlayEvents: { emit() {} } })
   vm.runInContext(source, context)
@@ -328,18 +328,18 @@ test('AI 融合精选条目独占 [精选] Tab，渲染多角色/事件/场景�
   await act(async () => featuredOptions[1].click())
   await act(async () => root.render(React.createElement(panels.CandidateQuestion, makeProps())))
   assert.equal(draft, '【场景变化】走廊脚步声逼近之际，苏晚吹熄灯火退往暗门，众人直至次日清晨才在议事厅重新碰头')
-  assert.equal(dom.window.document.querySelectorAll('.dsh-tavern-question-tab')[0].querySelector('.dsh-tavern-question-tab-count').textContent, '✓1')
+  assert.equal(dom.window.document.querySelectorAll('.dsh-tavern-question-tab')[0].querySelector('.dsh-tavern-question-tab-picked').textContent, '✓')
 
   const compactChoices = choices.slice(0, 4).map(({ type, text }) => ({ type, text })).concat(choices[5]);
   await act(async () => interactions.candidates.set({ sessionId: 'a', messageId: 'm-featured', phase: 'ready', expanded: true, choices: compactChoices }))
-  assert.equal(dom.window.document.querySelector('.dsh-tavern-question-sub').textContent, '5 个')
+  assert.equal(dom.window.document.querySelector('.dsh-tavern-question-head').textContent, '接下来的行动⌃')
   assert.equal(dom.window.document.querySelectorAll('.dsh-tavern-question-tab').length, 0)
   assert.equal(dom.window.document.querySelectorAll('.dsh-tavern-question-option').length, 5)
 
   await act(async () => root.unmount())
 })
 
-test('候选项面板展示 routeTag 角标，并支持填入/直发模式切换', async t => {
+test('候选项面板展示 routeTag 角标，并按全局设置填入或直发', async t => {
   const dom = new JSDOM('<main></main>', { pretendToBeVisual: true })
   dom.window.matchMedia = () => ({ matches: false })
   const previous = { window: globalThis.window, document: globalThis.document, act: globalThis.IS_REACT_ACT_ENVIRONMENT }
@@ -350,10 +350,11 @@ test('候选项面板展示 routeTag 角标，并支持填入/直发模式切换
   const interactions = createPlayInteractionFlow({ rpc: async () => ({ task: {}, view: {} }),
     coordinationView: v => v, coordination: { setView() {}, invalidate() {} }, applyBodyResult() {}, reportError() {} })
   const playEvents = []
+  let candidatePickMode = 'fill'
   const context = vm.createContext({ React, ...clientControls(React), setInterval, clearInterval, candidateTabs, candidatePanelForRound,
     tavernSessionSignals: signals, liveTavernView: { invalidate() {} },
     rpc: async () => ({}), window: dom.window, document: dom.window.document,
-    useCandidatePreferences: () => 'after-send', useTavernSessionMode: () => 'story',
+    useCandidatePreferences: () => ({ candidatePickMode, candidateDismissMode: 'after-send' }), useTavernSessionMode: () => 'story',
     latestTavernAssistantMessageId: () => 'm', isPlayMode: () => true, TAVERN_MOBILE_QUERY: '(max-width: 1023px)',
     useLiveTavernView: () => ({ view: {} }), tavernPlayEvents: { emit: (...args) => playEvents.push(args) } })
   vm.runInContext(source, context)
@@ -387,12 +388,18 @@ test('候选项面板展示 routeTag 角标，并支持填入/直发模式切换
   const routeBadge = dom.window.document.querySelector('.dsh-tavern-question-tag-route')
   assert.ok(routeBadge && routeBadge.textContent.includes('顺势破防'))
 
-  const modeBtn = dom.window.document.querySelector('.dsh-tavern-question-mode-pill')
-  assert.ok(modeBtn.textContent.includes('填入'))
-  await act(async () => modeBtn.click())
-  assert.ok(dom.window.document.querySelector('.dsh-tavern-question-mode-pill').textContent.includes('直发'))
+  assert.equal(dom.window.document.querySelector('.dsh-tavern-question-head').textContent, '接下来的行动⌃')
+  const option = dom.window.document.querySelector('.dsh-tavern-question-option')
+  await act(async () => option.click())
+  assert.equal(draft, '顾青：把烤焦的一角推回灯下追问')
+  assert.deepEqual(submits, [])
+  assert.ok(interactions.candidates.getSnapshot())
+  await act(async () => option.click())
+  assert.equal(draft, '')
 
-  await act(async () => dom.window.document.querySelector('.dsh-tavern-question-option').click())
+  candidatePickMode = 'send'
+  await act(async () => root.render(React.createElement(panels.CandidateQuestion, makeProps())))
+  await act(async () => option.click())
   assert.equal(draft, '顾青：把烤焦的一角推回灯下追问')
   assert.deepEqual(submits, [{ mode: 'queue', draft: '顾青：把烤焦的一角推回灯下追问' }])
   assert.equal(interactions.candidates.getSnapshot(), null, '直发后应立即收起候选项面板')

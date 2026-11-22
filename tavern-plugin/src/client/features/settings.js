@@ -388,40 +388,44 @@
         }
 
         function useCandidatePreferences() {
-            const [mode, setMode] = React.useState("after-send");
+            const [preferences, setPreferences] = React.useState({});
             React.useEffect(function () {
                 let active = true;
                 let changed = false;
-                function update(event) { changed = true; setMode(event.detail); }
+                function update(event) { changed = true; setPreferences(event.detail); }
                 window.addEventListener("dsh-tavern-candidate-preferences", update);
                 rpc("getCandidatePreferences").then(result => {
-                    if (active && !changed) setMode(result.candidateDismissMode);
+                    if (active && !changed) setPreferences(result);
                 }, () => {});
                 return () => { active = false; window.removeEventListener("dsh-tavern-candidate-preferences", update); };
             }, []);
-            return mode;
+            return preferences;
         }
 
-
         function CandidatePreferencesSettings() {
-            const mode = useCandidatePreferences();
+            const { candidatePickMode = "fill", candidateDismissMode = "after-send" } = useCandidatePreferences();
             const [busy, setBusy] = React.useState(false);
             const [notice, setNotice] = React.useState("");
-            async function save(value) {
+            async function save(patch) {
                 if (busy) return;
                 setBusy(true); setNotice("");
                 try {
-                    const result = await rpc("updateTavernSettings", { patch: { candidateDismissMode: value } });
-                    window.dispatchEvent(new CustomEvent("dsh-tavern-candidate-preferences", { detail: result.settings.candidateDismissMode }));
+                    const result = await rpc("updateTavernSettings", { patch });
+                    window.dispatchEvent(new CustomEvent("dsh-tavern-candidate-preferences", { detail: result.settings }));
                     setNotice("已保存");
                 } catch (error) { setNotice("保存失败：" + String(error.message || error)); }
                 finally { setBusy(false); }
             }
             const h = React.createElement;
-            // a plain row of the 显示与交互 card, not a card of its own.
-            return h(TavernSettingRow, { title: "候选项", help: "候选项什么时候收起，对所有游戏生效。", note: notice, className: "dsh-tavern-candidate-setting" },
-                h(InlineField, { kind: "menu", label: "候选项收起时机", hideLabel: true, value: mode, disabled: busy, onCommit: value => save(value),
-                    options: [{ value: "after-fill", label: "选择一项后即隐藏" }, { value: "after-send", label: "可选择多项发送后才隐藏" }] }));
+            return h(React.Fragment, null,
+                h(TavernSettingRow, { title: "点击候选项", help: "选择点击候选项时填入输入框还是直接发送，对所有游戏生效。", note: notice, className: "dsh-tavern-candidate-setting" },
+                    h(InlineField, { kind: "menu", label: "点击候选项", hideLabel: true, value: candidatePickMode, disabled: busy,
+                        onCommit: value => save({ candidatePickMode: value }),
+                        options: [{ value: "fill", label: "填入输入框" }, { value: "send", label: "直接发送" }] })),
+                candidatePickMode === "fill" ? h(TavernSettingRow, { title: "候选项收起时机" },
+                    h(InlineField, { kind: "menu", label: "候选项收起时机", hideLabel: true, value: candidateDismissMode, disabled: busy,
+                        onCommit: value => save({ candidateDismissMode: value }),
+                        options: [{ value: "after-fill", label: "选择一项后即隐藏" }, { value: "after-send", label: "可选择多项发送后才隐藏" }] })) : null);
         }
 
         // 设置 → 酒馆插件：安装插件并管理已装的插件。

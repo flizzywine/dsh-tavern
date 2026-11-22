@@ -40,7 +40,7 @@ const markup = `<!doctype html>
       <div class="wSkVaW_composerStack">
         <div class="dsh-tavern-dock-actions">
           <div class="dsh-tavern-dock-actions-primary">
-            <button type="button" class="dsh-tavern-choice-trigger dsh-tavern-candidate-entry" data-fork-action="open-choices">行动 7 ⌃</button>
+            <button type="button" class="dsh-tavern-choice-trigger dsh-tavern-candidate-entry" data-fork-action="open-choices">行动 ⌃</button>
             <button type="button" class="dsh-tavern-choice-trigger" data-fork-action="choices-again">重新生成候选项</button>
             <button type="button" class="dsh-tavern-choice-trigger" data-fork-action="regen">重新生成正文</button>
           </div>

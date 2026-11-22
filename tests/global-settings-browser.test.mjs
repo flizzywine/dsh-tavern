@@ -3,6 +3,8 @@ import {openInterfaceSkins} from './fixtures/interface-skin-browser.mjs'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { openTavernSettings } from './fixtures/tavern-settings-browser.mjs'
+import { applyTavernSettingsPatch, presentTavernSettings } from '../tavern-plugin/lib/domain/tavern-settings.js'
+import { createSettingsHandlers } from '../tavern-plugin/lib/rpc/settings.js'
 
 function fixture() {
   let fail = false
@@ -37,6 +39,37 @@ test('状态栏位置是全局显示偏好，保存后通知现有对局刷新',
   assert.equal(await trigger.getAttribute('aria-label'), '状态栏位置（所有对局）：正文下方')
   assert.deepEqual(calls.filter(call => call.method === 'updateTavernSettings').at(-1).args.patch, { defaultPlaySettings: { statusBarPlacement: 'body' } })
   assert.equal(await page.evaluate(() => window.__statusSettingsChanged), 1)
+})
+
+test('候选项点击方式由全局设置保存，重新打开仍然生效', async t => {
+  let document = { candidateDismissMode: 'after-fill' }
+  const readTavernSettings = async () => presentTavernSettings(document, {})
+  const { getCandidatePreferences } = createSettingsHandlers({ readTavernSettings })
+  const respond = async (method, args) => {
+    if (method === 'getCandidatePreferences') return getCandidatePreferences()
+    if (method === 'updateTavernSettings') {
+      document = applyTavernSettingsPatch(document, args.patch)
+      return { settings: await readTavernSettings() }
+    }
+  }
+
+  const { page, calls } = await openTavernSettings(t, { respond })
+  const mode = page.locator('button[aria-label^="点击候选项："]')
+  const dismiss = page.getByRole('button', { name: '候选项收起时机：选择一项后即隐藏' })
+  await dismiss.waitFor()
+  assert.equal(await mode.getAttribute('aria-label'), '点击候选项：填入输入框')
+  await mode.click()
+  await page.getByRole('menuitemradio', { name: '直接发送' }).click()
+  await page.locator('.dsh-tavern-candidate-setting [role="status"]').getByText('已保存').waitFor()
+  assert.equal(await mode.getAttribute('aria-label'), '点击候选项：直接发送')
+  assert.deepEqual(calls.find(call => call.method === 'updateTavernSettings').args.patch, { candidatePickMode: 'send' })
+  assert.equal(await dismiss.count(), 0)
+
+  const { page: reopened } = await openTavernSettings(t, { respond })
+  await reopened.getByRole('button', { name: '点击候选项：直接发送' }).click()
+  await reopened.getByRole('menuitemradio', { name: '填入输入框' }).click()
+  await reopened.getByRole('button', { name: '候选项收起时机：选择一项后即隐藏' }).waitFor()
+  assert.deepEqual(document, { candidateDismissMode: 'after-fill', candidatePickMode: 'fill' })
 })
 
 // 对话气泡 / 舞台模式 are switched only in 舞台设置 › 基础设置 (four-state); the generation templates and their cost

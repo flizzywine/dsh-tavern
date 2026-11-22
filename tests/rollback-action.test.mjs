@@ -279,14 +279,14 @@ test('撤回持久输入后立即刷新故事列表，原输入只回填到输�
   assert.deepEqual(calls, ['native-hidden', ['story-refresh', 'session'], ['draft', '6']])
 })
 
-test('手机操作行里的「行动 N」入口把候选抽屉就地展开，不另占一行', () => {
+test('手机操作行里的「行动」入口把候选抽屉就地展开，不另占一行', () => {
   const h = harness()
   h.running(false)
   assert.equal(h.buttons().some(button => button.props['data-fork-action'] === 'open-choices'), false, '没有候选项时没有入口')
   h.candidate({ sessionId: 'session', messageId: 'reply', phase: 'ready', choices: [{ text: '甲' }, { text: '乙' }, { text: '丙' }] })
   const entry = h.buttons().find(button => button.props['data-fork-action'] === 'open-choices')
   assert.ok(entry, '有候选项时操作行里出现入口')
-  assert.equal(entry.children[0], '行动 3 ⌃')
+  assert.equal(entry.children[0], '行动 ⌃')
   entry.props.onClick()
   const written = h.candidateWrites().at(-1)
   assert.equal(written.expanded, true, '点一下就是展开抽屉')

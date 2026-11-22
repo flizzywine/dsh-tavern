@@ -151,10 +151,10 @@ test('手动生成和重新生成完成后，自动展开分组候选项', async
     { type: 'featured', actors: ['甲', '乙'], text: '甲和乙一起查找线索' },
   ]
   const { page, errors } = await mount(t, 'success', { completedChoices })
-  const featured = page.getByRole('tab', { name: '精选 1', selected: true })
+  const featured = page.getByRole('tab', { name: '精选', selected: true })
   await page.getByRole('button', { name: '生成候选项', exact: true }).click()
   await featured.waitFor()
-  for (const name of ['甲 1', '乙 1', '全局 1']) await page.getByRole('tab', { name }).waitFor()
+  for (const name of ['甲', '乙', '全局']) await page.getByRole('tab', { name }).waitFor()
   await page.getByRole('button', { name: '收起行动列表', exact: true }).click()
   await featured.waitFor({ state: 'hidden' })
   await page.getByRole('button', { name: '重新生成候选项', exact: true }).click()
