@@ -9,6 +9,7 @@ const CONSOLE_ROUTES = [
   ["workflow","workflow"],
   ["reload","reload"],
   ["reference-image","reference-image"],
+  ["reference-gc","reference-gc"],
   ["image-edit","image-edit"],
   ["definitions","definitions"],
   ["export-all","export-all"],

@@ -227,8 +227,10 @@ export function createAssetPackService(options) {
   // 'manifest' serves media without hydrating figure/sprite documents; 'figures' adds the figure documents only (the voice
   // catalogue: Live2D sprite documents are most of an installation's JSON); true is list-summary only.
   const covers = (have, want) => want === true || !have || have === want || have === 'figures' && want === 'manifest'
+  // A record edit outside a pack write changes the figures a pack shows (figureRecordsChanged): its reads start over.
+  const recordGenerations = new Map()
   async function metadata(id, summaryOnly = false) {
-    const signature = await storage.stamp(id), cached = metadataCache.get(id)
+    const stamp = await storage.stamp(id), signature = stamp === null ? null : stamp + '#' + (recordGenerations.get(id) || 0), cached = metadataCache.get(id)
     if (cached?.signature === signature && covers(cached.summaryOnly, summaryOnly)) {
       metadataCache.delete(id); metadataCache.set(id, cached)
       return cached.pack
@@ -286,6 +288,7 @@ export function createAssetPackService(options) {
       const failed = reads.find(result => result.status === 'rejected')
       if (failed) throw failed.reason
       for (const figureId of manifest.figures) figures[figureId] = storedDocument(await documentBytes(`figures/${figureId}.json`))
+      await storage.freshen(manifest, documents)
       if (!summaryOnly) {
         for (const [key, name] of Object.entries(manifest.sprites)) sprites[key] = storedDocument(await documentBytes(name))
         for (const asset of manifest.assets.filter(a => a.kind === 'skins')) skins[asset.id] = storedDocument(await documentBytes('bundles/' + assetContent(asset).bundleKey + '/' + assetContent(asset).entry))
@@ -314,7 +317,7 @@ export function createAssetPackService(options) {
       for (const row of asset.variants.entries) documents[row.id] = storedDocument(await documentBytes('bundles/'+row.content.bundleKey+'/'+row.content.entry));
       variantDocuments[asset.kind+'/'+asset.id] = documents;
     }
-    check(signature === await storage.stamp(id), '$.packId', 'Pack changed during validation', 'REVISION_CONFLICT')
+    check(stamp === await storage.stamp(id), '$.packId', 'Pack changed during validation', 'REVISION_CONFLICT')
     // Inline voice transcripts are already retained in the figure document.
     // Summary entries retain only the projection, not megabytes of manifest indexes.
     const retained = summaryOnly === true ? {summary:packSummary({manifest, diagnostics, local})} : {manifest, figures, sprites, skins, performances, widgets, variantDocuments, diagnostics, local, documents:summaryOnly === 'figures' ? new Map() : documents, files:new Map()}
@@ -342,8 +345,15 @@ export function createAssetPackService(options) {
     return {pack, bytes, mapping:merged.mapping, bundleKeys:merged.bundleKeys, spriteKeys:merged.spriteKeys, voiceKeys:merged.voiceKeys}
   }
   function emit(pack, before) {
+    // the host moved the 外貌 a written figure carried into its record (figureRecords): its pictures leave the pack, as
+    // after any figure edit (trimAuthoringImages), in a write of their own once this one is done
+    if (pack && storage.takeMoved(pack.manifest.id)) queueMicrotask(() => trimMoved(pack.manifest.id).catch(() => { /* the next figure edit trims them */ }))
     const event = {packId:pack?.manifest.id || before.manifest.id, revision:pack?.local.revision ?? null, kinds:[...new Set([...(before?.manifest.assets || []), ...(pack?.manifest.assets || [])].map(a => a.kind))], figures:[...new Set([...(before?.manifest.figures || []), ...(pack?.manifest.figures || [])])]}
     for (const listener of storage.subscribers) { try { listener(copy(event)) } catch { /* Observers cannot roll back a committed write. */ } }
+  }
+  async function trimMoved(packId) {
+    const current = await readRun([packId], () => metadata(packId), true)
+    if (current) await edit({packId, expectedRevision:current.local.revision}, (manifest, files, before) => trimAuthoringImages(manifest, files, before.figures), true)
   }
   async function removeInstalledPack(before) {
     const packId = before.manifest.id
@@ -1243,17 +1253,23 @@ export function createAssetPackService(options) {
         for (const [id, edits] of groups) {
           validateUuid(id)
           const before = await metadata(id)
+          // a record whose figure is gone already ends a link to nothing
+          if (!before && edits.every(edit => edit.release)) continue
           check(before, '$.packId', 'Pack missing', 'ASSET_UNAVAILABLE')
-          const manifest = copy(before.manifest), figures = {...before.figures}, updates = new Map()
-          for (const {figureId, name, addAliases, removeAliases} of edits) {
+          const manifest = copy(before.manifest), figures = {...before.figures}, updates = new Map(), intents = new Map()
+          // outfits: {key: label} renamed in the record; release: the record's link ends, the pack keeps the identity.
+          for (const {figureId, name, addAliases, removeAliases, outfits = {}, release = false} of edits) {
             validateUuid(figureId)
             const current = figures[figureId]
+            if (!current && release) continue
             check(current, '$.figureId', 'Figure missing', 'NOT_FOUND')
             const aliases = [...new Set([...(current.aliases || []).filter(word => !removeAliases.includes(word)), ...addAliases])]
-            const figure = patchFigureDocument(current, {...(name === undefined ? {} : {name}), aliases})
+            const labelled = current.outfits.map(outfit => typeof outfits[outfit.key] === 'string' && outfits[outfit.key].trim() ? {...outfit, label:outfits[outfit.key].trim()} : outfit)
+            const figure = patchFigureDocument(current, {...(name === undefined ? {} : {name}), aliases, outfits:labelled})
             figures[figureId] = figure
-            identities.push({packId:id, figureId, name:figure.name, aliases:figure.aliases})
-            if (canonicalJson(figure) !== canonicalJson(current)) updates.set('figures/' + figureId + '.json', jsonBytes(figure))
+            if (!release) identities.push({packId:id, figureId, name:figure.name, aliases:figure.aliases})
+            intents.set(figureId, release ? 'released' : 'held')
+            if (release || canonicalJson(figure) !== canonicalJson(current)) updates.set('figures/' + figureId + '.json', jsonBytes(figure))
           }
           if (!updates.size) continue
           validatePackDocuments({manifest, figures, sprites:before.sprites})
@@ -1265,7 +1281,7 @@ export function createAssetPackService(options) {
           check([...updates.values()].every(bytes => bytes.length <= limits.entrySize)
             && jsonBytes(manifest).length + manifest.files.reduce((sum, file) => sum + file.size, 0) <= limits.totalSize, '$.files', 'Pack budget exceeded', 'LIMIT_EXCEEDED')
           const local = nextLocal(before.local)
-          entries.push({id, manifest, figures, updates, local, before})
+          entries.push({id, manifest, figures, updates, local, before, intents})
         }
         const result = await storage.publishMetadataBatch(entries, receipt, () => save(identities))
         for (const {id, manifest, figures, local, before} of entries) {
@@ -1273,6 +1289,54 @@ export function createAssetPackService(options) {
           emit({...before, manifest, figures, local}, before)
         }
         return result
+      })
+    },
+    // The host's character records changed outside a pack write (a 人物库 edit): these packs' figures read again.
+    // packIds omitted: every installed pack (a 人物库 came or went).
+    async figureRecordsChanged({packIds} = {}) {
+      const ids = packIds ?? await readRun([], () => storage.listIds())
+      return readRun(ids, async () => {
+        for (const id of ids) {
+          recordGenerations.set(id, (recordGenerations.get(id) || 0) + 1)
+          evictMetadata(id)
+          const bytes = await storage.read(`packs/${id}/manifest.json`), local = bytes && await storage.local(id)
+          const figures = bytes ? readDocument(bytes).figures : []
+          if (figures.length) for (const listener of storage.subscribers) { try { listener({packId:id, revision:local.revision, kinds:[], figures:[...figures]}) } catch { /* observers cannot fail a read */ } }
+        }
+      })
+    },
+    // Read-only: how each installed figure is stored (whole, or without its identity), per pack with figures.
+    figureDocumentForms() {
+      return readRun([], async () => {
+        const rows = []
+        for (const packId of await storage.listIds()) {
+          const forms = await storage.figureForms(packId)
+          if (forms.whole.length || forms.withoutIdentity.length) rows.push({packId, ...forms})
+        }
+        return rows
+      })
+    },
+    // Writes every figure document of these packs again, as the host's figureRecords stores them now (switching where a
+    // figure's identity is kept, and back). The figures readers see do not change.
+    rewriteFigureDocuments({packIds}) {
+      return run(packIds, async () => {
+        const rewritten = []
+        for (const id of packIds) {
+          validateUuid(id)
+          const before = await metadata(id)
+          check(before, '$.packId', 'Pack missing', 'ASSET_UNAVAILABLE')
+          if (!before.manifest.figures.length) continue
+          const updates = new Map(before.manifest.figures.map(figureId => ['figures/' + figureId + '.json', before.documents.get('figures/' + figureId + '.json')]))
+          // the stored manifest, not the read projection (which hides unavailable optional items)
+          const manifest = readDocument(await storage.read(`packs/${id}/manifest.json`))
+          await storage.freshen(manifest, before.documents)
+          const local = nextLocal(before.local)
+          await storage.publishMetadata(id, manifest, updates, local)
+          evictMetadata(id)
+          emit({...before, local}, before)
+          rewritten.push({packId:id, figures:before.manifest.figures.length})
+        }
+        return {rewritten}
       })
     },
     patchFigure(input) {

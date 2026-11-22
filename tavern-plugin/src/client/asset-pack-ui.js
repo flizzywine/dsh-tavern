@@ -798,8 +798,9 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
   const packFilter=(byId,query,kind)=>id=>{const p=byId.get(id),q=query.trim().toLowerCase();return p?(!kind||packCount(p,kind)>0)&&(!q||p.manifest.name.toLowerCase().includes(q)):!kind&&!q;};
   // one flat list, no group heads. Whatever the sort, 全局 comes first,
   // then 本卡 (only with a card), then 关闭; the chosen sort orders each band. `rank` is frozen per load by the caller
-  // so a row never jumps while its state changes. Sort: 名称 (default), 数量 (items of the selected kind), 时间 (latest commit).
-  const PACK_SORTS=[['name','名称'],['count','数量'],['time','时间']],PACK_SORT_KEY='dsh-tavern:pack-sort';
+  // so a row never jumps while its state changes. Sort: 名称 (default), 数量 (items of the selected kind), 时间 (latest commit),
+  // 来源 (ordinary packs, then automatic packs; names inside each group).
+  const PACK_SORTS=[['name','名称'],['count','数量'],['time','时间'],['source','来源']],PACK_SORT_KEY='dsh-tavern:pack-sort';
   function usePackSort() {
     const read=()=>{try{const v=localStorage.getItem(PACK_SORT_KEY);return PACK_SORTS.some(([k])=>k===v)?v:'name';}catch(_){return 'name';}};
     const [sort,setSort]=React.useState(read);
@@ -810,7 +811,8 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
     const name=id=>byId.get(id)?.manifest.name||'',count=id=>{const p=byId.get(id);return p?packCount(p,kind):-1;};
     const byName=(a,b)=>packCollator?packCollator.compare(name(a),name(b)):name(a).localeCompare(name(b));
     // commit time, newest first within each fixed state band; name breaks ties.
-    return [...ids].sort((a,b)=>(rank(a)-rank(b))||(sort==='time'?byId.get(b).updatedAt-byId.get(a).updatedAt:sort==='count'?count(b)-count(a):0)||byName(a,b));
+    const automatic=id=>byId.get(id)?.automatic?1:0;
+    return [...ids].sort((a,b)=>(rank(a)-rank(b))||(sort==='time'?byId.get(b).updatedAt-byId.get(a).updatedAt:sort==='count'?count(b)-count(a):sort==='source'?automatic(a)-automatic(b):0)||byName(a,b));
   }
   // `empty`: the caller's ListEmpty (it knows the search / kind filter and how to clear them).
   function PackList({ids,render,label='素材包',empty}) {
@@ -985,11 +987,11 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
     if(ascii(4,8)==='ftyp')return 'm4a';
     return '';
   }
-  async function prepareAudio(file) {
+  async function prepareAudio(file, kind) {
     const bytes=new Uint8Array(await file.arrayBuffer()),ext=audioExt(bytes);
     if(!ext)throw new Error('请选择 MP3、OGG、WAV、M4A 或 FLAC 音频');
     if(bytes.length>96*1024*1024)throw new Error('音频过大（上限 96 MiB）');
-    return {bytes,descriptor:{ext,mime:AUDIO_MIME[ext],size:bytes.length},loudness:await measureBrowserAudio(bytes)};
+    return {bytes,descriptor:{ext,mime:AUDIO_MIME[ext],size:bytes.length},loudness:await measureBrowserAudio(bytes, kind)};
   }
   const fileStem=name=>[...String(name||'').replace(/\.[^.]+$/,'').trim()].slice(0,120).join('')||'未命名';
   // The default name of a new entry, unique within its kind (新背景, 新背景 2, …).
@@ -1100,8 +1102,9 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
       const media=await imageClosure(image);
       return enqueue(async c=>{const patch=await make(c,media.hash,media.files);return binding.service.patchPack(assetImagePublication.publish(c,media,patch));});
     });
+    // an uploaded 设定图 is one sheet: the old layout's second sheet (setteiParts) goes with the sheet it replaces.
     const importSettei=(figureId,outfitKey,file)=>putThen(file,'settei',(s,hash,files)=>{
-      const figure=s.figures[figureId];files.set('figures/'+figureId+'.json',jsonBytes({...figure,outfits:figure.outfits.map(o=>o.key===outfitKey?{...o,settei:hash}:o)}));return {};
+      const figure=s.figures[figureId];files.set('figures/'+figureId+'.json',jsonBytes({...figure,outfits:figure.outfits.map(o=>{if(o.key!==outfitKey)return o;const{setteiParts,...rest}=o;return {...rest,settei:hash};})}));return {};
     });
     // the figure's 人物设定图 (Figure.identitySettei) takes the same full
     // resource write — image intake, then the figure document and its blob in one CAS patchPack (never the metadata fast
@@ -1128,7 +1131,7 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
     const removeFigureImage=(figureId,outfitKey,emotion,kind)=>enqueue(c=>{
       const figure=c.figures[figureId],outfit=figure?.outfits.find(o=>o.key===outfitKey);if(!outfit)throw new Error('服装已被删除，请重新载入');
       const files=new Map(),patch={};let next;
-      if(kind==='settei'){next={...outfit};delete next.settei;delete next.setteiParentVersion;}
+      if(kind==='settei'){next={...outfit};delete next.settei;delete next.setteiParts;delete next.setteiParentVersion;}
       else if(kind==='avatar'){if(outfit.sprite?.imagePools)throw new Error('已发布头像保留在历史中；请上传新头像以创建新图片身份');const avatars={...(outfit.avatars||{})};delete avatars[emotion];next={...outfit,avatars};if(!Object.keys(avatars).length)delete next.avatars;}
       else{
         const spriteKey=outfit.sprite?.manifestKey,made=removeSpriteEmotion(outfit,spriteKey&&c.sprites[spriteKey],emotion);
@@ -1143,7 +1146,7 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
       return binding.service.patchPack({packId,expectedRevision:c.revision,patch,fileUpdates:files});
     });
     const uploadVariant=async(kind,assetId,variantId,file)=>{
-      const media=AUDIO_KINDS.includes(kind)?await prepareAudio(file):await prepareImage(file,'background');
+      const media=AUDIO_KINDS.includes(kind)?await prepareAudio(file, kind):await prepareImage(file,'background');
       const closure=await imageClosure(media);
       return enqueue(snapshot=>binding.service.patchPack({packId,expectedRevision:snapshot.revision,fileUpdates:closure.files,patch:{blobs:{...snapshot.manifest.blobs,...closure.blobs},assets:snapshot.manifest.assets.map(asset=>{
         if(asset.kind!==kind||asset.id!==assetId)return asset;
@@ -1335,7 +1338,8 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
           return {snapshot:c};
         } catch(error) { latest.current=c;state.setValue(c);throw error; }
       }),
-      remove:()=>work.task(async()=>{await enqueue(c=>binding.service.removeFigure({packId,expectedRevision:c.revision,figureId:id}));setSel(null);setDetail(false);setNotice({text:'已删除人物'});onPacksChanged?.();})});
+      // 「一起删除」 deletes the record first, which may write this pack (the figure's name goes back into it): remove on the newest revision.
+      remove:()=>work.task(async()=>{await enqueue(async c=>{try{return await binding.service.removeFigure({packId,expectedRevision:c.revision,figureId:id});}catch(error){if(error?.code!=='REVISION_CONFLICT')throw error;const fresh=await binding.service.getPackSnapshot({packId});latest.current=fresh;return binding.service.removeFigure({packId,expectedRevision:fresh.revision,figureId:id});}});setSel(null);setDetail(false);setNotice({text:'已删除人物'});onPacksChanged?.();})});
     const automaticChanged=()=>{changed.current=true;setSel(null);setDetail(false);state.reload();onPacksChanged?.();};
     const actions=usePackActions(binding,{onRemoved:()=>{changed.current=true;close();},onChanged:()=>onPacksChanged?.()});
     const menu=pack&&h(Popover,{label:name+' 操作',trigger:({toggle:t,open})=>h(IconButton,{icon:'more',label:'更多操作 '+name,'aria-expanded':open,disabled:actions.work.busy,onClick:t}),content:closeMenu=>h(React.Fragment,null,
@@ -1553,7 +1557,7 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
     const notify=()=>{for(const fn of [...listeners])fn();};
     const take=next=>{({CandidateArt, CandidateImageView, FigureGenTab, GEN_ART_ROLE, GEN_CELL_WORDS, GEN_PROBLEMS, GEN_REASONS, GEN_REF_LIMIT, GenCellStatus, GenDialog, GenFaceCandidate, GenFaceMarks, GenGateNote, GenOutfitTool, GenRefChip, GenSheet, GenStageCandidate, GenStageWait, GenTileDecide, ManagedModSection, PackPreviews, StageAvatar, StageKindJump, genBasis, genCell, genFailText, genKey, genMenuKeys, genOutfitPlan, genOwnSprite, genPromptFor, genReadUpload, stageBytesText, stageFigure, stageFigureRows, stageKindPacks, stagePackBytes, stageSwitchTag, unbindPatch, useAssetGen, useElapsed, useGenNote, useManagedModControls, useStageWriter}=next);};
     // The exact names the stage pages reference from this factory (its declarations and parameters) and from the core client.
-    const names={useFigureLook, CastVoiceList, useReadingPointers, VoicePicker, VoiceRowPlay, VoiceAddDialog, VoiceLangChip, VoiceOptionPick, VoiceLoading, VoiceLoadError, defaultCastVoices, voiceErrorText, CommitInput, useVoicePreview, useVoiceReadiness, useVoiceWriter, figureVoiceSpec, voiceSourceId, figureVoiceLanguage, sampleText, voiceServiceName, voiceLanguageName, primaryLanguage, openVoiceSettings, voiceSourceUnset, React, Actions, BustArt, Button, CAST_FACE, CardCover, CardImportSheet, CatAddTile, CatBand, CatSheet, CatSub, ConfirmDialog, askDelete, hiddenConfirms, ErrorBox, FigureCastFace, Glyph, Help, HintLine, IconButton, ImageFramer, KIND_ORDER, KindSortTools, LampMenu, Loading, MOD_GLYPHS, MenuItem, ModEntries, Modal, NewFigurePage, PackImageView, PackList, PackModal, PackRow, PackSearchBox, Popover, RevealImg, STAGE_NAMES, Silhouette, StageItemsPage, StageModPage, StageModSection, StageOpenings, StageSection, StageSetupWizard, SubpageHead, SwitchRow, Thumb, UploadButton, VOICE_PROVIDERS, catBusyLabel, cellMenuTrigger, clone, downloadPackMedia, emotionMapped, emotionState, errorText, figureAvatar, figureEditorEmotions, figureOutfitView, globalFirst, glyphs, h, holdMedia, keywordProblem, kindGlyphs, kinds, loadPackDetail, loadPackRows, newResourceKey, openingMenuFocus, openingMenuKeys, orderPacks, outfitEmotionRows, outfitHead, outfitImageId, packCount, packFilter, packRowClick, splitKeywords, spriteSlotTakesStill, stageMissing, stageSetupCardPack, stageSetupReady, standInValue, stateBust, subpageKeys, switchRowClick, useLoad, usePackScope, usePackSort, useStageFold, useStageSetupAutoOpen, useVoiceLoad, useVoiceRefresh, validDraft, voiceIssueText, voiceNeedle, voiceMatches,
+    const names={useFigureLook, CastVoiceList, useReadingPointers, useSystemVoicePacks, VoicePicker, VoiceRowPlay, VoiceAddDialog, VoiceLangChip, VoiceOptionPick, VoiceLoading, VoiceLoadError, defaultCastVoices, voiceErrorText, CommitInput, useVoicePreview, useVoiceReadiness, useVoiceWriter, figureVoiceSpec, voiceSourceId, figureVoiceLanguage, sampleText, voiceServiceName, voiceLanguageName, primaryLanguage, openVoiceSettings, voiceSourceUnset, React, Actions, BustArt, Button, CAST_FACE, CardCover, CardImportSheet, CatAddTile, CatBand, CatSheet, CatSub, ConfirmDialog, askDelete, hiddenConfirms, ErrorBox, FigureCastFace, Glyph, Help, HintLine, IconButton, ImageFramer, KIND_ORDER, KindSortTools, LampMenu, Loading, MOD_GLYPHS, MenuItem, ModEntries, Modal, NewFigurePage, PackImageView, PackList, PackModal, PackRow, PackSearchBox, Popover, RevealImg, STAGE_NAMES, Silhouette, StageItemsPage, StageModPage, StageModSection, StageOpenings, StageSection, StageSetupWizard, SubpageHead, SwitchRow, Thumb, UploadButton, VOICE_PROVIDERS, catBusyLabel, cellMenuTrigger, clone, downloadPackMedia, emotionMapped, emotionState, errorText, figureAvatar, figureEditorEmotions, figureOutfitView, globalFirst, glyphs, h, holdMedia, keywordProblem, kindGlyphs, kinds, loadPackDetail, loadPackRows, newResourceKey, openingMenuFocus, openingMenuKeys, orderPacks, outfitEmotionRows, outfitHead, outfitImageId, packCount, packFilter, packRowClick, splitKeywords, spriteSlotTakesStill, stageMissing, stageSetupCardPack, stageSetupReady, standInValue, stateBust, subpageKeys, switchRowClick, useLoad, usePackScope, usePackSort, useStageFold, useStageSetupAutoOpen, useVoiceLoad, useVoiceRefresh, validDraft, voiceIssueText, voiceNeedle, voiceMatches,
       EmptyState, InlineAdd, InlineField, InlineGrid, InlineRow, OverrideDot, ResetButton, ScopeSwitch, Segmented, Spinner, Switch, TextArea, browserSpeechVoiceList, directorCommands, playerErrorText, selectFigureAvatar, selectPackAvatar};
     return {names, get views(){return views;}, bound:()=>views!==null,
       bind(next){views=next;take(next);live2dKit=next.live2dKit||live2dOption;notify();return()=>{if(views!==next)return;views=null;take({});live2dKit=live2dOption;notify();};},

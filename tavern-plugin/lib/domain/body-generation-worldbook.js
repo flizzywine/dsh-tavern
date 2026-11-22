@@ -1,8 +1,9 @@
 import { sessionEvents } from './session-events.js'
 import { turnStartIndex } from './session-turn-input.js'
 import { toolResultsOf } from './tool-result-message.js'
+import { GREP_LOREBOOK_TOOL, LIST_LOREBOOK_TOOL, READ_LOREBOOK_TOOL, lorebookToolName } from './foreground-tools.js'
 
-const WORLD_BOOK_TOOLS = new Set(['worldbook_list', 'worldbook_grep', 'worldbook_search'])
+const WORLD_BOOK_TOOLS = new Set([READ_LOREBOOK_TOOL, LIST_LOREBOOK_TOOL, GREP_LOREBOOK_TOOL, 'worldbook_search'])
 
 /** Copy only completed worldbook lookups from this turn's active surface.
  * Native read is shared with other features: its successful call must point at
@@ -19,7 +20,7 @@ export function bodyGenerationWorldbookResults(session, turn, isWorldbookPath = 
     const onSurface = !visible || visible.has(Number(event.seq ?? index))
     if (event.type === 'assistant/message' && data.message?.source?.kind === 'model' && onSurface) {
       for (const block of data.message.content || []) {
-        if (block?.type === 'tool-call' && (WORLD_BOOK_TOOLS.has(block.name) || block.name === 'read')) models.set(block.id, block)
+        if (block?.type === 'tool-call' && (WORLD_BOOK_TOOLS.has(lorebookToolName(block.name)) || block.name === 'read')) models.set(block.id, block)
       }
     }
     if (event.type === 'tool/call') {
@@ -30,7 +31,7 @@ export function bodyGenerationWorldbookResults(session, turn, isWorldbookPath = 
         try { args = JSON.parse(data.arguments) } catch { continue }
         if (typeof args?.file_path !== 'string' || !args.file_path || !isWorldbookPath(args.file_path)) continue
       }
-      calls.set(data.callId, model.name)
+      calls.set(data.callId, lorebookToolName(model.name))
     }
     if (event.type !== 'tool/result' || data.error || !onSurface) continue
     for (const block of toolResultsOf(data.message)) {

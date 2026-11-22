@@ -104,6 +104,10 @@ const TAVERN_DAMPER_BYPASS_COPY = Object.freeze({
 		title: '未生效 · 密钥鉴权失败',
 		hint: '当前配置的决策模型 API Key 无效或无权访问目标模型，请在「插件 › 叙事阻尼器」更换后测试连接。本轮已静默放行。'
 	}),
+	DAMPER_ENDPOINT_ERROR: Object.freeze({
+		short: '决策接口错误',
+		title: '未生效 · 决策接口错误'
+	}),
 	DAMPER_TIMEOUT: Object.freeze({
 		short: '超时放行',
 		title: '未生效 · 决策请求超时',
@@ -212,15 +216,14 @@ function tavernDamperMetaOf(outcome) {
 	if (outcome.status === 'bypassed') {
 		const copy = TAVERN_DAMPER_BYPASS_COPY[outcome.code] || {
 			short: '未生效',
-			title: '未生效 · ' + String(outcome.message || '决策请求失败'),
-			hint: (outcome.message ? String(outcome.message) + '。' : '') + '本轮已自动静默放行，未阻塞正文生成。'
+			title: '未生效 · ' + String(outcome.message || '决策请求失败')
 		}
 		return {
 			bypassed: true,
 			tone: 'bypassed',
 			pillText: '阻尼 · ' + copy.short,
 			title: copy.title,
-			desc: copy.hint
+			desc: copy.hint || ((outcome.message ? String(outcome.message) + '。' : '') + '本轮已自动放行，正文照常生成。')
 		}
 	}
 	const table = tavernDamperTierTable(outcome)

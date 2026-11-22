@@ -58,8 +58,8 @@ Better Sidebar 提供四个职责分离的库：
 - `tavern_mvu_overview`：只读，一次列出开场、内置世界书、正则和脚本的概览，并按关键词标出可能的旧状态协议，供转 MVU 前摸底；
 - `tavern_apply_mvu`：Agent 给出变量、各开场差异值、更新规则和面板（自写 HTML 或分组字段生成标准面板），工具负责把 `<initvar>`/`<mvu-status/>` 写进每个开场、维护 `[mvu_update]`/`[initvar]` 条目和两条正则，省略的部分保留原样，结果附格式校验；
 - `tavern_read_play_chat`：按轮次和层次只读查看已挂载的游玩记录，并用当前人物卡重新检查正则命中；
-- `tavern_read_worldbook`：按编号、关键词或分页读取世界书；
-- `tavern_update_worldbook`：通过现有世界书 Library interface 保存已确认的条目级修改；
+- `tavern_read_lorebook`：按编号、关键词或分页读取世界书；
+- `tavern_update_lorebook`：通过现有世界书 Library interface 保存已确认的条目级修改；
 - `tavern_read_preset`：按 JSON Pointer 分段读取预设工作 JSON；
 - `tavern_update_preset`：按 JSON Pointer 保存已确认的最小修改并重新校验；
 - `tavern_read_regex_library`：读取本局全局、预设快照和人物卡自带的正则及本局覆盖状态；预设/人物卡开关不写回来源文件；

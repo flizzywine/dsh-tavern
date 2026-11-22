@@ -80,6 +80,7 @@ export function createContextPlanner(options = {}) {
       if (postureSection !== null) sections.push(postureSection)
     } else {
       if (worldBookSection !== null) sections.push(worldBookSection)
+      if (input.worldBookTitleHints) sections.push({ kind: 'world-book-title-hints', required: false, text: input.worldBookTitleHints })
       if (postureSection !== null) sections.push(postureSection)
       if (guideSection !== null) sections.push(guideSection)
       sections.push.apply(sections, cardInfoSections)
@@ -135,6 +136,7 @@ export function createContextPlanner(options = {}) {
         chat: input.chat,
         worldBookContext: input.worldBookContext,
         worldBookEntries: input.worldBookEntries,
+        worldBookTitleHints: input.worldBookTitleHints,
         includeName: false,
         includeDetails: true,
         includeDescription: false,

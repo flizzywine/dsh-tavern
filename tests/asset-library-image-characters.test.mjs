@@ -72,11 +72,11 @@ test('wrong figure, missing pack and stale associations cannot change a characte
   await assert.rejects(f.handlers.patchImageCharacter({ ...args, patch: { figureId: 'different' } }), { code: 'INVALID_ARGUMENT' })
   f.images.store.characters.find(c => c.id === linked.character.id).figurePackId = 'other-pack'
   await assert.rejects(f.handlers.patchImageCharacter({ ...args, patch: { name: 'wrong' } }), { code: 'INVALID_ARGUMENT' })
-  await assert.rejects(f.handlers.copyFigureSetteiToImageCharacter(args), { code: 'INVALID_ARGUMENT' })
+  await assert.rejects(f.handlers.syncFigureSetteiToImageCharacter(args), { code: 'INVALID_ARGUMENT' })
   assert.deepEqual(f.images.store.images, [])
 })
 
-test('character and outfit sheets go to their own reference slots and stale copies are rejected before reading media', async () => {
+test('the record shows the figure\'s 设定图 in their own reference slots; a stale record is rejected before reading media', async () => {
   const { api, service } = host(), images = imageLibrary()
   const figure = { id: 'figure', name: '林月', identitySettei: { board: 'identity' }, outfits: [{ key: 'k', label: '白裙', settei: 'paired' }] }
   const character = { ...images.store.characters[0], figureId: 'figure', figurePackId: 'pack' }
@@ -89,12 +89,10 @@ test('character and outfit sheets go to their own reference slots and stale copi
   } }
   const handlers = createImageCharacterHandlers({ ctx: { get: () => library }, pluginApi: api })
   const args = { packId: 'pack', figureId: 'figure', providerId: 'dsh-tavern-image/definitions', characterId: character.id }
-  const own = await handlers.copyFigureSetteiToImageCharacter({ ...args, expected: structuredClone(character) })
-  assert.ok(own.character.referenceImage)
-  const paired = await handlers.copyFigureSetteiToImageCharacter({ ...args, expected: own.character, outfitKey: 'k' })
-  assert.ok(paired.character.outfits.find(o => o.id === 'k').characterOutfitImage)
-  assert.ok(paired.character.referenceImage)
-  await assert.rejects(handlers.copyFigureSetteiToImageCharacter({ ...args, expected: own.character }), { code: 'REVISION_CONFLICT' })
+  const synced = await handlers.syncFigureSetteiToImageCharacter({ ...args, expected: structuredClone(character) })
+  assert.equal(synced.character.referenceImage.name, '林月 设定图')
+  assert.equal(synced.character.outfits.find(o => o.id === 'k').characterOutfitImage.name, '林月／白裙 设定图')
+  await assert.rejects(handlers.syncFigureSetteiToImageCharacter({ ...args, expected: structuredClone(character) }), { code: 'REVISION_CONFLICT' })
   assert.equal(reads, 2)
   assert.equal(images.store.images.length, 2)
 })

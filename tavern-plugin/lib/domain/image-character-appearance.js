@@ -123,8 +123,17 @@ export function linkPatchFromFigure(character, figure, packId) {
     ...(outfits.length ? { outfits } : {}) }
 }
 
-/** 设定图→参考图: the one way a pack picture becomes a 人物库 参考图 (the 人物 page's button and the follow). The 配图 plugin stores it
- * (`putReferenceImage`); the caller patches it onto the record or outfit. */
+/** 设定图→参考图, the one rule: a figure's 人设图 is its record's 参考图 and each outfit's 服装设定图 is that outfit's. The pack
+ *  is where a 设定图 is registered; the record holds the same picture (the 配图 plugin's own store names it by its sha256,
+ *  as the pack does) so 场景配图 works without the asset library. The 设定图 a record shows otherwise (none, or another
+ *  picture) → [{outfit: null for the person, hash}], applied after every write of the figure and by syncFigureSettei. */
+export function setteiReferences(character, figure) {
+  const differs = (image, hash) => !!hash && image?.id !== hash
+  return [...(differs(character.referenceImage, figure.identitySettei?.board) ? [{ outfit: null, hash: figure.identitySettei.board }] : []),
+    ...(figure.outfits || []).filter(outfit => differs(character.outfits?.find(row => row.id === outfit.key)?.characterOutfitImage, outfit.settei))
+      .map(outfit => ({ outfit, hash: outfit.settei }))]
+}
+
 /** The 参考图 name a pack picture gets in the 人物库 (`suffix` names its kind: 设定图, or a sprite fallback's). */
 export const packReferenceName = (figure, outfit, suffix = ' 设定图') => figure.name + (outfit ? '／' + outfit.label : '') + suffix
 
@@ -140,8 +149,8 @@ export async function putPackReference(api, library, { providerId, packId, revis
 }
 
 /** A figure UUID can appear in copied packs. Look up the pair, across explicit writable sources. */
-export async function findFigureImageCharacter(api, { packId, figureId }) {
-  const libraries = await api.imageCharacterLibraries()
+export async function findFigureImageCharacter(api, { packId, figureId }, sources) {
+  const libraries = sources ?? await api.imageCharacterLibraries()
   if (!libraries.length) return { status: 'unavailable' }
   const reads = await Promise.all(libraries.map(async ({ providerId }) => {
     try { return await api.imageCharacters('getCharacter', { providerId, figureId, figurePackId: packId }) }

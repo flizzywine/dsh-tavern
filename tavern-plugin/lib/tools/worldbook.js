@@ -1,4 +1,5 @@
 import { defineTool } from '@deepseek-ai/dsh-tools'
+import { WORKBENCH_READ_LOREBOOK_TOOL, WORKBENCH_UPDATE_LOREBOOK_TOOL } from '../domain/foreground-tools.js'
 import { normalizeResourcePath, resourceKind } from '../domain/file-resources.js'
 import { WORLD_BOOK_PATCH_FIELDS } from '../domain/worldbook-resource.js'
 import { VALIDATION_SCHEMA, validationText } from './card-validation-check.js'
@@ -29,7 +30,7 @@ export function registerWorldbookTools({
   worldBooks,
 }) {
   tools.register(defineTool({
-    name: 'tavern_read_worldbook',
+    name: WORKBENCH_READ_LOREBOOK_TOOL,
     description: '在卡片设定对话中按编号、关键词或分页读取世界书正文。省略 path 时读取当前人物卡绑定的世界书。',
     parameters: {
       path: { type: 'string', description: '世界书相对路径；独立世界书为 worldbooks/...，人物卡内置世界书为 cards/...' },
@@ -96,7 +97,7 @@ export function registerWorldbookTools({
   }))
 
   tools.register(defineTool({
-    name: 'tavern_update_worldbook',
+    name: WORKBENCH_UPDATE_LOREBOOK_TOOL,
     description: '按用户要求，对世界书提交条目级最小修改。支持独立世界书和人物卡内置世界书；省略 path 时修改当前人物卡绑定的世界书。不要重写整本世界书。修改人物卡内置世界书时结果附带整卡格式校验，无需再调用 tavern_validate_card。',
     parameters: {
       path: { type: 'string', description: '可选的世界书路径；省略时使用当前人物卡，或填写 worldbooks/...、cards/...' },

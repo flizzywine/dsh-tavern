@@ -222,26 +222,45 @@ function WorkbenchPanel(props) {
 
   useEffect(() => {
     let alive = true
+    touchedRef.current = false
+    setSettingsReady(false)
+    if (gameId) fdNoteActiveGameId(gameId)
     fdLoadWorkbench(ui, gameId).then(data => {
       if (!alive || !data) return
       /* 首次加载可能与用户的拨动并发：已经手动改过设置时，保留本地视图里的设置项，
          只接受宿主回包的其余字段，避免出现「打开了又自动关闭」的回弹 */
       setView(prev => {
         const base = prev || fdEmptyWorkbench()
-        if (!touchedRef.current) return data
+        if (!touchedRef.current) {
+          viewRef.current = data
+          return data
+        }
         const merged = fdNormalizeSettings({ ...(data.settings || {}), ...(base.settings || {}) })
-        viewRef.current = { ...data, settings: merged, damper: { ...(data.damper || base.damper), linkage: merged.damperLinkage } }
+        viewRef.current = {
+          ...data,
+          settings: merged,
+          binding: { ...(data.binding || base.binding), enabled: merged.enabled },
+          damper: { ...(data.damper || base.damper), linkage: merged.damperLinkage }
+        }
         return viewRef.current
       })
       setSettingsReady(true)
     })
     const offSync = fdWatch(ui, gameId, 'workbench-sync', payload => {
       if (!alive || !payload) return
-      setView(prev => fdMergeWorkbench(prev || fdEmptyWorkbench(), payload))
+      setView(prev => {
+        const next = fdMergeWorkbench(prev || fdEmptyWorkbench(), payload)
+        viewRef.current = next
+        return next
+      })
     })
     const offSummary = fdWatch(ui, gameId, 'summary', summary => {
       if (!alive || !summary) return
-      setView(prev => fdBindStatusSummary(prev || fdEmptyWorkbench(), { summary }))
+      setView(prev => {
+        const next = fdBindStatusSummary(prev || fdEmptyWorkbench(), { summary })
+        viewRef.current = next
+        return next
+      })
     })
     return () => {
       alive = false
@@ -267,10 +286,15 @@ function WorkbenchPanel(props) {
       .finally(() => setChecking(false))
   }
 
-  /* 设置项即时生效：先乐观写视图（开关立刻翻），再串行落盘（本地缓存 + 宿主） */
+  /* 全局检定参数即时生效：先乐观写视图，再串行落盘；绝不携带当前会话的 enabled 污染全局 */
   const persistSettings = nextSettings => {
     const base = (viewRef.current && viewRef.current.settings) || FD_DEFAULT_SETTINGS
-    const merged = fdNormalizeSettings({ ...base, ...(nextSettings || {}) })
+    const globalPatch = { ...(nextSettings || {}) }
+    delete globalPatch.enabled
+    const currentEnabled = Boolean(base.enabled)
+    const merged = fdNormalizeSettings({ ...base, ...globalPatch, enabled: currentEnabled })
+    const outgoing = { ...merged }
+    delete outgoing.enabled
     touchedRef.current = true
     viewRef.current = {
       ...(viewRef.current || fdEmptyWorkbench()),
@@ -279,15 +303,14 @@ function WorkbenchPanel(props) {
     }
     patch(prev => ({ settings: merged, damper: { ...prev.damper, linkage: merged.damperLinkage } }))
 
-    const run = () => fdPersistSettings(ui, merged)
+    const run = () => fdPersistSettings(ui, outgoing)
       .then(res => {
         if (!res || res.ok !== true) notify(fdToastResult(res, '改动已保存在本地浏览器'))
-        /* 宿主回包带权威设置时以宿主为准（宿主侧可能做过兜底归一化）；
-           但如果用户在这趟往返期间又拨了别的开关，视图已是更新的值，不能再拿旧回包打回去 */
+        /* 宿主回包带权威全局设置时以宿主为准，但保留当前会话的 enabled 不被全局覆盖 */
         const hostSettings = res && res.ok && res.data && res.data.settings
         const current = viewRef.current && viewRef.current.settings
         if (hostSettings && typeof hostSettings === 'object' && current === merged) {
-          const synced = fdNormalizeSettings({ ...merged, ...hostSettings })
+          const synced = fdNormalizeSettings({ ...merged, ...hostSettings, enabled: current.enabled })
           viewRef.current = { ...(viewRef.current || fdEmptyWorkbench()), settings: synced }
           patch(prev => ({ settings: synced }))
         }
@@ -296,6 +319,60 @@ function WorkbenchPanel(props) {
       .catch(() => {
         notify('改动已保存在本地浏览器')
         return merged
+      })
+
+    persistChain.current = (persistChain.current || Promise.resolve()).then(run, run)
+    return persistChain.current
+  }
+
+  /* 主开关按当前会话独立记忆：只写入当前 gameId 的绑定配置，不影响其他会话 */
+  const setEnabled = next => {
+    const nextEnabled = Boolean(next)
+    if (!hasGame) {
+      notify('请先进入任意对话后再开启或关闭命运之骰')
+      return Promise.resolve(false)
+    }
+    const base = (viewRef.current && viewRef.current.settings) || FD_DEFAULT_SETTINGS
+    const merged = fdNormalizeSettings({ ...base, enabled: nextEnabled })
+    touchedRef.current = true
+    viewRef.current = {
+      ...(viewRef.current || fdEmptyWorkbench()),
+      settings: merged,
+      binding: { ...((viewRef.current || {}).binding || {}), enabled: nextEnabled }
+    }
+    patch(prev => ({
+      settings: merged,
+      binding: { ...prev.binding, enabled: nextEnabled }
+    }))
+
+    const targetGameId = gameId
+    const run = () => fdPersistBinding(ui, targetGameId, { enabled: nextEnabled })
+      .then(res => {
+        if (!res || res.ok !== true) {
+          notify(fdToastResult(res, '本局开关保存失败'))
+          return nextEnabled
+        }
+        const hostEnabled = typeof res.data?.enabled === 'boolean'
+          ? res.data.enabled
+          : (typeof res.data?.settings?.enabled === 'boolean' ? res.data.settings.enabled : nextEnabled)
+        const current = viewRef.current && viewRef.current.settings
+        if (current === merged && hostEnabled !== merged.enabled) {
+          const synced = fdNormalizeSettings({ ...merged, enabled: hostEnabled })
+          viewRef.current = {
+            ...(viewRef.current || fdEmptyWorkbench()),
+            settings: synced,
+            binding: { ...((viewRef.current || {}).binding || {}), enabled: hostEnabled }
+          }
+          patch(prev => ({
+            settings: synced,
+            binding: { ...prev.binding, enabled: hostEnabled }
+          }))
+        }
+        return hostEnabled
+      })
+      .catch(() => {
+        notify('本局开关保存失败')
+        return nextEnabled
       })
 
     persistChain.current = (persistChain.current || Promise.resolve()).then(run, run)
@@ -314,6 +391,7 @@ function WorkbenchPanel(props) {
 
   const actions = {
     persistSettings,
+    setEnabled,
     setAutoCheck,
     setRule(rule) {
       patch(() => ({ rule }))
@@ -345,14 +423,17 @@ function WorkbenchPanel(props) {
     h('div', { className: 'fd-wb-top' },
       h('div', { className: 'fd-wb-head' },
         h('h3', { className: 'fd-wb-title' }, '🎲 命运之骰'),
-        h('div', { className: 'fd-btn-row fd-wb-toggle' },
+        h('div', {
+          className: 'fd-btn-row fd-wb-toggle',
+          title: hasGame ? (enabled ? '本会话已开启命运之骰，点击关闭' : '点击为本会话开启命运之骰') : '进入对话后可按会话开启或关闭命运之骰'
+        },
           h(FdSwitch, {
             on: enabled,
-            disabled: !settingsReady,
+            disabled: !settingsReady || !hasGame,
             label: '启用命运之骰',
-            onChange: next => persistSettings({ enabled: next })
+            onChange: next => setEnabled(next)
           }),
-          h('span', null, settingsReady ? (enabled ? '已开启' : '已关闭') : '读取中…'))),
+          h('span', null, !hasGame ? '需进入对话' : (settingsReady ? (enabled ? '已开启' : '已关闭') : '读取中…')))),
       h('div', { className: 'fd-tabbar', role: 'tablist' },
         tabs.map(([value, label]) => h('button', {
           key: value,

@@ -10,7 +10,7 @@
     {
       "comment": "02 服装库的字段",
       "enabled": true,
-      "content": "# 服装库的字段\n\n服装挂在角色的 `outfits` 数组下，一套一条，字段固定：\n\n- `name`：这套服装的名字（中文，简短，如「常服」「雨夜外衣」「夏日便装」）\n- `upper`：上身（英文 Tag：white shirt, denim jacket）\n- `lower`：下身（black slacks, pleated skirt）\n- `shoes`：鞋（leather loafers, sneakers）\n- `accessory`：配饰，可空（thin silver necklace）\n- `full`：整套一句话描述（office attire），单件不全时兜底\n- `back`：背影专用补充，可空\n- `negative`：这套服装不该出现的元素，可空\n- `default`：是否常穿，同一角色最多一套为 true\n\n**只写服装本身**：面料、版型、颜色、配饰。不写身体，不写年龄，不写情节。\n\n## 公共服装库\n\n角色也可以引用公共服装库里的套装（按名字）。公共库与角色自带的服装同名时，**角色自带的优先**。\n\n## 私密场景服装\n\n服装可以带 `nsfw: true`，表示只用于私密场景，见「07 服装的 NSFW 分级」。字段与普通服装完全相同，只是多了这个标记；`upper` / `lower` 允许写裸露与暴露程度。"
+      "content": "# 服装库的字段\n\n服装挂在角色的 `outfits` 数组下，一套一条，字段固定：\n\n- `name`：这套服装的名字（中文，简短，如「常服」「雨夜外衣」「夏日便装」）\n- `upper`：上身（英文 Tag：white shirt, denim jacket）\n- `lower`：下身（black slacks, pleated skirt）\n- `shoes`：鞋（leather loafers, sneakers）\n- `accessory`：配饰，可空（thin silver necklace）\n- `full`：整套一句话描述（office attire），单件不全时兜底\n- `back`：背影专用补充，可空\n- `negative`：这套服装不该出现的元素，可空\n- `default`：是否常穿，同一角色最多一套为 true\n\n**只写服装本身**：面料、版型、颜色、配饰。不写身体，不写年龄，不写情节。\n\n## 公共服装库\n\n角色也可以引用公共服装库里的套装（按名字）。公共服装库与角色自带服装使用同一套字段（`upper` / `lower` / `shoes` / `accessory` / `full` / `back` / `negative`），出图时按同一套部位规则展开：`lowerBody` 标 hidden 就不写下装与鞋袜，`upperBody` 标 nsfw 就不写上衣。公共库与角色自带的服装同名时，**角色自带的优先**。旧版公共库的 `body` / `bodyBack` / `fullBack` 会自动映射到 `upper` / `back`，不需要改数据。\n\n## 私密场景服装\n\n服装可以带 `nsfw: true`，表示只用于私密场景，见「07 服装的 NSFW 分级」。字段与普通服装完全相同，只是多了这个标记；`upper` / `lower` 允许写裸露与暴露程度。"
     },
     {
       "comment": "03 按偏好生成服装",

@@ -1,6 +1,6 @@
 # 世界书读取机制
 
-游玩前后台不再注册 `worldbook_search`。主动检索使用原生 `skill` → `read`；外部注入按原有触发规则提供资料，不另设主动补查工具。卡片工作台的 `tavern_read_worldbook` / `tavern_update_worldbook` 继续用于查看、编辑原始世界书。旧会话工具回执仍可读取，避免破坏历史记录。
+游玩前后台使用 `list_lorebook` 分页浏览标题、`read_lorebook` 按关键词读正文、`grep_lorebook` 搜索原文片段。卡片工作台使用 `tavern_read_lorebook` 和 `tavern_update_lorebook` 查看、编辑原始世界书。旧会话工具回执仍可读取。
 
 ## 本局虚拟 Skill 策略
 

@@ -14,5 +14,5 @@ export async function waitForWritableSession(options) {
     if (attempt + 1 < attempts) await sleep(intervalMs)
   }
 
-  throw new Error('无法写入 DSH 会话开场白: ' + sessionId)
+  throw Object.assign(new Error('无法写入 DSH 会话开场白: ' + sessionId), { code: 'TAVERN_SESSION_NOT_WRITABLE' })
 }

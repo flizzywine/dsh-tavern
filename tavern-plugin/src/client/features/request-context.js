@@ -15,16 +15,13 @@
             return (Math.max(0, Math.min(1, rate)) * 100).toFixed(1) + "%";
         }
         function cacheStatusMeta(status) {
-            if (status === "hit") return { label: "命中前缀", cls: "is-cache-hit" };
-            if (status === "break") return { label: "破坏命中", cls: "is-cache-break" };
-            if (status === "cascade") return { label: "受波及失效", cls: "is-cache-cascade" };
-            if (status === "appended") return { label: "本轮新增", cls: "is-cache-appended" };
+            if (status === "hit") return { label: "一致前缀", cls: "is-cache-hit" };
+            if (status === "break") return { label: "首处差异", cls: "is-cache-break" };
+            if (status === "cascade") return { label: "差异之后", cls: "is-cache-cascade" };
+            if (status === "appended") return { label: "本次新增", cls: "is-cache-appended" };
             return null;
         }
         function cacheZeroReadNote(reason) {
-            if (reason === "first-request") return "本会话首条请求，正在建立初始缓存。";
-            if (reason === "model-changed") return "本轮切换了模型，无法复用上一条请求的缓存。";
-            if (reason === "prefix-too-short") return "前缀一致部分估算不足 1,024 tokens，未达到常见供应商的最小缓存阈值。";
             if (reason === "ttl-or-provider") return "前缀与上一条完全一致，但供应商返回缓存读取为 0（可能已过 TTL、首次写入未生效或上游通道未开启/未透传缓存统计）。";
             return "";
         }
@@ -47,7 +44,8 @@
             if (name === "tavern:worldbook-skills") return { category: "worldbook", label: "世界书 Skill" };
             if (name.includes(":activeWorldbook:")) return { category: "worldbook", label: "本轮世界书" };
             if (name === "tavern:character-card") return { category: "card", label: "人物卡" };
-            if (name === "tavern:card-system-prompt" || name === "tavern:card-system") return { category: "card", label: "人物卡系统提示" };
+            if (name === "tavern:card-system-prompt") return { category: "card", label: "人物卡系统提示" };
+            if (name === "tavern:card-system") return { category: "preset", label: "卡片工作台性格" };
             if (name === "tavern:card-reference") return { category: "card", label: "人物卡参考" };
             if (name === "tavern:user-preference") return { category: "preset", label: "长期偏好" };
             if (name === "tavern:variable-directory") return { category: "state", label: "变量目录" };
@@ -236,14 +234,14 @@
             const breakPoint = cacheDiff.breakPoint;
             const baseline = cacheDiff.baseline;
             const hasRealUsage = !!(usage && usage.totalInputTokens > 0);
-            const primaryRate = hasRealUsage ? usage.hitRate : (cacheDiff.compareStatus === "compared" ? est?.prefixHitRate : null);
-            const rateTone = primaryRate === null ? "neutral" : primaryRate >= 0.6 ? "good" : primaryRate >= 0.2 ? "warn" : "bad";
+            const showEstimate = !hasRealUsage && cacheDiff.compareStatus === "compared" && est?.totalTokens > 0;
+            const rateTone = !hasRealUsage ? "neutral" : usage.hitRate >= 0.6 ? "good" : usage.hitRate >= 0.2 ? "warn" : "bad";
             const rateLabel = hasRealUsage
                 ? "实际命中 " + formatCachePercent(usage.hitRate)
                 : record.status === "running"
-                    ? (est?.prefixHitRate !== null && est?.prefixHitRate !== undefined ? "预估前缀 " + formatCachePercent(est.prefixHitRate) + "（请求进行中）" : "请求进行中…")
-                    : cacheDiff.compareStatus === "compared" && est?.prefixHitRate !== null
-                        ? "预估前缀 " + formatCachePercent(est.prefixHitRate)
+                    ? (showEstimate ? "预估一致前缀 " + formatCachePercent(est.prefixHitRate) + "（请求进行中）" : "请求进行中…")
+                    : showEstimate
+                        ? "预估一致前缀 " + formatCachePercent(est.prefixHitRate)
                         : cacheDiff.compareStatus === "no-previous"
                             ? "首条请求"
                             : "无对比基线";
@@ -251,7 +249,7 @@
             const baselineText = baseline
                 ? (baseline.pruned
                     ? "上一条（第 " + baseline.turn + " 轮 · 步骤 " + baseline.step + "）原文已清理"
-                    : "对比：第 " + baseline.turn + " 轮 · 步骤 " + baseline.step)
+                    : "与第 " + baseline.turn + " 轮 · 步骤 " + baseline.step + " 对比")
                 : "同会话暂无上一条请求";
 
             let barSegments = [];
@@ -262,13 +260,13 @@
                     { key: "write", cls: "is-write", pct: (usage.cacheWriteTokens / total) * 100, title: "缓存写入 " + usage.cacheWriteTokens.toLocaleString() },
                     { key: "miss", cls: "is-miss", pct: (usage.inputTokens / total) * 100, title: "未缓存输入 " + usage.inputTokens.toLocaleString() }
                 ].filter(item => item.pct > 0);
-            } else if (cacheDiff.compareStatus === "compared" && est && est.totalTokens > 0) {
+            } else if (showEstimate) {
                 const total = est.totalTokens;
                 barSegments = [
-                    { key: "hit", cls: "is-hit", pct: (est.hitTokens / total) * 100, title: "命中前缀 ~" + est.hitTokens.toLocaleString() },
-                    { key: "break", cls: "is-break", pct: (est.breakTokens / total) * 100, title: "破坏源头 ~" + est.breakTokens.toLocaleString() },
-                    { key: "cascade", cls: "is-cascade", pct: (est.cascadeTokens / total) * 100, title: "受波及失效 ~" + est.cascadeTokens.toLocaleString() },
-                    { key: "appended", cls: "is-appended", pct: (est.appendedTokens / total) * 100, title: "本轮新增 ~" + est.appendedTokens.toLocaleString() }
+                    { key: "hit", cls: "is-hit", pct: (est.hitTokens / total) * 100, title: "一致前缀约 " + est.hitTokens.toLocaleString() },
+                    { key: "break", cls: "is-break", pct: (est.breakTokens / total) * 100, title: "首处差异段约 " + est.breakTokens.toLocaleString() },
+                    { key: "cascade", cls: "is-cascade", pct: (est.cascadeTokens / total) * 100, title: "差异之后约 " + est.cascadeTokens.toLocaleString() },
+                    { key: "appended", cls: "is-appended", pct: (est.appendedTokens / total) * 100, title: "本次新增约 " + est.appendedTokens.toLocaleString() }
                 ].filter(item => item.pct > 0);
             }
 
@@ -279,13 +277,10 @@
             let breakDesc = "";
             if (breakPoint) {
                 if (breakPoint.kind === "model") {
-                    breakDesc = "模型由 " + breakPoint.previousModel + " 切换为 " + breakPoint.currentModel + "，导致后续 " + breakPoint.affectedSections + " 段（约 " + breakPoint.affectedTokens.toLocaleString() + " tokens）失去前缀缓存。";
+                    breakDesc = "模型由 " + breakPoint.previousModel + " 切换为 " + breakPoint.currentModel;
                 } else {
                     const delta = breakPoint.diff ? ("+" + breakPoint.diff.addedLines + " / -" + breakPoint.diff.removedLines + " 行") : "结构变动";
-                    const cascadeNote = breakPoint.affectedSections > 0
-                        ? "，连带失效后续 " + breakPoint.affectedSections + " 段（约 " + breakPoint.affectedTokens.toLocaleString() + " tokens）"
-                        : "";
-                    breakDesc = breakPoint.title + (breakPoint.partLabel ? " · " + breakPoint.partLabel : "") + "（" + delta + "）" + cascadeNote;
+                    breakDesc = breakPoint.title + (breakPoint.partLabel ? " · " + breakPoint.partLabel : "") + "（" + delta + "）";
                 }
             }
             const zeroNote = !breakPoint ? cacheZeroReadNote(cacheDiff.zeroReadReason) : "";
@@ -295,22 +290,19 @@
                     h("div", { className: "dsh-context-cache-title" },
                         h("span", { className: "dsh-context-cache-rate is-" + rateTone }, rateLabel),
                         h("span", { className: "dsh-context-cache-baseline" }, baselineText)),
-                    breakPoint ? h("button", { type: "button", className: "dsh-context-cache-jump", onClick: () => onJumpBreak(breakPoint.key) }, "定位破坏点") : null),
+                    breakPoint ? h("button", { type: "button", className: "dsh-context-cache-jump", onClick: () => onJumpBreak(breakPoint.key) }, "定位前缀差异") : null),
                 barSegments.length ? h("div", { className: "dsh-context-cache-bar", role: "img", "aria-label": rateLabel },
                     barSegments.map(seg => h("span", { key: seg.key, className: "dsh-context-cache-seg " + seg.cls, style: { width: Math.max(seg.pct, 0.8) + "%" }, title: seg.title }))) : null,
-                h("div", { className: "dsh-context-cache-stats" },
-                    hasRealUsage ? h("span", null,
+                hasRealUsage ? h("div", { className: "dsh-context-cache-stats" },
                         "总输入 " + usage.totalInputTokens.toLocaleString() +
                         " · 缓存读 " + usage.cacheReadTokens.toLocaleString() +
                         " · 缓存写 " + usage.cacheWriteTokens.toLocaleString() + ttlDetail +
                         " · 未缓存 " + usage.inputTokens.toLocaleString()) : null,
-                    cacheDiff.compareStatus === "compared" && est ? h("span", { className: "dsh-context-cache-est" },
-                        "前缀估算：命中 ~" + est.hitTokens.toLocaleString() +
-                        (est.breakTokens ? " · 破坏点 ~" + est.breakTokens.toLocaleString() : "") +
-                        (est.cascadeTokens ? " · 连带失效 ~" + est.cascadeTokens.toLocaleString() : "") +
-                        (est.appendedTokens ? " · 本轮新增 ~" + est.appendedTokens.toLocaleString() : "") + " tokens") : null),
-                breakDesc ? h("div", { className: "dsh-context-cache-alert is-break" },
-                    h("strong", null, "破坏命中源头："), breakDesc) : null,
+                showEstimate ? h("div", { className: "dsh-context-cache-stats" },
+                    "本地估算共约 " + est.totalTokens.toLocaleString() + " tokens" +
+                    barSegments.map(seg => " · " + seg.title).join("")) : null,
+                breakDesc ? h("div", { className: "dsh-context-cache-alert is-diff" },
+                    h("strong", null, "本地前缀差异："), breakDesc) : null,
                 zeroNote ? h("div", { className: "dsh-context-cache-alert is-info" }, zeroNote) : null);
         }
         function renderBreakDiffBox(h, breakPoint) {
@@ -456,11 +448,11 @@
                                                 ? " is-part-cascade"
                                                 : "";
                                     const partCacheTag = partCacheState === "break"
-                                        ? h("span", { className: "dsh-context-part-break-tag" }, "破坏点")
+                                        ? h("span", { className: "dsh-context-part-break-tag" }, "首处差异")
                                         : partCacheState === "hit"
-                                            ? h("span", { className: "dsh-context-part-hit-tag" }, "命中前缀")
+                                            ? h("span", { className: "dsh-context-part-hit-tag" }, "一致前缀")
                                             : partCacheState === "cascade"
-                                                ? h("span", { className: "dsh-context-part-cascade-tag" }, "受波及失效")
+                                                ? h("span", { className: "dsh-context-part-cascade-tag" }, "差异之后")
                                                 : null;
                                     const partCat = part.sourceCategory && CONTEXT_SOURCE_CATEGORIES[part.sourceCategory];
                                     return part.catalog
@@ -480,6 +472,6 @@
                         });
                     }),
                     (deferredQuery || sourceFilter !== "all") && !visibleSections.length ? h(EmptyState, { query: query || (CONTEXT_SOURCE_CATEGORIES[sourceFilter] || ""), onClear: () => { setQuery(""); setSourceFilter("all"); } }) : null) : null,
-                request ? h("p", { className: "dsh-context-footnote" }, "发送时的上下文快照 · 供应商协议转换前 · 消息顺序保持不变") : null
+                request ? h("p", { className: "dsh-context-footnote" }, "发送时的上下文快照 · 供应商协议转换前 · 前缀标记来自本地请求对比") : null
             );
 		}
