@@ -7407,6 +7407,32 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
 .fork-gal-stage > .fork-performance-keyframes.is-above { z-index: 6; }
 .fork-gal-stage[data-look-ui] :is(.fork-performance-under, .fork-performance-over) { filter: url(#fork-gal-look-ui); }
 .fork-gal-stage :is(.fork-gal-scene, .fork-performance-under, .fork-performance-over, .fork-performance-keyframes.is-below) { translate: var(--performance-shake-x, 0px) var(--performance-shake-y, 0px); }
+/* ---------- stage font picker (config-fields.cjs createStageFontPicker) ----------
+   The stage's own list keeps the shared picker's classes, so dsh-dream-skin/src/font-picker.css (its 2-column cards,
+   the absolute ✓) still applies; .is-rows on the stage popover redraws it one row per font: ✓ column · name (interface
+   face) · sample (the font's own face, larger, secondary ink). Rows have no frame; hover and the chosen row are a ground of
+   their own, the chosen one with its ✓ and name in the accent. Every rule outranks the dream skin's by .is-rows. */
+.fork-font-pop.is-stage.is-rows .fork-font-list { gap: 4px; }
+.fork-font-pop.is-stage.is-rows .fork-font-group { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+.fork-font-pop.is-stage.is-rows .fork-font-group-label { padding: .7em 12px .3em calc(12px + 1.25em + 12px); color: var(--gal-ui-ink-2); font: 600 calc(var(--gal-cfg-t0, 16px) * .8)/1.2 var(--gal-ui-font); letter-spacing: .08em; }
+.fork-font-pop.is-stage.is-rows .fork-font-option { position: relative; display: grid; grid-template-columns: 1.25em 8em minmax(0, 1fr); align-items: center; gap: 0 12px; box-sizing: border-box; width: 100%; min-width: 0;
+  min-height: var(--gal-cfg-hit, 48px); margin: 0; padding: 8px 14px 8px 12px; border: 0; border-radius: calc(var(--gal-ui-radius) * .6 + 2px); background: transparent; box-shadow: none; color: var(--gal-ui-ink);
+  font-size: var(--gal-cfg-t0, 16px); text-align: left; cursor: pointer; transition: background .15s; }
+.fork-font-pop.is-stage.is-rows .fork-font-option-check { position: static; display: grid; place-items: center; width: 1.25em; height: 1.25em; color: var(--gal-ui-accent); }
+.fork-font-pop.is-stage.is-rows .fork-font-option-name { display: grid; gap: 2px; min-width: 0; overflow: hidden; font-size: 1em; font-weight: 500; line-height: 1.3; letter-spacing: .04em; white-space: nowrap; text-overflow: ellipsis; }
+.fork-font-pop.is-stage.is-rows .fork-font-option-name > small { overflow: hidden; color: var(--gal-ui-ink-2); font-size: .75em; font-weight: 400; letter-spacing: .02em; text-overflow: ellipsis; }
+.fork-font-pop.is-stage.is-rows .fork-font-option-sample { min-width: 0; overflow: hidden; color: var(--gal-ui-ink-2); font-size: 1.2em; line-height: 1.4; letter-spacing: .02em; white-space: nowrap; text-overflow: ellipsis; }
+.fork-font-pop.is-stage.is-rows .fork-font-option:hover { background: var(--gal-ui-hover); }
+.fork-font-pop.is-stage.is-rows .fork-font-option:hover .fork-font-option-sample { color: var(--gal-ui-ink); }
+.fork-font-pop.is-stage.is-rows .fork-font-option.is-on { background: var(--gal-ui-active); box-shadow: none; }
+.fork-font-pop.is-stage.is-rows .fork-font-option.is-on :is(.fork-font-option-name, .fork-font-option-check) { color: var(--gal-ui-accent); }
+.fork-font-pop.is-stage.is-rows .fork-font-option.is-on .fork-font-option-sample { color: var(--gal-ui-ink); }
+.fork-font-pop.is-stage.is-rows .fork-font-option:focus-visible { outline: var(--gal-ui-focus); outline-offset: -2px; }
+.fork-font-pop.is-stage.is-rows .fork-font-option.is-follow { margin-bottom: 2px; box-shadow: 0 1px 0 var(--gal-ui-line); border-radius: calc(var(--gal-ui-radius) * .6 + 2px) calc(var(--gal-ui-radius) * .6 + 2px) 0 0; }
+.fork-popover.fork-font-pop.is-stage.is-rows { width: min(calc(var(--gal-cfg-t0, 16px) * 34), calc(100vw - 16px)); max-height: min(70vh, 640px); overflow: auto; overscroll-behavior: contain; padding: 8px; border-radius: min(var(--gal-ui-radius), 16px); }
+/* Narrow: the sample goes under the name (a phone row keeps both readable). */
+@media (max-width: 560px) { .fork-font-pop.is-stage.is-rows .fork-font-option { grid-template-columns: 1.25em minmax(0, 1fr); row-gap: 2px; } .fork-font-pop.is-stage.is-rows .fork-font-option-sample { grid-column: 2; } }
+/* ---------- end stage font picker ---------- */
 /* ---------- font picker on the CONFIG size ladder ----------
    dsh-dream-skin/src/font-picker.css draws the stage variant at fixed sizes; inside the CONFIG sheet the trigger, its tag,
    the portaled list (.fork-gal-theme-scope) and the film preview follow the ladder (--gal-cfg-*, 「stage CONFIG size ladder」).

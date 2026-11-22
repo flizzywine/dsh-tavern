@@ -58,7 +58,7 @@ export function stageHostScript() {
   const noop=()=>{},off=()=>noop,store=value=>({get:()=>value,set(next){value=next;},subscribe:off});
   // The core's foreground owner (foreground.js forkForeground), shared with the page's own copy.
   const foreground=forkForeground;
-  const fonts={subscribe:off,getSnapshot:()=>0,resolve:(...args)=>window.stageHostFontResolve?.(...args)||{family:'serif'},ensure:async()=>{},families:()=>[]};
+  const fonts={subscribe:off,getSnapshot:()=>0,resolve:(...args)=>window.stageHostFontResolve?.(...args)||{family:'serif'},ensure:async()=>{},families:()=>[],list:async()=>[],setOverride:noop};
   const sounds={preload:noop,play:noop,useSkin:noop};
   const audioState={master:0,music:0,sfx:0,voice:0,ambience:0,ui:0,muted:{}};
   const audio={get:()=>audioState,getSnapshot:()=>audioState,setDucking:noop,setVolume:noop,toggleMute:noop,subscribe:off,context:()=>null,gain:()=>null,prepareVoice:noop,release:noop,voice:noop,keepAwake:noop};
@@ -106,7 +106,9 @@ export function stageHostScript() {
     video:{getService:()=>null,fetch,URL,stageVideo:{},audio,foreground,setTimeout,clearTimeout},
     loader:{getService:()=>null,fetch,URL,AbortController,decodeImage:async()=>null},
     admission:{performance,setTimeout,clearTimeout,Spinner},
-    configText:{reading,limits:STAGE_READING_LIMITS,defaults:STAGE_READING_DEFAULTS,scale:STAGE_TEXT_SCALE,scaleOf:stageTextScaleOf,fonts,FontPicker:Nothing,clock:foreground,autoDelay:galAutoDelay},
+    configText:{reading,limits:STAGE_READING_LIMITS,defaults:STAGE_READING_DEFAULTS,scale:STAGE_TEXT_SCALE,scaleOf:stageTextScaleOf,fonts,clock:foreground,autoDelay:galAutoDelay},
+    // the stage's own CONFIG font picker (gal-stage.js fontPicker): an empty catalogue (系统字体 without the dream skin's library)
+    fontPicker:{Icon,FloatingPanel:Nothing,fonts},
     configAppearance:{reading,quality:store('high'),sounds,Icon,Spinner},
     position:{storage:null,setTimeout,clearTimeout},
     hints:{storage:null,setTimeout,clearTimeout},
@@ -127,7 +129,7 @@ export function stageHostScript() {
     choiceLayout:{getComputedStyle},
     regenerate:{report:noop,sounds,useSounds:noop,episode:stageWaitLinesEpisode,waitLines:STAGE_WAIT_LINES,HelpTip,Segmented:Nothing,TextArea:Nothing,StageWaitStop,StageWaitLines},
     configScreen:{matchMedia,rpc,sections:[],useSounds:noop,sounds,Icon},
-    configFields:{HelpTip,Segmented:Nothing,Slider:Nothing,ResetButton:Nothing,FontPicker:Nothing,InlineField:Nothing,sounds,classify:()=>null},
+    configFields:{HelpTip,Segmented:Nothing,Slider:Nothing,ResetButton:Nothing,InlineField:Nothing,sounds,classify:()=>null},
     phoneLayout:{storage:null,width:()=>innerWidth,ResetButton:Nothing,sections:[]},
     sourceWidgets:{storage:null,foreground,rpc,sounds,fillInput:noop,signals:{subscribe:off},characters:{character:()=>null,mood:()=>null,moods:()=>[],actor:()=>null,face:()=>null},avatarCache:null,
       phoneProtocol:{phoneModDirect:()=>null,phoneModOwnership:()=>null,run:async()=>null},figureResolution:{resolveFigureName:()=>null},playerErrorText:error=>String(error?.message||error||''),fetch,createImageBitmap,
