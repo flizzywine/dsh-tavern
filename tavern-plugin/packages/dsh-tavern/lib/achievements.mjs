@@ -25,6 +25,8 @@ export async function readAchievementLibrary(home) {
     unlockedAt: tier.earned === true && Number.isSafeInteger(tier.unlockedAt) && tier.unlockedAt > 0
       && tier.unlockedAt <= 8.64e15 ? tier.unlockedAt : null,
     ...(tier.earned === true && typeof tier.cardName === 'string' ? { cardName: tier.cardName } : {}),
+    ...(tier.earned === true && Number.isSafeInteger(tier.contextChars) && tier.contextChars >= 0
+      ? { contextChars: tier.contextChars } : {}),
     ...(tier.earned === true && typeof tier.cover === 'string' && tier.cover.length <= 200_023
       && /^data:image\/webp;base64,[A-Za-z0-9+/]+={0,2}$/.test(tier.cover) ? { cover: tier.cover } : {}),
   }))

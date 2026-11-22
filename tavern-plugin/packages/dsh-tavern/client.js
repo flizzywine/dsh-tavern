@@ -44,6 +44,8 @@ window.__ModuleLoader__.load({
       updates: '酒馆版本与更新',
       achievements: '成就库',
       achievementRounds: '轮',
+      achievementTotalChars: '总字数',
+      achievementCharUnit: '字',
       achievementTest: '成就测试',
       achievementTestCard: '测试卡牌',
       achievementTestUnavailable: '请先打开一段游玩对话，并确认新版成就插件已启用。',
@@ -153,6 +155,8 @@ window.__ModuleLoader__.load({
       updates: 'Tavern version and updates',
       achievements: 'Achievements',
       achievementRounds: 'rounds',
+      achievementTotalChars: 'Total',
+      achievementCharUnit: 'characters',
       achievementTest: 'Test achievements',
       achievementTestCard: 'Preview card',
       achievementTestUnavailable: 'Open a playable conversation with the updated achievement plugin enabled.',
@@ -318,6 +322,11 @@ window.__ModuleLoader__.load({
   max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #fbefe0;
   font-size: 12px; text-shadow: 0 1px 5px #17111c;
 }
+.pb-achievement-chars {
+  display: flex; justify-content: center; flex-wrap: wrap; column-gap: 6px;
+  color: #e9d7c7; font-size: 11px; font-variant-numeric: tabular-nums;
+}
+.pb-achievement-chars b { color: #fff3de; font-weight: 650; white-space: nowrap; }
 .pb-achievement-copy time { font-size: 10px; color: #e9d7c7; font-variant-numeric: tabular-nums; }
 .pb-achievement-preview-grid { grid-template-columns: min(100%, 256px); }
 .pb-achievement-preview-status { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
@@ -353,6 +362,9 @@ window.__ModuleLoader__.load({
           h('strong', null, tier.title),
           h('span', { className: 'pb-achievement-rounds' }, tier.rounds + ' ' + t('achievementRounds')),
           tier.cardName ? h('span', { className: 'pb-achievement-character', title: tier.cardName }, tier.cardName) : null,
+          Number.isSafeInteger(tier.contextChars) && tier.contextChars >= 0
+            ? h('span', { className: 'pb-achievement-chars' }, t('achievementTotalChars'), ' ',
+              h('b', null, tier.contextChars.toLocaleString() + ' ' + t('achievementCharUnit'))) : null,
           unlocked ? h('time', { dateTime: unlocked.toISOString() }, unlocked.toLocaleDateString()) : null))
     }
 

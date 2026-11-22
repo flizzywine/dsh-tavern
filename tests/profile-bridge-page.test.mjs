@@ -75,7 +75,8 @@ test('原版 Profile 的启动器只显示已解锁的成就卡，空库完全�
   }
 
   const historical = { ...locked, id: 'gold', title: '酒馆传说', rounds: 500, earned: true, cover: 'https://external.example/art.webp' }
-  await write([{ id: 'bronze', title: '小有名气', rounds: 100, earned: true, unlockedAt, cardName: '测试卡甲', cover: coverA }, locked, historical])
+  const bronze = { id: 'bronze', title: '小有名气', rounds: 100, earned: true, unlockedAt, cardName: '测试卡甲', cover: coverA, contextChars: 1263067 }
+  await write([bronze, locked, historical])
   const page = await mount(status, [], options)
   try {
     const library = page.dom.window.document.querySelector('section[aria-label="成就库"]')
@@ -86,7 +87,9 @@ test('原版 Profile 的启动器只显示已解锁的成就卡，空库完全�
     assert.match(earned.textContent, /小有名气.*100 轮/)
     assert.equal(earned.querySelector('.pb-achievement-cover').getAttribute('src'), coverA)
     assert.equal(earned.querySelector('.pb-achievement-character').textContent, '测试卡甲')
+    assert.equal(earned.querySelector('.pb-achievement-chars').textContent, '总字数 ' + bronze.contextChars.toLocaleString() + ' 字')
     assert.equal(cards[1].querySelector('.pb-achievement-cover'), null)
+    assert.equal(cards[1].querySelector('.pb-achievement-chars'), null)
     assert.equal(earned.querySelector('time').dateTime, new Date(unlockedAt).toISOString())
     assert.doesNotMatch(library.textContent, /传奇冒险者|未解锁/)
   } finally {
@@ -105,9 +108,10 @@ test('四档测试按钮在酒馆里预览卡牌，成就库仍为空', async ()
     const win = page.dom.window
     let cardName = '测试卡甲'
     let cover = coverA
+    let contextChars = 6500
     win.addEventListener('dsh-tavern-adventure-medal:preview', event => {
       event.preventDefault()
-      event.detail.complete({ ...tiers.find(tier => tier.id === event.detail.id), cardName, cover })
+      event.detail.complete({ ...tiers.find(tier => tier.id === event.detail.id), cardName, cover, contextChars })
     })
     const testing = win.document.querySelector('.pb-achievement-test')
     const buttons = [...testing.querySelectorAll('button')]
@@ -116,12 +120,15 @@ test('四档测试按钮在酒馆里预览卡牌，成就库仍为空', async ()
     assert.match(testing.textContent, /测试卡牌 · 测试卡甲/)
     assert.equal(testing.querySelector('.pb-achievement-card').dataset.tier, 'bronze')
     assert.equal(testing.querySelector('.pb-achievement-cover').getAttribute('src'), coverA)
+    assert.equal(testing.querySelector('.pb-achievement-chars').textContent, '总字数 ' + contextChars.toLocaleString() + ' 字')
     cardName = '测试卡乙'
     cover = coverB
+    contextChars = 0
     await page.act(async () => buttons[3].click())
     assert.match(testing.textContent, /测试卡牌 · 测试卡乙/)
     assert.equal(testing.querySelector('.pb-achievement-card').dataset.tier, 'rainbow')
     assert.equal(testing.querySelector('.pb-achievement-cover').getAttribute('src'), coverB)
+    assert.equal(testing.querySelector('.pb-achievement-chars').textContent, '总字数 0 字')
     assert.equal(win.document.querySelector('.pb-achievement-library'), null)
   } finally {
     await page.dispose()
