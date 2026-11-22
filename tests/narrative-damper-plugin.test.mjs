@@ -260,7 +260,7 @@ test('面板真的会把改动写给宿主：开关、提供方、阈值各走�
   assert.match(host.textContent, /叙事阻尼器/)
   assert.match(host.textContent, /已配置（安全存储）/)
   assert.equal(calls[0][0], 'narrative-damper:read')
-  assert.equal(host.querySelectorAll('select option').length, 5)
+  assert.equal(host.querySelectorAll('select option').length, 6)
 
   const enabled = host.querySelector('button[role="switch"][aria-label="启用叙事阻尼器"]')
   assert.ok(enabled, '顶栏应当有总开关')
@@ -315,6 +315,16 @@ test('面板真的会把改动写给宿主：开关、提供方、阈值各走�
   })
   assert.equal(currentConfig().baseUrl, 'https://proxy.example.com/gateway/v1/chat/completions')
   assert.match(host.querySelector('.tnd-endpoint').textContent, /POST https:\/\/proxy\.example\.com\/gateway\/v1beta\/decisions$/)
+
+  // 切换到 JEV 兼容接口：保留自定义接口地址并映射为 /v1/systemone
+  await act(async () => {
+    const setter = Object.getOwnPropertyDescriptor(dom.window.HTMLSelectElement.prototype, 'value').set
+    setter.call(provider, 'jev-compatible')
+    provider.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
+    provider.dispatchEvent(new dom.window.Event('change', { bubbles: true }))
+  })
+  assert.deepEqual(plain(calls.at(-1)), ['narrative-damper:update', { values: { provider: 'jev-compatible', model: 'jev-1.13.0', keyName: 'TYPESAFE_API_KEY', baseUrl: 'https://proxy.example.com/gateway/v1/chat/completions' } }])
+  assert.match(host.querySelector('.tnd-endpoint').textContent, /POST https:\/\/proxy\.example\.com\/gateway\/v1\/systemone$/)
 
   // 切回 OpenAI 兼容接口供后续断言使用
   await act(async () => {
