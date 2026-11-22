@@ -19,13 +19,14 @@ function createPlayInteractionPanels({ interactions, useCandidatePanel, useCandi
         // 宿主输入器可由 textarea 升级为 contenteditable，两种入口共享聚焦与收起逻辑。
         const inputSelector = "[data-composer-card] :is(textarea, [contenteditable='true'])";
         const dismissMode = useCandidatePreferences();
-        const panel = useCandidatePanel();
+        const panelState = useCandidatePanel();
         const draft = props.useInput(snapshot => snapshot.draft);
         const draftRef = React.useRef(draft);
         draftRef.current = draft;
         const sessionMode = useTavernSessionMode(props.sessionId);
         const running = props.useSession(function (snapshot) { return snapshot.running; });
         const latestMessageId = props.useChat(latestTavernAssistantMessageId);
+        const panel = candidatePanelForRound(panelState, props.sessionId, latestMessageId, running);
         const canDirectSend = Boolean(props.inputActions && typeof props.inputActions.submit === "function");
         const [sendOnPick, setSendOnPick] = React.useState(false);
         const [added, setAdded] = React.useState([]);
@@ -47,10 +48,7 @@ function createPlayInteractionPanels({ interactions, useCandidatePanel, useCandi
                 setAdded([]);
                 setActiveTab("featured");
             }, [panel?.choices]);
-        // The panel is tagged with the page's reply id when loaded, even if
-        // the server stored it under a different id. Some hosts have no id.
-        const stalePanel = panel?.messageId && latestMessageId && panel.messageId !== latestMessageId;
-        if (!isPlayMode(sessionMode) || !panel || panel.sessionId !== props.sessionId || running || stalePanel) {
+        if (!isPlayMode(sessionMode) || !panel) {
             return null;
         }
         const h = React.createElement;

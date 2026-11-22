@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 import vm from './fixtures/client-vm.mjs'
+import { candidatePanelForRound } from '../tavern-plugin/lib/domain/play-interaction-flow.js'
 
 const source = await readFile(new URL('../tavern-plugin/lib/client.js', import.meta.url), 'utf8')
 const component = source.slice(source.indexOf('function CandidateAction('), source.indexOf('function CandidateDockActions('))
@@ -30,7 +31,7 @@ function harness(rollbackRpc) {
         return [states[index], value => { states[index] = typeof value === 'function' ? value(states[index]) : value }]
       }
     },
-    useCandidatePanel: () => candidatePanel, useSavedCandidates() {}, useRegenPanel: () => regen,
+    candidatePanelForRound, useCandidatePanel: () => candidatePanel, useCandidateRound() {}, useRegenPanel: () => regen,
     useTavernSessionMode: () => 'story', latestTavernAssistantMessageId: () => 'reply',
     // bareView：视图在、但没带上 canRegenerate/canRollback 这一栏（投影视图、落盘前那一秒）。
     useLiveTavernView: () => (noView ? { view: null } : { view: bareView ? { undoRollbackTurn: undoTurn, ...extraView } : { canRollback, undoRollbackTurn: undoTurn, ...extraView } }),

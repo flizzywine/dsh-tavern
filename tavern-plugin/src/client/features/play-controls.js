@@ -536,30 +536,27 @@
             applyBodyResult: (sessionId, view, tail) => applyBodyRegenerationResult({ liveTavernView, historyProjection, sessionId, view, tail }),
             reportError: (source, error) => tavernErrorHub.report(source, error),
             notifyRegenerating,
+            candidateErrorDismissed,
+            candidateErrorText: error => playerErrorText(error || "候选生成未完成", { fallback: "候选生成未完成" }),
             bodyErrorText: error => playerErrorText(error, { fallback: "重新生成没有完成" }), timers: window
         });
         const setCandidatePanel = interactions.candidates.set;
         const setCandidateGuidePanel = interactions.guide.set;
         const setRegenPanel = interactions.regeneration.set;
-        const { readyCandidatePanel, submitCandidateTask, submitBodyRegeneration, loadSavedCandidates } = interactions;
+        const { submitCandidateTask, submitBodyRegeneration } = interactions;
         function useInteractionPanel(store) { return React.useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot); }
         function useCandidatePanel() { return useInteractionPanel(interactions.candidates); }
         function useCandidateGuidePanel() { return useInteractionPanel(interactions.guide); }
         function useRegenPanel() { return useInteractionPanel(interactions.regeneration); }
-        function useSavedCandidates(sessionId, messageId, running, taskId) {
+        function useCandidateRound(sessionId, messageId, running, task) {
+            const currentTask = task?.kind === "candidate" && task.input
+                && String(task.input.messageId || "") === String(messageId || "") ? task : null;
             React.useEffect(function () {
-                if (!sessionId) return;
-                const panel = interactions.candidates.getSnapshot();
-                if (panel?.sessionId === sessionId && (running || (panel.messageId && messageId && panel.messageId !== messageId))) {
-                    setCandidatePanel(null);
-                }
-                // The host can expose the next reply's id while it is streaming.
-                // The save still holds the previous round's choices until the reply commits.
-                if (running || taskId) return;
                 const controller = new AbortController();
-                void loadSavedCandidates(sessionId, messageId, controller.signal);
+                void interactions.syncCandidateRound({ sessionId, messageId, running, task: currentTask }, controller.signal);
                 return () => controller.abort();
-            }, [sessionId, messageId, running, taskId]);
+            }, [sessionId, messageId, running, currentTask]);
+            return currentTask;
         }
 		// a dismissed candidate failure stays dismissed
 		// across a reload; only the latest dismissed task is kept because only the latest round can show one.
@@ -660,8 +657,7 @@
 					if (panel && panel.sessionId === props.sessionId && panel.phase === "error" && /压缩/.test(String(panel.error || ""))) setCandidatePanel(null);
 				};
 			}, [compacting, props.sessionId]);
-			const candidateTask = activityState.view && activityState.view.task;
-			const taskForMessage = candidateTask && candidateTask.kind === "candidate" && candidateTask.input && String(candidateTask.input.messageId || "") === String(props.messageId || "") ? candidateTask : null;
+			const taskForMessage = useCandidateRound(props.sessionId, props.messageId, frontRunning, activityState.view?.task);
 			const taskBusy = !!(taskForMessage && taskForMessage.busy);
 			const regenBusy = regenPanelState !== null && regenPanelState.sessionId === props.sessionId && regenPanelState.phase === "loading";
 			// 视图会整块丢掉：读取被替换、几轮中止之后记录被清空、错误里带着空视图回来。
@@ -687,26 +683,6 @@
 			}, [canRollback, frontRunning, compacting, regenBusy, activity.busy, props.sessionId, latestMessageId]);
 			const [withdrawBusy, setWithdrawBusy] = React.useState(false);
 			const draft = props.useInput(snapshot => snapshot.draft);
-			useSavedCandidates(props.sessionId, props.messageId, frontRunning, taskForMessage?.taskId);
-			const projectedTaskRef = React.useRef("");
-			React.useEffect(function () {
-				if (frontRunning || !taskForMessage) return;
-				const projection = String(taskForMessage.taskId || "") + ":" + String(taskForMessage.version || 0) + ":" + String(taskForMessage.status || "");
-				if (projectedTaskRef.current === projection) return;
-				projectedTaskRef.current = projection;
-				if (taskForMessage.busy) {
-					setCandidatePanel({ sessionId: props.sessionId, messageId: props.messageId, phase: "loading", choices: [], error: "" });
-					return;
-				}
-				if (taskForMessage.status === "succeeded" && taskForMessage.result && taskForMessage.result.candidates) {
-					setCandidatePanel(readyCandidatePanel(props.sessionId, props.messageId, taskForMessage.result.candidates));
-					setCandidateGuidePanel(null);
-					return;
-				}
-				if (taskForMessage.terminal && !candidateErrorDismissed(projection)) {
-					setCandidatePanel({ sessionId: props.sessionId, messageId: props.messageId, phase: "error", choices: [], taskKey: projection, error: playerErrorText(taskForMessage.error || "候选生成未完成", { fallback: "候选生成未完成" }) });
-				}
-			}, [props.sessionId, props.messageId, frontRunning, taskForMessage && taskForMessage.taskId, taskForMessage && taskForMessage.version, taskForMessage && taskForMessage.status]);
 			const reconciledActivityRef = React.useRef("");
 			React.useEffect(function () {
 				if (!activityState.view || activity.busy) return;
@@ -717,14 +693,12 @@
 				// session.list rescans every stored Session and cost seconds per turn.
 				liveTavernView.invalidate(props.sessionId);
 			}, [props.sessionId, activity.phase, activity.busy, activityState.view && activityState.view.updatedAt]);
-			async function generate(force, guidance) {
+			async function generate() {
 				if (busy || activity.busy) return;
 				setBusy(true);
-				setCandidatePanel({ sessionId: props.sessionId, messageId: props.messageId, phase: "loading", choices: [], error: "", expandOnReady: true });
 				try {
-					await submitCandidateTask(props.sessionId, props.messageId, guidance);
-				} catch (err) { tavernErrorHub.report("候选项生成", err); setCandidatePanel({ sessionId: props.sessionId, messageId: props.messageId, phase: "error", choices: [], error: playerErrorText(err, { fallback: "候选生成未完成" }) }); }
-				finally { setBusy(false); liveTavernView.invalidate(props.sessionId); tavernCoordination.invalidate(props.sessionId); }
+					await interactions.generateCandidates(props.sessionId, props.messageId, { expandOnReady: true });
+				} finally { setBusy(false); liveTavernView.invalidate(props.sessionId); }
 			}
 			function regenerationPanelFor(event, phase) {
 				const tail = event && event.currentTarget ? event.currentTarget.closest('[data-chat-flow-kind="turn-tail"]') : null;
@@ -751,8 +725,7 @@
 			}
 			const h = React.createElement;
 			const isScript = sessionMode === "script";
-			const currentPanel = !frontRunning && candidatePanelState?.sessionId === props.sessionId
-				&& (!candidatePanelState.messageId || !props.messageId || candidatePanelState.messageId === props.messageId) ? candidatePanelState : null;
+			const currentPanel = candidatePanelForRound(candidatePanelState, props.sessionId, props.messageId, frontRunning);
 			const hasReadyPanel = currentPanel?.phase === "ready";
 			if (!isPlayMode(sessionMode)) return null;
 			// 收起的「接下来的行动」在手机上不再单占一行：它的入口并进这一行操作，
@@ -769,7 +742,7 @@
 						setCandidatePanel(null);
 						setCandidateGuidePanel({ sessionId: props.sessionId, messageId: props.messageId, phase: "input", error: "", previous: previous });
 					} else {
-						generate(false);
+						generate();
 					}
 				} }, settlementActive ? "后台结算中…" : (activity.busy ? activity.label : ((busy || taskBusy) ? "生成中…" : (hasReadyPanel ? "重新生成候选项" : "生成候选项")))),
 				props.only !== "choices" ? h("button", { className: "dsh-tavern-choice-trigger", "data-fork-action": "regen", "aria-label": props.only === "regen" ? "重新生成这一轮正文" : undefined, "data-busy": regenBusy || undefined, "aria-busy": regenBusy || undefined, disabled: !canRollback || frontRunning || compacting || (activity.busy && !settlementActive) || regenBusy, title: regenBusy ? "正在重新生成正文…" : compacting ? "正在压缩上下文，请稍候" : frontRunning ? "这一轮还在收尾，结束后才能重新生成" : !viewReady && (emptyReason === "no-session" || emptyReason === "no-chat") ? (emptyReason === "no-chat" ? "这一局的存档正在建立，稍候…" : "这一局还没有开始：先选一张人物卡，或从游玩历史打开一局") : !viewReady ? "正在读取这一局，稍候…" : !canRollback ? "还没有可重新生成的正文：先发送一条消息，或等这一轮写完" : (settlementActive ? "重新生成将取消当前正文的后台结算" : (activity.busy ? activity.blockReason : "可选择填写意见，再重新生成并替换当前正文")), onClick: openRegeneration }, regenBusy ? "重生成中…" : "重新生成正文") : null,

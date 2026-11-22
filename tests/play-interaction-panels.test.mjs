@@ -5,7 +5,7 @@ import { readFile } from 'node:fs/promises'
 import vm from 'node:vm'
 import React, { act } from 'react'
 import { JSDOM } from 'jsdom'
-import { createPlayInteractionFlow } from '../tavern-plugin/lib/domain/play-interaction-flow.js'
+import { candidatePanelForRound, createPlayInteractionFlow } from '../tavern-plugin/lib/domain/play-interaction-flow.js'
 import { createSessionSignalTransport } from '../tavern-plugin/lib/domain/session-signal-transport.js'
 import { clientControls } from './fixtures/native-controls.mjs'
 import { syncClock } from './fixtures/sync-clock.mjs'
@@ -30,7 +30,7 @@ test('panels use the flow interface and candidate selection preserves user edits
   dom.window.addEventListener('error', event => errors.push(event.error))
   const interactions = createPlayInteractionFlow({ rpc: async (...args) => { calls.push(args); return { task: {}, view: {} } },
     coordinationView: v => v, coordination: { setView() {}, invalidate() {} }, applyBodyResult() {}, reportError: (...args) => errors.push(args) })
-  const context = vm.createContext({ React, ...clientControls(React), setInterval, clearInterval, candidateTabs,
+  const context = vm.createContext({ React, ...clientControls(React), setInterval, clearInterval, candidateTabs, candidatePanelForRound,
     tavernSessionSignals: signals, liveTavernView: { invalidate: id => invalidated.push(id) },
     rpc: async (method, args) => {
       if (method === 'getCandidateGuidanceShortcuts') {
@@ -209,7 +209,7 @@ test('多角色与全局候选默认停在 [精选]，焦点角色排前，支�
   const interactions = createPlayInteractionFlow({ rpc: async () => ({ candidates: null }),
     coordinationView: v => v, coordination: { setView() {}, invalidate() {} }, applyBodyResult() {}, reportError() {} })
   let draft = ''
-  const context = vm.createContext({ React, ...clientControls(React), candidateTabs,
+  const context = vm.createContext({ React, ...clientControls(React), candidateTabs, candidatePanelForRound,
     tavernSessionSignals: signals, liveTavernView: { invalidate() {} }, rpc: async () => ({}),
     window: dom.window, document: dom.window.document,
     useCandidatePreferences: () => 'after-send', useTavernSessionMode: () => 'story',
@@ -279,7 +279,7 @@ test('AI 融合精选条目独占 [精选] Tab，渲染多角色/事件/场景�
   const interactions = createPlayInteractionFlow({ rpc: async () => ({ candidates: null }),
     coordinationView: v => v, coordination: { setView() {}, invalidate() {} }, applyBodyResult() {}, reportError() {} })
   let draft = ''
-  const context = vm.createContext({ React, ...clientControls(React), candidateTabs,
+  const context = vm.createContext({ React, ...clientControls(React), candidateTabs, candidatePanelForRound,
     tavernSessionSignals: signals, liveTavernView: { invalidate() {} }, rpc: async () => ({}),
     window: dom.window, document: dom.window.document,
     useCandidatePreferences: () => 'after-send', useTavernSessionMode: () => 'story',
@@ -350,7 +350,7 @@ test('候选项面板展示 routeTag 角标，并支持填入/直发模式切换
   const interactions = createPlayInteractionFlow({ rpc: async () => ({ task: {}, view: {} }),
     coordinationView: v => v, coordination: { setView() {}, invalidate() {} }, applyBodyResult() {}, reportError() {} })
   const playEvents = []
-  const context = vm.createContext({ React, ...clientControls(React), setInterval, clearInterval, candidateTabs,
+  const context = vm.createContext({ React, ...clientControls(React), setInterval, clearInterval, candidateTabs, candidatePanelForRound,
     tavernSessionSignals: signals, liveTavernView: { invalidate() {} },
     rpc: async () => ({}), window: dom.window, document: dom.window.document,
     useCandidatePreferences: () => 'after-send', useTavernSessionMode: () => 'story',
