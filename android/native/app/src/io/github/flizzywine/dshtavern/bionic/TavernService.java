@@ -9,6 +9,8 @@ import android.content.Intent;
 import android.content.pm.PackageInfo;
 import android.content.pm.ServiceInfo;
 import android.content.res.AssetFileDescriptor;
+import android.net.ConnectivityManager;
+import android.net.ProxyInfo;
 import android.os.Build;
 import android.os.IBinder;
 import android.system.Os;
@@ -23,7 +25,11 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.SimpleFileVisitor;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.List;
@@ -107,9 +113,6 @@ public final class TavernService extends Service {
             error = null;
             url = null;
             File root = new File(getFilesDir(), "t");
-            String expected = "/data/user/0/" + getPackageName() + "/files/t";
-            // 原型的路径在打包时写死（profile 配置、pnpm 锁文件里是绝对路径）。
-            if (!root.getAbsolutePath().equals(expected)) throw new IOException("数据目录不是 " + expected + "（多用户/工作资料暂不支持）：" + root);
             ensurePayload(root);
             launch(root);
         } catch (Throwable t) {
@@ -124,14 +127,33 @@ public final class TavernService extends Service {
         return info.getLongVersionCode() * 1000003L + info.lastUpdateTime % 1000003L;
     }
 
+    /** 程序文件：每次换 APK 整体替换。其余（存档、凭据、模型设置 cordis.patch.yml 等）只在缺失时播种。 */
+    static final String PROFILE = "home/.dsh-tavern/profiles/tavern/";
+    static final String USER_CONFIG = PROFILE + "cordis.patch.yml";
+    static final String[] PROGRAM_DIRS = {"src/", "usr/", "home/.dsh-tavern/runtime/"};
+
+    static boolean isProgram(String path) {
+        if (path.startsWith(".payload-")) return true;
+        for (String dir : PROGRAM_DIRS) if (path.startsWith(dir)) return true;
+        return path.startsWith(PROFILE) && !path.equals(USER_CONFIG);
+    }
+
     private void ensurePayload(File root) throws Exception {
         File marker = new File(getFilesDir(), "payload-" + versionCode() + ".done");
         if (marker.exists()) return;
-        status = "正在解压（首次启动）";
-        progress = 0;
+        boolean upgrade = new File(root, "home").isDirectory();
         long started = System.currentTimeMillis();
-        // 解包覆盖程序文件；用户数据（profile-data）里的已有文件同样会被包里的初始文件覆盖——原型阶段可接受。
         root.mkdirs();
+        if (upgrade) {
+            status = "正在替换程序文件（存档和设置保留）";
+            for (String dir : PROGRAM_DIRS) deleteTree(new File(root, dir));
+            File profile = new File(root, PROFILE);
+            File[] children = profile.listFiles();
+            if (children != null) for (File child : children) if (!child.getName().equals("cordis.patch.yml")) deleteTree(child);
+        }
+        status = upgrade ? "正在更新程序文件" : "首次启动，正在解压（约 1.3 GB，通常二三十秒）";
+        progress = 0;
+        TarExtractor extractor = new TarExtractor(root, path -> !isProgram(path));
         try (AssetFileDescriptor fd = getAssets().openFd("payload.bin")) {
             final long total = fd.getLength();
             InputStream raw = new FilterInputStream(fd.createInputStream()) {
@@ -148,14 +170,67 @@ public final class TavernService extends Service {
                 }
             };
             try (InputStream in = new GZIPInputStream(new BufferedInputStream(raw, 1 << 20), 1 << 16)) {
-                new TarExtractor(root).extract(in);
+                extractor.extract(in);
             }
         }
+        rewriteRoot(root);
         File[] old = getFilesDir().listFiles((dir, name) -> name.startsWith("payload-") && name.endsWith(".done"));
         if (old != null) for (File f : old) f.delete();
         marker.createNewFile();
-        log("解压完成，用时 " + (System.currentTimeMillis() - started) / 1000 + " 秒");
+        log((upgrade ? "程序文件已更新" : "解压完成") + "：写入 " + extractor.written + " 个，保留已有用户文件 " + extractor.kept
+                + " 个，用时 " + (System.currentTimeMillis() - started) / 1000 + " 秒");
         progress = -1;
+    }
+
+    /** 载荷按打包时的设备路径生成；实际数据目录不同（多用户、工作资料）时改写记录在案的文件。 */
+    private void rewriteRoot(File root) throws IOException {
+        File built = new File(root, ".payload-root");
+        File list = new File(root, ".payload-root-files");
+        if (!built.exists() || !list.exists()) return;
+        String from = new String(Files.readAllBytes(built.toPath()), StandardCharsets.UTF_8).trim();
+        String to = root.getAbsolutePath();
+        if (from.equals(to)) return;
+        int changed = 0;
+        for (String line : Files.readAllLines(list.toPath(), StandardCharsets.UTF_8)) {
+            if (line.isEmpty()) continue;
+            Path file = new File(root, line).toPath();
+            if (!Files.isRegularFile(file, java.nio.file.LinkOption.NOFOLLOW_LINKS)) continue;
+            String text = new String(Files.readAllBytes(file), StandardCharsets.UTF_8);
+            if (!text.contains(from)) continue;
+            Files.write(file, text.replace(from, to).getBytes(StandardCharsets.UTF_8));
+            changed++;
+        }
+        log("数据目录为 " + to + "，已改写 " + changed + " 个文件中的路径");
+    }
+
+    /** 递归删除，不跟随软链接（node_modules 里的链接指向 src）。 */
+    private static void deleteTree(File file) throws IOException {
+        Path path = file.toPath();
+        if (!Files.exists(path, java.nio.file.LinkOption.NOFOLLOW_LINKS)) return;
+        Files.walkFileTree(path, new SimpleFileVisitor<Path>() {
+            @Override
+            public FileVisitResult visitFile(Path p, BasicFileAttributes attrs) throws IOException {
+                Files.delete(p);
+                return FileVisitResult.CONTINUE;
+            }
+
+            @Override
+            public FileVisitResult postVisitDirectory(Path p, IOException e) throws IOException {
+                if (e != null) throw e;
+                Files.delete(p);
+                return FileVisitResult.CONTINUE;
+            }
+        });
+    }
+
+    private String systemProxy() {
+        try {
+            ProxyInfo info = getSystemService(ConnectivityManager.class).getDefaultProxy();
+            if (info == null || info.getHost() == null || info.getHost().isEmpty() || info.getPort() <= 0) return null;
+            return "http://" + info.getHost() + ":" + info.getPort();
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     private void launch(File root) throws Exception {
@@ -198,6 +273,17 @@ public final class TavernService extends Service {
         env.put("DSH_TAVERN_RUNTIME_HOST", "cli");
         // 继承环境的子进程（如安装/更新脚本里的 node）同样用自带证书库。
         env.put("NODE_OPTIONS", "--use-bundled-ca");
+        // 整体分发：更新靠覆盖安装新 APK，应用内更新器只做检查。
+        env.put("DSH_TAVERN_UPDATE_CHANNEL", "apk");
+        // 系统 / VPN 下发的 HTTP 代理（Clash 等的「系统代理」）。应用进程读不到 settings，由这里传入。
+        String proxy = systemProxy();
+        if (proxy != null) {
+            env.put("HTTP_PROXY", proxy);
+            env.put("HTTPS_PROXY", proxy);
+            env.put("NO_PROXY", "127.0.0.1,localhost,::1");
+            env.put("NODE_USE_ENV_PROXY", "1");
+            log("使用系统代理 " + proxy);
+        }
         // 调试钩子（原型）：files/t/extra-env 里的 KEY=VALUE 追加进环境，例如验收用的固定输出模型。
         File extra = new File(root, "extra-env");
         if (extra.exists()) {

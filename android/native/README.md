@@ -45,12 +45,18 @@ node android/native/apk-smoke.mjs            # 卸载 → 安装 → 验收；�
 
 **发布前必须解决**：
 
-- 程序与数据没分开：载荷里带着初始 `profile-data`，换 APK（`lastUpdateTime` 变化）会重新解包并覆盖同名的用户配置。
-  正式版应只解程序文件，`profile-data` 仅在不存在时播种。
-- 数据目录写死为 `/data/user/0/<包名>/files/t`（profile、pnpm 锁文件里是绝对路径），多用户/工作资料会拒绝启动。
+- ~~程序与数据没分开~~（v2 已解决）：换 APK 后只替换程序文件（`src/`、`usr/`、`home/.dsh-tavern/runtime/`、
+  `profiles/tavern/` 下除 `cordis.patch.yml` 以外的内容），其余用户数据只在缺失时播种。模型与服务商设置在
+  `profiles/tavern/cordis.patch.yml`，按用户数据保留。`apk-upgrade-smoke.mjs` 验证：旧版玩一局并改动凭据、模型设置、
+  自定义文件 → 覆盖安装新版 → 改动全部保留、旧程序文件被清掉、旧对局能接着玩。
+  代价：`cordis.patch.yml` 里安装器管理的条目（侧栏页签、内置插件路径）在升级时不会更新。
+- ~~数据目录写死~~（v2 已解决）：打包时记录含设备路径的文件（`.payload-root-files`），实际目录不同时启动前改写。
+  多用户 / 工作资料环境未实测。
+- 应用内更新：v2 起由 `DSH_TAVERN_UPDATE_CHANNEL=apk` 关闭（检查更新照常，开始更新提示覆盖安装新 APK）。
+- 系统代理：v2 起由 Java 读 `ConnectivityManager.getDefaultProxy()` 传入 `HTTP(S)_PROXY`；`settings get` 的传参错误已在
+  `proxy-environment.mjs` 修复（应用进程能否执行 `settings` 因机型而异）。
 - 调试签名、`android:debuggable="true"`、包名 `io.github.flizzywine.dshtavern.bionic` 都是原型用的。
-- 应用内更新（`application-updater`）未接入，也没验证。
-- **arm64 真机未验证**：本机是 x86_64，ARM 镜像的模拟器在 x86 主机上跑不起来。
+- **arm64 真机**：用户实测能安装、开局、生成（2026-11-22）；其他功能未测。
 
 ## 命令行验证（2026-11-22，同一模拟器）
 

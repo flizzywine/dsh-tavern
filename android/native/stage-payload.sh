@@ -98,6 +98,10 @@ if [ "${PAYLOAD_SKIP_NATIVE:-0}" = 1 ]; then
   rm -f "$STAGE/run.sh"
 fi
 after=$(du -sm "$STAGE" | cut -f1)
+# 设备实际数据目录与打包时不同（多用户、工作资料）时，APK 按这份清单改写路径。
+printf '%s\n' "$DEVICE_ROOT" > "$STAGE/.payload-root"
+( cd "$STAGE" && grep -rlIF -e "$DEVICE_ROOT" --exclude=.payload-root . | sed 's|^\./||' | sort ) > "$STAGE/.payload-root-files"
+echo "含设备路径、需要按实际目录改写的文件：$(wc -l < "$STAGE/.payload-root-files") 个"
 # Android SELinux 不允许应用创建硬链接（link(2) 被拒），pnpm 的硬链接一律存成普通文件。
 tar -C "$STAGE" --hard-dereference -czf "$OUT/payload.tar.gz" .
 echo "stage: ${before} MB → ${after} MB；payload.tar.gz $(du -m "$OUT/payload.tar.gz" | cut -f1) MB"

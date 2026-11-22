@@ -12,11 +12,34 @@ import java.nio.charset.StandardCharsets;
 
 /** 解 GNU/ustar/pax tar 流：普通文件、目录、软链接。硬链接打包时已展开（Android 禁止 link(2)）。 */
 final class TarExtractor {
-    private final File root;
-    private final byte[] buffer = new byte[1 << 16];
+    /** 返回 true 的条目若已存在则保留不动（用户数据只在缺失时播种）。 */
+    interface KeepExisting {
+        boolean test(String path);
+    }
 
-    TarExtractor(File root) {
+    private final File root;
+    private final KeepExisting keepExisting;
+    private final byte[] buffer = new byte[1 << 16];
+    int written;
+    int kept;
+
+    TarExtractor(File root, KeepExisting keepExisting) {
         this.root = root;
+        this.keepExisting = keepExisting;
+    }
+
+    static String normalize(String name) {
+        while (name.startsWith("./")) name = name.substring(2);
+        return name;
+    }
+
+    private static boolean exists(File f) {
+        try {
+            Os.lstat(f.getPath());
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     void extract(InputStream in) throws IOException {
@@ -45,6 +68,14 @@ final class TarExtractor {
             longName = null;
             longLink = null;
             File target = resolve(name);
+            boolean keep = type != '5' && keepExisting.test(normalize(name)) && exists(target);
+            if (keep) {
+                kept++;
+                skip(in, size);
+                skipPadding(in, size);
+                continue;
+            }
+            if (type != '5') written++;
             switch (type) {
                 case '5':
                     mkdirs(target);
@@ -89,7 +120,7 @@ final class TarExtractor {
     }
 
     private File resolve(String name) throws IOException {
-        while (name.startsWith("./")) name = name.substring(2);
+        name = normalize(name);
         if (name.startsWith("/") || ("/" + name + "/").contains("/../")) throw new IOException("unsafe entry " + name);
         return name.isEmpty() || name.equals(".") ? root : new File(root, name);
     }

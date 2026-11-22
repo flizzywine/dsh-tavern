@@ -19,7 +19,10 @@ import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import android.widget.Button;
 import android.widget.FrameLayout;
+import android.widget.LinearLayout;
+import android.widget.ProgressBar;
 import android.widget.ScrollView;
 import android.widget.TextView;
 
@@ -29,7 +32,11 @@ public final class MainActivity extends Activity {
     private final Handler handler = new Handler(Looper.getMainLooper());
     private WebView web;
     private ScrollView statusView;
-    private TextView text;
+    private TextView title;
+    private TextView statusText;
+    private ProgressBar bar;
+    private TextView detail;
+    private Button retry;
     private String loadedUrl;
     private ValueCallback<Uri[]> fileCallback;
 
@@ -44,13 +51,39 @@ public final class MainActivity extends Activity {
             return WindowInsets.CONSUMED;
         });
 
-        text = new TextView(this);
-        text.setPadding(48, 48, 48, 48);
-        text.setTextSize(13);
-        text.setTypeface(Typeface.MONOSPACE);
-        text.setTextIsSelectable(true);
+        LinearLayout column = new LinearLayout(this);
+        column.setOrientation(LinearLayout.VERTICAL);
+        column.setPadding(56, 120, 56, 56);
+        title = new TextView(this);
+        title.setText("DSH Tavern");
+        title.setTextSize(24);
+        title.setTypeface(Typeface.DEFAULT_BOLD);
+        column.addView(title);
+        statusText = new TextView(this);
+        statusText.setTextSize(15);
+        statusText.setPadding(0, 40, 0, 24);
+        column.addView(statusText);
+        bar = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
+        bar.setMax(100);
+        column.addView(bar, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        retry = new Button(this);
+        retry.setText("重试");
+        retry.setVisibility(View.GONE);
+        retry.setOnClickListener(v -> {
+            TavernService.error = null;
+            TavernService.status = "正在重新启动";
+            startForegroundService(new Intent(this, TavernService.class));
+        });
+        column.addView(retry, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        // 日志只在出错时显示：正常启动的提示信息不该看起来像报错。
+        detail = new TextView(this);
+        detail.setTextSize(11);
+        detail.setTypeface(Typeface.MONOSPACE);
+        detail.setTextIsSelectable(true);
+        detail.setPadding(0, 32, 0, 0);
+        column.addView(detail);
         statusView = new ScrollView(this);
-        statusView.addView(text);
+        statusView.addView(column);
         root.addView(statusView);
 
         WebView.setWebContentsDebuggingEnabled(true);
@@ -122,8 +155,12 @@ public final class MainActivity extends Activity {
                 statusView.setVisibility(View.VISIBLE);
                 int p = TavernService.progress;
                 String err = TavernService.error;
-                text.setText("DSH Tavern（原生 Node 原型）\n\n" + TavernService.status + (p >= 0 ? "  " + p + "%" : "")
-                        + (err != null ? "\n\n" + err : "") + "\n\n" + TavernService.tail());
+                statusText.setText(err != null ? "启动失败：" + err : TavernService.status);
+                bar.setVisibility(err != null ? View.GONE : View.VISIBLE);
+                bar.setIndeterminate(p < 0);
+                if (p >= 0) bar.setProgress(p);
+                retry.setVisibility(err != null ? View.VISIBLE : View.GONE);
+                detail.setText(err != null ? TavernService.tail() : "");
             }
             handler.postDelayed(this, 400);
         }
