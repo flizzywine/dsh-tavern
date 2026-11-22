@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "047f104d34206d642576d07904874ec885a19761",
-  "releaseSequence": 1931,
+  "revision": "2f6c67f593046388f53f5d56b291e15a42baacf7",
+  "releaseSequence": 1932,
   "version": "3.4.0",
   "files": [
     {
@@ -171,8 +171,8 @@
     },
     {
       "path": "android/native/README.md",
-      "sha256": "b5d6747f0d669a3f1f9a1a5c715ebc679c94178fb22a27c9070b40d2f07bcc25",
-      "size": 17541
+      "sha256": "d3d24fff8f0aa96328dee58ee195e1a3edf6dc46e0beba18c23803bf66f867f5",
+      "size": 17726
     },
     {
       "path": "android/native/release-smoke.mjs",
@@ -201,8 +201,8 @@
     },
     {
       "path": "android/native/shims/source-update.mjs",
-      "sha256": "919ee140e099ba64514bbac96f1275a9f693945eef9a926f119613dd4e5d2bf2",
-      "size": 20331
+      "sha256": "328a1d2b997dc2f7b4b9511f919a634fef9cd7fc7839f68ef4a4abde0c92a5f0",
+      "size": 20287
     },
     {
       "path": "android/native/stage-payload.sh",
@@ -9836,9 +9836,9 @@
     }
   ],
   "archive": {
-    "commit": "8f4ee23016a2c124fb091b5d4d655064af4e7ee9",
+    "commit": "b707ecbf68a972196c17d27f16eb956123735626",
     "path": "runtime.zip",
-    "sha256": "6f3d705f82c54175902852b6a20862963060fd1a45fbbeab9823f1b964930fd0",
-    "size": 17266794
+    "sha256": "a7b8ba03c4ca8c5111cd5744b4645c286ee962c17c2d2157c4145818bf4766bc",
+    "size": 17266834
   }
 }
