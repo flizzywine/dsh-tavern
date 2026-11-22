@@ -59,7 +59,7 @@ export async function realCharacterDesignChecks({ page, step, savedChat, root, d
   async function say(input) {
     const before = new Set((await requests()).map(item => item.id))
     const old = (await savedChat()).messages.length
-    const composer = page.getByRole('textbox', { name: /发消息|Message/ })
+    const composer = page.getByRole('textbox', { name: /下一步行动|Next action|发消息|Message/ })
     await composer.fill(input); await composer.press('Enter')
     await poll('正文生成', async () => {
       const chat = await savedChat()
