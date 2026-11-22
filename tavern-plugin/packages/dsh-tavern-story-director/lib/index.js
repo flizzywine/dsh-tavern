@@ -137,6 +137,7 @@ export function apply(ctx) {
     signal.throwIfAborted()
     const response = await tavern.runTask({
       gameId, signal: AbortSignal.any([signal, AbortSignal.timeout(180_000)]), maxToolCalls: 4,
+      ...(state.model ? { selection: state.model } : {}),
       prompt: instructions + '\n\n本局资料（参考）\n' + JSON.stringify(background)
         + (request ? '\n\n玩家在侧栏说：\n' + request.question : '\n\n请按最近正文复盘当前安排，判断推进过快、过慢还是合适，据此调整眼下的一步。')
     })
@@ -150,6 +151,7 @@ export function apply(ctx) {
     const { reply, plan } = readAnswer(response.text, previousPlan, !request)
     if (!request && framework && !plan) return state
     const next = {
+      ...state,
       enabled: plan ? true : state.enabled,
       plan: plan || state.plan,
       anchor: plan || !request ? anchor : state.anchor,
@@ -166,6 +168,29 @@ export function apply(ctx) {
   tavern.handle(name + '/state', async ({ gameId }) => {
     const anchor = await tavern.getTurnState({ gameId })
     return present(gameId, await read(gameId), runs.get(gameId)?.phase, anchor)
+  })
+
+  tavern.handle(name + '/models', ({ gameId }) => tavern.taskModels({ gameId }))
+
+  tavern.handle(name + '/set-model', ({ gameId, selection }) => {
+    gameId = requireGameId(gameId)
+    if (runs.has(gameId)) throw new Error('导演正在处理上一条操作')
+    if (selection !== null && (!clean(selection?.provider) || !clean(selection?.model))) {
+      throw new Error('导演模型无效')
+    }
+    return start(gameId, 'switch', null, async (state, signal) => {
+      let model = null
+      if (selection !== null) {
+        const { provider, model: id } = selection
+        const { catalog } = await tavern.taskModels({ gameId })
+        if (!catalog.some(group => group.provider === provider && group.models.some(entry => entry.id === id))) {
+          throw new Error('这个模型已不可用，请重新选择')
+        }
+        model = { provider, model: id }
+      }
+      signal.throwIfAborted()
+      return save(gameId, { ...state, model })
+    })
   })
 
   tavern.handle(name + '/send', ({ gameId, question, requestId }) => {

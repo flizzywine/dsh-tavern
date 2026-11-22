@@ -11,6 +11,7 @@ const plan = {
   reviewAfter: 2
 }
 const response = (next = plan) => JSON.stringify({ reply: '先把张力留在拆信这个动作里。', plan: next })
+const chosenModel = { provider: 'configured', model: 'director-model' }
 
 function fixture() {
   const records = new Map(), handlers = new Map(), requests = []
@@ -29,6 +30,9 @@ function fixture() {
       return [{ turn: to, input: '打开信', text: prose.get(to) || '旅人揭开信封。' }]
     },
     async publishState() {},
+    async taskModels() {
+      return { catalog: [{ provider: chosenModel.provider, models: [{ id: chosenModel.model }] }], background: null }
+    },
     async runTask(request) { requests.push(request); return { text: await generate(request) } }
   }
   apply({ tavern, effect: setup => { dispose = setup() } })
@@ -42,6 +46,21 @@ function fixture() {
     settle(turn) { latest = turn; return settled({ gameId: 'game', turn, textVersion: version(turn) }) }
   }
 }
+
+test('导演模型按本局保存，对话与复盘使用同一选择，可以恢复跟随后台', async () => {
+  const f = fixture()
+  assert.equal((await f.call('models')).catalog[0].models[0].id, chosenModel.model)
+  await assert.rejects(f.call('set-model', { selection: { provider: 'unconfigured', model: 'unavailable' } }), /已不可用/)
+  await f.call('set-model', { selection: chosenModel })
+  await f.call('send', { requestId: 'first', question: '按悬疑写' })
+  await f.settle(3)
+  assert.deepEqual(f.requests.map(request => request.selection), [chosenModel, chosenModel])
+  assert.deepEqual((await f.call('state')).model, chosenModel)
+  assert.equal((await f.call('state', { gameId: 'another' })).model, undefined)
+  await f.call('set-model', { selection: null })
+  await f.call('send', { requestId: 'second', question: '留一个小线索' })
+  assert.equal(f.requests.at(-1).selection, undefined)
+})
 
 test('一句模糊想法自动生成 Guide，带着最新正文复盘，暂停后不再注入或调用模型', async () => {
   const f = fixture()

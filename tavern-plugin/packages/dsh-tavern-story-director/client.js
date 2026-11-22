@@ -14,6 +14,9 @@ window.__ModuleLoader__.load({
       const [error, setError] = React.useState('')
       const [loadAttempt, reload] = React.useState(0)
       const [guideOpen, setGuideOpen] = React.useState(false)
+      const [models, setModels] = React.useState(null)
+      const [modelLoadFailed, setModelLoadFailed] = React.useState(false)
+      const [modelLoadAttempt, reloadModels] = React.useState(0)
       const retry = React.useRef(null)
 
       React.useEffect(() => {
@@ -33,6 +36,18 @@ window.__ModuleLoader__.load({
         })
         return () => { disposed = true; unwatch() }
       }, [ui, gameId, visible, loadAttempt])
+
+      React.useEffect(() => {
+        if (visible === false) return
+        let active = true
+        setModelLoadFailed(false)
+        ui.callHost(plugin + '/models', { gameId }).then(result => {
+          if (active) setModels(result)
+        }, () => {
+          if (active) setModelLoadFailed(true)
+        })
+        return () => { active = false }
+      }, [ui, gameId, visible, modelLoadAttempt])
 
       async function send() {
         const value = question.trim()
@@ -67,11 +82,44 @@ window.__ModuleLoader__.load({
         }
       }
 
+      async function setModel(selection) {
+        setError('')
+        setSwitching(true)
+        try {
+          setState(await ui.callHost(plugin + '/set-model', { gameId, selection }))
+        } catch (failure) {
+          setError(failure.message || String(failure))
+        } finally {
+          setSwitching(false)
+        }
+      }
+
       const guide = state?.enabled ? state.guide : state?.plan
       const waiting = Boolean(sending) || state?.phase === 'chat'
       const review = state?.phase === 'review'
       const changingGuide = switching || state?.phase === 'switch'
       const busy = !state || waiting || changingGuide
+      const modelKey = selection => selection ? JSON.stringify([selection.provider, selection.model]) : '$background'
+      const effectiveModel = state?.model ?? models?.background
+      const effectiveKey = modelKey(effectiveModel)
+      const selections = new Map([['$background', null]])
+      const modelItems = [{ id: '$background', label: '跟随后台模型' }]
+      let modelLabel = effectiveModel?.model || '跟随后台模型'
+      for (const group of models?.catalog ?? []) {
+        modelItems.push({ type: 'label', id: 'group:' + group.provider, text: group.providerName || group.provider })
+        for (const entry of group.models) {
+          const selection = { provider: group.provider, model: entry.id }
+          const id = modelKey(selection)
+          const label = entry.name || entry.id
+          if (id === effectiveKey) modelLabel = label
+          selections.set(id, selection)
+          modelItems.push({ id, label })
+        }
+      }
+      if (modelLoadFailed) modelItems.push({ id: '$retry', label: '重新加载模型列表' })
+      else if (!models) modelItems.push({ id: '$loading', label: '正在加载模型…', disabled: true })
+      else if (!models.catalog.length) modelItems.push({ id: '$empty', label: '暂无可用模型', disabled: true })
+      const selectedModel = modelKey(state?.model)
       const messages = state?.turns.flatMap(turn => [
         { id: turn.id + ':user', role: 'user', text: turn.question },
         { id: turn.id + ':director', role: 'assistant', text: turn.reply, detail: turn.applied ? '已更新 Guide' : undefined }
@@ -100,6 +148,14 @@ window.__ModuleLoader__.load({
         error,
         onRetry: !state ? () => { setError(''); reload(value => value + 1) } : undefined,
         tools: guideButton,
+        model: {
+          label: modelLabel, title: '剧情导演模型', disabled: busy || review,
+          items: modelItems, selectedIds: [selectedModel],
+          onSelect: id => {
+            if (id === '$retry') reloadModels(value => value + 1)
+            else if (id !== selectedModel && selections.has(id)) void setModel(selections.get(id))
+          }
+        },
         feedback: guidePanel
       })
     }

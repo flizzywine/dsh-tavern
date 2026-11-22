@@ -3425,6 +3425,7 @@ export async function apply(ctx) {
     ...pluginTurns,
     resolveGalleryContext,
     backgroundModel: async sessionId => backgroundModelSelection(await backgroundConfigForSession(sessionId)),
+    modelCatalog: tavernModelCatalog,
     foregroundModel: async sessionId => {
       const id = str(sessionId)
       if (!id) return null

@@ -1504,6 +1504,16 @@ export function createTavernPluginApi(deps) {
       }
     },
 
+    // The same text-model catalog that Tavern offers for its own background tasks.
+    async taskModels({ gameId } = {}) {
+      const game = await requireGame(gameId)
+      const [catalog, background] = await Promise.all([
+        deps.modelCatalog(),
+        deps.backgroundModel(game.sessionId)
+      ])
+      return { catalog, background }
+    },
+
     // 当前对局正在使用的前台对话模型（供插件遵循「跟随前台」选项）。
     async foregroundModel({ gameId } = {}) {
       const game = await requireGame(gameId)

@@ -1,8 +1,8 @@
 diff --git a/lib/client-registry.js b/lib/client-registry.js
-index 0e0c492..d0b4759 100644
+index 0e0c492..668a1af 100644
 --- a/lib/client-registry.js
 +++ b/lib/client-registry.js
-@@ -29758,6 +29758,144 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
+@@ -29758,6 +29758,175 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
  				}
  			}
  		}
@@ -76,6 +76,36 @@ index 0e0c492..d0b4759 100644
 +				}
 +			) });
 +		}
++		function SideChatModelPicker(props) {
++			const [open, setOpen] = react.useState(false);
++			return react_jsx_runtime.jsx(ComposerTip, { label: props.title ?? t("sideChatModel"), className: SideChatView_module_css_default.sidechatTipShrink, children: react_jsx_runtime.jsx(
++				_deepseek_ai_dsh_client_ui_primitives.Menu,
++				{
++					open: open && !props.disabled,
++					anchor: react_jsx_runtime.jsx(
++						"button",
++						{
++							type: "button",
++							className: SideChatView_module_css_default.sidechatModelBtn,
++							disabled: props.disabled,
++							onClick: () => setOpen((value) => !value),
++							"aria-label": t("sideChatModel"),
++							children: react_jsx_runtime.jsx("span", { className: SideChatView_module_css_default.sidechatModelName, children: props.label })
++						}
++					),
++					items: props.items,
++					selectedIds: props.selectedIds,
++					onSelect: (id) => {
++						setOpen(false);
++						props.onSelect(id);
++					},
++					onClose: () => setOpen(false),
++					align: "end",
++					portal: true,
++					dense: true
++				}
++			) });
++		}
 +		function SideChatStatus({ text }) {
 +			return react_jsx_runtime.jsxs("div", { className: SideChatView_module_css_default.sidechatStatus, role: "status", children: [
 +				react_jsx_runtime.jsx(_deepseek_ai_dsh_client_ui_primitives.StateDot, { state: "ongoing", size: 8 }),
@@ -139,6 +169,7 @@ index 0e0c492..d0b4759 100644
 +					react_jsx_runtime.jsxs("div", { className: SideChatView_module_css_default.sidechatComposerBar, children: [
 +						react_jsx_runtime.jsx("div", { className: SideChatView_module_css_default.sidechatComposerTools, children: props.tools }),
 +						react_jsx_runtime.jsx("span", { className: SideChatView_module_css_default.sidechatComposerSpacer }),
++						props.model && react_jsx_runtime.jsx(SideChatModelPicker, { ...props.model }),
 +						react_jsx_runtime.jsx(SideChatSend, { onSend: send, disabled: sendDisabled })
 +					] })
 +				] })
@@ -147,7 +178,15 @@ index 0e0c492..d0b4759 100644
  		/** One side conversation tab (one thread per tab, Codex-style). */
  		function SideChatView(props) {
  			const { ctx, scope, tab, visible } = props;
-@@ -30012,13 +30150,6 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
+@@ -29915,7 +30084,6 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
+ 			const [revision, setRevision] = (0, react.useState)(0);
+ 			const [info, setInfo] = (0, react.useState)(null);
+ 			const [menuOpen, setMenuOpen] = (0, react.useState)(false);
+-			const [modelMenuOpen, setModelMenuOpen] = (0, react.useState)(false);
+ 			const [catalog, setCatalog] = (0, react.useState)(null);
+ 			/** Rows the reader explicitly revealed above the tail window (one
+ 			*  {@link TRANSCRIPT_REVEAL_STEP} per activation). */
+@@ -30012,13 +30180,6 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
  				chatSurfaceRef(element);
  			}, [chatSurfaceRef]);
  			const composerRef = (0, react.useRef)(null);
@@ -161,7 +200,15 @@ index 0e0c492..d0b4759 100644
  			const summary = threadId === void 0 ? void 0 : list.byId[threadId];
  			const running = summary?.running === true;
  			/** The fork point the first pull reported — only when the parent prefix had
-@@ -30917,16 +31048,7 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
+@@ -30503,7 +30664,6 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
+ 			/** Pin one model route (or one reasoning effort of the current route) on the
+ 			*  bound thread, then re-read the composer-bar identity. */
+ 			const handleModelSelect = async (id) => {
+-				setModelMenuOpen(false);
+ 				if (threadId === void 0) return;
+ 				let provider;
+ 				let model;
+@@ -30917,16 +31077,7 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
  							})
  						})]
  					}),
@@ -179,7 +226,7 @@ index 0e0c492..d0b4759 100644
  					!canSave && !freshThread && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
  						className: SideChatView_module_css_default.sidechatHint,
  						children: t("sideChatNoTurn")
-@@ -30943,8 +31065,7 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
+@@ -30943,8 +31094,7 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
  						className: SideChatView_module_css_default.sidechatError,
  						children: t("sideChatError", { message: error })
  					}),
@@ -189,7 +236,7 @@ index 0e0c492..d0b4759 100644
  						children: [
  							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("input", {
  								ref: fileInputRef,
-@@ -30981,23 +31102,16 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
+@@ -30981,23 +31131,16 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
  								role: "status",
  								children: t("sideChatSending")
  							}),
@@ -217,7 +264,7 @@ index 0e0c492..d0b4759 100644
  								onPaste: (event) => {
  									const files = Array.from(event.clipboardData.items).filter((item) => item.kind === "file" && item.type.startsWith("image/")).flatMap((item) => {
  										const file = item.getAsFile();
-@@ -31007,33 +31121,6 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
+@@ -31007,33 +31150,6 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
  									event.preventDefault();
  									event.stopPropagation();
  									addImages(files);
@@ -251,7 +298,49 @@ index 0e0c492..d0b4759 100644
  								}
  							}),
  							/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
-@@ -31159,16 +31246,9 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
+@@ -31118,35 +31234,12 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
+ 										]
+ 									}),
+ 									/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { className: SideChatView_module_css_default.sidechatComposerSpacer }),
+-									/* @__PURE__ */ (0, react_jsx_runtime.jsx)(ComposerTip, {
+-										label: agentBadge === "" ? t("sideChatModel") : `${t("sideChatModel")} — ${agentBadge}`,
+-										className: SideChatView_module_css_default.sidechatTipShrink,
+-										children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Menu, {
+-											open: modelMenuOpen,
+-											anchor: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+-												type: "button",
+-												className: SideChatView_module_css_default.sidechatModelBtn,
+-												onClick: () => {
+-													setModelMenuOpen((value) => !value);
+-												},
+-												"aria-label": t("sideChatModel"),
+-												children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+-													className: SideChatView_module_css_default.sidechatModelName,
+-													children: info?.model ?? info?.provider ?? t("sideChatModel")
+-												})
+-											}),
+-											items: modelItems,
+-											selectedIds: [selectedModelId, selectedEffortId].filter((id) => id !== void 0),
+-											onSelect: (id) => {
+-												handleModelSelect(id);
+-											},
+-											onClose: () => {
+-												setModelMenuOpen(false);
+-											},
+-											align: "end",
+-											portal: true,
+-											dense: true
+-										})
++									react_jsx_runtime.jsx(SideChatModelPicker, {
++										title: agentBadge === "" ? t("sideChatModel") : `${t("sideChatModel")} — ${agentBadge}`,
++										label: info?.model ?? info?.provider ?? t("sideChatModel"),
++										items: modelItems,
++										selectedIds: [selectedModelId, selectedEffortId].filter((id) => id !== void 0),
++										onSelect: handleModelSelect
+ 									}),
+ 									running && /* @__PURE__ */ (0, react_jsx_runtime.jsx)(ComposerTip, {
+ 										label: t("sideChatCancelTitle"),
+@@ -31159,16 +31252,9 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
  											children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconStopFillRegular, {})
  										})
  									}),
@@ -271,7 +360,7 @@ index 0e0c492..d0b4759 100644
  									})
  								]
  							})
-@@ -35926,7 +36006,7 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
+@@ -35926,7 +36012,7 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
  					const disposeType = tabs.register({
  						id,
  						kind: descriptor.id,
@@ -280,7 +369,7 @@ index 0e0c492..d0b4759 100644
  						...isEditor ? {
  							patterns: ["dsh-resource://file/**"],
  							canOpen: (address) => {
-@@ -35971,7 +36051,7 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
+@@ -35971,7 +36057,7 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
  					const disposeType = tabs.register({
  						id,
  						kind: FILES_KIND,
@@ -289,7 +378,7 @@ index 0e0c492..d0b4759 100644
  						priority: "extension",
  						title: () => t("files"),
  						guide: [{
-@@ -37943,6 +38023,7 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
+@@ -37943,6 +38029,7 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
  			};
  			const sidebarStore = createSidebarStore();
  			const service = createBetterSidebarService(sidebarStore);
@@ -298,10 +387,10 @@ index 0e0c492..d0b4759 100644
  			ctx.effect(() => () => {
  				disposeSidechatSurfaces(service);
 diff --git a/lib/client.js b/lib/client.js
-index 545b1c9..987d5ba 100644
+index 545b1c9..0698fb8 100644
 --- a/lib/client.js
 +++ b/lib/client.js
-@@ -29758,6 +29758,144 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
+@@ -29758,6 +29758,175 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
  				}
  			}
  		}
@@ -375,6 +464,36 @@ index 545b1c9..987d5ba 100644
 +				}
 +			) });
 +		}
++		function SideChatModelPicker(props) {
++			const [open, setOpen] = react.useState(false);
++			return react_jsx_runtime.jsx(ComposerTip, { label: props.title ?? t("sideChatModel"), className: SideChatView_module_css_default.sidechatTipShrink, children: react_jsx_runtime.jsx(
++				_deepseek_ai_dsh_client_ui_primitives.Menu,
++				{
++					open: open && !props.disabled,
++					anchor: react_jsx_runtime.jsx(
++						"button",
++						{
++							type: "button",
++							className: SideChatView_module_css_default.sidechatModelBtn,
++							disabled: props.disabled,
++							onClick: () => setOpen((value) => !value),
++							"aria-label": t("sideChatModel"),
++							children: react_jsx_runtime.jsx("span", { className: SideChatView_module_css_default.sidechatModelName, children: props.label })
++						}
++					),
++					items: props.items,
++					selectedIds: props.selectedIds,
++					onSelect: (id) => {
++						setOpen(false);
++						props.onSelect(id);
++					},
++					onClose: () => setOpen(false),
++					align: "end",
++					portal: true,
++					dense: true
++				}
++			) });
++		}
 +		function SideChatStatus({ text }) {
 +			return react_jsx_runtime.jsxs("div", { className: SideChatView_module_css_default.sidechatStatus, role: "status", children: [
 +				react_jsx_runtime.jsx(_deepseek_ai_dsh_client_ui_primitives.StateDot, { state: "ongoing", size: 8 }),
@@ -438,6 +557,7 @@ index 545b1c9..987d5ba 100644
 +					react_jsx_runtime.jsxs("div", { className: SideChatView_module_css_default.sidechatComposerBar, children: [
 +						react_jsx_runtime.jsx("div", { className: SideChatView_module_css_default.sidechatComposerTools, children: props.tools }),
 +						react_jsx_runtime.jsx("span", { className: SideChatView_module_css_default.sidechatComposerSpacer }),
++						props.model && react_jsx_runtime.jsx(SideChatModelPicker, { ...props.model }),
 +						react_jsx_runtime.jsx(SideChatSend, { onSend: send, disabled: sendDisabled })
 +					] })
 +				] })
@@ -446,7 +566,15 @@ index 545b1c9..987d5ba 100644
  		/** One side conversation tab (one thread per tab, Codex-style). */
  		function SideChatView(props) {
  			const { ctx, scope, tab, visible } = props;
-@@ -30012,13 +30150,6 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
+@@ -29915,7 +30084,6 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
+ 			const [revision, setRevision] = (0, react.useState)(0);
+ 			const [info, setInfo] = (0, react.useState)(null);
+ 			const [menuOpen, setMenuOpen] = (0, react.useState)(false);
+-			const [modelMenuOpen, setModelMenuOpen] = (0, react.useState)(false);
+ 			const [catalog, setCatalog] = (0, react.useState)(null);
+ 			/** Rows the reader explicitly revealed above the tail window (one
+ 			*  {@link TRANSCRIPT_REVEAL_STEP} per activation). */
+@@ -30012,13 +30180,6 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
  				chatSurfaceRef(element);
  			}, [chatSurfaceRef]);
  			const composerRef = (0, react.useRef)(null);
@@ -460,7 +588,15 @@ index 545b1c9..987d5ba 100644
  			const summary = threadId === void 0 ? void 0 : list.byId[threadId];
  			const running = summary?.running === true;
  			/** The fork point the first pull reported — only when the parent prefix had
-@@ -30917,16 +31048,7 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
+@@ -30503,7 +30664,6 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
+ 			/** Pin one model route (or one reasoning effort of the current route) on the
+ 			*  bound thread, then re-read the composer-bar identity. */
+ 			const handleModelSelect = async (id) => {
+-				setModelMenuOpen(false);
+ 				if (threadId === void 0) return;
+ 				let provider;
+ 				let model;
+@@ -30917,16 +31077,7 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
  							})
  						})]
  					}),
@@ -478,7 +614,7 @@ index 545b1c9..987d5ba 100644
  					!canSave && !freshThread && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
  						className: SideChatView_module_css_default.sidechatHint,
  						children: t("sideChatNoTurn")
-@@ -30943,8 +31065,7 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
+@@ -30943,8 +31094,7 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
  						className: SideChatView_module_css_default.sidechatError,
  						children: t("sideChatError", { message: error })
  					}),
@@ -488,7 +624,7 @@ index 545b1c9..987d5ba 100644
  						children: [
  							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("input", {
  								ref: fileInputRef,
-@@ -30981,23 +31102,16 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
+@@ -30981,23 +31131,16 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
  								role: "status",
  								children: t("sideChatSending")
  							}),
@@ -516,7 +652,7 @@ index 545b1c9..987d5ba 100644
  								onPaste: (event) => {
  									const files = Array.from(event.clipboardData.items).filter((item) => item.kind === "file" && item.type.startsWith("image/")).flatMap((item) => {
  										const file = item.getAsFile();
-@@ -31007,33 +31121,6 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
+@@ -31007,33 +31150,6 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
  									event.preventDefault();
  									event.stopPropagation();
  									addImages(files);
@@ -550,7 +686,49 @@ index 545b1c9..987d5ba 100644
  								}
  							}),
  							/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
-@@ -31159,16 +31246,9 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
+@@ -31118,35 +31234,12 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
+ 										]
+ 									}),
+ 									/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { className: SideChatView_module_css_default.sidechatComposerSpacer }),
+-									/* @__PURE__ */ (0, react_jsx_runtime.jsx)(ComposerTip, {
+-										label: agentBadge === "" ? t("sideChatModel") : `${t("sideChatModel")} — ${agentBadge}`,
+-										className: SideChatView_module_css_default.sidechatTipShrink,
+-										children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Menu, {
+-											open: modelMenuOpen,
+-											anchor: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+-												type: "button",
+-												className: SideChatView_module_css_default.sidechatModelBtn,
+-												onClick: () => {
+-													setModelMenuOpen((value) => !value);
+-												},
+-												"aria-label": t("sideChatModel"),
+-												children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+-													className: SideChatView_module_css_default.sidechatModelName,
+-													children: info?.model ?? info?.provider ?? t("sideChatModel")
+-												})
+-											}),
+-											items: modelItems,
+-											selectedIds: [selectedModelId, selectedEffortId].filter((id) => id !== void 0),
+-											onSelect: (id) => {
+-												handleModelSelect(id);
+-											},
+-											onClose: () => {
+-												setModelMenuOpen(false);
+-											},
+-											align: "end",
+-											portal: true,
+-											dense: true
+-										})
++									react_jsx_runtime.jsx(SideChatModelPicker, {
++										title: agentBadge === "" ? t("sideChatModel") : `${t("sideChatModel")} — ${agentBadge}`,
++										label: info?.model ?? info?.provider ?? t("sideChatModel"),
++										items: modelItems,
++										selectedIds: [selectedModelId, selectedEffortId].filter((id) => id !== void 0),
++										onSelect: handleModelSelect
+ 									}),
+ 									running && /* @__PURE__ */ (0, react_jsx_runtime.jsx)(ComposerTip, {
+ 										label: t("sideChatCancelTitle"),
+@@ -31159,16 +31252,9 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
  											children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconStopFillRegular, {})
  										})
  									}),
@@ -570,7 +748,7 @@ index 545b1c9..987d5ba 100644
  									})
  								]
  							})
-@@ -35926,7 +36006,7 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
+@@ -35926,7 +36012,7 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
  					const disposeType = tabs.register({
  						id,
  						kind: descriptor.id,
@@ -579,7 +757,7 @@ index 545b1c9..987d5ba 100644
  						...isEditor ? {
  							patterns: ["dsh-resource://file/**"],
  							canOpen: (address) => {
-@@ -35971,7 +36051,7 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
+@@ -35971,7 +36057,7 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
  					const disposeType = tabs.register({
  						id,
  						kind: FILES_KIND,
@@ -588,7 +766,7 @@ index 545b1c9..987d5ba 100644
  						priority: "extension",
  						title: () => t("files"),
  						guide: [{
-@@ -37943,6 +38023,7 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
+@@ -37943,6 +38029,7 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
  			};
  			const sidebarStore = createSidebarStore();
  			const service = createBetterSidebarService(sidebarStore);
@@ -597,10 +775,18 @@ index 545b1c9..987d5ba 100644
  			ctx.effect(() => () => {
  				disposeSidechatSurfaces(service);
 diff --git a/lib/types/client/service.d.ts b/lib/types/client/service.d.ts
-index bea9d8e..cdd4679 100644
+index bea9d8e..e2033a1 100644
 --- a/lib/types/client/service.d.ts
 +++ b/lib/types/client/service.d.ts
-@@ -162,6 +162,8 @@ export interface TabDescriptor {
+@@ -20,6 +20,7 @@
+  *   then `exts`; `exts: []` is a catch-all that matches any path.
+  */
+ import type { ReactNode } from 'react';
++import type { MenuEntry } from '@deepseek-ai/dsh-client-ui-primitives';
+ import type { Context } from '../context-types.ts';
+ import { type SidebarSnapshot, type SidebarState, type SidebarStore, type SidebarTab, type TabType } from './state.ts';
+ import type { SessionScope } from './api.ts';
+@@ -162,6 +163,8 @@ export interface TabDescriptor {
      /** Unique id; also the `SidebarTab.type` value (`'explorer'`, `'my-plugin:db'`). */
      id: string;
      title: string | (() => string);
@@ -609,10 +795,19 @@ index bea9d8e..cdd4679 100644
      /**
       * One-line description of what this tab shows, rendered under the title in
       * the host's new-tab list (DSH's native right Sidebar guide page). DSH
-@@ -738,10 +740,31 @@ export interface SidebarSurface {
+@@ -738,10 +741,41 @@ export interface SidebarSurface {
      /** Whether a tab id belongs to the native surface (same `sessionId` rule as `update`). */
      has(tabId: string, sessionId?: string): boolean;
  }
++export interface SideChatModelOptions {
++    title?: string;
++    label: string;
++    disabled?: boolean;
++    items: MenuEntry[];
++    selectedIds: string[];
++    onSelect: (id: string) => void;
++}
++
 +/** A controlled side conversation. Its consumer owns the transport and state. */
 +export interface SideChatSurfaceOptions {
 +    label?: string;
@@ -623,6 +818,7 @@ index bea9d8e..cdd4679 100644
 +    onRetry?: () => void;
 +    feedback?: ReactNode;
 +    tools?: ReactNode;
++    model?: SideChatModelOptions;
 +    value: string;
 +    onChange: (value: string) => void;
 +    onSend: () => void;
@@ -642,7 +838,7 @@ index bea9d8e..cdd4679 100644
      registerSidechatSurfaceAdapter(adapter: SidechatSurfaceAdapter): () => void;
      registerTab(descriptor: TabDescriptor): () => void;
 diff --git a/src/client/SideChatView.tsx b/src/client/SideChatView.tsx
-index 2f86221..5298e58 100644
+index 2f86221..1787e31 100644
 --- a/src/client/SideChatView.tsx
 +++ b/src/client/SideChatView.tsx
 @@ -33,7 +33,7 @@
@@ -658,11 +854,11 @@ index 2f86221..5298e58 100644
  import type { SessionScope } from './api.ts'
  import type { SidebarTab } from './state.ts'
  import { SIDECHAT_SUBMIT_KEY_DEFAULT, type SidechatSubmitKey } from '../prefs-shared.ts'
-+import type { SideChatSurfaceOptions } from './service.ts'
++import type { SideChatModelOptions, SideChatSurfaceOptions } from './service.ts'
  import css from './SideChatView.module.css'
  
  /**
-@@ -925,6 +926,177 @@ function renderRow(row: SidechatTranscriptRow, labels: RowLabels, surface: RowSu
+@@ -925,6 +926,202 @@ function renderRow(row: SidechatTranscriptRow, labels: RowLabels, surface: RowSu
    }
  }
  
@@ -764,6 +960,30 @@ index 2f86221..5298e58 100644
 +  )
 +}
 +
++function SideChatModelPicker(props: SideChatModelOptions): React.ReactNode {
++  const [open, setOpen] = useState(false)
++  return (
++    <ComposerTip label={props.title ?? t('sideChatModel')} className={css.sidechatTipShrink}>
++      <Menu
++        open={open && !props.disabled}
++        anchor={(
++          <button type="button" className={css.sidechatModelBtn} disabled={props.disabled}
++            onClick={() => setOpen(value => !value)} aria-label={t('sideChatModel')}>
++            <span className={css.sidechatModelName}>{props.label}</span>
++          </button>
++        )}
++        items={props.items}
++        selectedIds={props.selectedIds}
++        onSelect={id => { setOpen(false); props.onSelect(id) }}
++        onClose={() => setOpen(false)}
++        align="end"
++        portal
++        dense
++      />
++    </ComposerTip>
++  )
++}
++
 +function SideChatStatus({ text }: { text: string }): React.ReactNode {
 +  return (
 +    <div className={css.sidechatStatus} role="status">
@@ -830,6 +1050,7 @@ index 2f86221..5298e58 100644
 +        <div className={css.sidechatComposerBar}>
 +          <div className={css.sidechatComposerTools}>{props.tools}</div>
 +          <span className={css.sidechatComposerSpacer} />
++          {props.model && <SideChatModelPicker {...props.model} />}
 +          <SideChatSend onSend={send} disabled={sendDisabled} />
 +        </div>
 +      </SideChatComposer>
@@ -840,7 +1061,15 @@ index 2f86221..5298e58 100644
  /** One side conversation tab (one thread per tab, Codex-style). */
  export function SideChatView(props: {
    ctx: Context
-@@ -1191,13 +1363,6 @@ export function SideChatView(props: {
+@@ -1094,7 +1291,6 @@ export function SideChatView(props: {
+   const [revision, setRevision] = useState(0)
+   const [info, setInfo] = useState<SidechatThreadInfo | null>(null)
+   const [menuOpen, setMenuOpen] = useState(false)
+-  const [modelMenuOpen, setModelMenuOpen] = useState(false)
+   const [catalog, setCatalog] = useState<SidechatModelCatalog | null>(null)
+   /** Rows the reader explicitly revealed above the tail window (one
+    *  {@link TRANSCRIPT_REVEAL_STEP} per activation). */
+@@ -1191,13 +1387,6 @@ export function SideChatView(props: {
      chatSurfaceRef(element)
    }, [chatSurfaceRef])
    const composerRef = useRef<HTMLTextAreaElement | null>(null)
@@ -854,7 +1083,15 @@ index 2f86221..5298e58 100644
  
    const summary = threadId === undefined ? undefined : list.byId[threadId]
    const running = summary?.running === true
-@@ -2204,12 +2369,7 @@ export function SideChatView(props: {
+@@ -1746,7 +1935,6 @@ export function SideChatView(props: {
+   /** Pin one model route (or one reasoning effort of the current route) on the
+    *  bound thread, then re-read the composer-bar identity. */
+   const handleModelSelect = async (id: string): Promise<void> => {
+-    setModelMenuOpen(false)
+     if (threadId === undefined) return
+     let provider: string
+     let model: string
+@@ -2204,12 +2392,7 @@ export function SideChatView(props: {
            </div>
          )}
        </div>
@@ -868,7 +1105,7 @@ index 2f86221..5298e58 100644
        {/* Thread feedback sits directly above the composer: the reader's eye is
            on the input, so the save hint, the queue warning and the failure
            banner all have to be readable from there (the functions they
-@@ -2219,7 +2379,7 @@ export function SideChatView(props: {
+@@ -2219,7 +2402,7 @@ export function SideChatView(props: {
          && <div className={css.sidechatHint}>{t('sideChatPendingDrop')}</div>}
        {saved && <div className={css.sidechatHint}>{t('sideChatSaved')}</div>}
        {error !== null && <div className={css.sidechatError}>{t('sideChatError', { message: error })}</div>}
@@ -877,7 +1114,7 @@ index 2f86221..5298e58 100644
          <input ref={fileInputRef} type="file" accept={SIDECHAT_IMAGE_MEDIA_TYPES.join(',')} multiple hidden
            aria-label={t('sideChatAddImages')} onChange={event => { addImages(Array.from(event.target.files ?? [])); event.target.value = '' }} />
          {draft.owner.images.length > 0 && <div className={css.sidechatImages}>
-@@ -2230,21 +2390,16 @@ export function SideChatView(props: {
+@@ -2230,21 +2413,16 @@ export function SideChatView(props: {
            </div>)}
          </div>}
          {busy === 'sending' && <span role="status">{t('sideChatSending')}</span>}
@@ -903,7 +1140,7 @@ index 2f86221..5298e58 100644
            onPaste={event => {
              const files = Array.from(event.clipboardData.items).filter(item => item.kind === 'file' && item.type.startsWith('image/')).flatMap(item => { const file = item.getAsFile(); return file === null ? [] : [file] })
              if (files.length === 0) return
-@@ -2252,64 +2407,6 @@ export function SideChatView(props: {
+@@ -2252,64 +2430,6 @@ export function SideChatView(props: {
              event.stopPropagation()
              addImages(files)
            }}
@@ -968,7 +1205,46 @@ index 2f86221..5298e58 100644
          />
          <div className={css.sidechatComposerBar}>
            {/* Mirrors the MAIN composer's bottom bar: the thread actions sit
-@@ -2423,21 +2520,10 @@ export function SideChatView(props: {
+@@ -2379,31 +2499,13 @@ export function SideChatView(props: {
+             </ComposerTip>
+           </div>
+           <span className={css.sidechatComposerSpacer} />
+-          <ComposerTip
+-            label={agentBadge === '' ? t('sideChatModel') : `${t('sideChatModel')} — ${agentBadge}`}
+-            className={css.sidechatTipShrink}
+-          >
+-            <Menu
+-              open={modelMenuOpen}
+-              anchor={(
+-                <button
+-                  type="button"
+-                  className={css.sidechatModelBtn}
+-                  onClick={() => { setModelMenuOpen(value => !value) }}
+-                  aria-label={t('sideChatModel')}
+-                >
+-                  <span className={css.sidechatModelName}>{info?.model ?? info?.provider ?? t('sideChatModel')}</span>
+-                </button>
+-              )}
+-              items={modelItems}
+-              selectedIds={[selectedModelId, selectedEffortId].filter((id): id is string => id !== undefined)}
+-              onSelect={(id) => { void handleModelSelect(id) }}
+-              onClose={() => { setModelMenuOpen(false) }}
+-              align="end"
+-              portal
+-              dense
+-            />
+-          </ComposerTip>
++          <SideChatModelPicker
++            title={agentBadge === '' ? t('sideChatModel') : `${t('sideChatModel')} — ${agentBadge}`}
++            label={info?.model ?? info?.provider ?? t('sideChatModel')}
++            items={modelItems}
++            selectedIds={[selectedModelId, selectedEffortId].filter((id): id is string => id !== undefined)}
++            onSelect={handleModelSelect}
++          />
+           {/* Stopping and sending are TWO actions, not one ternary: while a turn
+               runs the reader can still queue a follow-up (the host accepts it
+               into the thread's inbox — the keyboard path always could), so the
+@@ -2423,21 +2525,10 @@ export function SideChatView(props: {
                  <IconStopFillRegular />
                </button>
              </ComposerTip>
@@ -1036,10 +1312,18 @@ index fde5b2f..46860e4 100644
          title: () => t('files'),
          guide: [{
 diff --git a/src/client/service.ts b/src/client/service.ts
-index 02a9e38..659c0d2 100644
+index 02a9e38..1d0b1e1 100644
 --- a/src/client/service.ts
 +++ b/src/client/service.ts
-@@ -185,6 +185,8 @@ export interface TabDescriptor {
+@@ -20,6 +20,7 @@
+  *   then `exts`; `exts: []` is a catch-all that matches any path.
+  */
+ import type { ReactNode } from 'react'
++import type { MenuEntry } from '@deepseek-ai/dsh-client-ui-primitives'
+ import type { Context } from '../context-types.ts'
+ import {
+   activateTab as activateTabReducer, allLeaves, closeTab as closeTabReducer,
+@@ -185,6 +186,8 @@ export interface TabDescriptor {
    /** Unique id; also the `SidebarTab.type` value (`'explorer'`, `'my-plugin:db'`). */
    id: string
    title: string | (() => string)
@@ -1048,10 +1332,19 @@ index 02a9e38..659c0d2 100644
    /**
     * One-line description of what this tab shows, rendered under the title in
     * the host's new-tab list (DSH's native right Sidebar guide page). DSH
-@@ -758,10 +760,31 @@ export interface SidebarSurface {
+@@ -758,10 +761,41 @@ export interface SidebarSurface {
    has(tabId: string, sessionId?: string): boolean
  }
  
++export interface SideChatModelOptions {
++  title?: string
++  label: string
++  disabled?: boolean
++  items: MenuEntry[]
++  selectedIds: string[]
++  onSelect: (id: string) => void
++}
++
 +/** A controlled side conversation. Its consumer owns the transport and state. */
 +export interface SideChatSurfaceOptions {
 +  label?: string
@@ -1062,6 +1355,7 @@ index 02a9e38..659c0d2 100644
 +  onRetry?: () => void
 +  feedback?: ReactNode
 +  tools?: ReactNode
++  model?: SideChatModelOptions
 +  value: string
 +  onChange: (value: string) => void
 +  onSend: () => void
