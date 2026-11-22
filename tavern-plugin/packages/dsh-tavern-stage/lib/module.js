@@ -44,7 +44,7 @@ import {hasCardAssetBindings} from '../../../lib/card-asset-bindings.js'
 import {createStageClipExport} from './clip/clip-export-stage.js'
 import {createAutoCast} from './auto-cast.js'
 import {createAutoCastLibrary} from './auto-cast-library.js'
-import {runCastingAssistant} from './auto-cast-assistant.js'
+import {runCastingAssistant, runLookLender, roundStory} from './auto-cast-assistant.js'
 
 // cardsActive(): false once the plugin is disposed; card writes are refused from then on.
 export async function createStageModule(core) {
@@ -305,7 +305,12 @@ export async function createStageModule(core) {
         // 选角助理: the game's background model, its own short prompt and tools (auto-cast-assistant.js).
         cast:async ({chat, speakers, cast}) => runCastingAssistant({runAgent:input => backgroundAgentRunner.run(input),
           selection:await modelSelection(chat.sessionId), sessionId:chat.sessionId, turn:Number(chat.messages.findLast(row => row.role === 'assistant')?.turn),
-          speakers, rows:cast.rows, voiceKeys:cast.voiceKeys, pieces:cardLorePieces(cast.raw, chat), search:query => autoCastLibrary.search(query), libraryVoices:() => autoCastLibrary.libraryVoices()}),
+          speakers, rows:cast.rows, voiceKeys:cast.voiceKeys, pieces:cardLorePieces(cast.raw, chat), story:roundStory(chat, body), search:query => autoCastLibrary.search(query), libraryVoices:language => autoCastLibrary.libraryVoices(language)}),
+        // 借用形象: one short call of the same model, the moment a new speaker's line is written
+        lend:async ({chat, body, speakers, turn}) => {
+          const figures = await autoCastLibrary.lendable()
+          return figures.length ? runLookLender({runAgent:input => backgroundAgentRunner.run(input), selection:await modelSelection(chat.sessionId), sessionId:chat.sessionId, turn, speakers, story:roundStory(chat, body), figures}) : {}
+        },
         onError:error => ctx.logger.warn('AUTO_CAST_FAILED %s', error.message)})
       ctx.effect(() => () => {autoCast?.dispose(); autoCast = null}, 'dsh-tavern: auto cast')
       void autoCast.resume().catch(error => ctx.logger.warn('AUTO_CAST_FAILED %s', error.message))

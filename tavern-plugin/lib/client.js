@@ -10163,6 +10163,10 @@ window.__ModuleLoader__.load({
 		  // The old per-voice `autoCast` switch is not read. The one rule and the one order: the casting assistant picks only from
 		  // these (library-search.js), 舞台设置 › 自动素材's 「可选声音」 lists them, and every 选择声音 list shows them first.
 		  const voiceAutoCast = (voice, packId, systemPacks = []) => Boolean(voice.guidance) || systemPacks.includes(packId)
+		  // The language a voice speaks, as its primary subtag ('zh', 'ja', 'en'): the voice spec's own `language`, unset = 中文. The
+		  // one reading of a voice's language for 自动素材 (a speaker is cast only with voices of the language it speaks) and for
+		  // every 选择声音 list. Also normalizes a speaker's language tag the same way.
+		  const castLanguage = language => String(language || '').trim().split('-')[0].toLowerCase() || 'zh'
 		  // The packs 通用声音 / 旁白 point at, from tts.reading() ({general, narrator}: {figure: {packId, figureId} | null}).
 		  const readingPackIds = reading => [...new Set([reading?.general?.figure?.packId, reading?.narrator?.figure?.packId].filter(Boolean))]
 		  // Their order: by name, then by pack name (rows {name, packName}), in code points so server and client agree.
@@ -10174,7 +10178,7 @@ window.__ModuleLoader__.load({
 		    }
 		    return 0
 		  }
-		  if (typeof module !== 'undefined' && typeof window === 'undefined') module.exports = {voiceAutoCast, readingPackIds, castVoiceOrder};
+		  if (typeof module !== 'undefined' && typeof window === 'undefined') module.exports = {voiceAutoCast, castLanguage, readingPackIds, castVoiceOrder};
 		  const VOICE_PROVIDERS={'fish-audio':'Fish Audio',qwen:'通义千问',azure:'Azure',volcengine:'火山引擎',minimax:'MiniMax','openai-compatible':'自定义语音服务',browser:'浏览器朗读'};
 		  const FIGURE_VOICE_LANGUAGES=[['ja','日语'],['zh','中文'],['en','英语'],['ko','韩语'],['yue','粤语']];
 		  const VOICE_SAMPLES={ja:'こんにちは。今日もよろしくお願いします。',zh:'你好，今天也请多关照。',en:'Hello. It is good to see you today.',ko:'안녕하세요. 오늘도 잘 부탁해요.',yue:'你好，今日都請多多指教。'};
