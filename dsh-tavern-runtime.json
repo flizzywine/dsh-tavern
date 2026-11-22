@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "41722dd6a53b644ee3e819194088f0b6269121fb",
-  "releaseSequence": 1904,
+  "revision": "4b7803dbe8102776693cc1d2bce74a25ffcc9353",
+  "releaseSequence": 1905,
   "version": "3.4.0",
   "files": [
     {
@@ -1101,8 +1101,8 @@
     },
     {
       "path": "tavern-plugin/lib/client.js",
-      "sha256": "ebbf791eb9b483ac770cda9c7ef147c542291563a67bef54e8b2a895d9e52093",
-      "size": 6453057
+      "sha256": "98d0bedc2797648407efb736a8b02161470687bce8f920224ae05cca671a9564",
+      "size": 6452391
     },
     {
       "path": "tavern-plugin/lib/cordis-inspect.js",
@@ -1311,8 +1311,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/body-editor.js",
-      "sha256": "249a1495945a3dcdae5f47f076ab83fb1df4dfa3dfd8d6a23514aa026487048e",
-      "size": 43717
+      "sha256": "5c7fdd659a6ab31ced1d53a54b29e2241bcac66fac2e302af4475499fee3bed2",
+      "size": 45810
     },
     {
       "path": "tavern-plugin/lib/domain/body-generation-failure.js",
@@ -1981,8 +1981,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/foreground-orchestration-strategies.js",
-      "sha256": "370aa93c2af2ac96f939da3223e143555e2ef0976f7a3cf4d5d70ed5450976e1",
-      "size": 38418
+      "sha256": "5c500e5bf28709d79d218c9539025ea3469a6dc59a5d31cbc857d707bfb1228f",
+      "size": 39060
     },
     {
       "path": "tavern-plugin/lib/domain/foreground-tools.js",
@@ -2746,8 +2746,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/play-interaction-flow.js",
-      "sha256": "bb0b8d7b0fd3b6dca43ebebbdffb4c0e74bd32c88c42f035c5bf4def3b146b8e",
-      "size": 11079
+      "sha256": "54739ef96407080454855549e461830b04a310fea62fbfb23d0d2b2ffbb460eb",
+      "size": 14347
     },
     {
       "path": "tavern-plugin/lib/domain/play-world-book.js",
@@ -9671,9 +9671,9 @@
     }
   ],
   "archive": {
-    "commit": "18b0cdbf9d01970b403b90d61673bad98f6c7d16",
+    "commit": "b0745044f4074631731b0ae6095037512b92fe68",
     "path": "runtime.zip",
-    "sha256": "fbec0d7cb6123d4a30536ef9ad8c4f37dc7bfe1059be23100dd9c587e7880cb3",
-    "size": 17120747
+    "sha256": "a13533fc73e2371390a2e6b5a1e1b5aec9e05847721b9db8f8a461756d31a73f",
+    "size": 17121676
   }
 }
