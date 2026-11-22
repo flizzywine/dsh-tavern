@@ -3,6 +3,7 @@ import { basename, join } from 'node:path'
 import { appendFileSync, readFileSync } from 'node:fs'
 import { pathToFileURL } from 'node:url'
 import { inspectInstallation, validateInstallationRequest } from './lib/installation.mjs'
+import { readAchievementLibrary } from './lib/achievements.mjs'
 import { captureOwnedProcesses } from './lib/processes.mjs'
 import { requestDesktopQuit } from './lib/quit.mjs'
 import { confirmNextUpdate, recordPendingQuitStatus, relaunchApp, scheduleSwitch } from './lib/helper.mjs'
@@ -139,6 +140,7 @@ async function handleCall(ctx, endpoint, payload) {
   try {
     const paths = launcherPaths(ctx)
     if (endpoint === 'status') return { ok: true, value: statusPayload(paths) }
+    if (endpoint === 'achievements') return { ok: true, value: await readAchievementLibrary(paths.home) }
     if (endpoint === 'set-default') {
       if (paths.host === 'next' || !isOfficialDesktopApp() || basename(paths.activeDir) !== 'desktop') fail('not-desktop', '请在官方桌面中设置默认配置。')
       if (payload?.profile === 'tavern') validateTarget(paths, 'tavern')

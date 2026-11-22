@@ -41,6 +41,13 @@ window.__ModuleLoader__.load({
       lastOperationFailure: "上次操作失败",
       operationDone: "上次操作已完成。",
       updates: '酒馆版本与更新',
+      achievements: '成就库',
+      achievementsEmpty: '启用「冒险奖牌」插件后，成就会显示在这里。',
+      achievementsError: '成就库暂时读不出来。',
+      achievementsRetry: '重试',
+      achievementRounds: '轮',
+      achievementUnlocked: '已解锁',
+      achievementLocked: '未解锁',
       installedBuild: '当前安装',
       latestBuild: '最新发布',
       unknownBuild: '构建未知',
@@ -145,6 +152,13 @@ window.__ModuleLoader__.load({
       lastOperationFailure: "The last operation failed",
       operationDone: "The last operation completed.",
       updates: 'Tavern version and updates',
+      achievements: 'Achievements',
+      achievementsEmpty: 'Achievements appear here after enabling the Adventure Medal plugin.',
+      achievementsError: 'Could not load achievements.',
+      achievementsRetry: 'Retry',
+      achievementRounds: 'rounds',
+      achievementUnlocked: 'Unlocked',
+      achievementLocked: 'Locked',
       installedBuild: 'Installed build',
       latestBuild: 'Latest release',
       unknownBuild: 'Unknown build',
@@ -268,6 +282,13 @@ window.__ModuleLoader__.load({
 .pb-fold[open] summary::before { transform: rotate(90deg); }
 .pb-fold summary:hover { opacity: 1; }
 .pb-fold p { margin: 6px 0; opacity: 0.6; font-size: 12px; }
+.pb-achievements { display: grid; gap: 6px; margin: 12px 0 0; padding: 0; list-style: none; }
+.pb-achievement { display: flex; align-items: center; gap: 10px; min-width: 0; padding: 8px 10px; border: 1px solid var(--pb-line); border-radius: 8px; }
+.pb-achievement[data-earned="true"] { background: var(--pb-accent-soft); }
+.pb-achievement-mark { flex: none; color: #a76132; }
+.pb-achievement[data-earned="false"] .pb-achievement-mark { color: inherit; opacity: .6; }
+.pb-achievement-copy { min-width: 0; flex: 1; overflow-wrap: anywhere; }
+.pb-achievement-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 3px 8px; margin-top: 2px; font-size: 12px; opacity: .75; }
 .pb-pre { margin: 0; padding: 10px 12px; border-radius: 8px; background: var(--pb-fill); max-height: 200px; overflow: auto; font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; word-break: break-all; }
 `
 
@@ -288,6 +309,40 @@ window.__ModuleLoader__.load({
         /^[0-9a-f]{40}$/i.test(commit || '')
           ? h('a', { href: `https://github.com/flizzywine/dsh-tavern/commit/${commit}`, target: '_blank', rel: 'noreferrer', title: commit }, h('code', null, commit.slice(0, 8)))
           : t('unknownBuild'))
+    }
+
+    function AchievementLibrary({ call, t }) {
+      const [expanded, setExpanded] = React.useState(false)
+      const [state, setState] = React.useState({ items: null, error: false })
+      const [attempt, setAttempt] = React.useState(0)
+      React.useEffect(() => {
+        if (!expanded) return
+        let alive = true
+        setState({ items: null, error: false })
+        call('achievements', {}).then(result => {
+          if (!alive) return
+          if (result?.ok === true && Array.isArray(result.value)) setState({ items: result.value, error: false })
+          else setState({ items: null, error: true })
+        }, () => { if (alive) setState({ items: null, error: true }) })
+        return () => { alive = false }
+      }, [call, expanded, attempt])
+      return h('details', { className: 'pb-fold', onToggle: event => setExpanded(event.currentTarget.open) },
+        h('summary', null, t('achievements')),
+        state.error ? h('div', null,
+          h('p', { role: 'alert' }, t('achievementsError')),
+          h('button', { type: 'button', className: 'pb-btn pb-btn-quiet', onClick: () => setAttempt(value => value + 1) }, t('achievementsRetry')))
+          : state.items === null ? h('p', { role: 'status' }, t('loading'))
+          : state.items.length === 0 ? h('p', null, t('achievementsEmpty'))
+          : h('ul', { className: 'pb-achievements' }, state.items.map(tier =>
+            h('li', { key: tier.id, className: 'pb-achievement', 'data-earned': tier.earned },
+              h('span', { className: 'pb-achievement-mark', 'aria-hidden': 'true' }, tier.earned ? '★' : '☆'),
+              h('div', { className: 'pb-achievement-copy' },
+                h('strong', null, tier.title),
+                h('div', { className: 'pb-achievement-meta' },
+                  h('span', null, tier.rounds + ' ' + t('achievementRounds')),
+                  h('span', null, t(tier.earned ? 'achievementUnlocked' : 'achievementLocked')),
+                  tier.unlockedAt === null ? null : h('time', { dateTime: new Date(tier.unlockedAt).toISOString() },
+                    new Date(tier.unlockedAt).toLocaleDateString())))))))
     }
 
     /** @param {{ t: Function, rpcCall: Function }} props */
@@ -672,6 +727,7 @@ window.__ModuleLoader__.load({
               h('button', { type: 'button', className: 'pb-btn pb-btn-quiet', disabled: busy || pending, onClick: () => { setManagementAction(null); setDestination(''); setFailure(null) } }, t('cancel'))),
           ) : null,
         ) : null,
+        h(AchievementLibrary, { call, t }),
         h('details', { className: 'pb-fold' },
           h('summary', null, t('more')),
           h('p', null, t(next ? 'nextExplain' : 'why')),

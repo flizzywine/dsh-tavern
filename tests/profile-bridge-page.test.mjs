@@ -1,8 +1,11 @@
 // Desktop profile switching and Tavern installation management.
 import assert from 'node:assert/strict'
-import { readFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import test from 'node:test'
 import { JSDOM } from 'jsdom'
+import { readAchievementLibrary } from '../tavern-plugin/packages/dsh-tavern/lib/achievements.mjs'
 
 const source = await readFile(new URL('../tavern-plugin/packages/dsh-tavern/client.js', import.meta.url), 'utf8')
 
@@ -45,6 +48,38 @@ async function mount(status, calls = [], options = {}) {
 }
 
 const tavernProfile = { name: 'tavern', bundles: ['dsh-tavern-plugin', 'dsh-tavern'], hasBridge: true, hasNodeModules: true }
+
+test('原版 Profile 也能在启动器查看酒馆档案的成就', async t => {
+  const home = await mkdtemp(join(tmpdir(), 'launcher-achievements-'))
+  t.after(() => rm(home, { recursive: true, force: true }))
+  assert.deepEqual(await readAchievementLibrary(home), [])
+  const data = join(home, 'profile-data', 'tavern', 'data', 'plugin-data')
+  await mkdir(data, { recursive: true })
+  const unlockedAt = Date.UTC(2026, 9, 22)
+  await writeFile(join(data, 'dsh-tavern-adventure-medal.json'), JSON.stringify({ version: 1, achievements: [
+    { id: 'bronze', title: '小有名气', rounds: 100, earned: true, unlockedAt },
+    { id: 'silver', title: '传奇冒险者', rounds: 300, earned: false, unlockedAt: null },
+  ] }))
+  const status = { activeName: 'desktop', appKind: 'desktop', desktopApp: true, profiles: [tavernProfile] }
+  const page = await mount(status, [], {
+    rpc: async endpoint => ({ ok: true, value: endpoint === 'achievements' ? await readAchievementLibrary(home) : status }),
+  })
+  try {
+    assert.equal(page.calls.some(([endpoint]) => endpoint === 'achievements'), false)
+    const summary = [...page.dom.window.document.querySelectorAll('summary')].find(node => node.textContent === '成就库')
+    assert.ok(summary)
+    await page.act(async () => {
+      summary.parentElement.open = true
+      await new Promise(resolve => setTimeout(resolve, 20))
+    })
+    const earned = page.dom.window.document.querySelector('.pb-achievement[data-earned="true"]')
+    assert.match(earned.textContent, /小有名气.*100 轮.*已解锁/)
+    assert.equal(earned.querySelector('time').dateTime, new Date(unlockedAt).toISOString())
+    assert.match(page.dom.window.document.querySelector('.pb-achievement[data-earned="false"]').textContent, /传奇冒险者.*300 轮.*未解锁/)
+  } finally {
+    await page.dispose()
+  }
+})
 
 test('NEXT 共用酒馆启动器和更新状态，通过原生 Profile 切换', async () => {
   const nativeCalls = []

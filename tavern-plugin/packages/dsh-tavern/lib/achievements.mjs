@@ -1,0 +1,28 @@
+import { readFile } from 'node:fs/promises'
+import { join } from 'node:path'
+
+const RECORD_PATH = ['profile-data', 'tavern', 'data', 'plugin-data', 'dsh-tavern-adventure-medal.json']
+
+// The launcher also runs in the original Profile, where the Tavern plugin is absent.
+export async function readAchievementLibrary(home) {
+  const file = join(home, ...RECORD_PATH)
+  let raw
+  try { raw = await readFile(file, 'utf8') }
+  catch (error) {
+    if (error.code === 'ENOENT') return []
+    throw error
+  }
+  const saved = JSON.parse(raw)
+  if (saved?.version !== 1 || !Array.isArray(saved.achievements) || saved.achievements.length > 100) {
+    throw new Error('成就库格式无效')
+  }
+  return saved.achievements.filter(tier => typeof tier?.id === 'string' && typeof tier.title === 'string'
+    && Number.isSafeInteger(tier.rounds) && tier.rounds > 0).map(tier => ({
+    id: tier.id,
+    title: tier.title,
+    rounds: tier.rounds,
+    earned: tier.earned === true,
+    unlockedAt: tier.earned === true && Number.isSafeInteger(tier.unlockedAt) && tier.unlockedAt > 0
+      && tier.unlockedAt <= 8.64e15 ? tier.unlockedAt : null,
+  }))
+}
