@@ -46,7 +46,6 @@ window.__ModuleLoader__.load({
       achievements: '成就库',
       achievementRounds: '轮',
       achievementCharacter: '人物卡',
-      achievementPlayRounds: '游玩轮数',
       achievementTotalChars: '总字数',
       achievementStartedAt: '开始游玩',
       achievementMilestone: '这局游玩满 {rounds} 轮啦！',
@@ -167,7 +166,6 @@ window.__ModuleLoader__.load({
       achievements: 'Achievements',
       achievementRounds: 'rounds',
       achievementCharacter: 'Character card',
-      achievementPlayRounds: 'Rounds played',
       achievementTotalChars: 'Total characters',
       achievementStartedAt: 'Started playing',
       achievementMilestone: 'This playthrough reached {rounds} rounds!',
@@ -342,7 +340,6 @@ window.__ModuleLoader__.load({
       const motto = t('achievementMotto')
       const fields = [
         ['name', 'achievementCharacter', tier.cardName || '—'],
-        ['turns', 'achievementPlayRounds', number(tier.turnCount)],
         ['words', 'achievementTotalChars', chars === '—' ? chars : chars + ' ' + t('achievementCharUnit')],
         ['date', 'achievementStartedAt', date(tier.startedAt)],
       ]

@@ -102,7 +102,6 @@
   background: url('/profile-bridge/achievement-icons.webp') var(--am-icon-offset, 0%) center / 400% 100% no-repeat;
   opacity: .9;
 }
-.achievement-art-icon[data-icon="turns"] { --am-icon-offset: 33.3333%; }
 .achievement-art-icon[data-icon="words"] { --am-icon-offset: 66.6667%; }
 .achievement-art-icon[data-icon="date"] { --am-icon-offset: 100%; }
 .achievement-art-pill-label {
@@ -116,7 +115,7 @@
   text-shadow: 0 1px 4px #0004;
 }
 .achievement-art-progress {
-  position: absolute; left: 0; right: 0; top: calc(434 * var(--am-unit));
+  position: absolute; left: 0; right: 0; top: calc(398 * var(--am-unit));
   text-align: center; pointer-events: none;
 }
 .achievement-art-progress-label {
