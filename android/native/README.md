@@ -58,6 +58,36 @@ node android/native/apk-smoke.mjs            # 卸载 → 安装 → 验收；�
 - 调试签名、`android:debuggable="true"`、包名 `io.github.flizzywine.dshtavern.bionic` 都是原型用的。
 - **arm64 真机**：用户实测能安装、开局、生成（2026-11-22）；其他功能未测。
 
+## 启动页、后台保活、图片处理、两档更新（v3）
+
+- **启动页**：状态（运行时长、内存、自动重启次数）、进入酒馆 / 重启 / 停止、检查更新、后台运行设置、查看与分享日志、
+  重置程序文件、退出。默认服务就绪后直接进酒馆，在酒馆根页按返回键回到启动页；可关掉「打开应用后直接进入酒馆」。
+- **后台保活**：前台服务 + 部分唤醒锁（可关）+ 申请电池优化白名单；Node 意外退出（Android 12+ 清理后台子进程、
+  内存不足、崩溃）后 2 秒自动重启，5 分钟内超过 3 次则停下并提示；覆盖安装后由 `MY_PACKAGE_REPLACED` 拉起服务。
+  服务重启后访问令牌会变，WebView 自动换新地址并清掉失效的返回历史。
+- **图片处理**：sharp 没有 Android 预编译，打包时装上同版本的官方 `@img/sharp-wasm32`（`fetch-npm-packages.py`，
+  校验 npm integrity），sharp 的加载器在 `android-*` 平台上会落到 wasm 版。
+- **两档更新**（`shims/source-update.mjs`，用仓库现成的 `bin/download.cjs` 读运行清单、下载 `runtime.zip`）：
+  1. **源码热更新**：清单里有更新的 `releaseSequence`，且依赖指纹不变（`package.json` 的依赖字段、各锁文件、补丁、
+     `config/dsh-compatibility.json`）→ 下载到 `src.next`，停服 → 换上（旧的留作 `src.prev`）→ 启动；
+     新版本 3 分钟内起不来自动回退。安装器生成的 `.dsh-tavern-local.json` 和 `tavern-plugin` 的 `node_modules` 搬到新目录。
+  2. **整包更新**：依赖变了，或有 versionCode 更大的安装包 → 读发布信息 `dsh-tavern-native.json`（`build-apk.sh` 生成，
+     随 APK 上传到 GitHub Release，默认地址 `releases/latest/download/dsh-tavern-native.json`）→ 流式下载并校验 SHA-256
+     → PackageInstaller 覆盖安装。覆盖安装时，热更新过、比安装包自带的新、且依赖指纹相同的源码会保留。
+  源码版本记录在 `src/.native-source.json`（打包时由 `stage-payload.sh` 写入，同一份放在 `assets/payload-source.json`）。
+- 验收：`apk-launcher-smoke.mjs`（本机起 HTTP 服务充当更新源，`make-test-release.sh` 生成清单、`runtime.zip` 与发布信息）。
+  模拟器上全流程通过：sharp wasm 缩放 1600×1200→400×300 WebP 约 0.3 秒；`kill -9` 后约 8 秒自动重启；退到后台 + 强制 Doze
+  30 秒服务仍在；源码热更新约 30 秒（含重启）；依赖变化时提示新安装包，下载校验后 PackageInstaller 覆盖安装，
+  热更新过的源码与存档都保留。依赖指纹的单测：`tests/android-native-source-update.test.mjs`。
+
+已知限制：
+
+- 内置插件（`profile-data/tavern/data/plugins/` 下的命运骰等）由安装器播种，属于用户数据目录，热更新和覆盖安装都不会刷新它们。
+- 发布信息默认读 `releases/latest/download/dsh-tavern-native.json`：仓库的「最新 Release」必须带这个资产，否则显示「还没有发布」。
+  与 DSHA 版 APK 共用一个仓库发布时，需要改成固定标签或单独的发布信息地址（`DSH_NATIVE_APK_FEED`）。
+- 打包时源码的 `releaseSequence` 取仓库里 `dsh-tavern-runtime.json` 的值，只有 CI 发布了更大的序号才会提示热更新。
+- 模拟器上的发现：强制 Doze 后 `uiautomator` 有时看不到应用窗口；启动页曾因每 0.5 秒无条件刷新文字而一直不空闲，已改为只在变化时更新。
+
 ## 命令行验证（2026-11-22，同一模拟器）
 
 `node android/native/device-smoke.mjs` 连续 2 次全新数据目录通过，页面零报错：

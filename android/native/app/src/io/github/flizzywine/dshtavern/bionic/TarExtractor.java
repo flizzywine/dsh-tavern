@@ -12,20 +12,24 @@ import java.nio.charset.StandardCharsets;
 
 /** 解 GNU/ustar/pax tar 流：普通文件、目录、软链接。硬链接打包时已展开（Android 禁止 link(2)）。 */
 final class TarExtractor {
-    /** 返回 true 的条目若已存在则保留不动（用户数据只在缺失时播种）。 */
-    interface KeepExisting {
+    /** 路径谓词。 */
+    interface PathTest {
         boolean test(String path);
     }
 
     private final File root;
-    private final KeepExisting keepExisting;
+    /** 返回 true 的条目若已存在则保留不动（用户数据只在缺失时播种）。 */
+    private final PathTest keepExisting;
+    /** 返回 true 的条目一律跳过（例如保留热更新过的源码时跳过 APK 里的旧源码）。 */
+    private final PathTest skip;
     private final byte[] buffer = new byte[1 << 16];
     int written;
     int kept;
 
-    TarExtractor(File root, KeepExisting keepExisting) {
+    TarExtractor(File root, PathTest keepExisting, PathTest skip) {
         this.root = root;
         this.keepExisting = keepExisting;
+        this.skip = skip;
     }
 
     static String normalize(String name) {
@@ -68,7 +72,8 @@ final class TarExtractor {
             longName = null;
             longLink = null;
             File target = resolve(name);
-            boolean keep = type != '5' && keepExisting.test(normalize(name)) && exists(target);
+            String rel = normalize(name);
+            boolean keep = skip.test(rel) || (type != '5' && keepExisting.test(rel) && exists(target));
             if (keep) {
                 kept++;
                 skip(in, size);

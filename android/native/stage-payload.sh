@@ -48,6 +48,10 @@ rm -rf "$NM/node-pty/prebuilds"
 # Termux 包里与运行无关的部分。
 rm -rf "$STAGE/usr/include" "$STAGE/usr/share/doc" "$STAGE/usr/share/man" "$STAGE/usr/lib/node_modules/npm" "$STAGE/usr/lib/node_modules/corepack" "$STAGE/usr/lib/cmake" "$STAGE/usr/lib/pkgconfig"
 
+# 1b) 图片处理：sharp 没有 Android 预编译，换成官方 wasm 版（与 sharp 同版本，纯 wasm，跨架构）。
+SHARP_VERSION=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["version"])' "$NM/sharp/package.json")
+python3 "$HERE/fetch-npm-packages.py" "$NM" "@img/sharp-wasm32@$SHARP_VERSION"
+
 # 2) 换上 bionic 替身。
 for target in $(find "$H" -type d -path '*node_modules/node-addon-require-builtin' -not -path '*/.pnpm/*/node_modules/*/node_modules/*'); do
   cp -f "$HERE/shims/node-addon-require-builtin/lib/index.js" "$target/lib/index.js"
@@ -57,6 +61,9 @@ for target in $(find "$H" -type d -path '*node_modules/@deepseek-ai/node-addon-s
 done
 mkdir -p "$STAGE/usr/lib/dsh-android"
 cp -f "$HERE/shims/android-preload.cjs" "$STAGE/usr/lib/dsh-android/preload.cjs"
+# 源码热更新工具：放在 usr（只随 APK 更新），不受热更新替换 src 的影响。
+cp -f "$HERE/shims/source-update.mjs" "$STAGE/usr/lib/dsh-android/source-update.mjs"
+cp -f "$STAGE/src/bin/download.cjs" "$STAGE/usr/lib/dsh-android/download.cjs"
 
 # 2b) RUNPATH 改成 $ORIGIN：子进程即使被清空环境（模板 worker 只传 NODE_ENV）也能找到自己的 .so。
 python3 "$HERE/patch-runpath.py" '$ORIGIN/../lib' "$STAGE/usr/bin/node" >/dev/null
@@ -66,7 +73,7 @@ python3 "$HERE/patch-runpath.py" '$ORIGIN' $(find "$STAGE/usr/lib" -maxdepth 1 -
 HOST_ROOT=$(dirname "$SRC")
 [ "$(dirname "$(dirname "$DSH_HOME")")" = "$HOST_ROOT" ] || { echo "src 与 dsh-home 需位于同一父目录（profile 的 link: 依赖按相对路径解析）" >&2; exit 1; }
 HOST_HOME_PARENT=$(dirname "$DSH_HOME")
-grep -rIl --exclude-dir=node_modules -e "$HOST_ROOT" "$H" | while read -r f; do
+grep -rIl --exclude-dir=node_modules -e "$HOST_ROOT" "$H" "$STAGE/src/.dsh-tavern-local.json" | while read -r f; do
   sed -i -e "s|$HOST_HOME_PARENT|$DEVICE_ROOT/home|g" -e "s|$HOST_ROOT/src|$DEVICE_ROOT/src|g" "$f"
 done
 for f in "$H/profiles/tavern/node_modules/.pnpm/lock.yaml"; do
@@ -74,6 +81,15 @@ for f in "$H/profiles/tavern/node_modules/.pnpm/lock.yaml"; do
 done
 # profile 指向 src 的软链接：在主机上是 ../../.. 相对于 fakehome；设备上改成 home 布局后层级不变则无需处理。
 broken=$(find "$H/profiles" -maxdepth 3 -xtype l | head -5)
+
+# 3b) 源码版本记录：热更新据此判断是否更新、依赖是否变化；APK 覆盖安装据此决定保留热更新过的源码。
+REV=${PAYLOAD_SOURCE_REVISION:-$(git -C "$SRC" rev-parse HEAD 2>/dev/null || git -C "$HERE/../.." rev-parse HEAD)}
+SEQ=${PAYLOAD_SOURCE_SEQUENCE:-$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1])).get("releaseSequence",0))' "$STAGE/src/dsh-tavern-runtime.json" 2>/dev/null || echo 0)}
+FP=$(node "$HERE/shims/source-update.mjs" fingerprint "$STAGE/src")
+VER=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["version"])' "$STAGE/src/package.json")
+printf '{"revision":"%s","sequence":%s,"version":"%s","fingerprint":"%s","branch":"%s","from":"apk"}\n' \
+  "$REV" "$SEQ" "$VER" "$FP" "${PAYLOAD_SOURCE_BRANCH:-main}" > "$STAGE/src/.native-source.json"
+cp "$STAGE/src/.native-source.json" "$OUT/payload-source.json"
 
 # 4) 设备侧启动脚本。
 cat > "$STAGE/run.sh" <<EOF

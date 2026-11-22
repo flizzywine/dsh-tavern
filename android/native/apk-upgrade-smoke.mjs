@@ -70,13 +70,19 @@ async function storyVisible(text) {
   throw new Error('正文未出现：' + text)
 }
 async function dismissNotice() {
+  // 全新数据目录的「预览版说明」弹窗出现得晚，而且盖住整个页面：最多等 5 秒。
   const cont = page.getByRole('button', { name: /^(Continue|继续)$/ })
-  await page.waitForTimeout(300)
-  if (await cont.isVisible().catch(() => false)) { await cont.click(); await cont.waitFor({ state: 'hidden' }).catch(() => {}) }
+  const deadline = Date.now() + 5000
+  while (Date.now() < deadline) {
+    if (await cont.isVisible().catch(() => false)) { await cont.click(); await cont.waitFor({ state: 'hidden' }).catch(() => {}); return }
+    if (!await page.locator('[role="presentation"] [aria-hidden="true"]').filter({ visible: true }).count().catch(() => 0)) return
+    await page.waitForTimeout(300)
+  }
 }
 async function openDrawer() {
   const picker = page.getByRole('button', { name: /选择人物卡.*新开游玩/ }).filter({ visible: true })
   if (await picker.count()) return
+  await dismissNotice()
   await page.locator('[data-mobile-nav="fab"], [data-mobile-nav="toggle"]').filter({ visible: true }).first().click()
   await picker.first().waitFor()
 }

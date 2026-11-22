@@ -72,9 +72,14 @@ function watch(p) {
   p.setDefaultTimeout(60000)
 }
 async function dismissNotice() {
+  // 全新数据目录的「预览版说明」弹窗出现得晚，而且盖住整个页面：最多等 5 秒。
   const cont = page.getByRole('button', { name: /^(Continue|继续)$/ })
-  await page.waitForTimeout(300)
-  if (await cont.isVisible().catch(() => false)) { await cont.click(); await cont.waitFor({ state: 'hidden' }).catch(() => {}) }
+  const deadline = Date.now() + 5000
+  while (Date.now() < deadline) {
+    if (await cont.isVisible().catch(() => false)) { await cont.click(); await cont.waitFor({ state: 'hidden' }).catch(() => {}); return }
+    if (!await page.locator('[role="presentation"] [aria-hidden="true"]').filter({ visible: true }).count().catch(() => 0)) return
+    await page.waitForTimeout(300)
+  }
 }
 // 手机布局（dsh-web-mobile）：酒馆面板在左侧抽屉里，由悬浮按钮（fab）打开。
 async function openDrawer() {
@@ -82,7 +87,12 @@ async function openDrawer() {
   if (await picker.count()) return
   for (const selector of ['[data-mobile-nav="fab"]', '[data-mobile-nav="toggle"]']) {
     const button = page.locator(selector).filter({ visible: true }).first()
-    if (await button.count()) { await button.click(); break }
+    if (await button.count()) {
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try { await button.click({ timeout: 10000 }); break } catch (error) { if (attempt === 2) throw error; await dismissNotice() }
+      }
+      break
+    }
   }
   await picker.first().waitFor()
 }

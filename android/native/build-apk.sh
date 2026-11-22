@@ -14,8 +14,8 @@ JAR=${ANDROID_JAR:-$SDK/platforms/android-36/android.jar}
 JDK=${JAVA_HOME:-$HOME/devtools/jdk-17.0.20.1+1}
 PKG=io.github.flizzywine.dshtavern.bionic
 DEVICE_ROOT=/data/user/0/$PKG/files/t
-VERSION_CODE=${VERSION_CODE:-2}
-VERSION_NAME=${VERSION_NAME:-0.2.0-proto+$(git -C "$REPO" rev-parse --short HEAD)}
+VERSION_CODE=${VERSION_CODE:-3}
+VERSION_NAME=${VERSION_NAME:-0.3.0-proto+$(git -C "$REPO" rev-parse --short HEAD)}
 TERMUX=$REPO/output/native-proto
 mkdir -p "$OUT"
 
@@ -52,6 +52,7 @@ with zipfile.ZipFile(f'{out}/unsigned.apk', 'a') as z:
         for name in sorted(os.listdir(f'{out}/jniLibs/{abi}')):
             z.write(f'{out}/jniLibs/{abi}/{name}', f'lib/{abi}/{name}', zipfile.ZIP_DEFLATED)
     z.write(f'{out}/payload/payload.tar.gz', 'assets/payload.bin', zipfile.ZIP_STORED)
+    z.write(f'{out}/payload/payload-source.json', 'assets/payload-source.json', zipfile.ZIP_DEFLATED)
 PY
 
 # 5) 对齐 + 调试签名
@@ -61,4 +62,11 @@ APK="$OUT/dsh-tavern-bionic-debug.apk"
 "$BT/apksigner" sign --ks "$KS" --ks-pass pass:android --key-pass pass:android --ks-key-alias androiddebugkey --out "$APK" "$OUT/aligned.apk"
 rm -f "$OUT/unsigned.apk" "$OUT/aligned.apk" "$OUT/base.apk" "$APK.idsig"
 sha256sum "$APK" | tee "$APK.sha256"
+# 发布信息：随 APK 一起上传到 GitHub Release（资产名 dsh-tavern-native.json），启动页据此发现新版安装包。
+python3 - "$APK" "$VERSION_CODE" "$VERSION_NAME" > "$OUT/dsh-tavern-native.json" <<'PY'
+import hashlib, json, os, sys
+apk, code, name = sys.argv[1], int(sys.argv[2]), sys.argv[3]
+data = open(apk, 'rb').read()
+print(json.dumps({'versionCode': code, 'versionName': name, 'url': os.path.basename(apk), 'sha256': hashlib.sha256(data).hexdigest(), 'size': len(data)}, indent=2))
+PY
 du -h "$APK"
