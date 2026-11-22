@@ -38,7 +38,7 @@ import {createSceneCg} from './scene-cg.js'
 import {readStageProjection, stageProjectionPage} from './domain/stage-projection.js'
 import {readWidgetWindowProjection} from './domain/widget-window-projection.js'
 import {frozenStageBackground} from '../../../lib/domain/stage-shared-context.js'
-import {effectiveCardStage, effectiveAutoCast, AUTO_CAST_DEFAULTS, validateAutoCastLayer} from '../../../lib/domain/card-stage-settings.js'
+import {effectiveCardStage, effectiveAutoCast, AUTO_CAST_DEFAULTS, AUTO_CAST_SECTION, validateAutoCastLayer} from '../../../lib/domain/card-stage-settings.js'
 import {readCardAssetExtension, cardAssetExtensionView} from '../../../lib/domain/card-asset-bindings.js'
 import {hasCardAssetBindings} from '../../../lib/card-asset-bindings.js'
 import {createStageClipExport} from './clip/clip-export-stage.js'
@@ -235,7 +235,7 @@ export async function createStageModule(core) {
   ctx.effect(() => () => stageWorkflow.dispose(), 'dsh-tavern: stage workflow')
   // 自动选角's global layer (asset-engine.js createAutoCastSettings); a card's layer is in its stage extension. Its runtime needs the image
   // plugin's channel, so it is built with the requests (below); a round counts once its automatic figures are written.
-  const autoCastSettings = createAutoCastSettings(ctx, core.settingsOwner, {defaults:AUTO_CAST_DEFAULTS, validateLayer:validateAutoCastLayer})
+  const autoCastSettings = createAutoCastSettings(ctx, core.settingsOwner, {section:AUTO_CAST_SECTION, defaults:AUTO_CAST_DEFAULTS, validateLayer:validateAutoCastLayer})
   let autoCast = null
   const roundBody = async (chat,turn) => (await roundProjection(chat, turn, true))?.body
   ctx.effect(() => registerAutoFigureObserver({storyEvents, chatHeaderForSession:core.chatHeaderForSession,
