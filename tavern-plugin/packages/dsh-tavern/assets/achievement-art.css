@@ -1,0 +1,124 @@
+/* Artwork and 420 × 560 layout from SilverLark257/dsh-tavern-adventure-medal (MIT).
+   Use the card's width as the unit so the same composition fits the library and popup. */
+.achievement-art {
+  --am-unit: calc(100cqw / 420);
+  position: relative;
+  isolation: isolate;
+  container-type: inline-size;
+  overflow: hidden;
+  aspect-ratio: 3 / 4;
+  border-radius: 7.14% / 5.36%;
+  background: #fff7ec url('/profile-bridge/achievement-paper.webp') center / cover;
+  color: white;
+  font-family: 'PingFang SC', 'Microsoft YaHei', 'Noto Sans CJK SC', 'Source Han Sans SC', sans-serif;
+  line-height: 1.3;
+  box-shadow: 0 30px 60px -20px #3c231473, 0 12px 24px #3c231433, 0 2px 6px #3c23141f;
+}
+.achievement-art :is(span, img, div, b, time) { box-sizing: border-box; }
+.achievement-art-cover { position: absolute; z-index: -2; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.achievement-art::before {
+  content: ''; position: absolute; z-index: -1; inset: 0;
+  background:
+    radial-gradient(circle at 50% 24%, #2b1a122e, transparent 48%),
+    linear-gradient(to right, #2b1a123d, transparent 23%),
+    linear-gradient(to bottom, transparent 38.9%, #2b1a1242 43.75%, #2b1a124d 78.4%, transparent 87.2%),
+    linear-gradient(to bottom, #2b1a1273, transparent 28%, transparent 52%, #2b1a129e);
+}
+.achievement-art-motto {
+  position: absolute; left: calc(22 * var(--am-unit)); top: calc(46 * var(--am-unit));
+  writing-mode: vertical-rl; text-orientation: upright;
+  font-size: calc(11 * var(--am-unit)); letter-spacing: calc(2 * var(--am-unit)); line-height: 1.55;
+  color: #ffffffd1; text-shadow: 0 1px 5px #0006;
+}
+.achievement-art-medal {
+  position: absolute; left: 50%; top: calc(94 * var(--am-unit)); transform: translateX(-50%);
+  width: calc(84 * var(--am-unit)); height: auto; filter: drop-shadow(0 6px 9px #3c231447);
+}
+.achievement-art-stars { position: absolute; inset: 0; pointer-events: none; }
+.achievement-art-stars span {
+  position: absolute; transform: translate(-50%, -50%);
+  width: calc(12 * var(--am-unit)); aspect-ratio: 1;
+  background: #f4b942;
+  clip-path: polygon(50% 0, 62% 38%, 100% 50%, 62% 62%, 50% 100%, 38% 62%, 0 50%, 38% 38%);
+}
+.achievement-art-stars span:nth-child(1) { left: 31%; top: 21.43%; width: calc(16 * var(--am-unit)); }
+.achievement-art-stars span:nth-child(2) { left: 67.14%; top: 18.57%; background: #ff9ebb; }
+.achievement-art-stars span:nth-child(3) { left: 71.43%; top: 33.93%; width: calc(14 * var(--am-unit)); background: #9fe2bf; }
+.achievement-art-stars span:nth-child(4) { left: 28.10%; top: 36.61%; width: calc(10 * var(--am-unit)); background: #ff9ebb; }
+.achievement-art-stars span:nth-child(5) { left: 35.71%; top: 13.57%; width: calc(10 * var(--am-unit)); background: #9fe2bf; }
+.achievement-art-stars span:nth-child(6) { left: 64.29%; top: 26.79%; width: calc(10 * var(--am-unit)); }
+.achievement-art-badge {
+  position: absolute; left: calc(250 * var(--am-unit)); top: calc(96 * var(--am-unit));
+  width: calc(38 * var(--am-unit)); aspect-ratio: 1; display: grid; place-items: center;
+  background: url('/profile-bridge/achievement-badges.webp') var(--am-badge-offset, 0%) center / 400% 100% no-repeat;
+  color: #5e3a28; font-size: calc(9 * var(--am-unit)); font-weight: 800;
+  filter: drop-shadow(0 2px 4px #3c231440);
+}
+.achievement-art[data-tier="silver"] { --am-badge-offset: 33.3333%; }
+.achievement-art[data-tier="gold"] { --am-badge-offset: 66.6667%; }
+.achievement-art[data-tier="rainbow"] { --am-badge-offset: 100%; }
+.achievement-art[data-tier="rainbow"] .achievement-art-badge { font-size: calc(7.5 * var(--am-unit)); }
+.achievement-art-ribbon {
+  position: absolute; left: calc(60 * var(--am-unit)); top: calc(210 * var(--am-unit));
+  width: calc(300 * var(--am-unit)); height: calc(38 * var(--am-unit));
+  display: grid; align-content: center; justify-items: center; gap: calc(2 * var(--am-unit));
+  border-radius: calc(14 * var(--am-unit)); text-align: center;
+  background: #fff7eceb; color: #5e3a28;
+  border: 1px solid #f4b9428c; box-shadow: 0 6px 18px #3c23142e;
+}
+.achievement-art-ribbon strong { font-size: calc(11.5 * var(--am-unit)); font-weight: 700; }
+.achievement-art-ribbon span { font-size: calc(10.5 * var(--am-unit)); line-height: 1.25; }
+.achievement-art-pills {
+  position: absolute; left: calc(60 * var(--am-unit)); top: calc(250 * var(--am-unit));
+  width: calc(300 * var(--am-unit)); display: grid; gap: calc(6 * var(--am-unit));
+}
+.achievement-art-pill {
+  display: flex; align-items: center; gap: calc(10 * var(--am-unit)); height: calc(40 * var(--am-unit));
+  padding: 0 calc(16 * var(--am-unit)); border-radius: 999px; background: #ffffff38;
+  border: 1px solid #ffffff61;
+  box-shadow: inset 0 1px #ffffff8c, 0 6px 16px #3c231424;
+  -webkit-backdrop-filter: blur(calc(14 * var(--am-unit))) saturate(1.15);
+  backdrop-filter: blur(calc(14 * var(--am-unit))) saturate(1.15);
+  color: white; min-width: 0;
+}
+.achievement-art-icon {
+  flex: none; width: calc(16 * var(--am-unit)); aspect-ratio: 1;
+  background: url('/profile-bridge/achievement-icons.webp') var(--am-icon-offset, 0%) center / 400% 100% no-repeat;
+  opacity: .9;
+}
+.achievement-art-icon[data-icon="turns"] { --am-icon-offset: 33.3333%; }
+.achievement-art-icon[data-icon="words"] { --am-icon-offset: 66.6667%; }
+.achievement-art-icon[data-icon="date"] { --am-icon-offset: 100%; }
+.achievement-art-pill-label {
+  flex: none; font-size: calc(11 * var(--am-unit)); color: #ffffffeb;
+  text-shadow: 0 1px 3px #2b1a1273;
+}
+.achievement-art-pill-value {
+  margin-left: auto; min-width: 0; max-width: calc(170 * var(--am-unit));
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: right;
+  font-size: calc(13 * var(--am-unit)); font-weight: 600; font-variant-numeric: tabular-nums;
+  text-shadow: 0 1px 4px #0004;
+}
+.achievement-art-progress {
+  position: absolute; left: 0; right: 0; top: calc(434 * var(--am-unit));
+  text-align: center; pointer-events: none;
+}
+.achievement-art-progress-label {
+  font-size: calc(10 * var(--am-unit)); font-weight: 600; color: #ffffffeb; text-shadow: 0 1px 4px #0008;
+}
+.achievement-art-sticker {
+  display: flex; gap: .18em; align-items: baseline; justify-content: center;
+  transform: rotate(-4deg); white-space: nowrap;
+  font-size: calc(28 * var(--am-unit)); font-weight: 900; letter-spacing: -.02em; line-height: 1.15;
+  color: white; paint-order: stroke fill;
+  -webkit-text-stroke: calc(7 * var(--am-unit)) #5e3a28;
+  filter: drop-shadow(0 calc(3.5 * var(--am-unit)) calc(1 * var(--am-unit)) #5e3a2880);
+}
+.achievement-art-sticker b {
+  font-size: 1.3em; font-weight: 900; -webkit-text-stroke: calc(3.4 * var(--am-unit)) #f4b942;
+  filter: drop-shadow(0 calc(2 * var(--am-unit)) #5e3a28);
+}
+.achievement-art-footer {
+  position: absolute; inset: auto 0 calc(8 * var(--am-unit)); text-align: center;
+  color: #ffffffd4; font-size: calc(10 * var(--am-unit)); text-shadow: 0 1px 4px #0006;
+}

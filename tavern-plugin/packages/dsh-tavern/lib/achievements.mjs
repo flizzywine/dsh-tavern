@@ -27,6 +27,10 @@ export async function readAchievementLibrary(home) {
     ...(tier.earned === true && typeof tier.cardName === 'string' ? { cardName: tier.cardName } : {}),
     ...(tier.earned === true && Number.isSafeInteger(tier.contextChars) && tier.contextChars >= 0
       ? { contextChars: tier.contextChars } : {}),
+    ...(tier.earned === true && Number.isSafeInteger(tier.turnCount) && tier.turnCount >= 0
+      ? { turnCount: tier.turnCount } : {}),
+    ...(tier.earned === true && Number.isSafeInteger(tier.startedAt) && tier.startedAt > 0 && tier.startedAt <= 8.64e15
+      ? { startedAt: tier.startedAt } : {}),
     ...(tier.earned === true && typeof tier.cover === 'string' && tier.cover.length <= 200_023
       && /^data:image\/webp;base64,[A-Za-z0-9+/]+={0,2}$/.test(tier.cover) ? { cover: tier.cover } : {}),
   }))

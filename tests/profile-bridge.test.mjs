@@ -43,7 +43,7 @@ test('统一启动器从 NEXT 宿主读取活动 Profile，拒绝目录链接切
    webServer: { register: route => routes.push(route) },
    effect: register => register(),
  })
- assert.equal(routes.length, 4)
+ assert.equal(routes.length, 6)
  assert.equal(routes[0].kind, 'exact')
  assert.equal(routes[0].path, '/profile-bridge/logo.png')
  routes[0].handler({ method: 'GET' }, {
@@ -55,13 +55,13 @@ test('统一启动器从 NEXT 宿主读取活动 Profile，拒绝目录链接切
      assert.deepEqual(body, readFileSync(new URL('../tavern-plugin/packages/dsh-tavern/assets/dsh-tavern-app-icon-192.png', import.meta.url)))
    },
  })
- for (const name of ['achievement-medal.webp', 'achievement-badges.webp', 'achievement-paper.webp']) {
+ for (const name of ['achievement-medal.webp', 'achievement-badges.webp', 'achievement-paper.webp', 'achievement-icons.webp', 'achievement-art.css']) {
    const route = routes.find(route => route.path === '/profile-bridge/' + name)
    assert.equal(route.kind, 'exact')
    route.handler({ method: 'GET' }, {
      writeHead(code, headers) {
        assert.equal(code, 200)
-       assert.equal(headers['content-type'], 'image/webp')
+       assert.equal(headers['content-type'], name.endsWith('.css') ? 'text/css; charset=utf-8' : 'image/webp')
      },
      end(body) {
        assert.deepEqual(body, readFileSync(new URL('../tavern-plugin/packages/dsh-tavern/assets/' + name, import.meta.url)))

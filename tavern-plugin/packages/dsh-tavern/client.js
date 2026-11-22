@@ -45,7 +45,17 @@ window.__ModuleLoader__.load({
       updates: '酒馆版本与更新',
       achievements: '成就库',
       achievementRounds: '轮',
-      achievementTotalChars: '总字数',
+      achievementAdventurer: '冒险者',
+      achievementAdventureRounds: '冒险轮数',
+      achievementMemory: '酒馆记忆',
+      achievementStartedAt: '开始冒险',
+      achievementMilestone: '恭喜你达成了{rounds}轮的成就！',
+      achievementReached: '已达成',
+      achievementMilestoneSuffix: '轮成就！',
+      achievementCurrent: '当前成就',
+      achievementHighest: '最高成就',
+      achievementMemento: 'DSHTavern 冒险纪念',
+      achievementMotto: '愿每一次冒险，都有星光作伴',
       achievementCharUnit: '字',
       achievementTest: '成就测试',
       achievementTestCard: '测试卡牌',
@@ -156,7 +166,16 @@ window.__ModuleLoader__.load({
       updates: 'Tavern version and updates',
       achievements: 'Achievements',
       achievementRounds: 'rounds',
-      achievementTotalChars: 'Total',
+      achievementAdventurer: 'Adventurer',
+      achievementAdventureRounds: 'Rounds played',
+      achievementMemory: 'Tavern memories',
+      achievementStartedAt: 'Started',
+      achievementMilestone: 'Congratulations on reaching {rounds} rounds!',
+      achievementReached: 'Reached',
+      achievementMilestoneSuffix: 'rounds!',
+      achievementCurrent: 'Achievement',
+      achievementHighest: 'Highest achievement',
+      achievementMemento: 'DSHTavern Memento',
       achievementCharUnit: 'characters',
       achievementTest: 'Test achievements',
       achievementTestCard: 'Preview card',
@@ -243,6 +262,7 @@ window.__ModuleLoader__.load({
 
     /** Scoped stylesheet; class names are prefixed so they never leak into the host. */
     const CSS = `
+@import url('/profile-bridge/achievement-art.css');
 .pb { display: grid; gap: 16px; font-size: 13px; line-height: 1.6; color: inherit; width: 100%; max-width: 640px; min-width: 0;
   --pb-accent: #4d6bfe; --pb-accent-soft: rgba(77,107,254,0.07); --pb-line: rgba(127,127,127,0.25); --pb-fill: rgba(127,127,127,0.06); }
 .pb * { box-sizing: border-box; }
@@ -286,81 +306,9 @@ window.__ModuleLoader__.load({
 .pb-fold p { margin: 6px 0; opacity: 0.6; font-size: 12px; }
 .pb-achievement-library { display: grid; gap: 12px; min-width: 0; }
 .pb-achievement-library h3 { margin: 0; font-size: 14px; }
-.pb-achievements { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 190px), 1fr)); gap: 14px; margin: 0; padding: 0; list-style: none; }
-.pb-achievement-card {
-  --pb-medal-trim: #ffdfb8;
-  --pb-badge-offset: 0%;
-  position: relative; isolation: isolate; overflow: hidden; container-type: inline-size;
-  display: flex; flex-direction: column; justify-content: end; align-items: center; gap: 6px;
-  box-sizing: border-box; min-width: 0; width: 100%; max-width: 256px; aspect-ratio: 3 / 4;
-  padding: 12px; border: 1px solid color-mix(in srgb, var(--pb-medal-trim) 72%, #674c38); border-radius: 16px;
-  text-align: center; color: #fff7e9;
-  background: radial-gradient(ellipse at 50% 32%, #8e674c, transparent 76%), linear-gradient(145deg, #34404d, #221624);
-  box-shadow: 0 5px 16px #0003;
-}
-.pb-achievement-card[data-tier="silver"] { --pb-medal-trim: #d9eeff; --pb-badge-offset: 33.3333%; }
-.pb-achievement-card[data-tier="gold"] { --pb-medal-trim: #ffe298; --pb-badge-offset: 66.6667%; }
-.pb-achievement-card[data-tier="rainbow"] { --pb-medal-trim: #ffe1f6; --pb-badge-offset: 100%; }
-.pb-achievement-cover {
-  position: absolute; z-index: -2; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: center 34%;
-}
-.pb-achievement-card::before {
-  content: ''; position: absolute; inset: 0; z-index: -1;
-  background: linear-gradient(180deg, #100b1706 25%, #17111c0d 46%, #17111c91 73%, #140e18e8 100%);
-}
-.pb-achievement-card:not([data-cover]) {
-  background: url('/profile-bridge/achievement-paper.webp') center / cover no-repeat, #a67e61;
-}
-.pb-achievement-card:not([data-cover])::before {
-  background: linear-gradient(180deg, transparent 44%, #75441c29 64%, #472c258c 100%);
-}
-.pb-achievement-card::after {
-  content: ''; position: absolute; inset: 5px; border: 1px solid #fff1d77d; border-radius: 11px;
-  box-shadow: inset 0 0 0 1px #49342130; pointer-events: none;
-}
-.pb-achievement-crest { position: relative; width: 30%; max-width: 66px; flex: none; }
-.pb-achievement-crest::before {
-  content: ''; position: absolute; width: 15%; aspect-ratio: 1; left: -26%; top: 21%; background: var(--pb-medal-trim);
-  clip-path: polygon(50% 0, 62% 38%, 100% 50%, 62% 62%, 50% 100%, 38% 62%, 0 50%, 38% 38%);
-}
-.pb-achievement-medal { display: block; width: 100%; height: auto; filter: drop-shadow(0 4px 6px #150a1299); }
-.pb-achievement-badge {
-  position: absolute; top: -3%; left: 90%; display: grid; place-items: center; width: 66%; aspect-ratio: 1;
-  background: url('/profile-bridge/achievement-badges.webp') var(--pb-badge-offset) center / 400% 100% no-repeat;
-  filter: drop-shadow(0 2px 3px #24171682); color: #543725; font: 800 clamp(6px, 3.8cqi, 9px) / 1.2 system-ui, sans-serif;
-  font-variant-numeric: tabular-nums;
-}
-.pb-achievement-badge b { background: #fff7ec; border-radius: 99px; padding-inline: .13em; }
-.pb-achievement-copy { display: grid; gap: 5px; width: 100%; min-width: 0; line-height: 1.22; }
-.pb-achievement-plaque {
-  display: grid; justify-items: center; gap: 2px; padding: 4px 3px; border: 1px solid #f4c17f; border-radius: 9px;
-  background: linear-gradient(155deg, #fffaed, color-mix(in srgb, var(--pb-medal-trim) 32%, #f4e4c9));
-  box-shadow: inset 0 0 0 1px #fff7e49e, 0 2px 7px #35201461; color: #4d2b20;
-}
-.pb-achievement-plaque strong {
-  font-family: 'Songti SC', 'Noto Serif SC', 'SimSun', serif;
-  font-size: clamp(14px, 9.5cqi, 21px); font-weight: 800;
-}
-.pb-achievement-rounds {
-  color: #694334; font-size: 10px; font-weight: 650; font-variant-numeric: tabular-nums;
-}
-.pb-achievement-record {
-  display: grid; gap: 3px; padding: 4px 6px; border: 1px solid #fff1dc6e; border-radius: 8px;
-  background: linear-gradient(145deg, #553e34dd, #372b38d9); color: #fff5e6;
-  box-shadow: inset 0 1px #fff6e637; text-align: left;
-}
-.pb-achievement-character {
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 650;
-  font-size: 11px;
-}
-.pb-achievement-chars {
-  display: flex; justify-content: space-between; flex-wrap: wrap; column-gap: 4px;
-  color: #f4dfc6; font-size: 10px; font-variant-numeric: tabular-nums;
-}
-.pb-achievement-character + .pb-achievement-chars { border-top: 1px solid #fff1dc30; padding-top: 3px; }
-.pb-achievement-chars b { color: #fff3de; font-weight: 650; white-space: nowrap; }
-.pb-achievement-copy time { font-size: 10px; line-height: 1.1; color: #fff5e6; text-shadow: 0 1px 3px #24170d; font-variant-numeric: tabular-nums; }
-.pb-achievement-preview-grid { grid-template-columns: min(100%, 256px); }
+.pb-achievements { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 220px), 1fr)); gap: 14px; margin: 0; padding: 0; list-style: none; }
+.pb-achievement-card { min-width: 0; width: 100%; max-width: 290px; aspect-ratio: 3 / 4; }
+.pb-achievement-preview-grid { grid-template-columns: min(100%, 290px); }
 .pb-achievement-preview-status { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
 .pb-achievement-test .pb-actions, .pb-achievement-test .pb-achievements { margin-top: 10px; }
 .pb-pre { margin: 0; padding: 10px 12px; border-radius: 8px; background: var(--pb-fill); max-height: 200px; overflow: auto; font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; word-break: break-all; }
@@ -385,23 +333,39 @@ window.__ModuleLoader__.load({
           : t('unknownBuild'))
     }
 
-    function AchievementCard({ tier, t }) {
+    function AchievementCard({ tier, t, preview = false }) {
+      const number = value => Number.isSafeInteger(value) && value >= 0 ? value.toLocaleString() : '—'
+      const date = value => value ? new Intl.DateTimeFormat('sv-SE', { year: 'numeric', month: '2-digit', day: '2-digit' })
+        .format(value).replaceAll('-', '.') : '—'
       const unlocked = tier.unlockedAt ? new Date(tier.unlockedAt) : null
-      const chars = Number.isSafeInteger(tier.contextChars) && tier.contextChars >= 0
-      return h('li', { className: 'pb-achievement-card', 'data-tier': tier.id, 'data-cover': tier.cover ? '' : undefined },
-        tier.cover ? h('img', { className: 'pb-achievement-cover', src: tier.cover, alt: '', draggable: false }) : null,
-        h('div', { className: 'pb-achievement-crest', 'aria-hidden': 'true' },
-          h('img', { className: 'pb-achievement-medal', src: '/profile-bridge/achievement-medal.webp', alt: '', width: 218, height: 280, draggable: false }),
-          h('span', { className: 'pb-achievement-badge' }, h('b', null, tier.rounds))),
-        h('div', { className: 'pb-achievement-copy' },
-          h('div', { className: 'pb-achievement-plaque' },
-            h('strong', null, tier.title),
-            h('span', { className: 'pb-achievement-rounds' }, tier.rounds + ' ' + t('achievementRounds'))),
-          tier.cardName || chars ? h('div', { className: 'pb-achievement-record' },
-            tier.cardName ? h('span', { className: 'pb-achievement-character', title: tier.cardName }, tier.cardName) : null,
-            chars ? h('span', { className: 'pb-achievement-chars' }, h('span', null, t('achievementTotalChars')), ' ',
-              h('b', null, tier.contextChars.toLocaleString() + ' ' + t('achievementCharUnit'))) : null) : null,
-          unlocked ? h('time', { dateTime: unlocked.toISOString() }, unlocked.toLocaleDateString()) : null))
+      const chars = number(tier.contextChars)
+      const motto = t('achievementMotto')
+      const fields = [
+        ['name', 'achievementAdventurer', tier.cardName || '—'],
+        ['turns', 'achievementAdventureRounds', number(tier.turnCount)],
+        ['words', 'achievementMemory', chars === '—' ? chars : chars + ' ' + t('achievementCharUnit')],
+        ['date', 'achievementStartedAt', date(tier.startedAt)],
+      ]
+      return h('li', { className: 'pb-achievement-card achievement-art', 'data-tier': tier.id },
+        tier.cover ? h('img', { className: 'achievement-art-cover', src: tier.cover, alt: '', draggable: false }) : null,
+        motto !== 'achievementMotto' ? h('span', { className: 'achievement-art-motto', 'aria-hidden': 'true' }, motto) : null,
+        h('img', { className: 'achievement-art-medal', src: '/profile-bridge/achievement-medal.webp', alt: '', draggable: false }),
+        h('div', { className: 'achievement-art-stars', 'aria-hidden': 'true' },
+          Array.from({ length: 6 }, (_, i) => h('span', { key: i }))),
+        h('span', { className: 'achievement-art-badge', 'aria-hidden': 'true' }, tier.rounds),
+        h('div', { className: 'achievement-art-ribbon' }, h('strong', null, tier.title),
+          h('span', null, t('achievementMilestone').replace('{rounds}', tier.rounds))),
+        h('div', { className: 'achievement-art-pills' }, fields.map(([icon, label, value]) =>
+          h('div', { className: 'achievement-art-pill', key: icon, 'data-stat': icon },
+            h('span', { className: 'achievement-art-icon', 'data-icon': icon, 'aria-hidden': 'true' }),
+            h('span', { className: 'achievement-art-pill-label' }, t(label)),
+            h('b', { className: 'achievement-art-pill-value', title: icon === 'name' ? value : undefined }, value)))),
+        h('div', { className: 'achievement-art-progress', 'aria-hidden': 'true' },
+          h('div', { className: 'achievement-art-progress-label' },
+            t(tier.id === 'rainbow' ? 'achievementHighest' : 'achievementCurrent') + ' · ' + tier.title),
+          h('div', { className: 'achievement-art-sticker' }, t('achievementReached'), h('b', null, tier.rounds), t('achievementMilestoneSuffix'))),
+        h('div', { className: 'achievement-art-footer' }, t(preview ? 'achievementTestCard' : 'achievementMemento'),
+          unlocked ? h(React.Fragment, null, ' · ', h('time', { dateTime: unlocked.toISOString() }, date(unlocked))) : null))
     }
 
     function AchievementLibrary({ call, t }) {
@@ -443,7 +407,7 @@ window.__ModuleLoader__.load({
           preview === null ? h('p', { role: 'status' }, t('achievementTestUnavailable')) : null,
           preview ? h(React.Fragment, null,
             h('p', { role: 'status', className: 'pb-achievement-preview-status' }, [t('achievementTestCard'), preview.cardName].filter(Boolean).join(' · ')),
-            h('ul', { className: 'pb-achievements pb-achievement-preview-grid' }, h(AchievementCard, { tier: preview, t }))) : null) : null)
+            h('ul', { className: 'pb-achievements pb-achievement-preview-grid' }, h(AchievementCard, { tier: preview, t, preview: true }))) : null) : null)
     }
 
     /** @param {{ t: Function, rpcCall: Function }} props */

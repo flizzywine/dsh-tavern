@@ -244,9 +244,10 @@ export function apply(ctx) {
   }
   for (const [route, filename, type] of [
     [LOGO_PATH, 'dsh-tavern-app-icon-192.png', 'image/png'],
-    ...['medal', 'badges', 'paper'].map(asset => [
+    ...['medal', 'badges', 'paper', 'icons'].map(asset => [
       `${CHANNEL}/achievement-${asset}.webp`, `achievement-${asset}.webp`, 'image/webp',
     ]),
+    [`${CHANNEL}/achievement-art.css`, 'achievement-art.css', 'text/css; charset=utf-8'],
   ]) {
     const image = readFileSync(new URL('./assets/' + filename, import.meta.url))
     ctx.effect(() => ctx.webServer.register({
