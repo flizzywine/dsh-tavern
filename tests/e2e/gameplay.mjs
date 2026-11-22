@@ -440,7 +440,7 @@ try {
     const stageButton = page.locator('.fork-gal-toggle').getByText('舞台', {exact:true})
     async function openCard(name) {
       await page.getByRole('button', { name: /选择人物卡.*新开游玩/ }).click()
-      await page.getByText(name, { exact: true }).first().click()
+      await page.getByRole('dialog', { name: '选择人物卡开始游玩' }).getByText(name, { exact: true }).click()
     }
     await step('启动时舞台关闭，传统卡默认保持普通聊天', async () => {
       assert.equal((await stageRpc('getStageRuntimeStatus')).status, 'disabled')
