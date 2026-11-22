@@ -308,7 +308,9 @@ export async function createStageModule(core) {
           speakers, rows:cast.rows, voiceKeys:cast.voiceKeys, pieces:cardLorePieces(cast.raw, chat), search:query => autoCastLibrary.search(query), libraryVoices:() => autoCastLibrary.libraryVoices()}),
         onError:error => ctx.logger.warn('AUTO_CAST_FAILED %s', error.message)})
       ctx.effect(() => () => {autoCast?.dispose(); autoCast = null}, 'dsh-tavern: auto cast')
-      void autoCast.resume().catch(error => ctx.logger.warn('AUTO_CAST_FAILED %s', error.message))
+      // After a restart the queue continues once the asset library is there: at setup it may not be yet (it is its own plugin),
+      // and a queue started without it stops at once and waits for the next round.
+      ctx.inject(['assetLibrary'], child => child.effect(() => { void autoCast?.resume().catch(error => ctx.logger.warn('AUTO_CAST_FAILED %s', error.message)); return () => {} }, 'dsh-tavern: auto cast resume'))
       // 场景生图's gates (tavern.beforeImagePlan / beforeImageGenerate) wait for 自动素材: a settled turn's new people are
       // written before its pictures are planned, and a person's 人设图 is their record's 参考图 before a picture of them is drawn.
       const castCard = async gameId => autoCast && (await core.chatHeaderForSession(gameId, ['cardPath']))?.cardPath
