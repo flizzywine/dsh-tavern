@@ -127,7 +127,15 @@ export function projectRegenerationRequestMessages(messages) {
   const projectedPlayer = Object.assign({}, source[playerIndex], {
     content: Array.isArray(source[regenerationIndex].content) ? structuredClone(source[regenerationIndex].content) : []
   })
-  return source.slice(0, playerIndex).concat([projectedPlayer], source.slice(regenerationIndex + 1))
+  const tail = source.slice(regenerationIndex + 1)
+  const isWritingRulesUpdate = message => message?.role === 'user' &&
+    isProducerSource(message.source, 'dsh-tavern') && message.source.trace?.writingRulesSnapshot?.schemaVersion === 1
+  // The frame adapter skips unchanged rules because their snapshot is still in
+  // the session. If that snapshot was emitted during the replaced turn, carry it
+  // into the request unless the new frame already updated or withdrew the rules.
+  const retainedRules = tail.some(isWritingRulesUpdate) ? undefined
+    : source.slice(playerIndex + 1, regenerationIndex).findLast(isWritingRulesUpdate)
+  return source.slice(0, playerIndex).concat(projectedPlayer, retainedRules ? [retainedRules] : [], tail)
 }
 
 function snapshotMessage(text) {
