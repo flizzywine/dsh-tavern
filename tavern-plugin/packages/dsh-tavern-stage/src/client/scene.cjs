@@ -430,22 +430,27 @@ function galCreateScene(host, options, own) {
         // Missing lower-body artwork contributes to the shared viewport fit; each figure's height and ground stand the ruler
         // on the drawn cast. Measured when the descriptors or the loads change, not per frame.
         if(!castMeasure||castMeasure.figures!==desc.figures||castMeasure.loads!==state.figureLoads)castMeasure=measureCast(desc);
-        const {crops,sizes}=castMeasure;
+        const {crops,sizes,widths}=castMeasure;
         const result=sceneLayout.update({plan:desc.figureLayout,figures:desc.figures,W,H,now,
-            top:faceEnvironment(desc,W,H).layoutTop,ruler:state.figureScale,loaded:state.figureLoads,crops,sizes,instant:desc.snap||desc.skipping});
+            top:faceEnvironment(desc,W,H).layoutTop,ruler:state.figureScale,loaded:state.figureLoads,crops,sizes,widths,instant:desc.snap||desc.skipping});
         if(result.report&&options.onLayout){state.layoutReport=result.report;reportLayout();}
         return result.layout;
     }
     function measureCast(desc) {
-        const crops={},sizes={};
+        const crops={},sizes={},widths={};
         for(const figure of desc.figures||[]){
             const entry=figure&&state.figures.get(figure.key);
             const input=(entry?.model?entry.figureSizing:entry?.sprite?.figureInput)||figure?.figureSizing,anatomy=input?.anatomy||figure?.figureSizing?.anatomy;
             if(anatomy&&anatomy.feet>anatomy.visibleBottom)crops[figure.alias]=(anatomy.feet-anatomy.visibleBottom)/(anatomy.feet-(anatomy.headTop??anatomy.figureTop));
             const size=input&&resolveFigureSizing({...input,canvas:input.metrics?.canvas,W:1,H:1});
             if(size?.mode==='physical')sizes[figure.alias]={cm:size.heightCm,ground:size.restHead?(size.support.y-size.restHead.top)/size.displayPx:1};
+            // How far the picture's ink reaches either side of where it stands, and its face's half width, per displayed
+            // body: the layout keeps every face clear of its neighbours' pictures (galFigureLayout widths).
+            const ink=!entry?.model&&entry?.sprite?.forkInkX;
+            if(size?.mode==='physical'&&ink&&size.restHead&&size.displayPx>0)
+                widths[figure.alias]={reach:Math.max(size.supportX-ink[0],ink[1]-size.supportX)*size.scale/size.displayPx,face:size.restHead.width/2/size.displayPx};
         }
-        return {figures:desc.figures,loads:state.figureLoads,crops,sizes};
+        return {figures:desc.figures,loads:state.figureLoads,crops,sizes,widths};
     }
     // One report for the stage: the layout plus where the camera settles (its goal, sampled when the shot or the stage size
     // changes, never per frame), so the speaker anchor can place a figure under a close-up: screen x = (x - fx) * zoom + ax.
