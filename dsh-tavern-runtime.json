@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "6a13d6c234dcc18f306719d277295f64ef6b1446",
-  "releaseSequence": 1924,
+  "revision": "c6ec31c95b0d4d9ad5d102c37cb0d38bbda21798",
+  "releaseSequence": 1925,
   "version": "3.4.0",
   "files": [
     {
@@ -8441,8 +8441,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/client.js",
-      "sha256": "455d2d0804fabaa1d8c75bf7e946b954e061c6dbed9834775b865b42d38192b3",
-      "size": 3523504
+      "sha256": "347b5028db4929fb9593ddf6cc78436d830465c47c13d65ddbcb65042c01ebc2",
+      "size": 3528674
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/client/director-source.cjs",
@@ -8551,8 +8551,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/domain/asset-pack-presentation.js",
-      "sha256": "fd990af40692bf53ed3c1f30a3a1fc1420e9282809e54f2389e14d6b4058f1af",
-      "size": 49698
+      "sha256": "168b211b52b3da0344cce413c4a51cf7f7c37edd94f1cc6c04ffc81e7b668a7b",
+      "size": 50479
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/domain/auto-cast-queue.js",
@@ -9701,9 +9701,9 @@
     }
   ],
   "archive": {
-    "commit": "ddd04a2e144d9e79627641db60c63153998d8d41",
+    "commit": "2182160f2d7677afd72e92ecdf0776e5bb47df88",
     "path": "runtime.zip",
-    "sha256": "4d8d90e213c62523568649188d57d90a011838dc00aeb9392a698aa69f92f4b6",
-    "size": 17163280
+    "sha256": "368829b53c062884df6c929f54bd8ae0086db218936920998b235268b9aef53e",
+    "size": 17165292
   }
 }
