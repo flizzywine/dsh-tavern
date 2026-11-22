@@ -49,6 +49,8 @@ async function mount(status, calls = [], options = {}) {
 }
 
 const tavernProfile = { name: 'tavern', bundles: ['dsh-tavern-plugin', 'dsh-tavern'], hasBridge: true, hasNodeModules: true }
+const coverA = 'data:image/webp;base64,UklGRiIAAABXRUJQVlA4IBYAAAAwAQCdASoBAAEALmk0mk0iIiIiIgBoSygABc6zbAAA'
+const coverB = 'data:image/webp;base64,UklGRh4AAABXRUJQVlA4TBEAAAAvAAAAAAfQ//73v/+BiOh/AAA='
 
 test('原版 Profile 的启动器只显示已解锁的成就卡，空库完全隐藏', async t => {
   const home = await mkdtemp(join(tmpdir(), 'launcher-achievements-'))
@@ -72,15 +74,19 @@ test('原版 Profile 的启动器只显示已解锁的成就卡，空库完全�
     await emptyPage.dispose()
   }
 
-  await write([{ id: 'bronze', title: '小有名气', rounds: 100, earned: true, unlockedAt }, locked])
+  const historical = { ...locked, id: 'gold', title: '酒馆传说', rounds: 500, earned: true, cover: 'https://external.example/art.webp' }
+  await write([{ id: 'bronze', title: '小有名气', rounds: 100, earned: true, unlockedAt, cardName: '测试卡甲', cover: coverA }, locked, historical])
   const page = await mount(status, [], options)
   try {
     const library = page.dom.window.document.querySelector('section[aria-label="成就库"]')
     const cards = library.querySelectorAll('.pb-achievement-card')
-    assert.equal(cards.length, 1)
+    assert.equal(cards.length, 2)
     const earned = cards[0]
     assert.equal(earned.dataset.tier, 'bronze')
     assert.match(earned.textContent, /小有名气.*100 轮/)
+    assert.equal(earned.querySelector('.pb-achievement-cover').getAttribute('src'), coverA)
+    assert.equal(earned.querySelector('.pb-achievement-character').textContent, '测试卡甲')
+    assert.equal(cards[1].querySelector('.pb-achievement-cover'), null)
     assert.equal(earned.querySelector('time').dateTime, new Date(unlockedAt).toISOString())
     assert.doesNotMatch(library.textContent, /传奇冒险者|未解锁/)
   } finally {
@@ -98,9 +104,10 @@ test('四档测试按钮在酒馆里预览卡牌，成就库仍为空', async ()
   try {
     const win = page.dom.window
     let cardName = '测试卡甲'
+    let cover = coverA
     win.addEventListener('dsh-tavern-adventure-medal:preview', event => {
       event.preventDefault()
-      event.detail.complete({ ...tiers.find(tier => tier.id === event.detail.id), cardName })
+      event.detail.complete({ ...tiers.find(tier => tier.id === event.detail.id), cardName, cover })
     })
     const testing = win.document.querySelector('.pb-achievement-test')
     const buttons = [...testing.querySelectorAll('button')]
@@ -108,10 +115,13 @@ test('四档测试按钮在酒馆里预览卡牌，成就库仍为空', async ()
     await page.act(async () => { testing.open = true; buttons[0].click() })
     assert.match(testing.textContent, /测试卡牌 · 测试卡甲/)
     assert.equal(testing.querySelector('.pb-achievement-card').dataset.tier, 'bronze')
+    assert.equal(testing.querySelector('.pb-achievement-cover').getAttribute('src'), coverA)
     cardName = '测试卡乙'
+    cover = coverB
     await page.act(async () => buttons[3].click())
     assert.match(testing.textContent, /测试卡牌 · 测试卡乙/)
     assert.equal(testing.querySelector('.pb-achievement-card').dataset.tier, 'rainbow')
+    assert.equal(testing.querySelector('.pb-achievement-cover').getAttribute('src'), coverB)
     assert.equal(win.document.querySelector('.pb-achievement-library'), null)
   } finally {
     await page.dispose()

@@ -14,6 +14,7 @@ import { consumeProfileContinuation, initializeDefaultProfile, setDefaultProfile
 /** Shared RPC channel owned by this plugin; the browser half calls it by name. */
 const CHANNEL = '/profile-bridge'
 const LOGO_PATH = `${CHANNEL}/logo.png`
+const MEDAL_PATH = `${CHANNEL}/achievement-medal.webp`
 
 /** Control requests are tiny; anything larger is refused instead of buffered. */
 const BODY_LIMIT_BYTES = 64 * 1024
@@ -242,19 +243,24 @@ export function apply(ctx) {
       if (mode) await runSwitch(mode, paths, { target: 'tavern' })
     }).catch(error => ctx.logger?.warn?.(`默认配置未能应用：${error.message}`))
   }
-  const logo = readFileSync(new URL('./assets/dsh-tavern-app-icon-192.png', import.meta.url))
-  ctx.effect(() => ctx.webServer.register({
-    kind: 'exact',
-    path: LOGO_PATH,
-    handler(req, res) {
-      if (req.method !== 'GET' && req.method !== 'HEAD') {
-        res.writeHead(405, { allow: 'GET, HEAD' }).end()
-        return
-      }
-      res.writeHead(200, { 'content-type': 'image/png', 'content-length': logo.length })
-      res.end(req.method === 'HEAD' ? undefined : logo)
-    },
-  }), 'profile-bridge: Tavern logo')
+  for (const [route, filename, type] of [
+    [LOGO_PATH, 'dsh-tavern-app-icon-192.png', 'image/png'],
+    [MEDAL_PATH, 'achievement-medal.webp', 'image/webp'],
+  ]) {
+    const image = readFileSync(new URL('./assets/' + filename, import.meta.url))
+    ctx.effect(() => ctx.webServer.register({
+      kind: 'exact',
+      path: route,
+      handler(req, res) {
+        if (req.method !== 'GET' && req.method !== 'HEAD') {
+          res.writeHead(405, { allow: 'GET, HEAD' }).end()
+          return
+        }
+        res.writeHead(200, { 'content-type': type, 'content-length': image.length })
+        res.end(req.method === 'HEAD' ? undefined : image)
+      },
+    }), 'profile-bridge: ' + filename)
+  }
 
   // Preferred: the Connection service's own channel registry (it also applies the
   // browser-trust fence and session authentication).
