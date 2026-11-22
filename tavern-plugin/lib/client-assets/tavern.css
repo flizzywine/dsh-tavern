@@ -378,9 +378,6 @@ body.dsh-tavern-shell-active span:has(.dsh-tavern-hero-lockup) + span { display:
    座位下面的最后一行正文涂成半透明，看上去像输入框上方的浮层图标挡住了那一行。座位自身没有实色背景，
    关掉渐变后内容只是正常滚到卡片后面，文字不再被“吃掉”一行。桌面与手机同一条规则，表现一致。 */
 [class*="_composerSeat"] { background-image: none !important; }
-/* 管理 turns the whole row into the checkbox (house round check), so the hit area is the row. */
-.dsh-tavern-side-row-main.ap-check-row { display: flex; align-items: center; gap: 10px; min-height: 44px; --ap-border-strong: var(--dsw-alias-border-l3, color-mix(in srgb, currentColor 22%, transparent)); }
-.dsh-tavern-side-row-text { display: block; min-width: 0; flex: 1; }
 .dsh-tavern-side-row-more { width: 28px; height: 28px; flex: none; margin-right: 3px; border: 0; border-radius: 7px; background: transparent; color: var(--dsw-alias-label-secondary); cursor: pointer; opacity: 0; }
 .dsh-tavern-side-row:hover .dsh-tavern-side-row-more, .dsh-tavern-side-row-more[aria-expanded="true"] { opacity: 1; }
 .dsh-tavern-side-row-more:hover { background: var(--dsw-alias-interactive-bg-hover); color: inherit; }
@@ -406,7 +403,6 @@ body.dsh-tavern-shell-active span:has(.dsh-tavern-hero-lockup) + span { display:
 .dsh-tavern-side-row-expand { width: 22px; height: 28px; flex: none; border: 0; border-radius: 7px; background: transparent; color: var(--dsw-alias-label-secondary); cursor: pointer; font-size: 11px; opacity: 0; }
 .dsh-tavern-side-row:hover .dsh-tavern-side-row-expand, .dsh-tavern-side-row-expand[aria-expanded="true"] { opacity: 1; }
 .dsh-tavern-side-row-expand:hover { background: var(--dsw-alias-interactive-bg-hover); color: inherit; }
-.dsh-tavern-history-panel { min-width: 26px; }
 .dsh-tavern-side-empty { padding: 18px 8px; color: var(--dsw-alias-label-secondary); font-size: 12px; line-height: 1.6; text-align: center; }
 /* 选卡到开局准备之间、以及游戏初始化时的加载示意：转轮加一行状态。此前这里只有一句裸文字，
    点完卡什么都不动，看起来像卡住了（spinner.js 的 .fork-spinner 是唯一的加载指示器）。 */
@@ -1140,7 +1136,6 @@ body.dsh-tavern-shell-active [data-dsh-panel-host] { overflow: clip; }
 .dsh-tavern-history-action { appearance: none; border: 0; background: transparent; color: inherit; font: inherit; padding: 4px 6px; border-radius: 4px; cursor: pointer; }
 .dsh-tavern-history-action:hover:not(:disabled) { color: var(--dsw-alias-label-primary); background: rgba(128, 128, 128, .12); }
 .dsh-tavern-history-action:disabled { opacity: .45; cursor: default; }
-.dsh-tavern-history-selection { display: flex; align-items: center; justify-content: space-between; margin: 0 4px 7px; color: var(--dsw-alias-label-secondary); font-size: 12px; }
 
 /* Player notebook: fixed UI typography, independent of story font settings. */
 .dsh-ledger { font-size: 13px; line-height: 1.55; }
@@ -3253,18 +3248,11 @@ body.dsh-tavern-shell-active [class*="_tabs"] [class*="_viewsMoreAnchor"] [class
   }
   .dsh-tavern-side-title { margin: 6px 2px 3px; }
   .dsh-tavern-side-title.dsh-tavern-history-heading { gap: 2px; }
-  .dsh-tavern-history-selection { margin: 0 2px 4px; }
   .dsh-tavern-side-list { gap: 2px; }
   .dsh-tavern-history-group-toggle { min-height: 30px; padding: 4px 6px; gap: 5px; font-size: 13px; }
   .dsh-tavern-history-group-items { padding-left: 4px; gap: 2px; }
-  body.dsh-tavern-shell-active .dsh-tavern-side-row-main:not(.ap-check-row) {
+  body.dsh-tavern-shell-active .dsh-tavern-side-row-main {
     padding: 6px 4px 6px 8px;
-    display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; column-gap: 6px;
-  }
-  body.dsh-tavern-shell-active .dsh-tavern-side-row-main.ap-check-row {
-    padding: 6px 4px 6px 8px; min-height: 38px; gap: 8px;
-  }
-  body.dsh-tavern-shell-active .dsh-tavern-side-row-text {
     display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; column-gap: 6px;
   }
   body.dsh-tavern-shell-active .dsh-tavern-side-row-name {

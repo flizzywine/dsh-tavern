@@ -238,7 +238,6 @@
 			const [pendingOpen, setPendingOpen] = React.useState(null);
 			const [menuSession, setMenuSession] = React.useState(null);
 			const [archiveExpanded, setArchiveExpanded] = React.useState(false);
-			const [managing, setManaging] = React.useState(false);
 			const [selectedChats, setSelectedChats] = React.useState([]);
 			const [deleteNotice, setDeleteNotice] = React.useState("");
 			// 侧栏历史已渲染的行数（窗口），以及列表容器本身（滚动到底部时追加）。
@@ -250,7 +249,6 @@
 			}, [collapsed]);
 			React.useEffect(function () {
 				setSelectedChats([]);
-				setManaging(false);
 				setMenuSession(null);
 				setDeleteNotice("");
 				setArchiveExpanded(false);
@@ -318,8 +316,7 @@
 				if (busy) return;
 				setSelectedChats(function (ids) { return ids.includes(chatId) ? ids.filter(function (id) { return id !== chatId; }) : ids.concat(chatId); });
 			}
-			async function deleteSelectedConversations(customItems) {
-				const pool = Array.isArray(customItems) ? customItems : visibleHistory;
+			async function deleteSelectedConversations(pool) {
 				const items = pool.filter(function (item) { return selectedChats.includes(item.chatId); });
 				if (busy || !items.length || !await askConfirm("此操作不可撤销，人物卡和世界书会保留。", { title: "彻底删除这 " + items.length + " 个对话？", confirmText: "彻底删除", danger: true, hide: "chat-bulk" })) return;
 				setBusy(true); setError(""); setDeleteNotice("");
@@ -373,6 +370,7 @@
 				setMenuSession(null);
 				setManagerRenaming(null);
 				setSelectedChats([]);
+				setDeleteNotice("");
 				setHistoryManagerOpen(true);
 			}
 			function closeHistoryManager() {
@@ -1348,9 +1346,6 @@
 			const archivedHistory = React.useMemo(function () {
 				return listedHistory.filter(function (item) { return archivedSessions.has(item.sessionId) && groupOfMode(item.mode) === uiMode && (uiMode !== "play" || item.requestMode !== "sillytavern"); });
 			}, [listedHistory, archivedSessions, uiMode]);
-			const visibleHistory = React.useMemo(function () {
-				return archiveExpanded ? activeHistory.concat(archivedHistory) : activeHistory;
-			}, [archiveExpanded, activeHistory, archivedHistory]);
 			// 最新回复序下整张列表按活动重排；创建序保持注册表的固定位置。
 			const orderedActiveHistory = React.useMemo(function () {
 				return orderTavernHistory(activeHistory, summaries, historyOrder);
@@ -1417,31 +1412,26 @@
 				const stamp = tavernHistoryStamp(item, summary, summaries, historyOrder);
 				const stampIsInTitle = !item.title && isPlayMode(item.mode || "story") && Boolean(formatTime(stamp)) && title.indexOf(formatTime(stamp)) >= 0;
 				return h("div", { key: item.sessionId, className: "dsh-tavern-side-row" + (current === item.sessionId ? " active" : "") + (generating ? " is-generating" : "") + (preview.hasPreview ? " has-preview" : "") },
-					// in 管理 the whole row is the checkbox (house round check), not a small native box.
-					h("button", Object.assign({ className: "dsh-tavern-side-row-main" + (managing ? " ap-check-row" : ""), disabled: busy, title: preview.hasPreview && !expanded && preview.tooltip ? preview.tooltip : undefined }, managing ? { role: "checkbox", "aria-checked": selectedChats.includes(item.chatId), "aria-label": "选择对话：" + title } : null, { onClick: async function () {
-					if (managing) { toggleChatSelection(item.chatId); return; }
-					if (archived) { setMenuSession(menuSession === item.sessionId ? null : item.sessionId); return; }
-					try {
-						if (summary && summary.blank) await call("ensureOpening", { sessionId: item.sessionId });
-						await openSessionWhenReady(item.sessionId);
-						if (narrowLayout() && typeof props.closeNarrowSidebar === "function") props.closeNarrowSidebar();
-					} catch (err) { setError(String(err && err.message || err)); }
-				} }),
-					managing ? h("span", { className: "ap-check-mark", "aria-hidden": true }, selectedChats.includes(item.chatId) ? h("svg", { viewBox: "0 0 24 24", width: 12, height: 12, fill: "none", stroke: "currentColor", strokeWidth: 2.4, strokeLinecap: "round", strokeLinejoin: "round" }, h("path", { d: "M5 12.5l4.5 4.5L19 7.5" })) : null) : null,
-					h(managing ? "span" : React.Fragment, managing ? { className: "dsh-tavern-side-row-text" } : null,
-					h("div", { className: "dsh-tavern-side-row-name" },
-						generating ? h("span", { className: "dsh-tavern-side-row-spinner", role: "status", "aria-label": "正在生成" }, h(Spinner, {})) : null,
-						h("span", { className: "dsh-tavern-side-row-title" }, title)),
-					preview.hasPreview ? previewLinesNode(expanded ? preview.detailLines : preview.compactLines, expanded, "dsh-tavern-side-row-preview") : null,
-					h("div", { className: "dsh-tavern-side-row-meta" },
-						h("span", null, item.mode === "card" ? (item.cardPath ? ("已创建：" + item.cardName) : "尚未创建正式人物卡") : modeLabel(item.mode || "story")),
-						preview.hasPreview || preview.messageCount ? h("span", { className: "dsh-tavern-side-row-turns" }, preview.turnBadge) : null,
-						// 自动标题本身就是「11/7 20:25 开局」，再重复一次时间只是占宽度。
-						generating || !stampIsInTitle ? h("span", null, generating ? "生成中" : formatTime(stamp)) : null))
-					),
-					!managing && preview.hasPreview ? h("button", { className: "dsh-tavern-side-row-expand", title: expanded ? "收起预览" : "展开预览", "aria-label": (expanded ? "收起预览：" : "展开预览：") + title, "aria-expanded": expanded ? "true" : "false", onClick: function (event) { event.stopPropagation(); togglePreview(item); } }, expanded ? "▴" : "▾") : null,
-					!managing ? h("button", { className: "dsh-tavern-side-row-more", title: "对话操作", "aria-label": "对话操作", "aria-expanded": menuSession === item.sessionId ? "true" : "false", onClick: function () { setMenuSession(menuSession === item.sessionId ? null : item.sessionId); } }, "⋯") : null,
-					!managing && menuSession === item.sessionId ? h("div", { className: "dsh-tavern-side-row-menu" },
+					h("button", { className: "dsh-tavern-side-row-main", disabled: busy, title: preview.hasPreview && !expanded && preview.tooltip ? preview.tooltip : undefined, onClick: async function () {
+						if (archived) { setMenuSession(menuSession === item.sessionId ? null : item.sessionId); return; }
+						try {
+							if (summary && summary.blank) await call("ensureOpening", { sessionId: item.sessionId });
+							await openSessionWhenReady(item.sessionId);
+							if (narrowLayout() && typeof props.closeNarrowSidebar === "function") props.closeNarrowSidebar();
+						} catch (err) { setError(String(err && err.message || err)); }
+					} },
+						h("div", { className: "dsh-tavern-side-row-name" },
+							generating ? h("span", { className: "dsh-tavern-side-row-spinner", role: "status", "aria-label": "正在生成" }, h(Spinner, {})) : null,
+							h("span", { className: "dsh-tavern-side-row-title" }, title)),
+						preview.hasPreview ? previewLinesNode(expanded ? preview.detailLines : preview.compactLines, expanded, "dsh-tavern-side-row-preview") : null,
+						h("div", { className: "dsh-tavern-side-row-meta" },
+							h("span", null, item.mode === "card" ? (item.cardPath ? ("已创建：" + item.cardName) : "尚未创建正式人物卡") : modeLabel(item.mode || "story")),
+							preview.hasPreview || preview.messageCount ? h("span", { className: "dsh-tavern-side-row-turns" }, preview.turnBadge) : null,
+							// 自动标题本身就是「11/7 20:25 开局」，再重复一次时间只是占宽度。
+							generating || !stampIsInTitle ? h("span", null, generating ? "生成中" : formatTime(stamp)) : null)),
+					preview.hasPreview ? h("button", { className: "dsh-tavern-side-row-expand", title: expanded ? "收起预览" : "展开预览", "aria-label": (expanded ? "收起预览：" : "展开预览：") + title, "aria-expanded": expanded ? "true" : "false", onClick: function (event) { event.stopPropagation(); togglePreview(item); } }, expanded ? "▴" : "▾") : null,
+					h("button", { className: "dsh-tavern-side-row-more", title: "对话操作", "aria-label": "对话操作", "aria-expanded": menuSession === item.sessionId ? "true" : "false", onClick: function () { setMenuSession(menuSession === item.sessionId ? null : item.sessionId); } }, "⋯"),
+					menuSession === item.sessionId ? h("div", { className: "dsh-tavern-side-row-menu" },
 						// 触屏没有悬停的 ▾，展开/收起预览收进菜单，行内不再多占一列。
 						preview.hasPreview ? h("button", { disabled: busy, "aria-pressed": expanded ? "true" : "false", onClick: function () { togglePreview(item); } }, expanded ? "收起预览" : "展开预览") : null,
 						!archived ? h("button", { disabled: busy, onClick: function () { renameConversation(item, title); } }, "重命名") : null,
@@ -1492,10 +1482,7 @@
 				const expanded = historyGroupState[group.key] === true;
 				return renderHistoryGroup(group, expanded, () => setHistoryGroupState(previous => ({ ...previous, [group.key]: !expanded })));
 			}));
-			const archiveGroup = collapsed || !orderedArchivedHistory.length ? null : renderHistoryGroup({ key: "archived", name: "已归档", items: orderedArchivedHistory }, archiveExpanded, () => {
-				if (archiveExpanded) setSelectedChats(ids => ids.filter(id => !orderedArchivedHistory.some(item => item.chatId === id)));
-				setArchiveExpanded(!archiveExpanded);
-			});
+			const archiveGroup = collapsed || !orderedArchivedHistory.length ? null : renderHistoryGroup({ key: "archived", name: "已归档", items: orderedArchivedHistory }, archiveExpanded, () => setArchiveExpanded(!archiveExpanded));
 			// ---------- 宽屏会话管理器 ----------
 			// 侧边栏一行放不下「玩家首条输入 + AI 首条回复 + 轮数」，批量整理 200+ 个
 			// 同前缀的导入存档要靠这一层：宽列表、搜标题和正文、按卡/轮数筛选、批量归档。
@@ -1823,15 +1810,8 @@
 				cardUpdate.element,
 				h("div", { className: "dsh-tavern-side-title dsh-tavern-history-heading" },
 					h("span", null, uiMode === "play" ? "游玩历史" : "卡片历史"),
-					h("button", { className: "dsh-tavern-history-action", disabled: busy, onClick: function () { setManaging(!managing); setSelectedChats([]); setMenuSession(null); setDeleteNotice(""); } }, managing ? "取消" : "管理"),
-					h("button", { className: "dsh-tavern-history-action dsh-tavern-history-panel", title: "宽屏管理会话", "aria-label": "宽屏管理会话", disabled: busy || !hasHistoryInMode, onClick: openHistoryManager }, "⤢")),
-				managing ? h("div", { className: "dsh-tavern-history-selection" },
-					h("button", { className: "dsh-tavern-history-action", disabled: busy || !visibleHistory.length, onClick: function () { setSelectedChats(visibleHistory.map(function (item) { return item.chatId; })); } }, "全选"),
-					h("span", null, "已选 " + visibleHistory.filter(function (item) { return selectedChats.includes(item.chatId); }).length),
-					h("span", { className: "dsh-tavern-spacer" }),
-					h("button", { className: "dsh-tavern-history-action", disabled: busy || !visibleHistory.length, onClick: openHistoryManager }, "宽屏管理")) : null,
+					h("button", { type: "button", className: "dsh-tavern-history-action", "aria-haspopup": "dialog", disabled: busy || !hasHistoryInMode, onClick: openHistoryManager }, "管理")),
 				h("div", { ref: sideListRef, className: "dsh-tavern-side-list", onScroll: onSideListScroll }, rows.length || archiveGroup ? rows : h(EmptyState, { noun: uiMode === "play" ? "游玩对话" : "卡片工作台对话" }), archiveGroup),
-				managing ? h("button", { className: "dsh-tavern-btn", style: { flexShrink: 0, margin: "8px 12px", color: "#e57373" }, disabled: busy || !visibleHistory.some(function (item) { return selectedChats.includes(item.chatId); }), onClick: deleteSelectedConversations }, busy ? "正在删除…" : "彻底删除所选（" + visibleHistory.filter(function (item) { return selectedChats.includes(item.chatId); }).length + "）") : null,
 				deleteNotice ? h("div", { role: "status", style: { padding: "4px 12px" } }, deleteNotice) : null,
 				!picking && error ? h("div", { className: "dsh-tavern-dock-error", role: "alert" }, error) : null,
 				collapsed ? null : props.renderSlot("tavern.sidebar.chrome", {}),
