@@ -73,7 +73,8 @@ PY
 if [ "${RELEASE:-0}" = 1 ]; then
   : "${RELEASE_KEYSTORE:?缺少 RELEASE_KEYSTORE}" "${RELEASE_KEY_ALIAS:?缺少 RELEASE_KEY_ALIAS}" "${RELEASE_KEY_PASS_FILE:?缺少 RELEASE_KEY_PASS_FILE}"
   APK="$OUT/dsh-tavern-beta-$VERSION_NAME.apk"
-  "$BT/apksigner" sign --ks "$RELEASE_KEYSTORE" --ks-pass "file:$RELEASE_KEY_PASS_FILE" --key-pass "file:$RELEASE_KEY_PASS_FILE" \
+  # 密钥口令默认与密钥库口令相同（同一个文件给两次，apksigner 会按两行去读）。
+  "$BT/apksigner" sign --ks "$RELEASE_KEYSTORE" --ks-pass "file:$RELEASE_KEY_PASS_FILE" \
     --ks-key-alias "$RELEASE_KEY_ALIAS" --v4-signing-enabled false --out "$APK" "$OUT/aligned.apk"
   "$BT/apksigner" verify --print-certs "$APK" | grep -E "Signer #1 certificate (DN|SHA-256)"
 else
