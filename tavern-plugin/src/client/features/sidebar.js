@@ -57,6 +57,14 @@
 			{ value: "opening", label: "仅开场" }, { value: "archived", label: "已归档" }
 		];
 
+		// The fork's self-drawn tick (.ap-check-mark, ui-design §三.15): role=checkbox, "mixed" for a partly selected list.
+		function HistoryManagerCheck({ checked, label, disabled, onToggle, className, children }) {
+			const h = React.createElement;
+			return h("button", { type: "button", role: "checkbox", className: "ap-pack-check dsh-tavern-history-manager-check" + (className ? " " + className : ""), "aria-checked": checked, "aria-label": label, disabled, onClick: onToggle },
+				h("span", { className: "ap-check-mark", "aria-hidden": "true" }, checked === "mixed" ? h("i", { className: "ap-check-dash" }) : checked ? h(InlineGlyph, { name: "check" }) : null),
+				children);
+		}
+
 		function HistoryCardFilter({ options, value, onChange }) {
 			const h = React.createElement;
 			const popup = useInlinePopup({ focusSelector: "input" });
@@ -96,8 +104,7 @@
 					onKeyDown: event => { if (!popup.open && event.key === "ArrowDown") { event.preventDefault(); open(); } } },
 					h("span", { className: "fork-inline-text" }, current.label), h(InlineGlyph, { name: "chevDown" })),
 				popup.open ? popup.layer({ id: popupId, className: "fork-inline-pop dsh-tavern-history-card-popup", role: "dialog", "aria-label": "筛选人物卡" },
-					h("input", { type: "text", className: "dsh-tavern-library-search", placeholder: "搜索人物卡", "aria-label": "搜索人物卡",
-						autoComplete: "off", value: query, onChange: event => setQuery(event.target.value), onKeyDown: searchKeys }),
+					h(SearchBox, { bare: true, inputClassName: "dsh-tavern-library-search", label: "搜索人物卡", value: query, onChange: setQuery, onKeyDown: searchKeys, inputProps: { autoComplete: "off" } }),
 					matches.length ? h("div", { className: "dsh-tavern-history-card-options", role: "menu", "aria-label": "人物卡", onKeyDown: inlineMenuKeys },
 						matches.map(option => h("button", { key: option.value, type: "button", className: "fork-inline-option", role: "menuitemradio",
 							"aria-checked": option.value === current.value, title: option.path || option.label, onClick: () => choose(option.value) },
@@ -1624,7 +1631,7 @@
 						toggleChatSelection(item.chatId);
 					}
 				},
-					h("input", { type: "checkbox", className: "dsh-tavern-history-manager-check", checked: selected, disabled: busy, "aria-label": "选择对话：" + title, onChange: function () { toggleChatSelection(item.chatId); } }),
+					h(HistoryManagerCheck, { checked: selected, disabled: busy, label: "选择对话：" + title, onToggle: function () { toggleChatSelection(item.chatId); } }),
 					h("div", { className: "dsh-tavern-history-manager-body" },
 						h("div", { className: "dsh-tavern-history-manager-headline" },
 							renaming ? h("input", {
@@ -1681,13 +1688,10 @@
 						h("h2", null, uiMode === "play" ? "游玩历史" : "卡片历史"),
 						h("button", { type: "button", className: "dsh-tavern-history-manager-icon", title: "关闭", "aria-label": "关闭", onClick: closeHistoryManager }, h(Icon, { name: "close", size: 20 }))),
 					h("div", { className: "dsh-tavern-history-manager-toolbar" },
-						h("label", { className: "dsh-tavern-history-manager-select-all" },
-							h("input", { type: "checkbox", className: "dsh-tavern-history-manager-check", "aria-label": "全选筛选结果",
-								disabled: busy || !managerVisible.length, checked: allVisibleSelected,
-								ref: node => { if (node) node.indeterminate = someVisibleSelected; },
-								onChange: event => setSelectedChats(event.target.checked ? managerVisible.map(item => item.chatId) : []) }),
+						h(HistoryManagerCheck, { className: "dsh-tavern-history-manager-select-all", label: "全选筛选结果", disabled: busy || !managerVisible.length, checked: allVisibleSelected ? true : someVisibleSelected ? "mixed" : false,
+							onToggle: () => setSelectedChats(allVisibleSelected ? [] : managerVisible.map(item => item.chatId)) },
 							"全选"),
-						h("input", { className: "dsh-tavern-library-search dsh-tavern-history-manager-search", value: managerQuery, placeholder: "搜索对话", "aria-label": "搜索会话", onChange: event => setManagerQuery(event.target.value) }),
+						h(SearchBox, { bare: true, inputClassName: "dsh-tavern-library-search dsh-tavern-history-manager-search", value: managerQuery, placeholder: "搜索对话", label: "搜索会话", onChange: setManagerQuery }),
 						h("div", { className: "dsh-tavern-history-manager-filters" },
 							managerCardOptions.length ? h(HistoryCardFilter, { options: managerCardOptions, value: managerCardFilter, onChange: setManagerCardFilter }) : null,
 							h(InlineMenu, { name: "按状态筛选", controlClassName: "dsh-tavern-history-card-trigger", options: historyStatusOptions, value: managerStatusFilter, onCommit: setManagerStatusFilter }))),
