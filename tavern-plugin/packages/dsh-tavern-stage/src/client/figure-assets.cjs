@@ -31,6 +31,27 @@ function createStageFigureAssets({spineFigures,metrics}) {
         headCentres.set(id, result);
         return result;
     }
+    // How far a picture's ink reaches across its canvas: [left, right] in canvas px (alpha >= 64, read at 256 px), so the
+    // cast layout knows a broad figure - plate armour, a hammer on the shoulder, wings - from a slim one. undefined when
+    // unreadable or empty. Once per picture.
+    function inkSpan(document, key, texture) {
+        const id = key + ":ink-x";
+        if (headCentres.has(id)) return headCentres.get(id);
+        let result;
+        try {
+            const canvas = document.createElement("canvas"), ratio = Math.min(1, 256 / Math.max(texture.width, texture.height));
+            canvas.width = Math.max(1, Math.round(texture.width * ratio)); canvas.height = Math.max(1, Math.round(texture.height * ratio));
+            const ctx = canvas.getContext("2d", { willReadFrequently: true });
+            ctx.drawImage(texture.baseTexture.resource.source, 0, 0, canvas.width, canvas.height);
+            const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+            let left = canvas.width, right = -1;
+            for (let i = 3; i < data.length; i += 4) if (data[i] >= 64) { const x = ((i - 3) / 4) % canvas.width; if (x < left) left = x; if (x > right) right = x; }
+            if (right >= left) result = [left / ratio, (right + 1) / ratio];
+        } catch (_) { result = undefined; }
+        if (headCentres.size >= 256) headCentres.delete(headCentres.keys().next().value);
+        headCentres.set(id, result);
+        return result;
+    }
     // centred: scene-math galCentredAnatomy (a pack picture stands on its head's centre).
     function create({PIXI,renderer,screen,textures,document,centred}) {
         if(disposed)throw new Error('Figure asset owner disposed');
@@ -66,6 +87,7 @@ function createStageFigureAssets({spineFigures,metrics}) {
                 } else sprite.figureInput = null;
                 // The body's centre across the picture (canvases are often off-centre), for the speaker anchor.
                 sprite.forkBodyX = metrics.bodyX(sprite.figureInput?.metrics, sprite.figureInput ? candidate : null) ?? metrics.bodyCentre(src, texture) ?? texture.width / 2;
+                if (sprite.figureInput) sprite.forkInkX = inkSpan(document, src, texture);
 
                 return own(sprite,candidate);
             }catch(error){try{if(sprite&&!sprite.destroyed)sprite.destroy({children:true});}catch(cleanup){throw new AggregateError([error,cleanup],'Picture preparation failed');}throw error;}
