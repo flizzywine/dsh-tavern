@@ -1,0 +1,32 @@
+{
+  "name": "dsh-tavern-adventure-medal",
+  "version": "2.9.0",
+  "description": "在 DSH Tavern 首次达成游玩成就时提示，并在酒馆启动器里记录成就。",
+  "private": true,
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/flizzywine/dsh-tavern-adventure-medal.git",
+    "directory": "dsh-tavern-adventure-medal"
+  },
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./client.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "client.js",
+    "README.md",
+    "LICENSE"
+  ],
+  "dsh": {
+    "client": {
+      "platform": "web",
+      "inject": [
+        "dsh-tavern-plugin"
+      ]
+    }
+  },
+  "license": "MIT"
+}
