@@ -14,6 +14,7 @@ window.__ModuleLoader__.load({
     /** Shared RPC channel owned by this plugin's Host half. */
     const CHANNEL = '/profile-bridge'
     const ACHIEVEMENT_PREVIEW_EVENT = 'dsh-tavern-adventure-medal:preview'
+    const ACHIEVEMENT_UNLOCK_EVENT = 'dsh-tavern-adventure-medal:unlocked'
     /** Locale namespace of this page. */
     const NS = 'profileBridge'
 
@@ -373,11 +374,20 @@ window.__ModuleLoader__.load({
       const [preview, setPreview] = React.useState(undefined)
       const previewRequest = React.useRef(0)
       React.useEffect(() => {
-        let alive = true
-        call('achievements', {}).then(result => {
-          if (alive && result?.ok === true && Array.isArray(result.value)) setTiers(result.value)
-        }, () => {})
-        return () => { alive = false; previewRequest.current++ }
+        let request = 0
+        function refresh() {
+          const current = ++request
+          call('achievements', {}).then(result => {
+            if (current === request && result?.ok === true && Array.isArray(result.value)) setTiers(result.value)
+          }, () => {})
+        }
+        window.addEventListener(ACHIEVEMENT_UNLOCK_EVENT, refresh)
+        refresh()
+        return () => {
+          request++
+          previewRequest.current++
+          window.removeEventListener(ACHIEVEMENT_UNLOCK_EVENT, refresh)
+        }
       }, [call])
       function previewTier(id) {
         const request = ++previewRequest.current

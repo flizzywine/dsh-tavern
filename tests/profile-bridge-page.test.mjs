@@ -97,8 +97,8 @@ test('原版 Profile 的启动器只显示已解锁的成就卡，空库完全�
   }
 })
 
-test('四档测试按钮在酒馆里预览卡牌，成就库仍为空', async () => {
-  const tiers = [
+test('四档测试只预览卡牌，正式解锁后刷新已经打开的成就库', async () => {
+  let tiers = [
     ['bronze', '小有名气', 100], ['silver', '传奇冒险者', 300], ['gold', '酒馆传说', 500], ['rainbow', '不朽传说', 1000],
   ].map(([id, title, rounds]) => ({ id, title, rounds, earned: false, unlockedAt: null }))
   const status = { activeName: 'tavern', appKind: 'desktop', desktopApp: true, profiles: [tavernProfile] }
@@ -130,6 +130,12 @@ test('四档测试按钮在酒馆里预览卡牌，成就库仍为空', async ()
     assert.equal(testing.querySelector('.pb-achievement-cover').getAttribute('src'), coverB)
     assert.equal(testing.querySelector('.pb-achievement-chars').textContent, '总字数 0 字')
     assert.equal(win.document.querySelector('.pb-achievement-library'), null)
+    tiers = [{ ...tiers[0], earned: true, cardName, cover, contextChars: 9800 }, ...tiers.slice(1)]
+    await page.act(async () => win.dispatchEvent(new win.Event('dsh-tavern-adventure-medal:unlocked')))
+    const library = win.document.querySelector('.pb-achievement-library')
+    assert.equal(library.querySelector('.pb-achievement-card').dataset.tier, 'bronze')
+    assert.equal(library.querySelector('.pb-achievement-cover').getAttribute('src'), coverB)
+    assert.match(library.textContent, /总字数.*字/)
   } finally {
     await page.dispose()
   }
