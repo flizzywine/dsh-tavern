@@ -266,42 +266,25 @@
 			return rest || title;
 		}
 
-		function tavernPreviewLines(text, limit, role, label) {
-			const lines = String(text || "").split(/\r?\n/).map(function (line) { return line.trim(); }).filter(Boolean);
-			if (!lines.length) return null;
-			// Folded to one paragraph: the clamp in CSS counts wrapped lines, so a
-			// pre-wrapped list would make "one line here, five lines expanded" lie.
-			return { role: role, label: label, text: lines.slice(0, limit).join(" ") };
-		}
-
 		function formatTavernHistoryPreview(preview) {
-			const empty = { hasPreview: false, turnCount: 0, messageCount: 0, isOpeningOnly: false, turnBadge: "", compactLines: [], detailLines: [], tooltip: "", searchText: "" };
-			if (!preview || typeof preview !== "object") return empty;
-			const turnCount = Math.max(0, Number(preview.turnCount) || 0);
-			const messageCount = Math.max(0, Number(preview.messageCount) || 0);
-			const userText = String(preview.userText || "").trim();
-			const replyText = String(preview.replyText || "").trim();
-			const openingText = String(preview.openingText || "").trim();
-			const hasDialogue = Boolean(userText || replyText);
-			const turnBadge = turnCount > 0 ? (turnCount + " 轮") : (messageCount > 0 || openingText || userText ? "仅开场" : "空对话");
-			const compactLines = [];
-			const detailLines = [];
-			function push(brief, full) { if (brief) compactLines.push(brief); if (full) detailLines.push(full); }
-			if (hasDialogue) {
-				push(tavernPreviewLines(userText, 1, "user", "你"), tavernPreviewLines(userText, 3, "user", "你"));
-				push(tavernPreviewLines(replyText, 2, "reply", "角色"), tavernPreviewLines(replyText, 5, "reply", "角色"));
-			} else if (openingText) {
-				push(tavernPreviewLines(openingText, 2, "opening", "开场"), tavernPreviewLines(openingText, 5, "opening", "开场"));
-			}
+			const turnCount = Math.max(0, Number(preview?.turnCount) || 0);
+			const messageCount = Math.max(0, Number(preview?.messageCount) || 0);
+			const floorNo = Number.isSafeInteger(preview?.floorNo) ? preview.floorNo : 0;
+			const userText = String(preview?.userText || "").trim();
+			const replyText = String(preview?.replyText || "").trim();
+			const openingText = String(preview?.openingText || "").trim();
+			const isOpeningOnly = Boolean(preview) && turnCount === 0 && !userText && !replyText;
+			const lines = (replyText || openingText).split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+			const detailText = lines.slice(0, 5).join(" ");
+			const floorBadge = isOpeningOnly && openingText ? "仅开场" : floorNo > 0 ? floorNo + " 楼" : preview && messageCount === 0 ? "空对话" : "";
 			return {
-				hasPreview: compactLines.length > 0,
+				hasPreview: detailText !== "",
 				turnCount,
 				messageCount,
-				isOpeningOnly: turnCount === 0 && !hasDialogue,
-				turnBadge,
-				compactLines,
-				detailLines,
-				tooltip: detailLines.map(function (line) { return line.label + "：" + line.text; }).join("\n"),
+				isOpeningOnly,
+				floorBadge,
+				compactText: lines.slice(0, 2).join(" "),
+				detailText,
 				searchText: [userText, replyText, openingText].filter(Boolean).join("\n").toLowerCase()
 			};
 		}

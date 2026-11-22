@@ -3,7 +3,14 @@ import assert from 'node:assert/strict'
 import vm from './fixtures/client-vm.mjs'
 import { sourceFunction } from './fixtures/source-function.mjs'
 import { readFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { mkdtemp } from './helpers/temp-directory.mjs'
+import { createChatJournalStore } from '../tavern-plugin/lib/domain/chat-journal-store.js'
+import { createChatPersistence } from '../tavern-plugin/lib/domain/chat-persistence.js'
 import { createTavernConversationRegistry, extractChatPreview } from '../tavern-plugin/lib/domain/tavern-conversation-registry.js'
+import { projectSessionMessage } from '../tavern-plugin/lib/domain/chat-session-state.js'
+import { projectStoryTranscript } from '../tavern-plugin/lib/domain/story-transcript.js'
 
 const cardList = readFileSync(new URL('../tavern-plugin/src/client/features/card-list.js', import.meta.url), 'utf8')
 const sidebar = readFileSync(new URL('../tavern-plugin/src/client/features/sidebar.js', import.meta.url), 'utf8')
@@ -32,6 +39,13 @@ function memoryStore(seed = {}) {
       const head = {}
       for (const field of fields || []) if (Object.hasOwn(chat, field)) head[field] = structuredClone(chat[field])
       return { chat: { ...head, messages: indices.map(index => structuredClone(rows[index])) }, messageCount: rows.length }
+    },
+    async readRecentSummaries(id, count) {
+      const chat = chats.get(id)
+      if (!chat) return null
+      const from = Math.max(0, chat.messages.length - count)
+      return { from, revision: chat._storageRevision, messageCount: chat.messages.length,
+        messages: chat.messages.slice(from).map(projectSessionMessage) }
     },
     async writeChat(chat) { chats.set(chat.id, structuredClone(chat)) },
     async removeChat(id) { chats.delete(id) }
@@ -87,20 +101,21 @@ test('预览提取：多轮存档按 turn 记轮数，助手多段回复不重�
   assert.equal(preview.openingText, '')
 })
 
-test('预览保留还在等待回复的最新输入，不混入上一轮正文', () => {
+test('等待回复时保留最后一楼已保存的正文', () => {
   const chat = importChat()
-  chat.messages.push({ role: 'user', text: '我起身走出旅店。' }, { role: 'assistant', turn: 3, text: '' })
+  chat.messages.push({ role: 'user', text: '我起身走出旅店。' }, { role: 'assistant', turn: 3, placeholder: true, text: '' })
   const preview = extractChatPreview(chat)
   assert.equal(preview.userText, '我起身走出旅店。')
-  assert.equal(preview.replyText, '')
+  assert.match(preview.replyText, /老板抬起头/)
+  assert.equal(preview.floorNo, 2)
   assert.equal(preview.openingText, '')
 })
 
-test('只续写正文时显示最新一轮正文，避免带上上一轮输入', () => {
+test('连续两楼正文时选最后一楼', () => {
   const chat = importChat()
   chat.messages.push({ role: 'assistant', turn: 3, text: '第二天清晨，雨停了。' })
   const preview = extractChatPreview(chat)
-  assert.equal(preview.userText, '')
+  assert.equal(preview.floorNo, 3)
   assert.equal(preview.replyText, '第二天清晨，雨停了。')
 })
 
@@ -155,13 +170,14 @@ test('236 轮的旧存档从首轮预览升级到末轮，只读取小片段', a
   const store = memoryStore({
     links: { session: 'chat-import-1' },
     index: { chats: [{ id: 'chat-import-1', cardPath: chat.cardPath, cardName: chat.cardName, title: 'Storyteller - Storyteller - 2026-11-09 21-34', mode: 'story', createdAt: 1000, updatedAt: 1000, lastOpenedAt: 1000,
-      preview: { turnCount: 236, messageCount: 473, userText: '第 1 轮玩家输入', replyText: '第 1 轮正文', openingText: '' } }] },
+      preview: { latest: true, turnCount: 236, messageCount: 473, userText: '第 1 轮玩家输入', replyText: '第 1 轮正文', openingText: '' } }] },
     chats: { 'chat-import-1': chat }
   })
   const registry = createTavernConversationRegistry({ store: store.adapter })
   const result = await registry.backfillPreviews(['chat-import-1'])
   const preview = result.previews['chat-import-1']
   assert.equal(preview.turnCount, 236)
+  assert.equal(preview.floorNo, 237)
   assert.equal(preview.messageCount, 473)
   assert.equal(preview.userText, '第 236 轮玩家输入')
   assert.equal(preview.replyText, '第 236 轮正文')
@@ -174,7 +190,7 @@ test('236 轮的旧存档从首轮预览升级到末轮，只读取小片段', a
 
 test('已经更新为末轮的预览跳过回填', async () => {
   const chat = importChat()
-  const kept = { latest: true, turnCount: 12, messageCount: 25, userText: '旧玩家', replyText: '旧角色', openingText: '' }
+  const kept = { latest: true, floorNo: 13, turnCount: 12, messageCount: 25, userText: '旧玩家', replyText: '旧角色', openingText: '' }
   const store = memoryStore({
     links: { session: 'chat-import-1', other: 'chat-import-1' },
     index: { chats: [{ id: 'chat-import-1', cardPath: chat.cardPath, cardName: chat.cardName, title: '', mode: 'story', createdAt: 1000, updatedAt: 1000, lastOpenedAt: 1000, preview: kept }] },
@@ -223,7 +239,7 @@ test('局部正文写入、编辑和回退后索引预览跟随，并保留更�
 
 function cardListHelpers() {
   const ctx = vm.createContext({})
-  for (const name of ['tavernPreviewLines', 'formatTavernHistoryPreview', 'compactTavernHistoryTitle']) {
+  for (const name of ['formatTavernHistoryPreview', 'compactTavernHistoryTitle']) {
     vm.runInContext(sourceFunction(cardList, name), ctx)
   }
   return ctx
@@ -238,25 +254,52 @@ test('SillyTavern 导入的重复角色前缀在分组里折叠，尾部日期�
   assert.equal(ctx.compactTavernHistoryTitle('Storyteller', 'Storyteller'), 'Storyteller')
 })
 
-test('行内预览分紧凑与展开两份，仅开场单独标注', () => {
+test('预览只显示正文开头，楼号独立于轮次，只有开场时保留开场白', () => {
   const ctx = cardListHelpers()
-  const dialogue = ctx.formatTavernHistoryPreview({ turnCount: 18, messageCount: 37, userText: '我推门走进旅店。\n把外套挂好。', replyText: '老板抬起头。\n第二段。', openingText: '' })
-  assert.equal(dialogue.turnBadge, '18 轮')
+  const dialogue = ctx.formatTavernHistoryPreview({
+    floorNo: 11, turnCount: 19, messageCount: 21, userText: '上一条输入',
+    replyText: '老板抬起头。\n第二段。\n第三段。',
+  })
+  assert.equal(dialogue.floorBadge, '11 楼')
   assert.equal(dialogue.isOpeningOnly, false)
-  assert.deepEqual(Array.from(dialogue.compactLines, line => line.label), ['你', '角色'])
-  assert.ok(dialogue.detailLines[0].text.length >= dialogue.compactLines[0].text.length)
-  // 预览不加硬换行：行数由 CSS 的 line-clamp 控制，收起 3 行、展开 9 行。
-  assert.doesNotMatch(dialogue.compactLines[0].text, /\n/)
-  const opening = ctx.formatTavernHistoryPreview({ turnCount: 0, messageCount: 44, userText: '', replyText: '', openingText: '雨声落在窗外。' })
-  assert.equal(opening.turnBadge, '仅开场')
+  assert.equal(dialogue.compactText, '老板抬起头。 第二段。')
+  assert.equal(dialogue.detailText, '老板抬起头。 第二段。 第三段。')
+  const opening = ctx.formatTavernHistoryPreview({ floorNo: 1, turnCount: 0, messageCount: 1, openingText: '雨声落在窗外。' })
+  assert.equal(opening.floorBadge, '仅开场')
   assert.equal(opening.isOpeningOnly, true)
-  assert.equal(opening.compactLines[0].label, '开场')
+  assert.equal(opening.compactText, '雨声落在窗外。')
+})
+
+test('分页存档回填的第 11 楼与聊天正文一致，只读取摘要和最近楼层', async () => {
+  const messages = [{ role: 'assistant', greeting: true, turn: 1, text: '开场。' }]
+  for (let ordinal = 2; ordinal <= 11; ordinal++) {
+    messages.push({ role: 'user', text: '我的输入' }, { role: 'assistant', turn: ordinal + 9, text: '正文第 ' + ordinal + ' 楼' })
+  }
+  const chat = { id: 'gapped-turns', messages }
+  const transcript = projectStoryTranscript({ chat, from: 0, to: messages.length - 1, messageCount: messages.length })
+  const root = await mkdtemp(join(tmpdir(), 'tavern-floor-preview-'))
+  const persistence = createChatPersistence({ store: createChatJournalStore({ dataRoot: root, newConversations: true }) })
+  await persistence.write(chat)
+  const { adapter, counts } = memoryStore({
+    links: { session: chat.id },
+    index: { chats: [{ id: chat.id, preview: { latest: true, turnCount: 19, messageCount: messages.length } }] },
+    chats: { [chat.id]: chat },
+  })
+  adapter.readChatSlice = persistence.readSlice
+  adapter.readRecentSummaries = persistence.readRecentSummaries
+  const registry = createTavernConversationRegistry({ store: adapter })
+  const preview = (await registry.backfillPreviews([chat.id])).previews[chat.id]
+  assert.equal(counts.chatReads, 0)
+  assert.equal(preview.turnCount, 19)
+  assert.equal(preview.floorNo, transcript.messages.at(-1).floorNo)
+  assert.equal(preview.floorNo, 11)
+  assert.equal(preview.replyText, '正文第 11 楼')
 })
 
 test('侧边栏行渲染预览、轮数与展开开关，并挂上宽屏管理面板', () => {
   assert.match(sidebar, /dsh-tavern-side-row-preview/)
   assert.match(sidebar, /dsh-tavern-side-row-expand/)
-  assert.match(sidebar, /preview\.turnBadge/)
+  assert.match(sidebar, /preview\.floorBadge/)
   assert.match(sidebar, /call\("loadSessionPreviews"/)
   assert.match(sidebar, /dsh-tavern-history-manager/)
   assert.match(css, /\.dsh-tavern-side-row-preview \{/)
@@ -374,11 +417,11 @@ test('宽屏管理面板在移动端铺满卡片正文宽度、动作按钮下�
           <div class="dsh-tavern-history-manager-body">
             <div class="dsh-tavern-history-manager-headline">
               <span class="dsh-tavern-history-manager-title-group"><span class="dsh-tavern-history-manager-title">11/7 20:25 开局</span><button class="dsh-tavern-history-manager-rename-button" aria-label="重命名：11/7 20:25 开局"></button></span>
-              <span class="dsh-tavern-history-manager-turn">23 轮</span>
+              <span class="dsh-tavern-history-manager-turn">11 楼</span>
               <span class="dsh-tavern-history-manager-time">11/12 11:42</span>
             </div>
             <div class="dsh-tavern-history-manager-card">示例角色卡</div>
-            <div class="dsh-tavern-history-manager-preview">你：ok\n角色：多行预览文本在窄屏下应占满整行宽度，不在右侧留下大片空白。</div>
+            <div class="dsh-tavern-history-manager-preview">多行预览文本在窄屏下应占满整行宽度，不在右侧留下大片空白。</div>
           </div>
           <div class="dsh-tavern-history-manager-actions">
             <button>打开</button><button>归档</button><button class="danger">删除</button>

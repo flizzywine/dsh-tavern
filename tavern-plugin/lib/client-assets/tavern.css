@@ -393,12 +393,10 @@ body.dsh-tavern-shell-active span:has(.dsh-tavern-hero-lockup) + span { display:
 .dsh-tavern-side-row-spinner { display: inline-flex; flex: 0 0 auto; color: inherit; opacity: .8; }
 .dsh-tavern-side-row-spinner > .fork-spinner { --fork-spinner-size: 12px; }
 .dsh-tavern-side-row-meta { margin-top: 3px; display: flex; gap: 6px; color: var(--dsw-alias-label-secondary); font-size: 11px; }
-/* 行内常驻微缩预览：默认 3 行（你：一行 + 角色：两行），点 ▾ 原地展开到 9 行。
+/* 行内常驻正文预览：默认 3 行，点 ▾ 原地展开到 9 行。
    -webkit-line-clamp 数的是渲染出来的行数，所以文本里不保留硬换行。 */
 .dsh-tavern-side-row-preview { margin-top: 3px; color: var(--dsw-alias-label-secondary); font-size: 11px; line-height: 1.45; white-space: pre-line; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; }
 .dsh-tavern-side-row-preview.expanded { -webkit-line-clamp: 9; }
-.dsh-tavern-preview-who { opacity: .72; }
-.dsh-tavern-preview-who.is-reply { color: var(--dsh-tavern-accent); opacity: .9; }
 .dsh-tavern-side-row-turns { white-space: nowrap; opacity: .9; }
 .dsh-tavern-side-row-expand { width: 22px; height: 28px; flex: none; border: 0; border-radius: 7px; background: transparent; color: var(--dsw-alias-label-secondary); cursor: pointer; font-size: 11px; opacity: 0; }
 .dsh-tavern-side-row:hover .dsh-tavern-side-row-expand, .dsh-tavern-side-row-expand[aria-expanded="true"] { opacity: 1; }

@@ -4,7 +4,7 @@ import { diffJson } from './json-mutation.js'
 // What the effects below read from a Chat besides its history: the conversation index row, the
 // director and mods (ids, card, timeline), template display (mode, settlement) and candidates.
 const EFFECT_HEAD_FIELDS = Object.freeze([...taskStateFields, 'timeline', 'backgroundSessionId', 'settleStatus'])
-const PREVIEW_MESSAGE_FIELDS = new Set(['role', 'greeting', 'turn', 'text', 'displayText', 'projectionText', 'sourceText', 'swipes', 'swipeId'])
+const PREVIEW_MESSAGE_FIELDS = new Set(['role', 'greeting', 'placeholder', 'turn', 'text', 'displayText', 'projectionText', 'sourceText', 'swipes', 'swipeId'])
 
 // Persistence owns conflict detection and revisions. This module owns the work
 // triggered by a successful write, including the historical per-writer policy.
@@ -51,7 +51,7 @@ export function createChatWrites({ persistence, isDeleted, candidatesChanged, sy
 
   async function writeHeader(chat, baseline, metadata) {
     assertWritable(chat.id)
-    return committed('header', await persistence.writeHeader(chat, baseline, metadata), metadata, chat)
+    return committed('header', await persistence.writeHeader(chat, baseline, metadata), metadata, chat, { metadataOnly: true })
   }
 
   async function update(id, mutation, metadata) {

@@ -348,9 +348,9 @@ test('纸感主题下长预览的三点菜单不遮住按钮，点击外部或 E
 })
 
 
-test('侧栏自动替换旧首轮预览，并在新正文保存后更新宽屏页', async t => {
-  const preview = (replyText, turnCount) => ({
-    latest: true, userText: '刚才的输入', replyText, turnCount, messageCount: turnCount * 2 + 1, openingText: '',
+test('旧预览补齐真实楼号，左栏和宽屏页只显示最新正文', async t => {
+  const preview = (replyText, floorNo, turnCount) => ({
+    latest: true, floorNo, userText: '刚才的输入', replyText, turnCount, messageCount: floorNo * 2 - 1, openingText: '',
   })
   const backfillCalls = []
   const { page, errors, updatePreviews } = await mountSidebar(t, {
@@ -358,24 +358,29 @@ test('侧栏自动替换旧首轮预览，并在新正文保存后更新宽屏�
     initialHistory: [{
       sessionId: 'long', chatId: 'chat-long', mode: 'story', title: '旧存档',
       cardName: '示例卡', cardPath: 'example.png',
-      preview: { turnCount: 8, messageCount: 17, userText: '首轮输入', replyText: '首轮正文' },
+      preview: { latest: true, turnCount: 19, messageCount: 21, userText: '旧输入', replyText: '旧正文' },
     }],
     backfillPreviews(chatIds) {
       backfillCalls.push(...chatIds)
-      return { 'chat-long': preview('第八轮正文', 8) }
+      return { 'chat-long': preview('第十一楼正文', 11, 19) }
     },
   })
   const row = page.locator('.dsh-tavern-side-row')
-  await row.getByText('第八轮正文').waitFor()
+  await row.getByText('第十一楼正文').waitFor()
+  await row.getByText('11 楼', { exact: true }).waitFor()
   assert.deepEqual(backfillCalls, ['chat-long'])
-  assert.equal(await row.getByText('首轮正文').count(), 0)
+  assert.equal(await row.getByText('旧正文').count(), 0)
+  assert.equal(await row.getByText('刚才的输入').count(), 0)
   await page.getByRole('button', { name: '管理', exact: true }).click()
   const manager = page.getByRole('dialog', { name: '会话管理' })
-  await manager.getByText('第八轮正文').waitFor()
-  updatePreviews({ 'chat-long': preview('第九轮正文', 9) })
+  await manager.getByText('第十一楼正文').waitFor()
+  await manager.getByText('11 楼', { exact: true }).waitFor()
+  updatePreviews({ 'chat-long': preview('第十二楼正文', 12, 23) })
   await page.evaluate(() => window.emitPreviewChange())
-  await manager.getByText('第九轮正文').waitFor()
-  await row.getByText('第九轮正文').waitFor()
+  await manager.getByText('第十二楼正文').waitFor()
+  await manager.getByText('12 楼', { exact: true }).waitFor()
+  await row.getByText('第十二楼正文').waitFor()
+  await row.getByText('12 楼', { exact: true }).waitFor()
   assert.deepEqual(backfillCalls, ['chat-long'])
   assert.deepEqual(errors, [])
 })

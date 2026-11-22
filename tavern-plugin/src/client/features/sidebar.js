@@ -330,14 +330,14 @@
 				window.addEventListener("keydown", onKey, true);
 				return function () { window.removeEventListener("keydown", onKey, true); };
 			}, [historyManagerOpen, managerRenaming]);
-			// 缺失或仍使用首轮文本的旧预览分批刷新，避免列表加载时全量读盘。
+			// 缺少楼号的旧预览分批刷新。
 			const previewBackfillMounted = React.useRef(true);
 			React.useEffect(function () {
 				return function () { previewBackfillMounted.current = false; };
 			}, []);
 			React.useEffect(function () {
 				const missing = history.filter(function (item) {
-					return item && item.chatId && item.preview?.latest !== true && !attemptedPreviewIds.current.has(item.chatId);
+					return item && item.chatId && !Number.isSafeInteger(item.preview?.floorNo) && !attemptedPreviewIds.current.has(item.chatId);
 				});
 				if (!missing.length) return;
 				// 已展开的分组和打开的管理器里的会话优先，用户正在看的那几行先补齐。
@@ -355,7 +355,7 @@
 					setHistory(function (prev) {
 						let changed = false;
 						const next = prev.map(function (item) {
-							if (!item || item.preview?.latest === true || map[item.chatId]?.latest !== true) return item;
+							if (!item || Number.isSafeInteger(item.preview?.floorNo) || !Number.isSafeInteger(map[item.chatId]?.floorNo)) return item;
 							changed = true;
 							return Object.assign({}, item, { preview: map[item.chatId] });
 						});
@@ -1446,15 +1446,6 @@
 			function historyPreview(item, summary) {
 				return formatTavernHistoryPreview(item && item.preview !== undefined ? item.preview : (summary && summary.preview));
 			}
-			function previewLinesNode(lines, expanded, className) {
-				const children = [];
-				lines.forEach(function (line, index) {
-					if (index) children.push("\n");
-					children.push(h("span", { key: "who-" + index, className: "dsh-tavern-preview-who is-" + line.role }, line.label + "："));
-					children.push(h("span", { key: "text-" + index }, line.text));
-				});
-				return h("div", { className: className + (expanded ? " expanded" : ""), "aria-hidden": "true" }, children);
-			}
 			function togglePreview(item) {
 				setMenuSession(null);
 				setExpandedPreviews(function (previous) {
@@ -1477,7 +1468,7 @@
 				const menuOpen = menuSession === item.sessionId;
 				return h("div", { key: item.sessionId, ref: menuOpen ? historyMenu.root : undefined, onKeyDown: menuOpen ? historyMenu.keys : undefined,
 					className: "dsh-tavern-side-row" + (current === item.sessionId ? " active" : "") + (generating ? " is-generating" : "") + (preview.hasPreview ? " has-preview" : "") },
-					h("button", { className: "dsh-tavern-side-row-main", disabled: busy, title: preview.hasPreview && !expanded && preview.tooltip ? preview.tooltip : undefined, onClick: async function () {
+					h("button", { className: "dsh-tavern-side-row-main", disabled: busy, title: preview.hasPreview && !expanded ? preview.detailText : undefined, onClick: async function () {
 						if (archived) { setMenuSession(menuOpen ? null : item.sessionId); return; }
 						setMenuSession(null);
 						try {
@@ -1489,10 +1480,10 @@
 						h("div", { className: "dsh-tavern-side-row-name" },
 							generating ? h("span", { className: "dsh-tavern-side-row-spinner", role: "status", "aria-label": "正在生成" }, h(Spinner, {})) : null,
 							h("span", { className: "dsh-tavern-side-row-title" }, title)),
-						preview.hasPreview ? previewLinesNode(expanded ? preview.detailLines : preview.compactLines, expanded, "dsh-tavern-side-row-preview") : null,
+						preview.hasPreview ? h("div", { className: "dsh-tavern-side-row-preview" + (expanded ? " expanded" : ""), "aria-hidden": "true" }, expanded ? preview.detailText : preview.compactText) : null,
 						h("div", { className: "dsh-tavern-side-row-meta" },
 							h("span", null, item.mode === "card" ? (item.cardPath ? ("已创建：" + item.cardName) : "尚未创建正式人物卡") : modeLabel(item.mode || "story")),
-							preview.hasPreview || preview.messageCount ? h("span", { className: "dsh-tavern-side-row-turns" }, preview.turnBadge) : null,
+							preview.hasPreview || preview.messageCount ? h("span", { className: "dsh-tavern-side-row-turns" }, preview.floorBadge) : null,
 							// 自动标题本身就是「11/7 20:25 开局」，再重复一次时间只是占宽度。
 							generating || !stampIsInTitle ? h("span", null, generating ? "生成中" : formatTime(stamp)) : null)),
 					preview.hasPreview ? h("button", { className: "dsh-tavern-side-row-expand", title: expanded ? "收起预览" : "展开预览", "aria-label": (expanded ? "收起预览：" : "展开预览：") + title, "aria-expanded": expanded ? "true" : "false", onClick: function (event) { event.stopPropagation(); togglePreview(item); } }, expanded ? "▴" : "▾") : null,
@@ -1630,10 +1621,10 @@
 								h("button", { type: "button", className: "dsh-tavern-history-manager-rename-button", title: "重命名", "aria-label": "重命名：" + title, disabled: busy,
 									onClick: function () { setManagerRenaming({ chatId: item.chatId, value: play ? (item.title || "") : title }); }
 								}, h(Icon, { name: "pencil", size: 15 }))),
-							h("span", { className: "dsh-tavern-history-manager-turn" }, preview.turnBadge),
+							h("span", { className: "dsh-tavern-history-manager-turn" }, preview.floorBadge),
 							h("span", { className: "dsh-tavern-history-manager-time" }, formatTime(tavernHistoryStamp(item, summary, summaries, historyOrder)))),
 						groupName ? null : h("div", { className: "dsh-tavern-history-manager-card" }, (item.cardName || "未绑定人物卡") + (play ? "" : " · 卡片工作台")),
-						preview.hasPreview ? previewLinesNode(preview.detailLines, false, "dsh-tavern-history-manager-preview") : h("div", { className: "dsh-tavern-history-manager-preview empty" }, "还没有正文内容")),
+						preview.hasPreview ? h("div", { className: "dsh-tavern-history-manager-preview" }, preview.detailText) : h("div", { className: "dsh-tavern-history-manager-preview empty" }, "还没有正文内容")),
 					h("div", { className: "dsh-tavern-history-manager-actions" },
 						h("button", { disabled: busy, onClick: function () { void openManagerSession(item); } }, "打开"),
 						h("button", { disabled: busy, onClick: function () { void changeConversationArchive(item, !archived); } }, archived ? "恢复" : "归档"),

@@ -1412,6 +1412,7 @@ export async function apply(ctx) {
       updateIndex,
       readChat,
       readChatSlice: chatPersistence.readSlice,
+      readRecentSummaries: chatPersistence.readRecentSummaries,
       readChatState: id => chatPersistence.readSessionState(id, {scoped:true}),
       readBackgroundConfig: chatPersistence.readBackgroundConfig,
       readSceneImageState: chatPersistence.readSceneImageState,

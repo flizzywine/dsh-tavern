@@ -1,6 +1,7 @@
 import { projectSceneImageState, projectChatBackgroundConfig } from './chat-session-state.js'
 import { currentBackgroundSessionId, referencedBackgroundSessionIds } from './background-identity.js'
 import { isScopedMessages } from './scoped-messages.js'
+import { isStoryFloor } from './story-transcript.js'
 function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
 }
@@ -66,6 +67,7 @@ function normalizePreview(preview) {
   if (!preview || typeof preview !== 'object' || Array.isArray(preview)) return undefined
   return {
     ...(preview.latest === true ? { latest: true } : {}),
+    ...(Number.isSafeInteger(preview.floorNo) ? { floorNo: preview.floorNo } : {}),
     ...(Number.isSafeInteger(preview.storageRevision) ? { storageRevision: preview.storageRevision } : {}),
     turnCount: Math.max(0, Number(preview.turnCount) || 0),
     messageCount: Math.max(0, Number(preview.messageCount) || 0),
@@ -75,63 +77,59 @@ function normalizePreview(preview) {
   }
 }
 
-function latestExchange(messages, start = 0) {
-  let replyText = '', replyTurn = 0
-  for (let i = messages.length - 1; i >= start; i--) {
-    const message = messages[i]
-    if (message?.role === 'user') {
-      return { userText: cleanPreviewText(messageRawText(message), 3, 140), replyText, complete: true }
+// Use the same assistant ordinals as the transcript, including the opening.
+// A live placeholder has an ordinal, but is not yet a body worth previewing.
+function previewFloors(history) {
+  let assistantIndex = -1, floorNo = 0, assistantCount = 0, userIndex = -1, userCount = 0, maxTurn = 0
+  const first = history[0]
+  const hasOpening = first?.placeholder !== true && (typeof first === 'string' || first?.greeting === true || isStoryFloor(first))
+  for (let index = 0; index < history.length; index++) {
+    const row = history[index]
+    if (isStoryFloor(row)) {
+      assistantCount++
+      if (row.placeholder !== true) {
+        assistantIndex = index
+        floorNo = assistantCount
+      }
+    } else if (row?.role === 'user') {
+      userIndex = index
+      userCount++
     }
-    if (message?.role !== 'assistant' || message.greeting === true || i === 0) continue
-    const turn = Number(message.turn) || 0
-    if (replyText) {
-      // An assistant-only turn has no user input of its own.
-      if (turn > 0 && turn < replyTurn) return { userText: '', replyText, complete: true }
-    } else {
-      replyText = cleanPreviewText(messageRawText(message), 5, 240)
-      if (replyText) replyTurn = turn
-    }
+    if (row && row.greeting !== true && !(hasOpening && index === 0)) maxTurn = Math.max(maxTurn, Number(row.turn) || 0)
   }
-  return { userText: '', replyText, complete: start === 0 }
+  return { assistantIndex, floorNo, assistantCount, userIndex, userCount, hasOpening, maxTurn }
 }
 
 export function extractChatPreview(chat, preservedPreview = undefined, options = {}) {
   const existing = normalizePreview(preservedPreview) ?? normalizePreview(chat?.preview)
   if (options.metadataOnly === true || !Array.isArray(chat?.messages)) return existing
   const messages = chat.messages
-  const totalMessages = Number.isSafeInteger(options.messageCount) && options.messageCount >= 0 ? options.messageCount : messages.length
+  const totalMessages = options.messageCount ?? messages.length
   if (totalMessages === 0 && existing?.messageCount > 0 && !options.allowEmptyReset) return existing
   if (isScopedMessages(messages) && messages.length && (!messages[0] || !messages[messages.length - 1])) return existing
 
-  const first = messages[0]
-  const greetingSlots = typeof first === 'string' || first?.greeting === true || first?.role === 'assistant' ? 1 : 0
-  const { userText, replyText } = latestExchange(messages)
-  let userCount = 0, replyCount = 0, maxTurn = 0
-  for (let i = Math.max(greetingSlots, messages.length - 2000); i < messages.length; i++) {
-    const message = messages[i]
-    if (!message || message.greeting === true) continue
-    if (message.role === 'user') userCount++
-    if (message.role === 'assistant') replyCount++
-    maxTurn = Math.max(maxTurn, Number(message.turn) || 0)
-  }
+  const { assistantIndex, floorNo, assistantCount, userIndex, userCount, hasOpening, maxTurn } = options.floors ?? previewFloors(messages)
+  const read = index => messages[options.indices ? options.indices.indexOf(index) : index]
+  const assistant = read(assistantIndex)
+  const opening = assistant?.greeting === true || (assistantIndex === 0 && hasOpening)
+  const greetingSlots = hasOpening ? 1 : 0
   const exchangeMessages = Math.max(0, totalMessages - greetingSlots)
   const turnCount = exchangeMessages === 0 ? 0
     : maxTurn > 0 ? Math.max(1, maxTurn - greetingSlots)
-    : existing?.messageCount === totalMessages ? existing.turnCount
-    : Math.max(userCount, replyCount, Math.ceil(exchangeMessages / 2))
+    : Math.max(userCount, assistantCount - greetingSlots, Math.ceil(exchangeMessages / 2))
   return {
-    latest: true,
+    latest: true, floorNo,
     ...(Number.isSafeInteger(chat._storageRevision) ? { storageRevision: chat._storageRevision } : {}),
     turnCount,
     messageCount: totalMessages,
-    userText,
-    replyText,
-    openingText: greetingSlots && !userText && !replyText ? cleanPreviewText(messageRawText(first), 4, 200) : ''
+    userText: cleanPreviewText(messageRawText(read(userIndex)), 3, 140),
+    replyText: opening ? '' : cleanPreviewText(messageRawText(assistant), 5, 240),
+    openingText: opening || (assistantIndex < 0 && hasOpening) ? cleanPreviewText(messageRawText(assistant ?? read(0)), 4, 200) : ''
   }
 }
 
 function samePreviewContent(left, right) {
-  return Boolean(left && right && ['latest', 'turnCount', 'messageCount', 'userText', 'replyText', 'openingText'].every(key => left[key] === right[key]))
+  return Boolean(left && right && ['floorNo', 'turnCount', 'messageCount', 'userText', 'replyText', 'openingText'].every(key => left[key] === right[key]))
 }
 
 function chatSummary(chat, preservedLastOpenedAt = 0, preservedPreview = undefined, options = {}) {
@@ -352,22 +350,23 @@ export function createTavernConversationRegistry(options = {}) {
   }
 
   async function readLatestPreview(chatId, previous) {
-    if (typeof store.readChatSlice === 'function') {
+    if (typeof store.readChatSlice === 'function' && typeof store.readRecentSummaries === 'function') {
       const fields = ['id', '_storageRevision']
-      const meta = await store.readChatSlice(chatId, [], fields)
-      const count = meta?.messageCount
-      if (Number.isSafeInteger(count) && count >= 0) {
-        if (!count) return extractChatPreview(meta.chat, previous, { allowEmptyReset: true })
-        // Read the greeting for the round offset and grow only if the tail
-        // ends mid-exchange. Most saves need one small slice.
-        for (let size = 12; ; size *= 2) {
-          const start = Math.max(1, count - size)
-          const indices = [0, ...Array.from({ length: count - start }, (_, i) => start + i)]
-          const sliced = await store.readChatSlice(chatId, indices, fields)
-          if (!sliced?.chat || sliced.messageCount !== count) break
-          if (start === 1 || latestExchange(sliced.chat.messages, 1).complete) {
-            return extractChatPreview(sliced.chat, previous, { messageCount: count, allowEmptyReset: true })
-          }
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const meta = await store.readChatSlice(chatId, [], fields)
+        const count = meta?.messageCount, revision = meta?.chat?._storageRevision
+        if (!Number.isSafeInteger(count) || count < 0) break
+        if (count === 0) return extractChatPreview(meta.chat, previous, { allowEmptyReset: true })
+        // The same metadata projection as the story view supplies exact floor
+        // ordinals. Read text only from the latest reply and input.
+        const page = await store.readRecentSummaries(chatId, count, { revision })
+        if (!page) break
+        if (page.from !== 0 || page.revision !== revision || page.messageCount !== count || page.messages?.length !== count) continue
+        const floors = previewFloors(page.messages)
+        const indices = [...new Set([0, floors.assistantIndex, floors.userIndex])].filter(index => index >= 0).sort((a, b) => a - b)
+        const sliced = await store.readChatSlice(chatId, indices, fields)
+        if (sliced?.chat && sliced.messageCount === count && sliced.chat._storageRevision === revision) {
+          return extractChatPreview(sliced.chat, previous, { messageCount: count, floors, indices, allowEmptyReset: true })
         }
       }
     }
@@ -384,7 +383,7 @@ export function createTavernConversationRegistry(options = {}) {
     const candidates = (requested.length ? requested : rows.map(item => str(item && item.id)))
       .filter(id => {
         const row = byId.get(id)
-        return row && row.preview?.latest !== true
+        return row && !Number.isSafeInteger(row.preview?.floorNo)
       })
     const batch = [...new Set(candidates)].slice(0, maxBatch)
     if (!batch.length) return { previews: {}, remaining: 0 }
@@ -404,7 +403,7 @@ export function createTavernConversationRegistry(options = {}) {
         const nextRows = currentRows.map(item => {
           const id = str(item && item.id)
           if (!extracted.has(id) || isDeleted(id)) return item
-          if (item.preview?.latest === true) {
+          if (Number.isSafeInteger(item.preview?.floorNo)) {
             extracted.set(id, item.preview)
             return item
           }
