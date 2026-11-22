@@ -23983,8 +23983,8 @@ function tavernModelRefusalNotice(text) {
 		    return [rest[index % rest.length], rest[(index + 1) % rest.length]];
 		}
 		// A die's state on the record (faces.<group>.flags): a die that does not count is dimmed, one the player's choice
-		// turned shows its face after the change with a turned mark.
-		const checkDieState = props => (props.marked ? " is-marked" : "") + (props.flag && !checkDieCounts(props) ? " is-dropped" : "") + (props.flag === "changed" ? " is-changed" : "");
+		// turned shows its face after the change with a turned mark; one the rules struck out (cancelled) keeps its mark, dimmed.
+		const checkDieState = props => (props.marked ? " is-marked" : "") + (props.flag && !checkDieCounts(props) ? " is-dropped" : "") + (props.flag === "changed" ? " is-changed" : "") + (props.flag === "cancelled" ? " is-cancelled" : "");
 		function CheckDie(props) {
 		    const h = React.createElement, face = props.flag === "changed" && props.after !== undefined ? props.after : props.face, marked = props.marked;
 		    // A d8 is the outline of an octahedron seen from above with its top face up, the result on that face.
@@ -24006,7 +24006,7 @@ function tavernModelRefusalNotice(text) {
 		        corner(left, 24, 120), corner(right, 76, -120));
 		}
 		// The record's dice in roll order: [{ face, sides, color (the rules' markColor or null), marked, group, look, order,
-		// flag (kept / dropped / changed, when the rules read the group), after (a changed die's face) }] (also the stage's).
+		// flag (kept / dropped / changed / cancelled, when the rules read the group), after (a changed die's face) }] (also the stage's).
 		function checkDiceFaces(record) {
 		    const dice = [];
 		    for (const [name, list] of Object.entries(record.dice || {})) {
@@ -24234,7 +24234,12 @@ function tavernModelRefusalNotice(text) {
 		    const row = Object.values(record.report || {}).find(item => item && item.main && !item.secret);
 		    if (!row) return null;
 		    const value = row.pending ? checkDefaultPreview(record)?.main : row.value;
-		    return value === undefined ? null : { label: row.label, value, target: row.target || null };
+		    return value === undefined ? null : { label: row.label + checkStepsText(row.steps), value, target: row.target || null };
+		}
+		// How the main number came about (report steps), before its value: 「 2 − 倦怠 1 =」 (the first step is the dice as read).
+		function checkStepsText(steps) {
+		    if (!Array.isArray(steps) || steps.length < 2) return "";
+		    return " " + steps[0].value + steps.slice(1).map(step => (step.value < 0 ? " − " : " + ") + step.label + " " + Math.abs(step.value)).join("") + " =";
 		}
 		function checkDefaultPreview(record) {
 		    for (const choice of checkOpenChoices(record)) {

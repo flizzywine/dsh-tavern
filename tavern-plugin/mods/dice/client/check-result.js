@@ -49,7 +49,12 @@ function checkHeadline(record) {
     const row = Object.values(record.report || {}).find(item => item && item.main && !item.secret);
     if (!row) return null;
     const value = row.pending ? checkDefaultPreview(record)?.main : row.value;
-    return value === undefined ? null : { label: row.label, value, target: row.target || null };
+    return value === undefined ? null : { label: row.label + checkStepsText(row.steps), value, target: row.target || null };
+}
+// How the main number came about (report steps), before its value: 「 2 − 倦怠 1 =」 (the first step is the dice as read).
+function checkStepsText(steps) {
+    if (!Array.isArray(steps) || steps.length < 2) return "";
+    return " " + steps[0].value + steps.slice(1).map(step => (step.value < 0 ? " − " : " + ") + step.label + " " + Math.abs(step.value)).join("") + " =";
 }
 function checkDefaultPreview(record) {
     for (const choice of checkOpenChoices(record)) {
