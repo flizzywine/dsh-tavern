@@ -70,16 +70,16 @@
 .achievement-art-ribbon {
   position: absolute; left: calc(60 * var(--am-unit)); top: calc(210 * var(--am-unit));
   width: calc(300 * var(--am-unit)); height: calc(38 * var(--am-unit));
-  display: grid; place-items: center;
-  border-radius: calc(14 * var(--am-unit)); text-align: center;
-  background: #fff7eceb; color: #5e3a28;
-  border: 1px solid #f4b9428c; box-shadow: 0 6px 18px #3c23142e;
+  display: grid; place-items: center; text-align: center;
 }
 .achievement-art-ribbon strong {
-  color: #603526;
+  color: #fff3d2;
   font-family: 'Tavern Achievement Title', 'Kaiti SC', KaiTi, STKaiti, 'Songti SC', serif;
   font-size: calc(26 * var(--am-unit)); font-weight: 400; line-height: 1;
   letter-spacing: .16em; text-indent: .16em;
+  paint-order: stroke fill;
+  -webkit-text-stroke: calc(2.6 * var(--am-unit)) #43291e;
+  text-shadow: 0 calc(2 * var(--am-unit)) calc(4 * var(--am-unit)) #2b1a12ad;
 }
 .achievement-art-pills {
   position: absolute; left: calc(60 * var(--am-unit)); top: calc(250 * var(--am-unit));
