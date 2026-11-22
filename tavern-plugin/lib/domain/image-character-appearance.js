@@ -123,21 +123,30 @@ export function linkPatchFromFigure(character, figure, packId) {
     ...(outfits.length ? { outfits } : {}) }
 }
 
+// The name every 设定图 copied into a record ends with (packReferenceName's default): a record picture with it is a copy
+// of a 设定图 the pack registered, not one uploaded in the 人物库 or a sprite fallback (立绘参考, 差分参考, 头像参考).
+const SETTEI_SUFFIX = ' 设定图'
+const setteiCopy = image => typeof image?.name === 'string' && image.name.endsWith(SETTEI_SUFFIX)
+
 /** 设定图→参考图, the one rule: a figure's 人设图 is its record's 参考图 and each outfit's 服装设定图 is that outfit's. The pack
  *  is where a 设定图 is registered; the record holds the same picture (the 配图 plugin's own store names it by its sha256,
  *  as the pack does) so 场景配图 works without the asset library. The 设定图 a record shows otherwise (none, or another
- *  picture) → [{outfit: null for the person, hash}], applied after every write of the figure and by syncFigureSettei. */
+ *  picture) → [{outfit: null for the person, hash}], applied after every write of the figure and by syncFigureSettei.
+ *  A 设定图 the pack no longer registers leaves the record too (hash null): its copy would keep drawing the retired
+ *  design. Other pictures in a slot with no 设定图 stay. */
 export function setteiReferences(character, figure) {
-  const differs = (image, hash) => !!hash && image?.id !== hash
-  return [...(differs(character.referenceImage, figure.identitySettei?.board) ? [{ outfit: null, hash: figure.identitySettei.board }] : []),
-    ...(figure.outfits || []).filter(outfit => differs(character.outfits?.find(row => row.id === outfit.key)?.characterOutfitImage, outfit.settei))
-      .map(outfit => ({ outfit, hash: outfit.settei }))]
+  const differs = (image, hash) => hash ? image?.id !== hash : setteiCopy(image)
+  const outfitImage = outfit => character.outfits?.find(row => row.id === outfit.key)?.characterOutfitImage
+  return [...(differs(character.referenceImage, figure.identitySettei?.board) ? [{ outfit: null, hash: figure.identitySettei?.board || null }] : []),
+    ...(figure.outfits || []).filter(outfit => differs(outfitImage(outfit), outfit.settei))
+      .map(outfit => ({ outfit, hash: outfit.settei || null }))]
 }
 
 /** The 参考图 name a pack picture gets in the 人物库 (`suffix` names its kind: 设定图, or a sprite fallback's). */
-export const packReferenceName = (figure, outfit, suffix = ' 设定图') => figure.name + (outfit ? '／' + outfit.label : '') + suffix
+export const packReferenceName = (figure, outfit, suffix = SETTEI_SUFFIX) => figure.name + (outfit ? '／' + outfit.label : '') + suffix
 
-/** The record patch that makes a 参考图 the person's (no outfit) or one outfit's; a new outfit takes the outfit's label. */
+/** The record patch that makes a 参考图 (null: none) the person's (no outfit) or one outfit's; a new outfit takes the
+ *  outfit's label. */
 export function referencePatch(character, outfit, referenceImage) {
   return !outfit ? { referenceImage } : { outfits: [{ id: outfit.key, characterOutfitImage: referenceImage,
     ...((character.outfits || []).some(item => item.id === outfit.key) ? {} : { name: outfit.label }) }] }
