@@ -6059,7 +6059,7 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
     border-radius: 0; background: var(--art-backlog-close-img) 0 0 / 100% 100% no-repeat; }
   .fork-gal-stage[data-fk-skin-art-backlog-narrow][data-fk-skin-art-backlog~="close"]:not(.is-film) .fork-gal-backlog-close:is(:hover, :focus-visible) { background-image: var(--art-backlog-close-focus); }
   .fork-gal-stage[data-fk-skin-art-backlog-narrow][data-fk-skin-art-backlog~="close"]:not(.is-film) .fork-gal-backlog-close > svg { display: none; }
-  .fork-gal-stage[data-fk-skin-art-backlog-narrow][data-fk-skin-art-backlog~="close"]:not(.is-film) .fork-gal-backlog-clip { position: absolute; right: calc(var(--art-backlog-close-w) * var(--mu)); top: calc(var(--art-backlog-close-h) * var(--mu) / 2 - 18px); }
+  .fork-gal-stage[data-fk-skin-art-backlog-narrow][data-fk-skin-art-backlog~="close"]:not(.is-film) .fork-gal-backlog-clip { position: absolute; right: calc(var(--art-backlog-close-w) * var(--mu)); top: max(0px, calc(var(--art-backlog-close-h) * var(--mu) / 2 - 18px)); }
   .fork-gal-stage[data-fk-skin-art-backlog-narrow]:not(.is-film) .fork-gal-backlog-col { width: 100%; box-sizing: border-box; padding-left: 8px; padding-right: 8px; }
   .fork-gal-stage[data-fk-skin-art-backlog-narrow]:not(.is-film) .fork-gal-backlog-row { display: block; margin: 0 0 calc(var(--art-bl-gap) * var(--mu)); padding: calc(var(--art-bl-top) * var(--mu)) 0; border-radius: 0; box-shadow: none; }
   .fork-gal-stage[data-fk-skin-art-backlog-narrow][data-fk-skin-art-backlog-parts~="name"]:not(.is-film) .fork-gal-backlog-row.is-line { padding-top: calc((var(--art-bl-head) + var(--art-bl-top)) * var(--mu) + 6px); }
