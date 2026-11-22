@@ -174,7 +174,7 @@ export function createContextPlanner(options = {}) {
       const taskSection = { kind: director ? 'stage-task' : 'candidate-task', required: true, text: str(input.task) }
       const stableSections = []
       const dynamicSections = []
-      let candidateScriptWindow
+      let candidateGuide, candidateScriptWindow
       const plannedCardSections = await cardSections({
         card: input.card,
         chat: input.chat,
@@ -185,8 +185,10 @@ export function createContextPlanner(options = {}) {
         includeInstructions: false,
         stableFirst: true
       }, projectText)
+      // Candidates receive Guides with the current task's creative directions.
       for (const section of plannedCardSections) {
-        if (section.kind === 'guide' || section.kind === 'posture') dynamicSections.push(section)
+        if (section.kind === 'guide' && !director) candidateGuide = section
+        else if (section.kind === 'guide' || section.kind === 'posture') dynamicSections.push(section)
         else stableSections.push(section)
       }
       if (input.scriptWindow !== null && input.scriptWindow !== undefined) {
@@ -208,9 +210,10 @@ export function createContextPlanner(options = {}) {
       const instructionSections = [
         ...(postHistoryText ? [{ kind: 'card-post-history', required: true, text: promptSection('post_history', postHistoryText) }] : [])
       ]
-      const result = resultOf([taskSection].concat(stableSections, instructionSections, dynamicSections), warnings)
+      const result = resultOf([taskSection].concat(stableSections, instructionSections, dynamicSections, candidateGuide ? [candidateGuide] : []), warnings)
       result.stableText = stableSections.map(function (section) { return str(section.text) }).filter(Boolean).join('\n\n')
       result.candidateScriptWindow = candidateScriptWindow
+      if (!director) result.guideText = candidateGuide?.text || ''
       result.dynamicText = dynamicSections.map(function (section) { return str(section.text) }).filter(Boolean).join('\n\n')
       result.taskText = taskSection.text
       result.systemPromptText = systemPromptText
