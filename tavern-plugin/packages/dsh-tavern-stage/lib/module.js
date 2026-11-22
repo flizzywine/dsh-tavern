@@ -153,6 +153,13 @@ export async function createStageModule(core) {
     judge:engineJudge,mods:modService,
     itemsEnabled:chat=>core.cardStageSwitch(chat.cardPath,'items'),
     stateSource:(chat,raw)=>modConfigHost.stateSource(chat,raw),
+    // 借用形象: the 通用角色 立绘 自动素材 lent each new person until their own is drawn, by name, with the snapshots of the packs
+    // lent from (bound to the card or not)
+    standInLooks:async chat => {
+      const standInLooks = await autoCast?.standInLooks(chat.cardPath) || {}, library = ctx.get('assetLibrary')
+      const packIds = [...new Set(Object.values(standInLooks).map(look => look.packId))]
+      return {standInLooks, standInPacks:library && packIds.length ? (await Promise.all(packIds.map(packId => library.getPackSnapshot({packId})))).filter(Boolean) : []}
+    },
     log:event => console.info('dsh-tavern:',JSON.stringify(event)),
     publish:event => {
       sessionSignals.publish(event.sessionId,event)
