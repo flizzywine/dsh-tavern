@@ -75,6 +75,8 @@ export function validateVoiceSpec(v, path = '$.voice') {
       check(own(v.sources,source),q,'Unknown source'); object(params,q)
       check(Object.keys(params).every(k => !['provider','voiceId','voiceName','voice','speaker','referenceId','model','references','engine','moods','moodStyles'].includes(k)),q,'Tuning cannot change identity or define a second emotion map')
       for (const [key,item] of Object.entries(params)) check(item === null || ['boolean','string'].includes(typeof item) || typeof item === 'number' && Number.isFinite(item),q+'.'+key)
+      // a browser source's only tuning is its 语速 (rate, the system voice's pace); a service's parameters are checked by its adapter.
+      if (v.sources[source].provider === 'browser') for (const [key,item] of Object.entries(params)) check(key === 'rate' && typeof item === 'number' && item >= 0.5 && item <= 2,q+'.'+key)
       safeData(params,q)
     })
   })
