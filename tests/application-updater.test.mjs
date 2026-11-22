@@ -592,3 +592,37 @@ test('从 Git 仓库运行时不启动应用内更新，提示用 git pull；检
     assert.equal((await android.start()).phase, 'up-to-date')
   } finally { await rm(root, { recursive: true, force: true }) }
 })
+
+test('Windows 原生更新提前提示独立后台，不改变可更新状态，关闭后可直接重试', async t => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'update-standalone-preflight-'))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const statusFile = path.join(root, 'update-status.json')
+  let residual = { pid: 20260 }, probes = 0, launches = 0, launchArgs
+  const updater = createApplicationUpdater({ ...verifiedUpdate, dataRoot: root, sourceRoot: root, dshHome: root,
+    runtimeHost: 'desktop', platform: 'win32', nativeDesktopPids: [125, 126],
+    async findStandaloneDesktopService() { probes++; return residual },
+    spawnProcess(_command, args) {
+      launches++
+      launchArgs = args
+      const child = new EventEmitter()
+      child.stdout = new EventEmitter()
+      child.stderr = new EventEmitter()
+      child.unref = () => {}
+      queueMicrotask(() => { child.emit('spawn'); child.stdout.emit('data', Buffer.from(String(process.pid))); child.emit('close', 0) })
+      return child
+    },
+  })
+  assert.equal((await updater.check()).phase, 'update-available')
+  assert.equal(probes, 0, '只检查版本时仍可看到更新')
+  const before = await readFile(statusFile, 'utf8')
+  await assert.rejects(updater.start(), { code: 'DSH_TAVERN_STANDALONE_RUNNING', message: /独立酒馆后台（PID 20260）/ })
+  assert.equal(launches, 0)
+  assert.equal(probes, 1)
+  assert.equal(await readFile(statusFile, 'utf8'), before)
+  await assert.rejects(readFile(path.join(root, '.tavern-install.lock', 'owner.json')), { code: 'ENOENT' })
+  await assert.rejects(updater.cancel(), /当前安装无法安全自动中止/)
+  residual = null
+  assert.equal((await updater.start()).phase, 'running')
+  assert.equal(launches, 1)
+  assert.equal(launchArgs[launchArgs.indexOf('--desktop-pids') + 1], '125,126')
+})

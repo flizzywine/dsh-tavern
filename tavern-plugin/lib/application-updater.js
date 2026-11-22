@@ -11,6 +11,7 @@ import { promisify } from 'node:util'
 import { createUpdateState } from '../../bin/update-state.mjs'
 import { verifyInstallationProcessesStopped } from '../../bin/installation-process.mjs'
 import { readInstallationReceipt } from '../../bin/installation-receipt.mjs'
+import { findStandaloneDesktopService } from '../../bin/desktop-update-preflight.mjs'
 import installationState from '../../bin/installation-state.cjs'
 import desktopRuntime from '../../bin/official-desktop-runtime.cjs'
 import { applySystemProxy, describeProxy, withoutAppliedSystemProxy } from '../../bin/system-proxy.mjs'
@@ -678,6 +679,12 @@ export function createApplicationUpdater(options) {
         throw new Error(failed.error)
       }
     }
+    const desktopPids = installHost === 'desktop' ? (options.nativeDesktopPids ??
+      (process.versions.electron && typeof process.send === 'function' && process.ppid > 1
+        ? [process.pid, process.ppid] : [])) : []
+    const residual = platform === 'win32' && desktopPids.length === 2 && (version.updateAvailable || current.repairRequired)
+      ? await (options.findStandaloneDesktopService || findStandaloneDesktopService)({ dshHome, sourceRoot, executable: execPath })
+      : null
     // A fresh network check can take long enough for a terminal install to change
     // the running build. Keep the old second identity check only on that path.
     const refreshed = await statusWithIdentity(reuseCheck ? identity : await localIdentity(true))
@@ -691,6 +698,10 @@ export function createApplicationUpdater(options) {
         checkSource: version.checkSource, checkWarning: version.checkWarning,
       }
       return await writeStatus(upToDate, { expectedAttemptId: current.attemptId })
+    }
+    // Keep the existing update/repair state for a retry; we have not started an installer.
+    if (residual && !desktopPids.includes(residual.pid)) {
+      throw Object.assign(new Error(`独立酒馆后台（PID ${residual.pid}）仍在运行，仅关闭 Edge/Chrome 窗口不会退出后台。请保存并等待正在进行的请求结束，再退出后台后重试。没有退出入口时，可重启 Windows 后直接打开原生桌面更新。`), { code: 'DSH_TAVERN_STANDALONE_RUNNING' })
     }
     const attemptId = randomUUID()
     const lease = installationState.acquireInstallation({ dshHome, sourceRoot, statusFile: path.join(dataRoot, STATUS_FILE), attemptId, pid: 0, state: 'reserved' })
@@ -717,8 +728,7 @@ export function createApplicationUpdater(options) {
       '--status-file', statusFile,
       '--attempt-id', attemptId,
       '--delay=800',
-      ...(installHost === 'desktop' && process.versions.electron && typeof process.send === 'function' && process.ppid > 1
-        ? ['--desktop-pids', [process.pid, process.ppid].join(',')] : []),
+      ...(desktopPids.length === 2 ? ['--desktop-pids', desktopPids.join(',')] : []),
       ...(version.latestCommit ? ['--target-commit', version.latestCommit] : []),
     ]
     const args = platform === 'win32'
