@@ -14,7 +14,7 @@ export function migrateVoice(preset, language) {
     }
     if (Object.keys(fish).length) tuning.fish = fish
   } else if (p.kind === 'fish-audio') {
-    defaultSource = 'fish'; sources.fish = {kind:'voice-id',provider:'fish-audio',voiceId:params.referenceId}; delete params.referenceId; tuning.fish = params
+    defaultSource = 'fish'; sources.fish = {kind:'voice-id',provider:'fish-audio',serviceType:'fish-official',voiceId:params.referenceId}; delete params.referenceId; tuning.fish = params
   } else {
     const provider = p.kind === 'service' ? p.engine : p.kind
     if (!['qwen','azure','volcengine','openai-compatible'].includes(provider)) fail('Unsupported legacy voice kind')
