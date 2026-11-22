@@ -121,6 +121,7 @@
 			const [managerQuery, setManagerQuery] = React.useState("");
 			const [managerCardFilter, setManagerCardFilter] = React.useState("all");
 			const [managerStatusFilter, setManagerStatusFilter] = React.useState("all");
+			const [managerArchiveExpanded, setManagerArchiveExpanded] = React.useState(false);
 			const [managerRenaming, setManagerRenaming] = React.useState(null);
 			const attemptedPreviewIds = React.useRef(new Set());
 			// 批量管理 › 更新 (card-update-dialog.js): a card replaced or put back is read again, and an opening prepared from it dropped.
@@ -371,6 +372,7 @@
 				setManagerRenaming(null);
 				setSelectedChats([]);
 				setDeleteNotice("");
+				setManagerArchiveExpanded(false);
 				setHistoryManagerOpen(true);
 			}
 			function closeHistoryManager() {
@@ -1482,39 +1484,52 @@
 				const expanded = historyGroupState[group.key] === true;
 				return renderHistoryGroup(group, expanded, () => setHistoryGroupState(previous => ({ ...previous, [group.key]: !expanded })));
 			}));
-			const archiveGroup = collapsed || !orderedArchivedHistory.length ? null : renderHistoryGroup({ key: "archived", name: "已归档", items: orderedArchivedHistory }, archiveExpanded, () => setArchiveExpanded(!archiveExpanded));
+			const archiveHistoryGroup = { key: "archived", name: "已归档", items: orderedArchivedHistory };
+			const archiveGroup = collapsed || !orderedArchivedHistory.length ? null : renderHistoryGroup(archiveHistoryGroup, archiveExpanded, () => setArchiveExpanded(!archiveExpanded));
 			// ---------- 宽屏会话管理器 ----------
 			// 侧边栏一行放不下「玩家首条输入 + AI 首条回复 + 轮数」，批量整理 200+ 个
 			// 同前缀的导入存档要靠这一层：宽列表、搜标题和正文、按卡/轮数筛选、批量归档。
 			const hasHistoryInMode = activeHistory.length + archivedHistory.length > 0;
 			const managerPool = React.useMemo(function () {
 				if (!historyManagerOpen) return [];
-				return orderTavernHistory(activeHistory.concat(archivedHistory), summaries, historyOrder);
-			}, [historyManagerOpen, activeHistory, archivedHistory, summaries, historyOrder]);
+				const active = uiMode === "play" ? groupedActiveHistory.flatMap(group => group.items) : orderedActiveHistory;
+				return active.concat(orderedArchivedHistory);
+			}, [historyManagerOpen, uiMode, groupedActiveHistory, orderedActiveHistory, orderedArchivedHistory]);
 			const managerCardOptions = React.useMemo(function () {
-				if (!historyManagerOpen) return [];
 				return Array.from(new Map(managerPool.filter(function (item) { return item.cardPath; }).map(function (item) { return [tavernHistoryCardKey(item), item.cardName || item.cardPath]; })).entries());
-			}, [historyManagerOpen, managerPool]);
+			}, [managerPool]);
 			const managerQueryText = managerQuery.trim().toLowerCase();
-			// 面板收起时不跑筛选和预览格式化：侧边栏每敲一个字都会重渲染一次。
-			const managerVisible = !historyManagerOpen ? [] : managerPool.filter(function (item) {
-				const archived = archivedSessions.has(item.sessionId);
-				const preview = historyPreview(item, summaries[item.sessionId]);
-				if (managerStatusFilter === "archived") { if (!archived) return false; }
-				else if (archived) return false;
-				else if (managerStatusFilter === "opening" && !preview.isOpeningOnly) return false;
-				else if (managerStatusFilter === "dialogue" && !(preview.turnCount > 0)) return false;
+			function matchesManagerFilters(item) {
 				if (managerCardFilter !== "all" && tavernHistoryCardKey(item) !== managerCardFilter) return false;
-				if (!managerQueryText) return true;
-				return [historyTitle(item, summaries[item.sessionId]), item.cardName, preview.searchText].filter(Boolean).join("\n").toLowerCase().includes(managerQueryText);
-			});
+				if (managerStatusFilter === "opening" || managerStatusFilter === "dialogue" || managerQueryText) {
+					const preview = historyPreview(item, summaries[item.sessionId]);
+					if (managerStatusFilter === "opening" && !preview.isOpeningOnly) return false;
+					if (managerStatusFilter === "dialogue" && !(preview.turnCount > 0)) return false;
+					if (managerQueryText) return [historyTitle(item, summaries[item.sessionId]), item.cardName, preview.searchText].filter(Boolean).join("\n").toLowerCase().includes(managerQueryText);
+				}
+				return true;
+			}
+			// Filter the sidebar's groups in place so hiding a recent reply never moves its card.
+			const managerGroups = [];
+			if (historyManagerOpen) {
+				if (managerStatusFilter !== "archived") {
+					const groups = uiMode === "play" ? groupedActiveHistory : [{ key: "workbench", items: orderedActiveHistory }];
+					managerGroups.push(...groups.map(group => ({ ...group, items: group.items.filter(matchesManagerFilters) })));
+				}
+				if (managerStatusFilter === "all" || managerStatusFilter === "archived") {
+					managerGroups.push({ ...archiveHistoryGroup, items: archiveHistoryGroup.items.filter(matchesManagerFilters) });
+				}
+			}
+			const managerArchiveFolded = managerStatusFilter === "all" && !managerArchiveExpanded;
+			const managerVisible = managerGroups.flatMap(group => group.key === archiveHistoryGroup.key && managerArchiveFolded ? [] : group.items);
 			const managerSelectedItems = managerPool.filter(function (item) { return selectedChats.includes(item.chatId); });
 			const managerSelectedActive = managerSelectedItems.filter(function (item) { return !archivedSessions.has(item.sessionId); }).length;
 			const managerSelectedArchived = managerSelectedItems.length - managerSelectedActive;
-			function renderManagerRow(item) {
+			function renderManagerRow(item, groupName) {
 				const archived = archivedSessions.has(item.sessionId);
 				const summary = summaries[item.sessionId];
-				const title = historyTitle(item, summary);
+				const fullTitle = historyTitle(item, summary);
+				const title = groupName ? compactTavernHistoryTitle(fullTitle, groupName) : fullTitle;
 				const preview = historyPreview(item, summary);
 				const selected = selectedChats.includes(item.chatId);
 				const renaming = Boolean(managerRenaming) && managerRenaming.chatId === item.chatId;
@@ -1532,15 +1547,26 @@
 									else if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); setManagerRenaming(null); }
 								}
 							}) : h("button", { className: "dsh-tavern-history-manager-title", title: "点击改名", disabled: busy, onClick: function () { setManagerRenaming({ chatId: item.chatId, value: play ? (item.title || "") : title }); } }, title),
-							archived ? h("span", { className: "dsh-tavern-history-manager-tag" }, "已归档") : null,
 							h("span", { className: "dsh-tavern-history-manager-turn" }, preview.turnBadge),
 							h("span", { className: "dsh-tavern-history-manager-time" }, formatTime(tavernHistoryStamp(item, summary, summaries, historyOrder)))),
-						h("div", { className: "dsh-tavern-history-manager-card" }, (item.cardName || "未绑定人物卡") + (play ? "" : " · 卡片工作台")),
+						groupName ? null : h("div", { className: "dsh-tavern-history-manager-card" }, (item.cardName || "未绑定人物卡") + (play ? "" : " · 卡片工作台")),
 						preview.hasPreview ? previewLinesNode(preview.detailLines, false, "dsh-tavern-history-manager-preview") : h("div", { className: "dsh-tavern-history-manager-preview empty" }, "还没有正文内容")),
 					h("div", { className: "dsh-tavern-history-manager-actions" },
 						h("button", { disabled: busy, onClick: function () { void openManagerSession(item); } }, "打开"),
 						h("button", { disabled: busy, onClick: function () { void changeConversationArchive(item, !archived); } }, archived ? "恢复" : "归档"),
-						h("button", { className: "danger", disabled: busy, onClick: function () { void deleteConversation(item, title); } }, "删除")));
+						h("button", { className: "danger", disabled: busy, onClick: function () { void deleteConversation(item, fullTitle); } }, "删除")));
+			}
+			function renderManagerGroup(group) {
+				if (!group.items.length) return null;
+				if (!group.name) return group.items.map(item => renderManagerRow(item));
+				const archived = group.key === archiveHistoryGroup.key;
+				const count = h("span", { className: "dsh-tavern-history-group-count" }, group.items.length);
+				const header = archived && managerStatusFilter === "all"
+					? h("button", { type: "button", className: "dsh-tavern-history-manager-group-head", "aria-expanded": !managerArchiveFolded, onClick: () => setManagerArchiveExpanded(value => !value) },
+						h("span", { "aria-hidden": true }, managerArchiveFolded ? "▸" : "▾"), h("span", null, group.name), count)
+					: h("h3", { className: "dsh-tavern-history-manager-group-head" }, group.name, count);
+				return h("section", { key: group.key, className: "dsh-tavern-history-manager-group", "aria-label": group.name }, header,
+					archived && managerArchiveFolded ? null : group.items.map(item => renderManagerRow(item, archived ? "" : group.name)));
 			}
 			const historyManagerPanel = historyManagerOpen ? h("div", { key: "history-manager", className: "dsh-tavern-picker-overlay dsh-tavern-history-manager-overlay", onMouseDown: function (event) { if (event.target === event.currentTarget) closeHistoryManager(); } },
 				h("div", { className: "dsh-tavern-history-manager", role: "dialog", "aria-modal": "true", "aria-label": "会话管理" },
@@ -1559,7 +1585,7 @@
 								return h("button", { key: choice[0], className: "dsh-tavern-history-manager-filter", "aria-pressed": managerStatusFilter === choice[0] ? "true" : "false", onClick: function () { setManagerStatusFilter(choice[0]); } }, choice[1]);
 							}))),
 					h("div", { className: "dsh-tavern-history-manager-list" },
-						managerVisible.length ? managerVisible.map(renderManagerRow) : h("div", { className: "dsh-tavern-history-manager-empty" }, managerQueryText ? "没有匹配的会话" : "没有会话")),
+						managerGroups.some(group => group.items.length) ? managerGroups.map(renderManagerGroup) : h("div", { className: "dsh-tavern-history-manager-empty" }, managerQueryText ? "没有匹配的会话" : "没有会话")),
 					h("div", { className: "dsh-tavern-history-manager-foot" },
 						h("button", { className: "dsh-tavern-btn", disabled: busy || !managerVisible.length, onClick: function () { setSelectedChats(managerVisible.map(function (item) { return item.chatId; })); } }, "全选筛选结果"),
 						h("button", { className: "dsh-tavern-btn", disabled: busy || !managerSelectedItems.length, onClick: function () { setSelectedChats([]); } }, "取消选择"),
