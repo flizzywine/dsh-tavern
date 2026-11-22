@@ -1,6 +1,7 @@
 // A figure's 外貌 lives in the 配图 人物库 record (schema 4, per view). Asset generation draws standing, clothed,
 // front-facing pictures, so it reads the front SFW views and the outfit's front parts.
 import { IMAGE_CHARACTER_TRAITS } from './plugin-image-catalog.js'
+import { figureOutfitReference } from './figure-sprite-reference.js'
 
 // A pack that leaves this library (export, copy) carries each figure's record 外貌 as this figure extension; the host moves
 // it back into a record when the pack is written here (appearanceMove), so an installed pack never keeps a second copy.
@@ -75,8 +76,9 @@ export function appearanceMove(character, figure, { replace = false } = {}) {
   if (!carried && !Object.keys(traits).length && !wears.size) return null
   const dropped = [], fill = {}, outfits = [], references = []
   const place = (outfit, image, own) => { if (image && (replace ? own?.id !== image.media : !own)) references.push({ outfit, media: image.media, ...(image.name ? { name: image.name } : {}) }) }
-  place(null, carried?.referenceImage, character.referenceImage)
-  for (const row of carried?.outfits || []) place(row.id, row.characterOutfitImage, character.outfits.find(item => item.id === row.id)?.characterOutfitImage)
+  const carriedOwn = image => packPictureCopy(image) ? null : image
+  place(null, carriedOwn(carried?.referenceImage), character.referenceImage)
+  for (const row of carried?.outfits || []) place(row.id, carriedOwn(row.characterOutfitImage), character.outfits.find(item => item.id === row.id)?.characterOutfitImage)
   if (replace) {
     for (const key of IMAGE_CHARACTER_TRAITS) if (said(character.traits?.[key]) !== said(traits[key])) fill[key] = said(traits[key])
     for (const id of new Set([...character.outfits.map(item => item.id), ...wears.keys()])) {
@@ -115,29 +117,31 @@ export function linkPatchFromFigure(character, figure, packId) {
     ...(outfits.length ? { outfits } : {}) }
 }
 
-/** 设定图→参考图, the one rule: a figure's 人设图 is its record's 参考图 and each outfit's 服装设定图 is that outfit's. The pack
- *  is where a 设定图 is registered; the record holds the same picture (the 配图 plugin's own store names it by its sha256,
- *  as the pack does) so 场景配图 works without the asset library. The 设定图 a record shows otherwise (none, or another
- *  picture) → [{outfit: null for the person, hash}], applied after every write of the figure and by syncFigureSettei. */
-export function setteiReferences(character, figure) {
-  const differs = (image, hash) => !!hash && image?.id !== hash
-  return [...(differs(character.referenceImage, figure.identitySettei?.board) ? [{ outfit: null, hash: figure.identitySettei.board }] : []),
-    ...(figure.outfits || []).filter(outfit => differs(character.outfits?.find(row => row.id === outfit.key)?.characterOutfitImage, outfit.settei))
-      .map(outfit => ({ outfit, hash: outfit.settei }))]
+/** The pictures a figure's pack gives 配图 (ADR 0012: the pack is their one store; the 人物库 record reads them through the
+ *  host by its link and never holds a copy): the person's 人设图, and per outfit its 服装设定图 or, lacking one, the resting
+ *  立绘 it borrows (`borrowed`: a picture uploaded to the record's outfit goes first). Hashes are pack media sha256. */
+export function figurePackPictures(pack, figure) {
+  const outfits = {}
+  for (const outfit of figure.outfits || []) {
+    if (outfit.settei) outfits[outfit.key] = { hash: outfit.settei, borrowed: false }
+    else { const fallback = figureOutfitReference(pack, figure, outfit); if (fallback) outfits[outfit.key] = { hash: fallback.hash, borrowed: true } }
+  }
+  return { identity: figure.identitySettei?.board || null, outfits }
 }
 
-/** The 参考图 name a pack picture gets in the 人物库 (`suffix` names its kind: 设定图, or a sprite fallback's). */
-export const packReferenceName = (figure, outfit, suffix = ' 设定图') => figure.name + (outfit ? '／' + outfit.label : '') + suffix
+// Names the copies of pack pictures that records held before ADR 0012 ended with (设定图, borrowed 立绘/差分/头像): a
+// picture so named in a record or an export is a copy, not one a user uploaded; the migration and imports drop it.
+const PACK_COPY = / (?:设定图|立绘参考|差分参考|头像参考)$/
+export const packPictureCopy = image => typeof image?.name === 'string' && PACK_COPY.test(image.name)
 
-/** The record patch that makes a 参考图 the person's (no outfit) or one outfit's; a new outfit takes the outfit's label. */
+/** The 参考图 name a picture carried by a pack gets in the 人物库. */
+export const packReferenceName = (figure, outfit) => figure.name + (outfit ? '／' + outfit.label : '') + ' 参考图'
+
+/** The record patch that makes a 参考图 (null: none) the person's (no outfit) or one outfit's; a new outfit takes the
+ *  outfit's label. */
 export function referencePatch(character, outfit, referenceImage) {
   return !outfit ? { referenceImage } : { outfits: [{ id: outfit.key, characterOutfitImage: referenceImage,
     ...((character.outfits || []).some(item => item.id === outfit.key) ? {} : { name: outfit.label }) }] }
-}
-
-export async function putPackReference(api, library, { providerId, packId, revision, hash, name }) {
-  const { bytes, descriptor } = await library.readMedia({ packId, expectedRevision: revision, hash })
-  return (await api.imageCharacters('putReferenceImage', { providerId, data: new Uint8Array(bytes), mediaType: descriptor.mime, name })).referenceImage
 }
 
 /** A figure UUID can appear in copied packs. Look up the pair, across explicit writable sources. */

@@ -1,6 +1,6 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { readFile, stat } from 'node:fs/promises'
-import { appearanceMove, findFigureImageCharacter, imageAliasesFromFigure, imageCharacterFromFigure, IMAGE_CHARACTER_EXTENSION, internalAliasCode, packReferenceName, referencePatch, setteiReferences } from './domain/image-character-appearance.js'
+import { appearanceMove, findFigureImageCharacter, imageAliasesFromFigure, imageCharacterFromFigure, IMAGE_CHARACTER_EXTENSION, internalAliasCode, packReferenceName, referencePatch } from './domain/image-character-appearance.js'
 
 // A figure's name, 触发词 and outfit names live in its linked 配图 人物库 record, the one place (ADR 0011); the asset library
 // stores the figure without them and puts them back on every read (asset library pack-v2/figure-records.js). A figure
@@ -57,18 +57,17 @@ export function createFigureRecords({ api, recordFile, log = () => {} }) {
   const patch = (state, recordPatch) => api.imageCharacters('patchCharacter', { providerId: state.providerId, characterId: state.character.id, expected: state.character, patch: recordPatch })
   const reference = async (state, name, { bytes, mime }) => (await api.imageCharacters('putReferenceImage', { providerId: state.providerId, data: new Uint8Array(bytes), mediaType: mime, name })).referenceImage
 
-  // The record takes the figure's identity, then the 外貌 and 参考图 the figure carries
-  // and its 设定图 as the record's (setteiReferences). Returns the figure without what moved into the record.
+  // The record takes the figure's identity, then the 外貌 and uploaded 参考图 the figure carries. Its 设定图 stay in the
+  // pack, the one place 配图 reads them from (ADR 0012). Returns the figure without what moved into the record.
   async function keep(state, packId, figure, media) {
     const replace = !!figure.extensions?.[IMAGE_CHARACTER_EXTENSION] && !!adopting.get(packId)?.delete(figure.id)
     const move = appearanceMove(state.character, figure, { replace })
     for (const row of move?.references || []) {
       const outfit = row.outfit ? figure.outfits.find(item => item.key === row.outfit) : null
       if (row.outfit && !outfit) continue
-      const referenceImage = await reference(state, row.name || packReferenceName(figure, outfit, ' 参考图'), await media(row.media))
+      const referenceImage = await reference(state, row.name || packReferenceName(figure, outfit), await media(row.media))
       state = await patch(state, referencePatch(state.character, outfit, referenceImage))
     }
-    for (const { outfit, hash } of setteiReferences(state.character, figure)) state = await patch(state, referencePatch(state.character, outfit, await reference(state, packReferenceName(figure, outfit), await media(hash))))
     if (move?.record) state = await patch(state, move.record)
     if (move?.dropped.length) log('「' + figure.name + '」素材包里的外貌文字与配图人物库不同，以人物库为准：' + move.dropped.map(row => row.text).join(' / ').slice(0, 200))
     const rest = move ? { ...figure, ...move.figure } : figure

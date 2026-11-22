@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
+import { createHash } from 'node:crypto'
 import { imagePluginFixture, IMAGE_PNG, imageJson } from './fixtures/image-plugin-runtime.mjs'
 
 const character = { id: 'lin', name: '林月', match: 'Lin Yue', traits: { face: 'red hair, violet eyes' }, outfits: [{ id: 'shirt', name: '白衬衫', upper: 'white shirt' }] }
@@ -410,15 +411,23 @@ test('structured reference submission shares identities across prose and charact
   assert.doesNotMatch(replaced.submittedPrompt, /坐在身后|正在递伞|未匹配人物/)
 })
 
+// The host lends a linked figure's 设定图 from its pack (ADR 0012); `lent` is what the pack holds right now.
+const SHEET = { id: createHash('sha256').update(IMAGE_PNG).digest('hex'), mediaType: 'image/png', byteLength: IMAGE_PNG.length }
+function lendingTavern(lent, extra = {}) {
+  const reads = []
+  return { reads, async figurePictures({ figures }) { return figures.map(ref => ({ ...ref, identity: null, outfits: lent[ref.figureId] || {} })) },
+    async readFigurePicture(input) { reads.push(input); return { data: new Uint8Array(IMAGE_PNG), mediaType: 'image/png' } }, ...extra }
+}
+
 test('a pack-only character supplies its stage outfit reference and registered colors', async t => {
   const calls = [], id = 'pack:p:f'
   globalThis.fetch = atlasMock(calls)
-  const person = { id, name: 'Mira', consistencyText: 'Pale green skin and a silver spear.', outfits: [{ id: 'armor', name: 'Armor', upper: 'pink leather armor' }] }
-  const tavern = { async imagePackCharacters({ subjects, includeReferences }) {
+  const person = { id, name: 'Mira', figurePackId: 'p', figureId: 'f', consistencyText: 'Pale green skin and a silver spear.', outfits: [{ id: 'armor', name: 'Armor', upper: 'pink leather armor' }] }
+  const tavern = lendingTavern({ f: { armor: { picture: { ...SHEET, name: 'Mira armor' }, borrowed: true } } }, { async imagePackCharacters({ subjects }) {
     if (!subjects) return [person]
     assert.equal(subjects[0].characterId, id)
-    return [{ ...person, outfitId: 'armor', ...(includeReferences && { reference: { data: IMAGE_PNG.toString('base64'), mediaType: 'image/png', name: 'Mira armor' } }) }]
-  } }
+    return [{ ...person, outfitId: 'armor' }]
+  } })
   const fixture = await imagePluginFixture(t, { tavern, config: { generationMode: 'auto', promptMode: 'structured' }, llm: { async *stream(request) {
     assert.match(JSON.stringify(request), /pink leather armor/)
     yield { type: 'text-delta', text: '<images><image><regex>Mira waits by the bridge.</regex><prompts>Mira waits by the bridge.</prompts><subjects>[{"name":"Mira"}]</subjects></image></images>' }
@@ -440,4 +449,24 @@ test('a pack-only character supplies its stage outfit reference and registered c
   assert.equal(textJob.generationMode, 'text')
   assert.deepEqual(textJob.references, [])
   assert.match(textJob.submittedPrompt, /pink leather armor/i)
+  assert.deepEqual(tavern.reads.map(read => read.id), [SHEET.id], 'the bytes come from the pack once, then the local store')
+})
+
+test('a linked record draws with its figure\'s 设定图 from the pack; once the pack unbinds it the next picture has none, with nothing to sync', async t => {
+  const calls = []; globalThis.fetch = atlasMock(calls)
+  const linked = { ...structuredClone(character), figurePackId: 'p', figureId: 'f' }
+  const lent = { f: { shirt: { picture: { ...SHEET, name: '林月／白衬衫 设定图' }, borrowed: false } } }
+  const fixture = await imagePluginFixture(t, { tavern: lendingTavern(lent), definitions: { characters: [linked] }, config: { generationMode: 'auto', promptMode: 'structured' } })
+  const runtime = await fixture.start()
+  const drawn = await runtime.terminal((await runtime.request('jobs', { tag: raw, subjects: [{ characterId: 'lin', outfitId: 'shirt' }] })).body.id)
+  assert.equal(drawn.state, 'done', drawn.error)
+  assert.deepEqual(drawn.references.map(r => [r.kind, r.image.name]), [['character-outfit', '林月／白衬衫 设定图']])
+  assert.equal((await fixture.read('definitions.json')).characters[0].outfits[0].characterOutfitImage, undefined, 'the record holds no copy')
+  const state = (await runtime.request('state')).body
+  assert.deepEqual(state.figurePictures, { lin: { identity: null, outfits: lent.f } })
+  delete lent.f.shirt
+  const after = await runtime.terminal((await runtime.request('jobs', { tag: raw, subjects: [{ characterId: 'lin', outfitId: 'shirt' }] })).body.id)
+  assert.equal(after.state, 'done', after.error)
+  assert.equal(after.generationMode, 'text', 'no picture left to draw with')
+  assert.deepEqual(after.references, [])
 })

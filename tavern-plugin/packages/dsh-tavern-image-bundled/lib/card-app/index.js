@@ -52,7 +52,7 @@ export function apply(ctx, { ready, data, gallery }) {
     return enabled
   })
   const assertOpen = async () => { await enabledReady; if (closed || !enabled) throw fail('NOT_CONFIGURED', '工作台生图已关闭') }
-  const source = async () => (await ready()).currentDefinitions()
+  const source = async () => (await ready()).pictureDefinitions()
   const outfits = async () => (await source()).outfits.filter(item => item.enabled !== false)
   const parts = item => Object.fromEntries(PARTS.map(key => [key, text(item[key])]))
   // 通用服装与角色服装同字段；旧字段非空时一并带上，方便调用方看到原始值。

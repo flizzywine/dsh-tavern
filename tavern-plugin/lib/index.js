@@ -360,7 +360,7 @@ import { createPlayHandlers } from './rpc/play.js'
 import { createTransferHandlers } from './rpc/transfer.js'
 import { createImageCharacterHandlers } from './rpc/image-characters.js'
 import { createFigureRecords } from './image-character-records.js'
-import { figureOutfitReference } from './domain/figure-sprite-reference.js'
+import { createFigurePictures } from './image-character-pictures.js'
 import { appearanceFromImageCharacter, findFigureImageCharacter, imageCharacterExtension, imageCharacterFromFigure } from './domain/image-character-appearance.js'
 import { createTransferExportStore } from './domain/transfer-store.js'
 // dsh-tavern 宿主插件（profile 组合行）
@@ -3331,6 +3331,7 @@ export async function apply(ctx) {
   }
   const gameForegroundQueues = new Map()
   let figureRecords = null
+  const figurePictures = createFigurePictures(() => ctx.get('assetLibrary'))
   pluginApi = createTavernPluginApi({
     ctx,get modHost() {return ctx.get('tavernManagedModules')},
     replyStreamRewriters,
@@ -3348,7 +3349,10 @@ export async function apply(ctx) {
       library?.figureRecordsChanged?.({}).then(() => figureRecords?.foldWhole(library)).catch(error => console.warn('dsh-tavern: 素材库人物刷新失败', str(error?.message || error)))
     },
     writingFigureRecords: () => figureRecords?.writing() === true,
-    async imagePackCharacters(packIds, selections, includeReferences) {
+    // A figure's 设定图 and borrowed 立绘, which 配图 reads by a record's link from the pack, their one store (ADR 0012).
+    figurePictures: figures => figurePictures.list(figures),
+    readFigurePicture: input => figurePictures.read(input),
+    async imagePackCharacters(packIds, selections) {
       const library = ctx.get('assetLibrary')
       if (!library) return []
       const packs = await Promise.all(packIds.map(packId => library.getPackSnapshot({ packId, readOnly: true })))
@@ -3361,10 +3365,8 @@ export async function apply(ctx) {
           if (selections && !selection) return null
           const outfits = figure.outfits.filter(outfit => outfit.enabled !== false)
           const outfit = selection && (selection.outfitId ? outfits.find(item => item.key === selection.outfitId) : outfits[0])
-          const hash = includeReferences && outfit && (outfit.settei || figureOutfitReference(pack, figure, outfit)?.hash)
-          const reference = hash ? await library.readMedia({ packId: pack.manifest.id, expectedRevision: pack.revision, hash }) : null
           return { ...character, id, consistencyText: figure.description, outfits: character.outfits.filter(item => outfits.some(outfit => outfit.key === item.id)),
-            ...(outfit && { outfitId: outfit.key }), ...(reference && { reference: { data: Buffer.from(reference.bytes).toString('base64'), mediaType: reference.descriptor.mime, name: character.name + ' · ' + outfit.label } }) }
+            ...(outfit && { outfitId: outfit.key }) }
         })))).filter(Boolean)
     },
     // A save of 人物库 records linked to figures (ADR 0011: the record is the figure's identity, so only a link that ends writes

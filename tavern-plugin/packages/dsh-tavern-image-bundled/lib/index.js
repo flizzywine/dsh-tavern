@@ -74,6 +74,7 @@ import { createFormatWorldbooks } from './format-worldbooks.js'
 import { listDesignGames, resolveDesignSources } from './design-sources.js'
 import { activeArtistText, applyWeights, resolveWeightMode, prepareImagePrompt } from './prompt-assembly.js'
 export { convertWeights, stripWeights, resolveWeightMode } from './prompt-assembly.js'
+import { linkedFigures, withFigurePictures, figurePictureSources } from './figure-pictures.js'
 import { normalizeReferenceImage, normalizeConsistencyText, createReferenceImageStore, resolveImageReferences, buildReferenceText, buildStructuredReferenceText, referencePlannerGuidance, referenceScopedDefinitions } from './reference-images.js'
 
 export const name = 'dsh-tavern-image'
@@ -1265,7 +1266,7 @@ export function apply(ctx, config = {}) {
           }
           // Tavern's own picture requests (stage asset packs) run on the current online channel.
           if (typeof tavern.imageProvider === 'function') {
-            const provider = stageImageProvider(() => engine.currentConfig(), undefined, { definitions: () => engine.currentDefinitions(), readReference: reference => engine.readReference(reference),
+            const provider = stageImageProvider(() => engine.currentConfig(), undefined, { definitions: () => engine.pictureDefinitions(), readReference: reference => engine.readReference(reference),
               workflows: () => engine.comfyModels(), generateComfy: request => engine.generateComfyAsset(request),
               templates: () => engine.templateModels(), generateTemplate: request => engine.generateTemplateAsset(request) })
             const off = tavern.imageProvider(provider)
@@ -1379,6 +1380,24 @@ function createRuntime(ctx, overrides, logger, deps) {
     const referenceStore = createReferenceImageStore(join(ROOT, 'reference-images'), { maxBytes: 32 * 1024 * 1024, refreshUploadTime: true })
     const referenceWrites = serialQueue()
     const putReferenceImage = input => referenceWrites(() => referenceStore.put(input))
+    // A linked figure's 设定图 and borrowed 立绘 stay in the host's asset library (figure-pictures.js): each picture reads
+    // them there, and their bytes enter this store (named by sha256, like any 参考图) when a picture or the page first uses them.
+    const lentFrom = new Map()
+    async function lentPictures(defs) {
+      const figures = linkedFigures(defs)
+      if (!figures.length || typeof deps.tavern?.figurePictures !== 'function') return []
+      const rows = await deps.tavern.figurePictures({ figures })
+      for (const [id, at] of figurePictureSources(rows)) lentFrom.set(id, at)
+      return rows
+    }
+    const lendFigurePictures = async defs => withFigurePictures(defs, await lentPictures(defs))
+    async function storeLentPicture(image) {
+      const at = lentFrom.get(image?.id)
+      if (!at) return
+      try { await referenceStore.readById(image.id); return } catch (error) { if (error.code !== 'REFERENCE_IMAGE_MISSING') throw error }
+      const { data, mediaType } = await deps.tavern.readFigurePicture({ ...at, id: image.id })
+      await putReferenceImage({ data: Buffer.from(data).toString('base64'), mediaType, name: image.name || image.id })
+    }
     let referenceGcPreview
     const characterLibrary = createCharacterLibrary({
       getDefinitions: () => definitions,
@@ -2241,7 +2260,9 @@ function createRuntime(ctx, overrides, logger, deps) {
             ? referenceScopedDefinitions(referenceState.definitions, referenceState.references, { subjects: referenceState.subjects, markers: false })
             : referenceState.definitions
         } else {
+          scopedDefs = await lendFigurePictures(scopedDefs)
           const selected = resolveImageReferences({ text: params.rawTag, characters: params.characters, subjects, definitions: scopedDefs })
+          for (const reference of selected.references) await storeLentPicture(reference.image)
           scopedDefs = referenceScopedDefinitions(scopedDefs, selected.references, { subjects: selected.subjects, markers: !prose })
           referenceState = { version: prose ? 2 : 1, ...selected, definitions: structuredClone(scopedDefs) }
         }
@@ -3019,10 +3040,10 @@ function createRuntime(ctx, overrides, logger, deps) {
         ? (await deps.tavern?.imagePackCharacters?.({ gameId: sessionId, turn }) ?? []).filter(person =>
           !registered.some(record => record.figureId === person.figureId && record.figurePackId === person.figurePackId || norm(record.name) === norm(person.name)))
         : []
-      const scoped = {
+      const scoped = await lendFigurePictures({
         ...timelineDefinitions,
         characters: [...registered, ...packCharacters],
-      }
+      })
       const plannerMaterials = selectPromptMaterials(plannerInputs.structure, scoped, { usage: trial?.usage,
         subjects: trial?.subjects, mode: plannerMode, traitMode: cfg.traitMode })
       if (plannerMaterials.warnings.length) throw new Error(plannerMaterials.warnings.join('；'))
@@ -3241,17 +3262,13 @@ function createRuntime(ctx, overrides, logger, deps) {
             const selected = pictureSubjects?.filter(subject => packCharacters.some(person => person.id === subject.characterId)) ?? []
             const packFacts = []
             if (selected.length) {
-              const dressed = await deps.tavern.imagePackCharacters({ gameId: sessionId, turn, anchor: image.mount, subjects: selected, includeReferences: planningGenerationMode === 'reference' })
-              for (const { id, name, consistencyText, outfitId, reference } of dressed) {
+              const dressed = await deps.tavern.imagePackCharacters({ gameId: sessionId, turn, anchor: image.mount, subjects: selected })
+              for (const { id, name, consistencyText, outfitId } of dressed) {
                 const person = pictureScope.characters.find(item => item.id === id)
                 const outfit = person.outfits.find(item => item.id === outfitId)
                 if (!outfit) continue
                 const identity = person.traits?.face || consistencyText
                 if (identity || outfit.upper) packFacts.push([name, identity && `外观：${identity}`, outfit.upper && `服装：${outfit.upper}`].filter(Boolean).join('；'))
-                if (reference && planningGenerationMode === 'reference') {
-                  const characterOutfitImage = await putReferenceImage(reference)
-                  pictureScope.characters = pictureScope.characters.map(item => item.id === id ? { ...item, outfits: item.outfits.map(row => row.id === outfitId ? { ...row, characterOutfitImage } : row) } : item)
-                }
                 pictureSubjects = pictureSubjects.map(subject => subject.characterId === id ? { ...subject, outfitId } : subject)
               }
             }
@@ -4007,6 +4024,11 @@ function createRuntime(ctx, overrides, logger, deps) {
           error: wf.error, digest: wf.digest ?? '', summary: wf.summary ?? null, current: wf.id === config.defaultWorkflow,
         })),
         definitions,
+        // Pictures the host's asset library lends linked people: {[character id]: {identity, outfits: {[outfit id]: {picture, borrowed}}}}.
+        figurePictures: Object.fromEntries(await lentPictures(definitions).then(rows => (definitions.characters ?? []).flatMap(item => {
+          const row = rows.find(entry => entry.packId === item.figurePackId && entry.figureId === item.figureId)
+          return row ? [[item.id, { identity: row.identity, outfits: row.outfits }]] : []
+        }))),
         outfits: definitions.outfits ?? [],
         kinds: DEFINITION_KINDS,
         jobs: [...jobs.values()].sort((a, b) => b.createdAt - a.createdAt).slice(0, 60).map(consoleJob),
@@ -4214,7 +4236,9 @@ function createRuntime(ctx, overrides, logger, deps) {
       if (action === 'reference-image') {
         try {
           if (request.method === 'GET') {
-            const image = await referenceStore.readById(String(_url?.searchParams?.get('id') ?? ''))
+            const id = String(_url?.searchParams?.get('id') ?? '')
+            await storeLentPicture({ id })
+            const image = await referenceStore.readById(id)
             response.writeHead(200, { 'content-type': image.mediaType, 'content-length': image.data.length, 'cache-control': 'private, max-age=1800', 'x-content-type-options': 'nosniff' })
             response.end(image.data)
           } else if (request.method === 'POST') {
@@ -6204,8 +6228,10 @@ function createRuntime(ctx, overrides, logger, deps) {
       currentConfig: () => config,
       imageReady: () => Boolean(autoImageRoute({ probe: true })),
       currentDefinitions: () => definitions,
+      // What a picture reads: the records with the pictures the host lends linked people (never saved).
+      pictureDefinitions: () => lendFigurePictures(definitions),
       characterLibrary,
-      readReference: reference => referenceStore.read(reference),
+      readReference: async reference => { await storeLentPicture(reference); return referenceStore.read(reference) },
       comfyModels: () => usable().map(workflow => {
         let maxReferences = 0, reason = ''
         try { maxReferences = comfyReferenceCapacity(workflow, comfyLoadImageBindings(workflow)) } catch (error) { reason = error.message }
