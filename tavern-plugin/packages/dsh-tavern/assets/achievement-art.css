@@ -1,13 +1,5 @@
 /* Artwork and 420 × 560 layout from SilverLark257/dsh-tavern-adventure-medal (MIT).
    Use the card's width as the unit so the same composition fits the library and popup. */
-/* Ma Shan Zheng subset, licensed under SIL OFL 1.1 (achievement-title-OFL.txt). */
-@font-face {
-  font-family: 'Tavern Achievement Title';
-  src: url('/profile-bridge/achievement-title.woff2') format('woff2');
-  font-style: normal;
-  font-weight: 400;
-  font-display: swap;
-}
 .achievement-art {
   --am-unit: calc(100cqw / 420);
   position: relative;
@@ -67,22 +59,8 @@
 .achievement-art[data-tier="rainbow"] { --am-badge-offset: 75%; }
 .achievement-art[data-tier="starter"] { --am-badge-offset: 100%; }
 .achievement-art[data-tier="rainbow"] .achievement-art-badge { font-size: calc(7.5 * var(--am-unit)); }
-.achievement-art-ribbon {
-  position: absolute; left: calc(60 * var(--am-unit)); top: calc(210 * var(--am-unit));
-  width: calc(300 * var(--am-unit)); height: calc(38 * var(--am-unit));
-  display: grid; place-items: center; text-align: center;
-}
-.achievement-art-ribbon strong {
-  color: #fff3d2;
-  font-family: 'Tavern Achievement Title', 'Kaiti SC', KaiTi, STKaiti, 'Songti SC', serif;
-  font-size: calc(26 * var(--am-unit)); font-weight: 400; line-height: 1;
-  letter-spacing: .16em; text-indent: .16em;
-  paint-order: stroke fill;
-  -webkit-text-stroke: calc(2.6 * var(--am-unit)) #43291e;
-  text-shadow: 0 calc(2 * var(--am-unit)) calc(4 * var(--am-unit)) #2b1a12ad;
-}
 .achievement-art-pills {
-  position: absolute; left: calc(60 * var(--am-unit)); top: calc(250 * var(--am-unit));
+  position: absolute; left: calc(60 * var(--am-unit)); top: calc(231 * var(--am-unit));
   width: calc(300 * var(--am-unit)); display: grid; gap: calc(6 * var(--am-unit));
 }
 .achievement-art-pill {
@@ -111,19 +89,32 @@
   font-size: calc(13 * var(--am-unit)); font-weight: 600; font-variant-numeric: tabular-nums;
   text-shadow: 0 1px 4px #0004;
 }
-.achievement-art-sticker {
-  position: absolute; left: 0; right: 0; top: calc(411 * var(--am-unit));
+.achievement-art-result {
+  position: absolute; left: 0; right: 0; top: calc(398 * var(--am-unit));
+  display: grid; justify-items: center; gap: calc(3 * var(--am-unit));
+  transform: rotate(-4deg);
   pointer-events: none;
-  display: flex; gap: .18em; align-items: baseline; justify-content: center;
-  transform: rotate(-4deg); white-space: nowrap;
-  font-size: calc(28 * var(--am-unit)); font-weight: 900; letter-spacing: -.02em; line-height: 1.15;
-  color: white; paint-order: stroke fill;
-  -webkit-text-stroke: calc(7 * var(--am-unit)) #5e3a28;
+  font-weight: 900; white-space: nowrap;
   filter: drop-shadow(0 calc(3.5 * var(--am-unit)) calc(1 * var(--am-unit)) #5e3a2880);
+}
+.achievement-art-result > * {
+  paint-order: stroke fill;
+  -webkit-text-stroke: calc(7 * var(--am-unit)) #5e3a28;
+}
+.achievement-art-sticker {
+  display: flex; gap: .18em; align-items: baseline; justify-content: center;
+  font-size: calc(28 * var(--am-unit)); letter-spacing: -.02em; line-height: 1.15;
+  color: white;
 }
 .achievement-art-sticker b {
   font-size: 1.3em; font-weight: 900; -webkit-text-stroke: calc(3.4 * var(--am-unit)) #f4b942;
   filter: drop-shadow(0 calc(2 * var(--am-unit)) #5e3a28);
+}
+.achievement-art-title {
+  color: #fff3cf;
+  font-size: calc(48 * var(--am-unit)); font-weight: inherit; line-height: 1.04;
+  letter-spacing: .07em; text-indent: .07em;
+  -webkit-text-stroke-width: calc(8 * var(--am-unit));
 }
 .achievement-art-footer {
   position: absolute; inset: auto 0 calc(8 * var(--am-unit)); text-align: center;

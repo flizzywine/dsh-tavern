@@ -344,14 +344,15 @@ window.__ModuleLoader__.load({
         h('div', { className: 'achievement-art-stars', 'aria-hidden': 'true' },
           Array.from({ length: 6 }, (_, i) => h('span', { key: i }))),
         h('span', { className: 'achievement-art-badge', 'aria-hidden': 'true' }, tier.rounds),
-        h('div', { className: 'achievement-art-ribbon' }, h('strong', null, tier.title)),
         h('div', { className: 'achievement-art-pills' }, fields.map(([icon, label, value]) =>
           h('div', { className: 'achievement-art-pill', key: icon, 'data-stat': icon },
             h('span', { className: 'achievement-art-icon', 'data-icon': icon, 'aria-hidden': 'true' }),
             h('span', { className: 'achievement-art-pill-label' }, t(label)),
             h('b', { className: 'achievement-art-pill-value', title: icon === 'name' ? value : undefined }, value)))),
-        h('div', { className: 'achievement-art-sticker' },
-          t('achievementReached') + ' ', h('b', null, tier.rounds), ' ' + t('achievementMilestoneSuffix')),
+        h('div', { className: 'achievement-art-result' },
+          h('div', { className: 'achievement-art-sticker' },
+            t('achievementReached') + ' ', h('b', null, tier.rounds), ' ' + t('achievementMilestoneSuffix')),
+          h('strong', { className: 'achievement-art-title' }, tier.title)),
         h('div', { className: 'achievement-art-footer' }, t(preview ? 'achievementTestCard' : 'achievementMemento'),
           unlocked ? h(React.Fragment, null, ' · ', h('time', { dateTime: unlocked.toISOString() }, date(unlocked))) : null))
     }

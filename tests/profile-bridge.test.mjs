@@ -43,7 +43,7 @@ test('统一启动器从 NEXT 宿主读取活动 Profile，拒绝目录链接切
    webServer: { register: route => routes.push(route) },
    effect: register => register(),
  })
- assert.equal(routes.length, 7)
+ assert.equal(routes.length, 6)
  assert.equal(routes[0].kind, 'exact')
  assert.equal(routes[0].path, '/profile-bridge/logo.png')
  routes[0].handler({ method: 'GET' }, {
@@ -58,7 +58,6 @@ test('统一启动器从 NEXT 宿主读取活动 Profile，拒绝目录链接切
  for (const [name, contentType] of [
    ...['medal', 'badges', 'paper', 'icons'].map(asset => ['achievement-' + asset + '.webp', 'image/webp']),
    ['achievement-art.css', 'text/css; charset=utf-8'],
-   ['achievement-title.woff2', 'font/woff2'],
  ]) {
    const route = routes.find(route => route.path === '/profile-bridge/' + name)
    assert.equal(route.kind, 'exact')
