@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "0979ecf1bb83e79908a16dec246d0ade8f0aa2a5",
-  "releaseSequence": 1917,
+  "revision": "629dd9f004d989e3eb42a4f3ca65f261a227b860",
+  "releaseSequence": 1918,
   "version": "3.4.0",
   "files": [
     {
@@ -1346,8 +1346,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/bounded-history.js",
-      "sha256": "fb273a631af5a21757308b353e863b5e06d9ba83e3befe2c820b4e32314d5de5",
-      "size": 9108
+      "sha256": "6dd4452eff7ab9a149d1ed1e37e62226084cd123da6d880f395c210205f8c716",
+      "size": 9180
     },
     {
       "path": "tavern-plugin/lib/domain/branch-origin-repair.js",
@@ -1371,8 +1371,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/candidate-context-reader.js",
-      "sha256": "c9b631ac501dd03271bde6fb407f183d402e138691391224b647abbf4f96b94c",
-      "size": 2414
+      "sha256": "d1851d663ad9e1e5703a576a8904540015694214d44212552238d6dadb25245c",
+      "size": 3619
     },
     {
       "path": "tavern-plugin/lib/domain/candidate-generation.js",
@@ -1401,8 +1401,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/candidate-worldbook-preparation.js",
-      "sha256": "678738f36c24f27f40eafcb61e305960207488541eb4f330aa0d342c3ca0253a",
-      "size": 3180
+      "sha256": "c33c9c033956711ce89e6b2c9004a55b82f760f84610e636f2b225a43aa89d0f",
+      "size": 2771
     },
     {
       "path": "tavern-plugin/lib/domain/card-archive.js",
@@ -3526,8 +3526,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/story-reconciliation.js",
-      "sha256": "541d8cb317a4cfc66cbb028aeafcf17784fad18d5db59889a471020ae51cc8e5",
-      "size": 9497
+      "sha256": "20ea07b31125a43db180156c3db33dda7b3784f0d22709664a04b2ed65466112",
+      "size": 10434
     },
     {
       "path": "tavern-plugin/lib/domain/story-timeline.js",
@@ -4211,8 +4211,8 @@
     },
     {
       "path": "tavern-plugin/lib/index.js",
-      "sha256": "2bb57ba5974f7a4fd087de42ea7f2fc95514529d0bedc462f7806deb88681afe",
-      "size": 335979
+      "sha256": "bcb01d35a5d47b941a5dcc23165f779ead729df5bd764b66cc4741d43cad98d0",
+      "size": 335954
     },
     {
       "path": "tavern-plugin/lib/metadata-backup.js",
@@ -4336,8 +4336,8 @@
     },
     {
       "path": "tavern-plugin/lib/rpc/play.js",
-      "sha256": "1b12db37c7816991ebf24004feb2f42e0cc096b6fddb36b4fcd7fce95bc12608",
-      "size": 26945
+      "sha256": "3c375be54a7d8885b7624bd3ddce8f0dd54d874a0298a993d09a694310035548",
+      "size": 27194
     },
     {
       "path": "tavern-plugin/lib/rpc/plugins.js",
@@ -9681,9 +9681,9 @@
     }
   ],
   "archive": {
-    "commit": "af9c57bbadaa9f355d6943f79dbcbe89dc631ee6",
+    "commit": "5d02c6a4f2eb3849dd94e47069061626f42e7783",
     "path": "runtime.zip",
-    "sha256": "c11056fa18a823b4151b5faaa9b60816701e0e046103b3d1d49195180cdcfcfe",
-    "size": 17132124
+    "sha256": "71a08eb161451fb6237f1773469c9b193541bbac3af7bb1873fe8d0be8badde3",
+    "size": 17132727
   }
 }
