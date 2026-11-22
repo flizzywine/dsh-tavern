@@ -13,6 +13,7 @@ window.__ModuleLoader__.load({
 
     /** Shared RPC channel owned by this plugin's Host half. */
     const CHANNEL = '/profile-bridge'
+    const ACHIEVEMENT_PREVIEW_EVENT = 'dsh-tavern-adventure-medal:preview'
     /** Locale namespace of this page. */
     const NS = 'profileBridge'
 
@@ -42,12 +43,10 @@ window.__ModuleLoader__.load({
       operationDone: "上次操作已完成。",
       updates: '酒馆版本与更新',
       achievements: '成就库',
-      achievementsEmpty: '启用「冒险奖牌」插件后，成就会显示在这里。',
-      achievementsError: '成就库暂时读不出来。',
-      achievementsRetry: '重试',
       achievementRounds: '轮',
-      achievementUnlocked: '已解锁',
-      achievementLocked: '未解锁',
+      achievementTest: '成就测试',
+      achievementTestCard: '测试卡牌',
+      achievementTestUnavailable: '请先打开一段游玩对话，并确认新版成就插件已启用。',
       installedBuild: '当前安装',
       latestBuild: '最新发布',
       unknownBuild: '构建未知',
@@ -153,12 +152,10 @@ window.__ModuleLoader__.load({
       operationDone: "The last operation completed.",
       updates: 'Tavern version and updates',
       achievements: 'Achievements',
-      achievementsEmpty: 'Achievements appear here after enabling the Adventure Medal plugin.',
-      achievementsError: 'Could not load achievements.',
-      achievementsRetry: 'Retry',
       achievementRounds: 'rounds',
-      achievementUnlocked: 'Unlocked',
-      achievementLocked: 'Locked',
+      achievementTest: 'Test achievements',
+      achievementTestCard: 'Preview card',
+      achievementTestUnavailable: 'Open a playable conversation with the updated achievement plugin enabled.',
       installedBuild: 'Installed build',
       latestBuild: 'Latest release',
       unknownBuild: 'Unknown build',
@@ -282,13 +279,37 @@ window.__ModuleLoader__.load({
 .pb-fold[open] summary::before { transform: rotate(90deg); }
 .pb-fold summary:hover { opacity: 1; }
 .pb-fold p { margin: 6px 0; opacity: 0.6; font-size: 12px; }
-.pb-achievements { display: grid; gap: 6px; margin: 12px 0 0; padding: 0; list-style: none; }
-.pb-achievement { display: flex; align-items: center; gap: 10px; min-width: 0; padding: 8px 10px; border: 1px solid var(--pb-line); border-radius: 8px; }
-.pb-achievement[data-earned="true"] { background: var(--pb-accent-soft); }
-.pb-achievement-mark { flex: none; color: #a76132; }
-.pb-achievement[data-earned="false"] .pb-achievement-mark { color: inherit; opacity: .6; }
-.pb-achievement-copy { min-width: 0; flex: 1; overflow-wrap: anywhere; }
-.pb-achievement-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 3px 8px; margin-top: 2px; font-size: 12px; opacity: .75; }
+.pb-achievement-library { display: grid; gap: 12px; min-width: 0; }
+.pb-achievement-library h3 { margin: 0; font-size: 14px; }
+.pb-achievements { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 132px), 1fr)); gap: 10px; margin: 0; padding: 0; list-style: none; }
+.pb-achievement-card {
+  --pb-card-highlight: #fff7df; --pb-card-edge: #d3a482; --pb-metal-light: #ffdfb8; --pb-metal: #b36e42; --pb-metal-edge: #86502f;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px;
+  min-width: 0; max-width: 176px; min-height: 158px; aspect-ratio: 3 / 4; padding: 12px 10px;
+  border: 1px solid var(--pb-card-edge); border-radius: 12px; text-align: center; color: #4d2f24;
+  background: radial-gradient(ellipse at 50% 28%, var(--pb-card-highlight), transparent 70%), #f7eada;
+  box-shadow: inset 0 0 0 4px #fff6ea, inset 0 0 0 5px var(--pb-card-edge), 0 2px 4px #5030201a;
+}
+.pb-achievement-card[data-tier="silver"] { --pb-card-highlight: #f5fbff; --pb-card-edge: #a8aeb7; --pb-metal-light: #f4f7fc; --pb-metal: #9caab9; --pb-metal-edge: #677889; }
+.pb-achievement-card[data-tier="gold"] { --pb-card-highlight: #fff7cf; --pb-card-edge: #d8af67; --pb-metal-light: #fff1ac; --pb-metal: #e6ac38; --pb-metal-edge: #9f691e; }
+.pb-achievement-card[data-tier="rainbow"] { --pb-card-highlight: #fff1f8; --pb-card-edge: #c39abc; --pb-metal-edge: #9272a2; }
+.pb-achievement-medal { position: relative; display: grid; justify-items: center; width: 68px; height: 74px; flex: none; }
+.pb-achievement-medal::before, .pb-achievement-medal::after {
+  content: ''; position: absolute; top: 32px; width: 20px; height: 36px; clip-path: polygon(0 0, 100% 0, 100% 100%, 50% 79%, 0 100%);
+}
+.pb-achievement-medal::before { left: 14px; background: linear-gradient(120deg, #f9d177, #ce892b); transform: rotate(19deg); }
+.pb-achievement-medal::after { right: 14px; background: linear-gradient(120deg, #ffc0d1, #d2789b); transform: rotate(-19deg); }
+.pb-achievement-coin {
+  display: grid; place-items: center; width: 52px; height: 52px; z-index: 1; border-radius: 50%; border: 2px solid var(--pb-metal-edge);
+  background: radial-gradient(circle at 32% 24%, var(--pb-metal-light), var(--pb-metal) 82%); color: #563219;
+  box-shadow: inset 0 0 0 3px #fff6bd86, inset 0 -6px 9px #53311e33, 0 3px 5px #682f2250;
+  font-size: 26px; line-height: 1; text-shadow: 0 1px #fff7dfaa;
+}
+.pb-achievement-card[data-tier="rainbow"] .pb-achievement-coin { background: conic-gradient(from -35deg, #ffe2a7, #f6b7c9, #cdbce7, #b8d6e8, #cde2b6, #ffe2a7); }
+.pb-achievement-copy { display: grid; gap: 2px; min-width: 0; line-height: 1.4; overflow-wrap: anywhere; }
+.pb-achievement-copy strong { font-size: 14px; }
+.pb-achievement-copy span, .pb-achievement-copy time { font-size: 11px; color: #715140; }
+.pb-achievement-test .pb-actions, .pb-achievement-test .pb-achievements { margin-top: 10px; }
 .pb-pre { margin: 0; padding: 10px 12px; border-radius: 8px; background: var(--pb-fill); max-height: 200px; overflow: auto; font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; word-break: break-all; }
 `
 
@@ -311,38 +332,48 @@ window.__ModuleLoader__.load({
           : t('unknownBuild'))
     }
 
+    function AchievementCard({ tier, t }) {
+      const unlocked = tier.unlockedAt === null ? null : new Date(tier.unlockedAt)
+      return h('li', { className: 'pb-achievement-card', 'data-tier': tier.id },
+        h('span', { className: 'pb-achievement-medal', 'aria-hidden': 'true' },
+          h('span', { className: 'pb-achievement-coin' }, '★')),
+        h('div', { className: 'pb-achievement-copy' },
+          h('strong', null, tier.title),
+          h('span', null, tier.rounds + ' ' + t('achievementRounds')),
+          unlocked ? h('time', { dateTime: unlocked.toISOString() }, unlocked.toLocaleDateString()) : null))
+    }
+
     function AchievementLibrary({ call, t }) {
-      const [expanded, setExpanded] = React.useState(false)
-      const [state, setState] = React.useState({ items: null, error: false })
-      const [attempt, setAttempt] = React.useState(0)
+      const [tiers, setTiers] = React.useState([])
+      const [preview, setPreview] = React.useState(undefined)
+      const previewRequest = React.useRef(0)
       React.useEffect(() => {
-        if (!expanded) return
         let alive = true
-        setState({ items: null, error: false })
         call('achievements', {}).then(result => {
-          if (!alive) return
-          if (result?.ok === true && Array.isArray(result.value)) setState({ items: result.value, error: false })
-          else setState({ items: null, error: true })
-        }, () => { if (alive) setState({ items: null, error: true }) })
-        return () => { alive = false }
-      }, [call, expanded, attempt])
-      return h('details', { className: 'pb-fold', onToggle: event => setExpanded(event.currentTarget.open) },
-        h('summary', null, t('achievements')),
-        state.error ? h('div', null,
-          h('p', { role: 'alert' }, t('achievementsError')),
-          h('button', { type: 'button', className: 'pb-btn pb-btn-quiet', onClick: () => setAttempt(value => value + 1) }, t('achievementsRetry')))
-          : state.items === null ? h('p', { role: 'status' }, t('loading'))
-          : state.items.length === 0 ? h('p', null, t('achievementsEmpty'))
-          : h('ul', { className: 'pb-achievements' }, state.items.map(tier =>
-            h('li', { key: tier.id, className: 'pb-achievement', 'data-earned': tier.earned },
-              h('span', { className: 'pb-achievement-mark', 'aria-hidden': 'true' }, tier.earned ? '★' : '☆'),
-              h('div', { className: 'pb-achievement-copy' },
-                h('strong', null, tier.title),
-                h('div', { className: 'pb-achievement-meta' },
-                  h('span', null, tier.rounds + ' ' + t('achievementRounds')),
-                  h('span', null, t(tier.earned ? 'achievementUnlocked' : 'achievementLocked')),
-                  tier.unlockedAt === null ? null : h('time', { dateTime: new Date(tier.unlockedAt).toISOString() },
-                    new Date(tier.unlockedAt).toLocaleDateString())))))))
+          if (alive && result?.ok === true && Array.isArray(result.value)) setTiers(result.value)
+        }, () => {})
+        return () => { alive = false; previewRequest.current++ }
+      }, [call])
+      function previewTier(id) {
+        const request = ++previewRequest.current
+        const complete = result => { if (request === previewRequest.current) setPreview(result) }
+        const event = new window.CustomEvent(ACHIEVEMENT_PREVIEW_EVENT, { cancelable: true, detail: { id, complete } })
+        if (window.dispatchEvent(event)) complete(null)
+      }
+      const earned = tiers.filter(tier => tier.earned === true)
+      return h(React.Fragment, null,
+        earned.length ? h('section', { className: 'pb-achievement-library', 'aria-label': t('achievements') },
+          h('h3', null, t('achievements')),
+          h('ul', { className: 'pb-achievements' }, earned.map(tier => h(AchievementCard, { key: tier.id, tier, t })))) : null,
+        inTavern() && tiers.length ? h('details', { className: 'pb-fold pb-achievement-test' },
+          h('summary', null, t('achievementTest')),
+          h('div', { className: 'pb-actions' }, tiers.map(tier => h('button', {
+            key: tier.id, type: 'button', className: 'pb-btn pb-btn-quiet', onClick: () => previewTier(tier.id),
+          }, tier.title + ' · ' + tier.rounds + ' ' + t('achievementRounds')))),
+          preview === null ? h('p', { role: 'status' }, t('achievementTestUnavailable')) : null,
+          preview ? h(React.Fragment, null,
+            h('p', { role: 'status' }, [t('achievementTestCard'), preview.cardName].filter(Boolean).join(' · ')),
+            h('ul', { className: 'pb-achievements' }, h(AchievementCard, { tier: preview, t }))) : null) : null)
     }
 
     /** @param {{ t: Function, rpcCall: Function }} props */

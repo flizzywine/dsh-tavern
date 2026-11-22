@@ -25,6 +25,7 @@ async function mount(status, calls = [], options = {}) {
   const rpc = async (_channel, endpoint, payload) => {
     calls.push([endpoint, payload])
     if (options.rpc) return options.rpc(endpoint, payload)
+    if (endpoint === 'achievements') return { ok: true, value: [] }
     if (endpoint === 'shortcut') return { ok: true, value: { path: '/Users/me/Desktop/DSH 酒馆.app', existed: false } }
     return endpoint === 'status' ? { ok: true, value: status } : { ok: true, value: { closesApp: true } }
   }
@@ -49,33 +50,69 @@ async function mount(status, calls = [], options = {}) {
 
 const tavernProfile = { name: 'tavern', bundles: ['dsh-tavern-plugin', 'dsh-tavern'], hasBridge: true, hasNodeModules: true }
 
-test('原版 Profile 也能在启动器查看酒馆档案的成就', async t => {
+test('原版 Profile 的启动器只显示已解锁的成就卡，空库完全隐藏', async t => {
   const home = await mkdtemp(join(tmpdir(), 'launcher-achievements-'))
   t.after(() => rm(home, { recursive: true, force: true }))
   assert.deepEqual(await readAchievementLibrary(home), [])
   const data = join(home, 'profile-data', 'tavern', 'data', 'plugin-data')
   await mkdir(data, { recursive: true })
   const unlockedAt = Date.UTC(2026, 9, 22)
-  await writeFile(join(data, 'dsh-tavern-adventure-medal.json'), JSON.stringify({ version: 1, achievements: [
-    { id: 'bronze', title: '小有名气', rounds: 100, earned: true, unlockedAt },
-    { id: 'silver', title: '传奇冒险者', rounds: 300, earned: false, unlockedAt: null },
-  ] }))
+  const locked = { id: 'silver', title: '传奇冒险者', rounds: 300, earned: false, unlockedAt: null }
+  const write = achievements => writeFile(join(data, 'dsh-tavern-adventure-medal.json'), JSON.stringify({ version: 1, achievements }))
   const status = { activeName: 'desktop', appKind: 'desktop', desktopApp: true, profiles: [tavernProfile] }
-  const page = await mount(status, [], {
+  const options = {
     rpc: async endpoint => ({ ok: true, value: endpoint === 'achievements' ? await readAchievementLibrary(home) : status }),
-  })
+  }
+  await write([locked])
+  const emptyPage = await mount(status, [], options)
   try {
-    assert.equal(page.calls.some(([endpoint]) => endpoint === 'achievements'), false)
-    const summary = [...page.dom.window.document.querySelectorAll('summary')].find(node => node.textContent === '成就库')
-    assert.ok(summary)
-    await page.act(async () => {
-      summary.parentElement.open = true
-      await new Promise(resolve => setTimeout(resolve, 20))
-    })
-    const earned = page.dom.window.document.querySelector('.pb-achievement[data-earned="true"]')
-    assert.match(earned.textContent, /小有名气.*100 轮.*已解锁/)
+    assert.equal(emptyPage.calls.some(([endpoint]) => endpoint === 'achievements'), true)
+    assert.doesNotMatch(emptyPage.text(), /成就库|传奇冒险者/)
+  } finally {
+    await emptyPage.dispose()
+  }
+
+  await write([{ id: 'bronze', title: '小有名气', rounds: 100, earned: true, unlockedAt }, locked])
+  const page = await mount(status, [], options)
+  try {
+    const library = page.dom.window.document.querySelector('section[aria-label="成就库"]')
+    const cards = library.querySelectorAll('.pb-achievement-card')
+    assert.equal(cards.length, 1)
+    const earned = cards[0]
+    assert.equal(earned.dataset.tier, 'bronze')
+    assert.match(earned.textContent, /小有名气.*100 轮/)
     assert.equal(earned.querySelector('time').dateTime, new Date(unlockedAt).toISOString())
-    assert.match(page.dom.window.document.querySelector('.pb-achievement[data-earned="false"]').textContent, /传奇冒险者.*300 轮.*未解锁/)
+    assert.doesNotMatch(library.textContent, /传奇冒险者|未解锁/)
+  } finally {
+    await page.dispose()
+  }
+})
+
+test('四档测试按钮在酒馆里预览卡牌，成就库仍为空', async () => {
+  const tiers = [
+    ['bronze', '小有名气', 100], ['silver', '传奇冒险者', 300], ['gold', '酒馆传说', 500], ['rainbow', '不朽传说', 1000],
+  ].map(([id, title, rounds]) => ({ id, title, rounds, earned: false, unlockedAt: null }))
+  const status = { activeName: 'tavern', appKind: 'desktop', desktopApp: true, profiles: [tavernProfile] }
+  const page = await mount(status, [], { inTavern: true,
+    rpc: async endpoint => ({ ok: true, value: endpoint === 'achievements' ? tiers : status }) })
+  try {
+    const win = page.dom.window
+    let cardName = '测试卡甲'
+    win.addEventListener('dsh-tavern-adventure-medal:preview', event => {
+      event.preventDefault()
+      event.detail.complete({ ...tiers.find(tier => tier.id === event.detail.id), cardName })
+    })
+    const testing = win.document.querySelector('.pb-achievement-test')
+    const buttons = [...testing.querySelectorAll('button')]
+    assert.equal(buttons.length, 4)
+    await page.act(async () => { testing.open = true; buttons[0].click() })
+    assert.match(testing.textContent, /测试卡牌 · 测试卡甲/)
+    assert.equal(testing.querySelector('.pb-achievement-card').dataset.tier, 'bronze')
+    cardName = '测试卡乙'
+    await page.act(async () => buttons[3].click())
+    assert.match(testing.textContent, /测试卡牌 · 测试卡乙/)
+    assert.equal(testing.querySelector('.pb-achievement-card').dataset.tier, 'rainbow')
+    assert.equal(win.document.querySelector('.pb-achievement-library'), null)
   } finally {
     await page.dispose()
   }
@@ -94,7 +131,7 @@ test('NEXT 共用酒馆启动器和更新状态，通过原生 Profile 切换', 
     assert.match(page.text(), /删除 DSH 酒馆/)
     await page.act(async () => page.button().click())
     assert.deepEqual(nativeCalls, [{ type: 'switch', name: 'tavern' }])
-    assert.deepEqual(page.calls.map(([endpoint]) => endpoint), ['status', 'update-status'])
+    assert.deepEqual(page.calls.map(([endpoint]) => endpoint), ['achievements', 'status', 'update-status'])
   } finally {
     await page.dispose()
   }
@@ -284,7 +321,7 @@ test('原版桌面首次安装需要确认，排队后隐藏安装按钮', async
   const page = await mount({ appKind: 'desktop', desktopApp: true, installAvailable: true, profiles: [] })
   try {
     await page.act(async () => namedButton(page, '安装酒馆').click())
-    assert.deepEqual(page.calls, [['status', {}]])
+    assert.deepEqual(page.calls, [['achievements', {}], ['status', {}]])
     await page.act(async () => namedButton(page, '确认安装').click())
     assert.deepEqual(page.calls.at(-1), ['install', { confirmed: true }])
     assert.equal(namedButton(page, '安装酒馆'), undefined)
@@ -299,7 +336,7 @@ test('安装完成后可手动添加快捷方式，并重启切换到酒馆 Prof
     profiles: [tavernProfile], lastResult: { status: 'succeeded', mode: 'install', stamp: 'installed' },
   })
   try {
-    assert.deepEqual(page.calls, [['status', {}]])
+    assert.deepEqual(page.calls, [['achievements', {}], ['status', {}]])
     await page.act(async () => namedButton(page, '添加桌面快捷方式').click())
     assert.deepEqual(page.calls.at(-1), ['shortcut', {}])
     await page.act(async () => namedButton(page, '重启并切换到 DSH 酒馆').click())
@@ -342,12 +379,15 @@ async function enterDestination(page, value) {
 test('卸载需要独立确认，保留数据和原版 DSH；重复点击只提交一次', async () => {
   let finish
   const calls = []
-  const page = await mount(managedStatus, calls, { rpc: async endpoint => endpoint === 'status'
-    ? { ok: true, value: managedStatus } : endpoint === 'update-status'
-      ? { ok: true, value: { phase: 'idle' } } : new Promise(resolve => { finish = resolve }) })
+  const page = await mount(managedStatus, calls, { rpc: async endpoint => {
+    if (endpoint === 'achievements') return { ok: true, value: [] }
+    if (endpoint === 'status') return { ok: true, value: managedStatus }
+    if (endpoint === 'update-status') return { ok: true, value: { phase: 'idle' } }
+    return new Promise(resolve => { finish = resolve })
+  } })
   await page.act(async () => namedButton(page, '删除 DSH 酒馆').click())
   assert.match(page.text(), /保留全部用户数据和备份，不卸载原版 DSH/)
-  assert.deepEqual(calls.map(([endpoint]) => endpoint), ['status', 'update-status'])
+  assert.deepEqual(calls.map(([endpoint]) => endpoint), ['achievements', 'status', 'update-status'])
   await page.act(async () => {
     namedButton(page, '确认删除并重启').click()
     namedButton(page, '确认删除并重启').click()
@@ -368,6 +408,7 @@ test('NEXT 从酒馆配置确认删除，排队成功后请求正常退出，失
   const page = await mount(status, [], {
     next: async command => { steps.push(command); throw new Error('native quit unavailable') },
     rpc: async (endpoint, payload) => {
+      if (endpoint === 'achievements') return { ok: true, value: [] }
       if (endpoint === 'status') return { ok: true, value: status }
       if (endpoint === 'update-status') return { ok: true, value: { phase: 'idle' } }
       steps.push([endpoint, payload])
