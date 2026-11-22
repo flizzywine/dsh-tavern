@@ -3,11 +3,11 @@ import { join } from 'node:path'
 
 const RECORD_PATH = ['profile-data', 'tavern', 'data', 'plugin-data', 'dsh-tavern-adventure-medal.json']
 const TIER_TITLES = new Map([
-  ['starter', '开局就上头'],
-  ['bronze', '百轮火力全开'],
-  ['silver', '全程高能'],
-  ['gold', '名场面制造机'],
-  ['rainbow', '这局直接封神'],
+  ['starter', '佳作'],
+  ['bronze', '名篇'],
+  ['silver', '传奇'],
+  ['gold', '史诗'],
+  ['rainbow', '神话'],
 ])
 
 // The launcher also runs in the original Profile, where the Tavern plugin is absent.

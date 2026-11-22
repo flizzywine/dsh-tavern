@@ -85,8 +85,8 @@ test('原版 Profile 的启动器只显示已解锁的成就卡，空库完全�
     assert.equal(cards.length, 2)
     const earned = cards[0]
     assert.equal(earned.dataset.tier, 'bronze')
-    assert.match(earned.textContent, /百轮火力全开.*100 轮/)
-    assert.match(cards[1].textContent, /名场面制造机/)
+    assert.match(earned.textContent, /名篇.*100 轮/)
+    assert.match(cards[1].textContent, /史诗/)
     assert.doesNotMatch(library.textContent, /冒险|小有名气|故事收藏家/)
     assert.equal(earned.querySelector('.achievement-art-badge').textContent, '100')
     assert.equal(earned.querySelector('.achievement-art-badge').getAttribute('aria-hidden'), 'true')
@@ -98,7 +98,7 @@ test('原版 Profile 的启动器只显示已解锁的成就卡，空库完全�
     assert.equal(cards[1].querySelector('.achievement-art-cover'), null)
     assert.equal(cards[1].querySelector('[data-stat="words"] b').textContent, '—')
     assert.equal(earned.querySelector('time').dateTime, new Date(unlockedAt).toISOString())
-    assert.doesNotMatch(library.textContent, /全程高能|未解锁/)
+    assert.doesNotMatch(library.textContent, /传奇|未解锁/)
   } finally {
     await page.dispose()
   }
@@ -106,8 +106,8 @@ test('原版 Profile 的启动器只显示已解锁的成就卡，空库完全�
 
 test('五档测试只预览卡牌，正式解锁后刷新已经打开的成就库', async () => {
   let tiers = [
-    ['starter', '开局就上头', 50], ['bronze', '百轮火力全开', 100], ['silver', '全程高能', 300],
-    ['gold', '名场面制造机', 500], ['rainbow', '这局直接封神', 1000],
+    ['starter', '佳作', 50], ['bronze', '名篇', 100], ['silver', '传奇', 300],
+    ['gold', '史诗', 500], ['rainbow', '神话', 1000],
   ].map(([id, title, rounds]) => ({ id, title, rounds, earned: false, unlockedAt: null }))
   const status = { activeName: 'tavern', appKind: 'desktop', desktopApp: true, profiles: [tavernProfile] }
   const page = await mount(status, [], { inTavern: true,
@@ -124,7 +124,7 @@ test('五档测试只预览卡牌，正式解锁后刷新已经打开的成就�
     const testing = win.document.querySelector('.pb-achievement-test')
     const buttons = [...testing.querySelectorAll('button')]
     assert.deepEqual(buttons.map(button => button.textContent),
-      ['开局就上头 · 50 轮', '百轮火力全开 · 100 轮', '全程高能 · 300 轮', '名场面制造机 · 500 轮', '这局直接封神 · 1000 轮'])
+      ['佳作 · 50 轮', '名篇 · 100 轮', '传奇 · 300 轮', '史诗 · 500 轮', '神话 · 1000 轮'])
     await page.act(async () => { testing.open = true; buttons[0].click() })
     assert.match(testing.textContent, /测试卡牌 · 测试卡甲/)
     assert.equal(testing.querySelector('.pb-achievement-card').dataset.tier, 'starter')
