@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "63ab909bbf29183d21cb159238337212a017f75d",
-  "releaseSequence": 1930,
+  "revision": "047f104d34206d642576d07904874ec885a19761",
+  "releaseSequence": 1931,
   "version": "3.4.0",
   "files": [
     {
@@ -131,8 +131,8 @@
     },
     {
       "path": "android/native/build-apk.sh",
-      "sha256": "30cbeaea80eefbb08529c26dabe25f4030abb98a3cba534c215264b576820e70",
-      "size": 6015
+      "sha256": "072a6486ba79305eab7d7ffa2f772c79475be4dd4501630a3938dbd197e80d06",
+      "size": 6085
     },
     {
       "path": "android/native/device-smoke.mjs",
@@ -171,8 +171,13 @@
     },
     {
       "path": "android/native/README.md",
-      "sha256": "d37dcdbb9df806732d27f975eea9e3607ee9927d4015c5518bf1724773d19791",
-      "size": 17066
+      "sha256": "b5d6747f0d669a3f1f9a1a5c715ebc679c94178fb22a27c9070b40d2f07bcc25",
+      "size": 17541
+    },
+    {
+      "path": "android/native/release-smoke.mjs",
+      "sha256": "dee32e06e70398a406c4d3f8ee2c1b3e087b417bde17ec45931b898831e69b89",
+      "size": 5349
     },
     {
       "path": "android/native/seed-static-cache.mjs",
@@ -9831,9 +9836,9 @@
     }
   ],
   "archive": {
-    "commit": "5dbdb3c3a74c56aa233d0927f3c026bb8229f60f",
+    "commit": "8f4ee23016a2c124fb091b5d4d655064af4e7ee9",
     "path": "runtime.zip",
-    "sha256": "a41b79a09f4e7829111d0ab103a3f634db0472655a718e26310defcbdfae558e",
-    "size": 17263962
+    "sha256": "6f3d705f82c54175902852b6a20862963060fd1a45fbbeab9823f1b964930fd0",
+    "size": 17266794
   }
 }
