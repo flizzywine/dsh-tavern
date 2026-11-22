@@ -13301,28 +13301,11 @@ window.__ModuleLoader__.load({
 		              body: card ? '本卡改过的 ' + keys.length + ' 项设置改回全局的值。' : '全局的 ' + keys.length + ' 项设置都恢复默认。',
 		              onConfirm: () => config.clearAll(keys) }) : null);
 		  }
-		  // 状态来源 is one row of the page's list (no section repeating its
-		  // name); its (?) says it is shared by every card. It has its own config (dsh.state, 全局 only).
-		  const STATE_SOURCE_HELP = '全局共用。自动：卡里有 MVU 变量时读 MVU，没有时读游玩台账；也可手动指定其中一个。';
-		  function StateSourceField({ rpc, onChange }) {
-		      const h = React.createElement, config = useModConfig({ call: rpc, modId: 'dsh.state' }), previous = React.useRef(null);
-		      React.useEffect(() => {
-		          const revision = config.data?.revision;
-		          if (revision && previous.current && revision !== previous.current) onChange?.();
-		          if (revision) previous.current = revision;
-		      }, [config.data?.revision]);
-		      const help = h(Help, { text: STATE_SOURCE_HELP, label: '状态来源 说明' });
-		      if (!config.data) return h(InlineRow, { label: '状态来源', help }, config.error ? h(ErrorBox, { error: config.error, reload: config.reload }) : h(Spinner, { label: '正在载入' }));
-		      return h(React.Fragment, null, h(CfgField, { config, fieldKey: 'source', label: '状态来源', help }),
-		          config.error ? h(ErrorBox, { error: config.error, reload: config.reload }) : null);
-		  }
-		  // The page's settings: one left-aligned list of compact rows (CfgField) — 状态来源 first when the mod reads state —
-		  // with loading / read / write errors under it. `help` ({key: text}, modFieldHelp) gives a row its (?).
-		  function CfgList({ rpc, config, keys, state, help = {} }) {
+		  // The page's settings: one left-aligned list of compact rows (CfgField) with loading / read / write errors under it. `help` ({key: text}, modFieldHelp) gives a row its (?).
+		  function CfgList({ config, keys, help = {} }) {
 		      const h = React.createElement, tip = key => { const field = config.fields.get(key), text = help[key]; return text ? h(Help, { text, label: (field?.label || key) + ' 说明' }) : undefined; };
 		      return h(React.Fragment, null,
 		          h(InlineGrid, { label: '设置', columns: 1, className: 'fork-cfg-list' },
-		              state ? h(StateSourceField, { rpc, onChange: config.reload }) : null,
 		              config.data ? cfgUserKeys(config, keys).map(key => h(CfgField, { key, config, fieldKey: key, help: tip(key) })) : null),
 		          !config.data ? config.error ? h(ErrorBox, { error: config.error, reload: config.reload }) : h(Spinner, { label: '正在载入' }) :
 		              config.error ? h(ErrorBox, { error: config.error, reload: config.reload }) : null);
@@ -13335,7 +13318,7 @@ window.__ModuleLoader__.load({
 		      // Nothing the player adjusts (every option is the skin's or the preset's): no 设置 section.
 		      return h('div', { className: 'fork-cfg-page', 'data-mod': modId, 'data-compact': true },
 		          config.data && !keys.length ? null : h(ModSettings, { modId, config },
-		              h(CfgList, { rpc, config, keys, help: modFieldHelp(modId, manifest) })),
+		              h(CfgList, { config, keys, help: modFieldHelp(modId, manifest) })),
 		          entries || null);
 		  }
 		  // ---------- 物品 (items core) ----------
@@ -13535,7 +13518,7 @@ window.__ModuleLoader__.load({
 		  // the phone's look
 		  // (壁纸, 主题色, 内容底色, 机身颜色, 机型, 状态栏 and its parts, 来信提示音) is edited only in the phone's own 设置 app on the stage
 		  // (phone-settings.js), the same two layers; this page keeps what is not the phone's look:
-		  // 状态来源, the date / weekday bindings and 联系人 (card content).
+		  // the date / weekday bindings and 联系人 (card content).
 		  const PHONE_APP_SETTINGS = new Set(['photos', 'wallpaper', 'accentColor', 'surfaceColor', 'bodyColor', 'cutout', 'statusBar', 'clockText', 'carrier', 'signal', 'battery', 'sound']);
 		  // 摘要中转（实验）: its own section; the switch is off by default and a card inherits the global layer until it sets its own.
 		  const PHONE_RELAY_KEYS = ['summaryRelay'];
@@ -13619,8 +13602,7 @@ window.__ModuleLoader__.load({
 		          h('input', { ref: input, type: 'file', accept: 'image/png,image/jpeg,image/webp', hidden: true, onChange: event => { const file = event.target.files && event.target.files[0]; event.target.value = ''; if (file) upload(file); } }));
 		      return inlineCanPortal() ? ReactDOM.createPortal(h('div', { className: 'ap-ui ap-layer fork-cfg-layer' }, node), document.body) : node;
 		  }
-		  // a compact page like the other settings — 状态来源, the date /
-		  // weekday bindings and 联系人 (备注名 / 头像, opened as a popover beside its row; a bottom sheet on a narrow window). The page's 设置
+		  // a compact page like the other settings — the date / weekday bindings and 联系人 (备注名 / 头像, opened as a popover beside its row; a bottom sheet on a narrow window). The page's 设置
 		  // section carries the 全局 / 本卡 switch in its head.
 		  // faceOf(figureRef, name): the panel's face of a figure (the stage settings pass it; without it the initial shows).
 		  function PhoneConfigPage({ rpc, cardId, cardName, sessionId, faceOf, manifest, entries }) {
@@ -13635,14 +13617,14 @@ window.__ModuleLoader__.load({
 		      const renamed = contacts.filter(contact => phoneModContactView(config, files, contact).overridden).length;
 		      return h('div', { className: 'fork-cfg-page fork-phone-page', 'data-compact': true },
 		          h(ModSettings, { modId: 'dsh.phone', config, help: '壁纸、提示音素材和联系人头像从素材库选择；主题色、机身和状态栏也能在手机自己的「设置」里改。' },
-		              h(CfgList, { rpc, config, keys: listed, state: true, help: modFieldHelp('dsh.phone', manifest) }),
+		              h(CfgList, { config, keys: listed, help: modFieldHelp('dsh.phone', manifest) }),
 		              config.data ? h(InlineRow, { label: '联系人', help: h(Help, { text: '手机里显示的备注名和头像；空着就用卡里的名字和头像。', label: '联系人 说明' }) },
 		                  h('button', { ref: opener, type: 'button', className: 'fork-inline-trigger fork-phone-contacts-open', 'aria-haspopup': 'dialog', 'aria-expanded': editing, 'data-fork-cfg-keep': true,
 		                      onClick: () => setEditing(open => !open) }, contacts.length ? contacts.length + ' 人' + (renamed ? ' · 改了 ' + renamed + ' 人' : '') : '还没有人物'),
 		                  own ? h(OverrideDot, { layer: config.layerFor('contacts') }) : null) : null,
 		              editing ? h(PhoneContactsEditor, { config, files, contacts, faceOf, anchor: opener.current, placement: 'below', onClose: () => setEditing(false) }) : null),
 		          config.data ? h(StageSection, { title: '摘要中转（实验）', help: '手机通话的上下文改由摘要中转站整理；需要先开启手机。全局与本卡各有一层，本卡关闭优先。', foldKey: 'mod:dsh.phone/relay', className: 'fork-mod-settings' },
-		              h(CfgList, { rpc, config, keys: PHONE_RELAY_KEYS, help: PHONE_RELAY_HELP })) : null,
+		              h(CfgList, { config, keys: PHONE_RELAY_KEYS, help: PHONE_RELAY_HELP })) : null,
 		          entries || null);
 		  }
 		  modClients.register('dsh.phone', { settings: PhoneConfigPage });
