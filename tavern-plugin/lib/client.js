@@ -25036,42 +25036,70 @@ function tavernModelRefusalNotice(text) {
 
 		// The show's sound for one performance: the stems rendered in a worker, each started on the mixer at its cue on the
 		// show's clock. now(): ms since the show began. → { stop(cut) }; cut silences what sounds (a skip), else it rings out.
+		// The sound policy (foreground.js): the show holds its mixer route only while DSH Tavern may sound. A show that starts
+		// while another app has the focus (the stage visible beside it) is silent until the focus comes back, then its stems join
+		// where the show is; leaving mid-show cuts what sounds, as every other stage sound pauses.
 		function showSoundPlay(layout, calm, now) {
 		    const prefs = forkStageAudio.get(), heard = layer => !prefs.muted[layer] && prefs[layer] > 0;
-		    if (!heard("master") || !heard("sfx") || !forkForeground.isAudible()) return { stop() {} };
-		    const route = forkStageAudio.bufferInput("sfx", { loudness: SHOW_SOUND_LOUDNESS, trace: { reason: "check-show", label: layout.record.show.label } });
-		    if (!route) return { stop() {} };
-		    const context = route.context, fade = context.createGain(), sources = new Set(), cues = showSoundCues(SHOW_T, calm);
-		    fade.connect(route.input);
-		    let left = cues.length, over = false;
-		    const end = () => { if (over) return; over = true; worker.terminate(); URL.revokeObjectURL(url); fade.disconnect(); route.release(); };
-		    const settle = () => { if (!left && !sources.size) end(); };
+		    if (!heard("master") || !heard("sfx")) return { stop() {} };
+		    const cues = showSoundCues(SHOW_T, calm), stems = new Map(), sources = new Set();
+		    let route = null, fade = null, over = false, stopped = false, off = null;
+		    // A rendered stem on the show's clock: ahead of its cue it waits; behind it, it starts that far in; past its end, it is not heard.
+		    function join(cue) {
+		        const pcm = stems.get(cue.stem), context = route.context, buffer = context.createBuffer(2, pcm.left.length, SHOW_SOUND_RATE);
+		        buffer.copyToChannel(pcm.left, 0); buffer.copyToChannel(pcm.right, 1);
+		        const wait = (cue.at - now()) / 1000;
+		        if (-wait >= buffer.duration) return;
+		        const node = context.createBufferSource();
+		        node.buffer = buffer; node.connect(fade); sources.add(node);
+		        node.onended = () => { if (sources.delete(node)) { node.disconnect(); settle(); } };
+		        node.start(context.currentTime + Math.max(0, wait), Math.max(0, -wait));
+		    }
+		    function open() {
+		        route = forkStageAudio.bufferInput("sfx", { loudness: SHOW_SOUND_LOUDNESS, trace: { reason: "check-show", label: layout.record.show.label } });
+		        if (!route) return;
+		        fade = route.context.createGain(); fade.connect(route.input);
+		        for (const cue of cues) if (stems.has(cue.stem)) join(cue);
+		    }
+		    // Gives the route back; ramp: a 40 ms fade first (a skip), else at once (the focus left: the mixer is suspended).
+		    function close(ramp) {
+		        const was = route, gain = fade, nodes = [...sources], at = was.context.currentTime;
+		        route = null; fade = null; sources.clear();
+		        if (ramp) { gain.gain.setValueAtTime(1, at); gain.gain.linearRampToValueAtTime(0, at + 0.04); }
+		        let ringing = nodes.length;
+		        const release = () => { gain.disconnect(); was.release(); };
+		        for (const node of nodes) { node.onended = () => { node.disconnect(); if (!--ringing) release(); }; node.stop(at + (ramp ? 0.05 : 0)); }
+		        if (!ringing) release();
+		    }
+		    function end() {
+		        if (over) return;
+		        over = true; off?.(); worker.terminate(); URL.revokeObjectURL(url);
+		        if (route) close(false);
+		    }
+		    // Every stem rendered and joined, none sounding: done.
+		    const settle = () => { if (route && stems.size === cues.length && !sources.size) end(); };
+		    function hear(audible) {
+		        if (over) return;
+		        if (!audible) { if (route) close(false); if (stopped) end(); }
+		        else if (!route && !stopped) { open(); settle(); }
+		    }
 		    const source = ["const SHOW_SOUND_RATE=" + SHOW_SOUND_RATE, "const SHOW_SOUND_ROOT=" + SHOW_SOUND_ROOT, "const SHOW_SOUND_GAIN=" + SHOW_SOUND_GAIN, showSynth, showEdgeAt, showSlamAt, showSoundStem,
 		        "onmessage=({data})=>{for(const name of data.stems){const pcm=showSoundStem(name,data.T,data.cast,data.rate);postMessage({name,left:pcm.left,right:pcm.right},[pcm.left.buffer,pcm.right.buffer])}}"].join(";\n");
 		    const url = URL.createObjectURL(new Blob([source], { type: "text/javascript" })), worker = new Worker(url);
 		    worker.onmessage = ({ data }) => {
-		        left--;
-		        const cue = cues.find(cue => cue.stem === data.name), buffer = context.createBuffer(2, data.left.length, context.sampleRate), node = context.createBufferSource();
-		        buffer.copyToChannel(data.left, 0); buffer.copyToChannel(data.right, 1);
-		        node.buffer = buffer; node.connect(fade);
-		        // On the show's clock: ahead of its cue it waits; behind it, it starts that far in.
-		        const wait = (cue.at - now()) / 1000;
-		        if (-wait < buffer.duration) {
-		            sources.add(node);
-		            node.onended = () => { sources.delete(node); node.disconnect(); settle(); };
-		            node.start(context.currentTime + Math.max(0, wait), Math.max(0, -wait));
-		        }
+		        stems.set(data.name, data);
+		        if (route) join(cues.find(cue => cue.stem === data.name));
 		        settle();
 		    };
-		    worker.postMessage({ stems: cues.map(cue => cue.stem), T: SHOW_T, cast: { dice: layout.dice.length, marked: layout.marked.length, corners: layout.corners, letters: layout.letters.length }, rate: context.sampleRate });
+		    worker.postMessage({ stems: cues.map(cue => cue.stem), T: SHOW_T, cast: { dice: layout.dice.length, marked: layout.marked.length, corners: layout.corners, letters: layout.letters.length }, rate: SHOW_SOUND_RATE });
+		    off = forkForeground.subscribeAudio(hear);
 		    return {
+		        // The picture is over: a cut silences what sounds; else it rings out, and a show unheard so far stays so.
 		        stop(cut) {
-		            if (!cut || over) return;
-		            const at = context.currentTime;
-		            fade.gain.setValueAtTime(1, at); fade.gain.linearRampToValueAtTime(0, at + 0.04);
-		            worker.terminate(); left = 0;
-		            for (const node of sources) node.stop(at + 0.05);
-		            settle();
+		            if (over) return;
+		            stopped = true;
+		            if (cut && route) close(true);
+		            if (cut || !route) end();
 		        }
 		    };
 		}
