@@ -25542,7 +25542,7 @@ function CgGallery({sessionId,store,onClose,onExit}) {
     const [uiOff,setUiOff]=React.useState(false),[active,setActive]=React.useState(false),[cropOpen,setCropOpen]=React.useState(false);
     // the viewer's size and the shown picture's aspect decide where its controls go (fork-cg-viewer data-fit).
     const viewerNode=React.useRef(null),[box,setBox]=React.useState(null),[aspect,setAspect]=React.useState(0);
-    const revision=usePackRevision(),generation=React.useRef(0),lastIndex=React.useRef(0),idle=React.useRef(0),swipe=React.useRef(null),swiped=React.useRef(false);
+    const revision=usePackRevision(),generation=React.useRef(0),reread=React.useRef(false),lastIndex=React.useRef(0),idle=React.useRef(0),swipe=React.useRef(null),swiped=React.useRef(false);
     const wasViewer=React.useRef(false),taps=React.useRef(null),toggleUi=React.useRef(null);
     // 手势缩放: the player's own view over the 完整/特写 composition, 1–4×: translate + scale on the pictures (the painter writes transform).
     const view=React.useRef({s:1,x:0,y:0}),pointers=React.useRef(new Map()),gesture=React.useRef(null),[zoomed,setZoomed]=React.useState(false);
@@ -25558,8 +25558,15 @@ function CgGallery({sessionId,store,onClose,onExit}) {
         try {
             const result=await rpc('getCgGallery',{...(next?{cursor:next}:{})},sessionId);
             if(disposed||token!==generation.current)return;
+            if(next)reread.current=false;
             setItems(old=>next?[...old,...result.items]:result.items);setCursor(result.nextCursor);
-        } catch(e) {if(!disposed&&token===generation.current)setError(e.code==='REVISION_CONFLICT'?'素材目录已改变':'回想没能载入');}
+        } catch(e) {
+            if(disposed||token!==generation.current)return;
+            // a later page's cursor names the list as its first page was read; the list has changed since (a CG unlocked,
+            // a pack written): read it again from the top, once until a later page loads again.
+            if(next&&e.code==='REVISION_CONFLICT'&&!reread.current){reread.current=true;void load();return;}
+            setError(e.code==='REVISION_CONFLICT'?'素材目录已改变':'回想没能载入');
+        }
         finally {if(!disposed&&token===generation.current)setBusy(false);}
     }
     // a new revision re-reads the list in place; the open CG stays open while it still exists.
@@ -25589,14 +25596,14 @@ function CgGallery({sessionId,store,onClose,onExit}) {
         observer.observe(node);
         return ()=>observer.disconnect();
     },[!!item]);
-    // more of the list loads when its end scrolls into view.
+    // more of the list loads when its end scrolls into view; after a failed read only 刷新 reads again.
     useEffect(()=>{
         const node=more.current;
-        if (!node || !cursor || busy || item) return;
+        if (!node || !cursor || busy || item || error) return;
         const observer=new IntersectionObserver(rows=>{if(!disposed&&rows.some(row=>row.isIntersecting))void load(cursor);},{root:node.parentElement});
         observer.observe(node);
         return ()=>observer.disconnect();
-    },[cursor,busy,!!item]);
+    },[cursor,busy,!!item,error]);
     function show(next) {
         if (disposed || !next) return;
         lastCell.current=refKey(next);setSelected(refKey(next));setVariant(next.defaultVariant);setFocus(null);setRemoving(null);setCropOpen(false);

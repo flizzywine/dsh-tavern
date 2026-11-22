@@ -9,10 +9,46 @@ async function open(t, items, options = {}) {
   const context = await browser.newContext(options.phone ? { viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true } : { viewport: options.viewport || { width: 1280, height: 720 } })
   const page = await context.newPage(); page.setDefaultTimeout(5000)
   const errors = []; page.on('pageerror', error => errors.push(error.message)); t.after(() => assert.deepEqual(errors, []))
-  await mountGallery(page, { items })
+  await mountGallery(page, { items, pageSize: options.pageSize, stale: options.stale, failCursor: options.failCursor })
   return page
 }
 const title = page => page.locator('.fork-cg-viewer-top h2').textContent()
+const listCalls = page => page.evaluate(() => galleryState.calls.filter(call => call.method === 'getCgGallery').length)
+
+// a CG unlocked between two pages (a 场景生图 lands while 回想 is open) makes the next page's cursor stale.
+test('a page whose list changed re-reads the list from the top once, without a warning', async t => {
+  const page = await open(t, galleryItems(20), { pageSize: 8, viewport: { width: 1280, height: 2400 }, stale: 'once' })
+  await page.waitForFunction(() => document.querySelectorAll('.fork-cg-gallery-cell').length === 21)
+  await page.waitForTimeout(500)
+  assert.equal(await page.locator('.fork-cg-gallery-error').count(), 0)
+  assert.equal(await listCalls(page), 5, 'first page, its stale next page, then the three pages of the new list')
+})
+
+test('a list that keeps changing shows 「素材目录已改变」 once and steady; 刷新 reads it again', async t => {
+  const page = await open(t, galleryItems(20), { pageSize: 8, viewport: { width: 1280, height: 2400 }, stale: 'always' })
+  await page.waitForSelector('.fork-cg-gallery-error')
+  const calls = await listCalls(page)
+  const flicker = await page.evaluate(() => new Promise(resolve => {
+    let changes = 0; const observer = new MutationObserver(rows => { changes += rows.length })
+    observer.observe(document.querySelector('.fork-cg-gallery'), { childList: true, subtree: true })
+    setTimeout(() => { observer.disconnect(); resolve(changes) }, 1000)
+  }))
+  assert.equal(flicker, 0, 'the warning does not blink')
+  assert.equal(await listCalls(page), calls, 'no reads while the warning is up')
+  assert.ok(calls <= 4, `bounded reads: ${calls}`)
+  assert.match(await page.locator('.fork-cg-gallery-error').textContent(), /素材目录已改变/)
+  await page.locator('.fork-cg-gallery-error button').click()
+  await page.waitForTimeout(500)
+  assert.ok(await listCalls(page) - calls <= 4, 'one 刷新 reads a bounded number of pages')
+})
+
+test('a later page that fails shows 「回想没能载入」 and stops asking for it', async t => {
+  const page = await open(t, galleryItems(20), { pageSize: 8, viewport: { width: 1280, height: 2400 }, failCursor: true })
+  await page.waitForSelector('.fork-cg-gallery-error')
+  await page.waitForTimeout(800)
+  assert.equal(await listCalls(page), 2)
+  assert.equal(await page.locator('.fork-cg-gallery-cell').count(), 8, 'the first page stays')
+})
 
 test('the grid opens a CG; arrows change CG and 差分, Esc returns to its cell', async t => {
   const page = await open(t, galleryItems(3, { variants: 2 }))
