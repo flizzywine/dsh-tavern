@@ -1411,10 +1411,17 @@ function createRuntime(ctx, overrides, logger, deps) {
 
     // ---- 作业落盘：图文件在 cache 或卡片画廊目录，单独保存这份元数据 ----
     const JOBS_STORE = join(ROOT, 'jobs-store.json')
+    const RECIPES_STORE = join(ROOT, 'image-recipes.json')
+    let recipesFingerprint = ''
     function restoreJobs() {
       return (async () => {
         try {
-          const saved = await readJson(JOBS_STORE, null)
+          const archived = await readJson(RECIPES_STORE, {}).catch(() => ({}))
+          recipesFingerprint = JSON.stringify(archived)
+          const saved = { ...archived, ...await readJson(JOBS_STORE, null) }
+          for (const [id, item] of Object.entries(archived)) {
+            if (saved[id] === item && (!item?.file || !(await fileExists(item.file)))) delete saved[id]
+          }
           if (saved && typeof saved === 'object') {
             const fileExists = async p => { try { await stat(p); return true } catch { return false } }
             for (const item of Object.values(saved)) {
@@ -1523,9 +1530,14 @@ function createRuntime(ctx, overrides, logger, deps) {
           const archived = job => job.favorite || job.trashedAt
           const entries = [...ordered.filter(([, job]) => needsTracking(job) || archived(job)),
             ...ordered.filter(([, job]) => !needsTracking(job) && !archived(job)).slice(-150)]
+          const kept = new Set(entries.map(([id]) => id))
           const plain = {}
-          for (const [id, job] of entries) {
-            plain[id] = {
+          const recipes = {}
+          for (const [id, job] of ordered) {
+            if (['done', 'failed', 'cancelled'].includes(job.state)) diag.finishJob(job.id)
+            if (!kept.has(id) && (job.state !== 'done' || !job.file)) continue
+            const dest = kept.has(id) ? plain : recipes
+            dest[id] = {
               id: job.id, state: job.state, percent: job.backend === 'comfyui' && job.state !== 'done' ? 0 : (job.percent ?? 0), createdAt: job.createdAt,
               workflowId: job.workflowId, outputNode: job.outputNode,
               file: job.file, favorite: job.favorite === true, trashedAt: job.trashedAt || null, size: job.size ?? null, params: job.params ?? {}, label: job.label ?? '', source: jobSource(job),
@@ -1544,6 +1556,7 @@ function createRuntime(ctx, overrides, logger, deps) {
               channelEndpoint: job.channelEndpoint ?? '', comfyEndpoint: job.comfyEndpoint ?? '',
               providerTaskProvider: job.providerTaskProvider ?? '',
               characterSnapshot: job.characterSnapshot ?? null, comfySimple: job.comfySimple ?? null,
+              comfyRecipe: job.comfyRecipe ?? null,
               generationMode: job.generationMode ?? 'text', requestedGenerationMode: job.requestedGenerationMode ?? job.generationMode ?? 'text', generationModeReason: job.generationModeReason ?? '', promptMode: job.promptMode,
               referenceSnapshot: job.referenceSnapshot ?? null, submittedPrompt: job.submittedPrompt ?? '', promptAssembly: job.promptAssembly ?? null,
               cardPositive: job.cardPositive, cardNegative: job.cardNegative, cardCharacterPrompts: job.cardCharacterPrompts, cardPreset: job.cardPreset, cardSeedSupported: job.cardSeedSupported,
@@ -1552,6 +1565,11 @@ function createRuntime(ctx, overrides, logger, deps) {
               imageOutputWarning: job.imageOutputWarning ?? '',
               loras: job.loras ?? [],
             }
+          }
+          const fingerprint = JSON.stringify(recipes)
+          if (fingerprint !== recipesFingerprint) {
+            await writeJsonAtomic(RECIPES_STORE, recipes)
+            recipesFingerprint = fingerprint
           }
           await writeJsonAtomic(JOBS_STORE, plain)
         } catch (error) {
@@ -1907,6 +1925,7 @@ function createRuntime(ctx, overrides, logger, deps) {
                   logger.warn?.(`dsh-tavern-image: 作业 ${job.id.slice(0, 8)} 出了全黑图，换种子重画（第 ${job.blankRetries} 次）`)
                   diag.recordJob(job.id, 'blank-image-retry', { attempt: job.blankRetries, oldSeed: job.seed, seed })
                   job.seed = seed
+                  if (job.comfyRecipe) job.comfyRecipe = { ...job.comfyRecipe, graph: prompt, seed }
                   job.comfyId = randomUUID()
                   job.state = 'pending'
                   job.percent = 0
@@ -2309,8 +2328,11 @@ function createRuntime(ctx, overrides, logger, deps) {
         compileParams.rawTag = text
         compileParams.referenceText = ''
       }
-      const compiled = workflow ? compileJob({ workflow, params: compileParams, config: compileConfig, definitions: scopedDefs, onStage })
+      let compiled = workflow ? compileJob({ workflow, params: compileParams, config: compileConfig, definitions: scopedDefs, onStage })
         : compileChannelJob({ params: compileParams, config: jobConfig, definitions: scopedDefs, channel, onStage })
+      if (rawParams?.frozenComfy) {
+        compiled = applyFrozenComfyRecipe(compiled, rawParams.frozenComfy)
+      }
       if (referenceState?.sourceImages) {
         normalizeImageMentions(compiled.positive, referenceState.references.length)
       }
@@ -2371,6 +2393,7 @@ function createRuntime(ctx, overrides, logger, deps) {
         channelEndpoint: channel ? channelEndpointOf(channel) : '', comfyEndpoint: endpointOf(jobConfig.comfyUrl),
         state: 'pending', percent: 0, seed: compiled.seed, createdAt: Date.now(), queryAt: 0, requestStarted: false,
         params: { ...params }, key, size: compiled.size, hits: compiled.hits,
+        comfyRecipe: workflow && generationMode === 'text' ? makeComfyRecipe(workflow, compiled, rawParams?.frozenComfy) : null,
         generationMode, requestedGenerationMode, generationModeReason, promptMode: compiled.promptMode, promptAssembly: compiled.promptAssembly ?? null,
         referenceSnapshot: referenceState,
         promptSystem: jobConfig.promptSystem || 'workbench', promptTemplate: jobConfig.promptSelectionTemplate || null,
@@ -2415,7 +2438,7 @@ function createRuntime(ctx, overrides, logger, deps) {
           const patched = applyComfyReferenceImages({ ...workflow, prompt: compiled.prompt }, imageNames)
           compiled.prompt = patched.prompt
         }
-        if (compiled?.prompt) blankRetry.set(job.id, { prompt: compiled.prompt, seedBindings: workflow?.bindings?.seed ?? [] })
+        if (compiled?.prompt && !rawParams?.frozenComfy) blankRetry.set(job.id, { prompt: compiled.prompt, seedBindings: workflow?.bindings?.seed ?? [] })
         job.comfyId = await submitToComfy(compiled, job, async () => {
           job.requestStarted = true
           try { await persistJobs({ required: true }) }
@@ -2539,8 +2562,9 @@ function createRuntime(ctx, overrides, logger, deps) {
       return revised.slice(0, 12000)
     }
 
-    async function startReplacement({ sourceJobId, prompt, characters = [], negative, channelId, sessionId, turn, textVersion, generationMode, refreshReferences = false, acceptUncertain = false } = {}) {
+    async function startReplacement({ sourceJobId, prompt, characters = [], negative, channelId, sessionId, turn, textVersion, generationMode, refreshReferences = false, acceptUncertain = false, sameSeed = false } = {}) {
       const source = getJob(String(sourceJobId || ''))
+      if (source?.fromCache) await hydrateLegacyJob(source)
       if (!source) throw Object.assign(new Error('找不到这张图片的源作业'), { submissionNotStarted: true })
       if (!acceptUncertain && (source.state === 'uncertain' || source.cancelMayHaveContinued
         || (source.requestMayHaveSucceeded && !['done', 'failed'].includes(source.state)))) {
@@ -2561,7 +2585,7 @@ function createRuntime(ctx, overrides, logger, deps) {
       const replacedPrompt = prompt != null && submitted !== originalPrompt
       const characterSource = blocks ? blocks.characters
         : replacedPrompt || characters.length ? characters : source.params?.characters
-      if (!rawTag.trim() && !(Array.isArray(characterSource) && characterSource.length)) throw Object.assign(new Error('原作业没有可用提示词'), { submissionNotStarted: true })
+      if (!rawTag.trim() && !(Array.isArray(characterSource) && characterSource.length)) throw Object.assign(new Error('旧图未找到可恢复的原始提示词，请输入新提示词后重绘'), { submissionNotStarted: true })
       const sourceContextMatches = source.gameId === session && Number(source.turn) === Number(turn) && source.textVersion === textVersion
       let characterSnapshot = sourceContextMatches ? source.characterSnapshot : null
       if (!characterSnapshot && textVersion && typeof deps.tavern?.readTurnData === 'function') {
@@ -2581,6 +2605,9 @@ function createRuntime(ctx, overrides, logger, deps) {
       if (keepComfySource && source.workflowId && !workflow) {
         throw Object.assign(new Error('原 ComfyUI 工作流已不存在；请在控制台选择其他渠道后重绘'), { submissionNotStarted: true })
       }
+      const storedRecipe = sameSeed && keepComfySource && mode === 'text' ? source.comfyRecipe ?? await readPngComfyRecipe(source) : null
+      if (sameSeed && !storedRecipe) throw Object.assign(new Error('这张图无法锁定原始文生图工作流，请使用普通重绘'), { submissionNotStarted: true, code: 'FIXED_RECIPE_UNAVAILABLE' })
+      const redrawTrace = diag.begin({ kind: 'singleRedraw', turn: Number(turn) || null, manual: true, sameSeed: Boolean(storedRecipe) })
       let fresh
       try {
         fresh = await startJob({
@@ -2600,11 +2627,13 @@ function createRuntime(ctx, overrides, logger, deps) {
           model: workflow ? workflow.id : source.params?.model || '',
           steps: source.params?.steps,
           cfg: source.params?.cfg,
+          seed: storedRecipe?.seed,
+          frozenComfy: storedRecipe,
           characterSnapshot,
           textVersion,
           sessionId: session, turn,
           key: 'media-replacement:' + randomUUID(),
-        }, { label: '单图重绘', jobConfig, forceWorkflow: workflow || null, referenceSnapshot: frozenReferences, cardRequest: jobSource(source) === 'card' })
+        }, { label: '单图重绘', jobConfig, forceWorkflow: workflow || null, referenceSnapshot: frozenReferences, cardRequest: jobSource(source) === 'card', diagTrace: redrawTrace ? { traceId: redrawTrace, imageIndex: 1 } : null })
       } catch (error) {
         if (error.requestMayHaveSucceeded !== true) error.submissionNotStarted = true
         throw error
@@ -3693,12 +3722,28 @@ function createRuntime(ctx, overrides, logger, deps) {
       ? join(CARD_IMAGE_DIR, `${job.id}.${cardImageExtension(mediaType)}`)
       : join(cacheRoot(config), `${job.id}.img`)
 
+    async function hydrateLegacyJob(job) {
+      if (!job?.fromCache || job.metadataChecked) return
+      job.metadataChecked = true
+      let recovered = null
+      try {
+        if (job.file && (await stat(job.file)).size <= 64 * 1024 * 1024) recovered = recoverComfyImageMetadata(await readFile(job.file))
+      } catch {}
+      if (recovered) {
+        Object.assign(job, recovered, { submittedPrompt: recovered.positive })
+        job.params = { ...job.params, rawTag: recovered.positive, tag: recovered.positive, negative: recovered.negative }
+      }
+      job.imageOutputWarning = recovered
+        ? '历史图已从 PNG 恢复提示词和种子，原工作流及角色快照缺失'
+        : '仅保留了历史图片，原始提示词与工作流无法恢复'
+    }
+
     function publicJob(job) {
       return {
         id: job.id, status: job.state, state: job.state, source: jobSource(job), percent: job.percent ?? 0,
         comfyId: job.comfyId || '',
         queuePosition: job.queuePosition ?? 0, queuedCount: job.queuedCount ?? 0,
-        seed: job.seed, ...(job.usage ? { usage: structuredClone(job.usage) } : {}), promptSystem: job.promptSystem || 'workbench', promptTemplate: job.promptTemplate || null, workflow: job.workflowId, error: job.error ?? undefined, createdAt: job.createdAt,
+        seed: job.seed, canCompareOriginal: job.backend === 'comfyui' && Boolean(job.workflowId) && job.generationMode === 'text' && Number.isSafeInteger(job.seed), ...(job.usage ? { usage: structuredClone(job.usage) } : {}), promptSystem: job.promptSystem || 'workbench', promptTemplate: job.promptTemplate || null, workflow: job.workflowId, error: job.error ?? undefined, createdAt: job.createdAt,
         backend: job.backend ?? 'comfyui', channelId: job.channelId ?? '', channelName: job.channelName ?? '',
         generationMode: job.generationMode ?? 'text', requestedGenerationMode: job.requestedGenerationMode ?? job.generationMode ?? 'text', generationModeReason: job.generationModeReason ?? '', promptMode: job.promptMode ?? '',
         references: structuredClone(job.referenceSnapshot?.references ?? []),
@@ -5977,6 +6022,7 @@ function createRuntime(ctx, overrides, logger, deps) {
       if (action === 'job-detail') {
         const job = getJob(String(_url?.searchParams?.get('id') ?? ''))
         if (!job) { sendJson(response, 404, { ok: false, error: '没有这个作业' }); return }
+        if (job.fromCache) await hydrateLegacyJob(job)
         sendJson(response, 200, { ok: true, job: consoleJob(job) })
         return
       }
@@ -5992,7 +6038,7 @@ function createRuntime(ctx, overrides, logger, deps) {
             sourceJobId: src.id, prompt: body?.prompt, negative: body?.negative, channelId: body?.channelId,
             generationMode: body?.generationMode, refreshReferences: body?.refreshReferences === true,
             sessionId: String(src.gameId || body?.sessionId || lastSessionId || ''), turn: src.turn, textVersion: src.textVersion,
-            acceptUncertain: body?.confirmUncertain === true,
+            acceptUncertain: body?.confirmUncertain === true, sameSeed: body?.sameSeed === true,
           })
           const fresh = getJob(replacement.jobId)
           logger.info?.('dsh-tavern-image: 重画 ' + src.id.slice(0, 8) + ' → ' + fresh.id.slice(0, 8))
@@ -7585,6 +7631,71 @@ export function compileChannelJob({ params, config, definitions, channel = null,
   const size = pixels ? { width: Number(pixels[1]), height: Number(pixels[2]) } : dimensions || { width: 832, height: 1216 }
   if (![size.width, size.height].every(value => Number.isInteger(value) && value >= 64 && value <= 8192)) throw new Error('图片尺寸需在 64–8192 像素之间')
   return { ...prepared, promptMode, characters: nativeNovelai ? characters : [], seed: Number.isSafeInteger(params.seed) && params.seed >= 0 ? params.seed : randomInt(0, 2 ** 32), size, loras: [] }
+}
+
+function makeComfyRecipe(workflow, compiled, frozen) {
+  if (frozen) return { ...frozen, graph: compiled.prompt }
+  const markers = comfyPromptMarkers(workflow.prompt)
+  return {
+    graph: compiled.prompt, seed: compiled.seed, size: compiled.size, loras: compiled.loras,
+    template: markers.positive.length || markers.negative.length ? workflow.prompt : null,
+    positive: markers.positive.length ? [] : workflow.bindings.positive,
+    negative: markers.negative.length ? [] : workflow.bindings.negative,
+  }
+}
+
+export function applyFrozenComfyRecipe(compiled, recipe) {
+  const graph = structuredClone(recipe.graph)
+  setBinding(graph, recipe.positive, compiled.positive)
+  setBinding(graph, recipe.negative, compiled.negative)
+  if (recipe.template) applyComfyPromptMarkers(graph, recipe.template, compiled.positive, compiled.negative)
+  return { ...compiled, prompt: graph, seed: recipe.seed, size: recipe.size ?? compiled.size, loras: recipe.loras ?? compiled.loras }
+}
+
+// Read only the text fields from trusted local ComfyUI output. Never use image metadata as source code.
+function comfyGraphFromPng(buffer) {
+  if (buffer.subarray(0, 8).toString('hex') !== '89504e470d0a1a0a') return null
+  let graph = null
+  for (let offset = 8; offset + 12 <= buffer.length;) {
+    const length = buffer.readUInt32BE(offset)
+    const end = offset + 12 + length
+    if (end > buffer.length || length > 64 * 1024 * 1024) return null
+    if (buffer.toString('ascii', offset + 4, offset + 8) === 'tEXt' && buffer.toString('ascii', offset + 8, offset + 15) === 'prompt\0' && length < 1024 * 1024) {
+      graph = JSON.parse(buffer.toString('utf8', offset + 15, end - 4))
+      break
+    }
+    offset = end
+  }
+  return graph && typeof graph === 'object' && !Array.isArray(graph) ? graph : null
+}
+
+export function recoverComfyImageMetadata(buffer) {
+  const graph = comfyGraphFromPng(buffer)
+  if (!graph) return null
+  const samplers = Object.values(graph).filter(node => node?.class_type === 'KSampler' && Number.isSafeInteger(node.inputs?.seed))
+  if (samplers.length !== 1) return null
+  const sample = samplers[0].inputs
+  const text = link => Array.isArray(link) && graph[link[0]]?.class_type === 'CLIPTextEncode' ? graph[link[0]].inputs?.text : ''
+  const positive = text(sample.positive)
+  return typeof positive === 'string' && positive ? { positive, negative: String(text(sample.negative) ?? ''), seed: sample.seed } : null
+}
+
+export function comfyRecipeFromPng(buffer, source) {
+  const graph = comfyGraphFromPng(buffer)
+  if (!graph) return null
+  const binding = text => text ? Object.entries(graph).flatMap(([node, value]) => Object.entries(value?.inputs ?? {})
+    .filter(([, candidate]) => candidate === text).map(([input]) => ({ node, input }))) : []
+  const positive = binding(source.positive), negative = binding(source.negative)
+  if (!positive.length || !Number.isSafeInteger(source.seed) || !Object.values(graph).some(node => node?.inputs?.seed === source.seed || node?.inputs?.noise_seed === source.seed)) return null
+  return { graph, positive, negative, size: source.size, seed: source.seed, loras: source.loras }
+}
+
+async function readPngComfyRecipe(source) {
+  if (source.backend !== 'comfyui' || !source.file || source.generationMode !== 'text' || !source.workflowId) return null
+  try {
+    if ((await stat(source.file)).size > 64 * 1024 * 1024) return null
+    return comfyRecipeFromPng(await readFile(source.file), source)
+  } catch { return null }
 }
 
 export function compileJob({ workflow, params, config, definitions, onStage = null }) {

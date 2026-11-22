@@ -995,7 +995,7 @@ function versionsOf(jobId) {
         }
       }
 
-      async function redraw() {
+      async function redraw(sameSeed = false) {
         if (controlsDisabled || view.inputsError) return
         if (referenceUnavailable) { say('当前渠道不支持参考图输入；请明确选择支持参考图的渠道或改为文生图，不会自动降级。'); return }
         const lock = String(view.mediaContext && view.mediaContext.mediaId || '')
@@ -1006,7 +1006,7 @@ function versionsOf(jobId) {
           if (view.mediaContext) {
             if (!validMediaContext(view.mediaContext)) { say('当前图片上下文不完整，无法提交单图重画'); return }
             const body = { operation: 'redraw', ...view.mediaContext, jobId: view.mediaContext.jobId, prompt: view.prompt, negative: view.negative,
-              generationMode: view.generationMode === 'reference' ? 'reference' : 'text', refreshReferences: view.generationMode === 'reference' && view.refreshReferences === true }
+              generationMode: view.generationMode === 'reference' ? 'reference' : 'text', refreshReferences: view.generationMode === 'reference' && view.refreshReferences === true, sameSeed: sameSeed === true }
             if (view.channelId) body.channelId = view.channelId
             const result = await jsonFetch(BASE + '/media-action', {
               method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
@@ -1019,7 +1019,7 @@ function versionsOf(jobId) {
           const r = await jsonFetch(BASE + '/redraw', {
             method: 'POST', headers: { 'content-type': 'application/json' },
             body: JSON.stringify({ jobId: view.jobId, prompt: view.prompt, negative: view.negative,
-              generationMode: view.generationMode === 'reference' ? 'reference' : 'text', refreshReferences: view.generationMode === 'reference' && view.refreshReferences === true }),
+              generationMode: view.generationMode === 'reference' ? 'reference' : 'text', refreshReferences: view.generationMode === 'reference' && view.refreshReferences === true, sameSeed: sameSeed === true }),
           })
           if (!r?.ok || !r.jobId) { say('重画失败：' + (r?.error || '没拿到新作业')); return }
           redrawnJobs.set(view.jobId, r.jobId)
@@ -1147,7 +1147,8 @@ function versionsOf(jobId) {
         React.createElement('div', { style: { display: 'flex', gap: '10px', alignItems: 'center', marginTop: '16px', flexWrap: 'wrap' } },
           btn('🤖 让后台改', improve),
           btn('👁 看展开结果', () => openPromptEditor({ showInputs: true })),
-          btn(view.busy === 'redraw' ? '🎨 提交中…' : '🎨 用这段重画', redraw, true),
+          btn(view.busy === 'redraw' ? '🎨 提交中…' : '🎨 用这段重画', () => redraw(false), true),
+          view.generationMode !== 'reference' ? btn('按原参数对照', () => redraw(true)) : null,
           view.note ? React.createElement('span', { style: { fontSize: '12px', color: '#9aa3b2' } }, view.note) : null,
         ),
         React.createElement('div', { style: { fontSize: '11px', color: '#6b7480', marginTop: '14px' } }, '提示：改完提示词点「用这段重画」，会在同一条消息里换成新图。'),
