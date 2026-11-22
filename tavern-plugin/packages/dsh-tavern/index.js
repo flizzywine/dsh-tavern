@@ -248,6 +248,7 @@ export function apply(ctx) {
       `${CHANNEL}/achievement-${asset}.webp`, `achievement-${asset}.webp`, 'image/webp',
     ]),
     [`${CHANNEL}/achievement-art.css`, 'achievement-art.css', 'text/css; charset=utf-8'],
+    [`${CHANNEL}/achievement-title.woff2`, 'achievement-title.woff2', 'font/woff2'],
   ]) {
     const image = readFileSync(new URL('./assets/' + filename, import.meta.url))
     ctx.effect(() => ctx.webServer.register({
