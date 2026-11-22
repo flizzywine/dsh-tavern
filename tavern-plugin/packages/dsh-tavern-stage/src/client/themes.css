@@ -5359,8 +5359,10 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
     --art-menu-tilt: max(abs(var(--art-choice-tilt-odd, 0deg)), abs(var(--art-choice-tilt-even, 0deg)));
     --art-menu-pad-x: round(calc(max(abs(var(--art-choice-shift-odd, 0)), abs(var(--art-choice-shift-even, 0))) * var(--cu) + var(--art-menu-room) * sin(var(--art-menu-tilt)) / 2), var(--fk-step, 1px));
     --art-menu-pad-y: round(calc(var(--art-choice-w) * var(--cu) * sin(var(--art-menu-tilt)) / 2), var(--fk-step, 1px));
-    top: round(var(--art-menu-y), var(--fk-step, 1px)); bottom: auto; left: round(calc(50% + (var(--art-choice-x, calc(var(--art-screen-w) / 2)) - var(--art-screen-w) / 2) * var(--art-cu0)), var(--fk-step, 1px)); align-self: auto;
+    top: round(var(--art-menu-y), var(--fk-step, 1px)); bottom: auto; left: round(calc(var(--fk-area-w) / 2 + (var(--art-choice-x, calc(var(--art-screen-w) / 2)) - var(--art-screen-w) / 2) * var(--art-cu0)), var(--fk-step, 1px)); align-self: auto;
     box-sizing: border-box; width: round(calc(var(--art-choice-w) * var(--cu) + 2 * var(--art-menu-pad-x)), calc(2 * var(--fk-step, 1px))); min-width: 0; min-height: var(--fk-snap-h, 0px); max-width: none;
+    /* (left: no percentage inside round() - iPad Safari dropped the whole declaration, the menu fell to left 0 and its
+       translate pushed half of it off the screen; the stage's area width is the same length) */
     /* Wrapped suggestions may exceed the art's nominal row height. Scroll rather than losing the last control. */
     max-height: var(--art-menu-room); overflow: auto; padding: var(--art-menu-pad-y) var(--art-menu-pad-x);
     transform: translate(-50%, -50%); animation: none; }
