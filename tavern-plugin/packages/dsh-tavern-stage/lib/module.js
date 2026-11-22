@@ -253,7 +253,8 @@ export async function createStageModule(core) {
   ctx.effect(() => core.presentationObservers.register('dsh-tavern-stage', createStageStoryObserver({
     settlementQueued:stageWorkflow.settlementQueued, modService, stageDirector, chatPersistence, readStageChat,
     chatHeaderForSession:core.chatHeaderForSession, dialogueBubbles:core.dialogueBubbles,
-    readReplyPrefix:core.readReplyPrefix, activeRoundBodies:core.activeRoundBodies
+    readReplyPrefix:core.readReplyPrefix, activeRoundBodies:core.activeRoundBodies,
+    streamed:(chat, body, turn) => autoCast?.streamed(chat.cardPath, body, chat, turn)
   })), 'dsh-tavern: stage story observations')
   // Keep the opening hook independent of the shared story observer's commit/stream hooks.
   ctx.effect(() => core.presentationObservers.register('dsh-tavern-stage-opening', {
@@ -261,7 +262,7 @@ export async function createStageModule(core) {
       const latest = chat.messages?.findLast(message => message.role === 'assistant')
       if (!latest?.greeting || !['story','script'].includes(chat.mode)) return
       await stageDirector.get(chat, Number(latest.turn || 1), await core.dialogueBubbles.read(chat.cardPath))
-      // 自动选角 (积极 / 全部): the opening's speakers are cast and drawn at once, apart from the opening's director.
+      // 自动选角: the opening's speakers are cast and drawn at once (every level), apart from the opening's director.
       if (autoCast) void (async () => {
         const body = await roundBody(chat, Number(latest.turn || 1))
         if (body?.paragraphs) await autoCast.round(chat.cardPath, body, chat, {opening:true})
