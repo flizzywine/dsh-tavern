@@ -1499,12 +1499,8 @@
 					h("button", { type: "button", ref: menuOpen ? historyMenu.trigger : undefined, className: "dsh-tavern-side-row-more", title: "对话操作", "aria-label": "对话操作", "aria-haspopup": "menu", "aria-expanded": menuOpen,
 						onClick: () => setMenuSession(menuOpen ? null : item.sessionId) }, "⋯"),
 					menuOpen ? historyMenu.layer({ className: "fork-inline-pop dsh-tavern-side-row-menu", role: "menu", "aria-label": "对话操作", onKeyDown: inlineMenuKeys },
-						// 触屏没有悬停的 ▾，展开/收起预览收进菜单，行内不再多占一列。
-						preview.hasPreview ? h("button", { type: "button", role: "menuitem", disabled: busy, onClick: () => togglePreview(item) }, expanded ? "收起预览" : "展开预览") : null,
 						!archived ? h("button", { type: "button", role: "menuitem", disabled: busy, onClick: () => renameConversation(item, title) }, "重命名") : null,
-						h("button", { type: "button", role: "menuitem", disabled: busy, onClick: () => changeConversationArchive(item, !archived) }, archived ? "恢复到历史" : "归档"),
 						!archived && isPlayMode(item.mode || "story") ? h("button", { type: "button", role: "menuitem", disabled: busy, onClick: () => { setMenuSession(null); void rescueConversation(item); } }, "存档救援") : null,
-						!archived && isPlayMode(item.mode || "story") ? h("button", { type: "button", role: "menuitem", disabled: busy, title: "存档打不开或迁移失败时，导出会话结构发给开发者；不含剧情正文", onClick: () => { setMenuSession(null); downloadSessionDiagnostics({ chatId: item.chatId }).catch(err => setError("导出诊断文件失败：" + String(err.message || err))); } }, "导出诊断文件") : null,
 						h("button", { type: "button", role: "menuitem", className: "danger", disabled: busy, onClick: () => deleteConversation(item, title) }, "彻底删除")
 					) : null
 				);

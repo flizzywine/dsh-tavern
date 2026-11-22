@@ -381,8 +381,8 @@ body.dsh-tavern-shell-active span:has(.dsh-tavern-hero-lockup) + span { display:
 .dsh-tavern-side-row-more { width: 28px; height: 28px; flex: none; margin-right: 3px; border: 0; border-radius: 7px; background: transparent; color: var(--dsw-alias-label-secondary); cursor: pointer; opacity: 0; }
 .dsh-tavern-side-row:hover .dsh-tavern-side-row-more, .dsh-tavern-side-row-more:is(:focus-visible, [aria-expanded="true"]) { opacity: 1; }
 .dsh-tavern-side-row-more:hover { background: var(--dsw-alias-interactive-bg-hover); color: inherit; }
-.fork-inline-pop.dsh-tavern-side-row-menu { min-width: 128px; overscroll-behavior: contain; }
-.dsh-tavern-side-row-menu button { display: block; width: 100%; border: 0; border-radius: 6px; padding: 7px 10px; text-align: left; background: transparent; color: inherit; cursor: pointer; }
+.fork-inline-pop.dsh-tavern-side-row-menu { width: min(112px, calc(100vw - 16px)); min-width: 0; overscroll-behavior: contain; }
+.fork-inline-pop.dsh-tavern-side-row-menu > button { display: block; box-sizing: border-box; width: 100%; border: 0; border-radius: 6px; padding: 6px 8px; text-align: left; background: transparent; color: inherit; font-size: 13px; white-space: nowrap; cursor: pointer; }
 .dsh-tavern-side-row-menu button:hover { background: var(--dsw-alias-interactive-bg-hover); }
 .dsh-tavern-side-row-menu button.danger { color: #c34f4f; }
 .dsh-tavern-side-row-name { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: 13px; }
@@ -3496,7 +3496,7 @@ body.dsh-tavern-shell-active [class*="_tabs"] [class*="_viewsMoreAnchor"] [class
 
   .dsh-tavern-mode-switch button { min-height: 30px; height: 30px; font-size: 13px; border-radius: 7px; }
   .dsh-tavern-history-action { min-height: 28px; height: 28px; padding: 0 8px; display: inline-flex; align-items: center; justify-content: center; }
-  .dsh-tavern-side-row-menu button { min-height: 40px; }
+  .fork-inline-pop.dsh-tavern-side-row-menu > button { min-height: 40px; }
   .dsh-tavern-group-picker > summary, .dsh-tavern-group-menu button,
   .dsh-tavern-group-add, .dsh-tavern-library-search { min-height: 40px; }
   .dsh-tavern-group-menu { box-sizing: border-box; }
