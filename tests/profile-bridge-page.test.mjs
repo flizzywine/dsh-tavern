@@ -85,7 +85,7 @@ test('原版 Profile 的启动器只显示已解锁的成就卡，空库完全�
     assert.equal(cards.length, 2)
     const earned = cards[0]
     assert.equal(earned.dataset.tier, 'bronze')
-    assert.match(earned.textContent, /渐入佳境.*100 轮/)
+    assert.match(earned.textContent, /百轮火力全开.*100 轮/)
     assert.match(cards[1].textContent, /名场面制造机/)
     assert.doesNotMatch(library.textContent, /冒险|小有名气|故事收藏家/)
     assert.equal(earned.querySelector('.achievement-art-badge').textContent, '100')
@@ -104,9 +104,10 @@ test('原版 Profile 的启动器只显示已解锁的成就卡，空库完全�
   }
 })
 
-test('四档测试只预览卡牌，正式解锁后刷新已经打开的成就库', async () => {
+test('五档测试只预览卡牌，正式解锁后刷新已经打开的成就库', async () => {
   let tiers = [
-    ['bronze', '渐入佳境', 100], ['silver', '全程高能', 300], ['gold', '名场面制造机', 500], ['rainbow', '这局直接封神', 1000],
+    ['starter', '开局就上头', 50], ['bronze', '百轮火力全开', 100], ['silver', '全程高能', 300],
+    ['gold', '名场面制造机', 500], ['rainbow', '这局直接封神', 1000],
   ].map(([id, title, rounds]) => ({ id, title, rounds, earned: false, unlockedAt: null }))
   const status = { activeName: 'tavern', appKind: 'desktop', desktopApp: true, profiles: [tavernProfile] }
   const page = await mount(status, [], { inTavern: true,
@@ -122,16 +123,18 @@ test('四档测试只预览卡牌，正式解锁后刷新已经打开的成就�
     })
     const testing = win.document.querySelector('.pb-achievement-test')
     const buttons = [...testing.querySelectorAll('button')]
-    assert.equal(buttons.length, 4)
+    assert.deepEqual(buttons.map(button => button.textContent),
+      ['开局就上头 · 50 轮', '百轮火力全开 · 100 轮', '全程高能 · 300 轮', '名场面制造机 · 500 轮', '这局直接封神 · 1000 轮'])
     await page.act(async () => { testing.open = true; buttons[0].click() })
     assert.match(testing.textContent, /测试卡牌 · 测试卡甲/)
-    assert.equal(testing.querySelector('.pb-achievement-card').dataset.tier, 'bronze')
+    assert.equal(testing.querySelector('.pb-achievement-card').dataset.tier, 'starter')
+    assert.equal(testing.querySelector('.achievement-art-badge').textContent, '50')
     assert.equal(testing.querySelector('.achievement-art-cover').getAttribute('src'), coverA)
     assert.equal(testing.querySelector('[data-stat="words"] b').textContent, contextChars.toLocaleString() + ' 字')
     cardName = '测试卡乙'
     cover = coverB
     contextChars = 0
-    await page.act(async () => buttons[3].click())
+    await page.act(async () => buttons[4].click())
     assert.match(testing.textContent, /测试卡牌 · 测试卡乙/)
     assert.equal(testing.querySelector('.pb-achievement-card').dataset.tier, 'rainbow')
     assert.equal(testing.querySelector('.achievement-art-cover').getAttribute('src'), coverB)
@@ -140,7 +143,7 @@ test('四档测试只预览卡牌，正式解锁后刷新已经打开的成就�
     tiers = [{ ...tiers[0], earned: true, cardName, cover, contextChars: 9800 }, ...tiers.slice(1)]
     await page.act(async () => win.dispatchEvent(new win.Event('dsh-tavern-adventure-medal:unlocked')))
     const library = win.document.querySelector('.pb-achievement-library')
-    assert.equal(library.querySelector('.pb-achievement-card').dataset.tier, 'bronze')
+    assert.equal(library.querySelector('.pb-achievement-card').dataset.tier, 'starter')
     assert.equal(library.querySelector('.achievement-art-cover').getAttribute('src'), coverB)
     assert.match(library.textContent, /总字数.*字/)
   } finally {

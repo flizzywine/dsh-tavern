@@ -3,7 +3,8 @@ import { join } from 'node:path'
 
 const RECORD_PATH = ['profile-data', 'tavern', 'data', 'plugin-data', 'dsh-tavern-adventure-medal.json']
 const TIER_TITLES = new Map([
-  ['bronze', '渐入佳境'],
+  ['starter', '开局就上头'],
+  ['bronze', '百轮火力全开'],
   ['silver', '全程高能'],
   ['gold', '名场面制造机'],
   ['rainbow', '这局直接封神'],

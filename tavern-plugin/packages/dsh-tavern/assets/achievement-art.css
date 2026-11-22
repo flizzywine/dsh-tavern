@@ -50,13 +50,14 @@
 .achievement-art-badge {
   position: absolute; left: calc(250 * var(--am-unit)); top: calc(96 * var(--am-unit));
   width: calc(38 * var(--am-unit)); aspect-ratio: 1; display: grid; place-items: center;
-  background: url('/profile-bridge/achievement-badges.webp') var(--am-badge-offset, 0%) center / 400% 100% no-repeat;
+  background: url('/profile-bridge/achievement-badges.webp') var(--am-badge-offset, 0%) center / 500% 100% no-repeat;
   color: #5e3a28; font-size: calc(9 * var(--am-unit)); font-weight: 800;
   filter: drop-shadow(0 2px 4px #3c231440);
 }
-.achievement-art[data-tier="silver"] { --am-badge-offset: 33.3333%; }
-.achievement-art[data-tier="gold"] { --am-badge-offset: 66.6667%; }
-.achievement-art[data-tier="rainbow"] { --am-badge-offset: 100%; }
+.achievement-art[data-tier="silver"] { --am-badge-offset: 25%; }
+.achievement-art[data-tier="gold"] { --am-badge-offset: 50%; }
+.achievement-art[data-tier="rainbow"] { --am-badge-offset: 75%; }
+.achievement-art[data-tier="starter"] { --am-badge-offset: 100%; }
 .achievement-art[data-tier="rainbow"] .achievement-art-badge { font-size: calc(7.5 * var(--am-unit)); }
 .achievement-art-ribbon {
   position: absolute; left: calc(60 * var(--am-unit)); top: calc(210 * var(--am-unit));
