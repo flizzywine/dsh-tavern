@@ -82,6 +82,7 @@ function createConversationSettingsModule({
             } catch (err) { setError("保存失败：" + errorText(err)); }
         }
         return h(InlineField, { kind: "text", label: "玩家称呼", value: name || "", placeholder: name === null ? "正在读取…" : "你", maxLength: 80,
+            help: help("玩家称呼", "设置本局故事中使用的玩家称呼。留空时使用「你」。"),
             disabled: name === null, error, onCommit: save });
     }
     function SessionPreset({ sessionId }) {
@@ -103,6 +104,7 @@ function createConversationSettingsModule({
         }
         const current = data?.current;
         return h(InlineField, { kind: "menu", label: "预设", controlLabel: "本局预设", value: current?.id || "", disabled: busy || !data, error, onCommit: change,
+            help: help("预设", "为本局选择一套酒馆预设，应用其中的提示词和正则。"),
             placeholder: data ? undefined : "正在读取…",
             options: [{ value: "", label: "不使用酒馆预设" },
                 ...(current?.id && !data.presets.some(p => p.path === current.id) ? [{ value: current.id, label: current.name + "（源文件已移除）" }] : []),
@@ -199,7 +201,7 @@ function createConversationSettingsModule({
         const [reasonProblem, setReasonProblem] = React.useState("");
         const data = config.data, disabled = !data || config.busy, catalog = data?.modelCatalog || [];
         const selection = data?.backgroundModel || null;
-        // the core's own slots stay per game here; the stage's and its mods' are the stage's (设置 › 舞台 › 舞台模型).
+        // the core's own slots stay per game here; stage and mod slots live in 舞台配置 › 舞台模型.
         const slots = (data?.modModelSlots || []).filter(slot => slot.owner === "core");
         const slotCatalog = slot => slot.kind === "scoring" ? (data.scoringCatalog || []).map(row => ({ provider: row.provider, models: [{ id: row.model }] })) : catalog;
         return h(packUi.StageSection, { title: "模型", foldKey: FOLD("模型"),
@@ -228,12 +230,10 @@ function createConversationSettingsModule({
         if (galStageAvailable.get()) return Promise.resolve();
         return new Promise((resolve, reject) => {
             const off = galStageAvailable.subscribe(() => { if (galStageAvailable.get()) { clearTimeout(timer); off(); resolve(); } });
-            const timer = setTimeout(() => { off(); reject(new Error("舞台还没有加载，可以在 设置 › 舞台 里加载")); }, 15000);
+            const timer = setTimeout(() => { off(); reject(new Error("舞台暂时无法加载，请稍后重试")); }, 15000);
         });
     }
-    function SessionStageSection({ sessionId, config }) {
-        const state = useLiveTavernView(sessionId, undefined, [["stage"]]);
-        const stage = state && state.view && state.view.stage;
+    function SessionStageSection({ sessionId, config, stage }) {
         const [opening, setOpening] = React.useState(false), [problem, setProblem] = React.useState("");
         const [writeProblem, write] = useSectionWriter(config);
         const hold = React.useRef(null);
@@ -248,7 +248,7 @@ function createConversationSettingsModule({
             } catch (err) { setProblem(errorText(err)); }
             finally { setOpening(false); }
         }
-        const word = !stage ? "" : stage.stage ? "舞台模式已开启" : stage.dialogue ? "仅对话气泡" : "未开启";
+        const word = stage.stage ? "舞台模式已开启" : stage.dialogue ? "仅对话气泡" : "未开启";
         // A model this game chose for a stage slot before the stage kept them: still used, so it is named here, with the way back.
         const data = config.data;
         const chosen = (data?.modModelSlots || []).filter(slot => slot.owner !== "core" && data.modModels?.[slot.modId]?.[slot.id]);
@@ -256,7 +256,7 @@ function createConversationSettingsModule({
             for (const slot of chosen) if (!await write({ modModelSelection: { modId: slot.modId, slotId: slot.id, selection: null } })) return;
         }
         return h(packUi.StageSection, { title: "舞台", foldKey: FOLD("舞台"),
-                help: "对话气泡、舞台模式、配音、手机等舞台功能都在「舞台设置」里；舞台用的模型在 设置 › 舞台 › 舞台模型。" },
+                help: "对话气泡、舞台模式、配音、手机等舞台功能都在「舞台设置」里；舞台用的模型在侧栏首页的 舞台装置 › 舞台配置 › 舞台模型。" },
             rows(h(packUi.SwitchRow, { label: "舞台设置", icon: "stage", onOpen: () => void open(),
                 tag: h("span", { className: "dsh-session-stage-state" }, opening ? h(Spinner, { label: "正在打开舞台设置" }) : word),
                 status: h("button", { type: "button", className: "ap-kind-jump", "aria-label": "打开舞台设置", title: "打开舞台设置", onClick: () => void open() }, h(packUi.Glyph, { name: "chevRight" })) })),
@@ -271,6 +271,7 @@ function createConversationSettingsModule({
         if (mode === "script") return null;
         const data = config.data;
         return h(InlineField, { kind: "menu", label: "候选项数量", value: data?.candidateTabs === true ? "expanded" : "compact", disabled: !data || config.busy, error: problem,
+            help: help("候选项数量", "少量候选提供 4 条行动和 1 条场景切换。大量候选按角色和全局事件分组，并提供精选。"),
             placeholder: data ? undefined : "正在读取…",
             options: [{ value: "compact", label: "少量候选" }, { value: "expanded", label: "大量候选" }],
             onCommit: value => write({ candidateTabs: value === "expanded" }, { candidateTabs: value === "expanded" }) });
@@ -295,37 +296,6 @@ function createConversationSettingsModule({
                 h(packUi.SwitchRow, { key: "webSearch", label: "联网搜索", help: "前台和后台可按需搜索。", disabled, checked: data.webSearchEnabled === true,
                     onChange: checked => void write({ webSearchEnabled: checked }, { webSearchEnabled: checked }) })) : null,
             problemLine(problem));
-    }
-
-    // ---------- 正文生成 ----------
-    function SessionBodyGeneration({ sessionId }) {
-        const [data, setData] = React.useState(null), [error, setError] = React.useState(""), [busy, setBusy] = React.useState(false);
-        const load = React.useCallback(() => {
-            setError("");
-            return rpc("getBodyGenerationSettings", { sessionId }, sessionId).then(setData, err => setError("读取失败：" + errorText(err)));
-        }, [sessionId]);
-        React.useEffect(() => { void load(); }, [load]);
-        async function save(patch) {
-            setBusy(true); setError("");
-            const selection = Object.hasOwn(patch, "hostRegex") ? {} : { mode: data.mode, provider: data.provider };
-            try { setData(await trackTavernSettingsWrite(sessionId, rpc("setBodyGenerationSettings", { sessionId, ...selection, ...patch }, sessionId))); }
-            catch (err) { setError("保存失败：" + errorText(err)); }
-            finally { setBusy(false); }
-        }
-        const off = busy || !data;
-        return h(packUi.StageSection, { title: "正文生成", foldKey: FOLD("正文生成"), help: "先选生成插件，再切换方式。改动从下一次操作生效。" },
-            rows(
-                h(InlineField, { kind: "menu", label: "生成方式", controlLabel: "本局正文生成方式", value: data?.inherited ? "inherit" : data?.mode || "host", disabled: off,
-                    options: [{ value: "inherit", label: "跟随全局设置" }, { value: "host", label: "宿主生成" }, { value: "plugin-direct", label: "插件直接生成" }, { value: "plugin-tool-call", label: "前台检索后由插件生成" }],
-                    onCommit: value => save(value === "inherit" ? { inherit: true } : { mode: value }) }),
-                h(InlineField, { kind: "menu", label: "生成插件", controlLabel: "本局正文生成插件", value: data?.provider || "", disabled: off,
-                    options: [{ value: "", label: "未选择" }, ...(data?.provider && !data.providers.some(item => item.id === data.provider) ? [{ value: data.provider, label: "已选插件不可用" }] : []), ...(data?.providers || []).map(item => ({ value: item.id, label: item.title }))],
-                    onCommit: provider => save({ provider }) }),
-                h(InlineField, { kind: "menu", label: "宿主正则", controlLabel: "插件生成正文后仍应用宿主正则", help: help("宿主正则", "插件生成正文后，是否仍应用全局、预设和人物卡的正则。"),
-                    value: data?.hostRegexInherited ? "inherit" : data?.hostRegex ? "on" : "off", disabled: off,
-                    options: [{ value: "inherit", label: "跟随全局设置" }, { value: "on", label: "开启" }, { value: "off", label: "关闭" }],
-                    onCommit: value => save({ hostRegex: value === "inherit" ? null : value === "on" }) })),
-            problemLine(error, error.startsWith("读取") ? load : null));
     }
 
     // ---------- the options plugins add to this game (tavern.gameSettings), one section per plugin ----------
@@ -409,6 +379,7 @@ function createConversationSettingsModule({
     // The sections that share the background config: keyed by the page so 恢复默认模板 reads them again.
     function SessionConfigSections({ sessionId }) {
         const config = useSessionConfig(sessionId);
+        const stage = useLiveTavernView(sessionId, undefined, [["stage"]])?.view?.stage;
         return h(React.Fragment, null,
             h(packUi.StageSection, { title: "玩法", foldKey: FOLD("玩法") },
                 rows(
@@ -417,9 +388,8 @@ function createConversationSettingsModule({
                     h(UserPreferenceProfileTab, { scope: { sessionId }, conversationOnly: true, Field: InlineField,
                         track: promise => trackTavernSettingsWrite(sessionId, promise) }),
                     h(SessionCandidateCount, { sessionId, config }))),
-            h(SessionStageSection, { sessionId, config }),
+            stage?.isStageCard === true ? h(SessionStageSection, { sessionId, config, stage }) : null,
             h(SessionModelSection, { sessionId, config }),
-            h(SessionBodyGeneration, { sessionId }),
             h(SessionFeatureSection, { config }),
             h(SessionPluginSettings, { sessionId }),
             h(SessionToolsSection, { config }),

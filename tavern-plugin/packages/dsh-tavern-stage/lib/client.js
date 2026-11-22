@@ -4066,6 +4066,8 @@ function createSoundscapePlayer(deps) {
     // performance: the stage performance's own ambience layer (ambience.cjs).
     const slots = { layer1: { current: null, outgoing: null }, layer2: { current: null, outgoing: null }, performance: { current: null, outgoing: null } };
     const duration = 1200, openCutoff = 24000;
+    const establishMs = 6000, retreatMs = 8000, bedGain = 10 ** (-4 / 20);
+    const delay = deps.setTimeout || setTimeout, cancelDelay = deps.clearTimeout || clearTimeout;
     let frame = null, disposed = false, warnings = [];
     const settled = new Set();
     function acknowledge() { for (const resolve of settled) resolve(); settled.clear(); }
@@ -4111,6 +4113,7 @@ function createSoundscapePlayer(deps) {
     function release(track) {
         if (!track || !track.alive) return;
         track.alive = false; track.ticket++;
+        cancelDelay(track.retreatTimer);
         cleanupAll([
             () => track.node.removeEventListener('error', track.onError),
             () => mixer.level(track.node, 0), () => clearMedia(track.node),
@@ -4127,7 +4130,19 @@ function createSoundscapePlayer(deps) {
         try {
             Promise.resolve(track.node.play()).then(() => {
                 if (!track.alive) { clearMedia(track.node); return; }
-                if (!disposed && track.ticket === ticket) { track.status = 'playing'; track.error = null; }
+                if (!disposed && track.ticket === ticket) {
+                    track.status = 'playing'; track.error = null;
+                    if (track.retreatTimer == null && !track.inBed) {
+                        track.retreatTimer = delay(() => {
+                            track.retreatTimer = null;
+                            if (!Object.values(slots).some(slot => slot.current === track)) return;
+                            track.inBed = true;
+                            target(track, track.gain * bedGain, track.lowpassHz, false, retreatMs);
+                            schedule();
+                        }, establishMs);
+                        track.retreatTimer?.unref?.();
+                    }
+                }
             }, failed);
         } catch (_) { failed(); }
     }
@@ -4152,11 +4167,11 @@ function createSoundscapePlayer(deps) {
         track.cutoff = value;
         if (typeof mixer.filter === 'function') mixer.filter(track.node, value);
     }
-    function target(track, gain, cutoff, snap) {
+    function target(track, gain, cutoff, snap, fadeMs = duration) {
         if (snap) {
             track.transition = null; mixer.level(track.node, gain); setCutoff(track, cutoff); return;
         }
-        track.transition = { at: now(), from: mixer.level(track.node), to: gain, cutoffFrom: track.cutoff, cutoffTo: cutoff };
+        track.transition = { at: now(), fadeMs, from: mixer.level(track.node), to: gain, cutoffFrom: track.cutoff, cutoffTo: cutoff };
     }
     function step() {
         frame = null;
@@ -4164,7 +4179,7 @@ function createSoundscapePlayer(deps) {
         for (const slot of Object.values(slots)) for (const key of ['current', 'outgoing']) {
             const track = slot[key], fade = track && track.transition;
             if (!fade) continue;
-            const t = Math.max(0, Math.min(1, (now() - fade.at) / duration));
+            const t = Math.max(0, Math.min(1, (now() - fade.at) / fade.fadeMs));
             mixer.level(track.node, fade.from + (fade.to - fade.from) * t);
             if (fade.cutoffFrom !== fade.cutoffTo) setCutoff(track, t === 1 ? fade.cutoffTo :
                 (fade.cutoffFrom || openCutoff) + ((fade.cutoffTo || openCutoff) - (fade.cutoffFrom || openCutoff)) * t);
@@ -4195,7 +4210,7 @@ function createSoundscapePlayer(deps) {
         for (const [name, slot] of Object.entries(slots)) {
             const layer = layers.find(item => item.slot === name), current = slot.current;
             if (layer && current && current.identity === layer.identity) {
-                if (current.gain !== layer.gain || current.lowpassHz !== layer.lowpassHz || snap) target(current, layer.gain, layer.lowpassHz, snap);
+                if (current.gain !== layer.gain || current.lowpassHz !== layer.lowpassHz || snap) target(current, layer.gain * (current.inBed ? bedGain : 1), layer.lowpassHz, snap);
                 if (current.volume !== layer.volume && typeof mixer.trim === 'function') mixer.trim(current.node, layer.volume);
                 current.url = layer.url; current.id = layer.id; current.gain = layer.gain; current.volume = layer.volume; current.lowpassHz = layer.lowpassHz;
                 play(current);
@@ -4208,6 +4223,7 @@ function createSoundscapePlayer(deps) {
             }
             release(slot.outgoing); slot.outgoing = current; slot.current = null;
             if (current) {
+                cancelDelay(current.retreatTimer);
                 if (snap) { release(current); slot.outgoing = null; }
                 else target(current, 0, current.cutoff, false);
             }
@@ -24450,14 +24466,14 @@ function GalConfigText(props) {
             galConfigRow("跳过标题页", h(GalConfigSwitch, { label: "跳过标题页", checked: reading.skipTitlePage === true, onChange: on => stageReading.set({ skipTitlePage: on }) }), "进入舞台时不显示卡的标题页，直接继续；新聊天的开场页照常出现。"),
             fonts ? null : preview),
         fonts ? galConfigGroup("字体", null,
-            // no context, so 「跟随样式」 follows the active stage's skin declaration
+            // no context, so 「跟随皮肤」 follows the active stage's skin declaration
             // (fonts.js) and updates when the skin switches. 千禧晴空 (aero) declares no stage font: system 微软雅黑.
-            galConfigRow("舞台字体", h(FontPicker, { role: "stage", label: "舞台字体", follow: "跟随样式", builtin: theme === "aero" ? "微软雅黑" : undefined, theme, variant: "stage" }),
+            galConfigRow("舞台字体", h(FontPicker, { role: "stage", label: "舞台字体", follow: "跟随皮肤", builtin: theme === "aero" ? "微软雅黑" : undefined, theme, variant: "stage" }),
                 h(React.Fragment, null, h("span", null, "文本框、姓名牌、候选项和这个设置画面用的字体，选中立刻生效。"),
-                    h("span", null, "跟随样式：用当前舞台皮肤指定的字体；皮肤没有指定就用内置字体（千禧晴空是系统的微软雅黑）。"))),
+                    h("span", null, "跟随皮肤：用当前舞台皮肤指定的字体；皮肤没有指定就用内置字体（千禧晴空是系统的微软雅黑）。"))),
             props.textSkin ? h(GalConfigTextScale, { skin: props.textSkin, reading }) : null,
-            galConfigRow("字幕字体", h(FontPicker, { role: "film", label: "字幕字体", follow: "跟随样式", theme, variant: "stage" }),
-                h(React.Fragment, null, h("span", null, "电影模式下字幕用的字体。"), h("span", null, "跟随样式：用皮肤指定的字幕字体，没有就用皮肤的舞台字体。"))),
+            galConfigRow("字幕字体", h(FontPicker, { role: "film", label: "字幕字体", follow: "跟随皮肤", theme, variant: "stage" }),
+                h(React.Fragment, null, h("span", null, "电影模式下字幕用的字体。"), h("span", null, "跟随皮肤：用皮肤指定的字幕字体，没有就用皮肤的舞台字体。"))),
             preview) : null);
 }
 function GalConfigPreview(props) {
@@ -26118,7 +26134,7 @@ function Overlay({sessionId, pageId, label: declaredLabel, shortcut, size, close
                 h('button', {type: 'button', className: 'fork-gal-status-close', title: closeLabel, 'aria-label': closeLabel, onClick: request},
                     h('svg', {viewBox: '0 0 24 24', width: 18, height: 18, fill: 'none', stroke: 'currentColor', strokeWidth: 1.6, strokeLinecap: 'round', 'aria-hidden': true, focusable: 'false'}, h('path', {d: 'M7 7l10 10M17 7L7 17'})))),
             pluginPanel ? h('div', {className: 'fork-gal-status-plugin', onContextMenu: event => event.stopPropagation()},
-                h(PluginPanel, {sessionId, plugin:pluginPanel.plugin, id:pluginPanel.id})) : null,
+                h(PluginPanel, {sessionId, plugin:pluginPanel.plugin, id:pluginPanel.id, stagePageId:pageId})) : null,
             h('div', {ref: body, className: 'fork-gal-status-body', style:pluginPanel ? {display:'none'} : undefined},
                 state.phase === 'loading' && !entry ? h('p', {className: 'fork-gal-status-note', role: 'status'}, '正在读取' + label + '…') : null,
                 state.phase === 'empty' ? h('p', {className: 'fork-gal-status-note'}, '本卡没有这个页面') : null,
@@ -26522,7 +26538,7 @@ function musicLoop(buffer, points = {}) {
         restore() { channels.forEach((channel, i) => channel.set(tails[i], end - overlap)); }};
 }
 async function musicBytes(response) {
-    const limit = 60 * 1024 * 1024, reader = response.body?.getReader();
+    const limit = 96 * 1024 * 1024, reader = response.body?.getReader();
     if (!reader) {
         const bytes = await response.arrayBuffer();
         if (bytes.byteLength > limit) throw new Error('Music exceeds decode limit');
@@ -27257,7 +27273,7 @@ if (typeof module !== 'undefined' && typeof window === 'undefined') module.expor
     }
     function TavernStageSettingsSection() {
         const h = React.createElement;
-        return h("div", {className:"dsh-tavern-settings-section dsh-tavern-global-settings"},
+        return h(React.Fragment, null,
             h(SettingsGroup, {title:"舞台模型"}, h(StageModelSettings)),
             // the optional runtimes, the same entries as the model previews.
             h(SettingsGroup, {title:"运行库"}, h("div", {className:"fork-runtime-list"}, CubismCoreEntry ? h(CubismCoreEntry, {request:rpc}) : null, SpineRuntimeEntry ? h(SpineRuntimeEntry, {request:rpc}) : null)),
@@ -28272,7 +28288,7 @@ async function mountClipReplay(snapshot, transport, stagePlugin) {
         // source form: they run here over that closure's names (core = packUi.stageScope.names, asset-pack-ui.js) and the core binds
         // the names it uses from them (stageScope.bind). Both lists are exact.
         function createStageAssetPackViews(core) {
-            const {useFigureLook, CastVoiceList, useReadingPointers, VoicePicker, VoiceRowPlay, VoiceAddDialog, VoiceLangChip, VoiceOptionPick, VoiceLoading, VoiceLoadError, defaultCastVoices, voiceErrorText, CommitInput, useVoicePreview, useVoiceReadiness, useVoiceWriter, figureVoiceSpec, voiceSourceId, figureVoiceLanguage, sampleText, voiceServiceName, voiceLanguageName, primaryLanguage, openVoiceSettings, voiceSourceUnset, React, Actions, BustArt, Button, CAST_FACE, CardCover, CardImportSheet, CatAddTile, CatBand, CatSheet, CatSub, ConfirmDialog, askDelete, hiddenConfirms, ErrorBox, FigureCastFace, Glyph, Help, HintLine, IconButton, ImageFramer, KIND_ORDER, KindSortTools, LampMenu, Loading, MOD_GLYPHS, MenuItem, ModEntries, Modal, NewFigurePage, PackImageView, PackList, PackModal, PackRow, PackSearchBox, Popover, RevealImg, STAGE_NAMES, Silhouette, StageItemsPage, StageModPage, StageModSection, StageOpenings, StageSection, StageSetupWizard, SubpageHead, SwitchRow, Thumb, UploadButton, VOICE_PROVIDERS, catBusyLabel, cellMenuTrigger, clone, downloadPackMedia, emotionMapped, emotionState, errorText, figureAvatar, figureEditorEmotions, figureOutfitView, globalFirst, glyphs, h, holdMedia, keywordProblem, kindGlyphs, kinds, loadPackDetail, loadPackRows, newResourceKey, openingMenuFocus, openingMenuKeys, orderPacks, outfitEmotionRows, outfitHead, outfitImageId, packCount, packFilter, packRowClick, splitKeywords, spriteSlotTakesStill, stageMissing, stageSetupCardPack, stageSetupReady, standInValue, stateBust, subpageKeys, switchRowClick, useLoad, usePackScope, usePackSort, useStageFold, useStageSetupAutoOpen, useVoiceLoad, useVoiceRefresh, validDraft, voiceIssueText, voiceNeedle, voiceMatches,
+            const {useFigureLook, CastVoiceList, useReadingPointers, useSystemVoicePacks, VoicePicker, VoiceRowPlay, VoiceAddDialog, VoiceLangChip, VoiceOptionPick, VoiceLoading, VoiceLoadError, defaultCastVoices, voiceErrorText, CommitInput, useVoicePreview, useVoiceReadiness, useVoiceWriter, figureVoiceSpec, voiceSourceId, figureVoiceLanguage, sampleText, voiceServiceName, voiceLanguageName, primaryLanguage, openVoiceSettings, voiceSourceUnset, React, Actions, BustArt, Button, CAST_FACE, CardCover, CardImportSheet, CatAddTile, CatBand, CatSheet, CatSub, ConfirmDialog, askDelete, hiddenConfirms, ErrorBox, FigureCastFace, Glyph, Help, HintLine, IconButton, ImageFramer, KIND_ORDER, KindSortTools, LampMenu, Loading, MOD_GLYPHS, MenuItem, ModEntries, Modal, NewFigurePage, PackImageView, PackList, PackModal, PackRow, PackSearchBox, Popover, RevealImg, STAGE_NAMES, Silhouette, StageItemsPage, StageModPage, StageModSection, StageOpenings, StageSection, StageSetupWizard, SubpageHead, SwitchRow, Thumb, UploadButton, VOICE_PROVIDERS, catBusyLabel, cellMenuTrigger, clone, downloadPackMedia, emotionMapped, emotionState, errorText, figureAvatar, figureEditorEmotions, figureOutfitView, globalFirst, glyphs, h, holdMedia, keywordProblem, kindGlyphs, kinds, loadPackDetail, loadPackRows, newResourceKey, openingMenuFocus, openingMenuKeys, orderPacks, outfitEmotionRows, outfitHead, outfitImageId, packCount, packFilter, packRowClick, splitKeywords, spriteSlotTakesStill, stageMissing, stageSetupCardPack, stageSetupReady, standInValue, stateBust, subpageKeys, switchRowClick, useLoad, usePackScope, usePackSort, useStageFold, useStageSetupAutoOpen, useVoiceLoad, useVoiceRefresh, validDraft, voiceIssueText, voiceNeedle, voiceMatches,
                 EmptyState, InlineAdd, InlineField, InlineGrid, InlineRow, OverrideDot, ResetButton, ScopeSwitch, Segmented, Spinner, Switch, TextArea, browserSpeechVoiceList, directorCommands, playerErrorText, selectFigureAvatar, selectPackAvatar} = core;
             // dsh-presentation-protocol card-stage-mode.cjs, the card page's `// @include-protocol` (the core bundle no longer includes it).
             'use strict';
@@ -28881,7 +28897,7 @@ if (typeof window === 'undefined' && typeof module !== 'undefined') module.expor
     const drop=()=>run(async()=>{await gen.reject(job);gen.closeSheet();});
     const references=job?.references||[];
     const first=figure&&genDefaultId(figure,outfit);
-    const refName=r=>r.redraw?'上一张':r.hash===figure?.identitySettei?.board?'人物设定图':r.hash===outfit?.settei?'服装设定图':r.hash===outfit?.avatars?.[first]?'首个差分头像':r.purpose==='emotion-sprite'?'同差分立绘':'参考图';
+    const refName=r=>r.redraw?'上一张':r.hash===figure?.identitySettei?.board?'人物设定图':r.hash===figure?.identitySettei?.parts?'人物设定图·配件':r.hash===outfit?.settei?'服装设定图':r.hash===outfit?.setteiParts?'服装设定图·配件':r.hash===outfit?.avatars?.[first]?'首个差分头像':r.purpose==='emotion-sprite'?'同差分立绘':'参考图';
     // The stage: progress, the candidate (a sheet as its eight cut cells or whole), the failure, or the current picture.
     const sliceWarnings=sheetSlices?Object.entries(sheetSlices).flatMap(([id,s])=>(s.checks?.warnings||[]).map(w=>({...w,id}))):[];
     const names=figure?Object.fromEntries(figureEditorEmotions(figure).map(r=>[r.id,r.label])):{};
@@ -29795,14 +29811,15 @@ function StageAutoCastPage({ctx,onBack}) {
     notes.map((text,index)=>h('p',{key:index,className:'ap-reading-note',role:'status'},h('span',null,text))));
 }
 // 可选声音: the voices the casting assistant may give a new figure. Preset 「默认」: every installed
-// voice with a 使用情景 or 「通用」 in its name (defaultCastVoices → voiceAutoCast, the one rule library-search.js also reads). A row: ▶ · name +
+// voice with a 使用情景 and every voice of the packs 通用声音 / 旁白 point at (defaultCastVoices → voiceAutoCast, the one rule
+// library-search.js also reads). A row: ▶ · name +
 // 语言 · its 使用情景 on a second line, edited in place (R23; one not written is a grey placeholder). The 使用情景 is the voice's
 // own `guidance` (≤ 60 字), saved in its pack.
-const AUTO_CAST_VOICES_HELP='素材助手给新人物配声音时，只从这里的声音里挑。「默认」自动包含写了使用情景的声音和名字带「通用」的声音，不能逐个开关；想自己增减，先复制成新预设再改。';
+const AUTO_CAST_VOICES_HELP='素材助手给新人物配声音时，只从这里的声音里挑。「默认」自动包含写了使用情景的声音，以及通用声音、旁白声音所在素材包里的声音，不能逐个开关；想自己增减，先复制成新预设再改。';
 function AutoCastVoices({ctx}) {
   const {binding}=ctx,[error,setError]=React.useState('');
   const list=useVoiceLoad(()=>binding.service.listVoiceCatalogue(),[binding],{keep:true}),preview=useVoicePreview(binding,null);
-  const rows=list.value?defaultCastVoices(list.value):null;
+  const systemPacks=useSystemVoicePacks(binding),rows=list.value?defaultCastVoices(list.value,systemPacks):null;
   // Two voices of one name (each pack may have its own 「通用男性声音」) are told apart by their pack.
   const shared=new Set((rows||[]).map(v=>v.name).filter((name,i,all)=>all.indexOf(name)!==i));
   const save=async(v,text)=>{
@@ -29827,7 +29844,7 @@ function AutoCastVoices({ctx}) {
     error&&h('p',{className:'ap-alert',role:'alert'},error),
     list.error&&!list.value?h(VoiceLoadError,{error:voiceErrorText(list.error),retry:list.reload}):
     rows===null?h(VoiceLoading,{count:3}):rows.length?h('ul',{className:'ap-vx-rows','aria-label':'可选声音'},rows.map(row)):
-      h(EmptyState,{compact:true,text:'还没有可选声音：给声音写上使用情景，或在名字里带「通用」'}),
+      h(EmptyState,{compact:true,text:'还没有可选声音：给声音写上使用情景'}),
     preview.dialog);
 }
 // the quiet 「›」 on a 基础设置 row — the 素材库 at that kind's tab (nav.openLibrary, the same
@@ -31587,7 +31604,7 @@ function JudgeQuestions({questions}) {
         list.length>JUDGE_FOLD&&!open[group]&&h('button',{type:'button',className:'ap-schema-toggle',onClick:()=>setOpen(before=>({...before,[group]:true}))},'其余 '+(list.length-JUDGE_FOLD)+' 项')))));
 }
 
-            // 设置 › 舞台 › 舞台模组
+            // 舞台配置 › 舞台模组
 // and the managed mods' text switches. Host RPCs: managedModsList / managedModDetail /
 // managedModPlan / managedModSwitchPlan / managedModApply.
 // Included in the asset-pack UI factory (mod-library.js): it uses the panel's one Modal / SubpageHead / StageSection /
@@ -31762,7 +31779,7 @@ function ManagedModSection({ rpc, cardId, onOpen, takeFocus }) {
   const mods = useManagedMods(rpc, cardId), plans = useModPlans(rpc, mods), change = useModSwitchChange(rpc, mods, plans, cardId);
   const rows = mods.data?.mods.filter(row => row.installed && !row.internal) || [], byId = id => mods.data?.mods.find(row => row.id === id);
   return h(StageSection, { title: '模组', meta: mods.data ? rows.length : undefined, className: 'ap-widget-section fork-mod-section',
-      help: '全局开启 / 关闭对所有卡生效，并清除这张卡的设置；本卡开启 / 关闭只在这张卡生效。安装与卸载在 设置 › 舞台 › 舞台模组。' },
+      help: '全局开启 / 关闭对所有卡生效，并清除这张卡的设置；本卡开启 / 关闭只在这张卡生效。安装与卸载在侧栏首页的 舞台装置 › 舞台配置 › 舞台模组。' },
     h(ErrorBox, { error: mods.error, reload: mods.data ? null : mods.reload }),
     plans.notice ? h('p', { className: 'ap-notice', role: 'status' }, h(Glyph, { name: 'check' }), h('span', null, plans.notice)) : null,
     !mods.data ? !mods.error && h(Loading) : rows.length ? rows.map(row => h(ManagedModRow, { key: row.id, row, cardId, busy: mods.busy, byId, change, onOpen, takeFocus,
@@ -31786,7 +31803,7 @@ function useManagedModControls({ rpc, cardId, modId, name }) {
   return { toggle, notices, dialog: plans.dialog };
 }
 
-// 设置 › 舞台 › 舞台模组: a row with the installed count and ›; it opens the manager.
+// 舞台配置 › 舞台模组: a row with the installed count and ›; it opens the manager.
 function ModManagerEntry({ rpc, Row }) {
   const [open, setOpen] = React.useState(false), mods = useManagedMods(rpc), count = mods.data?.mods.filter(row => row.installed && !row.internal).length;
   return h(React.Fragment, null,
@@ -31801,14 +31818,12 @@ function ModManager({ rpc, onClose }) {
   const mods = useManagedMods(rpc), plans = useModPlans(rpc, mods), change = useModSwitchChange(rpc, mods, plans);
   const [openId, setOpenId] = React.useState(null), back = React.useRef(null), importInput = React.useRef(null);
   const importFile = file => plans.execute(async () => {
-    if (file.size > 48 * 1024 ** 2) throw Object.assign(new Error('模组文件不能超过 48 MiB'), { code: 'MOD_INVALID' });
-    const bytesBase64 = await new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(String(reader.result).split(',')[1]);
-      reader.onerror = () => reject(reader.error);
-      reader.readAsDataURL(file);
-    });
-    const plan = await rpc('managedModInspect', { bytesBase64 });
+    if (!/\.dshmod$/i.test(file.name)) throw Object.assign(new Error('请选择 .dshmod 模组文件'), { code: 'MOD_INVALID' });
+    if (file.size > 128 * 1024 ** 2) throw Object.assign(new Error('模组文件不能超过 128 MiB'), { code: 'MOD_INVALID' });
+    const response = await fetch('/api/dsh-tavern/card-upload', { method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: file });
+    const upload = await response.json().catch(() => null);
+    if (!response.ok || !upload?.ok) throw Object.assign(new Error(upload?.error || '模组上传失败（HTTP ' + response.status + '）'), { code: 'MOD_INVALID' });
+    const plan = await rpc('managedModInspect', { uploadId: upload.uploadId });
     await mods.reload();
     return plan;
   });
@@ -31826,7 +31841,7 @@ function ModManager({ rpc, onClose }) {
             h(Help, { label: '模组管理 说明', text: '模组是引擎的能力，安装后默认全局关闭。每个模组只运行一个版本；本卡开启与关闭在 舞台设置 › 模组。' })),
           h('span', { className: 'ap-subhead-tools' },
             h(Button, { disabled: mods.busy, onClick: () => importInput.current?.click() }, '导入模组…'),
-            h('input', { ref: importInput, type: 'file', hidden: true, tabIndex: -1, accept: '.dshmod', onChange: event => { const file = event.target.files?.[0]; event.target.value = ''; if (file) importFile(file); } }),
+            h('input', { ref: importInput, type: 'file', hidden: true, tabIndex: -1, onChange: event => { const file = event.target.files?.[0]; event.target.value = ''; if (file) importFile(file); } }),
             h(IconButton, { icon: 'close', label: '关闭', onClick: onClose }))),
         h(ErrorBox, { error: mods.error, reload: mods.data ? null : mods.reload }), notice,
         !mods.data ? !mods.error && h(Loading) : h(React.Fragment, null,

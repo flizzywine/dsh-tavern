@@ -1,7 +1,7 @@
 import path from 'node:path'
-import { rm } from 'node:fs/promises'
+import { readFile, rm, stat } from 'node:fs/promises'
 import { createHash, randomUUID } from 'node:crypto'
-import { readGameSave, sessionTitleOf } from './game-save.js'
+import { GAME_SAVE_LIMITS, readGameSave, sessionTitleOf } from './game-save.js'
 import { assertImportableSave, createGameSaveImportContent } from './game-save-import-content.js'
 import { beginRelaxedSync, endRelaxedSync, relaxedSyncPending } from './conversation-page-store.js'
 const str = value => value == null ? '' : String(value)
@@ -12,9 +12,13 @@ export function createGameSaveImporter({ tavernVersion, dataRoot, readCard, prep
   restorePresetSnapshot = async chat => chat, adoptConfiguration = chat => chat,
   newChatId = () => 'chat-' + randomUUID(), newSessionId = () => 'session-' + randomUUID() }) {
   const importingGameSaves = new Set()
-  async function importGameSave(args) {
-    if (typeof args?.fileB64 !== 'string' || !args.fileB64) throw new Error('请选择 .dshsave 存档文件')
-    const save = readGameSave(Buffer.from(args.fileB64, 'base64'), { tavernVersion })
+  async function importGameSave(args, { file } = {}) {
+    if (!file && (typeof args?.fileB64 !== 'string' || !args.fileB64)) throw new Error('请选择 .dshsave 存档文件')
+    if (file && (await stat(file)).size > GAME_SAVE_LIMITS.maxArchiveBytes) {
+      throw new Error('存档文件超过 ' + GAME_SAVE_LIMITS.maxArchiveBytes / 1024 ** 2 + ' MiB')
+    }
+    const bytes = file ? await readFile(file) : Buffer.from(args.fileB64, 'base64')
+    const save = readGameSave(bytes, { tavernVersion })
     assertImportableSave(save)
     if (!save.card?.payload && !save.chat.cardDefinitionSnapshot && !await readCard(str(save.chat.cardPath)).catch(() => undefined)) throw new Error('存档包里没有人物卡，本机也没有这张卡，无法导入')
     const sourceChatId = str(save.chat.id), sourceSessionId = str(save.session.header?.id || save.chat.sessionId)

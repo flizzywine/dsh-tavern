@@ -13,11 +13,12 @@ import { createPluginImageCatalog } from './domain/plugin-image-catalog.js'
 import path from 'node:path'
 import { publicPluginMedia, pluginMediaSession } from './domain/plugin-media.js'
 import { normalizeGameSettings, coerceSetting, settingValues } from './domain/plugin-game-settings.js'
+import { TAVERN_PLUGIN_API_VERSION } from './domain/plugin-manifest.js'
 
 // The public `tavern` service for third-party DSH plugins (docs/plugin-api.md).
 // Only additive changes are allowed here: published plugins depend on every
 // name and field. Internals are reached through `deps`, never exposed.
-export const TAVERN_PLUGIN_API_VERSION = 8
+export { TAVERN_PLUGIN_API_VERSION }
 const TRACKER = Symbol.for('cordis.tracker')
 const SECTION_NAME = /^[a-z0-9][a-z0-9._-]{0,63}$/
 const MAX_SECTION_TEXT = 8000
@@ -167,12 +168,16 @@ function boundedWithSignal(promise, label, signal, ms = PLUGIN_TIMEOUT_MS) {
   })
 }
 
-function linkedFigureEdit({ packId, figureId, name, addAliases = [], removeAliases = [] } = {}) {
+// outfits: {outfit key: new name} the record renamed; release: the record's link to the figure ends (deleted or relinked).
+function linkedFigureEdit({ packId, figureId, name, addAliases = [], removeAliases = [], outfits, release } = {}) {
   const words = value => Array.isArray(value) && value.length <= 64 && value.every(word => typeof word === 'string' && word.trim() && word.length <= 64)
   if (typeof packId !== 'string' || !packId || typeof figureId !== 'string' || !figureId) throw new TypeError('packId、figureId 必须是素材库人物的 ID')
   if (name !== undefined && (typeof name !== 'string' || !name.trim() || name.length > 100)) throw new TypeError('name 必须是 1–100 字')
   if (!words(addAliases) || !words(removeAliases)) throw new TypeError('addAliases、removeAliases 必须是最多 64 个、每个不超过 64 字的词')
-  return { packId, figureId, ...(name === undefined ? {} : { name: name.trim() }), addAliases: addAliases.map(word => word.trim()), removeAliases: removeAliases.map(word => word.trim()) }
+  if (outfits !== undefined && (!outfits || typeof outfits !== 'object' || Array.isArray(outfits) || Object.keys(outfits).length > 128 || Object.values(outfits).some(label => typeof label !== 'string' || !label.trim() || label.length > 100))) throw new TypeError('outfits 必须是服装 ID 到 1–100 字名称的对照')
+  if (release !== undefined && typeof release !== 'boolean') throw new TypeError('release 必须是布尔值')
+  return { packId, figureId, ...(name === undefined ? {} : { name: name.trim() }), addAliases: addAliases.map(word => word.trim()), removeAliases: removeAliases.map(word => word.trim()),
+    ...(outfits ? { outfits: Object.fromEntries(Object.entries(outfits).map(([key, label]) => [key, label.trim()])) } : {}), ...(release ? { release: true } : {}) }
 }
 
 export function createTavernPluginApi(deps) {
@@ -211,6 +216,7 @@ export function createTavernPluginApi(deps) {
     return name
   }
   const capabilities = Object.freeze({ gameMode: 1, hostBehavior: 1, controlInput: 1, mvuSettlementProvider: 1, worldbookStrategy: 1, galleryProvider: 1, pricingProvider: 1, imageModels: 1, imageLibrary: 1, bodyGeneration: 1, bodyProjection: 1, stContractService: 1,
+    ...(deps.readTavernSettings && deps.updateTavernSettings ? { bodyGenerationDefaults: 1 } : {}),
     ...(deps.generationPresets ? { generationPresets: 1 } : {}),
     ...(deps.decisionJudge ? { decisionJudge: 1 } : {}),
     ...(deps.damperSettings ? { damperSettings: 1 } : {}),
@@ -331,7 +337,7 @@ export function createTavernPluginApi(deps) {
     log.warn?.('dsh-tavern: 插件 ' + owner + ' 在「' + stage + '」出错: ' + message)
   }
 
-  const imageCatalog = createPluginImageCatalog({ imageProviders, reportError: recordError,
+  const imageCatalog = createPluginImageCatalog({ imageProviders, reportError: recordError, librariesChanged: () => deps.imageLibrariesChanged?.(),
     available: async (owner, context) => {
       const scope = await accessScope(owner)
       return !scope || Boolean(context.card && scope.cards.includes(context.card))
@@ -665,6 +671,16 @@ export function createTavernPluginApi(deps) {
       // the people the turn just cast get their 人物库 records from the follow (image-character-follow.js) after their pack write
       await deps.imageCharactersSettled?.()
     },
+    async imagePackCharacters({ gameId, turn, anchor, subjects, includeReferences = true } = {}) {
+      if (!deps.imagePackCharacters) return []
+      await guardScope(ownerOf(this), { gameId })
+      const material = await requireTurn(gameId, turn)
+      const packIds = await deps.cardAssetPacks(material.card.path)
+      const worn = subjects && imageGateProvider ? await imageGateProvider.wearing({ gameId, turn, anchor }) : []
+      return deps.imagePackCharacters(packIds, subjects?.map(subject => ({
+        ...subject, outfitId: subject.outfitId || worn.find(row => subject.characterId === `pack:${row.packId}:${row.figureId}`)?.outfitKey,
+      })), includeReferences === true)
+    },
     async beforeImageGenerate({ gameId, turn, anchor, subjects, signal } = {}) {
       if (typeof gameId !== 'string' || !gameId || !Array.isArray(subjects) || subjects.length > 16) throw new TypeError('beforeImageGenerate 需要 gameId 与最多 16 个 subjects')
       if (!imageGateProvider) return {}
@@ -901,6 +917,8 @@ export function createTavernPluginApi(deps) {
       if (!deps.editLinkedFigure) throw Object.assign(new Error('素材库未启用'), { code: 'NOT_CONFIGURED' })
       return await deps.editLinkedFigure(change)
     },
+
+    writingFigureRecords() { return deps.writingFigureRecords?.() === true },
 
     async editLinkedFigures({ changes, receipt } = {}, save) {
       const owner = ownerOf(this)
@@ -1399,6 +1417,35 @@ export function createTavernPluginApi(deps) {
       return owned(this, () => bodyGenerators.register(owner, { name, title: taskTitle(title, name), prepare, generate, controlInput: controlInput === true }), 'tavern.bodyGenerator()')
     },
 
+    async bodyGenerationDefaults({ name, mode, hostRegex } = {}) {
+      const owner = ownerOf(this)
+      sectionName(name)
+      if (!capabilities.bodyGenerationDefaults) throw new Error('当前版本不支持正文生成默认设置')
+      if (await accessScope(owner)) throw new Error('只有全局插件可以设置默认正文生成器')
+      const id = owner + ':' + name
+      if (!(await bodyGenerators.list()).some(provider => provider.id === id)) throw new Error('请先注册正文生成器')
+
+      const pluginModes = ['plugin-direct', 'plugin-tool-call']
+      const selectedMode = settings => settings?.storyGenerationProvider === id && pluginModes.includes(settings.storyGenerationMode)
+        ? settings.storyGenerationMode : 'host'
+      const present = settings => ({ mode: selectedMode(settings), hostRegex: settings?.storyPluginOutputRegex === true })
+      if (mode === undefined && hostRegex === undefined) return present(await deps.readTavernSettings())
+      if (mode !== undefined && mode !== 'host' && !pluginModes.includes(mode)) throw new Error('正文生成方式无效')
+      if (hostRegex !== undefined && (typeof hostRegex !== 'boolean' || mode === 'host')) throw new Error('插件正文宿主正则设置无效')
+
+      const patch = {}
+      if (mode !== undefined) {
+        patch.storyGenerationMode = mode
+        patch.storyGenerationProvider = mode === 'host' ? '' : id
+      }
+      if (hostRegex !== undefined) patch.storyPluginOutputRegex = hostRegex
+      return present(await deps.updateTavernSettings(patch, { beforeWrite(current) {
+        if ((mode === undefined || mode === 'host') && selectedMode(current) === 'host') {
+          throw new Error('当前默认生成器已更改，请重新打开插件页')
+        }
+      } }))
+    },
+
     // A resident background Agent of this plugin: one per game, its own Session and prompt cache.
     // Tasks given `member: name` run in it one at a time, beside Tavern's own members.
     // A resident member of this plugin: one Session per game. With `system` it has a prefix of
@@ -1697,14 +1744,15 @@ export function createTavernPluginApi(deps) {
       return register.call(this, compactionSections, owner + '\u0000' + name, { owner, name, text }, 'tavern.compactionSection()', '压缩说明段落 ' + name + ' 已注册')
     },
 
-    settlementTool({ name, description, parameters, execute } = {}) {
+    settlementTool({ name, description, parameters, enabledFor, execute } = {}) {
       const owner = ownerOf(this)
       if (typeof name !== 'string' || !TOOL_NAME.test(name)) throw new Error('工具名只能用小写字母、数字和下划线，以字母开头，3–48 个字符')
       if (reservedToolNames.has(name)) throw new Error('工具名 ' + name + ' 是 Tavern 自己的工具，请换一个名字')
       if (typeof description !== 'string' || !description.trim() || description.length > 2000) throw new Error('description 必须是 1–2000 字的说明')
       if (!parameters || typeof parameters !== 'object' || Array.isArray(parameters) || parameters.type !== 'object') throw new Error('parameters 必须是 type 为 object 的 JSON Schema')
+      if (enabledFor !== undefined && typeof enabledFor !== 'function') throw new TypeError('enabledFor 必须是函数')
       if (typeof execute !== 'function') throw new TypeError('execute 必须是函数')
-      const entry = { owner, name, tool: Object.freeze({ name, description: description.trim(), parameters: structuredClone(parameters), countsTowardLimit: false }), execute }
+      const entry = { owner, name, enabledFor, tool: Object.freeze({ name, description: description.trim(), parameters: structuredClone(parameters), countsTowardLimit: false }), execute }
       return register.call(this, settlementTools, name, entry, 'tavern.settlementTool()', '结算工具 ' + name + ' 已被注册')
     },
 
@@ -2269,16 +2317,28 @@ export function createTavernPluginApi(deps) {
     return result
   }
 
+  async function settlementToolEnabled(entry, context, disabled) {
+    if (disabled.has(entry.owner)) return false
+    if (!entry.enabledFor) return true
+    try {
+      return await bounded(entry.enabledFor(context), '结算工具开关 ' + entry.name) === true
+    } catch (error) {
+      recordError(context.gameId, entry.owner, '结算工具开关 ' + entry.name, error)
+      return false
+    }
+  }
+
   /** Seam: what the background settlement task offers the model on behalf of plugins. */
   const settlement = Object.freeze({
     /** Tool definitions, in a stable order: they sit in the cached request prefix. */
     tools() { return Array.from(settlementTools.values()).sort((a, b) => a.name.localeCompare(b.name)).map(entry => entry.tool) },
     has(name) { return settlementTools.has(name) },
     /** This game's plugin tools, split by whether the player has their plugin on. */
-    async toolNames({ gameId }) {
-      const { disabled } = await choicesFor(gameId).catch(() => ({ disabled: new Set() }))
+    async toolNames({ gameId, turn }) {
+      const { disabled } = await choicesFor(gameId)
       const names = Array.from(settlementTools.values()).sort((a, b) => a.name.localeCompare(b.name))
-      return { available: names.filter(entry => !disabled.has(entry.owner)).map(entry => entry.name), unavailable: names.filter(entry => disabled.has(entry.owner)).map(entry => entry.name) }
+      const enabled = await Promise.all(names.map(entry => settlementToolEnabled(entry, { gameId, turn }, disabled)))
+      return { available: names.filter((_, index) => enabled[index]).map(entry => entry.name), unavailable: names.filter((_, index) => !enabled[index]).map(entry => entry.name) }
     },
     // Sections see the turn being settled: its text is not readable through getTurn until settlement ends.
     async sections({ gameId, turn }) {
@@ -2289,13 +2349,14 @@ export function createTavernPluginApi(deps) {
     /** One settlement run's dispatcher: bounded calls, errors returned to the model, never thrown. */
     calls({ gameId, turn }) {
       let count = 0
-      const choices = choicesFor(gameId).catch(() => ({ disabled: new Set() }))
       return async function call(name, args) {
         const entry = settlementTools.get(name)
         if (!entry) return JSON.stringify({ ok: false, retryable: false, error: '插件工具 ' + name + ' 已不可用' })
-        if ((await choices).disabled.has(entry.owner)) return JSON.stringify({ ok: false, retryable: false, error: '玩家在本局关闭了插件 ' + entry.owner + '，本轮不要调用它的工具；以后各轮以结算任务里列出的可用插件工具为准' })
-        if (++count > MAX_TOOL_CALLS_PER_SETTLEMENT) return JSON.stringify({ ok: false, retryable: false, error: '本轮插件工具调用次数已达上限，请继续完成结算' })
         try {
+          if (!await settlementToolEnabled(entry, { gameId, turn }, (await choicesFor(gameId)).disabled) || settlementTools.get(name) !== entry) {
+            return JSON.stringify({ ok: false, retryable: false, error: '插件工具 ' + name + ' 当前未启用' })
+          }
+          if (++count > MAX_TOOL_CALLS_PER_SETTLEMENT) return JSON.stringify({ ok: false, retryable: false, error: '本轮插件工具调用次数已达上限，请继续完成结算' })
           const value = await bounded(entry.execute({ gameId, turn, arguments: structuredClone(args ?? {}) }), '插件工具 ' + name)
           const text = typeof value === 'string' ? value : JSON.stringify(value ?? { ok: true })
           return text.slice(0, MAX_TOOL_RESULT)

@@ -156,7 +156,8 @@ const forkStageAudio = (function () {
         if (context) for (const layer of Object.keys(buses)) {
             const bus = buses[layer], dip = dipOf(layer);
             if (dip.db === bus.db) { bus.by = dip.by; continue; }
-            const now = context.currentTime, deeper = dip.db < bus.db, time = AUDIO_DUCK_TIME[deeper ? dip.by : bus.by];
+            const now = context.currentTime, deeper = dip.db < bus.db, by = deeper ? dip.by : bus.by;
+            const time = layer === "ambience" && by === "voice" ? AUDIO_AMBIENCE_VOICE_TIME : AUDIO_DUCK_TIME[by];
             holdAudioParam(bus.duck.gain, now);
             bus.duck.gain.setTargetAtTime(Math.pow(10, dip.db / 20), deeper ? now : now + time.hold, deeper ? time.attack : time.release);
             bus.db = dip.db; bus.by = dip.by; bus.to = Math.pow(10, dip.db / 20);

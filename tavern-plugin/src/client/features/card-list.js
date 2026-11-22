@@ -53,7 +53,7 @@
 		}
 		async function archiveAndDeleteTavernChats(items, archiveSession, call) {
 			const failures = [];
-			if (!items.length) return { removed: [], failures };
+			if (!items.length) return { removed: [], failures, unavailableSessionIds: [] };
 			const prepared = await call("prepareDeleteChats", { chatIds: items.map(item => item.chatId) });
 			failures.push(...prepared.results.filter(result => !result.ok));
 			const eligible = items.filter(item => prepared.results.some(result => result.chatId === item.chatId && result.ok));
@@ -72,11 +72,18 @@
 				}
 			}
 			await Promise.all(Array.from({ length: Math.min(ARCHIVE_CONCURRENCY, eligible.length) }, archiveSome));
-			const ready = eligible.filter(item => archived.has(item.chatId)).map(item => item.chatId);
-			if (!ready.length) return { removed: [], failures };
-			const deleted = await call("deleteChats", { chatIds: ready });
-			failures.push(...deleted.results.filter(result => !result.ok));
-			return { removed: deleted.results.filter(result => result.ok).map(result => result.chatId), failures };
+			const ready = eligible.filter(item => archived.has(item.chatId));
+			const unavailableSessionIds = ready.map(item => item.sessionId);
+			if (!ready.length) return { removed: [], failures, unavailableSessionIds };
+			const chatIds = ready.map(item => item.chatId);
+			try {
+				const deleted = await call("deleteChats", { chatIds });
+				failures.push(...deleted.results.filter(result => !result.ok));
+				return { removed: deleted.results.filter(result => result.ok).map(result => result.chatId), failures, unavailableSessionIds };
+			} catch (error) {
+				failures.push(...chatIds.map(chatId => ({ chatId, error: String(error && error.message || error) })));
+				return { removed: [], failures, unavailableSessionIds };
+			}
 		}
 
 		function tavernCardPathKey(path) {
@@ -104,13 +111,12 @@
 			let outcome;
 			try { outcome = await deleteTavernChats(items, archiveSession, call); }
 			catch (error) { return { notice: "游玩记录删除失败：" + String(error && error.message || error), sessionIds: [] }; }
-			const sessionIds = items.filter(entry => outcome.removed.includes(entry.chatId)).map(entry => entry.sessionId);
-			return { notice: "游玩记录删除 " + outcome.removed.length + " 个" + (outcome.failures.length ? "，" + outcome.failures.length + " 个失败，可在左侧历史中重试" : ""), sessionIds };
+			return { notice: "游玩记录删除 " + outcome.removed.length + " 个" + (outcome.failures.length ? "，" + outcome.failures.length + " 个失败，可在左侧历史中重试" : ""), sessionIds: outcome.unavailableSessionIds };
 		}
 
-		// The sidebar listens so an open chat of a deleted card does not stay on screen.
-		function announceTavernChatsRemoved(sessionIds) {
-			if (sessionIds.length) window.dispatchEvent(new CustomEvent("dsh-tavern-chats-removed", { detail: { sessionIds } }));
+		// An archived session leaves the active history even if its save could not be deleted.
+		function announceTavernSessionsUnavailable(sessionIds) {
+			if (sessionIds.length) window.dispatchEvent(new CustomEvent("dsh-tavern-sessions-unavailable", { detail: { sessionIds } }));
 		}
 
 		// @include card-organization.js
@@ -138,7 +144,7 @@
 					const failed = results.filter(item => !item.ok);
 					const chatRemoval = await removeTavernCardChats(chats, results, archiveSession);
 					const chatNotice = chatRemoval.notice;
-					announceTavernChatsRemoved(chatRemoval.sessionIds);
+					announceTavernSessionsUnavailable(chatRemoval.sessionIds);
 					setPaths(failed.map(item => item.path));
 					setNotice("已删除 " + (results.length - failed.length) + " 张" + (failed.length ? "，" + failed.length + " 张失败，可重试：" + failed.map(item => item.name + "：" + item.error).join("；") : "。") + (chatNotice ? " " + chatNotice + "。" : ""));
 					await refresh();
@@ -260,42 +266,25 @@
 			return rest || title;
 		}
 
-		function tavernPreviewLines(text, limit, role, label) {
-			const lines = String(text || "").split(/\r?\n/).map(function (line) { return line.trim(); }).filter(Boolean);
-			if (!lines.length) return null;
-			// Folded to one paragraph: the clamp in CSS counts wrapped lines, so a
-			// pre-wrapped list would make "one line here, five lines expanded" lie.
-			return { role: role, label: label, text: lines.slice(0, limit).join(" ") };
-		}
-
 		function formatTavernHistoryPreview(preview) {
-			const empty = { hasPreview: false, turnCount: 0, messageCount: 0, isOpeningOnly: false, turnBadge: "", compactLines: [], detailLines: [], tooltip: "", searchText: "" };
-			if (!preview || typeof preview !== "object") return empty;
-			const turnCount = Math.max(0, Number(preview.turnCount) || 0);
-			const messageCount = Math.max(0, Number(preview.messageCount) || 0);
-			const userText = String(preview.userText || "").trim();
-			const replyText = String(preview.replyText || "").trim();
-			const openingText = String(preview.openingText || "").trim();
-			const hasDialogue = Boolean(userText || replyText);
-			const turnBadge = turnCount > 0 ? (turnCount + " 轮") : (messageCount > 0 || openingText || userText ? "仅开场" : "空对话");
-			const compactLines = [];
-			const detailLines = [];
-			function push(brief, full) { if (brief) compactLines.push(brief); if (full) detailLines.push(full); }
-			if (hasDialogue) {
-				push(tavernPreviewLines(userText, 1, "user", "你"), tavernPreviewLines(userText, 3, "user", "你"));
-				push(tavernPreviewLines(replyText, 2, "reply", "角色"), tavernPreviewLines(replyText, 5, "reply", "角色"));
-			} else if (openingText) {
-				push(tavernPreviewLines(openingText, 2, "opening", "开场"), tavernPreviewLines(openingText, 5, "opening", "开场"));
-			}
+			const turnCount = Math.max(0, Number(preview?.turnCount) || 0);
+			const messageCount = Math.max(0, Number(preview?.messageCount) || 0);
+			const floorNo = Number.isSafeInteger(preview?.floorNo) ? preview.floorNo : 0;
+			const userText = String(preview?.userText || "").trim();
+			const replyText = String(preview?.replyText || "").trim();
+			const openingText = String(preview?.openingText || "").trim();
+			const isOpeningOnly = Boolean(preview) && turnCount === 0 && !userText && !replyText;
+			const lines = (replyText || openingText).split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+			const detailText = lines.slice(0, 5).join(" ");
+			const floorBadge = isOpeningOnly && openingText ? "仅开场" : floorNo > 0 ? floorNo + " 楼" : preview && messageCount === 0 ? "空对话" : "";
 			return {
-				hasPreview: compactLines.length > 0,
+				hasPreview: detailText !== "",
 				turnCount,
 				messageCount,
-				isOpeningOnly: turnCount === 0 && !hasDialogue,
-				turnBadge,
-				compactLines,
-				detailLines,
-				tooltip: detailLines.map(function (line) { return line.label + "：" + line.text; }).join("\n"),
+				isOpeningOnly,
+				floorBadge,
+				compactText: lines.slice(0, 2).join(" "),
+				detailText,
 				searchText: [userText, replyText, openingText].filter(Boolean).join("\n").toLowerCase()
 			};
 		}

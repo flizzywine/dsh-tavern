@@ -7,10 +7,11 @@
 
 const TND_PROVIDERS = [
   { value: 'gemini', label: 'Google Gemini Decisions', defaultModel: 'gemini-decision-1', defaultKeyName: 'GEMINI_API_KEY' },
-  { value: 'gemini-compatible', label: 'Gemini 兼容接口', defaultModel: 'gemini-decision-1', defaultKeyName: 'GEMINI_API_KEY', customUrl: true },
+  { value: 'gemini-compatible', label: 'Gemini Decisions 兼容接口', defaultModel: 'gemini-decision-1', defaultKeyName: 'GEMINI_API_KEY', customUrl: true },
   { value: 'jev', label: 'Typesafe JEV', defaultModel: 'jev-1.13.0', defaultKeyName: 'TYPESAFE_API_KEY' },
+  { value: 'jev-compatible', label: 'Typesafe JEV 兼容接口', defaultModel: 'jev-1.13.0', defaultKeyName: 'TYPESAFE_API_KEY', customUrl: true },
   { value: 'openai', label: 'OpenAI Decisions', defaultModel: 'gpt-6-luna', defaultKeyName: 'OPENAI_API_KEY' },
-  { value: 'openai-compatible', label: 'OpenAI 兼容接口', defaultModel: 'gpt-6-luna', defaultKeyName: 'OPENAI_API_KEY', customUrl: true }
+  { value: 'openai-compatible', label: 'OpenAI Decisions 兼容接口', defaultModel: 'gpt-6-luna', defaultKeyName: 'OPENAI_API_KEY', customUrl: true }
 ]
 
 const TND_KEY_PATTERN = /^[\x21-\x7e]{1,4096}$/

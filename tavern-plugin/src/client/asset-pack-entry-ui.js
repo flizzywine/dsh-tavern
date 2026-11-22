@@ -377,14 +377,14 @@ const LAMP_HELP='同 SillyTavern 世界书：蓝灯始终可选，绿灯在名�
     const lead=['backgrounds','cg','props'].includes(kind)?h(Thumb,{binding,packId,hash:entryContent(item).media||(kind==='props'?assetTags.icon(pack.manifest,item.category):null),label:item.name,className:'ap-item-thumb'+(kind==='props'?' is-object':'')}):AUDIO_KINDS.includes(kind)?h(PlayButton,{audio,asset:entryView(item)}):
       figure?h(FigureCastFace,{binding,packId,pack,figure:item,sprites:pack.sprites,avatar:figureAvatar(thumbnail,pack.sprites),label:item.name,className:'ap-item-avatar',frame:'face'}):
       kind==='skins'?h(SkinSample,{skin:pack.skins?.[item.id],label:item.name,compact:true}):h('span',{className:'ap-item-glyph'},h(KindIcon,{kind}));
-    // a figure row is one line — face and name; no second meta row. r6 (owner
-    // 2026-10): no outfit count either (the figure page lists its outfits).
+    const unillustrated=figure&&!item.outfits.some(o=>o.sprite||o.live2d||o.spine);
+    // Keep the appearance status inline; the figure page lists the outfits.
     return h('li',{role:'option','aria-selected':checked===null?focused:checked,className:'ap-item'+(checked!==null?' is-picking':'')+(figure?' is-figure':''),'data-checked':checked||undefined,'data-disabled':item.enabled===false||undefined,onClick:onSelect,...mergeProps(reorder,rowMenu.target)},
       rowMenu.layer,
       h('span',{className:'ap-item-lead-box'},
         onPreview?h('button',{type:'button',className:'ap-item-lead','aria-label':'查看大图 '+item.name,title:'查看大图',onClick:e=>{e?.stopPropagation?.();onPreview();}},lead):lead,
         checked!==null&&h('span',{className:'ap-check-mark','aria-hidden':true},checked&&h(Glyph,{name:'check'}))),
-      h('button',{type:'button',className:'ap-item-main','aria-keyshortcuts':rowMenu.trigger['aria-keyshortcuts'],onClick:e=>{e?.stopPropagation?.();onSelect(e);}},h('span',{className:'ap-item-name'},item.name)),
+      h('button',{type:'button',className:'ap-item-main','aria-keyshortcuts':rowMenu.trigger['aria-keyshortcuts'],onClick:e=>{e?.stopPropagation?.();onSelect(e);}},h('span',{className:'ap-item-name'},item.name),unillustrated&&h('span',{className:'ap-item-meta'},'未出图')),
       !figure&&item.recall&&!STATELESS_KINDS.includes(kind)&&(onLamp?h(LampMenu,{mode:entryLamp(item,LAMPLESS_KINDS.includes(kind)),onOff:LAMPLESS_KINDS.includes(kind),choices:lampChoices(kind),label:item.name+(LAMPLESS_KINDS.includes(kind)?' 的状态':' 的触发策略'),
           anchorClassName:'ap-item-lamp-anchor',className:'ap-item-lamp',onChange:onLamp}):
         (()=>{const lamp=entryLamp(item,LAMPLESS_KINDS.includes(kind)),word=ENTRY_LAMPS[lamp];return h('span',{className:'ap-item-lamp','data-mode':lamp,role:'img','aria-label':word,title:word},h('span',{className:'ap-lamp-dot'}));})()));

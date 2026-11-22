@@ -1,4 +1,4 @@
-// 设置 › 舞台 › 舞台模组
+// 舞台配置 › 舞台模组
 // and the managed mods' text switches. Host RPCs: managedModsList / managedModDetail /
 // managedModPlan / managedModSwitchPlan / managedModApply.
 // Included in the asset-pack UI factory (mod-library.js): it uses the panel's one Modal / SubpageHead / StageSection /
@@ -173,7 +173,7 @@ function ManagedModSection({ rpc, cardId, onOpen, takeFocus }) {
   const mods = useManagedMods(rpc, cardId), plans = useModPlans(rpc, mods), change = useModSwitchChange(rpc, mods, plans, cardId);
   const rows = mods.data?.mods.filter(row => row.installed && !row.internal) || [], byId = id => mods.data?.mods.find(row => row.id === id);
   return h(StageSection, { title: '模组', meta: mods.data ? rows.length : undefined, className: 'ap-widget-section fork-mod-section',
-      help: '全局开启 / 关闭对所有卡生效，并清除这张卡的设置；本卡开启 / 关闭只在这张卡生效。安装与卸载在 设置 › 舞台 › 舞台模组。' },
+      help: '全局开启 / 关闭对所有卡生效，并清除这张卡的设置；本卡开启 / 关闭只在这张卡生效。安装与卸载在侧栏首页的 舞台装置 › 舞台配置 › 舞台模组。' },
     h(ErrorBox, { error: mods.error, reload: mods.data ? null : mods.reload }),
     plans.notice ? h('p', { className: 'ap-notice', role: 'status' }, h(Glyph, { name: 'check' }), h('span', null, plans.notice)) : null,
     !mods.data ? !mods.error && h(Loading) : rows.length ? rows.map(row => h(ManagedModRow, { key: row.id, row, cardId, busy: mods.busy, byId, change, onOpen, takeFocus,
@@ -197,7 +197,7 @@ function useManagedModControls({ rpc, cardId, modId, name }) {
   return { toggle, notices, dialog: plans.dialog };
 }
 
-// 设置 › 舞台 › 舞台模组: a row with the installed count and ›; it opens the manager.
+// 舞台配置 › 舞台模组: a row with the installed count and ›; it opens the manager.
 function ModManagerEntry({ rpc, Row }) {
   const [open, setOpen] = React.useState(false), mods = useManagedMods(rpc), count = mods.data?.mods.filter(row => row.installed && !row.internal).length;
   return h(React.Fragment, null,
@@ -212,14 +212,12 @@ function ModManager({ rpc, onClose }) {
   const mods = useManagedMods(rpc), plans = useModPlans(rpc, mods), change = useModSwitchChange(rpc, mods, plans);
   const [openId, setOpenId] = React.useState(null), back = React.useRef(null), importInput = React.useRef(null);
   const importFile = file => plans.execute(async () => {
-    if (file.size > 48 * 1024 ** 2) throw Object.assign(new Error('模组文件不能超过 48 MiB'), { code: 'MOD_INVALID' });
-    const bytesBase64 = await new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(String(reader.result).split(',')[1]);
-      reader.onerror = () => reject(reader.error);
-      reader.readAsDataURL(file);
-    });
-    const plan = await rpc('managedModInspect', { bytesBase64 });
+    if (!/\.dshmod$/i.test(file.name)) throw Object.assign(new Error('请选择 .dshmod 模组文件'), { code: 'MOD_INVALID' });
+    if (file.size > 128 * 1024 ** 2) throw Object.assign(new Error('模组文件不能超过 128 MiB'), { code: 'MOD_INVALID' });
+    const response = await fetch('/api/dsh-tavern/card-upload', { method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: file });
+    const upload = await response.json().catch(() => null);
+    if (!response.ok || !upload?.ok) throw Object.assign(new Error(upload?.error || '模组上传失败（HTTP ' + response.status + '）'), { code: 'MOD_INVALID' });
+    const plan = await rpc('managedModInspect', { uploadId: upload.uploadId });
     await mods.reload();
     return plan;
   });
@@ -237,7 +235,7 @@ function ModManager({ rpc, onClose }) {
             h(Help, { label: '模组管理 说明', text: '模组是引擎的能力，安装后默认全局关闭。每个模组只运行一个版本；本卡开启与关闭在 舞台设置 › 模组。' })),
           h('span', { className: 'ap-subhead-tools' },
             h(Button, { disabled: mods.busy, onClick: () => importInput.current?.click() }, '导入模组…'),
-            h('input', { ref: importInput, type: 'file', hidden: true, tabIndex: -1, accept: '.dshmod', onChange: event => { const file = event.target.files?.[0]; event.target.value = ''; if (file) importFile(file); } }),
+            h('input', { ref: importInput, type: 'file', hidden: true, tabIndex: -1, onChange: event => { const file = event.target.files?.[0]; event.target.value = ''; if (file) importFile(file); } }),
             h(IconButton, { icon: 'close', label: '关闭', onClick: onClose }))),
         h(ErrorBox, { error: mods.error, reload: mods.data ? null : mods.reload }), notice,
         !mods.data ? !mods.error && h(Loading) : h(React.Fragment, null,

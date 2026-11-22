@@ -508,12 +508,6 @@ body.dsh-tavern-shell-active [data-dsh-dock-fallback]:hover { opacity: 1; }
   background: linear-gradient(135deg, rgba(var(--accent-rgb),.11), rgba(var(--white-rgb),.42));
   border-color: var(--accent-ring);
 }
-/* 「⋯」对话操作菜单是卡片内的绝对定位层：卡片默认 overflow:hidden 会把它裁掉，
-   并且后面的卡片会盖住它。菜单打开的那一张放开裁剪并抬到同层最上面。 */
-.dsh-tavern-history-group:has(.dsh-tavern-side-row-menu) {
-  overflow: visible;
-  z-index: 6;
-}
 
 .dsh-tavern-history-group-toggle {
   display: flex !important;
@@ -1222,8 +1216,6 @@ button[aria-label*="子智能体"]::before {
   background: linear-gradient(135deg, rgba(var(--accent-rgb),.11), rgba(var(--white-rgb),.42));
   border-color: var(--accent-ring);
 }
-/* 行内「⋯」菜单要浮到相邻卡片之上（列表本身仍可滚动） */
-.dsh-tavern-side-list > .dsh-tavern-side-row:has(.dsh-tavern-side-row-menu) { z-index: 6; }
 .dsh-tavern-side-list > .dsh-tavern-side-row .dsh-tavern-side-row-main {
   display: block;
   flex: 1 1 auto;

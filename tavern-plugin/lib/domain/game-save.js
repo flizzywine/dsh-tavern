@@ -8,7 +8,7 @@ export const GAME_SAVE_FORMAT = 'dsh-tavern-save'
 export const GAME_SAVE_FORMAT_VERSION = 2
 const MAX_REVISIONS = 400
 // Saves carry whole histories and every scene image, so they get more room than other archives.
-// The archive travels as one base64 string each way; 256 MB stays well under V8's string limit.
+// The compatibility RPCs still carry a save as a single Base64 string.
 export const GAME_SAVE_LIMITS = { maxArchiveBytes: 256 * 1024 * 1024, maxExpandedBytes: 1024 * 1024 * 1024 }
 const SIZE_PARTS = [['对话与回退历史', /^(chat|nodes|session)\//], ['图片', /^(scene|plugins)\/attachments\//], ['角色卡与世界书', /^(card|script|scene\/worldbooks)\//]]
 const sha = value => createHash('sha256').update(value).digest('hex')

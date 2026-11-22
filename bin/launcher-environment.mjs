@@ -14,8 +14,9 @@ export const SCRIPT_PATH = fileURLToPath(new URL('./dsh-tavern.mjs', import.meta
 export const SOURCE_ROOT = path.resolve(path.dirname(SCRIPT_PATH), '..')
 export const INSTALLATION_FILE = path.join(SOURCE_ROOT, '.dsh-tavern-local.json')
 const installation = readInstallationFile()
-const hostArgument = process.argv.find((arg) => arg.startsWith('--host='))?.slice(7)
-  || (process.argv.includes('--host') ? process.argv[process.argv.indexOf('--host') + 1] : '')
+const launcherOptions = argsBeforeOptionTerminator(process.argv.slice(2))
+const hostArgument = launcherOptions.find((arg) => arg.startsWith('--host='))?.slice(7)
+  || (launcherOptions.includes('--host') ? launcherOptions[launcherOptions.indexOf('--host') + 1] : '')
 export const RUNTIME_HOST = hostArgument || process.env.DSH_TAVERN_RUNTIME_HOST || process.env.DSH_TAVERN_HOST || installation.host || 'cli'
 export const CLI_HOST = RUNTIME_HOST === 'cli' ? resolveBindHost(process.env.DSH_TAVERN_BIND) : DEFAULT_BIND_HOST
 export const LEGACY_DSH_ROOT = process.env.DSH_TAVERN_LEGACY_DSH_HOME || process.env.DSH_HOME || path.join(os.homedir(), '.dsh')
@@ -103,6 +104,11 @@ export const REQUIRED_SOURCE_FILES = [
   // preset 定义改由 tavern-plugin/cordis.patch.yml 的声明行承载。
   path.join('tavern-plugin', 'lib', 'user-tools-bridge.js'),
 ]
+
+export function argsBeforeOptionTerminator(args) {
+  const terminator = args.indexOf('--')
+  return terminator === -1 ? args : args.slice(0, terminator)
+}
 
 export function resolveServicePort(value, fallback = 3081) {
   if (value === undefined || value === null || String(value).trim() === '') return fallback

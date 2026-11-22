@@ -16,7 +16,7 @@ export function registerPlayChatTool({
 }) {
   tools.register(defineTool({
     name: 'tavern_read_play_chat',
-    description: '在卡片工作台中渐进读取当前工作台关联的游玩诊断。默认从最新一轮的小型 overview 开始；需要时可列出轮次、读取任意轮次或整场对话，并按层、分页获取文本、状态、日志、真实模型请求、正则诊断和 iframe 证据。',
+    description: '游玩记录诊断。读取工作台关联的对局，默认从 overview 开始，再按轮、按层分页查看正文、状态、日志或模型请求。',
     parameters: {
       ref: { type: 'string', description: '关联的游玩记录引用，例如 play-chat:chat-xxx；只有一个引用时可省略' },
       turn: { type: 'integer', description: '要读取的游玩轮次；省略时使用最新一轮' },

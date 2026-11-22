@@ -32,7 +32,7 @@ function createStageSettingsModule({React, rpc, notifySettingsChanged, TavernMod
     }
     function TavernStageSettingsSection() {
         const h = React.createElement;
-        return h("div", {className:"dsh-tavern-settings-section dsh-tavern-global-settings"},
+        return h(React.Fragment, null,
             h(SettingsGroup, {title:"舞台模型"}, h(StageModelSettings)),
             // the optional runtimes, the same entries as the model previews.
             h(SettingsGroup, {title:"运行库"}, h("div", {className:"fork-runtime-list"}, CubismCoreEntry ? h(CubismCoreEntry, {request:rpc}) : null, SpineRuntimeEntry ? h(SpineRuntimeEntry, {request:rpc}) : null)),

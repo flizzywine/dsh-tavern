@@ -1,9 +1,10 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {createSettingsHandlers} from '../tavern-plugin/lib/rpc/settings.js'
+import { mkdtemp } from './helpers/temp-directory.mjs'
 
 function harness({settingsDelay = 0} = {}){
   let reads = 0, catalogCalls = 0
@@ -68,9 +69,18 @@ test('空设置文件允许启动、读会话、保存错误可见性及重新�
     assert.equal((await readSession()).view.chatId, 'chat')
     const { view } = await host.rpc('setAllFailedErrorVisibility', { sessionId: 'session', hidden: true })
     assert.equal(view.chatId, 'chat')
-    assert.equal((await host.rpc('getTavernSettings', {})).settings.defaultPlaySettings.candidateTabs, true)
+    assert.equal((await host.rpc('getDisplayPreferences', {})).polishEnabled, false)
+    const enablePolish = await host.rpc('updateTavernSettings', { patch: { polishEnabled: true } })
+    assert.equal(enablePolish.settings.polishPrereview, false)
+    assert.equal((await host.rpc('getDisplayPreferences', {})).polishEnabled, true)
+    await host.rpc('updateTavernSettings', { patch: { polishPrereview: true } })
+    assert.equal((await host.rpc('getTavernSettings', {})).settings.polishPrereview, true)
+    await host.rpc('updateTavernSettings', { patch: { polishEnabled: false } })
+    assert.equal((await host.rpc('getTavernSettings', {})).settings.polishPrereview, false)
+    assert.equal((await host.rpc('getTavernSettings', {})).settings.defaultPlaySettings.candidateTabs, false)
     const saved = await host.rpc('updateTavernSettings', { patch: { defaultPlaySettings: { playerName: '旅客', candidateTabs: true } } })
     assert.equal(saved.settings.defaultPlaySettings.playerName, '旅客')
+    assert.equal(saved.settings.defaultPlaySettings.candidateTabs, true)
     assert.equal(JSON.parse(await readFile(settings, 'utf8')).defaultPlaySettings.playerName, '旅客')
     const sessionId = 'session'
     assert.equal((await host.rpc('getConversationBackgroundConfig', { sessionId })).candidateTabs, false, '旧局保留少量候选')
@@ -83,6 +93,5 @@ test('空设置文件允许启动、读会话、保存错误可见性及重新�
     globalThis.fetch = previousFetch
     if (previousHome === undefined) delete process.env.DSH_HOME
     else process.env.DSH_HOME = previousHome
-    await rm(home, { recursive: true, force: true })
   }
 })

@@ -239,28 +239,30 @@ export function createTransferImport(deps) {
         if (!usable) continue
         if (str(item.title).trim()) bundleCardNames.add(str(item.title).trim().toLowerCase())
         bundleCardNames.add(stemOf(item.entry).toLowerCase())
-        const packedCard = files.get(item.entry)
+        const packedCard = await files.get(item.entry)
         if (packedCard) {
           const parsedName = cardNameFromText(packedCard.toString('utf8'))
           if (parsedName) bundleCardNames.add(parsedName.toLowerCase())
         }
       }
     }
-    const parts = manifest.parts.map(function (part) {
+    const parts = []
+    for (const part of manifest.parts) {
       if (!IMPORTABLE.includes(part.kind)) {
-        return { kind: part.kind, label: part.label, importable: false, conflicts: 0, selectable: 0,
+        parts.push({ kind: part.kind, label: part.label, importable: false, conflicts: 0, selectable: 0,
           note: part.kind === 'logs' ? '诊断日志只导出，不导入' : '下一版支持，这次不会导入', items: part.items.map(function (item) {
             return { key: item.key, title: item.title, bytes: item.bytes, usable: false, conflict: false, duplicate: false, reason: '不导入' }
-          }) }
+          }) })
+        continue
       }
-      const items = part.items.map(function (item) {
+      async function inspectItem(item) {
         const usable = item.usable !== false && (files.size === 0 || files.has(item.entry))
         if (!usable) return { key: item.key, title: item.title, bytes: item.bytes, usable: false, conflict: false, duplicate: false, reason: '包内文件损坏或缺失，已跳过' }
         if (part.kind === 'memory' && !chatKeys.has(str(item.key)))
           return { key: item.key, title: item.title, bytes: item.bytes, usable: false, conflict: false, duplicate: false, reason: '包里没有这一局的存档，导入无处可并' }
         const conflictReason = itemConflict(index, part.kind, item)
         let duplicate = false, reason = conflictReason
-        const packed = files.get(item.entry)
+        const packed = part.kind === 'chats' || (contents && dedupeKinds.has(part.kind)) ? await files.get(item.entry) : undefined
         if (packed && part.kind === 'chats' && isSillyTavernChatItem(item.entry, packed)) {
           let inspected
           try {
@@ -303,12 +305,14 @@ export function createTransferImport(deps) {
           }
         }
         return { key: item.key, title: item.title, bytes: item.bytes, usable: true, conflict: conflictReason !== '', duplicate, reason }
-      })
-      return { kind: part.kind, label: part.label, importable: true,
+      }
+      const items = []
+      for (const item of part.items) items.push(await inspectItem(item))
+      parts.push({ kind: part.kind, label: part.label, importable: true,
         conflicts: items.filter(function (item) { return item.conflict }).length,
         selectable: items.filter(function (item) { return item.usable && !item.duplicate }).length,
-        overwriteAllowed: part.kind === SETTINGS_PART || part.kind === 'plugin-data', items }
-    })
+        overwriteAllowed: part.kind === SETTINGS_PART || part.kind === 'plugin-data', items })
+    }
     return {
       parts,
       canApply: parts.some(function (part) { return part.importable && part.selectable > 0 }),
@@ -401,9 +405,9 @@ export function createTransferImport(deps) {
         report(part.kind, part.label, 'item')
         if (item.usable === false) { result.failed.push({ title: item.title, error: '包内文件损坏或缺失' }); continue }
         if (picked && !picked.has(item.key)) { result.skipped += 1; continue }
-        const content = files.get(item.entry)
+        const content = await files.get(item.entry)
         if (content === undefined) { result.failed.push({ title: item.title, error: '包内缺少该文件' }); continue }
-        const text = content.toString('utf8')
+        const text = ['assets', 'chats', 'fonts', 'memory', 'plugin-data', 'plugins', 'skills'].includes(part.kind) ? '' : content.toString('utf8')
         // 包里的内容本机已经有了：写之前就跳过，别先落盘再删（中断在半路就会留下副本）。
         // 按内容去重只记「本机已有」，这一趟自己写出来的不算，否则 dropDuplicate 会把自己刚写的删掉。
         if (dedupe.has(part.kind) && contents.get(part.kind)) {

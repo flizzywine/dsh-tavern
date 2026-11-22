@@ -44,9 +44,6 @@ importers:
       marked:
         specifier: 16.3.0
         version: 16.3.0
-      pinyin-pro:
-        specifier: 3.29.5
-        version: 3.29.5
       yaml:
         specifier: 2.9.0
         version: 2.9.0
@@ -77,9 +74,6 @@ importers:
         version: 6.0.3
 
 packages:
-
-  pinyin-pro@3.29.5:
-    resolution: {integrity: sha512-Fk5YoRmtdHqJWqAuzYVG/NzvzeCbaG+ZEwbY6Nbps3QAIrvQQEtcm49frcyCM8i2b5najnzPDtYqrHRYTTiuwQ==}
 
   '@asamuzakjp/css-color@3.2.0':
     resolution: {integrity: sha512-K1A6z8tS3XsmCMM86xoWdn7Fkdn9m6RSVtocUrJYIwZnFVkng/PvkEoWtOWmP+Scc6saYWHWZYbndEEXxl24jw==}
@@ -1173,8 +1167,6 @@ packages:
     resolution: {integrity: sha512-ytENFjIJFl2UwYglde2jchW2Hwm4GJFLDiSXWdTrJQBIN9Fcyp7n4DhxJEiWNAJMV1/BqWfW/kkg71UDcHJyTQ==}
 
 snapshots:
-
-  pinyin-pro@3.29.5: {}
 
   '@asamuzakjp/css-color@3.2.0':
     dependencies:

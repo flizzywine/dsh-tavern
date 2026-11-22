@@ -2,26 +2,29 @@
 // Kept platform-free so the browser fallback can be checked against ffmpeg in Node.
 // Bus levels before the sliders. Voice is the
 // anchor (every cached line is gained to -18 LUFS); BGM sits 6 LU under it and 10 LU under it while a line speaks,
-// ambience 12 LU under. The sliders all default to 1, so the balance lives here and nowhere else.
+// ambience 12 LU under before spectral correction and the foreground-to-bed envelope.
+// The sliders all default to 1, so the balance lives here and nowhere else.
 const AUDIO_TARGETS = Object.freeze({ voice: -18, music: -24, sfx: -20, ui: -26, ambience: -30 });
 // Ducking matrix: trigger -> bus -> dB. Priority call > voice > sfx > ambience > music: a trigger only lowers the
 // buses below it. With several triggers sounding the deepest dip wins (never stacked). The call holds from dialling
 // (ringback) to hang-up, so BGM stays down through her pauses too.
 const AUDIO_DUCK = Object.freeze({
     call: Object.freeze({ sfx: -6, ui: -6, ambience: -10, music: -10 }),
-    voice: Object.freeze({ sfx: -2, ui: -2, ambience: -4, music: -4 }),
+    voice: Object.freeze({ sfx: -2, ui: -2, ambience: -7, music: -4 }),
     sfx: Object.freeze({ ambience: -3, music: -2 }),
     ambience: Object.freeze({})
 });
 // setTargetAtTime time constants in seconds: attack when the trigger starts; on its end the dip waits `hold`, then
 // releases. Back within 0.5 dB of the full level: voice 0.25 s hold + 0.38 s, call 0.63 s, SE 0.05 + 0.25 s - every dip
-// is gone within 1 s, also on the 400 ms momentary meter.
+// is gone within 1 s except dialogue on the ambience bus.
 const AUDIO_DUCK_TIME = Object.freeze({
     call: Object.freeze({ attack: 0.08, hold: 0, release: 0.25 }),
     voice: Object.freeze({ attack: 0.05, hold: 0.25, release: 0.2 }),
     sfx: Object.freeze({ attack: 0.02, hold: 0.05, release: 0.15 }),
     ambience: Object.freeze({ attack: 0.1, hold: 0, release: 0.3 })
 });
+// Keep the ambience bed down across reading pauses; the release itself takes about a second.
+const AUDIO_AMBIENCE_VOICE_TIME = Object.freeze({ attack: AUDIO_DUCK_TIME.voice.attack, hold: 4.5, release: 0.33 });
 // The engine's matrix with an open stage skin's `duck` (voice / sfx rows, -24..0 dB, checked where the skin enters) over
 // it, cell by cell; cells the skin leaves out keep the engine's amount.
 function audioDuckMatrix(skin) {
@@ -50,7 +53,8 @@ function audioGain(layer, measured, gainDb = 0) {
     const value = audioMeasurement(measured) ? measured : { lufs: -10, peak: 0 };
     if (value.lufs <= -70) return 0;
     // Authored SFX gain follows normalization, with the same true-peak ceiling.
-    const normalized = Math.min(AUDIO_TARGETS[layer] - value.lufs, -1 - value.peak, 12);
+    const correction = layer === "ambience" ? value.brightnessDb ?? 0 : 0;
+    const normalized = Math.min(AUDIO_TARGETS[layer] - value.lufs - correction, -1 - value.peak, 12);
     const authored = layer === "sfx" || layer === "ui" ? gainDb : 0;
     return Math.pow(10, Math.min(normalized + authored, -1 - value.peak) / 20);
 }

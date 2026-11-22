@@ -3209,7 +3209,22 @@ body[data-ds-dark-theme] .fork-popover { color-scheme: dark; }
   --dsw-alias-interactive-bg-hover: var(--fk-current-hover); --dsw-alias-interactive-bg-active: var(--fk-current-selected); --dsw-alias-border-l2: var(--fk-current-line);
   background: var(--fk-current-bgSolid, Canvas); color: var(--fk-current-fg, CanvasText);
 }
-.ap-ui.dsh-session-settings:not(.fork-gal-theme-scope) { background: transparent; }
+.ap-ui:is(.dsh-session-settings, .fork-readings, .dsh-opening-setup):not(.fork-gal-theme-scope) {
+  /* Embedded panels sit on the host surface. Match their text and interactive fills to that surface. */
+  --fk-current-bgSolid: var(--dsh-tavern-accent-cream, Canvas);
+  --fk-current-fg: var(--dsh-tavern-accent-ink, CanvasText);
+  --fk-current-fgMuted: var(--dsh-tavern-accent-muted, GrayText);
+  --fk-current-hover: color-mix(in srgb, var(--fk-current-fg) 6%, var(--fk-current-bgSolid));
+  --fk-current-selected: color-mix(in srgb, var(--fk-current-fg) 13%, var(--fk-current-bgSolid));
+  background: transparent;
+}
+.ap-ui.dsh-opening-setup:not(.fork-gal-theme-scope) {
+  --fk-current-bgSolid: var(--dsh-opening-surface, var(--dsh-opening-bg, var(--dsh-tavern-accent-cream, Canvas)));
+  --fk-current-fg: var(--dsh-opening-text, var(--dsh-tavern-accent-ink, CanvasText));
+  --fk-current-fgMuted: var(--dsh-opening-muted, var(--dsh-tavern-accent-muted, GrayText));
+  --dsw-alias-bg-base: var(--fk-current-bgSolid);
+  background: var(--dsh-opening-bg, transparent);
+}
 /* Accent fills everywhere in chat: the table's fill (the accent deepened just enough for white glyphs) and its glyph. */
 body { --fork-accent-fill: var(--fk-s-base-fill, var(--fork-accent)); --fork-on-accent: var(--fk-s-base-onAccent, #fff); }
 /* Image-preserving narration. The stage supplies the mode; skins supply only design-space paint and geometry.

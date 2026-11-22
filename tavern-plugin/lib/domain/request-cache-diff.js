@@ -31,7 +31,8 @@ function sectionLabel(name, rest) {
   if (name === 'tavern:constant-worldbook') return '常驻世界书'
   if (name === 'tavern:worldbook-skills') return '世界书 Skill'
   if (name === 'tavern:character-card') return '人物卡'
-  if (name === 'tavern:card-system-prompt' || name === 'tavern:card-system') return '人物卡系统提示'
+  if (name === 'tavern:card-system-prompt') return '人物卡系统提示'
+  if (name === 'tavern:card-system') return '卡片工作台性格'
   if (name === 'tavern:card-reference') return '人物卡参考'
   if (name === 'tavern:user-preference') return '长期偏好'
   if (name === 'tavern:variable-directory') return '变量目录'
@@ -496,7 +497,7 @@ export function computeRequestCacheDiff(currentRecord, previousRecord, previousE
       const curBreak = curSlots[breakIndex]
       const prevBreak = prevSlots[breakIndex]
       sectionStatus[curBreak.key] = 'break'
-      breakTokens = curBreak.tokens
+      const roleChanged = curBreak.kind === 'message' && prevBreak.kind === 'message' && curBreak.role !== prevBreak.role
 
       const remainingPrevCanonicals = new Set(prevSlots.slice(breakIndex + 1).map(slot => slot.canonical))
       let cascadeCount = 0
@@ -512,7 +513,31 @@ export function computeRequestCacheDiff(currentRecord, previousRecord, previousE
         }
       }
 
-      const partDiff = findDifferingPartLabel(prevBreak, curBreak)
+      const partDiff = roleChanged ? null : findDifferingPartLabel(prevBreak, curBreak)
+      const curParts = (curBreak.parts || []).filter(p => p?.text?.trim())
+      if (partDiff && Number.isInteger(partDiff.partIndex) && curParts.length > 0) {
+        const idx = partDiff.partIndex
+        if (idx >= curParts.length) {
+          hitTokens += curBreak.tokens
+          breakTokens = 0
+        } else {
+          const prefixHitTokens = curParts.slice(0, idx).reduce((sum, p) => sum + estimateRequestTokens(p.text), 0)
+          const partHit = Math.min(curBreak.tokens, prefixHitTokens)
+          const remaining = curBreak.tokens - partHit
+          if (idx === curParts.length - 1) {
+            hitTokens += partHit
+            breakTokens = remaining
+          } else {
+            const partBreak = Math.min(remaining, estimateRequestTokens(curParts[idx].text))
+            hitTokens += partHit
+            breakTokens = partBreak
+            cascadeTokens += remaining - partBreak
+          }
+        }
+      } else {
+        breakTokens = curBreak.tokens
+      }
+
       const diff = partDiff
         ? computeLineDiff(partDiff.beforeText, partDiff.afterText)
         : computeLineDiff(prevBreak.text, curBreak.text)
@@ -524,7 +549,7 @@ export function computeRequestCacheDiff(currentRecord, previousRecord, previousE
         partLabel: partDiff?.label || null,
         partIndex: partDiff?.partIndex ?? null,
         previousTitle: prevBreak.title,
-        roleChanged: curBreak.kind === 'message' && prevBreak.kind === 'message' && curBreak.role !== prevBreak.role,
+        roleChanged,
         affectedSections: cascadeCount,
         affectedTokens: cascadeTokens,
         breakTokens,

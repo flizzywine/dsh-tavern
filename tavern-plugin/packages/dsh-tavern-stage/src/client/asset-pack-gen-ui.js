@@ -594,7 +594,7 @@
     const drop=()=>run(async()=>{await gen.reject(job);gen.closeSheet();});
     const references=job?.references||[];
     const first=figure&&genDefaultId(figure,outfit);
-    const refName=r=>r.redraw?'上一张':r.hash===figure?.identitySettei?.board?'人物设定图':r.hash===outfit?.settei?'服装设定图':r.hash===outfit?.avatars?.[first]?'首个差分头像':r.purpose==='emotion-sprite'?'同差分立绘':'参考图';
+    const refName=r=>r.redraw?'上一张':r.hash===figure?.identitySettei?.board?'人物设定图':r.hash===figure?.identitySettei?.parts?'人物设定图·配件':r.hash===outfit?.settei?'服装设定图':r.hash===outfit?.setteiParts?'服装设定图·配件':r.hash===outfit?.avatars?.[first]?'首个差分头像':r.purpose==='emotion-sprite'?'同差分立绘':'参考图';
     // The stage: progress, the candidate (a sheet as its eight cut cells or whole), the failure, or the current picture.
     const sliceWarnings=sheetSlices?Object.entries(sheetSlices).flatMap(([id,s])=>(s.checks?.warnings||[]).map(w=>({...w,id}))):[];
     const names=figure?Object.fromEntries(figureEditorEmotions(figure).map(r=>[r.id,r.label])):{};

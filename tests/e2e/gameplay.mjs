@@ -265,7 +265,8 @@ try {
       ...(inlineOpeningScenario ? { alternate_greetings: ['{{user}}，第二条路线。\n<initvar>{"gold":30}</initvar>\n\n<StatusPlaceHolderImpl/>', '第三条路线。'] } : {}),
       mes_example: '', scenario: '', personality: '',
       character_book: { name: '验收初始变量', entries: [{ id: 1, keys: [], comment: '[initvar]初始值', content: process.argv.includes('--settlement-performance') || process.argv.includes('--storage-audit') ? JSON.stringify(settlementPerformanceInitialVariables()) : 'gold: 0', enabled: true, constant: true, insertion_order: 1 }, ...(auditBook ? auditBook.entries.filter(entry => !/initvar/i.test(String(entry.comment || '') + String(entry.content || '').slice(0, 200))).map((entry, index) => ({ ...entry, id: 1000 + index })) : []), ...(helperApiScenario ? [{ id: 2, keys: ['金币规则'], comment: '金币规则', content: '每次领取十枚金币。', enabled: true, insertion_order: 2 }] : [])] },
-      extensions: { mvu: {}, ...(helperApiScenario ? { TavernHelper_scripts: [{ type: 'script', value: { id: 'e2e-helper-api', name: 'E2E 助手接口', enabled: true, content: helperApiScript } }] } : {}), regex_scripts: [{ id: 'e2e-status', scriptName: '金币状态', findRegex: '<StatusPlaceHolderImpl/>',
+      extensions: { mvu: {}, ...(stageUserSwitch ? { dsh_tavern: { schemaVersion: 1, assetBindings: { boundPackIds: [] }, stage: { enabled: true } } } : {}),
+        ...(helperApiScenario ? { TavernHelper_scripts: [{ type: 'script', value: { id: 'e2e-helper-api', name: 'E2E 助手接口', enabled: true, content: helperApiScript } }] } : {}), regex_scripts: [{ id: 'e2e-status', scriptName: '金币状态', findRegex: '<StatusPlaceHolderImpl/>',
         replaceString: '```html\n' + status + '\n```', placement: [2], markdownOnly: true, disabled: false }, ...(displayScenario ? displayRegressionRules() : []),
         // A permanent player-input rule: the saved input differs from what was typed.
         ...(process.argv.includes('--regen-template') ? [{ id: 'e2e-input-rule', scriptName: '整理输入', findRegex: '/ZZ(\\d)/g', replaceString: '〔$1〕', placement: [1], disabled: false }] : [])] }
@@ -423,6 +424,30 @@ try {
         .filter({ hasText: '失败文件：批量验收乙.json' }).waitFor()
       await picker.getByText('批量验收丙', { exact: true }).waitFor()
       assert.equal(await picker.getByText('批量验收乙', { exact: true }).count(), 1)
+    })
+    assert.deepEqual(errors, [])
+    report.status = 'passed'
+    delete report.currentStep
+    break scenario
+  }
+  if (stageUserSwitch) {
+    const stageRpc = (method, args = {}) => page.evaluate(async ({method, args}) => (await fetch('/api/dsh-tavern/' + method, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(args)
+    })).json(), {method, args})
+    const stageButton = page.getByRole('button', {name:'舞台', exact:true})
+    await step('启动时空闲，打开舞台卡才加载', async () => {
+      assert.equal((await stageRpc('getStageRuntimeStatus')).status, 'disabled')
+      await page.getByRole('button', { name: /选择人物卡.*新开游玩/ }).click()
+      await page.getByText('E2E 奖励验收', { exact: true }).first().click()
+      await stageButton.waitFor()
+      assert.equal((await stageRpc('getStageRuntimeStatus')).status, 'ready')
+    })
+    await step('本次停用后，重启仍随舞台卡自动恢复', async () => {
+      assert.equal((await stageRpc('setStageEnabled', {enabled:false})).status, 'disabled')
+      await stageButton.waitFor({state:'hidden'})
+      await restartServer()
+      await stageButton.waitFor()
+      assert.equal((await stageRpc('getStageRuntimeStatus')).status, 'ready')
     })
     assert.deepEqual(errors, [])
     report.status = 'passed'
@@ -701,6 +726,10 @@ try {
   // 舞台设置 › 基础设置 does.
   const setCardStage = async stage => page.evaluate(async ({stage,packId}) => {
     const rpc = async (method, args) => (await fetch('/api/dsh-tavern/' + method, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(args) })).json()
+    if ((await rpc('getStageRuntimeStatus', {})).status !== 'ready') {
+      const workbench = await rpc('prepareStageWorkbench', {})
+      if (workbench.status !== 'ready') throw new Error(workbench.error || '舞台配置未就绪')
+    }
     const card = await rpc('getCardAssetBindings', { path: 'cards/e2e.json' })
     const extension = card.extension || { assetBindings: { boundPackIds: [] } }
     const saved = await rpc('saveCardAssetBindings', { path: 'cards/e2e.json', expectedRevision: card.revision,
@@ -908,20 +937,6 @@ try {
       }
       await page.locator('.fork-gal-stage').waitFor({ state: 'hidden' })
       }
-      if(stageUserSwitch) {
-        await page.getByRole('button',{name:'设置',exact:true}).click()
-        await page.getByText('Settings',{exact:true}).click()
-        await page.getByRole('button',{name:'舞台',exact:true}).last().click()
-        await page.getByRole('button',{name:'停用舞台',exact:true}).click()
-        await page.getByRole('button',{name:'启用舞台',exact:true}).waitFor()
-        await page.waitForFunction(()=>!document.querySelector('[data-plugin-css^="dsh-tavern-stage/"], .fork-gal-mount'))
-        await page.screenshot({path:join(output,'stage-disabled-settings.png'),fullPage:true})
-        assert.equal(await page.evaluate(()=>JSON.parse(sessionStorage.getItem('dsh-tavern:error-history:v1')||'[]').some(row=>row.source==='对白气泡')),false,'停用舞台不能触发对白气泡错误')
-        report.userDisabledStage=true
-        await restartServer()
-        assert.equal(await page.getByRole('button',{name:'舞台',exact:true}).count(),0)
-        report.userDisableSurvivedRestart=true
-      }
       if(stageAudioLifecycle){
         await page.waitForFunction(()=>window.__stageAudioProbe().looping===0)
         report.audioStoppedOnExit=true
@@ -959,15 +974,7 @@ try {
       assert.deepEqual(errors, [], '舞台切换不得产生未捕获异常')
       assert.equal(await page.evaluate(()=>JSON.parse(sessionStorage.getItem('dsh-tavern:error-history:v1')||'[]').some(row=>row.source==='对白气泡')),false,'普通正文不能依赖舞台视图就绪')
       await page.screenshot({ path: join(output, 'chat-after-stage.png'), fullPage: true })
-      if(stageAudioFault || stageMediaFault || stageUserSwitch || stageRpcFault || stageRenderFault || stageIsolation === 'activation') {
-        if(stageUserSwitch) {
-          await page.getByRole('button',{name:'设置',exact:true}).click()
-          await page.getByText('Settings',{exact:true}).click()
-          await page.getByRole('button',{name:'舞台',exact:true}).last().click()
-          await page.getByRole('button',{name:'启用舞台',exact:true}).click()
-          await page.getByRole('button',{name:'停用舞台',exact:true}).waitFor()
-          await restartServer()
-        }
+      if(stageAudioFault || stageMediaFault || stageRpcFault || stageRenderFault || stageIsolation === 'activation') {
         await page.unroute('**/plugins/**')
         if(stageMediaFault)await page.unroute('**/api/dsh-asset-library/v2/lease/*/media')
         if(stageRpcFault)await page.unroute('**/api/dsh-tavern/getStageDirection')

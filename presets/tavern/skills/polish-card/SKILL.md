@@ -10,7 +10,7 @@ description: "精修人物卡里的文字：开场白、示例对话、描述、
 ## 准备
 
 1. 用 `tavern_read_skill_reference` 读取本 Skill 的 [references/review-standards.md](references/review-standards.md)。这是前台精修使用的同一份审稿标准，开场白和示例对话照它审。
-2. 用 `tavern_read_card` 读取人物卡，用 `tavern_read_worldbook` 读取绑定的世界书。先通读设定，了解人物的性格、出身、口癖和世界观，再开始审。
+2. 用 `tavern_read_card` 读取人物卡，用 `tavern_read_lorebook` 读取绑定的世界书。先通读设定，了解人物的性格、出身、口癖和世界观，再开始审。
 3. 用户只点名了某一部分（例如“精修开场白”）时，只审那一部分。
 4. 按下面「文风联想」找好范本，再开始改。
 
@@ -57,7 +57,7 @@ description: "精修人物卡里的文字：开场白、示例对话、描述、
 ## 怎么改
 
 - 一处一改。用 `tavern_replace_card_text` 提交：`find` 从原文一字不差地复制，长到在该位置唯一；`pointers` 限定到这一处的 JSON Pointer（`tavern_search_card` 可查位置），`expectedCount` 设为 1。数量不符时工具不会保存，换一段更长的原文重试。
-- 卡外单独绑定的世界书不在 `tavern_replace_card_text` 的范围内，用 `tavern_update_worldbook` 改条目的 `content`，同样一处一改。
+- 卡外单独绑定的世界书不在 `tavern_replace_card_text` 的范围内，用 `tavern_update_lorebook` 改条目的 `content`，同样一处一改。
 - `replace` 是改好的文字；要删就写空字符串。可以是一个短语、一句，也可以是一整段或连续几段。
 - 措辞问题改短语或一句，替换要贴合人物和场面，不要换成另一个套话；拖沓的段落整段删去或压缩；需要调整顺序时，把涉及的整段作为 `find`，`replace` 写成调整好的版本。
 - 可以补动作、细节、对白，但情节走向、人物关系、设定事实不变；改完的地方要和前后文接得上。

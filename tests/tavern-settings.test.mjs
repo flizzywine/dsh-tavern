@@ -27,7 +27,15 @@ test('全局写作 Skill 逐项保存，恢复开启不改动其他 Skill', () =
 
 
 test('本局默认模板保存、恢复与新局继承覆盖全部本局设置字段', async () => {
-  let settingsDoc = {}
+  let settingsDoc = {
+    storyGenerationMode: 'plugin-tool-call',
+    storyGenerationProvider: 'global:body',
+    storyPluginOutputRegex: false,
+    defaultBodyGeneration: { mode: 'plugin-direct', provider: 'legacy:body', hostRegex: true }
+  }
+  assert.equal(presentTavernSettings(settingsDoc, {}).defaultPlaySettings.backgroundTasks.styleReference, false)
+  const optedIn = applyTavernSettingsPatch(settingsDoc, { defaultPlaySettings: { backgroundTasks: { styleReference: true } } })
+  assert.equal(presentTavernSettings(optedIn, {}).defaultPlaySettings.backgroundTasks.styleReference, true)
   let activePresetPath = ''
   let defaultProfileId = ''
   let pluginResetCalls = []
@@ -153,7 +161,6 @@ test('本局默认模板保存、恢复与新局继承覆盖全部本局设置�
       })
     },
     pluginApi: {
-      bodyGenerators: { require: async provider => { if (provider !== 'gen:one') throw new Error('no provider') } },
       gamePlugins: async () => ({
         settings: [
           { plugin: 'global.mod', card: false, values: { tone: 'warm', dice: true } },
@@ -181,7 +188,10 @@ test('本局默认模板保存、恢复与新局继承覆盖全部本局设置�
   assert.deepEqual(savedSettings.defaultBackgroundModel, { provider: 'reapi', model: 'deepseek/deepseek-v4.1', reasoningEffort: 'high' })
   assert.deepEqual(savedSettings.defaultDisabledForegroundTools, ['web_fetch', 'tavern_recall_history'])
   assert.deepEqual(savedSettings.defaultDisabledWritingSkills, ['slow-burn'])
-  assert.deepEqual(savedSettings.defaultBodyGeneration, { mode: 'plugin-direct', provider: 'gen:one', hostRegex: true })
+  assert.equal(savedSettings.defaultBodyGeneration, undefined)
+  assert.equal(savedSettings.storyGenerationMode, 'plugin-tool-call')
+  assert.equal(savedSettings.storyGenerationProvider, 'global:body')
+  assert.equal(savedSettings.storyPluginOutputRegex, false)
   assert.deepEqual(savedSettings.defaultPluginGameSettings, { 'global.mod': { tone: 'warm', dice: true } })
 
   const restoreRes = await handlers.restoreConversationSettingsFromDefaultTemplate({ sessionId: 's2' })
@@ -199,9 +209,9 @@ test('本局默认模板保存、恢复与新局继承覆盖全部本局设置�
   assert.equal(restored.backgroundTasks.preset, true)
   assert.equal(restored.candidateTabs, false)
   assert.equal(restored.webSearchEnabled, true)
-  assert.equal(restored.storyGenerationMode, 'plugin-direct')
-  assert.equal(restored.storyGenerationProvider, 'gen:one')
-  assert.equal(restored.storyPluginOutputRegex, true)
+  assert.equal(restored.storyGenerationMode, undefined)
+  assert.equal(restored.storyGenerationProvider, undefined)
+  assert.equal(restored.storyPluginOutputRegex, undefined)
   assert.deepEqual(restored.disabledForegroundTools, ['web_fetch', 'tavern_recall_history'])
   assert.deepEqual(restored.disabledWritingSkills, ['slow-burn'])
   assert.equal(skillsInvalidated, 1)
@@ -244,8 +254,8 @@ test('本局默认模板保存、恢复与新局继承覆盖全部本局设置�
   assert.equal(publishedChat.webSearchEnabled, true)
   assert.deepEqual(publishedChat.disabledForegroundTools, ['web_fetch', 'tavern_recall_history'])
   assert.deepEqual(publishedChat.disabledWritingSkills, ['slow-burn'])
-  assert.equal(publishedChat.storyGenerationMode, 'plugin-direct')
-  assert.equal(publishedChat.storyGenerationProvider, 'gen:one')
-  assert.equal(publishedChat.storyPluginOutputRegex, true)
+  assert.equal(publishedChat.storyGenerationMode, undefined)
+  assert.equal(publishedChat.storyGenerationProvider, undefined)
+  assert.equal(publishedChat.storyPluginOutputRegex, undefined)
   assert.deepEqual(seededPlugins['chat-new'], { 'global.mod': { tone: 'warm', dice: true } })
 })

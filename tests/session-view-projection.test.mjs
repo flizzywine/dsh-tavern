@@ -8,6 +8,26 @@ import { createChatJournalStore } from '../tavern-plugin/lib/domain/chat-journal
 import { createChatPersistence } from '../tavern-plugin/lib/domain/chat-persistence.js'
 import { sessionViewMessageFields } from '../tavern-plugin/lib/domain/session-view-projection.js'
 import { planShowsRow } from '../tavern-plugin/lib/domain/transcript-row-plan.js'
+import { createOptionalStage } from '../tavern-plugin/lib/optional-stage.js'
+
+test('会话视图在舞台模块关闭时仍识别舞台卡，兼容旧卡开关', async () => {
+  let extension
+  const stage = await createOptionalStage({
+    readCardWorkspace: async () => ({ raw: { extensions: { dsh_tavern: extension } } })
+  }, { enabled: false })
+  const f = projectionFixture({ readCardStageMode: stage.assets.cardStageMode })
+  for (const [settings, isStageCard] of [
+    [undefined, false],
+    [{ enabled: true }, true],
+    [{ dialogue: true, stage: true }, true],
+    [{ dialogue: true, stage: false }, false],
+    [{ enabled: false, dialogue: true, stage: true }, false]
+  ]) {
+    extension = { assetBindings: { boundPackIds: [] }, stage: settings }
+    const view = await f.projection.project.full(f.chat)
+    assert.deepEqual(view.stage, { dialogue: false, stage: false, isStageCard }, JSON.stringify(settings))
+  }
+})
 
 for (const projected of [false, true]) test('cold bounded view preserves plugin output; dual projection=' + projected, async t => {
   const root = await mkdtemp(join(tmpdir(), 'plugin-output-view-'))

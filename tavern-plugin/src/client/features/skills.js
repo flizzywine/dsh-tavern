@@ -24,7 +24,7 @@
 				if (!file) return;
 				const zip = /\.zip$/i.test(file.name);
 				if (!zip && !/\.md$/i.test(file.name)) throw new Error("请选择 SKILL.md 或 Skill 文件夹的 .zip 压缩包");
-				if (file.size > 20 * 1024 * 1024) throw new Error("文件不能超过 20 MB");
+				if (file.size > 50 * 1024 * 1024) throw new Error("文件不能超过 50 MiB");
 				const bytes = new Uint8Array(await file.arrayBuffer());
 				const payload = zip ? { fileB64: bytesToBase64(bytes) } : { text: decodeTextResource(bytes.buffer) };
 				let result = await rpc("importSkill", payload, props.sessionId);

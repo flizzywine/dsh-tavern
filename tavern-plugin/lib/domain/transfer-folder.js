@@ -67,7 +67,8 @@ export async function folderBytes(dir) {
   return total
 }
 
-export function packFolderZip(entries, { kind, title, checkSourceBytes = false }) {
+export function packFolderZip(entries, { kind, title, checkSourceBytes = false, limits }) {
+  if (limits) return writeZipEntries(entries, { readable: true, label: kind + '「' + title + '」', ...limits })
   const checkSize = bytes => {
     if (bytes > MAX_EXPORT_BYTES) throw new Error(kind + '「' + title + '」超过 ' + MAX_EXPORT_MB + ' MB，暂不能进包')
   }
@@ -122,10 +123,10 @@ function safeEntryPath(name, label) {
 }
 
 /** 资源类型决定目录命名；迁移只落盘，启用和加载仍归各资源管理器。 */
-export async function importFolderZip(root, payload, { label, zipLabel = label, baseName, suffixed }) {
+export async function importFolderZip(root, payload, { label, zipLabel = label, baseName, suffixed, limits }) {
   const { key, title, content } = payload || {}
   if (content === undefined || content === null) throw new Error(label + '内容为空')
-  const entries = readZipEntries(content, { label: zipLabel })
+  const entries = readZipEntries(content, { label: zipLabel, ...limits })
   const base = baseName(key, title)
   const baseDir = path.join(root, base)
   if (existsSync(baseDir) && await folderHoldsZip(baseDir, entries).catch(() => false)) {

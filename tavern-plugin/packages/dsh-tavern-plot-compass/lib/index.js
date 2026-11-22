@@ -623,9 +623,11 @@ export function apply(ctx, options = {}) {
       const info = typeof runtimeLlm.resolveModelInfo === 'function'
         ? await Promise.resolve(runtimeLlm.resolveModelInfo(provider, model))
         : null
-      const efforts = Array.isArray(info?.reasoningEfforts)
-        ? info.reasoningEfforts
-        : (Array.isArray(info?.capabilities?.reasoningEfforts) ? info.capabilities.reasoningEfforts : [])
+      const efforts = Array.isArray(info?.reasoning?.efforts)
+        ? info.reasoning.efforts
+        : (Array.isArray(info?.reasoningEfforts)
+          ? info.reasoningEfforts
+          : (Array.isArray(info?.capabilities?.reasoningEfforts) ? info.capabilities.reasoningEfforts : []))
       return {
         ok: true,
         reasoning: efforts.length

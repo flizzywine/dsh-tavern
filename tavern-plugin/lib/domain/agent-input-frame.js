@@ -63,6 +63,7 @@ function inputSource(input) {
 const FOREGROUND_SLOTS = Object.freeze({
   'foreground.card-context': 'cardContext',
   'foreground.active-worldbook': 'activeWorldbook',
+  'foreground.worldbook-title-hints': 'worldbookTitleHints',
   'foreground.current-state': 'currentStateProjection',
   'foreground.script-reference': 'scriptReference',
   'foreground.guide': 'guide',
