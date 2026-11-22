@@ -4,7 +4,6 @@ window.__ModuleLoader__.load({
     const React = require('react')
     const h = React.createElement
     const plugin = 'dsh-tavern-story-director'
-    const fields = { story: '剧情', pacing: '节奏', style: '文风' }
 
     function DirectorPanel({ ui, sidebar, gameId, visible }) {
       const [state, setState] = React.useState(null)
@@ -94,7 +93,7 @@ window.__ModuleLoader__.load({
         }
       }
 
-      const guide = state?.enabled ? state.guide : state?.plan
+      const direction = state?.enabled ? state.guide?.direction : state?.plan?.direction
       const waiting = Boolean(sending) || state?.phase === 'chat'
       const review = state?.phase === 'review'
       const changingGuide = switching || state?.phase === 'switch'
@@ -135,15 +134,14 @@ window.__ModuleLoader__.load({
         onClick: () => setGuideOpen(open => !open)
       }, guideTitle)
       const guidePanel = state?.plan && guideOpen && h('div', { className: 'tavern-director-guide' },
-        h('dl', null, Object.entries(fields).filter(([key]) => guide?.[key]).map(([key, label]) =>
-          h('div', { key }, h('dt', null, label), h('dd', null, guide[key])))),
+        h('p', null, direction || '当前没有剧情方向。'),
         h('button', { type: 'button', className: 'tavern-director-guide-button', onClick: toggle, disabled: changingGuide },
           state.enabled ? '暂停' : '恢复'))
       return sidebar.renderSideChat({
         label: '剧情导演', visible, messages,
         value: question, onChange: setQuestion, onSend: send, busy, maxLength: 2000,
         inputLabel: '给剧情导演的想法',
-        placeholder: messages.length ? '和导演聊聊接下来的剧情…' : '比如，让场面慢慢紧起来，少一点对白。',
+        placeholder: messages.length ? '和导演聊聊接下来的剧情…' : '比如，我想让失踪案影响同伴之间的关系。',
         status: waiting ? '正在安排…' : review ? '正在复盘剧情…' : !state && !error ? '正在读取导演对话…' : undefined,
         error,
         onRetry: !state ? () => { setError(''); reload(value => value + 1) } : undefined,
@@ -169,9 +167,7 @@ window.__ModuleLoader__.load({
           const style = document.createElement('style')
           style.textContent = `
             .tavern-director-guide { flex:none; max-height:32vh; overflow:auto; margin:0 8px; padding:8px; border:1px solid var(--dsw-alias-border-2); border-radius:10px; color:var(--dsw-alias-label-primary); font:var(--dsw-font-xxs-12); }
-            .tavern-director-guide dl { display:grid; gap:6px; margin:0 0 6px; }
-            .tavern-director-guide dt { font-weight:600; }
-            .tavern-director-guide dd { margin:2px 0 0; white-space:pre-wrap; overflow-wrap:anywhere; }
+            .tavern-director-guide p { margin:0 0 6px; overflow-wrap:anywhere; }
             .tavern-director-guide-button { padding:4px 7px; border:0; border-radius:6px; background:transparent; color:var(--dsw-alias-label-secondary); font:var(--dsw-font-xxs-12); cursor:pointer; }
             .tavern-director-guide-button:hover:not(:disabled), .tavern-director-guide-button[aria-expanded="true"] { background:var(--dsw-alias-fill-2); color:var(--dsw-alias-label-primary); }
             .tavern-director-guide-button:disabled { opacity:.45; cursor:default; }

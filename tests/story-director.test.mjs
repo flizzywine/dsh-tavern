@@ -4,13 +4,10 @@ import { apply, name } from '../tavern-plugin/packages/dsh-tavern-story-director
 
 const version = turn => 'version-' + turn
 const plan = {
-  intent: '逐渐收紧的悬疑感',
-  story: '先让旅人从信里看见陌生签名，等他追问再揭示署名者。',
-  pacing: '放慢拆信，留一拍观察，再递出新的线索。',
-  style: '用短对白交锋，少写直白的心理解释。',
-  reviewAfter: 2
+  intent: '失踪案会影响同伴之间的信任',
+  direction: '让调查触及同伴之间的信任。'
 }
-const response = (next = plan) => JSON.stringify({ reply: '先把张力留在拆信这个动作里。', plan: next })
+const response = (next = plan) => JSON.stringify({ reply: '这条线可以从同伴之间的信任展开。', plan: next })
 const chosenModel = { provider: 'configured', model: 'director-model' }
 
 function fixture() {
@@ -39,6 +36,7 @@ function fixture() {
   const call = (handler, args = {}) => handlers.get(name + '/' + handler)({ gameId: 'game', ...args })
   return {
     call, requests, dispose,
+    restore(state) { records.set('game', structuredClone(state)) },
     model(value) { generate = typeof value === 'function' ? value : () => value },
     guide: (gameId = 'game') => guide({ gameId }),
     move(turn) { latest = turn },
@@ -62,31 +60,32 @@ test('导演模型按本局保存，对话与复盘使用同一选择，可以�
   assert.equal(f.requests.at(-1).selection, undefined)
 })
 
-test('一句模糊想法自动生成 Guide，带着最新正文复盘，暂停后不再注入或调用模型', async () => {
+test('一句模糊想法生成一句剧情 Guide，每轮复盘，暂停后停止注入和调用', async () => {
   const f = fixture()
-  const request = { requestId: 'first', question: '我想稍微紧张点。' }
+  const request = { requestId: 'first', question: '我想让调查影响同伴之间的关系。' }
   assert.equal(await f.guide(), '')
   const { turns } = await f.call('send', request)
   assert.equal(turns[0].applied, true)
   assert.match(f.requests[0].prompt, /旅人揭开信封/)
-  assert.match(f.requests[0].prompt, /我想稍微紧张点/)
-  assert.match(await f.guide(), /剧情：先让旅人[\s\S]*节奏：放慢拆信[\s\S]*文风：用短对白/)
+  assert.match(f.requests[0].prompt, /我想让调查影响同伴之间的关系/)
+  assert.equal(await f.guide(), '【剧情导演 Guide】\n' + plan.direction)
   assert.equal(await f.guide('other-game'), '')
   assert.deepEqual((await f.call('state')).turns, turns)
   await f.call('send', request)
+  assert.equal(f.requests.length, 1, '重试发送不重复调用')
+  f.model(response({ ...plan, intent: '不相干的新目标', direction: '让追查和同伴的共同利益发生冲突。' }))
   await f.settle(2)
-  assert.equal(f.requests.length, 1, '重试发送和未到复盘轮都不重复调用')
-  f.model(response({ ...plan, intent: '不相干的新目标', story: '署名已查明，把新疑问留给门外的访客。' }))
-  await f.settle(3)
-  assert.equal((await f.call('state')).plan.intent, '逐渐收紧的悬疑感')
-  assert.match(await f.guide(), /门外的访客/)
-  assert.match(f.requests[1].prompt, /复盘当前安排/)
+  assert.equal((await f.call('state')).plan.intent, plan.intent)
+  assert.match(await f.guide(), /共同利益发生冲突/)
+  assert.match(f.requests[1].prompt, /对照总纲和最新正文/)
   await f.call('set-enabled', { enabled: false })
   await f.settle(6)
   assert.equal(await f.guide(), '')
   assert.equal(f.requests.length, 2)
   await f.call('set-enabled', { enabled: true })
-  assert.match(await f.guide(), /门外的访客/)
+  assert.equal(await f.guide(), '', '恢复时不注入旧正文版本的方向')
+  await f.settle(7)
+  assert.match(await f.guide(), /共同利益发生冲突/)
 })
 
 test('纯讨论保留安排，无效或基于旧正文的回复不会生效', async () => {
@@ -94,8 +93,11 @@ test('纯讨论保留安排，无效或基于旧正文的回复不会生效', as
   f.model(response(null))
   assert.equal((await f.call('send', { requestId: 'question', question: '你有什么想法？' })).plan, null)
   assert.equal(await f.guide(), '')
-  f.model(response({ ...plan, story: '<% 写入状态 %>' }))
-  await assert.rejects(f.call('send', { requestId: 'invalid', question: '让情节收紧' }), /计划内容无效/)
+  const invalidDirections = ['<% 写入状态 %>', '让调查出现阻力。让同伴发生争执。', '推进调查'.repeat(16)]
+  for (const [index, direction] of invalidDirections.entries()) {
+    f.model(response({ ...plan, direction }))
+    await assert.rejects(f.call('send', { requestId: 'invalid-' + index, question: '让调查遇到阻力' }), /计划内容无效/)
+  }
   f.model(() => { f.move(2); return response() })
   await assert.rejects(f.call('send', { requestId: 'stale', question: '让情节收紧' }), /剧情已推进/)
   assert.equal(await f.guide(), '')
@@ -111,34 +113,33 @@ test('暂停抢先于正在复盘的旧计划，已保存的安排仍可恢复',
   const signal = await started.promise
   const pause = f.call('set-enabled', { enabled: false })
   assert.equal(signal.aborted, true)
-  finish.resolve(response({ ...plan, story: '这条已经取消。' }))
+  finish.resolve(response({ ...plan, direction: '这条已经取消。' }))
   await Promise.all([reviewing, pause])
   assert.equal(await f.guide(), '')
   const restored = await f.call('set-enabled', { enabled: true })
-  assert.equal(restored.plan.story, plan.story)
+  assert.equal(restored.plan.direction, plan.direction)
 })
 
 
-test('长期纲要和剧情进度留给导演，下一轮 Guide 随实际节奏加速或减速', async () => {
+test('总纲和剧情进度留给导演，下一轮 Guide 随正文更新剧情方向', async () => {
   const f = fixture()
   const framework = '先调查假账，再追查内鬼，最终才揭晓馆长是主谋。'
-  const opening = { ...plan, intent: framework, framework, progress: '旅人刚发现账册', reviewAfter: 4 }
+  const opening = { ...plan, intent: framework, framework, progress: '旅人刚发现账册' }
   f.model(response(opening))
   await f.call('send', { requestId: 'long', question: framework })
-  assert.match(await f.guide(), /先让旅人从信里看见陌生签名/)
+  assert.match(await f.guide(), /调查触及同伴之间的信任/)
   assert.doesNotMatch(await f.guide(), /假账|主谋|刚发现账册/)
 
   f.prose(2, '一场戏里已经查到假账并得知账房失踪。')
   f.model(({ prompt }) => {
     assert.match(prompt, /长期纲要.*馆长是主谋/)
     assert.match(prompt, /一场戏里已经查到假账并得知账房失踪/)
-    assert.match(prompt, /判断推进过快、过慢还是合适/)
+    assert.match(prompt, /判断现在值得关注哪条剧情线/)
     return response({ ...opening, framework: null, progress: '假账已查实，账房失踪',
-      story: '先写同伴听到失踪消息后的反应。', pacing: '先留一拍消化消息，把新的揭露推迟。' })
+      direction: '让失踪案成为调查的重心。' })
   })
   await f.settle(2)
-  assert.match(await f.guide(), /先留一拍/)
-  assert.doesNotMatch(await f.guide(), /假账已查实|馆长是主谋|先让旅人/)
+  assert.equal(await f.guide(), '【剧情导演 Guide】\n让失踪案成为调查的重心。')
 
   f.prose(3, '两人反复讨论失踪的事，仍没有作出决定。')
   f.model(({ prompt }) => {
@@ -146,11 +147,10 @@ test('长期纲要和剧情进度留给导演，下一轮 Guide 随实际节奏�
     assert.match(prompt, /两人反复讨论失踪的事/)
     assert.match(prompt, /馆长是主谋/)
     return response({ ...opening, progress: '假账已查实，账房失踪；两人尚未决定去处',
-      story: '让同伴摊开那张当夜的值勤表。', pacing: '结束重复讨论，用一个具体的新线索推动决定。' })
+      direction: '把调查转向失踪者与同伴之间的关系。' })
   })
   await f.settle(3)
-  assert.match(await f.guide(), /摊开那张当夜的值勤表.*结束重复讨论/s)
-  assert.doesNotMatch(await f.guide(), /先留一拍|馆长是主谋|剧情进度/)
+  assert.equal(await f.guide(), '【剧情导演 Guide】\n把调查转向失踪者与同伴之间的关系。')
   assert.equal((await f.call('state')).plan.framework, framework)
   assert.equal(f.requests.length, 3, '长期纲要按已结算剧情逐轮复盘')
 })
@@ -165,17 +165,53 @@ test('剧情连续推进时，跳过过时安排并补做最新一轮复盘', as
   const oldReview = f.settle(2)
   await started.promise
   await f.settle(3)
-  assert.match(await f.guide(), /文风：用短对白/)
-  assert.doesNotMatch(await f.guide(), /陌生签名|剧情：|节奏：/)
-  assert.deepEqual((await f.call('state')).guide, { style: plan.style })
+  assert.equal(await f.guide(), '')
+  assert.equal((await f.call('state')).guide, null)
 
-  f.model(response({ ...plan, framework, story: '最新一轮后让信使敲门。' }))
-  finish.resolve(response({ ...plan, framework, story: '已经过时的安排。' }))
+  f.model(response({ ...plan, framework, direction: '让调查转向失踪者的去向。' }))
+  finish.resolve(response({ ...plan, framework, direction: '已经过时的安排。' }))
   await oldReview
-  for (let tries = 0; !(await f.guide()).includes('让信使敲门'); tries++) {
+  for (let tries = 0; !(await f.guide()).includes('调查转向失踪者的去向'); tries++) {
     assert.ok(tries < 30, '最新一轮应自动补做复盘')
     await new Promise(resolve => setImmediate(resolve))
   }
   assert.doesNotMatch(await f.guide(), /已经过时的安排|三场戏里/)
   assert.equal(f.requests.length, 3)
+})
+
+test('旧存档的细节、节奏和文风立即停止注入，总纲仍用于随后复盘', async () => {
+  const f = fixture()
+  const framework = '调查失踪案，最后厘清同伴为何隐瞒。'
+  f.restore({
+    enabled: true, anchor: { turn: 1, textVersion: version(1) }, turns: [],
+    plan: { intent: plan.intent, framework, progress: '失踪已被发现',
+      story: '旧剧情细节', style: '旧文风', pacing: '旧节奏', reviewAfter: 4 }
+  })
+  assert.equal(await f.guide(), '')
+  assert.equal((await f.call('state')).guide, null)
+  f.model(({ prompt }) => {
+    assert.match(prompt, /调查失踪案，最后厘清同伴为何隐瞒/)
+    assert.doesNotMatch(prompt, /旧剧情细节|旧文风|旧节奏/)
+    return response({ ...plan, framework: null })
+  })
+  await f.settle(2)
+  assert.equal(await f.guide(), '【剧情导演 Guide】\n' + plan.direction)
+  assert.deepEqual((await f.call('state')).plan, { ...plan, framework, progress: '失踪已被发现' })
+})
+
+test('本轮无需引导时清空当前 Guide，总纲继续用于下一轮', async () => {
+  const f = fixture()
+  const framework = '最终揭示角色为何离开。'
+  f.model(response({ ...plan, framework }))
+  await f.call('send', { requestId: 'first', question: framework })
+  f.model(response(null))
+  await f.settle(2)
+  assert.equal(await f.guide(), '')
+  assert.equal((await f.call('state')).plan.framework, framework)
+  f.model(({ prompt }) => {
+    assert.match(prompt, /最终揭示角色为何离开/)
+    return response(plan)
+  })
+  await f.settle(3)
+  assert.equal(await f.guide(), '【剧情导演 Guide】\n' + plan.direction)
 })
