@@ -24,7 +24,7 @@ const host = await createPluginHost({ withTools: true })
 try {
   const stageRuntime = await host.rpc('getStageRuntimeStatus')
   assert.equal(stageRuntime.installed, true)
-  assert.equal(stageRuntime.status, 'ready', 'the installed stage starts before a card is opened')
+  assert.equal(stageRuntime.status, 'disabled', 'the installed stage is idle before a game needs it')
   const imported = await host.rpc('importCard', { payload: { name: 'stage-test.json', text: JSON.stringify({ spec: 'chara_card_v2', spec_version: '2.0', data: card }) } })
   await createChatJournalStore({ dataRoot: root }).update('stage-chat', chat => ({ ...chat, _storageRevision: 2, cardPath: imported.card.path }))
   assert.equal(typeof host.services.get('tavernSessionSignals')?.control, 'function')
@@ -36,9 +36,6 @@ try {
     'tavern_read_script', 'tavern_read_lorebook', 'tavern_update_preset', 'tavern_read_regex_library', 'tavern_restore_card',
     'submit_story', 'tavern_generate_body']) {
     assert.equal(typeof host.registeredTools.get(name)?.execute, 'function', name + ' registered')
-  }
-  for (const name of ['tavern_assets_read', 'tavern_assets_patch', 'tavern_media_upload', 'tavern_assets_transfer', 'tavern_stage_read', 'tavern_stage_patch', 'tavern_mods_read', 'tavern_mods_patch', 'tavern_voice_read', 'tavern_voice_patch', 'tavern_asset_generation']) {
-    assert.equal(typeof host.registeredTools.get(name)?.execute, 'function', name + ' registered by the stage')
   }
   const tavern = host.services.get('tavern')
   assert.equal(tavern?.apiVersion, 8, 'public plugin service provided')
@@ -61,6 +58,7 @@ try {
   assert.equal((await host.rpc('getSession', modeArgs)).view.stage.stage, false)
   assert.equal((await host.rpc('getDialogueBubbles', modeArgs)).config.enabled, false)
   assert.equal(JSON.parse(await host.services.get('tavernSessionSignals').control('getDialogueBubbles', modeArgs)).config.enabled, false)
+  assert.equal((await host.rpc('getStageRuntimeStatus')).status, 'disabled', 'an ordinary card stays in chat mode')
 
   const stageCard = { ...card, name: 'Stage enabled', extensions: { dsh_tavern: {
     schemaVersion: 1, assetBindings: { boundPackIds: [] }, stage: { enabled: true }
@@ -80,6 +78,9 @@ try {
   assert.equal(stageBubbles.voice.enabled, true)
   assert.equal((await host.rpc('prepareCardStage', { path: stageImport.card.path })).stage, true)
   assert.equal((await host.rpc('getStageRuntimeStatus')).status, 'ready')
+  for (const name of ['tavern_assets_read', 'tavern_assets_patch', 'tavern_media_upload', 'tavern_assets_transfer', 'tavern_stage_read', 'tavern_stage_patch', 'tavern_mods_read', 'tavern_mods_patch', 'tavern_voice_read', 'tavern_voice_patch', 'tavern_asset_generation']) {
+    assert.equal(typeof host.registeredTools.get(name)?.execute, 'function', name + ' registered by the stage')
+  }
   assert.equal((await host.rpc('getSession', modeArgs)).view.stage.stage, false)
   // Fork RPCs share the extracted dispatcher, including former switch fallthrough aliases.
   assert.deepEqual((await host.rpc('getAssetVoiceServices', {})).services, [])

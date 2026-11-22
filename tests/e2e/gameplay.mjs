@@ -271,6 +271,9 @@ try {
         // A permanent player-input rule: the saved input differs from what was typed.
         ...(process.argv.includes('--regen-template') ? [{ id: 'e2e-input-rule', scriptName: '整理输入', findRegex: '/ZZ(\\d)/g', replaceString: '〔$1〕', placement: [1], disabled: false }] : [])] }
     } }))
+    if (stageUserSwitch) await writeFile(join(data, 'resources/cards/e2e-traditional.json'), JSON.stringify({
+      spec: 'chara_card_v2', spec_version: '2.0', data: { name: 'E2E 传统人物卡', first_mes: '你好。', extensions: {} }
+    }))
   })
   if (process.argv.includes('--real-gameplay')) { const config = await setupRealGameplay({root,profile,data,runtimeHome:join(homedir(),'.dsh-tavern')}); report.scope='real isolated DSH + Chromium + configured live model'; report.model=config.model; report.card=config.card }
   if(process.argv.includes('--real-variables')) {report.scope='real isolated DSH + Chromium + configured live model';report.model=await setupRealVariables({root,profile,data,runtimeHome:join(homedir(),'.dsh-tavern')})}
@@ -434,20 +437,37 @@ try {
     const stageRpc = (method, args = {}) => page.evaluate(async ({method, args}) => (await fetch('/api/dsh-tavern/' + method, {
       method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(args)
     })).json(), {method, args})
-    const stageButton = page.getByRole('button', {name:'舞台', exact:true})
-    await step('启动时加载舞台模块，打开舞台卡时显示入口', async () => {
-      assert.equal((await stageRpc('getStageRuntimeStatus')).status, 'ready')
+    const stageButton = page.locator('.fork-gal-toggle').getByText('舞台', {exact:true})
+    async function openCard(name) {
       await page.getByRole('button', { name: /选择人物卡.*新开游玩/ }).click()
-      await page.getByText('E2E 奖励验收', { exact: true }).first().click()
+      await page.getByText(name, { exact: true }).first().click()
+    }
+    await step('启动时舞台关闭，传统卡默认保持普通聊天', async () => {
+      assert.equal((await stageRpc('getStageRuntimeStatus')).status, 'disabled')
+      await openCard('E2E 传统人物卡')
+      await page.getByRole('tab', {name:'本局设置'}).click()
+      await page.getByText('未开启', {exact:true}).waitFor()
+      assert.equal((await stageRpc('getStageRuntimeStatus')).status, 'disabled')
+    })
+    await step('舞台卡开局时自动加载舞台', async () => {
+      await openCard('E2E 奖励验收')
       await stageButton.waitFor()
       assert.equal((await stageRpc('getStageRuntimeStatus')).status, 'ready')
     })
-    await step('本次停用后，重启自动恢复舞台', async () => {
+    await step('本次停用后，重启并打开舞台卡再次开启', async () => {
       assert.equal((await stageRpc('setStageEnabled', {enabled:false})).status, 'disabled')
       await stageButton.waitFor({state:'hidden'})
       await restartServer()
       await stageButton.waitFor()
       assert.equal((await stageRpc('getStageRuntimeStatus')).status, 'ready')
+    })
+    await step('传统卡可从本局设置手动开启舞台', async () => {
+      await openCard('E2E 传统人物卡')
+      await page.getByRole('tab', {name:'本局设置'}).click()
+      await page.getByText('未开启', {exact:true}).waitFor()
+      await page.getByRole('button', {name:'打开舞台设置'}).click()
+      await page.getByRole('button', {name:'启用舞台（对话气泡）'}).click()
+      await stageButton.waitFor()
     })
     assert.deepEqual(errors, [])
     report.status = 'passed'

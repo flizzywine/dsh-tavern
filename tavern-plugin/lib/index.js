@@ -4757,7 +4757,7 @@ export async function apply(ctx) {
     createPlayHandlers(rpcDeps),
     createTransferHandlers(rpcDeps),
     createImageCharacterHandlers(rpcDeps))
-  const stageSwitch = createStageSwitch(stageRuntime, {startOnInstall:true})
+  const stageSwitch = createStageSwitch(stageRuntime)
   // The reading voice of tavernUi.playReading (story-reading.js): a library figure, or the one 旁白声音 points at when none is given.
   rpcHandlers.openReadingVoice = async args => speech.openReading(args && Object.hasOwn(args, 'figure') ? args.figure : undefined)
   rpcHandlers.getStageRuntimeStatus = async () => stageSwitch.read()

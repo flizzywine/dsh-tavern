@@ -8,10 +8,11 @@ async function toolMenu(page, item) { await page.getByRole('button', { name: '�
 const openTools = page => page.locator('.ap-section-toggle', { hasText: '前台工具' }).click()
 async function templateMenu(page, item) { await page.getByRole('button', { name: '模板', exact: true }).click(); await page.getByRole('menuitem', { name: item, exact: true }).click() }
 
-test('本局设置只为声明舞台的卡片显示舞台分组', async t => {
-  for (const [name, stage] of [
-    ['普通卡跟随全局开启舞台', { isStageCard: false, dialogue: true, stage: true }],
-    ['舞台卡的舞台模块未开启', { isStageCard: true, dialogue: false, stage: false }]
+test('普通卡和舞台卡都能从本局设置进入舞台设置', async t => {
+  for (const [name, stage, status] of [
+    ['普通卡默认关', { isStageCard: false, dialogue: false, stage: false }, '未开启'],
+    ['舞台卡自动开', { isStageCard: true, dialogue: true, stage: true }, '舞台模式已开启'],
+    ['气泡卡', { isStageCard: false, dialogue: true, stage: false }, '仅对话气泡']
   ]) {
     await t.test(name, async t => {
       const { page } = await openTavernSettings(t, { sessionId: 'game', respond(method) {
@@ -22,16 +23,9 @@ test('本局设置只为声明舞台的卡片显示舞台分组', async t => {
         if (method === 'getConversationWritingSkills') return { skills: [] }
       } })
       await page.waitForFunction(name => document.querySelector('[aria-label="玩家称呼"]')?.value === name, name)
-      const section = page.getByRole('button', { name: '舞台', exact: true })
-      const settings = page.getByText('舞台设置', { exact: true })
-      if (stage.isStageCard) {
-        await section.waitFor()
-        await settings.waitFor()
-        await page.getByText('未开启', { exact: true }).waitFor()
-      } else {
-        assert.equal(await section.count(), 0)
-        assert.equal(await settings.count(), 0)
-      }
+      await page.getByRole('button', { name: '舞台', exact: true }).waitFor()
+      await page.getByRole('button', { name: '打开舞台设置', exact: true }).waitFor()
+      await page.getByText(status, { exact: true }).waitFor()
     })
   }
 })

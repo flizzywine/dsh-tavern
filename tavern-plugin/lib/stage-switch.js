@@ -1,5 +1,5 @@
-// Installing the stage plugin supplies its loader and starts the runtime when configured.
-export function createStageSwitch(runtime, {startOnInstall = false} = {}) {
+// Installing the stage plugin supplies its loader. A card or workbench requests it when needed.
+export function createStageSwitch(runtime) {
   let loader, suspended = false, waitingForInstall = false
   const read = () => ({status:runtime.status(), installed:!!loader})
   async function ensure() {
@@ -15,7 +15,7 @@ export function createStageSwitch(runtime, {startOnInstall = false} = {}) {
     async install(load) {
       loader = load
       suspended = false
-      if (startOnInstall || waitingForInstall) {
+      if (waitingForInstall) {
         waitingForInstall = false
         await ensure()
       }
