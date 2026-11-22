@@ -1,5 +1,4 @@
 // Selection priority and prompt order are different in SillyTavern.
-import { worldBookChannel } from './worldbook-channel.js'
 
 const str = value => value == null ? '' : String(value)
 export const DEFAULT_WORLD_BOOK_TOKEN_BUDGET = 8192
@@ -219,12 +218,8 @@ export function activateWorldBook(input) {
   const currentUserLower = currentUserText ? currentUserText.toLocaleLowerCase() : ''
   const injectedSource = injected ? { text: injected, lowerText: injected.toLocaleLowerCase(), source: 'script' } : null
   for (const message of messages) message.lowerText = message.text.toLocaleLowerCase()
-  // A pinned channel turns selection off (no keywords, no cooldown, no semantic
-  // allowlist) without also turning off the token budget — except 'prefix', which
-  // behaves like 常驻 because its body is paid for once in the stable prefix.
-  const channelOf = entry => worldBookChannel(entry)
-  const alwaysOn = entry => entry.constant === true || channelOf(entry) !== 'auto'
-  const chargesBudget = entry => channelOf(entry) === 'tail' || (entry.constant !== true && channelOf(entry) === 'auto')
+  const alwaysOn = entry => entry.constant === true
+  const chargesBudget = entry => !alwaysOn(entry)
   const reject = (entry, reason, extra = {}) => diagnostics.set(entry.ref, { ...diagnostics.get(entry.ref), ref: entry.ref, title: str(entry.title || entry.comment), constant: entry.constant === true,
     order: entry.order ?? 100, displayIndex: entry.displayIndex, placement: placementKey(entry), priorityRank: entryRank.get(entry) || 0,
     scanDepth: integer(entry.scanDepth, settings.scanDepth), caseSensitive: entry.caseSensitive, matchWholeWords: entry.matchWholeWords, reason, ...extra })
