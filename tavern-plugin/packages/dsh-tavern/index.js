@@ -27,14 +27,18 @@ async function runUpdate(method, paths) {
   const installation = inspectInstallation(paths)
   const next = paths.host === 'next'
   const original = paths.activeDir === join(paths.profilesDir, 'desktop')
-  if (!next && !(original && isDesktopApp()) && !isDesktopTavernWindow(paths, installation)) {
+  const desktopApp = isDesktopApp()
+  if (!next && !(original && desktopApp) && !isDesktopTavernWindow(paths, installation)) {
     fail('not-desktop', '请在 DSH 桌面或 DSH 酒馆独立窗口中管理更新。')
   }
   if (!installation.available) fail('update-unavailable', installation.reason)
   // Official updates run from Tavern and refresh the inactive original launcher.
   // NEXT prepares the update from either managed Profile before asking to restart.
-  const canUpdate = isActiveTavern(paths, installation) || (next && original)
+  // The Windows publisher needs the native desktop's exit gate to replace the running install.
+  const standaloneWindows = !next && !desktopApp && process.platform === 'win32'
+  const canUpdate = !standaloneWindows && (isActiveTavern(paths, installation) || (next && original))
   if (['start', 'cancel', 'restart'].includes(method) && !canUpdate) {
+    if (standaloneWindows) fail('update-unavailable', '请打开官方 DeepSeek Harness，切换到酒馆并停止独立后台后，再在启动器中更新。')
     fail('update-unavailable', next ? '请在 NEXT 的原版 DSH 或酒馆配置中更新。' : '请先切换到 DSH 酒馆，再在启动器中更新。')
   }
   const sourceRoot = installation.appDir

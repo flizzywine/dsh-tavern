@@ -701,7 +701,7 @@ export function createApplicationUpdater(options) {
     }
     // Keep the existing update/repair state for a retry; we have not started an installer.
     if (residual && !desktopPids.includes(residual.pid)) {
-      throw Object.assign(new Error(`独立酒馆后台（PID ${residual.pid}）仍在运行，仅关闭 Edge/Chrome 窗口不会退出后台。请保存并等待正在进行的请求结束，再退出后台后重试。没有退出入口时，可重启 Windows 后直接打开原生桌面更新。`), { code: 'DSH_TAVERN_STANDALONE_RUNNING' })
+      throw Object.assign(new Error(`独立酒馆后台（PID ${residual.pid}）仍在运行。请保存并等正在进行的请求结束，再在系统 PowerShell 运行 dsh-tavern stop --host desktop，然后重试更新。如果命令不可用，可以重启 Windows，再直接打开原生酒馆更新。`), { code: 'DSH_TAVERN_STANDALONE_RUNNING' })
     }
     const attemptId = randomUUID()
     const lease = installationState.acquireInstallation({ dshHome, sourceRoot, statusFile: path.join(dataRoot, STATUS_FILE), attemptId, pid: 0, state: 'reserved' })

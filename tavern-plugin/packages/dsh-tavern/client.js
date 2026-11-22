@@ -52,6 +52,7 @@ window.__ModuleLoader__.load({
       updateTavern: '更新酒馆',
       repairTavern: '修复安装',
       switchToUpdate: '请先切换到 DSH 酒馆，再在启动器中更新。',
+      standaloneUpdate: '请在系统 PowerShell 运行 dsh-tavern stop --host desktop 停止独立后台，然后在官方 DeepSeek Harness 中切换到酒馆并更新。',
       updating: '正在更新酒馆…',
       cancelUpdate: '取消更新',
       cancellingUpdate: '正在取消更新…',
@@ -155,6 +156,7 @@ window.__ModuleLoader__.load({
       updateTavern: 'Update Tavern',
       repairTavern: 'Repair installation',
       switchToUpdate: 'Switch to DSH Tavern, then update from the launcher.',
+      standaloneUpdate: 'Run dsh-tavern stop --host desktop in PowerShell, then switch to Tavern in the official DeepSeek Harness app and update.',
       updating: 'Updating Tavern…',
       cancelUpdate: 'Cancel update',
       cancellingUpdate: 'Cancelling update…',
@@ -509,6 +511,7 @@ window.__ModuleLoader__.load({
       }
       const updateAvailable = update?.phase === 'update-available'
       const repairRequired = update?.phase === 'repair-required'
+      const updateHint = next ? 'nextSwitchToUpdate' : standalone && status.platform === 'win32' ? 'standaloneUpdate' : 'switchToUpdate'
       const showUpdateAction = (updateAvailable || repairRequired) && update.canUpdate && !pending && !updateAction
       const updateButtonLabel = repairRequired ? (next ? 'nextRepair' : 'repairTavern') : (next ? 'nextUpdate' : 'updateTavern')
       const checking = updateAction === 'check-update'
@@ -620,7 +623,7 @@ window.__ModuleLoader__.load({
           !checking && !updateAction && (updateAvailable || update?.phase === 'up-to-date') ? h('p', {
             className: 'pb-update-badge' + (updateAvailable ? ' pb-update-badge-available' : ''), role: 'status',
           }, t(updateAvailable ? 'updateAvailable' : 'upToDate')) : null,
-          !checking && (updateAvailable || repairRequired) && update?.canUpdate === false && !pending ? h('p', { className: 'pb-sub' }, t(next ? 'nextSwitchToUpdate' : 'switchToUpdate')) : null,
+          !checking && (updateAvailable || repairRequired) && update?.canUpdate === false && !pending ? h('p', { className: 'pb-sub' }, t(updateHint)) : null,
           next && showUpdateAction && !pending ? h('p', { className: 'pb-sub' }, t('nextUpdateHint')) : null,
           !checking && update?.checkWarning ? h('p', { className: 'pb-sub' }, update.checkWarning) : null,
           checking ? h('p', { role: 'status' }, t('checkingUpdate')) : null,

@@ -174,6 +174,21 @@ const managedStatus = {
 }
 const namedButton = (page, text) => [...page.dom.window.document.querySelectorAll('button')].find(button => button.textContent === text)
 
+test('Windows 独立酒馆显示更新检查和原生桌面更新指引', async () => {
+  const status = { ...managedStatus, appKind: 'cli', desktopApp: false, desktopTavernWindow: true, activeName: 'tavern' }
+  const page = await mount(status, [], { inTavern: true, rpc: async endpoint => ({ ok: true, value: endpoint === 'status'
+    ? status : { phase: 'update-available', canUpdate: false } }) })
+  try {
+    assert.match(page.text(), /发现新版本/)
+    assert.match(page.text(), /dsh-tavern stop --host desktop.*官方 DeepSeek Harness/)
+    await page.act(async () => namedButton(page, '检查更新').click())
+    assert.ok(page.calls.some(([endpoint]) => endpoint === 'check-update'))
+    assert.equal(namedButton(page, '更新酒馆'), undefined)
+  } finally {
+    await page.dispose()
+  }
+})
+
 test('官方酒馆启动器按提交检查同版本更新，并跟踪安装到完成', async () => {
   const tavern = { ...managedStatus, activeIsLink: true, linkTargetName: 'tavern', backups: ['desktop.fresh-test'] }
   const build = { canUpdate: true, currentVersion: '3.2.8', currentCommit: '12345678'.padEnd(40, '0') }

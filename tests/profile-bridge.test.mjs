@@ -97,6 +97,47 @@ test('NEXT 酒馆及原版 Profile 均能发起已验证的安装更新', async 
  }
 })
 
+test('Windows 独立窗口从实际加载的 Tavern Profile 检查更新，由原生桌面安装', async t => {
+ const { apply } = await import('../tavern-plugin/packages/dsh-tavern/index.js')
+ const { launcherPaths } = await import('../tavern-plugin/packages/dsh-tavern/lib/state.mjs')
+ const home = mkdtempSync(join(tmpdir(), 'tavern-standalone-update-'))
+ t.after(() => rmSync(home, { recursive: true, force: true }))
+ const app = join(home, 'apps', 'dsh-tavern')
+ const lib = join(app, 'tavern-plugin', 'lib')
+ const desktop = join(home, 'profiles', 'desktop')
+ const profile = { home, name: 'tavern', dir: join(home, 'profiles', 'tavern') }
+ for (const dir of [lib, join(home, 'logs'), join(home, 'profile-data', 'tavern'), desktop, profile.dir]) {
+   mkdirSync(dir, { recursive: true })
+ }
+ const manifest = JSON.stringify({ name: 'dsh-profile-tavern', type: 'module' })
+ writeFileSync(join(app, 'package.json'), manifest)
+ writeFileSync(join(profile.dir, 'package.json'), manifest)
+ writeFileSync(join(desktop, 'package.json'), '{}')
+ writeFileSync(join(app, '.dsh-tavern-local.json'), JSON.stringify({ host: 'desktop', dshHome: home }))
+ writeFileSync(join(home, 'logs', 'tavern-installation.json'), JSON.stringify({ host: 'desktop', dshHome: home, sourceRoot: app }))
+ writeFileSync(join(lib, 'application-updater.js'), `export function createApplicationUpdater() {
+   return { check: async () => ({ phase: 'update-available' }) }
+ }`)
+ t.mock.property(process, 'env', { ...process.env, DSH_HOME: home, DSH_PROFILE_DIR: '', DSH_TAVERN_RUNTIME_HOST: 'desktop' })
+ t.mock.property(process, 'platform', 'win32')
+ let handle
+ const ctx = {
+   profileContext: profile,
+   connection: { rpc: { handle: (_channel, handler) => { handle = handler } } },
+   effect() {},
+ }
+ assert.equal(launcherPaths(ctx, { DSH_HOME: home }).activeDir, desktop)
+ apply(ctx)
+ const { value: status } = await handle('status')
+ assert.equal(status.activeDir, profile.dir)
+ assert.equal(status.desktopApp, false)
+ assert.equal(status.desktopTavernWindow, true)
+ assert.deepEqual(await handle('check-update'), { ok: true, value: { phase: 'update-available', canUpdate: false } })
+ const start = await handle('start-update')
+ assert.equal(start.error.code, 'update-unavailable')
+ assert.match(start.error.message, /官方 DeepSeek Harness/)
+})
+
 test('只能切到同样启用桥接的 profile，否则切过去后无法在应用内切回', async t => {
  const { validateTarget, listProfiles } = await import('../tavern-plugin/packages/dsh-tavern/lib/state.mjs')
  const root=mkdtempSync(join(tmpdir(),'pb-target-'));t.after(()=>rmSync(root,{recursive:true,force:true}))

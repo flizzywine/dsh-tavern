@@ -615,7 +615,9 @@ test('Windows 原生更新提前提示独立后台，不改变可更新状态，
   assert.equal((await updater.check()).phase, 'update-available')
   assert.equal(probes, 0, '只检查版本时仍可看到更新')
   const before = await readFile(statusFile, 'utf8')
-  await assert.rejects(updater.start(), { code: 'DSH_TAVERN_STANDALONE_RUNNING', message: /独立酒馆后台（PID 20260）/ })
+  await assert.rejects(updater.start(), {
+    code: 'DSH_TAVERN_STANDALONE_RUNNING', message: /独立酒馆后台（PID 20260）.*PowerShell.*dsh-tavern stop --host desktop/,
+  })
   assert.equal(launches, 0)
   assert.equal(probes, 1)
   assert.equal(await readFile(statusFile, 'utf8'), before)
