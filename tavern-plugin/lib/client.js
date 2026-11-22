@@ -49597,6 +49597,10 @@ function askTavernCardPackWay(file, staged) {
 				try { return ctx.get("uiWorkspace") || null; } catch (_) { return null; }
 			}
 			ctx.effect(function () {
+				// Seed the host layout once so its grid, panel and drag handle share the same width.
+				ctx.layout?.panels?.setRightbar?.(Math.round(window.innerWidth * 0.2));
+			}, "dsh-tavern: default right sidebar width");
+			ctx.effect(function () {
 				document.body.classList.add("dsh-tavern-shell-active");
 				const releaseLandingStyles = installTavernLandingStyles(document);
 				const releaseViewport = installVisualViewportPin(document);
