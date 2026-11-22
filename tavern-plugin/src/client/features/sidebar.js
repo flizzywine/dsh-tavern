@@ -1534,7 +1534,16 @@
 				const selected = selectedChats.includes(item.chatId);
 				const renaming = Boolean(managerRenaming) && managerRenaming.chatId === item.chatId;
 				const play = isPlayMode(item.mode || "story");
-				return h("div", { key: item.sessionId, className: "dsh-tavern-history-manager-row" + (selected ? " selected" : "") + (current === item.sessionId ? " current" : "") },
+				return h("div", {
+					key: item.sessionId,
+					className: "dsh-tavern-history-manager-row" + (selected ? " selected" : "") + (current === item.sessionId ? " current" : ""),
+					onClick: function (event) {
+						if (event.target.closest("input, button")) return;
+						const selection = window.getSelection();
+						if (selection && !selection.isCollapsed && event.currentTarget.contains(selection.anchorNode)) return;
+						toggleChatSelection(item.chatId);
+					}
+				},
 					h("input", { type: "checkbox", className: "dsh-tavern-history-manager-check", checked: selected, disabled: busy, "aria-label": "选择对话：" + title, onChange: function () { toggleChatSelection(item.chatId); } }),
 					h("div", { className: "dsh-tavern-history-manager-body" },
 						h("div", { className: "dsh-tavern-history-manager-headline" },
@@ -1546,7 +1555,11 @@
 									if (event.key === "Enter") { event.preventDefault(); event.currentTarget.blur(); }
 									else if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); setManagerRenaming(null); }
 								}
-							}) : h("button", { className: "dsh-tavern-history-manager-title", title: "点击改名", disabled: busy, onClick: function () { setManagerRenaming({ chatId: item.chatId, value: play ? (item.title || "") : title }); } }, title),
+							}) : h("span", { className: "dsh-tavern-history-manager-title-group" },
+								h("span", { className: "dsh-tavern-history-manager-title" }, title),
+								h("button", { type: "button", className: "dsh-tavern-history-manager-rename-button", title: "重命名", "aria-label": "重命名：" + title, disabled: busy,
+									onClick: function () { setManagerRenaming({ chatId: item.chatId, value: play ? (item.title || "") : title }); }
+								}, h(Icon, { name: "pencil", size: 15 }))),
 							h("span", { className: "dsh-tavern-history-manager-turn" }, preview.turnBadge),
 							h("span", { className: "dsh-tavern-history-manager-time" }, formatTime(tavernHistoryStamp(item, summary, summaries, historyOrder)))),
 						groupName ? null : h("div", { className: "dsh-tavern-history-manager-card" }, (item.cardName || "未绑定人物卡") + (play ? "" : " · 卡片工作台")),

@@ -1266,14 +1266,18 @@ button.dsh-tavern-history-manager-group-head { cursor: pointer; }
 button.dsh-tavern-history-manager-group-head:hover { background: var(--dsw-alias-interactive-bg-hover); }
 .dsh-tavern-history-manager-empty { padding: 28px 8px; color: var(--dsw-alias-label-secondary); font-size: 13px; text-align: center; }
 .dsh-tavern-history-manager-row { display: flex; align-items: flex-start; gap: 10px; padding: 9px 10px; border: 1px solid transparent; border-radius: 10px; }
+.dsh-tavern-history-manager-row:has(.dsh-tavern-history-manager-check:enabled) { cursor: pointer; }
 .dsh-tavern-history-manager-row:hover { background: var(--dsw-alias-interactive-bg-hover); }
 .dsh-tavern-history-manager-row.selected { border-color: color-mix(in srgb, var(--dsh-tavern-accent) 40%, transparent); background: color-mix(in srgb, var(--dsh-tavern-accent) 7%, transparent); }
 .dsh-tavern-history-manager-row.current { border-color: var(--dsh-tavern-accent); }
-.dsh-tavern-history-manager-check { flex: none; margin-top: 3px; }
+.dsh-tavern-history-manager-check { flex: none; margin-top: 3px; cursor: inherit; }
 .dsh-tavern-history-manager-body { flex: 1 1 auto; min-width: 0; }
 .dsh-tavern-history-manager-headline { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; min-width: 0; }
-.dsh-tavern-history-manager-title { min-width: 0; max-width: 100%; border: 0; padding: 0; background: transparent; color: inherit; font: inherit; font-size: 13px; font-weight: 600; text-align: left; cursor: text; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.dsh-tavern-history-manager-title:hover { text-decoration: underline dotted; }
+.dsh-tavern-history-manager-title-group { display: inline-flex; align-items: center; min-width: 0; max-width: 100%; gap: 4px; }
+.dsh-tavern-history-manager-title { min-width: 0; font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dsh-tavern-history-manager-rename-button { display: grid; place-items: center; flex: none; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 6px; background: transparent; color: var(--dsw-alias-label-secondary); cursor: pointer; }
+.dsh-tavern-history-manager-rename-button:hover:enabled { background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-primary); }
+.dsh-tavern-history-manager-rename-button:disabled { opacity: .45; cursor: default; }
 .dsh-tavern-history-manager-rename { flex: 1 1 220px; min-width: 0; font: inherit; font-size: 13px; }
 .dsh-tavern-history-manager-turn, .dsh-tavern-history-manager-time { flex: none; color: var(--dsw-alias-label-secondary); font-size: 11px; white-space: nowrap; }
 .dsh-tavern-history-manager-card { margin-top: 2px; color: var(--dsw-alias-label-secondary); font-size: 11px; }

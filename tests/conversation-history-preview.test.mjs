@@ -316,7 +316,7 @@ test('宽屏管理面板在移动端铺满卡片正文宽度、动作按钮下�
           <input type="checkbox" class="dsh-tavern-history-manager-check" />
           <div class="dsh-tavern-history-manager-body">
             <div class="dsh-tavern-history-manager-headline">
-              <button class="dsh-tavern-history-manager-title">11/7 20:25 开局</button>
+              <span class="dsh-tavern-history-manager-title-group"><span class="dsh-tavern-history-manager-title">11/7 20:25 开局</span><button class="dsh-tavern-history-manager-rename-button" aria-label="重命名：11/7 20:25 开局"></button></span>
               <span class="dsh-tavern-history-manager-turn">23 轮</span>
               <span class="dsh-tavern-history-manager-time">11/12 11:42</span>
             </div>
