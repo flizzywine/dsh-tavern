@@ -7289,6 +7289,11 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
 .fork-gal-backlog-roll[data-tier="fumble"] { --roll-tier: var(--roll-fumble); }
 /* Stage: on the text box's top edge, out of its flow (the box never moves or re-wraps); details open upward. */
 .fork-gal-stage .fork-gal-box > .fork-roll-list { position: absolute; right: var(--box-pad, 16px); bottom: calc(100% + 8px); z-index: 4; align-items: flex-end; width: max-content; max-width: min(72%, 460px); margin: 0; }
+/* The list's own box takes no clicks: a card hidden while its roll plays must not cover the result page beneath it. */
+.fork-gal-stage .fork-gal-box > .fork-roll-list { pointer-events: none; }
+.fork-gal-stage .fork-gal-box > .fork-roll-list > * { pointer-events: auto; }
+/* A long list of choices scrolls within the card, so the card stays short and its confirm in view. */
+.fork-gal-stage .fork-gal-box > .fork-roll-list .fork-check-buttons { max-height: 38vh; overflow-y: auto; overscroll-behavior: contain; }
 .fork-gal-stage .fork-gal-box > .fork-roll-list .fork-roll { --fork-ink: var(--gal-ui-ink); --fork-ink-2: var(--gal-ui-ink-2); --fork-ink-3: var(--gal-ui-ink-2); --fork-hover: var(--gal-ui-hover); --fork-focus: var(--gal-ui-focus); --fork-font-ui: var(--gal-ui-font);
   --roll-critical: var(--gal-ui-accent); --roll-success: var(--gal-ui-ink); --roll-costly: var(--gal-ui-widget-warning); --roll-failure: var(--gal-ui-ink-2); --roll-fumble: var(--gal-ui-widget-pink);
   background: var(--gal-ui-surface); box-shadow: var(--gal-ui-shadow); font-size: var(--gal-ui-meta-size); }
@@ -7301,6 +7306,123 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
 .fork-gal-backlog-roll > .fork-icon { flex: none; }
 .fork-gal-stage.is-film .fork-gal-box > .fork-roll-list { display: none; }
 @media (max-width: 720px) { .fork-gal-stage .fork-gal-box > .fork-roll-list { max-width: calc(100% - 2 * var(--box-pad, 16px)); } .fork-gal-stage .fork-gal-box > .fork-roll-list .fork-roll-head { min-height: 36px; } }
+/* The ledger card (dsh.dice option result.card: ledger; mods/dice/client/check.js CheckLedger): a ruled form - a head of
+   cells (tags, title, id) over one row read as a sum: the dice that do not count (small, outlined) | the dice that counted
+   as rolled (filled in the mark colour) | each step the rules took | the main number | the outcome on its tone. */
+.fork-check.is-ledger { --check-tone: var(--gal-ui-ink); --check-rule: 2px solid var(--gal-ui-ink); --check-hair: color-mix(in srgb, var(--gal-ui-ink) 35%, var(--gal-ui-surface)); }
+.fork-gal-stage .fork-gal-box > .fork-roll-list .fork-check.is-ledger {
+  width: min(460px, 100%); padding: 0; border: var(--check-rule); border-radius: 0; background: var(--gal-ui-surface); }
+.fork-check.is-ledger[data-tone="great"] { --check-tone: var(--gal-check-tone-great); }
+.fork-check.is-ledger[data-tone="good"] { --check-tone: var(--gal-check-tone-good); }
+.fork-check.is-ledger[data-tone="mixed"] { --check-tone: var(--gal-check-tone-mixed); }
+.fork-check.is-ledger[data-tone="bad"] { --check-tone: var(--gal-check-tone-bad); }
+.fork-check.is-ledger[data-tone="terrible"] { --check-tone: var(--gal-check-tone-terrible); }
+.fork-check-ledger-head { display: flex; align-items: stretch; width: 100%; min-height: 30px; margin: 0; padding: 0; border: 0; border-bottom: var(--check-rule); border-radius: 0; background: none;
+  color: var(--gal-ui-ink-2); font: 700 var(--gal-ui-meta-size)/1.2 var(--gal-ui-font); text-align: left; cursor: pointer; }
+.fork-check-ledger-head:hover { background: var(--gal-ui-hover); }
+.fork-check-ledger-head:focus-visible { outline: var(--gal-ui-focus); outline-offset: 2px; }
+.fork-check-ledger-head > span { display: flex; align-items: center; padding: 2px 8px; border-right: 1px solid var(--check-hair); }
+.fork-check-ledger-tag { background: var(--check-tag, var(--gal-ui-ink)); color: var(--gal-ui-surface); border-right: 0 !important; }
+.fork-check-ledger-id { margin-left: auto; border-right: 0 !important; border-left: 1px solid var(--check-hair); font-weight: 500; font-variant-numeric: tabular-nums; }
+.fork-check-ledger-row { display: flex; align-items: stretch; min-height: 52px; }
+.fork-check-ledger-row > div { display: flex; align-items: center; justify-content: center; padding: 6px; border-right: 1px solid var(--check-hair); }
+.fork-check-ledger-miss { flex: 1 1 auto; flex-wrap: wrap; gap: 1px; min-width: 0; justify-content: flex-start !important; border-right: var(--check-rule) !important; }
+.fork-check-ledger-hit { flex: none; gap: 3px; background: color-mix(in srgb, var(--fork-check-mark, var(--check-tone)) 9%, var(--gal-ui-surface)); }
+.fork-check-ledger-step { flex: none; flex-direction: column; gap: 2px; padding: 0 6px !important; }
+.fork-check-ledger-step > b { font: 900 calc(var(--gal-ui-choice-size) * 1.2)/1 var(--gal-ui-title-font); }
+.fork-check-ledger-step > small { font: 700 var(--gal-ui-meta-size)/1 var(--gal-ui-font); white-space: nowrap; }
+.fork-check-ledger-sum { flex: none; flex-direction: column; min-width: 54px; border-right: var(--check-rule) !important; color: var(--check-tone); }
+.fork-check-ledger-sum > b { font: 900 calc(var(--gal-ui-choice-size) * 2.2)/1 var(--gal-ui-title-font); font-variant-numeric: tabular-nums; }
+.fork-check-ledger-sum > small { color: var(--gal-ui-ink-2); font: 600 var(--gal-ui-meta-size)/1.2 var(--gal-ui-font); white-space: nowrap; }
+.fork-check-ledger-verdict { position: relative; flex: none; min-width: 96px; padding: 6px 12px !important; border-right: 0 !important; background: var(--check-tone); color: var(--gal-ui-surface);
+  font: 900 calc(var(--gal-ui-choice-size) * 1.6)/1.05 var(--gal-ui-title-font); letter-spacing: .06em; white-space: nowrap; }
+.fork-check.is-ledger[data-tone="great"] .fork-check-ledger-verdict { background: repeating-linear-gradient(-60deg, var(--check-tone) 0 18px, color-mix(in srgb, var(--check-tone) 80%, var(--gal-ui-ink)) 18px 20px);
+  box-shadow: inset 0 -6px 0 var(--gal-dice-gold); letter-spacing: .02em; }
+.fork-check-ledger-pending { position: absolute; right: 0; top: 0; padding: 1px 6px; background: var(--gal-dice-gold); color: var(--gal-ui-ink); font: 700 var(--gal-ui-meta-size)/1.3 var(--gal-ui-font); letter-spacing: 0; }
+.fork-check.is-awaiting .fork-check-ledger-verdict { padding-top: 18px !important; }
+/* The dice in the ledger: the top face only (no corner numbers, no band); counted faces filled, the rest outlined and small. */
+.fork-check.is-ledger :is(.fork-check-d4-band, .fork-check-d4-window, .fork-check-d4-corner) { display: none; }
+.fork-check.is-ledger .fork-check-d4-face { fill: var(--gal-ui-surface); stroke: var(--check-hair); stroke-width: 6; stroke-linejoin: round; }
+.fork-check.is-ledger .fork-check-d4 text { fill: color-mix(in srgb, var(--gal-ui-ink) 60%, var(--gal-ui-surface)); }
+.fork-check-ledger-miss :is(.fork-check-d4, .fork-check-d8) { width: 26px; height: 23px; }
+.fork-check-ledger-hit :is(.fork-check-d4, .fork-check-d8) { width: 36px; height: 32px; }
+.fork-check-ledger-hit .fork-check-d4.is-marked .fork-check-d4-face { fill: var(--fork-check-mark, var(--check-tone)); stroke: var(--fork-check-mark, var(--check-tone)); }
+.fork-check-ledger-hit .fork-check-d4.is-marked text { fill: var(--gal-ui-surface); }
+.fork-check.is-ledger .is-changed { outline: 1.5px dashed var(--gal-ui-ink-2); outline-offset: 1px; }
+.fork-check.is-ledger .fork-check-strike { stroke: var(--gal-ui-ink); stroke-width: 8; }
+.fork-check-ledger-none { width: 30px; height: 26px; overflow: visible; fill: none; stroke: var(--check-hair); stroke-width: 6; stroke-dasharray: 10 7; stroke-linejoin: round; }
+div.fork-check-ledger-head { cursor: default; }
+div.fork-check-ledger-head:hover { background: none; }
+/* A ruling without dice once settled (CheckNoteLedger): one cell per change, the amount large (a rise in the mark
+   colour) and what it is small; the cells wrap in ruled rows. */
+.fork-gal-stage .fork-gal-box > .fork-roll-list .fork-check.is-note { width: min(460px, 86vw); max-width: 100%; }
+.fork-check-ledger-changes { display: grid; grid-template-columns: repeat(auto-fill, minmax(9em, 1fr)); overflow: hidden; }
+.fork-check-ledger-change { display: flex; flex-direction: column; justify-content: center; gap: 2px; min-width: 0; padding: 6px 10px; box-shadow: 1px 0 0 var(--check-hair), 0 1px 0 var(--check-hair); }
+.fork-check-ledger-change > b { color: var(--gal-ui-ink); font: 900 calc(var(--gal-ui-choice-size) * 1.4)/1.05 var(--gal-ui-title-font); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.fork-check-ledger-change.is-up > b { color: var(--fork-check-mark, var(--gal-ui-accent)); }
+.fork-check-ledger-change > small { color: var(--gal-ui-ink-2); font: 600 var(--gal-ui-meta-size)/1.3 var(--gal-ui-font); overflow-wrap: anywhere; }
+/* A record without dice (a settlement): its report rows are the cells, value large and label small. */
+.fork-check-ledger-row.is-report > .fork-check-ledger-cell { flex: 1 1 0; flex-direction: column; align-items: flex-start; justify-content: center; gap: 2px; min-width: 0; padding: 6px 10px; }
+.fork-check-ledger-cell > b { color: var(--gal-ui-ink); font: 900 calc(var(--gal-ui-choice-size) * 1.4)/1.1 var(--gal-ui-title-font); overflow-wrap: anywhere; }
+.fork-check-ledger-cell.is-false > b { color: var(--check-hair); }
+.fork-check-ledger-cell > small { color: var(--gal-ui-ink-2); font: 600 var(--gal-ui-meta-size)/1.3 var(--gal-ui-font); }
+.fork-check-ledger-row.is-report > .fork-check-ledger-cell:last-child { border-right: 0; }
+.fork-check.is-ledger > :is(.fork-check-line, .fork-check-choices) { padding: 6px 10px 0; }
+.fork-check.is-ledger > :last-child:not(.fork-check-ledger-row, .fork-check-ledger-changes) { padding-bottom: 8px; }
+.fork-check.is-ledger > .fork-roll-details { padding: 6px 10px 8px; border-top: 1px solid var(--check-hair); }
+@media (max-width: 720px) {
+  .fork-gal-stage .fork-gal-box > .fork-roll-list .fork-check.is-ledger { width: 100%; }
+  .fork-gal-stage .fork-gal-box > .fork-roll-list .fork-check.is-note { width: calc(100vw - 2 * var(--box-pad, 16px) - 16px); }
+  .fork-check-ledger-miss :is(.fork-check-d4, .fork-check-d8) { width: 20px; height: 18px; }
+  .fork-check-ledger-hit :is(.fork-check-d4, .fork-check-d8) { width: 28px; height: 25px; }
+  .fork-check-ledger-verdict { min-width: 72px; font-size: calc(var(--gal-ui-choice-size) * 1.3); }
+  .fork-check-ledger-sum { min-width: 40px; }
+  .fork-check-ledger-sum > b { font-size: calc(var(--gal-ui-choice-size) * 1.7); }
+}
+/* The ledger's decisions (CheckButtons with ledger, on the result page and on the card): each choice a ruled block under
+   a short heading - options as tiles (what a value changes in small type, the outcome it leads to as a tone bar on the
+   left), an int as a stepper, a pick as tiles that count - and one confirm bar that says what it does. */
+.fork-check-page-ledger { flex: none; border: var(--check-rule); border-radius: 0; background: var(--gal-ui-surface); }
+.fork-check-choices.is-ledger { --check-rule: 2px solid var(--gal-ui-ink); --check-hair: color-mix(in srgb, var(--gal-ui-ink) 35%, var(--gal-ui-surface)); display: flex; flex-direction: column; gap: 10px; }
+.fork-check-choices.is-ledger .fork-check-choice-label { display: block; margin-bottom: 4px; padding-left: 6px; border-left: 4px solid var(--gal-ui-ink); color: var(--gal-ui-ink); font: 700 var(--gal-ui-meta-size)/1.3 var(--gal-ui-font); }
+.fork-check-choices.is-ledger :is(.fork-check-fold, .fork-check-unfold) { border: var(--check-rule); border-radius: 0; background: var(--gal-ui-surface); color: var(--gal-ui-ink); font: 700 var(--gal-ui-meta-size)/1.3 var(--gal-ui-font); }
+.fork-check-choices.is-ledger :is(.fork-check-fold, .fork-check-unfold):hover { background: var(--gal-ui-hover); }
+.fork-check-choices.is-ledger > .fork-check-fold { align-self: flex-end; margin: 0 0 -6px; }
+.fork-check-choices.is-ledger.is-folded { align-items: flex-start; padding-bottom: 8px; }
+.fork-check-choices.is-ledger .fork-check-common { margin: 0 0 4px; color: var(--gal-ui-ink-2); font: 600 var(--gal-ui-meta-size)/1.4 var(--gal-ui-font); }
+.fork-check-choices.is-ledger .fork-check-buttons { display: grid; grid-template-columns: repeat(auto-fit, minmax(8.5em, 1fr)); gap: 0; margin: 0; border: var(--check-rule); background: var(--check-hair); }
+.fork-check-choices.is-ledger .fork-check-buttons > * { margin: 0 1px 1px 0; }
+.fork-check-choices.is-ledger .fork-check-button { display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 2px; width: 100%; min-height: 48px; padding: 8px 10px; border: 0; border-radius: 0;
+  background: var(--gal-ui-surface); color: var(--gal-ui-ink); font: 700 var(--gal-ui-choice-size)/1.25 var(--gal-ui-font); }
+.fork-check-choices.is-ledger .fork-check-button > small { color: var(--gal-ui-ink-2); font: 500 var(--gal-ui-meta-size)/1.3 var(--gal-ui-font); }
+.fork-check-choices.is-ledger .fork-check-button[data-tone] { box-shadow: inset 4px 0 0 var(--check-tone); }
+.fork-check-choices.is-ledger .fork-check-button[data-tone]::before { content: none; }
+.fork-check-choices.is-ledger .fork-check-button:hover:not(:disabled):not(.is-on) { background: var(--gal-ui-hover); }
+.fork-check-choices.is-ledger .fork-check-button.is-on { background: var(--gal-ui-ink); color: var(--gal-ui-surface); }
+.fork-check-choices.is-ledger .fork-check-button.is-on > small { color: inherit; }
+.fork-check-choices.is-ledger .fork-check-button:focus-visible { outline: var(--gal-ui-focus); outline-offset: -3px; }
+.fork-check-page > :is(.fork-check-page-ledger, .fork-check-choices.is-ledger) { align-self: center; width: min(720px, 100%); }
+.fork-check-choices.is-ledger .fork-check-pick { display: flex; }
+.fork-check-choices.is-ledger .fork-check-pick > .fork-check-button { flex: 1 1 auto; flex-direction: row; align-items: center; justify-content: space-between; min-width: 0; white-space: nowrap; }
+.fork-check-choices.is-ledger .fork-check-pick-count { color: inherit; font: 900 var(--gal-ui-choice-size)/1 var(--gal-ui-title-font); }
+.fork-check-choices.is-ledger .fork-check-pick-less { flex: none; min-width: 36px; border: 0; border-left: 1px solid var(--check-hair); border-radius: 0; background: var(--gal-ui-surface); color: var(--gal-ui-ink); font: 900 var(--gal-ui-choice-size)/1 var(--gal-ui-title-font); }
+.fork-check-stepper { display: inline-flex; align-items: stretch; border: var(--check-rule); background: var(--gal-ui-surface); }
+.fork-check-stepper > button { min-width: 44px; min-height: 44px; margin: 0; padding: 0; border: 0; border-radius: 0; background: none; color: var(--gal-ui-ink); font: 900 calc(var(--gal-ui-choice-size) * 1.3)/1 var(--gal-ui-title-font); cursor: pointer; }
+.fork-check-stepper > button:hover:not(:disabled) { background: var(--gal-ui-hover); }
+.fork-check-stepper > button:disabled { color: var(--check-hair); cursor: default; }
+.fork-check-stepper > button:focus-visible { outline: var(--gal-ui-focus); outline-offset: -3px; }
+.fork-check-step-value { display: flex; flex-direction: column; align-items: center; justify-content: center; min-width: 72px; padding: 4px 12px; border-inline: 1px solid var(--check-hair);
+  color: var(--gal-ui-ink); font: 900 calc(var(--gal-ui-choice-size) * 1.6)/1 var(--gal-ui-title-font); font-variant-numeric: tabular-nums; }
+.fork-check-step-value > small { margin-top: 2px; color: var(--gal-ui-ink-2); font: 600 var(--gal-ui-meta-size)/1.3 var(--gal-ui-font); white-space: nowrap; }
+.fork-check-choices.is-ledger .fork-check-confirm { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 44px; padding: 8px 14px; border: 0; border-radius: 0;
+  background: var(--gal-ui-accent); color: var(--gal-ui-accent-ink); font: 700 var(--gal-ui-choice-size)/1.25 var(--gal-ui-font); }
+.fork-check-choices.is-ledger .fork-check-confirm > b { flex: none; white-space: nowrap; font: 900 calc(var(--gal-ui-choice-size) * 1.1)/1 var(--gal-ui-title-font); letter-spacing: .12em; }
+.fork-check-confirm-effect { margin-left: auto; font: 600 var(--gal-ui-meta-size)/1.3 var(--gal-ui-font); text-align: right; }
+.fork-check-choices.is-ledger .fork-check-confirm:hover:not(:disabled) { background: color-mix(in srgb, var(--gal-ui-accent) 85%, var(--gal-ui-ink)); }
+.fork-check-choices.is-ledger .fork-check-confirm:disabled { background: var(--check-hair); color: var(--gal-ui-surface); }
+@media (max-width: 720px) {
+  .fork-check-choices.is-ledger .fork-check-buttons { grid-template-columns: repeat(auto-fit, minmax(7em, 1fr)); }
+}
 /* ==== end round dice rolls ==== */
 
 

@@ -6604,10 +6604,21 @@ textarea:is(input.fork-edit, textarea.fork-edit, .ap-ui input:not([type=checkbox
 .fork-check-button, .fork-check-confirm { box-sizing: border-box; min-height: 30px; max-width: 100%; margin: 0; padding: 4px 10px; border: 1px solid transparent; border-radius: var(--fork-radius); background: var(--fork-surface); color: var(--fork-ink); font: inherit; text-align: left; overflow-wrap: anywhere; cursor: pointer; }
 .fork-check-button:hover:not(:disabled), .fork-check-confirm:hover:not(:disabled) { background: var(--fork-hover); }
 .fork-check-button.is-on { border-color: var(--fork-accent); background: var(--fork-accent-soft); }
+/* Folding the choices (the stage card): 收起 in the corner, one 等你选择 · 展开 line while folded. */
+.fork-check-fold, .fork-check-unfold { min-height: 28px; margin: 0; padding: 2px 10px; border: 1px solid var(--fork-hairline); border-radius: var(--fork-radius); background: var(--fork-surface); color: var(--fork-ink-2); font: inherit; font-size: var(--fork-fs-meta); cursor: pointer; }
+.fork-check-fold { float: right; margin: 0 0 4px 8px; }
+.fork-check-fold:hover, .fork-check-unfold:hover { background: var(--fork-hover); }
+.fork-check-fold:focus-visible, .fork-check-unfold:focus-visible { outline: var(--fork-focus); outline-offset: 2px; }
+.fork-check-pick { display: inline-flex; max-width: 100%; }
+.fork-check-pick.is-on > .fork-check-button { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.fork-check-pick-count { margin-left: .4em; color: var(--fork-accent); font-weight: 700; }
+.fork-check-pick-less { min-width: 30px; margin: 0; padding: 0 8px; border: 1px solid var(--fork-accent); border-left: 0; border-radius: 0 var(--fork-radius) var(--fork-radius) 0; background: var(--fork-surface); color: var(--fork-ink); font: inherit; cursor: pointer; }
+.fork-check-pick-less:hover:not(:disabled) { background: var(--fork-hover); }
+.fork-check-pick-less:focus-visible { outline: var(--fork-focus); outline-offset: 2px; }
 .fork-check-button:focus-visible, .fork-check-confirm:focus-visible { outline: var(--fork-focus); outline-offset: 2px; }
 .fork-check-button:disabled, .fork-check-confirm:disabled { color: var(--fork-ink-3); cursor: default; }
 .fork-check-confirm { margin-top: 6px; border-color: var(--fork-accent); font-weight: 600; }
-@media (max-width: 720px) { .fork-check-button, .fork-check-confirm { min-height: 36px; } }
+@media (max-width: 720px) { .fork-check-button, .fork-check-confirm { min-height: 36px; } .fork-check-pick-less { min-width: 36px; } }
 /* An outcome the rules stage (outcomes[].show; its stage performance is mods/dice/client/show.js): on the chat floor only its name, in the mark colour. */
 .fork-check[data-show] .fork-roll-tier { color: color-mix(in srgb, var(--fork-check-mark, var(--fork-accent)) 82%, var(--fork-ink)); font-weight: 700; }
 /* ==== round dice throw (mods/dice/client/throw.js) ==== */
