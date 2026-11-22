@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "b3080f87b1774b2c85b996a61264a82ca4452626",
-  "releaseSequence": 1919,
+  "revision": "6f029a8dd79a90ef6399a32f7680e02b6b40ad9d",
+  "releaseSequence": 1920,
   "version": "3.4.0",
   "files": [
     {
@@ -1101,8 +1101,8 @@
     },
     {
       "path": "tavern-plugin/lib/client.js",
-      "sha256": "09ef5e5a7cde119a41bcd706dea748f9acb52182c110eeb102408343d0cc4b52",
-      "size": 6457029
+      "sha256": "353797b6ff022e70dd46df6cbb761f1d7c34c27652a9189433766eb3f6eeaf04",
+      "size": 6457323
     },
     {
       "path": "tavern-plugin/lib/cordis-inspect.js",
@@ -5741,8 +5741,8 @@
     },
     {
       "path": "tavern-plugin/mods/dice/client/dice3d.js",
-      "sha256": "428b54a38b09b7b8f9c6f1d4c052039911fc12ae9e511ccb216c54a5171de1c8",
-      "size": 26612
+      "sha256": "10191adca76db267d11c9169a9e958a916db0a677ba2884bdcc743f749e23a64",
+      "size": 26900
     },
     {
       "path": "tavern-plugin/mods/dice/client/roll.js",
@@ -9681,9 +9681,9 @@
     }
   ],
   "archive": {
-    "commit": "648f38010699f9602e00a17a0a0574a3ef2ad965",
+    "commit": "ecddbb6f15e793272eb247f9ff8d9ea93dc3dcfb",
     "path": "runtime.zip",
-    "sha256": "72e5ae80cac6745d3c8ffc71d0aa3d1a209e4ce185f2c61aeaa9d286922cb006",
-    "size": 17132770
+    "sha256": "3a02e9fcb5f97f13f36b277a4cce3b48cd1de238e8a0a300883a3d70cd6cb583",
+    "size": 17133038
   }
 }
