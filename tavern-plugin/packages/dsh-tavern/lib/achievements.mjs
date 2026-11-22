@@ -2,6 +2,12 @@ import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
 const RECORD_PATH = ['profile-data', 'tavern', 'data', 'plugin-data', 'dsh-tavern-adventure-medal.json']
+const TIER_TITLES = new Map([
+  ['bronze', '渐入佳境'],
+  ['silver', '酒馆熟客'],
+  ['gold', '故事收藏家'],
+  ['rainbow', '千轮留名'],
+])
 
 // The launcher also runs in the original Profile, where the Tavern plugin is absent.
 export async function readAchievementLibrary(home) {
@@ -19,7 +25,7 @@ export async function readAchievementLibrary(home) {
   return saved.achievements.filter(tier => typeof tier?.id === 'string' && typeof tier.title === 'string'
     && Number.isSafeInteger(tier.rounds) && tier.rounds > 0).map(tier => ({
     id: tier.id,
-    title: tier.title,
+    title: TIER_TITLES.get(tier.id) ?? tier.title,
     rounds: tier.rounds,
     earned: tier.earned === true,
     unlockedAt: tier.earned === true && Number.isSafeInteger(tier.unlockedAt) && tier.unlockedAt > 0

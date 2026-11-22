@@ -85,7 +85,9 @@ test('原版 Profile 的启动器只显示已解锁的成就卡，空库完全�
     assert.equal(cards.length, 2)
     const earned = cards[0]
     assert.equal(earned.dataset.tier, 'bronze')
-    assert.match(earned.textContent, /小有名气.*100轮/)
+    assert.match(earned.textContent, /渐入佳境.*100 轮/)
+    assert.match(cards[1].textContent, /故事收藏家/)
+    assert.doesNotMatch(library.textContent, /冒险|小有名气|酒馆传说/)
     assert.equal(earned.querySelector('.achievement-art-badge').textContent, '100')
     assert.equal(earned.querySelector('.achievement-art-badge').getAttribute('aria-hidden'), 'true')
     assert.equal(earned.querySelector('.achievement-art-cover').getAttribute('src'), coverA)
@@ -96,7 +98,7 @@ test('原版 Profile 的启动器只显示已解锁的成就卡，空库完全�
     assert.equal(cards[1].querySelector('.achievement-art-cover'), null)
     assert.equal(cards[1].querySelector('[data-stat="words"] b').textContent, '—')
     assert.equal(earned.querySelector('time').dateTime, new Date(unlockedAt).toISOString())
-    assert.doesNotMatch(library.textContent, /传奇冒险者|未解锁/)
+    assert.doesNotMatch(library.textContent, /酒馆熟客|未解锁/)
   } finally {
     await page.dispose()
   }
@@ -104,7 +106,7 @@ test('原版 Profile 的启动器只显示已解锁的成就卡，空库完全�
 
 test('四档测试只预览卡牌，正式解锁后刷新已经打开的成就库', async () => {
   let tiers = [
-    ['bronze', '小有名气', 100], ['silver', '传奇冒险者', 300], ['gold', '酒馆传说', 500], ['rainbow', '不朽传说', 1000],
+    ['bronze', '渐入佳境', 100], ['silver', '酒馆熟客', 300], ['gold', '故事收藏家', 500], ['rainbow', '千轮留名', 1000],
   ].map(([id, title, rounds]) => ({ id, title, rounds, earned: false, unlockedAt: null }))
   const status = { activeName: 'tavern', appKind: 'desktop', desktopApp: true, profiles: [tavernProfile] }
   const page = await mount(status, [], { inTavern: true,
@@ -140,7 +142,7 @@ test('四档测试只预览卡牌，正式解锁后刷新已经打开的成就�
     const library = win.document.querySelector('.pb-achievement-library')
     assert.equal(library.querySelector('.pb-achievement-card').dataset.tier, 'bronze')
     assert.equal(library.querySelector('.achievement-art-cover').getAttribute('src'), coverB)
-    assert.match(library.textContent, /酒馆记忆.*字/)
+    assert.match(library.textContent, /总字数.*字/)
   } finally {
     await page.dispose()
   }
