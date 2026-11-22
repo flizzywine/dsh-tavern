@@ -214,6 +214,17 @@ function bindStageViews(createViews) {
             startOpening:(sessionId,choice)=>new Promise((resolve,reject)=>{const detail={sessionId,choice,respond:resolve,fail:reject};window.dispatchEvent(new CustomEvent('dsh-tavern-stage-opening',{detail}));if(!detail.handled)reject(new Error('开始游戏不可用'));}),
             useLiveView:useLiveTavernView, packService:()=>packTransport?.service,
             findPluginPanel:findTavernStagePluginPanel, PluginPanel:TavernStagePluginPanel,
+            callPlugin:callTavernStagePlugin,
+            applyCardScene:async (sessionId,background,music)=>{
+                const current = bgManual.get();
+                if (current.sessionId !== sessionId) return {applied:false};
+                const row = current.rows.find(item=>item.key===bgKey(background));
+                if (!row) return {applied:false};
+                bgManual.pick(row.key);
+                const audio = bgmPlayer.get();
+                if (music && audio.sessionId === sessionId && audio.tracks.some(track=>track.key===bgmKey(music))) bgmPlayer.pick(bgmKey(music));
+                return {applied:true};
+            },
             createCardFrame:props=>createTavernMessageFrameLifecycle(props,{executeSlash:stageCardPageSlash()})},
         device:{matchMedia},
         mixer:{reading:stageReading, voiceRateLimits:STAGE_READING_LIMITS.voiceRate, Icon, Slider, audio:forkStageAudio, sounds:forkUiSfx, entries:stageEntries, report:useStageEntryState, icons:ICON_PATHS},

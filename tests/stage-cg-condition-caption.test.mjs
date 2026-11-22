@@ -50,6 +50,9 @@ test('an entry with a condition is offered to the director only while the settle
   assert.deepEqual(offered(prepared), ['ending'], 'blue with its condition met; the word hit still needs 好感 80')
   prepared = prepareAssetPackDirector({...input, condition: on({...stat, 好感: {小林: 85}})})
   assert.deepEqual(offered(prepared).sort(), ['ending', 'festival'])
+  const filtered = prepareAssetPackDirector({...input,condition:on(stat),cgExclusions:new Map([[PACK_ID,new Set(['ending'])]])})
+  assert.deepEqual(offered(filtered),[])
+  assert.equal(reason(filtered,'ending'),'condition-unmet')
   // a CG already on stage stays when its condition stops holding; only a new show needs it.
   const tx = createAssetPackTransaction({prepared, getCurrentBinding: () => prepared.binding})
   tx.submit({sequence: 1, through: 2, done: true, beats: [{at: 1, ops: [{op: 'cg.set', cg: {packId: PACK_ID, kind: 'cg', assetId: 'ending'}}]}]})

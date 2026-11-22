@@ -551,3 +551,7 @@ const probe = await ctx.tavern.testDamperConnection({})
 ```
 
 宿主接口缺失时调用抛 `TAVERN_PLUGIN_NOT_FOUND`；`decisionJudge` 仍可单独使用。
+
+## `stageCgPolicy({ exclude })`
+
+卡内插件可为当前局筛除导演本轮的新 CG 候选。`exclude({gameId, turn})` 可以返回 Promise，返回值为形如 `[{packId, assetId}]` 的数组。`turn` 是正在准备演出的轮次。筛选仅作用于该卡绑定的 CG，已播放记录、画廊和素材库仍可浏览。素材条目上的 `recall.when` 会一并判断。

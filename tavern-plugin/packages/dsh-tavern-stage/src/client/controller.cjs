@@ -148,13 +148,13 @@ function GalBacklog(props) {
 // story: {pages, page, setPage, markRead} - the story reading the lease stands in for while it is held.
 const STAGE_NO_LEASE = Object.freeze({subscribe:()=>()=>{},get:()=>null});
 const STAGE_LEASE_NO_INPUTS = Object.freeze({}), STAGE_LEASE_NO_ROUNDS = new Map();
-function useStageLeaseAssets(sessionId, view, source, assetRevision) {
+function useStageLeaseAssets(sessionId, view, source, assetRevision, travelActors) {
     const line = view.leasing ? view.pages[view.page] : null;
-    const actors = view.lease?.scene.actors || [];
+    const actors = view.leasing ? view.lease?.scene.actors || [] : travelActors || [];
     // Reading an earlier line can bring its speaker back, including a deceased last-words speaker.
     const present = line?.name ? [{name:line.name, emotion:line.mood}, ...actors.filter(actor => actor.name !== line.name)].slice(0, 4) : actors;
     const request = {sessionId, actors:present, ...(view.lease?.scene.background === undefined ? {} : {scene:view.lease.scene.background})};
-    const key = view.leasing && source ? JSON.stringify([view.key, source.authorityEpoch, assetRevision, request]) : '';
+    const key = (view.leasing || travelActors) && source ? JSON.stringify([view.key, source.authorityEpoch, assetRevision, request]) : '';
     const [loaded, setLoaded] = React.useState(null);
     React.useEffect(() => {
         if (!key) return;
@@ -393,10 +393,13 @@ function GalStage(props) {
     const accepted = runtime.accepted;
     const interopNotice = useCapabilityNotice(sessionId, runtime.cursor.mode === 'live', accepted.scene?.interopNotices);
     // with 「导演布景」 off the scene shows the manual picture; director state is untouched.
-    const borrowed = useStageLeaseAssets(sessionId, leaseView, runtime.source, runtime.director.assetRevision);
-    const pack = {state:accepted.layout?.state || accepted.scene?.state, scene:useBgManualScene(sessionId, leasing ? borrowed?.scene : accepted.scene), characters:leasing ? borrowed?.characters || [] : accepted.figures || [],
+    const [travelCast, setTravelCast] = React.useState(null);
+    const travelActors = !leasing && runtime.cursor.mode !== 'history' && travelCast?.sessionId === sessionId && travelCast.turn === latestTurn ? travelCast.actors : null;
+    const borrowed = useStageLeaseAssets(sessionId, leaseView, runtime.source, runtime.director.assetRevision, travelActors);
+    const travelCastReady = Boolean(travelActors && borrowed);
+    const pack = {state:accepted.layout?.state || accepted.scene?.state, scene:useBgManualScene(sessionId, leasing ? borrowed?.scene : accepted.scene), characters:leasing || travelCastReady ? borrowed?.characters || [] : accepted.figures || [],
         avatars:accepted.avatars || [], widgets:accepted.widgets || [],
-        audio:{music:accepted.music,soundscape:accepted.ambience,sfx:[]}, core:leasing ? borrowed?.scene?.core || '' : accepted.layout?.core || accepted.scene?.core || ''};
+        audio:{music:accepted.music,soundscape:accepted.ambience,sfx:[]}, core:leasing || travelCastReady ? borrowed?.scene?.core || '' : accepted.layout?.core || accepted.scene?.core || ''};
     const rootRef = React.useRef(null);
     // the load gate is the one readiness authority; a 入场演出 (stage-entrance.js) holds what the
     // player sees (entryGate) on loading until its cover, while the scene renderer starts as soon as the load is ready.
@@ -580,6 +583,7 @@ function GalStage(props) {
     // stage is entered at that line); exit() (and newGame() into a 游戏准备) is 返回主页面; continueGame() (and newGame() on an unsaved chat with nothing to prepare) closes the page (an entry page
     // too: the stage is entered).
     function cardPageAction(kind, arg) {
+        if (kind === 'travelCast') { setTravelCast({sessionId,turn:latestTurn,actors:arg.map(name=>({name}))}); return; }
         if (kind === 'continue') { closeCardPage(); return; }
         if (kind === 'settings') { openConfig(); return; }
         if (kind === 'gallery') { forkUiSfx.play("open"); openGallery(); return; }
@@ -1113,7 +1117,7 @@ function GalStage(props) {
     // reserve the full directed cast's slots while individual resources arrive.
     // A lease's actors stand through the same cast input, left to right (the card's order), each as the stage figure of its
     // card character (stageSpeaker); one with no figure loaded on this stage draws no sprite. focus / dim / emotion ride along.
-    const leaseActors = leasing ? pack.characters.map(character => ({...leaseView.scene.actors.find(actor => actor.alias === character.alias), id:character.alias})).filter(actor => !!renderInputs.get(actor.id)?.stage) : null;
+    const leaseActors = leasing || travelCastReady ? pack.characters.map(character => ({...leaseView.scene?.actors.find(actor => actor.alias === character.alias), id:character.alias})).filter(actor => !!renderInputs.get(actor.id)?.stage) : null;
     const members = leaseActors ? leaseActors.map((actor, index) => ({id:actor.id, x:(index + 1) / (leaseActors.length + 1), gaze:null, lease:actor}))
         : state ? stageViews.speaker.members(state).filter(member => !!renderInputs.get(member.id)?.stage) : [];
     const xs = Object.fromEntries(members.map(member => [member.id,member.x]));
@@ -1188,7 +1192,7 @@ function GalStage(props) {
         lateFade:entryGate.visible && !skipping && entryPage.current === turn + ':' + page,
         // a picture the player switched to (bg-manual.js) takes its own transition (fade, or cut under 「减少动态」).
         background:pack.scene?.backgroundUrl ? {identity:pack.scene.backgroundMedia.identity,url:pack.scene.backgroundUrl,scene:JSON.stringify(pack.scene.background),transition:pack.scene.userTransition || (forwardReading&&!skipping?changeKind:'cut'),timing:!pack.scene.userTransition ? sceneChange : null} : null,
-        hideFigures:!!accepted.cg || cg.visible,figureMode:figuresShown ? 'stage' : 'none',figuresAway:sourceWidget.phoneShade,covered:sourceWidget.covered && !callView,reducedMotion:reading.reducedMotion===true,figures:items,figureLayout:{cast:castIds,priority:figurePriority,slots:skinFigures.slots,max:skinFigures.max,phone:skinFigures.phone,framing:skinFigures.framing},packLayers,grade:packLayers?JSON.stringify([packLayers.time,packLayers.mood]):'',timeFadeMs:pack.scene?.timeTransitionMs || 0,
+        hideFigures:!travelCastReady && (!!accepted.cg || cg.visible),figureMode:figuresShown ? 'stage' : 'none',figuresAway:sourceWidget.phoneShade,covered:sourceWidget.covered && !callView,reducedMotion:reading.reducedMotion===true,figures:items,figureLayout:{cast:castIds,priority:figurePriority,slots:skinFigures.slots,max:skinFigures.max,phone:skinFigures.phone,framing:skinFigures.framing},packLayers,grade:packLayers?JSON.stringify([packLayers.time,packLayers.mood]):'',timeFadeMs:pack.scene?.timeTransitionMs || 0,
         tapGate,tapMedia,weather:state?.weather || 'none',screen:state?.screen || null,camera:leasing ? {shot:'',target:''} : {shot:state?.camera.mode || '',target:state?.camera.actor || ''},dof:leasing ? null : state?.dof,effects:sceneEffects,effectTables,safety:effectSafety,skipping,preload:[],
         // The inner-monologue backdrop (the resolved `thinking` effect) while the line on screen is inner monologue.
         thinking:!awaiting && !transitioning && current?.thought ? stageEffectResolve('thinking',effectTables.skin,effectTables.local) : null,
@@ -1414,6 +1418,7 @@ function GalStage(props) {
         // a square skin (its --gal-ui-radius, stage-skin-adapter.cjs, is 0): its engine widgets drop their soft shadows (theme.css)
         "data-fk-skin-square": activeSkin && (activeSkin.ui?.radius ?? activeSkin.textbox?.shape?.radius ?? 10) === 0 ? "" : undefined, "data-fork-stage-turn": turn, "data-fork-stage-para": para,
         "data-stage-lease": leasing ? leaseView.lease.owner : undefined,
+        "data-stage-travel-cast": travelCastReady ? pack.characters.map(character=>character.alias).join(" ") : undefined,
         "data-fk-tx-leaving": stageLeaving || undefined, "data-fk-tx-entering": stageEntering || undefined, "data-fk-veil": veilShown.current || undefined,
         // the current skin's text percent; theme.css multiplies the skin's own sizes by it
         // and keeps the text block where the skin puts it (data-fk-text-scale: only set off 100%, so 100% is untouched).
@@ -1426,7 +1431,7 @@ function GalStage(props) {
         onWheel: wheel,
         onContextMenu: event => { event.preventDefault(); if(galleryOpen||pageOpen)return; if (hidden) setHidden(false); else setHidden(true); } },
         h(GalScene, { start:loadGate.visible, onPresented:revision => { loadGate.onPresented(revision); if (entryGate.visible) onPresented(revision); else if (entrance.active) heldPresented.current = revision; }, onBackdrop:loadGate.onBackdrop, scene: displayScene, onDebug: onSceneDebug, onUi, onError: setSceneError, reload: sceneReload, onLayout: setFigureLayout }),
-        !accepted.cg && !cg.visible && figuresShown && !stageShot && standIns.length ? h(GalStandIns, { members: standIns, portraits, colorOf }) : null,
+        (travelCastReady || !accepted.cg && !cg.visible) && figuresShown && !stageShot && standIns.length ? h(GalStandIns, { members: standIns, portraits, colorOf }) : null,
         cg.node,
         // the item glow takes the speaker's 形象色.
         // art.item (stage-skin-adv.md): the skin draws the card as the original's frame.

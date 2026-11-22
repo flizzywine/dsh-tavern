@@ -80,6 +80,9 @@ export function createPluginHandlers(deps) {
     async callPluginHandler(args) {
       return { result: await pluginApi.callHandler(args && args.name, args && args.args) }
     },
+    async callCardPanelMethod(args) {
+      return {result:await pluginApi.callCardPanelMethod(args?.sessionId,args?.plugin,args?.method,args?.params)}
+    },
     async pluginTurnState(args) {
       return { state: await pluginApi.turnState(args && args.sessionId) }
     },

@@ -153,6 +153,7 @@ export async function createStageModule(core) {
     judge:engineJudge,mods:modService,
     itemsEnabled:chat=>core.cardStageSwitch(chat.cardPath,'items'),
     stateSource:(chat,raw)=>modConfigHost.stateSource(chat,raw),
+    cgExclusions:(chat,turn)=>core.pluginApi.stageCgExclusions(chat.sessionId,turn),
     log:event => console.info('dsh-tavern:',JSON.stringify(event)),
     publish:event => {
       sessionSignals.publish(event.sessionId,event)

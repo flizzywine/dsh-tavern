@@ -24,7 +24,7 @@
 //   runs can enable them again. An element with data-dsh-sound sounds move on hover / focus and confirm on click.
 // The data is the page's ledger sections (readCardPage), the declared figures' faces as data: URLs (useFaces) and the
 // stage skin tokens (--gal-ui-*). It is read once on open and again, coalesced, after each session state signal.
-function createStageStatusPanel({React, window, document, rpc, signals, themeTokens, sounds, confirm, newGame, startOpening, useFaces, useLiveView, createCardFrame, packService, fillInput, findPluginPanel, PluginPanel}) {
+function createStageStatusPanel({React, window, document, rpc, signals, themeTokens, sounds, confirm, newGame, startOpening, useFaces, useLiveView, createCardFrame, packService, fillInput, findPluginPanel, PluginPanel, callPlugin, applyCardScene}) {
 const FACE_PX = 96;
 let disposed = false;
 const open = new Set(), faceData = new Map(), readers = new Map();
@@ -63,10 +63,11 @@ function cardPageScrollbars(style) {
 // first), and the host's close request reaches the page's onCloseRequest listeners.
 function cardPagePrelude(token, page, snapshot, shortcut, scrollbars, owned) {
     const json = value => JSON.stringify(value).replace(/</g, '\\u003c').replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029');
-    return '<style data-dsh-card-page>' + scrollbars + '</style><script data-dsh-card-page>(function(){var token=' + json(token) + ',page=' + json(page) + ',data=' + json(snapshot) + ',next=1,pending=Object.create(null),listeners=new Set(),closers=new Set(),assets=new Map();'
+    return '<style data-dsh-card-page>' + scrollbars + '</style><script data-dsh-card-page>(function(){var token=' + json(token) + ',page=' + json(page) + ',data=' + json(snapshot) + ',next=1,pending=Object.create(null),listeners=new Set(),closers=new Set(),assets=new Map(),markShown;var shown=new Promise(function(resolve){markShown=resolve;});'
         + 'function copy(v){return JSON.parse(JSON.stringify(v));}'
         + 'function call(method,args){return new Promise(function(resolve,reject){var id="p"+(next++);pending[id]={resolve:resolve,reject:reject};parent.postMessage({type:"dsh-card-page-call",token:token,requestId:id,method:method,args:args||{}},"*");});}'
         + 'addEventListener("message",function(event){var d=event.data;if(event.source!==parent||!d||d.token!==token)return;'
+        + 'if(d.type==="dsh-card-page-shown"){markShown();return;}'
         + 'if(d.type==="dsh-card-page-data"){data=d.data;listeners.forEach(function(fn){try{fn(copy(data));}catch(error){console.error(error);}});return;}'
         + 'if(d.type==="dsh-card-page-close-request"){if(!closers.size){call("close");return;}closers.forEach(function(fn){try{fn();}catch(error){console.error(error);}});return;}'
         + 'if(d.type!=="dsh-card-page-response")return;var task=pending[d.requestId];if(!task)return;delete pending[d.requestId];if(d.ok)task.resolve(d.result);else task.reject(new Error(String(d.error||"页面请求失败")));});'
@@ -81,6 +82,7 @@ function cardPagePrelude(token, page, snapshot, shortcut, scrollbars, owned) {
         + 'close:function(){return call("close");},open:function(id){return call("open",{id:String(id==null?"":id)});},openSettings:function(){return call("settings");},'
         + 'fillInput:function(text){return call("fillInput",{text:String(text==null?"":text)});},assets:function(kind){return call("assets",{kind:String(kind||"")});},'
         + 'openPluginPanel:function(ref){return call("openPluginPanel",ref||{});},'
+        + 'callPlugin:function(request){return shown.then(function(){return call("callPlugin",request||{});});},applyTravelScene:function(scene){return call("applyTravelScene",scene||{});},'
         + 'opening:function(userName){return call("opening",{userName:String(userName==null?"":userName)});},startGame:function(choice){return call("startGame",choice||{});},'
         + 'newGame:function(){return call("newGame");},continueGame:function(){return call("continue");},openGallery:function(){return call("gallery");},openBacklog:function(){return call("backlog");},exit:function(){return call("exit");},'
         + 'sound:function(name){return call("sound",{name:String(name||"")});},title:function(text){return call("title",{text:String(text==null?"":text)});},'
@@ -177,6 +179,23 @@ function openCardPage({sessionId, page, label, size, shortcut, closeControl, sav
             onPluginPanel({plugin, id, title});
             return {opened: true};
         }
+        if (method === 'callPlugin') {
+            if (!shown || typeof callPlugin !== 'function') throw new Error('卡片插件接口尚未就绪');
+            const {plugin, panelId, method:handler, params} = args || {};
+            return callPlugin(sessionId,plugin,panelId,handler,params);
+        }
+        if (method === 'applyTravelScene') {
+            if (!shown || typeof applyCardScene !== 'function') return {applied:false};
+            const {background, music, actors} = args || {};
+            if (actors !== undefined && (!Array.isArray(actors) || actors.length > 4 || actors.some(name =>
+                typeof name !== 'string' || !name.trim() || name.length > 80))) throw new Error('旅行同伴最多接受四个人物名称');
+            const image = await readAsset.locate({kind:'backgrounds',id:background});
+            const sound = typeof music === 'string' ? await readAsset.locate({kind:'music',id:music}).catch(() => null) : null;
+            if (closed) return {applied:false};
+            const result = await applyCardScene(sessionId,{packId:image.packId,assetId:background},sound && {packId:sound.packId,assetId:music});
+            if (!closed && result?.applied && actors) onAction('travelCast', [...new Set(actors.map(name => name.trim()))]);
+            return result;
+        }
         if (method === 'fillInput') {
             if (typeof fillInput !== 'function') throw new Error('舞台输入框不可用');
             fillInput(sessionId, String(args?.text ?? ''));
@@ -234,9 +253,10 @@ function openCardPage({sessionId, page, label, size, shortcut, closeControl, sav
     // The lifecycle's visible and pending documents, as retained message frames place them; the pending one stays hidden
     // until it reports ready.
     function reveal(item) {
-        if (shown || !item.loaded || lifecycle?.snapshot().visibleDocument?.token !== item.descriptor.token) return;
-        shown = true;
-        state('ready');
+        if (item.shown || !item.loaded || lifecycle?.snapshot().visibleDocument?.token !== item.descriptor.token) return;
+        item.shown = true;
+        if (!shown) { shown = true; state('ready'); }
+        item.node.contentWindow?.postMessage({type:'dsh-card-page-shown', token}, '*');
     }
     function paint(snap) {
         const target = host();

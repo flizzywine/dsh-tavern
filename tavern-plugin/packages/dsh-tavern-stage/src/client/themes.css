@@ -7563,3 +7563,4 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
   &::-webkit-scrollbar-track, &::-webkit-scrollbar-corner { background: var(--fk-sb-track); }
 }
 /* ==== end stage scrollbars ==== */
+.fork-gal-stage[data-stage-travel-cast] > .fork-cg-stage { visibility: hidden; }

@@ -156,6 +156,25 @@ test('正文生成默认值在插件与宿主设置间共用，且仅全局插�
   assert.equal(settings.storyGenerationMode, 'host')
 })
 
+test('舞台卡页的插件处理函数使用当前局并校验插件来源', { skip: !cordis }, async t => {
+  let card = '/cards/a.json'
+  const h = await harness(t,{cardScope:async () => new Map([['travel',{cards:['/cards/a.json']}]]),
+    cardPathOf:async () => card})
+  await h.root.plugin({name:'travel',inject:['tavern'],apply(ctx) {
+    ctx.tavern.handle('travel/view',values => values)
+    ctx.tavern.stageCgPolicy({exclude:({gameId,turn})=>[{packId:'pack',assetId:`${gameId}-${turn}`}]})
+  }})
+  await h.root.plugin({name:'other',inject:['tavern'],apply(ctx) {
+    ctx.tavern.handle('travel/spoof',() => 'not allowed')
+  }})
+  assert.deepEqual(await h.api.callCardPanelMethod('game-1','travel','view',{gameId:'another-game'}),{gameId:'game-1'})
+  await assert.rejects(h.api.callCardPanelMethod('game-1','travel','spoof',{}),/不属于/)
+  assert.deepEqual(await h.api.stageCgExclusions('game-1',2),new Map([['pack',new Set(['game-1-2'])]]))
+  card = '/cards/b.json'
+  await assert.rejects(h.api.callCardPanelMethod('game-1','travel','view',{}),/不属于/)
+  assert.equal((await h.api.stageCgExclusions('game-1',2)).size,0)
+})
+
 test('provider APIs：capabilities、克隆输入、卡绑定筛选与 Cordis 卸载撤销', { skip: !cordis }, async t => {
   let cardPath = '/cards/a.json'
   const h = await harness(t, {

@@ -29,7 +29,7 @@ export function stageAssetRefs(state) {
  * while it holds - never by blue, words or the judge - and stays on stage when already playing (carryProjection).
  */
 export function recallAssetPacks({ snapshots, boundPackIds = [], globalEnabledPackIds = [], units = [],
-  dimensions = {}, assetStatus = {}, activeSkin = null, widgetsEnabled = true, judgeRecall, condition, modAssetKinds = ['props','performances','audience','timers'], kinds = ASSET_KINDS }) {
+  dimensions = {}, assetStatus = {}, activeSkin = null, widgetsEnabled = true, judgeRecall, condition, cgExclusions, modAssetKinds = ['props','performances','audience','timers'], kinds = ASSET_KINDS }) {
   const ids = [...new Set([...boundPackIds, ...globalEnabledPackIds])].sort(codepointCompare)
   ids.forEach(id => validateUuid(id))
   const effective = listEffectiveAssets({snapshots,boundPackIds,globalEnabledPackIds})
@@ -59,6 +59,7 @@ export function recallAssetPacks({ snapshots, boundPackIds = [], globalEnabledPa
       if (!excluded && (dimensions[dimension] === false || asset.kind === 'sfx' && dimensions.events === false || asset.kind === 'looks' && dimensions['lighting.' + asset.layer] === false)) excluded = 'dimension-disabled'
       if (!excluded && asset.kind === 'widgets' && !widgetIsActive(activeWidgets,ref)) excluded = 'widget-unavailable'
       if (!excluded && asset.recall.when !== undefined && condition?.(asset.recall.when) !== true) excluded = 'condition-unmet'
+      if (!excluded && asset.kind === 'cg' && boundPackIds.includes(packId) && cgExclusions?.get(packId)?.has(asset.id)) excluded = 'condition-unmet'
       let visibleSettings
       if (!excluded && asset.kind === 'widgets') {
         try {

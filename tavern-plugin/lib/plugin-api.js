@@ -215,7 +215,7 @@ export function createTavernPluginApi(deps) {
     }
     return name
   }
-  const capabilities = Object.freeze({ gameMode: 1, hostBehavior: 1, controlInput: 1, mvuSettlementProvider: 1, worldbookStrategy: 1, galleryProvider: 1, pricingProvider: 1, imageModels: 1, imageLibrary: 1, bodyGeneration: 1, bodyProjection: 1, stContractService: 1,
+  const capabilities = Object.freeze({ gameMode: 1, stageCgPolicy: 1, hostBehavior: 1, controlInput: 1, mvuSettlementProvider: 1, worldbookStrategy: 1, galleryProvider: 1, pricingProvider: 1, imageModels: 1, imageLibrary: 1, bodyGeneration: 1, bodyProjection: 1, stContractService: 1,
     ...(deps.readTavernSettings && deps.updateTavernSettings ? { bodyGenerationDefaults: 1 } : {}),
     ...(deps.generationPresets ? { generationPresets: 1 } : {}),
     ...(deps.decisionJudge ? { decisionJudge: 1 } : {}),
@@ -287,6 +287,7 @@ export function createTavernPluginApi(deps) {
   const castSources = new Map()
   const handlers = new Map()
   const candidateSections = new Map()
+  const stageCgPolicies = new Map()
   const compactionSections = new Map()
   const replacements = { settlement: new Map(), ledger: new Map() }
   const ledgerRuns = new Map()  // gameId → AbortController of a running ledger replacement
@@ -1738,6 +1739,12 @@ export function createTavernPluginApi(deps) {
       return register.call(this, candidateSections, owner + '\u0000' + name, { owner, name, text }, 'tavern.candidateSection()', '候选说明段落 ' + name + ' 已注册')
     },
 
+    stageCgPolicy({ exclude } = {}) {
+      const owner = ownerOf(this)
+      if (typeof exclude !== 'function') throw new TypeError('exclude 必须是函数')
+      return register.call(this, stageCgPolicies, owner, {owner, exclude}, 'tavern.stageCgPolicy()', '本插件已注册 CG 筛选规则')
+    },
+
     compactionSection({ name, text } = {}) {
       const owner = ownerOf(this)
       sectionName(name); textOrFunction(text)
@@ -1851,6 +1858,36 @@ export function createTavernPluginApi(deps) {
   Object.defineProperty(service, TRACKER, { value: { associate: 'tavern', property: 'ctx' } })
 
   /** A browser half calling a host handler; JSON in, JSON out. */
+  async function callCardPanelMethod(gameId, plugin, method, params) {
+    if (typeof plugin !== 'string' || typeof method !== 'string' || !/^[a-z][a-z0-9-]{0,31}$/.test(method))
+      throw new Error('卡片页面插件操作无效')
+    const {game, own} = await choicesFor(gameId)
+    const name = plugin + '/' + method
+    if (!game || !own.has(plugin) || handlers.get(name)?.owner !== plugin)
+      throw new Error('这个插件操作不属于当前人物卡')
+    return callHandler(name,{...params,gameId:game.sessionId})
+  }
+
+  async function stageCgExclusions(gameId, turn) {
+    const result = new Map()
+    if (!stageCgPolicies.size) return result
+    const {game, own} = await choicesFor(gameId)
+    if (!game) return result
+    for (const entry of stageCgPolicies.values()) {
+      if (!own.has(entry.owner)) continue
+      try {
+        const rows = await entry.exclude({gameId:game.sessionId, turn})
+        if (stageCgPolicies.get(entry.owner) !== entry || !Array.isArray(rows)) continue
+        for (const row of rows.slice(0, 1024)) {
+          if (typeof row?.packId !== 'string' || row.packId.length > 64 || typeof row.assetId !== 'string' || row.assetId.length > 128) continue
+          if (!result.has(row.packId)) result.set(row.packId, new Set())
+          result.get(row.packId).add(row.assetId)
+        }
+      } catch (error) { console.warn('dsh-tavern: CG 筛选规则失败', entry.owner, error?.message || error) }
+    }
+    return result
+  }
+
   async function callHandler(name, args) {
     const entry = handlers.get(String(name || ''))
     if (!entry) throw Object.assign(new Error('没有名为 ' + name + ' 的插件处理函数（插件未加载，或宿主侧没有调用 tavern.handle 注册）'), { code: 'TAVERN_PLUGIN_NOT_FOUND' })
@@ -2537,7 +2574,7 @@ export function createTavernPluginApi(deps) {
     return results.sort((a, b) => (order.get(a.versionId) ?? 0) - (order.get(b.versionId) ?? 0))
   }
 
-  return Object.freeze({ resolveReadCapability, hostBehavior, gameModes, bodyGenerators, taskCatalog, service, mvuProvider, mvuProviderActive, mvuProviderRegistered, capabilities, toolModesFor, toolSkillsFor, toolNetworkFor: name => toolNetworks.get(name)?.capability, callHandler, turnState, exportGame, importGame, turnSettled, castAnnotated, castAssetSources, gameRemoved, mediaRemoved, onPictureReady, imageGates, collectDamperQuestions,
+  return Object.freeze({ resolveReadCapability, hostBehavior, gameModes, bodyGenerators, taskCatalog, service, mvuProvider, mvuProviderActive, mvuProviderRegistered, capabilities, toolModesFor, toolSkillsFor, toolNetworkFor: name => toolNetworks.get(name)?.capability, callHandler, callCardPanelMethod, stageCgExclusions, turnState, exportGame, importGame, turnSettled, castAnnotated, castAssetSources, gameRemoved, mediaRemoved, onPictureReady, imageGates, collectDamperQuestions,
     listGalleryProviderItems, readGalleryProviderImage, removeGalleryProviderItems,
     // The asset library's access to the 配图 人物库 records (registerImageLibrary schema 4); outside any card.
     imageCharacters: (op, input) => imageCatalog.record(op, {}, input),
