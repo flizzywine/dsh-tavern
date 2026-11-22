@@ -1533,7 +1533,7 @@
                 h('label', { style: S.row }, h('input', { type: 'checkbox', checked: c.enabled !== false,
                   onChange: event => patch(i, { enabled: event.target.checked }) }), '启用'),
                 h('input', { type: 'text', placeholder: '分组', 'aria-label': '分组', value: c.group || '', style: S.input, onChange: e => patchIdentity(i, { group: e.target.value.replace(/[\u0000-\u001f\u007f]/g, '').slice(0, 40) }) }),
-                h('input', { type: 'text', placeholder: '触发别名', 'aria-label': '触发别名', title: c.figureId ? '关联着素材库人物：保存时增删的词一并改到素材库人物的触发词' : undefined, value: c.match || '', style: S.input, onChange: e => patchIdentity(i, { match: e.target.value }) }),
+                h('input', { type: 'text', placeholder: '触发词', 'aria-label': '触发词', title: c.figureId ? '关联着素材库人物：保存时增删的词一并改到素材库人物的触发词' : undefined, value: c.match || '', style: S.input, onChange: e => patchIdentity(i, { match: e.target.value }) }),
               ),
               h(ReferenceImageEditor, { key: 'character-reference-' + c.id, value: c, compact: true, label: '角色「' + (c.name || '未命名') + '」', onChange: changes => patch(i, changes) }),
               h(CharacterComfyLoras, { value: c.comfyLoras || [], workflows: data.workflows || [], onChange: comfyLoras => patch(i, { comfyLoras }) }),
