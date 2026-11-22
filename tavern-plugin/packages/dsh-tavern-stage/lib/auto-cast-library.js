@@ -58,8 +58,8 @@ export function createAutoCastLibrary({getLibrary, getReading = () => null}) {
       }
       return rows
     },
-    // every library 通用声音 (the assistant reads them all rather than guess the words of their names).
-    libraryVoices:() => port().writer.listLibraryVoices({limit:60, systemPacks:systemPacks()}),
+    // every library 通用声音 of one language (the assistant reads them all rather than guess the words of their names).
+    libraryVoices:language => port().writer.listLibraryVoices({limit:60, systemPacks:systemPacks(), language}),
     // A picture by its hash (content-addressed): read at the pack's current revision, so a landing of another picture
     // between the queue's read and this one does not fail the job (11-12 验收: a 立绘 lost to REVISION_CONFLICT).
     async readMedia({packId, hash}) {

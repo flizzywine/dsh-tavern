@@ -2,6 +2,7 @@ import {createHash} from 'node:crypto'
 import resolution from '../../dsh-presentation-protocol/src/figure-resolution.cjs'
 import {matchBubbleMood} from '../../dsh-asset-library/lib/asset-packs/figure-emotions.js'
 import {planAutoFigures} from './domain/auto-figure.js'
+import {languageName} from './auto-cast-assistant.js'
 import {emptyAutoCastRecord, noteRound, planAutoCast, jobKey, figureKey, jobReady, jobFailed, jobsLanded, noteCasting, castDrawn, noteDrawn, noteWriteFailure, autoCastProblem, looksDelivered, wantSettei, setteiGivenUp, pauseEnds, lendLooks} from './domain/auto-cast-queue.js'
 
 const {resolveFigureName} = resolution
@@ -51,9 +52,11 @@ export function castChanges(speakers, decided) {
     else {
       // 外貌 goes with the figure to its 配图 人物库 record (looks), its 人物介绍 into the pack (description).
       const looks = decided?.appearance[name], about = decided?.about?.[name]
-      const description = [about, voice?.reason && '配音选择：' + voice.reason].filter(Boolean).join('\n\n')
+      // a voice speaks its own language (the speaker's, chosen first: auto-cast-assistant.js); none of it: said here.
+      const unvoiced = decided?.unvoiced?.[name]
+      const description = [about, voice?.reason && '配音选择：' + voice.reason, unvoiced && '配音选择：素材库里没有' + languageName(unvoiced) + '的通用声音，暂未配声音。'].filter(Boolean).join('\n\n')
       changes.push({op:'create', kind:'figures', value:{name, aliases, ...(description ? {description} : {})}, ...(looks ? {looks} : {}),
-        ...(voice ? {voice:{from:voice.from, ...(voice.language ? {language:voice.language} : {})}} : {})})
+        ...(voice ? {voice:{from:voice.from}} : {})})
       if (voice?.from) sources.push({packId:voice.from.packId, revision:voice.revision})
     }
     entries.push({name, copied:!!copy, ...(!copy && decided?.appearance[name] ? {appearance:decided.appearance[name]} : {}), ...(!copy && decided?.importance?.[name] ? {importance:decided.importance[name]} : {})})

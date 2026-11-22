@@ -310,10 +310,10 @@ export function createAutomaticWriteMethods({run, readRun, all, load, metadata, 
           live()
           return readRun([], async () => searchLibrary((await all()).map(pack => ({manifest:pack.manifest, figures:pack.figures, revision:pack.local.revision})), {query, limit, systemPacks}))
         },
-        // 全库声音: every installed pack's voices, read only (library-search.js).
-        listLibraryVoices({limit, systemPacks} = {}) {
+        // 全库声音: every installed pack's voices, or one language's, read only (library-search.js).
+        listLibraryVoices({limit, systemPacks, language} = {}) {
           live()
-          return readRun([], async () => listLibraryVoices((await all()).map(pack => ({manifest:pack.manifest, figures:pack.figures, revision:pack.local.revision})), {limit, systemPacks}))
+          return readRun([], async () => listLibraryVoices((await all()).map(pack => ({manifest:pack.manifest, figures:pack.figures, revision:pack.local.revision})), {limit, systemPacks, language}))
         },
         authorize(input, source, context) {
           live()

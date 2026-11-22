@@ -101,6 +101,15 @@ test('the assistant\'s voice candidates are 可选声音 「默认」: a 使用�
   world.reading = {general:{figure:{packId:system.snapshot.manifest.id, figureId:'f1'}}, narrator:{enabled:false, figure:null}}
   assert.deepEqual((await port.libraryVoices()).voices.map(row => row.name), ['傲娇少女声', '关掉的', '系统既有男声'])
   assert.deepEqual((await port.search('男声')).voices.map(row => row.name), ['系统既有男声'])
+  // 先定语言（主人 11-22）: one language's voices only, by the voice's own language (unset = 中文, zh-CN = zh); the system
+  // pack's are that language's 默认通用声音 (fallback)
+  const current = await service.getPackSnapshot({packId:system.snapshot.manifest.id})
+  await service.patchPack({packId:current.manifest.id, expectedRevision:current.revision, patch:{voiceLibrary:{version:1, voices:{male:{...plain, name:'系统既有男声', language:'zh-CN', sources:sources('zh-d')},
+    jaMale:{...plain, name:'系统既有男声（日语）', language:'ja', sources:sources('ja-a')}}}}})
+  const of = async language => (await port.libraryVoices(language)).voices.map(row => [row.name, row.language, row.fallback ?? false])
+  assert.deepEqual(await of('zh'), [['傲娇少女声', 'zh', false], ['关掉的', 'zh', false], ['系统既有男声', 'zh', true]])
+  assert.deepEqual(await of('ja'), [['系统既有男声（日语）', 'ja', true]])
+  assert.deepEqual(await of('ko'), [], 'a language without a voice lists none: nothing of another language fills it')
   await assert.rejects(service.patchPack({packId:templatePack, expectedRevision:(await service.getPackSnapshot({packId:templatePack})).revision, patch:{voiceLibrary:{version:1, voices:{bad:{...base, autoCast:'yes'}}}}}), {code:'INVALID_INPUT'})
 })
 test('a committed round through the asset library plugin\'s own service: new speakers are written, counted and drawn', async t => {

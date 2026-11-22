@@ -88,25 +88,81 @@ test('every library 通用声音 is listed with its name, 使用情景, language
       for (const [name, args] of [['list_library_voices', {}], ['assign_voice', {figure:'林澈', packId:'p-system', voiceId:'v-male', reason:'说话随和，适合自然的成年男声'}]]) seen.push(JSON.parse(await input.onToolCall({name, arguments:args})))
       seen.offered = input.tools.map(tool => tool.name)
     }})
-  assert.deepEqual(seen.offered, ['search_lore', 'same_as', 'write_appearance', 'list_library_voices', 'assign_voice', 'finish'])
+  assert.deepEqual(seen.offered, ['search_lore', 'same_as', 'write_appearance', 'speaks_language', 'list_library_voices', 'assign_voice', 'finish'])
   assert.deepEqual(seen[0], {ok:true, voices:[{packId:'p-system', voiceId:'v-male', name:'通用男性声音的声音', language:'zh', pack:'系统设置（请勿删除）', figures:['通用男性声音'], inUse:false}], more:3})
   assert.deepEqual(result.voice['林澈'], {from:{packId:'p-system', voiceId:'v-male'}, revision:'r1', reason:'说话随和，适合自然的成年男声'})
 })
 
-test('a 通用声音 in another language is assigned to speak 中文: its language is the voice\'s, not the new speaker\'s', async () => {
-  const japanese = {packId:'p-system', packName:'系统', revision:'r1', voiceId:'v-ja', name:'沉稳男声（日语）', language:'ja', guidance:'适合成年男性', sound:'ja-male'}
-  const chinese = {packId:'p-system', packName:'系统', revision:'r1', voiceId:'v-zh', name:'沉稳男声', language:'zh-CN', guidance:'适合成年男性', sound:'zh-male'}
-  const result = await runCastingAssistant({selection:{}, speakers:[{name:'卫兵', aliases:[]}, {name:'队长', aliases:[]}], rows:[], pieces:[], search:null,
-    libraryVoices:async () => ({voices:[japanese, chinese], more:0}), runAgent:async ({onToolCall}) => {
-      const call = (name, args = {}) => onToolCall({name, arguments:args})
-      await call('list_library_voices')
-      await call('assign_voice', {figure:'卫兵', packId:'p-system', voiceId:'v-ja', reason:'低沉稳重，适合守门的卫兵'})
-      await call('assign_voice', {figure:'队长', packId:'p-system', voiceId:'v-zh', reason:'威严干脆，适合带队的队长'})
-    }})
-  assert.equal(result.voice['卫兵'].language, 'zh')
-  assert.equal(result.voice['队长'].language, undefined, 'a Chinese voice keeps the unset language: its default is already 中文')
-  const changes = castChanges([{name:'卫兵', aliases:[]}, {name:'队长', aliases:[]}], result).changes
-  assert.deepEqual(changes.map(change => change.voice), [{from:{packId:'p-system', voiceId:'v-ja'}, language:'zh'}, {from:{packId:'p-system', voiceId:'v-zh'}}])
+// 先定语言，再按语言挑声音（主人 11-22）: a new speaker speaks 中文 unless the data says otherwise, and is cast only with
+// voices of its language; another language's voice is never relabelled to fill in. Library voices of one language each
+// (the library filters by castLanguage); fallback = that language's 默认通用声音 (the pack 通用声音 points at), sharable.
+const SYSTEM = 'p-system', IDOLS = '77777777-7777-4777-8777-777777777777', RINA = '88888888-8888-4888-8888-888888888888'
+const catalogue = [
+  {packId:SYSTEM, packName:'系统', revision:'r1', voiceId:'v-ja-male', name:'系统既有男声（日语）', language:'ja', sound:'ja-male', fallback:true},
+  {packId:SYSTEM, packName:'系统', revision:'r1', voiceId:'v-zh-female', name:'系统既有年轻女声（中文）', language:'zh', sound:'zh-female', fallback:true},
+  {packId:'p-general', packName:'通用角色', revision:'g1', voiceId:'v-zh-male', name:'通用中年男声（沉稳）', language:'zh', guidance:'成熟男性', sound:'zh-male'},
+  {packId:'p-general', packName:'通用角色', revision:'g1', voiceId:'v-ja-girl', name:'元气少女（日语）', language:'ja', guidance:'活泼少女', sound:'ja-girl'}]
+const byLanguage = async language => ({voices:catalogue.filter(row => row.language === language), more:0})
+const casting = (speakers, script, extra = {}) => runCastingAssistant({selection:{}, speakers, rows:[], pieces:[], search:null, libraryVoices:byLanguage, ...extra,
+  runAgent:async ({onToolCall}) => script(async (name, args = {}) => JSON.parse(await onToolCall({name, arguments:args})))})
+
+test('王城卫兵, a Chinese card\'s guard: 中文 without being told, so only 中文 voices are listed and a Japanese one is refused', async () => {
+  const result = await casting([{name:'王城卫兵', aliases:[]}], async call => {
+    assert.deepEqual((await call('list_library_voices')).voices.map(row => row.voiceId), ['v-zh-female', 'v-zh-male'], 'no language given: 中文')
+    await call('list_library_voices', {language:'ja'})
+    assert.match((await call('assign_voice', {figure:'王城卫兵', packId:SYSTEM, voiceId:'v-ja-male', reason:'低沉稳重'})).error, /说中文.*说日语.*只从中文的声音里挑/)
+    assert.equal((await call('assign_voice', {figure:'王城卫兵', packId:'p-general', voiceId:'v-zh-male', reason:'低沉稳重，适合守门的卫兵'})).ok, true)
+  })
+  assert.deepEqual(result.language, {})
+  assert.deepEqual(castChanges([{name:'王城卫兵', aliases:[]}], result).changes[0].voice, {from:{packId:'p-general', voiceId:'v-zh-male'}}, 'the voice speaks its own language: nothing relabelled')
+})
+
+test('a person of a Japanese IP pack the library records with a Japanese voice speaks 日语, and gets a Japanese voice', async () => {
+  const idol = {packId:IDOLS, packName:'Love Live!', revision:'i1', ref:{packId:IDOLS, kind:'figures', figureId:RINA}, name:'星空凛', aliases:['凛'], copyable:false, voice:{voiceId:'v-rin', name:'凛', language:'ja'}}
+  const plain = {...idol, ref:{...idol.ref, figureId:'99999999-9999-4999-8999-999999999999'}, name:'路人偶像', voice:null}
+  const result = await casting([{name:'凛', aliases:[]}], async call => {
+    await call('search_library', {query:'凛'})
+    assert.match((await call('speaks_language', {figure:'凛', language:'ja'})).error, /给出依据/, 'no basis: 中文')
+    assert.match((await call('speaks_language', {figure:'凛', language:'ja', packId:IDOLS, figureId:plain.ref.figureId})).error, /没有声音/)
+    assert.equal((await call('speaks_language', {figure:'凛', language:'ja', packId:IDOLS, figureId:RINA})).ok, true)
+    await call('list_library_voices'); await call('list_library_voices', {language:'ja'})
+    assert.match((await call('assign_voice', {figure:'凛', packId:'p-general', voiceId:'v-zh-male', reason:'沉稳'})).error, /说日语.*说中文/)
+    assert.equal((await call('assign_voice', {figure:'凛', packId:'p-general', voiceId:'v-ja-girl', reason:'活泼爱笑，适合元气的少女'})).ok, true)
+  }, {search:async () => ({figures:[idol, plain], voices:[]})})
+  assert.deepEqual(result.language, {凛:'ja'})
+  assert.equal(result.voice['凛'].from.voiceId, 'v-ja-girl')
+})
+
+test('a new speaker with no language in the data is 中文; a quote of the card that he speaks Japanese makes him 日语; that language\'s 默认通用声音 is shared once the others are taken', async () => {
+  const pieces = [{source:'世界书', text:'商人汉斯来自德国，说一口流利的日语。', keys:['汉斯']}]
+  const result = await casting([{name:'新来的人', aliases:[]}, {name:'汉斯', aliases:[]}, {name:'哈罗德', aliases:[]}], async call => {
+    assert.match((await call('speaks_language', {figure:'新来的人', language:'ja', quote:'他说日语'})).error, /给出依据/, 'a quote the card does not hold is no basis')
+    assert.match((await call('speaks_language', {figure:'新来的人', language:'zh'})).error, /默认就是中文/)
+    assert.equal((await call('speaks_language', {figure:'汉斯', language:'ja-JP', quote:'说一口流利的日语'})).ok, true)
+    assert.equal((await call('speaks_language', {figure:'哈罗德', language:'ja', quote:'说一口流利的日语'})).ok, true)
+    await call('list_library_voices', {language:'ja'})
+    assert.equal((await call('assign_voice', {figure:'汉斯', packId:SYSTEM, voiceId:'v-ja-male', reason:'沉稳的成年男声，适合走南闯北的商人'})).ok, true)
+    assert.equal((await call('assign_voice', {figure:'哈罗德', packId:SYSTEM, voiceId:'v-ja-male', reason:'沉稳的成年男声'})).ok, true, 'a fallback voice is shared')
+    await call('list_library_voices')
+    assert.equal((await call('assign_voice', {figure:'新来的人', packId:SYSTEM, voiceId:'v-zh-female', reason:'清亮自然'})).ok, true)
+  }, {pieces})
+  assert.deepEqual(result.language, {汉斯:'ja', 哈罗德:'ja'})
+  assert.deepEqual(Object.fromEntries(Object.entries(result.voice).map(([name, row]) => [name, row.from.voiceId])), {汉斯:'v-ja-male', 哈罗德:'v-ja-male', 新来的人:'v-zh-female'})
+})
+
+test('a language with no 通用声音 leaves the speaker unvoiced and says so in its 人物介绍: no voice of another language fills in', async () => {
+  const pieces = [{source:'人物档案', text:'金秀妍只会说韩语。', keys:['金秀妍']}]
+  const result = await casting([{name:'金秀妍', aliases:[]}], async call => {
+    assert.equal((await call('speaks_language', {figure:'金秀妍', language:'ko', quote:'只会说韩语'})).ok, true)
+    const listed = await call('list_library_voices', {language:'ko'})
+    assert.deepEqual(listed.voices, []); assert.match(listed.note, /没有韩语的通用声音/)
+    await call('list_library_voices')
+    assert.match((await call('assign_voice', {figure:'金秀妍', packId:SYSTEM, voiceId:'v-zh-female', reason:'清亮'})).error, /说韩语.*说中文/)
+  }, {pieces})
+  assert.deepEqual(result.unvoiced, {金秀妍:'ko'})
+  const [change] = castChanges([{name:'金秀妍', aliases:[]}], result).changes
+  assert.equal(change.voice, undefined)
+  assert.equal(change.value.description, '配音选择：素材库里没有韩语的通用声音，暂未配声音。')
 })
 
 test('a new actor cannot take the same sound through another pack in the same casting run', async () => {
