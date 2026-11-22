@@ -28,11 +28,11 @@ export function registerRunningUserPlugin(name, identity) {
 }
 
 /** A failed import or apply stays isolated in the guard's child Cordis scope. */
-export function guardSource({ folder, name, main, sha256 = '', bound = false, origin = 'global', cardIds = [] }) {
+export function guardSource({ folder, name, main, sha256 = '', bound = false, origin = 'global', cardIds = [] }, { hostModuleUrl = import.meta.url } = {}) {
   const label = JSON.stringify('[Tavern 插件] plugins/' + folder)
   return `// Tavern 自动生成，请勿修改：插件加载或启动出错时只记日志，不影响 DSH 启动。
 import { rmSync, writeFileSync } from 'node:fs'
-import { registerRunningUserPlugin } from ${JSON.stringify(import.meta.url)}
+import { registerRunningUserPlugin } from ${JSON.stringify(hostModuleUrl)}
 const record = status => { try { writeFileSync(new URL(${JSON.stringify('./' + STATUS_FILE)}, import.meta.url), JSON.stringify({ ...status, at: new Date().toISOString() })) } catch {} }
 const clearRestart = () => { try { rmSync(new URL(${JSON.stringify('./' + RESTART_FILE)}, import.meta.url), { force: true }) } catch {} }
 const report = (stage, error) => {
@@ -140,7 +140,7 @@ export function bindingVerdict({ name, sha256 }, bindings) {
  * and, optionally, a browser half (dsh.client + exports "./client").
  * Folders that cannot be loaded are reported, never registered.
  */
-export async function scanUserPlugins(pluginsDir, { installed = () => false, bindings = new Map() } = {}) {
+export async function scanUserPlugins(pluginsDir, { installed = () => false, bindings = new Map(), includeDisabled = false } = {}) {
   let names
   try { names = (await readdir(pluginsDir, { withFileTypes: true })).filter(item => item.isDirectory() && !item.name.startsWith('.')).map(item => item.name).sort() }
   catch (error) { if (error.code === 'ENOENT') names = []; else throw error }
@@ -162,7 +162,7 @@ export async function scanUserPlugins(pluginsDir, { installed = () => false, bin
   for (const { folder, sha256, origin, cardIds } of candidates) {
     const dir = path.join(pluginsDir, folder)
     // A disabled plugin keeps its files and settings but is not registered, so DSH does not load it.
-    if (existsSync(path.join(dir, DISABLED_FILE))) { disabled.push(folder); continue }
+    if (!includeDisabled && existsSync(path.join(dir, DISABLED_FILE))) { disabled.push(folder); continue }
     let pkg
     try { pkg = JSON.parse(await readFile(path.join(dir, 'package.json'), 'utf8')) }
     catch (error) { problems.push({ folder, reason: error.code === 'ENOENT' ? '缺少 package.json' : 'package.json 无法解析：' + error.message }); continue }
