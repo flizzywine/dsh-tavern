@@ -110,10 +110,13 @@ export function createPlayHandlers(deps) {
       return await manualLedger.start(args || {})
     },
     async runCompaction(args) {
-      const id = str(args && args.sessionId), chat = await chatForSession(id)
-      if (chat && ['story', 'script'].includes(chat.mode)) return { result: await deps.autoCompaction.run(id, { manual: true, signal: compactionAbort.signal }) }
-      const result = await withCompactionSession(id, async agent => (await agentCompaction(agent)).compactNow(agent, compactionAbort.signal))
-      return { result: { status: 'completed', foreground: { status: 'succeeded', message: result ? '压缩完成' : '没有可压缩的历史' }, background: { status: 'skipped' } } }
+      const { autoCompaction, chatForSession, compactionAbort, configureAgentCompaction, str, withCompactionSession } = deps
+
+        const id = str(args && args.sessionId), chat = await chatForSession(id)
+        if (chat && ['story', 'script'].includes(chat.mode)) return { result: await autoCompaction.run(id, { manual: true, signal: compactionAbort.signal }) }
+        const result = await withCompactionSession(id, async agent => (await configureAgentCompaction(agent)).compactNow(agent, compactionAbort.signal))
+        return { result: { status: 'completed', foreground: { status: 'succeeded', message: result ? '压缩完成' : '没有可压缩的历史' }, background: { status: 'skipped' } } }
+
     },
     async dismissCompactionWarning(args) {
       const chat = await sessionStateForSession(str(args && args.sessionId))
@@ -130,7 +133,7 @@ export function createPlayHandlers(deps) {
       return await runSessionSync(str(args?.sessionId), args)
     },
     async submitTask(args) {
-      // A manual request supersedes the automatic one still waiting for this game.
+      // an explicit manual request supersedes pending automatic generation.
       autoChoices.cancel(args && args.sessionId)
       if (str(args && args.kind) !== 'candidate') throw new Error('暂不支持的持久任务类型: ' + str(args && args.kind))
       return { sync: await candidateTasks.submit(args) }
