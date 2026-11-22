@@ -283,22 +283,11 @@ import { isAbsolute, join as joinPath } from 'node:path'
 import { createStageChatCache } from './domain/stage-chat-cache.js'
 import { createStageReads, markStageRead, stageReadCarries, stageReadScope } from './domain/stage-read-projection.js'
 import { modStageContributions } from './domain/mods/stage-contributions.js'
-import {createCardStage, watchFigureBubbleBooks} from './domain/card-dialogue.js'
-import {createCardDialogueSpeech} from './domain/card-dialogue-speech.js'
-import {createForegroundCapabilities, foregroundCapabilityEntries, replaceDialogueWorldbookEntries} from './domain/foreground-capabilities.js'
-import {createVoiceBackfill} from './domain/voice-backfill.js'
-import {migrateServiceSourceModels} from './domain/service-model-migration.js'
-import {migrateReadingVoices} from './domain/reading-voice-migration.js'
-import {countServiceUsers} from './domain/figure-voice.js'
-import {GENERAL_VOICE, NARRATOR_VOICE} from './domain/asset-pack-speech.js'
 import {createOptionalStage} from './optional-stage.js'
 import {createStageSwitch} from './stage-switch.js'
 import {createAssetEngineSettings} from './asset-engine-settings-owner.js'
 import {cardAssetExtensionPointer, readCardAssetExtension} from './domain/card-asset-bindings.js'
-import {activeStageSkin, effectiveConversationStage, AUTO_CAST_DEFAULTS, effectiveAutoCast, validateAutoCastLayer} from './domain/card-stage-settings.js'
-import {createAutoCastSettings} from './auto-cast-settings.js'
-import {createManagedModSettingsOwner} from './mod-system-settings.js'
-import {resolveSwitch} from './domain/mod-system.js'
+import {activeStageSkin} from './domain/card-stage-settings.js'
 import { createTavernScriptHostAdapter } from './domain/tavern-script-host-adapter.js'
 import { createTavernRemoteAssetPinStore } from './domain/tavern-remote-assets.js'
 import { OFFICIAL_MVU_VERSION, inspectOfficialMvuAsset } from './domain/official-mvu-assets.js'
@@ -1019,48 +1008,11 @@ export async function apply(ctx) {
   const hostLibrary = modLibrary
   const workbenchAuthority = Object.freeze({})
   const assetEngineSettings = createAssetEngineSettings(ctx)
-  const autoCastSettings = createAutoCastSettings(ctx, ctx, {defaults:AUTO_CAST_DEFAULTS, validateLayer:validateAutoCastLayer})
-  const managedModSettings = createManagedModSettingsOwner(ctx)
-  const dialogueLibrary = () => {
-    const library = ctx.get('assetLibrary')
-    return library?.apiVersion === 2 ? library : undefined
-  }
-  const dialoguePackIds = () => ctx.get('assetPackSettings')?.read().values.globalEnabledPackIds || []
-  const dialogueEngine = () => assetEngineSettings.read().values
-  const dialogueTts = () => ctx.get('tts')
-  const cardStage = createCardStage({cardStorage, measure:(name, run) => requestPerformance.stage(name, run),
-    getEngine:dialogueEngine, getTts:dialogueTts, getAssetLibrary:dialogueLibrary, getGlobalEnabledPackIds:dialoguePackIds})
-  const dialogueBubbles = cardStage.bubbles
-  const dialogueSpeech = createCardDialogueSpeech({readWorkspace:readCardWorkspace, getEngine:dialogueEngine,
-    getTts:dialogueTts, getLibrary:dialogueLibrary, getGlobalEnabledPackIds:dialoguePackIds})
-  ctx.effect(() => () => dialogueSpeech.dispose(), 'dsh-tavern: dialogue speech')
-  let dialogueSettingsRevision = 0
-  ctx.effect(() => assetEngineSettings.subscribe(() => {
-    dialogueSettingsRevision++
-    dialogueSpeech.invalidate()
-    void coordinationEvents?.publishAll()
-  }), 'dsh-tavern: dialogue settings')
-  for (const name of ['assetLibrary', 'assetPackSettings', 'tts']) ctx.inject([name], child => {
-    const off = name === 'tts' ? undefined : child.get(name)?.subscribe?.(event => dialogueSpeech.invalidate(undefined,
-      {kind:event?.revision === null ? 'revoked' : 'refresh', scope:{packId:event?.packId}}))
-    child.effect(() => () => {
-      off?.()
-      dialogueSpeech.invalidate(undefined, {scope:{authority:true}})
-    })
-  })
-  ctx.effect(() => presentationObservers.register('dsh-tavern-dialogue', {
-    cardChanged:path => dialogueSpeech.invalidate(path, {reason:'bindings-changed'})
-  }), 'dsh-tavern: dialogue card invalidation')
-  function needsStageFeatures(raw, extension) {
-    if (effectiveAutoCast(extension, autoCastSettings.read().values, true).enabled) return true
-    const global = managedModSettings.value().mods
-    const card = rawData(raw)?.extensions?.dsh_tavern?.modSystem?.mods || {}
-    return [...new Set([...Object.keys(global), ...Object.keys(card)])].some(id => resolveSwitch(global[id], card[id]))
-  }
-  const stageRuntime = await createOptionalStage({ctx, cardStorage, cardStage, needsStageFeatures, measure:(name,run)=>requestPerformance.stage(name,run), modelSlots, presentationObservers, resolveSlot, readCardWorkspace, coordinationEvents, sessionSignals,
+  const stageRuntime = await createOptionalStage({ctx, cardStorage, measure:(name,run)=>requestPerformance.stage(name,run), modelSlots, presentationObservers, resolveSlot, readCardWorkspace, coordinationEvents, sessionSignals,
     assetEngineSettings, ensureStage:() => stageSwitch.ensure(),
     // The mods' stage contributions (their host extensions) and the stage reads a mod's stage service scopes its chat with.
     modStageContributions, stageReads:Object.freeze({readCarries:stageReadCarries, readScope:stageReadScope, markRead:markStageRead})}, {enabled:false,onStatus:status=>sessionSignals.publish('plugin:dsh-tavern-stage',{kind:'plugin-lifecycle',version:status+':'+Date.now()+':'+Math.random()})})
+  const {dialogueBubbles} = stageRuntime.assets
 
   // ---------- 模型调用 ----------
   const helperGenerationTasks = createHelperGenerationTasks()
@@ -1631,6 +1583,7 @@ export async function apply(ctx) {
   const voiceService = () => ctx.get('tts')
   const speech = createLineSpeech({ getTts: voiceService, getLibrary: () => ctx.get('assetLibrary') })
   const speechBridge = createSpeechProviderBridge({ providers: () => pluginApi.speechProviders(), toWav: speechAudioToWav, warn: error => ctx.logger.warn('dsh-tavern: 插件配音渠道无法接入语音服务 %s', error?.message || error) })
+  ctx.inject(['tts'], child => { const detach = speechBridge.attach(voiceService()); child.effect(() => detach) })
   ctx.effect(() => () => speech.dispose())
   resourceGraph = createResourceGraph({
     castAssets,
@@ -2415,7 +2368,7 @@ export async function apply(ctx) {
     for (const source of binding.sources || [binding]) if (source.path || source.cardPath) paths.add(source.path || source.cardPath)
     if (scriptPath) paths.add(scriptPath)
     const versions = await Promise.all([...paths].map(file => profileData.version('resources/' + file)))
-    return [binding, [...paths], versions, scriptsVersion, dialogueSettingsRevision, stageRuntime.status(), cardUpdates.revision(chat.sessionId)]
+    return [binding, [...paths], versions, scriptsVersion, stageRuntime.status(), cardUpdates.revision(chat.sessionId)]
   }
   const sessionProjection = createSessionViewProjection({
     readChanges: (id, revision) => chatPersistence.readChangedSlice(id, revision, 'settlement'),
@@ -2430,7 +2383,7 @@ export async function apply(ctx) {
     tavernExtensionSettings,
     readCardExtensions: (cardPath, chat, settings) => readCardExtensions(cardPath, chat, false, settings),
     readLiveCardStage, stageReadScope, readStageChat,
-    readCardStageMode: stageRuntime.assets.cardStageMode,
+    readCardStageMode: cardPath => stageRuntime.assets.cardStageMode(cardPath),
     readCardResourceVersions,
     tavernRemoteAssets,
     liveCardUpdate,
@@ -2535,13 +2488,11 @@ export async function apply(ctx) {
   let pluginApi = null
   const contextPlanner = createContextPlanner({ prompt: runtimePrompt, callModel: callModel, now: Date.now, logger: console,
     guideSections: gameId => pluginApi?.guideSections(gameId) })
-  const foregroundCapabilities = createForegroundCapabilities({
+  const foregroundCapabilities = stageRuntime.foreground({
     session: id => sessionStore.get(id) || agentRegistry.get(id)?.session,
     // A card that declares one of a mod's tools stands for that mod: the stage leaves out that mod's prompts.
-    modPromptsAvailable:() => stageRuntime.status() === 'ready',
-    modPrompts:(chat, options) => stageRuntime.modPrompts(chat, {...options, cardGoverns}),
-    judge:() => dialogueEngine().judge,
-    readConfig: (cardPath, chat) => dialogueBubbles.read(cardPath, {requireAvailable:true, dialogueSettings:chat?.dialogueSettings ?? {}}),
+    cardGoverns,
+    readConfig: cardPath => dialogueBubbles.read(cardPath, {requireAvailable:true}),
     render: async (chat, worldBook) => {
       if (stageReadScope(chat) && worldBook.view.entries.some(isWorldBookTemplateEntry)) chat = await readStageChat(chat.sessionId)
       return projectWorldBookTemplates({worldBook,includeConstants:true,
@@ -2553,7 +2504,6 @@ export async function apply(ctx) {
       draft.foregroundCapabilities=snapshot;return draft
     }, {source:'foreground.capabilities',touchUpdatedAt:false,assertCurrent:options?.assertCurrent})
   })
-  ctx.effect(() => () => foregroundCapabilities.dispose(), 'dsh-tavern: foreground dialogue prompts')
   const playCardSnapshots = createPlayCardSnapshots({ worldBooks, planner: contextPlanner, readCard: readChatCard, readLatestCard, writeChat, updateChat, userPreferenceProfile })
   const ensurePlayCardSnapshot = playCardSnapshots.ensure
   async function ensureNativeSystemPrefix(session, chat) {
@@ -3105,32 +3055,12 @@ export async function apply(ctx) {
   })
   // Work other modules report as busy to the deployment gate (getDeploymentActivity).
   const deploymentWork = []
-  ctx.inject(['assetLibrary'], child => {
-    const books = watchFigureBubbleBooks({service:child.get('assetLibrary'), packSettings:ctx.get('assetPackSettings'),
-      listCards:() => fileResources.list('card'), readWorkspace:cardStorage.readWorkspace,
-      sync:path => dialogueBubbles.sync(worldBooks, path),
-      onError:(error, path) => console.warn('dsh-tavern: figure writer sync failed', path || '', error.message)})
-    child.effect(() => () => books.dispose())
-  })
-  ctx.inject(['assetLibrary', 'tts'], child => {
-    const services = {library:child.get('assetLibrary'), tts:child.get('tts')}
-    child.effect(() => services.tts.registerUsageSource({owner:'dsh-tavern',
-      inspect:serviceId => countServiceUsers({...services, serviceId})}))
-    migrateServiceSourceModels(services)
-      .then(done => done && ctx.logger.info('service model migration %s', JSON.stringify(done)), error => ctx.logger.warn('service model migration failed: %s', error?.code || error?.message))
-    migrateReadingVoices(services)
-      .then(done => done && ctx.logger.info('reading voice migration %s', JSON.stringify(done)), error => ctx.logger.warn('reading voice migration failed: %s', error?.code || error?.message))
-  })
-  const voiceBackfill = createVoiceBackfill({workflow, chatHeaderForSession, dialogueBubbles, chatForSession,
-    bodyForTurn:async (chat, turn) => (await replyDisplayForChat(chat, await readChatCard(chat), true)).projections.find(row => row.turn === turn)?.body,
-    voiceBackfillLines, voiceBackfillKept,
-    writeMessage:(chatId, index, mutate) => updateChatMessage(chatId, index, mutate, {source:'voice-backfill'}),
-    runAgent:input => backgroundAgentRunner.run(input), selection:modelSelection, blocked:chat => Boolean(autoCompaction?.blocked(chat))})
-  ctx.effect(() => () => voiceBackfill.dispose(), 'dsh-tavern: voice backfill')
-  await stageRuntime.start({hostLibrary, contextHost, dataRoot, uploads, activeStageSkin, workbenchAuthority, autoCastSettings, managedModSettings,
+  await stageRuntime.start({hostLibrary, contextHost, dataRoot, uploads, activeStageSkin, workbenchAuthority,
     // the one reader of variable conditions (an asset's recall.when, revealWhen), for the stage's recall.
     variableConditionHolds: mvuConditionHolds,
-    presentationObservers, settlementParticipants, workflow, modelSlots, chatHeaderForSession, dialogueBubbles, activeRoundBodies,
+    presentationObservers, settlementParticipants, workflow, modelSlots, chatHeaderForSession, dialogueBubbles, activeRoundBodies, voiceBackfillLines, voiceBackfillKept,
+    // No background task starts while the game is compacted (ADR 0003); the coordinator's own guard.
+    backgroundBlocked: chat => Boolean(autoCompaction?.blocked(chat)),
     readReplyPrefix:(sessionId,turn) => assistantResultForTurn(sessionStore.get(sessionId) || agentRegistry.get(sessionId)?.session,turn)?.text || '',
  worldBooks, containStage, cardsActive: () => assetCardsActive, llm, requestPerformance, sessionSignals, coordinationEvents, fileResources, cardPreparation, cardStorage, cardPlugins, bumpCardProjectionRevision, syncCardName, readChat, readChatCard, readStageChat, stageReads, readRoundView, storyEvents, deploymentWork, backgroundTaskPolicies, chatForSession, chatPersistence, chatJournalStore, rawUpdateChat, updateChat, updateChatMessage, patchChat, storyTimeline, replyDisplayForChat, sessionActivity, modelSelection, resolveSlot, readTavernSettings, callModel, modelRequestLog, backgroundAgentRunner, tavernScriptHostAdapter, tavernScriptDispatch})
   const mvuSettlement = createMvuSettlementModule({
@@ -3246,9 +3176,9 @@ export async function apply(ctx) {
     return own
   }
   async function castCardOf(sessionId) {
-    const header = await chatHeaderForSession(str(sessionId), ['cardPath', 'cardName', 'mode', 'macroState', 'dialogueSettings'])
+    const header = await chatHeaderForSession(str(sessionId), ['cardPath', 'cardName', 'mode', 'macroState'])
     if (!header || !header.cardPath || !['story', 'script'].includes(header.mode || 'story')) throw new Error('这一局没有绑定人物卡')
-    return { path: str(header.cardPath), name: str(header.cardName), player: str(header.macroState && header.macroState.userName).trim() || '你', dialogueSettings:header.dialogueSettings }
+    return { path: str(header.cardPath), name: str(header.cardName), player: str(header.macroState && header.macroState.userName).trim() || '你' }
   }
   // Each turn's spoken lines (getCast, onCastAnnotated, getStage, registerTurnView): its round body's bubble paragraphs,
   // as the chat shows them (the read getRoundBody makes); the round view names the earlier turns so their floors carry their text.
@@ -3286,16 +3216,16 @@ export async function apply(ctx) {
     const manifest = await castAssets.read(card.path)
     const background = (manifest.backgrounds || [])[0]
     // Whether this card's games show the stage: the player's 舞台 switch, for a card with bound packs.
-    return { enabled: (await dialogueBubbles.read(card.path, {dialogueSettings:card.dialogueSettings}).catch(() => null))?.stage?.enabled === true, player: card.player, card: { name: card.name, imageUrl: '/api/dsh-tavern/card-image?path=' + encodeURIComponent(card.path) },
+    return { enabled: (await dialogueBubbles.read(card.path).catch(() => null))?.stage?.enabled === true, player: card.player, card: { name: card.name, imageUrl: '/api/dsh-tavern/card-image?path=' + encodeURIComponent(card.path) },
       background: background ? '/api/dsh-tavern/cast-asset?' + new URLSearchParams({ card: castAssets.keyOf(card.path), file: background.file }).toString() : '',
       cast: await castView(sessionId, card.path, manifest), turns }
   }
   // One line in its voice through the voice service (domain/speech.js): { url, mediaType, loudness }, { browser, voice, text }
-  // or { skip, reason } (TTS_UNAVAILABLE without a voice service). A figure voice needs the card's speech, which only
+  // or { skip, reason } (TTS_UNAVAILABLE without a voice service). A figure voice needs the stage's card speech, which only
   // a page's authenticated origin opens; without it the line uses the 台词朗读 voice.
   async function speakLine(sessionId, { speaker, text, emotion, narration } = {}, origin) {
     const card = await castCardOf(str(sessionId)).catch(() => null)
-    const figures = card && origin ? await dialogueSpeech.forGame({ sessionId: str(sessionId), cardPath: card.path, dialogueSettings:card.dialogueSettings }, origin) : null
+    const figures = card && origin ? await stageRuntime.assets.cardSpeech({ sessionId: str(sessionId), cardPath: card.path }, origin) : null
     const extension = card && !figures && narration === true ? await cardStageExtension(card.path).catch(() => null) : null
     return speech.speak({ text, speaker: str(speaker), emotion: str(emotion) || 'neutral', narration: narration === true, figures, extension: extension || undefined })
   }
@@ -3681,7 +3611,6 @@ export async function apply(ctx) {
     isWorldbookPath: filePath => worldbookSkillProvider.ownsPath(filePath),
     isBackground: sessionId => backgroundAgentRunner.owns(sessionId),
     regenerateWithProvider: input => regenerateWithProvider(input) })
-  ctx.inject(['tts'], child => { const detach = speechBridge.attach(voiceService()); child.effect(() => detach) })
   ctx.provide('tavern', pluginApi.service)
   // A figure's name, 触发词 and outfit names: in its 配图 人物库 record once switched there (image-character-records.js),
   // else in its pack with the follower below bringing the record along.
@@ -4048,15 +3977,8 @@ export async function apply(ctx) {
     return name
   }
   // ---------- 后台结算 ----------
-  const { playWorldBook: readPlayWorldBook, worldBookScanDepth, mvuUpdateRules } = createPlayWorldBook({ worldBooks, readChatCard, pluginApi, runtime: promptTemplateRuntime, globalVariables: readPromptTemplateGlobalVariables })
+  const { playWorldBook, worldBookScanDepth, mvuUpdateRules } = createPlayWorldBook({ worldBooks, readChatCard, pluginApi, runtime: promptTemplateRuntime, globalVariables: readPromptTemplateGlobalVariables })
   const boundedHistory = createBoundedHistory({ links: readSessionMap, readWindow: chatPersistence.readWindow })
-  async function playWorldBook(chat, card) {
-    const book = await readPlayWorldBook(chat, card)
-    if (!chat?.cardPath || groupOfMode(chat.mode) !== 'play') return book
-    // The authored card entry remains a default for other games on the same card.
-    const config = await dialogueBubbles.read(chat.cardPath, {dialogueSettings:chat.dialogueSettings ?? {}, requireAvailable:true})
-    return replaceDialogueWorldbookEntries(book, foregroundCapabilityEntries(config, chat))
-  }
   // A story request reads the header, every floor its world book scans (plus the
   // current input or latest body), the latest reply and the latest variable floor.
   // Card mode, old saves and unknown depths keep the complete Chat.
@@ -4081,7 +4003,7 @@ export async function apply(ctx) {
       : synced === undefined ? await wholeReads.allow('本进程首次同步', () => chatForSession(sessionId)) : await chatForSession(sessionId)
     if (chat?._storageRevision !== undefined) surfaceSyncedRevisions.set(str(sessionId), chat._storageRevision)
     if (chat?.cardPath && groupOfMode(chat.mode) === 'play' && stageRuntime.status() !== 'ready') {
-      await stageRuntime.assets.cardStageMode(chat.cardPath, chat.dialogueSettings)
+      await stageRuntime.assets.cardStageMode(chat.cardPath)
     }
     return chat
   }
@@ -4841,48 +4763,6 @@ export async function apply(ctx) {
   rpcHandlers.getStageRuntimeStatus = async () => stageSwitch.read()
   rpcHandlers.prepareStageWorkbench = () => stageSwitch.ensure()
   rpcHandlers.prepareCardStage = args => stageRuntime.assets.cardStageMode(args?.path)
-  async function dialogueGame(sessionId) {
-    const chat = await chatHeaderForSession(str(sessionId), ['cardPath', 'dialogueSettings'])
-    if (!chat?.cardPath || groupOfMode(chat.mode) !== 'play') throw new Error('请选择一个游玩对话')
-    return chat
-  }
-  async function dialoguePreferences(cardPath, settings) {
-    const extension = await cardStageExtension(cardPath)
-    const {dialogue, voice} = effectiveConversationStage(extension, dialogueEngine(), settings)
-    return {dialogue, voice}
-  }
-  rpcHandlers.getConversationDialogueSettings = async args => {
-    const chat = await dialogueGame(args?.sessionId)
-    return dialoguePreferences(chat.cardPath, chat.dialogueSettings)
-  }
-  rpcHandlers.setConversationDialogueSettings = async args => {
-    const changes = Object.fromEntries(['dialogue', 'voice'].filter(key => Object.hasOwn(args || {}, key)).map(key => [key, args[key]]))
-    if (!Object.keys(changes).length || Object.values(changes).some(value => typeof value !== 'boolean')) throw new TypeError('对话气泡和配音的设置必须是布尔值')
-    const chat = await dialogueGame(args?.sessionId)
-    const saved = await updateChatHeader(chat.id, ['dialogueSettings'],
-      current => ({dialogueSettings:{...current.dialogueSettings, ...changes}}), {source:'conversation.dialogue-settings'})
-    sessionSignals.publish(chat.sessionId, {kind:'dialogue-settings', version:uid('dialogue')})
-    return dialoguePreferences(chat.cardPath, saved.dialogueSettings)
-  }
-  rpcHandlers.getDialogueBubbles = async args => {
-    const chat = await requestPerformance.stage('config.chat', () => readStageChat.view(args?.sessionId, {configOnly:true}))
-    const dialogueSettings = chat && groupOfMode(chat.mode) === 'play' ? chat.dialogueSettings ?? {} : undefined
-    const prepared = await requestPerformance.stage('config.bubbles', () => dialogueBubbles.snapshot(chat?.cardPath, {dialogueSettings}))
-    const config = prepared.config, userName = str(chat?.macroState?.userName)
-    const placement = chat?.cardPath ? await requestPerformance.stage('config.placement', () => readDialogueBubblePlacement(worldBooks, chat.cardPath, config.injection.placement)) : null
-    const nativeForeground = chat && chat.requestMode !== 'sillytavern' && ['story','script'].includes(chat.mode || 'story')
-    const injection = nativeForeground ? await requestPerformance.stage('config.foreground', () => foregroundCapabilities.preview(chat, {nextRound:Boolean(chat.dialogueSettings), readConfig:() => prepared.requireAvailable()}))
-      : bubbleInjection(config, {userName})
-    return {engineSettings:assetEngineSettings.read(), cardPath:str(chat?.cardPath), cardName:str(chat?.cardName), userName,
-      config, defaultTemplate:DEFAULT_BUBBLE_TEMPLATE, presets:await dialogueBubblePresets.list(),
-      ...bubbleInstructionPreview(config, {userName}), injection, placement:nativeForeground && placement ? {...placement, entries:[]} : placement}
-  }
-  rpcHandlers.openAssetPackVoice = async (args, _method, _serverTemplate, authority) => {
-    const chat = await readStageChat.view(args?.sessionId, {configOnly:true})
-    const cardSpeech = chat?.cardPath && await dialogueSpeech.forGame(chat, authority?.origin)
-    return cardSpeech ? cardSpeech.open(args?.narrator === true ? NARRATOR_VOICE : args?.general === true ? GENERAL_VOICE : args?.alias)
-      : {available:false, diagnostics:['voice-unbound']}
-  }
   rpcHandlers.setStageEnabled = async args => {
     if (typeof args?.enabled !== 'boolean') throw new TypeError('舞台启用状态必须是布尔值')
     if (args.enabled && !stageSwitch.read().installed) throw new Error('舞台插件未安装，无法启用')
@@ -4894,11 +4774,19 @@ export async function apply(ctx) {
   stageRuntime.requests(rpcDeps, extensionRequests)
   ctx.provide('tavernStageControl',Object.freeze({
     enable:stageSwitch.enable,disable:stageSwitch.disable,status:stageRuntime.status,install:stageSwitch.install,uninstall:stageSwitch.uninstall,
-    workbench: { deps:rpcDeps, ensure:stageSwitch.ensure, call:(method,args) => method === 'getDialogueBubbles' ? rpcHandlers.getDialogueBubbles(args) : extensionRequests.call(method,args,workbenchAuthority) }
+    workbench: { deps:rpcDeps, ensure:stageSwitch.ensure, call:(method,args) => extensionRequests.call(method,args,workbenchAuthority) }
   }))
   ctx.effect(() => () => stageRuntime.dispose(), 'dsh-tavern: optional stage controller')
 
   async function dispatchMethod(method, args, authority, serverTemplate = false) {
+    // Read-aloud and card frames ask for speaker metadata even in a plain game.
+    if (method === 'getDialogueBubbles' && !extensionRequests.handles(method)) {
+      const chat = await chatHeaderForSession(args?.sessionId, ['cardPath','cardName','mode'])
+      if (chat?.cardPath && groupOfMode(chat.mode) === 'play') await stageRuntime.assets.cardStageMode(chat.cardPath)
+      if (!extensionRequests.handles(method)) {
+        return {cardPath: str(chat?.cardPath), cardName: str(chat?.cardName), config: await dialogueBubbles.read()}
+      }
+    }
     if (extensionRequests.handles(method)) return extensionRequests.call(method,args,authority,serverTemplate)
     if (method.startsWith('gameplay.')) return await gameplayApi.call(method.slice(9), args || {})
     const handler = rpcHandlers[method]
@@ -5242,7 +5130,6 @@ export async function apply(ctx) {
     ensureNativeSystemPrefix,
     foregroundHandoff,
     foregroundStrategies,
-    dialogueOutput: async chat => (await dialoguePreferences(chat.cardPath, chat.dialogueSettings)).dialogue,
     nativeWorldBookTemplateContext,
     persistClearedBodyEdits,
     pluginPromptSections: pluginApi.promptSections,

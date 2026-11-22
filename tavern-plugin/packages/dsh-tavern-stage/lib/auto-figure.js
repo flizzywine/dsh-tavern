@@ -27,7 +27,7 @@ export function createAutoFigureWriter({getLibrary, dialogueBubbles, readCurrent
   }
   async function submit(chat, message) {
     if (!active) return
-    const config = await dialogueBubbles.read(chat.cardPath, {dialogueSettings:chat.dialogueSettings})
+    const config = await dialogueBubbles.read(chat.cardPath)
     if (!active || !config?.enabled) return
     const turn = Number(message.turn || (message.greeting ? 1 : 0))
     const current = await readCurrent(chat)

@@ -54,7 +54,7 @@ test('stage voice row: the row and 「›」 open the 配音 page, ⚠ + 去设�
   assert.equal(mark(),null,'no failure: no ⚠')
   const jump=document.querySelector('button.ap-kind-jump')
   assert.ok(jump,'the 「›」 is always there');assert.equal(jump.getAttribute('aria-label'),'配音设置')
-  assert.equal(document.querySelector('[role=switch]'),null,'the playback switch is in the conversation settings')
+  assert.equal(document.querySelector('[role=switch]').getAttribute('aria-checked'),'true')
   jump.click();assert.equal(state.opened,1)
   document.querySelector('.ap-switch-name').click()
   assert.equal(state.opened,2,'the name opens the 配音 page')
@@ -62,7 +62,7 @@ test('stage voice row: the row and 「›」 open the 配音 page, ⚠ + 去设�
   assert.equal(state.opened,3,'so does the row')
   state.issues={claude:[{code:'QWEN_MODEL_NOT_FOUND',field:'model'}]};await emit();await settle()
   assert.equal(mark()?.getAttribute('aria-label'),'Claude 娘：模型无法访问')
-  // The ⚠ is the compact HintLine (CSS puts it in the row), after the 「›」.
+  // The ⚠ is the compact HintLine (CSS puts it right before the switch tag, like the 模组 rows), after the 「›」.
   const main=document.querySelector('.ap-switch-main'),kids=[...main.children]
   assert.ok(kids.indexOf(main.querySelector('.ap-hint-line'))>kids.indexOf(jump),'⚠ follows the 「›」')
   assert.equal(document.querySelector('.ap-switch-warn'),null,'no ⚠ glued to the name')

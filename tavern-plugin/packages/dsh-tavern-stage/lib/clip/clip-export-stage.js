@@ -19,7 +19,7 @@ export function createStageClipExport({ctx, deps, stageDirector, modService, car
   const clipExport = createClipHost({
     readChat:async sessionId => {const id=(await readSessionMap())[sessionId];return id ? readChat(id) : null},
     readDisplay:async chat => replyDisplayForChat(chat,await readChatCard(chat),true),
-    readConfig:(cardPath, chat) => dialogueBubbles.read(cardPath, {dialogueSettings:chat.dialogueSettings}),readWorkspace:readCardWorkspace,paragraphSpeech,
+    readConfig:cardPath => dialogueBubbles.read(cardPath),readWorkspace:readCardWorkspace,paragraphSpeech,
     readDirection:(chat,turn) => stageDirector.get(chat,turn,null,{readOnly:true,includePredecessor:true}),
     library:() => ctx.get('assetLibrary'),tts:() => ctx.get('tts'),settings:() => assetEngineSettings.read(),
     globalPacks:() => ctx.get('assetPackSettings')?.read().values.globalEnabledPackIds || [],

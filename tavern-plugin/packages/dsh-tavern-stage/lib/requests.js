@@ -3,9 +3,9 @@ import {MOD_MANAGEMENT_METHODS} from './mod-service.js'
 import {MANAGED_MOD_METHODS} from './mod-system-production.js'
 import {MOD_CONFIG_METHODS} from './mod-config.js'
 import {CLIP_EXPORT_METHODS} from './clip/clip-export.js'
-import {AUTO_CAST_METHODS} from '../../../lib/auto-cast-settings.js'
+import {AUTO_CAST_METHODS} from './asset-engine.js'
 
-const remoteReads = new Set(['getStageDirection', 'getStageModHistory'])
+const remoteReads = new Set(['getStageDirection', 'getStageModHistory', 'getDialogueBubbles'])
 // The browser transport adds _performance, _traceId and _sessionPatchPage to every request; no stage method sees them (many check their fields strictly).
 const inputOf = args => {const {_performance, _traceId, _sessionPatchPage, ...input} = args || {};return input}
 const unavailable = () => Object.assign(new Error('舞台模块已停用'), {code:'STAGE_UNAVAILABLE'})

@@ -15,9 +15,10 @@ export {MANAGED_MOD_METHODS}
 
 // The authenticated application dispatch and the existing card/settings/plugin owners are the
 // only entry points. This is management, not a second plugin loader or runtime registry.
-export function createManagedModProduction({ctx,settingsOwner=ctx,settings=createManagedModSettingsOwner(ctx,settingsOwner),cardPlugins,uploads,cardPreparation,listPaths,readWorkspace,writeWorkspace,withCardLock,validateReferences=createManagedConfigAssetValidator({getAssetLibrary:()=>ctx.get('assetLibrary')}),onChange,readSkin=async()=>null,readSession=async()=>null,resolveOptionConfig,distributions=firstPartyDistributions}) {
+export function createManagedModProduction({ctx,settingsOwner=ctx,cardPlugins,uploads,cardPreparation,listPaths,readWorkspace,writeWorkspace,withCardLock,validateReferences=createManagedConfigAssetValidator({getAssetLibrary:()=>ctx.get('assetLibrary')}),onChange,readSkin=async()=>null,readSession=async()=>null,resolveOptionConfig,distributions=firstPartyDistributions}) {
   let bundles
   const localDistributions=()=>bundles ||= distributions()
+  const settings=createManagedModSettingsOwner(ctx,settingsOwner)
   const cards=createManagedModCardOwner({cardPreparation,listPaths,readWorkspace,writeWorkspace,withCardLock})
   // Retired: performance moved into core; danmaku was removed (#456). Their installed releases leave the catalogue and
   // the native loader at the next installBuiltins.

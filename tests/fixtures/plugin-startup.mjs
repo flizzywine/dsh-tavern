@@ -22,6 +22,9 @@ await createChatJournalStore({ dataRoot: root }).update('stage-chat', () => ({
 const releaseIdentities = ['mode-smoke', 'identity-test-plugin'].map(name => registerRunningUserPlugin(name, { folder: name, sha256: '', bound: false, origin: 'global', cardIds: [], runtimeName: name }))
 const host = await createPluginHost({ withTools: true })
 try {
+  const stageRuntime = await host.rpc('getStageRuntimeStatus')
+  assert.equal(stageRuntime.installed, true)
+  assert.equal(stageRuntime.status, 'ready', 'the installed stage starts before a card is opened')
   const imported = await host.rpc('importCard', { payload: { name: 'stage-test.json', text: JSON.stringify({ spec: 'chara_card_v2', spec_version: '2.0', data: card }) } })
   await createChatJournalStore({ dataRoot: root }).update('stage-chat', chat => ({ ...chat, _storageRevision: 2, cardPath: imported.card.path }))
   assert.equal(typeof host.services.get('tavernSessionSignals')?.control, 'function')
@@ -54,23 +57,14 @@ try {
   assert.deepEqual((await host.rpc('pluginMediaTurns', { sessionId: 'missing-game' })).turns, [])
   assert.deepEqual((await host.rpc('pluginMediaForTurn', { sessionId: 'missing-game', turn: 1 })).items, [])
   host.services.get('sessions').set('stage-session', { id: 'stage-session', events: [] })
-  assert.equal((await host.rpc('getStageRuntimeStatus')).status, 'ready')
   assert.equal((await host.rpc('prepareCardStage', { path: imported.card.path })).stage, false)
   assert.equal((await host.rpc('getSession', modeArgs)).view.stage.stage, false)
-  assert.equal((await host.rpc('getDialogueBubbles', modeArgs)).config.enabled, true)
-  assert.equal(JSON.parse(await host.services.get('tavernSessionSignals').control('getDialogueBubbles', modeArgs)).config.enabled, true)
-  assert.equal((await host.rpc('getStageRuntimeStatus')).status, 'ready')
+  assert.equal((await host.rpc('getDialogueBubbles', modeArgs)).config.enabled, false)
+  assert.equal(JSON.parse(await host.services.get('tavernSessionSignals').control('getDialogueBubbles', modeArgs)).config.enabled, false)
 
   const stageCard = { ...card, name: 'Stage enabled', extensions: { dsh_tavern: {
     schemaVersion: 1, assetBindings: { boundPackIds: [] }, stage: { enabled: true }
   } } }
-  const bubbleOnly = {...stageCard, name:'Dialogue only', extensions:{dsh_tavern:{
-    ...stageCard.extensions.dsh_tavern, stage:{dialogue:true, stage:false}
-  }}}
-  const bubbleImport = await host.rpc('importCard', {payload:{name:'dialogue-only.json', text:JSON.stringify({spec:'chara_card_v2', spec_version:'2.0', data:bubbleOnly})}})
-  const {dialogue, stage, isStageCard} = await host.rpc('prepareCardStage', {path:bubbleImport.card.path})
-  assert.deepEqual({dialogue, stage, isStageCard}, {dialogue:true, stage:false, isStageCard:false})
-  assert.equal((await host.rpc('getStageRuntimeStatus')).status, 'ready', 'the installed stage starts before a card is opened')
   const stageImport = await host.rpc('importCard', { payload: { name: 'stage-enabled.json', text: JSON.stringify({ spec: 'chara_card_v2', spec_version: '2.0', data: stageCard }) } })
   const journal = createChatJournalStore({ dataRoot: root })
   await journal.update('active-stage-chat', () => ({
@@ -79,9 +73,11 @@ try {
     messages: [{ role: 'assistant', turn: 1, text: 'A quiet room.', sourceText: 'A quiet room.' }]
   }))
   host.services.get('sessions').set('active-stage-session', { id: 'active-stage-session', events: [] })
-  assert.equal((await host.rpc('getStageRuntimeStatus')).status, 'ready')
   const stageView = await host.rpc('getSession', { sessionId: 'active-stage-session' })
   assert.deepEqual(stageView.view.stage, { dialogue: true, stage: true, isStageCard: true })
+  const stageBubbles = (await host.rpc('getDialogueBubbles', { sessionId: 'active-stage-session' })).config
+  assert.equal(stageBubbles.enabled, true)
+  assert.equal(stageBubbles.voice.enabled, true)
   assert.equal((await host.rpc('prepareCardStage', { path: stageImport.card.path })).stage, true)
   assert.equal((await host.rpc('getStageRuntimeStatus')).status, 'ready')
   assert.equal((await host.rpc('getSession', modeArgs)).view.stage.stage, false)

@@ -6,6 +6,7 @@ import {createLive2dFiles, live2dFigureRuntime} from './live2d/live2d-files.js'
 import {isAbsolute, join} from 'node:path'
 import {stageModHistoryTurns} from './domain/stage-items.js'
 import {registerStageClientAssets} from './client-assets.js'
+import {createForegroundCapabilities} from '../../../lib/domain/foreground-capabilities.js'
 import {createStageCardAssets} from './card-assets.js'
 import {createResourceScope} from '../../../lib/domain/resource-scope.js'
 import {createStageAssets, createStageModule, createStageServices} from './module.js'
@@ -28,7 +29,14 @@ export function createStageRuntime(core, factories = {assets:createStageAssets, 
   } catch(error) {failed(error)}
   return Object.freeze({
     assets,
-    modPrompts:(chat, options) => module.managedModManagement.foreground(chat, options),
+    foreground(bindings) {
+      assert('assets')
+      const capabilities=createForegroundCapabilities({...bindings,
+        modPrompts:(chat,options)=>module?.managedModManagement.foreground(chat,{...options,cardGoverns:bindings.cardGoverns}),
+        judge:()=>assets.assetEngineSettings.read().values.judge})
+      scope.own(capabilities)
+      return capabilities
+    },
     cards(bindings) {
       assert('assets')
       try {return cardAssets = createStageCardAssets({...bindings,...assets,ctx:scope.ctx,active:scope.active})}

@@ -10,7 +10,7 @@ export const stageReadHeaderFields = [
   'backgroundConfigVersion','conversationFeaturesVersion','requestMode','macroState',
   'timeline.branchId','timeline.revision','timeline.operations','regenInProgress',
   'cardDefinitionSnapshot','runtimePresetSnapshot','openingWorldbookSnapshot','openingText',
-  'presentation','dialogueSettings','foregroundCapabilities','variables','promptTemplateInitialVariables','ledger','mvu.enabled',
+  'presentation','foregroundCapabilities','variables','promptTemplateInitialVariables','ledger','mvu.enabled',
   'tavernHelperLifecycleRevision','updatedAt'
 ]
 export const stageReadIdentityFields = ['id','role','turn','greeting','swipeId','swipes','sourceText','text','polishedFrom']

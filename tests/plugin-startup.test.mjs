@@ -21,7 +21,7 @@ test('production plugin initializes a fresh profile and serves stage and managed
   }
 })
 
-test('production core serves ordinary dialogue and voice with the stage stopped',async()=>{
+test('production core starts without the stage runtime and imports ordinary cards',async()=>{
   const root=await mkdtemp(join(tmpdir(),'tavern-no-stage-'))
   try {
     const result=spawnSync(process.execPath,[fileURLToPath(new URL('./fixtures/plugin-without-stage.mjs',import.meta.url))],{
@@ -33,7 +33,7 @@ test('production core serves ordinary dialogue and voice with the stage stopped'
 })
 
 
-test('dialogue and voice remain available when resolving the stage package is forbidden', async () => {
+test('core initializes and imports cards when resolving the stage package is forbidden', async () => {
   const root = await mkdtemp(join(tmpdir(), 'tavern-stage-absent-'))
   try {
     const result = spawnSync(process.execPath, [fileURLToPath(new URL('./fixtures/stage-unavailable.mjs', import.meta.url))], {

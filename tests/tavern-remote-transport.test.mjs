@@ -507,7 +507,7 @@ for (const file of ['../tavern-plugin/src/client/main.js', '../tavern-plugin/lib
     const source = await readFile(new URL(file, import.meta.url), 'utf8')
     const start = source.indexOf('function rpc(method, args, sessionId, requestOptions)')
     const end = source.indexOf('function rpcWithTimeout', start) // d6e5cb1ed
-    const bubbles = await readFile(new URL('../tavern-plugin/src/client/bubbles.js', import.meta.url), 'utf8')
+    const bubbles = await readFile(new URL('../tavern-plugin/packages/dsh-tavern-stage/src/client/bubbles.js', import.meta.url), 'utf8')
     const storeStart = bubbles.indexOf('const bubbleStore =')
     const storeEnd = bubbles.indexOf('function useBubbles', storeStart)
     const sandbox = {

@@ -5,7 +5,7 @@ import bubbleLine from '../tavern-plugin/src/client/bubble-line.cjs'
 import {roundBody, replyBody, voiceBackfillLines, voiceBackfillKept} from '../tavern-plugin/lib/domain/round-body.js'
 import {createWorkflow} from '../tavern-plugin/lib/domain/workflow.js'
 import { createStoryEvents } from '../tavern-plugin/lib/domain/story-events.js'
-import { createVoiceBackfill } from '../tavern-plugin/lib/domain/voice-backfill.js'
+import { createVoiceBackfill } from '../tavern-plugin/packages/dsh-tavern-stage/lib/voice-backfill.js'
 
 const require = createRequire(import.meta.url)
 const {createStageTextIndexModule} = require('../tavern-plugin/packages/dsh-tavern-stage/src/client/text-index.cjs')

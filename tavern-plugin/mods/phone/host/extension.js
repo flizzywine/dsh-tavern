@@ -155,7 +155,7 @@ export function createStagePhoneHost({ctx, managedModManagement, readCardWorkspa
       let voice = consumer ? await consumer.speech.open(contactId, opening) : {available:false, diagnostics:['voice-unbound']}
       // The first open on a fresh runtime can race its own revision check; it asks to be opened again (as the stage player does).
       if (voice.diagnostics?.[0] === 'TTS_STALE') voice = await consumer.speech.open(contactId, opening)
-      const config = await dialogueBubbles.read(chat.cardPath, {dialogueSettings:chat.dialogueSettings})
+      const config = await dialogueBubbles.read(chat.cardPath)
       const character = bubbleCharacter(config, {alias:contactId, name:row.name})
       const moods = effectiveBubbleMoods(config, character?.alias).filter(mood => !character?.promptEmotionIds || character.promptEmotionIds.includes(mood.id))
       return {contact:{id:contactId, name:row.name, handle:figureSpeakerHandle(directory[PHONE_FIGURES],figure), ref:figure.ref, moods, voiceRules:bubbleVoiceSwitches(config, character), defaultEmotion:character?.defaultEmotion || 'default'}, persona, language:voice.available ? voice.language || 'zh' : 'zh', voiceAvailable:voice.available === true, voiceProblem:voice.diagnostics?.[0] || null, playerName:chat.macroState?.userName || '', consumer}

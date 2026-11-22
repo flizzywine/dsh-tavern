@@ -6,6 +6,8 @@ import { cardEngineSettings, effectiveCardStage } from '../../../lib/domain/card
 import { assetRefKey, resolveAssetSnapshot } from '../../dsh-presentation-protocol/src/asset-packs.js'
 
 import { assetVoiceBinding } from '../../../lib/domain/figure-voice.js'
+import { migrateServiceSourceModels } from './service-model-migration.js'
+import { migrateReadingVoices } from './reading-voice-migration.js'
 import { cgPlaybackAvailable } from './scene-cg.js'
 export { assetVoiceBinding } from '../../../lib/domain/figure-voice.js'
 
@@ -26,6 +28,12 @@ export function createAssetRuntime({ctx, readWorkspace, engineSettings, onInvali
     for (const listener of listeners) listener(cardPath,event)
     onInvalidate(cardPath,event)
   }
+  // the Fish / MiniMax model moves once from 配音后端 to each figure's source (service-model-migration.js).
+  ctx.inject(['assetLibrary', 'tts'], child => { migrateServiceSourceModels({library:child.get('assetLibrary'), tts:child.get('tts')})
+    .then(done => done && ctx.logger.info('service model migration %s', JSON.stringify(done)), error => ctx.logger.warn('service model migration failed: %s', error?.code || error?.message))
+    // 通用声音 / 旁白 get their figures once: the retired reading voices move onto them, or a new library makes the default ones (reading-voice-migration.js).
+    migrateReadingVoices({library:child.get('assetLibrary'), tts:child.get('tts')})
+      .then(done => done && ctx.logger.info('reading voice migration %s', JSON.stringify(done)), error => ctx.logger.warn('reading voice migration failed: %s', error?.code || error?.message)) })
   for (const name of ['assetLibrary', 'assetPackSettings', 'tts']) ctx.inject([name], child => {
     const lifecycle = reason => {
       if (name === 'tts') for (const entry of consumers.values()) {entry.speech?.dispose(); entry.speech = null}

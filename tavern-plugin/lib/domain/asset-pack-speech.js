@@ -1,6 +1,6 @@
 // each figure registers its own immutable, pack-scoped portable preset.
-import { effectiveConversationStage, effectiveNarrator } from './card-stage-settings.js'
-import { assetPackDigest } from './asset-pack-digest.js'
+import { effectiveCardStage, effectiveNarrator } from './card-stage-settings.js'
+import { assetPackDigest } from '../../packages/dsh-tavern-stage/lib/domain/stage-asset-pack-catalogue.js'
 import { figureTtsVoice, assetVoiceBinding, browserSpeechSource } from './figure-voice.js'
 const failure = code => Object.assign(new Error(code), {code})
 // The key the narrator's voice opens under (旁白配音); never a figure name, so it cannot resolve to a cast member.
@@ -9,7 +9,7 @@ export const NARRATOR_VOICE = '\u0000narrator'
 // every enabled figure without a voice binding, and the reader of 全文朗读.
 export const GENERAL_VOICE = '\u0000general'
 
-export function createAssetPackSpeech({presentation, getEngine, getTts, getBinding, getLibrary, dialogueSettings, scope, principal = 'dsh-browser', readOnly: onlyCached = false}) {
+export function createAssetPackSpeech({presentation, getEngine, getTts, getBinding, getLibrary, scope, principal = 'dsh-browser', readOnly: onlyCached = false}) {
   if (!presentation) return null
   const entries = new Map(), pending = new Map(), listeners = new Set()
   // Prewarms go out one at a time (each reads a voice's reference audio); the local worker queues them behind lines.
@@ -43,15 +43,14 @@ export function createAssetPackSpeech({presentation, getEngine, getTts, getBindi
   }
   // The figure's declared voice, or null when she has none here (voice off on this card, unknown name, figure off, no voice).
   async function declared(alias) {
-    const engine = getEngine?.(), stage = effectiveConversationStage(presentation.extension, engine, dialogueSettings)
-    if (dialogueSettings && !stage.dialogue) return null
+    const engine = getEngine?.(), stage = effectiveCardStage(presentation.extension, engine)
     // 通用声音 / 旁白 speak with the figure tts.reading() points at (any installed pack, enabled or not), exactly as that
     // figure speaks on a card; none chosen = the browser's default voice. 旁白's switch: the card layer over tts.reading().narrator.
     if (alias === GENERAL_VOICE || alias === NARRATOR_VOICE) {
       if (!stage.voice) return null
       const tts = getTts(), reading = tts?.apiVersion === 1 ? tts.reading() : null
       if (alias === NARRATOR_VOICE && !effectiveNarrator(presentation.extension, reading?.narrator).enabled) return null
-      return pointed(alias === GENERAL_VOICE ? reading?.general?.figure : reading?.narrator?.figure)
+      return pointed(alias === GENERAL_VOICE ? reading?.general.figure : reading?.narrator.figure)
     }
     if (!stage.voice) return null
     const resolvedName = await presentation.resolveName(alias), ref = resolvedName.ref

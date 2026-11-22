@@ -10,22 +10,22 @@ import { sessionViewMessageFields } from '../tavern-plugin/lib/domain/session-vi
 import { planShowsRow } from '../tavern-plugin/lib/domain/transcript-row-plan.js'
 import { createOptionalStage } from '../tavern-plugin/lib/optional-stage.js'
 
-test('舞台模块关闭时会话视图仍报告对话气泡和本卡舞台声明', async () => {
+test('会话视图在舞台模块关闭时仍识别舞台卡，兼容旧卡开关', async () => {
   let extension
   const stage = await createOptionalStage({
     readCardWorkspace: async () => ({ raw: { extensions: { dsh_tavern: extension } } })
   }, { enabled: false })
   const f = projectionFixture({ readCardStageMode: stage.assets.cardStageMode })
-  for (const [settings, dialogue, isStageCard] of [
-    [undefined, true, false],
-    [{ enabled: true }, true, true],
-    [{ dialogue: true, stage: true }, true, true],
-    [{ dialogue: true, stage: false }, true, false],
-    [{ enabled: false, dialogue: true, stage: true }, false, false]
+  for (const [settings, isStageCard] of [
+    [undefined, false],
+    [{ enabled: true }, true],
+    [{ dialogue: true, stage: true }, true],
+    [{ dialogue: true, stage: false }, false],
+    [{ enabled: false, dialogue: true, stage: true }, false]
   ]) {
     extension = { assetBindings: { boundPackIds: [] }, stage: settings }
     const view = await f.projection.project.full(f.chat)
-    assert.deepEqual(view.stage, { dialogue, stage: false, isStageCard }, JSON.stringify(settings))
+    assert.deepEqual(view.stage, { dialogue: false, stage: false, isStageCard }, JSON.stringify(settings))
   }
 })
 

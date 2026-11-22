@@ -7,8 +7,8 @@ import {roundBody, streamTailClosed} from '../../../lib/domain/round-body.js'
 export function registerAutoFigureObserver({storyEvents, chatHeaderForSession, dialogueBubbles, readStageChat, bodyForTurn, getLibrary, afterRound = async () => {}, deferred = async () => false, onError}) {
   let active = true, loading, writer
   const off = storyEvents.on('reply-committed', '登记气泡人物', async ({sessionId}) => {
-    const header = await chatHeaderForSession(sessionId, ['cardPath','dialogueSettings'])
-    if (!active || !header?.cardPath || !(await dialogueBubbles.read(header.cardPath, {dialogueSettings:header.dialogueSettings}))?.enabled) return
+    const header = await chatHeaderForSession(sessionId, ['cardPath'])
+    if (!active || !header?.cardPath || !(await dialogueBubbles.read(header.cardPath))?.enabled) return
     const chat = await readStageChat(sessionId)
     if (!active || !chat) return
     loading ||= import('./auto-figure.js').then(({createAutoFigureWriter}) => {
@@ -46,8 +46,8 @@ export function createStageStoryObserver({settlementQueued, modService, stageDir
       if (!Number.isSafeInteger(turn)) return null
       // The streaming round body (getRoundBody) is the stage's alone: a card without one reads no stage view and
       // re-splits no reply on every delta. Admission runs independently of the first token.
-      const header = await chatHeaderForSession(sessionId, ['cardPath','dialogueSettings'])
-      const config = header?.cardPath ? await dialogueBubbles.read(header.cardPath, {dialogueSettings:header.dialogueSettings}) : null
+      const header = await chatHeaderForSession(sessionId, ['cardPath'])
+      const config = header?.cardPath ? await dialogueBubbles.read(header.cardPath) : null
       if (signal?.aborted || !config?.enabled) return null
       const chat = await readStageChat(sessionId)
       if (signal?.aborted || !chat) return null

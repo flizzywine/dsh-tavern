@@ -94,8 +94,6 @@ const bubbleStore = (function () {
             let watch = watches.get(sessionId);
             if (!watch) {
                 const refresh = () => load(sessionId, true);
-                const stopSettings = typeof tavernSessionSignals === "undefined" ? null
-                    : tavernSessionSignals?.subscribe(sessionId, "dialogue-settings", refresh);
                 const timer = setInterval(refresh, 60000);
                 timer.unref?.();
                 const resourceChanged = event => { if (tavernDataChangeAffects(event, ["cards", "worldbooks", "asset-packs"])) refresh(); };
@@ -103,7 +101,6 @@ const bubbleStore = (function () {
                 window.addEventListener("dsh-tavern-data-changed", resourceChanged);
                 watch = {count:0, stop() {
                     clearInterval(timer);
-                    stopSettings?.();
                     if (typeof document !== "undefined") document.removeEventListener("visibilitychange", refresh);
                     window.removeEventListener("dsh-tavern-data-changed", resourceChanged);
                 }};
@@ -380,7 +377,7 @@ function BubbleRow(props) {
     // moves the lightness. The badge is the emotion's colour pill, else the neutral pill.
     useFigureTextContrast(React, row, visible && figureName, color);
     // The round's stage outfit (transcript-outfits.cjs); only staged bubbles have a turn.
-    const outfits = props.turn != null && character?.ref ? stageViews?.transcriptOutfits : null;
+    const outfits = props.turn != null && character?.ref ? stageViews.transcriptOutfits : null;
     const outfitKey = React.useSyncExternalStore(outfits ? outfits.subscribe(props.sessionId, props.turn) : () => () => {}, () => outfits ? outfits.outfit(props.sessionId, props.turn, props.para, character.ref) : null);
     const media = useBubbleMedia(props.sessionId, character, segment.mood, moods, visible, outfitKey);
     return h("div", { ref:row, className: "fork-bubble" + (segment.thought ? " fork-bubble-thought" : ""), style: { "--bubble-color": color, "--bubble-name-ink": figureName ? color : undefined }, "data-alias": segment.alias },
@@ -527,8 +524,7 @@ function BubbleSafePublication(props) {
     useBubbleProseLayout();
     const plain = Object.assign({}, props, { text: bubbleProseText(props.text, props.streaming) });
     for (const key of ["sessionId", "voiceScope", "stageParaBase", "stageParaOffset", "stageSource", "stageOrder", "stageSuperseded", "interrupted"]) delete plain[key];
-    const stageMode = useStageMode(enabled ? props.sessionId : "");
-    const staged = Boolean(stageMode && enabled && stageViews);
+    const staged = Boolean(enabled && stageViews);
     // @bubble lines are body text: with the stage off they still render as bubble rows (name, avatar), never raw.
     if (!staged && String(props.text || "").indexOf("@bubble") < 0) return React.createElement(TavernColoredMarkdown, plain);
     return tavernStageBoundary("对白气泡", React.createElement(BubblePublication, Object.assign({}, props, { staged, key: staged ? "stage" : "body" })), React.createElement(TavernColoredMarkdown, plain));

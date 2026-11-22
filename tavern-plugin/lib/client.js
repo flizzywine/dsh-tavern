@@ -6794,7 +6794,7 @@ window.__ModuleLoader__.load({
 		  // `tag` (基础设置): a four-state text switch (StageSwitchTag) in place of the on/off switch; the row is then never a <label>.
 		  function SwitchRow({label,ariaLabel,icon,help,checked,disabled,onChange,status,onOpen,tag}) {
 		    const name=h('span',{className:'ap-switch-name'},icon&&h(Glyph,{name:icon}),h('span',null,label),help&&h(Help,{text:help,label:label+' 说明'}));
-		    if(tag || onOpen && checked === undefined && !onChange)return h('div',{className:'ap-switch-row'+(tag?' has-tag':'')+(onOpen?' is-openable':''),'data-disabled':disabled||undefined,onClick:onOpen?switchRowClick(onOpen):undefined},
+		    if(tag)return h('div',{className:'ap-switch-row has-tag'+(onOpen?' is-openable':''),'data-disabled':disabled||undefined,onClick:onOpen?switchRowClick(onOpen):undefined},
 		      h('div',{className:'ap-switch-main'},name,status||null,tag));
 		    // The switch comes first in the DOM (CSS order puts it on the right) so the label's control is the switch, not the 「?」.
 		    const toggle=h(Switch,{bare:true,label:ariaLabel||label,checked,disabled,onChange}); // the one switch (inline-field.js)
@@ -27734,9 +27734,6 @@ function tavernModelRefusalNotice(text) {
 		        const off=packTransport?.service.subscribe(invalidate), host=tavernSessionSignals?.subscribe(props.sessionId,'tavern-state',invalidate);
 		        return()=>{off?.();host?.();if(voicePlayer.get()?.owner===owner)voicePlayer.stop();};
 		    },[owner]);
-		    React.useEffect(() => {
-		        if (config?.voice?.enabled === false && voicePlayer.get()?.owner === owner) voicePlayer.stop();
-		    }, [owner, config?.voice?.enabled]);
 		    const voiceOrdinals = new Map(galParagraphs([{segments,streaming:false}]).map((unit,n)=>[unit.index,n]));
 		    const handles = Object.fromEntries(available ? segments.flatMap((segment,index)=>{
 		        const input = segmentSpeechInput(segment,config);
@@ -28504,8 +28501,6 @@ function tavernModelRefusalNotice(text) {
 		            let watch = watches.get(sessionId);
 		            if (!watch) {
 		                const refresh = () => load(sessionId, true);
-		                const stopSettings = typeof tavernSessionSignals === "undefined" ? null
-		                    : tavernSessionSignals?.subscribe(sessionId, "dialogue-settings", refresh);
 		                const timer = setInterval(refresh, 60000);
 		                timer.unref?.();
 		                const resourceChanged = event => { if (tavernDataChangeAffects(event, ["cards", "worldbooks", "asset-packs"])) refresh(); };
@@ -28513,7 +28508,6 @@ function tavernModelRefusalNotice(text) {
 		                window.addEventListener("dsh-tavern-data-changed", resourceChanged);
 		                watch = {count:0, stop() {
 		                    clearInterval(timer);
-		                    stopSettings?.();
 		                    if (typeof document !== "undefined") document.removeEventListener("visibilitychange", refresh);
 		                    window.removeEventListener("dsh-tavern-data-changed", resourceChanged);
 		                }};
@@ -28790,7 +28784,7 @@ function tavernModelRefusalNotice(text) {
 		    // moves the lightness. The badge is the emotion's colour pill, else the neutral pill.
 		    useFigureTextContrast(React, row, visible && figureName, color);
 		    // The round's stage outfit (transcript-outfits.cjs); only staged bubbles have a turn.
-		    const outfits = props.turn != null && character?.ref ? stageViews?.transcriptOutfits : null;
+		    const outfits = props.turn != null && character?.ref ? stageViews.transcriptOutfits : null;
 		    const outfitKey = React.useSyncExternalStore(outfits ? outfits.subscribe(props.sessionId, props.turn) : () => () => {}, () => outfits ? outfits.outfit(props.sessionId, props.turn, props.para, character.ref) : null);
 		    const media = useBubbleMedia(props.sessionId, character, segment.mood, moods, visible, outfitKey);
 		    return h("div", { ref:row, className: "fork-bubble" + (segment.thought ? " fork-bubble-thought" : ""), style: { "--bubble-color": color, "--bubble-name-ink": figureName ? color : undefined }, "data-alias": segment.alias },
@@ -28937,8 +28931,7 @@ function tavernModelRefusalNotice(text) {
 		    useBubbleProseLayout();
 		    const plain = Object.assign({}, props, { text: bubbleProseText(props.text, props.streaming) });
 		    for (const key of ["sessionId", "voiceScope", "stageParaBase", "stageParaOffset", "stageSource", "stageOrder", "stageSuperseded", "interrupted"]) delete plain[key];
-		    const stageMode = useStageMode(enabled ? props.sessionId : "");
-		    const staged = Boolean(stageMode && enabled && stageViews);
+		    const staged = Boolean(enabled && stageViews);
 		    // @bubble lines are body text: with the stage off they still render as bubble rows (name, avatar), never raw.
 		    if (!staged && String(props.text || "").indexOf("@bubble") < 0) return React.createElement(TavernColoredMarkdown, plain);
 		    return tavernStageBoundary("对白气泡", React.createElement(BubblePublication, Object.assign({}, props, { staged, key: staged ? "stage" : "body" })), React.createElement(TavernColoredMarkdown, plain));
@@ -61387,25 +61380,6 @@ function createConversationSettingsModule({
             problemLine(problem || reasonProblem));
     }
 
-    function SessionDialogueSection({ sessionId }) {
-        const config = useSessionSettings(sessionId, { readMethod: "getConversationDialogueSettings",
-            writeMethod: "setConversationDialogueSettings", signalId: sessionId, signalKinds: ["dialogue-settings"] });
-        const [problem, write] = useSectionWriter(config);
-        const data = config.data;
-        const change = async (key, enabled) => {
-            if (await write({ [key]: enabled }, { [key]: enabled })) bubbleStore.load(sessionId, true);
-        };
-        return h(packUi.StageSection, { title: "对话", foldKey: FOLD("对话") },
-            rows(
-                h(packUi.SwitchRow, { label: "对话气泡", checked: data?.dialogue === true, disabled: !data || config.busy,
-                    onChange: enabled => void change("dialogue", enabled) }),
-                h(packUi.SwitchRow, { label: "配音", checked: data?.dialogue === true && data.voice === true,
-                    disabled: !data || config.busy || !data.dialogue, help: "开启对话气泡后，角色台词可以配音。",
-                    onChange: enabled => void change("voice", enabled) })),
-            problemLine(config.error ? "读取失败：" + config.error : "", config.error ? config.load : null),
-            problemLine(problem));
-    }
-
     // ---------- 舞台: one row into 舞台设置 ----------
     // 舞台设置 is a stage tab, registered once the stage client runs (a card without the stage does not load it): the row holds
     // the client from its first click until this page closes, then opens the tab (focused when it is already open).
@@ -61439,7 +61413,7 @@ function createConversationSettingsModule({
             for (const slot of chosen) if (!await write({ modModelSelection: { modId: slot.modId, slotId: slot.id, selection: null } })) return;
         }
         return h(packUi.StageSection, { title: "舞台", foldKey: FOLD("舞台"),
-                help: "舞台模式、素材和模组在「舞台设置」里；舞台用的模型在侧栏首页的 舞台装置 › 舞台配置 › 舞台模型。" },
+                help: "对话气泡、舞台模式、配音、手机等舞台功能都在「舞台设置」里；舞台用的模型在侧栏首页的 舞台装置 › 舞台配置 › 舞台模型。" },
             rows(h(packUi.SwitchRow, { label: "舞台设置", icon: "stage", onOpen: () => void open(),
                 tag: h("span", { className: "dsh-session-stage-state" }, opening ? h(Spinner, { label: "正在打开舞台设置" }) : word),
                 status: h("button", { type: "button", className: "ap-kind-jump", "aria-label": "打开舞台设置", title: "打开舞台设置", onClick: () => void open() }, h(packUi.Glyph, { name: "chevRight" })) })),
@@ -61571,7 +61545,6 @@ function createConversationSettingsModule({
                     h(UserPreferenceProfileTab, { scope: { sessionId }, conversationOnly: true, Field: InlineField,
                         track: promise => trackTavernSettingsWrite(sessionId, promise) }),
                     h(SessionCandidateCount, { sessionId, config }))),
-            h(SessionDialogueSection, { sessionId }),
             stage?.isStageCard === true ? h(SessionStageSection, { sessionId, config, stage }) : null,
             h(SessionModelSection, { sessionId, config }),
             h(SessionFeatureSection, { config }),
@@ -68592,15 +68565,15 @@ function stageSessionInputs(ctx){
     };
 }
 // On-demand stage client. The stage client is not part of the core combo: a card without the
-// stage mode downloads and runs none of the stage code. It is imported once, and started with
+// stage downloads and runs none of the stage code. It is imported once, and started with
 // ctx.plugin(), when the server stage is ready and an open session needs the stage. The host
 // decides that per card (card-stage-settings.js effectiveCardStage) and publishes it in the
-// session view as view.stage.stage; the client never recomputes it. Afterwards the
+// session view as view.stage.{dialogue,stage}; the client never recomputes it. Afterwards the
 // stage plugin's own watchStageAvailability mounts and unmounts its views from the same
 // availability.
 function stageWantedOf(state) {
     const stage = state && state.view && state.view.stage;
-    return !!stage && stage.stage === true;
+    return !!stage && (stage.dialogue === true || stage.stage === true);
 }
 function stageDialogueOf(state) {
     const stage = state && state.view && state.view.stage;
@@ -68709,14 +68682,13 @@ function createStageClientLoader({sessions, views, runtime, load, install, repor
         }
     });
 }
-function useSessionStageFlag(sessionId, select) {
+// Whether dialogue bubbles are on for this session (view.stage.dialogue, host-decided); false until the view arrives.
+// Transcript bubbles read this before asking the stage for bubble settings, so a card without bubbles sends no request.
+function useStageDialogue(sessionId) {
     const subscribe = React.useCallback(notify => sessionId ? liveTavernView.subscribe(sessionId, notify, [['stage']]) : () => {}, [sessionId]);
-    const snapshot = React.useCallback(() => sessionId ? select(liveTavernView.getSnapshot(sessionId)) : false, [sessionId, select]);
+    const snapshot = React.useCallback(() => sessionId ? stageDialogueOf(liveTavernView.getSnapshot(sessionId)) : false, [sessionId]);
     return React.useSyncExternalStore(subscribe, snapshot, snapshot);
 }
-// False until the host publishes the card's presentation settings.
-function useStageDialogue(sessionId) { return useSessionStageFlag(sessionId, stageDialogueOf); }
-function useStageMode(sessionId) { return useSessionStageFlag(sessionId, stageWantedOf); }
 if (typeof module !== 'undefined' && typeof window === 'undefined') module.exports = {createStageClientLoader, stageWantedOf, stageDialogueOf, openSessionIds};
 
 // Clip export: the stage client replays a round on the isolated export page (dsh-tavern-stage clip-render.cjs) over
@@ -68926,7 +68898,7 @@ function clipReplayCore() {
 				}), "dsh-tavern: stage config tab");
 				tavernUiExtensions.service.registerStartGroup({ title: "舞台装置", tabs: ["dsh-tavern:stage-config"] });
 			}
-			if (ctx.betterSidebar) ctx.effect(() => registerTab(ctx.betterSidebar, {
+			if (ctx.betterSidebar) stageEffect(() => registerTab(ctx.betterSidebar, {
 				// the tab reads 「舞台设置」 (「Tavern 舞台」 was cut off).
 				id: "dsh-tavern:bubbles", title: "舞台设置", order: 9, single: true,
 				icon: function (size) { const s = size || 16; return React.createElement("svg", { width: s, height: s, viewBox: "0 0 16 16", fill: "none", "aria-hidden": true },

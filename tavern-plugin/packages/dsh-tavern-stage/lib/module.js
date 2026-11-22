@@ -1,9 +1,10 @@
 import {randomUUID} from 'node:crypto'
 import {createFigureRuntimes} from './figure-runtimes.js'
 import {spineRuntimeAvailable, spineRuntimeStatus, importSpineRuntime} from '../../../lib/domain/tavern-runtime-assets.js'
-import {cardLorePieces} from './card-stage.js'
+import {createCardStage, watchFigureBubbleBooks, cardLorePieces} from './card-stage.js'
 import {modelSlotRows} from '../../../lib/domain/model-slots.js'
 import {createStageWorkflow} from './workflow.js'
+import {createVoiceBackfill} from './voice-backfill.js'
 import {createStageRequests} from './requests.js'
 import {createStageStoryObserver, registerAutoFigureObserver} from './story-observer.js'
 // 舞台、导演与 mod 的组装。index.js 只用这里导出的三个工厂和它们的返回值。
@@ -21,10 +22,11 @@ import {createStageDirector, createRoundProjections} from './domain/stage-direct
 import {finalizeStageItems, invalidateStageItems} from './domain/stage-items.js'
 import {normalizeResourcePath} from '../../../lib/domain/file-resources.js'
 import directorCommands from '../../dsh-presentation-protocol/src/director-commands.cjs'
+import {createAutoCastSettings} from './asset-engine.js'
 import {createEngineJudge} from '../../../lib/domain/engine-judge.js'
 import {createJudgeRpc} from './engine-judge.js'
 import {createDirectorProbeStore, createDirectorProbeRpc} from '../../../lib/director-probe.js'
-import {createFigureVoiceAuthoring} from './figure-voice-authoring.js'
+import {createFigureVoiceAuthoring, countServiceUsers} from './figure-voice-authoring.js'
 import {createAssetRuntime} from './asset-runtime.js'
 import {foldAssetPackEntries} from './domain/stage-asset-pack-director.js'
 import {stageImageOutfits} from './domain/stage-image-outfits.js'
@@ -36,7 +38,7 @@ import {createSceneCg} from './scene-cg.js'
 import {readStageProjection, stageProjectionPage} from './domain/stage-projection.js'
 import {readWidgetWindowProjection} from './domain/widget-window-projection.js'
 import {frozenStageBackground} from '../../../lib/domain/stage-shared-context.js'
-import {effectiveCardStage, effectiveAutoCast} from '../../../lib/domain/card-stage-settings.js'
+import {effectiveCardStage, effectiveAutoCast, AUTO_CAST_DEFAULTS, validateAutoCastLayer} from '../../../lib/domain/card-stage-settings.js'
 import {readCardAssetExtension, cardAssetExtensionView} from '../../../lib/domain/card-asset-bindings.js'
 import {hasCardAssetBindings} from '../../../lib/card-asset-bindings.js'
 import {createStageClipExport} from './clip/clip-export-stage.js'
@@ -47,6 +49,14 @@ import {runCastingAssistant} from './auto-cast-assistant.js'
 // cardsActive(): false once the plugin is disposed; card writes are refused from then on.
 export async function createStageModule(core) {
   const {ctx, dataRoot, containStage, cardsActive, llm, requestPerformance, sessionSignals, coordinationEvents, fileResources, cardPreparation, cardStorage, cardStage, cardPlugins, bumpCardProjectionRevision, syncCardName, readChat, readChatCard, readStageChat, stageReads, readRoundView, storyEvents, deploymentWork, backgroundTaskPolicies, chatForSession, chatPersistence, chatJournalStore, rawUpdateChat, updateChat, updateChatMessage, patchChat, storyTimeline, replyDisplayForChat, assetRuntime, assetEngineSettings, engineJudge, modelSelection, resolveSlot, backgroundAgentRunner, tavernScriptHostAdapter, tavernScriptDispatch, getTts} = core
+  // Pack-driven writer updates belong to the stage lifetime, including rollback.
+  ctx.inject(['assetLibrary'], child => {
+    const books = watchFigureBubbleBooks({service:child.get('assetLibrary'), packSettings:ctx.get('assetPackSettings'),
+      listCards:() => fileResources.list('card'), readWorkspace:cardStorage.readWorkspace,
+      sync:path => cardStage.bubbles.sync(core.worldBooks, path),
+      onError:(error, path) => console.warn('dsh-tavern: figure writer sync failed', path || '', error.message)})
+    child.effect(() => () => books.dispose())
+  })
   // A round's reply projection (its host body), shared by the director's reads of one page (createRoundProjections).
   const roundProjection = createRoundProjections({revision:() => assetRuntime.revision,
     project:async (chat, turn, persisted) => (await replyDisplayForChat(chat,await readChatCard(chat),persisted)).projections.find(row => row.turn === turn)})
@@ -65,7 +75,7 @@ export async function createStageModule(core) {
       await syncCardName(cardPath,cardPreparation.project(workspace).name)
     }}
   const readModStage=createModConfigStageReader({readChat:sessionId=>readStageChat.view(sessionId,{stateOnly:true}),readRevision:chatPersistence.readRevision})
-  const managedModManagement=createManagedModProduction({ctx,settingsOwner:core.settingsOwner,settings:core.managedModSettings,cardPlugins,uploads:core.uploads,...modCardStorage,
+  const managedModManagement=createManagedModProduction({ctx,settingsOwner:core.settingsOwner,cardPlugins,uploads:core.uploads,...modCardStorage,
     readSession:sessionId=>readStageChat.view(sessionId,{configOnly:true}),
     async readSkin(cardPath,{sessionId}={}) {
       const base=await cardStage.skin(cardPath)
@@ -205,6 +215,13 @@ export async function createStageModule(core) {
       else backgroundTaskPolicies.set('stage-director', previous)
     }
   }, 'dsh-tavern: director task policy')
+  // 配音补译: voice text for unrecalled foreign-voice lines, stored with the round (voice-backfill.js).
+  const voiceBackfill = createVoiceBackfill({workflow:core.workflow, chatHeaderForSession:core.chatHeaderForSession, dialogueBubbles:core.dialogueBubbles, chatForSession,
+    bodyForTurn:async (chat, turn) => (await roundProjection(chat, turn, true))?.body,
+    voiceBackfillLines:core.voiceBackfillLines, voiceBackfillKept:core.voiceBackfillKept,
+    writeMessage:(chatId, index, mutate) => updateChatMessage(chatId, index, mutate, {source:'voice-backfill'}),
+    runAgent:input => backgroundAgentRunner.run(input), selection:sessionId => modelSelection(sessionId), blocked:chat => core.backgroundBlocked(chat)})
+  ctx.effect(() => () => voiceBackfill.dispose(), 'dsh-tavern: voice backfill')
   // A reply's stage items follow its variable settlement, inside the settlement's own commit.
   const finalizeItems = (chat, messageId) => {if (chat.messages[messageId]?.stageDirectionAssetPacks?.binding?.items) finalizeStageItems(chat, messageId)}
   ctx.effect(() => core.settlementParticipants.register('dsh-tavern-stage', {
@@ -216,7 +233,9 @@ export async function createStageModule(core) {
   const stageWorkflow = createStageWorkflow({workflow:core.workflow, chatHeaderForSession:core.chatHeaderForSession,
     dialogueBubbles:core.dialogueBubbles,chatForSession,chatPersistence,stageDirector})
   ctx.effect(() => () => stageWorkflow.dispose(), 'dsh-tavern: stage workflow')
-  const {autoCastSettings} = core
+  // 自动选角's global layer (asset-engine.js createAutoCastSettings); a card's layer is in its stage extension. Its runtime needs the image
+  // plugin's channel, so it is built with the requests (below); a round counts once its automatic figures are written.
+  const autoCastSettings = createAutoCastSettings(ctx, core.settingsOwner, {defaults:AUTO_CAST_DEFAULTS, validateLayer:validateAutoCastLayer})
   let autoCast = null
   const roundBody = async (chat,turn) => (await roundProjection(chat, turn, true))?.body
   ctx.effect(() => registerAutoFigureObserver({storyEvents, chatHeaderForSession:core.chatHeaderForSession,
@@ -241,7 +260,7 @@ export async function createStageModule(core) {
     async presenting(chat) {
       const latest = chat.messages?.findLast(message => message.role === 'assistant')
       if (!latest?.greeting || !['story','script'].includes(chat.mode)) return
-      await stageDirector.get(chat, Number(latest.turn || 1), await core.dialogueBubbles.read(chat.cardPath, {dialogueSettings:chat.dialogueSettings}))
+      await stageDirector.get(chat, Number(latest.turn || 1), await core.dialogueBubbles.read(chat.cardPath))
       // 自动选角 (积极 / 全部): the opening's speakers are cast and drawn at once, apart from the opening's director.
       if (autoCast) void (async () => {
         const body = await roundBody(chat, Number(latest.turn || 1))
@@ -343,6 +362,9 @@ export function createStageAssets(core) {
     const raw = (await readCardWorkspace(cardPath))?.raw
     return effectiveCardStage(raw && hasCardAssetBindings(raw) ? cardAssetExtensionView(raw) : null, assetEngineSettings.read().values)[key] === true
   }
+  const cardStage = createCardStage({cardStorage:core.cardStorage,measure:core.measure,
+    getTts,getEngine:() => assetEngineSettings.read().values,
+    getAssetLibrary:() => ctx.get('assetLibrary'),getGlobalEnabledPackIds:() => ctx.get('assetPackSettings')?.read().values.globalEnabledPackIds || []})
   ctx.effect(() => core.modelSlots.register('dsh-tavern-stage',{
     async rows(context) {
       if (context?.sessionId && (!context.cardPath || !await cardStageSwitch(context.cardPath, 'stage'))) return []
@@ -360,6 +382,8 @@ export function createStageAssets(core) {
   ctx.effect(() => assetEngineSettings.subscribe(() => figureVoiceAuthoring.invalidate()))
   ctx.effect(() => () => figureVoiceAuthoring.dispose())
   for (const name of ['assetLibrary','tts']) ctx.inject([name], child => child.effect(() => () => figureVoiceAuthoring.invalidate()))
+  ctx.inject(['assetLibrary','tts'], child => child.effect(() => child.get('tts').registerUsageSource({owner:'dsh-tavern-stage',
+    inspect:serviceId => countServiceUsers({library:child.get('assetLibrary'),tts:child.get('tts'),serviceId})})))
   const assetRuntime = createAssetRuntime({ctx, readWorkspace:readCardWorkspace, engineSettings:assetEngineSettings,
     onInvalidate:(_path, event) => {
       if (event.reason === 'configuration') sessionSignals?.publish('plugin:dsh-tavern-stage', { kind:'stage-settings', version:randomUUID() })
@@ -367,7 +391,7 @@ export function createStageAssets(core) {
     }})
   ctx.effect(() => () => assetRuntime.dispose())
   ctx.effect(() => core.presentationObservers.register('dsh-tavern-stage-assets',{cardChanged:path => assetRuntime.invalidate(path)}), 'dsh-tavern: asset card invalidation')
-  return {figureRuntimes,stageExtensions,stageModReads,cardStage:core.cardStage,dialogueBubbles:core.cardStage.bubbles,assetEngineSettings, cardStageSwitch, engineJudge, judgeRpc, directorProbeRpc, figureVoiceAuthoring, assetRuntime, getTts}
+  return {figureRuntimes,stageExtensions,stageModReads,cardStage,dialogueBubbles:cardStage.bubbles,assetEngineSettings, cardStageSwitch, engineJudge, judgeRpc, directorProbeRpc, figureVoiceAuthoring, assetRuntime, getTts}
 }
 
 // 舞台上的小组件变量、CG 图鉴与舞台计时器：都只读导演的演出、经请求处理表被调用。

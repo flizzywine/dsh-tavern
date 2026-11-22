@@ -55,7 +55,7 @@ export function createSessionViewProjection({
   // These files supply the story view's settings, regex, Helper config and
   // global variables. Their versions can be read without materializing floors.
   async function storyVersion(chat) {
-    const stageMode = chat.cardPath && chat.mode !== 'card' ? readCardStageMode(chat.cardPath, chat.dialogueSettings) : NO_STAGE
+    const stageMode = chat.cardPath && chat.mode !== 'card' ? readCardStageMode(chat.cardPath) : NO_STAGE
     return JSON.stringify(await Promise.all([
       readCardResourceVersions(chat), readSettingsVersion(), tavernExtensionSettings.version?.(),
       readGlobalVariablesVersion(), stageMode
@@ -138,7 +138,7 @@ export function createSessionViewProjection({
       && chat.openingWorldbookSnapshot?.version === 1
     // Decide presentation before starting work that may use the card's stage services.
     const stageMode = ['story', 'script'].includes(chat.mode || 'story') && str(chat.cardPath) !== ''
-      ? await requestPerformance.stage('cardStageMode', () => readCardStageMode(chat.cardPath, chat.dialogueSettings)) : NO_STAGE
+      ? await requestPerformance.stage('cardStageMode', () => readCardStageMode(chat.cardPath)) : NO_STAGE
 
     if (!options.openingWindow) scheduleTemplateSync(chat)
     else void warmCandidates(chat.sessionId)

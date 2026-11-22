@@ -1,8 +1,9 @@
-import { stageEntranceChoices } from '../../../lib/domain/stage-entrance.js'
+import { stageEntranceChoices } from './domain/stage-entrance.js'
 import { widgetSourceRounds } from './domain/widget-window-projection.js'
 import { transcriptOutfitSpans } from './domain/transcript-outfits.js'
 import {projectStageLease} from './domain/stage-lease-projection.js'
 import {cardGreetings, messageOpeningId, resolveOpeningScene} from './domain/stage-opening-scene.js'
+import { NARRATOR_VOICE, GENERAL_VOICE } from '../../../lib/domain/asset-pack-speech.js'
 import figureResolution from '../../dsh-presentation-protocol/src/figure-resolution.cjs'
 // The stage's requests: director, asset packs, figures and voices, widgets, mods, phone, CG gallery.
 // They run on the same authenticated dispatcher as every other area; core requests live in the other rpc/ files.
@@ -243,6 +244,15 @@ return cgGallery.ack(args,authority?.origin)
         return {saved:true}
 
     },
+    async openAssetPackVoice(args, method, serverTemplate, authority) {
+      const { assetRuntime, readStageChat } = deps
+
+        // A line's voice needs the game's card, not its story: the config view, not a whole-chat read per line.
+        const chat = await readStageChat.view(args?.sessionId,{configOnly:true})
+        const consumer = chat?.cardPath && await assetRuntime.consumer(chat,authority?.origin)
+        return consumer ? consumer.speech.open(args?.narrator === true ? NARRATOR_VOICE : args?.general === true ? GENERAL_VOICE : args?.alias) : {available:false,diagnostics:['voice-unbound']}
+
+    },
     async getStageMusicTracks(args, method, serverTemplate, authority) {
       const { assetRuntime, readStageChat, requestPerformance, view } = deps
 
@@ -397,7 +407,7 @@ return assetEngineSettings.exportPreset(args || {})
 
         const chat = await chatForSession(str(args && args.sessionId))
         if (!chat) throw new Error('找不到当前对话')
-        return await stageDirector.preview(chat, Number(args?.turn) || 0, await dialogueBubbles.read(chat.cardPath, {dialogueSettings:chat.dialogueSettings}))
+        return await stageDirector.preview(chat, Number(args?.turn) || 0, await dialogueBubbles.read(chat.cardPath))
 
     },
     async getRoundBody(args, method, serverTemplate, authority) {
@@ -437,7 +447,7 @@ return assetEngineSettings.exportPreset(args || {})
 
         const chat = await chatForSession(args?.sessionId)
         if (!chat) throw new Error('找不到当前对话')
-        return await stageDirector.generate(chat, Number(args?.turn), await dialogueBubbles.read(chat.cardPath, {dialogueSettings:chat.dialogueSettings}))
+        return await stageDirector.generate(chat, Number(args?.turn), await dialogueBubbles.read(chat.cardPath))
 
     },
     async retryStageDirection(args, method, serverTemplate, authority) {
@@ -448,7 +458,7 @@ return assetEngineSettings.exportPreset(args || {})
         // explicit redirection replaces even a successful record; observers remain read-only.
         const turn = Number(args?.turn)
         const reset = await stageDirector.retry(chat, turn, {regenerate:true})
-        await stageDirector.get(reset.chat, turn, await dialogueBubbles.read(chat.cardPath, {dialogueSettings:chat.dialogueSettings}), {generate:true, guidance:str(args?.guidance).trim()})
+        await stageDirector.get(reset.chat, turn, await dialogueBubbles.read(chat.cardPath), {generate:true, guidance:str(args?.guidance).trim()})
         return reset
 
     },
@@ -477,6 +487,18 @@ return assetEngineSettings.exportPreset(args || {})
         if (!chat) throw new Error('Chat not found')
         if (agentRegistry.get(args.sessionId)?.phase?.kind === 'running') throw new Error('Wait until the current turn completes')
         return {injection:await foregroundCapabilities.refresh(chat,args.expectedInjection)}
+
+    },
+    async getDialogueBubbles(args, method, serverTemplate, authority) {
+      const { DEFAULT_BUBBLE_TEMPLATE, assetEngineSettings, bubbleInjection, bubbleInstructionPreview, dialogueBubblePresets, dialogueBubbles, foregroundCapabilities, readDialogueBubblePlacement, readStageChat, requestPerformance, str, view, worldBooks } = deps
+
+        const chat = await requestPerformance.stage('config.chat', () => readStageChat.view(args?.sessionId,{configOnly:true}))
+        const prepared = await requestPerformance.stage('config.bubbles', () => dialogueBubbles.snapshot(chat && chat.cardPath))
+        const config = prepared.config
+        const placement = chat?.cardPath ? await requestPerformance.stage('config.placement', () => readDialogueBubblePlacement(worldBooks, chat.cardPath, config.injection.placement)) : null
+        const nativeForeground = chat && chat.requestMode !== 'sillytavern' && ['story','script'].includes(chat.mode || 'story')
+        const injection = nativeForeground ? await requestPerformance.stage('config.foreground', () => foregroundCapabilities.preview(chat,{readConfig:()=>prepared.requireAvailable()})) : bubbleInjection(config, { userName: chat?.macroState?.userName })
+        return { engineSettings:assetEngineSettings.read(), cardPath: chat ? str(chat.cardPath) : '', cardName: chat ? str(chat.cardName) : '', userName: chat && chat.macroState ? str(chat.macroState.userName) : '', config, defaultTemplate: DEFAULT_BUBBLE_TEMPLATE, presets: await dialogueBubblePresets.list(), ...bubbleInstructionPreview(config, { userName: chat?.macroState?.userName }), injection, placement: nativeForeground && placement ? {...placement,entries:[]} : placement }
 
     },
     async getDialogueBubblePresets(args, method, serverTemplate, authority) {

@@ -3,10 +3,9 @@
 // thinking block" on the next turn). It reaches the per-turn roster addendum; the next roster rebuild (compaction) takes it in.
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import {createForegroundCapabilities, foregroundCapabilityEntries, replaceDialogueWorldbookEntries} from '../tavern-plugin/lib/domain/foreground-capabilities.js'
+import {createForegroundCapabilities} from '../tavern-plugin/lib/domain/foreground-capabilities.js'
 import {normalizeBubbleConfig} from '../tavern-plugin/lib/domain/dialogue-bubbles.js'
 import {projectWorldBookTemplates} from '../tavern-plugin/lib/domain/worldbook-recall.js'
-import {createForegroundWorldbook} from '../tavern-plugin/lib/domain/foreground-worldbook.js'
 
 const character = {alias:'actor_guest', name:'Guest', ref:{packId:'pack_figure', figureId:'figure_guest'}, recall:{mode:'constant'}, emotions:[{id:'calm', label:'Calm'}]}
 const late = {...character, alias:'f_late', name:'Late Arrival', ref:{packId:'auto-pack', figureId:'late'}}
@@ -71,21 +70,4 @@ test('a frozen figure that leaves the card mid-session also leaves the system pr
   s.native.events.push(...compact('c2'), start(4))
   await s.owner.project(s.chat, book())
   assert.deepEqual(s.chat.foregroundCapabilities.figures, ['actor_guest'], 'the recompute drops the figure that left')
-})
-test('game dialogue replaces the card’s format entry in the generated request', async () => {
-  const chat = {id:'game', sessionId:'game', mode:'story', messages:[]}, source = book()
-  source.view.entries.push({ref:'old', enabled:true, constant:true, content:'old format', primaryKeys:[], secondaryKeys:[],
-    rawEntry:{extensions:{dsh_tavern_helper_extra:{forkDialogueBubbles:{version:1}}}}})
-  const project = createForegroundWorldbook({runtime:() => runtime, globalVariables:() => ({})})
-  try {
-    for (const enabled of [true, false]) {
-      const config = normalizeBubbleConfig({enabled, characters:[]})
-      const worldBook = replaceDialogueWorldbookEntries(source, foregroundCapabilityEntries(config, chat))
-      const result = await project({chat, card:{name:'Card'}, worldBook, requestKey:String(enabled)})
-      assert.match(result.prefixContext, /World/)
-      assert.equal(result.prefixContext.includes('@bubble:'), enabled)
-      assert.equal(result.prefixContext.includes('old format'), false)
-    }
-    assert.equal(source.view.entries.at(-1).content, 'old format')
-  } finally { project.dispose() }
 })

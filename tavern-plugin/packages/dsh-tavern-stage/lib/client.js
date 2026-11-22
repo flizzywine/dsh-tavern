@@ -29356,7 +29356,7 @@ const VOICE_LANGUAGES=[['ja','日语'],['zh','中文'],['en','英语']];
 // switch). 对话气泡 / 舞台模式 are two rows whose card layer is the card's own declaration (stage.enabled, or the
 // dialogue / stage pair for bubbles only; read through cardStageMode). Each resolves with the mods' own rule (modSwitchOn;
 // the host: card-stage-settings.js effectiveCardStage).
-const STAGE_SWITCH_DEFAULTS={dialogue:true,voice:true,stage:false,music:true,sfx:true,ambience:true,items:true,performance:true};
+const STAGE_SWITCH_DEFAULTS={dialogue:false,voice:true,stage:false,music:true,sfx:true,ambience:true,items:true,performance:true};
 const STAGE_DECLARED=['dialogue','stage'];
 // The card layer of 对话气泡 / 舞台模式 (the host: cardStageChoice); a card that declares nothing follows the global switch.
 function stageDeclared(stored,key) {
@@ -29701,9 +29701,9 @@ function StageFirstRun({writer,cardName}) {
   async function start(){setBusy(true);try{await writer.write(current=>({assetBindings:current.assetBindings,stage:{enabled:true}}));}catch(_){}finally{setBusy(false);}}
   return h('div',{className:'ap-first-run'},
     h('p',{className:'ap-first-title'},'这张卡还没有舞台设置'),
-    h('div',{className:'ap-inline-actions is-start'},h(Button,{primary:true,disabled:busy,onClick:start},h(Glyph,{name:'bubble'}),busy?'正在开启…':'启用舞台'),
+    h('div',{className:'ap-inline-actions is-start'},h(Button,{primary:true,disabled:busy,onClick:start},h(Glyph,{name:'bubble'}),busy?'正在开启…':'启用舞台（对话气泡）'),
       // this is the stage's prerequisite, so the button names the stage, not only the bubbles.
-      h(Help,{text:'开启后聊天顶栏出现「舞台」入口，可以设置皮肤、素材和演出。'})),
+      h(Help,{text:'开启后聊天顶栏出现「舞台」入口，正文按带头像的对话气泡显示；之后可以给角色配形象和声音。'})),
     error&&h('p',{className:'ap-alert',role:'alert'},error));
 }
 
@@ -29756,7 +29756,7 @@ function StageVoiceRow({ctx}) {
   const blocked=!ctx.active.dialogue,fix=problems[0]&&stageVoiceFix(ctx,problems[0]);
   const lines=problems.slice(0,STAGE_VOICE_LINES).map(stageVoiceLine).concat(problems.length>STAGE_VOICE_LINES?['还有 '+(problems.length-STAGE_VOICE_LINES)+' 个']:[]);
   return h(SwitchRow,{label:'配音',icon:'voice',disabled:blocked,help:blocked?VOICE_HELP.needBubble:undefined,onOpen:pressRowJump,
-    status:h(React.Fragment,null,
+    tag:stageSwitchTag(ctx,'voice','配音',blocked),status:h(React.Fragment,null,
       h('button',{type:'button',ref:jump,className:'ap-kind-jump','aria-label':'配音设置',title:'配音设置',disabled:blocked,onClick:()=>ctx.onVoice()},h(Glyph,{name:'chevRight'})),
       lines.length?h(HintLine,{compact:true,text:lines.join('\n'),action:fix&&'去设置',onAction:fix}):null)});
 }
@@ -29775,7 +29775,7 @@ const stageNeedText=(key,active)=>'需要'+stageMissing(key,active).filter(k=>k!
 // 导演指令) right under 舞台模式. A sound on: this card plays that kind and the director may use it (stage.<key>
 // follows the default); off: neither (stage.<key> = false; cardEngineSettings / the audio projection). The engine
 // dimension of 环境音 is `soundscape`; a kind switched off for every card is the only warning.
-const STAGE_BASIC_HELP='每个开关和模组一样有四种状态：全局开启 / 关闭对没有单独设置的卡生效，并清除这张卡的设置；本卡开启 / 关闭只在这张卡生效，本卡关闭优先。对话气泡和配音可在本局设置里调整。舞台模式需要对话气泡；带舞台的人物卡导入时已是本卡开启。某张卡没有对应素材时，导演不会收到相关说明。';
+const STAGE_BASIC_HELP='每个开关和模组一样有四种状态：全局开启 / 关闭对没有单独设置的卡生效，并清除这张卡的设置；本卡开启 / 关闭只在这张卡生效，本卡关闭优先。“对话气泡”和“舞台模式”共用这张卡的一项设置，舞台模式需要对话气泡；带舞台的人物卡导入时已是本卡开启。某张卡没有对应素材时，导演不会收到相关说明。';
 const AUDIO_ROWS=[['music','BGM','music','music'],['sfx','音效','sfx','sfx'],['ambience','环境音','ambience','soundscape']];
 // One 基础设置 switch as the mods' text switch (ModSwitchTag, the one implementation). 本卡 writes this card's layer; a 全局
 // choice clears it (when set), then writes the global layer (when it differs) - like a mod's two plans. `global` is the
@@ -29797,16 +29797,18 @@ function stageSwitchTag(ctx,key,name,disabled) {
 }
 function StageSwitches({ctx}) {
   const {active}=ctx;
-  const mode = h(SwitchRow,{label:STAGE_NAMES.stage,icon:STAGE_ICONS.stage,
-    tag:stageSwitchTag(ctx,'stage',STAGE_NAMES.stage),status:h(StageModeJump,{ctx}),onOpen:ctx.onEngine?()=>ctx.onEngine():undefined});
+  const row=(key,status,onOpen)=>{const blocked=stageMissing(key,active).some(k=>k!==key);
+    return h(SwitchRow,{key,label:STAGE_NAMES[key],icon:STAGE_ICONS[key],disabled:blocked,help:blocked?(key==='stage'?'先打开对话气泡':stageNeedText(key,active)):undefined,
+      tag:stageSwitchTag(ctx,key,STAGE_NAMES[key],blocked),status,onOpen});};
   // Sounds play on the stage: greyed (stored choice kept) while 舞台模式 is not in effect, like a dependent switch.
   const sound=([key,label,icon])=>{const missing=stageMissing('stage',active);
     return h(SwitchRow,{key,label,icon,disabled:missing.length>0,help:missing.length?'需要'+missing.map(k=>STAGE_NAMES[k]).join('和'):undefined,
       tag:stageSwitchTag(ctx,key,label,missing.length>0),status:h(StageKindJump,{ctx,kind:key,label}),onOpen:ctx.nav?.openLibrary&&stageKindPacks(ctx,key).length?pressRowJump:undefined});};
   // a direct child of the page like every other section (no wrapper), so the page's first-section rule picks it, not 模组.
   return h(StageSection,{title:'基础设置',help:STAGE_BASIC_HELP,className:'ap-stage-basic',action:ctx.headTools,reveal:ctx.setupComplete},
+    row('dialogue'),
     h(StageVoiceRow,{key:'voice',ctx}),
-    mode,
+    row('stage',h(StageModeJump,{ctx}),ctx.onEngine?()=>ctx.onEngine():undefined),
     h(StageAutoCastRow,{key:'auto-cast',ctx}),
     AUDIO_ROWS.map(sound),
     h(StageItemsRow,{key:'items',ctx}),

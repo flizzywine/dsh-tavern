@@ -9,9 +9,7 @@ const on = (engine, keys) => ({...engine, stageToggles:{...engine.stageToggles, 
 const mode = (extension, engine) => { const value = effectiveCardStage(extension, engine); return [value.dialogue, value.stage] }
 
 test('使用舞台 is four-state: the card declaration is its card layer, 本卡关闭 > 全局开启 > 本卡开启 > 全局关闭', () => {
-  const ext = cardExtension(), defaults = defaultAssetEngineSettings()
-  const off = {...defaults, stageToggles:{...defaults.stageToggles, dialogue:false}}, global = on(defaults, ['stage'])
-  assert.deepEqual(mode(ext, defaults), [true, false], 'dialogue is the default')
+  const ext = cardExtension(), off = defaultAssetEngineSettings(), global = on(off, ['dialogue', 'stage'])
   const card = enabled => ({...ext, stage:{enabled}})
   assert.deepEqual(mode(card(true), off), [true, true], '本卡开启 with the global switch off')
   assert.deepEqual(mode(card(false), global), [false, false], '本卡关闭 wins over 全局开启')

@@ -442,7 +442,7 @@ try {
       await stageButton.waitFor()
       assert.equal((await stageRpc('getStageRuntimeStatus')).status, 'ready')
     })
-    await step('本次停用后，重启仍随舞台卡自动恢复', async () => {
+    await step('本次停用后，重启自动恢复舞台', async () => {
       assert.equal((await stageRpc('setStageEnabled', {enabled:false})).status, 'disabled')
       await stageButton.waitFor({state:'hidden'})
       await restartServer()

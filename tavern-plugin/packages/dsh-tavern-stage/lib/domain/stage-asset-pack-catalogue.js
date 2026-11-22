@@ -4,6 +4,7 @@ import {filterGenericSfx} from './stage-sfx-categories.js'
 import {assetContent} from '../../../dsh-presentation-protocol/src/asset-variant-content.js'
 import {outfitJudgeId} from './stage-judge-recall.js'
 import { ASSET_KINDS, assetEntryEnabled, assetRefKey, validateAssetRef, validateUuid } from '../../../dsh-presentation-protocol/src/asset-packs.js'
+import { createHash } from 'node:crypto'
 import { check, canonicalJson } from '../../../dsh-presentation-protocol/src/asset-pack-json.js'
 import { triggerEvidence, normalizeCatalogueText, codepointCompare, deepFreeze } from '../../../../lib/domain/asset-pack-lexical.js'
 import widgetContract from '../../../../src/client/widget-contracts.cjs'
@@ -11,8 +12,7 @@ import { isItemWidget } from '../../../../lib/domain/item-widget.js'
 import { activeWidgetKeys, widgetIsActive } from '../../../../lib/domain/widget-availability.js'
 import performanceContract from '../../../dsh-presentation-protocol/src/performance-contract.cjs'
 
-import {assetPackDigest} from '../../../../lib/domain/asset-pack-digest.js'
-export {assetPackDigest}
+export const assetPackDigest = (value, options) => createHash('sha256').update(canonicalJson(value, options)).digest('hex')
 const jsonHash = assetPackDigest
 // an entry still waiting for its file (a blank entry) is never offered to the director, of any kind.
 const blankEntry = asset => asset?.pendingMedia === true
