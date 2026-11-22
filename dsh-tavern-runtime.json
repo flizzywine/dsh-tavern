@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "51108973ce677d08d2a35a2e92d25900df3edb79",
-  "releaseSequence": 1927,
+  "revision": "7d46b81381dca5eb85ab57cf663474eb682b0f63",
+  "releaseSequence": 1928,
   "version": "3.4.0",
   "files": [
     {
@@ -2841,8 +2841,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/plugin-task-execution.js",
-      "sha256": "d5357373c9fa59a3158b494e8f780ed42d01d39b6a32d6083c850ef4a7505ae3",
-      "size": 14699
+      "sha256": "8d5cd55958c23900e6548a3f9c4775b8d46038ce3b9cebc522d6a881f57f77ae",
+      "size": 14821
     },
     {
       "path": "tavern-plugin/lib/domain/plugin-text-segments.js",
@@ -3783,6 +3783,11 @@
       "path": "tavern-plugin/lib/domain/tool-result-message.js",
       "sha256": "1f9dd190e6e18b7fba11518c368940facda815da09d86fedf9a6c2c883052245",
       "size": 843
+    },
+    {
+      "path": "tavern-plugin/lib/domain/tool-schema-keys.js",
+      "sha256": "dc45caf53f8137647bffafd097c9e6cca320d05fd553f0d871930b85df1ff443",
+      "size": 2215
     },
     {
       "path": "tavern-plugin/lib/domain/tool-settlement-context.js",
@@ -9706,9 +9711,9 @@
     }
   ],
   "archive": {
-    "commit": "45b199b0f6f72498faab70bbc0c6da6ee27947cf",
+    "commit": "c81f077e54837b07207664e38361d1e47d9ec07d",
     "path": "runtime.zip",
-    "sha256": "56a4373913e76672801ed6c828634f58cea8632fcc3bd335dfbdce334affcc94",
-    "size": 17167433
+    "sha256": "4313204f935ba1229a33396b221f611d2428897a303d6c55e4964800e0419d69",
+    "size": 17168729
   }
 }
