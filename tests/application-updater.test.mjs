@@ -628,3 +628,15 @@ test('Windows 原生更新提前提示独立后台，不改变可更新状态，
   assert.equal(launches, 1)
   assert.equal(launchArgs[launchArgs.indexOf('--desktop-pids') + 1], '125,126')
 })
+
+test('APK 整体分发时不启动应用内更新，提示覆盖安装；检查更新照常', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'dsh-tavern-apk-'))
+  try {
+    let spawned = false
+    const updater = createApplicationUpdater({ dataRoot: path.join(root, 'data'), sourceRoot: root, runtimeHost: 'cli', updateChannel: 'apk',
+      ...verifiedUpdate, spawnProcess() { spawned = true; throw new Error('must not spawn') } })
+    await assert.rejects(updater.start(), /安装包.*覆盖安装.*存档和设置会保留/)
+    assert.equal(spawned, false)
+    assert.ok(['update-available', 'up-to-date'].includes((await updater.check()).phase))
+  } finally { await rm(root, { recursive: true, force: true }) }
+})

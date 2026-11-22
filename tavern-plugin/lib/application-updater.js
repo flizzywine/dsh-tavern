@@ -639,6 +639,11 @@ export function createApplicationUpdater(options) {
     }
     const installHost = await host()
     if (installHost === 'next') throw new Error('请打开当前酒馆的「设置 → 酒馆启动器」进行更新。')
+    // A self-contained APK ships Node, the runtime and every dependency in its package; the
+    // updater's npm/pnpm chain does not exist there. Checking still reports a newer version.
+    if ((options.updateChannel ?? process.env.DSH_TAVERN_UPDATE_CHANNEL) === 'apk') {
+      throw new Error('此版本由安卓安装包整体提供，应用内更新不可用。请下载新版安装包覆盖安装，存档和设置会保留。')
+    }
     // A Git checkout is the developer's: the updater would install a separate copy (or replace this one
     // and drop its .git), never update what is running. Checking for updates still works.
     // Android is the exception: android/setup.sh installs a Git checkout and android/update.sh fast-forwards it.
