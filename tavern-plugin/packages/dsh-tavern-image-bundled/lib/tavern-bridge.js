@@ -441,7 +441,7 @@ export function installTavernBridge({ tavern, attachments, engine, getConfig, lo
   try {
     const off = tavern.promptSection({
       name: 'auto-image-gen',
-      text: () => (getConfig()?.autoImageGen && getConfig()?.smartImageSelection === false ? engine.templateMarkerPrompt?.() || markerRule(getConfig()?.imageGenCount) : ''),
+      text: () => (getConfig()?.imageEnabled !== false && getConfig()?.autoImageGen && getConfig()?.smartImageSelection === false ? engine.templateMarkerPrompt?.() || markerRule(getConfig()?.imageGenCount) : ''),
     })
     if (typeof off === 'function') disposes.push(off)
     log('已注册提示词段落 auto-image-gen')

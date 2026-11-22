@@ -2407,6 +2407,7 @@ export async function apply(ctx) {
   })
   function view(...args) { return sessionProjection.view(...args) }
   function projectOpeningWindow(...args) { return sessionProjection.project.opening(...args) }
+  const STORY_OPENING_WINDOW = 10
   // `historyFrom`: the oldest floor the browser has scrolled to; the window grows
   // to cover it instead of switching the whole session to a complete view.
   //
@@ -2419,14 +2420,14 @@ export async function apply(ctx) {
   // left to fill, and the projected window is the complete view without that cost.
   // Scrolling back to the first floor still asks for the complete view: the page then
   // needs the floors the window never carried, and only that reader can grow from there.
-  async function readOpeningWindow(sessionId, historyFrom) {
+  async function readOpeningWindow(sessionId, historyFrom, limit = STORY_OPENING_WINDOW) {
     const chatId = (await readSessionMap())[str(sessionId)]
     if (!chatId) return null
     // Scrolled back to the first floor: the window would be the whole history, read page by
     // page only to be refused. The complete view refreshes from changed floors instead.
     if (historyFrom === 0) return null
     const scrolled = Number.isSafeInteger(historyFrom) && historyFrom > 0
-    const window = await readRecentWindow(chatPersistence.readWindow,chatId,{limit:HELPER_MESSAGE_COLD_WINDOW,from:historyFrom,requirePartial:scrolled,messageFields:sessionViewMessageFields})
+    const window = await readRecentWindow(chatPersistence.readWindow,chatId,{limit,from:historyFrom,requirePartial:scrolled,messageFields:sessionViewMessageFields})
     if (!window || window.chat.sessionId!==sessionId
       || window.chat.backgroundConfigVersion!==1 || window.chat.conversationFeaturesVersion!==1
       || !['story','script'].includes(window.chat.mode || 'story')
@@ -2434,7 +2435,7 @@ export async function apply(ctx) {
     // `from === 0` is only usable when this window is the whole history (every floor is a
     // real row, nothing outside it): otherwise the page would lose the floors above it.
     if (window.from === 0) {
-      const complete = windowCoversHistory(window) && window.messageCount <= HELPER_MESSAGE_COLD_WINDOW
+      const complete = windowCoversHistory(window) && window.messageCount <= limit
       if (!complete) return null
     }
     return window
@@ -2452,7 +2453,7 @@ export async function apply(ctx) {
       }
     },
     messageFields: storyTranscriptMessageFields,
-    limit: HELPER_MESSAGE_COLD_WINDOW
+    limit: STORY_OPENING_WINDOW
   })
   // Results of story operations: the same bounded window the browser keeps in
   // sync, never a complete-history view. Short and old saves keep view().
@@ -2484,7 +2485,9 @@ export async function apply(ctx) {
   async function ensureNativeOpening(sessionId) {
     return await conversationInitialization.ensureOpening(sessionId)
   }
-  const contextPlanner = createContextPlanner({ prompt: runtimePrompt, callModel: callModel, now: Date.now, logger: console })
+  let pluginApi = null
+  const contextPlanner = createContextPlanner({ prompt: runtimePrompt, callModel: callModel, now: Date.now, logger: console,
+    guideSections: gameId => pluginApi?.guideSections(gameId) })
   const foregroundCapabilities = stageRuntime.foreground({
     session: id => sessionStore.get(id) || agentRegistry.get(id)?.session,
     // A card that declares one of a mod's tools stands for that mod: the stage leaves out that mod's prompts.
@@ -2562,7 +2565,6 @@ export async function apply(ctx) {
       return result
     }
   })
-  let pluginApi = null
   // 叙事阻尼器设置的唯一实例：宿主 RPC 与内置插件面板（tavern.damperSettings）都读它。
   // 阻尼器引擎晚于 pluginApi 构造，所以插件面按调用时取，不在构造期抓快照。
   let damperSettingsService = null
@@ -2934,7 +2936,7 @@ export async function apply(ctx) {
       if (taskPolicy(input).cardContext === false) return undefined
       // The server template engine owns absolute history and reads old floors
       // on demand. Only its variable scope needs a proven latest snapshot here.
-      const recent = await readOpeningWindow(input.sessionId)
+      const recent = await readOpeningWindow(input.sessionId, undefined, HELPER_MESSAGE_COLD_WINDOW)
       const chat = recent && (recent.chat.promptTemplateInput?.message || lastTavernHelperVariables(recent.chat.messages) !== undefined)
         ? recent.chat : await chatForSession(input.sessionId)
       return chat ? await nativeWorldBookTemplateContext(chat, await readChatCard(chat)) : undefined
@@ -3423,6 +3425,7 @@ export async function apply(ctx) {
     ...pluginTurns,
     resolveGalleryContext,
     backgroundModel: async sessionId => backgroundModelSelection(await backgroundConfigForSession(sessionId)),
+    modelCatalog: tavernModelCatalog,
     foregroundModel: async sessionId => {
       const id = str(sessionId)
       if (!id) return null
@@ -3861,7 +3864,6 @@ export async function apply(ctx) {
   }
   const candidateContextReader = createCandidateContextReader({headerForSession:chatHeaderForSession,readWindow:chatPersistence.readWindow,readChat})
   candidateWorldbookPreparation=createCandidateWorldbookPreparation({
-    ready:sessionId=>fullTemplateRuntime.forSession(sessionId).connect(),
     async version(sessionId){
       const [chat,globals,settings]=await Promise.all([
         chatHeaderForSession(sessionId,['id','sessionId','mode','requestMode','_storageRevision','settleStatus','regenInProgress',
@@ -3876,7 +3878,7 @@ export async function apply(ctx) {
       return {revision:chat._storageRevision,resources:JSON.stringify([globals,settings])}
     },
     async prepare(sessionId){
-      const chat=await candidateContextReader.forSession(sessionId)
+      const chat=await candidateContextReader.worldbookForSession(sessionId)
       if(!chat)throw Error('当前会话没有绑定人物卡')
       const result=await nativeWorldBookTemplateContext(chat,await readChatCard(chat))
       // A transient template failure is not a prepared empty worldbook.
@@ -4283,7 +4285,7 @@ export async function apply(ctx) {
     shellToolName: process.platform === 'win32' ? 'pwsh' : 'bash'
   })
   const storyReconciliation = createStoryReconciliation({
-    agentRegistry, sessionStore, chatForSession, chatSliceForSession, updateChat, turns: turnOrchestrator
+    agentRegistry, sessionStore, chatForSession, chatSliceForSession, readWindow: chatPersistence.readWindow, updateChat, turns: turnOrchestrator
   })
   const { reconcileStory, reconcileWhenIdle, assertBlankStoryForkTarget, seedNativeStory } = storyReconciliation
   // 任务表 (domain/background-tasks.js): every background task is declared there once; this
@@ -4999,7 +5001,7 @@ export async function apply(ctx) {
   }
 
   const skillGatedTools = createSkillGatedTools({ pluginSkills: name => pluginApi.toolSkillsFor(name) })
-  const controlledToolNames = new Set([...modTools.map(tool => tool.name), 'style_reference_submit', STORY_SUBMIT_TOOL_NAME, STORY_CONTEXT_TOOL_NAME, STORY_GENERATE_TOOL_NAME, 'tavern_read_variables', ...WORLDBOOK_ACCESS_TOOLS, ...CARD_MEMORY_TOOLS, 'bash', 'pwsh', ...dshFileToolNames, 'skill', 'tavern_read_skill_reference', 'web_search', 'web_fetch', 'tavern_save_skill', ...cordisToolNames, 'tavern_user_profile_read', 'tavern_user_profile_save', 'tavern_user_profile_confirm', 'tavern_read_card', 'tavern_read_card_raw', 'tavern_search_card', 'tavern_replace_card_text', 'tavern_mvu_overview', 'tavern_apply_mvu', 'tavern_read_play_chat', 'tavern_read_script', 'tavern_recall_history', 'worldbook_search', WORKBENCH_READ_LOREBOOK_TOOL, WORKBENCH_UPDATE_LOREBOOK_TOOL, 'tavern_read_preset', 'tavern_update_preset', 'tavern_read_regex_library', 'tavern_copy_card', 'tavern_set_card_cover', 'tavern_export_card_png', 'tavern_update_card', 'tavern_restore_card', 'tavern_validate_card', 'tavern_test_response'])
+  const controlledToolNames = new Set([...modTools.map(tool => tool.name), 'style_reference_submit', STORY_SUBMIT_TOOL_NAME, STORY_CONTEXT_TOOL_NAME, STORY_GENERATE_TOOL_NAME, 'tavern_read_variables', ...WORLDBOOK_ACCESS_TOOLS, ...CARD_MEMORY_TOOLS, 'bash', 'pwsh', ...dshFileToolNames, 'skill', 'tavern_read_skill_reference', 'tavern_read_skill', 'web_search', 'web_fetch', 'tavern_save_skill', ...cordisToolNames, 'tavern_user_profile_read', 'tavern_user_profile_save', 'tavern_user_profile_confirm', 'tavern_read_card', 'tavern_read_card_raw', 'tavern_search_card', 'tavern_replace_card_text', 'tavern_mvu_overview', 'tavern_apply_mvu', 'tavern_read_play_chat', 'tavern_read_script', 'tavern_recall_history', 'worldbook_search', WORKBENCH_READ_LOREBOOK_TOOL, WORKBENCH_UPDATE_LOREBOOK_TOOL, 'tavern_read_preset', 'tavern_update_preset', 'tavern_read_regex_library', 'tavern_copy_card', 'tavern_set_card_cover', 'tavern_export_card_png', 'tavern_update_card', 'tavern_restore_card', 'tavern_validate_card', 'tavern_test_response'])
   const foregroundStrategies = createForegroundOrchestrationStrategies({
     nativePlay: {
       // Input side: replay past bodies as calls of the submission tool.

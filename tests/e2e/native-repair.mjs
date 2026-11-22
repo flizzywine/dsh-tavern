@@ -9,7 +9,7 @@ import { createChatPersistence } from '../../tavern-plugin/lib/domain/chat-persi
 // game must heal itself, every history action must work, and what the model reads
 // must be what the save says.
 export async function nativeRepairChecks({ page, step, savedChat, output, report, data, restartServer }) {
-  const composer = () => page.getByRole('textbox', { name: /发消息|Message/ })
+  const composer = () => page.getByRole('textbox', { name: /下一步行动|Next action|发消息|Message/ })
   const pause = ms => new Promise(resolve => setTimeout(resolve, ms))
   const settled = () => page.getByText('后台结算已完成').last().waitFor({ timeout: 60000 }).catch(() => {})
   const storyRounds = chat => chat.messages.filter(row => row.role === 'assistant' && !row.greeting).length

@@ -276,7 +276,7 @@ export async function settlementPerformanceChecks({ page, step, savedChat, outpu
       }
     })
     if (append) {
-      const composer = page.getByRole('textbox', {name:/发消息|Message/})
+      const composer = page.getByRole('textbox', {name:/下一步行动|Next action|发消息|Message/})
       await composer.fill('性能测试继续游玩 ' + run)
       await composer.press('Enter')
     } else {

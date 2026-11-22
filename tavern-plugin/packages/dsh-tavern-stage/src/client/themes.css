@@ -1264,6 +1264,10 @@ body > div:has(> .bgm-host):is(:has(~ .fork-gal-mount), .fork-gal-mount ~ div) {
 .fork-gal-backlog-list { flex: 1; width: 100%; min-height: 0; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; outline: none;
   -webkit-mask-image: linear-gradient(180deg, transparent, #000 28px, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(180deg, transparent, #000 28px, #000 calc(100% - 28px), transparent); }
 .fork-gal-backlog-col { width: var(--bl-col); margin: 0 auto; padding: 22px 0 36px; }
+/* The virtual list (backlog-view.cjs) measures a row as the distance to the next row's top, so the gap above the first drawn
+   row is counted in the row before it, inside the spacer. That row's own top margin would stand outside the measure: the rows
+   would sit off where the spacer says by the margin, by a different amount whenever the first drawn row changes kind. */
+.fork-gal-backlog-col > .fork-gal-backlog-spacer + :not(.fork-gal-backlog-empty) { margin-top: 0 !important; }
 .fork-gal-backlog-empty { margin: 18vh 0 0; color: var(--gal-ui-ink-2); text-align: center; letter-spacing: .12em; }
 /* earlier turns paging in at the top of the list; it sits over the list's faded top edge. */
 .fork-gal-backlog-older { position: absolute; left: 0; right: 0; top: 100%; z-index: 1; display: flex; align-items: center; justify-content: center; gap: 12px; min-height: 36px; color: var(--gal-ui-ink-2); letter-spacing: .08em; pointer-events: none; }
@@ -1272,7 +1276,6 @@ body > div:has(> .bgm-host):is(:has(~ .fork-gal-mount), .fork-gal-mount ~ div) {
 .fork-gal-stage .fork-gal-backlog-older-retry:focus-visible { outline: 2px solid var(--bl-accent); outline-offset: 1px; }
 /* Turn separator */
 .fork-gal-backlog-turn { display: flex; align-items: center; gap: 16px; margin: 30px 0 12px; color: var(--gal-ui-muted); font: 500 11.5px/1 var(--gal-ui-font); letter-spacing: .32em; }
-.fork-gal-backlog-col > .fork-gal-backlog-turn:first-child { margin-top: 4px; }
 .fork-gal-backlog-turn::before, .fork-gal-backlog-turn::after { content: ""; flex: 1; height: 0; border-top: var(--gal-ui-divider-width) var(--gal-ui-divider) var(--bl-line); mask-image: linear-gradient(90deg, transparent, #000); }
 .fork-gal-backlog-turn::after { mask-image: linear-gradient(90deg, #000, transparent); }
 .fork-gal-backlog-turn.is-current { color: var(--gal-ui-accent); }

@@ -181,6 +181,7 @@ function linkedFigureEdit({ packId, figureId, name, addAliases = [], removeAlias
 }
 
 export function createTavernPluginApi(deps) {
+  const guideSources = new Map()
   const settledHandlers = new Set()
   const removedHandlers = new Set()
   const mediaRemovedHandlers = new Set()
@@ -215,7 +216,7 @@ export function createTavernPluginApi(deps) {
     }
     return name
   }
-  const capabilities = Object.freeze({ gameMode: 1, hostBehavior: 1, controlInput: 1, mvuSettlementProvider: 1, worldbookStrategy: 1, galleryProvider: 1, pricingProvider: 1, imageModels: 1, imageLibrary: 1, bodyGeneration: 1, bodyProjection: 1, stContractService: 1,
+  const capabilities = Object.freeze({ gameMode: 1, hostBehavior: 1, controlInput: 1, mvuSettlementProvider: 1, worldbookStrategy: 1, galleryProvider: 1, pricingProvider: 1, imageModels: 1, imageLibrary: 1, bodyGeneration: 1, bodyProjection: 1, stContractService: 1, guideSource: 1,
     ...(deps.readTavernSettings && deps.updateTavernSettings ? { bodyGenerationDefaults: 1 } : {}),
     ...(deps.generationPresets ? { generationPresets: 1 } : {}),
     ...(deps.decisionJudge ? { decisionJudge: 1 } : {}),
@@ -1503,6 +1504,16 @@ export function createTavernPluginApi(deps) {
       }
     },
 
+    // The same text-model catalog that Tavern offers for its own background tasks.
+    async taskModels({ gameId } = {}) {
+      const game = await requireGame(gameId)
+      const [catalog, background] = await Promise.all([
+        deps.modelCatalog(),
+        deps.backgroundModel(game.sessionId)
+      ])
+      return { catalog, background }
+    },
+
     // 当前对局正在使用的前台对话模型（供插件遵循「跟随前台」选项）。
     async foregroundModel({ gameId } = {}) {
       const game = await requireGame(gameId)
@@ -1724,6 +1735,12 @@ export function createTavernPluginApi(deps) {
       sectionName(name); textOrFunction(text); contextTarget(target)
       if (!['before', 'after', 'last'].includes(position)) throw new Error("position 只能是 'before'、'after' 或 'last'")
       return register.call(this, turnSections, owner + '\u0000' + target + '\u0000' + name, { owner, name, text, position, target }, 'tavern.turnSection()', '本轮上下文段落 ' + name + ' 已注册')
+    },
+
+    guideSource({ name, text } = {}) {
+      const owner = ownerOf(this)
+      sectionName(name); textOrFunction(text)
+      return register.call(this, guideSources, owner + '\u0000' + name, { owner, name, text }, 'tavern.guideSource()', 'Guide 来源 ' + name + ' 已注册')
     },
 
     settlementSection({ name, text } = {}) {
@@ -2211,6 +2228,15 @@ export function createTavernPluginApi(deps) {
     return (await collectSections(sections, context, '提示词段落', disabled)).map(({ name, text }) => ({ name, text }))
   }
 
+  async function guideSections(gameId) {
+    if (!guideSources.size || !gameId) return []
+    const { game, disabled } = await choicesFor(gameId)
+    if (!game) return []
+    const guides = await collectSections(guideSources, { gameId }, 'Guide 来源', disabled)
+    return guides.filter(guide => !/<%|%>|(?:^|\n)\s*@@|@INJECT|\[(?:GENERATE:|RENDER:)/i.test(guide.text))
+      .map(guide => ({ ...guide, text: guide.text.slice(0, 2000) }))
+  }
+
   /** Seam: per-turn context for the story request, computed once while the turn is prepared. */
   async function turnContext({ gameId, turn, input, target = 'story', subject }) {
     const context = { gameId, turn, input: String(input || ''), ...(target === 'story' ? {} : {target, subject}) }
@@ -2547,6 +2573,6 @@ export function createTavernPluginApi(deps) {
       return register.call({ctx},sections,'dsh-tavern\u0000'+target+'\u0000'+name,
         {owner:'dsh-tavern',name,target,text,unbounded},'tavern builtin prompt section','Duplicate built-in prompt section')
     },
-    speechProviders: (capability = 'synthesize') => Array.from(speechProviders.values()).filter(entry => typeof entry[capability] === 'function'), imageProviders: () => Array.from(imageProviders.values()), pricingProviders: () => Array.from(pricingProviders.values()), timelineChanged, checkVersions, pluginState, cardChanged, cardImporterFor, convertCard, cardImported, gameForked, forkTurns, promptSections, turnContext, worldbookPoolEntries, worldbookScanTexts, settlement, candidate, compactionNotes, replaceSettlement, replaceLedger,
+    speechProviders: (capability = 'synthesize') => Array.from(speechProviders.values()).filter(entry => typeof entry[capability] === 'function'), imageProviders: () => Array.from(imageProviders.values()), pricingProviders: () => Array.from(pricingProviders.values()), timelineChanged, checkVersions, pluginState, cardChanged, cardImporterFor, convertCard, cardImported, gameForked, forkTurns, promptSections, turnContext, guideSections, worldbookPoolEntries, worldbookScanTexts, settlement, candidate, compactionNotes, replaceSettlement, replaceLedger,
     runSettlementTasks, manualTaskFor, runManualTask, stopTasks: stopAllTasks, runningTask, gamePlugins, setGamePlugin, resetGamePluginSettings, pluginGameSettings })
 }

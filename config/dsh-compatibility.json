@@ -10,6 +10,13 @@
   "hostLinePackages": {
     "0.2.0": {
       "dsh-better-sidebar": { "version": "0.26.0", "patch": "patches/dsh-better-sidebar@0.26.0.patch" }
+    },
+    "0.2.2": {
+      "dsh-better-sidebar": {
+        "version": "0.32.1",
+        "minDshVersion": "0.2.2-rc.2",
+        "patch": "patches/dsh-better-sidebar@0.32.1.patch"
+      }
     }
   },
   "recommendedDesktopVersion": "0.2.1-rc.2",

@@ -9,7 +9,8 @@ const envValue = (env, name) => Object.entries(env).find(([key]) => key.toUpperC
 const proxyUrl = value => (/^[a-z][a-z0-9+.-]*:\/\//i.test(value) ? value : `http://${value}`)
 const unquote = value => String(value ?? '').trim().replace(/^'(.*)'$/s, '$1')
 
-const defaultExec = (command, args) => execFileSync(command, args, { encoding: 'utf8', windowsHide: true, timeout: 5000 })
+// stderr 走管道：探测命令的报错（没装 gsettings、settings 被拒等）不应打进酒馆日志。
+const defaultExec = (command, args) => execFileSync(command, args, { encoding: 'utf8', windowsHide: true, timeout: 5000, stdio: ['ignore', 'pipe', 'pipe'] })
 
 function readWindowsSettings(exec) {
   const output = exec('reg', ['query', INTERNET_SETTINGS])
@@ -52,14 +53,15 @@ const usableAddress = value => {
 }
 
 function androidProxy(exec) {
+  // `settings get <namespace> <key>`：命名空间与键是两个参数。这些键都在 Settings.Global。
   const read = key => {
-    try { return unquote(exec('settings', ['get', key])) } catch { return '' }
+    try { return unquote(exec('settings', ['get', 'global', key])) } catch { return '' }
   }
   // FlClash / Clash 的「系统代理」会写进全局 http_proxy；部分 ROM 只写 host/port。
-  let address = usableAddress(read('global http_proxy')) || usableAddress(read('http_proxy'))
+  let address = usableAddress(read('http_proxy'))
   if (!address) {
-    const host = read('global global_http_proxy_host') || read('global_http_proxy_host')
-    const port = read('global global_http_proxy_port') || read('global_http_proxy_port')
+    const host = read('global_http_proxy_host')
+    const port = read('global_http_proxy_port')
     if (validHost(host) && validPort(port)) address = `${host}:${port}`
   }
   if (!address) return null

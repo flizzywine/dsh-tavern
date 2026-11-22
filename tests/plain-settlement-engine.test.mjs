@@ -4,10 +4,10 @@ import { createPostureItem } from '../tavern-plugin/lib/domain/background-pipeli
 import { createPlainSettlementEngine } from '../tavern-plugin/lib/domain/plain-settlement-engine.js'
 import { POSTURE_SUBMIT_TOOL } from '../tavern-plugin/lib/domain/posture-submission.js'
 
-function engine({ replaced = null, submit = true } = {}) {
+function engine({ replaced = null, submit = true, guides = [] } = {}) {
   const runs = []
   const settle = createPlainSettlementEngine({
-    pluginApi: { replaceSettlement: async () => replaced },
+    pluginApi: { replaceSettlement: async () => replaced, guideSections: async () => guides },
     pluginSettlementProgress: { begin() {} },
     backgroundModelSelection: () => ({ provider: 'p', model: 'm' }),
     postureItem: createPostureItem({ prompt: () => '要求', tool: POSTURE_SUBMIT_TOOL }),
@@ -38,4 +38,11 @@ test('a plugin that replaces the settlement wins; Tavern runs its own agent when
   assert.equal(settled.result.posture, '靠在门边')
   assert.deepEqual(current.trace, { sessionId: 'background-1', boundary: 3 })
   assert.equal(own.runs[0].task, 'settlement')
+})
+
+test('后台姿势结算收到插件 Guide，只按正文已经发生的事实结算', async () => {
+  const { settle, runs } = engine({ guides: [{ text: '把下一幕留给访客。' }] })
+  await settle.run(turn(true))
+  const text = runs[0].messages[0].content[0].text
+  assert.match(text, /门开了[\s\S]*<user_guide>[\s\S]*only what actually happened[\s\S]*把下一幕留给访客/)
 })

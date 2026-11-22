@@ -86,7 +86,16 @@ export function selectPackFigure(figure, sprites, {outfitKey, emotion, imageSele
     // old packs and uncalibrated outfits still produce JSON-safe replay frames.
     anatomy:figureScale.packHeadRelativeAnatomy((form === 'live2d' ? outfit.live2d?.anatomy : form === 'spine' ? outfit.spine.anatomy : form === 'sprite' ? outfit.sprite?.anatomy?.[state?.id] : null) ?? null, figureHeadReference(figure)),
     // the shown picture's head (its crop), for the stage's head-normalised size.
-    head:form === 'sprite' && packSpriteCrop(outfit, state?.id) ? packCropHead(packSpriteCrop(outfit, state?.id)) : null, diagnostics}
+    head:form === 'sprite' && packSpriteCrop(outfit, state?.id) ? packCropHead(packSpriteCrop(outfit, state?.id)) : null,
+    face:form === 'sprite' ? packFaceSpan(outfit, state?.id) : null, diagnostics}
+}
+// Where across the picture the face is - [left, right] canvas fractions of the crop that frames it: the shown state's own,
+// else the outfit's, else any of its other states' (one outfit's pictures share the canvas and the pose). The stage looks
+// for the head's centre only there, so a hammer head or a scythe blade beside the head at the same height is not taken
+// for it (scene-math galCentredAnatomy). null when nothing in the outfit was framed.
+function packFaceSpan(outfit, stateId) {
+  const crop = packSpriteCrop(outfit, stateId) || Object.values(outfit.sprite?.avatarCrop || {})[0] || Object.values(outfit.sprite?.avatarCropAuto || {})[0]
+  return crop ? [crop.x, crop.x + crop.w] : null
 }
 
 // Key only media/geometry, never labels, leases, revisions, figure height or viewport.
