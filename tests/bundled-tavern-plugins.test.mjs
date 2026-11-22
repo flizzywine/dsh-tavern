@@ -117,7 +117,7 @@ async function checkBundledLoadDefault(t, folder) {
   assert.equal((await installer.list())[0].state, 'disabled')
 }
 
-for (const folder of ['dsh-tavern-fate-dice', 'dsh-tavern-plot-compass']) {
+for (const folder of ['dsh-tavern-fate-dice', 'dsh-tavern-plot-compass', 'dsh-tavern-story-director']) {
   test(`${folder} 默认加载，迁移旧版自动停用标记并保留手动停用`, t => checkBundledLoadDefault(t, folder))
 }
 

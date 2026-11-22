@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { apply, name } from '../examples/dsh-tavern-story-director/index.mjs'
+import { apply, name } from '../tavern-plugin/packages/dsh-tavern-story-director/lib/index.js'
 
 const version = turn => 'version-' + turn
 const plan = {
