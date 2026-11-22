@@ -65,35 +65,59 @@ function fdWatchEnabledViews(ui) {
   let stopGameWatch = fdNoop
   let disposed = false
   let revision = 0
+  let currentGameId = String(fdGetActiveGameId() || '').trim()
 
-  const applySettings = settings => {
-    if (disposed || typeof settings?.enabled !== 'boolean') return
-    revision += 1
-    fdNoteRuntimeFlags('', { settings })
-    if (settings.enabled && !stopViews) stopViews = fdMountEnabledViews(ui)
-    if (!settings.enabled && stopViews) {
+  const syncViews = enabled => {
+    if (disposed || typeof enabled !== 'boolean') return
+    if (enabled && !stopViews) stopViews = fdMountEnabledViews(ui)
+    if (!enabled && stopViews) {
       stopViews()
       stopViews = null
     }
   }
-  const refresh = () => {
+  const applySettings = settings => {
+    if (disposed || typeof settings?.enabled !== 'boolean') return
+    const targetGameId = String(settings.gameId || '').trim()
+    if (targetGameId) {
+      fdNoteRuntimeFlags(targetGameId, { enabled: settings.enabled })
+      if (currentGameId && targetGameId !== currentGameId) return
+    } else {
+      fdNoteRuntimeFlags('', { settings })
+    }
+    revision += 1
+    syncViews(settings.enabled)
+  }
+  const refresh = gameId => {
+    const gid = String(gameId !== undefined ? gameId : currentGameId || '').trim()
     const request = ++revision
-    void fdCall(ui, FD_RPC.status, {}).then(res => {
+    void fdCall(ui, FD_RPC.status, gid ? { gameId: gid } : {}).then(res => {
       if (disposed || request !== revision || !res.ok || !res.data) return
-      applySettings(res.data.globalSettings || res.data.settings)
+      const resolvedId = gid || String(res.data.gameId || '').trim()
+      fdNoteRuntimeFlags(resolvedId, res.data)
+      if (gid && currentGameId && gid !== currentGameId) return
+      const effective = res.data.settings || res.data.globalSettings
+      if (typeof effective?.enabled === 'boolean') syncViews(effective.enabled)
     })
   }
   const watchGame = gameId => {
+    const gid = String(gameId || '').trim()
+    currentGameId = gid
     stopGameWatch()
-    stopGameWatch = fdWatch(ui, gameId, 'workbench-sync', data => {
-      if (typeof data?.settings?.enabled === 'boolean') refresh()
-    })
+    stopGameWatch = gid
+      ? fdWatch(ui, gid, 'workbench-sync', data => {
+        if (typeof data?.settings?.enabled === 'boolean') {
+          applySettings({ enabled: data.settings.enabled, gameId: gid })
+        }
+      })
+      : fdNoop
+    const known = gid ? fdIsEnabledForGame(gid) : null
+    if (typeof known === 'boolean') syncViews(known)
+    refresh(gid)
   }
   fdSavedSettingsListeners.add(applySettings)
-  const activeGame = fdGetActiveGameId()
   const stopActiveGame = fdSubscribeActiveGameId(watchGame)
-  if (activeGame) watchGame(activeGame)
-  refresh()
+  if (currentGameId) watchGame(currentGameId)
+  else refresh('')
   return () => {
     disposed = true
     fdSavedSettingsListeners.delete(applySettings)

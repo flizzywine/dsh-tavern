@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { virtualWorldbookRestoreRefs } from '../tavern-plugin/lib/domain/worldbook-virtual-surface.js'
+import { virtualWorldbookRestoreRefs, withVirtualWorldbook, withWorldbookFileInstructions } from '../tavern-plugin/lib/domain/worldbook-virtual-surface.js'
 
 const state = () => ({ schemaVersion: 1, scope: '["game","card"]', entries: {
   first: { text: '晴天', renderHash: 'sun' }, second: { text: '港口开放', renderHash: 'port' }
@@ -11,6 +11,19 @@ function message(ref, text, hash, scope = state().scope) {
 function session(messages) {
   return { events: messages.map((data, seq) => ({ seq, type: 'user/message', data })), surface: { nodes: messages.map((_, i) => i) } }
 }
+
+test('主动查阅提示只用于有检索工具的前台续写', () => {
+  const instruction = sections => sections.find(section => section.name === 'tavern:worldbook-skills')?.text
+  assert.match(instruction(withVirtualWorldbook([], '')), /优先用 read_lorebook.*续写前先判断/)
+  assert.match(instruction(withVirtualWorldbook([], '')), /grep_lorebook.*list_lorebook/)
+  assert.match(instruction(withVirtualWorldbook([], '', ['worldbook_grep'])), /玩家没提条目名/)
+  assert.match(instruction(withVirtualWorldbook([], '', ['worldbook_grep', 'worldbook_list'])), /read_lorebook/)
+  assert.equal(instruction(withVirtualWorldbook([], '', ['read_lorebook', 'worldbook_grep', 'worldbook_list'])), undefined)
+  assert.equal(instruction(withVirtualWorldbook([], '', ['read_lorebook', 'grep_lorebook', 'list_lorebook'])), undefined)
+  assert.match(instruction(withVirtualWorldbook([], '')), /需要正文时用 read_lorebook 按标题读取/)
+  assert.doesNotMatch(instruction(withVirtualWorldbook([], '', ['read_lorebook'])), /\bread\b|行号|路径/)
+  assert.doesNotMatch(instruction(withWorldbookFileInstructions([])), /续写前先判断/)
+})
 
 test('system assembly excludes dynamic recovery and stays byte-identical across dynamic updates', async () => {
   const { registerTurnLifecycleHooks } = await import('../tavern-plugin/lib/hooks/turn-lifecycle.js')

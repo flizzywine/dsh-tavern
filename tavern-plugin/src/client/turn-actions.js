@@ -1,9 +1,6 @@
 // the action row under each reply.
-//   [编辑] [变量] [重roll] [⋯]  time
-// Edit / regenerate / delete / undo only apply to the latest round; the variable
-// icon appears under every reply; the ⋯ menu holds latest-round rollback actions. Included inside
-// the play-controls module so it reuses the upstream actions, which keep their own
-// rules (hidden or disabled when unavailable).
+// Each reply's menu edits that reply. Regeneration and single-round rollback
+// use the latest reply; historical rollback has its own action.
 
 const RECEIPT_TITLES = {
     pending: "变量结算中", updated: "变量已更新", partial: "变量部分更新失败", error: "变量更新失败",
@@ -88,11 +85,13 @@ function TurnMenu(props) {
         if (!open && anchor.current) { const rect = anchor.current.getBoundingClientRect(); setPosition({ left: rect.left, top: rect.bottom + 4 }); }
         setOpen(!open);
     }
-    if (!props.latest) return null;
-    return h(React.Fragment, null,
+    return h("span", { "data-fork-turn": "more" },
         h("button", { ref: anchor, type: "button", className: "fork-turn-more", title: "更多", "aria-label": "更多", "aria-haspopup": "menu", "aria-expanded": open, onClick: toggle }),
         open && position ? bodyPortal(h("div", { ref: layer, className: "fork-turn-menu", role: "menu", style: { left: position.left + "px", top: position.top + "px" },
             onClick: function (event) { if (event.target.closest("button:not(:disabled)")) window.setTimeout(function () { setOpen(false); }, 0); } },
+            props.onEdit
+                ? h("button", { type: "button", role: "menuitem", disabled: props.editBusy, onClick: props.onEdit }, "编辑正文")
+                : h(TavernEditBodyAction, props),
             props.latest ? h(TavernUndoRollbackAction, props) : null,
             props.latest ? h(TavernRollbackAction, props) : null)) : null);
 }
@@ -106,14 +105,14 @@ function TurnActions(props) {
     return h("span", { className: "dsh-fork-turn-actions" },
         latest ? h("span", { "data-fork-turn": "edit", title: "编辑正文" }, h(TavernEditBodyAction, props)) : null,
         h("span", { "data-fork-turn": "receipt" }, h(ReceiptButton, props)),
-        latest ? h(LatestReplyActions, props) : null);
+        latest ? h(LatestReplyActions, props) : h(TurnMenu, props));
 }
 
 function LatestReplyActions(props) {
     const h = React.createElement;
     return h(React.Fragment, null,
         h("span", { "data-fork-turn": "regen" }, h(CandidateAction, { ...props, only: "regen" })),
-        h("span", { "data-fork-turn": "more" }, h(TurnMenu, { ...props, latest: true })));
+        h(TurnMenu, { ...props, latest: true }));
 }
 
 // ---------------------------------------------------------------------------

@@ -1914,7 +1914,7 @@
               )
             })(),
             h('div', { style: S.row },
-              h('button', { style: buttonStyle, onClick: () => setLibraryData(Object.assign({}, dataRef.current, { outfits: (data.outfits || []).concat([{ id: 'of' + Date.now(), name: '新套装', body: '', full: '', bodyBack: '', fullBack: '', negative: '', enabled: true }]) })) }, '新增套装'),
+              h('button', { style: buttonStyle, onClick: () => setLibraryData(Object.assign({}, dataRef.current, { outfits: (data.outfits || []).concat([{ id: 'of' + Date.now(), name: '新套装', upper: '', lower: '', shoes: '', accessory: '', full: '', back: '', negative: '', enabled: true }]) })) }, '新增套装'),
               h('button', { style: buttonStyle, onClick: () => commit() }, '保存服装库'),
               h('button', { style: buttonStyle, title: '把角色库、两本世界书、渠道配置、历史记录打包成一个 JSON', onClick: exportAllData }, '导出全部数据'),
               h('button', { style: buttonStyle, title: '从备份 JSON 恢复；会先自动备份当前数据', onClick: importAllData }, '导入全部数据'),
@@ -2485,7 +2485,7 @@
           h('span', null,
             h('span', { style: { display: 'block', fontSize: '14px', fontWeight: 600 } }, '启用配图'),
             h('span', { style: { display: 'block', fontSize: '12px', color: 'var(--dsw-alias-label-tertiary)', marginTop: '2px' } },
-              config.imageEnabled === false ? '已关闭：不再自动或手动配图，正文里不显示配图按钮；已有插图照常显示' : '为剧情自动或手动配图；关掉后正文里不显示配图按钮，已有插图照常显示')),
+              config.imageEnabled === false ? '已关闭配图和对话顶部的画廊。已有插图照常显示。' : '为剧情自动或手动配图，并在对话顶部显示画廊。')),
           h('input', { type: 'checkbox', role: 'switch', className: 'dti-switch', 'aria-label': '启用配图', checked: config.imageEnabled !== false, onChange: e => save({ imageEnabled: e.target.checked }) })),
         h('div', { style: S.row }, promptField('生图模式', h('select', { 'aria-label': '生图系统模式', style: S.input, value: config.promptSystem || 'worldbook', onChange: async event => { const mode = event.target.value; if (await save({ promptSystem: mode })) setTab(mode === 'worldbook' ? 'worldbook' : 'style') } },
           h('option', { value: 'worldbook' }, '世界书模式（默认）'), h('option', { value: 'workbench' }, '生图工作台（高级模式）')))),

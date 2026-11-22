@@ -412,8 +412,8 @@ function createTavernStoryTranscriptFeature(deps) {
 			assistantActions ? h('span', { className: 'dsh-fork-turn-actions' },
 				turn ? h('span', { 'data-fork-turn': 'receipt' }, h(StoryTranscriptMvuReceipt, actionProps)) : null,
 				props.latest && props.host ? h(replyActions.Latest, {
-					...props.host, sessionId: props.sessionId, messageId: props.view.latestAssistantMessageId
-				}) : null) : null,
+					...props.host, sessionId: props.sessionId, messageId: props.view.latestAssistantMessageId, onEdit: edit, editBusy: Boolean(busy)
+				}) : h(replyActions.Menu, { onEdit: edit, editBusy: Boolean(busy) })) : null,
 			assistantActions && turn && props.latestTurn > turn && row.messageUid ? h(replyActions.RollbackTo, {
 				...actionProps, floorNo: row.floorNo, messageUid: row.messageUid, running: props.running
 			}) : null,

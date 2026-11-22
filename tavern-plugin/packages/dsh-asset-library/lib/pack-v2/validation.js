@@ -129,8 +129,9 @@ export async function verifyBytes(manifest, files, {limits = PACK_LIMITS, decode
   const boards = new Set(), stageMedia = new Set()
   for(const figure of Object.values(figures)) {
     if(figure.identitySettei?.board)boards.add(figure.identitySettei.board)
+    if(figure.identitySettei?.parts)boards.add(figure.identitySettei.parts)
     for(const hash of figureImageReferenceMedia(figure.extensions?.[FIGURE_IMAGE_EXTENSION]))boards.add(hash)
-    for(const outfit of figure.outfits){if(outfit.settei)boards.add(outfit.settei);for(const hash of [...Object.values(outfit.avatars||{}),...Object.values(outfit.sprite?.assets||{})])stageMedia.add(hash)}
+    for(const outfit of figure.outfits){if(outfit.settei)boards.add(outfit.settei);if(outfit.setteiParts)boards.add(outfit.setteiParts);for(const hash of [...Object.values(outfit.avatars||{}),...Object.values(outfit.sprite?.assets||{})])stageMedia.add(hash)}
   }
   for(const icon of manifest.tagIcons || [])stageMedia.add(icon.media)
   for(const hash of manifest.backgroundStyle?.references || [])boards.add(hash)

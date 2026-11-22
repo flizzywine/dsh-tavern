@@ -1,8 +1,10 @@
 // accepted identity boards are resource authority, not outfit metadata.
 import {shape, array, text, check, validateHash} from './common.js'
 export function validateIdentitySettei(value, path = '$.identitySettei') {
-  shape(value, ['board', 'version', 'palette'], ['board', 'version', 'palette'], path)
+  shape(value, ['board', 'parts', 'version', 'palette'], ['board', 'version', 'palette'], path)
   validateHash(value.board, path + '.board')
+  // board: the four views; parts: the second sheet, the eye and the pieces over the colour card.
+  if (value.parts !== undefined) validateHash(value.parts, path + '.parts')
   text(value.version, path + '.version', 160)
   array(value.palette, path + '.palette', 64)
   value.palette.forEach((entry, index) => {

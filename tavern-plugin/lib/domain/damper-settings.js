@@ -1,4 +1,4 @@
-import { DAMPER_KEY_REFS, validateNarrativeDamperConfig } from './narrative-damper.js'
+import { DAMPER_KEY_REFS, damperEndpointUrl, validateNarrativeDamperConfig } from './narrative-damper.js'
 
 /**
  * 叙事阻尼器的全局设置：读取、保存、密钥与连接测试的唯一实现。
@@ -15,23 +15,27 @@ export function createDamperSettings({ readTavernSettings, updateTavernSettings,
   if (typeof updateTavernSettings !== 'function') throw new TypeError('叙事阻尼器设置需要 updateTavernSettings')
 
   // 没有安全存储（或服务未就绪）时如实回答「没配置」，不伪造一个已配置的状态。
-  async function credentialOf(config, provider = config.provider, keyName = config.keyName) {
-    if (!damper) return { configured: false, source: null, keyName }
-    return damper.credentialStatus(provider, keyName)
+  async function settingsView(config, provider = config.provider, keyName = config.keyName) {
+    const credential = damper
+      ? await damper.credentialStatus(provider, keyName)
+      : { configured: false, source: null, keyName }
+    return {
+      config,
+      credential,
+      endpointUrl: damperEndpointUrl(config)
+    }
   }
 
   return Object.freeze({
     async read() {
       const settings = await readTavernSettings()
-      const config = settings.narrativeDamper
-      return { config, credential: await credentialOf(config) }
+      return settingsView(settings.narrativeDamper)
     },
 
     async update(patch) {
       if (!patch || typeof patch !== 'object' || Array.isArray(patch)) throw new Error('叙事阻尼器设置补丁无效')
       const updated = await updateTavernSettings({ narrativeDamper: patch })
-      const config = updated.narrativeDamper
-      return { config, credential: await credentialOf(config) }
+      return settingsView(updated.narrativeDamper)
     },
 
     async setKey({ provider, value } = {}) {
@@ -51,7 +55,7 @@ export function createDamperSettings({ readTavernSettings, updateTavernSettings,
         await damper.setKey(id, next)
       }
       const config = settings.narrativeDamper
-      return { config, credential: await damper.credentialStatus(id, id === config.provider ? config.keyName : '') }
+      return settingsView(config, id, id === config.provider ? config.keyName : '')
     },
 
     async test(config) {

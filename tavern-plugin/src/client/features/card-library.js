@@ -151,7 +151,7 @@ function CardExportMenu({ disabled, hasImage, onExport }) {
 				try {
 					await rpc("deleteCard", { path: card.path });
 					const chatRemoval = await removeTavernCardChats(chats, [{ path: card.path, ok: true }], props.archiveSession);
-					announceTavernChatsRemoved(chatRemoval.sessionIds);
+					announceTavernSessionsUnavailable(chatRemoval.sessionIds);
 					setSelectedPath(""); setCard(null); await refreshCards(); notifyTavernDataChanged(["cards", "sessions"], "cards");
 					if (chatRemoval.notice.indexOf("失败") >= 0) setError(chatRemoval.notice);
 				}

@@ -6,7 +6,7 @@ import React, { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { JSDOM } from 'jsdom'
 
-import { DAMPER_KEY_REFS, clampMvuSubmissionOperations, clampMvuSubmissionOperationsWithReport, createNarrativeDamper, defaultNarrativeDamperConfig, compileTurnRuling, normalizeDecisionRuling, nextPlainDamperState, readDamperStateSnapshot, settlementBudgetRuleText } from '../tavern-plugin/lib/domain/narrative-damper.js'
+import { DAMPER_KEY_REFS, clampMvuSubmissionOperations, clampMvuSubmissionOperationsWithReport, createNarrativeDamper, damperEndpointUrl, defaultNarrativeDamperConfig, compileTurnRuling, normalizeDecisionRuling, nextPlainDamperState, readDamperStateSnapshot, settlementBudgetRuleText, validateNarrativeDamperConfig } from '../tavern-plugin/lib/domain/narrative-damper.js'
 import { maskMvuReceipt } from '../tavern-plugin/lib/domain/mvu-visibility.js'
 import { projectStoryTranscript } from '../tavern-plugin/lib/domain/story-transcript.js'
 import { createStoryTranscriptReader, storyTranscriptMessageFields } from '../tavern-plugin/lib/domain/story-transcript-reader.js'
@@ -95,6 +95,150 @@ test('叙事阻尼器 RPC：密钥安全存储不回显明文、环境变量引�
   assert.equal(refSaved.credential.source, 'env')
   assert.equal(refSaved.config.keyName, 'CUSTOM_GEMINI_ENV')
   assert.equal(creds.stored.has(DAMPER_KEY_REFS.gemini), false)
+})
+
+test('兼容接口统一处理网关前缀、版本路径和完整 API 地址', () => {
+  const cases = [
+    ['api.example.com', 'https://api.example.com', 'https://api.example.com/v1/decisions'],
+    ['ｈｔｔｐｓ：／／ａｐｉ．ｅｘａｍｐｌｅ．ｃｏｍ', 'https://api.example.com', 'https://api.example.com/v1/decisions'],
+    ['localhost:443/v1', 'http://localhost:443/v1', 'http://localhost:443/v1/decisions'],
+    ['[::1]:8080', 'http://[::1]:8080', 'http://[::1]:8080/v1/decisions'],
+    ['https://api.example.com/Ａ/v1beta', 'https://api.example.com/%EF%BC%A1/v1beta', 'https://api.example.com/%EF%BC%A1/v1/decisions'],
+    ['https://api.example.com/proxy/v1/v1/chat/completions/', 'https://api.example.com/proxy/v1/v1/chat/completions', 'https://api.example.com/proxy/v1/v1/decisions'],
+    ['https://api.example.com/proxy/v1/responses', 'https://api.example.com/proxy/v1/responses', 'https://api.example.com/proxy/v1/decisions'],
+    ['https://api.example.com/proxy/v1beta/decisions', 'https://api.example.com/proxy/v1beta/decisions', 'https://api.example.com/proxy/v1/decisions']
+  ]
+  for (const [baseUrl, canonical, endpoint] of cases) {
+    for (const [provider, expected] of [
+      ['openai-compatible', endpoint],
+      ['gemini-compatible', endpoint.replace(/\/v1\/decisions$/, '/v1beta/decisions')],
+      ['jev-compatible', endpoint.replace(/\/v1\/decisions$/, '/v1/systemone')]
+    ]) {
+      const raw = { provider, baseUrl }
+      const config = validateNarrativeDamperConfig(raw)
+      assert.equal(config.baseUrl, canonical)
+      assert.equal(damperEndpointUrl(raw), expected)
+      assert.equal(damperEndpointUrl(config), expected)
+    }
+  }
+  // jev-compatible 保留显式填写的 /v1/systemone 与 /v1/decision 完整路径
+  for (const [baseUrl, expected] of [
+    ['https://api.example.com/v1/systemone', 'https://api.example.com/v1/systemone'],
+    ['https://api.example.com/v1/decision/', 'https://api.example.com/v1/decision'],
+    ['https://api.example.com/proxy/v1/decision', 'https://api.example.com/proxy/v1/decision'],
+    ['https://api.example.com/proxy/v1/systemone/', 'https://api.example.com/proxy/v1/systemone']
+  ]) {
+    const config = validateNarrativeDamperConfig({ provider: 'jev-compatible', baseUrl })
+    assert.equal(damperEndpointUrl(config), expected)
+  }
+  // 其他兼容提供方仍会剥离 /v1/decision 与 /v1/systemone 并拼回各自默认路径
+  assert.equal(
+    damperEndpointUrl(validateNarrativeDamperConfig({ provider: 'openai-compatible', baseUrl: 'https://api.example.com/proxy/v1/decision' })),
+    'https://api.example.com/proxy/v1/decisions'
+  )
+  assert.equal(
+    damperEndpointUrl(validateNarrativeDamperConfig({ provider: 'gemini-compatible', baseUrl: 'https://api.example.com/proxy/v1/systemone' })),
+    'https://api.example.com/proxy/v1beta/decisions'
+  )
+})
+
+test('jev-compatible 使用独立密钥槽并按 JEV 协议向自定义端点发起探针请求', async () => {
+  const creds = createMemoryCredentials({ [DAMPER_KEY_REFS['jev-compatible']]: 'jev-compat-secret' })
+  const calls = []
+  const damper = createNarrativeDamper({
+    getConfig: async () => ({
+      ...defaultNarrativeDamperConfig(),
+      enabled: true,
+      provider: 'jev-compatible',
+      baseUrl: 'https://relay.example.com/v1/decision',
+      model: 'jev-1.13.0',
+      keyName: 'TYPESAFE_API_KEY'
+    }),
+    credentials: () => creds,
+    fetch: async (url, init) => {
+      calls.push({ url, method: init.method, headers: init.headers, body: JSON.parse(init.body) })
+      return new Response(JSON.stringify({ answers: { probe: { noul: 0.91 } } }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      })
+    }
+  })
+
+  const probe = await damper.test()
+  assert.equal(probe.ok, true)
+  assert.equal(calls.length, 1)
+  assert.equal(calls[0].url, 'https://relay.example.com/v1/decision')
+  assert.equal(calls[0].method, 'POST')
+  assert.equal(calls[0].headers.Authorization, 'Bearer jev-compat-secret')
+  assert.equal(calls[0].body.model, 'jev-1.13.0')
+  assert.equal(typeof calls[0].body.state, 'string')
+  assert.equal(calls[0].body.questions.probe.type, 'noul')
+})
+
+test('兼容接口区分地址错误，开启时仍可保存未填写的地址', () => {
+  const config = { provider: 'openai-compatible', enabled: true }
+  assert.equal(damperEndpointUrl(validateNarrativeDamperConfig({ ...config, baseUrl: '  ' })), '')
+  for (const [baseUrl, message] of [
+    ['https:/api.example.com', /地址格式无效/],
+    ['https://api.example.com:invalid', /地址格式无效/],
+    [42, /地址格式无效/],
+    ['ftp://api.example.com', /仅支持 HTTPS 和 HTTP 协议/],
+    ['http://api.example.com', /HTTP 仅支持本地回环地址/],
+    ['https://user:password@api.example.com', /不能包含用户名或密码/],
+    ['https://api.example.com?', /不能包含查询参数或片段/],
+    ['https://api.example.com/#anchor', /不能包含查询参数或片段/]
+  ]) {
+    assert.throws(() => validateNarrativeDamperConfig({ ...config, baseUrl }), {
+      code: 'DAMPER_INVALID_CONFIG', message
+    })
+  }
+})
+
+test('决策接口返回 404 或 405 时，连接测试、回合和插件判定报告端点错误', async () => {
+  const config = {
+    ...defaultNarrativeDamperConfig(),
+    enabled: true,
+    provider: 'openai-compatible',
+    baseUrl: 'https://proxy.example.com/v1beta/chat/completions',
+    model: 'gpt-6-luna',
+    keyName: 'OPENAI_API_KEY'
+  }
+  const creds = createMemoryCredentials({ OPENAI_API_KEY: 'test-key' })
+  let status = 404
+  const calls = []
+  const damper = createNarrativeDamper({
+    getConfig: async () => config,
+    credentials: () => creds,
+    fetch: async (url, init) => {
+      calls.push([url, init.method])
+      return new Response('Not a Decisions endpoint', { status })
+    }
+  })
+
+  for (const httpStatus of [404, 405]) {
+    status = httpStatus
+    const probe = await damper.test()
+    assert.equal(probe.ok, false)
+    assert.equal(probe.error.code, 'DAMPER_ENDPOINT_ERROR')
+    assert.match(probe.error.message, new RegExp('HTTP ' + httpStatus + '.*决策 API.*POST 路径和模型名称'))
+
+    const { ruling, outcome } = await damper.evaluateTurn({
+      chat: { id: 'proxy-chat', mode: 'story', messages: [] },
+      turn: httpStatus,
+      userText: '我轻轻敲门。'
+    })
+    assert.equal(ruling, null)
+    assert.equal(outcome.status, 'bypassed')
+    assert.equal(outcome.code, probe.error.code)
+    assert.equal(outcome.message, probe.error.message)
+
+    await assert.rejects(damper.judge({
+      input: '我轻轻敲门。',
+      questions: [{ id: 'knock', instructions: '玩家敲了门吗？' }]
+    }), { code: probe.error.code, message: probe.error.message })
+  }
+
+  assert.deepEqual(calls, Array.from({ length: 6 }, () => ['https://proxy.example.com/v1/decisions', 'POST']))
 })
 
 test('gemini-decision-1 前置裁定：R18 送审脱敏投影、400 敏感词二次骨架兜底、场景变化直通与缓存复用', async () => {
@@ -435,6 +579,18 @@ test('故事窗口读取保留 narrativeDamper 与 damperState，前端楼层渲
           model: 'gemini-decision-1',
           latencyMs: 2
         }]
+      },
+      { role: 'user', text: '决策接口未找到回合' },
+      {
+        role: 'assistant',
+        turn: 6,
+        text: '正文照常生成。',
+        narrativeDamper: [{
+          status: 'bypassed',
+          code: 'DAMPER_ENDPOINT_ERROR',
+          message: '决策服务返回 HTTP 404。请确认服务支持所选决策 API，并检查 POST 路径和模型名称',
+          model: 'gpt-6-luna'
+        }]
       }
     ]
   }
@@ -529,21 +685,23 @@ test('故事窗口读取保留 narrativeDamper 与 damperState，前端楼层渲
   })
 
   const pills = [...dom.window.document.querySelectorAll('.dsh-tavern-damper-pill')]
-  // Floor 1 greeting has no pill; Floors 2, 3, 4, 5 each have one pill!
-  assert.equal(pills.length, 4)
+  // Floor 1 greeting has no pill. Floors 2–6 each have one.
+  assert.equal(pills.length, 5)
   assert.match(pills[0].textContent, /阻尼 · 越权剥离/)
   assert.match(pills[1].textContent, /阻尼 · 防线受阻 0\.6 · 钳制 2 项/)
   assert.match(pills[2].textContent, /阻尼 · 半步拉扯 1\.9/)
   assert.match(pills[3].textContent, /阻尼 · 未配密钥/)
+  assert.match(pills[4].textContent, /阻尼 · 决策接口错误/)
 
-  // Click Floor 3 pill (MVU clamped) + Floor 4 pill (plain 4D state) + Floor 5 pill (bypassed)
+  // Expand the clamped, plain-state and bypassed results.
   await act(async () => {
     pills[1].click()
     pills[2].click()
     pills[3].click()
+    pills[4].click()
   })
   const panels = [...dom.window.document.querySelectorAll('.dsh-tavern-damper-panel')]
-  assert.equal(panels.length, 3)
+  assert.equal(panels.length, 4)
   // Floor 3 panel shows visible clamped stat numbers and masks hidden stat numbers!
   assert.match(panels[0].textContent, /配额：防线冻结（±1）/)
   assert.match(panels[0].textContent, /15 → 16/)
@@ -555,6 +713,7 @@ test('故事窗口读取保留 narrativeDamper 与 damperState，前端楼层渲
   assert.match(panels[1].textContent, /\+5/)
   // Floor 5 panel shows clear missing API Key guidance
   assert.match(panels[2].textContent, /尚未配置 API Key/)
+  assert.match(panels[3].textContent, /HTTP 404.*决策 API.*POST 路径和模型名称.*正文照常生成/)
 
   // Turning showDamperStatus off hides all pills and panels
   await act(async () => {

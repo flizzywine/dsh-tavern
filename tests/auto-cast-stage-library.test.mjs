@@ -41,9 +41,11 @@ async function fixture(t) {
     patch:{figures:[TEMPLATE], sprites:{uniform:'sprites/uniform/manifest.json'}, blobs:{[hash]:{ext:'png', mime:'image/png', size:face.length}},
       voiceLibrary:{version:1, voices:{tsundere:{name:'傲娇少女声', language:'zh', guidance:'傲娇的少女', defaultSource:'browser', sources:{browser:{kind:'preset', provider:'browser', voiceName:'zh-a'}}}}}},
     fileUpdates:new Map([[`media/${hash}.png`, face], ['sprites/uniform/manifest.json', json(sprite)], [`figures/${TEMPLATE}.json`, json(figure)]])})
-  const port = createAutoCastLibrary({getLibrary:() => service, pluginApi:{imageCharacterLibraries:async () => []}})
+  // tts.reading(): which figures 通用声音 / 旁白 point at (none until a test points them).
+  const world = {reading:null}
+  const port = createAutoCastLibrary({getLibrary:() => service, getReading:() => world.reading, pluginApi:{imageCharacterLibraries:async () => []}})
   t.after(async () => { port.dispose(); await service.dispose(); await rm(root, {recursive:true, force:true}) })
-  return {service, port, templatePack:created.snapshot.manifest.id}
+  return {service, port, world, templatePack:created.snapshot.manifest.id}
 }
 
 test('the port casts through the library\'s auto-cast writer: a new figure with a library voice, a copy, then 人设图 and 立绘 land', async t => {
@@ -85,14 +87,20 @@ test('the port casts through the library\'s auto-cast writer: a new figure with 
 })
 
 // 主人 11-15: only 通用声音 (the voice page's switch, else a voice written a 使用情景 before the switch) are offered to the assistant.
-test('the assistant\'s voice candidates are 可选声音 「默认」: a 使用情景 or 「通用」 in the name; the old switch is not read', async t => {
-  const {service, port, templatePack} = await fixture(t)
+test('the assistant\'s voice candidates are 可选声音 「默认」: a 使用情景, or a voice of the pack 通用声音 / 旁白 point at; never by name; the old switch is not read', async t => {
+  const {service, port, world, templatePack} = await fixture(t)
   const pack = await service.getPackSnapshot({packId:templatePack}), base = pack.manifest.voiceLibrary.voices.tsundere
   const {guidance:_g, ...plain} = base
   const sources = voiceName => ({browser:{kind:'preset', provider:'browser', voiceName}})
   await service.patchPack({packId:templatePack, expectedRevision:pack.revision, patch:{voiceLibrary:{version:1, voices:{tsundere:base, off:{...base, name:'关掉的', autoCast:false, sources:sources('zh-b')}, own:{...plain, name:'萌宝', autoCast:true}, on:{...plain, name:'通用男性声音', sources:sources('zh-c')}}}}})
-  assert.deepEqual((await port.libraryVoices()).voices.map(row => row.name), ['傲娇少女声', '关掉的', '通用男性声音'])
+  assert.deepEqual((await port.libraryVoices()).voices.map(row => row.name), ['傲娇少女声', '关掉的'], '「通用」 in a name alone is not a 使用情景')
   assert.deepEqual((await port.search('傲娇')).voices.map(row => row.voiceId), ['tsundere', 'off'], 'the search offers the same candidates')
+  // a system pack (the one 通用声音 points at): all its voices, with or without a 使用情景
+  const system = await service.createPack({name:'系统设置', expectedRevision:null})
+  await service.patchPack({packId:system.snapshot.manifest.id, expectedRevision:system.snapshot.revision, patch:{voiceLibrary:{version:1, voices:{male:{...plain, name:'系统既有男声', sources:sources('zh-d')}}}}})
+  world.reading = {general:{figure:{packId:system.snapshot.manifest.id, figureId:'f1'}}, narrator:{enabled:false, figure:null}}
+  assert.deepEqual((await port.libraryVoices()).voices.map(row => row.name), ['傲娇少女声', '关掉的', '系统既有男声'])
+  assert.deepEqual((await port.search('男声')).voices.map(row => row.name), ['系统既有男声'])
   await assert.rejects(service.patchPack({packId:templatePack, expectedRevision:(await service.getPackSnapshot({packId:templatePack})).revision, patch:{voiceLibrary:{version:1, voices:{bad:{...base, autoCast:'yes'}}}}}), {code:'INVALID_INPUT'})
 })
 test('a committed round through the asset library plugin\'s own service: new speakers are written, counted and drawn', async t => {

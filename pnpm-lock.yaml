@@ -7,7 +7,7 @@ settings:
 patchedDependencies:
   dsh-better-sidebar@0.28.0: 9af6279198a53ec127686bb827d1181550422d4e8233f8cf1acefaaf1d6a1521
   dsh-pocket@2.13.1: e0df3c10915f3dc97365324daef6b69c459324ac94f340b4b58e3635d6141d17
-  dsh-web-mobile@3.1.0: 3d32dd6f26f3dce6ea735dff6d11a3a512d6c3533c58c0233cf13770e9033d35
+  dsh-web-mobile@3.1.0: 94e96ebe180c17cd9447f7d22d729af2fe65713d85fdc72b6ecec8c4528ea7a1
 
 importers:
 
@@ -94,7 +94,7 @@ importers:
         version: link:tavern-plugin/packages/dsh-tavern-tts
       dsh-web-mobile:
         specifier: 3.1.0
-        version: 3.1.0(patch_hash=3d32dd6f26f3dce6ea735dff6d11a3a512d6c3533c58c0233cf13770e9033d35)(react@19.2.0)
+        version: 3.1.0(patch_hash=94e96ebe180c17cd9447f7d22d729af2fe65713d85fdc72b6ecec8c4528ea7a1)(react@19.2.0)
       esbuild:
         specifier: 0.25.12
         version: 0.25.12
@@ -2681,7 +2681,7 @@ snapshots:
       qrcode: 1.5.4
       qrcode-terminal: 0.12.0
 
-  dsh-web-mobile@3.1.0(patch_hash=3d32dd6f26f3dce6ea735dff6d11a3a512d6c3533c58c0233cf13770e9033d35)(react@19.2.0):
+  dsh-web-mobile@3.1.0(patch_hash=94e96ebe180c17cd9447f7d22d729af2fe65713d85fdc72b6ecec8c4528ea7a1)(react@19.2.0):
     dependencies:
       react: 19.2.0
 

@@ -11,6 +11,8 @@ export const ASSET_IMAGE_QUALITIES = Object.freeze(['auto','low','medium','high'
 export const ASSET_REFERENCE_ROLES = Object.freeze({
   identity:'Approved identity settei: authority for cross-outfit face, body proportions, hair structure and inherent skin/eye/hair colours; outfit accessories are not identity traits',
   settei:'Approved outfit settei: authority for clothing, outfit colours and explicit hair/accessory differences against its parent identity version; not sheet layout',
+  identityParts:'Second sheet of the approved identity settei: its eye and accessory close-ups over the colour card; the same authority as the identity settei for those details',
+  setteiParts:'Second sheet of the approved outfit settei: its eye and accessory close-ups over the colour card; the same authority as the outfit settei for those details',
   sprite:'Approved default variant sprite: match size, framing, camera and facing direction',
   emotionSprite:'Approved same-emotion sprite: expression and outfit details',
   avatar:'Default variant avatar: match face scale, eye height and framing',

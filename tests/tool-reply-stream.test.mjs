@@ -30,8 +30,8 @@ test('增量 JSON 字符串状态机：正确解码字面反斜杠、换行、Un
 
 test('ToolReplyStreamTracker：仅跟踪 submit_story，支持工具名迟到与多工具并行隔离', () => {
   const tracker = createToolReplyStreamTracker('submit_story')
-  // index 0 是查询工具 worldbook_grep，不产生正文流
-  assert.equal(tracker.pushToolDelta({ type: 'tool-call-delta', index: 0, id: 'c0', name: 'worldbook_grep', argumentsDelta: '{"content":"不应流出"}' }).matched, false)
+  // index 0 是查询工具 grep_lorebook，不产生正文流
+  assert.equal(tracker.pushToolDelta({ type: 'tool-call-delta', index: 0, id: 'c0', name: 'grep_lorebook', argumentsDelta: '{"content":"不应流出"}' }).matched, false)
 
   // index 1 先到半截参数，后到工具名 submit_story
   assert.equal(tracker.pushToolDelta({ type: 'tool-call-delta', index: 1, id: 'c1', argumentsDelta: '{"think":"铺垫' }).matched, false)
@@ -174,7 +174,7 @@ test('ui-chat 工具流式补丁：0.2.2-rc.2+ 压缩形状（反引号、无空
 
   // 非 submit_story 工具在首个 token 之后仍被早退抑制，不产生流式预览
   let other = runtime.initialState(1, 1)
-  other = runtime.updateChunk(other, { type: 'tool-call-delta', index: 0, id: 'call_2', name: 'worldbook_grep', argumentsDelta: '{"query":"x"}' }, 1, 100)
+  other = runtime.updateChunk(other, { type: 'tool-call-delta', index: 0, id: 'call_2', name: 'grep_lorebook', argumentsDelta: '{"query":"x"}' }, 1, 100)
   const suppressed = runtime.updateChunk(other, { type: 'tool-call-delta', index: 0, id: 'call_2', argumentsDelta: 'more' }, 2, 110)
   assert.equal(suppressed, other)
 })

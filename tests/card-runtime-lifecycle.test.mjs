@@ -75,6 +75,24 @@ function execution(options = {}) {
 
 const announcementDelays = [1500, 4000, 9000]
 const announcementTimers = h => [...h.timers.entries()].filter(([, timer]) => announcementDelays.includes(timer.delay))
+
+test('切入正在自动更新人物卡的存档，脚本等新版本再初始化', async () => {
+  const h = execution()
+  h.module.sync('A', { ...view(), cardUpdate: { autoReloading: true } })
+  await h.settle()
+  assert.equal(h.calls.length, 0)
+  assert.equal(h.runtimes.length, 0)
+
+  const updated = view(2)
+  updated.tavernHelper.lifecycleRevision = 2
+  h.module.sync('A', { ...updated, cardUpdate: { autoReloading: false } })
+  await h.settle()
+  await h.runtimes[0].options.onReady('A')
+  assert.equal(h.runtimes[0].emissions[0][0], 'CHAT_CHANGED')
+  assert.equal(h.runtimes[0].emissions[0][2].lifecycleRevision, 2)
+  h.module.dispose()
+})
+
 function runAnnouncement(h, delay) {
   const entry = announcementTimers(h).find(([, timer]) => timer.delay === delay)
   assert.ok(entry, `no pending chat announcement timer for ${delay}ms`)
