@@ -15,6 +15,29 @@ function entryIdentity(state, entry) {
   return JSON.stringify([sourceIdentity(origin?.source || state.worldBook?.source), uid])
 }
 
+const lookupId = row => worldbookFileDigest(row.path)
+const normalizeKeyword = value => String(value).normalize('NFKC').trim().toLowerCase()
+
+/** New receipts travel outside model-facing text; old traces stored JSON. */
+export function readLorebookReceipt(text, meta) {
+  const receipt = meta?.worldbookRead
+  if (typeof receipt?.id === 'string' && text.trim()) return { ...receipt, text }
+  if (!text.startsWith('{')) return undefined
+  let legacy
+  try { legacy = JSON.parse(text) } catch { return undefined }
+  if (legacy?.status === 'found' && typeof legacy.id === 'string' && typeof legacy.text === 'string' && legacy.text.trim()) {
+    return { id: legacy.id, title: legacy.title, text: legacy.text }
+  }
+}
+
+function titleMatchRank(row, keys, keyword) {
+  const title = normalizeKeyword(row.title)
+  if (title === keyword) return 0
+  if (keys.some(key => key === keyword)) return 1
+  if (title.includes(keyword) || keys.some(key => key.includes(keyword))) return 2
+  return Infinity
+}
+
 // JSON remains authoritative. Immutable content generations can be shared by games;
 // every operation resolves the calling game's CURRENT generation before granting access.
 export function createWorldbookFiles({ directory, load, resourcesAvailable = () => true }) {
@@ -56,7 +79,8 @@ export function createWorldbookFiles({ directory, load, resourcesAvailable = () 
       groups.push({ key, root, rows: group.map(row => ({ ...row, path: path.join(root, row.filename) })) })
     }
     return { key: worldbookFileDigest(JSON.stringify(groups.map(group => group.key))), root: groups[0].root,
-      directories: groups.map(group => group.root), rows: groups.flatMap(group => group.rows) }
+      directories: groups.map(group => group.root), rows: groups.flatMap(group => group.rows),
+      keys: new Map(entries.map(entry => [entry.ref, Array.isArray(entry.primaryKeys) ? entry.primaryKeys.map(normalizeKeyword).filter(Boolean) : []])) }
   }
   async function resource(requested, lookup) {
     const view = await current(lookup)
@@ -89,11 +113,41 @@ export function createWorldbookFiles({ directory, load, resourcesAvailable = () 
         nextOffset: offset + limit < view.rows.length ? offset + limit : null,
         files: view.rows.slice(offset, offset + limit).map(({ path, title, category }) => ({ path, title, category })) }
     },
+    async readByKeyword({ keyword, offset = 0 }, lookup) {
+      if (typeof keyword !== 'string' || !keyword.trim() || keyword.length > 500) throw Error('keyword 需要 1–500 字符的标题或搜索词')
+      if (!Number.isSafeInteger(offset) || offset < 0) throw Error('offset 必须为非负整数')
+      const view = await viewFor({}, lookup), query = normalizeKeyword(keyword)
+      const selected = /^[a-f0-9]{20}$/.test(query) ? view.rows.find(row => lookupId(row) === query) : undefined
+      let matches = selected ? [selected] : []
+      let best = Infinity
+      if (!selected) for (const row of view.rows) {
+        lookup?.signal?.throwIfAborted()
+        const rank = titleMatchRank(row, view.keys.get(row.ref), query)
+        if (!Number.isFinite(rank) || rank > best) continue
+        if (rank < best) { matches = []; best = rank }
+        matches.push(row)
+      }
+      if (!matches.length) matches = view.rows.filter(row => {
+        lookup?.signal?.throwIfAborted()
+        return normalizeKeyword(row.content).includes(query)
+      })
+      if (!matches.length) return { status: 'not_found' }
+      if (matches.length > 1) return { status: 'multiple', total: matches.length,
+        candidates: matches.slice(0, 10).map(row => ({ id: lookupId(row), title: row.title, category: row.category })) }
+      const [row] = matches
+      const heading = '# ' + row.title + '\n\n'
+      const characters = Array.from(row.content.slice(heading.length, -1))
+      const end = Math.min(offset + 8000, characters.length)
+      lookup?.signal?.throwIfAborted()
+      return { status: 'found', id: lookupId(row), title: row.title, category: row.category,
+        text: characters.slice(offset, end).join(''), nextOffset: end < characters.length ? end : null }
+    },
     async searchFiles(args, lookup) {
       if (typeof args.query !== 'string' || !args.query.trim() || args.query.length > 500) throw Error('query 需要 1–500 字符的非空搜索文本')
       const { offset, limit } = page(args), view = await viewFor(args, lookup)
       const needle = args.caseSensitive ? args.query : args.query.toLowerCase()
-      const matches = []; let total = 0
+      const matches = []
+      let skipped = 0
       for (const row of view.rows) {
         lookup?.signal?.throwIfAborted()
         await files.verify(row.path, row.content)
@@ -101,28 +155,38 @@ export function createWorldbookFiles({ directory, load, resourcesAvailable = () 
         for (let i = 0; i < lines.length; i++) {
           const position = (args.caseSensitive ? lines[i] : lines[i].toLowerCase()).indexOf(needle)
           if (position < 0) continue
-          if (total >= offset && matches.length < limit) {
-            const start = Math.max(0, position - 120), end = Math.min(lines[i].length, start + 800)
-            matches.push({ path: row.path, category: row.category, line: i + 1, text: lines[i].slice(start, end), truncated: start > 0 || end < lines[i].length })
+          if (skipped < offset) {
+            skipped++
+            continue
           }
-          total++
+          const start = Math.max(0, position - 120), end = Math.min(lines[i].length, start + 800)
+          matches.push({ id: lookupId(row), title: row.title, line: i + 1, text: lines[i].slice(start, end) })
+          if (matches.length === limit) return matches
         }
       }
-      return { directory: view.root, directories: view.directories, version: view.key, total, offset, nextOffset: offset + limit < total ? offset + limit : null, matches }
+      return matches
     },
     async refresh(scope, { signal } = {}) {
       const view = await current({ scope, signal })
       const snapshot = view ? { directory: view.root, entries: view.rows.map(row => ({ ref: row.identity, title: row.title, category: row.category, hash: worldbookFileDigest(row.content) })) } : { directory: '', entries: [] }
       snapshot.version = worldbookFileDigest(JSON.stringify(snapshot))
-      const changed = snapshots.get(scope)?.version !== snapshot.version
-      snapshots.set(scope, snapshot)
+      const changed = snapshots.get(scope)?.snapshot.version !== snapshot.version
+      const rows = view?.rows || []
+      snapshots.set(scope, { snapshot, refsByPath: new Map(rows.map(row => [row.path, row.ref])),
+        refsById: new Map(rows.map(row => [lookupId(row), row.ref])) })
       return changed
     },
-    changeSnapshot(scope) { return snapshots.get(scope) },
+    changeSnapshot(scope) { return snapshots.get(scope)?.snapshot },
+    refsForLookups(scope, { paths, ids }) {
+      const indexed = snapshots.get(scope)
+      return indexed ? [...new Set([...paths].map(file => indexed.refsByPath.get(file))
+        .concat([...ids].map(id => indexed.refsById.get(id))).filter(Boolean))] : []
+    },
     async removeChat() {}, // Other games and saved versions may still use these derived files.
     async inspect(lookup) {
       const view = await current(lookup)
-      return view ? { directory: view.root, directories: view.directories, version: view.key, files: view.rows.map(({ path, title, ref, category }) => ({ path, title, ref, category })), clusters: [] } : null
+      return view ? { directory: view.root, directories: view.directories, version: view.key,
+        files: view.rows.map(row => ({ path: row.path, title: row.title, ref: row.ref, category: row.category, lookupId: lookupId(row) })), clusters: [] } : null
     },
     async readEntry(ref, lookup) { const view = await current(lookup); return view?.rows.find(row => row.ref === ref)?.content },
     async readResource(requested, lookup) { const row = await resource(requested, lookup); return row ? fs.readFile(row.path, 'utf8') : undefined },

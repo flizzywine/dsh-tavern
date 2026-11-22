@@ -201,7 +201,7 @@ button.dtts-help:is(:hover, :focus-visible), .dtts-help-anchor[data-open] button
 /* rows are click-to-edit hairlines (name · ⚠ only when wrong · quiet icon actions), the editor
    opens right under its row without a box, a dashed ＋ adds, ⋯ holds the rarer actions. No accent bars, no box-in-box. */
 .dtts-status { margin: 10px 0 0; color: var(--dtts-ink-2); font-size: 12px; }
-.dtts-section-head h3 > span:first-child { font-size: 14px; }
+.dtts-section-head h3 > span:first-child { font-size: var(--fork-fs-heading, 14px); }
 .dtts-icon { flex: none; display: block; }
 .dtts-list > li { padding: 0; }
 .dtts-list > li[data-open] { padding-bottom: 6px; }
@@ -345,6 +345,11 @@ input:has(+ .dtts-endpoints) { padding-right: 36px; }
 .dtts-state { display: inline-flex; flex: none; align-items: center; gap: 6px; color: var(--dtts-ink-2); font-size: 12px; white-space: nowrap; }
 .dtts-state[data-tone=idle] .dtts-dot { background: transparent; box-shadow: inset 0 0 0 1.5px var(--dtts-ink-3); }
 .dtts-state[data-tone=busy] .dtts-dot { animation: dtts-spin .8s linear infinite alternate; }
+/* The state words of one list stand in one column: a plain state (浏览器朗读, a kind not set up yet) has the inset of
+   a pressable one, and a row without ⋯ keeps the ⋯'s place while another row of its list has one. */
+.dtts-line > :is(.dtts-state, .dtts-warn) { padding: 0 4px; }
+.dtts-list:has(.dtts-line-actions) > li > .dtts-line:not(:has(> .dtts-line-actions))::after { content: ""; flex: none; width: 32px; }
+@container (max-width: 520px) { .dtts-list:has(.dtts-line-actions) > li > .dtts-line:not(:has(> .dtts-line-actions))::after { width: 36px; } }
 .dtts-list > li > .dtts-local { margin: 0 0 12px; padding: 0 0 10px 16px; }
 .dtts-local.is-embedded { border-top: 0; padding-top: 4px; }
 .dtts-adding-fixed { margin: 0 0 12px; }

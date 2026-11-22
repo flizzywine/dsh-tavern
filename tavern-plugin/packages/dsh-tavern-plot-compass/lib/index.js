@@ -147,11 +147,11 @@ export function apply(ctx, options = {}) {
     return saved.modelSelection
   }
 
-  async function readGame(gameId) {
+  async function readGameView(gameId) {
     const id = str(gameId)
     if (!id) return normalizeGameRecord(null, await readDefaults())
     knownGameIds.add(id)
-    if (gameCache.has(id)) return structuredClone(gameCache.get(id))
+    if (gameCache.has(id)) return gameCache.get(id)
     const defaults = await readDefaults()
     let raw = null
     try {
@@ -168,7 +168,11 @@ export function apply(ctx, options = {}) {
     if (legacyModel && legacyModel !== 'background') {
       await saveDefaults({ modelSelection: legacyModel }, { broadcastExcept: id })
     }
-    return structuredClone(record)
+    return record
+  }
+
+  async function readGame(gameId) {
+    return structuredClone(await readGameView(gameId))
   }
 
   async function updateGame(gameId, mutator) {
@@ -408,7 +412,7 @@ export function apply(ctx, options = {}) {
         target: 'story',
         async text({ gameId } = {}) {
           if (!gameId) return ''
-          const record = await readGame(gameId)
+          const record = await readGameView(gameId)
           if (!record.enabled) return ''
           const compass = readPlotCompass(record.compass)
           if (compass.strength === 'soft') return ''
@@ -426,7 +430,7 @@ export function apply(ctx, options = {}) {
       target: 'story',
       async text({ gameId } = {}) {
         if (!gameId) return ''
-        const record = await readGame(gameId)
+        const record = await readGameView(gameId)
         if (!record.enabled) return ''
         const compass = readPlotCompass(record.compass)
         if (supportsLastPosition && compass.strength !== 'soft') return ''
@@ -440,7 +444,7 @@ export function apply(ctx, options = {}) {
       name: 'plot-compass',
       async text({ gameId } = {}) {
         if (!gameId) return ''
-        const record = await readGame(gameId)
+        const record = await readGameView(gameId)
         if (!record.enabled) return ''
         return plotCompassSettlementNote(record)
       }
@@ -452,7 +456,7 @@ export function apply(ctx, options = {}) {
       name: 'plot-compass',
       async text({ gameId } = {}) {
         if (!gameId) return ''
-        const record = await readGame(gameId)
+        const record = await readGameView(gameId)
         if (!record.enabled) return ''
         return plotCompassCandidateText(record.compass)
       }
@@ -464,7 +468,7 @@ export function apply(ctx, options = {}) {
       name: 'plot-compass',
       async text({ gameId } = {}) {
         if (!gameId) return ''
-        const record = await readGame(gameId)
+        const record = await readGameView(gameId)
         if (!record.enabled) return ''
         return plotCompassCompactionNote(record)
       }
@@ -476,7 +480,7 @@ export function apply(ctx, options = {}) {
       name: 'plot-compass',
       async text({ gameId } = {}) {
         if (!gameId) return ''
-        const record = await readGame(gameId)
+        const record = await readGameView(gameId)
         if (!record.enabled) return ''
         return plotCompassWorldbookScanText(record)
       }
@@ -619,9 +623,11 @@ export function apply(ctx, options = {}) {
       const info = typeof runtimeLlm.resolveModelInfo === 'function'
         ? await Promise.resolve(runtimeLlm.resolveModelInfo(provider, model))
         : null
-      const efforts = Array.isArray(info?.reasoningEfforts)
-        ? info.reasoningEfforts
-        : (Array.isArray(info?.capabilities?.reasoningEfforts) ? info.capabilities.reasoningEfforts : [])
+      const efforts = Array.isArray(info?.reasoning?.efforts)
+        ? info.reasoning.efforts
+        : (Array.isArray(info?.reasoningEfforts)
+          ? info.reasoningEfforts
+          : (Array.isArray(info?.capabilities?.reasoningEfforts) ? info.capabilities.reasoningEfforts : []))
       return {
         ok: true,
         reasoning: efforts.length

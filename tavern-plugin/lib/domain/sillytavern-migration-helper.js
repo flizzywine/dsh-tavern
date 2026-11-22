@@ -156,8 +156,8 @@ export function createMigrationHelperCore() {
    * 清洗并转换单份 SillyTavern 聊天记录为 DSH Tavern `parseChatHistory` 兼容的 JSONL。
    */
   function sanitizeSillyTavernChatForDsh(rawInput, options = {}) {
-    const maxMessages = Number(options.maxMessages) > 0 ? Number(options.maxMessages) : 2000
-    const maxBytes = Number(options.maxBytes) > 0 ? Number(options.maxBytes) : 8 * 1024 * 1024
+    const maxMessages = Number(options.maxMessages) > 0 ? Number(options.maxMessages) : 5000
+    const maxBytes = Number(options.maxBytes) > 0 ? Number(options.maxBytes) : 24 * 1024 * 1024
     const rows = []
     if (typeof rawInput === 'string') {
       const lines = rawInput.replace(/^\uFEFF/, '').split(/\r?\n/)
@@ -310,14 +310,14 @@ export function createMigrationHelperCore() {
       } else {
         finalMessages = finalMessages.slice(-maxMessages)
       }
-      warnings.push('超出 2000 条上限，已裁剪早期 ' + dropped + ' 条消息')
+      warnings.push('超出 ' + maxMessages + ' 条上限，已裁剪早期 ' + dropped + ' 条消息')
     }
 
     const headerLine = JSON.stringify(header)
     let lines = [headerLine, ...finalMessages.map(m => JSON.stringify(m))]
     let jsonl = lines.join('\n') + '\n'
     while (utf8Bytes(jsonl).length > maxBytes && finalMessages.length > 1) {
-      // 若超过 8MB 上限，保留首条开场白并从最早的历史消息开始裁剪
+      // 超过字节上限时，保留首条开场白并从最早的历史消息开始裁剪。
       const removeIdx = finalMessages[0] && !finalMessages[0].is_user && finalMessages.length > 2 ? 1 : 0
       finalMessages.splice(removeIdx, 1)
       truncatedCount += 1

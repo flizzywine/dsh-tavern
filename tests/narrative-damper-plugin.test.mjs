@@ -179,7 +179,7 @@ test('浏览器半能被模块加载器接上：注册面板，面板在无会�
   assert.equal(panels[0].title, '叙事阻尼器')
   const html = renderToStaticMarkup(React.createElement(panels[0].render, { gameId: 'g1' }))
   assert.match(html, /正在读取叙事阻尼器设置/)
-  assert.match(html, /dsh-tavern-global-settings/)
+  assert.match(html, /tnd-root tnd-workbench/)
 })
 
 
@@ -217,12 +217,17 @@ test('面板真的会把改动写给宿主：开关、提供方、阈值各走�
   const { createRoot } = await import('react-dom/client')
   const exported = await loadPanelModule(t)
   const { TndPanel } = exported
-  let config = {
-    enabled: false, showTurnStatus: true, mode: 'balanced', judgeMode: 'roleplay',
-    provider: 'gemini', model: 'gemini-decision-1', baseUrl: '', keyName: 'GEMINI_API_KEY',
-    godmodeThreshold: 0.72, desensitizeR18: true, clampMvuDelta: true,
-    fallbackStateForPlainCards: true, timeoutMs: 2500, preamble: ''
-  }
+  let doc = {}
+  const currentConfig = () => presentTavernSettings(doc, {}).narrativeDamper
+  const { damper } = memoryCredentials({ DSH_TAVERN_DAMPER_GEMINI: 'test-key' })
+  const service = createDamperSettings({
+    readTavernSettings: async () => ({ narrativeDamper: currentConfig() }),
+    updateTavernSettings: async patch => {
+      doc = applyTavernSettingsPatch(doc, patch)
+      return { narrativeDamper: currentConfig() }
+    },
+    damper
+  })
   const calls = []
   const ui = {
     apiVersion: 10,
@@ -239,9 +244,9 @@ test('面板真的会把改动写给宿主：开关、提供方、阈值各走�
     },
     async callHost(name, args) {
       calls.push([name, args])
-      if (name === 'narrative-damper:read') return { config, credential: { configured: true, source: 'stored', keyName: 'GEMINI_API_KEY' } }
-      if (name === 'narrative-damper:update') { config = { ...config, ...args.values }; return { config, credential: { configured: true, source: 'stored', keyName: 'GEMINI_API_KEY' } } }
-      if (name === 'narrative-damper:test') return { ok: true, latencyMs: 9, sampleProbability: 0.9 }
+      if (name === 'narrative-damper:read') return service.read()
+      if (name === 'narrative-damper:update') return service.update(args.values)
+      if (name === 'narrative-damper:test') return service.test(args.config)
       return null
     }
   }
@@ -252,14 +257,17 @@ test('面板真的会把改动写给宿主：开关、提供方、阈值各走�
   const root = createRoot(host)
 
   await act(async () => { root.render(React.createElement(TndPanel, { ui })) })
-  assert.match(host.textContent, /启用叙事阻尼器/)
+  assert.match(host.textContent, /叙事阻尼器/)
   assert.match(host.textContent, /已配置（安全存储）/)
   assert.equal(calls[0][0], 'narrative-damper:read')
-  assert.equal(host.querySelectorAll('select option').length, 5)
+  assert.equal(host.querySelectorAll('select option').length, 6)
 
-  const enabled = host.querySelector('input[role="switch"][aria-label="启用叙事阻尼器"]')
+  const enabled = host.querySelector('button[role="switch"][aria-label="启用叙事阻尼器"]')
+  assert.ok(enabled, '顶栏应当有总开关')
+  assert.equal(enabled.getAttribute('aria-checked'), 'false')
   await act(async () => { enabled.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })) })
   assert.deepEqual(plain(calls.at(-1)), ['narrative-damper:update', { values: { enabled: true } }])
+  assert.equal(enabled.getAttribute('aria-checked'), 'true')
 
   const provider = host.querySelector('select')
   await act(async () => {
@@ -270,8 +278,62 @@ test('面板真的会把改动写给宿主：开关、提供方、阈值各走�
   })
   assert.deepEqual(plain(calls.at(-1)), ['narrative-damper:update', { values: { provider: 'openai-compatible', model: 'gpt-6-luna', keyName: 'OPENAI_API_KEY', baseUrl: '' } }])
 
-  // 自定义接口地址只在兼容接口下出现
-  assert.ok([...host.querySelectorAll('.dsh-tavern-settings-title')].some(node => node.textContent.includes('自定义接口地址')))
+  // 已开启状态下切换到兼容接口，尚未填写自定义接口地址时不能被校验拦截，且应立刻展示输入框
+  assert.ok([...host.querySelectorAll('.tnd-field-label')].some(node => node.textContent.includes('自定义接口地址')))
+  assert.match(host.textContent, /请填写自定义接口地址/)
+
+  // 切换到 Gemini 兼容接口同样立即展示自定义接口地址，且非空非法地址仍会被拦截、合法地址可保存
+  await act(async () => {
+    const setter = Object.getOwnPropertyDescriptor(dom.window.HTMLSelectElement.prototype, 'value').set
+    setter.call(provider, 'gemini-compatible')
+    provider.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
+    provider.dispatchEvent(new dom.window.Event('change', { bubbles: true }))
+  })
+  const baseUrlInput = host.querySelector('input[aria-label="自定义接口地址"]')
+  assert.ok(baseUrlInput, 'Gemini 兼容接口下应当出现自定义接口地址输入框')
+  assert.equal(host.querySelector('.tnd-endpoint'), null)
+
+  await act(async () => {
+    const setter = Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, 'value').set
+    setter.call(baseUrlInput, 'http://example.com')
+    baseUrlInput.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
+  })
+  await act(async () => {
+    baseUrlInput.dispatchEvent(new dom.window.FocusEvent('blur', { bubbles: false }))
+    baseUrlInput.dispatchEvent(new dom.window.FocusEvent('focusout', { bubbles: true }))
+  })
+  assert.match(host.textContent, /HTTP 仅支持本地回环地址/)
+
+  await act(async () => {
+    const setter = Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, 'value').set
+    setter.call(baseUrlInput, 'proxy.example.com/gateway/v1/chat/completions')
+    baseUrlInput.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
+  })
+  await act(async () => {
+    baseUrlInput.dispatchEvent(new dom.window.FocusEvent('blur', { bubbles: false }))
+    baseUrlInput.dispatchEvent(new dom.window.FocusEvent('focusout', { bubbles: true }))
+  })
+  assert.equal(currentConfig().baseUrl, 'https://proxy.example.com/gateway/v1/chat/completions')
+  assert.match(host.querySelector('.tnd-endpoint').textContent, /POST https:\/\/proxy\.example\.com\/gateway\/v1beta\/decisions$/)
+
+  // 切换到 JEV 兼容接口：保留自定义接口地址并映射为 /v1/systemone
+  await act(async () => {
+    const setter = Object.getOwnPropertyDescriptor(dom.window.HTMLSelectElement.prototype, 'value').set
+    setter.call(provider, 'jev-compatible')
+    provider.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
+    provider.dispatchEvent(new dom.window.Event('change', { bubbles: true }))
+  })
+  assert.deepEqual(plain(calls.at(-1)), ['narrative-damper:update', { values: { provider: 'jev-compatible', model: 'jev-1.13.0', keyName: 'TYPESAFE_API_KEY', baseUrl: 'https://proxy.example.com/gateway/v1/chat/completions' } }])
+  assert.match(host.querySelector('.tnd-endpoint').textContent, /POST https:\/\/proxy\.example\.com\/gateway\/v1\/systemone$/)
+
+  // 切回 OpenAI 兼容接口供后续断言使用
+  await act(async () => {
+    const setter = Object.getOwnPropertyDescriptor(dom.window.HTMLSelectElement.prototype, 'value').set
+    setter.call(provider, 'openai-compatible')
+    provider.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
+    provider.dispatchEvent(new dom.window.Event('change', { bubbles: true }))
+  })
+  assert.match(host.querySelector('.tnd-endpoint').textContent, /POST https:\/\/proxy\.example\.com\/gateway\/v1\/decisions$/)
 
   // 阈值：填 0.9 后失焦提交，面板先按 0.50–0.95 收紧。
   // 换提供方会让「自定义接口地址」那一行插进来，行的位置全变，必须重新取节点。
@@ -298,6 +360,39 @@ test('面板真的会把改动写给宿主：开关、提供方、阈值各走�
   assert.equal(probeCall[1].config.provider, 'openai-compatible')
   assert.equal(probeCall[1].config.model, 'gpt-6-luna')
   assert.match(host.textContent, /连接正常/)
+
+  // 命运之骰同款 ? / × 说明气泡：点开变 ×，出现标题栏 + 多段正文 + 右上角「收起」按钮。
+  assert.equal(host.querySelectorAll('.tnd-help-pop').length, 0)
+  const topHelp = host.querySelector('button.tnd-help-btn')
+  assert.equal(topHelp.textContent, '?')
+  assert.equal(topHelp.getAttribute('aria-expanded'), 'false')
+  await act(async () => { topHelp.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })) })
+  assert.equal(topHelp.textContent, '×')
+  assert.equal(topHelp.getAttribute('aria-expanded'), 'true')
+  const pop = host.querySelector('.tnd-help-pop')
+  assert.ok(pop, '点开问号应当出现说明卡片')
+  assert.equal(pop.querySelector('.tnd-help-pop-title').textContent, '叙事阻尼器')
+  assert.ok(pop.querySelectorAll('.tnd-help-line').length >= 3, '说明应当分多段展示')
+  assert.match(pop.textContent, /防口胡与状态惯性/)
+  // 点右上角「收起」按钮可收起
+  const closeBtn = pop.querySelector('button.tnd-help-close')
+  assert.ok(closeBtn, '说明卡片应当有收起按钮')
+  await act(async () => { closeBtn.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })) })
+  assert.equal(host.querySelectorAll('.tnd-help-pop').length, 0)
+  assert.equal(topHelp.textContent, '?')
+  assert.equal(topHelp.getAttribute('aria-expanded'), 'false')
+
+  // 所有主要配置项（含决策服务提供方、决策模型名称、判定阈值）都有独立问号且不触发保存。
+  const callsBeforeHelp = calls.length
+  for (const label of ['查看说明：决策服务提供方', '查看说明：决策模型名称', '查看说明：判定阈值']) {
+    const btn = [...host.querySelectorAll('button.tnd-help-btn')].find(button => button.getAttribute('aria-label') === label)
+    assert.ok(btn, `应当存在 ${label}`)
+  }
+  const rowHelp = [...host.querySelectorAll('button.tnd-help-btn')].find(button => button.getAttribute('aria-label') === '查看说明：判定阈值')
+  await act(async () => { rowHelp.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })) })
+  assert.match(host.querySelector('.tnd-help-pop').textContent, /触发裁定干预的概率门槛/)
+  assert.equal(host.querySelectorAll('.tnd-help-pop').length, 1)
+  assert.equal(calls.length, callsBeforeHelp)
 
   // 卸载放在这里：全局 window/document 的还原在 t.after 里，晚一步 React 就找不到 window.event。
   await act(async () => { root.unmount() })

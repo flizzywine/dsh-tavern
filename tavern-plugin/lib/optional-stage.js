@@ -1,4 +1,7 @@
 import {normalizeBubbleConfig} from './domain/dialogue-bubbles.js'
+import {cardStageChoice,effectiveCardStage} from './domain/card-stage-settings.js'
+import {cardAssetExtensionView} from './domain/card-asset-bindings.js'
+import {hasCardAssetBindings} from './card-asset-bindings.js'
 
 const unavailable=()=>{throw Object.assign(new Error('舞台模块未启用'),{code:'STAGE_UNAVAILABLE'})}
 const ordinaryBook=book=>book ? {...book,view:{...book.view,entries:(book.view?.entries || []).filter(entry=>!entry.foregroundCapability && !entry.rawEntry?.extensions?.dsh_tavern_helper_extra?.forkDialogueBubbles)}} : book
@@ -58,9 +61,14 @@ export async function createOptionalStage(core,{enabled=true,load,onStatus=()=>{
   }
   if(enabled)try {runtime=(await loadImplementation()).createStageRuntime(core);setState('loaded')}catch(error){failed(error)}
   const emptyConfig=()=>normalizeBubbleConfig({enabled:false})
-  // Without a stage runtime no card has dialogue bubbles or the stage mode; the session view publishes this (view.stage).
-  const noStage=Object.freeze({dialogue:false,stage:false})
-  const cardStageMode=(...args)=>runtime ? runtime.assets.cardStageMode(...args) : Promise.resolve(noStage)
+  async function cardStageMode(cardPath) {
+    const raw=(await core.readCardWorkspace(cardPath))?.raw
+    const extension=raw && hasCardAssetBindings(raw) ? cardAssetExtensionView(raw) : null
+    const effective=extension ? effectiveCardStage(extension,core.assetEngineSettings?.read().values) : null
+    if (effective?.dialogue && state !== 'ready') await core.ensureStage?.()
+    return {dialogue:state==='ready' && effective?.dialogue===true,
+      stage:state==='ready' && effective?.stage===true,isStageCard:cardStageChoice(extension?.stage,'stage')==='on'}
+  }
   const dialogueBubbles={
     read:(...args)=>runtime ? runtime.assets.dialogueBubbles.read(...args) : Promise.resolve(emptyConfig()),
     snapshot:(...args)=>runtime ? runtime.assets.dialogueBubbles.snapshot(...args) : Promise.resolve({config:emptyConfig(),requireAvailable:emptyConfig}),
@@ -73,7 +81,10 @@ export async function createOptionalStage(core,{enabled=true,load,onStatus=()=>{
       phases.set('cards',[bindings])
       if(runtime)try{cards=runtime.cards(bindings)}catch(error){failed(error)}
       return {get cardAssetBindings(){return cards?.cardAssetBindings},cardZipTargets:{
-        reserve:(...args)=>cards ? cards.cardZipTargets.reserve(...args) : Promise.reject(Object.assign(new Error('舞台模块未启用'),{code:'STAGE_UNAVAILABLE'})),
+        async reserve(...args) {
+          if (!cards) await core.ensureStage?.()
+          return cards ? cards.cardZipTargets.reserve(...args) : unavailable()
+        },
         release:(...args)=>cards ? cards.cardZipTargets.release(...args) : unavailable()
       }}
     },

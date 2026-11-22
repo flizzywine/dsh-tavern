@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { crc32 } from 'node:zlib'
-import { decodeMedia } from '../src/pack-v2/media.js'
+import { decodeMedia, STAGE_IMAGE_MAX_BYTES } from '../src/pack-v2/media.js'
 import { inspectMedia } from '../src/pack-v2/validation.js'
 import { BLOB_MIME_TYPES } from '../src/asset-packs/index.js'
 
@@ -38,7 +38,7 @@ test('structural images enforce dimensions and byte limits before parsing payloa
   const bytes = fixtures().png
   bytes.writeUInt32BE(10000, 16); bytes.writeUInt32BE(crc32(bytes.subarray(12, 29)), 29)
   await assert.rejects(inspectMedia(bytes, {ext:'png', mime:'image/png', size:bytes.length}, decodeMedia), {code:'LIMIT_EXCEEDED'})
-  const big = Buffer.alloc(6 * 1024 ** 2 + 1); fixtures().jpeg.copy(big)
+  const big = Buffer.alloc(STAGE_IMAGE_MAX_BYTES + 1); fixtures().jpeg.copy(big)
   await assert.rejects(decodeMedia(big, {ext:'jpeg', size:big.length}), {code:'LIMIT_EXCEEDED'})
 })
 test('MP3 tag without frames and malformed audio lengths never attest audio', async () => {

@@ -411,7 +411,7 @@ test('stage-director isolates native tools/persona and preserves correction hist
         assert.match(system, /GLOBAL APPEND/)
         assert.notEqual(system, 'DIRECTOR COMPLETE PERSONA')
         assert.deepEqual(modes, [])
-        assert.deepEqual(restrictions, [['skill', 'read', 'worldbook_list', 'worldbook_grep', 'tavern_read_skill_reference', 'web_search']])
+        assert.deepEqual(restrictions, [['skill', 'read', 'list_lorebook', 'grep_lorebook', 'read_lorebook', 'tavern_read_skill_reference', 'web_search']])
         assert.match(followed[0].content[0].text, /DIRECTOR COMPLETE PERSONA/)
       }
     } finally { await runner.dispose() }
@@ -463,7 +463,7 @@ test('插件结算工具：随后台会话固定注册，只在结算任务里�
     assert.deepEqual(pluginCalls, [[{ gameId: 'parent', turn: 4 }, 'anchor_submit', { text: '门' }]])
     assert.match(results[2], /提交结算之前/, 'after the final submission a plugin tool is refused')
     assert.match(texts[0], /<plugin_settlement>[\s\S]*Plugin tools available this turn: anchor_submit\. This list is current[\s\S]*parent 第 4 轮记录锚点/)
-    assert.match(texts[0], /Plugin tools unavailable this turn \(the player turned off their plugins for this game\): old_tool\. Don't call them this turn/)
+    assert.doesNotMatch(texts[0], /old_tool/)
 
     script = async () => { results.push(await registered.get('anchor_submit').execute({ text: '候选里' })) }
     await runner.run({ sessionId: 'parent', persistent: true, task: 'candidate', selection: { provider: 'test', model: 'test' },

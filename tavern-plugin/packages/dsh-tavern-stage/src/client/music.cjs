@@ -22,7 +22,7 @@ function musicLoop(buffer, points = {}) {
         restore() { channels.forEach((channel, i) => channel.set(tails[i], end - overlap)); }};
 }
 async function musicBytes(response) {
-    const limit = 60 * 1024 * 1024, reader = response.body?.getReader();
+    const limit = 96 * 1024 * 1024, reader = response.body?.getReader();
     if (!reader) {
         const bytes = await response.arrayBuffer();
         if (bytes.byteLength > limit) throw new Error('Music exceeds decode limit');

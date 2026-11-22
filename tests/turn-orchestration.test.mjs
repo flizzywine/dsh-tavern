@@ -212,6 +212,22 @@ test('连续正文回合的实际 Frame 消息不重复基本信息和常驻世�
   }
 })
 
+test('正文请求里的世界书标题提示独立于激活正文', async () => {
+  const planner = createContextPlanner({ prompt: () => '正文写作规则' })
+  const adapter = createForegroundFrameSessionAdapter()
+  const titleHints = '<lorebook_title_hints>\n可能用到的世界书条目：薛姨妈\n</lorebook_title_hints>'
+  for (const mode of ['story', 'script']) {
+    const run = harness(mode, { planner, projectForegroundWorldbook: async () => ({ context: '本轮动态设定', titleHints }) })
+    const { frame } = await run.orchestrator.prepare({ sessionId: 'session-1', turn: 2, userText: '继续' })
+    const { messages } = adapter.append({ frame, step: 1 })
+    const worldbook = messages.find(message => message.source.form === 'worldbook-snapshot')
+    const foreground = messages.find(message => message.source.form === 'foreground-frame')
+    assert.equal(worldbook.content[0].text, '<lorebook_activated>\n本轮动态设定\n</lorebook_activated>')
+    assert.ok(foreground.content[0].text.split('\n\n').includes(titleHints))
+    assert.doesNotMatch(foreground.content[0].text, /<lorebook_activated>/)
+  }
+})
+
 test('卡片 raw 扩展修改先暂存，最终回复后才写入工作 raw', async () => {
   const run = harness('card')
   await run.orchestrator.stageChanges({
@@ -226,9 +242,14 @@ test('卡片 raw 扩展修改先暂存，最终回复后才写入工作 raw', as
 
 test('new card is created and bound before tool returns; next write updates the same file', async () => {
   const run = harness('card', { draft: true })
-  await run.orchestrator.saveChanges({ sessionId: 'session-1', turn: 1, fields: { name: '新角色', player: '旅人' } })
+  const systemPrompt = '你是本故事的叙事者，负责描写角色与玩家的互动。'
+  await run.orchestrator.saveChanges({
+    sessionId: 'session-1', turn: 1,
+    fields: { name: '新角色', player: '旅人', system_prompt: systemPrompt }
+  })
   assert.equal(run.chat().cardPath, 'cards/新角色.json')
   assert.equal(run.createdCards.length, 1)
+  assert.equal(run.createdCards[0].card.system_prompt, systemPrompt)
   assert.deepEqual(run.chat().lastCardSave, { turn: 1, path: 'cards/新角色.json', createsCard: true, changed: true })
   await run.orchestrator.saveChanges({ sessionId: 'session-1', turn: 1, fields: { description: '第二次修改' } })
   assert.equal(run.card().description, '第二次修改')

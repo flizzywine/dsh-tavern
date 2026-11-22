@@ -18,50 +18,434 @@ window.__ModuleLoader__.load({
     const { Fragment, useEffect, useState } = React
 /* ===== src/client/styles.js ===== */
 /* ------------------------------------------------------------------ *
- * styles.js —— 叙事阻尼器面板。
+ * styles.js —— 叙事阻尼器面板样式（与「命运之骰」工作台完全一致的视觉体系）
  *
- * 行的骨架、分组卡片、开关与按钮沿用宿主设置页的类（.dsh-tavern-global-settings /
- * .dsh-tavern-settings-row / .dsh-tavern-btn），面板长在侧栏里也和设置页同一副样子；
- * 这里只补输入框、下拉、密钥与测试结果这几处宿主没有的形状。
+ * 统一基于 currentColor 与宿主强调色 --dsh-tavern-accent 的 color-mix 半透明层，
+ * 在浅色暖白主题与深色主题下都保持对比度与柔和边框；不依赖宿主设置页类名。
  * ------------------------------------------------------------------ */
 
 const TND_STYLE_ID = 'dsh-tavern-narrative-damper-style'
 
 const TND_CSS = `
-.tnd-panel { display: flex; flex-direction: column; gap: 22px; box-sizing: border-box; min-width: 0; height: 100%; overflow-y: auto; padding: 12px 14px 24px; }
-.tnd-panel .dsh-tavern-gs-group > .dsh-tavern-settings-group:last-child { padding-bottom: 4px; }
-.tnd-help { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 15px; height: 15px; margin-left: 2px; border-radius: 50%;
-  background: var(--fork-hover, rgba(127,127,127,.14)); color: var(--fork-ink-3, #8a8a8a); font-size: 10px; font-weight: 700; line-height: 1; cursor: help; }
-.tnd-input, .tnd-select, .tnd-area {
-  box-sizing: border-box; min-width: 0; max-width: 100%; padding: 4px 8px; border: 1px solid var(--fork-hairline, rgba(127,127,127,.28)); border-radius: 8px;
-  background: var(--fork-raised, transparent); color: var(--fork-ink, inherit); font: inherit; font-size: var(--fork-fs-body, 13px); line-height: 1.5;
+.tnd-root {
+  --tnd-line: rgba(128, 128, 142, 0.24);
+  --tnd-line: color-mix(in oklab, currentColor 18%, transparent);
+  --tnd-line-soft: rgba(128, 128, 142, 0.14);
+  --tnd-line-soft: color-mix(in oklab, currentColor 11%, transparent);
+  --tnd-fill: rgba(128, 128, 142, 0.09);
+  --tnd-fill: color-mix(in oklab, currentColor 7%, transparent);
+  --tnd-fill-strong: rgba(128, 128, 142, 0.16);
+  --tnd-fill-strong: color-mix(in oklab, currentColor 13%, transparent);
+  --tnd-accent: var(--dsh-tavern-accent, #b9824a);
+  --tnd-accent-soft: rgba(185, 130, 74, 0.16);
+  --tnd-accent-soft: color-mix(in oklab, var(--tnd-accent) 18%, transparent);
+  --tnd-ok: #2f8f66;
+  --tnd-warn: #b9772f;
+  --tnd-bad: #bb5044;
+  --tnd-shadow: 0 6px 20px rgba(30, 30, 40, 0.12);
+  color: var(--dsh-ink, inherit);
+  font-size: 13px;
+  line-height: 1.55;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
-.tnd-input { width: 9.5em; }
-.tnd-input.tnd-wide { width: 16em; }
-.tnd-input:focus-visible, .tnd-select:focus-visible, .tnd-area:focus-visible { outline: var(--fork-focus, 2px solid currentColor); outline-offset: 1px; }
-.tnd-input:disabled, .tnd-select:disabled, .tnd-area:disabled { opacity: .5; cursor: default; }
-.tnd-select { width: 16em; cursor: pointer; }
+.tnd-root *, .tnd-root *::before, .tnd-root *::after { box-sizing: border-box; }
 
-/* 分段选择（判定模式 / 阻尼模式）：宿主的 .ap-segmented 按钮规则挂在 .ap-ui 下，插件面板不在那个
-   作用域里，只有容器底色生效，按钮就退化成一排白底方框。这里按同一套 tokens 补全：选中项有底色、
-   加粗和细描边，一眼看得出当前是哪个。 */
-.tnd-panel .tnd-seg { display: inline-flex; flex: none; gap: 2px; max-width: 100%; padding: 2px; border-radius: 9px; background: var(--fork-hover, rgba(127, 127, 127, .12)); }
-.tnd-panel .tnd-seg button { min-width: 0; height: 26px; padding: 0 12px; border: 0; border-radius: 7px; background: transparent; color: var(--fork-ink-2, inherit); font: inherit; font-size: var(--fork-fs-meta, 12px); line-height: 1.4; cursor: pointer; }
-.tnd-panel .tnd-seg button:hover:not(:disabled) { background: transparent; color: var(--fork-ink, inherit); }
-.tnd-panel .tnd-seg button[aria-pressed="true"] { background: var(--fork-surface, Canvas); color: var(--fork-ink, inherit); font-weight: 600; box-shadow: 0 1px 2px rgba(0, 0, 0, .12), 0 0 0 .5px var(--ap-border, var(--fork-hairline, rgba(127, 127, 127, .32))); }
-.tnd-panel .tnd-seg button:disabled { opacity: .5; cursor: default; }
-@media (max-width: 560px) { .tnd-panel .tnd-seg { flex: 1 1 100%; } .tnd-panel .tnd-seg button { flex: 1; height: 32px; } }
+/* ---------- 右侧栏工作台：双层弹性滚动架构（与命运之骰一致） ---------- */
+.tnd-root.tnd-workbench {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  max-height: 100%;
+  min-height: 0;
+  min-width: 0;
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 10px 12px 0;
+  gap: 0;
+}
+.tnd-wb-top {
+  flex: 0 0 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-bottom: 8px;
+}
+.tnd-wb-scroll {
+  flex: 1 1 0%;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 2px 2px 48px;
+}
+.tnd-wb-scroll > * { flex-shrink: 0; }
+.tnd-wb-scroll::-webkit-scrollbar { width: 8px; }
+.tnd-wb-scroll::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: var(--tnd-line);
+}
+.tnd-wb-scroll::-webkit-scrollbar-track { background: transparent; }
 
-.tnd-area { flex: 1 1 100%; min-height: 4.5em; resize: vertical; }
-.tnd-unit { color: var(--fork-ink-3, #8a8a8a); font-size: var(--fork-fs-meta, 12px); }
-.tnd-actions { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; }
-.tnd-credential { color: var(--fork-ink-2, inherit); font-size: 13px; }
-.tnd-badge { font-size: 12px; line-height: 1.4; overflow-wrap: anywhere; }
-.tnd-badge.is-ok { color: var(--dsw-static-green-600, #238636); }
-.tnd-badge.is-error { color: var(--fork-warn, #c64545); }
-.tnd-notice { color: var(--fork-ink-3, #8a8a8a); font-size: var(--fork-fs-meta, 12px); }
-.tnd-notice.is-alert { color: var(--fork-warn, #c64545); }
-.tnd-loading { color: var(--fork-ink-3, #8a8a8a); font-size: var(--fork-fs-meta, 12px); padding: 12px 2px; }
+.tnd-wb-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+.tnd-wb-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.tnd-wb-toggle {
+  font-size: 12px;
+}
+
+/* ---------- 分组卡片与行 ---------- */
+.tnd-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border-radius: 12px;
+  background: var(--tnd-fill);
+  border: 1px solid var(--tnd-line-soft);
+}
+.tnd-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.tnd-section-title {
+  font-size: 12.5px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  opacity: 0.9;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.tnd-section-note { font-size: 11.5px; opacity: 0.62; }
+
+.tnd-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 6px 8px;
+  border-radius: 9px;
+  background: var(--tnd-fill);
+  border: 1px solid var(--tnd-line-soft);
+}
+.tnd-row.is-plain { background: transparent; border-color: transparent; padding: 4px 0; }
+.tnd-row-main { flex: 1 1 140px; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.tnd-row-title { font-size: 12.5px; font-weight: 600; word-break: break-word; }
+.tnd-row-sub { font-size: 11.5px; opacity: 0.66; word-break: break-word; }
+.tnd-row-end { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+
+/* ---------- 分段切换器（与命运之骰 .fd-tabbar 同款） ---------- */
+.tnd-segbar {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+  padding: 3px;
+  border-radius: 12px;
+  background: var(--tnd-fill);
+  border: 1px solid var(--tnd-line-soft);
+}
+.tnd-seg {
+  min-width: 0;
+  min-height: 34px;
+  padding: 5px 10px;
+  border-radius: 9px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  touch-action: manipulation;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  opacity: 0.78;
+  transition: background 0.15s ease, opacity 0.15s ease;
+}
+.tnd-seg:hover:not(:disabled) { opacity: 0.96; }
+.tnd-seg.is-active {
+  background: var(--tnd-accent-soft);
+  border-color: var(--tnd-line);
+  opacity: 1;
+}
+.tnd-seg:disabled { opacity: 0.45; cursor: not-allowed; }
+
+/* ---------- 按钮 / 徽章 / 开关 / 输入 ---------- */
+.tnd-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 650;
+  border: 1px solid var(--tnd-line);
+  background: var(--tnd-fill-strong);
+  white-space: nowrap;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+.tnd-badge.is-ok { color: var(--tnd-ok); border-color: color-mix(in oklab, var(--tnd-ok) 45%, transparent); }
+.tnd-badge.is-warn { color: var(--tnd-warn); border-color: color-mix(in oklab, var(--tnd-warn) 45%, transparent); }
+.tnd-badge.is-bad { color: var(--tnd-bad); border-color: color-mix(in oklab, var(--tnd-bad) 45%, transparent); }
+.tnd-badge.is-off { opacity: 0.6; }
+
+.tnd-btn {
+  min-height: 34px;
+  padding: 5px 12px;
+  border-radius: 9px;
+  border: 1px solid var(--tnd-line);
+  background: var(--tnd-fill-strong);
+  color: inherit;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 650;
+  cursor: pointer;
+  touch-action: manipulation;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  box-shadow: 0 1px 2px rgba(24, 24, 32, 0.08);
+  transition: transform 0.14s ease, filter 0.15s ease, box-shadow 0.15s ease;
+}
+.tnd-btn:hover:not(:disabled) {
+  transform: translateY(-0.5px);
+  filter: brightness(1.06);
+  box-shadow: 0 2px 6px rgba(24, 24, 32, 0.13);
+}
+.tnd-btn:active:not(:disabled) { transform: translateY(0.5px); }
+.tnd-btn.is-primary {
+  background: color-mix(in oklab, var(--tnd-accent) 26%, var(--tnd-fill-strong));
+  border-color: color-mix(in oklab, var(--tnd-accent) 68%, transparent);
+  color: inherit;
+}
+.tnd-btn.is-danger {
+  background: color-mix(in oklab, var(--tnd-bad) 14%, var(--tnd-fill-strong));
+  color: var(--tnd-bad);
+  border-color: color-mix(in oklab, var(--tnd-bad) 52%, transparent);
+}
+.tnd-btn.is-sm { min-height: 29px; padding: 3px 10px; font-size: 11.5px; border-radius: 8px; }
+.tnd-btn:disabled { opacity: 0.45; cursor: not-allowed; box-shadow: none; transform: none; }
+.tnd-btn-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+
+.tnd-input, .tnd-select, .tnd-textarea {
+  width: 100%;
+  border-radius: 9px;
+  border: 1px solid var(--tnd-line);
+  background: var(--tnd-fill);
+  color: inherit;
+  font: inherit;
+  font-size: 12.5px;
+  padding: 7px 10px;
+  min-height: 34px;
+}
+.tnd-input:focus-visible, .tnd-select:focus-visible, .tnd-textarea:focus-visible {
+  outline: 2px solid color-mix(in oklab, var(--tnd-accent) 62%, transparent);
+  outline-offset: 1px;
+}
+.tnd-input:disabled, .tnd-select:disabled, .tnd-textarea:disabled { opacity: 0.5; cursor: default; }
+.tnd-select { cursor: pointer; }
+.tnd-textarea { min-height: 84px; line-height: 1.55; resize: vertical; }
+.tnd-input.is-num { width: 110px; min-height: 32px; padding: 5px 9px; }
+.tnd-input.is-inline { flex: 1 1 180px; width: auto; min-width: 0; }
+.tnd-field { display: flex; flex-direction: column; gap: 4px; }
+.tnd-field-label { font-size: 11.5px; font-weight: 650; opacity: 0.82; }
+.tnd-unit { font-size: 11.5px; opacity: 0.66; }
+
+.tnd-switch {
+  position: relative;
+  width: 44px;
+  height: 26px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  border: 1px solid var(--tnd-line);
+  background: var(--tnd-fill-strong);
+  cursor: pointer;
+  padding: 0;
+  touch-action: manipulation;
+}
+.tnd-switch::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  background: currentColor;
+  opacity: 0.55;
+  transition: transform 0.16s ease, opacity 0.16s ease;
+}
+.tnd-switch:disabled { opacity: 0.55; cursor: default; }
+.tnd-switch.is-on {
+  background: var(--tnd-accent-soft);
+  border-color: color-mix(in oklab, var(--tnd-accent) 55%, transparent);
+}
+.tnd-switch.is-on::after {
+  transform: translateX(18px);
+  background: var(--tnd-accent);
+  opacity: 0.95;
+}
+
+.tnd-hint { font-size: 11.5px; opacity: 0.66; }
+.tnd-endpoint { overflow-wrap: anywhere; }
+.tnd-empty { font-size: 12px; opacity: 0.66; padding: 6px 2px; }
+.tnd-empty.is-alert { color: var(--tnd-bad); opacity: 1; }
+
+.tnd-toast {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 10px;
+  z-index: 5;
+  font-size: 11.5px;
+  padding: 6px 10px;
+  border-radius: 9px;
+  background: var(--tnd-fill-strong);
+  border: 1px solid var(--tnd-line);
+  box-shadow: var(--tnd-shadow);
+  backdrop-filter: blur(8px);
+}
+.tnd-toast.is-alert {
+  color: var(--tnd-bad);
+  border-color: color-mix(in oklab, var(--tnd-bad) 52%, transparent);
+}
+
+/* ---------- 说明气泡（? / × 按钮 + 左侧强调竖条就地展开卡片，与命运之骰一致） ---------- */
+.tnd-label-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+.tnd-help-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 17px;
+  height: 17px;
+  padding: 0;
+  border-radius: 999px;
+  border: 1px solid color-mix(in oklab, var(--tnd-accent) 48%, transparent);
+  background: color-mix(in oklab, var(--tnd-accent) 12%, transparent);
+  color: color-mix(in oklab, var(--tnd-accent) 86%, currentColor);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+  touch-action: manipulation;
+  transition: transform 0.16s ease, background 0.16s ease, color 0.16s ease;
+}
+.tnd-help-btn:hover {
+  transform: scale(1.1);
+  background: color-mix(in oklab, var(--tnd-accent) 24%, transparent);
+}
+.tnd-help-btn:focus-visible {
+  outline: 2px solid color-mix(in oklab, var(--tnd-accent) 62%, transparent);
+  outline-offset: 1px;
+}
+.tnd-help-btn.is-open {
+  background: color-mix(in oklab, var(--tnd-accent) 90%, transparent);
+  border-color: color-mix(in oklab, var(--tnd-accent) 90%, transparent);
+  color: var(--tnd-on-accent, #fff);
+}
+.tnd-help-pop {
+  flex: 1 1 100%;
+  width: 100%;
+  margin: 5px 0 2px;
+  padding: 8px 10px 9px 12px;
+  border-radius: 10px;
+  border: 1px solid color-mix(in oklab, var(--tnd-accent) 30%, var(--tnd-line-soft, transparent));
+  border-left: 3px solid color-mix(in oklab, var(--tnd-accent) 82%, transparent);
+  background: color-mix(in oklab, var(--tnd-accent) 7%, var(--tnd-fill, transparent));
+  color: inherit;
+  box-shadow: 0 3px 12px color-mix(in oklab, var(--tnd-accent) 12%, transparent);
+  animation: tnd-rise 0.16s ease-out both;
+}
+.tnd-help-pop-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 3px;
+}
+.tnd-help-pop-title {
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  color: color-mix(in oklab, var(--tnd-accent) 78%, currentColor);
+  opacity: 0.96;
+}
+.tnd-help-close {
+  flex: 0 0 auto;
+  padding: 0 5px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 10.5px;
+  line-height: 1.6;
+  opacity: 0.66;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.tnd-help-close:hover {
+  opacity: 1;
+  background: color-mix(in oklab, currentColor 10%, transparent);
+  border-color: color-mix(in oklab, currentColor 16%, transparent);
+}
+.tnd-help-pop-body { display: flex; flex-direction: column; gap: 4px; }
+.tnd-help-line {
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.72;
+  word-break: break-word;
+  opacity: 0.92;
+}
+
+@keyframes tnd-rise {
+  from { transform: translateY(4px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+@media (max-width: 720px) {
+  .tnd-wb-top { gap: 6px; padding-bottom: 6px; }
+  .tnd-seg { min-height: 30px; padding: 4px 8px; }
+  .tnd-row { align-items: flex-start; }
+}
 `
 
 function tndEnsureStyle() {
@@ -82,10 +466,11 @@ function tndEnsureStyle() {
 
 const TND_PROVIDERS = [
   { value: 'gemini', label: 'Google Gemini Decisions', defaultModel: 'gemini-decision-1', defaultKeyName: 'GEMINI_API_KEY' },
-  { value: 'gemini-compatible', label: 'Gemini 兼容接口', defaultModel: 'gemini-decision-1', defaultKeyName: 'GEMINI_API_KEY', customUrl: true },
+  { value: 'gemini-compatible', label: 'Gemini Decisions 兼容接口', defaultModel: 'gemini-decision-1', defaultKeyName: 'GEMINI_API_KEY', customUrl: true },
   { value: 'jev', label: 'Typesafe JEV', defaultModel: 'jev-1.13.0', defaultKeyName: 'TYPESAFE_API_KEY' },
+  { value: 'jev-compatible', label: 'Typesafe JEV 兼容接口', defaultModel: 'jev-1.13.0', defaultKeyName: 'TYPESAFE_API_KEY', customUrl: true },
   { value: 'openai', label: 'OpenAI Decisions', defaultModel: 'gpt-6-luna', defaultKeyName: 'OPENAI_API_KEY' },
-  { value: 'openai-compatible', label: 'OpenAI 兼容接口', defaultModel: 'gpt-6-luna', defaultKeyName: 'OPENAI_API_KEY', customUrl: true }
+  { value: 'openai-compatible', label: 'OpenAI Decisions 兼容接口', defaultModel: 'gpt-6-luna', defaultKeyName: 'OPENAI_API_KEY', customUrl: true }
 ]
 
 const TND_KEY_PATTERN = /^[\x21-\x7e]{1,4096}$/
@@ -144,42 +529,202 @@ function tndCall(ui, name, args) {
 
 /* ===== src/client/panel.js ===== */
 /* ------------------------------------------------------------------ *
- * panel.js —— 叙事阻尼器面板（侧栏「插件」页）。
+ * panel.js —— 叙事阻尼器工作台面板（侧栏「插件」页）。
  *
- * 这一页原来在「设置 › 叙事阻尼器」：字段、默认值、提示文案都照原样搬过来，只是宿主设置里
- * 不再有这一页。读写走插件自己的宿主半（narrative-damper:read / :update / :set-key / :test），
- * 宿主的引擎照旧在每轮生成前介入。
+ * 视觉与交互与「命运之骰」保持完全一致：
+ * 顶栏固定标题 + 总开关，正文为独立滚动卡片区，所有项支持 ? / × 展开左侧强调竖条
+ * 多段详细说明（带右上角「收起」与 Esc 关闭）。读写走宿主半（narrative-damper:read
+ * / :update / :set-key / :test），引擎照旧在每轮生成前介入。
  * ------------------------------------------------------------------ */
 
-function TndHelp({ label, text }) {
-  if (!text) return null
-  const h = React.createElement
-  return h('span', { className: 'tnd-help', role: 'img', tabIndex: 0, title: text, 'aria-label': label + '说明' }, '?')
+/* 把字符串按 \n 拆段；数组逐项处理；React 节点原样透传 */
+function tndHelpLines(text) {
+  if (text === undefined || text === null || text === false || text === '') return []
+  const raw = Array.isArray(text) ? text : [text]
+  const out = []
+  raw.forEach(item => {
+    if (item === undefined || item === null || item === false || item === '') return
+    if (typeof item === 'string' || typeof item === 'number') {
+      String(item).split('\n').forEach(part => {
+        const line = part.trim()
+        if (line) out.push(line)
+      })
+      return
+    }
+    out.push(item)
+  })
+  return out
 }
 
-function TndRow({ title, help, helpLabel, note, children }) {
-  const h = React.createElement
-  return h('div', { className: 'dsh-tavern-settings-row' },
-    h('span', { className: 'dsh-tavern-settings-copy' },
-      h('span', { className: 'dsh-tavern-settings-title' }, title, h(TndHelp, { label: helpLabel || title, text: help }))),
-    h('span', { className: 'dsh-tavern-settings-control' },
-      note ? h('span', { className: 'tnd-notice', role: 'status' }, note) : null,
-      children))
+function tndHelpTitle(title) {
+  return typeof title === 'string' || typeof title === 'number' ? String(title) : '详细说明'
 }
 
-function TndGroup({ title, help, notice, children }) {
-  const h = React.createElement
-  return h('section', { className: 'dsh-tavern-gs-group', 'aria-label': title },
-    h('header', { className: 'dsh-tavern-gs-head' },
-      h('h2', null, title),
-      h(TndHelp, { label: title, text: help }),
-      notice),
-    h('div', { className: 'dsh-tavern-gs-card' }, children))
+function tndHasHelp(help) {
+  return help !== undefined && help !== null && help !== false && help !== ''
+}
+
+// 说明展开在滚动区下沿之外时把它滚进来，别让文字藏在看不见的地方。
+function tndRevealHelp(open, node) {
+  if (!open || !node || typeof node.scrollIntoView !== 'function') return
+  node.scrollIntoView({ block: 'nearest' })
+}
+
+/* 说明按钮（受控）：圆角 ? / 展开后变 ×，与命运之骰 FdHelpToggle 一致 */
+function TndHelpToggle(props) {
+  const { title, open, onToggle } = props || {}
+  const plain = tndHelpTitle(title)
+  const label = '查看说明：' + plain
+  return h('button', {
+    type: 'button',
+    className: 'tnd-help-btn' + (open ? ' is-open' : ''),
+    'aria-label': label,
+    'aria-expanded': open ? 'true' : 'false',
+    title: open ? '收起说明：' + plain : label,
+    onClick: event => {
+      if (event && typeof event.preventDefault === 'function') event.preventDefault()
+      if (event && typeof event.stopPropagation === 'function') event.stopPropagation()
+      if (typeof onToggle === 'function') onToggle(!open)
+    },
+    onKeyDown: event => {
+      if (event && event.key === 'Escape' && open) {
+        event.preventDefault()
+        if (typeof onToggle === 'function') onToggle(false)
+      }
+    }
+  }, open ? '×' : '?')
+}
+
+/* 说明卡片（左侧强调竖条 + 标题 + 右上角「收起」按钮，深浅主题自适应） */
+function tndHelpPop(title, help, onClose, ref) {
+  const lines = tndHelpLines(help)
+  const stop = event => {
+    if (event && typeof event.preventDefault === 'function') event.preventDefault()
+    if (event && typeof event.stopPropagation === 'function') event.stopPropagation()
+  }
+  return h('div', { ref, className: 'tnd-help-pop', role: 'note' },
+    h('div', { className: 'tnd-help-pop-head' },
+      h('span', { className: 'tnd-help-pop-title' }, tndHelpTitle(title)),
+      h('button', {
+        type: 'button',
+        className: 'tnd-help-close',
+        'aria-label': '收起说明',
+        onClick: event => {
+          stop(event)
+          if (typeof onClose === 'function') onClose()
+        }
+      }, '收起')),
+    h('div', { className: 'tnd-help-pop-body' },
+      lines.length
+        ? lines.map((line, idx) => h('p', { key: idx, className: 'tnd-help-line' }, String(line)))
+        : h('p', { className: 'tnd-help-line' }, '暂无说明')))
+}
+
+function TndBtn(props) {
+  const { children, onClick, primary, danger, small, disabled, title, ariaLabel } = props || {}
+  const cls = 'tnd-btn' + (primary ? ' is-primary' : '') + (danger ? ' is-danger' : '') + (small ? ' is-sm' : '')
+  return h('button', {
+    type: 'button',
+    className: cls,
+    onClick: typeof onClick === 'function' ? onClick : undefined,
+    disabled: Boolean(disabled),
+    title: title || undefined,
+    'aria-label': ariaLabel || undefined
+  }, children)
+}
+
+function TndSwitch(props) {
+  const { on, onChange, label, disabled } = props || {}
+  return h('button', {
+    type: 'button',
+    disabled: Boolean(disabled),
+    className: 'tnd-switch' + (on ? ' is-on' : ''),
+    role: 'switch',
+    'aria-checked': on ? 'true' : 'false',
+    'aria-label': label || '开关',
+    onClick: () => (typeof onChange === 'function' ? onChange(!on) : undefined)
+  })
+}
+
+function TndBadge(props) {
+  const { children, tone, role, title } = props || {}
+  return h('span', {
+    className: 'tnd-badge' + (tone ? ' is-' + tone : ''),
+    role: role || undefined,
+    title: title || undefined
+  }, children)
+}
+
+function TndSection(props) {
+  const { title, helpTitle, help, note, children } = props || {}
+  const withHelp = tndHasHelp(help)
+  const [open, setOpen] = useState(false)
+  const helpRef = React.useRef(null)
+  useEffect(() => { tndRevealHelp(open, helpRef.current) }, [open])
+  const plainTitle = helpTitle || title
+  return h('section', { className: 'tnd-section', 'aria-label': plainTitle },
+    h('div', { className: 'tnd-section-head' },
+      h('span', { className: 'tnd-label-row' },
+        h('span', { className: 'tnd-section-title' }, title),
+        withHelp ? h(TndHelpToggle, { title: plainTitle, open, onToggle: value => setOpen(Boolean(value)) }) : null),
+      note ? h('span', { className: 'tnd-section-note' }, note) : null),
+    withHelp && open ? tndHelpPop(plainTitle, help, () => setOpen(false), helpRef) : null,
+    children)
+}
+
+function TndRow(props) {
+  const { title, help, sub, children, plain } = props || {}
+  const withHelp = tndHasHelp(help)
+  const [open, setOpen] = useState(false)
+  const helpRef = React.useRef(null)
+  useEffect(() => { tndRevealHelp(open, helpRef.current) }, [open])
+  return h('div', { className: 'tnd-row' + (plain ? ' is-plain' : '') },
+    h('div', { className: 'tnd-row-main' },
+      h('div', { className: 'tnd-label-row' },
+        h('span', { className: 'tnd-row-title' }, title),
+        withHelp ? h(TndHelpToggle, { title, open, onToggle: value => setOpen(Boolean(value)) }) : null),
+      withHelp && open ? tndHelpPop(title, help, () => setOpen(false), helpRef) : null,
+      sub ? h('span', { className: 'tnd-row-sub' }, sub) : null),
+    children ? h('div', { className: 'tnd-row-end' }, children) : null)
+}
+
+/* 表单字段容器：与命运之骰 FdField 一致，外层用 div 避免点 ? 误触内部控件 */
+function TndFormField(props) {
+  const { label, help, hint, children } = props || {}
+  const withHelp = tndHasHelp(help)
+  const [open, setOpen] = useState(false)
+  const helpRef = React.useRef(null)
+  useEffect(() => { tndRevealHelp(open, helpRef.current) }, [open])
+  return h('div', { className: 'tnd-field' },
+    label || withHelp
+      ? h('div', { className: 'tnd-label-row' },
+        label ? h('span', { className: 'tnd-field-label' }, label) : null,
+        withHelp ? h(TndHelpToggle, { title: label, open, onToggle: value => setOpen(Boolean(value)) }) : null)
+      : null,
+    withHelp && open ? tndHelpPop(label, help, () => setOpen(false), helpRef) : null,
+    children,
+    hint ? h('span', { className: 'tnd-hint' }, hint) : null)
+}
+
+function TndSegmented(props) {
+  const { label, value, options, disabled, onChange } = props || {}
+  return h('div', { className: 'tnd-segbar', role: 'radiogroup', 'aria-label': label },
+    (options || []).map(([optionValue, text]) => {
+      const active = value === optionValue
+      return h('button', {
+        key: optionValue,
+        type: 'button',
+        role: 'radio',
+        'aria-checked': active ? 'true' : 'false',
+        className: 'tnd-seg' + (active ? ' is-active' : ''),
+        disabled: Boolean(disabled),
+        onClick: () => { if (!active && typeof onChange === 'function') onChange(optionValue) }
+      }, text)
+    }))
 }
 
 // 文本 / 数字输入：编辑中留草稿，回车或失焦提交；宿主要求的边界在这里先收紧一次。
-function TndField({ kind = 'text', label, value, placeholder, unit, wide, multiline, secret, maxLength, min, max, step, integer, disabled, validate, onCommit }) {
-  const h = React.createElement
+function TndField({ kind = 'text', label, value, placeholder, unit, inline, multiline, secret, maxLength, min, max, step, integer, disabled, validate, onCommit }) {
   const [draft, setDraft] = useState(value === undefined || value === null ? '' : String(value))
   const [invalid, setInvalid] = useState('')
   useEffect(() => { setDraft(value === undefined || value === null ? '' : String(value)); setInvalid('') }, [value])
@@ -217,11 +762,12 @@ function TndField({ kind = 'text', label, value, placeholder, unit, wide, multil
       if (event.key === 'Escape') { setDraft(value === undefined || value === null ? '' : String(value)); setInvalid(''); event.currentTarget.blur() }
     }
   }
-  if (multiline) return h('textarea', { ...common, className: 'tnd-area', rows: 3, type: undefined, inputMode: undefined })
-  return h('span', { className: 'tnd-actions' },
+  if (multiline) return h('textarea', { ...common, className: 'tnd-textarea', rows: 3, type: undefined, inputMode: undefined })
+  const inputCls = 'tnd-input' + (kind === 'number' ? ' is-num' : (inline ? ' is-inline' : ''))
+  return h('div', { className: 'tnd-btn-row' },
     h('input', {
       ...common,
-      className: 'tnd-input' + (wide ? ' tnd-wide' : ''),
+      className: inputCls,
       type: kind === 'number' ? 'number' : (secret ? 'password' : 'text'),
       min: kind === 'number' ? min : undefined,
       max: kind === 'number' ? max : undefined,
@@ -230,35 +776,141 @@ function TndField({ kind = 'text', label, value, placeholder, unit, wide, multil
       autoComplete: secret ? 'off' : undefined
     }),
     unit ? h('span', { className: 'tnd-unit' }, unit) : null,
-    invalid ? h('span', { className: 'tnd-badge is-error', role: 'alert' }, invalid) : null)
+    invalid ? h(TndBadge, { tone: 'bad', role: 'alert' }, invalid) : null)
+}
+
+/* 详细说明文案（与命运之骰同风格：分点分段，覆盖机制、各档差异与实用建议） */
+const TND_HELP = {
+  overview: [
+    '叙事阻尼器是通用「防口胡与状态惯性」引擎：每轮正文生成前，轻量决策模型会结合当前 MVU 变量（或内置四维惯性状态）与剧情上下文并发评估你的行动意图。',
+    '它不会限制你扮演主角的自由度，而是精准识别「替 NPC 强行落笔反应 / 无依据篡改事实 / 调用场外上帝情报（天眼）」，在送给主写作模型前剥离越权结果，并按铺陈筹码分配本轮状态变化配额。',
+    '顶栏总开关控制阻尼器是否介入正文；下方「决策模型与连接」配好后，即使总开关关闭，「命运之骰」等插件也能独立复用该决策模型。',
+    '本面板所有设置均为全局生效、改动即时保存；每个标题右侧的 ? 均可点开查看详细机制与调优建议。'
+  ].join('\n'),
+
+  rulesSection: [
+    '这一区控制叙事阻尼器的裁定边界、阻力强度与状态钳制行为：每改一项即刻生效并自动保存，对所有游玩对话统一生效。',
+    '每项标题右侧的 ? 可展开详细说明，点「收起」或 × 即可折叠，保持侧栏清爽单列布局。'
+  ].join('\n'),
+
+  showTurnStatus: [
+    '开启（默认）后，每轮回复楼层顶部会展示一枚紧凑的裁定状态胶囊，直观呈现本轮是否生效、裁定档位（放行 / 微调 / 冻结 / 反弹 / 剥离越权）、铺陈筹码得分与 MVU 数值钳制摘要。',
+    '点击楼层胶囊可展开完整诊断详情，包括各维度判定概率、实际生效阈值、变量钳制前后对比，以及未生效时的具体原因（如超时放行、脱敏降级等）。',
+    '关闭后仅隐藏楼层界面的状态胶囊，后台裁定与数值钳制仍按配置照常执行，适合偏好纯净阅读界面的玩家。'
+  ].join('\n'),
+
+  judgeMode: [
+    '决定系统如何界定「你这一轮写下的内容是否越权」，按你的游玩习惯二选一：',
+    '角色扮演（默认）：系统认定你只控制自己的角色。你可以自由描写主角的动作、语言、心理与尝试，但如果直接替 NPC 落笔情绪崩溃/立刻屈服、无依据篡改既有事实，或调用角色不可能知道的场外情报（天眼），会被判为越权并剥离结果，交由主模型按当前好感与防线自然演绎。',
+    '写作 · 上帝视角：适用于把酒馆当成共同创作或导演模式的玩法。系统允许你替任意角色落笔、自由切镜头与推进多线场景，只有与前文既定事实硬冲突的「吃书」才会被判为设定冲突。'
+  ].join('\n'),
+
+  mode: [
+    '控制关系推进的阻力大小、破防所需的铺陈筹码门槛，以及单轮状态数值的涨跌上限：',
+    '标准拉扯（推荐）：适合绝大多数恋爱、拉扯、NTR 与剧情向游玩。常规推进单轮上限 ±5，铺陈充分达成突破时上限 ±12；判定阈值按下方设定原值执行。',
+    '慢热严苛：适合高防线、冷漠/傲娇角色或追求极慢热攻略体验的剧本。常规单轮上限收紧至 ±3、突破上限收紧至 ±8；内部判定阈值会自动再收紧 0.08（最低不低于 0.50），并提高完全放行所需的筹码门槛，防止寥寥数语轻易破防。'
+  ].join('\n'),
+
+  desensitizeR18: [
+    '开启（默认）后，发往云端决策模型的「临时评估副本」会自动将露骨词汇映射为中性强度等级标签，防止触发云端决策接口的内容安全拦截；发给主写作模型的提示词始终保留 100% 完整原文，不影响正文尺度。',
+    '引擎内置三级自动降级阶梯：常规先送「全量脱敏」副本；若遇接口拦截，自动降级为「语义骨架」重送；再次被拒则降级为「纯结构摘要」。三级全部被拒时才静默放行本轮，绝不卡死对话。',
+    '仅在使用完全无审查的本地/自建决策模型，且希望决策模型直接阅读原始措辞时才建议关闭。'
+  ].join('\n'),
+
+  clampMvuDelta: [
+    '开启（默认）后，当人物卡自带 MVU（变量更新）系统时，后台结算层在把变量写回楼层之前，会按本轮裁定配额（反弹 / 冻结 / 微调 / 突破）限制好感、信任、沦陷、防线等关系与情绪指标的单轮跳变幅度。',
+    '例如本轮被判为「冻结」或「微调」时，即使主写作模型或结算脚本试图一次性把好感度 +40，也会被自动截断在配额上限内，并在楼层胶囊中记下被钳制的明细；金钱、回合计数等非情绪事务变量不受误伤。',
+    '关闭后，阻尼器只通过提示词约束正文描写，不再干预后台 MVU 变量的实际落盘数值。'
+  ].join('\n'),
+
+  fallbackStateForPlainCards: [
+    '开启（默认）后，当游玩的人物卡没有自带 MVU 变量表时，引擎会自动为该对话维护一套轻量的四维惯性状态锚点（0–100）：亲密信任、心理防线、情绪张力与筹码深度。',
+    '这四项数值随每轮裁定平滑演进，作为下一轮决策模型的客观依据，并完整支持对话回退与分叉——退回旧楼层时状态会同步恢复。',
+    '若同时开启了「命运之骰」的双向联动，这四维状态也会直接参与检定难度修正（如心理防线过高提高社交难度、亲密信任较高降低阻力）。关闭后，普通卡仅凭文本上下文裁定。'
+  ].join('\n'),
+
+  modelSection: [
+    '叙事阻尼器依赖轻量决策模型在每轮正文前快速返回校准概率；推荐 Google Gemini Decisions（gemini-decision-1），采用单次 Prefill 零输出 Token 并发架构，响应快、成本极低。',
+    'API Key 保存在宿主本机的安全凭据库中，不会明文写进设置文件，也不会回传给浏览器；同时支持填写环境变量名作为引用。',
+    '配好此处的决策模型后，即使顶栏「叙事阻尼器」总开关关闭，「命运之骰」插件也可直接复用该连接完成 AI 自动判难与选技能。'
+  ].join('\n'),
+
+  provider: [
+    '选择决策模型的接口协议；切换服务提供方时，下方的模型名称与默认环境变量名会自动切换为该提供方的推荐默认值。',
+    'Google Gemini Decisions / OpenAI Decisions / Typesafe JEV：直连官方默认端点，只需配置对应 API Key 即可使用。',
+    '兼容接口：适用于支持对应决策 API 的反代、网关或本地服务。切换后可填写「自定义接口地址」。'
+  ].join('\n'),
+
+  baseUrl: [
+    '可填写网关根地址、带 /v1 或 /v1beta 的地址，也可粘贴含这些版本路径的 Decisions、SystemOne、Chat Completions 或 Responses 地址。省略协议时，回环地址使用 HTTP，其余地址使用 HTTPS。',
+    'Gemini Decisions 兼容服务须支持 POST /v1beta/decisions，OpenAI Decisions 兼容服务须支持 POST /v1/decisions，Typesafe JEV 兼容服务须支持 POST /v1/systemone（或显式填写 /v1/decision）。保存后，地址栏下方会显示实际请求路径。',
+    '仅支持 Chat Completions 或 generateContent 的服务无法处理判定请求。',
+    '输入完成后按回车或点击输入框外（失焦）自动保存；按 Esc 可撤销未提交的草稿。'
+  ].join('\n'),
+
+  model: [
+    '发往决策接口的模型名称，默认随服务提供方自动填入（如 gemini-decision-1、gpt-6-luna、jev-1.13.0）。',
+    '若使用中转站或自定义映射名，可按服务商提供的实际模型 ID 修改；清空并失焦会自动恢复当前提供方的默认模型名称。'
+  ].join('\n'),
+
+  apiKey: [
+    '支持两种配置方式：① 直接粘贴 API Key 并按回车，系统会加密保存在本机安全凭据库；② 输入已生效的环境变量名（如 GEMINI_API_KEY / OPENAI_API_KEY），系统会自动识别为引用并清除同提供方下已存明文。',
+    'API Key 须为不含空格或中文的可见 ASCII 字符；保存后界面只展示配置状态，绝不回显明文。',
+    '点击「测试连接」会使用当前面板上的提供方、接口地址、模型与密钥真实发一次探针请求，返回连通状态与往返耗时（ms）。'
+  ].join('\n'),
+
+  godmodeThreshold: [
+    '触发裁定干预的概率门槛，可调范围 0.50–0.95，默认 0.72；数值越低把关越严格，数值越高越宽松。',
+    '角色扮演模式下，当越权代笔、无依据篡改或天眼任一维度概率达到此阈值（且铺陈筹码不足）时触发剥离；写作模式下，当设定吃书概率达到此阈值时判为设定冲突。',
+    '注意：开启「慢热严苛」阻尼模式时，引擎会在你填写的阈值基础上自动再下调 0.08（最低 0.50）以进一步收紧把关。'
+  ].join('\n'),
+
+  timeoutMs: [
+    '单次决策请求允许等待的最长时间，可调范围 300–30000 毫秒，默认 2500 毫秒（2.5 秒）。',
+    '超过此时长仍未返回结果时，引擎会自动中止等待并静默放行本轮，绝不阻塞主写作模型生成正文，同时在楼层胶囊中记下「超时放行」。',
+    '网络直连较快时保持 2500 毫秒即可；若走较慢的中转线路或常遇超时，可适当调高至 5000–8000 毫秒。'
+  ].join('\n'),
+
+  preamble: [
+    '可选补充规则（最多 2000 字），每轮会随状态快照一同发给决策模型，一般留空使用内置通用规则即可。',
+    '适合写入特殊世界观或全局游玩约定，例如：「本世界存在合法读心术，主角使用读心技能获取他人想法不算天眼」「战斗中允许玩家直接描写杂兵倒下」。',
+    '编辑完成后点击输入框外（失焦）自动保存；若开启了 R18 送审脱敏，此处内容发往决策模型前同样会经过脱敏处理。'
+  ].join('\n')
 }
 
 function TndPanel({ ui }) {
-  const h = React.createElement
-  const components = ui.components || {}
-  // 宿主控件（apiVersion 9 起）能借就借，借不到用原生控件顶上：面板在新旧宿主上都要能用。
-  const Switch = components.Switch || (({ label, checked, disabled, onChange }) => h('input', {
-    type: 'checkbox', role: 'switch', 'aria-label': label, checked: Boolean(checked), disabled: Boolean(disabled),
-    onChange: event => onChange(event.target.checked)
-  }))
-  const Segmented = components.Segmented || (({ label, value, options, disabled, onChange }) => h('select', {
-    className: 'tnd-select', 'aria-label': label, disabled: Boolean(disabled), value,
-    onChange: event => onChange(event.target.value)
-  }, (options || []).map(([optionValue, text]) => h('option', { key: optionValue, value: optionValue }, text))))
-  const [state, setState] = useState({ loading: true, busy: false, config: null, credential: null, error: '', notice: '', test: null, editingKey: false })
+  const [state, setState] = useState({ loading: true, busy: false, config: null, credential: null, endpointUrl: '', error: '', notice: '', test: null, editingKey: false })
+  const [overviewHelpOpen, setOverviewHelpOpen] = useState(false)
+  const overviewHelpRef = React.useRef(null)
   const testSeq = React.useRef(0)
   const mounted = React.useRef(true)
+  const toastTimer = React.useRef(null)
+
+  useEffect(() => { tndRevealHelp(overviewHelpOpen, overviewHelpRef.current) }, [overviewHelpOpen])
+
+  function flashNotice(message) {
+    if (toastTimer.current) clearTimeout(toastTimer.current)
+    toastTimer.current = setTimeout(() => {
+      if (mounted.current) setState(current => (current.notice === message ? { ...current, notice: '' } : current))
+    }, 3200)
+  }
 
   useEffect(() => {
     mounted.current = true
     tndCall(ui, 'narrative-damper:read').then(result => {
       if (!mounted.current) return
       if (!result || !result.config) { setState(current => ({ ...current, loading: false, error: '读不到叙事阻尼器设置' })); return }
-      setState(current => ({ ...current, loading: false, config: result.config, credential: result.credential, error: '' }))
+      setState(current => ({
+        ...current, loading: false, config: result.config, credential: result.credential,
+        endpointUrl: result.endpointUrl || '', error: ''
+      }))
     }, error => {
       if (mounted.current) setState(current => ({ ...current, loading: false, error: String((error && error.message) || error) }))
     })
-    return () => { mounted.current = false }
+    return () => {
+      mounted.current = false
+      if (toastTimer.current) clearTimeout(toastTimer.current)
+    }
   }, [])
 
   async function savePatch(patch) {
@@ -267,7 +919,11 @@ function TndPanel({ ui }) {
     setState(current => ({ ...current, busy: true, error: '', notice: '', test: null }))
     try {
       const result = await tndCall(ui, 'narrative-damper:update', { values: patch })
-      setState(current => ({ ...current, busy: false, config: (result && result.config) || current.config, credential: (result && result.credential) || current.credential, editingKey: false, notice: '已保存' }))
+      setState(current => ({
+        ...current, busy: false, config: result?.config || current.config, credential: result?.credential || current.credential,
+        endpointUrl: result?.endpointUrl || '', editingKey: false, notice: '已保存'
+      }))
+      flashNotice('已保存')
       // 在对话楼层显示裁定结果 这一项就在这批开关里：让楼层的显示偏好立刻重读。
       tndNotifySettingsChanged()
     } catch (error) {
@@ -285,7 +941,12 @@ function TndPanel({ ui }) {
     setState(current => ({ ...current, busy: true, error: '', notice: '', test: null }))
     try {
       const result = await tndCall(ui, 'narrative-damper:set-key', { provider: state.config.provider, value })
-      setState(current => ({ ...current, busy: false, config: (result && result.config) || current.config, credential: (result && result.credential) || current.credential, editingKey: false, notice: value === null ? '已清除密钥' : '密钥已保存' }))
+      const msg = value === null ? '已清除密钥' : '密钥已保存'
+      setState(current => ({
+        ...current, busy: false, config: result?.config || current.config, credential: result?.credential || current.credential,
+        endpointUrl: result?.endpointUrl || '', editingKey: false, notice: msg
+      }))
+      flashNotice(msg)
       tndNotifySettingsChanged()
     } catch (error) {
       setState(current => ({ ...current, busy: false, error: String((error && error.message) || error) }))
@@ -306,118 +967,249 @@ function TndPanel({ ui }) {
 
   const config = state.config
   const disabled = state.loading || state.busy || !config
+  const enabled = Boolean(config && config.enabled === true)
   const providerMeta = tndProviderMeta(config && config.provider)
-  const notice = state.error
-    ? h('span', { className: 'dsh-tavern-gs-notice is-alert', role: 'alert' }, '⚠ ' + state.error)
-    : state.notice ? h('span', { className: 'dsh-tavern-gs-notice', role: 'status' }, state.notice) : null
+
+  const topHead = h('div', { className: 'tnd-wb-top' },
+    h('div', { className: 'tnd-wb-head' },
+      h('h3', { className: 'tnd-wb-title' },
+        '⚖️ 叙事阻尼器',
+        h(TndHelpToggle, { title: '叙事阻尼器', open: overviewHelpOpen, onToggle: value => setOverviewHelpOpen(Boolean(value)) })),
+      h('div', { className: 'tnd-btn-row tnd-wb-toggle' },
+        h(TndSwitch, {
+          on: enabled,
+          disabled,
+          label: '启用叙事阻尼器',
+          onChange: value => { void savePatch({ enabled: value }) }
+        }),
+        h('span', null, config ? (enabled ? '已开启' : '已关闭') : (state.error ? '读取失败' : '读取中…')))),
+    overviewHelpOpen ? tndHelpPop('叙事阻尼器', TND_HELP.overview, () => setOverviewHelpOpen(false), overviewHelpRef) : null)
 
   if (!config) {
-    return h('div', { className: 'tnd-panel dsh-tavern-global-settings', 'aria-busy': state.loading || undefined },
-      h('p', { className: state.error ? 'tnd-notice is-alert' : 'tnd-loading', role: state.error ? 'alert' : 'status' },
-        state.error || '正在读取叙事阻尼器设置…'))
+    return h('div', { className: 'tnd-root tnd-workbench', 'aria-busy': state.loading || undefined },
+      topHead,
+      h('div', { className: 'tnd-wb-scroll' },
+        h('div', { className: 'tnd-section' },
+          h('p', { className: state.error ? 'tnd-empty is-alert' : 'tnd-empty', role: state.error ? 'alert' : 'status' },
+            state.error || '正在读取叙事阻尼器设置…'))))
   }
 
-  const testControls = h('span', { className: 'tnd-actions' },
-    h('button', { type: 'button', className: 'dsh-tavern-btn', disabled: disabled || Boolean(state.test && state.test.running), onClick: runTest },
-      state.test && state.test.running ? '测试中…' : '测试连接'),
+  const testControls = h(Fragment, null,
+    h(TndBtn, {
+      small: true,
+      primary: true,
+      disabled: disabled || Boolean(state.test && state.test.running),
+      onClick: runTest
+    }, state.test && state.test.running ? '测试中…' : '测试连接'),
     state.test && !state.test.running
-      ? h('span', { className: 'tnd-badge ' + (state.test.ok ? 'is-ok' : 'is-error'), role: state.test.ok ? 'status' : 'alert' },
-        state.test.ok
-          ? '✓ 连接正常' + (Number.isFinite(state.test.latencyMs) ? ' · ' + Math.round(state.test.latencyMs) + ' ms' : '')
-          : '✕ ' + ((state.test.error && state.test.error.message) || '连接失败'))
+      ? h(TndBadge, {
+        tone: state.test.ok ? 'ok' : 'bad',
+        role: state.test.ok ? 'status' : 'alert'
+      }, state.test.ok
+        ? '✓ 连接正常' + (Number.isFinite(state.test.latencyMs) ? ' · ' + Math.round(state.test.latencyMs) + ' ms' : '')
+        : '✕ ' + ((state.test.error && state.test.error.message) || '连接失败'))
       : null)
 
   const keyRow = state.credential && state.credential.configured === true && !state.editingKey
-    ? h('span', { className: 'tnd-actions' },
-      h('span', { className: 'tnd-credential' }, tndCredentialText(state.credential)),
-      h('button', { type: 'button', className: 'dsh-tavern-btn', disabled, onClick: () => setState(current => ({ ...current, editingKey: true })) }, '更换'),
+    ? h('div', { className: 'tnd-btn-row' },
+      h(TndBadge, { tone: 'ok' }, tndCredentialText(state.credential)),
+      h(TndBtn, { small: true, disabled, onClick: () => setState(current => ({ ...current, editingKey: true })) }, '更换'),
       state.credential.source === 'stored'
-        ? h('button', { type: 'button', className: 'dsh-tavern-btn', disabled, onClick: () => { void saveKey(null) } }, '清除')
+        ? h(TndBtn, { small: true, danger: true, disabled, onClick: () => { void saveKey(null) } }, '清除')
         : null,
       testControls)
-    : h('span', { className: 'tnd-actions' },
+    : h('div', { className: 'tnd-field' },
       h(TndField, {
-        kind: 'text', secret: true, label: 'API Key', value: '', disabled, maxLength: 4096,
+        kind: 'text', secret: true, inline: true, label: 'API Key', value: '', disabled, maxLength: 4096,
         placeholder: '粘贴 API Key 或环境变量名（回车保存）',
         validate: tndKeyError,
         onCommit: value => { void saveKey(value) }
       }),
-      state.editingKey
-        ? h('button', { type: 'button', className: 'dsh-tavern-btn', disabled, onClick: () => setState(current => ({ ...current, editingKey: false })) }, '取消')
-        : null,
-      testControls)
+      h('div', { className: 'tnd-btn-row' },
+        state.editingKey
+          ? h(TndBtn, { small: true, disabled, onClick: () => setState(current => ({ ...current, editingKey: false })) }, '取消')
+          : null,
+        testControls))
 
-  return h('div', { className: 'tnd-panel dsh-tavern-global-settings', 'aria-busy': state.loading || state.busy || undefined },
-    h(TndGroup, {
-      title: '叙事阻尼器',
-      help: '通用防口胡与状态惯性引擎：每轮正文生成前，轻量决策模型结合 MVU 状态并发评估玩家意图，保留角色言行自由度的同时剥离越权结果，并在后台结算层钳制单轮数值突变。',
-      notice
-    },
-      h(TndRow, { title: '启用叙事阻尼器', help: '开启后对所有游玩对话生效，下一轮消息立即介入裁定。' },
-        h(Switch, { label: '启用叙事阻尼器', disabled, checked: config.enabled === true, onChange: value => { void savePatch({ enabled: value }) } })),
-      h(TndRow, { title: '在对话楼层显示裁定结果', help: '在每轮回复楼层顶部展示生效状态、裁定档位、筹码得分与数值钳制摘要；点击状态胶囊可展开完整指标与未生效原因。' },
-        h(Switch, { label: '在对话楼层显示裁定结果', disabled, checked: config.showTurnStatus !== false, onChange: value => { void savePatch({ showTurnStatus: value }) } })),
-      h(TndRow, { title: '判定模式', help: '角色扮演：系统认定你只控制自己的角色，替 NPC 落笔反应或调用场外情报会被判越权剥离。写作（上帝）：不存在你的角色，可为任意角色落笔、自由切镜头与场景，只有与既有设定矛盾的吃书才会被判为设定冲突。' },
-        h(Segmented, {
-          label: '判定模式', disabled, value: config.judgeMode || 'roleplay', className: 'tnd-seg',
-          options: [['roleplay', '角色扮演'], ['author', '写作 · 上帝视角']],
-          onChange: value => { void savePatch({ judgeMode: value }) }
-        })),
-      h(TndRow, { title: '阻尼模式', help: '标准拉扯适合大多数恋爱、NTR 与剧情向游玩（常规变动 ±5 / 突破 ±12）；慢热严苛提高破防筹码要求并收紧单轮状态上限（常规 ±3 / 突破 ±8）。' },
-        h(Segmented, {
-          label: '阻尼模式', disabled, value: config.mode || 'balanced', className: 'tnd-seg',
-          options: [['balanced', '标准拉扯（推荐）'], ['strict', '慢热严苛']],
-          onChange: value => { void savePatch({ mode: value }) }
-        })),
-      h(TndRow, { title: 'R18 送审语义分级脱敏', help: '只对发往决策模型的临时评估副本把露骨词汇映射为强度等级标签，防止云端决策接口拦截；发给主写作模型的提示词保留完整原文。送审副本按露骨程度自动降级：全量脱敏 → 骨架 → 结构摘要，三级都被拒才放行本轮。' },
-        h(Switch, { label: 'R18 送审语义分级脱敏', disabled, checked: config.desensitizeR18 !== false, onChange: value => { void savePatch({ desensitizeR18: value }) } })),
-      h(TndRow, { title: '后台 MVU 数值涨跌钳制', help: '按本轮决策配额（反弹 / 冻结 / 微调 / 突破）在后台 MVU 结算落盘前限制好感、信任、沦陷、防线等指标的单轮跳变幅度。' },
-        h(Switch, { label: '后台 MVU 数值涨跌钳制', disabled, checked: config.clampMvuDelta !== false, onChange: value => { void savePatch({ clampMvuDelta: value }) } })),
-      h(TndRow, { title: '无 MVU 卡自动维护四维状态', help: '人物卡没有自带 MVU 变量表时，随楼层自动维护亲密信任、心理防线、情绪张力与筹码深度四项惯性锚点，支持回退与分叉。' },
-        h(Switch, { label: '无 MVU 卡自动维护四维状态', disabled, checked: config.fallbackStateForPlainCards !== false, onChange: value => { void savePatch({ fallbackStateForPlainCards: value }) } }))),
-    h(TndGroup, {
-      title: '决策模型与连接',
-      help: '推荐 Google Gemini Decisions（gemini-decision-1，单次 Prefill 零输出 Token 并发返回校准概率）。API Key 保存在宿主安全凭据库，不会明文写进设置文件，也不会回传到浏览器。'
-    },
-      h(TndRow, { title: '决策服务提供方' },
-        h('select', {
-          className: 'tnd-select', 'aria-label': '决策服务提供方', disabled,
-          value: config.provider || 'gemini',
-          onChange: event => changeProvider(event.target.value)
-        }, TND_PROVIDERS.map(item => h('option', { key: item.value, value: item.value }, item.label)))),
-      providerMeta.customUrl
-        ? h(TndRow, { title: '自定义接口地址', help: '填写 HTTPS 反代根地址或本地 127.0.0.1 地址（会自动拼接 /v1beta/decisions 或 /v1/decisions）。' },
+  const toast = state.error
+    ? h('div', { className: 'tnd-toast is-alert', role: 'alert' }, '⚠ ' + state.error)
+    : state.notice
+      ? h('div', { className: 'tnd-toast', role: 'status' }, state.notice)
+      : null
+
+  return h('div', { className: 'tnd-root tnd-workbench', 'aria-busy': state.loading || state.busy || undefined },
+    topHead,
+    h('div', { className: 'tnd-wb-scroll' },
+      h(TndSection, {
+        title: '⚙️ 裁定与惯性设置',
+        helpTitle: '裁定与惯性设置',
+        note: '改动即时生效 · 自动保存',
+        help: TND_HELP.rulesSection
+      },
+        h(TndRow, {
+          plain: true,
+          title: '在对话楼层显示裁定结果',
+          sub: '默认开启：在每轮回复顶部展示状态胶囊与钳制摘要',
+          help: TND_HELP.showTurnStatus
+        },
+          h(TndSwitch, {
+            on: config.showTurnStatus !== false,
+            disabled,
+            label: '在对话楼层显示裁定结果',
+            onChange: value => { void savePatch({ showTurnStatus: value }) }
+          })),
+
+        h(TndFormField, {
+          label: '判定模式',
+          help: TND_HELP.judgeMode,
+          hint: (config.judgeMode || 'roleplay') === 'author'
+            ? '当前：可为任意角色落笔与切镜头，仅拦截与既定设定矛盾的吃书'
+            : '当前：你只控制主角，替 NPC 落笔反应或调用场外情报会被剥离'
+        },
+          h(TndSegmented, {
+            label: '判定模式',
+            disabled,
+            value: config.judgeMode || 'roleplay',
+            options: [['roleplay', '角色扮演'], ['author', '写作 · 上帝视角']],
+            onChange: value => { void savePatch({ judgeMode: value }) }
+          })),
+
+        h(TndFormField, {
+          label: '阻尼模式',
+          help: TND_HELP.mode,
+          hint: (config.mode || 'balanced') === 'strict'
+            ? '当前：慢热严苛（常规 ±3 / 突破 ±8，内部判定阈值自动再收紧 0.08）'
+            : '当前：标准拉扯（常规 ±5 / 突破 ±12，适合大多数恋爱与剧情向游玩）'
+        },
+          h(TndSegmented, {
+            label: '阻尼模式',
+            disabled,
+            value: config.mode || 'balanced',
+            options: [['balanced', '标准拉扯（推荐）'], ['strict', '慢热严苛']],
+            onChange: value => { void savePatch({ mode: value }) }
+          })),
+
+        h(TndRow, {
+          plain: true,
+          title: 'R18 送审语义分级脱敏',
+          sub: '默认开启：仅对决策副本三级脱敏，主写作提示词保留原文',
+          help: TND_HELP.desensitizeR18
+        },
+          h(TndSwitch, {
+            on: config.desensitizeR18 !== false,
+            disabled,
+            label: 'R18 送审语义分级脱敏',
+            onChange: value => { void savePatch({ desensitizeR18: value }) }
+          })),
+
+        h(TndRow, {
+          plain: true,
+          title: '后台 MVU 数值涨跌钳制',
+          sub: '默认开启：结算落盘前按配额限制好感/防线单轮跳变',
+          help: TND_HELP.clampMvuDelta
+        },
+          h(TndSwitch, {
+            on: config.clampMvuDelta !== false,
+            disabled,
+            label: '后台 MVU 数值涨跌钳制',
+            onChange: value => { void savePatch({ clampMvuDelta: value }) }
+          })),
+
+        h(TndRow, {
+          plain: true,
+          title: '无 MVU 卡自动维护四维状态',
+          sub: '默认开启：普通卡自动追踪信任 / 防线 / 张力 / 筹码，支持回退',
+          help: TND_HELP.fallbackStateForPlainCards
+        },
+          h(TndSwitch, {
+            on: config.fallbackStateForPlainCards !== false,
+            disabled,
+            label: '无 MVU 卡自动维护四维状态',
+            onChange: value => { void savePatch({ fallbackStateForPlainCards: value }) }
+          }))),
+
+      h(TndSection, {
+        title: '🔌 决策模型与连接',
+        helpTitle: '决策模型与连接',
+        note: '密钥仅存本机安全凭据库',
+        help: TND_HELP.modelSection
+      },
+        h(TndFormField, {
+          label: '决策服务提供方',
+          help: TND_HELP.provider
+        },
+          h('select', {
+            className: 'tnd-select',
+            'aria-label': '决策服务提供方',
+            disabled,
+            value: config.provider || 'gemini',
+            onChange: event => changeProvider(event.target.value)
+          }, TND_PROVIDERS.map(item => h('option', { key: item.value, value: item.value }, item.label)))),
+
+        providerMeta.customUrl
+          ? h(TndFormField, {
+            label: '自定义接口地址',
+            help: TND_HELP.baseUrl,
+            hint: state.endpointUrl
+              ? h('span', { className: 'tnd-endpoint' }, '已保存的请求地址 · POST ' + state.endpointUrl)
+              : !config.baseUrl && '请填写自定义接口地址'
+          },
+            h(TndField, {
+              kind: 'text', label: '自定义接口地址', disabled, maxLength: 512,
+              value: config.baseUrl || '', placeholder: 'https://example.com',
+              onCommit: value => { void savePatch({ baseUrl: value }) }
+            }))
+          : null,
+
+        h(TndFormField, {
+          label: '决策模型名称',
+          help: TND_HELP.model
+        },
           h(TndField, {
-            kind: 'text', label: '自定义接口地址', wide: true, disabled, maxLength: 512,
-            value: config.baseUrl || '', placeholder: 'https://example.com',
-            onCommit: value => { void savePatch({ baseUrl: value }) }
-          }))
-        : null,
-      h(TndRow, { title: '决策模型名称' },
-        h(TndField, {
-          kind: 'text', label: '决策模型名称', disabled, maxLength: 160,
-          value: config.model || providerMeta.defaultModel, placeholder: providerMeta.defaultModel,
-          onCommit: value => { void savePatch({ model: value || providerMeta.defaultModel }) }
-        })),
-      h(TndRow, { title: 'API Key', help: '直接粘贴密钥保存到本机安全凭据库，或输入已生效的环境变量名（如 GEMINI_API_KEY）作为引用。' }, keyRow),
-      h(TndRow, { title: '判定阈值', help: '概率达到此阈值时触发裁定：角色扮演模式下命中越权代笔、无依据篡改或天眼即剥离；写作模式下命中设定吃书即判为设定冲突（0.50–0.95，越低越严格，默认 0.72）。' },
-        h(TndField, {
-          kind: 'number', label: '判定阈值', disabled, min: 0.5, max: 0.95, step: 0.01,
-          value: config.godmodeThreshold ?? 0.72,
-          onCommit: value => { void savePatch({ godmodeThreshold: tndThreshold(value) }) }
-        })),
-      h(TndRow, { title: '请求超时上限', help: '决策请求超过此时长仍未返回时自动静默放行，不阻塞本轮正文生成。' },
-        h(TndField, {
-          kind: 'number', label: '请求超时上限', disabled, integer: true, min: 300, max: 30000, step: 100, unit: '毫秒',
-          value: config.timeoutMs ?? 2500,
-          onCommit: value => { void savePatch({ timeoutMs: tndTimeout(value) }) }
-        })),
-      h(TndRow, { title: '附加裁判准则', help: '可选：随状态快照一同发给决策模型的补充说明（如特殊世界观法则），一般留空即可。' },
-        h(TndField, {
-          kind: 'text', label: '附加裁判准则', multiline: true, disabled, maxLength: 2000,
-          value: config.preamble || '', placeholder: '留空使用内置通用规则',
-          onCommit: value => { void savePatch({ preamble: value }) }
-        }))))
+            kind: 'text', label: '决策模型名称', disabled, maxLength: 160,
+            value: config.model || providerMeta.defaultModel, placeholder: providerMeta.defaultModel,
+            onCommit: value => { void savePatch({ model: value || providerMeta.defaultModel }) }
+          })),
+
+        h(TndFormField, {
+          label: 'API Key',
+          help: TND_HELP.apiKey
+        }, keyRow),
+
+        h(TndFormField, {
+          label: '判定阈值',
+          help: TND_HELP.godmodeThreshold,
+          hint: '范围 0.50–0.95，越低越严格，默认 0.72'
+        },
+          h(TndField, {
+            kind: 'number', label: '判定阈值', disabled, min: 0.5, max: 0.95, step: 0.01,
+            value: config.godmodeThreshold ?? 0.72,
+            onCommit: value => { void savePatch({ godmodeThreshold: tndThreshold(value) }) }
+          })),
+
+        h(TndFormField, {
+          label: '请求超时上限',
+          help: TND_HELP.timeoutMs,
+          hint: '范围 300–30000 毫秒，超时静默放行，不阻塞正文'
+        },
+          h(TndField, {
+            kind: 'number', label: '请求超时上限', disabled, integer: true, min: 300, max: 30000, step: 100, unit: '毫秒',
+            value: config.timeoutMs ?? 2500,
+            onCommit: value => { void savePatch({ timeoutMs: tndTimeout(value) }) }
+          })),
+
+        h(TndFormField, {
+          label: '附加裁判准则',
+          help: TND_HELP.preamble
+        },
+          h(TndField, {
+            kind: 'text', label: '附加裁判准则', multiline: true, disabled, maxLength: 2000,
+            value: config.preamble || '', placeholder: '留空使用内置通用规则',
+            onCommit: value => { void savePatch({ preamble: value }) }
+          }))),
+
+      h('div', { className: 'tnd-hint' }, '以上改动即时生效并自动保存，无需手动提交；面板重新打开或切换对话都会保留。')),
+    toast)
 }
 
 /* ===== src/client/main.js ===== */

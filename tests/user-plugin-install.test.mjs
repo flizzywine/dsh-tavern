@@ -66,7 +66,9 @@ test('压缩包检查：找插件根，去掉 .github；缺入口、依赖 npm �
 
 test('上传 ZIP 安装、列表、删除进备份', async t => {
   const { installer, plugins, dataRoot, syncs } = await setup(t)
-  const installed = await installer.installFromZip(hello(), 'dsh-tavern-hello.zip')
+  const upload = path.join(dataRoot, 'upload.zip')
+  await writeFile(upload, hello())
+  const installed = await installer.installFromZipFile(upload, 'dsh-tavern-hello.zip')
   assert.deepEqual(installed, { folder: 'dsh-tavern-hello', name: 'dsh-tavern-hello', version: '1.0.0', replaced: false })
   assert.equal(syncs(), 1)
   assert.equal(await readFile(path.join(plugins, 'dsh-tavern-hello', 'index.mjs'), 'utf8'), 'export function apply() {}')

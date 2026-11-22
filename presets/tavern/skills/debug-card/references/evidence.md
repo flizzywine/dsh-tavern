@@ -25,7 +25,7 @@
 | --- | --- | --- |
 | 人物卡标准字段 | `tavern_read_card`，field 必填，path 省略即当前卡 | 字段枚举以当前工具为准 |
 | 正则、脚本、MVU、未知扩展 | `tavern_read_card_raw`，path 可省略，pointer 为 JSON Pointer | 如 `/data/extensions/regex_scripts`；先确认卡结构，V1 路径不同 |
-| 世界书 | `tavern_read_worldbook`，path 可省略为当前卡绑定世界书；用 ref、query 或分页 | 路径可为 worldbooks/... 或内置世界书所在 cards/...；当前条目不证明当时已注入 |
+| 世界书 | `tavern_read_lorebook`，path 可省略为当前卡绑定世界书；用 ref、query 或分页 | 路径可为 worldbooks/... 或内置世界书所在 cards/...；当前条目不证明当时已注入 |
 | 剧本 | `tavern_read_script`，工作台可指定 path，用 query、offset、limit 读取 | offset 是块号，不是字符位置；工作台最多读 6 块 |
 | 预设 | `tavern_read_preset`，path 必填为 presets/...，pointer 按需定位 | 读取编辑目标不会将其应用到 Agent；实际生效看 request |
 | 长期偏好 | `tavern_user_profile_read`，无参数 | 返回 Profile 的草案和确认版本，不代表该局保存的长期偏好快照；实际注入看 request |

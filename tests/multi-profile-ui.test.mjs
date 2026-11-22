@@ -13,8 +13,8 @@ function render(hasConfirmed, consent = true, activeId = 'a', conversationOnly =
     useRef: value => ({ current: value }), useEffect: () => {} }
   const rpc = async (name, args) => { calls.push({ name, args }); return { userProfile: record } }
   const window = { confirm: text => { warnings.push(text); return consent }, prompt: () => '新画像' }
-  const fn = new Function('React', 'rpc', 'window', 'usePersistentError', 'notifyTavernDataChanged', 'useTavernConfirm', component + ';return UserPreferenceProfileTab;')(React, rpc, window, () => ['', () => {}], () => {}, () => async text => { warnings.push(text); return consent })
-  const tree = fn({ scope: { sessionId: 'game' }, conversationOnly })
+  const fn = new Function('React', 'rpc', 'window', 'usePersistentError', 'notifyTavernDataChanged', 'useTavernConfirm', 'HelpTip', component + ';return UserPreferenceProfileTab;')(React, rpc, window, () => ['', () => {}], () => {}, () => async text => { warnings.push(text); return consent }, 'HelpTip')
+  const tree = fn({ scope: { sessionId: 'game' }, conversationOnly, Field: 'InlineField' })
   function nodes(value) { return value && typeof value === 'object' ? [value, ...(value.children || []).flat(Infinity).flatMap(nodes)] : [] }
   return { tree, calls, warnings, nodes: nodes(tree), button: text => nodes(tree).find(node => node.type === 'button' && node.children.includes(text)) }
 }

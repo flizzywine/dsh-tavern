@@ -7,7 +7,7 @@ settings:
 patchedDependencies:
   dsh-better-sidebar@0.28.0: 9af6279198a53ec127686bb827d1181550422d4e8233f8cf1acefaaf1d6a1521
   dsh-pocket@2.13.1: e0df3c10915f3dc97365324daef6b69c459324ac94f340b4b58e3635d6141d17
-  dsh-web-mobile@3.1.0: 3d32dd6f26f3dce6ea735dff6d11a3a512d6c3533c58c0233cf13770e9033d35
+  dsh-web-mobile@3.1.0: 94e96ebe180c17cd9447f7d22d729af2fe65713d85fdc72b6ecec8c4528ea7a1
 
 importers:
 
@@ -46,9 +46,9 @@ importers:
       mathjs:
         specifier: 12.4.3
         version: 12.4.3
-      pinyin-pro:
-        specifier: 3.29.5
-        version: 3.29.5
+      parse5:
+        specifier: 7.3.0
+        version: 7.3.0
       schemastery:
         specifier: 3.18.0
         version: 3.18.0
@@ -94,7 +94,7 @@ importers:
         version: link:tavern-plugin/packages/dsh-tavern-tts
       dsh-web-mobile:
         specifier: 3.1.0
-        version: 3.1.0(patch_hash=3d32dd6f26f3dce6ea735dff6d11a3a512d6c3533c58c0233cf13770e9033d35)(react@19.2.0)
+        version: 3.1.0(patch_hash=94e96ebe180c17cd9447f7d22d729af2fe65713d85fdc72b6ecec8c4528ea7a1)(react@19.2.0)
       esbuild:
         specifier: 0.25.12
         version: 0.25.12
@@ -1364,9 +1364,6 @@ packages:
   path-exists@4.0.0:
     resolution: {integrity: sha512-ak9Qy5Q7jYb2Wwcey5Fpvg2KoAc/ZIhLSLOSBmRmygPsGwkVVt0fZa0qrtMz+m6tJTAHfZQ8FnmB4MG4LWy7/w==}
     engines: {node: '>=8'}
-
-  pinyin-pro@3.29.5:
-    resolution: {integrity: sha512-Fk5YoRmtdHqJWqAuzYVG/NzvzeCbaG+ZEwbY6Nbps3QAIrvQQEtcm49frcyCM8i2b5najnzPDtYqrHRYTTiuwQ==}
 
   playwright-core@1.58.2:
     resolution: {integrity: sha512-yZkEtftgwS8CsfYo7nm0KE8jsvm6i/PTgVtB8DL726wNf6H2IMsDuxCpJj59KDaxCtSnrWan2AeDqM7JBaultg==}
@@ -2684,7 +2681,7 @@ snapshots:
       qrcode: 1.5.4
       qrcode-terminal: 0.12.0
 
-  dsh-web-mobile@3.1.0(patch_hash=3d32dd6f26f3dce6ea735dff6d11a3a512d6c3533c58c0233cf13770e9033d35)(react@19.2.0):
+  dsh-web-mobile@3.1.0(patch_hash=94e96ebe180c17cd9447f7d22d729af2fe65713d85fdc72b6ecec8c4528ea7a1)(react@19.2.0):
     dependencies:
       react: 19.2.0
 
@@ -2887,8 +2884,6 @@ snapshots:
   path-data-parser@0.1.0: {}
 
   path-exists@4.0.0: {}
-
-  pinyin-pro@3.29.5: {}
 
   playwright-core@1.58.2: {}
 

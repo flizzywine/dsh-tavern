@@ -1,7 +1,9 @@
 // bind each connection to validated DNS results; never delegate redirects to fetch.
 import https from 'node:https'
+import { createWriteStream } from 'node:fs'
 import { lookup } from 'node:dns/promises'
 import { isIP } from 'node:net'
+import { pipeline } from 'node:stream/promises'
 import { check } from '../asset-packs/common.js'
 import { httpsUrl } from './catalogue.js'
 export function publicAddress(address) {
@@ -40,14 +42,27 @@ export function createPublicNetwork({resolve = lookup, request = https.request} 
   }
 }
 export const publicNetwork = createPublicNetwork()
-export async function readBounded(network,url,maximum,signal) {
-  const response = await network(url,{signal}), chunks=[]
+async function* boundedChunks(network,url,maximum,signal) {
+  const response = await network(url,{signal})
   let size=0
   try {
     // the status is part of the reason (card URL import words 404 / 403 / 5xx).
     check(response.status===200,'$.response','Catalogue HTTP request failed (HTTP '+response.status+')','DOWNLOAD_FAILED')
     check(!response.headers['content-length'] || Number(response.headers['content-length'])<=maximum,'$.response','Response too large','LIMIT_EXCEEDED')
-    for await(const chunk of response.body) { size+=chunk.length; check(size<=maximum,'$.response','Response too large','LIMIT_EXCEEDED'); chunks.push(chunk) }
-    return Buffer.concat(chunks,size)
+    for await(const chunk of response.body) {
+      size+=chunk.length
+      check(size<=maximum,'$.response','Response too large','LIMIT_EXCEEDED')
+      yield chunk
+    }
   } finally { response.body.destroy() }
+}
+
+export async function readBounded(network,url,maximum,signal) {
+  const chunks = []
+  for await (const chunk of boundedChunks(network,url,maximum,signal)) chunks.push(chunk)
+  return Buffer.concat(chunks)
+}
+
+export async function downloadBounded(network,url,maximum,signal,file) {
+  await pipeline(boundedChunks(network,url,maximum,signal), createWriteStream(file,{flags:'wx'}), {signal})
 }

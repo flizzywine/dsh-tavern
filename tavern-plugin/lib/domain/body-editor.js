@@ -11,6 +11,8 @@ import { diffJson } from './json-mutation.js'
 import { locateUserEditFloor, locateUserInputFloor, userInputText } from './input-floor.js'
 import { inputEventForTurn, inputKind, isFailedTurnEnd } from './session-turn-input.js'
 import { legacyMessageUid, validMessageUid } from './message-uid.js'
+import { resolveSessionRoundAnchor, validAnchor } from './round-anchor.js'
+import { nativeOpeningMessageId } from './native-opening.js'
 
 function latest(chat) {
   const message = chat.messages?.at(-1)
@@ -18,6 +20,9 @@ function latest(chat) {
   return message
 }
 function source(message) { return message.projectionText ?? message.sourceText ?? message.text ?? '' }
+function nativeReplyText(event) {
+  return (event?.data?.message?.content || []).filter(part => part?.type === 'text').map(part => part.text).join('')
+}
 // Player rows render message.text. Legacy/native imports may also carry an
 // assistant-style sourceText; that field must not resurrect the pre-edit input.
 function storyUserText(message) { return typeof message?.text === 'string' ? message.text : source(message) }
@@ -314,19 +319,20 @@ export function createBodyEditor({ chats, sessions, timeline, activity, project,
   // Rewrite a native row only when its anchor/turn still locates this exact text.
   // Earlier floors must be updated too: the next request reads this surface, not
   // the Chat's edited copy. Ambiguous repeated or missing rows stay Chat-only.
-  function storyNativeTarget(chat, index, agent, message) {
-    if (!agent?.session || chat.messages[index]?.greeting === true) return null
+  function storyNativeTarget(agent, message) {
+    if (!agent?.session || message.greeting === true) return null
     const turn = Number(message && message.turn)
     if (!Number.isSafeInteger(turn) || turn < 1) return null
     const events = sessionEvents(agent.session)
-    const storedSeq = Number(message?.nativeAnchor?.reply)
+    const anchor = message.nativeAnchor
+    const anchored = validAnchor(anchor)
+    const storedSeq = anchored ? resolveSessionRoundAnchor(agent.session, anchor)?.reply : anchor?.reply
+    if (anchored && storedSeq == null) return null
     const located = locateRegenerationSurface({ events, nodes: agent.session.surface?.nodes,
       seq: Number.isSafeInteger(storedSeq) && storedSeq >= 0 ? storedSeq : undefined, turn })
     if (!located) return null
     const event = events.find(entry => Number(entry.seq) === Number(located.assistantSeq))
-    const content = event && event.data && event.data.message ? event.data.message.content : null
-    const text = Array.isArray(content) ? content.map(block => block && block.type === 'text' ? block.text : '').join('') : ''
-    return text === String(source(message)) ? located : null
+    return nativeReplyText(event) === String(message.text ?? source(message)) ? located : null
   }
   // The last assistant row keeps the timeline's settlement semantics; a history row
   // only changes its own prose (its settlement already happened and is not redone).
@@ -379,12 +385,38 @@ export function createBodyEditor({ chats, sessions, timeline, activity, project,
   }
   async function read(sessionId, input) {
     if (hasStoryMessageIndex(input)) return readStoryMessage(sessionId, input)
+    if (typeof input?.replyMessageId === 'string' && input.replyMessageId) return readNativeStoryMessage(sessionId, input.replyMessageId)
     const { chat, message, parts } = await context(sessionId, { whileBusy: true })
     return { token: token(chat, message), turn: message.turn, parts: parts.map(part => part.kind === 'text' ? part : { kind: part.kind }) }
   }
   // Story view: read the row the list points at (no turn, no native floor needed).
   async function readStoryMessage(sessionId, input) {
-    const { chat, message, index, revision, messageUid } = await storyContext(sessionId, input, 'assistant', { whileBusy: true })
+    return describeStoryEdit(await storyContext(sessionId, input, 'assistant', { whileBusy: true }))
+  }
+  // The native view opens by host message id, then uses the same row/token save
+  // as the story list. Never guess a different row when the id has moved.
+  async function readNativeStoryMessage(sessionId, messageId) {
+    const { chat, agent } = await openChat(sessionId, { whileBusy: true })
+    if (!['story', 'script'].includes(chat.mode || 'story')) throw new Error('这轮正文无法编辑')
+    const events = sessionEvents(agent.session)
+    const target = locateRegenerationSurface({ events, nodes: agent.session.surface?.nodes, messageId })
+    const changed = () => new Error('这轮正文已不在当前列表中，请刷新后重新打开编辑')
+    if (!target) throw changed()
+    const event = events.find(item => item.seq === target.assistantSeq)
+    const text = nativeReplyText(event)
+    const opening = messageId === nativeOpeningMessageId(chat.id)
+    const matches = []
+    for (let index = 0; index < chat.messages.length; index++) {
+      const message = chat.messages[index]
+      if (message?.role !== 'assistant' || message.placeholder || String(message.text ?? source(message)) !== text) continue
+      if (opening ? message.greeting !== true : storyNativeTarget(agent, message)?.assistantSeq !== target.assistantSeq) continue
+      matches.push({ message, index })
+    }
+    if (matches.length !== 1) throw changed()
+    const [row] = matches
+    return describeStoryEdit({ chat, ...row, revision: storageRevision(chat), messageUid: legacyMessageUid(row.message, row.index) })
+  }
+  function describeStoryEdit({ chat, message, index, revision, messageUid }) {
     const parts = editableReplyParts(source(message))
     if (!parts.some(part => part.kind === 'text' && part.text.trim())) throw new Error('这轮只有 HTML，没有可编辑文本')
     return {
@@ -451,7 +483,7 @@ export function createBodyEditor({ chats, sessions, timeline, activity, project,
       checkedTexts(parts, input.texts)
       const text = joinedText(parts, input.texts)
       if (text === source(message)) return present(chat)
-      const target = storyNativeTarget(chat, index, agent, message)
+      const target = storyNativeTarget(agent, message)
       const patch = await editPatch(chat, message, text, kind, polished, target)
       // Validate on an isolated native Session before the durable Chat write, exactly
       // like the last-reply path: a rejected host event must not publish the edit.
@@ -463,6 +495,7 @@ export function createBodyEditor({ chats, sessions, timeline, activity, project,
         idle(current, agent)
         const row = storyRow(current, { messageIndex: index, revision, messageUid }, 'assistant')
         if (storyToken(current, row.message, row.index, 'assistant', messageUid) !== input.token) throw new Error('正文或会话已变化，请重新打开编辑')
+        if (target && !agent.session.surface?.nodes.includes(target.assistantSeq)) throw new Error('模型上下文已变化，请重新打开编辑')
         return applyStoryPatch(current, row.index, row.message, patch, kind)
       }, { source: kind === 'body.polish' ? 'foreground.body-polish' : 'foreground.body-edit' })
       if (target) await synchronizeBodyEdits(agent.session, saved, sessions.flush)

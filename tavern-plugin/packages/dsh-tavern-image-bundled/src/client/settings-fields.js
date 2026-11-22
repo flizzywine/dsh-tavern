@@ -572,25 +572,28 @@
 
     }
 
+    const OUTFIT_PROMPT_PARTS = [['upper', '上衣'], ['lower', '下装'], ['shoes', '鞋袜'], ['accessory', '配饰'], ['full', '整套'], ['back', '背面']]
     const LIBRARY_PROMPT_PARTS = {
       '角色': [['face', '外貌正面'], ['faceBack', '外貌背面'], ['bodySFW', '穿衣上身正面'], ['bodySFWBack', '穿衣上身背面'],
         ['lowerSFW', '穿衣下身正面'], ['lowerSFWBack', '穿衣下身背面'], ['bodyNSFW', '裸露上身正面'], ['bodyNSFWBack', '裸露上身背面'],
         ['lowerNSFW', '裸露下身正面'], ['lowerNSFWBack', '裸露下身背面'], ['feature', '性格（规划用）']],
-      '服装': [['upper', '上衣'], ['lower', '下装'], ['shoes', '鞋袜'], ['accessory', '配饰'], ['full', '整套'], ['back', '背面']],
-      '通用服装': [['body', '正面上身'], ['full', '正面整套'], ['bodyBack', '背面上身'], ['fullBack', '背面整套']],
+      // 两套服装库字段已统一，编辑面板共用同一份字段表。
+      '服装': OUTFIT_PROMPT_PARTS,
+      '通用服装': OUTFIT_PROMPT_PARTS,
     }
 
     function LibraryPromptEditor({ record, kind, mode, traitMode, editable, detailsEditable, onChange }) {
       const custom = libraryPromptOverride(record) !== null
       const character = kind === '角色'
-      const parts = character ? record.traits || {} : record
+      // 通用服装与角色服装同字段；旧 body/fullBack 数据在这里先归一，编辑面板不会显示成空。
+      const parts = character ? record.traits || {} : normalizeOutfitParts(record)
       const fields = LIBRARY_PROMPT_PARTS[kind]
       const filled = fields.filter(([key]) => String(parts[key] || '').trim())
       const [view, setView] = React.useState(() => !custom && filled.length > 1 ? 'all' : 'prompt')
       const [selected, select] = React.useState('')
       const updatePart = (key, value) => onChange(character ? { traits: { ...parts, [key]: value } } : { [key]: value })
       const fallback = character ? characterLibraryPrompt(record, { mode, traitMode })
-        : outfitLibraryPrompt(record, { mode, shared: kind === '通用服装' })
+        : outfitLibraryPrompt(record, { mode })
       const imageDetails = libraryImageDetails(record)
       const editor = (label, value, onEdit, rows, readOnly = false) => h('label', { style: { display: 'grid', gap: 4, margin: '8px 0', minWidth: 0 } },
         h('span', { style: { fontSize: 12, fontWeight: 600 } }, label),

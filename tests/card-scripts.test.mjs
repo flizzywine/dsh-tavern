@@ -4,6 +4,7 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { createCardScripts } from '../tavern-plugin/lib/card-scripts.js'
+import { createCardStorage } from '../tavern-plugin/lib/card-storage.js'
 import { createProfileDataStore } from '../tavern-plugin/lib/profile-data-store.js'
 import { projectTavernHelperScripts } from '../tavern-plugin/lib/domain/tavern-helper-scripts.js'
 import { inspectCardExtensions, withGlobalRegexScripts } from '../tavern-plugin/lib/domain/card-extension-reading.js'
@@ -23,7 +24,7 @@ async function fixture(t) {
   const dataRoot = await mkdtemp(path.join(tmpdir(), 'fork-card-scripts-'))
   t.after(() => rm(dataRoot, { recursive: true, force: true }))
   const profileData = createProfileDataStore({ dataRoot })
-  return { profileData, store: createCardScripts({ profileData, cardIdFor }) }
+  return { dataRoot, profileData, store: createCardScripts({ profileData, cardIdFor }) }
 }
 
 test('atomic setMuted round trip is card-ID scoped, concurrent-safe, validated and bounded', async t => {
@@ -51,11 +52,19 @@ test('atomic setMuted round trip is card-ID scoped, concurrent-safe, validated a
 })
 
 test('host RPCs use unfiltered snapshot, reject unknown IDs, and toggles invalidate the view cache', async t => {
-  const { store: cardScripts, profileData } = await fixture(t)
+  const { dataRoot, profileData } = await fixture(t)
+  const cardStorage = createCardStorage({ dataRoot, profileData })
+  const cardScripts = createCardScripts({ profileData, cardIdFor: cardStorage.findId })
+  const resourcePath = 'resources/' + cardPath
+  const workspace = { meta: { id: 'card-a' } }
+  await profileData.writeJson(resourcePath, workspace)
   const host = await readFile(new URL('../tavern-plugin/lib/index.js', import.meta.url), 'utf8')
   await profileData.writeJson(key, {version:1, muted:['bgm']})
   const readerSource = host.slice(host.indexOf('  async function readCardExtensionSources('), host.indexOf('  function presetRegexScripts('))
-  const snapshot = { spec: 'chara_card_v3', data: { extensions: { tavern_helper: { scripts: [bgm, utility, disabled, { ...utility, id: 'legacy-disabled', disabled: true }] } } } }
+  const snapshot = { spec: 'chara_card_v3', data: { extensions: {
+    regex_scripts: [{ id: 'display', findRegex: 'old', replaceString: 'new', placement: [2] }],
+    tavern_helper: { scripts: [bgm, utility, disabled, { ...utility, id: 'legacy-disabled', disabled: true }] }
+  } } }
   const chat = { cardPath, cardName: 'Test card', cardDefinitionSnapshot: snapshot }
   const before = structuredClone(chat)
   let liveReads = 0
@@ -65,7 +74,7 @@ test('host RPCs use unfiltered snapshot, reject unknown IDs, and toggles invalid
     withGlobalRegexScripts, withModHidden, { read: async () => ({}) }, cardScripts)
   assert.deepEqual(projectTavernHelperScripts((await readCardExtensions(cardPath, chat)).helperScripts).scripts.map(script => script.id), ['utility'])
   // The production RPC handler; index.js routes getCardScripts to the same method.
-  const handlers = createCardHandlers({ chatForSession: async id => id === 'session' ? chat : undefined, readCardExtensions, cardScripts, resolveCardId: cardIdFor, str: value => typeof value === 'string' ? value : '' })
+  const handlers = createCardHandlers({ chatForSession: async id => id === 'session' ? chat : undefined, readCardExtensions, cardScripts, resolveCardId: cardStorage.resolve, str: value => typeof value === 'string' ? value : '' })
   const rpc = (method, args) => (handlers[method] || handlers.setCardScriptMuted)(args, method)
   assert.match(host, /rpcHandlers\.getCardScripts = rpcHandlers\.setCardScriptMuted/)
   const response = await rpc('getCardScripts', { sessionId: 'session' })
@@ -86,8 +95,9 @@ test('host RPCs use unfiltered snapshot, reject unknown IDs, and toggles invalid
   await assert.rejects(rpc('setCardScriptMuted', { sessionId: 'session', id: 'bgm', muted: 'false' }), /boolean/)
   const versionSource = host.slice(host.indexOf('    resourceVersion: async chat => {'), host.indexOf('    readChanges: chatPersistence.readChangedIndices,'))
   const resourceVersionsSource = host.slice(host.indexOf('  async function readCardResourceVersions('), host.indexOf('  const sessionProjection = createSessionViewProjection('))
-  const resourceVersion = new Function('fileResources', 'profileData', 'cardScripts', 'stageRuntime', 'tavernExtensionSettings', 'promptTemplateGlobalVariables', `${resourceVersionsSource}; return ({ ${versionSource} }).resourceVersion`)(
-    { worldBookBindingForCard: async () => ({}), scriptForCard: async () => null }, profileData, cardScripts, { status: () => 'ready' }, { version: async () => '' }, { version: async () => '' })
+  let reloadRevision = 0
+  const resourceVersion = new Function('fileResources', 'profileData', 'cardScripts', 'stageRuntime', 'tavernExtensionSettings', 'promptTemplateGlobalVariables', 'cardUpdates', `${resourceVersionsSource}; return ({ ${versionSource} }).resourceVersion`)(
+    { worldBookBindingForCard: async () => ({}), scriptForCard: async () => null }, profileData, cardScripts, { status: () => 'ready' }, { version: async () => '' }, { version: async () => '' }, { revision: () => reloadRevision })
   const originalVersion = await resourceVersion(chat)
   let fullReads = 0
   const views = createSessionViewReader({
@@ -107,6 +117,21 @@ test('host RPCs use unfiltered snapshot, reject unknown IDs, and toggles invalid
   assert.deepEqual((await views.read('session')).tavernHelperScripts.map(script => script.id), ['utility'])
   assert.deepEqual(projectTavernHelperScripts((await readCardExtensions(cardPath)).helperScripts).scripts, [], 'opening previews honor mutes')
   assert.equal(liveReads, 1)
+
+  // The saved card and its display rules remain readable after the library copy
+  // goes away. A missing mute-settings key must not turn scripts back on.
+  await profileData.remove(resourcePath)
+  assert.equal(await cardScripts.version(cardPath), '')
+  assert.deepEqual((await views.read('session')).tavernHelperScripts, [])
+  assert.deepEqual((await readCardExtensions(cardPath, chat)).regexScripts.map(script => script.id), ['display'])
+  await assert.rejects(rpc('setCardScriptMuted', { sessionId: 'session', id: 'bgm', muted: false }), /人物卡已删除或缺少身份/)
+  assert.deepEqual(await profileData.readJson(key), { version: 1, muted: ['bgm'] })
+  await profileData.writeJson(resourcePath, workspace)
+  assert.deepEqual((await views.read('session')).tavernHelperScripts.map(script => script.id), ['utility'])
+  const beforeReload = await resourceVersion(chat)
+  reloadRevision++
+  assert.notEqual(await resourceVersion(chat), beforeReload)
+
   assert.deepEqual(chat, before)
   assert.match(host, /hasScripts: async function \(chat\) \{ return hasTavernScriptRuntime\(chat, \(await readCardExtensions\(chat.cardPath, chat\)\)/)
   assert.match(host, /requiresBrowser: async chat => hasTavernScriptRuntime\(chat, \(await readCardExtensions\(chat.cardPath, chat\)\)/)

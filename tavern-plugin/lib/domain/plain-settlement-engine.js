@@ -40,6 +40,7 @@ export function createPlainSettlementEngine(deps) {
       ...deps.requestAnchor?.(snapshot, taskRun),
       onPersistentSessionReady: id => taskRun.bindSession(id, { stateOnly: true }),
       task: 'settlement',
+      operationId: taskRun.operationId,
       turn: settlementTurn(snapshot),
       backgroundTasks: backgroundTasksSettings,
       persistent: true,

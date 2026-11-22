@@ -22,7 +22,7 @@ import {createStageDirector, createRoundProjections} from './domain/stage-direct
 import {finalizeStageItems, invalidateStageItems} from './domain/stage-items.js'
 import {normalizeResourcePath} from '../../../lib/domain/file-resources.js'
 import directorCommands from '../../dsh-presentation-protocol/src/director-commands.cjs'
-import {createAssetEngineSettings, createAutoCastSettings} from './asset-engine.js'
+import {createAutoCastSettings} from './asset-engine.js'
 import {createEngineJudge} from '../../../lib/domain/engine-judge.js'
 import {createJudgeRpc} from './engine-judge.js'
 import {createDirectorProbeStore, createDirectorProbeRpc} from '../../../lib/director-probe.js'
@@ -42,7 +42,6 @@ import {effectiveCardStage, effectiveAutoCast, AUTO_CAST_DEFAULTS, validateAutoC
 import {readCardAssetExtension, cardAssetExtensionView} from '../../../lib/domain/card-asset-bindings.js'
 import {hasCardAssetBindings} from '../../../lib/card-asset-bindings.js'
 import {createStageClipExport} from './clip/clip-export-stage.js'
-import {registerStageWorkbench} from './workbench/index.js'
 import {createAutoCast} from './auto-cast.js'
 import {createAutoCastLibrary} from './auto-cast-library.js'
 import {runCastingAssistant} from './auto-cast-assistant.js'
@@ -76,7 +75,7 @@ export async function createStageModule(core) {
       await syncCardName(cardPath,cardPreparation.project(workspace).name)
     }}
   const readModStage=createModConfigStageReader({readChat:sessionId=>readStageChat.view(sessionId,{stateOnly:true}),readRevision:chatPersistence.readRevision})
-  const managedModManagement=createManagedModProduction({ctx,settingsOwner:core.settingsOwner,cardPlugins,...modCardStorage,
+  const managedModManagement=createManagedModProduction({ctx,settingsOwner:core.settingsOwner,cardPlugins,uploads:core.uploads,...modCardStorage,
     readSession:sessionId=>readStageChat.view(sessionId,{configOnly:true}),
     async readSkin(cardPath,{sessionId}={}) {
       const base=await cardStage.skin(cardPath)
@@ -94,7 +93,7 @@ export async function createStageModule(core) {
   const coreModCommands=[...directorCommands.definitions.map(row=>({op:row.name})),
     ...new Set([...directorCommands.definitions.map(row=>row.name.split('.')[0]),'perform'])].map(row=>typeof row==='string'?{dsl:{verb:row}}:row)
   let modConfigHost
-  const workbenchAuthority=Object.freeze({})
+  const workbenchAuthority=core.workbenchAuthority
   modService=createBuiltinModService({workbenchAuthority,management:managedModManagement,readCard:readModCard,
     config:{values:(...args)=>modConfigHost.values(...args),
       managedRequest:async chat=>managedModManagement.request(chat,{sources:modConfigHost.sources,context:await modConfigHost.context({sessionId:chat.sessionId})}),
@@ -297,7 +296,7 @@ export async function createStageModule(core) {
         const raw = (await deps.readCardWorkspace(cardPath))?.raw, extension = raw && hasCardAssetBindings(raw) ? readCardAssetExtension(raw) : null
         return effectiveAutoCast(extension, autoCastSettings.read().values, effectiveCardStage(extension, core.assetEngineSettings.read().values).dialogue)
       }
-      const autoCastLibrary = createAutoCastLibrary({getLibrary:() => ctx.get('assetLibrary')})
+      const autoCastLibrary = createAutoCastLibrary({getLibrary:() => ctx.get('assetLibrary'), getReading:() => ctx.get('tts')?.reading?.() ?? null})
       autoCast = createAutoCast({store:deps.profileData, settings:castSettings,
         library:autoCastLibrary,
 
@@ -327,7 +326,6 @@ export async function createStageModule(core) {
         autoCastStatus:async path => path && autoCast ? autoCast.status(path) : null})
       ctx.effect(() => () => requests.dispose(), 'dsh-tavern: close stage requests')
       ctx.effect(() => registry.register('dsh-tavern-stage', requests), 'dsh-tavern: stage request routes')
-      ctx.effect(() => registerStageWorkbench({ctx, deps, call:(method, args) => requests.call(method, args, workbenchAuthority)}), 'dsh-tavern: stage workbench tools')
       return requests
     }
   }
@@ -341,7 +339,7 @@ export const STAGE_MODEL_MANIFESTS = [{id:'dsh.stage',name:'舞台',modelSlots:[
   {id:'judge',label:'智能判断',purpose:'判断素材与剧情的相关概率',fallback:'background',kind:'scoring'}]}]
 
 export function createStageAssets(core) {
-  const {ctx, resolveSlot, readCardWorkspace, coordinationEvents, sessionSignals} = core
+  const {ctx, resolveSlot, readCardWorkspace, coordinationEvents, sessionSignals, assetEngineSettings} = core
   const figureRuntimes = createFigureRuntimes()
   ctx.effect(() => () => figureRuntimes.dispose())
   ctx.provide('figureRuntimes', figureRuntimes)
@@ -357,19 +355,12 @@ export function createStageAssets(core) {
   ctx.provide('stageExtensions', stageExtensions)
   // stage: the read helpers a mod's stage service folds and scopes its state with (core.stageReads plus the record fold).
   const stageModReads = Object.freeze({fold:foldAssetPackEntries,...core.stageReads})
-  const assetEngineSettings = createAssetEngineSettings(ctx, core.settingsOwner)
   const getTts = () => ctx.get('tts')
   // A card's stage switch in effect (effectiveCardStage: the card's own setting over the global stageToggles), for the
   // readers that have a chat or card path, not a stage snapshot.
   async function cardStageSwitch(cardPath, key) {
     const raw = (await readCardWorkspace(cardPath))?.raw
     return effectiveCardStage(raw && hasCardAssetBindings(raw) ? cardAssetExtensionView(raw) : null, assetEngineSettings.read().values)[key] === true
-  }
-  // The two switches the session view publishes (view.stage): the client loads and asks the stage only when one is on.
-  async function cardStageMode(cardPath) {
-    const raw = (await readCardWorkspace(cardPath))?.raw
-    const stage = effectiveCardStage(raw && hasCardAssetBindings(raw) ? cardAssetExtensionView(raw) : null, assetEngineSettings.read().values)
-    return {dialogue:stage.dialogue === true, stage:stage.stage === true}
   }
   const cardStage = createCardStage({cardStorage:core.cardStorage,measure:core.measure,
     getTts,getEngine:() => assetEngineSettings.read().values,
@@ -400,7 +391,7 @@ export function createStageAssets(core) {
     }})
   ctx.effect(() => () => assetRuntime.dispose())
   ctx.effect(() => core.presentationObservers.register('dsh-tavern-stage-assets',{cardChanged:path => assetRuntime.invalidate(path)}), 'dsh-tavern: asset card invalidation')
-  return {figureRuntimes,stageExtensions,stageModReads,cardStage,dialogueBubbles:cardStage.bubbles,assetEngineSettings, cardStageSwitch, cardStageMode, engineJudge, judgeRpc, directorProbeRpc, figureVoiceAuthoring, assetRuntime, getTts}
+  return {figureRuntimes,stageExtensions,stageModReads,cardStage,dialogueBubbles:cardStage.bubbles,assetEngineSettings, cardStageSwitch, engineJudge, judgeRpc, directorProbeRpc, figureVoiceAuthoring, assetRuntime, getTts}
 }
 
 // 舞台上的小组件变量、CG 图鉴与舞台计时器：都只读导演的演出、经请求处理表被调用。

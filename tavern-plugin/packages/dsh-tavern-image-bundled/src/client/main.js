@@ -168,6 +168,7 @@ let openImageOverlay = null
     // @include workflow-lora.js
     // @include workflow-inputs.js
     // @include image-editor.js
+    // @include outfit-parts.js
     // @include library-prompts.js
     // @include settings-fields.js
     // @include card-worldbook.js
@@ -203,9 +204,10 @@ let openImageOverlay = null
         })
       } catch (error) { reportHost('apply-report-failed', { message: String(error && error.message) }) }
       try {
-        const settings = { smartImageSelection: true, imageEnabled: true }
+        const settings = { smartImageSelection: true, imageEnabled: false }
         // 配图总开关变化时重新登记 illustrator（关掉时不给 draw，Tavern 就不显示配图按钮）。
         let refreshIllustrator = null
+        let receivedImageConfig = false
         const applyImageEnabled = value => {
           const next = value !== false
           if (next === settings.imageEnabled) return
@@ -214,6 +216,7 @@ let openImageOverlay = null
         }
         const updateImageConfig = event => {
           if (!event.detail) return
+          receivedImageConfig = true
           applyImageEnabled(event.detail.imageEnabled)
           applyImagePlacement(event.detail)
         }
@@ -221,7 +224,7 @@ let openImageOverlay = null
         ctx.effect?.(() => () => window.removeEventListener('dsh-tavern-image:config', updateImageConfig), 'dsh-tavern-image: display config')
         jsonFetch(`${BASE}/state`).then(state => {
           if (state?.config) {
-            applyImageEnabled(state.config.imageEnabled)
+            if (!receivedImageConfig) applyImageEnabled(state.config.imageEnabled)
             // 正文插图统一宽度：每次启动都从 /state 读回来，所以刷新 / 重启之后依然生效。
             applyImageWidth(state.config.imageDisplayWidth)
             applyImagePlacement(state.config)

@@ -18,7 +18,12 @@ export function displayRuntimeReceipt(frames) {
 
 export function createDisplayRuntimeStore({ store }) {
   const tails = new Map()
+  const cache = new Map()
   const pathOf = chatId => 'display-runtime/' + String(chatId).replace(/[^a-zA-Z0-9_-]/g, '_') + '.json'
+  function remember(chatId, value) {
+    if (cache.size >= 32 && !cache.has(chatId)) cache.delete(cache.keys().next().value)
+    cache.set(chatId, value)
+  }
   function serialize(chatId, operation) {
     const next = (tails.get(chatId) || Promise.resolve()).then(operation, operation)
     const tail = next.catch(() => {})
@@ -27,8 +32,12 @@ export function createDisplayRuntimeStore({ store }) {
     return next
   }
   async function readAll(chatId) {
+    const cached = cache.get(chatId)
+    if (cached) return structuredClone(cached)
     const value = await store.readJson(pathOf(chatId)).catch(() => undefined)
-    return value && value.version === 1 && value.turns && typeof value.turns === 'object' ? value : { version: 1, turns: {} }
+    const normalized = value && value.version === 1 && value.turns && typeof value.turns === 'object' ? value : { version: 1, turns: {} }
+    remember(chatId, structuredClone(normalized))
+    return normalized
   }
   return {
     async read(chatId, turn) { return (await readAll(chatId)).turns[String(turn)] },
@@ -44,8 +53,14 @@ export function createDisplayRuntimeStore({ store }) {
         const turns = Object.keys(value.turns).map(Number).sort((a, b) => b - a)
         for (const old of turns.slice(MAX_TURNS)) delete value.turns[String(old)]
         await store.writeJson(pathOf(chatId), value)
+        remember(chatId, structuredClone(value))
       })
     },
-    async remove(chatId) { return serialize(chatId, () => store.remove(pathOf(chatId))) }
+    async remove(chatId) {
+      return serialize(chatId, async () => {
+        cache.delete(chatId)
+        await store.remove(pathOf(chatId))
+      })
+    }
   }
 }

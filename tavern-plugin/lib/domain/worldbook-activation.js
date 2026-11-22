@@ -54,48 +54,74 @@ export function historyScanDepth(worldBook) {
   return depth
 }
 
+const regexKeyCache = new Map()
+const literalRegexCache = new Map()
+
+function cacheSetBounded(map, key, value, limit = 512) {
+  if (map.size >= limit) map.delete(map.keys().next().value)
+  map.set(key, value)
+  return value
+}
+
 function regexKey(value) {
-  const match = /^\/(.*)\/([dgimsuvy]*)$/.exec(str(value))
-  if (!match) return null
+  const raw = str(value)
+  if (regexKeyCache.has(raw)) return regexKeyCache.get(raw)
+  const match = /^\/(.*)\/([dgimsuvy]*)$/.exec(raw)
+  if (!match) return cacheSetBounded(regexKeyCache, raw, null)
   try {
-    return new RegExp(match[1], match[2].replaceAll('g', '').replaceAll('y', ''))
+    return cacheSetBounded(regexKeyCache, raw, new RegExp(match[1], match[2].replaceAll('g', '').replaceAll('y', '')))
   } catch (_error) {
-    return null
+    return cacheSetBounded(regexKeyCache, raw, null)
   }
 }
 
-function literalMatch(text, key, entry) {
+function singleHanRegex(needle) {
+  const key = 'han:' + needle
+  if (literalRegexCache.has(key)) return literalRegexCache.get(key)
+  return cacheSetBounded(literalRegexCache, key, new RegExp('(?:^|[^\\p{L}\\p{N}\\p{M}_])' + needle + '(?=$|[^\\p{L}\\p{N}\\p{M}_])', 'u'))
+}
+
+function wholeWordRegex(needle) {
+  const key = 'word:' + needle
+  if (literalRegexCache.has(key)) return literalRegexCache.get(key)
+  const escaped = needle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  try {
+    return cacheSetBounded(literalRegexCache, key, new RegExp('(?:^|\\W)' + escaped + '(?:$|\\W)'))
+  } catch (_error) {
+    return cacheSetBounded(literalRegexCache, key, null)
+  }
+}
+
+function literalMatch(text, key, entry, lowerText) {
   const sensitive = entry.caseSensitive === true
-  const source = sensitive ? text : text.toLocaleLowerCase()
+  const source = sensitive ? text : (lowerText !== undefined ? lowerText : text.toLocaleLowerCase())
   const needle = sensitive ? key : key.toLocaleLowerCase()
   if (needle === '') return false
   // Single Han aliases must stand alone; JS \W treats every Han character as a boundary.
-  if (/^\p{Script=Han}$/u.test(needle)) return new RegExp('(?:^|[^\\p{L}\\p{N}\\p{M}_])' + needle + '(?=$|[^\\p{L}\\p{N}\\p{M}_])', 'u').test(source)
+  if (/^\p{Script=Han}$/u.test(needle)) return singleHanRegex(needle).test(source)
   if (entry.matchWholeWords !== true || needle.split(/\s+/).length > 1) return source.includes(needle)
-  const escaped = needle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  try {
-    return new RegExp('(?:^|\\W)' + escaped + '(?:$|\\W)').test(source)
-  } catch (_error) {
-    return source.includes(needle)
-  }
+  const regex = wholeWordRegex(needle)
+  return regex ? regex.test(source) : source.includes(needle)
 }
 
-function keyMatch(text, value, entry) {
+function keyMatch(text, value, entry, lowerText) {
   const key = str(value).trim()
   if (key === '') return false
   const regex = regexKey(key)
   if (regex !== null) return regex.test(text)
-  return literalMatch(text, key, entry)
+  return literalMatch(text, key, entry, lowerText)
 }
 
-function keywordEvaluation(entry, body, sources) {
+function keywordEvaluation(entry, body, sources, lowerBody) {
   const keys = values => (Array.isArray(values) ? values : []).map(value => str(value).trim()).filter(Boolean)
+  const bodyLower = entry.caseSensitive === true ? undefined : (lowerBody !== undefined ? lowerBody : body.toLocaleLowerCase())
   function hits(values) {
-    return keys(values).filter(key => keyMatch(body, key, entry)).map(key => {
-      const source = sources.find(source => keyMatch(source.text, key, entry))
+    return keys(values).filter(key => keyMatch(body, key, entry, bodyLower)).map(key => {
+      const source = sources.find(source => keyMatch(source.text, key, entry, source.lowerText))
       const text = source?.text || body
+      const textLower = source ? (source.lowerText ?? text.toLocaleLowerCase()) : (bodyLower ?? text.toLocaleLowerCase())
       const regex = regexKey(key)
-      const index = regex ? (regex.exec(text)?.index ?? 0) : (entry.caseSensitive ? text : text.toLocaleLowerCase()).indexOf(entry.caseSensitive ? key : key.toLocaleLowerCase())
+      const index = regex ? (regex.exec(text)?.index ?? 0) : (entry.caseSensitive ? text : textLower).indexOf(entry.caseSensitive ? key : key.toLocaleLowerCase())
       return { key, source: source?.source || 'combined', messageIndex: source?.messageIndex, turn: source?.turn, role: source?.role,
         ref: source?.ref, excerpt: text.slice(Math.max(0, index - 45), Math.max(0, index) + 115) }
     })
@@ -187,7 +213,12 @@ export function activateWorldBook(input) {
     caseSensitive: entry.caseSensitive ?? settings.caseSensitive,
     matchWholeWords: entry.matchWholeWords ?? settings.matchWholeWords
   }))
-  const activated = [], recurse = [], diagnostics = new Map(), rejected = new Set()
+  const activated = [], activatedRefs = new Set(), recurse = [], diagnostics = new Map(), rejected = new Set()
+  const entryRank = new Map(entries.map((entry, index) => [entry, index + 1]))
+  const currentUserText = str(input.userText)
+  const currentUserLower = currentUserText ? currentUserText.toLocaleLowerCase() : ''
+  const injectedSource = injected ? { text: injected, lowerText: injected.toLocaleLowerCase(), source: 'script' } : null
+  for (const message of messages) message.lowerText = message.text.toLocaleLowerCase()
   // A pinned channel turns selection off (no keywords, no cooldown, no semantic
   // allowlist) without also turning off the token budget — except 'prefix', which
   // behaves like 常驻 because its body is paid for once in the stable prefix.
@@ -195,34 +226,43 @@ export function activateWorldBook(input) {
   const alwaysOn = entry => entry.constant === true || channelOf(entry) !== 'auto'
   const chargesBudget = entry => channelOf(entry) === 'tail' || (entry.constant !== true && channelOf(entry) === 'auto')
   const reject = (entry, reason, extra = {}) => diagnostics.set(entry.ref, { ...diagnostics.get(entry.ref), ref: entry.ref, title: str(entry.title || entry.comment), constant: entry.constant === true,
-    order: entry.order ?? 100, displayIndex: entry.displayIndex, placement: placementKey(entry), priorityRank: entries.indexOf(entry) + 1,
+    order: entry.order ?? 100, displayIndex: entry.displayIndex, placement: placementKey(entry), priorityRank: entryRank.get(entry) || 0,
     scanDepth: integer(entry.scanDepth, settings.scanDepth), caseSensitive: entry.caseSensitive, matchWholeWords: entry.matchWholeWords, reason, ...extra })
   const levels = [...new Set(entries.map(entry => integer(entry.delayUntilRecursion, 0)).filter(Boolean))].sort((a, b) => a - b)
   let level = 0, iteration = 0, budgetUsed = 0, budgetOverflowed = false
   // Each successful step consumes entries; delayed levels are finite as well.
   while (iteration <= entries.length + levels.length + 1) {
-    const sourcesFor = entry => {
+    const depthCache = new Map()
+    const scanFor = entry => {
       const depth = integer(entry.scanDepth, settings.scanDepth)
-      if (!depth) return []
-      return [...messages.slice(0, depth), ...(injected ? [{ text: injected, source: 'script' }] : []), ...(iteration > 0 ? recurse : [])]
+      let cached = depthCache.get(depth)
+      if (!cached) {
+        const sources = !depth ? [] : [...messages.slice(0, depth), ...(injectedSource ? [injectedSource] : []), ...(iteration > 0 ? recurse : [])]
+        const text = sources.map(source => source.text).filter(Boolean).join('\n\x01\n')
+        cached = { sources, text, lowerText: text.toLocaleLowerCase(), meta: null }
+        depthCache.set(depth, cached)
+      }
+      return cached
     }
-    const textFor = entry => sourcesFor(entry).map(source => source.text).filter(Boolean).join('\n\x01\n')
+    const textFor = entry => scanFor(entry).text
     const candidates = []
     for (const entry of entries) {
-      if (rejected.has(entry.ref) || activated.some(item => item.ref === entry.ref)) continue
+      if (rejected.has(entry.ref) || activatedRefs.has(entry.ref)) continue
       const requests = (input.activationRequests || []).filter(request => request.ref === entry.ref)
       if (requests.length) reject(entry, 'requested', { activationRequests: requests })
       const cooling = !alwaysOn(entry) && input.isCoolingDown(entry)
       // A screened-out entry comes back as soon as the player names it in this turn's input.
-      const playerNamed = cooling === 'screened' && !input.userTextInHistory && str(input.userText).trim() &&
-        keywordEvaluation(entry, str(input.userText), [{ text: str(input.userText), source: 'current-input' }]).matched
+      const playerNamed = cooling === 'screened' && !input.userTextInHistory && currentUserText.trim() &&
+        keywordEvaluation(entry, currentUserText, [{ text: currentUserText, lowerText: currentUserLower, source: 'current-input' }], currentUserLower).matched
       if (cooling && !playerNamed) { reject(entry, cooling === 'screened' ? 'screened-cooldown' : 'cooldown', { cooldown: { readTurn: input.chat?.worldBookReads?.[entry.ref]?.turn, currentTurn: input.turn, duration: 10 } }); continue }
       const delay = integer(entry.delayUntilRecursion, 0)
       if (delay && (!iteration || delay > level)) { reject(entry, 'recursion-delay'); continue }
       if (iteration && entry.excludeRecursion) { reject(entry, 'recursion-excluded'); continue }
       if (!alwaysOn(entry) && !requests.some(request => request.force)) {
-        const match = keywordEvaluation(entry, textFor(entry), sourcesFor(entry))
-        reject(entry, 'matched', { match, stage: iteration ? 'recursion' : 'initial', recursionLevel: level, scanSources: sourcesFor(entry).map(({ text, ...source }) => ({ ...source, chars: text.length })) })
+        const scan = scanFor(entry)
+        const match = keywordEvaluation(entry, scan.text, scan.sources, scan.lowerText)
+        if (scan.meta === null) scan.meta = scan.sources.map(({ text, lowerText, ...source }) => ({ ...source, chars: text.length }))
+        reject(entry, 'matched', { match, stage: iteration ? 'recursion' : 'initial', recursionLevel: level, scanSources: scan.meta })
         if (!match.matched) { reject(entry, 'keywords'); continue }
       }
       if (!alwaysOn(entry) && input.allowedRefs && !input.allowedRefs.has(entry.ref) && !input.protectedRefs?.has(entry.ref)) { reject(entry, 'semantic'); continue }
@@ -245,12 +285,16 @@ export function activateWorldBook(input) {
         continue
       }
       activated.push(entry)
+      activatedRefs.add(entry.ref)
       added.push(entry)
       if (chargesBudget(entry)) budgetUsed += tokenCost
       reject(entry, 'selected', { tokenCost: chargesBudget(entry) ? tokenCost : 0, budgetUsed, stage: iteration ? 'recursion' : 'initial', scanDepth: integer(entry.scanDepth, settings.scanDepth) })
     }
     if (!settings.recursive) break
-    const sources = added.filter(entry => !entry.preventRecursion).map(entry => ({ text: str(entry.content), source: 'recursion', ref: entry.ref })).filter(source => source.text)
+    const sources = added.filter(entry => !entry.preventRecursion).map(entry => {
+      const text = str(entry.content)
+      return { text, lowerText: text.toLocaleLowerCase(), source: 'recursion', ref: entry.ref }
+    }).filter(source => source.text)
     recurse.push(...sources)
     iteration++
     if (sources.length) continue

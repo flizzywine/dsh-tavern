@@ -23,6 +23,7 @@ description: "管理舞台素材库：装包、绑卡、批量整理条目，制
 | 导入 Live2D / Spine 模型、装运行库 | [Live2D 与 Spine](references/live2d-spine.md) |
 | 用应用内生图画立绘、头像、设定图、背景 | [应用内生图](references/generation.md)；目标类型见 [生图目标](references/generation-targets.md) |
 | 第一次配音，或让自动素材按人设给新人物选声音 | [从零开始配音](references/voice-start.md) |
+| 要像原作的声音，定用声音库、克隆还是通用声音 | [从零开始配音](references/voice-start.md)「选哪种声音来源」 |
 | 添加或修改语音服务、填密钥、测试连接 | [配音后端](references/voice-backend.md) |
 | 给某个人物配声音（浏览器朗读、在线 TTS、Fish 声音库、声音模板） | [给人物配声音](references/figure-voice.md) |
 | 声音克隆、参考音频 | [声音克隆](references/voice-clone.md) |

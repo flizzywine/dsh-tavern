@@ -15,7 +15,7 @@ export {MANAGED_MOD_METHODS}
 
 // The authenticated application dispatch and the existing card/settings/plugin owners are the
 // only entry points. This is management, not a second plugin loader or runtime registry.
-export function createManagedModProduction({ctx,settingsOwner=ctx,cardPlugins,cardPreparation,listPaths,readWorkspace,writeWorkspace,withCardLock,validateReferences=createManagedConfigAssetValidator({getAssetLibrary:()=>ctx.get('assetLibrary')}),onChange,readSkin=async()=>null,readSession=async()=>null,resolveOptionConfig,distributions=firstPartyDistributions}) {
+export function createManagedModProduction({ctx,settingsOwner=ctx,cardPlugins,uploads,cardPreparation,listPaths,readWorkspace,writeWorkspace,withCardLock,validateReferences=createManagedConfigAssetValidator({getAssetLibrary:()=>ctx.get('assetLibrary')}),onChange,readSkin=async()=>null,readSession=async()=>null,resolveOptionConfig,distributions=firstPartyDistributions}) {
   let bundles
   const localDistributions=()=>bundles ||= distributions()
   const settings=createManagedModSettingsOwner(ctx,settingsOwner)
@@ -47,7 +47,7 @@ export function createManagedModProduction({ctx,settingsOwner=ctx,cardPlugins,ca
     return {}
   }
   const skinFor=async args=>{const context=await contextFor(args);return readSkin(context.cardPath,context)}
-  const manager=createManagedModManager({cards,settings,installations,validateReferences,readSkin:skinFor,resolveOptionConfig,
+  const manager=createManagedModManager({cards,settings,installations,uploads,validateReferences,readSkin:skinFor,resolveOptionConfig,
     async readOptionMedia(skin,keys) {
       if(!skin?.ref)return {}
       const owner=ctx.get('assetLibrary'),media={}

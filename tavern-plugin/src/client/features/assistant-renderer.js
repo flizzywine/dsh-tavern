@@ -734,7 +734,8 @@
 					pinned: true,
 					prevActive: Boolean(active),
 					lastTop: 0,
-					programmaticTop: null
+					programmaticTop: null,
+					rafId: 0
 				});
 				const useEffectHook = typeof React.useLayoutEffect === "function" ? React.useLayoutEffect : React.useEffect;
 				const syncToBottom = React.useCallback(function () {
@@ -758,8 +759,25 @@
 					if (active && !state.prevActive) state.pinned = true;
 					state.prevActive = Boolean(active);
 					if (!text) return;
-					syncToBottom();
+					if (typeof requestAnimationFrame !== "function") {
+						syncToBottom();
+						return;
+					}
+					if (state.rafId) return;
+					state.rafId = requestAnimationFrame(function () {
+						state.rafId = 0;
+						syncToBottom();
+					});
 				}, [active, text, syncToBottom]);
+				React.useEffect(function () {
+					return function () {
+						const state = stateRef.current;
+						if (state.rafId && typeof cancelAnimationFrame === "function") {
+							cancelAnimationFrame(state.rafId);
+							state.rafId = 0;
+						}
+					};
+				}, []);
 				const onScroll = React.useCallback(function (event) {
 					const el = event && event.currentTarget;
 					if (!el) return;
@@ -963,8 +981,6 @@
 				const forkStageSource = React.useMemo(() => ({ nativeTurn: turn, nodeId: props.node.id, order: props.node.anchorSeq, superseded }), [turn, props.node.id, props.node.anchorSeq, superseded]);
 				const waitingForHistory = Boolean(currentView?.historyWindow && ownsTurn && !projection && settled && storyTurn>0 && storyTurn<latestProjectionTurn);
 				const playView = isPlayMode(liveState.view && liveState.view.mode) && storyTurn > 0 && !sessionTransitioning && ownsTurn;
-				useTavernUiExtensions();
-				useTavernProseLayoutRevision();
 				const turnView = useTavernTurnView(props.sessionId);
 				const pluginMedia = useTavernPluginMedia(props.sessionId, storyTurn, playView && settled);
 				const pluginText = playView ? createTavernPluginTextContext({ items: pluginMedia.items, extras: [], sessionId: props.sessionId, turn: storyTurn, streaming: data.status === "running" }) : null;

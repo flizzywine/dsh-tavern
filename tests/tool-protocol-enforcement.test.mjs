@@ -199,6 +199,37 @@ test('fetch 拦截器：作用域隔离、HTTP 400 当场自动降级重发、SS
   assert.equal(getCapturedThoughtSignature('call_live_99'), 'LIVE_SERVER_SIG_XYZ')
 })
 
+test('魔搭 Chat Completions 兼容 developer 角色，保留提示词和其他端点的请求', async t => {
+  const seen = []
+  const target = { async fetch(_url, init) { seen.push(init); return new Response('{}') } }
+  t.after(installToolProtocolFetchPatch(target, { quirks: createCapabilityQuirkStore() }))
+  const body = {
+    model: 'test-reasoning',
+    messages: [
+      { role: 'developer', content: '保留这条指令', name: 'rules' },
+      { role: 'user', content: '开始' }
+    ],
+    tools: [{ type: 'function', function: { name: 'submit_story', parameters: {} } }]
+  }
+  const request = { method: 'POST', body: JSON.stringify(body) }
+  const url = 'https://api-inference.modelscope.cn/v1/chat/completions'
+  await target.fetch(new URL(url), request)
+  const compatible = { ...body, messages: [{ ...body.messages[0], role: 'system' }, body.messages[1]] }
+  assert.deepEqual(JSON.parse(seen.at(-1).body), compatible)
+
+  await runWithToolProtocolDirective({ forceToolChoice: true, allowedToolNames: ['submit_story'] }, () => target.fetch(url, request))
+  assert.deepEqual(JSON.parse(seen.at(-1).body), {
+    ...compatible,
+    tool_choice: { type: 'function', function: { name: 'submit_story' } }
+  })
+
+  for (const otherUrl of ['https://api.openai.com/v1/chat/completions', 'https://api-inference.modelscope.cn.example.com/v1/chat/completions',
+    'https://api-inference.modelscope.cn/v1/responses']) {
+    await target.fetch(otherUrl, request)
+    assert.equal(seen.at(-1), request)
+  }
+})
+
 test('installToolCallIdleTimeoutPatch：开启「输出走工具调用」时将 pi-ai 与 DeepSeek 适配器静默超时下限上调到 600s', async (t) => {
   assert.equal(TOOL_CALL_STREAM_IDLE_TIMEOUT_MS, 600_000)
 

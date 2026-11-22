@@ -1,5 +1,6 @@
 // 随酒馆发行、但身份是「酒馆插件」的内置插件：装进 <data>/plugins，插件页才列得出来。
 import assert from 'node:assert/strict'
+import { createHash } from 'node:crypto'
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -8,7 +9,9 @@ import test from 'node:test'
 import { SOURCE_FILE } from '../bin/bundled-tavern-plugins.mjs'
 import { syncBundledTavernPlugins } from '../bin/service-lifecycle.mjs'
 import { createUserPluginInstaller } from '../tavern-plugin/lib/domain/user-plugin-install.js'
-import { DISABLED_FILE, syncUserPlugins } from '../tavern-plugin/lib/domain/user-plugins.js'
+import { DISABLED_FILE, RESTART_FILE, syncUserPlugins } from '../tavern-plugin/lib/domain/user-plugins.js'
+import { TAVERN_PLUGIN_API_VERSION } from '../tavern-plugin/lib/domain/plugin-manifest.js'
+import { writeZipEntries } from '../tavern-plugin/lib/domain/zip-entries.js'
 
 const FOLDER = 'dsh-tavern-plot-compass'
 const quiet = { warn() {}, log() {} }
@@ -117,3 +120,72 @@ async function checkBundledLoadDefault(t, folder) {
 for (const folder of ['dsh-tavern-fate-dice', 'dsh-tavern-plot-compass']) {
   test(`${folder} 默认加载，迁移旧版自动停用标记并保留手动停用`, t => checkBundledLoadDefault(t, folder))
 }
+
+test('命运之骰只安装校验通过的 Release，酒馆同步保留较新的兼容版本', async t => {
+  const folder = 'dsh-tavern-fate-dice'
+  const repo = 'bigmalove/' + folder
+  const dataRoot = mkdtempSync(path.join(tmpdir(), 'tavern-release-data-'))
+  t.after(() => rmSync(dataRoot, { recursive: true, force: true }))
+  const sync = source => syncBundledTavernPlugins({ sourceRoot: source.root, dataRoot, profileDir: path.join(dataRoot, 'profile'), logger: quiet })
+    .find(item => item.packageName === folder)
+  const oldSource = makeSource(t, { version: '1.4.2', folder })
+  const { target: installed } = sync(oldSource)
+  const manifest = () => JSON.parse(readFileSync(path.join(installed, 'package.json'), 'utf8'))
+  const record = () => JSON.parse(readFileSync(path.join(installed, SOURCE_FILE), 'utf8'))
+  const zipFor = (version, minimumApi) => writeZipEntries([
+    { path: 'package.json', content: JSON.stringify({ ...manifest(), version, dsh: { compatibility: { tavernApiVersion: minimumApi } } }) },
+    { path: 'lib/index.js', content: 'export const independent = true' },
+    { path: 'client.js', content: '// independent release' },
+  ])
+  const api = 'https://api.github.com/repos/' + repo + '/releases/latest'
+  const releaseZip = 'https://github.com/' + repo + '/releases/download/v1.5.0/fate-dice-1.5.0.zip'
+  const sha256 = zip => 'sha256:' + createHash('sha256').update(zip).digest('hex')
+  let archive = zipFor('1.5.0', TAVERN_PLUGIN_API_VERSION + 1)
+  let digest = sha256(archive)
+  let downloaded = archive
+  const calls = []
+  const installer = createUserPluginInstaller({ dataRoot, fetchImpl: async url => {
+    calls.push(url)
+    if (url === api) return Response.json({ tag_name: 'v1.5.0', assets: [{ name: 'fate-dice-1.5.0.zip', size: archive.length, digest }] })
+    assert.equal(url, releaseZip)
+    return new Response(downloaded)
+  } })
+  assert.equal((await installer.list())[0].source.releaseRepo, repo)
+
+  const [blocked] = await installer.checkUpdates()
+  assert.equal(blocked.status, 'blocked')
+  assert.match(blocked.reason, /请先更新酒馆/)
+  assert.equal(manifest().version, '1.4.2')
+  await assert.rejects(installer.update(folder, 'v1.5.0:' + digest), /请先更新酒馆/)
+
+  archive = zipFor('1.5.0', TAVERN_PLUGIN_API_VERSION)
+  digest = sha256(archive)
+  downloaded = archive
+  const [available] = await installer.checkUpdates({ fresh: true })
+  assert.equal(available.status, 'available')
+  assert.equal(available.latest, 'v1.5.0')
+  assert.deepEqual(await installer.checkUpdates(), [available])
+  assert.deepEqual(calls, [api, releaseZip, api, releaseZip], '重复检查复用同一发布包的校验结果')
+  await assert.rejects(installer.update(folder, 'stale-target'), /重新检查更新/)
+  const corrupted = Buffer.from(archive)
+  corrupted[0] ^= 1
+  downloaded = corrupted
+  await assert.rejects(installer.update(folder, available.target), /SHA-256 校验失败/)
+  assert.equal(manifest().version, '1.4.2')
+
+  downloaded = archive
+  await installer.disable(folder)
+  const updated = await installer.update(folder, available.target)
+  assert.equal(updated.replaced, true)
+  assert.equal(manifest().version, '1.5.0')
+  assert.equal(record().kind, 'builtin')
+  assert.equal(record().releaseRepo, repo)
+  assert.equal(JSON.parse(readFileSync(path.join(installed, RESTART_FILE), 'utf8')).previousVersion, '1.4.2')
+  assert.equal((await installer.list())[0].state, 'disabled')
+  await assert.rejects(installer.remove(folder), /内置插件/)
+  assert.equal(sync(oldSource).action, 'skipped')
+  assert.equal(manifest().version, '1.5.0')
+  assert.equal(sync(makeSource(t, { version: '1.5.1', folder })).action, 'upgraded')
+  assert.equal(manifest().version, '1.5.1')
+  assert.equal((await installer.list())[0].state, 'disabled')
+})

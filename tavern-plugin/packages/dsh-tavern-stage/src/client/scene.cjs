@@ -61,7 +61,10 @@ const getComputedStyle=(...args)=>window.getComputedStyle(...args),setTimeout=(.
 const galFigureSources=new WeakMap(),instances=new Set();let disposed=false;
 // A full-stage cover (desc.covered) stops the frame loop once its opening has settled; the scene still ticks this often.
 const GAL_COVER_SETTLE_MS = 600, GAL_COVERED_FPS = 10, GAL_SETTLE_MS = 4000;
-const GAL_SIGNATURE_SKIP = new Set(["audio", "effectTables", "safety", "tapMedia", "tapGate", "preload"]);
+// Parts of the description that change no picture: media handles and tables, and per page the presentation revision (a
+// receipt, onPresented) and each figure's voice key (the mouth follows the voice itself, "voice" in unsettled()). A page
+// turn that changes nobody's look therefore does not wake a settled scene.
+const GAL_SIGNATURE_SKIP = new Set(["audio", "effectTables", "safety", "tapMedia", "tapGate", "preload", "presentationRevision", "spriteVoiceKey"]);
 // Every figure kind beyond static pictures (Spine, Live2D) draws through a registered renderer. Register before creating
 // scenes; a scene snapshots the factories and owns their instances. Per scene factory(scene) returns
 //   load(entry)                         start loading entry.figure; once ready set entry.model (or entry.sprite) and call scene.commit(entry)

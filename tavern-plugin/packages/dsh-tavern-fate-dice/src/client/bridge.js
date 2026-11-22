@@ -332,12 +332,13 @@ function fdSaveProfileCache(gameId, profile) {
 
 function fdEmptyWorkbench() {
   const cachedSettings = fdNormalizeSettings(fdStoreGet(FD_STORAGE_KEYS.settings, FD_DEFAULT_SETTINGS))
+  const settings = { ...cachedSettings, enabled: false }
   return {
-    settings: cachedSettings,
+    settings,
     rule: '2d6',
     autoCheck: true,
-    binding: { autoCheck: true },
-    damper: { available: false, linkage: cachedSettings.damperLinkage },
+    binding: { enabled: false, autoCheck: true },
+    damper: { available: false, linkage: settings.damperLinkage },
     judgeStatus: { available: false },
     fate: { points: 2, max: 3, failCount: 0 },
     lastTurn: 0,
@@ -361,10 +362,13 @@ function fdMergeWorkbench(base, raw) {
   }
   if (payload.rule) view.rule = FD_RULES.some(r => r.id === payload.rule) ? payload.rule : view.rule
   const binding = payload.binding || payload.bind || null
+  if (binding && typeof binding === 'object' && typeof binding.enabled === 'boolean' && (!settingsSrc || typeof settingsSrc.enabled !== 'boolean')) {
+    view.settings = fdNormalizeSettings({ ...view.settings, enabled: binding.enabled })
+  }
   if (binding && typeof binding === 'object' && typeof binding.autoCheck === 'boolean') view.autoCheck = binding.autoCheck
   if (typeof payload.autoCheck === 'boolean') view.autoCheck = payload.autoCheck
   else if (typeof payload.autoSkillCheck === 'boolean') view.autoCheck = payload.autoSkillCheck
-  view.binding = { ...view.binding, autoCheck: view.autoCheck }
+  view.binding = { ...view.binding, enabled: Boolean(view.settings && view.settings.enabled), autoCheck: view.autoCheck }
 
   const damper = payload.damper || payload.damperBridge || {}
   view.damper = {
@@ -418,10 +422,11 @@ const FD_MAX_CACHED_TURNS_PER_GAME = 256
 function fdNoteRuntimeFlags(gameId, raw) {
   if (!raw || typeof raw !== 'object') return
   const settings = raw.settings && typeof raw.settings === 'object' ? raw.settings : raw
+  const globalSrc = raw.globalSettings && typeof raw.globalSettings === 'object' ? raw.globalSettings : null
   const hasEnabled = typeof settings.enabled === 'boolean' || typeof raw.enabled === 'boolean'
   const hasAuto = typeof settings.autoCheck === 'boolean' || typeof raw.autoCheck === 'boolean'
   const hasPause = typeof settings.preSendPause === 'boolean' || typeof raw.preSendPause === 'boolean'
-  if (!hasEnabled && !hasAuto && !hasPause) return
+  if (!hasEnabled && !hasAuto && !hasPause && !globalSrc) return
 
   const nextEnabled = typeof raw.enabled === 'boolean'
     ? raw.enabled
@@ -433,14 +438,20 @@ function fdNoteRuntimeFlags(gameId, raw) {
     ? raw.preSendPause
     : (typeof settings.preSendPause === 'boolean' ? settings.preSendPause : fdRuntimeFlags.preSendPause)
 
-  if (!gameId || raw.settings || raw.globalSettings) {
-    fdRuntimeFlags.known = true
-    fdRuntimeFlags.enabled = nextEnabled
-    fdRuntimeFlags.autoCheck = nextAuto
-    fdRuntimeFlags.preSendPause = nextPause
-  }
   const gid = String(gameId || '').trim()
-  if (gid && gid !== '__fate_dice_global__') {
+  const isGlobalScope = !gid || gid === '__fate_dice_global__'
+  if (globalSrc) {
+    fdRuntimeFlags.known = true
+    if (typeof globalSrc.enabled === 'boolean') fdRuntimeFlags.enabled = globalSrc.enabled
+    if (typeof globalSrc.autoCheck === 'boolean') fdRuntimeFlags.autoCheck = globalSrc.autoCheck
+    if (typeof globalSrc.preSendPause === 'boolean') fdRuntimeFlags.preSendPause = globalSrc.preSendPause
+  } else if (isGlobalScope) {
+    fdRuntimeFlags.known = true
+    if (hasEnabled) fdRuntimeFlags.enabled = nextEnabled
+    if (hasAuto) fdRuntimeFlags.autoCheck = nextAuto
+    if (hasPause) fdRuntimeFlags.preSendPause = nextPause
+  }
+  if (!isGlobalScope) {
     const prev = fdRuntimeFlags.byGame.get(gid) || {
       enabled: fdRuntimeFlags.enabled,
       autoCheck: fdRuntimeFlags.autoCheck,
@@ -722,30 +733,62 @@ function fdLoadWorkbench(ui, gameId) {
 }
 
 function fdPersistSettings(ui, settings) {
-  const normalized = fdNormalizeSettings(settings)
-  fdStoreSet(FD_STORAGE_KEYS.settings, normalized)
-  fdNoteRuntimeFlags('', { settings: normalized })
+  const src = settings && typeof settings === 'object' ? settings : {}
+  const hasEnabled = Object.prototype.hasOwnProperty.call(src, 'enabled') && typeof src.enabled === 'boolean'
+  const normalized = fdNormalizeSettings(src)
+  const stored = hasEnabled ? normalized : { ...normalized, enabled: false }
+  fdStoreSet(FD_STORAGE_KEYS.settings, stored)
+  const outgoing = { ...normalized }
+  if (!hasEnabled) delete outgoing.enabled
+  if (hasEnabled) {
+    fdNoteRuntimeFlags('', { settings: normalized })
+  } else {
+    fdNoteRuntimeFlags('', { preSendPause: normalized.preSendPause })
+  }
   fdRuntimeFlags.byGame.forEach(entry => {
-    entry.enabled = normalized.enabled
     entry.preSendPause = normalized.preSendPause
   })
   fdInvalidateTurnCache('')
-  return fdCall(ui, FD_RPC.saveSettings, { settings: normalized }).then(res => {
+  return fdCall(ui, FD_RPC.saveSettings, { settings: outgoing }).then(res => {
     if (res.ok && res.data?.ok && res.data.settings) {
-      fdNoteRuntimeFlags('', res.data)
-      fdSavedSettingsListeners.forEach(listener => listener(res.data.settings))
+      if (hasEnabled) {
+        fdNoteRuntimeFlags('', res.data)
+        fdSavedSettingsListeners.forEach(listener => listener(res.data.settings))
+      } else {
+        fdNoteRuntimeFlags('', { preSendPause: res.data.settings.preSendPause })
+      }
     }
     return { ...res, local: true }
   })
 }
 
-/* 本局绑定仅同步「自动行动检定」开关与骰制 */
+/* 本局绑定同步「本局启用开关 / 自动行动检定 / 骰制」 */
 function fdPersistBinding(ui, gameId, binding) {
   if (!gameId) return Promise.resolve({ ok: false, error: '需要进入对话后绑定' })
-  const autoCheck = binding && typeof binding.autoCheck === 'boolean' ? binding.autoCheck : undefined
-  if (typeof autoCheck === 'boolean') fdNoteRuntimeFlags(gameId, { autoCheck })
+  const src = binding && typeof binding === 'object' ? binding : {}
+  const payload = {}
+  if (typeof src.enabled === 'boolean') payload.enabled = src.enabled
+  if (typeof src.autoCheck === 'boolean') payload.autoCheck = src.autoCheck
+  if (typeof src.rule === 'string' && src.rule) payload.rule = src.rule
+  if (typeof payload.enabled === 'boolean' || typeof payload.autoCheck === 'boolean') {
+    fdNoteRuntimeFlags(gameId, payload)
+  }
   fdInvalidateTurnCache(gameId)
-  return fdCall(ui, FD_RPC.saveBinding, { gameId, binding: { autoCheck } })
+  return fdCall(ui, FD_RPC.saveBinding, { gameId, binding: payload }).then(res => {
+    if (res && res.ok && res.data && res.data.ok !== false) {
+      const resolvedEnabled = typeof res.data.enabled === 'boolean'
+        ? res.data.enabled
+        : (typeof res.data.settings?.enabled === 'boolean' ? res.data.settings.enabled : payload.enabled)
+      if (typeof resolvedEnabled === 'boolean') {
+        fdNoteRuntimeFlags(gameId, {
+          enabled: resolvedEnabled,
+          ...(res.data.settings ? { settings: res.data.settings } : {})
+        })
+        fdSavedSettingsListeners.forEach(listener => listener({ enabled: resolvedEnabled, gameId }))
+      }
+    }
+    return res
+  })
 }
 
 function fdFreeRoll(ui, gameId, expression, options) {

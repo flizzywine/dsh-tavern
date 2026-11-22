@@ -228,7 +228,9 @@ window.__ModuleLoader__.load({
 .pb { display: grid; gap: 16px; font-size: 13px; line-height: 1.6; color: inherit; width: 100%; max-width: 640px; min-width: 0;
   --pb-accent: #4d6bfe; --pb-accent-soft: rgba(77,107,254,0.07); --pb-line: rgba(127,127,127,0.25); --pb-fill: rgba(127,127,127,0.06); }
 .pb * { box-sizing: border-box; }
-.pb-head { display: grid; gap: 2px; }
+.pb-head { display: flex; align-items: center; gap: 12px; }
+.pb-brand { display: grid; gap: 2px; min-width: 0; }
+.pb-logo { display: block; flex: none; }
 .pb-title { margin: 0; font-size: 16px; font-weight: 600; }
 .pb-sub { margin: 0; opacity: 0.6; }
 .pb-bar { display: flex; align-items: center; gap: 12px; padding: 10px 12px 10px 16px; border-radius: 10px; background: var(--pb-accent-soft); }
@@ -549,8 +551,11 @@ window.__ModuleLoader__.load({
       return h('section', { className: 'pb' },
         h('style', null, CSS),
         h('header', { className: 'pb-head' },
-          h('h2', { className: 'pb-title' }, title),
-          h('p', { className: 'pb-sub' }, status === null ? t('loading') : !isDesktop ? t('cliHint') : standalone ? t('standalone') : t(next ? 'nextExplain' : 'explain')),
+          h('img', { className: 'pb-logo', src: `${CHANNEL}/logo.png`, width: 48, height: 48, alt: '' }),
+          h('div', { className: 'pb-brand' },
+            h('h2', { className: 'pb-title' }, title),
+            h('p', { className: 'pb-sub' }, status === null ? t('loading') : !isDesktop ? t('cliHint') : standalone ? t('standalone') : t(next ? 'nextExplain' : 'explain')),
+          ),
         ),
         !isDesktop ? null : standalone ? h('div', { className: 'pb-bar' },
           h('span', { className: 'pb-bar-text' }),

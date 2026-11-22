@@ -5,12 +5,15 @@ import path from 'node:path'
 import { spawnSync } from 'node:child_process'
 import officialDesktop from './official-desktop-runtime.cjs'
 import { fileURLToPath } from 'node:url'
-import { SCRIPT_PATH, RUNTIME_HOST, DSH_ROOT } from './launcher-environment.mjs'
+import { SCRIPT_PATH, RUNTIME_HOST, DSH_ROOT, argsBeforeOptionTerminator } from './launcher-environment.mjs'
 import { installProfile, parseInstallHost } from './profile-installation.mjs'
 import { startService, stopService, statusService, openService, bootstrapFrontendOnce } from './service-lifecycle.mjs'
 import { updateApplication, parseUpdateOptions } from './application-update.mjs'
 import { openTavernWindow } from './tavern-window.mjs'
 import { recordUpdateDiagnostic } from './update-diagnostics.mjs'
+import { renderHelp, renderCommandHelp, hasCommand, tavernVersion } from './cli-help.mjs'
+import { renderCompletion } from './cli-completion.mjs'
+import { renderManPage } from './cli-man.mjs'
 
 // Keep the existing import surface while the executable only dispatches commands.
 export { resolveServicePort, resolveDshInvocation } from './launcher-environment.mjs'
@@ -24,22 +27,70 @@ function fail(message) {
   process.exitCode = 1
 }
 
-function usage() {
-  console.log('用法：dsh-tavern install [--host cli|desktop|next|android] | {update|start|open|window|stop|restart|status}')
+function failUnknown(action) {
+  console.error('未知命令：' + action)
+  console.error('运行 dsh-tavern help 查看可用命令。')
+  process.exitCode = 2
 }
 
 // A detached in-app update has no console; keep its trail next to its status file.
 function updateDiagnostic(event, details = {}) {
   if (process.argv[2] !== 'update') return
   // Read the two flags leniently: invalid arguments are themselves worth recording.
-  const flag = name => { const args = process.argv.slice(3), at = args.indexOf(name); return at >= 0 ? args[at + 1] : args.find(arg => arg.startsWith(name + '='))?.slice(name.length + 1) }
+  const options = argsBeforeOptionTerminator(process.argv.slice(3))
+  const flag = name => {
+    const index = options.indexOf(name)
+    return index >= 0 ? options[index + 1] : options.find(arg => arg.startsWith(name + '='))?.slice(name.length + 1)
+  }
   const statusFile = flag('--status-file')
   if (statusFile && path.isAbsolute(statusFile)) recordUpdateDiagnostic(path.dirname(statusFile), { attemptId: flag('--attempt-id'), event, ...details })
 }
 
 async function main() {
   const action = process.argv[2] || 'status'
-  if (RUNTIME_HOST === 'next' && action !== 'install' && !['help', '-h', '--help'].includes(action)) {
+  const args = process.argv.slice(3)
+  if (action === '-v' || action === '-V' || action === '--version') {
+    console.log(('dsh-tavern ' + tavernVersion()).trim())
+    return
+  }
+  const helpFlag = args[0] === '-h' || args[0] === '--help'
+  const firstOperand = args[0] === '--' ? args[1] : args[0]
+  if (action === 'help' || action === '-h' || action === '--help' || (helpFlag && hasCommand(action))) {
+    const topic = action === 'help'
+      ? (helpFlag ? '' : firstOperand)
+      : (hasCommand(action) ? action : '')
+    if (topic && !hasCommand(topic)) {
+      failUnknown(topic)
+      return
+    }
+    console.log(topic ? renderCommandHelp(topic) : renderHelp())
+    return
+  }
+  if (action === 'completion') {
+    const shell = firstOperand
+    if (!shell) {
+      console.error('缺少 shell 参数：completion bash|zsh|fish|powershell')
+      process.exitCode = 2
+      return
+    }
+    const script = renderCompletion(shell)
+    if (!script) {
+      console.error('不支持的 shell：' + shell)
+      console.error('支持的 shell：bash、zsh、fish、powershell。')
+      process.exitCode = 2
+      return
+    }
+    process.stdout.write(script)
+    return
+  }
+  if (action === 'man') {
+    process.stdout.write(renderManPage())
+    return
+  }
+  if (action === 'update') process.once('exit', code => updateDiagnostic('updater.exit', { code }))
+  const installHost = action === 'install' ? parseInstallHost(args) : undefined
+  const updateOptions = action === 'update' ? parseUpdateOptions(args) : undefined
+  if (RUNTIME_HOST === 'next' && action !== 'install') {
     throw new Error('Next 由应用管理启动与切换。更新源码后重新运行 install --host next。')
   }
   updateDiagnostic('updater.started', { execPath: process.execPath, electron: process.versions.electron || '', runtimeHost: RUNTIME_HOST, cwd: process.cwd() })
@@ -63,10 +114,10 @@ async function main() {
   }
   switch (action) {
     case 'install':
-      await installProfile(parseInstallHost(process.argv.slice(3)))
+      await installProfile(installHost)
       break
     case 'update':
-      await updateApplication(parseUpdateOptions(process.argv.slice(3)))
+      await updateApplication(updateOptions)
       break
     case 'start':
       {
@@ -93,20 +144,13 @@ async function main() {
     case 'window':
       await openTavernWindow()
       break
-    case '-h':
-    case '--help':
-    case 'help':
-      usage()
-      break
     default:
-      usage()
-      process.exitCode = 2
+      failUnknown(action)
   }
 }
 
 const isEntrypoint = process.argv[1] && realpathSync(SCRIPT_PATH) === realpathSync(path.resolve(process.argv[1]))
 if (isEntrypoint) {
-  process.once('exit', code => updateDiagnostic('updater.exit', { code }))
   main().catch((error) => {
     const message = error instanceof Error ? error.message : String(error)
     updateDiagnostic('updater.failed', { error: message })

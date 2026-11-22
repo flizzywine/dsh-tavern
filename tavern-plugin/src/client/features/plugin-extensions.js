@@ -1173,14 +1173,14 @@
 			return React.useSyncExternalStore(tavernUiExtensions.subscribe, tavernUiExtensions.getSnapshot, tavernUiExtensions.getSnapshot);
 		}
 
-		function TavernStagePluginPanel({ sessionId, plugin, id }) {
+		function TavernStagePluginPanel({ sessionId, plugin, id, stagePageId }) {
 			useTavernUiExtensions();
 			useTavernCardPluginScopes();
 			const panel = tavernUiExtensions.stagePanel(sessionId, plugin, id), h = React.createElement;
 			if (!panel) return h("p", { role: "status" }, "这局游戏的插件面板已不可用。");
 			return h(tavernPluginBoundary(), {
 				owner: panel.owner, fallback: h("p", { role: "alert" }, "插件面板加载失败。")
-			}, h(panel.render, { gameId: sessionId, visible: true }));
+			}, h(panel.render, { gameId: sessionId, visible: true, stagePageId }));
 		}
 		async function findTavernStagePluginPanel(sessionId, plugin, id) {
 			await tavernCardPluginScopes.load();
