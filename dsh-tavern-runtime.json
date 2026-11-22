@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "0525da62e854501d71b74ebc01cca3fdcb79e47c",
-  "releaseSequence": 1903,
+  "revision": "41722dd6a53b644ee3e819194088f0b6269121fb",
+  "releaseSequence": 1904,
   "version": "3.4.0",
   "files": [
     {
@@ -7491,8 +7491,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-fate-dice/client.js",
-      "sha256": "d6e564c1dc5886fc5f615c4107e218e4d82fec1626e9c9338dab0b9bf649fd5d",
-      "size": 609523
+      "sha256": "328c5e422315caf67a2b3a31716a417848822306616b7b8df26c1147d6a6a90d",
+      "size": 615816
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-fate-dice/cordis.patch.yml",
@@ -7521,8 +7521,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-fate-dice/lib/index.js",
-      "sha256": "612ccd409b68db0811cff254d1fcb81a94938eb58d4608f952c2f534ab18f840",
-      "size": 99531
+      "sha256": "97bdcd76564c746e581385a8cefd976ec275aa792a57f1ab3e365c91b6266503",
+      "size": 100787
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-fate-dice/lib/pre-send-gate.js",
@@ -9671,9 +9671,9 @@
     }
   ],
   "archive": {
-    "commit": "1944917f900c0e4d50f4687c22a5a8c7d4f67004",
+    "commit": "18b0cdbf9d01970b403b90d61673bad98f6c7d16",
     "path": "runtime.zip",
-    "sha256": "0b7a58b1cc2daf0139ce4bf385daf7928533fb8fed679ca115e378846888d0ee",
-    "size": 17119319
+    "sha256": "fbec0d7cb6123d4a30536ef9ad8c4f37dc7bfe1059be23100dd9c587e7880cb3",
+    "size": 17120747
   }
 }
