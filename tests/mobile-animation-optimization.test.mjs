@@ -32,7 +32,7 @@ test('移动端左侧栏抽屉在收起与展开态保持恒定 100vw 宽度且�
             ${Array.from({ length: 14 }, (_, i) => `<div class="dsh-tavern-side-row" id="r-head-${i}"></div>`).join('')}
             <section class="dsh-tavern-history-group" id="g16"></section>
             <div class="dsh-tavern-side-row" id="r17"></div>
-            <div class="dsh-tavern-side-row" id="r18"><div class="dsh-tavern-side-row-menu"></div></div>
+            <div class="dsh-tavern-side-row" id="r18"><button class="dsh-tavern-side-row-more" aria-expanded="true"></button></div>
           </div>
         </div>
       </div>
@@ -63,7 +63,7 @@ test('移动端左侧栏抽屉在收起与展开态保持恒定 100vw 宽度且�
   assert.equal(collapsedMetrics.g1Cv, 'visible', '首屏前 15 项在屏外成帧时直接排版绘制，避免滑入视口首帧才同步解冻')
   assert.equal(collapsedMetrics.g16Cv, 'auto', '第 16 项起的长列表历史分组在视口外跳过布局绘制')
   assert.equal(collapsedMetrics.r17Cv, 'auto', '第 16 项起的普通会话行启用 content-visibility: auto')
-  assert.notEqual(collapsedMetrics.r18Cv, 'auto', '打开操作菜单的行不启用 content-visibility 以免弹出菜单被裁切')
+  assert.notEqual(collapsedMetrics.r18Cv, 'auto', '打开操作菜单的行保留锚点位置')
   assert.equal(collapsedMetrics.r17Backdrop, 'none', '移动端窄屏下侧栏行不启用逐行 backdrop-filter 毛玻璃')
 
   await page.evaluate(() => {

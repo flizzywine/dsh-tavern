@@ -23,8 +23,8 @@ function uniqueEntry(used, entry) {
 // Settings worth carrying to another machine. API keys, accounts and host configuration stay out:
 // they belong to this install, and a copied key is the easiest way to leak one.
 export const TRANSFER_SETTINGS_KEYS = Object.freeze([
-  'headerItems', 'viewTabs', 'candidateDismissMode', 'candidateAutoGenerate',
-  'polishPrereview', 'storyGenerationMode', 'storyGenerationProvider', 'storyPluginOutputRegex', 'storyInputToolCall', 'storyOutputToolCall', 'storyToolThinking', 'storyToolHistoryMode', 'autoOpenStatusPanel',
+  'headerItems', 'viewTabs', 'candidatePickMode', 'candidateDismissMode', 'candidateAutoGenerate',
+  'polishEnabled', 'polishPrereview', 'storyGenerationMode', 'storyGenerationProvider', 'storyPluginOutputRegex', 'storyInputToolCall', 'storyOutputToolCall', 'storyToolThinking', 'storyToolHistoryMode', 'autoOpenStatusPanel',
   'contextCompaction', 'defaultPlaySettings', 'retryOnFailure', 'recentReplyFirst'
 ])
 

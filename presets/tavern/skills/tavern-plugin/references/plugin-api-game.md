@@ -138,7 +138,7 @@ message 必须是适合玩家阅读的安全摘要（宿主最多保留 500 字�
 | `guidance` | 本次重生成指导；空字符串表示未提供 |
 | `outputProcessing?.hostRegex` | 本轮开始时选定的宿主正则开关。为 `true` 时，宿主在插件输出处理完成后应用自己的规则。旧宿主可能省略此字段。插件可用它说明处理顺序 |
 
-`context` 的世界书段已包含当轮有效设定和成功的查询补充。查询补充只接受本轮有效的 `worldbook_list/grep/search` 和宿主世界书文件的受限 `read`；失败、隐藏、其他轮次和任意文件读取结果不会传入。已保存材料不会在恢复时重新读文件或执行宏。
+`context` 的世界书段已包含当轮有效设定和成功的查询补充。查询补充只接受本轮有效的 `read_lorebook`、`list_lorebook`、`grep_lorebook` 和宿主世界书文件的受限 `read`；失败、隐藏、其他轮次和任意文件读取结果不会传入。已保存材料不会在恢复时重新读文件或执行宏。
 
 历史来自完整存档投影，不从压缩后的模型消息反推，也不重新执行历史宏。材料无法可靠恢复时明确失败；旧存档、已编辑输入或导入记录可能缺少必要快照。`context` 按宿主现有语义段拆分；旧人物快照中未单独保存的字段可能合并为一个人物段，不保证与 ST 原始人物字段逐项对应。
 
@@ -466,7 +466,7 @@ ctx.tavern.onTurnSettled(async ({ gameId, turn, textVersion, variables }) => {
 
 ## 决策判定模型（`capabilities.decisionJudge === 1`）
 
-当 `ctx.tavern.capabilities?.decisionJudge === 1` 时，插件可以直接复用玩家在「插件 › 叙事阻尼器」面板里配置好的决策判定模型（`gemini` / `gemini-compatible` / `jev` / `openai` / `openai-compatible`），执行低延迟的是非概率、评分或单选枚举判定，无需自己管理 API Key 或端点地址。只要用户已配置有效的提供方与密钥，即使暂未开启叙事阻尼器本身的拦截开关，该开放接口仍可使用。
+当 `ctx.tavern.capabilities?.decisionJudge === 1` 时，插件可以直接复用玩家在「插件 › 叙事阻尼器」面板里配置好的决策判定模型（`gemini` / `gemini-compatible` / `jev` / `jev-compatible` / `openai` / `openai-compatible`），执行低延迟的是非概率、评分或单选枚举判定，无需自己管理 API Key 或端点地址。只要用户已配置有效的提供方与密钥，即使暂未开启叙事阻尼器本身的拦截开关，该开放接口仍可使用。
 
 ### `decisionJudgeStatus()`
 

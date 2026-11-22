@@ -111,7 +111,8 @@ test('兼容接口统一处理网关前缀、版本路径和完整 API 地址', 
   for (const [baseUrl, canonical, endpoint] of cases) {
     for (const [provider, expected] of [
       ['openai-compatible', endpoint],
-      ['gemini-compatible', endpoint.replace(/\/v1\/decisions$/, '/v1beta/decisions')]
+      ['gemini-compatible', endpoint.replace(/\/v1\/decisions$/, '/v1beta/decisions')],
+      ['jev-compatible', endpoint.replace(/\/v1\/decisions$/, '/v1/systemone')]
     ]) {
       const raw = { provider, baseUrl }
       const config = validateNarrativeDamperConfig(raw)
@@ -120,6 +121,58 @@ test('兼容接口统一处理网关前缀、版本路径和完整 API 地址', 
       assert.equal(damperEndpointUrl(config), expected)
     }
   }
+  // jev-compatible 保留显式填写的 /v1/systemone 与 /v1/decision 完整路径
+  for (const [baseUrl, expected] of [
+    ['https://api.example.com/v1/systemone', 'https://api.example.com/v1/systemone'],
+    ['https://api.example.com/v1/decision/', 'https://api.example.com/v1/decision'],
+    ['https://api.example.com/proxy/v1/decision', 'https://api.example.com/proxy/v1/decision'],
+    ['https://api.example.com/proxy/v1/systemone/', 'https://api.example.com/proxy/v1/systemone']
+  ]) {
+    const config = validateNarrativeDamperConfig({ provider: 'jev-compatible', baseUrl })
+    assert.equal(damperEndpointUrl(config), expected)
+  }
+  // 其他兼容提供方仍会剥离 /v1/decision 与 /v1/systemone 并拼回各自默认路径
+  assert.equal(
+    damperEndpointUrl(validateNarrativeDamperConfig({ provider: 'openai-compatible', baseUrl: 'https://api.example.com/proxy/v1/decision' })),
+    'https://api.example.com/proxy/v1/decisions'
+  )
+  assert.equal(
+    damperEndpointUrl(validateNarrativeDamperConfig({ provider: 'gemini-compatible', baseUrl: 'https://api.example.com/proxy/v1/systemone' })),
+    'https://api.example.com/proxy/v1beta/decisions'
+  )
+})
+
+test('jev-compatible 使用独立密钥槽并按 JEV 协议向自定义端点发起探针请求', async () => {
+  const creds = createMemoryCredentials({ [DAMPER_KEY_REFS['jev-compatible']]: 'jev-compat-secret' })
+  const calls = []
+  const damper = createNarrativeDamper({
+    getConfig: async () => ({
+      ...defaultNarrativeDamperConfig(),
+      enabled: true,
+      provider: 'jev-compatible',
+      baseUrl: 'https://relay.example.com/v1/decision',
+      model: 'jev-1.13.0',
+      keyName: 'TYPESAFE_API_KEY'
+    }),
+    credentials: () => creds,
+    fetch: async (url, init) => {
+      calls.push({ url, method: init.method, headers: init.headers, body: JSON.parse(init.body) })
+      return new Response(JSON.stringify({ answers: { probe: { noul: 0.91 } } }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      })
+    }
+  })
+
+  const probe = await damper.test()
+  assert.equal(probe.ok, true)
+  assert.equal(calls.length, 1)
+  assert.equal(calls[0].url, 'https://relay.example.com/v1/decision')
+  assert.equal(calls[0].method, 'POST')
+  assert.equal(calls[0].headers.Authorization, 'Bearer jev-compat-secret')
+  assert.equal(calls[0].body.model, 'jev-1.13.0')
+  assert.equal(typeof calls[0].body.state, 'string')
+  assert.equal(calls[0].body.questions.probe.type, 'noul')
 })
 
 test('兼容接口区分地址错误，开启时仍可保存未填写的地址', () => {

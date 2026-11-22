@@ -1,6 +1,6 @@
 # MVU 卡格式约定
 
-MVU 卡就是一张普通人物卡，按下面的约定写几处内容。`tavern_apply_mvu` 会按这些约定写入开场初值、两条世界书条目和两条正则（面板 HTML 可由你在 `panel.html` 里给出，美元符号照常写）。也都可以直接改：字段用 `tavern_update_card`（`rawOperations` 可改 `extensions/regex_scripts`），世界书条目用 `tavern_update_worldbook`，也可以用文件编辑器或脚本直接改卡片 JSON（字段都在 `raw.data` 下）。改完调用 `tavern_validate_card`，按 errors 修正。
+MVU 卡就是一张普通人物卡，按下面的约定写几处内容。`tavern_apply_mvu` 会按这些约定写入开场初值、两条世界书条目和两条正则（面板 HTML 可由你在 `panel.html` 里给出，美元符号照常写）。也都可以直接改：字段用 `tavern_update_card`（`rawOperations` 可改 `extensions/regex_scripts`），世界书条目用 `tavern_update_lorebook`，也可以用文件编辑器或脚本直接改卡片 JSON（字段都在 `raw.data` 下）。改完调用 `tavern_validate_card`，按 errors 修正。
 
 ## 1. 开场初值
 

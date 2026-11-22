@@ -307,6 +307,7 @@ import { createTavernSkillProvider } from './domain/tavern-skill-provider.js'
 import { canonicalTavernSkillName, createTavernSkillModule } from './domain/tavern-skills.js'
 import { readZipEntries } from './domain/zip-entries.js'
 import { createGameFootprint } from './domain/game-footprint.js'
+import { createConversationDeletion } from './domain/conversation-deletion.js'
 import { createGameSaveExporter } from './domain/game-save-export.js'
 import { existsSync, readFileSync } from 'node:fs'
 import { readdir, readFile, rm, mkdir, stat, writeFile } from 'node:fs/promises'
@@ -322,6 +323,8 @@ import { createWorldbookRecallLog } from './domain/worldbook-recall-log.js'
 import { createForegroundWorldbook } from './domain/foreground-worldbook.js'
 import { createWorldbookStrategies } from './domain/worldbook-strategies.js'
 import { createWorldbookFiles } from './domain/worldbook-files.js'
+import { recentWorldbookLookups } from './domain/worldbook-title-hints.js'
+import { WORLDBOOK_ACCESS_TOOLS, WORKBENCH_READ_LOREBOOK_TOOL, WORKBENCH_UPDATE_LOREBOOK_TOOL } from './domain/foreground-tools.js'
 import { registerWorldbookFileTools } from './tools/worldbook-files.js'
 import { projectVirtualWorldbookPrefix } from './domain/worldbook-virtual-state.js'
 import { installWorldbookSkillRead, nativeWorldbookReadAvailable } from './domain/worldbook-skill-read.js'
@@ -759,7 +762,7 @@ export async function apply(ctx) {
   const tavernExtensionSettings = createTavernExtensionSettings(profileData)
   const dialogueBubblePresets = createDialogueBubblePresets(profileData)
   const cardStorage = createCardStorage({ dataRoot, profileData })
-  const cardScripts = createCardScripts({ profileData, cardIdFor: cardStorage.resolve })
+  const cardScripts = createCardScripts({ profileData, cardIdFor: cardStorage.findId })
   const mvuDiagnostics = createMvuDiagnosticStore(profileData)
   ctx.effect(() => () => mvuDiagnostics.dispose(), 'dsh-tavern: flush diagnostic logs')
   const apiDiagnostics = createTavernApiDiagnostics(profileData)
@@ -1316,8 +1319,7 @@ export async function apply(ctx) {
     } catch (error) { return skip(error) }
   }
   let conversationRegistry
-  // summaryOptions 与 metadata 分开：启动恢复只读到尾部一行窗口，不能拿它当首轮正文
-  // 写进索引预览，但又不能把「这是局部读取」混进展示观察者的写入元数据。
+  // Summary reads distinguish committed message changes from header-only projections.
   async function syncChatSummary(chat, metadata, summaryOptions) {
     if (chat) presentationObservers.saved(chat, metadata)
     if (!conversationRegistry || chat === undefined) return
@@ -1379,6 +1381,10 @@ export async function apply(ctx) {
   }
   conversationRegistry = createTavernConversationRegistry({
     trace: requestPerformance,
+    isDeleted: chatId => deletedChatIds.has(chatId),
+    onPreviewChange: summary => sessionSignals.publish(summary.sessionId, {
+      kind: 'conversation-preview', version: String(summary.preview.storageRevision ?? summary.updatedAt)
+    }),
     store: {
       readAutomationOwner: async sessionId => readJson('automation/' + sessionId + '.json'),
       readLinks: async function () {
@@ -1406,6 +1412,7 @@ export async function apply(ctx) {
       updateIndex,
       readChat,
       readChatSlice: chatPersistence.readSlice,
+      readRecentSummaries: chatPersistence.readRecentSummaries,
       readChatState: id => chatPersistence.readSessionState(id, {scoped:true}),
       readBackgroundConfig: chatPersistence.readBackgroundConfig,
       readSceneImageState: chatPersistence.readSceneImageState,
@@ -1413,6 +1420,14 @@ export async function apply(ctx) {
       removeChat: async function (chatId) { await chatPersistence.remove(chatId) }
     }
   })
+  const conversationDeletion = createConversationDeletion({
+    store: profileData, deletedChatIds, removeCore: conversationRegistry.remove, cleanup: cleanupDeletedChat
+  })
+  const pendingChatDeletions = await conversationDeletion.pendingIds().catch(error => {
+    console.warn('dsh-tavern: 读取对话删除队列失败', error?.message || error)
+    return []
+  })
+  for (const chatId of pendingChatDeletions) deletedChatIds.add(chatId)
   async function readSessionMap() { return await conversationRegistry.links() }
   // A game's session as its event log: the live one, else read from disk (a settlement resumed after a restart).
   async function readSessionLog(sessionId) {
@@ -1869,6 +1884,7 @@ export async function apply(ctx) {
     references: () => conversationRegistry.list(), archived: () => ctx.get('workspaceRegistry')?.archivedSessionIds
   })
   async function stopChatForDeletion(chatId) {
+    if (deletedChatIds.has(chatId)) return undefined
     const chat = await readChatForDeletion(str(chatId))
     if (!chat) return undefined
     const ids = new Set([chat.sessionId, ...Object.values(storyTimeline.inspect({ chat }).participants || {}).map(item => item.sessionId)])
@@ -1938,17 +1954,13 @@ export async function apply(ctx) {
         catch (error) { outcomes.set(item.chatId, { chatId: item.chatId, ok: false, error: String(error?.message || error) }) }
       }
     }
-    const deferred = []
     for (const item of prepared) {
       if (outcomes.has(item.chatId)) continue
       try {
-        await finishChatDeletion(item.chatId, item.chat, footprints.get(item.chatId) || null, deferred)
+        await conversationDeletion.remove(item.chatId, footprints.get(item.chatId))
         outcomes.set(item.chatId, { chatId: item.chatId, ok: true })
       } catch (error) { outcomes.set(item.chatId, { chatId: item.chatId, ok: false, error: String(error?.message || error) }) }
     }
-    // Two games can name the same loaded session; queue each directory once.
-    const pendingDeletions = [...new Map(deferred.map(item => [item.path, item])).values()]
-    if (pendingDeletions.length) await gameFootprint.deferSessionDeletion(pendingDeletions).catch(error => console.warn('dsh-tavern: 延迟删除队列写入失败', error?.message || error))
     return { results: unique.map(chatId => outcomes.get(chatId)) }
   }
   // A background session is this game's only if its stored parent is this game's foreground
@@ -1961,39 +1973,40 @@ export async function apply(ctx) {
       try { return handle.header?.parentSession === chat.sessionId } finally { await handle.close() }
     } catch { return false }
   }
-  // A batch hands every loaded session to one deferred queue write instead of one per game.
-  async function finishChatDeletion(chatId, chat, footprint, deferred) {
-    const result = await conversationRegistry.remove(chatId)
-    await worldbookSkillProvider?.removeChat(chat)
-    deletedChatIds.add(chatId)
-    await pluginMedia.removeChat(chatId).catch(() => console.warn('dsh-tavern: 插件媒体记录清理失败', chatId))
-    await pluginData.removeChat(chatId).catch(() => console.warn('dsh-tavern: 插件数据清理失败', chatId))
-    await displayRuntimeStore.remove(chatId).catch(() => {})
-    await sceneWorldbookArchive.forgetChat(chatId).catch(() => {})
-    pluginApi.gameRemoved(footprint?.foregroundSessionId || chat?.sessionId)
-    if (footprint) {
-      deletedSessionIds.add(footprint.foregroundSessionId)
-      await apiDiagnostics.forget(footprint.foregroundSessionId).catch(() => {})
-      await backgroundAgentRunner.releaseFor(footprint.foregroundSessionId)
+  async function cleanupDeletedChat(chatId, footprint) {
+    const sessionId = footprint?.foregroundSessionId
+    if (sessionId && !deletedSessionIds.has(sessionId)) {
+      deletedSessionIds.add(sessionId)
+      pluginApi.gameRemoved(sessionId)
+    }
+    async function cleanupFiles() {
+      if (!footprint) return
+      if (sessionId) {
+        await apiDiagnostics.forget(sessionId)
+        await backgroundAgentRunner.releaseFor(sessionId)
+      }
       // A session DSH still holds loaded would be written back; delete it on the next start.
       const live = footprint.items.filter(item => item.category === 'subsession' && agentRegistry.get(item.sessionId))
-      footprint.items = footprint.items.filter(item => !live.includes(item))
-      if (deferred) deferred.push(...live)
-      else await gameFootprint.deferSessionDeletion(live)
-      const cleanup = await gameFootprint.removeLeftovers(footprint)
-      if (cleanup.failures.length) console.warn('dsh-tavern: 删除游戏后有残留未清理', chatId, cleanup.failures.slice(0, 5))
+      if (live.length) await gameFootprint.deferSessionDeletion(live)
+      const cleanup = await gameFootprint.removeLeftovers({ ...footprint, items: footprint.items.filter(item => !live.includes(item)) })
+      if (cleanup.failures.length) throw new Error(cleanup.failures[0].error)
     }
-    return result
+    // These stores are independent. Attempt each even if another fails, keeping
+    // the journal entry until every step has succeeded or been durably deferred.
+    const results = await Promise.allSettled([
+      pluginMedia.removeChat(chatId),
+      pluginData.removeChat(chatId),
+      displayRuntimeStore.remove(chatId),
+      sceneWorldbookArchive.forgetChat(chatId),
+      cleanupFiles()
+    ])
+    const failures = results.filter(result => result.status === 'rejected')
+    if (failures.length) throw new Error(failures.map(({ reason }) => reason?.message || String(reason)).join('；'))
   }
   async function deleteChat(chatId) {
-    const chat = await stopChatForDeletion(chatId)
-    let indexSnapshot
-    const readChatIndex = async function () {
-      if (indexSnapshot === undefined) indexSnapshot = await readIndex()
-      return indexSnapshot
-    }
-    const footprint = chat ? await gameFootprint.describe(chat, { ownsSession: id => ownsBackgroundSession(chat, id, readChatIndex) }) : null
-    return await finishChatDeletion(chatId, chat, footprint)
+    const { results: [result] } = await deleteChats([chatId])
+    if (!result.ok) throw new Error(result.error)
+    return { deleted: true }
   }
   async function exportConversation(chatId, sessionId, title) {
     const chat = str(chatId) === '' ? await chatForSession(str(sessionId)) : await readChat(str(chatId))
@@ -2355,7 +2368,7 @@ export async function apply(ctx) {
     for (const source of binding.sources || [binding]) if (source.path || source.cardPath) paths.add(source.path || source.cardPath)
     if (scriptPath) paths.add(scriptPath)
     const versions = await Promise.all([...paths].map(file => profileData.version('resources/' + file)))
-    return [binding, [...paths], versions, scriptsVersion, stageRuntime.status()]
+    return [binding, [...paths], versions, scriptsVersion, stageRuntime.status(), cardUpdates.revision(chat.sessionId)]
   }
   const sessionProjection = createSessionViewProjection({
     readChanges: (id, revision) => chatPersistence.readChangedSlice(id, revision, 'settlement'),
@@ -2573,8 +2586,9 @@ export async function apply(ctx) {
     nativeSkills: projectBuiltinWorldbook
   })
   const projectForegroundWorldbook = async input => {
-    const projected = await worldbookStrategies.project(input)
-    return projected
+    const agent = input.purpose === 'history-import' ? null : agentRegistry.get(input.chat.sessionId)
+    const lookups = recentWorldbookLookups(agent?.session, input.chat.messages)
+    return await worldbookStrategies.project({ ...input, recentlyReadRefs: worldbookSkillProvider.refsForLookups(agent, lookups) })
   }
   const worldbookSkillProvider = createWorldbookFiles({
     directory: path.join(dataRoot, 'worldbook-files'),
@@ -3092,8 +3106,9 @@ export async function apply(ctx) {
   }, data: pluginData })
   // 自动精修 (setting polishPrereview, off by default): each reply is reviewed as soon as it is
   // written, beside settlement, and the review is written back into the reply in place.
+  const autoPolishEnabled = async () => (await readTavernSettings()).polishPrereview === true
   const polishPrereview = createPolishPrereview({
-    enabled: async () => (await readTavernSettings()).polishPrereview === true,
+    enabled: autoPolishEnabled,
     // Read-only: the review runs beside settlement, which holds the editing lock.
     readTexts: sessionId => bodyEditor.peek(sessionId),
     review: (sessionId, texts, signal) => polishReviewer.review(sessionId, texts, signal),
@@ -3121,6 +3136,7 @@ export async function apply(ctx) {
       const current = edit.parts.filter(part => part.kind === 'text').map(part => part.text)
       // The reply changed meanwhile (an edit, a regeneration, a 精修): this review is not for it.
       if (JSON.stringify(current) !== JSON.stringify(texts)) return
+      if (!await autoPolishEnabled()) return
       signal.throwIfAborted()
       const polished = applyPolishEdits(texts, edits)
       // Settled before the write: writing the reply announces 正文写完 again, and the polished
@@ -3379,7 +3395,7 @@ export async function apply(ctx) {
     settingsChanged: (gameId, plugin) => sessionSignals.publish(gameId, { kind: 'plugin-settings', version: plugin + ':' + Date.now() + ':' + Math.random().toString(36).slice(2) }),
     // A plugin published new state for its page side (tavernUi.watchState re-reads it).
     publishState: (gameId, plugin, name) => sessionSignals.publish(gameId, { kind: 'plugin-state:' + plugin + ':' + name, version: Date.now() + ':' + Math.random().toString(36).slice(2) }),
-    reservedToolNames: [...BACKGROUND_TOOLS, HISTORY_RECALL_TOOL].map(tool => tool?.name).concat(['style_reference_submit', STORY_SUBMIT_TOOL_NAME, STORY_CONTEXT_TOOL_NAME, STORY_GENERATE_TOOL_NAME, 'character_design_finish', 'worldbook_search', 'web_search', 'web_fetch', 'skill']).filter(Boolean),
+    reservedToolNames: [...BACKGROUND_TOOLS, HISTORY_RECALL_TOOL].map(tool => tool?.name).concat(['style_reference_submit', STORY_SUBMIT_TOOL_NAME, STORY_CONTEXT_TOOL_NAME, STORY_GENERATE_TOOL_NAME, 'character_design_finish', 'worldbook_search', ...WORLDBOOK_ACCESS_TOOLS.filter(name => name !== 'read'), WORKBENCH_READ_LOREBOOK_TOOL, WORKBENCH_UPDATE_LOREBOOK_TOOL, 'web_search', 'web_fetch', 'skill']).filter(Boolean),
     media: pluginMedia,
     data: pluginData,
     projectGameForeground(gameId, projection) {
@@ -3587,7 +3603,7 @@ export async function apply(ctx) {
     startManualTask: ({ gameId, key, input }) => startPluginTask(gameId, key, input),
     publish: sessionId => sessionSignals.publish(sessionId, { kind: 'plugin-media', version: String(Date.now()) + ':' + Math.random().toString(36).slice(2) })
   })
-  const pluginBodyGeneration = createPluginBodyGeneration({ chatForSession, routeChatForSession: sessionId => chatHeaderForSession(sessionId, ['mode', 'foregroundFrames', 'timeline', 'storyGenerationMode', 'storyGenerationProvider', 'storyPluginOutputRegex']), readRevision: readChatRevision,
+  const pluginBodyGeneration = createPluginBodyGeneration({ chatForSession, routeChatForSession: sessionId => chatHeaderForSession(sessionId, ['mode', 'foregroundFrames', 'timeline']), readRevision: readChatRevision,
     updateChat, settings: readTavernSettings, providers: pluginApi.bodyGenerators,
     isWorldbookPath: filePath => worldbookSkillProvider.ownsPath(filePath),
     isBackground: sessionId => backgroundAgentRunner.owns(sessionId),
@@ -4431,7 +4447,7 @@ export async function apply(ctx) {
     prepareRegenerationFrameCache: async ({ chat, card, turn, userText, target, targetAssistantIndex }) => {
       if (!chat || !card || !['story', 'script'].includes(chat.mode || 'story')) return null
       const settings = await readTavernSettings()
-      if (str(configuredBodyGeneration(chat, settings).mode).startsWith('plugin-')) return null
+      if (str(configuredBodyGeneration(settings).mode).startsWith('plugin-')) return null
       const preset = await resolveChatRuntimePreset({ ...chat }, { preview: true })
       const worldBook = await playWorldBook(chat, card)
       const targetRow = targetAssistantIndex >= 0 ? chat.messages?.[targetAssistantIndex] : null
@@ -4983,7 +4999,7 @@ export async function apply(ctx) {
   }
 
   const skillGatedTools = createSkillGatedTools({ pluginSkills: name => pluginApi.toolSkillsFor(name) })
-  const controlledToolNames = new Set([...modTools.map(tool => tool.name), 'style_reference_submit', STORY_SUBMIT_TOOL_NAME, STORY_CONTEXT_TOOL_NAME, STORY_GENERATE_TOOL_NAME, 'tavern_read_variables', 'worldbook_list', 'worldbook_grep', ...CARD_MEMORY_TOOLS, 'bash', 'pwsh', ...dshFileToolNames, 'skill', 'tavern_read_skill_reference', 'web_search', 'web_fetch', 'tavern_save_skill', ...cordisToolNames, 'tavern_user_profile_read', 'tavern_user_profile_save', 'tavern_user_profile_confirm', 'tavern_read_card', 'tavern_read_card_raw', 'tavern_search_card', 'tavern_replace_card_text', 'tavern_mvu_overview', 'tavern_apply_mvu', 'tavern_read_play_chat', 'tavern_read_script', 'tavern_recall_history', 'worldbook_search', 'tavern_read_worldbook', 'tavern_update_worldbook', 'tavern_read_preset', 'tavern_update_preset', 'tavern_read_regex_library', 'tavern_copy_card', 'tavern_set_card_cover', 'tavern_export_card_png', 'tavern_update_card', 'tavern_restore_card', 'tavern_validate_card', 'tavern_test_response'])
+  const controlledToolNames = new Set([...modTools.map(tool => tool.name), 'style_reference_submit', STORY_SUBMIT_TOOL_NAME, STORY_CONTEXT_TOOL_NAME, STORY_GENERATE_TOOL_NAME, 'tavern_read_variables', ...WORLDBOOK_ACCESS_TOOLS, ...CARD_MEMORY_TOOLS, 'bash', 'pwsh', ...dshFileToolNames, 'skill', 'tavern_read_skill_reference', 'web_search', 'web_fetch', 'tavern_save_skill', ...cordisToolNames, 'tavern_user_profile_read', 'tavern_user_profile_save', 'tavern_user_profile_confirm', 'tavern_read_card', 'tavern_read_card_raw', 'tavern_search_card', 'tavern_replace_card_text', 'tavern_mvu_overview', 'tavern_apply_mvu', 'tavern_read_play_chat', 'tavern_read_script', 'tavern_recall_history', 'worldbook_search', WORKBENCH_READ_LOREBOOK_TOOL, WORKBENCH_UPDATE_LOREBOOK_TOOL, 'tavern_read_preset', 'tavern_update_preset', 'tavern_read_regex_library', 'tavern_copy_card', 'tavern_set_card_cover', 'tavern_export_card_png', 'tavern_update_card', 'tavern_restore_card', 'tavern_validate_card', 'tavern_test_response'])
   const foregroundStrategies = createForegroundOrchestrationStrategies({
     nativePlay: {
       // Input side: replay past bodies as calls of the submission tool.
@@ -5250,6 +5266,7 @@ export async function apply(ctx) {
 
   try {
     const startedAt = Date.now()
+    await conversationDeletion.resumePending(pendingChatDeletions)
     const recoveredIndex = await initializeRuntimeState()
     settleRuntimeReadiness({ ok: true })
     setImmediate(function () {

@@ -42,7 +42,7 @@ function cardReferenceSection(section) {
   if (section.name === 'tavern:constant-worldbook') {
     const chars = Array.from((stableSectionBody(section.name, text) ?? text).trim()).length
     if (chars <= CARD_REFERENCE_WORLDBOOK_LIMIT) return section
-    return { name: section.name, text: promptSection('lorebook_constant', 'About ' + chars + ' characters exceed the preload limit. Read relevant entries with tavern_read_worldbook by keyword or number when needed.') }
+    return { name: section.name, text: promptSection('lorebook_constant', 'About ' + chars + ' characters exceed the preload limit. Read relevant entries with tavern_read_lorebook by keyword or number when needed.') }
   }
   const chars = Array.from(text).length
   if (chars <= CARD_REFERENCE_SECTION_LIMIT) return section
@@ -127,7 +127,15 @@ export function projectRegenerationRequestMessages(messages) {
   const projectedPlayer = Object.assign({}, source[playerIndex], {
     content: Array.isArray(source[regenerationIndex].content) ? structuredClone(source[regenerationIndex].content) : []
   })
-  return source.slice(0, playerIndex).concat([projectedPlayer], source.slice(regenerationIndex + 1))
+  const tail = source.slice(regenerationIndex + 1)
+  const isWritingRulesUpdate = message => message?.role === 'user' &&
+    isProducerSource(message.source, 'dsh-tavern') && message.source.trace?.writingRulesSnapshot?.schemaVersion === 1
+  // The frame adapter skips unchanged rules because their snapshot is still in
+  // the session. If that snapshot was emitted during the replaced turn, carry it
+  // into the request unless the new frame already updated or withdrew the rules.
+  const retainedRules = tail.some(isWritingRulesUpdate) ? undefined
+    : source.slice(playerIndex + 1, regenerationIndex).findLast(isWritingRulesUpdate)
+  return source.slice(0, playerIndex).concat(projectedPlayer, retainedRules ? [retainedRules] : [], tail)
 }
 
 function snapshotMessage(text) {
@@ -596,6 +604,12 @@ export function createNativePlayOrchestrationStrategy(options) {
     const finalTools = playMode ? filteredTools.filter(schema => options.controlledToolNames.has(schema.name) || !disabled.has(schema.name)) : filteredTools
     if (knownTools) {
       assembly.tools = finalTools
+    }
+    const mountedResources = input.chat?.workspace?.mountedResources
+    if (mode === 'card' && finalTools.some(tool => tool.name === 'tavern_read_play_chat') &&
+      Array.isArray(mountedResources) && mountedResources.some(resource => resource?.kind === 'play-chat')) {
+      sections.push({ name: 'tavern:play-chat-diagnostics',
+        text: '排查已关联的游玩记录时，先调用 tavern_read_play_chat，参数 layer 填 overview。存在多个引用时填对应的 ref。' })
     }
     // The submission contract follows the tools that actually survived the
     // per-game switches and the plugin scopes. When only input replay is on, the

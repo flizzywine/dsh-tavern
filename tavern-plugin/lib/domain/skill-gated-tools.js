@@ -12,8 +12,7 @@ const SKILL_TOOLS = Object.freeze({
   'create-writing-skill': ['tavern_save_skill'],
   'user-profile': ['tavern_user_profile_read', 'tavern_user_profile_save'],
   'create-card': ['tavern_user_profile_read'],
-  'create-dsh-card': ['tavern_user_profile_read'],
-  'debug-card': ['tavern_read_play_chat', 'tavern_read_runtime_health']
+  'create-dsh-card': ['tavern_user_profile_read']
 })
 const BUILT_IN = new Map()
 for (const [skill, tools] of Object.entries(SKILL_TOOLS)) for (const tool of tools) BUILT_IN.set(tool, [...(BUILT_IN.get(tool) || []), skill])

@@ -77,6 +77,18 @@ try {
   assert.equal(await page.evaluate(() => window.records.b.name), '人物b')
   assert.equal(await page.evaluate(() => window.records.a.match), '连续修改别名')
   assert.equal(await page.evaluate(() => window.calls.filter(c => c.method === 'patchImageCharacter').length), 4)
+
+  // A figure with 设定图: the record follows them by itself, so the section offers no copy or replace action.
+  await page.evaluate(() => {
+    window.records.c = { id: 'c', name: '人物c', figureId: 'c', figurePackId: 'pack', match: '', traits: {}, outfits: [{ id: 'k', name: '居家服' }] }
+    const root = modules['react-dom/client'].createRoot(document.querySelector('#root').appendChild(document.createElement('div')))
+    const binding = { rpc: async (method, args) => ({ status: 'linked', providerId: 'images/definitions', character: structuredClone(window.records[args.figureId]) }) }
+    const outfit = { key: 'k', label: '居家服', settei: 'sheet' }
+    root.render(React.createElement(ImageCharacterSection, { binding, pack: { manifest: { id: 'pack' } }, figure: { id: 'c', name: '人物c', identitySettei: { board: 'board' }, outfits: [outfit] }, outfit }))
+  })
+  await page.waitForFunction(() => !!document.querySelector('[aria-label="配图人物库"] input[value="人物c"]'))
+  assert.equal(await page.locator('button').count(), 0)
+  assert.equal(await page.getByText('人物库已有').count(), 0)
   assert.deepEqual(errors, [])
-  console.log('PASS real React: sequential snapshot chaining, conflict reload, queued-edit cancellation and figure-switch isolation')
+  console.log('PASS real React: sequential snapshot chaining, conflict reload, queued-edit cancellation, figure-switch isolation, no settei copy buttons')
 } finally { await browser.close() }

@@ -368,7 +368,7 @@ function applyRawOperations(raw, operations) {
     if (parts.length === 0) throw new Error('不能整体替换或删除人物卡 raw')
     const root = parts[0] === 'data' ? parts[1] : parts[0]
     if (root === 'character_book' || root === 'world_book') {
-      throw new Error('世界书只能通过 tavern_update_worldbook 修改: ' + pointer)
+      throw new Error('世界书只能通过 tavern_update_lorebook 修改: ' + pointer)
     }
     let parent = raw
     for (const part of parts.slice(0, -1)) {

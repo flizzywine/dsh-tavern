@@ -13,7 +13,7 @@ function setup() {
     worldBooks: { update: async (source, request) => { calls.push({ source, request }); return { view: { displayName: '甲', entryCount: 1 } } } }
   })
   const exec = { agent: { session: { id: 's1' } } }
-  return { run: args => registered.get('tavern_update_worldbook').execute(args, exec), calls, tool: registered.get('tavern_update_worldbook') }
+  return { run: args => registered.get('tavern_update_lorebook').execute(args, exec), calls, tool: registered.get('tavern_update_lorebook') }
 }
 
 test('修改人物卡内置世界书时结果附带整卡校验，独立世界书不做人物卡校验', async () => {
