@@ -1,7 +1,7 @@
 import {directionStyles} from './direction-styles.js'
 import {figureCatalogue} from './figure-catalogue.js'
 import skinContract from '../../packages/dsh-presentation-protocol/src/stage-skin.cjs'
-import { effectiveConversationStage, cardStageSkin, cardStageSkinPackIds, effectiveNarrator } from './card-stage-settings.js'
+import { effectiveCardStage, effectiveConversationStage, cardStageSkin, cardStageSkinPackIds, effectiveNarrator } from './card-stage-settings.js'
 import { selectStageEntrance } from './stage-entrance.js'
 import { rawData } from './card-preparation.js'
 import { readCardAssetExtension, cardAssetExtensionView } from './card-asset-bindings.js'
@@ -58,7 +58,10 @@ export function cardStageSkinView(extension, engine, packSnapshots = []) {
 }
 export function cardBubbleConfig(raw, engine, packSnapshots = [], globalEnabledPackIds = [], services = [], chooseService = () => undefined, globalNarrator = null, pointed = {}, dialogueSettings) {
   const extension = raw && hasCardAssetBindings(raw) ? readCardAssetExtension(raw) : null
-  const stage = effectiveConversationStage(extension, engine, dialogueSettings), {chosen, skin} = cardStageSkinView(extension, engine, packSnapshots)
+  const stage = dialogueSettings === undefined
+    ? effectiveCardStage(extension, engine)
+    : effectiveConversationStage(extension, engine, dialogueSettings)
+  const {chosen, skin} = cardStageSkinView(extension, engine, packSnapshots)
   const dialogue = engine.dialogue, models = []
   const rows = figureCatalogue({snapshots:packSnapshots,bindings:extension?.assetBindings,globalEnabledPackIds}).filter(row => row.enabled)
   const figuresByAlias = new Map(rows.map(row => [row.actorKey, row]))
@@ -83,8 +86,8 @@ export function cardBubbleConfig(raw, engine, packSnapshots = [], globalEnabledP
       voice:stage.voice && figure?.enabled ? figure.voice?.source !== null ? figure.voice?.voice || '' : '' : '', voiceLang:figureVoiceLanguage(figure, pack),
       ...(sprites.length ? {portrait:sprites[0].model, outfitLabel:sprites[0].label, outfits:sprites.slice(1)} : {})}
   })
-  // the one place bubbles are decided — the card's own switch; a card without stage
-  // settings has no figures to show and writes plain text (no dialogue-format injection) until 「开启对话气泡」.
+  // The same projection serves card editing and play. In play the per-game
+  // switches and defaults also cover cards without stage settings.
   const config = normalizeBubbleConfig({...dialogue, enabled:stage.dialogue, characters,
     stage:{theme:typeof chosen.skin === 'string' ? chosen.skin : 'classic',enabled:!!extension && stage.stage,director:!!extension && stage.stage,music:stage.music,widgets:stage.widgets}})
   // These are resolved catalogue rows. Their normalized emotions need no speaker lookup.
@@ -220,7 +223,8 @@ export function createCardStage({cardStorage, getEngine, getAssetLibrary = () =>
       const opened = cardPath ? await measure('bubbles.workspace', () => workspace(cardPath)) : null, raw = opened?.raw || null
       const extension = raw && hasCardAssetBindings(raw) ? readCardAssetExtension(raw) : null
       const service = getAssetLibrary(), packs = []
-      const useAssets = Boolean(extension || dialogueSettings?.dialogue === true)
+      const engine = getEngine()
+      const useAssets = Boolean(extension || dialogueSettings && effectiveConversationStage(null, engine, dialogueSettings).dialogue)
       const packIds = [...new Set([...(extension?.assetBindings.boundPackIds || []),...(useAssets ? getGlobalEnabledPackIds() : [])])]
       // Queue the scope together: serial awaits rejoin the busy publication gate once per pack.
       const reads = await measure('bubbles.packs', () => Promise.allSettled(packIds.map(packId => service?.getPackSnapshot({packId}))))
@@ -232,7 +236,7 @@ export function createCardStage({cardStorage, getEngine, getAssetLibrary = () =>
       }
       if (requireAvailable) assertAvailable()
       for (const result of reads) if (result.status === 'fulfilled' && result.value) packs.push(result.value)
-      const services = useAssets ? await measure('bubbles.voiceServices', () => getTts()?.listServices()) || [] : []
+      const services = packs.length ? await measure('bubbles.voiceServices', () => getTts()?.listServices()) || [] : []
       // 通用声音 / 旁白: the figures tts.reading() points at, from any installed pack (already read when the card uses it).
       const reading = useAssets ? getTts()?.reading() : null, pointAt = async ref => {
         if (!ref) return null
@@ -240,7 +244,7 @@ export function createCardStage({cardStorage, getEngine, getAssetLibrary = () =>
         return {ref, pack, figure:pack?.figures[ref.figureId]}
       }
       const pointed = {general:await pointAt(reading?.general?.figure), narrator:await pointAt(reading?.narrator?.figure)}
-      const config = await measure('bubbles.project', () => cardBubbleConfig(raw, getEngine(), packs, getGlobalEnabledPackIds(), services, (source, list) => getTts()?.chooseService(source, list), reading?.narrator, pointed, dialogueSettings))
+      const config = await measure('bubbles.project', () => cardBubbleConfig(raw, engine, packs, getGlobalEnabledPackIds(), services, (source, list) => getTts()?.chooseService(source, list), reading?.narrator, pointed, dialogueSettings))
       // One request may also preview a prompt. Reuse its catalogue, but retain strict admission failures.
       return {config, requireAvailable() { assertAvailable(); return config }}
     },

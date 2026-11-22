@@ -78,6 +78,7 @@ export function registerTurnLifecycleHooks({
   ensureNativeSystemPrefix,
   foregroundHandoff,
   foregroundStrategies,
+  dialogueOutput,
   flushQueuedBodyEdits,
   nativeWorldBookTemplateContext,
   persistClearedBodyEdits,
@@ -242,7 +243,7 @@ export function registerTurnLifecycleHooks({
     const needWorldbook = Boolean(chat && ['story', 'script'].includes(chat.mode || 'story'))
     const nativeWorldbook = needWorldbook && chat.worldbookStrategy === 'native-skills'
     const needPlugins = Boolean(pluginPromptSections && chat && chat.requestMode !== 'sillytavern' && ['story', 'script'].includes(mode))
-    const [workspaceProjection, projectedWorldbook, extraPluginSections] = await Promise.all([
+    const [workspaceProjection, projectedWorldbook, extraPluginSections, bubbles] = await Promise.all([
       timed('workspace', async () => {
         try { return await publishResourceWorkspace(agent.session.id, chat) }
         catch { console.error('dsh-tavern: 资源工作区投影刷新失败，继续使用现有资源文件'); return null }
@@ -252,7 +253,8 @@ export function registerTurnLifecycleHooks({
         : Promise.resolve(null),
       needPlugins
         ? timed('plugins', () => pluginPromptSections({ gameId: agent.session.id }))
-        : Promise.resolve([])
+        : Promise.resolve([]),
+      needWorldbook && chat.cardPath && dialogueOutput ? dialogueOutput(chat) : undefined
     ])
     let fixedSystemSections = sessionStablePrefixSections(agent.session)
     let deferWorldbook = false
@@ -274,10 +276,15 @@ export function registerTurnLifecycleHooks({
     if (extraPluginSections && extraPluginSections.length) {
       assembled.sections = [...(assembled.sections || []), ...extraPluginSections]
     }
-    // The final reminder goes after those sections, so their length cannot bury
-    // the one contract that must be the last thing the model reads.
+    // Keep the body and dialogue contracts visible after the plugin sections.
     const pluginContract = assembled.sections?.find(section => section.name === 'tavern:plugin-body-generation')
     if (pluginContract) assembled.sections = [...assembled.sections, { ...pluginContract, name: 'tavern:plugin-body-generation-reminder' }]
+    if (bubbles !== undefined) {
+      const text = bubbles
+        ? '本轮正文里的角色对白，每句都另起一行，按 @bubble:handle|name|variant|[台词] 输出。按角色表选用表情和配音字段。旁白照常写成普通段落，台词行直接输出，不放进代码块。这个格式同样用于 submit_story 的 content。'
+        : '本轮正文采用普通 Markdown，角色对白用引号，不输出 @bubble 标记。'
+      assembled.sections = [...(assembled.sections || []), {name:'tavern:dialogue-output', text}]
+    }
     const hasSubmission = (assembled.sections || []).some(section => section.name === 'tavern:story-tool-submission')
     const outputToolCall = hasSubmission && typeof storyOutputToolCall === 'function' ? (await storyOutputToolCall()) === true : false
     const result = markTavernSectionsLiteral(prependSystemInstruction(appendStorySubmissionReminder(assembled, outputToolCall), chat ? runtimePrompt('system-append') : ''))

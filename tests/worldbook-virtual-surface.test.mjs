@@ -29,8 +29,8 @@ test('system assembly excludes dynamic recovery and stays byte-identical across 
   const { registerTurnLifecycleHooks } = await import('../tavern-plugin/lib/hooks/turn-lifecycle.js')
   const hooks = new Map(), calls = [], assembledInputs = []
   const nativeSession = { id: 'game', ...session([message('first', '晴天', 'sun')]) }
-  const chat = { mode: 'story', worldbookStrategy: 'native-skills', worldBookVirtualState: state(), messages: [] }
-  let background = false
+  const chat = { mode: 'story', cardPath:'cards/plain.json', worldbookStrategy: 'native-skills', worldBookVirtualState: state(), messages: [] }
+  let background = false, bubbles = true
   registerTurnLifecycleHooks({
     ctx: { on: (name, callback) => hooks.set(name, callback), tools: { schemas: (_agent, toolSet) => toolSet?.schemas } },
     backgroundAgentRunner: { owns: () => background }, hookChatForSession: async () => chat, foregroundHandoff: { awaitOpening: async () => {} },
@@ -38,6 +38,8 @@ test('system assembly excludes dynamic recovery and stays byte-identical across 
     turnOrchestrator: { modeFor: async () => 'story' }, ensureNativeSystemPrefix: async () => {},
     publishResourceWorkspace: async () => null, readChatCard: async () => ({}), runtimePrompt: () => '',
     foregroundStrategies: { assembleSystemPrompt: async (assembly, options) => { assembledInputs.push(options); return { ...assembly, sections: options.fixedSystemSections } } },
+    dialogueOutput: async () => bubbles,
+    pluginPromptSections: async () => [{name:'plugin:writing', text:'Writing rules'}],
     nativeWorldBookTemplateContext: async (_chat, _card, options) => {
       calls.push(options)
       return { prefixContext: '  STATIC EXACT\n\n' }
@@ -49,6 +51,8 @@ test('system assembly excludes dynamic recovery and stays byte-identical across 
   assert.deepEqual(calls[0], { restore: false })
   assert.match(result.sections[0].text, /  STATIC EXACT\n\n/)
   assert.deepEqual(nativeSession, initial)
+  assert.equal(result.sections.at(-1).name, 'tavern:dialogue-output')
+  assert.match(result.sections.at(-1).text, /按 @bubble:.*输出/)
   chat.worldBookVirtualState.entries.second = { text: '港口关闭', renderHash: 'closed' }
   const changed = await assemble({}, { agent: { session: nativeSession } }, async () => ({ sections: [] }))
   assert.deepEqual(changed.sections, result.sections, 'dynamic state cannot rewrite the provider system prefix')
@@ -57,9 +61,12 @@ test('system assembly excludes dynamic recovery and stays byte-identical across 
   await assemble({}, { agent: { session: nativeSession }, toolSet: { schemas } }, async () => ({ sections: [] }))
   assert.equal(assembledInputs.at(-1).toolDefinitions, schemas, 'hook forwards the actual host toolSet schemas')
   assert.equal(assembledInputs[0].toolDefinitions, undefined, 'legacy fixture has no separate toolSet')
+  bubbles = false
+  const off = await assemble({}, { agent: { session: nativeSession } }, async () => ({ sections: [] }))
+  assert.match(off.sections.at(-1).text, /角色对白用引号/)
   background = true
   await assemble({}, { agent: { session: nativeSession } }, async () => ({ sections: [] }))
-  assert.equal(calls.length, 3)
+  assert.equal(calls.length, 4)
 })
 
 test('missing dynamic context restores at the message tail and retries use pending evidence', async () => {

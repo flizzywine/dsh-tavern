@@ -2541,7 +2541,7 @@ export async function apply(ctx) {
     modPromptsAvailable:() => stageRuntime.status() === 'ready',
     modPrompts:(chat, options) => stageRuntime.modPrompts(chat, {...options, cardGoverns}),
     judge:() => dialogueEngine().judge,
-    readConfig: (cardPath, chat) => dialogueBubbles.read(cardPath, {requireAvailable:true, dialogueSettings:chat?.dialogueSettings}),
+    readConfig: (cardPath, chat) => dialogueBubbles.read(cardPath, {requireAvailable:true, dialogueSettings:chat?.dialogueSettings ?? {}}),
     render: async (chat, worldBook) => {
       if (stageReadScope(chat) && worldBook.view.entries.some(isWorldBookTemplateEntry)) chat = await readStageChat(chat.sessionId)
       return projectWorldBookTemplates({worldBook,includeConstants:true,
@@ -4052,9 +4052,9 @@ export async function apply(ctx) {
   const boundedHistory = createBoundedHistory({ links: readSessionMap, readWindow: chatPersistence.readWindow })
   async function playWorldBook(chat, card) {
     const book = await readPlayWorldBook(chat, card)
-    if (!chat?.dialogueSettings || !chat.cardPath || groupOfMode(chat.mode) !== 'play') return book
+    if (!chat?.cardPath || groupOfMode(chat.mode) !== 'play') return book
     // The authored card entry remains a default for other games on the same card.
-    const config = await dialogueBubbles.read(chat.cardPath, {dialogueSettings:chat.dialogueSettings, requireAvailable:true})
+    const config = await dialogueBubbles.read(chat.cardPath, {dialogueSettings:chat.dialogueSettings ?? {}, requireAvailable:true})
     return replaceDialogueWorldbookEntries(book, foregroundCapabilityEntries(config, chat))
   }
   // A story request reads the header, every floor its world book scans (plus the
@@ -4835,7 +4835,7 @@ export async function apply(ctx) {
     createPlayHandlers(rpcDeps),
     createTransferHandlers(rpcDeps),
     createImageCharacterHandlers(rpcDeps))
-  const stageSwitch = createStageSwitch(stageRuntime)
+  const stageSwitch = createStageSwitch(stageRuntime, {startOnInstall:true})
   // The reading voice of tavernUi.playReading (story-reading.js): a library figure, or the one 旁白声音 points at when none is given.
   rpcHandlers.openReadingVoice = async args => speech.openReading(args && Object.hasOwn(args, 'figure') ? args.figure : undefined)
   rpcHandlers.getStageRuntimeStatus = async () => stageSwitch.read()
@@ -4866,7 +4866,8 @@ export async function apply(ctx) {
   }
   rpcHandlers.getDialogueBubbles = async args => {
     const chat = await requestPerformance.stage('config.chat', () => readStageChat.view(args?.sessionId, {configOnly:true}))
-    const prepared = await requestPerformance.stage('config.bubbles', () => dialogueBubbles.snapshot(chat?.cardPath, {dialogueSettings:chat?.dialogueSettings}))
+    const dialogueSettings = chat && groupOfMode(chat.mode) === 'play' ? chat.dialogueSettings ?? {} : undefined
+    const prepared = await requestPerformance.stage('config.bubbles', () => dialogueBubbles.snapshot(chat?.cardPath, {dialogueSettings}))
     const config = prepared.config, userName = str(chat?.macroState?.userName)
     const placement = chat?.cardPath ? await requestPerformance.stage('config.placement', () => readDialogueBubblePlacement(worldBooks, chat.cardPath, config.injection.placement)) : null
     const nativeForeground = chat && chat.requestMode !== 'sillytavern' && ['story','script'].includes(chat.mode || 'story')
@@ -5241,6 +5242,7 @@ export async function apply(ctx) {
     ensureNativeSystemPrefix,
     foregroundHandoff,
     foregroundStrategies,
+    dialogueOutput: async chat => (await dialoguePreferences(chat.cardPath, chat.dialogueSettings)).dialogue,
     nativeWorldBookTemplateContext,
     persistClearedBodyEdits,
     pluginPromptSections: pluginApi.promptSections,

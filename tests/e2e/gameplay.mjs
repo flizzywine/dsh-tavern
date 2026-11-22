@@ -435,8 +435,8 @@ try {
       method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(args)
     })).json(), {method, args})
     const stageButton = page.getByRole('button', {name:'舞台', exact:true})
-    await step('启动时空闲，打开舞台卡才加载', async () => {
-      assert.equal((await stageRpc('getStageRuntimeStatus')).status, 'disabled')
+    await step('启动时加载舞台模块，打开舞台卡时显示入口', async () => {
+      assert.equal((await stageRpc('getStageRuntimeStatus')).status, 'ready')
       await page.getByRole('button', { name: /选择人物卡.*新开游玩/ }).click()
       await page.getByText('E2E 奖励验收', { exact: true }).first().click()
       await stageButton.waitFor()

@@ -133,6 +133,7 @@ export function effectiveCardStage(extension, engine) {
 // Game settings only override dialogue and speech. Enabling chat dialogue cannot enable the card's stage.
 export function effectiveConversationStage(extension, engine, dialogueSettings) {
   const stage = effectiveCardStage(extension, engine)
+  if (!extension) stage.dialogue = (engine?.stageToggles || defaultAssetEngineSettings().stageToggles).dialogue === true
   if (typeof dialogueSettings?.dialogue === 'boolean') stage.dialogue = dialogueSettings.dialogue
   if (typeof dialogueSettings?.voice === 'boolean') stage.voice = dialogueSettings.voice
   stage.stage &&= stage.dialogue

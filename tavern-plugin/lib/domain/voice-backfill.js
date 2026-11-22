@@ -47,7 +47,7 @@ export function createVoiceBackfill({workflow, chatHeaderForSession, dialogueBub
     if (!active) return false
     const header = await chatHeaderForSession(String(sessionId), ['cardPath','mode','regenInProgress','dialogueSettings'])
     if (!active || !header?.cardPath || !['story','script'].includes(header.mode) || header.regenInProgress) return false
-    const config = await dialogueBubbles.read(header.cardPath, {dialogueSettings:header.dialogueSettings})
+    const config = await dialogueBubbles.read(header.cardPath, {dialogueSettings:header.dialogueSettings ?? {}})
     return active && config?.enabled === true && config.voice?.enabled !== false
   }
   async function backfill(sessionId, signal) {
@@ -56,7 +56,7 @@ export function createVoiceBackfill({workflow, chatHeaderForSession, dialogueBub
     const index = chat.messages.findLastIndex(row => row?.role === 'assistant'), message = chat.messages[index]
     if (!message || message.greeting) return {lines:0}
     const turn = Number(message.turn), fence = prose(message)
-    const [config, body] = await Promise.all([dialogueBubbles.read(chat.cardPath, {dialogueSettings:chat.dialogueSettings}), bodyForTurn(chat, turn)])
+    const [config, body] = await Promise.all([dialogueBubbles.read(chat.cardPath, {dialogueSettings:chat.dialogueSettings ?? {}}), bodyForTurn(chat, turn)])
     const lines = voiceBackfillLines(body?.paragraphs, config)
     if (!active || signal.aborted || !lines.length) return {lines:0}
     const kept = voiceBackfillKept(body.paragraphs), keys = lines.map(line => line.key)

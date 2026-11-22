@@ -1,5 +1,6 @@
 import {createAssetPackSpeech} from './asset-pack-speech.js'
 import {figureCatalogue, resolution} from './figure-catalogue.js'
+import {effectiveConversationStage} from './card-stage-settings.js'
 import {readCardAssetExtension} from './card-asset-bindings.js'
 import {cardAssetWorkspaceRevision, hasCardAssetBindings} from '../card-asset-bindings.js'
 import {resolveFigureSnapshot} from '../../packages/dsh-presentation-protocol/src/asset-packs.js'
@@ -28,7 +29,9 @@ export function createCardDialogueSpeech({readWorkspace, getEngine, getLibrary, 
     let entry = entries.get(sessionId)
     const raw = workspace?.raw
     const cardExtension = raw && hasCardAssetBindings(raw) ? readCardAssetExtension(raw) : null
-    const revision = cardExtension || dialogueSettings?.dialogue === true
+    const settings = dialogueSettings ?? {}
+    const permissions = effectiveConversationStage(cardExtension, getEngine(), settings)
+    const revision = permissions.dialogue && permissions.voice
       ? JSON.stringify([workspace ? cardAssetWorkspaceRevision(workspace) : null, dialogueSettings?.dialogue, dialogueSettings?.voice]) : null
     if (entry && (entry.cardPath !== cardPath || entry.origin !== origin || entry.revision !== revision)) {
       entries.delete(sessionId)
@@ -66,7 +69,7 @@ export function createCardDialogueSpeech({readWorkspace, getEngine, getLibrary, 
         return result.bytes
       }
     }
-    const speech = createAssetPackSpeech({presentation, getEngine, getLibrary, getTts, dialogueSettings, scope:'dsh-browser'})
+    const speech = createAssetPackSpeech({presentation, getEngine, getLibrary, getTts, dialogueSettings:settings, scope:'dsh-browser'})
     entries.set(sessionId, {cardPath, origin, revision, snapshots, listeners, speech})
     return speech
   }

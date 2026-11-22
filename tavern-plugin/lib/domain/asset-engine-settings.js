@@ -25,7 +25,7 @@ export const DIALOGUE_COLOR_TOKENS = Object.freeze(['--gal-ui-ink', '--gal-ui-in
 const id = (value, path) => check(typeof value === 'string' && /^[a-z0-9][a-z0-9_-]{0,63}$/.test(value) && !['constructor', 'prototype', '__proto__'].includes(value), path)
 const integer = (value, min, max, path) => check(Number.isSafeInteger(value) && value >= min && value <= max, path)
 export function defaultAssetEngineSettings() {
-  return { schemaVersion:1, stageToggles:Object.fromEntries(STAGE_TOGGLES.map(key => [key,!['dialogue','stage'].includes(key)])), dialogue:{emotions:[],injection:normalizeBubbleInjection(null)}, dialogueTheme:'classic', dialogueThemes:[], directorModel:null,
+  return { schemaVersion:1, stageToggles:Object.fromEntries(STAGE_TOGGLES.map(key => [key,key !== 'stage'])), dialogue:{emotions:[],injection:normalizeBubbleInjection(null)}, dialogueTheme:'classic', dialogueThemes:[], directorModel:null,
     dimensions:Object.fromEntries(ENGINE_DIMENSIONS.map(key => [key, true])), actionCaps:{...ACTION_CAPS},
     judge:defaultJudgeConfig() }
 }
@@ -70,8 +70,8 @@ export function validateAssetEngineSettings(value) {
   // unknown key, dropped below); the next save writes neither.
   delete value.stageToggles.fullReading
   delete value.stageToggles.entrance
-  // 对话气泡 / 舞台模式 default off globally; a card's own stage.enabled decides before them.
-  value.stageToggles.dialogue ??= false
+  // 对话气泡 defaults on globally; the card declaration and game settings can override it.
+  value.stageToggles.dialogue ??= true
   value.stageToggles.stage ??= false
   shape(value.stageToggles, STAGE_TOGGLES, STAGE_TOGGLES, '$.stageToggles')
   for (const key of STAGE_TOGGLES) bool(value.stageToggles[key], '$.stageToggles.' + key)

@@ -17,7 +17,7 @@ test('舞台模块关闭时会话视图仍报告对话气泡和本卡舞台声�
   }, { enabled: false })
   const f = projectionFixture({ readCardStageMode: stage.assets.cardStageMode })
   for (const [settings, dialogue, isStageCard] of [
-    [undefined, false, false],
+    [undefined, true, false],
     [{ enabled: true }, true, true],
     [{ dialogue: true, stage: true }, true, true],
     [{ dialogue: true, stage: false }, true, false],

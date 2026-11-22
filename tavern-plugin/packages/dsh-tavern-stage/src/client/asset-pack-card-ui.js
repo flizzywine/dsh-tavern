@@ -18,7 +18,7 @@ const VOICE_LANGUAGES=[['ja','日语'],['zh','中文'],['en','英语']];
 // switch). 对话气泡 / 舞台模式 are two rows whose card layer is the card's own declaration (stage.enabled, or the
 // dialogue / stage pair for bubbles only; read through cardStageMode). Each resolves with the mods' own rule (modSwitchOn;
 // the host: card-stage-settings.js effectiveCardStage).
-const STAGE_SWITCH_DEFAULTS={dialogue:false,voice:true,stage:false,music:true,sfx:true,ambience:true,items:true,performance:true};
+const STAGE_SWITCH_DEFAULTS={dialogue:true,voice:true,stage:false,music:true,sfx:true,ambience:true,items:true,performance:true};
 const STAGE_DECLARED=['dialogue','stage'];
 // The card layer of 对话气泡 / 舞台模式 (the host: cardStageChoice); a card that declares nothing follows the global switch.
 function stageDeclared(stored,key) {
