@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "351738e6a72ebebff20c2c1393915512714ea4da",
-  "releaseSequence": 1926,
+  "revision": "51108973ce677d08d2a35a2e92d25900df3edb79",
+  "releaseSequence": 1927,
   "version": "3.4.0",
   "files": [
     {
@@ -213,6 +213,11 @@
       "path": "bin/desktop-profile-installation.mjs",
       "sha256": "66ee9577f5484d52b5fd10417a861422388093549da5914e6454b21abc3f37b6",
       "size": 14268
+    },
+    {
+      "path": "bin/desktop-update-preflight.mjs",
+      "sha256": "5854c3a4f12379898f244961ff8f65e8f5f2122efe2d200cd1450b545b782990",
+      "size": 3401
     },
     {
       "path": "bin/dev-sync-cli.sh",
@@ -981,8 +986,8 @@
     },
     {
       "path": "tavern-plugin/lib/application-updater.js",
-      "sha256": "60d75379ea6b441e8a7852d438da8a107a745f4e34ad14471a294630718c920b",
-      "size": 48998
+      "sha256": "07d10f924222799d6786d25392c5a84682b60cf6435730969ddb6d3b334781fe",
+      "size": 49966
     },
     {
       "path": "tavern-plugin/lib/asset-engine-settings-owner.js",
@@ -9701,9 +9706,9 @@
     }
   ],
   "archive": {
-    "commit": "d2420b30d53393715ac7c9224b687be924af5e3a",
+    "commit": "45b199b0f6f72498faab70bbc0c6da6ee27947cf",
     "path": "runtime.zip",
-    "sha256": "8447399863b2598cf248f9ab508b8d78b189490cb9c7b8a6e1ece7ec4dd543c4",
-    "size": 17165316
+    "sha256": "56a4373913e76672801ed6c828634f58cea8632fcc3bd335dfbdce334affcc94",
+    "size": 17167433
   }
 }
