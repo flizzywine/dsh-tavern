@@ -468,6 +468,7 @@ const TND_PROVIDERS = [
   { value: 'gemini', label: 'Google Gemini Decisions', defaultModel: 'gemini-decision-1', defaultKeyName: 'GEMINI_API_KEY' },
   { value: 'gemini-compatible', label: 'Gemini Decisions 兼容接口', defaultModel: 'gemini-decision-1', defaultKeyName: 'GEMINI_API_KEY', customUrl: true },
   { value: 'jev', label: 'Typesafe JEV', defaultModel: 'jev-1.13.0', defaultKeyName: 'TYPESAFE_API_KEY' },
+  { value: 'jev-compatible', label: 'Typesafe JEV 兼容接口', defaultModel: 'jev-1.13.0', defaultKeyName: 'TYPESAFE_API_KEY', customUrl: true },
   { value: 'openai', label: 'OpenAI Decisions', defaultModel: 'gpt-6-luna', defaultKeyName: 'OPENAI_API_KEY' },
   { value: 'openai-compatible', label: 'OpenAI Decisions 兼容接口', defaultModel: 'gpt-6-luna', defaultKeyName: 'OPENAI_API_KEY', customUrl: true }
 ]
@@ -837,12 +838,12 @@ const TND_HELP = {
   provider: [
     '选择决策模型的接口协议；切换服务提供方时，下方的模型名称与默认环境变量名会自动切换为该提供方的推荐默认值。',
     'Google Gemini Decisions / OpenAI Decisions / Typesafe JEV：直连官方默认端点，只需配置对应 API Key 即可使用。',
-    'Decisions 兼容接口：适用于支持对应决策 API 的反代、网关或本地服务。切换后可填写「自定义接口地址」。'
+    '兼容接口：适用于支持对应决策 API 的反代、网关或本地服务。切换后可填写「自定义接口地址」。'
   ].join('\n'),
 
   baseUrl: [
-    '可填写网关根地址、带 /v1 或 /v1beta 的地址，也可粘贴含这些版本路径的 Decisions、Chat Completions 或 Responses 地址。省略协议时，回环地址使用 HTTP，其余地址使用 HTTPS。',
-    'Gemini Decisions 兼容服务须支持 POST /v1beta/decisions，OpenAI Decisions 兼容服务须支持 POST /v1/decisions。保存后，地址栏下方会显示实际请求路径。',
+    '可填写网关根地址、带 /v1 或 /v1beta 的地址，也可粘贴含这些版本路径的 Decisions、SystemOne、Chat Completions 或 Responses 地址。省略协议时，回环地址使用 HTTP，其余地址使用 HTTPS。',
+    'Gemini Decisions 兼容服务须支持 POST /v1beta/decisions，OpenAI Decisions 兼容服务须支持 POST /v1/decisions，Typesafe JEV 兼容服务须支持 POST /v1/systemone（或显式填写 /v1/decision）。保存后，地址栏下方会显示实际请求路径。',
     '仅支持 Chat Completions 或 generateContent 的服务无法处理判定请求。',
     '输入完成后按回车或点击输入框外（失焦）自动保存；按 Esc 可撤销未提交的草稿。'
   ].join('\n'),

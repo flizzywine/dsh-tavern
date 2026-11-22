@@ -15,6 +15,7 @@ export const DAMPER_PROVIDERS = Object.freeze({
   gemini: Object.freeze({ model: 'gemini-decision-1', keyName: 'GEMINI_API_KEY', protocol: 'gemini' }),
   'gemini-compatible': Object.freeze({ model: 'gemini-decision-1', keyName: 'GEMINI_API_KEY', protocol: 'gemini' }),
   jev: Object.freeze({ model: 'jev-1.13.0', keyName: 'TYPESAFE_API_KEY', protocol: 'jev' }),
+  'jev-compatible': Object.freeze({ model: 'jev-1.13.0', keyName: 'TYPESAFE_API_KEY', protocol: 'jev' }),
   openai: Object.freeze({ model: 'gpt-6-luna', keyName: 'OPENAI_API_KEY', protocol: 'openai' }),
   'openai-compatible': Object.freeze({ model: 'gpt-6-luna', keyName: 'OPENAI_API_KEY', protocol: 'openai' })
 })
@@ -24,6 +25,7 @@ export const DAMPER_KEY_REFS = Object.freeze({
   gemini: 'DSH_TAVERN_DAMPER_GEMINI_KEY',
   'gemini-compatible': 'DSH_TAVERN_DAMPER_GEMINI_COMPAT_KEY',
   jev: 'DSH_TAVERN_DAMPER_JEV_KEY',
+  'jev-compatible': 'DSH_TAVERN_DAMPER_JEV_COMPAT_KEY',
   openai: 'DSH_TAVERN_DAMPER_OPENAI_KEY',
   'openai-compatible': 'DSH_TAVERN_DAMPER_COMPATIBLE_KEY'
 })
@@ -62,6 +64,7 @@ export function defaultNarrativeDamperConfig() {
 
 const CUSTOM_DAMPER_PATHS = {
   'gemini-compatible': '/v1beta/decisions',
+  'jev-compatible': '/v1/systemone',
   'openai-compatible': '/v1/decisions'
 }
 
@@ -179,7 +182,12 @@ export function damperEndpointUrl(config) {
   if (!Object.hasOwn(CUSTOM_DAMPER_PATHS, config.provider)) return fixedDamperUrl(config.provider)
   const { url } = parseCustomDamperUrl(config.baseUrl)
   if (!url) return ''
-  const prefix = url.pathname.replace(/\/+$/, '').replace(/\/v1(?:beta)?(?:\/(?:decisions|chat\/completions|responses))?$/, '')
+  const trimmedPath = url.pathname.replace(/\/+$/, '')
+  if (config.provider === 'jev-compatible' && /\/v1\/(?:systemone|decision)$/.test(trimmedPath)) {
+    url.pathname = trimmedPath
+    return url.href
+  }
+  const prefix = trimmedPath.replace(/\/v1(?:beta)?(?:\/(?:decisions|decision|systemone|chat\/completions|responses))?$/, '')
   url.pathname = prefix + CUSTOM_DAMPER_PATHS[config.provider]
   return url.href
 }
