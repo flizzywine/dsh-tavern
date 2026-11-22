@@ -25,7 +25,7 @@ const fields = Object.freeze({
   startPackDownload:['selection','url','useMirrorPrefix'], getPackDownload:['jobId'], controlPackDownload:['jobId','action'],
   getStageSetupStatus:['path','autoOpened'], mergeStageSetupPack:['path','expectedCardRevision','expectedLibraryRevision','selections','name','figure'],
   listPackSummaries:[], getPackSnapshot:['packId'],
-  listAutomaticWrites:['packId','cursor','limit'], reviewAutomaticWrite:['packId','expectedRevision','writeId'], undoAutomaticWrite:['packId','expectedRevision','writeId'],
+  listAutomaticWrites:['packId','cursor','limit'], reviewAutomaticWrite:['packId','expectedRevision','writeId'], undoAutomaticWrite:['packId','expectedRevision','writeId'], adoptAutomaticPack:['path','packId','expectedRevision'],
   savePackVoice:['figureId','packId','expectedRevision','voiceId','voiceSpec','confirmShared'], saveFigureVoiceBinding:['packId','figureId','expectedRevision','binding'], createAndAssignPackVoice:['packId','figureId','expectedRevision','voiceSpec'],
   savePackVoiceVariant:['figureId','packId','expectedRevision','voiceId','variantId','variant','confirmShared'],
   deletePackVoiceVariant:['figureId','packId','expectedRevision','voiceId','variantId','confirmShared'],

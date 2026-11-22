@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, writeFile } from 'node:fs/promises'
+import { access, mkdtemp, rm, unlink, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
@@ -10,8 +10,9 @@ import { createTransferHandlers } from '../tavern-plugin/lib/rpc/transfer.js'
 const CARD = JSON.stringify({ spec: 'chara_card_v3', data: { name: '作家', description: '写东西的人' } })
 
 // 一台手机等的太久会再点一次「确认导入」，服务端必须在同一个 token 上只跑一趟。
-async function environment(delayMs = 30) {
+async function environment(t, delayMs = 30) {
   const dir = await mkdtemp(path.join(os.tmpdir(), 'tavern-single-flight-'))
+  t.after(() => rm(dir, { recursive: true, force: true }))
   const cards = new Map()
   const writes = []
   const file = path.join(dir, 'bundle.dshtransfer')
@@ -24,7 +25,7 @@ async function environment(delayMs = 30) {
 
   const handlers = createTransferHandlers({
     dataRoot: path.join(dir, 'data'),
-    uploads: { async take() { return { file, size: Buffer.byteLength(CARD), remove: async () => {} } } },
+    uploads: { async take() { return { file, remove: () => unlink(file) } } },
     fileResources: {
       async list(kind) { return kind === 'card' ? [...cards.keys()] : [] },
       async readText(relative) { return cards.get(relative) },
@@ -64,13 +65,18 @@ async function environment(delayMs = 30) {
     assetLibrary: null,
     profileData: null
   })
-  return { handlers, writes, cards, dir }
+  return { handlers, writes, cards, file }
 }
 
-test('同一个 token 并发点两次：只导入一次，两次拿到同一份结果', async () => {
-  const env = await environment()
-  const preview = await env.handlers.previewTransferBundle({ uploadId: 'upload-1' })
+test('同一次上传重试复用预览，确认导入只执行一次，完成后清理上传文件', async t => {
+  const env = await environment(t)
+  const [preview, repeated] = await Promise.all([
+    env.handlers.previewTransferBundle({ uploadId: 'upload-1' }),
+    env.handlers.previewTransferBundle({ uploadId: 'upload-1' })
+  ])
   assert.ok(preview.token)
+  assert.deepEqual(repeated, preview)
+  await access(env.file)
 
   const [first, second] = await Promise.all([
     env.handlers.applyTransferBundle({ token: preview.token }),
@@ -79,6 +85,7 @@ test('同一个 token 并发点两次：只导入一次，两次拿到同一份�
   assert.equal(env.writes.length, 1, '第二下等第一下的结果，不再写一遍')
   assert.deepEqual(second.results, first.results)
   assert.deepEqual(env.cards.keys().next().value, 'cards/作家.json')
+  await assert.rejects(access(env.file), { code: 'ENOENT' })
 
   // 导入完成后回包丢了、用户又点一次：回放结果，不重做。
   const replayed = await env.handlers.applyTransferBundle({ token: preview.token })

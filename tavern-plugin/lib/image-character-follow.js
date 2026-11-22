@@ -8,7 +8,9 @@ import { appearanceMove, findFigureImageCharacter, identityPatchFromFigure, imag
 // figure's dsh.image-character extension with its 参考图, older single texts) moves into the record and out of the pack
 // (appearanceMove): the record is its one home. An update never overwrites the local 外貌 unless its preview chose 「用导入的外貌」 for the
 // figure: the asset library says so (adopt) before writing, and that figure's carried 外貌 then replaces the record's.
-export function followImageCharacters({ library, api, log = () => {} }) {
+// active(): false while the records hold the figures' identity (image-character-records.js, mode 'registry'): the pack
+// write itself then keeps the record, and the follower stays out.
+export function followImageCharacters({ library, api, active = async () => true, log = () => {} }) {
   const seen = new Map() // packId → {ids} at the last follow
   const adopting = new Map() // packId → figure ids whose next carried 外貌 replaces their record's
   const remember = (packId, figures) => seen.set(packId, { ids: new Set(figures.map(f => f.id)) })
@@ -18,6 +20,7 @@ export function followImageCharacters({ library, api, log = () => {} }) {
   let queue = listed().then(async packs => {
     const groups = Map.groupBy(figuresOf(packs), item => item.packId)
     for (const [packId, items] of groups) remember(packId, items.map(item => item.figure))
+    if (!await active()) return
     // a pack with a 人设图 or 服装设定图 that may not be its record's 参考图 yet (drawn or installed before this follow set them) is followed once
     for (const [packId, items] of groups) if (items.some(item => item.figure.identitySettei?.board || item.figure.outfits?.some(outfit => outfit.settei))) await follow(packId)
   }).catch(error => log('配图人物库跟随素材包失败：' + (error?.message || error)))
@@ -30,6 +33,7 @@ export function followImageCharacters({ library, api, log = () => {} }) {
     // an unreadable pack is not an empty one: its figures are not gone
     if (packs.some(pack => !pack.manifest && pack.packId === packId)) return
     if (current.length) remember(packId, current.map(item => item.figure)); else seen.delete(packId)
+    if (!await active()) return
     for (const figureId of before?.ids || []) if (!current.some(item => item.figure.id === figureId)) await release(packId, figureId)
     const moves = []
     for (const item of current) {

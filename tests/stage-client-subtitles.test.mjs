@@ -24,7 +24,7 @@ test('subtitle measurement listeners and queued callbacks stop at unmount',()=>{
  const clone={style:{},removeAttribute(){},setAttribute(){},remove(){}}
  const element={cloneNode:()=>clone,className:'text',clientWidth:0,getBoundingClientRect:()=>({width:0}),closest:()=>null}
  const React={useState:value=>[++state===1?element:value,()=>{}],useCallback:fn=>fn,useMemo:fn=>fn(),useRef:value=>({current:value}),useLayoutEffect:fn=>effects.push(fn)}
- const subtitles=createStageSubtitles({React,document:{createElement:()=>({style:{},append(){}}),fonts:{addEventListener:(k,fn)=>fontEvents.set(k,fn),removeEventListener:k=>fontEvents.delete(k)}},
+ const subtitles=createStageSubtitles({React,document:{createElement:()=>({style:{},append(){}}),createTextNode:data=>({data}),fonts:{addEventListener:(k,fn)=>fontEvents.set(k,fn),removeEventListener:k=>fontEvents.delete(k)}},
  window:{addEventListener:(k,fn)=>events.set(k,fn),removeEventListener:k=>events.delete(k)},
  foreground:{requestAnimationFrame:()=>++frames,cancelAnimationFrame(){}},fonts:{subscribe:fn=>{fontCallback=fn;return ()=>{}}},
  ResizeObserver:class {constructor(fn){resizeCallback=fn}observe(){}disconnect(){}}})

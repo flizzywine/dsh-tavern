@@ -1,7 +1,7 @@
 // Bounded structural validation, not full compressed-media decoding.
 import { inflateSync, crc32 } from 'node:zlib'
 import { check } from '../asset-packs/common.js'
-export const MEDIA_PURPOSE_LIMITS = Object.freeze({icon:512*1024,image:6*1024**2,background:4*1024**2,audio:60*1024**2})
+export const MEDIA_PURPOSE_LIMITS = Object.freeze({icon:512*1024,image:12*1024**2,background:8*1024**2,audio:96*1024**2})
 export const STAGE_IMAGE_MAX_BYTES = MEDIA_PURPOSE_LIMITS.image
 export function imageKind(bytes) {
   if (bytes.length >= 16 && bytes.toString('ascii', 0, 4) === 'RIFF' && bytes.toString('ascii', 8, 12) === 'WEBP') return 'webp'
@@ -199,7 +199,7 @@ function m4aInfo(bytes) {
 export async function decodeMedia(input, descriptor) {
   const bytes = Buffer.from(input), ext = imageKind(bytes) || audioKind(bytes), image = ['png','webp','jpeg'].includes(ext)
   check(ext && ext === descriptor.ext && bytes.length === descriptor.size, '$.media', 'Media signature mismatch')
-  check(bytes.length <= (image ? 6 : 60) * 1024 ** 2, '$.media', 'Media byte limit', 'LIMIT_EXCEEDED')
+  check(bytes.length <= (image ? MEDIA_PURPOSE_LIMITS.image : MEDIA_PURPOSE_LIMITS.audio), '$.media', 'Media byte limit', 'LIMIT_EXCEEDED')
   if (image) {
     const [width, height] = imageDimensions(bytes, ext)
     check(width > 0 && height > 0 && width <= 8192 && height <= 8192 && width * height <= 32 * 1024 ** 2, '$.media', 'Image dimension limit', 'LIMIT_EXCEEDED')

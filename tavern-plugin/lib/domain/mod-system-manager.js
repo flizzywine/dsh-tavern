@@ -15,7 +15,7 @@ const option=(id,label)=>({id,label})
 
 // The original installation/card/settings owners retain persistence and CAS authority.
 // Installation owner: read() => {revision,releases,locks}; compareAndSwap({expectedRevision,expectedValue,value}).
-export function createManagedModManager({installations,cards,settings,authorize,withLock,validateReferences=async()=>{},readOptionMedia=async()=>({}),readSkin=async()=>null,resolveOptionConfig=(manifest,f)=>resolveConfig(manifest,f.choices.global,f.choices.card,{skin:f.skin?.document?.mods?.[manifest.id],assetAvailable:key=>Object.hasOwn(f.skin?.document?.assets || {},key)}),onChange=()=>{}}) {
+export function createManagedModManager({installations,cards,settings,authorize,withLock,uploads,validateReferences=async()=>{},readOptionMedia=async()=>({}),readSkin=async()=>null,resolveOptionConfig=(manifest,f)=>resolveConfig(manifest,f.choices.global,f.choices.card,{skin:f.skin?.document?.mods?.[manifest.id],assetAvailable:key=>Object.hasOwn(f.skin?.document?.assets || {},key)}),onChange=()=>{}}) {
   const plans=new Map()
   async function frame(cardId,sessionId) {
     const [installation,global,card,skin]=await Promise.all([installations.read(),settings.read(),cardId?cards.read({cardId}):null,readSkin({cardId,sessionId})])
@@ -206,11 +206,18 @@ export function createManagedModManager({installations,cards,settings,authorize,
       const owner=await authorize({method,args,authority})
       if(!owner)fail('MOD_PERMISSION_DENIED','Authenticated application access is required')
       if(method==='managedModInspect')return withLock(async()=>{
-        const encoded=args.bytesBase64
-        if(typeof encoded!=='string' || !encoded.length || encoded.length>64*1024**2)fail('MOD_INVALID','Choose a .dshmod file of at most 48 MiB')
-        const bytes=Buffer.from(encoded,'base64')
-        if(bytes.toString('base64')!==encoded)fail('MOD_INVALID','Invalid base64 package bytes')
-        const release=await installations.inspect(bytes)
+        let release
+        if(args.uploadId && uploads) {
+          const upload=await uploads.take(args.uploadId)
+          try {release=await installations.inspectFile(upload.file)}
+          finally {await upload.remove()}
+        } else {
+          const encoded=args.bytesBase64
+          if(typeof encoded!=='string' || !encoded.length || encoded.length>64*1024**2)fail('MOD_INVALID','Choose a .dshmod file of at most 48 MiB')
+          const bytes=Buffer.from(encoded,'base64')
+          if(bytes.toString('base64')!==encoded)fail('MOD_INVALID','Invalid base64 package bytes')
+          release=await installations.inspect(bytes)
+        }
         return installationPlan({action:'install',...release,...(args.cardId?{cardId:args.cardId}:{})},owner)
       })
       if(method==='managedModSwitchPlan')return switchPlan(args,owner)

@@ -267,7 +267,10 @@ function GalStage(props) {
     const partsMap = React.useMemo(() => new Map([...runtime.textIndex.values()].flatMap(row => (row.unloaded ? [{scope:'unloaded:' + row.turn,turn:row.turn,segments:[],unloaded:true}] : row.parts).map(part => [part.scope, part]))), [runtime.textIndex]);
     const config = props.data && props.data.config || { characters: [] };
     const [, redraw] = React.useState(0);
-    React.useEffect(() => voicePlayer.subscribe(() => redraw(n => n + 1)), []);
+    // The voice player notifies on every clip it prepares, fails or retires for any line; the stage draws again only
+    // when what it shows of the line on screen changes (galVoiceView, kept below once the line is known).
+    const voiceSeen = React.useRef({voice:null,view:''});
+    React.useEffect(() => voicePlayer.subscribe(() => { if (galVoiceView(voicePlayer, voiceSeen.current.voice) !== voiceSeen.current.view) redraw(n => n + 1); }), []);
     const grouped = React.useMemo(() => stageViews.position.turnIndex(partsMap ? Array.from(partsMap.values()) : []), [partsMap]);
     const turns = Array.from(runtime.textIndex.keys()).sort((a, b) => a - b);
     const latestTurn = runtime.latestSource?.turn || turns[turns.length - 1] || 0;
@@ -1088,6 +1091,7 @@ function GalStage(props) {
     const phoneCall = typeof phoneModCall === 'object' && phoneModCall ? phoneModCall : null;
     const phoneCallKey = React.useSyncExternalStore((phoneCall || GAL_NO_PHONE_CALL).subscribe, (phoneCall || GAL_NO_PHONE_CALL).stage);
     const phoneVoice = phoneCallKey ? phoneCall.speaking() : null, callAudio = phoneVoice?.audio || null;
+    voiceSeen.current = {voice, view:galVoiceView(voicePlayer, voice)};
     const voiceError = (playingHere ? player.error : null) || voicePlayer.getError(voice);
     const voiceState = voiceError ? "error" : playingHere ? (player.audio ? (player.audio.paused ? "paused" : "playing") : "loading") : voice ? "ready" : "";
     // The top-right voice line (notices.cjs useVoiceStatus): her reply on a call, else the line on screen (silent under SKIP).
@@ -1506,7 +1510,7 @@ function GalStage(props) {
             transitioning ? h("div", { className: "fork-gal-transition-label" }, "你 · 第 " + turns[turnIndex + 1] + " 轮") : null,
             h("div", { ref: textRef, className: "fork-gal-text", "aria-live": phoneLine ? "off" : "polite", 'data-fk-open': openBlock ? "" : undefined, style: openBlock ? { "--fk-page-block": openBlock + "px" } : undefined },
                 phoneLine && boxLine ? h(GalTypewriter, { key: "held:" + boxPageKey, text: heldText, speed: reading.textSpeed, skin: activeSkin, instant: true, reducedMotion:reading.reducedMotion,photosensitive:reading.photosensitive }) : null,
-                current ? h(phoneLine ? "span" : React.Fragment, phoneLine ? { className: "fork-gal-phone-reader", "aria-hidden": true } : null, h(narrationLines ? GalNarrationLines : GalTypewriter, { key: sessionId + ":" + readTurn + ":" + page + ":" + card + (transitioning ? ":transition:" + inputCard : ""), text: shownText, marks: boxMarks, lines: narrationLines, speed: reading.textSpeed, skin: activeSkin, instant: typed || skipping, hold: handoff.holding || beatHeld || cgHeld, pending: current.pending && lastCard, movable,reducedMotion:reading.reducedMotion,photosensitive:reading.photosensitive,
+                current ? h(phoneLine ? "span" : React.Fragment, phoneLine ? { className: "fork-gal-phone-reader", "aria-hidden": true } : null, h(narrationLines ? GalNarrationLines : GalTypewriter, { key: sessionId + ":" + readTurn + ":" + page + ":" + card + (transitioning ? ":transition:" + inputCard : ""), text: shownText, marks: boxMarks, lines: narrationLines, speed: reading.textSpeed, skin: activeSkin, instant: typed || skipping, hold: handoff.holding || beatHeld || cgHeld, pending: current.pending && lastCard, movable,reducedMotion:reading.reducedMotion,photosensitive:reading.photosensitive,glyphFade:quality === "high",
                     visibleKey:sourceWidget.readingKey,onVisible:value=>sourceWidget.onVisible(Array.from(current.text).slice(0,subtitles.cards[card]?.start || 0).join('') + value.slice(Math.max(0,shownText.indexOf(subtitles.text)),Math.max(0,shownText.indexOf(subtitles.text))+subtitles.text.length)),
                     onReveal:ordinal=>performanceLayer.cue({cueId:'type',ordinal:[page,card,ordinal]}), onDone: () => setTyped(true) }))
                     : h("span", { className: "stage-waiting" }, streaming || leasing ? "……" : "还没有正文"),
@@ -1658,6 +1662,12 @@ function galCallVoice(call) {
     const state = call?.get?.(), voice = state?.voice;
     if (!voice || voice.state === 'loading' && state.status !== 'thinking') return '';
     return JSON.stringify({key:['phone-call', voice.turn], state:voice.state, failed:voice.failed === true});
+}
+// What the stage shows of the voice player for the line on screen, as a string: the clip playing (whose, loaded,
+// paused, failed) and the line's own failure.
+function galVoiceView(player, voice) {
+    const now = player.get(), audio = now?.audio;
+    return JSON.stringify([now?.owner ?? null, now?.id ?? null, Boolean(audio), Boolean(audio?.paused), now?.error ?? null, voice ? player.getError(voice) ?? null : null]);
 }
 function useGalFirstRunHints(...args) { return stageViews.hints.useHints(...args); }
 // The text box's wait names it (its aria-label); the default one shows the rotating wait lines (wait-lines.js).

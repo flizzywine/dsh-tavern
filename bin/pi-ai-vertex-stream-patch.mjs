@@ -1,6 +1,7 @@
 import { readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import {
+  discoverVertexProject,
   normalizeVertexProject,
   patchPiAiGoogleSharedSource,
   patchPiAiGoogleVertexModelsJson,
@@ -8,6 +9,8 @@ import {
   vertexGlobalBaseUrl,
   vertexProjectFromBaseUrl,
 } from '../tavern-plugin/lib/domain/pi-ai-vertex-stream.js'
+
+export { discoverVertexProject }
 
 /**
  * The project a Vertex route points at, from the places the host already records it.
@@ -83,35 +86,6 @@ export function vertexApiKeyFrom({ env = process.env, credentialsText = '' } = {
     if (value) return value
   }
   return null
-}
-
-/**
- * The project behind an API key, read from Vertex's own answer: a key issued for a region
- * addresses `v1/publishers/google/models/<id>`, and the resulting 404 names the project it
- * resolved to (`projects/<project>/locations/<region>`). That is the only place a
- * key-only install can learn its project, and the catalog needs one to spell out
- * `locations/global`, which Gemini 3/4 live at exclusively.
- * @returns the project, or null when the request fails or answers nothing project-shaped.
- */
-export async function discoverVertexProject({ apiKey, model = 'gemini-4-carbon', request = fetch, timeoutMs = 8000 } = {}) {
-  const key = typeof apiKey === 'string' ? apiKey.trim() : ''
-  if (!key) return null
-  const url = `https://aiplatform.googleapis.com/v1/publishers/google/models/${encodeURIComponent(model)}:generateContent`
-  try {
-    const response = await request(url, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-goog-api-key': key },
-      body: JSON.stringify({ contents: [{ role: 'user', parts: [{ text: 'ping' }] }], generationConfig: { maxOutputTokens: 1 } }),
-      signal: AbortSignal.timeout(timeoutMs),
-    })
-    const text = await response.text()
-    // The 404 quotes the resolved resource name between backticks or slashes, so the
-    // project is matched with or without a leading separator.
-    const match = text.match(/(?:^|[^A-Za-z0-9])projects\/([A-Za-z0-9.:-]+)\/locations\//)
-    return match ? normalizeVertexProject(match[1]) : null
-  } catch {
-    return null
-  }
 }
 
 /**

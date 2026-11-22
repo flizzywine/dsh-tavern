@@ -3,6 +3,7 @@ import {openInterfaceSkins} from './fixtures/interface-skin-browser.mjs'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { openTavernSettings } from './fixtures/tavern-settings-browser.mjs'
+import { applyTavernSettingsPatch, presentTavernSettings } from '../tavern-plugin/lib/domain/tavern-settings.js'
 
 function fixture() {
   let fail = false
@@ -39,11 +40,41 @@ test('状态栏位置是全局显示偏好，保存后通知现有对局刷新',
   assert.equal(await page.evaluate(() => window.__statusSettingsChanged), 1)
 })
 
+test('候选项点击方式由全局设置保存，重新打开仍然生效', async t => {
+  let document = { candidateDismissMode: 'after-fill' }
+  const respond = (method, args) => {
+    if (method === 'getTavernSettings') return { settings: presentTavernSettings(document, {}) }
+    if (method === 'updateTavernSettings') {
+      document = applyTavernSettingsPatch(document, args.patch)
+      return { settings: presentTavernSettings(document, {}) }
+    }
+  }
+
+  const { page, calls } = await openTavernSettings(t, { respond })
+  const candidates = page.getByRole('region', { name: '候选项', exact: true })
+  const mode = candidates.locator('button[aria-label^="点击候选项："]')
+  const dismiss = candidates.getByRole('button', { name: '候选项收起时机：选择一项后即隐藏' })
+  await dismiss.waitFor()
+  assert.equal(await mode.getAttribute('aria-label'), '点击候选项：填入输入框')
+  await mode.click()
+  await page.getByRole('menuitemradio', { name: '直接发送' }).click()
+  await candidates.getByRole('status').getByText('已保存').waitFor()
+  assert.equal(await mode.getAttribute('aria-label'), '点击候选项：直接发送')
+  assert.deepEqual(calls.find(call => call.method === 'updateTavernSettings').args.patch, { candidatePickMode: 'send' })
+  assert.equal(await dismiss.count(), 0)
+
+  const { page: reopened } = await openTavernSettings(t, { respond })
+  await reopened.getByRole('button', { name: '点击候选项：直接发送' }).click()
+  await reopened.getByRole('menuitemradio', { name: '填入输入框' }).click()
+  await reopened.getByRole('button', { name: '候选项收起时机：选择一项后即隐藏' }).waitFor()
+  assert.deepEqual(document, { candidateDismissMode: 'after-fill', candidatePickMode: 'fill' })
+})
+
 // 对话气泡 / 舞台模式 are switched only in 舞台设置 › 基础设置 (four-state); the generation templates and their cost
 // are not shown in the app.
-test('设置 › 舞台：没有基础设置和素材生图两组', async t => {
-  const { page, calls } = await openTavernSettings(t, { section: 'dsh-tavern: stage settings section', stageClient: true, respond(method) {
-    if (method === 'getStageRuntimeStatus') return { enabled: true, status: 'ready' }
+test('舞台配置页没有卡片的基础设置和素材生图', async t => {
+  const { page, calls } = await openTavernSettings(t, { section: 'dsh-tavern: stage config tab', stageClient: true, respond(method) {
+    if (method === 'prepareStageWorkbench') return { installed: true, status: 'ready' }
     if (method === 'getTavernSettings') return { settings: {}, modelCatalog: [], modModelSlots: [] }
   } })
   await page.locator('section[aria-label="舞台模型"]').waitFor()
@@ -122,14 +153,16 @@ test('全局皮肤覆盖大 PR 视觉变量，移除插件后回到基础样式'
 })
 
 
-test('恢复剧情自动候选开关，只保存对应配置', async t => {
+test('精修留在开局默认功能区，正文生成有独立分组', async t => {
   const backend = fixture()
   const {page, calls} = await openTavernSettings(t, {respond:backend.respond})
-  const toggle = page.getByRole('switch', {name:'自动生成候选项', exact:true})
-  await toggle.waitFor()
-  await toggle.press('Space')
-  await page.waitForFunction(() => document.querySelector('[role="switch"][aria-label="自动生成候选项"]')?.checked === true)
-  assert.deepEqual(calls.filter(call=>call.method==='updateTavernSettings').at(-1).args.patch, {candidateAutoGenerate:true})
+  const features = page.getByRole('region', {name:'开局默认', exact:true}).getByRole('region', {name:'功能', exact:true})
+  const polish = features.getByRole('switch', { name: '启用精修', exact: true })
+  await polish.press('Space')
+  await features.getByRole('switch', { name: '启用精修', exact: true, checked: true }).waitFor()
+  assert.deepEqual(calls.filter(call => call.method === 'updateTavernSettings').at(-1).args.patch, { polishEnabled: true })
+  await page.getByRole('region', {name:'正文生成', exact:true}).getByRole('switch', {name:'插件生成正文后仍应用宿主正则', exact:true}).waitFor()
+  assert.equal(await page.getByRole('region', {name:'剧情', exact:true}).count(),0)
   assert.equal(await page.getByRole('heading', {name:'插件', exact:true}).count(),0)
   assert.equal(await page.getByRole('heading', {name:'运行库', exact:true}).count(),0)
 })
@@ -141,14 +174,14 @@ test('酒馆插件恢复为独立设置页，加载原有插件列表', async t 
   assert.ok(calls.some(call=>call.method==='listUserPlugins'))
 })
 
-// The stage's slots and its mods' (手机 › 通话模型) are on 设置 › 舞台; 设置 › DSH Tavern shows the core's own.
-test('舞台模型与模组的模型只在舞台设置展示，保存沿用原有模型槽', async t => {
+// Stage and mod model slots live in 舞台配置. 设置 › DSH Tavern shows the core's own.
+test('舞台模型与模组的模型只在舞台配置展示，保存沿用原有模型槽', async t => {
   let settings = {defaultPlaySettings:{playerName:'你',backgroundTasks:{}},modModels:{'dsh.stage':{director:{provider:'p',model:'saved'}}}}
   const slots = [{modId:'dsh.stage',modName:'舞台',id:'director',label:'导演模型',fallback:'foreground',owner:'dsh-tavern-stage'},
     {modId:'dsh.phone',modName:'手机',id:'call',label:'通话模型',fallback:'foreground',owner:'dsh-tavern-stage-mods'}]
   const respond = (method,args) => {
     if (method === 'getBackgroundModelReasoning') return {reasoning:{efforts:[]}}
-    if (method === 'getStageRuntimeStatus') return {enabled:true,status:'ready'}
+    if (method === 'prepareStageWorkbench') return {installed:true,status:'ready'}
     if (method === 'getTavernSettings') return {settings, modelCatalog:[{provider:'p',models:[{id:'saved'},{id:'next'}]}], modModelSlots:slots}
     if (method === 'updateTavernSettings') {
       const value=args.patch.modModelSelection
@@ -159,8 +192,7 @@ test('舞台模型与模组的模型只在舞台设置展示，保存沿用原�
   const general = await openTavernSettings(t,{respond})
   await general.page.locator('button[aria-label^="默认前台模型："]').waitFor()
   assert.equal(await general.page.locator('button[aria-label^="导演模型："], button[aria-label^="通话模型："]').count(),0)
-  // 设置 › 舞台 is the stage package's page, loaded by the page's hold (stage-client-loader.cjs)
-  const stage = await openTavernSettings(t,{respond,section:'dsh-tavern: stage settings section',stageClient:true})
+  const stage = await openTavernSettings(t,{respond,section:'dsh-tavern: stage config tab',stageClient:true})
   await stage.page.locator('button[aria-label^="导演模型："]').waitFor()
   await stage.page.locator('section[aria-label="舞台模型"] button[aria-label="通话模型：跟随前台"]').waitFor()
   assert.equal(await stage.page.getByRole('button',{name:'停用',exact:true}).count(),0)
@@ -172,22 +204,19 @@ test('舞台模型与模组的模型只在舞台设置展示，保存沿用原�
   assert.equal(settings.modModels['dsh.stage'].director.model,'next')
 })
 
-test('舞台设置可以只加载本次运行而不改启动偏好', async t => {
-  let runtime = { installed: true, loadOnStartup: true, enabled: false, status: 'disabled' }
-  const {page, calls} = await openTavernSettings(t, {section:'dsh-tavern: stage settings section', respond(method, args) {
-    if (method === 'getStageRuntimeStatus') return runtime
-    if (method === 'setStageLoadOnStartup') return runtime = {...runtime, loadOnStartup:args.enabled}
-    if (method === 'setStageEnabled') return runtime = {...runtime, enabled:args.enabled, status:'ready'}
+test('从侧栏按需打开舞台配置，页面没有全局启动开关', async t => {
+  const {page, calls} = await openTavernSettings(t, {sidebarStart:true, stageClient:true, respond(method) {
+    if (method === 'cardPluginScopes') return {scopes:{}}
+    if (method === 'prepareStageWorkbench') return {installed:true,status:'ready'}
   }})
-  const startup = page.getByRole('switch', {name:'启动时加载舞台'})
-  await startup.press('Space')
-  await page.waitForFunction(() => document.querySelector('[role="switch"][aria-label="启动时加载舞台"]')?.checked === false)
-  const load = page.getByRole('button', {name:'本次加载舞台'})
-  await load.click()
-  await load.waitFor({state:'hidden'})
-  assert.equal(await startup.isChecked(),false)
-  assert.deepEqual(calls.filter(row => row.method.startsWith('setStage')).map(row => [row.method, row.args.enabled]),
-    [['setStageLoadOnStartup', false], ['setStageEnabled', true]])
+  const group = page.getByRole('region', {name:'舞台装置'})
+  await group.getByRole('button', {name:'舞台素材', exact:true}).waitFor()
+  assert.equal(calls.some(row => row.method === 'prepareStageWorkbench'), false)
+  await group.getByRole('button', {name:'舞台配置', exact:true}).click()
+  await page.getByRole('heading', {name:'舞台模型', exact:true}).waitFor()
+  await page.getByRole('heading', {name:'舞台模组', exact:true}).waitFor()
+  assert.equal(await page.getByRole('switch', {name:'启动时加载舞台'}).count(), 0)
+  assert.equal(await page.getByRole('button', {name:'本次加载舞台'}).count(), 0)
 })
 
 // 内置插件（随酒馆发行、装在 plugins/ 里的那几个）照样列出来：可停用、随酒馆更新、不可删除。
@@ -224,19 +253,30 @@ test('开局默认功能区包含“后台任务附加预设”开关，默认�
   )
 })
 
-test('候选项数量位于开局默认，默认大量，并保存到新局模板', async t => {
+test('候选项生成集中在独立分组，各项仍按原有范围保存', async t => {
   const backend = fixture()
   const {page, calls} = await openTavernSettings(t, {respond:backend.respond})
-  const defaults = page.getByRole('region', { name: '开局默认' })
-  const menu = defaults.locator('button[aria-label^="候选项数量："]')
-  await defaults.locator('button[aria-label="候选项数量：大量候选"]:enabled').waitFor()
-  assert.equal(await page.getByRole('region', { name: '高级' }).locator('button[aria-label^="候选项数量："]').count(), 0)
-  await menu.click()
-  await page.getByRole('menuitemradio', { name: '少量候选' }).click()
-  await defaults.locator('button[aria-label="候选项数量：少量候选"]:enabled').waitFor()
-  assert.deepEqual(calls.filter(call=>call.method==='updateTavernSettings').at(-1).args.patch, { defaultPlaySettings: { candidateTabs: false } })
+  const candidates = page.getByRole('region', { name: '候选项', exact: true })
+  const defaults = page.getByRole('region', { name: '开局默认', exact: true })
+  for (const [name, patch] of [
+    ['自动生成候选项', { candidateAutoGenerate: true }],
+    ['前台生成候选项', { defaultPlaySettings: { backgroundTasks: { foregroundCandidates: true } } }],
+  ]) {
+    await candidates.getByRole('switch', { name, exact: true }).press('Space')
+    await candidates.getByRole('switch', { name, exact: true, checked: true }).waitFor()
+    assert.deepEqual(calls.filter(call => call.method === 'updateTavernSettings').at(-1).args.patch, patch)
+    assert.equal(await defaults.getByRole('switch', { name, exact: true }).count(), 0)
+  }
+
+  const menu = candidates.locator('button[aria-label^="候选项数量："]')
+  await candidates.locator('button[aria-label="候选项数量：少量候选"]:enabled').waitFor()
+  assert.equal(await defaults.locator('button[aria-label^="候选项数量："]').count(), 0)
   await menu.click()
   await page.getByRole('menuitemradio', { name: '大量候选' }).click()
-  await defaults.locator('button[aria-label="候选项数量：大量候选"]:enabled').waitFor()
+  await candidates.locator('button[aria-label="候选项数量：大量候选"]:enabled').waitFor()
   assert.deepEqual(calls.filter(call=>call.method==='updateTavernSettings').at(-1).args.patch, { defaultPlaySettings: { candidateTabs: true } })
+  await menu.click()
+  await page.getByRole('menuitemradio', { name: '少量候选' }).click()
+  await candidates.locator('button[aria-label="候选项数量：少量候选"]:enabled').waitFor()
+  assert.deepEqual(calls.filter(call=>call.method==='updateTavernSettings').at(-1).args.patch, { defaultPlaySettings: { candidateTabs: false } })
 })

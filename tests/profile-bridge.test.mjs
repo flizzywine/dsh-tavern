@@ -36,10 +36,24 @@ test('统一启动器从 NEXT 宿主读取活动 Profile，拒绝目录链接切
  const r = fixture(t)
  const profile = { home: r.profilesRoot, dir: r.targetDir, name: 'tavern' }
  let handle
+ const routes = []
  apply({
    get: name => ({ profileContext: profile, desktopProfiles: { current: profile } })[name],
    connection: { rpc: { handle: (channel, handler) => { assert.equal(channel, '/profile-bridge'); handle = handler } } },
-   effect() {},
+   webServer: { register: route => routes.push(route) },
+   effect: register => register(),
+ })
+ assert.equal(routes.length, 1)
+ assert.equal(routes[0].kind, 'exact')
+ assert.equal(routes[0].path, '/profile-bridge/logo.png')
+ routes[0].handler({ method: 'GET' }, {
+   writeHead(code, headers) {
+     assert.equal(code, 200)
+     assert.equal(headers['content-type'], 'image/png')
+   },
+   end(body) {
+     assert.deepEqual(body, readFileSync(new URL('../tavern-plugin/packages/dsh-tavern/assets/dsh-tavern-app-icon-192.png', import.meta.url)))
+   },
  })
  const status = await handle('status')
  assert.equal(status.value.host, 'next')

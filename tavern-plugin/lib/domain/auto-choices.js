@@ -19,7 +19,7 @@ function identity(chat) {
 const playModes = ['story', 'script']
 
 // `enabled(chat)`: 自动生成候选项 in effect for the chat (the one global switch, 设置 › DSH Tavern › 剧情).
-export function createAutoChoices({ read, enabled: enabledFor, activity, submit,
+export function createAutoChoices({ read, enabled: enabledFor, canRun, activity, submit,
   defer = callback => setTimeout(callback, 1000), clear = clearTimeout, report = console.error }) {
   const pending = new Map()
   const seen = new Set()
@@ -82,6 +82,9 @@ export function createAutoChoices({ read, enabled: enabledFor, activity, submit,
 
   async function completed({ sessionId, messageId, turn, reason }) {
     if (disposed || !messageId || !['completed', 'max-tokens'].includes(reason)) return
+    if (typeof canRun === 'function') {
+      try { if (await canRun() !== true) return } catch { return }
+    }
     const key = JSON.stringify([sessionId, messageId])
     if (seen.has(key)) return
     seen.add(key)

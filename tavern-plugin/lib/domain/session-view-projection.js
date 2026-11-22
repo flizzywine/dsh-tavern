@@ -136,6 +136,9 @@ export function createSessionViewProjection({
     const deferResources = options.deferResources === true && chat.mode !== 'card'
       && Number.isSafeInteger(resourceRevision) && !!chat.cardDefinitionSnapshot
       && chat.openingWorldbookSnapshot?.version === 1
+    // Decide presentation before starting work that may use the card's stage services.
+    const stageMode = ['story', 'script'].includes(chat.mode || 'story') && str(chat.cardPath) !== ''
+      ? await requestPerformance.stage('cardStageMode', () => readCardStageMode(chat.cardPath)) : NO_STAGE
 
     if (!options.openingWindow) scheduleTemplateSync(chat)
     else void warmCandidates(chat.sessionId)
@@ -167,10 +170,6 @@ export function createSessionViewProjection({
       ? await cardUpdateStatus(chat, { card, fresh: options.freshSnapshot === true, busy: activity.busy || ['pending', 'running', 'waiting-runtime'].includes(chat.settleStatus)
         || (!storyTranscriptRead && agentRegistry.get(chat.sessionId)?.phase?.kind === 'running'), settings: runtimeSettings })
       : { available: false }
-    // Dialogue bubbles / stage mode in effect for this card (card-stage-settings.js effectiveCardStage, decided by the host):
-    // the client loads and asks the stage only when one is on, and never recomputes it.
-    const stageMode = ['story', 'script'].includes(chat.mode || 'story') && str(chat.cardPath) !== ''
-      ? await requestPerformance.stage('cardStageMode', () => readCardStageMode(chat.cardPath)) : NO_STAGE
     // A disabled stage has no stage HTML to project. In particular, do not reread and
     // parse the whole card merely to discover markup that cannot be displayed.
     const cardStage = (stageMode.dialogue === true || stageMode.stage === true) && str(chat.cardPath) !== ''
@@ -268,7 +267,7 @@ export function createSessionViewProjection({
       // tavernStatusView duplicated tavernStatusViews[0] in every read; clients use the list.
       tavernStatusViews: replyDisplay.statusViews || [],
       cardStage,
-      stage: {dialogue: stageMode.dialogue === true, stage: stageMode.stage === true},
+      stage: {dialogue: stageMode.dialogue === true, stage: stageMode.stage === true, isStageCard: stageMode.isStageCard === true},
       mvuVisibility: cardExtensions.mvuVisibility || null,
       mvuReceipts: mvuReceiptsOf(chat),
       // Replies whose text is a 精修 (manual or automatic), by turn, for the small mark under them;

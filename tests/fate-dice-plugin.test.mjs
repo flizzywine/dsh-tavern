@@ -54,7 +54,7 @@ test('内置命运之骰插件包 client.js 与源码保持同步', async () => 
   assert.equal(res.changed, false)
 })
 
-test('命运之骰标题旁的滑块在两个页签均可开启和关闭功能', async () => {
+test('命运之骰标题旁的滑块按会话独立开启关闭，在两个页签与多会话切换间各自记忆', async () => {
   const clientCode = await readFile(new URL('client.js', PACKAGE_ROOT), 'utf8')
   let mod
   let hook = 0
@@ -73,7 +73,7 @@ test('命运之骰标题旁的滑块在两个页签均可开启和关闭功能',
     },
     useEffect(effect) { mountPanel = effect },
   }
-  vm.runInNewContext(clientCode, { console: quiet, window: { __ModuleLoader__: {
+  vm.runInNewContext(clientCode, { console: quiet, setTimeout, clearTimeout, window: { __ModuleLoader__: {
     load({ factory }) { mod = factory(() => react) },
   } } })
   const registrations = new Set()
@@ -83,26 +83,52 @@ test('命运之骰标题旁的滑块在两个页签均可开启和关闭功能',
     return () => registrations.delete(id)
   }
   const cleanups = []
-  let settings = { enabled: false }
+  const enabledByGame = new Map()
+  let globalSettings = { enabled: false, animation: 'atelier' }
   const ui = {
     registerPanel: () => register('panel'),
     registerMediaRenderer: () => register('capsule'),
     registerTurnView: () => register('turn-view'),
     registerStatusSection: () => register('status'),
-    async callHost(name, payload) {
-      if (name === 'fate-dice:status' || name === 'fate-dice:workbench') return { settings }
-      assert.equal(name, 'fate-dice:save-global-settings')
-      settings = payload.settings
-      return { ok: true, settings }
+    async callHost(name, payload = {}) {
+      if (name === 'fate-dice:status' || name === 'fate-dice:workbench') {
+        const gid = payload.gameId || ''
+        const enabled = gid && enabledByGame.has(gid) ? enabledByGame.get(gid) : globalSettings.enabled
+        return {
+          gameId: gid || null,
+          settings: { ...globalSettings, enabled },
+          globalSettings: { ...globalSettings },
+          binding: { enabled, autoCheck: true }
+        }
+      }
+      if (name === 'fate-dice:save-binding') {
+        assert.ok(payload.gameId, '保存会话开关必须携带 gameId')
+        assert.equal(typeof payload.binding?.enabled, 'boolean')
+        enabledByGame.set(payload.gameId, payload.binding.enabled)
+        return {
+          ok: true,
+          gameId: payload.gameId,
+          enabled: payload.binding.enabled,
+          settings: { ...globalSettings, enabled: payload.binding.enabled }
+        }
+      }
+      if (name === 'fate-dice:save-global-settings') {
+        assert.equal(Object.prototype.hasOwnProperty.call(payload.settings || {}, 'enabled'), false, '修改全局参数不应携带会话 enabled')
+        globalSettings = { ...globalSettings, ...(payload.settings || {}) }
+        return { ok: true, settings: { ...globalSettings } }
+      }
+      throw new Error(`未预期的 RPC: ${name}`)
     },
   }
   mod.apply({ tavernUi: ui, effect: setup => cleanups.push(setup()) })
   await new Promise(resolve => setImmediate(resolve))
   assert.deepEqual([...registrations], ['panel'])
 
-  const renderPanel = () => {
+  let activeGameId = 'g1'
+  const renderPanel = (gameId = activeGameId) => {
+    activeGameId = gameId
     hook = 0
-    const tree = mod.WorkbenchPanel({ ui, gameId: 'g1' })
+    const tree = mod.WorkbenchPanel({ ui, gameId })
     const [header, tabBar] = tree.children[0].children
     assert.match(header.children[0].children[0], /命运之骰/)
     const slider = header.children[1].children[0]
@@ -111,29 +137,112 @@ test('命运之骰标题旁的滑块在两个页签均可开启和关闭功能',
     assert.equal(toggle['aria-label'], '启用命运之骰')
     return { toggle, tabs: tabBar.children[0] }
   }
-  assert.equal(renderPanel().toggle.disabled, true)
-  const unmountPanel = mountPanel()
+  assert.equal(renderPanel('g1').toggle.disabled, true)
+  let unmountPanel = mountPanel()
   await new Promise(resolve => setImmediate(resolve))
-  const checks = renderPanel()
+  const checks = renderPanel('g1')
   assert.equal(checks.tabs[0].props['aria-selected'], 'true')
   assert.equal(checks.toggle.disabled, false)
   assert.equal(checks.toggle['aria-checked'], 'false')
   await checks.toggle.onClick()
+  assert.equal(enabledByGame.get('g1'), true)
+  assert.equal(globalSettings.enabled, false, '开启 g1 不应污染全局 enabled')
+  assert.deepEqual([...registrations], ['panel', 'capsule', 'turn-view', 'status'])
+
+  // 切换到未开启的会话 g2：自动卸载启用视图，开关保持关闭
+  unmountPanel()
+  renderPanel('g2')
+  unmountPanel = mountPanel()
+  await new Promise(resolve => setImmediate(resolve))
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(renderPanel('g2').toggle['aria-checked'], 'false')
+  assert.deepEqual([...registrations], ['panel'])
+
+  // 切回 g1：恢复开启状态并重新挂载视图
+  unmountPanel()
+  renderPanel('g1')
+  unmountPanel = mountPanel()
+  await new Promise(resolve => setImmediate(resolve))
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(renderPanel('g1').toggle['aria-checked'], 'true')
   assert.deepEqual([...registrations], ['panel', 'capsule', 'turn-view', 'status'])
 
   checks.tabs[1].props.onClick()
-  const config = renderPanel()
+  const config = renderPanel('g1')
   assert.equal(config.tabs[1].props['aria-selected'], 'true')
   assert.equal(config.toggle['aria-checked'], 'true')
   await config.toggle.onClick()
+  assert.equal(enabledByGame.get('g1'), false)
   assert.deepEqual([...registrations], ['panel'])
-  assert.equal(renderPanel().toggle['aria-checked'], 'false')
-  await renderPanel().toggle.onClick()
+  assert.equal(renderPanel('g1').toggle['aria-checked'], 'false')
+  await renderPanel('g1').toggle.onClick()
   assert.equal(registrations.has('status'), true)
 
   unmountPanel()
   for (const cleanup of cleanups) cleanup()
   assert.equal(registrations.size, 0)
+})
+
+test('服务端按会话记忆开启关闭状态：不同会话隔离，旧版 v3 全局开启迁移清零，保存全局参数不污染会话开关', async t => {
+  const games = new Map()
+  const handlers = new Map()
+  const published = []
+  let pluginData = { version: 3, settings: { enabled: true, autoCheck: true, animation: 'atelier' } }
+  let tool
+  const tavern = {
+    handle: (name, handler) => handlers.set(name, handler),
+    settlementTool: value => { tool = value },
+    readPluginData: async () => structuredClone(pluginData),
+    savePluginData: async ({ data }) => { pluginData = structuredClone(data) },
+    readGameData: async ({ gameId }) => (games.has(gameId) ? structuredClone(games.get(gameId)) : null),
+    saveGameData: async ({ gameId, data }) => { games.set(gameId, structuredClone(data)) },
+    publishState: async payload => { published.push(structuredClone(payload)) }
+  }
+  const dispose = applyFateDicePlugin({ tavern, inject() {}, effect: run => run() })
+  if (typeof dispose === 'function') t.after(dispose)
+
+  const workbench = handlers.get('fate-dice:workbench')
+  const saveBinding = handlers.get('fate-dice:save-binding')
+  const saveGlobal = handlers.get('fate-dice:save-global-settings')
+  const readTurns = handlers.get('fate-dice:read-turns')
+
+  // 旧版 v3 全局 enabled: true 迁移后默认关闭，不再全局污染所有会话
+  const wbA0 = await workbench({ gameId: 'session-a' })
+  const wbB0 = await workbench({ gameId: 'session-b' })
+  assert.equal(wbA0.settings.enabled, false)
+  assert.equal(wbB0.settings.enabled, false)
+  assert.equal(await tool.enabledFor({ gameId: 'session-a' }), false)
+  assert.equal(await tool.enabledFor({ gameId: 'session-b' }), false)
+
+  // 仅开启 session-a，session-b 保持关闭
+  const enableA = await saveBinding({ gameId: 'session-a', binding: { enabled: true } })
+  assert.equal(enableA.ok, true)
+  assert.equal(enableA.enabled, true)
+  assert.equal((await workbench({ gameId: 'session-a' })).settings.enabled, true)
+  assert.equal((await workbench({ gameId: 'session-b' })).settings.enabled, false)
+  assert.equal(await tool.enabledFor({ gameId: 'session-a' }), true)
+  assert.equal(await tool.enabledFor({ gameId: 'session-b' }), false)
+  assert.equal((await readTurns({ gameId: 'session-a' })).enabled, true)
+  assert.equal((await readTurns({ gameId: 'session-b' })).enabled, false)
+
+  // 修改全局皮肤（不含 enabled）：session-a 保持开启、session-b 保持关闭，且广播给 session-a 的同步事件保持 enabled: true
+  published.length = 0
+  const skinRes = await saveGlobal({ gameId: 'session-a', settings: { animation: 'urushi' } })
+  assert.equal(skinRes.ok, true)
+  assert.equal(skinRes.settings.enabled, false)
+  assert.equal((await workbench({ gameId: 'session-a' })).settings.enabled, true)
+  assert.equal((await workbench({ gameId: 'session-a' })).settings.animation, 'urushi')
+  assert.equal((await workbench({ gameId: 'session-b' })).settings.enabled, false)
+  assert.equal((await workbench({ gameId: 'session-b' })).settings.animation, 'urushi')
+  const syncA = published.find(item => item.gameId === 'session-a' && item.name === 'workbench-sync')
+  assert.equal(syncA?.data?.settings?.enabled, true)
+
+  // 关闭 session-a 后持久化为关闭
+  const disableA = await saveBinding({ gameId: 'session-a', binding: { enabled: false } })
+  assert.equal(disableA.ok, true)
+  assert.equal(disableA.enabled, false)
+  assert.equal((await workbench({ gameId: 'session-a' })).settings.enabled, false)
+  assert.equal(await tool.enabledFor({ gameId: 'session-a' }), false)
 })
 
 test('宿主半能挂上 createTavernPluginApi 并注册 fate-dice:* RPC，停用后清理', async () => {
@@ -184,6 +293,49 @@ test('宿主半能挂上 createTavernPluginApi 并注册 fate-dice:* RPC，停�
 
   fiber.dispose()
   await assert.rejects(api.callHandler('fate-dice:free-roll', { expression: '1d20' }), /没有名为 fate-dice:free-roll 的插件处理函数/)
+})
+
+test('关闭命运之骰会撤下画像工具并丢弃待结算的画像', async t => {
+  const games = new Map(), handlers = new Map()
+  let tool, section, settle
+  const tavern = {
+    handle: (name, handler) => handlers.set(name, handler),
+    settlementSection: value => { section = value },
+    settlementTool: value => { tool = value },
+    onTurnSettled: handler => { settle = handler },
+    readPluginData: async () => ({ settings: { enabled: false, autoCheck: true } }),
+    savePluginData: async () => {},
+    readGameData: async ({ gameId }) => games.get(gameId),
+    saveGameData: async ({ gameId, data }) => games.set(gameId, data)
+  }
+  const dispose = applyFateDicePlugin({ tavern, inject() {}, effect: run => run() })
+  if (typeof dispose === 'function') t.after(dispose)
+  const game = { gameId: 'current', turn: 2, textVersion: 'test-v2' }
+  const call = { ...game, arguments: { gameId: 'foreign', characterName: '主角' } }
+  const configure = settings => handlers.get('fate-dice:save-global-settings')({ settings })
+
+  assert.equal(await tool.enabledFor(game), false)
+  assert.equal(await section.text(game), '')
+  assert.equal((await tool.execute(call)).ok, false)
+  await settle(game)
+  assert.equal(games.size, 0)
+
+  await configure({ enabled: true })
+  assert.equal(await tool.enabledFor(game), true)
+  assert.match(await section.text(game), /fate_dice_profile_sync/)
+  assert.equal((await tool.execute(call)).gameId, 'current')
+  await configure({ enabled: false })
+  await settle(game)
+  assert.equal(games.size, 0)
+
+  await configure({ enabled: true })
+  await tool.execute(call)
+  await settle(game)
+  assert.equal(games.get('current')?.characterProfile?.characterName, '主角')
+  assert.equal(games.has('foreign'), false)
+  await configure({ autoCheck: false })
+  assert.equal(await tool.enabledFor(game), false)
+  assert.equal((await tool.execute(call)).ok, false)
 })
 
 test('服务端 fate-dice:read-turns：空局零历史扫描，开启态命中内存锁与正负缓存并在时间线变更时精准失效', async () => {
@@ -1115,6 +1267,9 @@ test('全套 6 项升级：免骰直通 / 双骰对抗与3D左右碰撞 / 提示
   assert.equal(stageSpec.diceSpecs.length, 4)
   assert.equal(stageSpec.diceSpecs.filter(d => d.side === 'ally').length, 2)
   assert.equal(stageSpec.diceSpecs.filter(d => d.side === 'rival').length, 2)
+  assert.equal(stageSpec.contestMeta?.rivalLabel, '哥布林剑士')
+  assert.equal(stageSpec.contestMeta?.allyTotal, contestRoll.total)
+  assert.equal(stageSpec.contestMeta?.rivalTotal, contestRoll.contest.rivalTotal)
 
   const stage = new FD3D.CinematicDiceStage({
     getBoundingClientRect: () => ({ width: 800, height: 320 }),
@@ -1138,6 +1293,11 @@ test('全套 6 项升级：免骰直通 / 双骰对抗与3D左右碰撞 / 提示
   assert.equal(stage.dice.length, 4)
   assert.ok(stage.dice[0].trajPos[0] < 0, '我方骰应从左翼抛入')
   assert.ok(stage.dice[2].trajPos[0] > 0, '对手骰应从右翼抛入')
+  for (const d of stage.dice) {
+    const endX = d.trajPos[d.settleStep * 3]
+    if (d.side === 'ally') assert.ok(endX < -15, `我方骰应严格落定在左半区，实际 x=${endX}`)
+    if (d.side === 'rival') assert.ok(endX > 15, `对手骰应严格落定在右半区，实际 x=${endX}`)
+  }
 
   // 5) 宿命序列（无小模型真骰带）与局势/奇遇骰端到端接线
   const tape = generateFateTape({ rule: '2d6', count: 6 }, () => 4)
@@ -1222,4 +1382,102 @@ test('全套 6 项升级：免骰直通 / 双骰对抗与3D左右碰撞 / 提示
   } finally {
     for (const fn of cleanups.splice(0)) fn()
   }
+})
+
+test('双骰对抗识别：扩充词表 + 决策模型与阻尼器语义题 is_contest / fd_contest', async () => {
+  const {
+    detectContestIntent,
+    heuristicAssess,
+    judgeActionDifficulty,
+    resolveContestCheckType,
+  } = await import('../tavern-plugin/packages/dsh-tavern-fate-dice/lib/difficulty-judge.js')
+  const {
+    buildDamperJudgeQuestions,
+    resolveCheckFromDamperContext,
+  } = await import('../tavern-plugin/packages/dsh-tavern-fate-dice/lib/damper-bridge.js')
+
+  // 1) 兜底词表覆盖通用战斗 + 武侠 / 仙侠 / 现代 / 比赛 / 赌博等常见正面交锋表达
+  assert.equal(detectContestIntent('我护着安雅和灰枭打斗对抗', 'physical'), true)
+  assert.equal(detectContestIntent('与走廊里的守卫激战', 'physical'), true)
+  assert.equal(detectContestIntent('冲上去抢夺对方手里的钥匙', 'physical'), true)
+  assert.equal(detectContestIntent('与华山掌门在擂台比武切磋、对掌拼内力', 'physical'), true)
+  assert.equal(detectContestIntent('祭出飞剑与魔修斗法，神识交锋', 'arcana'), true)
+  assert.equal(detectContestIntent('在高速上飙车追车并和匪徒火拼', 'physical'), true)
+  assert.equal(detectContestIntent('在法庭辩论中当场质证对方律师', 'social'), true)
+  assert.equal(detectContestIntent('进入加时赛点球决胜争夺冠军', 'physical'), true)
+  assert.equal(detectContestIntent('在德州扑克牌局里直接梭哈诈唬庄家', 'social'), true)
+  assert.equal(detectContestIntent('我护着安雅和灰枭打斗对抗', 'insight'), false)
+  const h = heuristicAssess({ input: '我护着安雅和灰枭打斗对抗' })
+  assert.equal(h.shouldRoll, true)
+  assert.equal(h.checkType, 'contest')
+  assert.equal(heuristicAssess({ input: '在赌局里直接梭哈和庄家对赌' }).checkType, 'contest')
+  assert.equal(heuristicAssess({ input: '和魔修斗法较量' }).checkType, 'contest')
+
+  // 2) resolveContestCheckType 优先采信 AI 语义概率，高概率触发、低概率抑制、模糊或缺失回退词表
+  assert.equal(
+    resolveContestCheckType({ input: '我死死抵住门板不让门外的人推开', category: 'physical', hidden: false, contestProb: 0.85 }),
+    'contest'
+  )
+  assert.equal(
+    resolveContestCheckType({ input: '我回忆起那场惨烈的战斗，叹了口气', category: 'will', hidden: false, contestProb: 0.1 }),
+    'normal'
+  )
+  assert.equal(
+    resolveContestCheckType({ input: '安雅和灰枭打斗对抗', category: 'physical', hidden: false, contestProb: 0.45 }),
+    'contest'
+  )
+  assert.equal(
+    resolveContestCheckType({ input: '安雅和灰枭打斗对抗', category: 'physical', hidden: true, contestProb: 0.95 }),
+    'normal'
+  )
+
+  // 3) 决策模型 judgeActionDifficulty 发送 is_contest 题并正确消费
+  let capturedQuestions = null
+  const mockTavern = {
+    capabilities: { decisionJudge: true },
+    async decisionJudgeStatus() {
+      return { available: true, provider: 'gemini', capabilities: { choice: true, score: true } }
+    },
+    async judgeDecision({ questions }) {
+      capturedQuestions = questions
+      return {
+        provider: 'gemini',
+        judgeTier: 'full',
+        answers: {
+          needs_check: { probability: 0.9 },
+          difficulty_tier: { choice: 'hard' },
+          character_capability: { score: 2 },
+          check_category: { choice: 'physical' },
+          situation_edge: { score: 1 },
+          is_contest: { probability: 0.88 },
+        },
+      }
+    },
+  }
+  const judged = await judgeActionDifficulty({
+    tavern: mockTavern,
+    input: '我死死抵住门板不让灰枭撞开',
+  })
+  assert.ok(capturedQuestions.some(q => q.id === 'is_contest' && q.type === 'noul'))
+  assert.equal(judged.checkType, 'contest')
+
+  // 4) 阻尼器合并题包含 fd_contest 并正确解析
+  const geminiQs = buildDamperJudgeQuestions({ protocol: 'gemini', autoProfile: true })
+  assert.ok(geminiQs.some(q => q.id === 'fd_contest' && q.type === 'noul'))
+  const noulQs = buildDamperJudgeQuestions({ protocol: 'noul', autoProfile: true })
+  assert.ok(noulQs.some(q => q.id === 'fd_contest' && q.type === 'noul'))
+
+  const damperRes = resolveCheckFromDamperContext({
+    input: '我死死抵住门板不让灰枭撞开',
+    damperContext: {
+      answers: {
+        fd_needs_check: { probability: 0.85 },
+        fd_difficulty: { choice: 'hard' },
+        fd_capability: { score: 2 },
+        fd_domain: { choice: 'physical' },
+        fd_contest: { probability: 0.82 },
+      },
+    },
+  })
+  assert.equal(damperRes.checkType, 'contest')
 })

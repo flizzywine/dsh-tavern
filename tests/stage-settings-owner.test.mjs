@@ -4,7 +4,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {createManagedModSettingsOwner, MANAGED_MOD_SETTINGS_SECTION} from '../tavern-plugin/lib/mod-system-settings.js'
-import {createAssetEngineSettings} from '../tavern-plugin/packages/dsh-tavern-stage/lib/asset-engine.js'
+import {createAssetEngineSettings} from '../tavern-plugin/lib/asset-engine-settings-owner.js'
 import {createDirectorProbeStore, DIRECTOR_PROBE_SECTION} from '../tavern-plugin/lib/director-probe.js'
 import {ENGINE_SECTION, defaultAssetEngineSettings} from '../tavern-plugin/lib/domain/asset-engine-settings.js'
 import * as stage from '../tavern-plugin/packages/dsh-tavern-stage/lib/index.js'

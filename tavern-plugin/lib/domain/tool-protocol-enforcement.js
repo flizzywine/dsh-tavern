@@ -520,7 +520,8 @@ export function currentToolProtocolDirective() {
 
 /**
  * Install a ref-counted AsyncLocalStorage-scoped global fetch wrapper.
- * Requests outside `runWithToolProtocolDirective` pass straight through untouched.
+ * Tool directives apply only within `runWithToolProtocolDirective`; ModelScope
+ * role compatibility applies to that endpoint on any call.
  */
 export function installToolProtocolFetchPatch(target = globalThis, { quirks = defaultCapabilityQuirks } = {}) {
   if (!target || typeof target.fetch !== 'function') return () => {}
@@ -529,9 +530,12 @@ export function installToolProtocolFetchPatch(target = globalThis, { quirks = de
     const original = target.fetch
     const replacement = async function patchedToolProtocolFetch(input, init) {
       const directive = directiveStorage.getStore()
-      if (!directive || !init || typeof init.body !== 'string') {
+      if (!init || typeof init.body !== 'string') {
         return original.call(this, input, init)
       }
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : str(input?.url)
+      const modelScope = /^https:\/\/api-inference\.modelscope\.cn(?::443)?\/v1\/chat\/completions(?:\?|$)/i.test(url)
+      if (!directive && !modelScope) return original.call(this, input, init)
       const method = str(init.method || (input && typeof input === 'object' ? input.method : 'GET')).toUpperCase()
       if (method !== 'POST') return original.call(this, input, init)
 
@@ -542,7 +546,14 @@ export function installToolProtocolFetchPatch(target = globalThis, { quirks = de
         return original.call(this, input, init)
       }
 
-      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : str(input?.url)
+      // Older pi-ai sends the system prompt as developer for reasoning models.
+      // ModelScope's OpenAI-compatible endpoint accepts it as system.
+      if (modelScope && Array.isArray(parsedBody?.messages) && parsedBody.messages.some(message => message?.role === 'developer')) {
+        parsedBody.messages = parsedBody.messages.map(message => message?.role === 'developer' ? { ...message, role: 'system' } : message)
+        init = { ...init, body: JSON.stringify(parsedBody) }
+      }
+      if (!directive) return original.call(this, input, init)
+
       let currentAttempt = enhanceToolProtocolPayload(parsedBody, {
         url,
         headers: init.headers,

@@ -89,15 +89,18 @@ test('package import graph is closed, inert and independent of Tavern/plugin imp
   for (const file of await readdir(new URL('../src/', import.meta.url))) {
     if (!/\.(?:js|cjs)$/.test(file)) continue
     const source = await readFile(new URL('../src/' + file, import.meta.url), 'utf8')
+    const nodeOnly = file === 'asset-pack-digest.js' // the one Node-only module: the digest of an asset-pack record (node:crypto), kept out of every browser entry
     for (const match of source.matchAll(/(?:from\s+|require\()['"]([^'"]+)['"]/g)) {
+      if (nodeOnly && match[1] === 'node:crypto') continue
       // Package-owned JSON schemas are inert data, not an implementation dependency.
       assert.match(match[1], /^(?:\.\/[^/]+\.(?:cjs|js)|\.\.\/schema\/[\w.-]+\.schema\.json)$/)
       const dependency = await readFile(new URL('../src/' + match[1], import.meta.url), 'utf8')
       if (match[1].endsWith('.json')) assert.equal(typeof JSON.parse(dependency), 'object')
     }
     assertNoAmbientDocument(source)
+    if (!nodeOnly) assert.doesNotMatch(source, /node:/)
     // ambient timers and I/O only: an injected clock's own methods (performance-timeline.cjs foreground.setTimeout) are inert
-    assert.doesNotMatch(source, /(?<![.\w])(?:fetch|setTimeout|setInterval|requestAnimationFrame)\s*\(|\b(?:localStorage|process)\.|node:|@deepseek-ai|export\s+function\s+apply\b/)
+    assert.doesNotMatch(source, /(?<![.\w])(?:fetch|setTimeout|setInterval|requestAnimationFrame)\s*\(|\b(?:localStorage|process)\.|@deepseek-ai|export\s+function\s+apply\b/)
   }
 })
 

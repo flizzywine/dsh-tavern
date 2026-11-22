@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import path from 'node:path'
 import { readZipEntries, writeZipEntries } from '../domain/zip-entries.js'
+import { openZipFile } from './zip-file.js'
 
 // `.dshtransfer` is a plain ZIP: manifest.json plus parts/<kind>/… files.
 // Every item is addressed by its manifest entry, so an import never guesses a path.
@@ -8,9 +9,6 @@ export const TRANSFER_SPEC = 'dsh-tavern.transfer'
 export const TRANSFER_VERSION = 1
 export const TRANSFER_EXTENSION = '.dshtransfer'
 export const MANIFEST_ENTRY = 'manifest.json'
-
-const MAX_IMPORT_BYTES = 1024 * 1024 * 1024
-const MAX_IMPORT_EXPANDED = 2 * 1024 * 1024 * 1024
 
 function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
@@ -62,7 +60,7 @@ export function buildTransferManifest({ name, createdAt = Date.now(), source = {
 // A bundle larger than this is stored on disk and streamed to the page (rpc/transfer.js), so the
 // export is not carried through a JSON reply. One game save alone runs to tens of megabytes, so
 // the whole library has to fit: keeping the 50 MB ZIP default here made big saves impossible to
-// export at all. The import side keeps its own caps.
+// export at all. The uploaded ZIP is read one entry at a time to support the same limits.
 export const MAX_EXPORT_BYTES = 1024 * 1024 * 1024
 export const MAX_EXPORT_EXPANDED_BYTES = 2 * 1024 * 1024 * 1024
 
@@ -93,8 +91,41 @@ function entryProblem(entry) {
  * A broken item is reported, never silently dropped: the caller decides what to skip.
  */
 export function readTransferBundle(input) {
-  const entries = readZipEntries(input, { label: '导出包', maxArchiveBytes: MAX_IMPORT_BYTES, maxExpandedBytes: MAX_IMPORT_EXPANDED })
-  const manifestBytes = entries.get(MANIFEST_ENTRY)
+  const entries = readZipEntries(input, { label: '导出包', maxArchiveBytes: MAX_EXPORT_BYTES, maxExpandedBytes: MAX_EXPORT_EXPANDED_BYTES })
+  return inspectTransferEntries(entries.get(MANIFEST_ENTRY), name => {
+    const value = entries.get(name)
+    return value === undefined ? undefined : { value, length: value.length, digest: () => sha256(value) }
+  })
+}
+
+export async function readTransferBundleFile(file) {
+  const zip = await openZipFile(file, {
+    label: '导出包', maxArchiveBytes: MAX_EXPORT_BYTES, maxExpandedBytes: MAX_EXPORT_EXPANDED_BYTES, maxEntries: 10000,
+  })
+  try {
+    const manifestEntry = zip.entries.get(MANIFEST_ENTRY)
+    const manifestBytes = manifestEntry && await zip.readBuffer(manifestEntry)
+    // Check every member without retaining its uncompressed bytes. Preview and apply load
+    // only the members they need, one at a time, from the same private upload.
+    const verified = new Map()
+    for (const [name, entry] of zip.entries) {
+      if (name === MANIFEST_ENTRY) continue
+      const hash = createHash('sha256')
+      for await (const chunk of await zip.stream(entry)) hash.update(chunk)
+      const digest = hash.digest('hex')
+      verified.set(name, { value: entry, length: entry.size, digest: () => digest })
+    }
+    const bundle = inspectTransferEntries(manifestBytes, name => verified.get(name))
+    const entries = bundle.files
+    return { ...bundle, bytes: zip.size, close: zip.close, files: {
+      size: entries.size,
+      has: name => entries.has(name),
+      get: name => entries.has(name) ? zip.readBuffer(entries.get(name), MAX_EXPORT_EXPANDED_BYTES) : undefined,
+    } }
+  } catch (error) { await zip.close(); throw error }
+}
+
+function inspectTransferEntries(manifestBytes, lookup) {
   if (manifestBytes === undefined) throw new Error('导出包里没有 manifest.json，可能不是 DSH Tavern 的导出包')
   let manifest
   try { manifest = JSON.parse(manifestBytes.toString('utf8')) } catch (error) { throw new Error('导出包的 manifest.json 不是有效的 JSON：' + str(error && error.message || error)) }
@@ -121,21 +152,21 @@ export function readTransferBundle(input) {
           issues.push(kind + ' · ' + title + '：' + problem)
           return { key, title, entry, bytes: 0, sha256: '', usable: false }
         }
-        const bytes = entries.get(entry)
-        if (bytes === undefined) {
+        const member = lookup(entry)
+        if (member === undefined) {
           issues.push(kind + ' · ' + title + '：包内缺少 ' + entry)
           return { key, title, entry, bytes: 0, sha256: '', usable: false }
         }
-        if (Number(item && item.bytes) > 0 && Number(item.bytes) !== bytes.length) {
+        if (Number(item && item.bytes) > 0 && Number(item.bytes) !== member.length) {
           issues.push(kind + ' · ' + title + '：大小与清单不符')
-          return { key, title, entry, bytes: bytes.length, sha256: str(item && item.sha256), usable: false }
+          return { key, title, entry, bytes: member.length, sha256: str(item && item.sha256), usable: false }
         }
-        if (str(item && item.sha256) && str(item.sha256) !== sha256(bytes)) {
+        if (str(item && item.sha256) && str(item.sha256) !== member.digest()) {
           issues.push(kind + ' · ' + title + '：内容校验失败')
-          return { key, title, entry, bytes: bytes.length, sha256: str(item && item.sha256), usable: false }
+          return { key, title, entry, bytes: member.length, sha256: str(item && item.sha256), usable: false }
         }
-        files.set(entry, bytes)
-        return { key, title, entry, bytes: bytes.length, sha256: str(item && item.sha256), usable: true }
+        files.set(entry, member.value)
+        return { key, title, entry, bytes: member.length, sha256: str(item && item.sha256), usable: true }
       })
     }
   }).filter(function (part) { return part.items.length > 0 })

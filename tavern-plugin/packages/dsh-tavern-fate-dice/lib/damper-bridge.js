@@ -3,7 +3,11 @@ import {
   normalizeDifficulty,
   shiftDifficulty
 } from './dice-engine.js'
-import { detectContestIntent, heuristicAssessWithSkills } from './difficulty-judge.js'
+import {
+  CONTEST_QUESTION_INSTRUCTIONS,
+  heuristicAssessWithSkills,
+  resolveContestCheckType
+} from './difficulty-judge.js'
 import {
   CAPABILITY_CRITERIA,
   DOMAIN_FALLBACKS,
@@ -95,6 +99,12 @@ export function buildDamperJudgeQuestions({
     }
   ]
 
+  const contestQuestion = {
+    id: 'fd_contest',
+    type: 'noul',
+    instructions: CONTEST_QUESTION_INSTRUCTIONS
+  }
+
   if (protocol === 'gemini') {
     questions.push({
       id: 'fd_difficulty',
@@ -115,6 +125,7 @@ export function buildDamperJudgeQuestions({
         instructions: '这次行动最贴合该角色的哪项画像能力或通用能力域？',
         criteria: buildDomainCriteria(profile, allowHidden)
       })
+      questions.push(contestQuestion)
       return questions
     }
     if (skillList.length >= 2) {
@@ -129,6 +140,7 @@ export function buildDamperJudgeQuestions({
         criteria
       })
     }
+    questions.push(contestQuestion)
     return questions
   }
 
@@ -148,6 +160,7 @@ export function buildDamperJudgeQuestions({
       type: 'noul',
       instructions: '受控角色当前是否处于短板、伤病、虚弱、被束缚或明显不利状态，从而难以正常发挥？'
     })
+    questions.push(contestQuestion)
     return questions
   }
 
@@ -163,6 +176,7 @@ export function buildDamperJudgeQuestions({
       ? '这项行动的核心是否在于察觉秘密、识破伪装或探测不该立刻知晓的真相（适合暗骰）？'
       : '这项行动是否需要暗中进行、避免被他人察觉？'
   })
+  questions.push(contestQuestion)
   return questions
 }
 
@@ -478,7 +492,11 @@ export function resolveCheckFromDamperContext({
   if (damperSync.violationEscalation) {
     resistanceFactors.push({ label: '越权宣言升难', delta: '≥困难', source: 'violation' })
   }
-  const checkType = !hidden && detectContestIntent(text, category) ? 'contest' : 'normal'
+  const contestProb = firstFinite(
+    answerProbability(answers, 'fd_contest'),
+    answerProbability(answers, 'is_contest')
+  )
+  const checkType = resolveContestCheckType({ input: text, category, hidden, contestProb })
 
   return {
     shouldRoll,

@@ -152,25 +152,12 @@ test('dsh-tavern-plot-compass 通过真实 createTavernPluginApi 接入：段落
   assert.deepEqual(await readOptions(), [])
   await assert.rejects(changeOption('maxRoutes', 5), /没有这个插件配置项/)
 
-  // 开启罗盘并切换为跟随前台模型
+  // 开启罗盘并切换为跟随前台模型。设置只走插件工作台面板，宿主本局设置不再有罗盘分组。
   await pluginApi.callHandler('plot-compass:set-enabled', { gameId: 'g1', enabled: true })
-  assert.deepEqual(settingsChanges.at(-1), { gameId: 'g1', plugin })
-  const [compassSettings] = await readOptions()
-  assert.deepEqual(compassSettings.fields.map(field => field.key), ['autoUpdateInterval', 'maxRoutes'])
-  assert.deepEqual(compassSettings.values, { autoUpdateInterval: 0, maxRoutes: 4 })
-  await assert.rejects(changeOption('enabled', false), /没有这个插件配置项/)
-  await pluginApi.callHandler('plot-compass:set-preferences', { gameId: 'g1', maxRoutes: 5 })
-  const { settings: [edited] } = await changeOption('autoUpdateInterval', 7)
-  assert.deepEqual(edited.values, { autoUpdateInterval: 7, maxRoutes: 5 })
-  await pluginApi.callHandler('plot-compass:set-enabled', { gameId: 'g1', enabled: false })
   assert.deepEqual(await readOptions(), [])
+  assert.deepEqual(settingsChanges, [])
   assert.equal(await pluginApi.pluginGameSettings('g1', plugin), null)
-  await pluginApi.resetGamePluginSettings('g1', { [plugin]: { enabled: true, autoUpdateInterval: 1, maxRoutes: 4 } })
-  assert.deepEqual(await readOptions(), [])
-  await pluginApi.callHandler('plot-compass:set-enabled', { gameId: 'g1', enabled: true })
-  assert.deepEqual((await readOptions())[0].values, edited.values)
-  await pluginApi.resetGamePluginSettings('g1')
-  assert.deepEqual((await readOptions())[0].values, { autoUpdateInterval: 0, maxRoutes: 4 })
+  await pluginApi.callHandler('plot-compass:set-preferences', { gameId: 'g1', maxRoutes: 5 })
   await pluginApi.callHandler('plot-compass:set-model', { gameId: 'g1', model: 'foreground' })
 
   const genRes = await pluginApi.callHandler('plot-compass:generate', { gameId: 'g1', scope: 'all', wait: true })
@@ -885,6 +872,189 @@ test('剧情罗盘条目上限 RPC 全链路与客户端面板契约', async () 
   assert.equal(shrinkRes.plotCompass.shortTerm.length, 2)
   assert.equal(shrinkRes.plotCompass.midTerm.length, 2)
   assert.equal(shrinkRes.plotCompass.longTerm.length, 2)
+
+  mounted.dispose()
+})
+
+test('剧情罗盘面板：命运之骰同款工作台双页签与 ? / × 详细说明展开收起', async t => {
+  const { JSDOM } = await import('jsdom')
+  const dom = new JSDOM('<!doctype html><body></body>', { url: 'https://tavern.test/' })
+  const restore = []
+  const install = (name, value) => { restore.push([name, globalThis[name]]); globalThis[name] = value }
+  install('window', dom.window)
+  install('document', dom.window.document)
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true
+  t.after(() => {
+    for (const [name, value] of restore.reverse()) globalThis[name] = value
+    delete globalThis.IS_REACT_ACT_ENVIRONMENT
+    dom.window.close()
+  })
+
+  const React = (await import('react')).default
+  const { act } = await import('react')
+  const { createRoot } = await import('react-dom/client')
+  const source = await readFile(new URL('../tavern-plugin/packages/dsh-tavern-plot-compass/client.js', import.meta.url), 'utf8')
+  let def = null
+  vm.runInContext(source, vm.createContext({
+    window: { __ModuleLoader__: { load: v => { def = v } } },
+    console
+  }), { filename: 'dsh-tavern-plot-compass/client.js' })
+  const mod = def.factory(spec => {
+    if (spec === 'react') return React
+    throw new Error('意外依赖：' + spec)
+  })
+
+  const statePayload = {
+    enabled: true,
+    modelSelection: 'background',
+    latestAssistantTurn: 4,
+    plotCompassTask: { status: 'idle', scope: 'all', error: '' },
+    plotCompass: {
+      strength: 'guided',
+      pace: 'natural',
+      stalledTurns: 0,
+      blindBox: false,
+      customDirective: '',
+      goal: { enabled: false, horizon: 'shortTerm', text: '' },
+      autoUpdateInterval: 0,
+      maxRoutes: 4,
+      playArchetypes: ['奇幻冒险'],
+      customArchetypes: [],
+      situationDigest: '雨夜暂歇破庙，神龛后似有异响。',
+      shortTerm: [
+        { id: 'st-1', tag: '探神龛', title: '挪开神龛查探密道', summary: '顺风声挪动神龛，发现北岭密道。', beats: [{ text: '试探底座', done: false }] }
+      ],
+      midTerm: [],
+      longTerm: [],
+      pinned: { shortTerm: 'st-1', midTerm: null, longTerm: null },
+      archived: [],
+      chatHistory: [],
+      basedOnTurn: 4
+    }
+  }
+  const calls = []
+  const ui = {
+    async callHost(name, args) {
+      calls.push([name, args])
+      if (name === 'plot-compass:state') return statePayload
+      if (name === 'plot-compass:set-preferences') {
+        Object.assign(statePayload.plotCompass, args)
+        return { plotCompass: statePayload.plotCompass }
+      }
+      return { ok: true }
+    }
+  }
+
+  const host = dom.window.document.createElement('div')
+  dom.window.document.body.appendChild(host)
+  const root = createRoot(host)
+
+  await act(async () => { root.render(React.createElement(mod.PlotCompassPanel, { ui, gameId: 'g-ui' })) })
+  assert.ok(host.querySelector('.pc-root.pc-workbench'), '应当使用命运之骰同款工作台根节点')
+  assert.match(host.textContent, /挪开神龛查探密道/)
+
+  // 顶栏 ? 点开变 × 并展示多段说明，点「收起」还原
+  const topHelp = host.querySelector('button.pc-help-btn')
+  assert.equal(topHelp.textContent, '?')
+  await act(async () => { topHelp.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })) })
+  assert.equal(topHelp.textContent, '×')
+  const pop = host.querySelector('.pc-help-pop')
+  assert.ok(pop)
+  assert.ok(pop.querySelectorAll('.pc-help-line').length >= 3)
+  await act(async () => { pop.querySelector('button.pc-help-close').dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })) })
+  assert.equal(host.querySelectorAll('.pc-help-pop').length, 0)
+  assert.equal(topHelp.textContent, '?')
+
+  // 第一页头部包含「游玩类型标签」与「目标导向」及其独立问号
+  for (const label of ['查看说明：游玩类型标签', '查看说明：目标导向']) {
+    const btn = [...host.querySelectorAll('button.pc-help-btn')].find(b => b.getAttribute('aria-label') === label)
+    assert.ok(btn, `路线与推演页头部应当存在 ${label}`)
+  }
+
+  // 切换到「罗盘设置」页签：其余设置项均有独立 ? 按钮，且点开不发 RPC
+  const settingsTab = [...host.querySelectorAll('button[role="tab"]')].find(b => b.textContent === '罗盘设置')
+  assert.ok(settingsTab, '应当存在「罗盘设置」页签')
+  await act(async () => { settingsTab.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })) })
+  const callsBefore = calls.length
+  for (const label of ['查看说明：约束力度', '查看说明：推进节奏', '查看说明：盲盒防剧透模式', '查看说明：自动更新间隔', '查看说明：每层条目上限', '查看说明：推演模型']) {
+    const btn = [...host.querySelectorAll('button.pc-help-btn')].find(b => b.getAttribute('aria-label') === label)
+    assert.ok(btn, `罗盘设置页应当存在 ${label}`)
+  }
+  const strengthHelp = [...host.querySelectorAll('button.pc-help-btn')].find(b => b.getAttribute('aria-label') === '查看说明：约束力度')
+  await act(async () => { strengthHelp.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })) })
+  assert.match(host.querySelector('.pc-help-pop').textContent, /软铺垫/)
+  assert.equal(calls.length, callsBefore)
+
+  await act(async () => { root.unmount() })
+})
+
+test('plot-compass:model-reasoning 兼容 DSH 标准 info.reasoning.efforts 与旧版字段', async () => {
+  const storyEvents = createStoryEvents()
+  const modelInfos = {
+    'google/gemini-4-neon': { reasoning: { efforts: [{ id: 'low', name: 'Low' }, { id: 'high', name: 'High' }] } },
+    'legacy/flat': { reasoningEfforts: ['medium', { id: 'max', name: 'Max' }] },
+    'legacy/caps': { capabilities: { reasoningEfforts: [{ id: 'minimal', name: 'Minimal' }] } },
+    'plain/no-effort': { context: { contextWindow: 128000 } }
+  }
+  const pluginApi = createTavernPluginApi({
+    ctx: {},
+    loaderOrigin: () => 'host',
+    storyEvents,
+    workflow: { register() { return () => {} } },
+    resolveGame: async () => null,
+    readLatestSettledTurn: async () => null,
+    readPendingTurn: async () => null,
+    currentKey: async () => null,
+    readTurn: async () => null,
+    readHistory: async () => [],
+    readCard: async () => null,
+    readPlayerName: async () => '你',
+    backgroundModel: async () => null,
+    foregroundModel: async () => null,
+    data: {
+      readGame: async () => null,
+      saveGame: async () => {},
+      readSettings: async () => ({ disabled: [], replacements: {}, values: {} }),
+      writeSettings: async () => {}
+    },
+    pluginData: {
+      read: async () => null,
+      save: async () => {}
+    },
+    media: { issue: async () => {}, list: async () => [] },
+    publishState: () => {},
+    runTask: async () => ({ text: '' })
+  })
+
+  const mounted = createPluginFiber('dsh-tavern-plot-compass', pluginApi.service)
+  applyPlotCompass(mounted.ctx, {
+    llm: {
+      async resolveModelInfo(provider, model) {
+        return modelInfos[`${provider}/${model}`] || null
+      }
+    }
+  })
+
+  const standard = await pluginApi.callHandler('plot-compass:model-reasoning', { provider: 'google', model: 'gemini-4-neon' })
+  assert.deepEqual(standard, {
+    ok: true,
+    reasoning: { efforts: [{ id: 'low', name: 'Low' }, { id: 'high', name: 'High' }] }
+  })
+
+  const flat = await pluginApi.callHandler('plot-compass:model-reasoning', { provider: 'legacy', model: 'flat' })
+  assert.deepEqual(flat, {
+    ok: true,
+    reasoning: { efforts: [{ id: 'medium', name: 'medium' }, { id: 'max', name: 'Max' }] }
+  })
+
+  const caps = await pluginApi.callHandler('plot-compass:model-reasoning', { provider: 'legacy', model: 'caps' })
+  assert.deepEqual(caps, {
+    ok: true,
+    reasoning: { efforts: [{ id: 'minimal', name: 'Minimal' }] }
+  })
+
+  const empty = await pluginApi.callHandler('plot-compass:model-reasoning', { provider: 'plain', model: 'no-effort' })
+  assert.deepEqual(empty, { ok: true, reasoning: null })
 
   mounted.dispose()
 })

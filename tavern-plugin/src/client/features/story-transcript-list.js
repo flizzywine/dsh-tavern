@@ -221,6 +221,10 @@ function createTavernStoryTranscriptFeature(deps) {
 	}
 	const options = deps || {}
 	const replyActions = options.replyActions
+	const compactionPaths = [['contextCompaction']]
+	const useCompaction = typeof options.useCompactionState === 'function'
+		? options.useCompactionState
+		: function () { return { running: false, operation: null } }
 	const h = React.createElement
 	const data = options.dataModule || createTavernStoryTranscriptDataModule({ rpc: options.rpc })
 	const labels = options.labels || TAVERN_STORY_TRANSCRIPT_LABELS
@@ -408,8 +412,8 @@ function createTavernStoryTranscriptFeature(deps) {
 			assistantActions ? h('span', { className: 'dsh-fork-turn-actions' },
 				turn ? h('span', { 'data-fork-turn': 'receipt' }, h(StoryTranscriptMvuReceipt, actionProps)) : null,
 				props.latest && props.host ? h(replyActions.Latest, {
-					...props.host, sessionId: props.sessionId, messageId: props.view.latestAssistantMessageId
-				}) : null) : null,
+					...props.host, sessionId: props.sessionId, messageId: props.view.latestAssistantMessageId, onEdit: edit, editBusy: Boolean(busy)
+				}) : h(replyActions.Menu, { onEdit: edit, editBusy: Boolean(busy) })) : null,
 			assistantActions && turn && props.latestTurn > turn && row.messageUid ? h(replyActions.RollbackTo, {
 				...actionProps, floorNo: row.floorNo, messageUid: row.messageUid, running: props.running
 			}) : null,
@@ -831,7 +835,13 @@ function createTavernStoryTranscriptFeature(deps) {
 		const renderNativeNode = function (node) {
 			return h(StoryTranscriptNativeNode, { key: 'native-node:' + node.key, node: node, nodeHost: props.nodeHost })
 		}
-		if (!rows.length && !placedNative.before.length && !placedNative.tail.length) {
+		const compactionOperation = props.compactionOperation || (props.view && props.view.contextCompaction && props.view.contextCompaction.operation) || null
+		const compacting = Boolean(props.compacting || (compactionOperation && compactionOperation.status === 'running'))
+		const hasRunningManualCompaction = Array.isArray(props.nativeFlowNodes) && props.nativeFlowNodes.some(function (node) {
+			return node && node.kind === 'manual-compaction' && node.data && node.data.command && node.data.command.outcome === null
+		})
+		const showCompactionRunning = compacting && !hasRunningManualCompaction
+		if (!rows.length && !placedNative.before.length && !placedNative.tail.length && !showCompactionRunning) {
 			return h('div', {
 				className: 'dsh-tavern-story-transcript-row dsh-tavern-story-empty',
 				'data-story-transcript': transcript && transcript.source ? String(transcript.source) : 'story',
@@ -873,6 +883,22 @@ function createTavernStoryTranscriptFeature(deps) {
 			if (afterNodes) for (const node of afterNodes) items.push(renderNativeNode(node))
 		}
 		for (const node of placedNative.tail) items.push(renderNativeNode(node))
+		if (showCompactionRunning) {
+			const progress = typeof options.compactionProgressTitle === 'function' ? options.compactionProgressTitle(compactionOperation) : ''
+			const text = '正在压缩对话…'
+			items.push(h('div', {
+				key: 'tavern-compaction-running',
+				className: 'dsh-tavern-story-transcript-row dsh-tavern-story-native-node',
+				'data-chat-flow-kind': 'compaction-running',
+				'data-chat-flow-key': 'tavern-compaction-running'
+			}, h('div', {
+				className: 'fork-compaction-line',
+				role: 'status',
+				'data-fork-compaction': 'running'
+			}, h('span', { className: 'fork-compaction-text', title: progress || text },
+				typeof Spinner === 'function' ? h(Spinner, { className: 'fork-compaction-dots' }) : null,
+				text))))
+		}
 		if (failure) {
 			items.push(h('div', { key: 'foreground-error', className: 'dsh-tavern-story-transcript-row dsh-tavern-story-error', role: 'alert' },
 				h('span', null, '\u26a0 ' + failure)))
@@ -930,7 +956,8 @@ function createTavernStoryTranscriptFeature(deps) {
 			h(TavernStoryTranscriptList, { transcript: transcript, partial: props.partial, running: props.running,
 				runningCalls: props.runningCalls, pendingInputs: props.pendingInputs, emptyLabel: props.emptyLabel, sessionId: props.sessionId, view: props.view,
 				executeSlash: props.executeSlash, frameOwner: props.frameOwner, showPlayProcess: props.showPlayProcess, showDamperStatus: props.showDamperStatus, useChat: props.useChat, host: props.host, turnFooter: props.turnFooter,
-				nativeFlowNodes: props.nativeFlowNodes, nativeTurns: props.nativeTurns, nodeHost: props.nodeHost }))
+				nativeFlowNodes: props.nativeFlowNodes, nativeTurns: props.nativeTurns, nodeHost: props.nodeHost,
+				compacting: props.compacting, compactionOperation: props.compactionOperation }))
 	}
 
 	function defaultStore() {
@@ -987,6 +1014,7 @@ function createTavernStoryTranscriptFeature(deps) {
 		}, [nativeOrder, nativeNodes])
 		const running = props.useSession(function (snapshot) { return snapshot && snapshot.running === true })
 		const pendingInputs = props.useSession(function (snapshot) { return snapshot && Array.isArray(snapshot.pendingSubmissions) ? snapshot.pendingSubmissions : TAVERN_STORY_TRANSCRIPT_EMPTY_CALLS })
+		const compaction = useCompaction(sessionId, compactionPaths)
 		data.useProjectionRefresh(store, sessionId, {
 			historyFrom: controller.historyFrom, enabled, active: storyActive, running, partial,
 			transcript, view, externalHistory: storyExternalHistory
@@ -1044,6 +1072,8 @@ function createTavernStoryTranscriptFeature(deps) {
 			nativeFlowNodes: nativeFlowNodes,
 			nativeTurns: nativeTurns,
 			nodeHost: nodeHost,
+			compacting: Boolean(props.compacting || compaction.running),
+			compactionOperation: props.compactionOperation || compaction.operation || null,
 			host: { useChat: props.useChat, useSession: props.useSession, useInput: props.useInput, inputActions: props.inputActions }
 		}))
 	}

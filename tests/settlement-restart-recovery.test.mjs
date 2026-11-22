@@ -1,7 +1,8 @@
 import { createMvuSettlementEngine } from '../tavern-plugin/lib/domain/mvu-settlement-engine.js'
 import { createPlainSettlementEngine } from '../tavern-plugin/lib/domain/plain-settlement-engine.js'
 import { createSettlementRun } from '../tavern-plugin/lib/domain/settlement-run.js'
-import { createSettlementControls } from '../tavern-plugin/lib/domain/settlement-controls.js'
+import { createSettlementControls, installSettlementSubagentStop } from '../tavern-plugin/lib/domain/settlement-controls.js'
+import { deferred } from './fixtures/sync-clock.mjs'
 import { createMvuSettlementResume } from '../tavern-plugin/lib/domain/mvu-settlement-resume.js'
 import {applyJsonChanges} from '../tavern-plugin/lib/domain/json-mutation.js'
 import { createSettlementJobs } from '../tavern-plugin/lib/domain/settlement-jobs.js'
@@ -19,14 +20,20 @@ import { createMvuSettlementEffect } from '../tavern-plugin/lib/domain/mvu-settl
 import { POSTURE_SUBMIT_TOOL } from '../tavern-plugin/lib/domain/posture-submission.js'
 import { createPostureItem, plainSettlementPlan, runPipelineStages } from '../tavern-plugin/lib/domain/background-pipeline.js'
 
-async function harness({ beginRunning = true, mvu = true } = {}) {
+async function harness({ beginRunning = true, mvu = true, beforeUpdate } = {}) {
   let current = { backgroundTasks: { posture: true, characterDesign: true, variables: true }, id: 'chat', sessionId: 'session', mode: 'story', messages: [], mvu: { enabled: mvu, owner: mvu ? 'official' : null } }
   let sequence = 0
   const timeline = createStoryTimeline({ id: prefix => prefix + ++sequence, now: () => 1000 + sequence })
   const store = {
     readChat: async () => structuredClone(current),
     writeChat: async chat => { current = structuredClone(chat) },
-    updateChat: async (_id, fn) => { current = await fn(structuredClone(current)); return structuredClone(current) }
+    async updateChat(_id, update, metadata) {
+      const next = await update(structuredClone(current))
+      await beforeUpdate?.(metadata)
+      metadata?.assertCurrent?.()
+      current = next
+      return structuredClone(current)
+    }
   }
   const tasks = createBackgroundTaskCoordinator({ timeline, store })
   const body = timeline.apply({ chat: current, intent: { kind: 'body.begin', turn: 2, userText: '开门' } })
@@ -259,6 +266,90 @@ test('插件结算任务：结算前的在结算待办时运行，结算后的�
   assert.equal(h.get().settleStatus, 'done')
   assert.equal(h.tasks.activity(h.get()).busy, false, 'the plugin-task operation is closed afterwards')
   jobs.dispose()
+})
+
+for (const method of ['interruptByParent', 'interruptByUser']) {
+  test(`${method} aborts a settlement before the save read and rejects a commit already in progress`, async () => {
+    const committing = deferred()
+    const finishCommit = deferred()
+    const finishRead = deferred()
+    const started = deferred()
+    const returnModel = deferred()
+    const h = await harness({ beginRunning: false, mvu: false, beforeUpdate: async metadata => {
+      if (metadata?.source !== 'background.settlement.commit') return
+      committing.resolve()
+      await finishCommit.promise
+    } })
+    let context
+    h.sandbox.backgroundAgentRunner.activeRequestContext = id => id === 'worker' ? context : undefined
+    h.sandbox.backgroundAgentRunner.run = async input => {
+      context = { task: input.task, operationId: input.operationId, parentSessionId: input.sessionId }
+      await input.onToolCall({ name: 'posture_submit', arguments: { posture: '门边' } })
+      started.resolve(input)
+      await returnModel.promise
+      return { text: '' }
+    }
+    const controls = createSettlementControls({ ...h.sandbox,
+      cancelSettlementOperation: h.sandbox.settlementJobs.cancelOperation,
+      async readChat(id) { assert.equal(id, 'chat'); await finishRead.promise; return h.store.readChat() }
+    })
+    const nativeCalls = []
+    const prototype = { [method](...args) { nativeCalls.push({ service: this, args }); return { accepted: true } } }
+    const service = Object.create(prototype)
+    const dispose = installSettlementSubagentStop(service, controls.stopSettlementAgent)
+    const done = h.sandbox.queueSettlement('chat')
+    const { signal, operationId } = await started.promise
+    if (method === 'interruptByParent') {
+      service[method]('worker', 'other-parent', 'continuable')
+      service[method]('worker', 'session', 'other-mode')
+      assert.deepEqual(nativeCalls.splice(0), [
+        { service, args: ['worker', 'other-parent', 'continuable'] },
+        { service, args: ['worker', 'session', 'other-mode'] }
+      ])
+      assert.equal(signal.aborted, false)
+    }
+    service[method]('host-agent', 'session', 'continuable')
+    assert.deepEqual(nativeCalls.splice(0), [{ service, args: ['host-agent', 'session', 'continuable'] }])
+
+    // The model may be finishing when the stop reaches the host. Keep its context
+    // for this call, then clear it while the native handler awaits the Chat read.
+    returnModel.resolve()
+    await committing.promise
+    const stopped = service[method]('worker', 'session', 'continuable')
+    context = undefined
+    assert.equal(signal.aborted, true)
+    finishCommit.resolve()
+    await done
+    assert.equal(h.get().timeline.operations[operationId].status, 'running')
+    finishRead.resolve()
+    assert.deepEqual(await stopped, { accepted: true })
+    assert.equal(h.get().timeline.operations[operationId].status, 'interrupted')
+    assert.notEqual(h.get().posture, '门边')
+    assert.equal(h.get().messages.at(-1).text, '门开了')
+    assert.deepEqual(nativeCalls, [])
+    dispose()
+    assert.equal(Object.hasOwn(service, method), false)
+    assert.equal(service[method], prototype[method])
+  })
+}
+
+test('a stale native cancellation cannot abort a replacement settlement', async () => {
+  const started = deferred()
+  const finish = deferred()
+  const jobs = createSettlementJobs({
+    async run(_chatId, signal, setOperation) {
+      setOperation('replacement')
+      started.resolve(signal)
+      await finish.promise
+    },
+    onSettled() {}
+  })
+  const done = jobs.start('chat')
+  const signal = await started.promise
+  assert.equal(await jobs.cancelOperation('old-operation'), undefined)
+  assert.equal(signal.aborted, false)
+  finish.resolve()
+  await done
 })
 
 test('手动插件任务：登记为独占的后台任务，跑完后关闭；结算待办时不能启动', async () => {

@@ -52,6 +52,9 @@ test('NEXT 共用酒馆启动器和更新状态，通过原生 Profile 切换', 
     profiles: [tavernProfile], installation: { available: true } }, [], { next: command => nativeCalls.push(command) })
   try {
     assert.equal(page.label(), '酒馆启动器')
+    const logo = page.dom.window.document.querySelector('.pb-head img')
+    assert.equal(logo.getAttribute('src'), '/profile-bridge/logo.png')
+    assert.equal(logo.alt, '')
     assert.match(page.text(), /检查更新/)
     assert.match(page.text(), /删除 DSH 酒馆/)
     await page.act(async () => page.button().click())

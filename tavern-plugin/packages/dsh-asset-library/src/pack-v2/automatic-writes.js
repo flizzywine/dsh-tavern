@@ -305,14 +305,15 @@ export function createAutomaticWriteMethods({run, readRun, all, load, metadata, 
           })
         },
         // 全库搜索: every installed pack, read only (library-search.js).
-        searchLibrary({query, limit}) {
+        // systemPacks: the packs 通用声音 / 旁白 point at (their voices are 通用声音 too, voice-auto-cast.cjs).
+        searchLibrary({query, limit, systemPacks}) {
           live()
-          return readRun([], async () => searchLibrary((await all()).map(pack => ({manifest:pack.manifest, figures:pack.figures, revision:pack.local.revision})), {query, limit}))
+          return readRun([], async () => searchLibrary((await all()).map(pack => ({manifest:pack.manifest, figures:pack.figures, revision:pack.local.revision})), {query, limit, systemPacks}))
         },
         // 全库声音: every installed pack's voices, read only (library-search.js).
-        listLibraryVoices({limit} = {}) {
+        listLibraryVoices({limit, systemPacks} = {}) {
           live()
-          return readRun([], async () => listLibraryVoices((await all()).map(pack => ({manifest:pack.manifest, figures:pack.figures, revision:pack.local.revision})), {limit}))
+          return readRun([], async () => listLibraryVoices((await all()).map(pack => ({manifest:pack.manifest, figures:pack.figures, revision:pack.local.revision})), {limit, systemPacks}))
         },
         authorize(input, source, context) {
           live()
@@ -419,7 +420,27 @@ export function createAutomaticWriteMethods({run, readRun, all, load, metadata, 
         return {packId}
       })
     },
-    listAutomaticWrites({packId, cursor = 0, limit = 50}) {      validateUuid(packId)
+    // A card that came back under a new id (deleted, then restored from its save) finds its 自动素材 pack still naming the
+    // old id, so its next automatic write would make a second one. The owner's bound automatic pack is handed to the card.
+    adoptAutomaticPack({path, packId, expectedRevision}) {
+      validateUuid(packId)
+      return run([packId], async () => {
+        const card = await cards.snapshot({path})
+        check(card.raw && card.cardId, '$.path', 'Card unavailable', 'NOT_FOUND')
+        const before = await metadata(packId)
+        check(before, '$.packId', 'Pack unavailable', 'ASSET_UNAVAILABLE')
+        cas(before, expectedRevision)
+        check(before.local.autoWrite, '$.packId', 'Not an automatic pack', 'ASSET_UNAVAILABLE')
+        check(cards.inspectRaw(card.raw).boundPackIds.includes(packId), '$.packId', 'The pack is not bound to this card', 'ASSET_UNAVAILABLE')
+        const routed = routedPack(await all(), card)
+        if (routed?.manifest.id === packId) return {packId, cardId:card.cardId, revision:before.local.revision, adopted:false}
+        check(!routed, '$.path', 'The card already has an automatic pack: ' + routed?.manifest.id, 'REVISION_CONFLICT')
+        const local = nextLocal(before.local)
+        local.autoWrite = {...before.local.autoWrite, cardId:card.cardId}
+        await publish(before, before, local)
+        return {packId, cardId:card.cardId, previousCardId:before.local.autoWrite.cardId, revision:local.revision, adopted:true}
+      })
+    },    listAutomaticWrites({packId, cursor = 0, limit = 50}) {      validateUuid(packId)
       check(Number.isSafeInteger(cursor) && cursor >= 0 && Number.isSafeInteger(limit) && limit > 0 && limit <= 100, '$.cursor')
       return run([packId], async () => {
         const pack = await metadata(packId)

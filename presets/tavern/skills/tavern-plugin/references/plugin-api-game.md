@@ -32,6 +32,8 @@
 
 用户在「设置 → DSH Tavern → 剧情」先选正文生成插件，再选择「插件直接生成」或「前台检索后由插件生成」。本局设置可以覆盖全局选择，也可以恢复跟随。生成器标识由宿主组成 `插件名:name`，仅允许当前游戏作用域内已启用的插件。插件注册不会自动改变用户的选择。
 
+当 `ctx.tavern.capabilities?.bodyGenerationDefaults === 1` 时，全局插件可在自己的面板管理已注册生成器的默认设置。`await ctx.tavern.bodyGenerationDefaults({ name })` 返回 `{ mode, hostRegex }`。未使用本生成器时 `mode` 为 `host`。传入 `mode: 'plugin-direct' | 'plugin-tool-call'` 将本生成器设为默认，传入 `mode: 'host'` 则取消本生成器的默认选择。设为默认时可同时传入布尔值 `hostRegex`，也可在本生成器已经是默认时单独更新它。接口与宿主剧情设置共用数据，保留本局覆盖，更新从下一次生成操作生效。
+
 - **直接生成**：宿主准备人物、已激活世界书、输入和状态后直接调用插件；不额外请求前台模型。内部通过宿主工具完成原生回合收尾，插件无需调用该工具。
 - **前台检索后生成**：前台模型可以查询世界书，再调用宿主工具结束资料收集，宿主把成功查询结果加入材料并调用插件。该模式会产生额外的前台模型请求。
 
@@ -136,7 +138,7 @@ message 必须是适合玩家阅读的安全摘要（宿主最多保留 500 字�
 | `guidance` | 本次重生成指导；空字符串表示未提供 |
 | `outputProcessing?.hostRegex` | 本轮开始时选定的宿主正则开关。为 `true` 时，宿主在插件输出处理完成后应用自己的规则。旧宿主可能省略此字段。插件可用它说明处理顺序 |
 
-`context` 的世界书段已包含当轮有效设定和成功的查询补充。查询补充只接受本轮有效的 `worldbook_list/grep/search` 和宿主世界书文件的受限 `read`；失败、隐藏、其他轮次和任意文件读取结果不会传入。已保存材料不会在恢复时重新读文件或执行宏。
+`context` 的世界书段已包含当轮有效设定和成功的查询补充。查询补充只接受本轮有效的 `read_lorebook`、`list_lorebook`、`grep_lorebook` 和宿主世界书文件的受限 `read`；失败、隐藏、其他轮次和任意文件读取结果不会传入。已保存材料不会在恢复时重新读文件或执行宏。
 
 历史来自完整存档投影，不从压缩后的模型消息反推，也不重新执行历史宏。材料无法可靠恢复时明确失败；旧存档、已编辑输入或导入记录可能缺少必要快照。`context` 按宿主现有语义段拆分；旧人物快照中未单独保存的字段可能合并为一个人物段，不保证与 ST 原始人物字段逐项对应。
 
@@ -464,7 +466,7 @@ ctx.tavern.onTurnSettled(async ({ gameId, turn, textVersion, variables }) => {
 
 ## 决策判定模型（`capabilities.decisionJudge === 1`）
 
-当 `ctx.tavern.capabilities?.decisionJudge === 1` 时，插件可以直接复用玩家在「插件 › 叙事阻尼器」面板里配置好的决策判定模型（`gemini` / `gemini-compatible` / `jev` / `openai` / `openai-compatible`），执行低延迟的是非概率、评分或单选枚举判定，无需自己管理 API Key 或端点地址。只要用户已配置有效的提供方与密钥，即使暂未开启叙事阻尼器本身的拦截开关，该开放接口仍可使用。
+当 `ctx.tavern.capabilities?.decisionJudge === 1` 时，插件可以直接复用玩家在「插件 › 叙事阻尼器」面板里配置好的决策判定模型（`gemini` / `gemini-compatible` / `jev` / `jev-compatible` / `openai` / `openai-compatible`），执行低延迟的是非概率、评分或单选枚举判定，无需自己管理 API Key 或端点地址。只要用户已配置有效的提供方与密钥，即使暂未开启叙事阻尼器本身的拦截开关，该开放接口仍可使用。
 
 ### `decisionJudgeStatus()`
 

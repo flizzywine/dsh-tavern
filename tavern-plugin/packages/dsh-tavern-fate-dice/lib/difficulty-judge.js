@@ -31,21 +31,48 @@ const CATEGORY_META = Object.freeze({
 const HEURISTIC_RULES = [
   { key: 'insight', pattern: /观察|查看|察觉|侦查|窃听|偷听|搜索|调查|识破|判断.*撒谎|暗中确认|寻找线索|陷阱/ },
   { key: 'stealth', pattern: /潜行|偷窃|撬锁|开锁|躲避|藏匿|摸近|跟踪|溜进|逃跑|摆脱/ },
-  { key: 'social', pattern: /说服|劝说|诱骗|欺骗|撒谎|威逼|威胁|谈判|讨价还价|安抚|套话|诱导|审问/ },
-  { key: 'arcana', pattern: /施法|魔力|破解|黑客|骇入|手术|炼金|操控|拆弹|修理|驾驶|黑进/ },
-  { key: 'physical', pattern: /攻击|闪避|格挡|冲撞|攀爬|跳跃|踢开|砸开|按住|挣脱|反抗|追逐|搏斗|推倒|强行/ },
-  { key: 'will', pattern: /抵抗|强忍|抵御|克制|直面|承受|稳住|克服恐惧/ }
+  { key: 'social', pattern: /说服|劝说|诱骗|欺骗|撒谎|威逼|威胁|谈判|讨价还价|安抚|套话|诱导|审问|辩论|舌战|对质|质证|诈唬|竞标|商战/ },
+  { key: 'arcana', pattern: /施法|魔力|破解|黑客|骇入|手术|炼金|操控|拆弹|修理|驾驶|黑进|斗法|斗丹|斗阵|御剑|对弈|下棋|飙车|竞速|赛车|赌局|对赌|梭哈|出千|攻防/ },
+  { key: 'physical', pattern: /攻击|闪避|格挡|冲撞|攀爬|跳跃|踢开|砸开|按住|挣脱|反抗|追逐|搏斗|打斗|对抗|战斗|交锋|交战|缠斗|扭打|激战|对决|厮杀|拼杀|比武|切磋|对掌|擂台|枪战|火拼|射击|比赛|单挑|拳击|角力|推倒|强行/ },
+  { key: 'will', pattern: /抵抗|强忍|抵御|克制|直面|承受|稳住|克服恐惧|神识|威压|内力比拼|拼内力|赌命/ }
 ]
 
 const HIGH_STAKES_CUE = /强行|拼死|当面|守卫|防备|严密|不可能|徒手|几乎|违抗|高空|重伤|绝境|暗杀/
 const EASY_CUE = /顺手|悄悄检查|尝试|打听|轻微|试探|简单/
-const CONTEST_CUE = /挥剑|拔剑|砍向|劈向|刺向|开枪|射击|攻击|格挡|迎战|交手|决斗|搏斗|拼刀|反击|追逐|追击|擒拿|压制|硬刚|对峙/
+
+const CONTEST_CUE_GROUPS = [
+  // 通用肉搏 / 战斗 / 冷兵器
+  '挥剑|拔剑|砍向|劈向|刺向|斩向|挥刀|拔刀|横扫|格挡|招架|拆招|迎战|应战|交手|决斗|搏斗|拼刀|反击|追逐|追击|擒拿|压制|硬刚|对峙|打斗|对抗|战斗|交锋|交战|缠斗|扭打|肉搏|激战|对决|过招|比试|较量|开打|打起来|厮杀|拼杀|对攻|交火|抢夺|争夺|扑向|冲上去打|制伏|制服|角力|掰手腕|摔跤|互殴|群殴|单挑|约架|突袭|偷袭|伏击|反杀|死斗|血战',
+  // 武侠 / 功夫 / 江湖
+  '切磋|比武|论剑|对掌|拼内力|内力比拼|比拼内力|真气对抗|拆解招式|剑气|刀气|掌风|拳风|点穴|暗器|飞刀|轻功追逐|打擂|擂台|守擂|攻擂|踢馆|破阵|过两招|领教高招|分个高下|一决高下|一较高下|生死斗|比剑|斗拳',
+  // 仙侠 / 玄幻 / 奇幻法术
+  '斗法|斗剑|斗丹|斗阵|斗灵|御剑|祭出法宝|灵力对轰|法术对轰|对波|神识交锋|神识对抗|神念交锋|威压对抗|抵挡威压|镇压|灵压|剑意交锋|领域对抗|法相|斩妖|除魔|斗兽|魔法对决|施法对轰|魔力对抗|咒语对决|元素碰撞|契约争夺',
+  // 现代 / 枪战 / 竞速 / 职场商战 / 攻防
+  '开枪|射击|枪战|火拼|对射|狙击|点射|扫射|飙车|竞速|赛车|超车|别车|逼停|追车|飙速|黑客攻防|网络攻防|攻防战|反入侵|竞标|抢标|商战|收购战|舆论战|法庭辩论|庭审交锋|质证|对质|辩论|舌战|嘴炮|心理博弈|博弈|智斗|斗智|拉锯战',
+  // 比赛 / 竞技 / 体育 / 电竞
+  '比赛|竞赛|竞技|决赛|淘汰赛|晋级赛|加时赛|点球|抢七|PK|pk|单挑赛|排位赛|对局|对弈|下棋|弈棋|斗牛|拳击|格斗赛|散打|柔道|击剑|射箭比赛|拔河|赛跑|百米冲刺|抢答|夺冠|争冠|卫冕|挑战赛|擂台赛',
+  // 赌博 / 牌桌 / 博弈
+  '赌博|赌局|对赌|豪赌|押注|下注|梭哈|全压|all\\s*in|ALL\\s*IN|跟注|加注|诈唬|抓诈|比大小|摇骰子|掷色子|赌骰|猜大小|牌局|德州扑克|二十一点|轮盘|出千|抓千|反千|赌命|打赌|对押'
+]
+const CONTEST_CUE = new RegExp(CONTEST_CUE_GROUPS.join('|'))
+
+export const CONTEST_QUESTION_INSTRUCTIONS =
+  '这项行动是否是与明确对手/敌人之间的双边交锋或胜负较量（包括打斗搏杀、武侠比武切磋、仙侠斗法神识交锋、现代枪战竞速攻防、体育/棋牌比赛、赌局对赌诈唬、辩论对质等，而非单人克服静态环境障碍）？'
 
 export function detectContestIntent(input, category = 'physical') {
   const text = String(input || '')
   if (!text) return false
   if (category === 'insight' || category === 'stealth') return false
   return CONTEST_CUE.test(text)
+}
+
+export function resolveContestCheckType({ input, category = 'physical', hidden = false, contestProb = NaN } = {}) {
+  if (hidden) return 'normal'
+  if (Number.isFinite(contestProb)) {
+    if (contestProb >= 0.6) return 'contest'
+    if (contestProb <= 0.25) return 'normal'
+  }
+  return detectContestIntent(input, category) ? 'contest' : 'normal'
 }
 
 function scoreToEdgeBonus(scoreValue) {
@@ -307,6 +334,11 @@ export async function judgeActionDifficulty({
             '2: 有一定铺垫、契机或利用了现成环境条件',
             '3: 准备极充分、精准拿捏关键条件或掌握压倒性筹码'
           ]
+        },
+        {
+          id: 'is_contest',
+          type: 'noul',
+          instructions: CONTEST_QUESTION_INSTRUCTIONS
         }
       ]
 
@@ -344,7 +376,8 @@ export async function judgeActionDifficulty({
       const category = domain ? domain.category : (matched?.category || catKey)
       const hiddenMeta = CATEGORY_META[category] || meta
       const hidden = Boolean(allowHidden && (domain?.hidden || matched?.hidden || hiddenMeta.hidden))
-      const checkType = !hidden && detectContestIntent(input, category) ? 'contest' : 'normal'
+      const contestProb = ans.is_contest?.probability !== undefined ? Number(ans.is_contest.probability) : NaN
+      const checkType = resolveContestCheckType({ input, category, hidden, contestProb })
       const resistanceFactors = []
       if (edgeBonus > 0) resistanceFactors.push({ label: '铺垫/地利', delta: `+${edgeBonus}`, source: 'edge' })
       else if (edgeBonus < 0) resistanceFactors.push({ label: '仓促/被动', delta: `${edgeBonus}`, source: 'edge' })
@@ -417,6 +450,11 @@ export async function judgeActionDifficulty({
           id: 'character_impaired',
           type: 'noul',
           instructions: '受控角色当前是否处于短板、伤病、虚弱或被束缚的状态，从而难以正常发挥？'
+        },
+        {
+          id: 'is_contest',
+          type: 'noul',
+          instructions: CONTEST_QUESTION_INSTRUCTIONS
         }
       ]
     })
@@ -443,7 +481,8 @@ export async function judgeActionDifficulty({
     const check = guessed?.name || (isHidden ? '察觉' : '行动')
     const category = guessed?.category || (isHidden ? 'insight' : 'physical')
     const finalHidden = Boolean(isHidden || (allowHidden && guessed?.hidden))
-    const checkType = !finalHidden && detectContestIntent(input, category) ? 'contest' : 'normal'
+    const contestProb = ans.is_contest?.probability !== undefined ? Number(ans.is_contest.probability) : NaN
+    const checkType = resolveContestCheckType({ input, category, hidden: finalHidden, contestProb })
     const resistanceFactors = []
     if (edgeBonus > 0) resistanceFactors.push({ label: '有利处境', delta: '+1', source: 'edge' })
     else if (edgeBonus < 0) resistanceFactors.push({ label: '不利处境', delta: '-1', source: 'edge' })

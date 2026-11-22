@@ -425,7 +425,7 @@ window.__ModuleLoader__.load({
 			}
 			function emptyState() {
 				if (needle) return h(EmptyState, { query: filter, onClear: function () { setFilter(""); } });
-				return catalog && catalog.storageAccessible === false ? h("div", { className: "dsh-tavern-empty" }, "DSHA 无法读取下载目录。请在系统设置中允许 DSHA ‘访问所有文件’，然后点刷新；也可尝试系统文件选择器。") : h(EmptyState, { text: "下载目录里还没有 PNG/JSON 人物卡" });
+				return catalog && catalog.storageAccessible === false ? h("div", { className: "dsh-tavern-empty" }, "DSHA 无法读取下载目录。请在系统设置中允许 DSHA ‘访问所有文件’，然后点刷新；也可尝试系统文件选择器。") : h(EmptyState, { text: "下载目录里还没有可导入的人物卡" });
 			}
 			const countText = "共 " + allFiles.length + " 个文件"
 				+ (needle ? "，匹配 " + files.length + " 个" : "")
@@ -435,7 +435,7 @@ window.__ModuleLoader__.load({
 				h("button", { type: "button", className: "dsh-tavern-btn primary", disabled: props.disabled || busy, onClick: activate }, props.batch ? "批量导入" : "导入人物卡"),
 				open ? h("div", { className: "dsh-tavern-mobile-import", role: "dialog", "aria-modal": "true", "aria-label": "从手机下载目录导入人物卡" }, h("div", { className: "dsh-tavern-mobile-import-shell" }, h("div", { className: "dsh-tavern-mobile-import-panel" },
 					h("div", { className: "dsh-tavern-mobile-import-title" }, "从手机下载目录导入"),
-					h("div", { className: "dsh-tavern-question-sub" }, "把 PNG 或 JSON 人物卡放进手机 Download，回到这里点选。"),
+					h("div", { className: "dsh-tavern-question-sub" }, "把人物卡放进手机 Download 后直接点选，.dshcard 和 .charx 卡包最大支持 1 GiB。"),
 					h("div", { className: "dsh-tavern-mobile-import-count", role: 'status', 'aria-busy': !!progress }, progress ? h(Spinner) : null, countText),
 					error ? h("div", { className: "dsh-tavern-dock-error", role: "alert" }, error) : null,
 					h("div", { className: "dsh-tavern-mobile-import-tools" },
@@ -1180,6 +1180,7 @@ window.__ModuleLoader__.load({
 // @include features/scene-images.js
 // @include modules/view-tabs.js
 // @include features/settings.js
+// @include features/vertex-region.js
 
 // @include features/prose-layout.js
 // @include features/text-layout.js
@@ -1241,9 +1242,12 @@ function clipReplayCore() {
 
 
 		const storyTranscriptFeature = createTavernStoryTranscriptFeature({
+			useCompactionState: playControlsFeature.useCompactionState,
+			compactionProgressTitle: playControlsFeature.compactionProgressTitle,
 			replyActions: {
 				Receipt: playControlsFeature.TurnReceiptButton,
 				Latest: playControlsFeature.LatestReplyActions,
+				Menu: playControlsFeature.TurnMenu,
 				RollbackTo: playControlsFeature.RollbackToTurnButton,
 				Illustrate: assistantRendererFeature.IllustrateTurnAction,
 				IllustrationDraft: TavernIllustrationDraft,
@@ -1361,6 +1365,13 @@ function clipReplayCore() {
 			if (typeof ctx.provide === "function") provideAssetPackWorkbench(ctx);
 			const slots = ctx.slots;
 			if (slots === undefined) return;
+			if (ctx.betterSidebar) {
+				ctx.effect(() => registerTab(ctx.betterSidebar, {
+					id: "dsh-tavern:stage-config", title: "舞台配置", order: 9.75, single: true,
+					component: TavernStageConfigTab
+				}), "dsh-tavern: stage config tab");
+				tavernUiExtensions.service.registerStartGroup({ title: "舞台装置", tabs: ["dsh-tavern:stage-config"] });
+			}
 			if (ctx.betterSidebar) stageEffect(() => registerTab(ctx.betterSidebar, {
 				// the tab reads 「舞台设置」 (「Tavern 舞台」 was cut off).
 				id: "dsh-tavern:bubbles", title: "舞台设置", order: 9, single: true,
@@ -1406,7 +1417,7 @@ function clipReplayCore() {
             // (view.stage, host-decided); availability = server stage ready and such a session is open.
             const stageClientLoader = createStageClientLoader({
                 sessions: ctx.sessions, views: liveTavernView,
-                runtime: {read: () => rpc('getStageRuntimeStatus', {}), subscribe: (changed, wake) => signals.subscribe('plugin:dsh-tavern-stage', 'plugin-lifecycle', changed, wake, wake)},
+                runtime: {read: ({workbench}) => rpc(workbench ? 'prepareStageWorkbench' : 'getStageRuntimeStatus', {}), subscribe: (changed, wake) => signals.subscribe('plugin:dsh-tavern-stage', 'plugin-lifecycle', changed, wake, wake)},
                 load: () => import('/api/dsh-tavern/client-assets/stage-client.mjs'),
                 install: plugin => ctx.plugin(plugin),
                 report: error => tavernErrorHub.report("舞台", error)
@@ -1499,12 +1510,12 @@ function clipReplayCore() {
 				const appendMentions = function () { if (mentions) input.setDraft(withMention(String(input.state.getSnapshot().draft || ""), mentions)); };
 				if (task === "writing-skill") {
 					const references = String(input.state.getSnapshot().draft || "");
-					input.setDraft("/create-writing-skill\n\n请从已引用的素材中提炼写作 Skill，用于前台正文写作。先与我确认适用场景、禁用场景和写作要求，再编写自包含的提示词；成品不依赖原素材或参考文件。\n\n" + tagged("reference_materials", withMention(references, mentions)));
+					input.setDraft("/create-writing-skill\n\n请根据引用的素材创建前台写作 Skill。\n\n" + tagged("reference_materials", withMention(references, mentions)));
 					return;
 				}
 				if (task === "gentle") {
 					if (!targetPath) throw new Error("温和改写缺少目标人物卡");
-					input.setDraft("/gentle-rewrite\n\n@\"" + targetPath + "\"\n\n先调用 tavern_copy_card 创建保留原卡图片的独立副本，再按温和改写 skill 完成改写，交付副本路径与改写摘要。");
+					input.setDraft("/gentle-rewrite\n\n@\"" + targetPath + "\"\n\n请为这张卡制作保留封面的温和改写副本。");
 					appendMentions();
 					return;
 				}
@@ -1512,41 +1523,39 @@ function clipReplayCore() {
 					if (!targetPath) throw new Error("MVU 转换缺少目标人物卡");
 					input.setDraft(
 						"/card-to-mvu\n\n" + tagged("target_card", "@\"" + targetPath + "\"") + "\n\n" +
-						"先用 tavern_copy_card 建一份副本，在副本上改成 MVU 版，原卡保持不变；保留剧情设定与状态栏视觉风格。原卡自带的候选项（生成提示、按钮、正则和专用脚本）移除，统一使用 DSH Tavern 内置候选项；手机、开场主页等与状态栏和候选项无关的美化与脚本原样保留。"
+						"请为这张卡制作 MVU 副本，并改用 DSH Tavern 内置候选项。"
 					);
 					appendMentions();
 					return;
 				}
 				if (task === "create") {
-					input.setDraft("/create-card\n\n我想新建一张人物卡。请逐题问我，每次一个问题并给参考选项；问清角色、玩家身份、世界和开场，再问我是否需要 MVU 变量和前端美化。选了美化先给 HTML 草图让我挑，确认设定后再创建。\n\n我的初步想法：");
+					input.setDraft("/create-card\n\n我想新建一张人物卡。\n\n我的初步想法：");
 					appendMentions();
 					return;
 				}
 				if (task === "user-profile") {
-					input.setDraft(
-						"/user-profile\n\n通过分批提问了解我的长期游玩与写作偏好。可以提供差异明确的参考选项，也允许我自由回答或跳过；信息足够后形成长期偏好草案让我核对，只有我明确确认后才保存。"
-					);
+					input.setDraft("/user-profile\n\n请帮我梳理长期游玩与写作偏好。");
 					appendMentions();
 					return;
 				}
 				const result = await rpc("getCardTaskPrompt", { task: task }, sessionId);
+				const taskPrompt = String(result && result.text || "").trim();
 				const draft = String(input.state.getSnapshot().draft || "");
-				const supplement = draft + (taskSupplement ? "\n\n" + taskSupplement : "");
+				const supplement = [draft, taskSupplement].filter(Boolean).join("\n\n");
 				const targetSection = targetPath ? "\n\n" + tagged("target_card", "@\"" + targetPath + "\"") : "";
 				const resourceSection = mentions ? "\n\n" + tagged(task === "worldbook" || task === "preset" || task === "script" ? "edit_target" : "initial_script", mentions) : "";
 				if (task === "debug-play") {
-					input.setDraft("/debug-card" + targetSection + "\n\n" + supplement.trim() + "\n\n请结合已引用的游玩记录，检查这张人物卡的异常表现，按需读取相关日志和状态，说明原因并给出修改建议。");
+					input.setDraft(taskPrompt + targetSection + "\n\n" + supplement.trim() + "\n\n请排查引用的游玩记录，说明异常原因和修改建议。");
 					appendMentions();
 					return;
 				}
 				if (task === "edit") {
-					const editPrompt = String(result && result.text || "").trim();
 					const target = targetPath ? "\n\n目标卡：@\"" + targetPath + "\"" : "";
-					input.setDraft(editPrompt.replace("/edit-card", "/edit-card" + target) + resourceSection + (supplement ? "\n\n" + supplement : ""));
+					input.setDraft(taskPrompt.replace("/edit-card", "/edit-card" + target) + resourceSection + (supplement ? "\n\n" + supplement : ""));
 					return;
 				}
-				const taskText = "<card_task>" + label + "</card_task>" + targetSection + "\n\n" + String(result && result.text || "").trim() + resourceSection;
-				input.setDraft(taskText + supplement);
+				const taskText = "<card_task>" + label + "</card_task>" + targetSection + "\n\n" + taskPrompt + resourceSection;
+				input.setDraft(taskText + (supplement ? "\n\n" + supplement : ""));
 			}
 			registerTavernStartPage(ctx, slots);
 			registerTavernPhonePanel(ctx);
@@ -1571,6 +1580,7 @@ function clipReplayCore() {
                     children: { "settings.tavern.appearance": { kind: "list", scope: "root" } }
 				}, TavernSettingsSection); });
 			}, "dsh-tavern: settings section");
+			createVertexRegionFeature({ React: React, rpc: rpc }).register(ctx);
 			// The voice plugin's 配音 page lists browser speech as a 语音服务 row; the 🔊 line button speaks through the voice
 			// service, so the Tavern has no speech settings of its own.
 			ctx.provide("ttsBrowserSpeech", browserSpeechService);
@@ -1579,9 +1589,6 @@ function clipReplayCore() {
             ctx.effect(function () {
                 return slots.inject("settings.section", function () { return slots.register({ name:"settings.section", id:"dsh-tavern-plugins", order:113, label:() => "酒馆插件" }, TavernPluginsSettingsSection); });
             }, "dsh-tavern: plugins settings section");
-            ctx.effect(function () {
-                return slots.inject("settings.section", function () { return slots.register({ name:"settings.section", id:"dsh-tavern-stage-settings", order:114, label:() => "舞台" }, TavernStageSettingsSection); });
-            }, "dsh-tavern: stage settings section");
 			// 系统提示词与长期偏好在「预设」标签页（preset-hub.js）。
 
 			presetLibraryFeature.register({ ctx: ctx, appendMention: appendMention });

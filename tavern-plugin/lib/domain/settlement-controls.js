@@ -4,6 +4,32 @@ function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
 }
 
+// The DSH composer sends its stop action to the subagent service. Tavern's
+// settlement workers are listed in that catalog but are owned by Tavern.
+export function installSettlementSubagentStop(service, stopSettlementAgent) {
+  const subagents = service?.[Symbol.for('cordis.original')] || service
+  const restore = []
+  for (const method of ['interruptByUser', 'interruptByParent']) {
+    const original = subagents?.[method]
+    if (typeof original !== 'function') continue
+    const own = Object.hasOwn(subagents, method)
+    function interrupt(...args) {
+      const [childSessionId, parentSessionId, mode] = args
+      const stopping = method === 'interruptByUser' ? stopSettlementAgent(childSessionId)
+        : typeof parentSessionId === 'string' && parentSessionId !== '' && mode === 'continuable'
+          ? stopSettlementAgent(childSessionId, parentSessionId) : undefined
+      return stopping ? stopping.then(() => ({ accepted: true })) : original.apply(this, args)
+    }
+    subagents[method] = interrupt
+    restore.push(() => {
+      if (subagents[method] !== interrupt) return
+      if (own) subagents[method] = original
+      else delete subagents[method]
+    })
+  }
+  return () => { for (const dispose of restore) dispose() }
+}
+
 // What the player does to a game's background work: stop it, retry the latest reply's
 // settlement, and start the settlement an older opening still waits for.
 // `deps` is read on each call, so a test may swap a service after creation.
@@ -17,12 +43,28 @@ export function createSettlementControls(deps) {
     if (!operationId || !(coreActive && activity.operationId === operationId || activity.director?.operationId === operationId)) return view(chat, await readChatCard(chat))
     stageDirector?.cancel(chat)
     backgroundAgentRunner.cancel(chat.sessionId, { task: 'stage-director' })
-    // Abort the provider request first; interrupted operations reject late commits.
     pluginApi.stopTasks(chat.sessionId)
     backgroundAgentRunner.cancel(chat.sessionId)
     await cancelSettlement(chat.id, { wait: false })
     const stopped = coreActive ? await backgroundTasks.recover(chat, { operationId: activity.operationId }) : { chat }
     return view(stopped.chat, await readChatCard(stopped.chat))
+  }
+
+  function stopSettlementAgent(childSessionId, parentSessionId) {
+    const context = deps.backgroundAgentRunner.activeRequestContext(childSessionId)
+    if (context?.task !== 'settlement' || !context.operationId) return
+    if (parentSessionId !== undefined && context.parentSessionId !== parentSessionId) return
+    return interruptSettlement(context.operationId)
+  }
+
+  async function interruptSettlement(operationId) {
+    const { cancelSettlementOperation, readChat, backgroundTasks } = deps
+    // Abort the exact job before reading storage. The provider can finish while the
+    // read is in flight, and the chat may already have queued a different operation.
+    const chatId = await cancelSettlementOperation(operationId)
+    if (chatId === undefined) return
+    const chat = await readChat(chatId)
+    if (chat) await backgroundTasks.recover(chat, { operationId })
   }
 
   async function retrySettlement(sessionId, turn, guidance) {
@@ -105,5 +147,5 @@ export function createSettlementControls(deps) {
     return false
   }
 
-  return Object.freeze({ stopBackground, retrySettlement, pullBackgroundCycle })
+  return Object.freeze({ stopBackground, stopSettlementAgent, retrySettlement, pullBackgroundCycle })
 }

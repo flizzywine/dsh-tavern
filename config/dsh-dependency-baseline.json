@@ -66,6 +66,9 @@
     "@deepseek-ai/dsh-agent",
     "@deepseek-ai/dsh-compaction"
   ],
+  "tavern-plugin/lib/asset-engine-settings-owner.js": [
+    "@deepseek-ai/schemastery"
+  ],
   "tavern-plugin/lib/background-agent-sessions.js": [
     "@deepseek-ai/dsh-subagent"
   ],
@@ -134,7 +137,9 @@
     "@deepseek-ai/dsh-tools"
   ],
   "tavern-plugin/lib/domain/workspace-instruction-presentation.js": [
+    "@deepseek-ai/dsh-",
     "@deepseek-ai/dsh-agent-instructions",
+    "@deepseek-ai/dsh-tool-registry",
     "@deepseek-ai/dsh-user-approval"
   ],
   "tavern-plugin/lib/host/tools.js": [

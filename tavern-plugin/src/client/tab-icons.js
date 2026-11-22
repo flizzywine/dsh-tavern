@@ -3,6 +3,7 @@
 const TAB_ICONS = {
     "dsh-tavern:status": "IconGaugeOutline16",
     "dsh-tavern:conversation-settings": "IconSettingsOutline16",
+    "dsh-tavern:stage-config": "IconSettingsOutline16",
     "dsh-tavern:user-profile": "IconPersonalizationOutline16",
     "dsh-tavern:cards": "IconUserOutline16",
     "dsh-tavern:presets": "IconAgentPresetOutline16",

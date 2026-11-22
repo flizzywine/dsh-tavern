@@ -37,7 +37,11 @@ const ALLOWED_GET = /^\/api\/dsh-tavern\/(?:vendor\/|client-assets\/|remote-asse
 // after a minute, must find its runtime still warm. Thirty seconds reaped the
 // child in the middle of ordinary play, and every later card-script event then
 // paid a full cold boot before it could run.
-export function createServerScriptExecutor({ handle, subscribeSignals, busy = () => false, lingerMs = 5 * 60 * 1000, reapIntervalMs = Math.max(1000, Math.floor(lingerMs / 3)), maxSessions = 4, spawn = fork, logger = console, now = Date.now }) {
+function isMobileRuntime() {
+  return process.platform === 'android' || Boolean(process.env.TERMUX_VERSION || process.env.ANDROID_ROOT || process.env.DSH_ANDROID_HOST)
+}
+
+export function createServerScriptExecutor({ handle, subscribeSignals, busy = () => false, lingerMs = isMobileRuntime() ? 2 * 60 * 1000 : 5 * 60 * 1000, reapIntervalMs = Math.max(1000, Math.floor(lingerMs / 3)), maxSessions = isMobileRuntime() ? 1 : 4, spawn = fork, logger = console, now = Date.now }) {
   const records = new Map(), retryAfter = new Map()
   let failures = 0, disabled = false
   function failed(id) {

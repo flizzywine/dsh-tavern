@@ -41,28 +41,32 @@ test('Android 下载目录人物卡只列出受限目录里的 PNG/JSON，并按
   })
 })
 
-test('Android 下载目录允许直接读取 1 GiB 的 DSH 卡包，其他格式仍限制为 25 MiB', async t => {
+test('Android 下载目录允许直接读取 1 GiB 的 DSH 和 CHARX 卡包，PNG/JSON 限制为 32 MiB', async t => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'dsh-mobile-archive-'))
   t.after(() => rm(root, { recursive: true, force: true }))
-  const name = '辉夜姬.DSHCARD'
-  const file = path.join(root, name)
+  const names = ['辉夜姬.DSHCARD', '舞台.CHARX']
   const max = 1024 ** 3
-  await writeFile(file, '')
-  await truncate(file, max)
-  for (const extension of ['charx', 'json', 'png']) {
+  for (const name of names) {
+    const file = path.join(root, name)
+    await writeFile(file, '')
+    await truncate(file, max)
+  }
+  for (const extension of ['json', 'png']) {
     const legacy = path.join(root, 'large.' + extension)
     await writeFile(legacy, '')
-    await truncate(legacy, 25 * 1024 ** 2 + 1)
+    await truncate(legacy, 32 * 1024 ** 2 + 1)
   }
 
   const imports = createMobileCardImport({ runtimeHost: 'android', roots: [{ id: 'download', label: 'Download', path: root }] })
   const { files } = await imports.list()
-  assert.deepEqual(files.map(item => [item.name, item.size]), [[name, max]])
-  const [{ id }] = files
-  assert.deepEqual(await imports.archive(id), { file, name })
-  await assert.rejects(imports.read(id), /请通过卡包入口/)
+  assert.deepEqual(files.map(item => item.name).sort(), names.slice().sort())
+  for (const { id, name, size } of files) {
+    const file = path.join(root, name)
+    assert.equal(size, max)
+    assert.deepEqual(await imports.archive(id), { file, name })
+    await truncate(file, max + 1)
+    await assert.rejects(imports.archive(id), /过大/)
+  }
 
-  await truncate(file, max + 1)
   assert.deepEqual((await imports.list()).files, [])
-  await assert.rejects(imports.archive(id), /过大/)
 })

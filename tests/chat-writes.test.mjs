@@ -42,3 +42,15 @@ test('各类写入保留通知顺序与 mailbox、压缩、Skill 的原有豁免
     }
   }
 })
+
+test('正文和楼层变化要求刷新预览，仅更新结算字段时继续使用已有预览', async () => {
+  const { writes, events } = fixture()
+  for (const [change, refreshPreview] of [
+    [{ op: 'splice', path: ['messages'], index: 2, deleteCount: 0, items: [input.messages[0]] }, true],
+    [{ op: 'set', path: ['messages', 2, 'text'], value: '更新后的正文' }, true],
+    [{ op: 'set', path: ['messages', 2, 'variables', 0], value: { status: 'ok' } }, false],
+  ]) {
+    await writes.patch('chat', 1, [change], { source: 'ordinary' })
+    assert.deepEqual(events.findLast(([name]) => name === 'summary')[2], { metadataOnly: true, refreshPreview })
+  }
+})

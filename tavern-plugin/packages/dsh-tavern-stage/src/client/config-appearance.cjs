@@ -196,7 +196,7 @@ function GalConfigScreenTab(props) {
         galConfigGroup("效果", null,
             galConfigRow("画质", galConfigSegmented({ label: "画质", value: qualitySetting, options: [["auto", "自动"], ["high", "高"], ["medium", "中"], ["saver", "省电"]], onChange: value => stageQuality.set(value) }),
                 h(React.Fragment, null, h("span", null, "自动：电脑用「高」，手机和平板用「中」，电量低或性能弱时用「省电」。这台设备现在是「" + GAL_QUALITY_NAMES[quality] + "」。"),
-                    h("span", null, "中：人物和背景的分辨率降低，画面静止时每秒 15 帧。省电：分辨率再降，去掉颗粒、泛光、景深等重滤镜，粒子减少，静止时每秒 10 帧。只记在这台设备上。"))),
+                    h("span", null, "中：人物和背景的分辨率降低，逐字出现的文字不再淡入，画面静止时每秒 15 帧。省电：分辨率再降，去掉颗粒、泛光、景深等重滤镜，粒子减少，静止时每秒 10 帧。只记在这台设备上。"))),
             galConfigRow("帧率上限", galConfigSegmented({ label: "帧率上限", value: String(galFrameRate(quality, true, Infinity, reading.frameCap, galDeviceHandheld())), options: [["30", "30"], ["60", "60"], ["120", "120"], ["0", "跟随屏幕"]], onChange: value => stageReading.set({ frameCap: Number(value) }) }),
                 "上限越高越流畅，但会增加 GPU 负载和耗电。跟随屏幕不额外限帧；静止场景自动降帧。画质为「省电」时仍限制为 30 帧。"),
             galConfigRow("减少动态", h(GalConfigSwitch, { label: "减少动态", checked: reading.reducedMotion === true, onChange: on => stageReading.set({ reducedMotion: on }) }), "演出装饰保持静态并关闭震动；系统的减少动态设置同样生效。"),

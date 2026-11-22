@@ -104,6 +104,7 @@ export function createModelRequestLog(options = {}) {
 
   // Writes run off the request path, in order per chat: completion follows its record.
   const queues = new Map()
+  const runningCreatedAt = new Map()
   function enqueue(chatId, task) {
     const next = (queues.get(chatId) || Promise.resolve()).then(task)
     const settled = next.catch(function (error) { console.error('dsh-tavern: 模型请求日志写入失败', str(error && error.message || error)) })
@@ -199,6 +200,9 @@ export function createModelRequestLog(options = {}) {
     const serialized = JSON.stringify(draft)
     const record = JSON.parse(serialized)
     const base = 'model-requests/' + chat.id + '/'
+    const createdKey = chat.id + ':' + requestId
+    if (runningCreatedAt.size >= 128) runningCreatedAt.delete(runningCreatedAt.keys().next().value)
+    runningCreatedAt.set(createdKey, stamp)
     // The body was cloned above; the model request itself must not wait for the disk.
     enqueue(chat.id, async function () {
       const bytes = Buffer.byteLength(serialized)
@@ -229,11 +233,16 @@ export function createModelRequestLog(options = {}) {
     return enqueue(str(input.chatId), function () { return completeNow(input) })
   }
   async function completeNow(input) {
-    const base = 'model-requests/' + str(input.chatId) + '/'
-    const path = base + str(input.id) + '.json'
-    const resultPath = base + str(input.id) + '.result.json'
+    const chatId = str(input.chatId)
+    const id = str(input.id)
+    const base = 'model-requests/' + chatId + '/'
+    const path = base + id + '.json'
+    const resultPath = base + id + '.result.json'
+    const createdKey = chatId + ':' + id
+    const cachedCreatedAt = runningCreatedAt.get(createdKey)
+    runningCreatedAt.delete(createdKey)
     // Old records have no sidecar. Read them once when completing, without rewriting.
-    const previous = await readJson(resultPath) || await readJson(path)
+    const previous = cachedCreatedAt !== undefined ? { createdAt: cachedCreatedAt } : (await readJson(resultPath) || await readJson(path))
     if (!previous) return null
     const completedAt = now()
     const createdAt = Number.isFinite(previous.createdAt) ? previous.createdAt : completedAt
@@ -291,9 +300,23 @@ export function createModelRequestLog(options = {}) {
     if (!record) throw new Error('请求记录已缺失')
     return evidenceRecord(record, await readJson(base + id + '.result.json'))
   }
+  function isForegroundTurnEntry(item) {
+    return (Number(item?.turn) || 0) > 0 || (Number(item?.agentTurn) || 0) > 0
+  }
   async function latest(chatId, knownId, sessionId, options = {}) {
     const entries = await list(chatId)
-    const matched = entries.filter(item => sessionId ? item.sessionId === sessionId : item.scope === 'foreground')
+    const requestedScope = options && (options.scope === 'foreground' || options.scope === 'background') ? options.scope : ''
+    let matched = entries.filter(item => {
+      if (sessionId && item.sessionId !== sessionId) return false
+      if (requestedScope) return item.scope === requestedScope
+      return sessionId ? true : item.scope === 'foreground'
+    })
+    const primary = matched.filter(item => item.task !== 'compaction')
+    if (primary.length > 0) matched = primary
+    if (matched.some(item => item.scope === 'foreground' && isForegroundTurnEntry(item))) {
+      const foregroundTurns = matched.filter(item => item.scope !== 'foreground' || isForegroundTurnEntry(item))
+      if (foregroundTurns.length > 0) matched = foregroundTurns
+    }
     const entry = matched.at(-1)
     if (!entry) return null
     const base = 'model-requests/' + chatId + '/'
@@ -304,7 +327,15 @@ export function createModelRequestLog(options = {}) {
     const record = await readJson(base + entry.id + '.json')
     if (!record) return null
     const full = evidenceRecord(record, result)
-    const previousEntry = matched.length >= 2 ? matched.at(-2) : null
+    let previousEntry = null
+    for (let i = matched.length - 2; i >= 0; i--) {
+      const candidate = matched[i]
+      if (!candidate) continue
+      if (candidate.scope !== entry.scope) continue
+      if ((candidate.task === 'compaction') !== (entry.task === 'compaction')) continue
+      previousEntry = candidate
+      break
+    }
     const previousRecord = previousEntry && !previousEntry.pruned ? await readJson(base + previousEntry.id + '.json') : null
     return { ...full, cacheDiff: computeRequestCacheDiff(full, previousRecord, previousEntry) }
   }

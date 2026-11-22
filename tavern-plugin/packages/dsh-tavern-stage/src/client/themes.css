@@ -5607,7 +5607,8 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
     border: 0 none; border-radius: 0; background: none; box-shadow: none; color: var(--art-mr-ink, var(--gal-ui-ink)); font: var(--art-mr-weight) calc(var(--art-mr-font) * var(--mu)) / 1.2 var(--gal-ui-font); animation: none;
     border-image: var(--art-mr) var(--art-mr-st) var(--art-mr-sr) var(--art-mr-sb) var(--art-mr-sl) fill / calc(var(--art-mr-st) * var(--mu)) calc(var(--art-mr-sr) * var(--mu)) calc(var(--art-mr-sb) * var(--mu)) calc(var(--art-mr-sl) * var(--mu)) stretch; }
   /* rows.spacing: the labels' tracking; the last glyph's trailing space taken back so a centred label stays centred */
-  .fork-gal-stage[data-fk-skin-art-menu]:not(.is-film) .fork-gal-menu-item b { font: inherit; letter-spacing: var(--art-mr-spacing, .04em); margin-right: calc(0em - var(--art-mr-spacing, 0em)); }
+  .fork-gal-stage[data-fk-skin-art-menu]:not(.is-film) .fork-gal-menu-item b { font: inherit; letter-spacing: var(--art-mr-spacing, .04em); margin-right: calc(0em - var(--art-mr-spacing, 0em));
+    -webkit-text-stroke: calc(var(--art-mr-stroke-w, 0) * 2 * var(--mu)) var(--art-mr-stroke, transparent); paint-order: stroke fill; }
   .fork-gal-stage[data-fk-skin-art-menu]:not(.is-film) .fork-gal-menu-item .fork-gal-menu-gem { display: none; }
   .fork-gal-stage[data-fk-skin-art-menu]:not(.is-film) .fork-gal-menu-item .fork-gal-menu-note { margin-left: auto; color: inherit; font-size: .6em; }
   .fork-gal-stage[data-fk-skin-art-menu]:not(.is-film) .fork-gal-menu-item::after { content: none; }
@@ -5685,7 +5686,16 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
     border: 0 none; border-radius: 0; background: none; box-shadow: none; color: var(--art-mr-ink, var(--gal-ui-ink));
     font: var(--art-mr-weight, 500) max(var(--gal-ui-reading-size), calc(var(--art-mn-r-font) * var(--mu))) / 1.2 var(--gal-ui-font);
     border-image: var(--art-mn-r) var(--art-mn-r-st) var(--art-mn-r-sr) var(--art-mn-r-sb) var(--art-mn-r-sl) fill / calc(var(--art-mn-r-st) * var(--mu)) calc(var(--art-mn-r-sr) * var(--mu)) calc(var(--art-mn-r-sb) * var(--mu)) calc(var(--art-mn-r-sl) * var(--mu)) stretch; }
-  .fork-gal-stage[data-fk-skin-art-menu-narrow]:not(.is-film) .fork-gal-menu-item b { font: inherit; letter-spacing: var(--art-mr-spacing, .04em); }
+  .fork-gal-stage[data-fk-skin-art-menu-narrow]:not(.is-film) .fork-gal-menu-item b { font: inherit; letter-spacing: var(--art-mr-spacing, .04em);
+    -webkit-text-stroke: calc(var(--art-mr-stroke-w, 0) * 2 * var(--mu)) var(--art-mr-stroke, transparent); paint-order: stroke fill; }
+  /* anchor middle: the title and the bars one block centred in the height under the top bar (52px), on any phone height; taller
+     than the screen, it scrolls from its top (safe center). rows.y = the space from the title to the first bar. */
+  .fork-gal-stage[data-fk-skin-art-menu-narrow-anchor="middle"]:not(.is-film) > .fork-gal-menu > .fork-gal-menu-panel:not(.fork-gal-confirm):not([hidden]) { display: flex; flex-direction: column;
+    justify-content: safe center; box-sizing: border-box; padding: 52px 0 max(16px, env(safe-area-inset-bottom)); overflow: hidden auto; overscroll-behavior: contain; scrollbar-width: none; }
+  .fork-gal-stage[data-fk-skin-art-menu-narrow-anchor="middle"]:not(.is-film) .fork-gal-menu-list { position: relative; left: auto; top: auto; flex: none; box-sizing: border-box;
+    margin: calc(var(--art-mn-r-y) * var(--mu)) 0 0; padding-left: calc(var(--art-mn-r-x) * var(--mu)); }
+  .fork-gal-stage[data-fk-skin-art-menu-narrow][data-fk-skin-art-menu-narrow-anchor="middle"][data-fk-skin-art-menu-strips~="title"]:not(.is-film) .fork-gal-menu-strip[data-show="title"] { position: relative; order: -1; flex: none; top: auto;
+    left: auto; align-self: center; translate: calc(var(--art-mn-t-x) * var(--mu)) 0; }
   .fork-gal-stage[data-fk-skin-art-menu-narrow]:not(.is-film) .fork-gal-menu-item :is(.fork-gal-menu-gem, .fork-gal-menu-note) { display: none; }
   .fork-gal-stage[data-fk-skin-art-menu-narrow]:not(.is-film) .fork-gal-menu-item::after { content: none; }
   .fork-gal-stage[data-fk-skin-art-menu-narrow]:not(.is-film) .fork-gal-menu-item:is(.is-active, :active) { border-image-source: var(--art-mn-r-focus); background: none; color: var(--art-mr-focus-ink, var(--art-mr-ink, var(--gal-ui-accent))); }
@@ -7444,6 +7454,8 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
 .fork-gal-stage .fork-gal-status-close:hover { background: var(--gal-ui-hover); color: var(--gal-ui-accent); }
 .fork-gal-stage .fork-gal-status-close:focus-visible { outline: var(--gal-ui-focus); outline-offset: 1px; color: var(--gal-ui-accent); }
 .fork-gal-status-body { position: relative; display: flex; flex: 1; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; }
+.fork-gal-status[data-entry-page][data-plugin-panel] { background: #15161a; }
+.fork-gal-status-plugin { line-height: 1.5; flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; }
 /* the card frame's root is color-scheme: light dark (frame-document.js); the frame element matches it, or the browser paints an opaque canvas behind the panel */
 .fork-gal-status-frame { display: block; box-sizing: border-box; flex: 1; width: 100%; max-width: 100%; min-width: 0; min-height: 0; border: 0; background: transparent; color-scheme: light dark; }
 /* size "full" (a card that draws a full-screen scene): the sheet fills the stage at every width, as at phone widths */

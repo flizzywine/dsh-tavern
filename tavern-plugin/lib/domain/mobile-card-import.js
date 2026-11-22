@@ -6,7 +6,8 @@ import { renderPngThumbnail } from './png-thumbnail.js'
 import { MAX_CARD_UPLOAD_BYTES } from './uploads.js'
 
 const CARD_EXTENSIONS = new Set(['.json', '.png', '.charx', '.dshcard'])
-const DEFAULT_MAX_BYTES = 25 * 1024 * 1024
+const CARD_ARCHIVE_EXTENSIONS = new Set(['.charx', '.dshcard'])
+const DEFAULT_MAX_BYTES = 32 * 1024 * 1024
 const DEFAULT_THUMBNAIL_CACHE = 240
 
 function defaultRoots() {
@@ -41,7 +42,7 @@ export function createMobileCardImport(options = {}) {
   async function inspect(root, name) {
     const extension = path.extname(name).toLowerCase()
     if (path.basename(name) !== name || !CARD_EXTENSIONS.has(extension)) return null
-    const limit = maxBytes ?? (extension === '.dshcard' ? MAX_CARD_UPLOAD_BYTES : DEFAULT_MAX_BYTES)
+    const limit = maxBytes ?? (CARD_ARCHIVE_EXTENSIONS.has(extension) ? MAX_CARD_UPLOAD_BYTES : DEFAULT_MAX_BYTES)
     const target = path.join(root.path, name)
     let info
     try { info = await lstat(target) } catch { return null }
@@ -73,7 +74,7 @@ export function createMobileCardImport(options = {}) {
     if (!enabled) throw new Error('当前宿主不允许从手机下载目录导入')
     const entry = await resolve(id)
     const file = path.join(entry.root.path, entry.item.name)
-    return /\.(charx|dshcard)$/i.test(entry.item.name) ? { file, name: entry.item.name } : null
+    return CARD_ARCHIVE_EXTENSIONS.has(path.extname(entry.item.name).toLowerCase()) ? { file, name: entry.item.name } : null
   }
 
   async function read(id) {

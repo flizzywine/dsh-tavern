@@ -149,3 +149,75 @@ test('latestForSession 附带同会话上一条请求的 cacheDiff，并在状�
   assert.equal(completedView.status, 'completed')
   assert.equal(completedView.cacheDiff.usage.hitRate, 0.8)
 })
+
+test('latestForSession 忽略压缩请求、后台 scope 与历史零轮次杂项请求，不误报前台模型切换', async () => {
+  const fixture = storageFixture()
+  let sequence = 0
+  const log = createModelRequestLog({ ...fixture.adapters, id: () => String(++sequence) })
+
+  const r1 = await log.record({
+    chat: { id: 'c1' },
+    coordinates: { turn: 1, step: 1 },
+    options: { sessionId: 's1', model: 'claude-sonnet', system: 'sys', messages: [{ role: 'user', content: 'u1' }] }
+  })
+  await log.complete({ chatId: 'c1', id: r1.id, text: 'a1', finish: { kind: 'stop' } })
+
+  // 压缩请求使用独立压缩模型，但复用前台 sessionId
+  const compact = await log.record({
+    chat: { id: 'c1' },
+    context: { task: 'compaction', turn: 1 },
+    coordinates: { turn: 1 },
+    options: { sessionId: 's1', model: 'bg-compact-model', system: 'compact', messages: [{ role: 'user', content: 'summarize' }] }
+  })
+  await log.complete({ chatId: 'c1', id: compact.id, text: 'summary', finish: { kind: 'stop' } })
+
+  // 后台 scope 或旧版生图规划误带前台 sessionId（turn=0, agentTurn=0）
+  const bgSameSession = await log.record({
+    chat: { id: 'c1' },
+    context: { scope: 'background', task: 'stage-director', turn: 1 },
+    options: { sessionId: 's1', model: 'bg-director-model', system: 'director', messages: [{ role: 'user', content: 'direct' }] }
+  })
+  await log.complete({ chatId: 'c1', id: bgSameSession.id, text: 'ok', finish: { kind: 'stop' } })
+
+  const legacyPlanner = await log.record({
+    chat: { id: 'c1' },
+    coordinates: {},
+    options: { sessionId: 's1', model: 'claude-sonnet', system: '图图', messages: [{ role: 'user', content: 'plan' }] }
+  })
+  await log.complete({ chatId: 'c1', id: legacyPlanner.id, text: '<image/>', finish: { kind: 'stop' }, usage: { inputTokens: 215, cacheReadTokens: 25344 } })
+
+  // 下一轮开始前查看前台完整上下文，应停留在 r1 而非压缩/后台/零轮次请求
+  const beforeTurn2 = await log.latestForSession('s1', '', undefined, { scope: 'foreground' })
+  assert.equal(beforeTurn2.id, r1.id)
+  assert.equal(beforeTurn2.cacheDiff.compareStatus, 'no-previous')
+
+  const r2 = await log.record({
+    chat: { id: 'c1' },
+    coordinates: { turn: 2, step: 1 },
+    options: { sessionId: 's1', model: 'claude-sonnet', system: 'sys', messages: [{ role: 'user', content: 'u1' }, { role: 'user', content: 'u2' }] }
+  })
+  const turn2View = await log.latestForSession('s1', '', undefined, { scope: 'foreground' })
+  assert.equal(turn2View.id, r2.id)
+  assert.equal(turn2View.cacheDiff.compareStatus, 'compared')
+  assert.equal(turn2View.cacheDiff.baseline.id, r1.id)
+  assert.equal(turn2View.cacheDiff.modelChanged, false)
+  assert.equal(turn2View.cacheDiff.breakPoint, null)
+  assert.equal(turn2View.cacheDiff.sectionStatus['field:system'], 'hit')
+  assert.equal(turn2View.cacheDiff.sectionStatus['msg:0'], 'hit')
+  assert.equal(turn2View.cacheDiff.sectionStatus['msg:1'], 'appended')
+})
+
+test('runPlanner 对游戏 sessionId 加命名空间，不与前台会话串用导致误记为前台请求', async () => {
+  const { runPlanner } = await import('../tavern-plugin/packages/dsh-tavern-image-bundled/lib/planner.js')
+  const seen = []
+  const fakeLlm = {
+    async * stream(req) {
+      seen.push(req.sessionId)
+      yield { type: 'text-delta', text: 'ok' }
+      yield { type: 'finish', reason: { kind: 'stop' } }
+    }
+  }
+  await runPlanner(fakeLlm, { provider: 'p', model: 'bg-model', system: 's', text: 't', sessionId: 'game-session-1' })
+  await runPlanner(fakeLlm, { provider: 'p', model: 'bg-model', system: 's', text: 't', sessionId: 'dsh-image-workbench' })
+  assert.deepEqual(seen, ['dsh-image-planner:game-session-1', 'dsh-image-workbench'])
+})

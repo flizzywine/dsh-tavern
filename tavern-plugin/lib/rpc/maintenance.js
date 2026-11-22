@@ -66,7 +66,11 @@ export function createMaintenanceHandlers(deps) {
       const own = background ? undefined : await sessionStateForSession(sessionId)
       const chat = own || await sessionStateForSession(background?.parentSessionId || session?.header?.parentSession || sessionId)
       const knownStatus = str(args?.knownStatus)
-      return { record: await modelRequestLog.latestForSession(sessionId, str(args?.knownId), chat?.id, knownStatus ? { knownStatus } : undefined) }
+      const latestOptions = {
+        ...(knownStatus ? { knownStatus } : {}),
+        ...(own ? { scope: 'foreground' } : {})
+      }
+      return { record: await modelRequestLog.latestForSession(sessionId, str(args?.knownId), chat?.id, Object.keys(latestOptions).length ? latestOptions : undefined) }
     },
     async exportTavernLogs(args) {
       return await exportTavernLogs(args && args.sessionId)

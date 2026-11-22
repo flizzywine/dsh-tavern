@@ -5,7 +5,7 @@ import { chromium } from 'playwright'
 // Exercise the public plugin registration and real React effects/events. Only
 // the DSH host and HTTP boundary are fixtures; no component source extraction.
 // stageClient: the page loads the built stage client through the core's hold and loader, as in production.
-export async function openTavernSettings(t, { settings, respond, exposeModelSlotGroups = false, section: pageSection, provided, sessionId, beforeRender, stageClient = false, browserExecutable, renderPropsCode, contextOptions } = {}) {
+export async function openTavernSettings(t, { settings, respond, exposeModelSlotGroups = false, section: pageSection, provided, sessionId, beforeRender, stageClient = false, sidebarStart = false, browserExecutable, renderPropsCode, contextOptions } = {}) {
   const executablePath = browserExecutable || process.env.PLAYWRIGHT_EXECUTABLE_PATH
   const browser = await chromium.launch({ headless: true, args: ['--mute-audio'], ...(executablePath ? { executablePath } : {}) })
   t.after(() => browser.close())
@@ -18,7 +18,7 @@ export async function openTavernSettings(t, { settings, respond, exposeModelSlot
     // the core's on-demand loader imports the built stage client (packages/dsh-tavern-stage/lib/client.js)
     if (stageClient && route.request().url().endsWith('/api/dsh-tavern/client-assets/stage-client.mjs'))
       return route.fulfill({ contentType: 'text/javascript', body: await readFile(new URL('../../tavern-plugin/packages/dsh-tavern-stage/lib/client.js', import.meta.url), 'utf8') })
-    // the stage's Live2D module, imported by 设置 › 舞台 › 运行库 (its Live2D entry)
+    // the stage's Live2D module, imported by 舞台配置 › 运行库 (its Live2D entry)
     if (stageClient && route.request().url().endsWith('/api/dsh-tavern/client-assets/live2d-client.mjs'))
       return route.fulfill({ contentType: 'text/javascript', body: await readFile(new URL('../../tavern-plugin/packages/dsh-tavern-stage/lib/client/live2d-client.mjs', import.meta.url), 'utf8') })
     if (!route.request().url().includes('/api/')) return route.fulfill({ contentType: 'text/html', body: '<main></main>' })
@@ -41,7 +41,6 @@ export async function openTavernSettings(t, { settings, respond, exposeModelSlot
       else if (method === 'confirmSessionPatch') result = {}
       else if (method === 'getTavernModelCatalog') result = { modelCatalog: [] }
       else if (method === 'getDefaultWritingSkills') result = { skills: [] }
-      else if (method === 'getBodyGenerationSettings') result = { inherited: true, mode: 'host', provider: '', providers: [] }
       else if (method === 'listUserPlugins') result = { plugins: [], dir: '/tmp/tavern/plugins' }
       else if (method === 'managedModsList') result = { revision: 'fixture', mods: [] }
       else if (method === 'listLegacyPlugins') result = { plugins: [] }
@@ -62,38 +61,51 @@ export async function openTavernSettings(t, { settings, respond, exposeModelSlot
   // the core's slot rows component, for a page that also mounts the stage's settings (they take it as an option)
   if (exposeModelSlotGroups) source = source.replace('function TavernModelSlotGroups({', 'window.__modelSlotGroups = TavernModelSlotGroups; function TavernModelSlotGroups({')
   await page.addScriptTag({ content: source })
-  const section = provided ? '' : pageSection || (sessionId ? 'dsh-tavern: conversation settings tab' : 'dsh-tavern: settings section')
-  await page.evaluate(async ({ section, provided, sessionId, stageClient, renderPropsCode }) => {
+  const section = provided || sidebarStart ? '' : pageSection || (sessionId ? 'dsh-tavern: conversation settings tab' : 'dsh-tavern: settings section')
+  await page.evaluate(async ({ section, provided, sessionId, stageClient, sidebarStart, renderPropsCode }) => {
     let Settings
     // stageClient: the core's stage client hold and loader run, and the loader's ctx.plugin applies the stage plugin
     // with the core's tavernStageFrontend.
     const services = {}, stageEffects = ['dsh-tavern: stage client hold', 'dsh-tavern: stage client loader']
     const stageCtx = { provide() {}, get: name => services[name], effect(run) { return run() } }
+    const tabs = new Map()
+    const sidebarEffects = ['dsh-tavern: stage config tab', 'dsh-tavern: header item catalog', 'dsh-tavern: native start page', 'tavernUi.registerStartGroup()']
+    if (sidebarStart) tabs.set('dsh-asset-library:library', { id: 'dsh-asset-library:library', title: '舞台素材', order: 9.5 })
+    const registry = { guide: () => [...tabs.values()].sort((a, b) => a.order - b.order)
+      .map(tab => ({ kind: tab.id, title: () => tab.title, icon: tab.icon })) }
     window.__tavernTestSlots = []
     const testSignals = new EventTarget()
     window.__tavernTestSignal = (id, kind) => testSignals.dispatchEvent(new Event(id + ':' + kind))
-    window.client.apply({
-      inject() { return { dispose() {} } },
+    const host = {
+      inject(names, apply) { if (sidebarStart && names[0] === 'sidebarRightTabs') apply(host); return { dispose() {} } },
       // A provided panel (e.g. ttsLineSpeechSettings, placed by another plugin's page) renders as the page itself.
       provide(name, value) { services[name] = value; if (name === provided) Settings = () => value.render() },
       plugin(plugin) { return plugin.apply(stageCtx) },
-      get() {},
+      get(name) { if (name === 'sidebarRightTabs') return registry },
       sessions: { subagentAddress() {}, list: { getSnapshot: () => ({ byId: {} }), subscribe: () => () => {} } },
-      betterSidebar: { registerTab(spec) { Settings = () => modules.react.createElement(spec.component, { scope: { sessionId } }); } },
+      betterSidebar: { registerTab(spec) {
+        tabs.set(spec.id, spec)
+        if (!sidebarStart) Settings = () => modules.react.createElement(spec.component, { scope: { sessionId } })
+      } },
       tavernSessionSignals: { subscribe(id, kind, listener) {
         const key = id + ':' + kind
         testSignals.addEventListener(key, listener)
         return () => testSignals.removeEventListener(key, listener)
       } },
-      effect(run, label) { if (label === section || (stageClient && stageEffects.includes(label))) return run() },
+      effect(run, label) { if (label === section || (stageClient && stageEffects.includes(label)) || (sidebarStart && sidebarEffects.includes(label))) return run() },
       slots: { inject(name, run) { window.__tavernTestSlots.push(name); return run() }, register(_spec, Component) { Settings = Component } }
-    })
+    }
+    window.client.apply(host)
+    if (sidebarStart) services.tavernUi.registerStartGroup({ title: '舞台装置', tabs: ['dsh-asset-library:library'] })
     // A renamed or removed section would otherwise leave the test waiting forever.
     for (const deadline = Date.now() + 3000; !Settings; await new Promise(resolve => setTimeout(resolve, 10)))
       if (Date.now() > deadline) throw new Error('No settings section ' + JSON.stringify(section || provided))
     const renderProps = renderPropsCode ? new Function('modules', 'return ' + renderPropsCode)(modules) : {};
-    modules['react-dom/client'].createRoot(document.querySelector('main')).render(modules.react.createElement(Settings, { renderSlot: () => null, ...renderProps }))
-  }, { section, provided, sessionId, stageClient, renderPropsCode })
+    const root = modules['react-dom/client'].createRoot(document.querySelector('main'))
+    const render = (Component, props) => root.render(modules.react.createElement(Component, props))
+    const useTabInfo = () => ({ tab: { actions: { openTab: id => render(tabs.get(id).component, { scope: {} }) } } })
+    render(Settings, { renderSlot: () => null, useTabInfo, ...renderProps })
+  }, { section, provided, sessionId, stageClient, sidebarStart, renderPropsCode })
   t.after(() => { if (errors.length) throw Error(errors.join('\n')) })
   return { page, calls }
 }

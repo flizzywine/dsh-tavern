@@ -7,6 +7,7 @@ import { createPluginMedia, pluginMediaRange, pluginMediaSession, slicePluginMed
 import { createTavernPluginApi, TAVERN_PLUGIN_API_VERSION } from '../tavern-plugin/lib/plugin-api.js'
 import { createPluginData } from '../tavern-plugin/lib/domain/plugin-data.js'
 import { createSettingsHandlers } from '../tavern-plugin/lib/rpc/settings.js'
+import { applyTavernSettingsPatch } from '../tavern-plugin/lib/domain/tavern-settings.js'
 
 function memoryStore() {
   const files = new Map()
@@ -108,6 +109,52 @@ async function harness(t, overrides = {}) {
     .map(([, plugin, stage, message]) => ({ plugin, stage, message })).reverse()
   return { root, api, media, published, errors, setLatest(value) { latest = value } }
 }
+
+test('正文生成默认值在插件与宿主设置间共用，且仅全局插件能配置自己的生成器', { skip: !cordis }, async t => {
+  let settings = { storyGenerationMode: 'plugin-tool-call', storyGenerationProvider: 'writer:body', storyPluginOutputRegex: true }
+  const readTavernSettings = async () => structuredClone(settings)
+  const updateTavernSettings = async (patch, { beforeWrite } = {}) => {
+    const next = applyTavernSettingsPatch(settings, patch)
+    await beforeWrite?.(settings)
+    settings = next
+    return readTavernSettings()
+  }
+  const h = await harness(t, { readTavernSettings, updateTavernSettings,
+    cardScope: async () => new Map([['card-writer', { cards: ['/cards/a.json'] }]]) })
+  const installWriter = async name => {
+    let tavern
+    await h.root.plugin({ name, inject: ['tavern'], apply(ctx) {
+      tavern = ctx.tavern
+      tavern.bodyGenerator({ name: 'body', title: '正文', generate: async () => ({ text: '正文' }) })
+    } })
+    return tavern
+  }
+  const writer = await installWriter('writer')
+  const cardWriter = await installWriter('card-writer')
+  const legacy = createSettingsHandlers({ readTavernSettings, updateTavernSettings, autoChoices: { cancelAll() {} } })
+  assert.equal(writer.capabilities.bodyGenerationDefaults, 1)
+  assert.deepEqual(await writer.bodyGenerationDefaults({ name: 'body' }), { mode: 'plugin-tool-call', hostRegex: true })
+  await assert.rejects(writer.bodyGenerationDefaults({ name: 'unregistered' }), /请先注册/)
+  await assert.rejects(cardWriter.bodyGenerationDefaults({ name: 'body', mode: 'plugin-direct' }), /只有全局插件/)
+  await assert.rejects(writer.bodyGenerationDefaults({ name: 'body', mode: 'invalid' }), /生成方式无效/)
+  assert.deepEqual(await writer.bodyGenerationDefaults({ name: 'body', mode: 'plugin-direct', hostRegex: false }), { mode: 'plugin-direct', hostRegex: false })
+  assert.equal(settings.storyGenerationProvider, 'writer:body')
+  assert.equal(settings.storyGenerationMode, 'plugin-direct')
+  assert.equal(settings.storyPluginOutputRegex, false)
+
+  await legacy.updateTavernSettings({ patch: { storyGenerationProvider: 'other:body' } })
+  assert.deepEqual(await writer.bodyGenerationDefaults({ name: 'body' }), { mode: 'host', hostRegex: false })
+  await assert.rejects(writer.bodyGenerationDefaults({ name: 'body', hostRegex: true }), /默认生成器已更改/)
+  await assert.rejects(writer.bodyGenerationDefaults({ name: 'body', mode: 'host' }), /默认生成器已更改/)
+  assert.equal(settings.storyGenerationProvider, 'other:body')
+  assert.equal(settings.storyPluginOutputRegex, false)
+
+  await writer.bodyGenerationDefaults({ name: 'body', mode: 'plugin-tool-call' })
+  assert.deepEqual(await writer.bodyGenerationDefaults({ name: 'body', hostRegex: true }), { mode: 'plugin-tool-call', hostRegex: true })
+  assert.deepEqual(await writer.bodyGenerationDefaults({ name: 'body', mode: 'host' }), { mode: 'host', hostRegex: true })
+  assert.equal(settings.storyGenerationProvider, '')
+  assert.equal(settings.storyGenerationMode, 'host')
+})
 
 test('provider APIs：capabilities、克隆输入、卡绑定筛选与 Cordis 卸载撤销', { skip: !cordis }, async t => {
   let cardPath = '/cards/a.json'
@@ -294,6 +341,7 @@ test('tavern 服务：读取接口与错误隔离', { skip: !cordis }, async t =
 test('tavern 服务 v2：本轮上下文、世界书来源、结算说明与结算工具，出错只丢自己这一份，卸载后撤销', { skip: !cordis }, async t => {
   const h = await harness(t, { reservedToolNames: ['posture_submit'] })
   const calls = []
+  let enabled = true
   let tavern
   const fiber = await h.root.plugin({ name: 'memory-plugin', inject: ['tavern'], apply(ctx) {
     tavern = ctx.tavern
@@ -303,6 +351,7 @@ test('tavern 服务 v2：本轮上下文、世界书来源、结算说明与结�
     ctx.tavern.worldbookSource({ name: 'session', entries: ({ input }) => [{ title: '支线', content: '与' + input + '有关的线索' }, { content: '  ' }] })
     ctx.tavern.settlementSection({ name: 'anchor', text: ({ turn }) => '第 ' + turn + ' 轮请记录叙事锚点' })
     ctx.tavern.settlementTool({ name: 'anchor_submit', description: '提交叙事锚点', parameters: { type: 'object', properties: { text: { type: 'string' } } },
+      enabledFor: async ({ gameId }) => enabled && gameId === 'game-1',
       execute: async ({ gameId, turn, arguments: args }) => { calls.push([gameId, turn, args.text]); if (args.text === 'bad') throw new Error('写入失败'); return { ok: true } } })
   } })
   await tick()
@@ -320,6 +369,13 @@ test('tavern 服务 v2：本轮上下文、世界书来源、结算说明与结�
   assert.deepEqual(h.api.settlement.tools().map(tool => tool.name), ['anchor_submit'])
   assert.deepEqual((await h.api.settlement.sections({ gameId: 'game-1', turn: 4 })).map(section => section.text), ['第 4 轮请记录叙事锚点'])
   const call = h.api.settlement.calls({ gameId: 'game-1', turn: 4 })
+  const availability = () => h.api.settlement.toolNames({ gameId: 'game-1', turn: 4 })
+  assert.deepEqual(await availability(), { available: ['anchor_submit'], unavailable: [] })
+  enabled = false
+  assert.deepEqual(await availability(), { available: [], unavailable: ['anchor_submit'] })
+  assert.match(JSON.parse(await call('anchor_submit', { text: '关闭后' })).error, /未启用/)
+  assert.deepEqual(calls, [])
+  enabled = true
   assert.deepEqual(JSON.parse(await call('anchor_submit', { text: '门' })), { ok: true })
   assert.match(JSON.parse(await call('anchor_submit', { text: 'bad' })).error, /写入失败/, 'a plugin error is returned to the model, not thrown')
   assert.deepEqual(calls, [['game-1', 4, '门'], ['game-1', 4, 'bad']])

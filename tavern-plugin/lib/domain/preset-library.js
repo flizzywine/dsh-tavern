@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { normalizeResourcePath } from './file-resources.js'
-import { inspectPreset, nativeRegexScriptsOf } from './preset-reading.js'
+import { inspectPreset, MAX_SHARED_PRESET_BYTES, nativeRegexScriptsOf } from './preset-reading.js'
 import { previewPresetConversion } from './preset-conversion-preview.js'
 import { createPresetEditor } from './preset-editor.js'
 import { createRuntimePresetModule } from './runtime-presets.js'
@@ -10,7 +10,6 @@ function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
 }
 
-const GENERATION_PRESET_MAX_BYTES = 10 * 1024 * 1024
 function hasGenerationPresetFormat(document) {
   return Array.isArray(document?.prompts) && document.prompts.length > 0
     && Array.isArray(document.prompt_order) && document.prompt_order.some(group => Array.isArray(group?.order))
@@ -198,7 +197,7 @@ export function createPresetLibrary({ resources: fileResources, state: profileDa
       title: preset.title,
       valid: preset.valid,
       recognized: preset.recognized,
-      generationCompatible: Buffer.byteLength(text) <= GENERATION_PRESET_MAX_BYTES && hasGenerationPresetFormat(document),
+      generationCompatible: Buffer.byteLength(text) <= MAX_SHARED_PRESET_BYTES && hasGenerationPresetFormat(document),
       promptCount: preset.promptCount,
       phaseCounts,
       unassignedPromptCount: (preset.entries || []).filter(function (entry) { return !phasedEntryKeys.has(str(entry && entry.entryKey)) }).length,
@@ -267,7 +266,7 @@ export function createPresetLibrary({ resources: fileResources, state: profileDa
   async function readForGeneration(id) {
     const path = normalizeResourcePath(id, 'preset')
     const { name, text } = await exportPreset(path)
-    if (Buffer.byteLength(text) > GENERATION_PRESET_MAX_BYTES) throw new Error('共享预设最多 10 MiB')
+    if (Buffer.byteLength(text) > MAX_SHARED_PRESET_BYTES) throw new Error('共享预设最多 ' + MAX_SHARED_PRESET_BYTES / 1024 ** 2 + ' MiB')
     let document
     try { document = JSON.parse(text) } catch { /* report the same error as an unsupported format */ }
     if (!hasGenerationPresetFormat(document)) throw new Error('此预设缺少 SillyTavern 提示词或顺序数据，请在宿主预设库选择兼容的预设')
