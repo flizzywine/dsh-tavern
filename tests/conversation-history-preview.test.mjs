@@ -53,14 +53,14 @@ function importChat(overrides = {}) {
   }
 }
 
-test('预览提取：跳过开场白，取玩家首条与角色首条，并记下轮数', () => {
+test('预览提取：跳过开场白，清理最近一轮的正文并记下轮数', () => {
   const preview = extractChatPreview(importChat())
   assert.equal(preview.turnCount, 1)
   assert.equal(preview.messageCount, 3)
   assert.match(preview.userText, /我推门走进旅店/)
   assert.match(preview.replyText, /老板抬起头/)
   assert.doesNotMatch(preview.replyText, /StatusPlaceHolderImpl|style|<initvar>/)
-  // 已经聊过的存档不把开场白当预览，侧边栏显示玩家和角色的首轮。
+  // 已经聊过的存档显示最近一轮。
   assert.equal(preview.openingText, '')
 })
 
@@ -82,8 +82,26 @@ test('预览提取：多轮存档按 turn 记轮数，助手多段回复不重�
   }
   const preview = extractChatPreview({ id: 'chat-long', messages })
   assert.equal(preview.turnCount, 8)
-  assert.match(preview.userText, /玩家第 1 轮/)
+  assert.equal(preview.userText, '玩家第 8 轮')
+  assert.equal(preview.replyText, '角色续写，同一轮。')
   assert.equal(preview.openingText, '')
+})
+
+test('预览保留还在等待回复的最新输入，不混入上一轮正文', () => {
+  const chat = importChat()
+  chat.messages.push({ role: 'user', text: '我起身走出旅店。' }, { role: 'assistant', turn: 3, text: '' })
+  const preview = extractChatPreview(chat)
+  assert.equal(preview.userText, '我起身走出旅店。')
+  assert.equal(preview.replyText, '')
+  assert.equal(preview.openingText, '')
+})
+
+test('只续写正文时显示最新一轮正文，避免带上上一轮输入', () => {
+  const chat = importChat()
+  chat.messages.push({ role: 'assistant', turn: 3, text: '第二天清晨，雨停了。' })
+  const preview = extractChatPreview(chat)
+  assert.equal(preview.userText, '')
+  assert.equal(preview.replyText, '第二天清晨，雨停了。')
 })
 
 test('预览提取：只有头部投影或空历史时不清空已记住的预览', () => {
@@ -116,7 +134,7 @@ test('旧索引缺 preview 时按需回填，写回后第二次不再读存档',
   const first = await registry.backfillPreviews(['chat-import-1'])
   assert.equal(first.previews['chat-import-1'].turnCount, 1)
   assert.equal(first.remaining, 0)
-  // 走的是切片读：只取头部几条 + 最后一条，不整份加载 236 个存档。
+  // 直接读取会话片段。
   assert.equal(store.counts.chatReads, 0)
   assert.ok(store.counts.sliceReads > 0)
   assert.equal(store.snapshot().index.chats[0].preview.turnCount, 1)
@@ -126,7 +144,7 @@ test('旧索引缺 preview 时按需回填，写回后第二次不再读存档',
   assert.equal(store.counts.sliceReads, sliceReads)
 })
 
-test('236 轮的长存档回填：只读切片也数得准轮数，不整份加载', async () => {
+test('236 轮的旧存档从首轮预览升级到末轮，只读取小片段', async () => {
   const messages = [{ role: 'assistant', greeting: true, turn: 1, text: '开场白。' }]
   for (let turn = 2; turn <= 237; turn++) {
     messages.push({ role: 'user', text: '第 ' + (turn - 1) + ' 轮玩家输入' })
@@ -136,7 +154,8 @@ test('236 轮的长存档回填：只读切片也数得准轮数，不整份加�
   assert.equal(chat.messages.length, 473)
   const store = memoryStore({
     links: { session: 'chat-import-1' },
-    index: { chats: [{ id: 'chat-import-1', cardPath: chat.cardPath, cardName: chat.cardName, title: 'Storyteller - Storyteller - 2026-11-09 21-34', mode: 'story', createdAt: 1000, updatedAt: 1000, lastOpenedAt: 1000 }] },
+    index: { chats: [{ id: 'chat-import-1', cardPath: chat.cardPath, cardName: chat.cardName, title: 'Storyteller - Storyteller - 2026-11-09 21-34', mode: 'story', createdAt: 1000, updatedAt: 1000, lastOpenedAt: 1000,
+      preview: { turnCount: 236, messageCount: 473, userText: '第 1 轮玩家输入', replyText: '第 1 轮正文', openingText: '' } }] },
     chats: { 'chat-import-1': chat }
   })
   const registry = createTavernConversationRegistry({ store: store.adapter })
@@ -144,14 +163,18 @@ test('236 轮的长存档回填：只读切片也数得准轮数，不整份加�
   const preview = result.previews['chat-import-1']
   assert.equal(preview.turnCount, 236)
   assert.equal(preview.messageCount, 473)
-  assert.match(preview.userText, /第 1 轮玩家输入/)
+  assert.equal(preview.userText, '第 236 轮玩家输入')
+  assert.equal(preview.replyText, '第 236 轮正文')
+  assert.equal(preview.latest, true)
   assert.equal(preview.openingText, '')
   assert.equal(store.counts.chatReads, 0)
+  assert.equal(store.counts.sliceReads, 2)
+  assert.deepEqual((await registry.list())[0].preview, preview)
 })
 
-test('回填只补缺失的行，已有 preview 的存档原样保留', async () => {
+test('已经更新为末轮的预览跳过回填', async () => {
   const chat = importChat()
-  const kept = { turnCount: 12, messageCount: 25, userText: '旧玩家', replyText: '旧角色', openingText: '' }
+  const kept = { latest: true, turnCount: 12, messageCount: 25, userText: '旧玩家', replyText: '旧角色', openingText: '' }
   const store = memoryStore({
     links: { session: 'chat-import-1', other: 'chat-import-1' },
     index: { chats: [{ id: 'chat-import-1', cardPath: chat.cardPath, cardName: chat.cardName, title: '', mode: 'story', createdAt: 1000, updatedAt: 1000, lastOpenedAt: 1000, preview: kept }] },
@@ -162,6 +185,40 @@ test('回填只补缺失的行，已有 preview 的存档原样保留', async ()
   assert.deepEqual(result.previews, {})
   assert.deepEqual(store.snapshot().index.chats[0].preview, kept)
   assert.equal(store.counts.sliceReads, 0)
+})
+
+test('局部正文写入、编辑和回退后索引预览跟随，并保留更新的版本', async () => {
+  const chat = importChat({ _storageRevision: 1, sessionId: 'session' })
+  const store = memoryStore({ links: { session: chat.id }, chats: { [chat.id]: chat } })
+  const notified = []
+  const registry = createTavernConversationRegistry({ store: store.adapter, onPreviewChange: row => notified.push(row.preview) })
+  await registry.sync(chat)
+  const old = structuredClone(chat)
+
+  chat._storageRevision = 2
+  chat.messages.push({ role: 'user', text: '我结账离开。' }, { role: 'assistant', turn: 3, text: '街上起了风。' })
+  await store.adapter.writeChat(chat)
+  const header = { ...chat, messages: [] }
+  await registry.sync(header, { metadataOnly: true, refreshPreview: true })
+  const lastPreview = async () => (await registry.list())[0].preview
+  assert.equal((await lastPreview()).userText, '我结账离开。')
+  assert.equal((await lastPreview()).replyText, '街上起了风。')
+  await registry.sync(old)
+  assert.equal((await lastPreview()).storageRevision, 2)
+
+  chat._storageRevision = 3
+  chat.messages.at(-1).text = '街灯已经亮了。'
+  await store.adapter.writeChat(chat)
+  await registry.sync({ ...header, _storageRevision: 3 }, { metadataOnly: true, refreshPreview: true })
+  assert.equal((await lastPreview()).replyText, '街灯已经亮了。')
+
+  chat._storageRevision = 4
+  chat.messages.splice(3, 2)
+  await store.adapter.writeChat(chat)
+  await registry.sync({ ...header, _storageRevision: 4 }, { metadataOnly: true, refreshPreview: true })
+  assert.equal((await lastPreview()).replyText.includes('老板抬起头'), true)
+  assert.equal(notified.length, 4)
+  assert.equal(store.counts.chatReads, 0)
 })
 
 function cardListHelpers() {

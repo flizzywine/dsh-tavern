@@ -4,7 +4,7 @@ import test from 'node:test'
 import { chromium } from 'playwright'
 import { browserReactScript } from './fixtures/browser-react.mjs'
 
-async function mountSidebar(t, { initialHistory, archived, recentReplyFirst = false }) {
+async function mountSidebar(t, { initialHistory, archived, recentReplyFirst = false, current = '', backfillPreviews = () => ({}) }) {
   const browser = await chromium.launch({ headless: true })
   t.after(() => browser.close())
   const page = await browser.newPage()
@@ -19,12 +19,20 @@ async function mountSidebar(t, { initialHistory, archived, recentReplyFirst = fa
   }
   page.on('pageerror', error => errors.push(error.message))
   let history = initialHistory
+  function updatePreviews(previews) {
+    history = history.map(item => previews[item.chatId] ? { ...item, preview: previews[item.chatId] } : item)
+  }
   await page.route('http://tavern.test/**', route => {
     const url = route.request().url()
     if (!url.includes('/api/dsh-tavern/')) return route.fulfill({ contentType: 'text/html', body: '<main></main>' })
     const method = new URL(url).pathname.split('/').at(-1)
     if (method === 'getTavernSettings') return route.fulfill({ json: { ok: true, settings: { recentReplyFirst } } })
     if (method === 'listSessions') return route.fulfill({ json: { ok: true, sessions: history } })
+    if (method === 'loadSessionPreviews') {
+      const previews = backfillPreviews(route.request().postDataJSON().chatIds)
+      updatePreviews(previews)
+      return route.fulfill({ json: { ok: true, previews } })
+    }
     if (method === 'prepareDeleteChats' || method === 'deleteChats') {
       const { _sessionPatchPage, ...args } = route.request().postDataJSON()
       deleteCalls.push({ method, args })
@@ -42,9 +50,11 @@ async function mountSidebar(t, { initialHistory, archived, recentReplyFirst = fa
   await page.addScriptTag({ content: await browserReactScript() })
   await page.addScriptTag({ content: 'window.__ModuleLoader__={load(d){window.client=d.factory(name=>modules[name]||{});}};' })
   await page.addScriptTag({ content: await readFile(new URL('../tavern-plugin/lib/client.js', import.meta.url), 'utf8') })
-  await page.evaluate(archived => {
+  await page.evaluate(({ archived, current }) => {
     const slots = {}, listeners = new Set()
-    const sessionState = { current: '', byId: {} }
+    const sessionState = { current, byId: {} }
+    const previewEvents = new Set()
+    window.emitPreviewChange = () => { for (const notify of previewEvents) notify() }
     let workspace = { items: [], archivedSessionIds: archived }
     function setArchived(archivedSessionIds) {
       workspace = { ...workspace, archivedSessionIds }
@@ -61,7 +71,11 @@ async function mountSidebar(t, { initialHistory, archived, recentReplyFirst = fa
         async archiveSession(id) { setArchived([...new Set([...workspace.archivedSessionIds, id])]) },
         async unarchiveSession(id) { setArchived(workspace.archivedSessionIds.filter(item => item !== id)) },
       },
-      tavernSessionSignals: { subscribe: () => () => {} },
+      tavernSessionSignals: { subscribe(sessionId, kind, notify) {
+        if (sessionId !== current || kind !== 'conversation-preview') return () => {}
+        previewEvents.add(notify)
+        return () => previewEvents.delete(notify)
+      } },
     }
     window.client.apply(ctx)
     const subscribe = listener => { listeners.add(listener); return () => listeners.delete(listener) }
@@ -70,8 +84,8 @@ async function mountSidebar(t, { initialHistory, archived, recentReplyFirst = fa
       useWorkspaces: select => select(React.useSyncExternalStore(subscribe, () => workspace)),
       renderSlot: () => null,
     }))
-  }, archived)
-  return { page, errors, deleteCalls, releaseDeletion }
+  }, { archived, current })
+  return { page, errors, deleteCalls, releaseDeletion, updatePreviews }
 }
 
 test('侧栏归档可恢复，点击管理直接打开宽屏页批量删除', async t => {
@@ -331,5 +345,38 @@ test('纸感主题下长预览的三点菜单不遮住按钮，点击外部或 E
   await page.keyboard.press('Escape')
   await popup.waitFor({ state: 'detached' })
   assert.equal(await trigger.evaluate(button => document.activeElement === button), true)
+  assert.deepEqual(errors, [])
+})
+
+
+test('侧栏自动替换旧首轮预览，并在新正文保存后更新宽屏页', async t => {
+  const preview = (replyText, turnCount) => ({
+    latest: true, userText: '刚才的输入', replyText, turnCount, messageCount: turnCount * 2 + 1, openingText: '',
+  })
+  const backfillCalls = []
+  const { page, errors, updatePreviews } = await mountSidebar(t, {
+    current: 'long', archived: [],
+    initialHistory: [{
+      sessionId: 'long', chatId: 'chat-long', mode: 'story', title: '旧存档',
+      cardName: '示例卡', cardPath: 'example.png',
+      preview: { turnCount: 8, messageCount: 17, userText: '首轮输入', replyText: '首轮正文' },
+    }],
+    backfillPreviews(chatIds) {
+      backfillCalls.push(...chatIds)
+      return { 'chat-long': preview('第八轮正文', 8) }
+    },
+  })
+  const row = page.locator('.dsh-tavern-side-row')
+  await row.getByText('第八轮正文').waitFor()
+  assert.deepEqual(backfillCalls, ['chat-long'])
+  assert.equal(await row.getByText('首轮正文').count(), 0)
+  await page.getByRole('button', { name: '管理', exact: true }).click()
+  const manager = page.getByRole('dialog', { name: '会话管理' })
+  await manager.getByText('第八轮正文').waitFor()
+  updatePreviews({ 'chat-long': preview('第九轮正文', 9) })
+  await page.evaluate(() => window.emitPreviewChange())
+  await manager.getByText('第九轮正文').waitFor()
+  await row.getByText('第九轮正文').waitFor()
+  assert.deepEqual(backfillCalls, ['chat-long'])
   assert.deepEqual(errors, [])
 })

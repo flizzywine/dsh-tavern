@@ -1319,8 +1319,7 @@ export async function apply(ctx) {
     } catch (error) { return skip(error) }
   }
   let conversationRegistry
-  // summaryOptions 与 metadata 分开：启动恢复只读到尾部一行窗口，不能拿它当首轮正文
-  // 写进索引预览，但又不能把「这是局部读取」混进展示观察者的写入元数据。
+  // Summary reads distinguish committed message changes from header-only projections.
   async function syncChatSummary(chat, metadata, summaryOptions) {
     if (chat) presentationObservers.saved(chat, metadata)
     if (!conversationRegistry || chat === undefined) return
@@ -1383,6 +1382,9 @@ export async function apply(ctx) {
   conversationRegistry = createTavernConversationRegistry({
     trace: requestPerformance,
     isDeleted: chatId => deletedChatIds.has(chatId),
+    onPreviewChange: summary => sessionSignals.publish(summary.sessionId, {
+      kind: 'conversation-preview', version: String(summary.preview.storageRevision ?? summary.updatedAt)
+    }),
     store: {
       readAutomationOwner: async sessionId => readJson('automation/' + sessionId + '.json'),
       readLinks: async function () {

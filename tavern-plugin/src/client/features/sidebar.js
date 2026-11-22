@@ -330,14 +330,14 @@
 				window.addEventListener("keydown", onKey, true);
 				return function () { window.removeEventListener("keydown", onKey, true); };
 			}, [historyManagerOpen, managerRenaming]);
-			// 存量旧存档若索引里还没有 preview，按需分批回填并写回 index.json，避免列表加载时全量读盘。
+			// 缺失或仍使用首轮文本的旧预览分批刷新，避免列表加载时全量读盘。
 			const previewBackfillMounted = React.useRef(true);
 			React.useEffect(function () {
 				return function () { previewBackfillMounted.current = false; };
 			}, []);
 			React.useEffect(function () {
 				const missing = history.filter(function (item) {
-					return item && item.chatId && item.preview === undefined && !attemptedPreviewIds.current.has(item.chatId);
+					return item && item.chatId && item.preview?.latest !== true && !attemptedPreviewIds.current.has(item.chatId);
 				});
 				if (!missing.length) return;
 				// 已展开的分组和打开的管理器里的会话优先，用户正在看的那几行先补齐。
@@ -355,7 +355,7 @@
 					setHistory(function (prev) {
 						let changed = false;
 						const next = prev.map(function (item) {
-							if (!item || item.preview !== undefined || !map[item.chatId]) return item;
+							if (!item || item.preview?.latest === true || map[item.chatId]?.latest !== true) return item;
 							changed = true;
 							return Object.assign({}, item, { preview: map[item.chatId] });
 						});
@@ -584,7 +584,9 @@
 			}, []);
 			React.useEffect(function () {
 				if (!current) return;
-				return tavernCoordination.subscribe(current, function () {});
+				const stopCoordination = tavernCoordination.subscribe(current, function () {});
+				const stopPreview = tavernSessionSignals.subscribe(current, "conversation-preview", () => { void refresh(["sessions"]); });
+				return function () { stopCoordination(); stopPreview(); };
 			}, [current]);
 			React.useEffect(function () {
 				return function () { playPrewarmRef.current.cancel(); };
@@ -1440,7 +1442,7 @@
 				const live = liveStatus && typeof liveStatus.get === "function" ? liveStatus.get(sessionId) : null;
 				return !!(live && live.running);
 			}
-			// 索引行有 preview 就直接展示；没有的旧存档先留空，回填 effect 拿到后补齐。
+			// 先展示索引里已有的预览，旧数据在后台补齐后就地替换。
 			function historyPreview(item, summary) {
 				return formatTavernHistoryPreview(item && item.preview !== undefined ? item.preview : (summary && summary.preview));
 			}
@@ -1551,7 +1553,7 @@
 			const archiveHistoryGroup = { key: "archived", name: "已归档", items: orderedArchivedHistory };
 			const archiveGroup = collapsed || !orderedArchivedHistory.length ? null : renderHistoryGroup(archiveHistoryGroup, archiveExpanded, () => setArchiveExpanded(!archiveExpanded));
 			// ---------- 宽屏会话管理器 ----------
-			// 侧边栏一行放不下「玩家首条输入 + AI 首条回复 + 轮数」，批量整理 200+ 个
+			// 侧边栏一行放不下最近一轮的输入、回复和轮数，批量整理 200+ 个
 			// 同前缀的导入存档要靠这一层：宽列表、搜标题和正文、按卡/轮数筛选、批量归档。
 			const hasHistoryInMode = activeHistory.length + archivedHistory.length > 0;
 			const managerPool = React.useMemo(function () {
