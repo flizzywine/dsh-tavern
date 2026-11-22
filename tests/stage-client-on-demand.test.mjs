@@ -1,4 +1,4 @@
-// On-demand stage client: a card without the stage downloads nothing and asks the stage for
+// On-demand stage client: plain and bubble-only cards download nothing and ask the stage for
 // nothing; a stage card loads the client once.
 import test from 'node:test'
 import assert from 'node:assert/strict'
@@ -82,8 +82,11 @@ test('a stage card loads the client once and mounts it; closing unmounts, reopen
   host.open('plain'); host.publish('plain', {dialogue:false, stage:false})
   await settle()
   assert.equal(loads.length, 0)
-  // then a card with bubbles on
   host.open('stage'); host.publish('stage', {dialogue:true, stage:false})
+  await settle()
+  assert.equal(runtime.reads, 0, 'opening only bubbles does not ask the stage runtime')
+  assert.equal(loads.length, 0)
+  host.publish('stage', {dialogue:true, stage:true})
   await settle()
   assert.equal(loads.length, 1)
   assert.equal(loader.loaded(), true)
@@ -104,7 +107,7 @@ test('a stage card loads the client once and mounts it; closing unmounts, reopen
   await ctx.fiber.dispose()
 })
 
-test('transcript bubbles read the card dialogue flag before asking the stage for bubble settings', async () => {
+test('transcript bubbles read the card dialogue flag before fetching bubble settings', async () => {
   const source = await readFile(new URL('../tavern-plugin/src/client/stage-client-loader.cjs', import.meta.url), 'utf8')
   const subscriptions = []
   const sandbox = {
@@ -121,6 +124,6 @@ test('transcript bubbles read the card dialogue flag before asking the stage for
   assert.equal(useStageDialogue(''), false, 'a text without a session subscribes to nothing')
   assert.equal(subscriptions.length, 4)
   // BubbleContent gates its voice-only request on it; text with @bubble lines always reads its speakers.
-  const bubbles = await readFile(new URL('../tavern-plugin/packages/dsh-tavern-stage/src/client/bubbles.js', import.meta.url), 'utf8')
+  const bubbles = await readFile(new URL('../tavern-plugin/src/client/bubbles.js', import.meta.url), 'utf8')
   assert.match(bubbles, /const dialogue = useStageDialogue\(props\.sessionId\);\r?\n\s*const data = useBubbles\(props\.sessionId, has \|\| dialogue && Boolean\(props\.voiceScope\), select\);/)
 })

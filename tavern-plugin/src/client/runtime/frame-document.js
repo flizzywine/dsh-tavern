@@ -163,7 +163,7 @@
 		// @include ui-sfx.js
 		// @include voice.js
 		// @include-stage-source bubble-presets.js
-		// @include-stage-source bubbles.js
+		// @include bubbles.js
 		// @include pixi-runtime.js
 		// @include phone-call.js
 		// @include stage-sfx.js

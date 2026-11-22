@@ -1,13 +1,13 @@
 // On-demand stage client. The stage client is not part of the core combo: a card without the
-// stage downloads and runs none of the stage code. It is imported once, and started with
+// stage mode downloads and runs none of the stage code. It is imported once, and started with
 // ctx.plugin(), when the server stage is ready and an open session needs the stage. The host
 // decides that per card (card-stage-settings.js effectiveCardStage) and publishes it in the
-// session view as view.stage.{dialogue,stage}; the client never recomputes it. Afterwards the
+// session view as view.stage.stage; the client never recomputes it. Afterwards the
 // stage plugin's own watchStageAvailability mounts and unmounts its views from the same
 // availability.
 function stageWantedOf(state) {
     const stage = state && state.view && state.view.stage;
-    return !!stage && (stage.dialogue === true || stage.stage === true);
+    return !!stage && stage.stage === true;
 }
 function stageDialogueOf(state) {
     const stage = state && state.view && state.view.stage;
@@ -116,11 +116,12 @@ function createStageClientLoader({sessions, views, runtime, load, install, repor
         }
     });
 }
-// Whether dialogue bubbles are on for this session (view.stage.dialogue, host-decided); false until the view arrives.
-// Transcript bubbles read this before asking the stage for bubble settings, so a card without bubbles sends no request.
-function useStageDialogue(sessionId) {
+function useSessionStageFlag(sessionId, select) {
     const subscribe = React.useCallback(notify => sessionId ? liveTavernView.subscribe(sessionId, notify, [['stage']]) : () => {}, [sessionId]);
-    const snapshot = React.useCallback(() => sessionId ? stageDialogueOf(liveTavernView.getSnapshot(sessionId)) : false, [sessionId]);
+    const snapshot = React.useCallback(() => sessionId ? select(liveTavernView.getSnapshot(sessionId)) : false, [sessionId, select]);
     return React.useSyncExternalStore(subscribe, snapshot, snapshot);
 }
+// False until the host publishes the card's presentation settings.
+function useStageDialogue(sessionId) { return useSessionStageFlag(sessionId, stageDialogueOf); }
+function useStageMode(sessionId) { return useSessionStageFlag(sessionId, stageWantedOf); }
 if (typeof module !== 'undefined' && typeof window === 'undefined') module.exports = {createStageClientLoader, stageWantedOf, stageDialogueOf, openSessionIds};

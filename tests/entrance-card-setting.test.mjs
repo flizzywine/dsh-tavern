@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { selectStageEntrance } from '../tavern-plugin/packages/dsh-tavern-stage/lib/domain/stage-entrance.js'
+import { selectStageEntrance } from '../tavern-plugin/lib/domain/stage-entrance.js'
 import {defaultAssetEngineSettings, validateAssetEngineSettings} from '../tavern-plugin/lib/domain/asset-engine-settings.js'
 import {validateCardStage} from '../tavern-plugin/lib/domain/card-stage-settings.js'
 import {entranceDoc} from './fixtures/stage-entrance.mjs'

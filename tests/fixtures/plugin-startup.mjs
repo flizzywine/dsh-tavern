@@ -64,6 +64,13 @@ try {
   const stageCard = { ...card, name: 'Stage enabled', extensions: { dsh_tavern: {
     schemaVersion: 1, assetBindings: { boundPackIds: [] }, stage: { enabled: true }
   } } }
+  const bubbleOnly = {...stageCard, name:'Dialogue only', extensions:{dsh_tavern:{
+    ...stageCard.extensions.dsh_tavern, stage:{dialogue:true, stage:false}
+  }}}
+  const bubbleImport = await host.rpc('importCard', {payload:{name:'dialogue-only.json', text:JSON.stringify({spec:'chara_card_v2', spec_version:'2.0', data:bubbleOnly})}})
+  const {dialogue, stage, isStageCard} = await host.rpc('prepareCardStage', {path:bubbleImport.card.path})
+  assert.deepEqual({dialogue, stage, isStageCard}, {dialogue:true, stage:false, isStageCard:false})
+  assert.equal((await host.rpc('getStageRuntimeStatus')).status, 'disabled', 'a card with only bubbles leaves the installed stage inactive')
   const stageImport = await host.rpc('importCard', { payload: { name: 'stage-enabled.json', text: JSON.stringify({ spec: 'chara_card_v2', spec_version: '2.0', data: stageCard }) } })
   const journal = createChatJournalStore({ dataRoot: root })
   await journal.update('active-stage-chat', () => ({

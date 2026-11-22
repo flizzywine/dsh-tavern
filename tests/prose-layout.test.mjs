@@ -112,6 +112,7 @@ test('聊天正文渲染前自动分段；台词行与段落编号不受影响',
     'const BubbleRow = "BubbleRow";' +
     'const galStageAvailable = { subscribe: () => () => {}, get: () => false };' +
     'const stageViews = null;' +
+    'const useStageMode = () => false;' +
     'const tavernStageBoundary = (_, child) => child;' +
     'const galParagraphs = (parts) => (parts[0].segments || []).map((segment, index) => ({ kind: segment.kind === "markdown" ? "narration" : "line", para: index + 1, index }));' +
     'function useTavernProseLayoutRevision() { return 0; }\n' +

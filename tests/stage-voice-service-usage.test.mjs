@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {chooseService} from '../tavern-plugin/packages/dsh-tavern-tts/src/voice-resolver.js'
-import {migrateServiceSourceModels} from '../tavern-plugin/packages/dsh-tavern-stage/lib/service-model-migration.js'
+import {migrateServiceSourceModels} from '../tavern-plugin/lib/domain/service-model-migration.js'
 
 // The Fish / MiniMax model moves once from 语音后端 to the figures: a source with no model of its own, spoken by a service of
 // its kind whose saved config still names one, takes it; the service then loses the field; with no field left nothing is written.

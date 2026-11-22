@@ -22,7 +22,7 @@ test('气泡渲染抛错时退回普通 Markdown，正文不消失', async t => 
   })
   const reports = [], listeners = new Set()
   let enabled = false
-  const context = vm.createContext({ React, Object, stageViews:null,
+  const context = vm.createContext({ React, Object, stageViews:null, useStageMode:() => true,
     galStageAvailable:{subscribe:fn=>{listeners.add(fn);return()=>listeners.delete(fn)},get:()=>enabled},
     tavernErrorHub: { report: (label, error) => reports.push([label, error.message]) },
     BubblePublication() { throw new Error('bubble failed') },
@@ -54,8 +54,8 @@ test('舞台关闭时 @bubble 行仍渲染为气泡（不显示原始标记）�
     for (const [key, descriptor] of Object.entries(previous)) descriptor ? Object.defineProperty(globalThis, key, descriptor) : delete globalThis[key]
   })
   const seen = []
-  const context = vm.createContext({ React, Object, String, Boolean, stageViews:null,
-    galStageAvailable:{subscribe:()=>()=>{},get:()=>false},
+  const context = vm.createContext({ React, Object, String, Boolean, stageViews:{}, useStageMode:() => false,
+    galStageAvailable:{subscribe:()=>()=>{},get:()=>true},
     tavernErrorHub: { report() {} },
     BubblePublication: props => { seen.push(props.staged); return React.createElement('div', { id: 'bubbles' }, props.text) },
     TavernColoredMarkdown: props => React.createElement('p', { id: 'story' }, props.text) })
@@ -64,7 +64,7 @@ test('舞台关闭时 @bubble 行仍渲染为气泡（不显示原始标记）�
   root = createRoot(document.getElementById('root'))
   await act(() => root.render(React.createElement(Safe, { text: '@bubble:kaguya|辉夜|喜悦|[好耶]', sessionId: 's', voiceScope: '2:0' })))
   assert.ok(document.getElementById('bubbles'))
-  assert.deepEqual(seen, [false], '舞台未挂载时以本体气泡渲染，不进入舞台')
+  assert.deepEqual(seen, [false], '另一局已加载舞台时，仅气泡的会话仍走普通聊天渲染')
   await act(() => root.render(React.createElement(Safe, { text: '她走进客舱。', sessionId: 's', voiceScope: '2:0' })))
   assert.equal(document.getElementById('story').textContent, '她走进客舱。')
   assert.deepEqual(seen, [false])

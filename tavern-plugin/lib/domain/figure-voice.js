@@ -34,3 +34,17 @@ export async function figureRefTtsVoice(library, tts, ref, options) {
   return {voice:figureTtsVoice(binding,voice,`${pack.manifest.id}:${figure.id}`),binding:effective,voiceId:binding.voice,revision:pack.revision,
     readReference:async hash => (await library.readMedia({packId:pack.manifest.id,expectedRevision:pack.revision,hash})).bytes}
 }
+
+// 配音后端 asks before deleting a service how many figures speak with it (Tts.registerUsageSource): every figure of the
+// installed packs whose 配音来源 that service speaks, by the same choice synthesis makes (tts.chooseService).
+export async function countServiceUsers({library, tts, serviceId}) {
+  const services = await tts.listServices()
+  let count = 0
+  for (const pack of await library.listPacks()) for (const figure of Object.values(pack.figures || {})) {
+    const binding = figure.voice, voice = binding && pack.manifest.voiceLibrary?.voices?.[binding.voice]
+    if (!voice || binding.source === null) continue
+    const source = voice.sources[binding.source ?? voice.defaultSource]
+    if (source && tts.chooseService(source, services)?.id === serviceId) count++
+  }
+  return {serviceId, count}
+}

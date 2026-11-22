@@ -1,6 +1,6 @@
 // 入场演出 is part of the card's opening setting (stage.defaultEntrance, like its opening figures and background):
 // no switch, no global default, never a lamp-based recall. Absent (or null) = none.
-import { cardContentPackIds, cardStageSkin } from '../../../../lib/domain/card-stage-settings.js'
+import { cardContentPackIds, cardStageSkin } from './card-stage-settings.js'
 import { projectStageVideo } from './stage-video.js'
 
 export function stageEntranceChoices(extension, packSnapshots, engine) {

@@ -28784,7 +28784,7 @@ function tavernModelRefusalNotice(text) {
 		    // moves the lightness. The badge is the emotion's colour pill, else the neutral pill.
 		    useFigureTextContrast(React, row, visible && figureName, color);
 		    // The round's stage outfit (transcript-outfits.cjs); only staged bubbles have a turn.
-		    const outfits = props.turn != null && character?.ref ? stageViews.transcriptOutfits : null;
+		    const outfits = props.turn != null && character?.ref ? stageViews?.transcriptOutfits : null;
 		    const outfitKey = React.useSyncExternalStore(outfits ? outfits.subscribe(props.sessionId, props.turn) : () => () => {}, () => outfits ? outfits.outfit(props.sessionId, props.turn, props.para, character.ref) : null);
 		    const media = useBubbleMedia(props.sessionId, character, segment.mood, moods, visible, outfitKey);
 		    return h("div", { ref:row, className: "fork-bubble" + (segment.thought ? " fork-bubble-thought" : ""), style: { "--bubble-color": color, "--bubble-name-ink": figureName ? color : undefined }, "data-alias": segment.alias },
@@ -28931,7 +28931,8 @@ function tavernModelRefusalNotice(text) {
 		    useBubbleProseLayout();
 		    const plain = Object.assign({}, props, { text: bubbleProseText(props.text, props.streaming) });
 		    for (const key of ["sessionId", "voiceScope", "stageParaBase", "stageParaOffset", "stageSource", "stageOrder", "stageSuperseded", "interrupted"]) delete plain[key];
-		    const staged = Boolean(enabled && stageViews);
+		    const stageMode = useStageMode(enabled ? props.sessionId : "");
+		    const staged = Boolean(stageMode && enabled && stageViews);
 		    // @bubble lines are body text: with the stage off they still render as bubble rows (name, avatar), never raw.
 		    if (!staged && String(props.text || "").indexOf("@bubble") < 0) return React.createElement(TavernColoredMarkdown, plain);
 		    return tavernStageBoundary("对白气泡", React.createElement(BubblePublication, Object.assign({}, props, { staged, key: staged ? "stage" : "body" })), React.createElement(TavernColoredMarkdown, plain));
@@ -68565,15 +68566,15 @@ function stageSessionInputs(ctx){
     };
 }
 // On-demand stage client. The stage client is not part of the core combo: a card without the
-// stage downloads and runs none of the stage code. It is imported once, and started with
+// stage mode downloads and runs none of the stage code. It is imported once, and started with
 // ctx.plugin(), when the server stage is ready and an open session needs the stage. The host
 // decides that per card (card-stage-settings.js effectiveCardStage) and publishes it in the
-// session view as view.stage.{dialogue,stage}; the client never recomputes it. Afterwards the
+// session view as view.stage.stage; the client never recomputes it. Afterwards the
 // stage plugin's own watchStageAvailability mounts and unmounts its views from the same
 // availability.
 function stageWantedOf(state) {
     const stage = state && state.view && state.view.stage;
-    return !!stage && (stage.dialogue === true || stage.stage === true);
+    return !!stage && stage.stage === true;
 }
 function stageDialogueOf(state) {
     const stage = state && state.view && state.view.stage;
@@ -68682,13 +68683,14 @@ function createStageClientLoader({sessions, views, runtime, load, install, repor
         }
     });
 }
-// Whether dialogue bubbles are on for this session (view.stage.dialogue, host-decided); false until the view arrives.
-// Transcript bubbles read this before asking the stage for bubble settings, so a card without bubbles sends no request.
-function useStageDialogue(sessionId) {
+function useSessionStageFlag(sessionId, select) {
     const subscribe = React.useCallback(notify => sessionId ? liveTavernView.subscribe(sessionId, notify, [['stage']]) : () => {}, [sessionId]);
-    const snapshot = React.useCallback(() => sessionId ? stageDialogueOf(liveTavernView.getSnapshot(sessionId)) : false, [sessionId]);
+    const snapshot = React.useCallback(() => sessionId ? select(liveTavernView.getSnapshot(sessionId)) : false, [sessionId, select]);
     return React.useSyncExternalStore(subscribe, snapshot, snapshot);
 }
+// False until the host publishes the card's presentation settings.
+function useStageDialogue(sessionId) { return useSessionStageFlag(sessionId, stageDialogueOf); }
+function useStageMode(sessionId) { return useSessionStageFlag(sessionId, stageWantedOf); }
 if (typeof module !== 'undefined' && typeof window === 'undefined') module.exports = {createStageClientLoader, stageWantedOf, stageDialogueOf, openSessionIds};
 
 // Clip export: the stage client replays a round on the isolated export page (dsh-tavern-stage clip-render.cjs) over
@@ -68898,7 +68900,7 @@ function clipReplayCore() {
 				}), "dsh-tavern: stage config tab");
 				tavernUiExtensions.service.registerStartGroup({ title: "舞台装置", tabs: ["dsh-tavern:stage-config"] });
 			}
-			if (ctx.betterSidebar) stageEffect(() => registerTab(ctx.betterSidebar, {
+			if (ctx.betterSidebar) ctx.effect(() => registerTab(ctx.betterSidebar, {
 				// the tab reads 「舞台设置」 (「Tavern 舞台」 was cut off).
 				id: "dsh-tavern:bubbles", title: "舞台设置", order: 9, single: true,
 				icon: function (size) { const s = size || 16; return React.createElement("svg", { width: s, height: s, viewBox: "0 0 16 16", fill: "none", "aria-hidden": true },

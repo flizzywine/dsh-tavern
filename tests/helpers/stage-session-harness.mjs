@@ -53,7 +53,7 @@ const {createStagePosition} = require('../../tavern-plugin/packages/dsh-tavern-s
 const read = file => readFileSync(new URL('../../tavern-plugin/src/client/' + file, import.meta.url), 'utf8')
 const slice = (code, start, end) => code.slice(code.indexOf(start), code.indexOf(end, code.indexOf(start)))
 export function textHelpers(metrics = {}) {
-  const stage = read('gal-stage.js'), bubbles = readFileSync(new URL('../../tavern-plugin/packages/dsh-tavern-stage/src/client/bubbles.js', import.meta.url), 'utf8'), frame = read('ui/message-frame.js')
+  const stage = read('gal-stage.js'), bubbles = readFileSync(new URL('../../tavern-plugin/src/client/bubbles.js', import.meta.url), 'utf8'), frame = read('ui/message-frame.js')
   const api = {createSessionViewReader: {}, isPlayMode: mode => mode === 'story', htmlPartHasPresentation: text => !!text.trim()}
   vm.runInNewContext([
     withVoiceCues(read('bubble-line.cjs')),

@@ -69,6 +69,9 @@
   "tavern-plugin/lib/asset-engine-settings-owner.js": [
     "@deepseek-ai/schemastery"
   ],
+  "tavern-plugin/lib/auto-cast-settings.js": [
+    "@deepseek-ai/schemastery"
+  ],
   "tavern-plugin/lib/background-agent-sessions.js": [
     "@deepseek-ai/dsh-subagent"
   ],
@@ -287,9 +290,6 @@
     "@deepseek-ai/cordis",
     "@deepseek-ai/dsh-api-gateway/client",
     "@deepseek-ai/dsh-typert-generator/tsdown"
-  ],
-  "tavern-plugin/packages/dsh-tavern-stage/lib/asset-engine.js": [
-    "@deepseek-ai/schemastery"
   ],
   "tavern-plugin/packages/dsh-tavern-stage/lib/workbench/tools.js": [
     "@deepseek-ai/dsh-tools"

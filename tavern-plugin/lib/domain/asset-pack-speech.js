@@ -1,6 +1,6 @@
 // each figure registers its own immutable, pack-scoped portable preset.
 import { effectiveCardStage, effectiveNarrator } from './card-stage-settings.js'
-import { assetPackDigest } from '../../packages/dsh-tavern-stage/lib/domain/stage-asset-pack-catalogue.js'
+import { assetPackDigest } from './asset-pack-digest.js'
 import { figureTtsVoice, assetVoiceBinding, browserSpeechSource } from './figure-voice.js'
 const failure = code => Object.assign(new Error(code), {code})
 // The key the narrator's voice opens under (旁白配音); never a figure name, so it cannot resolve to a cast member.
@@ -50,7 +50,7 @@ export function createAssetPackSpeech({presentation, getEngine, getTts, getBindi
       if (!stage.voice) return null
       const tts = getTts(), reading = tts?.apiVersion === 1 ? tts.reading() : null
       if (alias === NARRATOR_VOICE && !effectiveNarrator(presentation.extension, reading?.narrator).enabled) return null
-      return pointed(alias === GENERAL_VOICE ? reading?.general.figure : reading?.narrator.figure)
+      return pointed(alias === GENERAL_VOICE ? reading?.general?.figure : reading?.narrator?.figure)
     }
     if (!stage.voice) return null
     const resolvedName = await presentation.resolveName(alias), ref = resolvedName.ref

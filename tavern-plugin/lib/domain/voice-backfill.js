@@ -39,7 +39,7 @@ const stale = () => Object.assign(new Error('本轮正文已变化，配音补�
 // background Agent with its own short prompt (the game's background model, official max output, its reasoning level),
 // never during a compaction, and never blocks play: a failure leaves the record failed and the lines speak Chinese.
 // The round's lines that need a voice text and those it already has come from the core round body (round-body.js
-// voiceBackfillLines / voiceBackfillKept), reached through the stage's core contract.
+// voiceBackfillLines / voiceBackfillKept).
 export function createVoiceBackfill({workflow, chatHeaderForSession, dialogueBubbles, chatForSession, bodyForTurn, voiceBackfillLines, voiceBackfillKept, writeMessage, runAgent, selection, blocked}) {
   let active = true
   const queues = new Map(), controllers = new Map()

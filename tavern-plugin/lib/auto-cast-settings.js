@@ -1,6 +1,6 @@
 import z from '@deepseek-ai/schemastery'
-import { installSettingsSection, settingsSectionProvider } from '../../../lib/native-settings.js'
-import { check, canonicalJson } from '../../dsh-presentation-protocol/src/asset-pack-json.js'
+import { installSettingsSection, settingsSectionProvider } from './native-settings.js'
+import { check, canonicalJson } from '../packages/dsh-presentation-protocol/src/asset-pack-json.js'
 import { createHash } from 'node:crypto'
 
 // 自动选角's global layer: its switch and 激进程度, a native settings section of dsh-tavern's entry

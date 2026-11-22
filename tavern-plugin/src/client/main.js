@@ -1389,7 +1389,7 @@ function clipReplayCore() {
 				}), "dsh-tavern: stage config tab");
 				tavernUiExtensions.service.registerStartGroup({ title: "舞台装置", tabs: ["dsh-tavern:stage-config"] });
 			}
-			if (ctx.betterSidebar) stageEffect(() => registerTab(ctx.betterSidebar, {
+			if (ctx.betterSidebar) ctx.effect(() => registerTab(ctx.betterSidebar, {
 				// the tab reads 「舞台设置」 (「Tavern 舞台」 was cut off).
 				id: "dsh-tavern:bubbles", title: "舞台设置", order: 9, single: true,
 				icon: function (size) { const s = size || 16; return React.createElement("svg", { width: s, height: s, viewBox: "0 0 16 16", fill: "none", "aria-hidden": true },

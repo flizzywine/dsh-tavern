@@ -12,7 +12,7 @@ import moods from '../tests/fixtures/legacy-dialogue-moods.json' with {type:'jso
 const require = createRequire(import.meta.url)
 const {createStageResourceOwner} = require('./helpers/stage-resources.cjs')
 const read = path => readFile(new URL(path, import.meta.url), 'utf8')
-const bubbles = (await read('../tavern-plugin/packages/dsh-tavern-stage/src/client/bubbles.js'))
+const bubbles = (await read('../tavern-plugin/src/client/bubbles.js'))
   .split('// @include-protocol figure-resolution.cjs').join(await read('../tavern-plugin/packages/dsh-presentation-protocol/src/figure-resolution.cjs'))
   .split('// @include bubble-line.cjs').join(withVoiceCues(await read('../tavern-plugin/src/client/bubble-line.cjs')))
   .replace('__TAVERN_BUBBLE_MOODS__', JSON.stringify(moods))

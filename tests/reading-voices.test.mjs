@@ -10,7 +10,7 @@ import {createAssetPackService} from '../tavern-plugin/packages/dsh-asset-librar
 import {writeZip} from '../tavern-plugin/packages/dsh-asset-library/src/zip.js'
 import {sealPack,jsonBytes} from '../tavern-plugin/packages/dsh-asset-library/src/pack-v2/validation.js'
 import {syntheticPack,PACK_ID,FIGURE_ID} from './fixtures/asset-packs/pack.mjs'
-import {migrateReadingVoices} from '../tavern-plugin/packages/dsh-tavern-stage/lib/reading-voice-migration.js'
+import {migrateReadingVoices} from '../tavern-plugin/lib/domain/reading-voice-migration.js'
 import {validateCardStage} from '../tavern-plugin/lib/domain/card-stage-settings.js'
 
 const PACK_NAME = '系统设置（请勿删除）'
