@@ -24,28 +24,14 @@ export function createImageCharacterHandlers({ ctx, pluginApi }) {
     if (!isDeepStrictEqual(record.character, args.expected)) throw fail('REVISION_CONFLICT', '人物已在别处修改，请重新载入后再改')
     return { ...context, ...record }
   }
-  // A figure just linked keeps its identity in the record from now on (when the records hold identities).
-  async function storeLinked(packId) {
-    if (await ctx.get('tavernFigureRecords')?.mode() === 'registry') await ctx.get('assetLibrary').rewriteFigureDocuments({ packIds: [packId] })
-  }
+  // A figure just linked keeps its identity in the record from now on: its document is written again without it.
+  const storeLinked = packId => ctx.get('assetLibrary').rewriteFigureDocuments({ packIds: [packId] })
   return {
-    // Where figures keep their name, 触发词 and outfit names: 'registry' (the 配图 人物库 record) or 'pack' (the way back).
-    // Every installed figure is written again as the mode stores it; the figures readers see do not change.
-    async switchFigureRecords(args) {
-      const records = ctx.get('tavernFigureRecords'), library = ctx.get('assetLibrary')
-      if (!records || !library) throw fail('ASSET_UNAVAILABLE', '素材库未启用')
-      if (args?.mode === 'registry' && !(await pluginApi.imageCharacterLibraries()).length) throw fail('NOT_CONFIGURED', '配图人物库不可用，不能把人物资料交给它')
-      await records.setMode(args?.mode)
-      const packIds = (await library.listPackSummaries()).filter(row => !row.error && row.counts?.figures).map(row => row.packId)
-      const rewritten = []
-      for (const packId of packIds) rewritten.push(...(await library.rewriteFigureDocuments({ packIds: [packId] })).rewritten)
-      return { mode: await records.mode(), rewritten }
-    },
-    // Read-only: the mode and how each installed figure is stored (whole, or without its identity).
-    async figureRecordsMode() {
+    // Read-only: how each installed figure is stored (whole, or without its identity).
+    async figureDocumentForms() {
       const library = ctx.get('assetLibrary')
       if (!library) throw fail('ASSET_UNAVAILABLE', '素材库未启用')
-      return { mode: await ctx.get('tavernFigureRecords')?.mode() ?? 'pack', packs: await library.figureDocumentForms() }
+      return { packs: await library.figureDocumentForms() }
     },
     async getFigureImageCharacter(args) {
       await figureOf(args?.packId, args?.figureId)

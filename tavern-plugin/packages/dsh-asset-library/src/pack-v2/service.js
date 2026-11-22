@@ -1246,30 +1246,23 @@ export function createAssetPackService(options) {
     createFigure(input) {
       return edit(input, async (manifest, files) => createFigure(manifest, files, input))
     },
-    editFigureIdentities(changes, receipt, save) {
-      const groups = Map.groupBy(changes, change => change.packId)
+    // The records of these figures are going away or linking elsewhere: each figure takes the identity its record gave it
+    // (what readers see now) into its own document, in the same save as the record's (ADR 0011).
+    releaseFigureIdentities(releases, receipt, save) {
+      const groups = Map.groupBy(releases, release => release.packId)
       return run([...groups.keys()], async () => {
-        const entries = [], identities = []
+        const entries = []
         for (const [id, edits] of groups) {
           validateUuid(id)
           const before = await metadata(id)
           // a record whose figure is gone already ends a link to nothing
-          if (!before && edits.every(edit => edit.release)) continue
-          check(before, '$.packId', 'Pack missing', 'ASSET_UNAVAILABLE')
+          if (!before) continue
           const manifest = copy(before.manifest), figures = {...before.figures}, updates = new Map(), intents = new Map()
-          // outfits: {key: label} renamed in the record; release: the record's link ends, the pack keeps the identity.
-          for (const {figureId, name, addAliases, removeAliases, outfits = {}, release = false} of edits) {
+          for (const {figureId} of edits) {
             validateUuid(figureId)
-            const current = figures[figureId]
-            if (!current && release) continue
-            check(current, '$.figureId', 'Figure missing', 'NOT_FOUND')
-            const aliases = [...new Set([...(current.aliases || []).filter(word => !removeAliases.includes(word)), ...addAliases])]
-            const labelled = current.outfits.map(outfit => typeof outfits[outfit.key] === 'string' && outfits[outfit.key].trim() ? {...outfit, label:outfits[outfit.key].trim()} : outfit)
-            const figure = patchFigureDocument(current, {...(name === undefined ? {} : {name}), aliases, outfits:labelled})
-            figures[figureId] = figure
-            if (!release) identities.push({packId:id, figureId, name:figure.name, aliases:figure.aliases})
-            intents.set(figureId, release ? 'released' : 'held')
-            if (release || canonicalJson(figure) !== canonicalJson(current)) updates.set('figures/' + figureId + '.json', jsonBytes(figure))
+            if (!figures[figureId]) continue
+            intents.set(figureId, 'released')
+            updates.set('figures/' + figureId + '.json', jsonBytes(figures[figureId]))
           }
           if (!updates.size) continue
           validatePackDocuments({manifest, figures, sprites:before.sprites})
@@ -1283,7 +1276,7 @@ export function createAssetPackService(options) {
           const local = nextLocal(before.local)
           entries.push({id, manifest, figures, updates, local, before, intents})
         }
-        const result = await storage.publishMetadataBatch(entries, receipt, () => save(identities))
+        const result = await storage.publishMetadataBatch(entries, receipt, () => save())
         for (const {id, manifest, figures, local, before} of entries) {
           evictMetadata(id)
           emit({...before, manifest, figures, local}, before)

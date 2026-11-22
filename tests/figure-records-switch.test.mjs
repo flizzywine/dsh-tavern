@@ -12,7 +12,7 @@ import {sealPack} from '../tavern-plugin/packages/dsh-asset-library/src/pack-v2/
 import {computeContentHash} from '../tavern-plugin/packages/dsh-asset-library/src/asset-packs/index.js'
 import {syntheticPack as makeSyntheticPack, png, digest, FIGURE_ID, PACK_ID} from './fixtures/asset-packs/pack.mjs'
 
-// ADR 0010: with the records switched on, a figure's name, 触发词 and outfit names live in its 配图 人物库 record only.
+// ADR 0011: a figure's name, 触发词 and outfit names live in its 配图 人物库 record only.
 // The pack stores the figure without them, every read puts them back, an export carries them whole.
 
 // A 配图 人物库 with one library (schema 4 record ops, as the host's pluginApi.imageCharacters gives them).
@@ -60,12 +60,11 @@ async function syntheticPack() {
   return pack
 }
 
-async function setup(t, {mode = 'registry', recordFile, fault} = {}) {
+async function setup(t, {recordFile, fault} = {}) {
   const root = await mkdtemp(path.join(tmpdir(), 'figure-records-'))
   t.after(() => rm(root, {recursive:true, force:true}))
-  const library = imageLibrary(), file = path.join(root, 'data', 'figure-records.json')
-  if (mode) { await mkdir(path.dirname(file), {recursive:true}); await writeFile(file, JSON.stringify({version:1, mode})) }
-  const records = createFigureRecords({api:library.api, file, ...(recordFile ? {recordFile:path.join(root, 'data', 'plugins', 'dsh-tavern-image', 'definitions.json')} : {})})
+  const library = imageLibrary()
+  const records = createFigureRecords({api:library.api, ...(recordFile ? {recordFile:path.join(root, 'data', 'plugins', 'dsh-tavern-image', 'definitions.json')} : {})})
   const assetRoot = path.join(root, 'asset-packs')
   const service = createAssetPackService({assetRoot, figureRecords:records, fault})
   t.after(() => service.dispose())
@@ -264,23 +263,6 @@ test('without its record a stored figure reads as unavailable, cannot be written
   assert.equal((await f.service.getPackSnapshot({packId:PACK_ID})).figures[FIGURE_ID].name, 'Synthetic figure')
 })
 
-test('switching back to the packs rewrites every figure whole; the records keep what they had', async t => {
-  const f = await setup(t)
-  const before = await install(f.service, await archiveOf(f.root, await syntheticPack()))
-  await f.records.setMode('pack')
-  await f.service.rewriteFigureDocuments({packIds:[PACK_ID]})
-  const stored = await f.stored()
-  assert.equal(stored.name, 'Synthetic figure')
-  assert.ok(stored.outfits.every(outfit => outfit.label))
-  assert.equal(f.library.records[0].name, 'Synthetic figure')
-  const after = await f.service.getPackSnapshot({packId:PACK_ID})
-  assert.deepEqual(after.figures[FIGURE_ID].outfits.map(outfit => outfit.label), before.figures[FIGURE_ID].outfits.map(outfit => outfit.label))
-  // and forward again
-  await f.records.setMode('registry')
-  await f.service.rewriteFigureDocuments({packIds:[PACK_ID]})
-  assert.equal((await f.stored()).name, undefined)
-})
-
 test('a removed figure leaves its record as an ordinary one', async t => {
   const f = await setup(t)
   const snapshot = await install(f.service, await archiveOf(f.root, await syntheticPack()))
@@ -326,9 +308,23 @@ test('auto-cast creates and renames figures through their records, its 外貌 go
   assert.equal((await stored()).name, undefined)
 })
 
-test('in pack mode figures stay whole and no record is written', async t => {
-  const f = await setup(t, {mode:null})
-  await install(f.service, await archiveOf(f.root, await syntheticPack()))
-  assert.equal((await f.stored()).name, 'Synthetic figure')
-  assert.deepEqual(f.library.writes, [])
+test('a 触发词 with a comma is several words, the record holds them all and the pack none', async t => {
+  const f = await setup(t)
+  let snapshot = await install(f.service, await archiveOf(f.root, await syntheticPack()))
+  snapshot = (await f.service.patchFigure({packId:PACK_ID, expectedRevision:snapshot.revision, figureId:FIGURE_ID, patch:{aliases:[...snapshot.figures[FIGURE_ID].aliases, '老板, 前辈，同事']}})).snapshot
+  assert.deepEqual(snapshot.figures[FIGURE_ID].aliases, ['Fixture', 'actor', 'Speaker', '老板', '前辈', '同事'])
+  assert.equal(f.library.records[0].match, 'Fixture, Speaker, 老板, 前辈, 同事')
+  assert.deepEqual((await f.stored()).aliases, ['actor'], 'only the actor key stays in the pack')
+})
+
+test('releasing a figure writes the identity its record gave it into its own document, in the save that ends the link', async t => {
+  const f = await setup(t)
+  const snapshot = await install(f.service, await archiveOf(f.root, await syntheticPack()))
+  assert.equal((await f.stored()).name, undefined)
+  let saved = 0
+  await f.service.releaseFigureIdentities([{packId:PACK_ID, figureId:FIGURE_ID}], {file:path.join(f.root, 'definitions.json'), id:'0b2f8f0e-6d7a-4c1e-9a52-2f1d3c4b5a69'}, async () => { saved++ })
+  assert.equal(saved, 1)
+  const stored = await f.stored()
+  assert.equal(stored.name, snapshot.figures[FIGURE_ID].name)
+  assert.deepEqual([...stored.aliases].sort(), [...snapshot.figures[FIGURE_ID].aliases].sort())
 })

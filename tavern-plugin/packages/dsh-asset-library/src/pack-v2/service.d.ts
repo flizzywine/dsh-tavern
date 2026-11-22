@@ -249,8 +249,8 @@ export interface AssetPackService extends CatalogueService {
   createFigure(input: PackWrite & {figure: Omit<Figure, 'id'>}): Promise<PackMutation & {figureId: string}>;
   /** host-only figure + card publication through the existing journal; not a browser pack control method. */
   createFigureWithCard(input: {target: PackWrite | {packId: string; expectedRevision: null; newPackName: string}; figure: Figure; card: {path: string; expectedRevision: string; raw: unknown}}, authorize?: () => Promise<void>): Promise<{status: 'committed'; snapshot: PackSnapshot; figureId: string}>;
-  editFigureIdentities<T>(changes: {packId: string; figureId: string; name?: string; addAliases: string[]; removeAliases: string[]}[],
-    receipt: {file: string; id: string}, save: (identities: {packId: string; figureId: string; name: string; aliases: string[]}[]) => Promise<T>): Promise<T>;
+  /** host-only: the figures take the identity their records gave them into their own documents, in the same save as the records'. */
+  releaseFigureIdentities<T>(releases: {packId: string; figureId: string}[], receipt: {file: string; id: string}, save: () => Promise<T>): Promise<T>;
   patchFigure(input: PackWrite & {figureId: string; patch: {[K in keyof Omit<Figure, 'id'>]?: Figure[K] | (undefined extends Figure[K] ? null : never)}}): Promise<PackMutation>;
   removeFigure(input: PackWrite & {figureId: string}): Promise<PackMutation | PackRemoval>;
   migrateCharacterEmotions(input: PackWrite): Promise<PackMutation>;

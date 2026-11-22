@@ -7114,52 +7114,38 @@ function workflowSummary(raw) {
 // 提示词处理
 // =====================================================================
 
-// A linked record's name, aliases and outfit names are its figure's: every save tells Tavern what changed for each linked
-// figure, and which links end (the record deleted or linked elsewhere), and saves the canonical projection it returns.
+// A linked record's name, 触发词 (match) and outfit names are the asset-library figure's own: the record is where the figure
+// keeps them. A save tells Tavern which linked figures it touched, so their pages read the new values, and which links end
+// (the record deleted or linked elsewhere): the figure takes its identity back in the same save.
 async function saveLinkedNames(tavern, previous, next, save) {
-  if (typeof tavern?.editLinkedFigures !== 'function') return await save(next)
+  if (typeof tavern?.saveLinkedRecords !== 'function') return await save(next)
   const oldById = new Map(previous.characters.map(item => [item.id, item]))
   const nextById = new Map(next.characters.map(item => [item.id, item]))
+  const sameOutfitNames = (a, b) => JSON.stringify((a.outfits || []).map(outfit => [outfit.id, String(outfit.name ?? '').trim()])) === JSON.stringify((b.outfits || []).map(outfit => [outfit.id, String(outfit.name ?? '').trim()]))
   const changes = []
   for (const character of next.characters) {
     const old = oldById.get(character.id)
     if (!old?.figureId || old.figureId !== character.figureId || old.figurePackId !== character.figurePackId) continue
-    const was = new Set(splitTags(old.match)), now = new Set(splitTags(character.match))
-    const addAliases = [...now].filter(word => !was.has(word))
-    const removeAliases = [...was].filter(word => !now.has(word))
-    const outfits = Object.fromEntries((character.outfits || []).filter(outfit => {
-      const before = (old.outfits || []).find(item => item.id === outfit.id)
-      return before && String(outfit.name ?? '').trim() && String(outfit.name).trim() !== String(before.name ?? '').trim()
-    }).map(outfit => [outfit.id, String(outfit.name).trim()]))
-    if (old.name === character.name && !addAliases.length && !removeAliases.length && !Object.keys(outfits).length) {
-      character.match = old.match
-      continue
-    }
-    changes.push({ packId: character.figurePackId, figureId: character.figureId,
-      ...(old.name === character.name ? {} : { name: character.name }), addAliases, removeAliases, ...(Object.keys(outfits).length ? { outfits } : {}) })
+    if (old.name === character.name && old.match === character.match && sameOutfitNames(old, character)) continue
+    changes.push({ packId: character.figurePackId, figureId: character.figureId })
   }
   for (const old of previous.characters) {
     if (!old.figureId || !old.figurePackId) continue
     const now = nextById.get(old.id)
     if (now?.figureId === old.figureId && now.figurePackId === old.figurePackId) continue
-    changes.push({ packId: old.figurePackId, figureId: old.figureId, addAliases: [], removeAliases: [], release: true })
+    changes.push({ packId: old.figurePackId, figureId: old.figureId, release: true })
   }
   if (!changes.length) return await save(next)
   const receipt = { file: DEFS_PATH, id: randomUUID() }
   let localFailure
   try {
-    return await tavern.editLinkedFigures({ changes, receipt }, async identities => {
-      const byFigure = new Map(identities.map(identity => [JSON.stringify([identity.packId, identity.figureId]), identity]))
-      for (const character of next.characters) {
-        const identity = byFigure.get(JSON.stringify([character.figurePackId, character.figureId]))
-        if (identity) Object.assign(character, { name: identity.name, match: identity.match })
-      }
+    return await tavern.saveLinkedRecords({ changes, receipt }, async () => {
       try { return await save(next, receipt.id) }
       catch (error) { localFailure = error; throw error }
     })
   } catch (error) {
     if (error === localFailure || error?.code === 'RECOVERY_REQUIRED') throw error
-    throw Object.assign(new Error('素材库人物名字或触发词保存失败：' + (error?.message || error), { cause: error }), { code: 'FIGURE_EDIT_FAILED' })
+    throw Object.assign(new Error('素材库人物的名字或触发词保存失败：' + (error?.message || error), { cause: error }), { code: 'FIGURE_EDIT_FAILED' })
   }
 }
 

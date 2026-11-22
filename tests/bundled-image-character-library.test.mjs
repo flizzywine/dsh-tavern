@@ -6,7 +6,6 @@ import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { createAssetPackService } from '../tavern-plugin/packages/dsh-asset-library/lib/pack-v2/service.js'
 import { createTavernPluginApi } from '../tavern-plugin/lib/plugin-api.js'
-import { imageAliasesFromFigure } from '../tavern-plugin/lib/domain/image-character-appearance.js'
 import { createFigureRecords } from '../tavern-plugin/lib/image-character-records.js'
 import { createDefinitionsStore } from '../tavern-plugin/packages/dsh-tavern-image-bundled/lib/definitions-store.js'
 import { createCharacterLibrary } from '../tavern-plugin/packages/dsh-tavern-image-bundled/lib/character-library.js'
@@ -130,7 +129,7 @@ test('full-editor writes and shared writes stay serialized across a slow disk pu
   assert.equal(current.characters[0].name, '新名字')
 })
 
-test('linked character settings save both packs together and use the committed figure identities', async t => {
+test('deleting linked records saves both packs together; a failed pack write leaves the records as they were', async t => {
   let failedPack, loseCommitMarker = false
   const root = await mkdtemp(join(tmpdir(), 'linked-figure-save-'))
   t.after(() => rm(root, { recursive: true, force: true }))
@@ -141,84 +140,51 @@ test('linked character settings save both packs together and use the committed f
   const seeds = []
   for (const name of ['杏子', '爱里']) {
     const pack = (await assetLibrary.createPack({ name, expectedRevision: null })).snapshot
-    const aliases = ['Code Name', '隐藏词', 'actor_key']
-    const figure = { schemaVersion: 1, name, aliases, appearance: 'avatar', outfits: [] }
+    const figure = { schemaVersion: 1, name, aliases: ['Code Name', '隐藏词', 'actor_key'], appearance: 'avatar', outfits: [] }
     const saved = (await assetLibrary.createFigure({ packId: pack.manifest.id, expectedRevision: pack.revision, figure })).snapshot
-    seeds.push({ packId: pack.manifest.id, figureId: saved.manifest.figures[0], name: figure.name, aliases })
+    seeds.push({ packId: pack.manifest.id, figureId: saved.manifest.figures[0], name })
   }
-  const api = createTavernPluginApi({
-    cardScope: async () => new Map(),
-    editLinkedFigures: (changes, receipt, save) => assetLibrary.editFigureIdentities(changes, receipt, identities =>
-      save(identities.map(figure => ({ ...figure, match: imageAliasesFromFigure(figure).join(', ') })))),
-  })
+  const records = createFigureRecords({ api: { imageCharacters: async () => assert.fail('no record writes here') } })
+  const api = createTavernPluginApi({ cardScope: async () => new Map(), saveLinkedRecords: (changes, receipt, save) => records.saveLinked(assetLibrary, changes, receipt, save) })
   const tavern = Object.assign(Object.create(api.service), { ctx: { fiber: { name: 'dsh-tavern-image' }, effect: setup => setup() } })
-  const files = await imagePluginFixture(t, { tavern, definitions: { characters: seeds.map((seed, i) => ({
+  const files = await imagePluginFixture(t, { tavern, definitions: { characters: [...seeds.map((seed, i) => ({
     id: 'c' + i, name: seed.name, match: 'Code Name, 隐藏词', figurePackId: seed.packId, figureId: seed.figureId,
-  })) } })
+  })), { id: 'other', name: '别人' }] } })
   const runtime = await files.start()
   const current = (await runtime.request('state')).body.definitions
   const next = structuredClone(current)
-  next.characters[0].name = '新杏子'
-  next.characters[0].match = '新别名, Code Name'
-  next.characters[1].name = '新爱里'
-
-  const first = seeds[0], second = seeds[1]
+  next.characters = next.characters.filter(character => !character.figureId)
   const figureOf = async seed => (await assetLibrary.getPackSnapshot({ packId: seed.packId })).figures[seed.figureId]
-  const stale = structuredClone(next)
-  stale.characters[1].figureId = randomUUID()
-  await assert.rejects(assetLibrary.editFigureIdentities([
-    { ...first, name: '不得写入', addAliases: [], removeAliases: [] },
-    { ...second, figureId: stale.characters[1].figureId, addAliases: [], removeAliases: [] },
-  ], { file: join(files.pluginRoot, 'definitions.json'), id: randomUUID() }, () => assert.fail('saved a missing figure')), { code: 'NOT_FOUND' })
-  assert.equal((await figureOf(first)).name, first.name)
 
-  failedPack = second.packId
+  failedPack = seeds[1].packId
   const failed = await runtime.request('definitions', { definitions: next })
   assert.equal(failed.status, 400)
   assert.equal(failed.body.code, 'FIGURE_EDIT_FAILED')
-  assert.equal((await files.read('definitions.json')).characters[0].name, first.name)
-  assert.equal((await figureOf(first)).name, first.name)
-  assert.equal((await figureOf(second)).name, second.name)
-  assert.deepEqual((await figureOf(first)).aliases, first.aliases)
+  assert.equal((await files.read('definitions.json')).characters.length, 3, 'the records stay')
 
   failedPack = undefined
-  await assert.rejects(assetLibrary.editFigureIdentities([
-    { ...first, name: '不得写入', addAliases: [], removeAliases: [] },
-  ], { file: join(files.pluginRoot, 'definitions.json'), id: randomUUID() }, () => { throw new Error('definitions disk full') }), /definitions disk full/)
-  assert.equal((await figureOf(first)).name, first.name)
-
   loseCommitMarker = true
   const saved = await runtime.request('definitions', { definitions: next })
   assert.equal(saved.status, 200, JSON.stringify(saved.body))
   assert.equal((await readdir(join(root, 'staging'))).length, 1, 'marker failure leaves the recovery journal')
-
   const unrelated = saved.body.state.definitions
   unrelated.characters[0].traits = { face: '短发' }
-  const updated = await runtime.request('definitions', { definitions: unrelated })
-  assert.equal(updated.status, 200, JSON.stringify(updated.body))
+  assert.equal((await runtime.request('definitions', { definitions: unrelated })).status, 200)
   assert.equal((await readdir(join(root, 'staging'))).length, 1, 'regular image edits do not recover asset packs')
-
-  assert.equal((await figureOf(first)).name, '新杏子')
-  assert.deepEqual(await readdir(join(root, 'staging')), [], 'recovery keeps committed identities and clears the journal')
-  assert.equal((await figureOf(second)).name, '新爱里')
-  assert.deepEqual((await figureOf(first)).aliases, ['Code Name', 'actor_key', '新别名'])
-  const stored = await files.read('definitions.json')
-  assert.equal(stored.characters[0].match, 'Code Name, 新别名')
-  assert.equal(stored.characters[1].name, '新爱里')
-  assert.equal((await runtime.request('definitions', { definitions: next })).status, 409)
+  for (const seed of seeds) assert.equal((await figureOf(seed)).name, seed.name)
+  assert.deepEqual(await readdir(join(root, 'staging')), [], 'recovery keeps the committed identities and clears the journal')
+  assert.deepEqual((await files.read('definitions.json')).characters.map(character => character.name), ['别人'])
 })
 
-test('with the records switched on, the 人物库 page edits a figure\'s names in its record and a deleted record gives them back to the pack', async t => {
+test('the 人物库 page edits a figure\'s names in its record and a deleted record gives them back to the pack', async t => {
   const root = await mkdtemp(join(tmpdir(), 'figure-records-page-'))
   t.after(() => rm(root, { recursive: true, force: true }))
   let records
   const api = createTavernPluginApi({
     cardScope: async () => new Map(), runningUserPlugins: new Map([['dsh-tavern-image', { runtimeName: 'dsh-tavern-image', origin: 'global' }]]),
-    editLinkedFigures: async (changes, receipt, save) => records.writing() ? save([]) : assetLibrary.editFigureIdentities(changes, receipt, identities =>
-      save(identities.map(figure => ({ ...figure, match: imageAliasesFromFigure(figure).join(', ') })))),
+    saveLinkedRecords: (changes, receipt, save) => records.saveLinked(assetLibrary, changes, receipt, save),
   })
-  records = createFigureRecords({ api, file: join(root, 'figure-records.json') })
-  await records.setMode('registry')
+  records = createFigureRecords({ api })
   const assetLibrary = createAssetPackService({ assetRoot: join(root, 'asset-packs'), figureRecords: records })
   t.after(() => assetLibrary.dispose())
   const tavern = Object.assign(Object.create(api.service), { ctx: { fiber: { name: 'dsh-tavern-image' }, effect: setup => setup() } })
