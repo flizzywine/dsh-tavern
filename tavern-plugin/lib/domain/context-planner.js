@@ -48,15 +48,18 @@ export function createContextPlanner(options = {}) {
   if (typeof options.prompt !== 'function') throw new Error('缺少提示词目录')
   const prompt = options.prompt
 
-  function cardSections(input, projectText) {
+  async function cardSections(input, projectText) {
     const sections = []
     // Rendered worldbook entries have already crossed the runtime projection seam.
     const entries = input.worldBookEntries?.filter(entry => entry.location === 'foreground')
     const projectedWorldBook = entries ? entries.map(entry => entry.text).join('\n\n') : projectText(input.worldBookContext)
     const worldBookSection = projectedWorldBook === '' ? null : { kind: 'world-book', required: false, text: promptSection(input.stableFirst ? 'lorebook_constant' : 'lorebook_activated', projectedWorldBook), ...(entries ? { entries } : {}) }
-    const guides = Array.isArray(input.chat.guides) ? input.chat.guides.filter(function (item) { return item !== null && typeof item === 'object' && str(item.text).trim() !== '' }) : []
-    const projectedGuides = guides.map(function (item) { return projectText(str(item.text).trim()) }).filter(Boolean)
-    const guideSection = input.includeGuides === false || projectedGuides.length === 0 ? null : { kind: 'guide', required: true, text: promptSection('user_guide', PROMPT_PROSE.p002 + projectedGuides.map(function (text, index) { return (index + 1) + '. ' + text }).join('\n')) }
+    const guides = input.includeGuides === false ? [] : [
+      ...(Array.isArray(input.chat.guides) ? input.chat.guides : []),
+      ...(await options.guideSections?.(input.chat.sessionId) || [])
+    ]
+    const projectedGuides = guides.map(item => str(item?.text).trim()).filter(Boolean).map(projectText).filter(Boolean)
+    const guideSection = projectedGuides.length === 0 ? null : { kind: 'guide', required: true, text: promptSection('user_guide', PROMPT_PROSE.p002 + projectedGuides.map(function (text, index) { return (index + 1) + '. ' + text }).join('\n')) }
     const projectedPosture = input.includePosture === false ? '' : projectText(postureForContext(input.chat))
     const postureSection = input.includePosture === false || projectedPosture === '' ? null : { kind: 'posture', required: true, text: promptSection('character_state', PROMPT_PROSE.p003 + projectedPosture) }
     const cardInfoSections = []
@@ -108,7 +111,7 @@ export function createContextPlanner(options = {}) {
     const warnings = []
     if (input.purpose === 'play-card-snapshot') {
       const projectText = playProjector(input, warnings)
-      return resultOf(cardSections({
+      return resultOf(await cardSections({
         card: input.card,
         chat: input.chat,
         worldBookContext: input.worldBookContext,
@@ -131,7 +134,7 @@ export function createContextPlanner(options = {}) {
         kind: 'base', required: true,
         text: prompt('story')
       }]
-      sections.push.apply(sections, cardSections({
+      sections.push.apply(sections, await cardSections({
         card: input.card,
         chat: input.chat,
         worldBookContext: input.worldBookContext,
@@ -172,7 +175,7 @@ export function createContextPlanner(options = {}) {
       const stableSections = []
       const dynamicSections = []
       let candidateScriptWindow
-      const plannedCardSections = cardSections({
+      const plannedCardSections = await cardSections({
         card: input.card,
         chat: input.chat,
         worldBookContext: input.constantWorldBookContext,
