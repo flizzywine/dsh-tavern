@@ -150,7 +150,7 @@ function useWindowFullscreen(open, options) {
         return holdWindowFullscreen({ onLost: () => latest.current.onLost && latest.current.onLost(), topLayer: () => latest.current.topLayer && latest.current.topLayer() });
     }, [open]);
 }
-function useInlinePopup() {
+function useInlinePopup({ focusSelector } = {}) {
     const [open, setOpen] = React.useState(false), [place, setPlace] = React.useState(null), root = React.useRef(null), trigger = React.useRef(null), pop = React.useRef(null);
     const close = refocus => { setOpen(false); setPlace(null); if (refocus && trigger.current && trigger.current.focus) trigger.current.focus(); };
     const floating = inlineCanPortal();
@@ -175,7 +175,7 @@ function useInlinePopup() {
         // A portalled menu is hidden until measured; focusing it earlier silently fails.
         const node = pop.current; if (!open || (floating && !place) || !node || !node.querySelector) return;
         if (!floating && node.scrollIntoView) node.scrollIntoView({ block: "nearest" });
-        const first = node.querySelector('[aria-checked="true"]:not(:disabled),[aria-pressed="true"]') || node.querySelector("button:not(:disabled),input");
+        const first = (focusSelector && node.querySelector(focusSelector)) || node.querySelector('[aria-checked="true"]:not(:disabled),[aria-pressed="true"]') || node.querySelector("button:not(:disabled),input");
         if (first && first.focus) first.focus({ preventScroll: true });
     }, [open, floating, Boolean(place)]);
     const keys = event => {

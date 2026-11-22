@@ -1253,6 +1253,15 @@ body.dsh-tavern-shell-active [data-dsh-panel-host] { overflow: clip; }
 .dsh-tavern-history-manager-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 0 16px 10px; }
 .dsh-tavern-history-manager-search { flex: 1 1 220px; min-width: 0; width: auto; margin: 0; }
 .dsh-tavern-history-manager-select { flex: 0 1 190px; min-width: 0; max-width: 240px; }
+.dsh-tavern-history-card-trigger { display: flex; align-items: center; justify-content: space-between; gap: 6px; width: 100%; min-height: 32px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 8px; padding: 4px 10px; background: transparent; color: inherit; font: inherit; font-size: 13px; text-align: left; cursor: pointer; }
+.dsh-tavern-history-card-trigger:hover, .dsh-tavern-history-card-trigger[aria-expanded="true"] { background: var(--dsw-alias-interactive-bg-hover); }
+.dsh-tavern-history-card-trigger > svg { flex: none; }
+.fork-inline-pop.dsh-tavern-history-card-popup { display: flex; flex-direction: column; gap: 4px; width: min(320px, calc(100vw - 16px)); min-width: 0; max-width: none; overflow: hidden; }
+.dsh-tavern-history-card-popup > input { flex: none; width: 100%; min-width: 0; margin: 0; }
+.dsh-tavern-history-card-options { min-height: 0; overflow: auto; overscroll-behavior: contain; }
+.dsh-tavern-history-card-popup .dsh-tavern-history-card-option-text { flex: 1; min-width: 0; padding-block: 5px; white-space: normal; overflow-wrap: anywhere; }
+.dsh-tavern-history-card-option-text small { display: block; color: var(--fork-ink-3); }
+.dsh-tavern-history-card-empty { margin: 0; padding: 8px 10px; color: var(--fork-ink-3); font-size: 12px; }
 .dsh-tavern-history-manager-filters { display: flex; flex-wrap: wrap; gap: 6px; }
 .dsh-tavern-history-manager-filter { border: 1px solid var(--dsw-alias-border-l2); border-radius: 999px; padding: 4px 11px; background: transparent; color: inherit; font: inherit; font-size: 12px; cursor: pointer; }
 .dsh-tavern-history-manager-filter:hover { border-color: color-mix(in srgb, var(--dsh-tavern-accent) 45%, transparent); }

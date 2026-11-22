@@ -227,3 +227,64 @@ test('宽屏管理沿用侧栏的组顺序和组内排序，筛选保留原顺�
     })
   }
 })
+
+test('人物卡筛选限高滚动，支持搜索、区分同名卡和清除', async t => {
+  function story(sessionId, cardName, cardPath, title = cardName) {
+    return { sessionId, chatId: 'chat-' + sessionId, mode: 'story', title, cardName, cardPath, preview: {} }
+  }
+  const longName = '这是一张名字特别长的人物卡'.repeat(8)
+  const initialHistory = [
+    story('long', longName, 'long.png', '长标题存档'),
+    story('duplicate-a', '同名人物卡', '旧版/同名人物卡.png', '旧版存档'),
+    story('duplicate-b', '同名人物卡', '新版/同名人物卡.png', '新版存档'),
+    ...Array.from({ length: 28 }, (_, i) => story('extra-' + i, '人物卡 ' + i, 'extra-' + i + '.png')),
+  ]
+  const { page, errors } = await mountSidebar(t, { initialHistory, archived: [] })
+  await page.setViewportSize({ width: 390, height: 720 })
+  for (const css of ['tavern.css', 'theme.css']) {
+    await page.addStyleTag({ content: await readFile(new URL('../tavern-plugin/lib/client-assets/' + css, import.meta.url), 'utf8') })
+  }
+  await page.getByRole('button', { name: '管理', exact: true }).click()
+  const manager = page.getByRole('dialog', { name: '会话管理' })
+  const trigger = manager.getByRole('button', { name: /^按人物卡筛选：/ })
+  const picker = page.getByRole('dialog', { name: '筛选人物卡', exact: true })
+  const search = picker.getByRole('textbox', { name: '搜索人物卡' })
+  const list = picker.getByRole('menu', { name: '人物卡', exact: true })
+  const titles = () => manager.locator('.dsh-tavern-history-manager-title').allTextContents()
+
+  await trigger.click()
+  await picker.waitFor()
+  await search.evaluate(input => {
+    if (document.activeElement !== input) throw new Error('打开人物卡筛选后应自动聚焦搜索框')
+  })
+  const bounds = await picker.boundingBox()
+  assert.ok(bounds.width <= 320 && bounds.height <= 320 && bounds.x >= 0 && bounds.x + bounds.width <= 390)
+  assert.equal(await list.evaluate(element => element.clientHeight < element.scrollHeight), true)
+  assert.equal(await list.getByRole('menuitemradio').count(), 32)
+
+  await search.fill('同名人物卡')
+  assert.deepEqual(await list.getByRole('menuitemradio').allTextContents(), ['同名人物卡旧版/同名人物卡.png', '同名人物卡新版/同名人物卡.png'])
+  await search.fill('不存在的人物卡')
+  await picker.getByRole('status').getByText('没有匹配的人物卡').waitFor()
+  await search.fill('新版/')
+  await search.press('ArrowDown')
+  await page.keyboard.press('Enter')
+  await picker.waitFor({ state: 'detached' })
+  assert.deepEqual(await titles(), ['新版存档'])
+  assert.equal(await trigger.getAttribute('aria-label'), '按人物卡筛选：同名人物卡')
+
+  await trigger.click()
+  await search.press('Escape')
+  await picker.waitFor({ state: 'detached' })
+  assert.equal(await manager.isVisible(), true)
+
+  await trigger.click()
+  await search.fill('名字特别长')
+  await list.getByRole('menuitemradio', { name: longName, exact: true }).click()
+  assert.deepEqual(await titles(), ['长标题存档'])
+  assert.ok((await trigger.boundingBox()).width < 390)
+  await trigger.click()
+  await list.getByRole('menuitemradio', { name: '全部人物卡', exact: true }).click()
+  assert.equal((await titles()).length, initialHistory.length)
+  assert.deepEqual(errors, [])
+})

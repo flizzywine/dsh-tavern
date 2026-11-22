@@ -52,6 +52,56 @@
 		const SIDE_HISTORY_WINDOW = 24;
 		const SIDE_HISTORY_WINDOW_STEP = 12;
 
+		function HistoryCardFilter({ options, value, onChange }) {
+			const h = React.createElement;
+			const popup = useInlinePopup({ focusSelector: "input" });
+			const popupId = React.useId();
+			const [query, setQuery] = React.useState("");
+			const all = { value: "all", label: "全部人物卡" };
+			const current = options.find(option => option.value === value) || all;
+			const needle = query.trim().toLowerCase();
+			const matches = needle ? options.filter(option => option.label.toLowerCase().includes(needle) || option.path.toLowerCase().includes(needle)) : [all, ...options];
+			function choose(next) {
+				onChange(next);
+				popup.close(true);
+			}
+			function open() {
+				setQuery("");
+				popup.setOpen(true);
+			}
+			function searchKeys(event) {
+				if (event.nativeEvent.isComposing) return;
+				if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+					const buttons = popup.pop.current.querySelectorAll('[role="menuitemradio"]');
+					event.preventDefault();
+					buttons[event.key === "ArrowDown" ? 0 : buttons.length - 1]?.focus();
+				} else if (event.key === "Enter" && needle && matches.length) {
+					event.preventDefault();
+					choose(matches[0].value);
+				}
+			}
+			return h("div", { className: "dsh-tavern-history-manager-select fork-inline-anchor", ref: popup.root, onKeyDown: event => {
+				if (!event.nativeEvent.isComposing) popup.keys(event);
+				else if (event.key === "Escape") event.stopPropagation();
+			} },
+				h("button", { type: "button", className: "dsh-tavern-history-card-trigger",
+					ref: popup.trigger, title: current.label, "aria-label": "按人物卡筛选：" + current.label,
+					"aria-haspopup": "dialog", "aria-expanded": popup.open, "aria-controls": popup.open ? popupId : undefined,
+					onClick: () => popup.open ? popup.close(false) : open(),
+					onKeyDown: event => { if (!popup.open && event.key === "ArrowDown") { event.preventDefault(); open(); } } },
+					h("span", { className: "fork-inline-text" }, current.label), h(InlineGlyph, { name: "chevDown" })),
+				popup.open ? popup.layer({ id: popupId, className: "fork-inline-pop dsh-tavern-history-card-popup", role: "dialog", "aria-label": "筛选人物卡" },
+					h("input", { type: "text", className: "dsh-tavern-library-search", placeholder: "搜索人物卡", "aria-label": "搜索人物卡",
+						autoComplete: "off", value: query, onChange: event => setQuery(event.target.value), onKeyDown: searchKeys }),
+					matches.length ? h("div", { className: "dsh-tavern-history-card-options", role: "menu", "aria-label": "人物卡", onKeyDown: inlineMenuKeys },
+						matches.map(option => h("button", { key: option.value, type: "button", className: "fork-inline-option", role: "menuitemradio",
+							"aria-checked": option.value === current.value, title: option.path || option.label, onClick: () => choose(option.value) },
+							h("span", { className: "dsh-tavern-history-card-option-text" }, option.label,
+								option.duplicate ? h("small", { className: "fork-inline-text" }, option.path) : null),
+							option.value === current.value ? h(InlineGlyph, { name: "check" }) : null)))
+						: h("p", { className: "dsh-tavern-history-card-empty", role: "status" }, "没有匹配的人物卡")) : null);
+		}
+
 		function TavernSidebar(props) {
             const askConfirm = useTavernConfirm(props.sessionId || props.scope?.sessionId);
 			const collapsed = props.collapsed;
@@ -263,7 +313,7 @@
 			React.useEffect(function () {
 				if (!historyManagerOpen) return;
 				function onKey(event) {
-					if (event.key !== "Escape" || managerRenaming) return;
+					if (event.key !== "Escape" || event.isComposing || managerRenaming || overlayEscape(event)) return;
 					event.stopPropagation();
 					setHistoryManagerOpen(false);
 					setMenuSession(null);
@@ -1496,7 +1546,15 @@
 				return active.concat(orderedArchivedHistory);
 			}, [historyManagerOpen, uiMode, groupedActiveHistory, orderedActiveHistory, orderedArchivedHistory]);
 			const managerCardOptions = React.useMemo(function () {
-				return Array.from(new Map(managerPool.filter(function (item) { return item.cardPath; }).map(function (item) { return [tavernHistoryCardKey(item), item.cardName || item.cardPath]; })).entries());
+				const cards = new Map();
+				for (const item of managerPool) {
+					if (!item.cardPath) continue;
+					const value = tavernHistoryCardKey(item);
+					cards.set(value, { value, label: item.cardName || item.cardPath, path: item.cardPath });
+				}
+				const labelCounts = new Map();
+				for (const card of cards.values()) labelCounts.set(card.label, (labelCounts.get(card.label) || 0) + 1);
+				return Array.from(cards.values(), card => ({ ...card, duplicate: labelCounts.get(card.label) > 1 }));
 			}, [managerPool]);
 			const managerQueryText = managerQuery.trim().toLowerCase();
 			function matchesManagerFilters(item) {
@@ -1590,9 +1648,7 @@
 						h("button", { className: "dsh-tavern-btn", onClick: closeHistoryManager }, "关闭")),
 					h("div", { className: "dsh-tavern-history-manager-toolbar" },
 						h("input", { className: "dsh-tavern-library-search dsh-tavern-history-manager-search", value: managerQuery, placeholder: "搜索标题或对话内容", "aria-label": "搜索会话", onChange: function (event) { setManagerQuery(event.target.value); } }),
-						managerCardOptions.length ? h("select", { className: "dsh-tavern-history-manager-select", value: managerCardFilter, "aria-label": "按人物卡筛选", onChange: function (event) { setManagerCardFilter(event.target.value); } },
-							h("option", { value: "all" }, "全部人物卡"),
-							managerCardOptions.slice(0, 300).map(function (entry) { return h("option", { key: entry[0], value: entry[0] }, entry[1]); })) : null,
+						managerCardOptions.length ? h(HistoryCardFilter, { options: managerCardOptions, value: managerCardFilter, onChange: setManagerCardFilter }) : null,
 						h("div", { className: "dsh-tavern-history-manager-filters" },
 							[["all", "全部"], ["dialogue", "有交互"], ["opening", "仅开场"], ["archived", "已归档"]].map(function (choice) {
 								return h("button", { key: choice[0], className: "dsh-tavern-history-manager-filter", "aria-pressed": managerStatusFilter === choice[0] ? "true" : "false", onClick: function () { setManagerStatusFilter(choice[0]); } }, choice[1]);

@@ -303,7 +303,7 @@ test('宽屏管理面板在移动端铺满卡片正文宽度、动作按钮下�
       </div>
       <div class="dsh-tavern-history-manager-toolbar">
         <input class="dsh-tavern-library-search dsh-tavern-history-manager-search" placeholder="搜索标题或对话内容" />
-        <select class="dsh-tavern-history-manager-select"><option value="all">全部人物卡</option></select>
+        <div class="dsh-tavern-history-manager-select"><button class="dsh-tavern-history-card-trigger">全部人物卡</button></div>
         <div class="dsh-tavern-history-manager-filters">
           <button class="dsh-tavern-history-manager-filter" aria-pressed="true">全部</button>
           <button class="dsh-tavern-history-manager-filter" aria-pressed="false">有交互</button>
