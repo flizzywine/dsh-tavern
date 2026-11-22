@@ -8,7 +8,12 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.content.pm.PackageInstaller;
+import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
+import android.content.res.ColorStateList;
+import android.graphics.Color;
+import android.graphics.Outline;
+import android.graphics.drawable.GradientDrawable;
 import android.graphics.Insets;
 import android.graphics.Typeface;
 import android.net.Uri;
@@ -20,6 +25,9 @@ import android.os.PowerManager;
 import android.provider.Settings;
 import android.view.Gravity;
 import android.view.View;
+import android.view.ViewGroup;
+import android.view.ViewOutlineProvider;
+import android.view.WindowInsetsController;
 import android.view.WindowInsets;
 import android.webkit.RenderProcessGoneDetail;
 import android.webkit.ValueCallback;
@@ -30,6 +38,7 @@ import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.Button;
 import android.widget.FrameLayout;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.ScrollView;
@@ -51,9 +60,10 @@ public final class MainActivity extends Activity {
     private final Handler handler = new Handler(Looper.getMainLooper());
     private WebView web;
     private ScrollView launcher;
-    private TextView statusText, versionText, updateText, keepAliveText, logText;
+    private TextView versionText, updateText, keepAliveText, logText;
     private ProgressBar bar;
-    private Button enter, restart, startStop, check, updateAction, logsToggle;
+    private Button enter, restart, startStop, check, updateAction;
+    private TextView logsToggle;
     private Switch autoOpen, wakeLock;
     private String loadedUrl;
     private boolean showLauncher;
@@ -72,8 +82,9 @@ public final class MainActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        FrameLayout root = new FrameLayout(this);
-        // targetSdk 35 强制全面屏：按系统栏和输入法让出边距，输入框不被键盘挡住。
+        root = new FrameLayout(this);
+        root.setBackgroundColor(BG);
+        // targetSdk 35 强制全面屏：按系统栏和输入法让出边距，输入框不被键盘挡住；让出的区域显示 root 的底色。
         root.setOnApplyWindowInsetsListener((v, insets) -> {
             Insets s = insets.getInsets(WindowInsets.Type.systemBars() | WindowInsets.Type.ime());
             v.setPadding(s.left, s.top, s.right, s.bottom);
@@ -82,6 +93,7 @@ public final class MainActivity extends Activity {
         root.addView(buildLauncher());
         root.addView(buildWebView());
         setContentView(root);
+        applyBarColor(BG);
 
         if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission("android.permission.POST_NOTIFICATIONS") != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(new String[]{"android.permission.POST_NOTIFICATIONS"}, 2);
@@ -94,118 +106,295 @@ public final class MainActivity extends Activity {
         handler.post(poll);
     }
 
-    // ---------------------------------------------------------------- 界面
+    // ---------------------------------------------------------------- 界面（配色、圆角、分段按钮取自酒馆本体）
 
-    private TextView text(LinearLayout parent, float size, boolean bold) {
+    private static final int BG = 0xfffaf9f5, CARD = 0xffffffff, TRACK = 0xfff3eae2, HAIRLINE = 0xffe9e1d8,
+            INK = 0xff29201a, MUTED = 0xff8a8178, ACCENT = 0xffc27d5d, DANGER = 0xffc64545,
+            OK = 0xff3f9a6b, WARN = 0xffd39b3a;
+    private FrameLayout root;
+    private TextView statusTitle, statusDetail, footerText;
+    private View statusDot;
+    private Button batteryButton;
+    private int barColor;
+
+    private int dp(float v) {
+        return Math.round(v * getResources().getDisplayMetrics().density);
+    }
+
+    private GradientDrawable shape(int fill, int stroke, float radiusDp) {
+        GradientDrawable g = new GradientDrawable();
+        g.setColor(fill);
+        g.setCornerRadius(dp(radiusDp));
+        if (stroke != 0) g.setStroke(dp(1), stroke);
+        return g;
+    }
+
+    /** 按下时变暗一点的背景（酒馆按钮的按压反馈）。 */
+    private android.graphics.drawable.Drawable pressable(int fill, int stroke, float radiusDp) {
+        android.graphics.drawable.StateListDrawable s = new android.graphics.drawable.StateListDrawable();
+        s.addState(new int[]{android.R.attr.state_pressed}, shape(blend(fill, INK, 0.06f), stroke, radiusDp));
+        s.addState(new int[]{-android.R.attr.state_enabled}, shape(blend(fill, BG, 0.5f), stroke, radiusDp));
+        s.addState(new int[]{}, shape(fill, stroke, radiusDp));
+        return s;
+    }
+
+    private static int blend(int a, int b, float t) {
+        int r = Math.round(Color.red(a) + (Color.red(b) - Color.red(a)) * t);
+        int g = Math.round(Color.green(a) + (Color.green(b) - Color.green(a)) * t);
+        int bl = Math.round(Color.blue(a) + (Color.blue(b) - Color.blue(a)) * t);
+        return Color.rgb(r, g, bl);
+    }
+
+    private TextView label(ViewGroup parent, float size, int color, boolean bold) {
         TextView t = new TextView(this);
         t.setTextSize(size);
-        if (bold) t.setTypeface(Typeface.DEFAULT_BOLD);
-        t.setPadding(0, 12, 0, 12);
+        t.setTextColor(color);
+        t.setLineSpacing(dp(2), 1f);
+        if (bold) t.setTypeface(Typeface.create("sans-serif-medium", Typeface.BOLD));
         parent.addView(t);
         return t;
     }
 
-    private TextView section(LinearLayout parent, String title) {
-        TextView t = text(parent, 13, true);
-        t.setText(title);
-        t.setPadding(0, 48, 0, 8);
-        t.setTextColor(0xff8a6d5a);
-        return t;
+    private LinearLayout.LayoutParams lp(int width, int height, int top) {
+        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(width, height);
+        p.topMargin = dp(top);
+        return p;
     }
 
-    private LinearLayout row(LinearLayout parent) {
+    private LinearLayout card(LinearLayout parent, int top) {
+        LinearLayout c = new LinearLayout(this);
+        c.setOrientation(LinearLayout.VERTICAL);
+        c.setBackground(shape(CARD, HAIRLINE, 16));
+        c.setPadding(dp(16), dp(14), dp(16), dp(14));
+        parent.addView(c, lp(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT, top));
+        return c;
+    }
+
+    /** 分组标题：与酒馆侧栏「游玩历史」同款的浅灰小字。 */
+    private void heading(LinearLayout parent, String title) {
+        TextView t = label(parent, 14, MUTED, false);
+        t.setText(title);
+        t.setPadding(dp(4), dp(22), 0, dp(8));
+    }
+
+    /** 主按钮：酒馆「选择人物卡 · 新开游玩」同款——白底、细边、深色粗体、大圆角。 */
+    private Button primary(LinearLayout parent, String text, View.OnClickListener click) {
+        Button b = baseButton(text, click);
+        b.setTextSize(17);
+        b.setTextColor(INK);
+        b.setTypeface(Typeface.create("sans-serif-medium", Typeface.BOLD));
+        b.setBackground(pressable(CARD, HAIRLINE, 14));
+        parent.addView(b, lp(LinearLayout.LayoutParams.MATCH_PARENT, dp(54), 14));
+        return b;
+    }
+
+    /** 次按钮：「检查更新」同款小号描边按钮；accent=true 时用强调色字。 */
+    private Button secondary(LinearLayout parent, String text, boolean accent, View.OnClickListener click) {
+        Button b = baseButton(text, click);
+        b.setTextSize(14);
+        b.setTextColor(accent ? ACCENT : INK);
+        if (accent) b.setTypeface(Typeface.create("sans-serif-medium", Typeface.BOLD));
+        b.setBackground(pressable(CARD, HAIRLINE, 12));
+        b.setPadding(dp(14), 0, dp(14), 0);
+        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, dp(40));
+        p.rightMargin = dp(8);
+        parent.addView(b, p);
+        return b;
+    }
+
+    private Button baseButton(String text, View.OnClickListener click) {
+        Button b = new Button(this);
+        b.setText(text);
+        b.setAllCaps(false);
+        b.setStateListAnimator(null);
+        b.setElevation(0);
+        b.setMinHeight(0);
+        b.setMinimumHeight(0);
+        b.setOnClickListener(click);
+        return b;
+    }
+
+    private LinearLayout row(LinearLayout parent, int top) {
         LinearLayout r = new LinearLayout(this);
         r.setOrientation(LinearLayout.HORIZONTAL);
         r.setGravity(Gravity.CENTER_VERTICAL);
-        parent.addView(r);
+        parent.addView(r, lp(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT, top));
         return r;
     }
 
-    private Button button(LinearLayout parent, String label, View.OnClickListener click) {
-        Button b = new Button(this);
-        b.setText(label);
-        b.setAllCaps(false);
-        b.setOnClickListener(click);
-        parent.addView(b, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+    /** 分段控件（酒馆「游玩 / 卡片」切换同款）：米色底槽里的白色胶囊按钮，强调色字。 */
+    private Button segment(LinearLayout track, String text, View.OnClickListener click) {
+        Button b = baseButton(text, click);
+        b.setTextSize(15);
+        b.setTextColor(ACCENT);
+        b.setTypeface(Typeface.create("sans-serif-medium", Typeface.BOLD));
+        b.setBackground(pressable(CARD, 0, 10));
+        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0, dp(42), 1);
+        p.setMargins(dp(3), dp(3), dp(3), dp(3));
+        track.addView(b, p);
         return b;
+    }
+
+    private void divider(LinearLayout parent) {
+        View v = new View(this);
+        v.setBackgroundColor(HAIRLINE);
+        parent.addView(v, lp(LinearLayout.LayoutParams.MATCH_PARENT, dp(1), 0));
+    }
+
+    private Switch toggle(LinearLayout parent, String title, String key, boolean def, Runnable after) {
+        Switch s = new Switch(this);
+        s.setText(title);
+        s.setTextSize(15);
+        s.setTextColor(INK);
+        s.setPadding(0, dp(12), 0, dp(12));
+        int[][] states = {{android.R.attr.state_checked}, {}};
+        s.setThumbTintList(new ColorStateList(states, new int[]{ACCENT, 0xffffffff}));
+        s.setTrackTintList(new ColorStateList(states, new int[]{blend(ACCENT, CARD, 0.45f), 0xffd9cfc4}));
+        s.setChecked(prefs().getBoolean(key, def));
+        s.setOnCheckedChangeListener((b, on) -> {
+            prefs().edit().putBoolean(key, on).apply();
+            if (after != null) after.run();
+        });
+        parent.addView(s, lp(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT, 0));
+        return s;
+    }
+
+    /** 列表行（酒馆历史列表同款）：左文字、右箭头，整行可点。 */
+    private TextView listRow(LinearLayout parent, String text, int color, View.OnClickListener click) {
+        LinearLayout r = new LinearLayout(this);
+        r.setOrientation(LinearLayout.HORIZONTAL);
+        r.setGravity(Gravity.CENTER_VERTICAL);
+        r.setPadding(dp(4), 0, dp(4), 0);
+        r.setBackground(pressable(CARD, 0, 10));
+        r.setClickable(true);
+        r.setOnClickListener(click);
+        TextView t = label(r, 15, color, false);
+        t.setText(text);
+        t.setLayoutParams(new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+        TextView chevron = label(r, 18, MUTED, false);
+        chevron.setText("›");
+        parent.addView(r, lp(LinearLayout.LayoutParams.MATCH_PARENT, dp(50), 0));
+        return t;
     }
 
     private View buildLauncher() {
         LinearLayout c = new LinearLayout(this);
         c.setOrientation(LinearLayout.VERTICAL);
-        c.setPadding(48, 72, 48, 72);
-        TextView title = text(c, 24, true);
-        title.setText("DSH Tavern");
-        versionText = text(c, 12, false);
-        versionText.setTextColor(0xff888888);
+        c.setPadding(dp(20), dp(20), dp(20), dp(32));
 
-        statusText = text(c, 15, false);
-        statusText.setPadding(0, 32, 0, 16);
+        // 品牌：图标 + DSH Tavern + 酒馆 · Beta（与酒馆侧栏顶部的品牌区一致）
+        LinearLayout brand = row(c, 4);
+        ImageView icon = new ImageView(this);
+        int iconId = getResources().getIdentifier("brand_icon", "drawable", getPackageName());
+        if (iconId != 0) icon.setImageResource(iconId);
+        icon.setClipToOutline(true);
+        icon.setOutlineProvider(new ViewOutlineProvider() {
+            @Override
+            public void getOutline(View view, Outline outline) {
+                outline.setRoundRect(0, 0, view.getWidth(), view.getHeight(), dp(14));
+            }
+        });
+        brand.addView(icon, new LinearLayout.LayoutParams(dp(56), dp(56)));
+        LinearLayout names = new LinearLayout(this);
+        names.setOrientation(LinearLayout.VERTICAL);
+        names.setPadding(dp(14), 0, 0, 0);
+        brand.addView(names, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+        TextView title = label(names, 26, INK, false);
+        title.setText("DSH Tavern");
+        title.setTypeface(Typeface.create("sans-serif-black", Typeface.BOLD));
+        title.setLetterSpacing(0.01f);
+        TextView subtitle = label(names, 14, ACCENT, true);
+        subtitle.setText("酒馆 · Beta");
+
+        // 状态卡
+        LinearLayout status = card(c, 22);
+        LinearLayout head = row(status, 0);
+        statusDot = new View(this);
+        statusDot.setBackground(shape(MUTED, 0, 6));
+        LinearLayout.LayoutParams dot = new LinearLayout.LayoutParams(dp(10), dp(10));
+        dot.rightMargin = dp(10);
+        head.addView(statusDot, dot);
+        statusTitle = label(head, 17, INK, true);
+        statusTitle.setLayoutParams(new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+        statusDetail = label(status, 13, MUTED, false);
+        statusDetail.setPadding(dp(20), dp(4), 0, 0);
         bar = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
         bar.setMax(100);
-        c.addView(bar, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
-        LinearLayout r1 = row(c);
-        enter = button(r1, "进入酒馆", v -> {
+        bar.setProgressTintList(ColorStateList.valueOf(ACCENT));
+        bar.setIndeterminateTintList(ColorStateList.valueOf(ACCENT));
+        bar.setProgressBackgroundTintList(ColorStateList.valueOf(TRACK));
+        status.addView(bar, lp(LinearLayout.LayoutParams.MATCH_PARENT, dp(6), 10));
+
+        enter = primary(c, "进入酒馆", v -> {
             showLauncher = false;
             render();
         });
-        restart = button(r1, "重启", v -> send(TavernService.ACTION_RESTART));
-        startStop = button(r1, "停止", v -> send("running".equals(TavernService.phase) || "starting".equals(TavernService.phase)
-                ? TavernService.ACTION_STOP : TavernService.ACTION_START));
+        LinearLayout track = row(c, 10);
+        track.setBackground(shape(TRACK, 0, 13));
+        restart = segment(track, "重启", v -> send(TavernService.ACTION_RESTART));
+        startStop = segment(track, "停止", v -> send("running".equals(TavernService.phase) || "starting".equals(TavernService.phase)
+                || "preparing".equals(TavernService.phase) ? TavernService.ACTION_STOP : TavernService.ACTION_START));
 
-        section(c, "更新");
-        updateText = text(c, 14, false);
-        LinearLayout r2 = row(c);
-        check = button(r2, "检查更新", v -> send(TavernService.ACTION_CHECK));
-        updateAction = button(r2, "立即更新", v -> onUpdateAction());
+        heading(c, "更新");
+        LinearLayout updates = card(c, 0);
+        updateText = label(updates, 14, INK, false);
+        LinearLayout ur = row(updates, 12);
+        check = secondary(ur, "检查更新", false, v -> send(TavernService.ACTION_CHECK));
+        updateAction = secondary(ur, "立即更新", true, v -> onUpdateAction());
 
-        section(c, "后台运行");
-        autoOpen = new Switch(this);
-        autoOpen.setText("打开应用后直接进入酒馆");
-        autoOpen.setChecked(prefs().getBoolean("autoOpen", true));
-        autoOpen.setOnCheckedChangeListener((b, on) -> prefs().edit().putBoolean("autoOpen", on).apply());
-        c.addView(autoOpen);
-        wakeLock = new Switch(this);
-        wakeLock.setText("熄屏后保持运行（防止生成到一半卡住，略增耗电）");
-        wakeLock.setChecked(prefs().getBoolean("wakelock", true));
-        wakeLock.setOnCheckedChangeListener((b, on) -> {
-            prefs().edit().putBoolean("wakelock", on).apply();
-            send(TavernService.ACTION_PREFS);
-        });
-        c.addView(wakeLock);
-        keepAliveText = text(c, 13, false);
-        LinearLayout r3 = row(c);
-        button(r3, "允许后台运行", v -> requestBatteryExemption());
+        heading(c, "后台运行");
+        LinearLayout bg = card(c, 0);
+        bg.setPadding(dp(16), dp(2), dp(16), dp(12));
+        autoOpen = toggle(bg, "打开应用后直接进入酒馆", "autoOpen", true, null);
+        divider(bg);
+        wakeLock = toggle(bg, "熄屏后保持运行（防止生成到一半卡住，略增耗电）", "wakelock", true, () -> send(TavernService.ACTION_PREFS));
+        divider(bg);
+        keepAliveText = label(bg, 13, MUTED, false);
+        keepAliveText.setPadding(0, dp(10), 0, 0);
+        LinearLayout br = row(bg, 10);
+        batteryButton = secondary(br, "允许后台运行", true, v -> requestBatteryExemption());
 
-        section(c, "维护");
-        LinearLayout r4 = row(c);
-        logsToggle = button(r4, "查看日志", v -> {
+        heading(c, "维护");
+        LinearLayout tools = card(c, 0);
+        tools.setPadding(dp(10), dp(4), dp(10), dp(4));
+        logsToggle = listRow(tools, "查看日志", INK, v -> {
             logsVisible = !logsVisible;
             render();
         });
-        button(r4, "分享日志", v -> shareLogs());
-        LinearLayout r5 = row(c);
-        button(r5, "重置程序文件", v -> new AlertDialog.Builder(this)
+        listRow(tools, "分享日志", INK, v -> shareLogs());
+        listRow(tools, "重置程序文件", DANGER, v -> new AlertDialog.Builder(this)
                 .setTitle("重置程序文件")
-                .setMessage("重新解出安装包自带的程序文件（会撤销源码热更新）。存档、人物卡、API key 和模型设置都保留。")
+                .setMessage("重新解出安装包自带的程序文件（会撤销应用内更新）。存档、人物卡、API key 和模型设置都保留。")
                 .setPositiveButton("重置", (d, w) -> send(TavernService.ACTION_RESET))
                 .setNegativeButton("取消", null).show());
-        button(r5, "退出", v -> {
+        listRow(tools, "退出", INK, v -> {
             send(TavernService.ACTION_EXIT);
             finishAndRemoveTask();
         });
-        logText = text(c, 11, false);
+        logText = label(c, 11, INK, false);
         logText.setTypeface(Typeface.MONOSPACE);
         logText.setTextIsSelectable(true);
+        logText.setBackground(shape(TRACK, 0, 12));
+        logText.setPadding(dp(12), dp(10), dp(12), dp(10));
+        ((LinearLayout.LayoutParams) logText.getLayoutParams()).topMargin = dp(12);
+
+        versionText = label(c, 12, MUTED, false);
+        versionText.setGravity(Gravity.CENTER);
+        versionText.setPadding(0, dp(24), 0, 0);
+        footerText = versionText;
 
         launcher = new ScrollView(this);
+        launcher.setBackgroundColor(BG);
+        launcher.setClipToPadding(false);
         launcher.addView(c);
         return launcher;
     }
 
     private View buildWebView() {
-        WebView.setWebContentsDebuggingEnabled(true);
+        boolean debuggable = (getApplicationInfo().flags & ApplicationInfo.FLAG_DEBUGGABLE) != 0;
+        WebView.setWebContentsDebuggingEnabled(debuggable);
         web = new WebView(this);
+        web.setBackgroundColor(BG);
         WebSettings settings = web.getSettings();
         settings.setJavaScriptEnabled(true);
         settings.setDomStorageEnabled(true);
@@ -231,6 +420,7 @@ public final class MainActivity extends Activity {
                     clearHistoryOnLoad = false;
                     view.clearHistory();
                 }
+                sampleWebColor();
             }
 
             @Override
@@ -259,10 +449,48 @@ public final class MainActivity extends Activity {
         return web;
     }
 
+    // ---------------------------------------------------------------- 状态栏
+
+    /** 状态栏区域的底色与图标深浅：浅底配深色图标，深底配浅色图标（酒馆切到深色主题时也看得清）。 */
+    private void applyBarColor(int color) {
+        if (color == barColor && root.getTag() != null) return;
+        barColor = color;
+        root.setTag(Boolean.TRUE);
+        root.setBackgroundColor(color);
+        boolean light = (0.299 * Color.red(color) + 0.587 * Color.green(color) + 0.114 * Color.blue(color)) > 150;
+        WindowInsetsController c = getWindow().getInsetsController();
+        if (c == null) return;
+        int mask = WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS | WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS;
+        c.setSystemBarsAppearance(light ? mask : 0, mask);
+    }
+
+    /** 取酒馆页面顶部那一条的实际背景色（从顶部中点的元素往上找第一个不透明背景）。 */
+    private static final String SAMPLE_JS = "(function(){try{var e=document.elementFromPoint(innerWidth/2,2);"
+            + "while(e){var c=getComputedStyle(e).backgroundColor;var m=c.match(/rgba?\\(([^)]+)\\)/);"
+            + "if(m){var p=m[1].split(',').map(parseFloat);if(p.length<4||p[3]>0.5)return p.slice(0,3).join(',')}e=e.parentElement}"
+            + "var b=getComputedStyle(document.body).backgroundColor.match(/\\d+/g);return b?b.slice(0,3).join(','):''}catch(x){return ''}})()";
+
+    private void sampleWebColor() {
+        if (web.getVisibility() != View.VISIBLE) return;
+        web.evaluateJavascript(SAMPLE_JS, value -> {
+            if (value == null) return;
+            String v = value.replace("\"", "");
+            String[] p = v.split(",");
+            if (p.length != 3) return;
+            try {
+                applyBarColor(Color.rgb(Math.round(Float.parseFloat(p[0].trim())), Math.round(Float.parseFloat(p[1].trim())), Math.round(Float.parseFloat(p[2].trim()))));
+            } catch (NumberFormatException ignored) {
+            }
+        });
+    }
+
+    private int pollTicks;
     private final Runnable poll = new Runnable() {
         @Override
         public void run() {
             render();
+            // 页面里切换主题、打开深色弹层时跟着变：每 1.5 秒取一次色，只在显示酒馆时。
+            if (++pollTicks % 3 == 0) sampleWebColor();
             handler.postDelayed(this, 500);
         }
     };
@@ -270,6 +498,11 @@ public final class MainActivity extends Activity {
     /** 只在内容变化时更新：每 0.5 秒无条件 setText 会不停发出无障碍事件、触发重绘（耗电，也让 uiautomator 等不到空闲）。 */
     private static void set(TextView view, CharSequence value) {
         if (!value.toString().contentEquals(view.getText())) view.setText(value);
+    }
+
+    private static void show(View view, boolean visible) {
+        int v = visible ? View.VISIBLE : View.GONE;
+        if (view.getVisibility() != v) view.setVisibility(v);
     }
 
     private long memoryCheckedAt;
@@ -283,6 +516,8 @@ public final class MainActivity extends Activity {
         return memoryCache;
     }
 
+    private int dotColor = -1;
+
     private void render() {
         String url = TavernService.url;
         String phase = TavernService.phase;
@@ -292,41 +527,64 @@ public final class MainActivity extends Activity {
             web.loadUrl(url);
         }
         boolean showWeb = url != null && !showLauncher;
-        web.setVisibility(showWeb ? View.VISIBLE : View.GONE);
-        launcher.setVisibility(showWeb ? View.GONE : View.VISIBLE);
-        if (showWeb) return;
+        boolean wasWeb = web.getVisibility() == View.VISIBLE;
+        show(web, showWeb);
+        show(launcher, !showWeb);
+        if (showWeb) {
+            if (!wasWeb) sampleWebColor();
+            return;
+        }
+        applyBarColor(BG);
 
-        set(versionText, appVersion() + (TavernService.sourceInfo.isEmpty() ? "" : "\n" + TavernService.sourceInfo));
         String err = TavernService.error;
         int p = TavernService.progress;
-        StringBuilder s = new StringBuilder(err != null ? "出错：" + err : TavernService.status);
+        set(statusTitle, err != null ? "出错了" : TavernService.status);
+        StringBuilder s = new StringBuilder();
+        if (err != null) s.append(err);
         if ("running".equals(phase)) {
             long minutes = (System.currentTimeMillis() - TavernService.runningSince) / 60000;
-            s.append("\n已运行 ").append(minutes).append(" 分钟 · 内存 ").append(memoryMbCached()).append(" MB");
+            s.append("已运行 ").append(minutes).append(" 分钟 · 内存 ").append(memoryMbCached()).append(" MB");
         }
-        if (TavernService.autoRestarts > 0) s.append("\n本次已自动重启 ").append(TavernService.autoRestarts).append(" 次（上次：").append(TavernService.lastExit).append("）");
-        set(statusText, s);
+        if (TavernService.autoRestarts > 0) {
+            if (s.length() > 0) s.append('\n');
+            s.append("本次已自动重启 ").append(TavernService.autoRestarts).append(" 次（上次：").append(TavernService.lastExit).append("）");
+        }
+        set(statusDetail, s);
+        show(statusDetail, s.length() > 0);
+        int color = err != null || "failed".equals(phase) ? DANGER : "running".equals(phase) ? OK
+                : "stopped".equals(phase) ? MUTED : WARN;
+        if (color != dotColor) {
+            dotColor = color;
+            statusDot.setBackground(shape(color, 0, 6));
+        }
         boolean busy = p >= 0 || "preparing".equals(phase) || "starting".equals(phase) || "stopping".equals(phase)
                 || "downloading".equals(TavernService.updateState) || "checking".equals(TavernService.updateState);
-        bar.setVisibility(busy ? View.VISIBLE : View.INVISIBLE);
+        show(bar, busy);
         bar.setIndeterminate(p < 0);
         if (p >= 0) bar.setProgress(p);
         enter.setEnabled(url != null);
-        boolean active = "running".equals(phase) || "starting".equals(phase);
+        set(enter, url != null ? "进入酒馆" : "进入酒馆（启动中…）");
+        boolean active = "running".equals(phase) || "starting".equals(phase) || "preparing".equals(phase);
         set(startStop, active ? "停止" : "启动");
+        restart.setEnabled("running".equals(phase) || "failed".equals(phase) || "stopped".equals(phase));
 
         String us = TavernService.updateState;
         set(updateText, TavernService.updateMessage.isEmpty() ? "点「检查更新」查看是否有新版本" : TavernService.updateMessage);
+        updateText.setTextColor("error".equals(us) ? DANGER : INK);
         check.setEnabled(!"checking".equals(us) && !"downloading".equals(us));
-        updateAction.setVisibility("source".equals(us) || "apk".equals(us) || "ready".equals(us) ? View.VISIBLE : View.GONE);
+        show(updateAction, "source".equals(us) || "apk".equals(us) || "ready".equals(us));
         set(updateAction, "source".equals(us) ? "更新源码" : "apk".equals(us) ? "下载安装包" : "安装");
 
         PowerManager pm = getSystemService(PowerManager.class);
         boolean exempt = pm.isIgnoringBatteryOptimizations(getPackageName());
-        set(keepAliveText, (exempt ? "✓ 已允许后台运行（不受电池优化限制）" : "⚠ 受电池优化限制：锁屏后可能被系统停掉，建议点下方按钮允许后台运行")
+        set(keepAliveText, (exempt ? "✓ 已允许后台运行（不受电池优化限制）" : "⚠ 受电池优化限制：锁屏后可能被系统停掉，建议允许后台运行")
                 + (Build.VERSION.SDK_INT >= 31 ? "\nAndroid 12 起系统可能清理应用的后台子进程，酒馆服务被清理后会自动重启。频繁发生时，可在开发者选项里开启「停用子进程限制」。" : ""));
+        set(batteryButton, exempt ? "电池优化设置" : "允许后台运行");
         set(logsToggle, logsVisible ? "隐藏日志" : "查看日志");
-        set(logText, logsVisible || err != null ? TavernService.tail() : "");
+        String logs = logsVisible || err != null ? TavernService.tail() : "";
+        set(logText, logs);
+        show(logText, !logs.isEmpty());
+        set(footerText, appVersion() + (TavernService.sourceInfo.isEmpty() ? "" : " · " + TavernService.sourceInfo));
     }
 
     private String appVersion() {
@@ -375,13 +633,13 @@ public final class MainActivity extends Activity {
         StringBuilder text = new StringBuilder(appVersion()).append('\n').append(TavernService.sourceInfo).append("\nAndroid ")
                 .append(Build.VERSION.RELEASE).append(" · ").append(Build.MODEL).append(" · ").append(Build.SUPPORTED_ABIS[0]).append("\n\n");
         File dir = new File(getFilesDir(), "logs");
-        for (String name : new String[]{"node.prev.log", "node.log"}) {
+        for (String name : new String[]{"update.log", "node.prev.log", "node.log"}) {
             File f = new File(dir, name);
             if (!f.exists()) continue;
             text.append("==== ").append(name).append(" ====\n").append(lastBytes(f, 48 * 1024)).append('\n');
         }
         Intent send = new Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, text.toString())
-                .putExtra(Intent.EXTRA_SUBJECT, "DSH Tavern 日志");
+                .putExtra(Intent.EXTRA_SUBJECT, "DSH Tavern Beta 日志");
         startActivity(Intent.createChooser(send, "分享日志"));
     }
 

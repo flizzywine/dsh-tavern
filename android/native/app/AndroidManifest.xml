@@ -13,9 +13,10 @@
 
     <!-- extractNativeLibs：libnode.so 要作为可执行文件从 nativeLibraryDir 运行，必须解出到磁盘。 -->
     <application
-        android:label="DSH Tavern 原生版"
-        android:icon="@android:drawable/sym_def_app_icon"
-        android:theme="@android:style/Theme.Material.Light.NoActionBar"
+        android:label="DSH Tavern Beta"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:theme="@style/Tavern"
         android:extractNativeLibs="true"
         android:usesCleartextTraffic="true"
         android:allowBackup="false"

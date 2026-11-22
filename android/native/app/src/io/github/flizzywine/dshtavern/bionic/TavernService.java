@@ -119,13 +119,18 @@ public final class TavernService extends Service {
         wakeLock.setReferenceCounted(false);
     }
 
+    private int statIcon() {
+        int id = getResources().getIdentifier("ic_stat_tavern", "drawable", getPackageName());
+        return id != 0 ? id : android.R.drawable.ic_dialog_info;
+    }
+
     private Notification notification(String text) {
         PendingIntent open = PendingIntent.getActivity(this, 0, new Intent(this, MainActivity.class), PendingIntent.FLAG_IMMUTABLE);
         PendingIntent exit = PendingIntent.getService(this, 1, intent(this, ACTION_EXIT), PendingIntent.FLAG_IMMUTABLE);
         return new Notification.Builder(this, CHANNEL)
-                .setContentTitle("DSH Tavern")
+                .setContentTitle("DSH Tavern Beta")
                 .setContentText(text)
-                .setSmallIcon(android.R.drawable.ic_dialog_info)
+                .setSmallIcon(statIcon())
                 .setContentIntent(open)
                 .addAction(new Notification.Action.Builder(null, "退出", exit).build())
                 .setOngoing(true)
