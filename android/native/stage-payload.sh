@@ -102,6 +102,9 @@ done
 rm -rf "$META"
 find "$STAGE/pnpm-cache" -mindepth 1 -maxdepth 2 ! -path '*/v11*' -exec rm -rf {} + 2>/dev/null || true
 echo "pnpm $PNPM_VERSION；根依赖 $(du -sm "$STAGE/src/node_modules" | cut -f1) MB；预置元数据 $(du -sm "$STAGE/pnpm-cache" | cut -f1) MB"
+# 2d) 卡片 iframe 每次都加载的 CDN 资源（SillyTavern 兼容样式表）预置进用户数据的静态资源缓存：首次打开卡片不联网。
+#     属于用户数据，覆盖安装时只补缺失的条目。
+node "$HERE/seed-static-cache.mjs" "$STAGE/src" "$H/profile-data/tavern/data/cache/static-assets"
 
 # 2b) RUNPATH 改成 $ORIGIN：子进程即使被清空环境（模板 worker 只传 NODE_ENV）也能找到自己的 .so。
 python3 "$HERE/patch-runpath.py" '$ORIGIN/../lib' "$STAGE/usr/bin/node" >/dev/null

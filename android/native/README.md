@@ -106,6 +106,22 @@ node android/native/apk-smoke.mjs            # 卸载 → 安装 → 验收；�
 - 预检查只能从清单比对锁文件与补丁；只改了 `package.json` 时显示「依赖可能有变化」，下载后才最终判定。
 - 模拟器上的发现：强制 Doze 后 `uiautomator` 有时看不到应用窗口；启动页曾因每 0.5 秒无条件刷新文字而一直不空闲，已改为只在变化时更新。
 
+## 启动页、图标与正式 Beta（v6 起）
+
+- **外观**：启动页配色、圆角、分段按钮、列表行取自酒馆本体（米白底 `#faf9f5`、米色槽 `#f3eae2`、强调色 `#c27d5d`）。
+  应用名「DSH Tavern Beta」；启动器图标由 `make-icons.py` 从 `docs/assets/brand/dsh-tavern-app-icon-512.png` 生成
+  （自适应图标，背景取图标自身的米色），通知栏小图标是图标线稿。
+- **状态栏**：主题设为浅色状态栏（深色图标）；进入酒馆后每 1.5 秒取页面顶部的实际背景色，状态栏底色与图标深浅跟着变，
+  酒馆切到深色主题也看得清。
+- **预置 CDN 资源**：`seed-static-cache.mjs` 在打包时用酒馆自己的静态资源缓存下载卡片 iframe 每次都加载的 SillyTavern 兼容样式表
+  （20 个，约 380 KB，列表从 `client.js` 的 `SILLYTAVERN_CSS_COMPAT` 读），写进用户数据的缓存目录，首次打开卡片不联网。
+  本机 15 份历史缓存的统计里，只有这 20 个是所有安装都会取的；其余是各卡片自己的图片、字体，不预置。
+  MVU 依赖、jQuery、Vue、lodash、zod 等早已随酒馆内置（`tavern-plugin/lib/vendor`）。
+- **正式版构建**：`RELEASE=1` 关闭 debuggable、用发布密钥签名、WebView 远程调试随之关闭；发布信息里的 `url` 用 `APK_URL`
+  给绝对地址（GitHub 资产会重定向到别的域名，相对地址解析会错）。更新源默认读固定标签 `android-native-beta` 的
+  `dsh-tavern-native.json`（预发布，不会成为仓库的「最新 Release」）。调试版与正式版签名不同，不能互相覆盖安装。
+  正式版不可调试，`run-as` 用不了：设备验收脚本照旧用调试版跑。
+
 ## 命令行验证（2026-11-22，同一模拟器）
 
 `node android/native/device-smoke.mjs` 连续 2 次全新数据目录通过，页面零报错：
