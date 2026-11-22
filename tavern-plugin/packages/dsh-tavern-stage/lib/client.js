@@ -19663,6 +19663,24 @@ function GalChoices(props) {
         resnapRef.current?.(fieldRowRef.current, field);
         fieldRowRef.current = field;
     }, [editingAt]);
+    // A field that outgrows the menu's room (the list's own max height, whatever the skin's art makes of it) stops growing there
+    // and scrolls inside - the whole field stays on the bar, never past the list's edge - and each keystroke brings the field
+    // back into the list's view, where the caret line stands (the field scrolls to its caret itself). Nothing here runs between
+    // keystrokes, so a list scrolled up by hand stays where it is until the next one.
+    (React.useLayoutEffect || React.useEffect)(function () {
+        const list = rootRef.current, field = list?.querySelector?.(":scope > .is-editing"), input = field?.querySelector?.(".fork-gal-choice-input");
+        if (!input) return;
+        input.style.maxHeight = "";
+        if (list.scrollHeight > list.clientHeight + 1) {
+            const box = getComputedStyle(list), room = list.clientHeight - parseFloat(box.paddingTop) - parseFloat(box.paddingBottom) - (field.offsetHeight - input.offsetHeight);
+            input.style.maxHeight = Math.max(room, parseFloat(getComputedStyle(input).lineHeight) || 0) + "px";
+        }
+        // A caret at the end stands on the last line, with the field's bottom padding under it (the browser stops at the line).
+        if (input.selectionEnd === input.value.length && input.scrollHeight > input.clientHeight) input.scrollTop = input.scrollHeight;
+        const edge = field.getBoundingClientRect(), view = list.getBoundingClientRect();
+        if (edge.bottom > view.bottom) list.scrollTop += edge.bottom - view.bottom;
+        else if (edge.top < view.top) list.scrollTop -= view.top - edge.top;
+    }, [editingAt, editingAt !== null && drafts[editingAt]]);
     const offered = state === "ready" && Boolean(panel && panel.choices && panel.choices.length);
     React.useEffect(function () { if (offered) forkUiSfx.play("choice"); }, [offered, messageId]);
     // A click outside the open field closes it and keeps what was typed (capture phase, before the click acts).
@@ -23097,7 +23115,11 @@ function stageSkinArt(document, files, entry = '') {
     // The end-of-round menu as image bars (theme.css 「stage skin: art choices」): every row is the bar image (9-slice),
     // stacked on its design centre on wide stages; narrow stages draw the same bars at the menu's text size.
     if (art.choices) {
-        const c=art.choices, [w,h]=size(c.images.plain), [st,sr,sb,sl]=stageSkinSlice(c.slice), [left,right,middle]=c.text;
+        const c=art.choices, [w,h]=size(c.images.plain), [slTop,sr,slBottom,sl]=stageSkinSlice(c.slice), [left,right,middle]=c.text;
+        // The bar stretches between its end slices when a row grows past the image's height (a field or a wrapped suggestion of
+        // several lines): the band's edges lie in the end slices (art.choices.band), so the slices reach at least the band's
+        // edges and the bar's rim never stretches over the words, whatever slice the skin declares.
+        const st=Math.max(slTop,c.band?.[0] ?? 0), sb=Math.max(slBottom,c.band ? h - c.band[1] : 0);
         marks['data-fk-skin-choices']='';
         Object.assign(tokens,{'--art-choice':url(c.images.plain),'--art-choice-off':url(c.images.off || c.images.plain),'--art-choice-w':String(w),'--art-choice-h':String(h),
             '--art-choice-st':String(st),'--art-choice-sr':String(sr),'--art-choice-sb':String(sb),'--art-choice-sl':String(sl),

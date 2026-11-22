@@ -524,7 +524,11 @@ function stageSkinArt(document, files, entry = '') {
     // The end-of-round menu as image bars (theme.css 「stage skin: art choices」): every row is the bar image (9-slice),
     // stacked on its design centre on wide stages; narrow stages draw the same bars at the menu's text size.
     if (art.choices) {
-        const c=art.choices, [w,h]=size(c.images.plain), [st,sr,sb,sl]=stageSkinSlice(c.slice), [left,right,middle]=c.text;
+        const c=art.choices, [w,h]=size(c.images.plain), [slTop,sr,slBottom,sl]=stageSkinSlice(c.slice), [left,right,middle]=c.text;
+        // The bar stretches between its end slices when a row grows past the image's height (a field or a wrapped suggestion of
+        // several lines): the band's edges lie in the end slices (art.choices.band), so the slices reach at least the band's
+        // edges and the bar's rim never stretches over the words, whatever slice the skin declares.
+        const st=Math.max(slTop,c.band?.[0] ?? 0), sb=Math.max(slBottom,c.band ? h - c.band[1] : 0);
         marks['data-fk-skin-choices']='';
         Object.assign(tokens,{'--art-choice':url(c.images.plain),'--art-choice-off':url(c.images.off || c.images.plain),'--art-choice-w':String(w),'--art-choice-h':String(h),
             '--art-choice-st':String(st),'--art-choice-sr':String(sr),'--art-choice-sb':String(sb),'--art-choice-sl':String(sl),
