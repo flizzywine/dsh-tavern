@@ -1518,6 +1518,9 @@ function createRuntime(ctx, overrides, logger, deps) {
           const ordered = [...jobs.entries()]
             .filter(([, job]) => !job.fromCache)
             .sort((a, b) => (a[1].createdAt || 0) - (b[1].createdAt || 0))
+          for (const [, job] of ordered) {
+            if (['done', 'failed', 'cancelled'].includes(job.state)) diag.finishJob(job.id)
+          }
           const needsTracking = job => ['pending', 'running', 'uncertain'].includes(job.state) || job.requestMayHaveSucceeded === true || job.cancelMayHaveContinued === true || (job.state === 'cancelled' && job.requestStarted === true)
           // Never evict a live/uncertain paid request in favor of newer history.
           const archived = job => job.favorite || job.trashedAt
@@ -2581,6 +2584,7 @@ function createRuntime(ctx, overrides, logger, deps) {
       if (keepComfySource && source.workflowId && !workflow) {
         throw Object.assign(new Error('原 ComfyUI 工作流已不存在；请在控制台选择其他渠道后重绘'), { submissionNotStarted: true })
       }
+      const redrawTrace = diag.begin({ kind: 'singleRedraw', turn: Number(turn) || null, manual: true })
       let fresh
       try {
         fresh = await startJob({
@@ -2604,7 +2608,7 @@ function createRuntime(ctx, overrides, logger, deps) {
           textVersion,
           sessionId: session, turn,
           key: 'media-replacement:' + randomUUID(),
-        }, { label: '单图重绘', jobConfig, forceWorkflow: workflow || null, referenceSnapshot: frozenReferences, cardRequest: jobSource(source) === 'card' })
+        }, { label: '单图重绘', jobConfig, forceWorkflow: workflow || null, referenceSnapshot: frozenReferences, cardRequest: jobSource(source) === 'card', diagTrace: redrawTrace ? { traceId: redrawTrace, imageIndex: 1 } : null })
       } catch (error) {
         if (error.requestMayHaveSucceeded !== true) error.submissionNotStarted = true
         throw error

@@ -57,7 +57,7 @@ export function createDiagnostics({ root, logger, secrets = () => [] } = {}) {
       mkdirSync(baseDir, { recursive: true })
       const now = Date.now()
       for (const [id, trace] of traces) {
-        if (now - trace.updatedAt > Math.max(1, cfg.retentionHours) * 3600e3) {
+        if (now - trace.updatedAt > cfg.retentionHours * 3600e3) {
           traces.delete(id)
           for (const job of trace.jobs) jobTrace.delete(job)
         }
@@ -74,12 +74,16 @@ export function createDiagnostics({ root, logger, secrets = () => [] } = {}) {
       }).sort((a, b) => b.mtime - a.mtime)
       const activeBytes = [...traces.values()].reduce((sum, trace) => sum + trace.bytes, 0)
       completedBytes = 0
-      dirs.forEach((d, i) => {
+      let retained = traces.size
+      for (const d of dirs) {
         const old = now - d.mtime > cfg.retentionHours * 3600e3
-        if (old || i >= Math.max(0, cfg.maxTraces - traces.size - 1) || activeBytes + completedBytes + d.bytes > cfg.maxTotalBytes) {
+        if (old || retained >= cfg.maxTraces - 1 || activeBytes + completedBytes + d.bytes > cfg.maxTotalBytes) {
           rmSync(d.dir, { recursive: true, force: true })
-        } else completedBytes += d.bytes
-      })
+        } else {
+          retained++
+          completedBytes += d.bytes
+        }
+      }
     } catch { errors++ }
   }
 
@@ -87,10 +91,11 @@ export function createDiagnostics({ root, logger, secrets = () => [] } = {}) {
     try {
       const cfg = readSwitch()
       if (cfg.enabled !== true) return null
+      prune(cfg)
+      if (traces.size >= cfg.maxTraces) return null
       if (cfg.nextTraceOnly !== false) {
         try { writeFileSync(switchPath, JSON.stringify({ ...cfg, enabled: false, lastTraceAt: new Date().toISOString() }, null, 2)) } catch { errors++ }
       }
-      prune(cfg)
       const traceId = new Date().toISOString().replace(/[:.]/g, '-') + '-' + randomUUID().slice(0, 8)
       const dir = join(baseDir, traceId)
       mkdirSync(dir, { recursive: true })
@@ -107,6 +112,7 @@ export function createDiagnostics({ root, logger, secrets = () => [] } = {}) {
     const trace = traces.get(traceId)
     if (!trace) return
     try {
+      trace.updatedAt = Date.now()
       const shaped = JSON.parse(JSON.stringify(payload ?? {}, (k, v) => (v && typeof v === 'object' && '$text' in v) ? content(trace, v.$text) : v))
       const line = JSON.stringify({ traceId, seq: ++trace.seq, at: new Date().toISOString(), stage, ...extra, data: scrub(shaped) }) + '\n'
       const bytes = Buffer.byteLength(line)
@@ -123,9 +129,8 @@ export function createDiagnostics({ root, logger, secrets = () => [] } = {}) {
         }
         return
       }
-      trace.bytes += bytes
-      trace.updatedAt = Date.now()
       appendFileSync(join(trace.dir, 'events.jsonl'), line)
+      trace.bytes += bytes
     } catch { errors++ }
   }
 
