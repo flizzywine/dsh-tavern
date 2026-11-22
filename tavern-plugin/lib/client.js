@@ -45613,8 +45613,8 @@ function createTavernStoryTranscriptFeature(deps) {
 			assistantActions ? h('span', { className: 'dsh-fork-turn-actions' },
 				turn ? h('span', { 'data-fork-turn': 'receipt' }, h(StoryTranscriptMvuReceipt, actionProps)) : null,
 				props.latest && props.host ? h(replyActions.Latest, {
-					...props.host, sessionId: props.sessionId, messageId: props.view.latestAssistantMessageId
-				}) : null) : null,
+					...props.host, sessionId: props.sessionId, messageId: props.view.latestAssistantMessageId, onEdit: edit, editBusy: Boolean(busy)
+				}) : h(replyActions.Menu, { onEdit: edit, editBusy: Boolean(busy) })) : null,
 			assistantActions && turn && props.latestTurn > turn && row.messageUid ? h(replyActions.RollbackTo, {
 				...actionProps, floorNo: row.floorNo, messageUid: row.messageUid, running: props.running
 			}) : null,
@@ -64623,13 +64623,13 @@ function createPlayInteractionPanels({ interactions, useCandidatePanel, useCandi
 			async function openEditor() {
 				setBusy(true);
 				try {
-					const result = await rpc("getBodyEdit", {}, props.sessionId);
+					const result = await rpc("getBodyEdit", props.messageId ? { replyMessageId: props.messageId } : {}, props.sessionId);
 					setRegenPanel(null); setCandidatePanel(null); setCandidateGuidePanel(null);
 					setBodyEditPanel({ sessionId: props.sessionId, edit: result.edit, texts: result.edit.parts.filter(function (part) { return part.kind === "text"; }).map(function (part) { return part.text; }), busy: false, queued: false, error: "" });
 				} catch (error) { tavernErrorHub.report("编辑正文", error); }
 				finally { setBusy(false); }
 			}
-			if (!live.view || !(live.view.canEditBody ?? live.view.canRollback)) return null;
+			if (!props.messageId && (!live.view || !(live.view.canEditBody ?? live.view.canRollback))) return null;
 			// Reading the reply is side-effect free, so a running turn does not close the
 			// editor: the save itself waits for that turn (bodyEditor's queued save).
 			return React.createElement("button", { role: "menuitem", disabled: busy, onClick: openEditor }, busy ? "读取中…" : "编辑正文");
@@ -65460,11 +65460,8 @@ function createPlayInteractionPanels({ interactions, useCandidatePanel, useCandi
 		    return h("button", { type: "button", className: "fork-var-retry", "data-busy": props.busy || retrying || undefined, title: label, "aria-label": label, disabled: retrying || props.busy, onClick: retry });
 		}
 		// the action row under each reply.
-		//   [编辑] [变量] [重roll] [⋯]  time
-		// Edit / regenerate / delete / undo only apply to the latest round; the variable
-		// icon appears under every reply; the ⋯ menu holds latest-round rollback actions. Included inside
-		// the play-controls module so it reuses the upstream actions, which keep their own
-		// rules (hidden or disabled when unavailable).
+		// Each reply's menu edits that reply. Regeneration and single-round rollback
+		// use the latest reply; historical rollback has its own action.
 
 		const RECEIPT_TITLES = {
 		    pending: "变量结算中", updated: "变量已更新", partial: "变量部分更新失败", error: "变量更新失败",
@@ -65549,11 +65546,13 @@ function createPlayInteractionPanels({ interactions, useCandidatePanel, useCandi
 		        if (!open && anchor.current) { const rect = anchor.current.getBoundingClientRect(); setPosition({ left: rect.left, top: rect.bottom + 4 }); }
 		        setOpen(!open);
 		    }
-		    if (!props.latest) return null;
-		    return h(React.Fragment, null,
+		    return h("span", { "data-fork-turn": "more" },
 		        h("button", { ref: anchor, type: "button", className: "fork-turn-more", title: "更多", "aria-label": "更多", "aria-haspopup": "menu", "aria-expanded": open, onClick: toggle }),
 		        open && position ? bodyPortal(h("div", { ref: layer, className: "fork-turn-menu", role: "menu", style: { left: position.left + "px", top: position.top + "px" },
 		            onClick: function (event) { if (event.target.closest("button:not(:disabled)")) window.setTimeout(function () { setOpen(false); }, 0); } },
+		            props.onEdit
+		                ? h("button", { type: "button", role: "menuitem", disabled: props.editBusy, onClick: props.onEdit }, "编辑正文")
+		                : h(TavernEditBodyAction, props),
 		            props.latest ? h(TavernUndoRollbackAction, props) : null,
 		            props.latest ? h(TavernRollbackAction, props) : null)) : null);
 		}
@@ -65567,14 +65566,14 @@ function createPlayInteractionPanels({ interactions, useCandidatePanel, useCandi
 		    return h("span", { className: "dsh-fork-turn-actions" },
 		        latest ? h("span", { "data-fork-turn": "edit", title: "编辑正文" }, h(TavernEditBodyAction, props)) : null,
 		        h("span", { "data-fork-turn": "receipt" }, h(ReceiptButton, props)),
-		        latest ? h(LatestReplyActions, props) : null);
+		        latest ? h(LatestReplyActions, props) : h(TurnMenu, props));
 		}
 
 		function LatestReplyActions(props) {
 		    const h = React.createElement;
 		    return h(React.Fragment, null,
 		        h("span", { "data-fork-turn": "regen" }, h(CandidateAction, { ...props, only: "regen" })),
-		        h("span", { "data-fork-turn": "more" }, h(TurnMenu, { ...props, latest: true })));
+		        h(TurnMenu, { ...props, latest: true }));
 		}
 
 		// ---------------------------------------------------------------------------
@@ -66353,7 +66352,7 @@ function createPlayInteractionPanels({ interactions, useCandidatePanel, useCandi
 				function (props) { return React.createElement(React.Fragment, null, React.createElement(RegenPanel, props), React.createElement(BodyEditPanel, props)); }
 			)), "dsh-tavern: regen body panel");
 		}
-		return Object.freeze({ register: register, RollbackToTurnButton: TavernRollbackToTurnButton, TurnReceiptButton, LatestReplyActions, useCompactionState, compactionProgressTitle });
+		return Object.freeze({ register: register, RollbackToTurnButton: TavernRollbackToTurnButton, TurnReceiptButton, LatestReplyActions, TurnMenu, useCompactionState, compactionProgressTitle });
 		}
 		const playControlsFeature = createPlayControlsFeatureModule();
 		const assistantRendererFeature = createTavernAssistantRendererFeatureModule();
@@ -68660,6 +68659,7 @@ function clipReplayCore() {
 			replyActions: {
 				Receipt: playControlsFeature.TurnReceiptButton,
 				Latest: playControlsFeature.LatestReplyActions,
+				Menu: playControlsFeature.TurnMenu,
 				RollbackTo: playControlsFeature.RollbackToTurnButton,
 				Illustrate: assistantRendererFeature.IllustrateTurnAction,
 				IllustrationDraft: TavernIllustrationDraft,

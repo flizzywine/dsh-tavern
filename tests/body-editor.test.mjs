@@ -142,3 +142,18 @@ test('故事直选：陈旧 revision、越界、role 不符与过期 token 都�
   const bumped = await h.editor.save(h.session.id, { token: edit.token, messageIndex: 2, revision: 2, role: 'assistant', texts: ['新'] })
   assert.equal(bumped.messages[2].text, '新')
 })
+
+test('原生回复菜单可以定位旧正文，保存时只改指定楼层和对应模型消息', async () => {
+  const h = storyFixture()
+  const edit = await h.editor.read(h.session.id, { replyMessageId: 'a2' })
+  assert.equal(edit.messageIndex, 2)
+  assert.deepEqual(edit.parts.filter(part => part.kind === 'text').map(part => part.text), ['第二轮正文'])
+  const saved = await h.editor.save(h.session.id, { ...edit, texts: ['改过的第二轮正文'] })
+  assert.equal(saved.messages[2].text, '改过的第二轮正文')
+  assert.equal(saved.messages[4].text, '第五轮正文')
+  assert.equal(saved.messages[5].text, '重复回合正文')
+  assert.equal(saved.settleStatus, 'done')
+  const texts = h.session.deriveMessages().flatMap(message => message.role === 'assistant' ? message.content.map(part => part.text) : [])
+  assert.deepEqual(texts, ['改过的第二轮正文', '第五轮正文'])
+  await assert.rejects(h.editor.read(h.session.id, { replyMessageId: 'a2' }), /重新打开编辑/)
+})

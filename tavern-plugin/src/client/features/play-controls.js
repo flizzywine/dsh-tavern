@@ -879,13 +879,13 @@
 			async function openEditor() {
 				setBusy(true);
 				try {
-					const result = await rpc("getBodyEdit", {}, props.sessionId);
+					const result = await rpc("getBodyEdit", props.messageId ? { replyMessageId: props.messageId } : {}, props.sessionId);
 					setRegenPanel(null); setCandidatePanel(null); setCandidateGuidePanel(null);
 					setBodyEditPanel({ sessionId: props.sessionId, edit: result.edit, texts: result.edit.parts.filter(function (part) { return part.kind === "text"; }).map(function (part) { return part.text; }), busy: false, queued: false, error: "" });
 				} catch (error) { tavernErrorHub.report("编辑正文", error); }
 				finally { setBusy(false); }
 			}
-			if (!live.view || !(live.view.canEditBody ?? live.view.canRollback)) return null;
+			if (!props.messageId && (!live.view || !(live.view.canEditBody ?? live.view.canRollback))) return null;
 			// Reading the reply is side-effect free, so a running turn does not close the
 			// editor: the save itself waits for that turn (bodyEditor's queued save).
 			return React.createElement("button", { role: "menuitem", disabled: busy, onClick: openEditor }, busy ? "读取中…" : "编辑正文");
@@ -1665,7 +1665,7 @@
 				function (props) { return React.createElement(React.Fragment, null, React.createElement(RegenPanel, props), React.createElement(BodyEditPanel, props)); }
 			)), "dsh-tavern: regen body panel");
 		}
-		return Object.freeze({ register: register, RollbackToTurnButton: TavernRollbackToTurnButton, TurnReceiptButton, LatestReplyActions, useCompactionState, compactionProgressTitle });
+		return Object.freeze({ register: register, RollbackToTurnButton: TavernRollbackToTurnButton, TurnReceiptButton, LatestReplyActions, TurnMenu, useCompactionState, compactionProgressTitle });
 		}
 		const playControlsFeature = createPlayControlsFeatureModule();
 		const assistantRendererFeature = createTavernAssistantRendererFeatureModule();
