@@ -3861,7 +3861,6 @@ export async function apply(ctx) {
   }
   const candidateContextReader = createCandidateContextReader({headerForSession:chatHeaderForSession,readWindow:chatPersistence.readWindow,readChat})
   candidateWorldbookPreparation=createCandidateWorldbookPreparation({
-    ready:sessionId=>fullTemplateRuntime.forSession(sessionId).connect(),
     async version(sessionId){
       const [chat,globals,settings]=await Promise.all([
         chatHeaderForSession(sessionId,['id','sessionId','mode','requestMode','_storageRevision','settleStatus','regenInProgress',
@@ -3876,7 +3875,7 @@ export async function apply(ctx) {
       return {revision:chat._storageRevision,resources:JSON.stringify([globals,settings])}
     },
     async prepare(sessionId){
-      const chat=await candidateContextReader.forSession(sessionId)
+      const chat=await candidateContextReader.worldbookForSession(sessionId)
       if(!chat)throw Error('当前会话没有绑定人物卡')
       const result=await nativeWorldBookTemplateContext(chat,await readChatCard(chat))
       // A transient template failure is not a prepared empty worldbook.
@@ -4283,7 +4282,7 @@ export async function apply(ctx) {
     shellToolName: process.platform === 'win32' ? 'pwsh' : 'bash'
   })
   const storyReconciliation = createStoryReconciliation({
-    agentRegistry, sessionStore, chatForSession, chatSliceForSession, updateChat, turns: turnOrchestrator
+    agentRegistry, sessionStore, chatForSession, chatSliceForSession, readWindow: chatPersistence.readWindow, updateChat, turns: turnOrchestrator
   })
   const { reconcileStory, reconcileWhenIdle, assertBlankStoryForkTarget, seedNativeStory } = storyReconciliation
   // 任务表 (domain/background-tasks.js): every background task is declared there once; this

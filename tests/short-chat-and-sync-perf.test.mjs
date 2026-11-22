@@ -129,6 +129,29 @@ register('windowCoversHistory 只认「零起点且没有洞」的窗口', () =>
   assert.equal(windowCoversHistory({ from: 0, messageCount: 0, chat: {} }), false)
 })
 
+register('分窗首屏先返回视图，再启动存档核对', async () => {
+  const calls = []
+  let finishReconcile
+  const reconciling = new Promise(resolve => { finishReconcile = resolve })
+  const handlers = createPlayHandlers({
+    reconcileWhenIdle: (_id, { background }) => { calls.push(background ? 'background' : 'foreground'); return reconciling },
+    backgroundCatalog: async () => {},
+    sessionViews: { response: async () => { calls.push('view'); return { view: { chatId: 'game' } } } },
+    templateHistoryFrom: new Map(),
+    str: value => String(value ?? '')
+  })
+  try {
+    const result = await handlers.getSession({ sessionId: 's', openingWindow: 1, viewSync: 1 })
+    assert.equal(result.view.chatId, 'game')
+    assert.deepEqual(calls, ['view', 'background'])
+    const full = handlers.getSession({ sessionId: 's', fullView: true })
+    assert.deepEqual(calls, ['view', 'background', 'foreground'])
+    finishReconcile()
+    await full
+    assert.deepEqual(calls, ['view', 'background', 'foreground', 'view'])
+  } finally { finishReconcile() }
+})
+
 register('同参数的并发 syncSession 只执行一次，不同参数各执行一次', async () => {
   let runs = 0
   let release
