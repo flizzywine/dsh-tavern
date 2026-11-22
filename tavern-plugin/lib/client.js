@@ -38569,12 +38569,15 @@ function tavernFloorHeightRecall(key, width) {
 					if (!input || typeof input.id !== "string" || !/^[a-z0-9][a-z0-9._-]{0,63}$/.test(input.id)) throw new TypeError("registerPanel 的 id 只能用小写字母、数字、点、下划线和连字符");
 					if (typeof input.title !== "string" || !input.title.trim() || input.title.length > 40) throw new TypeError("registerPanel 需要 1–40 字的 title");
 					if (typeof input.render !== "function") throw new TypeError("registerPanel 需要 render 函数");
+					const stage = input.stage === true;
+					if (input.stageSize !== undefined && input.stageSize !== "window" && input.stageSize !== "full") throw new TypeError("registerPanel 的 stageSize 只能是 window 或 full");
+					if (input.stageOnly !== undefined && typeof input.stageOnly !== "boolean") throw new TypeError("registerPanel 的 stageOnly 必须是布尔值");
+					if (!stage && (input.stageOnly !== undefined || input.stageSize !== undefined)) throw new TypeError("registerPanel 的 stageOnly 和 stageSize 需要 stage: true");
 					const owner = ownerOf(this);
 					const tabId = "tavern-plugin:" + owner + ":" + input.id;
 					const render = input.render, title = input.title.trim();
-					const stage = input.stage === true;
-					const sidebar = !stage || input.stageOnly !== true;
-					const stageSize = stage && input.stageSize === "full" ? "full" : "window";
+					const sidebar = input.stageOnly !== true;
+					const stageSize = input.stageSize ?? "window";
 					return owned(this, function () {
 						if (panels.has(tabId)) throw new Error("面板 " + input.id + " 已注册");
 						if (sidebar && typeof host?.betterSidebar?.registerTab !== "function") throw new Error("当前界面没有侧栏，无法注册插件面板");

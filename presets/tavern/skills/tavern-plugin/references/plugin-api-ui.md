@@ -357,7 +357,9 @@ const overlay = ctx.tavernUi.openOverlay({
 
 在右侧栏加一页插件自己的面板，比如记忆、锚点或状态一览。玩家从侧栏的「＋」里打开，面板显示在「插件」一组。
 
-设置 `stage: true` 时，可以用 `stageOnly: true` 只注册舞台入口，用 `stageSize: 'full'` 让面板铺满舞台。默认仍提供侧栏入口，舞台内使用窗口尺寸。全屏面板也可用关闭按钮或 Esc 回到来源卡页。
+设置 `stage: true` 时，可以用 `stageOnly: true` 只注册舞台入口，用 `stageSize: 'full'` 让面板铺满舞台。尺寸只接受 `'window'` 或 `'full'`，默认使用窗口尺寸并注册侧栏入口。传入这两个选项时必须设置 `stage: true`，参数无效会抛出 `TypeError`。
+
+全屏时，宿主的关闭按钮悬浮在右上角。面板应为它留出空间。点击关闭按钮或按 Esc 会返回来源卡页。尚未支持这两个选项的旧宿主会忽略它们，面板仍注册到侧栏，支持舞台入口的旧宿主会以窗口尺寸打开它。
 
 ```js
 ctx.tavernUi.registerPanel({ id: 'memory', title: '记忆', render: ({ gameId, visible }) => h(MemoryPanel, { gameId }) })
