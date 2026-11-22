@@ -59,7 +59,7 @@ export function followImageCharacters({ library, api, active = async () => true,
       // Any figure with a 人设图 (自动素材's, the owner's, an installed pack's alike) has it as its record's 参考图, and each
       // outfit with a 服装设定图 has it as that outfit's, so 场景配图 draws the person of its 立绘 in the clothes of its 立绘.
       for (const { outfit, hash } of setteiReferences(state.character, item.figure)) {
-        const referenceImage = await putPackReference(api, library, { providerId: state.providerId, packId, revision, hash, name: packReferenceName(item.figure, outfit) })
+        const referenceImage = hash ? await putPackReference(api, library, { providerId: state.providerId, packId, revision, hash, name: packReferenceName(item.figure, outfit) }) : null
         state = await api.imageCharacters('patchCharacter', { providerId: state.providerId, characterId: state.character.id, expected: state.character, patch: referencePatch(state.character, outfit, referenceImage) })
       }
       if (!move) continue
