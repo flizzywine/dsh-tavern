@@ -105,9 +105,10 @@ test('RPC 只在两步精修都完成后保存一次，失败不写入半成品�
   for (const outcome of ['saved', 'failed', 'queued']) {
     const saves = [], records = []
     const foreground = coldForeground()
-    let onSaved
+    let onSaved, polishEnabled = false
     const handlers = createPlayHandlers({
       str: value => String(value || ''), reconcileStory: async () => {}, notifyPluginTimeline() {},
+      readTavernSettings: async () => ({ polishEnabled }),
       withForegroundTaskAgent: foreground.withAgent,
       polishPrereview: { settle() {}, take: async () => null },
       bodyEditor: { read: async () => {
@@ -136,6 +137,9 @@ test('RPC 只在两步精修都完成后保存一次，失败不写入半成品�
       },
       polishRecords: { save: async (_id, _turn, record) => records.push(record) }
     })
+    await assert.rejects(handlers.polishBody({ sessionId: 'parent' }), /开启精修/)
+    assert.equal(saves.length, 0)
+    polishEnabled = true
     if (outcome === 'failed') {
       await assert.rejects(handlers.polishBody({ sessionId: 'parent', guidance: '更短' }), /模型中断/)
       assert.equal(saves.length, 0); assert.equal(records.length, 0)

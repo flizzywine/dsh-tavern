@@ -53,6 +53,7 @@ window.__ModuleLoader__.load({
 		// @include foreground.js
 		// @include-domain mvu-visibility.js
 		// @include tab-icons.js
+		// @include settings-nav-icons.js
 		// @include variable-bindings.cjs
 		// @include pack-transport.js
 		// @include asset-pack-binding.js
@@ -104,7 +105,7 @@ window.__ModuleLoader__.load({
 			const report = value => { progress?.update(value); onProgress(value); };
 			try {
 				if (!isTavernCardArchive(file)) { report('正在读取人物卡…'); return await commitTavernCardFile(file, null, call); }
-				if (!isTavernCardPackArchive(file)) { const uploadId = await uploadTavernCardFile(file, report); report('正在导入…'); return await commitTavernCardFile(file, { uploadId }, call); }
+				if (!isTavernCardPackArchive(file)) { const uploadId = await uploadTavernCardFile(file, report, call); report('正在导入…'); return await commitTavernCardFile(file, { uploadId }, call); }
 				const staged = await previewTavernCardArchive(file, call, report);
 				let packDecisions = {};
 				if (staged.packs.length) {
@@ -127,18 +128,39 @@ window.__ModuleLoader__.load({
 		}
 		/** CHARX and DSH cards: archives that can carry packs, read by the server before they are imported. */
 		function isTavernCardPackArchive(file) { return /\.(dshcard|charx)$/i.test(String(file.name || "")); }
-		async function uploadTavernCardFile(file, report) {
+		async function uploadTavernCardFile(file, report, call) {
 			report('正在上传卡包…');
-			const response = await fetch("/api/dsh-tavern/card-upload", { method: "POST", headers: { "Content-Type": "application/octet-stream" }, body: file });
-			let reply = null;
-			try { reply = await response.json(); } catch (_error) {}
-			if (!reply || !reply.ok) throw new Error(reply && reply.error || "上传失败（HTTP " + response.status + "）");
-			return reply.uploadId;
+			const route = '/api/dsh-tavern/card-upload';
+			async function upload(url, body) {
+				const response = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body });
+				let reply = null;
+				try { reply = await response.json(); } catch (_error) {}
+				if (!reply?.ok) throw new Error(reply?.error || '上传失败（HTTP ' + response.status + '）');
+				return reply;
+			}
+			if (!isTavernCardPackArchive(file) || !(file.size > 1024 ** 3)) return (await upload(route, file)).uploadId;
+			const chunkSize = 16 * 1024 ** 2;
+			let uploadId;
+			try {
+				for (let offset = 0; offset < file.size; offset += chunkSize) {
+					const end = Math.min(offset + chunkSize, file.size);
+					const query = new URLSearchParams({ purpose: 'card-archive', size: file.size, offset });
+					if (uploadId) query.set('uploadId', uploadId);
+					const reply = await upload(route + '?' + query, file.slice(offset, end));
+					uploadId = reply.uploadId;
+					if (reply.size !== end) throw new Error('卡包上传进度不一致，请重新导入');
+					report('正在上传卡包… ' + Math.floor(end / file.size * 100) + '%');
+				}
+				return uploadId;
+			} catch (error) {
+				if (uploadId) await call('discardCardUpload', { uploadId }).catch(() => {});
+				throw error;
+			}
 		}
 		/** A CHARX or DSH card uploaded and read before it is imported or replaces a card: {uploadId, password?, card: {name,
 		 * version, cover}, packs: the installed packs it carries another version of}. The upload is discarded on failure or cancel. */
 		async function previewTavernCardArchive(file, call, report = () => {}) {
-			const uploadId = await uploadTavernCardFile(file, report);
+			const uploadId = await uploadTavernCardFile(file, report, call);
 			let password;
 			try {
 				const preview = await importTavernPasswordCard(value => {
@@ -435,7 +457,7 @@ window.__ModuleLoader__.load({
 				h("button", { type: "button", className: "dsh-tavern-btn primary", disabled: props.disabled || busy, onClick: activate }, props.batch ? "批量导入" : "导入人物卡"),
 				open ? h("div", { className: "dsh-tavern-mobile-import", role: "dialog", "aria-modal": "true", "aria-label": "从手机下载目录导入人物卡" }, h("div", { className: "dsh-tavern-mobile-import-shell" }, h("div", { className: "dsh-tavern-mobile-import-panel" },
 					h("div", { className: "dsh-tavern-mobile-import-title" }, "从手机下载目录导入"),
-					h("div", { className: "dsh-tavern-question-sub" }, "把人物卡放进手机 Download 后直接点选，.dshcard 和 .charx 卡包最大支持 1 GiB。"),
+					h("div", { className: "dsh-tavern-question-sub" }, "把人物卡放进手机 Download 后直接点选，.dshcard 和 .charx 卡包文件读取上限为 8 GiB。"),
 					h("div", { className: "dsh-tavern-mobile-import-count", role: 'status', 'aria-busy': !!progress }, progress ? h(Spinner) : null, countText),
 					error ? h("div", { className: "dsh-tavern-dock-error", role: "alert" }, error) : null,
 					h("div", { className: "dsh-tavern-mobile-import-tools" },
@@ -1247,6 +1269,7 @@ function clipReplayCore() {
 			replyActions: {
 				Receipt: playControlsFeature.TurnReceiptButton,
 				Latest: playControlsFeature.LatestReplyActions,
+				Menu: playControlsFeature.TurnMenu,
 				RollbackTo: playControlsFeature.RollbackToTurnButton,
 				Illustrate: assistantRendererFeature.IllustrateTurnAction,
 				IllustrationDraft: TavernIllustrationDraft,
@@ -1257,9 +1280,26 @@ function clipReplayCore() {
 
 		// @include tavern-presentation.js
 
+		function installTavernComposerPlaceholder(locale) {
+			const translate = locale.translate;
+			const label = { zh: "下一步行动", en: "Next action" };
+			// The native composer uses the same locale key for the hint and the textbox's accessible name.
+			function translateWithTavernPlaceholder(namespace, key, params) {
+				if (namespace === "conversation" && key === "placeholder.default") return locale.resolveText(label);
+				return translate.call(this, namespace, key, params);
+			}
+			locale.translate = translateWithTavernPlaceholder;
+			return function () {
+				if (locale.translate === translateWithTavernPlaceholder) locale.translate = translate;
+			};
+		}
+
 		function apply(ctx) {
 			// The Tavern profile switch page names itself by side from this flag.
 			window.__dshTavernLoaded = true;
+			ctx.inject(["locale"], child => {
+				child.effect(() => installTavernComposerPlaceholder(child.locale), "dsh-tavern: composer placeholder");
+			});
             installTavernPresentation(ctx);
             // Stage registration is deferred until its optional client plugin mounts.
             const stageRegistrations = [];
@@ -1509,12 +1549,12 @@ function clipReplayCore() {
 				const appendMentions = function () { if (mentions) input.setDraft(withMention(String(input.state.getSnapshot().draft || ""), mentions)); };
 				if (task === "writing-skill") {
 					const references = String(input.state.getSnapshot().draft || "");
-					input.setDraft("/create-writing-skill\n\n请从已引用的素材中提炼写作 Skill，用于前台正文写作。先与我确认适用场景、禁用场景和写作要求，再编写自包含的提示词；成品不依赖原素材或参考文件。\n\n" + tagged("reference_materials", withMention(references, mentions)));
+					input.setDraft("/create-writing-skill\n\n请根据引用的素材创建前台写作 Skill。\n\n" + tagged("reference_materials", withMention(references, mentions)));
 					return;
 				}
 				if (task === "gentle") {
 					if (!targetPath) throw new Error("温和改写缺少目标人物卡");
-					input.setDraft("/gentle-rewrite\n\n@\"" + targetPath + "\"\n\n先调用 tavern_copy_card 创建保留原卡图片的独立副本，再按温和改写 skill 完成改写，交付副本路径与改写摘要。");
+					input.setDraft("/gentle-rewrite\n\n@\"" + targetPath + "\"\n\n请为这张卡制作保留封面的温和改写副本。");
 					appendMentions();
 					return;
 				}
@@ -1522,41 +1562,39 @@ function clipReplayCore() {
 					if (!targetPath) throw new Error("MVU 转换缺少目标人物卡");
 					input.setDraft(
 						"/card-to-mvu\n\n" + tagged("target_card", "@\"" + targetPath + "\"") + "\n\n" +
-						"先用 tavern_copy_card 建一份副本，在副本上改成 MVU 版，原卡保持不变；保留剧情设定与状态栏视觉风格。原卡自带的候选项（生成提示、按钮、正则和专用脚本）移除，统一使用 DSH Tavern 内置候选项；手机、开场主页等与状态栏和候选项无关的美化与脚本原样保留。"
+						"请为这张卡制作 MVU 副本，并改用 DSH Tavern 内置候选项。"
 					);
 					appendMentions();
 					return;
 				}
 				if (task === "create") {
-					input.setDraft("/create-card\n\n我想新建一张人物卡。请逐题问我，每次一个问题并给参考选项；问清角色、玩家身份、世界和开场，再问我是否需要 MVU 变量和前端美化。选了美化先给 HTML 草图让我挑，确认设定后再创建。\n\n我的初步想法：");
+					input.setDraft("/create-card\n\n我想新建一张人物卡。\n\n我的初步想法：");
 					appendMentions();
 					return;
 				}
 				if (task === "user-profile") {
-					input.setDraft(
-						"/user-profile\n\n通过分批提问了解我的长期游玩与写作偏好。可以提供差异明确的参考选项，也允许我自由回答或跳过；信息足够后形成长期偏好草案让我核对，只有我明确确认后才保存。"
-					);
+					input.setDraft("/user-profile\n\n请帮我梳理长期游玩与写作偏好。");
 					appendMentions();
 					return;
 				}
 				const result = await rpc("getCardTaskPrompt", { task: task }, sessionId);
+				const taskPrompt = String(result && result.text || "").trim();
 				const draft = String(input.state.getSnapshot().draft || "");
-				const supplement = draft + (taskSupplement ? "\n\n" + taskSupplement : "");
+				const supplement = [draft, taskSupplement].filter(Boolean).join("\n\n");
 				const targetSection = targetPath ? "\n\n" + tagged("target_card", "@\"" + targetPath + "\"") : "";
 				const resourceSection = mentions ? "\n\n" + tagged(task === "worldbook" || task === "preset" || task === "script" ? "edit_target" : "initial_script", mentions) : "";
 				if (task === "debug-play") {
-					input.setDraft("/debug-card" + targetSection + "\n\n" + supplement.trim() + "\n\n请结合已引用的游玩记录，检查这张人物卡的异常表现，按需读取相关日志和状态，说明原因并给出修改建议。");
+					input.setDraft(taskPrompt + targetSection + "\n\n" + supplement.trim() + "\n\n请排查引用的游玩记录，说明异常原因和修改建议。");
 					appendMentions();
 					return;
 				}
 				if (task === "edit") {
-					const editPrompt = String(result && result.text || "").trim();
 					const target = targetPath ? "\n\n目标卡：@\"" + targetPath + "\"" : "";
-					input.setDraft(editPrompt.replace("/edit-card", "/edit-card" + target) + resourceSection + (supplement ? "\n\n" + supplement : ""));
+					input.setDraft(taskPrompt.replace("/edit-card", "/edit-card" + target) + resourceSection + (supplement ? "\n\n" + supplement : ""));
 					return;
 				}
-				const taskText = "<card_task>" + label + "</card_task>" + targetSection + "\n\n" + String(result && result.text || "").trim() + resourceSection;
-				input.setDraft(taskText + supplement);
+				const taskText = "<card_task>" + label + "</card_task>" + targetSection + "\n\n" + taskPrompt + resourceSection;
+				input.setDraft(taskText + (supplement ? "\n\n" + supplement : ""));
 			}
 			registerTavernStartPage(ctx, slots);
 			registerTavernPhonePanel(ctx);
@@ -1581,6 +1619,7 @@ function clipReplayCore() {
                     children: { "settings.tavern.appearance": { kind: "list", scope: "root" } }
 				}, TavernSettingsSection); });
 			}, "dsh-tavern: settings section");
+			if (typeof document !== "undefined") ctx.effect(() => installSettingsNavIcons(slots, document), "dsh-tavern: settings navigation icons");
 			createVertexRegionFeature({ React: React, rpc: rpc }).register(ctx);
 			// The voice plugin's 配音 page lists browser speech as a 语音服务 row; the 🔊 line button speaks through the voice
 			// service, so the Tavern has no speech settings of its own.

@@ -1,7 +1,8 @@
 import { createHash } from 'node:crypto'
 import { constants } from 'node:fs'
-import { lstat, mkdir, open, realpath } from 'node:fs/promises'
+import { lstat, lutimes, mkdir, open, realpath } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
+import { normalizeOutfitParts } from './outfit-parts.js'
 
 /** Local-only immutable references. No URLs, caller-selected paths, or network I/O. */
 const DEFAULT_MAX_BYTES = 32 * 1024 * 1024
@@ -188,7 +189,7 @@ function decodeUpload(value, maxBytes) {
  * its descriptor; all older descriptors keep resolving to their original bytes.
  * root is a trusted application-selected directory, never a request field.
  */
-export function createReferenceImageStore(root, { maxBytes = DEFAULT_MAX_BYTES } = {}) {
+export function createReferenceImageStore(root, { maxBytes = DEFAULT_MAX_BYTES, refreshUploadTime = false } = {}) {
   if (typeof root !== 'string' || !root.trim() || /^(?:https?|file|data):/i.test(root) || root.includes('\0')) throw fail('REFERENCE_STORE_INVALID', '参考图目录无效')
   if (!Number.isSafeInteger(maxBytes) || maxBytes < 1) throw fail('REFERENCE_STORE_INVALID', '参考图大小上限必须是正整数')
   const directory = resolve(root)
@@ -260,6 +261,11 @@ export function createReferenceImageStore(root, { maxBytes = DEFAULT_MAX_BYTES }
         }
         // An existing file is verified, never repaired/overwritten in place.
         await read(descriptor)
+        // A repeated upload of the same bytes can also be waiting for a draft save.
+        if (refreshUploadTime) {
+          const now = new Date()
+          await lutimes(file, now, now)
+        }
       })()
       writes.set(file, pending)
       pending.finally(() => { if (writes.get(file) === pending) writes.delete(file) }).catch(() => {})
@@ -277,7 +283,7 @@ export function createReferenceImageStore(root, { maxBytes = DEFAULT_MAX_BYTES }
       throw fail('REFERENCE_STORAGE_UNAVAILABLE', '本地参考图存储不可用（' + errno + '）')
     }
   }
-  return { put: ioGuard(put), read: ioGuard(read), readById: ioGuard(readById) }
+  return { put: ioGuard(put), read: ioGuard(read), readById: ioGuard(readById), prepareDirectory: ioGuard(ready) }
 }
 
 const arr = value => Array.isArray(value) ? value : []
@@ -670,13 +676,9 @@ export function referenceScopedDefinitions(definitions = {}, references = [], { 
   // also enter per-character expansion below, whose schema is upper/full/back.
   // Map on the clone (including standalone shared macros), keeping author data
   // untouched. Pictured costumes will subsequently have all these fields erased.
-  for (const outfit of arr(result.outfits).filter(enabled)) {
-    if (!cleanText(outfit.upper) && cleanText(outfit.body)) outfit.upper = outfit.body
-    if (!cleanText(outfit.back)) {
-      const back = [outfit.bodyBack, outfit.fullBack].map(cleanText).filter(Boolean).join('\n')
-      if (back) outfit.back = back
-    }
-  }
+  // 通用服装与角色服装的字段已统一；旧 body/fullBack/bodyBack 在这里映射到 upper/back。
+  // 映射发生在克隆上，不动作者数据；带参考图的服装随后会把服装字段整块擦掉换成标记。
+  for (const outfit of arr(result.outfits).filter(enabled)) Object.assign(outfit, normalizeOutfitParts(outfit))
   const original = catalog(result)
   const characterRefs = new Map(checked.filter(ref => ref.kind !== 'outfit').map(ref => [ref.characterId, ref]))
   const outfitRefs = new Map(checked.filter(ref => ref.kind !== 'character').map(ref => [JSON.stringify([ref.characterId || '', ref.outfitId]), ref]))

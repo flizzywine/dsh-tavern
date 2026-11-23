@@ -6,7 +6,7 @@ import { currentSessionLogs } from './session-files.mjs'
 // and records whether the surface-ownership guard rejects it and whether the game
 // can still continue. Every case runs; the report lists each outcome.
 export async function regenAnomalyChecks({ page, step, savedChat, output, report, serverLog }) {
-  const composer = () => page.getByRole('textbox', { name: /发消息|Message/ })
+  const composer = () => page.getByRole('textbox', { name: /下一步行动|Next action|发消息|Message/ })
   const pause = ms => new Promise(resolve => setTimeout(resolve, ms))
   const results = []
   report.regenAnomalies = results
@@ -139,7 +139,7 @@ function nativeRounds(events) {
 export async function regenTemplateChecks({ page, step, savedChat, output, report, root }) {
   const { readFile, readdir } = await import('node:fs/promises')
   const { parseSessionLog } = await import('../../tavern-plugin/lib/domain/session-log-codec.js')
-  const composer = () => page.getByRole('textbox', { name: /发消息|Message/ })
+  const composer = () => page.getByRole('textbox', { name: /下一步行动|Next action|发消息|Message/ })
   const pause = ms => new Promise(resolve => setTimeout(resolve, ms))
   const rpcErrors = []
   page.on('response', async response => {

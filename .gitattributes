@@ -3,6 +3,7 @@ tavern-plugin/lib/client-assets/tavern.css text eol=lf
 tavern-plugin/lib/client.js text eol=lf
 # Audited runtime bytes must not be rewritten by Windows core.autocrlf.
 tavern-plugin/lib/vendor/magvarupdate/host-build/artifact/bundle.js -text
+tavern-plugin/packages/dsh-tavern-STcontext/** -text
 # Preserve the pinned upstream sidebar bytes, including whitespace in literals.
 
 # Documentation and promotional images are published on the website, not shipped.

@@ -182,6 +182,28 @@
         return () => { alive = false }
       }, [])
       const [peopleBatchOpen, setPeopleBatchOpen] = React.useState(false)
+      // 参考图是内容寻址存储，解绑只清描述符；这里让用户手动回收没人引用的文件。
+      const [referenceGcNote, setReferenceGcNote] = React.useState('')
+      const [referenceGcBusy, setReferenceGcBusy] = React.useState(false)
+      const cleanReferenceImages = async () => {
+        if (referenceGcBusy) return
+        setReferenceGcBusy(true)
+        setReferenceGcNote('正在统计…')
+        try {
+          const stats = await jsonFetch(BASE + '/reference-gc')
+          if (!stats?.ok) throw new Error(stats?.error || '读取参考图占用失败')
+          const mb = value => (Number(value || 0) / 1048576).toFixed(2)
+          const protectedNote = stats.protectedCount ? '最近 24 小时上传的 ' + stats.protectedCount + ' 张未绑定图片会保留。' : ''
+          if (!stats.orphanCount) { setReferenceGcNote('没有可清理的图。' + protectedNote); return }
+          if (!window.confirm('参考图目录共 ' + stats.total + ' 张、' + mb(stats.totalBytes) + ' MB。\n其中 ' + stats.orphanCount + ' 张可清理，可释放 ' + mb(stats.orphanBytes) + ' MB。' + protectedNote + '\n\n删除这 ' + stats.orphanCount + ' 张？')) { setReferenceGcNote(''); return }
+          setReferenceGcNote('正在清理…')
+          const result = await post('/reference-gc', { token: stats.token })
+          if (!result?.ok) throw new Error(result?.error || '清理失败')
+          setReferenceGcNote('已删除 ' + result.removed + ' 张，释放 ' + mb(result.removedBytes) + ' MB；保留 ' + result.kept + ' 张' + (result.failed ? '（' + result.failed + ' 张删除失败）' : ''))
+        } catch (error) {
+          setReferenceGcNote('清理失败：' + (error?.message || error))
+        } finally { setReferenceGcBusy(false) }
+      }
       const [peopleBatchField, setPeopleBatchField] = React.useState('feature')
       const [peopleBatchMode, setPeopleBatchMode] = React.useState('replace')
       const [peopleBatchValue, setPeopleBatchValue] = React.useState('')
@@ -338,10 +360,12 @@
       }
       async function save(patch) {
         const operation = configSaveQueue.current.catch(() => {}).then(async () => {
+          const next = typeof patch === 'function' ? patch(dataRef.current?.config || {}) : patch
+          if (!next) return null
           setNote('保存中…')
           const revision = libraryRevision.current
           try {
-            const r = await post('/config', { config: patch })
+            const r = await post('/config', { config: next })
             receiveState(r.state, revision)
             try { window.dispatchEvent(new CustomEvent('dsh-tavern-image:config', { detail: r.state?.config })) } catch {}
             setNote('已保存')
@@ -880,6 +904,8 @@
       // ---- 人物库（人物设计）----
       function peopleTab(focus) {
         const characters = (data.definitions && data.definitions.characters) || []
+        // Pictures Tavern's asset library lends linked people (their 设定图 live in its packs, never in these records).
+        const lent = data.figurePictures || {}
         const picked = characters.filter(character => peoplePicked[character.id])
         const search = peopleSearch.trim().toLocaleLowerCase()
         // —— 按卡归类 ——
@@ -1453,7 +1479,7 @@
               h('div', { className: 'dti-roster-group' }, h('strong', null, name), h('span', null, people.length + ' 位')),
               h('div', { className: 'dti-roster-grid' }, people.map(person => {
                 const name = person.name || '未命名角色'
-                const id = person.referenceImage?.id
+                const id = (lent[person.id]?.identity || person.referenceImage)?.id
                 const hasImage = /^[a-f0-9]{64}$/i.test(id || '')
                 return h('button', { key: person.id, type: 'button', className: 'dti-roster-tile',
                   'aria-label': '查看角色 ' + name, onClick: () => setPeopleActiveId(person.id) },
@@ -1504,14 +1530,14 @@
             h('section', { 'aria-label': '角色与参考图设置', className: 'dti-roster-settings' },
               h('strong', null, '角色与参考图设置'),
               h('div', { className: 'dti-roster-identity' },
-                h('input', { type: 'text', 'aria-label': '角色名', placeholder: '角色名', title: c.figureId ? '关联着素材库人物：保存时名字一并改到素材库' : undefined, value: c.name || '',
+                h('input', { type: 'text', 'aria-label': '角色名', placeholder: '角色名', title: c.figureId ? '关联着素材库人物：这就是素材库里人物的名字' : undefined, value: c.name || '',
                   style: S.input, onChange: event => patchIdentity(i, { name: event.target.value }) }),
                 h('label', { style: S.row }, h('input', { type: 'checkbox', checked: c.enabled !== false,
                   onChange: event => patch(i, { enabled: event.target.checked }) }), '启用'),
                 h('input', { type: 'text', placeholder: '分组', 'aria-label': '分组', value: c.group || '', style: S.input, onChange: e => patchIdentity(i, { group: e.target.value.replace(/[\u0000-\u001f\u007f]/g, '').slice(0, 40) }) }),
-                h('input', { type: 'text', placeholder: '触发别名', 'aria-label': '触发别名', title: c.figureId ? '关联着素材库人物：保存时增删的词一并改到素材库人物的触发词' : undefined, value: c.match || '', style: S.input, onChange: e => patchIdentity(i, { match: e.target.value }) }),
+                h('input', { type: 'text', placeholder: '触发词', 'aria-label': '触发词', title: c.figureId ? '关联着素材库人物：这就是素材库里人物的触发词' : undefined, value: c.match || '', style: S.input, onChange: e => patchIdentity(i, { match: e.target.value }) }),
               ),
-              h(ReferenceImageEditor, { key: 'character-reference-' + c.id, value: c, compact: true, label: '角色「' + (c.name || '未命名') + '」', onChange: changes => patch(i, changes) }),
+              h(ReferenceImageEditor, { key: 'character-reference-' + c.id, value: c, compact: true, lent: lent[c.id]?.identity ? { picture: lent[c.id].identity, borrowed: false } : null, label: '角色「' + (c.name || '未命名') + '」', onChange: changes => patch(i, changes) }),
               h(CharacterComfyLoras, { value: c.comfyLoras || [], workflows: data.workflows || [], onChange: comfyLoras => patch(i, { comfyLoras }) }),
               h('div', { style: S.row },
                 h('span', { style: S.label }, '绑定卡片'),
@@ -1610,7 +1636,7 @@
                       onChange: changes => patchOutfit(i, j, changes) }),
                     h('details', { key: 'outfit-extra-' + o.id },
                       h('summary', { style: PROMPT_DISCLOSURE }, '服装参考图'),
-                      h(ReferenceImageEditor, { key: 'outfit-sheet-' + c.id + '-' + o.id, value: o, field: 'characterOutfitImage', consistency: false, noun: '角色×服装设定图',
+                      h(ReferenceImageEditor, { key: 'outfit-sheet-' + c.id + '-' + o.id, value: o, field: 'characterOutfitImage', consistency: false, noun: '角色×服装设定图', lent: lent[c.id]?.outfits?.[o.id] || null,
                         heading: '（可选：这个角色穿这套衣服的图；有它时只用它，不再叠加角色图和服装图）', label: '服装「' + (o.name || '未命名') + '」', onChange: changes => patchOutfit(i, j, changes) }),
                       h(ReferenceImageEditor, { key: 'outfit-reference-' + c.id + '-' + o.id, value: o, label: '服装「' + (o.name || '未命名') + '」', onChange: changes => patchOutfit(i, j, changes) }),
                     ),
@@ -1844,7 +1870,9 @@
                 h('summary', { style: PROMPT_DISCLOSURE }, '库管理'),
                 h('div', { style: S.row },
                   h('button', { style: buttonStyle, onClick: () => setPeopleTidyOpen(open => !open) }, peopleTidyOpen ? '收起整理' : '整理'),
-                  h('button', { style: buttonStyle, onClick: () => setPeopleBatchOpen(open => !open) }, peopleBatchOpen ? '收起批量编辑' : '批量编辑')),
+                  h('button', { style: buttonStyle, onClick: () => setPeopleBatchOpen(open => !open) }, peopleBatchOpen ? '收起批量编辑' : '批量编辑'),
+                  h('button', { style: buttonStyle, disabled: referenceGcBusy, title: '删除没有任何引用的参考图文件；人物库、画风示例图和旧作业还用着的会保留', onClick: cleanReferenceImages }, referenceGcBusy ? '清理中…' : '清理参考图')),
+                referenceGcNote ? h('div', { role: 'status', style: { fontSize: 12, color: 'var(--dsw-alias-label-tertiary)', margin: '6px 0' } }, referenceGcNote) : null,
                 peopleTidyOpen ? tidyPanel() : null, batchPanel())),
             h('div', { role: 'status', style: STRUCTURE_MUTED }, saveState.startsWith('failed') ? '保存失败，请重试'
               : libraryDirty.current ? '有未保存修改' : saveState === 'saved' ? '人物库已保存' : '')),
@@ -1888,7 +1916,7 @@
               )
             })(),
             h('div', { style: S.row },
-              h('button', { style: buttonStyle, onClick: () => setLibraryData(Object.assign({}, dataRef.current, { outfits: (data.outfits || []).concat([{ id: 'of' + Date.now(), name: '新套装', body: '', full: '', bodyBack: '', fullBack: '', negative: '', enabled: true }]) })) }, '新增套装'),
+              h('button', { style: buttonStyle, onClick: () => setLibraryData(Object.assign({}, dataRef.current, { outfits: (data.outfits || []).concat([{ id: 'of' + Date.now(), name: '新套装', upper: '', lower: '', shoes: '', accessory: '', full: '', back: '', negative: '', enabled: true }]) })) }, '新增套装'),
               h('button', { style: buttonStyle, onClick: () => commit() }, '保存服装库'),
               h('button', { style: buttonStyle, title: '把角色库、两本世界书、渠道配置、历史记录打包成一个 JSON', onClick: exportAllData }, '导出全部数据'),
               h('button', { style: buttonStyle, title: '从备份 JSON 恢复；会先自动备份当前数据', onClick: importAllData }, '导入全部数据'),
@@ -2459,7 +2487,7 @@
           h('span', null,
             h('span', { style: { display: 'block', fontSize: '14px', fontWeight: 600 } }, '启用配图'),
             h('span', { style: { display: 'block', fontSize: '12px', color: 'var(--dsw-alias-label-tertiary)', marginTop: '2px' } },
-              config.imageEnabled === false ? '已关闭：不再自动或手动配图，正文里不显示配图按钮；已有插图照常显示' : '为剧情自动或手动配图；关掉后正文里不显示配图按钮，已有插图照常显示')),
+              config.imageEnabled === false ? '已关闭配图和对话顶部的画廊。已有插图照常显示。' : '为剧情自动或手动配图，并在对话顶部显示画廊。')),
           h('input', { type: 'checkbox', role: 'switch', className: 'dti-switch', 'aria-label': '启用配图', checked: config.imageEnabled !== false, onChange: e => save({ imageEnabled: e.target.checked }) })),
         h('div', { style: S.row }, promptField('生图模式', h('select', { 'aria-label': '生图系统模式', style: S.input, value: config.promptSystem || 'worldbook', onChange: async event => { const mode = event.target.value; if (await save({ promptSystem: mode })) setTab(mode === 'worldbook' ? 'worldbook' : 'style') } },
           h('option', { value: 'worldbook' }, '世界书模式（默认）'), h('option', { value: 'workbench' }, '生图工作台（高级模式）')))),

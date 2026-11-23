@@ -35,10 +35,11 @@ test('browser upload preparation, worker, replace metadata and server publicatio
   const page=await browser.newPage()
   await page.setContent('<main></main>')
   const core=await readFile(new URL('../tavern-plugin/shared/pcm-loudness.cjs',import.meta.url),'utf8')
+  const brightness=await readFile(new URL('../tavern-plugin/shared/ambience-brightness.cjs',import.meta.url),'utf8')
   const adapter=await readFile(new URL('../tavern-plugin/src/client/audio-loudness.js',import.meta.url),'utf8')
   const ui=await readFile(new URL('../tavern-plugin/src/client/asset-pack-ui.js',import.meta.url),'utf8')
   const preparation=ui.slice(ui.indexOf('  const AUDIO_MIME='),ui.indexOf('  const fileStem='))
-  await page.addScriptTag({content:core+'\n'+adapter+'\n'+preparation+'\nwindow.prepareAudio=prepareAudio;window.measureAudioBufferLoudness=measureAudioBufferLoudness;'})
+  await page.addScriptTag({content:core+'\n'+brightness+'\n'+adapter+'\n'+preparation+'\nwindow.prepareAudio=prepareAudio;window.measureAudioBufferLoudness=measureAudioBufferLoudness;'})
   const root=await mkdtemp(join(tmpdir(),'ffmpeg-free-assets-'))
   const service=createAssetPackService({assetRoot:join(root,'assets'),authorizeLease:async()=>true})
   t.after(async()=>{await service.dispose();await rm(root,{recursive:true,force:true})})
@@ -49,15 +50,17 @@ test('browser upload preparation, worker, replace metadata and server publicatio
   const packId=snapshot.manifest.id
   for(const [index,bytes] of voices.entries()) {
     const prepared=await page.evaluate(async bytes=>{
-      const result=await prepareAudio(new File([new Uint8Array(bytes)],'voice.wav'))
+      const result=await prepareAudio(new File([new Uint8Array(bytes)],'voice.wav'),'ambience')
       return {descriptor:result.descriptor,loudness:result.loudness}
     },Array.from(bytes))
     assert.ok(Number.isFinite(prepared.loudness.lufs))
     assert.ok(Math.abs(prepared.loudness.lufs-measureVoiceLoudness(bytes).lufs)<0.5)
     const staged=await service.putBlob({packId,expectedRevision:snapshot.revision,bytes,descriptor:prepared.descriptor})
     snapshot=staged.snapshot
-    const assets=['music','sfx','ambience'].map(kind=>({kind,id:kind,name:'测试声音',enabled:true,recall:{mode:'keyword',keywords:['离别','毕业','远行']},directorNote:'',media:staged.hash,loudness:prepared.loudness}))
-    snapshot=(await service.patchPack({packId,expectedRevision:snapshot.revision,patch:{assets}})).snapshot
+    const assets=['music','sfx','ambience'].map(kind=>({kind,id:kind,name:'测试声音',enabled:true,recall:{mode:'keyword',keywords:['离别','毕业','远行']},directorNote:'',media:staged.hash,loudness:prepared.loudness,...(kind==='ambience'?{loop:false}:{})}))
+    const looping = assets.map(asset => asset.kind === 'ambience' ? {...asset,loop:true} : asset)
+    snapshot=(await service.patchPack({packId,expectedRevision:snapshot.revision,patch:{assets:looping}})).snapshot
+    assert.equal(snapshot.manifest.assets.find(a=>a.kind==='ambience').loop,true)
     for(const asset of snapshot.manifest.assets)assert.deepEqual(asset.loudness,prepared.loudness)
     // Both upload and replacement use the same prepareAudio value; no old-media measurement survives.
     assert.match(ui,/next\.loudness=media\.loudness/)

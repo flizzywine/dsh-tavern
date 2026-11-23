@@ -8,7 +8,8 @@ import { deflateRawSync } from 'node:zlib'
 import { createMediaStore } from '../tavern-plugin/packages/dsh-asset-library/src/pack-v2/media-store.js'
 import { createAssetPacks, packMediaType } from '../tavern-plugin/lib/domain/asset-packs.js'
 import { readCardArchive } from '../tavern-plugin/lib/domain/card-archive.js'
-import { createUploads } from '../tavern-plugin/lib/domain/uploads.js'
+import { createCardArchiveUploads, createUploads, MAX_CARD_UPLOAD_BYTES } from '../tavern-plugin/lib/domain/uploads.js'
+import { createCardHandlers } from '../tavern-plugin/lib/rpc/cards.js'
 import { openZipFile, zipEntryPath } from '../tavern-plugin/lib/domain/zip-file.js'
 import { writeZipEntries } from '../tavern-plugin/lib/domain/zip-entries.js'
 
@@ -172,6 +173,40 @@ test('上传：原始请求体落盘，超过上限拒绝；取走后可删除�
   const old = await uploads.receive(Readable.from([Buffer.from('1')]))
   await uploads.sweep(Date.now() + 1000)
   await assert.rejects(uploads.take(old.id), /不存在/)
+})
+
+test('卡包分段上传预留总空间，完成后只交给流式卡包导入', async t => {
+  const root = await temp(t)
+  assert.equal(MAX_CARD_UPLOAD_BYTES, 8 * 1024 ** 3)
+  const chunkBytes = 16 * 1024 ** 2
+  const total = chunkBytes + 3
+  const archives = createCardArchiveUploads({ root, maxBytes: total })
+  const regular = createUploads({ root })
+  const upload = (body, offset = 0, uploadId = '', size = total) =>
+    archives.receive(Readable.from([body]), new URLSearchParams({ size, offset, uploadId }))
+  const { id, size } = await upload(Buffer.alloc(chunkBytes, 'a'))
+  assert.equal(size, chunkBytes)
+  await assert.rejects(archives.take(id), /不存在/)
+  await assert.rejects(regular.take(id), /不存在/)
+  await assert.rejects(upload(Buffer.from('xyz'), 0, '', 3), /暂存空间/)
+  await assert.rejects(upload(Buffer.from('xyz'), chunkBytes - 1, id), /位置/)
+  assert.equal((await upload(Buffer.from('xyz'), chunkBytes, id)).size, total)
+  const handlers = createCardHandlers({
+    uploads: regular, cardArchiveUploads: archives, str: value => String(value ?? ''),
+    previewCardArchiveFile: async file => ({ size: (await stat(file)).size }),
+    importCardArchiveFile: async (file, name) => ({ name, bytes: (await readFile(file)).subarray(-3).toString() })
+  })
+  assert.deepEqual(await handlers.previewCardUpload({ uploadId: id }), { size: total })
+  await assert.rejects(handlers.importCardUpload({ uploadId: id, name: 'fake.png' }), /仅支持/)
+  assert.deepEqual(await handlers.importCardUpload({ uploadId: id, name: 'card.dshcard' }), { card: { name: 'card.dshcard', bytes: 'xyz' } })
+  await assert.rejects(archives.take(id), /不存在/)
+  const restarted = await upload(Buffer.from('abc'), 0, '', 3)
+  await archives.sweep(Date.now() + 25 * 60 * 60 * 1000)
+  await assert.rejects(archives.take(restarted.id), /不存在/)
+  await assert.rejects(upload(Buffer.from('ab'), 0, '', 3), /长度/)
+  const retry = await upload(Buffer.from('abc'), 0, '', 3)
+  await handlers.discardCardUpload({ uploadId: retry.id })
+  await assert.rejects(archives.take(retry.id), /不存在/)
 })
 
 test('卡内插件：导入时放在一边不加载；启用后进 plugins/；内容相同的多张卡共用一份，最后一张放手才删；同名不同内容拒绝；改名跟随', async t => {

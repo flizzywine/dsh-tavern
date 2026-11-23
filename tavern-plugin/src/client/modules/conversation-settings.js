@@ -224,8 +224,7 @@ function createConversationSettingsModule({
     }
 
     // ---------- 舞台: one row into 舞台设置 ----------
-    // 舞台设置 is a stage tab, registered once the stage client runs (a card without the stage does not load it): the row holds
-    // the client from its first click until this page closes, then opens the tab (focused when it is already open).
+    // Opening 舞台设置 holds the stage client until this page closes, including first-time setup for ordinary cards.
     function waitStageClient() {
         if (galStageAvailable.get()) return Promise.resolve();
         return new Promise((resolve, reject) => {
@@ -256,7 +255,7 @@ function createConversationSettingsModule({
             for (const slot of chosen) if (!await write({ modModelSelection: { modId: slot.modId, slotId: slot.id, selection: null } })) return;
         }
         return h(packUi.StageSection, { title: "舞台", foldKey: FOLD("舞台"),
-                help: "对话气泡、舞台模式、配音、手机等舞台功能都在「舞台设置」里；舞台用的模型在侧栏首页的 舞台装置 › 舞台配置 › 舞台模型。" },
+                help: "可在「舞台设置」为这张卡启用舞台，或调整对话气泡、配音等功能。舞台模型在侧栏首页的「舞台装置 → 舞台配置」里。" },
             rows(h(packUi.SwitchRow, { label: "舞台设置", icon: "stage", onOpen: () => void open(),
                 tag: h("span", { className: "dsh-session-stage-state" }, opening ? h(Spinner, { label: "正在打开舞台设置" }) : word),
                 status: h("button", { type: "button", className: "ap-kind-jump", "aria-label": "打开舞台设置", title: "打开舞台设置", onClick: () => void open() }, h(packUi.Glyph, { name: "chevRight" })) })),
@@ -296,37 +295,6 @@ function createConversationSettingsModule({
                 h(packUi.SwitchRow, { key: "webSearch", label: "联网搜索", help: "前台和后台可按需搜索。", disabled, checked: data.webSearchEnabled === true,
                     onChange: checked => void write({ webSearchEnabled: checked }, { webSearchEnabled: checked }) })) : null,
             problemLine(problem));
-    }
-
-    // ---------- 正文生成 ----------
-    function SessionBodyGeneration({ sessionId }) {
-        const [data, setData] = React.useState(null), [error, setError] = React.useState(""), [busy, setBusy] = React.useState(false);
-        const load = React.useCallback(() => {
-            setError("");
-            return rpc("getBodyGenerationSettings", { sessionId }, sessionId).then(setData, err => setError("读取失败：" + errorText(err)));
-        }, [sessionId]);
-        React.useEffect(() => { void load(); }, [load]);
-        async function save(patch) {
-            setBusy(true); setError("");
-            const selection = Object.hasOwn(patch, "hostRegex") ? {} : { mode: data.mode, provider: data.provider };
-            try { setData(await trackTavernSettingsWrite(sessionId, rpc("setBodyGenerationSettings", { sessionId, ...selection, ...patch }, sessionId))); }
-            catch (err) { setError("保存失败：" + errorText(err)); }
-            finally { setBusy(false); }
-        }
-        const off = busy || !data;
-        return h(packUi.StageSection, { title: "正文生成", foldKey: FOLD("正文生成"), help: "先选生成插件，再切换方式。改动从下一次操作生效。" },
-            rows(
-                h(InlineField, { kind: "menu", label: "生成方式", controlLabel: "本局正文生成方式", value: data?.inherited ? "inherit" : data?.mode || "host", disabled: off,
-                    options: [{ value: "inherit", label: "跟随全局设置" }, { value: "host", label: "宿主生成" }, { value: "plugin-direct", label: "插件直接生成" }, { value: "plugin-tool-call", label: "前台检索后由插件生成" }],
-                    onCommit: value => save(value === "inherit" ? { inherit: true } : { mode: value }) }),
-                h(InlineField, { kind: "menu", label: "生成插件", controlLabel: "本局正文生成插件", value: data?.provider || "", disabled: off,
-                    options: [{ value: "", label: "未选择" }, ...(data?.provider && !data.providers.some(item => item.id === data.provider) ? [{ value: data.provider, label: "已选插件不可用" }] : []), ...(data?.providers || []).map(item => ({ value: item.id, label: item.title }))],
-                    onCommit: provider => save({ provider }) }),
-                h(InlineField, { kind: "menu", label: "宿主正则", controlLabel: "插件生成正文后仍应用宿主正则", help: help("宿主正则", "插件生成正文后，是否仍应用全局、预设和人物卡的正则。"),
-                    value: data?.hostRegexInherited ? "inherit" : data?.hostRegex ? "on" : "off", disabled: off,
-                    options: [{ value: "inherit", label: "跟随全局设置" }, { value: "on", label: "开启" }, { value: "off", label: "关闭" }],
-                    onCommit: value => save({ hostRegex: value === "inherit" ? null : value === "on" }) })),
-            problemLine(error, error.startsWith("读取") ? load : null));
     }
 
     // ---------- the options plugins add to this game (tavern.gameSettings), one section per plugin ----------
@@ -419,9 +387,8 @@ function createConversationSettingsModule({
                     h(UserPreferenceProfileTab, { scope: { sessionId }, conversationOnly: true, Field: InlineField,
                         track: promise => trackTavernSettingsWrite(sessionId, promise) }),
                     h(SessionCandidateCount, { sessionId, config }))),
-            stage?.isStageCard === true ? h(SessionStageSection, { sessionId, config, stage }) : null,
+            stage ? h(SessionStageSection, { sessionId, config, stage }) : null,
             h(SessionModelSection, { sessionId, config }),
-            h(SessionBodyGeneration, { sessionId }),
             h(SessionFeatureSection, { config }),
             h(SessionPluginSettings, { sessionId }),
             h(SessionToolsSection, { config }),

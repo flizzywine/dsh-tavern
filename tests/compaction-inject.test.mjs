@@ -25,6 +25,7 @@ test('all fork tokenMeter accessors and their ctx service dependencies have owne
   const patch = parse(await readFile(new URL('cordis.patch.yml', root), 'utf8'), { customTags })
   const mainInject = patch.flatMap(item => item.insert || []).find(item => item.id === 'dsh-tavern')?.inject
   assert.ok(mainInject?.includes('tokenMeter'), 'main plugin manifest injects its stream adapter meter')
+  assert.ok(!relayInject.includes('compaction'), 'relay must resolve the isolated compaction service without hard-injecting it')
   const owners = new Map([
     ['lib/agent-compaction.js', relayInject],
     ['lib/domain/whole-turn-maintenance.js', relayInject],

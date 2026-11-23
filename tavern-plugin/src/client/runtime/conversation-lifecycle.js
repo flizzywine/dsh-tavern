@@ -49,9 +49,7 @@
 					await sleep(Math.min(delay, remaining));
 				}
 				if (ready(sessionId)) return;
-				// 区分两种结局：宿主列表始终没有这一行（会话不在了 / 已被删），还是行在但
-				// binding 没跟上（新建会话的 scope 尚未 retain）。前者刷新页面也没用，
-				// 必须让用户去删掉这条历史记录，否则只能反复重试同一次超时。
+				// 区分宿主列表没有这一行与行已存在但 binding 尚未就绪。
 				const missing = !options.summary(sessionId);
 				// The host also leaves out a save whose old log it could not upgrade. That reason
 				// matters more than "deleted": deleting the history would throw the save away.
@@ -60,9 +58,11 @@
 					try { reason = await options.explainMissing(sessionId); } catch (_error) {}
 					if (reason) throw new Error(reason);
 				}
-				throw new Error(missing
-					? "DSH 会话 " + sessionId + " 已不在宿主列表中（可能已被删除），请删除这条历史记录后重试；若刚更新过请先刷新页面。"
-					: "DSH Session 列表同步超时，请刷新页面后重试：" + sessionId);
+				throw Object.assign(new Error(missing
+					? "DSH 会话 " + sessionId + " 已不在宿主列表中。若刚更新过，请先刷新页面。"
+					: "DSH Session 列表同步超时，请刷新页面后重试：" + sessionId), {
+					code: missing ? "TAVERN_SESSION_NOT_LISTED" : "TAVERN_SESSION_LIST_TIMEOUT"
+				});
 			}
 
 			function wait(sessionId) {
@@ -179,7 +179,7 @@
                 running.set(key, work);
                 return work;
             }
-            async function run(request, key) {
+            async function run(request, key, replacingAttempt = false) {
                 let phase = "清理当前空白对话";
                 let attempt = attempts.get(key);
                 const resumedAttempt = Boolean(attempt);
@@ -187,8 +187,8 @@
                 const step = (name, work) => timing ? timing.measure(name, work) : work();
                 let successful = false;
                 try {
-                    const existingId = attempt && attempt.sessionId || request.preparedSessionId || "";
-                    await step("archiveCurrent", () => options.archiveCurrent(existingId));
+                    const existingId = attempt?.sessionId || (!replacingAttempt && request.preparedSessionId) || "";
+                    if (!replacingAttempt) await step("archiveCurrent", () => options.archiveCurrent(existingId));
                     if (!attempt) {
                         let sessionId = existingId;
                         if (!sessionId) {
@@ -236,13 +236,17 @@
                     successful = true;
                     return { sessionId, pending };
                 } catch (error) {
-                    const failure = error instanceof Error ? error : new Error(String(error || "创建对话失败"));
+                    const failure = error instanceof Error ? error : new Error(String(error?.message || error || "创建对话失败"));
                     failure.phase = phase;
                     failure.sessionId = attempt && attempt.sessionId;
-                    // Phantom Session ids (create returned an id the DSH list never
-                    // shows — e.g. failed Windows persistence) must not be reused on
-                    // the next click, or waitForSession keeps timing out on the same id.
-                    if (attempt && !attempt.initialized && /列表同步超时/.test(failure.message)) attempts.delete(key);
+                    // Older servers send only the message for a native session that never became writable.
+                    const unavailable = ["TAVERN_SESSION_NOT_LISTED", "TAVERN_SESSION_LIST_TIMEOUT", "TAVERN_SESSION_NOT_WRITABLE"].includes(error?.code)
+                        || /^无法写入 DSH 会话开场白:/.test(failure.message);
+                    if (attempt && !attempt.initialized && unavailable) {
+                        attempts.delete(key);
+                        if (resumedAttempt && !replacingAttempt) return run(request, key, true);
+                        failure.message = "已清除本次启动记录，可以重试新建对话。" + failure.message;
+                    }
                     throw failure;
                 } finally { if (timing) timing.finish(successful); }
             }

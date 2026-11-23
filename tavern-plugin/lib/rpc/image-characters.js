@@ -1,8 +1,8 @@
 import { isDeepStrictEqual } from 'node:util'
-import { figureOutfitReference } from '../domain/figure-sprite-reference.js'
-import { imageCharacterFromFigure, linkPatchFromFigure, findFigureImageCharacter, putPackReference, packReferenceName, referencePatch } from '../domain/image-character-appearance.js'
+import { imageCharacterFromFigure, linkPatchFromFigure, findFigureImageCharacter } from '../domain/image-character-appearance.js'
 
-// The image plugin owns these records. Asset-pack edits never store a second copy.
+// The image plugin owns these records. Asset-pack edits never store a second copy; the figure's 设定图 and borrowed 立绘
+// stay in its pack, where 配图 reads them by the record's link (ADR 0012).
 export function createImageCharacterHandlers({ ctx, pluginApi }) {
   const records = (op, input) => pluginApi.imageCharacters(op, input)
   const fail = (code, message) => Object.assign(new Error(message), { code })
@@ -24,7 +24,15 @@ export function createImageCharacterHandlers({ ctx, pluginApi }) {
     if (!isDeepStrictEqual(record.character, args.expected)) throw fail('REVISION_CONFLICT', '人物已在别处修改，请重新载入后再改')
     return { ...context, ...record }
   }
+  // A figure just linked keeps its identity in the record from now on: its document is written again without it.
+  const storeLinked = packId => ctx.get('assetLibrary').rewriteFigureDocuments({ packIds: [packId] })
   return {
+    // Read-only: how each installed figure is stored (whole, or without its identity).
+    async figureDocumentForms() {
+      const library = ctx.get('assetLibrary')
+      if (!library) throw fail('ASSET_UNAVAILABLE', '素材库未启用')
+      return { packs: await library.figureDocumentForms() }
+    },
     async getFigureImageCharacter(args) {
       await figureOf(args?.packId, args?.figureId)
       const value = await findFigureImageCharacter(pluginApi, args)
@@ -43,11 +51,15 @@ export function createImageCharacterHandlers({ ctx, pluginApi }) {
           if (args.characterId && (args.characterId !== linked.character.id || args.providerId !== linked.providerId)) throw fail('INVALID_ARGUMENT', '人物已关联其他记录，请重新载入')
           return linked
         }
-        if (!args.characterId) return { ...await records('createCharacter', { providerId: args.providerId, character: imageCharacterFromFigure(figure, args.packId) }), status: 'linked' }
-        if (!args.providerId) throw fail('INVALID_ARGUMENT', '关联已有记录时必须指定人物库来源')
-        const { character } = await records('getCharacter', { providerId: args.providerId, characterId: args.characterId })
-        if (character.figureId && (character.figureId !== args.figureId || character.figurePackId !== args.packId)) throw fail('INVALID_ARGUMENT', '该人物库记录已关联其他素材库人物')
-        return { ...await records('patchCharacter', { providerId: args.providerId, characterId: character.id, expected: character, patch: linkPatchFromFigure(character, figure, args.packId) }), status: 'linked' }
+        if (!args.characterId) await records('createCharacter', { providerId: args.providerId, character: imageCharacterFromFigure(figure, args.packId) })
+        else {
+          if (!args.providerId) throw fail('INVALID_ARGUMENT', '关联已有记录时必须指定人物库来源')
+          const { character } = await records('getCharacter', { providerId: args.providerId, characterId: args.characterId })
+          if (character.figureId && (character.figureId !== args.figureId || character.figurePackId !== args.packId)) throw fail('INVALID_ARGUMENT', '该人物库记录已关联其他素材库人物')
+          await records('patchCharacter', { providerId: args.providerId, characterId: character.id, expected: character, patch: linkPatchFromFigure(character, figure, args.packId) })
+        }
+        await storeLinked(args.packId)
+        return findFigureImageCharacter(pluginApi, args)
       })
       links.set(key, run)
       run.finally(() => { if (links.get(key) === run) links.delete(key) }).catch(() => {})
@@ -62,19 +74,6 @@ export function createImageCharacterHandlers({ ctx, pluginApi }) {
       await linkedRecord(args)
       if (args.patch && (Object.hasOwn(args.patch, 'figureId') || Object.hasOwn(args.patch, 'figurePackId'))) throw fail('INVALID_ARGUMENT', '请通过关联操作选择人物')
       return records('patchCharacter', { providerId: args.providerId, characterId: args.characterId, expected: args.expected, patch: args.patch })
-    },
-    async copyFigureSetteiToImageCharacter(args) {
-      const { library, pack, figure, character } = await linkedRecord(args)
-      const outfit = args.outfitKey ? figure.outfits.find(item => item.key === args.outfitKey) : null
-      if (args.outfitKey && !outfit) throw fail('NOT_FOUND', '服装已删除，请重新载入')
-      const spriteFallback = args.spriteFallback === true
-      if (spriteFallback && (!outfit || outfit.settei || character.outfits.some(item => item.id === outfit.key && item.characterOutfitImage))) throw fail('INVALID_ARGUMENT', '已有参考图或设定图，不可覆盖')
-      const fallback = spriteFallback ? figureOutfitReference(pack, figure, outfit) : null
-      const hash = spriteFallback ? fallback?.hash : outfit ? outfit.settei : figure.identitySettei?.board
-      if (!hash) throw fail('INVALID_ARGUMENT', '还没有设定图')
-      const referenceImage = await putPackReference(pluginApi, library, { providerId: args.providerId, packId: args.packId, revision: pack.revision, hash,
-        name: packReferenceName(figure, outfit, spriteFallback ? {sprite:' 立绘参考', emotion:' 差分参考', avatar:' 头像参考'}[fallback.kind] : undefined) })
-      return records('patchCharacter', { providerId: args.providerId, characterId: args.characterId, expected: args.expected, patch: referencePatch(character, outfit, referenceImage) })
     },
   }
 }

@@ -12,6 +12,7 @@ import { projectFullPromptTemplateState, applyFullPromptTemplateState, validateF
 import { mutateScriptPrompts } from './tavern-script-prompts.js'
 import { exportSillyTavernWorldBook, inspectWorldBookDocument, updateWorldBookDocument } from './worldbook-resource.js'
 import { worldbookContentDigest } from './worldbook-version.js'
+import { cardContentDigest } from './play-card-snapshots.js'
 import { isDeepStrictEqual } from 'node:util'
 import { applyChatPluginData, validateChatPluginRequest, assertPluginJson } from './tavern-chat-plugin-data.js'
 import {
@@ -479,9 +480,25 @@ export function createTavernScriptHostAdapter(options = {}) {
   }
 
   async function updateBoundWorldbook(resolved, request, nativeDocument) {
-    if (!resolved.record.localChatId) return nativeDocument === undefined
-      ? await options.worldBooks.update(resolved.record.source, request)
-      : await options.worldBooks.replaceNative(resolved.record.source, nativeDocument)
+    if (!resolved.record.localChatId) {
+      // A game playing its own copy of the card reads the book from that copy, but the
+      // write goes to the library card. The change is computed against what the script
+      // read, so both must be the same book; afterwards the game adopts its own write.
+      const pinned = resolved.record.source.kind === 'card' && resolved.chat.mode !== 'card' && !!resolved.chat.cardDefinitionSnapshot
+      if (pinned && scriptWorldbookVersion(await options.worldBooks.bound(resolved.chat.cardPath, undefined, resolved.chat)) !== scriptWorldbookVersion(resolved.record)) {
+        throw new Error('人物卡的世界书已在别处修改，本局还在用旧版：请先在本局更新人物卡再试')
+      }
+      const updated = nativeDocument === undefined
+        ? await options.worldBooks.update(resolved.record.source, request)
+        : await options.worldBooks.replaceNative(resolved.record.source, nativeDocument)
+      if (pinned) {
+        const snapshot = resolved.chat.cardDefinitionSnapshot, current = resolved.chat.cardContentDigest === cardContentDigest(snapshot)
+        snapshot.character_book = structuredClone((await options.readLibraryCard(resolved.chat.cardPath)).character_book)
+        if (current) resolved.chat.cardContentDigest = cardContentDigest(snapshot)
+        await options.writeChat(resolved.chat, { source: 'tavern-helper.card-worldbook' })
+      }
+      return updated
+    }
     if (nativeDocument !== undefined) {
       if (!nativeDocument || typeof nativeDocument !== 'object' || !nativeDocument.entries ||
           typeof nativeDocument.entries !== 'object' || Array.isArray(nativeDocument.entries)) throw new Error('原生世界书需要 entries 对象')

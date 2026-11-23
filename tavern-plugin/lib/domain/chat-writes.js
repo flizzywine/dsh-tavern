@@ -4,6 +4,7 @@ import { diffJson } from './json-mutation.js'
 // What the effects below read from a Chat besides its history: the conversation index row, the
 // director and mods (ids, card, timeline), template display (mode, settlement) and candidates.
 const EFFECT_HEAD_FIELDS = Object.freeze([...taskStateFields, 'timeline', 'backgroundSessionId', 'settleStatus'])
+const PREVIEW_MESSAGE_FIELDS = new Set(['role', 'greeting', 'placeholder', 'turn', 'text', 'displayText', 'projectionText', 'sourceText', 'swipes', 'swipeId'])
 
 // Persistence owns conflict detection and revisions. This module owns the work
 // triggered by a successful write, including the historical per-writer policy.
@@ -50,7 +51,7 @@ export function createChatWrites({ persistence, isDeleted, candidatesChanged, sy
 
   async function writeHeader(chat, baseline, metadata) {
     assertWritable(chat.id)
-    return committed('header', await persistence.writeHeader(chat, baseline, metadata), metadata, chat)
+    return committed('header', await persistence.writeHeader(chat, baseline, metadata), metadata, chat, { metadataOnly: true })
   }
 
   async function update(id, mutation, metadata) {
@@ -63,17 +64,19 @@ export function createChatWrites({ persistence, isDeleted, candidatesChanged, sy
   async function patch(id, revision, changes, metadata) {
     assertWritable(id)
     const saved = await persistence.patch(id, revision, changes, metadata)
+    const refreshPreview = changes.some(({ path }) => path[0] === 'messages' && (path.length < 3 || PREVIEW_MESSAGE_FIELDS.has(path[2])))
+    const summaryOptions = { metadataOnly: true, refreshPreview }
     if (!saved || metadata?.returnProjection === undefined) {
       // Even the default patch result is a header with an empty history projection.
       // Source edits are observed separately through observePatch below.
-      const result = await committed('patch', saved, metadata, saved, { metadataOnly: true })
+      const result = await committed('patch', saved, metadata, saved, summaryOptions)
       if (saved) await observePatch?.(saved, changes)
       return result
     }
     // Storage without slices returns whole Chats, so the full read costs it nothing extra.
     const head = (await persistence.readSlice?.(id, [], EFFECT_HEAD_FIELDS))?.chat ?? await persistence.read(id)
     if (!head) return saved
-    await committed('patch', head, metadata, head, { metadataOnly: true })
+    await committed('patch', head, metadata, head, summaryOptions)
     await observePatch?.(head, changes)
     return saved
   }

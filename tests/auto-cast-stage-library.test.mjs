@@ -41,9 +41,11 @@ async function fixture(t) {
     patch:{figures:[TEMPLATE], sprites:{uniform:'sprites/uniform/manifest.json'}, blobs:{[hash]:{ext:'png', mime:'image/png', size:face.length}},
       voiceLibrary:{version:1, voices:{tsundere:{name:'傲娇少女声', language:'zh', guidance:'傲娇的少女', defaultSource:'browser', sources:{browser:{kind:'preset', provider:'browser', voiceName:'zh-a'}}}}}},
     fileUpdates:new Map([[`media/${hash}.png`, face], ['sprites/uniform/manifest.json', json(sprite)], [`figures/${TEMPLATE}.json`, json(figure)]])})
-  const port = createAutoCastLibrary({getLibrary:() => service, pluginApi:{imageCharacterLibraries:async () => []}})
+  // tts.reading(): which figures 通用声音 / 旁白 point at (none until a test points them).
+  const world = {reading:null}
+  const port = createAutoCastLibrary({getLibrary:() => service, getReading:() => world.reading, pluginApi:{imageCharacterLibraries:async () => []}})
   t.after(async () => { port.dispose(); await service.dispose(); await rm(root, {recursive:true, force:true}) })
-  return {service, port, templatePack:created.snapshot.manifest.id}
+  return {service, port, world, templatePack:created.snapshot.manifest.id}
 }
 
 test('the port casts through the library\'s auto-cast writer: a new figure with a library voice, a copy, then 人设图 and 立绘 land', async t => {
@@ -84,15 +86,45 @@ test('the port casts through the library\'s auto-cast writer: a new figure with 
   assert.equal((await port.readMedia({packId:cast.packId, hash:after.setteiHash})).length > 0, true)
 })
 
-// 主人 11-15: only 通用声音 (the voice page's switch, else a voice written a 使用情景 before the switch) are offered to the assistant.
-test('the assistant\'s voice candidates are 可选声音 「默认」: a 使用情景 or 「通用」 in the name; the old switch is not read', async t => {
+test('automatic casting can copy the figure and its artwork without copying its voice', async t => {
   const {service, port, templatePack} = await fixture(t)
+  const template = (await port.search('傲娇')).figures.find(row => row.ref.figureId === TEMPLATE)
+  assert.ok(template.voice)
+  const plan = castChanges([{name:'无配音分身', aliases:[]}], {
+    same:{}, copy:{无配音分身:{source:{packId:templatePack, figureId:TEMPLATE}, revision:template.revision}}, appearance:{}, voice:{},
+  }, {voices:false})
+  const written = await port.write({cardPath:'card', changes:plan.changes, sources:plan.sources, source, requestId:'cast-without-voice'})
+  const cast = await port.readCast('card')
+  const pack = await service.getPackSnapshot({packId:written.packId})
+  assert.deepEqual(cast.figures[0].sprites, ['calm'])
+  assert.equal(pack.figures[written.refs[0].figureId].voice, undefined)
+  assert.equal(Object.keys(pack.manifest.voiceLibrary?.voices ?? {}).length, 0)
+})
+
+// 主人 11-15: only 通用声音 (the voice page's switch, else a voice written a 使用情景 before the switch) are offered to the assistant.
+test('the assistant\'s voice candidates are 可选声音 「默认」: a 使用情景, or a voice of the pack 通用声音 / 旁白 point at; never by name; the old switch is not read', async t => {
+  const {service, port, world, templatePack} = await fixture(t)
   const pack = await service.getPackSnapshot({packId:templatePack}), base = pack.manifest.voiceLibrary.voices.tsundere
   const {guidance:_g, ...plain} = base
   const sources = voiceName => ({browser:{kind:'preset', provider:'browser', voiceName}})
   await service.patchPack({packId:templatePack, expectedRevision:pack.revision, patch:{voiceLibrary:{version:1, voices:{tsundere:base, off:{...base, name:'关掉的', autoCast:false, sources:sources('zh-b')}, own:{...plain, name:'萌宝', autoCast:true}, on:{...plain, name:'通用男性声音', sources:sources('zh-c')}}}}})
-  assert.deepEqual((await port.libraryVoices()).voices.map(row => row.name), ['傲娇少女声', '关掉的', '通用男性声音'])
+  assert.deepEqual((await port.libraryVoices()).voices.map(row => row.name), ['傲娇少女声', '关掉的'], '「通用」 in a name alone is not a 使用情景')
   assert.deepEqual((await port.search('傲娇')).voices.map(row => row.voiceId), ['tsundere', 'off'], 'the search offers the same candidates')
+  // a system pack (the one 通用声音 points at): all its voices, with or without a 使用情景
+  const system = await service.createPack({name:'系统设置', expectedRevision:null})
+  await service.patchPack({packId:system.snapshot.manifest.id, expectedRevision:system.snapshot.revision, patch:{voiceLibrary:{version:1, voices:{male:{...plain, name:'系统既有男声', sources:sources('zh-d')}}}}})
+  world.reading = {general:{figure:{packId:system.snapshot.manifest.id, figureId:'f1'}}, narrator:{enabled:false, figure:null}}
+  assert.deepEqual((await port.libraryVoices()).voices.map(row => row.name), ['傲娇少女声', '关掉的', '系统既有男声'])
+  assert.deepEqual((await port.search('男声')).voices.map(row => row.name), ['系统既有男声'])
+  // 先定语言（主人 11-22）: one language's voices only, by the voice's own language (unset = 中文, zh-CN = zh); the system
+  // pack's are that language's 默认通用声音 (fallback)
+  const current = await service.getPackSnapshot({packId:system.snapshot.manifest.id})
+  await service.patchPack({packId:current.manifest.id, expectedRevision:current.revision, patch:{voiceLibrary:{version:1, voices:{male:{...plain, name:'系统既有男声', language:'zh-CN', sources:sources('zh-d')},
+    jaMale:{...plain, name:'系统既有男声（日语）', language:'ja', sources:sources('ja-a')}}}}})
+  const of = async language => (await port.libraryVoices(language)).voices.map(row => [row.name, row.language, row.fallback ?? false])
+  assert.deepEqual(await of('zh'), [['傲娇少女声', 'zh', false], ['关掉的', 'zh', false], ['系统既有男声', 'zh', true]])
+  assert.deepEqual(await of('ja'), [['系统既有男声（日语）', 'ja', true]])
+  assert.deepEqual(await of('ko'), [], 'a language without a voice lists none: nothing of another language fills it')
   await assert.rejects(service.patchPack({packId:templatePack, expectedRevision:(await service.getPackSnapshot({packId:templatePack})).revision, patch:{voiceLibrary:{version:1, voices:{bad:{...base, autoCast:'yes'}}}}}), {code:'INVALID_INPUT'})
 })
 test('a committed round through the asset library plugin\'s own service: new speakers are written, counted and drawn', async t => {
@@ -107,7 +139,7 @@ test('a committed round through the asset library plugin\'s own service: new spe
   const store = {readJson:async k => files.get(k) ?? null, writeJson:async (k, v) => files.set(k, v), updateJson:async (k, fn) => files.set(k, fn(files.get(k) ?? null)),
     readBytes:async k => files.get(k), writeBytes:async (k, v) => files.set(k, v), remove:async k => files.delete(k)}
   const port = createAutoCastLibrary({getLibrary:() => services.get('assetLibrary')})
-  const cast = createAutoCast({store, settings:async () => ({enabled:true, level:'late'}), library:port, onError:error => errors.push(error),
+  const cast = createAutoCast({store, settings:async () => ({enabled:true, level:'aggressive', sprites:true, voices:true}), library:port, onError:error => errors.push(error),
     images:{status:async () => ({ready:true, model:'m'}), prompt:async input => ({prompt:input.kind, output:{size:'1536x1024', background:'opaque', quality:'high'}}), check:() => ({warnings:[], hasTransparency:false}),
       generate:async input => { drawn.push(input); return {data:new Uint8Array(png([1, 2, 3])), mediaType:'image/png'} }}})
   t.after(async () => { cast.dispose(); for (const dispose of cleanup.reverse()) await dispose?.(); await rm(root, {recursive:true, force:true}) })

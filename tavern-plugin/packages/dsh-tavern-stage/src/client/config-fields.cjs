@@ -92,7 +92,8 @@ function GalConfigSwitch(props) {
     if (useGalConfigLook("toggle") === "cycler") return h(GalConfigCycler, { label: props.label, value: on, disabled: props.disabled, options: [[true, "开"], [false, "关"]], onChange: props.onChange });
     return h("button", { type: "button", role: "switch", className: "fork-gal-config-switch", "aria-label": props.label, "aria-checked": on, "aria-busy": props.busy || undefined,
         disabled: Boolean(props.disabled), onClick: () => props.onChange(!on) },
-        h("span", { className: "fork-gal-config-switch-track", "aria-hidden": true }, h("i", null)));
+        // the state word: a drawn toggle (a plate, the skin's images) has none of its own, so the track carries it (theme.css shows it there)
+        h("span", { className: "fork-gal-config-switch-track", "aria-hidden": true }, h("i", null), h("b", { className: "fork-gal-config-switch-word" }, on ? "开" : "关")));
 }
 
 const GAL_CONFIG_ITEM_TYPES = Object.freeze({ text: "text", toggle: "toggle", slider: "slider", segmented: "segmented", select: "select", colour: "colour", "asset-picker": "picker", "sound-picker": "picker", picker: "picker" });
@@ -148,4 +149,138 @@ function galConfigFieldSections(manifest, values, set, title) {
 }
 return {Looks:GalConfigLooks,group:galConfigGroup,row:galConfigRow,segmented:galConfigSegmented,slider:galConfigSlider,Switch:GalConfigSwitch,Items:GalConfigItems,sections:galConfigFieldSections,itemKind:galConfigItemKind,dispose(){disposed=true;}};
 }
-if(typeof module!=='undefined'&&typeof window==='undefined')module.exports={createStageConfigFields};
+// The stage CONFIG font picker (文字 → 舞台字体 / 字幕字体): the stage's own list, so the dream skin's shared picker
+// (dsh-dream-skin, its own package; it still draws the 外观 page's 正文字体) stays untouched. It keeps that picker's
+// classes, behaviour and API (tavernFonts: list / get / resolve / setOverride / ensure / subscribe) and draws its own rows
+// (theme.css 「stage font picker」, scoped by .is-rows): the trigger names the current font in its own face with no
+// 「跟随」 tag; the list starts with 「跟随皮肤」 (the font it resolves to on a second line), then every installed font
+// by category, one row each - a ✓ column, the name in the interface face, a short sample in the font's own face.
+// Faces register lazily (the trigger's face; then visible, hovered or focused rows). Without the dream skin's font
+// library (window.dshSkinFonts) there is no catalogue: 系统字体, as the core's adapter shows.
+function createStageFontPicker({React, Icon, FloatingPanel, fonts:tavernFonts}) {
+const FONT_SAMPLE = "……你、你还有什么事。";
+const FONT_NAMES = Object.freeze({
+    "neo-xihei-screen": "霞鹜新晰黑", "neo-zhisong-screen": "霞鹜新致宋", "resource-han-rounded": "源圆黑体",
+    "wenkai-screen": "霞鹜文楷", zhuque: "朱雀仿宋", xiaolai: "小赖", "zcool-kuaile": "站酷快乐体"
+});
+const FONT_CATEGORIES = [["sans", "黑体"], ["rounded", "圆体"], ["serif", "宋体 · 仿宋"], ["hand", "楷体 · 手写"], ["display", "趣味"]];
+const fontName = (font, builtin) => !font ? builtin || "内置字体" : FONT_NAMES[font.id] || String(font.label || font.id).replace(/\s*屏幕版$/, "");
+const fontFace = font => font ? JSON.stringify(font.family) + ", " + (font.category === "serif" ? "serif" : "sans-serif") : undefined;
+function fontGroups(fonts) {
+    const known = FONT_CATEGORIES.map(([id, label]) => ({ id, label, fonts: fonts.filter(font => font.category === id) }));
+    const rest = fonts.filter(font => !FONT_CATEGORIES.some(([id]) => id === font.category));
+    return known.concat([{ id: "other", label: "其他", fonts: rest }]).filter(group => group.fonts.length);
+}
+const library = () => typeof window === "undefined" ? true : Boolean(window.dshSkinFonts);
+// props: { role, label, follow ("跟随皮肤"), builtin (name when no default font is installed), context (resolve context;
+//          omitted = the active stage's skin), theme (the popover's stage scope), api (tests) }
+function StageFontPicker(props) {
+    const h = React.createElement;
+    const api = props.api || tavernFonts;
+    const role = props.role, context = props.context || {};
+    React.useSyncExternalStore(api.subscribe, api.getSnapshot);
+    const [present, setPresent] = React.useState(library);
+    const [fonts, setFonts] = React.useState([]);
+    const [open, setOpen] = React.useState(false);
+    const wrap = React.useRef(null), trigger = React.useRef(null), pop = React.useRef(null);
+    React.useEffect(function () {
+        if (typeof window === "undefined" || typeof window.addEventListener !== "function") return undefined;
+        const changed = () => setPresent(library());
+        window.addEventListener("dsh-font-library-changed", changed); changed();
+        return () => window.removeEventListener("dsh-font-library-changed", changed);
+    }, []);
+    const byId = id => fonts.find(font => font.id === id) || (id && typeof api.get === "function" ? api.get(id) : null) || null;
+    const current = api.resolve(role, context);
+    const chosen = current.source === "override" ? current.id : null;
+    const currentFont = byId(current.id), defaultFont = byId(current.default);
+    const currentName = fontName(currentFont, props.builtin);
+    function ensure(id) { if (id) Promise.resolve(api.ensure(id)).catch(() => {}); }
+    React.useEffect(function () {
+        let live = true;
+        Promise.resolve(api.list()).then(list => { if (live) setFonts(list || []); }, () => {});
+        return () => { live = false; };
+    }, [api, present]);
+    React.useEffect(function () { ensure(current.id); }, [current.id]);
+    function close(refocus) {
+        setOpen(false);
+        if (refocus && trigger.current && typeof trigger.current.focus === "function") trigger.current.focus({ preventScroll: true });
+    }
+    function choose(id) { api.setOverride(role, id); close(true); }
+    // Open: focus the current option; Esc (window capture, before the CONFIG screen) and a press outside close it.
+    React.useEffect(function () {
+        if (!open || typeof window === "undefined" || typeof document === "undefined") return undefined;
+        const root = pop.current;
+        const selected = root && root.querySelector ? root.querySelector('[role="option"][aria-selected="true"]') : null;
+        if (selected && typeof selected.focus === "function") selected.focus({ preventScroll: false });
+        function outside(event) {
+            const target = event.target;
+            if (wrap.current && wrap.current.contains(target) || pop.current && pop.current.contains(target)) return;
+            setOpen(false);
+        }
+        function escape(event) {
+            if (event.key !== "Escape") return;
+            event.preventDefault(); event.stopImmediatePropagation(); event.stopPropagation();
+            close(true);
+        }
+        document.addEventListener("pointerdown", outside, true);
+        window.addEventListener("keydown", escape, true);
+        return () => { document.removeEventListener("pointerdown", outside, true); window.removeEventListener("keydown", escape, true); };
+    }, [open]);
+    React.useEffect(function () {
+        const root = pop.current;
+        if (!open || !root || !root.querySelectorAll || typeof IntersectionObserver !== "function") return undefined;
+        const observer = new IntersectionObserver(entries => entries.forEach(entry => { if (entry.isIntersecting) ensure(entry.target.getAttribute("data-font-id")); }), { root, rootMargin: "120px 0px" });
+        root.querySelectorAll("[data-font-id]").forEach(node => observer.observe(node));
+        return () => observer.disconnect();
+    }, [open, fonts]);
+    function onListKey(event) {
+        event.stopPropagation();
+        if (event.key === "Tab") { event.preventDefault(); close(true); return; }
+        const items = pop.current && pop.current.querySelectorAll ? Array.from(pop.current.querySelectorAll('[role="option"]')) : [];
+        if (!items.length) return;
+        const at = items.indexOf(typeof document !== "undefined" ? document.activeElement : null);
+        const next = event.key === "ArrowDown" ? at + 1 : event.key === "ArrowUp" ? (at < 0 ? items.length - 1 : at - 1) : event.key === "Home" ? 0 : event.key === "End" ? items.length - 1 : null;
+        if (next === null) return;
+        event.preventDefault();
+        items[(next + items.length) % items.length].focus();
+    }
+    function keepFocus(event) { if (!(event.target && event.target.closest && event.target.closest('[role="option"]'))) event.preventDefault(); }
+    // One row per font: ✓ · its name in the interface face · the sample in its own face (the name always reads).
+    function option(font, key, id, name, extra, note) {
+        const selected = chosen === id;
+        return h("button", { key, type: "button", role: "option", "aria-selected": selected, "aria-label": note ? name + "（" + note + "）" : name,
+            className: "fork-font-option" + (selected ? " is-on" : "") + (extra ? " " + extra : ""), "data-font-id": font ? font.id : undefined,
+            onPointerEnter: () => ensure(font && font.id), onFocus: () => ensure(font && font.id), onClick: () => choose(id) },
+            h("span", { className: "fork-font-option-check", "aria-hidden": true }, selected ? h(Icon, { name: "check", size: 16 }) : null),
+            h("span", { className: "fork-font-option-name" }, name, note ? h("small", null, note) : null),
+            h("span", { className: "fork-font-option-sample", "aria-hidden": true, style: font ? { fontFamily: fontFace(font) } : undefined }, FONT_SAMPLE));
+    }
+    if (!present) return h("span", null, "系统字体");
+    const list = h("div", { className: "fork-font-list", role: "listbox", "aria-label": props.label, onKeyDown: onListKey },
+        option(defaultFont, "follow", null, props.follow, "is-follow", fontName(defaultFont, props.builtin)),
+        fontGroups(fonts).map(group => h("div", { key: group.id, className: "fork-font-group", role: "group", "aria-label": group.label },
+            h("div", { className: "fork-font-group-label", "aria-hidden": true }, group.label),
+            group.fonts.map(font => option(font, font.id, font.id, fontName(font))))));
+    // The list is portaled outside the stage: it carries the stage's tokens and its skin font declaration.
+    const stageTokens = {};
+    let skinFonts;
+    if (open && trigger.current && typeof getComputedStyle === "function") {
+        const style = getComputedStyle(trigger.current);
+        for (const key of style) if (key.startsWith("--gal-")) stageTokens[key] = style.getPropertyValue(key);
+        const stage = trigger.current.closest && trigger.current.closest("[data-fk-fonts]");
+        skinFonts = stage ? stage.getAttribute("data-fk-fonts") : undefined;
+    }
+    const popover = !open ? null : h(FloatingPanel, { anchor: trigger, popRef: pop, className: "fork-font-pop is-stage is-rows fork-gal-theme-scope", style: stageTokens, "data-theme": props.theme || "",
+        "data-fk-fonts": skinFonts, gap: 8, onMouseDown: keepFocus }, list);
+    return h("div", { ref: wrap, className: "fork-font-pick is-stage" + (open ? " is-open" : ""), "data-role": role },
+        h("button", { ref: trigger, type: "button", className: "fork-font-trigger", "aria-haspopup": "listbox", "aria-expanded": open,
+            "aria-label": props.label + "：" + currentName + (chosen === null ? "，" + props.follow : ""),
+            onClick: () => setOpen(value => !value),
+            onKeyDown: event => { if (!open && (event.key === "ArrowDown" || event.key === "ArrowUp")) { event.preventDefault(); setOpen(true); } } },
+            h("span", { className: "fork-font-trigger-name", style: currentFont ? { fontFamily: fontFace(currentFont) } : undefined }, currentName),
+            h(Icon, { name: "chevron", size: 16 })),
+        popover);
+}
+return StageFontPicker;
+}
+if(typeof module!=='undefined'&&typeof window==='undefined')module.exports={createStageConfigFields,createStageFontPicker};

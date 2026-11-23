@@ -6,7 +6,7 @@ import {check, text} from '../asset-packs/common.js'
 import {figureEmotionRows} from '../asset-packs/figure-emotions.js'
 import voiceAutoCastRule from '../shared/voice-auto-cast.cjs'
 
-const {voiceAutoCast} = voiceAutoCastRule
+const {voiceAutoCast, castLanguage, castVoiceOrder} = voiceAutoCastRule
 
 const {normalizeCatalogueText, resolveFigureName, codepointCompare} = figureResolution
 const SUMMARY = 300
@@ -18,10 +18,12 @@ const includesAll = (texts, terms) => {
 
 // packs: installed pack snapshots ({manifest, figures, revision}); each row names its pack revision, which a copy's request\n// lists in its catalogueRevisions. Figures rank exact name/alias first, then a name/alias that
 // contains every word, then any text (介绍, 使用情景, its voice's name and 使用场景, the pack name) that does; voices match
-// their name, 使用场景 or pack name and are only the 通用声音 (voiceRows). `more` counts what the limit left out.
-export function searchLibrary(packs, {query, limit = 20}) {
+// their name, 使用场景 or pack name and are only the 通用声音 (voiceRows; `systemPacks`: the packs 通用声音 / 旁白 point at).
+// `more` counts what the limit left out.
+export function searchLibrary(packs, {query, limit = 20, systemPacks = []}) {
   text(query, '$.query', 200)
   check(Number.isSafeInteger(limit) && limit > 0 && limit <= 100, '$.limit')
+  checkPackIds(systemPacks)
   const needle = normalizeCatalogueText(query), terms = needle.split(' ').filter(Boolean)
   check(terms.length > 0, '$.query', 'Query required')
   const entries = packs.flatMap(pack => pack.manifest.figures.map(figureId => ({pack, figure:pack.figures[figureId], ref:{packId:pack.manifest.id, figureId}})))
@@ -39,12 +41,12 @@ export function searchLibrary(packs, {query, limit = 20}) {
       ...(figure.description ? {description:short(figure.description)} : {}), ...(figure.guidance ? {guidance:short(figure.guidance)} : {}),
       outfits:outfits.length, emotions:figureEmotionRows(figure).length,
       stage:figure.enabled && outfits.some(outfit => outfit.sprite || outfit.live2d || outfit.spine),
-      voice:voice ? {voiceId:figure.voice.voice, name:voice.name, ...(voice.guidance ? {guidance:voice.guidance} : {})} : null,
+      voice:voice ? {voiceId:figure.voice.voice, name:voice.name, language:castLanguage(figure.voice.language || voice.language), ...(voice.guidance ? {guidance:voice.guidance} : {})} : null,
       // the automatic pack holds schema-1 figures; a figure of another image format cannot be copied into it
       copyable:(pack.manifest.schemaVersion ?? 1) === 1,
       match:['exact', 'name', 'text'][rank]}})
   }
-  const voices = voiceRows(packs, (voice, pack) => includesAll([voice.name, voice.guidance, pack.manifest.name], terms))
+  const voices = voiceRows(packs, systemPacks, (voice, pack) => includesAll([voice.name, voice.guidance, pack.manifest.name], terms))
   figures.sort((a, b) => a.rank - b.rank || codepointCompare(a.row.name, b.row.name) || codepointCompare(a.row.packName, b.row.packName))
   return {query, identity:identity.status === 'resolved' ? {status:'resolved', ref:identity.ref} : {status:identity.status},
     figures:figures.slice(0, limit).map(item => item.row), voices:voices.slice(0, limit),
@@ -60,28 +62,36 @@ export function castingVoiceKey(voice, binding) {
   return identity ? JSON.stringify([source.provider, source.kind, identity]) : null
 }
 
-// Shared eligibility for voice search and the full casting catalogue; sorted by name, then pack name.
-function voiceRows(packs, keep) {
+// Shared eligibility for voice search and the full casting catalogue, in the 通用声音 order (castVoiceOrder). language: the
+// voice's (castLanguage); fallback: a voice of a pack 通用声音 / 旁白 point at, its language's 默认通用声音, which any number
+// of new speakers of that language may share when no other voice of it is free.
+const checkPackIds = ids => check(Array.isArray(ids) && ids.length <= 8 && ids.every(id => typeof id === 'string' && id.length > 0 && id.length <= 80), '$.systemPacks')
+function voiceRows(packs, systemPacks, keep) {
   const voices = []
   for (const pack of packs) for (const [voiceId, voice] of Object.entries(pack.manifest.voiceLibrary?.voices || {})) {
-    if (!voiceAutoCast(voice) || !keep(voice, pack)) continue
+    if (!voiceAutoCast(voice, pack.manifest.id, systemPacks) || !keep(voice, pack)) continue
     const sound = castingVoiceKey(voice)
     if (!sound) continue
     const users = pack.manifest.figures.map(id => pack.figures[id]).filter(figure => figure.voice?.voice === voiceId).map(figure => figure.name)
-    voices.push({packId:pack.manifest.id, packName:pack.manifest.name, revision:pack.revision, voiceId, name:voice.name, language:voice.language, sound,
+    voices.push({packId:pack.manifest.id, packName:pack.manifest.name, revision:pack.revision, voiceId, name:voice.name, language:castLanguage(voice.language), sound,
+      ...(systemPacks.includes(pack.manifest.id) ? {fallback:true} : {}),
       ...(voice.guidance ? {guidance:voice.guidance} : {}), figures:users})
   }
-  return voices.sort((a, b) => codepointCompare(a.name, b.name) || codepointCompare(a.packName, b.packName))
+  return voices.sort(castVoiceOrder)
 }
-// 全库通用声音: every installed pack's 通用声音 (the casting assistant reads them all instead of guessing keywords);
-// `more` counts what the limit left out.
-export function listLibraryVoices(packs, {limit = 60} = {}) {
+// 全库通用声音: every installed pack's 通用声音 (the casting assistant reads them all instead of guessing keywords), or only
+// those speaking `language` (a primary subtag: a speaker is cast only with voices of its own language); `more` counts what
+// the limit left out.
+export function listLibraryVoices(packs, {limit = 60, systemPacks = [], language} = {}) {
   check(Number.isSafeInteger(limit) && limit > 0 && limit <= 200, '$.limit')
-  // A copy can add a different language or usage description; show it once per language, preferring a described entry.
-  const distinct = new Map()
-  for (const row of voiceRows(packs, () => true)) {
+  checkPackIds(systemPacks)
+  check(language === undefined || typeof language === 'string' && /^[a-z]{2,3}$/.test(language), '$.language')
+  // A copy can add a different language or usage description; show it once per language, preferring a 默认通用声音, then a
+  // described entry.
+  const rank = row => (row.fallback ? 2 : 0) + (row.guidance ? 1 : 0), distinct = new Map()
+  for (const row of voiceRows(packs, systemPacks, voice => language === undefined || castLanguage(voice.language) === language)) {
     const key = JSON.stringify([row.sound, row.language])
-    if (!distinct.has(key) || !distinct.get(key).guidance && row.guidance) distinct.set(key, row)
+    if (!distinct.has(key) || rank(row) > rank(distinct.get(key))) distinct.set(key, row)
   }
   const voices = [...distinct.values()]
   return {voices:voices.slice(0, limit), more:Math.max(0, voices.length - limit)}

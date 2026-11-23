@@ -2,6 +2,21 @@
 const serialized = value => JSON.stringify(value)
 const revision = chat => Number.isSafeInteger(chat?._storageRevision) ? chat._storageRevision : serialized(chat)
 
+/**
+ * Exporting a save only requires a play chat with no live work mutating it right now.
+ * Unlike forking, persisted leftovers from interrupted rounds (a trailing user message,
+ * or stale regenInProgress / settleStatus / pending timeline operations) must not block
+ * exporting a save or a transfer bundle.
+ */
+export function assertGameSaveExportable(chat, options = {}) {
+  if (!chat) throw new Error('找不到要导出的对话')
+  const mode = typeof chat.mode === 'string' && chat.mode ? chat.mode : 'story'
+  if (!['story', 'script'].includes(mode)) throw new Error('只有游玩对话可以导出存档')
+  if (options.agentRunning === true) throw new Error('当前正文仍在生成，请等待完成后再导出')
+  if (options.settlementRunning === true) throw new Error('当前轮次正在状态结算，请等待完成后再导出')
+  return true
+}
+
 /** Read native history before Chat, then verify both after collecting dependencies.
  * Export may run alongside play, but only a stable snapshot can be returned. */
 export function createGameSaveSnapshot({ readChat, readSession, readWorldSnapshot, assertIdle }) {

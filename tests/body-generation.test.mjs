@@ -56,6 +56,20 @@ test('direct generation requires the same durable receipt as frontend-assisted g
   await assert.rejects(f.controller.validateResult(f.session, 2, { text: 'unverified' }), /不可用/)
 })
 
+test('正文生成使用全局设置，旧存档的覆盖项不生效，进行中的回合沿用已选路线', async () => {
+  const f = fixture()
+  f.mutate(chat => Object.assign(chat, {
+    storyGenerationMode: 'plugin-direct', storyGenerationProvider: 'legacy:body', storyPluginOutputRegex: false
+  }))
+  f.configure({ storyGenerationMode: 'host', storyGenerationProvider: 'global:body', storyPluginOutputRegex: true })
+  assert.deepEqual(await f.controller.route('session'), { mode: 'plugin-tool-call', provider: 'fixture:body' })
+  assert.equal(await f.controller.regenerate('session'), null)
+  f.mutate(chat => { chat.foregroundFrames = {} })
+  assert.deepEqual(await f.controller.route('session'), { mode: 'host', provider: 'global:body', hostRegex: true })
+  f.configure({ storyGenerationMode: 'plugin-tool-call', storyGenerationProvider: 'global:other', storyPluginOutputRegex: true })
+  assert.deepEqual(await f.controller.route('session'), { mode: 'plugin-tool-call', provider: 'global:other', hostRegex: true })
+})
+
 test('current turn exports complete history and frozen state; successful duplicate/restart uses durable receipt', async () => {
   let observed
   const f = fixture(async ({ materials }) => { observed = materials; return { text: '<div>完整正文</div>', metadata: { once: 1 } } })

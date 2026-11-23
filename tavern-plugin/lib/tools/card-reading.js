@@ -121,7 +121,7 @@ export function registerCardReadingTools({
 
   tools.register(defineTool({
     name: 'tavern_search_card',
-    description: '在整张人物卡里定位文字：一次搜遍标准字段、开场、内置世界书条目（标题、关键词、正文）、正则和脚本，返回 JSON Pointer、所属条目与上下文片段。要改的内容不确定在哪、或要改多处时先用它定位，再按位置读取或修改：内置世界书条目用 tavern_update_worldbook（entry:N），标准字段用 tavern_update_card 的 fields，其他用 rawOperations。不搜索绑定的独立世界书。',
+    description: '在整张人物卡里定位文字：一次搜遍标准字段、开场、内置世界书条目（标题、关键词、正文）、正则和脚本，返回 JSON Pointer、所属条目与上下文片段。要改的内容不确定在哪、或要改多处时先用它定位，再按位置读取或修改：内置世界书条目用 tavern_update_lorebook（entry:N），标准字段用 tavern_update_card 的 fields，其他用 rawOperations。不搜索绑定的独立世界书。',
     parameters: {
       path: { type: 'string', description: '可选的人物卡相对路径；省略时搜索当前人物卡' },
       query: { type: 'string', required: true, description: '要找的文字；默认按字面匹配，不区分大小写' },

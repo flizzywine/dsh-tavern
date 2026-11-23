@@ -30,7 +30,7 @@ import { buildOutfitPrompt, clampBatchCount, mergeOutfits, parseOutfits } from '
  *   GET  /plugins/dsh-tavern-image/jobs?id=&image=1  查作业 / 取图
  */
 import { createHash, randomUUID, randomInt } from 'node:crypto'
-import { chmod, copyFile, mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises'
+import { chmod, copyFile, lstat, mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { createReadStream } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -45,9 +45,11 @@ import { createComfyProgress } from './comfy-progress.js'
 import { CHARACTER_LIBRARY_VERSION, createCharacterLibrary } from './character-library.js'
 import { createDefinitionsStore } from './definitions-store.js'
 import { libraryImageDetails, libraryPromptFields, libraryPromptOverride } from './library-prompts.js'
+import { OUTFIT_FIELDS, collectOutfitParts, needsOutfitMigration, normalizeOutfitParts } from './outfit-parts.js'
 import { wardrobeSection } from './wardrobe-hints.js'
 import { runCardImage, submitCardImage } from './card-app/generation.js'
 import { cardImageExtension, createCardGallery } from './card-app/gallery.js'
+import { serialQueue } from './card-app/storage.js'
 export { stageImageProvider } from './image-catalog.js'
 import { IMAGE_API_PROTOCOLS, effectiveImageProvider, supportsImageReferences, imageReferenceLimit, imageTransparency } from './image-provider-capabilities.js'
 import { normalizeChannels, publicChannels, activeChannel, channelConfigPatch, migrateLegacyImageConfig } from './image-channels.js'
@@ -72,6 +74,7 @@ import { createFormatWorldbooks } from './format-worldbooks.js'
 import { listDesignGames, resolveDesignSources } from './design-sources.js'
 import { activeArtistText, applyWeights, resolveWeightMode, prepareImagePrompt } from './prompt-assembly.js'
 export { convertWeights, stripWeights, resolveWeightMode } from './prompt-assembly.js'
+import { linkedFigures, withFigurePictures, withoutCopiedFigurePictures, figurePictureSources } from './figure-pictures.js'
 import { normalizeReferenceImage, normalizeConsistencyText, createReferenceImageStore, resolveImageReferences, buildReferenceText, buildStructuredReferenceText, referencePlannerGuidance, referenceScopedDefinitions } from './reference-images.js'
 
 export const name = 'dsh-tavern-image'
@@ -293,7 +296,8 @@ export function pickOutfitForScene(scene, before, after) {
   if (/[\u3400-\u9fff]/.test(String(scene ?? '')) && /[\u3400-\u9fff]/.test(String(before ?? '') + String(after ?? ''))) {
     // 中文画面：数画面描述和换衣前/后的衣服描述有多少相同的两字片段（「吊带」「寝衣」「长裙」）。
     const grams = t => { const s = String(t ?? '').replace(/[^\u3400-\u9fff]/g, ' '); const out = new Set(); for (const w of s.split(/\s+/)) for (let i = 0; i + 1 < w.length; i++) out.add(w.slice(i, i + 2)); return out }
-    const sceneGrams = grams(scene)
+    const worn = String(scene ?? '').split(/[，,；;。！？\n]/).map(part => part.split(/手[里中上]|拿着|捧着|抱着|挂在|放在|递给|脱下的|脱掉的/, 1)[0]).join('。')
+    const sceneGrams = grams(worn)
     const shared = t => { const g = grams(t); let n = 0; for (const x of g) if (sceneGrams.has(x)) n++; return n }
     const sb = shared(before), sa = shared(after)
     if (sb >= sa + 2) return 'before'
@@ -316,8 +320,7 @@ const stripMacros = text => repairMacros(text).replace(MACRO_BLOCK, ' ')
 /** 「当前穿着」记录写的是没穿（全脱了）：什么衣服都不补，也不写 "is wearing naked" 这种句子。 */
 const NOTHING_WORN = /^(?:nude|naked|nothing|no clothes|completely (?:nude|naked))\b|^(?:全裸|裸体|赤裸|一丝不挂|没穿|什么都没穿)/i
 
-/** 通用服装库的字段（跨角色复用的一套衣服）。 */
-const OUTFIT_FIELDS = ['body', 'full', 'bodyBack', 'fullBack', 'negative']
+/** 服装字段（新字段与旧通用库字段）统一由 outfit-parts.js 定义。 */
 
 function referenceFields(raw) {
   const fields = {}
@@ -327,6 +330,7 @@ function referenceFields(raw) {
 }
 
 export function normalizeOutfit(raw, index) {
+  const merged = normalizeOutfitParts(raw ?? {})
   const item = {
     ...referenceFields(raw),
     ...libraryPromptFields(raw),
@@ -335,19 +339,29 @@ export function normalizeOutfit(raw, index) {
     enabled: raw?.enabled !== false,
     ...(raw?.nsfw === true ? { nsfw: true } : {}),
   }
-  for (const key of OUTFIT_FIELDS) item[key] = String(raw?.[key] ?? '')
+  for (const key of OUTFIT_FIELDS) item[key] = String(merged[key] ?? '')
   return item
 }
 
 function sharedOutfitParts(outfit) {
-  return { ...outfit, upper: outfit.upper || outfit.body, back: outfit.back || outfit.fullBack || outfit.bodyBack }
+  // 通用服装与角色服装同构：旧 body/fullBack/bodyBack 在归一化时映射到 upper/back。
+  return normalizeOutfitParts(outfit)
 }
 
-function characterOutfits(person, definitions) {
+// 服装名去掉括号里的这一刻状态：「黑白女仆装（裙摆挽起）」和「黑白女仆装」是同一套。
+const outfitBareName = (value) => String(value ?? '').replace(/[（(][^（）()]*[）)]/g, '').replace(/\s+/g, '')
+
+// 这个人能穿的通用库服装：绑在 outfitRefs 上的，加上宏里点名的那一套。
+// 宏只写服装名时也要能取到通用库；否则名字对不上人物自己的服装，就被当成库外名字整块丢掉。
+function characterOutfits(person, definitions, asked) {
   const owned = person.outfits ?? []
-  if (!person.outfitRefs?.length || !definitions?.outfits?.length) return owned
-  return [...owned, ...definitions.outfits.filter(outfit => outfit?.enabled !== false &&
-    person.outfitRefs.includes(outfit?.id) && !owned.some(item => item.id === outfit.id))
+  const refs = person.outfitRefs ?? []
+  const shared = definitions?.outfits ?? []
+  if (!shared.length) return owned
+  const key = outfitBareName(asked)
+  return [...owned, ...shared.filter(outfit => outfit?.enabled !== false &&
+    (refs.includes(outfit?.id) || (key && outfitBareName(outfit?.name) === key)) &&
+    !owned.some(item => item.id === outfit.id))
     .map(sharedOutfitParts)]
 }
 
@@ -404,6 +418,53 @@ function structuredCharacterNames(definitions, { knownCharacterIds = [], onUnres
   } }
 }
 
+// Shared interaction text stays in the prompt. Only its subject owns state changes.
+function sceneSubjects(characters = []) {
+  const aliases = new Map()
+  for (const person of characters) {
+    if (!person || person.enabled === false) continue
+    for (const name of [person.name, person.promptLabel, ...splitTags(person.match)]) {
+      const key = String(name ?? '').trim().toLowerCase()
+      if (!key || ([...key].length === 1 && !(name === person.name && /\p{Script=Han}/u.test(key)))) continue
+      if (!aliases.has(key)) aliases.set(key, person)
+      else if (aliases.get(key) !== person) aliases.set(key, null)
+    }
+  }
+  return [...aliases].sort(([a], [b]) => b.length - a.length)
+}
+
+function sceneClauses(text, subjects) {
+  let owner = null
+  return String(text ?? '').split(/([，,；;。！？!?…\n]+)/).map((raw, index) => {
+    if (index % 2) {
+      if (/[；;。！？!?…\n]/.test(raw)) owner = null
+      return { raw }
+    }
+    const clause = raw.trim()
+    const leading = subjects.find(([alias]) => clause.toLowerCase().startsWith(alias) && containsNameToken(clause, alias))
+    if (leading) owner = leading[1]
+    const tail = leading ? clause.slice(leading[0].length) : clause
+    if (!owner) return { raw }
+    const foreignOffset = Math.min(tail.length, ...subjects
+      .filter(([alias, person]) => person !== owner && containsNameToken(tail, alias))
+      .map(([alias]) => tail.toLowerCase().indexOf(alias)))
+    // Only an explicit subject may own state before a second named participant.
+    const shared = foreignOffset < tail.length
+    const state = shared && !leading ? '' : tail.slice(0, foreignOffset)
+    const actor = owner
+    if (shared) owner = null
+    return { raw, owner: actor, state: state.trim() }
+  })
+}
+
+function personSceneText(clauses, person) {
+  return clauses.filter(c => c.owner === person).map(c => c.state).join('。')
+}
+
+function commonFraming(clauses) {
+  return clauses.filter(c => !c.owner && (SCENE_CAMERA_ZH.test(c.raw) || SCENE_CAMERA_EN.test(c.raw) || CLOSE_SHOT_EN.test(c.raw))).map(c => c.raw).join('。')
+}
+
 /**
  * 角色 / 服装调用宏（st-chatu8 那种"名字→tag"的机制）：
  *   ${"name":"xiao yu","angle":"from front","upperBody":"sfw"}$
@@ -411,6 +472,17 @@ function structuredCharacterNames(definitions, { knownCharacterIds = [], onUnres
  * 按 angle / upperBody 选择人物库里的可见外貌与服装。结构化句内的简写宏只引用人物，
  * 独立宏仍可描述朝向。库中未登记的人物保留可读称呼。
  */
+export function applyShotOutfits(definitions, subjects = []) {
+  const selection = new Map(subjects.filter(item => item?.characterId && item.outfitId).map(item => [String(item.characterId), String(item.outfitId)]))
+  if (!selection.size) return definitions
+  return { ...definitions, characters: (definitions.characters ?? []).map(person => {
+    const id = selection.get(String(person.id))
+    if (!id) return person
+    const outfit = characterOutfits(person, definitions).find(item => item.enabled !== false && String(item.id) === id)
+    return outfit?.name ? { ...person, current: { outfit: outfit.name } } : person
+  }) }
+}
+
 export function expandRosterCalls(text, scoped, mode, options = {}) {
       // options.onMacro(entry)：诊断用，报告每个宏解析成了谁、哪套衣服、丢掉了哪些负面词。
       const note = (entry) => { if (typeof options?.onMacro === 'function') { try { options.onMacro(entry) } catch {} } }
@@ -430,20 +502,23 @@ export function expandRosterCalls(text, scoped, mode, options = {}) {
       const bareScene = BARE_SCENE.test(stripMacros(text))
       const sceneText = stripMacros(text)
       // 多人场景只有能把句子归到具体角色时才改该角色鞋袜；无法归属就保留服装库内容。
-      const sceneForPerson = person => {
+      const legacySceneForPerson = person => {
         if (personMacroCount === 1) return sceneText
         if (personMacroCount === 0) return ''
         const aliases = [person?.name, ...splitTags(person?.match)].map(v => String(v ?? '').trim()).filter(v => v.length >= 2)
         if (!aliases.length) return ''
         return sceneText.split(/(?<=[。！？!?…\n])/).filter(sentence => aliases.some(alias => sentence.toLowerCase().includes(alias.toLowerCase()))).join(' ')
       }
-      const globalFraming = personMacroCount > 1
-        ? sceneText.split(/(?<=[。！？.!?\n])/).filter(sentence => !(scoped?.characters ?? []).some(person =>
-          [person?.name, ...splitTags(person?.match)].some(alias => containsNameToken(sentence, alias)))).join(' ')
+      const subjects = natural ? sceneSubjects(scoped?.characters) : []
+      const clauses = natural ? sceneClauses(sceneText, subjects) : []
+      const multiplePeople = personMacroCount > 1 || new Set(clauses.map(c => c.owner).filter(Boolean)).size > 1
+      const sceneForPerson = person => natural && multiplePeople ? personSceneText(clauses, person) : legacySceneForPerson(person)
+      const globalFraming = natural && multiplePeople
+        ? commonFraming(clauses)
         : sceneText
-      const barefoot = personMacroCount === 1 && isBarefoot(sceneText)
+      const barefoot = !multiplePeople && personMacroCount === 1 && isBarefoot(sceneText)
       // 服装的「背面」字段只在背影画面里用：画面写着背影，或者同一段里刚调用的人物宏 angle 是背面。
-      const backView = BACK_VIEW.test(sceneText)
+      const backView = BACK_VIEW.test(natural && multiplePeople ? globalFraming : sceneText)
       let lastBack = false
       // 同一角色的不同形态：画面写着某形态的线索（如狐耳狐尾）时，宏改指向那个形态。
       const expanded = resolveCharacterForms(repairMacros(text), scoped, { isCharacterId: names?.isId }).replace(MACRO_BLOCK, (macro, body, offset, prompt) => {
@@ -469,13 +544,14 @@ export function expandRosterCalls(text, scoped, mode, options = {}) {
           }
           const shoesOff = !bareForScope && footwearOverridden(sceneScope, [outfit.upper, outfit.lower, outfit.shoes, outfit.full].join(' '))
           const noShoes = bareForScope || shoesOff
-          const cropped = natural && closeShotScene(sceneScope || globalFraming)
+          const cropped = natural && (closeShotScene(globalFraming) || closeShotScene(sceneScope))
           for (const field of cropped ? ['upper', 'accessory'] : ['upper', 'lower', 'shoes', 'accessory', 'full', 'back']) {
             if (bareForScope && !shoesOff && field === 'shoes') continue
             // 「整体印象」(full) 是给自然语言模型的一句概括；tag 写法里已有上衣下装时它只是噪音。
             if (field === 'full' && !natural && (String(outfit.upper ?? '').trim() || String(outfit.lower ?? '').trim())) continue
-            if (field === 'back' && !(backView || lastBack)) continue
-            const value = noShoes ? dropFootwear(outfit[field], shoesOff) : String(outfit[field] ?? '').trim()
+            if (field === 'back' && !(lastBack || ((!natural || !multiplePeople || !lastPerson) && backView))) continue
+            let value = noShoes ? dropFootwear(outfit[field], shoesOff) : String(outfit[field] ?? '').trim()
+            if (natural && looseHairIn(sceneScope)) value = withoutTiedHair(value)
             if (value && !PLACEHOLDER_VALUE.test(value)) bits.push(value)
           }
           bits.push(...libraryImageDetails(outfit))
@@ -525,7 +601,10 @@ export function expandRosterCalls(text, scoped, mode, options = {}) {
           // 「服装名（状态）」：括号前是服装库里的名字，括号里是这一刻的临时状态（袖子挽起、赤足、沾了土）。
           // 整串拿去对服装库会对不上，于是被当成一句自写描述，模型不知道「常服」长什么样，衣服每张都变。
           const outfitAsked = stripUsualSuffix(parsed.outfit ?? parsed.clothes ?? parsed['服装'])
-          const promptPerson = outfitAsked && person.outfitRefs?.length ? { ...person, outfits: characterOutfits(person, scoped) } : person
+          // 人物自带的服装优先，名字对不上时到通用服装库里找同一套（宏只写服装名的常见写法）。
+          const promptPerson = outfitAsked && (person.outfitRefs?.length || scoped?.outfits?.length)
+            ? { ...person, outfits: characterOutfits(person, scoped, outfitAsked) }
+            : person
           const enabledOutfits = (promptPerson.outfits ?? []).filter((o) => o && o.enabled !== false)
           const exactHit = enabledOutfits.some((o) => o.name === outfitAsked)
           const stated = exactHit ? null : /^(.+?)\s*[（(]([^（()）]*)[）)]\s*$/.exec(outfitAsked)
@@ -550,22 +629,24 @@ export function expandRosterCalls(text, scoped, mode, options = {}) {
           // 标了 nsfw、全身 hidden、画面写着洗澡/裸体/内衣，或者记录本身就是「没穿」时都不补。
           // 宏里明确写的衣服（例如半脱的内衣）不受影响，总是保留。
           const recordedNude = NOTHING_WORN.test(String(person.current?.outfit ?? '').trim())
-          const autoOff = nsfw || hiddenBody || bareScene || recordedNude || unknownOutfit(person.current?.outfit) || unknownOutfit(outfitName)
+          const personScene = sceneForPerson(person)
+          const isBareScene = natural && multiplePeople ? BARE_SCENE.test(personScene) : bareScene
+          const autoOff = nsfw || hiddenBody || isBareScene || recordedNude || unknownOutfit(person.current?.outfit) || unknownOutfit(outfitName)
           let wear = ''
           let wearMoment = ''
           if (!ownsStandalone && !libraryHit) {
             if (macroText) wear = outfitName
             else if (!outfitName && !autoOff && person.current?.outfit) {
               // 这一轮正文里换过衣服：按这张图的画面描述判断是换之前还是换之后。
-              const afterWear = resolveWearText(person, person.current.outfit)
-              const beforeWear = person.current.previous ? resolveWearText(person, person.current.previous) : ''
-              const moment = person.current.previous ? pickOutfitForScene(sceneText, beforeWear || person.current.previous, afterWear) : 'after'
+              const afterWear = resolveWearText(person, person.current.outfit, false, scoped?.outfits)
+              const beforeWear = person.current.previous ? resolveWearText(person, person.current.previous, false, scoped?.outfits) : ''
+              const moment = person.current.previous ? pickOutfitForScene(personScene, beforeWear || person.current.previous, afterWear) : 'after'
               wear = moment === 'before' ? beforeWear : afterWear
               wearMoment = person.current.previous ? moment : ''
             }
           }
           // 服装名后面的状态写着赤足（「常服（裤脚挽起，赤足）」）：这一刻也是光脚。
-          const personScene = sceneForPerson(person)
+
           const stateBare = isBarefoot(outfitState)
           const personBarefoot = isBarefoot(personScene) || stateBare
           const shoesOff = !personBarefoot && footwearOverridden(personScene, personWearText(person, wear))
@@ -575,9 +656,9 @@ export function expandRosterCalls(text, scoped, mode, options = {}) {
           const lowerShot = upper === 'hidden' && lower !== 'hidden'
           // 中文整句、画面是近景/半身/特写：看不到腿和脚，就不写腿型和鞋（写了模型会硬把腿画进来，人被拉长）。
           // 宏里明确标了下身 nsfw 的照常写。
-          const closeShot = natural && closeShotScene(personScene || globalFraming) && lower !== 'nsfw' && !lowerShot
+          const closeShot = natural && (closeShotScene(globalFraming) || closeShotScene(personScene)) && lower !== 'nsfw' && !lowerShot
           if (closeShot && wear) {
-            if (!outfitAsked && person.current?.outfit) wear = resolveWearText(person, person.current[wearMoment === 'before' ? 'previous' : 'outfit'], true)
+            if (!outfitAsked && person.current?.outfit) wear = resolveWearText(person, person.current[wearMoment === 'before' ? 'previous' : 'outfit'], true, scoped?.outfits)
             wear = dropFootwear(wear, false)
           }
           const picked = characterTags(promptPerson, {
@@ -587,6 +668,7 @@ export function expandRosterCalls(text, scoped, mode, options = {}) {
             upper,
             lower,
             full: !closeShot,
+            conciseOutfit: natural && multiplePeople,
             croppedOutfit: closeShot && !(upper === 'nsfw' && lower === 'hidden' && outfitAsked && !tightCropScene(sceneText)),
             barefoot: noShoes || closeShot,
             keepSocks: shoesOff && !closeShot,
@@ -611,10 +693,16 @@ export function expandRosterCalls(text, scoped, mode, options = {}) {
           if (parsed.age ?? parsed['年龄']) extras.age = String(parsed.age ?? parsed['年龄'])
           // 宏里的 "expression"：这一刻的表情和情绪。纯背面看不到脸时不写（会逼模型补脸），背身回头的照写。
           const expression = String(parsed.expression ?? parsed['表情'] ?? '').trim()
-          const backTurn = /回头|回过头|转过头|转过身|侧过脸|侧过身|侧过头|偏过头|扭过头|转过脸|侧脸/.test(sceneText)
+          const backTurn = /回头|回过头|转过头|转过身|侧过脸|侧过身|侧过头|偏过头|扭过头|转过脸|侧脸/.test(natural ? personScene : sceneText)
           if (expression && !PLACEHOLDER_VALUE.test(expression) && !(back && !backTurn) && !lowerShot) extras.expression = expression
-          // 人物库里的招牌发型：这一刻衣服里写了发型、或画面写着散发/湿发时不带。
-          extras.dropHair = hairOverridden(sceneText, [wear, ...(picked.origins ?? []).filter(o => o.outfitId).map(o => o.text)].join(' '))
+          // 发型变化只作用于当前人物。湿发可以仍扎着。
+          if (natural && looseHairIn(personScene)) {
+            wear = withoutTiedHair(wear)
+            for (const origin of picked.origins ?? []) {
+              if (origin.outfitId) origin.text = withoutTiedHair(origin.text)
+            }
+          }
+          extras.dropHair = hairOverridden(personScene, [wear, ...(picked.origins ?? []).filter(o => o.outfitId).map(o => o.text)].join(' '))
           if (natural) bits.push(boundCharacterPhrase(person, picked, extras, wear, style) || (names ? structuredCharacterName(person) || names.unresolved(asked) : person.promptLabel || person.name || asked))
           else {
             if (picked.tags.length) bits.push(...picked.tags)
@@ -841,13 +929,39 @@ function unknownOutfit(value) {
 const HAIR_MARK = /[；;]\s*平时\s*/
 /** 这一刻的衣服描述里写了发型，或画面写着头发散开、湿透：不再带人物库里的招牌发型。 */
 const HAIR_IN_WEAR_ZH = /髻|辫|马尾|束发|束起|挽起|盘起|盘成|挽成|梳成|披发|散发|披散|头发/
-const HAIR_STATE_ZH = /散发|披散|披着头发|散着头发|头发散|松挽|松松挽|散落下来|解开[^。，]{0,4}(?:发|髻)|拆[^。，]{0,3}髻|卸[^。，]{0,3}簪|湿发|湿透的[^。，]{0,6}发|发梢[^。，]{0,4}滴水|头发[^。，]{0,4}湿|(?:长发|头发|黑发|乌发|发丝)[^。，；]{0,2}(?:散|铺|乱|披|垂落)/
-/** 外貌最后一句写的是发型（梳成什么髻、束成马尾）。 */
+const LOOSE_HAIR_ZH = /散发|披发|披散|披着头发|散着头发|散开的(?:头发|长发|黑发)|(?:长发|头发|黑发|乌发|发丝)[^。，；]{0,3}(?:散开|披下|散落|披在)|解开(?:了)?(?:自己的)?(?:发绳|发带|马尾)|拆[^。，]{0,3}髻/
+const TIED_HAIR_ZH = /马尾|双辫|发髻|螺髻|编发|发带|发绳|发圈|丸子头/
+const UNCERTAIN_STATE = /并未|没有|未曾|没(?:有)?(?:扎|解|披|散)|尚未|不曾|想要|打算|准备|要是|如果|仿佛|会不会|是否|本想|想象|梦见/
+const NON_HAIR_DETAIL = /拿|握|抱|拎|递|走|戴|穿|坐|站|帽|鞋|镜|衣|裙|桶|喷雾|项链|耳环|上衣|裤/
+
+function looseHairIn(text) {
+  return String(text ?? '').split(/[。！？；，,\n]+/).some(clause => LOOSE_HAIR_ZH.test(clause) && !UNCERTAIN_STATE.test(clause))
+}
+
+function removeSceneClause(parts, index) {
+  parts[index] = ''
+  if (/^[，,；;]+$/.test(parts[index + 1] ?? '')) parts[index + 1] = ''
+  else if (/^[，,；;]+$/.test(parts[index - 1] ?? '')) parts[index - 1] = ''
+  else if (/^[。！？!?]+$/.test(parts[index + 1] ?? '')) parts[index + 1] = ''
+}
+
+function withoutTiedHair(text) {
+  const parts = String(text ?? '').split(/([，,；;。\n]+)/)
+  for (let index = 0; index < parts.length; index += 2) {
+    const part = parts[index]
+    if (TIED_HAIR_ZH.test(part) && !NON_HAIR_DETAIL.test(part) && !/(?:解开|摘下|取下|手里|手上|放在)/.test(part)) {
+      removeSceneClause(parts, index)
+    }
+  }
+  return parts.join('').trim()
+}
+
+/** 外貌最后一句写的是发型。 */
 const HAIR_STYLE_SENTENCE = /(?:头发|长发|黑发|乌发|发)[^。]*?(?:髻|马尾|辫|束成|盘成|挽成|梳成)/
 /** 发型动词从哪里开始：之前是发色和长短，之后是梳成什么样。 */
 const HAIR_STYLE_VERB = /(?:平时)?(?:在脑后)?(?:高高|松松|斜)?(?:用[^，。]{0,6}?)?(?:束|梳|挽|盘|扎)/
 function hairOverridden(scene, wear) {
-  return HAIR_IN_WEAR_ZH.test(String(wear ?? '')) || HAIR_STATE_ZH.test(String(scene ?? ''))
+  return HAIR_IN_WEAR_ZH.test(String(wear ?? '')) || looseHairIn(scene)
 }
 
 /** 宏里的英文视角词在中文整句里的说法（TA 换成她/他）。 */
@@ -915,10 +1029,31 @@ function chineseCharacterPhrase(person, traits, outfit, extras, wear, look, labe
   return sentences.filter(Boolean).join('。') + '。'
 }
 
-/**
- * 画面里有几个人：取「人物宏里不同的名字数」和「画面里是三个人 / 三女一男」里写的人数中较大的那个。
- */
 const ZH_DIGIT = { 一: 1, 二: 2, 两: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9, 十: 10 }
+const imageAnchorText = value => String(value ?? '').replace(/<\/?[a-zA-Z][^<>]*>/g, '').replace(/[\s*_~\x60#>|\u200b]/g, '')
+
+export function uniqueImageAnchor(body, anchor) {
+  if (anchor.length < 2) return false
+  const first = body.indexOf(anchor)
+  return first >= 0 && body.indexOf(anchor, first + 1) < 0
+}
+
+export function shotConflict(text) {
+  const scene = stripMacros(text)
+  const counts = [...scene.matchAll(/画面(?:里|中)(?:是|有|只有|共有)([一二两三四五六七八九十]|\d+)(?:个人|人|位|名)/g)]
+    .map(match => ZH_DIGIT[match[1]] ?? Number(match[1]))
+  if (new Set(counts).size > 1 || (counts.length && sceneHeadcount(text) > counts[0])) {
+    return '镜头的人物名单与人数句不一致，请核对本图出镜者'
+  }
+  for (const side of ['左', '右']) {
+    const empty = new RegExp('画面' + side + '(?:边|侧|半幅)(?:留出大片|留白|只留|仅留)')
+    const occupied = new RegExp('(?:站|蹲|坐|跪|靠|位于)[^。；，,]{0,10}画面' + side + '(?:边|侧|半幅)')
+    if (empty.test(scene) && occupied.test(scene)) return '画面' + side + '侧同时被指定留空和安排人物，请统一站位'
+  }
+  return ''
+}
+
+/** 取人物宏数量和画面人数描述中较大的那个。 */
 export function sceneHeadcount(text) {
   const raw = String(text ?? '')
   const names = new Set([...repairMacros(raw).matchAll(MACRO_BLOCK)].map(m => {
@@ -1038,11 +1173,19 @@ function outfitDescription(outfit, cropped = false) {
 }
 
 /** 「当前穿着」记录可能是英文描述，也可能是服装库里的名字；是名字就展开成那套衣服。 */
-function resolveWearText(person, text, cropped = false) {
+function resolveWearText(person, text, cropped = false, sharedOutfits = []) {
   const value = String(text ?? '').trim()
   if (!value || NOTHING_WORN.test(value) || unknownOutfit(value)) return ''
   const n = v => String(v ?? '').toLowerCase().replace(/[\s_\-.'"（）()]+/g, '').replace(/常穿$/, '')
-  const find = piece => (person?.outfits ?? []).find(o => o && o.enabled !== false && n(o.name) && n(o.name) === n(piece))
+  // 先找他自己的服装，再找通用服装库：正文里写「换上黑白女仆装」这种通用库名字也要能展开。
+  const find = piece => {
+    const key = n(piece)
+    if (!key) return null
+    const owned = (person?.outfits ?? []).find(o => o && o.enabled !== false && n(o.name) && n(o.name) === key)
+    if (owned) return owned
+    const external = (sharedOutfits ?? []).find(o => o && o.enabled !== false && n(o.name) && n(o.name) === key)
+    return external ? sharedOutfitParts(external) : null
+  }
   const whole = find(value)
   if (whole) return outfitDescription(whole, cropped) || (!cropped && libraryPromptOverride(whole) === null ? value : '')
   // 中文人物的「当前穿着」记录本身就是一句中文描述：整句保留，不按逗号拆。
@@ -1117,24 +1260,20 @@ function characterTags(character, options = {}) {
       tags.push(outfitPrompt)
       origins.push({ field: 'outfit.imagePrompt', outfitId: outfit.id, text: outfitPrompt })
     }
-    for (const key of outfitPrompt === null ? ['upper', 'lower', 'shoes', 'accessory', 'full'] : []) {
-      // 宏里标了 hidden 或 nsfw 的部位，对应的衣服不写：hidden 是出了画框，nsfw 是那个部位露着，
-      // 写上衣或裤子会让模型把衣服画回去。半身、近景（只有下身 hidden）照样写下装，
-      // 不写的话模型常把下摆画到大腿、下面却什么都没穿；鞋照旧不写。
-      if (key === 'shoes' && (lowerPart === 'hidden' || lowerPart === 'nsfw')) continue
-      if (key === 'lower' && (lowerPart === 'nsfw' || (lowerPart === 'hidden' && upperPart === 'hidden'))) continue
-      if (key === 'upper' && (upperPart === 'hidden' || upperPart === 'nsfw')) continue
-      // full 是整套打扮的总述，任何一个部位裸露或出框都不能再用它，否则会画出「裸体但穿着夏日休闲装」。
-      if (key === 'full' && (upperPart === 'hidden' || upperPart === 'nsfw' || lowerPart === 'hidden' || lowerPart === 'nsfw')) continue
-      if (options.croppedOutfit && ['lower', 'shoes', 'full'].includes(key)) continue
-      if (options.barefoot && !options.keepSocks && key === 'shoes') continue
-      if (key === 'full' && options.tags && (String(outfit.upper ?? '').trim() || String(outfit.lower ?? '').trim())) continue
-      const value = options.barefoot ? dropFootwear(outfit[key], options.keepSocks) : String(outfit[key] ?? '').trim()
-      if (value && !PLACEHOLDER_VALUE.test(value)) { tags.push(value); origins.push({ field: 'outfit.' + key, outfitId: outfit.id, text: value }) }
-    }
-    if (!options.croppedOutfit && outfitPrompt === null && options.back === true && String(outfit.back ?? '').trim()) {
-      tags.push(String(outfit.back).trim())
-      origins.push({ field: 'outfit.back', outfitId: outfit.id, text: String(outfit.back).trim() })
+    // 部位规则只有一份（lib/outfit-parts.js）：通用服装和角色自带服装走完全相同的展开路径。
+    if (outfitPrompt === null) for (const piece of collectOutfitParts(outfit, {
+      mode: options.tags ? 'tags' : 'natural',
+      upper: upperPart,
+      lower: lowerPart,
+      back: options.back === true,
+      cropped: options.croppedOutfit === true,
+      barefoot: options.barefoot === true,
+      keepSocks: options.keepSocks === true,
+      conciseOutfit: options.conciseOutfit === true,
+      dropFootwear,
+    })) {
+      tags.push(piece.text)
+      origins.push({ field: 'outfit.' + piece.field, outfitId: outfit.id, text: piece.text })
     }
     if ([upperPart, lowerPart].includes('sfw')) for (const text of libraryImageDetails(outfit)) {
       tags.push(text)
@@ -1247,7 +1386,7 @@ export function apply(ctx, config = {}) {
           }
           // Tavern's own picture requests (stage asset packs) run on the current online channel.
           if (typeof tavern.imageProvider === 'function') {
-            const provider = stageImageProvider(() => engine.currentConfig(), undefined, { definitions: () => engine.currentDefinitions(), readReference: reference => engine.readReference(reference),
+            const provider = stageImageProvider(() => engine.currentConfig(), undefined, { definitions: () => engine.pictureDefinitions(), readReference: reference => engine.readReference(reference),
               workflows: () => engine.comfyModels(), generateComfy: request => engine.generateComfyAsset(request),
               templates: () => engine.templateModels(), generateTemplate: request => engine.generateTemplateAsset(request) })
             const off = tavern.imageProvider(provider)
@@ -1355,11 +1494,36 @@ function createRuntime(ctx, overrides, logger, deps) {
     config.workflows = await scanWorkflows(config)
     const promptRevision = () => createHash('sha256').update(JSON.stringify([config.promptPresets, config.promptDefault, config.activePromptPreset, config.promptEntries])).digest('hex')
     let definitions = await loadDefinitions()
-    const definitionStore = createDefinitionsStore({ initial: definitions, persist: saveDefinitions, onCommit: next => { definitions = next } })
-    const referenceStore = createReferenceImageStore(join(ROOT, 'reference-images'), { maxBytes: 32 * 1024 * 1024 })
+    // Every save goes through Tavern's linked figures first: a linked record's name, 触发词 and outfit names are that figure's.
+    const definitionStore = createDefinitionsStore({ initial: definitions, persist: saveDefinitions, onCommit: next => { definitions = next },
+      commit: (previous, value, save) => saveLinkedNames(deps.tavern, previous, value, save) })
+    const referenceStore = createReferenceImageStore(join(ROOT, 'reference-images'), { maxBytes: 32 * 1024 * 1024, refreshUploadTime: true })
+    const referenceWrites = serialQueue()
+    const putReferenceImage = input => referenceWrites(() => referenceStore.put(input))
+    // A linked figure's 设定图 and borrowed 立绘 stay in the host's asset library (figure-pictures.js): each picture reads
+    // them there, and their bytes enter this store (named by sha256, like any 参考图) when a picture or the page first uses them.
+    const lentFrom = new Map()
+    async function lentPictures(defs) {
+      const figures = linkedFigures(defs)
+      if (!figures.length || typeof deps.tavern?.figurePictures !== 'function') return []
+      const rows = await deps.tavern.figurePictures({ figures })
+      for (const [id, at] of figurePictureSources(rows)) lentFrom.set(id, at)
+      return rows
+    }
+    const currentFigurePictures = defs => typeof deps.tavern?.figurePictures === 'function' ? withoutCopiedFigurePictures(defs) : defs
+    const lendFigurePictures = async defs => withFigurePictures(currentFigurePictures(defs), await lentPictures(defs))
+    async function storeLentPicture(image) {
+      const at = lentFrom.get(image?.id)
+      if (!at) return
+      try { await referenceStore.readById(image.id); return } catch (error) { if (error.code !== 'REFERENCE_IMAGE_MISSING') throw error }
+      const { data, mediaType } = await deps.tavern.readFigurePicture({ ...at, id: image.id })
+      await putReferenceImage({ data: Buffer.from(data).toString('base64'), mediaType, name: image.name || image.id })
+    }
+    let referenceGcPreview
     const characterLibrary = createCharacterLibrary({
-      getDefinitions: () => definitions, updateDefinitions: change => definitionStore.update(change),
-      normalizeCharacter, traitKeys: CHARACTER_TRAITS.map(([key]) => key), putImage: input => referenceStore.put(input), readImage: reference => referenceStore.read(reference),
+      getDefinitions: () => definitions,
+      updateDefinitions: change => definitionStore.update(change, { failIfBusy: deps.tavern?.writingFigureRecords?.() === true }),
+      normalizeCharacter, traitKeys: CHARACTER_TRAITS.map(([key]) => key), putImage: putReferenceImage, readImage: reference => referenceStore.read(reference),
     })
     let workflows = []
     const jobs = new Map()
@@ -1494,6 +1658,9 @@ function createRuntime(ctx, overrides, logger, deps) {
           const ordered = [...jobs.entries()]
             .filter(([, job]) => !job.fromCache)
             .sort((a, b) => (a[1].createdAt || 0) - (b[1].createdAt || 0))
+          for (const [, job] of ordered) {
+            if (['done', 'failed', 'cancelled'].includes(job.state)) diag.finishJob(job.id)
+          }
           const needsTracking = job => ['pending', 'running', 'uncertain'].includes(job.state) || job.requestMayHaveSucceeded === true || job.cancelMayHaveContinued === true || (job.state === 'cancelled' && job.requestStarted === true)
           // Never evict a live/uncertain paid request in favor of newer history.
           const archived = job => job.favorite || job.trashedAt
@@ -1520,6 +1687,7 @@ function createRuntime(ctx, overrides, logger, deps) {
               channelEndpoint: job.channelEndpoint ?? '', comfyEndpoint: job.comfyEndpoint ?? '',
               providerTaskProvider: job.providerTaskProvider ?? '',
               characterSnapshot: job.characterSnapshot ?? null, comfySimple: job.comfySimple ?? null,
+              comfyRecipe: job.comfyRecipe ?? null,
               generationMode: job.generationMode ?? 'text', requestedGenerationMode: job.requestedGenerationMode ?? job.generationMode ?? 'text', generationModeReason: job.generationModeReason ?? '', promptMode: job.promptMode,
               referenceSnapshot: job.referenceSnapshot ?? null, submittedPrompt: job.submittedPrompt ?? '', promptAssembly: job.promptAssembly ?? null,
               cardPositive: job.cardPositive, cardNegative: job.cardNegative, cardCharacterPrompts: job.cardCharacterPrompts, cardPreset: job.cardPreset, cardSeedSupported: job.cardSeedSupported,
@@ -1883,6 +2051,7 @@ function createRuntime(ctx, overrides, logger, deps) {
                   logger.warn?.(`dsh-tavern-image: 作业 ${job.id.slice(0, 8)} 出了全黑图，换种子重画（第 ${job.blankRetries} 次）`)
                   diag.recordJob(job.id, 'blank-image-retry', { attempt: job.blankRetries, oldSeed: job.seed, seed })
                   job.seed = seed
+                  if (job.comfyRecipe) job.comfyRecipe = { ...job.comfyRecipe, graph: prompt, seed }
                   job.comfyId = randomUUID()
                   job.state = 'pending'
                   job.percent = 0
@@ -2217,7 +2386,9 @@ function createRuntime(ctx, overrides, logger, deps) {
             ? referenceScopedDefinitions(referenceState.definitions, referenceState.references, { subjects: referenceState.subjects, markers: false })
             : referenceState.definitions
         } else {
+          scopedDefs = await lendFigurePictures(scopedDefs)
           const selected = resolveImageReferences({ text: params.rawTag, characters: params.characters, subjects, definitions: scopedDefs })
+          for (const reference of selected.references) await storeLentPicture(reference.image)
           scopedDefs = referenceScopedDefinitions(scopedDefs, selected.references, { subjects: selected.subjects, markers: !prose })
           referenceState = { version: prose ? 2 : 1, ...selected, definitions: structuredClone(scopedDefs) }
         }
@@ -2285,8 +2456,11 @@ function createRuntime(ctx, overrides, logger, deps) {
         compileParams.rawTag = text
         compileParams.referenceText = ''
       }
-      const compiled = workflow ? compileJob({ workflow, params: compileParams, config: compileConfig, definitions: scopedDefs, onStage })
+      let compiled = workflow ? compileJob({ workflow, params: compileParams, config: compileConfig, definitions: scopedDefs, onStage })
         : compileChannelJob({ params: compileParams, config: jobConfig, definitions: scopedDefs, channel, onStage })
+      if (rawParams?.frozenComfy) {
+        compiled = applyFrozenComfyRecipe(compiled, rawParams.frozenComfy, compileConfig.weightMode)
+      }
       if (referenceState?.sourceImages) {
         normalizeImageMentions(compiled.positive, referenceState.references.length)
       }
@@ -2342,11 +2516,12 @@ function createRuntime(ctx, overrides, logger, deps) {
       }
       const control = new AbortController()
       const job = {
-        id: (cardRequest ? 'card-' : '') + randomUUID(), comfyId: channel ? null : randomUUID(), workflowId: workflow?.id ?? '', outputNode: workflow?.outputNode,
+        id: (cardRequest ? 'card-' : '') + randomUUID(), comfyId: channel ? null : randomUUID(), workflowId: workflow?.id ?? '', outputNode: rawParams?.frozenComfy?.outputNode ?? workflow?.outputNode,
         backend: channel?.provider ?? 'comfyui', channelId: channel?.id ?? '', channelName: channel?.name ?? '',
         channelEndpoint: channel ? channelEndpointOf(channel) : '', comfyEndpoint: endpointOf(jobConfig.comfyUrl),
         state: 'pending', percent: 0, seed: compiled.seed, createdAt: Date.now(), queryAt: 0, requestStarted: false,
         params: { ...params }, key, size: compiled.size, hits: compiled.hits,
+        comfyRecipe: workflow && generationMode === 'text' ? makeComfyRecipe(workflow, compiled, rawParams?.frozenComfy) : null,
         generationMode, requestedGenerationMode, generationModeReason, promptMode: compiled.promptMode, promptAssembly: compiled.promptAssembly ?? null,
         referenceSnapshot: referenceState,
         promptSystem: jobConfig.promptSystem || 'workbench', promptTemplate: jobConfig.promptSelectionTemplate || null,
@@ -2391,7 +2566,7 @@ function createRuntime(ctx, overrides, logger, deps) {
           const patched = applyComfyReferenceImages({ ...workflow, prompt: compiled.prompt }, imageNames)
           compiled.prompt = patched.prompt
         }
-        if (compiled?.prompt) blankRetry.set(job.id, { prompt: compiled.prompt, seedBindings: workflow?.bindings?.seed ?? [] })
+        if (compiled?.prompt && !rawParams?.frozenComfy) blankRetry.set(job.id, { prompt: compiled.prompt, seedBindings: workflow?.bindings?.seed ?? [] })
         job.comfyId = await submitToComfy(compiled, job, async () => {
           job.requestStarted = true
           try { await persistJobs({ required: true }) }
@@ -2515,8 +2690,9 @@ function createRuntime(ctx, overrides, logger, deps) {
       return revised.slice(0, 12000)
     }
 
-    async function startReplacement({ sourceJobId, prompt, characters = [], negative, channelId, sessionId, turn, textVersion, generationMode, refreshReferences = false, acceptUncertain = false } = {}) {
+    async function startReplacement({ sourceJobId, prompt, characters = [], negative, channelId, sessionId, turn, textVersion, generationMode, refreshReferences = false, acceptUncertain = false, sameSeed = false } = {}) {
       const source = getJob(String(sourceJobId || ''))
+      if (source?.fromCache) await hydrateLegacyJob(source)
       if (!source) throw Object.assign(new Error('找不到这张图片的源作业'), { submissionNotStarted: true })
       if (!acceptUncertain && (source.state === 'uncertain' || source.cancelMayHaveContinued
         || (source.requestMayHaveSucceeded && !['done', 'failed'].includes(source.state)))) {
@@ -2533,36 +2709,44 @@ function createRuntime(ctx, overrides, logger, deps) {
       const hasStructuredPrompt = /<scene_composition|<character_\d/i.test(submitted)
       const blocks = hasStructuredPrompt ? parsePromptsBlock(submitted) : null
       const rawTag = blocks ? blocks.scene : submitted
+      if (source.promptMode === 'natural' && prompt != null) {
+        const issue = shotConflict(rawTag)
+        if (issue) throw Object.assign(new Error(issue), { submissionNotStarted: true, code: 'IMAGE_PLAN_CONFLICT' })
+      }
       const originalPrompt = source.params?.rawTag ?? source.params?.tag ?? ''
       const replacedPrompt = prompt != null && submitted !== originalPrompt
       const characterSource = blocks ? blocks.characters
         : replacedPrompt || characters.length ? characters : source.params?.characters
-      if (!rawTag.trim() && !(Array.isArray(characterSource) && characterSource.length)) throw Object.assign(new Error('原作业没有可用提示词'), { submissionNotStarted: true })
+      if (!rawTag.trim() && !(Array.isArray(characterSource) && characterSource.length)) throw Object.assign(new Error('旧图未找到可恢复的原始提示词，请输入新提示词后重绘'), { submissionNotStarted: true })
       const sourceContextMatches = source.gameId === session && Number(source.turn) === Number(turn) && source.textVersion === textVersion
       let characterSnapshot = sourceContextMatches ? source.characterSnapshot : null
       if (!characterSnapshot && textVersion && typeof deps.tavern?.readTurnData === 'function') {
         try {
           const saved = await deps.tavern.readTurnData({ gameId: session, turn: Number(turn) })
           if (saved?.textVersion === textVersion && saved?.data) characterSnapshot = saved.data
-        } catch {}
+        } catch (error) { logger.warn?.('读取重绘穿搭历史失败：' + (error?.message ?? error)) }
       }
       let card
       try { card = await currentCard(session, turn) }
       catch (error) { error.submissionNotStarted = true; throw error }
       const defs = applyCharacterSnapshot(definitions, characterSnapshot)
-      const scoped = card ? { ...defs, characters: scopeCharacters(defs.characters, card) } : defs
+      const subjects = refreshReferences && replacedPrompt ? undefined : source.params?.subjects
+      const scoped = applyShotOutfits(card ? { ...defs, characters: scopeCharacters(defs.characters, card) } : defs, subjects)
       const keepComfySource = source.backend === 'comfyui' && jobConfig.imageBackend === 'comfyui'
       if (keepComfySource && source.workflowId?.startsWith('simple-')) throw Object.assign(new Error('该作业来自已停用的 ComfyUI 简易模式；原数据已保留，请导入完整 ComfyUI API workflow 后再重绘'), { submissionNotStarted: true, code: 'COMFY_SIMPLE_RETIRED' })
       const workflow = keepComfySource ? workflows.find(item => item.id === source.workflowId && !item.error) : null
       if (keepComfySource && source.workflowId && !workflow) {
         throw Object.assign(new Error('原 ComfyUI 工作流已不存在；请在控制台选择其他渠道后重绘'), { submissionNotStarted: true })
       }
+      const storedRecipe = sameSeed && keepComfySource && mode === 'text' ? source.comfyRecipe : null
+      if (sameSeed && !storedRecipe) throw Object.assign(new Error('这张图无法锁定原始文生图工作流，请使用普通重绘'), { submissionNotStarted: true, code: 'FIXED_RECIPE_UNAVAILABLE' })
+      const redrawTrace = diag.begin({ kind: 'singleRedraw', turn: Number(turn) || null, manual: true, sameSeed: Boolean(storedRecipe) })
       let fresh
       try {
         fresh = await startJob({
           tag: mode === 'reference' ? rawTag : normalizePrompts(expandRosterCalls(rawTag, scoped, jobConfig.traitMode, { style: rosterStyle(jobConfig, workflow ?? styleWorkflow(jobConfig)) }), scoped, { backend: effectiveConfiguredProvider(jobConfig), style: rosterStyle(jobConfig, workflow ?? styleWorkflow(jobConfig)), allowChinese: chineseAllowed(jobConfig, workflow ?? styleWorkflow(jobConfig)) }),
           rawTag, generationMode: mode,
-          subjects: refreshReferences && submitted !== (source.params?.rawTag ?? source.params?.tag) ? undefined : (source.params?.subjects?.length ? source.params.subjects : undefined),
+          subjects: subjects?.length ? subjects : undefined,
           characters: characterSource,
           artist: source.params?.artist,
           promptUsage: source.params?.promptUsage,
@@ -2576,15 +2760,17 @@ function createRuntime(ctx, overrides, logger, deps) {
           model: workflow ? workflow.id : source.params?.model || '',
           steps: source.params?.steps,
           cfg: source.params?.cfg,
+          seed: storedRecipe?.seed,
+          frozenComfy: storedRecipe,
           characterSnapshot,
           textVersion,
           sessionId: session, turn,
           key: 'media-replacement:' + randomUUID(),
-        }, { label: '单图重绘', jobConfig, forceWorkflow: workflow || null, referenceSnapshot: frozenReferences, cardRequest: jobSource(source) === 'card' })
+        }, { label: '单图重绘', jobConfig, forceWorkflow: workflow || null, referenceSnapshot: frozenReferences, cardRequest: jobSource(source) === 'card', diagTrace: redrawTrace ? { traceId: redrawTrace, imageIndex: 1 } : null })
       } catch (error) {
         if (error.requestMayHaveSucceeded !== true) error.submissionNotStarted = true
         throw error
-      }
+      } finally { diag.end(redrawTrace) }
       return { jobId: fresh.id }
     }
 
@@ -2987,12 +3173,18 @@ function createRuntime(ctx, overrides, logger, deps) {
       const plannerBackend = promptBackendContext(plannerConfig, plannerWorkflow)
       const plannerMode = resolvePromptMode(plannerConfig, plannerBackend)
       const card = await currentCard(sessionId, turn)
-      const timelineDefinitions = applyCharacterSnapshot(definitions, historySnapshot)
-      let visualSnapshot = historySnapshot ?? emptyCharacterSnapshot()
-      const scoped = {
+      let visualSnapshot = { ...(historySnapshot ?? emptyCharacterSnapshot()), turn: Number(turn) || 0 }
+      const timelineDefinitions = applyCharacterSnapshot(definitions, visualSnapshot)
+      const norm = value => String(value ?? '').toLowerCase().replace(/[\s_\-.'"（）()]+/g, '')
+      const registered = scopeCharacters(timelineDefinitions.characters, card)
+      const packCharacters = imageGeneration && sessionId && Number.isSafeInteger(turn)
+        ? (await deps.tavern?.imagePackCharacters?.({ gameId: sessionId, turn }) ?? []).filter(person =>
+          !registered.some(record => record.figureId === person.figureId && record.figurePackId === person.figurePackId || norm(record.name) === norm(person.name)))
+        : []
+      const scoped = await lendFigurePictures({
         ...timelineDefinitions,
-        characters: scopeCharacters(timelineDefinitions.characters, card),
-      }
+        characters: [...registered, ...packCharacters],
+      })
       const plannerMaterials = selectPromptMaterials(plannerInputs.structure, scoped, { usage: trial?.usage,
         subjects: trial?.subjects, mode: plannerMode, traitMode: cfg.traitMode })
       if (plannerMaterials.warnings.length) throw new Error(plannerMaterials.warnings.join('；'))
@@ -3011,13 +3203,11 @@ function createRuntime(ctx, overrides, logger, deps) {
       }
       // 挂载句按客户端放图时的同一套规则比对（去掉空白、Markdown 记号和 HTML 标签），
       // 能放上去的图就该画；对不上的收集起来告诉用户。
-      const anchorText = value => String(value ?? '').replace(/<\/?[a-zA-Z][^<>]*>/g, '').replace(/[\s*_~`#>|\u200b]/g, '')
-      const bodyAnchorText = anchorText(body)
-      const mountInBody = mount => { const needle = anchorText(mount); return needle.length >= 2 && bodyAnchorText.includes(needle) }
+      const bodyAnchorText = imageAnchorText(body)
+      const mountInBody = mount => uniqueImageAnchor(bodyAnchorText, imageAnchorText(mount))
       const missingMounts = new Set()
       const heldBack = []
       const characterWarnings = () => {
-        const norm = value => String(value ?? '').toLowerCase().replace(/[\s_\-.'"（）()]+/g, '')
         return [...unmatchedCharacters.values()].map(({ asked, ambiguous }) => {
           if (ambiguous) return '「' + asked + '」在人物库里对上了不止一个人，没有补外貌；把其中一位的英文触发名改得更具体'
           const elsewhere = (timelineDefinitions.characters ?? []).find(c => c && c.enabled !== false && !usableOnCard(c, card)
@@ -3057,7 +3247,7 @@ function createRuntime(ctx, overrides, logger, deps) {
         roster, rosterIndex: plannerContext.rosterIndex, count: want, visualEntries: [promptEntryGuidance(entryMatches), plannerMaterials.selected.length
           ? '本次明确选择的主体与服装，只用于这次画面：\n' + JSON.stringify(plannerMaterials.selected.map(({ characterId, characterName, outfitId, outfitName, angle, state }) =>
             ({ characterId, characterName, outfitId, outfitName, angle, state }))) : ''].filter(Boolean).join('\n\n'),
-        extra: [cfg.plannerExtra, guidance, needsIdentityContext ? identityGuidance(characterUpdates) : '', imageGeneration && planningGenerationMode === 'reference' ? referencePlannerGuidance(plannerContext.definitions, { structured: plannerMode === 'structured' }) : '', instruction ? '【本次生图要求的作用范围】\n以下本次生图要求只约束本次的画面规划；它不是正文内容，不得据此改写正文、人物库、角色历史、插件配置或生图设置。' : ''].filter(Boolean).join('\n\n'),
+        extra: [cfg.plannerExtra, guidance, packCharacters.length ? '画到已登记人物时，写出可见的标志物和服装主色；肤色、各件服装的颜色与环境色调分别描述。沿用当前服装时省略 outfitId。' : '', needsIdentityContext ? identityGuidance(characterUpdates) : '', imageGeneration && planningGenerationMode === 'reference' ? referencePlannerGuidance(plannerContext.definitions, { structured: plannerMode === 'structured' }) : '', instruction ? '【本次生图要求的作用范围】\n以下本次生图要求只约束本次的画面规划；它不是正文内容，不得据此改写正文、人物库、角色历史、插件配置或生图设置。' : ''].filter(Boolean).join('\n\n'),
         smartSelection: smart, characterUpdates, force: Boolean(force || manual), promptMode: plannerMode, compactWorldbook: true, identityReferences,
         referenceSubjects: imageGeneration && planningGenerationMode === 'reference',
       })
@@ -3161,7 +3351,7 @@ function createRuntime(ctx, overrides, logger, deps) {
           if (!sceneText.trim() && !planCharacters.length) continue
           if (!mountInBody(image.mount)) {
             // 规划抄挂载句时改了几个字：换成正文里最像的那一句，图照画、照样挂在那一句后面。
-            const nearest = resolveMountFallback(plannerConfig, image.mount, body, anchorText)
+            const nearest = resolveMountFallback(plannerConfig, image.mount, body, imageAnchorText)
             if (nearest && mountInBody(nearest)) image = { ...image, mount: nearest, mountAsked: image.mount }
             else {
               // 以前逐字比对、静默跳过：规划少抄一个 * 或换行就整张图不画，全部跳过时还报成「没有返回可用的 <image> 块」。
@@ -3172,7 +3362,9 @@ function createRuntime(ctx, overrides, logger, deps) {
           }
           // 中文自然语言：画面没写时间时从正文状态栏补一句（夜里补「窗外漆黑」）；三个人以上把竖图改成横图。
           if (rosterStyle(plannerConfig, plannerWorkflow) === 'natural' && chineseAllowed(plannerConfig, plannerWorkflow)) {
-            const timed = addSceneTime(image.prompts, body, image.mount)
+            const issue = shotConflict(sceneText)
+            if (issue) { heldBack.push(issue); continue }
+            const timed = addSceneTime(sceneText, body, image.mount)
             const size = crowdSize(image.size, image.prompts)
             if (timed !== image.prompts || size !== String(image.size ?? '').trim()) image = { ...image, prompts: timed, size, sizeAsked: image.size }
             sceneText = String(image.prompts ?? '')
@@ -3202,7 +3394,26 @@ function createRuntime(ctx, overrides, logger, deps) {
             }
             if (submissionStopped || (smart && (!decisionFrozen || streamDecision !== 'draw' || streamConflict))) return
             const latest = sessionId && typeof deps.tavern?.beforeImageGenerate === 'function' ? applyCharacterSnapshot(definitions, visualSnapshot) : null
-            const pictureScope = latest ? { ...latest, characters: scopeCharacters(latest.characters, card) } : scoped
+            const pictureScope = applyShotOutfits(latest ? { ...latest, characters: [...scopeCharacters(latest.characters, card), ...packCharacters] } : { ...scoped }, image.subjects)
+            const subjectsWithPackIds = image.subjects?.map(subject => {
+              if (subject.characterId || !subject.name || subject.outfitId) return subject
+              const matches = packCharacters.filter(person => [person.name, ...splitTags(person.match)].some(alias => norm(alias) === norm(subject.name)))
+              return matches.length === 1 ? { characterId: matches[0].id } : subject
+            })
+            let pictureSubjects = packCharacters.length ? resolveImageReferences({ text: sceneText, characters: planCharacters, subjects: subjectsWithPackIds, definitions: pictureScope }).subjects : image.subjects
+            const selected = pictureSubjects?.filter(subject => packCharacters.some(person => person.id === subject.characterId)) ?? []
+            const packFacts = []
+            if (selected.length) {
+              const dressed = await deps.tavern.imagePackCharacters({ gameId: sessionId, turn, anchor: image.mount, subjects: selected, includeReferences: false })
+              for (const { id, name, consistencyText, outfitId } of dressed) {
+                const person = pictureScope.characters.find(item => item.id === id)
+                const outfit = person.outfits.find(item => item.id === outfitId)
+                if (!outfit) continue
+                const identity = person.traits?.face || consistencyText
+                if (identity || outfit.upper) packFacts.push([name, identity && `外观：${identity}`, outfit.upper && `服装：${outfit.upper}`].filter(Boolean).join('；'))
+                pictureSubjects = pictureSubjects.map(subject => subject.characterId === id ? { ...subject, outfitId } : subject)
+              }
+            }
             const key = ('plan|' + planningGenerationMode + '|' + (manualBatch ? 'manual:' + manualBatch + '|' : '') + (messageId ?? '') + '|' + image.mount + '|' + promptIdentity).slice(0, 3800)
             const imageIndex = ++traceImageIndex
             const macros = traceId ? [] : null
@@ -3215,7 +3426,8 @@ function createRuntime(ctx, overrides, logger, deps) {
             }
             // Reference jobs must expand against the per-picture reference scope,
             // not the full library here (which would reintroduce conflicting traits).
-            const normalizedTag = planningGenerationMode === 'reference' ? sceneText : expandOne(sceneText, true)
+            const groundedScene = packFacts.length ? sceneText + '\n\n【已登记的人物外观与服装】\n' + packFacts.join('\n') : sceneText
+            const normalizedTag = planningGenerationMode === 'reference' ? groundedScene : expandOne(groundedScene, true)
             const ambiguous = ambiguousAliases(pictureScope.characters)
             for (const [key, alias] of ambiguous) {
               // A shared short name inside a unique full name isn't an unresolved mention.
@@ -3236,8 +3448,8 @@ function createRuntime(ctx, overrides, logger, deps) {
             }
             const job = await startJob({
               tag: normalizedTag,
-              rawTag: sceneText, negative: image.negative || '', characters, subjects: image.subjects, generationMode: plannedJobMode, size: image.size, key, sessionId, turn, textVersion, characterSnapshot: visualSnapshot,
-            }, { label: 'agent 规划', jobConfig: planningJobConfig, diagTrace: traceId ? { traceId, imageIndex } : null })
+              rawTag: groundedScene, negative: image.negative || '', characters, subjects: pictureSubjects, generationMode: plannedJobMode, size: image.size, key, sessionId, turn, textVersion, characterSnapshot: visualSnapshot,
+            }, { label: 'agent 规划', jobConfig: planningJobConfig, jobDefinitions: selected.length ? pictureScope : undefined, diagTrace: traceId ? { traceId, imageIndex } : null })
             if (traceId) diag.record(traceId, 'image-job', { jobId: job.id, status: job.status }, { imageIndex })
             // startJob 返回的是 publicJob，size 已经是 "896x1152" 这样的文字。
             const item = { ...image, jobId: job.id, status: job.status, sizeText: sizeLabel(job.size) }
@@ -3354,18 +3566,22 @@ function createRuntime(ctx, overrides, logger, deps) {
       if (task.controller.signal.aborted) {
         const error = task.controller.signal.reason || new Error('规划被取消')
         finishTask(task, error)
+        diag.end(traceId)
         throw error
       }
       if (imageGeneration && !skipped && !plans.length && missingMounts.size) failure ||= new Error('规划给的挂载句在正文里都找不到（例如「' + [...missingMounts][0] + '」），没有画图；可以重新配图')
-      if (imageGeneration && !skipped && !plans.length) failure ||= new Error('模型没有返回可用的 <image> 块')
+      if (imageGeneration && !skipped && !plans.length) failure ||= new Error(heldBack[0] || '模型没有返回可用的 <image> 块')
       if (smart && parsed.decision === 'draw' && !plans.length) failure ||= new Error('选择配图后没有返回可用的 <image> 块')
       finishTask(task, failure)
-      if (traceId) diag.record(traceId, 'planner-finished', { plans: plans.map(p => ({ jobId: p.jobId, status: p.status })), skipped, error: failure ? String(failure?.message ?? failure) : null })
+      if (traceId) {
+        diag.record(traceId, 'planner-finished', { plans: plans.map(p => ({ jobId: p.jobId, status: p.status })), skipped, error: failure ? String(failure?.message ?? failure) : null })
+        diag.end(traceId)
+      }
       logger.info?.('dsh-tavern-image: 规划用了 ' + ((Date.now() - started) / 1000).toFixed(1) + 's，已提交 ' + plans.length + ' 张'
         + (result.usage ? '（token ' + result.usage.inputTokens + '+' + result.usage.outputTokens + '）' : ''))
 
       const characterSnapshot = characterUpdates ? visualSnapshot : null
-      const plan = { messageId: String(messageId ?? ''), turn, generationMode: planningGenerationMode, promptMode: plannerMode, templateKey, at: Date.now(), plans, skipped, reason: parsed.reason, characterSnapshot, historyWarning, raw: plans.length ? '' : String(result.text || streamed).slice(0, 4000), card: card?.name ?? null }
+      const plan = { messageId: String(messageId ?? ''), turn, partial: Boolean(heldBack.length || missingMounts.size), generationMode: planningGenerationMode, promptMode: plannerMode, templateKey, at: Date.now(), plans, skipped, reason: parsed.reason, characterSnapshot, historyWarning, raw: plans.length ? '' : String(result.text || streamed).slice(0, 4000), card: card?.name ?? null }
       const warnings = characterWarnings()
       if (warnings.length) plan.characterWarnings = warnings
       if (failure) plan.error = String(failure?.message ?? failure)
@@ -3640,12 +3856,28 @@ function createRuntime(ctx, overrides, logger, deps) {
       ? join(CARD_IMAGE_DIR, `${job.id}.${cardImageExtension(mediaType)}`)
       : join(cacheRoot(config), `${job.id}.img`)
 
+    async function hydrateLegacyJob(job) {
+      if (!job?.fromCache || job.metadataChecked) return
+      let recovered = null
+      try {
+        if (job.file && (await stat(job.file)).size <= 64 * 1024 * 1024) recovered = recoverComfyImageMetadata(await readFile(job.file))
+      } catch {}
+      job.metadataChecked = true
+      if (recovered) {
+        Object.assign(job, recovered, { submittedPrompt: recovered.positive })
+        job.params = { ...job.params, rawTag: recovered.positive, tag: recovered.positive, negative: recovered.negative }
+      }
+      job.imageOutputWarning = recovered
+        ? '历史图已从 PNG 恢复提示词和种子，原工作流及角色快照缺失'
+        : '仅保留了历史图片，原始提示词与工作流无法恢复'
+    }
+
     function publicJob(job) {
       return {
         id: job.id, status: job.state, state: job.state, source: jobSource(job), percent: job.percent ?? 0,
         comfyId: job.comfyId || '',
         queuePosition: job.queuePosition ?? 0, queuedCount: job.queuedCount ?? 0,
-        seed: job.seed, ...(job.usage ? { usage: structuredClone(job.usage) } : {}), promptSystem: job.promptSystem || 'workbench', promptTemplate: job.promptTemplate || null, workflow: job.workflowId, error: job.error ?? undefined, createdAt: job.createdAt,
+        seed: job.seed, canCompareOriginal: Boolean(job.comfyRecipe && workflows.some(workflow => workflow.id === job.workflowId && !workflow.error)), ...(job.usage ? { usage: structuredClone(job.usage) } : {}), promptSystem: job.promptSystem || 'workbench', promptTemplate: job.promptTemplate || null, workflow: job.workflowId, error: job.error ?? undefined, createdAt: job.createdAt,
         backend: job.backend ?? 'comfyui', channelId: job.channelId ?? '', channelName: job.channelName ?? '',
         generationMode: job.generationMode ?? 'text', requestedGenerationMode: job.requestedGenerationMode ?? job.generationMode ?? 'text', generationModeReason: job.generationModeReason ?? '', promptMode: job.promptMode ?? '',
         references: structuredClone(job.referenceSnapshot?.references ?? []),
@@ -3953,7 +4185,12 @@ function createRuntime(ctx, overrides, logger, deps) {
           referenceCapacity: (() => { try { return comfyReferenceCapacity(wf, comfyLoadImageBindings(wf)) } catch { return 0 } })(),
           error: wf.error, digest: wf.digest ?? '', summary: wf.summary ?? null, current: wf.id === config.defaultWorkflow,
         })),
-        definitions,
+        definitions: currentFigurePictures(definitions),
+        // Pictures the host's asset library lends linked people: {[character id]: {identity, outfits: {[outfit id]: {picture, borrowed}}}}.
+        figurePictures: Object.fromEntries(await lentPictures(definitions).then(rows => (definitions.characters ?? []).flatMap(item => {
+          const row = rows.find(entry => entry.packId === item.figurePackId && entry.figureId === item.figureId)
+          return row ? [[item.id, { identity: row.identity, outfits: row.outfits }]] : []
+        }))),
         outfits: definitions.outfits ?? [],
         kinds: DEFINITION_KINDS,
         jobs: [...jobs.values()].sort((a, b) => b.createdAt - a.createdAt).slice(0, 60).map(consoleJob),
@@ -4050,9 +4287,17 @@ function createRuntime(ctx, overrides, logger, deps) {
             snapshot.characters ||= {}
             const overlay = snapshot.characters[String(character.id)] ||= { traits: {} }
             overlay.traits ||= {}
-            const before = String(overlay.traits[change.field] ?? character.traits?.[change.field] ?? '')
+            const outfit = change.field === 'current.outfit'
+            const before = String(outfit ? overlay.current?.outfit ?? '' : overlay.traits[change.field] ?? character.traits?.[change.field] ?? '')
             const after = String(change.before ?? '')
-            if (after) overlay.traits[change.field] = after
+            if (outfit) {
+              for (const member of definitions.characters) {
+                if (member !== character && !sameCharacterForm(member, character)) continue
+                const state = snapshot.characters[String(member.id)] ||= {}
+                if (after) state.current = { outfit: after, previous: state.current?.outfit ?? '', turn: currentTurn, textVersion: current.textVersion }
+                else delete state.current
+              }
+            } else if (after) overlay.traits[change.field] = after
             else delete overlay.traits[change.field]
             snapshot.turn = currentTurn
             snapshot.textVersion = current.textVersion
@@ -4141,7 +4386,7 @@ function createRuntime(ctx, overrides, logger, deps) {
           if (source) {
             if (source.state !== 'done' || !source.file) throw new Error('原图尚未生成完成')
             const data = await readFile(source.file)
-            sourceImages.push(await referenceStore.put({ data: data.toString('base64'), mediaType: source.mediaType, name: '已有图片 ' + source.id.slice(0, 8) }))
+            sourceImages.push(await putReferenceImage({ data: data.toString('base64'), mediaType: source.mediaType, name: '已有图片 ' + source.id.slice(0, 8) }))
           } else if (input.jobId) throw new Error('找不到原图')
           for (const value of input.sourceImages || []) {
             const image = normalizeReferenceImage(value)
@@ -4161,7 +4406,9 @@ function createRuntime(ctx, overrides, logger, deps) {
       if (action === 'reference-image') {
         try {
           if (request.method === 'GET') {
-            const image = await referenceStore.readById(String(_url?.searchParams?.get('id') ?? ''))
+            const id = String(_url?.searchParams?.get('id') ?? '')
+            await storeLentPicture({ id })
+            const image = await referenceStore.readById(id)
             response.writeHead(200, { 'content-type': image.mediaType, 'content-length': image.data.length, 'cache-control': 'private, max-age=1800', 'x-content-type-options': 'nosniff' })
             response.end(image.data)
           } else if (request.method === 'POST') {
@@ -4170,9 +4417,74 @@ function createRuntime(ctx, overrides, logger, deps) {
               sendJson(response, 403, { ok: false, error: '请从配图设置上传参考图' }); return
             }
             const input = await readBody(request, 44 * 1024 * 1024)
-            const referenceImage = await referenceStore.put({ data: input.data, mediaType: input.mediaType, name: input.name })
+            const referenceImage = await putReferenceImage({ data: input.data, mediaType: input.mediaType, name: input.name })
             sendJson(response, 200, { ok: true, referenceImage })
           } else sendJson(response, 405, { ok: false, error: 'method-not-allowed' })
+        } catch (error) { sendJson(response, 400, { ok: false, error: String(error?.message ?? error) }) }
+        return
+      }
+      if (action === 'reference-gc') {
+        try {
+          if (!['GET', 'POST'].includes(request.method)) {
+            sendJson(response, 405, { ok: false, error: 'method-not-allowed' }); return
+          }
+          let token
+          if (request.method === 'POST') {
+            const origin = request.headers.origin
+            if ((origin && origin !== _url.origin) || !String(request.headers['content-type'] || '').toLowerCase().startsWith('application/json')) {
+              sendJson(response, 403, { ok: false, error: '请从生图设置里清理参考图' }); return
+            }
+            token = (await readBody(request, 1024))?.token
+          }
+          await referenceWrites(async () => {
+            const preview = referenceGcPreview
+            if (request.method === 'POST') {
+              if (!preview || token !== preview.token || Date.now() >= preview.expiresAt) {
+                sendJson(response, 409, { ok: false, error: '清理预览已失效，请重新统计' }); return
+              }
+              referenceGcPreview = undefined
+            }
+            const directory = await referenceStore.prepareDirectory()
+            const cutoff = Date.now() - 24 * 60 * 60 * 1000
+            const files = new Map()
+            for (const id of await readdir(directory)) {
+              if (!/^[0-9a-f]{64}$/.test(id)) continue
+              const info = await lstat(join(directory, id)).catch(error => {
+                if (error.code !== 'ENOENT') throw error
+              })
+              if (info?.isFile() && info.nlink === 1) files.set(id, info)
+            }
+            const savedJobs = await readJson(JOBS_STORE, null)
+            const referenced = new Set()
+            const collect = value => {
+              for (const id of JSON.stringify(value).match(/\b[0-9a-f]{64}\b/g) || []) referenced.add(id)
+            }
+            collect(savedJobs)
+            collect(config)
+            collect(definitions)
+            for (const job of jobs.values()) collect(job.referenceSnapshot ?? null)
+            const unreferenced = [...files].filter(([id]) => !referenced.has(id))
+            const orphans = unreferenced.filter(([, info]) => info.mtimeMs < cutoff)
+            if (request.method === 'GET') {
+              const token = randomUUID()
+              referenceGcPreview = { token, files: new Map(orphans), expiresAt: Date.now() + 10 * 60 * 1000 }
+              sendJson(response, 200, { ok: true, token, total: files.size, totalBytes: [...files.values()].reduce((sum, info) => sum + info.size, 0),
+                referenced: files.size - unreferenced.length, protectedCount: unreferenced.length - orphans.length,
+                orphanCount: orphans.length, orphanBytes: orphans.reduce((sum, [, info]) => sum + info.size, 0) })
+              return
+            }
+            const candidates = orphans.filter(([id, info]) => {
+              const before = preview.files.get(id)
+              return before && info.dev === before.dev && info.ino === before.ino && info.mtimeMs === before.mtimeMs && info.ctimeMs === before.ctimeMs
+            })
+            // Start deletion while the live reference snapshot is still current. Uploads use the same queue.
+            const results = await Promise.allSettled(candidates.map(([id]) => rm(join(directory, id))))
+            let removed = 0, removedBytes = 0
+            results.forEach((result, index) => {
+              if (result.status === 'fulfilled') { removed += 1; removedBytes += candidates[index][1].size }
+            })
+            sendJson(response, 200, { ok: true, removed, removedBytes, kept: files.size - removed, failed: results.length - removed })
+          })
         } catch (error) { sendJson(response, 400, { ok: false, error: String(error?.message ?? error) }) }
         return
       }
@@ -5071,6 +5383,12 @@ function createRuntime(ctx, overrides, logger, deps) {
               position: x.position === 'suffix' ? 'suffix' : 'prefix',
               enabled: x.enabled !== false,
               params: normalizePresetParams(x.params),
+              // 画风示例图只存 descriptor；图片字节留在本机 reference-images/，不写进 config。
+              samples: (Array.isArray(x.samples) ? x.samples : [])
+                .map(normalizeReferenceImage)
+                .filter(Boolean)
+                .slice(0, 8)
+                .map(item => ({ id: item.id, mediaType: item.mediaType, name: item.name, byteLength: item.byteLength })),
             }))
         }
         if (typeof patch.activePreset === 'string') config.activePreset = patch.activePreset.slice(0, 60)
@@ -5501,7 +5819,6 @@ function createRuntime(ctx, overrides, logger, deps) {
         try {
           await definitionStore.update(() => normalized, {
             expectedRevision: next.revision, requireRevision: true,
-            commit: (previous, value, save) => saveLinkedNames(deps.tavern, previous, value, save),
           })
         } catch (error) {
           sendJson(response, error.code === 'REVISION_CONFLICT' ? 409 : error.code === 'FIGURE_EDIT_FAILED' ? 400 : 500, { ok: false, code: error.code, error: error.message })
@@ -5854,6 +6171,7 @@ function createRuntime(ctx, overrides, logger, deps) {
       if (action === 'job-detail') {
         const job = getJob(String(_url?.searchParams?.get('id') ?? ''))
         if (!job) { sendJson(response, 404, { ok: false, error: '没有这个作业' }); return }
+        if (job.fromCache) await hydrateLegacyJob(job)
         sendJson(response, 200, { ok: true, job: consoleJob(job) })
         return
       }
@@ -5869,7 +6187,7 @@ function createRuntime(ctx, overrides, logger, deps) {
             sourceJobId: src.id, prompt: body?.prompt, negative: body?.negative, channelId: body?.channelId,
             generationMode: body?.generationMode, refreshReferences: body?.refreshReferences === true,
             sessionId: String(src.gameId || body?.sessionId || lastSessionId || ''), turn: src.turn, textVersion: src.textVersion,
-            acceptUncertain: body?.confirmUncertain === true,
+            acceptUncertain: body?.confirmUncertain === true, sameSeed: body?.sameSeed === true,
           })
           const fresh = getJob(replacement.jobId)
           logger.info?.('dsh-tavern-image: 重画 ' + src.id.slice(0, 8) + ' → ' + fresh.id.slice(0, 8))
@@ -6021,7 +6339,7 @@ function createRuntime(ctx, overrides, logger, deps) {
         for (const [index, reference] of references.entries()) {
           signal?.throwIfAborted()
           if (!(reference?.data instanceof Uint8Array)) throw new Error('输入图片需要原始图片数据')
-          sourceImages.push(await referenceStore.put({ data: Buffer.from(reference.data).toString('base64'), mediaType: reference.mediaType, name: reference.name || '输入图片 ' + (index + 1) }))
+          sourceImages.push(await putReferenceImage({ data: Buffer.from(reference.data).toString('base64'), mediaType: reference.mediaType, name: reference.name || '输入图片 ' + (index + 1) }))
         }
         const result = await runCardImage({ config: () => generationConfig, workflows: usable,
           startJob: (params, options) => startJob(params, { ...options, jobDefinitions }), getJob, refresh, cancelJob }, {
@@ -6081,8 +6399,10 @@ function createRuntime(ctx, overrides, logger, deps) {
       currentConfig: () => config,
       imageReady: () => Boolean(autoImageRoute({ probe: true })),
       currentDefinitions: () => definitions,
+      // What a picture reads: the records with the pictures the host lends linked people (never saved).
+      pictureDefinitions: () => lendFigurePictures(definitions),
       characterLibrary,
-      readReference: reference => referenceStore.read(reference),
+      readReference: async reference => { await storeLentPicture(reference); return referenceStore.read(reference) },
       comfyModels: () => usable().map(workflow => {
         let maxReferences = 0, reason = ''
         try { maxReferences = comfyReferenceCapacity(workflow, comfyLoadImageBindings(workflow)) } catch (error) { reason = error.message }
@@ -6097,6 +6417,44 @@ function createRuntime(ctx, overrides, logger, deps) {
       // 工作台的异步工具走同一个适配器：渠道解析、队列、参考图快照与恢复逻辑只此一份。
       submitCardImage: (args, options) => submitCardImage({ config: () => config, workflows: usable, startJob, getJob, refresh, cancelJob }, args, options),
       saveCardDefinitions: (value, expectedRevision) => definitionStore.update(current => normalizeDefinitions({ ...current, ...value }), { expectedRevision, requireRevision: true }),
+      // 单条修改：只重建目标记录，其余条目原样带过。id 不参与合并（不允许改 id）。
+      // traits 按 key 合并、outfits 按 id 合并；其余字段浅合并，未知字段照旧交给归一化丢弃。
+      patchCardDefinition: (target, item, expectedRevision) => {
+        const key = target === 'outfits' ? 'outfits' : 'characters'
+        if (!item || typeof item !== 'object' || Array.isArray(item)) throw Object.assign(new Error('item 必须是对象'), { code: 'INVALID_ARGUMENT' })
+        const id = typeof item.id === 'string' ? item.id.trim() : ''
+        if (!id) throw Object.assign(new Error('item.id 必填'), { code: 'INVALID_ARGUMENT' })
+        const patch = { ...item }
+        delete patch.id
+        const invalid = message => Object.assign(new Error(message), { code: 'INVALID_ARGUMENT' })
+        if (key === 'characters') {
+          if (Object.hasOwn(patch, 'traits') && (!patch.traits || typeof patch.traits !== 'object' || Array.isArray(patch.traits))) throw invalid('item.traits 必须是对象')
+          if (Object.hasOwn(patch, 'outfits')) {
+            if (!Array.isArray(patch.outfits) || patch.outfits.some(outfit => !outfit || typeof outfit.id !== 'string' || !outfit.id.trim())) throw invalid('item.outfits 必须是包含有效服装 ID 的数组')
+            patch.outfits = patch.outfits.map(outfit => ({ ...outfit, id: outfit.id.trim() }))
+            if (new Set(patch.outfits.map(outfit => outfit.id)).size !== patch.outfits.length) throw invalid('item.outfits 的服装 ID 不能重复')
+          }
+        }
+        return definitionStore.update(current => {
+          const list = Array.isArray(current[key]) ? current[key] : []
+          const index = list.findIndex(entry => String(entry?.id ?? '') === id)
+          if (index < 0) throw Object.assign(new Error('人物库里没有这条记录：' + id), { code: 'NOT_FOUND' })
+          const previous = list[index]
+          const merged = { ...previous, ...patch }
+          if (key === 'characters') {
+            if (patch.traits && typeof patch.traits === 'object' && !Array.isArray(patch.traits)) merged.traits = { ...previous.traits, ...patch.traits }
+            if (Array.isArray(patch.outfits)) {
+              const byId = new Map(patch.outfits.map(outfit => [String(outfit?.id ?? ''), outfit]))
+              merged.outfits = (previous.outfits ?? [])
+                .map(outfit => byId.has(String(outfit?.id ?? '')) ? { ...outfit, ...byId.get(String(outfit?.id ?? '')) } : outfit)
+                .concat(patch.outfits.filter(outfit => !(previous.outfits ?? []).some(entry => String(entry?.id ?? '') === String(outfit?.id ?? ''))))
+            }
+          }
+          const next = list.slice()
+          next[index] = merged
+          return normalizeDefinitions({ ...current, [key]: next })
+        }, { expectedRevision, requireRevision: true })
+      },
       // 手动配图：读这一轮的 textVersion 与正文，再交给官方桥 attach
       attachTurn: async ({ gameId, turn, instruction = '' }) => {
         if (typeof instruction !== 'string') throw new Error('instruction 必须是字符串')
@@ -6389,25 +6747,31 @@ function normalizeCharacter(raw, index) {
   for (const [key] of CHARACTER_TRAITS) item.traits[key] = String(traits[key] ?? '')
   const outfits = Array.isArray(raw?.outfits) ? raw.outfits.slice() : []
   if (!outfits.length && raw?.outfit) outfits.push({ id: 'o1', name: '常服', body: String(raw.outfit), default: true })
-  item.outfits = outfits.map((outfit, j) => ({
-    ...referenceFields(outfit),
-    ...libraryPromptFields(outfit),
-    ...(Object.hasOwn(outfit ?? {}, 'characterOutfitImage') ? {
-      characterOutfitImage: normalizeReferenceImage(outfit.characterOutfitImage),
-    } : {}),
-    id: String(outfit?.id ?? `outfit-${index + 1}-${j + 1}`),
-    name: String(outfit?.name ?? `服装 ${j + 1}`),
-    upper: String(outfit?.upper ?? outfit?.body ?? ''),
-    lower: String(outfit?.lower ?? ''),
-    shoes: String(outfit?.shoes ?? ''),
-    accessory: String(outfit?.accessory ?? outfit?.bodyBack ?? ''),
-    full: String(outfit?.full ?? ''),
-    back: String(outfit?.back ?? outfit?.fullBack ?? ''),
-    negative: String(outfit?.negative ?? ''),
-    enabled: outfit?.enabled !== false,
-    default: outfit?.default === true,
-    ...(outfit?.nsfw === true ? { nsfw: true } : {}),
-  }))
+  item.outfits = outfits.map((outfit, j) => {
+    // 与通用服装库同一套字段：旧 body/bodyBack/fullBack 只做读入兼容（body→upper、fullBack/bodyBack→back）。
+    const parts = normalizeOutfitParts(outfit)
+    return {
+      ...referenceFields(outfit),
+      ...libraryPromptFields(outfit),
+      ...(Object.hasOwn(outfit ?? {}, 'characterOutfitImage') ? {
+        characterOutfitImage: normalizeReferenceImage(outfit.characterOutfitImage),
+      } : {}),
+      id: String(outfit?.id ?? `outfit-${index + 1}-${j + 1}`),
+      name: String(outfit?.name ?? `服装 ${j + 1}`),
+      upper: String(parts.upper ?? ''),
+      lower: String(outfit?.lower ?? ''),
+      shoes: String(outfit?.shoes ?? ''),
+      // 角色服装的老字段 bodyBack 以前被当成配饰（旧版就是 accessory ?? bodyBack），保持这个读法，
+      // 背面只认 back / fullBack，免得老的配饰升级后跑到背面去。
+      accessory: String(outfit?.accessory ?? outfit?.bodyBack ?? ''),
+      full: String(outfit?.full ?? ''),
+      back: String(outfit?.back ?? outfit?.fullBack ?? ''),
+      negative: String(outfit?.negative ?? ''),
+      enabled: outfit?.enabled !== false,
+      default: outfit?.default === true,
+      ...(outfit?.nsfw === true ? { nsfw: true } : {}),
+    }
+  })
   return item
 }
 
@@ -6422,8 +6786,25 @@ function normalizeDefinition(kind, raw, index) {
   return item
 }
 
+/** 旧版通用服装库只有 body/full/bodyBack/fullBack；人物条目里的旧字段同理。 */
+function definitionsNeedOutfitMigration(raw) {
+  if (!raw || typeof raw !== 'object') return false
+  const list = (value) => Array.isArray(value) ? value : []
+  if (list(raw.outfits).some(outfit => needsOutfitMigration(outfit, { shared: true }))) return true
+  return list(raw.characters).some(character => list(character?.outfits).some(outfit => needsOutfitMigration(outfit)))
+}
+
 async function loadDefinitions() {
-  return normalizeDefinitions(await readJson(DEFS_PATH, null))
+  const raw = await readJson(DEFS_PATH, null)
+  const definitions = normalizeDefinitions(raw)
+  // 旧服装数据在读取时已经归一，出图不受影响；这里再把归一结果写回磁盘一次，
+  // 让升级后即使不点保存、磁盘上也是统一字段。旧字段原样保留，回滚旧版本仍能读。
+  if (definitionsNeedOutfitMigration(raw)) {
+    try {
+      await writeJsonSafe(DEFS_PATH, { ...raw, ...definitions }, join(ROOT, 'backups'))
+    } catch { /* 写不回去也不影响使用：内存里已经是归一后的数据 */ }
+  }
+  return definitions
 }
 
 function normalizeDefinitions(raw) {
@@ -6930,40 +7311,41 @@ function workflowSummary(raw) {
 // 提示词处理
 // =====================================================================
 
-// The figure owns linked names and aliases. Save their canonical projection with the page.
+// A linked record's name, 触发词 (match) and outfit names are the asset-library figure's own: the record is where the figure
+// keeps them. A save tells Tavern which linked figures it touched, so their pages read the new values, and which links end
+// (the record deleted or linked elsewhere): the figure takes its identity back in the same save.
 async function saveLinkedNames(tavern, previous, next, save) {
-  if (typeof tavern?.editLinkedFigures !== 'function') return await save(next)
+  if (typeof tavern?.saveLinkedRecords !== 'function') return await save(next)
   const oldById = new Map(previous.characters.map(item => [item.id, item]))
+  const nextById = new Map(next.characters.map(item => [item.id, item]))
+  const sameOutfitNames = (a, b) => JSON.stringify((a.outfits || []).map(outfit => [outfit.id, String(outfit.name ?? '').trim()])) === JSON.stringify((b.outfits || []).map(outfit => [outfit.id, String(outfit.name ?? '').trim()]))
   const changes = []
   for (const character of next.characters) {
+    if (!character.figureId || !character.figurePackId) continue
     const old = oldById.get(character.id)
-    if (!old?.figureId || old.figureId !== character.figureId || old.figurePackId !== character.figurePackId) continue
-    const was = new Set(splitTags(old.match)), now = new Set(splitTags(character.match))
-    const addAliases = [...now].filter(word => !was.has(word))
-    const removeAliases = [...was].filter(word => !now.has(word))
-    if (old.name === character.name && !addAliases.length && !removeAliases.length) {
-      character.match = old.match
-      continue
-    }
-    changes.push({ packId: character.figurePackId, figureId: character.figureId,
-      ...(old.name === character.name ? {} : { name: character.name }), addAliases, removeAliases })
+    if (old?.figureId === character.figureId && old.figurePackId === character.figurePackId
+      && old.name === character.name && old.match === character.match && sameOutfitNames(old, character)) continue
+    changes.push({ packId: character.figurePackId, figureId: character.figureId, identity: {
+      name: character.name, match: character.match, outfits: (character.outfits ?? []).map(outfit => String(outfit.name ?? '').trim()),
+    } })
+  }
+  for (const old of previous.characters) {
+    if (!old.figureId || !old.figurePackId) continue
+    const now = nextById.get(old.id)
+    if (now?.figureId === old.figureId && now.figurePackId === old.figurePackId) continue
+    changes.push({ packId: old.figurePackId, figureId: old.figureId, release: true })
   }
   if (!changes.length) return await save(next)
   const receipt = { file: DEFS_PATH, id: randomUUID() }
   let localFailure
   try {
-    return await tavern.editLinkedFigures({ changes, receipt }, async identities => {
-      const byFigure = new Map(identities.map(identity => [JSON.stringify([identity.packId, identity.figureId]), identity]))
-      for (const character of next.characters) {
-        const identity = byFigure.get(JSON.stringify([character.figurePackId, character.figureId]))
-        if (identity) Object.assign(character, { name: identity.name, match: identity.match })
-      }
+    return await tavern.saveLinkedRecords({ changes, receipt }, async () => {
       try { return await save(next, receipt.id) }
       catch (error) { localFailure = error; throw error }
     })
   } catch (error) {
     if (error === localFailure || error?.code === 'RECOVERY_REQUIRED') throw error
-    throw Object.assign(new Error('素材库人物名字或触发词保存失败：' + (error?.message || error), { cause: error }), { code: 'FIGURE_EDIT_FAILED' })
+    throw Object.assign(new Error('素材库人物的名字或触发词保存失败：' + (error?.message || error), { cause: error }), { code: 'FIGURE_EDIT_FAILED' })
   }
 }
 
@@ -7164,9 +7546,12 @@ export function injectDefinitions(text, definitions, config = {}, options = {}) 
   const sceneCharacters = (definitions.characters ?? []).filter(character => character && character.enabled !== false && (
     macroCharacters.includes(character) || aliasesFor(character).some(alias => containsNameToken(footText, alias))
   ))
-  // 按名字注入时，鞋袜状态只作用于明确点名该角色的子句；同一子句出现多名角色也视为归属不明。
+  const scopedClauses = natural ? sceneClauses(footText, sceneSubjects(definitions.characters)) : []
+  const globalFraming = natural ? commonFraming(scopedClauses) : ''
+  // Legacy tag mode keeps its original matching rules.
   const footwearSceneFor = character => {
     if (sceneCharacters.length === 1) return footText
+    if (natural) return personSceneText(scopedClauses, character)
     const clauses = footText.split(/(?<=[，,。！？!?；;\n])/).map(value => value.trim()).filter(Boolean)
     const own = aliasesFor(character)
     return clauses.filter(clause => {
@@ -7240,13 +7625,13 @@ export function injectDefinitions(text, definitions, config = {}, options = {}) 
     // 规划已经在画面里写了这个人穿什么（没用人物宏、直接写衣服）时，不再补「当前穿着」或常穿：
     // 两套衣服同时进提示词会打架（brown leather boots 对上 black leather boots）。
     const dressedByPlanner = !natural && PLANNER_GARMENT.test(footText)
-    const recordedRaw = bare || dressedByPlanner ? '' : resolveWearText(character, character.current?.outfit)
+    const recordedRaw = bare || dressedByPlanner ? '' : resolveWearText(character, character.current?.outfit, false, definitions?.outfits)
     const footwearScene = footwearSceneFor(character)
     const personBarefoot = isBarefoot(footwearScene)
     const shoesOff = !personBarefoot && footwearOverridden(footwearScene, personWearText(character, recordedRaw))
     const noShoes = personBarefoot || shoesOff
-    const closeShot = natural && closeShotScene(footwearScene || (sceneCharacters.length <= 1 ? footText : ''))
-    const visibleWear = closeShot && recordedRaw ? resolveWearText(character, character.current?.outfit, true) : recordedRaw
+    const closeShot = natural && (closeShotScene(globalFraming) || closeShotScene(footwearScene))
+    const visibleWear = closeShot && recordedRaw ? resolveWearText(character, character.current?.outfit, true, definitions?.outfits) : recordedRaw
     const recorded = noShoes || closeShot ? dropFootwear(visibleWear, shoesOff && !closeShot) : visibleWear
     const picked = characterTags(character, { nsfw, back, full: full && !closeShot, croppedOutfit: closeShot,
       mode: config.traitMode, barefoot: noShoes || closeShot, keepSocks: shoesOff && !closeShot,
@@ -7254,8 +7639,15 @@ export function injectDefinitions(text, definitions, config = {}, options = {}) 
     // options.provenance：诊断用，记录每段注入文字来自哪个人物的哪个字段、作用于正向还是整图负向。
     if (Array.isArray(options?.provenance)) for (const origin of picked.origins ?? []) options.provenance.push({ stage: 'definition-injection', characterId: String(character.id ?? ''), characterName: String(character.name ?? ''), matchedBy: keys.find(key => key && source.includes(key)) ?? '', appliedScope: origin.channel === 'negative' ? 'whole-image-negative' : 'whole-image-positive', ...origin })
     if (natural) {
-      const hairExtras = Object.assign([], { dropHair: hairOverridden(source, recorded) })
-      const phrase = boundCharacterPhrase(character, picked, hairExtras, recorded, options?.style)
+      const looseHair = looseHairIn(footwearScene)
+      const wear = looseHair ? withoutTiedHair(recorded) : recorded
+      if (looseHair) {
+        for (const origin of picked.origins ?? []) {
+          if (origin.outfitId) origin.text = withoutTiedHair(origin.text)
+        }
+      }
+      const hairExtras = Object.assign([], { dropHair: hairOverridden(footwearScene, wear) })
+      const phrase = boundCharacterPhrase(character, picked, hairExtras, wear, options?.style)
       if (phrase && phrase !== character.promptLabel && !source.includes(phrase)) added.push(phrase)
     } else {
       // tag 写法：这个人的外貌紧跟在她的名字后面插入，而不是堆到整段末尾。
@@ -7389,6 +7781,54 @@ export function compileChannelJob({ params, config, definitions, channel = null,
   const size = pixels ? { width: Number(pixels[1]), height: Number(pixels[2]) } : dimensions || { width: 832, height: 1216 }
   if (![size.width, size.height].every(value => Number.isInteger(value) && value >= 64 && value <= 8192)) throw new Error('图片尺寸需在 64–8192 像素之间')
   return { ...prepared, promptMode, characters: nativeNovelai ? characters : [], seed: Number.isSafeInteger(params.seed) && params.seed >= 0 ? params.seed : randomInt(0, 2 ** 32), size, loras: [] }
+}
+
+function makeComfyRecipe(workflow, compiled, frozen) {
+  if (frozen) return { ...frozen, graph: compiled.prompt }
+  const markers = comfyPromptMarkers(workflow.prompt)
+  return {
+    graph: compiled.prompt, seed: compiled.seed, size: compiled.size, loras: compiled.loras, outputNode: workflow.outputNode,
+    template: markers.positive.length || markers.negative.length ? workflow.prompt : null,
+    positive: markers.positive.length ? [] : workflow.bindings.positive,
+    negative: markers.negative.length ? [] : workflow.bindings.negative,
+  }
+}
+
+export function applyFrozenComfyRecipe(compiled, recipe, weightMode) {
+  const graph = structuredClone(recipe.graph)
+  const negative = compiled.promptMode === 'structured' ? compiled.negative : applyWeights(compiled.negative, weightMode)
+  setBinding(graph, recipe.positive, compiled.positive)
+  setBinding(graph, recipe.negative, negative)
+  if (recipe.template) applyComfyPromptMarkers(graph, recipe.template, compiled.positive, negative)
+  return { ...compiled, prompt: graph, seed: recipe.seed, size: recipe.size ?? compiled.size, loras: recipe.loras ?? compiled.loras }
+}
+
+// Read only the text fields from trusted local ComfyUI output. Never use image metadata as source code.
+function comfyGraphFromPng(buffer) {
+  if (buffer.subarray(0, 8).toString('hex') !== '89504e470d0a1a0a') return null
+  let graph = null
+  for (let offset = 8; offset + 12 <= buffer.length;) {
+    const length = buffer.readUInt32BE(offset)
+    const end = offset + 12 + length
+    if (end > buffer.length || length > 64 * 1024 * 1024) return null
+    if (length >= 7 && length < 1024 * 1024 && buffer.toString('ascii', offset + 4, offset + 8) === 'tEXt' && buffer.toString('ascii', offset + 8, offset + 15) === 'prompt\0') {
+      try { graph = JSON.parse(buffer.toString('utf8', offset + 15, end - 4)) } catch { return null }
+      break
+    }
+    offset = end
+  }
+  return graph && typeof graph === 'object' && !Array.isArray(graph) ? graph : null
+}
+
+export function recoverComfyImageMetadata(buffer) {
+  const graph = comfyGraphFromPng(buffer)
+  if (!graph) return null
+  const samplers = Object.values(graph).filter(node => node?.class_type === 'KSampler' && Number.isSafeInteger(node.inputs?.seed))
+  if (samplers.length !== 1) return null
+  const sample = samplers[0].inputs
+  const text = link => Array.isArray(link) && graph[link[0]]?.class_type === 'CLIPTextEncode' ? graph[link[0]].inputs?.text : ''
+  const positive = text(sample.positive)
+  return typeof positive === 'string' && positive ? { positive, negative: String(text(sample.negative) ?? ''), seed: sample.seed } : null
 }
 
 export function compileJob({ workflow, params, config, definitions, onStage = null }) {

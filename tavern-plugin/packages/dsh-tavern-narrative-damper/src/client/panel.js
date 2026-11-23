@@ -308,12 +308,13 @@ const TND_HELP = {
   provider: [
     '选择决策模型的接口协议；切换服务提供方时，下方的模型名称与默认环境变量名会自动切换为该提供方的推荐默认值。',
     'Google Gemini Decisions / OpenAI Decisions / Typesafe JEV：直连官方默认端点，只需配置对应 API Key 即可使用。',
-    'Gemini 兼容接口 / OpenAI 兼容接口：适用于反代中转站、聚合网关或本地部署服务，切换后下方会显示「自定义接口地址」输入框。'
+    '兼容接口：适用于支持对应决策 API 的反代、网关或本地服务。切换后可填写「自定义接口地址」。'
   ].join('\n'),
 
   baseUrl: [
-    '填写反代中转站根地址（HTTPS）或本地服务地址（如 http://127.0.0.1:8000）。',
-    '无需手动拼接尾路径：引擎会按当前协议自动补全 /v1beta/decisions 或 /v1/decisions。',
+    '可填写网关根地址、带 /v1 或 /v1beta 的地址，也可粘贴含这些版本路径的 Decisions、SystemOne、Chat Completions 或 Responses 地址。省略协议时，回环地址使用 HTTP，其余地址使用 HTTPS。',
+    'Gemini Decisions 兼容服务须支持 POST /v1beta/decisions，OpenAI Decisions 兼容服务须支持 POST /v1/decisions，Typesafe JEV 兼容服务须支持 POST /v1/systemone（或显式填写 /v1/decision）。保存后，地址栏下方会显示实际请求路径。',
+    '仅支持 Chat Completions 或 generateContent 的服务无法处理判定请求。',
     '输入完成后按回车或点击输入框外（失焦）自动保存；按 Esc 可撤销未提交的草稿。'
   ].join('\n'),
 
@@ -348,7 +349,7 @@ const TND_HELP = {
 }
 
 function TndPanel({ ui }) {
-  const [state, setState] = useState({ loading: true, busy: false, config: null, credential: null, error: '', notice: '', test: null, editingKey: false })
+  const [state, setState] = useState({ loading: true, busy: false, config: null, credential: null, endpointUrl: '', error: '', notice: '', test: null, editingKey: false })
   const [overviewHelpOpen, setOverviewHelpOpen] = useState(false)
   const overviewHelpRef = React.useRef(null)
   const testSeq = React.useRef(0)
@@ -369,7 +370,10 @@ function TndPanel({ ui }) {
     tndCall(ui, 'narrative-damper:read').then(result => {
       if (!mounted.current) return
       if (!result || !result.config) { setState(current => ({ ...current, loading: false, error: '读不到叙事阻尼器设置' })); return }
-      setState(current => ({ ...current, loading: false, config: result.config, credential: result.credential, error: '' }))
+      setState(current => ({
+        ...current, loading: false, config: result.config, credential: result.credential,
+        endpointUrl: result.endpointUrl || '', error: ''
+      }))
     }, error => {
       if (mounted.current) setState(current => ({ ...current, loading: false, error: String((error && error.message) || error) }))
     })
@@ -385,7 +389,10 @@ function TndPanel({ ui }) {
     setState(current => ({ ...current, busy: true, error: '', notice: '', test: null }))
     try {
       const result = await tndCall(ui, 'narrative-damper:update', { values: patch })
-      setState(current => ({ ...current, busy: false, config: (result && result.config) || current.config, credential: (result && result.credential) || current.credential, editingKey: false, notice: '已保存' }))
+      setState(current => ({
+        ...current, busy: false, config: result?.config || current.config, credential: result?.credential || current.credential,
+        endpointUrl: result?.endpointUrl || '', editingKey: false, notice: '已保存'
+      }))
       flashNotice('已保存')
       // 在对话楼层显示裁定结果 这一项就在这批开关里：让楼层的显示偏好立刻重读。
       tndNotifySettingsChanged()
@@ -405,7 +412,10 @@ function TndPanel({ ui }) {
     try {
       const result = await tndCall(ui, 'narrative-damper:set-key', { provider: state.config.provider, value })
       const msg = value === null ? '已清除密钥' : '密钥已保存'
-      setState(current => ({ ...current, busy: false, config: (result && result.config) || current.config, credential: (result && result.credential) || current.credential, editingKey: false, notice: msg }))
+      setState(current => ({
+        ...current, busy: false, config: result?.config || current.config, credential: result?.credential || current.credential,
+        endpointUrl: result?.endpointUrl || '', editingKey: false, notice: msg
+      }))
       flashNotice(msg)
       tndNotifySettingsChanged()
     } catch (error) {
@@ -609,7 +619,10 @@ function TndPanel({ ui }) {
         providerMeta.customUrl
           ? h(TndFormField, {
             label: '自定义接口地址',
-            help: TND_HELP.baseUrl
+            help: TND_HELP.baseUrl,
+            hint: state.endpointUrl
+              ? h('span', { className: 'tnd-endpoint' }, '已保存的请求地址 · POST ' + state.endpointUrl)
+              : !config.baseUrl && '请填写自定义接口地址'
           },
             h(TndField, {
               kind: 'text', label: '自定义接口地址', disabled, maxLength: 512,

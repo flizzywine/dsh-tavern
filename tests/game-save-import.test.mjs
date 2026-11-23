@@ -98,3 +98,22 @@ test('旧存档在导入时一次性采用本机配置，发布后不再由读�
     assert.equal(state.conversationFeaturesVersion, 1)
   }
 })
+
+test('导入会把旧存档里残留的进行中 settleStatus 归位为 idle', async t => {
+  const h = await harness(t)
+  const state = {
+    id: 'old-chat', sessionId: 'old-session', mode: 'story', cardPath: 'cards/a.json',
+    cardDefinitionSnapshot: { name: 'A' }, settleStatus: 'running',
+    messages: [{ role: 'assistant', turn: 1, text: '故事' }, { role: 'user', text: '未回复输入' }],
+    timeline: { checkpoints: [], operations: { stale: { kind: 'agent', status: 'running' } } }
+  }
+  const fileB64 = buildGameSave({
+    chat: state, world: null, revisions: [],
+    session: { header: { id: 'old-session' }, events: [{ seq: 0, type: 'turn/end', data: { turn: 1 } }] },
+    plugins: { data: {}, media: {}, attachments: [] }, tavernVersion: '3.0.1'
+  }).toString('base64')
+  await h.run({ fileB64 })
+  assert.equal(h.states[0].settleStatus, 'idle')
+  assert.deepEqual(h.states[0].timeline.operations, {})
+  assert.equal(h.states[0].messages.at(-1).role, 'user')
+})

@@ -9,7 +9,7 @@ export async function surfaceRecoveryChecks({ page, step, savedChat, output, rep
   const prose = chat => chat.messages.map(message => ({ role: message.role, text: message.sourceText ?? message.text }))
   const baseline = prose(await savedChat())
   const control = value => writeFile(join(output, 'recovery-control.json'), JSON.stringify(value))
-  const composer = page.getByRole('textbox', { name: /发消息|Message/ })
+  const composer = page.getByRole('textbox', { name: /下一步行动|Next action|发消息|Message/ })
   const visible = text => page.getByText(text, { exact: true }).filter({ visible: true }).first()
   async function closeStatus() {
     const collapse = page.getByRole('button', { name: 'Collapse right sidebar', exact: true })

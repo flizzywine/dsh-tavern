@@ -25,8 +25,7 @@ async function mountSound(page) {
     const fieldKit = createStageConfigFields({React, HelpTip, Segmented: () => null, Slider, ResetButton: () => null, FontPicker: () => null, InlineField: () => null, sounds, classify: () => null})
     const levels = {master: .8, voice: 1, music: .6, sfx: .7, ambience: .5, ui: .4, muted: {}, duck: true}
     const audio = {subscribe: none, getSnapshot: () => levels, toggleMute() {}, setVolume() {}, setDucking() {}}
-    const rate = {voiceRate: 1}, reading = {subscribe: none, get: () => rate, set() {}}
-    const mix = createStageMixer({React, Icon, Slider, audio, sounds, entries: null, report: () => {}, icons: {}, fields: fieldKit, reading, voiceRateLimits: [.5, 2, .1]})
+    const mix = createStageMixer({React, Icon, Slider, audio, sounds, entries: null, report: () => {}, icons: {}, fields: fieldKit})
     const config = createStageConfigScreen({React, window, document, matchMedia: query => window.matchMedia(query), rpc: async () => ({mods: []}), sections: {}, useSounds: () => {}, sounds, Icon,
       Looks: fieldKit.Looks, Sound: mix.Sound, Text: () => null, Appearance: () => null})
     ReactDOMClient.createRoot(document.getElementById('root')).render(h(config.Screen, {sessionId: 's', tests: {}, onClose() {}}))
@@ -37,13 +36,14 @@ async function mountSound(page) {
 function measure() {
   const page = document.querySelector('.fork-gal-config-page'), box = node => node.getBoundingClientRect()
   const middle = node => (box(node).top + box(node).bottom) / 2
-  const mix = [...page.querySelectorAll('.fork-gal-mix-row')].map(row => ({layer: row.dataset.layer, top: box(row).top, bottom: box(row).bottom, middle: middle(row.querySelector('.fork-gal-mix-mute')),
-    label: box(row.querySelector('.fork-gal-mix-label')).left, control: box(row.querySelector('.fork-gal-mix-slider')).left}))
-  const rows = [...page.querySelectorAll('.fork-gal-config-row')].map(row => ({label: row.querySelector('.fork-gal-config-label b').textContent,
-    labelX: box(row.querySelector('.fork-gal-config-label')).left, control: box(row.querySelector('.fork-gal-config-control')).left,
-    inlineToggle: row.dataset.fkControl === 'toggle' ? Math.abs(middle(row.querySelector('.fork-gal-config-label')) - middle(row.querySelector('.fork-gal-config-switch'))) < 2 : null,
-    stackedSlider: row.dataset.fkControl === 'slider' ? box(row.querySelector('.fork-gal-slider')).top >= box(row.querySelector('.fork-gal-config-label')).bottom - 1 : null}))
-  return {layout: document.querySelector('.fork-gal-config').dataset.layout, mix, rows, inset: box(page).left + parseFloat(getComputedStyle(page).paddingLeft)}
+  const mix = [...page.querySelectorAll('.fork-gal-mix-row')].map(row => {
+    const mute = row.querySelector('.fork-gal-mix-mute'), control = row.querySelector('.fork-gal-mix-slider, .fork-gal-mix-switch')
+    return {layer: row.dataset.layer, top: box(row).top, bottom: box(row).bottom, middle: mute ? middle(mute) : null,
+      label: box(row.querySelector('.fork-gal-mix-label')).left, control: box(control).left, controlRight: box(control).right, controlMiddle: middle(control), labelMiddle: middle(row.querySelector('.fork-gal-mix-label'))}
+  })
+  const sheet = box(page)
+  return {layout: document.querySelector('.fork-gal-config').dataset.layout, mix, configRows: page.querySelectorAll('.fork-gal-config-row').length, glyphs: page.querySelectorAll('.fork-gal-config-glyph').length,
+    inset: sheet.left + parseFloat(getComputedStyle(page).paddingLeft), pageLeft: sheet.left, pageRight: sheet.right}
 }
 
 for (const [width, height, layout] of [[1920, 1080, 'wide'], [375, 812, 'compact']]) {
@@ -59,20 +59,21 @@ for (const [width, height, layout] of [[1920, 1080, 'wide'], [375, 812, 'compact
       await page.screenshot({path: `${process.env.STAGE_ROW_RHYTHM_SHOTS}/sound-${width}${end ? '-end' : ''}.png`})
     }
     assert.equal(got.layout, layout)
-    assert.deepEqual(got.mix.map(row => row.layer), ['master', 'voice', 'music', 'sfx', 'ambience', 'ui'])
-    // the rhythm: the same pitch from one row's middle to the next, and the same room between the rows' boxes.
-    const pitch = got.mix.slice(1).map((row, i) => Math.round((row.middle - got.mix[i].middle) * 10) / 10)
+    // the page is the mixer alone: 自动混音 is its last row, in the mixer's grid (no loose config row, no hanging glyph).
+    assert.deepEqual(got.mix.map(row => row.layer), ['master', 'voice', 'music', 'sfx', 'ambience', 'ui', 'duck'])
+    assert.equal(got.configRows, 0)
+    assert.equal(got.glyphs, 0)
+    // the rhythm: the same pitch from one row's middle to the next, and the same room between the rows' boxes (the duck row is one line, so it only keeps the gap).
+    const slidered = got.mix.slice(0, 6)
+    const pitch = slidered.slice(1).map((row, i) => Math.round((row.middle - slidered[i].middle) * 10) / 10)
     const gaps = got.mix.slice(1).map((row, i) => Math.round((row.top - got.mix[i].bottom) * 10) / 10)
-    for (const [i, step] of pitch.entries()) assert.ok(Math.abs(step - pitch[1]) <= 1.5 && Math.abs(gaps[i] - gaps[1]) <= 1.5, `${tag}: the mixer's row pitch ${JSON.stringify(pitch)}, gaps ${JSON.stringify(gaps)}`)
-    assert.deepEqual(got.rows.map(row => row.label), ['自动混音', '配音倍速'])
-    if (layout === 'compact') {
-      for (const row of got.rows) assert.ok(Math.abs(row.labelX - got.inset) <= 1, `${tag}: ${row.label} shares the compact page inset`)
-      assert.equal(got.rows[0].inlineToggle, true)
-      assert.equal(got.rows[1].stackedSlider, true)
-    } else for (const row of got.rows) {
-      assert.ok(Math.abs(row.labelX - got.mix[1].label) <= 1, `${tag}: ${row.label}'s label at x ${row.labelX}, the mixer's at ${got.mix[1].label}`)
-      assert.ok(Math.abs(row.control - got.mix[1].control) <= 1, `${tag}: ${row.label}'s control at x ${row.control}, the mixer's sliders at ${got.mix[1].control}`)
-    }
+    for (const [i, step] of pitch.entries()) assert.ok(Math.abs(step - pitch[1]) <= 1.5, `${tag}: the mixer's row pitch ${JSON.stringify(pitch)}`)
+    for (const gap of gaps) assert.ok(Math.abs(gap - gaps[1]) <= 1.5, `${tag}: the room between the rows ${JSON.stringify(gaps)}`)
+    const [voice, duck] = [got.mix[1], got.mix[6]]
+    assert.ok(Math.abs(duck.label - voice.label) <= 1, `${tag}: 自动混音's name at x ${duck.label}, the mixer's at ${voice.label}`)
+    assert.ok(Math.abs(duck.controlMiddle - duck.labelMiddle) <= 2, `${tag}: the switch stands on its name's line`)
+    assert.ok(duck.controlRight <= got.pageRight + 1, `${tag}: the switch stays inside the page`)
+    if (layout === 'wide') assert.ok(Math.abs(duck.control - voice.control) <= 1, `${tag}: the switch at x ${duck.control}, the mixer's sliders at ${voice.control}`)
     assert.deepEqual(errors, [])
   })
 }

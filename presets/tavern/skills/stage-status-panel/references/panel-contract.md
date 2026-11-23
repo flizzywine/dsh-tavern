@@ -18,6 +18,7 @@
 | `label` | 是 | 页面名，最多 16 字：标题栏、菜单行和快捷键列表里显示它。 |
 | `html` | 是 | 页面内容，非空字符串，见「渲染」。 |
 | `shortcut` | 否 | 快捷键，一个小写字母，只能从 `b c d e f i j k m n o p q r s t u w x y z` 里选（其余字母是舞台自己的键），卡内不重复。 |
+| `icon` | 否 | 舞台顶栏右上角的图标按钮，点了打开这一页，随时可用。只能是舞台自带的线条图标之一：`monitor`（电脑）、`card`、`folder`、`message`、`phone`、`users`、`globe`、`clock`；按钮的样子跟着皮肤的顶栏走。 |
 | `menu` | 否 | `true` 时在 Esc 菜单里加一行，按数组顺序排在原来「状态」的位置。 |
 | `showOn` | 否 | 只能是 `{"event": "stage-enter"}`：进入舞台时打开，见「入口」。 |
 | `initial` | 否 | 只能是 `true`，且必须同时有 `showOn`：只在新聊天里出现的开场页。 |
@@ -34,6 +35,7 @@
 
 - **快捷键**：在舞台上按 `shortcut` 字母打开这一页，再按一次或按 Esc 关闭。舞台自己的键先处理，所以只有上面列出的字母可用。
 - **菜单行**：每个 `menu:true` 的页面在 Esc 菜单里一行，文字是 `label`，有快捷键时提示里带上键名。
+- **顶栏图标**：每个带 `icon` 的页面在顶栏右上角一个按钮（模组按钮之后），悬停提示是 `label`，有快捷键时带上键名。标题页这类 showOn 页也可以带：游戏中点它打开时 `entry` 为 false，页面据此跳过开场、关闭就回游戏。
 - **进入舞台（showOn）**：玩家每次从文字模式进入舞台（包括「从这里进入舞台」）都会触发一次；舞台重新挂载、换轮、改设置不会触发。这一页代替本次的入场动画，从舞台的第一帧就盖住舞台（先是页面底色，页面就绪后显示内容），`continueGame()` 进入舞台后照常续读。
 
 每次进入最多打开一页，按数组顺序取第一个匹配的：
@@ -83,7 +85,7 @@ tavern_update_card({ rawOperations: [
 | 接口 | 作用 |
 | --- | --- |
 | `page` | 本页 id。 |
-| `data()` | 当前快照（副本）：`{ledger, figures, theme, card: {name}, saved}`。 |
+| `data()` | 当前快照（副本）：`{ledger, figures, theme, card: {name}, saved, entry}`。 |
 | `onData(fn)` | 推送新快照时调用 `fn(snapshot)`，返回取消订阅的函数。 |
 | `onCloseRequest(fn)` | 只用于 `closeControl:"page"` 的页面：玩家按 Esc、本页快捷键或右键时调用 `fn()`，页面先关自己的详情等，已在最上层时调 `close()`；返回取消订阅的函数。本页上面开着 CONFIG、回想或履历时 Esc 先关它们，不调用 `fn`。 |
 | `close()` | 关闭本页；进入舞台时打开的 showOn 页是返回主页面。 |
@@ -134,6 +136,7 @@ tavern_update_card({ rawOperations: [
   theme: { accent: '#c79060', accentText: '#171717', surface: '#242321', surfaceText: '#faf7f2',
            muted: '#c6c0b8', border: '#70685f', radius: 12, fontFamily: '…', headingFont: '…' },
   saved: true,
+  entry: false,
   card: { name: '辉夜大小姐' }
 }
 ```
@@ -142,6 +145,7 @@ tavern_update_card({ rawOperations: [
 - `figures` 的头像是 `data:` URL，到得比文字晚：打开时 `avatar` 可能还是 `null`，就绪后再推送一次。认不出的人物 `avatar` 一直是 `null`。
 - 台账和人物名来自剧情，插进 HTML 前转义。
 - `saved`：这局已经有玩家发过的消息（不是刚开局）。标题页用它决定「继续」是否可用。
+- `entry`：这一页是进入舞台时打开的（代替入场，关闭就是不进入）；游戏中用快捷键、顶栏图标、菜单或 `open(id)` 打开时是 false。同一个标题页可以据此在进入时放开机动画、游戏中直接显示主界面。
 
 ## 开局页
 

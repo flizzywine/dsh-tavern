@@ -1,3 +1,4 @@
+import {normalizeVoiceServices} from '../shared/voice-schema.js'
 import {normalizePackTags,normalizeEntryTags} from '../asset-packs/item-migration.js'
 import {migratePackVoices} from '../asset-packs/voice-migration.js'
 import {importFigureVariants} from './import-figure-variants.js'
@@ -25,6 +26,10 @@ export function normalizePackImport(manifest, files) {
     manifest = migrated.manifest
     migratedFigures = migrated.figures
     changed ||= migrated.mappings.length > 0
+  }
+  if (manifest.voiceLibrary) {
+    const voiceLibrary = structuredClone(manifest.voiceLibrary)
+    if (normalizeVoiceServices(voiceLibrary).length) { manifest = {...manifest,voiceLibrary}; changed = true }
   }
   const variants=importFigureVariants(manifest,migratedFigures,Object.fromEntries(Object.entries(manifest.sprites).map(([id,file])=>[id,readDocument(files.get(file))])))
   if(canonicalJson(variants.manifest)!==canonicalJson(manifest)){manifest=variants.manifest;changed=true}

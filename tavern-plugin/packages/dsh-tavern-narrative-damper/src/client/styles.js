@@ -298,6 +298,7 @@ const TND_CSS = `
 }
 
 .tnd-hint { font-size: 11.5px; opacity: 0.66; }
+.tnd-endpoint { overflow-wrap: anywhere; }
 .tnd-empty { font-size: 12px; opacity: 0.66; padding: 6px 2px; }
 .tnd-empty.is-alert { color: var(--tnd-bad); opacity: 1; }
 

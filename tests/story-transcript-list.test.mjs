@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises'
 import vm from 'node:vm'
 import React, { act } from 'react'
 import { createRoot } from 'react-dom/client'
+import { createPortal } from 'react-dom'
 import { JSDOM } from 'jsdom'
 
 import { projectStoryTranscript } from '../tavern-plugin/lib/domain/story-transcript.js'
@@ -13,6 +14,7 @@ const refreshSource = await readFile(new URL('../tavern-plugin/src/client/module
 const listSource = await readFile(new URL('../tavern-plugin/src/client/features/story-transcript-list.js', import.meta.url), 'utf8')
 const deletionSource = await readFile(new URL('../tavern-plugin/src/client/features/message-deletion.js', import.meta.url), 'utf8')
 const playControlsSource = await readFile(new URL('../tavern-plugin/src/client/features/play-controls.js', import.meta.url), 'utf8')
+const turnActionsSource = await readFile(new URL('../tavern-plugin/src/client/turn-actions.js', import.meta.url), 'utf8')
 
 // 一个页面 DOM + 两个 @include 片段共用同一个 factory 作用域（data 先、list 后）。
 function createPage(t, extra) {
@@ -76,12 +78,18 @@ async function mount(page, element) {
 
 test('楼层操作用故事正文和稳定轮次，回退提交确认过的消息 UID', async t => {
 	const calls = []
+	const button = (label, value) => React.createElement('button', { 'aria-label': label }, value)
 	const page = createPage(t, {
 		isPlayMode: mode => mode === 'story',
 		useLiveTavernView: () => ({ view }),
 		tavernMvuReceiptForTurn: (_view, turn) => turn === 12 ? { status: 'updated' } : null,
 		useTavernConfirm: () => async text => { calls.push(text); return true },
-		rpc: async (method, args, sessionId) => { calls.push({ method, ...args, sessionId }); return {} },
+		rpc: async (method, args, sessionId) => {
+			calls.push({ method, ...args, sessionId })
+			return method === 'getBodyEdit' ? { edit: { messageUid: args.messageUid, parts: [{ kind: 'text', text: args.text }] } } : {}
+		},
+		bodyPortal: element => createPortal(element, document.body),
+		TavernRollbackAction: () => button('回退本轮'), TavernUndoRollbackAction: () => null, CandidateAction: () => null,
 		historyProjection: { rolledBack() {} },
 		setCandidatePanel() {}, setRegenPanel() {}, setCandidateGuidePanel() {},
 		notifyTavernDataChanged() {},
@@ -95,7 +103,9 @@ test('楼层操作用故事正文和稳定轮次，回退提交确认过的消�
 		{ role: 'assistant', turn: 19, text: '最新正文' },
 		{ role: 'user', text: '玩家输入' }
 	])
-	const button = (label, value) => React.createElement('button', { 'aria-label': label }, value)
+	const menus = vm.runInContext(turnActionsSource.slice(turnActionsSource.indexOf('function usePopover('), turnActionsSource.indexOf('function ReceiptButton('))
+		+ turnActionsSource.slice(turnActionsSource.indexOf('function TurnMenu('), turnActionsSource.indexOf('const compactionRuns'))
+		+ '\n({ TurnMenu, LatestReplyActions })', page.context)
 	const rollback = vm.runInContext(playControlsSource.slice(
 		playControlsSource.indexOf('function TavernRollbackToTurnButton('),
 		playControlsSource.indexOf('const bodyEditPanel =')
@@ -104,7 +114,8 @@ test('楼层操作用故事正文和稳定轮次，回退提交确认过的消�
 		replyActions: {
 			Illustrate: props => button('配图', props.turn),
 			Receipt: props => button('变量结算', props.storyTurn),
-			Latest: () => button('更多'),
+			Latest: menus.LatestReplyActions,
+			Menu: menus.TurnMenu,
 			RollbackTo: rollback,
 			IllustrationDraft: () => null, PluginActions: () => null
 		}
@@ -119,12 +130,23 @@ test('楼层操作用故事正文和稳定轮次，回退提交确认过的消�
 	assert.equal(action(duplicate, '回退到这一轮'), null)
 	assert.equal(action(historical, '配图').textContent, '12')
 	assert.equal(action(historical, '变量结算').textContent, '12')
-	assert.equal(action(historical, '更多'), null)
+	assert.ok(action(historical, '更多'))
 	assert.ok(action(latest, '更多'))
 	assert.equal(action(latest, '回退到这一轮'), null)
 	await act(async () => action(historical, '回退到这一轮').click())
 	assert.match(calls[0], /回退到第 3 楼/)
 	assert.deepEqual(calls[1], { method: 'rollbackToTurn', turn: 12, messageUid: 'story-12', sessionId: 'game' })
+	let openedEdit
+	page.dom.window.addEventListener('dsh-tavern-open-body-edit', event => { openedEdit = event.detail }, { once: true })
+	await act(async () => action(historical, '更多').click())
+	const oldMenu = document.querySelector('.fork-turn-menu')
+	assert.equal(oldMenu.querySelector('[aria-label="回退本轮"]'), null)
+	await act(async () => oldMenu.querySelector('[role="menuitem"]').click())
+	assert.deepEqual(calls[2], { method: 'getBodyEdit', role: 'assistant', messageIndex: 2, revision: 7, messageUid: 'story-12', text: '可回退的正文', sessionId: 'game' })
+	assert.equal(openedEdit.texts[0], '可回退的正文')
+	await act(async () => action(latest, '更多').click())
+	const latestMenu = Array.from(document.querySelectorAll('.fork-turn-menu')).find(menu => menu.querySelector('[aria-label="回退本轮"]'))
+	assert.equal(latestMenu?.querySelector('[role="menuitem"]')?.textContent, '编辑正文')
 })
 
 

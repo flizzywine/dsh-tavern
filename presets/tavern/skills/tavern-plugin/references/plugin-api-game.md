@@ -138,7 +138,7 @@ message 必须是适合玩家阅读的安全摘要（宿主最多保留 500 字�
 | `guidance` | 本次重生成指导；空字符串表示未提供 |
 | `outputProcessing?.hostRegex` | 本轮开始时选定的宿主正则开关。为 `true` 时，宿主在插件输出处理完成后应用自己的规则。旧宿主可能省略此字段。插件可用它说明处理顺序 |
 
-`context` 的世界书段已包含当轮有效设定和成功的查询补充。查询补充只接受本轮有效的 `worldbook_list/grep/search` 和宿主世界书文件的受限 `read`；失败、隐藏、其他轮次和任意文件读取结果不会传入。已保存材料不会在恢复时重新读文件或执行宏。
+`context` 的世界书段已包含当轮有效设定和成功的查询补充。查询补充只接受本轮有效的 `read_lorebook`、`list_lorebook`、`grep_lorebook` 和宿主世界书文件的受限 `read`；失败、隐藏、其他轮次和任意文件读取结果不会传入。已保存材料不会在恢复时重新读文件或执行宏。
 
 历史来自完整存档投影，不从压缩后的模型消息反推，也不重新执行历史宏。材料无法可靠恢复时明确失败；旧存档、已编辑输入或导入记录可能缺少必要快照。`context` 按宿主现有语义段拆分；旧人物快照中未单独保存的字段可能合并为一个人物段，不保证与 ST 原始人物字段逐项对应。
 
@@ -281,12 +281,19 @@ async function settle({ currentVariables, signal }) {
 
 ## `beforeImagePlan({ gameId, turn, manual, signal })`、`beforeImageGenerate({ gameId, turn, subjects, manual, signal })`
 
-给场景配图类插件的两个放行口子（插件按 `typeof tavern.beforeImagePlan === 'function'` 判断，宿主没有就照旧）。宿主在这一轮还要先准备东西时，用它们让插件等：Tavern 的自动素材会给正文里新出场的人物建人物库记录、写外貌，再画人设图并设成记录的参考图，等到了再画，画出来的人才和立绘一致。
+给场景配图类插件的两个放行口子（插件按 `typeof tavern.beforeImagePlan === 'function'` 判断，宿主没有就照旧）。宿主在这一轮还要先准备东西时，用它们让插件等：Tavern 的自动素材会给正文里新出场的人物建人物库记录、写外貌，再画人设图登记在素材包里（插件用 `figurePictures` 读到），等到了再画，画出来的人才和立绘一致。
 
 - `beforeImagePlan`：规划这一轮的画面之前调用，返回后再规划（插件应重读这一轮）。这一轮新来的人物写好后返回；这张卡不用自动素材时立即返回。
-- `beforeImageGenerate`：出某一张图之前调用，`subjects` 是这张图规划出的人物 `[{ characterId, … }]`（最多 16 个）。其中关联了素材库人物、记录还没有参考图的，等他的人设图挂上；返回 `{}` 放行，或 `{ skip: true, reason }`：人设图画不出来，这张不出（不凭名字另画一个人），`reason` 给玩家看。
+- `beforeImageGenerate`：出某一张图之前调用，`subjects` 是这张图规划出的人物 `[{ characterId, … }]`（最多 16 个）。其中关联了素材库人物、素材包里还没有人设图、记录里也没有上传参考图的，等他的人设图画好；返回 `{}` 放行，或 `{ skip: true, reason }`：人设图画不出来，这张不出（不凭名字另画一个人），`reason` 给玩家看。
 
 两个口子都有上限（选角约 90 秒，人设图约 5 分钟），到时照常返回；`signal` 中止时立即返回。
+
+## `figurePictures({ figures })`、`readFigurePicture({ packId, figureId, id })`
+
+素材库人物的设定图只存在素材包里。配图类插件的人物记录关联了素材库人物（`figurePackId`、`figureId`）时，每次出图前按关联来这里读，不要把它们复制进记录：设定图在素材库里换掉或撤下，下一张图就跟着变。
+
+- `figurePictures({ figures: [{ packId, figureId }] })` 返回 `[{ packId, figureId, identity, outfits }]`：`identity` 是这个人的人设图；`outfits` 以服装 ID 为键，值是 `{ picture, borrowed }`，有服装设定图时就是它，没有时是借用的平静立绘（`borrowed: true`，记录里自己上传了图就用上传的）。每张图是参考图描述 `{ id, mediaType, byteLength, name }`，`id` 是内容的 SHA-256。已不在素材库里的人物不返回。素材库未启用时返回空数组。
+- `readFigurePicture` 返回其中一张的 `{ data: Uint8Array, mediaType }`；不是这个人物的图时报 `NOT_FOUND`。
 ## `getTurn({ gameId, turn })`
 
 读某一轮**当前显示版本**的同一份内容（含 `variables`，不含 `settledAt`）。这一轮不存在、或者是还没结算完的最新一轮时返回 `null`。用于插件自己的「手动生成」按钮。只读这一轮，不读整局历史，可以按需随时调用。
@@ -466,7 +473,7 @@ ctx.tavern.onTurnSettled(async ({ gameId, turn, textVersion, variables }) => {
 
 ## 决策判定模型（`capabilities.decisionJudge === 1`）
 
-当 `ctx.tavern.capabilities?.decisionJudge === 1` 时，插件可以直接复用玩家在「插件 › 叙事阻尼器」面板里配置好的决策判定模型（`gemini` / `gemini-compatible` / `jev` / `openai` / `openai-compatible`），执行低延迟的是非概率、评分或单选枚举判定，无需自己管理 API Key 或端点地址。只要用户已配置有效的提供方与密钥，即使暂未开启叙事阻尼器本身的拦截开关，该开放接口仍可使用。
+当 `ctx.tavern.capabilities?.decisionJudge === 1` 时，插件可以直接复用玩家在「插件 › 叙事阻尼器」面板里配置好的决策判定模型（`gemini` / `gemini-compatible` / `jev` / `jev-compatible` / `openai` / `openai-compatible`），执行低延迟的是非概率、评分或单选枚举判定，无需自己管理 API Key 或端点地址。只要用户已配置有效的提供方与密钥，即使暂未开启叙事阻尼器本身的拦截开关，该开放接口仍可使用。
 
 ### `decisionJudgeStatus()`
 

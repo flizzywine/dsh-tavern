@@ -19,6 +19,12 @@ const createConversationLifecycleModule = client.createConversationLifecycleModu
 
 const createPlayWorkspaceResolver = client.createPlayWorkspaceResolver
 
+function attemptStorage() {
+  const values = new Map()
+  const storage = { getItem: key => values.get(key), setItem: (key, value) => values.set(key, value), removeItem: key => values.delete(key) }
+  return { values, storage }
+}
+
 function harness(overrides = {}) {
   const calls = []
   const adapters = {
@@ -82,8 +88,7 @@ test('数据迁移并留下目录联接后，新游戏使用实际目录的工�
 })
 
 test('开场事件已写入后的刷新重试直接恢复 Chat，不重复选择已锁定 preset', async () => {
-  const values = new Map()
-  const storage = { getItem: key => values.get(key), setItem: (key, value) => values.set(key, value), removeItem: key => values.delete(key) }
+  const { storage } = attemptStorage()
   const events = []
   let presetCalls = 0
   let chatCalls = 0
@@ -113,8 +118,7 @@ test('开场事件已写入后的刷新重试直接恢复 Chat，不重复选择
 })
 
 test('旧版失败记录没有 presetReady 时，模式锁定直接进入 Chat 恢复', async () => {
-  const values = new Map()
-  const storage = { getItem: key => values.get(key), setItem: (key, value) => values.set(key, value), removeItem: key => values.delete(key) }
+  const { values, storage } = attemptStorage()
   const request = { kind: 'play', targetMode: 'story', card: { path: 'card' }, openingId: 'primary', userName: '你' }
   const key = JSON.stringify([request.kind, request.targetMode, request.card.path, request.openingId, request.userName, request.requestMode, request.task, request.pending])
   const legacy = client.createConversationAttemptStore(storage)
@@ -134,8 +138,7 @@ test('旧版失败记录没有 presetReady 时，模式锁定直接进入 Chat �
 })
 
 test('刷新页面后可复用失败 Session，打开失败不重复初始化，成功后下次新建', async () => {
-  const values = new Map()
-  const storage = { getItem: key => values.get(key), setItem: (key, value) => values.set(key, value), removeItem: key => values.delete(key) }
+  const { values, storage } = attemptStorage()
   const request = { kind: 'play', targetMode: 'story', card: { path: 'card' }, preparationId: 'preview-1' }
   const first = harness({ attempts: client.createConversationAttemptStore(storage), finishOpen: async () => { throw new Error('打开失败') } })
   await assert.rejects(first.module.start(request), /打开失败/)
@@ -146,4 +149,38 @@ test('刷新页面后可复用失败 Session，打开失败不重复初始化，
   assert.equal(values.size, 0)
   await second.module.start(request)
   assert.equal(second.calls.filter(item => item.startsWith('connect:')).length, 1)
+})
+
+test('刷新后遇到失效的启动记录时只新建一次，第二次失败会清掉记录', async () => {
+  for (const blockingError of [
+    { code: 'TAVERN_SESSION_NOT_LISTED', message: 'DSH 会话已不在宿主列表中。' },
+    { message: '无法写入 DSH 会话开场白: session-stale' }
+  ]) {
+    const { values, storage } = attemptStorage()
+    const request = { kind: 'play', targetMode: 'story', card: { path: 'card' }, preparedSessionId: 'session-stale' }
+    const first = harness({
+      attempts: client.createConversationAttemptStore(storage),
+      async createChat() { throw new Error('旧版留下的失败记录') }
+    })
+    await assert.rejects(first.module.start(request), /旧版留下的失败记录/)
+
+    const waited = []
+    const reloaded = harness({
+      attempts: client.createConversationAttemptStore(storage),
+      async waitForSession(sessionId) {
+        waited.push(sessionId)
+        if (blockingError.code) throw Object.assign(new Error(blockingError.message), { code: blockingError.code })
+      },
+      async createChat(_request, sessionId) {
+        if (sessionId === 'session-stale') throw new Error(blockingError.message)
+      }
+    })
+    const retried = reloaded.module.start(request)
+    assert.equal(reloaded.module.start(request), retried)
+    if (blockingError.code) await assert.rejects(retried, /已清除本次启动记录/)
+    else assert.equal((await retried).sessionId, 'session-1')
+    assert.deepEqual(waited, ['session-stale', 'session-1'])
+    assert.equal(values.size, 0)
+    assert.equal(reloaded.calls.filter(call => call.startsWith('connect:')).length, 1)
+  }
 })

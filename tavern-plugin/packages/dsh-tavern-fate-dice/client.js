@@ -2494,12 +2494,13 @@ function fdSaveProfileCache(gameId, profile) {
 
 function fdEmptyWorkbench() {
   const cachedSettings = fdNormalizeSettings(fdStoreGet(FD_STORAGE_KEYS.settings, FD_DEFAULT_SETTINGS))
+  const settings = { ...cachedSettings, enabled: false }
   return {
-    settings: cachedSettings,
+    settings,
     rule: '2d6',
     autoCheck: true,
-    binding: { autoCheck: true },
-    damper: { available: false, linkage: cachedSettings.damperLinkage },
+    binding: { enabled: false, autoCheck: true },
+    damper: { available: false, linkage: settings.damperLinkage },
     judgeStatus: { available: false },
     fate: { points: 2, max: 3, failCount: 0 },
     lastTurn: 0,
@@ -2523,10 +2524,13 @@ function fdMergeWorkbench(base, raw) {
   }
   if (payload.rule) view.rule = FD_RULES.some(r => r.id === payload.rule) ? payload.rule : view.rule
   const binding = payload.binding || payload.bind || null
+  if (binding && typeof binding === 'object' && typeof binding.enabled === 'boolean' && (!settingsSrc || typeof settingsSrc.enabled !== 'boolean')) {
+    view.settings = fdNormalizeSettings({ ...view.settings, enabled: binding.enabled })
+  }
   if (binding && typeof binding === 'object' && typeof binding.autoCheck === 'boolean') view.autoCheck = binding.autoCheck
   if (typeof payload.autoCheck === 'boolean') view.autoCheck = payload.autoCheck
   else if (typeof payload.autoSkillCheck === 'boolean') view.autoCheck = payload.autoSkillCheck
-  view.binding = { ...view.binding, autoCheck: view.autoCheck }
+  view.binding = { ...view.binding, enabled: Boolean(view.settings && view.settings.enabled), autoCheck: view.autoCheck }
 
   const damper = payload.damper || payload.damperBridge || {}
   view.damper = {
@@ -2580,10 +2584,11 @@ const FD_MAX_CACHED_TURNS_PER_GAME = 256
 function fdNoteRuntimeFlags(gameId, raw) {
   if (!raw || typeof raw !== 'object') return
   const settings = raw.settings && typeof raw.settings === 'object' ? raw.settings : raw
+  const globalSrc = raw.globalSettings && typeof raw.globalSettings === 'object' ? raw.globalSettings : null
   const hasEnabled = typeof settings.enabled === 'boolean' || typeof raw.enabled === 'boolean'
   const hasAuto = typeof settings.autoCheck === 'boolean' || typeof raw.autoCheck === 'boolean'
   const hasPause = typeof settings.preSendPause === 'boolean' || typeof raw.preSendPause === 'boolean'
-  if (!hasEnabled && !hasAuto && !hasPause) return
+  if (!hasEnabled && !hasAuto && !hasPause && !globalSrc) return
 
   const nextEnabled = typeof raw.enabled === 'boolean'
     ? raw.enabled
@@ -2595,14 +2600,20 @@ function fdNoteRuntimeFlags(gameId, raw) {
     ? raw.preSendPause
     : (typeof settings.preSendPause === 'boolean' ? settings.preSendPause : fdRuntimeFlags.preSendPause)
 
-  if (!gameId || raw.settings || raw.globalSettings) {
-    fdRuntimeFlags.known = true
-    fdRuntimeFlags.enabled = nextEnabled
-    fdRuntimeFlags.autoCheck = nextAuto
-    fdRuntimeFlags.preSendPause = nextPause
-  }
   const gid = String(gameId || '').trim()
-  if (gid && gid !== '__fate_dice_global__') {
+  const isGlobalScope = !gid || gid === '__fate_dice_global__'
+  if (globalSrc) {
+    fdRuntimeFlags.known = true
+    if (typeof globalSrc.enabled === 'boolean') fdRuntimeFlags.enabled = globalSrc.enabled
+    if (typeof globalSrc.autoCheck === 'boolean') fdRuntimeFlags.autoCheck = globalSrc.autoCheck
+    if (typeof globalSrc.preSendPause === 'boolean') fdRuntimeFlags.preSendPause = globalSrc.preSendPause
+  } else if (isGlobalScope) {
+    fdRuntimeFlags.known = true
+    if (hasEnabled) fdRuntimeFlags.enabled = nextEnabled
+    if (hasAuto) fdRuntimeFlags.autoCheck = nextAuto
+    if (hasPause) fdRuntimeFlags.preSendPause = nextPause
+  }
+  if (!isGlobalScope) {
     const prev = fdRuntimeFlags.byGame.get(gid) || {
       enabled: fdRuntimeFlags.enabled,
       autoCheck: fdRuntimeFlags.autoCheck,
@@ -2884,30 +2895,62 @@ function fdLoadWorkbench(ui, gameId) {
 }
 
 function fdPersistSettings(ui, settings) {
-  const normalized = fdNormalizeSettings(settings)
-  fdStoreSet(FD_STORAGE_KEYS.settings, normalized)
-  fdNoteRuntimeFlags('', { settings: normalized })
+  const src = settings && typeof settings === 'object' ? settings : {}
+  const hasEnabled = Object.prototype.hasOwnProperty.call(src, 'enabled') && typeof src.enabled === 'boolean'
+  const normalized = fdNormalizeSettings(src)
+  const stored = hasEnabled ? normalized : { ...normalized, enabled: false }
+  fdStoreSet(FD_STORAGE_KEYS.settings, stored)
+  const outgoing = { ...normalized }
+  if (!hasEnabled) delete outgoing.enabled
+  if (hasEnabled) {
+    fdNoteRuntimeFlags('', { settings: normalized })
+  } else {
+    fdNoteRuntimeFlags('', { preSendPause: normalized.preSendPause })
+  }
   fdRuntimeFlags.byGame.forEach(entry => {
-    entry.enabled = normalized.enabled
     entry.preSendPause = normalized.preSendPause
   })
   fdInvalidateTurnCache('')
-  return fdCall(ui, FD_RPC.saveSettings, { settings: normalized }).then(res => {
+  return fdCall(ui, FD_RPC.saveSettings, { settings: outgoing }).then(res => {
     if (res.ok && res.data?.ok && res.data.settings) {
-      fdNoteRuntimeFlags('', res.data)
-      fdSavedSettingsListeners.forEach(listener => listener(res.data.settings))
+      if (hasEnabled) {
+        fdNoteRuntimeFlags('', res.data)
+        fdSavedSettingsListeners.forEach(listener => listener(res.data.settings))
+      } else {
+        fdNoteRuntimeFlags('', { preSendPause: res.data.settings.preSendPause })
+      }
     }
     return { ...res, local: true }
   })
 }
 
-/* 本局绑定仅同步「自动行动检定」开关与骰制 */
+/* 本局绑定同步「本局启用开关 / 自动行动检定 / 骰制」 */
 function fdPersistBinding(ui, gameId, binding) {
   if (!gameId) return Promise.resolve({ ok: false, error: '需要进入对话后绑定' })
-  const autoCheck = binding && typeof binding.autoCheck === 'boolean' ? binding.autoCheck : undefined
-  if (typeof autoCheck === 'boolean') fdNoteRuntimeFlags(gameId, { autoCheck })
+  const src = binding && typeof binding === 'object' ? binding : {}
+  const payload = {}
+  if (typeof src.enabled === 'boolean') payload.enabled = src.enabled
+  if (typeof src.autoCheck === 'boolean') payload.autoCheck = src.autoCheck
+  if (typeof src.rule === 'string' && src.rule) payload.rule = src.rule
+  if (typeof payload.enabled === 'boolean' || typeof payload.autoCheck === 'boolean') {
+    fdNoteRuntimeFlags(gameId, payload)
+  }
   fdInvalidateTurnCache(gameId)
-  return fdCall(ui, FD_RPC.saveBinding, { gameId, binding: { autoCheck } })
+  return fdCall(ui, FD_RPC.saveBinding, { gameId, binding: payload }).then(res => {
+    if (res && res.ok && res.data && res.data.ok !== false) {
+      const resolvedEnabled = typeof res.data.enabled === 'boolean'
+        ? res.data.enabled
+        : (typeof res.data.settings?.enabled === 'boolean' ? res.data.settings.enabled : payload.enabled)
+      if (typeof resolvedEnabled === 'boolean') {
+        fdNoteRuntimeFlags(gameId, {
+          enabled: resolvedEnabled,
+          ...(res.data.settings ? { settings: res.data.settings } : {})
+        })
+        fdSavedSettingsListeners.forEach(listener => listener({ enabled: resolvedEnabled, gameId }))
+      }
+    }
+    return res
+  })
 }
 
 function fdFreeRoll(ui, gameId, expression, options) {
@@ -14482,26 +14525,45 @@ function WorkbenchPanel(props) {
 
   useEffect(() => {
     let alive = true
+    touchedRef.current = false
+    setSettingsReady(false)
+    if (gameId) fdNoteActiveGameId(gameId)
     fdLoadWorkbench(ui, gameId).then(data => {
       if (!alive || !data) return
       /* 首次加载可能与用户的拨动并发：已经手动改过设置时，保留本地视图里的设置项，
          只接受宿主回包的其余字段，避免出现「打开了又自动关闭」的回弹 */
       setView(prev => {
         const base = prev || fdEmptyWorkbench()
-        if (!touchedRef.current) return data
+        if (!touchedRef.current) {
+          viewRef.current = data
+          return data
+        }
         const merged = fdNormalizeSettings({ ...(data.settings || {}), ...(base.settings || {}) })
-        viewRef.current = { ...data, settings: merged, damper: { ...(data.damper || base.damper), linkage: merged.damperLinkage } }
+        viewRef.current = {
+          ...data,
+          settings: merged,
+          binding: { ...(data.binding || base.binding), enabled: merged.enabled },
+          damper: { ...(data.damper || base.damper), linkage: merged.damperLinkage }
+        }
         return viewRef.current
       })
       setSettingsReady(true)
     })
     const offSync = fdWatch(ui, gameId, 'workbench-sync', payload => {
       if (!alive || !payload) return
-      setView(prev => fdMergeWorkbench(prev || fdEmptyWorkbench(), payload))
+      setView(prev => {
+        const next = fdMergeWorkbench(prev || fdEmptyWorkbench(), payload)
+        viewRef.current = next
+        return next
+      })
     })
     const offSummary = fdWatch(ui, gameId, 'summary', summary => {
       if (!alive || !summary) return
-      setView(prev => fdBindStatusSummary(prev || fdEmptyWorkbench(), { summary }))
+      setView(prev => {
+        const next = fdBindStatusSummary(prev || fdEmptyWorkbench(), { summary })
+        viewRef.current = next
+        return next
+      })
     })
     return () => {
       alive = false
@@ -14527,10 +14589,15 @@ function WorkbenchPanel(props) {
       .finally(() => setChecking(false))
   }
 
-  /* 设置项即时生效：先乐观写视图（开关立刻翻），再串行落盘（本地缓存 + 宿主） */
+  /* 全局检定参数即时生效：先乐观写视图，再串行落盘；绝不携带当前会话的 enabled 污染全局 */
   const persistSettings = nextSettings => {
     const base = (viewRef.current && viewRef.current.settings) || FD_DEFAULT_SETTINGS
-    const merged = fdNormalizeSettings({ ...base, ...(nextSettings || {}) })
+    const globalPatch = { ...(nextSettings || {}) }
+    delete globalPatch.enabled
+    const currentEnabled = Boolean(base.enabled)
+    const merged = fdNormalizeSettings({ ...base, ...globalPatch, enabled: currentEnabled })
+    const outgoing = { ...merged }
+    delete outgoing.enabled
     touchedRef.current = true
     viewRef.current = {
       ...(viewRef.current || fdEmptyWorkbench()),
@@ -14539,15 +14606,14 @@ function WorkbenchPanel(props) {
     }
     patch(prev => ({ settings: merged, damper: { ...prev.damper, linkage: merged.damperLinkage } }))
 
-    const run = () => fdPersistSettings(ui, merged)
+    const run = () => fdPersistSettings(ui, outgoing)
       .then(res => {
         if (!res || res.ok !== true) notify(fdToastResult(res, '改动已保存在本地浏览器'))
-        /* 宿主回包带权威设置时以宿主为准（宿主侧可能做过兜底归一化）；
-           但如果用户在这趟往返期间又拨了别的开关，视图已是更新的值，不能再拿旧回包打回去 */
+        /* 宿主回包带权威全局设置时以宿主为准，但保留当前会话的 enabled 不被全局覆盖 */
         const hostSettings = res && res.ok && res.data && res.data.settings
         const current = viewRef.current && viewRef.current.settings
         if (hostSettings && typeof hostSettings === 'object' && current === merged) {
-          const synced = fdNormalizeSettings({ ...merged, ...hostSettings })
+          const synced = fdNormalizeSettings({ ...merged, ...hostSettings, enabled: current.enabled })
           viewRef.current = { ...(viewRef.current || fdEmptyWorkbench()), settings: synced }
           patch(prev => ({ settings: synced }))
         }
@@ -14556,6 +14622,60 @@ function WorkbenchPanel(props) {
       .catch(() => {
         notify('改动已保存在本地浏览器')
         return merged
+      })
+
+    persistChain.current = (persistChain.current || Promise.resolve()).then(run, run)
+    return persistChain.current
+  }
+
+  /* 主开关按当前会话独立记忆：只写入当前 gameId 的绑定配置，不影响其他会话 */
+  const setEnabled = next => {
+    const nextEnabled = Boolean(next)
+    if (!hasGame) {
+      notify('请先进入任意对话后再开启或关闭命运之骰')
+      return Promise.resolve(false)
+    }
+    const base = (viewRef.current && viewRef.current.settings) || FD_DEFAULT_SETTINGS
+    const merged = fdNormalizeSettings({ ...base, enabled: nextEnabled })
+    touchedRef.current = true
+    viewRef.current = {
+      ...(viewRef.current || fdEmptyWorkbench()),
+      settings: merged,
+      binding: { ...((viewRef.current || {}).binding || {}), enabled: nextEnabled }
+    }
+    patch(prev => ({
+      settings: merged,
+      binding: { ...prev.binding, enabled: nextEnabled }
+    }))
+
+    const targetGameId = gameId
+    const run = () => fdPersistBinding(ui, targetGameId, { enabled: nextEnabled })
+      .then(res => {
+        if (!res || res.ok !== true) {
+          notify(fdToastResult(res, '本局开关保存失败'))
+          return nextEnabled
+        }
+        const hostEnabled = typeof res.data?.enabled === 'boolean'
+          ? res.data.enabled
+          : (typeof res.data?.settings?.enabled === 'boolean' ? res.data.settings.enabled : nextEnabled)
+        const current = viewRef.current && viewRef.current.settings
+        if (current === merged && hostEnabled !== merged.enabled) {
+          const synced = fdNormalizeSettings({ ...merged, enabled: hostEnabled })
+          viewRef.current = {
+            ...(viewRef.current || fdEmptyWorkbench()),
+            settings: synced,
+            binding: { ...((viewRef.current || {}).binding || {}), enabled: hostEnabled }
+          }
+          patch(prev => ({
+            settings: synced,
+            binding: { ...prev.binding, enabled: hostEnabled }
+          }))
+        }
+        return hostEnabled
+      })
+      .catch(() => {
+        notify('本局开关保存失败')
+        return nextEnabled
       })
 
     persistChain.current = (persistChain.current || Promise.resolve()).then(run, run)
@@ -14574,6 +14694,7 @@ function WorkbenchPanel(props) {
 
   const actions = {
     persistSettings,
+    setEnabled,
     setAutoCheck,
     setRule(rule) {
       patch(() => ({ rule }))
@@ -14605,14 +14726,17 @@ function WorkbenchPanel(props) {
     h('div', { className: 'fd-wb-top' },
       h('div', { className: 'fd-wb-head' },
         h('h3', { className: 'fd-wb-title' }, '🎲 命运之骰'),
-        h('div', { className: 'fd-btn-row fd-wb-toggle' },
+        h('div', {
+          className: 'fd-btn-row fd-wb-toggle',
+          title: hasGame ? (enabled ? '本会话已开启命运之骰，点击关闭' : '点击为本会话开启命运之骰') : '进入对话后可按会话开启或关闭命运之骰'
+        },
           h(FdSwitch, {
             on: enabled,
-            disabled: !settingsReady,
+            disabled: !settingsReady || !hasGame,
             label: '启用命运之骰',
-            onChange: next => persistSettings({ enabled: next })
+            onChange: next => setEnabled(next)
           }),
-          h('span', null, settingsReady ? (enabled ? '已开启' : '已关闭') : '读取中…'))),
+          h('span', null, !hasGame ? '需进入对话' : (settingsReady ? (enabled ? '已开启' : '已关闭') : '读取中…')))),
       h('div', { className: 'fd-tabbar', role: 'tablist' },
         tabs.map(([value, label]) => h('button', {
           key: value,
@@ -15282,35 +15406,59 @@ function fdWatchEnabledViews(ui) {
   let stopGameWatch = fdNoop
   let disposed = false
   let revision = 0
+  let currentGameId = String(fdGetActiveGameId() || '').trim()
 
-  const applySettings = settings => {
-    if (disposed || typeof settings?.enabled !== 'boolean') return
-    revision += 1
-    fdNoteRuntimeFlags('', { settings })
-    if (settings.enabled && !stopViews) stopViews = fdMountEnabledViews(ui)
-    if (!settings.enabled && stopViews) {
+  const syncViews = enabled => {
+    if (disposed || typeof enabled !== 'boolean') return
+    if (enabled && !stopViews) stopViews = fdMountEnabledViews(ui)
+    if (!enabled && stopViews) {
       stopViews()
       stopViews = null
     }
   }
-  const refresh = () => {
+  const applySettings = settings => {
+    if (disposed || typeof settings?.enabled !== 'boolean') return
+    const targetGameId = String(settings.gameId || '').trim()
+    if (targetGameId) {
+      fdNoteRuntimeFlags(targetGameId, { enabled: settings.enabled })
+      if (currentGameId && targetGameId !== currentGameId) return
+    } else {
+      fdNoteRuntimeFlags('', { settings })
+    }
+    revision += 1
+    syncViews(settings.enabled)
+  }
+  const refresh = gameId => {
+    const gid = String(gameId !== undefined ? gameId : currentGameId || '').trim()
     const request = ++revision
-    void fdCall(ui, FD_RPC.status, {}).then(res => {
+    void fdCall(ui, FD_RPC.status, gid ? { gameId: gid } : {}).then(res => {
       if (disposed || request !== revision || !res.ok || !res.data) return
-      applySettings(res.data.globalSettings || res.data.settings)
+      const resolvedId = gid || String(res.data.gameId || '').trim()
+      fdNoteRuntimeFlags(resolvedId, res.data)
+      if (gid && currentGameId && gid !== currentGameId) return
+      const effective = res.data.settings || res.data.globalSettings
+      if (typeof effective?.enabled === 'boolean') syncViews(effective.enabled)
     })
   }
   const watchGame = gameId => {
+    const gid = String(gameId || '').trim()
+    currentGameId = gid
     stopGameWatch()
-    stopGameWatch = fdWatch(ui, gameId, 'workbench-sync', data => {
-      if (typeof data?.settings?.enabled === 'boolean') refresh()
-    })
+    stopGameWatch = gid
+      ? fdWatch(ui, gid, 'workbench-sync', data => {
+        if (typeof data?.settings?.enabled === 'boolean') {
+          applySettings({ enabled: data.settings.enabled, gameId: gid })
+        }
+      })
+      : fdNoop
+    const known = gid ? fdIsEnabledForGame(gid) : null
+    if (typeof known === 'boolean') syncViews(known)
+    refresh(gid)
   }
   fdSavedSettingsListeners.add(applySettings)
-  const activeGame = fdGetActiveGameId()
   const stopActiveGame = fdSubscribeActiveGameId(watchGame)
-  if (activeGame) watchGame(activeGame)
-  refresh()
+  if (currentGameId) watchGame(currentGameId)
+  else refresh('')
   return () => {
     disposed = true
     fdSavedSettingsListeners.delete(applySettings)

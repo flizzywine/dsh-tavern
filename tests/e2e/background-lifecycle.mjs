@@ -39,7 +39,7 @@ export async function backgroundLifecycleChecks({page,step,savedChat,data,output
   }
   await step('后台结算取消与迟到返回不改写变量',async()=>{
     await control({mode:'hold',attempt:1})
-    const composer=page.getByRole('textbox',{name:/发消息|Message/})
+    const composer=page.getByRole('textbox',{name:/下一步行动|Next action|发消息|Message/})
     await composer.fill('再次领取奖励')
     await composer.press('Enter')
     report.retiredSession=await stopAttempt(1, {native:true})

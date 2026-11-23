@@ -214,3 +214,34 @@ test('取消安卓更新时把更新前的源码换回来，状态不再要求�
   assert.equal(status.repairRequired, undefined)
   assert.match(status.error, /已恢复更新前的源码/)
 })
+
+test('the final desktop guard still refuses a process that appeared after preparation', { skip: process.platform === 'win32' }, async t => {
+  const f = await fixture(t)
+  const live = path.join(f.sourceRoot, 'plugin.js')
+  await writeFile(live, 'old')
+  await writeFile(path.join(f.sourceRoot, 'install.sh'), `#!/bin/sh
+: > "$DSH_TAVERN_PUBLISH_GATE.ready"
+while [ ! -f "$DSH_TAVERN_PUBLISH_GATE" ]; do sleep 0.02; done
+printf published > ${quote(live)}
+`)
+  const children = [0, 1].map(() => spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' }))
+  const exits = children.map(child => once(child, 'exit'))
+  let guards = 0
+  const result = updateApplication({ ...f.options, desktopPids: children.map(child => child.pid), timeoutMs: 10000,
+    assertDesktopStopped() { guards++; throw new Error('late desktop process remains') },
+  }).catch(error => error)
+  try {
+    await until(async () => (await f.updater().status()).awaitingDesktopExit)
+    assert.equal(guards, 0)
+    for (const child of children) child.kill()
+    await Promise.all(exits)
+    assert.match((await result).message, /late desktop process remains/)
+    assert.equal(guards, 1)
+    assert.equal(await readFile(live, 'utf8'), 'old')
+    assert.equal(installationState.readInstallation(f.root), null)
+  } finally {
+    for (const child of children) child.kill()
+    await Promise.all(exits)
+    await result
+  }
+})

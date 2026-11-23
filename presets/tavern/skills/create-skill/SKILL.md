@@ -7,6 +7,8 @@ description: "创建或修改 Tavern Skill，把可复用的做法写成可被�
 
 成品用 `tavern_save_skill` 保存到用户 Skill 库。用户要用教学素材做场景写作 Skill 时改用 `create-writing-skill`。
 
+修改已有用户 Skill 时，先用 `tavern_read_skill` 读取当前正文和参考文件。用户没有给出名称时，先列出候选 Skill，再根据请求定位。
+
 ## 写什么
 
 读 Skill 的是另一个模型，它已经会写作、会用工具。只写会改变它做法的内容：
