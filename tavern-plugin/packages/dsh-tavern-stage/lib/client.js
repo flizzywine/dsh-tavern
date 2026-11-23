@@ -14700,6 +14700,9 @@ function GalStage(props) {
     const offered = !leasing && stageOffer?.sessionId === sessionId && stageOffer.turn === latestTurn ? stageOffer : null;
     const [roundCue,setRoundCue]=React.useState(null);
     const offerLine = offered?.lines[offered.index];
+    const backdropRef=offered?.replay ? offerLine?.backdrop : offered?.offer.backdrop;
+    const offerBackdrop=backdropRef?.kind==='backgrounds' && typeof backdropRef.assetId==='string' && typeof backdropRef.packId==='string'
+        ? {kind:'backgrounds',assetId:backdropRef.assetId,packId:backdropRef.packId} : null;
     const historyKey = 'dsh-tavern:stage-offer-history:' + sessionId;
     const offerHistory=React.useRef({key:'',rows:[]});
     React.useEffect(()=>{
@@ -14711,7 +14714,7 @@ function GalStage(props) {
         if (!offerLine || offered.replay || offerHistory.current.key!==historyKey) return;
         const id=offered.id+':'+offered.index;
         if (offerHistory.current.rows.some(row=>row.id===id)) return;
-        const row={...offerLine,id,offerId:offered.id,turn:offered.turn,title:offered.offer.title};
+        const row={...offerLine,id,offerId:offered.id,turn:offered.turn,title:offered.offer.title,backdrop:offerBackdrop};
         offerHistory.current.rows=[...offerHistory.current.rows,row].slice(-100);
         try { localStorage.setItem(historyKey,JSON.stringify(offerHistory.current.rows)); } catch {}
     },[offered?.id,offered?.index,historyKey]);
@@ -14746,7 +14749,12 @@ function GalStage(props) {
     const performerAt = performer ? sceneCast.findIndex(figure=>figure.ref?.figureId && figure.ref.figureId===performer.ref?.figureId ||
         figure.name===offerLine.speaker) : -1;
     const characters = performerAt < 0 ? sceneCast : sceneCast.map((figure,index)=>index===performerAt ? {...performer,alias:figure.alias} : figure);
-    const pack = {state:accepted.layout?.state || accepted.scene?.state, scene:useBgManualScene(sessionId, leasing ? borrowed?.scene : accepted.scene), characters,
+    // Project through the existing card-scoped asset reader so the backdrop renders behind standing figures.
+    const offerProjection=useStageLeaseAssets(sessionId,
+        {key:'offer-backdrop',lease:{scene:{background:offerBackdrop && {background:offerBackdrop,timeOfDay:null}}}},
+        runtime.source,runtime.director.assetRevision,offerBackdrop ? [] : null);
+    const projectedBackdrop=offerProjection?.scene?.backgroundUrl ? offerProjection.scene : null;
+    const pack = {state:accepted.layout?.state || accepted.scene?.state, scene:useBgManualScene(sessionId, projectedBackdrop || (leasing ? borrowed?.scene : accepted.scene)), characters,
         avatars:accepted.avatars || [], widgets:accepted.widgets || [],
         audio:{music:accepted.music,soundscape:accepted.ambience,sfx:[]}, core:leasing ? borrowed?.scene?.core || '' : accepted.layout?.core || accepted.scene?.core || ''};
     const rootRef = React.useRef(null);
@@ -15833,7 +15841,7 @@ function GalStage(props) {
     return h("div", { ref: rootRef, tabIndex: -1, className: "fork-gal-stage" + (film ? " is-film" : "") + (backlog ? " is-backlog" : "") + (configOpen ? " is-config" : "") + (menuOpen ? " is-menu" : "") + (hidden ? " is-ui-hidden" : "") + (takeover.up ? " is-takeover" : "") + (insertPicture ? " is-picture" : ""), "data-theme": theme, "data-card-page-menu": pageList.filter(declared => declared.menu).map(declared => declared.id).join(" ") || undefined, "data-entry": entryGate.phase, "data-entrance": entrance.stageAttr, "data-skin-buttons": homes.declared.join(" ") || undefined, "data-reduced-motion": reading.reducedMotion === true || undefined, "data-cg-visible": !!accepted.cg || cg.visible || undefined, "data-narration-layout": narrationLayout, "data-fk-device": device, "data-fk-quality": quality, "data-phone-open": sourceWidget.phoneOpen || undefined, "data-covered": scene.covered || undefined, "data-fk-context": "stage-" + theme, "data-hud": hud.state || undefined, "data-speaking": speaker ? "true" : "false", "data-fk-portrait-bust": bustAlias ? "" : undefined,
         // a square skin (its --gal-ui-radius, stage-skin-adapter.cjs, is 0): its engine widgets drop their soft shadows (theme.css)
         "data-fk-skin-square": activeSkin && (activeSkin.ui?.radius ?? activeSkin.textbox?.shape?.radius ?? 10) === 0 ? "" : undefined, "data-fork-stage-turn": turn, "data-fork-stage-para": para,
-        "data-stage-lease": leasing ? leaseView.lease.owner : undefined,
+        "data-stage-lease": leasing ? leaseView.lease.owner : undefined, "data-offer-backdrop":projectedBackdrop ? offerBackdrop.assetId : undefined,
         "data-fk-tx-leaving": stageLeaving || undefined, "data-fk-tx-entering": stageEntering || undefined, "data-fk-veil": veilShown.current || undefined,
         // the current skin's text percent; theme.css multiplies the skin's own sizes by it
         // and keeps the text block where the skin puts it (data-fk-text-scale: only set off 100%, so 100% is untouched).
