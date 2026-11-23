@@ -94,12 +94,14 @@ export function selectPackFigure(figure, sprites, {outfitKey, emotion, imageSele
 // else the outfit's, else any of its other states' (one outfit's pictures share the canvas and the pose). The stage looks
 // for the head's centre only there, so a hammer head or a scythe blade beside the head at the same height is not taken
 // for it (scene-math galCentredAnatomy). null when nothing in the outfit was framed.
-// 动态立绘: the shown still's looping video, {source: the 视频 entry's projection, rect}, or null - the still alone - when the
-// image has none, its entry is off or gone, or it is no figure video (alpha 'right'). Decided once here; the stage only plays it.
+// 动态立绘: the shown still's looping videos, {source: the idle loop's 视频 projection, talk: the talking loop's or null, rect},
+// or null - the still alone - when the image has none, its idle entry is off or gone, or it is no figure video (alpha
+// 'right'); a talking loop off or gone leaves speech to the still's mouths. Decided once here; the stage only plays them.
 export function packFigureVideo(pack, selection) {
   const authored = selection.form === 'sprite' ? selection.outfit?.sprite?.videos?.[selection.state?.id] : null
-  const source = authored ? projectStageVideo(pack, authored.video) : null
-  return source?.alpha === 'right' ? {source, rect:[...authored.rect]} : null
+  const figureVideo = id => { const source = id ? projectStageVideo(pack, id) : null; return source?.alpha === 'right' ? source : null }
+  const source = authored ? figureVideo(authored.video) : null
+  return source ? {source, talk:figureVideo(authored.talk), rect:[...authored.rect]} : null
 }
 function packFaceSpan(outfit, stateId) {
   const crop = packSpriteCrop(outfit, stateId) || Object.values(outfit.sprite?.avatarCrop || {})[0] || Object.values(outfit.sprite?.avatarCropAuto || {})[0]

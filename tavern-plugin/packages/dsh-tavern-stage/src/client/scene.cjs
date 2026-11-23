@@ -425,12 +425,13 @@ function galCreateScene(host, options, own) {
         entry.blink.update({bundle:entry.figure.blinkBundle,sprite:entry.sprite,baseTexture:entry.baseTexture,
             ready:entry.loadedIdentity===entry.figure.identity,rhythm:entry.idle.jitter.blink});
     }
-    // 动态立绘 (figure-video.cjs): the loaded still's looping video plays over it while the figure stands on a visible stage
-    // with motion allowed, and the still shows otherwise: a tap reaction's still, a skip, reduced motion, or a line spoken
-    // through the still's talking mouths. One video per loaded picture; a new picture releases the old one's.
+    // 动态立绘 (figure-video.cjs): the loaded still's looping videos play over it while the figure stands on a visible stage
+    // with motion allowed - its talking loop while it speaks - and the still shows otherwise: a tap reaction's still, a skip,
+    // reduced motion, or a line spoken through the still's mouths because no talking loop can play. One set of videos per
+    // loaded picture; a new picture releases the old one's.
     function tickFigureVideo(entry, figure, desc, dt) {
         const video = entry.loadedIdentity === figure.identity ? figure.video : null;
-        const key = video ? JSON.stringify([video.source.packId, video.source.bundleKey, video.source.hash, video.rect]) : '';
+        const key = video ? JSON.stringify([video.source.packId, video.source.bundleKey, video.source.hash, video.talk?.bundleKey, video.talk?.hash, video.rect]) : '';
         if (entry.videoKey !== key || entry.videoSprite !== entry.sprite) {
             const old = entry.video; entry.video = null; entry.videoShown = false;
             old?.destroy();
@@ -439,8 +440,9 @@ function galCreateScene(host, options, own) {
         }
         if (!entry.video) return;
         const tapped = Boolean(entry.tapTexture && entry.sprite.texture === entry.tapTexture.texture);
-        const talking = Boolean(figure.speaking && !desc.skipping && figure.spriteBundle);
-        entry.video.update({on: !entry.leaving && entry.container.visible && world.visible && !desc.reducedMotion && !desc.skipping && !tapped && !talking});
+        const talking = Boolean(figure.speaking && !desc.skipping);
+        const stillSpeaks = talking && Boolean(figure.spriteBundle) && !entry.video.talks();
+        entry.video.update({on: !entry.leaving && entry.container.visible && world.visible && !desc.reducedMotion && !desc.skipping && !tapped && !stillSpeaks, talking});
         entry.videoShown = entry.video.tick(dt);
     }
     const GAL_NO_FIGURES = [];
@@ -777,7 +779,9 @@ function galCreateScene(host, options, own) {
                 renderer.tick(entry,figure,desc,{now,dt,W,H,framing,reducedHop});
                 if(!renderer.spriteBased)return;
             }else {
-                if (!layeredSpriteTickScene(entry, textures, PIXI, !desc.skipping && figure.speaking)) entry.sprite.texture = entry.baseTexture;
+                // A talking loop on screen speaks with its own mouth: the still under its crossfade keeps its mouth shut.
+                const videoTalks = Boolean(entry.videoShown && entry.video?.talks());
+                if (!layeredSpriteTickScene(entry, textures, PIXI, !desc.skipping && figure.speaking && !videoTalks)) entry.sprite.texture = entry.baseTexture;
                 tickBlink(entry);
                 tapTextureStatic(entry, now);
                 tickFigureVideo(entry, figure, desc, dt * 1000);

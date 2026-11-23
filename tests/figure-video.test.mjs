@@ -8,6 +8,8 @@ import {entranceDoc} from './fixtures/stage-entrance.mjs'
 import {validateFigure, validateFigureClosure} from '../tavern-plugin/packages/dsh-asset-library/src/asset-packs/figure.js'
 import {validatePackManifest} from '../tavern-plugin/packages/dsh-asset-library/src/asset-packs/manifest.js'
 import {selectPackFigure, packFigureVideo} from '../tavern-plugin/packages/dsh-tavern-stage/lib/domain/asset-pack-presentation.js'
+import {copyFigureAssets} from '../tavern-plugin/packages/dsh-asset-library/src/pack-v2/copy-figure.js'
+import {copyPackItems} from '../tavern-plugin/packages/dsh-asset-library/src/pack-v2/copy-items.js'
 
 const require = createRequire(import.meta.url)
 const {createStageFigureVideos} = require('../tavern-plugin/packages/dsh-tavern-stage/src/client/figure-video.cjs')
@@ -16,9 +18,10 @@ const videoEntry = (fields = {}) => ({kind: 'videos', id: 'calm-loop', name: 'Ca
   bundleKey: 'video-calm-loop', entry: 'loop.mp4', poster: 'poster.png', durationMs: 3000, loop: true, size: [640, 1536], alpha: 'right', ...fields})
 async function packWithVideo(fields, rect = [100, 40, 320, 768]) {
   const pack = await syntheticPack(), figure = pack.figures[FIGURE_ID]
-  pack.manifest.assets.push(videoEntry(fields))
+  pack.manifest.assets.push(videoEntry(fields), videoEntry({id: 'calm-talk', name: 'Calm talk', bundleKey: 'video-calm-talk', loop: false}))
   pack.manifest.bundles['video-calm-loop'] = {kind: 'video', entry: 'loop.mp4', contentHash: 'c'.repeat(64)}
-  figure.outfits[0].sprite.videos = {calm: {video: 'calm-loop', rect}}
+  pack.manifest.bundles['video-calm-talk'] = {kind: 'video', entry: 'loop.mp4', contentHash: 'e'.repeat(64)}
+  figure.outfits[0].sprite.videos = {calm: {video: 'calm-loop', talk: 'calm-talk', rect}}
   return pack
 }
 
@@ -37,6 +40,10 @@ test('a direct image may carry a figure video of its own pack; the closure names
   assert.throws(() => validateFigureClosure(pack.manifest, pack.figures, pack.sprites), /Measurements belong to a direct image/)
   sprite.videos = {calm: {video: 'nothing', rect: [100, 40, 320, 768]}}
   assert.throws(() => validateFigureClosure(pack.manifest, pack.figures, pack.sprites), /Missing video entry: nothing/)
+  sprite.videos = {calm: {video: 'calm-loop', talk: 'nothing', rect: [100, 40, 320, 768]}}
+  assert.throws(() => validateFigureClosure(pack.manifest, pack.figures, pack.sprites), error => /Missing video entry: nothing/.test(error.message) && error.path.endsWith('.calm.talk'))
+  sprite.videos = {calm: {video: 'calm-loop', rect: [100, 40, 320, 768]}}
+  validateFigureClosure(pack.manifest, pack.figures, pack.sprites)
   await assert.rejects(async () => { const opaque = await packWithVideo({alpha: 'none'}); validateFigureClosure(opaque.manifest, opaque.figures, opaque.sprites) }, /alpha: right/)
   await assert.rejects(async () => { const wide = await packWithVideo({}, [0, 0, 768, 768]); validateFigureClosure(wide.manifest, wide.figures, wide.sprites) }, /aspect ratio/)
 })
@@ -59,8 +66,14 @@ test('the host projects the shown still\'s video once: off, opaque or another im
   const figure = pack.figures[FIGURE_ID]
   const snapshot = {manifest: pack.manifest}
   const calm = selectPackFigure(figure, pack.sprites, {outfitKey: 'school', emotion: 'calm', appearance: 'sprite'})
-  assert.deepEqual(packFigureVideo(snapshot, calm), {rect: [100, 40, 320, 768], source: {packId: pack.manifest.id, assetId: 'calm-loop', bundleKey: 'video-calm-loop', hash: 'c'.repeat(64),
-    entry: 'loop.mp4', poster: 'poster.png', durationMs: 3000, loop: true, audio: 'none', size: [640, 1536], fit: 'cover', volume: 1, alpha: 'right'}})
+  const projected = packFigureVideo(snapshot, calm)
+  assert.deepEqual(projected.rect, [100, 40, 320, 768])
+  assert.deepEqual(projected.source, {packId: pack.manifest.id, assetId: 'calm-loop', bundleKey: 'video-calm-loop', hash: 'c'.repeat(64),
+    entry: 'loop.mp4', poster: 'poster.png', durationMs: 3000, loop: true, audio: 'none', size: [640, 1536], fit: 'cover', volume: 1, alpha: 'right'})
+  assert.deepEqual([projected.talk.assetId, projected.talk.hash, projected.talk.loop], ['calm-talk', 'e'.repeat(64), false])
+  // A talking loop off leaves speech to the still's mouths; the idle loop stays.
+  pack.manifest.assets.find(row => row.id === 'calm-talk').enabled = false
+  assert.equal(packFigureVideo(snapshot, calm).talk, null)
   const crying = selectPackFigure(figure, pack.sprites, {outfitKey: 'school', emotion: 'crying', appearance: 'sprite'})
   assert.equal(packFigureVideo(snapshot, crying), null)
   pack.manifest.assets.find(row => row.id === 'calm-loop').enabled = false
@@ -76,10 +89,10 @@ function fakeDom() {
   const document = {createElement(tag) {
     assert.equal(tag, 'video')
     const listeners = {}
-    const video = {tag, attributes: {}, paused: true, currentTime: 0, readyState: 0, videoWidth: 1280, videoHeight: 1536, src: '', loads: 0, plays: 0,
+    const video = {tag, attributes: {}, paused: true, ended: false, currentTime: 0, readyState: 0, videoWidth: 1280, videoHeight: 1536, src: '', loads: 0, plays: 0,
       setAttribute(name, value) { this.attributes[name] = value }, removeAttribute(name) { delete this.attributes[name]; if (name === 'src') this.src = '' },
       addEventListener(name, fn) { (listeners[name] ||= []).push(fn) }, fire(name) { for (const fn of listeners[name] || []) fn() },
-      load() { this.loads++ }, play() { this.plays++; this.paused = false; this.readyState = 4; return Promise.resolve() }, pause() { this.paused = true }}
+      load() { this.loads++ }, play() { this.plays++; this.paused = false; this.ended = false; this.readyState = 4; return Promise.resolve() }, pause() { this.paused = true }}
     videos.push(video)
     return video
   }}
@@ -136,4 +149,61 @@ test('a video that cannot play leaves the still for good', async () => {
   sprite._render(); assert.equal(sprite.draws, 1)
   scope.dispose()
   assert.equal(handle.state().status, 'released')
+})
+
+test('speech plays the talking loop from its first frame, loops it, and plays it out to the still before the idle loop', async () => {
+  const {document, PIXI, sprite, videos} = fakeDom()
+  const scope = createStageFigureVideos({document, acquire: source => ({video: Promise.resolve('blob:' + source.id), release() {}}), foreground: null}).create({PIXI})
+  const handle = scope.attach(sprite, {source: {id: 'idle'}, talk: {id: 'talk'}, rect: [0, 0, 10, 10]})
+  await flush()
+  const [idle, talk] = videos
+  assert.equal(idle.loop, true); assert.equal(talk.loop, false, 'the talking loop ends on the still, so the handle restarts it')
+  assert.equal(handle.talks(), false, 'not loaded yet: the stage speaks through the still')
+  idle.fire('loadeddata'); talk.fire('loadeddata')
+  const [talkMesh, idleMesh] = sprite.children
+  assert.equal(handle.talks(), true)
+  handle.update({on: true}); handle.tick(16); handle.tick(400); assert.equal(idleMesh.alpha, 1)
+  idle.currentTime = 1.7
+  handle.update({on: true, talking: true}); handle.tick(16)
+  assert.equal(handle.state().phase, 'talk'); assert.equal(talk.plays, 1); assert.equal(talk.currentTime, 0)
+  handle.tick(200); assert.equal(talkMesh.alpha, 1); assert.equal(idleMesh.visible, false); assert.equal(idle.paused, true, 'the idle loop pauses once faded out')
+  // Still speaking at the clip's end: it starts over.
+  talk.currentTime = 2.9; talk.paused = true; talk.ended = true; handle.tick(16)
+  assert.equal(talk.plays, 2); assert.equal(talk.currentTime, 0); assert.equal(talkMesh.alpha, 1)
+  // The line ends mid-clip: it plays on, then the idle loop takes over from its first frame.
+  talk.currentTime = 1.2; handle.update({on: true, talking: false}); handle.tick(16)
+  assert.equal(handle.state().phase, 'talk'); assert.equal(talkMesh.alpha, 1)
+  talk.paused = true; talk.ended = true; handle.tick(16)
+  assert.equal(handle.state().phase, 'idle'); assert.equal(idle.currentTime, 0); assert.equal(idle.paused, false)
+  sprite._render(); const draws = sprite.draws
+  handle.tick(200); assert.equal(idleMesh.alpha, 1); assert.equal(talkMesh.visible, false, 'the ended clip held its last frame while the idle loop faded in')
+  sprite._render(); assert.equal(sprite.draws, draws, 'a full idle loop hides the still')
+  // A talking loop that fails: the stage is told to speak through the still, the idle loop stays.
+  const warn = console.warn; console.warn = () => {}
+  try { talk.error = {code: 3}; talk.fire('error') } finally { console.warn = warn }
+  assert.equal(handle.talks(), false); handle.update({on: true, talking: true}); handle.tick(16); assert.equal(handle.state().phase, 'idle')
+  scope.dispose()
+  assert.equal(sprite.children.length, 0)
+})
+
+test('copying a figure takes its still loops along as entries of the target, renamed where the target has the id', async () => {
+  const pack = await packWithVideo()
+  pack.files.set('bundles/video-calm-loop/loop.mp4', Buffer.from('idle')); pack.files.set('bundles/video-calm-talk/loop.mp4', Buffer.from('talk'))
+  const target = () => ({id: '33333333-3333-4333-8333-333333333333', figures: [], sprites: {}, blobs: {}, files: [],
+    assets: [videoEntry({name: 'Other'})], bundles: {'video-calm-loop': {kind: 'video', entry: 'loop.mp4', contentHash: 'f'.repeat(64)}}})
+  const check = (manifest, files, figureId) => {
+    const figure = JSON.parse(files.get('figures/' + figureId + '.json'))
+    assert.deepEqual(figure.outfits[0].sprite.videos.calm, {video: 'calm-loop-2', talk: 'calm-talk', rect: [100, 40, 320, 768]})
+    const idle = manifest.assets.find(a => a.id === 'calm-loop-2'), talk = manifest.assets.find(a => a.id === 'calm-talk')
+    assert.deepEqual([idle.bundleKey, talk.bundleKey], ['video-calm-loop-2', 'video-calm-talk'])
+    assert.equal(String(files.get('bundles/video-calm-loop-2/loop.mp4')), 'idle'); assert.equal(String(files.get('bundles/video-calm-talk/loop.mp4')), 'talk')
+    assert.deepEqual(idle.extensions.dsh_tavern.copiedFrom, {packId: pack.manifest.id, kind: 'videos', assetId: 'calm-loop'})
+    assert.equal(manifest.assets.filter(a => a.kind === 'videos').length, 3, 'each loop once, beside the target\'s own')
+  }
+  const one = target(), oneFiles = new Map()
+  check(one, oneFiles, copyFigureAssets(pack, FIGURE_ID, one, oneFiles).figureId)
+  // Named together with the figure, a loop is still copied once.
+  const many = target(), manyFiles = new Map()
+  const copied = copyPackItems(pack, [{kind: 'figures', id: FIGURE_ID}, {kind: 'videos', id: 'calm-talk'}], many, manyFiles, new Set())
+  check(many, manyFiles, copied.find(row => row.kind === 'figures').toId)
 })
