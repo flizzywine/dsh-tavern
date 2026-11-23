@@ -1217,6 +1217,7 @@ window.__ModuleLoader__.load({
 // @include features/opening-setup-form.js
 // @include features/opening-setup-template.js
 // @include modules/card-update-dialog.js
+// @include modules/script-card-update.js
 // @include features/sidebar.js
 
 // @include features/scene-images.js
@@ -1469,6 +1470,7 @@ function clipReplayCore() {
 			tavernSessionSignals = signals;
 			ctx.effect(function () { return function () { if (tavernSessionSignals === signals) tavernSessionSignals = undefined; }; }, "dsh-tavern: remote session signals");
 			ctx.effect(function () { return tavernRuntimeGenerationMonitor.start(); }, "dsh-tavern: runtime generation monitor");
+            ctx.effect(() => installTavernScriptCardUpdate({ window, rpc, onUpdated: sessionId => { liveTavernView.invalidate(sessionId); notifyTavernDataChanged(["cards"], "script-card-update"); } }), "dsh-tavern: card scripts updating their own card");
             // Host shortcuts and exit registration; the plugin starts its own session runtime.
             stageEffect(() => galStageShortcut(ctx), "dsh-tavern: stage keyboard shortcut");
             stageEffect(() => galStageLifetime(), "dsh-tavern: stage visibility lifetime");

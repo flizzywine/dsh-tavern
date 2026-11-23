@@ -4,6 +4,7 @@ import { pngPayload } from '../domain/mobile-card-import.js'
 import { readFile, rm } from 'node:fs/promises'
 import { isCardArchiveUpload } from '../domain/uploads.js'
 import { encryptCardArchiveFile, isCardPasswordError } from '../domain/card-encryption.js'
+import { createScriptCardUpdate } from '../domain/script-card-update.js'
 
 // Card library, card workspace and card import requests.
 // `deps` carries the services ../index.js builds; dispatchMethod routes by method name.
@@ -13,6 +14,13 @@ export function createCardHandlers(deps) {
     importCard, importCardArchiveFile, importPackArchiveFile, importPluginCardFile, previewCardArchiveFile, replaceCard, revertCardUpdate, listCards, mobileCardImport, pluginApi,
     readCardWorkspace, runtimePrompt, sessionStore, setCardPlugins, sleep, str, updateCard, uploads,
     worldBooks } = deps
+  const scriptCard = createScriptCardUpdate({ presentCardText: path => deps.presentCardText(path), readCardWorkspace,
+    readCardImage: path => fileResources.readCardImage(path), replaceCard })
+  async function sessionCardPath(args) {
+    const chat = await chatForSession(args?.sessionId)
+    if (!chat?.cardPath) throw new Error('找不到对话或人物卡')
+    return chat.cardPath
+  }
 
   const cardUploadFor = id => isCardArchiveUpload(id) ? deps.cardArchiveUploads : uploads
 
@@ -24,6 +32,15 @@ export function createCardHandlers(deps) {
   }
 
   return {
+    // A card script updating its own card (script-card-update.js): the session's card only.
+    async getScriptCard(args) {
+      const cardPath = await sessionCardPath(args)
+      return { path: cardPath, ...await scriptCard.read(cardPath) }
+    },
+    async replaceScriptCard(args) {
+      const card = await scriptCard.replace(await sessionCardPath(args), { card: args?.card, world: args?.world || null, cover: str(args?.cover) })
+      return { card }
+    },
     async getCardOrganization(args) {
       return { groups: (await cardOrganization.read()).groups }
     },
