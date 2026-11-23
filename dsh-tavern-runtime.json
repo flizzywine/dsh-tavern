@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "fa60116497b2c28b2cce3bf00d0c41b628d01f10",
-  "releaseSequence": 2013,
+  "revision": "2401c4d31009fe5b0861a4b4cdab7c4aaf4c12bc",
+  "releaseSequence": 2014,
   "version": "3.4.0",
   "files": [
     {
@@ -196,8 +196,8 @@
     },
     {
       "path": "android/native/shims/android-preload.cjs",
-      "sha256": "1ad72d2075ddc92d55c1e83fa2d55970a94fdd8047e0cc7ddb5baf6191e4212f",
-      "size": 8172
+      "sha256": "8fec2c14f49bb71df02ba65f1d10ca3cf868a39de3256d18b5f623b9748bc12f",
+      "size": 9332
     },
     {
       "path": "android/native/shims/node-addon-require-builtin/lib/index.js",
@@ -10161,9 +10161,9 @@
     }
   ],
   "archive": {
-    "commit": "7c694734a128ea882b52dba5ba9a9599e978daf8",
+    "commit": "7edc9e2c2e6d848eda5b4d09e3d116bfb4cc8670",
     "path": "runtime.zip",
-    "sha256": "7d9630b3c6f5e6f123246bdf03903b9c49ae0b88a1c83e3017262cddd0d48e6d",
-    "size": 17844053
+    "sha256": "837832f7aaa1c0e8a3259700078f9a9420abbfcfe94dc46308bb3dc602bc1a07",
+    "size": 17844571
   }
 }
