@@ -66,9 +66,9 @@
 						// Narration stays silent while the narrator is off; the dialogue goes on.
 						if (reply.skip) { if (reply.reason === "narration" || reply.reason === "empty") continue; return false; }
 						const text = reply.text || line.text;
-						const descriptor = reply.browser ? { available: true, browser: { voice: reply.voice || "" }, language: "zh-CN" } : { available: true, url: reply.url, loudness: reply.loudness };
+						const descriptor = reply.browser ? { available: true, browser: { voice: reply.voice || "", ...(reply.rate === undefined ? {} : { rate: reply.rate }) }, language: "zh-CN" } : { available: true, url: reply.url, loudness: reply.loudness };
 						const heard = await playClip(lease, descriptor, { owner: OWNER, id: String(index), text, mood: input.emotion || "neutral",
-							cacheKey: JSON.stringify([OWNER, reply.browser ? "browser:" + (reply.voice || "") : reply.url, text]) });
+							cacheKey: JSON.stringify([OWNER, reply.browser ? "browser:" + (reply.voice || "") + ":" + (reply.rate || "") : reply.url, text]) });
 						if (!heard) return false;
 						heardAny = true;
 					}

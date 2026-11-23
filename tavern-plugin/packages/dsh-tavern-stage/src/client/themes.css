@@ -615,22 +615,22 @@ button.stage-wait[data-busy] { cursor: default; }
   .fork-gal-stage:is(:not([data-fk-skin-buttons]), .is-film, .is-menu) .fork-gal-topbar > .fork-gal-topright { grid-column: 3; grid-row: 1; justify-self: end; }
 }
 /* Over a skin's open menu the chips need no scene halo (the menu's own ground carries them): no glow at rest. */
-.fork-gal-stage[data-fk-skin].is-menu:not(.is-film) .fork-gal-topbar :is(.fork-gal-mixer-toggle, .fork-gal-film, .fork-gal-scene-image, .fork-gal-quit):not(:hover, :focus-visible, [aria-expanded="true"]) { filter: none; }
+.fork-gal-stage[data-fk-skin].is-menu:not(.is-film) .fork-gal-topbar :is(.fork-gal-mixer-toggle, .fork-gal-film, .fork-gal-scene-image, .fork-gal-page-entry, .fork-gal-quit):not(:hover, :focus-visible, [aria-expanded="true"]) { filter: none; }
 .fork-gal-topbar:hover, .fork-gal-stage:hover .fork-gal-topbar, .fork-gal-topbar:focus-within,
 .fork-gal-stage:hover > .fork-gal-status[data-size="full"] .fork-gal-status-head, .fork-gal-status[data-size="full"] .fork-gal-status-head:focus-within { --gal-ui-hud-ink: var(--gal-ui-hud-ink-on); }
 /* hud.plate (§18 N13): the chips stand on the skin's opaque ground in its ink (no halo needed), so a light label never sits on a
    bright sky. */
 .fork-gal-stage[data-fk-skin-hud-plate]:not(.is-film) .fork-gal-topbar { --gal-ui-hud-ink: var(--fk-hud-plate-fg); --gal-ui-hud-ink-on: var(--fk-hud-plate-fg); --gal-ui-hud-ink-idle: var(--fk-hud-plate-fg); --gal-ui-hud-halo: var(--fk-hud-plate-bg); --gal-ui-hud-plate: var(--fk-hud-plate-bg); }
-.fork-gal-stage[data-fk-skin-hud-plate]:not(.is-film) .fork-gal-topbar :is(.fork-gal-place, .fork-gal-track, .fork-gal-mixer-toggle, .fork-gal-film, .fork-gal-scene-image, .fork-gal-quit, .fork-gal-generate-turn),
+.fork-gal-stage[data-fk-skin-hud-plate]:not(.is-film) .fork-gal-topbar :is(.fork-gal-place, .fork-gal-track, .fork-gal-mixer-toggle, .fork-gal-film, .fork-gal-scene-image, .fork-gal-page-entry, .fork-gal-quit, .fork-gal-generate-turn),
 .fork-gal-stage[data-fk-skin-hud-plate]:not(.is-film) > .fork-gal-status[data-size="full"] .fork-gal-status-close { background: var(--fk-hud-plate-bg); color: var(--fk-hud-plate-fg); filter: none; }
-.fork-gal-stage .fork-gal-topbar :is(.fork-gal-place, .fork-gal-track, .fork-gal-generate-turn, .fork-gal-history-direction-progress, .fork-gal-history-direction-error, .fork-gal-mixer-toggle, .fork-gal-film, .fork-gal-scene-image, .fork-gal-quit),
+.fork-gal-stage .fork-gal-topbar :is(.fork-gal-place, .fork-gal-track, .fork-gal-generate-turn, .fork-gal-history-direction-progress, .fork-gal-history-direction-error, .fork-gal-mixer-toggle, .fork-gal-film, .fork-gal-scene-image, .fork-gal-page-entry, .fork-gal-quit),
 .fork-gal-stage > .fork-gal-status[data-size="full"] .fork-gal-status-close,
 .fork-gal-stage .fork-gal-runtime-status { filter: var(--gal-ui-hud-glow); }
-.fork-gal-stage .fork-gal-topbar :is(.fork-gal-track.fork-bgm-chip, .fork-gal-place.fork-bg-chip, .fork-gal-generate-turn, .fork-gal-mixer-toggle, .fork-gal-film, .fork-gal-scene-image, .fork-gal-quit):is(:hover, :focus-visible, [aria-expanded="true"]),
+.fork-gal-stage .fork-gal-topbar :is(.fork-gal-track.fork-bgm-chip, .fork-gal-place.fork-bg-chip, .fork-gal-generate-turn, .fork-gal-mixer-toggle, .fork-gal-film, .fork-gal-scene-image, .fork-gal-page-entry, .fork-gal-quit):is(:hover, :focus-visible, [aria-expanded="true"]),
 .fork-gal-stage > .fork-gal-status[data-size="full"] .fork-gal-status-close:is(:hover, :focus-visible) {
   background: var(--gal-ui-hud-hover); color: var(--gal-ui-hud-ink-on); filter: var(--gal-ui-hud-glow-on); }
-.fork-gal-stage .fork-gal-topbar :is(.fork-gal-track.fork-bgm-chip, .fork-gal-place.fork-bg-chip, .fork-gal-mixer-toggle, .fork-gal-film, .fork-gal-scene-image, .fork-gal-quit):is(:hover, :focus-visible, [aria-expanded="true"]) .fork-icon { stroke-width: 2.3; }
-.fork-gal-stage .fork-gal-topbar :is(.fork-gal-track.fork-bgm-chip, .fork-gal-place.fork-bg-chip, .fork-gal-generate-turn, .fork-gal-mixer-toggle, .fork-gal-film, .fork-gal-scene-image, .fork-gal-quit):focus-visible,
+.fork-gal-stage .fork-gal-topbar :is(.fork-gal-track.fork-bgm-chip, .fork-gal-place.fork-bg-chip, .fork-gal-mixer-toggle, .fork-gal-film, .fork-gal-scene-image, .fork-gal-page-entry, .fork-gal-quit):is(:hover, :focus-visible, [aria-expanded="true"]) .fork-icon { stroke-width: 2.3; }
+.fork-gal-stage .fork-gal-topbar :is(.fork-gal-track.fork-bgm-chip, .fork-gal-place.fork-bg-chip, .fork-gal-generate-turn, .fork-gal-mixer-toggle, .fork-gal-film, .fork-gal-scene-image, .fork-gal-page-entry, .fork-gal-quit):focus-visible,
 .fork-gal-stage > .fork-gal-status[data-size="full"] .fork-gal-status-close:focus-visible { outline: 2px solid var(--gal-ui-hud-ink-on); outline-offset: 1px; }
 /* Toggled (电影 on, mixer muted): accent ink and a dot under the glyph. */
 .fork-gal-stage .fork-gal-topbar :is(.fork-gal-film[aria-pressed="true"], .fork-gal-mixer-toggle[data-level="muted"]) { color: var(--gal-ui-hud-active); }
@@ -670,7 +670,7 @@ button.stage-wait[data-busy] { cursor: default; }
   .fork-gal-track.is-changing .fork-icon { animation: none; }
 }
 /* (a full card page's close button is this × too, over the page's top-right corner) */
-.fork-gal-stage :is(.fork-gal-quit, .fork-gal-film, .fork-gal-scene-image), .fork-gal-stage > .fork-gal-status[data-size="full"] .fork-gal-status-close { position: relative; display: grid; place-items: center; box-sizing: border-box; width: 30px; height: 30px; margin: 0; padding: 0; border: 0; border-radius: 50%; background: none; box-shadow: none; color: var(--gal-ui-hud-ink); cursor: pointer; transition: color .25s, background .15s; }
+.fork-gal-stage :is(.fork-gal-quit, .fork-gal-film, .fork-gal-scene-image, .fork-gal-page-entry), .fork-gal-stage > .fork-gal-status[data-size="full"] .fork-gal-status-close { position: relative; display: grid; place-items: center; box-sizing: border-box; width: 30px; height: 30px; margin: 0; padding: 0; border: 0; border-radius: 50%; background: none; box-shadow: none; color: var(--gal-ui-hud-ink); cursor: pointer; transition: color .25s, background .15s; }
 .fork-gal-topright { display: flex; align-items: center; gap: 4px; padding: 0; background: none; box-shadow: none; }
 /* direction/resources can be pending while the reading controls stay usable. */
 /* runtime state as a small opaque stage panel. */
@@ -2183,6 +2183,10 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
 .fork-gal-mix.is-large :is(.fork-gal-mix-mute, .fork-gal-mix-test) { width: var(--gal-cfg-mix-hit); height: var(--gal-cfg-mix-hit); }
 .fork-gal-stage .fork-gal-mix.is-large .fork-gal-mix-test:disabled { color: var(--gal-ui-ink-disabled); cursor: default; }
 .fork-gal-mix-test.is-none { visibility: hidden; }
+/* 自动混音 is one more row of the mixer's grid (no mute, slider or value): its name stands in the name column, its switch from the
+   slider column on. */
+.fork-gal-mix.is-large .fork-gal-mix-row.is-duck > .fork-gal-mix-label { grid-column: 2; }
+.fork-gal-mix-switch { grid-column: 3 / -1; justify-self: start; min-width: 0; }
 .fork-gal-mix.is-large .fork-gal-mix-label b { font-size: var(--gal-cfg-t0); letter-spacing: .12em; }
 .fork-gal-mix.is-large .fork-gal-mix-value { font-size: var(--gal-cfg-t0); }
 .fork-gal-stage :is(.fork-gal-mix.is-large, .fork-gal-config-slider) .fork-gal-slider { --gal-slider-knob: var(--gal-cfg-knob); --gal-slider-ring: var(--gal-cfg-ring); --gal-slider-track: var(--gal-cfg-track); --gal-slider-hit: var(--gal-cfg-hit); min-height: var(--gal-cfg-hit); }
@@ -2219,17 +2223,12 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
 .fork-gal-stage .fork-gal-config-tab:hover { background: var(--gal-ui-hover); color: var(--gal-ui-ink); }
 .fork-gal-stage .fork-gal-config-tab.is-on { background: var(--gal-ui-active); color: var(--gal-ui-accent); }
 .fork-gal-config-tab.is-on .fork-gal-config-gem { visibility: visible; }
-.fork-gal-config-tab.is-on::after { content: ""; position: absolute; top: 18%; bottom: 18%; right: -1px; width: 3px; border-radius: 3px 0 0 3px; background: var(--gal-ui-accent); }
 .fork-gal-stage .fork-gal-config-tab:focus-visible { outline: var(--gal-ui-focus); outline-offset: -3px; }
 /* Page */
 .fork-gal-config-page { min-height: 0; overflow-y: auto; padding: calc(var(--gal-cfg-gap) * 2) var(--gal-cfg-inset) calc(var(--gal-cfg-gap) * 3); }
 .fork-gal-config-group + .fork-gal-config-group { margin-top: calc(var(--gal-cfg-gap) * 3); }
 .fork-gal-config-caption { display: flex; align-items: center; gap: var(--gal-cfg-gap); margin-bottom: var(--gal-cfg-gap); padding-bottom: var(--gal-cfg-gap); border-bottom: var(--gal-ui-divider-width) var(--gal-ui-divider) var(--gal-ui-line); color: var(--gal-ui-accent); font: 600 var(--gal-cfg-t0)/1.2 var(--gal-ui-title-font); letter-spacing: .3em; }
 .fork-gal-config-row { display: grid; grid-template-columns: clamp(calc(var(--gal-cfg-b) * 10.5), 24%, calc(var(--gal-cfg-b) * 16)) minmax(0, 1fr); align-items: center; column-gap: calc(var(--gal-cfg-gap) * 2); min-height: calc(var(--gal-cfg-hit) + var(--gal-cfg-gap) * 2); box-sizing: border-box; padding: calc(var(--gal-cfg-gap) / 2) 0; }
-/* On the mixer's page (CONFIG › 声音) every row shares the mixer's grid: the label starts at the mixer names' x (after the
-   mute column) and, on the wide sheet, the control at the sliders' x. Low specificity, so a skin's row layout still wins. */
-.fork-gal-config :where(.fork-gal-config-page:has(> .fork-gal-config-group > .fork-gal-mix.is-large)) .fork-gal-config-row { padding-inline: calc(var(--gal-cfg-mix-pad) + var(--gal-cfg-mix-hit) + var(--gal-cfg-mix-gap)) var(--gal-cfg-mix-pad); }
-.fork-gal-config:not([data-layout="compact"]) :where(.fork-gal-config-page:has(> .fork-gal-config-group > .fork-gal-mix.is-large)) .fork-gal-config-row { grid-template-columns: var(--gal-cfg-mix-name) minmax(0, 1fr); column-gap: var(--gal-cfg-mix-gap); }
 .fork-gal-config-label { display: flex; align-items: center; gap: var(--gal-cfg-gap); font-size: var(--gal-cfg-t0); letter-spacing: .1em; white-space: nowrap; }
 .fork-gal-config-label b { font-weight: 600; }
 .fork-gal-config-control { min-width: 0; }
@@ -2258,6 +2257,9 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
 .fork-gal-stage .fork-gal-config-switch:disabled { color: var(--gal-ui-ink-disabled); cursor: default; }
 .fork-gal-config-switch:disabled .fork-gal-config-switch-track > i { background: var(--gal-ui-ink-disabled); }
 .fork-gal-config-switch[aria-busy="true"] { cursor: progress; }
+/* The state word (开 / 关) lives in the track and shows only where a skin draws the track itself (a plate, the skin's images below):
+   there neither the knob nor the colour is readable alone. The other looks keep their own (the lamp, the two words, the groove). */
+.fork-gal-config-switch-word { display: none; }
 /* Skin previews: a miniature stage with a text box drawn by that skin's own tokens (a .fork-gal-theme-scope for the
    built-ins, the pack skin's palette inline). Sized by where it sits (the select's trigger or its list). */
 .fork-gal-config-theme-art { position: relative; display: block; flex: none; box-sizing: border-box; width: calc(var(--gal-cfg-b, 20px) * 3.2); height: calc(var(--gal-cfg-b, 20px) * 2); overflow: hidden; border-radius: max(3px, calc(var(--gal-ui-radius) * .4));
@@ -2384,10 +2386,8 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
 .fork-gal-stage .fork-gal-config[data-layout="compact"] .fork-gal-config-tab { grid-template-columns: minmax(0, 1fr); justify-items: center; row-gap: 0; min-height: var(--gal-cfg-field); padding: 0 calc(var(--gal-cfg-gap) / 2); border-radius: max(6px, calc(var(--gal-ui-radius) * .8)); text-align: center; }
 .fork-gal-config[data-layout="compact"] .fork-gal-config-tab b { padding-left: .16em; letter-spacing: .16em; }
 .fork-gal-config[data-layout="compact"] .fork-gal-config-tab .fork-gal-config-gem { display: none; }
-.fork-gal-config[data-layout="compact"] .fork-gal-config-tab.is-on::after { top: auto; right: auto; bottom: 3px; left: calc(50% - 11px); width: 22px; height: 3px; border-radius: 3px; }
 /* A skin's compact tabs take its ui.radius (square on a radius-0 skin) and the on mark never rounds past it (no pill bar). */
 .fork-gal-stage[data-fk-skin] .fork-gal-config[data-layout="compact"] .fork-gal-config-tab { border-radius: var(--gal-ui-radius); }
-.fork-gal-stage[data-fk-skin] .fork-gal-config[data-layout="compact"] .fork-gal-config-tab.is-on::after { border-radius: min(3px, var(--gal-ui-radius)); }
 .fork-gal-config[data-layout="compact"] .fork-gal-config-page { padding: calc(var(--gal-cfg-gap) * 2) var(--gal-cfg-inset) calc(var(--gal-cfg-gap) * 3 + env(safe-area-inset-bottom, 0px)); overscroll-behavior: contain; }
 .fork-gal-config[data-layout="compact"] .fork-gal-config-caption { flex-wrap: wrap; row-gap: calc(var(--gal-cfg-gap) / 2); letter-spacing: .2em; overflow-wrap: anywhere; }
 .fork-gal-config[data-layout="compact"] .fork-gal-config-row { grid-template-columns: minmax(0, 1fr); row-gap: var(--gal-cfg-gap); min-height: 0; padding: calc(var(--gal-cfg-gap) * 1.5) 0; }
@@ -2417,6 +2417,8 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
 .fork-gal-config[data-layout="compact"] .fork-gal-mix.is-large .fork-gal-mix-slider { grid-area: slider; }
 .fork-gal-config[data-layout="compact"] .fork-gal-mix.is-large .fork-gal-mix-value { grid-area: value; }
 .fork-gal-config[data-layout="compact"] .fork-gal-mix.is-large .fork-gal-mix-test { grid-area: test; }
+.fork-gal-config[data-layout="compact"] .fork-gal-mix.is-large .fork-gal-mix-row.is-duck { grid-template-areas: ". label switch switch"; }
+.fork-gal-config[data-layout="compact"] .fork-gal-mix.is-large .fork-gal-mix-switch { grid-area: switch; justify-self: end; }
 .fork-gal-config[data-layout="compact"] .fork-gal-mix.is-large .fork-gal-mix-label b { font-size: var(--gal-cfg-t0); letter-spacing: .08em; }
 /* ==== end stage overlays: config + mixer ==== */
 /* 641-1023px (tablets, landscape phones; the wide sheet): every row stacks its label above its control so the control keeps
@@ -2428,11 +2430,12 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
   .fork-gal-config:not([data-layout="compact"]) .fork-gal-config-preview { margin-left: 0; }
   .fork-gal-config:not([data-layout="compact"]) .fork-gal-mix.is-large .fork-gal-mix-row { grid-template-columns: 46px minmax(0, 1fr) auto 46px; grid-template-areas: "mute label value test" "mute slider slider test"; column-gap: 12px; row-gap: 4px; }
   .fork-gal-config:not([data-layout="compact"]) .fork-gal-mix.is-large .fork-gal-mix-mute { grid-area: mute; }
-  .fork-gal-config:not([data-layout="compact"]) .fork-gal-mix.is-large ~ .fork-gal-config-row { padding-inline-start: 58px; }
   .fork-gal-config:not([data-layout="compact"]) .fork-gal-mix.is-large .fork-gal-mix-label { grid-area: label; }
   .fork-gal-config:not([data-layout="compact"]) .fork-gal-mix.is-large .fork-gal-mix-slider { grid-area: slider; }
   .fork-gal-config:not([data-layout="compact"]) .fork-gal-mix.is-large .fork-gal-mix-value { grid-area: value; }
   .fork-gal-config:not([data-layout="compact"]) .fork-gal-mix.is-large .fork-gal-mix-test { grid-area: test; }
+  .fork-gal-config:not([data-layout="compact"]) .fork-gal-mix.is-large .fork-gal-mix-row.is-duck { grid-template-areas: ". label switch switch"; }
+  .fork-gal-config:not([data-layout="compact"]) .fork-gal-mix.is-large .fork-gal-mix-switch { grid-area: switch; justify-self: end; }
   .fork-gal-stage > .fork-gal-config:not([data-layout="compact"]) .fork-gal-config-seg:not(:has(> :nth-child(5))) { display: flex; flex-wrap: nowrap; box-sizing: border-box; max-width: 100%; }
   .fork-gal-stage > .fork-gal-config:not([data-layout="compact"]) .fork-gal-config-seg:not(:has(> :nth-child(5))) > button { flex: 1 1 auto; min-width: auto; padding-inline: .8em; white-space: nowrap; }
 }
@@ -2890,7 +2893,7 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
   .fork-gal-stage .fork-gal-topbar :is(.fork-gal-topleft, .fork-gal-topright) { display: contents; }
   .fork-gal-stage .fork-gal-topbar > :is(.fork-gal-topleft, .fork-gal-topright) > :not(.fork-stage-entry),
   .fork-gal-stage .fork-gal-topbar > :is(.fork-gal-topleft, .fork-gal-topright) > .fork-stage-entry > * { flex: none; }
-  .fork-gal-stage .fork-gal-topbar :is(.fork-gal-film, .fork-gal-scene-image, .fork-gal-quit, .fork-gal-mixer-toggle, .fork-widget-menu button.fork-widget-menu-trigger),
+  .fork-gal-stage .fork-gal-topbar :is(.fork-gal-film, .fork-gal-scene-image, .fork-gal-page-entry, .fork-gal-quit, .fork-gal-mixer-toggle, .fork-widget-menu button.fork-widget-menu-trigger),
   .fork-gal-stage > .fork-gal-status[data-size="full"] .fork-gal-status-close { width: 44px; height: 44px; }
   .fork-gal-stage .fork-gal-topbar .fork-gal-generate-turn { height: 44px; }
   .fork-gal-stage .fork-gal-topbar .fork-gal-hud-line { display: flex; flex: none; align-items: center; height: 44px; }
@@ -3156,7 +3159,7 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
   --aero-gel-rim: inset 0 0 0 1px rgb(40 116 184 / .45), inset 0 1px 0 #fff, 0 1px 4px rgb(14 58 108 / .22);
 }
 .fork-gal-stage[data-theme="aero"]:not(.is-film):not([data-fk-skin]) .fork-gal-controls .fork-gal-control:is(:hover, :focus-visible):not(:disabled),
-.fork-gal-stage[data-theme="aero"]:not([data-fk-skin]) .fork-gal-topright :is(.fork-gal-film, .fork-gal-scene-image, .fork-gal-quit):is(:hover, :focus-visible) {
+.fork-gal-stage[data-theme="aero"]:not([data-fk-skin]) .fork-gal-topright :is(.fork-gal-film, .fork-gal-scene-image, .fork-gal-page-entry, .fork-gal-quit):is(:hover, :focus-visible) {
   background-color: #e3f3ff; background-image: var(--aero-gel); box-shadow: var(--aero-gel-rim); color: var(--aero-ink);
 }
 .fork-gal-stage[data-theme="aero"]:not(.is-film):not([data-fk-skin]) .fork-gal-controls .fork-gal-control.is-active,
@@ -6026,6 +6029,9 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
   .fork-gal-stage[data-fk-skin-art-config-parts~="toggle"]:not(.is-film) .fork-gal-config .fork-gal-config-switch:hover:not(:disabled) .fork-gal-config-switch-track { background-image: var(--art-cf-tg-focus); box-shadow: none; }
   .fork-gal-stage[data-fk-skin-art-config-parts~="toggle"]:not(.is-film) .fork-gal-config .fork-gal-config-switch-track > i { top: 14%; left: 6%; width: 72%; height: 72%; aspect-ratio: 1; width: auto; border-radius: 50%; background: var(--art-cf-sl-thumb, var(--gal-ui-ink-2)) 0 0 / 100% 100% no-repeat; box-shadow: none; }
   .fork-gal-stage[data-fk-skin-art-config-parts~="toggle"]:not(.is-film) .fork-gal-config .fork-gal-config-switch[aria-checked="true"] .fork-gal-config-switch-track > i { transform: none; left: auto; right: 6%; background: var(--art-cf-sl-thumb-focus, var(--gal-ui-accent-ink)) 0 0 / 100% 100% no-repeat; }
+  /* the word takes the half of the cell the knob leaves: off = knob left, word right; on = knob right, word left. */
+  .fork-gal-stage[data-fk-skin-art-config-parts~="toggle"]:not(.is-film) .fork-gal-config .fork-gal-config-switch-track > .fork-gal-config-switch-word { position: absolute; inset: 0 8% 0 36%; display: flex; align-items: center; justify-content: center; font-size: .85em; font-weight: 700; letter-spacing: .1em; color: var(--art-config-ink, var(--gal-ui-ink)); pointer-events: none; }
+  .fork-gal-stage[data-fk-skin-art-config-parts~="toggle"]:not(.is-film) .fork-gal-config .fork-gal-config-switch[aria-checked="true"] .fork-gal-config-switch-track > .fork-gal-config-switch-word { inset: 0 36% 0 8%; }
   /* Voice controls (art.voice): the skin's image in the control's box; focus on hover / keyboard, active while playing. The
      backlog's here (wide only - a phone keeps the shared 履历); the box's below, at every width. */
   .fork-gal-stage[data-fk-skin-art-voice]:not(.is-film) .fork-gal-backlog-name > .fork-voice-button { box-sizing: border-box; min-width: 0; min-height: 0; padding: 0; border: 0 none; border-radius: 0;
@@ -6311,11 +6317,9 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
 .fork-gal-stage[data-fk-cs-nav-place="end"] > .fork-gal-config:not([data-layout="compact"]) .fork-gal-config-tabs { grid-column: 2; grid-row: 2; padding: calc(var(--gal-cfg-gap) * 2) var(--gal-cfg-gap) calc(var(--gal-cfg-gap) * 2) 0; border-right: 0; border-left: var(--gal-ui-divider-width) var(--gal-ui-divider) var(--gal-ui-line); }
 .fork-gal-stage[data-fk-cs-nav-place="end"] > .fork-gal-config:not([data-layout="compact"]) .fork-gal-config-page { grid-column: 1; grid-row: 2; }
 .fork-gal-stage[data-fk-cs-nav-place="end"] > .fork-gal-config:not([data-layout="compact"]) .fork-gal-config-tab { border-radius: 0 var(--gal-ui-radius) var(--gal-ui-radius) 0; }
-.fork-gal-stage[data-fk-cs-nav-place="end"] > .fork-gal-config:not([data-layout="compact"]) .fork-gal-config-tab.is-on::after { right: auto; left: -1px; border-radius: 0 3px 3px 0; }
 .fork-gal-stage[data-fk-cs-nav-place="top"] > .fork-gal-config:not([data-layout="compact"]) .fork-gal-config-sheet { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto minmax(0, 1fr); }
 .fork-gal-stage[data-fk-cs-nav-place="top"] > .fork-gal-config:not([data-layout="compact"]) .fork-gal-config-tabs { flex-flow: row wrap; gap: calc(var(--gal-cfg-gap) / 2) var(--gal-cfg-gap); max-height: 30vh; padding: var(--gal-cfg-gap) var(--gal-cfg-inset); border-right: 0; border-bottom: var(--gal-ui-divider-width) var(--gal-ui-divider) var(--gal-ui-line); }
 .fork-gal-stage[data-fk-cs-nav-place="top"] > .fork-gal-config:not([data-layout="compact"]) .fork-gal-config-tab { border-radius: var(--gal-ui-radius); }
-.fork-gal-stage[data-fk-cs-nav-place="top"] > .fork-gal-config:not([data-layout="compact"]) .fork-gal-config-tab.is-on::after { inset: auto 22% -1px; width: auto; height: 3px; border-radius: 3px 3px 0 0; }
 /* nav.paint (skin-interface.md §18 N9): the tab list on its own opaque ground in its own inks (a gold leaf beside a dark page);
    the open tab, drawn on its plate in the page's colours, keeps the page's ink (--cs-nav-on). */
 .fork-gal-stage[data-fk-cs-nav-paint] > .fork-gal-config .fork-gal-config-tabs { --gal-ui-ink: var(--cs-nav-fg); --gal-ui-ink-2: var(--cs-nav-muted); --gal-ui-accent: var(--cs-nav-accent); --gal-ui-line: color-mix(in srgb, var(--cs-nav-muted) 45%, transparent);
