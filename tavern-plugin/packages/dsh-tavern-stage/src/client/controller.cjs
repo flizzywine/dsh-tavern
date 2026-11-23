@@ -1669,6 +1669,8 @@ function GalStage(props) {
             // stage's figure layout (galFigureLayout x, the side rule galShotSubject reads), null when not standing.
             looks: backlogLooks, sideOf: alias => figureLayout?.x && alias in figureLayout.x ? (figureLayout.x[alias] > 0.5 ? "right" : "left") : null,
             nameParts: nameInitials && !film ? (name, entry) => galNameParts(name, bubbleCharacter(config, entry)) : null }) : null,
+        // the card pages' toasts (toasts.cjs) over everything the stage draws, a page and its CONFIG / 履历 included.
+        stageViews.toasts ? h(stageViews.toasts.Layer, { sessionId }) : null,
         title ? h(GalTitle, { key: title.nonce, title, timing: stageEffectResolve("title", effectTables.skin, effectTables.local), reducedMotion: reading.reducedMotion === true, onDone: endTitle }) : null);
     // the registered entries of one top-bar side, in priority order. Each sits in a
     // .fork-stage-entry (display: contents); one with a badge carries data-attention and stays on screen while the bar hides.
