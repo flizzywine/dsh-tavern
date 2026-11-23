@@ -30,8 +30,8 @@ async function runtime(t, { diagnostics, definitions = DEFINITIONS, plannerText 
   }
   await writeFile(join(root, 'workflows', 'test.json'), JSON.stringify({
     format: 'dsh-tavern-comfy-v1', outputNode: '9',
-    prompt: { '1': { class_type: 'CLIPTextEncode', _meta: { title: '正向提示词' }, inputs: { text: '' } }, '2': { class_type: 'CLIPTextEncode', _meta: { title: '负面提示词' }, inputs: { text: 'lowres' } }, '9': { class_type: 'SaveImage', inputs: { images: ['1', 0] } } },
-    bindings: { positive: [{ node: '1', input: 'text' }], negative: [{ node: '2', input: 'text' }] },
+    prompt: { '1': { class_type: 'CLIPTextEncode', _meta: { title: '正向提示词' }, inputs: { text: '' } }, '2': { class_type: 'CLIPTextEncode', _meta: { title: '负面提示词' }, inputs: { text: 'lowres' } }, '3': { class_type: 'KSampler', inputs: { seed: 0, steps: 28, positive: ['1', 0], negative: ['2', 0] } }, '9': { class_type: 'SaveImage', inputs: { images: ['3', 0] } } },
+    bindings: { positive: [{ node: '1', input: 'text' }], negative: [{ node: '2', input: 'text' }], seed: [{ node: '3', input: 'seed' }] },
   }))
   if (setup) await setup(root)
   const routes = new Map(), disposes = [], bodies = [], llmCalls = []
@@ -70,9 +70,21 @@ async function runtime(t, { diagnostics, definitions = DEFINITIONS, plannerText 
     for (const id of await readdir(dir)) out.push(...(await readFile(join(dir, id, 'events.jsonl'), 'utf8')).trim().split('\n').map(l => JSON.parse(l)))
     return out
   }
-  return { root, plan, bodies, llmCalls, events }
+  return { root, plan, request, bodies, llmCalls, events }
 }
 
+
+test('ComfyUI 对照重绘只替换提示词，沿用原图种子和采样设置', async t => {
+  const f = await runtime(t)
+  const original = await f.plan()
+  const jobId = original.body.plans[0].jobId
+  const redrawn = await f.request('redraw', { jobId, prompt: 'a red umbrella', sameSeed: true })
+  assert.equal(redrawn.status, 200)
+  assert.equal(redrawn.body.ok, true)
+  const [first, second] = f.bodies.map(entry => entry.prompt)
+  assert.match(second['1'].inputs.text, /red umbrella/)
+  assert.deepEqual(second['3'], first['3'])
+})
 
 test('开着诊断时规划照常出图，并记录宏展开结果（以前引用不存在的变量，每张图都提交失败）', async t => {
   const f = await runtime(t, { diagnostics: { enabled: true, contentMode: 'full' } })
@@ -90,6 +102,13 @@ test('挂载句只差 Markdown 记号或换行时照样出图（以前逐字比�
   assert.equal(r.status, 200)
   assert.equal(f.bodies.length, 1)
   assert.equal(r.body.characterWarnings, undefined)
+})
+
+test('归一化后重复的挂载句不提交作业', async t => {
+  const f = await runtime(t, { text: '阿梅和他共撑一把伞。稍后，**阿梅**和他共撑一把伞。' })
+  const r = await f.plan()
+  assert.equal(f.bodies.length, 0)
+  assert.match(r.body.error, /挂载句/)
 })
 
 test('诊断容量按多个追踪的 UTF-8 字节计量，作业终止后释放追踪', async t => {

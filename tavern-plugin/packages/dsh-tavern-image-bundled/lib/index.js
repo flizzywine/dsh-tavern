@@ -1029,10 +1029,31 @@ function chineseCharacterPhrase(person, traits, outfit, extras, wear, look, labe
   return sentences.filter(Boolean).join('。') + '。'
 }
 
-/**
- * 画面里有几个人：取「人物宏里不同的名字数」和「画面里是三个人 / 三女一男」里写的人数中较大的那个。
- */
 const ZH_DIGIT = { 一: 1, 二: 2, 两: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9, 十: 10 }
+const imageAnchorText = value => String(value ?? '').replace(/<\/?[a-zA-Z][^<>]*>/g, '').replace(/[\s*_~\x60#>|\u200b]/g, '')
+
+export function uniqueImageAnchor(body, anchor) {
+  if (anchor.length < 2) return false
+  const first = body.indexOf(anchor)
+  return first >= 0 && body.indexOf(anchor, first + 1) < 0
+}
+
+export function shotConflict(text) {
+  const scene = stripMacros(text)
+  const counts = [...scene.matchAll(/画面(?:里|中)(?:是|有|只有|共有)([一二两三四五六七八九十]|\d+)(?:个人|人|位|名)/g)]
+    .map(match => ZH_DIGIT[match[1]] ?? Number(match[1]))
+  if (new Set(counts).size > 1 || (counts.length && sceneHeadcount(text) > counts[0])) {
+    return '镜头的人物名单与人数句不一致，请核对本图出镜者'
+  }
+  for (const side of ['左', '右']) {
+    const empty = new RegExp('画面' + side + '(?:边|侧|半幅)(?:留出大片|留白|只留|仅留)')
+    const occupied = new RegExp('(?:站|蹲|坐|跪|靠|位于)[^。；，,]{0,10}画面' + side + '(?:边|侧|半幅)')
+    if (empty.test(scene) && occupied.test(scene)) return '画面' + side + '侧同时被指定留空和安排人物，请统一站位'
+  }
+  return ''
+}
+
+/** 取人物宏数量和画面人数描述中较大的那个。 */
 export function sceneHeadcount(text) {
   const raw = String(text ?? '')
   const names = new Set([...repairMacros(raw).matchAll(MACRO_BLOCK)].map(m => {
@@ -1666,6 +1687,7 @@ function createRuntime(ctx, overrides, logger, deps) {
               channelEndpoint: job.channelEndpoint ?? '', comfyEndpoint: job.comfyEndpoint ?? '',
               providerTaskProvider: job.providerTaskProvider ?? '',
               characterSnapshot: job.characterSnapshot ?? null, comfySimple: job.comfySimple ?? null,
+              comfyRecipe: job.comfyRecipe ?? null,
               generationMode: job.generationMode ?? 'text', requestedGenerationMode: job.requestedGenerationMode ?? job.generationMode ?? 'text', generationModeReason: job.generationModeReason ?? '', promptMode: job.promptMode,
               referenceSnapshot: job.referenceSnapshot ?? null, submittedPrompt: job.submittedPrompt ?? '', promptAssembly: job.promptAssembly ?? null,
               cardPositive: job.cardPositive, cardNegative: job.cardNegative, cardCharacterPrompts: job.cardCharacterPrompts, cardPreset: job.cardPreset, cardSeedSupported: job.cardSeedSupported,
@@ -2029,6 +2051,7 @@ function createRuntime(ctx, overrides, logger, deps) {
                   logger.warn?.(`dsh-tavern-image: 作业 ${job.id.slice(0, 8)} 出了全黑图，换种子重画（第 ${job.blankRetries} 次）`)
                   diag.recordJob(job.id, 'blank-image-retry', { attempt: job.blankRetries, oldSeed: job.seed, seed })
                   job.seed = seed
+                  if (job.comfyRecipe) job.comfyRecipe = { ...job.comfyRecipe, graph: prompt, seed }
                   job.comfyId = randomUUID()
                   job.state = 'pending'
                   job.percent = 0
@@ -2433,8 +2456,11 @@ function createRuntime(ctx, overrides, logger, deps) {
         compileParams.rawTag = text
         compileParams.referenceText = ''
       }
-      const compiled = workflow ? compileJob({ workflow, params: compileParams, config: compileConfig, definitions: scopedDefs, onStage })
+      let compiled = workflow ? compileJob({ workflow, params: compileParams, config: compileConfig, definitions: scopedDefs, onStage })
         : compileChannelJob({ params: compileParams, config: jobConfig, definitions: scopedDefs, channel, onStage })
+      if (rawParams?.frozenComfy) {
+        compiled = applyFrozenComfyRecipe(compiled, rawParams.frozenComfy, compileConfig.weightMode)
+      }
       if (referenceState?.sourceImages) {
         normalizeImageMentions(compiled.positive, referenceState.references.length)
       }
@@ -2490,11 +2516,12 @@ function createRuntime(ctx, overrides, logger, deps) {
       }
       const control = new AbortController()
       const job = {
-        id: (cardRequest ? 'card-' : '') + randomUUID(), comfyId: channel ? null : randomUUID(), workflowId: workflow?.id ?? '', outputNode: workflow?.outputNode,
+        id: (cardRequest ? 'card-' : '') + randomUUID(), comfyId: channel ? null : randomUUID(), workflowId: workflow?.id ?? '', outputNode: rawParams?.frozenComfy?.outputNode ?? workflow?.outputNode,
         backend: channel?.provider ?? 'comfyui', channelId: channel?.id ?? '', channelName: channel?.name ?? '',
         channelEndpoint: channel ? channelEndpointOf(channel) : '', comfyEndpoint: endpointOf(jobConfig.comfyUrl),
         state: 'pending', percent: 0, seed: compiled.seed, createdAt: Date.now(), queryAt: 0, requestStarted: false,
         params: { ...params }, key, size: compiled.size, hits: compiled.hits,
+        comfyRecipe: workflow && generationMode === 'text' ? makeComfyRecipe(workflow, compiled, rawParams?.frozenComfy) : null,
         generationMode, requestedGenerationMode, generationModeReason, promptMode: compiled.promptMode, promptAssembly: compiled.promptAssembly ?? null,
         referenceSnapshot: referenceState,
         promptSystem: jobConfig.promptSystem || 'workbench', promptTemplate: jobConfig.promptSelectionTemplate || null,
@@ -2539,7 +2566,7 @@ function createRuntime(ctx, overrides, logger, deps) {
           const patched = applyComfyReferenceImages({ ...workflow, prompt: compiled.prompt }, imageNames)
           compiled.prompt = patched.prompt
         }
-        if (compiled?.prompt) blankRetry.set(job.id, { prompt: compiled.prompt, seedBindings: workflow?.bindings?.seed ?? [] })
+        if (compiled?.prompt && !rawParams?.frozenComfy) blankRetry.set(job.id, { prompt: compiled.prompt, seedBindings: workflow?.bindings?.seed ?? [] })
         job.comfyId = await submitToComfy(compiled, job, async () => {
           job.requestStarted = true
           try { await persistJobs({ required: true }) }
@@ -2663,8 +2690,9 @@ function createRuntime(ctx, overrides, logger, deps) {
       return revised.slice(0, 12000)
     }
 
-    async function startReplacement({ sourceJobId, prompt, characters = [], negative, channelId, sessionId, turn, textVersion, generationMode, refreshReferences = false, acceptUncertain = false } = {}) {
+    async function startReplacement({ sourceJobId, prompt, characters = [], negative, channelId, sessionId, turn, textVersion, generationMode, refreshReferences = false, acceptUncertain = false, sameSeed = false } = {}) {
       const source = getJob(String(sourceJobId || ''))
+      if (source?.fromCache) await hydrateLegacyJob(source)
       if (!source) throw Object.assign(new Error('找不到这张图片的源作业'), { submissionNotStarted: true })
       if (!acceptUncertain && (source.state === 'uncertain' || source.cancelMayHaveContinued
         || (source.requestMayHaveSucceeded && !['done', 'failed'].includes(source.state)))) {
@@ -2681,18 +2709,22 @@ function createRuntime(ctx, overrides, logger, deps) {
       const hasStructuredPrompt = /<scene_composition|<character_\d/i.test(submitted)
       const blocks = hasStructuredPrompt ? parsePromptsBlock(submitted) : null
       const rawTag = blocks ? blocks.scene : submitted
+      if (source.promptMode === 'natural' && prompt != null) {
+        const issue = shotConflict(rawTag)
+        if (issue) throw Object.assign(new Error(issue), { submissionNotStarted: true, code: 'IMAGE_PLAN_CONFLICT' })
+      }
       const originalPrompt = source.params?.rawTag ?? source.params?.tag ?? ''
       const replacedPrompt = prompt != null && submitted !== originalPrompt
       const characterSource = blocks ? blocks.characters
         : replacedPrompt || characters.length ? characters : source.params?.characters
-      if (!rawTag.trim() && !(Array.isArray(characterSource) && characterSource.length)) throw Object.assign(new Error('原作业没有可用提示词'), { submissionNotStarted: true })
+      if (!rawTag.trim() && !(Array.isArray(characterSource) && characterSource.length)) throw Object.assign(new Error('旧图未找到可恢复的原始提示词，请输入新提示词后重绘'), { submissionNotStarted: true })
       const sourceContextMatches = source.gameId === session && Number(source.turn) === Number(turn) && source.textVersion === textVersion
       let characterSnapshot = sourceContextMatches ? source.characterSnapshot : null
       if (!characterSnapshot && textVersion && typeof deps.tavern?.readTurnData === 'function') {
         try {
           const saved = await deps.tavern.readTurnData({ gameId: session, turn: Number(turn) })
           if (saved?.textVersion === textVersion && saved?.data) characterSnapshot = saved.data
-        } catch {}
+        } catch (error) { logger.warn?.('读取重绘穿搭历史失败：' + (error?.message ?? error)) }
       }
       let card
       try { card = await currentCard(session, turn) }
@@ -2706,7 +2738,9 @@ function createRuntime(ctx, overrides, logger, deps) {
       if (keepComfySource && source.workflowId && !workflow) {
         throw Object.assign(new Error('原 ComfyUI 工作流已不存在；请在控制台选择其他渠道后重绘'), { submissionNotStarted: true })
       }
-      const redrawTrace = diag.begin({ kind: 'singleRedraw', turn: Number(turn) || null, manual: true })
+      const storedRecipe = sameSeed && keepComfySource && mode === 'text' ? source.comfyRecipe : null
+      if (sameSeed && !storedRecipe) throw Object.assign(new Error('这张图无法锁定原始文生图工作流，请使用普通重绘'), { submissionNotStarted: true, code: 'FIXED_RECIPE_UNAVAILABLE' })
+      const redrawTrace = diag.begin({ kind: 'singleRedraw', turn: Number(turn) || null, manual: true, sameSeed: Boolean(storedRecipe) })
       let fresh
       try {
         fresh = await startJob({
@@ -2726,6 +2760,8 @@ function createRuntime(ctx, overrides, logger, deps) {
           model: workflow ? workflow.id : source.params?.model || '',
           steps: source.params?.steps,
           cfg: source.params?.cfg,
+          seed: storedRecipe?.seed,
+          frozenComfy: storedRecipe,
           characterSnapshot,
           textVersion,
           sessionId: session, turn,
@@ -3137,8 +3173,8 @@ function createRuntime(ctx, overrides, logger, deps) {
       const plannerBackend = promptBackendContext(plannerConfig, plannerWorkflow)
       const plannerMode = resolvePromptMode(plannerConfig, plannerBackend)
       const card = await currentCard(sessionId, turn)
-      const timelineDefinitions = applyCharacterSnapshot(definitions, historySnapshot)
-      let visualSnapshot = historySnapshot ?? emptyCharacterSnapshot()
+      let visualSnapshot = { ...(historySnapshot ?? emptyCharacterSnapshot()), turn: Number(turn) || 0 }
+      const timelineDefinitions = applyCharacterSnapshot(definitions, visualSnapshot)
       const norm = value => String(value ?? '').toLowerCase().replace(/[\s_\-.'"（）()]+/g, '')
       const registered = scopeCharacters(timelineDefinitions.characters, card)
       const packCharacters = imageGeneration && sessionId && Number.isSafeInteger(turn)
@@ -3167,9 +3203,8 @@ function createRuntime(ctx, overrides, logger, deps) {
       }
       // 挂载句按客户端放图时的同一套规则比对（去掉空白、Markdown 记号和 HTML 标签），
       // 能放上去的图就该画；对不上的收集起来告诉用户。
-      const anchorText = value => String(value ?? '').replace(/<\/?[a-zA-Z][^<>]*>/g, '').replace(/[\s*_~`#>|\u200b]/g, '')
-      const bodyAnchorText = anchorText(body)
-      const mountInBody = mount => { const needle = anchorText(mount); return needle.length >= 2 && bodyAnchorText.includes(needle) }
+      const bodyAnchorText = imageAnchorText(body)
+      const mountInBody = mount => uniqueImageAnchor(bodyAnchorText, imageAnchorText(mount))
       const missingMounts = new Set()
       const heldBack = []
       const characterWarnings = () => {
@@ -3316,7 +3351,7 @@ function createRuntime(ctx, overrides, logger, deps) {
           if (!sceneText.trim() && !planCharacters.length) continue
           if (!mountInBody(image.mount)) {
             // 规划抄挂载句时改了几个字：换成正文里最像的那一句，图照画、照样挂在那一句后面。
-            const nearest = resolveMountFallback(plannerConfig, image.mount, body, anchorText)
+            const nearest = resolveMountFallback(plannerConfig, image.mount, body, imageAnchorText)
             if (nearest && mountInBody(nearest)) image = { ...image, mount: nearest, mountAsked: image.mount }
             else {
               // 以前逐字比对、静默跳过：规划少抄一个 * 或换行就整张图不画，全部跳过时还报成「没有返回可用的 <image> 块」。
@@ -3327,7 +3362,9 @@ function createRuntime(ctx, overrides, logger, deps) {
           }
           // 中文自然语言：画面没写时间时从正文状态栏补一句（夜里补「窗外漆黑」）；三个人以上把竖图改成横图。
           if (rosterStyle(plannerConfig, plannerWorkflow) === 'natural' && chineseAllowed(plannerConfig, plannerWorkflow)) {
-            const timed = addSceneTime(image.prompts, body, image.mount)
+            const issue = shotConflict(sceneText)
+            if (issue) { heldBack.push(issue); continue }
+            const timed = addSceneTime(sceneText, body, image.mount)
             const size = crowdSize(image.size, image.prompts)
             if (timed !== image.prompts || size !== String(image.size ?? '').trim()) image = { ...image, prompts: timed, size, sizeAsked: image.size }
             sceneText = String(image.prompts ?? '')
@@ -3533,7 +3570,7 @@ function createRuntime(ctx, overrides, logger, deps) {
         throw error
       }
       if (imageGeneration && !skipped && !plans.length && missingMounts.size) failure ||= new Error('规划给的挂载句在正文里都找不到（例如「' + [...missingMounts][0] + '」），没有画图；可以重新配图')
-      if (imageGeneration && !skipped && !plans.length) failure ||= new Error('模型没有返回可用的 <image> 块')
+      if (imageGeneration && !skipped && !plans.length) failure ||= new Error(heldBack[0] || '模型没有返回可用的 <image> 块')
       if (smart && parsed.decision === 'draw' && !plans.length) failure ||= new Error('选择配图后没有返回可用的 <image> 块')
       finishTask(task, failure)
       if (traceId) {
@@ -3544,7 +3581,7 @@ function createRuntime(ctx, overrides, logger, deps) {
         + (result.usage ? '（token ' + result.usage.inputTokens + '+' + result.usage.outputTokens + '）' : ''))
 
       const characterSnapshot = characterUpdates ? visualSnapshot : null
-      const plan = { messageId: String(messageId ?? ''), turn, generationMode: planningGenerationMode, promptMode: plannerMode, templateKey, at: Date.now(), plans, skipped, reason: parsed.reason, characterSnapshot, historyWarning, raw: plans.length ? '' : String(result.text || streamed).slice(0, 4000), card: card?.name ?? null }
+      const plan = { messageId: String(messageId ?? ''), turn, partial: Boolean(heldBack.length || missingMounts.size), generationMode: planningGenerationMode, promptMode: plannerMode, templateKey, at: Date.now(), plans, skipped, reason: parsed.reason, characterSnapshot, historyWarning, raw: plans.length ? '' : String(result.text || streamed).slice(0, 4000), card: card?.name ?? null }
       const warnings = characterWarnings()
       if (warnings.length) plan.characterWarnings = warnings
       if (failure) plan.error = String(failure?.message ?? failure)
@@ -3819,12 +3856,28 @@ function createRuntime(ctx, overrides, logger, deps) {
       ? join(CARD_IMAGE_DIR, `${job.id}.${cardImageExtension(mediaType)}`)
       : join(cacheRoot(config), `${job.id}.img`)
 
+    async function hydrateLegacyJob(job) {
+      if (!job?.fromCache || job.metadataChecked) return
+      let recovered = null
+      try {
+        if (job.file && (await stat(job.file)).size <= 64 * 1024 * 1024) recovered = recoverComfyImageMetadata(await readFile(job.file))
+      } catch {}
+      job.metadataChecked = true
+      if (recovered) {
+        Object.assign(job, recovered, { submittedPrompt: recovered.positive })
+        job.params = { ...job.params, rawTag: recovered.positive, tag: recovered.positive, negative: recovered.negative }
+      }
+      job.imageOutputWarning = recovered
+        ? '历史图已从 PNG 恢复提示词和种子，原工作流及角色快照缺失'
+        : '仅保留了历史图片，原始提示词与工作流无法恢复'
+    }
+
     function publicJob(job) {
       return {
         id: job.id, status: job.state, state: job.state, source: jobSource(job), percent: job.percent ?? 0,
         comfyId: job.comfyId || '',
         queuePosition: job.queuePosition ?? 0, queuedCount: job.queuedCount ?? 0,
-        seed: job.seed, ...(job.usage ? { usage: structuredClone(job.usage) } : {}), promptSystem: job.promptSystem || 'workbench', promptTemplate: job.promptTemplate || null, workflow: job.workflowId, error: job.error ?? undefined, createdAt: job.createdAt,
+        seed: job.seed, canCompareOriginal: Boolean(job.comfyRecipe && workflows.some(workflow => workflow.id === job.workflowId && !workflow.error)), ...(job.usage ? { usage: structuredClone(job.usage) } : {}), promptSystem: job.promptSystem || 'workbench', promptTemplate: job.promptTemplate || null, workflow: job.workflowId, error: job.error ?? undefined, createdAt: job.createdAt,
         backend: job.backend ?? 'comfyui', channelId: job.channelId ?? '', channelName: job.channelName ?? '',
         generationMode: job.generationMode ?? 'text', requestedGenerationMode: job.requestedGenerationMode ?? job.generationMode ?? 'text', generationModeReason: job.generationModeReason ?? '', promptMode: job.promptMode ?? '',
         references: structuredClone(job.referenceSnapshot?.references ?? []),
@@ -4234,9 +4287,17 @@ function createRuntime(ctx, overrides, logger, deps) {
             snapshot.characters ||= {}
             const overlay = snapshot.characters[String(character.id)] ||= { traits: {} }
             overlay.traits ||= {}
-            const before = String(overlay.traits[change.field] ?? character.traits?.[change.field] ?? '')
+            const outfit = change.field === 'current.outfit'
+            const before = String(outfit ? overlay.current?.outfit ?? '' : overlay.traits[change.field] ?? character.traits?.[change.field] ?? '')
             const after = String(change.before ?? '')
-            if (after) overlay.traits[change.field] = after
+            if (outfit) {
+              for (const member of definitions.characters) {
+                if (member !== character && !sameCharacterForm(member, character)) continue
+                const state = snapshot.characters[String(member.id)] ||= {}
+                if (after) state.current = { outfit: after, previous: state.current?.outfit ?? '', turn: currentTurn, textVersion: current.textVersion }
+                else delete state.current
+              }
+            } else if (after) overlay.traits[change.field] = after
             else delete overlay.traits[change.field]
             snapshot.turn = currentTurn
             snapshot.textVersion = current.textVersion
@@ -6110,6 +6171,7 @@ function createRuntime(ctx, overrides, logger, deps) {
       if (action === 'job-detail') {
         const job = getJob(String(_url?.searchParams?.get('id') ?? ''))
         if (!job) { sendJson(response, 404, { ok: false, error: '没有这个作业' }); return }
+        if (job.fromCache) await hydrateLegacyJob(job)
         sendJson(response, 200, { ok: true, job: consoleJob(job) })
         return
       }
@@ -6125,7 +6187,7 @@ function createRuntime(ctx, overrides, logger, deps) {
             sourceJobId: src.id, prompt: body?.prompt, negative: body?.negative, channelId: body?.channelId,
             generationMode: body?.generationMode, refreshReferences: body?.refreshReferences === true,
             sessionId: String(src.gameId || body?.sessionId || lastSessionId || ''), turn: src.turn, textVersion: src.textVersion,
-            acceptUncertain: body?.confirmUncertain === true,
+            acceptUncertain: body?.confirmUncertain === true, sameSeed: body?.sameSeed === true,
           })
           const fresh = getJob(replacement.jobId)
           logger.info?.('dsh-tavern-image: 重画 ' + src.id.slice(0, 8) + ' → ' + fresh.id.slice(0, 8))
@@ -7719,6 +7781,54 @@ export function compileChannelJob({ params, config, definitions, channel = null,
   const size = pixels ? { width: Number(pixels[1]), height: Number(pixels[2]) } : dimensions || { width: 832, height: 1216 }
   if (![size.width, size.height].every(value => Number.isInteger(value) && value >= 64 && value <= 8192)) throw new Error('图片尺寸需在 64–8192 像素之间')
   return { ...prepared, promptMode, characters: nativeNovelai ? characters : [], seed: Number.isSafeInteger(params.seed) && params.seed >= 0 ? params.seed : randomInt(0, 2 ** 32), size, loras: [] }
+}
+
+function makeComfyRecipe(workflow, compiled, frozen) {
+  if (frozen) return { ...frozen, graph: compiled.prompt }
+  const markers = comfyPromptMarkers(workflow.prompt)
+  return {
+    graph: compiled.prompt, seed: compiled.seed, size: compiled.size, loras: compiled.loras, outputNode: workflow.outputNode,
+    template: markers.positive.length || markers.negative.length ? workflow.prompt : null,
+    positive: markers.positive.length ? [] : workflow.bindings.positive,
+    negative: markers.negative.length ? [] : workflow.bindings.negative,
+  }
+}
+
+export function applyFrozenComfyRecipe(compiled, recipe, weightMode) {
+  const graph = structuredClone(recipe.graph)
+  const negative = compiled.promptMode === 'structured' ? compiled.negative : applyWeights(compiled.negative, weightMode)
+  setBinding(graph, recipe.positive, compiled.positive)
+  setBinding(graph, recipe.negative, negative)
+  if (recipe.template) applyComfyPromptMarkers(graph, recipe.template, compiled.positive, negative)
+  return { ...compiled, prompt: graph, seed: recipe.seed, size: recipe.size ?? compiled.size, loras: recipe.loras ?? compiled.loras }
+}
+
+// Read only the text fields from trusted local ComfyUI output. Never use image metadata as source code.
+function comfyGraphFromPng(buffer) {
+  if (buffer.subarray(0, 8).toString('hex') !== '89504e470d0a1a0a') return null
+  let graph = null
+  for (let offset = 8; offset + 12 <= buffer.length;) {
+    const length = buffer.readUInt32BE(offset)
+    const end = offset + 12 + length
+    if (end > buffer.length || length > 64 * 1024 * 1024) return null
+    if (length >= 7 && length < 1024 * 1024 && buffer.toString('ascii', offset + 4, offset + 8) === 'tEXt' && buffer.toString('ascii', offset + 8, offset + 15) === 'prompt\0') {
+      try { graph = JSON.parse(buffer.toString('utf8', offset + 15, end - 4)) } catch { return null }
+      break
+    }
+    offset = end
+  }
+  return graph && typeof graph === 'object' && !Array.isArray(graph) ? graph : null
+}
+
+export function recoverComfyImageMetadata(buffer) {
+  const graph = comfyGraphFromPng(buffer)
+  if (!graph) return null
+  const samplers = Object.values(graph).filter(node => node?.class_type === 'KSampler' && Number.isSafeInteger(node.inputs?.seed))
+  if (samplers.length !== 1) return null
+  const sample = samplers[0].inputs
+  const text = link => Array.isArray(link) && graph[link[0]]?.class_type === 'CLIPTextEncode' ? graph[link[0]].inputs?.text : ''
+  const positive = text(sample.positive)
+  return typeof positive === 'string' && positive ? { positive, negative: String(text(sample.negative) ?? ''), seed: sample.seed } : null
 }
 
 export function compileJob({ workflow, params, config, definitions, onStage = null }) {
