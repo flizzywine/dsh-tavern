@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "6fdc1ea8541760c045d44db3339f68ebf1124106",
-  "releaseSequence": 1972,
+  "revision": "095638237672e2efac5c54424f227bc99bc366ee",
+  "releaseSequence": 1974,
   "version": "3.4.0",
   "files": [
     {
@@ -1196,8 +1196,8 @@
     },
     {
       "path": "tavern-plugin/lib/client-assets/theme.css",
-      "sha256": "b92a4496fe4077f6c816d9c26be2a920f43bfe6ecaac5472b02b9350890b1d7d",
-      "size": 735353
+      "sha256": "6a757f0df61c1e858c889b0c1412e6edbc3f5d2062b0d51adc3025f2918b96a2",
+      "size": 735347
     },
     {
       "path": "tavern-plugin/lib/client-assets/ui-sfx/cancel.ogg",
@@ -1241,8 +1241,8 @@
     },
     {
       "path": "tavern-plugin/lib/client.js",
-      "sha256": "c22d933d597c168c686b4baa2c6234e1543ab0f9ba7019d4881da24fb93e4329",
-      "size": 6464376
+      "sha256": "a2e1e98513f2add61800735f1ed9a46d3b823b91cebd5a9e59caa9a0538a936d",
+      "size": 6464370
     },
     {
       "path": "tavern-plugin/lib/cordis-inspect.js",
@@ -1708,6 +1708,11 @@
       "path": "tavern-plugin/lib/domain/card-text-replace.js",
       "sha256": "73e21830f1ddc70b29b35de6e0e98988f681133cfc01b5f0dce643a9041486d5",
       "size": 3515
+    },
+    {
+      "path": "tavern-plugin/lib/domain/card-update-merge.js",
+      "sha256": "32c759537656ddf67844a578b0f3fc60fdfa97ce074b560ca5bec41e4ddb1976",
+      "size": 5771
     },
     {
       "path": "tavern-plugin/lib/domain/card-validation.js",
@@ -10101,9 +10106,9 @@
     }
   ],
   "archive": {
-    "commit": "09b69da592ef630c3e953ec169bb4d67d8ee00e6",
+    "commit": "66a81f44f77029b2e50219639a236a722518f2f6",
     "path": "runtime.zip",
-    "sha256": "dc90ec79705e9c6a9b794429c424d8b2d4c434dd0b64cc0cccb8894f4620c22a",
-    "size": 17779923
+    "sha256": "b11d7d40b0c801f63c3aed18826e30bd52d0b123ffc95a112fcea3f2ac6513bf",
+    "size": 17782216
   }
 }
