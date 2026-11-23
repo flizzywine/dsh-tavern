@@ -26420,14 +26420,19 @@ function tavernModelRefusalNotice(text) {
 		    const installedHosts = new WeakSet();
 		    function install(host) {
 		        if (!host || !host.addEventListener || installedHosts.has(host)) return;
-		        const resume = () => { if (context && context.state === "suspended") context.resume().catch(() => {}); };
+		        // The mixer's context is made, or woken, inside the user's own gesture: a phone browser (iOS Safari, Android Chrome) only
+		        // lets a context start running there, and a context first made later (when a voice's audio arrives from the network)
+		        // stays suspended, so every voice routed through it is silent while system speech (no mixer) still sounds. pointerdown
+		        // is not an activation on these browsers; touchend, click and keydown are.
+		        const unlock = () => { ensure(); };
+		        const events = ["pointerdown", "touchend", "click", "keydown"];
 		        installedHosts.add(host);
-		        host.addEventListener("pointerdown", resume, { passive: true });
+		        for (const event of events) host.addEventListener(event, unlock, { passive: true, capture: true });
 		        let disposed = false;
 		        return () => {
 		            if (disposed) return;
 		            disposed = true;
-		            host.removeEventListener("pointerdown", resume);
+		            for (const event of events) host.removeEventListener(event, unlock, { capture: true });
 		            installedHosts.delete(host);
 		        };
 		    }
