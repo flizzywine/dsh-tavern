@@ -259,7 +259,7 @@ import { createServerScriptExecutor } from './domain/server-script-executor.js'
 import { createDisplayRuntimeStore, displayRuntimeReceipt } from './domain/display-runtime-store.js'
 import { createPresetLibrary } from './domain/preset-library.js'
 import { createForegroundOrchestrationStrategies } from './domain/foreground-orchestration-strategies.js'
-import { clearFailedTurnSurface, rollbackAvailability, reshadowRolledBackRounds, interruptedSurfaceTurns, supersededTailPlayerInputIndices, pruneSupersededTailPlayerInputs } from './domain/rollback-surface.js'
+import { clearFailedTurnSurface, rollbackAvailability, reshadowRolledBackRounds, interruptedSurfaceTurns, supersededTailPlayerInputIndices, pruneSupersededTailPlayerInputs, unansweredTailIndex } from './domain/rollback-surface.js'
 import { replyBody, voiceBackfillLines, voiceBackfillKept } from './domain/round-body.js'
 import { paragraphSpeech } from './domain/paragraph-speech.js'
 import { createDisplayRuntimeCapture } from './domain/display-runtime-capture.js'
@@ -3664,6 +3664,15 @@ export async function apply(ctx) {
     editText: async (material, text, options) => {
       await bodyEditor.replaceText(material.sessionId, text, { polish: options?.polish === true })
       notifyPluginTimeline(material.sessionId, 'edit', { settled: true })
+    },
+    // tavern.regenerateTurn: the 重新生成 button's own request (rpc/play.js regenBody), the guidance as its 修改意见.
+    // On a save ending in an input that never got its reply the button answers that input; a plugin names a reply, so no.
+    regenerateLatest: async (sessionId, guidance) => {
+      if (unansweredTailIndex(await chatHeaderWithLatestFloors(sessionId, 1)) >= 0) {
+        throw Object.assign(new Error('最新一轮的输入还没有写出正文，不能重新生成上一轮'), { code: 'TAVERN_PLUGIN_TURN_UNAVAILABLE' })
+      }
+      const result = await dispatchMethod('regenBody', { sessionId, guidance })
+      return { aborted: result?.view?.aborted === true }
     },
     runTask: runPluginTask,
     startManualTask: ({ gameId, key, input }) => startPluginTask(gameId, key, input),

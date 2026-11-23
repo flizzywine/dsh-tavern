@@ -469,6 +469,22 @@ ctx.tavern.onTurnSettled(async ({ gameId, turn, textVersion, variables }) => {
 - `text` 是完整的新正文，请在 `rawText` 的基础上改；不要拿 `text` 字段去改，它去掉了 HTML 块，交回来会被拒绝。正文里的 HTML 块（状态栏、美化代码等）必须原样保留，只能改它们之间的文字，也不能在 HTML 块之间新增段落。
 - 改完后所有插件会再收到一次这一轮的 `onTurnSettled`（`textVersion` 是新的）。在 `onTurnSettled` 里改正文的插件，要先判断是不是已经改过，避免反复修改。
 
+## 重新生成最新一轮 `regenerateTurn({ gameId, turn, textVersion, guidance? })`
+
+检查 `ctx.tavern.capabilities?.regenerateTurn === 1` 后调用。和玩家点「重新生成」是同一条路：Tavern 用这一局现在的预设、世界书、人物卡和历史重新准备这一轮的请求，旧正文撤下，新正文写完后提交；回退、分叉、结算、`onTimelineChanged`（`regenerate`）、`onTurnSettled` 都和手动重新生成一样。插件只给修改意见，不经手请求和正文。
+
+```js
+const { turn, textVersion } = await ctx.tavern.getTurnState({ gameId })
+const next = await ctx.tavern.regenerateTurn({ gameId, turn, textVersion, guidance: '台词更口语，节奏放慢' })
+// next: { turn, textVersion }，textVersion 是新正文的版本
+```
+
+- `guidance` 就是重新生成面板里写的修改意见：非空时当前正文作为草稿一起发给模型，按意见改写；空字符串是普通的重新生成（重新抽一次）。最多 20000 字。
+- 只能用于**最新一轮**，`textVersion` 必须是这一轮当前显示的版本，否则报 `TAVERN_PLUGIN_STALE_VERSION`。不是最新一轮、是开场白、或者最新的是一条还没写出正文的输入时报 `TAVERN_PLUGIN_TURN_UNAVAILABLE`；前台正在写正文时报 `TAVERN_PLUGIN_BUSY`，稍后再试。不用等后台结算：这一轮还在结算时，和玩家点按钮一样先停下结算。插件在这一局被关闭时拒绝。
+- 新正文提交后返回 `{ turn, textVersion }`。玩家在生成中点了停止报 `TAVERN_PLUGIN_ABORTED`；重新生成本身失败（模型报错等）照宿主的报错抛出。开始以后失败或停止的，和手动重新生成一样旧正文保持撤下，玩家用重新生成按钮重试。
+- 每次都是一次完整的正文请求，费用和玩家手动重新生成相同。每轮自动调用的插件请给玩家开关。
+- 重新生成写完同样会发「正文写完」（`reply-committed`）。在这个时刻调用的插件要认出是不是自己刚要的那一次，避免同一轮反复重新生成。
+
 ---
 
 ## 决策判定模型（`capabilities.decisionJudge === 1`）
