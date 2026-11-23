@@ -47,9 +47,12 @@ export function imageAliasesFromFigure(figure) {
 
 const joined = values => values.map(value => typeof value === 'string' ? value.trim() : '').filter(Boolean).join('；')
 
+// outfitKey null: the record's default outfit (the person as the 人物库 dresses them); undefined: no outfit.
 export function appearanceFromImageCharacter(character, outfitKey) {
-  const traits = character?.traits || {}, outfit = character?.outfits?.find(item => item.id === outfitKey)
+  const traits = character?.traits || {}
+  const outfit = character?.outfits?.find(item => outfitKey === null ? item.default : item.id === outfitKey)
   return {
+    ...(outfit?.name ? { outfitName: outfit.name } : {}),
     identityAppearance: joined([traits.face, traits.bodySFW, traits.lowerSFW]),
     outfitAppearance: outfit ? joined([outfit.upper, outfit.lower, outfit.shoes, outfit.accessory, outfit.full]) : '',
   }
