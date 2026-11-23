@@ -5,8 +5,13 @@ const root = fileURLToPath(new URL('.',import.meta.url))
 const sourceFiles = new Set()
 const manifest = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
 function emit(path, text) {
-  if (process.argv.includes('--check')) { if (readFileSync(path,'utf8') !== text) throw new Error('Stale build: ' + path); return }
-  mkdirSync(dirname(path),{recursive:true}); writeFileSync(path,text)
+  const generated = text.replace(/\r\n/g, '\n')
+  if (process.argv.includes('--check')) {
+    if (readFileSync(path, 'utf8').replace(/\r\n/g, '\n') !== generated) throw new Error('Stale build: ' + path)
+    return
+  }
+  mkdirSync(dirname(path), {recursive:true})
+  writeFileSync(path, generated)
 }
 function visit(dir, relative = '') {
   for (const item of readdirSync(dir,{withFileTypes:true})) {
