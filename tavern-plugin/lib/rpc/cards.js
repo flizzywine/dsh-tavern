@@ -10,7 +10,7 @@ import { encryptCardArchiveFile, isCardPasswordError } from '../domain/card-encr
 export function createCardHandlers(deps) {
   const { agentRegistry, cardMemory, cardOrganization, cardPacksOf, cardPlugins, cardPreparation,
     cardTaskPrompts, castAssets, chatForSession, deleteCard, ensureNativeCardWorkspace, fileResources,
-    importCard, importCardArchiveFile, importPluginCardFile, previewCardArchiveFile, replaceCard, revertCardUpdate, listCards, mobileCardImport, pluginApi,
+    importCard, importCardArchiveFile, importPackArchiveFile, importPluginCardFile, previewCardArchiveFile, replaceCard, revertCardUpdate, listCards, mobileCardImport, pluginApi,
     readCardWorkspace, runtimePrompt, sessionStore, setCardPlugins, sleep, str, updateCard, uploads,
     worldBooks } = deps
 
@@ -80,6 +80,7 @@ export function createCardHandlers(deps) {
     },
     async importMobileCard(args) {
       const archive = await mobileCardImport.archive(args && args.id)
+      if (archive && /\.zip$/i.test(archive.name)) return await importPackArchiveFile(archive.file)
       return { card: archive ? await importCardArchiveFile(archive.file, archive.name, { password: args?.password }) : await importCard(await mobileCardImport.read(args && args.id)) }
     },
     async importCard(args) {
