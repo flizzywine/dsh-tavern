@@ -1972,8 +1972,8 @@ function versionsOf(jobId) {
         if (field === 'full' && (upperPart !== 'sfw' || lowerPart !== 'sfw')) continue
         if (cropped && (field === 'lower' || field === 'shoes' || field === 'full')) continue
         if (barefoot && !keepSocks && field === 'shoes') continue
-        // 标签写法里已经有上衣下装时，整套总述只是噪音。
-        if (field === 'full' && (tags || options.conciseOutfit) && (text(item.upper) || text(item.lower))) continue
+        const hasOutfitParts = tags ? text(item.upper) || text(item.lower) : options.conciseOutfit && text(item.upper) && text(item.lower)
+        if (field === 'full' && hasOutfitParts) continue
         const value = accept(barefoot ? dropFootwear(item[field], keepSocks) : item[field])
         if (value) parts.push({ field, text: value })
       }

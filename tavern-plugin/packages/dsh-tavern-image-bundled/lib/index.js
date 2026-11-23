@@ -295,7 +295,7 @@ export function pickOutfitForScene(scene, before, after) {
   if (/[\u3400-\u9fff]/.test(String(scene ?? '')) && /[\u3400-\u9fff]/.test(String(before ?? '') + String(after ?? ''))) {
     // 中文画面：数画面描述和换衣前/后的衣服描述有多少相同的两字片段（「吊带」「寝衣」「长裙」）。
     const grams = t => { const s = String(t ?? '').replace(/[^\u3400-\u9fff]/g, ' '); const out = new Set(); for (const w of s.split(/\s+/)) for (let i = 0; i + 1 < w.length; i++) out.add(w.slice(i, i + 2)); return out }
-    const worn = String(scene ?? '').split(/[，,；;。！？\n]/).filter(part => !/(?:手[里中上]|拿着|捧着|抱着|挂在|放在|递给|脱下的|脱掉的)/.test(part)).join('。')
+    const worn = String(scene ?? '').split(/[，,；;。！？\n]/).map(part => part.split(/手[里中上]|拿着|捧着|抱着|挂在|放在|递给|脱下的|脱掉的/, 1)[0]).join('。')
     const sceneGrams = grams(worn)
     const shared = t => { const g = grams(t); let n = 0; for (const x of g) if (sceneGrams.has(x)) n++; return n }
     const sb = shared(before), sa = shared(after)
@@ -424,7 +424,7 @@ function sceneSubjects(characters = []) {
     if (!person || person.enabled === false) continue
     for (const name of [person.name, person.promptLabel, ...splitTags(person.match)]) {
       const key = String(name ?? '').trim().toLowerCase()
-      if ([...key].length < 2) continue
+      if (!key || ([...key].length === 1 && !(name === person.name && /\p{Script=Han}/u.test(key)))) continue
       if (!aliases.has(key)) aliases.set(key, person)
       else if (aliases.get(key) !== person) aliases.set(key, null)
     }
@@ -450,10 +450,9 @@ function sceneClauses(text, subjects) {
     // Only an explicit subject may own state before a second named participant.
     const shared = foreignOffset < tail.length
     const state = shared && !leading ? '' : tail.slice(0, foreignOffset)
-    const subject = leading ? clause.slice(0, leading[0].length) : ''
     const actor = owner
     if (shared) owner = null
-    return { raw, owner: actor, state: state.trim(), shared, subject }
+    return { raw, owner: actor, state: state.trim() }
   })
 }
 
@@ -481,13 +480,6 @@ export function applyShotOutfits(definitions, subjects = []) {
     const outfit = characterOutfits(person, definitions).find(item => item.enabled !== false && String(item.id) === id)
     return outfit?.name ? { ...person, current: { outfit: outfit.name } } : person
   }) }
-}
-
-export function mergeShotHistory(source, earlier, turn) {
-  if (!source && !earlier) return null
-  const characters = { ...earlier?.characters }
-  for (const [id, record] of Object.entries(source?.characters ?? {})) characters[id] = { ...characters[id], ...record }
-  return { ...(source ?? earlier), turn: Number(turn), characters, changes: source?.changes ?? [] }
 }
 
 export function expandRosterCalls(text, scoped, mode, options = {}) {
@@ -703,10 +695,6 @@ export function expandRosterCalls(text, scoped, mode, options = {}) {
           const backTurn = /回头|回过头|转过头|转过身|侧过脸|侧过身|侧过头|偏过头|扭过头|转过脸|侧脸/.test(natural ? personScene : sceneText)
           if (expression && !PLACEHOLDER_VALUE.test(expression) && !(back && !backTurn) && !lowerShot) extras.expression = expression
           // 发型变化只作用于当前人物。湿发可以仍扎着。
-          if (natural && outfitState) {
-            wear = replaceShotGarment(wear, outfitState)
-            for (const origin of picked.origins) if (origin.outfitId) origin.text = replaceShotGarment(origin.text, outfitState)
-          }
           if (natural && looseHairIn(personScene)) {
             wear = withoutTiedHair(wear)
             for (const origin of picked.origins ?? []) {
@@ -943,7 +931,6 @@ const HAIR_IN_WEAR_ZH = /髻|辫|马尾|束发|束起|挽起|盘起|盘成|挽�
 const LOOSE_HAIR_ZH = /散发|披发|披散|披着头发|散着头发|散开的(?:头发|长发|黑发)|(?:长发|头发|黑发|乌发|发丝)[^。，；]{0,3}(?:散开|披下|散落|披在)|解开(?:了)?(?:自己的)?(?:发绳|发带|马尾)|拆[^。，]{0,3}髻/
 const TIED_HAIR_ZH = /马尾|双辫|发髻|螺髻|编发|发带|发绳|发圈|丸子头/
 const UNCERTAIN_STATE = /并未|没有|未曾|没(?:有)?(?:扎|解|披|散)|尚未|不曾|想要|打算|准备|要是|如果|仿佛|会不会|是否|本想|想象|梦见/
-const HAIR_ONLY = /^(?:(?:她|他|其|的)?(?:肩上|肩头)(?:搭着|垂着))?(?:散发|披(?:散|发|着头发)|散着头发|散开的(?:头发|长发|黑发)|(?:头发|长发|黑发|乌发|发丝)(?:松松地|已经|全都|自然|湿着|都)?(?:散开|披下|散落|披在)|解开(?:了)?(?:自己的)?(?:发绳|发带|马尾))[^，。；]{0,10}$/
 const NON_HAIR_DETAIL = /拿|握|抱|拎|递|走|戴|穿|坐|站|帽|鞋|镜|衣|裙|桶|喷雾|项链|耳环|上衣|裤/
 
 function looseHairIn(text) {
@@ -957,18 +944,6 @@ function removeSceneClause(parts, index) {
   else if (/^[。！？!?]+$/.test(parts[index + 1] ?? '')) parts[index + 1] = ''
 }
 
-function replaceShotGarment(text, state) {
-  const garment = /薄纱短?裹裙|薄纱披肩|短裹裙/.exec(state)?.[0]
-  if (!garment || !/(?:系|裹|披|换|穿)/.test(state)) return text
-  const parts = String(text ?? '').split(/([，,；;。\n]+)/)
-  for (let i = 0; i < parts.length; i += 2) {
-    const part = parts[i]
-    const describesLayer = /^(?:泳裤|衣服|外套)?外面(?:再|还)?(?:罩|系|披|裹)/.test(part.trim())
-    if (part.includes(garment) && (describesLayer || !/(?:泳裤|上衣|鞋|耳环|项链|发带|头发|马尾)/.test(part))) removeSceneClause(parts, i)
-  }
-  return parts.join('').trim()
-}
-
 function withoutTiedHair(text) {
   const parts = String(text ?? '').split(/([，,；;。\n]+)/)
   for (let index = 0; index < parts.length; index += 2) {
@@ -978,46 +953,6 @@ function withoutTiedHair(text) {
     }
   }
   return parts.join('').trim()
-}
-
-const imageAnchorText = value => String(value ?? '').replace(/<\/?[a-zA-Z][^<>]*>/g, '').replace(/[\s*_~`#>|\u200b]/g, '')
-
-export function reconcilePlannerHair(plan, cast, body, mount, prior = '', instruction = '') {
-  const needle = imageAnchorText(mount)
-  if (needle.length < 2) return plan
-  const positions = []
-  let normalized = ''
-  for (const match of body.matchAll(/<\/?[a-zA-Z][^<>]*>|[\s\S]/g)) {
-    const value = imageAnchorText(match[0])
-    if (!value) continue
-    normalized += value
-    positions.push(match.index + match[0].length)
-  }
-  const anchor = normalized.indexOf(needle)
-  if (anchor < 0 || normalized.indexOf(needle, anchor + 1) >= 0) return plan
-  const subjects = sceneSubjects(cast)
-  const known = new Map()
-  const evidence = [prior, body.slice(0, positions[anchor + needle.length - 1]), instruction].filter(Boolean).join('\n')
-  for (const { owner, state, shared } of sceneClauses(evidence, subjects)) {
-    if (!owner || !state || shared || UNCERTAIN_STATE.test(state)) continue
-    if (LOOSE_HAIR_ZH.test(state)) known.set(owner, 'loose')
-    else if (TIED_HAIR_ZH.test(state) && /扎|束|绑|盘|挽|梳|编|双马尾|双辫/.test(state)) known.set(owner, 'tied')
-  }
-  // Keep the macro protocol intact and only drop isolated, unsupported hairstyle clauses.
-  return plan.split(/(\$\{(?:(?!\$\{)[\s\S])*?\}\$)/).map((part, index) => {
-    if (index % 2) return part
-    const clauses = sceneClauses(part, subjects)
-    const parts = clauses.map(c => c.raw)
-    for (let n = 0; n < clauses.length; n += 2) {
-      const c = clauses[n]
-      if (!c.owner || c.shared || !HAIR_ONLY.test(c.state) || NON_HAIR_DETAIL.test(c.state) || known.get(c.owner) === 'loose') continue
-      if (c.subject && /^[，,]+$/.test(parts[n + 1] ?? '') && clauses[n + 2]?.owner === c.owner && !clauses[n + 2].subject) {
-        parts[n + 2] = c.raw.match(/^\s*/)[0] + c.subject + parts[n + 2].trimStart()
-      }
-      removeSceneClause(parts, n)
-    }
-    return parts.join('')
-  }).join('')
 }
 
 /** 外貌最后一句写的是发型。 */
@@ -2738,7 +2673,8 @@ function createRuntime(ctx, overrides, logger, deps) {
       try { card = await currentCard(session, turn) }
       catch (error) { error.submissionNotStarted = true; throw error }
       const defs = applyCharacterSnapshot(definitions, characterSnapshot)
-      const scoped = applyShotOutfits(card ? { ...defs, characters: scopeCharacters(defs.characters, card) } : defs, source.params?.subjects)
+      const subjects = refreshReferences && replacedPrompt ? undefined : source.params?.subjects
+      const scoped = applyShotOutfits(card ? { ...defs, characters: scopeCharacters(defs.characters, card) } : defs, subjects)
       const keepComfySource = source.backend === 'comfyui' && jobConfig.imageBackend === 'comfyui'
       if (keepComfySource && source.workflowId?.startsWith('simple-')) throw Object.assign(new Error('该作业来自已停用的 ComfyUI 简易模式；原数据已保留，请导入完整 ComfyUI API workflow 后再重绘'), { submissionNotStarted: true, code: 'COMFY_SIMPLE_RETIRED' })
       const workflow = keepComfySource ? workflows.find(item => item.id === source.workflowId && !item.error) : null
@@ -2750,7 +2686,7 @@ function createRuntime(ctx, overrides, logger, deps) {
         fresh = await startJob({
           tag: mode === 'reference' ? rawTag : normalizePrompts(expandRosterCalls(rawTag, scoped, jobConfig.traitMode, { style: rosterStyle(jobConfig, workflow ?? styleWorkflow(jobConfig)) }), scoped, { backend: effectiveConfiguredProvider(jobConfig), style: rosterStyle(jobConfig, workflow ?? styleWorkflow(jobConfig)), allowChinese: chineseAllowed(jobConfig, workflow ?? styleWorkflow(jobConfig)) }),
           rawTag, generationMode: mode,
-          subjects: refreshReferences && submitted !== (source.params?.rawTag ?? source.params?.tag) ? undefined : (source.params?.subjects?.length ? source.params.subjects : undefined),
+          subjects: subjects?.length ? subjects : undefined,
           characters: characterSource,
           artist: source.params?.artist,
           promptUsage: source.params?.promptUsage,
