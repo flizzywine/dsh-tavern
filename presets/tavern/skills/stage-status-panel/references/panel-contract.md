@@ -76,6 +76,8 @@ tavern_update_card({ rawOperations: [
 | 世界书 | `getCharWorldbookNames().primary` 取本卡世界书名，再 `getWorldbook(name)`、`updateWorldbookWith(name, entries => entries)`：这个聊天有自己的世界书副本时只改这个聊天，否则改人物卡库里的世界书，用它的其他聊天都会看到 |
 | 事件 | `eventOn`、`eventOff`、`tavern_events` |
 
+聊天正文里的卡片 HTML 没有 `DshCardPage`，但有 `window.DshCardAssets.asset({kind, id, variant?, file?, size?})`：取本卡绑定素材包里的图片，规则和 `DshCardPage.asset` 相同（只找本卡绑定的包，同一 id 以绑定顺序靠前的为准），返回 `Promise<blob: URL>`。`size` 是显示宽度（CSS px，默认 256），宿主按屏幕像素密度取够清晰的缩略图；视频包的文件取不到。找不到时 Promise 拒绝，页面自己显示占位。同一份 HTML 两处都用时，先用 `window.DshCardPage?.asset`，没有再用 `window.DshCardAssets?.asset`。
+
 `Mvu` 只在本卡启用 MVU 时存在。状态页先从最新 `stat_data` 渲染，再订阅 `VARIABLE_UPDATE_ENDED`；打开时尚无状态就显示「暂无状态」，不要填默认数值冒充结算。`onData` 负责舞台快照，不能代替 MVU 事件。展示页不写变量；若页面确有用户主动触发的写入，Helper 拒绝时把错误显示给玩家。
 
 ## DshCardPage
