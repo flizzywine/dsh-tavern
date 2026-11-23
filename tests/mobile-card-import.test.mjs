@@ -7,6 +7,7 @@ import { createFileSymlink } from './helpers/file-symlink.mjs'
 import { mkdtemp } from 'node:fs/promises'
 
 import { createMobileCardImport } from '../tavern-plugin/lib/domain/mobile-card-import.js'
+import { MAX_CARD_UPLOAD_BYTES } from '../tavern-plugin/lib/domain/uploads.js'
 
 test('Android 下载目录人物卡只列出受限目录里的 PNG/JSON，并按选择读取', { skip: process.platform === 'win32' ? 'Requires symlinks, which Windows only allows with extra privileges' : false }, async function (t) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'dsh-mobile-card-'))
@@ -41,11 +42,11 @@ test('Android 下载目录人物卡只列出受限目录里的 PNG/JSON，并按
   })
 })
 
-test('Android 下载目录允许直接读取 1 GiB 的 DSH 和 CHARX 卡包，PNG/JSON 限制为 32 MiB', async t => {
+test('Android 下载目录允许直接读取大体积 DSH 和 CHARX 卡包，PNG/JSON 限制为 32 MiB', async t => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'dsh-mobile-archive-'))
   t.after(() => rm(root, { recursive: true, force: true }))
   const names = ['辉夜姬.DSHCARD', '舞台.CHARX']
-  const max = 1024 ** 3
+  const max = MAX_CARD_UPLOAD_BYTES
   for (const name of names) {
     const file = path.join(root, name)
     await writeFile(file, '')

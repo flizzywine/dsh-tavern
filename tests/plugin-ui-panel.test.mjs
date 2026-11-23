@@ -7,10 +7,10 @@ const source = await readFile(new URL('../tavern-plugin/lib/client.js', import.m
 const start = source.indexOf('function createTavernUiExtensions()')
 const factory = source.slice(start, source.indexOf('const tavernUiExtensions = createTavernUiExtensions()', start))
 
-function load() {
+function load(extra = {}) {
   const context = {
     React: { createElement: (type, props, ...children) => ({ type, props, children }) },
-    tavernPluginBoundary: () => 'Boundary', tavernPluginAllowed: () => true, DshUi: { IconPuzzleOutlineRegular: 'PluginIcon' }
+    tavernPluginBoundary: () => 'Boundary', tavernPluginAllowed: () => true, DshUi: { IconPuzzleOutlineRegular: 'PluginIcon' }, ...extra
   }
   return vm.runInNewContext(factory + '; createTavernUiExtensions()', context)
 }
@@ -40,6 +40,31 @@ test('插件面板：注册为当前游戏的侧栏页，卸载时移除；没�
   assert.throws(() => plugin.registerPanel({ id: 'Bad Id', title: 'x', render() {} }), /id/)
   dispose()
   assert.equal(tabs.size, 0)
+})
+
+test('舞台专用面板无需侧栏，保留全屏尺寸并在卸载时移除', () => {
+  const ui = load({tavernCardPluginScopes:{get:()=>({'table-plugin':['card-1']})}})
+  const plugin = Object.assign(Object.create(ui.service), {ctx:{fiber:{name:'table-plugin'}}})
+  const render = () => null
+  for (const host of [{betterSidebar:{registerTab() { assert.fail('舞台专用面板不应注册侧栏') }}}, {}]) {
+    ui.attachHost(host)
+    const dispose = plugin.registerPanel({id:'table', title:'牌桌', render, stage:true, stageOnly:true, stageSize:'full'})
+    const panel = ui.stagePanel('game-1', 'table-plugin', 'table')
+    assert.equal(panel.title, '牌桌')
+    assert.equal(panel.stageSize, 'full')
+    assert.equal(panel.render, render)
+    dispose()
+    assert.equal(ui.stagePanel('game-1', 'table-plugin', 'table'), null)
+  }
+})
+
+test('插件面板拒绝拼错尺寸和未开放舞台的选项', () => {
+  const ui = load({TypeError})
+  const plugin = Object.assign(Object.create(ui.service), {ctx:{fiber:{name:'table-plugin'}}})
+  const panel = {id:'table', title:'牌桌', render() {}}
+  for (const options of [{stage:true, stageSize:'fullscreen'}, {stage:true, stageOnly:'yes'}, {stageSize:'window'}, {stage:false, stageOnly:false}]) {
+    assert.throws(() => plugin.registerPanel({...panel, ...options}), TypeError)
+  }
 })
 
 function loadWith(extra) {

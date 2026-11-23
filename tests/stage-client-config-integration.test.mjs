@@ -23,7 +23,7 @@ test('real React config switches tabs, edits shared preferences and unmounts wit
   const oldWindow=globalThis.window,oldDocument=globalThis.document,oldAct=globalThis.IS_REACT_ACT_ENVIRONMENT
   globalThis.window=dom.window;globalThis.document=dom.window.document;globalThis.IS_REACT_ACT_ENVIRONMENT=true
   const document=dom.window.document,h=React.createElement
-  const reading=store({voiceRate:1,textSpeed:28,autoWait:700,autoSpeed:1.3,textScale:{},frameCap:60,reducedMotion:false,photosensitive:true})
+  const reading=store({textSpeed:28,autoWait:700,autoSpeed:1.3,textScale:{},frameCap:60,reducedMotion:false,photosensitive:true})
   const audio=store({master:1,voice:1,music:1,sfx:1,ambience:1,ui:1,muted:{},duck:true})
   audio.getSnapshot=audio.get
   audio.setDucking=value=>audio.set({duck:value});audio.toggleMute=layer=>audio.set({muted:{...audio.get().muted,[layer]:!audio.get().muted[layer]}})
@@ -35,7 +35,7 @@ test('real React config switches tabs, edits shared preferences and unmounts wit
   const Slider=props=>h('input',{type:'range','aria-label':props.label,value:props.value,min:props.min,max:props.max,onChange:event=>props.onChange?.(Number(event.target.value))})
   const Segmented=props=>h('div',null,props.options.map(([value,label])=>h('button',{key:value,onClick:()=>props.onChange(value)},label)))
   const fields=createStageConfigFields({React,Slider,Segmented,ResetButton,HelpTip:()=>null,sounds})
-  const mixer=createStageMixer({React,fields,reading,voiceRateLimits:[.8,2,.1],audio,Slider,Icon,sounds})
+  const mixer=createStageMixer({React,fields,audio,Slider,Icon,sounds})
   const text=createStageConfigText({React,fields,reading,limits:{textSpeed:[0,80,2],autoWait:[0,3000,100]},defaults:{textSpeed:28},scale:[70,130,5],scaleOf:(r,id)=>r.textScale[id]||100,themes:[['classic','经典']],Typewriter:()=>null})
   const appearance=createStageConfigAppearance({React,fields,reading,quality,themes:[['classic','经典']],window:dom.window,document,Icon,ResetButton,sounds,frameRate:galFrameRate,handheld:()=>false})
   const screen=createStageConfigScreen({React,window:dom.window,document,sections:{},rpc:async()=>({mods:[]}),useSounds(){},sounds,Icon,Sound:mixer.Sound,Text:text.Text,Appearance:appearance.Appearance,Looks:fields.Looks})

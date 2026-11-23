@@ -57,6 +57,33 @@
 			{ value: "opening", label: "仅开场" }, { value: "archived", label: "已归档" }
 		];
 
+		// The fork's self-drawn tick (.ap-check-mark, ui-design §三.15): role=checkbox, "mixed" for a partly selected list.
+		function HistoryManagerCheck({ checked, label, disabled, onToggle, className, children }) {
+			const h = React.createElement;
+			return h("button", { type: "button", role: "checkbox", className: "ap-pack-check dsh-tavern-history-manager-check" + (className ? " " + className : ""), "aria-checked": checked, "aria-label": label, disabled, onClick: onToggle },
+				h("span", { className: "ap-check-mark", "aria-hidden": "true" }, checked === "mixed" ? h("i", { className: "ap-check-dash" }) : checked ? h(InlineGlyph, { name: "check" }) : null),
+				children);
+		}
+
+		// The head of one card's group in 游玩历史: its click folds / unfolds the group; right click, Shift+F10 / the menu key or a
+		// touch long press opens the card's menu (useContextMenu). Items are entries that exist elsewhere:
+		// the card list's 新开游玩, the group's own fold, and the 存档管理 filtered to this card.
+		function HistoryGroupHead({ group, expanded, busy, onToggle, onNewPlay, onManage, children }) {
+			const h = React.createElement;
+			const menu = packUi.useContextMenu({
+				label: group.name + " 操作",
+				content: function (close) {
+					return h(React.Fragment, null,
+						group.path ? h(packUi.MenuItem, { disabled: busy, onClick: function () { close(); onNewPlay(); } }, "新建游戏") : null,
+						h(packUi.MenuItem, { onClick: function () { close(); onToggle(); } }, expanded ? "折叠" : "展开"),
+						h(packUi.MenuItem, { onClick: function () { close(); onManage(); } }, "管理存档…"));
+				}
+			});
+			return h(React.Fragment, null,
+				h("button", Object.assign({ className: "dsh-tavern-history-group-toggle", "aria-expanded": expanded, title: group.path || group.name, onClick: onToggle }, menu.target, menu.trigger), children),
+				menu.layer);
+		}
+
 		function HistoryCardFilter({ options, value, onChange }) {
 			const h = React.createElement;
 			const popup = useInlinePopup({ focusSelector: "input" });
@@ -96,8 +123,7 @@
 					onKeyDown: event => { if (!popup.open && event.key === "ArrowDown") { event.preventDefault(); open(); } } },
 					h("span", { className: "fork-inline-text" }, current.label), h(InlineGlyph, { name: "chevDown" })),
 				popup.open ? popup.layer({ id: popupId, className: "fork-inline-pop dsh-tavern-history-card-popup", role: "dialog", "aria-label": "筛选人物卡" },
-					h("input", { type: "text", className: "dsh-tavern-library-search", placeholder: "搜索人物卡", "aria-label": "搜索人物卡",
-						autoComplete: "off", value: query, onChange: event => setQuery(event.target.value), onKeyDown: searchKeys }),
+					h(SearchBox, { bare: true, inputClassName: "dsh-tavern-library-search", label: "搜索人物卡", value: query, onChange: setQuery, onKeyDown: searchKeys, inputProps: { autoComplete: "off" } }),
 					matches.length ? h("div", { className: "dsh-tavern-history-card-options", role: "menu", "aria-label": "人物卡", onKeyDown: inlineMenuKeys },
 						matches.map(option => h("button", { key: option.value, type: "button", className: "fork-inline-option", role: "menuitemradio",
 							"aria-checked": option.value === current.value, title: option.path || option.label, onClick: () => choose(option.value) },
@@ -569,7 +595,8 @@
 					(!kinds || kinds.indexOf("cards") >= 0) && call("listCards").then(function (result) {
 						setCards(result.cards || []); tavernErrorHub.resolve("左侧栏人物卡");
 					}, function (err) { tavernErrorHub.report("左侧栏人物卡", err); }),
-					(!kinds || kinds.indexOf("sessions") >= 0) && call("listSessions").then(function (result) {
+					// History rows carry their card's name, so a card change (a rename) reloads them too.
+					(!kinds || kinds.indexOf("sessions") >= 0 || kinds.indexOf("cards") >= 0) && call("listSessions").then(function (result) {
 						const sessions = result.sessions || [];
 						setHistory(sessions); setTrustedCardMode(!result.capabilities || result.capabilities.trustedCardMode !== false); publishSessionModes(sessions);
 						tavernErrorHub.resolve("左侧栏历史");
@@ -1507,14 +1534,27 @@
 					) : null
 				);
 			}
+			// 游玩历史里卡名菜单的「新建游戏」：和人物卡列表里点这张卡是同一个入口（openPlayCard）。
+			function newPlayFromGroup(group) {
+				if (busy || !group.path) return;
+				openPicker();
+				void call("listCards").then(function (result) {
+					const card = (result.cards || []).find(function (row) { return row.path === group.path && !row.readError; });
+					if (!card) { setError("找不到这张人物卡，可能已被删除或移动"); return; }
+					return openPlayCard(card);
+				}).catch(function (err) { setError(String(err && err.message || err)); });
+			}
 			function renderHistoryGroup(group, expanded, toggle) {
 				return h("section", { key: group.key, className: "dsh-tavern-history-group" },
-					h("button", { className: "dsh-tavern-history-group-toggle", "aria-expanded": expanded, title: group.path || group.name,
-						onClick: function () { toggle(); setMenuSession(null); }
+					h(HistoryGroupHead, { group: group, expanded: expanded, busy: busy,
+						onToggle: function () { toggle(); setMenuSession(null); },
+						onNewPlay: function () { newPlayFromGroup(group); },
+						onManage: function () { openHistoryManager(); setManagerCardFilter(group.key); }
 					}, h("span", { "aria-hidden": true }, expanded ? "▾" : "▸"),
 						// A collapsed group hides its rows, so its head carries the same mark when one of them generates.
 						group.items.some(function (item) { return sessionGenerating(item.sessionId); }) ? h("span", { className: "dsh-tavern-history-group-spinner", role: "status", "aria-label": "有对话正在生成" }, h(Spinner, {})) : null,
 						h("span", { className: "dsh-tavern-history-group-name" }, group.name), h("span", { className: "dsh-tavern-history-group-count" }, group.items.length)),
+					
 					expanded ? h("div", { className: "dsh-tavern-history-group-items" }, group.items.slice(0, historyWindow).map(function (item) { return renderHistoryRow(item, group.name); })) : null);
 			}
 			// 窗口上限：当前模式下最多要渲染多少行，决定还要不要继续追加。
@@ -1624,7 +1664,7 @@
 						toggleChatSelection(item.chatId);
 					}
 				},
-					h("input", { type: "checkbox", className: "dsh-tavern-history-manager-check", checked: selected, disabled: busy, "aria-label": "选择对话：" + title, onChange: function () { toggleChatSelection(item.chatId); } }),
+					h(HistoryManagerCheck, { checked: selected, disabled: busy, label: "选择对话：" + title, onToggle: function () { toggleChatSelection(item.chatId); } }),
 					h("div", { className: "dsh-tavern-history-manager-body" },
 						h("div", { className: "dsh-tavern-history-manager-headline" },
 							renaming ? h("input", {
@@ -1681,13 +1721,10 @@
 						h("h2", null, uiMode === "play" ? "游玩历史" : "卡片历史"),
 						h("button", { type: "button", className: "dsh-tavern-history-manager-icon", title: "关闭", "aria-label": "关闭", onClick: closeHistoryManager }, h(Icon, { name: "close", size: 20 }))),
 					h("div", { className: "dsh-tavern-history-manager-toolbar" },
-						h("label", { className: "dsh-tavern-history-manager-select-all" },
-							h("input", { type: "checkbox", className: "dsh-tavern-history-manager-check", "aria-label": "全选筛选结果",
-								disabled: busy || !managerVisible.length, checked: allVisibleSelected,
-								ref: node => { if (node) node.indeterminate = someVisibleSelected; },
-								onChange: event => setSelectedChats(event.target.checked ? managerVisible.map(item => item.chatId) : []) }),
+						h(HistoryManagerCheck, { className: "dsh-tavern-history-manager-select-all", label: "全选筛选结果", disabled: busy || !managerVisible.length, checked: allVisibleSelected ? true : someVisibleSelected ? "mixed" : false,
+							onToggle: () => setSelectedChats(allVisibleSelected ? [] : managerVisible.map(item => item.chatId)) },
 							"全选"),
-						h("input", { className: "dsh-tavern-library-search dsh-tavern-history-manager-search", value: managerQuery, placeholder: "搜索对话", "aria-label": "搜索会话", onChange: event => setManagerQuery(event.target.value) }),
+						h(SearchBox, { bare: true, inputClassName: "dsh-tavern-library-search dsh-tavern-history-manager-search", value: managerQuery, placeholder: "搜索对话", label: "搜索会话", onChange: setManagerQuery }),
 						h("div", { className: "dsh-tavern-history-manager-filters" },
 							managerCardOptions.length ? h(HistoryCardFilter, { options: managerCardOptions, value: managerCardFilter, onChange: setManagerCardFilter }) : null,
 							h(InlineMenu, { name: "按状态筛选", controlClassName: "dsh-tavern-history-card-trigger", options: historyStatusOptions, value: managerStatusFilter, onCommit: setManagerStatusFilter }))),

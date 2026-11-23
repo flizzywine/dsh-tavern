@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import {mkdtemp, rm, readFile, writeFile} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
+import {channel} from 'node:diagnostics_channel'
 import {createAssetPackService} from '../src/pack-v2/service.js'
 import {createCardBundleAdapter} from '../../dsh-tavern-stage/lib/card-bundle.js'
 import {createCardPreparation} from '../../../lib/domain/card-preparation.js'
@@ -229,4 +230,15 @@ test('adoptAutomaticPack refuses a pack the card does not bind and a card that a
   await assert.rejects(f.service.adoptAutomaticPack({path:'test', packId:otherId, expectedRevision:otherRevision}), /Not an automatic pack|not bound/)
   const ownRevision = (await f.service.getPackSnapshot({packId:own.packId})).revision
   assert.equal((await f.service.adoptAutomaticPack({path:'test', packId:own.packId, expectedRevision:ownRevision})).adopted, false)
+})
+// After a restart 自动选角 reads every card's context at once; under the exclusive gate each read held every stage read
+// behind it (11-23: 13 reads of about 1.5 s each, the stage waited 20 s). A context is a read that shares the gate.
+test('reading a writer context shares the read gate with other readers', async t => {
+  const f = await fixture(t), first = await f.write('First speaker'), gates = []
+  const listen = event => { if (event.name === 'pack.gate.hold') gates.push(event.mode) }
+  channel('dsh.asset.read').subscribe(listen)
+  t.after(() => channel('dsh.asset.read').unsubscribe(listen))
+  const [context] = await Promise.all([f.writer.readContext({path:'test'}), f.service.getPackSnapshot({packId:first.packId})])
+  assert.equal(context.target.packId, first.packId)
+  assert.deepEqual(gates, ['read', 'read'])
 })

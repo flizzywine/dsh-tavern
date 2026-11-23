@@ -322,10 +322,11 @@ function stageSkinPalette(document) {
   return {bg:paint.bg,fg,accent:paint.accent||look.textStyle?.emphasis||fg,border:paint.border||paint.fgMuted||fg,radius:typeof radius==='number'?radius:10};
 }
 // packs: the full documents of the packs whose skins are offered (the global default offers the globally enabled packs').
+// A skin switched off (关闭, enabled: false; protocol assetEntryEnabled) is not offered.
 function stageSkinChoices(packs) {
   const choices=STAGE_BUILTIN_SKINS.map(([value,label])=>({value,label}));
   for(const pack of packs) {
-    for(const asset of pack.manifest.assets.filter(a=>a.kind==='skins')) {
+    for(const asset of pack.manifest.assets.filter(a=>a.kind==='skins'&&a.enabled!==false)) {
       const document=pack.skins?.[asset.id];if(!document)continue;
       choices.push({value:{packId:pack.manifest.id,kind:'skins',assetId:asset.id},label:document.label,note:document.directorNote,palette:stageSkinPalette(document)});
     }
@@ -618,10 +619,12 @@ function StageModeJump({ctx}) {
 // effectiveAutoCast. It casts for the bubbles, so it is greyed while 对话气泡 is off. The 「›」 opens its page (生成策略).
 const AUTO_CAST_HELP='正文出现未准备素材的人物时，后台自动搜库或实时生成人设、立绘与声音，放进这张卡的「自动素材」包；会用到生图和后台模型。';
 const AUTO_CAST_NEED='自动素材给对话气泡里的人物配图和声音，要先打开对话气泡。';
-const AUTO_CAST_LEVELS=[['late','用到才生成'],['eager','常用预备'],['all','整卡补全']];
-const AUTO_CAST_LEVEL_HELP='控制后台什么时候为未备素材的人物生成立绘与声音。用到才生成：只生成正文用到的人物和表情，下一轮可用，最省额度。常用预备：开场白里的人物开局就生成，空闲时补齐登场人物的常用表情。整卡补全：开局梳理全卡可能出场的所有人物，空闲时一直生成到全员齐备。';
-const AUTO_CAST_DEFAULT={enabled:false,level:'late'};
-function autoCastLayers(ctx) { return {global:{...AUTO_CAST_DEFAULT,...ctx.writer.autoCast?.values},card:ctx.ext?.stage||{}}; }
+const AUTO_CAST_LEVELS=[['saving','节省'],['balanced','平衡'],['aggressive','激进']];
+const AUTO_CAST_LEVEL_HELP='没有素材的新人物先借素材库里通用角色的立绘登场，后台再按这里的策略给他画自己的立绘和表情，重要的人先画。节省：只画故事的主要人物，表情多用一张平和顶替，最省额度。平衡：也画会再出场的人物，常用的表情补齐，一次性的路人一直借着通用角色。激进：说过话的人都画，用到的表情都补齐。';
+const AUTO_CAST_DEFAULT={enabled:false,level:'balanced',sprites:true,voices:true};
+// The levels before (用到才生成 / 常用预备 / 整卡补全) show as the ones they now read as.
+const autoCastLevel=level=>({late:'balanced',eager:'balanced',all:'aggressive'})[level]||level;
+function autoCastLayers(ctx) { const global={...AUTO_CAST_DEFAULT,...ctx.writer.autoCast?.values}; return {global:{...global,level:autoCastLevel(global.level)},card:ctx.ext?.stage||{}}; }
 function StageAutoCastRow({ctx}) {
   const jump=React.useRef(null),blocked=!ctx.active.dialogue,{global,card}=autoCastLayers(ctx),loading=!ctx.writer.autoCast;
   React.useEffect(()=>{if(ctx.takeAutoCastFocus?.())jump.current?.focus?.();},[]);
@@ -631,27 +634,54 @@ function StageAutoCastRow({ctx}) {
     status:h('button',{type:'button',ref:jump,className:'ap-kind-jump','aria-label':'自动素材设置',title:'自动素材设置',disabled:blocked,onClick:()=>ctx.onAutoCast()},h(Glyph,{name:'chevRight'}))});
 }
 // 自动素材's page: 「全局 | 本卡」 (ScopeSwitch) picks the layer a change goes to, like a mod's settings (ui-design §三.25–26);
-// 生成策略 is one menu row with its override dot and reset. 本卡 writes stage.autoCast.level, 全局 the section's level.
-// What 自动素材 tells the player on its page (getAutoCastStatus): bound packs that are not installed, and the latest thing that
-// did not work, in words (11-12: a refused write showed only in the host log).
+// 生成策略 is one menu row, 自动立绘 / 自动配音 one switch row each, every row with its override dot and reset. 本卡
+// writes stage.autoCast.<key>, 全局 the section's <key>; the host reads them through effectiveAutoCast.
+// Each part's row ends in the way to its service's settings: 「›」, or 「⚠ 未配置」 (itself the way there) while the service is
+// not set up (getAutoCastStatus services). 配图 is a section of the 设置 window, 语音合成 is on the 语音后端 page.
+const AUTO_CAST_PARTS=[
+  {key:'sprites',label:'自动立绘',service:'配图设置',
+    help:'新人物没有立绘时，后台按生成策略给他画人设图和各表情的立绘；走配图的生图渠道，按渠道计费。关掉后新人物一直借着通用角色的立绘。',
+    open:ctx=>ctx.nav?.openSettings?()=>ctx.nav.openSettings('配图'):null},
+  {key:'voices',label:'自动配音',service:'语音后端',
+    help:'新人物登场时，从下面的可选声音里挑一个贴合的配给他；只是挑声音，不另外花钱，合成时按这个声音的语音服务计费。关掉后新人物没有声音。',
+    open:ctx=>ctx.nav?.openTab?()=>openVoiceSettings(ctx.nav,null):null}];
+function AutoCastPart({ctx,part,scope,global,card,services,loading}) {
+  const own=scope==='card'?card.autoCast?.[part.key]!==undefined:global[part.key]!==AUTO_CAST_DEFAULT[part.key];
+  const checked=(scope==='card'?card.autoCast?.[part.key]??global[part.key]:global[part.key])===true;
+  const writeCard=value=>ctx.writer.write(ext=>stagePatch(ext,{autoCast:autoCastCardLayer(ext,part.key,value)}));
+  const set=value=>scope==='card'?writeCard(value):ctx.writer.autoCastGlobal({[part.key]:value});
+  const reset=()=>scope==='card'?writeCard(undefined):ctx.writer.autoCastGlobal({[part.key]:AUTO_CAST_DEFAULT[part.key]});
+  const open=part.open(ctx);
+  const jump=!open?null:services&&services[part.key]===false?h(HintLine,{key:'hint',link:true,text:'未配置',label:part.service+'（未配置）',onAction:open}):
+    h('button',{key:'jump',type:'button',className:'ap-kind-jump','aria-label':part.service,title:part.service,onClick:open},h(Glyph,{name:'chevRight'}));
+  return h(InlineRow,{label:part.label,className:'fork-cfg-field ap-auto-cast-part',help:h(React.Fragment,null,h(Help,{text:part.help,label:part.label+' 说明'}),own?h(OverrideDot,{layer:scope}):null)},
+    h(Switch,{bare:true,label:part.label,checked,disabled:loading,onChange:set}),
+    own?h(ResetButton,{label:scope==='card'?'恢复为全局':'恢复默认',onClick:reset}):null,jump);
+}
+// The card layer stage.autoCast with one key set (undefined: removed); an emptied layer goes away.
+function autoCastCardLayer(ext,key,value) {
+  const next={...(ext?.stage?.autoCast||{})};
+  if(value===undefined)delete next[key];else next[key]=value;
+  return Object.keys(next).length?next:undefined;
+}
+// What 自动素材 tells the player on its page (getAutoCastStatus): the latest thing that did not work, in words (11-12: a
+// refused write showed only in the host log). Bound packs not installed are not listed (主人 11-22: 删除).
 const AUTO_CAST_PROBLEM={cast:'选角助理没跑成，这一轮的新人物都按新建处理',write:'没能写进自动素材包',draw:'有一张图没画成'};
 const AUTO_CAST_REASON={REVISION_CONFLICT:'素材在别处改动过，下一轮会重新写',ASSET_UNAVAILABLE:'要用的素材包读不到',LIMIT_EXCEEDED:'自动素材包超过了大小上限',NOT_AUTHORIZED_WRITER:'素材库没有开放自动写入'};
 function autoCastNotes(status) {
-  if(!status)return [];
-  const notes=status.missingPacks?['本卡绑定的 '+status.missingPacks+' 个素材包没有安装：这些包里的人物会当作新人物自动生成。']:[];
-  const p=status.problem;
+  const notes=[],p=status?.problem;
   if(p){const when=new Date(p.at).toLocaleString('zh-CN',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'});
     notes.push(when+' '+AUTO_CAST_PROBLEM[p.kind]+(p.error?'：'+(AUTO_CAST_REASON[p.error.split(/[:：]/)[0].trim()]||p.error):''));}
   return notes;
 }
 function StageAutoCastPage({ctx,onBack}) {
-  const root=React.useRef(null),[scope,setScope]=React.useState(ctx.ext?.stage?.autoCast?.level?'card':'global'),[status,setStatus]=React.useState(null);
+  const root=React.useRef(null),[scope,setScope]=React.useState(ctx.ext?.stage?.autoCast&&Object.keys(ctx.ext.stage.autoCast).length?'card':'global'),[status,setStatus]=React.useState(null);
   React.useEffect(()=>{root.current?.querySelector('button')?.focus();},[]);
   React.useEffect(()=>{let live=true;ctx.binding.rpc('getAutoCastStatus',{path:ctx.path}).then(value=>{if(live)setStatus(value);},()=>{});return ()=>{live=false;};},[ctx.path]);
   const notes=autoCastNotes(status);
   const {global,card}=autoCastLayers(ctx),own=scope==='card'?card.autoCast?.level!==undefined:global.level!==AUTO_CAST_DEFAULT.level;
-  const value=scope==='card'?card.autoCast?.level??global.level:global.level,loading=!ctx.writer.autoCast;
-  const writeCard=level=>ctx.writer.write(ext=>stagePatch(ext,{autoCast:level===undefined?undefined:{...(ext?.stage?.autoCast||{}),level}}));
+  const value=autoCastLevel(scope==='card'?card.autoCast?.level??global.level:global.level),loading=!ctx.writer.autoCast;
+  const writeCard=level=>ctx.writer.write(ext=>stagePatch(ext,{autoCast:autoCastCardLayer(ext,'level',level)}));
   const set=level=>scope==='card'?writeCard(level):ctx.writer.autoCastGlobal({level});
   const reset=()=>scope==='card'?writeCard(undefined):ctx.writer.autoCastGlobal({level:AUTO_CAST_DEFAULT.level});
   const dot=own?h(OverrideDot,{layer:scope}):null;
@@ -661,7 +691,8 @@ function StageAutoCastPage({ctx,onBack}) {
     loading?h(Loading,{shape:'fields'}):h(InlineGrid,{columns:1,label:'自动素材设置',className:'fork-cfg-list'},
       h(InlineField,{kind:'menu',label:'生成策略',className:'fork-cfg-field',value,options:AUTO_CAST_LEVELS.map(([v,label])=>({value:v,label})),
         help:h(React.Fragment,null,h(Help,{text:AUTO_CAST_LEVEL_HELP,label:'生成策略 说明'}),dot),onCommit:set,
-        trail:own?[h(ResetButton,{key:'reset',label:scope==='card'?'恢复为全局':'恢复默认',onClick:reset})]:[]})),
+        trail:own?[h(ResetButton,{key:'reset',label:scope==='card'?'恢复为全局':'恢复默认',onClick:reset})]:[]}),
+      AUTO_CAST_PARTS.map(part=>h(AutoCastPart,{key:part.key,ctx,part,scope,global,card,services:status?.services,loading}))),
     loading?null:h(AutoCastVoices,{ctx}),
     notes.map((text,index)=>h('p',{key:index,className:'ap-reading-note',role:'status'},h('span',null,text))));
 }
@@ -669,7 +700,7 @@ function StageAutoCastPage({ctx,onBack}) {
 // voice with a 使用情景 and every voice of the packs 通用声音 / 旁白 point at (defaultCastVoices → voiceAutoCast, the one rule
 // library-search.js also reads). A row: ▶ · name +
 // 语言 · its 使用情景 on a second line, edited in place (R23; one not written is a grey placeholder). The 使用情景 is the voice's
-// own `guidance` (≤ 60 字), saved in its pack.
+// own `guidance` (≤ 60 字), saved in its pack. With none, the head shows 「⚠ 未配置」 (主人 11-22).
 const AUTO_CAST_VOICES_HELP='素材助手给新人物配声音时，只从这里的声音里挑。「默认」自动包含写了使用情景的声音，以及通用声音、旁白声音所在素材包里的声音，不能逐个开关；想自己增减，先复制成新预设再改。';
 function AutoCastVoices({ctx}) {
   const {binding}=ctx,[error,setError]=React.useState('');
@@ -695,11 +726,12 @@ function AutoCastVoices({ctx}) {
         h('div',{className:'ap-vx-auto-name'},h('span',{className:'ap-vx-row-name'},v.name),h(VoiceLangChip,{tag:spec.language}),pack&&h('span',{className:'ap-vx-row-meta'},pack)),
         h(CommitInput,{className:'ap-vx-auto-guidance','aria-label':v.name+(pack?'（'+pack+'）':'')+'：使用情景',value:spec.guidance||'',placeholder:'适合什么样的人',maxLength:60,onCommit:text=>save(v,text.trim())})));};
   const presets=h(VoiceOptionPick,{label:'可选声音预设',value:'default',options:[{id:'default',label:'默认'}],onPick:()=>{}});
-  return h(StageSection,{title:'可选声音',meta:rows?.length||undefined,foldKey:'auto-cast/voices',help:AUTO_CAST_VOICES_HELP,action:presets,className:'ap-vx-auto'},
+  // None yet: 「⚠ 未配置」 opens 舞台设置 › 配音, where 通用声音 / 旁白声音 are chosen (their packs' voices are the default set).
+  const go=rows&&!rows.length&&ctx.onVoice?h(HintLine,{link:true,text:'未配置',label:'配音设置（未配置）',onAction:()=>ctx.onVoice()}):null;
+  return h(StageSection,{title:'可选声音',meta:rows?.length||undefined,foldKey:'auto-cast/voices',help:AUTO_CAST_VOICES_HELP,aside:go,action:presets,className:'ap-vx-auto'},
     error&&h('p',{className:'ap-alert',role:'alert'},error),
     list.error&&!list.value?h(VoiceLoadError,{error:voiceErrorText(list.error),retry:list.reload}):
-    rows===null?h(VoiceLoading,{count:3}):rows.length?h('ul',{className:'ap-vx-rows','aria-label':'可选声音'},rows.map(row)):
-      h(EmptyState,{compact:true,text:'还没有可选声音：给声音写上使用情景'}),
+    rows===null?h(VoiceLoading,{count:3}):rows.length?h('ul',{className:'ap-vx-rows','aria-label':'可选声音'},rows.map(row)):null,
     preview.dialog);
 }
 // the quiet 「›」 on a 基础设置 row — the 素材库 at that kind's tab (nav.openLibrary, the same

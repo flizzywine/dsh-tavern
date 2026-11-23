@@ -24,7 +24,7 @@ const loadWait = p => p?.capabilities?.loadTimeoutMs ?? 0
 // A self-hosted service's voice list changes with the service, so it is read afresh, not kept for a day.
 const selfHosted = p => p?.capabilities?.loadTimeoutMs !== undefined
 
-export function createTts({ profileId = '', dataDir, cache = createCache({ dataDir }), voiceLoudness = createVoiceLoudness({ dataDir }), globalReadings = () => [], reading = () => ({narrator:{enabled:false}}), fishVoiceIdService = () => '', now = Date.now } = {}) {
+export function createTts({ profileId = '', dataDir, cache = createCache({ dataDir }), voiceLoudness = createVoiceLoudness({ dataDir }), globalReadings = () => [], reading = () => ({narrator:{enabled:false}}), now = Date.now } = {}) {
   const providers = new Map(), sources = new Map(), grants = new Map(), tickets = new Map(), flights = new Map(), lanes = new Map(), catalogs = new Map(), listeners = new Set(), usage = new Map()
   let disposed = false, enabled = true, epoch = 0, waiters = 0, activeSyntheses = 0
   const requests = createRequestObservers()
@@ -154,7 +154,7 @@ export function createTts({ profileId = '', dataDir, cache = createCache({ dataD
     resolveVoiceSpec,
     describeVoiceCapabilities,
     // the stage's sync choice among listed services (card voice-direction flag); the same rule resolveVoiceService uses.
-    chooseService(source,services) { return chooseService(source,services,fishVoiceIdService()) },
+    chooseService(source,services) { return chooseService(source,services) },
     async resolveVoiceService({voice,binding}, {readOnly = false} = {}) {
       if (binding.source === null) return {effective:null,issues:[]}
       const source = voice.sources[binding.source ?? voice.defaultSource]
@@ -177,7 +177,6 @@ export function createTts({ profileId = '', dataDir, cache = createCache({ dataD
     },
     reading: () => structuredClone(reading()),
     readingChanged() { emit({type:'readingChanged'}) },
-    voiceRoutingChanged() { emit({type:'voiceRoutingChanged'}) },
     // a saved service was added, changed, removed or checked: the voice services catalog changed.
     servicesChanged() { emit({type:'servicesChanged'}) },
     setEnabled(value) {

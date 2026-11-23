@@ -194,6 +194,49 @@ test('侧栏归档可恢复，点击管理直接打开宽屏页批量删除', as
   assert.deepEqual(errors, [])
 })
 
+test('右键、Shift+F10 或长按卡名弹出菜单：新建游戏、折叠展开、管理存档', async t => {
+  const { page, errors } = await mountSidebar(t, {
+    archived: [],
+    initialHistory: [
+      { sessionId: 'a1', chatId: 'chat-a1', mode: 'story', cardName: '甲卡', cardPath: 'cards/a.json', title: '甲存档' },
+      { sessionId: 'b1', chatId: 'chat-b1', mode: 'story', cardName: '乙卡', cardPath: 'cards/b.json', title: '乙存档' },
+    ],
+  })
+  const head = name => page.locator('.dsh-tavern-history-group-toggle').filter({ hasText: name })
+  const menu = page.getByRole('menu', { name: '甲卡 操作' })
+  const row = title => page.locator('.dsh-tavern-side-row').filter({ hasText: title })
+  await head('甲卡').waitFor()
+  assert.equal(await head('甲卡').getAttribute('aria-expanded'), 'false')
+  await head('甲卡').click({ button: 'right' })
+  await menu.waitFor()
+  assert.deepEqual(await menu.getByRole('menuitem').allTextContents(), ['新建游戏', '展开', '管理存档…'])
+  // 点外面关闭
+  await page.mouse.click(5, 5)
+  await menu.waitFor({ state: 'detached' })
+  // 键盘：Shift+F10，↑↓ 移动，Esc 关闭并把焦点还给卡名
+  await head('甲卡').focus()
+  await page.keyboard.press('Shift+F10')
+  await menu.waitFor()
+  await page.keyboard.press('ArrowDown')
+  await page.keyboard.press('Escape')
+  await menu.waitFor({ state: 'detached' })
+  assert.equal(await head('甲卡').evaluate(node => node === document.activeElement), true)
+  // 展开后再右键，同一项变「折叠」；点它折叠
+  await menu.waitFor({ state: 'detached' })
+  await head('甲卡').click({ button: 'right' })
+  await menu.getByRole('menuitem', { name: '展开', exact: true }).click()
+  await row('甲存档').waitFor()
+  await head('甲卡').click({ button: 'right' })
+  await menu.getByRole('menuitem', { name: '折叠', exact: true }).click()
+  await row('甲存档').waitFor({ state: 'detached' })
+  // 管理存档：打开宽屏管理页并只筛这张卡
+  await head('甲卡').click({ button: 'right' })
+  await menu.getByRole('menuitem', { name: '管理存档…', exact: true }).click()
+  const manager = page.getByRole('dialog', { name: '会话管理' })
+  await manager.waitFor()
+  assert.equal(await manager.locator('.dsh-tavern-history-manager-row').count(), 1)
+  assert.deepEqual(errors, [])
+})
 test('宽屏管理沿用侧栏的组顺序和组内排序，筛选保留原顺序', async t => {
   const story = (sessionId, cardName, title, createdAt, updatedAt, replyText = '') => ({
     sessionId, chatId: 'chat-' + sessionId, mode: 'story', cardName, cardPath: cardName + '.png',
@@ -248,7 +291,7 @@ test('宽屏管理沿用侧栏的组顺序和组内排序，筛选保留原顺�
       assert.equal(await cardToggle.getAttribute('aria-expanded'), 'true')
       assert.deepEqual(await managerTitles(), sidebarTitles)
 
-      const search = manager.getByRole('textbox', { name: '搜索会话' })
+      const search = manager.getByRole('searchbox', { name: '搜索会话' })
       await search.fill('月光')
       assert.deepEqual(await groupNames(), ['乙卡', '甲卡'])
       assert.deepEqual(await managerTitles(), ['乙新', '甲新'])
@@ -297,7 +340,7 @@ test('人物卡筛选限高滚动，支持搜索、区分同名卡和清除', as
   const manager = page.getByRole('dialog', { name: '会话管理' })
   const trigger = manager.getByRole('button', { name: /^按人物卡筛选：/ })
   const picker = page.getByRole('dialog', { name: '筛选人物卡', exact: true })
-  const search = picker.getByRole('textbox', { name: '搜索人物卡' })
+  const search = picker.getByRole('searchbox', { name: '搜索人物卡' })
   const list = picker.getByRole('menu', { name: '人物卡', exact: true })
   const titles = () => manager.locator('.dsh-tavern-history-manager-title').allTextContents()
 

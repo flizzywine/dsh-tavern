@@ -1253,8 +1253,6 @@ body.dsh-tavern-shell-active [data-dsh-panel-host] { overflow: clip; }
 .dsh-tavern-history-manager-icon:disabled { opacity: .5; cursor: default; }
 .dsh-tavern-history-manager-more { font-size: 18px; line-height: 1; }
 .dsh-tavern-history-manager-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 0 16px 12px; border-bottom: 1px solid var(--dsw-alias-border-l2); }
-.dsh-tavern-history-manager-select-all { display: flex; flex: none; align-items: center; gap: 4px; color: var(--dsw-alias-label-secondary); font-size: 12px; white-space: nowrap; cursor: pointer; }
-.dsh-tavern-history-manager-select-all:has(:disabled) { opacity: .5; cursor: default; }
 .dsh-tavern-history-manager-search { flex: 1 1 180px; min-width: 0; width: auto; margin: 0; }
 .dsh-tavern-history-manager-select { width: 150px; min-width: 0; }
 .dsh-tavern-history-card-trigger { display: flex; align-items: center; justify-content: space-between; gap: 6px; width: 100%; min-height: 32px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 8px; padding: 4px 10px; background: transparent; color: inherit; font: inherit; font-size: 13px; text-align: left; cursor: pointer; }
@@ -1285,8 +1283,17 @@ button.dsh-tavern-history-manager-group-head:focus-visible { outline: 2px solid 
 .dsh-tavern-history-manager-row:hover { background: var(--dsw-alias-interactive-bg-hover); }
 .dsh-tavern-history-manager-row.selected { background: color-mix(in srgb, var(--dsh-tavern-accent) 10%, var(--dsw-specific-sidebar-fill, Canvas)); }
 .dsh-tavern-history-manager-row.current .dsh-tavern-history-manager-title { color: var(--dsh-tavern-accent); }
-.dsh-tavern-history-manager-check { flex: none; margin: 3px 0 0; accent-color: var(--dsh-tavern-accent); cursor: inherit; }
-.dsh-tavern-history-manager-select-all > .dsh-tavern-history-manager-check { margin: 0; }
+/* fork: the picks use the multi-select's self-drawn tick (.ap-check-mark). */
+button.dsh-tavern-history-manager-check { display: inline-flex; flex: none; align-items: center; justify-content: center; gap: 6px; min-width: 30px; min-height: 30px; margin: -5px; padding: 0; border: 0; border-radius: 15px; background: none; color: inherit; font: inherit; cursor: pointer; }
+button.dsh-tavern-history-manager-check:hover:not(:disabled) { background: var(--fork-hover); }
+button.dsh-tavern-history-manager-check:focus-visible { outline: var(--fork-focus); outline-offset: 0; }
+button.dsh-tavern-history-manager-check:disabled { cursor: default; }
+/* after the tick's reset (font/color: inherit), so the 全选 label keeps its small secondary text */
+button.dsh-tavern-history-manager-check.dsh-tavern-history-manager-select-all { padding-right: 8px; color: var(--dsw-alias-label-secondary); font-size: 12px; white-space: nowrap; }
+button.dsh-tavern-history-manager-select-all:disabled { opacity: .5; }
+.dsh-tavern-history-manager-check[aria-checked=mixed] .ap-check-mark { background: var(--fork-accent-fill, var(--fork-accent)); box-shadow: none; }
+.dsh-tavern-history-manager-check .ap-check-dash { display: block; width: 8px; height: 2px; border-radius: 1px; background: currentColor; }
+.dsh-tavern-history-manager-check .fork-inline-glyph { width: 14px; height: 14px; }
 .dsh-tavern-history-manager-body { min-width: 0; }
 .dsh-tavern-history-manager-headline { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; min-width: 0; }
 .dsh-tavern-history-manager-title { min-width: 0; font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -3335,7 +3342,7 @@ body.dsh-tavern-shell-active [class*="_tabs"] [class*="_viewsMoreAnchor"] [class
   }
   /* 宿主的控制行只做分组：拆开（display: contents）后工具落左列、模型与发送落右列，输入框留在中间。 */
   html.dsh-tavern-coarse-play [data-composer-card] > [class*="_row"] { display: contents; }
-  html.dsh-tavern-coarse-play [data-composer-card] > [class*="_row"] > [class*="_tools"] { grid-column: 1; grid-row: 3; gap: 0; }
+  html.dsh-tavern-coarse-play [data-composer-card] > [class*="_row"] > [class*="_tools"] { grid-column: 1; grid-row: 3; gap: 0; align-items: center; min-height: 40px; }
   html.dsh-tavern-coarse-play [data-composer-card] > [class*="_row"] > [class*="_trailing"] { grid-column: 3; grid-row: 3; gap: 2px; }
   /* 只让可收缩的入口（模型、上下文）让位；发送键保持 40px 热区。 */
   html.dsh-tavern-coarse-play [data-composer-card] > [class*="_row"] > [class*="_trailing"] > :not([class*="_primary"], [class*="_activity"]) { min-width: 0; }
@@ -3455,7 +3462,7 @@ body.dsh-tavern-shell-active [class*="_tabs"] [class*="_viewsMoreAnchor"] [class
   .dsh-tavern-history-manager-toolbar { padding: 0 12px 10px; }
   .dsh-tavern-history-manager-list { padding: 4px 8px 10px; }
   .dsh-tavern-history-manager-row { gap: 8px; }
-  .dsh-tavern-history-manager-check { width: 18px; height: 18px; margin: 2px 0 0; }
+  button.dsh-tavern-history-manager-select-all { min-height: 36px; border-radius: 18px; }
   .dsh-tavern-history-manager-icon { width: 36px; height: 36px; }
   .dsh-tavern-history-manager-foot { gap: 6px; padding: 10px 12px calc(10px + env(safe-area-inset-bottom, 0px)); }
   .dsh-tavern-history-manager-notice { padding: 0 12px 10px; }

@@ -11,3 +11,13 @@ test('active skin resolves historical override, card, global and built-in withou
  assert.deepEqual(activeStageSkin({...input,state:null,extension:{}}),ref('pop'))
  assert.equal(activeStageSkin({...input,state:null,extension:{},engine:{dialogueTheme:'classic'}}),null)
 })
+test('a skin switched off (enabled: false) falls back to the global default, then classic, without rewriting the card; a skin without the flag is on',()=>{
+ const ref=id=>({packId:PACK_ID,kind:'skins',assetId:id})
+ const manifests=on=>[{id:PACK_ID,assets:[{kind:'skins',id:'trial',...(on===undefined?{}:{enabled:on})},{kind:'skins',id:'pop'}]}]
+ const input={extension:{stage:{defaultSkin:ref('trial')}},engine:{dialogueTheme:ref('pop')},state:null}
+ assert.deepEqual(activeStageSkin({...input,manifests:manifests(undefined)}),ref('trial'))
+ assert.deepEqual(activeStageSkin({...input,manifests:manifests(true)}),ref('trial'))
+ assert.deepEqual(activeStageSkin({...input,manifests:manifests(false)}),ref('pop'))
+ assert.equal(activeStageSkin({...input,engine:{dialogueTheme:ref('trial')},manifests:manifests(false)}),null)
+ assert.deepEqual(input.extension.stage.defaultSkin,ref('trial'))
+})

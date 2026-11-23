@@ -1,7 +1,7 @@
 // Mods' parts in the core client (docs/mod-authoring.md): each mod's client/core.js is built in by `// @include-mods`
 // and registers its parts here under its mod id, with a label for error reports. Core and stage render the parts by slot and never name a mod:
 //   floor:   component({useChat, nativeTurn, nodeKey, input}) before a round's story text on its chat floor
-//   page:    component({useChat, nativeTurn, pageKey, input}) on the stage text box's top edge
+//   page:    component({useChat, nativeTurn, pageKey, sessionId, input}) on the stage text box's top edge
 //            input = modClients.input(executeSlash, sessionId): {submit(text)} sends text as the player's next message,
 //            the way the stage's own choices do; floor and page parts get it, so a record can hand over an answer by a click
 //   overlay: component({sessionId, useChat, nativeTurn, running, following, device, rootRef, calm, safety, veiled,

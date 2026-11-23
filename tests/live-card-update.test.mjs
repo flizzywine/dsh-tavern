@@ -2,6 +2,9 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {createLiveCardUpdate} from '../tavern-plugin/lib/domain/live-card-update.js'
 import {generateSchema} from '../tavern-plugin/lib/domain/mvu-schema.generated.js'
+import {captureStageTarget} from '../tavern-plugin/lib/domain/stage-incremental.js'
+import {assetPackDigest} from '../tavern-plugin/packages/dsh-tavern-stage/lib/domain/stage-asset-pack-catalogue.js'
+import {createStageDirector} from '../tavern-plugin/packages/dsh-tavern-stage/lib/domain/stage-director.js'
 
 const card = state => ({name:'测试',first_mes:`<initvar>${JSON.stringify(state)}</initvar>`,extensions:{}})
 const snapshot = state => ({stat_data:structuredClone(state),schema:generateSchema(structuredClone(state)),initialized_lorebooks:{test:true}})
@@ -32,4 +35,37 @@ test('card update aligns current and rollback states while preserving earned val
     updated.cardDefinitionSnapshot=card(next)
     assert.deepEqual(await runtime.prepare(updated,card(next),updated),updated)
   } finally {runtime.dispose()}
+})
+
+// A round the stage directed, bound to its prefix (which holds the greeting) and chained to the previous record.
+function directed(game, index, previous) {
+  const target = {...captureStageTarget(game, index), predecessorDigest: previous?.digest || null}
+  const binding = {cardRevision: 'r', target}
+  const record = {format: 'asset-packs-v1', binding, baseline: {scene: 'meeting-room'}, entries: [{at: 1, ops: []}], end: {}}
+  record.digest = assetPackDigest({binding, baseline: record.baseline, entries: record.entries, end: record.end})
+  game.messages[index].stageDirectionAssetPacks = record
+  return record
+}
+
+test('a card update that refreshes the opening <initvar> keeps every directed round on the stage', async t => {
+  const greeting = state => `入职办公室没有窗。<initvar>${JSON.stringify(state)}</initvar>`
+  const game = {id: 'chat-a', sessionId: 'session-a', cardPath: 'cards/a.json', timeline: {branchId: 'branch-1', revision: 4}, messages: [
+    {role: 'assistant', greeting: true, turn: 1, swipeId: 0, text: greeting({嘉奖: 0}), sourceText: greeting({嘉奖: 0}), swipes: [greeting({嘉奖: 0})]},
+    {role: 'user', turn: 2, text: '我叫林晓'},
+    {role: 'assistant', turn: 2, text: '主管推了推眼镜。'},
+    {role: 'user', turn: 3, text: '结算吧'},
+    {role: 'assistant', turn: 3, text: '总经理转身坐了回来。'}
+  ]}
+  directed(game, 4, directed(game, 2, null))
+  const runtime = createLiveCardUpdate(), director = createStageDirector({assets: {hasBindings: async () => true, subscribe: () => () => {}}})
+  t.after(() => { runtime.dispose(); director.dispose() })
+  const updated = await runtime.prepare(game, card({嘉奖: 0, 申领目录: {}}), game)
+  assert.match(updated.messages[0].sourceText, /申领目录/, 'the opening carries the new initial state')
+  assert.notEqual(captureStageTarget(updated, 2).prefixDigest, captureStageTarget(game, 2).prefixDigest)
+  for (const turn of [2, 3]) {
+    const direction = await director.get(updated, turn, null, {readOnly: true, generate: false})
+    assert.equal(direction.status, 'done', 'round ' + turn + ' keeps its scene')
+    assert.deepEqual(direction.record.baseline, {scene: 'meeting-room'})
+  }
+  assert.equal(game.messages[2].stageDirectionAssetPacks.binding.target.sourceKey, captureStageTarget(game, 2).sourceKey, 'the game before the update is not changed')
 })
