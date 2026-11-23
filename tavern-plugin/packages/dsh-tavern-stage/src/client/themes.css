@@ -5845,6 +5845,8 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
    drawing and the placement change. Narrow stages keep the shared sheets in the skin's palette. art.voice draws every voice
    replay control (the backlog rows' and the box's) from the skin's images. */
 .fork-gal-backlog-bar { display: none; }
+/* latest false (nolatest): the original's log has no 跳到最新 control, at any width; the wheel and End still reach the end. */
+.fork-gal-stage[data-fk-skin-art-backlog~="nolatest"]:not(.is-film) .fork-gal-backlog-latest { display: none; }
 @media (min-width: 641px) {
   .fork-gal-stage[data-fk-skin-art-backlog]:not(.is-film) > .fork-gal-backlog,
   .fork-gal-stage[data-fk-skin-art-config]:not(.is-film) > .fork-gal-config { display: block; overflow: clip; }
@@ -5857,7 +5859,9 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
   .fork-gal-stage[data-fk-skin-art-config~="sheet"]:not(.is-film) > .fork-gal-config::before { content: ""; position: absolute; inset: 0;
     z-index: -1; width: auto; height: auto; aspect-ratio: auto; background: none; border-image: none 0 fill / 0 stretch;
     -webkit-mask: none; mask: none; animation: none; pointer-events: none; }
-  /* The 履历 sheet at its own aspect, contained in the game area, the panel ground round it (as the menu's sheet above). */
+  /* The 履历 sheet at its own aspect, contained in the game area, the panel ground round it (as the menu's sheet above).
+     ground false (noground): a log card over the scene - round the sheet the stage shows as through its clear parts (the
+     scene at art.backlog.dim), so a game area narrower than the window keeps the scene to the window's edges. */
   .fork-gal-stage[data-fk-skin-art-backlog~="sheet"]:not(.is-film) > .fork-gal-backlog::before { --sw: var(--art-backlog-sheet-w); --sh: var(--art-backlog-sheet-h);
     --su: min(calc(var(--art-screen-w) * var(--mu) / var(--sw)), calc(var(--art-screen) * var(--mu) / var(--sh)));
     content: ""; position: absolute; z-index: -1; inset: auto; left: calc(var(--gx) + (var(--art-screen-w) * var(--mu) - var(--sw) * var(--su)) / 2); top: calc(var(--gy) + (var(--art-screen) * var(--mu) - var(--sh) * var(--su)) / 2);
@@ -5891,6 +5895,7 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
   .fork-gal-stage[data-fk-skin-art-backlog~="untitled"]:not(.is-film) .fork-gal-backlog-title .fork-help-tip { display: none; }
   /* clip false (noclip): only the original's close; the export starts from a row (Shift-click, long press). */
   .fork-gal-stage[data-fk-skin-art-backlog~="noclip"]:not(.is-film) .fork-gal-backlog-clip { display: none; }
+  .fork-gal-stage[data-fk-skin-art-backlog~="noground"]:not(.is-film) > .fork-gal-backlog::before { box-shadow: none; }
   .fork-gal-stage[data-fk-skin-art-backlog~="close"]:not(.is-film) .fork-gal-backlog-close,
   .fork-gal-stage[data-fk-skin-art-config~="close"]:not(.is-film) .fork-gal-config-close { --c: var(--art-backlog-close-img); --cf: var(--art-backlog-close-focus); position: absolute; right: auto; bottom: auto; z-index: 2;
     left: calc(var(--gx) + var(--art-backlog-close-x) * var(--mu)); top: calc(var(--gy) + var(--art-backlog-close-y) * var(--mu)); width: calc(var(--art-backlog-close-w) * var(--mu)); height: calc(var(--art-backlog-close-h) * var(--mu));
@@ -5974,7 +5979,10 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
   .fork-gal-stage[data-fk-skin-art-backlog-parts~="bar"]:not(.is-film) .fork-gal-backlog-bar { position: absolute; display: block; left: calc(var(--gx) + var(--art-bl-bar-x) * var(--mu)); top: calc(var(--gy) + var(--art-bl-bar-y) * var(--mu));
     width: calc(var(--art-bl-bar-w) * var(--mu)); height: calc(var(--art-bl-bar-h) * var(--mu)); background: var(--art-bl-bar) 0 0 / 100% 100% no-repeat; }
   /* It takes the pointer only as part of the list's hover area (the current entry's highlight steps aside over it); no clicks of its own. */
-  .fork-gal-stage[data-fk-skin-art-backlog-parts~="bar"]:not(.is-film) .fork-gal-backlog-bar > b { position: absolute; left: 0; right: 0; top: calc((1 - var(--bl-thumb, 1)) * var(--bl-pos, 1) * 100%); height: calc(var(--bl-thumb, 1) * 100%);
+  /* The thumb is the visible share of the list, never shorter than a sixth of the track: a long history (older turns paged in)
+     would shrink it to a dot, while an original's log thumb stays a grippable bar. */
+  .fork-gal-stage[data-fk-skin-art-backlog-parts~="bar"]:not(.is-film) .fork-gal-backlog-bar > b { --t: max(calc(var(--bl-thumb, 1) * 100%), calc(100% / 6));
+    position: absolute; left: 0; right: 0; top: calc((100% - var(--t)) * var(--bl-pos, 1)); height: var(--t);
     background: var(--art-bl-thumb) 0 0 / 100% 100% no-repeat; }
   /* CONFIG: tabs as the original's tab images, the page rows in their rect, controls from the skin's images. */
   .fork-gal-stage[data-fk-skin-art-config]:not(.is-film) .fork-gal-config-sheet { position: absolute; inset: 0; display: block; width: auto; height: auto; max-width: none; max-height: none; margin: 0; padding: 0;

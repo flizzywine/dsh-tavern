@@ -2303,6 +2303,14 @@
        "description": "false = no 导出片段 button beside the close (an original whose log screen has only its close); the export still starts from a row (Shift-click, long press). Omitted = the button beside the drawn close.",
        "const": false
       },
+      "latest": {
+       "description": "false = no 跳到最新 control (an original whose log screen has none); the wheel and End still reach the end. Omitted = the control.",
+       "const": false
+      },
+      "ground": {
+       "description": "false = no panel ground round the sheet: a log card over the scene, the stage showing round it (at dim) as through the sheet's clear parts when the window is wider or taller than the game area. Omitted = the panel ground fills the window round the sheet.",
+       "const": false
+      },
       "close": {
        "type": "object",
        "description": "A placed image: its top-left at x, y on the design screen at scale design px per image px; focus = the image under the pointer and keyboard focus.",
