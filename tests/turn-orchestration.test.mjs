@@ -228,6 +228,26 @@ test('正文请求里的世界书标题提示独立于激活正文', async () =>
   }
 })
 
+test('停用姿势和台账后，新请求和旧上下文帧均不会注入这些状态', async () => {
+  const posture = '站在窗边'
+  const ledger = { version: 1, location: '台账中的大厅', items: [], npcs: [], scenes: [], itemLog: [] }
+  const ledgerInjection = { through: 1 }
+  const planner = createContextPlanner({ prompt: () => '正文写作规则' })
+  const run = harness('story', { planner, ledger, chatFields: { posture, ledgerInjection, backgroundTasks: { posture: true } } })
+  const { frame } = await run.orchestrator.prepare({ sessionId: 'session-1', turn: 2, userText: '继续' })
+  assert.doesNotMatch(foregroundFrameText(frame), /站在窗边|台账中的大厅/)
+  assert.deepEqual(run.chat().ledgerInjection, ledgerInjection)
+  assert.deepEqual(run.chat().ledger, ledger)
+  assert.equal(run.chat().posture, posture)
+
+  const legacyFrame = { ...frame, contributions: [...frame.contributions,
+    { slot: 'currentStateProjection', text: posture, source: { stage: 'context-plan', sectionKind: 'posture' } },
+    { slot: 'currentStateProjection', text: ledger.location, source: { stage: 'ledger' } }]
+  }
+  const { messages } = createForegroundFrameSessionAdapter().append({ frame: legacyFrame, step: 1 })
+  assert.doesNotMatch(JSON.stringify(messages), /站在窗边|台账中的大厅/)
+})
+
 test('卡片 raw 扩展修改先暂存，最终回复后才写入工作 raw', async () => {
   const run = harness('card')
   await run.orchestrator.stageChanges({

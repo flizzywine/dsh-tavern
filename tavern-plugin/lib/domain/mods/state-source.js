@@ -1,6 +1,7 @@
 import {inspectCardExtensions} from '../card-extension-reading.js'
 import {analyzeVariableSchema,analyzeVariableValues,unwrapMvu} from '../variable-bindings/index.js'
 import resolution from '../../../packages/dsh-presentation-protocol/src/figure-resolution.cjs'
+import playFeatures from '../../../shared/play-features.cjs'
 
 export const ledgerInventoryBinding=Object.freeze({source:'ledger',path:'/inventory',fields:{name:'/name',count:'/qty',description:'/desc'}})
 export const ledgerConfigExports=[['items','array','全部物品'],['inventory','array','随身物品'],['npcs','array','人物'],['scenes','array','地点'],['location','string','记载地点'],['locationPath','array','地点路径'],['consolidatedTurn','number','整理轮次']].map(([name,type,description])=>({path:'/'+name,name,type,description}))
@@ -16,6 +17,7 @@ export function ledgerSource(chat) {
 // readiness, chooses. Empty/pending MVU never falls back.
 export function resolveStateSource({raw,chat,sources={}}={}) {
   const hasMvu=sources.mvu?.available===true || chat?.mvu?.enabled===true || analyzeVariableSchema(raw).length>0 || inspectCardExtensions(raw).mvuResources.some(row=>row.enabled!==false)
+  if(!hasMvu && !playFeatures.storyLedger)return {available:false}
   const source=hasMvu?'mvu':'ledger'
   return {source,...(source==='ledger'?(sources.ledger || ledgerSource(chat)):(sources.mvu || {available:false}))}
 }

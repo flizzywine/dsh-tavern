@@ -1,6 +1,7 @@
 // Pages are read live from the library card, not the game's frozen snapshot.
 import { rawData } from '../../../../lib/domain/card-preparation.js'
 import { readLedger } from '../../../../lib/domain/story-ledger.js'
+import playFeatures from '../../../../shared/play-features.cjs'
 import { locateCardPageAsset, listCardPageAssets, CARD_PAGE_THUMB_SIZES } from './card-page-assets.js'
 
 const LEDGER_BUDGET = 12288
@@ -59,7 +60,7 @@ export function createCardPagesService({ readWorkspace, chatForSession, index, p
         card: { name: value.card.name },
         preload: await Promise.all((definition.preload || []).map(async ref => ({ ref, place: await locateCardPageAsset(packSnapshot, value.packs, ref) }))),
         ...(withHtml === true ? { html: definition.html } : {}),
-        data: { ledger: projectStatusPanelLedger(readLedger(value.chat.ledger), definition.ledger) }
+        data: { ledger: playFeatures.storyLedger ? projectStatusPanelLedger(readLedger(value.chat.ledger), definition.ledger) : {} }
       }
     },
     // The card's opening page (opening: true) reads the card's greetings and the openingSetup it completes.

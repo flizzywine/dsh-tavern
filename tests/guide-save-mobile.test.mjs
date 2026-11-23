@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 import vm from './fixtures/client-vm.mjs'
+import TAVERN_PLAY_FEATURES from '../tavern-plugin/shared/play-features.cjs'
 import { parseExpressionAt } from 'acorn'
 
 const source = await readFile(new URL('../tavern-plugin/lib/client.js', import.meta.url), 'utf8')
@@ -15,6 +16,7 @@ function render({ draft = "", busy = false, guides = [] } = {}) {
   const view = { mode: 'story', statusBarPlacement: 'body', card: { name: '卡', path: '' }, activity: {}, guides }
   const TextArea = function TextArea() {}
   const context = {
+    TAVERN_PLAY_FEATURES,
     React: {
       useState: value => [value, () => {}], useRef: value => ({ current: value ?? null }),
       useSyncExternalStore: (subscribe, snapshot) => snapshot(), useEffect() {},

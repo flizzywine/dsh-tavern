@@ -244,6 +244,7 @@ test('开局默认功能区包含“后台任务附加预设”开关，默认�
   const { page, calls } = await openTavernSettings(t, { respond: backend.respond })
   const toggle = page.getByRole('switch', { name: '后台任务附加预设', exact: true })
   await toggle.waitFor()
+  assert.equal(await page.getByRole('switch', { name: '人物姿势', exact: true }).count(), 0)
   assert.equal(await toggle.isChecked(), false)
   await toggle.press('Space')
   await page.waitForFunction(() => document.querySelector('[role="switch"][aria-label="后台任务附加预设"]')?.checked === true)

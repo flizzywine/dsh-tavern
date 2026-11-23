@@ -12,6 +12,8 @@ window.__ModuleLoader__.load({
 			// portals the sidebar theme menu into the host logo row.
 			let ReactDOM = (function () { try { return require("react-dom"); } catch (_) { return null; } })();
 
+		// @include-shared play-features.cjs
+
 		// @include crypto-digest.js
 		// http on a LAN address is not a secure context: no crypto.subtle, no crypto.randomUUID.
 		if (typeof window !== "undefined") installTavernCryptoSubtlePolyfill(window);

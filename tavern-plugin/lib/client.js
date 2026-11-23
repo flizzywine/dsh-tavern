@@ -129,6 +129,11 @@ window.__ModuleLoader__.load({
 			// portals the sidebar theme menu into the host logo row.
 			let ReactDOM = (function () { try { return require("react-dom"); } catch (_) { return null; } })();
 
+		// Keep the implementations and saved settings available for re-enabling.
+		const TAVERN_PLAY_FEATURES = Object.freeze({ postureSummary: false, storyLedger: false });
+
+		if (typeof window === 'undefined') module.exports = TAVERN_PLAY_FEATURES;
+
 		// SHA-256 fallback adapted from PR #113; installed in the main page and card frames without native SubtleCrypto
 		// (outside a secure context, e.g. http on a LAN address).
 		function installTavernCryptoSubtlePolyfill(host) {
@@ -51471,7 +51476,7 @@ function installTavernScriptCardUpdate({ window: w, rpc, ask = askTavernScriptCa
                         menu("默认长期偏好", data?.profile.defaultProfileId || "", [{ value: "", label: "不启用" }].concat((data?.profile.profiles || []).filter(item => item.hasConfirmed).map(item => ({ value: item.id, label: item.name }))),
                             value => save(null, "manageUserPreferenceProfile", { action: "default", profileId: value }))),
                     h("section", { className: "dsh-local-section", "aria-label": "功能" }, h("h3", null, "功能"),
-                        toggle("posture", "人物姿势", "总结本轮结束时人物的位置、动作和姿势。", true),
+                        TAVERN_PLAY_FEATURES.postureSummary ? toggle("posture", "人物姿势", "总结本轮结束时人物的位置、动作和姿势。", true) : null,
                         toggle("styleReference", "文风联想", "仅自由模式。前台写正文前，结合本轮场景联想一段笔调参考；与写作共享上下文，不另开后台任务。", true),
                         children,
                         toggle("preset", "后台任务附加预设", "默认关闭。开启后，新游戏的全部后台 Agent 任务在生成时也会附加当前对局的三段预设提示词，不执行预设正则。", true),
@@ -53576,7 +53581,8 @@ const tavernTextLayoutFeature = createTavernTextLayoutFeature();
 					h("div", { className: "dsh-tavern-preset-detail-actions" }, h("button", { className: "dsh-tavern-btn danger", disabled: state.busy || !state.prompts.some(function (item) { return item.customized; }), onClick: function () { void restoreAll(); } }, "当前方案全部恢复默认")),
 					state.notice ? h("div", { className: "dsh-tavern-system-prompt-status", role: "status" }, state.notice) : null,
 					state.error ? h("div", { className: "dsh-tavern-dock-error", role: "alert" }, state.error) : null,
-					state.loading ? h(PanelLoading, { shape: "fields", label: "正在读取系统提示词…" }) : state.prompts.map(row)));
+					state.loading ? h(PanelLoading, { shape: "fields", label: "正在读取系统提示词…" })
+						: state.prompts.filter(item => item.name !== "posture-settlement" || TAVERN_PLAY_FEATURES.postureSummary).map(row)));
 		}
 		// 卡片工作台性格: a global library; the selected entry is the card Agent's custom
 		// system text. Edits save straight back to that entry.
@@ -62142,7 +62148,7 @@ function createConversationSettingsModule({
         return h(packUi.StageSection, { title: "功能", foldKey: FOLD("功能") },
             !data && !config.error ? h(PanelLoading, { shape: "fields", count: 5 }) : null,
             data ? rows(
-                ...FEATURES.map(([key, label, text]) => h(packUi.SwitchRow, { key, label, help: text, disabled,
+                ...FEATURES.filter(([key]) => key !== "posture" || TAVERN_PLAY_FEATURES.postureSummary).map(([key, label, text]) => h(packUi.SwitchRow, { key, label, help: text, disabled,
                     checked: tasks[key] === true, onChange: checked => void task(key, checked) })),
                 h(packUi.SwitchRow, { key: "webSearch", label: "联网搜索", help: "前台和后台可按需搜索。", disabled, checked: data.webSearchEnabled === true,
                     onChange: checked => void write({ webSearchEnabled: checked }, { webSearchEnabled: checked }) })) : null,
@@ -64515,7 +64521,7 @@ function createPlayInteractionPanels({ interactions, useCandidatePanel, useCandi
 		                h(TavernPersistentStatusRuntime, { sessionId: p.props.sessionId, view: view, executeSlash: p.props.executeSlash,
 		                    panels: view.statusBarPlacement === "body" ? "pinned" : "all", section: true })),
 
-		            view.posture ? section("now", "此刻", null, h("p", { className: "fork-status-now" }, view.posture)) : null,
+		            TAVERN_PLAY_FEATURES.postureSummary && view.posture ? section("now", "此刻", null, h("p", { className: "fork-status-now" }, view.posture)) : null,
 
 		            view.mode === "script" && view.scriptProgress ? h(ScriptNavigation, { sessionId: p.props.sessionId, cursor: view.scriptProgress.cursor, total: view.scriptProgress.totalChunks, chunkSize: view.scriptProgress.chunkSize,
 		                    busy: running || view.activity?.busy || view.regenInProgress }) : null,
@@ -64579,7 +64585,7 @@ function createPlayInteractionPanels({ interactions, useCandidatePanel, useCandi
 
 		            h(TavernPluginTasks, { sessionId: p.props.sessionId, activity: view.activity, busy: running || view.activity?.busy || view.activity?.phase === "pending" }),
 		            h(TavernPluginStatusSections, { sessionId: p.props.sessionId }),
-		            h(TavernLedger, { sessionId: p.props.sessionId, ledger: view.ledger, ledgerTask: view.ledgerTask, busy: running || view.activity?.busy, foregroundRunning: running }),
+		            TAVERN_PLAY_FEATURES.storyLedger ? h(TavernLedger, { sessionId: p.props.sessionId, ledger: view.ledger, ledgerTask: view.ledgerTask, busy: running || view.activity?.busy, foregroundRunning: running }) : null,
 		            h(TavernMvuVariables, { sessionId: p.props.sessionId, view: view }),
 
 		            h("footer", { className: "fork-status-foot" },

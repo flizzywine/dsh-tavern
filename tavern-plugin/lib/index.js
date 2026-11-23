@@ -1,4 +1,6 @@
 import { tavernStContract, projectPluginBody } from './domain/st-contract-service.js'
+import playFeatures from '../shared/play-features.cjs'
+import { postureForContext } from './domain/posture-context.js'
 import {installHttpStreamPatch} from './domain/http-stream-patch.js'
 import {selectSessionModel} from './domain/session-model-selection.js'
 import { promptSection } from './domain/prompt-section.js'
@@ -3534,9 +3536,9 @@ export async function apply(ctx) {
         } catch {}
       }
       return {
-        posture: str(chat.posture),
+        posture: postureForContext(chat),
         guides: Array.isArray(chat.guides) ? chat.guides.map(g => str(g?.text ?? g).trim()).filter(Boolean) : [],
-        ledger: chat.ledger && typeof chat.ledger === 'object' ? chat.ledger : null,
+        ledger: playFeatures.storyLedger && chat.ledger && typeof chat.ledger === 'object' ? chat.ledger : null,
         constantWorldbookText,
         worldbookEntries,
         activatedWorldbookTitles: Array.from(activatedTitles).filter(Boolean),
@@ -4070,6 +4072,7 @@ export async function apply(ctx) {
   })
   damperSettingsService = createDamperSettings({ readTavernSettings, updateTavernSettings, damper: narrativeDamper })
   const mvuSettlementEngine = createMvuSettlementEngine({ mvuSettlement, mvuUpdateRules, backgroundModelSelection, postureItem, tavernScriptDispatch, settlementParticipants,
+    postureSummaryEnabled: playFeatures.postureSummary,
     narrativeDamper, pluginApi, readPendingTurn: gameId => pluginTurns.readPendingTurn(gameId),
     // What the reply's mod tools settled for its variables (their settlement(results) in tools.js), over the given turns.
     turnToolResults: async (chat, turns) => toolSettlementContext(await readSessionLog(chat.sessionId), modTools, turns),
@@ -4210,12 +4213,12 @@ export async function apply(ctx) {
             protocol: prep?.protocol || '',
             capabilities: prep?.capabilities || {},
             stateSnapshot,
-            posture: str(chat.posture)
+            posture: postureForContext(chat)
           }) || []
         } catch { extraQuestions = [] }
       }
       damperEvaluated = chat ? await narrativeDamper.evaluateTurn({
-        chat,
+        chat: { ...chat, posture: postureForContext(chat) },
         card,
         turn: input.turn,
         userText: input.input,

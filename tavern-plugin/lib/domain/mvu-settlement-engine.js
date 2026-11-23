@@ -19,10 +19,12 @@ function str(value) {
 // settlement only asks these questions; it never reads MVU fields itself.
 // `deps` is read on each call, so a test may swap a service after creation.
 export function createMvuSettlementEngine(deps) {
+  const postureSummaryEnabled = deps.postureSummaryEnabled !== false
   // A variable retry settles the variables alone, whatever the game's switches say.
   function settings(snapshot) {
     const variableRetry = snapshot.messages?.some(message => message.mvu?.pending && message.mvu?.variableRetry === true)
-    return normalizeBackgroundTasks(variableRetry ? { variables: true, posture: false, characterDesign: false } : { ...snapshot.backgroundTasks, variables: true })
+    const tasks = normalizeBackgroundTasks(variableRetry ? { variables: true, posture: false, characterDesign: false } : { ...snapshot.backgroundTasks, variables: true })
+    return { ...tasks, posture: postureSummaryEnabled && tasks.posture }
   }
 
   function target(snapshot) {
@@ -212,7 +214,8 @@ export function createMvuSettlementEngine(deps) {
         }
       }
     }
-    if (mvuResult.posture === undefined && delivery?.posture !== undefined) mvuResult.posture = delivery.posture
+    if (!postureSummaryEnabled) delete mvuResult.posture
+    else if (mvuResult.posture === undefined && delivery?.posture !== undefined) mvuResult.posture = delivery.posture
     const text = str(mvuResult.text) || JSON.stringify({ posture: mvuResult.posture })
     trace.sessionId = str(mvuResult.traceSessionId) || trace.sessionId
     trace.boundary = Number.isSafeInteger(mvuResult.traceBoundary) ? mvuResult.traceBoundary : null

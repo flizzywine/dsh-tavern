@@ -12,6 +12,7 @@ import { composeTavernRegexScripts } from './card-extension-reading.js'
 import { applyRegexOverrides } from './regex-manager.js'
 import { projectCharacterDesignDocument } from './character-design-document.js'
 import { readLedger } from './story-ledger.js'
+import playFeatures from '../../shared/play-features.cjs'
 import { TAVERN_COMPATIBILITY_CAPABILITIES } from './tavern-compatibility-diagnostics.js'
 import { assistantResultForTurn } from './session-turn-result.js'
 import { forkTurnsByMessageId as forkTargetsFromSession } from './conversation-fork-targets.js'
@@ -235,12 +236,12 @@ export function createSessionViewProjection({
       // The automatic card reload, shown until the next turn.
       cardAutoReload: chat.cardAutoReload && Number(chat.cardAutoReload.turn) === latestStoryTurn ? { at: chat.cardAutoReload.at } : null,
       statusBarPlacement: runtimeSettings.defaultPlaySettings?.statusBarPlacement === 'body' ? 'body' : 'sidebar',
-      posture: chat.posture || '',
-      postureEnabled: chat.backgroundTasks?.posture !== false,
+      posture: playFeatures.postureSummary ? chat.posture || '' : '',
+      postureEnabled: playFeatures.postureSummary && chat.backgroundTasks?.posture !== false,
       styleReference: latestStyleReference(chat),
       styleReferenceEnabled: chat.backgroundTasks?.styleReference === true && (chat.mode || 'story') === 'story',
-      ledger: readLedger(chat.ledger),
-      ledgerTask: projectLedgerTask(chat),
+      ledger: playFeatures.storyLedger ? readLedger(chat.ledger) : null,
+      ledgerTask: playFeatures.storyLedger ? projectLedgerTask(chat) : null,
       characterDesigns: projectCharacterDesignDocument(chat.characterDesignDocument),
       characterDesignTask: projectCharacterDesignTask(chat),
       guides: Array.isArray(chat.guides) ? chat.guides : [],
@@ -515,14 +516,14 @@ export function createSessionViewProjection({
     const changes = {baseRevision:baseRevision ?? previous.tavernHelper?.stateRevision,indices:[...dirtyMessageIndices],layoutChanged,changedHeaderFields}
     const next = Object.assign({}, previous, await volatileSessionViewFields(chat, activity, changes), {
       playerName: str(chat.macroState?.userName).trim() || '你',
-      posture: chat.posture || '',
-      postureEnabled: chat.backgroundTasks?.posture !== false,
+      posture: playFeatures.postureSummary ? chat.posture || '' : '',
+      postureEnabled: playFeatures.postureSummary && chat.backgroundTasks?.posture !== false,
       styleReference: latestStyleReference(chat),
       styleReferenceEnabled: chat.backgroundTasks?.styleReference === true && (chat.mode || 'story') === 'story',
       guides: Array.isArray(chat.guides) ? chat.guides : [],
       // Header state a background task rewrites without touching any message.
-      ledger: readLedger(chat.ledger),
-      ledgerTask: projectLedgerTask(chat),
+      ledger: playFeatures.storyLedger ? readLedger(chat.ledger) : null,
+      ledgerTask: playFeatures.storyLedger ? projectLedgerTask(chat) : null,
       characterDesigns: projectCharacterDesignDocument(chat.characterDesignDocument),
       characterDesignTask: projectCharacterDesignTask(chat),
       ...latestTurnFields(chat)

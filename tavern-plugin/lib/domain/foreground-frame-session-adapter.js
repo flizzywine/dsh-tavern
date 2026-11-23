@@ -3,6 +3,7 @@ import { foregroundFrameText } from './agent-input-frame.js'
 import { worldbookSnapshot } from './worldbook-snapshot.js'
 import { promptSectionBody } from './prompt-section.js'
 import { liveContextUpdate, cardSystemPromptSnapshot, cardSystemPromptSource } from './card-system-prompt.js'
+import playFeatures from '../../shared/play-features.cjs'
 
 function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
@@ -38,7 +39,9 @@ export function createForegroundFrameSessionAdapter(options = {}) {
     const fixedRules = frame.contributions.filter(isFixedRule).map(item => item.text).join('\n\n')
     const previousRules = liveContextUpdate(input.session, 'writingRulesSnapshot', input.historyMessages || messages)
     const rulesChanged = fixedRules !== (previousRules?.text || '')
-    const contributions = frame.contributions.filter(item => item.slot !== 'activeWorldbook' && !isFixedRule(item))
+    const contributions = frame.contributions.filter(item => item.slot !== 'activeWorldbook' && !isFixedRule(item)
+      && (playFeatures.storyLedger || item.source?.stage !== 'ledger')
+      && (playFeatures.postureSummary || item.source?.stage !== 'context-plan' || item.source?.sectionKind !== 'posture'))
     const snapshots = snapshot ? [{
       id: makeId() + ':worldbook', role: 'user',
       content: [{ type: 'text', text: snapshot.rendered }],

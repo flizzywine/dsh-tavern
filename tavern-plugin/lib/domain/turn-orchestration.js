@@ -11,6 +11,7 @@ import { resolveRuntimePresetMacros } from './runtime-presets.js'
 import { composeTavernRegexScripts } from './card-extension-reading.js'
 import { scriptPromptFrameInputs, consumeScriptPrompts } from './tavern-script-prompts.js'
 import { ledgerFrameInputs } from './story-ledger.js'
+import playFeatures from '../../shared/play-features.cjs'
 import { projectBackgroundInput } from './runtime-content-projection.js'
 import { lastTavernHelperVariables } from './tavern-helper-context.js'
 import { normalizeResourcePath } from './file-resources.js'
@@ -319,7 +320,7 @@ export function foregroundFrameInputs(plan, sourceText, projectedText, presetSna
   }
   // position:'last' 的段落排到全段最后：它必须比预设 middle、脚本提示、账本晚被读到，否则会被后置规则块整段盖过
   //（叙事阻尼器的单轮裁定就是这一档：排在预设规则之前时，模型实际服从的是更晚、更大的规则）。
-  const tail = inputs.concat(ledgerFrameInputs(chat), presetMiddleInstructions(presetSnapshot), scriptPromptFrameInputs(chat))
+  const tail = inputs.concat(playFeatures.storyLedger ? ledgerFrameInputs(chat) : [], presetMiddleInstructions(presetSnapshot), scriptPromptFrameInputs(chat))
   for (const section of plugins.filter(item => item.position === 'last')) tail.push(pluginInput(section))
   return tail
 }
@@ -887,7 +888,7 @@ export function createTurnOrchestrator(options) {
     const { ledgerInjection, tavernScriptPrompts } = chat
     consumeScriptPrompts(chat)
     // The ledger is read once after a consolidation; this turn's frame keeps it for retries.
-    delete chat.ledgerInjection
+    if (playFeatures.storyLedger) delete chat.ledgerInjection
     rememberFrame(chat, frame)
     chatChanged = true
     // The frame is already built, so these logical rows cannot leak into the
@@ -898,7 +899,7 @@ export function createTurnOrchestrator(options) {
         // The staged scripts and worldbook controllers already ran for this
         // turn. Refresh the frame's variable inputs without executing them again.
         if (tavernScriptPrompts !== undefined) latest.tavernScriptPrompts = tavernScriptPrompts
-        latest.ledgerInjection = ledgerInjection
+        if (playFeatures.storyLedger) latest.ledgerInjection = ledgerInjection
         const current = regeneration(latest, plan.systemPromptText)
         if (isDeepStrictEqual(current.regenerationMaterials.generationState, preparedState.regenerationMaterials.generationState)
           && isDeepStrictEqual(latest.macroState?.userName, plannedUserName)
@@ -1250,8 +1251,8 @@ export function createTurnOrchestrator(options) {
     const placeholder = liveOperation?.placeholder || null
     if (liveOperation) delete liveOperation.placeholder
     const before = {
-      posture: chat.posture || '',
-      ledger: chat.ledger ? structuredClone(chat.ledger) : null,
+      posture: playFeatures.postureSummary ? chat.posture || '' : '',
+      ledger: playFeatures.storyLedger && chat.ledger ? structuredClone(chat.ledger) : null,
       preparedWorldBookContext: str(chat.preparedWorldBookContext),
       preparedWorldBook: clone(chat.preparedWorldBook === undefined ? null : chat.preparedWorldBook)
     }

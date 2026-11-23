@@ -87,5 +87,6 @@
 					h("div", { className: "dsh-tavern-preset-detail-actions" }, h("button", { className: "dsh-tavern-btn danger", disabled: state.busy || !state.prompts.some(function (item) { return item.customized; }), onClick: function () { void restoreAll(); } }, "当前方案全部恢复默认")),
 					state.notice ? h("div", { className: "dsh-tavern-system-prompt-status", role: "status" }, state.notice) : null,
 					state.error ? h("div", { className: "dsh-tavern-dock-error", role: "alert" }, state.error) : null,
-					state.loading ? h(PanelLoading, { shape: "fields", label: "正在读取系统提示词…" }) : state.prompts.map(row)));
+					state.loading ? h(PanelLoading, { shape: "fields", label: "正在读取系统提示词…" })
+						: state.prompts.filter(item => item.name !== "posture-settlement" || TAVERN_PLAY_FEATURES.postureSummary).map(row)));
 		}

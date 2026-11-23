@@ -290,7 +290,7 @@ function createConversationSettingsModule({
         return h(packUi.StageSection, { title: "功能", foldKey: FOLD("功能") },
             !data && !config.error ? h(PanelLoading, { shape: "fields", count: 5 }) : null,
             data ? rows(
-                ...FEATURES.map(([key, label, text]) => h(packUi.SwitchRow, { key, label, help: text, disabled,
+                ...FEATURES.filter(([key]) => key !== "posture" || TAVERN_PLAY_FEATURES.postureSummary).map(([key, label, text]) => h(packUi.SwitchRow, { key, label, help: text, disabled,
                     checked: tasks[key] === true, onChange: checked => void task(key, checked) })),
                 h(packUi.SwitchRow, { key: "webSearch", label: "联网搜索", help: "前台和后台可按需搜索。", disabled, checked: data.webSearchEnabled === true,
                     onChange: checked => void write({ webSearchEnabled: checked }, { webSearchEnabled: checked }) })) : null,

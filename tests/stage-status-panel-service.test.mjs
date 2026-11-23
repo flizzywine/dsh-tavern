@@ -12,13 +12,13 @@ function service({raw=card(),chat={},messages=[{role:'assistant',greeting:true}]
   })
 }
 
-test('live library page supplies figures and only declared ledger',async()=>{
+test('live library page supplies figures and omits disabled ledger data',async()=>{
   const result=await service().read({sessionId:'s',page:'status'})
   assert.equal('html' in result,false)
   assert.deepEqual(result.figures,page.figures)
   const own=service({raw:card([{...page,figures:[{name:'{{user}}'},{name:'辉夜'}]}]),chat:{macroState:{userName:'高坂月'}}})
   assert.deepEqual((await own.read({sessionId:'s',page:'status'})).figures,[{name:'高坂月'},{name:'辉夜'}])
-  assert.deepEqual(result.data,{ledger:{items:ledger.items}})
+  assert.deepEqual(result.data,{ledger:{}})
   const raw=card([{id:'map',label:'航海图',html:'<p>港口</p>',size:'full',preload:[{kind:'backgrounds',id:'bound'}]}],'船长')
   const reader=service({raw,chat:{snapshot:{raw:card()}}})
   assert.equal(await reader.read({sessionId:'s',page:'status'}),null)
