@@ -235,7 +235,7 @@ export async function createStageModule(core) {
     closed:finalizeItems,
     retrying:message => {if (message.stageItems) invalidateStageItems(message)}
   }), 'dsh-tavern: stage settlement participant')
-  // The CG gallery (createStageServices) registers its own card-removal observer.
+  // The CG gallery (createStageServices) registers its own card-removal observer (presentationObservers.cardRemoved).
   const stageWorkflow = createStageWorkflow({workflow:core.workflow, chatHeaderForSession:core.chatHeaderForSession,
     dialogueBubbles:core.dialogueBubbles,chatForSession,chatPersistence,stageDirector})
   ctx.effect(() => () => stageWorkflow.dispose(), 'dsh-tavern: stage workflow')
@@ -471,6 +471,8 @@ export function createStageServices(core) {
   const cgGallery = createCgGallery({profileData,cardStorage,resolveCard:cardStorage.resolve,chatForSession,assets:assetRuntime,
     readDirection:(chat,turn) => stageDirector.get(chat,Number(turn),null,{readOnly:true}),readSettings:() => assetEngineSettings.read()})
   ctx.inject(['assetLibrary'],child => child.effect(() => cgGallery.watch(child.get('assetLibrary'))))
+  // A deleted card takes its gallery record with it.
+  ctx.effect(() => core.presentationObservers.register('dsh-tavern-stage-cg',{cardRemoved:(_cardPath,cardId) => cardId && cgGallery.remove(cardId)}), 'dsh-tavern: CG gallery card removal')
 
   const extensions = core.stageExtensions.start({...core,widgetVariables,cgGallery,stage:core.stageModReads})
   return {widgetVariables, cardPages, cgGallery, ...extensions}

@@ -96,6 +96,22 @@ export function createWorldbookFileStore(root) {
         }
         versions.delete(key); await fs.rm(directory(key), { recursive: true, force: true }); names.delete(key) })
     },
+    /** Removes every directory assign() named after label (its ·动态快照 sibling and numbered versions too); returns their names. */
+    removeLabelled(label) {
+      return serial(root, async () => {
+        const escape = text => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+        const bases = [label, label + '·动态快照'].map(text => escape(worldbookFileLabel(text)))
+        const named = new RegExp('^(?:' + bases.join('|') + ')(?:（资料版本\\d+）|--\\d+)?$')
+        const removed = []
+        for (const entry of await fs.readdir(root, { withFileTypes: true }).catch(e => { if (e.code === 'ENOENT') return []; throw e })) {
+          if (!entry.isDirectory() || !named.test(entry.name)) continue
+          await fs.rm(path.join(root, entry.name), { recursive: true, force: true })
+          for (const [key, name] of names) if (name === entry.name) { names.delete(key); versions.delete(key) }
+          removed.push(entry.name)
+        }
+        return removed
+      })
+    },
     async verify(file, expected) {
       // Refuse symlink aliases; repair edits to the derived copy from authority.
       const realRoot = await fs.realpath(root)

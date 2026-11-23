@@ -279,6 +279,7 @@ import { bubbleCharacter } from '../src/client/bubble-line.cjs'
 import { modLibrary } from './mod-library.js'
 import { normalizeBubbleConfig, bubbleVoiceSwitches, effectiveBubbleMoods, resolveBubbleMood, bubbleInstructionPreview, bubbleInjection, readDialogueBubblePlacement } from './domain/dialogue-bubbles.js'
 import { createCardStorage } from './card-storage.js'
+import { createCardLeftovers } from './card-leftovers.js'
 import { isAbsolute, join as joinPath } from 'node:path'
 import { createStageChatCache } from './domain/stage-chat-cache.js'
 import { createStageReads, markStageRead, stageReadCarries, stageReadScope } from './domain/stage-read-projection.js'
@@ -1894,10 +1895,12 @@ export async function apply(ctx) {
   async function deleteCard(cardPath) {
     const normalized = normalizeResourcePath(cardPath, 'card')
     const plugins = (await castAssets.read(normalized)).plugins || []
+    const cardId = await cardStorage.findId(normalized)
     const result = await cardDeletion.remove(normalized)
     if (result.deleted) {
       if (plugins.length) await cardPlugins.remove({ cardKey: castAssets.keyOf(normalized), cardPath: normalized, plugins })
       await cardOrganization.movePath(normalized, null)
+      await cardLeftovers.remove({ cardPath: normalized, cardId })
     }
     return result
   }
@@ -2634,6 +2637,7 @@ export async function apply(ctx) {
       }
     }
   })
+  const cardLeftovers = createCardLeftovers({ dataRoot, profileData, castAssets, worldbookFiles: worldbookSkillProvider, presentationObservers })
   // Like the other model tools (「模型可选工具」 below): a host without the tool service has none to add.
   if (ctx.get('tools') !== undefined) registerWorldbookFileTools(ctx.get('tools'), worldbookSkillProvider)
   installWorldbookSkillRead(ctx, worldbookSkillProvider, {
@@ -4536,7 +4540,7 @@ export async function apply(ctx) {
   })
 
   // 小组件变量、CG 图鉴、舞台计时器（stage-module.js）。
-  stageRuntime.services({profileData, sessionSignals, conversationRegistry, tavernScriptDispatch, tavernScriptHostAdapter, readSessionMap, chatForSession, readRoundView, chatPersistence, storyTimeline, patchChat, cardStorage, cardPageOpening:projectCardPageOpening})
+  stageRuntime.services({profileData, sessionSignals, conversationRegistry, tavernScriptDispatch, tavernScriptHostAdapter, readSessionMap, chatForSession, readRoundView, chatPersistence, storyTimeline, patchChat, cardStorage, presentationObservers, cardPageOpening:projectCardPageOpening})
 
   // ---------- HTTP RPC（客户端同源 fetch） ----------
   async function dispatch(method, args, authority) {

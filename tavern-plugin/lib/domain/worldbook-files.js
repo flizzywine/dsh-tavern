@@ -182,6 +182,8 @@ export function createWorldbookFiles({ directory, load, resourcesAvailable = () 
       return indexed ? [...new Set([...paths].map(file => indexed.refsByPath.get(file))
         .concat([...ids].map(id => indexed.refsById.get(id))).filter(Boolean))] : []
     },
+    // A deleted card's derived files (named after its file, as current() labels them); a game that reads them again regenerates them.
+    removeCard: cardPath => files.removeLabelled(path.parse(String(cardPath)).name),
     async removeChat() {}, // Other games and saved versions may still use these derived files.
     async inspect(lookup) {
       const view = await current(lookup)
