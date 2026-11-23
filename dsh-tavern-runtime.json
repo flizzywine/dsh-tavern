@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "a7e17db7d06cb2c2e1bae6b290d5af791f5f07ae",
-  "releaseSequence": 2026,
+  "revision": "834bc6bee138236dccb7781001331e155076921d",
+  "releaseSequence": 2027,
   "version": "3.4.0",
   "files": [
     {
@@ -1341,8 +1341,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/asset-packs.js",
-      "sha256": "9d458ce153143dabf3a0ad82deb6dc540899f46937ae6e439d347a32e62667b6",
-      "size": 6951
+      "sha256": "e4aebc4f9804fe6bd0c9ebb29ba44f3601cc743ec1fcae777f41e665895b9b79",
+      "size": 7335
     },
     {
       "path": "tavern-plugin/lib/domain/asset-production-contract.js",
@@ -1576,8 +1576,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/card-archive.js",
-      "sha256": "eac5c29bcdf2fd6f90dce7ccdaaec788471376d1853b6663ed383e0899d315a2",
-      "size": 12024
+      "sha256": "9e6e31a14b851649c2926c1e3fa8d378ff86a7014585204ba0bfab00512a1ec0",
+      "size": 12412
     },
     {
       "path": "tavern-plugin/lib/domain/card-asset-bindings.d.ts",
@@ -1626,8 +1626,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/card-encryption.js",
-      "sha256": "29feda2c151e830aab06ab2fcc3629098576f3758212a3126572842d2091127c",
-      "size": 7557
+      "sha256": "57cb48a4419e3bced4377874c805e5487f3aea846ab27efa1cddee66ee024d0c",
+      "size": 7577
     },
     {
       "path": "tavern-plugin/lib/domain/card-export-settings.js",
@@ -1641,13 +1641,13 @@
     },
     {
       "path": "tavern-plugin/lib/domain/card-files.js",
-      "sha256": "b750bda049b8b952d07a2369bedf66241f6a475b907a5edd21c72bcd2b157ab1",
-      "size": 39003
+      "sha256": "dcf4c0243822010f3366f21deb0486b85e9d2c981cdcc8d6600c8d2991e5c18c",
+      "size": 39373
     },
     {
       "path": "tavern-plugin/lib/domain/card-import-identity.js",
-      "sha256": "6a236b36aae01bebf53803a40dd00541b77cd7336064fe28c4e820076662a7d0",
-      "size": 1625
+      "sha256": "eb78ee54022ca8817fcdf8eda149bca1293606991bc9577ad11055c9d305108b",
+      "size": 1834
     },
     {
       "path": "tavern-plugin/lib/domain/card-list-order.js",
@@ -4301,8 +4301,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/zip-file.js",
-      "sha256": "efe3bc3495ff13781bd964cae5d30500822ea3151bbebad2449c50dd98a711ff",
-      "size": 9349
+      "sha256": "9d4559dd6044f8b3e5071871b6fed9260d1c92b9cd40236fbb7ad33d342712ab",
+      "size": 9398
     },
     {
       "path": "tavern-plugin/lib/durable-file-promotion.js",
@@ -6836,13 +6836,13 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-asset-library/lib/pack-v2/service.d.ts",
-      "sha256": "4bc67b0ad62de65dbda8f22e0489f16d836c839613557a9e6666000d372b2424",
-      "size": 33009
+      "sha256": "e3f7fa221501514a57965576a12886bd938bd8e37b2f13f5d7afe102893ddd87",
+      "size": 33320
     },
     {
       "path": "tavern-plugin/packages/dsh-asset-library/lib/pack-v2/service.js",
-      "sha256": "56e81fd25f89555b217ec6999878646d455269b342947b93dcdfe9ce74505739",
-      "size": 126908
+      "sha256": "ded2c516f8859ff5c798ac62ea39870fcc6693e785b7e3c32fe53b6dcfc6fa4d",
+      "size": 129588
     },
     {
       "path": "tavern-plugin/packages/dsh-asset-library/lib/pack-v2/settings-config.js",
@@ -10176,9 +10176,9 @@
     }
   ],
   "archive": {
-    "commit": "7f6648825a8865fb252eac02794fda9d052795a4",
+    "commit": "df8432247cb2ae6466dfd4aac4a1d49974a985dc",
     "path": "runtime.zip",
-    "sha256": "702d5c808627a58ad29867ba6afcc1a363b96e0e714525b0e798e6faacee7015",
-    "size": 17866503
+    "sha256": "8b970518eea4700793de82fdc7ce6d33406483534b3308c0ca0932945c996adf",
+    "size": 17867868
   }
 }
