@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import path from 'node:path'
 import os from 'node:os'
 import {randomUUID} from 'node:crypto'
+import {channel} from 'node:diagnostics_channel'
 import { mkdtemp, rm, readFile, writeFile, lstat, utimes } from 'node:fs/promises'
 import { createAssetPackService } from '../src/pack-v2/service.js'
 import { sealPack, jsonBytes } from '../src/pack-v2/validation.js'
@@ -317,4 +318,17 @@ test('failed hydration drains other readers before the publication gate is relea
     assert.equal(otherDone,false,'publication must wait even after a sibling reader failed')
   } finally { release(); await rejection; await other }
   assert.equal(otherDone,true)
+})
+
+// After a restart every card's 自动选角 context, the library lists and the stage miss the cache together (11-23: 12 readers
+// read the whole library each). Readers that miss at once share one read of the pack.
+test('readers that miss the metadata cache together read the pack once', async t => {
+  const f = await fixture(t), manifests = []
+  await f.service.dispose()
+  const cold = createAssetPackService({assetRoot:f.assetRoot})
+  const listen = event => { if (event.name === 'pack.read.manifest') manifests.push(event.packId) }
+  channel('dsh.asset.read').subscribe(listen)
+  t.after(async () => { channel('dsh.asset.read').unsubscribe(listen); await cold.dispose() })
+  await Promise.all([cold.listPacks(), cold.listPacks(), cold.getPackSnapshot({packId:PACK_ID}), cold.listVoiceCatalogue()])
+  assert.deepEqual(manifests, [PACK_ID])
 })
