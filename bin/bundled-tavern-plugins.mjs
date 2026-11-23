@@ -50,7 +50,6 @@ export const BUNDLED_TAVERN_PLUGINS = Object.freeze([
     folder: 'dsh-tavern-STcontext',
     packageName: 'dsh-tavern-STcontext',
     source: ['tavern-plugin', 'packages', 'dsh-tavern-STcontext'],
-    defaultDisabled: true,
     preserveExternalInstalls: true,
   },
 ])
@@ -99,9 +98,22 @@ function treeDigest(directory, list = []) {
   return createHash('sha256').update(list.sort().join('\n')).digest('hex')
 }
 
-function runtimeProblem(directory, definition) {
+function runtimeFilesMatch(expected, installed) {
+  return readdirSync(expected, { withFileTypes: true }).every(entry => {
+    const source = path.join(expected, entry.name)
+    const target = path.join(installed, entry.name)
+    const stat = lstatSync(target, { throwIfNoEntry: false })
+    if (entry.isDirectory()) return stat?.isDirectory() && runtimeFilesMatch(source, target)
+    return stat?.isFile() && readFileSync(source).equals(readFileSync(target))
+  })
+}
+
+function runtimeProblem(directory, definition, runtimeImports = []) {
   try {
-    for (const file of bundledPluginRuntimeFiles(definition.packageName)) {
+    for (const file of [...bundledPluginRuntimeFiles(definition.packageName), ...runtimeImports]) {
+      if (typeof file !== 'string' || /[:\\]/.test(file) || file.split('/').some(part => !part || part === '.' || part === '..')) {
+        return '无效的运行文件路径'
+      }
       if (!lstatSync(path.join(directory, file), { throwIfNoEntry: false })?.isFile()) return '缺少运行文件 ' + file
     }
     const manifest = bundledPluginRelease(definition.folder, definition.packageName)?.vendorManifest
@@ -146,6 +158,7 @@ function installOne({ sourceRoot, dataRoot, profileDir, profileDependencies, def
   const target = path.join(pluginsDir, definition.folder)
   const installed = readJson(path.join(target, 'package.json'))
   const installedVersion = String(installed?.version ?? '').trim() || null
+  const release = bundledPluginRelease(definition.folder, definition.packageName)
 
   // profile 侧还登记着同名包：让它做唯一来源，别放一份永远不会加载的副本（同一包两个来源会被跳过）。
   // 优先看这次算出来的 profile 清单；没有清单时才退回磁盘上的 node_modules。
@@ -170,13 +183,13 @@ function installOne({ sourceRoot, dataRoot, profileDir, profileDependencies, def
     if (existsNoFollow(path.join(target, '.git'))) return { action: 'skipped', reason: '目标插件是 Git 检出，保留现有内容', version: bundled.version, installedVersion, target, packageName: definition.packageName }
     if (installed?.name !== definition.packageName || !installedVersion) return { action: 'skipped', reason: '目标插件目录不是可识别的同名插件，保留现有内容', version: bundled.version, installedVersion, target, packageName: definition.packageName }
     recorded = readJson(path.join(target, SOURCE_FILE))
-    const release = bundledPluginRelease(definition.folder, installed.name)
     if (definition.preserveExternalInstalls && (recorded?.kind !== 'builtin' || existsNoFollow(path.join(target, '.dsh-card.json')))) {
       return { action: 'skipped', reason: '保留由用户或人物卡安装的同名插件', version: bundled.version, installedVersion, target, packageName: definition.packageName }
     }
     const ownRelease = release && recorded?.kind === 'builtin' && (recorded.releaseRepo === release.owner + '/' + release.repo
       || (definition.preserveExternalInstalls && !recorded.releaseRepo))
-    if (ownRelease) installedRuntimeProblem = runtimeProblem(target, definition)
+    if (ownRelease) installedRuntimeProblem = runtimeProblem(target, definition,
+      Array.isArray(recorded.runtimeImports) ? recorded.runtimeImports : [])
     if (ownRelease && comparePluginVersions(installedVersion, bundled.version) === 1
       && !bundledReleaseCompatibilityProblem(installed) && !installedRuntimeProblem) {
       return { action: 'skipped', reason: '保留已单独更新的兼容版本', version: bundled.version, installedVersion, target, packageName: definition.packageName }
@@ -194,19 +207,20 @@ function installOne({ sourceRoot, dataRoot, profileDir, profileDependencies, def
     if (stagedProblem) throw new Error('内置插件复制失败：' + stagedProblem)
     const digest = treeDigest(staging)
     // The old installer wrote an empty marker. The plugin manager records manual disables as JSON.
-    const restoreLoadDefault = !definition.defaultDisabled && recorded?.kind === 'builtin' && recorded.defaultDisabled === true
+    const restoreLoadDefault = !release?.defaultDisabled && recorded?.kind === 'builtin' && recorded.defaultDisabled === true
     const unchanged = replacing
       && !restoreLoadDefault
       && !installedRuntimeProblem
       && comparePluginVersions(bundled.version, installedVersion || '') === 0
       && String(recorded?.digest || '') === digest
+      && (!release?.vendorManifest || runtimeFilesMatch(staging, target))
     if (unchanged) {
       rmSync(staging, { recursive: true, force: true })
       return { action: 'skipped', reason: '已装的插件与内置副本相同，保留现有内容', version: bundled.version, installedVersion, target, packageName: definition.packageName }
     }
     writeFileSync(path.join(staging, SOURCE_FILE), JSON.stringify({ kind: 'builtin', bundled: true, version: bundled.version, digest, installedAt: new Date().toISOString() }, null, 2) + '\n')
     const disabledFile = path.join(target, DISABLED_FILE)
-    if (!replacing && definition.defaultDisabled) {
+    if (!replacing && release?.defaultDisabled) {
       writeFileSync(path.join(staging, DISABLED_FILE), JSON.stringify({ installedDisabled: true }) + '\n')
     } else if (replacing && existsNoFollow(disabledFile)) {
       const marker = lstatSync(disabledFile)

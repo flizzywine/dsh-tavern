@@ -6,6 +6,10 @@ import path from 'node:path'
 import test from 'node:test'
 import { installBundledTavernPlugins, SOURCE_FILE } from '../bin/bundled-tavern-plugins.mjs'
 import { bundledPluginRuntimeFiles } from '../tavern-plugin/lib/domain/bundled-plugin-release.js'
+import { createCardPlugins } from '../tavern-plugin/lib/domain/card-plugins.js'
+import { castManifestPath } from '../tavern-plugin/lib/domain/cast-assets.js'
+import { createUserPluginInstaller } from '../tavern-plugin/lib/domain/user-plugin-install.js'
+import { readEnabledBindings, scanUserPlugins } from '../tavern-plugin/lib/domain/user-plugins.js'
 
 const name = 'dsh-tavern-STcontext'
 const releaseRepo = 'koabop/dsh-tavern-STcontext'
@@ -24,6 +28,7 @@ function runtime(directory, version, api = 7) {
     name, version, type: 'module', exports: { '.': './index.mjs', './client': './client.js' },
     dsh: { compatibility: { tavernApiVersion: api } },
   }))
+  write(directory, 'lib/generation.mjs', 'generation at ' + version)
   const hashes = {}
   for (const file of ['quickjs.mjs', 'quickjs.wasm', 'parser.mjs', 'LICENSES.txt']) {
     const bytes = Buffer.from(file + ' at ' + version)
@@ -141,4 +146,51 @@ test('发行包损坏时保留可用的 STcontext 和停用状态，修复后可
   assert.equal(existsSync(path.join(target, disabledFile)), true)
   runtime(source, '0.8.3')
   assert.equal(sync().action, 'upgraded')
+})
+
+test('停用的内置 STcontext 让位给卡内副本，保持全局启停与卡内绑定独立', async t => {
+  const { dataRoot, plugins, target, sync } = fixture(t)
+  const cardKey = 'test-card'
+  const cardPath = 'cards/test.json'
+  const cardPaths = async () => [cardPath]
+  const plugin = { name, folder: 'stcontext', sha256: 'a'.repeat(64) }
+  const manager = createCardPlugins({ dataRoot, pluginsDir: plugins, cardPaths })
+  const installer = createUserPluginInstaller({ dataRoot, cardPaths })
+  assert.equal(sync().action, 'installed')
+  runtime(path.join(dataRoot, 'card-plugins', cardKey, plugin.folder), '0.7.0')
+
+  await installer.enable(name)
+  await assert.rejects(manager.enable({ cardKey, cardPath, plugins: [plugin] }), /已经有同名插件/)
+  await installer.disable(name)
+  await manager.enable({ cardKey, cardPath, plugins: [plugin] })
+  const manifest = castManifestPath(dataRoot, cardPath)
+  write(path.dirname(manifest), path.basename(manifest), JSON.stringify({ plugins: [{ ...plugin, enabled: true }] }))
+  const bindings = await readEnabledBindings({ dataRoot, cardPaths })
+  const dirs = await scanUserPlugins(plugins, { bindings })
+  assert.deepEqual(dirs.plugins.filter(item => item.name === name).map(item => item.origin), ['card'])
+  await assert.rejects(installer.enable(name), /人物卡/)
+  assert.equal(sync().action, 'skipped')
+  assert.equal(existsSync(path.join(target, disabledFile)), true)
+
+  await manager.disable({ cardPath, plugins: [plugin] })
+  write(path.dirname(manifest), path.basename(manifest), JSON.stringify({ plugins: [{ ...plugin, enabled: false }] }))
+  await installer.enable(name)
+  assert.equal(existsSync(path.join(target, disabledFile)), false)
+})
+
+test('固定版修复损坏的宿主模块，较新独立版本缺少已验证模块时回退', t => {
+  const { target, sync } = fixture(t)
+  const module = 'lib/generation.mjs'
+  assert.equal(sync().action, 'installed')
+  rmSync(path.join(target, module))
+  assert.equal(sync().action, 'upgraded')
+  assert.equal(readFileSync(path.join(target, module), 'utf8'), 'generation at 0.8.2')
+
+  const record = JSON.parse(readFileSync(path.join(target, SOURCE_FILE), 'utf8'))
+  runtime(target, '0.8.3')
+  write(target, SOURCE_FILE, JSON.stringify({ ...record, releaseRepo, version: '0.8.3', runtimeImports: [module] }))
+  rmSync(path.join(target, module))
+  assert.equal(sync().action, 'upgraded')
+  assert.equal(readFileSync(path.join(target, module), 'utf8'), 'generation at 0.8.2')
+  assert.equal(existsSync(path.join(target, disabledFile)), true)
 })

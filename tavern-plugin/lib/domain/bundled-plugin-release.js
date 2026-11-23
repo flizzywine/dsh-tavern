@@ -13,6 +13,7 @@ const releaseSources = new Map([
   ['dsh-tavern-STcontext', Object.freeze({
     owner: 'koabop', repo: 'dsh-tavern-STcontext',
     assetName: version => `dsh-tavern-STcontext-v${version}.zip`,
+    defaultDisabled: true,
     vendorManifest,
     runtimeFiles: Object.freeze([
       'package.json', 'index.mjs', 'client.js', 'lib/worker-client.mjs', 'lib/worker.mjs',

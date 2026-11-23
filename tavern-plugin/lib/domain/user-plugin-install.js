@@ -5,7 +5,8 @@ import path from 'node:path'
 import { pipeline } from 'node:stream/promises'
 import { readZipEntries } from './zip-entries.js'
 import { openZipFile } from './zip-file.js'
-import { DISABLED_FILE, RESTART_FILE, scanUserPlugins, STATUS_FILE, userPluginPaths } from './user-plugins.js'
+import { DISABLED_FILE, readEnabledBindings, RESTART_FILE, scanUserPlugins, STATUS_FILE, userPluginPaths } from './user-plugins.js'
+import { parse } from 'acorn'
 import { pluginDataFile } from './plugin-data-store.js'
 import { comparePluginVersions, pluginManifestProblem } from './plugin-manifest.js'
 import { bundledPluginRelease, bundledPluginRuntimeFiles, bundledPluginVendorHashes, bundledReleaseCompatibilityProblem } from './bundled-plugin-release.js'
@@ -297,6 +298,27 @@ async function openPluginArchive(file) {
   } catch (error) { await zip.close(); throw error }
 }
 
+// Inspect both host and worker modules without evaluating code from a candidate release.
+async function bundledRuntimeImports(archive) {
+  const checked = new Set()
+  async function visit(file) {
+    if (checked.has(file)) return
+    if (!archive.files.has(file)) fail('插件发布包缺少 ' + file)
+    checked.add(file)
+    if (!/\.m?js$/.test(file)) return
+    const bytes = await archive.readFile(file)
+    const { body } = parse(bytes.toString('utf8'), { ecmaVersion: 'latest', sourceType: 'module' })
+    for (const statement of body) {
+      const specifier = statement.source?.value
+      if (typeof specifier !== 'string' || !/^\.\.?\//.test(specifier)) continue
+      await visit(path.posix.join(path.posix.dirname(file), specifier))
+    }
+  }
+  await visit(path.posix.normalize(hostEntryOf(archive.pkg)))
+  await visit('lib/worker.mjs')
+  return [...checked].sort()
+}
+
 function folderFor(pkg, fallback) {
   const name = String(pkg.name || fallback || '').replace(/^@[^/]+\//, '')
   const folder = name.replace(/[^\w.-]+/g, '-').replace(/^[-.]+|[-.]+$/g, '').slice(0, 80)
@@ -306,7 +328,7 @@ function folderFor(pkg, fallback) {
 
 async function readJson(file) { try { return JSON.parse(await readFile(file, 'utf8')) } catch { return null } }
 
-export function createUserPluginInstaller({ dataRoot, fetchImpl = fetch, now = () => new Date(), sync = async () => {}, archiveTimeoutMs = ARCHIVE_TIMEOUT_MS }) {
+export function createUserPluginInstaller({ dataRoot, fetchImpl = fetch, now = () => new Date(), sync = async () => {}, cardPaths = async () => [], archiveTimeoutMs = ARCHIVE_TIMEOUT_MS }) {
   const paths = userPluginPaths(dataRoot)
   const backups = path.join(path.resolve(dataRoot), 'plugin-backups')
   const installedPackage = name => existsSync(path.join(paths.profile, 'node_modules', ...name.split('/'), 'package.json'))
@@ -365,6 +387,7 @@ export function createUserPluginInstaller({ dataRoot, fetchImpl = fetch, now = (
             for await (const chunk of await open()) hash.update(chunk)
             if (hash.digest('hex') !== expected) fail('插件运行文件 SHA-256 校验失败：' + name)
           }
+          archive.runtimeImports = await bundledRuntimeImports(archive)
         }
         archive.files.delete(CARD_MARKER)
         return await use(archive)
@@ -569,9 +592,15 @@ export function createUserPluginInstaller({ dataRoot, fetchImpl = fetch, now = (
     enable(folder) {
       return serial(async () => {
         const name = folderOf(folder)
-        const manifestProblem = pluginManifestProblem(await readJson(path.join(paths.plugins, name, 'package.json')))
+        const directory = path.join(paths.plugins, name)
+        const pkg = await readJson(path.join(directory, 'package.json'))
+        const manifestProblem = pluginManifestProblem(pkg)
         if (manifestProblem) fail(manifestProblem)
-        await rm(path.join(paths.plugins, name, DISABLED_FILE), { force: true })
+        if (bundledPluginRelease(name, pkg.name)?.defaultDisabled && (await readJson(path.join(directory, SOURCE_FILE)))?.kind === 'builtin') {
+          const bindings = await readEnabledBindings({ dataRoot, cardPaths })
+          if (bindings.has(pkg.name)) fail('已有在用的同名人物卡插件，请先在人物卡库停用它')
+        }
+        await rm(path.join(directory, DISABLED_FILE), { force: true })
         // Drop the old load record so the list shows "刷新后生效" until the host loads it again.
         await rm(path.join(paths.plugins, name, STATUS_FILE), { force: true })
         await sync()
@@ -615,7 +644,8 @@ export function createUserPluginInstaller({ dataRoot, fetchImpl = fetch, now = (
           const candidate = await bundledUpdate(release, name, pkg.version)
           if (candidate.status !== 'available' || candidate.target !== target) fail(candidate.reason || '插件发布版本已变化，请重新检查更新')
           return useBundledReleasePackage(candidate.asset, name, candidate.latest,
-            archive => place(archive, { kind: 'builtin', bundled: true, releaseRepo: release.owner + '/' + release.repo }, name))
+            archive => place(archive, { kind: 'builtin', bundled: true, releaseRepo: release.owner + '/' + release.repo,
+              runtimeImports: archive.runtimeImports }, name))
         }
         if (source?.kind !== 'github') fail('这个插件不是从 GitHub 地址装的，没法自动更新；请重新上传新版 ZIP')
         const parsed = parseGithubSource(source.repo)

@@ -36,7 +36,8 @@ test('STcontext 手动检查和更新只接受官方附件，核对包内运行�
   const sha256 = bytes => createHash('sha256').update(bytes).digest('hex')
   function files() {
     const pkg = { name: folder, version: '0.8.3', exports: { '.': './index.mjs' }, dsh: { compatibility: { tavernApiVersion: 7 } } }
-    const runtime = { 'package.json': pkg, 'index.mjs': 'export function apply() {}', 'client.js': '/* client */', NOTICE: 'release notice',
+    const runtime = { 'package.json': pkg, 'index.mjs': "export { apply } from './lib/generation.mjs'", 'client.js': '/* client */', NOTICE: 'release notice',
+      'lib/generation.mjs': 'export function apply() {}',
       'lib/worker.mjs': '/* worker */', 'lib/worker-client.mjs': '/* worker client */' }
     const hashes = {}
     for (const name of ['quickjs.mjs', 'quickjs.wasm', 'parser.mjs', 'LICENSES.txt']) {
@@ -78,6 +79,8 @@ test('STcontext 手动检查和更新只接受官方附件，核对包内运行�
     assert.equal(item.enabled, false)
     assert.equal(item.version, '0.8.3')
     assert.equal(item.source.releaseRepo, repo)
+    const record = JSON.parse(await readFile(path.join(dir, '.tavern-source.json'), 'utf8'))
+    assert.ok(record.runtimeImports.includes('lib/generation.mjs'))
     assert.equal(await readFile(path.join(dir, 'NOTICE'), 'utf8'), 'release notice')
     assert.equal(await readFile(path.join(dir, 'lib/vendor/quickjs.wasm'), 'utf8'), 'quickjs.wasm')
   })
@@ -85,6 +88,7 @@ test('STcontext 手动检查和更新只接受官方附件，核对包内运行�
   for (const [label, change, reason, status] of [
     ['包名大小写错误', files => { files['package.json'].name = folder.toLowerCase() }, /包名或版本与 Release 不符/, 'error'],
     ['worker 缺失', files => { delete files['lib/worker.mjs'] }, /缺少 lib\/worker\.mjs/, 'error'],
+    ['宿主入口引用的模块缺失', files => { delete files['lib/generation.mjs'] }, /缺少 lib\/generation\.mjs/, 'error'],
     ['WASM 与清单不符', files => { files['lib/vendor/quickjs.wasm'] += 'changed' }, /SHA-256 校验失败.*quickjs\.wasm/, 'error'],
     ['清单缺 WASM 摘要', files => { delete files['lib/vendor/manifest.json'].hashes['quickjs.wasm'] }, /清单无效或不完整/, 'error'],
     ['要求未实现的 API', files => { files['package.json'].dsh.compatibility.tavernApiVersion = 999 }, /请先更新酒馆/, 'blocked'],
