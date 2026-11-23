@@ -15353,20 +15353,22 @@ function GalStage(props) {
         [sessionId,offered?.id,offered?.index,offerLine,config,voiceAvailable]);
     const offerVoicePlayed=React.useRef(null);
     React.useEffect(()=>{
-        if (!offerVoice || backlog || offerVoicePlayed.current===offerVoice.id) return;
-        offerVoicePlayed.current=offerVoice.id;
-        forkLipSync.wake();
-        void offerVoice.click({handoff:true,automatic:true}).catch(()=>{});
-    },[offerVoice?.id,offered?.replay,backlog]);
+        const audible = !backlog && !skipping && !hidden ? offerVoice : null;
+        if (audible && offerVoicePlayed.current !== audible.id) {
+            offerVoicePlayed.current = audible.id;
+            forkLipSync.wake();
+            void audible.click({handoff:true,automatic:true}).catch(()=>{});
+        }
+        // A missing or failed voice must cancel a superseded line that is playing or still loading.
+        const active = voicePlayer.get();
+        if (active?.owner === sessionId+':stage' && String(active.id).startsWith('["card-offer:')
+            && active.id !== audible?.id) voicePlayer.stopPlayback();
+    },[sessionId,offerVoice?.id,offered?.replay,backlog,skipping,hidden]);
     React.useEffect(()=>{
-        if (!offered || offered.replay || backlog || nextOfferIndex<0) return;
+        if (!offered || offered.replay || backlog || skipping || hidden || nextOfferIndex<0) return;
         const next=voiceForOfferLine(offered.lines[nextOfferIndex],offered.id+':'+nextOfferIndex);
         if (next) void next.prefetch?.();
-    },[offered?.id,nextOfferIndex,backlog,voiceAvailable]);
-    React.useEffect(()=>{
-        if ((!offerLine?.speaker || backlog) && voicePlayer.get()?.owner===sessionId+':stage' &&
-            String(voicePlayer.get()?.id || '').startsWith('["card-offer:')) voicePlayer.stopPlayback();
-    },[offerLine?.speaker,backlog,sessionId]);
+    },[offered?.id,nextOfferIndex,backlog,skipping,hidden,voiceAvailable]);
     const voice = offerLine ? offerVoice : (leasing || !beatHeld && !cgHeld && !sourceWidget.phoneBeat) && current && current.voice;
     const player = voicePlayer.get();
     const playingHere = Boolean(voice && player && player.owner === voice.owner && player.id === voice.id);
