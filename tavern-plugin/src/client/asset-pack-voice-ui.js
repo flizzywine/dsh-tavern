@@ -81,7 +81,8 @@ const defaultCastVoices=(catalogue,systemPacks)=>(catalogue?.voices||[]).filter(
 const useSystemVoicePacks=binding=>readingPackIds(useReadingPointers(binding).value);
 // 选择声音's groups, the one grouping every voice picker shows (人物声音页, 舞台设置 › 配音): 通用声音 (defaultCastVoices,
 // whichever pack holds them — the same voices the casting assistant picks from), then 本包's other voices, then the other
-// packs' by pack. A voice is listed once, in its first group; a 通用声音 of this pack is still picked as its own.
+// packs' by pack. A voice is listed once, in its first group; a 通用声音 of this pack is still picked as its own. Each row
+// shows the voice's language as 自动素材 reads it (castLanguage: unset = 中文), which casts a speaker only with voices of its own.
 // This pack's voices come from `pack` (current), the others' from the catalogue (null while it loads). Rows: this pack's
 // {id, spec, users}, another's the catalogue entry.
 function voicePickerGroups(catalogue,pack,systemPacks){
@@ -593,11 +594,11 @@ function VoicePicker({binding,pack,figure,current,general=false,generalVoice,pre
   const served=spec=>{const src=services&&spec?.sources?.[spec.defaultSource];return src?voiceServiceName(services,src):'';};
   // a 通用声音 row also names its pack (`from`): the group mixes packs.
   const meta=(spec,from)=>[served(spec),from].filter(Boolean).join(' · ');
-  const ownRow=(close,from)=>({id,spec,users})=>h(VoiceListRow,{key:'p:'+id,name:spec.name,query:q,lang:spec.language,meta:meta(spec,from),current:id===current,
+  const ownRow=(close,from)=>({id,spec,users})=>h(VoiceListRow,{key:'p:'+id,name:spec.name,query:q,lang:castLanguage(spec.language),meta:meta(spec,from),current:id===current,
     end:h(VoiceFaces,{binding,pack,figures:users}),play:rowPlay(spec,'pick:'+packId+':'+id,candidate(spec),spec.name),
     onPick:()=>id===current?close():pick(close,{kind:'own',id,name:spec.name}),
     menu:onDelete&&(closeMenu=>h(MenuItem,{danger:true,onClick:()=>{closeMenu();close();onDelete(id);}},'删除声音…'))});
-  const otherRow=(close,from)=>v=>h(VoiceListRow,{key:v.ref.packId+'/'+v.ref.voiceId,name:v.name,query:q,lang:v.voiceSpec.language,meta:meta(v.voiceSpec,from&&v.packName),end:h(VoiceFaces,{users:v.users}),
+  const otherRow=(close,from)=>v=>h(VoiceListRow,{key:v.ref.packId+'/'+v.ref.voiceId,name:v.name,query:q,lang:castLanguage(v.voiceSpec.language),meta:meta(v.voiceSpec,from&&v.packName),end:h(VoiceFaces,{users:v.users}),
     play:rowPlay(v.voiceSpec,'pick:'+v.ref.packId+':'+v.ref.voiceId,v.previewFigureId&&{packId:v.ref.packId,figureId:v.previewFigureId,expectedRevision:v.revision,voiceSpec:v.voiceSpec},v.name),
     onPick:()=>pick(close,{kind:'other',ref:v.ref,name:v.name})});
   const generalRow=close=>{

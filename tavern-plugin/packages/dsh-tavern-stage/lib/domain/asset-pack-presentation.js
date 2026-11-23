@@ -4,7 +4,7 @@ import { analyzeVariableSchema } from '../../../../lib/domain/variable-bindings/
 import { widgetVariableProjection } from '../../../../lib/domain/widget-variable-provider.js'
 import { activeWidgetKeys, widgetIsActive } from '../../../../lib/domain/widget-availability.js'
 // Inactive P4 consumer. P6 supplies authorized services and mounts its projections.
-import {figureCatalogue, resolution} from '../../../../lib/domain/figure-catalogue.js'
+import {figureCatalogue, figureRefKey, resolution} from '../../../../lib/domain/figure-catalogue.js'
 import skinContract from '../../../dsh-presentation-protocol/src/stage-skin.cjs'
 import performanceContract from '../../../dsh-presentation-protocol/src/performance-contract.cjs'
 import { effectiveCardStage, activeStageSkin, cardStageSkin, cardStageSkinPackIds } from '../../../../lib/domain/card-stage-settings.js'
@@ -223,7 +223,14 @@ export function createAssetPackPresentation({raw, getEngine, getService, getAllo
     async figureRows(roster = {}) {
       const allowed = getAllowedPackIds?.() || extension.assetBindings.boundPackIds
       const packs = await Promise.all(allowed.map(snapshot))
-      return figureCatalogue({snapshots:packs.filter(Boolean),bindings:extension.assetBindings,globalEnabledPackIds:allowed,roster})
+      const rows = figureCatalogue({snapshots:packs.filter(Boolean),bindings:extension.assetBindings,globalEnabledPackIds:allowed,roster})
+      // 借用形象: the figure a stage actor stands in with (stage-stand-in.js) is shown whether or not the card has its pack;
+      // 自动素材 lent it from the library. Only the figures worn, so no other library figure answers to a name here.
+      const worn = Object.values(roster).filter(actor => actor?.standIn && actor.figure && !allowed.includes(actor.figure.packId)).map(actor => actor.figure)
+      if (!worn.length) return rows
+      const lentIds = [...new Set(worn.map(ref => ref.packId))], wornKeys = new Set(worn.map(figureRefKey))
+      const lent = figureCatalogue({snapshots:(await Promise.all(lentIds.map(snapshot))).filter(Boolean),bindings:{boundPackIds:lentIds}})
+      return [...rows, ...lent.filter(row => wornKeys.has(figureRefKey(row.ref)))]
     },
     async resolveName(segment, roster = {}) {
       return resolution.resolveFigureName(await api.figureRows(roster),segment,roster)
@@ -265,7 +272,8 @@ export function createAssetPackPresentation({raw, getEngine, getService, getAllo
       const identity = actor?.figure ? resolution.resolveFigureName(figureRows || await api.figureRows({[alias]:actor}),actor.figure)
         : !historical ? resolution.resolveFigureName(figureRows || await api.figureRows(),alias) : null
       const ref = identity?.status === 'resolved' ? identity.ref : null
-      if (!ref || !(getAllowedPackIds?.() || extension.assetBindings.boundPackIds).includes(ref.packId)) return {alias, ref:null, form:null, diagnostics:['figure-unbound']}
+      const lent = actor?.standIn && actor.figure && figureRefKey(actor.figure) === (ref && figureRefKey(ref))
+      if (!ref || !lent && !(getAllowedPackIds?.() || extension.assetBindings.boundPackIds).includes(ref.packId)) return {alias, ref:null, form:null, diagnostics:['figure-unbound']}
       if (historical && !Object.hasOwn(actor, 'outfitKey')) return {alias, ref:clone(ref), form:null, diagnostics:['historical-outfit-missing']}
       {
         const resolved = await resolveFigure(ref)
