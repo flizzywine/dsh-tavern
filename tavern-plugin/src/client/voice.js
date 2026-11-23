@@ -53,6 +53,10 @@ const voiceChannel = (function () {
 })();
 // Whether the stage (and the bubbles) may voice now: the voice service is on and nobody holds the channel.
 const stageVoicingAvailable = () => ttsClientAvailable() && !voiceChannel.held();
+function subscribeStageVoicing(listener) {
+    const stopPacks = subscribePackChanges(listener), stopChannel = voiceChannel.subscribe(listener);
+    return () => { stopPacks(); stopChannel(); };
+}
 function voiceObservedTurn(_session,_turn,running) { return running; }
 // @include voice-speech.cjs
 function useVoiceBubbles(props,segments,_cardPath,config) {

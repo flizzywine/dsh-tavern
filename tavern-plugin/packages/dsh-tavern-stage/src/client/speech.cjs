@@ -1,5 +1,5 @@
 // Stage speech identity and lookahead policy; the shared player owns synthesis and playback.
-function createStageSpeech({player,available=()=>false,speechInput,character:characterOf,language,open,allowed}={}) {
+function createStageSpeech({player,available=()=>false,subscribe=()=>()=>{},speechInput,character:characterOf,language,open,allowed}={}) {
 let closed=false;
 function readVoice(sessionId,input){
     if(closed)return Promise.reject(Object.assign(new Error('Stage speech disposed'),{name:'AbortError'}));
@@ -75,7 +75,7 @@ function stageVoiceWindowFromIndex(sessionId,index,turn,pages,page,config,limit 
 }
 
 function stop(sessionId){if(!closed && player?.get()?.owner===sessionId+':stage')player.stopPlayback();}
-return {handle:stageVoiceHandle,window:stageVoiceWindowFromIndex,available:()=>!closed&&available(),allowed,
+return {handle:stageVoiceHandle,window:stageVoiceWindowFromIndex,available:()=>!closed&&available(),subscribe,allowed,
     retain:handles=>{if(!closed)player.cancelPrefetch(handles);},stop,stopPlayback:stop,
     dispose(){closed=true;}};
 }

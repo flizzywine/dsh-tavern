@@ -58,6 +58,7 @@ function createStageRuntimeState() {
         // the opened stage is on screen - its loading veil or 入场演出
         // has ended (STAGE_REVEAL). A consumer without a loader opens revealed (STAGE_OPEN).
         revealed: true,
+        voiceAvailable: true,
         // The session's performance kind declarations (stage-performance-kinds.cjs) once the stage publishes core and the
         // installed managed mods' (SESSION_INPUTS performanceKinds); null reads as the core kinds.
         performanceKinds: null,
@@ -457,7 +458,7 @@ function reduceStageRuntime(previous, event) {
         }
         const page = pageAt(state.text, state.cursor.anchor);
         // Voice starts only after the mounted consumer opens the stage, never during closed-session observation.
-        if (state.opened && page?.voice && (!page.voice.narration || state.settings?.config?.narrator) && phoneBeatKernel.phoneModAutoVoiceAllowed(state.director,page.anchor.para,state.settings?.config?.stage?.director===true)) {
+        if (state.opened && state.voiceAvailable && page?.voice && (!page.voice.narration || state.settings?.config?.narrator) && phoneBeatKernel.phoneModAutoVoiceAllowed(state.director,page.anchor.para,state.settings?.config?.stage?.director===true)) {
             // narration speaks per page (stageVoiceDescriptor); a line once per paragraph, its subtitle cards sharing the clip.
             // A line held for its 配音补译 (silent under the plain key) plays once its voice text, or the fallback, arrives.
             const key = JSON.stringify([sourceKey(state.source), 'voice', page.anchor.paragraphId, state.cursor.visitId, ...(page.voice.narration ? [page.anchor.offset] : []),
@@ -807,7 +808,8 @@ function reduceStageRuntime(previous, event) {
         if (event.visible) { requestRead(); readRound(); }
         break;
     case 'STAGE_OPEN':
-        patch({opened: event.opened, revealed: event.opened && event.revealed !== false});
+        patch({opened: event.opened, revealed: event.opened && event.revealed !== false,
+            ...(event.voiceAvailable !== undefined ? {voiceAvailable: event.voiceAvailable} : {})});
         effect('playback-policy', {opened:event.opened});
         if (event.opened) {
             // opening a settled stream is an explicit restore, not a late delta.
@@ -824,6 +826,12 @@ function reduceStageRuntime(previous, event) {
             cancelPlayback('stage-closed');
             patch({cursor: {...state.cursor, firstPageEligible: false, afterEligible: false}});
             scheduleRead();
+        }
+        break;
+    case 'STAGE_VOICE_AVAILABLE':
+        if (state.voiceAvailable !== event.available) {
+            patch({voiceAvailable: event.available});
+            if (event.available) scanEvents();
         }
         break;
     case 'READ_PENDING':
@@ -972,7 +980,7 @@ function reduceStageRuntime(previous, event) {
             effect('release-one-shot', {token: event.token}); break;
         }
         // The line's voice is prepared early and waits here for the page's sequencing point (stageBeatHold, releaseBeats).
-        if (entry.descriptor.kind === 'voice' && stageBeatHold(state)) { patch({ledger: {...state.ledger, [event.token.key]: {...entry, ready: true}}}); break; }
+        if (entry.descriptor.kind === 'voice' && (!state.voiceAvailable || stageBeatHold(state))) { patch({ledger: {...state.ledger, [event.token.key]: {...entry, ready: true}}}); break; }
         patch({ledger: {...state.ledger, [event.token.key]: {...entry, status: 'playing'}}});
         effect('play-one-shot', {token: event.token, descriptor: entry.descriptor});
         break;
@@ -1015,7 +1023,7 @@ function reduceStageRuntime(previous, event) {
     if (!state.disposed) {
         let ready = null;
         for (const [key, entry] of Object.entries(state.ledger)) if (entry.ready && entry.status === 'pending') (ready ||= []).push(key);
-        if (ready && !state.cursor.skipping && !stageBeatHold(state)) {
+        if (ready && state.voiceAvailable && !state.cursor.skipping && !stageBeatHold(state)) {
             const ledger = {...state.ledger};
             for (const key of ready) {
                 const {ready: _ready, ...entry} = ledger[key];

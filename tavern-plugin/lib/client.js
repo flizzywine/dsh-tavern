@@ -28009,6 +28009,10 @@ function tavernModelRefusalNotice(text) {
 		})();
 		// Whether the stage (and the bubbles) may voice now: the voice service is on and nobody holds the channel.
 		const stageVoicingAvailable = () => ttsClientAvailable() && !voiceChannel.held();
+		function subscribeStageVoicing(listener) {
+		    const stopPacks = subscribePackChanges(listener), stopChannel = voiceChannel.subscribe(listener);
+		    return () => { stopPacks(); stopChannel(); };
+		}
 		function voiceObservedTurn(_session,_turn,running) { return running; }
 		// Voice inputs of the stage and the chat (voice.js includes this source; Node tests require it or evaluate it beside their
 		// stubs): a segment's host speech input and the stage's voice look-ahead window.
@@ -31065,7 +31069,8 @@ function tavernModelRefusalNotice(text) {
 		    // a pack's new revision changes who its names and aliases name: open chats' speakers re-resolve (bubbles.js watch).
 		    if (event?.packId && event.revision !== undefined) notifyTavernDataChanged(['asset-packs'], 'asset-library');
 		}
-		function usePackRevision(select) { return React.useSyncExternalStore(fn => { packListeners.add(fn); return () => packListeners.delete(fn); }, select || (() => packRevision)); }
+		function subscribePackChanges(fn) { packListeners.add(fn); return () => packListeners.delete(fn); }
+		function usePackRevision(select) { return React.useSyncExternalStore(subscribePackChanges, select || (() => packRevision)); }
 		function packClient() { return packTransport?.available() ? packTransport.service : undefined; }
 		// 舞台设置 ↔ 素材库 deep links. The target waits here until the library tab consumes it.
 		let stageSidebar;
@@ -60720,7 +60725,7 @@ const {GAL_LOOK_ID, GAL_LOOK_MS, GAL_LEAK_FROM, GAL_MOTE_KINDS, GAL_LUMA, galLoo
 		function bindStageViews(createViews) {
 		    if (stageViews) throw new Error('Stage views already mounted');
 		    const views = createViews({React, ReactDOM, window, document, navigation:stageNavigation,
-		        speech:{player:voicePlayer,available:stageVoicingAvailable,speechInput:segmentSpeechInput,character:bubbleCharacter,language:characterVoiceLanguage,open:(id,args)=>rpc('openAssetPackVoice',args,id)},
+		        speech:{player:voicePlayer,available:stageVoicingAvailable,subscribe:subscribeStageVoicing,speechInput:segmentSpeechInput,character:bubbleCharacter,language:characterVoiceLanguage,open:(id,args)=>rpc('openAssetPackVoice',args,id)},
 		        transcriptOutfits:{rpc,signals:tavernSessionSignals},
 		        // what every stage feature (a mod's client/stage.cjs, features.cjs) may use: the host's RPC for its own requests
 		        features:{rpc},

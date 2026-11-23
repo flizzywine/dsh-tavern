@@ -7646,6 +7646,7 @@ function useStageConsumers(sessionId, store, onEvent, performanceAdapter, cgAdap
         };
         const connection=displays.attach(sessionId,consume);
         display.current=connection;
+        const stopVoiceStatus=voice.subscribe(() => store.dispatch({type:'STAGE_VOICE_AVAILABLE', available:voice.available()}));
         let closed=false;
         const close=()=>{
             if(closed)return;closed=true;instances.delete(close);
@@ -7653,13 +7654,13 @@ function useStageConsumers(sessionId, store, onEvent, performanceAdapter, cgAdap
             if(display.current===connection)display.current=null;
             const errors=[];
             // Leaving the display preserves the scene's page-wide ambience and BGM.
-            for(const cleanup of [()=>store.dispatch({type:'STAGE_OPEN',opened:false}),()=>ambience.performance(null,true),()=>sfx.stop(),()=>voice.stop(sessionId)]){
+            for(const cleanup of [stopVoiceStatus,()=>store.dispatch({type:'STAGE_OPEN',opened:false}),()=>ambience.performance(null,true),()=>sfx.stop(),()=>voice.stop(sessionId)]){
                 try{cleanup();}catch(error){errors.push(error);}
             }
             if(errors.length)throw new AggregateError(errors,'Stage display cleanup failed');
         };
         instances.add(close);
-        try{store.dispatch({type:'STAGE_OPEN', opened:true, revealed:false});}
+        try{store.dispatch({type:'STAGE_OPEN', opened:true, revealed:false, voiceAvailable:voice.available()});}
         catch(error){try{close();}catch(cleanup){throw new AggregateError([error,cleanup],'Stage display startup failed');}throw error;}
         return close;
     }, [sessionId, store]);
@@ -10222,6 +10223,7 @@ function createStageRuntimeState() {
         // the opened stage is on screen - its loading veil or 入场演出
         // has ended (STAGE_REVEAL). A consumer without a loader opens revealed (STAGE_OPEN).
         revealed: true,
+        voiceAvailable: true,
         // The session's performance kind declarations (stage-performance-kinds.cjs) once the stage publishes core and the
         // installed managed mods' (SESSION_INPUTS performanceKinds); null reads as the core kinds.
         performanceKinds: null,
@@ -10621,7 +10623,7 @@ function reduceStageRuntime(previous, event) {
         }
         const page = pageAt(state.text, state.cursor.anchor);
         // Voice starts only after the mounted consumer opens the stage, never during closed-session observation.
-        if (state.opened && page?.voice && (!page.voice.narration || state.settings?.config?.narrator) && phoneBeatKernel.phoneModAutoVoiceAllowed(state.director,page.anchor.para,state.settings?.config?.stage?.director===true)) {
+        if (state.opened && state.voiceAvailable && page?.voice && (!page.voice.narration || state.settings?.config?.narrator) && phoneBeatKernel.phoneModAutoVoiceAllowed(state.director,page.anchor.para,state.settings?.config?.stage?.director===true)) {
             // narration speaks per page (stageVoiceDescriptor); a line once per paragraph, its subtitle cards sharing the clip.
             // A line held for its 配音补译 (silent under the plain key) plays once its voice text, or the fallback, arrives.
             const key = JSON.stringify([sourceKey(state.source), 'voice', page.anchor.paragraphId, state.cursor.visitId, ...(page.voice.narration ? [page.anchor.offset] : []),
@@ -10971,7 +10973,8 @@ function reduceStageRuntime(previous, event) {
         if (event.visible) { requestRead(); readRound(); }
         break;
     case 'STAGE_OPEN':
-        patch({opened: event.opened, revealed: event.opened && event.revealed !== false});
+        patch({opened: event.opened, revealed: event.opened && event.revealed !== false,
+            ...(event.voiceAvailable !== undefined ? {voiceAvailable: event.voiceAvailable} : {})});
         effect('playback-policy', {opened:event.opened});
         if (event.opened) {
             // opening a settled stream is an explicit restore, not a late delta.
@@ -10988,6 +10991,12 @@ function reduceStageRuntime(previous, event) {
             cancelPlayback('stage-closed');
             patch({cursor: {...state.cursor, firstPageEligible: false, afterEligible: false}});
             scheduleRead();
+        }
+        break;
+    case 'STAGE_VOICE_AVAILABLE':
+        if (state.voiceAvailable !== event.available) {
+            patch({voiceAvailable: event.available});
+            if (event.available) scanEvents();
         }
         break;
     case 'READ_PENDING':
@@ -11136,7 +11145,7 @@ function reduceStageRuntime(previous, event) {
             effect('release-one-shot', {token: event.token}); break;
         }
         // The line's voice is prepared early and waits here for the page's sequencing point (stageBeatHold, releaseBeats).
-        if (entry.descriptor.kind === 'voice' && stageBeatHold(state)) { patch({ledger: {...state.ledger, [event.token.key]: {...entry, ready: true}}}); break; }
+        if (entry.descriptor.kind === 'voice' && (!state.voiceAvailable || stageBeatHold(state))) { patch({ledger: {...state.ledger, [event.token.key]: {...entry, ready: true}}}); break; }
         patch({ledger: {...state.ledger, [event.token.key]: {...entry, status: 'playing'}}});
         effect('play-one-shot', {token: event.token, descriptor: entry.descriptor});
         break;
@@ -11179,7 +11188,7 @@ function reduceStageRuntime(previous, event) {
     if (!state.disposed) {
         let ready = null;
         for (const [key, entry] of Object.entries(state.ledger)) if (entry.ready && entry.status === 'pending') (ready ||= []).push(key);
-        if (ready && !state.cursor.skipping && !stageBeatHold(state)) {
+        if (ready && state.voiceAvailable && !state.cursor.skipping && !stageBeatHold(state)) {
             const ledger = {...state.ledger};
             for (const key of ready) {
                 const {ready: _ready, ...entry} = ledger[key];
@@ -11708,7 +11717,7 @@ return {useSelector:useStageSelector,useRuntime:useStageRuntime,usePerformanceKi
 if(typeof module!=='undefined'&&typeof window==='undefined')module.exports={createStageRuntimeUi};
 
         // Stage speech identity and lookahead policy; the shared player owns synthesis and playback.
-function createStageSpeech({player,available=()=>false,speechInput,character:characterOf,language,open,allowed}={}) {
+function createStageSpeech({player,available=()=>false,subscribe=()=>()=>{},speechInput,character:characterOf,language,open,allowed}={}) {
 let closed=false;
 function readVoice(sessionId,input){
     if(closed)return Promise.reject(Object.assign(new Error('Stage speech disposed'),{name:'AbortError'}));
@@ -11784,7 +11793,7 @@ function stageVoiceWindowFromIndex(sessionId,index,turn,pages,page,config,limit 
 }
 
 function stop(sessionId){if(!closed && player?.get()?.owner===sessionId+':stage')player.stopPlayback();}
-return {handle:stageVoiceHandle,window:stageVoiceWindowFromIndex,available:()=>!closed&&available(),allowed,
+return {handle:stageVoiceHandle,window:stageVoiceWindowFromIndex,available:()=>!closed&&available(),subscribe,allowed,
     retain:handles=>{if(!closed)player.cancelPrefetch(handles);},stop,stopPlayback:stop,
     dispose(){closed=true;}};
 }
@@ -15353,9 +15362,6 @@ function GalStage(props) {
     // wheel stops it (the Ctrl hold effect below owns that for both), and that input is not also a page turn.
     const skippingRef = React.useRef(false);
     skippingRef.current = skipping;
-    // Leaving the stage silences it; the latest turn's lines still being synthesized finish into the cache, so the
-    // transcript's ▶ plays them at once (the session observation cancels whatever it no longer keeps).
-    React.useEffect(() => () => voicePlayer.stopPlayback(),[sessionId]);
     // Warm a small spoken opening even when its first page is narration; keep the existing two workers.
     const voiceWindow = skipping || backlog || awaiting ? [] : leasing ? pages.slice(page, page + 2).map(row => row.voice).filter(Boolean)
         : stageVoiceWindowFromIndex(sessionId,runtime.textIndex,turn,pages,page,config,entryGate.visible ? Infinity : 1);

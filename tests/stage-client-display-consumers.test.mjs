@@ -9,7 +9,7 @@ function harness({failOpen=false,failClose=false}={}){
  const React={useRef:value=>({current:value}),useMemo:fn=>fn(),useCallback:fn=>fn,useLayoutEffect:fn=>effects.push(fn())}
  const state={accepted:{scene:null},director:{},settings:{config:{stage:{director:true}}}}
  const store={getSnapshot:()=>state,dispatch:event=>{calls.push(event.opened?'open':'close');if(event.opened?failOpen:failClose)throw Error('dispatch')}}
- const consumers=createStageDisplayConsumers({React,displays,ambience:{performance:()=>calls.push('ambience-layer'),release:()=>calls.push('ambience-release')},sfx:{stop:()=>calls.push('sfx-stop')},voice:{allowed:()=>true,handle:()=>({click:options=>calls.push(options)}),stop:()=>calls.push('voice-stop'),stopPlayback:()=>calls.push('voice-playback')}})
+ const consumers=createStageDisplayConsumers({React,displays,ambience:{performance:()=>calls.push('ambience-layer'),release:()=>calls.push('ambience-release')},sfx:{stop:()=>calls.push('sfx-stop')},voice:{available:()=>true,subscribe:()=>()=>{},allowed:()=>true,handle:()=>({click:options=>calls.push(options)}),stop:()=>calls.push('voice-stop'),stopPlayback:()=>calls.push('voice-playback')}})
  return {calls,effects,displays,consumers,store}
 }
 test('display confirmation, speech routing and plugin teardown use one instance lifetime',async()=>{

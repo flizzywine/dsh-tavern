@@ -122,7 +122,7 @@ function GalStageOpeningEntry(props) {
 function bindStageViews(createViews) {
     if (stageViews) throw new Error('Stage views already mounted');
     const views = createViews({React, ReactDOM, window, document, navigation:stageNavigation,
-        speech:{player:voicePlayer,available:stageVoicingAvailable,speechInput:segmentSpeechInput,character:bubbleCharacter,language:characterVoiceLanguage,open:(id,args)=>rpc('openAssetPackVoice',args,id)},
+        speech:{player:voicePlayer,available:stageVoicingAvailable,subscribe:subscribeStageVoicing,speechInput:segmentSpeechInput,character:bubbleCharacter,language:characterVoiceLanguage,open:(id,args)=>rpc('openAssetPackVoice',args,id)},
         transcriptOutfits:{rpc,signals:tavernSessionSignals},
         // what every stage feature (a mod's client/stage.cjs, features.cjs) may use: the host's RPC for its own requests
         features:{rpc},
