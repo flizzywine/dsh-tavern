@@ -1380,6 +1380,8 @@ export async function apply(ctx) {
   }
   conversationRegistry = createTavernConversationRegistry({
     trace: requestPerformance,
+    // History lists each game under its card's current name (the cached catalogue summary).
+    cardName: async cardPath => (await cardSummaries.read(cardPath)).name,
     isDeleted: chatId => deletedChatIds.has(chatId),
     onPreviewChange: summary => sessionSignals.publish(summary.sessionId, {
       kind: 'conversation-preview', version: String(summary.preview.storageRevision ?? summary.updatedAt)

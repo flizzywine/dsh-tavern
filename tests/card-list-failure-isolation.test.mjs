@@ -23,3 +23,16 @@ for (const failed of ['listCards', 'listSessions']) {
     assert.equal(state.errors.length, 1)
   })
 }
+
+// A renamed card renames its history group at once: a card change reloads the history rows that carry its name.
+test('a card change reloads the history rows along with the card list', async () => {
+  const calls = []
+  const refresh = new Function('call', 'setCards', 'setHistory', 'setTrustedCardMode', 'publishSessionModes', 'current', 'isPlayMode', 'setRequestMode', 'window', 'tavernErrorHub', 'return (' + refreshSource + ')')(
+    async method => { calls.push(method); return { cards: [], sessions: [] } }, () => {}, () => {}, () => {}, () => {}, '', () => true, () => {}, {},
+    { resolve() {}, report() {} })
+  await refresh(['cards'])
+  assert.deepEqual(calls.sort(), ['listCards', 'listSessions'])
+  calls.length = 0
+  await refresh(['worldbooks'])
+  assert.deepEqual(calls, [])
+})

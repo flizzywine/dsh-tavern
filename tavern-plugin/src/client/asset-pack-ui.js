@@ -1184,9 +1184,9 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
     const [figureOrder,setFigureOrder]=React.useState(null),moving=React.useRef(0);
     const stored=pack&&current?packItems(pack,current):[],needle=query.trim().toLowerCase();
     const all=current==='figures'&&figureOrder?figureOrder.map(id=>stored.find(f=>f.id===id)).filter(Boolean):stored;
-    // the filter is the lamp model itself — 蓝灯 / 绿灯 / 关闭 (启用 / 关闭 for 演出风格),
+    // the filter is the lamp model itself — 蓝灯 / 绿灯 / 关闭 (启用 / 关闭 for 演出风格 and 舞台皮肤),
     // read with the rows' own entryLamp, so a 关闭 entry never also counts as 蓝灯. (The old 已启用 / 已停用 were 蓝灯+绿灯 / 关闭.)
-    // A stage skin has no state, so no filter.
+    // An 入场演出 has no state, so no filter.
     const stateless=STATELESS_KINDS.includes(current),lampless=LAMPLESS_KINDS.includes(current);
     const filterModes=stateless?[]:lampless?['on','off']:lampChoices(current)||['constant','keyword','off'];
     const filterLabels={...ENTRY_LAMPS,all:'全部'};
@@ -1241,7 +1241,7 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
         const {count}=await enqueue(async c=>{
           const targets=packItems(c,current).filter(a=>ids.has(a.id));
           if(targets.length!==ids.size)throw new Error('条目已被删除，请重新载入');
-          const updates=new Map(targets.filter(a=>a.enabled!==enabled).map(a=>[a.id,setEntryLamp(a,mode)]));
+          const updates=new Map(targets.filter(a=>(a.enabled!==false)!==enabled).map(a=>[a.id,setEntryLamp(a,mode)]));
           if(!updates.size)return {count:0};
           const request=current==='figures'?{fileUpdates:new Map([...updates].map(([id,a])=>['figures/'+id+'.json',jsonBytes(a)]))}:
             {patch:{assets:c.manifest.assets.map(a=>a.kind===current?(updates.get(a.id)||a):a)}};
