@@ -27499,7 +27499,8 @@ function tavernModelRefusalNotice(text) {
 		    if (figure.form === 'spine') return {stage:figure.modelUrl ? {key, identity, kind:'spine', url:figure.modelUrl, ...packSpineInputs(figure.outfit.spine, figure.spineEmotion), audio:activeAudio, voiced:Boolean(activeAudio)} : null, face};
 		    if (figure.form === 'live2d') return {stage:figure.modelUrl ? {key, identity, kind:'live2d', url:figure.modelUrl, ...packLive2dMood(figure.live2dEmotion), ...(figure.live2dBlush === true ? {blush:true} : {}), moodLine:speaking ? voiceKey : null, audio:activeAudio, voiced:Boolean(activeAudio), voiceStarted:Boolean(activeAudio && !activeAudio.paused && !activeAudio.ended), talking:false} : null, face};
 		    const src = views.stage?.view.src || state?.src;
-		    return {stage:src ? {key, identity, kind:'static', src, spriteBundle:views.stage, blinkBundle:packBlinkBundle(views.stage?.view.blink, views.stage?.view), spriteVoiceKey:voiceKey, audio:activeAudio} : null, face};
+		    // video: the still's 动态立绘 as the host projected it (asset-pack-presentation packFigureVideo), drawn over the still.
+		    return {stage:src ? {key, identity, kind:'static', src, spriteBundle:views.stage, blinkBundle:packBlinkBundle(views.stage?.view.blink, views.stage?.view), spriteVoiceKey:voiceKey, audio:activeAudio, video:figure.video || null} : null, face};
 		}
 		// what a tap reaction may borrow from the figure's own outfit for a
 		// moment, per reaction emotion: the Live2D emotionMap expression/gesture, the Spine emotionMap animation, or a sprite
@@ -60206,9 +60207,12 @@ const {GAL_LOOK_ID, GAL_LOOK_MS, GAL_LEAK_FROM, GAL_MOTE_KINDS, GAL_LUMA, galLoo
 		// image shown until the video can play, and instead of it when it cannot); durationMs; loop - the default playback (a consumer
 		// may override it); audio - the stage mixer layer its soundtrack plays on ('none': the file is silent or its sound is never
 		// used); size - its intrinsic [width, height] in pixels; fit - how it fills the stage ('cover' crops, 'contain' letterboxes);
-		// volume - the authored level of its sound (0..1).
+		// volume - the authored level of its sound (0..1); alpha - 'none' (default: an opaque picture) or 'right' (each frame holds the
+		// picture on its left half and the picture's opacity on its right half, as grey: one ordinary H.264 or VP9 file that every
+		// browser plays with transparency, Safari included; a figure's 动态立绘 uses it, size is then the picture's, half the frame).
 		function stageVideoContract() {
-		    const FIELDS = ['bundleKey', 'entry', 'poster', 'durationMs', 'loop', 'audio', 'size', 'fit', 'volume', 'loudness'];
+		    const FIELDS = ['bundleKey', 'entry', 'poster', 'durationMs', 'loop', 'audio', 'size', 'fit', 'volume', 'loudness', 'alpha'];
+		    const ALPHA = ['none', 'right'];
 		    const REQUIRED = ['bundleKey', 'entry', 'poster', 'durationMs', 'size'];
 		    const AUDIO = ['none', 'music', 'sfx', 'ambience'];
 		    const FITS = ['cover', 'contain'];
@@ -60236,6 +60240,7 @@ const {GAL_LOOK_ID, GAL_LOOK_MS, GAL_LEAK_FROM, GAL_MOTE_KINDS, GAL_LUMA, galLoo
 		        if (content.audio !== undefined) check(AUDIO.includes(content.audio), at + '.audio', 'expected one of ' + AUDIO.join(', '));
 		        if (content.fit !== undefined) check(FITS.includes(content.fit), at + '.fit', 'expected one of ' + FITS.join(', '));
 		        if (content.volume !== undefined) check(typeof content.volume === 'number' && content.volume >= 0 && content.volume <= 1, at + '.volume', 'expected 0..1');
+		        if (content.alpha !== undefined) check(ALPHA.includes(content.alpha), at + '.alpha', 'expected one of ' + ALPHA.join(', '));
 		        return content;
 		    }
 		    // The bundle's files, video first (it is the bundle's entry).
@@ -60253,7 +60258,7 @@ const {GAL_LOOK_ID, GAL_LOOK_MS, GAL_LEAK_FROM, GAL_MOTE_KINDS, GAL_LUMA, galLoo
 		        if (loop) return { time: duration > 0 ? t % duration : 0, ended: false };
 		        return { time: Math.min(t, Math.max(0, duration - 0.001)), ended: t >= duration };
 		    }
-		    return Object.freeze({ STAGE_VIDEO_FIELDS: FIELDS, STAGE_VIDEO_AUDIO: AUDIO, STAGE_VIDEO_FITS: FITS, STAGE_VIDEO_TYPES: VIDEO_TYPES,
+		    return Object.freeze({ STAGE_VIDEO_FIELDS: FIELDS, STAGE_VIDEO_AUDIO: AUDIO, STAGE_VIDEO_FITS: FITS, STAGE_VIDEO_ALPHA: ALPHA, STAGE_VIDEO_TYPES: VIDEO_TYPES,
 		        STAGE_VIDEO_MAX_BYTES: MAX_BYTES, validateStageVideo, stageVideoFiles, stageVideoSignature, stageVideoTime });
 		}
 		const stageVideo = stageVideoContract();

@@ -10,7 +10,7 @@ export const ASSET_CONTENT_FIELDS = Object.freeze({
   entrances: ['entrance', 'bundleKey'],
   // 视频 - one stage video (stage-video.cjs): its 'video' bundle (the video and its poster), duration,
   // default loop, soundtrack mixer layer, intrinsic size and fit. Referenced by id from entrances (and later performances, skins).
-  videos: ['bundleKey', 'entry', 'poster', 'durationMs', 'loop', 'audio', 'size', 'fit', 'volume', 'loudness'],
+  videos: ['bundleKey', 'entry', 'poster', 'durationMs', 'loop', 'audio', 'size', 'fit', 'volume', 'loudness', 'alpha'],
   backgrounds: ['media', 'pendingMedia', 'tags', 'stageTheme'],
   // caption: optional words laid over the picture while it shows (title, one line, how they appear).
   cg: ['media', 'pendingMedia', 'description', 'focusHints', 'caption'],

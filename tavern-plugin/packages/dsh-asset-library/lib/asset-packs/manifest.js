@@ -272,8 +272,12 @@ export function validatePackManifest(value, path = '$') {
       if (asset.kind === 'entrances' && content.bundleKey !== undefined)
         check(value.bundles[content.bundleKey]?.kind === 'entrance' && value.bundles[content.bundleKey].entry === entranceContract.stageEntranceFiles(content.entrance)[0],path+'.assets','Missing entrance bundle','MISSING_DEPENDENCY')
       // The video an entrance plays is a 视频 entry of the same pack.
-      if (asset.kind === 'entrances' && content.entrance.layers.video)
-        check(value.assets.some(row => row.kind === 'videos' && row.id === content.entrance.layers.video.asset),path+'.assets','Missing video entry: '+content.entrance.layers.video.asset,'MISSING_DEPENDENCY')
+      if (asset.kind === 'entrances' && content.entrance.layers.video) {
+        const video = value.assets.find(row => row.kind === 'videos' && row.id === content.entrance.layers.video.asset)
+        check(video,path+'.assets','Missing video entry: '+content.entrance.layers.video.asset,'MISSING_DEPENDENCY')
+        // The page player shows a video as it is: a figure video's matte half is for the stage's figures only.
+        check((video.alpha ?? 'none') === 'none',path+'.assets','An entrance plays an opaque video, not a figure video (alpha: right): '+video.id)
+      }
       // A video's bundle holds it (its entry) and its poster.
       if (asset.kind === 'videos')
         check(value.bundles[content.bundleKey]?.kind === 'video' && value.bundles[content.bundleKey].entry === content.entry,path+'.assets','Missing video bundle','MISSING_DEPENDENCY')

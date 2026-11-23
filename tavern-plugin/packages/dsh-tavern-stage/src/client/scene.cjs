@@ -247,6 +247,8 @@ function galCreateScene(host, options, own) {
     own(textures,value=>value.dispose());
     const figureAssets=stageViews.figureAssets.create({PIXI,renderer:app.renderer,screen:app.screen,textures,document,centred:math.galCentredAnatomy});
     own(figureAssets,value=>value.dispose());
+    const figureVideos=stageViews.figureVideos.create({PIXI});
+    own(figureVideos,value=>value.dispose());
     const renderers=new Map();
     for(const [kind,factory] of figureRenderers)renderers.set(kind,own(factory({PIXI,app,state,emotes:emotesBox,figures:figuresBox,onError,commit:commitFigureReplacement,lifeOn:figureLifeOn,tune,spine:createSpineRenderer}),value=>value.dispose()));
     const loadTexture=textures.load;
@@ -341,6 +343,7 @@ function galCreateScene(host, options, own) {
         release(()=>entry.appearance.dispose());
         if(entry.contact){const contact=entry.contact;entry.contact=null;release(()=>contact.destroy());}
         release(()=>entry.pose.dispose());
+        if(entry.video){const video=entry.video;entry.video=null;release(()=>video.destroy());}
         release(()=>entry.figureAsset?.destroy());
         entry.figureAsset=null;entry.spineFigure=null;
         for(const item of entry.fading)release(()=>item.asset?.destroy());
@@ -414,13 +417,31 @@ function galCreateScene(host, options, own) {
     // scheduler runs on (foreground-paused) timers and only flips child visibility.
     function clearBlink(entry) { entry.blink.reset(); }
     function blinkAllowed(entry) {
-        return !state.destroyed && !entry.dead && !entry.leaving && entry.container.visible && world.visible && !document.hidden && !galBlinkCalm();
+        return !state.destroyed && !entry.dead && !entry.leaving && entry.container.visible && world.visible && !document.hidden && !galBlinkCalm() && !entry.videoShown;
     }
     // A replace blink only sets the phase: layeredSpriteTickScene repaints the eyes on the layered canvas. An over-blend
     // blink is two child sprites whose visibility the scheduler flips.
     function tickBlink(entry) {
         entry.blink.update({bundle:entry.figure.blinkBundle,sprite:entry.sprite,baseTexture:entry.baseTexture,
             ready:entry.loadedIdentity===entry.figure.identity,rhythm:entry.idle.jitter.blink});
+    }
+    // 动态立绘 (figure-video.cjs): the loaded still's looping video plays over it while the figure stands on a visible stage
+    // with motion allowed, and the still shows otherwise: a tap reaction's still, a skip, reduced motion, or a line spoken
+    // through the still's talking mouths. One video per loaded picture; a new picture releases the old one's.
+    function tickFigureVideo(entry, figure, desc, dt) {
+        const video = entry.loadedIdentity === figure.identity ? figure.video : null;
+        const key = video ? JSON.stringify([video.source.packId, video.source.bundleKey, video.source.hash, video.rect]) : '';
+        if (entry.videoKey !== key || entry.videoSprite !== entry.sprite) {
+            const old = entry.video; entry.video = null; entry.videoShown = false;
+            old?.destroy();
+            entry.video = key && entry.sprite ? figureVideos.attach(entry.sprite, video) : null;
+            entry.videoKey = key; entry.videoSprite = entry.sprite;
+        }
+        if (!entry.video) return;
+        const tapped = Boolean(entry.tapTexture && entry.sprite.texture === entry.tapTexture.texture);
+        const talking = Boolean(figure.speaking && !desc.skipping && figure.spriteBundle);
+        entry.video.update({on: !entry.leaving && entry.container.visible && world.visible && !desc.reducedMotion && !desc.skipping && !tapped && !talking});
+        entry.videoShown = entry.video.tick(dt);
     }
     const GAL_NO_FIGURES = [];
     // the viewport layout of the directed cast (galFigureLayout), recomputed only
@@ -759,6 +780,7 @@ function galCreateScene(host, options, own) {
                 if (!layeredSpriteTickScene(entry, textures, PIXI, !desc.skipping && figure.speaking)) entry.sprite.texture = entry.baseTexture;
                 tickBlink(entry);
                 tapTextureStatic(entry, now);
+                tickFigureVideo(entry, figure, desc, dt * 1000);
             }
             const pose=entry.pose.update({sprite:entry.sprite,fading:entry.fading,now,reduced:reducedHop,
                 command:figure.act,idle:staticIdle(entry,desc,dt,now),framing,W,H,x:entry.cx.v,flip:entry.flip.v,lift:entry.lift.v,size:figure.size,ground:figure.ground});
