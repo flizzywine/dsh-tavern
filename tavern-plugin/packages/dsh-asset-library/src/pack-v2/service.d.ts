@@ -261,6 +261,8 @@ export interface AssetPackService extends CatalogueService {
   resolveFigures(input: {refs: FigureRef[]}): Promise<Array<{ref: FigureRef; value: Figure | null; voiceSpec: VoiceSpec | null; revision: string | null; contentHash: string | null; diagnostics: string[]}>>;
   /** Host-only disk input; never exposed by browser transport. */
   inspectImportFile(input: {file: string; copy?: boolean}): Promise<PackInspection | PackSetInspection>;
+  /** Host-only entry streams from a card archive. */
+  inspectImportEntries(input: {entries: {path: string; size: number; stream(): AsyncIterable<Uint8Array> | Promise<AsyncIterable<Uint8Array>>}[]; uploadHash: string}): Promise<PackInspection & {sourceMedia: Record<string, {sha256: string; size: number}>}>;
   inspectCardBundleFile(input: {file: string; path: string}): Promise<CardBundleInspection>;
   inspectImport(input: {bytes: Uint8Array; copy?: boolean}): Promise<PackInspection | PackSetInspection>;
   applyImport(input: {inspectionId: string; expectedRevision: string | null; decision: ImportDecision; acceptScriptRisk?: boolean; adoptLooks?: string[]}): Promise<(PackMutation & {mapping?: PackMapping}) | PackRemoval | {status: 'cancelled'}>;

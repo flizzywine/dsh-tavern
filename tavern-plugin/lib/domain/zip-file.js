@@ -1,7 +1,7 @@
 import { createReadStream } from 'node:fs'
 import { open } from 'node:fs/promises'
 import path from 'node:path'
-import { Transform } from 'node:stream'
+import { compose, Transform } from 'node:stream'
 import * as zlib from 'node:zlib'
 
 // A ZIP read from disk without loading it: the central directory up front, each entry streamed
@@ -126,7 +126,9 @@ export async function openZipFile(file, { label = 'ZIP', allowEncrypted = false,
     async function stream(entry) {
       if (entry.encrypted) fail(label, '加密文件需要使用人物卡密码导入入口')
       const { start, end } = await dataRange(entry)
-      const raw = entry.compressedSize === 0 ? null : createReadStream(file, { start, end: end - 1 })
+      // Bound how much an inflater can emit in one write even for highly compressible media.
+      const raw = entry.compressedSize === 0 ? null : createReadStream(file, { start, end: end - 1,
+        ...(entry.method === 8 ? { highWaterMark: 8 * 1024 } : {}) })
       let crc = 0, seen = 0
       const check = new Transform({
         transform(chunk, _encoding, done) {
@@ -142,10 +144,7 @@ export async function openZipFile(file, { label = 'ZIP', allowEncrypted = false,
         }
       })
       if (!raw) { check.end(); return check }
-      const source = entry.method === 8 ? raw.pipe(zlib.createInflateRaw()) : raw
-      source.on('error', error => check.destroy(error))
-      raw.on('error', error => check.destroy(error))
-      return source.pipe(check)
+      return entry.method === 8 ? compose(raw, zlib.createInflateRaw(), check) : compose(raw, check)
     }
 
     // prefix: how many bytes come before the archive (0 for a plain ZIP).

@@ -100,7 +100,7 @@ async function sourceCard(input, { name = '', password } = {}) {
   }
   const zip = await openCardZip(input, { password })
   try {
-    await readCardArchive(zip)
+    await readCardArchive(zip, { assets: 'none' })
     return zip
   } catch (error) { await zip.close(); throw error }
 }

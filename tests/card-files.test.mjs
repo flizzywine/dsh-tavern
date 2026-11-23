@@ -25,7 +25,7 @@ async function exportedEntries(exported) {
   try { return readZipEntries(await readFile(exported.file)) } finally { await exported.dispose() }
 }
 
-async function library(t, extra = {}) {
+async function library(t, extra = {}, { onLegacyBlobWrite } = {}) {
   const root = await mkdtemp(join(tmpdir(), 'card-files-'))
   t.after(() => rm(root, { recursive: true, force: true }))
   const profileData = createProfileDataStore({ dataRoot: root })
@@ -33,6 +33,9 @@ async function library(t, extra = {}) {
   let serial = 0
   const cardPreparation = createCardPreparation({ id: () => 'card-' + ++serial, now: Date.now })
   const castAssets = createCastAssets({ store: profileData })
+  const mediaStore = createMediaStore({ root: join(root, 'asset-packs') })
+  const legacyMedia = onLegacyBlobWrite ? { ...mediaStore, put(...args) { onLegacyBlobWrite(); return mediaStore.put(...args) } } : mediaStore
+  const assetPacks = createAssetPacks({ store: profileData, mediaStore: legacyMedia })
   const readCardWorkspace = async cardPath => {
     const existing = await fileResources.readCard(cardPath)
     if (existing === undefined || cardPreparation.isWorkspace(existing)) return existing
@@ -41,13 +44,13 @@ async function library(t, extra = {}) {
   const cardSummaries = createCardSummaryCache({ absolute: cardPath => fileResources.absolute(cardPath), read: async cardPath => projectCardSummary(await readCardWorkspace(cardPath)) })
   const files = createCardFiles({
     exportRoot: join(root, "exports"),
-    cardPreparation, fileResources, castAssets, assetPacks: createAssetPacks({ root, store: profileData, mediaStore: createMediaStore({ root: join(root, 'asset-packs') }) }), cardSummaries, readCardWorkspace,
+    cardPreparation, fileResources, castAssets, assetPacks, cardSummaries, readCardWorkspace,
     worldBooks: { characterBookForCard: async () => undefined },
     cardPlugins: createCardPlugins({ dataRoot: root, pluginsDir: join(root, 'plugins') }), presetLibrary: {}, importPreset: () => assert.fail('no start defaults'), ...extra, pluginApi: () => assert.fail('not a plugin format'),
     syncBubbles: async cardPath => { bubbleSyncs.push(cardPath) }
   })
   const bubbleSyncs = []
-  return { root, files, fileResources, castAssets, bubbleSyncs, cardPreparation, readCardWorkspace }
+  return { root, files, fileResources, castAssets, bubbleSyncs, cardPreparation, readCardWorkspace, mediaStore, assetPacks }
 }
 
 test('encrypted DSH imports authenticate before saving cards/plugins, and duplicates still require the password', async t => {
@@ -213,6 +216,28 @@ test('a damaged audio file rejects the whole attached pack and requires consent 
   assert.equal(duplicate.duplicate, true)
   assert.equal(duplicate.status, 'partial')
   assert.deepEqual(duplicate.libraryNotices, stage.packNotices)
+})
+
+test('embedded pack inspection reads entries directly and import reuses the verified media', async t => {
+  let service, legacyWrites = 0
+  const { root, files, mediaStore, assetPacks } = await library(t, { assetLibrary: () => service }, { onLegacyBlobWrite: () => legacyWrites++ })
+  const libraryService = createAssetPackService({ assetRoot: join(root, 'library'), mediaStore })
+  t.after(() => libraryService.dispose())
+  service = { ...libraryService, inspectImportFile: () => assert.fail('an embedded pack should not be repacked') }
+  const { manifest, files: media } = await syntheticPack()
+  const card = join(root, 'direct.dshcard'), name = 'direct.dshcard'
+  const entries = dshCard('直接导入', [[manifest.id, 'pack', '素材包']])
+  await writeFile(card, writeZipEntries([...entries, {path:'assets/pack/manifest.json', content:JSON.stringify(manifest)},
+    ...[...media].map(([path, content]) => ({path:'assets/pack/' + path, content}))]))
+
+  assert.equal((await files.previewCardArchiveFile(card, name)).packNotices, undefined)
+  assert.equal(await service.getPackSnapshot({ packId: manifest.id, readOnly: true }), null)
+  const result = await files.importCardArchiveFile(card, name, { previewed: true })
+  assert.equal(result.status, undefined)
+  assert.ok(await service.getPackSnapshot({ packId: manifest.id, readOnly: true }))
+  const legacy = await assetPacks.readPack(manifest.id, result.packs[0].contentHash)
+  assert.equal(legacyWrites, 1 + [...media.keys()].filter(key => !key.startsWith('media/')).length)
+  for (const row of manifest.files) assert.deepEqual(legacy.files[row.path], {sha256:row.sha256, size:row.size})
 })
 
 // A pack ZIP picked from the phone's download folder: read where it is, applied without asking only when nothing is lost.

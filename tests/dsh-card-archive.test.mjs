@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, open, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Readable } from 'node:stream'
@@ -60,10 +60,10 @@ function memoryStore() {
 }
 
 // A ZIP64 archive by hand: one deflated entry whose sizes and offset live in the ZIP64 extra field.
-function zip64(name, content) {
+function zip64(name, content, offset = 0) {
   const data = Buffer.from(content), packed = deflateRawSync(data), nameBytes = Buffer.from(name)
   const extra = Buffer.alloc(4 + 24); extra.writeUInt16LE(1, 0); extra.writeUInt16LE(24, 2)
-  extra.writeBigUInt64LE(BigInt(data.length), 4); extra.writeBigUInt64LE(BigInt(packed.length), 12); extra.writeBigUInt64LE(0n, 20)
+  extra.writeBigUInt64LE(BigInt(data.length), 4); extra.writeBigUInt64LE(BigInt(packed.length), 12); extra.writeBigUInt64LE(BigInt(offset), 20)
   const local = Buffer.alloc(30); local.writeUInt32LE(0x04034b50, 0); local.writeUInt16LE(45, 4); local.writeUInt16LE(8, 8); local.writeUInt32LE(crc32(data), 14)
   local.writeUInt32LE(0xffffffff, 18); local.writeUInt32LE(0xffffffff, 22); local.writeUInt16LE(nameBytes.length, 26); local.writeUInt16LE(extra.length, 28)
   const head = Buffer.concat([local, nameBytes, extra, packed])
@@ -71,8 +71,8 @@ function zip64(name, content) {
   central.writeUInt32LE(crc32(data), 16); central.writeUInt32LE(0xffffffff, 20); central.writeUInt32LE(0xffffffff, 24); central.writeUInt16LE(nameBytes.length, 28); central.writeUInt16LE(extra.length, 30); central.writeUInt32LE(0xffffffff, 42)
   const directory = Buffer.concat([central, nameBytes, extra])
   const record = Buffer.alloc(56); record.writeUInt32LE(0x06064b50, 0); record.writeBigUInt64LE(44n, 4); record.writeUInt16LE(45, 12); record.writeUInt16LE(45, 14)
-  record.writeBigUInt64LE(1n, 24); record.writeBigUInt64LE(1n, 32); record.writeBigUInt64LE(BigInt(directory.length), 40); record.writeBigUInt64LE(BigInt(head.length), 48)
-  const locator = Buffer.alloc(20); locator.writeUInt32LE(0x07064b50, 0); locator.writeBigUInt64LE(BigInt(head.length + directory.length), 8); locator.writeUInt32LE(1, 16)
+  record.writeBigUInt64LE(1n, 24); record.writeBigUInt64LE(1n, 32); record.writeBigUInt64LE(BigInt(directory.length), 40); record.writeBigUInt64LE(BigInt(offset + head.length), 48)
+  const locator = Buffer.alloc(20); locator.writeUInt32LE(0x07064b50, 0); locator.writeBigUInt64LE(BigInt(offset + head.length + directory.length), 8); locator.writeUInt32LE(1, 16)
   const end = Buffer.alloc(22); end.writeUInt32LE(0x06054b50, 0); end.writeUInt16LE(0xffff, 8); end.writeUInt16LE(0xffff, 10); end.writeUInt32LE(0xffffffff, 12); end.writeUInt32LE(0xffffffff, 16)
   return Buffer.concat([head, directory, record, locator, end])
 }
@@ -100,6 +100,31 @@ test('从磁盘读 ZIP：逐个流式解压并校验，ZIP64 能读，越界路�
   const big = await openZipFile(join(dir, 'z64.zip'))
   assert.equal((await big.readBuffer(big.entries.get('dsh.json'))).toString(), '{"format":"dshcard"}')
   await big.close()
+})
+
+test('ZIP64 can read a card entry with a local header beyond 4 GiB', async t => {
+  const file = join(await temp(t), 'beyond-four-gib.dshcard'), offset = 4 * 1024 ** 3
+  const entry = zip64('card.json', '{"name":"Large card"}', offset)
+  const handle = await open(file, 'wx')
+  try { await handle.write(entry, 0, entry.length, offset) } finally { await handle.close() }
+  const zip = await openZipFile(file)
+  try {
+    assert.equal(zip.entries.get('card.json').localOffset, offset)
+    assert.equal((await zip.readBuffer(zip.entries.get('card.json'))).toString(), '{"name":"Large card"}')
+  } finally { await zip.close() }
+})
+
+test('card preview only reads the cover of a card with embedded assets', async t => {
+  const cover = 'assets/icon/cover.png', background = 'assets/background/room.png'
+  const card = {data:{name:'Preview',assets:[{type:'background',name:'Room',uri:'embeded://' + background},
+    {type:'icon',name:'main',uri:'embeded://' + cover}]}}
+  const file = await zipFile(await temp(t), 'preview.charx', { 'card.json':JSON.stringify(card), [cover]:PNG, [background]:PNG })
+  const zip = await openZipFile(file), reads = []
+  try {
+    const preview = await readCardArchive({ ...zip, async readBuffer(entry, limit) { reads.push(entry.path); return zip.readBuffer(entry, limit) } }, {assets:'cover'})
+    assert.deepEqual(reads, ['card.json', cover])
+    assert.deepEqual(preview.resolve('embeded://' + cover), PNG)
+  } finally { await zip.close() }
 })
 
 test('素材包：每个文件按内容只存一份，同 id 同摘要的包直接复用；只按白名单直接提供', async t => {

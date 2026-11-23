@@ -46,9 +46,10 @@ function referencedPaths(card) {
 
 /**
  * What an archive holds: { kind, card, packs: [{ prefix, id, contentHash, format, title, credits }],
- * dependencies: [{ id, title }] (bound packs the archive does not carry), plugins, info, resolve(uri) }. Pack files are not read here; only the card's own asset files are.
+ * dependencies: [{ id, title }] (bound packs the archive does not carry), plugins, info, resolve(uri) }.
+ * Previews only need the cover. Callers validating metadata can skip the card's assets entirely.
  */
-export async function readCardArchive(zip) {
+export async function readCardArchive(zip, { assets = 'all' } = {}) {
   let kind, card, packs = [], dependencies = [], plugins = [], info = null, defaults = null, managed = null
   if (zip.entries.has('dsh.json')) {
     kind = 'dshcard'
@@ -107,7 +108,10 @@ export async function readCardArchive(zip) {
   }
   if (!card || typeof card !== 'object') throw invalid('人物卡数据不是 JSON 对象')
   const files = new Map()
-  for (const file of referencedPaths(card)) {
+  const data = card.data || card
+  const cover = (Array.isArray(data.assets) ? data.assets : []).find(asset => asset?.type === 'icon' && asset.name === 'main')?.uri
+  const paths = assets === 'all' ? referencedPaths(card) : assets === 'cover' && typeof cover === 'string' && cover.startsWith('embeded://') ? [cover.slice('embeded://'.length)] : []
+  for (const file of paths) {
     const entry = zip.entries.get(file)
     if (entry && entry.size <= MAX_CARD_ASSET_BYTES) files.set(file, await zip.readBuffer(entry, MAX_CARD_ASSET_BYTES))
   }

@@ -15,7 +15,8 @@ import {migrateRecallPriorityManifest, migrateRecallPriorityFigure, migrateRecal
 import {BLOB_MIME_TYPES,verifyPackFiles,verifyPackHashes} from '../asset-packs/index.js'
 import { randomUUID, createHash } from 'node:crypto'
 import { createWriteStream } from 'node:fs'
-import { compose, Transform } from 'node:stream'
+import { compose, Transform, Writable } from 'node:stream'
+import { pipeline } from 'node:stream/promises'
 import { publicNetwork, downloadBounded } from '../pack-catalogue/network.js'
 import { httpsUrl } from '../pack-catalogue/catalogue.js'
 import { createCatalogueManager } from '../pack-catalogue/manager.js'
@@ -53,7 +54,7 @@ export {projectPackFigures} from './export-figures.js'
 import { exportPrivacyView } from './export-privacy.js'
 import { carryFigureImageMedia, figureImageExtras, figureLookChanges, withFigureImageExtras, FIGURE_IMAGE_EXTENSION } from './figure-image-extras.js'
 export {writeZip as writePackZip, openZip as openPackZip, zipPath as packZipPath} from '../zip.js'
-import { openZip, writeZip } from '../zip.js'
+import { openZip, writeZip, zipPath } from '../zip.js'
 import { validatePackIdentities, validateAsset, validatePackDocuments, computeContentHash, sha256 } from '../asset-packs/index.js'
 import { shape, check, validateUuid, validateShortId, validateStateId, validateHash, validateAssetRef, validateFigureRef, canonicalJson } from '../asset-packs/common.js'
 
@@ -541,7 +542,10 @@ export function createAssetPackService(options) {
   // An archive's documents are read into memory; its media blobs (by far most of a large pack) go to a spool on disk.
   // Resolves {files, spool}: the caller releases the spool once, after retaining it for each preview it keeps.
   async function readZipFile(file, archiveBytes, extraBytes, signal) {
-    const zip = await openZip(file, limits), files = new Map()
+    return readZipEntries(await openZip(file, limits), archiveBytes, extraBytes, signal)
+  }
+  async function readZipEntries(zip, archiveBytes, extraBytes, signal) {
+    const files = new Map()
     guardArchive(zip.entries)
     const held = zip.entries.reduce((sum, entry) => sum + (SPOOLED.test(entry.path) ? 0 : entry.size), 0)
     check(held + archiveBytes + ingressBytes + previewBytes + extraBytes + externalUsage() <= limits.spoolBytes, '$.bytes', 'Import spool budget exceeded', 'LIMIT_EXCEEDED')
@@ -565,12 +569,19 @@ export function createAssetPackService(options) {
     })
   }
   async function readArchive(bytes, remote) {
-    const {files, spool} = remote ? await readZipFile(remote.file, 0, cardBundleUsage().bytes, remote.signal) : await readZipFiles(bytes)
+    const {files, spool} = remote?.zip ? await readZipEntries(remote.zip, 0, cardBundleUsage().bytes, remote.signal)
+      : remote ? await readZipFile(remote.file, 0, cardBundleUsage().bytes, remote.signal) : await readZipFiles(bytes)
     try {
-      if (isPackSet(files)) { const set = []; for (const pack of readPackSet(files)) set.push(await importPack(pack.manifest, pack.files)); return {set, spool} }
+      if (isPackSet(files)) {
+        check(!remote?.zip, '$', 'Expected one embedded pack', 'INVALID_INPUT')
+        const set = []; for (const pack of readPackSet(files)) set.push(await importPack(pack.manifest, pack.files)); return {set, spool}
+      }
       const root = files.get('manifest.json'); check(root, '$', 'Missing pack manifest', 'FILE_CLOSURE_MISMATCH')
       files.delete('manifest.json')
-      return {pack:await importPack(readDocument(root),files), spool}
+      // Keep identities for the original media even if import normalization changes the pack.
+      const sourceMedia = remote?.zip ? Object.fromEntries([...files].filter(([, file]) => file instanceof SpooledFile)
+        .map(([name, file]) => [name, {sha256:file.sha256, size:file.length}])) : undefined
+      return {pack:await importPack(readDocument(root),files), spool, sourceMedia}
     } catch (error) { spool.release(); throw error }
   }
   async function importPack(manifest,files) {
@@ -1496,6 +1507,40 @@ export function createAssetPackService(options) {
     async inspectImportFile({file, copy}) {
       return service.inspectImport({copy, [REMOTE_ARCHIVE]:await archiveFile(file)})
     },
+    // Embedded packs have no standalone ZIP. The host supplies CRC-checked streams
+    // from the outer card; use the same spool, manifest verification and preview.
+    async inspectImportEntries({entries, uploadHash}) {
+      validateHash(uploadHash, '$.uploadHash')
+      check(Array.isArray(entries) && entries.length <= limits.entries, '$.entries', 'ZIP entry count exceeds limit', 'LIMIT_EXCEEDED')
+      let total = 0
+      const names = new Set()
+      for (const entry of entries) {
+        const name = zipPath(entry.path).toLowerCase()
+        check(!names.has(name), entry.path, 'Duplicate ZIP path', 'INVALID_PATH')
+        names.add(name)
+        check(Number.isSafeInteger(entry.size) && entry.size >= 0 && entry.size <= limits.entrySize, entry.path, 'ZIP entry size exceeds limit', 'LIMIT_EXCEEDED')
+        total += entry.size
+        check(total <= limits.totalSize, '$.entries', 'ZIP uncompressed size exceeds limit', 'LIMIT_EXCEEDED')
+      }
+      async function consume(entry, destination) {
+        let seen = 0
+        const meter = new Transform({
+          transform(chunk, _encoding, done) {
+            seen += chunk.length
+            done(seen <= entry.size ? null : new Error('ZIP expanded size exceeds declaration'), chunk)
+          },
+          flush(done) { done(seen === entry.size ? null : new Error('ZIP size verification failed')) }
+        })
+        await pipeline(await entry.stream(), meter, destination)
+      }
+      const zip = {entries, consume, async read(entry) {
+        const bytes = Buffer.allocUnsafe(entry.size)
+        let offset = 0
+        await consume(entry, new Writable({write(chunk, _encoding, done) { offset += chunk.copy(bytes, offset); done() }}))
+        return bytes
+      }}
+      return service.inspectImport({[REMOTE_ARCHIVE]:{zip, archiveSha256:uploadHash, local:true}})
+    },
     async inspectCardBundleFile({file, path}) {
       return service.inspectCardBundle({path, [REMOTE_ARCHIVE]:await localArchive(file)})
     },
@@ -1512,7 +1557,10 @@ export function createAssetPackService(options) {
         const installed = await all()
         // One hash per transfer: a downloaded archive's own digest, else the uploaded bytes once (shared by a set's packs).
         const uploadHash = remote?.archiveSha256 || await sha256(bytes), options = {remote:remote?.local ? undefined : remote, uploadHash, installed, copyOnly:input.copy === true, spool:read.spool}
-        if (!read.set) return copy(await inspectPack(read.pack, options))
+        if (!read.set) {
+          const preview = await inspectPack(read.pack, options)
+          return copy(read.sourceMedia ? {...preview, sourceMedia:read.sourceMedia} : preview)
+        }
         // a 素材包合集 — one ordinary preview per pack, each confirmed and applied on its own
         // (applyImport); discarding the set's inspectionId drops every pack still pending. A catalogue entry is one pack.
         check(!remote?.source, '$.packId', 'Catalogue entry is not a pack set', 'INTEGRITY_MISMATCH')
