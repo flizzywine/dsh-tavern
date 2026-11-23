@@ -17,9 +17,21 @@ function createStageNavigation({window, document, navigator, playCue, checkSetup
 const GAL_COVER_BOX = ['width', 'height', 'min-width', 'min-height', 'max-width', 'max-height', 'flex'];
 let releaseCover = null;
 function galUncover() { releaseCover?.(); }
-function galCoverChat() {
+// wholeApp (a phone or tablet, device.cjs galDevicePortable): the rest of the host app is covered too - every region beside
+// the session on its way up to the app's root (sidebar, side panels, ...). The host's own :has() rules restyle every rendered
+// element of the document whenever the stage inserts or removes one (a typed page, a measuring clone), so those regions are
+// what a phone pays for on every page. Each region is its own cover: a host read inside one (a panel's polled visibility)
+// restyles only that region, never the whole app. A desktop keeps them: its title strip's window drag region is in the app
+// and works through the stage (drag regions go by position).
+function galCoverPieces(node) {
+    return window.getComputedStyle(node).display === 'contents' ? [...node.children].flatMap(galCoverPieces) : [node];
+}
+function galCoverChat({wholeApp = false} = {}) {
     if (releaseCover) return;
+    const session = document.querySelector('[data-dsh-fork-session="play"]');
     const roots = [...document.querySelectorAll('[data-dsh-fork-session="play"] > *')];
+    if (wholeApp && session) for (let node = session; node.parentElement && node.parentElement !== document.body; node = node.parentElement)
+        for (const region of node.parentElement.children) if (region !== node) roots.push(...galCoverPieces(region));
     // One layout read for all roots before any write.
     const boxes = roots.map(node => node.getBoundingClientRect());
     const saved = roots.map((node, i) => {
@@ -26690,7 +26702,7 @@ function galDeviceQuality(store) {
     };
 }
 
-return {useProfile:useGalDeviceProfile, state:galDeviceState, profile:galDeviceProfile, subscribe:galDeviceSubscribe, handheld:galDeviceHandheld, skinSide:galDeviceSkinSide, quality:galDeviceQuality, recommend:galQualityRecommend, tiers:GAL_QUALITY_TIERS, dispose() {
+return {useProfile:useGalDeviceProfile, state:galDeviceState, profile:galDeviceProfile, subscribe:galDeviceSubscribe, handheld:galDeviceHandheld, portable:galDevicePortable, skinSide:galDeviceSkinSide, quality:galDeviceQuality, recommend:galQualityRecommend, tiers:GAL_QUALITY_TIERS, dispose() {
     if (disposed) return;
     disposed = true;
     const errors = [];
@@ -27418,7 +27430,7 @@ function watchStageAvailability({source,activate,report=error=>console.error('[d
 if(typeof module!=='undefined'&&typeof window==='undefined')module.exports={watchStageAvailability};
 
         'use strict';
-function createStageViews({React, ReactDOM, window, document, navigation, useBubbles, useGalEntryLoader, GalStage, Icon, usePages}) {
+function createStageViews({React, ReactDOM, window, document, navigation, useBubbles, useGalEntryLoader, GalStage, Icon, usePages, portable = () => false}) {
 const cleanups = new Set();
 let disposed = false;
 function own(cleanup) {
@@ -27499,7 +27511,7 @@ function StagePortal(props) {
         });
         try {
             document.body.appendChild(mount);
-            galCoverChat();
+            galCoverChat({wholeApp: portable()});
             document.addEventListener("fullscreenchange", onFullscreen);
             window.addEventListener("resize", onResize);
             // The stage is shown in full screen on the Windows Desktop whenever it stands, also when it comes back without a click (a
@@ -34466,7 +34478,7 @@ if (typeof module !== 'undefined') module.exports = {timerClockRemaining,timerCl
                     // included): while none is attached the game keeps its page view.
                     const ControllerStage=views.controller.Stage,leases=host.stageLeases;
                     const GalStage=leases?function StageLeaseConsumer(props){options.React.useEffect(()=>leases.attach(props.sessionId),[props.sessionId]);return options.React.createElement(ControllerStage,props);}:ControllerStage;
-                    Object.assign(views,own(createStageViews({...options,GalStage,useGalEntryLoader:admission.useLoader,usePages:views.statusPanel?.usePages})));
+                    Object.assign(views,own(createStageViews({...options,GalStage,useGalEntryLoader:admission.useLoader,usePages:views.statusPanel?.usePages,portable:views.device.portable})));
                     if(options.globalSettings)views.GlobalSettings=createStageSettingsModule({React:options.React,...options.globalSettings,CubismCoreEntry:live2d?.Entry}).TavernStageSettingsSection;
                     // 素材库 / 舞台 tab pages: built over the core asset-pack closure and bound into it for this activation.
                     if(options.assetPack){views.assetPack=createStageAssetPackViews(options.assetPack.names);if(live2d)views.assetPack.live2dKit=live2d.previews;own({dispose:options.assetPack.bind(views.assetPack)});}

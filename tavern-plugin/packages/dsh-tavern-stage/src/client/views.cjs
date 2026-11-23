@@ -1,5 +1,5 @@
 'use strict';
-function createStageViews({React, ReactDOM, window, document, navigation, useBubbles, useGalEntryLoader, GalStage, Icon, usePages}) {
+function createStageViews({React, ReactDOM, window, document, navigation, useBubbles, useGalEntryLoader, GalStage, Icon, usePages, portable = () => false}) {
 const cleanups = new Set();
 let disposed = false;
 function own(cleanup) {
@@ -80,7 +80,7 @@ function StagePortal(props) {
         });
         try {
             document.body.appendChild(mount);
-            galCoverChat();
+            galCoverChat({wholeApp: portable()});
             document.addEventListener("fullscreenchange", onFullscreen);
             window.addEventListener("resize", onResize);
             // The stage is shown in full screen on the Windows Desktop whenever it stands, also when it comes back without a click (a
