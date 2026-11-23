@@ -476,7 +476,7 @@ body:not(.dsh-fork-debug) [data-dsh-fork-session="play"] .dsh-tavern-question-fr
 body.dsh-tavern-shell-active [data-composer-card] button[class*="_primary"] {
   --dsw-alias-button-info-fill: var(--fork-accent-fill, var(--dsh-tavern-accent));
   --dsw-alias-button-info-hover: var(--fk-s-base-accentHover, var(--dsw-alias-button-info-fill));
-  color: var(--fork-on-accent, #fff);
+  color: var(--fork-on-accent);
 }
 
 /* Keep the host's thinking shimmer, but tint only this status with the active skin. */
