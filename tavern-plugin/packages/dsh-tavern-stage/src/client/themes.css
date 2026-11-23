@@ -4287,7 +4287,8 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
   0% { transform: translateY(0); animation-timing-function: cubic-bezier(.3333, 0, .6667, 1); }
   21.8% { transform: translateY(calc(var(--art-rise) / var(--art-font) * 1em)); animation-timing-function: cubic-bezier(.3333, 0, .6667, 1); }
   41.8%, 100% { transform: translateY(0); } }
-@keyframes fork-art-lamp-blink { 0% { visibility: visible; } 51.6% { visibility: hidden; } }
+/* No 0% keyframe: the lamp is a pseudo-element of the box, and a forced `visible` would show it while the box itself is hidden (a CG seen alone). */
+@keyframes fork-art-lamp-blink { 51.6% { visibility: hidden; } }
 @keyframes fork-art-lamp-spin { from { rotate: 0deg; } to { rotate: -360deg; } }
 /* art on phones (skin-interface.md §13): the image box keeps fitting the width (--art-u), but its words keep the
    phone reading size (the classic box's 17px floor; the name 14px): the body text and the plate's name never shrink with
