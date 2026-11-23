@@ -9,6 +9,10 @@ import meter from '../tavern-plugin/shared/pcm-loudness.cjs'
 import {measureVoiceLoudness} from '../tavern-plugin/packages/dsh-tavern-tts/src/loudness.js'
 import {createAssetPackService} from '../tavern-plugin/packages/dsh-asset-library/src/pack-v2/service.js'
 import {authorAudioLoudness} from '../tavern-plugin/packages/dsh-asset-library/src/pack-v2/audio-loudness.js'
+import {sealNativePack,writeNativePack} from '../tavern-plugin/packages/dsh-asset-library/src/pack-v2/pack-source.js'
+import {sealPack} from '../tavern-plugin/packages/dsh-asset-library/src/pack-v2/validation.js'
+import {decodeMedia} from '../tavern-plugin/packages/dsh-asset-library/src/pack-v2/media.js'
+import {syntheticPack} from './fixtures/asset-packs/pack.mjs'
 import {speechAudioToWav} from '../tavern-plugin/lib/speech-wav.js'
 import {clipRun} from '../tavern-plugin/packages/dsh-tavern-stage/lib/clip/clip-export-process.js'
 
@@ -85,6 +89,31 @@ test('browser upload preparation, worker, replace metadata and server publicatio
   }
 })
 
+test('a sealed pack carries its loudness and an import only reads it, with or without one', async t => {
+  const root=await mkdtemp(join(tmpdir(),'pack-loudness-'))
+  t.after(()=>rm(root,{recursive:true,force:true}))
+  const fixture=await syntheticPack(), audio=pack => pack.manifest.assets.filter(asset => ['music','sfx','ambience'].includes(asset.kind))
+  assert.ok(audio(fixture).length && audio(fixture).every(asset => !asset.loudness))
+  const sealed=await sealNativePack(fixture.manifest,fixture.files)
+  for (const asset of audio(sealed)) assert.equal(asset.loudness?.v,1,asset.kind)
+  // the same pack as an older producer wrote it: sealed without measuring
+  const bare={manifest:structuredClone(fixture.manifest),files:new Map(fixture.files)}
+  await sealPack(bare.manifest,bare.files)
+  const oldPath=process.env.PATH,oldFfmpeg=process.env.FFMPEG_PATH
+  process.env.PATH='';delete process.env.FFMPEG_PATH
+  t.after(()=>{process.env.PATH=oldPath;if(oldFfmpeg!==undefined)process.env.FFMPEG_PATH=oldFfmpeg})
+  for (const [name,pack] of [['sealed',sealed],['bare',bare]]) {
+    const archive=join(root,name+'.zip')
+    await writeNativePack(pack,archive)
+    const service=createAssetPackService({assetRoot:join(root,name),decodeMedia,measureAudio:async () => { throw new Error('an import must not measure') }})
+    try {
+      const inspected=await service.inspectImport({bytes:await readFile(archive)})
+      const installed=(await service.applyImport({inspectionId:inspected.inspectionId,expectedRevision:inspected.expectedRevision,decision:'install',acceptScriptRisk:true})).snapshot
+      assert.deepEqual(audio(installed).map(asset => asset.loudness),audio(pack).map(asset => asset.loudness),name)
+    } finally { await service.dispose() }
+  }
+})
+
 test('PCM16 speech passes through and remaining ffmpeg boundaries explain the remedy', async t => {
   const oldPath=process.env.PATH,oldFfmpeg=process.env.FFMPEG_PATH
   process.env.PATH='';delete process.env.FFMPEG_PATH
@@ -93,7 +122,7 @@ test('PCM16 speech passes through and remaining ffmpeg boundaries explain the re
   for(const mediaType of ['audio/mpeg','audio/ogg'])await assert.rejects(speechAudioToWav(Buffer.alloc(16),mediaType),/安装 ffmpeg.*WAV/)
   for(const kind of ['music','ambience']) {
     const manifest={assets:[{kind,id:kind,name:'测试',media:'audio'}],blobs:{audio:{ext:'wav'}}}
-    await assert.rejects(authorAudioLoudness(manifest,new Map([['media/audio.wav',voices[0]]]),{measure:async()=>null}),/缺少响度.*安装 ffmpeg.*作者/)
+    await assert.rejects(authorAudioLoudness(manifest,new Map([['media/audio.wav',voices[0]]]),{measure:async()=>null}),/缺少响度.*安装 ffmpeg/)
   }
   for(const command of ['missing-ffmpeg-test','missing-ffprobe-test'])await assert.rejects(clipRun(command,[]),error=>{
     assert.match(error.clipUserMessage,/片段导出需要 ffmpeg 和 ffprobe/);return true

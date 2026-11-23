@@ -41,10 +41,11 @@ export async function measureAudioFile(file, kind) {
 }
 
 import {mkdtemp, writeFile, unlink, rmdir} from 'node:fs/promises'
-import {tmpdir} from 'node:os'
+import {tmpdir, availableParallelism} from 'node:os'
 import {SpooledFile} from '../asset-packs/common.js'
 import path from 'node:path'
 import {assetContents} from '../shared/asset-variant-content.js'
+const MEASURE_CONCURRENCY = Math.max(1, Math.min(4, availableParallelism() - 1))
 
 // A video's bundle entry is its audio source; silent video is not audio ingress.
 export function audioContentFile(manifest, asset, content) {
@@ -53,7 +54,8 @@ export function audioContentFile(manifest, asset, content) {
   return `media/${content.media}.${manifest.blobs[content.media]?.ext}`
 }
 
-// Called only at ingress, before sealing. Unchanged installed media is not a migration.
+// Called where a pack is authored (an edit, an offline seal), before sealing; imports only read the result.
+// Unchanged installed media is not a migration.
 export async function authorAudioLoudness(manifest, files, {previous, read, measure = measureAudioFile} = {}) {
   const known = new Map(), old = new Map()
   const identity = (pack, name) => pack.files?.find(row => row.path === name)?.sha256 || name
@@ -66,6 +68,8 @@ export async function authorAudioLoudness(manifest, files, {previous, read, meas
       if (content.loudness && (asset.kind !== 'ambience' || content.loudness.brightnessDb !== undefined)) known.set(key, content.loudness)
     }
   }
+  // Measurements are collected first and run a few ffmpeg processes at a time: a music pack has dozens of tracks.
+  const jobs = new Map(), pending = []
   let temporary, changed = false
   try {
     for (const asset of manifest.assets) for (const content of assetContents(asset)) {
@@ -86,25 +90,41 @@ export async function authorAudioLoudness(manifest, files, {previous, read, meas
         continue
       }
       if (!known.has(key)) {
-        const extension = path.extname(name)
-        if (!/^\.(wav|mp3|ogg|flac|m4a|aac|opus|webm|mp4)$/.test(extension)) throw new Error('Unsupported audio extension')
-        const stored = files.get(name)
-        let value
-        // an import's spooled entry is measured where it lies (the spool keeps the extension)
-        if (stored instanceof SpooledFile) value = await measure(stored.file, asset.kind)
-        else {
-          const bytes = stored instanceof Uint8Array ? stored : await read(name, stored.length)
-          temporary ??= await mkdtemp(path.join(tmpdir(), 'dsh-audio-ingress-'))
-          const file = path.join(temporary, 'audio' + extension)
-          await writeFile(file, bytes)
-          try { value = await measure(file, asset.kind) } finally { await unlink(file) }
+        if (!jobs.has(key)) {
+          const extension = path.extname(name)
+          if (!/^\.(wav|mp3|ogg|flac|m4a|aac|opus|webm|mp4)$/.test(extension)) throw new Error('Unsupported audio extension')
+          jobs.set(key, {name, extension, asset})
         }
-        if (!value) throw new Error('素材包音频缺少响度信息且无法补测，请安装 ffmpeg 后重新导入，或请作者重新导出带响度信息的素材包：' + asset.name)
-        known.set(key, value)
+        pending.push([content, key]); changed = true
+        continue
       }
-      const loudness = known.get(key)
-      content.loudness = {...loudness}; changed = true
+      content.loudness = {...known.get(key)}; changed = true
     }
+    if (!jobs.size) return changed
+    const queue = [...jobs], measured = new Map()
+    if (queue.some(([, job]) => !(files.get(job.name) instanceof SpooledFile))) temporary = await mkdtemp(path.join(tmpdir(), 'dsh-audio-ingress-'))
+    let next = 0, failure
+    const measureNext = async () => {
+      while (next < queue.length && !failure) {
+        const index = next++, [key, {name, extension, asset}] = queue[index], stored = files.get(name)
+        try {
+          let value
+          // an import's spooled entry is measured where it lies (the spool keeps the extension)
+          if (stored instanceof SpooledFile) value = await measure(stored.file, asset.kind)
+          else {
+            const bytes = stored instanceof Uint8Array ? stored : await read(name, stored.length)
+            const file = path.join(temporary, index + extension)
+            await writeFile(file, bytes)
+            try { value = await measure(file, asset.kind) } finally { await unlink(file) }
+          }
+          if (!value) throw new Error('音频缺少响度信息且无法测量，请安装 ffmpeg 后重试：' + asset.name)
+          measured.set(key, value)
+        } catch (error) { failure ??= error }
+      }
+    }
+    await Promise.all(Array.from({length:Math.min(MEASURE_CONCURRENCY, queue.length)}, measureNext))
+    if (failure) throw failure
+    for (const [content, key] of pending) content.loudness = {...measured.get(key)}
     return changed
   } finally { if (temporary) await rmdir(temporary) }
 }
