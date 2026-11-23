@@ -143,7 +143,7 @@ function fakeLibrary(installed, { conflict = ['update', 'keep-both', 'cancel'], 
         const before = installed.get(manifest.id), inspectionId = 'inspection-' + (previews.size + 1)
         const choices = !before ? ['install', 'keep-both', 'cancel'] : before.hash === manifest.contentHash ? ['noop', 'cancel'] : conflict
         previews.set(inspectionId, { id: manifest.id, hash: manifest.contentHash, data })
-        return { inspectionId, packId: manifest.id, contentHash: manifest.contentHash, expectedRevision: before ? 'r-' + before.hash : null, choices, scriptRisk: [], ...(removed && choices === conflict ? { removed } : {}) }
+        return { inspectionId, packId: manifest.id, contentHash: manifest.contentHash, incoming: { manifest: { name: manifest.name } }, expectedRevision: before ? 'r-' + before.hash : null, choices, scriptRisk: [], ...(removed && choices === conflict ? { removed } : {}) }
       } finally { await zip.close() }
     },
     async applyImport({ inspectionId, decision }) {
@@ -183,6 +183,54 @@ test('the preview lists only the packs to decide about; merge is applied as chos
   assert.deepEqual(applied, [[fresh, 'install'], [same, 'noop'], [changed, 'merge']])
 })
 
+// A pack ZIP picked from the phone's download folder: read where it is, applied without asking only when nothing is lost.
+test('a pack ZIP installs a new pack, leaves an identical one, and hands a clashing or scripted one to the player', async t => {
+  const fresh = '55555555-5555-4555-8555-555555555555', same = '77777777-7777-4777-8777-777777777777', changed = '66666666-6666-4666-8666-666666666666', scripted = '88888888-8888-4888-8888-888888888888'
+  const installed = new Map([[changed, { hash: 'other-version', data: 'old' }], [same, { hash: sha('v1'), data: 'png' }]])
+  const { assetLibrary, applied } = fakeLibrary(installed)
+  const risky = () => ({ ...assetLibrary(), inspectImportFile: async input => ({ ...(await assetLibrary().inspectImportFile(input)), scriptRisk: [{ packId: scripted }] }) })
+  const { root, files } = await library(t, { assetLibrary })
+  const zip = async (id, name, hash = 'v1') => {
+    const file = join(root, name + '.zip')
+    await writeFile(file, writeZipEntries([{ path: 'manifest.json', content: JSON.stringify({ id, name, contentHash: sha(hash) }) }, { path: 'media/a.png', content: 'png' }]))
+    return file
+  }
+  assert.deepEqual(await files.importPackArchiveFile(await zip(fresh, '新包')), { packs: [{ id: fresh, title: '新包', status: 'installed' }] })
+  assert.deepEqual(await files.importPackArchiveFile(await zip(same, '同包')), { packs: [{ id: same, title: '同包', status: 'existing' }] })
+  const clash = await files.importPackArchiveFile(await zip(changed, '旧包', 'v2'))
+  assert.deepEqual(clash.packs, [])
+  assert.match(clash.notices[0], /旧包.*冲突.*素材库里处理/)
+  assert.deepEqual(applied, [[fresh, 'install'], [same, 'noop'], [changed, 'cancel']], 'the clashing pack is cancelled, never replaced')
+  assert.deepEqual(installed.get(changed), { hash: 'other-version', data: 'old' })
+  const scriptedFile = await zip(scripted, '脚本包')
+  const { files: withScripts } = await library(t, { assetLibrary: risky })
+  const blocked = await withScripts.importPackArchiveFile(scriptedFile)
+  assert.match(blocked.notices[0], /脚本包.*带脚本/)
+  assert.equal(applied.at(-1)[1], 'cancel')
+  await assert.rejects(files.importPackArchiveFile(join(root, 'missing.zip')), /ENOENT|no such file/)
+  const notPack = () => ({ ...assetLibrary(), inspectImportFile: async () => { throw Object.assign(new Error('Missing pack manifest'), { code: 'FILE_CLOSURE_MISMATCH' }) } })
+  await assert.rejects((await library(t, { assetLibrary: notPack })).files.importPackArchiveFile(scriptedFile), /不是素材包.*导入卡 ZIP/)
+  const full = () => ({ ...assetLibrary(), inspectImportFile: async () => { throw Object.assign(new Error('ENOSPC: no space left on device'), { code: 'ENOSPC' }) } })
+  const { files: onFullDisk } = await library(t, { assetLibrary: full })
+  await assert.rejects(onFullDisk.importPackArchiveFile(scriptedFile), /磁盘空间不够.*没有留下半个文件/)
+})
+// A pack collection whose second pack fails to install: the first stays installed and is named, the rest are cancelled.
+test('a pack collection that fails part way names what was installed and cancels the previews left', async t => {
+  const calls = []
+  const pack = (n, name) => ({ inspectionId: 'p' + n, packId: 'id-' + n, choices: ['install', 'cancel'], scriptRisk: [], incoming: { manifest: { name } }, expectedRevision: null })
+  const set = { kind: 'pack-set', inspectionId: 'set', packs: [pack(1, '甲'), pack(2, '乙'), pack(3, '丙')] }
+  const assetLibrary = () => ({
+    async inspectImportFile() { return set },
+    async applyImport({ inspectionId, decision }) {
+      calls.push([inspectionId, decision])
+      if (inspectionId === 'p2' && decision === 'install') throw Object.assign(new Error('ENOSPC'), { code: 'ENOSPC' })
+      return { status: decision }
+    },
+  })
+  const { files } = await library(t, { assetLibrary })
+  await assert.rejects(files.importPackArchiveFile('unused.zip'), error => /「乙」没有装入：磁盘空间不够.*已装入：「甲」.*其余 1 个包没有处理/.test(error.message))
+  assert.deepEqual(calls, [['p1', 'install'], ['p2', 'install'], ['p2', 'cancel'], ['p3', 'cancel']])
+})
 test('撤回 puts the card and the packs it replaced back; only the latest update can be taken back', async t => {
   const packId = '66666666-6666-4666-8666-666666666666'
   const installed = new Map()
