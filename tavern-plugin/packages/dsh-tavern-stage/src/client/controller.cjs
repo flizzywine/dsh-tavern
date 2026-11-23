@@ -307,8 +307,22 @@ function GalStage(props) {
     const restoreLoading = React.useRef(null);
     const [storyPage, setStoryPage, savedPosition, markStoryRead] = useStagePosition(sessionId,runtime,parts,storyPages,
         {restored:restored === sessionId, onSelect:() => setRestored(sessionId)});
+    const [openedReader, setOpenedReader] = React.useState(null);
+    const [readerState, setReaderState] = React.useState(null);
+    const readerPanel = openedReader?.sessionId === sessionId ? openedReader : null;
+    const reader = readerPanel && readerState;
+    const readerPages = React.useMemo(() => (reader?.lines || []).map((line, index) => ({
+        kind: line.speaker ? 'line' : 'narration', text: line.text, alias: line.alias, name: line.speaker,
+        lineId: line.id, para: index + 1, anchor: {para: index + 1, paragraphId: line.id, offset: 0},
+    })), [reader?.lines]);
     // While a gameMode view leases the stage its lines are the pages read here (useStageLease); the story keeps its place.
-    const leaseView = useStageLease({sessionId, config, voiceAvailable, story:{pages:storyPages, page:storyPage, setPage:setStoryPage, markRead:markStoryRead}});
+    const gameLease = useStageLease({sessionId, config, voiceAvailable, story:{pages:storyPages, page:storyPage, setPage:setStoryPage, markRead:markStoryRead}});
+    const leaseView = readerPanel ? {
+        leasing: true, scene: {actors: []}, key: readerPanel.pageId + ':' + (reader?.section || ''),
+        pages: readerPages, page: reader?.index || 0, waiting: !reader?.canAdvance,
+        setPage: index => { if (index !== reader?.index) reader?.command('select', index); },
+        markRead() {}, pastEnd: () => { if (reader?.canAdvance) reader.command('next'); }, isRead: () => false,
+    } : gameLease;
     const leasing = leaseView.leasing, pages = leaseView.pages, page = leaseView.page, setPage = leaseView.setPage, markRead = leaseView.markRead;
     // The reading's identity in page keys: the round, or the lease (its pages are not the round's).
     const readTurn = leasing ? 'lease:' + leaseView.key : turn;
@@ -405,7 +419,7 @@ function GalStage(props) {
     const accepted = runtime.accepted;
     const interopNotice = useCapabilityNotice(sessionId, runtime.cursor.mode === 'live', accepted.scene?.interopNotices);
     // with 「导演布景」 off the scene shows the manual picture; director state is untouched.
-    const borrowed = useStageLeaseAssets(sessionId, leaseView, runtime.source, runtime.director.assetRevision);
+    const borrowed = useStageLeaseAssets(sessionId, gameLease, runtime.source, runtime.director.assetRevision);
     const pack = {state:accepted.layout?.state || accepted.scene?.state, scene:useBgManualScene(sessionId, leasing ? borrowed?.scene : accepted.scene), characters:leasing ? borrowed?.characters || [] : accepted.figures || [],
         avatars:accepted.avatars || [], widgets:accepted.widgets || [],
         audio:{music:accepted.music,soundscape:accepted.ambience,sfx:[]}, core:leasing ? borrowed?.scene?.core || '' : accepted.layout?.core || accepted.scene?.core || ''};
@@ -506,13 +520,12 @@ function GalStage(props) {
     // passes it at once, in the same frame (no frame of the last line without the panel; skip plays no voice). A round with
     // nothing to read (openingOnly) is at its end.
     // A lease is at its end once the reader turned past its last line (pastEnd) until the game appends more.
-    const atEnd = leasing ? atLastLine && (leaseView.waiting || skipping) : atLastLine && (!readingPage || endedAt === endKey || skipping);
+    const atEnd = leasing ? atLastLine && (leaseView.waiting || (!readerPanel && skipping)) : atLastLine && (!readingPage || endedAt === endKey || skipping);
     function turnPastEnd() {
         if (leasing) { leaseView.pastEnd(); return; }
         setEndedAt(endKey);
         if (endedAt === endKey || !atLastLine || !readingPage || pageOpen || !cardPages?.openingEndPage ||
             runtime.textIndex.get(turn)?.body?.greeting !== true) return;
-        setAuto(false);
         openCardPage(cardPages.openingEndPage);
     }
     // Backlog (gal-backlog.js): while open, auto and skip pause and the choices are hidden.
@@ -534,6 +547,11 @@ function GalStage(props) {
     const pageList = cardPages ? cardPages.pages : [];
     // openPage: the open page's id (null: none). Every overlay condition below reads pageOpen.
     const [openPage, setOpenPage] = React.useState(null);
+    const openStageReader = React.useCallback((panel, pageId) => {
+        setReaderState(null);
+        setOpenedReader({...panel, pageId, sessionId});
+        setOpenPage(null);
+    }, [sessionId]);
     const openDeclared = openPage === null ? null : pageList.find(declared => declared.id === openPage) || null;
     const pageOpen = openDeclared !== null;
     // entryCardPage: the page this visit's showOn entry opened, while it is the open one. It stands in front of a stage not
@@ -588,7 +606,11 @@ function GalStage(props) {
     // opened from the system menu's 回想 item (gal-menu.js), not from the control row.
     function openGallery() { setHidden(false); setGallery(true); }
     function closeGallery() { setGallery(false); backlogClosedAt.current = Date.now(); }
-    function openCardPage(id) { if (!pageList.some(declared => declared.id === id)) return; forkLipSync.wake(); forkUiSfx.play("open"); setHidden(false); setOpenPage(id); }
+    function openCardPage(id) {
+        if (!pageList.some(declared => declared.id === id)) return;
+        if (readerPanel?.pageId === id) { forkUiSfx.play("close"); setOpenedReader(null); setReaderState(null); setAuto(false); return; }
+        forkLipSync.wake(); forkUiSfx.play("open"); setHidden(false); setOpenPage(id);
+    }
     function closeCardPage() { forkUiSfx.play("close"); backlogClosedAt.current = Date.now(); setOpenPage(null); }
     // closing an entry page (×, Esc, the backdrop, close()) is not entering: 返回主页面, as the stage menu's row.
     function leaveEntryPage() { forkUiSfx.play("close"); props.onExit(); }
@@ -985,6 +1007,7 @@ function GalStage(props) {
     const playingHere = Boolean(voice && player && player.owner === voice.owner && player.id === voice.id);
     function replay() {
         forkLipSync.wake();
+        if (readerPanel) { reader?.command('replay'); return; }
         if (!voice) return;
         playEvents.emit('voice_replay', sessionId, { turn, page });
         const now = voicePlayer.get();
@@ -1007,7 +1030,7 @@ function GalStage(props) {
         at:Math.min(pages[page]?.para || 1, runtime.director.through || 0), offset:runtime.cursor.anchor?.offset || 0, sending:!!waiting, running,
         waiting:!leasing && atEnd && (typed || openingOnly) && !hidden && !awaiting && !running && !sourceWidget.openKey && !!props.Choices});
     const awaitingDirection = runtime.indicators.awaitingDirection;
-    const audioBusy = playingHere && (!player.audio || forkForeground.isPlaying(player.audio)) && !player.error;
+    const audioBusy = readerPanel ? reader?.playing === true : playingHere && (!player.audio || forkForeground.isPlaying(player.audio)) && !player.error;
     const controlsInput=stageViews.input.useInput({sessionId,rootRef,
         modal:configOpen||galleryOpen||menuOpen,backlog,page:pageOpen?openPage:null,pages:pageList,hidden,auto,skipping,atEnd,widgetOpen:!!sourceWidget.openKey},action=>{
         switch(action.type){
@@ -1109,7 +1132,8 @@ function GalStage(props) {
     const phoneVoice = phoneCallKey ? phoneCall.speaking() : null, callAudio = phoneVoice?.audio || null;
     voiceSeen.current = {voice, view:galVoiceView(voicePlayer, voice)};
     const voiceError = (playingHere ? player.error : null) || voicePlayer.getError(voice);
-    const voiceState = voiceError ? "error" : playingHere ? (player.audio ? (player.audio.paused ? "paused" : "playing") : "loading") : voice ? "ready" : "";
+    const voiceState = readerPanel && reader?.voiced ? (reader.playing ? "playing" : "ready")
+        : voiceError ? "error" : playingHere ? (player.audio ? (player.audio.paused ? "paused" : "playing") : "loading") : voice ? "ready" : "";
     // The top-right voice line (notices.cjs useVoiceStatus): her reply on a call, else the line on screen (silent under SKIP).
     const callVoice = React.useSyncExternalStore((phoneCall || GAL_NO_PHONE_CALL).subscribe, () => galCallVoice(phoneCall));
     const voiceStatus = useGalVoiceStatus(callVoice ? JSON.parse(callVoice)
@@ -1407,7 +1431,7 @@ function GalStage(props) {
     }
     // Mixer and Config: cheap previews (a short built-in one-shot, the current voice line).
     const testSfx = pack.audio?.sfx[0]?.url;
-    const mixTests = { voice: voice ? replay : null, sfx: testSfx ? () => stageSfx.play(testSfx) : null };
+    const mixTests = { voice: voice || reader?.voiced ? replay : null, sfx: testSfx ? () => stageSfx.play(testSfx) : null };
     // Boxless narration (centre dim / image band) is opt-in: only a skin that declares art.narration gets a layout; every
     // other skin keeps its own narration box (a figure under classic must not read as another skin).
     const narrationPresentation=React.useRef(null);
@@ -1429,11 +1453,12 @@ function GalStage(props) {
     // data-reduced-motion mirrors CONFIG 「减少动态」 for CSS-only theme motion (the crt power-on/blink).
     const menuProps = leaving => Object.assign({ leaving, sessionId, useChat: props.choiceProps.useChat, Regenerate: props.Regenerate, waitLines, regenerate: menuRegenerate, historical: turn !== latestTurn, latestTurn,
         busy: regenerateBlocked, controls: homes.menu, auto, skipping: skipLatch, atEnd, touch: firstRun.touch,
-        letter: activeSkin?.art?.menu?.rows?.letter, titleLetter: activeSkin?.art?.menu?.title?.letter, glyphTiles: activeSkin?.art?.menu?.glyphTiles, pages: pageList }, menuActions);
+        letter: activeSkin?.art?.menu?.rows?.letter, titleLetter: activeSkin?.art?.menu?.title?.letter, glyphTiles: activeSkin?.art?.menu?.glyphTiles,
+        pages: readerPanel ? pageList.map(item => item.id === readerPanel.pageId ? {...item, label: '返回序章'} : item) : pageList }, menuActions);
     return h("div", { ref: rootRef, tabIndex: -1, className: "fork-gal-stage" + (film ? " is-film" : "") + (backlog ? " is-backlog" : "") + (configOpen ? " is-config" : "") + (menuOpen ? " is-menu" : "") + (hidden ? " is-ui-hidden" : "") + (takeover.up ? " is-takeover" : "") + (insertPicture ? " is-picture" : ""), "data-theme": theme, "data-card-page-menu": pageList.filter(declared => declared.menu).map(declared => declared.id).join(" ") || undefined, "data-entry": entryGate.phase, "data-entrance": entrance.stageAttr, "data-skin-buttons": homes.declared.join(" ") || undefined, "data-reduced-motion": reading.reducedMotion === true || undefined, "data-cg-visible": !!accepted.cg || cg.visible || undefined, "data-narration-layout": narrationLayout, "data-fk-device": device, "data-fk-quality": quality, "data-phone-open": sourceWidget.phoneOpen || undefined, "data-covered": scene.covered || undefined, "data-fk-context": "stage-" + theme, "data-hud": hud.state || undefined, "data-speaking": speaker ? "true" : "false", "data-fk-portrait-bust": bustAlias ? "" : undefined,
         // a square skin (its --gal-ui-radius, stage-skin-adapter.cjs, is 0): its engine widgets drop their soft shadows (theme.css)
         "data-fk-skin-square": activeSkin && (activeSkin.ui?.radius ?? activeSkin.textbox?.shape?.radius ?? 10) === 0 ? "" : undefined, "data-fork-stage-turn": turn, "data-fork-stage-para": para,
-        "data-stage-lease": leasing ? leaseView.lease.owner : undefined,
+        "data-stage-lease": gameLease.lease?.owner, "data-stage-reader": readerPanel?.id,
         "data-fk-tx-leaving": stageLeaving || undefined, "data-fk-tx-entering": stageEntering || undefined, "data-fk-veil": veilShown.current || undefined,
         // the current skin's text percent; theme.css multiplies the skin's own sizes by it
         // and keeps the text block where the skin puts it (data-fk-text-scale: only set off 100%, so 100% is untouched).
@@ -1446,6 +1471,11 @@ function GalStage(props) {
         onWheel: wheel,
         onContextMenu: event => { event.preventDefault(); if(galleryOpen||pageOpen)return; if (hidden) setHidden(false); else setHidden(true); } },
         h(GalScene, { start:loadGate.visible, onPresented:revision => { loadGate.onPresented(revision); if (entryGate.visible) onPresented(revision); else if (entrance.active) heldPresented.current = revision; }, onBackdrop:loadGate.onBackdrop, scene: displayScene, onDebug: onSceneDebug, onUi, onError: setSceneError, reload: sceneReload, onLayout: setFigureLayout }),
+        readerPanel ? h('div', {className:'fork-gal-reader-scene', style:{position:'absolute',inset:0,zIndex:1}}, h(stageViews.statusPanel.PluginPanel, {
+            key:sessionId + ':' + readerPanel.pageId, sessionId, plugin:readerPanel.plugin, id:readerPanel.id, stagePageId:readerPanel.pageId,
+            reader:{publish:setReaderState, paused:backlog || configOpen || galleryOpen || pageOpen || menuOpen, silent:skipping,
+                key:(key, released, shiftKey) => window.dispatchEvent(new window.KeyboardEvent(released ? 'keyup' : 'keydown', {key, shiftKey, cancelable:true}))},
+        })) : null,
         !accepted.cg && !cg.visible && figuresShown && !stageShot && standIns.length ? h(GalStandIns, { members: standIns, portraits, colorOf }) : null,
         cg.node,
         // the item glow takes the speaker's 形象色.
@@ -1479,7 +1509,7 @@ function GalStage(props) {
         h("div", { className: "fork-gal-letterbox", "aria-hidden": true }, h("i"), h("i")),
         // the leasing game's own controls (lease-hud.cjs), between the top bar and the text box in this skin's theme scope.
         // Follow the text box's held line through transitions, not the read high-water mark or game queue.
-        leasing ? h(stageViews.lease.Hud, { lease: leaseView.lease, rows: leaseHudRows(), device, read: leaseView.read,
+        leasing && !readerPanel ? h(stageViews.lease.Hud, { lease: leaseView.lease, rows: leaseHudRows(), device, read: leaseView.read,
             displayed: boxLine ? {lineId:boxLine.lineId, speaker:boxLine.kind === 'line' ? boxLine.name || null : null} : null }) : null,
         h(stageEntryContextType().Provider, { value: entryStore }, h("div", { ref: topbarRef, className: "fork-gal-topbar", onClick: event => event.stopPropagation(), onFocus: hud.onFocus, onBlur: hud.onBlur },
             h("div", { className: "fork-gal-topleft" },
@@ -1586,7 +1616,7 @@ function GalStage(props) {
         // CONFIG, 回想 or 履历 opened from a page (openSettings / openGallery / openBacklog) stands over it: Esc, which the page takes
         // first, closes that then.
         pageOpen ? h(stageViews.statusPanel.Overlay, { key: sessionId + ":" + openPage, sessionId, pageId: openPage, label: openDeclared.label, shortcut: openDeclared.shortcut, config, source: runtime.source, size: openDeclared.size,
-            closeControl: openDeclared.closeControl, covered: configOpen || galleryOpen || backlog, saved: cardPages.fresh !== true, entry: entryOpen, openingPage: pageList.find(declared => declared.opening === true)?.id || '', opening: openDeclared.opening === true, onClose: configOpen ? closeConfig : galleryOpen ? closeGallery : backlog ? closeBacklog : entryOpen ? leaveEntryPage : closeCardPage, onAction: cardPageAction }) : null,
+            closeControl: openDeclared.closeControl, covered: configOpen || galleryOpen || backlog, saved: cardPages.fresh !== true, entry: entryOpen, openingPage: pageList.find(declared => declared.opening === true)?.id || '', opening: openDeclared.opening === true, onClose: configOpen ? closeConfig : galleryOpen ? closeGallery : backlog ? closeBacklog : entryOpen ? leaveEntryPage : closeCardPage, onAction: cardPageAction, onStageReader:openStageReader }) : null,
         configOpen || configLeaving ? h(GalConfigScreen, { sessionId, data: props.data, tests: mixTests, textSkin: shownSkin.current, skinHud: activeSkin?.hud?.reveal || "auto", skinPending: configSkin.pending === true, onClose: closeConfig, leaving: configLeaving }) : null,
         // §18 E3: after closing, a drawn menu with an exit motion stays mounted (inert) while its items leave.
         menuOpen ? h(stageViews.menu.Menu, menuProps(false)) : menuLeaving ? h(stageViews.menu.Menu, menuProps(true)) : null,

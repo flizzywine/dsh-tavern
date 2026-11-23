@@ -38950,6 +38950,9 @@ function tavernFloorHeightRecall(key, width) {
 					if (input.stageSize !== undefined && input.stageSize !== "window" && input.stageSize !== "full") throw new TypeError("registerPanel 的 stageSize 只能是 window 或 full");
 					if (input.stageOnly !== undefined && typeof input.stageOnly !== "boolean") throw new TypeError("registerPanel 的 stageOnly 必须是布尔值");
 					if (!stage && (input.stageOnly !== undefined || input.stageSize !== undefined)) throw new TypeError("registerPanel 的 stageOnly 和 stageSize 需要 stage: true");
+					if (input.stageReader !== undefined && typeof input.stageReader !== "boolean") throw new TypeError("registerPanel 的 stageReader 必须是布尔值");
+					const stageReader = input.stageReader === true;
+					if (stageReader && (!stage || input.stageSize !== "full")) throw new TypeError("registerPanel 的 stageReader 需要全屏舞台面板");
 					const owner = ownerOf(this);
 					const tabId = "tavern-plugin:" + owner + ":" + input.id;
 					const render = input.render, title = input.title.trim();
@@ -38968,7 +38971,7 @@ function tavernFloorHeightRecall(key, width) {
 								return React.createElement(tavernPluginBoundary(), { owner: owner, fallback: React.createElement("p", { className: "dsh-tavern-plugin-panel-error" }, "插件 " + owner + " 的面板出错了") },
 									gameId ? React.createElement(render, { gameId: gameId, visible: props.visible !== false }) : React.createElement("p", { className: "dsh-tavern-plugin-panel-empty" }, "请先打开一局游戏。"));
 							} }) : null;
-						panels.set(tabId, { owner, title, render, stage, stageSize });
+						panels.set(tabId, { owner, title, render, stage, stageSize, stageReader });
 						changed();
 						return function () { if (typeof dispose === "function") dispose(); panels.delete(tabId); changed(); };
 					}, "tavernUi.registerPanel()");
@@ -39571,19 +39574,19 @@ function tavernFloorHeightRecall(key, width) {
 			return React.useSyncExternalStore(tavernUiExtensions.subscribe, tavernUiExtensions.getSnapshot, tavernUiExtensions.getSnapshot);
 		}
 
-		function TavernStagePluginPanel({ sessionId, plugin, id, stagePageId }) {
+		function TavernStagePluginPanel({ sessionId, plugin, id, stagePageId, reader }) {
 			useTavernUiExtensions();
 			useTavernCardPluginScopes();
 			const panel = tavernUiExtensions.stagePanel(sessionId, plugin, id), h = React.createElement;
 			if (!panel) return h("p", { role: "status" }, "这局游戏的插件面板已不可用。");
 			return h(tavernPluginBoundary(), {
 				owner: panel.owner, fallback: h("p", { role: "alert" }, "插件面板加载失败。")
-			}, h(panel.render, { gameId: sessionId, visible: true, stagePageId }));
+			}, h(panel.render, { gameId: sessionId, visible: true, stagePageId, ...(panel.stageReader && reader ? {reader} : {}) }));
 		}
 		async function findTavernStagePluginPanel(sessionId, plugin, id) {
 			await tavernCardPluginScopes.load();
 			const panel = tavernUiExtensions.stagePanel(sessionId, plugin, id);
-			return panel ? {title: panel.title, size: panel.stageSize} : null;
+			return panel ? {title: panel.title, size: panel.stageSize, ...(panel.stageReader ? {stageReader:true} : {})} : null;
 		}
 
 		// Created on first use: React is the host's, not available at bundle load.

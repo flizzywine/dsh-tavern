@@ -175,7 +175,7 @@ function openCardPage({sessionId, page, label, size, shortcut, closeControl, sav
                 throw new Error('openPluginPanel 需要插件名和面板 ID');
             const panel = onPluginPanel && await findPluginPanel?.(sessionId, plugin, id);
             if (!panel || closed || !shown) throw new Error('当前卡的舞台插件面板不可用');
-            onPluginPanel({plugin, id, title: panel.title, size: panel.size});
+            onPluginPanel({plugin, id, title: panel.title, size: panel.size, ...(panel.stageReader ? {stageReader:true} : {})});
             return {opened: true};
         }
         if (method === 'fillInput') {
@@ -398,7 +398,7 @@ function usePages(sessionId) {
 // closeControl 'page' (a full page that closes itself): once its document shows, the sheet draws no ×, and Esc, the page's
 // shortcut, the backdrop and right-click ask the page (requestClose → its onCloseRequest) instead of closing; covered
 // (CONFIG, 回想 or 履历 opened over the page) keeps them closing that one first. Loading, empty and failed pages keep the ×.
-function Overlay({sessionId, pageId, label: declaredLabel, shortcut, size, closeControl, covered, saved, entry, openingPage, opening, config, source, onClose, onAction}) {
+function Overlay({sessionId, pageId, label: declaredLabel, shortcut, size, closeControl, covered, saved, entry, openingPage, opening, config, source, onClose, onAction, onStageReader}) {
     const h = React.createElement, root = React.useRef(null), body = React.useRef(null), panel = React.useRef(null);
     const close = React.useRef(onClose), act = React.useRef(onAction), coveredNow = React.useRef(covered);
     close.current = onClose; act.current = onAction; coveredNow.current = covered === true;
@@ -426,12 +426,13 @@ function Overlay({sessionId, pageId, label: declaredLabel, shortcut, size, close
             pluginPanelShowing: () => Boolean(pluginNow.current),
             onPluginPanel: PluginPanel ? selected => {
                 if (coveredNow.current || pluginNow.current) throw new Error('请先关闭当前舞台窗口');
+                if (selected.stageReader && onStageReader && !entry) { onStageReader(selected, pageId); return; }
                 pluginNow.current = selected; setPluginPanel(selected); root.current?.focus();
             } : null});
         panel.current = current;
         if (facesNow.current) current.setFaces(facesNow.current);
         return () => { if (panel.current === current) panel.current = null; current.dispose(); };
-    }, [sessionId, pageId, declaredLabel, size, shortcut, closeControl, saved, entry, openingPage, opening, ready, trusted]);
+    }, [sessionId, pageId, declaredLabel, size, shortcut, closeControl, saved, entry, openingPage, opening, ready, trusted, onStageReader]);
     React.useEffect(() => { panel.current?.setHelper(helper); }, [helper]);
     const names = state.figures.map(figure => figure.name);
     const faces = useFaces ? useFaces({config, sessionId, source, names, px: FACE_PX}) : new Map();
@@ -479,7 +480,7 @@ function Overlay({sessionId, pageId, label: declaredLabel, shortcut, size, close
                     h('button', {type: 'button', onClick: () => panel.current?.retry()}, '重试')) : null)));
 }
 
-return {usePages, Overlay, open: openCardPage, dispose() {
+return {usePages, Overlay, PluginPanel, open: openCardPage, dispose() {
     if (disposed) return;
     disposed = true;
     const errors = [];
