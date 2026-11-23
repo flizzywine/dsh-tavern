@@ -81,7 +81,7 @@ export function createImageCharacterHandlers({ ctx, pluginApi }) {
       const { library, pack, figure, character } = await linkedRecord(args)
       let state = { providerId: args.providerId, character }
       for (const { outfit, hash } of setteiReferences(character, figure)) {
-        const referenceImage = await putPackReference(pluginApi, library, { providerId: args.providerId, packId: args.packId, revision: pack.revision, hash, name: packReferenceName(figure, outfit) })
+        const referenceImage = hash ? await putPackReference(pluginApi, library, { providerId: args.providerId, packId: args.packId, revision: pack.revision, hash, name: packReferenceName(figure, outfit) }) : null
         state = await records('patchCharacter', { providerId: args.providerId, characterId: args.characterId, expected: state.character, patch: referencePatch(state.character, outfit, referenceImage) })
       }
       return state

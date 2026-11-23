@@ -36,6 +36,16 @@ export const BUNDLED_TAVERN_PLUGINS = Object.freeze([
     packageName: 'dsh-tavern-fate-dice',
     source: ['tavern-plugin', 'packages', 'dsh-tavern-fate-dice'],
   },
+  {
+    folder: 'dsh-tavern-story-director',
+    packageName: 'dsh-tavern-story-director',
+    source: ['tavern-plugin', 'packages', 'dsh-tavern-story-director'],
+  },
+  {
+    folder: 'dsh-tavern-adventure-medal',
+    packageName: 'dsh-tavern-adventure-medal',
+    source: ['tavern-plugin', 'packages', 'dsh-tavern-adventure-medal'],
+  },
 ])
 
 /** 与 image 插件一致：构建输入、测试、仓库元数据都不进插件目录。 */

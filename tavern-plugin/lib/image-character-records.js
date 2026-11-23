@@ -68,7 +68,7 @@ export function createFigureRecords({ api, recordFile, log = () => {} }) {
       const referenceImage = await reference(state, row.name || packReferenceName(figure, outfit, ' 参考图'), await media(row.media))
       state = await patch(state, referencePatch(state.character, outfit, referenceImage))
     }
-    for (const { outfit, hash } of setteiReferences(state.character, figure)) state = await patch(state, referencePatch(state.character, outfit, await reference(state, packReferenceName(figure, outfit), await media(hash))))
+    for (const { outfit, hash } of setteiReferences(state.character, figure)) state = await patch(state, referencePatch(state.character, outfit, hash ? await reference(state, packReferenceName(figure, outfit), await media(hash)) : null))
     if (move?.record) state = await patch(state, move.record)
     if (move?.dropped.length) log('「' + figure.name + '」素材包里的外貌文字与配图人物库不同，以人物库为准：' + move.dropped.map(row => row.text).join(' / ').slice(0, 200))
     const rest = move ? { ...figure, ...move.figure } : figure

@@ -271,6 +271,9 @@ try {
         // A permanent player-input rule: the saved input differs from what was typed.
         ...(process.argv.includes('--regen-template') ? [{ id: 'e2e-input-rule', scriptName: '整理输入', findRegex: '/ZZ(\\d)/g', replaceString: '〔$1〕', placement: [1], disabled: false }] : [])] }
     } }))
+    if (stageUserSwitch) await writeFile(join(data, 'resources/cards/e2e-traditional.json'), JSON.stringify({
+      spec: 'chara_card_v2', spec_version: '2.0', data: { name: 'E2E 传统人物卡', first_mes: '你好。', extensions: {} }
+    }))
   })
   if (process.argv.includes('--real-gameplay')) { const config = await setupRealGameplay({root,profile,data,runtimeHome:join(homedir(),'.dsh-tavern')}); report.scope='real isolated DSH + Chromium + configured live model'; report.model=config.model; report.card=config.card }
   if(process.argv.includes('--real-variables')) {report.scope='real isolated DSH + Chromium + configured live model';report.model=await setupRealVariables({root,profile,data,runtimeHome:join(homedir(),'.dsh-tavern')})}
@@ -434,20 +437,37 @@ try {
     const stageRpc = (method, args = {}) => page.evaluate(async ({method, args}) => (await fetch('/api/dsh-tavern/' + method, {
       method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(args)
     })).json(), {method, args})
-    const stageButton = page.getByRole('button', {name:'舞台', exact:true})
-    await step('启动时空闲，打开舞台卡才加载', async () => {
-      assert.equal((await stageRpc('getStageRuntimeStatus')).status, 'disabled')
+    const stageButton = page.locator('.fork-gal-toggle').getByText('舞台', {exact:true})
+    async function openCard(name) {
       await page.getByRole('button', { name: /选择人物卡.*新开游玩/ }).click()
-      await page.getByText('E2E 奖励验收', { exact: true }).first().click()
+      await page.getByRole('dialog', { name: '选择人物卡开始游玩' }).getByText(name, { exact: true }).click()
+    }
+    await step('启动时舞台关闭，传统卡默认保持普通聊天', async () => {
+      assert.equal((await stageRpc('getStageRuntimeStatus')).status, 'disabled')
+      await openCard('E2E 传统人物卡')
+      await page.getByRole('tab', {name:'本局设置'}).click()
+      await page.getByText('未开启', {exact:true}).waitFor()
+      assert.equal((await stageRpc('getStageRuntimeStatus')).status, 'disabled')
+    })
+    await step('舞台卡开局时自动加载舞台', async () => {
+      await openCard('E2E 奖励验收')
       await stageButton.waitFor()
       assert.equal((await stageRpc('getStageRuntimeStatus')).status, 'ready')
     })
-    await step('本次停用后，重启仍随舞台卡自动恢复', async () => {
+    await step('本次停用后，重启并打开舞台卡再次开启', async () => {
       assert.equal((await stageRpc('setStageEnabled', {enabled:false})).status, 'disabled')
       await stageButton.waitFor({state:'hidden'})
       await restartServer()
       await stageButton.waitFor()
       assert.equal((await stageRpc('getStageRuntimeStatus')).status, 'ready')
+    })
+    await step('传统卡可从本局设置手动开启舞台', async () => {
+      await openCard('E2E 传统人物卡')
+      await page.getByRole('tab', {name:'本局设置'}).click()
+      await page.getByText('未开启', {exact:true}).waitFor()
+      await page.getByRole('button', {name:'打开舞台设置'}).click()
+      await page.getByRole('button', {name:'启用舞台（对话气泡）'}).click()
+      await stageButton.waitFor()
     })
     assert.deepEqual(errors, [])
     report.status = 'passed'
@@ -459,12 +479,12 @@ try {
     await history.filter({ visible: true }).first().waitFor()
     if (!await page.locator('.dsh-tavern-side-row-name').first().isVisible().catch(() => false)) await history.first().click()
     await page.locator('.dsh-tavern-side-row-name').first().click()
-    await page.getByRole('textbox', { name: /发消息|Message/ }).waitFor()
+    await page.getByRole('textbox', { name: /下一步行动|Next action|发消息|Message/ }).waitFor()
   })
   else await step('通过界面选择角色卡并新开一局', async () => {
     await page.getByRole('button', { name: /选择人物卡.*新开游玩/ }).click()
     await page.getByText(report.card || 'E2E 奖励验收', { exact: true }).first().click()
-    await page.getByRole('textbox', { name: /发消息|Message/ }).waitFor()
+    await page.getByRole('textbox', { name: /下一步行动|Next action|发消息|Message/ }).waitFor()
     await page.getByRole('dialog', { name: '选择人物卡开始游玩' }).waitFor({ state: 'hidden' })
     if (inlineOpeningScenario) return
     if (process.argv.includes('--real-gameplay')) return
@@ -504,7 +524,7 @@ try {
       await openStatus()
       await page.frameLocator('.dsh-tavern-status-runtime iframe:not([aria-hidden="true"])')
         .locator('#e2e-gold').filter({ hasText: /^金币：30$/ }).waitFor()
-      const composer = page.getByRole('textbox', { name: /发消息|Message/ })
+      const composer = page.getByRole('textbox', { name: /下一步行动|Next action|发消息|Message/ })
       await composer.fill('领取任务奖励')
       await composer.press('Enter')
       await waitForVisibleStoryText('你获得了十枚金币。')
@@ -550,7 +570,7 @@ try {
       assert.deepEqual((await savedChat()).messages,original,'换强调色只改变展示，不改写存档')
     })
   } else if (process.argv.includes('--truncation')) {
-    const composer = () => page.getByRole('textbox', { name: /发消息|Message/ })
+    const composer = () => page.getByRole('textbox', { name: /下一步行动|Next action|发消息|Message/ })
     const probe = async name => {
       await page.screenshot({ path: join(output, name + '.png'), fullPage: true })
       const chat = await savedChat()
@@ -580,7 +600,7 @@ try {
     }
   } else if (process.argv.includes('--filter-midstream')) {
     // Moderation stops repeat for the same request: the failed tail must offer a way out besides replaying.
-    const composer = () => page.getByRole('textbox', { name: /发消息|Message/ })
+    const composer = () => page.getByRole('textbox', { name: /下一步行动|Next action|发消息|Message/ })
     const tail = () => page.locator('.dsh-tavern-error-controls').filter({ visible: true }).last()
     const settled = () => page.getByText('后台结算已完成').last().waitFor({ timeout: 60000 }).catch(() => {})
     const replies = async () => (await savedChat()).messages.filter(m => m.role === 'assistant').length
@@ -631,7 +651,7 @@ try {
   } else if (process.argv.includes('--send-during-settlement')) {
     // A reload followed by an immediate send must not fail while the previous round still settles.
     await step('结算未完成时刷新并立即发送下一条消息', async () => {
-      const composer = () => page.getByRole('textbox', { name: /发消息|Message/ })
+      const composer = () => page.getByRole('textbox', { name: /下一步行动|Next action|发消息|Message/ })
       await composer().fill('领取任务奖励'); await composer().press('Enter')
       await page.getByText('你获得了十枚金币。').first().waitFor()
       await page.reload()
@@ -646,7 +666,7 @@ try {
     })
   } else if (process.argv.includes('--refusal')) {
     await step('模型回复拒绝语时，正文下方说明不是酒馆故障', async () => {
-      const composer = page.getByRole('textbox', { name: /发消息|Message/ })
+      const composer = page.getByRole('textbox', { name: /下一步行动|Next action|发消息|Message/ })
       await composer.fill('E2E_REFUSE_TEXT 继续'); await composer.press('Enter')
       const notice = page.locator('.dsh-tavern-refusal-notice').filter({ hasText: '模型拒绝继续这段剧情' })
       await notice.waitFor()
@@ -659,7 +679,7 @@ try {
       await page.getByText('后台结算已完成').first().waitFor({ timeout: 60000 }).catch(() => {})
     })
     await step('服务商内容审核拦截时，报错旁说明不是酒馆故障', async () => {
-      const composer = page.getByRole('textbox', { name: /发消息|Message/ })
+      const composer = page.getByRole('textbox', { name: /下一步行动|Next action|发消息|Message/ })
       await composer.fill('E2E_CONTENT_FILTER 继续'); await composer.press('Enter')
       const label = page.locator('.dsh-tavern-error-controls').filter({ hasText: '内容审核拦截了这一轮回复' })
       await label.waitFor()
@@ -741,16 +761,16 @@ try {
     await setTavernSettings({ storyInputToolCall: true, storyOutputToolCall: true })
     await setCardStage({ enabled: true })
     await page.goto(chatUrl)
-    await page.getByRole('textbox', { name: /发消息|Message/ }).waitFor()
+    await page.getByRole('textbox', { name: /下一步行动|Next action|发消息|Message/ }).waitFor()
   })
   if (castScenario && stageIsolation !== 'absent') await step('开启对话头像', async () => {
     const chatUrl = page.url()
     await setCardStage((stageAudioLifecycle||stageDirectorFault)?{enabled:true}:{dialogue:true})
     await page.goto(chatUrl)
-    await page.getByRole('textbox', { name: /发消息|Message/ }).waitFor()
+    await page.getByRole('textbox', { name: /下一步行动|Next action|发消息|Message/ }).waitFor()
   })
   await step('玩一轮，确认正文、金币与人物姿势', async () => {
-    const composer = page.getByRole('textbox', { name: /发消息|Message/ })
+    const composer = page.getByRole('textbox', { name: /下一步行动|Next action|发消息|Message/ })
     await composer.fill('领取任务奖励')
     await composer.press('Enter')
     await inspectScreen()
@@ -870,7 +890,7 @@ try {
         await page.locator('.fork-gal-stage').waitFor({state:'detached'})
         assert.equal(await page.locator('[data-plugin-css^="dsh-tavern-stage/"], .fork-gal-mount').count(),0)
         assert.equal(await page.getByRole('button',{name:'舞台',exact:true}).count(),0)
-        const input=page.getByRole('textbox',{name:/发消息|Message/})
+        const input=page.getByRole('textbox',{name:/下一步行动|Next action|发消息|Message/})
         await input.fill('热停用期间保留的草稿')
         if(stageServerLifecycle) {
           const readKinds=()=>page.evaluate(async()=> (await fetch('/api/dsh-tavern/getStagePerformanceKinds',{method:'POST',headers:{'content-type':'application/json'},body:'{}'})).json())
@@ -921,7 +941,7 @@ try {
         assert.deepEqual((await savedChat()).messages.map(({role,text,turn,variables})=>({role,text,turn,variables})),preserved,'舞台故障不能修改剧情和变量')
         await page.getByRole('button',{name:/选择人物卡.*新开游玩/}).click()
         await page.locator('.dsh-tavern-picker-overlay').getByText('E2E 奖励验收',{exact:true}).click()
-        await page.getByRole('textbox',{name:/发消息|Message/}).waitFor()
+        await page.getByRole('textbox',{name:/下一步行动|Next action|发消息|Message/}).waitFor()
         await page.waitForFunction(()=>document.querySelectorAll('.dsh-tavern-side-row').length===2)
         assert.equal(await page.locator('[data-stage-failure]').count(),0)
         await openStatus()
@@ -941,7 +961,7 @@ try {
         await page.waitForFunction(()=>window.__stageAudioProbe().looping===0)
         report.audioStoppedOnExit=true
       }
-      const composer = page.getByRole('textbox', { name: /发消息|Message/ })
+      const composer = page.getByRole('textbox', { name: /下一步行动|Next action|发消息|Message/ })
       const priorReplies=(await savedChat()).messages.filter(row=>row.role==='assistant'&&!row.greeting).length
       await composer.fill('领取任务奖励')
       await composer.press('Enter')
@@ -1203,7 +1223,7 @@ try {
       if (await candidates.getByTitle('展开行动列表', { exact: true }).isVisible()) await candidates.getByTitle('展开行动列表', { exact: true }).click()
       // Picking a candidate appends it to the input directly.
       await page.getByRole('button', { name: /再次领取奖励/ }).click()
-      const composer = page.getByRole('textbox', { name: /发消息|Message/ })
+      const composer = page.getByRole('textbox', { name: /下一步行动|Next action|发消息|Message/ })
       assert.equal(await composer.innerText(), '再次领取奖励')
       await composer.press('Enter')
       // A script reply briefly keeps a second, hidden copy of its body mounted.

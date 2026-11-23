@@ -1,6 +1,7 @@
 import { plainSettlementPlan } from './background-pipeline.js'
 import { settlementTurn } from './chat-session-state.js'
 import { producerSource } from './message-source.js'
+import { promptSection } from './prompt-section.js'
 import { POSTURE_SUBMIT_TOOL_NAME, lastSubmittedPosture, normalizePostureSubmission } from './posture-submission.js'
 import { projectAgentMessageText } from './runtime-content-projection.js'
 import { settleUserText } from './settlement-turn.js'
@@ -30,12 +31,19 @@ export function createPlainSettlementEngine(deps) {
   }
 
   async function runAgent({ snapshot, taskRun, card, signal, trace, backgroundTasksSettings }) {
-    const { backgroundModelSelection, postureItem, backgroundAgentRunner, agentRegistry, sessionStore } = deps
+    const { backgroundModelSelection, postureItem, backgroundAgentRunner, agentRegistry, sessionStore, pluginApi } = deps
     const selection = backgroundModelSelection(snapshot)
     if (selection === null) throw new Error('没有可用的模型配置，请先在当前会话的模型选择器中选择模型')
     let submittedPosture = null
     let settlementToolTail = Promise.resolve()
     const plan = plainSettlementPlan({ posture: postureItem })
+    const guides = await pluginApi.guideSections?.(snapshot.sessionId) || []
+    const guideText = guides.length ? promptSection('user_guide', [
+      'Creative direction for this game. Settle only what actually happened in the story.',
+      ...guides.map(guide => guide.text)
+    ].join('\n')) : ''
+    const exchange = settleUserText(snapshot, backgroundTasksSettings.posture, taskRun.participantRequest.rewindTo == null
+      ? lastSubmittedPosture(trace.sessionId && (agentRegistry.get(trace.sessionId)?.session || sessionStore.get(trace.sessionId))) : '')
     const run = await backgroundAgentRunner.run({
       ...deps.requestAnchor?.(snapshot, taskRun),
       onPersistentSessionReady: id => taskRun.bindSession(id, { stateOnly: true }),
@@ -51,7 +59,7 @@ export function createPlainSettlementEngine(deps) {
         id: 'settle-' + Date.now().toString(36),
         role: 'user',
         regexPlacement: 2,
-        content: [{ type: 'text', text: settleUserText(snapshot, backgroundTasksSettings.posture, taskRun.participantRequest.rewindTo == null ? lastSubmittedPosture(trace.sessionId && (agentRegistry.get(trace.sessionId)?.session || sessionStore.get(trace.sessionId))) : '') }],
+        content: [{ type: 'text', text: [exchange, guideText].filter(Boolean).join('\n\n') }],
         source: producerSource('dsh-tavern')
       }],
       system: plan.system,

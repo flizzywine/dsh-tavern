@@ -1,0 +1,8 @@
+{
+  "name": "dsh-tavern-story-director",
+  "version": "1.4.0",
+  "description": "在侧栏和玩家拟定剧情方向，按正文进展更新一句剧情 Guide。",
+  "type": "module",
+  "exports": { ".": "./lib/index.js", "./client": "./client.js" },
+  "dsh": { "client": { "platform": "web", "inject": ["dsh-tavern-plugin", "dsh-better-sidebar"] } }
+}

@@ -5,7 +5,7 @@ import { join } from 'node:path'
 // variables and earlier rounds stay, the input returns to the box, and play goes on.
 // Learned from huajiao1998/dsh-tavern-sqlite-v2's failed-round cleanup.
 export async function failedTurnCleanupChecks({ page, step, savedChat, output, report }) {
-  const composer = () => page.getByRole('textbox', { name: /发消息|Message/ }).filter({ visible: true }).first()
+  const composer = () => page.getByRole('textbox', { name: /下一步行动|Next action|发消息|Message/ }).filter({ visible: true }).first()
   const withdraw = () => page.locator('.dsh-tavern-withdraw-failed').filter({ visible: true }).last()
   const pause = ms => new Promise(resolve => setTimeout(resolve, ms))
   const story = async () => {

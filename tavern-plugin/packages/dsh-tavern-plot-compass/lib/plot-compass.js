@@ -876,7 +876,7 @@ export function extractDormantWorldbookHooks(entries = [], context = {}, { limit
 
   const candidates = []
   for (const entry of entries) {
-    if (!entry || entry.enabled === false || entry.constant === true || entry.channel === 'prefix') continue
+    if (!entry || entry.enabled === false || entry.constant === true) continue
     if (isNativeFallbackWorldbookEntry(entry)) continue
     const title = str(entry.title || entry.comment).trim()
     const keys = (Array.isArray(entry.primaryKeys) ? entry.primaryKeys : (Array.isArray(entry.keys) ? entry.keys : []))

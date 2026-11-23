@@ -216,7 +216,7 @@ export async function dshCardPlayChecks({ page, step, output, report }) {
     await page.reload()
     await page.getByRole('button', { name: /选择人物卡.*新开游玩/ }).click()
     await page.getByText('大肥鱼', { exact: true }).first().click()
-    await page.getByRole('textbox', { name: /发消息|Message/ }).waitFor()
+    await page.getByRole('textbox', { name: /下一步行动|Next action|发消息|Message/ }).waitFor()
     await page.getByRole('button', { name: '舞台', exact: true }).click()
     await page.locator('.fork-gal-mount').waitFor()
     await page.waitForTimeout(800)

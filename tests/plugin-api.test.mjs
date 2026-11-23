@@ -5,6 +5,7 @@ import { pathToFileURL } from 'node:url'
 import test from 'node:test'
 import { createPluginMedia, pluginMediaRange, pluginMediaSession, slicePluginMediaStream, pluginFileMediaType } from '../tavern-plugin/lib/domain/plugin-media.js'
 import { createTavernPluginApi, TAVERN_PLUGIN_API_VERSION } from '../tavern-plugin/lib/plugin-api.js'
+import { createContextPlanner } from '../tavern-plugin/lib/domain/context-planner.js'
 import { createPluginData } from '../tavern-plugin/lib/domain/plugin-data.js'
 import { createSettingsHandlers } from '../tavern-plugin/lib/rpc/settings.js'
 import { applyTavernSettingsPatch } from '../tavern-plugin/lib/domain/tavern-settings.js'
@@ -110,6 +111,31 @@ async function harness(t, overrides = {}) {
   return { root, api, media, published, errors, setLatest(value) { latest = value } }
 }
 
+test('插件 Guide 与本局手动 Guide 一起进入正文、候选和舞台；卸载后移除', { skip: !cordis }, async t => {
+  const h = await harness(t, { cardScope: async () => new Map([['other-card', { cards: ['/cards/other.json'] }]]),
+    cardPathOf: async () => '/cards/a.json' })
+  const director = await h.root.plugin({ name: 'story-director', inject: ['tavern'], apply({ tavern }) {
+    tavern.guideSource({ name: 'direction', text: ({ gameId }) => '导演指引 ' + gameId })
+    tavern.guideSource({ name: 'invalid', text: '<% 不执行模板 %>' })
+  } })
+  await h.root.plugin({ name: 'other-card', inject: ['tavern'], apply({ tavern }) {
+    tavern.guideSource({ name: 'direction', text: '另一张卡的指引' })
+  } })
+  const planner = createContextPlanner({ prompt: () => '', guideSections: h.api.guideSections })
+  const chat = { sessionId: 'game-1', guides: [{ text: '手动 Guide' }] }
+  for (const purpose of ['body', 'candidate', 'stage-director']) {
+    const result = await planner.plan({ purpose, chat, card: { name: 'A' } })
+    const guide = result.sections.find(section => section.kind === 'guide')
+    assert.match(guide.text, /<user_guide>[\s\S]*手动 Guide[\s\S]*导演指引 game-1/)
+    assert.doesNotMatch(guide.text, /另一张卡|不执行模板/)
+  }
+  assert.deepEqual(await h.api.guideSections('missing-game'), [])
+  const snapshot = await planner.plan({ purpose: 'play-card-snapshot', chat, card: { name: 'A' } })
+  assert.ok(snapshot.sections.every(section => section.kind !== 'guide'))
+  director.dispose()
+  assert.deepEqual(await h.api.guideSections('game-1'), [])
+})
+
 test('正文生成默认值在插件与宿主设置间共用，且仅全局插件能配置自己的生成器', { skip: !cordis }, async t => {
   let settings = { storyGenerationMode: 'plugin-tool-call', storyGenerationProvider: 'writer:body', storyPluginOutputRegex: true }
   const readTavernSettings = async () => structuredClone(settings)
@@ -175,7 +201,7 @@ test('provider APIs：capabilities、克隆输入、卡绑定筛选与 Cordis �
   } })
   await tick()
   assert.equal(tavern.apiVersion, TAVERN_PLUGIN_API_VERSION)
-  assert.deepEqual(tavern.capabilities, { gameMode: 1, hostBehavior: 1, controlInput: 1, mvuSettlementProvider: 1, worldbookStrategy: 1, galleryProvider: 1, pricingProvider: 1, imageModels: 1, imageLibrary: 1, bodyGeneration: 1, bodyProjection: 1, stContractService: 1 })
+  assert.deepEqual(tavern.capabilities, { gameMode: 1, hostBehavior: 1, controlInput: 1, mvuSettlementProvider: 1, worldbookStrategy: 1, galleryProvider: 1, pricingProvider: 1, imageModels: 1, imageLibrary: 1, bodyGeneration: 1, bodyProjection: 1, stContractService: 1, guideSource: 1 })
   assert.equal(Object.isFrozen(tavern.capabilities), true)
   assert.equal(tavern.mvuProviderRegistered, undefined, 'registration guard is internal, not a plugin service method')
   assert.equal(h.api.mvuProviderRegistered('card-provider'), true)
