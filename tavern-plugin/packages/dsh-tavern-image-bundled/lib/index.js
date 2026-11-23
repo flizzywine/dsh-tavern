@@ -295,7 +295,8 @@ export function pickOutfitForScene(scene, before, after) {
   if (/[\u3400-\u9fff]/.test(String(scene ?? '')) && /[\u3400-\u9fff]/.test(String(before ?? '') + String(after ?? ''))) {
     // 中文画面：数画面描述和换衣前/后的衣服描述有多少相同的两字片段（「吊带」「寝衣」「长裙」）。
     const grams = t => { const s = String(t ?? '').replace(/[^\u3400-\u9fff]/g, ' '); const out = new Set(); for (const w of s.split(/\s+/)) for (let i = 0; i + 1 < w.length; i++) out.add(w.slice(i, i + 2)); return out }
-    const sceneGrams = grams(scene)
+    const worn = String(scene ?? '').split(/[，,；;。！？\n]/).map(part => part.split(/手[里中上]|拿着|捧着|抱着|挂在|放在|递给|脱下的|脱掉的/, 1)[0]).join('。')
+    const sceneGrams = grams(worn)
     const shared = t => { const g = grams(t); let n = 0; for (const x of g) if (sceneGrams.has(x)) n++; return n }
     const sb = shared(before), sa = shared(after)
     if (sb >= sa + 2) return 'before'
@@ -416,6 +417,53 @@ function structuredCharacterNames(definitions, { knownCharacterIds = [], onUnres
   } }
 }
 
+// Shared interaction text stays in the prompt. Only its subject owns state changes.
+function sceneSubjects(characters = []) {
+  const aliases = new Map()
+  for (const person of characters) {
+    if (!person || person.enabled === false) continue
+    for (const name of [person.name, person.promptLabel, ...splitTags(person.match)]) {
+      const key = String(name ?? '').trim().toLowerCase()
+      if (!key || ([...key].length === 1 && !(name === person.name && /\p{Script=Han}/u.test(key)))) continue
+      if (!aliases.has(key)) aliases.set(key, person)
+      else if (aliases.get(key) !== person) aliases.set(key, null)
+    }
+  }
+  return [...aliases].sort(([a], [b]) => b.length - a.length)
+}
+
+function sceneClauses(text, subjects) {
+  let owner = null
+  return String(text ?? '').split(/([，,；;。！？!?…\n]+)/).map((raw, index) => {
+    if (index % 2) {
+      if (/[；;。！？!?…\n]/.test(raw)) owner = null
+      return { raw }
+    }
+    const clause = raw.trim()
+    const leading = subjects.find(([alias]) => clause.toLowerCase().startsWith(alias) && containsNameToken(clause, alias))
+    if (leading) owner = leading[1]
+    const tail = leading ? clause.slice(leading[0].length) : clause
+    if (!owner) return { raw }
+    const foreignOffset = Math.min(tail.length, ...subjects
+      .filter(([alias, person]) => person !== owner && containsNameToken(tail, alias))
+      .map(([alias]) => tail.toLowerCase().indexOf(alias)))
+    // Only an explicit subject may own state before a second named participant.
+    const shared = foreignOffset < tail.length
+    const state = shared && !leading ? '' : tail.slice(0, foreignOffset)
+    const actor = owner
+    if (shared) owner = null
+    return { raw, owner: actor, state: state.trim() }
+  })
+}
+
+function personSceneText(clauses, person) {
+  return clauses.filter(c => c.owner === person).map(c => c.state).join('。')
+}
+
+function commonFraming(clauses) {
+  return clauses.filter(c => !c.owner && (SCENE_CAMERA_ZH.test(c.raw) || SCENE_CAMERA_EN.test(c.raw) || CLOSE_SHOT_EN.test(c.raw))).map(c => c.raw).join('。')
+}
+
 /**
  * 角色 / 服装调用宏（st-chatu8 那种"名字→tag"的机制）：
  *   ${"name":"xiao yu","angle":"from front","upperBody":"sfw"}$
@@ -423,6 +471,17 @@ function structuredCharacterNames(definitions, { knownCharacterIds = [], onUnres
  * 按 angle / upperBody 选择人物库里的可见外貌与服装。结构化句内的简写宏只引用人物，
  * 独立宏仍可描述朝向。库中未登记的人物保留可读称呼。
  */
+export function applyShotOutfits(definitions, subjects = []) {
+  const selection = new Map(subjects.filter(item => item?.characterId && item.outfitId).map(item => [String(item.characterId), String(item.outfitId)]))
+  if (!selection.size) return definitions
+  return { ...definitions, characters: (definitions.characters ?? []).map(person => {
+    const id = selection.get(String(person.id))
+    if (!id) return person
+    const outfit = characterOutfits(person, definitions).find(item => item.enabled !== false && String(item.id) === id)
+    return outfit?.name ? { ...person, current: { outfit: outfit.name } } : person
+  }) }
+}
+
 export function expandRosterCalls(text, scoped, mode, options = {}) {
       // options.onMacro(entry)：诊断用，报告每个宏解析成了谁、哪套衣服、丢掉了哪些负面词。
       const note = (entry) => { if (typeof options?.onMacro === 'function') { try { options.onMacro(entry) } catch {} } }
@@ -442,20 +501,23 @@ export function expandRosterCalls(text, scoped, mode, options = {}) {
       const bareScene = BARE_SCENE.test(stripMacros(text))
       const sceneText = stripMacros(text)
       // 多人场景只有能把句子归到具体角色时才改该角色鞋袜；无法归属就保留服装库内容。
-      const sceneForPerson = person => {
+      const legacySceneForPerson = person => {
         if (personMacroCount === 1) return sceneText
         if (personMacroCount === 0) return ''
         const aliases = [person?.name, ...splitTags(person?.match)].map(v => String(v ?? '').trim()).filter(v => v.length >= 2)
         if (!aliases.length) return ''
         return sceneText.split(/(?<=[。！？!?…\n])/).filter(sentence => aliases.some(alias => sentence.toLowerCase().includes(alias.toLowerCase()))).join(' ')
       }
-      const globalFraming = personMacroCount > 1
-        ? sceneText.split(/(?<=[。！？.!?\n])/).filter(sentence => !(scoped?.characters ?? []).some(person =>
-          [person?.name, ...splitTags(person?.match)].some(alias => containsNameToken(sentence, alias)))).join(' ')
+      const subjects = natural ? sceneSubjects(scoped?.characters) : []
+      const clauses = natural ? sceneClauses(sceneText, subjects) : []
+      const multiplePeople = personMacroCount > 1 || new Set(clauses.map(c => c.owner).filter(Boolean)).size > 1
+      const sceneForPerson = person => natural && multiplePeople ? personSceneText(clauses, person) : legacySceneForPerson(person)
+      const globalFraming = natural && multiplePeople
+        ? commonFraming(clauses)
         : sceneText
-      const barefoot = personMacroCount === 1 && isBarefoot(sceneText)
+      const barefoot = !multiplePeople && personMacroCount === 1 && isBarefoot(sceneText)
       // 服装的「背面」字段只在背影画面里用：画面写着背影，或者同一段里刚调用的人物宏 angle 是背面。
-      const backView = BACK_VIEW.test(sceneText)
+      const backView = BACK_VIEW.test(natural && multiplePeople ? globalFraming : sceneText)
       let lastBack = false
       // 同一角色的不同形态：画面写着某形态的线索（如狐耳狐尾）时，宏改指向那个形态。
       const expanded = resolveCharacterForms(repairMacros(text), scoped, { isCharacterId: names?.isId }).replace(MACRO_BLOCK, (macro, body, offset, prompt) => {
@@ -481,13 +543,14 @@ export function expandRosterCalls(text, scoped, mode, options = {}) {
           }
           const shoesOff = !bareForScope && footwearOverridden(sceneScope, [outfit.upper, outfit.lower, outfit.shoes, outfit.full].join(' '))
           const noShoes = bareForScope || shoesOff
-          const cropped = natural && closeShotScene(sceneScope || globalFraming)
+          const cropped = natural && (closeShotScene(globalFraming) || closeShotScene(sceneScope))
           for (const field of cropped ? ['upper', 'accessory'] : ['upper', 'lower', 'shoes', 'accessory', 'full', 'back']) {
             if (bareForScope && !shoesOff && field === 'shoes') continue
             // 「整体印象」(full) 是给自然语言模型的一句概括；tag 写法里已有上衣下装时它只是噪音。
             if (field === 'full' && !natural && (String(outfit.upper ?? '').trim() || String(outfit.lower ?? '').trim())) continue
-            if (field === 'back' && !(backView || lastBack)) continue
-            const value = noShoes ? dropFootwear(outfit[field], shoesOff) : String(outfit[field] ?? '').trim()
+            if (field === 'back' && !(lastBack || ((!natural || !multiplePeople || !lastPerson) && backView))) continue
+            let value = noShoes ? dropFootwear(outfit[field], shoesOff) : String(outfit[field] ?? '').trim()
+            if (natural && looseHairIn(sceneScope)) value = withoutTiedHair(value)
             if (value && !PLACEHOLDER_VALUE.test(value)) bits.push(value)
           }
           bits.push(...libraryImageDetails(outfit))
@@ -565,7 +628,9 @@ export function expandRosterCalls(text, scoped, mode, options = {}) {
           // 标了 nsfw、全身 hidden、画面写着洗澡/裸体/内衣，或者记录本身就是「没穿」时都不补。
           // 宏里明确写的衣服（例如半脱的内衣）不受影响，总是保留。
           const recordedNude = NOTHING_WORN.test(String(person.current?.outfit ?? '').trim())
-          const autoOff = nsfw || hiddenBody || bareScene || recordedNude || unknownOutfit(person.current?.outfit) || unknownOutfit(outfitName)
+          const personScene = sceneForPerson(person)
+          const isBareScene = natural && multiplePeople ? BARE_SCENE.test(personScene) : bareScene
+          const autoOff = nsfw || hiddenBody || isBareScene || recordedNude || unknownOutfit(person.current?.outfit) || unknownOutfit(outfitName)
           let wear = ''
           let wearMoment = ''
           if (!ownsStandalone && !libraryHit) {
@@ -574,13 +639,13 @@ export function expandRosterCalls(text, scoped, mode, options = {}) {
               // 这一轮正文里换过衣服：按这张图的画面描述判断是换之前还是换之后。
               const afterWear = resolveWearText(person, person.current.outfit, false, scoped?.outfits)
               const beforeWear = person.current.previous ? resolveWearText(person, person.current.previous, false, scoped?.outfits) : ''
-              const moment = person.current.previous ? pickOutfitForScene(sceneText, beforeWear || person.current.previous, afterWear) : 'after'
+              const moment = person.current.previous ? pickOutfitForScene(personScene, beforeWear || person.current.previous, afterWear) : 'after'
               wear = moment === 'before' ? beforeWear : afterWear
               wearMoment = person.current.previous ? moment : ''
             }
           }
           // 服装名后面的状态写着赤足（「常服（裤脚挽起，赤足）」）：这一刻也是光脚。
-          const personScene = sceneForPerson(person)
+
           const stateBare = isBarefoot(outfitState)
           const personBarefoot = isBarefoot(personScene) || stateBare
           const shoesOff = !personBarefoot && footwearOverridden(personScene, personWearText(person, wear))
@@ -590,7 +655,7 @@ export function expandRosterCalls(text, scoped, mode, options = {}) {
           const lowerShot = upper === 'hidden' && lower !== 'hidden'
           // 中文整句、画面是近景/半身/特写：看不到腿和脚，就不写腿型和鞋（写了模型会硬把腿画进来，人被拉长）。
           // 宏里明确标了下身 nsfw 的照常写。
-          const closeShot = natural && closeShotScene(personScene || globalFraming) && lower !== 'nsfw' && !lowerShot
+          const closeShot = natural && (closeShotScene(globalFraming) || closeShotScene(personScene)) && lower !== 'nsfw' && !lowerShot
           if (closeShot && wear) {
             if (!outfitAsked && person.current?.outfit) wear = resolveWearText(person, person.current[wearMoment === 'before' ? 'previous' : 'outfit'], true, scoped?.outfits)
             wear = dropFootwear(wear, false)
@@ -602,6 +667,7 @@ export function expandRosterCalls(text, scoped, mode, options = {}) {
             upper,
             lower,
             full: !closeShot,
+            conciseOutfit: natural && multiplePeople,
             croppedOutfit: closeShot && !(upper === 'nsfw' && lower === 'hidden' && outfitAsked && !tightCropScene(sceneText)),
             barefoot: noShoes || closeShot,
             keepSocks: shoesOff && !closeShot,
@@ -626,10 +692,16 @@ export function expandRosterCalls(text, scoped, mode, options = {}) {
           if (parsed.age ?? parsed['年龄']) extras.age = String(parsed.age ?? parsed['年龄'])
           // 宏里的 "expression"：这一刻的表情和情绪。纯背面看不到脸时不写（会逼模型补脸），背身回头的照写。
           const expression = String(parsed.expression ?? parsed['表情'] ?? '').trim()
-          const backTurn = /回头|回过头|转过头|转过身|侧过脸|侧过身|侧过头|偏过头|扭过头|转过脸|侧脸/.test(sceneText)
+          const backTurn = /回头|回过头|转过头|转过身|侧过脸|侧过身|侧过头|偏过头|扭过头|转过脸|侧脸/.test(natural ? personScene : sceneText)
           if (expression && !PLACEHOLDER_VALUE.test(expression) && !(back && !backTurn) && !lowerShot) extras.expression = expression
-          // 人物库里的招牌发型：这一刻衣服里写了发型、或画面写着散发/湿发时不带。
-          extras.dropHair = hairOverridden(sceneText, [wear, ...(picked.origins ?? []).filter(o => o.outfitId).map(o => o.text)].join(' '))
+          // 发型变化只作用于当前人物。湿发可以仍扎着。
+          if (natural && looseHairIn(personScene)) {
+            wear = withoutTiedHair(wear)
+            for (const origin of picked.origins ?? []) {
+              if (origin.outfitId) origin.text = withoutTiedHair(origin.text)
+            }
+          }
+          extras.dropHair = hairOverridden(personScene, [wear, ...(picked.origins ?? []).filter(o => o.outfitId).map(o => o.text)].join(' '))
           if (natural) bits.push(boundCharacterPhrase(person, picked, extras, wear, style) || (names ? structuredCharacterName(person) || names.unresolved(asked) : person.promptLabel || person.name || asked))
           else {
             if (picked.tags.length) bits.push(...picked.tags)
@@ -856,13 +928,39 @@ function unknownOutfit(value) {
 const HAIR_MARK = /[；;]\s*平时\s*/
 /** 这一刻的衣服描述里写了发型，或画面写着头发散开、湿透：不再带人物库里的招牌发型。 */
 const HAIR_IN_WEAR_ZH = /髻|辫|马尾|束发|束起|挽起|盘起|盘成|挽成|梳成|披发|散发|披散|头发/
-const HAIR_STATE_ZH = /散发|披散|披着头发|散着头发|头发散|松挽|松松挽|散落下来|解开[^。，]{0,4}(?:发|髻)|拆[^。，]{0,3}髻|卸[^。，]{0,3}簪|湿发|湿透的[^。，]{0,6}发|发梢[^。，]{0,4}滴水|头发[^。，]{0,4}湿|(?:长发|头发|黑发|乌发|发丝)[^。，；]{0,2}(?:散|铺|乱|披|垂落)/
-/** 外貌最后一句写的是发型（梳成什么髻、束成马尾）。 */
+const LOOSE_HAIR_ZH = /散发|披发|披散|披着头发|散着头发|散开的(?:头发|长发|黑发)|(?:长发|头发|黑发|乌发|发丝)[^。，；]{0,3}(?:散开|披下|散落|披在)|解开(?:了)?(?:自己的)?(?:发绳|发带|马尾)|拆[^。，]{0,3}髻/
+const TIED_HAIR_ZH = /马尾|双辫|发髻|螺髻|编发|发带|发绳|发圈|丸子头/
+const UNCERTAIN_STATE = /并未|没有|未曾|没(?:有)?(?:扎|解|披|散)|尚未|不曾|想要|打算|准备|要是|如果|仿佛|会不会|是否|本想|想象|梦见/
+const NON_HAIR_DETAIL = /拿|握|抱|拎|递|走|戴|穿|坐|站|帽|鞋|镜|衣|裙|桶|喷雾|项链|耳环|上衣|裤/
+
+function looseHairIn(text) {
+  return String(text ?? '').split(/[。！？；，,\n]+/).some(clause => LOOSE_HAIR_ZH.test(clause) && !UNCERTAIN_STATE.test(clause))
+}
+
+function removeSceneClause(parts, index) {
+  parts[index] = ''
+  if (/^[，,；;]+$/.test(parts[index + 1] ?? '')) parts[index + 1] = ''
+  else if (/^[，,；;]+$/.test(parts[index - 1] ?? '')) parts[index - 1] = ''
+  else if (/^[。！？!?]+$/.test(parts[index + 1] ?? '')) parts[index + 1] = ''
+}
+
+function withoutTiedHair(text) {
+  const parts = String(text ?? '').split(/([，,；;。\n]+)/)
+  for (let index = 0; index < parts.length; index += 2) {
+    const part = parts[index]
+    if (TIED_HAIR_ZH.test(part) && !NON_HAIR_DETAIL.test(part) && !/(?:解开|摘下|取下|手里|手上|放在)/.test(part)) {
+      removeSceneClause(parts, index)
+    }
+  }
+  return parts.join('').trim()
+}
+
+/** 外貌最后一句写的是发型。 */
 const HAIR_STYLE_SENTENCE = /(?:头发|长发|黑发|乌发|发)[^。]*?(?:髻|马尾|辫|束成|盘成|挽成|梳成)/
 /** 发型动词从哪里开始：之前是发色和长短，之后是梳成什么样。 */
 const HAIR_STYLE_VERB = /(?:平时)?(?:在脑后)?(?:高高|松松|斜)?(?:用[^，。]{0,6}?)?(?:束|梳|挽|盘|扎)/
 function hairOverridden(scene, wear) {
-  return HAIR_IN_WEAR_ZH.test(String(wear ?? '')) || HAIR_STATE_ZH.test(String(scene ?? ''))
+  return HAIR_IN_WEAR_ZH.test(String(wear ?? '')) || looseHairIn(scene)
 }
 
 /** 宏里的英文视角词在中文整句里的说法（TA 换成她/他）。 */
@@ -1149,6 +1247,7 @@ function characterTags(character, options = {}) {
       cropped: options.croppedOutfit === true,
       barefoot: options.barefoot === true,
       keepSocks: options.keepSocks === true,
+      conciseOutfit: options.conciseOutfit === true,
       dropFootwear,
     })) {
       tags.push(piece.text)
@@ -2577,7 +2676,8 @@ function createRuntime(ctx, overrides, logger, deps) {
       try { card = await currentCard(session, turn) }
       catch (error) { error.submissionNotStarted = true; throw error }
       const defs = applyCharacterSnapshot(definitions, characterSnapshot)
-      const scoped = card ? { ...defs, characters: scopeCharacters(defs.characters, card) } : defs
+      const subjects = refreshReferences && replacedPrompt ? undefined : source.params?.subjects
+      const scoped = applyShotOutfits(card ? { ...defs, characters: scopeCharacters(defs.characters, card) } : defs, subjects)
       const keepComfySource = source.backend === 'comfyui' && jobConfig.imageBackend === 'comfyui'
       if (keepComfySource && source.workflowId?.startsWith('simple-')) throw Object.assign(new Error('该作业来自已停用的 ComfyUI 简易模式；原数据已保留，请导入完整 ComfyUI API workflow 后再重绘'), { submissionNotStarted: true, code: 'COMFY_SIMPLE_RETIRED' })
       const workflow = keepComfySource ? workflows.find(item => item.id === source.workflowId && !item.error) : null
@@ -2590,7 +2690,7 @@ function createRuntime(ctx, overrides, logger, deps) {
         fresh = await startJob({
           tag: mode === 'reference' ? rawTag : normalizePrompts(expandRosterCalls(rawTag, scoped, jobConfig.traitMode, { style: rosterStyle(jobConfig, workflow ?? styleWorkflow(jobConfig)) }), scoped, { backend: effectiveConfiguredProvider(jobConfig), style: rosterStyle(jobConfig, workflow ?? styleWorkflow(jobConfig)), allowChinese: chineseAllowed(jobConfig, workflow ?? styleWorkflow(jobConfig)) }),
           rawTag, generationMode: mode,
-          subjects: refreshReferences && submitted !== (source.params?.rawTag ?? source.params?.tag) ? undefined : (source.params?.subjects?.length ? source.params.subjects : undefined),
+          subjects: subjects?.length ? subjects : undefined,
           characters: characterSource,
           artist: source.params?.artist,
           promptUsage: source.params?.promptUsage,
@@ -3235,7 +3335,7 @@ function createRuntime(ctx, overrides, logger, deps) {
             }
             if (submissionStopped || (smart && (!decisionFrozen || streamDecision !== 'draw' || streamConflict))) return
             const latest = sessionId && typeof deps.tavern?.beforeImageGenerate === 'function' ? applyCharacterSnapshot(definitions, visualSnapshot) : null
-            const pictureScope = latest ? { ...latest, characters: [...scopeCharacters(latest.characters, card), ...packCharacters] } : { ...scoped }
+            const pictureScope = applyShotOutfits(latest ? { ...latest, characters: [...scopeCharacters(latest.characters, card), ...packCharacters] } : { ...scoped }, image.subjects)
             const subjectsWithPackIds = image.subjects?.map(subject => {
               if (subject.characterId || !subject.name || subject.outfitId) return subject
               const matches = packCharacters.filter(person => [person.name, ...splitTags(person.match)].some(alias => norm(alias) === norm(subject.name)))
@@ -7368,9 +7468,12 @@ export function injectDefinitions(text, definitions, config = {}, options = {}) 
   const sceneCharacters = (definitions.characters ?? []).filter(character => character && character.enabled !== false && (
     macroCharacters.includes(character) || aliasesFor(character).some(alias => containsNameToken(footText, alias))
   ))
-  // 按名字注入时，鞋袜状态只作用于明确点名该角色的子句；同一子句出现多名角色也视为归属不明。
+  const scopedClauses = natural ? sceneClauses(footText, sceneSubjects(definitions.characters)) : []
+  const globalFraming = natural ? commonFraming(scopedClauses) : ''
+  // Legacy tag mode keeps its original matching rules.
   const footwearSceneFor = character => {
     if (sceneCharacters.length === 1) return footText
+    if (natural) return personSceneText(scopedClauses, character)
     const clauses = footText.split(/(?<=[，,。！？!?；;\n])/).map(value => value.trim()).filter(Boolean)
     const own = aliasesFor(character)
     return clauses.filter(clause => {
@@ -7449,7 +7552,7 @@ export function injectDefinitions(text, definitions, config = {}, options = {}) 
     const personBarefoot = isBarefoot(footwearScene)
     const shoesOff = !personBarefoot && footwearOverridden(footwearScene, personWearText(character, recordedRaw))
     const noShoes = personBarefoot || shoesOff
-    const closeShot = natural && closeShotScene(footwearScene || (sceneCharacters.length <= 1 ? footText : ''))
+    const closeShot = natural && (closeShotScene(globalFraming) || closeShotScene(footwearScene))
     const visibleWear = closeShot && recordedRaw ? resolveWearText(character, character.current?.outfit, true, definitions?.outfits) : recordedRaw
     const recorded = noShoes || closeShot ? dropFootwear(visibleWear, shoesOff && !closeShot) : visibleWear
     const picked = characterTags(character, { nsfw, back, full: full && !closeShot, croppedOutfit: closeShot,
@@ -7458,8 +7561,15 @@ export function injectDefinitions(text, definitions, config = {}, options = {}) 
     // options.provenance：诊断用，记录每段注入文字来自哪个人物的哪个字段、作用于正向还是整图负向。
     if (Array.isArray(options?.provenance)) for (const origin of picked.origins ?? []) options.provenance.push({ stage: 'definition-injection', characterId: String(character.id ?? ''), characterName: String(character.name ?? ''), matchedBy: keys.find(key => key && source.includes(key)) ?? '', appliedScope: origin.channel === 'negative' ? 'whole-image-negative' : 'whole-image-positive', ...origin })
     if (natural) {
-      const hairExtras = Object.assign([], { dropHair: hairOverridden(source, recorded) })
-      const phrase = boundCharacterPhrase(character, picked, hairExtras, recorded, options?.style)
+      const looseHair = looseHairIn(footwearScene)
+      const wear = looseHair ? withoutTiedHair(recorded) : recorded
+      if (looseHair) {
+        for (const origin of picked.origins ?? []) {
+          if (origin.outfitId) origin.text = withoutTiedHair(origin.text)
+        }
+      }
+      const hairExtras = Object.assign([], { dropHair: hairOverridden(footwearScene, wear) })
+      const phrase = boundCharacterPhrase(character, picked, hairExtras, wear, options?.style)
       if (phrase && phrase !== character.promptLabel && !source.includes(phrase)) added.push(phrase)
     } else {
       // tag 写法：这个人的外貌紧跟在她的名字后面插入，而不是堆到整段末尾。
