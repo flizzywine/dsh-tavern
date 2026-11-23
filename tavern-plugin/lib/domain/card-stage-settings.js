@@ -87,17 +87,22 @@ const CARD_DECLARED = ['dialogue', 'stage']
 // nothing reads it.
 export const CARD_STAGE_SWITCHES = Object.freeze([...STAGE_TOGGLES.filter(key => !CARD_DECLARED.includes(key)), 'autoChoices', 'autoCast'])
 
-// 自动选角: its 激进程度. late = only what the story asked for, usable the round after; eager = also the
-// opening's people at once and the common emotions of whoever has spoken while idle; all = every figure the card may bring,
-// drawn while idle until each has its sprite and common emotions.
-export const AUTO_CAST_LEVELS = Object.freeze(['late', 'eager', 'all'])
-export const AUTO_CAST_DEFAULTS = Object.freeze({enabled:false, level:'late'})
+// 自动选角: its 生成策略, one priority function at three levels (the stage's auto-cast-priority.js): saving = 节省 (the story's
+// own people), balanced = 平衡 (also whoever comes back, and the emotions the story uses often), aggressive = 激进 (everyone
+// who speaks, every emotion they use). The levels before (late / eager / all) are still read: as balanced / balanced /
+// aggressive.
+export const AUTO_CAST_LEVELS = Object.freeze(['saving', 'balanced', 'aggressive'])
+const OLD_AUTO_CAST_LEVELS = Object.freeze({late:'balanced', eager:'balanced', all:'aggressive'})
+export const AUTO_CAST_DEFAULTS = Object.freeze({enabled:false, level:'balanced'})
+const autoCastLevelOf = level => OLD_AUTO_CAST_LEVELS[level] || level
+// The global layer's settings section in dsh-tavern's profile entry (settings-config.js declares it writable).
+export const AUTO_CAST_SECTION = 'tavern-auto-cast'
 // One layer of its settings: the global one (the stage's tavern-auto-cast section, enabled + level) or a card's
 // stage.autoCast (level only; the card's switch is stage.switches.autoCast).
 export function validateAutoCastLayer(value, path, keys = ['level']) {
   shape(value, keys, [], path)
   if (value.enabled !== undefined) bool(value.enabled, path + '.enabled')
-  if (value.level !== undefined) check(AUTO_CAST_LEVELS.includes(value.level), path + '.level')
+  if (value.level !== undefined) check(AUTO_CAST_LEVELS.includes(autoCastLevelOf(value.level)), path + '.level')
   return value
 }
 
@@ -105,7 +110,7 @@ export function validateAutoCastLayer(value, path, keys = ['level']) {
 // one. It casts for the bubbles, so it also needs 对话气泡 in effect (`dialogue`, from effectiveCardStage).
 export function effectiveAutoCast(extension, global, dialogue) {
   const layer = {...AUTO_CAST_DEFAULTS, ...global}, card = extension?.stage || {}
-  return {enabled:dialogue === true && resolveSwitch(layer.enabled === true, card.switches?.autoCast), level:card.autoCast?.level ?? layer.level}
+  return {enabled:dialogue === true && resolveSwitch(layer.enabled === true, card.switches?.autoCast), level:autoCastLevelOf(card.autoCast?.level ?? layer.level)}
 }
 
 // The card layer of 对话气泡 / 舞台模式: the card's declaration as cardStageMode reads it (stage.enabled for both, or an

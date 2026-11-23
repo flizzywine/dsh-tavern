@@ -38,13 +38,13 @@ import {createSceneCg} from './scene-cg.js'
 import {readStageProjection, stageProjectionPage} from './domain/stage-projection.js'
 import {readWidgetWindowProjection} from './domain/widget-window-projection.js'
 import {frozenStageBackground} from '../../../lib/domain/stage-shared-context.js'
-import {effectiveCardStage, effectiveAutoCast, AUTO_CAST_DEFAULTS, validateAutoCastLayer} from '../../../lib/domain/card-stage-settings.js'
+import {effectiveCardStage, effectiveAutoCast, AUTO_CAST_DEFAULTS, AUTO_CAST_SECTION, validateAutoCastLayer} from '../../../lib/domain/card-stage-settings.js'
 import {readCardAssetExtension, cardAssetExtensionView} from '../../../lib/domain/card-asset-bindings.js'
 import {hasCardAssetBindings} from '../../../lib/card-asset-bindings.js'
 import {createStageClipExport} from './clip/clip-export-stage.js'
 import {createAutoCast} from './auto-cast.js'
 import {createAutoCastLibrary} from './auto-cast-library.js'
-import {runCastingAssistant} from './auto-cast-assistant.js'
+import {runCastingAssistant, runLookLender, roundStory} from './auto-cast-assistant.js'
 
 // cardsActive(): false once the plugin is disposed; card writes are refused from then on.
 export async function createStageModule(core) {
@@ -153,6 +153,13 @@ export async function createStageModule(core) {
     judge:engineJudge,mods:modService,
     itemsEnabled:chat=>core.cardStageSwitch(chat.cardPath,'items'),
     stateSource:(chat,raw)=>modConfigHost.stateSource(chat,raw),
+    // 借用形象: the 通用角色 立绘 自动素材 lent each new person until their own is drawn, by name, with the snapshots of the packs
+    // lent from (bound to the card or not)
+    standInLooks:async chat => {
+      const standInLooks = await autoCast?.standInLooks(chat.cardPath) || {}, library = ctx.get('assetLibrary')
+      const packIds = [...new Set(Object.values(standInLooks).map(look => look.packId))]
+      return {standInLooks, standInPacks:library && packIds.length ? (await Promise.all(packIds.map(packId => library.getPackSnapshot({packId})))).filter(Boolean) : []}
+    },
     log:event => console.info('dsh-tavern:',JSON.stringify(event)),
     publish:event => {
       sessionSignals.publish(event.sessionId,event)
@@ -235,7 +242,7 @@ export async function createStageModule(core) {
   ctx.effect(() => () => stageWorkflow.dispose(), 'dsh-tavern: stage workflow')
   // 自动选角's global layer (asset-engine.js createAutoCastSettings); a card's layer is in its stage extension. Its runtime needs the image
   // plugin's channel, so it is built with the requests (below); a round counts once its automatic figures are written.
-  const autoCastSettings = createAutoCastSettings(ctx, core.settingsOwner, {defaults:AUTO_CAST_DEFAULTS, validateLayer:validateAutoCastLayer})
+  const autoCastSettings = createAutoCastSettings(ctx, core.settingsOwner, {section:AUTO_CAST_SECTION, defaults:AUTO_CAST_DEFAULTS, validateLayer:validateAutoCastLayer})
   let autoCast = null
   const roundBody = async (chat,turn) => (await roundProjection(chat, turn, true))?.body
   ctx.effect(() => registerAutoFigureObserver({storyEvents, chatHeaderForSession:core.chatHeaderForSession,
@@ -253,7 +260,8 @@ export async function createStageModule(core) {
   ctx.effect(() => core.presentationObservers.register('dsh-tavern-stage', createStageStoryObserver({
     settlementQueued:stageWorkflow.settlementQueued, modService, stageDirector, chatPersistence, readStageChat,
     chatHeaderForSession:core.chatHeaderForSession, dialogueBubbles:core.dialogueBubbles,
-    readReplyPrefix:core.readReplyPrefix, activeRoundBodies:core.activeRoundBodies
+    readReplyPrefix:core.readReplyPrefix, activeRoundBodies:core.activeRoundBodies,
+    streamed:(chat, body, turn, isCurrent) => autoCast?.streamed(chat.cardPath, body, chat, turn, isCurrent)
   })), 'dsh-tavern: stage story observations')
   // Keep the opening hook independent of the shared story observer's commit/stream hooks.
   ctx.effect(() => core.presentationObservers.register('dsh-tavern-stage-opening', {
@@ -261,7 +269,7 @@ export async function createStageModule(core) {
       const latest = chat.messages?.findLast(message => message.role === 'assistant')
       if (!latest?.greeting || !['story','script'].includes(chat.mode)) return
       await stageDirector.get(chat, Number(latest.turn || 1), await core.dialogueBubbles.read(chat.cardPath))
-      // 自动选角 (积极 / 全部): the opening's speakers are cast and drawn at once, apart from the opening's director.
+      // 自动选角: the opening's speakers are cast and drawn at once (every level), apart from the opening's director.
       if (autoCast) void (async () => {
         const body = await roundBody(chat, Number(latest.turn || 1))
         if (body?.paragraphs) await autoCast.round(chat.cardPath, body, chat, {opening:true})
@@ -303,12 +311,19 @@ export async function createStageModule(core) {
         images:{prompt:input => deps.assetGeneration.autoPrompt(input), generate:input => deps.assetGeneration.image(input), check:(data, kind) => deps.assetGeneration.autoCheck(data, kind),
           status:async () => (await deps.pluginApi.imageProviders()[0]?.status()) || null},
         // 选角助理: the game's background model, its own short prompt and tools (auto-cast-assistant.js).
-        cast:async ({chat, speakers, cast}) => runCastingAssistant({runAgent:input => backgroundAgentRunner.run(input),
+        cast:async ({chat, body, speakers, cast}) => runCastingAssistant({runAgent:input => backgroundAgentRunner.run(input),
           selection:await modelSelection(chat.sessionId), sessionId:chat.sessionId, turn:Number(chat.messages.findLast(row => row.role === 'assistant')?.turn),
-          speakers, rows:cast.rows, voiceKeys:cast.voiceKeys, pieces:cardLorePieces(cast.raw, chat), search:query => autoCastLibrary.search(query), libraryVoices:() => autoCastLibrary.libraryVoices()}),
+          speakers, rows:cast.rows, voiceKeys:cast.voiceKeys, pieces:cardLorePieces(cast.raw, chat), story:roundStory(chat, body), search:query => autoCastLibrary.search(query), libraryVoices:language => autoCastLibrary.libraryVoices(language)}),
+        // 借用形象: one short call of the same model, the moment a new speaker's line is written
+        lend:async ({chat, body, speakers, turn}) => {
+          const figures = await autoCastLibrary.lendable()
+          return figures.length ? runLookLender({runAgent:input => backgroundAgentRunner.run(input), selection:await modelSelection(chat.sessionId), sessionId:chat.sessionId, turn, speakers, story:roundStory(chat, body), figures}) : {}
+        },
         onError:error => ctx.logger.warn('AUTO_CAST_FAILED %s', error.message)})
       ctx.effect(() => () => {autoCast?.dispose(); autoCast = null}, 'dsh-tavern: auto cast')
-      void autoCast.resume().catch(error => ctx.logger.warn('AUTO_CAST_FAILED %s', error.message))
+      // After a restart the queue continues once the asset library is there: at setup it may not be yet (it is its own plugin),
+      // and a queue started without it stops at once and waits for the next round.
+      ctx.inject(['assetLibrary'], child => child.effect(() => { void autoCast?.resume().catch(error => ctx.logger.warn('AUTO_CAST_FAILED %s', error.message)); return () => {} }, 'dsh-tavern: auto cast resume'))
       // 场景生图's gates (tavern.beforeImagePlan / beforeImageGenerate) wait for 自动素材: a settled turn's new people are
       // written before its pictures are planned, and a person's 人设图 is their record's 参考图 before a picture of them is drawn.
       const castCard = async gameId => autoCast && (await core.chatHeaderForSession(gameId, ['cardPath']))?.cardPath

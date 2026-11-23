@@ -5,6 +5,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
+import { fileURLToPath } from 'node:url'
 
 import { SOURCE_FILE } from '../bin/bundled-tavern-plugins.mjs'
 import { syncBundledTavernPlugins } from '../bin/service-lifecycle.mjs'
@@ -12,6 +13,8 @@ import { createUserPluginInstaller } from '../tavern-plugin/lib/domain/user-plug
 import { DISABLED_FILE, RESTART_FILE, syncUserPlugins } from '../tavern-plugin/lib/domain/user-plugins.js'
 import { TAVERN_PLUGIN_API_VERSION } from '../tavern-plugin/lib/domain/plugin-manifest.js'
 import { writeZipEntries } from '../tavern-plugin/lib/domain/zip-entries.js'
+import { readAchievementLibrary } from '../tavern-plugin/packages/dsh-tavern/lib/achievements.mjs'
+import { name as achievementPluginName } from '../tavern-plugin/packages/dsh-tavern-adventure-medal/lib/index.js'
 
 const FOLDER = 'dsh-tavern-plot-compass'
 const quiet = { warn() {}, log() {} }
@@ -120,6 +123,60 @@ async function checkBundledLoadDefault(t, folder) {
 for (const folder of ['dsh-tavern-fate-dice', 'dsh-tavern-plot-compass', 'dsh-tavern-story-director']) {
   test(`${folder} 默认加载，迁移旧版自动停用标记并保留手动停用`, t => checkBundledLoadDefault(t, folder))
 }
+
+test('发行副本默认启用，同名成就 ZIP 就地升级并保留记录和停用状态', async t => {
+  const sourceRoot = new URL('..', import.meta.url)
+  const dshHome = mkdtempSync(path.join(tmpdir(), 'tavern-achievement-bundle-'))
+  t.after(() => rmSync(dshHome, { recursive: true, force: true }))
+  const dataRoot = path.join(dshHome, 'profile-data', 'tavern', 'data')
+  const profileDir = path.join(dshHome, 'profiles', 'tavern')
+  mkdirSync(profileDir, { recursive: true })
+  writeFileSync(path.join(profileDir, 'package.json'), '{}')
+  const sync = () => syncUserPlugins({ dataRoot, dshHome, logger: quiet })
+  const installer = createUserPluginInstaller({ dataRoot, sync })
+  const bundled = () => syncBundledTavernPlugins({ sourceRoot: fileURLToPath(sourceRoot), dshHome, dataRoot, profileDir, logger: quiet })
+    .find(item => item.packageName === achievementPluginName)
+  const listed = async () => (await installer.list()).find(item => item.name === achievementPluginName)
+  const registered = async () => (await sync()).plugins.filter(plugin => plugin.name === achievementPluginName)
+  const fresh = bundled()
+  assert.equal(fresh.action, 'installed')
+  assert.equal((await listed()).source.kind, 'builtin')
+  assert.equal((await listed()).enabled, true)
+  assert.deepEqual((await registered()).map(plugin => plugin.main), ['./lib/index.js'])
+
+  // Replace the fixture with a previously installed ZIP in the same plugin slot.
+  rmSync(fresh.target, { recursive: true })
+  const manifest = JSON.parse(readFileSync(new URL('tavern-plugin/packages/dsh-tavern-adventure-medal/package.json', sourceRoot), 'utf8'))
+  const archive = writeZipEntries([
+    { path: 'package.json', content: JSON.stringify({ ...manifest, version: '2.8.4', exports: { ...manifest.exports, '.': './index.mjs' } }) },
+    { path: 'index.mjs', content: 'export function apply() {}' },
+    { path: 'client.js', content: '// old client' },
+  ])
+  assert.equal((await installer.installFromZip(archive, 'older-achievements.zip')).folder, achievementPluginName)
+  assert.equal((await listed()).source.kind, 'zip')
+  await installer.disable(achievementPluginName)
+  const recordDir = path.join(dataRoot, 'plugin-data')
+  const recordFile = path.join(recordDir, achievementPluginName + '.json')
+  const record = JSON.stringify({ version: 1, achievements: [
+    { id: 'gold', rounds: 500, title: '史诗', earned: true, unlockedAt: 1000, contextChars: 1263067 },
+  ] })
+  mkdirSync(recordDir, { recursive: true })
+  writeFileSync(recordFile, record)
+
+  const migrated = bundled()
+  assert.equal(migrated.action, 'upgraded')
+  assert.equal(migrated.target, fresh.target)
+  assert.equal(migrated.installedVersion, '2.8.4')
+  assert.equal((await listed()).source.kind, 'builtin')
+  assert.equal((await listed()).enabled, false)
+  assert.deepEqual(await registered(), [])
+  assert.equal(readFileSync(recordFile, 'utf8'), record)
+  assert.equal((await readAchievementLibrary(dshHome))[0].contextChars, 1263067)
+  await assert.rejects(installer.remove(achievementPluginName), /内置插件/)
+  await installer.enable(achievementPluginName)
+  assert.deepEqual((await registered()).map(plugin => plugin.main), ['./lib/index.js'])
+  assert.equal(bundled().action, 'skipped')
+})
 
 test('命运之骰只安装校验通过的 Release，酒馆同步保留较新的兼容版本', async t => {
   const folder = 'dsh-tavern-fate-dice'

@@ -7,6 +7,7 @@ export { PLUGIN_SETTINGS_MARKER }
 
 import { MANAGED_MOD_SETTINGS_SECTION } from './mod-system-settings.js'
 import { emptyGlobalMods, validateModSystem } from './domain/mod-system-contract.js'
+import { AUTO_CAST_DEFAULTS, AUTO_CAST_SECTION, validateAutoCastLayer } from './domain/card-stage-settings.js'
 
 const managed = emptyGlobalMods()
 const engine = defaultAssetEngineSettings()
@@ -18,6 +19,9 @@ const fields = {
   }, true).default(engine).volatile(),
   [DIRECTOR_PROBE_SECTION]: z.transform(z.object({ models: z.any().default({}) }), validateDirectorProbeSettings, true).default({ models: {} }).volatile(),
   [MOD_SETTINGS_SECTION]: z.transform(z.object({ global: z.any().default(defaultModSettings().global), grants: z.any().default({}) }), validateModSettings, true).default(defaultModSettings()).volatile(),
+  // 自动素材's global layer (the stage's createAutoCastSettings writes it into this entry): without a volatile field here
+  // the profile refuses every save, so the global switch could never be turned on.
+  [AUTO_CAST_SECTION]: z.transform(z.object({ enabled: z.any().default(AUTO_CAST_DEFAULTS.enabled), level: z.any().default(AUTO_CAST_DEFAULTS.level) }), value => validateAutoCastLayer(value, '$', ['enabled', 'level']), true).default({ ...AUTO_CAST_DEFAULTS }).volatile(),
 }
 export const Config = z.object({ ...fields, [PLUGIN_SETTINGS_MARKER]: z.number().min(0).max(1).step(1).default(0).volatile() })
 export const importLegacyPluginSettings = (ctx, provider) => importLegacySettings(ctx, provider, fields)

@@ -3,6 +3,7 @@ import { basename, join } from 'node:path'
 import { appendFileSync, readFileSync } from 'node:fs'
 import { pathToFileURL } from 'node:url'
 import { inspectInstallation, validateInstallationRequest } from './lib/installation.mjs'
+import { readAchievementLibrary } from './lib/achievements.mjs'
 import { captureOwnedProcesses } from './lib/processes.mjs'
 import { requestDesktopQuit } from './lib/quit.mjs'
 import { confirmNextUpdate, recordPendingQuitStatus, relaunchApp, scheduleSwitch } from './lib/helper.mjs'
@@ -139,6 +140,7 @@ async function handleCall(ctx, endpoint, payload) {
   try {
     const paths = launcherPaths(ctx)
     if (endpoint === 'status') return { ok: true, value: statusPayload(paths) }
+    if (endpoint === 'achievements') return { ok: true, value: await readAchievementLibrary(paths.home) }
     if (endpoint === 'set-default') {
       if (paths.host === 'next' || !isOfficialDesktopApp() || basename(paths.activeDir) !== 'desktop') fail('not-desktop', '请在官方桌面中设置默认配置。')
       if (payload?.profile === 'tavern') validateTarget(paths, 'tavern')
@@ -240,19 +242,27 @@ export function apply(ctx) {
       if (mode) await runSwitch(mode, paths, { target: 'tavern' })
     }).catch(error => ctx.logger?.warn?.(`默认配置未能应用：${error.message}`))
   }
-  const logo = readFileSync(new URL('./assets/dsh-tavern-app-icon-192.png', import.meta.url))
-  ctx.effect(() => ctx.webServer.register({
-    kind: 'exact',
-    path: LOGO_PATH,
-    handler(req, res) {
-      if (req.method !== 'GET' && req.method !== 'HEAD') {
-        res.writeHead(405, { allow: 'GET, HEAD' }).end()
-        return
-      }
-      res.writeHead(200, { 'content-type': 'image/png', 'content-length': logo.length })
-      res.end(req.method === 'HEAD' ? undefined : logo)
-    },
-  }), 'profile-bridge: Tavern logo')
+  for (const [route, filename, type] of [
+    [LOGO_PATH, 'dsh-tavern-app-icon-192.png', 'image/png'],
+    ...['medal', 'badges', 'paper', 'icons'].map(asset => [
+      `${CHANNEL}/achievement-${asset}.webp`, `achievement-${asset}.webp`, 'image/webp',
+    ]),
+    [`${CHANNEL}/achievement-art.css`, 'achievement-art.css', 'text/css; charset=utf-8'],
+  ]) {
+    const image = readFileSync(new URL('./assets/' + filename, import.meta.url))
+    ctx.effect(() => ctx.webServer.register({
+      kind: 'exact',
+      path: route,
+      handler(req, res) {
+        if (req.method !== 'GET' && req.method !== 'HEAD') {
+          res.writeHead(405, { allow: 'GET, HEAD' }).end()
+          return
+        }
+        res.writeHead(200, { 'content-type': type, 'content-length': image.length })
+        res.end(req.method === 'HEAD' ? undefined : image)
+      },
+    }), 'profile-bridge: ' + filename)
+  }
 
   // Preferred: the Connection service's own channel registry (it also applies the
   // browser-trust fence and session authentication).
