@@ -1791,7 +1791,7 @@
 					h("div", null,
 						h("div", null, openingCardName ? "正在打开「" + openingCardName + "」…" : "正在读取人物卡…"),
 						h("small", null, openingCardName ? "正在准备开场白、脚本与世界书；首次打开可能还需要下载资源，后续通常会快很多。" : "人物卡较多时首次载入需要几秒，请稍候。"))) : organization.visible.length ? h(React.Fragment, null, h("div", { className: "dsh-tavern-side-empty", style: { padding: "4px 6px" } }, "已绑定剧本的人物卡将自动按剧本推进；未绑定的按自由故事推进。剧本绑定在“卡片模式”中管理。"), h(TavernCardList, { place: "play", cards: organization.visible, batch: cardBatch, busy: busy, open: function (card) { if (!card.readError) openPlayCard(card); } })) : h(EmptyState, cards.length ? { text: "没有匹配的人物卡", icon: "search" } : { noun: "人物卡",
-					action: cardZip ? h("div", { className: "dsh-tavern-empty-actions" }, h("button", { type: "button", className: "dsh-tavern-btn", disabled: busy || cardZip.busy, onClick: cardZip.openUrl }, "从网址导入卡")) : null })
+					action: cardZip ? h("div", { className: "dsh-tavern-empty-actions" }, h("button", { type: "button", className: "dsh-tavern-btn primary", disabled: busy || cardZip.busy, onClick: cardZip.openExample }, "导入示例卡：大肥鱼"), h("button", { type: "button", className: "dsh-tavern-btn", disabled: busy || cardZip.busy, onClick: cardZip.openUrl }, "从网址导入卡")) : null })
 			));
 
 			const workbenchCards = h(React.Fragment, null, workbenchOrganization.toolbar(),
