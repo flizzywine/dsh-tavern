@@ -10193,7 +10193,8 @@ window.__ModuleLoader__.load({
 		    'fish-audio':[{key:'speed',label:'语速',min:0.5,max:2,step:0.05,base:1,unit:'x'}],
 		    azure:[{key:'rate',label:'语速',min:-50,max:100,step:5,base:0,unit:'%'},{key:'pitch',label:'音高',min:-50,max:50,step:5,base:0,unit:'%'},{key:'style',label:'风格',kind:'style'}],
 		    qwen:[{key:'instructions',label:'风格指令',kind:'text'}],
-		    'openai-compatible':[{key:'speed',label:'语速',min:0.5,max:2,step:0.05,base:1,unit:'x'}]};
+		    'openai-compatible':[{key:'speed',label:'语速',min:0.5,max:2,step:0.05,base:1,unit:'x'}],
+		    browser:[{key:'rate',label:'语速',min:0.5,max:2,step:0.05,base:1,unit:'x'}]};
 		  const voiceFailure=(code,message)=>Object.assign(new Error(message||code),{code});
 		  const voiceCode=e=>typeof e?.code==='string'?e.code:e?.name==='TimeoutError'?'TIMEOUT':e?.name==='AbortError'?'ABORTED':/^[A-Z][A-Z0-9_]+$/.test(e?.message||'')?e.message:'';
 		  const VOICE_ERRORS={ENOENT:'找不到配音所需的本地文件或程序，请检查语音服务的安装路径和参考音频。',ENOTDIR:'配音所需的本地路径不是文件夹，请检查语音服务的安装路径。',TTS_DISABLED:'配音插件未启用',PLUGIN_UNAVAILABLE:'配音插件未启用',SERVICE_REQUIRED:'这个声音绑定的语音服务还没设置；请到语音后端设置，或重新选择已设置服务的音色',CREDENTIALS_REQUIRED:'语音服务缺少 API Key',
@@ -10728,12 +10729,12 @@ window.__ModuleLoader__.load({
 		  function VoiceCurrent({binding,figure,muted,preview,rows,readiness,openSettings,general,tools}) {
 		    const [text,setText]=React.useState(null),[mood,setMood]=React.useState('calm');
 		    const g=general?.spec?general:null,source=g?g.spec.sources[voiceSourceId(g.spec,g.figure.voice)]:null;
-		    const language=g?figureVoiceLanguage(g.spec,g.figure.voice):'zh';
+		    const language=g?figureVoiceLanguage(g.spec,g.figure.voice):'zh',rate=g?g.spec.variants?.normal?.tuning?.[voiceSourceId(g.spec,g.figure.voice)]?.rate:undefined;
 		    const key='saved:'+figure.id,state=preview.of(key),sample=sampleText(language),typed=voiceSayTyped(text,sample);
 		    const ready=source&&!muted?readiness(source.provider,source.serviceId):null, warn=!muted&&(voiceSourceUnset(source)||ready?.text);
 		    const goSet=()=>openSettings(source.provider,source.serviceId?{id:source.serviceId}:undefined);
 		    const play=()=>{
-		      if(!g||source?.provider==='browser')return preview.playBrowser(key,{voice:source?.voiceName||'',language,text:typed||sample},{mood});
+		      if(!g||source?.provider==='browser')return preview.playBrowser(key,{voice:source?.voiceName||'',language,text:typed||sample,...(typeof rate==='number'?{rate}:{})},{mood});
 		      return preview.play(key,{packId:g.ref.packId,figureId:g.ref.figureId,expectedRevision:g.pack.revision,...(typed?{text:typed}:{}),mood},{label:'通用声音',mood});
 		    };
 		    const cannot=muted||!!warn||!!g&&g.figure.voice.source===null||!!source&&source.provider!=='browser'&&!binding.tts;
@@ -10915,7 +10916,7 @@ window.__ModuleLoader__.load({
 		    const say=async()=>{
 		      if(sayState&&sayState.phase!=='error'){preview.stop();return;}
 		      setProblem('');clips?.stop();
-		      if(kind==='browser'){const spec=draftSpec([]);return preview.playBrowser(sayKey,{voice:spec.sources[spec.defaultSource].voiceName,language:lang,text:line},{mood});}
+		      if(kind==='browser'){const spec=draftSpec([]);return preview.playBrowser(sayKey,{voice:spec.sources[spec.defaultSource].voiceName,language:lang,text:line,...(typeof params.rate==='number'?{rate:params.rate}:{})},{mood});}
 		      if(inline&&spec0&&!dirty)return preview.play(sayKey,{...candidate(),...(typed?{text:typed}:{}),mood},{label:spec0.name,mood});
 		      setBusy(true);
 		      try{
@@ -27727,7 +27728,7 @@ function tavernModelRefusalNotice(text) {
 		})();
 		const voicePlayer = createPackVoicePlayer({now: forkForeground.now, schedule: forkForeground.setInterval, cancel: forkForeground.clearInterval, getClient:pageTtsClient,
 		    createSpeech:line => browserSpeechClip(line),
-		    prepareAudio:(audio,blob,result) => {if(audio.browserSpeech){audio.playbackRate=stageReading.get().voiceRate;return;}forkForeground.media(audio);forkStageAudio.prepareVoice(audio,blob,result.loudness);audio.preservesPitch=true;audio.playbackRate=stageReading.get().voiceRate;},
+		    prepareAudio:(audio,blob,result) => {if(audio.browserSpeech)return;forkForeground.media(audio);forkStageAudio.prepareVoice(audio,blob,result.loudness);audio.preservesPitch=true;},
 		    maskAudio:(audio,cover) => { if (!audio.browserSpeech) forkStageAudio.mask(audio,cover); },
 		    disposeAudio:audio => { if (!audio.browserSpeech) forkStageAudio.release(audio); },
 		    onAudio:audio => forkStageAudio.voice(Boolean(audio))});
@@ -27748,8 +27749,8 @@ function tavernModelRefusalNotice(text) {
 		            return function release() {
 		                if (!holders.delete(token) || holders.size) return;
 		                voicePlayer.stop();
-		                // clips read at the holder's own speed go back to the stage's 语音速度
-		                voicePlayer.setRate(stageReading.get().voiceRate);
+		                // clips read at the holder's own speed go back to the voice's own (a service's tuning is part of the audio)
+		                voicePlayer.setRate(1);
 		                notify();
 		            };
 		        },
@@ -30963,8 +30964,7 @@ function tavernModelRefusalNotice(text) {
 		            if (event?.type === 'readingsChanged') { voicePlayer.invalidate(); return; }
 		            notifyPackChange(event);
 		        });
-		        const offRate=stageReading.subscribe(() => voicePlayer.setRate(stageReading.get().voiceRate));
-		        child.effect(() => () => {off();offRate();if(forkTtsScope!==child)return;forkTtsScope=undefined;voicePlayer.setEnabled(false);voicePlayer.invalidate();notifyPackChange();});
+		        child.effect(() => () => {off();if(forkTtsScope!==child)return;forkTtsScope=undefined;voicePlayer.setEnabled(false);voicePlayer.invalidate();notifyPackChange();});
 		    });
 		    ctx.effect(() => {
 		        const wsClient = typeof tavernWsRpc !== 'undefined' ? tavernWsRpc : null;
@@ -40118,9 +40118,9 @@ function tavernFloorHeightRecall(key, width) {
 						// Narration stays silent while the narrator is off; the dialogue goes on.
 						if (reply.skip) { if (reply.reason === "narration" || reply.reason === "empty") continue; return false; }
 						const text = reply.text || line.text;
-						const descriptor = reply.browser ? { available: true, browser: { voice: reply.voice || "" }, language: "zh-CN" } : { available: true, url: reply.url, loudness: reply.loudness };
+						const descriptor = reply.browser ? { available: true, browser: { voice: reply.voice || "", ...(reply.rate === undefined ? {} : { rate: reply.rate }) }, language: "zh-CN" } : { available: true, url: reply.url, loudness: reply.loudness };
 						const heard = await playClip(lease, descriptor, { owner: OWNER, id: String(index), text, mood: input.emotion || "neutral",
-							cacheKey: JSON.stringify([OWNER, reply.browser ? "browser:" + (reply.voice || "") : reply.url, text]) });
+							cacheKey: JSON.stringify([OWNER, reply.browser ? "browser:" + (reply.voice || "") + ":" + (reply.rate || "") : reply.url, text]) });
 						if (!heard) return false;
 						heardAny = true;
 					}
@@ -59934,7 +59934,6 @@ const {GAL_LOOK_ID, GAL_LOOK_MS, GAL_LEAK_FROM, GAL_MOTE_KINDS, GAL_LUMA, galLoo
 		// line at once); autoWait = the auto mode's pause after a line's voice ends. A silent page waits its reading
 		// time (galAutoHold) shifted by the same amount. autoSpeed scales both waits;
 		// the 1.3x default shortens idle dwell without speeding up or cutting off speech.
-		// voiceRate: every dialogue voice clip plays this much faster, pitch preserved (Config → 声音).
 		// textScale: { skinId: percent } (CONFIG 文字大小): the stage text at that percent of the skin's own size;
 		// a skin without an entry is at 100%.
 		// hudReveal: CONFIG 顶栏按钮 (PROPOSAL §二) - 'auto' | 'always' over the skin's hud.reveal; null = the skin's choice.
@@ -59984,7 +59983,7 @@ const {GAL_LOOK_ID, GAL_LOOK_MS, GAL_LEAK_FROM, GAL_MOTE_KINDS, GAL_LUMA, galLoo
 
 		// A clip export reads at the default pace with the whole text at once (no typing time); clip-export-clock.js
 		// installs it as the export page's reading preference.
-		const CLIP_READING = { textSpeed: 0, autoWait: STAGE_AUTO.wait, autoSpeed: STAGE_AUTO.speed, voiceRate: 1, frameCap: 60 };
+		const CLIP_READING = { textSpeed: 0, autoWait: STAGE_AUTO.wait, autoSpeed: STAGE_AUTO.speed, frameCap: 60 };
 		const CLIP_TIMING_FPS = 30;
 		// One paragraph's frames (30 fps) per card, as the stage's auto mode shows it: pages[page] = its text box cards
 		// [{ text, voiceAt }], voiceMs = the paragraph's cached voice (0 = silent). The voice plays over the first page: a card that
@@ -60144,8 +60143,8 @@ const {GAL_LOOK_ID, GAL_LOOK_MS, GAL_LEAK_FROM, GAL_MOTE_KINDS, GAL_LUMA, galLoo
 
 		if (typeof module !== 'undefined' && typeof window === 'undefined') module.exports = {STAGE_PERFORMANCE_RENDERERS, STAGE_PERFORMANCE_ROLES, STAGE_PERFORMANCE_CORE,
 		    validateStagePerformanceDeclaration, createStagePerformanceRegistry, stagePerformanceKindOf, stagePerformancePointer, stagePerformanceBlocks, stagePerformancePhaseBlocks};
-		const STAGE_READING_DEFAULTS = { textSpeed: 28, autoWait: STAGE_AUTO.wait, autoSpeed: STAGE_AUTO.speed, voiceRate: 1, frameCap: null, reducedMotion:false, photosensitive:true, skipTitlePage:false, textScale:{}, hudReveal:null };
-		const STAGE_READING_LIMITS = { textSpeed: [0, 80, 2], autoWait: [0, 3000, 100], autoSpeed: [0.5, 3, 0.1], voiceRate: [0.8, 2, 0.1] }; // [min, max, step]
+		const STAGE_READING_DEFAULTS = { textSpeed: 28, autoWait: STAGE_AUTO.wait, autoSpeed: STAGE_AUTO.speed, frameCap: null, reducedMotion:false, photosensitive:true, skipTitlePage:false, textScale:{}, hudReveal:null };
+		const STAGE_READING_LIMITS = { textSpeed: [0, 80, 2], autoWait: [0, 3000, 100], autoSpeed: [0.5, 3, 0.1] }; // [min, max, step]
 		const STAGE_TEXT_SCALE = [70, 130, 5]; // [min, max, step] percent of the skin's own size
 		function stageTextScaleMap(map) {
 		    const [min, max, step] = STAGE_TEXT_SCALE, out = {};
@@ -60323,7 +60322,7 @@ const {GAL_LOOK_ID, GAL_LOOK_MS, GAL_LEAK_FROM, GAL_MOTE_KINDS, GAL_LUMA, galLoo
 		            findPluginPanel:findTavernStagePluginPanel, PluginPanel:TavernStagePluginPanel,
 		            createCardFrame:props=>createTavernMessageFrameLifecycle(props,{executeSlash:stageCardPageSlash()})},
 		        device:{matchMedia},
-		        mixer:{reading:stageReading, voiceRateLimits:STAGE_READING_LIMITS.voiceRate, Icon, Slider, audio:forkStageAudio, sounds:forkUiSfx, entries:stageEntries, report:useStageEntryState, icons:ICON_PATHS},
+		        mixer:{Icon, Slider, audio:forkStageAudio, sounds:forkUiSfx, entries:stageEntries, report:useStageEntryState, icons:ICON_PATHS},
 		        sfx:{Audio, audio:forkStageAudio, foreground:forkForeground},
 		        music:{audio:forkStageAudio,foreground:forkForeground,fetch,AbortController},
 		        bgm:{
