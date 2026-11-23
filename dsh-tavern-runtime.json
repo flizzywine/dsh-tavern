@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "0c9410f4205763f8540641baf45ea57955357821",
-  "releaseSequence": 2002,
+  "revision": "9d6d79fb9b37b74b1d635f850198d9c952a22d55",
+  "releaseSequence": 2003,
   "version": "3.4.0",
   "files": [
     {
@@ -151,7 +151,7 @@
     },
     {
       "path": "android/native/latest.json",
-      "sha256": "1960f9f17c849e51d251c056122ce9e0f7a38a5e763a4c32972cad0f2226032e",
+      "sha256": "d758284b2e4459a217a6748f869a3ef6d4d43817bc2655750b1af70ae888206a",
       "size": 456
     },
     {
@@ -176,13 +176,18 @@
     },
     {
       "path": "android/native/README.md",
-      "sha256": "2cb1a37eec074dc79c86f64dd38d28ba8bd290b277c89c806a01cabe34e533eb",
-      "size": 18470
+      "sha256": "7c7d6da819c7d974d882e21be0898cc130d4ff3bdb09c8c94a3225d399a391e2",
+      "size": 19275
     },
     {
       "path": "android/native/release-smoke.mjs",
       "sha256": "dee32e06e70398a406c4d3f8ee2c1b3e087b417bde17ec45931b898831e69b89",
       "size": 5349
+    },
+    {
+      "path": "android/native/release.sh",
+      "sha256": "1ee833c62bedba92cf41cfb225acc7a4f75fb89a70c2d458daf2a0b145d7dcd0",
+      "size": 9707
     },
     {
       "path": "android/native/seed-static-cache.mjs",
@@ -191,8 +196,8 @@
     },
     {
       "path": "android/native/shims/android-preload.cjs",
-      "sha256": "e64185bd9ff3513d38375e7399496a0e4e8a11eae6046fb3059631794a547e91",
-      "size": 8047
+      "sha256": "1ad72d2075ddc92d55c1e83fa2d55970a94fdd8047e0cc7ddb5baf6191e4212f",
+      "size": 8172
     },
     {
       "path": "android/native/shims/node-addon-require-builtin/lib/index.js",
@@ -208,6 +213,11 @@
       "path": "android/native/shims/source-update.mjs",
       "sha256": "b1de5ee6e114d02b0dc5cdde1e3d3870ff0d391fb85336f71b1b877fc756cbd3",
       "size": 22796
+    },
+    {
+      "path": "android/native/shims/termux-preload.cjs",
+      "sha256": "5553730293f646332418e8961de86346148ea5bc8ce799526c1d0013612b6d48",
+      "size": 1290
     },
     {
       "path": "android/native/stage-payload.sh",
@@ -9756,8 +9766,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern/README.md",
-      "sha256": "f98338dd6309ee74b3385ccaa430277293cf7b084f95b6cae7fe9068324fd675",
-      "size": 23979
+      "sha256": "685192f1f32aba33cd588dbbf3afa571f46002a8f045ab07be49e34ffe9d3873",
+      "size": 24218
     },
     {
       "path": "tavern-plugin/pnpm-lock.yaml",
@@ -10146,9 +10156,9 @@
     }
   ],
   "archive": {
-    "commit": "710eefc20382b7fd49fe8369c86461ede7399659",
+    "commit": "6ea69005d89aca29fc2cd02ca04c7b32da4285a9",
     "path": "runtime.zip",
-    "sha256": "a85e0ac76b0a252e89aff3015f2a54657e970821bfd99bf886a04928a5f6d964",
-    "size": 17831813
+    "sha256": "255c68021cf2d68ec1b5e96d6110f0a474777499e6253cd221261fb80f50a86b",
+    "size": 17837899
   }
 }
