@@ -1254,7 +1254,9 @@ function paintStageSkin(root, document, fonts, theme, lead = false, art = null, 
 // C2: the ransom words (name.letter, plates.divider.letter) and the tiles they are cut on - the backlog's own glyphTiles,
 // else the menu's (the validator requires one).
 function stageSkinBacklogLooks(document) {
-    const looks=stageSkinBacklog(document), b=document?.art?.backlog, plates=b?.plates;
+    const base=stageSkinBacklog(document), b=document?.art?.backlog, plates=b?.plates;
+    // textStyle.highlight: the story words the skin draws in an ink, in the rows too
+    const looks=document?.textStyle?.highlight ? {...base,highlight:document.textStyle.highlight} : base;
     const letter=b?.name?.letter || plates?.divider?.letter ? {name:b.name?.letter,divider:plates?.divider?.letter,tiles:b.glyphTiles || document.art.menu.glyphTiles} : null;
     // C3: the face column - whether the player's rows take one and what an unresolved speaker shows (initial / image / none).
     const avatar=b?.avatar ? {player:b.avatar.player === true,placeholder:b.avatar.placeholder === 'initial' ? 'initial' : b.avatar.placeholder ? 'image' : null} : null;

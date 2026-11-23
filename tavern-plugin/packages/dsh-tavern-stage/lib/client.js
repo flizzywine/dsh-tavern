@@ -245,7 +245,43 @@ function textMarkRanges(text, marks) {
     }
     return out.sort((a, b) => a.start - b.start);
 }
-// A paragraph laid out as several pages: the marks are found in the pages joined (a quote may run over a page break),
+// Where a skin's highlight words (skin textStyle.highlight {ink, words: [{text, caseless?, whole?, except?}]}) fall in `text`:
+// -> [{start, end}] in text order, none overlapping each other or `taken` (ranges already drawn by a mod). Display only - it
+// never touches the text, and a voice, a copy or a save keeps the words as written. `whole` skips a match inside a longer number
+// or word (13, 30, 3.5, threesome); `except` lists longer phrases whose occurrences keep the word plain (三角机构 for 三).
+const HIGHLIGHT_ALNUM = /[0-9A-Za-z\uFF10-\uFF19\uFF21-\uFF3A\uFF41-\uFF5A]/, HIGHLIGHT_DIGIT = /[0-9\uFF10-\uFF19]/, HIGHLIGHT_POINT = /[.,\uFF0C\uFF0E]/;
+function textHighlightRanges(text, highlight, taken = []) {
+    const value = String(text || ''), out = [];
+    if (!highlight?.words?.length || !value) return out;
+    const folded = value.toLowerCase().length === value.length ? value.toLowerCase() : value;
+    const find = (needle, caseless) => {
+        const hay = caseless ? folded : value, key = caseless ? needle.toLowerCase() : needle, at = [];
+        for (let i = hay.indexOf(key); i >= 0 && key; i = hay.indexOf(key, i + key.length)) at.push([i, i + key.length]);
+        return at;
+    };
+    for (const word of highlight.words) {
+        const except = (word.except || []).flatMap(phrase => find(phrase, word.caseless));
+        for (const [start, end] of find(word.text, word.caseless)) {
+            if (except.some(([from, to]) => from <= start && end <= to)) continue;
+            if (word.whole) {
+                const before = value[start - 1] || '', after = value[end] || '';
+                if (HIGHLIGHT_ALNUM.test(before) || HIGHLIGHT_ALNUM.test(after)) continue;
+                if (HIGHLIGHT_POINT.test(after) && HIGHLIGHT_DIGIT.test(value[end + 1] || '')) continue;
+                if (HIGHLIGHT_POINT.test(before) && HIGHLIGHT_DIGIT.test(value[start - 2] || '')) continue;
+            }
+            if (!out.some(row => start < row.end && end > row.start) && !taken.some(row => start < row.end && end > row.start)) out.push({start, end});
+        }
+    }
+    return out.sort((a, b) => a.start - b.start);
+}
+// The view's draw marks [{start, end, render}] with the skin's highlight words added: `taken` (a mod's marks) keep their words,
+// the highlights only colour (no tap, no voice cover). h: the view's createElement.
+function textMarksHighlighted(text, highlight, taken, h) {
+    if (!highlight) return taken;
+    const own = textHighlightRanges(text, highlight, taken).map(range => ({start: range.start, end: range.end,
+        render: (words, key) => h('span', {key, className: 'fork-gal-hl', style: {color: highlight.ink}}, words)}));
+    return own.length ? [...taken, ...own].sort((a, b) => a.start - b.start) : taken;
+}// A paragraph laid out as several pages: the marks are found in the pages joined (a quote may run over a page break),
 // then cut to page `index`. pages: the paragraph's page texts in order. -> ranges in that page's text; a range cut at a
 // page edge keeps its mark and says which part it is ({head, tail}: it starts / ends on this page).
 function textMarkPageRanges(pages, index, marks) {
@@ -326,7 +362,7 @@ function textMarkVoice(text, cover) {
             return shut.length ? {spans: shut.map(row => [row.from, row.to]), noise: shut[0].mark.kind.noise} : null;
         }};
 }
-return {textMarksAt, textMarkRanges, textMarkPageRanges, textMarkShift, textMarkSegments, textMarkNodes, textMarkTimes, textMarkVoice};
+return {textMarksAt, textMarkRanges, textHighlightRanges, textMarksHighlighted, textMarkPageRanges, textMarkShift, textMarkSegments, textMarkNodes, textMarkTimes, textMarkVoice};
 })();
 if (typeof window === 'undefined' && typeof module !== 'undefined') module.exports = stageTextMarks;
 
@@ -15694,10 +15730,14 @@ function GalStage(props) {
     // the page's text marks in the words the box shows (a subtitle card of the page, a quoted line)
     const boxMarks = (function () {
         const shift = current?.textMarks?.length && !transitioning ? shownText.indexOf(subtitles.text) : -1;
-        if (shift < 0) return undefined;
-        const start = Array.from(current.text).slice(0, subtitles.cards[card]?.start || 0).join('').length;
-        const ranges = stageTextMarks.textMarkShift(current.textMarks, start, subtitles.text.length).map(row => ({...row, start:row.start + shift, end:row.end + shift}));
-        return stageTextMarkRender(ranges, {...markTurn, para:current.para}, reading.reducedMotion === true);
+        let own = [];
+        if (shift >= 0) {
+            const start = Array.from(current.text).slice(0, subtitles.cards[card]?.start || 0).join('').length;
+            const ranges = stageTextMarks.textMarkShift(current.textMarks, start, subtitles.text.length).map(row => ({...row, start:row.start + shift, end:row.end + shift}));
+            own = stageTextMarkRender(ranges, {...markTurn, para:current.para}, reading.reducedMotion === true);
+        }
+        const all = stageTextMarks.textMarksHighlighted(shownText, activeSkin?.textStyle?.highlight, own, React.createElement);
+        return all.length ? all : undefined;
     })();
     // the unfinished sentence that may still move to the next page stays
     // hidden on the last card of a streaming narration page, so the page never takes back text it showed. Only the last
@@ -20245,10 +20285,11 @@ function GalBacklog(props) {
     // A row's words with its marks drawn; shown: the words as the row writes them (a quoted line), which contain the row's text.
     function markedText(index, text, shown = text) {
         const row = textMarkRows?.get(index), shift = row?.ranges.length ? shown.indexOf(text) : -1;
-        if (shift < 0) return shown;
-        const marks = row.ranges.map(range => ({start:range.start + shift, end:range.end + shift,
+        if (shift < 0 && !looks.highlight) return shown;
+        const own = shift < 0 ? [] : row.ranges.map(range => ({start:range.start + shift, end:range.end + shift,
             render:(words, key) => h(range.mark.kind.Mark, {key, mark:range.mark, text:words, place:row.place, still:false})}));
-        return stageTextMarks.textMarkNodes(shown, 0, shown.length, marks);
+        const marks = stageTextMarks.textMarksHighlighted(shown, looks.highlight, own, h);
+        return marks.length ? stageTextMarks.textMarkNodes(shown, 0, shown.length, marks) : shown;
     }
     // art.backlog.plates (C1): each entry's place among its role's entries, which picks its plate image and pose.
     const places = React.useMemo(() => {
@@ -23881,7 +23922,9 @@ function paintStageSkin(root, document, fonts, theme, lead = false, art = null, 
 // C2: the ransom words (name.letter, plates.divider.letter) and the tiles they are cut on - the backlog's own glyphTiles,
 // else the menu's (the validator requires one).
 function stageSkinBacklogLooks(document) {
-    const looks=stageSkinBacklog(document), b=document?.art?.backlog, plates=b?.plates;
+    const base=stageSkinBacklog(document), b=document?.art?.backlog, plates=b?.plates;
+    // textStyle.highlight: the story words the skin draws in an ink, in the rows too
+    const looks=document?.textStyle?.highlight ? {...base,highlight:document.textStyle.highlight} : base;
     const letter=b?.name?.letter || plates?.divider?.letter ? {name:b.name?.letter,divider:plates?.divider?.letter,tiles:b.glyphTiles || document.art.menu.glyphTiles} : null;
     // C3: the face column - whether the player's rows take one and what an unresolved speaker shows (initial / image / none).
     const avatar=b?.avatar ? {player:b.avatar.player === true,placeholder:b.avatar.placeholder === 'initial' ? 'initial' : b.avatar.placeholder ? 'image' : null} : null;
