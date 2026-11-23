@@ -45,6 +45,7 @@ export function createGameSaveImportContent(save, { chatId, sessionId, cardPath,
     next.id = chatId; next.sessionId = sessionId; next.cardPath = cardPath
     // Background agents, candidates and undo points name the source install's sessions.
     for (const key of ['forkedFrom', 'regenRecovery', 'regenInProgress', 'rollbackUndo', 'backgroundHistoryIds', 'candidateAgent']) delete next[key]
+    if (['pending', 'running', 'waiting-runtime'].includes(next.settleStatus)) next.settleStatus = 'idle'
     const scrub = value => {
       if (Array.isArray(value)) { value.forEach(scrub); return }
       if (!value || typeof value !== 'object') return

@@ -24,7 +24,7 @@ import { createConversationBackgroundSettings } from './domain/conversation-back
 import { createChatWrites } from './domain/chat-writes.js'
 import { upgradeReferences, upgradedAnchor } from './domain/session-upgrade-references.js'
 import { createGameSaveImporter } from './domain/game-save-import.js'
-import { createGameSaveSnapshot } from './domain/game-save-snapshot.js'
+import { assertGameSaveExportable, createGameSaveSnapshot } from './domain/game-save-snapshot.js'
 import { createGameSaveResources } from './domain/game-save-resources.js'
 import { createCardEditor, CARD_PROJECTION_REVISIONS, cardProjectionRevisionOf, bumpCardProjectionState } from './domain/card-editor.js'
 import { ensureSessionVariableDirectory } from './domain/session-variable-directory.js'
@@ -2040,7 +2040,7 @@ export async function apply(ctx) {
   }
   const gameSaveSnapshot = createGameSaveSnapshot({
     readChat, readWorldSnapshot: chatPersistence.readWorldSnapshot,
-    assertIdle: chat => assertConversationExportable(chat, {
+    assertIdle: chat => assertGameSaveExportable(chat, {
       agentRunning: agentRegistry.get(chat.sessionId)?.phase?.kind === 'running',
       settlementRunning: Boolean(settlementJobs.pending(chat.id))
     }),
