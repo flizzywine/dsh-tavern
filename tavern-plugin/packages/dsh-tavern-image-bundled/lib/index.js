@@ -52,6 +52,7 @@ import { cardImageExtension, createCardGallery } from './card-app/gallery.js'
 import { serialQueue } from './card-app/storage.js'
 export { stageImageProvider } from './image-catalog.js'
 import { IMAGE_API_PROTOCOLS, effectiveImageProvider, supportsImageReferences, imageReferenceLimit, imageTransparency } from './image-provider-capabilities.js'
+import { DEFAULT_IMAGE_CONCURRENCY, normalizeImageConcurrency } from './job-limits.js'
 import { normalizeChannels, publicChannels, activeChannel, channelConfigPatch, migrateLegacyImageConfig } from './image-channels.js'
 import { createCredentialStore } from './credential-store.js'
 import { generationTemplates, selectGenerationConfig, usesWorldbook } from './generation-selection.js'
@@ -109,7 +110,7 @@ const DEFAULTS = {
   generationMode: 'text',
   imageChannels: [],
   activeImageChannel: '',
-  imageConcurrency: 2,
+  imageConcurrency: DEFAULT_IMAGE_CONCURRENCY,
   comfyUrl: 'http://127.0.0.1:8188',
   // 服务鉴权：none / bearer / basic
   comfyAuthMode: 'none',
@@ -5316,7 +5317,7 @@ function createRuntime(ctx, overrides, logger, deps) {
           if (!GENERATION_MODES.includes(patch.generationMode)) { sendJson(response, 400, { ok: false, error: '生图模式无效' }); return }
           config.generationMode = patch.generationMode
         }
-        if (patch.imageConcurrency !== undefined) config.imageConcurrency = Math.max(1, Math.min(4, Math.trunc(Number(patch.imageConcurrency)) || 2))
+        if (patch.imageConcurrency !== undefined) config.imageConcurrency = normalizeImageConcurrency(patch.imageConcurrency)
         for (const key of ['comfyUrl', 'defaultWorkflow', 'artistPosition', 'weightMode', 'negativeMode', 'styleArtists', 'imageSize', 'plannerProvider', 'plannerModel', 'plannerExtra', 'traitMode', 'visionProvider', 'visionModel', 'plannerEffort', 'visionEffort', 'comfyAuthMode', 'comfyAuthUser', 'promptManualPositive', 'promptManualNegative']) {
           if (typeof patch[key] === 'string') config[key] = key === 'comfyUrl' ? patch[key].replace(/\/+$/, '') : patch[key]
         }
@@ -5397,6 +5398,7 @@ function createRuntime(ctx, overrides, logger, deps) {
         if (patch.injectWeight !== undefined) config.injectWeight = Number(patch.injectWeight) || 0
         if (patch.sizes && typeof patch.sizes === 'object') config.sizes = patch.sizes
         await saveConfig(config)
+        if (patch.imageConcurrency !== undefined) drainImages()
         sendJson(response, 200, { ok: true, state: await consoleState() })
         return
       }
@@ -6687,7 +6689,7 @@ async function loadConfig(overrides) {
   config.injectWeight = Number(config.injectWeight) || 0
   config.imageGenCount = Math.max(1, Math.min(6, Number(config.imageGenCount) || 2))
   Object.assign(config, migrateLegacyImageConfig(config))
-  config.imageConcurrency = Math.max(1, Math.min(4, Math.trunc(Number(config.imageConcurrency)) || 2))
+  config.imageConcurrency = normalizeImageConcurrency(config.imageConcurrency)
   config.imageDisplayWidth = normalizeImageDisplayWidth(config.imageDisplayWidth)
   config.credentialRefs = Array.isArray(config.credentialRefs) ? config.credentialRefs.filter(item => typeof item === 'string') : []
   await credentialStore.load(config)
