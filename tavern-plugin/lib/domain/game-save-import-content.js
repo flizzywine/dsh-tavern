@@ -1,5 +1,6 @@
 import { sceneSaveKeyMap } from './scene-save.js'
 import { computeSceneTarget } from './scene-illustration.js'
+import { rebindImportedStage } from './stage-import-rebind.js'
 
 export function assertImportableSave(save) {
   const states = [save.chat, ...save.revisions.map(item => item.state)]
@@ -40,7 +41,8 @@ export function createGameSaveImportContent(save, { chatId, sessionId, cardPath,
   const background = { role: 'background', lifetime: 'chat', status: 'needs-session', sessionId: '', boundary: null }
   const revisionMap = new Map()
   let latestRevision = 0
-  const prepare = state => {
+  const warnings = []
+  const prepare = (state, revision) => {
     const next = renameJson(state)
     next.id = chatId; next.sessionId = sessionId; next.cardPath = cardPath
     // Background agents, candidates and undo points name the source install's sessions.
@@ -62,7 +64,9 @@ export function createGameSaveImportContent(save, { chatId, sessionId, cardPath,
     next.cardContextSnapshotVersion = 0
     delete next.cardContextConstants
     next._storageRevision = latestRevision
-    return next
+    // The stage's records are bound to the round by digests of the old ids: bind them to this game.
+    const location = revision == null ? '当前进度' : `历史修订 ${revision}`
+    return rebindImportedStage(state, next, (index, label) => warnings.push(`${location}，第 ${index + 1} 条消息：已跳过无法绑定的${label}。`))
   }
 
   function recordRevision(sourceRevision, storedRevision) {
@@ -75,5 +79,5 @@ export function createGameSaveImportContent(save, { chatId, sessionId, cardPath,
     const turn = Number(message.turn || (message.greeting ? 1 : 0))
     try { pluginKeys.set(turn + '\u0000' + computeSceneTarget(save.chat, turn).key, computeSceneTarget({ ...save.chat, id: chatId }, turn).key) } catch {}
   }
-  return Object.freeze({ prepare, rename, renameJson, recordRevision, pluginKeys })
+  return Object.freeze({ prepare, rename, renameJson, recordRevision, pluginKeys, warnings })
 }
