@@ -307,6 +307,8 @@ const PC_CSS_TEXT = `
   border: 0;
   background: none;
   color: inherit;
+  min-width: 0;
+  min-height: 0;
   padding: 0 2px;
   cursor: pointer;
   font-size: 12px;
@@ -339,7 +341,9 @@ const PC_CSS_TEXT = `
 .pc-switch {
   position: relative;
   width: 44px;
+  min-width: 44px;
   height: 26px;
+  min-height: 26px;
   flex: 0 0 auto;
   border-radius: 999px;
   border: 1px solid var(--pc-line);
@@ -351,7 +355,7 @@ const PC_CSS_TEXT = `
 .pc-switch::after {
   content: '';
   position: absolute;
-  top: 2px;
+  top: calc(50% - 10px);
   left: 2px;
   width: 20px;
   height: 20px;
@@ -442,12 +446,16 @@ const PC_CSS_TEXT = `
   min-width: 0;
 }
 .pc-help-btn {
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   flex: 0 0 auto;
   width: 17px;
+  min-width: 17px;
   height: 17px;
+  min-height: 17px;
+  aspect-ratio: 1 / 1;
   padding: 0;
   border-radius: 999px;
   border: 1px solid color-mix(in oklab, var(--pc-accent) 48%, transparent);
@@ -503,6 +511,8 @@ const PC_CSS_TEXT = `
 }
 .pc-help-close {
   flex: 0 0 auto;
+  min-width: 0;
+  min-height: 0;
   padding: 0 5px;
   border: 1px solid transparent;
   border-radius: 6px;
@@ -801,9 +811,59 @@ const PC_CSS_TEXT = `
   font-weight: 600;
 }
 
+/* 宿主右侧栏移动端触控地板（min-height: 40px）不得撑坏罗盘内圆点、开关、胶囊与紧凑按钮 */
+@media (max-width: 1023px), (pointer: coarse) {
+  body.dsh-tavern-shell-active [data-sidebar-right-panel] .pc-root button.pc-help-btn {
+    width: 17px;
+    min-width: 17px;
+    height: 17px;
+    min-height: 17px;
+    padding: 0;
+  }
+  .pc-root .pc-help-btn::after {
+    content: '';
+    position: absolute;
+    inset: -8px;
+  }
+  body.dsh-tavern-shell-active [data-sidebar-right-panel] .pc-root button.pc-switch {
+    width: 44px;
+    min-width: 44px;
+    height: 26px;
+    min-height: 26px;
+    padding: 0;
+  }
+  .pc-root .pc-switch::before {
+    content: '';
+    position: absolute;
+    inset: -7px -4px;
+  }
+  body.dsh-tavern-shell-active [data-sidebar-right-panel] .pc-root button.pc-help-close,
+  body.dsh-tavern-shell-active [data-sidebar-right-panel] .pc-root button.pc-chip-x,
+  body.dsh-tavern-shell-active [data-sidebar-right-panel] .pc-root button.pc-step-btn,
+  body.dsh-tavern-shell-active [data-sidebar-right-panel] .pc-root .pc-archived > summary {
+    min-height: 0;
+  }
+  body.dsh-tavern-shell-active [data-sidebar-right-panel] .pc-root button.pc-chip {
+    min-height: 28px;
+  }
+  body.dsh-tavern-shell-active [data-sidebar-right-panel] .pc-root button.pc-btn {
+    min-height: 34px;
+  }
+  body.dsh-tavern-shell-active [data-sidebar-right-panel] .pc-root button.pc-btn.is-sm {
+    min-height: 29px;
+  }
+  body.dsh-tavern-shell-active [data-sidebar-right-panel] .pc-root button.pc-tab {
+    min-height: 34px;
+  }
+  .pc-wb-scroll {
+    padding-bottom: calc(72px + env(safe-area-inset-bottom, 0px));
+  }
+}
+
 @media (max-width: 720px) {
   .pc-wb-top { gap: 6px; padding-bottom: 6px; }
-  .pc-tab { min-height: 30px; padding: 4px 6px; }
+  .pc-tab,
+  body.dsh-tavern-shell-active [data-sidebar-right-panel] .pc-root button.pc-tab { min-height: 30px; padding: 4px 6px; }
   .pc-row { align-items: flex-start; }
 }
 `

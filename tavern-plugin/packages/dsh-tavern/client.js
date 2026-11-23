@@ -43,6 +43,12 @@ window.__ModuleLoader__.load({
       operationDone: "上次操作已完成。",
       updates: '酒馆版本与更新',
       achievements: '成就库',
+      refreshAchievements: '刷新成就',
+      refreshingAchievements: '正在检查存档…',
+      achievementsAdded: '已补记 {count} 项成就。',
+      noNewAchievements: '没有新的成就可补记。',
+      achievementRefreshUnavailable: '请在「酒馆插件」中启用成就插件后重试。',
+      achievementRefreshFailed: '刷新成就失败，请重试。',
       achievementCharacter: '人物卡',
       achievementTotalChars: '总字数',
       achievementStartedAt: '开始游玩',
@@ -156,6 +162,12 @@ window.__ModuleLoader__.load({
       operationDone: "The last operation completed.",
       updates: 'Tavern version and updates',
       achievements: 'Achievements',
+      refreshAchievements: 'Refresh achievements',
+      refreshingAchievements: 'Checking saves…',
+      achievementsAdded: 'Added {count} to the achievement library.',
+      noNewAchievements: 'No new achievements found.',
+      achievementRefreshUnavailable: 'Enable the achievement plugin in Tavern Plugins, then try again.',
+      achievementRefreshFailed: 'Could not refresh achievements. Try again.',
       achievementCharacter: 'Character card',
       achievementTotalChars: 'Total characters',
       achievementStartedAt: 'Started playing',
@@ -289,6 +301,7 @@ window.__ModuleLoader__.load({
 .pb-fold p { margin: 6px 0; opacity: 0.6; font-size: 12px; }
 .pb-achievement-library { display: grid; gap: 12px; min-width: 0; }
 .pb-achievement-library h3 { margin: 0; font-size: 14px; }
+.pb-achievement-header { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
 .pb-achievements { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 220px), 1fr)); gap: 14px; margin: 0; padding: 0; list-style: none; }
 .pb-achievement-card { min-width: 0; width: 100%; max-width: 290px; aspect-ratio: 3 / 4; }
 .pb-pre { margin: 0; padding: 10px 12px; border-radius: 8px; background: var(--pb-fill); max-height: 200px; overflow: auto; font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; word-break: break-all; }
@@ -345,28 +358,48 @@ window.__ModuleLoader__.load({
           unlocked ? h(React.Fragment, null, ' · ', h('time', { dateTime: unlocked.toISOString() }, date(unlocked))) : null))
     }
 
-    function AchievementLibrary({ call, t }) {
+    function AchievementLibrary({ call, refreshAchievements, t }) {
       const [earned, setEarned] = React.useState([])
-      React.useEffect(() => {
-        let request = 0
-        function refresh() {
-          const current = ++request
-          call('achievements', {}).then(result => {
-            if (current === request && result?.ok === true && Array.isArray(result.value)) {
-              setEarned(result.value.filter(tier => tier.earned === true))
-            }
-          }, () => {})
-        }
-        window.addEventListener(ACHIEVEMENT_UNLOCK_EVENT, refresh)
-        refresh()
-        return () => {
-          request++
-          window.removeEventListener(ACHIEVEMENT_UNLOCK_EVENT, refresh)
-        }
+      const [refresh, setRefresh] = React.useState(null)
+      const request = React.useRef(0)
+      const loadEarned = React.useCallback(async () => {
+        const current = ++request.current
+        const result = await call('achievements', {})
+        if (result?.ok !== true || !Array.isArray(result.value)) throw new Error(describeFailure(result?.error))
+        if (current === request.current) setEarned(result.value.filter(tier => tier.earned === true))
       }, [call])
-      return earned.length ? h('section', { className: 'pb-achievement-library', 'aria-label': t('achievements') },
-        h('h3', null, t('achievements')),
-        h('ul', { className: 'pb-achievements' }, earned.map(tier => h(AchievementCard, { key: tier.id, tier, t })))) : null
+
+      React.useEffect(() => {
+        const onUnlock = () => { void loadEarned().catch(() => {}) }
+        window.addEventListener(ACHIEVEMENT_UNLOCK_EVENT, onUnlock)
+        onUnlock()
+        return () => {
+          request.current++
+          window.removeEventListener(ACHIEVEMENT_UNLOCK_EVENT, onUnlock)
+        }
+      }, [loadEarned])
+
+      async function refreshFromSaves() {
+        setRefresh({ busy: true })
+        try {
+          const { added } = await refreshAchievements()
+          await loadEarned()
+          setRefresh({ added })
+        } catch (error) {
+          setRefresh({ error: error?.code === 'TAVERN_PLUGIN_NOT_FOUND' ? 'achievementRefreshUnavailable' : 'achievementRefreshFailed' })
+        }
+      }
+
+      if (!earned.length && !refreshAchievements) return null
+      return h('section', { className: 'pb-achievement-library', 'aria-label': t('achievements') },
+        h('div', { className: 'pb-achievement-header' },
+          h('h3', null, t('achievements')),
+          refreshAchievements ? h('button', { type: 'button', className: 'pb-btn pb-btn-quiet', disabled: refresh?.busy,
+            onClick: () => void refreshFromSaves() }, t(refresh?.busy ? 'refreshingAchievements' : 'refreshAchievements')) : null),
+        refresh?.error ? h('p', { className: 'pb-error', role: 'alert' }, t(refresh.error)) : null,
+        refresh?.added !== undefined ? h('p', { className: 'pb-sub', role: 'status' },
+          refresh.added ? t('achievementsAdded').replace('{count}', refresh.added) : t('noNewAchievements')) : null,
+        earned.length ? h('ul', { className: 'pb-achievements' }, earned.map(tier => h(AchievementCard, { key: tier.id, tier, t }))) : null)
     }
 
     /** @param {{ t: Function, rpcCall: Function }} props */
@@ -751,7 +784,7 @@ window.__ModuleLoader__.load({
               h('button', { type: 'button', className: 'pb-btn pb-btn-quiet', disabled: busy || pending, onClick: () => { setManagementAction(null); setDestination(''); setFailure(null) } }, t('cancel'))),
           ) : null,
         ) : null,
-        h(AchievementLibrary, { call, t }),
+        h(AchievementLibrary, { call, refreshAchievements: inTavern() ? props.refreshAchievements : undefined, t }),
         h('details', { className: 'pb-fold' },
           h('summary', null, t('more')),
           h('p', null, t(next ? 'nextExplain' : 'why')),
@@ -778,13 +811,22 @@ window.__ModuleLoader__.load({
         }
         const t = ctx.locale.bind(NS)
         const rpcCall = (endpoint, payload) => ctx.connection.rpc.call(CHANNEL, endpoint, payload)
+        let tavernUi
+        ctx.inject?.(['tavernUi'], owner => owner.effect(() => {
+          tavernUi = owner.tavernUi
+          return () => { tavernUi = undefined }
+        }, 'profile-bridge: achievement refresh'))
+        const refreshAchievements = () => {
+          if (!tavernUi) throw Object.assign(new Error('Tavern UI is unavailable'), { code: 'TAVERN_PLUGIN_NOT_FOUND' })
+          return tavernUi.callHost('dsh-tavern-adventure-medal/refresh-achievements', {})
+        }
         ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'profile-bridge: locale dictionaries')
         ctx.slots.inject('settings.section', () => ctx.slots.register({
           name: 'settings.section',
           id: 'profile-bridge',
           order: 60,
           label: () => t('section'),
-          inject: () => ({ rpcCall, t }),
+          inject: () => ({ rpcCall, refreshAchievements, t }),
         }, ProfileBridgeSettings))
       },
     }

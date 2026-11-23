@@ -6,7 +6,7 @@ import path from 'node:path'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 
-import { fingerprint, runtimeFingerprint } from '../android/native/shims/source-update.mjs'
+import { fingerprint, readLatestManifest, runtimeFingerprint } from '../android/native/shims/source-update.mjs'
 
 const TOOL = fileURLToPath(new URL('../android/native/shims/source-update.mjs', import.meta.url))
 
@@ -119,4 +119,68 @@ test('依赖没变的更新：node_modules 直接搬给新源码；成功后清�
   assert.deepEqual(run(root, 'backup').saved, ['home/.dsh-tavern/profiles/tavern/package.json'])
   assert.equal(run(root, 'commit').kind, 'committed')
   for (const leftover of ['src.prev', 'update-backup']) assert.equal(await exists(path.join(root, leftover)), false, leftover)
+})
+
+test('清单主源优先读 GitHub raw，成功时不碰 jsDelivr；失败时回退到 jsDelivr', async () => {
+  const sample = (revision, releaseSequence) => ({
+    schemaVersion: 2,
+    version: '3.4.0',
+    revision,
+    releaseSequence,
+    files: [{ path: 'package.json', sha256: 'a'.repeat(64) }],
+  })
+  const revNew = '1'.repeat(40)
+  const revOld = '2'.repeat(40)
+
+  // 1) GitHub raw 成功：直接采用，不调用 CDN 兜底
+  let cdnCalled = 0
+  const ok = await readLatestManifest(
+    { githubMetadataUrl: 'https://raw.githubusercontent.com/flizzywine/dsh-tavern/main/dsh-tavern-runtime.json', metadataUrl: 'https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@runtime-archive-main/dsh-tavern-runtime.json', exact: false },
+    {
+      fetch: async () => new Response(JSON.stringify(sample(revNew, 1961)), { status: 200 }),
+      readCdnManifest: async () => { cdnCalled++; return sample(revOld, 1944) },
+    },
+  )
+  assert.equal(ok.checkSource, 'github-manifest')
+  assert.equal(ok.manifest.revision, revNew)
+  assert.equal(ok.manifest.releaseSequence, 1961)
+  assert.equal(cdnCalled, 0, '主源成功时不请求 jsDelivr')
+
+  // 2) GitHub raw 失败：自动回退到 jsDelivr，标记 checkSource=jsdelivr
+  const fallback = await readLatestManifest(
+    { githubMetadataUrl: 'https://raw.githubusercontent.com/flizzywine/dsh-tavern/main/dsh-tavern-runtime.json', metadataUrl: 'https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@runtime-archive-main/dsh-tavern-runtime.json', exact: false },
+    {
+      fetch: async () => { throw new Error('timeout') },
+      readCdnManifest: async () => { cdnCalled++; return sample(revOld, 1944) },
+    },
+  )
+  assert.equal(fallback.checkSource, 'jsdelivr')
+  assert.equal(fallback.manifest.revision, revOld)
+  assert.equal(fallback.githubError, 'timeout')
+  assert.equal(cdnCalled, 1)
+
+  // 3) 本地测试只覆盖 CDN 地址（githubMetadataUrl 为空）：跳过 GitHub raw
+  let githubCalled = 0
+  const custom = await readLatestManifest(
+    { githubMetadataUrl: '', metadataUrl: 'http://127.0.0.1:9999/manifest.json', exact: true },
+    {
+      fetch: async () => { githubCalled++; throw new Error('should not be called') },
+      readCdnManifest: async () => sample(revNew, 3001),
+    },
+  )
+  assert.equal(custom.checkSource, 'custom')
+  assert.equal(custom.manifest.releaseSequence, 3001)
+  assert.equal(githubCalled, 0)
+
+  // 4) 两者都失败：错误信息同时包含 GitHub 与备用源原因
+  await assert.rejects(
+    readLatestManifest(
+      { githubMetadataUrl: 'https://raw.githubusercontent.com/flizzywine/dsh-tavern/main/dsh-tavern-runtime.json', metadataUrl: 'https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@runtime-archive-main/dsh-tavern-runtime.json', exact: false },
+      {
+        fetch: async () => new Response('down', { status: 503 }),
+        readCdnManifest: async () => { throw new Error('cdn down') },
+      },
+    ),
+    /GitHub 核实失败（HTTP 503）；备用清单检查失败（cdn down）/,
+  )
 })

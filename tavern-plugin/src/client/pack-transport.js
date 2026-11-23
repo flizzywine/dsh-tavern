@@ -72,7 +72,7 @@ function createPackTransport({fetch: request = fetch, interval = 2000, subscribe
     // cold catalogue integrity validation can exceed the ordinary RPC deadline.
     // Aborting it does not cancel server warming; it used to require a manual Reload afterward.
     const control = (method, args = {}) => send('control', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({method,args})}, false,
-        method === 'inspectCardBundleUrl' ? 22 * 60000 : ['exportPack','exportPacks','inspectImport'].includes(method) ? 10 * 60000 : ['listPackSummaries','getPackSnapshot'].includes(method) ? 90000 : 30000);
+        method === 'inspectCardBundleUrl' ? 22 * 60000 : ['exportPack','exportPacks','inspectImport','applyImport','inspectCardBundle','applyCardBundle'].includes(method) ? 10 * 60000 : ['listPackSummaries','getPackSnapshot'].includes(method) ? 90000 : 30000);
     // list views read listPackSummaries (a few KB); a pack's full document is read per pack
     // and kept by revision, so reopening 舞台设置 / 素材库 asks only for packs that changed. Every snapshot that passes through
     // (reads and mutation results) refreshes its entry; the change feed drops an entry whose revision moved. Bounded LRU.
@@ -138,9 +138,10 @@ function createPackTransport({fetch: request = fetch, interval = 2000, subscribe
         const {onProgress, ...args} = input, tickets = [];
         if ((method === 'exportPack' || method === 'exportPacks') && typeof onProgress === 'function') return exportWithProgress(method, args, onProgress);
         const progress = typeof onProgress === 'function' && typeof XMLHttpRequest === 'function' ? onProgress : null;
-        const upload = async bytes => { const result = progress ? await sendWithProgress('upload', bytes, progress, 10 * 60000) : await send('upload', {method:'POST', headers:{'Content-Type':'application/octet-stream'}, body:bytes}, false, 10 * 60000); tickets.push(result.ticket); return result.ticket; };
+        // an archive (a File, streamed from disk by the browser) is written to disk as it arrives, at any size
+        const upload = async (bytes, archive = false) => { const path = archive ? 'upload?archive=1' : 'upload'; const result = progress ? await sendWithProgress(path, bytes, progress, 10 * 60000) : await send(path, {method:'POST', headers:{'Content-Type':'application/octet-stream'}, body:bytes}, false, 10 * 60000); tickets.push(result.ticket); return result.ticket; };
         try {
-            if (Object.hasOwn(args, 'bytes')) args.bytes = await upload(args.bytes);
+            if (Object.hasOwn(args, 'bytes')) args.bytes = await upload(args.bytes, method === 'inspectImport' || method === 'inspectCardBundle');
             for (const key of ['files','fileUpdates']) if (args[key]) {
                 const rows = [];
                 for (const [path, bytes] of args[key]) rows.push([path, bytes === null ? null : await upload(bytes)]);

@@ -3,6 +3,7 @@ import path from 'node:path'
 import { TAVERN_SETTINGS_PATH } from '../profile-data-store.js'
 import { beginRelaxedSync, endRelaxedSync } from './conversation-page-store.js'
 import { cardNameFromText, inspectSillyTavernChatItem, isSillyTavernChatItem } from './transfer-chats.js'
+import { isPng, pngCardPayload } from './card-assets.js'
 
 function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
@@ -26,6 +27,13 @@ function uniqueName(taken, base, limit = 60) {
     if (!taken.has(key(candidate))) return candidate
   }
   return base + ' (' + Date.now() + ')'
+}
+
+// A packed card is its JSON, or a card PNG (the cover carrying the card as chara/ccv3).
+function packedCard(entry, content) {
+  if (!isPng(content)) return { text: content.toString('utf8') }
+  const payload = pngCardPayload(content, path.posix.basename(str(entry)), { missing: '人物卡 PNG 里没有卡数据' })
+  return { text: Buffer.from(payload.b64, 'base64').toString('utf8'), payload }
 }
 
 function errorText(error) {
@@ -239,9 +247,10 @@ export function createTransferImport(deps) {
         if (!usable) continue
         if (str(item.title).trim()) bundleCardNames.add(str(item.title).trim().toLowerCase())
         bundleCardNames.add(stemOf(item.entry).toLowerCase())
-        const packedCard = await files.get(item.entry)
-        if (packedCard) {
-          const parsedName = cardNameFromText(packedCard.toString('utf8'))
+        const packedBytes = await files.get(item.entry)
+        if (packedBytes) {
+          let parsedName = ''
+          try { parsedName = cardNameFromText(packedCard(item.entry, packedBytes).text) } catch { /* 坏卡在逐项检查里报告 */ }
           if (parsedName) bundleCardNames.add(parsedName.toLowerCase())
         }
       }
@@ -298,7 +307,9 @@ export function createTransferImport(deps) {
           }
         }
         if (contents && packed && dedupeKinds.has(part.kind)) {
-          const text = packed.toString('utf8')
+          let text
+          try { text = part.kind === 'cards' ? packedCard(item.entry, packed).text : packed.toString('utf8') }
+          catch (error) { return { key: item.key, title: item.title, bytes: item.bytes, usable: false, conflict: false, duplicate: false, reason: '人物卡无效：' + errorText(error) } }
           if (contents.get(part.kind).has(contentHashOf(part.kind, text))) {
             duplicate = true
             reason = '本机已有相同内容，默认不导入'
@@ -407,7 +418,11 @@ export function createTransferImport(deps) {
         if (picked && !picked.has(item.key)) { result.skipped += 1; continue }
         const content = await files.get(item.entry)
         if (content === undefined) { result.failed.push({ title: item.title, error: '包内缺少该文件' }); continue }
-        const text = ['assets', 'chats', 'fonts', 'memory', 'plugin-data', 'plugins', 'skills'].includes(part.kind) ? '' : content.toString('utf8')
+        let text = '', cardPayload
+        if (part.kind === 'cards') {
+          try { ({ text, payload: cardPayload } = packedCard(item.entry, content)) }
+          catch (error) { result.failed.push({ title: item.title, error: errorText(error) }); continue }
+        } else if (!['assets', 'chats', 'fonts', 'memory', 'plugin-data', 'plugins', 'skills'].includes(part.kind)) text = content.toString('utf8')
         // 包里的内容本机已经有了：写之前就跳过，别先落盘再删（中断在半路就会留下副本）。
         // 按内容去重只记「本机已有」，这一趟自己写出来的不算，否则 dropDuplicate 会把自己刚写的删掉。
         if (dedupe.has(part.kind) && contents.get(part.kind)) {
@@ -426,7 +441,8 @@ export function createTransferImport(deps) {
             try { document = JSON.parse(text) } catch { throw new Error('人物卡不是有效的 JSON') }
             const base = stemOf(item.entry)
             const target = uniqueName(used.cardStems, base)
-            const imported = await importCard({ name: target + '.json', text })
+            // 带封面的卡按 PNG 卡导入，封面随卡落盘
+            const imported = await importCard(cardPayload ? { ...cardPayload, name: target + '.png' } : { name: target + '.json', text })
             used.cardStems.add(target.toLowerCase())
             result.added += 1
             if (imported && imported.path) {

@@ -3,8 +3,11 @@ import assert from 'node:assert/strict'
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import test from 'node:test'
 import { JSDOM } from 'jsdom'
+import { createPluginDataStore } from '../tavern-plugin/lib/domain/plugin-data-store.js'
+import { apply as applyMedals, name as medalPlugin } from '../tavern-plugin/packages/dsh-tavern-adventure-medal/lib/index.js'
 import { readAchievementLibrary } from '../tavern-plugin/packages/dsh-tavern/lib/achievements.mjs'
 
 const source = await readFile(new URL('../tavern-plugin/packages/dsh-tavern/client.js', import.meta.url), 'utf8')
@@ -22,12 +25,18 @@ async function mount(status, calls = [], options = {}) {
   const React = (await import('react')).default
   const { createRoot } = await import('react-dom/client')
   const { act } = await import('react')
-  const rpc = async (_channel, endpoint, payload) => {
+  const reply = async (endpoint, payload) => {
     calls.push([endpoint, payload])
     if (options.rpc) return options.rpc(endpoint, payload)
     if (endpoint === 'achievements') return { ok: true, value: [] }
     if (endpoint === 'shortcut') return { ok: true, value: { path: '/Users/me/Desktop/DSH 酒馆.app', existed: false } }
     return endpoint === 'status' ? { ok: true, value: status } : { ok: true, value: { closesApp: true } }
+  }
+  let mounting = []
+  const rpc = (_channel, endpoint, payload) => {
+    const request = reply(endpoint, payload)
+    mounting?.push(request)
+    return request
   }
   let module
   dom.window.__ModuleLoader__ = { load: ({ factory }) => { module = factory(name => name === 'react' ? React : undefined) } }
@@ -38,13 +47,19 @@ async function mount(status, calls = [], options = {}) {
     locale: { bind: () => key => dictionaries.zh[key] ?? key, register: (_ns, value) => Object.assign(dictionaries, value) },
     connection: { rpc: { call: rpc } },
     effect: run => run(),
+    inject: (services, inject) => {
+      assert.deepEqual(services, ['tavernUi'])
+      if (options.callHost) inject({ tavernUi: { callHost: options.callHost }, effect: run => run() })
+    },
     slots: { inject: (_name, run) => run(), register: (meta, component) => { registered = meta; page = component; return () => {} } }
   }
   await act(async () => { module.apply(ctx) })
   if (!registered) return { registered: false, calls, dispose: () => dom.window.close() }
   const root = createRoot(dom.window.document.getElementById('root'))
   await act(async () => { root.render(React.createElement(page, registered.inject())) })
-  await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)) })
+  const initialRequests = mounting
+  mounting = null
+  await act(async () => { await Promise.allSettled(initialRequests) })
   return { dom, act, label: () => registered.label(), text: () => dom.window.document.body.textContent, button: () => dom.window.document.querySelector('.pb-bar .pb-btn'), calls, dispose: () => act(() => root.unmount()) }
 }
 
@@ -122,7 +137,11 @@ test('正式启动器没有成就测试入口，解锁后刷新已经打开的�
   try {
     const win = page.dom.window
     assert.doesNotMatch(page.text(), /成就测试|神话/)
-    assert.equal(win.document.querySelector('.pb-achievement-library'), null)
+    assert.equal(win.document.querySelectorAll('.pb-achievement-card').length, 0)
+    const refresh = win.document.querySelector('.pb-achievement-library button')
+    assert.equal(refresh.textContent, '刷新成就')
+    await page.act(async () => refresh.click())
+    assert.match(win.document.querySelector('.pb-achievement-library [role="alert"]').textContent, /启用成就插件/)
     const contextChars = 9800
     tiers = [{ ...tiers[0], earned: true, cardName: '测试卡乙', cover: coverB, contextChars }, ...tiers.slice(1)]
     await page.act(async () => win.dispatchEvent(new win.Event('dsh-tavern-adventure-medal:unlocked')))
@@ -131,6 +150,106 @@ test('正式启动器没有成就测试入口，解锁后刷新已经打开的�
     assert.equal(library.querySelector('.pb-achievement-card').dataset.tier, 'starter')
     assert.equal(library.querySelector('.achievement-art-cover').getAttribute('src'), coverB)
     assert.equal(library.querySelector('[data-stat="words"] b').textContent, contextChars.toLocaleString() + ' 字')
+  } finally {
+    await page.dispose()
+  }
+})
+
+test('启动器从旧存档补记成就，保留原卡片并继续提示新结算的成就', async t => {
+  const home = await mkdtemp(join(tmpdir(), 'tavern-achievements-refresh-'))
+  t.after(() => rm(home, { recursive: true, force: true }))
+  t.mock.property(process, 'env', { ...process.env, DSH_HOME: home })
+  const dataRoot = join(home, 'profile-data', 'tavern', 'data')
+  const profile = join(home, 'profiles', 'tavern')
+  await Promise.all(['chats', 'automation'].map(dir => mkdir(join(dataRoot, dir), { recursive: true })))
+  await mkdir(profile, { recursive: true })
+  await writeFile(join(profile, 'package.json'), JSON.stringify({
+    dshTavern: { source: fileURLToPath(new URL('..', import.meta.url)) },
+  }))
+  const createdAt = Date.UTC(2026, 9, 20)
+  const writeChat = async (id, rounds) => {
+    const messages = [{ role: 'assistant', greeting: true, text: '开场' }]
+    for (let i = 0; i < rounds; i++) messages.push({ role: 'user', text: '问' }, { role: 'assistant', text: '答' })
+    await writeFile(join(dataRoot, 'chats', id + '.json'), JSON.stringify({ id, createdAt, messages }))
+  }
+  await writeChat('recent', 100)
+  await writeChat('legacy', 300)
+  const automationId = 'test-01234567-89ab-cdef-0123-456789abcdef'
+  await writeFile(join(dataRoot, 'automation', automationId + '.json'), JSON.stringify({ sessionId: automationId }))
+  const chats = [
+    { id: 'recent', sessionId: 'recent-game', cardName: '百轮存档', createdAt, updatedAt: 2, preview: { turnCount: 100 } },
+    { id: 'legacy', cardName: '旧版存档', createdAt, updatedAt: 1 },
+    { id: 'automation', sessionId: automationId, updatedAt: 3, preview: { turnCount: 1000 } },
+    { id: 'workbench', sessionId: 'workbench-game', mode: 'card', updatedAt: 4, preview: { turnCount: 1000 } },
+    { id: 'compatibility', sessionId: 'compatibility-game', requestMode: 'sillytavern', updatedAt: 5, preview: { turnCount: 1000 } },
+  ]
+  const writeIndex = () => writeFile(join(dataRoot, 'index.json'), JSON.stringify({ chats }))
+  await writeIndex()
+
+  const store = createPluginDataStore({ dataRoot })
+  const existing = { id: 'gold', title: '史诗', rounds: 500, earned: true, unlockedAt: createdAt, cardName: '已解锁档位' }
+  await store.save(medalPlugin, { version: 1, achievements: [
+    { id: 'starter', title: '佳作', rounds: 50, earned: true, unlockedAt: null },
+    existing,
+  ] })
+  const handlers = new Map()
+  const notifications = []
+  let settle
+  applyMedals({
+    tavern: {
+      handle: (name, handler) => handlers.set(name, handler),
+      onTurnSettled: handler => { settle = handler },
+      readPluginData: () => store.read(medalPlugin),
+      savePluginData: ({ data }) => store.save(medalPlugin, data),
+      publishState: event => notifications.push(event),
+    },
+    effect: run => run(),
+  })
+
+  const status = { activeName: 'tavern', appKind: 'desktop', desktopApp: true, profiles: [tavernProfile] }
+  let scan
+  let readLibrary
+  const page = await mount(status, [], {
+    inTavern: true,
+    callHost: (name, args) => (scan = handlers.get(name)(args)),
+    rpc: async endpoint => {
+      if (endpoint !== 'achievements') return { ok: true, value: status }
+      readLibrary = readAchievementLibrary(home)
+      return { ok: true, value: await readLibrary }
+    },
+  })
+  try {
+    const library = page.dom.window.document.querySelector('.pb-achievement-library')
+    const tiers = () => [...library.querySelectorAll('.pb-achievement-card')].map(card => card.dataset.tier)
+    const button = library.querySelector('button')
+    assert.deepEqual(tiers(), ['gold'])
+    const clickRefresh = () => page.act(async () => {
+      button.click()
+      await scan
+      await readLibrary
+    })
+    await clickRefresh()
+    assert.deepEqual(tiers(), ['starter', 'bronze', 'silver', 'gold'])
+    assert.match(library.textContent, /已补记 3 项成就/)
+    const saved = await readAchievementLibrary(home)
+    assert.equal(saved[1].cardName, '百轮存档')
+    assert.equal(saved[1].contextChars, 202)
+    assert.equal(saved[2].turnCount, 300)
+    assert.deepEqual(saved[3], existing)
+    assert.deepEqual(notifications, [])
+
+    await clickRefresh()
+    assert.match(library.textContent, /没有新的成就可补记/)
+    assert.deepEqual(await readAchievementLibrary(home), saved)
+
+    chats[0].preview.turnCount = 1000
+    await writeIndex()
+    const [, refreshed] = await Promise.all([settle({ gameId: 'recent-game' }), handlers.get(medalPlugin + '/refresh-achievements')()])
+    assert.deepEqual(refreshed, { added: 0 })
+    assert.deepEqual(notifications, [{ gameId: 'recent-game', name: 'achievement', data: { id: 'rainbow' } }])
+    const claim = handlers.get(medalPlugin + '/claim-achievement')
+    assert.equal(claim({ gameId: 'recent-game', id: 'rainbow' }).title, '神话')
+    assert.equal(claim({ gameId: 'recent-game', id: 'rainbow' }), null)
   } finally {
     await page.dispose()
   }

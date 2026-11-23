@@ -37,28 +37,11 @@ function CfgScope({ config }) {
             body: card ? '本卡改过的 ' + keys.length + ' 项设置改回全局的值。' : '全局的 ' + keys.length + ' 项设置都恢复默认。',
             onConfirm: () => config.clearAll(keys) }) : null);
 }
-// 状态来源 is one row of the page's list (no section repeating its
-// name); its (?) says it is shared by every card. It has its own config (dsh.state, 全局 only).
-const STATE_SOURCE_HELP = '全局共用。自动：卡里有 MVU 变量时读 MVU，没有时读游玩台账；也可手动指定其中一个。';
-function StateSourceField({ rpc, onChange }) {
-    const h = React.createElement, config = useModConfig({ call: rpc, modId: 'dsh.state' }), previous = React.useRef(null);
-    React.useEffect(() => {
-        const revision = config.data?.revision;
-        if (revision && previous.current && revision !== previous.current) onChange?.();
-        if (revision) previous.current = revision;
-    }, [config.data?.revision]);
-    const help = h(Help, { text: STATE_SOURCE_HELP, label: '状态来源 说明' });
-    if (!config.data) return h(InlineRow, { label: '状态来源', help }, config.error ? h(ErrorBox, { error: config.error, reload: config.reload }) : h(Spinner, { label: '正在载入' }));
-    return h(React.Fragment, null, h(CfgField, { config, fieldKey: 'source', label: '状态来源', help }),
-        config.error ? h(ErrorBox, { error: config.error, reload: config.reload }) : null);
-}
-// The page's settings: one left-aligned list of compact rows (CfgField) — 状态来源 first when the mod reads state —
-// with loading / read / write errors under it. `help` ({key: text}, modFieldHelp) gives a row its (?).
-function CfgList({ rpc, config, keys, state, help = {} }) {
+// The page's settings: one left-aligned list of compact rows (CfgField) with loading / read / write errors under it. `help` ({key: text}, modFieldHelp) gives a row its (?).
+function CfgList({ config, keys, help = {} }) {
     const h = React.createElement, tip = key => { const field = config.fields.get(key), text = help[key]; return text ? h(Help, { text, label: (field?.label || key) + ' 说明' }) : undefined; };
     return h(React.Fragment, null,
         h(InlineGrid, { label: '设置', columns: 1, className: 'fork-cfg-list' },
-            state ? h(StateSourceField, { rpc, onChange: config.reload }) : null,
             config.data ? cfgUserKeys(config, keys).map(key => h(CfgField, { key, config, fieldKey: key, help: tip(key) })) : null),
         !config.data ? config.error ? h(ErrorBox, { error: config.error, reload: config.reload }) : h(Spinner, { label: '正在载入' }) :
             config.error ? h(ErrorBox, { error: config.error, reload: config.reload }) : null);
@@ -71,7 +54,7 @@ function ModConfigList({ rpc, cardId, cardName, sessionId, modId, manifest, entr
     // Nothing the player adjusts (every option is the skin's or the preset's): no 设置 section.
     return h('div', { className: 'fork-cfg-page', 'data-mod': modId, 'data-compact': true },
         config.data && !keys.length ? null : h(ModSettings, { modId, config },
-            h(CfgList, { rpc, config, keys, help: modFieldHelp(modId, manifest) })),
+            h(CfgList, { config, keys, help: modFieldHelp(modId, manifest) })),
         entries || null);
 }
 // ---------- 物品 (items core) ----------

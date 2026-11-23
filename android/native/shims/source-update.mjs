@@ -19,8 +19,13 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const require = createRequire(import.meta.url)
-// 与本文件放在一起（APK 里是 usr/lib/dsh-android/）；指纹计算不需要它，按需加载。
-const downloader = () => require('./download.cjs')
+// 与本文件放在一起（APK 里是 usr/lib/dsh-android/）；仓库内直跑时退回 bin/download.cjs。
+const downloader = () => {
+  try { return require('./download.cjs') } catch (error) {
+    if (error?.code === 'MODULE_NOT_FOUND') return require('../../../bin/download.cjs')
+    throw error
+  }
+}
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 
 const DEP_FIELDS = ['dependencies', 'devDependencies', 'optionalDependencies', 'peerDependencies', 'pnpm', 'dsh', 'engines', 'overrides']
@@ -92,12 +97,51 @@ const result = value => console.log(`RESULT ${JSON.stringify(value)}`)
 
 function endpoints(current) {
   const branch = current.branch || 'main'
+  const customCdn = process.env.DSH_TAVERN_CDN_METADATA_URL || ''
+  const customGithub = process.env.DSH_TAVERN_GITHUB_METADATA_URL || ''
   return {
-    metadataUrl: process.env.DSH_TAVERN_CDN_METADATA_URL || `https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@runtime-archive-${branch}/dsh-tavern-runtime.json`,
+    // 主源与酒馆内置更新器一致：先读 GitHub raw 运行清单（无 jsDelivr 分发分支缓存滞后），
+    // 失败时再回退到 jsDelivr。若调用方只显式覆盖了 CDN 清单（本地冒烟测试），则只用该地址。
+    githubMetadataUrl: customGithub || (customCdn ? '' : `https://raw.githubusercontent.com/flizzywine/dsh-tavern/${branch}/dsh-tavern-runtime.json`),
+    metadataUrl: customCdn || `https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@runtime-archive-${branch}/dsh-tavern-runtime.json`,
     rootUrl: (process.env.DSH_TAVERN_CDN_ROOT_URL || 'https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern').replace(/\/+$/, ''),
-    exact: Boolean(process.env.DSH_TAVERN_CDN_METADATA_URL),
+    exact: Boolean(customCdn),
     // 原生版安装包随酒馆版本一起发布：资产放在仓库「最新 Release」（如 v3.4）里。
     apkFeed: process.env.DSH_NATIVE_APK_FEED || 'https://github.com/flizzywine/dsh-tavern/releases/latest/download/dsh-tavern-native.json',
+  }
+}
+
+function validateManifest(manifest) {
+  if (!/^[0-9a-f]{40}$/i.test(String(manifest?.revision || ''))) throw new Error('运行清单缺少有效提交号')
+  if (!Array.isArray(manifest?.files) || manifest.files.length === 0) throw new Error('运行清单未包含文件列表')
+  return manifest
+}
+
+export async function readLatestManifest(urls, { fetch: request = fetch, readCdnManifest, status: report = status, githubTimeoutMs = 8000 } = {}) {
+  let githubError = null
+  if (urls.githubMetadataUrl) {
+    try {
+      const response = await request(urls.githubMetadataUrl, {
+        cache: 'no-store',
+        signal: AbortSignal.timeout(githubTimeoutMs),
+      })
+      if (!response.ok) throw new Error(`HTTP ${response.status}`)
+      const manifest = validateManifest(await response.json())
+      return { manifest, checkSource: 'github-manifest' }
+    } catch (error) {
+      githubError = String(error?.message || error)
+    }
+  }
+  const readCdn = readCdnManifest || (() => downloader().readManifest({
+    metadataUrl: urls.metadataUrl, exact: urls.exact, stallMs: 15000, attempts: 2, status: report,
+  }))
+  try {
+    const manifest = validateManifest(await readCdn())
+    return { manifest, checkSource: urls.githubMetadataUrl ? 'jsdelivr' : 'custom', ...(githubError ? { githubError } : {}) }
+  } catch (cdnError) {
+    const cdnMessage = downloader().describeFailure?.(cdnError) || String(cdnError?.message || cdnError)
+    if (githubError) throw new Error(`GitHub 核实失败（${githubError}）；备用清单检查失败（${cdnMessage}）`)
+    throw cdnError
   }
 }
 
@@ -124,7 +168,8 @@ async function check(root, opts) {
   const urls = endpoints(current)
   const out = { current, source: 'up-to-date' }
   try {
-    const manifest = await downloader().readManifest({ metadataUrl: urls.metadataUrl, exact: urls.exact, stallMs: 15000, attempts: 2, status })
+    const { manifest, checkSource } = await readLatestManifest(urls, { status })
+    out.checkSource = checkSource
     out.latest = { revision: manifest.revision, sequence: Number(manifest.releaseSequence) || 0, version: manifest.version }
     if (out.latest.sequence > (Number(current.sequence) || 0) && manifest.revision !== current.revision) {
       // 预判：锁文件和补丁在清单里有摘要；package.json 的依赖字段要等下载后（stage）才能最终判定。
@@ -147,6 +192,11 @@ async function check(root, opts) {
         if (touched.length) { out.deps = 'maybe'; out.depsChanged = touched }
       }
     }
+    if (checkSource === 'jsdelivr') {
+      out.checkWarning = out.source === 'up-to-date'
+        ? 'GitHub 核实不可用；备用清单未显示更新构建，CDN 可能有数小时缓存延迟。'
+        : 'GitHub 核实不可用；已通过备用清单发现较新构建。'
+    }
   } catch (error) {
     out.source = 'error'
     out.sourceError = downloader().describeFailure?.(error) || String(error.message || error)
@@ -164,15 +214,15 @@ async function stage(root) {
   const urls = endpoints(current)
   const src = path.join(root, 'src')
   const next = path.join(root, 'src.next')
+  const { manifest: latest } = await readLatestManifest(urls, { status })
+  const sequence = Number(latest.releaseSequence) || 0
+  if (sequence <= (Number(current.sequence) || 0)) {
+    return result({ kind: 'up-to-date', latest: { revision: latest.revision, sequence } })
+  }
   await rm(next, { recursive: true, force: true })
   await mkdir(next, { recursive: true })
-  const manifest = await downloader().downloadRuntime({ metadataUrl: urls.metadataUrl, rootUrl: urls.rootUrl, destination: next, installed: src,
+  const manifest = await downloader().downloadRuntime({ manifest: latest, metadataUrl: urls.metadataUrl, rootUrl: urls.rootUrl, destination: next, installed: src,
     exactManifest: urls.exact, stallMs: 30000, budgetMs: 600000, status })
-  const sequence = Number(manifest.releaseSequence) || 0
-  if (sequence <= (Number(current.sequence) || 0)) {
-    await rm(next, { recursive: true, force: true })
-    return result({ kind: 'up-to-date', latest: { revision: manifest.revision, sequence } })
-  }
   const runtimePrint = await runtimeFingerprint(next)
   if (runtimePrint !== current.runtimeFingerprint) {
     await rm(next, { recursive: true, force: true })

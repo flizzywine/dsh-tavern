@@ -60,16 +60,19 @@ function createComponent(options = {}) {
   const imported = []
   const rpcCalls = []
   const failures = new Set(options.failures || [])
-  const factory = new Function('React', 'rpcWithTimeout', 'rpc', 'useWindowFullscreen', componentSource() + '\nreturn { MobileCardImportButton, MOBILE_IMPORT_SORTS };')
+  const factory = new Function('React', 'rpcWithTimeout', 'rpc', 'useWindowFullscreen', 'importTavernPasswordCard', 'Spinner', 'EmptyState', componentSource() + '\nreturn { MobileCardImportButton, MOBILE_IMPORT_SORTS };')
   const { MobileCardImportButton, MOBILE_IMPORT_SORTS } = factory(
     React,
     async function () { return options.catalog === undefined ? CATALOG : options.catalog },
     async function (method, args) {
       rpcCalls.push(args.id)
       if (failures.has(args.id)) throw new Error('手机文件不存在、过大或不允许读取')
-      return { card: { path: args.id + '.json' } }
+      return options.results && options.results[args.id] || { card: { path: args.id + '.json' } }
     },
-    function () {}
+    function () {},
+    function (run) { return run() },
+    function () { return null },
+    function () { return null }
   )
   return { MobileCardImportButton, MOBILE_IMPORT_SORTS, imported, rpcCalls }
 }
@@ -130,5 +133,24 @@ test('多选：勾选、跨筛选累计、全选与清空', async function () {
   await act(async () => { setValue(search(), '') })
   await act(async () => { click(buttonByText('清空选择')) })
   assert.match(dialog().querySelector('.dsh-tavern-mobile-import-count').textContent, /^共 5 个文件$/, '清空后不再有已选')
+  await act(async () => { reactRoot.unmount() })
+})
+
+test('大素材包 ZIP：列出时显示 GB 大小，导入后在对话框里告知结果，不当作人物卡打开', async function () {
+  const pack = { id: 'download:zz', name: '通用 BGM（私有）.zip', directory: '手机 Download', size: 3.5 * 1024 ** 3, modifiedAt: 9000 }
+  const results = { 'download:zz': { packs: [{ id: 'p1', title: '通用 BGM', status: 'installed' }], notices: ['素材包「旧包」和素材库里已有的包冲突，没有装入，请在素材库里处理'] } }
+  const component = createComponent({ catalog: { available: true, storageAccessible: true, total: 1, files: [pack] }, results })
+  const reactRoot = await mount(component)
+  await act(async () => { click(buttonByText('导入人物卡')) })
+  assert.match(rows()[0].textContent, /3\.5 GB/, '大小按 GB 显示')
+  assert.match(dialog().textContent, /素材包 ZIP/, '说明里提到素材包')
+  await act(async () => { click(rows()[0]) })
+  await settle()
+  assert.deepEqual(component.rpcCalls, ['download:zz'])
+  assert.deepEqual(component.imported, [], '素材包不触发打开人物卡')
+  assert.ok(dialog(), '对话框保持打开以显示结果')
+  const notice = dialog().querySelector('.dsh-tavern-mobile-import-notice')
+  assert.match(notice.textContent, /通用 BGM（私有）\.zip：已装入素材库 「通用 BGM」/)
+  assert.match(notice.textContent, /冲突/)
   await act(async () => { reactRoot.unmount() })
 })

@@ -63,6 +63,7 @@ function TavernCardUpdateCard(props) {
 // only when the card carries another version of an installed pack). The asset library's Modal; no explanatory text.
 //   current {name, version, cover}, incoming {name, version, cover} (null while the file is read: loading),
 //   packs [{packId, title, choices, removed}], way / onWay, file / pick, result (after the update) / revert.
+//   request {source, changes[], current, incoming} instead of a file: the card's own script asks for this update (script-card-update.js).
 function TavernCardUpdateDialog(props) {
     const h = React.createElement, p = props, ui = packUi;
     const importing = p.mode === 'import', title = importing ? '导入人物卡' : '更新人物卡';
@@ -76,21 +77,24 @@ function TavernCardUpdateDialog(props) {
                 p.result.updateId && p.revert ? h(ui.Button, { className: 'fork-card-update-quiet', disabled: p.busy, onClick: p.revert }, p.busy ? '正在撤回…' : '撤回') : null,
                 h(ui.Button, { primary: true, disabled: p.busy, onClick: p.close }, '完成')) },
             h('div', { className: 'fork-card-update-done', role: 'status' },
-                h('span', { className: 'fork-card-update-check', 'aria-hidden': true }, '✓'),
-                h('strong', null, name + (version ? ' 已更新到 ' + version : ' 已更新')),
+                p.result.status === 'partial' ? null : h('span', { className: 'fork-card-update-check', 'aria-hidden': true }, '✓'),
+                h('strong', null, name + (p.result.status === 'partial' ? ' 已更新，素材未完整导入' : version ? ' 已更新到 ' + version : ' 已更新')),
                 notes.length ? h('ul', null, notes.map((note, index) => h('li', { key: index }, note))) : null),
             error);
     }
-    const incoming = p.incoming, loading = Boolean(p.file) && !incoming && !p.error;
-    const packs = p.packs || [];
+    const request = p.request, incoming = request ? request.incoming : p.incoming, loading = Boolean(p.file) && !incoming && !p.error;
+    const packs = p.packs || [], packNotices = p.packNotices || [];
     return h(ui.Modal, { title, head, busy: p.busy, onClose: p.close, className: 'fork-card-update',
         foot: h('div', { className: 'ap-actions fork-card-update-foot' },
             h(ui.Button, { disabled: p.busy, onClick: p.close }, '取消'),
-            h(ui.Button, { primary: true, disabled: p.busy || !p.ready, onClick: p.replace }, p.busy ? (importing ? '正在导入…' : '正在更新…') : importing ? '导入' : '更新')) },
+            h(ui.Button, { primary: true, disabled: p.busy || !p.ready, onClick: p.replace }, p.busy ? (importing ? '正在导入…' : '正在更新…') : packNotices.length ? (importing ? '仍然导入' : '仍然更新') : importing ? '导入' : '更新')) },
         h(TavernCardUpdateCard, { cover: incoming?.cover || p.current?.cover, name: incoming?.name || p.current?.name || p.name || '',
             from: importing ? '' : p.current?.version, to: incoming?.version, file: p.file, pick: importing ? null : p.pick, busy: p.busy }),
+        request ? h('div', { className: 'fork-card-update-request' }, h('span', null, '来源'), h('code', null, request.source || '这张卡的脚本'), h('span', null, '会改动'),
+            h('ul', null, request.changes.map((change, index) => h('li', { key: index }, change)))) : null,
         loading ? h('p', { className: 'fork-card-update-loading', role: 'status' }, h(Spinner), '正在读取…') : null,
         packs.length ? h(TavernCardPacks, { packs, way: p.way, onWay: p.onWay, busy: p.busy }) : null,
+        packNotices.length ? h('ul', { className: 'fork-card-update-error', role: 'alert' }, packNotices.map((note, index) => h('li', { key: index }, note))) : null,
         error);
 }
 
@@ -153,7 +157,7 @@ function useTavernCardUpdate({ call, onChanged }) {
             const file = event.target.files?.[0]; event.target.value = '';
             if (file && latest.current) void choose(file);
         } }),
-        element: open ? h(TavernCardUpdateDialog, { current: state.current || { name: state.name, version: '' }, incoming: state.stage?.card || null, packs: state.stage?.packs || [],
+        element: open ? h(TavernCardUpdateDialog, { current: state.current || { name: state.name, version: '' }, incoming: state.stage?.card || null, packs: state.stage?.packs || [], packNotices: state.stage?.packNotices,
             way: state.way, onWay: way => patch({ way }), file: state.file, pick: () => picker.current?.click(), error: state.error, result: state.result, busy: state.busy,
             ready: Boolean(state.stage && state.current), close, replace, revert }) : null
     };
@@ -168,7 +172,7 @@ function askTavernCardPackWay(file, staged) {
         function Dialog() {
             const [way, setWay] = React.useState('update');
             function settle(value) { root.unmount(); container.remove(); resolve(value); }
-            return React.createElement(TavernCardUpdateDialog, { mode: 'import', file, incoming: staged.card, packs: staged.packs, way, onWay: setWay, ready: true,
+            return React.createElement(TavernCardUpdateDialog, { mode: 'import', file, incoming: staged.card, packs: staged.packs, packNotices: staged.packNotices, way, onWay: setWay, ready: true,
                 close: () => settle(null), replace: () => settle(way) });
         }
         root.render(React.createElement(Dialog));

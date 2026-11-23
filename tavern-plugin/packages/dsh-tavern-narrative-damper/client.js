@@ -284,7 +284,9 @@ const TND_CSS = `
 .tnd-switch {
   position: relative;
   width: 44px;
+  min-width: 44px;
   height: 26px;
+  min-height: 26px;
   flex: 0 0 auto;
   border-radius: 999px;
   border: 1px solid var(--tnd-line);
@@ -296,7 +298,7 @@ const TND_CSS = `
 .tnd-switch::after {
   content: '';
   position: absolute;
-  top: 2px;
+  top: calc(50% - 10px);
   left: 2px;
   width: 20px;
   height: 20px;
@@ -349,12 +351,16 @@ const TND_CSS = `
   min-width: 0;
 }
 .tnd-help-btn {
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   flex: 0 0 auto;
   width: 17px;
+  min-width: 17px;
   height: 17px;
+  min-height: 17px;
+  aspect-ratio: 1 / 1;
   padding: 0;
   border-radius: 999px;
   border: 1px solid color-mix(in oklab, var(--tnd-accent) 48%, transparent);
@@ -410,6 +416,8 @@ const TND_CSS = `
 }
 .tnd-help-close {
   flex: 0 0 auto;
+  min-width: 0;
+  min-height: 0;
   padding: 0 5px;
   border: 1px solid transparent;
   border-radius: 6px;
@@ -441,9 +449,53 @@ const TND_CSS = `
   to { transform: translateY(0); opacity: 1; }
 }
 
+/* 宿主右侧栏移动端触控地板（min-height: 40px）不得撑坏阻尼器内圆点、开关与紧凑按钮 */
+@media (max-width: 1023px), (pointer: coarse) {
+  body.dsh-tavern-shell-active [data-sidebar-right-panel] .tnd-root button.tnd-help-btn {
+    width: 17px;
+    min-width: 17px;
+    height: 17px;
+    min-height: 17px;
+    padding: 0;
+  }
+  .tnd-root .tnd-help-btn::after {
+    content: '';
+    position: absolute;
+    inset: -8px;
+  }
+  body.dsh-tavern-shell-active [data-sidebar-right-panel] .tnd-root button.tnd-switch {
+    width: 44px;
+    min-width: 44px;
+    height: 26px;
+    min-height: 26px;
+    padding: 0;
+  }
+  .tnd-root .tnd-switch::before {
+    content: '';
+    position: absolute;
+    inset: -7px -4px;
+  }
+  body.dsh-tavern-shell-active [data-sidebar-right-panel] .tnd-root button.tnd-help-close {
+    min-height: 0;
+  }
+  body.dsh-tavern-shell-active [data-sidebar-right-panel] .tnd-root button.tnd-btn {
+    min-height: 34px;
+  }
+  body.dsh-tavern-shell-active [data-sidebar-right-panel] .tnd-root button.tnd-btn.is-sm {
+    min-height: 29px;
+  }
+  body.dsh-tavern-shell-active [data-sidebar-right-panel] .tnd-root button.tnd-seg {
+    min-height: 34px;
+  }
+  .tnd-wb-scroll {
+    padding-bottom: calc(72px + env(safe-area-inset-bottom, 0px));
+  }
+}
+
 @media (max-width: 720px) {
   .tnd-wb-top { gap: 6px; padding-bottom: 6px; }
-  .tnd-seg { min-height: 30px; padding: 4px 8px; }
+  .tnd-seg,
+  body.dsh-tavern-shell-active [data-sidebar-right-panel] .tnd-root button.tnd-seg { min-height: 30px; padding: 4px 8px; }
   .tnd-row { align-items: flex-start; }
 }
 `

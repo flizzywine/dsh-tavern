@@ -45,11 +45,17 @@ const checkDieCounts = die => die.flag ? die.flag === "kept" || (die.flag === "c
 const checkToneOf = record => { const tone = checkOutcomeOf(record)?.tone; return CHECK_TONES.includes(tone) ? tone : null; };
 // The main number (report row with main: true) and its target, or null.
 // While choices are open the main line is pending: its value is the one the defaults give (the default's preview main).
+const checkMainRow = record => Object.values(record.report || {}).find(item => item && item.main && !item.secret) || null;
 function checkHeadline(record) {
-    const row = Object.values(record.report || {}).find(item => item && item.main && !item.secret);
+    const row = checkMainRow(record);
     if (!row) return null;
     const value = row.pending ? checkDefaultPreview(record)?.main : row.value;
-    return value === undefined ? null : { label: row.label, value, target: row.target || null };
+    return value === undefined ? null : { label: row.label + checkStepsText(row.steps), value, target: row.target || null };
+}
+// How the main number came about (report steps), before its value: 「 2 − 倦怠 1 =」 (the first step is the dice as read).
+function checkStepsText(steps) {
+    if (!Array.isArray(steps) || steps.length < 2) return "";
+    return " " + steps[0].value + steps.slice(1).map(step => (step.value < 0 ? " − " : " + ") + step.label + " " + Math.abs(step.value)).join("") + " =";
 }
 function checkDefaultPreview(record) {
     for (const choice of checkOpenChoices(record)) {
@@ -73,10 +79,15 @@ function checkOutcomeNow(record) {
 // The result page: the check's head and tags, its dice with their states, the main number and its target, the outcome
 // as it stands, and the choices as buttons (CheckButtons, check.js: what each does, its cost and outcome). It stays until
 // the player picks (onSend) or folds it into the card on the text box (Esc: the card keeps the same buttons). Skipping
-// the animation never skips it. props: { record, input, answerable, onSend(values), onFold(), style }.
+// the animation never skips it. props: { record, input, answerable, onSend(values), onFold(), style, look (the dsh.dice
+// option values) }. With the skin's ledger look (result.card) the page is the ledger card - head cells, the row read as a
+// sum whose outcome follows the player's marks - over the choices as tiles and steppers and a confirm bar that says what
+// it does.
 function CheckResultPage(props) {
     const h = React.createElement, record = props.record, box = React.useRef(null);
-    const headline = record.hidden ? null : checkHeadline(record), now = record.hidden ? null : checkOutcomeNow(record), tone = now && CHECK_TONES.includes(now.tone) ? now.tone : null;
+    const [picked, setPicked] = React.useState(null);
+    const ledger = props.look && props.look.result && props.look.result.card === "ledger" && record.dice && !record.hidden ? props.look : null;
+    const headline = record.hidden ? null : checkHeadline(record), now = record.hidden ? null : (ledger && checkPickedNow(record, picked)) || checkOutcomeNow(record), tone = now && CHECK_TONES.includes(now.tone) ? now.tone : null;
     React.useEffect(() => { box.current?.focus({ preventScroll: true }); }, []);
     const onKeyDown = event => {
         if (event.key === "Escape") { event.preventDefault(); props.onFold(); }
@@ -85,18 +96,20 @@ function CheckResultPage(props) {
     const head = record.title && record.title !== record.label ? record.title + " · " + record.label : record.label || "检定";
     return h("section", { ref: box, className: "fork-check-page", role: "dialog", "aria-label": head, tabIndex: -1, style: props.style, "data-call": record.callId,
             "data-tone": tone || undefined, onKeyDown, onClick: event => event.stopPropagation(), onPointerDown: event => event.stopPropagation() },
-        h("div", { className: "fork-check-page-head" },
+        ledger ? h("div", { className: "fork-roll fork-check is-ledger is-awaiting fork-check-page-ledger", "data-tone": tone || undefined, style: checkToneStyle(ledger) },
+            h(CheckLedger, { record, look: ledger, now, headline, headProps: null, title: head })) : [
+        h("div", { key: "head", className: "fork-check-page-head" },
             h("span", { className: "fork-check-page-title" }, head),
             (record.tags || []).map(tag => h("span", { key: tag, className: "fork-check-page-tag" }, tag))),
-        h("div", { className: "fork-check-page-read" },
+        h("div", { key: "read", className: "fork-check-page-read" },
             record.hidden ? null : h(CheckDice, { record }),
             headline ? h("div", { className: "fork-check-page-headline" },
                 h("span", { className: "fork-check-page-label" }, headline.label),
                 h("span", { className: "fork-check-page-number" }, String(headline.value)),
                 headline.target ? h("span", { className: "fork-check-page-target" }, checkTargetText(headline.target)) : null) : null,
-            now ? h("div", { className: "fork-check-page-now" }, h("span", { className: "fork-check-page-label" }, "现在"), h("span", { className: "fork-check-page-tier" }, now.label)) : null),
+            now ? h("div", { className: "fork-check-page-now" }, h("span", { className: "fork-check-page-label" }, "现在"), h("span", { className: "fork-check-page-tier" }, now.label)) : null)],
         checkRollText(record) ? h("div", { className: "fork-check-line" }, checkRollText(record)) : null,
-        h(CheckButtons, { record, input: props.input, disabled: !props.answerable, onSend: props.onSend }),
+        h(CheckButtons, { record, input: props.input, disabled: !props.answerable, onSend: props.onSend, ledger: Boolean(ledger), onPick: setPicked }),
         props.answerable ? null : h("div", { className: "fork-check-hint" }, "叙述写完后就能选。"));
 }
 

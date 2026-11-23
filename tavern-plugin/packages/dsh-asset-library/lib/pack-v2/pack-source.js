@@ -6,6 +6,7 @@ import {importFigureVariants} from './import-figure-variants.js'
 import {normalizeFigureAliases} from '../asset-packs/figure-names.js'
 import {PACK_BUDGET} from './budget.js'
 import {decodeMedia} from './media.js'
+import {authorAudioLoudness} from './audio-loudness.js'
 import {writeZip,zipPath} from '../zip.js'
 import {validatePackManifest,validatePackKeywords} from '../asset-packs/index.js'
 export async function sourceBytes(source, relative) {
@@ -27,6 +28,8 @@ export async function sealNativePack(manifest, files) {
       if (JSON.stringify(aliases)!==JSON.stringify(figure.aliases)) files.set(file,jsonBytes({...figure,aliases}))
     }
   }
+  // A sealed pack carries the loudness of its audio, so importing it never measures (or needs ffmpeg).
+  await authorAudioLoudness(manifest,files)
   // Preserve the player's manifest order and identity on an unchanged export/rebuild.
   await sealPack(manifest,files)
   const figures=Object.fromEntries(manifest.figures.map(id=>[id,JSON.parse(files.get('figures/'+id+'.json'))]))

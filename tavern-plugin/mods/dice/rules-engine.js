@@ -232,7 +232,7 @@ function compileAction(path, id, row, { sets, tables, state, global, check }) {
     const look = { ...(spec.mark ? { mark: [...spec.mark] } : {}), ...(spec.markColor ? { markColor: spec.markColor } : {}), ...(spec.look ? { look: spec.look } : {}), ...(spec.order ? { order: spec.order } : {}) }
     if (spec.roll !== undefined) {
       if (spec.count !== undefined || spec.sides !== undefined) fail(at, 'give either roll or count and sides')
-      if (spec.read !== undefined || spec.adjusted !== undefined) fail(at + '.read', 'a dice expression reads as its value; read belongs to a group of count and sides')
+      if (spec.read !== undefined || spec.adjusted !== undefined || spec.cancel !== undefined) fail(at + '.read', 'a dice expression reads as its value; read belongs to a group of count and sides')
       dice[name] = { ...compileRoll(at + '.roll', spec.roll), ...look }
     } else dice[name] = { count: formula(at + '.count', spec.count), sides: formula(at + '.sides', spec.sides), ...look, ...compileRead(at, spec) }
   }
@@ -307,8 +307,16 @@ function compileAction(path, id, row, { sets, tables, state, global, check }) {
       if (!NEEDS.includes(entry.target.need)) fail(at + '.target.need', 'must be one of ' + NEEDS.join(' '))
       target = { label: text(at + '.target.label', entry.target.label), value: formula(at + '.target.value', entry.target.value), need: entry.target.need }
     }
-    return { id: text(at + '.id', entry.id), label: text(at + '.label', entry.label), value, when, secret: entry.secret === true, ...(entry.main ? { main: true } : {}), target,
-      reads: [...[value, when, target?.value].filter(Boolean).reduce((names, tree) => formulaNames(tree, names), new Set())] }
+    // steps: how the number came about, [{label, value, when?}]: the first is where it starts (the dice as read), each
+    // later one adds its value (a cause striking dice gives a negative one); they add up to value, or the action fails.
+    if (entry.steps !== undefined && (!Array.isArray(entry.steps) || entry.steps.length < 2 || entry.steps.length > 8)) fail(at + '.steps', 'lists 2 to 8 steps, e.g. [{"label": "掷出", "value": "raw"}, {"label": "倦怠", "value": "-burn"}]')
+    const steps = (entry.steps || []).map((step, index) => {
+      plain(at + '.steps.' + index, step)
+      if (index === 0 && step.when !== undefined) fail(at + '.steps.0.when', 'the first step is where the number starts: it always holds')
+      return { label: text(at + '.steps.' + index + '.label', step.label), value: formula(at + '.steps.' + index + '.value', step.value), when: optionalFormula(at + '.steps.' + index + '.when', step.when) }
+    })
+    return { id: text(at + '.id', entry.id), label: text(at + '.label', entry.label), value, when, secret: entry.secret === true, ...(entry.main ? { main: true } : {}), target, steps,
+      reads: [...[value, when, target?.value, ...steps.flatMap(step => [step.value, step.when])].filter(Boolean).reduce((names, tree) => formulaNames(tree, names), new Set())] }
   })
   if (report.filter(entry => entry.main).length > 1) fail(path + '.report', 'only one line is the main one')
   if (row.tags !== undefined && (!Array.isArray(row.tags) || row.tags.length > 6)) fail(path + '.tags', 'must list at most 6 texts, e.g. ["难度 {dc}"]')
@@ -326,9 +334,9 @@ function compileAction(path, id, row, { sets, tables, state, global, check }) {
     ...[...require, ...ensure].flatMap(rule => [[path + '.require', rule.when], ...templateTrees(rule.message).map(tree => [path + '.message', tree])]),
     ...outcomes.flatMap(outcome => [outcome.when, ...templateTrees(outcome.text), ...templateTrees(outcome.stop)].filter(Boolean).map(tree => [path + '.outcomes.' + outcome.id, tree])),
     ...effects.flatMap(effect => [effect.key, effect.each, effect.add, effect.set, effect.when].filter(Boolean).map(tree => [path + '.effects', tree])),
-    ...report.flatMap(entry => [entry.value, entry.when, entry.target?.value].filter(Boolean).map(tree => [path + '.report.' + entry.id, tree])),
+    ...report.flatMap(entry => [entry.value, entry.when, entry.target?.value, ...entry.steps.flatMap(step => [step.value, step.when])].filter(Boolean).map(tree => [path + '.report.' + entry.id, tree])),
     ...[...templateTrees(action.text), ...templateTrees(action.stop), ...templateTrees(action.title), ...tags.flatMap(templateTrees), ...(hidden ? [hidden] : [])].map(tree => [path, tree]),
-    ...Object.entries(dice).flatMap(([name, spec]) => [spec.read?.than, spec.adjusted].filter(Boolean).map(tree => [path + '.dice.' + name, tree])),
+    ...Object.entries(dice).flatMap(([name, spec]) => [spec.read?.than, spec.adjusted, ...(spec.cancel || []).map(row => row.count)].filter(Boolean).map(tree => [path + '.dice.' + name, tree])),
     ...[...params, ...choices].flatMap(item => [item.when, item.min, item.max, item.default, ...templateTrees(item.hint)].filter(tree => tree && typeof tree === 'object').map(tree => [item.path, tree])),
     ...Object.values(dice).flatMap(spec => spec.terms ? [[path + '.dice', spec.roll], ...spec.terms.flatMap(term => [[path + '.dice', term.count], [path + '.dice', term.sides]])] : [[path + '.dice', spec.count], [path + '.dice', spec.sides]])
   ]) {
@@ -347,22 +355,27 @@ function readCalls(tree, calls = []) {
 // face is listed ({count: [3]}) or meets a comparison ({count: ">= 8"}, the right side a formula). read(group) is that
 // value, and the record marks each die kept or dropped, so the stage shows which dice made the number. adjusted (a
 // formula, with a count of listed faces) is the count after the player's changes: as many dice turn as the difference.
+// cancel (a count of listed faces too) lists what the rules strike out before that: [{label, count}], e.g. Burnout
+// striking one 3 a point; that many counted dice, front first, are flagged cancelled and the record names each cause.
 function compileRead(at, spec) {
-  if (spec.read === undefined) {
-    if (spec.adjusted !== undefined) fail(at + '.adjusted', 'belongs to a group read as a count ({count: [faces]})')
-    return {}
-  }
-  if (READS.includes(spec.read)) {
-    if (spec.adjusted !== undefined) fail(at + '.adjusted', 'belongs to a group read as a count ({count: [faces]})')
-    return { read: { how: spec.read } }
+  const countOnly = (name, message) => { if (spec[name] !== undefined) fail(at + '.' + name, message) }
+  if (spec.read === undefined || READS.includes(spec.read)) {
+    for (const name of ['adjusted', 'cancel']) countOnly(name, 'belongs to a group read as a count ({count: [faces]})')
+    return spec.read === undefined ? {} : { read: { how: spec.read } }
   }
   const count = spec.read && typeof spec.read === 'object' && !Array.isArray(spec.read) ? spec.read.count : undefined
   if (Array.isArray(count) && count.length && count.every(face => Number.isInteger(face) && face >= 1 && face <= 1000)) {
-    return { read: { how: 'count', faces: [...count] }, ...(spec.adjusted !== undefined ? { adjusted: formula(at + '.adjusted', spec.adjusted) } : {}) }
+    if (spec.cancel !== undefined && (!Array.isArray(spec.cancel) || !spec.cancel.length || spec.cancel.length > 6)) fail(at + '.cancel', 'lists 1 to 6 causes, e.g. [{"label": "倦怠", "count": "burn"}]')
+    const cancel = (spec.cancel || []).map((row, index) => {
+      plain(at + '.cancel.' + index, row)
+      const tree = formula(at + '.cancel.' + index + '.count', row.count)
+      return { label: text(at + '.cancel.' + index + '.label', row.label), count: tree, reads: [...formulaNames(tree)] }
+    })
+    return { read: { how: 'count', faces: [...count] }, ...(spec.adjusted !== undefined ? { adjusted: formula(at + '.adjusted', spec.adjusted) } : {}), ...(cancel.length ? { cancel } : {}) }
   }
   const match = typeof count === 'string' ? /^\s*(>=|<=|>|<|==|!=)(.+)$/.exec(count) : null
   if (!match) fail(at + '.read', 'is sum, highest, lowest, {count: [faces]} or {count: ">= n"}')
-  if (spec.adjusted !== undefined) fail(at + '.adjusted', 'belongs to a group read as a count of listed faces ({count: [faces]})')
+  for (const name of ['adjusted', 'cancel']) countOnly(name, 'belongs to a group read as a count of listed faces ({count: [faces]})')
   return { read: { how: 'count', op: match[1], than: formula(at + '.read.count', match[2].trim()) } }
 }
 const COMPARE = { '>=': (a, b) => a >= b, '<=': (a, b) => a <= b, '>': (a, b) => a > b, '<': (a, b) => a < b, '==': (a, b) => a === b, '!=': (a, b) => a !== b }
@@ -388,6 +401,36 @@ function adjustPool(listed, sides, read, faces, to) {
   for (let index = 0; left > 0 && index < faces.length; index++) if (flags[index] === 'dropped') { flags[index] = 'changed'; after[index] = listed[0]; left-- }
   for (let index = faces.length - 1; left < 0 && off !== undefined && index >= 0; index--) if (flags[index] === 'kept') { flags[index] = 'changed'; after[index] = off; left++ }
   return flags.includes('changed') ? { flags, after } : null
+}
+
+// The counted dice the rules strike out (dice.<group>.cancel), cause by cause, front first: the read after it
+// ({value, flags}) and the causes that struck any ([{label, count}]), or null when none did.
+function cancelPool(cancel, read, scope) {
+  const flags = [...read.flags], causes = []
+  let value = read.value
+  for (const row of cancel) {
+    const want = evaluate(row.count, scope)
+    if (!Number.isInteger(want) || want < 0) throw new Error('cancel ' + row.label + ' must give a whole number of dice, got ' + JSON.stringify(want))
+    let struck = 0
+    for (let index = 0; struck < want && index < flags.length; index++) if (flags[index] === 'kept') { flags[index] = 'cancelled'; struck++ }
+    if (struck) causes.push({ label: row.label, count: struck })
+    value -= struck
+  }
+  return causes.length ? { read: { value, flags }, causes } : null
+}
+// The faces once the rules' cancellations are known (all of them on a settled record; on an awaiting one each group
+// whose cancel reads nothing still open) and each group's read after them.
+function struckFaces(action, prepared, unknown) {
+  let faces = prepared.faces
+  const reads = { ...prepared.values[READ] }
+  for (const [name, spec] of Object.entries(action.dice)) {
+    if (!spec.cancel || !faces[name] || spec.cancel.some(row => row.reads.some(id => unknown.has(id)))) continue
+    const struck = cancelPool(spec.cancel, reads[name], prepared.scope)
+    if (!struck) continue
+    reads[name] = struck.read
+    faces = { ...faces, [name]: { ...faces[name], flags: struck.read.flags, cancel: struck.causes } }
+  }
+  return { faces, reads }
 }
 
 // A parameter (given by the model with the action) or a choice (made by the player after it): int {min,max,default},
@@ -673,11 +716,12 @@ function finish(rules, state, prepared, asked) {
   const { action, values, scope } = prepared
   for (const step of action.after) values[step.name] = runStep(step, scope, values)
   for (const rule of action.ensure) if (!evaluate(rule.when, scope)) throw new Error(render(rule.message, scope))
-  // The dice the player's choices turned (dice.<group>.adjusted): their flags and faces after, on the settled record.
-  let faces = prepared.faces
+  // The dice the rules struck out (dice.<group>.cancel), then those the player's choices turned (adjusted): their
+  // flags and faces after, on the settled record.
+  let { faces, reads } = struckFaces(action, prepared, new Set())
   for (const [name, spec] of Object.entries(action.dice)) {
     if (!spec.adjusted || !faces[name]) continue
-    const turned = adjustPool(spec.read.faces, faces[name].sides, values[READ][name], prepared.dice[name], evaluate(spec.adjusted, scope))
+    const turned = adjustPool(spec.read.faces, faces[name].sides, reads[name], prepared.dice[name], evaluate(spec.adjusted, scope))
     if (turned) faces = { ...faces, [name]: { ...faces[name], ...turned } }
   }
   const outcome = action.outcomes.find(row => row.when === null || evaluate(row.when, scope)) || null
@@ -736,10 +780,22 @@ function reportOf(entries, scope, unknown = null) {
   const report = {}
   for (const row of entries) {
     if (unknown && row.reads.some(name => unknown.has(name))) { if (row.main) report[row.id] = { label: row.label, main: true, pending: true }; continue }
-    if (!row.when || evaluate(row.when, scope)) report[row.id] = { label: row.label, value: evaluate(row.value, scope), ...(row.secret ? { secret: true } : {}), ...(row.main ? { main: true } : {}),
-      ...(row.target ? { target: { label: row.target.label, value: evaluate(row.target.value, scope), need: row.target.need } } : {}) }
+    if (row.when && !evaluate(row.when, scope)) continue
+    const value = evaluate(row.value, scope), steps = stepsOf(row, value, scope)
+    report[row.id] = { label: row.label, value, ...(row.secret ? { secret: true } : {}), ...(row.main ? { main: true } : {}),
+      ...(row.target ? { target: { label: row.target.label, value: evaluate(row.target.value, scope), need: row.target.need } } : {}), ...(steps ? { steps } : {}) }
   }
   return report
+}
+// A report line's steps as they apply this time: the start, then each step that holds and changes something; none
+// when nothing changed the start. Steps that do not add up to the line's value are the card's error, told by path.
+function stepsOf(row, value, scope) {
+  if (!row.steps.length) return null
+  const [start, ...rest] = row.steps.map(step => step.when && !evaluate(step.when, scope) ? null : { label: step.label, value: evaluate(step.value, scope) })
+  const shown = [start, ...rest.filter(step => step && step.value !== 0)]
+  const total = shown.reduce((sum, step) => typeof step.value === 'number' && typeof sum === 'number' ? sum + step.value : NaN, 0)
+  if (total !== value) throw new Error('report ' + row.id + ': its steps add up to ' + total + ', not its value ' + JSON.stringify(value) + ' (' + shown.map(step => step.label + ' ' + step.value).join(', ') + ')')
+  return shown.length > 1 ? shown : null
 }
 
 // One row per variable path: from its first value to its last (a row without from is a new entry, without to a removed one).
@@ -815,7 +871,7 @@ function settleOrWait(rules, state, prepared, request, seed, answers, asking, ah
   for (const choice of open) previews(rules, state, request, seed, made, choice)
   // The outcome fixed before the choice, named when the rules give their outcomes a tone (the stage's result page shows it).
   const decided = decidedOutcome(action, scope, unknown)
-  return compact({ ...head, status: 'awaiting', choice: made, ...showOf(decided), ...(decided && action.outcomes.some(row => row.tone) ? { decided: outcomeOf(decided) } : {}),
+  return compact({ ...head, ...(head.faces ? { faces: struckFaces(action, prepared, unknown).faces } : {}), status: 'awaiting', choice: made, ...showOf(decided), ...(decided && action.outcomes.some(row => row.tone) ? { decided: outcomeOf(decided) } : {}),
     report: reportOf(action.report, scope, unknown), choices: open,
     stop: open.some(row => row.by === 'gm') ? AWAITING_STOP_GM : AWAITING_STOP })
 }

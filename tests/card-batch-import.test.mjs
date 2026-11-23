@@ -127,6 +127,28 @@ test('a card carrying another version of an installed pack asks 完全替换 / �
   assert.deepEqual(calls, [['previewCardUpload', undefined], ['discardCardUpload', undefined]])
 })
 
+test('an attached pack failure alone opens the import decision and only confirmation commits', async () => {
+  const packNotices = ['素材包「通用环境音」未装入：雨声音频已损坏，请重新获取卡包']
+  let answer = null
+  const importFile = importer(page({ askTavernCardPackWay: async (_file, stage) => {
+    assert.deepEqual(stage.packNotices, packNotices)
+    return answer
+  } }))
+  const calls = [], file = { name: 'ambience.dshcard' }
+  const call = async (method, args) => {
+    calls.push([method, args])
+    if (method === 'previewCardUpload') return { card: { name: '环境音卡' }, packs: [], packNotices }
+    if (method === 'importCardUpload') return { card: { status: 'partial', libraryNotices: packNotices } }
+  }
+  await assert.rejects(importFile(file, call), { code: 'TAVERN_CARD_IMPORT_CANCELLED' })
+  assert.deepEqual(calls.map(([method]) => method), ['previewCardUpload', 'discardCardUpload'])
+  calls.length = 0; answer = 'update'
+  const { card } = await importFile(file, call)
+  assert.equal(card.status, 'partial')
+  assert.equal(calls[1][1].acceptMissingPacks, true)
+  assert.equal(calls[1][1].previewed, true)
+})
+
 test('shared importer keeps its loading dialog open until the host finishes, including callers with no progress callback', async () => {
   let opened = 0, closed = 0, finish
   const host = new Promise(resolve => { finish = resolve })

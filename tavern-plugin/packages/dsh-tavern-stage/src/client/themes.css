@@ -1230,7 +1230,10 @@ body > div:has(> .bgm-host):is(:has(~ .fork-gal-mount), .fork-gal-mount ~ div) {
 /* The scene dims (the table's veil) beside a centred, opaque reading sheet; rows are the read pages, earlier turns above
    the current one. Text only ever sits on the sheet. The sheet wipes in top-down; nothing fades. */
 .fork-gal-stage.is-backlog :is(.fork-gal-box, .fork-gal-choices, .fork-gal-topbar) { visibility: hidden; pointer-events: none; }
+/* --bl-body-fs / --bl-body-lh: the one body size and leading of the log - every row's words (lines, narration, the player's
+   input) read at it, and the turn divider and the「你」chip are set in proportion to it; a skin's art sets both below. */
 .fork-gal-backlog { --bl-face: clamp(46px, 3.6vw, 60px); --bl-gap: clamp(12px, 1.2vw, 18px); --bl-col: min(92%, 920px); --bl-line: var(--gal-ui-line); --bl-accent: var(--gal-ui-accent);
+  --bl-body-fs: var(--gal-ui-reading-size); --bl-body-lh: var(--gal-ui-reading-leading);
   position: absolute; inset: 0; z-index: 7; display: flex; flex-direction: column; align-items: center; cursor: default; user-select: text; -webkit-user-select: text;
   color: var(--gal-ui-ink); font-family: var(--gal-ui-font);
   --bl-edge: max(0px, calc(50% - var(--bl-col) / 2 - 28px));
@@ -1275,7 +1278,7 @@ body > div:has(> .bgm-host):is(:has(~ .fork-gal-mount), .fork-gal-mount ~ div) {
 .fork-gal-stage .fork-gal-backlog-older-retry:hover { background: var(--gal-ui-hover); }
 .fork-gal-stage .fork-gal-backlog-older-retry:focus-visible { outline: 2px solid var(--bl-accent); outline-offset: 1px; }
 /* Turn separator */
-.fork-gal-backlog-turn { display: flex; align-items: center; gap: 16px; margin: 30px 0 12px; color: var(--gal-ui-muted); font: 500 11.5px/1 var(--gal-ui-font); letter-spacing: .32em; }
+.fork-gal-backlog-turn { display: flex; align-items: center; gap: 16px; margin: 30px 0 12px; color: var(--gal-ui-muted); font: 500 max(11.5px, calc(var(--bl-body-fs) * .7))/1 var(--gal-ui-font); letter-spacing: .32em; }
 .fork-gal-backlog-turn::before, .fork-gal-backlog-turn::after { content: ""; flex: 1; height: 0; border-top: var(--gal-ui-divider-width) var(--gal-ui-divider) var(--bl-line); mask-image: linear-gradient(90deg, transparent, #000); }
 .fork-gal-backlog-turn::after { mask-image: linear-gradient(90deg, #000, transparent); }
 .fork-gal-backlog-turn.is-current { color: var(--gal-ui-accent); }
@@ -1288,12 +1291,13 @@ body > div:has(> .bgm-host):is(:has(~ .fork-gal-mount), .fork-gal-mount ~ div) {
 .fork-gal-backlog-input p { min-width: 0; }
 /* a 文字演出 card — one muted line between the dialogue lines (not a jump target). */
 .fork-gal-backlog-card { display: flex; align-items: baseline; gap: 10px; margin: 2px 0; padding: 4px 16px; color: var(--gal-ui-muted); }
-.fork-gal-backlog-card p { margin: 0; font-size: calc(var(--gal-ui-reading-size) * .86); line-height: 1.6; letter-spacing: .1em; overflow-wrap: anywhere; }
-.fork-gal-backlog-card-tag { flex: none; padding: 0 .5em; border: 1px solid var(--gal-ui-line); border-radius: var(--gal-ui-radius); font-size: var(--gal-ui-meta-size); line-height: 1.6; letter-spacing: .12em; }
+.fork-gal-backlog-card p { margin: 0; font-size: calc(var(--bl-body-fs) * .86); line-height: 1.6; letter-spacing: .1em; overflow-wrap: anywhere; }
+.fork-gal-backlog-card-tag { flex: none; padding: 0 .5em; border: 1px solid var(--gal-ui-line); border-radius: var(--gal-ui-radius); font-size: max(var(--gal-ui-meta-size), calc(var(--bl-body-fs) * .66)); line-height: 1.6; letter-spacing: .12em; }
 .fork-gal-backlog-card-sep { color: var(--gal-ui-ink-disabled); }
 @media (max-width: 640px) { .fork-gal-backlog-card { padding-left: 8px; } }
-.fork-gal-backlog-you { flex: none; margin-top: 2px; padding: 2px 8px; border: 1px solid var(--gal-ui-thumb); border-radius: 999px; color: var(--bl-accent); font: 600 11px/1.4 var(--gal-ui-font); letter-spacing: .1em; }
-.fork-gal-backlog-input p { margin: 0; color: var(--gal-ui-ink-2); font-size: clamp(14px, 1.08vw, 16px); line-height: 1.75; letter-spacing: .03em; white-space: pre-wrap; overflow-wrap: anywhere; }
+.fork-gal-backlog-you { flex: none; padding: .18em .72em; border: 1px solid var(--gal-ui-thumb); border-radius: 999px; color: var(--bl-accent); font: 600 max(11px, calc(var(--bl-body-fs) * .66))/1.4 var(--gal-ui-font); letter-spacing: .1em; }
+.fork-gal-backlog-input > :is(.fork-gal-backlog-you, p) { align-self: baseline; } /* the chip sits on the words' first line at any body size */
+.fork-gal-backlog-input p { margin: 0; color: var(--gal-ui-ink-2); font-size: var(--bl-body-fs); line-height: var(--bl-body-lh); letter-spacing: .03em; white-space: pre-wrap; overflow-wrap: anywhere; }
 /* A page row: face, name with its voice, text. Its sides are even (skin audit 10-31: 16 / 56 px set the column's text 0.026 of
    its width left of the stage's middle on a tablet), the lines as long as before. */
 .fork-gal-backlog-row { position: relative; display: grid; grid-template-columns: var(--bl-face) minmax(0, 1fr); column-gap: var(--bl-gap); align-items: start; margin: 2px 0; padding: 12px 36px; border-radius: var(--gal-ui-radius); outline: none; transition: background .15s; }
@@ -1331,12 +1335,12 @@ body > div:has(> .bgm-host):is(:has(~ .fork-gal-mount), .fork-gal-mount ~ div) {
    the icon chip's height, keeping the image's own aspect (contain in a 2.6em-wide slot). */
 .fork-gal-backlog-badge.has-art { display: inline-block; width: 2.6em; height: 1.66em; padding: 0; border: 0; border-radius: 0; vertical-align: middle;
   background: var(--bl-badge-art) center / contain no-repeat; box-shadow: none; }
-.fork-gal-backlog-text { margin: 0; color: var(--gal-ui-ink); font-size: var(--gal-ui-reading-size); font-weight: 500; line-height: var(--gal-ui-reading-leading); letter-spacing: .04em; white-space: pre-wrap; overflow-wrap: anywhere; text-shadow: var(--gal-ui-text-shadow); }
+.fork-gal-backlog-text { margin: 0; color: var(--gal-ui-ink); font-size: var(--bl-body-fs); font-weight: 500; line-height: var(--bl-body-lh); letter-spacing: .04em; white-space: pre-wrap; overflow-wrap: anywhere; text-shadow: var(--gal-ui-text-shadow); }
 /* The hanging indent only makes room for an opening 「; film mode and other themes print no quote. */
 .fork-gal-backlog.is-quoted .fork-gal-backlog-row.is-line .fork-gal-backlog-text { padding-left: var(--gal-ui-line-indent); text-indent: calc(-1 * var(--gal-ui-line-indent)); }
 /* Phone and tablet: names and lines read at the hard bar's 17 px floor. */
 @media (max-width: 1024px) {
-  .fork-gal-backlog-text, .fork-gal-backlog-input p { font-size: max(17px, var(--gal-ui-reading-size)); }
+  .fork-gal-backlog { --bl-body-fs: max(17px, var(--gal-ui-reading-size)); }
   .fork-gal-backlog-name b { font-size: 17px; }
   .fork-gal-backlog-name { margin-bottom: 6px; } /* the 36 px voice hit area reaches past a 17 px name's row */
 }
@@ -5847,7 +5851,8 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
   /* The sheet over the whole panel (as the menu's sheet above), the scene dimmed behind it (black at the skin's opacity = brightness 1 - dim). */
   .fork-gal-stage[data-fk-skin-art-backlog]:not(.is-film):has(> .fork-gal-backlog) :is(.fork-gal-scene, .fork-gal-standins) { filter: brightness(calc(1 - var(--art-backlog-dim))); }
   .fork-gal-stage[data-fk-skin-art-config]:not(.is-film):has(> .fork-gal-config) :is(.fork-gal-scene, .fork-gal-standins) { filter: brightness(calc(1 - var(--art-config-dim))); }
-  .fork-gal-stage[data-fk-skin-art-backlog]:not(.is-film) > .fork-gal-backlog { background: none; color: var(--art-backlog-ink, var(--gal-ui-ink)); }
+  .fork-gal-stage[data-fk-skin-art-backlog]:not(.is-film) > .fork-gal-backlog { background: none; color: var(--art-backlog-ink, var(--gal-ui-ink));
+    --bl-body-fs: calc(var(--art-backlog-font) * var(--mu)); --bl-body-lh: calc(var(--art-bl-pitch) * var(--mu)); }
   .fork-gal-stage[data-fk-skin-art-config]:not(.is-film) > .fork-gal-config { background: none; color: var(--art-config-ink, var(--gal-ui-ink)); }
   .fork-gal-stage[data-fk-skin-art-config~="sheet"]:not(.is-film) > .fork-gal-config::before { content: ""; position: absolute; inset: 0;
     z-index: -1; width: auto; height: auto; aspect-ratio: auto; background: none; border-image: none 0 fill / 0 stretch;
@@ -5904,8 +5909,11 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
   .fork-gal-stage[data-fk-skin-art-backlog]:not(.is-film) .fork-gal-backlog-older { top: calc(var(--gy) + var(--art-bl-list-y) * var(--mu)); }
   .fork-gal-stage[data-fk-skin-art-backlog]:not(.is-film) .fork-gal-backlog-row { display: block; margin: 0 0 calc(var(--art-bl-gap) * var(--mu)); padding: calc(var(--art-bl-top) * var(--mu)) 0 calc(var(--art-bl-top) * var(--mu)); border-radius: 0; }
   .fork-gal-stage[data-fk-skin-art-backlog-parts~="name"]:not(.is-film) .fork-gal-backlog-row.is-line { padding-top: calc((var(--art-bl-head) + var(--art-bl-top)) * var(--mu)); }
-  .fork-gal-stage[data-fk-skin-art-backlog]:not(.is-film) .fork-gal-backlog-text { width: var(--bl-text-w); margin: 0 0 0 var(--bl-text); color: inherit; font: var(--gal-skin-weight, 500) calc(var(--art-backlog-font) * var(--mu)) / calc(var(--art-bl-pitch) * var(--mu)) var(--gal-skin-font-body, var(--gal-ui-font));
+  .fork-gal-stage[data-fk-skin-art-backlog]:not(.is-film) .fork-gal-backlog-text { width: var(--bl-text-w); margin: 0 0 0 var(--bl-text); color: inherit; }
+  /* The player's words read in the lines' face and size; the turn divider in their face. */
+  .fork-gal-stage[data-fk-skin-art-backlog]:not(.is-film) :is(.fork-gal-backlog-text, .fork-gal-backlog-input p) { font: var(--gal-skin-weight, 500) var(--bl-body-fs) / var(--bl-body-lh) var(--gal-skin-font-body, var(--gal-ui-font));
     letter-spacing: var(--gal-skin-spacing, 0); text-shadow: var(--art-text-halo, none); }
+  .fork-gal-stage[data-fk-skin-art-backlog]:not(.is-film) .fork-gal-backlog-turn { font-family: var(--gal-skin-font-body, var(--gal-ui-font)); }
   .fork-gal-stage[data-fk-skin-art-backlog]:not(.is-film) .fork-gal-backlog.is-quoted .fork-gal-backlog-row.is-line .fork-gal-backlog-text { padding-left: 0; text-indent: 0; }
   .fork-gal-stage[data-fk-skin-art-backlog]:not(.is-film) .fork-gal-backlog-row.is-thought .fork-gal-backlog-text { padding-left: 0; border-left: 0 none; }
   .fork-gal-stage[data-fk-skin-art-backlog]:not(.is-film) .fork-gal-backlog-row :is(.fork-gal-backlog-face img, .fork-gal-backlog-face > i) { display: none; }
@@ -6059,8 +6067,8 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
    its pitch in proportion) and a drawn name stands in the entry's flow - its voice control (its whole hit box, no negative
    margin) and badge centred on it and as tall as they are - so neither the floor-sized lines nor the controls' own minimum size run into each other. */
 @media (min-width: 641px) and (max-width: 1024px) {
-  .fork-gal-stage[data-fk-skin-art-backlog]:not(.is-film) .fork-gal-backlog-text { --bl-fs: max(var(--fk-min-text), calc(var(--art-backlog-font) * var(--mu)));
-    font-size: var(--bl-fs); line-height: calc(var(--bl-fs) * var(--art-bl-pitch) / var(--art-backlog-font)); }
+  .fork-gal-stage[data-fk-skin-art-backlog]:not(.is-film) > .fork-gal-backlog { --bl-body-fs: max(var(--fk-min-text), calc(var(--art-backlog-font) * var(--mu)));
+    --bl-body-lh: calc(var(--bl-body-fs) * var(--art-bl-pitch) / var(--art-backlog-font)); }
   .fork-gal-stage[data-fk-skin-art-backlog-parts~="name"]:not(.is-film) .fork-gal-backlog-row.is-line { padding-top: calc(var(--art-bl-top) * var(--mu)); }
   .fork-gal-stage[data-fk-skin-art-backlog-parts~="name"]:not(.is-film) .fork-gal-backlog-name { position: relative; left: auto; top: auto; width: max-content; height: auto;
     min-height: calc(var(--art-bl-name-h) * var(--mu)); align-items: center;
@@ -6072,7 +6080,7 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
    control, name over its frame and rule, initials) and the highlight - at --art-bl-nu CSS px per design px; the words keep
    the reading size and start at the text column; turn dividers, the latest control and the list's scrolling stay shared. */
 @media (max-width: 640px) {
-  .fork-gal-stage[data-fk-skin-art-backlog-narrow]:not(.is-film) > .fork-gal-backlog { --mu: var(--art-bl-nu); --bl-nfs: max(var(--fk-min-text, 0px), var(--gal-ui-reading-size)); --bl-nt: calc(var(--art-bl-text-l) * var(--mu)); background: none; color: var(--art-backlog-ink, var(--gal-ui-ink)); }
+  .fork-gal-stage[data-fk-skin-art-backlog-narrow]:not(.is-film) > .fork-gal-backlog { --mu: var(--art-bl-nu); --bl-nfs: max(var(--fk-min-text, 0px), var(--gal-ui-reading-size)); --bl-body-fs: var(--bl-nfs); --bl-body-lh: var(--gal-ui-reading-leading); --bl-nt: calc(var(--art-bl-text-l) * var(--mu)); background: none; color: var(--art-backlog-ink, var(--gal-ui-ink)); }
   .fork-gal-stage[data-fk-skin-art-backlog-narrow][data-fk-skin-art-backlog~="sheet"]:not(.is-film) > .fork-gal-backlog::before { content: ""; position: absolute; inset: 0; z-index: -1; width: auto; height: auto; aspect-ratio: auto;
     border: 0 none; background: var(--art-backlog-sheet) center / cover no-repeat; -webkit-mask: none; mask: none; animation: none; pointer-events: none; }
   .fork-gal-stage[data-fk-skin-art-backlog-narrow]:not(.is-film) > .fork-gal-backlog::after { content: none; }
@@ -6092,7 +6100,8 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
   .fork-gal-stage[data-fk-skin-art-backlog-narrow]:not(.is-film) .fork-gal-backlog-row { display: block; margin: 0 0 calc(var(--art-bl-gap) * var(--mu)); padding: calc(var(--art-bl-top) * var(--mu)) 0; border-radius: 0; box-shadow: none; }
   .fork-gal-stage[data-fk-skin-art-backlog-narrow][data-fk-skin-art-backlog-parts~="name"]:not(.is-film) .fork-gal-backlog-row.is-line { padding-top: calc((var(--art-bl-head) + var(--art-bl-top)) * var(--mu) + 6px); }
   .fork-gal-stage[data-fk-skin-art-backlog-narrow]:not(.is-film) .fork-gal-backlog-row .fork-gal-backlog-face { display: none; }
-  .fork-gal-stage[data-fk-skin-art-backlog-narrow]:not(.is-film) .fork-gal-backlog-text { margin: 0 0 0 var(--bl-nt); font-size: var(--bl-nfs); font-family: var(--gal-skin-font-body, var(--gal-ui-font)); font-weight: var(--gal-skin-weight, 500);
+  .fork-gal-stage[data-fk-skin-art-backlog-narrow]:not(.is-film) .fork-gal-backlog-text { margin: 0 0 0 var(--bl-nt); }
+  .fork-gal-stage[data-fk-skin-art-backlog-narrow]:not(.is-film) :is(.fork-gal-backlog-text, .fork-gal-backlog-input p) { font-size: var(--bl-body-fs); font-family: var(--gal-skin-font-body, var(--gal-ui-font)); font-weight: var(--gal-skin-weight, 500);
     letter-spacing: var(--gal-skin-spacing, 0); text-shadow: var(--art-text-halo, none); }
   .fork-gal-stage[data-fk-skin-art-backlog-narrow]:not(.is-film) .fork-gal-backlog-row:not(.is-narration) .fork-gal-backlog-text { color: inherit; }
   .fork-gal-stage[data-fk-skin-art-backlog-narrow]:not(.is-film) .fork-gal-backlog.is-quoted .fork-gal-backlog-row.is-line .fork-gal-backlog-text { padding-left: 0; text-indent: 0; }
@@ -7316,6 +7325,11 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
 .fork-gal-backlog-roll[data-tier="fumble"] { --roll-tier: var(--roll-fumble); }
 /* Stage: on the text box's top edge, out of its flow (the box never moves or re-wraps); details open upward. */
 .fork-gal-stage .fork-gal-box > .fork-roll-list { position: absolute; right: var(--box-pad, 16px); bottom: calc(100% + 8px); z-index: 4; align-items: flex-end; width: max-content; max-width: min(72%, 460px); margin: 0; }
+/* The list's own box takes no clicks: a card hidden while its roll plays must not cover the result page beneath it. */
+.fork-gal-stage .fork-gal-box > .fork-roll-list { pointer-events: none; }
+.fork-gal-stage .fork-gal-box > .fork-roll-list > * { pointer-events: auto; }
+/* A long list of choices scrolls within the card, so the card stays short and its confirm in view. */
+.fork-gal-stage .fork-gal-box > .fork-roll-list .fork-check-buttons { max-height: 38vh; overflow-y: auto; overscroll-behavior: contain; }
 .fork-gal-stage .fork-gal-box > .fork-roll-list .fork-roll { --fork-ink: var(--gal-ui-ink); --fork-ink-2: var(--gal-ui-ink-2); --fork-ink-3: var(--gal-ui-ink-2); --fork-hover: var(--gal-ui-hover); --fork-focus: var(--gal-ui-focus); --fork-font-ui: var(--gal-ui-font);
   --roll-critical: var(--gal-ui-accent); --roll-success: var(--gal-ui-ink); --roll-costly: var(--gal-ui-widget-warning); --roll-failure: var(--gal-ui-ink-2); --roll-fumble: var(--gal-ui-widget-pink);
   background: var(--gal-ui-surface); box-shadow: var(--gal-ui-shadow); font-size: var(--gal-ui-meta-size); }
@@ -7325,9 +7339,126 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
 /* 履历: the check's line among the round's rows, in the panel's normal ink (a text card's row layout, not its muted tone). */
 .fork-gal-backlog-roll { --roll-critical: var(--gal-ui-accent); --roll-success: var(--gal-ui-ink); --roll-costly: var(--gal-ui-widget-warning); --roll-failure: var(--gal-ui-ink-2); --roll-fumble: var(--gal-ui-widget-pink);
   align-items: center; color: var(--gal-ui-ink); }
-.fork-gal-backlog-roll > .fork-icon { flex: none; }
+.fork-gal-backlog-roll > .fork-icon { flex: none; width: max(16px, calc(var(--bl-body-fs) * .86)); height: max(16px, calc(var(--bl-body-fs) * .86)); }
 .fork-gal-stage.is-film .fork-gal-box > .fork-roll-list { display: none; }
 @media (max-width: 720px) { .fork-gal-stage .fork-gal-box > .fork-roll-list { max-width: calc(100% - 2 * var(--box-pad, 16px)); } .fork-gal-stage .fork-gal-box > .fork-roll-list .fork-roll-head { min-height: 36px; } }
+/* The ledger card (dsh.dice option result.card: ledger; mods/dice/client/check.js CheckLedger): a ruled form - a head of
+   cells (tags, title, id) over one row read as a sum: the dice that do not count (small, outlined) | the dice that counted
+   as rolled (filled in the mark colour) | each step the rules took | the main number | the outcome on its tone. */
+.fork-check.is-ledger { --check-tone: var(--gal-ui-ink); --check-rule: 2px solid var(--gal-ui-ink); --check-hair: color-mix(in srgb, var(--gal-ui-ink) 35%, var(--gal-ui-surface)); }
+.fork-gal-stage .fork-gal-box > .fork-roll-list .fork-check.is-ledger {
+  width: min(460px, 100%); padding: 0; border: var(--check-rule); border-radius: 0; background: var(--gal-ui-surface); }
+.fork-check.is-ledger[data-tone="great"] { --check-tone: var(--gal-check-tone-great); }
+.fork-check.is-ledger[data-tone="good"] { --check-tone: var(--gal-check-tone-good); }
+.fork-check.is-ledger[data-tone="mixed"] { --check-tone: var(--gal-check-tone-mixed); }
+.fork-check.is-ledger[data-tone="bad"] { --check-tone: var(--gal-check-tone-bad); }
+.fork-check.is-ledger[data-tone="terrible"] { --check-tone: var(--gal-check-tone-terrible); }
+.fork-check-ledger-head { display: flex; align-items: stretch; width: 100%; min-height: 30px; margin: 0; padding: 0; border: 0; border-bottom: var(--check-rule); border-radius: 0; background: none;
+  color: var(--gal-ui-ink-2); font: 700 var(--gal-ui-meta-size)/1.2 var(--gal-ui-font); text-align: left; cursor: pointer; }
+.fork-check-ledger-head:hover { background: var(--gal-ui-hover); }
+.fork-check-ledger-head:focus-visible { outline: var(--gal-ui-focus); outline-offset: 2px; }
+.fork-check-ledger-head > span { display: flex; align-items: center; padding: 2px 8px; border-right: 1px solid var(--check-hair); }
+.fork-check-ledger-tag { background: var(--check-tag, var(--gal-ui-ink)); color: var(--gal-ui-surface); border-right: 0 !important; }
+.fork-check-ledger-id { margin-left: auto; border-right: 0 !important; border-left: 1px solid var(--check-hair); font-weight: 500; font-variant-numeric: tabular-nums; }
+.fork-check-ledger-row { display: flex; align-items: stretch; min-height: 52px; }
+.fork-check-ledger-row > div { display: flex; align-items: center; justify-content: center; padding: 6px; border-right: 1px solid var(--check-hair); }
+.fork-check-ledger-miss { flex: 1 1 auto; flex-wrap: wrap; gap: 1px; min-width: 0; justify-content: flex-start !important; border-right: var(--check-rule) !important; }
+.fork-check-ledger-hit { flex: none; gap: 3px; background: color-mix(in srgb, var(--fork-check-mark, var(--check-tone)) 9%, var(--gal-ui-surface)); }
+.fork-check-ledger-step { flex: none; flex-direction: column; gap: 2px; padding: 0 6px !important; }
+.fork-check-ledger-step > b { font: 900 calc(var(--gal-ui-choice-size) * 1.2)/1 var(--gal-ui-title-font); }
+.fork-check-ledger-step > small { font: 700 var(--gal-ui-meta-size)/1 var(--gal-ui-font); white-space: nowrap; }
+.fork-check-ledger-sum { flex: none; flex-direction: column; min-width: 54px; border-right: var(--check-rule) !important; color: var(--check-tone); }
+.fork-check-ledger-sum > b { font: 900 calc(var(--gal-ui-choice-size) * 2.2)/1 var(--gal-ui-title-font); font-variant-numeric: tabular-nums; }
+.fork-check-ledger-sum > small { color: var(--gal-ui-ink-2); font: 600 var(--gal-ui-meta-size)/1.2 var(--gal-ui-font); white-space: nowrap; }
+.fork-check-ledger-verdict { position: relative; flex: none; min-width: 96px; padding: 6px 12px !important; border-right: 0 !important; background: var(--check-tone); color: var(--gal-ui-surface);
+  font: 900 calc(var(--gal-ui-choice-size) * 1.6)/1.05 var(--gal-ui-title-font); letter-spacing: .06em; white-space: nowrap; }
+.fork-check.is-ledger[data-tone="great"] .fork-check-ledger-verdict { background: repeating-linear-gradient(-60deg, var(--check-tone) 0 18px, color-mix(in srgb, var(--check-tone) 80%, var(--gal-ui-ink)) 18px 20px);
+  box-shadow: inset 0 -6px 0 var(--gal-dice-gold); letter-spacing: .02em; }
+.fork-check-ledger-pending { position: absolute; right: 0; top: 0; padding: 1px 6px; background: var(--gal-dice-gold); color: var(--gal-ui-ink); font: 700 var(--gal-ui-meta-size)/1.3 var(--gal-ui-font); letter-spacing: 0; }
+.fork-check.is-awaiting .fork-check-ledger-verdict { padding-top: 18px !important; }
+/* The dice in the ledger: the top face only (no corner numbers, no band); counted faces filled, the rest outlined and small. */
+.fork-check.is-ledger :is(.fork-check-d4-band, .fork-check-d4-window, .fork-check-d4-corner) { display: none; }
+.fork-check.is-ledger .fork-check-d4-face { fill: var(--gal-ui-surface); stroke: var(--check-hair); stroke-width: 6; stroke-linejoin: round; }
+.fork-check.is-ledger .fork-check-d4 text { fill: color-mix(in srgb, var(--gal-ui-ink) 60%, var(--gal-ui-surface)); }
+.fork-check-ledger-miss :is(.fork-check-d4, .fork-check-d8) { width: 26px; height: 23px; }
+.fork-check-ledger-hit :is(.fork-check-d4, .fork-check-d8) { width: 36px; height: 32px; }
+.fork-check-ledger-hit .fork-check-d4.is-marked .fork-check-d4-face { fill: var(--fork-check-mark, var(--check-tone)); stroke: var(--fork-check-mark, var(--check-tone)); }
+.fork-check-ledger-hit .fork-check-d4.is-marked text { fill: var(--gal-ui-surface); }
+.fork-check.is-ledger .is-changed { outline: 1.5px dashed var(--gal-ui-ink-2); outline-offset: 1px; }
+.fork-check.is-ledger .fork-check-strike { stroke: var(--gal-ui-ink); stroke-width: 8; }
+.fork-check-ledger-none { width: 30px; height: 26px; overflow: visible; fill: none; stroke: var(--check-hair); stroke-width: 6; stroke-dasharray: 10 7; stroke-linejoin: round; }
+div.fork-check-ledger-head { cursor: default; }
+div.fork-check-ledger-head:hover { background: none; }
+/* A ruling without dice once settled (CheckNoteLedger): one cell per change, the amount large (a rise in the mark
+   colour) and what it is small; the cells wrap in ruled rows. */
+.fork-gal-stage .fork-gal-box > .fork-roll-list .fork-check.is-note { width: min(460px, 86vw); max-width: 100%; }
+.fork-check-ledger-changes { display: grid; grid-template-columns: repeat(auto-fill, minmax(9em, 1fr)); overflow: hidden; }
+.fork-check-ledger-change { display: flex; flex-direction: column; justify-content: center; gap: 2px; min-width: 0; padding: 6px 10px; box-shadow: 1px 0 0 var(--check-hair), 0 1px 0 var(--check-hair); }
+.fork-check-ledger-change > b { color: var(--gal-ui-ink); font: 900 calc(var(--gal-ui-choice-size) * 1.4)/1.05 var(--gal-ui-title-font); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.fork-check-ledger-change.is-up > b { color: var(--fork-check-mark, var(--gal-ui-accent)); }
+.fork-check-ledger-change > small { color: var(--gal-ui-ink-2); font: 600 var(--gal-ui-meta-size)/1.3 var(--gal-ui-font); overflow-wrap: anywhere; }
+/* A record without dice (a settlement): its report rows are the cells, value large and label small. */
+.fork-check-ledger-row.is-report > .fork-check-ledger-cell { flex: 1 1 0; flex-direction: column; align-items: flex-start; justify-content: center; gap: 2px; min-width: 0; padding: 6px 10px; }
+.fork-check-ledger-cell > b { color: var(--gal-ui-ink); font: 900 calc(var(--gal-ui-choice-size) * 1.4)/1.1 var(--gal-ui-title-font); overflow-wrap: anywhere; }
+.fork-check-ledger-cell.is-false > b { color: var(--check-hair); }
+.fork-check-ledger-cell > small { color: var(--gal-ui-ink-2); font: 600 var(--gal-ui-meta-size)/1.3 var(--gal-ui-font); }
+.fork-check-ledger-row.is-report > .fork-check-ledger-cell:last-child { border-right: 0; }
+.fork-check.is-ledger > :is(.fork-check-line, .fork-check-choices) { padding: 6px 10px 0; }
+.fork-check.is-ledger > :last-child:not(.fork-check-ledger-row, .fork-check-ledger-changes) { padding-bottom: 8px; }
+.fork-check.is-ledger > .fork-roll-details { padding: 6px 10px 8px; border-top: 1px solid var(--check-hair); }
+@media (max-width: 720px) {
+  .fork-gal-stage .fork-gal-box > .fork-roll-list .fork-check.is-ledger { width: 100%; }
+  .fork-gal-stage .fork-gal-box > .fork-roll-list .fork-check.is-note { width: calc(100vw - 2 * var(--box-pad, 16px) - 16px); }
+  .fork-check-ledger-miss :is(.fork-check-d4, .fork-check-d8) { width: 20px; height: 18px; }
+  .fork-check-ledger-hit :is(.fork-check-d4, .fork-check-d8) { width: 28px; height: 25px; }
+  .fork-check-ledger-verdict { min-width: 72px; font-size: calc(var(--gal-ui-choice-size) * 1.3); }
+  .fork-check-ledger-sum { min-width: 40px; }
+  .fork-check-ledger-sum > b { font-size: calc(var(--gal-ui-choice-size) * 1.7); }
+}
+/* The ledger's decisions (CheckButtons with ledger, on the result page and on the card): each choice a ruled block under
+   a short heading - options as tiles (what a value changes in small type, the outcome it leads to as a tone bar on the
+   left), an int as a stepper, a pick as tiles that count - and one confirm bar that says what it does. */
+.fork-check-page-ledger { flex: none; border: var(--check-rule); border-radius: 0; background: var(--gal-ui-surface); }
+.fork-check-choices.is-ledger { --check-rule: 2px solid var(--gal-ui-ink); --check-hair: color-mix(in srgb, var(--gal-ui-ink) 35%, var(--gal-ui-surface)); display: flex; flex-direction: column; gap: 10px; }
+.fork-check-choices.is-ledger .fork-check-choice-label { display: block; margin-bottom: 4px; padding-left: 6px; border-left: 4px solid var(--gal-ui-ink); color: var(--gal-ui-ink); font: 700 var(--gal-ui-meta-size)/1.3 var(--gal-ui-font); }
+.fork-check-choices.is-ledger :is(.fork-check-fold, .fork-check-unfold) { border: var(--check-rule); border-radius: 0; background: var(--gal-ui-surface); color: var(--gal-ui-ink); font: 700 var(--gal-ui-meta-size)/1.3 var(--gal-ui-font); }
+.fork-check-choices.is-ledger :is(.fork-check-fold, .fork-check-unfold):hover { background: var(--gal-ui-hover); }
+.fork-check-choices.is-ledger > .fork-check-fold { align-self: flex-end; margin: 0 0 -6px; }
+.fork-check-choices.is-ledger.is-folded { align-items: flex-start; padding-bottom: 8px; }
+.fork-check-choices.is-ledger .fork-check-common { margin: 0 0 4px; color: var(--gal-ui-ink-2); font: 600 var(--gal-ui-meta-size)/1.4 var(--gal-ui-font); }
+.fork-check-choices.is-ledger .fork-check-buttons { display: grid; grid-template-columns: repeat(auto-fit, minmax(8.5em, 1fr)); gap: 0; margin: 0; border: var(--check-rule); background: var(--check-hair); }
+.fork-check-choices.is-ledger .fork-check-buttons > * { margin: 0 1px 1px 0; }
+.fork-check-choices.is-ledger .fork-check-button { display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 2px; width: 100%; min-height: 48px; padding: 8px 10px; border: 0; border-radius: 0;
+  background: var(--gal-ui-surface); color: var(--gal-ui-ink); font: 700 var(--gal-ui-choice-size)/1.25 var(--gal-ui-font); }
+.fork-check-choices.is-ledger .fork-check-button > small { color: var(--gal-ui-ink-2); font: 500 var(--gal-ui-meta-size)/1.3 var(--gal-ui-font); }
+.fork-check-choices.is-ledger .fork-check-button[data-tone] { box-shadow: inset 4px 0 0 var(--check-tone); }
+.fork-check-choices.is-ledger .fork-check-button[data-tone]::before { content: none; }
+.fork-check-choices.is-ledger .fork-check-button:hover:not(:disabled):not(.is-on) { background: var(--gal-ui-hover); }
+.fork-check-choices.is-ledger .fork-check-button.is-on { background: var(--gal-ui-ink); color: var(--gal-ui-surface); }
+.fork-check-choices.is-ledger .fork-check-button.is-on > small { color: inherit; }
+.fork-check-choices.is-ledger .fork-check-button:focus-visible { outline: var(--gal-ui-focus); outline-offset: -3px; }
+.fork-check-page > :is(.fork-check-page-ledger, .fork-check-choices.is-ledger) { align-self: center; width: min(720px, 100%); }
+.fork-check-choices.is-ledger .fork-check-pick { display: flex; }
+.fork-check-choices.is-ledger .fork-check-pick > .fork-check-button { flex: 1 1 auto; flex-direction: row; align-items: center; justify-content: space-between; min-width: 0; white-space: nowrap; }
+.fork-check-choices.is-ledger .fork-check-pick-count { color: inherit; font: 900 var(--gal-ui-choice-size)/1 var(--gal-ui-title-font); }
+.fork-check-choices.is-ledger .fork-check-pick-less { flex: none; min-width: 36px; border: 0; border-left: 1px solid var(--check-hair); border-radius: 0; background: var(--gal-ui-surface); color: var(--gal-ui-ink); font: 900 var(--gal-ui-choice-size)/1 var(--gal-ui-title-font); }
+.fork-check-stepper { display: inline-flex; align-items: stretch; border: var(--check-rule); background: var(--gal-ui-surface); }
+.fork-check-stepper > button { min-width: 44px; min-height: 44px; margin: 0; padding: 0; border: 0; border-radius: 0; background: none; color: var(--gal-ui-ink); font: 900 calc(var(--gal-ui-choice-size) * 1.3)/1 var(--gal-ui-title-font); cursor: pointer; }
+.fork-check-stepper > button:hover:not(:disabled) { background: var(--gal-ui-hover); }
+.fork-check-stepper > button:disabled { color: var(--check-hair); cursor: default; }
+.fork-check-stepper > button:focus-visible { outline: var(--gal-ui-focus); outline-offset: -3px; }
+.fork-check-step-value { display: flex; flex-direction: column; align-items: center; justify-content: center; min-width: 72px; padding: 4px 12px; border-inline: 1px solid var(--check-hair);
+  color: var(--gal-ui-ink); font: 900 calc(var(--gal-ui-choice-size) * 1.6)/1 var(--gal-ui-title-font); font-variant-numeric: tabular-nums; }
+.fork-check-step-value > small { margin-top: 2px; color: var(--gal-ui-ink-2); font: 600 var(--gal-ui-meta-size)/1.3 var(--gal-ui-font); white-space: nowrap; }
+.fork-check-choices.is-ledger .fork-check-confirm { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 44px; padding: 8px 14px; border: 0; border-radius: 0;
+  background: var(--gal-ui-accent); color: var(--gal-ui-accent-ink); font: 700 var(--gal-ui-choice-size)/1.25 var(--gal-ui-font); }
+.fork-check-choices.is-ledger .fork-check-confirm > b { flex: none; white-space: nowrap; font: 900 calc(var(--gal-ui-choice-size) * 1.1)/1 var(--gal-ui-title-font); letter-spacing: .12em; }
+.fork-check-confirm-effect { margin-left: auto; font: 600 var(--gal-ui-meta-size)/1.3 var(--gal-ui-font); text-align: right; }
+.fork-check-choices.is-ledger .fork-check-confirm:hover:not(:disabled) { background: color-mix(in srgb, var(--gal-ui-accent) 85%, var(--gal-ui-ink)); }
+.fork-check-choices.is-ledger .fork-check-confirm:disabled { background: var(--check-hair); color: var(--gal-ui-surface); }
+@media (max-width: 720px) {
+  .fork-check-choices.is-ledger .fork-check-buttons { grid-template-columns: repeat(auto-fit, minmax(7em, 1fr)); }
+}
 /* ==== end round dice rolls ==== */
 
 

@@ -4,7 +4,6 @@ import { mkdir, readdir, rm, stat } from 'node:fs/promises'
 import path from 'node:path'
 import { pipeline } from 'node:stream/promises'
 import { Transform } from 'node:stream'
-import { PACK_BUDGET } from '../../packages/dsh-asset-library/lib/pack-v2/budget.js'
 
 // Large files sent to Tavern as a raw request body (DSH cards / asset packs up to several GB), kept on disk
 // until the call that uses them; never read into memory or encoded as base64.
@@ -13,7 +12,9 @@ const ID = /^[0-9a-f-]{36}$/
 const CARD_ARCHIVE_ID = /^card-archive-[0-9a-f-]{36}$/
 const CARD_ARCHIVE_CHUNK_BYTES = 16 * 1024 ** 2
 const UPLOAD_MAX_AGE_MS = 24 * 60 * 60 * 1000
-export const MAX_CARD_UPLOAD_BYTES = PACK_BUDGET.spoolBytes
+// The disk space pending card archives may hold. Its own figure: the asset library's spoolBytes bounds what a pack
+// import holds in memory, which says nothing about how large a card archive on disk may be.
+export const MAX_CARD_UPLOAD_BYTES = 8 * 1024 ** 3
 export const isCardArchiveUpload = id => CARD_ARCHIVE_ID.test(String(id))
 
 export function createUploads({ root, maxBytes = 1024 ** 3, maxAgeMs = UPLOAD_MAX_AGE_MS }) {

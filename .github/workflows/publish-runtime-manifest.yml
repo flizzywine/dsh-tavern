@@ -5,6 +5,7 @@ on:
     branches: [main, stable]
     paths-ignore:
       - dsh-tavern-runtime.json
+      - android/native/latest.json
       - 'website/**'
       - 'docs/**'
       - 'tests/**'

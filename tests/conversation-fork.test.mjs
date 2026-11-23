@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { assertConversationForkable } from '../tavern-plugin/lib/domain/conversation-fork.js'
+import { assertConversationExportable, assertConversationForkable } from '../tavern-plugin/lib/domain/conversation-fork.js'
 
 function sourceChat() {
   return {
@@ -37,4 +37,13 @@ test('分叉只接受没有前台或后台未完成工作的游玩对话', () =>
   const dangling = sourceChat()
   dangling.messages.push({ role: 'user', text: '未完成' })
   assert.throws(() => assertConversationForkable(dangling), /尚未产生正文/)
+})
+
+test('导出检查真实结算任务和时间线，允许遗留的结算标记', () => {
+  const chat = { ...sourceChat(), settleStatus: 'pending' }
+  assert.doesNotThrow(() => assertConversationExportable(chat))
+  assert.throws(() => assertConversationForkable(chat), /尚未完成状态结算/)
+  assert.throws(() => assertConversationExportable(chat, { settlementRunning: true }), /尚未完成状态结算/)
+  chat.timeline.operations.completed.background = { phase: 'pending' }
+  assert.throws(() => assertConversationExportable(chat), /尚未完成生成或状态结算/)
 })
