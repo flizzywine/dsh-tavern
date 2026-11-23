@@ -472,6 +472,13 @@ body:not(.dsh-fork-debug) [data-dsh-fork-session="play"] .dsh-tavern-question-fr
   border-radius: 7px; background: var(--fork-accent-fill); color: var(--fork-on-accent); font: 600 10px/14px var(--fork-font-ui); text-align: center;
 }
 
+/* Use the active skin for the native composer's primary action. */
+body.dsh-tavern-shell-active [data-composer-card] button[class*="_primary"] {
+  --dsw-alias-button-info-fill: var(--fork-accent-fill, var(--dsh-tavern-accent));
+  --dsw-alias-button-info-hover: var(--fk-s-base-accentHover, var(--dsw-alias-button-info-fill));
+  color: var(--fork-on-accent, #fff);
+}
+
 /* Keep the host's thinking shimmer, but tint only this status with the active skin. */
 body.dsh-tavern-shell-active [role="status"][class*="_turnStatus"] {
   --dsw-static-deepseek-500: var(--dsw-alias-brand-primary);

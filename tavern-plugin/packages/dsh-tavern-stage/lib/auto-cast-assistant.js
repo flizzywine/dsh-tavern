@@ -42,7 +42,7 @@ const TOOLS = [
   {name:'search_lore', description:'按名字、别名或关键词搜本卡的原文、世界书和人物档案，返回命中的原文片段。', parameters:{type:'object', properties:{query:{type:'string', description:'一个名字或关键词'}}, required:['query']}},
   {name:'search_library', description:'在整个素材库里按名字、别名、人物介绍或声音的使用场景搜人物和声音。', parameters:{type:'object', properties:{query:{type:'string', description:'一个名字或关键词，如「雪乃」「毒舌」「中年男性」'}}, required:['query']}},
   {name:'same_as', description:'新人物其实是本卡已有的某个人物换了个叫法（两个名字有包含关系，如「晓美焰」和「晓美焰·麻花辫」）：不新建、不画。', parameters:{type:'object', properties:{figure:figureArg, existing:{type:'string', description:'本卡已有人物的名字'}}, required:['figure', 'existing']}},
-  {name:'copy_figure', description:'把素材库里搜到的人物复制给新人物（立绘、表情、声音一起带，改成新人物的名字），不再画。', parameters:{type:'object', properties:{figure:figureArg,
+  {name:'copy_figure', description:'把素材库里搜到的人物复制给新人物，沿用立绘和表情。是否保留声音由自动配音设置决定。', parameters:{type:'object', properties:{figure:figureArg,
     packId:{type:'string', description:'search_library 结果里的 packId'}, figureId:{type:'string', description:'search_library 结果里的 figureId'}}, required:['figure', 'packId', 'figureId']}},
   {name:'write_appearance', description:'写新人物的人物介绍和外貌：介绍进素材包，外貌进配图人物库，之后按它画人设图、立绘和场景配图（人物档案里已写过的项不覆盖）。', parameters:{type:'object', properties:{figure:figureArg,
     about:{type:'string', description:'人物介绍：他在这个故事里是谁（身份、和主角的关系、性格），一两句'},
@@ -88,7 +88,7 @@ export async function runCastingAssistant({runAgent, selection, sessionId, turn,
       const found = await search(String(query || ''))
       for (const row of found.figures) seen.figures.set(row.packId + '/' + row.ref.figureId, row)
       return JSON.stringify({ok:true,
-        figures:found.figures.map(row => ({packId:row.packId, figureId:row.ref.figureId, name:row.name, aliases:row.aliases, pack:row.packName, ...(row.description ? {description:row.description} : {}), canCopy:row.copyable, voice:row.voice ? {name:row.voice.name, language:row.voice.language} : null})),
+        figures:found.figures.map(row => ({packId:row.packId, figureId:row.ref.figureId, name:row.name, aliases:row.aliases, pack:row.packName, ...(row.description ? {description:row.description} : {}), canCopy:row.copyable, ...(voices ? {voice:row.voice ? {name:row.voice.name, language:row.voice.language} : null} : {})})),
         ...(voices ? {voices:found.voices.map(voiceRow)} : {})})
     },
     same_as({figure, existing}) {

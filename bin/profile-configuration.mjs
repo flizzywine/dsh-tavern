@@ -42,7 +42,7 @@ function uniqueStrings(values) {
   return result
 }
 
-export function mergeProfileManifest({ source, current = {}, pluginPath, dataRoot, host, dshVersion, previousLaunchers = [] }) {
+export function mergeProfileManifest({ source, current = {}, pluginPath, dataRoot, host, dshVersion, previousLaunchers = [], mobileLayout = process.env.DSH_TAVERN_MOBILE_LAYOUT === '1' }) {
   const sourceDocument = object(source)
   const currentDocument = object(current)
   const sourceDsh = { ...object(sourceDocument.dsh) }
@@ -56,9 +56,10 @@ export function mergeProfileManifest({ source, current = {}, pluginPath, dataRoo
   delete currentTavern.cliPocketEnabled
   // Pocket and web-mobile each include mobile-nav, so they cannot load together.
   // Desktop and Android ship one of them and drop whatever collides with it;
-  // CLI ships none, so a layout the user installed there is left alone.
+  // CLI ships none, so a layout the user installed there is left alone — unless
+  // the CLI runs inside the self-contained Android APK (DSH_TAVERN_MOBILE_LAYOUT=1).
   const desktop = host === 'desktop' || host === 'next'
-  const selectedLayout = host === 'android' ? 'dsh-web-mobile' : desktop ? 'dsh-pocket' : null
+  const selectedLayout = host === 'android' || (host === 'cli' && mobileLayout) ? 'dsh-web-mobile' : desktop ? 'dsh-pocket' : null
   const excludedHostBundles = selectedLayout
     ? ['dsh-pocket', 'dsh-web-mobile', '@dsh-external/dsh-mobile-nav'].filter(name => name !== selectedLayout)
     : []

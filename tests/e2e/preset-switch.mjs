@@ -61,7 +61,7 @@ export async function presetSwitch({ page, step, savedChat, inspectRound, output
       const story = messages => messages.map(({ displayRuntime: _shown, ...message }) => message)
       assert.deepEqual(story(switched.messages), story(before.messages), '切换预设不能改动历史正文、变量或结算回执')
       assert.equal(switched.runtimePresetSnapshot?.presetPath || '', path)
-      const composer = page.getByRole('textbox', { name: /发消息|Message/ })
+      const composer = page.getByRole('textbox', { name: /下一步行动|Next action|发消息|Message/ })
       await composer.fill(`E2E 预设验收 ${gold}`)
       await composer.press('Enter')
       const body = `预设切换后继续游玩，金币 ${gold}。`

@@ -149,6 +149,25 @@ const chat = {id:'chat-1', sessionId:'s-1', timeline:{branchId:'b1', revision:3}
 const kinds = writes => writes.flatMap(w => w.changes.flatMap(c => [...(c.settei ? ['identity-settei'] : []), ...(c.sprites || []).map(() => 'sprite')])).sort()
 const body = lines => ({paragraphs:lines.map(([name, mood], i) => ({paragraphId:'p' + i, kind:'line', segment:{name, mood, text:'……'}}))})
 
+test('a cancelled reply does not write its unfinished cast and saves with the same turn count separately', async () => {
+  let finish, started
+  const inFlight = new Promise(resolve => { finish = resolve })
+  const waiting = new Promise(resolve => { started = resolve })
+  const h = harness({assistant:async () => { started(); await inFlight; return null }})
+  let current = true
+  const casting = h.cast.streamed('cards/c.json', body([['乙', '']]), chat, 2, () => current)
+  await waiting
+  current = false
+  finish()
+  await casting
+  assert.equal(h.writes.length, 0)
+  h.settings.level = 'saving'
+  await h.cast.round('cards/c.json', body([['甲', '喜悦']]), chat)
+  await h.cast.round('cards/c.json', body([['甲', '喜悦']]), {...chat, id:'chat-2'})
+  const record = [...h.files.values()].find(value => value?.rounds)
+  assert.equal(record.rounds[PACK + '/' + A.figureId], 2)
+})
+
 test('round requests resolve over the whole cast with the shared resolver; only automatic figures count', () => {
   const cast = {packId:PACK, rows:[{actorKey:'own', ref:{packId:OWN, figureId:'x'}, name:'主角', aliases:[], enabled:true}, {actorKey:'a', ref:A, name:'甲', aliases:['阿甲'], enabled:true}],
     figures:[{ref:A, name:'甲', emotions:[{id:'calm', label:'平和'}, {id:'joy', label:'喜悦'}], defaultEmotion:'calm'}]}

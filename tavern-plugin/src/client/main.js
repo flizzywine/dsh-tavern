@@ -1258,9 +1258,26 @@ function clipReplayCore() {
 
 		// @include tavern-presentation.js
 
+		function installTavernComposerPlaceholder(locale) {
+			const translate = locale.translate;
+			const label = { zh: "下一步行动", en: "Next action" };
+			// The native composer uses the same locale key for the hint and the textbox's accessible name.
+			function translateWithTavernPlaceholder(namespace, key, params) {
+				if (namespace === "conversation" && key === "placeholder.default") return locale.resolveText(label);
+				return translate.call(this, namespace, key, params);
+			}
+			locale.translate = translateWithTavernPlaceholder;
+			return function () {
+				if (locale.translate === translateWithTavernPlaceholder) locale.translate = translate;
+			};
+		}
+
 		function apply(ctx) {
 			// The Tavern profile switch page names itself by side from this flag.
 			window.__dshTavernLoaded = true;
+			ctx.inject(["locale"], child => {
+				child.effect(() => installTavernComposerPlaceholder(child.locale), "dsh-tavern: composer placeholder");
+			});
             installTavernPresentation(ctx);
             // Stage registration is deferred until its optional client plugin mounts.
             const stageRegistrations = [];
