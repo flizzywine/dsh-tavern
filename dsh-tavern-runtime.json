@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "5f51f0a8fcb0c2b1ef94ce6b13df2b0474d7e12a",
-  "releaseSequence": 1944,
+  "revision": "974aaf05718bd8445dd379f89fdb50eff01dfbb7",
+  "releaseSequence": 1947,
   "version": "3.4.0",
   "files": [
     {
@@ -1001,8 +1001,8 @@
     },
     {
       "path": "presets/tavern/skills/stage-setup/references/tasks.md",
-      "sha256": "9fdafd5974e43ae71b3ca65614feddae3b0d2a0e56a1e5e2ce464d156f37f9cc",
-      "size": 3574
+      "sha256": "b76a0949e6e498ac485e9f374e310eb81a3b00ab909a852c99bedd64607d72a0",
+      "size": 3679
     },
     {
       "path": "presets/tavern/skills/stage-setup/SKILL.md",
@@ -1106,8 +1106,8 @@
     },
     {
       "path": "tavern-plugin/lib/agent-compaction.js",
-      "sha256": "fc5c8414244adcffb2c82a88acf9457b2542a1bbd8d36d7881d7d15e6bc510d5",
-      "size": 1567
+      "sha256": "d18d0b10879c173ad06811bee60ae1ee4ec46e8daf10fdbaa559b296c1315e53",
+      "size": 2343
     },
     {
       "path": "tavern-plugin/lib/application-updater.js",
@@ -5926,8 +5926,8 @@
     },
     {
       "path": "tavern-plugin/mods/dice/README.md",
-      "sha256": "f01976ccd22c64e5eafaaf58b2755b993cc75165da4da5a01cd596002ac43886",
-      "size": 28760
+      "sha256": "4500d881b1f4522dd07d44752b89b4a52bc25354e6dfcc6a2dfe45d78aeff68e",
+      "size": 28908
     },
     {
       "path": "tavern-plugin/mods/dice/rules-engine.js",
@@ -8606,8 +8606,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/client.js",
-      "sha256": "267d4687396d510be4020d4be047485b7bee8de16ceb7eb6f3dea6ee71bc45b8",
-      "size": 3532111
+      "sha256": "05ce01b1aa35411f314dbdd5a41390027b0f4c22f09dac4b8b524774c36374b4",
+      "size": 3537560
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/client/director-source.cjs",
@@ -9521,8 +9521,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern/README.md",
-      "sha256": "3ae111d634041c30655b37a81403d3e6bb1124b43000a2faa03ce05396662012",
-      "size": 20907
+      "sha256": "f98338dd6309ee74b3385ccaa430277293cf7b084f95b6cae7fe9068324fd675",
+      "size": 23979
     },
     {
       "path": "tavern-plugin/pnpm-lock.yaml",
@@ -9911,9 +9911,9 @@
     }
   ],
   "archive": {
-    "commit": "ddb567014559d35ea52dc397a298da5936d5943d",
+    "commit": "945ec101f25a1a309bec52d37d09633fb8dba669",
     "path": "runtime.zip",
-    "sha256": "104675170b4d17e33bb0bb28a9b6cfc52aa8fd7b5a01f268ea129bca73d4c9d8",
-    "size": 17365320
+    "sha256": "d2c05224ec5c19ee2a8f198984c1a37369ac701620dd37734092381a0afc5255",
+    "size": 17368905
   }
 }
