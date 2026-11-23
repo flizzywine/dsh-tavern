@@ -564,6 +564,7 @@
 					const render = input.render, title = input.title.trim();
 					const sidebar = input.stageOnly !== true;
 					const stageSize = input.stageSize ?? "window";
+					const stageMethods = new Set(Array.isArray(input.stageMethods) ? input.stageMethods.filter(name=>typeof name==="string" && /^[a-z][a-z0-9-]{0,31}$/.test(name)) : []);
 					return owned(this, function () {
 						if (panels.has(tabId)) throw new Error("面板 " + input.id + " 已注册");
 						if (sidebar && typeof host?.betterSidebar?.registerTab !== "function") throw new Error("当前界面没有侧栏，无法注册插件面板");
@@ -577,7 +578,7 @@
 								return React.createElement(tavernPluginBoundary(), { owner: owner, fallback: React.createElement("p", { className: "dsh-tavern-plugin-panel-error" }, "插件 " + owner + " 的面板出错了") },
 									gameId ? React.createElement(render, { gameId: gameId, visible: props.visible !== false }) : React.createElement("p", { className: "dsh-tavern-plugin-panel-empty" }, "请先打开一局游戏。"));
 							} }) : null;
-						panels.set(tabId, { id: input.id, owner, title, render, stage, stageSize, stageDialogue: input.stageDialogue });
+						panels.set(tabId, { id: input.id, owner, title, render, stage, stageSize, stageMethods, stageDialogue: input.stageDialogue });
 						changed();
 						return function () { if (typeof dispose === "function") dispose(); panels.delete(tabId); changed(); };
 					}, "tavernUi.registerPanel()");
@@ -1207,6 +1208,12 @@
 			await tavernCardPluginScopes.load();
 			const panel = tavernUiExtensions.stagePanel(sessionId, plugin, id);
 			return panel ? {title: panel.title, size: panel.stageSize} : null;
+		}
+		async function callTavernStagePlugin(sessionId, plugin, id, method, params) {
+			await tavernCardPluginScopes.load();
+			const panel = tavernUiExtensions.stagePanel(sessionId,plugin,id);
+			if (!panel?.stageMethods.has(method)) throw new Error("这个操作未开放给卡片页面");
+			return (await rpc("callCardPanelMethod",{plugin,method,params},sessionId))?.result;
 		}
 		async function findTavernStageDialogueCue(sessionId, lines) {
 			await tavernCardPluginScopes.load();

@@ -90,6 +90,8 @@ tavern_update_card({ rawOperations: [
 | `open(id)` | 关闭本页，打开另一页。 |
 | `openSettings()` | 在本页上面打开舞台 CONFIG，本页保持打开。 |
 | `openPluginPanel({plugin, panelId})` | 打开本卡已启用插件通过 `registerPanel({stage: true, …})` 开放的面板。`plugin` 为插件浏览器端的 `name`，`panelId` 为注册的 ID。宿主将本页 ID 作为 `stagePageId` 传给插件面板。成功返回 `{opened: true}`。插件或面板不可用、参数无效、页面已有覆盖窗口时会拒绝。手机上面板铺满，关闭后返回本页并保留页面状态。旧宿主可先检查方法是否存在。 |
+| `applyTravelScene({background, music?, actors?})` | 在当前卡页应用本卡绑定的背景与音乐素材 ID，以及最多四个同行角色名。返回 `{applied: boolean}`。页面可以等待换景请求接受后关闭。 |
+| `callPlugin({plugin, panelId, method, params?})` | 页面显示后调用本卡启用插件允许的操作。面板须用 `stageMethods` 声明该方法，插件宿主侧用 `tavern.handle(plugin + "/" + method, handler)` 注册处理函数。宿主为处理函数附上当前游戏 ID。 |
 | `fillInput(text)` | 把文字填进舞台「自由输入」：关闭本页、跳到最新一轮末尾并显示草稿，不发送。 |
 | `asset(ref)` | 本卡绑定素材包里的媒体，返回 `Promise<blob: URL>`。`ref` 是 `{kind, id, variant?, file?, size?}`：图片按 `variant`（默认该条目的默认差分），视频包按 `file`（默认入口文件，`'poster'` 是封面）；`size` 取缩略图。不在本卡绑定包里时 Promise 拒绝，报「本卡的素材包里没有」。 |
 | `assets(kind)` | 本卡绑定包里某类已启用条目的列表，返回 `Promise<[{id, name, description?, variants?, files?}]>`，同一 id 以绑定顺序靠前的包为准。`assets('figures')` 的 `variants` 是可用服装的键。 |

@@ -38610,6 +38610,7 @@ function tavernFloorHeightRecall(key, width) {
 					const render = input.render, title = input.title.trim();
 					const sidebar = input.stageOnly !== true;
 					const stageSize = input.stageSize ?? "window";
+					const stageMethods = new Set(Array.isArray(input.stageMethods) ? input.stageMethods.filter(name=>typeof name==="string" && /^[a-z][a-z0-9-]{0,31}$/.test(name)) : []);
 					return owned(this, function () {
 						if (panels.has(tabId)) throw new Error("面板 " + input.id + " 已注册");
 						if (sidebar && typeof host?.betterSidebar?.registerTab !== "function") throw new Error("当前界面没有侧栏，无法注册插件面板");
@@ -38623,7 +38624,7 @@ function tavernFloorHeightRecall(key, width) {
 								return React.createElement(tavernPluginBoundary(), { owner: owner, fallback: React.createElement("p", { className: "dsh-tavern-plugin-panel-error" }, "插件 " + owner + " 的面板出错了") },
 									gameId ? React.createElement(render, { gameId: gameId, visible: props.visible !== false }) : React.createElement("p", { className: "dsh-tavern-plugin-panel-empty" }, "请先打开一局游戏。"));
 							} }) : null;
-						panels.set(tabId, { id: input.id, owner, title, render, stage, stageSize, stageDialogue: input.stageDialogue });
+						panels.set(tabId, { id: input.id, owner, title, render, stage, stageSize, stageMethods, stageDialogue: input.stageDialogue });
 						changed();
 						return function () { if (typeof dispose === "function") dispose(); panels.delete(tabId); changed(); };
 					}, "tavernUi.registerPanel()");
@@ -39253,6 +39254,12 @@ function tavernFloorHeightRecall(key, width) {
 			await tavernCardPluginScopes.load();
 			const panel = tavernUiExtensions.stagePanel(sessionId, plugin, id);
 			return panel ? {title: panel.title, size: panel.stageSize} : null;
+		}
+		async function callTavernStagePlugin(sessionId, plugin, id, method, params) {
+			await tavernCardPluginScopes.load();
+			const panel = tavernUiExtensions.stagePanel(sessionId,plugin,id);
+			if (!panel?.stageMethods.has(method)) throw new Error("这个操作未开放给卡片页面");
+			return (await rpc("callCardPanelMethod",{plugin,method,params},sessionId))?.result;
 		}
 		async function findTavernStageDialogueCue(sessionId, lines) {
 			await tavernCardPluginScopes.load();
@@ -60252,6 +60259,7 @@ const {GAL_LOOK_ID, GAL_LOOK_MS, GAL_LEAK_FROM, GAL_MOTE_KINDS, GAL_LUMA, galLoo
 		            startOpening:(sessionId,choice)=>new Promise((resolve,reject)=>{const detail={sessionId,choice,respond:resolve,fail:reject};window.dispatchEvent(new CustomEvent('dsh-tavern-stage-opening',{detail}));if(!detail.handled)reject(new Error('开始游戏不可用'));}),
 		            useLiveView:useLiveTavernView, packService:()=>packTransport?.service,
 		            findPluginPanel:findTavernStagePluginPanel, findStageCue:findTavernStageDialogueCue, PluginPanel:TavernStagePluginPanel,
+		            callPlugin:callTavernStagePlugin,
 		            async applyCardScene(sessionId,background,music) {
 		                const key = bgKey(background);
 		                if (bgManual.get().sessionId !== sessionId) return {applied:false};

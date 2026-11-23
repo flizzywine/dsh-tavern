@@ -7,7 +7,7 @@ const settle = async () => { for (let i = 0; i < 8; i++) await new Promise(resol
 const HTML = '<div id="hp">体力</div><script>DshCardPage.onData(d=>document.getElementById("hp").textContent=d.ledger.hp)</script>'
 const PAGE = {id: 'status', label: '辉夜的状态', size: 'window', html: HTML, figures: [{name: '辉夜', emotion: '开心'}], card: {name: '辉夜大小姐'}, preload: [], data: {ledger: {hp: 3}}}
 
-function harness({page = PAGE, pages = {pages: [], fresh: false}, failRead = false, options = {}} = {}) {
+function harness({page = PAGE, pages = {pages: [], fresh: false}, failRead = false, locate = () => null, options = {}} = {}) {
   const calls = [], frames = [], lifecycles = [], fills = []
   const messageListeners = new Set()
   let notify = null
@@ -28,7 +28,7 @@ function harness({page = PAGE, pages = {pages: [], fresh: false}, failRead = fal
     calls.push({method, args, sessionId})
     if (method === 'readCardPage') return failRead ? Promise.reject(new Error('坏了')) : Promise.resolve({ok: true, page: page && (args.withHtml ? page : {...page, html: undefined, data: {ledger: {hp: 2}}})})
     if (method === 'readCardPages') return Promise.resolve({ok: true, ...pages})
-    if (method === 'locateCardPageAsset') return Promise.resolve({ok: true, place: null})
+    if (method === 'locateCardPageAsset') return Promise.resolve({ok: true, place: locate(args.ref)})
     return Promise.reject(new Error('unexpected ' + method))
   }
   const createCardFrame = props => {
@@ -51,6 +51,22 @@ function harness({page = PAGE, pages = {pages: [], fresh: false}, failRead = fal
 }
 const openPage = (h, extra = {}) => h.panels.open({sessionId: 's1', page: 'status', trustedCardMode: true, host: () => h.host, onClose() {}, onState() {}, onAction() {}, ...extra})
 const responses = frame => frame.contentWindow.posted.filter(message => message.type === 'dsh-card-page-response')
+
+test('a shown map page applies its own background and music to the current game', async () => {
+  const scenes = [], actions = []
+  const h = harness({locate:ref=>({packId:ref.kind==='music'?'music-pack':'map-pack'}),
+    options:{applyCardScene:async (...args)=>{scenes.push(args);return {applied:true}}}})
+  const page = openPage(h,{onAction:(...args)=>actions.push(args)})
+  await settle()
+  const frame = h.frames[0]
+  frame.listeners.load()
+  h.send(frame.contentWindow,'applyTravelScene',{sessionId:'another-game',background:'forest',music:'evening',actors:['旅伴']})
+  await settle()
+  assert.deepEqual(responses(frame).at(-1).result,{applied:true},JSON.stringify(responses(frame).at(-1)))
+  assert.deepEqual(scenes,[['s1',{packId:'map-pack',assetId:'forest'},{packId:'music-pack',assetId:'evening'}]])
+  assert.deepEqual(actions,[['travelCast',['旅伴']]])
+  page.dispose()
+})
 
 test('a shown card page opens its available plugin panel in the current game', async () => {
   const requests = [], selections = []

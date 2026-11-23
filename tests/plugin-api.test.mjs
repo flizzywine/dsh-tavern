@@ -583,6 +583,21 @@ test('tavern 服务：handle 注册的处理函数供浏览器侧 callHost 调�
   await assert.rejects(h.api.callHandler('drawer/draw', {}), { code: 'TAVERN_PLUGIN_NOT_FOUND' })
 })
 
+test('舞台卡页的插件请求使用宿主选定的游戏，且只能调用本卡插件', {skip:!cordis}, async t=>{
+  const h = await harness(t,{
+    cardScope:async()=>new Map([['travel',{cards:['/cards/journey.json']}]]),
+    cardPathOf:async id=>id==='game-1'?'/cards/journey.json':'/cards/other.json',
+    resolveGame:async sessionId=>({sessionId,chatId:sessionId})
+  })
+  await h.root.plugin({name:'travel',inject:['tavern'],apply(ctx) {
+    ctx.tavern.handle('travel/arrive',({gameId,place})=>({gameId,place}))
+  }})
+  await tick()
+  assert.deepEqual(await h.api.callCardPanelMethod('game-1','travel','arrive',{gameId:'game-2',place:'forest'}),
+    {gameId:'game-1',place:'forest'})
+  await assert.rejects(h.api.callCardPanelMethod('game-2','travel','arrive',{}),/不属于当前人物卡/)
+})
+
 test('tavern 服务：修改玩家称呼校验输入、隔离默认与本局，拒绝忙碌及越界写入', { skip: !cordis }, async t => {
   let defaultName = '默认', playerName = '本局', activity = {}
   const writes = []
