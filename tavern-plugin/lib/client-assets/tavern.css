@@ -2527,7 +2527,7 @@ html.dsh-tavern-hide-process [data-dsh-fork-session="play"] [data-chat-flow-kind
 
 /* One card style for every block. */
 .dsh-tavern-global-settings :is(.dsh-tavern-gs-card, .dsh-local-section, .dsh-tavern-settings-group) {
-  display: flex; flex-direction: column; gap: 0; margin: 0; padding: 4px 18px; overflow: visible;
+  display: flex; flex-direction: column; gap: 0; min-width: 0; margin: 0; padding: 4px 18px; overflow: visible;
   border: 1px solid var(--dsw-alias-border-l2); border-radius: 12px; background: var(--dsw-specific-input-major);
 }
 .dsh-tavern-gs-group > :is(.dsh-tavern-settings-group, .dsh-local-section) + :is(.dsh-tavern-settings-group, .dsh-local-section) { margin-top: 0; }
@@ -3971,20 +3971,27 @@ html[data-dsh-tavern-prose-indent] .dsh-tavern-assistant :is(.dsh-tavern-colored
    一起藏掉，只剩右侧一片空白；窄屏也不该再按 156px 预算，因为动作组仍然占位。
    子智能体触发器改由可收缩规则处理（见上面的 headerActions 规则）。 */
 /* 设置 → DSH Tavern → 插件。外层卡片规则把间距清零，这里按插件区自己的节奏排。 */
-.dsh-tavern-global-settings .dsh-tavern-user-plugins { display: grid; gap: 14px; padding: 0; }
+.dsh-tavern-global-settings .dsh-tavern-user-plugins { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; min-width: 0; padding: 0 0 10px; }
+.dsh-tavern-user-plugins > * { min-width: 0; }
 .dsh-tavern-user-plugins > p { margin: 0; }
-.dsh-tavern-user-plugins .dsh-tavern-settings-desc { margin: -4px 0 0; color: var(--dsw-alias-label-tertiary); font-size: 12px; line-height: 1.6; }
-.dsh-tavern-user-plugins-install { display: flex; gap: 8px; align-items: center; }
-.dsh-tavern-user-plugins-install input { flex: 1; min-width: 0; max-width: none; height: 36px; box-sizing: border-box; }
+.dsh-tavern-user-plugins > .dsh-tavern-settings-desc { margin: -4px 0 0; color: var(--dsw-alias-label-tertiary); font-size: 12px; line-height: 1.6; }
+.dsh-tavern-user-plugins-install { display: flex; gap: 8px; align-items: center; min-width: 0; }
+/* InlineField 默认靠 ::after 镜像文案撑宽，长占位符或粘贴的 GitHub 地址会把整张网格卡撑出屏外；这里输入框随行伸缩即可。 */
+.dsh-tavern-user-plugins-install > .fork-inline-field { flex: 1 1 0; min-width: 0; min-height: 0; }
+.dsh-tavern-user-plugins-install > .fork-inline-field > .fork-inline-value { flex-wrap: nowrap; width: 100%; min-width: 0; }
+.dsh-tavern-user-plugins-install .fork-inline-edit { display: block; width: 100%; min-width: 0; }
+.dsh-tavern-user-plugins-install .fork-inline-edit::after { display: none; }
+.dsh-tavern-user-plugins-install .fork-inline-field input.fork-inline-input:not([data-fi-a]):not([data-fi-b]):not([data-fi-c]):not([data-fi-d]) { height: 36px; padding: 0 24px 0 10px; }
+.dsh-tavern-user-plugins-install > input { flex: 1; min-width: 0; max-width: none; height: 36px; box-sizing: border-box; }
 .dsh-tavern-user-plugins-install .dsh-tavern-btn { flex: none; height: 36px; padding: 0 16px; }
-.dsh-tavern-user-plugins-notice { padding: 8px 12px; border-radius: 8px; background: color-mix(in srgb, #2f8a4c 9%, transparent); color: color-mix(in srgb, #2f7a44 42%, var(--dsw-alias-label-primary, CanvasText)); font-size: 12px; }
-.dsh-tavern-user-plugins-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.dsh-tavern-user-plugins-notice { padding: 8px 12px; border-radius: 8px; background: color-mix(in srgb, #2f8a4c 9%, transparent); color: color-mix(in srgb, #2f7a44 42%, var(--dsw-alias-label-primary, CanvasText)); font-size: 12px; overflow-wrap: anywhere; }
+.dsh-tavern-user-plugins-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; min-width: 0; }
 .dsh-tavern-user-plugins-head-title { color: var(--dsw-alias-label-secondary); font-size: 12px; font-weight: 600; }
 .dsh-tavern-user-plugins-head .dsh-tavern-btn { flex: none; height: 30px; padding: 0 12px; }
-.dsh-tavern-user-plugins-list { display: grid; margin: 0; padding: 0; list-style: none; }
-.dsh-tavern-user-plugin { display: flex; gap: 14px; align-items: center; padding: 12px 0; border-top: 1px solid var(--dsw-alias-border-l2); }
-.dsh-tavern-user-plugin-copy { display: grid; flex: 1; min-width: 0; gap: 4px; font-size: 12px; line-height: 1.5; color: var(--dsw-alias-label-secondary); }
-.dsh-tavern-user-plugin-copy strong { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; color: var(--dsw-alias-label-primary); font-size: 14px; font-weight: 600; }
+.dsh-tavern-user-plugins-list { display: grid; grid-template-columns: minmax(0, 1fr); margin: 0; padding: 0; list-style: none; min-width: 0; }
+.dsh-tavern-user-plugin { display: flex; gap: 14px; align-items: center; min-width: 0; padding: 12px 0; border-top: 1px solid var(--dsw-alias-border-l2); }
+.dsh-tavern-user-plugin-copy { display: grid; grid-template-columns: minmax(0, 1fr); flex: 1; min-width: 0; gap: 4px; font-size: 12px; line-height: 1.5; color: var(--dsw-alias-label-secondary); overflow-wrap: anywhere; }
+.dsh-tavern-user-plugin-copy strong { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; color: var(--dsw-alias-label-primary); font-size: 14px; font-weight: 600; }
 .dsh-tavern-user-plugin-copy small { color: var(--dsw-alias-label-tertiary); font-size: 12px; font-weight: 400; }
 .dsh-tavern-user-plugin-state { padding: 1px 8px; border-radius: 999px; background: var(--dsw-alias-bg-layer-1, rgba(127, 127, 127, .1)); color: var(--dsw-alias-label-secondary); font-size: 11px; font-weight: 500; }
 .dsh-tavern-user-plugin.is-loaded .dsh-tavern-user-plugin-state { background: color-mix(in srgb, #2f8a4c 12%, transparent); color: color-mix(in srgb, #2f7a44 42%, var(--dsw-alias-label-primary, CanvasText)); }
@@ -3997,18 +4004,34 @@ html[data-dsh-tavern-prose-indent] .dsh-tavern-assistant :is(.dsh-tavern-colored
 .dsh-tavern-user-plugin-actions .dsh-tavern-btn { height: 30px; padding: 0 12px; }
 .dsh-tavern-user-plugin-update { padding: 1px 8px; border-radius: 999px; background: var(--dsw-alias-bg-layer-1, rgba(127, 127, 127, .1)); color: var(--dsw-alias-label-secondary); font-size: 11px; font-weight: 500; white-space: nowrap; }
 .dsh-tavern-user-plugin-update.is-checking { color: var(--dsw-alias-label-tertiary); }
-.dsh-tavern-user-plugins-folder { display: flex; gap: 12px; align-items: center; justify-content: space-between; padding-top: 14px; border-top: 1px solid var(--dsw-alias-border-l2); }
-.dsh-tavern-user-plugins-folder span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--dsw-alias-label-tertiary); font-size: 12px; }
+.dsh-tavern-user-plugins-folder { display: flex; gap: 12px; align-items: center; justify-content: space-between; min-width: 0; padding-top: 14px; border-top: 1px solid var(--dsw-alias-border-l2); }
+.dsh-tavern-user-plugins .dsh-tavern-user-plugins-folder span { flex: 1 1 0; min-width: 0; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--dsw-alias-label-tertiary); font-size: 12px; }
 .dsh-tavern-user-plugins-folder .dsh-tavern-btn { flex: none; height: 30px; padding: 0 12px; }
 /* 手机上卡片内宽只剩两百多像素，而「启用 / 更新 / 删除」三个按钮自己就要一百五十多像素：
    .dsh-tavern-user-plugin-copy 的 flex-basis 是 0，被按钮压成几十像素的文字列，插件名和说明
    逐字换行成竖条，卡片被撑到几百像素高。正文和动作各占一行，正文先占满整宽。 */
-@media (max-width: 640px) {
-  .dsh-tavern-user-plugins-install, .dsh-tavern-user-plugin { flex-wrap: wrap; }
-  .dsh-tavern-user-plugins-install input { flex-basis: 100%; }
+@container (max-width: 520px) {
+  .dsh-tavern-user-plugins-install, .dsh-tavern-user-plugin, .dsh-tavern-user-plugins-folder { flex-wrap: wrap; }
+  .dsh-tavern-user-plugins-install > .fork-inline-field,
+  .dsh-tavern-user-plugins-install > input { flex: 1 1 100%; }
   .dsh-tavern-user-plugin { gap: 10px; align-items: flex-start; }
   .dsh-tavern-user-plugin-copy { flex: 1 1 100%; }
   .dsh-tavern-user-plugin-actions { flex: 1 1 100%; justify-content: flex-end; flex-wrap: wrap; }
+  .dsh-tavern-user-plugins .dsh-tavern-user-plugins-folder span { flex: 1 1 100%; white-space: normal; overflow-wrap: anywhere; }
+  .dsh-tavern-user-plugins-folder .dsh-tavern-btn { margin-left: auto; }
+}
+@media (max-width: 1023px), (pointer: coarse) {
+  .dsh-tavern-user-plugins-install .fork-inline-field input.fork-inline-input:not([data-fi-a]):not([data-fi-b]):not([data-fi-c]):not([data-fi-d]) { min-height: 40px; }
+}
+@media (max-width: 640px) {
+  .dsh-tavern-user-plugins-install, .dsh-tavern-user-plugin, .dsh-tavern-user-plugins-folder { flex-wrap: wrap; }
+  .dsh-tavern-user-plugins-install > .fork-inline-field,
+  .dsh-tavern-user-plugins-install > input { flex: 1 1 100%; }
+  .dsh-tavern-user-plugin { gap: 10px; align-items: flex-start; }
+  .dsh-tavern-user-plugin-copy { flex: 1 1 100%; }
+  .dsh-tavern-user-plugin-actions { flex: 1 1 100%; justify-content: flex-end; flex-wrap: wrap; }
+  .dsh-tavern-user-plugins .dsh-tavern-user-plugins-folder span { flex: 1 1 100%; white-space: normal; overflow-wrap: anywhere; }
+  .dsh-tavern-user-plugins-folder .dsh-tavern-btn { margin-left: auto; }
 }
 
 /* Card workbench guides: a plugin's folded question, and its block above the input box. */
