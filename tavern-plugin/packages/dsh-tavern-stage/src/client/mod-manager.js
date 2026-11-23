@@ -110,6 +110,11 @@ function ModConfirmation({ confirmation: c, nameOf, onAnswer }) {
 // 本卡开启 / 本卡关闭. No segmented control (owner: the scope is rarely changed). `disabled`: greyed while an upstream switch is
 // off (舞台设置 › 基础设置 uses the same tag, asset-pack-card-ui.js StageSwitchTag); the stored choice stays shown.
 const MOD_SWITCH_CHOICES = [['全局开启', 'global', true], ['全局关闭', 'global', false], ['本卡开启', 'card', 'on'], ['本卡关闭', 'card', 'off']];
+// A mod with activation 'card' (检定、数据删除、文字演出、计时器) is an engine interface the card or its skin declares
+// (extensions.dsh_tavern.modSystem.mods / the skin's mods): it has no switch for the player. A card lists it only while it
+// declares it, with the words of who declares, and its row still opens the mod's settings.
+const modDeclared = row => row?.activation === 'card';
+const modDeclaredOn = row => modDeclared(row) && row.switches?.effective === true;
 function ModSwitchTag({ name, switches, cardScoped, busy, disabled, onChange }) {
   const { global, card } = switches || {}, word = modSwitchWord(global, cardScoped ? card : undefined);
   const item = ([label, scope, value]) => { const checked = label === word; return h('button', { key: label, type: 'button', role: 'menuitemradio', 'aria-checked': checked, className: 'ap-state-opt fork-mod-switch-opt', 'data-sw': modSwitchTone(label), onClick: () => { closeMenu.current?.(); if (!checked) onChange(scope, value); } },
@@ -120,6 +125,15 @@ function ModSwitchTag({ name, switches, cardScoped, busy, disabled, onChange }) 
         'aria-label': name + '：' + word + '，更改', disabled: busy || disabled || undefined, onClick: toggle },
       busy ? h(Spinner, { key: 'busy' }) : null, h('span', null, word), h(Glyph, { name: 'chevDown' })),
     content: close => { closeMenu.current = close; return h('div', { role: 'group', 'aria-label': name + ' 开关', className: 'fork-mod-switch-group' }, (cardScoped ? MOD_SWITCH_CHOICES : MOD_SWITCH_CHOICES.slice(0, 2)).map(item)); } });
+}
+// The right end of a row: a switched mod's tag, or a declared mod's words (本卡自带 / 皮肤自带 on a card, 由卡声明 off one)
+// in the tag's place and type: the same box and colour key (本卡自带 is this card's, green like 本卡开启), no ⌄ (nothing to
+// change here); the tooltip names who declares it.
+function ModRowSwitch({ row, cardScoped, cardName, busy, change }) {
+  if (!modDeclared(row)) return h(ModSwitchTag, { name: row.name, switches: row.switches, cardScoped, busy, onChange: (scope, value) => change(row, scope, value) });
+  const byCard = cardScoped && row.switches?.card === 'on', words = !cardScoped ? '由卡声明' : byCard ? '本卡自带' : '皮肤自带';
+  const who = !cardScoped ? '用到它的卡自己声明' : byCard ? (cardName ? modQuote(cardName) + '自带' : '这张卡自带') : (row.skinName ? '舞台皮肤' + modQuote(row.skinName) + '自带' : '舞台皮肤自带');
+  return h('span', { className: 'fork-mod-declared', 'data-sw': byCard ? 'card' : 'off', title: who, 'aria-label': row.name + '：' + words + '（' + who + '）' }, words);
 }
 // A switch change as host plans (managedModSwitchPlan). On a card a 全局 choice is two stored writes: clear this card's key
 // (when set), then the global switch (when it differs) — each its own plan, the second on the revision after the first.
@@ -155,7 +169,7 @@ const modShownNotices = row => (row?.notices || []).filter(notice => notice.poli
 
 // The 舞台设置 › 模组 rows: icon · name · › · ⚠ (a dependency notice or a version conflict) · the switch tag. The whole row
 // but the tag opens the mod's page.
-function ManagedModRow({ row, cardId, busy, byId, change, onOpen, onVersion, takeFocus }) {
+function ManagedModRow({ row, cardId, cardName, busy, byId, change, onOpen, onVersion, takeFocus }) {
   const open = () => onOpen(row.id), jump = React.useRef(null), notice = modShownNotices(row)[0];
   React.useEffect(() => { if (takeFocus?.(row.id)) jump.current?.focus?.(); }, []);
   const warn = row.status === 'incompatible' && cardId ? h(HintLine, { compact: true, text: modQuote(row.name) + '版本不符', action: '处理', onAction: () => onVersion(row) })
@@ -164,28 +178,32 @@ function ManagedModRow({ row, cardId, busy, byId, change, onOpen, onVersion, tak
   return h('div', { className: 'ap-switch-row is-openable fork-mod-row', onClick: switchRowClick(open) },
     h('div', { className: 'ap-switch-main' },
       h('span', { className: 'ap-switch-name' }, h(Glyph, { name: MOD_GLYPHS[row.id] || 'widgets' }), h('span', null, row.name)), warn,
-      h(ModSwitchTag, { name: row.name, switches: row.switches, cardScoped: !!cardId, busy, onChange: (scope, value) => change(row, scope, value) }),
+      h(ModRowSwitch, { row, cardScoped: !!cardId, cardName, busy, change }),
       h('button', { type: 'button', ref: jump, className: 'ap-kind-jump', 'aria-label': row.name + ' 设置', title: row.name, onClick: open }, h(Glyph, { name: 'chevRight' }))));
 }
 // 舞台设置 › 模组: every installed mod with this card's switches. A version conflict of this card's lock is asked by planning
 // the card's current choice again (the host answers with upgrade / keep-missing).
-function ManagedModSection({ rpc, cardId, onOpen, takeFocus }) {
+// Order: the mods the player switches first, then the ones this card or its skin declares (a mod it does not declare is not
+// listed: nothing to do with it here); each group in the host's order.
+function ManagedModSection({ rpc, cardId, cardName, onOpen, takeFocus }) {
   const mods = useManagedMods(rpc, cardId), plans = useModPlans(rpc, mods), change = useModSwitchChange(rpc, mods, plans, cardId);
-  const rows = mods.data?.mods.filter(row => row.installed && !row.internal) || [], byId = id => mods.data?.mods.find(row => row.id === id);
+  const installed = mods.data?.mods.filter(row => row.installed && !row.internal) || [], byId = id => mods.data?.mods.find(row => row.id === id);
+  const switched = installed.filter(row => !modDeclared(row)), declared = installed.filter(modDeclaredOn);
+  const item = row => h(ManagedModRow, { key: row.id, row, cardId, cardName, busy: mods.busy, byId, change, onOpen, takeFocus, onVersion: next => change(next, 'card', 'on') });
+  const notice = plans.notice ? h('p', { className: 'ap-notice', role: 'status' }, h(Glyph, { name: 'check' }), h('span', null, plans.notice)) : null;
+  const rows = [...switched, ...declared];
   return h(StageSection, { title: '模组', meta: mods.data ? rows.length : undefined, className: 'ap-widget-section fork-mod-section',
-      help: '全局开启 / 关闭对所有卡生效，并清除这张卡的设置；本卡开启 / 关闭只在这张卡生效。安装与卸载在侧栏首页的 舞台装置 › 舞台配置 › 舞台模组。' },
-    h(ErrorBox, { error: mods.error, reload: mods.data ? null : mods.reload }),
-    plans.notice ? h('p', { className: 'ap-notice', role: 'status' }, h(Glyph, { name: 'check' }), h('span', null, plans.notice)) : null,
-    !mods.data ? !mods.error && h(Loading) : rows.length ? rows.map(row => h(ManagedModRow, { key: row.id, row, cardId, busy: mods.busy, byId, change, onOpen, takeFocus,
-      onVersion: item => change(item, 'card', 'on') })) : h(EmptyState, { text: '没有安装模组' }),
+      help: '全局开启 / 关闭对所有卡生效，并清除这张卡的设置；本卡开启 / 关闭只在这张卡生效。检定、数据删除、文字演出、计时器由卡或舞台皮肤自带，没有开关，只在自带它们的卡上列出。安装与卸载在侧栏首页的 舞台装置 › 舞台配置 › 舞台模组。' },
+    h(ErrorBox, { error: mods.error, reload: mods.data ? null : mods.reload }), notice,
+    !mods.data ? !mods.error && h(Loading) : rows.length ? rows.map(item) : h(EmptyState, { text: '没有安装模组' }),
     plans.dialog);
 }
 // A mod page's head switch and its dependency notices (舞台设置 › 模组 › <mod>): the notices name what this mod runs without
 // on this card; one the card disables offers 开启 (planned like any card 开启).
-function useManagedModControls({ rpc, cardId, modId, name }) {
+function useManagedModControls({ rpc, cardId, cardName, modId, name }) {
   const mods = useManagedMods(rpc, cardId), plans = useModPlans(rpc, mods), change = useModSwitchChange(rpc, mods, plans, cardId);
   const row = mods.data?.mods.find(item => item.id === modId), byId = id => mods.data?.mods.find(item => item.id === id);
-  const toggle = row ? h(ModSwitchTag, { name, switches: row.switches, cardScoped: !!cardId, busy: mods.busy, onChange: (scope, value) => change(row, scope, value) }) : null;
+  const toggle = row ? h(ModRowSwitch, { row: { ...row, name }, cardScoped: !!cardId, cardName, busy: mods.busy, change }) : null;
   const shown = modShownNotices(row);
   const notices = shown.length || mods.error || plans.notice ? h('div', { className: 'fork-mod-notices' },
     h(ErrorBox, { error: mods.error }),
@@ -232,7 +250,7 @@ function ModManager({ rpc, onClose }) {
       : h(React.Fragment, null,
         h('header', { className: 'ap-subhead fork-mod-manager-head' },
           h('h2', { className: 'ap-subhead-title' }, h('span', { className: 'ap-subhead-text' }, '模组管理'),
-            h(Help, { label: '模组管理 说明', text: '模组是引擎的能力，安装后默认全局关闭。每个模组只运行一个版本；本卡开启与关闭在 舞台设置 › 模组。' })),
+            h(Help, { label: '模组管理 说明', text: '模组是引擎的能力，安装后默认全局关闭。每个模组只运行一个版本；本卡开启与关闭在 舞台设置 › 模组；检定、数据删除、文字演出、计时器没有开关，由用到它们的卡自己声明。' })),
           h('span', { className: 'ap-subhead-tools' },
             h(Button, { disabled: mods.busy, onClick: () => importInput.current?.click() }, '导入模组…'),
             h('input', { ref: importInput, type: 'file', hidden: true, tabIndex: -1, onChange: event => { const file = event.target.files?.[0]; event.target.value = ''; if (file) importFile(file); } }),
@@ -254,7 +272,7 @@ function ModManagerRow({ row, busy, change, onOpen, focus }) {
       h('span', { className: 'fork-mod-list-version' }, row.version || row.versions?.[0]?.version || ''),
       row.experimental ? h('span', { className: 'fork-mod-list-version' }, '实验性') : null),
     problem || notice ? h(HintLine, { compact: true, text: problem || MOD_DEP_REASONS[notice.reason] || notice.message }) : null,
-    row.installed ? h(ModSwitchTag, { name: row.name, switches: row.switches, busy, onChange: (scope, value) => change(row, scope, value) }) : h('span', { className: 'fork-mod-list-value' }, '未安装'),
+    row.installed ? h(ModRowSwitch, { row, cardScoped: false, busy, change }) : h('span', { className: 'fork-mod-list-value' }, '未安装'),
     h('span', { className: 'fork-mod-list-chevron', 'aria-hidden': true }, h(Glyph, { name: 'chevRight' })));
 }
 // A labelled row of the mod page: name (+ meta, 「?」) left, the value right (iOS: grouped rows with values).
@@ -289,7 +307,7 @@ function ModManagerDetail({ rpc, mods, plans, change, row, notice, onBack }) {
   const conflicts = detail?.conflicts || [], assets = detail?.assetKinds, dependents = (detail?.dependents || []).map(item => modQuote(byId(item.consumerId)?.name || item.consumerId));
   return h('article', { className: 'fork-mod-manager-page', onKeyDown: subpageKeys(onBack) },
     h(SubpageHead, { parent: '模组管理', title: row.name, onBack, help: row.summary ? h(Help, { label: row.name + ' 说明', text: row.summary }) : null,
-      tools: row.installed ? h(ModSwitchTag, { name: row.name, switches: row.switches, busy: mods.busy, onChange: (scope, value) => change(row, scope, value) }) : null }),
+      tools: row.installed ? h(ModRowSwitch, { row, cardScoped: false, busy: mods.busy, change }) : null }),
     h(ErrorBox, { error: mods.error }), notice,
     h(StageSection, { title: '版本', foldKey: 'mod-manager/version' },
       h(ModInfoRow, { label: '模组 ID' }, h('span', { className: 'fork-mod-info-meta' }, row.id)),
