@@ -563,7 +563,7 @@ function StageVoicePage({ctx,onBack}) {
     h(SubpageHead,{parent:'舞台设置',title:'配音',help:h(Help,{text:VOICE_HELP.page,label:'配音 说明'}),onBack}),
     h(StageVoiceProblems,{ctx}),
     // 通用声音 · 旁白声音 · 角色声音: three sections side by side, each row a figure and its voice. A voice is edited where it is
-    // used (its row ›, the figure's 声音 page) and deleted from its row's ⋯; there is no separate 声音库.
+    // used (its row ›, the figure's 声音 page) and deleted from its row's ⋯; there is no separate 声音库 (主人 11-22).
     h(StageSection,{title:'通用声音',foldKey:'voice/general',help:VOICE_HELP.general,action:stageVoiceBackendLink(ctx)},
       h(StagePointedVoice,{ctx,row:pointed.rows?.[0],onChanged:pointed.reload})),
     // 旁白's four-state switch sits in its section head; its figure under it while it speaks.
