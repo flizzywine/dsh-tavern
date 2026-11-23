@@ -1,7 +1,7 @@
 // Pages are read live from the library card, not the game's frozen snapshot.
 import { rawData } from '../../../../lib/domain/card-preparation.js'
 import { readLedger } from '../../../../lib/domain/story-ledger.js'
-import { locateCardPageAsset, listCardPageAssets } from './card-page-assets.js'
+import { locateCardPageAsset, listCardPageAssets, CARD_PAGE_THUMB_SIZES } from './card-page-assets.js'
 
 const LEDGER_BUDGET = 12288
 const USER = '{{user}}'
@@ -67,6 +67,14 @@ export function createCardPagesService({ readWorkspace, chatForSession, index, p
     async locate({ sessionId, page, ref } = {}) {
       const value = await context(sessionId)
       return value?.pages.some(item => item.id === page) ? locateCardPageAsset(packSnapshot, value.packs, ref) : null
+    },
+    // A chat card frame's media (DshCardAssets.asset, the core's message frames): the same lookup over the same card's packs,
+    // without a page; an image always as the thumbnail at least px device pixels wide (the largest when none is).
+    async locateForFrame({ sessionId, ref, px } = {}) {
+      const value = await context(sessionId)
+      if (!value) return null
+      const size = CARD_PAGE_THUMB_SIZES.find(item => item >= px) || CARD_PAGE_THUMB_SIZES.at(-1)
+      return locateCardPageAsset(packSnapshot, value.packs, { ...ref, size })
     },
     async assets({ sessionId, page, kind } = {}) {
       const value = await context(sessionId)
