@@ -70,29 +70,9 @@ function GalBacklog(props) {
             if (kind && modRows[i]) all = part.value.entries(all, modRows[i], turn => props.textIndex?.get(turn)?.nativeTurn,
                 (value, turn) => { const row = stageViews.backlogRows.backlogPerformanceEntry(kind, value, {turn, id:{call:value.callId}}); return row && {...row, line:part.value.line}; });
         });
-        if (props.offerHistory?.length) {
-            const byTurn=new Map();
-            for (const row of props.offerHistory) {
-                const group=byTurn.get(row.turn) || [];
-                group.push({type:'page',key:'offer:'+row.id,kind:row.speaker?'line':'narration',
-                    name:row.speaker,mood:row.emotion,text:row.text,offer:row,turn:row.turn,
-                    descriptor:row.speaker ? {name:row.speaker,text:row.text,mood:row.emotion,paragraphId:'card-offer:'+row.id} : null});
-                byTurn.set(row.turn,group);
-            }
-            const joined=[];
-            for (let i=0;i<all.length;i++) {
-                const row=all[i];
-                joined.push(row);
-                if (all[i+1]?.turn!==row.turn && byTurn.has(row.turn)) {
-                    joined.push(...byTurn.get(row.turn));
-                    byTurn.delete(row.turn);
-                }
-            }
-            all=joined.concat(...byTurn.values());
-        }
         // A role the skin draws as none leaves no row (the overlay's round separators).
         return looks.roles.divider?.look === 'none' ? all.filter(entry => entry.type !== 'turn') : all;
-    }, [props.lease, props.textIndex, props.turn, props.pages, props.page, props.direction, props.offerHistory, inputs,modHistory,registry,lineKinds,markDirections,...modRows,looks]);
+    }, [props.lease, props.textIndex, props.turn, props.pages, props.page, props.direction, inputs,modHistory,registry,lineKinds,markDirections,...modRows,looks]);
     // the mods' text marks over the rows' words (features.cjs textMark, text-marks.cjs): a paragraph's marks are found in
     // its page rows joined, as the stage finds them. -> index -> {ranges, place}
     const textMarkRows = React.useMemo(() => {
@@ -101,7 +81,7 @@ function GalBacklog(props) {
         const directions = new Map(markDirections); directions.set(props.turn, props.direction);
         const groups = new Map(), out = new Map();
         entries.forEach((entry, index) => {
-            if (entry.type !== 'page' || entry.offer || typeof entry.text !== 'string') return;
+            if (entry.type !== 'page' || typeof entry.text !== 'string') return;
             const para = entry.para || entry.anchor?.para || entry.targetPara || entry.page + 1, key = entry.turn + ':' + para;
             if (!groups.has(key)) groups.set(key, {turn:entry.turn, para, rows:[]});
             groups.get(key).rows.push(index);
@@ -430,7 +410,7 @@ function GalBacklog(props) {
             : entry.voice?.narration ? entry.voice : stageViews.backlogVoice.narration((entry.descriptors || []).map(voiceOf).filter(Boolean));
         // A skin whose original log has no replay control (art.voice.backlog false, stageSkinBacklog) shows none; R still replays.
         const voice = looks.voice !== false ? stageViews.backlogVoice.voice(handle, player) : null;
-        const pos = entry.offer ? null : clip.posOf(entry), mark = band[index];
+        const pos = clip.posOf(entry), mark = band[index];
         // A mod-declared line kind's badge (「手机」), drawn as the skin's backlog.badge says (look, place, paint; stageSkinBacklog):
         // the kind's icon (its label the accessible name) or its label. It only marks where the line was read (
         // 「只是图标变为"手机"，点击以后效果仍然是播放，而不是跳转到手机」): the row reads and plays as any line.
@@ -443,7 +423,7 @@ function GalBacklog(props) {
                 ...(kind.icon || drawn ? { role: "img", "aria-label": kind.label, title: kind.label } : null) },
             drawn ? null : kind.icon ? h("svg", { viewBox: "0 0 24 24", "aria-hidden": true, focusable: "false" }, h("path", { d: kind.icon, fill: "currentColor", fillRule: "evenodd" })) : kind.label) : null;
         const classes = "fork-gal-backlog-row is-look-" + look + (line ? " is-line" : " is-narration") + (entry.thought ? " is-thought" : "") + (jump ? " is-jump" : " is-past") + (entry.here ? " is-here" : "") + bandClass(index) + (clip.on ? " is-picking" : "");
-        const go = event => { if (!pick(pos, event)) { if (entry.offer) props.onOfferReplay?.(entry.offer); else props.onJump(entry.page, entry.turn, entry.targetPara); } };
+        const go = event => { if (!pick(pos, event)) props.onJump(entry.page, entry.turn, entry.targetPara); };
         // The voice control follows the speaker's name in every look;
         // narration has no name: its narrator voice (旁白配音) stands alone in the name's place.
         const nameRow = !line ? (voice ? h("div", { className: "fork-gal-backlog-name is-narrator" }, h(VoiceButton, { voice, glyph: "speaker" })) : null) : h("div", { className: "fork-gal-backlog-name", style: { "--bl-name-em": nameEm(name) } }, looks.letter?.name ? h("b", { "data-text": name }, lettered(name, true)) : h("b", { "data-figure-ink": "4.5", "data-text": name },

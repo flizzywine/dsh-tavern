@@ -1,7 +1,7 @@
 import { createCardPlugins } from '../tavern-plugin/lib/domain/card-plugins.js'
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtemp, mkdir, readFile, writeFile, rm } from 'node:fs/promises'
+import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { castManifestPath } from '../tavern-plugin/lib/domain/cast-assets.js'
@@ -59,7 +59,6 @@ test('真实 Cordis 身份：启动纠正旧 patch，绑定切换重启前拒绝
   const loader = {
     locate:() => 'tavern',
     resolve:() => ({update:async patch => {
-      if (patch.disabled === true) assert.equal(patch.name, undefined, 'dispose with the old Loader source name')
       options = {...options, ...patch}
       if (patch.disabled === true) { await active.dispose(); active = null }
       else if (patch.disabled === null) await start()
@@ -85,22 +84,4 @@ test('真实 Cordis 身份：启动纠正旧 patch，绑定切换重启前拒绝
     assert.deepEqual(await caller.listCards(), [])
     await assert.rejects(caller.readCardRaw({card:cardPath}), {code:'TAVERN_PLUGIN_SCOPE'})
   }
-})
-
-test('只迁移旧入口，正常入口在插件尚未启动时也不重新登记', async t => {
-  const f = await fixture(t)
-  await f.bind('a')
-  await f.sync()
-  const loaded = await readPatchedUserPlugins(f)
-  const entry = [...loaded.values()][0]
-  const reloads = []
-  const reload = async (_id, next) => reloads.push(next)
-  await reconcileUserPluginsAtStartup({ result: await f.sync(), loaded, reload })
-  assert.deepEqual(reloads, [])
-
-  const current = await readFile(entry, 'utf8')
-  await writeFile(entry, 'export function apply() {}\n')
-  await reconcileUserPluginsAtStartup({ result: await f.sync(), loaded, reload })
-  assert.deepEqual(reloads, [path.join(path.dirname(entry), '.tavern-entry.identity.mjs')])
-  assert.equal(await readFile(entry, 'utf8'), current)
 })

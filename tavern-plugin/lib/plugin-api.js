@@ -1872,16 +1872,6 @@ export function createTavernPluginApi(deps) {
   }
   Object.defineProperty(service, TRACKER, { value: { associate: 'tavern', property: 'ctx' } })
 
-  async function callCardPanelMethod(gameId, plugin, method, params) {
-    if (typeof plugin !== 'string' || typeof method !== 'string' || !/^[a-z][a-z0-9-]{0,31}$/.test(method))
-      throw new Error('卡片页面插件操作无效')
-    const {game, own} = await choicesFor(gameId)
-    const name = plugin + '/' + method
-    if (!game || !own.has(plugin) || handlers.get(name)?.owner !== plugin)
-      throw new Error('这个插件操作不属于当前人物卡')
-    return callHandler(name,{...params,gameId:game.sessionId})
-  }
-
   /** A browser half calling a host handler; JSON in, JSON out. */
   async function callHandler(name, args) {
     const entry = handlers.get(String(name || ''))
@@ -2580,7 +2570,7 @@ export function createTavernPluginApi(deps) {
     return results.sort((a, b) => (order.get(a.versionId) ?? 0) - (order.get(b.versionId) ?? 0))
   }
 
-  return Object.freeze({ resolveReadCapability, hostBehavior, gameModes, bodyGenerators, taskCatalog, service, mvuProvider, mvuProviderActive, mvuProviderRegistered, capabilities, toolModesFor, toolSkillsFor, toolNetworkFor: name => toolNetworks.get(name)?.capability, callHandler, callCardPanelMethod, turnState, exportGame, importGame, turnSettled, castAnnotated, castAssetSources, gameRemoved, mediaRemoved, onPictureReady, imageGates, collectDamperQuestions,
+  return Object.freeze({ resolveReadCapability, hostBehavior, gameModes, bodyGenerators, taskCatalog, service, mvuProvider, mvuProviderActive, mvuProviderRegistered, capabilities, toolModesFor, toolSkillsFor, toolNetworkFor: name => toolNetworks.get(name)?.capability, callHandler, turnState, exportGame, importGame, turnSettled, castAnnotated, castAssetSources, gameRemoved, mediaRemoved, onPictureReady, imageGates, collectDamperQuestions,
     listGalleryProviderItems, readGalleryProviderImage, removeGalleryProviderItems,
     // The asset library's access to the 配图 人物库 records (registerImageLibrary schema 4); outside any card.
     imageCharacters: (op, input) => imageCatalog.record(op, {}, input),

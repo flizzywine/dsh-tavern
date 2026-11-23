@@ -297,7 +297,6 @@ export async function syncUserPlugins({ dataRoot, dshHome, logger = console, pen
     const guard = guardSource(plugin)
     let current = null
     try { current = await readFile(plugin.entry, 'utf8') } catch {}
-    if (current && !current.includes('import { registerRunningUserPlugin } from ')) plugin.legacyGuard = true
     if (current !== guard) await replaceFile(plugin.entry, guard)
   }
   const file = path.join(paths.profile, 'cordis.patch.yml')
@@ -329,9 +328,8 @@ export function loaderReload(loader, fiber) {
   const located = loader.locate(fiber) || '', prefix = located.slice(0, located.lastIndexOf(':') + 1)
   return async (id, entry) => {
     const row = loader.resolve(prefix + id)
-    // DSH's client module index uses the Loader name at disposal to drop the old source.
-    await row.update({ disabled: true })
-    await row.update({ name: pathToFileURL(entry).href, disabled: null })
+    await row.update({ name: pathToFileURL(entry).href, disabled: true })
+    await row.update({ disabled: null })
   }
 }
 
@@ -347,7 +345,7 @@ export async function reconcileUserPluginsAtStartup({ result, loaded, reload }) 
     if (!loaded.has(plugin.id)) continue
     let entry = plugin.entry
     if (loaded.get(plugin.id) === entry) {
-      if (!plugin.legacyGuard || runningUserPlugins.has(plugin.name)) continue
+      if (runningUserPlugins.has(plugin.name)) continue
       // The legacy guard may already be in Node's module cache. Import the
       // identity-aware guard from a fresh URL during startup only.
       entry = path.join(path.dirname(entry), '.tavern-entry.identity.mjs')

@@ -351,21 +351,13 @@ const overlay = ctx.tavernUi.openOverlay({
 - 按 Esc 关闭；`dismissible: false` 时 Esc 不关闭，只能调用 `close`。
 - 关闭时调用一次 `onClose`。插件卸载时界面自动关闭。界面出错时显示一行错误和关闭按钮。
 
-## `registerPanel({ id, title, render, stage?, stageOnly?, stageSize?, stageDialogue?, stageMethods? })`（第 2 版）
+## `registerPanel({ id, title, render, stage?, stageOnly?, stageSize? })`（第 2 版）
 
 随卡插件可以设置 `stage: true`，让本卡舞台页面调用 `await DshCardPage.openPluginPanel({ plugin: '插件名', panelId: 'memory' })`。其中 `plugin` 填插件浏览器端注册的 `name`。只接受当前游戏所属卡片中已启用且明确开放给舞台的面板。舞台内的 `render({ gameId, visible, stagePageId })` 收到当前游戏 ID、`visible: true` 和宿主确认的来源卡页 ID，可用同一个面板处理多个页面入口。侧栏与旧宿主中 `stagePageId` 为 `undefined`。关闭面板会回到原卡片页面。旧宿主中可检查 `typeof DshCardPage.openPluginPanel === 'function'` 后再显示入口。
 
 在右侧栏加一页插件自己的面板，比如记忆、锚点或状态一览。玩家从侧栏的「＋」里打开，面板显示在「插件」一组。
 
 设置 `stage: true` 时，可以用 `stageOnly: true` 只注册舞台入口，用 `stageSize: 'full'` 让面板铺满舞台。尺寸只接受 `'window'` 或 `'full'`，默认使用窗口尺寸并注册侧栏入口。传入这两个选项时必须设置 `stage: true`，参数无效会抛出 `TypeError`。
-
-舞台面板的 `render` 另收 `stage`。侧栏面板仍可通过 `stage === undefined` 判断当前入口。
-
-- `stage.offerChoices({ title, lines, options, onSelect, dismiss? })` 关闭面板，用舞台对白播放 `lines`。每项为 `{text, speaker?, emotion?}`，省略 `speaker` 时显示旁白。玩家点屏幕或按翻页键推进，最后一句读完后显示 `options` 中的 `{id, label}`。选中后调用 `onSelect(id)`。回调可返回新的演出对象或返回空值收起。对白使用该局的角色配音与差分设置。
-- `stage.applyTravelScene({background, music?, actors?})` 用本卡已绑定素材包的背景和音乐 ID 切换场景，可附最多四个角色名更新舞台立绘。返回 `Promise<{applied: boolean}>`。场景切换不修改聊天正文。
-- `stage.page` 是来源卡页 ID，`stage.section` 是面板入口附带的值。用 `stage.openPage(id)` 打开本卡页面，用 `stage.close()` 回到舞台，用 `stage.fillInput(text)` 填写舞台输入草稿。
-- 可选的同步函数 `stageDialogue(lines)` 只在舞台读完最新回复时执行，参数为最多六句已完成的 `{speaker, text}`。返回 `null` 或 `{page, label, panelId?, section?}`。`page` 必须属于本卡，`panelId` 必须是同一插件已注册的舞台面板，默认使用本面板。显示的是玩家可选择的邀请，点击后才打开面板。回调只做文本匹配，应避免 I/O 和写入存档。
-- `stageMethods` 列出允许本卡页面以 `DshCardPage.callPlugin` 调用的方法名。方法由同一插件在宿主端按 `插件名/方法名` 注册。参数与返回值使用 JSON，附带的游戏 ID 由宿主提供。
 
 全屏时，宿主的关闭按钮悬浮在右上角。面板应为它留出空间。点击关闭按钮或按 Esc 会返回来源卡页。尚未支持这两个选项的旧宿主会忽略它们，面板仍注册到侧栏，支持舞台入口的旧宿主会以窗口尺寸打开它。
 

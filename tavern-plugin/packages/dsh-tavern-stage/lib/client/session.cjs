@@ -318,16 +318,17 @@ function createStageSessionOwner(options) {
         const selected = options.selectedSessionId ? options.selectedSessionId() : snapshot.current;
         const ids = new Set(Object.keys(snapshot.byId || {}));
         if (selected) ids.add(selected);
+        for (const record of records.values()) if (!ids.has(record.id) || !options.sessions.binding(record.id)) release(record);
         // Native binding(id) can materialize a cold session. Only open the selected
         // session here; keep previously opened sessions resident until native removal.
-        for (const record of records.values()) {
-            const binding = ids.has(record.id) ? options.sessions.binding(record.id) : null;
-            if (binding) record.replaceBinding(binding);
-            else release(record);
-        }
-        if (selected && !records.has(selected)) {
-            const binding = options.sessions.binding(selected);
-            if (binding) create(selected).replaceBinding(binding);
+        const opened = new Set(records.keys());
+        if (selected) opened.add(selected);
+        for (const id of opened) {
+            const binding = options.sessions.binding(id);
+            if (!binding) continue;
+            const record = records.get(id) || create(id);
+            record.replaceBinding(binding);
+            record.reconcile();
         }
     }
     const owner = {

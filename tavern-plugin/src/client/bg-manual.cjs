@@ -139,7 +139,7 @@ function createBgManual({session, owner, read, storage, authority, now = Date.no
             if (id) void load(id); else void apply();
         },
         // Pack contents changed: refresh the list (a stale pick re-resolves from it).
-        invalidate() { return active ? load(active) : Promise.resolve(); },
+        invalidate() { if (active) void load(active); },
         pick(key) {
             const row = rows().find(item => item.key === key);
             if (row) set({follow:false, manual:{key:row.key, name:row.name}});

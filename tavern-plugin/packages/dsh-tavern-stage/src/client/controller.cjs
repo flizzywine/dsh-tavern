@@ -159,15 +159,14 @@ function GalBacklog(props) {
 // to the director, the persistent stage state or the Story Timeline.
 // story: {pages, page, setPage, markRead} - the story reading the lease stands in for while it is held.
 const STAGE_NO_LEASE = Object.freeze({subscribe:()=>()=>{},get:()=>null});
-const STAGE_OFFER_VIEW = Object.freeze({key:'card-offer',leasing:false});
 const STAGE_LEASE_NO_INPUTS = Object.freeze({}), STAGE_LEASE_NO_ROUNDS = new Map();
-function useStageLeaseAssets(sessionId, view, source, assetRevision, actorsOverride) {
+function useStageLeaseAssets(sessionId, view, source, assetRevision) {
     const line = view.leasing ? view.pages[view.page] : null;
-    const actors = actorsOverride || view.lease?.scene.actors || [];
+    const actors = view.lease?.scene.actors || [];
     // Reading an earlier line can bring its speaker back, including a deceased last-words speaker.
     const present = line?.name ? [{name:line.name, emotion:line.mood}, ...actors.filter(actor => actor.name !== line.name)].slice(0, 4) : actors;
     const request = {sessionId, actors:present, ...(view.lease?.scene.background === undefined ? {} : {scene:view.lease.scene.background})};
-    const key = (view.leasing || actorsOverride) && source ? JSON.stringify([view.key, source.authorityEpoch, assetRevision, request]) : '';
+    const key = view.leasing && source ? JSON.stringify([view.key, source.authorityEpoch, assetRevision, request]) : '';
     const [loaded, setLoaded] = React.useState(null);
     React.useEffect(() => {
         if (!key) return;
@@ -404,65 +403,10 @@ function GalStage(props) {
     const regenerateBlocked = Boolean(!latestTurn || running || streaming || regenerationBusy || ["running", "partial"].includes(receivedDirection?.status));
     const entryKey = sessionId + ':' + sceneVisit;
     const accepted = runtime.accepted;
-    const [stageOffer, setStageOffer] = React.useState(null);
-    const offered = !leasing && stageOffer?.sessionId === sessionId && stageOffer.turn === latestTurn ? stageOffer : null;
-    const [roundCue,setRoundCue]=React.useState(null);
-    const offerLine = offered?.lines[offered.index];
-    const backdropRef=offered?.replay ? offerLine?.backdrop : offered?.offer.backdrop;
-    const offerBackdrop=backdropRef?.kind==='backgrounds' && typeof backdropRef.assetId==='string' && typeof backdropRef.packId==='string'
-        ? {kind:'backgrounds',assetId:backdropRef.assetId,packId:backdropRef.packId} : null;
-    const historyKey = 'dsh-tavern:stage-offer-history:' + sessionId;
-    const offerHistory=React.useRef({key:'',rows:[]});
-    React.useEffect(()=>{
-        let rows=[];
-        try { rows=JSON.parse(localStorage.getItem(historyKey) || '[]'); } catch {}
-        offerHistory.current={key:historyKey,rows:Array.isArray(rows)?rows:[]};
-    },[historyKey]);
-    React.useEffect(()=>{
-        if (!offerLine || offered.replay || offerHistory.current.key!==historyKey) return;
-        const id=offered.id+':'+offered.index;
-        if (offerHistory.current.rows.some(row=>row.id===id)) return;
-        const row={...offerLine,id,offerId:offered.id,turn:offered.turn,title:offered.offer.title,backdrop:offerBackdrop};
-        offerHistory.current.rows=[...offerHistory.current.rows,row].slice(-100);
-        try { localStorage.setItem(historyKey,JSON.stringify(offerHistory.current.rows)); } catch {}
-    },[offered?.id,offered?.index,historyKey]);
-    function replayOffer(row) {
-        const lines=offerHistory.current.rows.filter(line=>line.offerId===row.offerId);
-        setStageOffer({sessionId,turn:latestTurn,id:row.offerId,offer:{title:row.title,options:[]},
-            lines,index:lines.indexOf(row),done:true,replay:true,returnTo:offered?.replay ? offered.returnTo : offered});
-        offerVoicePlayed.current=null;
-        closeBacklog();
-    }
-    const offerReady = !offerLine || (offered.done && offered.index === offered.lines.length - 1);
-    const offerCharacter = offerLine?.speaker && bubbleCharacter(config,offerLine.speaker);
-    const offerEmotion = offerCharacter?.emotions?.some(mood=>mood.id===offerLine?.emotion) ? offerLine.emotion : undefined;
-    function makeStageOffer(offer) {
-        if (!offer || typeof offer.onSelect !== 'function' || !Array.isArray(offer.options)) return null;
-        const lines = Array.isArray(offer.lines) ? offer.lines.slice(0,32).flatMap(row=>{
-            const text = typeof row?.text === 'string' ? row.text.trim().slice(0,4000) : '';
-            return text ? [{text,speaker:String(row.speaker || '').slice(0,80),emotion:String(row.emotion || '').slice(0,32)}] : [];
-        }) : [];
-        return {sessionId,turn:latestTurn,id:globalThis.crypto?.randomUUID?.() || Date.now()+':'+Math.random(),offer,lines,index:0,done:false};
-    }
     const interopNotice = useCapabilityNotice(sessionId, runtime.cursor.mode === 'live', accepted.scene?.interopNotices);
     // with 「导演布景」 off the scene shows the manual picture; director state is untouched.
-    const [travelCast,setTravelCast] = React.useState(null);
-    const travelActors = !leasing && runtime.cursor.mode !== 'history' && travelCast?.sessionId === sessionId && travelCast.turn === latestTurn ? travelCast.actors : null;
-    const borrowed = useStageLeaseAssets(sessionId, leaseView, runtime.source, runtime.director.assetRevision, travelActors);
-    const travelCastReady = Boolean(travelActors && borrowed);
-    const performed = useStageLeaseAssets(sessionId,STAGE_OFFER_VIEW,runtime.source,runtime.director.assetRevision,
-        offerLine?.speaker && offerEmotion ? [{name:offerLine.speaker,emotion:offerEmotion}] : null);
-    const sceneCast = leasing || travelCastReady ? borrowed?.characters || [] : accepted.figures || [];
-    const performer = performed?.characters?.[0];
-    const performerAt = performer ? sceneCast.findIndex(figure=>figure.ref?.figureId && figure.ref.figureId===performer.ref?.figureId ||
-        figure.name===offerLine.speaker) : -1;
-    const characters = performerAt < 0 ? sceneCast : sceneCast.map((figure,index)=>index===performerAt ? {...performer,alias:figure.alias} : figure);
-    // Project through the existing card-scoped asset reader so the backdrop renders behind standing figures.
-    const offerProjection=useStageLeaseAssets(sessionId,
-        {key:'offer-backdrop',lease:{scene:{background:offerBackdrop && {background:offerBackdrop,timeOfDay:null}}}},
-        runtime.source,runtime.director.assetRevision,offerBackdrop ? [] : null);
-    const projectedBackdrop=offerProjection?.scene?.backgroundUrl ? offerProjection.scene : null;
-    const pack = {state:accepted.layout?.state || accepted.scene?.state, scene:useBgManualScene(sessionId, projectedBackdrop || (leasing ? borrowed?.scene : accepted.scene)), characters,
+    const borrowed = useStageLeaseAssets(sessionId, leaseView, runtime.source, runtime.director.assetRevision);
+    const pack = {state:accepted.layout?.state || accepted.scene?.state, scene:useBgManualScene(sessionId, leasing ? borrowed?.scene : accepted.scene), characters:leasing ? borrowed?.characters || [] : accepted.figures || [],
         avatars:accepted.avatars || [], widgets:accepted.widgets || [],
         audio:{music:accepted.music,soundscape:accepted.ambience,sfx:[]}, core:leasing ? borrowed?.scene?.core || '' : accepted.layout?.core || accepted.scene?.core || ''};
     const rootRef = React.useRef(null);
@@ -583,7 +527,6 @@ function GalStage(props) {
     const pageList = cardPages ? cardPages.pages : [];
     // openPage: the open page's id (null: none). Every overlay condition below reads pageOpen.
     const [openPage, setOpenPage] = React.useState(null);
-    const [nativePanel,setNativePanel] = React.useState(null);
     const openDeclared = openPage === null ? null : pageList.find(declared => declared.id === openPage) || null;
     const pageOpen = openDeclared !== null;
     // entryCardPage: the page this visit's showOn entry opened, while it is the open one. It stands in front of a stage not
@@ -638,8 +581,8 @@ function GalStage(props) {
     // opened from the system menu's 回想 item (gal-menu.js), not from the control row.
     function openGallery() { setHidden(false); setGallery(true); }
     function closeGallery() { setGallery(false); backlogClosedAt.current = Date.now(); }
-    function openCardPage(id, native = null) { if (!pageList.some(declared => declared.id === id)) return; forkLipSync.wake(); forkUiSfx.play("open"); setHidden(false); setNativePanel(native); setOpenPage(id); }
-    function closeCardPage() { forkUiSfx.play("close"); backlogClosedAt.current = Date.now(); setNativePanel(null); setOpenPage(null); }
+    function openCardPage(id) { if (!pageList.some(declared => declared.id === id)) return; forkLipSync.wake(); forkUiSfx.play("open"); setHidden(false); setOpenPage(id); }
+    function closeCardPage() { forkUiSfx.play("close"); backlogClosedAt.current = Date.now(); setOpenPage(null); }
     // closing an entry page (×, Esc, the backdrop, close()) is not entering: 返回主页面, as the stage menu's row.
     function leaveEntryPage() { forkUiSfx.play("close"); props.onExit(); }
     // A page's DshCardPage actions (status-panel.cjs onAction): open(id) switches to another page; openSettings() opens the
@@ -649,27 +592,13 @@ function GalStage(props) {
     // stage is entered at that line); exit() (and newGame() into a 游戏准备) is 返回主页面; continueGame() (and newGame() on an unsaved chat with nothing to prepare) closes the page (an entry page
     // too: the stage is entered).
     function cardPageAction(kind, arg) {
-        if (kind === 'travelCast') {
-            setTravelCast({sessionId,turn:latestTurn,actors:arg.filter(name=>typeof name==='string' && name.trim()).slice(0,4).map(name=>({name:name.trim().slice(0,80)}))});
-            return;
-        }
-        if (kind === 'offerChoices') {
-            const next = makeStageOffer(arg);
-            if (!next || leasing) return;
-            setStageOffer(next);
-            setAuto(false);
-            voicePlayer.stopPlayback();
-            closeCardPage();
-            return;
-        }
-        if (kind === 'openPanelPage') { openCardPage(arg.id); return; }
         if (kind === 'continue') { closeCardPage(); return; }
         if (kind === 'settings') { openConfig(); return; }
         if (kind === 'gallery') { forkUiSfx.play("open"); openGallery(); return; }
         if (kind === 'backlog') { openBacklog(); return; }
         if (kind === 'exit') { props.onExit(); return; }
         // (a page an entry page opens stands in for the entry in its place)
-        if (kind === 'open') { if (arg !== openPage && pageList.some(declared => declared.id === arg)) { backlogClosedAt.current = Date.now(); setNativePanel(null); setOpenPage(arg); if (entryOpen) setEntryCardPage(arg); } return; }
+        if (kind === 'open') { if (arg !== openPage && pageList.some(declared => declared.id === arg)) { backlogClosedAt.current = Date.now(); setOpenPage(arg); if (entryOpen) setEntryCardPage(arg); } return; }
         if (kind !== 'fill') return;
         setOpenPage(null);
         backlogClosedAt.current = Date.now();
@@ -1016,13 +945,6 @@ function GalStage(props) {
     function input(delta) {
         if (hidden) { setHidden(false); return; }
         if (controlsInput.consumeInterrupted()) return;
-        if (offered) {
-            if (delta < 0) setStageOffer(offered.index > 0 ? {...offered,index:offered.index-1,done:true} : offered.returnTo ?? null);
-            else if (!offered.done && offerLine) setStageOffer({...offered,done:true});
-            else if (!offerReady) setStageOffer({...offered,index:offered.index+1,done:false});
-            else if (offered.replay) setStageOffer(offered.returnTo ?? null);
-            return;
-        }
         if (takeover.skip()) return; // input during a takeover (a 文字演出 card) ends it
         // while the line waits for this page's blocking performances, an input skips
         // them (a title ends, a combination's phase lands on its sustained state) and the line starts at once; it does not turn
@@ -1046,38 +968,15 @@ function GalStage(props) {
     // transcript's ▶ plays them at once (the session observation cancels whatever it no longer keeps).
     React.useEffect(() => () => voicePlayer.stopPlayback(),[sessionId]);
     // Warm a small spoken opening even when its first page is narration; keep the existing two workers.
-    const voiceWindow = offered || skipping || backlog || awaiting ? [] : leasing ? pages.slice(page, page + 2).map(row => row.voice).filter(Boolean)
+    const voiceWindow = skipping || backlog || awaiting ? [] : leasing ? pages.slice(page, page + 2).map(row => row.voice).filter(Boolean)
         : stageVoiceWindowFromIndex(sessionId,runtime.textIndex,turn,pages,page,config,entryGate.visible ? Infinity : 1);
     React.useEffect(() => {
         for (const handle of voiceWindow) void handle.prefetch?.();
-        if (!offered) voicePlayer.prioritize(voiceWindow);
+        voicePlayer.prioritize(voiceWindow);
     },[sessionId,JSON.stringify(voiceWindow.map(handle=>[handle.owner,handle.id]))]);
     // Cached playback starts before paint; the outgoing line has a short fading tail.
     // (a story page's beat hold and phone beat are the round's; a lease line is not held by them)
-    const nextOfferIndex=offered?.lines.findIndex((line,index)=>index>offered.index && line.speaker) ?? -1;
-    const voiceForOfferLine = (line,id) => line?.speaker && voiceAvailable ? stageVoiceHandle(sessionId,
-        {name:line.speaker,text:line.text,mood:line.emotion || offered?.offer.emotion},config,'card-offer:'+id,voiceAvailable) : null;
-    const offerVoice=React.useMemo(()=>voiceForOfferLine(offerLine,offered?.id+':'+offered?.index),
-        [sessionId,offered?.id,offered?.index,offerLine,config,voiceAvailable]);
-    const offerVoicePlayed=React.useRef(null);
-    React.useEffect(()=>{
-        const audible = !backlog && !skipping && !hidden ? offerVoice : null;
-        if (audible && offerVoicePlayed.current !== audible.id) {
-            offerVoicePlayed.current = audible.id;
-            forkLipSync.wake();
-            void audible.click({handoff:true,automatic:true}).catch(()=>{});
-        }
-        // A missing or failed voice must cancel a superseded line that is playing or still loading.
-        const active = voicePlayer.get();
-        if (active?.owner === sessionId+':stage' && String(active.id).startsWith('["card-offer:')
-            && active.id !== audible?.id) voicePlayer.stopPlayback();
-    },[sessionId,offerVoice?.id,offered?.replay,backlog,skipping,hidden]);
-    React.useEffect(()=>{
-        if (!offered || offered.replay || backlog || skipping || hidden || nextOfferIndex<0) return;
-        const next=voiceForOfferLine(offered.lines[nextOfferIndex],offered.id+':'+nextOfferIndex);
-        if (next) void next.prefetch?.();
-    },[offered?.id,nextOfferIndex,backlog,skipping,hidden,voiceAvailable]);
-    const voice = offerLine ? offerVoice : (leasing || !beatHeld && !cgHeld && !sourceWidget.phoneBeat) && current && current.voice;
+    const voice = (leasing || !beatHeld && !cgHeld && !sourceWidget.phoneBeat) && current && current.voice;
     const player = voicePlayer.get();
     const playingHere = Boolean(voice && player && player.owner === voice.owner && player.id === voice.id);
     function replay() {
@@ -1190,8 +1089,7 @@ function GalStage(props) {
     // Every dialogue consumer resolves the same current figure ref; off-stage speakers keep their card identity.
     const speakerRows = React.useMemo(() => stageViews.speaker.rows(pack.characters), [pack.characters]);
     const stageSpeaker = React.useCallback(row => stageViews.speaker.key(config,speakerRows,row), [config,speakerRows]);
-    const speaker = offerLine ? (offerLine.speaker && (stageSpeaker({kind:'line',name:offerLine.speaker}) ||
-        pack.characters.find(figure=>figure.name===offerLine.speaker)?.alias)) || '' : stageSpeaker(current);
+    const speaker = stageSpeaker(current);
     const skinSweep = useSkinSweep(activeSkin, { loading: entryGate.phase === "loading" || entryGate.phase === "slow", stage: revealed && !stageLeaving, menu: menuOpen, config: configOpen, backlog,
         // page: every page the reader turns to, a box card of a long page included (its text is replaced just as a page's);
         // the page's speaker lets transitions.page.enter.sameSpeaker keep a change of speaker quiet (§18 N14)
@@ -1223,11 +1121,11 @@ function GalStage(props) {
     const callVideo = phoneCall?.video ? phoneCall.video() : null;
     const callView = callVideo ? galCallView(callVideo, packFigureRenderInputs, {skipping, sessionId}) : null;
     const renderInputs = stageViews.speaker.voiceInputs(pack.characters, {audio,speaker,skipping,turn,page,sessionId,phoneVoice,callAudio,phoneCallKey});
-    const shotHere = !offerLine && !leasing && !awaiting && shot.key === (runtime.cursor.anchor ? JSON.stringify([runtime.cursor.visitId, runtime.cursor.anchor.paragraphId, runtime.cursor.anchor.offset]) : '');
+    const shotHere = !leasing && !awaiting && shot.key === (runtime.cursor.anchor ? JSON.stringify([runtime.cursor.visitId, runtime.cursor.anchor.paragraphId, runtime.cursor.anchor.offset]) : '');
     // reserve the full directed cast's slots while individual resources arrive.
     // A lease's actors stand through the same cast input, left to right (the card's order), each as the stage figure of its
     // card character (stageSpeaker); one with no figure loaded on this stage draws no sprite. focus / dim / emotion ride along.
-    const leaseActors = leasing || travelCastReady ? pack.characters.map(character => ({...leaseView.scene?.actors.find(actor => actor.alias === character.alias), id:character.alias})).filter(actor => !!renderInputs.get(actor.id)?.stage) : null;
+    const leaseActors = leasing ? pack.characters.map(character => ({...leaseView.scene.actors.find(actor => actor.alias === character.alias), id:character.alias})).filter(actor => !!renderInputs.get(actor.id)?.stage) : null;
     const members = leaseActors ? leaseActors.map((actor, index) => ({id:actor.id, x:(index + 1) / (leaseActors.length + 1), gaze:null, lease:actor}))
         : state ? stageViews.speaker.members(state).filter(member => !!renderInputs.get(member.id)?.stage) : [];
     const xs = Object.fromEntries(members.map(member => [member.id,member.x]));
@@ -1246,7 +1144,7 @@ function GalStage(props) {
     // the box is hidden (the click brings it back), a click just stopped SKIP, a text card plays, or a menu, the backlog,
     // CONFIG, the gallery or a widget reader is open. Read at click time (gal-scene.js onStageTap).
     const tapGateRef = React.useRef(() => false);
-    tapGateRef.current = () => !offered && !hidden && !controlsInput.wasInterrupted() && !takeover.up && !backlog && !configOpen && !galleryOpen && !pageOpen && !menuOpen && !sourceWidget.openKey;
+    tapGateRef.current = () => !hidden && !controlsInput.wasInterrupted() && !takeover.up && !backlog && !configOpen && !galleryOpen && !pageOpen && !menuOpen && !sourceWidget.openKey;
     const tapGate = React.useCallback(() => tapGateRef.current(), []);
     // A reaction still is acquired under this session's stage authority on the first tap only (gal-scene.js).
     const tapMedia = React.useCallback(descriptor => {
@@ -1322,16 +1220,16 @@ function GalStage(props) {
     // a phone line is read in the phone; the dialogue box stays up and keeps the last line read
     // outside the phone (no blank, no hide, no face handoff). The phone line still types through a hidden reader, which
     // drives the phone's reveal, AUTO and the next-page cue exactly as before.
-    const phoneLine = Boolean(!offerLine && !leasing && sourceWidget.phoneLine && current && !transitioning && !awaiting);
+    const phoneLine = Boolean(!leasing && sourceWidget.phoneLine && current && !transitioning && !awaiting);
     const heldBox = React.useRef(null);
     let boxIndex = page;
     if (phoneLine) { boxIndex = -1; for (let i = page - 1; i >= 0; i--) if (!phoneModBeat(receivedDirection, pages[i]?.para)) { boxIndex = i; break; } }
-    const boxLine = offerLine ? {kind:offerLine.speaker ? 'line' : 'narration',text:offerLine.text} : !phoneLine ? current : boxIndex >= 0 ? pages[boxIndex] : heldBox.current && heldBox.current.turn < turn ? heldBox.current.line : null;
+    const boxLine = !phoneLine ? current : boxIndex >= 0 ? pages[boxIndex] : heldBox.current && heldBox.current.turn < turn ? heldBox.current.line : null;
     if (!leasing && !phoneLine && current && !transitioning && !current.pending) heldBox.current = { turn, line: current };
-    const boxSpeaker = offerLine ? (offerLine.speaker ? speaker : '') : phoneLine ? (boxLine?.kind === 'line' ? bubbleCharacter(config,boxLine)?.alias || '' : '') : speaker;
+    const boxSpeaker = phoneLine ? (boxLine?.kind === 'line' ? bubbleCharacter(config,boxLine)?.alias || '' : '') : speaker;
     const boxMoodList = phoneLine ? bubbleMoodList(config, boxLine ? bubbleCharacter(config, boxLine)?.alias : undefined) : moodList;
     const portraitFace = !film && speaker ? portraits.get(speaker) || null : null;
-    const boxFace = offerLine || phoneLine ? (!film && boxSpeaker ? portraits.get(boxSpeaker) || null : null) : portraitFace;
+    const boxFace = phoneLine ? (!film && boxSpeaker ? portraits.get(boxSpeaker) || null : null) : portraitFace;
     // a cast figure is never dropped silently. A sprite outfit
     // without any image stands in as its avatar (its slot), and every display fallback is listed in the stage notice.
     const castMembers = state && !leasing ? stageViews.speaker.members(state) : [];
@@ -1364,10 +1262,10 @@ function GalStage(props) {
     // box padding in every theme, not only classic).
     const pageKey = readTurn + ":" + page + ":" + card + (transitioning ? ":transition" : "");
     // A phone line keeps the held line's page key, so the box's face and gutter do not change hands.
-    const boxPageKey = offerLine ? 'offer:'+offered.index+':'+offerLine.text : !phoneLine ? pageKey : heldBox.current && boxLine === heldBox.current.line ? heldBox.current.key : turn + ":" + boxIndex + ":held";
+    const boxPageKey = !phoneLine ? pageKey : heldBox.current && boxLine === heldBox.current.line ? heldBox.current.key : turn + ":" + boxIndex + ":held";
     if (!phoneLine && heldBox.current && heldBox.current.line === current) heldBox.current.key = pageKey;
     const name = current && current.kind === "line" ? bubbleDisplayName(current, config) : "";
-    const boxName = offerLine ? offerLine.speaker : !phoneLine ? name : boxLine && boxLine.kind === "line" ? bubbleDisplayName(boxLine, config) : "";
+    const boxName = !phoneLine ? name : boxLine && boxLine.kind === "line" ? bubbleDisplayName(boxLine, config) : "";
     // a named line the avatar resolver (portraits) gives no face shows the skin's stand-in - its image, or the engine's disc
     // with the displayed name's first glyph - in the face window; narration shows none. Without the declaration such a page
     // stays faceless, as before.
@@ -1411,7 +1309,7 @@ function GalStage(props) {
     const calmMotion = reading.reducedMotion === true || typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
     const handoff = useGalFaceHandoff(sessionId + ":" + boxPageKey, { facing, shown: Boolean(face && (face.src || face.glyph)), moves: faceMode !== "off", snap: faceSnap || !!accepted.cg || cg.visible, calm: calmMotion, typed });
     const historyRolls=stageViews.playback.usePlayback({sessionId,runtime,reading,auto,skipping,hidden,
-        overlay:backlog||configOpen||galleryOpen||pageOpen||menuOpen||!!insert||!!offered,typed,current,atEnd,awaiting,sceneHolding,
+        overlay:backlog||configOpen||galleryOpen||pageOpen||menuOpen||!!insert,typed,current,atEnd,awaiting,sceneHolding,
         line:{turn,page,card,inputCard,transitioning,subtitles,inputSubtitles,lastCard,voice,audioBusy,heldMs:handoff.heldMs,film,pageCount:pages.length},
         performance:{replayable:performanceKinds.replayable,holds:[...modPerformances.holds,{remainingMs:cg.holdMs()}],holdKey:cg.holdTick,blocking:takeover.busy||!!title,dialogueHeld,busy:presentationBusy}},
         {advance:()=>go(1,true),finishSkip:()=>{turnPastEnd();stopSkip();},finishTyping:()=>setTyped(true)});
@@ -1519,30 +1417,6 @@ function GalStage(props) {
     // art.item.gain.hideText hides the box's words (the original's acquisition has no text up).
     const skinItem = film ? null : activeSkin?.resolvedArt?.item || null;
     const itemHidesText = Boolean(skinItem?.hideText && modPerformances.visibleRows.some(row => row.performance?.payload?.action === 'gain'));
-    const cueLookedUp = React.useRef('');
-    const cueKey = JSON.stringify([sessionId,turn,runtime.source?.branchId,runtime.source?.generation]);
-    const cueOpen = Boolean(stageViews.statusPanel?.findStageCue && pageList.length && !leasing && stageRevealed && turn===latestTurn &&
-        atLastLine && typed && !streaming && !running && !awaiting && !hidden && !offered && !skipping && !pageOpen && !menuOpen &&
-        !backlog && !configOpen && !galleryOpen && !sourceWidget.openKey && !sceneHolding && !cgHeld && !insert && runtime.cursor.mode!=='history');
-    React.useEffect(()=>{
-        if (!cueOpen || cueLookedUp.current===cueKey) return;
-        const lines = pages.filter(line=>line?.kind==='line' && !line.pending && !line.thought && line.name).slice(-6)
-            .map(line=>({speaker:bubbleDisplayName(line,config),text:String(line.text || '').slice(0,4000)}));
-        let current = true;
-        stageViews.statusPanel.findStageCue(sessionId,lines).then(cue=>{
-            if (!current) return;
-            cueLookedUp.current=cueKey;
-            if (!cue || !pageList.some(page=>page.id===cue.page)) return;
-            if (cue.passive) { setRoundCue({key:cueKey,cue}); return; }
-            setStageOffer(makeStageOffer({title:cue.label,dismiss:'稍后再说',options:[{id:'accept',label:cue.label}],onSelect:()=>{
-                openCardPage(cue.page,{plugin:cue.plugin,id:cue.id,section:cue.section});
-                return null;
-            }}));
-            turnPastEnd();
-            setAuto(false);
-        }).catch(()=>{if (current) cueLookedUp.current=cueKey;});
-        return ()=>{current=false;};
-    },[cueOpen,cueKey]);
     // A mode's hud.hide puts drawn buttons away while it is on (the debate has no menu gear; Esc still opens the menu); the skin's
     // hud.timer.hide while a HUD view shows, in every mode, so the clock stands in one place across dialogue and debate.
     const timerHide = stageHuds.shown ? activeSkin?.resolvedArt?.timerHide || [] : [];
@@ -1555,7 +1429,7 @@ function GalStage(props) {
     return h("div", { ref: rootRef, tabIndex: -1, className: "fork-gal-stage" + (film ? " is-film" : "") + (backlog ? " is-backlog" : "") + (configOpen ? " is-config" : "") + (menuOpen ? " is-menu" : "") + (hidden ? " is-ui-hidden" : "") + (takeover.up ? " is-takeover" : "") + (insertPicture ? " is-picture" : ""), "data-theme": theme, "data-card-page-menu": pageList.filter(declared => declared.menu).map(declared => declared.id).join(" ") || undefined, "data-entry": entryGate.phase, "data-entrance": entrance.stageAttr, "data-skin-buttons": homes.declared.join(" ") || undefined, "data-reduced-motion": reading.reducedMotion === true || undefined, "data-cg-visible": !!accepted.cg || cg.visible || undefined, "data-narration-layout": narrationLayout, "data-fk-device": device, "data-fk-quality": quality, "data-phone-open": sourceWidget.phoneOpen || undefined, "data-covered": scene.covered || undefined, "data-fk-context": "stage-" + theme, "data-hud": hud.state || undefined, "data-speaking": speaker ? "true" : "false", "data-fk-portrait-bust": bustAlias ? "" : undefined,
         // a square skin (its --gal-ui-radius, stage-skin-adapter.cjs, is 0): its engine widgets drop their soft shadows (theme.css)
         "data-fk-skin-square": activeSkin && (activeSkin.ui?.radius ?? activeSkin.textbox?.shape?.radius ?? 10) === 0 ? "" : undefined, "data-fork-stage-turn": turn, "data-fork-stage-para": para,
-        "data-stage-lease": leasing ? leaseView.lease.owner : undefined, "data-offer-backdrop":projectedBackdrop ? offerBackdrop.assetId : undefined,
+        "data-stage-lease": leasing ? leaseView.lease.owner : undefined,
         "data-fk-tx-leaving": stageLeaving || undefined, "data-fk-tx-entering": stageEntering || undefined, "data-fk-veil": veilShown.current || undefined,
         // the current skin's text percent; theme.css multiplies the skin's own sizes by it
         // and keeps the text block where the skin puts it (data-fk-text-scale: only set off 100%, so 100% is untouched).
@@ -1568,7 +1442,6 @@ function GalStage(props) {
         onWheel: wheel,
         onContextMenu: event => { event.preventDefault(); if(galleryOpen||pageOpen)return; if (hidden) setHidden(false); else setHidden(true); } },
         h(GalScene, { start:loadGate.visible, onPresented:revision => { loadGate.onPresented(revision); if (entryGate.visible) onPresented(revision); else if (entrance.active) heldPresented.current = revision; }, onBackdrop:loadGate.onBackdrop, scene: displayScene, onDebug: onSceneDebug, onUi, onError: setSceneError, reload: sceneReload, onLayout: setFigureLayout }),
-        offered?.offer.Scene && !offered.replay ? h(offered.offer.Scene,{...offered.offer.sceneProps,line:offerLine,index:offered.index,ready:offerReady}) : null,
         !accepted.cg && !cg.visible && figuresShown && !stageShot && standIns.length ? h(GalStandIns, { members: standIns, portraits, colorOf }) : null,
         cg.node,
         // the item glow takes the speaker's 形象色.
@@ -1648,14 +1521,11 @@ function GalStage(props) {
             faceMode !== "off" ? h(GalSide, { face, emote: faceEmote, snap: faceSnap || handoff.cut, calm: calmMotion, clearMs: galFaceClearMs(calmMotion),
                 name: boxName, nameArc: activeSkin?.resolvedArt?.faceName || null, tint: activeSkin?.resolvedArt?.marks['data-fk-skin-portrait-tint'] === '',
                 moodOf: activeSkin?.resolvedArt?.marks['data-fk-skin-portrait-mood'] === '' ? stateId => bubbleMoodBadge(stateId, boxMoodList, config, boxSpeaker)?.label : null }) : null,
-            offerLine ? (boxName ? h(GalNamePlate,{key:boxName,name:boxName,classic,film,ransom,voiceState,voiceError,onReplay:replay}) : null) :
             phoneLine ? (boxName ? h(GalNamePlate, { key: boxName, name: boxName, mood: bubbleMoodBadge(boxLine.mood, boxMoodList, config, boxSpeaker)?.label, classic, film, ransom, voiceState: "", voiceError: null, onReplay: replay }) : null) :
             name ? h(GalNamePlate, { key: name, name, parts: nameInitials && !film ? galNameParts(name, bubbleCharacter(config, current)) : null, latin: nameLatin && !film ? figureLatin(bubbleCharacter(config, current)) : null, mood: bubbleMoodBadge(current.mood, moodList, config, speaker)?.label, classic, film, ransom, voiceState: voiceBox === "control" || voiceBox === "notice" && voiceState === "error" ? voiceState : "", voiceError, onReplay: replay }) : null,
             transitioning ? h("div", { className: "fork-gal-transition-label" }, "你 · 第 " + turns[turnIndex + 1] + " 轮") : null,
             h("div", { ref: textRef, className: "fork-gal-text", "aria-live": phoneLine ? "off" : "polite", 'data-fk-open': openBlock ? "" : undefined, style: openBlock ? { "--fk-page-block": openBlock + "px" } : undefined },
                 phoneLine && boxLine ? h(GalTypewriter, { key: "held:" + boxPageKey, text: heldText, speed: reading.textSpeed, skin: activeSkin, instant: true, reducedMotion:reading.reducedMotion,photosensitive:reading.photosensitive }) : null,
-                offerLine ? h(GalTypewriter,{key:boxPageKey,text:offerLine.text,speed:reading.textSpeed,skin:activeSkin,instant:offered.done,
-                    reducedMotion:reading.reducedMotion,onDone:()=>setStageOffer(value=>value===offered && !value.done ? {...value,done:true} : value)}) :
                 current ? h(phoneLine ? "span" : React.Fragment, phoneLine ? { className: "fork-gal-phone-reader", "aria-hidden": true } : null, h(narrationLines ? GalNarrationLines : GalTypewriter, { key: sessionId + ":" + readTurn + ":" + page + ":" + card + (transitioning ? ":transition:" + inputCard : ""), text: shownText, marks: boxMarks, lines: narrationLines, speed: reading.textSpeed, skin: activeSkin, instant: typed || skipping, hold: handoff.holding || beatHeld || cgHeld, pending: current.pending && lastCard, movable,reducedMotion:reading.reducedMotion,photosensitive:reading.photosensitive,glyphFade:quality === "high",
                     visibleKey:sourceWidget.readingKey,onVisible:value=>sourceWidget.onVisible(Array.from(current.text).slice(0,subtitles.cards[card]?.start || 0).join('') + value.slice(Math.max(0,shownText.indexOf(subtitles.text)),Math.max(0,shownText.indexOf(subtitles.text))+subtitles.text.length)),
                     onReveal:ordinal=>performanceLayer.cue({cueId:'type',ordinal:[page,card,ordinal]}), onDone: () => setTyped(true) }))
@@ -1663,8 +1533,6 @@ function GalStage(props) {
                 current && current.pending && !phoneLine ? h("span", { className: "fork-gal-typing", "aria-label": "正在生成" }, h("i"), h("i"), h("i")) : null,
                 // the next-page cue is laid out with the page from its first frame and only shown when
                 // typed, so its arrival cannot re-wrap the last line (theme.css "stage typewriter").
-                offerLine ? h("span",{className:"fork-gal-next"+(activeSkin?.cursor ? " fork-skin-next" : "")+(offered.done && !offerReady ? "" : " is-waiting"),"aria-hidden":true},
-                    activeSkin?.cursor ? h(StageSkinCursor,{cursor:cueCursor,active:offered.done&&!offerReady,snap:skipping}) : null) :
                 current && !current.pending ? h("span", { className: "fork-gal-next" + (activeSkin?.cursor ? " fork-skin-next" : "") + (typed && !atEnd ? "" : " is-waiting"), "aria-hidden": true }, activeSkin?.cursor ? h(StageSkinCursor,{cursor:cueCursor,active:typed&&!atEnd,snap:runtime.cursor.mode==='history'||skipping}) : null) : null),
             // while this reply's choices generate their wait sits here, under the page, in
             // the reply wait's look (StageWaitStop + StageWaitLines, portalled by gal-choices.js); empty, it takes no room.
@@ -1699,14 +1567,10 @@ function GalStage(props) {
             veiled: !entryGate.visible, input: modClients.input(props.choiceProps.executeSlash, sessionId), screen: playModBeat,
             replay: replaying && runtime.replay?.phase === 'play' ? runtime.cursor.visitId : historyRolls, nativeTurn: runtime.textIndex.get(turn)?.nativeTurn || 0,
             live: (presenting === 'live' || !!historyRolls) && !skipping && !film && !hidden && !backlog && !configOpen && !galleryOpen && !pageOpen && !menuOpen })) : null,
-        roundCue?.key===cueKey && atEnd && !offered && !hidden && !pageOpen && !menuOpen && !configOpen && !backlog && !galleryOpen ?
-            h('button',{type:'button',className:'fork-gal-round-cue',onClick:event=>{event.stopPropagation(); setRoundCue(null); openCardPage(roundCue.cue.page,{plugin:roundCue.cue.plugin,id:roundCue.cue.id,section:roundCue.cue.section});}},roundCue.cue.label) : null,
         // Reading done: the next move sits in the middle of the screen.
         // a latest turn with nothing to read (an HTML introduction / opening chooser) is done too: the
         // panel offers 生成选项 and 自由输入 (no 重新生成); leaving is the existing 返回主页面 (R13).
-        !leasing && (offered || atEnd && (typed || openingOnly)) && !hidden && props.Choices ? h(props.Choices, Object.assign({}, props.choiceProps, { key: sessionId + ":" + turn, sessionId, atEnd, hidden: awaiting || pageOpen || Boolean(sourceWidget.openKey), waitSlot: choiceWaitSlot, waitLines,
-            stageOffer:offered?.replay ? {...offered.offer,onSelect:()=>null} : offered?.offer, stageOfferReady:offerReady,
-            replaceStageOffer:offer=>setStageOffer(current=>current===offered ? (offer ? makeStageOffer(offer) : current?.returnTo ?? null) : current),
+        !leasing && atEnd && (typed || openingOnly) && !hidden && props.Choices ? h(props.Choices, Object.assign({}, props.choiceProps, { key: sessionId + ":" + turn, sessionId, atEnd, hidden: awaiting || Boolean(sourceWidget.openKey), waitSlot: choiceWaitSlot, waitLines,
             // 重新生成 — the same busy rule as the system menu's 重新生成 item.
             onRegenerate: props.Regenerate && !openingOnly ? openRegenerate : undefined, regenerateDisabled: regenerateBlocked,
             withdrawnText: withdrawal && withdrawal.landed ? withdrawal.text : "",
@@ -1717,7 +1581,7 @@ function GalStage(props) {
             onExit:()=>{setGallery(false);props.onExit();}}) : null,
         // CONFIG, 回想 or 履历 opened from a page (openSettings / openGallery / openBacklog) stands over it: Esc, which the page takes
         // first, closes that then.
-        pageOpen ? h(stageViews.statusPanel.Overlay, { key: sessionId + ":" + openPage + ":" + (nativePanel?.id || ""), sessionId, pageId: openPage, native:nativePanel, label: openDeclared.label, shortcut: openDeclared.shortcut, config, source: runtime.source, size: openDeclared.size,
+        pageOpen ? h(stageViews.statusPanel.Overlay, { key: sessionId + ":" + openPage, sessionId, pageId: openPage, label: openDeclared.label, shortcut: openDeclared.shortcut, config, source: runtime.source, size: openDeclared.size,
             closeControl: openDeclared.closeControl, covered: configOpen || galleryOpen || backlog, saved: cardPages.fresh !== true, entry: entryOpen, openingPage: pageList.find(declared => declared.opening === true)?.id || '', opening: openDeclared.opening === true, onClose: configOpen ? closeConfig : galleryOpen ? closeGallery : backlog ? closeBacklog : entryOpen ? leaveEntryPage : closeCardPage, onAction: cardPageAction }) : null,
         configOpen || configLeaving ? h(GalConfigScreen, { sessionId, data: props.data, tests: mixTests, textSkin: shownSkin.current, skinHud: activeSkin?.hud?.reveal || "auto", skinPending: configSkin.pending === true, onClose: closeConfig, leaving: configLeaving }) : null,
         // §18 E3: after closing, a drawn menu with an exit motion stays mounted (inert) while its items leave.
@@ -1725,7 +1589,7 @@ function GalStage(props) {
         // a running / finished clip export, while the reader keeps playing.
         !backlog && ClipStatus ? h(ClipStatus, { sessionId, hidden: hidden || film }) : null,
         // A lease's log is its own lines (lease: no rounds, inputs or performances around them).
-        backlog || backlogLeaving ? h(GalBacklog, { leaving: backlogLeaving, sessionId, config, lease: leasing, offerHistory:offerHistory.current.key===historyKey ? offerHistory.current.rows : [], onOfferReplay:replayOffer, direction:leasing ? null : receivedDirection, readDirection:leasing ? null : args=>rpc('getStageDirection',args,sessionId), textIndex:leasing ? STAGE_LEASE_NO_ROUNDS : runtime.textIndex, voiceOf:descriptor => stageVoiceHandle(sessionId,descriptor,config,descriptor.paragraphId), turn, pages, page, useChat: props.choiceProps && props.choiceProps.useChat, colorOf, avatarOf, nameOf, quote: classic && !film, onJump: pageOpen ? (...target) => { setOpenPage(null); jumpBack(...target); } : jumpBack, onClose: closeBacklog,
+        backlog || backlogLeaving ? h(GalBacklog, { leaving: backlogLeaving, sessionId, config, lease: leasing, direction:leasing ? null : receivedDirection, readDirection:leasing ? null : args=>rpc('getStageDirection',args,sessionId), textIndex:leasing ? STAGE_LEASE_NO_ROUNDS : runtime.textIndex, voiceOf:descriptor => stageVoiceHandle(sessionId,descriptor,config,descriptor.paragraphId), turn, pages, page, useChat: props.choiceProps && props.choiceProps.useChat, colorOf, avatarOf, nameOf, quote: classic && !film, onJump: pageOpen ? (...target) => { setOpenPage(null); jumpBack(...target); } : jumpBack, onClose: closeBacklog,
             // the skin's per-role looks; a bubble's side is the speaker's slot in the
             // stage's figure layout (galFigureLayout x, the side rule galShotSubject reads), null when not standing.
             looks: backlogLooks, sideOf: alias => figureLayout?.x && alias in figureLayout.x ? (figureLayout.x[alias] > 0.5 ? "right" : "left") : null,
