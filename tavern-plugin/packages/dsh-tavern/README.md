@@ -225,7 +225,7 @@ curl -fsSL 'https://raw.githubusercontent.com/flizzywine/dsh-tavern/runtime-arch
 | 对比项 | 原生版 APK（Beta，推荐） | 独立 APK（DSHA 容器版） | Termux 命令行版 |
 | --- | --- | --- | --- |
 | **流畅度与性能** | ✅ **原生直跑、丝滑流畅**，无 proot 拦截损耗，读写/开卡/结算极快、低发热 | ⚠️ 受 proot 系统调用拦截拖慢，I/O 与启动偏慢、易发热 | ⚠️ 同样受 proot 容器性能损耗影响 |
-| **运行架构** | ✅ Android 原生 Node，无 Ubuntu 容器 | ⚠️ 内置 Ubuntu + proot 容器 | ⚠️ Termux 内 Ubuntu + proot 容器 |
+| **运行架构** | ✅ Android 原生 Node，无 Ubuntu 容器 | ⚠️ 内置 Ubuntu + proot 容器 | ✅ Termux 原生 Node（与原生版 APK 同一套），无 Ubuntu 容器 |
 | **体积与启动** | ✅ 约 444 MB（arm64 / x86_64）；冷启动 5–6 秒 | ⚠️ 约 686 MB（仅 arm64）；首启需解包 Ubuntu | ⚠️ 需装 Termux 并手工执行部署脚本 |
 | **离线开箱** | ✅ 依赖、pnpm、缓存与卡片样式全内置，首启不联网 | ⚠️ 内置首装依赖包，仍需按引导初始化 | ❌ 安装阶段需联网拉取容器与依赖 |
 | **界面与保活** | ✅ 独立全屏 App、自适应状态栏、前台保活+崩溃自愈 | ⚠️ DSHA 外壳内嵌 WebView | ❌ 终端启动、切外部浏览器，后台易被杀 |
@@ -241,7 +241,7 @@ curl -fsSL 'https://raw.githubusercontent.com/flizzywine/dsh-tavern/runtime-arch
 curl -fsSL https://raw.githubusercontent.com/flizzywine/dsh-tavern/main/scripts/termux/termux-tavern.sh -o ~/termux-tavern.sh && bash ~/termux-tavern.sh
 ```
 
-始终取 `main` 的最新版；脚本会装 Ubuntu 容器、Node、酒馆与移动版布局，启动后打开浏览器。各方案在手机上的差异及 Termux 注意事项见 [Termux 一节](https://github.com/flizzywine/dsh-tavern/wiki/Android-%E5%AE%89%E8%A3%85%E4%B8%8E%E6%9B%B4%E6%96%B0#termux在手机里跑命令行版)。
+始终取 `main` 的最新版；脚本直接用 Termux 的 `nodejs-lts` 运行酒馆（与原生版 APK 同一套方案，不再装 Ubuntu + proot），装好酒馆与移动版布局后启动并打开浏览器；旧版容器里的存档、人物卡与模型设置会在首次安装时自动复制过来（原文件保留）。各方案在手机上的差异及 Termux 注意事项见 [Termux 一节](https://github.com/flizzywine/dsh-tavern/wiki/Android-%E5%AE%89%E8%A3%85%E4%B8%8E%E6%9B%B4%E6%96%B0#termux在手机里跑命令行版)。
 
 ### 命令行版（Windows / macOS / Linux，用浏览器玩）
 

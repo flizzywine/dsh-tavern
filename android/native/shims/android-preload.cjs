@@ -106,7 +106,8 @@ function rewrite(file, args, options) {
     }
     return [process.execPath, list];
   }
-  if (file === 'pnpm') return [process.execPath, [PNPM_CLI, ...(args || [])]];
+  // 自带的 pnpm 不存在时（如 Termux 里工具链尚未装好）照常按 PATH 查找。
+  if (file === 'pnpm' && fs.existsSync(PNPM_CLI)) return [process.execPath, [PNPM_CLI, ...(args || [])]];
   // 安装器用 `sh -c 'command -v node'` 检查命令：两者在 APK 里不在 PATH 上（也不能放可执行文件），由上面的映射提供。
   if ((file === 'sh' || file === SHELL) && args && args[0] === '-c' && /^command -v (node|pnpm)$/.test(String(args[1]))) {
     return [file, ['-c', 'true']];
