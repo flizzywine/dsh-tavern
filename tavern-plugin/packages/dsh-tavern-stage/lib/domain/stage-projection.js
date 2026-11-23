@@ -4,13 +4,14 @@ import { effectiveBubbleMoods } from '../../../../lib/domain/dialogue-bubbles.js
 import { matchBubbleMood } from '../../../../src/client/bubble-line.cjs'
 import { stageAssetRefs } from './stage-asset-pack-catalogue.js'
 import { cgPlaybackAvailable } from '../scene-cg.js'
-import { foldAssetPackEntries } from './stage-asset-pack-director.js'
+import { foldAssetPackEntries, stageOutfitKey } from './stage-asset-pack-director.js'
 import {foldPerformanceAt, performanceWidgetDefaults} from './performance-projection.js'
 import { reuseStagePlayback, stagePlaybackKey, stagePlaybackRuler, stagePlaybackEmotions, stagePlaybackWriter } from './stage-playback.js'
 
 import {isImmutableJson} from '../../../../lib/domain/freeze-json.js'
 import {stageNarrationLayout} from '../../../../lib/domain/stage-narration.cjs'
 import {stagePageAtAnchor} from '../../../../src/client/stage-page-index.cjs'
+import {standInShown, standInFor} from './stage-stand-in.js'
 
 const same = (a,b) => JSON.stringify(a) === JSON.stringify(b)
 // Only completed sidecar checks are cached, never current media or authority.
@@ -178,6 +179,8 @@ async function readCurrentProjection({trace, expectedDirectionToken, readDirecti
     }
     const version = revision(), extension = presentation.extension
     const figureRows = await measure('projection.figureRows', () => presentation.figureRows(state.actors))
+    // a stand-in shows its person's own figure as soon as that has a 立绘 (it landed while the round is read)
+    for (const [alias,actor] of Object.entries(state.actors)) state.actors[alias] = standInShown(actor,figureRows,stageOutfitKey)
     await measure('projection.resolveFigures', () => presentation.prepareFigures([
       ...figureRows.filter(row => row.enabled).map(row => row.ref),
       ...referenced.filter(ref => ref.figureId && consumer.allowedPackIds.includes(ref.packId))
@@ -223,7 +226,7 @@ async function readCurrentProjection({trace, expectedDirectionToken, readDirecti
     // derive speaker -> actor without rewriting units, historical ops or playback keys.
     const emotions = {...direction.opening?.emotions, ...stagePlaybackEmotions(direction,at,segment => {
       const result = resolution.resolveFigureName(figureRows,segment,state.actors)
-      return result.status === 'resolved' ? result.actorKey : undefined
+      return result.status === 'resolved' && (state.actors[result.actorKey] || !standInFor(state.actors,segment.name)) ? result.actorKey : standInFor(state.actors,segment.name)
     })}
     const refs = new Map(figureRows.filter(row => row.enabled).map(row => [row.actorKey,row.ref]))
     for (const [alias,actor] of Object.entries(state.actors)) refs.set(alias,actor.figure)

@@ -56,6 +56,8 @@ const ICON_PATHS = {
     // the stage entries' glyphs, one shared set (menu tiles draw these names).
     "film-mode": "M3.5 5.5h17v13h-17zM3.5 8.5h17M3.5 15.5h17M10.5 10.2v3.6l3.2-1.8z",
     phone: "M8.5 2.5h7A1.5 1.5 0 0 1 17 4v16a1.5 1.5 0 0 1-1.5 1.5h-7A1.5 1.5 0 0 1 7 20V4a1.5 1.5 0 0 1 1.5-1.5zM10.5 18.5h3",
+    // a desktop computer (a card page's top-bar button, card-status-panel.js CARD_PAGE_ICONS)
+    monitor: "M4.5 4.5h15A1.5 1.5 0 0 1 21 6v9a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 15V6a1.5 1.5 0 0 1 1.5-1.5zM12 16.5v3M8 19.5h8",
     message: "M3 4h18v13H9l-6 4V4z",
     widget: "M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z",
     "die-covered": "M6 3.5h12A2.5 2.5 0 0 1 20.5 6v12a2.5 2.5 0 0 1-2.5 2.5H6A2.5 2.5 0 0 1 3.5 18V6A2.5 2.5 0 0 1 6 3.5zM9.8 9.6a2.3 2.3 0 1 1 3.4 2c-.8.5-1.2 1-1.2 1.9M12 16.4h.01"

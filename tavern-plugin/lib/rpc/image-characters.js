@@ -1,8 +1,8 @@
 import { isDeepStrictEqual } from 'node:util'
-import { figureOutfitReference } from '../domain/figure-sprite-reference.js'
-import { imageCharacterFromFigure, linkPatchFromFigure, findFigureImageCharacter, putPackReference, packReferenceName, referencePatch, setteiReferences } from '../domain/image-character-appearance.js'
+import { imageCharacterFromFigure, linkPatchFromFigure, findFigureImageCharacter } from '../domain/image-character-appearance.js'
 
-// The image plugin owns these records. Asset-pack edits never store a second copy.
+// The image plugin owns these records. Asset-pack edits never store a second copy; the figure's 设定图 and borrowed 立绘
+// stay in its pack, where 配图 reads them by the record's link (ADR 0012).
 export function createImageCharacterHandlers({ ctx, pluginApi }) {
   const records = (op, input) => pluginApi.imageCharacters(op, input)
   const fail = (code, message) => Object.assign(new Error(message), { code })
@@ -24,28 +24,14 @@ export function createImageCharacterHandlers({ ctx, pluginApi }) {
     if (!isDeepStrictEqual(record.character, args.expected)) throw fail('REVISION_CONFLICT', '人物已在别处修改，请重新载入后再改')
     return { ...context, ...record }
   }
-  // A figure just linked keeps its identity in the record from now on (when the records hold identities).
-  async function storeLinked(packId) {
-    if (await ctx.get('tavernFigureRecords')?.mode() === 'registry') await ctx.get('assetLibrary').rewriteFigureDocuments({ packIds: [packId] })
-  }
+  // A figure just linked keeps its identity in the record from now on: its document is written again without it.
+  const storeLinked = packId => ctx.get('assetLibrary').rewriteFigureDocuments({ packIds: [packId] })
   return {
-    // Where figures keep their name, 触发词 and outfit names: 'registry' (the 配图 人物库 record) or 'pack' (the way back).
-    // Every installed figure is written again as the mode stores it; the figures readers see do not change.
-    async switchFigureRecords(args) {
-      const records = ctx.get('tavernFigureRecords'), library = ctx.get('assetLibrary')
-      if (!records || !library) throw fail('ASSET_UNAVAILABLE', '素材库未启用')
-      if (args?.mode === 'registry' && !(await pluginApi.imageCharacterLibraries()).length) throw fail('NOT_CONFIGURED', '配图人物库不可用，不能把人物资料交给它')
-      await records.setMode(args?.mode)
-      const packIds = (await library.listPackSummaries()).filter(row => !row.error && row.counts?.figures).map(row => row.packId)
-      const rewritten = []
-      for (const packId of packIds) rewritten.push(...(await library.rewriteFigureDocuments({ packIds: [packId] })).rewritten)
-      return { mode: await records.mode(), rewritten }
-    },
-    // Read-only: the mode and how each installed figure is stored (whole, or without its identity).
-    async figureRecordsMode() {
+    // Read-only: how each installed figure is stored (whole, or without its identity).
+    async figureDocumentForms() {
       const library = ctx.get('assetLibrary')
       if (!library) throw fail('ASSET_UNAVAILABLE', '素材库未启用')
-      return { mode: await ctx.get('tavernFigureRecords')?.mode() ?? 'pack', packs: await library.figureDocumentForms() }
+      return { packs: await library.figureDocumentForms() }
     },
     async getFigureImageCharacter(args) {
       await figureOf(args?.packId, args?.figureId)
@@ -88,29 +74,6 @@ export function createImageCharacterHandlers({ ctx, pluginApi }) {
       await linkedRecord(args)
       if (args.patch && (Object.hasOwn(args.patch, 'figureId') || Object.hasOwn(args.patch, 'figurePackId'))) throw fail('INVALID_ARGUMENT', '请通过关联操作选择人物')
       return records('patchCharacter', { providerId: args.providerId, characterId: args.characterId, expected: args.expected, patch: args.patch })
-    },
-    // The record shows the figure's 设定图 (setteiReferences), as every write of the figure leaves it: for records written
-    // before that rule (a migration). Returns the record as it now is.
-    async syncFigureSetteiToImageCharacter(args) {
-      const { library, pack, figure, character } = await linkedRecord(args)
-      let state = { providerId: args.providerId, character }
-      for (const { outfit, hash } of setteiReferences(character, figure)) {
-        const referenceImage = hash ? await putPackReference(pluginApi, library, { providerId: args.providerId, packId: args.packId, revision: pack.revision, hash, name: packReferenceName(figure, outfit) }) : null
-        state = await records('patchCharacter', { providerId: args.providerId, characterId: args.characterId, expected: state.character, patch: referencePatch(state.character, outfit, referenceImage) })
-      }
-      return state
-    },
-    // An outfit with no 设定图 and no 参考图 takes its resting 立绘 (or first 差分, or 头像) as its 参考图 (link-image --sprite-fallback).
-    async copyFigureSpriteToImageCharacter(args) {
-      const { library, pack, figure, character } = await linkedRecord(args)
-      const outfit = figure.outfits.find(item => item.key === args.outfitKey)
-      if (!outfit) throw fail('NOT_FOUND', '服装已删除，请重新载入')
-      if (outfit.settei || character.outfits.some(item => item.id === outfit.key && item.characterOutfitImage)) throw fail('INVALID_ARGUMENT', '已有参考图或设定图，不可覆盖')
-      const fallback = figureOutfitReference(pack, figure, outfit)
-      if (!fallback) throw fail('INVALID_ARGUMENT', '这套服装没有可用的立绘')
-      const referenceImage = await putPackReference(pluginApi, library, { providerId: args.providerId, packId: args.packId, revision: pack.revision, hash: fallback.hash,
-        name: packReferenceName(figure, outfit, {sprite:' 立绘参考', emotion:' 差分参考', avatar:' 头像参考'}[fallback.kind]) })
-      return records('patchCharacter', { providerId: args.providerId, characterId: args.characterId, expected: args.expected, patch: referencePatch(character, outfit, referenceImage) })
     },
   }
 }

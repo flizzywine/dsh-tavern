@@ -34,7 +34,43 @@ function textMarkRanges(text, marks) {
     }
     return out.sort((a, b) => a.start - b.start);
 }
-// A paragraph laid out as several pages: the marks are found in the pages joined (a quote may run over a page break),
+// Where a skin's highlight words (skin textStyle.highlight {ink, words: [{text, caseless?, whole?, except?}]}) fall in `text`:
+// -> [{start, end}] in text order, none overlapping each other or `taken` (ranges already drawn by a mod). Display only - it
+// never touches the text, and a voice, a copy or a save keeps the words as written. `whole` skips a match inside a longer number
+// or word (13, 30, 3.5, threesome); `except` lists longer phrases whose occurrences keep the word plain (三角机构 for 三).
+const HIGHLIGHT_ALNUM = /[0-9A-Za-z\uFF10-\uFF19\uFF21-\uFF3A\uFF41-\uFF5A]/, HIGHLIGHT_DIGIT = /[0-9\uFF10-\uFF19]/, HIGHLIGHT_POINT = /[.,\uFF0C\uFF0E]/;
+function textHighlightRanges(text, highlight, taken = []) {
+    const value = String(text || ''), out = [];
+    if (!highlight?.words?.length || !value) return out;
+    const folded = value.toLowerCase().length === value.length ? value.toLowerCase() : value;
+    const find = (needle, caseless) => {
+        const hay = caseless ? folded : value, key = caseless ? needle.toLowerCase() : needle, at = [];
+        for (let i = hay.indexOf(key); i >= 0 && key; i = hay.indexOf(key, i + key.length)) at.push([i, i + key.length]);
+        return at;
+    };
+    for (const word of highlight.words) {
+        const except = (word.except || []).flatMap(phrase => find(phrase, word.caseless));
+        for (const [start, end] of find(word.text, word.caseless)) {
+            if (except.some(([from, to]) => from <= start && end <= to)) continue;
+            if (word.whole) {
+                const before = value[start - 1] || '', after = value[end] || '';
+                if (HIGHLIGHT_ALNUM.test(before) || HIGHLIGHT_ALNUM.test(after)) continue;
+                if (HIGHLIGHT_POINT.test(after) && HIGHLIGHT_DIGIT.test(value[end + 1] || '')) continue;
+                if (HIGHLIGHT_POINT.test(before) && HIGHLIGHT_DIGIT.test(value[start - 2] || '')) continue;
+            }
+            if (!out.some(row => start < row.end && end > row.start) && !taken.some(row => start < row.end && end > row.start)) out.push({start, end});
+        }
+    }
+    return out.sort((a, b) => a.start - b.start);
+}
+// The view's draw marks [{start, end, render}] with the skin's highlight words added: `taken` (a mod's marks) keep their words,
+// the highlights only colour (no tap, no voice cover). h: the view's createElement.
+function textMarksHighlighted(text, highlight, taken, h) {
+    if (!highlight) return taken;
+    const own = textHighlightRanges(text, highlight, taken).map(range => ({start: range.start, end: range.end,
+        render: (words, key) => h('span', {key, className: 'fork-gal-hl', style: {color: highlight.ink}}, words)}));
+    return own.length ? [...taken, ...own].sort((a, b) => a.start - b.start) : taken;
+}// A paragraph laid out as several pages: the marks are found in the pages joined (a quote may run over a page break),
 // then cut to page `index`. pages: the paragraph's page texts in order. -> ranges in that page's text; a range cut at a
 // page edge keeps its mark and says which part it is ({head, tail}: it starts / ends on this page).
 function textMarkPageRanges(pages, index, marks) {
@@ -115,6 +151,6 @@ function textMarkVoice(text, cover) {
             return shut.length ? {spans: shut.map(row => [row.from, row.to]), noise: shut[0].mark.kind.noise} : null;
         }};
 }
-return {textMarksAt, textMarkRanges, textMarkPageRanges, textMarkShift, textMarkSegments, textMarkNodes, textMarkTimes, textMarkVoice};
+return {textMarksAt, textMarkRanges, textHighlightRanges, textMarksHighlighted, textMarkPageRanges, textMarkShift, textMarkSegments, textMarkNodes, textMarkTimes, textMarkVoice};
 })();
 if (typeof window === 'undefined' && typeof module !== 'undefined') module.exports = stageTextMarks;

@@ -43,7 +43,7 @@ function stageAutoRemaining(readingRemainingMs, holds = []) {
 
 // A clip export reads at the default pace with the whole text at once (no typing time); clip-export-clock.js
 // installs it as the export page's reading preference.
-const CLIP_READING = { textSpeed: 0, autoWait: STAGE_AUTO.wait, autoSpeed: STAGE_AUTO.speed, voiceRate: 1, frameCap: 60 };
+const CLIP_READING = { textSpeed: 0, autoWait: STAGE_AUTO.wait, autoSpeed: STAGE_AUTO.speed, frameCap: 60 };
 const CLIP_TIMING_FPS = 30;
 // One paragraph's frames (30 fps) per card, as the stage's auto mode shows it: pages[page] = its text box cards
 // [{ text, voiceAt }], voiceMs = the paragraph's cached voice (0 = silent). The voice plays over the first page: a card that

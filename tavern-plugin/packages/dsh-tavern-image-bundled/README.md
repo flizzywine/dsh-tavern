@@ -607,14 +607,18 @@ export function apply(ctx) {
 
 ## 共用人物记录
 
-Tavern 内置配图插件 3.8.0 支持素材库「人物 → 生图 → 配图人物库」直接编辑同一条人物记录。可新建记录或选择已有记录，编辑名字、别名、分视角外貌、当前服装，并把素材包设定图写入配图参考图。多个人物库并存时需要选择来源。
+Tavern 内置配图插件 3.8.0 支持素材库「人物 → 生图 → 配图人物库」直接编辑同一条人物记录。可新建记录或选择已有记录，编辑名字、触发词、分视角外貌、当前服装，并把素材包设定图写入配图参考图。多个人物库并存时需要选择来源。
 
-共用接口通过 `registerImageLibrary` 注册 `schemaVersion: 4` 与 `getCharacter/patchCharacter/createCharacter/putReferenceImage`。读取返回 `{version: 4, character}`。修改带上完整的 `expected` 人物快照，`traits` 按字段合并，`outfits` 按 ID 合并；未修改的字段与未列出的服装保留。允许编辑名字、别名、一致性文字、外貌、服装及参考图，不能修改人物卡绑定等插件专有字段。素材库人物被删除时，宿主用同样带 `expected` 的 `deleteCharacter` 一并删除记录，或把 `figureId` 与 `figurePackId` 都设为 `null` 断开关联、保留外貌；`deleteCharacter` 是可选接口，宿主从 `recordLibraries()` 的 `deletes` 得知是否可用。
+共用接口通过 `registerImageLibrary` 注册 `schemaVersion: 4` 与 `getCharacter/patchCharacter/createCharacter/putReferenceImage`。读取返回 `{version: 4, character}`。修改带上完整的 `expected` 人物快照，`traits` 按字段合并，`outfits` 按 ID 合并；未修改的字段与未列出的服装保留。允许编辑名字、触发词（字段 `match`，逗号分隔）、一致性文字、外貌、服装及参考图，不能修改人物卡绑定等插件专有字段。素材库人物被删除时，宿主用同样带 `expected` 的 `deleteCharacter` 一并删除记录，或把 `figureId` 与 `figurePackId` 都设为 `null` 断开关联、保留外貌；`deleteCharacter` 是可选接口，宿主从 `recordLibraries()` 的 `deletes` 得知是否可用。
+
+关联着素材库人物的记录，名字、触发词（`match`）和服装名称就是素材库里那个人物的名字、触发词和服装名称，只存在这条记录里（素材包里的人物文件不留副本）；人物页和这里编辑的是同一份。保存带关联的记录时插件调用 `tavern.saveLinkedRecords({changes, receipt}, save)`，宿主据此让素材库重读这些人物；记录被删除或改关联时，宿主先把名字和触发词写回人物，再完成保存。
 
 可选接口 `deleteCharacter({characterId, expected})` 删除一条记录（`expected` 与当前记录不一致时报 `REVISION_CONFLICT`），返回 `{deleted: characterId}`。`patchCharacter` 把 `figureId` 与 `figurePackId` 同时设为 `null` 即断开与素材库人物的关联；只设其一报 `INVALID_ARGUMENT`，记录本身保留。
 
 
 关联存为 `figurePackId + figureId`，人物图存为 `referenceImage`，穿指定服装的成套图存为服装的 `characterOutfitImage`。成套图优先于角色图与独立服装图；使用本地模型或 LoRA 时仍可不上传成套图。
+
+关联着素材库人物的记录不存那个人物的设定图：每张图出图前，插件用 `tavern.figurePictures` 按关联读到素材包里的人设图（作角色图）和各套服装设定图（作成套图）；服装没有设定图时借用平静立绘，记录里自己上传了成套图就用上传的。图的字节第一次用到时用 `tavern.readFigurePicture` 取来放进本机参考图目录（同样按 SHA-256 命名）。设定图在素材库里换掉或撤下，下一张图就跟着变，不需要同步。人物库页把这些图显示在对应位置（设定图只读，在素材库人物页更换）。
 
 所有编辑、导入和重载共用保存队列，磁盘写入成功后才更新内存。人物库整页保存须原样携带 `GET /state` 返回的 `definitions.revision`；旧页面、旧脚本缺少版本或资料已改变时返回 HTTP 409 与 `REVISION_CONFLICT`，不会覆盖新内容。界面保留当前草稿，提供「重新载入最新人物库」；放弃未保存修改前会确认。外部脚本也应重新读取、由用户核对修改后再提交。素材库生图只在准备生成时读取已关联人物的正面外貌与服装文字，普通剧情和进度轮询不增加此查询。
 

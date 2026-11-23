@@ -34,7 +34,7 @@ export function apply(ctx, config = {}) {
   // figureImageExtras: a pack leaving the library (export, copy) takes its figures' 配图 外貌 from the host (figure-image-extras.js),
   // figureImageMedia: and the bytes of a 参考图 it names that the pack does not hold;
   // adoptFigureImageLooks: an update the user confirmed with 「用导入的外貌」 for some figures tells the host before it is written.
-  // figureRecords: the host keeps a figure's name, 触发词 and outfit names in its 配图 人物库 record (storage.js, figure-records.js);
+  // figureRecords: the host keeps a figure's name, 触发词 and outfit names in its 配图 人物库 record (storage.js, figure-records.js; ADR 0011);
   // without the host every figure is stored whole.
   const figureExportOptions = {
     figureImageExtras: input => ctx.get('tavernFigureImageExtras')?.forFigures(input),
