@@ -18,17 +18,17 @@
 - 揭示记录在宿主侧：`profile-data/tavern/data/redaction/<session id>.json`，`{version:1, turns:{<原生轮次>:{source, marks:{"<段>:<第几处>": 点击次数}}}}`。`source` 是那一轮导演记录的 sourceKey，重新生成后不同，那一轮的点击作废、重新盖上。每次点击都记下（最多 3），黑条的擦痕按点击次数和种子重画。删除聊天时这个小文件不删（几百字节）。
 - RPC：`getStageRedactions {sessionId}`、`tapStageRedaction {sessionId, turn, source, para, index}`。
 
-## 提示词与工具 schema 字节（UTF-8 实测，2026-11-12）
+## 提示词与工具 schema 字节（UTF-8 实测，2026-11-12；规则 2026-11-23 改写后重测）
 
 | 分节 | 字节 |
 | --- | --- |
-| `redact-rule`（`prompts/redaction.txt`） | 579 |
+| `redact-rule`（`prompts/redaction.txt`） | 1151 |
 | `redact-guidance` 通用一句（`prompts/guidance.txt`） | 86 |
 | `redact-guidance` 一条 40 字左右的卡片遮挡指引 | 约 117 |
 | 指令语法行（`director.commands.presentation`） | 62 |
 | `stage_update` 工具 schema 里这条指令 | 286 |
 
-本卡开着本模组时，导演提示词多约 760 字节；工具 schema 按已安装模组冻结，安装后每张卡的导演工具都多 286 字节，开关不改 schema。正文模型的提示词和工具不变。
+卡声明了本模组时，导演提示词多约 1335 字节；工具 schema 按已安装模组冻结，安装后每张卡的导演工具都多 286 字节，开关不改 schema。正文模型的提示词和工具不变。
 
 ## 配音与没做的
 
