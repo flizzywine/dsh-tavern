@@ -8103,8 +8103,8 @@ function galCreateScene(host, options, own) {
     const GAL_NO_FIGURES = [];
     // the viewport layout of the directed cast (galFigureLayout), recomputed only
     // when the stage size, text box, ruler, cast or priority change. The fit eases like the face rest (700 ms).
-    // widthSeen: each present figure's widest measured picture so far, so the cast does not shift whenever one of them
-    // changes expression or pose; forgotten when the figure leaves.
+    // widthSeen: each present figure's measured pictures so far (by picture), the widest of them standing for it, so the cast
+    // does not shift whenever one of them changes expression or pose; forgotten when the figure leaves.
     let castMeasure=null;const widthSeen=new Map();
     function figureLayout(desc,W,H,now) {
         // Missing lower-body artwork contributes to the shared viewport fit; each figure's height and ground stand the ruler
@@ -8124,15 +8124,22 @@ function galCreateScene(host, options, own) {
             if(anatomy&&anatomy.feet>anatomy.visibleBottom)crops[figure.alias]=(anatomy.feet-anatomy.visibleBottom)/(anatomy.feet-(anatomy.headTop??anatomy.figureTop));
             const size=input&&resolveFigureSizing({...input,canvas:input.metrics?.canvas,W:1,H:1});
             if(size?.mode==='physical')sizes[figure.alias]={cm:size.heightCm,ground:size.restHead?(size.support.y-size.restHead.top)/size.displayPx:1};
-            // How far the picture's ink reaches either side of where it stands, and its face's half width, per displayed
-            // body: the layout keeps every face clear of its neighbours' pictures (galFigureLayout widths).
+            // How far the picture's ink reaches either side of where it stands (its farthest ink and its body's mass), and its
+            // face's half width, per displayed body: the layout keeps every face clear of its neighbours' pictures and
+            // spaces the bodies (galFigureLayout widths).
+            // Heights are above the ground, per displayed body; bands keep each row's farthest ink for the faces at its height.
             const ink=!entry?.model&&entry?.sprite?.forkInkX;
-            const seen=widthSeen.get(figure.alias);
             if(size?.mode==='physical'&&ink&&size.restHead&&size.displayPx>0){
-                const per=size.scale/size.displayPx,now={left:(size.supportX-ink[0])*per,right:(ink[1]-size.supportX)*per,face:size.restHead.width/2/size.displayPx};
-                widthSeen.set(figure.alias,seen?{left:Math.max(seen.left,now.left),right:Math.max(seen.right,now.right),face:Math.max(seen.face,now.face)}:now);
+                const per=size.scale/size.displayPx,X=size.supportX,up=y=>(size.groundY-y)/size.displayPx,at=c=>up(size.y+c*size.scale);
+                const pictures=widthSeen.get(figure.alias)||new Map();
+                pictures.set(ink,{left:(X-ink.x[0])*per,right:(ink.x[1]-X)*per,bodyLeft:Math.max(0,X-ink.body[0])*per,bodyRight:Math.max(0,ink.body[1]-X)*per,
+                    face:size.restHead.width/2/size.displayPx,faceTop:up(size.restHead.top),faceChin:up(size.restHead.chin),
+                    bands:ink.bands.map(([top,bottom,l,r])=>[at(top),at(bottom),(X-l)*per,(r-X)*per])});
+                widthSeen.set(figure.alias,pictures);
             }
-            if(widthSeen.has(figure.alias))widths[figure.alias]=widthSeen.get(figure.alias);
+            const pictures=[...(widthSeen.get(figure.alias)?.values()||[])];
+            if(pictures.length)widths[figure.alias]={...Object.fromEntries(['left','right','bodyLeft','bodyRight','face','faceTop','faceChin'].map(k=>[k,Math.max(...pictures.map(p=>p[k]))])),
+                bands:pictures.flatMap(p=>p.bands)};
         }
         const present=new Set((desc.figures||[]).map(figure=>figure?.alias));
         for(const alias of widthSeen.keys())if(!present.has(alias))widthSeen.delete(alias);
@@ -9714,29 +9721,48 @@ function galSlots(count, skinSlots) {
     return skinSlots?.[count] || Array.from({ length: count }, (_, i) => (i + galSlotEdge(count)) * galSlotGap(count));
 }
 // Where figures of different widths stand: spaced by their measured widths rather than shrunk together.
-// extents: [{left, right, reach, face}] px at fit 1 in stage order (the ink either side of the stand point, the farther of
-// the two, half the face's width); edge: galSlotEdge. Between neighbours a and b the stand points are at least
-// max(a.reach + b.face, b.reach + a.face) apart - no picture over a face beside it, whichever way either figure turns - and
-// would like to be a.right + b.left + gap: the pictures as drawn clear by an equal gap. Each screen edge counts as a mirror:
+// extents: [{left, right, reach, face, faceSpan?, bands?}] px at fit 1 in stage order: the body's mass either side of the
+// stand point, the farthest ink on either side, half the face's width; measured pictures add their face's [chin, top] and
+// their rows' farthest ink [[top, bottom, left, right]], heights above the ground. edge: galSlotEdge. Between neighbours a
+// and b the stand points are at least a's farthest ink at b's face height plus b's half face apart, and the same the
+// other way - no picture over a face beside it, whichever way either figure turns (a blade raised above a shorter
+// neighbour's head reaches nothing of it) - and would like to be a.right + b.left + gap: the bodies clear by an equal gap.
+// A weapon or a cloak reaching far weighs little to the eye: the bodies' gaps are what reads as even (a reaper's blade
+// counted as its body crowded the two beside it together). Nor do two neighbours stand closer than GAL_EVEN_FLOOR of the
+// default slots' gap while a broad one beside them takes the room: the row shrinks first (a 260 cm reaper at full size
+// pushed the two others together at the far side - the eye reads that as lopsided, not as room well used). Each screen edge counts as a mirror:
 // edge x the pair a figure would make with its own reflection - at least edge (reach + face) and never closer than a face
 // width from the face's centre (half a face of margin), ideally edge (2 x its outer side + gap), so the outer faces keep a
 // margin and, with room, the outer pictures half a gap (2-3 figures). One gap for the
 // whole row, as large as the width allows; a pair at its least distance stays there and the rest share what is left.
 // A turned figure (gaze) keeps its place: the faces stay clear, only the pictures' gap differs.
 // Equal extents land exactly on the default slots (galSlots); a broad figure takes the room its picture needs.
-// -> { least: px the row needs at fit 1, at(fit, W): stand points 0..1 at that fit on a W px stage }
+// -> { fit(W): the largest fit up to 1 the row stands at on a W px stage, at(fit, W): stand points 0..1 at that fit }
 function galSpacing(extents, edge) {
+    // How far a's ink reaches across at b's face height (all of it where either is unmeasured).
+    const over = (a, b) => {
+        if (!a.bands || !b.faceSpan) return a.reach;
+        const [low, high] = b.faceSpan;
+        return Math.max(0, ...a.bands.filter(([top, bottom]) => top >= low && bottom <= high).map(([, , l, r]) => Math.max(l, r)));
+    };
     const n = extents.length, pairs = [];
     for (let i = 1; i < n; i++) {
         const a = extents[i - 1], b = extents[i];
-        pairs.push({ least: Math.max(a.reach + b.face, b.reach + a.face), clear: a.right + b.left });
+        pairs.push({ least: Math.max(over(a, b) + b.face, over(b, a) + a.face, a.face + b.face), clear: a.right + b.left });
     }
     const sides = [[extents[0], extents[0].left], [extents[n - 1], extents[n - 1].right]]
-        .map(([e, outer]) => ({ least: Math.max(edge * (e.reach + e.face), 2 * e.face), clear: edge * 2 * outer, share: edge }));
-    const parts = pairs.map(p => ({ ...p, share: 1 })).concat(sides);
-    const least = parts.reduce((sum, p) => sum + p.least, 0);
+        .map(([e, outer]) => ({ least: Math.max(edge * (over(e, e) + e.face), 2 * e.face), clear: edge * 2 * outer, share: edge }));
+    const floor = GAL_EVEN_FLOOR * galSlotGap(n), parts = pairs.map(p => ({ ...p, share: 1, floor })).concat(sides.map(p => ({ ...p, floor: 0 })));
+    // The largest fit (at most 1) at which the faces and the floors fit the width.
+    const fit = W => {
+        const need = f => parts.reduce((sum, p) => sum + Math.max(p.least * f, p.floor * W), 0);
+        if (need(1) <= W) return 1;
+        let lo = 0, hi = 1;
+        for (let i = 0; i < 60; i++) { const mid = (lo + hi) / 2; if (need(mid) <= W) lo = mid; else hi = mid; }
+        return lo;
+    };
     const at = (fit, W) => {
-        const span = g => parts.map(p => Math.max(p.least * fit, p.clear * fit + p.share * g));
+        const span = g => parts.map(p => Math.max(p.least * fit, p.floor * W, p.clear * fit + p.share * g));
         const total = g => span(g).reduce((sum, v) => sum + v, 0);
         // total(g) never falls as the gap grows: halve the bracket down to the gap that fills the width.
         let lo = -Math.max(...parts.map(p => p.clear / p.share)) * fit, hi = W;
@@ -9746,8 +9772,9 @@ function galSpacing(extents, edge) {
         for (let i = 0, at = lengths[n - 1]; i < n; at += lengths[i++]) x.push(at / sum);
         return x;
     };
-    return { least, at };
+    return { fit, at };
 }
+const GAL_EVEN_FLOOR = 0.8;
 // { W, H, boxTop, hMax, groundRatio, cast: ids in stage order, priority: ids, most important first,
 //   crops: { id: share of the head-to-feet span missing below the picture }, slots: the skin's figureSlots,
 //   max: the skin's maxFigures, phone: its phoneFigures (portrait cap, omitted = 1), framing: the skin's figures {scale, top},
@@ -9793,7 +9820,10 @@ function galFigureLayout(input) {
     const half = head * zoom * c.bodyHeads / 2, nominal = { left: half, right: half, reach: half, face: head * zoom * c.bodyHeads * (0.5 - c.maxOverlap) };
     const extent = id => {
         const w = input.widths?.[id], px = body(id);
-        return w && px ? { left: w.left * px, right: w.right * px, reach: Math.max(w.left, w.right) * px, face: w.face * px } : nominal;
+        if (!w || !px) return nominal;
+        const e = { left: (w.bodyLeft ?? w.left) * px, right: (w.bodyRight ?? w.right) * px, reach: Math.max(w.left, w.right) * px, face: w.face * px };
+        if (w.bands && w.faceTop != null) Object.assign(e, { faceSpan: [w.faceChin * px, w.faceTop * px], bands: w.bands.map(([top, bottom, l, r]) => [top * px, bottom * px, l * px, r * px]) });
+        return e;
     };
     // A skin's figureSlots stay where its original stood them: the cast only shrinks there, as far as the default gap's
     // nominal bound and every face clear of its neighbours' pictures need.
@@ -9814,7 +9844,7 @@ function galFigureLayout(input) {
     } else {
         for (; count > 1; count--) {
             const ids = drawnOf(count);
-            fit = input.slots?.[count] ? skinFit(ids) : Math.min(1, W / galSpacing(ids.map(extent), galSlotEdge(count)).least);
+            fit = input.slots?.[count] ? skinFit(ids) : galSpacing(ids.map(extent), galSlotEdge(count)).fit(W);
             if (fit >= floor) break;
         }
         if (count <= 1) fit = lone;
@@ -18015,8 +18045,10 @@ function createStageFigureAssets({spineFigures,metrics}) {
     // one figure 4% of the stage width off her slot. undefined when unreadable or empty. Once per
     // picture and head band.
     // face: [left, right] canvas fractions where the pack framed the face (asset-pack-presentation packFaceSpan); only ink
-    // inside it counts, so a hammer head or a scythe blade beside the head does not pull the centre over (三角机构 雷蒙德
-    // stood on his hammer). Omitted = the whole width.
+    // inside it counts, so a hammer head or a scythe blade beside the head does not pull the centre over (a broad
+    // figure stood on his hammer). Omitted = within three quarters of a head span (headTop..chin) of the body's middle: the
+    // median column of the ink in the two head spans below the chin, where a weapon held aloft is only its shaft (a reaper
+    // whose blade rose beside the hood stood on the blade, its body a third of a figure to the side).
     function headCentre(document, key, texture, top, chin, face) {
         const id = key + ":head-x:" + top + ":" + chin + ":" + (face ? face.join(",") : "");
         if (headCentres.has(id)) return headCentres.get(id);
@@ -18027,25 +18059,37 @@ function createStageFigureAssets({spineFigures,metrics}) {
             const ctx = canvas.getContext("2d", { willReadFrequently: true });
             ctx.drawImage(texture.baseTexture.resource.source, 0, 0, canvas.width, canvas.height);
             const y0 = Math.max(0, Math.floor(top * canvas.height)), y1 = Math.min(canvas.height, Math.ceil(chin * canvas.height));
-            if (y1 > y0) {
-                const data = ctx.getImageData(0, y0, canvas.width, y1 - y0).data, columns = new Float64Array(canvas.width);
-                const x0 = face ? Math.max(0, Math.floor(face[0] * canvas.width)) : 0, x1 = face ? Math.min(canvas.width, Math.ceil(face[1] * canvas.width)) : canvas.width;
+            const y2 = Math.min(canvas.height, Math.max(y1, Math.ceil((chin + 2 * (chin - top)) * canvas.height)));
+            // The q-th and (1 - q)-th quantile columns of the ink in rows [from, to) and inside [x0, x1): [low, high + 1) or null.
+            const span = (data, from, to, x0, x1, q = 0.1) => {
+                const columns = new Float64Array(canvas.width);
                 let total = 0;
-                for (let i = 3; i < data.length; i += 4) { const x = ((i - 3) / 4) % canvas.width; if (data[i] >= 64 && x >= x0 && x < x1) { columns[x]++; total++; } }
-                if (total >= 16) {
-                    let seen = 0, low = -1, high = -1;
-                    for (let x = 0; x < canvas.width; x++) { seen += columns[x]; if (low < 0 && seen >= total * 0.1) low = x; if (high < 0 && seen >= total * 0.9) high = x; }
-                    result = (low + high + 1) / 2 / ratio;
-                }
+                for (let y = from; y < to; y++) for (let x = x0; x < x1; x++) if (data[((y - y0) * canvas.width + x) * 4 + 3] >= 64) { columns[x]++; total++; }
+                if (total < 16) return null;
+                let seen = 0, low = -1, high = -1;
+                for (let x = 0; x < canvas.width; x++) { seen += columns[x]; if (low < 0 && seen >= total * q) low = x; if (high < 0 && seen >= total * (1 - q)) high = x; }
+                return [low, high + 1];
+            };
+            if (y1 > y0) {
+                const data = ctx.getImageData(0, y0, canvas.width, y2 - y0).data;
+                const middle = !face && span(data, y1, y2, 0, canvas.width, 0.5), reach = 0.75 * (y1 - y0);
+                const within = face ? [Math.max(0, Math.floor(face[0] * canvas.width)), Math.min(canvas.width, Math.ceil(face[1] * canvas.width))]
+                    : middle ? [Math.max(0, Math.floor(middle[0] + 0.5 - reach)), Math.min(canvas.width, Math.ceil(middle[0] + 0.5 + reach))] : [0, canvas.width];
+                const head = span(data, y0, y1, within[0], within[1]);
+                if (head) result = (head[0] + head[1]) / 2 / ratio;
             }
         } catch (_) { result = undefined; }
         if (headCentres.size >= 256) headCentres.delete(headCentres.keys().next().value);
         headCentres.set(id, result);
         return result;
     }
-    // How far a picture's ink reaches across its canvas: [left, right] in canvas px (alpha >= 64, read at 256 px), so the
-    // cast layout knows a broad figure - plate armour, a hammer on the shoulder, wings - from a slim one. undefined when
-    // unreadable or empty. Once per picture.
+    // How far a picture's ink reaches across its canvas, in canvas px (alpha >= 64, read at 256 px), so the cast layout knows
+    // a broad figure - plate armour, a hammer on the shoulder, wings - from a slim one: { x: [left, right] the farthest ink,
+    // body: [left, right] the 5th-95th percentile of the ink by column - the mass the eye weighs when it judges the gaps (a
+    // scythe's blade reaches far but weighs little) - and bands: [[top, bottom, left, right]] the farthest ink of each of 32
+    // rows of the canvas that hold any, so a neighbour's face is kept clear only of what reaches across at its height (a
+    // blade raised above a shorter neighbour's head does not push it away) }. undefined when unreadable or empty. Once
+    // per picture.
     function inkSpan(document, key, texture) {
         const id = key + ":ink-x";
         if (headCentres.has(id)) return headCentres.get(id);
@@ -18056,9 +18100,19 @@ function createStageFigureAssets({spineFigures,metrics}) {
             const ctx = canvas.getContext("2d", { willReadFrequently: true });
             ctx.drawImage(texture.baseTexture.resource.source, 0, 0, canvas.width, canvas.height);
             const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
-            let left = canvas.width, right = -1;
-            for (let i = 3; i < data.length; i += 4) if (data[i] >= 64) { const x = ((i - 3) / 4) % canvas.width; if (x < left) left = x; if (x > right) right = x; }
-            if (right >= left) result = [left / ratio, (right + 1) / ratio];
+            const columns = new Float64Array(canvas.width), rows = 32, bands = Array.from({ length: rows }, () => [canvas.width, -1]);
+            let left = canvas.width, right = -1, total = 0;
+            for (let i = 3; i < data.length; i += 4) if (data[i] >= 64) {
+                const p = (i - 3) / 4, x = p % canvas.width, band = bands[Math.min(rows - 1, Math.floor((p - x) / canvas.width * rows / canvas.height))];
+                columns[x]++; total++; if (x < left) left = x; if (x > right) right = x; if (x < band[0]) band[0] = x; if (x > band[1]) band[1] = x;
+            }
+            if (right >= left) {
+                let seen = 0, low = -1, high = -1;
+                for (let x = 0; x < canvas.width; x++) { seen += columns[x]; if (low < 0 && seen >= total * 0.05) low = x; if (high < 0 && seen >= total * 0.95) high = x; }
+                const step = canvas.height / rows / ratio;
+                result = { x: [left / ratio, (right + 1) / ratio], body: [low / ratio, (high + 1) / ratio],
+                    bands: bands.flatMap(([l, r], i) => r >= l ? [[i * step, (i + 1) * step, l / ratio, (r + 1) / ratio]] : []) };
+            }
         } catch (_) { result = undefined; }
         if (headCentres.size >= 256) headCentres.delete(headCentres.keys().next().value);
         headCentres.set(id, result);
