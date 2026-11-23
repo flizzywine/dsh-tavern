@@ -3152,7 +3152,8 @@ body.dsh-tavern-shell-active [class*="_tabs"] [class*="_viewsMoreAnchor"] [class
   body.dsh-tavern-shell-active [data-composer-card] button[class*="_add"]::after { content: ""; position: absolute; top: -6px; right: -6px; bottom: -6px; left: -6px; }
   body.dsh-tavern-shell-active :is([data-sidebar-right-panel], .dsh-tavern-picker-overlay, .dsh-tavern-prompt, .dsh-tavern-group-manager, .dsh-ejs-editor, [role="dialog"]:has(> nav[class*="_nav"]))
     :is(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]), textarea, select) { font-size: 16px; max-width: 100%; box-sizing: border-box; }
-  body.dsh-tavern-shell-active :is([data-sidebar-right-panel]) :is(button, summary, select) { min-height: 40px; }
+  /* 开关轨道（role="switch"）是横向胶囊，不能被 40px 高度地板撑成方块。 */
+  body.dsh-tavern-shell-active :is([data-sidebar-right-panel]) :is(button:not([role="switch"]), summary, select) { min-height: 40px; }
   body.dsh-tavern-shell-active :is([data-sidebar-right-expand], [data-sidebar-right-toggle], [data-sidebar-right-mode], [data-dockkit-add-tab]) {
     box-sizing: border-box; width: 40px; height: 40px; min-width: 40px; flex-shrink: 0; opacity: 1;
   }
