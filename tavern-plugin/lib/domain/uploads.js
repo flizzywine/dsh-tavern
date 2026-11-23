@@ -5,11 +5,11 @@ import path from 'node:path'
 import { pipeline } from 'node:stream/promises'
 import { Transform } from 'node:stream'
 
-// Large files sent to Tavern as a raw request body (DSH cards of several hundred MB), kept on disk
+// Large files sent to Tavern as a raw request body (DSH cards / asset packs up to several GB), kept on disk
 // until the call that uses them; never read into memory or encoded as base64.
 
 const ID = /^[0-9a-f-]{36}$/
-export const MAX_CARD_UPLOAD_BYTES = 1024 * 1024 * 1024
+export const MAX_CARD_UPLOAD_BYTES = 8 * 1024 * 1024 * 1024
 
 export function createUploads({ root, maxBytes = MAX_CARD_UPLOAD_BYTES, maxAgeMs = 24 * 60 * 60 * 1000 }) {
   const dir = path.join(path.resolve(root), 'tmp-uploads')

@@ -1549,7 +1549,7 @@ export async function apply(ctx) {
   const userPluginInstaller = createUserPluginInstaller({ dataRoot, sync: () => syncUserPlugins({ dataRoot, cardPaths: () => fileResources.list('card'), pending: cardPluginUpdatePending }) })
   const cardPlugins = createCardPlugins({ dataRoot, cardPaths: () => fileResources.list('card'), pluginsDir: userPluginPaths(dataRoot).plugins, keyOf: castAssets.keyOf,
     journalPath: cardPluginJournal })
-  const cardPluginUploads = createUploads({ root: path.join(tmpdir(), 'dsh-card-plugin-update', castAssets.keyOf(dataRoot)), maxAgeMs: 10 * 60 * 1000 })
+  const cardPluginUploads = createUploads({ root: path.join(tmpdir(), 'dsh-card-plugin-update', castAssets.keyOf(dataRoot)), maxBytes: 1024 * 1024 * 1024, maxAgeMs: 10 * 60 * 1000 })
   ctx.effect(() => {
     const timer = setInterval(() => { void cardPluginUploads.sweep().catch(() => {}) }, 60 * 1000)
     timer.unref?.()

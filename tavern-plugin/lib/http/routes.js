@@ -317,6 +317,7 @@ export function registerTavernHttpRoutes({
           }
           // Big files (DSH cards) arrive as a raw body and wait on disk for the call that uses them.
           if (req.method === 'POST' && pathname === '/api/dsh-tavern/card-upload') {
+            req.setTimeout?.(0)
             let reply
             try { const upload = await uploads.receive(req); reply = { ok: true, uploadId: upload.id, size: upload.size } }
             catch (error) { reply = { ok: false, error: String(error?.message || error) } }

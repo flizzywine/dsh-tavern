@@ -62,11 +62,11 @@ test('streaming ZIP round trip: UTF-8 names, STORE, DEFLATE, empty and ratio-saf
   const root = await fixture(t), file = path.join(root, 'pack.zip')
   // DEFLATE-eligible entries must be non-empty, compressible, and under ZIP_LIMITS.ratio (200); ~4 KB of repeated text gives a ratio near 100.
   const repeated = (text, bytes) => Buffer.from(text.repeat(Math.ceil(bytes / text.length)).slice(0, bytes))
-  const entries = [{ path: 'card/\u4eba\u7269.json', data: Buffer.from(JSON.stringify({ name: 'test', lines: Array(150).fill('tavern line') })) }, { path: 'assets/picture.png', data: Buffer.from('png bytes') }, { path: 'notes/repeat.txt', data: repeated('abcdefghijklmnopqrstuvwxyz\n', 4096) }, { path: 'zeros.txt', data: repeated('0123456789', 4096) }]
+  const entries = [{ path: 'card/\u4eba\u7269.json', data: Buffer.from(JSON.stringify({ name: 'test', lines: Array(150).fill('tavern line') })) }, { path: 'assets/picture.png', data: Buffer.from('png bytes') }, { path: 'assets/sprite.webm', data: Buffer.from('1a45dfa3', 'hex') }, { path: 'notes/repeat.txt', data: repeated('abcdefghijklmnopqrstuvwxyz\n', 4096) }, { path: 'zeros.txt', data: repeated('0123456789', 4096) }]
   const [first, ...rest] = entries
   await writeZip(file, [{ path: first.path, stream: async () => Readable.from([first.data.subarray(0, 20), first.data.subarray(20)]) }, ...rest])
   const archive = await openZip(file)
-  assert.deepEqual(archive.entries.map(e => e.method), [8, 0, 8, 8])
+  assert.deepEqual(archive.entries.map(e => e.method), [8, 0, 0, 8, 8])
   for (let i = 0; i < entries.length; i++) { assert.equal(archive.entries[i].path, entries[i].path); assert.deepEqual(await archive.read(archive.entries[i]), entries[i].data) }
   // Empty entries cannot beat STORE (a DEFLATE stream is >= 2 bytes), so they get their own round-trip check.
   const emptyFile = path.join(root, 'empty-only.zip')
