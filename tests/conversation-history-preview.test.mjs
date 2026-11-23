@@ -400,8 +400,8 @@ test('宽屏管理面板在窄屏也能完整显示检索、对话和批量操�
         <button class="dsh-tavern-history-manager-icon" aria-label="关闭">×</button>
       </div>
       <div class="dsh-tavern-history-manager-toolbar">
-        <label class="dsh-tavern-history-manager-select-all"><input class="dsh-tavern-history-manager-check" type="checkbox">全选</label>
-        <input class="dsh-tavern-library-search dsh-tavern-history-manager-search" placeholder="搜索对话" />
+        <button type="button" role="checkbox" aria-checked="false" class="ap-pack-check dsh-tavern-history-manager-check dsh-tavern-history-manager-select-all"><span class="ap-check-mark" aria-hidden="true"></span>全选</button>
+        <input type="search" class="dsh-tavern-library-search dsh-tavern-history-manager-search" placeholder="搜索对话" />
         <div class="dsh-tavern-history-manager-filters">
           <div class="dsh-tavern-history-manager-select"><button class="dsh-tavern-history-card-trigger">全部人物卡</button></div>
           <span class="fork-inline-anchor"><button class="fork-inline-trigger dsh-tavern-history-card-trigger">全部状态</button></span>
@@ -409,7 +409,7 @@ test('宽屏管理面板在窄屏也能完整显示检索、对话和批量操�
       </div>
       <div class="dsh-tavern-history-manager-list">
         <div class="dsh-tavern-history-manager-row current">
-          <input type="checkbox" class="dsh-tavern-history-manager-check" />
+          <button type="button" role="checkbox" aria-checked="true" class="ap-pack-check dsh-tavern-history-manager-check"><span class="ap-check-mark" aria-hidden="true"></span></button>
           <div class="dsh-tavern-history-manager-body">
             <div class="dsh-tavern-history-manager-headline">
               <span class="dsh-tavern-history-manager-title">11/7 20:25 开局</span>
