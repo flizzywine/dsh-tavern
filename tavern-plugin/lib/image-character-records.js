@@ -1,15 +1,15 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
-import { mkdir, readFile, rename, stat, writeFile } from 'node:fs/promises'
-import path from 'node:path'
-import { appearanceMove, findFigureImageCharacter, imageAliasesFromFigure, imageCharacterFromFigure, IMAGE_CHARACTER_EXTENSION, internalAliasCode, packReferenceName, referencePatch, setteiReferences } from './domain/image-character-appearance.js'
+import { readFile, stat } from 'node:fs/promises'
+import { check, text } from '../packages/dsh-asset-library/lib/shared/asset-pack-json.js'
+import { figureNameKey } from '../packages/dsh-asset-library/lib/asset-packs/figure-names.js'
+import { appearanceMove, findFigureImageCharacter, imageAliasesFromFigure, imageCharacterFromFigure, IMAGE_CHARACTER_EXTENSION, internalAliasCode, packReferenceName, referencePatch } from './domain/image-character-appearance.js'
 
-// Where a figure's name, 触发词 and outfit names live (ADR 0010). 'registry': in its linked 配图 人物库 record; the asset
-// library stores the figure without them and puts them back on every read (asset library pack-v2/figure-records.js).
-// 'pack': in the pack (the figure stays whole; image-character-follow.js brings the record along). The mode is the switch
-// and its way back: switching rewrites every figure document as the new mode stores it (switchFigureRecords).
-export const FIGURE_RECORD_MODES = ['pack', 'registry']
-
-const words = match => String(match ?? '').split(',').map(word => word.trim()).filter(Boolean)
+// A figure's name, 触发词 and outfit names live in its linked 配图 人物库 record, the one place (ADR 0011); the asset library
+// stores the figure without them and puts them back on every read (asset library pack-v2/figure-records.js). A figure
+// with no record to hold them (no 人物库, or several to choose from) stays whole in its pack.
+// The record keeps 触发词 as one field separated by these marks; a figure's own 触发词 never contain them
+// (asset library figure-names.js splits at the same marks).
+const words = match => String(match ?? '').split(/[,，\n]/).map(word => word.trim()).filter(Boolean)
 // The record's view of a figure's identity, as the asset library rebuilds the figure from it.
 export const recordIdentity = character => ({ name: character.name, aliases: words(character.match),
   outfits: Object.fromEntries((character.outfits || []).filter(outfit => outfit.name?.trim()).map(outfit => [outfit.id, outfit.name.trim()])) })
@@ -21,9 +21,6 @@ export function figureWithoutIdentity(figure) {
   const kept = (aliases || []).filter(internalAliasCode)
   return { ...rest, ...(kept.length ? { aliases: kept } : {}), outfits: figure.outfits.map(({ label: __, ...outfit }) => outfit) }
 }
-
-/** A record keeps 触发词 as one comma-separated field: a figure with a 触发词 that has a comma stays whole. */
-export const recordCanHold = figure => !(figure.aliases || []).some(word => word.includes(','))
 
 /** The record patch that makes it carry the figure's identity; null when it does. A new outfit is added. */
 export function recordIdentityPatch(character, figure) {
@@ -41,12 +38,12 @@ export const linkedRecordIn = (definitions, { packId, figureId }) => definitions
  *  and Tavern moves it into the record once the 人物库 is back (foldWhole). */
 export function storedBesideRecord(character, figure) {
   const carries = figure.identityAppearance || figure.extensions?.[IMAGE_CHARACTER_EXTENSION] || figure.outfits.some(outfit => outfit.outfitAppearance)
-  return character && !carries && recordCanHold(figure) && !recordIdentityPatch(character, figure) ? figureWithoutIdentity(figure) : figure
+  return character && !carries && !recordIdentityPatch(character, figure) ? figureWithoutIdentity(figure) : figure
 }
 
 // recordFile: the 人物库's definitions.json. While its plugin is off the records are read from it (read only), so figures
 // keep showing, editing and exporting; an identity edited meanwhile is stored whole in the pack until the plugin is back.
-export function createFigureRecords({ api, file, recordFile, log = () => {} }) {
+export function createFigureRecords({ api, recordFile, log = () => {} }) {
   let fileCache = null
   async function fileRecord(ref) {
     if (!recordFile) return null
@@ -56,29 +53,23 @@ export function createFigureRecords({ api, file, recordFile, log = () => {} }) {
     if (fileCache?.key !== key) fileCache = { key, definitions: JSON.parse(await readFile(recordFile, 'utf8')) }
     return linkedRecordIn(fileCache.definitions, ref)
   }
-  let mode = 'pack'
-  const loaded = readFile(file, 'utf8').then(text => {
-    const saved = JSON.parse(text)
-    if (FIGURE_RECORD_MODES.includes(saved.mode)) mode = saved.mode
-  }, error => { if (error.code !== 'ENOENT') log('人物资料存放方式读取失败，按素材包保存：' + error.message) })
   // Record writes made here, during a pack write: the 人物库's linked-figure hook must not write that pack again.
   const own = new AsyncLocalStorage()
   const adopting = new Map() // packId → figure ids whose carried 外貌 replaces their record's on the next write
   const patch = (state, recordPatch) => api.imageCharacters('patchCharacter', { providerId: state.providerId, characterId: state.character.id, expected: state.character, patch: recordPatch })
   const reference = async (state, name, { bytes, mime }) => (await api.imageCharacters('putReferenceImage', { providerId: state.providerId, data: new Uint8Array(bytes), mediaType: mime, name })).referenceImage
 
-  // The record takes the figure's identity, then (as the follower did after a write) the 外貌 and 参考图 the figure carries
-  // and its 设定图 as the record's (setteiReferences). Returns the figure without what moved into the record.
+  // The record takes the figure's identity, then the 外貌 and uploaded 参考图 the figure carries. Its 设定图 stay in the
+  // pack, the one place 配图 reads them from (ADR 0012). Returns the figure without what moved into the record.
   async function keep(state, packId, figure, media) {
     const replace = !!figure.extensions?.[IMAGE_CHARACTER_EXTENSION] && !!adopting.get(packId)?.delete(figure.id)
     const move = appearanceMove(state.character, figure, { replace })
     for (const row of move?.references || []) {
       const outfit = row.outfit ? figure.outfits.find(item => item.key === row.outfit) : null
       if (row.outfit && !outfit) continue
-      const referenceImage = await reference(state, row.name || packReferenceName(figure, outfit, ' 参考图'), await media(row.media))
+      const referenceImage = await reference(state, row.name || packReferenceName(figure, outfit), await media(row.media))
       state = await patch(state, referencePatch(state.character, outfit, referenceImage))
     }
-    for (const { outfit, hash } of setteiReferences(state.character, figure)) state = await patch(state, referencePatch(state.character, outfit, hash ? await reference(state, packReferenceName(figure, outfit), await media(hash)) : null))
     if (move?.record) state = await patch(state, move.record)
     if (move?.dropped.length) log('「' + figure.name + '」素材包里的外貌文字与配图人物库不同，以人物库为准：' + move.dropped.map(row => row.text).join(' / ').slice(0, 200))
     const rest = move ? { ...figure, ...move.figure } : figure
@@ -87,14 +78,29 @@ export function createFigureRecords({ api, file, recordFile, log = () => {} }) {
   }
 
   return {
-    async mode() { await loaded; return mode },
-    async setMode(next) {
-      if (!FIGURE_RECORD_MODES.includes(next)) throw Object.assign(new Error('人物资料存放方式只能是 pack 或 registry'), { code: 'INVALID_ARGUMENT' })
-      await loaded
-      await mkdir(path.dirname(file), { recursive: true })
-      await writeFile(file + '.tmp', JSON.stringify({ version: 1, mode: next, switchedAt: new Date().toISOString() }) + '\n')
-      await rename(file + '.tmp', file)
-      mode = next
+    /** The 人物库 saves records linked to figures (tavern.saveLinkedRecords): the library reads the changed figures again; a
+     *  link that ends first gives its figure the identity its record held, in the same save. */
+    async saveLinked(library, changes, receipt, save) {
+      // A record write the pack write in progress made itself: that pack holds it already.
+      if (own.getStore() === true) return await save()
+      for (const { identity } of changes) {
+        if (!identity) continue
+        const aliases = words(identity.match)
+        text(identity.name, '$.name')
+        check(Boolean(figureNameKey(identity.name)), '$.name', 'Invalid figure name')
+        check(new Set(aliases.map(figureNameKey)).size <= 128, '$.aliases', 'Too many trigger words')
+        for (const alias of aliases) text(alias, '$.aliases', 160)
+        for (const name of identity.outfits) if (name) text(name, '$.outfits[].label')
+      }
+      const released = changes.filter(change => change.release)
+      if (released.length && typeof library?.releaseFigureIdentities !== 'function') throw Object.assign(new Error('素材库未启用或版本过旧'), { code: 'NOT_CONFIGURED' })
+      const result = released.length ? await library.releaseFigureIdentities(released, receipt, () => save()) : await save()
+      const packIds = [...new Set(changes.filter(change => !change.release).map(change => change.packId))]
+      if (packIds.length && library?.figureRecordsChanged) {
+        try { await library.figureRecordsChanged({ packIds }) }
+        catch (error) { log('素材库人物刷新失败：' + (error?.message ?? error)) }
+      }
+      return result
     },
     /** A record write this module is making right now (a pack write in progress). */
     writing: () => own.getStore() === true,
@@ -106,8 +112,7 @@ export function createFigureRecords({ api, file, recordFile, log = () => {} }) {
       return state.status === 'linked' ? recordIdentity(state.character) : null
     },
     async write({ packId, figureId, figure, intent, media }) {
-      await loaded
-      if (mode !== 'registry' || intent === 'released' || !recordCanHold(figure)) return figure
+      if (intent === 'released') return figure
       if (intent === 'held') return figureWithoutIdentity(figure)
       let state = await findFigureImageCharacter(api, { packId, figureId })
       if (state.status === 'unavailable') return storedBesideRecord(await fileRecord({ packId, figureId }), figure)
@@ -124,15 +129,14 @@ export function createFigureRecords({ api, file, recordFile, log = () => {} }) {
     // The 人物库 is back: figures stored whole meanwhile (an identity edited while it was off, a figure made then) move into
     // their records, the pack's value winning as on any write. Only packs holding such a figure are written.
     async foldWhole(library) {
-      await loaded
-      if (mode !== 'registry' || !(await api.imageCharacterLibraries()).length) return []
+      if (!(await api.imageCharacterLibraries()).length) return []
       const packIds = []
       for (const row of await library.figureDocumentForms()) {
         if (!row.whole.length) continue
         const pack = await library.getPackSnapshot({ packId: row.packId })
         for (const figureId of row.whole) {
           const figure = pack.figures[figureId]
-          if (!figure || !recordCanHold(figure)) continue
+          if (!figure) continue
           const state = await findFigureImageCharacter(api, { packId: row.packId, figureId })
           if (state.status === 'linked' || state.status === 'unlinked' && state.libraries.length === 1) { packIds.push(row.packId); break }
         }
@@ -142,8 +146,6 @@ export function createFigureRecords({ api, file, recordFile, log = () => {} }) {
     },    // A figure a write removed (deleted, or its pack uninstalled) leaves its record as an ordinary one: the link ends,
     // the record keeps the name and 外貌 (「一起删除」 deletes the record before the figure goes).
     async release({ packId, figureIds }) {
-      await loaded
-      if (mode !== 'registry') return
       await own.run(true, async () => {
         for (const figureId of figureIds) {
           const state = await findFigureImageCharacter(api, { packId, figureId })

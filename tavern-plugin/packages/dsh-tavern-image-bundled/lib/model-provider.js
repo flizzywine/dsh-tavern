@@ -74,7 +74,7 @@ export function createImageGenerator(getConfig, generate, defaultUsage = 'plugin
       const channel = activeChannel({ ...config, imageBackend: selected.provider, activeImageChannel: selected.id })
       const promptUsage = normalizePromptUsage(usage, defaultUsage)
       const maxImageBytes = config.maxImageBytes
-      const records = definitions || library.definitions?.() || {}
+      const records = definitions || await library.definitions?.() || {}
       const prepared = await composePluginImagePromptAsync(config, { channel, prompt, negative, usage: promptUsage, inputs, subjects, definitions: records, signal, chooseScenario })
       if (prepared.workflowValues?.length) throw new Error('当前模板的节点参数需要 ComfyUI 工作流')
       const template = effectivePromptPreset(promptConfigForTarget(config, null, channel))

@@ -581,29 +581,48 @@ function galSlots(count, skinSlots) {
     return skinSlots?.[count] || Array.from({ length: count }, (_, i) => (i + galSlotEdge(count)) * galSlotGap(count));
 }
 // Where figures of different widths stand: spaced by their measured widths rather than shrunk together.
-// extents: [{left, right, reach, face}] px at fit 1 in stage order (the ink either side of the stand point, the farther of
-// the two, half the face's width); edge: galSlotEdge. Between neighbours a and b the stand points are at least
-// max(a.reach + b.face, b.reach + a.face) apart - no picture over a face beside it, whichever way either figure turns - and
-// would like to be a.right + b.left + gap: the pictures as drawn clear by an equal gap. Each screen edge counts as a mirror:
+// extents: [{left, right, reach, face, faceSpan?, bands?}] px at fit 1 in stage order: the body's mass either side of the
+// stand point, the farthest ink on either side, half the face's width; measured pictures add their face's [chin, top] and
+// their rows' farthest ink [[top, bottom, left, right]], heights above the ground. edge: galSlotEdge. Between neighbours a
+// and b the stand points are at least a's farthest ink at b's face height plus b's half face apart, and the same the
+// other way - no picture over a face beside it, whichever way either figure turns (a blade raised above a shorter
+// neighbour's head reaches nothing of it) - and would like to be a.right + b.left + gap: the bodies clear by an equal gap.
+// A weapon or a cloak reaching far weighs little to the eye: the bodies' gaps are what reads as even (a reaper's blade
+// counted as its body crowded the two beside it together). Nor do two neighbours stand closer than GAL_EVEN_FLOOR of the
+// default slots' gap while a broad one beside them takes the room: the row shrinks first (a 260 cm reaper at full size
+// pushed the two others together at the far side - the eye reads that as lopsided, not as room well used). Each screen edge counts as a mirror:
 // edge x the pair a figure would make with its own reflection - at least edge (reach + face) and never closer than a face
 // width from the face's centre (half a face of margin), ideally edge (2 x its outer side + gap), so the outer faces keep a
 // margin and, with room, the outer pictures half a gap (2-3 figures). One gap for the
 // whole row, as large as the width allows; a pair at its least distance stays there and the rest share what is left.
 // A turned figure (gaze) keeps its place: the faces stay clear, only the pictures' gap differs.
 // Equal extents land exactly on the default slots (galSlots); a broad figure takes the room its picture needs.
-// -> { least: px the row needs at fit 1, at(fit, W): stand points 0..1 at that fit on a W px stage }
+// -> { fit(W): the largest fit up to 1 the row stands at on a W px stage, at(fit, W): stand points 0..1 at that fit }
 function galSpacing(extents, edge) {
+    // How far a's ink reaches across at b's face height (all of it where either is unmeasured).
+    const over = (a, b) => {
+        if (!a.bands || !b.faceSpan) return a.reach;
+        const [low, high] = b.faceSpan;
+        return Math.max(0, ...a.bands.filter(([top, bottom]) => top >= low && bottom <= high).map(([, , l, r]) => Math.max(l, r)));
+    };
     const n = extents.length, pairs = [];
     for (let i = 1; i < n; i++) {
         const a = extents[i - 1], b = extents[i];
-        pairs.push({ least: Math.max(a.reach + b.face, b.reach + a.face), clear: a.right + b.left });
+        pairs.push({ least: Math.max(over(a, b) + b.face, over(b, a) + a.face, a.face + b.face), clear: a.right + b.left });
     }
     const sides = [[extents[0], extents[0].left], [extents[n - 1], extents[n - 1].right]]
-        .map(([e, outer]) => ({ least: Math.max(edge * (e.reach + e.face), 2 * e.face), clear: edge * 2 * outer, share: edge }));
-    const parts = pairs.map(p => ({ ...p, share: 1 })).concat(sides);
-    const least = parts.reduce((sum, p) => sum + p.least, 0);
+        .map(([e, outer]) => ({ least: Math.max(edge * (over(e, e) + e.face), 2 * e.face), clear: edge * 2 * outer, share: edge }));
+    const floor = GAL_EVEN_FLOOR * galSlotGap(n), parts = pairs.map(p => ({ ...p, share: 1, floor })).concat(sides.map(p => ({ ...p, floor: 0 })));
+    // The largest fit (at most 1) at which the faces and the floors fit the width.
+    const fit = W => {
+        const need = f => parts.reduce((sum, p) => sum + Math.max(p.least * f, p.floor * W), 0);
+        if (need(1) <= W) return 1;
+        let lo = 0, hi = 1;
+        for (let i = 0; i < 60; i++) { const mid = (lo + hi) / 2; if (need(mid) <= W) lo = mid; else hi = mid; }
+        return lo;
+    };
     const at = (fit, W) => {
-        const span = g => parts.map(p => Math.max(p.least * fit, p.clear * fit + p.share * g));
+        const span = g => parts.map(p => Math.max(p.least * fit, p.floor * W, p.clear * fit + p.share * g));
         const total = g => span(g).reduce((sum, v) => sum + v, 0);
         // total(g) never falls as the gap grows: halve the bracket down to the gap that fills the width.
         let lo = -Math.max(...parts.map(p => p.clear / p.share)) * fit, hi = W;
@@ -613,8 +632,9 @@ function galSpacing(extents, edge) {
         for (let i = 0, at = lengths[n - 1]; i < n; at += lengths[i++]) x.push(at / sum);
         return x;
     };
-    return { least, at };
+    return { fit, at };
 }
+const GAL_EVEN_FLOOR = 0.8;
 // { W, H, boxTop, hMax, groundRatio, cast: ids in stage order, priority: ids, most important first,
 //   crops: { id: share of the head-to-feet span missing below the picture }, slots: the skin's figureSlots,
 //   max: the skin's maxFigures, phone: its phoneFigures (portrait cap, omitted = 1), framing: the skin's figures {scale, top},
@@ -660,7 +680,10 @@ function galFigureLayout(input) {
     const half = head * zoom * c.bodyHeads / 2, nominal = { left: half, right: half, reach: half, face: head * zoom * c.bodyHeads * (0.5 - c.maxOverlap) };
     const extent = id => {
         const w = input.widths?.[id], px = body(id);
-        return w && px ? { left: w.left * px, right: w.right * px, reach: Math.max(w.left, w.right) * px, face: w.face * px } : nominal;
+        if (!w || !px) return nominal;
+        const e = { left: (w.bodyLeft ?? w.left) * px, right: (w.bodyRight ?? w.right) * px, reach: Math.max(w.left, w.right) * px, face: w.face * px };
+        if (w.bands && w.faceTop != null) Object.assign(e, { faceSpan: [w.faceChin * px, w.faceTop * px], bands: w.bands.map(([top, bottom, l, r]) => [top * px, bottom * px, l * px, r * px]) });
+        return e;
     };
     // A skin's figureSlots stay where its original stood them: the cast only shrinks there, as far as the default gap's
     // nominal bound and every face clear of its neighbours' pictures need.
@@ -681,7 +704,7 @@ function galFigureLayout(input) {
     } else {
         for (; count > 1; count--) {
             const ids = drawnOf(count);
-            fit = input.slots?.[count] ? skinFit(ids) : Math.min(1, W / galSpacing(ids.map(extent), galSlotEdge(count)).least);
+            fit = input.slots?.[count] ? skinFit(ids) : galSpacing(ids.map(extent), galSlotEdge(count)).fit(W);
             if (fit >= floor) break;
         }
         if (count <= 1) fit = lone;
