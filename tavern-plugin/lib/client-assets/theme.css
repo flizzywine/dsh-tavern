@@ -6270,28 +6270,15 @@ body.dsh-tavern-shell-active [data-sidebar-right-panel="fullscreen"][data-sideba
 /* A bust tile's thumbnail is cut to the frame already: it fills the art box. */
 .ap-outfit-art img.ap-bust-thumb, .ap-head-art img.ap-bust-thumb, .ap-face-art img.ap-bust-thumb { position: absolute; inset: 0; width: 100%; height: 100%; max-width: none; object-fit: fill; }
 /* First-party mod management reuses the workbench surfaces and controls. */
-.ap-mod-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; min-width: 0; }
 .ap-mod-detail { min-width: 0; max-width: 640px; }
-.ap-mod-summary { color: var(--fork-ink-2); font-size: var(--fork-fs-body); }
-.ap-mod-field { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.ap-mod-field > :first-child { flex: 1; min-width: 0; }
-.ap-mod-field[data-blocked] { filter: var(--fk-current-dim); }
 .ap-mod-detail .ap-section[data-level="2"] { margin-block: 12px; }
 .ap-mod-detail .ap-section[data-level="2"] .ap-section-title { font-weight: 500; }
-/* the mod's own asset library — layout classes only; tiles reuse the outfit tile language. */
 .ap-mod-detail > .ap-subhead .ap-subhead-tools { margin-inline-start: auto; }
 /* StageSection level 2 (SPEC §7.1): lead · title · count on the left, chip and ⋯ on the right. */
 .ap-section[data-level="2"] > .ap-section-head { justify-content: flex-start; gap: 8px; }
 .ap-section[data-level="2"] > .ap-section-head > h4 { display: flex; flex: 1; align-items: center; gap: 8px; min-width: 0; margin: 0; font-size: var(--fork-fs-body); font-weight: 500; color: var(--fork-ink-2); }
 .ap-section[data-level="2"] > .ap-section-head > h4 .ap-section-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ap-mod-pack > .ap-section { margin-block: 4px; padding-block: 8px; border-top: 1px dashed var(--fork-hairline); }
-.ap-mod-pack:first-of-type > .ap-section { border-top: 0; }
-.ap-mod-pack > .ap-section > .ap-section-head { margin-bottom: 4px; }
-.ap-mod-strip { display: inline-flex; align-items: center; flex: none; margin-inline-end: 4px; }
-.ap-mod-strip > .ap-mod-strip-art { display: block; width: 22px; height: 22px; overflow: hidden; border-radius: 6px; background: var(--fork-raised); box-shadow: 0 0 0 2px var(--fork-surface); }
-.ap-mod-strip > .ap-mod-strip-art + .ap-mod-strip-art { margin-inline-start: -6px; }
-.ap-mod-strip-art img, .ap-mod-chip-art img, .ap-mod-hero-art img, .ap-mod-pick-thumb img, .ap-mod-art > .ap-outfit-face-art img { display: block; width: 100%; height: 100%; object-fit: contain; }
-.ap-mod-pack-fields { margin-block: 4px 8px; }
+.ap-mod-chip-art img { display: block; width: 100%; height: 100%; object-fit: contain; }
 .ap-mod-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; min-width: 0; }
 /* a filter chip is outlined when off and filled with the accent when on — the
    faint tint before read as no change at all. */
@@ -6301,29 +6288,6 @@ body.dsh-tavern-shell-active [data-sidebar-right-panel="fullscreen"][data-sideba
 .ap-mod-chip-art { display: block; flex: none; width: 22px; height: 22px; overflow: hidden; border-radius: 6px; }
 .ap-mod-chip-art[data-empty] { box-sizing: border-box; border: 1.5px dashed var(--ap-border-strong); }
 .ap-ui button.ap-mod-chip-add { width: 30px; height: 30px; border-radius: 999px; }
-.ap-mod-kind { margin-block: 12px 4px; color: var(--fork-ink-2); font-size: var(--fork-fs-meta); }
-.ap-mod-tiles { display: grid; grid-template-columns: repeat(auto-fill, 72px); align-items: start; gap: 12px 14px; margin-block: 8px; }
-.ap-outfit-art.ap-mod-art { aspect-ratio: 1 / 1; }
-.ap-mod-art > .ap-outfit-face-art { position: absolute; inset: 8px; display: block; }
-.ap-mod-art[data-empty] { box-sizing: border-box; border: 1.5px dashed var(--ap-border-strong); background: none; }
-.ap-ui button.ap-mod-add-tile { width: 72px; height: 72px; }
-.ap-ui button.ap-mod-add-pack { width: 30px; height: 30px; margin-block: 8px; border-radius: 999px; }
-.ap-mod-sounds { display: grid; gap: 2px; margin: 8px 0; padding: 0; list-style: none; }
-.ap-mod-sound { display: flex; align-items: center; gap: 8px; min-height: 36px; min-width: 0; }
-.ap-mod-sound[data-disabled] .ap-mod-sound-name { color: var(--fork-ink-3); }
-.ap-ui button.ap-mod-sound-name { flex: 1; min-width: 0; justify-content: flex-start; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ap-mod-sound[data-selected] .ap-mod-sound-name { color: var(--fork-accent); }
-.ap-mod-entry { display: grid; grid-template-columns: 96px minmax(0, 1fr); align-items: start; gap: 16px; margin-top: 8px; padding-top: 12px; border-top: 1px dashed var(--fork-hairline); }
-.ap-mod-entry:not(:has(.ap-mod-hero)) { grid-template-columns: minmax(0, 1fr); }
-.ap-mod-hero-art { display: block; width: 96px; height: 96px; overflow: hidden; border-radius: var(--fork-radius-lg); background: var(--fork-raised); }
-.ap-mod-hero-art[data-empty] { box-sizing: border-box; border: 1.5px dashed var(--ap-border-strong); background: none; }
-.ap-mod-pick-thumb { display: inline-block; width: 22px; height: 22px; overflow: hidden; border-radius: 6px; vertical-align: middle; }
-@media (max-width: 720px) {
-  .ap-mod-tiles { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-  .ap-ui button.ap-mod-add-tile { width: 100%; height: auto; aspect-ratio: 1 / 1; }
-  .ap-mod-entry { grid-template-columns: minmax(0, 1fr); }
-  .ap-mod-sound { min-height: 44px; }
-}
 
 /* ---------- TextArea / InlineAdd (UI standard §三.22–23, phase 2 batch 16; inline-field.js) ----------
    Zero-specificity defaults: every skin (ap-gen-text, the prompt boxes, the stage's choice / regenerate boxes, the status
