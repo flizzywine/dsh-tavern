@@ -641,7 +641,9 @@ public final class TavernService extends Service {
             } else {
                 updateState = "up-to-date";
                 JSONObject cur = r.optJSONObject("current");
-                updateMessage = "已是最新" + (cur == null ? "" : "（v" + cur.optString("version") + " · " + cur.optString("revision").substring(0, 7) + "）");
+                String warning = r.optString("checkWarning");
+                updateMessage = "已是最新" + (cur == null ? "" : "（v" + cur.optString("version") + " · " + cur.optString("revision").substring(0, 7) + "）")
+                        + (warning.isEmpty() ? "" : "\n" + warning);
             }
         } catch (Throwable t) {
             updateState = "error";
