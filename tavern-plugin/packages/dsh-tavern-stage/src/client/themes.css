@@ -5341,10 +5341,18 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
    .1 s, linear, fading in; the picked bar squeezes to .9 in .1 s and swells to 1.12 while fading out in .133 s while
    the others fade out in .1 s, then the text is sent (--gal-choice-pick-ms, read by gal-choices.js). CONFIG
    「减少动态」: no motion, sent at once. Cheap: one border image per row, transforms and opacity only. */
-.fork-gal-stage[data-fk-skin-choices]:not(.is-film) .fork-gal-choices { --cu: calc(var(--gal-ui-choice-size) / var(--art-choice-font)); --art-cg: var(--art-choice-gap); --art-choice-edit: max(30px, calc(32 * var(--cu)));
+/* The bar controls (a suggestion's pencil, the free row's 重新生成) share one box and glyph size, right-aligned on the text
+   column's right edge and centred on the text block's line (owner 11-20, SIF: 「铅笔和旋转按钮应该向右对齐，size 也得 align」). */
+.fork-gal-stage[data-fk-skin-choices]:not(.is-film) .fork-gal-choices { --cu: calc(var(--gal-ui-choice-size) / var(--art-choice-font)); --art-cg: var(--art-choice-gap); --art-choice-edit: var(--gal-ui-choice-tool);
+  --art-choice-cy: calc(50% + (var(--art-choice-y) - var(--art-choice-h) / 2) * var(--cu));
   display: grid; grid-template-columns: 1fr 1fr; grid-auto-flow: row dense; gap: round(calc(max(0, var(--art-cg)) * var(--cu)), calc(2 * var(--fk-step, 1px))); }
-/* Default glyph controls follow the art text scale; explicit tool artwork keeps its own declared dimensions. */
-.fork-gal-stage[data-fk-skin-choices]:not([data-fk-skin-choices-tool], .is-film) .fork-gal-choices { --gal-ui-choice-tool: max(44px, calc(var(--art-choice-font) * var(--cu) * 1.1)); }
+/* Default glyph controls follow the art text scale: the ✎ / ↻ glyph draws as large as the words' ink (its 24-unit icon
+   inks about 0.8 of its box, a CJK word about 0.9 of its em; owner 11-20: 「icon 应该大致和文字差不多大」), its box
+   never under a 44 px target, the glyph never under 23 px (a phone's small words keep a thumb-sized mark, approved the
+   same day); explicit tool artwork keeps its own declared dimensions. */
+.fork-gal-stage[data-fk-skin-choices]:not([data-fk-skin-choices-tool], .is-film) .fork-gal-choices { --art-choice-glyph: max(23px, calc(var(--art-choice-font) * var(--cu) * 1.1));
+  --gal-ui-choice-tool: max(44px, calc(var(--art-choice-font) * var(--cu) * 1.5)); }
+.fork-gal-stage[data-fk-skin-choices]:not([data-fk-skin-choices-tool], .is-film) .fork-gal-choices .fork-gal-choice-tool > svg { width: var(--art-choice-glyph); height: var(--art-choice-glyph); }
 /* Negative design gaps overlap adjacent art bars. */
 .fork-gal-stage[data-fk-skin-choices]:not(.is-film) .fork-gal-choices > .fork-gal-choice:not(:first-child) { margin-top: round(calc(min(0, var(--art-cg)) * var(--cu)), calc(2 * var(--fk-step, 1px))); }
 .fork-gal-stage[data-fk-skin-choices]:not(.is-film) .fork-gal-choices > * { grid-column: 1 / -1; }
@@ -5403,7 +5411,8 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
   text-align: var(--art-choice-align, center); justify-content: var(--art-choice-justify, center);
   padding: calc((var(--art-choice-y) - var(--art-choice-d)) * var(--cu)) calc((var(--art-choice-w) - var(--art-choice-r)) * var(--cu) + var(--art-pad))
     calc((var(--art-choice-h) - var(--art-choice-y) - var(--art-choice-d)) * var(--cu)) calc(var(--art-choice-l) * var(--cu) + var(--art-pad)); }
-.fork-gal-stage[data-fk-skin-choices]:not(.is-film) .fork-gal-choices .fork-gal-choice[data-type] > .fork-gal-choice-main { --art-pad: var(--art-choice-edit); }
+/* The words stop where the ✎ glyph begins (centred in its box), not at the box's transparent edge. */
+.fork-gal-stage[data-fk-skin-choices]:not(.is-film) .fork-gal-choices .fork-gal-choice[data-type] > .fork-gal-choice-main { --art-pad: calc((var(--art-choice-edit) + var(--art-choice-glyph, calc(var(--art-choice-edit) * .52))) / 2); }
 /* 生成选项 and 自由输入 are the menu's own rows, not suggestions: their words centre on the whole bar whatever art.choices.align
    says, the wider side of the text column (a number cell, the trailing control's room) kept clear on both sides; the ✎ before
    自由输入 hangs in that margin, so the words themselves sit on the bar's centre. */
@@ -5425,7 +5434,7 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
 }
 /* (the letter spacing after its last glyph, balanced before the first) */
 .fork-gal-stage[data-fk-skin-choices]:not(.is-film) .fork-gal-choices > .fork-gal-choice:not([data-type], .is-editing, .is-error, .is-compact) > .fork-gal-choice-main[data-action="generate"] { text-indent: var(--art-choice-spacing, 0); }
-.fork-gal-stage[data-fk-skin-choices]:not(.is-film) .fork-gal-choices > .fork-gal-choice.is-free:not(.is-editing) > .fork-gal-choice-main > svg { margin-inline-start: calc(-1 * (max(15px, .7em) + .5em)); }
+.fork-gal-stage[data-fk-skin-choices]:not(.is-film) .fork-gal-choices > .fork-gal-choice.is-free:not(.is-editing) > .fork-gal-choice-main > svg { margin-inline-start: calc(-1 * (max(15px, 1.05em) + .5em)); }
 .fork-gal-stage[data-fk-skin-choices]:not(.is-film) .fork-gal-choices :is(.fork-gal-choice.is-editing, .fork-gal-choice.is-error) {
   gap: .5em; padding: calc(max(0, var(--art-choice-y) - var(--art-choice-d) - 12) * var(--cu)) calc((var(--art-choice-w) - var(--art-choice-r)) * var(--cu))
     calc(max(0, var(--art-choice-h) - var(--art-choice-y) - var(--art-choice-d) - 12) * var(--cu)) calc(var(--art-choice-l) * var(--cu)); }
@@ -5437,7 +5446,7 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
 .fork-gal-stage[data-fk-skin-choices]:not(.is-film) .fork-gal-choices .fork-gal-choice-main:focus-visible { outline: none; text-decoration: underline 2px var(--gal-skin-accent); text-underline-offset: .3em; }
 /* With a drawn focus bar the bar is the keyboard focus mark (as the art menu's focused row): no underline over the words too. */
 .fork-gal-stage[data-fk-skin-choices][data-fk-skin-choices-focus]:not([data-fk-skin-choices-tint], .is-film) .fork-gal-choices .fork-gal-choice-main:focus-visible { text-decoration: none; }
-.fork-gal-stage[data-fk-skin-choices]:not(.is-film) .fork-gal-choices .fork-gal-choice-main svg { flex: none; width: max(15px, .7em); height: max(15px, .7em); color: var(--art-choice-controls); }
+.fork-gal-stage[data-fk-skin-choices]:not(.is-film) .fork-gal-choices .fork-gal-choice-main svg { flex: none; width: max(15px, 1.05em); height: max(15px, 1.05em); color: var(--art-choice-controls); }
 /* A skin may replace the highlighted choice bar and its ink. */
 .fork-gal-stage[data-fk-skin-choices][data-fk-skin-choices-focus]:not(.is-film) .fork-gal-choices > .fork-gal-choice:not(.is-editing, .is-error, .is-compact):is(:focus-within, .is-picked) {
   --art-choice-controls: var(--art-choice-focus-ink, var(--art-choice-ink, var(--gal-skin-accent)));
@@ -5483,7 +5492,9 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
   .fork-gal-stage[data-fk-skin-choices][data-fk-skin-choices-hover]:not([data-fk-skin-choices-tint], .is-film) .fork-gal-choices > .fork-gal-choice:not(.is-editing, .is-error, .is-compact):not(:focus-within, .is-picked):hover > .fork-gal-choice-art[data-fk-layer] > .is-bar { opacity: 0; }
   .fork-gal-stage[data-fk-skin-choices][data-fk-skin-choices-hover]:not([data-fk-skin-choices-tint], .is-film) .fork-gal-choices > .fork-gal-choice:not(.is-editing, .is-error, .is-compact):not(:focus-within, .is-picked):hover > .fork-gal-choice-art[data-fk-layer] > .is-hover { opacity: 1; }
 }
-.fork-gal-stage[data-fk-skin-choices]:not(.is-film) .fork-gal-choices .fork-gal-choice-edit svg { width: max(15px, calc(var(--art-choice-font) * var(--cu) * .7)); height: max(15px, calc(var(--art-choice-font) * var(--cu) * .7)); }
+.fork-gal-stage[data-fk-skin-choices]:not(.is-film) .fork-gal-choices .fork-gal-choice[data-type] > .fork-gal-choice-edit svg { width: var(--art-choice-glyph, 52%); height: var(--art-choice-glyph, 52%); }
+.fork-gal-stage[data-fk-skin-choices]:not(.is-film) .fork-gal-choices .fork-gal-choice[data-type]:not(.is-editing, .is-error) > .fork-gal-choice-edit,
+.fork-gal-stage[data-fk-skin-choices]:not([data-fk-skin-choices-tool], .is-film) .fork-gal-choices .fork-gal-choice.is-free:not(.is-editing) > .fork-gal-choice-tool { top: var(--art-choice-cy); }
 .fork-gal-stage[data-fk-skin-choices]:not(.is-film) .fork-gal-choices .fork-gal-choice-main[data-action="generate"] { letter-spacing: .3em; }
 /* A row that cannot act (sending, 重新生成 while busy) is the off bar in the muted ink. */
 .fork-gal-stage[data-fk-skin-choices]:not(.is-film) .fork-gal-choices > .fork-gal-choice:has(> .fork-gal-choice-main:disabled) { border-image-source: var(--art-choice-off); color: color-mix(in srgb, var(--art-choice-ink, var(--gal-skin-muted)) 60%, var(--gal-skin-muted)); }
