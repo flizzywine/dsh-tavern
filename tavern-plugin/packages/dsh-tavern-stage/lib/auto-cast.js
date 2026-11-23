@@ -249,7 +249,7 @@ export function createAutoCast({store, settings, library, images, cast:castAssis
     const decided = castAssistant ? await castAssistant({cardPath, chat, body, speakers, cast, voices:choice.voices}).catch(error => {
       onError(error); failure = {at:now(), error:String(error?.code || error?.message || error).slice(0, 200)}; return null }) : null
     if (!active || !isCurrent()) return cast
-    const plan = castChanges(speakers, decided, {voices:choice.voices})
+    const plan = castChanges(speakers, decided)
     const written = plan.changes.length ? await library.write({cardPath, changes:plan.changes, sources:plan.sources, source, requestId:sha(JSON.stringify([source, plan.changes]))}).catch(async error => {
       onError(error); await update(cast.cardId, current => noteWriteFailure(current, {at:now(), error:String(error?.code || error?.message || error).slice(0, 200)})); return null }) : {refs:[]}
     if (!written) return null
