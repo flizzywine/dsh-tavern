@@ -42,7 +42,8 @@ export function newSpeakers(body, cast, record, playerIdentity) {
 }
 
 // The 选角助理's decisions as one write: each speaker not found to be an existing figure is copied from the library or
-// created (with its voice: a library 通用声音 copied). → {changes, sources, entries:[{name, copied, appearance, importance}]}.
+// created (with its voice: a library 通用声音 copied). voices: false (自动配音 off) gives no voice, a copy keeps none.
+// → {changes, sources, entries:[{name, copied, appearance, importance}]}.
 export function castChanges(speakers, decided, {voices = true} = {}) {
   const changes = [], sources = [], entries = []
   for (const {name, aliases} of speakers) {
