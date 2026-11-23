@@ -1,0 +1,11 @@
+{
+  "versionCode": 6,
+  "versionName": "1.0.0-beta.1",
+  "url": "https://github.com/flizzywine/dsh-tavern/releases/download/v3.4/dsh-tavern-beta-1.0.0-beta.1.apk",
+  "sha256": "4a673212010f075f41b4ca5cbbccfd3da80dff14e809cc75f01258f9d85ccc77",
+  "size": 464965039,
+  "minVersionCode": 0,
+  "signer": "7496a3a33d6e5bdc02127b7b970f8d7fbdfba5fe9c88cd3921dbde78b3a327f7",
+  "notes": "",
+  "page": "https://github.com/flizzywine/dsh-tavern/releases/tag/v3.4"
+}

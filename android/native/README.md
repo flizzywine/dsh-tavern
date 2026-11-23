@@ -100,8 +100,13 @@ node android/native/apk-smoke.mjs            # 卸载 → 安装 → 验收；�
 已知限制：
 
 - 依赖有变化的更新期间要额外占用约一份 node_modules 的空间（复制 + 备份，约 450 MB），完成后清掉。
-- 发布信息默认读 `releases/latest/download/dsh-tavern-native.json`：仓库的「最新 Release」必须带这个资产，否则显示「还没有发布」。
-  与 DSHA 版 APK 共用一个仓库发布时，需要改成固定标签或单独的发布信息地址（`DSH_NATIVE_APK_FEED`）。
+- 新版安装包检查（v7 起）：启动页打开时由 Java 直接读发布信息，不依赖 Node。依次读 main 上的
+  `android/native/latest.json`（GitHub raw → jsDelivr），都读不到再读 `releases/latest/download/dsh-tavern-native.json`
+  （1.0.0-beta.1 只认这个地址，新酒馆 Release 仍要带上它）。6 小时内复用上次结果，手动「检查更新」不受限；失败只记日志。
+  有新版时：在启动页弹窗（下载安装 / 浏览器下载 / 跳过此版本），已进酒馆时通知栏显示「有新版安装包」，点通知回启动页弹窗。
+  `signer`（发布证书 SHA-256）与本机签名不同时不提示；当前版本低于 `minVersionCode` 时弹窗不能跳过。
+  发布顺序：先上传 APK、`.sha256` 与 `dsh-tavern-native.json` 并核对字节数和 SHA-256，最后才把 `build-apk.sh` 生成的同一份内容
+  提交为 `android/native/latest.json`，避免先提示后 404。测试源仍用 extra-env 的 `DSH_NATIVE_APK_FEED`（覆盖全部地址）。
 - 打包时源码的 `releaseSequence` 取仓库里 `dsh-tavern-runtime.json` 的值，只有 CI 发布了更大的序号才会提示更新。
 - 预检查只能从清单比对锁文件与补丁；只改了 `package.json` 时显示「依赖可能有变化」，下载后才最终判定。
 - 模拟器上的发现：强制 Doze 后 `uiautomator` 有时看不到应用窗口；启动页曾因每 0.5 秒无条件刷新文字而一直不空闲，已改为只在变化时更新。
