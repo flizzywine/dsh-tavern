@@ -88,8 +88,9 @@ function CardExportMenu({ disabled, hasImage, onExport }) {
 				};
 			}, [selectedPath, props.visible]);
 			React.useEffect(function () {
-				if (props.visible && requestedPath && requestedPath !== selectedPath) loadCard(requestedPath);
-			}, [requestedPath, selectedPath, props.visible]);
+				// Tab metadata supplies navigation requests. A local selection must not replay one.
+				if (props.visible && requestedPath) loadCard(requestedPath);
+			}, [requestedPath, props.visible]);
 			function clearCard() {
 				cardRequest.current += 1;
 				setSelectedPath("");
@@ -127,7 +128,15 @@ function CardExportMenu({ disabled, hasImage, onExport }) {
 				const name = await askTavernText({ title: "重命名人物卡文件", initialValue: current, maxLength: 120 });
 				if (name === null || name === current) return;
 				setBusy(true); setError("");
-				try { const result = await rpc("renameResource", { path: card.path, name: name }); await refreshCards(); await loadCard(result.resource.path); notifyTavernDataChanged(["cards", "sessions"], "cards"); }
+				try {
+					const { resource } = await rpc("renameResource", { path: card.path, name: name });
+					await refreshCards();
+					if (requestedPath === card.path && resource.path !== card.path) {
+						props.ctx.betterSidebar.updateTab(props.tab.id, { meta: { ...props.tab.meta, cardPath: resource.path } }, props.scope.sessionId);
+					}
+					await loadCard(resource.path);
+					notifyTavernDataChanged(["cards", "sessions"], "cards");
+				}
 				catch (err) { setError(String(err && err.message || err)); }
 				finally { setBusy(false); }
 			}
