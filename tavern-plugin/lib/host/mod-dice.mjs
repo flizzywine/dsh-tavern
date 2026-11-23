@@ -174,24 +174,6 @@ var mod_default = {
               type: "string",
               maxLength: 48,
               "x-skin-asset": true
-            },
-            card: {
-              type: "string",
-              enum: [
-                "line",
-                "ledger"
-              ]
-            },
-            tagColors: {
-              type: "object",
-              maxProperties: 16,
-              propertyNames: {
-                maxLength: 24
-              },
-              additionalProperties: {
-                type: "string",
-                pattern: "^#[0-9a-fA-F]{6}$"
-              }
             }
           },
           userAdjustable: false,
