@@ -14,7 +14,7 @@ export async function brokenSaveChecks({ page, step, savedChat, output, report, 
   // open a snapshot of one (TAVERN_E2E_RESTORE_DATA) and go straight to healing it.
   const restored = Boolean(process.env.TAVERN_E2E_RESTORE_DATA)
   assert.ok(restored || process.env.TAVERN_E2E_PLUGIN_SOURCE, '需要 TAVERN_E2E_PLUGIN_SOURCE 指向有缺陷的旧版插件，或 TAVERN_E2E_RESTORE_DATA 指向坏档快照')
-  const composer = () => page.getByRole('textbox', { name: /发消息|Message/ })
+  const composer = () => page.getByRole('textbox', { name: /下一步行动|Next action|发消息|Message/ })
   const pause = ms => new Promise(resolve => setTimeout(resolve, ms))
   const settled = () => page.getByText('后台结算已完成').last().waitFor({ timeout: 60000 }).catch(() => {})
   const rpcErrors = []

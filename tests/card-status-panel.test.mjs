@@ -22,6 +22,7 @@ test('invalid declarations identify the exact page and field', () => {
   invalid([{...page,closeControl:'page'}], 'pages.0.closeControl')
   invalid([{...page,size:'full',closeControl:'stage'}], 'pages.0.closeControl')
   invalid([{...page,showOn:{event:'other'}}], 'pages.0.showOn')
+  invalid([{...page,icon:'computer'}], 'pages.0.icon')
   invalid([{...page,preload:[{kind:'backgrounds',id:'port',size:42}]}], 'pages.0.preload.0.size')
   const opening = { id: 'opening', label: '开局', html: '<p>开局</p>', size: 'full', opening: true }
   invalid([{...opening,size:'window'}], 'pages.0.opening')
@@ -29,4 +30,7 @@ test('invalid declarations identify the exact page and field', () => {
   invalid([{...opening,opening:'yes'}], 'pages.0.opening')
   invalid([opening, {...opening,id:'opening-b'}], 'pages.1.opening')
   assert.deepEqual(validateCardPages([page, opening]), [page, opening])
+  // a title page may also stand in the top bar: its icon is one of the stage's own line icons
+  const title = { id: 'title', label: 'AgencyOS', html: '<p>桌面</p>', size: 'full', closeControl: 'page', showOn: { event: 'stage-enter' }, shortcut: 'o', icon: 'monitor' }
+  assert.deepEqual(validateCardPages([page, title]), [page, title])
 })

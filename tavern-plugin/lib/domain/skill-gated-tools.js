@@ -8,8 +8,8 @@ import { cordisToolNames } from './turn-orchestration.js'
 const SKILL_TOOLS = Object.freeze({
   'advanced-capabilities': [...cordisToolNames, 'tavern_save_skill'],
   'tavern-plugin': [...cordisToolNames],
-  'create-skill': ['tavern_save_skill'],
-  'create-writing-skill': ['tavern_save_skill'],
+  'create-skill': ['tavern_read_skill', 'tavern_save_skill'],
+  'create-writing-skill': ['tavern_read_skill', 'tavern_save_skill'],
   'user-profile': ['tavern_user_profile_read', 'tavern_user_profile_save'],
   'create-card': ['tavern_user_profile_read'],
   'create-dsh-card': ['tavern_user_profile_read']

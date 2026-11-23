@@ -30,8 +30,8 @@ test('a source speaks through its own serviceId, else the sole compatible servic
   const tts = createTts(); t.after(() => tts.dispose())
   const cloned = id => ({defaultSource:'clone',sources:{clone:{provider:'fish-audio',kind:'voice-id',voiceId:'akane',...(id ? {serviceId:id} : {})}}})
   tts.registerProvider('test',fish('svc-a',{label:'Fish Audio'}))
-  // one compatible service + an unknown serviceId → that service
-  assert.equal((await tts.resolveVoiceService({voice:cloned('svc-gone'),binding})).effective.serviceId,'svc-a')
+  // An explicitly bound Fish ID does not switch services.
+  assert.equal((await tts.resolveVoiceService({voice:cloned('svc-gone'),binding})).effective,null)
   tts.registerProvider('test',fish('svc-b',{label:'Fish Audio（本地）'}))
   assert.equal((await tts.resolveVoiceService({voice:cloned('svc-b'),binding})).effective.serviceId,'svc-b')
   assert.equal(tts.chooseService(cloned('svc-b').sources.clone,await tts.listServices()).id,'svc-b')
@@ -39,22 +39,17 @@ test('a source speaks through its own serviceId, else the sole compatible servic
   assert.equal(tts.chooseService(cloned().sources.clone,await tts.listServices()),undefined)
 })
 
-test('portable Fish IDs default to the official endpoint and can use the machine override', async t => {
-  let selected = ''
-  const tts = createTts({fishVoiceIdService:() => selected}); t.after(() => tts.dispose())
+test('portable Fish IDs default to the official endpoint and never use a local endpoint implicitly', async t => {
+  const tts = createTts(); t.after(() => tts.dispose())
   tts.registerProvider('test',fish('local',{endpoint:'http://127.0.0.1:9884'}))
   const resolve = () => tts.resolveVoiceService({voice,binding},{readOnly:true})
   assert.deepEqual(await resolve(),{effective:null,issues:[{code:'SERVICE_REQUIRED'}]})
   tts.registerProvider('test',fish('cloud',{endpoint:'https://api.fish.audio'}))
   assert.equal((await resolve()).effective.serviceId,'cloud')
-  selected = 'local'
-  assert.equal((await resolve()).effective.serviceId,'local')
   const services = await tts.listServices(), source = voice.sources.cloud
-  assert.equal(tts.chooseService(source,services).id,'local')
+  assert.equal(tts.chooseService({...source,serviceType:'fish-official'},services).id,'cloud')
   assert.equal(tts.chooseService({...source,serviceId:'cloud'},services).id,'cloud')
   assert.equal(tts.chooseService({kind:'reference-list',provider:'fish-audio'},services),undefined)
-  selected = 'removed'
-  assert.deepEqual(await resolve(),{effective:null,issues:[{code:'SERVICE_REQUIRED'}]})
 })
 
 test('a portable source may name its service; the id is validated on write', () => {

@@ -24,6 +24,7 @@ async function fixture(t, initialDelta = -1, openingLimit = 2) {
     id: 'c', sessionId: 's', mode: 'story', backgroundConfigVersion: 1, conversationFeaturesVersion: 1,
     backgroundTasks: { variables: true, posture: false, characterDesign: false },
     mvu: { enabled: true, owner: 'official' },
+    guides: [{ text: '手动 Guide' }],
     messages: [{ role: 'assistant', turn: 1, text: '前一轮', variables: [variables] }]
   }, intent: { kind: 'body.begin', turn: 2, userText: '开门' } })
   const round = timeline.complete({ chat: body.chat, operationId: body.value.operationId, basedOn: body.value.basedOn,
@@ -53,6 +54,7 @@ async function fixture(t, initialDelta = -1, openingLimit = 2) {
     readChat: store.readChat, chatForSession: store.readChat, readSlice: store.readSlice, patchChat: store.patchChat,
     readChatCard: async () => ({}), worldBookScanDepth: async () => 2,
     backgroundModelSelection: () => ({}), mvuUpdateRules: async () => [],
+    pluginApi: { guideSections: async gameId => [{ text: '插件 Guide ' + gameId }] },
     readOpeningWindow: () => persistence.readWindow('c', { limit: openingLimit, messageFields: sessionViewMessageFields }),
     projectOpeningWindow: async window => window,
     queueSettlement: async () => {},
@@ -98,6 +100,7 @@ for (const [status, delta, guidance, openingLimit] of [['updated', -1, '', 2], [
     assert.equal(saved.settleStatus, 'done')
     assert.equal(f.inputs.length, 2)
     assert.equal(f.inputs[1].guidance, guidance)
+    assert.deepEqual(f.inputs[1].guides.map(guide => guide.text), ['手动 Guide', '插件 Guide s'])
     assert.equal(f.inputs[1].currentVariables.stat_data.hp, 10)
     assert.equal(saved.messages[2].variables[1].stat_data.hp, 8)
     assert.deepEqual(saved.messages[2].mvuBaseline, f.settled.messages[2].mvuBaseline)

@@ -21,7 +21,7 @@ import { patchChatReasoningFold } from './chat-reasoning-fold-patch.mjs'
 import { patchSettingsModelsEndpoints, SETTINGS_MODELS_PATCHED_VERSION } from './settings-models-endpoints-patch.mjs'
 import { patchChatToolReplyStream } from './chat-tool-reply-stream-patch.mjs'
 import { patchDeepSeekStreamOption } from './deepseek-stream-option-patch.mjs'
-import { patchPiAiNonStream } from './pi-ai-nonstream-patch.mjs'
+import { patchPiAiGoogleStopReason, patchPiAiGoogleToolMode, patchPiAiNonStream, patchPiAiOpenAIStore } from './pi-ai-nonstream-patch.mjs'
 import { patchPiAiVertexStream, resolveVertexProject } from './pi-ai-vertex-stream-patch.mjs'
 import { patchWebViewportMeta } from './web-viewport-patch.mjs'
 import { installPluginDependencies, resolveHostAnchor, resolveHostDependencies } from './plugin-dependencies.mjs'
@@ -484,6 +484,15 @@ async function installProfileOwned(host, { attemptId, runInstall, runDsh, guiRoo
         const patched = patchPiAiNonStream({ adapterDirectory: piAi.adapter.directory, sdkDirectory: piAi.sdkDirectory })
         if (patched === null) console.log('当前 DSH 的 pi-ai 适配器与非流式补丁不符，已跳过；非流式仍在响应完成后一次性显示。')
         else if (patched) console.log('已为 pi-ai 的 OpenAI 兼容模型启用上游非流式请求。')
+        const store = patchPiAiOpenAIStore({ sdkDirectory: piAi.sdkDirectory })
+        if (store === null) console.log('当前 DSH 的 pi-ai 与 store 字段补丁不符，已跳过；OpenAI 兼容渠道可在 compat 里设 supportsStore: false。')
+        else if (store) console.log('已让 pi-ai 的 OpenAI 兼容渠道只在声明支持时发送 store 字段。')
+        const stopReason = patchPiAiGoogleStopReason({ sdkDirectory: piAi.sdkDirectory })
+        if (stopReason === null) console.log('当前 DSH 的 pi-ai 与 Gemini 结束原因补丁不符，已跳过。')
+        else if (stopReason) console.log('已让 pi-ai 把 Gemini 新增的结束原因当作普通报错。')
+        const toolMode = patchPiAiGoogleToolMode({ sdkDirectory: piAi.sdkDirectory })
+        if (toolMode === null) console.log('当前 DSH 的 pi-ai 与 Gemini 工具调用约束补丁不符，已跳过。')
+        else if (toolMode) console.log('已让 pi-ai 对 Gemini 3 以上的工具调用默认按定义约束生成。')
       }
       if (piAi && !isAsarPath(piAi.sdkDirectory)) {
         // Gemini 3/4 answer only at `locations/global`, a resource path: the catalog can

@@ -17,7 +17,7 @@ await page.addInitScript(()=>{window.perf={long:[],keys:[],frames:[]};new Perfor
 const start=Date.now();
 try{
 await page.goto(saved.url);
-const composer=page.getByRole('textbox',{name:/发消息或做任务|Message or run a task/});
+const composer=page.getByRole('textbox',{name:/下一步行动|Next action|发消息或做任务|Message or run a task/});
 await composer.waitFor({timeout:120000});
 await page.getByText('长对话性能测试',{exact:true}).first().waitFor();
 await page.waitForTimeout(3000);

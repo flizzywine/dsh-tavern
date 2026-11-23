@@ -4,6 +4,8 @@ import {normalizeCatalogueText, triggerEvidence} from '../shared/asset-pack-lexi
 
 export const figureNameKey = value => value.normalize('NFKC').toLowerCase().replace(/\s+/gu, ' ').trim()
 
+export const ALIAS_SEPARATORS = /[,，\n]/u
+
 // Ingress only: retain the first spelling and order; the display name already identifies the figure.
 export function normalizeFigureAliases(name, aliases = []) {
   array(aliases, '$.aliases', 256)
@@ -11,9 +13,14 @@ export function normalizeFigureAliases(name, aliases = []) {
   const seen = new Set([normalizeCatalogueText(name)]), result = []
   for (const alias of aliases) {
     text(alias, '$.aliases', 160)
-    const value = alias.trim(), key = normalizeCatalogueText(value)
-    check(key.length > 0, '$.aliases', 'Empty figure name')
-    if (!seen.has(key)) { seen.add(key); result.push(value) }
+    // the image library record keeps 触发词 in one field separated by these marks, so a word never contains one:
+    // a list item with them is several words.
+    const pieces = alias.split(ALIAS_SEPARATORS).map(piece => piece.trim()).filter(Boolean)
+    check(pieces.length > 0, '$.aliases', 'Empty figure name')
+    for (const value of pieces) {
+      const key = normalizeCatalogueText(value)
+      if (!seen.has(key)) { seen.add(key); result.push(value) }
+    }
   }
   const words = [name, ...result].map(normalizeCatalogueText)
   const minimal = result.filter((_, index) => {

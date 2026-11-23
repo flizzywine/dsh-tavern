@@ -56,7 +56,7 @@ export async function cardVariableUpdateChecks({page,step,savedChat,data,output,
     await page.reload(); await panel('10\\|3\\|5\\|undefined')
   })
   await step('变量专项：更新后真实后台结算写入新字段',async()=>{
-    const composer=page.getByRole('textbox',{name:/发消息|Message/})
+    const composer=page.getByRole('textbox',{name:/下一步行动|Next action|发消息|Message/})
     await composer.fill('E2E 更新后继续');await composer.press('Enter')
     await waitState({gold:10,rank:3,coins:20});await panel('10\\|3\\|20\\|undefined')
     const requests=(await readFile(join(output,'preset-requests.jsonl'),'utf8')).trim().split('\n').map(JSON.parse).filter(row=>row.cardUpdate)
@@ -75,7 +75,7 @@ export async function cardVariableUpdateChecks({page,step,savedChat,data,output,
     await waitState({gold:10,rank:3,coins:20})
     await action(/回退第.*轮|回退本轮/)
     await waitState({gold:10,rank:3,coins:5})
-    const composer=page.getByRole('textbox',{name:/发消息|Message/})
+    const composer=page.getByRole('textbox',{name:/下一步行动|Next action|发消息|Message/})
     await composer.fill('E2E 更新后继续');await composer.press('Enter')
     await waitState({gold:10,rank:3,coins:20});await panel('10\\|3\\|20\\|undefined')
     assert.equal((await savedChat()).sessionId,initial.sessionId)

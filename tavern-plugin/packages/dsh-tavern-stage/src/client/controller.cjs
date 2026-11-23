@@ -31,6 +31,18 @@ const React={...react,useEffect:(setup,deps)=>effect(react.useEffect,setup,deps)
 useSyncExternalStore:(subscribe,get,...rest)=>react.useSyncExternalStore(react.useCallback(listener=>closed?()=>{}:own(subscribe(listener)),[subscribe]),get,...rest)};
 const setTimeout=(fn,ms)=>{if(closed)return null;const id=window.setTimeout(()=>{timers.delete(id);if(!closed)fn();},ms);timers.set(id,()=>window.clearTimeout(id));return id;};
 const clearTimeout=id=>{timers.delete(id);window.clearTimeout(id);};
+// 卡片页面 with an icon (status-panel.cjs, card-status-panel.js CARD_PAGE_ICONS): one top-bar button each, after the mods'
+// launcher; its shortcut is named in the title. ctx.cardPages: {pages, open(id), openId} of the stage on screen.
+function GalCardPageEntries({pages,open,openId}) {
+    const shown=pages.filter(page => page.icon);
+    options.widgets?.report?.('card-pages',{available:shown.length>0});
+    return shown.map(page => {
+        const name=page.label + (page.shortcut ? '（' + page.shortcut.toUpperCase() + '）' : '');
+        return React.createElement('button',{key:page.id,type:'button',className:'fork-gal-page-entry','data-page':page.id,title:name,'aria-label':name,'aria-pressed':openId===page.id,
+            onClick:event => { event.stopPropagation(); open(page.id); event.currentTarget.blur(); }},React.createElement(Icon,{name:page.icon,size:16}));
+    });
+}
+if (stageEntries) own(stageEntries.register({id:'card-pages',priority:85,group:'feature',icon:'card',label:'卡片页面',render:ctx => ctx.cardPages ? React.createElement(GalCardPageEntries,ctx.cardPages) : null}));
 function foregroundTimeout(fn,ms){if(closed)return null;const id=forkForeground.setTimeout(()=>{foregroundTimers.delete(id);if(!closed)fn();},ms);foregroundTimers.add(id);return id;}
 const useBgManualScene=(...args)=>legacy.background(...args);
 const useWidgetTheme=(...args)=>legacy.widgetTheme(...args);
@@ -1123,7 +1135,7 @@ function GalStage(props) {
             ...(member.lease ? {emotion:member.lease.emotion,focus:member.lease.focus,dim:member.lease.dim} : null),
             // reopening/restoring is not a new entrance (same policy as the background cut).
             visible:true,enter:forwardReading&&!skipping?'soft':'none',exit:'soft',gaze:stageViews.speaker.gaze(member.gaze,member.x,xs),act:shotHere&&shot.acts[member.id]?{name:shot.acts[member.id],nonce:shot.n}:null,
-            figureSizing:{pack:true,heightCm:selected.heightCm,version:1,source:selected.geometry.stage,sourceUrl:input.src,heightBasis:selected.heightBasis,outfitKey:selected.outfitKey,anatomy:selected.anatomy,head:selected.head,assetScale:selected.anatomy?.assetScale ?? 1,elevationCm:selected.elevationCm}};
+            figureSizing:{pack:true,heightCm:selected.heightCm,version:1,source:selected.geometry.stage,sourceUrl:input.src,heightBasis:selected.heightBasis,outfitKey:selected.outfitKey,anatomy:selected.anatomy,head:selected.head,face:selected.face,assetScale:selected.anatomy?.assetScale ?? 1,elevationCm:selected.elevationCm}};
     });
     const quality = useStageQuality();
     // core stage behaviour; tap reactions borrow the figure's own emotionMap entries.
@@ -1360,10 +1372,14 @@ function GalStage(props) {
     // the page's text marks in the words the box shows (a subtitle card of the page, a quoted line)
     const boxMarks = (function () {
         const shift = current?.textMarks?.length && !transitioning ? shownText.indexOf(subtitles.text) : -1;
-        if (shift < 0) return undefined;
-        const start = Array.from(current.text).slice(0, subtitles.cards[card]?.start || 0).join('').length;
-        const ranges = stageTextMarks.textMarkShift(current.textMarks, start, subtitles.text.length).map(row => ({...row, start:row.start + shift, end:row.end + shift}));
-        return stageTextMarkRender(ranges, {...markTurn, para:current.para}, reading.reducedMotion === true);
+        let own = [];
+        if (shift >= 0) {
+            const start = Array.from(current.text).slice(0, subtitles.cards[card]?.start || 0).join('').length;
+            const ranges = stageTextMarks.textMarkShift(current.textMarks, start, subtitles.text.length).map(row => ({...row, start:row.start + shift, end:row.end + shift}));
+            own = stageTextMarkRender(ranges, {...markTurn, para:current.para}, reading.reducedMotion === true);
+        }
+        const all = stageTextMarks.textMarksHighlighted(shownText, activeSkin?.textStyle?.highlight, own, React.createElement);
+        return all.length ? all : undefined;
     })();
     // the unfinished sentence that may still move to the next page stays
     // hidden on the last card of a streaming narration page, so the page never takes back text it showed. Only the last
@@ -1522,7 +1538,7 @@ function GalStage(props) {
             // the reply wait's look (StageWaitStop + StageWaitLines, portalled by gal-choices.js); empty, it takes no room.
             h("div", { ref: setChoiceWaitSlot, className: "fork-gal-box-wait" }),
             // the mods' page parts sit on the box's top edge, out of its flow (mod-clients.js; e.g. a live roll's one-shot strip).
-            props.choiceProps && props.choiceProps.useChat ? modClients.slot('page').map(part => h(part.value, { key: part.modId, useChat: props.choiceProps.useChat, nativeTurn: runtime.textIndex.get(turn)?.nativeTurn || 0, pageKey, input: modClients.input(props.choiceProps.executeSlash, sessionId) })) : null,
+            props.choiceProps && props.choiceProps.useChat ? modClients.slot('page').map(part => h(part.value, { key: part.modId, useChat: props.choiceProps.useChat, nativeTurn: runtime.textIndex.get(turn)?.nativeTurn || 0, pageKey, sessionId, input: modClients.input(props.choiceProps.executeSlash, sessionId) })) : null,
             // film mode shows the page count briefly on each page turn
             // (the keyed node restarts its CSS fade); hover still shows it in full.
             h("div", { key: film ? "flash:" + pageKey : "meta", className: "fork-gal-meta" + (film ? " is-flash" : "") },
@@ -1582,7 +1598,7 @@ function GalStage(props) {
     // the registered entries of one top-bar side, in priority order. Each sits in a
     // .fork-stage-entry (display: contents); one with a badge carries data-attention and stays on screen while the bar hides.
     function entryDock(group) {
-        const ctx = { sessionId, rpc, place, live: runtime.cursor.mode !== 'history' && !skipping, widgets: sourceWidget, film,
+        const ctx = { sessionId, rpc, place, live: runtime.cursor.mode !== 'history' && !skipping, widgets: sourceWidget, film, cardPages: { pages: pageList, open: openCardPage, openId: openPage },
             // the page's round, whether the latest page is shown, whether a reply is under way, AUTO's stop.
             turn, atEnd, busy: running, stopAuto: () => setAuto(false),
             openConfig: (tab, opener) => { stageViews.configScreen.select(tab); openConfig(opener); } };

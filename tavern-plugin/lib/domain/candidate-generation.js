@@ -1,4 +1,3 @@
-import { promptSection } from './prompt-section.js'
 import { scriptForState } from './script-layout.js'
 import { projectAgentContent, projectAgentMessageText } from './runtime-content-projection.js'
 import { createBackgroundTaskCoordinator } from './background-task-coordinator.js'
@@ -6,10 +5,6 @@ import { CHARACTER_DESIGN_READ_TOOL, CHARACTER_DESIGN_SAVE_TOOL } from './charac
 
 // Prompt prose source: task-specific additions, unchanged in phase 1.
 const TASK_PROMPT_PROSE = Object.freeze({
-  p001: "\n\nExtra user requirements:\n",
-  p002: "\n\nThe extra requirements don't change the ",
-  p003: "script direction, 1-choice count or type rules.",
-  p004: "actor grouping, per-tab count, featured combination or global event/scene rules.",
   p005: "\n\nChoice point: story revision ",
   p006: "; latest story turn ",
   p007: ". Continue from the end of the latest story text with its current identities, names, place and time; don't roll renamed or finished plot back to the card's opening.",
@@ -322,12 +317,15 @@ function buildMessages(chat, card, selection, now, limit = 3) {
 export const FOREGROUND_CHOICES_OPEN_TAG = '<story_choices>'
 export const FOREGROUND_CHOICES_CLOSE_TAG = '</story_choices>'
 
+const FOREGROUND_CANDIDATE_GUIDE = 'Apply the current Guide to the directions and wording of the choices. Start from the state reached in the completed prose. An event proposed by the Guide that has yet to play out can be a next-turn possibility.'
+
 export const FOREGROUND_CANDIDATES_PROMPT = [
   '<foreground_story_candidates>',
   'After finishing the story prose for this turn, append a `<story_choices>` block at the very end on a new line (inside `submit_story` `content` if using tool submission, or at the end of your text reply):',
   '<story_choices>',
   '{"actors":[{"name":"...","actions":["...","...","..."]},{"name":"...","actions":["...","...","..."]}],"event":"...","scene":"...","featured":[{"actors":["...","..."],"event":false,"scene":false,"text":"..."}]}',
   '</story_choices>',
+  FOREGROUND_CANDIDATE_GUIDE,
   'Requirements for the choices (~40 characters each for individual items, ~50–70 characters for featured combinations, in the story\'s language):',
   '- `actors` lists the active characters in the scene, placing the current focal counterpart / spotlight partner FIRST:',
   '  - Follow the story\'s narrative perspective: if a first-person player avatar (`我`) is in the scene, include `"我"` with 3 actions; if the story is third-person or has no `"我"`, use actual character names and do not invent `"我"`.',
@@ -347,6 +345,7 @@ const COMPACT_FOREGROUND_CANDIDATES_PROMPT = [
   '<story_choices>',
   '{"actions":["...","...","...","..."],"scene":"..."}',
   '</story_choices>',
+  FOREGROUND_CANDIDATE_GUIDE,
   'Keep each choice short and concrete. End the reply at the closing tag.',
   '</foreground_story_candidates>'
 ].join('\n')
@@ -641,23 +640,12 @@ export function createCandidateGenerator(options) {
     if (!scriptMode) request += expanded
       ? '\nFor this request, use grouped actors, event, scene, and featured combinations as specified above.'
       : '\nFor this request, submit only actions (exactly 4) and scene (exactly 1).'
-    if (guidance !== '') {
-      const rules = scriptMode ? TASK_PROMPT_PROSE.p003 : expanded ? TASK_PROMPT_PROSE.p004 : '4-action and 1-scene count or type rules.'
-      request += TASK_PROMPT_PROSE.p001 + guidance + TASK_PROMPT_PROSE.p002 + rules
-    }
     // A synced participant revision records task commits, not delivery of story text.
     // Always anchor choices in the current timeline, even in a persistent background session.
-    const recentMessages = buildMessages(chat, card, selection, now)
     request += TASK_PROMPT_PROSE.p005 + taskRun.basedOn.revision +
       TASK_PROMPT_PROSE.p006 + (chat.messages?.findLast(message => message.role === 'assistant')?.turn || 0) +
       TASK_PROMPT_PROSE.p007
     if (chat.macroState?.userName) request += TASK_PROMPT_PROSE.p008 + chat.macroState.userName + TASK_PROMPT_PROSE.p009
-    const messages = recentMessages.concat([{
-      id: 'choices-' + now().toString(36),
-      role: 'user',
-      content: [{ type: 'text', text: promptSection('candidate_request', request) }],
-      source: { kind: 'plugin:dsh-tavern' }
-    }])
     const research = scriptMode ? scriptResearchAttempt(script, scriptWindow, card, chat) : null
     let submittedChoices = null
     let submissionError = null
@@ -703,7 +691,8 @@ export function createCandidateGenerator(options) {
       candidateScriptWindow: context.candidateScriptWindow,
       systemPromptText: context.systemPromptText,
       postHistoryText: context.postHistoryText,
-      messages,
+      messages: buildMessages(chat, card, selection, now),
+      candidateRequest: { text: request, guideText: context.guideText, guidance },
       persistent: true,
       persistentSessionId,
       rewindTo: participantRequest.rewindTo,

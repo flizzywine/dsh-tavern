@@ -238,6 +238,9 @@ function dicePaint(THREE, model, look, cell, anisotropy) {
 // come from place(list): one mesh per die, its model by kind and its texture by kind and look (cached while painted the same).
 function diceScene(THREE, RoomEnvironment) {
     const canvas = document.createElement("canvas");
+    // The drawing buffer is band size x pixel ratio (renderer.setSize(w, h, false) leaves the style alone); its CSS size is the
+    // band's, whatever the pixel ratio, so a high-DPI screen draws it sharper, not larger.
+    canvas.style.cssText = "display:block;width:100%;height:100%";
     const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true, powerPreference: "low-power" });
     renderer.setClearColor(0x000000, 0);
     renderer.shadowMap.enabled = true;

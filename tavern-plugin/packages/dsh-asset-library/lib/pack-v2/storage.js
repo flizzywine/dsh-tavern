@@ -320,7 +320,7 @@ export function createPackStorage({assetRoot, limits, cardTransactions, mediaSto
       const figureId = /^figures\/([0-9a-f-]{36})\.json$/.exec(name)?.[1]
       if (figureId) {
         const figure = readDocument(source)
-        check(!figure.extensions?.[FIGURE_RECORD_UNAVAILABLE], name, '人物资料暂时读不到，不能修改这个人物', 'ASSET_UNAVAILABLE')
+        check(!figure.extensions?.[FIGURE_RECORD_UNAVAILABLE], name, '人物的名字和触发词存在配图人物库的记录里，现在读不到（配图插件没启用，或这个人物的记录不见了），所以不能修改这个人物。先启用配图插件再改；插件已启用还是读不到，就是记录被删了，请从备份恢复配图人物库', 'ASSET_UNAVAILABLE')
         if (figureRecords) {
           const intent = intents?.get(figureId)
           const staged = intent === 'held' ? (await storedFigure(id, figureId, source, {manifest:pack.manifest, intent})).bytes : source
