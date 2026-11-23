@@ -122,13 +122,13 @@ function packFigureRenderInputs(figure, {audio = null, speaking = false, skippin
     // actor slot is stable across outfits; the renderer prepares the
     // changed resource before retiring the previous model in that slot.
     const key = figure.alias;
-    const spriteVideo = figure.form === 'sprite' && figure.views?.stage !== false ? figure.spriteVideo || null : null;
-    const identity = JSON.stringify([figure.ref,figure.outfitKey,figure.form,figure.form === 'live2d' ? figure.media.model.identity : figure.media.sprite.identity,...(spriteVideo ? [spriteVideo.assetId,spriteVideo.hash] : [])]);
+    const identity = JSON.stringify([figure.ref,figure.outfitKey,figure.form,figure.form === 'live2d' ? figure.media.model.identity : figure.media.sprite.identity]);
     // The Spine identity is its geometry key: bundle plus display settings, so a re-framed outfit reloads.
     if (figure.form === 'spine') return {stage:figure.modelUrl ? {key, identity, kind:'spine', url:figure.modelUrl, ...packSpineInputs(figure.outfit.spine, figure.spineEmotion), audio:activeAudio, voiced:Boolean(activeAudio)} : null, face};
     if (figure.form === 'live2d') return {stage:figure.modelUrl ? {key, identity, kind:'live2d', url:figure.modelUrl, ...packLive2dMood(figure.live2dEmotion), ...(figure.live2dBlush === true ? {blush:true} : {}), moodLine:speaking ? voiceKey : null, audio:activeAudio, voiced:Boolean(activeAudio), voiceStarted:Boolean(activeAudio && !activeAudio.paused && !activeAudio.ended), talking:false} : null, face};
     const src = views.stage?.view.src || state?.src;
-    return {stage:src ? {key, identity, kind:'static', src, ...(spriteVideo ? {video:spriteVideo} : {}), spriteBundle:views.stage, blinkBundle:packBlinkBundle(views.stage?.view.blink, views.stage?.view), spriteVoiceKey:voiceKey, audio:activeAudio} : null, face};
+    // video: the still's 动态立绘 as the host projected it (asset-pack-presentation packFigureVideo), drawn over the still.
+    return {stage:src ? {key, identity, kind:'static', src, spriteBundle:views.stage, blinkBundle:packBlinkBundle(views.stage?.view.blink, views.stage?.view), spriteVoiceKey:voiceKey, audio:activeAudio, video:figure.video || null} : null, face};
 }
 // what a tap reaction may borrow from the figure's own outfit for a
 // moment, per reaction emotion: the Live2D emotionMap expression/gesture, the Spine emotionMap animation, or a sprite

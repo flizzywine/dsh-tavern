@@ -615,21 +615,3 @@ test('all native entry kinds accept optional free-text remarks, never variant co
     assert.throws(()=>validateAsset(variant))
   }
 })
-
-test('static-sprites may reference a videos entry while keeping src a still image',async()=>{
-  const {validateFigureClosure}=await import('../src/asset-packs/figure.js')
-  const {validateSpriteManifest}=await import('../src/asset-packs/sprite.js')
-  const figId='11111111-1111-4111-8111-111111111111', hash='a'.repeat(64)
-  const manifest={
-    format:'dsh-asset-pack',schemaVersion:1,id:'22222222-2222-4222-8222-222222222222',name:'Video Sprite',contentHash:hash,
-    assets:[{kind:'videos',id:'calm-motion',name:'Calm Motion',enabled:true,recall:{mode:'constant',keywords:[]},directorNote:'',bundleKey:'calm-video',entry:'loop.webm',poster:'poster.png',durationMs:3000,loop:true,audio:'none',size:[512,768]}],
-    figures:[figId],sprites:{hero:'sprites/hero/manifest.json'},
-    bundles:{'calm-video':{kind:'video',entry:'loop.webm',contentHash:hash}},
-    blobs:{[hash]:{ext:'png',mime:'image/png',size:68}},files:[]
-  }
-  const figures={[figId]:{schemaVersion:1,id:figId,name:'Hero',enabled:true,recall:{mode:'constant'},appearance:'sprite',emotions:[{id:'calm',label:'Calm'}],outfits:[{key:'default',label:'Default',enabled:true,recall:{mode:'constant',keywords:[]},sprite:{manifestKey:'hero',assets:{'calm.png':hash}}}]}}
-  const sprites={hero:{version:1,kind:'static-sprites',emotions:{calm:{src:'calm.png',video:'calm-motion'}}}}
-  assert.doesNotThrow(()=>validateFigureClosure(manifest,figures,sprites))
-  assert.throws(()=>validateSpriteManifest({version:1,kind:'static-sprites',emotions:{calm:{src:'calm.webm'}}}),/PNG\/WebP/)
-  assert.throws(()=>validateFigureClosure({...manifest,assets:[]},figures,sprites),/Missing video entry: calm-motion/)
-})

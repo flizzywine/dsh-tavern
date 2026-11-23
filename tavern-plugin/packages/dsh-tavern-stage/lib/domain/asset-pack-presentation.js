@@ -13,12 +13,12 @@ import { rawData } from '../../../../lib/domain/card-preparation.js'
 import {expandPerformanceDependencies, performanceWidgetDefaults} from './performance-projection.js'
 import {stagePerformanceImageShown} from '../../../../lib/domain/stage-narration.cjs'
 import { assetPackDigest as jsonHash } from './stage-asset-pack-catalogue.js'
-import { projectStageVideo } from './stage-video.js'
 import { assetEntryEnabled, resolveAssetSnapshot, resolveFigureSnapshot } from '../../../dsh-presentation-protocol/src/asset-packs.js'
 import { assetPackBackgroundVariant } from '../../../dsh-presentation-protocol/src/asset-pack-stage.js'
 import {assetContent} from '../../../dsh-presentation-protocol/src/asset-variant-content.js'
 import {selectAssetVariant} from '../../../dsh-presentation-protocol/src/asset-variants.js'
 import {cgPlaybackAvailable} from '../scene-cg.js'
+import {projectStageVideo} from './stage-video.js'
 import {stageTimeLook} from '../../../dsh-presentation-protocol/src/stage-time.js'
 import { triggerEvidence, normalizeCatalogueText, codepointCompare } from '../../../../lib/domain/asset-pack-lexical.js'
 import spriteEmotions from '../../../../shared/sprite-emotions.cjs'
@@ -94,6 +94,13 @@ export function selectPackFigure(figure, sprites, {outfitKey, emotion, imageSele
 // else the outfit's, else any of its other states' (one outfit's pictures share the canvas and the pose). The stage looks
 // for the head's centre only there, so a hammer head or a scythe blade beside the head at the same height is not taken
 // for it (scene-math galCentredAnatomy). null when nothing in the outfit was framed.
+// 动态立绘: the shown still's looping video, {source: the 视频 entry's projection, rect}, or null - the still alone - when the
+// image has none, its entry is off or gone, or it is no figure video (alpha 'right'). Decided once here; the stage only plays it.
+export function packFigureVideo(pack, selection) {
+  const authored = selection.form === 'sprite' ? selection.outfit?.sprite?.videos?.[selection.state?.id] : null
+  const source = authored ? projectStageVideo(pack, authored.video) : null
+  return source?.alpha === 'right' ? {source, rect:[...authored.rect]} : null
+}
 function packFaceSpan(outfit, stateId) {
   const crop = packSpriteCrop(outfit, stateId) || Object.values(outfit.sprite?.avatarCrop || {})[0] || Object.values(outfit.sprite?.avatarCropAuto || {})[0]
   return crop ? [crop.x, crop.x + crop.w] : null
@@ -284,7 +291,7 @@ export function createAssetPackPresentation({raw, getEngine, getService, getAllo
         const signature = JSON.stringify([alias,ref,resolved.revision,actor?.outfitKey,actor?.stateId,actor?.imageSelection,emotion,resolved.value.appearance,historical,live2d,spine])
         if (!projections.has(signature)) {
           const selection = selectPackFigure(resolved.value, pack.sprites, {outfitKey:actor?.outfitKey, emotion:actor?.stateId || emotion, imageSelection:actor?.imageSelection || (historical ? {} : undefined), appearance:resolved.value.appearance, live2d, spine})
-          projections.set(signature, freeze({alias, ref:clone(ref), revision:resolved.revision, ...selection,
+          projections.set(signature, freeze({alias, ref:clone(ref), revision:resolved.revision, ...selection, video:packFigureVideo(pack, selection),
             contentHash:['live2d','spine'].includes(selection.form) ? pack.manifest.bundles[selection.outfit[selection.form].bundleKey].contentHash : null,
             geometry:{stage:packGeometryKey(selection,pack,'stage'), portrait:packGeometryKey(selection,pack,'portrait')}}))
           while (projections.size > 256) projections.delete(projections.keys().next().value)
@@ -302,7 +309,7 @@ export function createAssetPackPresentation({raw, getEngine, getService, getAllo
           if (!urls.has(hash)) urls.set(hash, Promise.resolve(resource(ref,revision,hash,descriptors)).then(value => descriptors && value ? {...value,alias:character.alias} : value))
           return urls.get(hash)
         }
-        let spritePack = null, spriteUrls = null, modelUrl = null, spriteVideo = null
+        let spritePack = null, spriteUrls = null, modelUrl = null
         if (character.manifest && ((stage && character.form === 'sprite') || portrait && character.state?.portrait)) {
           const needed = new Set(), manifest = character.manifest, state = character.state
           const collect = value => { if (typeof value === 'string' && Object.hasOwn(outfit.sprite.assets,value)) needed.add(value)
@@ -318,9 +325,6 @@ export function createAssetPackPresentation({raw, getEngine, getService, getAllo
           const project = value => typeof value === 'string' ? mapping[value] || value : Array.isArray(value) ? value.map(project)
             : value && typeof value === 'object' ? Object.fromEntries(Object.entries(value).map(([k,v]) => [k,project(v)])) : value
           spritePack = project(character.manifest)
-          if (stage && character.form === 'sprite' && manifest.kind === 'static-sprites' && state?.video) {
-            spriteVideo = projectStageVideo(await snapshot(ref.packId), state.video)
-          }
         }
         // a Spine skeleton is leased like a Live2D model (one inert relative bundle tree).
         if (stage && ['live2d','spine'].includes(character.form)) {
@@ -335,7 +339,7 @@ export function createAssetPackPresentation({raw, getEngine, getService, getAllo
           model:{identity:['live2d','spine'].includes(character.form) ? mediaIdentity(ref,character.contentHash) : null,url:modelUrl},
           sprite:{identity:mediaIdentity(ref,character.geometry.stage),url:null},
           resources:Object.fromEntries(Object.entries(spriteUrls || {}).map(([name,url]) => [name,{identity:mediaIdentity(ref,outfit.sprite.assets[name]),url}]))}
-        const result = {...character, media:mediaItems, spritePack, spriteUrls, ...(spriteVideo ? {spriteVideo} : {}), modelUrl, views:{stage:stage && character.form !== 'avatar',portrait}, avatarUrl}
+        const result = {...character, media:mediaItems, spritePack, spriteUrls, modelUrl, views:{stage:stage && character.form !== 'avatar',portrait}, avatarUrl}
         if (disposed || generation !== epoch || getService() !== active) throw error('ASSET_STALE')
         return result
       }

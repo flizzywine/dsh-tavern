@@ -3959,8 +3959,9 @@ let disposed = false;
 // Replay rules stay with the consumer (AGENTS: a page's one-shot plays once when paged back to; skip and refresh never replay).
 
 const stageVideoReads = new Map();
-function stageVideoAcquire(source) {
-    const key = JSON.stringify([source.packId, source.bundleKey, source.hash]);
+// poster false: the caller has its own still (a figure's 动态立绘), so the poster is never read.
+function stageVideoAcquire(source, {poster = true} = {}) {
+    const key = JSON.stringify([source.packId, source.bundleKey, source.hash, poster]);
     let record = stageVideoReads.get(key);
     if (!record) {
         record = {users: 0};
@@ -3973,7 +3974,7 @@ function stageVideoAcquire(source) {
             if (!response.ok) throw new Error('RESOURCE_READ_FAILED ' + response.status);
             return URL.createObjectURL(await response.blob());
         });
-        record.poster = read(source.poster).catch(() => null);
+        record.poster = poster ? read(source.poster).catch(() => null) : Promise.resolve(null);
         record.video = read(source.entry);
         Promise.allSettled([record.poster, record.video]).then(() => lease.then(({ticket}) => service.releaseLease(ticket), () => {}));
         record.video.catch(() => { if (stageVideoReads.get(key) === record) stageVideoReads.delete(key); });
@@ -4046,7 +4047,6 @@ function stageVideoPlayer(host, source, options) {
         });
     };
     const player = {
-        element: video,
         ready, playable,
         // time: the consumer's clock (s); rate: its speed (0 holds); alpha: the layer's opacity (0..1).
         sync({time, rate, alpha}) {
@@ -4090,7 +4090,8 @@ function stageVideoPlayer(host, source, options) {
     return player;
 }
 
-return {player:stageVideoPlayer, dispose() {
+// acquire: the shared read of an entry's files (a figure's 动态立绘 plays its video on the stage canvas, figure-video.cjs).
+return {player:stageVideoPlayer, acquire:stageVideoAcquire, dispose() {
     if (disposed) return;
     disposed = true;
     const errors = [];
@@ -7839,23 +7840,6 @@ function galSyncFaceOrientation(root, figures) {
 function galCreateScene(host, options, own) {
     const layered=own(createStageLayeredFigures({document,compositor:services.layered || {}}),value=>value.dispose());
     const {clear:layeredSpriteClearScene,tick:layeredSpriteTickScene}=layered;
-    const videoHost=stageViews.video?.player&&document?.createElement?own((()=>{
-        const node=document.createElement('div');
-        node.setAttribute?.('aria-hidden','true');
-        if(node.style)node.style.cssText='position:absolute;left:0;top:0;width:1px;height:1px;opacity:0;pointer-events:none;overflow:hidden;';
-        if(host?.append)host.append(node);else host?.appendChild?.(node);
-        return node;
-    })(),node=>node.remove?.()):null;
-    function supportsVideoSpriteAlpha(source) {
-        if(!source?.entry)return false;
-        if(!/\.webm$/i.test(source.entry))return true;
-        const nav=typeof window!=='undefined'?window.navigator:null;
-        const ua=nav?String(nav.userAgent||''):'';
-        const touchMac=Boolean(nav&&/Macintosh/i.test(ua)&&Number(nav.maxTouchPoints||0)>1);
-        const ios=/iPad|iPhone|iPod/i.test(ua)||touchMac;
-        const safari=/AppleWebKit/i.test(ua)&&!/Chrome|Chromium|Edg|OPR|Firefox|Android/i.test(ua);
-        return !ios&&!safari;
-    }
     const warnings=new Map();
     const recordAssetWarning=warning=>{warnings.set(JSON.stringify(warning),warning);if(warnings.size>50)warnings.delete(warnings.keys().next().value);};
     const assetDiagnostics=()=>[...warnings.values()];
@@ -7991,6 +7975,8 @@ function galCreateScene(host, options, own) {
     own(textures,value=>value.dispose());
     const figureAssets=stageViews.figureAssets.create({PIXI,renderer:app.renderer,screen:app.screen,textures,document,centred:math.galCentredAnatomy});
     own(figureAssets,value=>value.dispose());
+    const figureVideos=stageViews.figureVideos.create({PIXI});
+    own(figureVideos,value=>value.dispose());
     const renderers=new Map();
     for(const [kind,factory] of figureRenderers)renderers.set(kind,own(factory({PIXI,app,state,emotes:emotesBox,figures:figuresBox,onError,commit:commitFigureReplacement,lifeOn:figureLifeOn,tune,spine:createSpineRenderer}),value=>value.dispose()));
     const loadTexture=textures.load;
@@ -8085,7 +8071,7 @@ function galCreateScene(host, options, own) {
         release(()=>entry.appearance.dispose());
         if(entry.contact){const contact=entry.contact;entry.contact=null;release(()=>contact.destroy());}
         release(()=>entry.pose.dispose());
-        release(()=>releaseSpriteVideo(entry));
+        if(entry.video){const video=entry.video;entry.video=null;release(()=>video.destroy());}
         release(()=>entry.figureAsset?.destroy());
         entry.figureAsset=null;entry.spineFigure=null;
         for(const item of entry.fading)release(()=>item.asset?.destroy());
@@ -8132,44 +8118,6 @@ function galCreateScene(host, options, own) {
         if (entry.container.visible) model.update(app.ticker.deltaMS * state.timeScale / 1000);
     }
 
-    function releaseSpriteVideo(entry) {
-        const record=entry.spriteVideo;
-        if(!record)return;
-        entry.spriteVideo=null;record.dead=true;record.playing=false;
-        if(entry.sprite&&entry.baseTexture&&entry.sprite.texture===record.texture)entry.sprite.texture=entry.baseTexture;
-        try{record.texture?.destroy(true);}catch(error){console.warn('[fork-gal-scene] video texture cleanup failed',error);}
-        try{record.player?.dispose();}catch(error){console.warn('[fork-gal-scene] video player cleanup failed',error);}
-    }
-    function syncSpriteVideo(entry,desc) {
-        const record=entry.spriteVideo;
-        if(!record||record.dead||!record.ready)return;
-        const shouldPlay=!entry.leaving&&entry.container.visible&&world.visible&&!desc?.skipping&&!desc?.reducedMotion&&!document.hidden;
-        if(shouldPlay){
-            if(!record.playing){record.playing=true;record.player.play();}
-        }else if(record.playing){
-            record.playing=false;record.player.pause();
-        }
-    }
-    function startSpriteVideo(entry,identity,videoSource) {
-        if(!videoSource||!stageViews.video?.player||!videoHost||!supportsVideoSpriteAlpha(videoSource))return;
-        const player=stageViews.video.player(videoHost,videoSource,{poster:false,audio:false,loop:videoSource.loop!==false});
-        const record={identity,player,texture:null,ready:false,playing:false,dead:false};
-        entry.spriteVideo=record;
-        Promise.resolve(player.ready).then(ok=>{
-            if(!ok&&player.state?.().status==='failed'&&entry.spriteVideo===record&&!record.dead)releaseSpriteVideo(entry);
-        }).catch(()=>{});
-        Promise.resolve(player.playable).then(()=>{
-            if(record.dead||entry.dead||entry.leaving||state.destroyed||entry.spriteVideo!==record||entry.loadedIdentity!==identity||!player.element)return;
-            const base=new PIXI.BaseTexture(player.element,{resourceOptions:{autoPlay:false}});
-            try{record.texture=new PIXI.Texture(base);}catch(error){base.destroy();throw error;}
-            record.ready=true;
-            syncSpriteVideo(entry,state.desc);
-        }).catch(error=>{
-            if(!record.dead)console.warn('[fork-gal-scene] sprite video failed',videoSource.assetId,error);
-            if(entry.spriteVideo===record)releaseSpriteVideo(entry);
-        });
-    }
-
     function showStatic(entry, src) {
         if (!src) return;
         const identity = entry.figure.identity;
@@ -8183,10 +8131,9 @@ function galCreateScene(host, options, own) {
             try {
                 const sprite=asset.sprite,texture=sprite.texture;
                 entry.container.addChildAt(sprite,0);
-                if(entry.sprite){entry.sprite.texture=entry.baseTexture;releaseSpriteVideo(entry);layeredSpriteClearScene(entry);clearBlink(entry);entry.fading.push({sprite:entry.sprite,asset:entry.figureAsset,url:entry.src,start:state.clock});}
+                if(entry.sprite){entry.sprite.texture=entry.baseTexture;layeredSpriteClearScene(entry);clearBlink(entry);entry.fading.push({sprite:entry.sprite,asset:entry.figureAsset,url:entry.src,start:state.clock});}
                 entry.figureAsset=asset;entry.figureCandidate=asset.candidate;
                 entry.sprite=sprite;entry.src=src;entry.loadedIdentity=identity;entry.baseTexture=texture;entry.pendingSrc='';
-                if(entry.figure.video)startSpriteVideo(entry,identity,entry.figure.video);
                 commitFigureReplacement(entry);
             }catch(error){asset.destroy();throw error;}
         }).catch(function(error){
@@ -8198,13 +8145,31 @@ function galCreateScene(host, options, own) {
     // scheduler runs on (foreground-paused) timers and only flips child visibility.
     function clearBlink(entry) { entry.blink.reset(); }
     function blinkAllowed(entry) {
-        return !state.destroyed && !entry.dead && !entry.leaving && entry.container.visible && world.visible && !document.hidden && !galBlinkCalm();
+        return !state.destroyed && !entry.dead && !entry.leaving && entry.container.visible && world.visible && !document.hidden && !galBlinkCalm() && !entry.videoShown;
     }
     // A replace blink only sets the phase: layeredSpriteTickScene repaints the eyes on the layered canvas. An over-blend
     // blink is two child sprites whose visibility the scheduler flips.
     function tickBlink(entry) {
         entry.blink.update({bundle:entry.figure.blinkBundle,sprite:entry.sprite,baseTexture:entry.baseTexture,
             ready:entry.loadedIdentity===entry.figure.identity,rhythm:entry.idle.jitter.blink});
+    }
+    // 动态立绘 (figure-video.cjs): the loaded still's looping video plays over it while the figure stands on a visible stage
+    // with motion allowed, and the still shows otherwise: a tap reaction's still, a skip, reduced motion, or a line spoken
+    // through the still's talking mouths. One video per loaded picture; a new picture releases the old one's.
+    function tickFigureVideo(entry, figure, desc, dt) {
+        const video = entry.loadedIdentity === figure.identity ? figure.video : null;
+        const key = video ? JSON.stringify([video.source.packId, video.source.bundleKey, video.source.hash, video.rect]) : '';
+        if (entry.videoKey !== key || entry.videoSprite !== entry.sprite) {
+            const old = entry.video; entry.video = null; entry.videoShown = false;
+            old?.destroy();
+            entry.video = key && entry.sprite ? figureVideos.attach(entry.sprite, video) : null;
+            entry.videoKey = key; entry.videoSprite = entry.sprite;
+        }
+        if (!entry.video) return;
+        const tapped = Boolean(entry.tapTexture && entry.sprite.texture === entry.tapTexture.texture);
+        const talking = Boolean(figure.speaking && !desc.skipping && figure.spriteBundle);
+        entry.video.update({on: !entry.leaving && entry.container.visible && world.visible && !desc.reducedMotion && !desc.skipping && !tapped && !talking});
+        entry.videoShown = entry.video.tick(dt);
     }
     const GAL_NO_FIGURES = [];
     // the viewport layout of the directed cast (galFigureLayout), recomputed only
@@ -8540,12 +8505,10 @@ function galCreateScene(host, options, own) {
                 renderer.tick(entry,figure,desc,{now,dt,W,H,framing,reducedHop});
                 if(!renderer.spriteBased)return;
             }else {
-                if (!layeredSpriteTickScene(entry, textures, PIXI, !desc.skipping && figure.speaking)) {
-                    syncSpriteVideo(entry, desc);
-                    entry.sprite.texture = entry.spriteVideo?.ready && entry.spriteVideo.playing ? entry.spriteVideo.texture : entry.baseTexture;
-                }
+                if (!layeredSpriteTickScene(entry, textures, PIXI, !desc.skipping && figure.speaking)) entry.sprite.texture = entry.baseTexture;
                 tickBlink(entry);
                 tapTextureStatic(entry, now);
+                tickFigureVideo(entry, figure, desc, dt * 1000);
             }
             const pose=entry.pose.update({sprite:entry.sprite,fading:entry.fading,now,reduced:reducedHop,
                 command:figure.act,idle:staticIdle(entry,desc,dt,now),framing,W,H,x:entry.cx.v,flip:entry.flip.v,lift:entry.lift.v,size:figure.size,ground:figure.ground});
@@ -9136,7 +9099,7 @@ function galCreateScene(host, options, own) {
             clean(()=>app.ticker.remove(frame));
             for(const dispose of [()=>effects.destroy(),()=>cast.dispose(),()=>sceneLayout.dispose()])clean(dispose);
             for(const entry of state.offstage.values()){if(entry.next)clean(()=>destroyFigure(entry.next));clean(()=>destroyFigure(entry));}
-            for(const dispose of [()=>call.dispose(),()=>offstageBox.destroy(),()=>backgrounds.dispose(),()=>figureAssets.dispose(),()=>layered.dispose(),()=>textures.dispose(),()=>bust.dispose(),()=>thinking.dispose(),...[...renderers.values()].map(renderer=>()=>renderer.dispose()),()=>app.destroy(true,{children:true}),()=>videoHost?.remove?.()])clean(dispose);
+            for(const dispose of [()=>call.dispose(),()=>offstageBox.destroy(),()=>backgrounds.dispose(),()=>figureAssets.dispose(),()=>layered.dispose(),()=>textures.dispose(),()=>bust.dispose(),()=>thinking.dispose(),...[...renderers.values()].map(renderer=>()=>renderer.dispose()),()=>app.destroy(true,{children:true})])clean(dispose);
             for(const texture of Object.values(generated))clean(()=>texture.destroy(true));
             if(errors.length)throw new AggregateError(errors,'Stage scene cleanup failed');
         }
@@ -18974,6 +18937,144 @@ if(typeof module!=='undefined'&&typeof window==='undefined')module.exports={crea
     return {create,dispose(){if(disposed)return;disposed=true;const errors=[];for(const cache of [...caches])try{cache.dispose();}catch(error){errors.push(error);}if(errors.length)throw new AggregateError(errors,'Scene textures cleanup failed');}};
 }
 if(typeof module!=='undefined'&&typeof window==='undefined')module.exports={createStageSceneTextures};
+
+        'use strict';
+// 动态立绘: a pack figure's still may carry a looping video (outfit sprite.videos, a 视频 entry whose
+// frames hold the picture on the left and its alpha matte on the right, stageVideo alpha 'right'). The still stays the figure:
+// its size, anatomy, anchor, light, tap and avatar never change. The video only stands in for the still's pixels, drawn as a
+// child of the figure sprite over the still's rect, so every transform and filter of the figure applies to it as well.
+// - The still shows until the video can play, whenever the stage says the motion is off (`on: false`), and for good when the
+//   video cannot play (a decode error, no WebGL upload); the change is a short crossfade, never a gap.
+// - Only a figure on stage plays: a video whose motion is off pauses once it has faded out, and the browser's hidden page
+//   pauses it too (forkForeground); a released figure releases its video (element, texture and the shared read).
+// - The texture takes each decoded frame once (requestVideoFrameCallback; PIXI's own updates at 30 fps without it) and
+//   nothing while the element is paused.
+// One H.264 or VP9 file with a side-by-side matte plays with transparency in every browser that plays video (Safari does not
+// render a WebM's alpha channel), and decodes in one hardware decoder.
+function createStageFigureVideos({document, acquire, foreground}) {
+let disposed = false;
+const scopes = new Set();
+const FADE_MS = 240;
+const VERTEX = `attribute vec2 aVertexPosition;attribute vec2 aTextureCoord;uniform mat3 projectionMatrix;uniform mat3 translationMatrix;uniform mat3 uTextureMatrix;varying vec2 vTextureCoord;
+void main(){gl_Position=vec4((projectionMatrix*translationMatrix*vec3(aVertexPosition,1.0)).xy,0.0,1.0);vTextureCoord=(uTextureMatrix*vec3(aTextureCoord,1.0)).xy;}`;
+// The colour of a point is the left half, its opacity the red of the right half; clamped half a texel from the seam.
+const FRAGMENT = `precision mediump float;varying vec2 vTextureCoord;uniform sampler2D uSampler;uniform vec4 uColor;uniform float uSeam;
+void main(){float x=clamp(vTextureCoord.x*0.5,0.0,0.5-uSeam);vec3 c=texture2D(uSampler,vec2(x,vTextureCoord.y)).rgb;
+float a=texture2D(uSampler,vec2(0.5+clamp(vTextureCoord.x*0.5,uSeam,0.5-uSeam),vTextureCoord.y)).r;gl_FragColor=vec4(c*a,a)*uColor;}`;
+function create({PIXI}) {
+    if (disposed) throw new Error('Figure videos disposed');
+    let closed = false;
+    const handles = new Set();
+    let program = null;
+    // sprite: the figure's PIXI sprite (its texture the still or the still's composed frame, anchor set);
+    // motion: {source: the host's projection of the 视频 entry, rect: [x, y, w, h] the still canvas px the picture covers}.
+    function attach(sprite, motion) {
+        if (closed) return null;
+        const video = document.createElement('video');
+        video.muted = true; video.defaultMuted = true; video.loop = true; video.playsInline = true; video.preload = 'auto';
+        video.setAttribute('playsinline', ''); video.setAttribute('muted', ''); video.disablePictureInPicture = true;
+        const read = acquire(motion.source, {poster: false});
+        let status = 'loading', on = false, mix = 0, mesh = null, base = null, last = null, playing = false;
+        const fail = error => {
+            if (status === 'released') return;
+            if (error) console.warn('[figure-video] still kept', error);
+            status = 'failed'; video.pause();
+        };
+        const place = () => {
+            const [x, y, w, h] = motion.rect, ax = sprite.anchor.x * sprite.texture.width, ay = sprite.anchor.y * sprite.texture.height;
+            mesh.position.set(x - ax, y - ay); mesh.scale.set(w, h);
+        };
+        video.addEventListener('error', () => fail(video.error));
+        video.addEventListener('loadeddata', () => {
+            if (status !== 'loading') return;
+            try {
+                // One upload per decoded frame: the browser's frame callback where it has one, else PIXI's own updates at 30 fps.
+                const frames = typeof video.requestVideoFrameCallback === 'function';
+                const resource = new PIXI.VideoResource(video, {autoPlay: false, autoLoad: true, updateFPS: 30});
+                if (frames) resource.autoUpdate = false;
+                base = new PIXI.BaseTexture(resource, {mipmap: PIXI.MIPMAP_MODES.OFF});
+                if (frames) {
+                    const next = () => { if (status === 'ready') { resource.update(); video.requestVideoFrameCallback(next); } };
+                    video.requestVideoFrameCallback(next);
+                }
+                program ||= PIXI.Program.from(VERTEX, FRAGMENT, 'figure-video');
+                const material = new PIXI.MeshMaterial(new PIXI.Texture(base), {program, uniforms: {uSeam: 0.5 / video.videoWidth}});
+                mesh = new PIXI.Mesh(new PIXI.PlaneGeometry(1, 1, 2, 2), material);
+                mesh.alpha = 0; mesh.visible = false;
+                // Under the figure's own children (a mouth or a blink drawn over it).
+                sprite.addChildAt(mesh, 0); place();
+                status = 'ready';
+            } catch (error) { fail(error); }
+        });
+        // The still draws itself only while the video does not cover it fully.
+        const drawStill = sprite._render;
+        sprite._render = function (renderer) { if (!(mesh && mesh.visible && mix >= 1)) drawStill.call(this, renderer); };
+        if (foreground) foreground.media(video);
+        read.video.then(url => { if (status === 'loading') { video.src = url; video.load(); } }, fail);
+        const start = () => {
+            if (playing || status !== 'ready') return;
+            playing = true;
+            // From the first frame: it is the still (the loop is made from it), so the crossfade starts on the same pose.
+            if (mix <= 0) try { video.currentTime = 0; } catch (_) {}
+            const played = video.play();
+            if (played && played.catch) played.catch(error => { playing = false; if (error?.name !== 'AbortError') fail(error); });
+        };
+        const stop = () => { if (playing) { playing = false; video.pause(); } };
+        const handle = {
+            // on: the stage wants the motion now (on stage, not reduced motion, no speech the still has to show).
+            update({on: next}) { on = Boolean(next); },
+            // dt: ms since the last frame. Returns whether the video draws this frame.
+            tick(dt) {
+                if (status === 'released') return false;
+                if (status === 'failed') { mix = 0; if (mesh) mesh.visible = false; return false; }
+                if (status !== 'ready') return false;
+                if (on) start();
+                // Fade in only once a frame of the current play is on the texture; fade out at once.
+                const shown = on && playing && !video.paused && video.readyState >= 2;
+                const target = shown ? 1 : 0, step = Math.max(0, dt) / FADE_MS;
+                mix = target > mix ? Math.min(target, mix + step) : Math.max(target, mix - step);
+                if (mix <= 0 && !on) stop();
+                if (sprite.texture !== last) { last = sprite.texture; place(); }
+                mesh.visible = mix > 0; mesh.alpha = mix;
+                return mix > 0;
+            },
+            state: () => ({status, on, mix, playing, time: video.currentTime, size: [video.videoWidth, video.videoHeight]}),
+            destroy() {
+                if (status === 'released') return;
+                status = 'released'; handles.delete(handle);
+                const errors = [];
+                for (const release of [
+                    () => video.pause(),
+                    () => { video.removeAttribute('src'); video.load(); },
+                    () => { if (sprite._render !== drawStill) sprite._render = drawStill; },
+                    () => { if (mesh && !mesh.destroyed) { mesh.parent?.removeChild(mesh); mesh.destroy({children: true}); } },
+                    () => { if (base && !base.destroyed) base.destroy(); },
+                    () => read.release()
+                ]) { try { release(); } catch (error) { errors.push(error); } }
+                if (errors.length) throw new AggregateError(errors, 'Figure video cleanup failed');
+            }
+        };
+        handles.add(handle);
+        return handle;
+    }
+    const scope = {attach, dispose() {
+        if (closed) return; closed = true; scopes.delete(scope);
+        const errors = [];
+        for (const handle of [...handles]) { try { handle.destroy(); } catch (error) { errors.push(error); } }
+        if (program) { program = null; }
+        if (errors.length) throw new AggregateError(errors, 'Figure videos cleanup failed');
+    }};
+    scopes.add(scope);
+    return scope;
+}
+return {create, dispose() {
+    if (disposed) return; disposed = true;
+    const errors = [];
+    for (const scope of [...scopes]) { try { scope.dispose(); } catch (error) { errors.push(error); } }
+    if (errors.length) throw new AggregateError(errors, 'Figure videos cleanup failed');
+}};
+}
+if (typeof window === 'undefined' && typeof module !== 'undefined') module.exports = {createStageFigureVideos};
 
         function createStageSceneGraphics({window,document,paintEmpty:stagePaintEmpty,emptyPalette:stageEmptyPalette}) {
 // Ordered, named filter slots on one container: set(name, filter) adds or replaces (null removes);
@@ -34491,6 +34592,7 @@ if (typeof module !== 'undefined') module.exports = {timerClockRemaining,timerCl
                     const figureTap=own(createStageFigureTap({document,geometry:figureGeometry}));
                     const entranceContract=stageEntranceContract();
                     const video=own(createStageVideo(options.video));
+                    const figureVideos=own(createStageFigureVideos({document,acquire:video.acquire,foreground:options.video?.foreground}));
                     const entranceMedia=own(createStageEntranceMedia({...options.entranceMedia,files:entranceContract?.stageEntranceFiles}));
                     const entranceRendererScope=own(createStageEntranceRenderer({window,contractFactory:stageEntranceContract,renderer:entranceRenderer,frames:entrancePlateFrames,loop:entranceLoop}));
                     const entrance=own(createStageEntrancePresentation({React:options.React,window,renderer:entranceRendererScope,media:entranceMedia,video,contract:entranceContract,...options.entrance}));
@@ -34503,7 +34605,7 @@ if (typeof module !== 'undefined') module.exports = {timerClockRemaining,timerCl
                     const ambience=own(createAmbience({...options.ambience, session:getSession,owner:getResourceOwner,player:() => createSoundscapePlayer(options.soundscape)}));
                     const speech=own(createStageSpeech({...options.speech,allowed:options.runtimeProtocol?.phoneBeatKernel?.phoneModAutoVoiceAllowed}));
                     const displayConsumers=own(createStageDisplayConsumers({React:options.React,displays,sfx,ambience,voice:speech}));
-                    const views = {resources:stageResources,video,speech,sceneMath,runtimeKernel,displays,displayConsumers,sessionRuntime:own(createStageSessionRuntime({kernel:runtimeKernel,displays,createObservation:inputs=>createStageSessionObservation({...inputs,voice:speech,media:{...inputs.media,music:views.bgm,ambience}}),createResourceModule:createStageResourceRunnerModule,resourceDependencies:{...options.resourceDependencies,stageResourceMatches:stageResources.stageResourceMatches,stageRuntimeErrorText:runtimeKernel.stageRuntimeErrorText,lookahead:()=>quality.get()==="high"?Infinity:3},createDirectorModule:createStageDirectorModule,directorCommands:options.directorCommands,createStoreModule:createStageRuntimeStoreModule,createSessionModule:createStageSessionModule})),figurePose:own(createStageFigurePose({resolve:options.figureMetrics?.resolve,flatLayout:sceneMath.galFlatLayout,actionAt:sceneMath.galFlatActAt,ease:visualMath.ease})),castLayout:own(createStageCastLayout({calculate:sceneMath.galFigureLayout,mix:sceneMath.galFrameMix})),cast:own(createStageCast()),figureAppearance:own(createStageFigureAppearance({graphics:sceneGraphics,spring:sceneMath.galSpring,springValue:sceneMath.galSpringValue,light:figureLight})),figureLight,figureBlink:own(createStageFigureBlink({...options.figureBlink,clockwork:{blinkUrls,blinkPlacement,blinkTimingFor,createBlinkScheduler}})),callViews:own(createStageCallViews({...options.callViews,cover:sceneMath.galCover,canvasTexture:sceneGraphics.canvasTexture})),bust:own(createStageBust({...visualMath,framedHead:sceneMath.galFramedHead})),monologue:own(createStageMonologue({canvasTexture:sceneGraphics.canvasTexture})),backgrounds,sceneCamera:createStageSceneCamera(visualMath),sceneTextures:own(createStageSceneTextures({Image:window.Image,now:()=>window.performance.now()})),spineFigures,figureAssets,sceneGraphics,entrance,skinPresentation:own(createStageSkinPresentation({React:options.React,Event:window.Event,...options.skinPresentation,files:stageResources.getStageBundleFiles,skin})),skinResources,skin,effects,lookUi:own(createStageLookUi({React:options.React})),looks,effectColors,weather,emotes,figureMotion,figureGeometry,figureIdle,figureWarp,figureTap,choices,choiceLayout,regenerate:own(createStageRegenerate({React:options.React,window,document,...options.regenerate})),backlogView,backlogPaging,backlogHistory,backlogVoice, transcriptOutfits:own(createStageTranscriptOutfits(options.transcriptOutfits)), skinFrame, skinCursor:own(createStageSkinCursor({React:options.React, ...options.skinCursor})), backlogRows, configAppearance, configText, configScreen:own(createStageConfigScreen({React:options.React, window, document, Sound:mixer.Sound, Text:configText.Text, Appearance:configAppearance.Appearance, Looks:configFields.Looks, ...options.configScreen})), configFields, widgets:own(createStageWidgets({React:options.React, window, document, device:()=>views.sourceDevice, adjust:(...args)=>views.sourceDevice?.useAdjust(...args) ?? null, ...options.widgets})), cg:own(createStageCg({React:options.React, window, ...options.cg})), gallery:own(createStageGallery({React:options.React, window, document, ...options.gallery,owner:getResourceOwner})), pictures:createStagePictures({React:options.React}), device, quality, mixer, sfx, transitions:own(createStageTransitions({React:options.React, window, ...options.transitions,ease:skin.stageSkinTxEase})), speaker:createStageSpeaker(options.speaker || {}), chatEntry:own(createStageChatEntry({React:options.React, ...options.chatEntry})), menu:own(createStageMenu({React:options.React, window, document, ...options.menu,getSession,ransom:labels})), position:own(createStagePosition({React:options.React, window, ...options.position,sameAnchor:runtimeKernel.sameAnchor,navigate:(...args)=>sessions?.owner?.navigate(...args)})), subtitles:createStageSubtitles({React:options.React, document, window, ...options.subtitles}), controls, loader, admission, progress, notices:own(createStageNotices({React:options.React, document, ...options.notices, shortcuts:controls.shortcuts, live2d:live2d?{Entry:live2d.Entry,runtime:live2d.store}:null})), hints:own(createStageHints({React:options.React, window, document, music, voice:options.speech?.player, ...options.hints})), music, bgm:own(createBgmPlayer({...options.bgm, music,session:getSession,owner:getResourceOwner})), ambience, video,
+                    const views = {resources:stageResources,speech,sceneMath,runtimeKernel,displays,displayConsumers,sessionRuntime:own(createStageSessionRuntime({kernel:runtimeKernel,displays,createObservation:inputs=>createStageSessionObservation({...inputs,voice:speech,media:{...inputs.media,music:views.bgm,ambience}}),createResourceModule:createStageResourceRunnerModule,resourceDependencies:{...options.resourceDependencies,stageResourceMatches:stageResources.stageResourceMatches,stageRuntimeErrorText:runtimeKernel.stageRuntimeErrorText,lookahead:()=>quality.get()==="high"?Infinity:3},createDirectorModule:createStageDirectorModule,directorCommands:options.directorCommands,createStoreModule:createStageRuntimeStoreModule,createSessionModule:createStageSessionModule})),figurePose:own(createStageFigurePose({resolve:options.figureMetrics?.resolve,flatLayout:sceneMath.galFlatLayout,actionAt:sceneMath.galFlatActAt,ease:visualMath.ease})),castLayout:own(createStageCastLayout({calculate:sceneMath.galFigureLayout,mix:sceneMath.galFrameMix})),cast:own(createStageCast()),figureAppearance:own(createStageFigureAppearance({graphics:sceneGraphics,spring:sceneMath.galSpring,springValue:sceneMath.galSpringValue,light:figureLight})),figureLight,figureBlink:own(createStageFigureBlink({...options.figureBlink,clockwork:{blinkUrls,blinkPlacement,blinkTimingFor,createBlinkScheduler}})),callViews:own(createStageCallViews({...options.callViews,cover:sceneMath.galCover,canvasTexture:sceneGraphics.canvasTexture})),bust:own(createStageBust({...visualMath,framedHead:sceneMath.galFramedHead})),monologue:own(createStageMonologue({canvasTexture:sceneGraphics.canvasTexture})),backgrounds,sceneCamera:createStageSceneCamera(visualMath),sceneTextures:own(createStageSceneTextures({Image:window.Image,now:()=>window.performance.now()})),figureVideos,spineFigures,figureAssets,sceneGraphics,entrance,skinPresentation:own(createStageSkinPresentation({React:options.React,Event:window.Event,...options.skinPresentation,files:stageResources.getStageBundleFiles,skin})),skinResources,skin,effects,lookUi:own(createStageLookUi({React:options.React})),looks,effectColors,weather,emotes,figureMotion,figureGeometry,figureIdle,figureWarp,figureTap,choices,choiceLayout,regenerate:own(createStageRegenerate({React:options.React,window,document,...options.regenerate})),backlogView,backlogPaging,backlogHistory,backlogVoice, transcriptOutfits:own(createStageTranscriptOutfits(options.transcriptOutfits)), skinFrame, skinCursor:own(createStageSkinCursor({React:options.React, ...options.skinCursor})), backlogRows, configAppearance, configText, configScreen:own(createStageConfigScreen({React:options.React, window, document, Sound:mixer.Sound, Text:configText.Text, Appearance:configAppearance.Appearance, Looks:configFields.Looks, ...options.configScreen})), configFields, widgets:own(createStageWidgets({React:options.React, window, document, device:()=>views.sourceDevice, adjust:(...args)=>views.sourceDevice?.useAdjust(...args) ?? null, ...options.widgets})), cg:own(createStageCg({React:options.React, window, ...options.cg})), gallery:own(createStageGallery({React:options.React, window, document, ...options.gallery,owner:getResourceOwner})), pictures:createStagePictures({React:options.React}), device, quality, mixer, sfx, transitions:own(createStageTransitions({React:options.React, window, ...options.transitions,ease:skin.stageSkinTxEase})), speaker:createStageSpeaker(options.speaker || {}), chatEntry:own(createStageChatEntry({React:options.React, ...options.chatEntry})), menu:own(createStageMenu({React:options.React, window, document, ...options.menu,getSession,ransom:labels})), position:own(createStagePosition({React:options.React, window, ...options.position,sameAnchor:runtimeKernel.sameAnchor,navigate:(...args)=>sessions?.owner?.navigate(...args)})), subtitles:createStageSubtitles({React:options.React, document, window, ...options.subtitles}), controls, loader, admission, progress, notices:own(createStageNotices({React:options.React, document, ...options.notices, shortcuts:controls.shortcuts, live2d:live2d?{Entry:live2d.Entry,runtime:live2d.store}:null})), hints:own(createStageHints({React:options.React, window, document, music, voice:options.speech?.player, ...options.hints})), music, bgm:own(createBgmPlayer({...options.bgm, music,session:getSession,owner:getResourceOwner})), ambience, video,
                         ...createStageSkinButtons({React:options.React, ...options.presentation}),
                         ...createStagePresentation({React:options.React, document, ...options.presentation}),
                         ...createStagePortraits({React:options.React, document, window, ...options.portraits,emoteDataUrl:emotes.dataUrl,cssColor:effectColors.css}),

@@ -39,7 +39,7 @@ test('plugin disposal releases every video and reclaims URLs arriving after unmo
   assert.throws(() => api.player(host,source),/disposed/)
 })
 
-test('pause before ready cancels pending play and player exposes its video element', async () => {
+test('pause before ready cancels a pending play', async () => {
   const listeners = new Map()
   let plays = 0
   const video = {
@@ -59,7 +59,6 @@ test('pause before ready cancels pending play and player exposes its video eleme
     setTimeout: () => 1, clearTimeout() {},
   })
   const p = api.player(host, { packId: 'p', bundleKey: 'v', hash: 'h', entry: 'loop.webm', poster: 'poster.png' }, { poster: false })
-  assert.equal(p.element, video)
   p.play()
   p.pause()
   listeners.get('canplaythrough')?.()

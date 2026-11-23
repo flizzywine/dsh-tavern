@@ -16,8 +16,9 @@ let disposed = false;
 // Replay rules stay with the consumer (AGENTS: a page's one-shot plays once when paged back to; skip and refresh never replay).
 
 const stageVideoReads = new Map();
-function stageVideoAcquire(source) {
-    const key = JSON.stringify([source.packId, source.bundleKey, source.hash]);
+// poster false: the caller has its own still (a figure's 动态立绘), so the poster is never read.
+function stageVideoAcquire(source, {poster = true} = {}) {
+    const key = JSON.stringify([source.packId, source.bundleKey, source.hash, poster]);
     let record = stageVideoReads.get(key);
     if (!record) {
         record = {users: 0};
@@ -30,7 +31,7 @@ function stageVideoAcquire(source) {
             if (!response.ok) throw new Error('RESOURCE_READ_FAILED ' + response.status);
             return URL.createObjectURL(await response.blob());
         });
-        record.poster = read(source.poster).catch(() => null);
+        record.poster = poster ? read(source.poster).catch(() => null) : Promise.resolve(null);
         record.video = read(source.entry);
         Promise.allSettled([record.poster, record.video]).then(() => lease.then(({ticket}) => service.releaseLease(ticket), () => {}));
         record.video.catch(() => { if (stageVideoReads.get(key) === record) stageVideoReads.delete(key); });
@@ -103,7 +104,6 @@ function stageVideoPlayer(host, source, options) {
         });
     };
     const player = {
-        element: video,
         ready, playable,
         // time: the consumer's clock (s); rate: its speed (0 holds); alpha: the layer's opacity (0..1).
         sync({time, rate, alpha}) {
@@ -147,7 +147,8 @@ function stageVideoPlayer(host, source, options) {
     return player;
 }
 
-return {player:stageVideoPlayer, dispose() {
+// acquire: the shared read of an entry's files (a figure's 动态立绘 plays its video on the stage canvas, figure-video.cjs).
+return {player:stageVideoPlayer, acquire:stageVideoAcquire, dispose() {
     if (disposed) return;
     disposed = true;
     const errors = [];
