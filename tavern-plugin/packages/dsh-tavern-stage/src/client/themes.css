@@ -5354,7 +5354,9 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
     --art-cg: clamp(min(8, var(--art-choice-gap)), calc((var(--art-room) - var(--rows, 3) * var(--art-choice-h)) / max(1, var(--rows, 3) - 1)), var(--art-choice-gap));
     --art-cs: min(1, calc(var(--art-room) / (var(--rows, 3) * (var(--art-choice-h) + var(--art-cg)) - var(--art-cg))));
     --art-cu0: min(calc(var(--fk-area-h) / var(--art-screen)), calc(var(--fk-area-w) / var(--art-screen-w)));
-    --cu: calc(var(--art-cu0) * var(--art-cs) * var(--art-choice-fit, 1)); --gal-choices-over-scene: 1;
+    /* never under the menu's own text size: on a short screen (a phone held sideways) six long rows scaled the words to 5 px,
+       the bars' fixed edit room ate the column and the words wrapped a glyph a line; a menu that still does not fit scrolls */
+    --cu: max(calc(var(--gal-ui-choice-size) / var(--art-choice-font)), calc(var(--art-cu0) * var(--art-cs) * var(--art-choice-fit, 1))); --gal-choices-over-scene: 1;
     --art-menu-y: calc(var(--fk-area-t) + var(--fk-area-h) / 2 + (var(--art-choice-center) - var(--art-screen) / 2) * var(--art-cu0));
     --art-menu-room: round(calc(2 * min(var(--art-menu-y) - var(--fk-area-t), 100vh - var(--art-menu-y)) - 16px), calc(2 * var(--fk-step, 1px)));
     --art-menu-tilt: max(abs(var(--art-choice-tilt-odd, 0deg)), abs(var(--art-choice-tilt-even, 0deg)));
