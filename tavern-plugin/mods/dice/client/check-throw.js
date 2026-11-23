@@ -504,7 +504,7 @@ function CheckThrow(props) {
                 h("div", { className: "fork-check-read-now", "data-part": "now" }),
                 h("div", { className: "fork-check-read-seal", "data-part": "seal" }),
                 h("div", { className: "fork-check-read-changes", "data-part": "changes" }))),
-        page ? h(CheckResultPage, { key: page.record.callId, record: page.record, input: props.input, answerable,
+        page ? h(CheckResultPage, { key: page.record.callId, record: page.record, input: props.input, answerable, look: options && options.values || null,
             style: Object.assign(box ? { left: box.left + "px", bottom: box.bottom + "px", width: box.w + "px", maxHeight: Math.max(box.h, box.top + box.h - 8) + "px" } : {}, checkSkinPage(options)),
             onSend: values => { checkCues.emit("choose", { record: page.record, choice: values }); close(); },
             onFold: close }) : null);
