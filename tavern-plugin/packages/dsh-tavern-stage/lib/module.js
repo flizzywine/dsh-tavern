@@ -261,7 +261,7 @@ export async function createStageModule(core) {
     settlementQueued:stageWorkflow.settlementQueued, modService, stageDirector, chatPersistence, readStageChat,
     chatHeaderForSession:core.chatHeaderForSession, dialogueBubbles:core.dialogueBubbles,
     readReplyPrefix:core.readReplyPrefix, activeRoundBodies:core.activeRoundBodies,
-    streamed:(chat, body, turn) => autoCast?.streamed(chat.cardPath, body, chat, turn)
+    streamed:(chat, body, turn, isCurrent) => autoCast?.streamed(chat.cardPath, body, chat, turn, isCurrent)
   })), 'dsh-tavern: stage story observations')
   // Keep the opening hook independent of the shared story observer's commit/stream hooks.
   ctx.effect(() => core.presentationObservers.register('dsh-tavern-stage-opening', {

@@ -69,6 +69,7 @@ const sourceOf = (chat, body) => {
   const message = chat.messages.findLast(row => row.role === 'assistant'), turn = Number(message.turn || (message.greeting ? 1 : 0))
   return {chatId:chat.id, branchId:chat.timeline.branchId, revision:chat.timeline.revision, turn, messageId:message.id || 'turn:' + turn, paragraphIds:body.paragraphs.map(row => row.paragraphId)}
 }
+const roundKey = ({chatId, branchId, turn}) => JSON.stringify([chatId, branchId, turn])
 
 // 自动选角's runtime: each committed round, the 选角助理 decides about the new speakers and they are
 // written at once (copied, or created with their voice); then the round's requests are counted and the queue's best jobs are
@@ -85,7 +86,7 @@ export function createAutoCast({store, settings, library, images, cast:castAssis
   // sessionId → the last turn round() has finished with; the waits of awaitCast and awaitSettei, tried again on every change.
   const castTurns = new Map(), waits = new Set()
   // a card's casting while its reply streams (castEarly), and the reply and number of finished lines it last looked at
-  const casting = new Map(), castLines = new Map()
+  const casting = new Map(), castLines = new Map(), streaming = new Map()
   // a card's speakers being lent a look, and the reply and number of finished lines its lending last looked at
   const lending = new Map(), lendLines = new Map()
   const wake = () => { for (const wait of [...waits]) wait() }
@@ -163,7 +164,9 @@ export function createAutoCast({store, settings, library, images, cast:castAssis
         if (!cast?.packId || !status?.ready) return
         // The channel as status() names it (its id, its model): a pause after failures is this channel's alone.
         const channel = [status.channel, status.model].filter(Boolean).join('/') || 'default', record = await read(cast.cardId)
-        const jobs = planAutoCast(record, castFor(cast, record), choice.level, {busy:new Set(running.keys()), now:now(), channel})
+        const preview = streaming.get(cardPath)
+        if (preview && !preview.isCurrent()) streaming.delete(cardPath)
+        const jobs = planAutoCast({...record, streaming:preview?.isCurrent() ? preview : undefined}, castFor(cast, record), choice.level, {busy:new Set(running.keys()), now:now(), channel})
         if (!jobs.length && !running.size) {
           // nothing to draw now; a picture waiting out a pause after failures is tried when the pause ends, not at the next round
           const ends = pauseEnds(record, channel)
@@ -237,12 +240,14 @@ export function createAutoCast({store, settings, library, images, cast:castAssis
   // The 选角助理 on the new speakers of ody (paragraphs still streaming are not read), then one write of its decisions, then
   // the queue starts on them. → the cast after the write, or null when the library refused it (kept for the player; the
   // speakers are asked again later).
-  async function castSpeakers(cardPath, cast, body, chat, source) {
+  async function castSpeakers(cardPath, cast, body, chat, source, isCurrent = () => true) {
+    if (!cast || !isCurrent()) return cast
     const speakers = newSpeakers(body, cast, await read(cast.cardId), {actorKey:'player', name:chat.macroState?.userName?.trim() || '你', aliases:[]})
     if (!speakers.length || !active) return cast
     let failure = null
     const decided = castAssistant ? await castAssistant({cardPath, chat, body, speakers, cast}).catch(error => {
       onError(error); failure = {at:now(), error:String(error?.code || error?.message || error).slice(0, 200)}; return null }) : null
+    if (!active || !isCurrent()) return cast
     const plan = castChanges(speakers, decided)
     const written = plan.changes.length ? await library.write({cardPath, changes:plan.changes, sources:plan.sources, source, requestId:sha(JSON.stringify([source, plan.changes]))}).catch(async error => {
       onError(error); await update(cast.cardId, current => noteWriteFailure(current, {at:now(), error:String(error?.code || error?.message || error).slice(0, 200)})); return null }) : {refs:[]}
@@ -253,28 +258,28 @@ export function createAutoCast({store, settings, library, images, cast:castAssis
 
   // 借用形象: the new speakers of body without a look are lent one at once, apart from their casting (one card casts one
   // person after another, seconds each): the director of the round still streaming reads the record's looks at its next window.
-  async function lendNew(cast, body, chat, turn) {
+  async function lendNew(cast, body, chat, turn, isCurrent = () => true) {
     const record = await read(cast.cardId), flight = lending.get(cast.cardId) || new Set()
     const speakers = newSpeakers(body, cast, record, {actorKey:'player', name:chat.macroState?.userName?.trim() || '你', aliases:[]})
       .filter(row => !record.looks?.[row.name] && !flight.has(row.name))
-    if (!lend || !speakers.length || !active) return
+    if (!lend || !speakers.length || !active || !isCurrent()) return
     for (const row of speakers) flight.add(row.name)
     lending.set(cast.cardId, flight)
     try {
       const looks = await lend({chat, body, speakers, turn})
-      if (Object.keys(looks).length) await update(cast.cardId, current => lendLooks(current, looks))
+      if (active && isCurrent() && Object.keys(looks).length) await update(cast.cardId, current => lendLooks(current, looks))
     } finally { for (const row of speakers) flight.delete(row.name) }
   }
 
   // While a reply streams: a new speaker is cast as soon as their line is finished (its paragraph closed), so their 人设图
   // starts well before the reply ends (in the replays: the first 立绘 97 s after the line instead of 145 s). One casting at a
   // time per card; the round's commit waits for it, so nobody is cast twice.
-  async function castEarly(cardPath, body, chat, turn) {
-    if (!active || !library.writable()) return
+  async function castEarly(cardPath, body, chat, turn, isCurrent) {
+    if (!active || !isCurrent() || !library.writable()) return
     const lines = body.paragraphs.filter(row => row.kind === 'line' && !row.pending).length, key = cardPath + '/' + chat.id + '/' + turn
     if (lend && lendLines.get(cardPath) !== key + '#' + lines) {
       lendLines.set(cardPath, key + '#' + lines)
-      void (async () => { const cast = (await settings(cardPath))?.enabled && await library.readCast(cardPath); if (cast) await lendNew(cast, body, chat, turn) })().catch(onError)
+      void (async () => { const cast = (await settings(cardPath))?.enabled && await library.readCast(cardPath); if (cast) await lendNew(cast, body, chat, turn, isCurrent) })().catch(onError)
     }
     if (casting.has(cardPath)) return
     if (castLines.get(cardPath) === key + '#' + lines) return
@@ -286,10 +291,10 @@ export function createAutoCast({store, settings, library, images, cast:castAssis
       await remember(cast.cardId, cardPath)
       const source = {chatId:chat.id, branchId:chat.timeline.branchId, revision:chat.timeline.revision, turn, messageId:'turn:' + turn,
         paragraphIds:body.paragraphs.filter(row => !row.pending).map(row => row.paragraphId)}
-      const after = await castSpeakers(cardPath, cast, body, chat, source)
-      if (!after) return
+      const after = await castSpeakers(cardPath, cast, body, chat, source, isCurrent)
+      if (!after || !active || !isCurrent()) return
       // the finished lines count for the queue already (planAutoCast), until the commit counts the whole round
-      await update(after.cardId, current => ({...current, streaming:{turn, requests:roundRequests(body, after)}}))
+      streaming.set(cardPath, {turn:roundKey(source), requests:roundRequests(body, after), isCurrent})
       void pump(cardPath)
     })().catch(onError).finally(() => casting.delete(cardPath))
     casting.set(cardPath, task)
@@ -312,7 +317,8 @@ export function createAutoCast({store, settings, library, images, cast:castAssis
     cast = await castSpeakers(cardPath, await library.readCast(cardPath), body, chat, source)
     await lent
     if (!cast) return
-    await update(cast.cardId, ({streaming, ...current}) => ({...noteRound(current, roundRequests(body, cast), cast.figures, source.turn), source}))
+    streaming.delete(cardPath)
+    await update(cast.cardId, ({streaming: discarded, ...current}) => ({...noteRound(current, roundRequests(body, cast), cast.figures, roundKey(source)), source}))
     done()
     return pump(cardPath)
   }
@@ -330,7 +336,7 @@ export function createAutoCast({store, settings, library, images, cast:castAssis
       try { return await castRound(cardPath, body, chat, opening, done) } finally { done() }
     },
     // A reply streaming (its round body so far, the turn it will be): its finished lines' new speakers are cast at once.
-    streamed:(cardPath, body, chat, turn) => castEarly(cardPath, body, chat, turn),
+    streamed:(cardPath, body, chat, turn, isCurrent = () => true) => castEarly(cardPath, body, chat, turn, isCurrent),
     // The image plugin plans a settled turn's CG after this: the people the turn brought in are written (with their 外貌 in
     // their 人物库 record), so the plan names them by their record. At once for a card 自动选角 does not take.
     async awaitCast(cardPath, sessionId, turn, signal) {
