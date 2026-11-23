@@ -37,6 +37,53 @@ test('card update aligns current and rollback states while preserving earned val
   } finally {runtime.dispose()}
 })
 
+test('a value map renames exact values in every snapshot, so regenerating or switching branch keeps the new value, and runs once', async () => {
+  const runtime = createLiveCardUpdate()
+  try {
+    const before = {特工:{现实:'日程过载',现实设定:'日程过载的大学生'},任务:{结局:'已中和',档案:{1:{结局:'已中和'},2:{结局:'已捕获'}},历次:[{结局:'已中和'}]},备注:'日程过载'}
+    const after = {特工:{现实:'日程爆满',现实设定:'日程过载的大学生'},任务:{结局:'已处置',档案:{1:{结局:'已处置'},2:{结局:'已捕获'}},历次:[{结局:'已处置'}]},备注:'日程过载'}
+    const oldDefaults = {特工:{现实:'日程过载',现实设定:''},任务:{结局:'',档案:{},历次:[]},备注:''}
+    const next = card({...oldDefaults,特工:{现实:'日程爆满',现实设定:''}})
+    next.extensions = {dsh_tavern:{stateMigrations:[{id:'terms-r1',operations:[
+      {op:'map',path:'/特工/现实',values:{'日程过载':'日程爆满'}},
+      {op:'map',path:'/任务/结局',values:{'已中和':'已处置'}},
+      {op:'map',path:'/任务/*/*/结局',values:{'已中和':'已处置'}}
+    ]}]}}
+    // Two rounds, the latest with two swipes; a checkpoint on another branch and undo data hold older copies.
+    const game = {id:'test',mvu:{enabled:true},cardDefinitionSnapshot:card(oldDefaults),messages:[
+      {greeting:true,swipeId:0,variables:[snapshot(oldDefaults)]},
+      {role:'assistant',turn:2,variables:[snapshot(before)]},
+      {role:'assistant',turn:3,swipeId:1,variables:[snapshot(before),snapshot(before)]}
+    ],timeline:[{branchId:'branch-2',variables:snapshot(before)}],rollbackUndo:{variables:snapshot(before)}}
+    const updated = await runtime.prepare(game,next,game)
+    const states = [updated.messages[1].variables[0],...updated.messages[2].variables,updated.timeline[0].variables,updated.rollbackUndo.variables]
+    for (const value of states) {
+      assert.deepEqual(value.stat_data,after,'only exact values on the declared paths change')
+      assert.deepEqual(value.display_data,after)
+    }
+    assert.equal(updated.messages[0].variables[0].stat_data.特工.现实,'日程爆满')
+    assert.equal(game.messages[2].variables[0].stat_data.特工.现实,'日程过载','the game before the update is not changed')
+    // Loading again, even after a later card edit, leaves the migrated save as it is.
+    updated.cardDefinitionSnapshot = next
+    assert.deepEqual(await runtime.prepare(updated,next,updated),updated)
+    const later = {...next,first_mes:next.first_mes.replace('"备注":""','"备注":"","新增":1')}
+    const again = await runtime.prepare(updated,later,updated)
+    assert.deepEqual(again.messages[2].variables[1].stat_data,{...after,新增:1})
+  } finally {runtime.dispose()}
+})
+
+test('a value map must name old and new strings, and a new value cannot be an old one', async () => {
+  const runtime = createLiveCardUpdate()
+  try {
+    const state = {a:'x'}
+    for (const [values, message] of [[{},/取值映射 values/],[{x:1},/取值映射 values/],[{x:'y',y:'z'},/新值不能同时是旧值：y/]]) {
+      const next = card(state)
+      next.extensions = {dsh_tavern:{stateMigrations:[{id:'m',operations:[{op:'map',path:'/a',values}]}]}}
+      await assert.rejects(runtime.prepare(chat(card(state),state),next,chat(card(state),state)),message)
+    }
+  } finally {runtime.dispose()}
+})
+
 // A round the stage directed, bound to its prefix (which holds the greeting) and chained to the previous record.
 function directed(game, index, previous) {
   const target = {...captureStageTarget(game, index), predecessorDigest: previous?.digest || null}
