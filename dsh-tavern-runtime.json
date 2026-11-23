@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "3305aa07c7c8d63598b3ea175938ccf372e1af26",
-  "releaseSequence": 2028,
+  "revision": "2fdf8b28752a9df3221324d80e4e1e1614c739a2",
+  "releaseSequence": 2029,
   "version": "3.4.0",
   "files": [
     {
@@ -1741,8 +1741,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/card-update-merge.js",
-      "sha256": "32c759537656ddf67844a578b0f3fc60fdfa97ce074b560ca5bec41e4ddb1976",
-      "size": 5771
+      "sha256": "d59168c1a50dc6ef5fb0827c7f13ac37999c972838b33730a0b65d78d9b4acdb",
+      "size": 6041
     },
     {
       "path": "tavern-plugin/lib/domain/card-validation.js",
@@ -10176,9 +10176,9 @@
     }
   ],
   "archive": {
-    "commit": "0047645c3b28cd761c5f97969aa366924f0e946c",
+    "commit": "07f69e4701b8dcea498f6aaf21618360fd7ba69c",
     "path": "runtime.zip",
-    "sha256": "70085e35f5f61623fba90f7595dd738e7bc4b54a970e3260b55deb43ba18bd6e",
-    "size": 17868805
+    "sha256": "51865d26590a43a39d2920ce95fac8828ef8935f95cc452d44e15a2f3c84f46e",
+    "size": 17868907
   }
 }
