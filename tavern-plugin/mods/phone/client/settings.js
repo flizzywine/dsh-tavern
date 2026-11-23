@@ -3,7 +3,7 @@
 // the phone's look
 // (壁纸, 主题色, 内容底色, 机身颜色, 机型, 状态栏 and its parts, 来信提示音) is edited only in the phone's own 设置 app on the stage
 // (phone-settings.js), the same two layers; this page keeps what is not the phone's look:
-// 状态来源, the date / weekday bindings and 联系人 (card content).
+// the date / weekday bindings and 联系人 (card content).
 const PHONE_APP_SETTINGS = new Set(['photos', 'wallpaper', 'accentColor', 'surfaceColor', 'bodyColor', 'cutout', 'statusBar', 'clockText', 'carrier', 'signal', 'battery', 'sound']);
 // 摘要中转（实验）: its own section; the switch is off by default and a card inherits the global layer until it sets its own.
 const PHONE_RELAY_KEYS = ['summaryRelay'];
@@ -87,8 +87,7 @@ function PhoneContactsEditor({ config, files, contacts, faceOf, anchor, beside, 
         h('input', { ref: input, type: 'file', accept: 'image/png,image/jpeg,image/webp', hidden: true, onChange: event => { const file = event.target.files && event.target.files[0]; event.target.value = ''; if (file) upload(file); } }));
     return inlineCanPortal() ? ReactDOM.createPortal(h('div', { className: 'ap-ui ap-layer fork-cfg-layer' }, node), document.body) : node;
 }
-// a compact page like the other settings — 状态来源, the date /
-// weekday bindings and 联系人 (备注名 / 头像, opened as a popover beside its row; a bottom sheet on a narrow window). The page's 设置
+// a compact page like the other settings — the date / weekday bindings and 联系人 (备注名 / 头像, opened as a popover beside its row; a bottom sheet on a narrow window). The page's 设置
 // section carries the 全局 / 本卡 switch in its head.
 // faceOf(figureRef, name): the panel's face of a figure (the stage settings pass it; without it the initial shows).
 function PhoneConfigPage({ rpc, cardId, cardName, sessionId, faceOf, manifest, entries }) {
@@ -103,14 +102,14 @@ function PhoneConfigPage({ rpc, cardId, cardName, sessionId, faceOf, manifest, e
     const renamed = contacts.filter(contact => phoneModContactView(config, files, contact).overridden).length;
     return h('div', { className: 'fork-cfg-page fork-phone-page', 'data-compact': true },
         h(ModSettings, { modId: 'dsh.phone', config, help: '壁纸、提示音素材和联系人头像从素材库选择；主题色、机身和状态栏也能在手机自己的「设置」里改。' },
-            h(CfgList, { rpc, config, keys: listed, state: true, help: modFieldHelp('dsh.phone', manifest) }),
+            h(CfgList, { config, keys: listed, help: modFieldHelp('dsh.phone', manifest) }),
             config.data ? h(InlineRow, { label: '联系人', help: h(Help, { text: '手机里显示的备注名和头像；空着就用卡里的名字和头像。', label: '联系人 说明' }) },
                 h('button', { ref: opener, type: 'button', className: 'fork-inline-trigger fork-phone-contacts-open', 'aria-haspopup': 'dialog', 'aria-expanded': editing, 'data-fork-cfg-keep': true,
                     onClick: () => setEditing(open => !open) }, contacts.length ? contacts.length + ' 人' + (renamed ? ' · 改了 ' + renamed + ' 人' : '') : '还没有人物'),
                 own ? h(OverrideDot, { layer: config.layerFor('contacts') }) : null) : null,
             editing ? h(PhoneContactsEditor, { config, files, contacts, faceOf, anchor: opener.current, placement: 'below', onClose: () => setEditing(false) }) : null),
         config.data ? h(StageSection, { title: '摘要中转（实验）', help: '手机通话的上下文改由摘要中转站整理；需要先开启手机。全局与本卡各有一层，本卡关闭优先。', foldKey: 'mod:dsh.phone/relay', className: 'fork-mod-settings' },
-            h(CfgList, { rpc, config, keys: PHONE_RELAY_KEYS, help: PHONE_RELAY_HELP })) : null,
+            h(CfgList, { config, keys: PHONE_RELAY_KEYS, help: PHONE_RELAY_HELP })) : null,
         entries || null);
 }
 modClients.register('dsh.phone', { settings: PhoneConfigPage });
