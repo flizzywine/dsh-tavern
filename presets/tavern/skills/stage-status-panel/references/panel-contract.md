@@ -50,6 +50,10 @@
 
 页面开着时舞台暂停输入和自动/快进。关闭方式：关闭按钮、Esc、本页快捷键，或脚本调 `close()`（`closeControl:"page"` 的页面由页面自己处理，见上表）。进入舞台时打开的 showOn 页不同：关闭就是不进入，回到文字模式（同「返回主页面」）；进入舞台用 `continueGame()` 或 `fillInput(text)`；它用 `open(id)` 换到的页也还在进入之前。
 
+## 开场白读完后转场
+
+在卡的 `data.extensions.dsh_tavern_opening_end_page` 写入目标页面的 `id`，例如 `"interaction"`。目标须声明在 `data.extensions.dsh_tavern.pages` 中，并使用常规舞台页。玩家翻过当前开场白的最后一句时，舞台打开这一页。手动翻页、自动播放和快进共用这个入口。可以同时给该页设置 `menu:true`，让玩家从舞台菜单再次打开，也方便使用旧版 Tavern 的玩家进入。
+
 ## 写入
 
 用 `tavern_update_card` 的 `rawOperations` 只 `set` 整个 `/data/extensions/dsh_tavern/pages` 数组，不动卡的其他部分：

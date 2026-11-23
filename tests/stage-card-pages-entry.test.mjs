@@ -3,6 +3,9 @@ import assert from 'node:assert/strict'
 import {createRequire} from 'node:module'
 import {readFile} from 'node:fs/promises'
 import vm from 'node:vm'
+import {sourceFunction} from './fixtures/source-function.mjs'
+import {replyBody} from '../tavern-plugin/lib/domain/round-body.js'
+import {createCardPagesService} from '../tavern-plugin/packages/dsh-tavern-stage/lib/domain/status-panel-service.js'
 const require=createRequire(import.meta.url)
 const {createStageControls}=require('../tavern-plugin/packages/dsh-tavern-stage/src/client/controls.cjs')
 const {stageEnterPage}=createStageControls()
@@ -59,4 +62,35 @@ test('closing an entry page leaves the stage; continueGame enters it; only an en
  assert.match(source,/if \(kind === 'continue'\) \{ closeCardPage\(\); return; \}/)
  const reveal=source.slice(source.indexOf('    const stageRevealed ='),source.indexOf('\n',source.indexOf('    const stageRevealed =')))
  assert.match(reveal,/&& !entryOpen;\r?$/,'the reveal holds for the entry page only, not any open page')
+})
+
+test('turning past the last opening line opens the declared page only once at that position', async () => {
+ const source = await readFile(new URL('../tavern-plugin/packages/dsh-tavern-stage/src/client/controller.cjs', import.meta.url), 'utf8')
+ const card = {extensions:{dsh_tavern:{pages:[status]}, dsh_tavern_opening_end_page:'status'}}
+ const service = createCardPagesService({
+  readWorkspace:async () => ({raw:{spec:'chara_card_v3', data:card}}),
+  chatForSession:async () => ({cardPath:'card.json', mode:'story'}),
+  index:async () => ({messages:[]}),
+ })
+ const body = replyBody({turn:1,text:'开场白。'}, {id:'game'}, {greeting:true})
+ const opened = []
+ let nextEnd
+ const context = vm.createContext({
+  cardPages:await service.list({sessionId:'game'}), atLastLine:true, readingPage:{}, pageOpen:false,
+  turn:1, endKey:'end:1', endedAt:null, leasing:false,
+  runtime:{textIndex:new Map([[1,{body}]])},
+  setEndedAt:key => { nextEnd = key },
+  setAuto:() => {}, openCardPage:id => opened.push(id),
+ })
+ // React's state setter commits after handling the event.
+ vm.runInContext(sourceFunction(source,'turnPastEnd'), context)
+ context.turnPastEnd()
+ context.endedAt = nextEnd
+ context.turnPastEnd()
+ context.endedAt = null
+ context.runtime.textIndex.set(1, {body:replyBody({turn:1,text:'之后的对话。'}, {id:'game'})})
+ context.turnPastEnd()
+ assert.deepEqual(opened,['status'])
+ card.extensions.dsh_tavern_opening_end_page = 'missing'
+ assert.equal((await service.list({sessionId:'game'})).openingEndPage, undefined)
 })

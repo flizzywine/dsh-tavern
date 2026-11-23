@@ -34,12 +34,16 @@ export function createCardPagesService({ readWorkspace, chatForSession, index, p
       const value = await context(sessionId)
       if (!value?.pages.length) return { pages: [], fresh: false }
       const indexed = await index(sessionId)
+      // CCv3 extension beside dsh_tavern so older Tavern versions can still import this card and use the page's menu entry.
+      const target = value.card.extensions?.dsh_tavern_opening_end_page
+      const openingEndPage = value.pages.find(page => page.id === target && !page.opening)?.id
       return {
         pages: value.pages.map(({ id, label, shortcut, icon, menu, showOn, initial, opening, size = 'window', closeControl }) => ({
           id, label, size, ...(closeControl !== undefined ? { closeControl } : {}),
           ...(shortcut !== undefined ? { shortcut } : {}), ...(icon !== undefined ? { icon } : {}), ...(menu !== undefined ? { menu } : {}),
           ...(showOn !== undefined ? { showOn } : {}), ...(initial !== undefined ? { initial } : {}), ...(opening !== undefined ? { opening } : {})
         })),
+        ...(openingEndPage ? { openingEndPage } : {}),
         // never played: no player message, and not a game set up before it began (an opening page's kept greeting)
         fresh: value.chat.openingPrepared !== true && !(indexed?.messages || []).some(message => message.role === 'user')
       }

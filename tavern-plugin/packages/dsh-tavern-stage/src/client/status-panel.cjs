@@ -376,7 +376,10 @@ function usePages(sessionId) {
         setValue(undefined);
         let active = true;
         Promise.resolve().then(() => rpc('readCardPages', {sessionId}, sessionId)).then(result => {
-            if (active && !disposed) setValue(result?.pages?.length ? {pages: result.pages, fresh: result.fresh === true} : null);
+            if (active && !disposed) setValue(result?.pages?.length ? {
+                pages: result.pages, fresh: result.fresh === true,
+                ...(result.openingEndPage ? {openingEndPage: result.openingEndPage} : {})
+            } : null);
         }, () => { if (active && !disposed) setValue(null); });
         return () => { active = false; };
     }, [sessionId]);

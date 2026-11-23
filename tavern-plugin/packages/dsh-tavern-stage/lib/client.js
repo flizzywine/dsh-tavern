@@ -14889,7 +14889,14 @@ function GalStage(props) {
     // nothing to read (openingOnly) is at its end.
     // A lease is at its end once the reader turned past its last line (pastEnd) until the game appends more.
     const atEnd = leasing ? atLastLine && (leaseView.waiting || skipping) : atLastLine && (!readingPage || endedAt === endKey || skipping);
-    const turnPastEnd = () => { if (leasing) leaseView.pastEnd(); else setEndedAt(endKey); };
+    function turnPastEnd() {
+        if (leasing) { leaseView.pastEnd(); return; }
+        setEndedAt(endKey);
+        if (endedAt === endKey || !atLastLine || !readingPage || pageOpen || !cardPages?.openingEndPage ||
+            runtime.textIndex.get(turn)?.body?.greeting !== true) return;
+        setAuto(false);
+        openCardPage(cardPages.openingEndPage);
+    }
     // Backlog (gal-backlog.js): while open, auto and skip pause and the choices are hidden.
     const [backlog, setBacklog] = React.useState(false);
     const backlogClosedAt = React.useRef(0);
@@ -26447,7 +26454,10 @@ function usePages(sessionId) {
         setValue(undefined);
         let active = true;
         Promise.resolve().then(() => rpc('readCardPages', {sessionId}, sessionId)).then(result => {
-            if (active && !disposed) setValue(result?.pages?.length ? {pages: result.pages, fresh: result.fresh === true} : null);
+            if (active && !disposed) setValue(result?.pages?.length ? {
+                pages: result.pages, fresh: result.fresh === true,
+                ...(result.openingEndPage ? {openingEndPage: result.openingEndPage} : {})
+            } : null);
         }, () => { if (active && !disposed) setValue(null); });
         return () => { active = false; };
     }, [sessionId]);
