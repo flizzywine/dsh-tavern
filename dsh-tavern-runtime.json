@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "ada6a0f400bd1fb5273eba1967e97ff4effcd4e6",
-  "releaseSequence": 1965,
+  "revision": "b72a57106456904e9b7293a88b372af89b10b8b4",
+  "releaseSequence": 1966,
   "version": "3.4.0",
   "files": [
     {
@@ -1026,8 +1026,8 @@
     },
     {
       "path": "presets/tavern/skills/stage-status-panel/references/panel-contract.md",
-      "sha256": "e826498a2ef2c62a568157b86f675e5f4276a7f347912d885a6b543af309a10a",
-      "size": 18636
+      "sha256": "45610a49a905ff6b84972aba1afac56b9b57c53fdce2500826dca63a69c26f35",
+      "size": 19503
     },
     {
       "path": "presets/tavern/skills/stage-status-panel/SKILL.md",
@@ -1241,8 +1241,8 @@
     },
     {
       "path": "tavern-plugin/lib/client.js",
-      "sha256": "a15f0d9ce66774e9f4225f65389372229c4992e1d8a93addb030cf8c1f48df82",
-      "size": 6463890
+      "sha256": "02a8846d86dbaaba8f63bab9643634983b2e10703c44256b5cb7aadca1398b27",
+      "size": 6464127
     },
     {
       "path": "tavern-plugin/lib/cordis-inspect.js",
@@ -1691,8 +1691,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/card-status-panel.js",
-      "sha256": "1da6351ebcc11ccfa889c46d6f71340a957bf6050b61c214a915306f6dc6f401",
-      "size": 5806
+      "sha256": "8dc38f212b4177eac26f578431c91d07bdc53f5dbc29e08f094184ca75f2b1d9",
+      "size": 6215
     },
     {
       "path": "tavern-plugin/lib/domain/card-summary-cache.js",
@@ -8611,8 +8611,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/client.js",
-      "sha256": "e694a4f45a68a2f80d28f00fbab1d9e211e3f9bc4e1ccf7c73953e2556ef04a7",
-      "size": 3545169
+      "sha256": "ea41eb341baf44155ab9c4a16e7bbd9fd0f3a6a2f97790062077288ea9c46eff",
+      "size": 3546741
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/client/director-source.cjs",
@@ -8891,8 +8891,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/domain/status-panel-service.js",
-      "sha256": "37a57fe78d5340b44b08082a1334b6b14be97b2fba3fea847d35279df51deef4",
-      "size": 4389
+      "sha256": "eb832e0df30f08ceab078dabf4930cd60946c0ab957e4eef35bbeacaa681e79b",
+      "size": 4436
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/domain/transcript-outfits.js",
@@ -10101,9 +10101,9 @@
     }
   ],
   "archive": {
-    "commit": "b547bce1ae937a1087363135a68db75acf6ac8f1",
+    "commit": "e71276118dc39c49803aebc38dfbf7fd56c43b92",
     "path": "runtime.zip",
-    "sha256": "287e52d8be821a7c08b1653a99bb9533708d1a23ca544f4687145e2fca051a81",
-    "size": 17777656
+    "sha256": "48aad2d419c57ae780c27a7b947d4f1ac27e57ca018d26175e1cfce9a80cd7df",
+    "size": 17778786
   }
 }
