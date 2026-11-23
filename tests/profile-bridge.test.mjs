@@ -43,7 +43,7 @@ test('统一启动器从 NEXT 宿主读取活动 Profile，拒绝目录链接切
    webServer: { register: route => routes.push(route) },
    effect: register => register(),
  })
- assert.equal(routes.length, 1)
+ assert.equal(routes.length, 6)
  assert.equal(routes[0].kind, 'exact')
  assert.equal(routes[0].path, '/profile-bridge/logo.png')
  routes[0].handler({ method: 'GET' }, {
@@ -55,6 +55,22 @@ test('统一启动器从 NEXT 宿主读取活动 Profile，拒绝目录链接切
      assert.deepEqual(body, readFileSync(new URL('../tavern-plugin/packages/dsh-tavern/assets/dsh-tavern-app-icon-192.png', import.meta.url)))
    },
  })
+ for (const [name, contentType] of [
+   ...['medal', 'badges', 'paper', 'icons'].map(asset => ['achievement-' + asset + '.webp', 'image/webp']),
+   ['achievement-art.css', 'text/css; charset=utf-8'],
+ ]) {
+   const route = routes.find(route => route.path === '/profile-bridge/' + name)
+   assert.equal(route.kind, 'exact')
+   route.handler({ method: 'GET' }, {
+     writeHead(code, headers) {
+       assert.equal(code, 200)
+       assert.equal(headers['content-type'], contentType)
+     },
+     end(body) {
+       assert.deepEqual(body, readFileSync(new URL('../tavern-plugin/packages/dsh-tavern/assets/' + name, import.meta.url)))
+     },
+   })
+ }
  const status = await handle('status')
  assert.equal(status.value.host, 'next')
  assert.equal(status.value.activeName, 'tavern')

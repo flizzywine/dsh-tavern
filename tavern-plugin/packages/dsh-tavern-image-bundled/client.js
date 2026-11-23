@@ -1974,8 +1974,8 @@ function versionsOf(jobId) {
         if (field === 'full' && (upperPart !== 'sfw' || lowerPart !== 'sfw')) continue
         if (cropped && (field === 'lower' || field === 'shoes' || field === 'full')) continue
         if (barefoot && !keepSocks && field === 'shoes') continue
-        // 标签写法里已经有上衣下装时，整套总述只是噪音。
-        if (field === 'full' && tags && (text(item.upper) || text(item.lower))) continue
+        const hasOutfitParts = tags ? text(item.upper) || text(item.lower) : options.conciseOutfit && text(item.upper) && text(item.lower)
+        if (field === 'full' && hasOutfitParts) continue
         const value = accept(barefoot ? dropFootwear(item[field], keepSocks) : item[field])
         if (value) parts.push({ field, text: value })
       }
@@ -8336,6 +8336,7 @@ function versionsOf(jobId) {
               render: ({ groups, gameId, turn, streaming }) => {
                 try {
                   if (streaming) return null            // 生成中不画，免得画出半句话
+                  if (!settings.imageEnabled) return null  // 配图总开关关着：不提交生图，标记原样显示
                   if (settings.smartImageSelection) return h('span', { style: { display: 'none' } })
                   const prompt = String((groups && groups[0]) || '').trim()
                   if (!prompt) return null
