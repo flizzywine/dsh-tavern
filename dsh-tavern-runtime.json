@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "f2174e3708b4234ea9bae04720325a1c1f207143",
-  "releaseSequence": 1993,
+  "revision": "066d6bc60a715601e578b9f3457723c15510057c",
+  "releaseSequence": 1994,
   "version": "3.4.0",
   "files": [
     {
@@ -2476,8 +2476,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/live-card-update.js",
-      "sha256": "c04077774b4a9d357b479715f7ba35e09585ae6bf149f47f42c288202e708955",
-      "size": 18220
+      "sha256": "22d0694fc4773f1053f104f44ac53e5281612add2ff5d21d5455ee418f762d22",
+      "size": 18544
     },
     {
       "path": "tavern-plugin/lib/domain/manual-character-design.js",
@@ -10136,9 +10136,9 @@
     }
   ],
   "archive": {
-    "commit": "02b6fc165af75702c9656634b7b16bd4ccba0dc5",
+    "commit": "7f6b2254b36054048644a6a43329f78a4b7c2141",
     "path": "runtime.zip",
-    "sha256": "3caa3bb47c259082e4b27aeed0fccccc8f34f6e0dbc928686429cd9b91bb5296",
-    "size": 17815939
+    "sha256": "bd2c88d1be379ef563ec650b5e2cbe51c968b5de011a232192b9ee2749d4a22a",
+    "size": 17816105
   }
 }
