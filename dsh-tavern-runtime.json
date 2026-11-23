@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "b034cc88ce3e00aec5de21879d0c8bd95346f99a",
-  "releaseSequence": 2012,
+  "revision": "fa60116497b2c28b2cce3bf00d0c41b628d01f10",
+  "releaseSequence": 2013,
   "version": "3.4.0",
   "files": [
     {
@@ -970,9 +970,14 @@
       "size": 8264
     },
     {
+      "path": "presets/tavern/skills/stage-mods/references/card-declared.md",
+      "sha256": "b37aefbeb704a100535795ee1650e6c3d59f0c0671dc060694fc25967caa412c",
+      "size": 4215
+    },
+    {
       "path": "presets/tavern/skills/stage-mods/references/dice.md",
-      "sha256": "2e01b8ec08886c244dc4c20d653f5c6bf80f7c2d659d9fd0ed4cc79a86ede96b",
-      "size": 2525
+      "sha256": "e1f972f77eede7e6aab491252f70b1e194e364018aff72e8346f01a073a80774",
+      "size": 2602
     },
     {
       "path": "presets/tavern/skills/stage-mods/references/mod-config.md",
@@ -986,23 +991,23 @@
     },
     {
       "path": "presets/tavern/skills/stage-mods/references/redaction.md",
-      "sha256": "0c5d8c566582d719a98468b00821884950bf5ddd94fee095441f11add1597e13",
-      "size": 1423
+      "sha256": "1184ce61a0f2d5c5f4447b12664a612254f223da647850f077631b1f2ed56687",
+      "size": 1536
     },
     {
       "path": "presets/tavern/skills/stage-mods/references/textcard.md",
-      "sha256": "c30f1220b4c2e69fd7d62c6c51ea3ca5ef1820a7ab5fbcd2d39777d5fc3c9ef1",
-      "size": 699
+      "sha256": "641d2ed00522c5793878c053127ef9bf0e9a34b230c16f9eeebcad1ce65f0341",
+      "size": 755
     },
     {
       "path": "presets/tavern/skills/stage-mods/references/timer.md",
-      "sha256": "54822c690ed3c7cc3db080070cde07ed2f1b11b7faea0cc42cb438b46803b233",
-      "size": 939
+      "sha256": "d02268a57d1d844005b7319d468ff3263632a7ab0fd92fe8584debc37698d712",
+      "size": 1031
     },
     {
       "path": "presets/tavern/skills/stage-mods/SKILL.md",
-      "sha256": "35603b0d087ba9163de7ea82c6b8ea4be16fb1564d4bdd147c51a060e887dfb6",
-      "size": 6513
+      "sha256": "40671a166e045b50627352b487f03972450070754a968c0992b668e858734a31",
+      "size": 7135
     },
     {
       "path": "presets/tavern/skills/stage-setup/references/local-ui.md",
@@ -1261,8 +1266,8 @@
     },
     {
       "path": "tavern-plugin/lib/client.js",
-      "sha256": "66ba324fb532be26d780b74bbc21eb4bcdd2b5d829478f0ec5e39f7109b2d22e",
-      "size": 6510418
+      "sha256": "b7e9b703ecc01112336a3097e8306e9302b1d8b59e5a214d5be0b4b43765b652",
+      "size": 6508621
     },
     {
       "path": "tavern-plugin/lib/cordis-inspect.js",
@@ -8666,8 +8671,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/client.js",
-      "sha256": "bf82d9a21d0a0ad71473ba1d010b1dd6cc5a346a5d9c85ffaba29cb974420cb3",
-      "size": 3562380
+      "sha256": "77f91890b24d30791c0d9ee20f17686b823ea19e7fb7dc2cb300147067505e7f",
+      "size": 3561961
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/client/director-source.cjs",
@@ -10156,9 +10161,9 @@
     }
   ],
   "archive": {
-    "commit": "98fb81ac75d2187cb041b84f02a43ac787ac42cb",
+    "commit": "7c694734a128ea882b52dba5ba9a9599e978daf8",
     "path": "runtime.zip",
-    "sha256": "d1a7d67c46da7b642cf3ed8f3161d391fe25aa86fb99b3ebfe3b86b8423b3cbb",
-    "size": 17841593
+    "sha256": "7d9630b3c6f5e6f123246bdf03903b9c49ae0b88a1c83e3017262cddd0d48e6d",
+    "size": 17844053
   }
 }
