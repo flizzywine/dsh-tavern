@@ -1,5 +1,6 @@
-// Library-only label: never write the filename suffix into the prompt character name.
-function cardLibraryDisplayName(card) {
+// The library gives unlabelled copies a number while keeping the card's own name.
+function cardLibraryDisplayName(card, displayName = card.displayName) {
+    if (displayName) return displayName;
     const suffix = String(card.path || '').match(/ ([\(][1-9]\d*[\)])\.json$/i);
     return card.name + (suffix ? suffix[1] : '');
 }
@@ -123,22 +124,19 @@ function CardExportMenu({ disabled, hasImage, onExport }) {
 				finally { importing.current = false; setBusy(false); setTransferStatus(''); }
 			}
 			async function renameCard() {
-				if (!card) return;
-				const current = card.path.split("/").pop();
-				const name = await askTavernText({ title: "重命名人物卡文件", initialValue: current, maxLength: 120 });
-				if (name === null || name === current) return;
-				setBusy(true); setError("");
-				try {
-					const { resource } = await rpc("renameResource", { path: card.path, name: name });
-					await refreshCards();
-					if (requestedPath === card.path && resource.path !== card.path) {
-						props.ctx.betterSidebar.updateTab(props.tab.id, { meta: { ...props.tab.meta, cardPath: resource.path } }, props.scope.sessionId);
+				if (!card || busy) return;
+				const current = cardLibraryDisplayName(card, cards.find(item => item.path === card.path)?.displayName);
+				await askTavernText({ title: "重命名人物卡", initialValue: current, description: "留空恢复默认名称。", allowEmpty: true, maxLength: 120,
+					onSubmit: async function (displayName) {
+						if (displayName === current) return;
+						setBusy(true); setError("");
+						try {
+							await rpc("organizeCards", { action: "cards", paths: [card.path], displayName: displayName });
+							await refreshCards();
+							notifyTavernDataChanged(["cards"], "cards");
+						} finally { setBusy(false); }
 					}
-					await loadCard(resource.path);
-					notifyTavernDataChanged(["cards", "sessions"], "cards");
-				}
-				catch (err) { setError(String(err && err.message || err)); }
-				finally { setBusy(false); }
+				});
 			}
 			// a separate card to edit or experiment with; the original file is not touched.
 			async function duplicateCardFile() {
@@ -197,7 +195,7 @@ function CardExportMenu({ disabled, hasImage, onExport }) {
 			if (selectedPath) {
 				if (!card) return h("div", { className: "dsh-tavern-library dsh-tavern-card-library" }, h("div", { className: "dsh-tavern-status-head" }, h("button", { className: "dsh-tavern-btn", onClick: clearCard }, "← 返回人物卡库")), loading ? h(PanelLoading, { shape: "fields", label: "正在读取人物卡…" }) : error ? h("div", { className: "dsh-tavern-dock-error" }, error, h("button", { className: "dsh-tavern-btn", onClick: function () { loadCard(selectedPath); } }, "重新读取")) : h("div", { className: "dsh-tavern-empty" }, "人物卡读取失败", h("button", { className: "dsh-tavern-btn", onClick: function () { loadCard(selectedPath); } }, "重新读取")));
 				const listedCard = cards.find(item => item.path === selectedPath);
-				return h(React.Fragment, null, h(TavernCardPluginsBox, { path: selectedPath }), error ? h("div", { className: "dsh-tavern-dock-error", role: "alert" }, error) : null, importStatus ? h("div", { role: "status" }, importStatus) : null, h(CardFieldsPanel, { view: { card: card }, library: true, organizationSettings: organization.detailSettings(listedCard), hasImage: listedCard?.hasImage, busy: busy, onBack: clearCard, onAttach: sessionMode === "card" ? function () { props.appendMention(card.path, card.name); } : null, onOpenWorldBook: props.openWorldBook, onRename: renameCard, onDuplicate: duplicateCardFile, onExport: exportCardFile, onEncrypt: encryptCurrentCard, onDelete: deleteCardFile, onSaved: function (saved) { setCard(Object.assign({}, saved, { path: selectedPath })); refreshCards(); } }), dshExport.element);
+				return h(React.Fragment, null, h(TavernCardPluginsBox, { path: selectedPath }), error ? h("div", { className: "dsh-tavern-dock-error", role: "alert" }, error) : null, importStatus ? h("div", { role: "status" }, importStatus) : null, h(CardFieldsPanel, { view: { card: card }, library: true, displayName: listedCard?.displayName, organizationSettings: organization.detailSettings(listedCard), hasImage: listedCard?.hasImage, busy: busy, onBack: clearCard, onAttach: sessionMode === "card" ? function () { props.appendMention(card.path, card.name); } : null, onOpenWorldBook: props.openWorldBook, onRename: renameCard, onDuplicate: duplicateCardFile, onExport: exportCardFile, onEncrypt: encryptCurrentCard, onDelete: deleteCardFile, onSaved: function (saved) { setCard(Object.assign({}, saved, { path: selectedPath })); refreshCards(); } }), dshExport.element);
 			}
 			const visible = organization.visible;
 			// "@" quotes a card into the card workspace conversation; only there does it mean anything.
@@ -531,7 +529,7 @@ function CardExportMenu({ disabled, hasImage, onExport }) {
 			return h("aside", { className: "dsh-tavern-status" + (props.library ? " dsh-tavern-card-detail" : "") },
 				h("div", { className: "dsh-tavern-status-head" },
 					props.onBack ? h("button", { className: "dsh-tavern-btn", onClick: props.onBack }, "← 返回") : null,
-					h("div", { className: props.library ? "dsh-tavern-status-title" : "dsh-tavern-status-role" }, props.library ? cardLibraryDisplayName(props.view.card) : props.view.card.name),
+					h("div", { className: props.library ? "dsh-tavern-status-title" : "dsh-tavern-status-role" }, props.library ? cardLibraryDisplayName(props.view.card, props.displayName) : props.view.card.name),
 					h("div", { className: "dsh-tavern-question-sub" }, props.view.card.path ? props.view.card.path.split("/").pop() : ""),
 					props.library ? h("div", { className: "dsh-tavern-library-head-actions" }, props.onAttach ? h("button", { className: "dsh-tavern-btn", onClick: props.onAttach }, "在对话中引用") : null, props.onDuplicate ? h("button", { className: "dsh-tavern-btn", disabled: props.busy, onClick: props.onDuplicate }, "另存副本") : null, h("button", { className: "dsh-tavern-btn", onClick: props.onRename }, "重命名"), h(CardExportMenu, { onExport: props.onExport, disabled: props.busy, hasImage: props.hasImage }), props.onEncrypt ? h("button", { className: "dsh-tavern-btn", disabled: props.busy, onClick: props.onEncrypt, title: "为当前人物卡设置导出密码" }, "加密导出") : null, h("button", { className: "dsh-tavern-btn danger", onClick: props.onDelete }, "删除")) : null
 				),

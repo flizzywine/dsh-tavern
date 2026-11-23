@@ -1640,7 +1640,7 @@
 
 		function tavernCardListViewCard(card) {
 			return {
-				path: card.path, name: card.name || "未命名人物卡", fileName: String(card.path).replace(/\\/g, "/").split("/").pop(),
+				path: card.path, name: card.displayName || card.name || "未命名人物卡", fileName: String(card.path).replace(/\\/g, "/").split("/").pop(),
 				imageUrl: card.hasImage ? "/api/dsh-tavern/card-image?path=" + encodeURIComponent(card.path) : "",
 				script: card.script ? { title: card.script.title } : null,
 				group: card.group || "", starred: Boolean(card.starred), error: card.readError || ""

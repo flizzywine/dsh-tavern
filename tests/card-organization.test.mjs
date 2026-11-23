@@ -27,3 +27,17 @@ test('重命名与删除分组同步卡片归属，删除分组保留星标与�
   assert.equal(result[0].starred, true)
   assert.equal(result[0].group, '')
 })
+
+test('展示名与分组和星标一起保存，保留人物名称并可清除', async t => {
+  const { library, store } = await fixture(t)
+  await store.writeJson('card-organization.json', { version: 1, groups: ['常玩'], cards: { a: { starred: true, group: '常玩' } } })
+  await library.update({ action: 'cards', paths: ['a'], displayName: '  自定名称  ' }, paths)
+  await library.update({ action: 'cards', paths: ['a'], starred: false }, paths)
+  const reopened = createCardOrganization(store)
+  assert.deepEqual((await reopened.project(cards))[0], { path: 'a', name: 'a', starred: false, group: '常玩', displayName: '自定名称' })
+  await assert.rejects(library.update({ action: 'cards', paths: ['a'], displayName: 'a'.repeat(121) }, paths), /展示名最多/)
+  await library.movePath('a', 'renamed')
+  assert.equal((await library.read()).cards.renamed.displayName, '自定名称')
+  await library.update({ action: 'cards', paths: ['renamed'], displayName: '' }, ['renamed'])
+  assert.deepEqual((await library.read()).cards.renamed, { starred: false, group: '常玩' })
+})

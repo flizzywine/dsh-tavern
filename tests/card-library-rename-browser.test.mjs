@@ -4,34 +4,33 @@ import test from 'node:test'
 import { chromium } from 'playwright'
 import { browserReactScript } from './fixtures/browser-react.mjs'
 
-test('重命名从标签页路径打开的人物卡后，刷新和重新打开仍使用新路径', async t => {
-  const oldName = '示例角色-舞台版.json'
-  const newName = '示例角色.json'
-  const oldPath = 'cards/' + oldName
-  const newPath = 'cards/' + newName
+test('重命名人物卡修改详情和列表里的展示名，保留文件路径和角色名称', async t => {
+  const fileName = '示例卡文件.json'
+  const cardPath = 'cards/' + fileName
+  const characterName = '示例角色'
+  const newName = '自定展示名'
   const browser = await chromium.launch({ headless: true })
   t.after(() => browser.close())
   const page = await browser.newPage()
   page.setDefaultTimeout(5000)
-  const errors = [], reads = []
+  const errors = [], requests = []
   page.on('pageerror', error => errors.push(error.message))
-  const card = { path: oldPath, name: '示例角色', tags: [] }
+  const card = { path: cardPath, name: characterName, tags: [] }
+  let displayName
   await page.route('http://tavern.test/**', async route => {
     const method = new URL(route.request().url()).pathname.split('/').at(-1)
     if (!method) return route.fulfill({ contentType: 'text/html', body: '<main></main>' })
     const args = route.request().postDataJSON()
+    requests.push({ method, args })
     if (method === 'getCard') {
-      reads.push(args.path)
-      if (args.path !== card.path) return route.fulfill({ json: { ok: false, error: '人物卡不存在: ' + args.path } })
+      assert.equal(args.path, cardPath)
       return route.fulfill({ json: { ok: true, card } })
     }
-    if (method === 'renameResource') {
-      assert.equal(args.path, oldPath)
-      assert.equal(args.name, newName)
-      card.path = newPath
-      return route.fulfill({ json: { ok: true, resource: { oldPath, path: newPath } } })
+    if (method === 'organizeCards') {
+      displayName = args.displayName
+      return route.fulfill({ json: { ok: true, groups: [] } })
     }
-    if (method === 'listCards') return route.fulfill({ json: { ok: true, cards: [card] } })
+    if (method === 'listCards') return route.fulfill({ json: { ok: true, cards: [{ ...card, displayName }] } })
     return route.fulfill({ json: { ok: true } })
   })
   await page.goto('http://tavern.test/')
@@ -49,8 +48,8 @@ test('重命名从标签页路径打开的人物卡后，刷新和重新打开�
       slots: {}, tavernSessionSignals: { subscribe() { return () => {} } },
       betterSidebar: {
         registerTab(spec) { library = spec.component },
-        updateTab(id, patch, sessionId) {
-          if (id !== tab.id || sessionId !== scope.sessionId) throw new Error('Wrong sidebar tab scope')
+        updateTab(id, patch) {
+          if (id !== tab.id) throw new Error('Wrong sidebar tab')
           tab = { ...tab, ...patch }
           render()
         },
@@ -59,22 +58,36 @@ test('重命名从标签页路径打开的人物卡后，刷新和重新打开�
     window.client.apply(ctx)
     window.reopenCardLibrary = () => render('reopened')
     render()
-  }, oldPath)
+  }, cardPath)
   const rename = page.getByRole('button', { name: '重命名', exact: true })
+  const title = page.locator('.dsh-tavern-card-detail .dsh-tavern-status-title')
+  const input = page.getByRole('dialog', { name: '重命名人物卡', exact: true }).getByRole('textbox')
+  const expectTitle = text => title.filter({ hasText: text }).waitFor()
   await rename.click()
-  const input = page.locator('.dsh-tavern-prompt-input')
-  assert.equal(await input.inputValue(), oldName)
-  const renameReadStart = reads.length
+  assert.equal(await input.inputValue(), characterName)
   await input.fill(newName)
   await input.press('Enter')
-  await page.getByText(newName, { exact: true }).waitFor()
-  const refreshed = page.waitForResponse(response => response.url().endsWith('/getCard'))
-  await page.evaluate(() => window.dispatchEvent(new Event('focus')))
-  assert.equal((await refreshed).request().postDataJSON().path, newPath)
+  await expectTitle(newName)
+  const reloaded = page.waitForResponse(response => response.url().endsWith('/getCard'))
   await page.evaluate(() => window.reopenCardLibrary())
+  await reloaded
+  await expectTitle(newName)
+  await page.getByText(fileName, { exact: true }).waitFor()
+  const characterField = page.locator('.dsh-tavern-card-field').filter({ has: page.getByText('角色名称', { exact: true }) })
+  assert.equal(await characterField.locator('input').inputValue(), characterName)
+  await page.getByRole('button', { name: '← 返回', exact: true }).click()
+  await page.getByPlaceholder('搜索人物卡').fill(newName)
+  await page.getByRole('button', { name: newName, exact: true }).click()
   await rename.click()
   assert.equal(await input.inputValue(), newName)
-  assert.ok(reads.slice(renameReadStart).length >= 3)
-  assert.ok(reads.slice(renameReadStart).every(path => path === newPath), reads.join(', '))
+  await input.fill('')
+  await input.press('Enter')
+  await expectTitle(characterName)
+  const renames = requests.filter(({ method }) => method === 'organizeCards').map(({ args: { action, paths, displayName } }) => ({ action, paths, displayName }))
+  assert.deepEqual(renames, [
+    { action: 'cards', paths: [cardPath], displayName: newName },
+    { action: 'cards', paths: [cardPath], displayName: '' },
+  ])
+  assert.ok(!requests.some(({ method }) => method === 'renameResource' || method === 'updateCard'))
   assert.deepEqual(errors, [])
 })

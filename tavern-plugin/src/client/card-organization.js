@@ -43,7 +43,7 @@ function trackTavernPopover(popup, anchor, align = 'start', limit = Infinity) {
 
 function filterOrganizedCards(cards, filter, query) {
   const needle = query.trim().toLocaleLowerCase();
-  return cards.filter(card => (!needle || (card.name + ' ' + card.path).toLocaleLowerCase().includes(needle))
+  return cards.filter(card => (!needle || [card.displayName, card.name, card.path].join(' ').toLocaleLowerCase().includes(needle))
     && (filter === '*' || (filter === 'favorites' ? card.starred : (card.group || '') === filter.slice(6))));
 }
 
@@ -205,7 +205,7 @@ function useCardOrganization(cards, busy, refresh, onError, batch = {}) {
         document.querySelectorAll('.dsh-tavern-card-row-menu[open]').forEach(other => { if (other !== root) other.open = false; });
         positionMenu(popup, root.querySelector('summary'), 'end', 300);
       }
-    }, h('summary', { 'aria-label': '选择分组：' + card.name, title: '选择分组' }, '⋯'),
+    }, h('summary', { 'aria-label': '选择分组：' + (card.displayName || card.name), title: '选择分组' }, '⋯'),
       h('div', { className: 'dsh-tavern-card-row-popup',
         ...(typeof HTMLElement !== 'undefined' && 'showPopover' in HTMLElement.prototype ? { popover: 'auto' } : {}),
         onToggle: event => { if (event.newState === 'closed' || event.nativeEvent?.newState === 'closed') event.currentTarget.closest('details').open = false; }
