@@ -743,7 +743,8 @@ function stageSkinArt(document, files, entry = '') {
     };
     const screen=(key,s) => {
         const p='--art-' + key;
-        marks['data-fk-skin-art-' + key]=['sheet','title','close'].filter(part => s[part]).join(' ');
+        // untitled: title false (an original log screen with no title; theme.css 「art screens」 keeps only its accessible name)
+        marks['data-fk-skin-art-' + key]=[...['sheet','title','close'].filter(part => s[part]),...(s.title === false ? ['untitled'] : [])].join(' ');
         if (s.sheet) {const [w,h]=size(s.sheet); Object.assign(tokens,{[p + '-sheet']:url(s.sheet),[p + '-sheet-w']:String(w),[p + '-sheet-h']:String(h)});}
         tokens[p + '-dim']=String(s.dim ?? 0);
         tokens[p + '-font']=String(s.font);

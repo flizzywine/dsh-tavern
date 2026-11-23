@@ -2261,35 +2261,43 @@
        "maximum": 1
       },
       "title": {
-       "type": "object",
-       "description": "A placed image: its top-left at x, y on the design screen at scale design px per image px; focus = the image under the pointer and keyboard focus.",
-       "additionalProperties": false,
-       "required": [
-        "image",
-        "x",
-        "y"
-       ],
-       "properties": {
-        "image": {
-         "$ref": "#/$defs/image"
+       "description": "The log screen's title: a placed image, or false = none (an original whose log has no title; the overlay keeps its accessible name). Omitted = the shared title centred at the top of the game area.",
+       "oneOf": [
+        {
+         "type": "object",
+         "description": "A placed image: its top-left at x, y on the design screen at scale design px per image px; focus = the image under the pointer and keyboard focus.",
+         "additionalProperties": false,
+         "required": [
+          "image",
+          "x",
+          "y"
+         ],
+         "properties": {
+          "image": {
+           "$ref": "#/$defs/image"
+          },
+          "focus": {
+           "$ref": "#/$defs/image"
+          },
+          "scale": {
+           "$ref": "#/$defs/artScale"
+          },
+          "x": {
+           "type": "number",
+           "minimum": -4096,
+           "maximum": 4096
+          },
+          "y": {
+           "type": "number",
+           "minimum": -4096,
+           "maximum": 4096
+          }
+         }
         },
-        "focus": {
-         "$ref": "#/$defs/image"
-        },
-        "scale": {
-         "$ref": "#/$defs/artScale"
-        },
-        "x": {
-         "type": "number",
-         "minimum": -4096,
-         "maximum": 4096
-        },
-        "y": {
-         "type": "number",
-         "minimum": -4096,
-         "maximum": 4096
+        {
+         "const": false
         }
-       }
+       ]
       },
       "close": {
        "type": "object",
