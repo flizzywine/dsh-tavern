@@ -97,10 +97,11 @@ function GalBacklog(props) {
     // A row's words with its marks drawn; shown: the words as the row writes them (a quoted line), which contain the row's text.
     function markedText(index, text, shown = text) {
         const row = textMarkRows?.get(index), shift = row?.ranges.length ? shown.indexOf(text) : -1;
-        if (shift < 0) return shown;
-        const marks = row.ranges.map(range => ({start:range.start + shift, end:range.end + shift,
+        if (shift < 0 && !looks.highlight) return shown;
+        const own = shift < 0 ? [] : row.ranges.map(range => ({start:range.start + shift, end:range.end + shift,
             render:(words, key) => h(range.mark.kind.Mark, {key, mark:range.mark, text:words, place:row.place, still:false})}));
-        return stageTextMarks.textMarkNodes(shown, 0, shown.length, marks);
+        const marks = stageTextMarks.textMarksHighlighted(shown, looks.highlight, own, h);
+        return marks.length ? stageTextMarks.textMarkNodes(shown, 0, shown.length, marks) : shown;
     }
     // art.backlog.plates (C1): each entry's place among its role's entries, which picks its plate image and pose.
     const places = React.useMemo(() => {

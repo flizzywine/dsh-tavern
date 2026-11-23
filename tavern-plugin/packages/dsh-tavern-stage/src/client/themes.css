@@ -96,8 +96,8 @@
 .fork-gal-mount { position: fixed; inset: 0; z-index: 2147483000; }
 .fork-gal-handover { position: fixed; inset: 0; z-index: 2147483000; background: #000; }
 [data-fork-gal-stage] body { overflow: hidden; }
-/* The opaque stage is a body portal. galCoverChat marks only the covered session roots
-   and pins their boxes: content-visibility keeps the transcript's styles, boxes and scroll
+/* The opaque stage is a body portal. galCoverChat marks only the covered session roots (on a phone or tablet also the host
+   app's other regions, navigation.cjs) and pins their boxes: content-visibility keeps the transcript's styles, boxes and scroll
    offsets while skipping its rendering, focus and accessibility, so leaving the stage is a
    repaint rather than a ~20k-node restyle/relayout (gal-entry.js). */
 [data-fork-gal-covered] { content-visibility: hidden !important; }
@@ -4246,12 +4246,13 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
 @media (hover: none) and (pointer: coarse) { .fork-gal-stage .fork-stage-skin-key { display: none; } }
 /* The cue bob is in the body em (art px over --art-font), so a narrow stage's drawn bubble bobs the same way. */
 .fork-gal-stage[data-fk-skin-art]:not(.is-film):not([data-reduced-motion]) .fork-gal-box .fork-gal-next.fork-skin-next:not(.is-waiting) { animation: fork-art-cue-in .18s step-end both; }
-.fork-gal-stage[data-fk-skin-art]:not(.is-film):not([data-reduced-motion]) .fork-gal-box .fork-gal-next.fork-skin-next:not(.is-waiting) > canvas { animation: fork-art-cue-bob .933s .18s infinite; will-change: transform; }
-.fork-gal-stage[data-fk-skin-art][data-fk-skin-art-cue="image"]:not(.is-film):not([data-reduced-motion]) .fork-gal-box .fork-gal-next.fork-skin-next:not(.is-waiting)::before { animation: fork-art-cue-bob .933s .18s infinite; will-change: transform; }
+/* (a still cue - rise 0, data-fk-skin-art-bob="still" - and the canvas an image cue hides take no looping keyframes) */
+.fork-gal-stage[data-fk-skin-art]:not(.is-film):not([data-reduced-motion]):not([data-fk-skin-art-bob="still"]):not([data-fk-skin-art-cue$="image"]) .fork-gal-box .fork-gal-next.fork-skin-next:not(.is-waiting) > canvas { animation: fork-art-cue-bob .933s .18s infinite; will-change: transform; }
+.fork-gal-stage[data-fk-skin-art][data-fk-skin-art-cue="image"]:not(.is-film):not([data-reduced-motion]):not([data-fk-skin-art-bob="still"]) .fork-gal-box .fork-gal-next.fork-skin-next:not(.is-waiting)::before { animation: fork-art-cue-bob .933s .18s infinite; will-change: transform; }
 /* bob dip (.917 s): down --art-rise px in .2 s and back by .383 s, both 3t²-2t³, then still. */
-.fork-gal-stage[data-fk-skin-art][data-fk-skin-art-bob="dip"]:not(.is-film):not([data-reduced-motion]) .fork-gal-box .fork-gal-next.fork-skin-next:not(.is-waiting) > canvas,
+.fork-gal-stage[data-fk-skin-art][data-fk-skin-art-bob="dip"]:not(.is-film):not([data-reduced-motion]):not([data-fk-skin-art-cue$="image"]) .fork-gal-box .fork-gal-next.fork-skin-next:not(.is-waiting) > canvas,
 .fork-gal-stage[data-fk-skin-art][data-fk-skin-art-bob="dip"][data-fk-skin-art-cue="image"]:not(.is-film):not([data-reduced-motion]) .fork-gal-box .fork-gal-next.fork-skin-next:not(.is-waiting)::before { animation: fork-art-cue-dip .917s .18s infinite; }
-.fork-gal-stage[data-fk-skin-art][data-fk-skin-art-cue="inline-image"]:not(.is-film):not([data-reduced-motion]) .fork-gal-box .fork-gal-next.fork-skin-next:not(.is-waiting)::before { animation: fork-art-cue-bob 1.4s .18s infinite; will-change: transform; }
+.fork-gal-stage[data-fk-skin-art][data-fk-skin-art-cue="inline-image"]:not(.is-film):not([data-reduced-motion]):not([data-fk-skin-art-bob="still"]) .fork-gal-box .fork-gal-next.fork-skin-next:not(.is-waiting)::before { animation: fork-art-cue-bob 1.4s .18s infinite; will-change: transform; }
 /* bob blink: the cue blinks at 2 Hz (a terminal's block cursor), on and off in hard steps, never moving. */
 .fork-gal-stage[data-fk-skin-art][data-fk-skin-art-bob="blink"]:not(.is-film):not([data-reduced-motion]) .fork-gal-box .fork-gal-next.fork-skin-next:not(.is-waiting)::before { animation: fork-art-cue-blink .5s .18s infinite step-end; will-change: auto; }
 /* (hidden half the period, else the inherited visibility: a hidden box keeps its cue hidden) */

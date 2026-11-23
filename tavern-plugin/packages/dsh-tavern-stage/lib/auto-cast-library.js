@@ -4,7 +4,7 @@ import {figureDefaultEmotion, STANDARD_FIGURE_EMOTIONS} from '../../dsh-asset-li
 import {castingVoiceKey} from '../../dsh-asset-library/lib/pack-v2/library-search.js'
 import voiceAutoCastRule from '../../dsh-asset-library/lib/shared/voice-auto-cast.cjs'
 
-const {readingPackIds} = voiceAutoCastRule
+const {voiceAutoCast, readingPackIds} = voiceAutoCastRule
 
 // 自动选角's one port to the asset library and the shared figure records: the library's
 // automatic writer `auto-cast` for context, whole-library search (figures and 通用声音) and writes. A library without that writer leaves writable() false: nothing runs.
@@ -44,8 +44,22 @@ export function createAutoCastLibrary({getLibrary, getReading = () => null}) {
       return {cardId:context.card.cardId, missingPackIds:context.missingPackIds, packId:pack?.manifest.id ?? null, revision:pack?.revision ?? null, raw:context.card.raw, rows, voiceKeys, figures:figuresOf(pack)}
     },
     search:query => port().writer.searchLibrary({query, limit:8, systemPacks:systemPacks()}),
-    // every library 通用声音 (the assistant reads them all rather than guess the words of their names).
-    libraryVoices:() => port().writer.listLibraryVoices({limit:60, systemPacks:systemPacks()}),
+    // The library's 通用人物原型, a new person's 借用形象 is lent from: an enabled figure with a stage form whose own voice is a
+    // 通用声音 (the 通用角色 archetypes), in a pack no automatic writer owns (never another card's person).
+    async lendable() {
+      const rows = [], system = systemPacks()
+      for (const pack of await port().library.listPacks()) {
+        if (!pack.manifest || pack.automatic) continue
+        for (const figureId of pack.manifest.figures) {
+          const figure = pack.figures?.[figureId], voice = pack.manifest.voiceLibrary?.voices?.[figure?.voice?.voice]
+          if (!figure?.enabled || !voice || !voiceAutoCast(voice, pack.manifest.id, system) || !figure.outfits.some(outfit => outfit.enabled && (outfit.sprite || outfit.live2d || outfit.spine))) continue
+          rows.push({packId:pack.manifest.id, figureId, name:figure.name, heightCm:figure.heightCm ?? null})
+        }
+      }
+      return rows
+    },
+    // every library 通用声音 of one language (the assistant reads them all rather than guess the words of their names).
+    libraryVoices:language => port().writer.listLibraryVoices({limit:60, systemPacks:systemPacks(), language}),
     // A picture by its hash (content-addressed): read at the pack's current revision, so a landing of another picture
     // between the queue's read and this one does not fail the job (11-12 验收: a 立绘 lost to REVISION_CONFLICT).
     async readMedia({packId, hash}) {
