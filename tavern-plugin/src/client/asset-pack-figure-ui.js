@@ -15,10 +15,18 @@ const figureColor=figure=>figure.imageColor??figure.autoColor??'var(--fork-figur
 // no preset palette; the picker offers shades of the image colour (InlineColor).
 // Outfit trigger words that only repeat an internal key (「mb-casual03」 of 「cocoa-mb-casual03」), the outfit's own name or
 // the figure's name / aliases (default triggers already) are not shown; they stay in the data untouched (the editor never re-adds names or ids as words).
-function outfitWordHidden(outfit,word,figure) {
+function outfitWordReason(outfit,word,figure) {
   const w=String(word).toLowerCase(),key=String(outfit.key||'').toLowerCase();
-  return w===key||key.endsWith('-'+w)||word===outfit.label||word===figure?.name||!!figure?.aliases?.includes(word);
+  if(w===key||key.endsWith('-'+w))return '这套服装的内部代号';
+  if(word===outfit.label)return '这套服装的名字';
+  return word===figure?.name||figure?.aliases?.includes(word)?'人物的名字或触发词':'';
 }
+const outfitWordHidden=(outfit,word,figure)=>!!outfitWordReason(outfit,word,figure);
+// a typed word that is already a default trigger is not stored (the row would not show it): say so instead.
+const outfitWordsProblem=(outfit,figure,problem)=>words=>{
+  const word=words.find(w=>outfitWordHidden(outfit,w,figure));
+  return word?`「${word}」是${outfitWordReason(outfit,word,figure)}，默认就会触发，不用再加`:problem(words);
+};
 // every outfit tile is head-and-shoulders by one rule, for static
 // pictures and Live2D snapshots alike (LIVE2D_FRAMES.bust): a 3:4 box, the head (top → chin) 42% of its height
 // starting at 12%, centred on the face. The static head box is the calm picture's calibrated anatomy (fractions), else its
@@ -223,6 +231,13 @@ function aliasProblem(words) {
   return bad?`「${bad}」超过 40 字`:'';
 }
 const figureNames=figure=>(figure.aliases||[]).filter(word=>!aliasHidden(word));
+// A word typed into a chips field that is already in it adds nothing; say so (InlineChips keeps the typed text as it split it).
+function repeatCheck(shown,split,validate) {
+  let typed=[];
+  return {split:text=>(typed=split(text)),validate:words=>typed.length&&typed.every(w=>shown.includes(w))?`「${typed.join('、')}」已经有了`:validate(words)};
+}
+// An edit leaves out the words the figure's other names already find (patchFigure's coveredAliases): say which, and by what.
+const coveredText=rows=>rows.map(({word,by,same})=>same?`「${word}」和「${by}」是同一个词，已经有了`:`「${word}」已包含「${by}」，正文里出现它时本来就会命中，没有另存`).join('；');
 // Hidden actor names remain identities; normalization happens once at the service write boundary.
 function namesPatch(figure,names) {
   const old=figure.aliases||[];
@@ -362,12 +377,13 @@ function FigureLivePreview(props) {
 // 触发词 (any length) takes the whole width under them; labels sit in the editor's one label column (theme.css 基础设定).
 const FIGURE_DESCRIPTION_MAX=1000;
 function FigureBasics({figure,write}) {
-  const automatic=figure.autoColor??FIGURE_AUTO_NEUTRAL;
+  const automatic=figure.autoColor??FIGURE_AUTO_NEUTRAL,[aliasNote,setAliasNote]=React.useState(''),names=figureNames(figure),repeat=repeatCheck(names,splitAliases,aliasProblem);
   return h(InlineGrid,{label:'人物资料',className:'ap-fe-basics'},
     h(InlineField,{kind:'number',label:'身高',className:'ap-height',hideEmpty:true,unit:'cm',integer:false,min:1,max:400,value:figure.heightCm||null,title:'用于在舞台上和其他角色比较高低',
       validate:v=>v>0&&v<=400?'':'身高需为 1–400 的数字',onCommit:v=>write(()=>({heightCm:v}))}),
     h(InlineField,{kind:'color',label:'形象色',className:'ap-color',auto:automatic,value:figure.imageColor||'',onCommit:v=>write(()=>({imageColor:v||null}))}),
-    h(InlineField,{kind:'chips',label:'触发词',controlLabel:'人物触发词',className:'is-aliases',wide:true,help:h(Help,{text:ALIAS_HELP,label:'人物触发词 说明'}),value:figureNames(figure),split:splitAliases,validate:aliasProblem,onCommit:names=>write(f=>namesPatch(f,names))}),
+    h(InlineField,{kind:'chips',label:'触发词',controlLabel:'人物触发词',className:'is-aliases',wide:true,help:h(Help,{text:ALIAS_HELP,label:'人物触发词 说明'}),value:names,split:repeat.split,validate:repeat.validate,error:aliasNote,
+      onCommit:names=>{setAliasNote('');return write(f=>namesPatch(f,names),setAliasNote).then(result=>{if(result?.coveredAliases?.length)setAliasNote(coveredText(result.coveredAliases));});}}),
     // 使用情景 (figure.guidance, owner 11-08) stands open like every entry's: the line the story model reads for this figure in
     // <speaker_roster> (card-stage.js → dialogue-bubbles.js) and the background judge's text for it. A paragraph under 触发词;
     // line breaks kept (Shift+Enter), Enter / blur saves, Esc reverts; empty removes the field. The pack validates it (string ≤ 1000) on write.
@@ -937,7 +953,8 @@ function FigureDetail({binding,pack,figure,commitFigure,assignFigureVoice,commit
   // A new outfit's name field takes focus (and its text) once it is on show.
   const outfitNameRef=React.useRef(null);
   React.useEffect(()=>{if(!nameFocus||outfit?.key!==nameFocus)return;const input=outfitNameRef.current;setNameFocus(null);input?.focus?.();input?.select?.();},[nameFocus,outfit?.key]);
-  const write=make=>{setError('');return commitFigure(figure.id,make).catch(e=>setError(errorText(e)));};
+  // `onError` shows a failure beside the field that made the edit instead of in the page's banner.
+  const write=(make,onError=setError)=>{setError('');return commitFigure(figure.id,make).catch(e=>{onError(errorText(e));});};
   const writeOutfit=update=>write(f=>({outfits:f.outfits.map(o=>o.key===outfit.key?update(o):o)}));
   const info={figure,outfit,pack,ref:{packId,figureId:figure.id},sprites:pack.sprites};
   const manifest=outfit?.sprite&&pack.sprites?.[outfit.sprite.manifestKey];
@@ -1024,6 +1041,7 @@ function FigureDetail({binding,pack,figure,commitFigure,assignFigureVoice,commit
   const still=kind==='avatar'?(avatarSlot?h(Thumb,{key:avatarSlot.hash,binding,packId,hash:avatarSlot.hash,crop:avatarSlot.crop,label:figure.name,className:'ap-stand is-avatar'}):standStill||empty):kind==='sprite'?sprite||standStill||empty:showLive||showSpine?sprite||empty:empty;
   const previewEmpty=!candidatePreview&&!standStill&&(kind==='avatar'?!avatarSlot:kind==='sprite'?!sprite:kind==='spine'?!showSpine:!showLive);
   const recall=outfit?.recall||{mode:'keyword',keywords:[]},hidden=(recall.keywords||[]).filter(w=>outfitWordHidden(outfit,w,figure));
+  const shownWords=(recall.keywords||[]).filter(w=>!outfitWordHidden(outfit,w,figure)),outfitRepeat=repeatCheck(shownWords,splitKeywords,outfitWordsProblem(outfit,figure,keywordProblem));
   // one place per action (R13) — a picture's 生成 / 重画 / 改图 / 上传 /
   // 裁切 / 删除 are its tile's menu (menuFor). The preview card keeps them only for a figure without 差分 (no tiles) and
   // Spine's 「模型与动画」 (nothing else opens it). 裁切 frames a still into a new picture through ImageFramer: 立绘 「重新裁切…」
@@ -1292,7 +1310,7 @@ function FigureDetail({binding,pack,figure,commitFigure,assignFigureVoice,commit
             value:outfit.guidance||'',placeholder:'例：在中转站工作时',maxLength:80,validate:v=>[...v].length<=80?'':'使用情景最多 80 字',
             onCommit:v=>writeOutfit(o=>{const next={...o};if(v)next.guidance=v;else delete next.guidance;return next;})}),
           remarkField({key:'remark:'+outfit.key,value:outfit.remark,controlLabel:'服装备注',className:'is-remark',onCommit:v=>writeOutfit(o=>withRemark(o,v))}),
-          h(InlineField,{key:'words:'+outfit.key,kind:'chips',label:'触发词',controlLabel:'服装触发词',className:'is-words',value:(recall.keywords||[]).filter(w=>!outfitWordHidden(outfit,w,figure)),split:splitKeywords,validate:keywordProblem,
+          h(InlineField,{key:'words:'+outfit.key,kind:'chips',label:'触发词',controlLabel:'服装触发词',className:'is-words',value:shownWords,split:outfitRepeat.split,validate:outfitRepeat.validate,
             // the candidates are the outfit trigger words already used in this pack.
             suggest:entryWordCandidates(pack,'figures',a=>(a.outfits||[]).flatMap(o=>o.recall?.keywords||[])),
             onCommit:shown=>writeOutfit(o=>{const base=o.recall||{mode:'keyword',keywords:[]},keywords=[...hidden,...shown.filter(w=>!hidden.includes(w))],synonyms=Object.fromEntries(Object.entries(base.synonyms||{}).filter(([k])=>keywords.includes(k)));const next={...base,keywords};if(Object.keys(synonyms).length)next.synonyms=synonyms;else delete next.synonyms;return {...o,recall:next};})}))),

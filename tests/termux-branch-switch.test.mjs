@@ -13,8 +13,8 @@ const root = fileURLToPath(new URL('../', import.meta.url))
 const bash = process.env.TEST_BASH || 'bash'
 const shellPath = value => value.replaceAll('\\', '/').replace(/^([A-Za-z]):/, (_, drive) => `/${drive.toLowerCase()}`)
 
-// termux-tavern.sh 把容器内脚本写在 heredoc 里；直接抽出来单独跑，就能在没有
-// proot/容器的机器上验证切换与回退逻辑。
+// termux-tavern.sh 把分支切换脚本写在 heredoc 里；直接抽出来单独跑，就能在没有
+// Termux 的机器上验证切换与回退逻辑。
 const shell = await readFile(path.join(root, 'scripts/termux/termux-tavern.sh'), 'utf8')
 const lines = shell.split('\n')
 const begin = lines.findIndex(line => line.includes("<<'BRANCH_SCRIPT_EOF'"))
@@ -87,12 +87,12 @@ async function writeInner(directory) {
 
 test('一键脚本提供 reinstall 强制重装，并会清掉 git 标记', async () => {
   assert.match(shell, /reinstall\|force-install\)/)
-  assert.match(shell, /tavern-force-install/)
-  assert.match(shell, /rm -rf "\$HOME\/\.dsh-tavern\/apps\/dsh-tavern\/\.git"/)
-  assert.match(shell, /\[ -f \/tmp\/tavern-force-install \]/)
+  assert.match(shell, /FORCE_INSTALL=1/)
+  assert.match(shell, /rm -rf "\$APP\/\.git"/)
+  assert.match(shell, /rm -f "\$APP\/\.termux-tavern-branch"/)
 })
 
-test('容器内切换：保留 data 与 node_modules、写标记与备份记录', async (t) => {
+test('分支切换：保留 data 与 node_modules、写标记与备份记录', async (t) => {
   const directory = await mkdtemp(path.join(tmpdir(), 'tavern-termux-branch-'))
   t.after(() => rm(directory, { recursive: true, force: true }))
   const layout = await createLayout(directory)
@@ -118,7 +118,7 @@ test('容器内切换：保留 data 与 node_modules、写标记与备份记录'
   assert.match(workspace, /^patchedDependencies:\n  dsh-web-mobile@3\.1\.0: patches\/dsh-web-mobile@3\.1\.0\.patch$/m)
 })
 
-test('容器内回退：恢复旧版本并清掉记录', async (t) => {
+test('分支回退：恢复旧版本并清掉记录', async (t) => {
   const directory = await mkdtemp(path.join(tmpdir(), 'tavern-termux-revert-'))
   t.after(() => rm(directory, { recursive: true, force: true }))
   const layout = await createLayout(directory)

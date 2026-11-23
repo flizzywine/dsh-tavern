@@ -55,6 +55,7 @@ import java.nio.charset.StandardCharsets;
 
 /** 启动页（状态、启停、更新、后台运行、维护）+ 全屏 WebView。服务就绪后默认直接进酒馆，返回键回到启动页。 */
 public final class MainActivity extends Activity {
+    static final String EXTRA_SHOW_UPDATE = "showUpdate";
     private static final int PICK_FILES = 1;
     private static final String INSTALL_ACTION = "io.github.flizzywine.dshtavern.bionic.INSTALL_STATUS";
     private final Handler handler = new Handler(Looper.getMainLooper());
@@ -101,8 +102,9 @@ public final class MainActivity extends Activity {
         IntentFilter filter = new IntentFilter(INSTALL_ACTION);
         if (Build.VERSION.SDK_INT >= 33) registerReceiver(installReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
         else registerReceiver(installReceiver, filter);
-        showLauncher = !prefs().getBoolean("autoOpen", true);
+        showLauncher = !prefs().getBoolean("autoOpen", true) || getIntent().getBooleanExtra(EXTRA_SHOW_UPDATE, false);
         send(TavernService.ACTION_START);
+        send(TavernService.ACTION_APK_CHECK);
         handler.post(poll);
     }
 
@@ -535,6 +537,7 @@ public final class MainActivity extends Activity {
             return;
         }
         applyBarColor(BG);
+        maybeShowApkNotice();
 
         String err = TavernService.error;
         int p = TavernService.progress;
@@ -669,6 +672,45 @@ public final class MainActivity extends Activity {
         }
     }
 
+    // ---------------------------------------------------------------- 新版安装包提示
+
+    private long noticeShownFor = -1;
+    private AlertDialog noticeDialog;
+
+    /** 停在启动页时弹一次：同一版本每次打开应用最多弹一次；「跳过此版本」后不再弹（强制更新除外）。 */
+    private void maybeShowApkNotice() {
+        org.json.JSONObject notice = TavernService.apkNotice;
+        if (notice == null || isFinishing() || (noticeDialog != null && noticeDialog.isShowing())) return;
+        long code = notice.optLong("versionCode");
+        if (code == noticeShownFor) return;
+        noticeShownFor = code;
+        boolean forced = TavernService.apkForced;
+        String page = notice.optString("page");
+        String browserUrl = page.isEmpty() ? notice.optString("url") : page;
+        AlertDialog.Builder b = new AlertDialog.Builder(this)
+                .setTitle(forced ? "需要更新安装包" : "有新版安装包")
+                .setMessage(TavernService.apkMessage(notice) + "\n\n当前：" + appVersion()
+                        + (forced ? "\n当前版本已停止支持，请更新后继续使用。" : "")
+                        + "\n覆盖安装后存档和设置保留。")
+                .setPositiveButton("下载安装", (d, w) -> {
+                    TavernService.apkRelease = notice;
+                    send(TavernService.ACTION_DOWNLOAD_APK);
+                })
+                .setNeutralButton("浏览器下载", (d, w) -> {
+                    try {
+                        startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(browserUrl)));
+                    } catch (Exception e) {
+                        Toast.makeText(this, "无法打开浏览器：" + browserUrl, Toast.LENGTH_LONG).show();
+                    }
+                });
+        if (forced) b.setCancelable(false);
+        else b.setNegativeButton("跳过此版本", (d, w) -> {
+            prefs().edit().putLong("skipApkVersion", code).apply();
+            send(TavernService.ACTION_PREFS);
+        });
+        noticeDialog = b.show();
+    }
+
     private void installApk(File apk) {
         if (!getPackageManager().canRequestPackageInstalls()) {
             Toast.makeText(this, "请允许本应用安装更新，返回后再点一次「安装」", Toast.LENGTH_LONG).show();
@@ -731,7 +773,14 @@ public final class MainActivity extends Activity {
     @Override
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
+        setIntent(intent);
         send(TavernService.ACTION_START);
+        // 从「有新版安装包」通知点进来：回到启动页并再弹一次提示。
+        if (intent.getBooleanExtra(EXTRA_SHOW_UPDATE, false)) {
+            showLauncher = true;
+            noticeShownFor = -1;
+            render();
+        }
     }
 
     private long backPressedAt;

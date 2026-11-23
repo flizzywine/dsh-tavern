@@ -108,7 +108,7 @@ window.__ModuleLoader__.load({
 				if (!isTavernCardPackArchive(file)) { const uploadId = await uploadTavernCardFile(file, report, call); report('正在导入…'); return await commitTavernCardFile(file, { uploadId }, call); }
 				const staged = await previewTavernCardArchive(file, call, report);
 				let packDecisions = {};
-				if (staged.packs.length) {
+				if (staged.packs.length || staged.packNotices?.length) {
 					progress.close(); progress = null;
 					const way = await askTavernCardPackWay(file, staged);
 					if (!way) {
@@ -171,12 +171,12 @@ window.__ModuleLoader__.load({
 					report('等待输入密码…');
 					return askTavernCardPassword(options);
 				});
-				return { uploadId, ...(password === undefined ? {} : { password }), card: preview.card, packs: preview.packs };
+				return { uploadId, ...(password === undefined ? {} : { password }), card: preview.card, packs: preview.packs, packNotices: preview.packNotices };
 			} catch (error) { await call("discardCardUpload", { uploadId }).catch(() => {}); throw error; }
 		}
 		/** The card file into the library, or in place of replacePath: staged is the upload (and preview) of an archive, null for PNG / JSON. */
 		async function commitTavernCardFile(file, staged, call, { replacePath, packDecisions } = {}) {
-			if (staged) return await call("importCardUpload", { uploadId: staged.uploadId, name: file.name, ...(replacePath ? { replacePath } : {}), ...(staged.password === undefined ? {} : { password: staged.password }), packDecisions: packDecisions || {} });
+			if (staged) return await call("importCardUpload", { uploadId: staged.uploadId, name: file.name, ...(replacePath ? { replacePath } : {}), ...(staged.password === undefined ? {} : { password: staged.password }), packDecisions: packDecisions || {}, previewed: Boolean(staged.card), acceptMissingPacks: Boolean(staged.packNotices?.length) });
 			return await call("importCard", { payload: await parseCardFile(file), ...(replacePath ? { replacePath } : {}) });
 		}
 		/** What a card file brought into its character material, for the import notice. */
@@ -211,13 +211,16 @@ window.__ModuleLoader__.load({
 			for (const file of misplaced) failures.push({ name: file.name, plain: true, message: misplacedFileHint(file, false) });
 			picked = picked.filter(function (file) { return misplaced.indexOf(file) < 0; });
 			const { cards, zips } = cardZip ? await splitCardFiles(picked) : { cards: picked, zips: [] };
-			let imported = 0, existing = 0, lastPath = "";
+			let imported = 0, existing = 0, incomplete = 0, lastPath = "";
 			for (const [index, file] of cards.entries()) {
 				onProgress?.("正在导入 " + (index + 1) + "/" + cards.length + "：" + file.name);
 				try {
 					const { card } = await importTavernCardFile(file, call, onTransfer);
 					lastPath = card.path;
-					if (card.duplicate) {
+					if (card.status === "partial") {
+						incomplete++;
+						notices.push(file.name + "：素材未完整导入\n" + card.libraryNotices.join("\n"));
+					} else if (card.duplicate) {
 						existing++;
 						notices.push(file.name + "：已在卡库中（「" + card.name + "」）");
 					} else {
@@ -238,6 +241,7 @@ window.__ModuleLoader__.load({
 			}
 			const summary = cards.length || failures.length ? "已导入 " + imported + " 张"
 				+ (existing ? "，" + existing + " 张已在卡库中" : "")
+				+ (incomplete ? "，" + incomplete + " 张素材未完整导入" : "")
 				+ (failures.length ? "，" + failures.length + " 个文件失败" : "") : "";
 			if (failures.length) notices.unshift("失败文件：" + failures.map(file => file.name).join("、"));
 			return { lastPath, failures: failures.map(file => file.plain ? file.message : file.name + "：" + file.message), summary: [summary, ...notices].filter(Boolean).join("\n") };
@@ -313,6 +317,23 @@ window.__ModuleLoader__.load({
 			return String(file && file.name || "");
 		}
 
+		function mobileImportSizeText(bytes) {
+			const size = Number(bytes);
+			if (size >= 1024 ** 3) return (size / 1024 ** 3).toFixed(1) + " GB";
+			if (size >= 1024 ** 2) return Math.ceil(size / 1024 ** 2) + " MB";
+			return Math.ceil(size / 1024) + " KB";
+		}
+
+		/** What importing a pack ZIP did: the packs now in the asset library, and what is left for the player to decide there. */
+		function mobileImportPackNote(name, result) {
+			const packs = Array.isArray(result && result.packs) ? result.packs : [];
+			const titles = function (status) { return packs.filter(function (pack) { return pack.status === status; }).map(function (pack) { return "「" + pack.title + "」"; }).join("、"); };
+			const lines = [];
+			if (titles("installed")) lines.push(name + "：已装入素材库 " + titles("installed"));
+			if (titles("existing")) lines.push(name + "：素材库里已有 " + titles("existing"));
+			return lines.concat((result && result.notices) || []).join("\n");
+		}
+
 		function isMobileImportImage(name) {
 			return /\.png$/i.test(String(name || ""));
 		}
@@ -367,6 +388,7 @@ window.__ModuleLoader__.load({
 			useWindowFullscreen(open); // the import sheet covers the window (inline-field.js)
 			const [busy, setBusy] = React.useState(false);
 			const [error, setError] = React.useState("");
+			const [notice, setNotice] = React.useState("");
 			const [filter, setFilter] = React.useState("");
 			const [sort, setSort] = React.useState(readMobileImportSort);
 			const [selecting, setSelecting] = React.useState(false);
@@ -382,7 +404,7 @@ window.__ModuleLoader__.load({
 				else if (props.inputRef.current) props.inputRef.current.click();
 			}
 			function close() {
-				setOpen(false); setSelecting(false); setSelected(new Set()); setProgress(null); setError("");
+				setOpen(false); setSelecting(false); setSelected(new Set()); setProgress(null); setError(""); setNotice("");
 			}
 			function toggle(file) {
 				setSelected(function (previous) {
@@ -393,16 +415,36 @@ window.__ModuleLoader__.load({
 			}
 			async function importQueue(queue) {
 				if (!queue.length) return;
-				setBusy(true); setError("");
-				const failures = [];
+				setBusy(true); setError(""); setNotice("");
+				const failures = [], notes = [];
 				let last = null;
 				for (let index = 0; index < queue.length; index += 1) {
 					setProgress({ done: index + 1, total: queue.length });
-					try { const result = await importTavernPasswordCard(password => rpc("importMobileCard", { id: queue[index].id, ...(password === undefined ? {} : { password }) }), mobileImportNameOf(queue[index])); last = result.card; }
+					try {
+						const id = queue[index].id, name = mobileImportNameOf(queue[index]);
+						const result = await importTavernPasswordCard(async password => {
+							const args = { id, ...(password === undefined ? {} : { password }) };
+							const reply = await rpc("importMobileCard", { ...args, preview: true });
+							const stage = reply.preview;
+							if (!stage) return reply;
+							const needsChoice = stage.packs.length || stage.packNotices?.length;
+							const way = needsChoice ? await askTavernCardPackWay(null, stage) : 'update';
+							if (!way) {
+								await rpc("importMobileCard", { id, discard: true });
+								throw Object.assign(new Error('已取消人物卡导入'), { code: 'TAVERN_CARD_IMPORT_CANCELLED' });
+							}
+							return rpc("importMobileCard", { ...args, previewed: true, acceptMissingPacks: Boolean(stage.packNotices?.length), packDecisions: tavernCardPackDecisions(stage.packs, way) });
+						}, name);
+						if (result.card) {
+							last = result.card;
+							if (last.status === "partial") notes.push(name + "：素材未完整导入\n" + last.libraryNotices.join("\n"));
+						} else notes.push(mobileImportPackNote(name, result));
+					}
 					catch (err) { if (err?.code !== 'TAVERN_CARD_IMPORT_CANCELLED') failures.push(mobileImportNameOf(queue[index]) + "：" + String(err && err.message || err)); }
 				}
 				setBusy(false); setProgress(null);
-				if (last) { if (!failures.length) close(); await props.onImported(last); }
+				if (notes.length) setNotice(notes.join("\n"));
+				if (last) { if (!failures.length && !notes.length) close(); await props.onImported(last); }
 				if (failures.length) {
 					setError(failures.length + " 个文件导入失败：\n" + failures.slice(0, 4).join("\n") + (failures.length > 4 ? "\n…" : ""));
 					await load();
@@ -443,11 +485,11 @@ window.__ModuleLoader__.load({
 					thumbnailOf(file),
 					h("span", { className: "dsh-tavern-mobile-import-meta" },
 						h("b", { title: mobileImportNameOf(file) }, mobileImportNameOf(file)),
-						h("span", null, file.directory + " · " + Math.ceil(file.size / 1024) + " KB")));
+						h("span", null, file.directory + " · " + mobileImportSizeText(file.size))));
 			}
 			function emptyState() {
 				if (needle) return h(EmptyState, { query: filter, onClear: function () { setFilter(""); } });
-				return catalog && catalog.storageAccessible === false ? h("div", { className: "dsh-tavern-empty" }, "DSHA 无法读取下载目录。请在系统设置中允许 DSHA ‘访问所有文件’，然后点刷新；也可尝试系统文件选择器。") : h(EmptyState, { text: "下载目录里还没有可导入的人物卡" });
+				return catalog && catalog.storageAccessible === false ? h("div", { className: "dsh-tavern-empty" }, "DSHA 无法读取下载目录。请在系统设置中允许 DSHA ‘访问所有文件’，然后点刷新；也可尝试系统文件选择器。") : h(EmptyState, { text: "下载目录里还没有人物卡或素材包" });
 			}
 			const countText = "共 " + allFiles.length + " 个文件"
 				+ (needle ? "，匹配 " + files.length + " 个" : "")
@@ -457,9 +499,10 @@ window.__ModuleLoader__.load({
 				h("button", { type: "button", className: "dsh-tavern-btn primary", disabled: props.disabled || busy, onClick: activate }, props.batch ? "批量导入" : "导入人物卡"),
 				open ? h("div", { className: "dsh-tavern-mobile-import", role: "dialog", "aria-modal": "true", "aria-label": "从手机下载目录导入人物卡" }, h("div", { className: "dsh-tavern-mobile-import-shell" }, h("div", { className: "dsh-tavern-mobile-import-panel" },
 					h("div", { className: "dsh-tavern-mobile-import-title" }, "从手机下载目录导入"),
-					h("div", { className: "dsh-tavern-question-sub" }, "把人物卡放进手机 Download 后直接点选，.dshcard 和 .charx 卡包文件读取上限为 8 GiB。"),
+					h("div", { className: "dsh-tavern-question-sub" }, "把人物卡（PNG、JSON、卡包）或素材包 ZIP 放进手机 Download，回到这里点选；大文件也能直接导入。"),
 					h("div", { className: "dsh-tavern-mobile-import-count", role: 'status', 'aria-busy': !!progress }, progress ? h(Spinner) : null, countText),
 					error ? h("div", { className: "dsh-tavern-dock-error", role: "alert" }, error) : null,
+					notice ? h("div", { className: "dsh-tavern-question-sub dsh-tavern-mobile-import-notice", role: "status" }, notice) : null,
 					h("div", { className: "dsh-tavern-mobile-import-tools" },
 						h("input", { className: "dsh-tavern-mobile-import-search", type: "search", value: filter, placeholder: "筛选文件名", disabled: busy, onChange: function (event) { setFilter(event.target.value); } }),
 						h("select", { className: "dsh-tavern-mobile-import-sort", value: sort, disabled: busy, "aria-label": "排序方式", onChange: function (event) { const value = event.target.value; setSort(value); saveMobileImportSort(value); } },
@@ -1197,6 +1240,7 @@ window.__ModuleLoader__.load({
 // @include features/opening-setup-form.js
 // @include features/opening-setup-template.js
 // @include modules/card-update-dialog.js
+// @include modules/script-card-update.js
 // @include features/sidebar.js
 
 // @include features/scene-images.js
@@ -1449,6 +1493,7 @@ function clipReplayCore() {
 			tavernSessionSignals = signals;
 			ctx.effect(function () { return function () { if (tavernSessionSignals === signals) tavernSessionSignals = undefined; }; }, "dsh-tavern: remote session signals");
 			ctx.effect(function () { return tavernRuntimeGenerationMonitor.start(); }, "dsh-tavern: runtime generation monitor");
+            ctx.effect(() => installTavernScriptCardUpdate({ window, rpc, onUpdated: sessionId => { liveTavernView.invalidate(sessionId); notifyTavernDataChanged(["cards"], "script-card-update"); } }), "dsh-tavern: card scripts updating their own card");
             // Host shortcuts and exit registration; the plugin starts its own session runtime.
             stageEffect(() => galStageShortcut(ctx), "dsh-tavern: stage keyboard shortcut");
             stageEffect(() => galStageLifetime(), "dsh-tavern: stage visibility lifetime");

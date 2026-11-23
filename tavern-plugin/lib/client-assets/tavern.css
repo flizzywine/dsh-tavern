@@ -72,6 +72,7 @@ body.dsh-tavern-shell-active,
 .dsh-tavern-mobile-import-meta b { display: block; max-width: 100%; overflow: hidden; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
 .dsh-tavern-mobile-import-meta span { color: var(--dsw-alias-label-secondary); font-size: 11px; }
 .dsh-tavern-mobile-import-count { color: var(--dsw-alias-label-secondary); font-size: 11px; }
+.dsh-tavern-mobile-import-notice { white-space: pre-line; overflow-wrap: anywhere; }
 .dsh-tavern-mobile-import-tools { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; min-width: 0; }
 .dsh-tavern-mobile-import-search { width: 100%; min-width: 0; box-sizing: border-box; height: 32px; padding: 0 10px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 8px; background: var(--dsw-alias-bg-base); color: inherit; font: inherit; font-size: 13px; }
 .dsh-tavern-mobile-import-sort { max-width: min(46%, 220px); min-width: 0; box-sizing: border-box; height: 32px; padding: 0 28px 0 10px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 8px; background-color: var(--dsw-alias-bg-base); color: inherit; font: inherit; font-size: 13px; }
@@ -3152,7 +3153,8 @@ body.dsh-tavern-shell-active [class*="_tabs"] [class*="_viewsMoreAnchor"] [class
   body.dsh-tavern-shell-active [data-composer-card] button[class*="_add"]::after { content: ""; position: absolute; top: -6px; right: -6px; bottom: -6px; left: -6px; }
   body.dsh-tavern-shell-active :is([data-sidebar-right-panel], .dsh-tavern-picker-overlay, .dsh-tavern-prompt, .dsh-tavern-group-manager, .dsh-ejs-editor, [role="dialog"]:has(> nav[class*="_nav"]))
     :is(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]), textarea, select) { font-size: 16px; max-width: 100%; box-sizing: border-box; }
-  body.dsh-tavern-shell-active :is([data-sidebar-right-panel]) :is(button, summary, select) { min-height: 40px; }
+  /* 开关轨道（role="switch"）是横向胶囊，不能被 40px 高度地板撑成方块。 */
+  body.dsh-tavern-shell-active :is([data-sidebar-right-panel]) :is(button:not([role="switch"]), summary, select) { min-height: 40px; }
   body.dsh-tavern-shell-active :is([data-sidebar-right-expand], [data-sidebar-right-toggle], [data-sidebar-right-mode], [data-dockkit-add-tab]) {
     box-sizing: border-box; width: 40px; height: 40px; min-width: 40px; flex-shrink: 0; opacity: 1;
   }

@@ -7,6 +7,7 @@ import {importFigureVariants} from './import-figure-variants.js'
 import {createVoiceAuthoring,retainVoiceEmotionPointers} from './voice-authoring.js'
 import figureResolution from '../shared/figure-resolution.cjs'
 import {migrateCgFigures} from '../asset-packs/cg-figures.js'
+import {normalizeVoiceServices} from '../shared/voice-schema.js'
 import {normalizePackImport} from './normalize-import.js'
 import {migrateFigureNames, migrateFigureNameBaselines, normalizeFigureAliases} from '../asset-packs/figure-names.js'
 import {normalizePackTags,normalizeEntryTags} from '../asset-packs/item-migration.js'
@@ -231,12 +232,23 @@ export function createAssetPackService(options) {
   const covers = (have, want) => want === true || !have || have === want || have === 'figures' && want === 'manifest'
   // A record edit outside a pack write changes the figures a pack shows (figureRecordsChanged): its reads start over.
   const recordGenerations = new Map()
+  // Readers that miss together share one read of the pack: after a restart every card's 自动选角 context and the stage read
+  // the same packs at once, and each reading them on its own multiplied a cold library read by the readers (11-23: 12 readers,
+  // 15 s each, the stage's own pack reads waited behind them).
+  const metadataReads = new Map()
   async function metadata(id, summaryOnly = false) {
     const stamp = await storage.stamp(id), signature = stamp === null ? null : stamp + '#' + (recordGenerations.get(id) || 0), cached = metadataCache.get(id)
     if (cached?.signature === signature && covers(cached.summaryOnly, summaryOnly)) {
       metadataCache.delete(id); metadataCache.set(id, cached)
       return cached.pack
     }
+    const reading = metadataReads.get(id)
+    if (reading?.signature === signature && covers(reading.summaryOnly, summaryOnly)) return reading.pack
+    const read = {signature, summaryOnly, pack:readMetadata(id, stamp, signature, summaryOnly)}
+    metadataReads.set(id, read)
+    try { return await read.pack } finally { if (metadataReads.get(id) === read) metadataReads.delete(id) }
+  }
+  async function readMetadata(id, stamp, signature, summaryOnly) {
     evictMetadata(id)
     if (signature === null) return null
     // Stored bytes were validated on ingress. Reads parse author documents only.
@@ -423,6 +435,7 @@ export function createAssetPackService(options) {
         if (!before.diagnostics?.length) {
           const manifest = copy(before.manifest), files = new Map(before.files), figures = {...before.figures}
           const extra = await mutate(manifest, files, before)
+          normalizeVoiceServices(manifest.voiceLibrary)
           Object.assign(manifest,normalizePackTags(manifest))
           for(const id of manifest.figures) {
             const name='figures/'+id+'.json',bytes=files.get(name)
@@ -461,6 +474,7 @@ export function createAssetPackService(options) {
       // `hashed` carries CAS names this edit just computed, so sealing does not hash those bytes again.
       const manifest = copy(before.manifest), files = new Map(before.files), hashed = new Map()
       const extra = await mutate(manifest, files, before, hashed)
+      normalizeVoiceServices(manifest.voiceLibrary)
       Object.assign(manifest,normalizePackTags(manifest))
           for(const id of manifest.figures) {
             const name='figures/'+id+'.json',bytes=files.get(name)
@@ -553,9 +567,10 @@ export function createAssetPackService(options) {
     const authenticated = {manifest:{...manifest}, files:new Map(files)}
     const normalized = normalizePackImport(manifest,files)
     manifest = normalized.manifest
-    const audioChanged = await authorAudioLoudness(manifest, files, {measure:options.measureAudio})
+    // Loudness is measured where a pack is authored (an edit here, an offline seal) and travels in the pack: an import
+    // only reads it, so it never needs ffmpeg. Audio without a measurement plays unnormalized, never boosted.
     const hashed=new Map(),resolution=await applyResolutionWrites({manifest,files,hashed,read:name => spooledBytes(files.get(name))})
-    if (normalized.changed||audioChanged||resolution.changes.length) await sealPack(manifest,files,authenticated,hashed)
+    if (normalized.changed||resolution.changes.length) await sealPack(manifest,files,authenticated,hashed)
     return verify(manifest, files, undefined, true)
   }
   // A widget default that names a background of a pack the export does not carry only keeps its reference.
@@ -634,7 +649,7 @@ export function createAssetPackService(options) {
   const service = {
     ...createVoiceAuthoring({assetRoot:options.assetRoot,storage,run,load,edit,cas,limits}),
     ...createStageSetupMethods({assetRoot:options.assetRoot,run,all,load,verify,storage,cards:options.cardTransactions,nextLocal,emit,blankManifest,createFigure}),
-    ...createAutomaticWriteMethods({run,readRun,all,load,metadata,verify,storage,cards:options.cardTransactions,nextLocal,emit,blankManifest,createFigure,cas,now,limits,evictMetadata,globalPackIds:options.globalEnabledPackIds,
+    ...createAutomaticWriteMethods({run,readRun,load,metadata,verify,storage,cards:options.cardTransactions,nextLocal,emit,blankManifest,createFigure,cas,now,limits,evictMetadata,globalPackIds:options.globalEnabledPackIds,
       figureImageExtras:(packId, figureIds) => figureImageExtras(options, packId, figureIds),
       carryFigureImageMedia:(packId, extras, manifest, files, hashed) => carryFigureImageMedia(options, packId, extras, manifest, files, hashed)}),
     ...createModPrivateMethods({validators:modValidators,run,metadata,storage,cas,edit,readDocument,jsonBytes,load,verify,sealPack,nextLocal,emit,cards:options.cardTransactions,randomUUID,blankManifest,remapPack}),
@@ -982,7 +997,7 @@ export function createAssetPackService(options) {
         return {status:'merged',revision:local.revision,...plan}
       },input.dryRun === true)
     },
-    // Replace only unbound sources. The card commit is the durable decision for the whole pack batch.
+    // Replace sources that no card binds except the plan's card; that card's commit swaps them for the target and is the durable decision for the whole pack batch.
     consolidatePacks(input) {
       const {packId, expectedRevision, sources, name, card, dryRun, approvedContentHash, assetNames = []} = input
       validateUuid(packId); validateUuid(expectedRevision)
@@ -1002,8 +1017,6 @@ export function createAssetPackService(options) {
       return run([...ids],async()=>{
         const currentCard = await cards.snapshot({path:card.path})
         check(currentCard.raw && currentCard.revision === card.expectedRevision,'$.card','Card changed','REVISION_CONFLICT')
-        const oldCardPacks = cards.inspectRaw(currentCard.raw).boundPackIds
-        check(!oldCardPacks.some(id=>ids.has(id) && id !== packId),'$.card','Source still bound','REVISION_CONFLICT')
         const before = await loadForExport(packId); cas(before,expectedRevision)
         check(before && !isModConfigPack(before),'$.packId','Target must be a normal installed pack','ASSET_UNAVAILABLE')
         let pack = before, bytes
@@ -1011,7 +1024,7 @@ export function createAssetPackService(options) {
         for (const row of sources) {
           const source = await loadForExport(row.packId); cas(source,row.expectedRevision)
           check(source && !isModConfigPack(source) && !source.local.autoWrite && !source.local.stageSetupCardId,'$.sources','Only normal unbound packs may be consolidated','ASSET_UNAVAILABLE')
-          await cards.requireUnboundPack({packId:row.packId})
+          await cards.requireUnboundPack({packId:row.packId,exceptPath:card.path})
           check(!options.globalEnabledPackIds?.().includes(row.packId),'$.sources','Source is enabled globally','REVISION_CONFLICT')
           const result = await prepareMerge(source,pack,{name,assetNames:sources.at(-1) === row ? assetNames : []})
           pack = result.pack; bytes = result.bytes; mappings.push(result.mapping)
@@ -1027,7 +1040,7 @@ export function createAssetPackService(options) {
         if (dryRun) return {status:'dry-run',...result}
         check(result.contentHash === approvedContentHash,'$.approvedContentHash','Candidate differs from the verified pack','REVISION_CONFLICT')
         const local = nextLocal({...before.local,mouthDebt})
-        await cards.withBoundPack({...card,packId},async transaction=>{
+        await cards.withBoundPack({...card,packId,replacePackIds:sourceIds},async transaction=>{
           await storage.publishMany([{pack,local},...retire.map(row=>row.entry)],transaction)
         })
         evictMetadata(packId); emit({...pack,local},before)

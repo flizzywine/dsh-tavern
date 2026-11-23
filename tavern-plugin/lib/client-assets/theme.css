@@ -2663,6 +2663,9 @@ body[data-ds-dark-theme] .fork-popover { color-scheme: dark; }
 .fork-card-update-removed p { display: flex; align-items: baseline; gap: 8px; margin: 0; }
 .fork-card-update-warn { color: var(--fork-warn); }
 .fork-card-update-removed ul { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 0 22px; padding: 0; list-style: none; }
+.fork-card-update-request { display: grid; gap: 6px; margin-top: 14px; font-size: 13px; }
+.fork-card-update-request code { overflow-wrap: anywhere; font-size: 12px; margin-bottom: 8px; }
+.fork-card-update-request ul { margin: 0; padding-left: 18px; }
 .fork-card-update-removed li { padding: 2px 9px; border-radius: 999px; background: var(--fork-surface); color: var(--fork-ink-2); font-size: var(--fork-fs-meta); }
 .fork-card-update-done { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 18px 0 4px; text-align: center; }
 .fork-card-update-check { display: grid; place-items: center; width: 44px; height: 44px; border-radius: 50%; background: var(--fork-accent-soft); color: var(--fork-accent); font-size: var(--fork-fs-title); }

@@ -2299,6 +2299,10 @@
         }
        ]
       },
+      "clip": {
+       "description": "false = no 导出片段 button beside the close (an original whose log screen has only its close); the export still starts from a row (Shift-click, long press). Omitted = the button beside the drawn close.",
+       "const": false
+      },
       "close": {
        "type": "object",
        "description": "A placed image: its top-left at x, y on the design screen at scale design px per image px; focus = the image under the pointer and keyboard focus.",

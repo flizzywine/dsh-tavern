@@ -50,6 +50,9 @@ return widgetVariables.read({...args,origin:authority?.origin})
     async locateCardPageAsset(args) {
       return { place: await deps.cardPages.locate(args) }
     },
+    async locateCardFrameAsset(args) {
+      return { place: await deps.cardPages.locateForFrame(args) }
+    },
     async listCardPageAssets(args) {
       return { assets: await deps.cardPages.assets(args) }
     },

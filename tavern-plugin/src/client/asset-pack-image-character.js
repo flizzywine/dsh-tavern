@@ -38,7 +38,6 @@ function ImageCharacterSection({binding,pack,figure,outfit}) {
   return h('section',{className:'ap-fe-section','aria-label':'配图人物库','aria-busy':busy||undefined},head,h(ErrorBox,{error}),
     h(InlineGrid,{label:'人物库外貌'},
       h(InlineField,{kind:'text',label:'名字',controlLabel:'人物库名字',value:character.name,disabled:busy,validate:v=>v.trim()?'':'名字不能为空',onCommit:v=>patch('保存名字',()=>({name:v}))}),
-      h(InlineField,{kind:'text',label:'别名',controlLabel:'人物库别名',hideEmpty:true,placeholder:'用逗号分隔',value:character.match||'',disabled:busy,onCommit:v=>patch('保存别名',()=>({match:v}))}),
       IMAGE_TRAIT_FIELDS.map(([key,label])=>h(InlineField,{key,kind:'text',multiline:true,wide:true,label,controlLabel:'人物库'+label,hideEmpty:key!=='face',maxLength:8000,value:character.traits?.[key]||'',disabled:busy,
         onCommit:v=>patch('保存'+label,()=>({traits:{[key]:v}}))}))),
     outfit&&h(InlineGrid,{label:'服装「'+outfit.label+'」'},

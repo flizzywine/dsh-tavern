@@ -105,9 +105,9 @@ export interface CardBundleAdapter {
   snapshot(input: {path: string}): Promise<{path: string; cardId: string; revision: string | null; raw: unknown; cover?: Uint8Array}>;
   inspectRaw(raw: unknown): {raw: unknown; boundPackIds: string[]; modConfigPackId?: string; name?: string};
   unbindPack(input: {packId: string}): Promise<void>;
-  requireUnboundPack?(input: {packId: string}): Promise<void>;
+  requireUnboundPack?(input: {packId: string; exceptPath?: string}): Promise<void>;
   withExistingBoundPack?<T>(input: {path: string; expectedRevision: string; packId: string}, publish: (card: {cardId: string; revision: string}) => Promise<T>): Promise<T>;
-  withBoundPack?(input: {path: string; expectedRevision: string; packId: string}, publish: (card: {record: unknown; commit(): Promise<void>; status(): Promise<'before' | 'after' | 'unknown'>}) => Promise<void>): Promise<void>;
+  withBoundPack?(input: {path: string; expectedRevision: string; packId: string; replacePackIds?: string[]}, publish: (card: {record: unknown; commit(): Promise<void>; status(): Promise<'before' | 'after' | 'unknown'>}) => Promise<void>): Promise<void>;
   withConfigPack?(input: {path: string; expectedRevision: string; packId: string}, publish: (card: {record: unknown; commit(): Promise<void>; status(): Promise<'before' | 'after' | 'unknown'>}) => Promise<void>): Promise<void>;
   remapRaw(raw: unknown, mappings: Array<PackMapping & {from: string}>): unknown;
   /** the same raw with these packs appended to the card's bound packs (card export of global packs). */

@@ -86,12 +86,17 @@ rm -f "$OUT/unsigned.apk" "$OUT/aligned.apk" "$OUT/base.apk" "$APK.idsig" "$OUT/
 sha256sum "$APK" | tee "$APK.sha256"
 # 发布信息：随 APK 一起上传到 GitHub Release（资产名 dsh-tavern-native.json），启动页据此发现新版安装包。
 # url 默认是相对地址（与 json 放在同一处）；GitHub 资产会重定向到别的域名，正式发布时用 APK_URL 给绝对地址。
-python3 - "$APK" "$VERSION_CODE" "$VERSION_NAME" "${APK_URL:-}" > "$OUT/dsh-tavern-native.json" <<'PY'
+# 同一份内容也写进 android/native/latest.json 提交到 main：启动页先读它（raw → jsDelivr），读不到再读 Release 里的这份。
+# 可选：MIN_VERSION_CODE（低于它强制提示）、RELEASE_NOTES（弹窗里的更新内容）、RELEASE_PAGE（「浏览器下载」打开的页面）。
+SIGNER=$("$BT/apksigner" verify --print-certs "$APK" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -1)
+python3 - "$APK" "$VERSION_CODE" "$VERSION_NAME" "${APK_URL:-}" "$SIGNER" "${MIN_VERSION_CODE:-0}" "${RELEASE_NOTES:-}" "${RELEASE_PAGE:-}" > "$OUT/dsh-tavern-native.json" <<'PY'
 import hashlib, json, os, sys
-apk, code, name, url = sys.argv[1], int(sys.argv[2]), sys.argv[3], sys.argv[4]
+apk, code, name, url, signer, min_code, notes, page = sys.argv[1], int(sys.argv[2]), sys.argv[3], sys.argv[4], sys.argv[5], int(sys.argv[6]), sys.argv[7], sys.argv[8]
 h = hashlib.sha256()
 with open(apk, 'rb') as f:
     for chunk in iter(lambda: f.read(1 << 20), b''): h.update(chunk)
-print(json.dumps({'versionCode': code, 'versionName': name, 'url': url or os.path.basename(apk), 'sha256': h.hexdigest(), 'size': os.path.getsize(apk)}, indent=2))
+info = {'versionCode': code, 'versionName': name, 'url': url or os.path.basename(apk), 'sha256': h.hexdigest(), 'size': os.path.getsize(apk),
+        'minVersionCode': min_code, 'signer': signer.lower(), 'notes': notes, 'page': page}
+print(json.dumps(info, indent=2, ensure_ascii=False))
 PY
 du -h "$APK"

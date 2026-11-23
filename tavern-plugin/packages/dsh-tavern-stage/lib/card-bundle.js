@@ -105,10 +105,11 @@ export function createCardBundleAdapter({cardPreparation, authorizeTarget, readW
         return {path, cardId:item.cardId, cover:workspace ? await readCover(path) : undefined, revision:revision(workspace), raw:workspace ? cardPreparation.present({card:workspace,as:'raw'}) : null}
       })
     },
-    async requireUnboundPack({packId}) {
+    // exceptPath: the one card whose own binding the caller swaps in its commit (withBoundPack replacePackIds).
+    async requireUnboundPack({packId,exceptPath}) {
       const affected = await dependencies({packId})
       check(affected.available, '$.cards', 'Card bindings unavailable', 'ASSET_UNAVAILABLE')
-      check(!affected.count, '$.cards', 'Source pack is still bound to a card', 'REVISION_CONFLICT')
+      check(!affected.cards.some(card => card.path !== exceptPath), '$.cards', 'Source pack is still bound to a card', 'REVISION_CONFLICT')
     },
     async unbindPack({packId}) {
       const affected = await dependencies({packId})
@@ -135,13 +136,14 @@ export function createCardBundleAdapter({cardPreparation, authorizeTarget, readW
         return publish({cardId:item.cardId,revision:revision(before)})
       })
     },
-    async withBoundPack({path,expectedRevision,packId},publish) {
+    // replacePackIds leave the card in the same commit that binds packId (pack consolidation).
+    async withBoundPack({path,expectedRevision,packId,replacePackIds = []},publish) {
       const item = await target(path)
       return withCardLock(item.cardId,async () => {
         const before = await readWorkspace(path)
         check(before && revision(before) === expectedRevision,'$.expectedRevision','卡片刚刚被改过，请重新载入后再试','REVISION_CONFLICT')
         const ext = readCardAssetExtension(before.raw)
-        const boundPackIds = [...new Set([...(ext?.assetBindings?.boundPackIds || []),packId])]
+        const boundPackIds = [...new Set([...(ext?.assetBindings?.boundPackIds || []).filter(id => !replacePackIds.includes(id)),packId])]
         const change = cardPreparation.update({kind:'card',card:before,patch:{},rawOperations:cardAssetRawOperations(before.raw,{assetBindings:{boundPackIds}})})
         const after = structuredClone(change.card)
         after.meta.updatedAt = Math.max(Date.now(),Number(before.meta.updatedAt || 0)+1)

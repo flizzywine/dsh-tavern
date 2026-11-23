@@ -7,11 +7,12 @@
 //    窗口，单进程且 DSH 自己按会话串行写入，可接受。正式版应换成 renameat2(RENAME_NOREPLACE) 原生实现。
 // 2) Termux 编译的 node 把 shell:true 的默认 shell 写死为 /data/data/com.termux/files/usr/bin/sh。
 // 3) 静默 require-builtin 替身取 internalBinding 时 Node 打出的「internal testing only」警告。
+// 4) 附件目录持久化只回溯到应用私有的 HOME，避开系统管理的祖先目录。
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const childProcess = require('node:child_process');
-const { syncBuiltinESMExports } = require('node:module');
+const { registerHooks, syncBuiltinESMExports } = require('node:module');
 
 const LINK_DENIED = new Set(['EACCES', 'EPERM']);
 const eexist = (dest) => Object.assign(new Error(`EEXIST: file already exists, link -> '${dest}'`), { code: 'EEXIST', errno: -17, syscall: 'link', dest });
@@ -106,7 +107,8 @@ function rewrite(file, args, options) {
     }
     return [process.execPath, list];
   }
-  if (file === 'pnpm') return [process.execPath, [PNPM_CLI, ...(args || [])]];
+  // 自带的 pnpm 不存在时（如 Termux 里工具链尚未装好）照常按 PATH 查找。
+  if (file === 'pnpm' && fs.existsSync(PNPM_CLI)) return [process.execPath, [PNPM_CLI, ...(args || [])]];
   // 安装器用 `sh -c 'command -v node'` 检查命令：两者在 APK 里不在 PATH 上（也不能放可执行文件），由上面的映射提供。
   if ((file === 'sh' || file === SHELL) && args && args[0] === '-c' && /^command -v (node|pnpm)$/.test(String(args[1]))) {
     return [file, ['-c', 'true']];
@@ -143,6 +145,24 @@ for (const name of ['exec', 'execSync']) {
 }
 
 syncBuiltinESMExports();
+
+// 4) 启动器已建立 HOME。只修改附件包的同步边界，保留 HOME 内所有落盘操作及错误。
+if (path.isAbsolute(process.env.HOME || '') && typeof registerHooks === 'function') {
+  const privateHome = path.resolve(process.env.HOME);
+  const homeLiteral = JSON.stringify(privateHome);
+  const homePrefix = JSON.stringify(privateHome + path.sep);
+  const attachmentEntry = '/node_modules/@deepseek-ai/dsh-attachment-local/lib/index.js';
+  const syncToRoot = 'await ensureDurableDirectory(home, parse(home).root);';
+  registerHooks({
+    load(url, context, nextLoad) {
+      const loaded = nextLoad(url, context);
+      if (!url.startsWith('file:') || !url.endsWith(attachmentEntry) || loaded.format !== 'module') return loaded;
+      const source = loaded.source.toString();
+      const boundary = `home === ${homeLiteral} || home.startsWith(${homePrefix}) ? ${homeLiteral} : parse(home).root`;
+      return { ...loaded, source: source.replace(syncToRoot, `await ensureDurableDirectory(home, ${boundary});`) };
+    },
+  });
+}
 
 // 3) 警告：替换默认的 warning 打印器，过滤这一条，其余照常输出。
 const listeners = process.listeners('warning');

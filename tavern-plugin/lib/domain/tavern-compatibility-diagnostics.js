@@ -4,7 +4,7 @@ import { redactDiagnostic } from './mvu-diagnostics.js'
 // Explicitly audited gaps only. Never claim every unknown property is a function.
 export const TAVERN_COMPATIBILITY_CAPABILITIES = Object.freeze([
   ...['scrollChatToBottom', 'showLoader', 'hideLoader', 'unregisterMacro'].map(name => ({ surface: 'SillyTavern', name, policy: 'noop' })),
-  ...['registerMacro', 'getRequestHeaders', 'getChatCompletionModel'].map(name => ({ surface: 'SillyTavern', name, policy: 'reject' })),
+  ...['registerMacro', 'getChatCompletionModel'].map(name => ({ surface: 'SillyTavern', name, policy: 'reject' })),
   ...['generate', 'generateRaw', 'stopGeneration', 'deleteLastMessage', 'deleteMessage', 'clearChat', 'reloadCurrentChat', 'openCharacterChat', 'openGroupChat', 'executeSlashCommandsWithOptions'].map(name => ({ surface: 'SillyTavern', name, policy: 'missing' })),
 ].map(entry => Object.freeze({ ...entry, id: entry.surface + '.' + entry.name })))
 
