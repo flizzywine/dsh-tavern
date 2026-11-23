@@ -295,7 +295,8 @@ export function pickOutfitForScene(scene, before, after) {
   if (/[\u3400-\u9fff]/.test(String(scene ?? '')) && /[\u3400-\u9fff]/.test(String(before ?? '') + String(after ?? ''))) {
     // 中文画面：数画面描述和换衣前/后的衣服描述有多少相同的两字片段（「吊带」「寝衣」「长裙」）。
     const grams = t => { const s = String(t ?? '').replace(/[^\u3400-\u9fff]/g, ' '); const out = new Set(); for (const w of s.split(/\s+/)) for (let i = 0; i + 1 < w.length; i++) out.add(w.slice(i, i + 2)); return out }
-    const sceneGrams = grams(scene)
+    const worn = String(scene ?? '').split(/[，,；;。！？\n]/).map(part => part.split(/手[里中上]|拿着|捧着|抱着|挂在|放在|递给|脱下的|脱掉的/, 1)[0]).join('。')
+    const sceneGrams = grams(worn)
     const shared = t => { const g = grams(t); let n = 0; for (const x of g) if (sceneGrams.has(x)) n++; return n }
     const sb = shared(before), sa = shared(after)
     if (sb >= sa + 2) return 'before'
@@ -416,6 +417,53 @@ function structuredCharacterNames(definitions, { knownCharacterIds = [], onUnres
   } }
 }
 
+// Shared interaction text stays in the prompt. Only its subject owns state changes.
+function sceneSubjects(characters = []) {
+  const aliases = new Map()
+  for (const person of characters) {
+    if (!person || person.enabled === false) continue
+    for (const name of [person.name, person.promptLabel, ...splitTags(person.match)]) {
+      const key = String(name ?? '').trim().toLowerCase()
+      if (!key || ([...key].length === 1 && !(name === person.name && /\p{Script=Han}/u.test(key)))) continue
+      if (!aliases.has(key)) aliases.set(key, person)
+      else if (aliases.get(key) !== person) aliases.set(key, null)
+    }
+  }
+  return [...aliases].sort(([a], [b]) => b.length - a.length)
+}
+
+function sceneClauses(text, subjects) {
+  let owner = null
+  return String(text ?? '').split(/([，,；;。！？!?…\n]+)/).map((raw, index) => {
+    if (index % 2) {
+      if (/[；;。！？!?…\n]/.test(raw)) owner = null
+      return { raw }
+    }
+    const clause = raw.trim()
+    const leading = subjects.find(([alias]) => clause.toLowerCase().startsWith(alias) && containsNameToken(clause, alias))
+    if (leading) owner = leading[1]
+    const tail = leading ? clause.slice(leading[0].length) : clause
+    if (!owner) return { raw }
+    const foreignOffset = Math.min(tail.length, ...subjects
+      .filter(([alias, person]) => person !== owner && containsNameToken(tail, alias))
+      .map(([alias]) => tail.toLowerCase().indexOf(alias)))
+    // Only an explicit subject may own state before a second named participant.
+    const shared = foreignOffset < tail.length
+    const state = shared && !leading ? '' : tail.slice(0, foreignOffset)
+    const actor = owner
+    if (shared) owner = null
+    return { raw, owner: actor, state: state.trim() }
+  })
+}
+
+function personSceneText(clauses, person) {
+  return clauses.filter(c => c.owner === person).map(c => c.state).join('。')
+}
+
+function commonFraming(clauses) {
+  return clauses.filter(c => !c.owner && (SCENE_CAMERA_ZH.test(c.raw) || SCENE_CAMERA_EN.test(c.raw) || CLOSE_SHOT_EN.test(c.raw))).map(c => c.raw).join('。')
+}
+
 /**
  * 角色 / 服装调用宏（st-chatu8 那种"名字→tag"的机制）：
  *   ${"name":"xiao yu","angle":"from front","upperBody":"sfw"}$
@@ -423,6 +471,17 @@ function structuredCharacterNames(definitions, { knownCharacterIds = [], onUnres
  * 按 angle / upperBody 选择人物库里的可见外貌与服装。结构化句内的简写宏只引用人物，
  * 独立宏仍可描述朝向。库中未登记的人物保留可读称呼。
  */
+export function applyShotOutfits(definitions, subjects = []) {
+  const selection = new Map(subjects.filter(item => item?.characterId && item.outfitId).map(item => [String(item.characterId), String(item.outfitId)]))
+  if (!selection.size) return definitions
+  return { ...definitions, characters: (definitions.characters ?? []).map(person => {
+    const id = selection.get(String(person.id))
+    if (!id) return person
+    const outfit = characterOutfits(person, definitions).find(item => item.enabled !== false && String(item.id) === id)
+    return outfit?.name ? { ...person, current: { outfit: outfit.name } } : person
+  }) }
+}
+
 export function expandRosterCalls(text, scoped, mode, options = {}) {
       // options.onMacro(entry)：诊断用，报告每个宏解析成了谁、哪套衣服、丢掉了哪些负面词。
       const note = (entry) => { if (typeof options?.onMacro === 'function') { try { options.onMacro(entry) } catch {} } }
@@ -442,20 +501,23 @@ export function expandRosterCalls(text, scoped, mode, options = {}) {
       const bareScene = BARE_SCENE.test(stripMacros(text))
       const sceneText = stripMacros(text)
       // 多人场景只有能把句子归到具体角色时才改该角色鞋袜；无法归属就保留服装库内容。
-      const sceneForPerson = person => {
+      const legacySceneForPerson = person => {
         if (personMacroCount === 1) return sceneText
         if (personMacroCount === 0) return ''
         const aliases = [person?.name, ...splitTags(person?.match)].map(v => String(v ?? '').trim()).filter(v => v.length >= 2)
         if (!aliases.length) return ''
         return sceneText.split(/(?<=[。！？!?…\n])/).filter(sentence => aliases.some(alias => sentence.toLowerCase().includes(alias.toLowerCase()))).join(' ')
       }
-      const globalFraming = personMacroCount > 1
-        ? sceneText.split(/(?<=[。！？.!?\n])/).filter(sentence => !(scoped?.characters ?? []).some(person =>
-          [person?.name, ...splitTags(person?.match)].some(alias => containsNameToken(sentence, alias)))).join(' ')
+      const subjects = natural ? sceneSubjects(scoped?.characters) : []
+      const clauses = natural ? sceneClauses(sceneText, subjects) : []
+      const multiplePeople = personMacroCount > 1 || new Set(clauses.map(c => c.owner).filter(Boolean)).size > 1
+      const sceneForPerson = person => natural && multiplePeople ? personSceneText(clauses, person) : legacySceneForPerson(person)
+      const globalFraming = natural && multiplePeople
+        ? commonFraming(clauses)
         : sceneText
-      const barefoot = personMacroCount === 1 && isBarefoot(sceneText)
+      const barefoot = !multiplePeople && personMacroCount === 1 && isBarefoot(sceneText)
       // 服装的「背面」字段只在背影画面里用：画面写着背影，或者同一段里刚调用的人物宏 angle 是背面。
-      const backView = BACK_VIEW.test(sceneText)
+      const backView = BACK_VIEW.test(natural && multiplePeople ? globalFraming : sceneText)
       let lastBack = false
       // 同一角色的不同形态：画面写着某形态的线索（如狐耳狐尾）时，宏改指向那个形态。
       const expanded = resolveCharacterForms(repairMacros(text), scoped, { isCharacterId: names?.isId }).replace(MACRO_BLOCK, (macro, body, offset, prompt) => {
@@ -481,13 +543,14 @@ export function expandRosterCalls(text, scoped, mode, options = {}) {
           }
           const shoesOff = !bareForScope && footwearOverridden(sceneScope, [outfit.upper, outfit.lower, outfit.shoes, outfit.full].join(' '))
           const noShoes = bareForScope || shoesOff
-          const cropped = natural && closeShotScene(sceneScope || globalFraming)
+          const cropped = natural && (closeShotScene(globalFraming) || closeShotScene(sceneScope))
           for (const field of cropped ? ['upper', 'accessory'] : ['upper', 'lower', 'shoes', 'accessory', 'full', 'back']) {
             if (bareForScope && !shoesOff && field === 'shoes') continue
             // 「整体印象」(full) 是给自然语言模型的一句概括；tag 写法里已有上衣下装时它只是噪音。
             if (field === 'full' && !natural && (String(outfit.upper ?? '').trim() || String(outfit.lower ?? '').trim())) continue
-            if (field === 'back' && !(backView || lastBack)) continue
-            const value = noShoes ? dropFootwear(outfit[field], shoesOff) : String(outfit[field] ?? '').trim()
+            if (field === 'back' && !(lastBack || ((!natural || !multiplePeople || !lastPerson) && backView))) continue
+            let value = noShoes ? dropFootwear(outfit[field], shoesOff) : String(outfit[field] ?? '').trim()
+            if (natural && looseHairIn(sceneScope)) value = withoutTiedHair(value)
             if (value && !PLACEHOLDER_VALUE.test(value)) bits.push(value)
           }
           bits.push(...libraryImageDetails(outfit))
@@ -565,7 +628,9 @@ export function expandRosterCalls(text, scoped, mode, options = {}) {
           // 标了 nsfw、全身 hidden、画面写着洗澡/裸体/内衣，或者记录本身就是「没穿」时都不补。
           // 宏里明确写的衣服（例如半脱的内衣）不受影响，总是保留。
           const recordedNude = NOTHING_WORN.test(String(person.current?.outfit ?? '').trim())
-          const autoOff = nsfw || hiddenBody || bareScene || recordedNude || unknownOutfit(person.current?.outfit) || unknownOutfit(outfitName)
+          const personScene = sceneForPerson(person)
+          const isBareScene = natural && multiplePeople ? BARE_SCENE.test(personScene) : bareScene
+          const autoOff = nsfw || hiddenBody || isBareScene || recordedNude || unknownOutfit(person.current?.outfit) || unknownOutfit(outfitName)
           let wear = ''
           let wearMoment = ''
           if (!ownsStandalone && !libraryHit) {
@@ -574,13 +639,13 @@ export function expandRosterCalls(text, scoped, mode, options = {}) {
               // 这一轮正文里换过衣服：按这张图的画面描述判断是换之前还是换之后。
               const afterWear = resolveWearText(person, person.current.outfit, false, scoped?.outfits)
               const beforeWear = person.current.previous ? resolveWearText(person, person.current.previous, false, scoped?.outfits) : ''
-              const moment = person.current.previous ? pickOutfitForScene(sceneText, beforeWear || person.current.previous, afterWear) : 'after'
+              const moment = person.current.previous ? pickOutfitForScene(personScene, beforeWear || person.current.previous, afterWear) : 'after'
               wear = moment === 'before' ? beforeWear : afterWear
               wearMoment = person.current.previous ? moment : ''
             }
           }
           // 服装名后面的状态写着赤足（「常服（裤脚挽起，赤足）」）：这一刻也是光脚。
-          const personScene = sceneForPerson(person)
+
           const stateBare = isBarefoot(outfitState)
           const personBarefoot = isBarefoot(personScene) || stateBare
           const shoesOff = !personBarefoot && footwearOverridden(personScene, personWearText(person, wear))
@@ -590,7 +655,7 @@ export function expandRosterCalls(text, scoped, mode, options = {}) {
           const lowerShot = upper === 'hidden' && lower !== 'hidden'
           // 中文整句、画面是近景/半身/特写：看不到腿和脚，就不写腿型和鞋（写了模型会硬把腿画进来，人被拉长）。
           // 宏里明确标了下身 nsfw 的照常写。
-          const closeShot = natural && closeShotScene(personScene || globalFraming) && lower !== 'nsfw' && !lowerShot
+          const closeShot = natural && (closeShotScene(globalFraming) || closeShotScene(personScene)) && lower !== 'nsfw' && !lowerShot
           if (closeShot && wear) {
             if (!outfitAsked && person.current?.outfit) wear = resolveWearText(person, person.current[wearMoment === 'before' ? 'previous' : 'outfit'], true, scoped?.outfits)
             wear = dropFootwear(wear, false)
@@ -602,6 +667,7 @@ export function expandRosterCalls(text, scoped, mode, options = {}) {
             upper,
             lower,
             full: !closeShot,
+            conciseOutfit: natural && multiplePeople,
             croppedOutfit: closeShot && !(upper === 'nsfw' && lower === 'hidden' && outfitAsked && !tightCropScene(sceneText)),
             barefoot: noShoes || closeShot,
             keepSocks: shoesOff && !closeShot,
@@ -626,10 +692,16 @@ export function expandRosterCalls(text, scoped, mode, options = {}) {
           if (parsed.age ?? parsed['年龄']) extras.age = String(parsed.age ?? parsed['年龄'])
           // 宏里的 "expression"：这一刻的表情和情绪。纯背面看不到脸时不写（会逼模型补脸），背身回头的照写。
           const expression = String(parsed.expression ?? parsed['表情'] ?? '').trim()
-          const backTurn = /回头|回过头|转过头|转过身|侧过脸|侧过身|侧过头|偏过头|扭过头|转过脸|侧脸/.test(sceneText)
+          const backTurn = /回头|回过头|转过头|转过身|侧过脸|侧过身|侧过头|偏过头|扭过头|转过脸|侧脸/.test(natural ? personScene : sceneText)
           if (expression && !PLACEHOLDER_VALUE.test(expression) && !(back && !backTurn) && !lowerShot) extras.expression = expression
-          // 人物库里的招牌发型：这一刻衣服里写了发型、或画面写着散发/湿发时不带。
-          extras.dropHair = hairOverridden(sceneText, [wear, ...(picked.origins ?? []).filter(o => o.outfitId).map(o => o.text)].join(' '))
+          // 发型变化只作用于当前人物。湿发可以仍扎着。
+          if (natural && looseHairIn(personScene)) {
+            wear = withoutTiedHair(wear)
+            for (const origin of picked.origins ?? []) {
+              if (origin.outfitId) origin.text = withoutTiedHair(origin.text)
+            }
+          }
+          extras.dropHair = hairOverridden(personScene, [wear, ...(picked.origins ?? []).filter(o => o.outfitId).map(o => o.text)].join(' '))
           if (natural) bits.push(boundCharacterPhrase(person, picked, extras, wear, style) || (names ? structuredCharacterName(person) || names.unresolved(asked) : person.promptLabel || person.name || asked))
           else {
             if (picked.tags.length) bits.push(...picked.tags)
@@ -856,13 +928,39 @@ function unknownOutfit(value) {
 const HAIR_MARK = /[；;]\s*平时\s*/
 /** 这一刻的衣服描述里写了发型，或画面写着头发散开、湿透：不再带人物库里的招牌发型。 */
 const HAIR_IN_WEAR_ZH = /髻|辫|马尾|束发|束起|挽起|盘起|盘成|挽成|梳成|披发|散发|披散|头发/
-const HAIR_STATE_ZH = /散发|披散|披着头发|散着头发|头发散|松挽|松松挽|散落下来|解开[^。，]{0,4}(?:发|髻)|拆[^。，]{0,3}髻|卸[^。，]{0,3}簪|湿发|湿透的[^。，]{0,6}发|发梢[^。，]{0,4}滴水|头发[^。，]{0,4}湿|(?:长发|头发|黑发|乌发|发丝)[^。，；]{0,2}(?:散|铺|乱|披|垂落)/
-/** 外貌最后一句写的是发型（梳成什么髻、束成马尾）。 */
+const LOOSE_HAIR_ZH = /散发|披发|披散|披着头发|散着头发|散开的(?:头发|长发|黑发)|(?:长发|头发|黑发|乌发|发丝)[^。，；]{0,3}(?:散开|披下|散落|披在)|解开(?:了)?(?:自己的)?(?:发绳|发带|马尾)|拆[^。，]{0,3}髻/
+const TIED_HAIR_ZH = /马尾|双辫|发髻|螺髻|编发|发带|发绳|发圈|丸子头/
+const UNCERTAIN_STATE = /并未|没有|未曾|没(?:有)?(?:扎|解|披|散)|尚未|不曾|想要|打算|准备|要是|如果|仿佛|会不会|是否|本想|想象|梦见/
+const NON_HAIR_DETAIL = /拿|握|抱|拎|递|走|戴|穿|坐|站|帽|鞋|镜|衣|裙|桶|喷雾|项链|耳环|上衣|裤/
+
+function looseHairIn(text) {
+  return String(text ?? '').split(/[。！？；，,\n]+/).some(clause => LOOSE_HAIR_ZH.test(clause) && !UNCERTAIN_STATE.test(clause))
+}
+
+function removeSceneClause(parts, index) {
+  parts[index] = ''
+  if (/^[，,；;]+$/.test(parts[index + 1] ?? '')) parts[index + 1] = ''
+  else if (/^[，,；;]+$/.test(parts[index - 1] ?? '')) parts[index - 1] = ''
+  else if (/^[。！？!?]+$/.test(parts[index + 1] ?? '')) parts[index + 1] = ''
+}
+
+function withoutTiedHair(text) {
+  const parts = String(text ?? '').split(/([，,；;。\n]+)/)
+  for (let index = 0; index < parts.length; index += 2) {
+    const part = parts[index]
+    if (TIED_HAIR_ZH.test(part) && !NON_HAIR_DETAIL.test(part) && !/(?:解开|摘下|取下|手里|手上|放在)/.test(part)) {
+      removeSceneClause(parts, index)
+    }
+  }
+  return parts.join('').trim()
+}
+
+/** 外貌最后一句写的是发型。 */
 const HAIR_STYLE_SENTENCE = /(?:头发|长发|黑发|乌发|发)[^。]*?(?:髻|马尾|辫|束成|盘成|挽成|梳成)/
 /** 发型动词从哪里开始：之前是发色和长短，之后是梳成什么样。 */
 const HAIR_STYLE_VERB = /(?:平时)?(?:在脑后)?(?:高高|松松|斜)?(?:用[^，。]{0,6}?)?(?:束|梳|挽|盘|扎)/
 function hairOverridden(scene, wear) {
-  return HAIR_IN_WEAR_ZH.test(String(wear ?? '')) || HAIR_STATE_ZH.test(String(scene ?? ''))
+  return HAIR_IN_WEAR_ZH.test(String(wear ?? '')) || looseHairIn(scene)
 }
 
 /** 宏里的英文视角词在中文整句里的说法（TA 换成她/他）。 */
@@ -930,10 +1028,31 @@ function chineseCharacterPhrase(person, traits, outfit, extras, wear, look, labe
   return sentences.filter(Boolean).join('。') + '。'
 }
 
-/**
- * 画面里有几个人：取「人物宏里不同的名字数」和「画面里是三个人 / 三女一男」里写的人数中较大的那个。
- */
 const ZH_DIGIT = { 一: 1, 二: 2, 两: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9, 十: 10 }
+const imageAnchorText = value => String(value ?? '').replace(/<\/?[a-zA-Z][^<>]*>/g, '').replace(/[\s*_~\x60#>|\u200b]/g, '')
+
+export function uniqueImageAnchor(body, anchor) {
+  if (anchor.length < 2) return false
+  const first = body.indexOf(anchor)
+  return first >= 0 && body.indexOf(anchor, first + 1) < 0
+}
+
+export function shotConflict(text) {
+  const scene = stripMacros(text)
+  const counts = [...scene.matchAll(/画面(?:里|中)(?:是|有|只有|共有)([一二两三四五六七八九十]|\d+)(?:个人|人|位|名)/g)]
+    .map(match => ZH_DIGIT[match[1]] ?? Number(match[1]))
+  if (new Set(counts).size > 1 || (counts.length && sceneHeadcount(text) > counts[0])) {
+    return '镜头的人物名单与人数句不一致，请核对本图出镜者'
+  }
+  for (const side of ['左', '右']) {
+    const empty = new RegExp('画面' + side + '(?:边|侧|半幅)(?:留出大片|留白|只留|仅留)')
+    const occupied = new RegExp('(?:站|蹲|坐|跪|靠|位于)[^。；，,]{0,10}画面' + side + '(?:边|侧|半幅)')
+    if (empty.test(scene) && occupied.test(scene)) return '画面' + side + '侧同时被指定留空和安排人物，请统一站位'
+  }
+  return ''
+}
+
+/** 取人物宏数量和画面人数描述中较大的那个。 */
 export function sceneHeadcount(text) {
   const raw = String(text ?? '')
   const names = new Set([...repairMacros(raw).matchAll(MACRO_BLOCK)].map(m => {
@@ -1149,6 +1268,7 @@ function characterTags(character, options = {}) {
       cropped: options.croppedOutfit === true,
       barefoot: options.barefoot === true,
       keepSocks: options.keepSocks === true,
+      conciseOutfit: options.conciseOutfit === true,
       dropFootwear,
     })) {
       tags.push(piece.text)
@@ -1518,6 +1638,9 @@ function createRuntime(ctx, overrides, logger, deps) {
           const ordered = [...jobs.entries()]
             .filter(([, job]) => !job.fromCache)
             .sort((a, b) => (a[1].createdAt || 0) - (b[1].createdAt || 0))
+          for (const [, job] of ordered) {
+            if (['done', 'failed', 'cancelled'].includes(job.state)) diag.finishJob(job.id)
+          }
           const needsTracking = job => ['pending', 'running', 'uncertain'].includes(job.state) || job.requestMayHaveSucceeded === true || job.cancelMayHaveContinued === true || (job.state === 'cancelled' && job.requestStarted === true)
           // Never evict a live/uncertain paid request in favor of newer history.
           const archived = job => job.favorite || job.trashedAt
@@ -1544,6 +1667,7 @@ function createRuntime(ctx, overrides, logger, deps) {
               channelEndpoint: job.channelEndpoint ?? '', comfyEndpoint: job.comfyEndpoint ?? '',
               providerTaskProvider: job.providerTaskProvider ?? '',
               characterSnapshot: job.characterSnapshot ?? null, comfySimple: job.comfySimple ?? null,
+              comfyRecipe: job.comfyRecipe ?? null,
               generationMode: job.generationMode ?? 'text', requestedGenerationMode: job.requestedGenerationMode ?? job.generationMode ?? 'text', generationModeReason: job.generationModeReason ?? '', promptMode: job.promptMode,
               referenceSnapshot: job.referenceSnapshot ?? null, submittedPrompt: job.submittedPrompt ?? '', promptAssembly: job.promptAssembly ?? null,
               cardPositive: job.cardPositive, cardNegative: job.cardNegative, cardCharacterPrompts: job.cardCharacterPrompts, cardPreset: job.cardPreset, cardSeedSupported: job.cardSeedSupported,
@@ -1907,6 +2031,7 @@ function createRuntime(ctx, overrides, logger, deps) {
                   logger.warn?.(`dsh-tavern-image: 作业 ${job.id.slice(0, 8)} 出了全黑图，换种子重画（第 ${job.blankRetries} 次）`)
                   diag.recordJob(job.id, 'blank-image-retry', { attempt: job.blankRetries, oldSeed: job.seed, seed })
                   job.seed = seed
+                  if (job.comfyRecipe) job.comfyRecipe = { ...job.comfyRecipe, graph: prompt, seed }
                   job.comfyId = randomUUID()
                   job.state = 'pending'
                   job.percent = 0
@@ -2309,8 +2434,11 @@ function createRuntime(ctx, overrides, logger, deps) {
         compileParams.rawTag = text
         compileParams.referenceText = ''
       }
-      const compiled = workflow ? compileJob({ workflow, params: compileParams, config: compileConfig, definitions: scopedDefs, onStage })
+      let compiled = workflow ? compileJob({ workflow, params: compileParams, config: compileConfig, definitions: scopedDefs, onStage })
         : compileChannelJob({ params: compileParams, config: jobConfig, definitions: scopedDefs, channel, onStage })
+      if (rawParams?.frozenComfy) {
+        compiled = applyFrozenComfyRecipe(compiled, rawParams.frozenComfy, compileConfig.weightMode)
+      }
       if (referenceState?.sourceImages) {
         normalizeImageMentions(compiled.positive, referenceState.references.length)
       }
@@ -2366,11 +2494,12 @@ function createRuntime(ctx, overrides, logger, deps) {
       }
       const control = new AbortController()
       const job = {
-        id: (cardRequest ? 'card-' : '') + randomUUID(), comfyId: channel ? null : randomUUID(), workflowId: workflow?.id ?? '', outputNode: workflow?.outputNode,
+        id: (cardRequest ? 'card-' : '') + randomUUID(), comfyId: channel ? null : randomUUID(), workflowId: workflow?.id ?? '', outputNode: rawParams?.frozenComfy?.outputNode ?? workflow?.outputNode,
         backend: channel?.provider ?? 'comfyui', channelId: channel?.id ?? '', channelName: channel?.name ?? '',
         channelEndpoint: channel ? channelEndpointOf(channel) : '', comfyEndpoint: endpointOf(jobConfig.comfyUrl),
         state: 'pending', percent: 0, seed: compiled.seed, createdAt: Date.now(), queryAt: 0, requestStarted: false,
         params: { ...params }, key, size: compiled.size, hits: compiled.hits,
+        comfyRecipe: workflow && generationMode === 'text' ? makeComfyRecipe(workflow, compiled, rawParams?.frozenComfy) : null,
         generationMode, requestedGenerationMode, generationModeReason, promptMode: compiled.promptMode, promptAssembly: compiled.promptAssembly ?? null,
         referenceSnapshot: referenceState,
         promptSystem: jobConfig.promptSystem || 'workbench', promptTemplate: jobConfig.promptSelectionTemplate || null,
@@ -2415,7 +2544,7 @@ function createRuntime(ctx, overrides, logger, deps) {
           const patched = applyComfyReferenceImages({ ...workflow, prompt: compiled.prompt }, imageNames)
           compiled.prompt = patched.prompt
         }
-        if (compiled?.prompt) blankRetry.set(job.id, { prompt: compiled.prompt, seedBindings: workflow?.bindings?.seed ?? [] })
+        if (compiled?.prompt && !rawParams?.frozenComfy) blankRetry.set(job.id, { prompt: compiled.prompt, seedBindings: workflow?.bindings?.seed ?? [] })
         job.comfyId = await submitToComfy(compiled, job, async () => {
           job.requestStarted = true
           try { await persistJobs({ required: true }) }
@@ -2539,8 +2668,9 @@ function createRuntime(ctx, overrides, logger, deps) {
       return revised.slice(0, 12000)
     }
 
-    async function startReplacement({ sourceJobId, prompt, characters = [], negative, channelId, sessionId, turn, textVersion, generationMode, refreshReferences = false, acceptUncertain = false } = {}) {
+    async function startReplacement({ sourceJobId, prompt, characters = [], negative, channelId, sessionId, turn, textVersion, generationMode, refreshReferences = false, acceptUncertain = false, sameSeed = false } = {}) {
       const source = getJob(String(sourceJobId || ''))
+      if (source?.fromCache) await hydrateLegacyJob(source)
       if (!source) throw Object.assign(new Error('找不到这张图片的源作业'), { submissionNotStarted: true })
       if (!acceptUncertain && (source.state === 'uncertain' || source.cancelMayHaveContinued
         || (source.requestMayHaveSucceeded && !['done', 'failed'].includes(source.state)))) {
@@ -2557,36 +2687,44 @@ function createRuntime(ctx, overrides, logger, deps) {
       const hasStructuredPrompt = /<scene_composition|<character_\d/i.test(submitted)
       const blocks = hasStructuredPrompt ? parsePromptsBlock(submitted) : null
       const rawTag = blocks ? blocks.scene : submitted
+      if (source.promptMode === 'natural' && prompt != null) {
+        const issue = shotConflict(rawTag)
+        if (issue) throw Object.assign(new Error(issue), { submissionNotStarted: true, code: 'IMAGE_PLAN_CONFLICT' })
+      }
       const originalPrompt = source.params?.rawTag ?? source.params?.tag ?? ''
       const replacedPrompt = prompt != null && submitted !== originalPrompt
       const characterSource = blocks ? blocks.characters
         : replacedPrompt || characters.length ? characters : source.params?.characters
-      if (!rawTag.trim() && !(Array.isArray(characterSource) && characterSource.length)) throw Object.assign(new Error('原作业没有可用提示词'), { submissionNotStarted: true })
+      if (!rawTag.trim() && !(Array.isArray(characterSource) && characterSource.length)) throw Object.assign(new Error('旧图未找到可恢复的原始提示词，请输入新提示词后重绘'), { submissionNotStarted: true })
       const sourceContextMatches = source.gameId === session && Number(source.turn) === Number(turn) && source.textVersion === textVersion
       let characterSnapshot = sourceContextMatches ? source.characterSnapshot : null
       if (!characterSnapshot && textVersion && typeof deps.tavern?.readTurnData === 'function') {
         try {
           const saved = await deps.tavern.readTurnData({ gameId: session, turn: Number(turn) })
           if (saved?.textVersion === textVersion && saved?.data) characterSnapshot = saved.data
-        } catch {}
+        } catch (error) { logger.warn?.('读取重绘穿搭历史失败：' + (error?.message ?? error)) }
       }
       let card
       try { card = await currentCard(session, turn) }
       catch (error) { error.submissionNotStarted = true; throw error }
       const defs = applyCharacterSnapshot(definitions, characterSnapshot)
-      const scoped = card ? { ...defs, characters: scopeCharacters(defs.characters, card) } : defs
+      const subjects = refreshReferences && replacedPrompt ? undefined : source.params?.subjects
+      const scoped = applyShotOutfits(card ? { ...defs, characters: scopeCharacters(defs.characters, card) } : defs, subjects)
       const keepComfySource = source.backend === 'comfyui' && jobConfig.imageBackend === 'comfyui'
       if (keepComfySource && source.workflowId?.startsWith('simple-')) throw Object.assign(new Error('该作业来自已停用的 ComfyUI 简易模式；原数据已保留，请导入完整 ComfyUI API workflow 后再重绘'), { submissionNotStarted: true, code: 'COMFY_SIMPLE_RETIRED' })
       const workflow = keepComfySource ? workflows.find(item => item.id === source.workflowId && !item.error) : null
       if (keepComfySource && source.workflowId && !workflow) {
         throw Object.assign(new Error('原 ComfyUI 工作流已不存在；请在控制台选择其他渠道后重绘'), { submissionNotStarted: true })
       }
+      const storedRecipe = sameSeed && keepComfySource && mode === 'text' ? source.comfyRecipe : null
+      if (sameSeed && !storedRecipe) throw Object.assign(new Error('这张图无法锁定原始文生图工作流，请使用普通重绘'), { submissionNotStarted: true, code: 'FIXED_RECIPE_UNAVAILABLE' })
+      const redrawTrace = diag.begin({ kind: 'singleRedraw', turn: Number(turn) || null, manual: true, sameSeed: Boolean(storedRecipe) })
       let fresh
       try {
         fresh = await startJob({
           tag: mode === 'reference' ? rawTag : normalizePrompts(expandRosterCalls(rawTag, scoped, jobConfig.traitMode, { style: rosterStyle(jobConfig, workflow ?? styleWorkflow(jobConfig)) }), scoped, { backend: effectiveConfiguredProvider(jobConfig), style: rosterStyle(jobConfig, workflow ?? styleWorkflow(jobConfig)), allowChinese: chineseAllowed(jobConfig, workflow ?? styleWorkflow(jobConfig)) }),
           rawTag, generationMode: mode,
-          subjects: refreshReferences && submitted !== (source.params?.rawTag ?? source.params?.tag) ? undefined : (source.params?.subjects?.length ? source.params.subjects : undefined),
+          subjects: subjects?.length ? subjects : undefined,
           characters: characterSource,
           artist: source.params?.artist,
           promptUsage: source.params?.promptUsage,
@@ -2600,15 +2738,17 @@ function createRuntime(ctx, overrides, logger, deps) {
           model: workflow ? workflow.id : source.params?.model || '',
           steps: source.params?.steps,
           cfg: source.params?.cfg,
+          seed: storedRecipe?.seed,
+          frozenComfy: storedRecipe,
           characterSnapshot,
           textVersion,
           sessionId: session, turn,
           key: 'media-replacement:' + randomUUID(),
-        }, { label: '单图重绘', jobConfig, forceWorkflow: workflow || null, referenceSnapshot: frozenReferences, cardRequest: jobSource(source) === 'card' })
+        }, { label: '单图重绘', jobConfig, forceWorkflow: workflow || null, referenceSnapshot: frozenReferences, cardRequest: jobSource(source) === 'card', diagTrace: redrawTrace ? { traceId: redrawTrace, imageIndex: 1 } : null })
       } catch (error) {
         if (error.requestMayHaveSucceeded !== true) error.submissionNotStarted = true
         throw error
-      }
+      } finally { diag.end(redrawTrace) }
       return { jobId: fresh.id }
     }
 
@@ -3011,8 +3151,8 @@ function createRuntime(ctx, overrides, logger, deps) {
       const plannerBackend = promptBackendContext(plannerConfig, plannerWorkflow)
       const plannerMode = resolvePromptMode(plannerConfig, plannerBackend)
       const card = await currentCard(sessionId, turn)
-      const timelineDefinitions = applyCharacterSnapshot(definitions, historySnapshot)
-      let visualSnapshot = historySnapshot ?? emptyCharacterSnapshot()
+      let visualSnapshot = { ...(historySnapshot ?? emptyCharacterSnapshot()), turn: Number(turn) || 0 }
+      const timelineDefinitions = applyCharacterSnapshot(definitions, visualSnapshot)
       const norm = value => String(value ?? '').toLowerCase().replace(/[\s_\-.'"（）()]+/g, '')
       const registered = scopeCharacters(timelineDefinitions.characters, card)
       const packCharacters = imageGeneration && sessionId && Number.isSafeInteger(turn)
@@ -3041,9 +3181,8 @@ function createRuntime(ctx, overrides, logger, deps) {
       }
       // 挂载句按客户端放图时的同一套规则比对（去掉空白、Markdown 记号和 HTML 标签），
       // 能放上去的图就该画；对不上的收集起来告诉用户。
-      const anchorText = value => String(value ?? '').replace(/<\/?[a-zA-Z][^<>]*>/g, '').replace(/[\s*_~`#>|\u200b]/g, '')
-      const bodyAnchorText = anchorText(body)
-      const mountInBody = mount => { const needle = anchorText(mount); return needle.length >= 2 && bodyAnchorText.includes(needle) }
+      const bodyAnchorText = imageAnchorText(body)
+      const mountInBody = mount => uniqueImageAnchor(bodyAnchorText, imageAnchorText(mount))
       const missingMounts = new Set()
       const heldBack = []
       const characterWarnings = () => {
@@ -3190,7 +3329,7 @@ function createRuntime(ctx, overrides, logger, deps) {
           if (!sceneText.trim() && !planCharacters.length) continue
           if (!mountInBody(image.mount)) {
             // 规划抄挂载句时改了几个字：换成正文里最像的那一句，图照画、照样挂在那一句后面。
-            const nearest = resolveMountFallback(plannerConfig, image.mount, body, anchorText)
+            const nearest = resolveMountFallback(plannerConfig, image.mount, body, imageAnchorText)
             if (nearest && mountInBody(nearest)) image = { ...image, mount: nearest, mountAsked: image.mount }
             else {
               // 以前逐字比对、静默跳过：规划少抄一个 * 或换行就整张图不画，全部跳过时还报成「没有返回可用的 <image> 块」。
@@ -3201,7 +3340,9 @@ function createRuntime(ctx, overrides, logger, deps) {
           }
           // 中文自然语言：画面没写时间时从正文状态栏补一句（夜里补「窗外漆黑」）；三个人以上把竖图改成横图。
           if (rosterStyle(plannerConfig, plannerWorkflow) === 'natural' && chineseAllowed(plannerConfig, plannerWorkflow)) {
-            const timed = addSceneTime(image.prompts, body, image.mount)
+            const issue = shotConflict(sceneText)
+            if (issue) { heldBack.push(issue); continue }
+            const timed = addSceneTime(sceneText, body, image.mount)
             const size = crowdSize(image.size, image.prompts)
             if (timed !== image.prompts || size !== String(image.size ?? '').trim()) image = { ...image, prompts: timed, size, sizeAsked: image.size }
             sceneText = String(image.prompts ?? '')
@@ -3231,7 +3372,7 @@ function createRuntime(ctx, overrides, logger, deps) {
             }
             if (submissionStopped || (smart && (!decisionFrozen || streamDecision !== 'draw' || streamConflict))) return
             const latest = sessionId && typeof deps.tavern?.beforeImageGenerate === 'function' ? applyCharacterSnapshot(definitions, visualSnapshot) : null
-            const pictureScope = latest ? { ...latest, characters: [...scopeCharacters(latest.characters, card), ...packCharacters] } : { ...scoped }
+            const pictureScope = applyShotOutfits(latest ? { ...latest, characters: [...scopeCharacters(latest.characters, card), ...packCharacters] } : { ...scoped }, image.subjects)
             const subjectsWithPackIds = image.subjects?.map(subject => {
               if (subject.characterId || !subject.name || subject.outfitId) return subject
               const matches = packCharacters.filter(person => [person.name, ...splitTags(person.match)].some(alias => norm(alias) === norm(subject.name)))
@@ -3407,18 +3548,22 @@ function createRuntime(ctx, overrides, logger, deps) {
       if (task.controller.signal.aborted) {
         const error = task.controller.signal.reason || new Error('规划被取消')
         finishTask(task, error)
+        diag.end(traceId)
         throw error
       }
       if (imageGeneration && !skipped && !plans.length && missingMounts.size) failure ||= new Error('规划给的挂载句在正文里都找不到（例如「' + [...missingMounts][0] + '」），没有画图；可以重新配图')
-      if (imageGeneration && !skipped && !plans.length) failure ||= new Error('模型没有返回可用的 <image> 块')
+      if (imageGeneration && !skipped && !plans.length) failure ||= new Error(heldBack[0] || '模型没有返回可用的 <image> 块')
       if (smart && parsed.decision === 'draw' && !plans.length) failure ||= new Error('选择配图后没有返回可用的 <image> 块')
       finishTask(task, failure)
-      if (traceId) diag.record(traceId, 'planner-finished', { plans: plans.map(p => ({ jobId: p.jobId, status: p.status })), skipped, error: failure ? String(failure?.message ?? failure) : null })
+      if (traceId) {
+        diag.record(traceId, 'planner-finished', { plans: plans.map(p => ({ jobId: p.jobId, status: p.status })), skipped, error: failure ? String(failure?.message ?? failure) : null })
+        diag.end(traceId)
+      }
       logger.info?.('dsh-tavern-image: 规划用了 ' + ((Date.now() - started) / 1000).toFixed(1) + 's，已提交 ' + plans.length + ' 张'
         + (result.usage ? '（token ' + result.usage.inputTokens + '+' + result.usage.outputTokens + '）' : ''))
 
       const characterSnapshot = characterUpdates ? visualSnapshot : null
-      const plan = { messageId: String(messageId ?? ''), turn, generationMode: planningGenerationMode, promptMode: plannerMode, templateKey, at: Date.now(), plans, skipped, reason: parsed.reason, characterSnapshot, historyWarning, raw: plans.length ? '' : String(result.text || streamed).slice(0, 4000), card: card?.name ?? null }
+      const plan = { messageId: String(messageId ?? ''), turn, partial: Boolean(heldBack.length || missingMounts.size), generationMode: planningGenerationMode, promptMode: plannerMode, templateKey, at: Date.now(), plans, skipped, reason: parsed.reason, characterSnapshot, historyWarning, raw: plans.length ? '' : String(result.text || streamed).slice(0, 4000), card: card?.name ?? null }
       const warnings = characterWarnings()
       if (warnings.length) plan.characterWarnings = warnings
       if (failure) plan.error = String(failure?.message ?? failure)
@@ -3693,12 +3838,28 @@ function createRuntime(ctx, overrides, logger, deps) {
       ? join(CARD_IMAGE_DIR, `${job.id}.${cardImageExtension(mediaType)}`)
       : join(cacheRoot(config), `${job.id}.img`)
 
+    async function hydrateLegacyJob(job) {
+      if (!job?.fromCache || job.metadataChecked) return
+      let recovered = null
+      try {
+        if (job.file && (await stat(job.file)).size <= 64 * 1024 * 1024) recovered = recoverComfyImageMetadata(await readFile(job.file))
+      } catch {}
+      job.metadataChecked = true
+      if (recovered) {
+        Object.assign(job, recovered, { submittedPrompt: recovered.positive })
+        job.params = { ...job.params, rawTag: recovered.positive, tag: recovered.positive, negative: recovered.negative }
+      }
+      job.imageOutputWarning = recovered
+        ? '历史图已从 PNG 恢复提示词和种子，原工作流及角色快照缺失'
+        : '仅保留了历史图片，原始提示词与工作流无法恢复'
+    }
+
     function publicJob(job) {
       return {
         id: job.id, status: job.state, state: job.state, source: jobSource(job), percent: job.percent ?? 0,
         comfyId: job.comfyId || '',
         queuePosition: job.queuePosition ?? 0, queuedCount: job.queuedCount ?? 0,
-        seed: job.seed, ...(job.usage ? { usage: structuredClone(job.usage) } : {}), promptSystem: job.promptSystem || 'workbench', promptTemplate: job.promptTemplate || null, workflow: job.workflowId, error: job.error ?? undefined, createdAt: job.createdAt,
+        seed: job.seed, canCompareOriginal: Boolean(job.comfyRecipe && workflows.some(workflow => workflow.id === job.workflowId && !workflow.error)), ...(job.usage ? { usage: structuredClone(job.usage) } : {}), promptSystem: job.promptSystem || 'workbench', promptTemplate: job.promptTemplate || null, workflow: job.workflowId, error: job.error ?? undefined, createdAt: job.createdAt,
         backend: job.backend ?? 'comfyui', channelId: job.channelId ?? '', channelName: job.channelName ?? '',
         generationMode: job.generationMode ?? 'text', requestedGenerationMode: job.requestedGenerationMode ?? job.generationMode ?? 'text', generationModeReason: job.generationModeReason ?? '', promptMode: job.promptMode ?? '',
         references: structuredClone(job.referenceSnapshot?.references ?? []),
@@ -4103,9 +4264,17 @@ function createRuntime(ctx, overrides, logger, deps) {
             snapshot.characters ||= {}
             const overlay = snapshot.characters[String(character.id)] ||= { traits: {} }
             overlay.traits ||= {}
-            const before = String(overlay.traits[change.field] ?? character.traits?.[change.field] ?? '')
+            const outfit = change.field === 'current.outfit'
+            const before = String(outfit ? overlay.current?.outfit ?? '' : overlay.traits[change.field] ?? character.traits?.[change.field] ?? '')
             const after = String(change.before ?? '')
-            if (after) overlay.traits[change.field] = after
+            if (outfit) {
+              for (const member of definitions.characters) {
+                if (member !== character && !sameCharacterForm(member, character)) continue
+                const state = snapshot.characters[String(member.id)] ||= {}
+                if (after) state.current = { outfit: after, previous: state.current?.outfit ?? '', turn: currentTurn, textVersion: current.textVersion }
+                else delete state.current
+              }
+            } else if (after) overlay.traits[change.field] = after
             else delete overlay.traits[change.field]
             snapshot.turn = currentTurn
             snapshot.textVersion = current.textVersion
@@ -5977,6 +6146,7 @@ function createRuntime(ctx, overrides, logger, deps) {
       if (action === 'job-detail') {
         const job = getJob(String(_url?.searchParams?.get('id') ?? ''))
         if (!job) { sendJson(response, 404, { ok: false, error: '没有这个作业' }); return }
+        if (job.fromCache) await hydrateLegacyJob(job)
         sendJson(response, 200, { ok: true, job: consoleJob(job) })
         return
       }
@@ -5992,7 +6162,7 @@ function createRuntime(ctx, overrides, logger, deps) {
             sourceJobId: src.id, prompt: body?.prompt, negative: body?.negative, channelId: body?.channelId,
             generationMode: body?.generationMode, refreshReferences: body?.refreshReferences === true,
             sessionId: String(src.gameId || body?.sessionId || lastSessionId || ''), turn: src.turn, textVersion: src.textVersion,
-            acceptUncertain: body?.confirmUncertain === true,
+            acceptUncertain: body?.confirmUncertain === true, sameSeed: body?.sameSeed === true,
           })
           const fresh = getJob(replacement.jobId)
           logger.info?.('dsh-tavern-image: 重画 ' + src.id.slice(0, 8) + ' → ' + fresh.id.slice(0, 8))
@@ -7114,52 +7284,41 @@ function workflowSummary(raw) {
 // 提示词处理
 // =====================================================================
 
-// A linked record's name, aliases and outfit names are its figure's: every save tells Tavern what changed for each linked
-// figure, and which links end (the record deleted or linked elsewhere), and saves the canonical projection it returns.
+// A linked record's name, 触发词 (match) and outfit names are the asset-library figure's own: the record is where the figure
+// keeps them. A save tells Tavern which linked figures it touched, so their pages read the new values, and which links end
+// (the record deleted or linked elsewhere): the figure takes its identity back in the same save.
 async function saveLinkedNames(tavern, previous, next, save) {
-  if (typeof tavern?.editLinkedFigures !== 'function') return await save(next)
+  if (typeof tavern?.saveLinkedRecords !== 'function') return await save(next)
   const oldById = new Map(previous.characters.map(item => [item.id, item]))
   const nextById = new Map(next.characters.map(item => [item.id, item]))
+  const sameOutfitNames = (a, b) => JSON.stringify((a.outfits || []).map(outfit => [outfit.id, String(outfit.name ?? '').trim()])) === JSON.stringify((b.outfits || []).map(outfit => [outfit.id, String(outfit.name ?? '').trim()]))
   const changes = []
   for (const character of next.characters) {
+    if (!character.figureId || !character.figurePackId) continue
     const old = oldById.get(character.id)
-    if (!old?.figureId || old.figureId !== character.figureId || old.figurePackId !== character.figurePackId) continue
-    const was = new Set(splitTags(old.match)), now = new Set(splitTags(character.match))
-    const addAliases = [...now].filter(word => !was.has(word))
-    const removeAliases = [...was].filter(word => !now.has(word))
-    const outfits = Object.fromEntries((character.outfits || []).filter(outfit => {
-      const before = (old.outfits || []).find(item => item.id === outfit.id)
-      return before && String(outfit.name ?? '').trim() && String(outfit.name).trim() !== String(before.name ?? '').trim()
-    }).map(outfit => [outfit.id, String(outfit.name).trim()]))
-    if (old.name === character.name && !addAliases.length && !removeAliases.length && !Object.keys(outfits).length) {
-      character.match = old.match
-      continue
-    }
-    changes.push({ packId: character.figurePackId, figureId: character.figureId,
-      ...(old.name === character.name ? {} : { name: character.name }), addAliases, removeAliases, ...(Object.keys(outfits).length ? { outfits } : {}) })
+    if (old?.figureId === character.figureId && old.figurePackId === character.figurePackId
+      && old.name === character.name && old.match === character.match && sameOutfitNames(old, character)) continue
+    changes.push({ packId: character.figurePackId, figureId: character.figureId, identity: {
+      name: character.name, match: character.match, outfits: (character.outfits ?? []).map(outfit => String(outfit.name ?? '').trim()),
+    } })
   }
   for (const old of previous.characters) {
     if (!old.figureId || !old.figurePackId) continue
     const now = nextById.get(old.id)
     if (now?.figureId === old.figureId && now.figurePackId === old.figurePackId) continue
-    changes.push({ packId: old.figurePackId, figureId: old.figureId, addAliases: [], removeAliases: [], release: true })
+    changes.push({ packId: old.figurePackId, figureId: old.figureId, release: true })
   }
   if (!changes.length) return await save(next)
   const receipt = { file: DEFS_PATH, id: randomUUID() }
   let localFailure
   try {
-    return await tavern.editLinkedFigures({ changes, receipt }, async identities => {
-      const byFigure = new Map(identities.map(identity => [JSON.stringify([identity.packId, identity.figureId]), identity]))
-      for (const character of next.characters) {
-        const identity = byFigure.get(JSON.stringify([character.figurePackId, character.figureId]))
-        if (identity) Object.assign(character, { name: identity.name, match: identity.match })
-      }
+    return await tavern.saveLinkedRecords({ changes, receipt }, async () => {
       try { return await save(next, receipt.id) }
       catch (error) { localFailure = error; throw error }
     })
   } catch (error) {
     if (error === localFailure || error?.code === 'RECOVERY_REQUIRED') throw error
-    throw Object.assign(new Error('素材库人物名字或触发词保存失败：' + (error?.message || error), { cause: error }), { code: 'FIGURE_EDIT_FAILED' })
+    throw Object.assign(new Error('素材库人物的名字或触发词保存失败：' + (error?.message || error), { cause: error }), { code: 'FIGURE_EDIT_FAILED' })
   }
 }
 
@@ -7360,9 +7519,12 @@ export function injectDefinitions(text, definitions, config = {}, options = {}) 
   const sceneCharacters = (definitions.characters ?? []).filter(character => character && character.enabled !== false && (
     macroCharacters.includes(character) || aliasesFor(character).some(alias => containsNameToken(footText, alias))
   ))
-  // 按名字注入时，鞋袜状态只作用于明确点名该角色的子句；同一子句出现多名角色也视为归属不明。
+  const scopedClauses = natural ? sceneClauses(footText, sceneSubjects(definitions.characters)) : []
+  const globalFraming = natural ? commonFraming(scopedClauses) : ''
+  // Legacy tag mode keeps its original matching rules.
   const footwearSceneFor = character => {
     if (sceneCharacters.length === 1) return footText
+    if (natural) return personSceneText(scopedClauses, character)
     const clauses = footText.split(/(?<=[，,。！？!?；;\n])/).map(value => value.trim()).filter(Boolean)
     const own = aliasesFor(character)
     return clauses.filter(clause => {
@@ -7441,7 +7603,7 @@ export function injectDefinitions(text, definitions, config = {}, options = {}) 
     const personBarefoot = isBarefoot(footwearScene)
     const shoesOff = !personBarefoot && footwearOverridden(footwearScene, personWearText(character, recordedRaw))
     const noShoes = personBarefoot || shoesOff
-    const closeShot = natural && closeShotScene(footwearScene || (sceneCharacters.length <= 1 ? footText : ''))
+    const closeShot = natural && (closeShotScene(globalFraming) || closeShotScene(footwearScene))
     const visibleWear = closeShot && recordedRaw ? resolveWearText(character, character.current?.outfit, true, definitions?.outfits) : recordedRaw
     const recorded = noShoes || closeShot ? dropFootwear(visibleWear, shoesOff && !closeShot) : visibleWear
     const picked = characterTags(character, { nsfw, back, full: full && !closeShot, croppedOutfit: closeShot,
@@ -7450,8 +7612,15 @@ export function injectDefinitions(text, definitions, config = {}, options = {}) 
     // options.provenance：诊断用，记录每段注入文字来自哪个人物的哪个字段、作用于正向还是整图负向。
     if (Array.isArray(options?.provenance)) for (const origin of picked.origins ?? []) options.provenance.push({ stage: 'definition-injection', characterId: String(character.id ?? ''), characterName: String(character.name ?? ''), matchedBy: keys.find(key => key && source.includes(key)) ?? '', appliedScope: origin.channel === 'negative' ? 'whole-image-negative' : 'whole-image-positive', ...origin })
     if (natural) {
-      const hairExtras = Object.assign([], { dropHair: hairOverridden(source, recorded) })
-      const phrase = boundCharacterPhrase(character, picked, hairExtras, recorded, options?.style)
+      const looseHair = looseHairIn(footwearScene)
+      const wear = looseHair ? withoutTiedHair(recorded) : recorded
+      if (looseHair) {
+        for (const origin of picked.origins ?? []) {
+          if (origin.outfitId) origin.text = withoutTiedHair(origin.text)
+        }
+      }
+      const hairExtras = Object.assign([], { dropHair: hairOverridden(footwearScene, wear) })
+      const phrase = boundCharacterPhrase(character, picked, hairExtras, wear, options?.style)
       if (phrase && phrase !== character.promptLabel && !source.includes(phrase)) added.push(phrase)
     } else {
       // tag 写法：这个人的外貌紧跟在她的名字后面插入，而不是堆到整段末尾。
@@ -7585,6 +7754,54 @@ export function compileChannelJob({ params, config, definitions, channel = null,
   const size = pixels ? { width: Number(pixels[1]), height: Number(pixels[2]) } : dimensions || { width: 832, height: 1216 }
   if (![size.width, size.height].every(value => Number.isInteger(value) && value >= 64 && value <= 8192)) throw new Error('图片尺寸需在 64–8192 像素之间')
   return { ...prepared, promptMode, characters: nativeNovelai ? characters : [], seed: Number.isSafeInteger(params.seed) && params.seed >= 0 ? params.seed : randomInt(0, 2 ** 32), size, loras: [] }
+}
+
+function makeComfyRecipe(workflow, compiled, frozen) {
+  if (frozen) return { ...frozen, graph: compiled.prompt }
+  const markers = comfyPromptMarkers(workflow.prompt)
+  return {
+    graph: compiled.prompt, seed: compiled.seed, size: compiled.size, loras: compiled.loras, outputNode: workflow.outputNode,
+    template: markers.positive.length || markers.negative.length ? workflow.prompt : null,
+    positive: markers.positive.length ? [] : workflow.bindings.positive,
+    negative: markers.negative.length ? [] : workflow.bindings.negative,
+  }
+}
+
+export function applyFrozenComfyRecipe(compiled, recipe, weightMode) {
+  const graph = structuredClone(recipe.graph)
+  const negative = compiled.promptMode === 'structured' ? compiled.negative : applyWeights(compiled.negative, weightMode)
+  setBinding(graph, recipe.positive, compiled.positive)
+  setBinding(graph, recipe.negative, negative)
+  if (recipe.template) applyComfyPromptMarkers(graph, recipe.template, compiled.positive, negative)
+  return { ...compiled, prompt: graph, seed: recipe.seed, size: recipe.size ?? compiled.size, loras: recipe.loras ?? compiled.loras }
+}
+
+// Read only the text fields from trusted local ComfyUI output. Never use image metadata as source code.
+function comfyGraphFromPng(buffer) {
+  if (buffer.subarray(0, 8).toString('hex') !== '89504e470d0a1a0a') return null
+  let graph = null
+  for (let offset = 8; offset + 12 <= buffer.length;) {
+    const length = buffer.readUInt32BE(offset)
+    const end = offset + 12 + length
+    if (end > buffer.length || length > 64 * 1024 * 1024) return null
+    if (length >= 7 && length < 1024 * 1024 && buffer.toString('ascii', offset + 4, offset + 8) === 'tEXt' && buffer.toString('ascii', offset + 8, offset + 15) === 'prompt\0') {
+      try { graph = JSON.parse(buffer.toString('utf8', offset + 15, end - 4)) } catch { return null }
+      break
+    }
+    offset = end
+  }
+  return graph && typeof graph === 'object' && !Array.isArray(graph) ? graph : null
+}
+
+export function recoverComfyImageMetadata(buffer) {
+  const graph = comfyGraphFromPng(buffer)
+  if (!graph) return null
+  const samplers = Object.values(graph).filter(node => node?.class_type === 'KSampler' && Number.isSafeInteger(node.inputs?.seed))
+  if (samplers.length !== 1) return null
+  const sample = samplers[0].inputs
+  const text = link => Array.isArray(link) && graph[link[0]]?.class_type === 'CLIPTextEncode' ? graph[link[0]].inputs?.text : ''
+  const positive = text(sample.positive)
+  return typeof positive === 'string' && positive ? { positive, negative: String(text(sample.negative) ?? ''), seed: sample.seed } : null
 }
 
 export function compileJob({ workflow, params, config, definitions, onStage = null }) {

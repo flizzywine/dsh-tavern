@@ -39,14 +39,6 @@ export function imageAliasesFromFigure(figure) {
   return latin ? [latin, ...own.filter(word => word !== latin)] : own
 }
 
-/** What a linked record's name and aliases must become (方案甲: the figure is their one home, the record shows them);
- *  null when they already match. */
-export function identityPatchFromFigure(character, figure) {
-  const match = imageAliasesFromFigure(figure).join(', ')
-  const patch = { ...(character.name !== figure.name ? { name: figure.name } : {}), ...(character.match !== match ? { match } : {}) }
-  return Object.keys(patch).length ? patch : null
-}
-
 const joined = values => values.map(value => typeof value === 'string' ? value.trim() : '').filter(Boolean).join('；')
 
 export function appearanceFromImageCharacter(character, outfitKey) {

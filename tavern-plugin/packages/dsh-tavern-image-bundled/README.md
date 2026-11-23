@@ -607,9 +607,11 @@ export function apply(ctx) {
 
 ## 共用人物记录
 
-Tavern 内置配图插件 3.8.0 支持素材库「人物 → 生图 → 配图人物库」直接编辑同一条人物记录。可新建记录或选择已有记录，编辑名字、别名、分视角外貌、当前服装，并把素材包设定图写入配图参考图。多个人物库并存时需要选择来源。
+Tavern 内置配图插件 3.8.0 支持素材库「人物 → 生图 → 配图人物库」直接编辑同一条人物记录。可新建记录或选择已有记录，编辑名字、触发词、分视角外貌、当前服装，并把素材包设定图写入配图参考图。多个人物库并存时需要选择来源。
 
-共用接口通过 `registerImageLibrary` 注册 `schemaVersion: 4` 与 `getCharacter/patchCharacter/createCharacter/putReferenceImage`。读取返回 `{version: 4, character}`。修改带上完整的 `expected` 人物快照，`traits` 按字段合并，`outfits` 按 ID 合并；未修改的字段与未列出的服装保留。允许编辑名字、别名、一致性文字、外貌、服装及参考图，不能修改人物卡绑定等插件专有字段。素材库人物被删除时，宿主用同样带 `expected` 的 `deleteCharacter` 一并删除记录，或把 `figureId` 与 `figurePackId` 都设为 `null` 断开关联、保留外貌；`deleteCharacter` 是可选接口，宿主从 `recordLibraries()` 的 `deletes` 得知是否可用。
+共用接口通过 `registerImageLibrary` 注册 `schemaVersion: 4` 与 `getCharacter/patchCharacter/createCharacter/putReferenceImage`。读取返回 `{version: 4, character}`。修改带上完整的 `expected` 人物快照，`traits` 按字段合并，`outfits` 按 ID 合并；未修改的字段与未列出的服装保留。允许编辑名字、触发词（字段 `match`，逗号分隔）、一致性文字、外貌、服装及参考图，不能修改人物卡绑定等插件专有字段。素材库人物被删除时，宿主用同样带 `expected` 的 `deleteCharacter` 一并删除记录，或把 `figureId` 与 `figurePackId` 都设为 `null` 断开关联、保留外貌；`deleteCharacter` 是可选接口，宿主从 `recordLibraries()` 的 `deletes` 得知是否可用。
+
+关联着素材库人物的记录，名字、触发词（`match`）和服装名称就是素材库里那个人物的名字、触发词和服装名称，只存在这条记录里（素材包里的人物文件不留副本）；人物页和这里编辑的是同一份。保存带关联的记录时插件调用 `tavern.saveLinkedRecords({changes, receipt}, save)`，宿主据此让素材库重读这些人物；记录被删除或改关联时，宿主先把名字和触发词写回人物，再完成保存。
 
 可选接口 `deleteCharacter({characterId, expected})` 删除一条记录（`expected` 与当前记录不一致时报 `REVISION_CONFLICT`），返回 `{deleted: characterId}`。`patchCharacter` 把 `figureId` 与 `figurePackId` 同时设为 `null` 即断开与素材库人物的关联；只设其一报 `INVALID_ARGUMENT`，记录本身保留。
 

@@ -20,6 +20,7 @@ export function createDiagnostics({ root, logger, secrets = () => [] } = {}) {
   const traces = new Map() // traceId -> { dir, seq, mode, bytes }
   const jobTrace = new Map() // jobId -> { traceId, imageIndex }
   let errors = 0
+  let completedBytes = 0
 
   const readSwitch = () => {
     try { return { ...DEFAULTS, ...JSON.parse(readFileSync(switchPath, 'utf8')) } } catch { return { ...DEFAULTS } }
@@ -55,7 +56,13 @@ export function createDiagnostics({ root, logger, secrets = () => [] } = {}) {
     try {
       mkdirSync(baseDir, { recursive: true })
       const now = Date.now()
-      const dirs = readdirSync(baseDir).map(name => {
+      for (const [id, trace] of traces) {
+        if (now - trace.updatedAt > cfg.retentionHours * 3600e3) {
+          traces.delete(id)
+          for (const job of trace.jobs) jobTrace.delete(job)
+        }
+      }
+      const dirs = readdirSync(baseDir).filter(name => !traces.has(name)).map(name => {
         const dir = join(baseDir, name)
         let bytes = 0, mtime = 0
         try {
@@ -65,12 +72,18 @@ export function createDiagnostics({ root, logger, secrets = () => [] } = {}) {
         } catch {}
         return { dir, bytes, mtime }
       }).sort((a, b) => b.mtime - a.mtime)
-      let total = 0
-      dirs.forEach((d, i) => {
-        total += d.bytes
+      const activeBytes = [...traces.values()].reduce((sum, trace) => sum + trace.bytes, 0)
+      completedBytes = 0
+      let retained = traces.size
+      for (const d of dirs) {
         const old = now - d.mtime > cfg.retentionHours * 3600e3
-        if (old || i >= cfg.maxTraces - 1 || total > cfg.maxTotalBytes) rmSync(d.dir, { recursive: true, force: true })
-      })
+        if (old || retained >= cfg.maxTraces - 1 || activeBytes + completedBytes + d.bytes > cfg.maxTotalBytes) {
+          rmSync(d.dir, { recursive: true, force: true })
+        } else {
+          retained++
+          completedBytes += d.bytes
+        }
+      }
     } catch { errors++ }
   }
 
@@ -78,14 +91,15 @@ export function createDiagnostics({ root, logger, secrets = () => [] } = {}) {
     try {
       const cfg = readSwitch()
       if (cfg.enabled !== true) return null
+      prune(cfg)
+      if (traces.size >= cfg.maxTraces) return null
       if (cfg.nextTraceOnly !== false) {
         try { writeFileSync(switchPath, JSON.stringify({ ...cfg, enabled: false, lastTraceAt: new Date().toISOString() }, null, 2)) } catch { errors++ }
       }
-      prune(cfg)
       const traceId = new Date().toISOString().replace(/[:.]/g, '-') + '-' + randomUUID().slice(0, 8)
       const dir = join(baseDir, traceId)
       mkdirSync(dir, { recursive: true })
-      traces.set(traceId, { dir, seq: 0, mode: cfg.contentMode === 'full' ? 'full' : 'summary', bytes: 0, maxBytes: cfg.maxTotalBytes, maxFieldChars: cfg.maxFieldChars })
+      traces.set(traceId, { dir, seq: 0, mode: cfg.contentMode === 'full' ? 'full' : 'summary', bytes: 0, maxBytes: cfg.maxTotalBytes, maxFieldChars: cfg.maxFieldChars, jobs: new Set(), ended: false, updatedAt: Date.now() })
       record(traceId, 'trace-begin', { schemaVersion: 1, contentMode: cfg.contentMode, ...meta })
       logger?.info?.('dsh-tavern-image: 诊断记录已开始 ' + traceId)
       return traceId
@@ -98,23 +112,57 @@ export function createDiagnostics({ root, logger, secrets = () => [] } = {}) {
     const trace = traces.get(traceId)
     if (!trace) return
     try {
+      trace.updatedAt = Date.now()
       const shaped = JSON.parse(JSON.stringify(payload ?? {}, (k, v) => (v && typeof v === 'object' && '$text' in v) ? content(trace, v.$text) : v))
       const line = JSON.stringify({ traceId, seq: ++trace.seq, at: new Date().toISOString(), stage, ...extra, data: scrub(shaped) }) + '\n'
-      if (trace.bytes + line.length > trace.maxBytes) {
-        if (!trace.overflow) { trace.overflow = true; appendFileSync(join(trace.dir, 'events.jsonl'), JSON.stringify({ traceId, stage: 'log-capacity-reached', note: '后续事件未记录，本次证据不完整' }) + '\n') }
+      const bytes = Buffer.byteLength(line)
+      const total = completedBytes + [...traces.values()].reduce((sum, item) => sum + item.bytes, 0)
+      if (total + bytes > trace.maxBytes) {
+        if (!trace.overflow) {
+          trace.overflow = true
+          const marker = JSON.stringify({ traceId, stage: 'log-capacity-reached', note: '后续事件未记录，本次证据不完整' }) + '\n'
+          const markerBytes = Buffer.byteLength(marker)
+          if (total + markerBytes <= trace.maxBytes) {
+            appendFileSync(join(trace.dir, 'events.jsonl'), marker)
+            trace.bytes += markerBytes
+          }
+        }
         return
       }
-      trace.bytes += line.length
       appendFileSync(join(trace.dir, 'events.jsonl'), line)
+      trace.bytes += bytes
     } catch { errors++ }
   }
 
-  const bindJob = (jobId, traceId, imageIndex) => { if (traceId && jobId) jobTrace.set(String(jobId), { traceId, imageIndex }) }
+  const release = (id, trace) => {
+    if (!trace.ended || trace.jobs.size) return
+    completedBytes += trace.bytes
+    traces.delete(id)
+  }
+  const end = id => {
+    const trace = traces.get(id)
+    if (trace) { trace.ended = true; release(id, trace) }
+  }
+  const bindJob = (jobId, traceId, imageIndex) => {
+    const trace = traces.get(traceId)
+    if (!trace || !jobId) return
+    const id = String(jobId)
+    trace.jobs.add(id)
+    jobTrace.set(id, { traceId, imageIndex })
+  }
+  const finishJob = jobId => {
+    const id = String(jobId)
+    const hit = jobTrace.get(id)
+    if (!hit) return
+    jobTrace.delete(id)
+    const trace = traces.get(hit.traceId)
+    if (trace) { trace.jobs.delete(id); release(hit.traceId, trace) }
+  }
   const recordJob = (jobId, stage, payload) => {
     const hit = jobTrace.get(String(jobId))
     if (hit) record(hit.traceId, stage, payload, { imageIndex: hit.imageIndex, jobId: String(jobId) })
   }
   const text = value => ({ $text: String(value ?? '') })
   const status = () => ({ active: traces.size, errors })
-  return { begin, record, bindJob, recordJob, text, status }
+  return { begin, end, record, bindJob, finishJob, recordJob, text, status }
 }
