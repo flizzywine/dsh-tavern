@@ -997,7 +997,7 @@ export function createAssetPackService(options) {
         return {status:'merged',revision:local.revision,...plan}
       },input.dryRun === true)
     },
-    // Replace only unbound sources. The card commit is the durable decision for the whole pack batch.
+    // Replace sources that no card binds except the plan's card; that card's commit swaps them for the target and is the durable decision for the whole pack batch.
     consolidatePacks(input) {
       const {packId, expectedRevision, sources, name, card, dryRun, approvedContentHash, assetNames = []} = input
       validateUuid(packId); validateUuid(expectedRevision)
@@ -1017,8 +1017,6 @@ export function createAssetPackService(options) {
       return run([...ids],async()=>{
         const currentCard = await cards.snapshot({path:card.path})
         check(currentCard.raw && currentCard.revision === card.expectedRevision,'$.card','Card changed','REVISION_CONFLICT')
-        const oldCardPacks = cards.inspectRaw(currentCard.raw).boundPackIds
-        check(!oldCardPacks.some(id=>ids.has(id) && id !== packId),'$.card','Source still bound','REVISION_CONFLICT')
         const before = await loadForExport(packId); cas(before,expectedRevision)
         check(before && !isModConfigPack(before),'$.packId','Target must be a normal installed pack','ASSET_UNAVAILABLE')
         let pack = before, bytes
@@ -1026,7 +1024,7 @@ export function createAssetPackService(options) {
         for (const row of sources) {
           const source = await loadForExport(row.packId); cas(source,row.expectedRevision)
           check(source && !isModConfigPack(source) && !source.local.autoWrite && !source.local.stageSetupCardId,'$.sources','Only normal unbound packs may be consolidated','ASSET_UNAVAILABLE')
-          await cards.requireUnboundPack({packId:row.packId})
+          await cards.requireUnboundPack({packId:row.packId,exceptPath:card.path})
           check(!options.globalEnabledPackIds?.().includes(row.packId),'$.sources','Source is enabled globally','REVISION_CONFLICT')
           const result = await prepareMerge(source,pack,{name,assetNames:sources.at(-1) === row ? assetNames : []})
           pack = result.pack; bytes = result.bytes; mappings.push(result.mapping)
@@ -1042,7 +1040,7 @@ export function createAssetPackService(options) {
         if (dryRun) return {status:'dry-run',...result}
         check(result.contentHash === approvedContentHash,'$.approvedContentHash','Candidate differs from the verified pack','REVISION_CONFLICT')
         const local = nextLocal({...before.local,mouthDebt})
-        await cards.withBoundPack({...card,packId},async transaction=>{
+        await cards.withBoundPack({...card,packId,replacePackIds:sourceIds},async transaction=>{
           await storage.publishMany([{pack,local},...retire.map(row=>row.entry)],transaction)
         })
         evictMetadata(packId); emit({...pack,local},before)
