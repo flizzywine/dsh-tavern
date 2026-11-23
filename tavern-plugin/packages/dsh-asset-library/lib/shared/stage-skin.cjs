@@ -507,7 +507,9 @@ const skinBacklogAvatar = value => skinBacklogAvatarProblem(value) === null;
 const skinBacklogRoll = value => skinBacklogRollProblem(value) === null;
 // title false: the original's log screen has no title - no words or image at its top (the overlay keeps its accessible name);
 // omitted = the shared title centred at the top of the game area.
-const skinBacklog = skinObject({...skinArtScreen,title:value => value === false || skinArtPlaced(value),list:skinRect,pitch:skinNumber(8,512),text:skinArray(skinNumber(0,8192),2,2),top:skinNumber(0,512),gap:skinNumber(0,512),
+// clip false: no 导出片段 button beside the close (an original whose log has only its close); the export still starts from a row
+// (Shift-click, long press). Omitted = the button beside the drawn close.
+const skinBacklog = skinObject({...skinArtScreen,title:value => value === false || skinArtPlaced(value),clip:value => value === false,list:skinRect,pitch:skinNumber(8,512),text:skinArray(skinNumber(0,8192),2,2),top:skinNumber(0,512),gap:skinNumber(0,512),
     // name.letter ransom (C2): the name as glyph tiles (glyphTiles below); name.align end: the name's right edge on the text
     // column's left edge, a long name growing to the left.
     voice:skinBacklogVoice,name:skinObject({x:skinPx,y:skinPx,h:skinNumber(1,1024),font:skinNumber(8,512),head:skinNumber(0,1024),frame:skinArtPlaced,rule:skinArtPlaced,
