@@ -12,7 +12,7 @@
 | --- | --- |
 | `voice-id` | Fish Audio 声音库的声音编号，`{kind:'voice-id', provider:'fish-audio', voiceId}` |
 | `preset` | 在线 TTS 的内置声音名，`{kind:'preset', provider:'qwen', voiceName:'Cherry'}`；`provider` 是服务类型（`qwen`、`azure`、`volcengine`、`minimax`、`openai-compatible`），可带 `model` |
-| `preset` + `provider:'browser'` | 浏览器朗读，`voiceName` 是用户浏览器里的系统声音名。不写 `voiceName` 即系统默认声音（`issues` 为空）；工具读不到系统声音列表，要换别的系统声音由用户在界面里选（见[给人物配声音](figure-voice.md)「浏览器朗读」） |
+| `preset` + `provider:'browser'` | 浏览器朗读，`voiceName` 是用户浏览器里的系统声音名。不写 `voiceName` 即系统默认声音（`issues` 为空）；工具读不到系统声音列表，要换别的系统声音由用户在界面里选（见[给人物配声音](voice-figure.md)「浏览器朗读」） |
 | `reference-list` | 声音克隆：有序参考音频列表 `{kind:'reference-list', provider:'fish-audio', references:[{media, text, language}]}`，`media` 是上传返回的 hash |
 
 每个来源都可以先选后配：没有参考音频的克隆、还没选声音的声音库或在线声音（浏览器朗读除外，不写声音即系统默认）都能保存，`figure` 的 `issues` 会写明还缺什么（`MISSING_REFERENCE`、`VOICE_NOT_FOUND`），人物在补齐之前不出声。

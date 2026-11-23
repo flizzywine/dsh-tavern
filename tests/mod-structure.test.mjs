@@ -9,12 +9,12 @@ import { fileURLToPath } from 'node:url'
 
 const root = fileURLToPath(new URL('../', import.meta.url))
 const modsRoot = path.join(root, 'tavern-plugin/mods')
-const skillRoot = path.join(root, 'presets/tavern/skills/stage-mods')
+const skillRoot = path.join(root, 'presets/tavern/skills/stage/references')
 const posix = file => path.relative(root, file).split(path.sep).join('/')
 const exists = file => stat(file).then(() => true, () => false)
 
 // rule:subject. Rules: manifest (mod.json missing or invalid), legacy-manifest (a second manifest.json), skill (no
-// references/<name>.md or no index line), import-out (a mod file imports outside its folder), import-in (code outside
+// stage Skill reference references/mod-<name>.md or no line for it in references/mods.md), import-out (a mod file imports outside its folder), import-in (code outside
 // mods/ imports a mod file), names-mod (code outside mods/ names a first-party mod id), names-part (code outside mods/
 // names a client part a mod registers in client/core.js).
 
@@ -37,10 +37,10 @@ const names = (await readdir(modsRoot, { withFileTypes: true })).filter(entry =>
 const found = new Set()
 
 test('each mod has a Skill reference with an index line and at least one test of its own', async () => {
-  const index = await readFile(path.join(skillRoot, 'SKILL.md'), 'utf8')
+  const index = await readFile(path.join(skillRoot, 'mods.md'), 'utf8')
   const tests = await readdir(path.join(root, 'tests'))
   for (const name of names) {
-    if (!await exists(path.join(skillRoot, 'references', name + '.md')) || !index.includes('references/' + name + '.md')) found.add('skill:' + name)
+    if (!await exists(path.join(skillRoot, 'mod-' + name + '.md')) || !index.includes('](mod-' + name + '.md)')) found.add('skill:' + name)
     if (!tests.some(file => file.endsWith('.test.mjs') && file.includes(name))) found.add('tests:' + name)
   }
 })

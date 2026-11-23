@@ -13,7 +13,7 @@
 
 ## 工具
 
-先 `tavern_voice_read figure {packId, figureId}` 读出当前绑定、音色和它的方案（找人物见[人物](figures.md)）。
+先 `tavern_voice_read figure {packId, figureId}` 读出当前绑定、音色和它的方案（找人物见[人物](asset-figures.md)）。
 
 - 改人物的绑定（用哪个方案、语言、差分对应）：`binding`，整份绑定写回，未改的字段带上原值。
 - 改音色本身（增改调音方案）：`pack-voice {voiceId, voiceSpec, figureId?}`。音色被别的人物共用时，宿主会提示影响；用户只想改这一个人物时，先给它一份独立音色（`assign-figure`）。

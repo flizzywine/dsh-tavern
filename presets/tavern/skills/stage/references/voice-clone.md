@@ -12,7 +12,7 @@
 
 ## 工具
 
-1. 找到人物并读声音：见[给人物配声音](figure-voice.md)第 1 步。
+1. 找到人物并读声音：见[给人物配声音](voice-figure.md)第 1 步。
 2. 上传录音：工作台里的 WAV/MP3 用 `tavern_media_upload({request:{action:'blob', packId:'…', expectedRevision:'包的 revision', file:'voice/lin-01.wav', purpose:'voice-reference'}})`，回执给出 `hash` 和新 revision。几段就传几次，每次用上一次回执的 revision。
 3. 写音色：`assign-figure` 写一份 `reference-list` 来源，或用 `pack-voice` 改人物现有的音色：
 

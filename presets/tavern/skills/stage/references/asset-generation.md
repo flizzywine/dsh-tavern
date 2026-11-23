@@ -1,15 +1,15 @@
 # 应用内生图
 
-用户要用应用内生图为素材人物或背景生成设定图、立绘、头像、八头像表或背景时读这篇。上传已有图片见[人物](figures.md)和[背景与 CG](backgrounds-cg.md)；剧情 CG 和 Live2D 模型不由这里生成。
+用户要用应用内生图为素材人物或背景生成设定图、立绘、头像、八头像表或背景时读这篇。上传已有图片见[人物](asset-figures.md)和[背景与 CG](asset-backgrounds-cg.md)；剧情 CG 和 Live2D 模型不由这里生成。游玩中自动给新人物画立绘、给新地点画背景的是「自动素材」（[开关与皮肤](setup-switches.md)），不经过这里的流程。
 
 生图会花用户的钱，候选图要由用户亲自挑选。工具：`tavern_asset_generation`，查找人物和包用 `tavern_assets_read`。工具不能采用候选，采用只在应用界面里由用户完成。
 
-调用格式：每个工具只有一个 `request` 参数，`tavern_asset_generation` 把 `action` 和字段直接写在里面，例如 `tavern_asset_generation({request:{action:'prepare', target:{packId:'…', kind:'sprite', figureId:'…', outfitKey:'default', emotionId:'…'}, expectedRevision:'包的 revision'}})`。`tavern_assets_read` 的个别动作把共用字段放在外层、`action` 放进 `operation`，以工具 schema 为准。
+调用格式：`tavern_asset_generation` 把 `action` 和字段直接写在 `request` 里，例如 `tavern_asset_generation({request:{action:'prepare', target:{packId:'…', kind:'sprite', figureId:'…', outfitKey:'default', emotionId:'…'}, expectedRevision:'包的 revision'}})`。`tavern_assets_read` 的个别动作把共用字段放在外层、`action` 放进 `operation`，以工具 schema 为准。
 
 ## 流程
 
-1. **定目标**：用 `tavern_assets_read` 的 `bindings` 找到当前卡能用的包，对这些包读 `item {kind:'figures', packId}` 按名字找到人物 `id`，再带 `id` 读详情确认服装和差分（`resolve` 不接受名字）。目标类型及先后依赖读[生图目标](generation-targets.md)。
-2. **准备**：`prepare {target, expectedRevision, userPrompt?, references?, count?}` 冻结目标、提示词、参考图和渠道，不收费。`expectedRevision` 是目标包的 revision（来自 `item` 读取或上一次写入回执）。目标人物或包还不存在时，只能给用户文字草案，并说明要先按[人物](figures.md)或[包与绑定](packs.md)建好。
+1. **定目标**：用 `tavern_assets_read` 的 `bindings` 找到当前卡能用的包，对这些包读 `item {kind:'figures', packId}` 按名字找到人物 `id`，再带 `id` 读详情确认服装和差分（`resolve` 不接受名字）。目标类型及先后依赖读[生图目标](asset-generation-targets.md)。
+2. **准备**：`prepare {target, expectedRevision, userPrompt?, references?, count?}` 冻结目标、提示词、参考图和渠道，不收费。`expectedRevision` 是目标包的 revision（来自 `item` 读取或上一次写入回执）。目标人物或包还不存在时，只能给用户文字草案，并说明要先按[人物](asset-figures.md)或[包与绑定](asset-packs.md)建好。
 3. **说明**：调用生成前，把准备结果告诉用户，至少包括：目标、张数、带了哪些参考图，以及费用提示——"N 张就是 N 次单图请求；外层模型可能另收文字费用，金额由服务商决定；失败、超时、取消或没出图都不保证免费"。准备结果里有"上次结果未确认"的请求时，逐个说明"上次的结果未确认，可能已经收费，这次可能再次收费"。
 4. **确认并生成**：调用 `generate {planId, consentToken}`，宿主会弹出付费确认，用户在弹窗里同意才会发出请求。用户拒绝就停止，不换参数再试；用户只是在问价格或讨论方案时，停在准备这一步。
 5. **查看**：用 `status {jobId}` 查询，不要循环等待到超时；候选出来后用 `read` 给用户看。
@@ -39,7 +39,7 @@
 
 - 不要自动重试。失败结果里有 `mayHaveCharged` 时原样告诉用户。用户要求再试时，重新说明张数和费用风险后再生成。
 - `cancel` 取消进行中的任务，不保证服务商停止计费；`reject` 拒收候选不收费；`retry-save` 只重新保存已经收到的图片，不会重新生成。
-- `UNSUPPORTED_CHANNEL`：当前生图渠道不支持素材生成，请用户在「设置」›「场景生图」把接口格式改为 Responses image tool。
+- `UNSUPPORTED_CHANNEL`：当前生图渠道带不了这么多参考图（或不能带参考图）。按报错少带几张参考，或请用户在「设置」›「配图」换一个支持参考图的渠道。
 - `TARGET_CHANGED`：目标槽位在生成后被改过，请用户在界面里看过现有内容后再决定是否替换。
 
 ## 完成标准

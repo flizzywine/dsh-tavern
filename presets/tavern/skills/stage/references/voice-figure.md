@@ -16,11 +16,11 @@
 
 ### 1. 找到人物并读声音
 
-用 `tavern_assets_read` 的 `bindings` 找到当前卡能用的包，对这些包读 `item {kind:'figures', packId}` 按名字找到人物的 `packId` 和 `id`（见[人物](figures.md)「先找到人物」），再 `tavern_voice_read({request:{action:'figure', packId, figureId}})` 读当前绑定、包里的音色、实际生效结果 `effective` 和问题列表 `issues`。
+用 `tavern_assets_read` 的 `bindings` 找到当前卡能用的包，对这些包读 `item {kind:'figures', packId}` 按名字找到人物的 `packId` 和 `id`（见[人物](asset-figures.md)「先找到人物」），再 `tavern_voice_read({request:{action:'figure', packId, figureId}})` 读当前绑定、包里的音色、实际生效结果 `effective` 和问题列表 `issues`。
 
 ### 2. 写入
 
-调用格式：几个动作共用的字段放在外层，`action` 和其余字段放进 `operation`，可以嵌套多层。例如：
+例如：
 
 `tavern_voice_patch({request:{expectedRevision:'包的 revision', operation:{packId:'…', figureId:'…', operation:{action:'assign-figure', choice:{…}}}}})`
 
