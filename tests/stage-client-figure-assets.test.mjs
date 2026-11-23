@@ -15,9 +15,10 @@ test('scene accepts only the newest picture request even when identity returns t
  assert.equal(entry.figureAsset,latest);assert.deepEqual(attached,[latest.sprite]);assert.equal(committed.length,1);assert.equal(first.dead,1);assert.equal(second.dead,1);assert.equal(latest.dead,0)
 })
 
-// 三角机构 雷蒙德 (2026-11-22): the hammer head beside his head, at the same height and broader, pulled the head's centre - and so
-// where he stands - onto the hammer. The pack's framed face span (an avatar crop of the outfit) bounds where the centre is looked for.
-test('a picture\'s head centre is looked for inside the framed face span, so a weapon beside the head does not move the stand', async () => {
+// A hammer head beside the head, at the same height and broader, pulled the head's centre - and so where the figure stands -
+// onto the hammer. The pack's framed face span (an avatar crop of the outfit) bounds where the centre is looked for; without one
+// the body below the chin does (a reaper's blade beside the hood, no avatar crop).
+test('a picture\'s head centre is looked for inside the framed face span or above the body, so a weapon beside the head does not move the stand', async () => {
  const W = 100, H = 100, alpha = new Uint8ClampedArray(W * H * 4)
  const paint = (x0, x1, y0, y1) => { for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) alpha[(y * W + x) * 4 + 3] = 255 }
  paint(40, 60, 0, 20); paint(66, 100, 0, 20); paint(40, 60, 20, 100)
@@ -32,7 +33,7 @@ test('a picture\'s head centre is looked for inside the framed face span, so a w
   const asset = await scope.picture({ src: 'p.png', input: { pack: true, source: 'p.png', face } })
   const x = asset.sprite.figureInput.anatomy.supportX; owner.dispose(); return x
  }
- assert.ok(await stand(null) > 0.6, 'the whole band: pulled toward the broader weapon')
+ assert.ok(Math.abs(await stand(null) - 0.5) < 0.01, 'no framed face: above the body, not the broader weapon')
  assert.ok(Math.abs(await stand([0.3, 0.64]) - 0.5) < 0.01, 'inside the face span: the head itself')
 })
 

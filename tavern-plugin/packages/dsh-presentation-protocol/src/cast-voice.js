@@ -16,7 +16,7 @@ export function castVoice({name, references = [], voiceSource, voiceLanguage, vo
   const channel = voiceSource?.provider, kind = CAST_VOICE_CHANNELS[channel]
   let chosen = null, dropped = ''
   if (channel && !(kind && channels.includes(kind))) dropped = String(channel)
-  else if (kind === 'fish-audio' && !voiceSource.clone && voices.fish) { sources['fish-id'] = {kind:'voice-id', provider:kind, voiceId:voices.fish}; chosen = 'fish-id' }
+  else if (kind === 'fish-audio' && !voiceSource.clone && voices.fish) { sources['fish-id'] = {kind:'voice-id', provider:kind, serviceType:'fish-official', voiceId:voices.fish}; chosen = 'fish-id' }
   else if (kind === 'fish-audio') { sources.fish ||= {kind:'reference-list', provider:kind, references:[]}; chosen = 'fish' }
   else if (kind) { sources[kind] = {kind:'preset', provider:kind, ...(voices[channel] ? {voiceName:voices[channel]} : {})}; chosen = kind }
   const defaultSource = chosen || Object.keys(sources)[0]

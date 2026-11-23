@@ -17,7 +17,6 @@ exports.apply = function(ctx) {
       for (const fn of listeners) fn({type:'voicesChanged'})
       for (const fn of managementListeners) fn()
     }
-    if (method === 'setFishVoiceIdService') for (const fn of managementListeners) fn()
     // the voice services catalog (`voiceServices`) changed: a service saved, removed or checked.
     if (['saveService','deleteService','testService','probeService','useEndpoint'].includes(method)) for (const fn of listeners) fn({type:'servicesChanged'})
     return result
@@ -562,8 +561,6 @@ exports.apply = function(ctx) {
         browserSpeech && h('li',{key:'browser','data-open':browserOpen || undefined},
           h(Line,{title:'浏览器朗读',open:browserOpen,onOpen:() => setBrowserOpen(!browserOpen),warn:StateWord(!browserSpeech.available() ? ['warn','这台设备不支持'] : ['ready','可用'])}),
           browserOpen && h(BrowserSpeechVoices,{service:browserSpeech})),
-        h('li',null,h(Field,{label:'Fish 音色默认服务',help:'只用于没有指定服务的 Fish 音色 ID（包括自动素材）；不影响参考音频和已选服务的人物。'},
-          menu({key:'fish-default',label:'Fish 音色默认服务',value:fishDefault,options:fishOptions,disabled:busy,onChange:serviceId => serviceId !== fishDefault && run(() => call('setFishVoiceIdService',{serviceId}))() }))),
         configured.map(p => { const live = (state.running || []).find(r => r.id === p.id); return h('li',{key:p.id,'data-open':editing(p.id) || undefined},
           h(Line,{title:p.label,open:editing(p.id),onOpen:() => toggleEdit(p),warn:h('button',{type:'button',className:'dtts-state-test',disabled:retesting === p.id || busy,onClick:retest(p),
               'aria-label':'重新测试 ' + p.label,title:costlyCheck(p.kind,p.config) ? '点一下重新测试（会真的合成一个字，可能产生极少费用）' : '点一下重新测试'},
