@@ -318,7 +318,7 @@ async function cardFrameAssetBlob(sessionId, args) {
 				let previewRelayFrame = null, releasePreviewRelay = null;
 			let height = (props.openingPreview ? 160 : restoredTavernFrameHeight(visible.heightKey, visible.content));
 			function documentKey() {
-				const values = [props.sessionId, props.content, props.persistent === true ? 0 : props.turn, props.observeMvuView, props.runtimeReporting, props.persistent, props.trustedCardMode, Boolean(props.helperContext), JSON.stringify(props.openingPreview), JSON.stringify(props.frameSizing), refreshRevision, props.helperContext?.frameStorageScope?.cardPath];
+				const values = [props.sessionId, props.content, props.persistent === true ? 0 : props.turn, props.observeMvuView, props.runtimeReporting, props.persistent, props.trustedCardMode, Boolean(props.helperContext), JSON.stringify(props.openingPreview), JSON.stringify(props.frameSizing), refreshRevision, props.helperContext?.frameStorageScope?.cardPath, props.hostSized === true];
 				if (!documentInputs || values.some(function (value, index) { return value !== documentInputs[index]; })) {
 					documentInputs = values;
                     const keyValues = values.slice();
@@ -338,7 +338,7 @@ async function cardFrameAssetBlob(sessionId, args) {
 				};
 				document.storage = forkFrameStorage.capability({ sessionId: props.sessionId, cardPath: helperContext && helperContext.frameStorageScope && helperContext.frameStorageScope.cardPath }, hostWindow); // storage token is separate from helper tokens
 				document.zoomCard = helperContext?.frameStorageScope?.cardPath || "";
-				document.html = buildTavernFrameDocument({ frameTheme: forkFrameTheme.seed(hostWindow), frameZoom: forkFrameZoom.seed(document.zoomCard), frameStorage: document.storage, content: props.content, frameSizing: props.frameSizing, panelId: props.panelId, token: document.token, openingPreview: props.openingPreview, helperContext: tavernFrameHelperContext(helperContext, props.turn), trustedCardMode: props.trustedCardMode === true, turn: props.turn, observeMvuView: props.observeMvuView, runtimeReporting: props.runtimeReporting, persistent: props.persistent, preserveInstance: props.preserveInstance, textColorsEnabled: tavernTextColorsEnabled(hostWindow), colorScheme: hostWindow.document?.body && typeof hostWindow.getComputedStyle === "function" ? currentTavernHostTheme(hostWindow).colorScheme : undefined });
+				document.html = buildTavernFrameDocument({ frameTheme: forkFrameTheme.seed(hostWindow), frameZoom: forkFrameZoom.seed(document.zoomCard), frameStorage: document.storage, content: props.content, frameSizing: props.frameSizing, panelId: props.panelId, token: document.token, openingPreview: props.openingPreview, helperContext: tavernFrameHelperContext(helperContext, props.turn), trustedCardMode: props.trustedCardMode === true, turn: props.turn, observeMvuView: props.observeMvuView, runtimeReporting: props.runtimeReporting, persistent: props.persistent, hostSized: props.hostSized === true, preserveInstance: props.preserveInstance, textColorsEnabled: tavernTextColorsEnabled(hostWindow), colorScheme: hostWindow.document?.body && typeof hostWindow.getComputedStyle === "function" ? currentTavernHostTheme(hostWindow).colorScheme : undefined });
 				const channel = createTavernFrameContextChannel(document);
 				// Stable callback identity preserves the per-document delta baseline.
 				document.ref = function (node) {

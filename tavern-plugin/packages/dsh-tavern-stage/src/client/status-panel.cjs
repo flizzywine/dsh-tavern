@@ -278,7 +278,8 @@ function openCardPage({sessionId, page, label, size, shortcut, closeControl, sav
     }
     const frameProps = () => ({content, sessionId, turn: latestTurn(helper), partIndex: 0, panelId: 'stage-page-' + page,
         helperContext: helper || undefined, trustedCardMode: trustedCardMode === true, eager: true, persistent: true,
-        observeMvuView: false, runtimeReporting: true});
+        // the sheet sizes the frame (flex), so the page reports no height (frame-document hostSized)
+        observeMvuView: false, runtimeReporting: true, hostSized: true});
     function mount(html) {
         const target = host();
         if (!target) return;

@@ -14939,6 +14939,8 @@ function GalStage(props) {
     const [openPage, setOpenPage] = React.useState(null);
     const openDeclared = openPage === null ? null : pageList.find(declared => declared.id === openPage) || null;
     const pageOpen = openDeclared !== null;
+    // A full card page (size 'full') fills the stage: the scene under it stops drawing once settled, as under the handheld
+    // phone (scene.cjs desc.covered), so the page's own frames do not share the display with figures and effects nobody sees.
     // entryCardPage: the page this visit's showOn entry opened, while it is the open one. It stands in front of a stage not
     // entered yet: its line waits for it (stageRevealed) and closing it is 返回主页面; continueGame() / fillInput enter.
     const [entryCardPage, setEntryCardPage] = React.useState(null);
@@ -15610,7 +15612,7 @@ function GalStage(props) {
         lateFade:entryGate.visible && !skipping && entryPage.current === turn + ':' + page,
         // a picture the player switched to (bg-manual.js) takes its own transition (fade, or cut under 「减少动态」).
         background:pack.scene?.backgroundUrl ? {identity:pack.scene.backgroundMedia.identity,url:pack.scene.backgroundUrl,scene:JSON.stringify(pack.scene.background),transition:pack.scene.userTransition || (forwardReading&&!skipping?changeKind:'cut'),timing:!pack.scene.userTransition ? sceneChange : null} : null,
-        hideFigures:!!accepted.cg || cg.visible,figureMode:figuresShown ? 'stage' : 'none',figuresAway:sourceWidget.phoneShade,covered:sourceWidget.covered && !callView,reducedMotion:reading.reducedMotion===true,figures:items,figureLayout:{cast:castIds,priority:figurePriority,slots:skinFigures.slots,max:skinFigures.max,phone:skinFigures.phone,framing:skinFigures.framing},packLayers,grade:packLayers?JSON.stringify([packLayers.time,packLayers.mood]):'',timeFadeMs:pack.scene?.timeTransitionMs || 0,
+        hideFigures:!!accepted.cg || cg.visible,figureMode:figuresShown ? 'stage' : 'none',figuresAway:sourceWidget.phoneShade,covered:(sourceWidget.covered && !callView) || openDeclared?.size === 'full',reducedMotion:reading.reducedMotion===true,figures:items,figureLayout:{cast:castIds,priority:figurePriority,slots:skinFigures.slots,max:skinFigures.max,phone:skinFigures.phone,framing:skinFigures.framing},packLayers,grade:packLayers?JSON.stringify([packLayers.time,packLayers.mood]):'',timeFadeMs:pack.scene?.timeTransitionMs || 0,
         tapGate,tapMedia,weather:state?.weather || 'none',screen:state?.screen || null,camera:leasing ? {shot:'',target:''} : {shot:state?.camera.mode || '',target:state?.camera.actor || ''},dof:leasing ? null : state?.dof,effects:sceneEffects,effectTables,safety:effectSafety,skipping,preload:[],
         // The inner-monologue backdrop (the resolved `thinking` effect) while the line on screen is inner monologue.
         thinking:!awaiting && !transitioning && current?.thought ? stageEffectResolve('thinking',effectTables.skin,effectTables.local) : null,
@@ -26548,7 +26550,8 @@ function openCardPage({sessionId, page, label, size, shortcut, closeControl, sav
     }
     const frameProps = () => ({content, sessionId, turn: latestTurn(helper), partIndex: 0, panelId: 'stage-page-' + page,
         helperContext: helper || undefined, trustedCardMode: trustedCardMode === true, eager: true, persistent: true,
-        observeMvuView: false, runtimeReporting: true});
+        // the sheet sizes the frame (flex), so the page reports no height (frame-document hostSized)
+        observeMvuView: false, runtimeReporting: true, hostSized: true});
     function mount(html) {
         const target = host();
         if (!target) return;
