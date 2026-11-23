@@ -4,12 +4,17 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Readable } from 'node:stream'
 import test from 'node:test'
-import { deflateRawSync } from 'node:zlib'
+import { crc32 as updateCrc32, deflateRawSync } from 'node:zlib'
 import { createMediaStore } from '../tavern-plugin/packages/dsh-asset-library/src/pack-v2/media-store.js'
 import { createAssetPacks, packMediaType } from '../tavern-plugin/lib/domain/asset-packs.js'
 import { readCardArchive } from '../tavern-plugin/lib/domain/card-archive.js'
 import { createCardArchiveUploads, createUploads, MAX_CARD_UPLOAD_BYTES } from '../tavern-plugin/lib/domain/uploads.js'
 import { createCardHandlers } from '../tavern-plugin/lib/rpc/cards.js'
+import { registerTavernHttpRoutes } from '../tavern-plugin/lib/http/routes.js'
+import { createCardFiles } from '../tavern-plugin/lib/domain/card-files.js'
+import { createCardPreparation } from '../tavern-plugin/lib/domain/card-preparation.js'
+import { createFileResourceStore } from '../tavern-plugin/lib/domain/file-resources.js'
+import { pngCardTextChunk } from '../tavern-plugin/lib/domain/card-assets.js'
 import { openZipFile, zipEntryPath } from '../tavern-plugin/lib/domain/zip-file.js'
 import { writeZipEntries } from '../tavern-plugin/lib/domain/zip-entries.js'
 
@@ -177,7 +182,7 @@ test('上传：原始请求体落盘，超过上限拒绝；取走后可删除�
 
 test('卡包分段上传预留总空间，完成后只交给流式卡包导入', async t => {
   const root = await temp(t)
-  assert.equal(MAX_CARD_UPLOAD_BYTES, 8 * 1024 ** 3)
+  assert.equal(MAX_CARD_UPLOAD_BYTES, 32 * 1024 ** 3)
   const chunkBytes = 16 * 1024 ** 2
   const total = chunkBytes + 3
   const archives = createCardArchiveUploads({ root, maxBytes: total })
@@ -193,6 +198,7 @@ test('卡包分段上传预留总空间，完成后只交给流式卡包导入',
   assert.equal((await upload(Buffer.from('xyz'), chunkBytes, id)).size, total)
   const handlers = createCardHandlers({
     uploads: regular, cardArchiveUploads: archives, str: value => String(value ?? ''),
+    discardCardArchivePreview: async () => {},
     previewCardArchiveFile: async file => ({ size: (await stat(file)).size }),
     importCardArchiveFile: async (file, name) => ({ name, bytes: (await readFile(file)).subarray(-3).toString() })
   })
@@ -207,6 +213,48 @@ test('卡包分段上传预留总空间，完成后只交给流式卡包导入',
   const retry = await upload(Buffer.from('abc'), 0, '', 3)
   await handlers.discardCardUpload({ uploadId: retry.id })
   await assert.rejects(archives.take(retry.id), /不存在/)
+})
+
+test('超过 80 MiB 的 PNG 通过原始上传导入卡库，原版文件保留，上传临时文件删除', async t => {
+  const root = await temp(t), str = value => String(value ?? '')
+  const uploads = createUploads({ root })
+  const fileResources = createFileResourceStore({ dataRoot: root })
+  const { importCard, discardCardArchivePreview } = createCardFiles({ fileResources, cardPreparation: createCardPreparation() })
+  const handlers = createCardHandlers({ uploads, importCard, str, discardCardArchivePreview })
+  let handler
+  registerTavernHttpRoutes({
+    ctx: { get: () => undefined }, uploads, str, runtimeReadiness: { ok: true },
+    dispatch: (method, args) => handlers[method](args),
+    exposeHandler: listener => { handler = listener }
+  })
+  async function post(method, chunks) {
+    let body
+    await handler(Object.assign(Readable.from(chunks), {
+      url: '/api/dsh-tavern/' + method, method: 'POST', headers: { host: 'localhost:3081' }
+    }), { writeHead() {}, end(value) { body = value } })
+    return JSON.parse(body)
+  }
+
+  const megabyte = 1024 ** 2, padding = Buffer.alloc(megabyte, 'x')
+  const header = Buffer.alloc(8)
+  header.writeUInt32BE(81 * megabyte + 4)
+  header.write('tEXt', 4)
+  const keyword = Buffer.from('pad\0')
+  let crc = updateCrc32(keyword, updateCrc32(header.subarray(4)))
+  for (let i = 0; i < 81; i++) crc = updateCrc32(padding, crc)
+  const trailer = Buffer.alloc(4)
+  trailer.writeUInt32BE(crc)
+  const card = pngCardTextChunk('ccv3', '{"name":"大卡"}')
+  const sent = await post('card-upload', [PNG.subarray(0, -12), header, keyword, ...Array(81).fill(padding), trailer, card, PNG.subarray(-12)])
+  assert.equal(sent.ok, true, sent.error)
+  assert.ok(sent.size > 80 * megabyte)
+  const imported = await post('importCardUpload', [Buffer.from(JSON.stringify({ uploadId: sent.uploadId, name: 'large.png' }))])
+  assert.equal(imported.ok, true, imported.error)
+  assert.equal(imported.card.name, '大卡')
+  const original = await fileResources.readCardImage(imported.card.path)
+  assert.equal(original.length, sent.size)
+  assert.deepEqual(original.subarray(-12 - card.length, -12), card)
+  await assert.rejects(uploads.take(sent.uploadId), /不存在/)
 })
 
 test('卡内插件：导入时放在一边不加载；启用后进 plugins/；内容相同的多张卡共用一份，最后一张放手才删；同名不同内容拒绝；改名跟随', async t => {

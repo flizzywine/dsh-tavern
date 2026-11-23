@@ -63,21 +63,21 @@ function importer(globals) {
   return new Function(...names, body + '; return importTavernCardFile;')(...names.map(name => globals[name]))
 }
 const page = (extra = {}) => ({
-  fetch: async () => ({ ok: true, status: 200, json: async () => ({ ok: true, uploadId: 'u' }) }), parseCardFile: async file => ({ parsed: file.name }),
+  fetch: async () => ({ ok: true, status: 200, json: async () => ({ ok: true, uploadId: 'u' }) }),
   importTavernPasswordCard: run => run(undefined), beginTavernCardImportProgress: () => ({ update() {}, close() {} }), askTavernCardPassword: async () => null,
   askTavernCardPackWay: async () => assert.fail('no pack to decide about'), tavernCardPackDecisions: (packs, way) => Object.fromEntries(packs.map(pack => [pack.packId, way])), ...extra,
 })
 
-test('导入文件分流：PNG、JSON 在页面里解析；CHARX、DSH 人物卡先读素材包再导入；其他扩展名（插件导入器）整份上传', async () => {
+test('所有人物卡原样上传，CHARX 和 DSH 人物卡先预览素材包', async () => {
   const uploads = []
   const importFile = importer(page({ fetch: async (_url, { body: file }) => { uploads.push(file.name); return { ok: true, status: 200, json: async () => ({ ok: true, uploadId: 'u' }) } } }))
   const calls = []
-  const call = async (method, args) => { calls.push([method, args.name || args.payload?.parsed]); return method === 'previewCardUpload' ? { card: { name: 'x', version: '' }, packs: [] } : {} }
+  const call = async (method, args) => { calls.push([method, args.name]); return method === 'previewCardUpload' ? { card: { name: 'x', version: '' }, packs: [] } : {} }
   await assert.rejects(importFile({ name: 'unsupported.dshcard' + '.png' }, call), /卡包请使用/);
   const stages = []
   for (const item of ['a.png', 'b.JSON', 'c.charx', 'd.dshcard', 'e.vnpack', 'noext'].map(name => ({ name }))) await importFile(item, call, phase => stages.push([item.name, phase]))
-  assert.deepEqual(calls, [['importCard', 'a.png'], ['importCard', 'b.JSON'], ['previewCardUpload', 'c.charx'], ['importCardUpload', 'c.charx'], ['previewCardUpload', 'd.dshcard'], ['importCardUpload', 'd.dshcard'], ['importCardUpload', 'e.vnpack'], ['importCard', 'noext']])
-  assert.deepEqual(uploads, ['c.charx', 'd.dshcard', 'e.vnpack'])
+  assert.deepEqual(calls, [['importCardUpload', 'a.png'], ['importCardUpload', 'b.JSON'], ['previewCardUpload', 'c.charx'], ['importCardUpload', 'c.charx'], ['previewCardUpload', 'd.dshcard'], ['importCardUpload', 'd.dshcard'], ['importCardUpload', 'e.vnpack'], ['importCardUpload', 'noext']])
+  assert.deepEqual(uploads, ['a.png', 'b.JSON', 'c.charx', 'd.dshcard', 'e.vnpack', 'noext'])
   assert.deepEqual(stages.filter(([name]) => name === 'd.dshcard').map(([, phase]) => phase), ['正在上传卡包…', '正在读取卡包…', '正在导入素材…'])
 })
 

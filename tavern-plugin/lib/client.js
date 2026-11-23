@@ -5484,7 +5484,7 @@ window.__ModuleLoader__.load({
 		      if(/timed out|stalled/i.test(detail))return {text:'下载超时。请检查网络后重试。',again:true};
 		      return {text:'连不上这个网址。请检查网络，或确认地址能在浏览器里打开。',again:true};
 		    }
-		    if(code==='LIMIT_EXCEEDED')return {text:'文件太大（上限 1 GiB），或者暂存空间不够。',file:true};
+		    if(code==='LIMIT_EXCEEDED')return {text:'文件超过导入上限，或者暂存空间不够。',file:true};
 		    if(['INVALID_INPUT','INVALID_PATH','FILE_CLOSURE_MISMATCH'].includes(code))return {text:'下载到的不是卡片 ZIP。请确认地址直接指向 .zip 文件，而不是网页。',file:true};
 		    if(code==='ASSET_UNAVAILABLE')return {text:'暂时下载不了（可能有另一张卡正在下载），请稍后重试。',again:true};
 		    return null;
@@ -14107,16 +14107,12 @@ window.__ModuleLoader__.load({
 		    schedule(visibleMs);
 		    return function () { stopped = true; window.clearTimeout(timer); };
 		}
-		/** Import one card file. PNG and JSON go as parsed JSON; archives (CHARX, DSH cards) and other formats (a plugin's
-		 * importer, tavern.cardImporter) go up as raw files. A card carrying another version of an installed pack asks first
-		 * (导入人物卡, card-update-dialog.js). */
+		/** Upload card files as raw bytes. A card carrying another version of an installed pack asks first. */
 		async function importTavernCardFile(file, call, onProgress = () => {}) {
-			if (/\.(dshcard|charx)\.png$/i.test(String(file.name || ''))) throw new Error('卡包请使用 .dshcard 文件');
 			let progress = beginTavernCardImportProgress(file.name);
 			const report = value => { progress?.update(value); onProgress(value); };
 			try {
-				if (!isTavernCardArchive(file)) { report('正在读取人物卡…'); return await commitTavernCardFile(file, null, call); }
-				if (!isTavernCardPackArchive(file)) { const uploadId = await uploadTavernCardFile(file, report, call); report('正在导入…'); return await commitTavernCardFile(file, { uploadId }, call); }
+				if (!isTavernCardPackArchive(file)) return await commitTavernCardFile(file, null, call, { report });
 				const staged = await previewTavernCardArchive(file, call, report);
 				let packDecisions = {};
 				if (staged.packs.length || staged.packNotices?.length) {
@@ -14133,14 +14129,10 @@ window.__ModuleLoader__.load({
 				return await commitTavernCardFile(file, staged, call, { packDecisions });
 			} finally { progress?.close(); }
 		}
-		function isTavernCardArchive(file) {
-			const name = String(file.name || "");
-			return !/\.(png|json)$/i.test(name) && /\.[^./\\]+$/.test(name);
-		}
 		/** CHARX and DSH cards: archives that can carry packs, read by the server before they are imported. */
 		function isTavernCardPackArchive(file) { return /\.(dshcard|charx)$/i.test(String(file.name || "")); }
 		async function uploadTavernCardFile(file, report, call) {
-			report('正在上传卡包…');
+			report(isTavernCardPackArchive(file) ? '正在上传卡包…' : '正在上传人物卡…');
 			const route = '/api/dsh-tavern/card-upload';
 			async function upload(url, body) {
 				const response = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body });
@@ -14185,10 +14177,17 @@ window.__ModuleLoader__.load({
 				return { uploadId, ...(password === undefined ? {} : { password }), card: preview.card, packs: preview.packs, packNotices: preview.packNotices };
 			} catch (error) { await call("discardCardUpload", { uploadId }).catch(() => {}); throw error; }
 		}
-		/** The card file into the library, or in place of replacePath: staged is the upload (and preview) of an archive, null for PNG / JSON. */
-		async function commitTavernCardFile(file, staged, call, { replacePath, packDecisions } = {}) {
-			if (staged) return await call("importCardUpload", { uploadId: staged.uploadId, name: file.name, ...(replacePath ? { replacePath } : {}), ...(staged.password === undefined ? {} : { password: staged.password }), packDecisions: packDecisions || {}, previewed: Boolean(staged.card), acceptMissingPacks: Boolean(staged.packNotices?.length) });
-			return await call("importCard", { payload: await parseCardFile(file), ...(replacePath ? { replacePath } : {}) });
+		/** Import a new upload, or commit an archive already uploaded for preview. */
+		async function commitTavernCardFile(file, staged, call, { replacePath, packDecisions, report = () => {} } = {}) {
+			if (/\.(dshcard|charx)\.png$/i.test(String(file.name || ''))) throw new Error('卡包请使用 .dshcard 文件');
+			const uploadId = staged?.uploadId ?? await uploadTavernCardFile(file, report, call);
+			if (!staged) report('正在导入…');
+			try {
+				return await call("importCardUpload", { uploadId, name: file.name, ...(replacePath ? { replacePath } : {}), ...(staged?.password === undefined ? {} : { password: staged.password }), packDecisions: packDecisions || {}, previewed: Boolean(staged?.card), acceptMissingPacks: Boolean(staged?.packNotices?.length) });
+			} catch (error) {
+				if (!staged) await call("discardCardUpload", { uploadId }).catch(() => {});
+				throw error;
+			}
 		}
 		/** What a card file brought into its character material, for the import notice. */
 		function tavernCardAssetNotice(assets, card) {
@@ -14273,9 +14272,6 @@ window.__ModuleLoader__.load({
 
 		function parseCardFile(file) {
 			const name = String(file.name || "");
-			if (name.toLowerCase().endsWith(".charx")) {
-				return file.arrayBuffer().then(function (buf) { return { kind: "charx", name: name, fileB64: bytesToBase64(new Uint8Array(buf)) }; });
-			}
 			if (name.toLowerCase().endsWith(".json")) {
 				return file.text().then(function (text) { return { kind: "text", name: name, text: text }; });
 			}
@@ -14301,7 +14297,7 @@ window.__ModuleLoader__.load({
 						if (nul >= 0) {
 							const keyword = ascii(bytes, dataOff, nul);
 							const value = ascii(bytes, dataOff + nul + 1, len - nul - 1);
-							if (keyword === "chara" || keyword === "ccv3") return { kind: "png", name: name, b64: value, fileB64: bytesToBase64(bytes) };
+							if (keyword === "chara" || keyword === "ccv3") return { kind: "png", name: name, b64: value };
 						}
 					}
 					if (type === "IEND") break;

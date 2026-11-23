@@ -659,7 +659,7 @@ export function createAssetPackService(options) {
     inspectCardBundleUrl({path, url}) {
       alive(); httpsUrl(url);
       check(!cardUrlTask, '$.url', 'A card download is already running', 'ASSET_UNAVAILABLE');
-      const maximum = Math.min(1024 ** 3, limits.totalSize, Math.floor(limits.spoolBytes / 3));
+      const maximum = Math.min(limits.totalSize, Math.floor(limits.spoolBytes / 3));
       check(maximum + previewBytes + cardBundleUsage().bytes + externalUsage() <= limits.spoolBytes, '$', 'Shared spool budget exceeded', 'LIMIT_EXCEEDED');
       cardUrlBytes = maximum; const controller = cardUrlController = new AbortController();
       // a whole-download deadline, not a stall timer (the request already drops a connection

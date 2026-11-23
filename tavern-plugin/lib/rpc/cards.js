@@ -1,6 +1,6 @@
 import { waitForWritableSession } from '../domain/agent-readiness.js'
 import { normalizeResourcePath } from '../domain/file-resources.js'
-import { pngPayload } from '../domain/mobile-card-import.js'
+import { readCardDocument } from '../domain/card-assets.js'
 import { readFile, rm } from 'node:fs/promises'
 import { isCardArchiveUpload } from '../domain/uploads.js'
 import { encryptCardArchiveFile, isCardPasswordError } from '../domain/card-encryption.js'
@@ -117,18 +117,20 @@ export function createCardHandlers(deps) {
       const name = str(args && args.name) || '人物卡.dshcard'
       if (isCardArchiveUpload(args?.uploadId) && !/\.(charx|dshcard)$/i.test(name)) throw new Error('分段上传仅支持 CHARX 和 DSHCARD 人物卡')
       const upload = await cardUploadFor(args?.uploadId).take(args?.uploadId)
-      const packDecisions = args?.packDecisions ?? {}
-      if (!packDecisions || typeof packDecisions !== 'object' || Array.isArray(packDecisions) || Object.values(packDecisions).some(value => typeof value !== 'string')) throw new Error('素材包的更新方式无效')
       let keepForPasswordRetry = false
       try {
+        const packDecisions = args?.packDecisions ?? {}
+        if (!packDecisions || typeof packDecisions !== 'object' || Array.isArray(packDecisions) || Object.values(packDecisions).some(value => typeof value !== 'string')) throw new Error('素材包的更新方式无效')
+        if (/\.(dshcard|charx)\.png$/i.test(name)) throw new Error('卡包请使用 .dshcard 文件')
+        if (/\.(png|json)$/i.test(name) || !/\.[^./\\]+$/.test(name)) {
+          const payload = await readCardDocument(upload.file, name)
+          return { card: args?.replacePath ? await replaceCard(args.replacePath, { payload }) : await importCard(payload) }
+        }
         if (args?.replacePath) {
           if (/\.(charx|dshcard)$/i.test(name)) return { card: await replaceCard(args.replacePath, { file: upload.file, name, password: args.password, packDecisions, acceptMissingPacks: args.acceptMissingPacks === true, previewed: args.previewed === true }) }
-          if (/\.png$/i.test(name)) return { card: await replaceCard(args.replacePath, { payload: pngPayload(await readFile(upload.file), name) }) }
           throw new Error('更新支持 PNG、JSON、CHARX 和 DSHCARD 人物卡')
         }
         if (/\.(charx|dshcard)$/i.test(name)) return { card: await importCardArchiveFile(upload.file, name, { password: args?.password, packDecisions, acceptMissingPacks: args?.acceptMissingPacks === true, previewed: args?.previewed === true }) }
-        if (/\.(dshcard|charx)\.png$/i.test(name)) throw new Error('卡包请使用 .dshcard 文件')
-        if (/\.png$/i.test(name)) return { card: await importCard(pngPayload(await readFile(upload.file), name)) }
         if (await pluginApi.cardImporterFor(name)) return { card: await importPluginCardFile(upload.file, name) }
         throw new Error('无法识别的人物卡文件（需要 PNG、JSON、CHARX、DSH 人物卡 .dshcard，或装上能导入这种文件的插件）')
       }

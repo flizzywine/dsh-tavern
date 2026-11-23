@@ -221,7 +221,7 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
       if(/timed out|stalled/i.test(detail))return {text:'下载超时。请检查网络后重试。',again:true};
       return {text:'连不上这个网址。请检查网络，或确认地址能在浏览器里打开。',again:true};
     }
-    if(code==='LIMIT_EXCEEDED')return {text:'文件太大（上限 1 GiB），或者暂存空间不够。',file:true};
+    if(code==='LIMIT_EXCEEDED')return {text:'文件超过导入上限，或者暂存空间不够。',file:true};
     if(['INVALID_INPUT','INVALID_PATH','FILE_CLOSURE_MISMATCH'].includes(code))return {text:'下载到的不是卡片 ZIP。请确认地址直接指向 .zip 文件，而不是网页。',file:true};
     if(code==='ASSET_UNAVAILABLE')return {text:'暂时下载不了（可能有另一张卡正在下载），请稍后重试。',again:true};
     return null;

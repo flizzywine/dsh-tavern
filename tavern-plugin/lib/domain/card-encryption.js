@@ -73,7 +73,7 @@ async function sourceCard(input, { name = '', password } = {}) {
   const ordinary = /\.(json|png)$/i.test(name)
   if (ordinary) {
     const bytes = await readFile(input), png = isPng(bytes)
-    const source = cardAssetSource(png ? { kind: 'png', fileB64: bytes.toString('base64') } : { kind: 'text', text: bytes.toString('utf8').replace(/^\uFEFF/, '') })
+    const source = cardAssetSource(png ? { kind: 'png', fileBytes: bytes } : { kind: 'text', text: bytes.toString('utf8').replace(/^\uFEFF/, '') })
     if (!source.card || typeof source.card !== 'object' || Array.isArray(source.card)) throw new Error('文件中没有人物卡数据')
     // Keep the original ST schema and every extension, including Risu PNG asset references.
     const replace = value => {

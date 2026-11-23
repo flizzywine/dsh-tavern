@@ -1,13 +1,13 @@
 import { lstat, readFile, readdir } from 'node:fs/promises'
 import path from 'node:path'
 
-import { pngCardPayload } from './card-assets.js'
+import { MAX_CARD_JSON_BYTES, MAX_CARD_PNG_BYTES, readCardDocument } from './card-assets.js'
 import { renderPngThumbnail } from './png-thumbnail.js'
 
 const CARD_EXTENSIONS = new Set(['.json', '.png', '.charx', '.dshcard', '.zip'])
 // Read from disk where they are, never loaded whole: no size limit (the phone's free space is the limit).
 const CARD_ARCHIVE_EXTENSIONS = new Set(['.charx', '.dshcard', '.zip'])
-const DEFAULT_MAX_BYTES = 32 * 1024 * 1024
+const MAX_THUMBNAIL_SOURCE_BYTES = 32 * 1024 * 1024
 const DEFAULT_THUMBNAIL_CACHE = 240
 
 function defaultRoots() {
@@ -25,10 +25,6 @@ function decodeName(value) {
   try { return Buffer.from(value, 'base64url').toString('utf8') } catch { throw new Error('无效的手机文件标识') }
 }
 
-export function pngPayload(buffer, name) {
-  return pngCardPayload(buffer, name)
-}
-
 export function createMobileCardImport(options = {}) {
   const enabled = options.runtimeHost === 'android'
   const maxBytes = Number.isFinite(options.maxBytes) ? options.maxBytes : undefined
@@ -42,7 +38,7 @@ export function createMobileCardImport(options = {}) {
   async function inspect(root, name) {
     const extension = path.extname(name).toLowerCase()
     if (path.basename(name) !== name || !CARD_EXTENSIONS.has(extension)) return null
-    const limit = maxBytes ?? (CARD_ARCHIVE_EXTENSIONS.has(extension) ? Infinity : DEFAULT_MAX_BYTES)
+    const limit = maxBytes ?? (CARD_ARCHIVE_EXTENSIONS.has(extension) ? Infinity : extension === '.json' ? MAX_CARD_JSON_BYTES : MAX_CARD_PNG_BYTES)
     const target = path.join(root.path, name)
     let info
     try { info = await lstat(target) } catch { return null }
@@ -82,10 +78,7 @@ export function createMobileCardImport(options = {}) {
     const entry = await resolve(id)
     const extension = path.extname(entry.item.name).toLowerCase()
     if (CARD_ARCHIVE_EXTENSIONS.has(extension)) throw new Error('请通过卡包入口导入 ' + extension + ' 文件')
-    const buffer = await readFile(path.join(entry.root.path, entry.item.name))
-    return extension === '.json'
-      ? { kind: 'text', name: entry.item.name, text: buffer.toString('utf8') }
-      : pngPayload(buffer, entry.item.name)
+    return await readCardDocument(path.join(entry.root.path, entry.item.name), entry.item.name)
   }
 
   async function resolve(id) {
@@ -106,7 +99,7 @@ export function createMobileCardImport(options = {}) {
   async function thumbnail(id) {
     if (!enabled) throw new Error('当前宿主不允许从手机下载目录导入')
     const entry = await resolve(id)
-    if (path.extname(entry.item.name).toLowerCase() !== '.png') return undefined
+    if (path.extname(entry.item.name).toLowerCase() !== '.png' || entry.item.size > MAX_THUMBNAIL_SOURCE_BYTES) return undefined
     const key = entry.item.id + ':' + entry.item.size + ':' + entry.item.modifiedAt
     if (thumbnailCache.has(key)) return thumbnailCache.get(key)
     let thumb
