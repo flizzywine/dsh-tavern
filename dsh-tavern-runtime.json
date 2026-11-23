@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "262c8168d0fbef3031e252e359d10c36124e3654",
-  "releaseSequence": 1987,
+  "revision": "5cecb341cce25d8526746643e997bfa10db7513d",
+  "releaseSequence": 1988,
   "version": "3.4.0",
   "files": [
     {
@@ -1906,8 +1906,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/conversation-fork.js",
-      "sha256": "fca1f2a8c021d674f840340728e9f8d2d1f87874d0dcc1fd625ecc20fd202a4a",
-      "size": 6413
+      "sha256": "3410b1c14b42acd9db7855396cffece49c20f2aba7d569231140541709dff2d6",
+      "size": 6978
     },
     {
       "path": "tavern-plugin/lib/domain/conversation-guides.js",
@@ -4376,8 +4376,8 @@
     },
     {
       "path": "tavern-plugin/lib/index.js",
-      "sha256": "08881f5b5d536b88b1183f390848ac7c715d9d4d515d9000dbae40e235fc25a4",
-      "size": 335837
+      "sha256": "b16ce622a56642f0618af0cab1c9fd497bbba29b9ca3b4dc380c01dc52bb1902",
+      "size": 335946
     },
     {
       "path": "tavern-plugin/lib/metadata-backup.js",
@@ -10126,9 +10126,9 @@
     }
   ],
   "archive": {
-    "commit": "af67461f13e669613265e9c7d3796ebd7078d0c1",
+    "commit": "aeab056233de30b9e6d9c3ffe9bd6b940579245a",
     "path": "runtime.zip",
-    "sha256": "828dc9b579f6e37e1d5dd10e54cc46393a789c30b4f026d5ea7cbe46835e5c55",
-    "size": 17808146
+    "sha256": "d2b85705ef6a4ebdf7efb3196c5fa0fa3826b78903c395a04a4212247c95c65a",
+    "size": 17808333
   }
 }
