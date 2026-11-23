@@ -7,7 +7,8 @@
 // live view's tavernHelper, so send, generate, triggerSlash, variables, MVU and worldbook work as in a message.
 // The stage adds only window.DshCardPage (a short prelude talking to this host by postMessage; a message counts only
 // when its source is one of this page's iframe windows):
-//   page; data() → {ledger, figures:[{name, emotion?, avatar}], theme, card:{name}, saved}; onData(fn) → its unsubscribe;
+//   page; data() → {ledger, figures:[{name, emotion?, avatar}], theme, card:{name}, saved, entry}; onData(fn) → its unsubscribe;
+//   (entry: the page stands in for this stage entry - a showOn page opened by entering the stage - not one opened in play);
 //   onCloseRequest(fn) → its unsubscribe (closeControl 'page': Esc, the page's shortcut and the backdrop ask the page,
 //   which goes back inside itself or calls close(); with no listener the request closes, as without the declaration);
 //   close(); open(id) another page; openSettings() the stage's 设置; fillInput(text) fills the stage's 自由输入 (never sends);
@@ -142,7 +143,7 @@ function createAssetReader(sessionId, page) {
 // saved: the chat has a player message (usePages' fresh is false), so newGame() asks first; unsaved, newGame() is 'exit' into a replacing 游戏准备 or 'continue'.
 // closeControl 'page': the page answers close requests itself; onEscape() is its Esc / shortcut (the Overlay decides
 // whether it closes a page over this one or asks this page by requestClose()).
-function openCardPage({sessionId, page, label, size, shortcut, closeControl, saved, openingPage, opening, trustedCardMode, helperContext, host, onClose, onEscape, onState, onAction, onPluginPanel, pluginPanelShowing}) {
+function openCardPage({sessionId, page, label, size, shortcut, closeControl, saved, entry, openingPage, opening, trustedCardMode, helperContext, host, onClose, onEscape, onState, onAction, onPluginPanel, pluginPanelShowing}) {
     let closed = false, raw = null, shown = false, avatars = new Map(), theme = {}, helper = helperContext || null, phaseNow = 'loading', title = '';
     let inFlight = false, again = false, faceJob = 0, token = '', content = '', readAsset = null, heldFaces = null;
     let lifecycle = null, stopLifecycle = null, stopSignals = null, stopMessages = null;
@@ -150,7 +151,7 @@ function openCardPage({sessionId, page, label, size, shortcut, closeControl, sav
     const snapshot = () => ({
         ledger: copy(raw?.data?.ledger || {}),
         figures: (raw?.figures || []).map(figure => ({name: figure.name, ...(figure.emotion ? {emotion: figure.emotion} : {}), avatar: avatars.get(figure.name) || null})),
-        theme: copy(theme), card: {name: String(raw?.card?.name || '')}, saved: saved === true
+        theme: copy(theme), card: {name: String(raw?.card?.name || '')}, saved: saved === true, entry: entry === true
     });
     const windows = () => [...frames.values()].map(item => item.node.contentWindow).filter(Boolean);
     const post = (target, value) => { try { target.postMessage({type: 'dsh-card-page-data', token, data: value}, '*'); } catch (_) {} };
@@ -417,7 +418,7 @@ function Overlay({sessionId, pageId, label: declaredLabel, shortcut, size, close
     const facesNow = React.useRef(null);
     React.useEffect(() => {
         if (disposed || !ready) return;
-        const current = openCardPage({sessionId, page: pageId, label: declaredLabel, size, shortcut, closeControl, saved: saved === true, openingPage, opening: opening === true, trustedCardMode: trusted, helperContext: helperNow.current, host: () => body.current,
+        const current = openCardPage({sessionId, page: pageId, label: declaredLabel, size, shortcut, closeControl, saved: saved === true, entry: entry === true, openingPage, opening: opening === true, trustedCardMode: trusted, helperContext: helperNow.current, host: () => body.current,
             onClose: () => close.current?.(), onEscape: request, onState: setState, onAction: (kind, arg) => act.current?.(kind, arg),
             pluginPanelShowing: () => Boolean(pluginNow.current),
             onPluginPanel: PluginPanel ? selected => {
@@ -427,7 +428,7 @@ function Overlay({sessionId, pageId, label: declaredLabel, shortcut, size, close
         panel.current = current;
         if (facesNow.current) current.setFaces(facesNow.current);
         return () => { if (panel.current === current) panel.current = null; current.dispose(); };
-    }, [sessionId, pageId, declaredLabel, size, shortcut, closeControl, saved, openingPage, opening, ready, trusted]);
+    }, [sessionId, pageId, declaredLabel, size, shortcut, closeControl, saved, entry, openingPage, opening, ready, trusted]);
     React.useEffect(() => { panel.current?.setHelper(helper); }, [helper]);
     const names = state.figures.map(figure => figure.name);
     const faces = useFaces ? useFaces({config, sessionId, source, names, px: FACE_PX}) : new Map();

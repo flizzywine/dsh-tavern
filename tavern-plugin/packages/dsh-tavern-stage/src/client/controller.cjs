@@ -31,6 +31,18 @@ const React={...react,useEffect:(setup,deps)=>effect(react.useEffect,setup,deps)
 useSyncExternalStore:(subscribe,get,...rest)=>react.useSyncExternalStore(react.useCallback(listener=>closed?()=>{}:own(subscribe(listener)),[subscribe]),get,...rest)};
 const setTimeout=(fn,ms)=>{if(closed)return null;const id=window.setTimeout(()=>{timers.delete(id);if(!closed)fn();},ms);timers.set(id,()=>window.clearTimeout(id));return id;};
 const clearTimeout=id=>{timers.delete(id);window.clearTimeout(id);};
+// 卡片页面 with an icon (status-panel.cjs, card-status-panel.js CARD_PAGE_ICONS): one top-bar button each, after the mods'
+// launcher; its shortcut is named in the title. ctx.cardPages: {pages, open(id), openId} of the stage on screen.
+function GalCardPageEntries({pages,open,openId}) {
+    const shown=pages.filter(page => page.icon);
+    options.widgets?.report?.('card-pages',{available:shown.length>0});
+    return shown.map(page => {
+        const name=page.label + (page.shortcut ? '（' + page.shortcut.toUpperCase() + '）' : '');
+        return React.createElement('button',{key:page.id,type:'button',className:'fork-gal-page-entry','data-page':page.id,title:name,'aria-label':name,'aria-pressed':openId===page.id,
+            onClick:event => { event.stopPropagation(); open(page.id); event.currentTarget.blur(); }},React.createElement(Icon,{name:page.icon,size:16}));
+    });
+}
+if (stageEntries) own(stageEntries.register({id:'card-pages',priority:85,group:'feature',icon:'card',label:'卡片页面',render:ctx => ctx.cardPages ? React.createElement(GalCardPageEntries,ctx.cardPages) : null}));
 function foregroundTimeout(fn,ms){if(closed)return null;const id=forkForeground.setTimeout(()=>{foregroundTimers.delete(id);if(!closed)fn();},ms);foregroundTimers.add(id);return id;}
 const useBgManualScene=(...args)=>legacy.background(...args);
 const useWidgetTheme=(...args)=>legacy.widgetTheme(...args);
@@ -1582,7 +1594,7 @@ function GalStage(props) {
     // the registered entries of one top-bar side, in priority order. Each sits in a
     // .fork-stage-entry (display: contents); one with a badge carries data-attention and stays on screen while the bar hides.
     function entryDock(group) {
-        const ctx = { sessionId, rpc, place, live: runtime.cursor.mode !== 'history' && !skipping, widgets: sourceWidget, film,
+        const ctx = { sessionId, rpc, place, live: runtime.cursor.mode !== 'history' && !skipping, widgets: sourceWidget, film, cardPages: { pages: pageList, open: openCardPage, openId: openPage },
             // the page's round, whether the latest page is shown, whether a reply is under way, AUTO's stop.
             turn, atEnd, busy: running, stopAuto: () => setAuto(false),
             openConfig: (tab, opener) => { stageViews.configScreen.select(tab); openConfig(opener); } };
