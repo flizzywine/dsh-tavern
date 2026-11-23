@@ -53,6 +53,7 @@ window.__ModuleLoader__.load({
 		// @include foreground.js
 		// @include-domain mvu-visibility.js
 		// @include tab-icons.js
+		// @include settings-nav-icons.js
 		// @include variable-bindings.cjs
 		// @include pack-transport.js
 		// @include asset-pack-binding.js
@@ -104,7 +105,7 @@ window.__ModuleLoader__.load({
 			const report = value => { progress?.update(value); onProgress(value); };
 			try {
 				if (!isTavernCardArchive(file)) { report('正在读取人物卡…'); return await commitTavernCardFile(file, null, call); }
-				if (!isTavernCardPackArchive(file)) { const uploadId = await uploadTavernCardFile(file, report); report('正在导入…'); return await commitTavernCardFile(file, { uploadId }, call); }
+				if (!isTavernCardPackArchive(file)) { const uploadId = await uploadTavernCardFile(file, report, call); report('正在导入…'); return await commitTavernCardFile(file, { uploadId }, call); }
 				const staged = await previewTavernCardArchive(file, call, report);
 				let packDecisions = {};
 				if (staged.packs.length) {
@@ -127,18 +128,39 @@ window.__ModuleLoader__.load({
 		}
 		/** CHARX and DSH cards: archives that can carry packs, read by the server before they are imported. */
 		function isTavernCardPackArchive(file) { return /\.(dshcard|charx)$/i.test(String(file.name || "")); }
-		async function uploadTavernCardFile(file, report) {
+		async function uploadTavernCardFile(file, report, call) {
 			report('正在上传卡包…');
-			const response = await fetch("/api/dsh-tavern/card-upload", { method: "POST", headers: { "Content-Type": "application/octet-stream" }, body: file });
-			let reply = null;
-			try { reply = await response.json(); } catch (_error) {}
-			if (!reply || !reply.ok) throw new Error(reply && reply.error || "上传失败（HTTP " + response.status + "）");
-			return reply.uploadId;
+			const route = '/api/dsh-tavern/card-upload';
+			async function upload(url, body) {
+				const response = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body });
+				let reply = null;
+				try { reply = await response.json(); } catch (_error) {}
+				if (!reply?.ok) throw new Error(reply?.error || '上传失败（HTTP ' + response.status + '）');
+				return reply;
+			}
+			if (!isTavernCardPackArchive(file) || !(file.size > 1024 ** 3)) return (await upload(route, file)).uploadId;
+			const chunkSize = 16 * 1024 ** 2;
+			let uploadId;
+			try {
+				for (let offset = 0; offset < file.size; offset += chunkSize) {
+					const end = Math.min(offset + chunkSize, file.size);
+					const query = new URLSearchParams({ purpose: 'card-archive', size: file.size, offset });
+					if (uploadId) query.set('uploadId', uploadId);
+					const reply = await upload(route + '?' + query, file.slice(offset, end));
+					uploadId = reply.uploadId;
+					if (reply.size !== end) throw new Error('卡包上传进度不一致，请重新导入');
+					report('正在上传卡包… ' + Math.floor(end / file.size * 100) + '%');
+				}
+				return uploadId;
+			} catch (error) {
+				if (uploadId) await call('discardCardUpload', { uploadId }).catch(() => {});
+				throw error;
+			}
 		}
 		/** A CHARX or DSH card uploaded and read before it is imported or replaces a card: {uploadId, password?, card: {name,
 		 * version, cover}, packs: the installed packs it carries another version of}. The upload is discarded on failure or cancel. */
 		async function previewTavernCardArchive(file, call, report = () => {}) {
-			const uploadId = await uploadTavernCardFile(file, report);
+			const uploadId = await uploadTavernCardFile(file, report, call);
 			let password;
 			try {
 				const preview = await importTavernPasswordCard(value => {
@@ -435,7 +457,7 @@ window.__ModuleLoader__.load({
 				h("button", { type: "button", className: "dsh-tavern-btn primary", disabled: props.disabled || busy, onClick: activate }, props.batch ? "批量导入" : "导入人物卡"),
 				open ? h("div", { className: "dsh-tavern-mobile-import", role: "dialog", "aria-modal": "true", "aria-label": "从手机下载目录导入人物卡" }, h("div", { className: "dsh-tavern-mobile-import-shell" }, h("div", { className: "dsh-tavern-mobile-import-panel" },
 					h("div", { className: "dsh-tavern-mobile-import-title" }, "从手机下载目录导入"),
-					h("div", { className: "dsh-tavern-question-sub" }, "把人物卡放进手机 Download 后直接点选，.dshcard 和 .charx 卡包最大支持 1 GiB。"),
+					h("div", { className: "dsh-tavern-question-sub" }, "把人物卡放进手机 Download 后直接点选，.dshcard 和 .charx 卡包文件读取上限为 8 GiB。"),
 					h("div", { className: "dsh-tavern-mobile-import-count", role: 'status', 'aria-busy': !!progress }, progress ? h(Spinner) : null, countText),
 					error ? h("div", { className: "dsh-tavern-dock-error", role: "alert" }, error) : null,
 					h("div", { className: "dsh-tavern-mobile-import-tools" },
@@ -1258,9 +1280,26 @@ function clipReplayCore() {
 
 		// @include tavern-presentation.js
 
+		function installTavernComposerPlaceholder(locale) {
+			const translate = locale.translate;
+			const label = { zh: "下一步行动", en: "Next action" };
+			// The native composer uses the same locale key for the hint and the textbox's accessible name.
+			function translateWithTavernPlaceholder(namespace, key, params) {
+				if (namespace === "conversation" && key === "placeholder.default") return locale.resolveText(label);
+				return translate.call(this, namespace, key, params);
+			}
+			locale.translate = translateWithTavernPlaceholder;
+			return function () {
+				if (locale.translate === translateWithTavernPlaceholder) locale.translate = translate;
+			};
+		}
+
 		function apply(ctx) {
 			// The Tavern profile switch page names itself by side from this flag.
 			window.__dshTavernLoaded = true;
+			ctx.inject(["locale"], child => {
+				child.effect(() => installTavernComposerPlaceholder(child.locale), "dsh-tavern: composer placeholder");
+			});
             installTavernPresentation(ctx);
             // Stage registration is deferred until its optional client plugin mounts.
             const stageRegistrations = [];
@@ -1580,6 +1619,7 @@ function clipReplayCore() {
                     children: { "settings.tavern.appearance": { kind: "list", scope: "root" } }
 				}, TavernSettingsSection); });
 			}, "dsh-tavern: settings section");
+			if (typeof document !== "undefined") ctx.effect(() => installSettingsNavIcons(slots, document), "dsh-tavern: settings navigation icons");
 			createVertexRegionFeature({ React: React, rpc: rpc }).register(ctx);
 			// The voice plugin's 配音 page lists browser speech as a 语音服务 row; the 🔊 line button speaks through the voice
 			// service, so the Tavern has no speech settings of its own.

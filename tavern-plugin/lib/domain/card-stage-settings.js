@@ -3,7 +3,7 @@ const {cardStageMode} = cardStageModeProtocol
 // Global stage toggles and card-owned visual/module preferences.
 import { DIRECTOR_DIMENSIONS, RETIRED_STAGE_SKINS, STAGE_TOGGLES, defaultAssetEngineSettings, validateNarratorSettings } from './asset-engine-settings.js'
 import { resolveSwitch } from './mod-system.js'
-import { validateAssetRef } from '../../packages/dsh-presentation-protocol/src/asset-packs.js'
+import { assetEntryEnabled, validateAssetRef } from '../../packages/dsh-presentation-protocol/src/asset-packs.js'
 import skinContract from '../../packages/dsh-presentation-protocol/src/stage-skin.cjs'
 import { shape, bool, check } from '../../packages/dsh-presentation-protocol/src/asset-pack-json.js'
 
@@ -52,14 +52,14 @@ export function validateCardStage(value, path = '$.stage') {
 // saved custom dialogue theme reads as its built-in theme) > 经典. { skin, fallback }: fallback = global, else classic - what
 // the card shows without its own value (CONFIG's ↺ clears the value back to it). `manifests`: the manifests of the packs this
 // card may use that the selections name (cardStageSkinPackIds). A pack skin is drawn only while its pack is on for this card
-// (bound or globally enabled) and still has it; otherwise the next in the order applies - presentation only, the stored value
+// (bound or globally enabled) and still has it, switched on (启用); otherwise the next in the order applies - presentation only, the stored value
 // is never rewritten, and it applies again once its skin is back (§17.5).
 export function cardStageSkin(extension, engine, manifests = []) {
   const stage = extension?.stage || {}, theme = engine?.dialogueTheme
   const global = theme && typeof theme === 'object' ? theme : Object.hasOwn(skinContract.BUILTIN_STAGE_SKINS, theme ?? '') ? theme
     : engine?.dialogueThemes?.find(item => item.id === theme)?.style.theme
   const usable = skin => typeof skin === 'string' ? Object.hasOwn(skinContract.BUILTIN_STAGE_SKINS, skin)
-    : !!skin && manifests.some(manifest => manifest?.id === skin.packId && manifest.assets.some(asset => asset.kind === 'skins' && asset.id === skin.assetId))
+    : !!skin && manifests.some(manifest => manifest?.id === skin.packId && manifest.assets.some(asset => asset.kind === 'skins' && asset.id === skin.assetId && assetEntryEnabled(asset)))
   const fallback = usable(global) ? global : 'classic'
   return {skin: usable(stage.defaultSkin) ? stage.defaultSkin : fallback, fallback}
 }
@@ -87,25 +87,36 @@ const CARD_DECLARED = ['dialogue', 'stage']
 // nothing reads it.
 export const CARD_STAGE_SWITCHES = Object.freeze([...STAGE_TOGGLES.filter(key => !CARD_DECLARED.includes(key)), 'autoChoices', 'autoCast'])
 
-// 自动选角: its 激进程度. late = only what the story asked for, usable the round after; eager = also the
-// opening's people at once and the common emotions of whoever has spoken while idle; all = every figure the card may bring,
-// drawn while idle until each has its sprite and common emotions.
-export const AUTO_CAST_LEVELS = Object.freeze(['late', 'eager', 'all'])
-export const AUTO_CAST_DEFAULTS = Object.freeze({enabled:false, level:'late'})
-// One layer of its settings: the global one (the stage's tavern-auto-cast section, enabled + level) or a card's
-// stage.autoCast (level only; the card's switch is stage.switches.autoCast).
-export function validateAutoCastLayer(value, path, keys = ['level']) {
+// 自动选角: its 生成策略, one priority function at three levels (the stage's auto-cast-priority.js): saving = 节省 (the story's
+// own people), balanced = 平衡 (also whoever comes back, and the emotions the story uses often), aggressive = 激进 (everyone
+// who speaks, every emotion they use). The levels before (late / eager / all) are still read: as balanced / balanced /
+// aggressive.
+export const AUTO_CAST_LEVELS = Object.freeze(['saving', 'balanced', 'aggressive'])
+const OLD_AUTO_CAST_LEVELS = Object.freeze({late:'balanced', eager:'balanced', all:'aggressive'})
+// Its parts, each a switch of its own under the main one (主人 11-22): sprites = 自动立绘 (a new person's 人设图 and 立绘),
+// voices = 自动配音 (a new person is given a library 通用声音). Both start on.
+export const AUTO_CAST_PARTS = Object.freeze(['sprites', 'voices'])
+export const AUTO_CAST_DEFAULTS = Object.freeze({enabled:false, level:'balanced', sprites:true, voices:true})
+const autoCastLevelOf = level => OLD_AUTO_CAST_LEVELS[level] || level
+// The global layer's settings section in dsh-tavern's profile entry (settings-config.js declares it writable).
+export const AUTO_CAST_SECTION = 'tavern-auto-cast'
+// One layer of its settings: the global one (the stage's tavern-auto-cast section, enabled + level + parts) or a card's
+// stage.autoCast (level and parts; the card's switch is stage.switches.autoCast).
+export function validateAutoCastLayer(value, path, keys = ['level', ...AUTO_CAST_PARTS]) {
   shape(value, keys, [], path)
-  if (value.enabled !== undefined) bool(value.enabled, path + '.enabled')
-  if (value.level !== undefined) check(AUTO_CAST_LEVELS.includes(value.level), path + '.level')
+  for (const key of ['enabled', ...AUTO_CAST_PARTS]) if (value[key] !== undefined) bool(value[key], path + '.' + key)
+  if (value.level !== undefined) check(AUTO_CAST_LEVELS.includes(autoCastLevelOf(value.level)), path + '.level')
   return value
 }
 
-// 自动选角 in effect for a card: its switch four-state like the others (resolveSwitch), its level the card's over the global
-// one. It casts for the bubbles, so it also needs 对话气泡 in effect (`dialogue`, from effectiveCardStage).
+// 自动选角 in effect for a card: its switch four-state like the others (resolveSwitch), its level and each part the card's
+// over the global one. It casts for the bubbles, so it also needs 对话气泡 in effect (`dialogue`, from effectiveCardStage); a
+// part is on only while the whole is.
 export function effectiveAutoCast(extension, global, dialogue) {
   const layer = {...AUTO_CAST_DEFAULTS, ...global}, card = extension?.stage || {}
-  return {enabled:dialogue === true && resolveSwitch(layer.enabled === true, card.switches?.autoCast), level:card.autoCast?.level ?? layer.level}
+  const enabled = dialogue === true && resolveSwitch(layer.enabled === true, card.switches?.autoCast)
+  return {enabled, level:autoCastLevelOf(card.autoCast?.level ?? layer.level),
+    ...Object.fromEntries(AUTO_CAST_PARTS.map(key => [key, enabled && (card.autoCast?.[key] ?? layer[key]) === true]))}
 }
 
 // The card layer of 对话气泡 / 舞台模式: the card's declaration as cardStageMode reads it (stage.enabled for both, or an

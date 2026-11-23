@@ -24,7 +24,7 @@ export interface AssetContentMap {
   widgets: {bundleKey:string;entry:string;settingsDefaults?:WidgetSettingValues};
 }
 export interface AssetVariants<C> {default:string;entries:Array<{id:string;name:string;content:C}>}
-export type Asset = {[K in keyof AssetContentMap]: Omit<AssetBase,keyof AssetContentMap[K] | 'category'> & {kind:K; category?: K extends 'sfx' ? string : K extends 'ambience' ? string | string[] : string[]} & (K extends 'skins' ? {skin?:never} : {enabled:boolean;skin?:string}) & ((AssetContentMap[K] & {variants?:never}) | ({variants:AssetVariants<AssetContentMap[K]>} & {[P in keyof AssetContentMap[K]]?:never}))}[keyof AssetContentMap];
+export type Asset = {[K in keyof AssetContentMap]: Omit<AssetBase,keyof AssetContentMap[K] | 'category'> & {kind:K; category?: K extends 'sfx' ? string : K extends 'ambience' ? string | string[] : string[]} & (K extends 'skins' ? {skin?:never;enabled?:boolean} : {enabled:boolean;skin?:string}) & ((AssetContentMap[K] & {variants?:never}) | ({variants:AssetVariants<AssetContentMap[K]>} & {[P in keyof AssetContentMap[K]]?:never}))}[keyof AssetContentMap];
 export function validateAssetContent<K extends keyof AssetContentMap>(kind:K,content:unknown,path?:string): AssetContentMap[K];
 export interface FileEntry { path: string; size: number; sha256: Sha256 }
 export interface BlobDescriptor { ext: 'png' | 'webp' | 'jpeg' | 'mp3' | 'ogg' | 'wav' | 'm4a' | 'flac'; mime: string; size: number }
@@ -35,7 +35,7 @@ export interface PackManifest extends Metadata {
   blobs: Record<Sha256, BlobDescriptor>; files: FileEntry[];
 }
 export interface VoiceReference {media: Sha256; text: string; language: string}
-export type VoiceSource = {kind:'voice-id'; provider:'fish-audio'; voiceId:string}
+export type VoiceSource = {kind:'voice-id'; provider:'fish-audio'; voiceId:string; serviceId?:string; serviceType?:'fish-official'}
   | {kind:'preset'; provider:string; voiceName:string; model?:string}
   | {kind:'reference-list'; provider:'fish-audio'; references:VoiceReference[]};
 export interface VoiceSpec {name:string; /** 使用情景, ≤ 60 字 */ guidance?:string; /** 通用声音（是否通用）: the casting assistant may pick it (absent: has a guidance); voice-auto-cast.cjs */ autoCast?:boolean; language:string; defaultSource:string; sources:Record<string,VoiceSource>; emotions?:Record<string,{label:string;referenceEmotion?:string;tuning?:Record<string,Record<string,Json>>}>; fallbackSources?:string[]; variants?:Record<string,{name?:string; tuning?:Record<string,Record<string,string|number|boolean|null>>}>}

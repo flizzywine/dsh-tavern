@@ -1,7 +1,6 @@
 diff --git a/lib/client.js b/lib/client.js
 old mode 100755
 new mode 100644
-new mode 100644
 index 2ccc49f..71f49f2
 --- a/lib/client.js
 +++ b/lib/client.js

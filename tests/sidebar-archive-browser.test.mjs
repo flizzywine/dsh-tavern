@@ -88,12 +88,23 @@ async function mountSidebar(t, { initialHistory, archived, recentReplyFirst = fa
   return { page, errors, deleteCalls, releaseDeletion, updatePreviews }
 }
 
+async function chooseHistoryStatus(page, manager, status) {
+  await manager.getByRole('button', { name: /^按状态筛选：/ }).click()
+  await page.getByRole('menu', { name: '按状态筛选' }).getByRole('menuitemradio', { name: status, exact: true }).click()
+}
+
+async function chooseManagerAction(page, row, action) {
+  await row.getByRole('button', { name: /^对话操作：/ }).click()
+  await page.getByRole('menu', { name: /^对话操作：/ }).getByRole('menuitem', { name: action, exact: true }).click()
+}
+
 test('侧栏归档可恢复，点击管理直接打开宽屏页批量删除', async t => {
   const { page, errors, deleteCalls, releaseDeletion } = await mountSidebar(t, {
     archived: ['archived'],
     initialHistory: [
       { sessionId: 'active', chatId: 'chat-active', mode: 'story', cardName: '测试卡', title: '普通存档' },
-      { sessionId: 'archived', chatId: 'chat-archived', mode: 'story', cardName: '测试卡', title: '旧归档' },
+      { sessionId: 'archived', chatId: 'chat-archived', mode: 'story', cardName: '测试卡', title: '旧归档',
+        preview: { floorNo: 1, messageCount: 1, openingText: '旧存档的开场。' } },
     ],
   })
   const row = title => page.locator('.dsh-tavern-side-row').filter({ hasText: title })
@@ -114,9 +125,12 @@ test('侧栏归档可恢复，点击管理直接打开宽屏页批量删除', as
   await manage.click()
   await manager.waitFor()
   const activeCard = manager.locator('.dsh-tavern-history-manager-row').filter({ hasText: '普通存档' })
-  await activeCard.getByRole('button', { name: '归档', exact: true }).click()
-  await manager.getByRole('button', { name: '已归档', exact: true }).click()
-  await activeCard.getByRole('button', { name: '恢复', exact: true }).click()
+  const batchActions = manager.locator('.dsh-tavern-history-manager-foot')
+  assert.equal(await batchActions.count(), 0)
+  assert.equal(await activeCard.getByRole('button').count(), 1)
+  await chooseManagerAction(page, activeCard, '归档')
+  await chooseHistoryStatus(page, manager, '已归档')
+  await chooseManagerAction(page, activeCard, '恢复')
   assert.deepEqual(deleteCalls, [])
   await activeCard.waitFor({ state: 'detached' })
   await row('普通存档').waitFor()
@@ -127,13 +141,20 @@ test('侧栏归档可恢复，点击管理直接打开宽屏页批量删除', as
   assert.equal(await manager.getByRole('button', { name: '彻底删除（1）', exact: true }).isEnabled(), true)
   await archivedCard.getByText('旧归档', { exact: true }).click()
   assert.equal(await selectArchived.isChecked(), false)
+  await batchActions.waitFor({ state: 'detached' })
 
-  await archivedCard.getByRole('button', { name: '重命名：旧归档', exact: true }).click()
+  await archivedCard.getByRole('button', { name: '对话操作：旧归档' }).click()
+  const actions = page.getByRole('menu', { name: '对话操作：旧归档' })
+  assert.deepEqual(await actions.getByRole('menuitem').allTextContents(), ['打开', '重命名', '恢复', '彻底删除'])
+  await page.keyboard.press('Escape')
+  await actions.waitFor({ state: 'detached' })
+  assert.equal(await manager.isVisible(), true)
+  await chooseManagerAction(page, archivedCard, '重命名')
   const titleEditor = archivedCard.getByRole('textbox', { name: '对话标题' })
   await titleEditor.click()
   assert.equal(await selectArchived.isChecked(), false)
   await titleEditor.press('Escape')
-  await archivedCard.getByRole('button', { name: '删除', exact: true }).click()
+  await chooseManagerAction(page, archivedCard, '彻底删除')
   const confirmation = page.getByRole('dialog', { name: '确认操作' })
   assert.equal(await selectArchived.isChecked(), false)
   await confirmation.getByRole('button', { name: '取消', exact: true }).click()
@@ -173,6 +194,49 @@ test('侧栏归档可恢复，点击管理直接打开宽屏页批量删除', as
   assert.deepEqual(errors, [])
 })
 
+test('右键、Shift+F10 或长按卡名弹出菜单：新建游戏、折叠展开、管理存档', async t => {
+  const { page, errors } = await mountSidebar(t, {
+    archived: [],
+    initialHistory: [
+      { sessionId: 'a1', chatId: 'chat-a1', mode: 'story', cardName: '甲卡', cardPath: 'cards/a.json', title: '甲存档' },
+      { sessionId: 'b1', chatId: 'chat-b1', mode: 'story', cardName: '乙卡', cardPath: 'cards/b.json', title: '乙存档' },
+    ],
+  })
+  const head = name => page.locator('.dsh-tavern-history-group-toggle').filter({ hasText: name })
+  const menu = page.getByRole('menu', { name: '甲卡 操作' })
+  const row = title => page.locator('.dsh-tavern-side-row').filter({ hasText: title })
+  await head('甲卡').waitFor()
+  assert.equal(await head('甲卡').getAttribute('aria-expanded'), 'false')
+  await head('甲卡').click({ button: 'right' })
+  await menu.waitFor()
+  assert.deepEqual(await menu.getByRole('menuitem').allTextContents(), ['新建游戏', '展开', '管理存档…'])
+  // 点外面关闭
+  await page.mouse.click(5, 5)
+  await menu.waitFor({ state: 'detached' })
+  // 键盘：Shift+F10，↑↓ 移动，Esc 关闭并把焦点还给卡名
+  await head('甲卡').focus()
+  await page.keyboard.press('Shift+F10')
+  await menu.waitFor()
+  await page.keyboard.press('ArrowDown')
+  await page.keyboard.press('Escape')
+  await menu.waitFor({ state: 'detached' })
+  assert.equal(await head('甲卡').evaluate(node => node === document.activeElement), true)
+  // 展开后再右键，同一项变「折叠」；点它折叠
+  await menu.waitFor({ state: 'detached' })
+  await head('甲卡').click({ button: 'right' })
+  await menu.getByRole('menuitem', { name: '展开', exact: true }).click()
+  await row('甲存档').waitFor()
+  await head('甲卡').click({ button: 'right' })
+  await menu.getByRole('menuitem', { name: '折叠', exact: true }).click()
+  await row('甲存档').waitFor({ state: 'detached' })
+  // 管理存档：打开宽屏管理页并只筛这张卡
+  await head('甲卡').click({ button: 'right' })
+  await menu.getByRole('menuitem', { name: '管理存档…', exact: true }).click()
+  const manager = page.getByRole('dialog', { name: '会话管理' })
+  await manager.waitFor()
+  assert.equal(await manager.locator('.dsh-tavern-history-manager-row').count(), 1)
+  assert.deepEqual(errors, [])
+})
 test('宽屏管理沿用侧栏的组顺序和组内排序，筛选保留原顺序', async t => {
   const story = (sessionId, cardName, title, createdAt, updatedAt, replyText = '') => ({
     sessionId, chatId: 'chat-' + sessionId, mode: 'story', cardName, cardPath: cardName + '.png',
@@ -211,21 +275,37 @@ test('宽屏管理沿用侧栏的组顺序和组内排序，筛选保留原顺�
       assert.deepEqual(await managerTitles(), sidebarTitles)
       assert.equal(await archived.getByRole('button', { expanded: false }).count(), 1)
 
+      const cardGroup = manager.getByRole('region', { name: '乙卡', exact: true })
+      const cardToggle = cardGroup.getByRole('button', { name: '乙卡 2', exact: true })
+      await cardToggle.click()
+      assert.equal(await cardToggle.getAttribute('aria-expanded'), 'false')
+      assert.deepEqual(await managerTitles(), sidebarTitles.slice(2))
+      assert.deepEqual(await sidebar.locator('.dsh-tavern-side-row-title').allTextContents(), sidebarTitles)
+      await manager.getByRole('checkbox', { name: '全选筛选结果' }).check()
+      await manager.getByRole('button', { name: '归档所选（3）' }).waitFor()
+      await manager.getByRole('button', { name: '关闭', exact: true }).click()
+      await manage.click()
+      await cardToggle.waitFor()
+      assert.equal(await cardToggle.getAttribute('aria-expanded'), 'false')
+      await cardToggle.press('Enter')
+      assert.equal(await cardToggle.getAttribute('aria-expanded'), 'true')
+      assert.deepEqual(await managerTitles(), sidebarTitles)
+
       const search = manager.getByRole('textbox', { name: '搜索会话' })
       await search.fill('月光')
       assert.deepEqual(await groupNames(), ['乙卡', '甲卡'])
       assert.deepEqual(await managerTitles(), ['乙新', '甲新'])
-      await manager.getByRole('button', { name: '全选筛选结果' }).click()
+      await manager.getByRole('checkbox', { name: '全选筛选结果' }).check()
       await manager.getByRole('button', { name: '归档所选（2）' }).waitFor()
 
       await search.fill('')
-      await manager.getByRole('button', { name: '全选筛选结果' }).click()
+      await manager.getByRole('checkbox', { name: '全选筛选结果' }).check()
       await manager.getByRole('button', { name: '归档所选（5）' }).waitFor()
-      assert.equal(await manager.getByRole('button', { name: '恢复所选', exact: true }).isDisabled(), true)
+      assert.equal(await manager.getByRole('button', { name: /^恢复所选/ }).count(), 0)
       await archived.getByRole('button', { expanded: false }).click()
       const archivedTitles = recentReplyFirst ? ['旧归档', '新归档'] : ['新归档', '旧归档']
       assert.deepEqual(await managerTitles(), sidebarTitles.concat(archivedTitles))
-      await manager.getByRole('button', { name: '已归档', exact: true }).click()
+      await chooseHistoryStatus(page, manager, '已归档')
       assert.deepEqual(await groupNames(), ['已归档'])
       assert.deepEqual(await managerTitles(), archivedTitles)
       await manager.getByRole('button', { name: '关闭', exact: true }).click()

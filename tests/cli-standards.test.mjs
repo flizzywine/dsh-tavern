@@ -54,6 +54,8 @@ test('补全脚本带有各 shell 的启用标记', () => {
 })
 
 test('bash 加载脚本后可补全宿主与帮助主题', t => {
+  // On Windows `bash` resolves to WSL's launcher, which cannot read the piped script from /dev/stdin.
+  if (process.platform === 'win32') return t.skip('Windows 上的 bash 是 WSL 启动器')
   const checked = spawnSync('bash', ['-c', [
     'source /dev/stdin',
     'COMP_WORDS=(dsh-tavern install --host cl); COMP_CWORD=3; _dsh_tavern',

@@ -141,6 +141,17 @@ test('原生后台按需检索与重启保持缓存前缀且不复制前台召�
   assert.deepEqual(scriptThird.tools, scriptSecond.tools)
   assert.ok(Buffer.byteLength(currentText(scriptSecond)) < 1200)
   console.log('script-window task bytes:', Buffer.byteLength(currentText(scriptFirst)), Buffer.byteLength(currentText(scriptSecond)))
+  const choices = {
+    ...candidateInput, system: 'Submit one candidate following the script.', candidateScriptWindow: undefined, tools: [],
+    turnContext: '门仍关着',
+    messages: [{ role: 'assistant', content: [{ type: 'text', text: '旅人在钟楼里听雨。' }] }]
+  }
+  await runner.run({ ...choices, candidateRequest: { text: 'First request', guideText: '展现沉默的压力' } })
+  await runner.run({ ...choices, candidateRequest: { text: 'Regenerate', guideText: '用简短对白推进', guidance: '弟弟已经登场' } })
+  const regenerated = currentText(requests.at(-1))
+  assert.match(regenerated, /<recent_task>\nTask type: choice generation\n\[Story\]\n旅人在钟楼里听雨。\n<\/recent_task>/)
+  assert.match(regenerated, /<candidate_directions>[\s\S]*用简短对白推进[\s\S]*<regeneration_guidance>\n弟弟已经登场/)
+  assert.doesNotMatch(regenerated, /展现沉默的压力/)
   for (const task of ['settlement', 'candidate', 'character-design']) {
     searchPhase = 0
     directLookup = task === 'settlement'
