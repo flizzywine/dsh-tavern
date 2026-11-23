@@ -56,7 +56,7 @@ test('a shown card page opens its available plugin panel in the current game', a
   const requests = [], selections = []
   const h = harness({options:{findPluginPanel:async (...ref) => {
     requests.push(ref)
-    return ref[1] === 'travel' ? '旅行与牌桌' : null
+    return ref[1] === 'travel' ? {title:'旅行与牌桌', size:'full'} : null
   }}})
   const page = openPage(h, {onPluginPanel: value => selections.push(value), pluginPanelShowing: () => selections.length > 0})
   await settle()
@@ -68,7 +68,7 @@ test('a shown card page opens its available plugin panel in the current game', a
   h.send(frame.contentWindow, 'openPluginPanel', {plugin:'travel', panelId:'table', sessionId:'another-game'})
   await settle()
   assert.deepEqual(requests.at(-1), ['s1', 'travel', 'table'])
-  assert.deepEqual(selections, [{plugin:'travel', id:'table', title:'旅行与牌桌'}])
+  assert.deepEqual(selections, [{plugin:'travel', id:'table', title:'旅行与牌桌', size:'full'}])
   assert.deepEqual(responses(frame).at(-1).result, {opened:true})
   h.send(frame.contentWindow, 'title', {text:'旅行'})
   await settle()
@@ -100,6 +100,20 @@ test('a shared plugin panel receives the host page ID for each card page', () =>
       {sessionId: 's1', plugin: 'travel', id: 'journal', stagePageId})
   }
   h.panels.dispose()
+})
+
+test('stage plugin panels default to a window and can fill the stage with a labeled exit', () => {
+  const PluginPanel = () => null
+  for (const [size, expected] of [[undefined, 'window'], ['full', 'full']]) {
+    const {React, cleanups} = fakeReact(null, {plugin:'travel', id:'table', title:'牌桌', size})
+    const h = harness({options: {React, PluginPanel}})
+    const tree = h.panels.Overlay({sessionId:'s1', pageId:'inventory', size:'full', label:'道具', onClose() {}})
+    assert.equal(tree.props['data-size'], expected)
+    assert.equal(find(tree, node => node.props?.role === 'dialog').props['aria-label'], '牌桌')
+    assert.equal(find(tree, node => node.props?.className === 'fork-gal-status-close').props['aria-label'], '返回道具')
+    cleanups.forEach(cleanup => cleanup())
+    h.panels.dispose()
+  }
 })
 
 test('title(text) sets the sheet title over the declared label, empty gives the label back', async () => {

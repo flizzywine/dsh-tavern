@@ -24,6 +24,14 @@
 - 只进入游玩时的正文请求；使用 SillyTavern 兼容请求模式时不生效。
 - 函数出错或 30 秒没有返回时，这一段被跳过，正文照常生成。
 
+## `guideSource({ name, text })`
+
+提供插件在本局生效的 Guide。检查 `ctx.tavern.capabilities.guideSource === 1` 后注册。
+
+- `name` 在插件内唯一。 `text` 可为文字或接收 `{ gameId }` 的函数。返回空字符串时本次省略。正文、候选、舞台导演和 Tavern 后台结算均可读取。
+- 每条最多 2000 字，使用纯文本。函数适合读取插件已保存的方向，模型规划放在独立任务中。插件卸载或停用后停止注入。
+- 来源内容随插件自己的数据保存。玩家手动添加的 Guide 仍可在「酒馆状态」中管理。
+
 ## `worldbookSource({ name, entries })`（第 2 版）
 
 每轮为正文请求补充世界书条目，和 Tavern 召回的世界书放在一起。`entries` 是函数，收到 `{ gameId, turn, input }`，返回条目数组：

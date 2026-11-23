@@ -735,6 +735,7 @@ let openImageOverlay = null
             const blocksText = String(r.job.promptText || '')
             openPromptEditor({
               forJobId: String(jobId), forRequestId: requestId, loading: false,
+              canCompareOriginal: r.job.canCompareOriginal === true,
               prompt: blocksText || sceneText,
               negative: String(r.job.negative || ''),
               note: blocksText ? '场景与角色块一起显示；改完重画会按角色分区重新发送' : '',
@@ -995,7 +996,7 @@ function versionsOf(jobId) {
         }
       }
 
-      async function redraw() {
+      async function redraw(sameSeed = false) {
         if (controlsDisabled || view.inputsError) return
         if (referenceUnavailable) { say('当前渠道不支持参考图输入；请明确选择支持参考图的渠道或改为文生图，不会自动降级。'); return }
         const lock = String(view.mediaContext && view.mediaContext.mediaId || '')
@@ -1006,7 +1007,7 @@ function versionsOf(jobId) {
           if (view.mediaContext) {
             if (!validMediaContext(view.mediaContext)) { say('当前图片上下文不完整，无法提交单图重画'); return }
             const body = { operation: 'redraw', ...view.mediaContext, jobId: view.mediaContext.jobId, prompt: view.prompt, negative: view.negative,
-              generationMode: view.generationMode === 'reference' ? 'reference' : 'text', refreshReferences: view.generationMode === 'reference' && view.refreshReferences === true }
+              generationMode: view.generationMode === 'reference' ? 'reference' : 'text', refreshReferences: view.generationMode === 'reference' && view.refreshReferences === true, sameSeed: sameSeed === true }
             if (view.channelId) body.channelId = view.channelId
             const result = await jsonFetch(BASE + '/media-action', {
               method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
@@ -1019,7 +1020,7 @@ function versionsOf(jobId) {
           const r = await jsonFetch(BASE + '/redraw', {
             method: 'POST', headers: { 'content-type': 'application/json' },
             body: JSON.stringify({ jobId: view.jobId, prompt: view.prompt, negative: view.negative,
-              generationMode: view.generationMode === 'reference' ? 'reference' : 'text', refreshReferences: view.generationMode === 'reference' && view.refreshReferences === true }),
+              generationMode: view.generationMode === 'reference' ? 'reference' : 'text', refreshReferences: view.generationMode === 'reference' && view.refreshReferences === true, sameSeed: sameSeed === true }),
           })
           if (!r?.ok || !r.jobId) { say('重画失败：' + (r?.error || '没拿到新作业')); return }
           redrawnJobs.set(view.jobId, r.jobId)
@@ -1147,7 +1148,8 @@ function versionsOf(jobId) {
         React.createElement('div', { style: { display: 'flex', gap: '10px', alignItems: 'center', marginTop: '16px', flexWrap: 'wrap' } },
           btn('🤖 让后台改', improve),
           btn('👁 看展开结果', () => openPromptEditor({ showInputs: true })),
-          btn(view.busy === 'redraw' ? '🎨 提交中…' : '🎨 用这段重画', redraw, true),
+          btn(view.busy === 'redraw' ? '🎨 提交中…' : '🎨 用这段重画', () => redraw(false), true),
+          view.canCompareOriginal && !view.loading && !view.channelId && view.generationMode === 'text' ? btn('按原参数对照', () => redraw(true)) : null,
           view.note ? React.createElement('span', { style: { fontSize: '12px', color: '#9aa3b2' } }, view.note) : null,
         ),
         React.createElement('div', { style: { fontSize: '11px', color: '#6b7480', marginTop: '14px' } }, '提示：改完提示词点「用这段重画」，会在同一条消息里换成新图。'),
@@ -1972,8 +1974,8 @@ function versionsOf(jobId) {
         if (field === 'full' && (upperPart !== 'sfw' || lowerPart !== 'sfw')) continue
         if (cropped && (field === 'lower' || field === 'shoes' || field === 'full')) continue
         if (barefoot && !keepSocks && field === 'shoes') continue
-        // 标签写法里已经有上衣下装时，整套总述只是噪音。
-        if (field === 'full' && tags && (text(item.upper) || text(item.lower))) continue
+        const hasOutfitParts = tags ? text(item.upper) || text(item.lower) : options.conciseOutfit && text(item.upper) && text(item.lower)
+        if (field === 'full' && hasOutfitParts) continue
         const value = accept(barefoot ? dropFootwear(item[field], keepSocks) : item[field])
         if (value) parts.push({ field, text: value })
       }
@@ -2532,14 +2534,18 @@ function versionsOf(jobId) {
     }
 
     /** One local reference per library object; binding is saved with the existing draft.
-     *  field='characterOutfitImage' edits a character's own outfit sheet (角色×服装设定图), sharing the outfit's 一致性补充. */
-    function ReferenceImageEditor({ value = {}, label, onChange, field = 'referenceImage', noun = '参考图', heading = '（每个对象一张）', consistency = true, compact = false }) {
+     *  field='characterOutfitImage' edits a character's own outfit sheet (角色×服装设定图), sharing the outfit's 一致性补充.
+     *  lent {picture, borrowed}: the picture Tavern's asset library lends a linked figure here (state.figurePictures). A 设定图
+     *  is what pictures use, changed in the asset library; a borrowed 立绘 stands in until a picture is uploaded here. */
+    function ReferenceImageEditor({ value = {}, label, onChange, field = 'referenceImage', noun = '参考图', heading = '（每个对象一张）', consistency = true, compact = false, lent = null }) {
       const [busy, setBusy] = React.useState(false)
       const [note, setNote] = React.useState('')
       const epoch = React.useRef(0)
       React.useEffect(() => () => { epoch.current += 1 }, [])
       const image = value[field]
       const imageId = /^[a-f0-9]{64}$/i.test(String(image?.id || '')) ? image.id : ''
+      const shown = lent?.picture && (!lent.borrowed || !imageId) ? lent.picture : null
+      const settei = Boolean(shown && !lent.borrowed)
       const inputStyle = { width: '100%', boxSizing: 'border-box', padding: '7px 9px', borderRadius: '7px', background: 'var(--dsw-specific-input-major)', color: 'var(--dsw-alias-label-primary)', border: '1px solid var(--dsw-alias-border-l2)', fontFamily: 'inherit', fontSize: '12px' }
       async function upload(event) {
         const file = event.target.files?.[0]
@@ -2571,13 +2577,15 @@ function versionsOf(jobId) {
           if (request === epoch.current) setNote('上传失败：' + (error?.message || error))
         } finally { if (request === epoch.current) setBusy(false) }
       }
-      const preview = imageId ? h('img', { src: BASE + '/reference-image?id=' + encodeURIComponent(imageId), alt: label + noun,
+      const previewId = shown ? shown.id : imageId
+      const preview = previewId ? h('img', { src: BASE + '/reference-image?id=' + encodeURIComponent(previewId), alt: label + noun,
         style: compact ? undefined : { display: 'block', maxWidth: '180px', maxHeight: '160px', objectFit: 'contain', borderRadius: '7px', marginBottom: '7px' } }) : null
+      const caption = shown ? (settei ? '素材库设定图，在素材库人物页更换' : '借用素材库立绘，上传后改用上传的图') : imageId ? image.name || '已上传参考图' : ''
       const controls = h('div', null,
         h('div', { style: { fontSize: '12px', fontWeight: 600, marginBottom: '4px' } }, compact ? noun : label + noun + heading),
         compact ? null : preview,
-        imageId ? h('div', { style: { fontSize: '11px', overflowWrap: 'anywhere', marginBottom: '4px' } }, image.name || '已上传参考图') : null,
-        h('label', { style: { display: 'inline-flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center', fontSize: '12px' } },
+        caption ? h('div', { style: { fontSize: '11px', overflowWrap: 'anywhere', marginBottom: '4px' } }, caption) : null,
+        settei ? null : h('label', { style: { display: 'inline-flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center', fontSize: '12px' } },
           compact && !busy ? null : busy ? '上传中…' : imageId ? '替换' + noun : '上传' + noun,
           h('input', { type: 'file', accept: 'image/png,image/jpeg,image/webp', 'aria-label': label + '上传' + noun,
             disabled: busy, onChange: upload, style: { maxWidth: '100%', fontSize: 12 } })),
@@ -5839,6 +5847,8 @@ function versionsOf(jobId) {
       // ---- 人物库（人物设计）----
       function peopleTab(focus) {
         const characters = (data.definitions && data.definitions.characters) || []
+        // Pictures Tavern's asset library lends linked people (their 设定图 live in its packs, never in these records).
+        const lent = data.figurePictures || {}
         const picked = characters.filter(character => peoplePicked[character.id])
         const search = peopleSearch.trim().toLocaleLowerCase()
         // —— 按卡归类 ——
@@ -6412,7 +6422,7 @@ function versionsOf(jobId) {
               h('div', { className: 'dti-roster-group' }, h('strong', null, name), h('span', null, people.length + ' 位')),
               h('div', { className: 'dti-roster-grid' }, people.map(person => {
                 const name = person.name || '未命名角色'
-                const id = person.referenceImage?.id
+                const id = (lent[person.id]?.identity || person.referenceImage)?.id
                 const hasImage = /^[a-f0-9]{64}$/i.test(id || '')
                 return h('button', { key: person.id, type: 'button', className: 'dti-roster-tile',
                   'aria-label': '查看角色 ' + name, onClick: () => setPeopleActiveId(person.id) },
@@ -6463,14 +6473,14 @@ function versionsOf(jobId) {
             h('section', { 'aria-label': '角色与参考图设置', className: 'dti-roster-settings' },
               h('strong', null, '角色与参考图设置'),
               h('div', { className: 'dti-roster-identity' },
-                h('input', { type: 'text', 'aria-label': '角色名', placeholder: '角色名', title: c.figureId ? '关联着素材库人物：保存时名字一并改到素材库' : undefined, value: c.name || '',
+                h('input', { type: 'text', 'aria-label': '角色名', placeholder: '角色名', title: c.figureId ? '关联着素材库人物：这就是素材库里人物的名字' : undefined, value: c.name || '',
                   style: S.input, onChange: event => patchIdentity(i, { name: event.target.value }) }),
                 h('label', { style: S.row }, h('input', { type: 'checkbox', checked: c.enabled !== false,
                   onChange: event => patch(i, { enabled: event.target.checked }) }), '启用'),
                 h('input', { type: 'text', placeholder: '分组', 'aria-label': '分组', value: c.group || '', style: S.input, onChange: e => patchIdentity(i, { group: e.target.value.replace(/[\u0000-\u001f\u007f]/g, '').slice(0, 40) }) }),
-                h('input', { type: 'text', placeholder: '触发别名', 'aria-label': '触发别名', title: c.figureId ? '关联着素材库人物：保存时增删的词一并改到素材库人物的触发词' : undefined, value: c.match || '', style: S.input, onChange: e => patchIdentity(i, { match: e.target.value }) }),
+                h('input', { type: 'text', placeholder: '触发词', 'aria-label': '触发词', title: c.figureId ? '关联着素材库人物：这就是素材库里人物的触发词' : undefined, value: c.match || '', style: S.input, onChange: e => patchIdentity(i, { match: e.target.value }) }),
               ),
-              h(ReferenceImageEditor, { key: 'character-reference-' + c.id, value: c, compact: true, label: '角色「' + (c.name || '未命名') + '」', onChange: changes => patch(i, changes) }),
+              h(ReferenceImageEditor, { key: 'character-reference-' + c.id, value: c, compact: true, lent: lent[c.id]?.identity ? { picture: lent[c.id].identity, borrowed: false } : null, label: '角色「' + (c.name || '未命名') + '」', onChange: changes => patch(i, changes) }),
               h(CharacterComfyLoras, { value: c.comfyLoras || [], workflows: data.workflows || [], onChange: comfyLoras => patch(i, { comfyLoras }) }),
               h('div', { style: S.row },
                 h('span', { style: S.label }, '绑定卡片'),
@@ -6569,7 +6579,7 @@ function versionsOf(jobId) {
                       onChange: changes => patchOutfit(i, j, changes) }),
                     h('details', { key: 'outfit-extra-' + o.id },
                       h('summary', { style: PROMPT_DISCLOSURE }, '服装参考图'),
-                      h(ReferenceImageEditor, { key: 'outfit-sheet-' + c.id + '-' + o.id, value: o, field: 'characterOutfitImage', consistency: false, noun: '角色×服装设定图',
+                      h(ReferenceImageEditor, { key: 'outfit-sheet-' + c.id + '-' + o.id, value: o, field: 'characterOutfitImage', consistency: false, noun: '角色×服装设定图', lent: lent[c.id]?.outfits?.[o.id] || null,
                         heading: '（可选：这个角色穿这套衣服的图；有它时只用它，不再叠加角色图和服装图）', label: '服装「' + (o.name || '未命名') + '」', onChange: changes => patchOutfit(i, j, changes) }),
                       h(ReferenceImageEditor, { key: 'outfit-reference-' + c.id + '-' + o.id, value: o, label: '服装「' + (o.name || '未命名') + '」', onChange: changes => patchOutfit(i, j, changes) }),
                     ),
@@ -8334,6 +8344,7 @@ function versionsOf(jobId) {
               render: ({ groups, gameId, turn, streaming }) => {
                 try {
                   if (streaming) return null            // 生成中不画，免得画出半句话
+                  if (!settings.imageEnabled) return null  // 配图总开关关着：不提交生图，标记原样显示
                   if (settings.smartImageSelection) return h('span', { style: { display: 'none' } })
                   const prompt = String((groups && groups[0]) || '').trim()
                   if (!prompt) return null

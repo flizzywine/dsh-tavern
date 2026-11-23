@@ -6,7 +6,7 @@ import { join } from 'node:path'
 // After each failure the player must still be able to continue, roll back,
 // regenerate, and the model must read exactly what the save says.
 export async function failureResilienceChecks({ page, step, savedChat, output, report, root, restartServer }) {
-  const composer = () => page.getByRole('textbox', { name: /发消息|Message/ })
+  const composer = () => page.getByRole('textbox', { name: /下一步行动|Next action|发消息|Message/ })
   const pause = ms => new Promise(resolve => setTimeout(resolve, ms))
   // Settlement runs in the background; wait on the save, not on a panel that may be closed.
   const settled = async () => {

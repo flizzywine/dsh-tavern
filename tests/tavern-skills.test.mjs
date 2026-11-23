@@ -6,6 +6,8 @@ import test from 'node:test'
 import { createFileSymlink } from './helpers/file-symlink.mjs'
 
 import { createTavernSkillModule } from '../tavern-plugin/lib/domain/tavern-skills.js'
+import { createSkillGatedTools } from '../tavern-plugin/lib/domain/skill-gated-tools.js'
+import { registerSkillTools } from '../tavern-plugin/lib/tools/skills.js'
 
 async function harness(t) {
   const root = await mkdtemp(path.join(tmpdir(), 'tavern-skills-'))
@@ -14,6 +16,48 @@ async function harness(t) {
   const builtin = path.join(root, 'builtin')
   return { root, user, builtin, skills: createTavernSkillModule({ directory: user, builtInDirectory: builtin }) }
 }
+
+test('工作台能读取并修改前台专用用户 Skill，无需更改分配', async t => {
+  const { builtin, skills } = await harness(t)
+  const name = 'dialogue'
+  const original = await skills.write({ name, purpose: 'writing', description: '争执场景', body: '初始写法', modelInvocable: false })
+  await skills.edit({
+    name,
+    content: original.content.replace('初始写法', '库中现行写法'),
+    references: [{ path: 'references/lesson.md', content: '现行参考' }]
+  })
+  await mkdir(path.join(builtin, 'example'), { recursive: true })
+  await writeFile(path.join(builtin, 'example', 'SKILL.md'), original.content.replace('name: dialogue', 'name: example'))
+
+  const registered = new Map()
+  registerSkillTools({
+    chatForSession: async id => id === 'card' ? { mode: 'card' } : null,
+    skillRoleFor: async agent => agent.session.id,
+    skillEnabledFor: async () => true,
+    tavernSkills: skills,
+    tools: { register: tool => registered.set(tool.name, tool) }
+  })
+  const call = (tool, args, role = 'card') => registered.get(tool).execute(args, { agent: { session: { id: role } } })
+  const read = (args, role) => call('tavern_read_skill', args, role)
+  const visible = createSkillGatedTools()
+  assert.deepEqual(visible(['tavern_read_skill'], { id: 'card', events: [] }), [])
+  for (const skill of ['create-skill', 'create-writing-skill']) {
+    const event = { type: 'tool/result', data: { content: '<skill_content name="' + skill + '">' } }
+    assert.deepEqual(visible(['tavern_read_skill', 'tavern_save_skill'], { id: skill, events: [event] }), ['tavern_read_skill', 'tavern_save_skill'])
+  }
+
+  assert.match((await read({})).content, /^- dialogue · writing · 争执场景$/)
+  assert.match((await read({ name })).content, /库中现行写法[\s\S]*references\/lesson\.md\n现行参考/)
+  await assert.rejects(read({ name: 'example' }), /未找到可编辑/)
+  await assert.rejects(read({ name }, 'background'), /卡片工作台/)
+  await assert.rejects(read({ name }, 'foreground'), /卡片工作台/)
+
+  await call('tavern_save_skill', { name, description: '争执场景', body: '改好的写法', overwrite: true })
+  const saved = await skills.read(name)
+  assert.deepEqual(saved.agents, ['foreground'])
+  assert.equal(saved.modelInvocable, false)
+  assert.match((await read({ name })).content, /改好的写法[\s\S]*现行参考/)
+})
 
 test('参考文件独立于素材，覆盖保留引用，拒绝路径越界与符号链接', { skip: process.platform === 'win32' ? 'Requires symlinks, which Windows only allows with extra privileges' : false }, async t => {
   const { skills, root, user } = await harness(t)

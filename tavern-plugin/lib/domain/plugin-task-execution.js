@@ -1,6 +1,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { bounded, untilAborted } from './plugin-callback.js'
 import { pluginMember, pluginMemberId, pluginMemberPrefix } from './background-members.js'
+import { assertToolParameterKeys } from './tool-schema-keys.js'
 
 const TOOL_NAME = /^[a-z][a-z0-9_]{2,47}$/
 const MAX_TOOL_RESULT = 20000
@@ -55,6 +56,7 @@ export function createPluginTaskExecution({ runTask, currentKey, readLatestSettl
       if (reservedToolNames.has(tool.name) || byName.has(tool.name)) throw new Error('工具名 ' + tool.name + ' 已被占用')
       if (typeof tool.description !== 'string' || !tool.description.trim()) throw new Error('工具 ' + tool.name + ' 需要 description')
       if (!tool.parameters || typeof tool.parameters !== 'object' || tool.parameters.type !== 'object') throw new Error('工具 ' + tool.name + ' 的 parameters 必须是 type 为 object 的 JSON Schema')
+      assertToolParameterKeys(tool.name, tool.parameters)
       if (typeof tool.execute !== 'function') throw new TypeError('工具 ' + tool.name + ' 需要 execute 函数')
       byName.set(tool.name, tool)
     }

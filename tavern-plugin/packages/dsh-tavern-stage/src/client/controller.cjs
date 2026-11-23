@@ -1123,7 +1123,7 @@ function GalStage(props) {
             ...(member.lease ? {emotion:member.lease.emotion,focus:member.lease.focus,dim:member.lease.dim} : null),
             // reopening/restoring is not a new entrance (same policy as the background cut).
             visible:true,enter:forwardReading&&!skipping?'soft':'none',exit:'soft',gaze:stageViews.speaker.gaze(member.gaze,member.x,xs),act:shotHere&&shot.acts[member.id]?{name:shot.acts[member.id],nonce:shot.n}:null,
-            figureSizing:{pack:true,heightCm:selected.heightCm,version:1,source:selected.geometry.stage,sourceUrl:input.src,heightBasis:selected.heightBasis,outfitKey:selected.outfitKey,anatomy:selected.anatomy,head:selected.head,assetScale:selected.anatomy?.assetScale ?? 1,elevationCm:selected.elevationCm}};
+            figureSizing:{pack:true,heightCm:selected.heightCm,version:1,source:selected.geometry.stage,sourceUrl:input.src,heightBasis:selected.heightBasis,outfitKey:selected.outfitKey,anatomy:selected.anatomy,head:selected.head,face:selected.face,assetScale:selected.anatomy?.assetScale ?? 1,elevationCm:selected.elevationCm}};
     });
     const quality = useStageQuality();
     // core stage behaviour; tap reactions borrow the figure's own emotionMap entries.
@@ -1360,10 +1360,14 @@ function GalStage(props) {
     // the page's text marks in the words the box shows (a subtitle card of the page, a quoted line)
     const boxMarks = (function () {
         const shift = current?.textMarks?.length && !transitioning ? shownText.indexOf(subtitles.text) : -1;
-        if (shift < 0) return undefined;
-        const start = Array.from(current.text).slice(0, subtitles.cards[card]?.start || 0).join('').length;
-        const ranges = stageTextMarks.textMarkShift(current.textMarks, start, subtitles.text.length).map(row => ({...row, start:row.start + shift, end:row.end + shift}));
-        return stageTextMarkRender(ranges, {...markTurn, para:current.para}, reading.reducedMotion === true);
+        let own = [];
+        if (shift >= 0) {
+            const start = Array.from(current.text).slice(0, subtitles.cards[card]?.start || 0).join('').length;
+            const ranges = stageTextMarks.textMarkShift(current.textMarks, start, subtitles.text.length).map(row => ({...row, start:row.start + shift, end:row.end + shift}));
+            own = stageTextMarkRender(ranges, {...markTurn, para:current.para}, reading.reducedMotion === true);
+        }
+        const all = stageTextMarks.textMarksHighlighted(shownText, activeSkin?.textStyle?.highlight, own, React.createElement);
+        return all.length ? all : undefined;
     })();
     // the unfinished sentence that may still move to the next page stays
     // hidden on the last card of a streaming narration page, so the page never takes back text it showed. Only the last

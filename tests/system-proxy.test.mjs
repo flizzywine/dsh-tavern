@@ -42,6 +42,13 @@ test('安卓：只有 host/port 时拼起来；代理关闭（:0）不当作代�
   assert.deepEqual(proxyEnvironment({}, { platform: 'android', exec: off }).added, {})
 })
 
+test('安卓：命名空间和键分开传给 settings（合成一个参数会报 Invalid namespace）', () => {
+  const calls = []
+  const exec = (command, args) => { calls.push([command, ...args]); return args[2] === 'http_proxy' ? '127.0.0.1:7890\n' : 'null\n' }
+  assert.equal(proxyEnvironment({}, { platform: 'android', exec }).added.HTTPS_PROXY, 'http://127.0.0.1:7890')
+  assert.deepEqual(calls, [['settings', 'get', 'global', 'http_proxy']])
+})
+
 test('macOS 读取 scutil 的 HTTP/HTTPS 代理和域名例外', () => {
   const result = proxyEnvironment({}, { platform: 'darwin', exec: fakeExec({ 'scutil --proxy': `<dictionary> {
   ExceptionsList : <array> {

@@ -30,3 +30,15 @@ test('中文上半身镜头把 hidden 表达成画外，不推断下装状态', 
   const dressed = expandRosterCalls(call({ ...hidden, outfit: '格子衬衫牛仔裤' }, '半身近景，她站在窗边。'), defs, 'natural', natural)
   assert.match(dressed, /牛仔裤/)
 })
+
+test('多人场景中的单字姓名能归属赤足状态，另一人只填写上装时仍保留下装总述', () => {
+  const cast = { characters: [
+    { ...jing, name: '凛', match: '', outfits: [{ ...jing.outfits[0], name: '常服' }] },
+    { ...yu, outfits: [{ ...yu.outfits[0], lower: '', full: '下身穿着红色长裙' }] },
+  ] }
+  const macro = name => '${' + JSON.stringify({ name }).slice(1, -1) + '}$'
+  const result = expandRosterCalls(macro('凛') + '\n' + macro('宋玉轩') + '\n凛赤足踩上石阶。宋玉轩走在后面。', cast, 'natural', natural)
+  assert.doesNotMatch(result, /白色运动鞋/)
+  assert.match(result, /黑色布靴/)
+  assert.match(result, /红色长裙/)
+})

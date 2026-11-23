@@ -5,7 +5,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createTavernPluginApi } from '../tavern-plugin/lib/plugin-api.js'
 import { createImageCharacterHandlers } from '../tavern-plugin/lib/rpc/image-characters.js'
-import { appearanceFromImageCharacter, imageCharacterFromFigure } from '../tavern-plugin/lib/domain/image-character-appearance.js'
+import { createFigurePictures } from '../tavern-plugin/lib/image-character-pictures.js'
+import { appearanceFromImageCharacter, imageCharacterFromFigure, imageCharacterExtension } from '../tavern-plugin/lib/domain/image-character-appearance.js'
 import { createAssetPackService } from '../tavern-plugin/packages/dsh-asset-library/src/pack-v2/service.js'
 
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAEElEQVR4nGP8zwACTGCSAQANHQEDgslx/wAAAABJRU5ErkJggg==', 'base64')
@@ -72,27 +73,43 @@ test('wrong figure, missing pack and stale associations cannot change a characte
   await assert.rejects(f.handlers.patchImageCharacter({ ...args, patch: { figureId: 'different' } }), { code: 'INVALID_ARGUMENT' })
   f.images.store.characters.find(c => c.id === linked.character.id).figurePackId = 'other-pack'
   await assert.rejects(f.handlers.patchImageCharacter({ ...args, patch: { name: 'wrong' } }), { code: 'INVALID_ARGUMENT' })
-  await assert.rejects(f.handlers.syncFigureSetteiToImageCharacter(args), { code: 'INVALID_ARGUMENT' })
   assert.deepEqual(f.images.store.images, [])
 })
 
-test('the record shows the figure\'s 设定图 in their own reference slots; a stale record is rejected before reading media', async () => {
-  const { api, service } = host(), images = imageLibrary()
-  const figure = { id: 'figure', name: '林月', identitySettei: { board: 'identity' }, outfits: [{ key: 'k', label: '白裙', settei: 'paired' }] }
-  const character = { ...images.store.characters[0], figureId: 'figure', figurePackId: 'pack' }
-  images.store.characters = [character]
-  service.registerImageLibrary(images.registration)
-  let reads = 0
-  const library = { getPackSnapshot: async () => ({ revision: 'r1', figures: { figure } }), readMedia: async ({hash, expectedRevision}) => {
-    assert.equal(expectedRevision, 'r1'); assert.ok(['identity', 'paired'].includes(hash)); reads++
-    return { bytes: PNG, descriptor: { mime: 'image/png' } }
-  } }
-  const handlers = createImageCharacterHandlers({ ctx: { get: () => library }, pluginApi: api })
-  const args = { packId: 'pack', figureId: 'figure', providerId: 'dsh-tavern-image/definitions', characterId: character.id }
-  const synced = await handlers.syncFigureSetteiToImageCharacter({ ...args, expected: structuredClone(character) })
-  assert.equal(synced.character.referenceImage.name, '林月 设定图')
-  assert.equal(synced.character.outfits.find(o => o.id === 'k').characterOutfitImage.name, '林月／白裙 设定图')
-  await assert.rejects(handlers.syncFigureSetteiToImageCharacter({ ...args, expected: structuredClone(character) }), { code: 'REVISION_CONFLICT' })
-  assert.equal(reads, 2)
-  assert.equal(images.store.images.length, 2)
+// ADR 0012: the pack is the one store of a figure's 设定图; 配图 asks the host for them by the record's link.
+function pictureLibrary(packId, figure) {
+  const hash = letter => letter.repeat(64)
+  const pack = { revision: 'r1', manifest: { blobs: Object.fromEntries(['a', 'b', 'c'].map(letter => [hash(letter), { mime: 'image/png', size: PNG.length, ext: 'png' }])) }, sprites: {}, figures: { [figure.id]: figure } }
+  const reads = []
+  return { pack, reads, getPackSnapshot: async input => input.packId === packId ? structuredClone(pack) : null,
+    readMedia: async ({ hash: id, expectedRevision }) => { assert.equal(expectedRevision, 'r1'); reads.push(id); return { bytes: PNG, descriptor: { mime: 'image/png' } } } }
+}
+
+test('a figure\'s 设定图 are lent from the pack; a 设定图 the pack drops is gone from the next picture with nothing to sync', async () => {
+  const packId = '11111111-1111-4111-8111-111111111111', figureId = '22222222-2222-4222-8222-222222222222'
+  const ref = { packId, figureId }
+  const figure = { id: figureId, name: '总经理', identitySettei: { board: 'a'.repeat(64) }, outfits: [{ key: 'k', label: '西装', settei: 'b'.repeat(64) }, { key: 'm', label: '大衣' }] }
+  const library = pictureLibrary(packId, figure), pictures = createFigurePictures(() => library)
+  const [row] = await pictures.list([null, { packId: 'stale', figureId }, ref])
+  assert.deepEqual(row.identity, { id: 'a'.repeat(64), mediaType: 'image/png', byteLength: PNG.length, name: '总经理 人物设定图' })
+  assert.deepEqual(row.outfits, { k: { picture: { id: 'b'.repeat(64), mediaType: 'image/png', byteLength: PNG.length, name: '总经理／西装 设定图' }, borrowed: false } })
+  assert.deepEqual(await pictures.read({ ...ref, id: 'b'.repeat(64) }), { data: new Uint8Array(PNG), mediaType: 'image/png' })
+  await assert.rejects(pictures.read({ ...ref, id: 'c'.repeat(64) }), { code: 'NOT_FOUND' }, 'only a picture the figure lends')
+  // The 设定图 is unbound in the pack: the record holds no copy, so the next picture has none.
+  delete figure.identitySettei
+  delete figure.outfits[0].settei
+  const [after] = await pictures.list([ref])
+  assert.equal(after.identity, null)
+  assert.deepEqual(after.outfits, {})
+  await assert.rejects(pictures.read({ ...ref, id: 'a'.repeat(64) }), { code: 'NOT_FOUND' })
+  assert.deepEqual(library.reads, ['b'.repeat(64)])
+})
+
+test('figure export excludes identified legacy copies and keeps a separately uploaded picture', () => {
+  const picture = name => ({ id: 'a'.repeat(64), mediaType: 'image/png', name, byteLength: 9 })
+  const character = { name: '总经理', figureId: 'figure', figurePackId: 'pack', referenceImage: picture('自选图片 设定图'),
+    outfits: [{ id: 'k', name: '西装', characterOutfitImage: picture('总经理／西装 立绘参考') }, { id: 'm', name: '大衣', characterOutfitImage: picture('总经理／大衣 设定图') }] }
+  const exported = imageCharacterExtension(character)
+  assert.equal(exported.referenceImage.name, '自选图片 设定图')
+  assert.equal(exported.outfits, undefined)
 })

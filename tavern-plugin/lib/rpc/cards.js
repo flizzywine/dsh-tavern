@@ -2,6 +2,7 @@ import { waitForWritableSession } from '../domain/agent-readiness.js'
 import { normalizeResourcePath } from '../domain/file-resources.js'
 import { pngPayload } from '../domain/mobile-card-import.js'
 import { readFile, rm } from 'node:fs/promises'
+import { isCardArchiveUpload } from '../domain/uploads.js'
 import { encryptCardArchiveFile, isCardPasswordError } from '../domain/card-encryption.js'
 
 // Card library, card workspace and card import requests.
@@ -12,6 +13,8 @@ export function createCardHandlers(deps) {
     importCard, importCardArchiveFile, importPluginCardFile, previewCardArchiveFile, replaceCard, revertCardUpdate, listCards, mobileCardImport, pluginApi,
     readCardWorkspace, runtimePrompt, sessionStore, setCardPlugins, sleep, str, updateCard, uploads,
     worldBooks } = deps
+
+  const cardUploadFor = id => isCardArchiveUpload(id) ? deps.cardArchiveUploads : uploads
 
   async function readSessionScripts(sessionId) {
     const chat = await chatForSession(sessionId)
@@ -85,13 +88,14 @@ export function createCardHandlers(deps) {
     // An uploaded card archive before it is imported or replaces a card: its name, version, cover and the installed
     // packs it carries another version of (card-files.js previewCardArchiveFile). The upload stays for importCardUpload.
     async previewCardUpload(args) {
-      const upload = await uploads.take(args?.uploadId)
+      const upload = await cardUploadFor(args?.uploadId).take(args?.uploadId)
       return await previewCardArchiveFile(upload.file, str(args?.name) || '人物卡.dshcard', { password: args?.password })
     },
     // packDecisions: pack id → 'update' | 'merge', for the packs previewCardUpload listed.
     async importCardUpload(args) {
-      const upload = await uploads.take(args && args.uploadId)
       const name = str(args && args.name) || '人物卡.dshcard'
+      if (isCardArchiveUpload(args?.uploadId) && !/\.(charx|dshcard)$/i.test(name)) throw new Error('分段上传仅支持 CHARX 和 DSHCARD 人物卡')
+      const upload = await cardUploadFor(args?.uploadId).take(args?.uploadId)
       const packDecisions = args?.packDecisions ?? {}
       if (!packDecisions || typeof packDecisions !== 'object' || Array.isArray(packDecisions) || Object.values(packDecisions).some(value => typeof value !== 'string')) throw new Error('素材包的更新方式无效')
       let keepForPasswordRetry = false
@@ -114,8 +118,8 @@ export function createCardHandlers(deps) {
       return await revertCardUpdate(args?.updateId)
     },
     async discardCardUpload(args) {
-      const upload = await uploads.take(args?.uploadId)
-      await upload.remove()
+      if (isCardArchiveUpload(args?.uploadId)) await deps.cardArchiveUploads.discard(args.uploadId)
+      else await (await uploads.take(args?.uploadId)).remove()
       return { removed: true }
     },
     async encryptCardUpload(args) {

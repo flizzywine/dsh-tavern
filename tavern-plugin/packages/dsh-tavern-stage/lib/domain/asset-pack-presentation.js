@@ -4,7 +4,7 @@ import { analyzeVariableSchema } from '../../../../lib/domain/variable-bindings/
 import { widgetVariableProjection } from '../../../../lib/domain/widget-variable-provider.js'
 import { activeWidgetKeys, widgetIsActive } from '../../../../lib/domain/widget-availability.js'
 // Inactive P4 consumer. P6 supplies authorized services and mounts its projections.
-import {figureCatalogue, resolution} from '../../../../lib/domain/figure-catalogue.js'
+import {figureCatalogue, figureRefKey, resolution} from '../../../../lib/domain/figure-catalogue.js'
 import skinContract from '../../../dsh-presentation-protocol/src/stage-skin.cjs'
 import performanceContract from '../../../dsh-presentation-protocol/src/performance-contract.cjs'
 import { effectiveCardStage, activeStageSkin, cardStageSkin, cardStageSkinPackIds } from '../../../../lib/domain/card-stage-settings.js'
@@ -86,7 +86,16 @@ export function selectPackFigure(figure, sprites, {outfitKey, emotion, imageSele
     // old packs and uncalibrated outfits still produce JSON-safe replay frames.
     anatomy:figureScale.packHeadRelativeAnatomy((form === 'live2d' ? outfit.live2d?.anatomy : form === 'spine' ? outfit.spine.anatomy : form === 'sprite' ? outfit.sprite?.anatomy?.[state?.id] : null) ?? null, figureHeadReference(figure)),
     // the shown picture's head (its crop), for the stage's head-normalised size.
-    head:form === 'sprite' && packSpriteCrop(outfit, state?.id) ? packCropHead(packSpriteCrop(outfit, state?.id)) : null, diagnostics}
+    head:form === 'sprite' && packSpriteCrop(outfit, state?.id) ? packCropHead(packSpriteCrop(outfit, state?.id)) : null,
+    face:form === 'sprite' ? packFaceSpan(outfit, state?.id) : null, diagnostics}
+}
+// Where across the picture the face is - [left, right] canvas fractions of the crop that frames it: the shown state's own,
+// else the outfit's, else any of its other states' (one outfit's pictures share the canvas and the pose). The stage looks
+// for the head's centre only there, so a hammer head or a scythe blade beside the head at the same height is not taken
+// for it (scene-math galCentredAnatomy). null when nothing in the outfit was framed.
+function packFaceSpan(outfit, stateId) {
+  const crop = packSpriteCrop(outfit, stateId) || Object.values(outfit.sprite?.avatarCrop || {})[0] || Object.values(outfit.sprite?.avatarCropAuto || {})[0]
+  return crop ? [crop.x, crop.x + crop.w] : null
 }
 
 // Key only media/geometry, never labels, leases, revisions, figure height or viewport.
@@ -214,7 +223,14 @@ export function createAssetPackPresentation({raw, getEngine, getService, getAllo
     async figureRows(roster = {}) {
       const allowed = getAllowedPackIds?.() || extension.assetBindings.boundPackIds
       const packs = await Promise.all(allowed.map(snapshot))
-      return figureCatalogue({snapshots:packs.filter(Boolean),bindings:extension.assetBindings,globalEnabledPackIds:allowed,roster})
+      const rows = figureCatalogue({snapshots:packs.filter(Boolean),bindings:extension.assetBindings,globalEnabledPackIds:allowed,roster})
+      // 借用形象: the figure a stage actor stands in with (stage-stand-in.js) is shown whether or not the card has its pack;
+      // 自动素材 lent it from the library. Only the figures worn, so no other library figure answers to a name here.
+      const worn = Object.values(roster).filter(actor => actor?.standIn && actor.figure && !allowed.includes(actor.figure.packId)).map(actor => actor.figure)
+      if (!worn.length) return rows
+      const lentIds = [...new Set(worn.map(ref => ref.packId))], wornKeys = new Set(worn.map(figureRefKey))
+      const lent = figureCatalogue({snapshots:(await Promise.all(lentIds.map(snapshot))).filter(Boolean),bindings:{boundPackIds:lentIds}})
+      return [...rows, ...lent.filter(row => wornKeys.has(figureRefKey(row.ref)))]
     },
     async resolveName(segment, roster = {}) {
       return resolution.resolveFigureName(await api.figureRows(roster),segment,roster)
@@ -256,7 +272,8 @@ export function createAssetPackPresentation({raw, getEngine, getService, getAllo
       const identity = actor?.figure ? resolution.resolveFigureName(figureRows || await api.figureRows({[alias]:actor}),actor.figure)
         : !historical ? resolution.resolveFigureName(figureRows || await api.figureRows(),alias) : null
       const ref = identity?.status === 'resolved' ? identity.ref : null
-      if (!ref || !(getAllowedPackIds?.() || extension.assetBindings.boundPackIds).includes(ref.packId)) return {alias, ref:null, form:null, diagnostics:['figure-unbound']}
+      const lent = actor?.standIn && actor.figure && figureRefKey(actor.figure) === (ref && figureRefKey(ref))
+      if (!ref || !lent && !(getAllowedPackIds?.() || extension.assetBindings.boundPackIds).includes(ref.packId)) return {alias, ref:null, form:null, diagnostics:['figure-unbound']}
       if (historical && !Object.hasOwn(actor, 'outfitKey')) return {alias, ref:clone(ref), form:null, diagnostics:['historical-outfit-missing']}
       {
         const resolved = await resolveFigure(ref)

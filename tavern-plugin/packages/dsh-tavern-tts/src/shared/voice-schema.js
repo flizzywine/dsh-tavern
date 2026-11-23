@@ -33,6 +33,21 @@ function refs(v, path) {
 export function voiceReferences(voice) {
   return Object.values(voice.sources).flatMap(s => s.kind === 'reference-list' ? s.references : [])
 }
+export const usesOfficialFish = source => source.kind === 'voice-id' && source.provider === 'fish-audio' && !source.serviceId
+
+export function normalizeVoiceServices(library) {
+  const changes = []
+  for (const [voiceId, voice] of Object.entries(library?.voices || {})) {
+    for (const [sourceId, source] of Object.entries(voice?.sources || {})) {
+      if (!source || !usesOfficialFish(source) || source.serviceType !== undefined) continue
+      delete source.serviceId
+      source.serviceType = 'fish-official'
+      changes.push({voiceId,sourceId})
+    }
+  }
+  return changes
+}
+
 export function validateVoiceSpec(v, path = '$.voice') {
   shape(v,['name','guidance','autoCast','language','defaultSource','sources','variants','emotions','fallbackSources'],['name','language','defaultSource','sources'],path)
   text(v.name,path+'.name'); language(v.language,path+'.language'); id(v.defaultSource,path+'.defaultSource')
@@ -44,8 +59,9 @@ export function validateVoiceSpec(v, path = '$.voice') {
     // `model`: the provider's synthesis model this source speaks with (a figure's choice, never the service's); absent = the
     // service's default model.
     const fields = {'voice-id':['voiceId','model'],preset:['voiceName','model'],'reference-list':['references','model','private']}[s?.kind]
-    check(fields,p+'.kind'); shape(s,['kind','provider','serviceId',...fields],['kind','provider'],p); id(s.provider,p+'.provider')
+    check(fields,p+'.kind'); shape(s,['kind','provider','serviceId','serviceType',...fields],['kind','provider'],p); id(s.provider,p+'.provider')
     // the service instance this source speaks through (one of several of its provider); the same name as a reading voice's.
+    if (s.serviceType !== undefined) check(s.serviceType === 'fish-official' && usesOfficialFish(s) && s.serviceId === undefined,p+'.serviceType')
     if (s.serviceId !== undefined) id(s.serviceId,p+'.serviceId')
     // every source may be chosen before it is set up — a clone without clips,
     // a library voice or online preset without its voice. Resolving it reports what is

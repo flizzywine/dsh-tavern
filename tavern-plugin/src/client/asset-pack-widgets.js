@@ -65,8 +65,10 @@ const switchRowClick=open=>e=>{const target=e.target;
 // A state that needs an action (not an explanation, panel-ui-design.md §一.5): a warning mark + one link chip, never a
 // grey note. Compact (on a switch row): the state is only the mark's tooltip / accessible name and the chip's
 // accessible name; standalone: the short state stays beside the mark in normal ink.
-function HintLine({text,action,onAction,compact}) {
+// `link`: the state itself is the way to fix it (one button ⚠ + the short state, no chip), e.g. 自动素材's 「未配置」 (主人 11-22).
+function HintLine({text,action,onAction,compact,link,label}) {
   const chip=action&&h(Button,{className:'ap-hint-chip',...(compact?{'aria-label':action+'（'+text+'）',title:text}:{}),onClick:onAction},action);
+  if(link)return h('button',{type:'button',className:'ap-hint-line is-link','aria-label':label||text,title:label||undefined,onClick:onAction},h('span',{className:'ap-hint-mark','aria-hidden':true},h(Glyph,{name:'warning'})),h('span',null,text));
   if(compact)return h('span',{className:'ap-hint-line is-compact'},h('span',{className:'ap-hint-mark',role:'img','aria-label':text,title:text},h(Glyph,{name:'warning'})),chip);
   return h('p',{className:'ap-hint-line'},h('span',{className:'ap-hint-mark','aria-hidden':true},h(Glyph,{name:'warning'})),h('span',null,text),chip);
 }

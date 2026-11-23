@@ -292,6 +292,9 @@ export function createStageDirector(deps) {
   async function directorSelection(choice, chat) {
     return deps.selection ? deps.selection(chat) : choice && typeof choice === 'object' ? choice : await deps.foreground(chat)
   }
+  // 借用形象 (stage-stand-in.js) of the chat's card: {standInLooks: by name, standInPacks: the lent figures' pack snapshots};
+  // none without 自动素材.
+  const standInLooks = async chat => await deps.standInLooks?.(chat) || {}
   // snapshot: the assets a streaming director started with, so its final window directs from the same ones.
   async function prepare(chat, turn, {signal, preview = true, authorityOnly = false, retryPreparation, capturePreparation, streamingBaseline, hostOnly = false, display, snapshot} = {}) {
     const assets = snapshot || await deps.assets.snapshot(chat.cardPath)
@@ -306,7 +309,7 @@ export function createStageDirector(deps) {
     const info = hostOnly ? null : await deps.modelInfo?.(engine.directorModel)
     const judgeConfigured = !hostOnly && judgeEnabled(engine.judge)
     let mods=hostOnly ? undefined : await deps.mods?.prepare(chat,turn,{target,preview:true,isCurrent:live})
-    const input = {...assets,activeStageSkin:deps.activeStageSkin, modTurn:modStageTurn(chat,turn), playerName:chat.macroState?.userName, playerInput:playerInputBefore(chat,index,assets.raw), stateSource:await deps.stateSource?.(chat,assets.raw), ...(mods ? {mods,modPrompts:mods.fragments} : {}), items:prepareStageItems(assets.raw,chat,index), condition:settledCondition(chat,index), engine, target, units, imageUnits:displayUnits, pageIndex, generation:chat.messages[index].stageDirectionGeneration || 0, predecessor:recordsThrough(chat,index - 1).records, modelInfo:info, record:streamingBaseline ? undefined : record, ...(streamingBaseline ? {baseline:streamingBaseline,continuation:true} : {}), opening:greeting ? openingOf(assets, greeting).state : undefined}
+    const input = {...assets,activeStageSkin:deps.activeStageSkin, modTurn:modStageTurn(chat,turn), playerName:chat.macroState?.userName, ...await standInLooks(chat), playerInput:playerInputBefore(chat,index,assets.raw), stateSource:await deps.stateSource?.(chat,assets.raw), ...(mods ? {mods,modPrompts:mods.fragments} : {}), items:prepareStageItems(assets.raw,chat,index), condition:settledCondition(chat,index), engine, target, units, imageUnits:displayUnits, pageIndex, generation:chat.messages[index].stageDirectionGeneration || 0, predecessor:recordsThrough(chat,index - 1).records, modelInfo:info, record:streamingBaseline ? undefined : record, ...(streamingBaseline ? {baseline:streamingBaseline,continuation:true} : {}), opening:greeting ? openingOf(assets, greeting).state : undefined}
     let prepared = prepareAssetPackDirector(input), judge, judgeResult, judgeRecall
     // Retry keeps decisions, not authority: rebuild bindings/proofs against the current source and assets.
     const scope = JSON.stringify([chat.cardPath,target.branchId,target.sourceKey,prepared.binding.unitsDigest,engine.judge])
@@ -382,7 +385,7 @@ export function createStageDirector(deps) {
       const modMemo = new Map()
       try {
         const mods = await deps.mods?.prepare(chat,turn,{target,preview:true,isCurrent:current,streamSource:streamSource(''),memo:modMemo})
-        const input = {...assets,activeStageSkin:deps.activeStageSkin,playerInput:playerInputBefore(chat,chat.messages.length,assets.raw),stateSource:await deps.stateSource?.(chat,assets.raw),...(mods ? {mods} : {}),items:prepareStageItems(assets.raw,chat,chat.messages.length),condition:settledCondition(chat,chat.messages.length),engine,target,record,predecessor:recordsThrough(chat,chat.messages.length - 1,history).records,
+        const input = {...assets,activeStageSkin:deps.activeStageSkin,playerName:chat.macroState?.userName,playerInput:playerInputBefore(chat,chat.messages.length,assets.raw),stateSource:await deps.stateSource?.(chat,assets.raw),...(mods ? {mods} : {}),items:prepareStageItems(assets.raw,chat,chat.messages.length),condition:settledCondition(chat,chat.messages.length),engine,target,record,predecessor:recordsThrough(chat,chat.messages.length - 1,history).records,
           opening:greeting ? openingOf(assets,greeting).state : undefined,modelInfo:await deps.modelInfo?.(engine.directorModel)}
         job.pack = createStreamingPackDirector({input,twoChunks:true,identity:{sessionId:chat.sessionId,branchId:job.branchId,bodyOperationId:operation.id,nativeTurn:turn},
           current, openConversation:deps.openConversation,
@@ -398,7 +401,7 @@ export function createStageDirector(deps) {
             // Only the judge questions need a full preparation before the final one; the mods read the catalogue.
             let judgeRecall, catalogue
             if (deps.judge && judgeEnabled(engine.judge)) {
-              const prepared = prepareAssetPackDirector({...source,mods:windowMods,modPrompts:windowMods?.fragments || []})
+              const prepared = prepareAssetPackDirector({...source,...await standInLooks(chat),mods:windowMods,modPrompts:windowMods?.fragments || []})
               const questions = prepared.judgeQuestions
               const probabilities = await deps.judge.judge({sessionId:chat.sessionId,material:judgeMaterial(engine.judge.preamble,source.units),questions:questions.map(({id,text}) => ({id,text}))})
               judgeRecall = selectJudgeRecall(questions,probabilities,engine.judge)
@@ -406,7 +409,8 @@ export function createStageDirector(deps) {
             if (!current() || signal.aborted) throw expired()
             if (deps.mods) catalogue = assetPackDirectorCatalogue({...source,mods:windowMods,judgeRecall})
             windowMods = await deps.mods?.prepare(chat,turn,{...options,assetCatalogue:catalogue})
-            const prepared = prepareAssetPackDirector({...source,mods:windowMods,modPrompts:windowMods?.fragments || [],judgeRecall})
+            // a person cast while this reply streams is in no snapshot yet: the look they were lent comes from 自动素材 per window
+            const prepared = prepareAssetPackDirector({...source,...await standInLooks(chat),mods:windowMods,modPrompts:windowMods?.fragments || [],judgeRecall})
             return {prepared,mods:windowMods}
           },
           runAgent:({preparation,...request}) => {
