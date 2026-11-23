@@ -11,7 +11,7 @@ import {cardAssetWorkspaceRevision} from '../../../lib/card-asset-bindings.js'
 import {readCardVariableSources} from '../../../lib/domain/card-variable-bindings.js'
 import skinContract from '../../dsh-presentation-protocol/src/stage-skin.cjs'
 import {figureCatalogue,effectiveFigurePackIds} from '../../../lib/domain/figure-catalogue.js'
-import {stateSourceSchema,ledgerSource,ledgerConfigExports,resolveStateSource,ledgerInventoryBinding} from '../../../lib/domain/mods/state-source.js'
+import {ledgerSource,ledgerConfigExports,resolveStateSource,ledgerInventoryBinding} from '../../../lib/domain/mods/state-source.js'
 import {ASSET_PACK_RECORD_FIELD,readAssetPackRecord} from './domain/stage-asset-pack-director.js'
 const fail=(code,message)=>{throw Object.assign(new Error(message),{code})}
 
@@ -32,7 +32,7 @@ export function createModConfigStageReader({readChat,readRevision}) {
 }
 
 export function createModConfigHost({library,workbenchAuthority,root,store:managedStore,manifests,managedManifests,listCards,readCard,getAssetLibrary,readSession,readWindow,readRevision,getEngine,readStage=async()=>null,invalidate,getGlobalEnabledPackIds=()=>[],resolveOptionValues=async(_modId,_card,_chat,values)=>values,projectOptions=async value=>value}) {
-  const schemas={...(managedManifests?managedConfigSchemas(managedManifests,manifests,library):builtinConfigSchemas(manifests,library)),'dsh.state':stateSourceSchema},registered=new Map(),cache=new Map()
+  const schemas={...(managedManifests?managedConfigSchemas(managedManifests,manifests,library):builtinConfigSchemas(manifests,library))},registered=new Map(),cache=new Map()
   let active=true
   function unregister(packs) {
     const stops=registered.get(packs) || []
@@ -46,7 +46,7 @@ export function createModConfigHost({library,workbenchAuthority,root,store:manag
     const stops=[]
     registered.set(packs,stops)
     try {
-    for(const [modId,schema] of Object.entries(schemas).filter(([id])=>id!=='dsh.state'))stops.push(packs.registerModPrivate({modId,validate:config=>{
+    for(const [modId,schema] of Object.entries(schemas))stops.push(packs.registerModPrivate({modId,validate:config=>{
       if(!config || config.version!==1 || Object.keys(config).some(key=>!['version','values'].includes(key)) || !config.values || typeof config.values!=='object' || Array.isArray(config.values))fail('CONFIG_TYPE','Invalid mod config document')
       for(const [key,value] of Object.entries(config.values)) {
         const field=schema.fields.find(row=>row.key===key)
@@ -62,7 +62,7 @@ export function createModConfigHost({library,workbenchAuthority,root,store:manag
   for(const id of ['mvu','helper-chat'])sources.register({id,label:id==='mvu'?'MVU':'聊天变量',exports:[],read:ctx=>ctx.sources?.[id] || {available:false}})
   sources.register({id:'ledger',label:'游玩台账',exports:ledgerConfigExports,read:ctx=>ctx.sources?.ledger || {available:false}})
   sources.register({id:'stage',label:'舞台',exports:stageConfigExports,read:ctx=>ctx.sources?.stage || {available:false}})
-  for(const [id,schema] of Object.entries(schemas).filter(([id])=>id!=='dsh.state'))sources.register({id:'mod:'+id,label:(managedManifests || manifests).find(row=>row.id===id).name,exports:schema.fields.map(field=>({path:'/'+field.key,name:field.label || field.key,type:field.valueType,description:field.label || field.key,settingKey:field.key})),read:({settings})=>settings})
+  for(const [id,schema] of Object.entries(schemas))sources.register({id:'mod:'+id,label:(managedManifests || manifests).find(row=>row.id===id).name,exports:schema.fields.map(field=>({path:'/'+field.key,name:field.label || field.key,type:field.valueType,description:field.label || field.key,settingKey:field.key})),read:({settings})=>settings})
   const service=createModConfigService({schemas,store,sources})
   async function context(args,pinned) {
     const indexed=pinned?.chat || (args.sessionId?await readSession(args.sessionId):null)
@@ -71,8 +71,7 @@ export function createModConfigHost({library,workbenchAuthority,root,store:manag
     if(indexed && !card){const workspace=await readCard(indexed.cardPath);if(!workspace)fail('NOT_FOUND','Session card unavailable');card={path:indexed.cardPath,workspace}}
     if(indexed && indexed.cardPath!==card.path)fail('NOT_FOUND','Session does not belong to card')
     if(!card)return {}
-    const setting=await service.resolve('dsh.state','source'),preference=setting.value
-    const engine=getEngine(),revision=JSON.stringify([cardAssetWorkspaceRevision(card.workspace),indexed?._storageRevision,engine.revision,engine.assetRevision,getGlobalEnabledPackIds(),preference,indexed?.timeline?.branchId,indexed?.ledger])
+    const engine=getEngine(),revision=JSON.stringify([cardAssetWorkspaceRevision(card.workspace),indexed?._storageRevision,engine.revision,engine.assetRevision,getGlobalEnabledPackIds(),indexed?.timeline?.branchId,indexed?.ledger])
     const key=JSON.stringify([card.workspace.meta.id,args.sessionId,revision])
     if(cache.has(key))return cache.get(key)
     const source=indexed?await readCardVariableSources({path:card.path,indexed,readWindow,readRevision}):{},ext=rawData(card.workspace.raw).extensions?.dsh_tavern || {},stage={},labels={}
@@ -114,7 +113,7 @@ export function createModConfigHost({library,workbenchAuthority,root,store:manag
     if(appearance?.ui){stage.skin=Object.fromEntries(Object.entries({surface:appearance.ui.bg,line:appearance.ui.border,accent:appearance.ui.accent}).filter(([,value])=>value!==undefined));labels['/skin/surface']='舞台皮肤';labels['/skin/line']='舞台皮肤'}
     source.stage={available:true,value:stage,labels}
     source.ledger=ledgerSource(indexed)
-    const stateSource=resolveStateSource({preference,raw:card.workspace.raw,chat:indexed,sources:source})
+    const stateSource=resolveStateSource({raw:card.workspace.raw,chat:indexed,sources:source})
     const value={cardId:card.workspace.meta.id,sessionId:args.sessionId,raw:card.workspace.raw,revision,sources:source,stateSource}
     cache.set(key,value);if(cache.size>32)cache.delete(cache.keys().next().value)
     return value
@@ -149,9 +148,8 @@ export function createModConfigHost({library,workbenchAuthority,root,store:manag
     return {values:await resolveOptionValues(modId,card,chat,values),layers}
   },
   async stateSource(chat,raw) {
-    const preference=(await service.resolve('dsh.state','source')).value
     const sources=await readCardVariableSources({path:chat.cardPath,indexed:chat,readWindow,readRevision})
-    return resolveStateSource({preference,raw,chat,sources})
+    return resolveStateSource({raw,chat,sources})
   },
   readFile:args=>store.readFile(args)})
 }
