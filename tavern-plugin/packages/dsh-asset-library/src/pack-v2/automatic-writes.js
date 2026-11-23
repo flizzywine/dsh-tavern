@@ -78,7 +78,7 @@ const WRITERS = Object.freeze({
   'auto-figure': {ops:['create'], texts:['name','aliases'], media:false, sourceKind:'story-speaker'},
   'auto-cast': {ops:['create','copy','patch'], texts:['name','aliases','description','guidance'], media:true, sourceKind:'auto-cast'}
 })
-const CHANGE_FIELDS = {create:[['op','kind','value'],['op','kind','value']], copy:[['op','kind','source','patch'],['op','kind','source']], patch:[['op','kind','ref','patch'],['op','kind','ref']]}
+const CHANGE_FIELDS = {create:[['op','kind','value'],['op','kind','value']], copy:[['op','kind','source','patch','copyVoice'],['op','kind','source']], patch:[['op','kind','ref','patch'],['op','kind','ref']]}
 const IMAGE_KEY = /^[A-Za-z0-9_-]{1,40}$/
 
 // The authority binds one immutable request: image bytes compare as bytes, everything else as canonical JSON.
@@ -234,6 +234,7 @@ export function createAutomaticWriteMethods({run, readRun, all, load, metadata, 
         figureId = createFigure(manifest, files, {figure:{schemaVersion:1, ...clone(change.value), enabled:true, recall:{mode:'keyword'}, appearance:'avatar',
           emotions:clone(STANDARD_FIGURE_EMOTIONS), outfits:[], extensions:{'dsh.automatic-write':mark}}}).figureId
       } else if (change.op === 'copy') {
+        check(change.copyVoice === undefined || typeof change.copyVoice === 'boolean', '$.changes[].copyVoice', 'Expected boolean')
         shape(change.source, ['packId','figureId'], ['packId','figureId'], '$.changes[].source')
         catalogued(change.source.packId)
         const source = await sources(change.source.packId)
@@ -242,7 +243,7 @@ export function createAutomaticWriteMethods({run, readRun, all, load, metadata, 
         // the copy takes the source figure's 配图 外貌 along; the host gives it a record of its own
         const look = (await figureImageExtras(source.manifest.id, [change.source.figureId]))[change.source.figureId]
         const had = new Set(Object.keys(manifest.voiceLibrary?.voices || {}))
-        figureId = copyFigureAssets(source, change.source.figureId, manifest, files, {extensions:{...(look ? {[FIGURE_IMAGE_EXTENSION]:look} : {}), 'dsh.automatic-write':mark}}).figureId
+        figureId = copyFigureAssets(source, change.source.figureId, manifest, files, {copyVoice:change.copyVoice, extensions:{...(look ? {[FIGURE_IMAGE_EXTENSION]:look} : {}), 'dsh.automatic-write':mark}}).figureId
         for (const [name, digest] of storedCopyHashes(files, [source])) hashed.set(name, digest)
         if (look) await carryFigureImageMedia(source.manifest.id, {[change.source.figureId]:look}, manifest, files, hashed)
         for (const [id, spec] of Object.entries(manifest.voiceLibrary?.voices || {})) if (!had.has(id)) voices[id] = clone(spec)

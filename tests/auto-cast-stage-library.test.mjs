@@ -86,6 +86,21 @@ test('the port casts through the library\'s auto-cast writer: a new figure with 
   assert.equal((await port.readMedia({packId:cast.packId, hash:after.setteiHash})).length > 0, true)
 })
 
+test('automatic casting can copy the figure and its artwork without copying its voice', async t => {
+  const {service, port, templatePack} = await fixture(t)
+  const template = (await port.search('傲娇')).figures.find(row => row.ref.figureId === TEMPLATE)
+  assert.ok(template.voice)
+  const plan = castChanges([{name:'无配音分身', aliases:[]}], {
+    same:{}, copy:{无配音分身:{source:{packId:templatePack, figureId:TEMPLATE}, revision:template.revision}}, appearance:{}, voice:{},
+  }, {voices:false})
+  const written = await port.write({cardPath:'card', changes:plan.changes, sources:plan.sources, source, requestId:'cast-without-voice'})
+  const cast = await port.readCast('card')
+  const pack = await service.getPackSnapshot({packId:written.packId})
+  assert.deepEqual(cast.figures[0].sprites, ['calm'])
+  assert.equal(pack.figures[written.refs[0].figureId].voice, undefined)
+  assert.equal(Object.keys(pack.manifest.voiceLibrary?.voices ?? {}).length, 0)
+})
+
 // 主人 11-15: only 通用声音 (the voice page's switch, else a voice written a 使用情景 before the switch) are offered to the assistant.
 test('the assistant\'s voice candidates are 可选声音 「默认」: a 使用情景, or a voice of the pack 通用声音 / 旁白 point at; never by name; the old switch is not read', async t => {
   const {service, port, world, templatePack} = await fixture(t)
@@ -124,7 +139,7 @@ test('a committed round through the asset library plugin\'s own service: new spe
   const store = {readJson:async k => files.get(k) ?? null, writeJson:async (k, v) => files.set(k, v), updateJson:async (k, fn) => files.set(k, fn(files.get(k) ?? null)),
     readBytes:async k => files.get(k), writeBytes:async (k, v) => files.set(k, v), remove:async k => files.delete(k)}
   const port = createAutoCastLibrary({getLibrary:() => services.get('assetLibrary')})
-  const cast = createAutoCast({store, settings:async () => ({enabled:true, level:'aggressive'}), library:port, onError:error => errors.push(error),
+  const cast = createAutoCast({store, settings:async () => ({enabled:true, level:'aggressive', sprites:true, voices:true}), library:port, onError:error => errors.push(error),
     images:{status:async () => ({ready:true, model:'m'}), prompt:async input => ({prompt:input.kind, output:{size:'1536x1024', background:'opaque', quality:'high'}}), check:() => ({warnings:[], hasTransparency:false}),
       generate:async input => { drawn.push(input); return {data:new Uint8Array(png([1, 2, 3])), mediaType:'image/png'} }}})
   t.after(async () => { cast.dispose(); for (const dispose of cleanup.reverse()) await dispose?.(); await rm(root, {recursive:true, force:true}) })

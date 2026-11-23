@@ -92,6 +92,22 @@ test('every library 通用声音 is listed with its name, 使用情景, language
   assert.deepEqual(seen[0], {ok:true, voices:[{packId:'p-system', voiceId:'v-male', name:'通用男性声音的声音', language:'zh', pack:'系统设置（请勿删除）', figures:['通用男性声音'], inUse:false}], more:3})
   assert.deepEqual(result.voice['林澈'], {from:{packId:'p-system', voiceId:'v-male'}, revision:'r1', reason:'说话随和，适合自然的成年男声'})
 })
+// 自动素材 › 自动配音 off (主人 11-22): no voice is listed or can be assigned; the new person is created without one.
+test('with 自动配音 off the assistant has no voice tools and the library search lists no voices', async () => {
+  const voice = {packId:'p-system', packName:'系统设置', revision:'r1', voiceId:'v-male', name:'男声', language:'zh', sound:'male'}
+  const seen = {}
+  const result = await runCastingAssistant({selection:{}, speakers:[{name:'林澈', aliases:[]}], rows, pieces:[], voices:false,
+    search:async () => ({figures:[], voices:[voice]}), libraryVoices:async () => ({voices:[voice], more:0}),
+    runAgent:async input => {
+      seen.offered = input.tools.map(tool => tool.name)
+      seen.search = JSON.parse(await input.onToolCall({name:'search_library', arguments:{query:'男'}}))
+      seen.assign = JSON.parse(await input.onToolCall({name:'assign_voice', arguments:{figure:'林澈', packId:'p-system', voiceId:'v-male', reason:'…'}}))
+    }})
+  assert.deepEqual(seen.offered, ['search_lore', 'search_library', 'same_as', 'copy_figure', 'write_appearance', 'finish'])
+  assert.deepEqual(seen.search, {ok:true, figures:[]})
+  assert.equal(seen.assign.ok, false)
+  assert.deepEqual(result.voice, {})
+})
 
 // 先定语言，再按语言挑声音（主人 11-22）: a new speaker speaks 中文 unless the data says otherwise, and is cast only with
 // voices of its language; another language's voice is never relabelled to fill in. Library voices of one language each

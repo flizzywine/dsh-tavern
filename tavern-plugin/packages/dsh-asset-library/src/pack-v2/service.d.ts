@@ -37,7 +37,7 @@ export interface AutomaticFigureExtras {
   sprites?: Array<{emotion: string; image: string; outfit?: string}>;
 }
 export type AutomaticCreate = {op: 'create'; kind: 'figures'; value: AutomaticFigureTexts & {name: string; aliases: string[]}} & AutomaticFigureExtras
-export type AutomaticCopy = {op: 'copy'; kind: 'figures'; source: FigureRef; patch?: AutomaticFigureTexts} & AutomaticFigureExtras
+export type AutomaticCopy = {op: 'copy'; kind: 'figures'; source: FigureRef; patch?: AutomaticFigureTexts; copyVoice?: boolean} & AutomaticFigureExtras
 export type AutomaticPatch = {op: 'patch'; kind: 'figures'; ref: FigureRef & {kind: 'figures'}; patch?: AutomaticFigureTexts} & AutomaticFigureExtras
 export type AutomaticChange = AutomaticCreate | AutomaticCopy | AutomaticPatch
 export interface AutomaticWriteInput {

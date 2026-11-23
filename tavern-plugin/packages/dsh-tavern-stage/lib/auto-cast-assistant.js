@@ -42,7 +42,7 @@ const TOOLS = [
   {name:'search_lore', description:'按名字、别名或关键词搜本卡的原文、世界书和人物档案，返回命中的原文片段。', parameters:{type:'object', properties:{query:{type:'string', description:'一个名字或关键词'}}, required:['query']}},
   {name:'search_library', description:'在整个素材库里按名字、别名、人物介绍或声音的使用场景搜人物和声音。', parameters:{type:'object', properties:{query:{type:'string', description:'一个名字或关键词，如「雪乃」「毒舌」「中年男性」'}}, required:['query']}},
   {name:'same_as', description:'新人物其实是本卡已有的某个人物换了个叫法（两个名字有包含关系，如「晓美焰」和「晓美焰·麻花辫」）：不新建、不画。', parameters:{type:'object', properties:{figure:figureArg, existing:{type:'string', description:'本卡已有人物的名字'}}, required:['figure', 'existing']}},
-  {name:'copy_figure', description:'把素材库里搜到的人物复制给新人物（立绘、表情、声音一起带，改成新人物的名字），不再画。', parameters:{type:'object', properties:{figure:figureArg,
+  {name:'copy_figure', description:'把素材库里搜到的人物复制给新人物，沿用立绘和表情。是否保留声音由自动配音设置决定。', parameters:{type:'object', properties:{figure:figureArg,
     packId:{type:'string', description:'search_library 结果里的 packId'}, figureId:{type:'string', description:'search_library 结果里的 figureId'}}, required:['figure', 'packId', 'figureId']}},
   {name:'write_appearance', description:'写新人物的人物介绍和外貌：介绍进素材包，外貌进配图人物库，之后按它画人设图、立绘和场景配图（人物档案里已写过的项不覆盖）。', parameters:{type:'object', properties:{figure:figureArg,
     about:{type:'string', description:'人物介绍：他在这个故事里是谁（身份、和主角的关系、性格），一两句'},
@@ -63,9 +63,10 @@ const TOOLS = [
 // ({voices, more}; null: none); pieces: cardLorePieces (card-stage.js); story: the round's text (roundStory), where a speaker
 // the card never names comes on and is first described. A voice is chosen only among the library's 通用声音 (those
 // offered to it, voiceAutoCast in voice-auto-cast.cjs; library-search.js filters): never a figure's own, nor a bare 配音后端 voice.
+// voices: false (自动配音 off) offers no voice tools and lists no voices: new people are created without one.
 // → {same:{[name]:ref}, copy:{[name]:{source, revision}}, appearance:{[name]:{face, bodySFW}}, about:{[name]:人物介绍}, importance:{[name]:tier}, voice:{[name]:{from, revision, reason}},
 //    language:{[name]:tag} (only another language than 中文), unvoiced:{[name]:tag} (its language has no 通用声音), finished}
-export async function runCastingAssistant({runAgent, selection, sessionId, turn, signal, speakers, rows, voiceKeys = new Set(), pieces, story = '', search, libraryVoices = null}) {
+export async function runCastingAssistant({runAgent, selection, sessionId, turn, signal, speakers, rows, voiceKeys = new Set(), pieces, story = '', search, libraryVoices = null, voices = true}) {
   const result = {same:{}, copy:{}, appearance:{}, about:{}, importance:{}, voice:{}, language:{}, unvoiced:{}, finished:false}
   const seen = {figures:new Map(), voices:new Map()}
   const picked = new Map()
@@ -87,8 +88,8 @@ export async function runCastingAssistant({runAgent, selection, sessionId, turn,
       const found = await search(String(query || ''))
       for (const row of found.figures) seen.figures.set(row.packId + '/' + row.ref.figureId, row)
       return JSON.stringify({ok:true,
-        figures:found.figures.map(row => ({packId:row.packId, figureId:row.ref.figureId, name:row.name, aliases:row.aliases, pack:row.packName, ...(row.description ? {description:row.description} : {}), canCopy:row.copyable, voice:row.voice ? {name:row.voice.name, language:row.voice.language} : null})),
-        voices:found.voices.map(voiceRow)})
+        figures:found.figures.map(row => ({packId:row.packId, figureId:row.ref.figureId, name:row.name, aliases:row.aliases, pack:row.packName, ...(row.description ? {description:row.description} : {}), canCopy:row.copyable, ...(voices ? {voice:row.voice ? {name:row.voice.name, language:row.voice.language} : null} : {})})),
+        ...(voices ? {voices:found.voices.map(voiceRow)} : {})})
     },
     same_as({figure, existing}) {
       const target = speaker(figure)
@@ -161,7 +162,8 @@ export async function runCastingAssistant({runAgent, selection, sessionId, turn,
     },
     finish() { result.finished = true; return JSON.stringify({ok:true}) },
   }
-  const offered = TOOLS.filter(tool => (search || !['search_library', 'copy_figure'].includes(tool.name)) && (libraryVoices || tool.name !== 'list_library_voices') && (search || libraryVoices || !['assign_voice', 'speaks_language'].includes(tool.name)))
+  const offered = TOOLS.filter(tool => (search || !['search_library', 'copy_figure'].includes(tool.name))
+    && (voices && libraryVoices || tool.name !== 'list_library_voices') && (voices && (search || libraryVoices) || !['assign_voice', 'speaks_language'].includes(tool.name)))
   const taskText = JSON.stringify({新人物:speakers.map(row => row.name), 本卡已有人物:rows.map(row => [row.name, ...row.aliases].join(' / ')), ...(story ? {本轮正文:story} : {})})
   // Each speaker takes a few searches and decisions (lore, library, appearance, voices): the runner's call budget grows with them.
   await runAgent({task:AUTO_CAST_TASK, sessionId, turn, selection, ownPrefix:true, system:await readFile(PROMPT, 'utf8'), taskText, messages:[], signal,
@@ -169,7 +171,7 @@ export async function runCastingAssistant({runAgent, selection, sessionId, turn,
     tools:offered.map(tool => tool.name === 'finish' ? {...tool, countsTowardLimit:false} : tool), onToolCall:async call => tools[call.name] && offered.some(tool => tool.name === call.name) ? tools[call.name](call.arguments || {}) : fail('没有这个工具')})
   // Said plainly, never filled with another language's voice: a new speaker left without a voice because its language has
   // no 通用声音 at all.
-  if (libraryVoices) {
+  if (voices && libraryVoices) {
     const none = new Map()
     for (const {name} of speakers) {
       if (result.same[name] || result.copy[name] || result.voice[name]) continue
