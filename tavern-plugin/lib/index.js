@@ -360,8 +360,8 @@ import { createPlayHandlers } from './rpc/play.js'
 import { createTransferHandlers } from './rpc/transfer.js'
 import { createImageCharacterHandlers } from './rpc/image-characters.js'
 import { createFigureRecords } from './image-character-records.js'
-import { figureOutfitReference } from './domain/figure-sprite-reference.js'
-import { appearanceFromImageCharacter, findFigureImageCharacter, imageCharacterExtension, imageCharacterFromFigure } from './domain/image-character-appearance.js'
+import { createFigurePictures } from './image-character-pictures.js'
+import { appearanceFromImageCharacter, figurePackPictures, findFigureImageCharacter, imageCharacterExtension, imageCharacterFromFigure } from './domain/image-character-appearance.js'
 import { createTransferExportStore } from './domain/transfer-store.js'
 // dsh-tavern 宿主插件（profile 组合行）
 // RPC：同源 HTTP 路由 /api/dsh-tavern/<method>（客户端 fetch 调用）
@@ -3332,6 +3332,7 @@ export async function apply(ctx) {
   }
   const gameForegroundQueues = new Map()
   let figureRecords = null
+  const figurePictures = createFigurePictures(() => ctx.get('assetLibrary'))
   pluginApi = createTavernPluginApi({
     ctx,get modHost() {return ctx.get('tavernManagedModules')},
     replyStreamRewriters,
@@ -3349,6 +3350,9 @@ export async function apply(ctx) {
       library?.figureRecordsChanged?.({}).then(() => figureRecords?.foldWhole(library)).catch(error => console.warn('dsh-tavern: 素材库人物刷新失败', str(error?.message || error)))
     },
     writingFigureRecords: () => figureRecords?.writing() === true,
+    // A figure's 设定图 and borrowed 立绘, which 配图 reads by a record's link from the pack, their one store (ADR 0012).
+    figurePictures: figures => figurePictures.list(figures),
+    readFigurePicture: input => figurePictures.read(input),
     async imagePackCharacters(packIds, selections, includeReferences) {
       const library = ctx.get('assetLibrary')
       if (!library) return []
@@ -3362,7 +3366,7 @@ export async function apply(ctx) {
           if (selections && !selection) return null
           const outfits = figure.outfits.filter(outfit => outfit.enabled !== false)
           const outfit = selection && (selection.outfitId ? outfits.find(item => item.key === selection.outfitId) : outfits[0])
-          const hash = includeReferences && outfit && (outfit.settei || figureOutfitReference(pack, figure, outfit)?.hash)
+          const hash = includeReferences && outfit && figurePackPictures(pack, figure).outfits[outfit.key]?.hash
           const reference = hash ? await library.readMedia({ packId: pack.manifest.id, expectedRevision: pack.revision, hash }) : null
           return { ...character, id, consistencyText: figure.description, outfits: character.outfits.filter(item => outfits.some(outfit => outfit.key === item.id)),
             ...(outfit && { outfitId: outfit.key }), ...(reference && { reference: { data: Buffer.from(reference.bytes).toString('base64'), mediaType: reference.descriptor.mime, name: character.name + ' · ' + outfit.label } }) }

@@ -10,6 +10,7 @@ import { pluginMember, pluginMemberId, registerPluginMember } from './domain/bac
 import { CUSTOM_EVENT, STORY_EVENTS } from './domain/story-events.js'
 import { bounded, untilAborted } from './domain/plugin-callback.js'
 import { createPluginImageCatalog } from './domain/plugin-image-catalog.js'
+import { packPictureCopy } from './domain/image-character-appearance.js'
 import path from 'node:path'
 import { publicPluginMedia, pluginMediaSession } from './domain/plugin-media.js'
 import { normalizeGameSettings, coerceSetting, settingValues } from './domain/plugin-game-settings.js'
@@ -679,6 +680,20 @@ export function createTavernPluginApi(deps) {
         ...subject, outfitId: subject.outfitId || worn.find(row => subject.characterId === `pack:${row.packId}:${row.figureId}`)?.outfitKey,
       })), includeReferences === true)
     },
+    // The pictures of asset-library figures, read where they live (the pack), for records linked to them
+    // (figurePackId, figureId): [{packId, figureId, identity, outfits: {[outfit id]: {picture, borrowed}}}], each picture
+    // a reference descriptor {id: sha256, mediaType, byteLength, name}. `identity` is the person's 人设图; an outfit's
+    // picture is its 服装设定图, or (borrowed) the resting 立绘 it lends when the record has no picture of its own.
+    // readFigurePicture({packId, figureId, id}) → {data: Uint8Array, mediaType}.
+    async figurePictures({ figures } = {}) {
+      if (!deps.figurePictures) return []
+      if (!Array.isArray(figures)) throw new TypeError('figurePictures 需要 figures 数组')
+      return deps.figurePictures(figures)
+    },
+    async readFigurePicture({ packId, figureId, id } = {}) {
+      if (!deps.readFigurePicture) throw Object.assign(new Error('素材库未启用'), { code: 'NOT_FOUND' })
+      return deps.readFigurePicture({ packId, figureId, id })
+    },
     async beforeImageGenerate({ gameId, turn, anchor, subjects, signal } = {}) {
       if (typeof gameId !== 'string' || !gameId || !Array.isArray(subjects) || subjects.length > 16) throw new TypeError('beforeImageGenerate 需要 gameId 与最多 16 个 subjects')
       if (!imageGateProvider) return {}
@@ -693,7 +708,9 @@ export function createTavernPluginApi(deps) {
         return row && record.outfits?.some(outfit => outfit.id === row.outfitKey) ? [[record.id, row.outfitKey]] : []
       }))
       const answer = Object.keys(outfits).length ? { outfits } : {}
-      const figures = linked.filter(record => !record.referenceImage)
+      const drawn = deps.figurePictures && linked.length ? await deps.figurePictures(linked.map(record => ({ packId: record.figurePackId, figureId: record.figureId }))) : []
+      const figures = linked.filter(record => (!record.referenceImage || packPictureCopy(record.referenceImage, record.name))
+        && !drawn.some(row => row.identity && row.packId === record.figurePackId && row.figureId === record.figureId))
         .map(record => ({ packId: record.figurePackId, figureId: record.figureId, name: record.name }))
       if (!figures.length) return answer
       const { unavailable } = await imageGateProvider.awaitReferences({ gameId, figures: figures.map(({ packId, figureId }) => ({ packId, figureId })), signal })

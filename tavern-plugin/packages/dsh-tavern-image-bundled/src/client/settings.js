@@ -904,6 +904,8 @@
       // ---- 人物库（人物设计）----
       function peopleTab(focus) {
         const characters = (data.definitions && data.definitions.characters) || []
+        // Pictures Tavern's asset library lends linked people (their 设定图 live in its packs, never in these records).
+        const lent = data.figurePictures || {}
         const picked = characters.filter(character => peoplePicked[character.id])
         const search = peopleSearch.trim().toLocaleLowerCase()
         // —— 按卡归类 ——
@@ -1477,7 +1479,7 @@
               h('div', { className: 'dti-roster-group' }, h('strong', null, name), h('span', null, people.length + ' 位')),
               h('div', { className: 'dti-roster-grid' }, people.map(person => {
                 const name = person.name || '未命名角色'
-                const id = person.referenceImage?.id
+                const id = (lent[person.id]?.identity || person.referenceImage)?.id
                 const hasImage = /^[a-f0-9]{64}$/i.test(id || '')
                 return h('button', { key: person.id, type: 'button', className: 'dti-roster-tile',
                   'aria-label': '查看角色 ' + name, onClick: () => setPeopleActiveId(person.id) },
@@ -1535,7 +1537,7 @@
                 h('input', { type: 'text', placeholder: '分组', 'aria-label': '分组', value: c.group || '', style: S.input, onChange: e => patchIdentity(i, { group: e.target.value.replace(/[\u0000-\u001f\u007f]/g, '').slice(0, 40) }) }),
                 h('input', { type: 'text', placeholder: '触发词', 'aria-label': '触发词', title: c.figureId ? '关联着素材库人物：这就是素材库里人物的触发词' : undefined, value: c.match || '', style: S.input, onChange: e => patchIdentity(i, { match: e.target.value }) }),
               ),
-              h(ReferenceImageEditor, { key: 'character-reference-' + c.id, value: c, compact: true, label: '角色「' + (c.name || '未命名') + '」', onChange: changes => patch(i, changes) }),
+              h(ReferenceImageEditor, { key: 'character-reference-' + c.id, value: c, compact: true, lent: lent[c.id]?.identity ? { picture: lent[c.id].identity, borrowed: false } : null, label: '角色「' + (c.name || '未命名') + '」', onChange: changes => patch(i, changes) }),
               h(CharacterComfyLoras, { value: c.comfyLoras || [], workflows: data.workflows || [], onChange: comfyLoras => patch(i, { comfyLoras }) }),
               h('div', { style: S.row },
                 h('span', { style: S.label }, '绑定卡片'),
@@ -1634,7 +1636,7 @@
                       onChange: changes => patchOutfit(i, j, changes) }),
                     h('details', { key: 'outfit-extra-' + o.id },
                       h('summary', { style: PROMPT_DISCLOSURE }, '服装参考图'),
-                      h(ReferenceImageEditor, { key: 'outfit-sheet-' + c.id + '-' + o.id, value: o, field: 'characterOutfitImage', consistency: false, noun: '角色×服装设定图',
+                      h(ReferenceImageEditor, { key: 'outfit-sheet-' + c.id + '-' + o.id, value: o, field: 'characterOutfitImage', consistency: false, noun: '角色×服装设定图', lent: lent[c.id]?.outfits?.[o.id] || null,
                         heading: '（可选：这个角色穿这套衣服的图；有它时只用它，不再叠加角色图和服装图）', label: '服装「' + (o.name || '未命名') + '」', onChange: changes => patchOutfit(i, j, changes) }),
                       h(ReferenceImageEditor, { key: 'outfit-reference-' + c.id + '-' + o.id, value: o, label: '服装「' + (o.name || '未命名') + '」', onChange: changes => patchOutfit(i, j, changes) }),
                     ),
