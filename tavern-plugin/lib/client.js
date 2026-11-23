@@ -3613,7 +3613,7 @@ window.__ModuleLoader__.load({
 		        const row = SETTINGS_NAV_ROW + ":nth-child(" + (index + 1) + ")";
 		        const svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="' + path + '"/></svg>';
 		        const mask = 'url("data:image/svg+xml,' + encodeURIComponent(svg) + '") center / 16px 16px no-repeat';
-		        return row + " > svg:first-child { display: none; }\n"
+		        return row + ' > :is(svg, [class*="_navIcon"]):first-child { display: none; }\n'
 		            + row + "::before { content: \"\"; flex: none; width: 16px; height: 16px; background: currentColor; -webkit-mask: " + mask + "; mask: " + mask + "; }\n";
 		    }).join("");
 		}
