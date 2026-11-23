@@ -213,6 +213,8 @@ function bindStageViews(createViews) {
             startOpening:(sessionId,choice)=>new Promise((resolve,reject)=>{const detail={sessionId,choice,respond:resolve,fail:reject};window.dispatchEvent(new CustomEvent('dsh-tavern-stage-opening',{detail}));if(!detail.handled)reject(new Error('开始游戏不可用'));}),
             useLiveView:useLiveTavernView, packService:()=>packTransport?.service,
             findPluginPanel:findTavernStagePluginPanel, PluginPanel:TavernStagePluginPanel,
+            // the card plugins' round-end buttons (registerPanel roundAction), read when a round has been read
+            roundActions:sessionId=>tavernUiExtensions.stageRoundActions(sessionId),
             createCardFrame:props=>createTavernMessageFrameLifecycle(props,{executeSlash:stageCardPageSlash()})},
         device:{matchMedia},
         mixer:{Icon, Slider, audio:forkStageAudio, sounds:forkUiSfx, entries:stageEntries, report:useStageEntryState, icons:ICON_PATHS},

@@ -62,9 +62,23 @@ test('插件面板拒绝拼错尺寸和未开放舞台的选项', () => {
   const ui = load({TypeError})
   const plugin = Object.assign(Object.create(ui.service), {ctx:{fiber:{name:'table-plugin'}}})
   const panel = {id:'table', title:'牌桌', render() {}}
-  for (const options of [{stage:true, stageSize:'fullscreen'}, {stage:true, stageOnly:'yes'}, {stageSize:'window'}, {stage:false, stageOnly:false}]) {
+  for (const options of [{stage:true, stageSize:'fullscreen'}, {stage:true, stageOnly:'yes'}, {stageSize:'window'}, {stage:false, stageOnly:false}, {stage:true, roundAction:'go'}, {roundAction() {}}]) {
     assert.throws(() => plugin.registerPanel({...panel, ...options}), TypeError)
   }
+})
+
+test('舞台面板的轮末按钮：只列出这局卡自带的插件面板，卸载后不再出现', () => {
+  const ui = load({tavernCardPluginScopes:{get:()=>({'journey':['card-1']})}})
+  const plugin = name => Object.assign(Object.create(ui.service), {ctx:{fiber:{name}}})
+  ui.attachHost({})
+  const roundAction = () => null
+  const dispose = plugin('journey').registerPanel({id:'map', title:'地图', render() {}, stage:true, stageOnly:true, roundAction})
+  plugin('other').registerPanel({id:'map', title:'地图', render() {}, stage:true, stageOnly:true, roundAction})
+  plugin('journey').registerPanel({id:'plain', title:'普通', render() {}, stage:true, stageOnly:true})
+  assert.deepEqual(JSON.parse(JSON.stringify(ui.stageRoundActions('game-1').map(row => [row.owner, row.id]))), [['journey', 'map']])
+  assert.equal(ui.stageRoundActions('game-1')[0].roundAction, roundAction)
+  dispose()
+  assert.equal(ui.stageRoundActions('game-1').length, 0)
 })
 
 function loadWith(extra) {
