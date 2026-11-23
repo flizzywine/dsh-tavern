@@ -47905,10 +47905,14 @@ function TavernCardUpdateDialog(props) {
     const error = p.error ? h('p', { role: 'alert', className: 'fork-card-update-error' }, '⚠ ', p.error) : null;
     if (p.result) {
         const name = p.result.name || p.current?.name || '', version = p.result.version;
-        const notes = [...(p.result.plugins?.length ? ['卡内插件已替换，重启桌面版或刷新页面后生效'] : []), ...(p.result.libraryNotices || [])];
+        const runtime = p.result.pluginRuntime;
+        const notes = [...(p.result.libraryNotices || [])];
+        if (runtime?.reloaded?.length) notes.push('卡内插件已重新加载。界面仍显示旧版时，可刷新当前页面。');
+        if (runtime?.restartRequired?.length) notes.push('这些插件未能重新加载，请重启 DSH：' + runtime.restartRequired.join('、'));
         return h(ui.Modal, { title, head, busy: p.busy, onClose: p.close, className: 'fork-card-update',
             foot: h('div', { className: 'ap-actions fork-card-update-foot' },
                 p.result.updateId && p.revert ? h(ui.Button, { className: 'fork-card-update-quiet', disabled: p.busy, onClick: p.revert }, p.busy ? '正在撤回…' : '撤回') : null,
+                runtime?.reloaded?.length ? h(ui.Button, {disabled:p.busy, onClick:() => window.location.reload()}, '刷新页面') : null,
                 h(ui.Button, { primary: true, disabled: p.busy, onClick: p.close }, '完成')) },
             h('div', { className: 'fork-card-update-done', role: 'status' },
                 p.result.status === 'partial' ? null : h('span', { className: 'fork-card-update-check', 'aria-hidden': true }, '✓'),
@@ -56171,7 +56175,7 @@ const transferFeature = createTransferFeatureModule()
 					const next = await rpc("cardPlugins", { path: props.path });
 					setPlugins(next.plugins || []);
 					window.dispatchEvent(new CustomEvent("dsh-tavern-card-plugins-changed"));
-					setMessage("已更新到 " + (result.afterVersion || "新版本") + (result.restartRequired ? "，重启 DSH 后生效" : ""));
+					setMessage("已更新到 " + (result.afterVersion || "新版本") + (result.restartRequired ? "，重启 DSH 后生效" : result.reloaded ? "，插件已重新加载。界面仍显示旧版时可刷新当前页面。" : ""));
 				} catch (error) { setMessage("失败：" + String(error.message || error)); }
 				finally { setBusy(false); }
 			}

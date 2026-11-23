@@ -39,7 +39,7 @@ import { registerRequestHooks } from './hooks/request.js'
 import { createWholeReadGuard, scopeTurnHooks } from './domain/whole-read-guard.js'
 import { createChatReads } from './domain/chat-reads.js'
 import { diffJson } from './domain/json-mutation.js'
-import { runningUserPlugins, loaderOrigin, reconcileUserPluginsAtStartup, loaderReload, readPatchedUserPlugins, syncUserPlugins, watchUserPlugins, userPluginPaths } from './domain/user-plugins.js'
+import { runningUserPlugins, loaderOrigin, reconcileUserPluginsAtStartup, reloadUpdatedCardPlugins, loaderReload, readPatchedUserPlugins, syncUserPlugins, watchUserPlugins, userPluginPaths } from './domain/user-plugins.js'
 import { createUserPluginInstaller } from './domain/user-plugin-install.js'
 import { createPluginDataStore } from './domain/plugin-data-store.js'
 import { createPluginAssets } from './domain/plugin-assets.js'
@@ -692,18 +692,45 @@ export async function apply(ctx) {
   const sourceRoot = fileURLToPath(new URL('../../', import.meta.url))
   const dataRoot = resolveTavernDataRoot()
   const cardPluginJournal = path.join(dataRoot, 'card-plugin-update.journal.json')
-  const cardPluginUpdatePending = () => existsSync(cardPluginJournal)
+  let cardPluginTransactionActive = false, cardPluginTransactions = Promise.resolve()
+  const cardPluginUpdatePending = () => cardPluginTransactionActive || existsSync(cardPluginJournal)
   // Folders in <data>/plugins become profile patch entries, so both plugin halves load without editing Tavern.
   // The entries DSH started with: a later sync that moves one (managed mods republished below) restarts it from its new
   // folder through the loader, or the old release's code would run against the new release's files until a restart.
   const loadedUserPlugins = await readPatchedUserPlugins({ dataRoot })
   const fileResources = createFileResourceStore({ dataRoot })
   const reloadUserPlugin = loaderReload(ctx.get('loader'), ctx.fiber)
+  function queueCardPluginWork(work) {
+    const next = cardPluginTransactions.catch(() => {}).then(() => work())
+    cardPluginTransactions = next
+    return next
+  }
+  const syncPlugins = beforePatch => syncUserPlugins({ dataRoot, cardPaths: () => fileResources.list('card'), pending: cardPluginUpdatePending, beforePatch })
+  function commitCardPluginTransaction(write, after) {
+    return queueCardPluginWork(async () => {
+      cardPluginTransactionActive = true
+      let committed
+      try { committed = await write() } finally { cardPluginTransactionActive = false }
+      return after(committed)
+    })
+  }
+  async function syncCommittedCardPlugins(names) {
+    let runtime = {reloaded: [], restartRequired: names}
+    try {
+      await syncPlugins(async result => {
+        runtime = await reloadUpdatedCardPlugins({result, names, loaded: loadedUserPlugins, reload: reloadUserPlugin})
+      })
+    } catch (error) {
+      console.warn('dsh-tavern: 同步已更新的人物卡插件失败', error?.message || error)
+    }
+    return runtime
+  }
   try {
-    const result = await syncUserPlugins({ dataRoot, cardPaths: () => fileResources.list('card'), pending: cardPluginUpdatePending })
+    const result = await syncPlugins()
     await reconcileUserPluginsAtStartup({ result, loaded: loadedUserPlugins, reload: reloadUserPlugin })
   } catch (error) { console.warn('dsh-tavern: 同步用户插件失败', error?.message || error) }
-  ctx.effect(() => watchUserPlugins({ dataRoot, cardPaths: () => fileResources.list('card'), pending: cardPluginUpdatePending, loaded: loadedUserPlugins, reload: reloadUserPlugin }))
+  ctx.effect(() => watchUserPlugins({ dataRoot, loaded: loadedUserPlugins, reload: reloadUserPlugin,
+    sync: () => queueCardPluginWork(syncPlugins) }))
   const cardMemory = createCardMemory({ dataRoot })
   const stablePrefixStorage = createSessionStablePrefixStorage(dataRoot + '/session-prefixes')
   const profileData = createProfileDataStore({ dataRoot })
@@ -1568,7 +1595,7 @@ export async function apply(ctx) {
   const pluginDataStore = createPluginDataStore({ dataRoot })
   const userPluginInstaller = createUserPluginInstaller({
     dataRoot, cardPaths: () => fileResources.list('card'),
-    sync: () => syncUserPlugins({ dataRoot, cardPaths: () => fileResources.list('card'), pending: cardPluginUpdatePending }),
+    sync: () => queueCardPluginWork(syncPlugins),
   })
   const cardPlugins = createCardPlugins({ dataRoot, cardPaths: () => fileResources.list('card'), pluginsDir: userPluginPaths(dataRoot).plugins, keyOf: castAssets.keyOf,
     journalPath: cardPluginJournal })
@@ -1580,16 +1607,18 @@ export async function apply(ctx) {
   })
   const cardPluginUpdates = createCardPluginUpdates({ cardPlugins: {
     ...cardPlugins,
-    updateBoundPlugin: async input => {
-      const result = await cardPlugins.updateBoundPlugin(input)
-      await syncUserPlugins({ dataRoot, cardPaths: () => fileResources.list('card'), pending: cardPluginUpdatePending })
+    updateBoundPlugin: input => commitCardPluginTransaction(() => cardPlugins.updateBoundPlugin(input), async result => {
+      if (!result.plugin.enabled || !result.restartRequired && runningUserPlugins.get(result.plugin.name)?.sha256 === result.plugin.sha256) return result
+      const runtime = await syncCommittedCardPlugins([result.plugin.name])
+      return {...result, reloaded:runtime.reloaded.length > 0, restartRequired:runtime.restartRequired.length > 0}
+    }),
+    recoverBoundPlugin: callbacks => commitCardPluginTransaction(() => cardPlugins.recoverBoundPlugin(callbacks), async result => {
+      if (result.recovered) {
+        const {plugins = []} = await castAssets.read(result.cardPath)
+        await syncCommittedCardPlugins(plugins.filter(plugin => plugin.enabled === true).map(plugin => plugin.name))
+      }
       return result
-    },
-    recoverBoundPlugin: async callbacks => {
-      const result = await cardPlugins.recoverBoundPlugin(callbacks)
-      await syncUserPlugins({ dataRoot, cardPaths: () => fileResources.list('card'), pending: cardPluginUpdatePending })
-      return result
-    }
+    })
   }, castAssets, backup: async cardPath => {
     const directory = path.join(dataRoot, '..', 'backups', 'card-plugin-update')
     await mkdir(directory, { recursive: true })
@@ -1635,11 +1664,28 @@ export async function apply(ctx) {
     }
   })
   // Card files in and out: imports (JSON, PNG, CHARX, DSH card, plugin formats) and exports.
-  const { replaceCard, revertCardUpdate, importCard, importCardArchiveFile, importPackArchiveFile, previewCardArchiveFile, discardCardArchivePreview, importPluginCardFile, presentCardText, exportCardPng, exportCardFile } = createCardFiles({
+  const { replaceCard: replaceCardFiles, revertCardUpdate: revertCardFiles, importCard, importCardArchiveFile, importPackArchiveFile, previewCardArchiveFile, discardCardArchivePreview, importPluginCardFile, presentCardText, exportCardPng, exportCardFile } = createCardFiles({
     cardPreparation, fileResources, castAssets, assetPacks, cardPlugins, cardSummaries, presetLibrary, importPreset,
     readCardWorkspace, worldBooks, pluginApi: () => pluginApi, assetLibrary: () => ctx.get('assetLibrary'), prepareCardAssets: () => stageSwitch.ensure(),
     withCardBackup: (...args) => ctx.get('assetLibraryCardBackup')(...args), backupPack: (...args) => ctx.get('assetLibraryPackBackup')(...args), exportRoot: path.join(dataRoot, 'exports'),
     syncBubbles: path => dialogueBubbles.sync(worldBooks, path)
+  })
+  const replaceCard = (cardPath, input) => commitCardPluginTransaction(async () => {
+    const before = (await castAssets.read(normalizeResourcePath(cardPath, 'card'))).plugins || []
+    const card = await replaceCardFiles(cardPath, input)
+    const after = (await castAssets.read(card.path)).plugins || []
+    return {card, before, after}
+  }, async ({card, before, after}) => {
+    if (!before.length && !after.length) return card
+    const existing = new Map(before.filter(plugin => plugin.enabled === true).map(plugin => [plugin.name, plugin.sha256]))
+    const changed = after.filter(plugin => plugin.enabled === true && (existing.get(plugin.name) !== plugin.sha256
+      || runningUserPlugins.get(plugin.name)?.sha256 !== plugin.sha256))
+    return {...card, pluginRuntime:await syncCommittedCardPlugins(changed.map(plugin => plugin.name))}
+  })
+  const revertCardUpdate = updateId => commitCardPluginTransaction(() => revertCardFiles(updateId), async result => {
+    const {plugins = []} = await castAssets.read(result.path)
+    await syncCommittedCardPlugins(plugins.filter(plugin => plugin.enabled === true).map(plugin => plugin.name))
+    return result
   })
   async function listCards() {
     const cardPaths = await fileResources.list('card')

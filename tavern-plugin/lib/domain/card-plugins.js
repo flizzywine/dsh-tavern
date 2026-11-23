@@ -368,6 +368,10 @@ export function createCardPlugins({ dataRoot, pluginsDir, keyOf = null, cardPath
         const [next] = await stageNow(selected, {cardKey, plugins:[{...descriptor, path:targetPrefix}], targetDirectory:swaps[0].temporary})
         if (next.name !== expected.name) throw invalid('Source plugin name does not match binding')
         if (swaps.length === 2) {
+          // A different path is required for Node to import the new entry and its relative dependencies.
+          const installed = path.join(pluginsDir, installedFolder(next))
+          if (installed !== swaps[0].old && await exists(installed)) throw invalid('更新目标的插件目录已存在')
+          swaps[0].target = installed
           await cp(swaps[0].temporary, stageSwap.temporary, {recursive:true})
           const marker = JSON.stringify({cards:[cardPath], sha256:next.sha256}, null, 2)
           await writeFile(path.join(swaps[0].temporary, MARKER), marker)
@@ -389,7 +393,8 @@ export function createCardPlugins({ dataRoot, pluginsDir, keyOf = null, cardPath
         throw pluginUpdateRolledBack(rolled)
       } finally { scopes = null }
       if (outcome.action === 'rolled-back') throw pluginUpdateRolledBack(outcome)
-      return {plugin:{...expected, ...journal.next, enabled:expected.enabled}, backupPath, restartRequired:expected.enabled === true}
+      return {plugin:{...expected, ...journal.next, enabled:expected.enabled}, backupPath,
+        restartRequired:expected.enabled === true && expected.sha256 !== journal.next.sha256}
     })
   }
   return Object.freeze({ stage, enable, disable, remove, movePath, scope, managed, exportEntries, updateBoundPlugin, recoverBoundPlugin })
@@ -483,7 +488,8 @@ export function createCardPluginUpdates({ cardPlugins, castAssets, backup, now =
       },
       backup:() => backup(cardPath)})
     return {path:cardPath, pluginName:expected.name, enabled:expected.enabled, beforeVersion:result.before.version,
-      afterVersion:result.after.version, backupPath:updated.backupPath, restartRequired:updated.restartRequired}
+      afterVersion:result.after.version, backupPath:updated.backupPath, restartRequired:updated.restartRequired,
+      ...(updated.reloaded ? {reloaded:true} : {})}
   }
   return Object.freeze({preview, confirm, recover})
 }
