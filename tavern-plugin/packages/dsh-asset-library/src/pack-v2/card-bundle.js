@@ -4,7 +4,7 @@ import { assertPublicPackChain } from './public-export.js'
 import { writeZip } from '../zip.js'
 import { check, validateUuid, validateHash } from '../asset-packs/common.js'
 import { validatePackIdentities } from '../asset-packs/index.js'
-import { jsonBytes, readDocument, budget, sealPack, inspectPackScripts, packDiff } from './validation.js'
+import { jsonBytes, readDocument, heldBytes, sealPack, inspectPackScripts, packDiff } from './validation.js'
 import { mergeMetadata } from '../pack-catalogue/merge.js'
 import { removedEntries, withRemovedEntries } from './incremental-update.js'
 
@@ -20,7 +20,6 @@ export function createCardBundleMethods(host) {
   function sweep() { for (const [id, value] of previews) if (value.preview.expiresAt <= now()) forget(id) }
   const used = () => [...previews.values()].reduce((sum, value) => sum + value.size, 0)
   async function zip(files) {
-    check(budget(files, limits) * 2 <= limits.spoolBytes, '$', 'Bundle export exceeds spool budget', 'LIMIT_EXCEEDED')
     return storage.temporary(async file => { await writeZip(file, [...files].map(([path,data]) => ({path,data,file:data.file}))); return exportArchive(file) })
   }
   function document(files, name, prefix='') {
@@ -33,8 +32,8 @@ export function createCardBundleMethods(host) {
     }
   }
   async function read(bytes, archive) {
-    const {files, spool} = archive ? await readZipFile(archive.file, archive.size, used()) : await readZipFiles(bytes, used())
-    try { return {...await readBundle(files), spool} } catch (error) { await spool.release(); throw error }
+    const {files, spool} = archive ? await readZipFile(archive.file, 0, used()) : await readZipFiles(bytes, used())
+    try { return {...await readBundle(files), spool} } catch (error) { spool.release(); throw error }
   }
   async function readBundle(files) {
     const manifest = document(files, ROOT)
@@ -205,7 +204,7 @@ export function createCardBundleMethods(host) {
             scriptRisk:inspectPackScripts(pack)})
         }
         const preview = {inspectionId:randomUUID(), path:input.path, expectedRevision:target.revision, expiresAt:now() + limits.previewTtlMs, packs, dependencies:data.manifest.dependencies, raw:data.raw, currentRaw:target.raw}
-        const size = (bytes?.length || 0) + (data.cover?.length || 0) + data.packs.reduce((sum,p) => sum + budget(p.files,limits) + jsonBytes(p.manifest).length, jsonBytes(data.raw).length + jsonBytes(target.raw).length)
+        const size = (bytes?.length || 0) + (data.cover?.length || 0) + data.packs.reduce((sum,p) => sum + heldBytes(p.files) + jsonBytes(p.manifest).length, jsonBytes(data.raw).length + jsonBytes(target.raw).length)
         check(used() + host.packPreviewUsage().bytes + size <= limits.spoolBytes, '$', 'Preview spool budget exceeded', 'LIMIT_EXCEEDED')
         data.spool.retain(); previews.set(preview.inspectionId, {preview, data, bytes, size})
         return copy(preview)

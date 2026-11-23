@@ -10,6 +10,7 @@ import { pluginMember, pluginMemberId, registerPluginMember } from './domain/bac
 import { CUSTOM_EVENT, STORY_EVENTS } from './domain/story-events.js'
 import { bounded, untilAborted } from './domain/plugin-callback.js'
 import { createPluginImageCatalog } from './domain/plugin-image-catalog.js'
+import { packPictureCopy } from './domain/image-character-appearance.js'
 import path from 'node:path'
 import { publicPluginMedia, pluginMediaSession } from './domain/plugin-media.js'
 import { normalizeGameSettings, coerceSetting, settingValues } from './domain/plugin-game-settings.js'
@@ -168,15 +169,19 @@ function boundedWithSignal(promise, label, signal, ms = PLUGIN_TIMEOUT_MS) {
   })
 }
 
-function linkedFigureEdit({ packId, figureId, name, addAliases = [], removeAliases = [] } = {}) {
-  const words = value => Array.isArray(value) && value.length <= 64 && value.every(word => typeof word === 'string' && word.trim() && word.length <= 64)
+// A saved record of the image library that is linked to an asset-library figure: the figure's name, 触发词 and outfit
+// names are the record's own (ADR 0011), so a change needs no write to the figure; release: the record's link to the
+// figure ends (deleted or relinked) and the figure takes its identity back first.
+function linkedRecordChange({ packId, figureId, release, identity } = {}) {
   if (typeof packId !== 'string' || !packId || typeof figureId !== 'string' || !figureId) throw new TypeError('packId、figureId 必须是素材库人物的 ID')
-  if (name !== undefined && (typeof name !== 'string' || !name.trim() || name.length > 100)) throw new TypeError('name 必须是 1–100 字')
-  if (!words(addAliases) || !words(removeAliases)) throw new TypeError('addAliases、removeAliases 必须是最多 64 个、每个不超过 64 字的词')
-  return { packId, figureId, ...(name === undefined ? {} : { name: name.trim() }), addAliases: addAliases.map(word => word.trim()), removeAliases: removeAliases.map(word => word.trim()) }
+  if (release !== undefined && typeof release !== 'boolean') throw new TypeError('release 必须是布尔值')
+  if (identity !== undefined && (!identity || typeof identity.name !== 'string' || typeof identity.match !== 'string'
+    || !Array.isArray(identity.outfits) || identity.outfits.some(name => typeof name !== 'string'))) throw new TypeError('人物资料格式无效')
+  return { packId, figureId, ...(release ? { release: true } : {}), ...(identity ? { identity } : {}) }
 }
 
 export function createTavernPluginApi(deps) {
+  const guideSources = new Map()
   const settledHandlers = new Set()
   const removedHandlers = new Set()
   const mediaRemovedHandlers = new Set()
@@ -211,7 +216,7 @@ export function createTavernPluginApi(deps) {
     }
     return name
   }
-  const capabilities = Object.freeze({ gameMode: 1, hostBehavior: 1, controlInput: 1, mvuSettlementProvider: 1, worldbookStrategy: 1, galleryProvider: 1, pricingProvider: 1, imageModels: 1, imageLibrary: 1, bodyGeneration: 1, bodyProjection: 1, stContractService: 1,
+  const capabilities = Object.freeze({ gameMode: 1, hostBehavior: 1, controlInput: 1, mvuSettlementProvider: 1, worldbookStrategy: 1, galleryProvider: 1, pricingProvider: 1, imageModels: 1, imageLibrary: 1, bodyGeneration: 1, bodyProjection: 1, stContractService: 1, guideSource: 1,
     ...(deps.readTavernSettings && deps.updateTavernSettings ? { bodyGenerationDefaults: 1 } : {}),
     ...(deps.generationPresets ? { generationPresets: 1 } : {}),
     ...(deps.decisionJudge ? { decisionJudge: 1 } : {}),
@@ -333,7 +338,7 @@ export function createTavernPluginApi(deps) {
     log.warn?.('dsh-tavern: 插件 ' + owner + ' 在「' + stage + '」出错: ' + message)
   }
 
-  const imageCatalog = createPluginImageCatalog({ imageProviders, reportError: recordError,
+  const imageCatalog = createPluginImageCatalog({ imageProviders, reportError: recordError, librariesChanged: () => deps.imageLibrariesChanged?.(),
     available: async (owner, context) => {
       const scope = await accessScope(owner)
       return !scope || Boolean(context.card && scope.cards.includes(context.card))
@@ -664,8 +669,30 @@ export function createTavernPluginApi(deps) {
       if (typeof gameId !== 'string' || !gameId || !Number.isSafeInteger(turn)) throw new TypeError('beforeImagePlan 需要 gameId 与整数 turn')
       if (!imageGateProvider) return
       await imageGateProvider.beforePlan({ gameId, turn, signal })
-      // the people the turn just cast get their 人物库 records from the follow (image-character-follow.js) after their pack write
-      await deps.imageCharactersSettled?.()
+    },
+    async imagePackCharacters({ gameId, turn, anchor, subjects, includeReferences = true } = {}) {
+      if (!deps.imagePackCharacters) return []
+      await guardScope(ownerOf(this), { gameId })
+      const material = await requireTurn(gameId, turn)
+      const packIds = await deps.cardAssetPacks(material.card.path)
+      const worn = subjects && imageGateProvider ? await imageGateProvider.wearing({ gameId, turn, anchor }) : []
+      return deps.imagePackCharacters(packIds, subjects?.map(subject => ({
+        ...subject, outfitId: subject.outfitId || worn.find(row => subject.characterId === `pack:${row.packId}:${row.figureId}`)?.outfitKey,
+      })), includeReferences === true)
+    },
+    // The pictures of asset-library figures, read where they live (the pack), for records linked to them
+    // (figurePackId, figureId): [{packId, figureId, identity, outfits: {[outfit id]: {picture, borrowed}}}], each picture
+    // a reference descriptor {id: sha256, mediaType, byteLength, name}. `identity` is the person's 人设图; an outfit's
+    // picture is its 服装设定图, or (borrowed) the resting 立绘 it lends when the record has no picture of its own.
+    // readFigurePicture({packId, figureId, id}) → {data: Uint8Array, mediaType}.
+    async figurePictures({ figures } = {}) {
+      if (!deps.figurePictures) return []
+      if (!Array.isArray(figures)) throw new TypeError('figurePictures 需要 figures 数组')
+      return deps.figurePictures(figures)
+    },
+    async readFigurePicture({ packId, figureId, id } = {}) {
+      if (!deps.readFigurePicture) throw Object.assign(new Error('素材库未启用'), { code: 'NOT_FOUND' })
+      return deps.readFigurePicture({ packId, figureId, id })
     },
     async beforeImageGenerate({ gameId, turn, anchor, subjects, signal } = {}) {
       if (typeof gameId !== 'string' || !gameId || !Array.isArray(subjects) || subjects.length > 16) throw new TypeError('beforeImageGenerate 需要 gameId 与最多 16 个 subjects')
@@ -681,11 +708,12 @@ export function createTavernPluginApi(deps) {
         return row && record.outfits?.some(outfit => outfit.id === row.outfitKey) ? [[record.id, row.outfitKey]] : []
       }))
       const answer = Object.keys(outfits).length ? { outfits } : {}
-      const figures = linked.filter(record => !record.referenceImage)
+      const drawn = deps.figurePictures && linked.length ? await deps.figurePictures(linked.map(record => ({ packId: record.figurePackId, figureId: record.figureId }))) : []
+      const figures = linked.filter(record => (!record.referenceImage || packPictureCopy(record.referenceImage, record.name))
+        && !drawn.some(row => row.identity && row.packId === record.figurePackId && row.figureId === record.figureId))
         .map(record => ({ packId: record.figurePackId, figureId: record.figureId, name: record.name }))
       if (!figures.length) return answer
       const { unavailable } = await imageGateProvider.awaitReferences({ gameId, figures: figures.map(({ packId, figureId }) => ({ packId, figureId })), signal })
-      await deps.imageCharactersSettled?.()
       const missing = figures.filter(figure => unavailable.some(ref => ref.packId === figure.packId && ref.figureId === figure.figureId))
       return missing.length ? { skip: true, reason: '「' + missing.map(figure => figure.name).join('、') + '」的人设图没有画出来，有他们的图这次没有出' } : answer
     },
@@ -894,25 +922,19 @@ export function createTavernPluginApi(deps) {
       return owned(this, () => imageCatalog.registerLibrary(owner, input), 'tavern.registerImageLibrary()')
     },
 
-    // An image library whose record is linked to an asset-library figure hands an edit of the record's name or
-    // aliases (触发词) to the figure, their one home. Only for plugins installed for every card.
-    async editLinkedFigure(input) {
-      const owner = ownerOf(this)
-      if (deps.cardScope && (await deps.cardScope().catch(() => null))?.get(owner)) throw Object.assign(new Error('卡内插件不能修改素材库人物'), { code: 'TAVERN_PLUGIN_SCOPE' })
-      const change = linkedFigureEdit(input)
-      if (!deps.editLinkedFigure) throw Object.assign(new Error('素材库未启用'), { code: 'NOT_CONFIGURED' })
-      return await deps.editLinkedFigure(change)
-    },
+    writingFigureRecords() { return deps.writingFigureRecords?.() === true },
 
-    async editLinkedFigures({ changes, receipt } = {}, save) {
+    // An image library saving records linked to asset-library figures (name, 触发词, outfit names, or a link that ends):
+    // the library reads those figures again, and a link that ends gives the figure its identity back in the same save.
+    async saveLinkedRecords({ changes, receipt } = {}, save) {
       const owner = ownerOf(this)
       if (deps.cardScope && (await deps.cardScope().catch(() => null))?.get(owner)) throw Object.assign(new Error('卡内插件不能修改素材库人物'), { code: 'TAVERN_PLUGIN_SCOPE' })
       if (!Array.isArray(changes) || !changes.length || typeof save !== 'function') throw new TypeError('需要人物修改及保存回调')
-      const edits = changes.map(linkedFigureEdit)
+      const edits = changes.map(linkedRecordChange)
       const keys = new Set(edits.map(({ packId, figureId }) => JSON.stringify([packId, figureId])))
       if (keys.size !== edits.length) throw new TypeError('同一素材库人物只能修改一次')
-      if (!deps.editLinkedFigures) throw Object.assign(new Error('素材库未启用'), { code: 'NOT_CONFIGURED' })
-      return await deps.editLinkedFigures(edits, receipt, save)
+      if (!deps.saveLinkedRecords) throw Object.assign(new Error('素材库未启用'), { code: 'NOT_CONFIGURED' })
+      return await deps.saveLinkedRecords(edits, receipt, save)
     },
 
     async listImageCharacters(input = {}) {
@@ -1487,6 +1509,16 @@ export function createTavernPluginApi(deps) {
       }
     },
 
+    // The same text-model catalog that Tavern offers for its own background tasks.
+    async taskModels({ gameId } = {}) {
+      const game = await requireGame(gameId)
+      const [catalog, background] = await Promise.all([
+        deps.modelCatalog(),
+        deps.backgroundModel(game.sessionId)
+      ])
+      return { catalog, background }
+    },
+
     // 当前对局正在使用的前台对话模型（供插件遵循「跟随前台」选项）。
     async foregroundModel({ gameId } = {}) {
       const game = await requireGame(gameId)
@@ -1710,6 +1742,12 @@ export function createTavernPluginApi(deps) {
       return register.call(this, turnSections, owner + '\u0000' + target + '\u0000' + name, { owner, name, text, position, target }, 'tavern.turnSection()', '本轮上下文段落 ' + name + ' 已注册')
     },
 
+    guideSource({ name, text } = {}) {
+      const owner = ownerOf(this)
+      sectionName(name); textOrFunction(text)
+      return register.call(this, guideSources, owner + '\u0000' + name, { owner, name, text }, 'tavern.guideSource()', 'Guide 来源 ' + name + ' 已注册')
+    },
+
     settlementSection({ name, text } = {}) {
       const owner = ownerOf(this)
       sectionName(name); textOrFunction(text)
@@ -1728,14 +1766,15 @@ export function createTavernPluginApi(deps) {
       return register.call(this, compactionSections, owner + '\u0000' + name, { owner, name, text }, 'tavern.compactionSection()', '压缩说明段落 ' + name + ' 已注册')
     },
 
-    settlementTool({ name, description, parameters, execute } = {}) {
+    settlementTool({ name, description, parameters, enabledFor, execute } = {}) {
       const owner = ownerOf(this)
       if (typeof name !== 'string' || !TOOL_NAME.test(name)) throw new Error('工具名只能用小写字母、数字和下划线，以字母开头，3–48 个字符')
       if (reservedToolNames.has(name)) throw new Error('工具名 ' + name + ' 是 Tavern 自己的工具，请换一个名字')
       if (typeof description !== 'string' || !description.trim() || description.length > 2000) throw new Error('description 必须是 1–2000 字的说明')
       if (!parameters || typeof parameters !== 'object' || Array.isArray(parameters) || parameters.type !== 'object') throw new Error('parameters 必须是 type 为 object 的 JSON Schema')
+      if (enabledFor !== undefined && typeof enabledFor !== 'function') throw new TypeError('enabledFor 必须是函数')
       if (typeof execute !== 'function') throw new TypeError('execute 必须是函数')
-      const entry = { owner, name, tool: Object.freeze({ name, description: description.trim(), parameters: structuredClone(parameters), countsTowardLimit: false }), execute }
+      const entry = { owner, name, enabledFor, tool: Object.freeze({ name, description: description.trim(), parameters: structuredClone(parameters), countsTowardLimit: false }), execute }
       return register.call(this, settlementTools, name, entry, 'tavern.settlementTool()', '结算工具 ' + name + ' 已被注册')
     },
 
@@ -2194,6 +2233,15 @@ export function createTavernPluginApi(deps) {
     return (await collectSections(sections, context, '提示词段落', disabled)).map(({ name, text }) => ({ name, text }))
   }
 
+  async function guideSections(gameId) {
+    if (!guideSources.size || !gameId) return []
+    const { game, disabled } = await choicesFor(gameId)
+    if (!game) return []
+    const guides = await collectSections(guideSources, { gameId }, 'Guide 来源', disabled)
+    return guides.filter(guide => !/<%|%>|(?:^|\n)\s*@@|@INJECT|\[(?:GENERATE:|RENDER:)/i.test(guide.text))
+      .map(guide => ({ ...guide, text: guide.text.slice(0, 2000) }))
+  }
+
   /** Seam: per-turn context for the story request, computed once while the turn is prepared. */
   async function turnContext({ gameId, turn, input, target = 'story', subject }) {
     const context = { gameId, turn, input: String(input || ''), ...(target === 'story' ? {} : {target, subject}) }
@@ -2300,16 +2348,28 @@ export function createTavernPluginApi(deps) {
     return result
   }
 
+  async function settlementToolEnabled(entry, context, disabled) {
+    if (disabled.has(entry.owner)) return false
+    if (!entry.enabledFor) return true
+    try {
+      return await bounded(entry.enabledFor(context), '结算工具开关 ' + entry.name) === true
+    } catch (error) {
+      recordError(context.gameId, entry.owner, '结算工具开关 ' + entry.name, error)
+      return false
+    }
+  }
+
   /** Seam: what the background settlement task offers the model on behalf of plugins. */
   const settlement = Object.freeze({
     /** Tool definitions, in a stable order: they sit in the cached request prefix. */
     tools() { return Array.from(settlementTools.values()).sort((a, b) => a.name.localeCompare(b.name)).map(entry => entry.tool) },
     has(name) { return settlementTools.has(name) },
     /** This game's plugin tools, split by whether the player has their plugin on. */
-    async toolNames({ gameId }) {
-      const { disabled } = await choicesFor(gameId).catch(() => ({ disabled: new Set() }))
+    async toolNames({ gameId, turn }) {
+      const { disabled } = await choicesFor(gameId)
       const names = Array.from(settlementTools.values()).sort((a, b) => a.name.localeCompare(b.name))
-      return { available: names.filter(entry => !disabled.has(entry.owner)).map(entry => entry.name), unavailable: names.filter(entry => disabled.has(entry.owner)).map(entry => entry.name) }
+      const enabled = await Promise.all(names.map(entry => settlementToolEnabled(entry, { gameId, turn }, disabled)))
+      return { available: names.filter((_, index) => enabled[index]).map(entry => entry.name), unavailable: names.filter((_, index) => !enabled[index]).map(entry => entry.name) }
     },
     // Sections see the turn being settled: its text is not readable through getTurn until settlement ends.
     async sections({ gameId, turn }) {
@@ -2320,13 +2380,16 @@ export function createTavernPluginApi(deps) {
     /** One settlement run's dispatcher: bounded calls, errors returned to the model, never thrown. */
     calls({ gameId, turn }) {
       let count = 0
-      const choices = choicesFor(gameId).catch(() => ({ disabled: new Set() }))
       return async function call(name, args) {
         const entry = settlementTools.get(name)
         if (!entry) return JSON.stringify({ ok: false, retryable: false, error: '插件工具 ' + name + ' 已不可用' })
-        if ((await choices).disabled.has(entry.owner)) return JSON.stringify({ ok: false, retryable: false, error: '玩家在本局关闭了插件 ' + entry.owner + '，本轮不要调用它的工具；以后各轮以结算任务里列出的可用插件工具为准' })
-        if (++count > MAX_TOOL_CALLS_PER_SETTLEMENT) return JSON.stringify({ ok: false, retryable: false, error: '本轮插件工具调用次数已达上限，请继续完成结算' })
         try {
+          const { disabled } = await choicesFor(gameId)
+          if (disabled.has(entry.owner)) return JSON.stringify({ ok: false, retryable: false, error: '插件 ' + entry.owner + ' 不在本局生效，不要调用它的工具；以结算任务里列出的可用插件工具为准' })
+          if (!await settlementToolEnabled(entry, { gameId, turn }, disabled) || settlementTools.get(name) !== entry) {
+            return JSON.stringify({ ok: false, retryable: false, error: '插件工具 ' + name + ' 当前未启用' })
+          }
+          if (++count > MAX_TOOL_CALLS_PER_SETTLEMENT) return JSON.stringify({ ok: false, retryable: false, error: '本轮插件工具调用次数已达上限，请继续完成结算' })
           const value = await bounded(entry.execute({ gameId, turn, arguments: structuredClone(args ?? {}) }), '插件工具 ' + name)
           const text = typeof value === 'string' ? value : JSON.stringify(value ?? { ok: true })
           return text.slice(0, MAX_TOOL_RESULT)
@@ -2517,6 +2580,6 @@ export function createTavernPluginApi(deps) {
       return register.call({ctx},sections,'dsh-tavern\u0000'+target+'\u0000'+name,
         {owner:'dsh-tavern',name,target,text,unbounded},'tavern builtin prompt section','Duplicate built-in prompt section')
     },
-    speechProviders: (capability = 'synthesize') => Array.from(speechProviders.values()).filter(entry => typeof entry[capability] === 'function'), imageProviders: () => Array.from(imageProviders.values()), pricingProviders: () => Array.from(pricingProviders.values()), timelineChanged, checkVersions, pluginState, cardChanged, cardImporterFor, convertCard, cardImported, gameForked, forkTurns, promptSections, turnContext, worldbookPoolEntries, worldbookScanTexts, settlement, candidate, compactionNotes, replaceSettlement, replaceLedger,
+    speechProviders: (capability = 'synthesize') => Array.from(speechProviders.values()).filter(entry => typeof entry[capability] === 'function'), imageProviders: () => Array.from(imageProviders.values()), pricingProviders: () => Array.from(pricingProviders.values()), timelineChanged, checkVersions, pluginState, cardChanged, cardImporterFor, convertCard, cardImported, gameForked, forkTurns, promptSections, turnContext, guideSections, worldbookPoolEntries, worldbookScanTexts, settlement, candidate, compactionNotes, replaceSettlement, replaceLedger,
     runSettlementTasks, manualTaskFor, runManualTask, stopTasks: stopAllTasks, runningTask, gamePlugins, setGamePlugin, resetGamePluginSettings, pluginGameSettings })
 }

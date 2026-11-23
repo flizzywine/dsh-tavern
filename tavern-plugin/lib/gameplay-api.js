@@ -46,7 +46,9 @@ export function createGameplayApi(deps) {
       try {
         await host.create({ sessionId, cwd: path.join(deps.dataRoot, 'resources'), agentPreset: 'tavern' })
         await dispatch('preparePlayStart', {})
-        await dispatch('startChat', { path: cardPath, sessionId, mode: args.mode || 'story', userName: args.userName || '你', requestMode: 'dsh', cardTask: args.mode === 'card' ? (cardPath ? 'edit' : 'create') : undefined })
+        await dispatch('startChat', { path: cardPath, sessionId, mode: args.mode || 'story', userName: args.userName || '', requestMode: 'dsh', cardTask: args.mode === 'card' ? (cardPath ? 'edit' : 'create') : undefined })
+        // An empty userName lets startChat take the owner's default player name, as a chat opened in the window does; a
+        // fixed 你 made test chats play without the owner's player figure (it then sat in the roster as a stranger).
         // startChat applies the player's defaults; the test override must follow it.
         selectSessionModel({ agent: registry.get(sessionId), controller: host, selection: selected })
         const chat = await chatForSession(sessionId)

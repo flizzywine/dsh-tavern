@@ -24,6 +24,14 @@
 - 只进入游玩时的正文请求；使用 SillyTavern 兼容请求模式时不生效。
 - 函数出错或 30 秒没有返回时，这一段被跳过，正文照常生成。
 
+## `guideSource({ name, text })`
+
+提供插件在本局生效的 Guide。检查 `ctx.tavern.capabilities.guideSource === 1` 后注册。
+
+- `name` 在插件内唯一。 `text` 可为文字或接收 `{ gameId }` 的函数。返回空字符串时本次省略。正文、候选、舞台导演和 Tavern 后台结算均可读取。
+- 每条最多 2000 字，使用纯文本。函数适合读取插件已保存的方向，模型规划放在独立任务中。插件卸载或停用后停止注入。
+- 来源内容随插件自己的数据保存。玩家手动添加的 Guide 仍可在「酒馆状态」中管理。
+
 ## `worldbookSource({ name, entries })`（第 2 版）
 
 每轮为正文请求补充世界书条目，和 Tavern 召回的世界书放在一起。`entries` 是函数，收到 `{ gameId, turn, input }`，返回条目数组：
@@ -64,7 +72,7 @@ ctx.tavern.worldbookEntries({ name: 'session', entries: async ({ gameId, turn })
 
 往每轮的**后台结算**任务里加一段说明，例如「本轮结束时用 `anchor_submit` 记录叙事锚点」。`text` 是字符串或函数，函数收到 `{ gameId, turn, text, textVersion }`：`text` 是正在结算的这一轮正文（结算结束前 `getTurn` 还读不到它），按它决定这一轮要写什么。出错时跳过。
 
-## `settlementTool({ name, description, parameters, execute })`（第 2 版）
+## `settlementTool({ name, description, parameters, enabledFor?, execute })`（第 2 版）
 
 给后台结算的模型一个工具，和 Tavern 自己的结算工具同级。
 
@@ -81,11 +89,12 @@ ctx.tavern.settlementTool({
 ```
 
 - `name` 用小写字母、数字和下划线，以字母开头，3–48 个字符；不能和 Tavern 自己的工具或其他插件的工具重名。
+- 插件有自己的功能开关时，提供 `enabledFor({ gameId, turn })`。返回 `true` 才会向模型声明并开放执行。与对应的 `settlementSection` 共用开关判断。
 - `execute` 的返回值交给模型：字符串原样给，其他值转成 JSON。抛错或 30 秒没有返回时，模型收到一条失败说明，本轮结算照常进行。
 - 每轮结算里，所有插件工具合计最多调用 8 次；插件工具要在模型提交本轮结算之前调用，提交之后再调用会被拒绝。
 - 只在后台结算任务里可调用，候选、生图等其他后台任务里调用会被拒绝。
 - 插件工具跟着 Tavern 自己的结算一起运行：玩家关掉了所有后台结算项时，这一轮不会运行结算，插件工具也就不会被调用。需要每轮必定执行的逻辑，请放在 `onTurnSettled` 里。
-- 工具列表在后台会话建立时固定（它位于请求的缓存前缀里）。插件在启动时注册即可；运行中途才注册的工具，要等下一个后台会话才生效。
+- 启动时注册工具。现有后台会话会按当前开关刷新工具可用性，新注册的工具随下一次后台会话载入。
 - 插件不在这一局生效时（例如别的人物卡的卡内插件），它的工具仍在工具列表里（缓存前缀不变），但每轮结算任务会写明哪些插件工具本轮可用、哪些不可用，调用不可用的工具会被拒绝。
 
 ## `candidateSection({ name, text })`（第 2 版）

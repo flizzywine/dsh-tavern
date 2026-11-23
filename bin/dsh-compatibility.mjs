@@ -10,12 +10,13 @@ export const { minDshVersion, belowDshVersion } = compatibility
 export const blockedDshVersions = compatibility.blockedDshVersions || []
 if (classifyDshVersion(adaptedDshVersion, compatibility).status !== 'allowed') throw new Error('DSH 适配版本配置无效：须在支持范围内')
 
-// Bundles whose peer range follows the host line (dsh-better-sidebar 0.28 needs
-// ^0.2.1, 0.26 needs ^0.2.0). DSH silently skips a bundle with unmet peers, so
-// every allowed host line other than the adapted one names its versions here.
+// DSH skips bundles with unmet host peers. Select pins only on the host lines
+// and prereleases their packages support.
 export function hostLinePackages(dshVersion) {
   const line = String(dshVersion || '').match(/^\d+\.\d+\.\d+/)?.[0]
-  return (line && compatibility.hostLinePackages?.[line]) || {}
+  const packages = compatibility.hostLinePackages?.[line] || {}
+  return Object.fromEntries(Object.entries(packages).filter(([, pin]) =>
+    !pin.minDshVersion || compareDshVersions(dshVersion, pin.minDshVersion) >= 0))
 }
 
 export function extractDshVersion(output) {

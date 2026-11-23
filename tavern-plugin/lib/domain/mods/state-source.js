@@ -2,7 +2,6 @@ import {inspectCardExtensions} from '../card-extension-reading.js'
 import {analyzeVariableSchema,analyzeVariableValues,unwrapMvu} from '../variable-bindings/index.js'
 import resolution from '../../../packages/dsh-presentation-protocol/src/figure-resolution.cjs'
 
-export const stateSourceSchema={fields:[{key:'source',label:'状态来源',valueType:'string',default:'auto',scope:'global',choices:['auto','mvu','ledger'],ui:{control:'choice',choices:[{value:'auto',label:'自动'},{value:'mvu',label:'MVU'},{value:'ledger',label:'游玩台账'}]}}]}
 export const ledgerInventoryBinding=Object.freeze({source:'ledger',path:'/inventory',fields:{name:'/name',count:'/qty',description:'/desc'}})
 export const ledgerConfigExports=[['items','array','全部物品'],['inventory','array','随身物品'],['npcs','array','人物'],['scenes','array','地点'],['location','string','记载地点'],['locationPath','array','地点路径'],['consolidatedTurn','number','整理轮次']].map(([name,type,description])=>({path:'/'+name,name,type,description}))
 
@@ -13,11 +12,11 @@ export function ledgerSource(chat) {
   return {available:true,value}
 }
 
-// Presence, not inventory shape or readiness, chooses auto. Empty/pending MVU never falls back.
-export function resolveStateSource({preference='auto',raw,chat,sources={}}={}) {
+// Always automatic (owner 11-23): a card with MVU reads MVU, otherwise the play ledger. Presence, not inventory shape or
+// readiness, chooses. Empty/pending MVU never falls back.
+export function resolveStateSource({raw,chat,sources={}}={}) {
   const hasMvu=sources.mvu?.available===true || chat?.mvu?.enabled===true || analyzeVariableSchema(raw).length>0 || inspectCardExtensions(raw).mvuResources.some(row=>row.enabled!==false)
-  const source=preference==='auto'?(hasMvu?'mvu':'ledger'):preference
-  if(!['mvu','ledger'].includes(source))throw Object.assign(new Error('Unknown state source'),{code:'CONFIG_TYPE'})
+  const source=hasMvu?'mvu':'ledger'
   return {source,...(source==='ledger'?(sources.ledger || ledgerSource(chat)):(sources.mvu || {available:false}))}
 }
 

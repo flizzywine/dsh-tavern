@@ -11,7 +11,7 @@ import entranceContract from '../shared/stage-entrance.cjs'
 import videoContract from '../shared/stage-video.cjs'
 import widgetContract from '../shared/widget-schema.cjs'
 import {validatePerformancePack, validatePerformanceKeyframeBundle} from './performance-bundle.js'
-import {decodeSkinSvg} from './skin-svg.js'
+import {decodeSkinSvgs} from './skin-svg.js'
 const {validateStageSkin, stageSkinFiles} = skinContract
 import { imageKind, audioKind, imageDimensions, pngSize, wavInfo, MEDIA_PURPOSE_LIMITS, STAGE_IMAGE_MAX_BYTES } from './media.js'
 import { modelReferences } from './model.js'
@@ -34,6 +34,8 @@ export async function spooledBytes(ref) {
   check(bytes.length === ref.length, ref.file, 'Spooled file size changed', 'FILE_CLOSURE_MISMATCH')
   return bytes
 }
+// The bytes a pack holds in memory: stored and spooled files stay on disk.
+export const heldBytes = files => [...files.values()].reduce((sum, bytes) => sum + (bytes instanceof Uint8Array ? bytes.length : 0), 0)
 export function budget(files, limits) {
   check(files instanceof Map && files.size <= limits.entries, '$.files', 'File count budget exceeded', 'LIMIT_EXCEEDED')
   let total = 0
@@ -138,8 +140,9 @@ export async function verifyBytes(manifest, files, {limits = PACK_LIMITS, decode
   const boards = new Set(), stageMedia = new Set()
   for(const figure of Object.values(figures)) {
     if(figure.identitySettei?.board)boards.add(figure.identitySettei.board)
+    if(figure.identitySettei?.parts)boards.add(figure.identitySettei.parts)
     for(const hash of figureImageReferenceMedia(figure.extensions?.[FIGURE_IMAGE_EXTENSION]))boards.add(hash)
-    for(const outfit of figure.outfits){if(outfit.settei)boards.add(outfit.settei);for(const hash of [...Object.values(outfit.avatars||{}),...Object.values(outfit.sprite?.assets||{})])stageMedia.add(hash)}
+    for(const outfit of figure.outfits){if(outfit.settei)boards.add(outfit.settei);if(outfit.setteiParts)boards.add(outfit.setteiParts);for(const hash of [...Object.values(outfit.avatars||{}),...Object.values(outfit.sprite?.assets||{})])stageMedia.add(hash)}
   }
   for(const icon of manifest.tagIcons || [])stageMedia.add(icon.media)
   for(const hash of manifest.backgroundStyle?.references || [])boards.add(hash)
@@ -168,6 +171,8 @@ export async function verifyBytes(manifest, files, {limits = PACK_LIMITS, decode
   const bundleFiles = Map.groupBy(files, ([name]) => name.startsWith('bundles/') ? name.split('/')[1] : null)
   const bundleAssets = Map.groupBy(manifest.assets.flatMap(asset=>assetContents(asset).map(content=>({...asset,...content}))), asset => asset.bundleKey)
   const previousAssets = previous && Map.groupBy(previous.manifest.assets.flatMap(asset=>assetContents(asset).map(content=>({...asset,...content}))), asset => asset.bundleKey)
+  // Static SVGs must pass both the inert drawing policy and a full image decode at ingress, the whole pack's in one batch.
+  const drawings = []
   for (const [key, bundle] of Object.entries(manifest.bundles)) {
     const prefix = `bundles/${key}/`, entries = bundleFiles.get(key) || [], assets = bundleAssets.get(key) || []
     if (previous?.manifest.bundles[key] && canonicalJson(previous.manifest.bundles[key]) === canonicalJson(bundle)
@@ -257,8 +262,7 @@ export async function verifyBytes(manifest, files, {limits = PACK_LIMITS, decode
         check(name === entry || dependencies.has(name), name, 'Executable or undeclared skin/performance resource rejected')
         // skin images take the media checks; only sounds have the three-second limit.
         // a skin's own font face is inert WOFF2 data (signature, 16 MiB), never media.
-        // Static SVGs must pass both the inert drawing policy and a full image decode at ingress.
-        if (name !== entry && /\.svg$/.test(name)) {if (!unchanged(name)) try {await decodeSkinSvg(await materialize(name))} catch (error) {check(false, name, error.message, 'INVALID_SKIN')} continue}
+        if (name !== entry && /\.svg$/.test(name)) {if (!unchanged(name)) drawings.push([name, await materialize(name)]); continue}
         if (name !== entry && /\.woff2$/.test(name)) {check(bytes.length >= 48 && bytes.length <= 16 * 1024 ** 2 && Buffer.from(bytes.subarray(0,4)).toString('latin1') === 'wOF2', name, 'Skin font face is not a WOFF2 file within 16 MiB'); continue}
         if (name !== entry && !overlayFiles.has(name) && !keyframeFiles.has(name)) {const ext = path.posix.extname(name).slice(1); const info = await inspect(bytes,{ext,mime:BLOB_MIME_TYPES[ext],size:bytes.length},decodeMedia); if (!/^(png|webp)$/.test(ext)) check(info.durationMs <= 3000,name,'Skin sound exceeds three seconds')}
       }
@@ -290,6 +294,7 @@ export async function verifyBytes(manifest, files, {limits = PACK_LIMITS, decode
       }
     }
   }
+  if (drawings.length) try {await decodeSkinSvgs(drawings)} catch (error) {check(false, error.file, error.message, 'INVALID_SKIN')}
   for (const figure of Object.values(figures)) for (const outfit of figure.outfits) if (outfit.sprite) {
     const sprite = sprites[outfit.sprite.manifestKey]
     async function walk(value) {

@@ -21,7 +21,6 @@ function sheetMarkup(htmlClass) {
     + '<div data-composer-seat style="position:absolute;bottom:0;left:0;right:0;height:90px;background:#fff">'
     + '<div class="dsh-tavern-question dsh-tavern-candidate-question">'
     + '<div class="dsh-tavern-question-head" role="button" tabindex="0" aria-expanded="true"><span>接下来的行动</span>'
-    + '<span class="dsh-tavern-question-sub">11 个</span>'
     + '<button type="button" class="dsh-tavern-question-close" title="收起行动列表">⌃</button></div>'
     + '<div class="dsh-tavern-question-tabs" role="tablist">'
     + ['精选 6', '角色甲 3', '全局 2'].map((label, index) => '<button type="button" role="tab" class="dsh-tavern-question-tab' + (index ? '' : ' active') + '">'

@@ -735,6 +735,7 @@ let openImageOverlay = null
             const blocksText = String(r.job.promptText || '')
             openPromptEditor({
               forJobId: String(jobId), forRequestId: requestId, loading: false,
+              canCompareOriginal: r.job.canCompareOriginal === true,
               prompt: blocksText || sceneText,
               negative: String(r.job.negative || ''),
               note: blocksText ? '场景与角色块一起显示；改完重画会按角色分区重新发送' : '',
@@ -995,7 +996,7 @@ function versionsOf(jobId) {
         }
       }
 
-      async function redraw() {
+      async function redraw(sameSeed = false) {
         if (controlsDisabled || view.inputsError) return
         if (referenceUnavailable) { say('当前渠道不支持参考图输入；请明确选择支持参考图的渠道或改为文生图，不会自动降级。'); return }
         const lock = String(view.mediaContext && view.mediaContext.mediaId || '')
@@ -1006,7 +1007,7 @@ function versionsOf(jobId) {
           if (view.mediaContext) {
             if (!validMediaContext(view.mediaContext)) { say('当前图片上下文不完整，无法提交单图重画'); return }
             const body = { operation: 'redraw', ...view.mediaContext, jobId: view.mediaContext.jobId, prompt: view.prompt, negative: view.negative,
-              generationMode: view.generationMode === 'reference' ? 'reference' : 'text', refreshReferences: view.generationMode === 'reference' && view.refreshReferences === true }
+              generationMode: view.generationMode === 'reference' ? 'reference' : 'text', refreshReferences: view.generationMode === 'reference' && view.refreshReferences === true, sameSeed: sameSeed === true }
             if (view.channelId) body.channelId = view.channelId
             const result = await jsonFetch(BASE + '/media-action', {
               method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
@@ -1019,7 +1020,7 @@ function versionsOf(jobId) {
           const r = await jsonFetch(BASE + '/redraw', {
             method: 'POST', headers: { 'content-type': 'application/json' },
             body: JSON.stringify({ jobId: view.jobId, prompt: view.prompt, negative: view.negative,
-              generationMode: view.generationMode === 'reference' ? 'reference' : 'text', refreshReferences: view.generationMode === 'reference' && view.refreshReferences === true }),
+              generationMode: view.generationMode === 'reference' ? 'reference' : 'text', refreshReferences: view.generationMode === 'reference' && view.refreshReferences === true, sameSeed: sameSeed === true }),
           })
           if (!r?.ok || !r.jobId) { say('重画失败：' + (r?.error || '没拿到新作业')); return }
           redrawnJobs.set(view.jobId, r.jobId)
@@ -1147,7 +1148,8 @@ function versionsOf(jobId) {
         React.createElement('div', { style: { display: 'flex', gap: '10px', alignItems: 'center', marginTop: '16px', flexWrap: 'wrap' } },
           btn('🤖 让后台改', improve),
           btn('👁 看展开结果', () => openPromptEditor({ showInputs: true })),
-          btn(view.busy === 'redraw' ? '🎨 提交中…' : '🎨 用这段重画', redraw, true),
+          btn(view.busy === 'redraw' ? '🎨 提交中…' : '🎨 用这段重画', () => redraw(false), true),
+          view.canCompareOriginal && !view.loading && !view.channelId && view.generationMode === 'text' ? btn('按原参数对照', () => redraw(true)) : null,
           view.note ? React.createElement('span', { style: { fontSize: '12px', color: '#9aa3b2' } }, view.note) : null,
         ),
         React.createElement('div', { style: { fontSize: '11px', color: '#6b7480', marginTop: '14px' } }, '提示：改完提示词点「用这段重画」，会在同一条消息里换成新图。'),
@@ -1891,6 +1893,105 @@ function versionsOf(jobId) {
         source && error ? h('div', { role: 'alert', style: { position: 'fixed', zIndex: 2147483250, top: 70, left: '10%', background: 'Canvas', color: 'CanvasText', padding: 16 } }, error,
           h('button', { type: 'button', onClick: () => setSource(null) }, '关闭')) : null)
     }
+    /**
+     * 服装字段与展开规则的唯一一份实现。
+     *
+     * 角色自带的服装、通用服装库都使用同一套分部位字段：
+     *   upper / lower / shoes / accessory / full / back / negative
+     * 旧的通用库字段 body / bodyBack / fullBack 只作为读入兼容，
+     * 分别映射到 upper 和 back；保存时保留原值，便于旧版本回滚。
+     *
+     * 宿主侧（lib/index.js、lib/library-prompts.js、lib/library-provider.js、
+     * lib/reference-images.js）与浏览器侧（client.js）都用这里的规则，
+     * 不要在别处再写第二份字段判断。
+     */
+
+    /** 逐字段写进提示词的部位，顺序即输出顺序。 */
+    const OUTFIT_PART_KEYS = ['upper', 'lower', 'shoes', 'accessory', 'full']
+    /** 会落盘的服装字段：新字段在前，旧字段仅兼容读入。 */
+    const OUTFIT_FIELDS = [...OUTFIT_PART_KEYS, 'back', 'negative', 'body', 'bodyBack', 'fullBack']
+    /** 旧版通用服装库的字段。 */
+    const LEGACY_OUTFIT_FIELDS = ['body', 'bodyBack', 'fullBack']
+
+    const PLACEHOLDER = /^(?:none|n\/a|null|undefined|无|没有)$/i
+    const text = (value) => String(value ?? '').trim()
+
+    /**
+     * 旧字段 → 统一字段。upper 优先于 body。
+     * 背面沿用旧读法：bodyBack（背面上身）与 fullBack（背面整套）都要，按顺序接成一段；
+     * 旧版就是这么拼的，只取其中一个会丢掉另一段描述。
+     */
+    function normalizeOutfitParts(outfit = {}) {
+      const source = outfit ?? {}
+      const upper = text(source.upper ?? source.body)
+      const back = source.back == null ? [source.bodyBack, source.fullBack].map(text).filter(Boolean).join('\n') : text(source.back)
+      return { ...source, upper, back }
+    }
+
+    /**
+     * 这条服装还要不要写回统一字段：只有旧字段、没有对应新字段时为真。
+     * 迁移后新字段有值，条件自然变假，所以每次加载都安全地检查一次即可。
+     * shared=true 时按通用库读法把 bodyBack 也算作背面；人物自带服装的 bodyBack 是旧的配饰字段，不参与。
+     */
+    function needsOutfitMigration(outfit, { shared = false } = {}) {
+      const item = outfit ?? {}
+      if (!item || typeof item !== 'object' || Array.isArray(item)) return false
+      const upperStale = item.upper == null && Boolean(text(item.body))
+      const backStale = item.back == null && Boolean(text(item.fullBack) || (shared && text(item.bodyBack)))
+      return upperStale || backStale
+    }
+
+    /**
+     * 按部位状态取这套衣服这一刻该写的字段。
+     * upper / lower 取 'sfw' | 'nsfw' | 'hidden'；back 为真时追加背面字段。
+     * dropFootwear 由调用方注入（鞋袜词表在宿主侧），默认不过滤。
+     */
+    function collectOutfitParts(outfit, options = {}) {
+      const item = normalizeOutfitParts(outfit)
+      const tags = options.tags ?? (options.mode !== 'natural' && options.mode !== 'structured')
+      const level = (value) => {
+        const v = String(value ?? '').toLowerCase()
+        return v === 'hidden' || v === 'nsfw' ? v : 'sfw'
+      }
+      const upperPart = level(options.upper)
+      const lowerPart = level(options.lower)
+      const cropped = options.cropped === true
+      const barefoot = options.barefoot === true
+      const keepSocks = options.keepSocks === true
+      const dropFootwear = typeof options.dropFootwear === 'function' ? options.dropFootwear : (value) => value
+      const accept = (value) => {
+        const next = text(value)
+        return next && !PLACEHOLDER.test(next) ? next : ''
+      }
+      const parts = []
+      for (const field of OUTFIT_PART_KEYS) {
+        // 标了 hidden 的部位出了画框、标了 nsfw 的部位露着，对应衣服都不能写。
+        if (field === 'shoes' && (lowerPart === 'hidden' || lowerPart === 'nsfw')) continue
+        // 只有上下都出框时才连下装一起省掉；只拍上半身照样写下装，否则下摆会画到大腿。
+        if (field === 'lower' && (lowerPart === 'nsfw' || (lowerPart === 'hidden' && upperPart === 'hidden'))) continue
+        if (field === 'upper' && (upperPart === 'hidden' || upperPart === 'nsfw')) continue
+        // full 是整套的总述，任何一个部位裸露或出框都不能再用它。
+        if (field === 'full' && (upperPart !== 'sfw' || lowerPart !== 'sfw')) continue
+        if (cropped && (field === 'lower' || field === 'shoes' || field === 'full')) continue
+        if (barefoot && !keepSocks && field === 'shoes') continue
+        const hasOutfitParts = tags ? text(item.upper) || text(item.lower) : options.conciseOutfit && text(item.upper) && text(item.lower)
+        if (field === 'full' && hasOutfitParts) continue
+        const value = accept(barefoot ? dropFootwear(item[field], keepSocks) : item[field])
+        if (value) parts.push({ field, text: value })
+      }
+      if (!cropped && options.back === true) {
+        const back = accept(item.back)
+        if (back) parts.push({ field: 'back', text: back })
+      }
+      return parts
+    }
+
+    /** 把一套服装按同一套规则拼成一段提示词。 */
+    function outfitPromptText(outfit, { mode = 'tags', back = false, upper = 'sfw', lower = 'sfw', cropped = false } = {}) {
+      const parts = collectOutfitParts(outfit, { mode, back, upper, lower, cropped })
+      return parts.map((part) => part.text).join(mode === 'tags' ? ', ' : '\n')
+    }
+
     function libraryPromptOverride(record) {
       return typeof record?.imagePrompt === 'string' ? record.imagePrompt.trim() : null
     }
@@ -1922,12 +2023,10 @@ function versionsOf(jobId) {
         .map(libraryPromptPart).filter(Boolean).join(mode === 'tags' ? ', ' : '\n')
     }
 
-    function outfitLibraryPrompt(record, { mode = 'tags', shared = false, back = false } = {}) {
-      const upper = shared ? record?.body : record?.upper
-      const lower = shared ? '' : record?.lower
-      const full = mode === 'tags' && (libraryPromptPart(upper) || libraryPromptPart(lower)) ? '' : record?.full
-      return libraryPromptOverride(record) ?? (back ? [shared ? record?.bodyBack : record?.back, shared ? record?.fullBack : '', record?.shoes, record?.accessory] : [upper, lower, record?.shoes, record?.accessory, full])
-        .map(libraryPromptPart).filter(Boolean).join(mode === 'tags' ? ', ' : '\n')
+    // 角色自带服装与通用服装库走同一套字段和部位规则（见 outfit-parts.js）。
+    // 旧签名里的 shared 参数保留给现有调用方，字段归一已在 collectOutfitParts 里完成。
+    function outfitLibraryPrompt(record, { mode = 'tags', back = false } = {}) {
+      return libraryPromptOverride(record) ?? outfitPromptText(record, { mode, back: back === true })
     }
     const S = {
       surface: { background: 'transparent', color: 'var(--dsw-alias-label-primary)' },
@@ -2435,14 +2534,18 @@ function versionsOf(jobId) {
     }
 
     /** One local reference per library object; binding is saved with the existing draft.
-     *  field='characterOutfitImage' edits a character's own outfit sheet (角色×服装设定图), sharing the outfit's 一致性补充. */
-    function ReferenceImageEditor({ value = {}, label, onChange, field = 'referenceImage', noun = '参考图', heading = '（每个对象一张）', consistency = true, compact = false }) {
+     *  field='characterOutfitImage' edits a character's own outfit sheet (角色×服装设定图), sharing the outfit's 一致性补充.
+     *  lent {picture, borrowed}: the picture Tavern's asset library lends a linked figure here (state.figurePictures). A 设定图
+     *  is what pictures use, changed in the asset library; a borrowed 立绘 stands in until a picture is uploaded here. */
+    function ReferenceImageEditor({ value = {}, label, onChange, field = 'referenceImage', noun = '参考图', heading = '（每个对象一张）', consistency = true, compact = false, lent = null }) {
       const [busy, setBusy] = React.useState(false)
       const [note, setNote] = React.useState('')
       const epoch = React.useRef(0)
       React.useEffect(() => () => { epoch.current += 1 }, [])
       const image = value[field]
       const imageId = /^[a-f0-9]{64}$/i.test(String(image?.id || '')) ? image.id : ''
+      const shown = lent?.picture && (!lent.borrowed || !imageId) ? lent.picture : null
+      const settei = Boolean(shown && !lent.borrowed)
       const inputStyle = { width: '100%', boxSizing: 'border-box', padding: '7px 9px', borderRadius: '7px', background: 'var(--dsw-specific-input-major)', color: 'var(--dsw-alias-label-primary)', border: '1px solid var(--dsw-alias-border-l2)', fontFamily: 'inherit', fontSize: '12px' }
       async function upload(event) {
         const file = event.target.files?.[0]
@@ -2474,13 +2577,15 @@ function versionsOf(jobId) {
           if (request === epoch.current) setNote('上传失败：' + (error?.message || error))
         } finally { if (request === epoch.current) setBusy(false) }
       }
-      const preview = imageId ? h('img', { src: BASE + '/reference-image?id=' + encodeURIComponent(imageId), alt: label + noun,
+      const previewId = shown ? shown.id : imageId
+      const preview = previewId ? h('img', { src: BASE + '/reference-image?id=' + encodeURIComponent(previewId), alt: label + noun,
         style: compact ? undefined : { display: 'block', maxWidth: '180px', maxHeight: '160px', objectFit: 'contain', borderRadius: '7px', marginBottom: '7px' } }) : null
+      const caption = shown ? (settei ? '素材库设定图，在素材库人物页更换' : '借用素材库立绘，上传后改用上传的图') : imageId ? image.name || '已上传参考图' : ''
       const controls = h('div', null,
         h('div', { style: { fontSize: '12px', fontWeight: 600, marginBottom: '4px' } }, compact ? noun : label + noun + heading),
         compact ? null : preview,
-        imageId ? h('div', { style: { fontSize: '11px', overflowWrap: 'anywhere', marginBottom: '4px' } }, image.name || '已上传参考图') : null,
-        h('label', { style: { display: 'inline-flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center', fontSize: '12px' } },
+        caption ? h('div', { style: { fontSize: '11px', overflowWrap: 'anywhere', marginBottom: '4px' } }, caption) : null,
+        settei ? null : h('label', { style: { display: 'inline-flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center', fontSize: '12px' } },
           compact && !busy ? null : busy ? '上传中…' : imageId ? '替换' + noun : '上传' + noun,
           h('input', { type: 'file', accept: 'image/png,image/jpeg,image/webp', 'aria-label': label + '上传' + noun,
             disabled: busy, onChange: upload, style: { maxWidth: '100%', fontSize: 12 } })),
@@ -2503,25 +2608,28 @@ function versionsOf(jobId) {
 
     }
 
+    const OUTFIT_PROMPT_PARTS = [['upper', '上衣'], ['lower', '下装'], ['shoes', '鞋袜'], ['accessory', '配饰'], ['full', '整套'], ['back', '背面']]
     const LIBRARY_PROMPT_PARTS = {
       '角色': [['face', '外貌正面'], ['faceBack', '外貌背面'], ['bodySFW', '穿衣上身正面'], ['bodySFWBack', '穿衣上身背面'],
         ['lowerSFW', '穿衣下身正面'], ['lowerSFWBack', '穿衣下身背面'], ['bodyNSFW', '裸露上身正面'], ['bodyNSFWBack', '裸露上身背面'],
         ['lowerNSFW', '裸露下身正面'], ['lowerNSFWBack', '裸露下身背面'], ['feature', '性格（规划用）']],
-      '服装': [['upper', '上衣'], ['lower', '下装'], ['shoes', '鞋袜'], ['accessory', '配饰'], ['full', '整套'], ['back', '背面']],
-      '通用服装': [['body', '正面上身'], ['full', '正面整套'], ['bodyBack', '背面上身'], ['fullBack', '背面整套']],
+      // 两套服装库字段已统一，编辑面板共用同一份字段表。
+      '服装': OUTFIT_PROMPT_PARTS,
+      '通用服装': OUTFIT_PROMPT_PARTS,
     }
 
     function LibraryPromptEditor({ record, kind, mode, traitMode, editable, detailsEditable, onChange }) {
       const custom = libraryPromptOverride(record) !== null
       const character = kind === '角色'
-      const parts = character ? record.traits || {} : record
+      // 通用服装与角色服装同字段；旧 body/fullBack 数据在这里先归一，编辑面板不会显示成空。
+      const parts = character ? record.traits || {} : normalizeOutfitParts(record)
       const fields = LIBRARY_PROMPT_PARTS[kind]
       const filled = fields.filter(([key]) => String(parts[key] || '').trim())
       const [view, setView] = React.useState(() => !custom && filled.length > 1 ? 'all' : 'prompt')
       const [selected, select] = React.useState('')
       const updatePart = (key, value) => onChange(character ? { traits: { ...parts, [key]: value } } : { [key]: value })
       const fallback = character ? characterLibraryPrompt(record, { mode, traitMode })
-        : outfitLibraryPrompt(record, { mode, shared: kind === '通用服装' })
+        : outfitLibraryPrompt(record, { mode })
       const imageDetails = libraryImageDetails(record)
       const editor = (label, value, onEdit, rows, readOnly = false) => h('label', { style: { display: 'grid', gap: 4, margin: '8px 0', minWidth: 0 } },
         h('span', { style: { fontSize: 12, fontWeight: 600 } }, label),
@@ -3966,6 +4074,129 @@ function versionsOf(jobId) {
       return multiline ? h('textarea', props) : h('input', Object.assign({ type: 'text' }, props))
     }
 
+    const PRESET_SAMPLE_LIMIT = 8
+    const PRESET_SAMPLE_TYPES = ['image/png', 'image/jpeg', 'image/webp']
+
+    /** 画风示例图：字节存在本机 reference-images/，画风预设里只记 descriptor（id / mediaType / name / byteLength）。 */
+    function PresetSampleEditor({ samples, label, onChange }) {
+      const [busy, setBusy] = React.useState(false)
+      const [note, setNote] = React.useState('')
+      const epoch = React.useRef(0)
+      React.useEffect(() => () => { epoch.current += 1 }, [])
+      const list = (Array.isArray(samples) ? samples : [])
+        .filter(item => item && /^[a-f0-9]{64}$/i.test(String(item.id || '')))
+        .slice(0, PRESET_SAMPLE_LIMIT)
+      const imageUrl = id => BASE + '/reference-image?id=' + encodeURIComponent(id)
+      const readAsDataUrl = file => new Promise((resolve, reject) => {
+        const reader = new FileReader()
+        reader.onload = () => resolve(String(reader.result || ''))
+        reader.onerror = () => reject(new Error('无法读取 ' + file.name))
+        reader.readAsDataURL(file)
+      })
+      async function upload(event) {
+        const files = Array.from(event.target.files || [])
+        event.target.value = ''
+        if (!files.length) return
+        const request = ++epoch.current
+        const added = []
+        let skipped = 0
+        setBusy(true)
+        setNote('')
+        try {
+          for (const file of files) {
+            const mediaType = file.type || ({ png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp' })[String(file.name).split('.').pop().toLowerCase()]
+            if (list.length + added.length >= PRESET_SAMPLE_LIMIT || !PRESET_SAMPLE_TYPES.includes(mediaType) || !file.size || file.size > 32 * 1024 * 1024) { skipped += 1; continue }
+            const data = await readAsDataUrl(file)
+            if (request !== epoch.current) return
+            const result = await jsonFetch(BASE + '/reference-image', {
+              method: 'POST', headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ data, mediaType, name: file.name }),
+            })
+            if (request !== epoch.current) return
+            const image = result?.referenceImage
+            if (!result?.ok || !/^[a-f0-9]{64}$/i.test(String(image?.id || ''))) throw new Error(result?.error || ('服务器没有返回有效的图片：' + file.name))
+            if (!list.some(item => item.id === image.id) && !added.some(item => item.id === image.id)) {
+              added.push({ id: image.id, mediaType: image.mediaType, name: image.name, byteLength: image.byteLength })
+            }
+          }
+          if (added.length && !await onChange(current => [...current, ...added.filter(item => !current.some(old => old.id === item.id))].slice(0, PRESET_SAMPLE_LIMIT))) {
+            throw new Error('画风示例图未保存')
+          }
+          if (request !== epoch.current) return
+          setNote([
+            added.length ? '已加入 ' + added.length + ' 张示例图' : '',
+            skipped ? '跳过 ' + skipped + ' 张（只收 PNG / JPEG / WebP，单张 32 MiB 以内，每套最多 ' + PRESET_SAMPLE_LIMIT + ' 张）' : '',
+          ].filter(Boolean).join('；') || '没有可用的图片')
+        } catch (error) {
+          if (request === epoch.current) setNote('上传失败：' + (error?.message || error))
+        } finally { if (request === epoch.current) setBusy(false) }
+      }
+      const remove = async id => {
+        const request = ++epoch.current
+        setBusy(true)
+        const saved = await onChange(current => current.filter(item => item.id !== id))
+        if (request !== epoch.current) return
+        setBusy(false)
+        setNote(saved ? '已移除这张示例图；图片文件仍留在本机' : '移除示例图失败')
+      }
+      // 复用插件自带的全屏看图浮层（游玩画廊点开大图用的同一个）：自带 ←→ 翻页、滚轮缩放、Esc 关闭。
+      const previewAt = at => {
+        const open = typeof openImageOverlay === 'function' ? openImageOverlay : null
+        if (!open) { window.open(imageUrl(list[at].id), '_blank', 'noopener'); return }
+        open({
+          open: true,
+          images: list.map(item => ({ url: imageUrl(item.id), alt: item.name || '画风示例图' })),
+          index: at,
+          note: (label || '画风') + ' · 画风示例图',
+          working: false,
+        })
+      }
+      return h('div', { 'aria-label': (label || '画风') + '示例图' },
+        list.length ? h('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '8px' } },
+          list.map((item, at) => h('div', { key: item.id, style: { position: 'relative', width: '104px' } },
+            h('button', {
+              type: 'button', onClick: () => previewAt(at),
+              title: '点开看大图（← → 翻页，滚轮缩放）', 'aria-label': '查看示例图 ' + (item.name || (at + 1)),
+              style: { display: 'block', width: '104px', height: '104px', padding: 0, border: 0, borderRadius: '7px', background: 'transparent', cursor: 'zoom-in' },
+            },
+              h('img', {
+                src: imageUrl(item.id), alt: item.name || '画风示例图', loading: 'lazy',
+                style: { display: 'block', width: '100%', height: '100%', objectFit: 'cover', borderRadius: '7px', border: '1px solid color-mix(in srgb, var(--dsw-alias-label-tertiary) 22%, transparent)' },
+              })),
+            h('button', {
+              type: 'button', disabled: busy, 'aria-label': '移除示例图 ' + (item.name || ''), title: '移除这张',
+              style: Object.assign({}, buttonStyle, { position: 'absolute', top: '3px', right: '3px', padding: '0 5px', fontSize: '11px', lineHeight: '18px' }),
+              onClick: () => remove(item.id),
+            }, '×'))))
+          : h('div', { style: { fontSize: '12px', color: 'var(--dsw-alias-label-tertiary)' } }, '还没有示例图。'),
+        h('label', { style: { display: 'inline-flex', gap: '6px', alignItems: 'center', fontSize: '12px', cursor: busy ? 'default' : 'pointer' } },
+          busy ? '上传中…' : '上传示例图（可多选）',
+          h('input', {
+            type: 'file', accept: 'image/png,image/jpeg,image/webp', multiple: true, disabled: busy,
+            'aria-label': (label || '画风') + '上传示例图', onChange: upload, style: { maxWidth: '100%', fontSize: 12 },
+          })),
+        h('div', { style: { fontSize: '11px', color: 'var(--dsw-alias-label-tertiary)', marginTop: '5px' } },
+          '示例图只在本机保存，用来辨认这套画风；图片文件不随配置导出或迁移，每套最多 ' + PRESET_SAMPLE_LIMIT + ' 张。'),
+        note ? h('div', { role: 'status', style: { fontSize: '12px', marginTop: '4px', overflowWrap: 'anywhere' } }, note) : null,
+      )
+    }
+
+    /** 折叠时完全不挂载缩略图：img 一进 DOM 就会发请求，折叠只是视觉隐藏，指望浏览器懒加载兜不住。 */
+    function PresetSampleDetails({ samples, label, onChange }) {
+      const [open, setOpen] = React.useState(false)
+      const count = (Array.isArray(samples) ? samples : []).length
+      return h('details', {
+        style: { marginTop: '8px' },
+        // 不用受控 open，只跟随原生开合；state 只决定要不要渲染内容。
+        onToggle: event => setOpen(event.currentTarget.open === true),
+      },
+        h('summary', { style: { fontSize: '11px', color: 'var(--dsw-alias-label-tertiary)', cursor: 'pointer', padding: '2px 0' } },
+          '这套的画风示例图' + (count ? '（' + count + ' 张）' : '（未上传）')),
+        open ? h('div', { style: { marginTop: '8px', padding: '12px 14px', borderRadius: '8px', background: 'var(--dsw-specific-input-major)', border: '1px solid color-mix(in srgb, var(--dsw-alias-label-tertiary) 18%, transparent)' } },
+          h(PresetSampleEditor, { samples, label, onChange })) : null,
+      )
+    }
+
     function ImageStylePanel({ config, save }) {
         const [editing, setEditing] = React.useState(null)
         const [importNote, setImportNote] = React.useState('')
@@ -3979,18 +4210,24 @@ function versionsOf(jobId) {
         const presetKey = (item, index) => String(item.id || index)
         const expandPreset = id => setEditing(current => current === id ? null : id)
 
-        const savePresets = (next) => save({ stylePresets: next })
-        const patch = (i, patchObj) => {
-          const next = presets.slice()
-          next[i] = Object.assign({}, next[i], patchObj)
-          savePresets(next)
-        }
+        const savePresets = update => save(({ stylePresets = [] }) => {
+          const next = update(stylePresets)
+          return next && { stylePresets: next }
+        })
+        const patchPreset = (id, change) => savePresets(current => {
+          const index = current.findIndex((item, i) => presetKey(item, i) === id)
+          if (index < 0) return null
+          const next = current.slice()
+          next[index] = { ...current[index], ...change(current[index]) }
+          return next
+        })
+        const patch = (i, patchObj) => patchPreset(presetKey(presets[i], i), () => patchObj)
         const add = async () => {
           const created = {
             id: 'p' + Date.now(), name: '画风 ' + (presets.length + 1),
             artist: '', negative: '', position: 'prefix', enabled: true,
           }
-          if (await save({ stylePresets: [...presets, created] })) setEditing(created.id)
+          if (await savePresets(current => current.length < 60 ? [...current, created] : null)) setEditing(created.id)
         }
         async function importStyles(event) {
           const file = event.target.files?.[0]
@@ -4020,7 +4257,10 @@ function versionsOf(jobId) {
                 negative: String(style.negative ?? ''), position: style.position, enabled: style.enabled !== false, params: style.params })
             }
             if (!added.length) { setImportNote('没有可新增的画风。相同 ID 会保留库里的版本，画风库最多 60 套。'); return }
-            const saved = await save({ stylePresets: [...current, ...added] })
+            const saved = await savePresets(current => [
+              ...current,
+              ...added.filter(style => !current.some(item => String(item.id) === style.id)),
+            ].slice(0, 60))
             setImportNote(saved ? '已导入 ' + added.length + ' 套画风' : '画风保存失败')
           } catch {
             setImportNote('无法读取画风。请选择旧配置或生图备份 JSON。')
@@ -4030,20 +4270,109 @@ function versionsOf(jobId) {
         }
         const remove = (i) => {
           if (!confirm('删除这套画风？')) return
-          const next = presets.slice()
-          const gone = next.splice(i, 1)[0]
-          save({ stylePresets: next, ...(gone && String(gone.id) === active ? { activePreset: '' } : {}) })
+          const id = presetKey(presets[i], i)
+          save(({ stylePresets = [], activePreset }) => ({
+            stylePresets: stylePresets.filter((item, index) => presetKey(item, index) !== id),
+            ...(id === String(activePreset) ? { activePreset: '' } : {}),
+          }))
         }
-        // Moving one preset keeps the relative order of all the others.
-        const movePreset = (fromKey, toKey) => {
-          const from = presets.findIndex((item, index) => presetKey(item, index) === fromKey)
-          const to = presets.findIndex((item, index) => presetKey(item, index) === toKey)
-          if (from < 0 || to < 0 || from === to) return
-          const next = presets.slice()
+        // ——— 拖拽排序：拖到某条的上半 / 下半，松手就插到那一格，其余条目相对顺序不动 ———
+        const listRef = React.useRef(null)
+        const pointerRef = React.useRef(null)
+        const scrollRef = React.useRef({ raf: 0, speed: 0 })
+        const movePresetTo = (fromKey, toKey, edge) => savePresets(current => {
+          const from = current.findIndex((item, index) => presetKey(item, index) === fromKey)
+          const to = current.findIndex((item, index) => presetKey(item, index) === toKey)
+          if (from < 0 || to < 0 || from === to) return null
+          const next = current.slice()
           const [moved] = next.splice(from, 1)
-          next.splice(to, 0, moved)
-          savePresets(next)
+          const at = to - (from < to ? 1 : 0) + (edge === 'after' ? 1 : 0)
+          if (at === from) return null
+          next.splice(at, 0, moved)
+          return next
+        })
+        // 指针落在哪张卡片、落在它的上半还是下半；离开列表本体就算没有落点。
+        const resolveDrop = clientY => {
+          const list = listRef.current
+          if (!list) return null
+          const rect = list.getBoundingClientRect()
+          if (clientY < rect.top - 12 || clientY > rect.bottom + 12) return null
+          const cards = Array.from(list.querySelectorAll('[data-preset-card]')).filter(card => {
+            const box = card.getBoundingClientRect()
+            return box.bottom > rect.top - 12 && box.top < rect.bottom + 12
+          })
+          if (!cards.length) return null
+          for (const card of cards) {
+            const box = card.getBoundingClientRect()
+            const key = card.getAttribute('data-preset-card')
+            if (clientY < box.top) return { over: key, edge: 'before' }
+            if (clientY <= box.bottom) return { over: key, edge: clientY < box.top + box.height / 2 ? 'before' : 'after' }
+          }
+          return { over: cards[cards.length - 1].getAttribute('data-preset-card'), edge: 'after' }
         }
+        const updateDrop = clientY => {
+          const found = resolveDrop(clientY)
+          // 只有落点真的换了才改 state，否则每个 pointermove 都要重渲染整份列表。
+          setDragState(state => {
+            if (!state) return state
+            const over = found ? found.over : null
+            const edge = found ? found.edge : 'after'
+            return state.over === over && state.edge === edge ? state : Object.assign({}, state, { over, edge })
+          })
+        }
+        const stopAutoScroll = () => {
+          const scroll = scrollRef.current
+          if (scroll.raf) { cancelAnimationFrame(scroll.raf); scroll.raf = 0 }
+          scroll.speed = 0
+        }
+        const tickAutoScroll = () => {
+          const scroll = scrollRef.current
+          const list = listRef.current
+          const pointer = pointerRef.current
+          scroll.raf = 0
+          if (!list || !pointer || !scroll.speed) return
+          const before = list.scrollTop
+          list.scrollTop = before + scroll.speed
+          // 滚到头就停，指针回到中间区域再重新起转。
+          if (list.scrollTop === before) { scroll.speed = 0; return }
+          updateDrop(pointer.lastY)
+          scroll.raf = requestAnimationFrame(tickAutoScroll)
+        }
+        const setAutoScroll = speed => {
+          const scroll = scrollRef.current
+          scroll.speed = speed
+          if (!speed) { stopAutoScroll(); return }
+          if (!scroll.raf) scroll.raf = requestAnimationFrame(tickAutoScroll)
+        }
+        const DROP_EDGE_ZONE = 46
+        const edgeSpeed = distance => Math.min(10, Math.max(2, Math.round(distance / 6)))
+        const updateAutoScroll = clientY => {
+          const list = listRef.current
+          if (!list) return
+          const rect = list.getBoundingClientRect()
+          const fromTop = clientY - rect.top
+          const fromBottom = rect.bottom - clientY
+          if (fromTop < DROP_EDGE_ZONE) setAutoScroll(-edgeSpeed(DROP_EDGE_ZONE - fromTop))
+          else if (fromBottom < DROP_EDGE_ZONE) setAutoScroll(edgeSpeed(DROP_EDGE_ZONE - fromBottom))
+          else setAutoScroll(0)
+        }
+        const finishDrag = (commit, clientY) => {
+          const pointer = pointerRef.current
+          pointerRef.current = null
+          stopAutoScroll()
+          setDragState(null)
+          if (!commit || !pointer || !pointer.started) return
+          const list = listRef.current
+          if (list) {
+            const rect = list.getBoundingClientRect()
+            if (clientY < rect.top - 12 || clientY > rect.bottom + 12) return
+          }
+          // 松手位置现算一次，不沿用上一帧的 state，免得拖太快落在旧目标上。
+          const found = resolveDrop(clientY)
+          if (!found || !found.over || found.over === pointer.from) return
+          movePresetTo(pointer.from, found.over, found.edge)
+        }
+        React.useEffect(() => () => stopAutoScroll(), [])
         const ta = (hgt) => Object.assign({}, S.input, {
           width: '100%', minHeight: hgt, fontFamily: 'ui-monospace, Consolas, monospace',
           lineHeight: '1.6', resize: 'vertical', boxSizing: 'border-box', fontSize: '12px',
@@ -4054,12 +4383,12 @@ function versionsOf(jobId) {
         const PRESET_NOISE = [['karras', 'Karras'], ['native', 'Native'], ['exponential', 'Exponential'], ['polyexponential', 'Polyexponential']]
         const PRESET_UC = [['0', '0 · 强（Heavy）'], ['1', '1 · 弱（Light）'], ['2', '2 · Furry'], ['3', '3 · Human（默认）'], ['4', '4 · 不指定']]
         const paramValue = (p, key) => (p.params && p.params[key] !== undefined && p.params[key] !== null ? String(p.params[key]) : '')
-        const setParam = (i, p, key, value) => {
-          const next = Object.assign({}, p.params || {})
+        const setParam = (i, key, value) => patchPreset(presetKey(presets[i], i), item => {
+          const next = { ...item.params }
           if (value === undefined) delete next[key]
           else next[key] = value
-          patch(i, { params: next })
-        }
+          return { params: next }
+        })
         const PARAM_ROW = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: '10px 12px' }
         const paramGroupTitle = (text, first) => h('div', {
           style: { fontSize: '11px', letterSpacing: '.02em', color: 'var(--dsw-alias-label-tertiary)', margin: first ? '0 0 6px' : '12px 0 6px', paddingTop: first ? '0' : '10px', borderTop: first ? 'none' : '1px solid color-mix(in srgb, var(--dsw-alias-label-tertiary) 14%, transparent)' },
@@ -4067,13 +4396,13 @@ function versionsOf(jobId) {
         const paramField = (caption, control) => h('div', { style: { display: 'flex', flexDirection: 'column', gap: '5px', minWidth: '0' } },
           h('div', { style: { fontSize: '11px', color: 'var(--dsw-alias-label-tertiary)' } }, caption), control)
         const paramSelect = (i, p, key, caption, items) => paramField(caption,
-          h('select', { value: paramValue(p, key), title: caption + '：留空表示沿用渠道设置', style: Object.assign({}, S.input, { width: '100%', boxSizing: 'border-box' }), onChange: e => setParam(i, p, key, e.target.value === '' ? undefined : e.target.value) },
+          h('select', { value: paramValue(p, key), title: caption + '：留空表示沿用渠道设置', style: Object.assign({}, S.input, { width: '100%', boxSizing: 'border-box' }), onChange: e => setParam(i, key, e.target.value === '' ? undefined : e.target.value) },
             h('option', { value: '', style: optStyle }, '跟随渠道'),
             items.map(([value, text]) => h('option', { key: value, value, style: optStyle }, text))))
         const paramNumber = (i, p, key, caption, step) => paramField(caption,
-          h('input', { type: 'number', step: step || '1', value: paramValue(p, key), placeholder: '跟随渠道', title: caption + '：留空表示沿用渠道设置', style: Object.assign({}, S.input, { width: '100%', boxSizing: 'border-box' }), onChange: e => setParam(i, p, key, e.target.value.trim() === '' ? undefined : Number(e.target.value)) }))
+          h('input', { type: 'number', step: step || '1', value: paramValue(p, key), placeholder: '跟随渠道', title: caption + '：留空表示沿用渠道设置', style: Object.assign({}, S.input, { width: '100%', boxSizing: 'border-box' }), onChange: e => setParam(i, key, e.target.value.trim() === '' ? undefined : Number(e.target.value)) }))
         const paramBool = (i, p, key, caption) => paramField(caption,
-          h('select', { value: paramValue(p, key), title: caption + '：跟随渠道表示沿用渠道设置', style: Object.assign({}, S.input, { width: '100%', boxSizing: 'border-box' }), onChange: e => setParam(i, p, key, e.target.value === '' ? undefined : e.target.value === 'true') },
+          h('select', { value: paramValue(p, key), title: caption + '：跟随渠道表示沿用渠道设置', style: Object.assign({}, S.input, { width: '100%', boxSizing: 'border-box' }), onChange: e => setParam(i, key, e.target.value === '' ? undefined : e.target.value === 'true') },
             h('option', { value: '', style: optStyle }, '跟随渠道'),
             h('option', { value: 'true', style: optStyle }, '开'),
             h('option', { value: 'false', style: optStyle }, '关')))
@@ -4090,40 +4419,48 @@ function versionsOf(jobId) {
           ),
           importNote ? h('div', { role: 'status', style: STRUCTURE_MUTED }, importNote) : null,
           h('p', { style: STRUCTURE_MUTED }, '在画风模块的「画风来源」选用库里的预设。'),
-          presets.length ? h('div', { style: { marginTop: '10px', display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: 'min(56vh, 520px)', overflowY: 'auto', padding: '2px 4px 2px 2px' } },
+          presets.length ? h('div', {
+            ref: listRef,
+            'data-preset-list': '',
+            // 拖拽中滚轮照常滚；滚动会改变卡片位置，落点跟着重算（平滑滚动要多等一拍）。
+            onWheel: () => {
+              const pointer = pointerRef.current
+              if (!pointer || !pointer.started) return
+              const refresh = () => { if (pointerRef.current) updateDrop(pointer.lastY) }
+              requestAnimationFrame(refresh)
+              setTimeout(refresh, 90)
+            },
+            style: { marginTop: '10px', display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: 'min(56vh, 520px)', overflowY: 'auto', padding: '2px 4px 2px 2px' },
+          },
             presets.map((p, i) => {
               const presetId = presetKey(p, i)
               const expanded = editing === presetId
               const isDragging = Boolean(dragState && dragState.from === presetId)
               const isDropTarget = Boolean(dragState && dragState.over === presetId && dragState.from !== presetId)
+              const dropEdge = isDropTarget ? (dragState.edge === 'before' ? 'before' : 'after') : null
               return h('div', {
                 key: p.id || i,
                 'data-preset-card': presetId,
-                onDragOver: event => {
-                  if (!dragState) return
-                  event.preventDefault()
-                  event.dataTransfer.dropEffect = 'move'
-                  // 只在目标变了才更新，否则每一帧都重渲染
-                  setDragState(state => (!state || state.over === presetId) ? state : Object.assign({}, state, { over: presetId }))
-                },
-                onDrop: event => {
-                  event.preventDefault()
-                  const from = event.dataTransfer.getData('application/x-dsh-image-preset')
-                  setDragState(null)
-                  if (from) movePreset(from, presetId)
-                },
                 style: {
-                  borderRadius: '10px', padding: '10px 12px',
-                  border: isDropTarget
-                    ? '1px solid var(--dsw-alias-brand-primary)'
-                    : String(p.id) === active ? '1px solid color-mix(in srgb, var(--dsw-alias-brand-primary) 75%, transparent)' : '1px solid color-mix(in srgb, var(--dsw-alias-label-tertiary) 22%, transparent)',
+                  position: 'relative', borderRadius: '10px', padding: '10px 12px',
+                  border: String(p.id) === active ? '1px solid color-mix(in srgb, var(--dsw-alias-brand-primary) 75%, transparent)' : '1px solid color-mix(in srgb, var(--dsw-alias-label-tertiary) 22%, transparent)',
                   background: String(p.id) === active ? 'color-mix(in srgb, var(--dsw-alias-brand-primary) 12%, transparent)' : 'var(--dsw-specific-input-major)', color: 'var(--dsw-alias-label-primary)',
-                  // 拖起来的那张淡掉，目标那张亮起来 —— 松手就是这两张换位
-                  opacity: isDragging ? 0.4 : 1,
-                  boxShadow: isDropTarget ? '0 0 0 2px color-mix(in srgb, var(--dsw-alias-brand-primary) 45%, transparent)' : 'none',
-                  transition: 'opacity .12s, box-shadow .12s',
+                  // 拖起来的那张淡掉；落点只用一条插入位置横线提示，边框保持原样免得晃眼。
+                  opacity: isDragging ? 0.45 : 1,
+                  boxShadow: 'none',
+                  transition: 'opacity .12s',
                 },
               },
+                // 插入位置提示：目标上半 = 插到它前面，下半 = 插到它后面。
+                dropEdge ? h('div', {
+                  key: 'drop-edge', 'data-drop-edge': dropEdge, 'aria-hidden': 'true',
+                  style: {
+                    position: 'absolute', left: '6px', right: '6px', height: '3px', borderRadius: '2px',
+                    background: 'var(--dsw-alias-brand-primary)', opacity: 0.9, pointerEvents: 'none', zIndex: 2,
+                    ...(dropEdge === 'before' ? { top: '-2px' } : { bottom: '-2px' }),
+                  },
+                }) : null,
+
                 h('div', { style: { display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', marginBottom: expanded ? '8px' : '0' } },
                   h('input', { type: 'radio', name: 'rphub-preset', checked: String(p.id) === active, title: '用这一套', onChange: () => save({ activePreset: String(p.id) }) }),
                   h(PresetTextField, {
@@ -4151,27 +4488,44 @@ function versionsOf(jobId) {
                   h('button', {
                     type: 'button', title: '上移预设', 'aria-label': '上移 ' + (p.name || (i + 1)),
                     disabled: i === 0, style: Object.assign({}, buttonStyle, { padding: '3px 6px' }),
-                    onClick: () => movePreset(presetId, presetKey(presets[i - 1], i - 1)),
+                    onClick: () => movePresetTo(presetId, presetKey(presets[i - 1], i - 1), 'before'),
                   }, '上移'),
                   h('button', {
                     type: 'button', title: '下移预设', 'aria-label': '下移 ' + (p.name || (i + 1)),
                     disabled: i === presets.length - 1, style: Object.assign({}, buttonStyle, { padding: '3px 6px' }),
-                    onClick: () => movePreset(presetId, presetKey(presets[i + 1], i + 1)),
+                    onClick: () => movePresetTo(presetId, presetKey(presets[i + 1], i + 1), 'after'),
                   }, '下移'),
                   h('div', {
-                    draggable: true,
-                    title: '按住拖动，调整这套预设的位置',
+                    title: '按住拖动，放到目标条目的上方或下方',
                     'aria-label': '拖动排序 ' + (p.name || (i + 1)),
-                    style: { cursor: 'grab', userSelect: 'none', padding: '2px 6px', fontSize: '15px', lineHeight: '1', letterSpacing: '-1px', color: 'var(--dsw-alias-label-tertiary)', borderRadius: '6px' },
-                    onDragStart: event => {
-                      event.dataTransfer.setData('application/x-dsh-image-preset', presetId)
-                      event.dataTransfer.effectAllowed = 'move'
-                      setDragState({ from: presetId })
-                      // 默认拖影就是这一个小方块，换成整张卡片
-                      const card = event.currentTarget.closest('[data-preset-card]')
-                      if (card) event.dataTransfer.setDragImage(card, 24, 18)
+                    // 用指针事件而非 HTML5 拖拽：原生拖拽会把滚轮吞掉，也画不出插入位置。
+                    style: { cursor: isDragging ? 'grabbing' : 'grab', touchAction: 'none', userSelect: 'none', padding: '2px 6px', fontSize: '15px', lineHeight: '1', letterSpacing: '-1px', color: isDragging ? 'var(--dsw-alias-brand-primary)' : 'var(--dsw-alias-label-tertiary)', borderRadius: '6px' },
+                    onPointerDown: event => {
+                      if (event.button > 0) return
+                      event.preventDefault()
+                      try { event.currentTarget.setPointerCapture(event.pointerId) } catch {}
+                      pointerRef.current = { pointerId: event.pointerId, from: presetId, startY: event.clientY, lastY: event.clientY, started: false }
                     },
-                    onDragEnd: () => setDragState(null),
+                    onPointerMove: event => {
+                      const pointer = pointerRef.current
+                      if (!pointer || pointer.pointerId !== event.pointerId) return
+                      pointer.lastY = event.clientY
+                      if (!pointer.started) {
+                        // 先动够 4px 才算拖拽，免得点一下手柄就把整列点亮。
+                        if (Math.abs(event.clientY - pointer.startY) < 4) return
+                        pointer.started = true
+                        setDragState({ from: pointer.from, over: null, edge: 'after' })
+                      }
+                      updateDrop(event.clientY)
+                      updateAutoScroll(event.clientY)
+                    },
+                    onPointerUp: event => {
+                      const pointer = pointerRef.current
+                      if (!pointer || pointer.pointerId !== event.pointerId) return
+                      finishDrag(true, event.clientY)
+                    },
+                    onPointerCancel: () => finishDrag(false),
+                    onLostPointerCapture: () => { if (pointerRef.current) finishDrag(false) },
                   }, '⠿'),
                 ),
                 expanded ? h('div', null,
@@ -4211,6 +4565,10 @@ function versionsOf(jobId) {
                         paramBool(i, p, 'qualityToggle', '质量词（qualityToggle）'),
                         paramBool(i, p, 'varietyBoost', '多样性（variety_boost）'))),
                   ),
+                  h(PresetSampleDetails, {
+                    samples: p.samples || [], label: p.name || (i + 1),
+                    onChange: update => patchPreset(presetId, item => ({ samples: update(item.samples || []) })),
+                  }),
                 ) : null,
               )
             }),
@@ -4232,9 +4590,7 @@ function versionsOf(jobId) {
 
     function InlineStyleEditor({ config, save, styleId }) {
       const style = (config.stylePresets || []).find(item => item.id === styleId)
-      const latest = React.useRef(config)
-      latest.current = config
-      const patch = change => save({ stylePresets: (latest.current.stylePresets || []).map(item => item.id === styleId ? { ...item, ...change } : item) })
+      const patch = change => save(({ stylePresets = [] }) => ({ stylePresets: stylePresets.map(item => item.id === styleId ? { ...item, ...change } : item) }))
       return h('div', { style: PROMPT_FIELDS, 'aria-label': '引用画风编辑' },
         style ? h(React.Fragment, null,
           h('strong', null, style.name),
@@ -4769,6 +5125,28 @@ function versionsOf(jobId) {
         return () => { alive = false }
       }, [])
       const [peopleBatchOpen, setPeopleBatchOpen] = React.useState(false)
+      // 参考图是内容寻址存储，解绑只清描述符；这里让用户手动回收没人引用的文件。
+      const [referenceGcNote, setReferenceGcNote] = React.useState('')
+      const [referenceGcBusy, setReferenceGcBusy] = React.useState(false)
+      const cleanReferenceImages = async () => {
+        if (referenceGcBusy) return
+        setReferenceGcBusy(true)
+        setReferenceGcNote('正在统计…')
+        try {
+          const stats = await jsonFetch(BASE + '/reference-gc')
+          if (!stats?.ok) throw new Error(stats?.error || '读取参考图占用失败')
+          const mb = value => (Number(value || 0) / 1048576).toFixed(2)
+          const protectedNote = stats.protectedCount ? '最近 24 小时上传的 ' + stats.protectedCount + ' 张未绑定图片会保留。' : ''
+          if (!stats.orphanCount) { setReferenceGcNote('没有可清理的图。' + protectedNote); return }
+          if (!window.confirm('参考图目录共 ' + stats.total + ' 张、' + mb(stats.totalBytes) + ' MB。\n其中 ' + stats.orphanCount + ' 张可清理，可释放 ' + mb(stats.orphanBytes) + ' MB。' + protectedNote + '\n\n删除这 ' + stats.orphanCount + ' 张？')) { setReferenceGcNote(''); return }
+          setReferenceGcNote('正在清理…')
+          const result = await post('/reference-gc', { token: stats.token })
+          if (!result?.ok) throw new Error(result?.error || '清理失败')
+          setReferenceGcNote('已删除 ' + result.removed + ' 张，释放 ' + mb(result.removedBytes) + ' MB；保留 ' + result.kept + ' 张' + (result.failed ? '（' + result.failed + ' 张删除失败）' : ''))
+        } catch (error) {
+          setReferenceGcNote('清理失败：' + (error?.message || error))
+        } finally { setReferenceGcBusy(false) }
+      }
       const [peopleBatchField, setPeopleBatchField] = React.useState('feature')
       const [peopleBatchMode, setPeopleBatchMode] = React.useState('replace')
       const [peopleBatchValue, setPeopleBatchValue] = React.useState('')
@@ -4925,10 +5303,12 @@ function versionsOf(jobId) {
       }
       async function save(patch) {
         const operation = configSaveQueue.current.catch(() => {}).then(async () => {
+          const next = typeof patch === 'function' ? patch(dataRef.current?.config || {}) : patch
+          if (!next) return null
           setNote('保存中…')
           const revision = libraryRevision.current
           try {
-            const r = await post('/config', { config: patch })
+            const r = await post('/config', { config: next })
             receiveState(r.state, revision)
             try { window.dispatchEvent(new CustomEvent('dsh-tavern-image:config', { detail: r.state?.config })) } catch {}
             setNote('已保存')
@@ -5467,6 +5847,8 @@ function versionsOf(jobId) {
       // ---- 人物库（人物设计）----
       function peopleTab(focus) {
         const characters = (data.definitions && data.definitions.characters) || []
+        // Pictures Tavern's asset library lends linked people (their 设定图 live in its packs, never in these records).
+        const lent = data.figurePictures || {}
         const picked = characters.filter(character => peoplePicked[character.id])
         const search = peopleSearch.trim().toLocaleLowerCase()
         // —— 按卡归类 ——
@@ -6040,7 +6422,7 @@ function versionsOf(jobId) {
               h('div', { className: 'dti-roster-group' }, h('strong', null, name), h('span', null, people.length + ' 位')),
               h('div', { className: 'dti-roster-grid' }, people.map(person => {
                 const name = person.name || '未命名角色'
-                const id = person.referenceImage?.id
+                const id = (lent[person.id]?.identity || person.referenceImage)?.id
                 const hasImage = /^[a-f0-9]{64}$/i.test(id || '')
                 return h('button', { key: person.id, type: 'button', className: 'dti-roster-tile',
                   'aria-label': '查看角色 ' + name, onClick: () => setPeopleActiveId(person.id) },
@@ -6091,14 +6473,14 @@ function versionsOf(jobId) {
             h('section', { 'aria-label': '角色与参考图设置', className: 'dti-roster-settings' },
               h('strong', null, '角色与参考图设置'),
               h('div', { className: 'dti-roster-identity' },
-                h('input', { type: 'text', 'aria-label': '角色名', placeholder: '角色名', title: c.figureId ? '关联着素材库人物：保存时名字一并改到素材库' : undefined, value: c.name || '',
+                h('input', { type: 'text', 'aria-label': '角色名', placeholder: '角色名', title: c.figureId ? '关联着素材库人物：这就是素材库里人物的名字' : undefined, value: c.name || '',
                   style: S.input, onChange: event => patchIdentity(i, { name: event.target.value }) }),
                 h('label', { style: S.row }, h('input', { type: 'checkbox', checked: c.enabled !== false,
                   onChange: event => patch(i, { enabled: event.target.checked }) }), '启用'),
                 h('input', { type: 'text', placeholder: '分组', 'aria-label': '分组', value: c.group || '', style: S.input, onChange: e => patchIdentity(i, { group: e.target.value.replace(/[\u0000-\u001f\u007f]/g, '').slice(0, 40) }) }),
-                h('input', { type: 'text', placeholder: '触发别名', 'aria-label': '触发别名', title: c.figureId ? '关联着素材库人物：保存时增删的词一并改到素材库人物的触发词' : undefined, value: c.match || '', style: S.input, onChange: e => patchIdentity(i, { match: e.target.value }) }),
+                h('input', { type: 'text', placeholder: '触发词', 'aria-label': '触发词', title: c.figureId ? '关联着素材库人物：这就是素材库里人物的触发词' : undefined, value: c.match || '', style: S.input, onChange: e => patchIdentity(i, { match: e.target.value }) }),
               ),
-              h(ReferenceImageEditor, { key: 'character-reference-' + c.id, value: c, compact: true, label: '角色「' + (c.name || '未命名') + '」', onChange: changes => patch(i, changes) }),
+              h(ReferenceImageEditor, { key: 'character-reference-' + c.id, value: c, compact: true, lent: lent[c.id]?.identity ? { picture: lent[c.id].identity, borrowed: false } : null, label: '角色「' + (c.name || '未命名') + '」', onChange: changes => patch(i, changes) }),
               h(CharacterComfyLoras, { value: c.comfyLoras || [], workflows: data.workflows || [], onChange: comfyLoras => patch(i, { comfyLoras }) }),
               h('div', { style: S.row },
                 h('span', { style: S.label }, '绑定卡片'),
@@ -6197,7 +6579,7 @@ function versionsOf(jobId) {
                       onChange: changes => patchOutfit(i, j, changes) }),
                     h('details', { key: 'outfit-extra-' + o.id },
                       h('summary', { style: PROMPT_DISCLOSURE }, '服装参考图'),
-                      h(ReferenceImageEditor, { key: 'outfit-sheet-' + c.id + '-' + o.id, value: o, field: 'characterOutfitImage', consistency: false, noun: '角色×服装设定图',
+                      h(ReferenceImageEditor, { key: 'outfit-sheet-' + c.id + '-' + o.id, value: o, field: 'characterOutfitImage', consistency: false, noun: '角色×服装设定图', lent: lent[c.id]?.outfits?.[o.id] || null,
                         heading: '（可选：这个角色穿这套衣服的图；有它时只用它，不再叠加角色图和服装图）', label: '服装「' + (o.name || '未命名') + '」', onChange: changes => patchOutfit(i, j, changes) }),
                       h(ReferenceImageEditor, { key: 'outfit-reference-' + c.id + '-' + o.id, value: o, label: '服装「' + (o.name || '未命名') + '」', onChange: changes => patchOutfit(i, j, changes) }),
                     ),
@@ -6431,7 +6813,9 @@ function versionsOf(jobId) {
                 h('summary', { style: PROMPT_DISCLOSURE }, '库管理'),
                 h('div', { style: S.row },
                   h('button', { style: buttonStyle, onClick: () => setPeopleTidyOpen(open => !open) }, peopleTidyOpen ? '收起整理' : '整理'),
-                  h('button', { style: buttonStyle, onClick: () => setPeopleBatchOpen(open => !open) }, peopleBatchOpen ? '收起批量编辑' : '批量编辑')),
+                  h('button', { style: buttonStyle, onClick: () => setPeopleBatchOpen(open => !open) }, peopleBatchOpen ? '收起批量编辑' : '批量编辑'),
+                  h('button', { style: buttonStyle, disabled: referenceGcBusy, title: '删除没有任何引用的参考图文件；人物库、画风示例图和旧作业还用着的会保留', onClick: cleanReferenceImages }, referenceGcBusy ? '清理中…' : '清理参考图')),
+                referenceGcNote ? h('div', { role: 'status', style: { fontSize: 12, color: 'var(--dsw-alias-label-tertiary)', margin: '6px 0' } }, referenceGcNote) : null,
                 peopleTidyOpen ? tidyPanel() : null, batchPanel())),
             h('div', { role: 'status', style: STRUCTURE_MUTED }, saveState.startsWith('failed') ? '保存失败，请重试'
               : libraryDirty.current ? '有未保存修改' : saveState === 'saved' ? '人物库已保存' : '')),
@@ -6475,7 +6859,7 @@ function versionsOf(jobId) {
               )
             })(),
             h('div', { style: S.row },
-              h('button', { style: buttonStyle, onClick: () => setLibraryData(Object.assign({}, dataRef.current, { outfits: (data.outfits || []).concat([{ id: 'of' + Date.now(), name: '新套装', body: '', full: '', bodyBack: '', fullBack: '', negative: '', enabled: true }]) })) }, '新增套装'),
+              h('button', { style: buttonStyle, onClick: () => setLibraryData(Object.assign({}, dataRef.current, { outfits: (data.outfits || []).concat([{ id: 'of' + Date.now(), name: '新套装', upper: '', lower: '', shoes: '', accessory: '', full: '', back: '', negative: '', enabled: true }]) })) }, '新增套装'),
               h('button', { style: buttonStyle, onClick: () => commit() }, '保存服装库'),
               h('button', { style: buttonStyle, title: '把角色库、两本世界书、渠道配置、历史记录打包成一个 JSON', onClick: exportAllData }, '导出全部数据'),
               h('button', { style: buttonStyle, title: '从备份 JSON 恢复；会先自动备份当前数据', onClick: importAllData }, '导入全部数据'),
@@ -7046,7 +7430,7 @@ function versionsOf(jobId) {
           h('span', null,
             h('span', { style: { display: 'block', fontSize: '14px', fontWeight: 600 } }, '启用配图'),
             h('span', { style: { display: 'block', fontSize: '12px', color: 'var(--dsw-alias-label-tertiary)', marginTop: '2px' } },
-              config.imageEnabled === false ? '已关闭：不再自动或手动配图，正文里不显示配图按钮；已有插图照常显示' : '为剧情自动或手动配图；关掉后正文里不显示配图按钮，已有插图照常显示')),
+              config.imageEnabled === false ? '已关闭配图和对话顶部的画廊。已有插图照常显示。' : '为剧情自动或手动配图，并在对话顶部显示画廊。')),
           h('input', { type: 'checkbox', role: 'switch', className: 'dti-switch', 'aria-label': '启用配图', checked: config.imageEnabled !== false, onChange: e => save({ imageEnabled: e.target.checked }) })),
         h('div', { style: S.row }, promptField('生图模式', h('select', { 'aria-label': '生图系统模式', style: S.input, value: config.promptSystem || 'worldbook', onChange: async event => { const mode = event.target.value; if (await save({ promptSystem: mode })) setTab(mode === 'worldbook' ? 'worldbook' : 'style') } },
           h('option', { value: 'worldbook' }, '世界书模式（默认）'), h('option', { value: 'workbench' }, '生图工作台（高级模式）')))),
@@ -7662,9 +8046,10 @@ function versionsOf(jobId) {
         })
       } catch (error) { reportHost('apply-report-failed', { message: String(error && error.message) }) }
       try {
-        const settings = { smartImageSelection: true, imageEnabled: true }
+        const settings = { smartImageSelection: true, imageEnabled: false }
         // 配图总开关变化时重新登记 illustrator（关掉时不给 draw，Tavern 就不显示配图按钮）。
         let refreshIllustrator = null
+        let receivedImageConfig = false
         const applyImageEnabled = value => {
           const next = value !== false
           if (next === settings.imageEnabled) return
@@ -7673,6 +8058,7 @@ function versionsOf(jobId) {
         }
         const updateImageConfig = event => {
           if (!event.detail) return
+          receivedImageConfig = true
           applyImageEnabled(event.detail.imageEnabled)
           applyImagePlacement(event.detail)
         }
@@ -7680,7 +8066,7 @@ function versionsOf(jobId) {
         ctx.effect?.(() => () => window.removeEventListener('dsh-tavern-image:config', updateImageConfig), 'dsh-tavern-image: display config')
         jsonFetch(`${BASE}/state`).then(state => {
           if (state?.config) {
-            applyImageEnabled(state.config.imageEnabled)
+            if (!receivedImageConfig) applyImageEnabled(state.config.imageEnabled)
             // 正文插图统一宽度：每次启动都从 /state 读回来，所以刷新 / 重启之后依然生效。
             applyImageWidth(state.config.imageDisplayWidth)
             applyImagePlacement(state.config)
@@ -7958,6 +8344,7 @@ function versionsOf(jobId) {
               render: ({ groups, gameId, turn, streaming }) => {
                 try {
                   if (streaming) return null            // 生成中不画，免得画出半句话
+                  if (!settings.imageEnabled) return null  // 配图总开关关着：不提交生图，标记原样显示
                   if (settings.smartImageSelection) return h('span', { style: { display: 'none' } })
                   const prompt = String((groups && groups[0]) || '').trim()
                   if (!prompt) return null

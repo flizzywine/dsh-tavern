@@ -312,3 +312,54 @@ test('a count read: the dice that count, a count against a formula, and the dice
   assert.equal(Number(many.text), many.dice.d.filter(f => f >= 6).length)
   assert.deepEqual(many.faces.d.flags, many.dice.d.map(f => f >= 6 ? 'kept' : 'dropped'))
 })
+
+test('dice the rules strike out: two 3s count two, Burnout strikes one, and the main number tells each step', () => {
+  // As Triangle Agency: Burnout (one for a quality at 0 assurance, plus any the action adds) strikes a 3 a point,
+  // then assurance turns dice; the record names the struck die and the main line adds up from the dice as read.
+  const source = (qa, patch = {}) => ({ format: 'dsh-rules', version: 2, name: 'pool', state: { qa: { path: '/素质保证', label: '素质保证', min: 0, initial: qa } },
+    actions: {
+      roll: { label: '掷骰', params: { moreBurn: { int: { min: 0, max: 9, default: 0 } } },
+        dice: { d: { count: 6, sides: 4, mark: [3], read: { count: [3] }, cancel: [{ label: '倦怠', count: 'struck' }], adjusted: 'raw - struck + added - removed' } },
+        let: [['raw', 'read(d)'], ['burn', '(qa == 0 ? 1 : 0) + moreBurn'], ['b3', 'max(0, raw - burn)'], ['struck', 'raw - b3']],
+        choices: [{ id: 'threes', label: '调整后 3 的个数', int: { min: 'max(0, b3 - qa)', max: 'b3 + min(qa, 6 - raw)', default: 'b3' } }],
+        then: [['added', 'max(0, threes - b3)'], ['removed', 'max(0, b3 - threes)']],
+        outcomes: [{ id: 'ok', label: '成功', when: 'threes >= 1', tone: 'good' }, { id: 'no', label: '失败', tone: 'bad' }],
+        effects: [{ var: 'qa', add: '-(added + removed)', strict: true }],
+        report: [{ id: 'threes', label: '3 的个数', value: 'threes', main: true,
+          steps: [{ label: '掷出', value: 'raw' }, { label: '倦怠', value: '-struck' }, { label: '素质保证', value: 'added' }, { label: '素质保证', value: '-removed' }] }], ...patch } } })
+  const roll = (qa, args = {}, patch) => game(compileRulesV2(source(qa, patch))).call(2, { op: 'act', action: 'roll', reason: 'r', ...args }, seed)
+  const seed = (() => { for (let s = 1; s < 5000; s++) { const draw = seededDraw(s), d = Array.from({ length: 6 }, () => draw(4)); if (d.filter(f => f === 3).length === 2) return s } })()
+  const draw = seededDraw(seed), d = Array.from({ length: 6 }, () => draw(4)), first = d.indexOf(3), second = d.lastIndexOf(3)
+  const kept = d.map(f => f === 3 ? 'kept' : 'dropped')
+
+  // No Burnout (assurance 1): both 3s count, nothing is struck and the main line needs no steps.
+  const plainGame = game(compileRulesV2(source(1)))
+  plainGame.call(2, { op: 'act', action: 'roll', reason: 'r' }, seed)
+  const clean = plainGame.call(2, { op: 'choose', choice: {} })
+  assert.deepEqual([clean.report.threes, clean.faces.d.flags, clean.faces.d.cancel], [{ label: '3 的个数', value: 2, main: true }, kept, undefined], 'two 3s count two')
+
+  // The live case: assurance 0, so one Burnout; nothing to choose, it settles at once with one 3.
+  const burnt = roll(0)
+  assert.equal(burnt.status, 'settled')
+  assert.deepEqual(burnt.faces.d.value, 2, 'the group as read keeps both 3s')
+  assert.deepEqual(burnt.faces.d.flags, kept.map((flag, i) => i === first ? 'cancelled' : flag), 'the first 3 is the one struck')
+  assert.deepEqual(burnt.faces.d.cancel, [{ label: '倦怠', count: 1 }])
+  assert.equal(burnt.faces.d.after, undefined, 'a struck die keeps its face: no die turned')
+  assert.deepEqual(burnt.report.threes, { label: '3 的个数', value: 1, main: true, steps: [{ label: '掷出', value: 2 }, { label: '倦怠', value: -1 }] })
+
+  // Burnout and assurance together: an awaiting record already shows the struck die; spending 1 assurance turns a die.
+  const both = game(compileRulesV2(source(1)))
+  const asking = both.call(2, { op: 'act', action: 'roll', params: { moreBurn: 1 }, reason: 'r' }, seed)
+  assert.equal(asking.status, 'awaiting')
+  assert.deepEqual([asking.faces.d.flags[first], asking.faces.d.cancel], ['cancelled', [{ label: '倦怠', count: 1 }]], 'Burnout is known before the choice')
+  const spent = both.call(2, { op: 'choose', choice: { threes: 2 } })
+  assert.deepEqual(spent.report.threes.steps, [{ label: '掷出', value: 2 }, { label: '倦怠', value: -1 }, { label: '素质保证', value: 1 }])
+  assert.equal(spent.report.threes.value, 2)
+  assert.deepEqual([spent.faces.d.flags[first], spent.faces.d.flags[second]], ['cancelled', 'kept'])
+  assert.equal(spent.faces.d.flags.filter(flag => flag === 'changed').length, 1, 'the assurance turns one die that did not count, not the struck one')
+
+  assert.match(roll(0, {}, { report: [{ id: 'threes', label: '3 的个数', value: 'threes', main: true, steps: [{ label: '掷出', value: 'raw' }, { label: '倦怠', value: '-burn - 1' }] }] }).refused,
+    /report threes: its steps add up to 0, not its value 1/, 'steps that do not add up are the card\'s error')
+  assert.throws(() => compileRulesV2(source(0, { report: [{ id: 'a', label: 'a', value: '1', steps: [{ label: 'x', value: '1', when: 'true' }, { label: 'y', value: '0' }] }] })), /steps\.0\.when: the first step is where the number starts/)
+  assert.throws(() => compileRulesV2(source(0, { dice: { d: { count: 6, sides: 4, read: 'sum', cancel: [{ label: 'x', count: '1' }] } } })), /cancel: belongs to a group read as a count/)
+})

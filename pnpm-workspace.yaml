@@ -17,11 +17,11 @@ minimumReleaseAgeExclude:
   - dsh-mnemon-strategy-default-three-tier@0.5.9
   - dsh-mnemon@0.5.31
   - dsh-mnemon-source-memory-spaces@0.5.21
-  - dsh-pocket@2.13.1
+  - dsh-pocket@2.13.2
   - '@deepseek-ai/cosmokit@1.8.6'
   - '@deepseek-ai/schemastery@3.18.5'
   - dsh-better-sidebar@0.28.0
 patchedDependencies:
   dsh-better-sidebar@0.28.0: patches/dsh-better-sidebar@0.28.0.patch
-  dsh-pocket@2.13.1: patches/dsh-pocket@2.13.1.patch
+  dsh-pocket@2.13.2: patches/dsh-pocket@2.13.2.patch
   dsh-web-mobile@3.1.0: patches/dsh-web-mobile@3.1.0.patch

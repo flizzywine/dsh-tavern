@@ -39,7 +39,7 @@ export function appendWorldbookSkillChanges(payload, snapshot) {
   if (previous) {
     describe('新增', added); describe('改写', changed); describe('撤回资料', removed)
     lines.push('改写、撤回项的旧资料失效；需要时重新检索。')
-    if (previous.directory !== snapshot.directory) lines.push('目录已变，旧绝对路径不再适用；用 worldbook_grep 或 worldbook_list 重新定位。')
+    if (previous.directory !== snapshot.directory) lines.push('资料目录已变化，请重新定位需要读取的条目。')
   }
   const message = { id: `tavern-worldbook-skills:${snapshot.version}:${randomUUID()}`, role: 'user', content: lines.length ? [{ type: 'text', text: promptSection('lorebook_files_update', lines.join('\n')) }] : [],
     source: { kind: 'plugin:dsh-tavern', worldbookSkills: snapshot } }

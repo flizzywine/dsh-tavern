@@ -3,6 +3,10 @@ import { repairNativeSurface, recordNativeSurfaceRepair, planNativeSurfaceRepair
 import { reshadowRolledBackRounds } from './rollback-surface.js'
 import { reserveStoryTurns, sessionEvents } from './session-events.js'
 import { inspectStoryAlignment, nativeStoryTurns } from './story-alignment.js'
+import { readRecentWindow } from './bounded-history.js'
+import { withConversationReadLane } from './conversation-read-lanes.js'
+
+const alignmentMessageFields = ['role', 'greeting', 'turn', 'text', 'sourceText', 'projectionText', 'nativeAnchor']
 
 function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
@@ -12,13 +16,13 @@ function str(value) {
 // acts on "the latest round" (#196): record a round the save missed, re-shadow
 // a rolled-back round the model still sees, and rewrite the native tail from the
 // save when their text drifted. The save is the truth. Never blocks the caller.
-export function createStoryReconciliation({ agentRegistry, sessionStore, chatForSession, chatSliceForSession, updateChat, turns }) {
+export function createStoryReconciliation({ agentRegistry, sessionStore, chatForSession, chatSliceForSession, readWindow, updateChat, turns }) {
   const liveSession = sessionId => sessionStore.get(sessionId) || agentRegistry.get(sessionId)?.session
   // Reconciling writes the save: never while a turn of that session runs, where
   // it would wait on the very turn it shares the template runtime with.
   const reconciledSessions = new Set(), reconciling = new Map()
 
-  async function reconcileWhenIdle(sessionId, { once = false } = {}) {
+  async function reconcileWhenIdle(sessionId, { once = false, background = false } = {}) {
     sessionId = str(sessionId)
     if (!sessionId || (once && reconciledSessions.has(sessionId))) return null
     // Any phase but idle may be a turn being prepared; reconciling then would race it.
@@ -32,7 +36,7 @@ export function createStoryReconciliation({ agentRegistry, sessionStore, chatFor
       const started = events.findLastIndex(event => event?.type === 'turn/start'), ended = events.findLastIndex(event => event?.type === 'turn/end')
       return started > ended
     }
-    if (busy()) {
+    if (!background && busy()) {
       const agent = agentRegistry.get(sessionId)
       if (once || typeof agent?.whenIdle !== 'function') return null
       await agent.whenIdle()
@@ -40,7 +44,13 @@ export function createStoryReconciliation({ agentRegistry, sessionStore, chatFor
     }
     // One reconcile per session at a time; concurrent view reads share it.
     if (reconciling.has(sessionId)) return await reconciling.get(sessionId)
-    const run = reconcileStory(sessionId, { stillIdle: () => !busy() })
+    const reconcile = () => reconcileStory(sessionId, { stillIdle: () => !busy() })
+    // Register the work before the first send can race it. Yield to the opening
+    // reply and keep its disk reads behind interactive work.
+    const run = background
+      ? new Promise(resolve => setImmediate(resolve)).then(() =>
+        busy() ? null : withConversationReadLane('background', reconcile))
+      : reconcile()
     reconciling.set(sessionId, run)
     try {
       const report = await run
@@ -99,7 +109,11 @@ export function createStoryReconciliation({ agentRegistry, sessionStore, chatFor
       header = head.chat
       rows = []
       if (want) {
-        const selected = await chatSliceForSession(sessionId, Array.from({ length: want }, (_, index) => total - want + index), ['_storageRevision'])
+        const window = readWindow && await readRecentWindow(readWindow, header.id, {
+          limit: Math.min(want, 500), from: total - want, fields: ['id', '_storageRevision'], messageFields: alignmentMessageFields
+        })
+        if (window && window.messageCount !== total) return null
+        const selected = window || await chatSliceForSession(sessionId, Array.from({ length: want }, (_, index) => total - want + index), ['_storageRevision'])
         if (!selected?.chat || selected.chat.id !== header.id || selected.chat._storageRevision !== header._storageRevision) return null
         rows = selected.chat.messages
       }

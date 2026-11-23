@@ -368,7 +368,7 @@ function applyRawOperations(raw, operations) {
     if (parts.length === 0) throw new Error('不能整体替换或删除人物卡 raw')
     const root = parts[0] === 'data' ? parts[1] : parts[0]
     if (root === 'character_book' || root === 'world_book') {
-      throw new Error('世界书只能通过 tavern_update_worldbook 修改: ' + pointer)
+      throw new Error('世界书只能通过 tavern_update_lorebook 修改: ' + pointer)
     }
     let parent = raw
     for (const part of parts.slice(0, -1)) {
@@ -565,7 +565,14 @@ export function createCardPreparation(options = {}) {
     editable.alternate_greetings = clone(card.alternate_greetings || [])
     editable.character_book = clone(card.character_book || null)
     if (request.as === 'editable') return editable
-    if (request.as === 'view') return Object.assign({ id: card.id }, editable)
+    if (request.as === 'view') {
+      // Card scripts read their own version marks here (TavernHelper getCharacter). Regex and
+      // helper scripts are large and reach scripts through their own channels.
+      const data = rawData(rawOf(request.card))
+      const extensions = {}
+      for (const [key, value] of Object.entries(object(data.extensions) ? data.extensions : {})) if (!['regex_scripts', 'tavern_helper', 'tavernhelper_scripts'].includes(key.toLowerCase())) extensions[key] = clone(value)
+      return Object.assign({ id: card.id }, editable, { character_version: str(data.character_version), extensions })
+    }
     if (request.as === 'detail') {
       return Object.assign({ id: card.id }, editable, { character_version: str(rawData(rawOf(request.card)).character_version), extensions: inspectCardExtensions(request.card) })
     }

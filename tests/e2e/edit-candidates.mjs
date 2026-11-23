@@ -5,7 +5,7 @@ import { join } from 'node:path'
 // candidate request actually receive? Plays three rounds, edits the last body,
 // generates candidates, and writes every background request after the edit.
 export async function editCandidatesChecks({ page, step, savedChat, output, report }) {
-  const composer = () => page.getByRole('textbox', { name: /发消息|Message/ })
+  const composer = () => page.getByRole('textbox', { name: /下一步行动|Next action|发消息|Message/ })
   const pause = ms => new Promise(resolve => setTimeout(resolve, ms))
   const settled = () => page.getByText('后台结算已完成').last().waitFor({ timeout: 60000 }).catch(() => {})
   const storyRounds = chat => chat.messages.filter(row => row.role === 'assistant' && !row.greeting).length

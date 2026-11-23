@@ -182,9 +182,9 @@ test('latestForSession 忽略压缩请求、后台 scope 与历史零轮次杂�
   const legacyPlanner = await log.record({
     chat: { id: 'c1' },
     coordinates: {},
-    options: { sessionId: 's1', model: 'bg-planner-model', system: '图图', messages: [{ role: 'user', content: 'plan' }] }
+    options: { sessionId: 's1', model: 'claude-sonnet', system: '图图', messages: [{ role: 'user', content: 'plan' }] }
   })
-  await log.complete({ chatId: 'c1', id: legacyPlanner.id, text: '<image/>', finish: { kind: 'stop' } })
+  await log.complete({ chatId: 'c1', id: legacyPlanner.id, text: '<image/>', finish: { kind: 'stop' }, usage: { inputTokens: 215, cacheReadTokens: 25344 } })
 
   // 下一轮开始前查看前台完整上下文，应停留在 r1 而非压缩/后台/零轮次请求
   const beforeTurn2 = await log.latestForSession('s1', '', undefined, { scope: 'foreground' })

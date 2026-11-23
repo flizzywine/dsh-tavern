@@ -105,7 +105,7 @@ export function apply(ctx) {
   }
   async function playRound(marker) {
     await page.goto(chatUrl)
-    const box = page.getByRole('textbox', { name: /发消息|Message/ })
+    const box = page.getByRole('textbox', { name: /下一步行动|Next action|发消息|Message/ })
     await box.fill(marker); await box.press('Enter')
     await page.getByText('Reply to ' + marker + '.', { exact: true }).first().waitFor()
   }

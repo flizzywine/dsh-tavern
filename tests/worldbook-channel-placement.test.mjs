@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { worldbookPlacement } from '../tavern-plugin/lib/domain/worldbook-placement.js'
 import { constantWorldBookContext } from '../tavern-plugin/lib/domain/worldbook-recall.js'
 import { activateWorldBook } from '../tavern-plugin/lib/domain/worldbook-activation.js'
-import { inspectWorldBookDocument } from '../tavern-plugin/lib/domain/worldbook-resource.js'
+import { inspectWorldBookDocument, updateWorldBookDocument } from '../tavern-plugin/lib/domain/worldbook-resource.js'
 
 function channels(entries) {
   const { foregroundRefs, prefixRefs } = worldbookPlacement(entries, [])
@@ -31,29 +31,39 @@ function bookDocument(rootExtensions, entries) {
     name: '测试书',
     extensions: rootExtensions,
     entries: Object.fromEntries(entries.map(function (value, index) {
-      return [String(index), { uid: index, key: [], keysecondary: [], comment: '条目' + index, content: value.content,
+      return [String(index), { uid: index, key: value.keys || [], keysecondary: [], comment: '条目' + index, content: value.content,
         disable: false, constant: value.constant === true, selective: true, order: 100, position: 0,
         extensions: value.extensions || {} }]
     }))
   }
 }
 
-test('整本默认通道：没有单独设过的条目跟随，单独设过的条目覆盖', () => {
+test('旧世界书的整本与条目通道都按自动规则召回和放置', () => {
   const document = bookDocument({ tavern_channel: 'prefix' }, [
-    { content: '甲设定' },
-    { content: '乙设定', extensions: { tavern_channel: 'tail' } }
+    { content: '甲设定', keys: ['钟楼'] },
+    { content: '乙设定', constant: true, extensions: { tavern_channel: 'tail' } },
+    { content: '丙设定', keys: ['港口'], extensions: { tavern_channel: 'prefix' } }
   ])
   const view = inspectWorldBookDocument(document)
-  assert.equal(view.channel, 'prefix')
-  assert.equal(view.entries[0].channel, 'prefix')
-  assert.equal(view.entries[0].channelInherited, true)
-  assert.equal(view.entries[1].channel, 'tail')
-  assert.equal(view.entries[1].channelInherited, false)
-  // 整本默认直接决定放置与稳定前缀内容，不需要逐条写入。
-  assert.deepEqual(channels(view.entries), { foreground: ['entry:1'], prefix: ['entry:0'] })
-  assert.deepEqual(stableRefs(view.entries), ['entry:0'])
-  const result = select(view.entries)
-  assert.deepEqual(result.entries.map(item => item.ref).sort(), ['entry:0', 'entry:1'])
-  assert.equal(result.diagnostics.find(item => item.ref === 'entry:0').tokenCost, 0)
-  assert.ok(result.diagnostics.find(item => item.ref === 'entry:1').tokenCost > 0)
+  assert.deepEqual(channels(view.entries), { foreground: ['entry:0', 'entry:2'], prefix: ['entry:1'] })
+  assert.deepEqual(stableRefs(view.entries), ['entry:1'])
+  assert.deepEqual(select(view.entries).entries.map(item => item.ref), ['entry:1'])
+  const matched = select(view.entries, { userText: '说说钟楼和港口' })
+  assert.deepEqual(matched.entries.map(item => item.ref).sort(), ['entry:0', 'entry:1', 'entry:2'])
+  assert.equal(matched.diagnostics.find(item => item.ref === 'entry:1').tokenCost, 0)
+  assert.ok(matched.diagnostics.find(item => item.ref === 'entry:2').tokenCost > 0)
+})
+
+test('编辑旧书时保留原文件的扩展字段，并按条目类型处理动态常驻内容', () => {
+  const document = bookDocument({ tavern_channel: 'tail', custom: true }, [
+    { content: '<%= 1 + 1 %>', constant: true, extensions: { tavern_channel: 'prefix', custom: true } }
+  ])
+  const { document: updated, view } = updateWorldBookDocument(document, {
+    channel: 'prefix',
+    operations: [{ op: 'update', ref: 'entry:0', patch: { comment: '动态规则', channel: 'tail' } }]
+  })
+  assert.deepEqual(updated.extensions, document.extensions)
+  assert.deepEqual(updated.entries[0].extensions, document.entries[0].extensions)
+  assert.equal(view.entries[0].comment, '动态规则')
+  assert.deepEqual(channels(view.entries), { foreground: ['entry:0'], prefix: [] })
 })

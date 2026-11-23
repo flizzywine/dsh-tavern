@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { spawnSync } from 'node:child_process'
 
-test('真实插件 RPC 往返保留插图和世界书引用，并拒绝混合版本导出', async () => {
+test('真实插件 RPC 可备份未回复的输入和待初始化的 MVU，并拒绝混合版本', async () => {
   const root = await mkdtemp(join(tmpdir(), 'tavern-save-rpc-'))
   try {
     const result = spawnSync(process.execPath, [fileURLToPath(new URL('./fixtures/game-save-roundtrip.mjs', import.meta.url))], {

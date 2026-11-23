@@ -18,7 +18,7 @@ export async function sidebarUpgrade({ page, step, savedChat, output, report }) 
     // The debug entry sits in the collapsed 「遇到显示或生成问题？」 section.
     await page.getByText('遇到显示或生成问题？', { exact: true }).filter({ visible: true }).first().click()
     await page.getByRole('button', { name: '交给卡片 Agent 调试', exact: true }).click()
-    const composer = page.getByRole('textbox', { name: /发消息|Message/ })
+    const composer = page.getByRole('textbox', { name: /下一步行动|Next action|发消息|Message/ })
     await composer.filter({ hasText: '/debug-card' }).waitFor()
     const draft = await composer.innerText()
     assert.match(draft, /\/debug-card/)

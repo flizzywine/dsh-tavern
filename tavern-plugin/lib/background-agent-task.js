@@ -1,6 +1,7 @@
 import { createHostToolPolicy, presentNativeTools } from './host/tools.js'
 import { backgroundRequestTemperature } from './domain/background-request-temperature.js'
 import { withWorldbookFileInstructions } from './domain/worldbook-virtual-surface.js'
+import { WORLDBOOK_ACCESS_TOOLS } from './domain/foreground-tools.js'
 import { createBackgroundProgress } from './domain/background-progress.js'
 import { worldbookSnapshot } from './domain/worldbook-snapshot.js'
 import { CARD_SYSTEM_PROMPT_SECTION, cardSystemPromptSnapshot, cardSystemPromptSource } from './domain/card-system-prompt.js'
@@ -285,7 +286,7 @@ export function createBackgroundAgentTask(options) {
         }
       })
       childCtx.systemPrompt.suppressRuntimeContext()
-      childCtx.tools.restrict({ allow: director || ownsPrefix(state.input) ? [] : ['skill', 'read', 'worldbook_list', 'worldbook_grep', 'tavern_read_skill_reference', 'web_search', ...(childCtx.tools.get?.('web_fetch') ? ['web_fetch'] : [])] })
+      childCtx.tools.restrict({ allow: director || ownsPrefix(state.input) ? [] : ['skill', ...WORLDBOOK_ACCESS_TOOLS, 'tavern_read_skill_reference', 'web_search', ...(childCtx.tools.get?.('web_fetch') ? ['web_fetch'] : [])] })
       const hostTools = createHostToolPolicy(childCtx)
       childCtx.on('system-prompt/assemble', async function (_assembly, context, next) {
         return hostTools.assemble(await next(), context, async (assembly, tools) => {
@@ -298,11 +299,18 @@ export function createBackgroundAgentTask(options) {
             return assembly
           }
           if (director && !usesSharedBackgroundContext(state.input)) return markTavernSectionsLiteral(assembly)
+          if (state.pluginToolNames?.size) {
+            const { available } = await settlementItems().pluginToolNames({ gameId: state.input.sessionId, turn: state.input.turn })
+            const enabled = new Set(available)
+            const allowed = name => !state.pluginToolNames.has(name) || enabled.has(name)
+            assembly.sections = (assembly.sections || []).filter(section => !section?.name?.startsWith('tool:') || allowed(section.name.slice(5)))
+            assembly.tools = (assembly.tools || []).filter(tool => allowed(tool?.name))
+          }
           prependSystemInstruction(assembly, options.systemAppend?.())
           markTavernSectionsLiteral(assembly)
           if (!state.input.worldbookSkillsEnabled) {
-            assembly.sections = (assembly.sections || []).filter(section => !['tool:read', 'tool:worldbook_list', 'tool:worldbook_grep'].includes(section?.name))
-            assembly.tools = (assembly.tools || []).filter(tool => !['read', 'worldbook_list', 'worldbook_grep'].includes(tool?.name))
+            assembly.sections = (assembly.sections || []).filter(section => !WORLDBOOK_ACCESS_TOOLS.some(name => section?.name === 'tool:' + name))
+            assembly.tools = (assembly.tools || []).filter(tool => !WORLDBOOK_ACCESS_TOOLS.includes(tool?.name))
           }
           if (state.input.webSearchEnabled === true) return assembly
           assembly.sections = (assembly.sections || []).filter(function (section) { return section && !['tool:web_search', 'tool:web_fetch'].includes(section.name) })
@@ -312,11 +320,12 @@ export function createBackgroundAgentTask(options) {
       })
       state.refreshConfiguredTools = function () {
         if (director || ownsPrefix(state.input) || state.stableToolDisposers) return
-        // Every task sharing this Session sees one fixed tool list: tool definitions sit in the
-        // cached request prefix. What a task may call is enforced when the tool executes.
-        // Plugin tools join the list when the Session is set up; a plugin loaded later
-        // reaches Sessions set up after it.
-        state.baseToolCatalog ??= structuredClone(stableBackgroundTools.concat(pluginTools()))
+        // Keep the registrations stable. The request exposes only currently available plugin tools.
+        if (!state.baseToolCatalog) {
+          const plugins = pluginTools()
+          state.pluginToolNames = new Set(plugins.map(tool => tool.name))
+          state.baseToolCatalog = structuredClone(stableBackgroundTools.concat(plugins))
+        }
         state.stableToolDisposers = state.baseToolCatalog.concat(state.readCapability?.tool || []).map(function (tool) {
           return childCtx.tools.register({
             name: tool.name,

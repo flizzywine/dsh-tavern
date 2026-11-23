@@ -98,3 +98,14 @@ for (const spec of ['flat', 'chara_card_v2', 'chara_card_v3']) test('变量编�
   assert.equal(rawNamed.nameChanged, true)
   assert.equal(cards.update({ kind: 'card', card: workspace, patch: { name: '原名' } }).nameChanged, false)
 })
+
+test('卡片视图带上卡自己的扩展字段（脚本据此读版本标记），正则与助手脚本不重复下发', () => {
+  const cards = moduleUnderTest()
+  const card = cards.create({
+    kind: 'import',
+    payload: { spec: 'chara_card_v2', data: { name: '卡', character_version: '4.3.0', extensions: { mygo_update: { version: '4.3.0', channel: 'cloud' }, depth_prompt: { prompt: '', depth: 4 }, regex_scripts: [{ id: 'r' }], tavern_helper: { scripts: [{ id: 's' }] } } } }
+  })
+  const view = cards.present({ card, as: 'view' })
+  assert.equal(view.character_version, '4.3.0')
+  assert.deepEqual(view.extensions, { mygo_update: { version: '4.3.0', channel: 'cloud' }, depth_prompt: { prompt: '', depth: 4 } })
+})

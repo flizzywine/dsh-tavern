@@ -100,6 +100,64 @@ export function createMigrationHelperCore() {
     return (value ^ 0xffffffff) >>> 0
   }
 
+  const BASE64_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
+
+  function base64FromBytes(bytes) {
+    let out = ''
+    for (let i = 0; i < bytes.length; i += 3) {
+      const a = bytes[i], b = i + 1 < bytes.length ? bytes[i + 1] : 0, c = i + 2 < bytes.length ? bytes[i + 2] : 0
+      const n = (a << 16) | (b << 8) | c
+      out += BASE64_ALPHABET[(n >>> 18) & 63] + BASE64_ALPHABET[(n >>> 12) & 63] +
+        (i + 1 < bytes.length ? BASE64_ALPHABET[(n >>> 6) & 63] : '=') +
+        (i + 2 < bytes.length ? BASE64_ALPHABET[n & 63] : '=')
+    }
+    return out
+  }
+
+  function isPngBytes(bytes) {
+    const signature = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]
+    return bytes instanceof Uint8Array && bytes.length > 8 && signature.every((value, index) => bytes[index] === value)
+  }
+
+  // 人物卡 PNG 的文本块：tEXt，关键字 + NUL + 卡 JSON 的 base64。
+  function pngCardTextChunk(keyword, text) {
+    const data = utf8Bytes(keyword + String.fromCharCode(0) + base64FromBytes(utf8Bytes(text)))
+    const chunk = new Uint8Array(data.length + 12)
+    const view = new DataView(chunk.buffer)
+    view.setUint32(0, data.length, false)
+    chunk.set([0x74, 0x45, 0x58, 0x74], 4)
+    chunk.set(data, 8)
+    view.setUint32(data.length + 8, crc32(chunk.subarray(4, data.length + 8)), false)
+    return chunk
+  }
+
+  /**
+   * 角色头像（卡面）PNG 换上清洗后的卡数据：去掉原有文本块，在 IEND 前写入 chara 与 ccv3。
+   * 不是有效 PNG 时返回 null，调用方退回纯 JSON 人物卡。
+   */
+  function pngWithCardText(png, cardText) {
+    if (!isPngBytes(png)) return null
+    const view = new DataView(png.buffer, png.byteOffset, png.byteLength)
+    const parts = [png.subarray(0, 8)]
+    let offset = 8
+    while (offset + 12 <= png.length) {
+      const length = view.getUint32(offset, false)
+      const type = String.fromCharCode(png[offset + 4], png[offset + 5], png[offset + 6], png[offset + 7])
+      const end = offset + 12 + length
+      if (end > png.length) return null
+      if (type === 'IEND') {
+        parts.push(pngCardTextChunk('chara', cardText), pngCardTextChunk('ccv3', cardText), png.subarray(offset, end))
+        const out = new Uint8Array(parts.reduce((sum, part) => sum + part.length, 0))
+        let at = 0
+        for (const part of parts) { out.set(part, at); at += part.length }
+        return out
+      }
+      if (type !== 'tEXt' && type !== 'zTXt' && type !== 'iTXt') parts.push(png.subarray(offset, end))
+      offset = end
+    }
+    return null
+  }
+
   function writeZipStored(entries) {
     const localParts = []
     const centralParts = []
@@ -530,8 +588,10 @@ export function createMigrationHelperCore() {
       return candidate
     }
 
-    function addPartItem(kind, label, item, defaultExt) {
-      const rawFileName = str(item.fileName || item.title || item.key || 'item')
+    function addPartItem(kind, label, item, fallbackExt) {
+      // 带卡面的人物卡是 PNG 卡（content 为字节），其余按文本写入。
+      const defaultExt = item.content instanceof Uint8Array && kind === 'cards' ? '.png' : fallbackExt
+      const rawFileName = str(item.fileName || item.title || item.key || 'item').replace(/\.(json|png)$/i, kind === 'cards' ? '' : '$&')
       const hasExt = rawFileName.toLowerCase().endsWith(defaultExt.toLowerCase())
       const stem = hasExt ? rawFileName.slice(0, rawFileName.length - defaultExt.length) : rawFileName
       const fileName = safeFileName(stem, kind) + defaultExt
@@ -594,6 +654,7 @@ export function createMigrationHelperCore() {
     sha256Hex,
     crc32,
     writeZipStored,
+    pngWithCardText,
     sanitizeSillyTavernChatForDsh,
     convertWorldInfoToCharacterBook,
     normalizeSillyTavernCardForDsh,
@@ -606,6 +667,7 @@ export const sanitizeSillyTavernChatForDsh = core.sanitizeSillyTavernChatForDsh
 export const convertWorldInfoToCharacterBook = core.convertWorldInfoToCharacterBook
 export const normalizeSillyTavernCardForDsh = core.normalizeSillyTavernCardForDsh
 export const packMigrationTransferBundle = core.packMigrationTransferBundle
+export const pngWithCardText = core.pngWithCardText
 export const sha256Hex = core.sha256Hex
 
 /**
@@ -622,6 +684,7 @@ export function buildMigrationHelperScriptContent() {
     isPlainObject,
     safeFileName,
     utf8Bytes,
+    pngWithCardText,
     sanitizeSillyTavernChatForDsh,
     normalizeSillyTavernCardForDsh,
     packMigrationTransferBundle
@@ -776,6 +839,23 @@ export function buildMigrationHelperScriptContent() {
     } catch (_e) {}
     const latest = Array.isArray(ctx.characters) && ctx.characters[charItem.index] ? ctx.characters[charItem.index] : charItem.raw;
     return latest || charItem.raw;
+  }
+
+  // 角色头像就是卡面：SillyTavern 在 /characters/<avatar> 提供原图 PNG。取不到时返回 null，人物卡退回纯 JSON。
+  async function fetchCharacterAvatar(charItem) {
+    const avatar = str(charItem && charItem.avatar);
+    if (!/\.png$/i.test(avatar)) return null;
+    try {
+      const host = getHostWindow();
+      const ctx = getStContext();
+      const headers = typeof ctx.getRequestHeaders === 'function' ? Object.assign({}, ctx.getRequestHeaders()) : {};
+      delete headers['Content-Type'];
+      const response = await host.fetch('/characters/' + encodeURIComponent(avatar), { headers, cache: 'no-store' });
+      if (!response.ok) return null;
+      return new Uint8Array(await response.arrayBuffer());
+    } catch (_e) {
+      return null;
+    }
   }
 
   async function fetchWorldbookData(worldName) {
@@ -1137,12 +1217,14 @@ export function buildMigrationHelperScriptContent() {
 
           if (state.includeCards) {
             const cardDoc = normalizeSillyTavernCardForDsh(fullChar, standaloneBook);
-            const cardFileName = safeFileName(cardDoc.name || ch.name, 'card') + '.json';
+            const cardText = JSON.stringify(cardDoc, null, 2) + '\\n';
+            const cardPng = pngWithCardText(await fetchCharacterAvatar(ch), cardText);
+            const cardFileName = safeFileName(cardDoc.name || ch.name, 'card') + (cardPng ? '.png' : '.json');
             exportedCards.push({
               key: 'cards/' + cardFileName,
               title: cardDoc.name || ch.name,
               fileName: cardFileName,
-              content: JSON.stringify(cardDoc, null, 2) + '\\n'
+              content: cardPng || cardText
             });
           }
 

@@ -37,7 +37,7 @@ export interface AutomaticFigureExtras {
   sprites?: Array<{emotion: string; image: string; outfit?: string}>;
 }
 export type AutomaticCreate = {op: 'create'; kind: 'figures'; value: AutomaticFigureTexts & {name: string; aliases: string[]}} & AutomaticFigureExtras
-export type AutomaticCopy = {op: 'copy'; kind: 'figures'; source: FigureRef; patch?: AutomaticFigureTexts} & AutomaticFigureExtras
+export type AutomaticCopy = {op: 'copy'; kind: 'figures'; source: FigureRef; patch?: AutomaticFigureTexts; copyVoice?: boolean} & AutomaticFigureExtras
 export type AutomaticPatch = {op: 'patch'; kind: 'figures'; ref: FigureRef & {kind: 'figures'}; patch?: AutomaticFigureTexts} & AutomaticFigureExtras
 export type AutomaticChange = AutomaticCreate | AutomaticCopy | AutomaticPatch
 export interface AutomaticWriteInput {
@@ -57,7 +57,7 @@ export interface LibrarySearchResult {
   query: string; identity: {status: 'resolved'; ref: FigureRef} | {status: 'ambiguous' | 'unknown'};
   figures: Array<{packId: string; packName: string; revision: string; ref: FigureRef; name: string; aliases: string[]; description?: string; guidance?: string;
     outfits: number; emotions: number; stage: boolean; voice: {voiceId: string; name: string; guidance?: string} | null; copyable: boolean; match: 'exact' | 'name' | 'text'}>;
-  voices: Array<{packId: string; packName: string; revision: string; voiceId: string; name: string; language: string; sound: string; guidance?: string; figures: string[]}>;
+  voices: Array<{packId: string; packName: string; revision: string; voiceId: string; name: string; language: string; sound: string; fallback?: true; guidance?: string; figures: string[]}>;
   more: {figures: number; voices: number};
 }
 export interface AutomaticWriteResult {
@@ -173,7 +173,7 @@ export interface AssetPackService extends CatalogueService {
     /** 全库搜索 over every installed pack; read only. */
     searchLibrary(input: {query: string; limit?: number}): Promise<LibrarySearchResult>;
     /** Eligible installed voices, one row per distinct voice and language. */
-    listLibraryVoices(input?: {limit?: number}): Promise<{voices: LibrarySearchResult['voices']; more: number}>;
+    listLibraryVoices(input?: {limit?: number; systemPacks?: string[]; language?: string}): Promise<{voices: LibrarySearchResult['voices']; more: number}>;
     /** Context is ephemeral host evidence (e.g. canonical body), never receipt data. */
     authorize(input: AutomaticWriteInput, source: AutomaticSource, context?: Context): AutomaticWriteAuthority;
     dispose(): void;
@@ -249,8 +249,8 @@ export interface AssetPackService extends CatalogueService {
   createFigure(input: PackWrite & {figure: Omit<Figure, 'id'>}): Promise<PackMutation & {figureId: string}>;
   /** host-only figure + card publication through the existing journal; not a browser pack control method. */
   createFigureWithCard(input: {target: PackWrite | {packId: string; expectedRevision: null; newPackName: string}; figure: Figure; card: {path: string; expectedRevision: string; raw: unknown}}, authorize?: () => Promise<void>): Promise<{status: 'committed'; snapshot: PackSnapshot; figureId: string}>;
-  editFigureIdentities<T>(changes: {packId: string; figureId: string; name?: string; addAliases: string[]; removeAliases: string[]}[],
-    receipt: {file: string; id: string}, save: (identities: {packId: string; figureId: string; name: string; aliases: string[]}[]) => Promise<T>): Promise<T>;
+  /** host-only: the figures take the identity their records gave them into their own documents, in the same save as the records'. */
+  releaseFigureIdentities<T>(releases: {packId: string; figureId: string}[], receipt: {file: string; id: string}, save: () => Promise<T>): Promise<T>;
   patchFigure(input: PackWrite & {figureId: string; patch: {[K in keyof Omit<Figure, 'id'>]?: Figure[K] | (undefined extends Figure[K] ? null : never)}}): Promise<PackMutation>;
   removeFigure(input: PackWrite & {figureId: string}): Promise<PackMutation | PackRemoval>;
   migrateCharacterEmotions(input: PackWrite): Promise<PackMutation>;

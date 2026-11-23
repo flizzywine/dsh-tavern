@@ -156,7 +156,7 @@ export function composeAssetPrompt(template, values) {
 const canonical = value => Array.isArray(value) ? value.map(canonical) : value && typeof value === 'object' ? Object.fromEntries(Object.keys(value).sort().map(k => [k, canonical(value[k])])) : value
 function authority(ctx, kind) {
   if (['background','identity-settei'].includes(kind)) return null
-  return JSON.stringify(canonical({identity:ctx.figure.identitySettei ?? null,...(kind !== 'settei' ? {settei:ctx.outfit.settei ?? null,parentVersion:ctx.outfit.setteiParentVersion ?? null} : {})}))
+  return JSON.stringify(canonical({identity:ctx.figure.identitySettei ?? null,...(kind !== 'settei' ? {settei:ctx.outfit.settei ?? null,...(ctx.outfit.setteiParts ? {setteiParts:ctx.outfit.setteiParts} : {}),parentVersion:ctx.outfit.setteiParentVersion ?? null} : {})}))
 }
 function inspectImage(bytes, mediaType, max) {
   assert(bytes.length > 0 && bytes.length <= max, 'LIMIT_EXCEEDED', '图片为空或过大')
@@ -318,8 +318,8 @@ export function createAssetGeneration({store, imageProvider = () => null, getLib
       // `preview` builds the exact prompt and reference list without a plan, a channel
       // or a request (free; works before the channel is set up), so the panel can show what ✦ will send.
       const preview = input.preview === true
-      const source = preview ? null : imageProvider()
-      const status = source ? await source.status() : null
+      const source = imageProvider()
+      const status = source ? (preview ? await Promise.resolve().then(() => source.status()).catch(() => null) : await source.status()) : null
       if (!preview) {
         assert(source, 'NOT_CONFIGURED', '素材生图由「配图」插件出图；请先安装并启用配图插件')
         assert(status.ready, 'NOT_CONFIGURED', status.reason || '请先在 配图 设置里配置生图渠道')
@@ -330,12 +330,19 @@ export function createAssetGeneration({store, imageProvider = () => null, getLib
       const userPrompt = text(input.userPrompt), references = input.references || []
       assert(Array.isArray(references) && references.length <= 4, 'LIMIT_EXCEEDED', '参考图最多四张')
       const images = [], refs = []
+      // A pack picture is listed first and read only once it is kept: a second settei sheet the channel has no room for is
+      // never read, so its size cannot stop a request that does not use it.
       async function packImage(blobHash, role, purpose = 'user') {
         validateHash(blobHash)
-        const {bytes,descriptor} = await library().readMedia({packId:target.packId,expectedRevision:pack.revision,hash:blobHash})
-        assert(['image/png','image/jpeg','image/webp'].includes(descriptor.mime) && descriptor.size <= 8 * 1024 ** 2, 'LIMIT_EXCEEDED', '参考图须为最多 8 MiB 的 PNG/JPEG/WebP')
         if (refs.some(ref => ref.hash === blobHash)) return
-        images.push({data:Buffer.from(bytes),mediaType:descriptor.mime}); refs.push({hash:blobHash,role,purpose})
+        images.push({pending:blobHash}); refs.push({hash:blobHash,role,purpose})
+      }
+      async function readKept() {
+        for (const [index, image] of images.entries()) if (image.pending) {
+          const {bytes,descriptor} = await library().readMedia({packId:target.packId,expectedRevision:pack.revision,hash:image.pending})
+          assert(['image/png','image/jpeg','image/webp'].includes(descriptor.mime) && descriptor.size <= 8 * 1024 ** 2, 'LIMIT_EXCEEDED', `参考图 ${image.pending.slice(0, 12)}…（${refs[index].purpose === 'user' ? '补充参考' : refs[index].purpose || '设定图'}）须为最多 8 MiB 的 PNG/JPEG/WebP：请在对话框里关掉这张，或换一张较小的图`)
+          images[index] = {data:Buffer.from(bytes),mediaType:descriptor.mime}
+        }
       }
       // in the app the identity board, the outfit 设定图 and the 平和
       // pictures are references used when they exist, never prerequisites (the portable CLI keeps its stricter
@@ -347,10 +354,15 @@ export function createAssetGeneration({store, imageProvider = () => null, getLib
       if (!['background','identity-settei'].includes(target.kind) && !omit.has('identity')) {
         const identity = ctx.figure.identitySettei, stale = !!identity && target.kind !== 'settei' && ctx.outfit.setteiParentVersion !== undefined && ctx.outfit.setteiParentVersion !== identity.version
         if (identity && !stale) await packImage(identity.board, roles.identity, 'identity-settei')
+        // An outfit settei is drawn from both sheets of the identity settei; a 差分 takes the outfit's own two sheets below.
+        if (identity?.parts && target.kind === 'settei') await packImage(identity.parts, roles.identityParts, 'identity-settei')
       }
       let anchor
       if (['sprite','avatar','avatar-sheet'].includes(target.kind)) {
-        if (ctx.outfit.settei && !omit.has('settei')) await packImage(ctx.outfit.settei, roles.settei)
+        if (ctx.outfit.settei && !omit.has('settei')) {
+          await packImage(ctx.outfit.settei, roles.settei)
+          if (ctx.outfit.setteiParts) await packImage(ctx.outfit.setteiParts, roles.setteiParts)
+        }
         const defaultEmotion=figureDefaultEmotion(ctx.figure,ctx.outfit)
         const sprite = ctx.outfit.sprite, manifest = sprite && pack.sprites[sprite.manifestKey]
         const stateFor = emotion => manifest ? spriteEmotions.spriteEmotionState(manifest,(emotion===target.emotionId?target.imageId:null) || ctx.outfit.sprite?.imagePools?.[emotion]?.defaultImageId || emotion) : null
@@ -376,11 +388,17 @@ export function createAssetGeneration({store, imageProvider = () => null, getLib
         }
       }
       if (target.kind === 'background') for (const hash of pack.manifest.backgroundStyle?.references || []) await packImage(hash, BACKGROUND_STYLE_REFERENCE_ROLE, 'background-style')
+      // Four pictures at most: a second settei sheet gives way first (an eight-face sheet also takes its 立绘 and 头像).
+      for (const role of [roles.identityParts, roles.setteiParts]) { const at = refs.findIndex(ref => ref.role === role); if (images.length > 4 && at >= 0) { images.splice(at, 1); refs.splice(at, 1) } }
       assert(images.length <= 4, 'LIMIT_EXCEEDED', '设定图与补充参考合计最多四张')
+      // A channel of fewer pictures loses the second settei sheets first, whatever is drawn (an eight-face sheet too).
+      if (status?.ready && !input.redrawOf) for (const role of [roles.identityParts, roles.setteiParts]) { const at = refs.findIndex(ref => ref.role === role); if (images.length > status.maxReferences && at >= 0) { images.splice(at, 1); refs.splice(at, 1) } }
       // The identity board, the outfit 设定图 and a 头像's own 立绘 are references, not prerequisites: a channel that takes
       // fewer pictures (none, for a text-only one) draws from the 设定文字 instead — the identity board is left out first, then
-      // the outfit 设定图, then the 立绘. What the user added stays.
-      if (!preview && ['settei','sprite','avatar'].includes(target.kind) && !input.redrawOf) for (const role of [roles.identity, roles.settei, roles.emotionSprite]) {
+      // the outfit 设定图, then the 立绘. What the user added stays. A settei of two sheets loses its second sheet (eye and
+      // accessories) before its four views, so a channel of one picture gets the four views; the outfit's own two sheets
+      // outlast the identity board, as its first sheet always did.
+      if (status?.ready && ['settei','sprite','avatar'].includes(target.kind) && !input.redrawOf) for (const role of [roles.identity, roles.settei, roles.emotionSprite]) {
         const at = refs.findIndex(ref => ref.role === role)
         if (images.length > status.maxReferences && at >= 0) { images.splice(at, 1); refs.splice(at, 1) }
       }
@@ -430,6 +448,7 @@ export function createAssetGeneration({store, imageProvider = () => null, getLib
       const output = assetOutput(target.kind,input.quality || ASSET_PRODUCTION_DEFAULTS.quality)
       assert(ASSET_IMAGE_QUALITIES.includes(output.quality), 'INVALID_ARGUMENT', '无效的图片质量')
       if (preview) return clone({preview:true,target,expectedRevision:pack.revision,prompt,promptBytes:Buffer.byteLength(prompt),style:{id:style,use},references:refs,output})
+      await readKept()
       const key = output.background === 'transparent' ? await keyFor(status, prompt) : null
       if (key) { prompt = keyedPrompt(prompt, key); output.background = 'opaque'; output.key = key }
       const planId = randomUUID(), provider = {label:source.label, model:status.model, ...(status.transparent === true ? {transparent:true} : {})}
@@ -610,7 +629,7 @@ export function createAssetGeneration({store, imageProvider = () => null, getLib
         const patch = {blobs:{...pack.manifest.blobs,[media]:descriptor}}, fileUpdates = new Map([['media/'+media+'.png',bytes]])
         if (job.target.kind === 'identity-settei' || job.target.kind === 'settei') {
           const figure = job.target.kind === 'identity-settei' ? {...ctx.figure,identitySettei} : recorded({...ctx.figure,
-            outfits:ctx.figure.outfits.map(o => o.key === job.target.outfitKey ? {...o,settei:media,...(ctx.figure.identitySettei ? {setteiParentVersion:ctx.figure.identitySettei.version} : {})} : o)},job)
+            outfits:ctx.figure.outfits.map(o => o.key === job.target.outfitKey ? {...(({setteiParts, ...rest}) => rest)(o),settei:media,...(ctx.figure.identitySettei ? {setteiParentVersion:ctx.figure.identitySettei.version} : {})} : o)},job)
           fileUpdates.set('figures/'+figure.id+'.json',Buffer.from(JSON.stringify(figure)))
         } else {
           patch.assets = job.target.assetId ? pack.manifest.assets.map(a => a.id === job.target.assetId && a.kind === 'backgrounds' ? {...a,media,pendingMedia:false} : a) :

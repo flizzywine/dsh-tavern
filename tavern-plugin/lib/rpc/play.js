@@ -79,15 +79,19 @@ export function createPlayHandlers(deps) {
       return { view: await cardUpdates.applyManual(sessionId, args && args.digest) }
     },
     async getSession(args) {
-      // A save opened for the first time in this process is checked once, while nothing runs.
-      await reconcileWhenIdle(args && args.sessionId, { once: true })
+      const sessionId = str(args?.sessionId)
+      const windowed = args?.viewSync === 1 && args.openingWindow === 1 && args.fullView !== true && args.historyFrom !== 0
+      if (!windowed) await reconcileWhenIdle(sessionId, { once: true })
       // A branch forked by an older Tavern is a conversation, not a subagent: without the
       // repair the page's history read fails and the composer stays read-only.
-      await branchOrigin?.ensure?.(str(args && args.sessionId))
-      void backgroundCatalog(str(args && args.sessionId))
+      await branchOrigin?.ensure?.(sessionId)
+      void backgroundCatalog(sessionId)
       if(args?.fullView === true)templateHistoryFrom.set(args.sessionId,0)
       else if(Number.isSafeInteger(args?.historyFrom) && args.historyFrom >= 0)templateHistoryFrom.set(args.sessionId,args.historyFrom)
       const response = await sessionViews.response(args || {})
+      if (windowed) void reconcileWhenIdle(sessionId, { once: true, background: true }).catch(error => {
+        console.warn('dsh-tavern: 后台核对存档失败：' + str(error?.message || error))
+      })
       // 空视图以前是无声的：页面以为读完了，玩家看到的是「没有可重新生成的正文」。
       if (response && response.view == null) console.warn('[dsh-tavern.view] 空视图 sessionId=' + str(args && args.sessionId) + ' reason=' + (response.emptyReason || 'unknown'))
       return response
@@ -215,6 +219,7 @@ export function createPlayHandlers(deps) {
     // text, a review now otherwise); with guidance, a second edit then follows only the guidance.
     // Both land as one body edit; the record keeps the original for the comparison and its undo.
     async polishBody(args) {
+      if (!(await readTavernSettings()).polishEnabled) throw new Error('请先在酒馆设置的「开局默认 → 功能」中开启精修')
       const sessionId = str(args?.sessionId), guidance = str(args?.guidance).trim(), started = Date.now()
       return withForegroundTaskAgent(sessionId, async () => {
         await reconcileStory(sessionId)

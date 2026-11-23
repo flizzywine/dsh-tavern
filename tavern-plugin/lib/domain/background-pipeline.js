@@ -1,17 +1,14 @@
 // The background task pipeline (Wiki「设计：background-task-pipeline」).
 //
 // Settlement items: work that rides on the main settlement's single model call. Tavern's own
-// items come first, then the plugins' tools and notes. Tool definitions
-// sit in the background session's cached prefix and never change; which may be called this
-// turn is stated in the per-turn task text.
+// items come first, then the enabled plugins' tools and notes.
 
 import { promptSection } from './prompt-section.js'
 
 function pluginText(names, notes) {
-  if (!notes.length && !names.available.length && !names.unavailable.length) return ''
+  if (!notes.length && !names.available.length) return ''
   return promptSection('plugin_task', promptSection('plugin_settlement', [
     ...(names.available.length ? ['Plugin tools available this turn: ' + names.available.join('、') + ". This list is current; earlier turns where they were off or failed no longer apply. Call them as needed before submitting this turn's settlement; a plugin tool failure doesn't affect it."] : []),
-    ...(names.unavailable.length ? ['Plugin tools unavailable this turn (the player turned off their plugins for this game): ' + names.unavailable.join('、') + ". Don't call them this turn."] : []),
     ...notes.map(note => note.text)].join('\n\n')))
 }
 
@@ -26,6 +23,7 @@ export function createSettlementItems({ items = () => [], plugins = () => null }
   return Object.freeze({
     /** Every item's tools, in the fixed order of the cached prefix. */
     tools() { return [...own().flatMap(item => item.tools()), ...(plugins()?.tools() || [])] },
+    async pluginToolNames(context) { return await plugins()?.toolNames(context) ?? { available: [], unavailable: [] } },
     has(name) { return own().some(item => item.has(name)) || Boolean(plugins()?.has(name)) },
     /** Whether an item needs the settlement to run although posture and variables are off. */
     async wanted(context = {}) {

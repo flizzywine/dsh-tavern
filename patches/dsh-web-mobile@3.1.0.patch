@@ -1,6 +1,7 @@
 diff --git a/lib/client.js b/lib/client.js
 old mode 100755
 new mode 100644
+index 2ccc49f..71f49f2
 --- a/lib/client.js
 +++ b/lib/client.js
 @@ -916,7 +916,11 @@ exports.LAYOUT_CSS = `/* ---------- mobile-only layout (narrow viewport AND touc
@@ -163,7 +164,7 @@ new mode 100644
      const cs = getComputedStyle(panel);
      if (cs.visibility === 'hidden' || cs.display === 'none')
          return false;
-@@ -8538,6 +8572,47 @@ function closeDrawerAnimated(ctx) {
+@@ -8538,6 +8572,80 @@ function closeDrawerAnimated(ctx) {
      commitWithAnimation(ctx, drawer, target);
      return true;
  }
@@ -179,6 +180,9 @@ new mode 100644
 +        cancelAnimationFrame(armRevealRaf);
 +        armRevealRaf = 0;
 +    }
++    if (typeof drawer.__dshOpenWillChangeCleanup === 'function') {
++        drawer.__dshOpenWillChangeCleanup();
++    }
 +    followDrawer = drawer;
 +    // 两拍展开（DSH Tavern 2026-11-14：手机点开左侧栏掉帧）。单拍展开时，React 挂载
 +    // 抽屉子树、子树的一次性排版/首帧绘制、以及 .24s 位移全挤在点击那一帧；会话或
@@ -189,6 +193,7 @@ new mode 100644
 +    if (pinned !== '' && pinned !== 'none')
 +        drawer.style.setProperty('transform', pinned, 'important');
 +    drawer.style.setProperty('transition', 'none', 'important');
++    drawer.style.setProperty('will-change', 'transform');
 +    drawer.style.setProperty('content-visibility', 'hidden', 'important');
 +    cvDeferred = true;
 +    ctx.layout.toggleSidebar();
@@ -203,6 +208,35 @@ new mode 100644
 +            if (drawerOpen()) {
 +                drawer.style.removeProperty('transition');
 +                drawer.style.removeProperty('transform');
++                let settled = false;
++                let timer = 0;
++                const cleanup = () => {
++                    if (settled)
++                        return;
++                    settled = true;
++                    if (timer !== 0 && typeof window.clearTimeout === 'function')
++                        window.clearTimeout(timer);
++                    if (typeof drawer.removeEventListener === 'function')
++                        drawer.removeEventListener('transitionend', onEnd);
++                    if (drawer.__dshOpenWillChangeCleanup === cleanup)
++                        drawer.__dshOpenWillChangeCleanup = undefined;
++                    drawer.style.removeProperty('will-change');
++                };
++                const onEnd = (event) => {
++                    if (event && (event.target !== drawer || event.propertyName !== 'transform'))
++                        return;
++                    cleanup();
++                };
++                drawer.__dshOpenWillChangeCleanup = cleanup;
++                if (typeof drawer.addEventListener === 'function')
++                    drawer.addEventListener('transitionend', onEnd);
++                if (typeof window.setTimeout === 'function')
++                    timer = window.setTimeout(cleanup, 320);
++                else
++                    cleanup();
++            }
++            else {
++                drawer.style.removeProperty('will-change');
 +            }
 +        });
 +    });
@@ -211,7 +245,7 @@ new mode 100644
  /** Cancel paths: styles back to the host, pointer state to idle. An armed
   * open follow has already flipped the host state, so a cancel must also
   * toggle it back — release the inline pair first so the host transition
-@@ -9139,8 +9197,11 @@ exports.TAP_CLOSE_NAV_SELECTOR = 'button[data-dsh-taskboard-entry], button[data-
+@@ -9139,8 +9247,11 @@ exports.TAP_CLOSE_NAV_SELECTOR = 'button[data-dsh-taskboard-entry], button[data-
   * the band to cover it.
   */
  function toggleDrawer(ctx) {
@@ -225,7 +259,7 @@ new mode 100644
  }
  function installOverlayInteractions(ctx) {
      (0, breakpoints_ts_1.installMobileEffect)(ctx, 'dsh-web-mobile: drawer close (Escape + navigate)', () => {
-@@ -9166,7 +9227,7 @@ function installOverlayInteractions(ctx) {
+@@ -9166,7 +9277,7 @@ function installOverlayInteractions(ctx) {
          };
          // Capture phase: run before the shell or a plugin processes the click,
          // so takeover panels never render under the open drawer.
@@ -234,7 +268,7 @@ new mode 100644
          // Shared frame: inside the drawer, on a row navigation target, and not on
          // one of its buttons. Deliberately free of the DSHA tap-close exemption —
          // onDrawerPointerDown arms long-press through this base, and starving that
-@@ -14832,7 +14893,9 @@ function apply(ctx) {
+@@ -14832,7 +14943,9 @@ function apply(ctx) {
      (0, panel_exit_ts_1.installPanelRowExit)(ctx, panelExit.exit);
      // Session deletion, injected into each session row's ⋯ menu (beside
      // rename / fork / archive) with a confirm dialog. Mobile-only.
@@ -245,3 +279,12 @@ new mode 100644
      // Sidebar swipe gestures: edge swipe-in opens the drawer, content swipe-out
      // closes it (release-classified, zero inline transforms — A 档). Since
      // 2026-09-13 the layer also owns the right-edge files gesture (leftward
+@@ -14904,7 +15017,7 @@ function apply(ctx) {
+         order: 10,
+         locale: locales_ts_1.NS,
+         inject: () => ({
+-            toggleSidebar: () => ctx.layout.toggleSidebar(),
++            toggleSidebar: () => (0, drawer_close_ts_1.toggleDrawer)(ctx),
+         }),
+     }, MobileNavToggle_tsx_1.MobileNavToggle));
+     // Session log download, relocated from the session header to the drawer

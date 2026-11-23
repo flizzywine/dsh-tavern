@@ -17,14 +17,14 @@ export interface AssetContentMap {
   timers: TimerContent;
   music: {media:Sha256|null;pendingMedia?:boolean;usage?:string;volume?:number;tags?:string[];loopStart?:number;loopEnd?:number;loudness?:{v:1;lufs:number;peak:number}};
   sfx: {media:Sha256|null;pendingMedia?:boolean;loop?:false;durationMs?:number;volume?:number;tags?:string[];gainDb?:number;loudness?:{v:1;lufs:number;peak:number}};
-  ambience: {media:Sha256|null;pendingMedia?:boolean;loop?:boolean;durationMs?:number;volume?:number;tags?:string[];loudness?:{v:1;lufs:number;peak:number}};
+  ambience: {media:Sha256|null;pendingMedia?:boolean;loop?:boolean;durationMs?:number;volume?:number;tags?:string[];loudness?:{v:1;lufs:number;peak:number;brightnessDb?:number;durationMs?:number}};
   looks: {params:Extensions;layer:'mood';event?:boolean};
   skins: {bundleKey:string;entry:string};
   performances: {bundleKey:string;entry:string};
   widgets: {bundleKey:string;entry:string;settingsDefaults?:WidgetSettingValues};
 }
 export interface AssetVariants<C> {default:string;entries:Array<{id:string;name:string;content:C}>}
-export type Asset = {[K in keyof AssetContentMap]: Omit<AssetBase,keyof AssetContentMap[K] | 'category'> & {kind:K; category?: K extends 'sfx' ? string : K extends 'ambience' ? string | string[] : string[]} & (K extends 'skins' ? {skin?:never} : {enabled:boolean;skin?:string}) & ((AssetContentMap[K] & {variants?:never}) | ({variants:AssetVariants<AssetContentMap[K]>} & {[P in keyof AssetContentMap[K]]?:never}))}[keyof AssetContentMap];
+export type Asset = {[K in keyof AssetContentMap]: Omit<AssetBase,keyof AssetContentMap[K] | 'category'> & {kind:K; category?: K extends 'sfx' ? string : K extends 'ambience' ? string | string[] : string[]} & (K extends 'skins' ? {skin?:never;enabled?:boolean} : {enabled:boolean;skin?:string}) & ((AssetContentMap[K] & {variants?:never}) | ({variants:AssetVariants<AssetContentMap[K]>} & {[P in keyof AssetContentMap[K]]?:never}))}[keyof AssetContentMap];
 export function validateAssetContent<K extends keyof AssetContentMap>(kind:K,content:unknown,path?:string): AssetContentMap[K];
 export interface FileEntry { path: string; size: number; sha256: Sha256 }
 export interface BlobDescriptor { ext: 'png' | 'webp' | 'jpeg' | 'mp3' | 'ogg' | 'wav' | 'm4a' | 'flac'; mime: string; size: number }
@@ -35,7 +35,7 @@ export interface PackManifest extends Metadata {
   blobs: Record<Sha256, BlobDescriptor>; files: FileEntry[];
 }
 export interface VoiceReference {media: Sha256; text: string; language: string}
-export type VoiceSource = {kind:'voice-id'; provider:'fish-audio'; voiceId:string}
+export type VoiceSource = {kind:'voice-id'; provider:'fish-audio'; voiceId:string; serviceId?:string; serviceType?:'fish-official'}
   | {kind:'preset'; provider:string; voiceName:string; model?:string}
   | {kind:'reference-list'; provider:'fish-audio'; references:VoiceReference[]};
 export interface VoiceSpec {name:string; /** 使用情景, ≤ 60 字 */ guidance?:string; /** 通用声音（是否通用）: the casting assistant may pick it (absent: has a guidance); voice-auto-cast.cjs */ autoCast?:boolean; language:string; defaultSource:string; sources:Record<string,VoiceSource>; emotions?:Record<string,{label:string;referenceEmotion?:string;tuning?:Record<string,Record<string,Json>>}>; fallbackSources?:string[]; variants?:Record<string,{name?:string; tuning?:Record<string,Record<string,string|number|boolean|null>>}>}
@@ -55,6 +55,8 @@ export interface Outfit { key: string; defaultEmotion?: string; fallbackEmotions
   guidance?: string;
   outfitAppearance?: string;
   settei?: Sha256;
+  /** The second settei sheet: the eye and the pieces over the colour card (the four views are settei). */
+  setteiParts?: Sha256;
   setteiParentVersion?: string;
   avatars?: Record<string, Sha256>;
 }
@@ -65,7 +67,7 @@ export function figureSingleImage(figure?: Pick<Figure, 'emotions'>): string | n
 export function figureEmotionRows(figure?: Pick<Figure, 'emotions'>): Array<FigureEmotion & {label: string; color?: string}>;
 export function figureOutfitEmotionRows(figure: Pick<Figure, 'emotions'>, outfit: Figure['outfits'][number], sprites?: Record<string, SpriteManifest>): ReturnType<typeof figureEmotionRows>;
 // board versions belong to the identity, never to outfit accessories.
-export interface IdentitySettei { board: Sha256; version: string; palette: Array<{role: string; hex: string; zone: string}> }
+export interface IdentitySettei { board: Sha256; parts?: Sha256; version: string; palette: Array<{role: string; hex: string; zone: string}> }
 export interface Figure { schemaVersion: 1; id: UUID; name: string; aliases?: string[]; description?: string; guidance?: string; remark?: string; enabled: boolean; recall: FigureRecall; appearance: 'live2d' | 'spine' | 'sprite' | 'avatar'; identityAppearance?: string; identitySettei?: IdentitySettei; heightCm?: number; heightBasis?: 'standing' | 'seated'; elevationCm?: number; imageColor?: string; autoColor?: string; emotions?: FigureEmotion[]; voice?: Voice; outfits: Outfit[]; extensions?: Extensions }
 export interface Rect { x: number; y: number; w: number; h: number }
 export type MouthEvent = 'closed' | 'small' | 'mid' | 'open';

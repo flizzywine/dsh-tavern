@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url'
 import vm from 'node:vm'
 
 const root = new URL('./', import.meta.url)
-const sharedFragments = { 'prompt-entry-catalog.js': 'lib/prompt-entry-catalog.js', 'transport.js': 'lib/client/transport.js', 'capabilities.js': 'lib/image-provider-capabilities.js', 'library-prompts.js': 'lib/library-prompts.js' }
+const sharedFragments = { 'prompt-entry-catalog.js': 'lib/prompt-entry-catalog.js', 'transport.js': 'lib/client/transport.js', 'capabilities.js': 'lib/image-provider-capabilities.js', 'outfit-parts.js': 'lib/outfit-parts.js', 'library-prompts.js': 'lib/library-prompts.js' }
 const fragments = new Set(['media.js', 'image-display.js', 'workflow-lora.js', 'workflow-inputs.js', 'image-editor.js', 'legacy-worldbook.js', 'settings-fields.js', 'prompt-structure-editor.js', 'prompt-workspace.js', 'prompt-entry-library.js', 'draft-state.js', 'prompt-forms.js', 'prompt-style.js', 'settings.js', 'card-worldbook.js', 'card-gallery.js', ...Object.keys(sharedFragments)])
 const normalize = value => value.replace(/\r\n?/g, '\n')
 
@@ -18,7 +18,10 @@ export async function assembleImageClient(packageRoot = root) {
     seen.add(name)
     const source = sharedFragments[name] || 'src/client/' + name
     let fragment = normalize(await readFile(new URL(source, packageRoot), 'utf8'))
-    if (sharedFragments[name]) fragment = fragment.replace(/^export /gm, '').split('\n').map(line => line ? '    ' + line : '').join('\n')
+    if (sharedFragments[name]) {
+      // 共用的 lib 片段之间不保留 import：它们按 main.js 的 @include 顺序内联进同一个作用域。
+      fragment = fragment.replace(/^import [^\n]*\n/gm, '').replace(/^export /gm, '').split('\n').map(line => line ? '    ' + line : '').join('\n')
+    }
     output = output.slice(0, match.index) + fragment.trimEnd() + output.slice(match.index + match[0].length)
   }
   if (seen.size !== fragments.size || output.includes('// @include ')) throw new Error('Incomplete image client source')

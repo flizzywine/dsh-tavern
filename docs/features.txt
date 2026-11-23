@@ -192,7 +192,7 @@ DSH Tavern 功能清单（纯文本审阅版）
 2. 读取游玩记录：tavern_read_play_chat，供调试工作台读取已关联记录的概览及相关证据；与正文 Agent 回忆剧情的 recall 工具分工不同。
 3. 人物卡读写：tavern_read_card、tavern_read_card_raw、tavern_search_card、tavern_replace_card_text、tavern_update_card，读取结构化设定或原始卡片、全卡定位与批量替换文字，按要求修改；转 MVU 时用 tavern_mvu_overview 摸底、tavern_apply_mvu 一次写入变量、规则和面板。
 4. 人物卡检查与恢复：tavern_validate_card、tavern_restore_card，检查卡片结构，按要求恢复导入原版；tavern_update_card 与修改内置世界书的保存结果自动附带同样的校验。
-5. 世界书读写：tavern_read_worldbook、tavern_update_worldbook，检查并修改世界书内容。
+5. 世界书读写：tavern_read_lorebook、tavern_update_lorebook，检查并修改世界书内容。
 6. 预设读写：tavern_read_preset、tavern_update_preset，检查和修改提示词及相关配置。
    正则库：tavern_read_regex_library，读取本局全局、预设快照和人物卡自带的正则及开关状态；全局规则立即生效，预设/人物卡只在本局覆盖，不改写来源文件。
 7. 用户画像：tavern_user_profile_read、tavern_user_profile_save_draft、tavern_user_profile_confirm，分别读取、保存草案和确认画像。

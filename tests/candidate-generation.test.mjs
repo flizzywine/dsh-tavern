@@ -3,6 +3,8 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import { createCandidateGenerator, extractForegroundStoryChoices, foregroundCandidatePrompt } from '../tavern-plugin/lib/domain/candidate-generation.js'
+import { backgroundTaskPrompt } from '../tavern-plugin/lib/domain/background-task-prompt.js'
+import { createContextPlanner } from '../tavern-plugin/lib/domain/context-planner.js'
 import { createScriptContinuity } from '../tavern-plugin/lib/domain/script-continuity.js'
 import { createStoryTimeline } from '../tavern-plugin/lib/domain/story-timeline.js'
 import { createBackgroundTaskCoordinator } from '../tavern-plugin/lib/domain/background-task-coordinator.js'
@@ -27,13 +29,13 @@ function script() {
   }
 }
 
-function harness({ mode = 'story', taskProjection = false, outputs, initialCandidates, initialCandidateAgent, initialSettleStatus, messages, initialScriptCursor = 0, initialScriptEnded = false, scriptData, cardData, macroState, waitUntilSettled, writeChatHook, modelSelection, planHook, worldBookContext, expandedCandidates }) {
+function harness({ mode = 'story', taskProjection = false, outputs, initialCandidates, initialCandidateAgent, initialSettleStatus, messages, initialScriptCursor = 0, initialScriptEnded = false, scriptData, cardData, macroState, waitUntilSettled, writeChatHook, modelSelection, planHook, worldBookContext, expandedCandidates, guideSections }) {
   const continuity = createScriptContinuity()
   const activeScript = scriptData || script()
   let scriptState = mode === 'script' ? continuity.start(activeScript, initialScriptCursor) : null
   if (initialScriptEnded) scriptState = continuity.transition({ script: activeScript, state: scriptState, event: { kind: 'end' } }).state
   let chat = {
-    id: 'chat-1', cardId: 'card-1', mode, messages: messages || [{ role: 'assistant', text: '雨水敲着窗。' }],
+    id: 'chat-1', sessionId: 'session-1', cardId: 'card-1', mode, messages: messages || [{ role: 'assistant', text: '雨水敲着窗。' }],
     scriptState,
     settleStatus: initialSettleStatus || 'idle',
     macroState: macroState || { userName: 'User', local: {}, global: {} }
@@ -52,6 +54,7 @@ function harness({ mode = 'story', taskProjection = false, outputs, initialCandi
       postHistoryText: options.postHistoryText,
       turnContext: options.turnContext,
       messages: structuredClone(options.messages),
+      requestText: backgroundTaskPrompt({ input: options }),
       tools: structuredClone(options.tools || []),
       maxTokens: options.maxTokens,
       persistent: options.persistent,
@@ -103,11 +106,12 @@ function harness({ mode = 'story', taskProjection = false, outputs, initialCandi
   }
   const plannerCalls = []
   const warnings = []
+  const contextPlanner = createContextPlanner({ prompt, guideSections })
   const planner = {
     async plan(input) {
       plannerCalls.push(input)
       await planHook?.()
-      return { text: '候选项上下文', stableText: '稳定候选上下文', taskText: '候选格式规则', systemPromptText: '本轮系统提示', postHistoryText: '本轮历史后指令', dynamicText: '本轮游标、Guide 与姿势', audit: { included: [], omitted: [], warnings: [], totalChars: 7 } }
+      return contextPlanner.plan(input)
     }
   }
   const timeline = createStoryTimeline({ id: (prefix) => prefix + '-' + Math.random().toString(36).slice(2), now: () => 123456 })
@@ -161,8 +165,40 @@ test('regenerating choices replaces only candidates, preserving body, MVU and st
   assert.equal(after.settleStatus, before.settleStatus)
   assert.equal(after.scriptState, before.scriptState)
   assert.equal(result.messageId, 'message-1')
-  assert.match(JSON.stringify(run.modelRequests[0].messages), /新的行动方向/)
+  assert.match(run.modelRequests[0].requestText, /<regeneration_guidance>\n新的行动方向\n<\/regeneration_guidance>/)
   assert.equal(run.modelCalls(), 1)
+})
+
+test('初次与重复候选请求使用当时生效的 Guide；重生成意见只用来引导这一组候选', async () => {
+  let directorGuide = '让访客在开门前先敲三次'
+  const run = harness({
+    outputs: [JSON.stringify({ choices: storyChoices })],
+    messages: [{ role: 'assistant', turn: 2, text: '午夜，旅人在钟楼里听见风声。' }],
+    guideSections: async sessionId => {
+      assert.equal(sessionId, 'session-1')
+      return directorGuide ? [{ text: directorGuide }] : []
+    }
+  })
+  run.mutateChat(chat => { chat.guides = [{ text: '对白克制，尽量留白' }]; chat.posture = '门仍关着' })
+  const target = { sessionId: 'session-1', messageId: 'current-prose' }
+  await run.candidates.generate({ ...target, requestId: 'first' })
+  directorGuide = '让访客先留下一封信'
+  run.mutateChat(chat => { chat.guides = [{ text: '缩短对白，加快节奏' }] })
+  await run.candidates.generate({ ...target, requestId: 'second', guidance: '弟弟已进来，把他安排成揭示线索的角色' })
+  directorGuide = ''
+  run.mutateChat(chat => { chat.guides = [] })
+  await run.candidates.generate({ ...target, requestId: 'third' })
+
+  const [initial, regenerated, cleared] = run.modelRequests.map(request => request.requestText)
+  assert.match(initial, /<candidate_directions>[\s\S]*对白克制，尽量留白[\s\S]*让访客在开门前先敲三次/)
+  assert.match(regenerated, /<candidate_directions>[\s\S]*缩短对白，加快节奏[\s\S]*让访客先留下一封信[\s\S]*<regeneration_guidance>\n弟弟已进来/)
+  assert.match(regenerated, /offer it as something that can happen next/)
+  assert.doesNotMatch(regenerated, /对白克制|先敲三次/)
+  assert.match(regenerated, /<authoritative_state>[\s\S]*门仍关着[\s\S]*<\/authoritative_state>/)
+  assert.match(regenerated, /<recent_task>\nTask type: choice generation\n\[Story\]\n午夜，旅人在钟楼里听见风声。\n<\/recent_task>/)
+  assert.match(cleared, /There is no active Guide for this request/)
+  assert.doesNotMatch(cleared, /regeneration_guidance|弟弟已进来|让访客|缩短对白/)
+  assert.deepEqual(run.chat().messages, [{ role: 'assistant', turn: 2, text: '午夜，旅人在钟楼里听见风声。' }])
 })
 
 test('自由故事只保存完整的 4 action + 1 scene', async () => {
@@ -227,9 +263,9 @@ test('a synced background session still receives the latest story, renamed playe
   const bodies = request.messages.filter(message => message.role === 'assistant')
   assert.equal(bodies.length, 3)
   assert.equal(bodies.at(-1).content[0].text, messages.at(-1).text)
-  assert.match(request.messages.at(-1).content[0].text, /latest story turn 20/)
-  assert.match(request.messages.at(-1).content[0].text, /Player.s name in this session: 阿舟/)
-  const taskText = request.messages.at(-1).content[0].text
+  assert.match(request.requestText, /latest story turn 20/)
+  assert.match(request.requestText, /Player.s name in this session: 阿舟/)
+  const taskText = request.requestText
   console.log('B3 candidate prompt bytes', JSON.stringify({before:{recentBodyBytes:2,taskBytes:Buffer.byteLength(taskText.split('\n\n【候选时间点】')[0])},after:{recentBodyBytes:Buffer.byteLength(JSON.stringify(bodies)),taskBytes:Buffer.byteLength(taskText)},toolSchemaBytes:Buffer.byteLength(JSON.stringify(request.tools))}))
 })
 
@@ -255,7 +291,7 @@ test('choices after unseen turns still carry the recent story and the player nam
   const request = run.modelRequests[1]
   assert.equal(request.persistentSessionId, 'candidate-trace-1', 'second request resumes the persistent background session')
   const bodies = request.messages.filter(message => message.role === 'assistant').map(message => message.content[0].text)
-  const task = request.messages.at(-1).content[0].text
+  const task = request.requestText
   assert.equal(bodies.length, 3, 'the three newest story turns reach the background agent')
   assert.ok(bodies.some(text => text.includes('钟楼')))
   assert.match(task, /latest story turn 20/)
@@ -273,8 +309,8 @@ test('a synced background session still receives the latest story, renamed playe
   const bodies = request.messages.filter(message => message.role === 'assistant')
   assert.equal(bodies.length, 3)
   assert.equal(bodies.at(-1).content[0].text, messages.at(-1).text)
-  assert.match(request.messages.at(-1).content[0].text, /latest story turn 20/)
-  assert.match(request.messages.at(-1).content[0].text, /Player.s name in this session: 阿舟/)
+  assert.match(request.requestText, /latest story turn 20/)
+  assert.match(request.requestText, /Player.s name in this session: 阿舟/)
 })
 
 test('前台生成候选项：提示词门控与正文尾部 <story_choices> 提取、宏替换与剥离', () => {

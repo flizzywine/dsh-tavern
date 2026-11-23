@@ -39,7 +39,7 @@ export async function openingUpdateChecks({page,step,savedChat,data,output,repor
   assert.deepEqual(state((await savedChat()).messages[0].text),{gold:99,energy:100})
  })
  await step('重新加载后开始第一轮，后台正常结算且旧字段不恢复',async()=>{
-  const composer=page.getByRole('textbox',{name:/发消息|Message/})
+  const composer=page.getByRole('textbox',{name:/下一步行动|Next action|发消息|Message/})
   await composer.fill('领取任务奖励');await composer.press('Enter')
   const deadline=Date.now()+30000
   while(Date.now()<deadline){if((await savedChat()).messages.at(-1).variables?.[0]?.stat_data?.gold===10)break;await new Promise(r=>setTimeout(r,100))}
