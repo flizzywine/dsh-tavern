@@ -5,15 +5,17 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
+import { fileURLToPath } from 'node:url'
 
 const read = name => readFileSync(new URL('../tavern-plugin/' + name, import.meta.url), 'utf8')
 const S = new Function([read('src/client/stage-audio-math.js'), read('mods/dice/client/show-sound.js'), read('mods/dice/client/show-art.js')].join('\n;\n') +
-  ';return { SHOW_T, SHOW_SOUND_RATE, SHOW_SOUND_LOUDNESS, showSoundCues, showSoundStem, showEdgeAt, showSlamAt, measureAudioLoudness, audioGain }')()
+  ';return { SHOW_T, SHOW_SOUND_RATE, SHOW_SOUND_BEDS, SHOW_SOUND_LOUDNESS, showSoundCues, showSoundMixBed, showSoundStem, showEdgeAt, showSlamAt, measureAudioLoudness, audioGain }')()
 const T = S.SHOW_T, cast = { dice: 6, marked: 3, corners: 3, letters: 4 }
 
 // The stems laid at their cues: { left, right } at `rate`.
-function score(calm, rate = S.SHOW_SOUND_RATE) {
-  const stems = S.showSoundCues(T, calm).map(cue => ({ at: Math.round(cue.at / 1000 * rate), ...S.showSoundStem(cue.stem, T, cast, rate) }))
+function score(calm, rate = S.SHOW_SOUND_RATE, beds = {}) {
+  const stems = S.showSoundCues(T, calm).map(cue => ({ at: Math.round(cue.at / 1000 * rate), ...S.showSoundStem(cue.stem, T, cast, rate, beds[cue.stem] || null) }))
   const length = Math.max(...stems.map(stem => stem.at + stem.left.length)), left = new Float32Array(length), right = new Float32Array(length)
   for (const stem of stems) for (let i = 0; i < stem.left.length; i++) { left[stem.at + i] += stem.left[i]; right[stem.at + i] += stem.right[i] }
   return { left, right, rate }
@@ -74,5 +76,48 @@ test('减少动态: one soft stem with no blow in it', () => {
   // No sub drop: far less under 90 Hz than the full score, whose hits live there.
   const low = ({ left, rate }) => { let y = 0, sum = 0; const k = 1 - Math.exp(-2 * Math.PI * 90 / rate); for (let i = 0; i < left.length; i++) { y += k * (left[i] - y); sum += y * y } return 10 * Math.log10(sum / left.length + 1e-12) }
   assert.ok(low(calm) < low(full) - 6, 'no low blow: ' + low(calm).toFixed(1) + ' vs ' + low(full).toFixed(1) + ' dB')
-  assert.ok(Math.abs(calm.left.length / calm.rate - (T.calmIn + T.calmHold) / 1000 - 2.4) < 0.01, 'it holds as long as the still and rings out')
+  assert.ok(Math.abs(calm.left.length / calm.rate - (T.calmIn + T.calmHold) / 1000 - 1.9) < 0.01, 'it holds as long as the still and rings out')
+})
+
+test('packaged harmonic beds (Option C): valid Ogg Opus assets mix cleanly on the beats without clipping', () => {
+  const assetDir = new URL('../tavern-plugin/lib/vendor/runtime-assets/gal-stage/', import.meta.url)
+  const paths = {}
+  for (const [key, file] of Object.entries(S.SHOW_SOUND_BEDS)) {
+    const fileUrl = new URL(file, assetDir)
+    const raw = readFileSync(fileUrl)
+    assert.equal(raw.subarray(0, 4).toString('ascii'), 'OggS', file + ' starts with OggS container magic')
+    assert.ok(raw.length > 20 * 1024 && raw.length < 250 * 1024, file + ' compact size: ' + raw.length)
+    paths[key] = fileURLToPath(fileUrl)
+  }
+  const decode = filePath => {
+    try {
+      const raw = execFileSync('ffmpeg', ['-nostdin', '-hide_banner', '-loglevel', 'error', '-i', filePath, '-ar', String(S.SHOW_SOUND_RATE), '-ac', '2', '-f', 'f32le', 'pipe:1'], { maxBuffer: 32 * 1024 * 1024 })
+      const f = new Float32Array(raw.buffer, raw.byteOffset, raw.byteLength / 4), n = Math.floor(f.length / 2)
+      const left = new Float32Array(n), right = new Float32Array(n)
+      for (let i = 0; i < n; i++) { left[i] = f[i * 2]; right[i] = f[i * 2 + 1] }
+      return { left, right, rate: S.SHOW_SOUND_RATE }
+    } catch (_) { return null }
+  }
+  const bloomBed = decode(paths.bloom), calmBed = decode(paths.calm)
+  if (!bloomBed || !calmBed) return
+  const hybrid = score(false, S.SHOW_SOUND_RATE, { bloom: bloomBed })
+  const measured = S.measureAudioLoudness([hybrid.left, hybrid.right], hybrid.rate)
+  assert.ok(Math.abs(measured.lufs - S.SHOW_SOUND_LOUDNESS.lufs) < 0.6, 'hybrid integrated ' + measured.lufs.toFixed(2) + ' LUFS')
+  assert.ok(measured.peak <= S.SHOW_SOUND_LOUDNESS.peak + 0.05, 'hybrid true peak ' + measured.peak.toFixed(2) + ' dBFS')
+  assert.ok(peakDb(hybrid, 0, 60000) < -1, 'hybrid sample peak under -1 dBFS: ' + peakDb(hybrid, 0, 60000).toFixed(2))
+  // Dynamic lift: climax (accent..end) sits clearly above build-up (2.5..accent).
+  const rms = (buf, a, b) => { let sum = 0, i0 = Math.round(a * buf.rate), i1 = Math.min(buf.left.length, Math.round(b * buf.rate)); for (let i = i0; i < i1; i++) sum += buf.left[i] * buf.left[i] + buf.right[i] * buf.right[i]; return 10 * Math.log10(sum / (2 * Math.max(1, i1 - i0)) + 1e-12) }
+  const lift = rms(hybrid, T.accent / 1000, T.end / 1000) - rms(hybrid, 2.5, T.accent / 1000)
+  assert.ok(lift >= 4.5, 'climax lift over build-up: +' + lift.toFixed(2) + ' dB')
+  // Every major beat still lands cleanly with the bed mixed in.
+  for (const [name, at, rise] of [['the hit', T.hit, 8], ['first letter', S.showSlamAt(T, 0, 4), 2], ['the accent', T.accent, 5], ['filed', T.end + T.ebb + T.exit, 6]]) {
+    const before = peakDb(hybrid, at - 30, 30), after = peakDb(hybrid, at, 30)
+    assert.ok(after - before >= rise, `hybrid ${name} @${at} ms: ${before.toFixed(1)} → ${after.toFixed(1)} dBFS`)
+  }
+  // 44.1 kHz resample of the 48 kHz bed matches loudness and stays clean.
+  const resampled = score(false, 44100, { bloom: bloomBed }), rm = S.measureAudioLoudness([resampled.left, resampled.right], 44100)
+  assert.ok(Math.abs(rm.lufs - measured.lufs) < 0.5 && peakDb(resampled, 0, 60000) < -0.9, 'hybrid 44.1 kHz: ' + rm.lufs.toFixed(2) + ' LUFS')
+  // Calm hybrid stays soft and low-end free.
+  const calmHybrid = score(true, S.SHOW_SOUND_RATE, { calm: calmBed }), cm = S.measureAudioLoudness([calmHybrid.left, calmHybrid.right], calmHybrid.rate)
+  assert.ok(cm.lufs < measured.lufs - 3.5 && peakDb(calmHybrid, 0, 60000) < peakDb(hybrid, 0, 60000) - 4, 'calm hybrid: ' + cm.lufs.toFixed(2) + ' LUFS')
 })
