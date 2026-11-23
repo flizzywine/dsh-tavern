@@ -433,4 +433,17 @@ test('Vertex 地区 (Region)：规范化、从 baseURL 提取与按地区生成�
   for (const expected of ['global', 'asia-east2', 'asia-northeast1', 'asia-northeast3', 'asia-south1', 'asia-southeast1', 'asia-southeast2', 'australia-southeast1']) {
     assert.ok(ids.has(expected), `预设地区列表应包含 ${expected}`)
   }
+
+  // 目录已写入 global 端点后，后续启动若临时未拿到 project，不应把目录退回 {location} 模板
+  const withGlobal = patchPiAiGoogleVertexModelsJson(
+    JSON.stringify({ 'google-vertex': { 'chat:gemini-2.5-flash': LATEST_GOOGLE_VERTEX_MODELS['chat:gemini-2.5-flash'] } }),
+    { project: '379270002840' },
+  )
+  assert.equal(withGlobal.status, 'applied')
+  const afterTransientMiss = patchPiAiGoogleVertexModelsJson(withGlobal.text, { project: null })
+  assert.equal(afterTransientMiss.status, 'patched')
+  assert.equal(
+    JSON.parse(afterTransientMiss.text)['google-vertex']['chat:gemini-4-hydrogen'].baseUrl,
+    'https://aiplatform.googleapis.com/v1/projects/379270002840/locations/global',
+  )
 })

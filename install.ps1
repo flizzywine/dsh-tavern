@@ -1266,15 +1266,21 @@ try {
       $DesktopCandidates += @(Get-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*',
         'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*', 'HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*' -ErrorAction SilentlyContinue |
         Where-Object { $_.DisplayName -like ($DesktopName + '*') } | ForEach-Object {
-          $Folders = @($_.InstallLocation)
+          $Folders = @()
+          if ($_.InstallLocation -is [string]) { $Folders += $_.InstallLocation.Trim().Trim('"').Trim() }
           foreach ($Entry in @($_.DisplayIcon, $_.UninstallString)) {
-            if ($Entry -match '^\s*"([^"]+)"' -or $Entry -match '^\s*([^,]+?\.(exe|ico))') { $Folders += (Split-Path -Parent $Matches[1]) }
+            if ($Entry -isnot [string]) { continue }
+            if ($Entry -match '^\s*"([^"]+)"' -or $Entry -match '^\s*([^,]+?\.(exe|ico))') {
+              $Folders += (Split-Path -Parent $Matches[1] -ErrorAction SilentlyContinue)
+            }
           }
-          $Folders | Where-Object { $_ } | ForEach-Object { Join-Path $_ ($DesktopName + '.exe') }
+          $Folders | Where-Object { $_ } | ForEach-Object {
+            Join-Path $_ ($DesktopName + '.exe') -ErrorAction SilentlyContinue
+          }
         })
       $DesktopCandidates += @(Get-Process -Name $DesktopName -ErrorAction SilentlyContinue | ForEach-Object { $_.Path })
     }
-    $OfficialDesktopExecutable = $DesktopCandidates | Where-Object { $_ -and (Test-Path -LiteralPath $_ -PathType Leaf) } | Select-Object -First 1
+    $OfficialDesktopExecutable = $DesktopCandidates | Where-Object { $_ -and (Test-Path -LiteralPath $_ -PathType Leaf -ErrorAction SilentlyContinue) } | Select-Object -First 1
     if (-not $OfficialDesktopExecutable) {
       if ($InstallHost -eq 'next') { throw '请用 DSH_TAVERN_NEXT_EXECUTABLE 指定 DSH NEXT 的程序路径。' }
       # A community app installed instead of the official one gets told where its installer is.

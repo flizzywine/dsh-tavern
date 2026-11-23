@@ -236,6 +236,7 @@ var mod_default = {
   format: "dsh-tavern-mod",
   schemaVersion: 5,
   experimental: true,
+  activation: "card",
   id: "dsh.timer",
   name: "\u8BA1\u65F6\u5668",
   packageName: "dsh-tavern-mod-timer",

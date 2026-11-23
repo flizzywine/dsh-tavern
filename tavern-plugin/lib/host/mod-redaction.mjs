@@ -34,6 +34,7 @@ var mod_default = {
   format: "dsh-tavern-mod",
   schemaVersion: 5,
   experimental: true,
+  activation: "card",
   id: "dsh.redaction",
   name: "\u6570\u636E\u5220\u9664",
   summary: "\u5BFC\u6F14\u628A\u6B63\u6587\u91CC\u7684\u673A\u5BC6\u8BCD\u6D82\u9ED1\u6216\u6362\u6210\u4E71\u7801\uFF0C\u73A9\u5BB6\u70B9\u4E09\u4E0B\u63ED\u5F00\uFF1B\u5B58\u6863\u548C\u4E0B\u4E00\u8F6E\u4E0A\u4E0B\u6587\u91CC\u4ECD\u662F\u539F\u6587\u3002",

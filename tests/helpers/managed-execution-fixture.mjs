@@ -9,18 +9,22 @@ import {MOD_MANAGEMENT_METHODS} from '../../tavern-plugin/packages/dsh-tavern-st
 // manifests: {[modId]: mod.json} for doubles that need a release's real config (its settings), else a bare release.
 export function executionFixture(t,{builtins,enabled=[],cardId='card-a',performances={},manifests={}}) {
   const ids=builtins.catalogue().map(row=>row.id),modHost=createManagedModHost({authorized:ids}),listeners=new Set()
-  let revision=0,value=emptyGlobalMods()
-  value.mods=Object.fromEntries(enabled.map(id=>[id,true]))
+  let revision=0,value=emptyGlobalMods(),card=emptyCardMods(),cardRevision=1
   const releases=ids.map(id=>{
     const manifest=manifests[id] || {format:'dsh-tavern-mod',schemaVersion:5,performances:performances[id] || [],id,name:id,packageName:id.replaceAll('.','-'),version:'1.0.0',hostApi:'>=1.0.0 <2.0.0',dependencies:[],config:{version:1,schema:{type:'object',properties:{},additionalProperties:false},defaults:{}},preferences:{schema:{type:'object',properties:{},additionalProperties:false},defaults:{}},dataVersion:1,coreAssets:[],permissions:[],entry:'plugin.mjs'}
     modHost.register(manifest.packageName,manifest,{execution:builtins.module(id)})
     return {manifest,digest:id+'-release',active:true,installed:true,authorized:true}
   })
+  // A card-declared release (activation 'card') is turned on by the fixture card, any other by the global switch.
+  const declared=id=>releases.find(row=>row.manifest.id===id)?.manifest.activation==='card'
+  value.mods=Object.fromEntries(enabled.filter(id=>!declared(id)).map(id=>[id,true]))
+  card.mods=Object.fromEntries(enabled.filter(declared).map(id=>[id,'on']))
   t.after(()=>modHost.dispose())
   const settings={read:()=>({revision:String(revision),value:structuredClone(value)}),value:()=>structuredClone(value),subscribe:fn=>{listeners.add(fn);return()=>listeners.delete(fn)},
     async compareAndSwap(input){assert.equal(input.expectedRevision,String(revision));assert.deepEqual(input.expectedValue,value);value=structuredClone(input.value);revision++;for(const fn of listeners)fn();return settings.read()}}
-  const management={ready:Promise.resolve(),modHost,settings,installations:{read:async()=>({revision:'installed',value:{releases:structuredClone(releases)}})},cards:{list:async()=>[{cardId,revision:'card-1',value:emptyCardMods()}]}}
-  const setEnabled=async(id,on)=>{const current=settings.read(),next=structuredClone(current.value);next.mods[id]=on;await settings.compareAndSwap({expectedRevision:current.revision,expectedValue:current.value,value:next})}
+  const management={ready:Promise.resolve(),modHost,settings,installations:{read:async()=>({revision:'installed',value:{releases:structuredClone(releases)}})},cards:{list:async()=>[{cardId,revision:'card-'+cardRevision,value:structuredClone(card)}]}}
+  const setEnabled=async(id,on)=>{if(declared(id)){if(on)card.mods[id]='on';else delete card.mods[id];cardRevision++;for(const fn of listeners)fn();return}
+    const current=settings.read(),next=structuredClone(current.value);next.mods[id]=on;await settings.compareAndSwap({expectedRevision:current.revision,expectedValue:current.value,value:next})}
   return {management,builtins:{...builtins,module:id=>modHost.execution(id)},setEnabled}
 }
 

@@ -50,3 +50,31 @@ test('Windows 桌面探测：环境变量里的 node.exe 不算桌面程序；�
   assert.match(candidates, /UninstallString/)
   assert.match(candidates, /DisplayIcon/)
 })
+
+test('Windows 桌面探测接受带引号的安装目录并跳过无效的卸载路径（#1294）', { skip: process.platform !== 'win32' }, () => {
+  const source = readFileSync(new URL('install.ps1', root), 'utf8')
+  const registryScan = source.match(/^      \$DesktopCandidates \+= @\(Get-ItemProperty[\s\S]*?^        }\)/m)?.[0]
+  assert.ok(registryScan, 'the installer’s uninstall registry scan must be exercised')
+  const script = String.raw`
+$ErrorActionPreference = 'Stop'
+$DesktopName = 'DeepSeek Harness'
+$DesktopCandidates = @()
+$QuotedFolder = "$env:SystemDrive\Quoted Harness"
+$PartialQuoteFolder = "$env:SystemDrive\Partial Quote Harness"
+$FallbackFolder = "$env:SystemDrive\Fallback Harness"
+function Get-ItemProperty {
+  [pscustomobject]@{ DisplayName = $DesktopName; InstallLocation = 'MissingHarnessDrive:\Missing'; DisplayIcon = '"MissingHarnessDrive:\Missing\shell.exe"' }
+  [pscustomobject]@{ DisplayName = $DesktopName; InstallLocation = ' "' + $QuotedFolder + '" '; UninstallString = '"MissingHarnessDrive:\Missing\uninstall.exe" /S' }
+  [pscustomobject]@{ DisplayName = $DesktopName; InstallLocation = '"' + $PartialQuoteFolder }
+  [pscustomobject]@{ DisplayName = $DesktopName; UninstallString = '"' + $FallbackFolder + '\uninstall.exe" /S' }
+}
+${registryScan}
+$DesktopCandidates | ConvertTo-Json -Compress
+`
+  const encoded = Buffer.from(script, 'utf16le').toString('base64')
+  const result = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-EncodedCommand', encoded], { encoding: 'utf8' })
+  assert.ifError(result.error)
+  assert.equal(result.status, 0, result.stderr)
+  assert.deepEqual(JSON.parse(result.stdout), ['Quoted Harness', 'Partial Quote Harness', 'Fallback Harness']
+    .map(folder => `${process.env.SystemDrive}\\${folder}\\DeepSeek Harness.exe`))
+})

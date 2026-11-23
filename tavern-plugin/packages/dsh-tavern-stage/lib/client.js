@@ -3960,8 +3960,9 @@ let disposed = false;
 // Replay rules stay with the consumer (AGENTS: a page's one-shot plays once when paged back to; skip and refresh never replay).
 
 const stageVideoReads = new Map();
-function stageVideoAcquire(source) {
-    const key = JSON.stringify([source.packId, source.bundleKey, source.hash]);
+// poster false: the caller has its own still (a figure's 动态立绘), so the poster is never read.
+function stageVideoAcquire(source, {poster = true} = {}) {
+    const key = JSON.stringify([source.packId, source.bundleKey, source.hash, poster]);
     let record = stageVideoReads.get(key);
     if (!record) {
         record = {users: 0};
@@ -3974,7 +3975,7 @@ function stageVideoAcquire(source) {
             if (!response.ok) throw new Error('RESOURCE_READ_FAILED ' + response.status);
             return URL.createObjectURL(await response.blob());
         });
-        record.poster = read(source.poster).catch(() => null);
+        record.poster = poster ? read(source.poster).catch(() => null) : Promise.resolve(null);
         record.video = read(source.entry);
         Promise.allSettled([record.poster, record.video]).then(() => lease.then(({ticket}) => service.releaseLease(ticket), () => {}));
         record.video.catch(() => { if (stageVideoReads.get(key) === record) stageVideoReads.delete(key); });
@@ -4007,7 +4008,7 @@ function stageVideoPlayer(host, source, options) {
     for (const node of [poster, video]) node.style.objectFit = o.fit;
     layer.append(poster, video);
     host.append(layer);
-    let status = 'loading', bound = false, alone = false, settle, playableNow;
+    let status = 'loading', bound = false, alone = false, wanted = false, settle, playableNow;
     // exclusive: from binding until its single play ends, is paused by the consumer (a skip), fails or goes, its soundtrack is
     // the only stage sound (forkStageAudio.exclusive); the rest returns afterwards.
     const unclaim = () => { if (alone) { alone = false; forkStageAudio.exclusive(video, false); } };
@@ -4067,12 +4068,12 @@ function stageVideoPlayer(host, source, options) {
             if (video.paused) start();
         },
         // A free-running use (a looping skin background): the element's own clock.
-        play() { if (status === 'ready') { reveal(1); start(); } else ready.then(ok => { if (ok && status === 'ready') { reveal(1); start(); } }); },
-        pause() { if (status !== 'disposed') { video.pause(); unclaim(); } },
+        play() { wanted = true; if (status === 'ready') { reveal(1); start(); } else ready.then(ok => { if (ok && wanted && status === 'ready') { reveal(1); start(); } }); },
+        pause() { wanted = false; if (status !== 'disposed') { video.pause(); unclaim(); } },
         state: () => ({status, time: video.currentTime, paused: video.paused, muted: video.muted, poster: !poster.hidden}),
         dispose() {
             if (status === 'disposed') return;
-            status = 'disposed'; players.delete(player); clearTimeout(timer); settle(false);
+            wanted = false; status = 'disposed'; players.delete(player); clearTimeout(timer); settle(false);
             const errors = [];
             for (const release of [
                 () => video.pause(),
@@ -4090,7 +4091,8 @@ function stageVideoPlayer(host, source, options) {
     return player;
 }
 
-return {player:stageVideoPlayer, dispose() {
+// acquire: the shared read of an entry's files (a figure's 动态立绘 plays its video on the stage canvas, figure-video.cjs).
+return {player:stageVideoPlayer, acquire:stageVideoAcquire, dispose() {
     if (disposed) return;
     disposed = true;
     const errors = [];
@@ -7975,6 +7977,8 @@ function galCreateScene(host, options, own) {
     own(textures,value=>value.dispose());
     const figureAssets=stageViews.figureAssets.create({PIXI,renderer:app.renderer,screen:app.screen,textures,document,centred:math.galCentredAnatomy});
     own(figureAssets,value=>value.dispose());
+    const figureVideos=stageViews.figureVideos.create({PIXI});
+    own(figureVideos,value=>value.dispose());
     const renderers=new Map();
     for(const [kind,factory] of figureRenderers)renderers.set(kind,own(factory({PIXI,app,state,emotes:emotesBox,figures:figuresBox,onError,commit:commitFigureReplacement,lifeOn:figureLifeOn,tune,spine:createSpineRenderer}),value=>value.dispose()));
     const loadTexture=textures.load;
@@ -8069,6 +8073,7 @@ function galCreateScene(host, options, own) {
         release(()=>entry.appearance.dispose());
         if(entry.contact){const contact=entry.contact;entry.contact=null;release(()=>contact.destroy());}
         release(()=>entry.pose.dispose());
+        if(entry.video){const video=entry.video;entry.video=null;release(()=>video.destroy());}
         release(()=>entry.figureAsset?.destroy());
         entry.figureAsset=null;entry.spineFigure=null;
         for(const item of entry.fading)release(()=>item.asset?.destroy());
@@ -8142,13 +8147,33 @@ function galCreateScene(host, options, own) {
     // scheduler runs on (foreground-paused) timers and only flips child visibility.
     function clearBlink(entry) { entry.blink.reset(); }
     function blinkAllowed(entry) {
-        return !state.destroyed && !entry.dead && !entry.leaving && entry.container.visible && world.visible && !document.hidden && !galBlinkCalm();
+        return !state.destroyed && !entry.dead && !entry.leaving && entry.container.visible && world.visible && !document.hidden && !galBlinkCalm() && !entry.videoShown;
     }
     // A replace blink only sets the phase: layeredSpriteTickScene repaints the eyes on the layered canvas. An over-blend
     // blink is two child sprites whose visibility the scheduler flips.
     function tickBlink(entry) {
         entry.blink.update({bundle:entry.figure.blinkBundle,sprite:entry.sprite,baseTexture:entry.baseTexture,
             ready:entry.loadedIdentity===entry.figure.identity,rhythm:entry.idle.jitter.blink});
+    }
+    // 动态立绘 (figure-video.cjs): the loaded still's looping videos play over it while the figure stands on a visible stage
+    // with motion allowed - its talking loop while it speaks - and the still shows otherwise: a tap reaction's still, a skip,
+    // reduced motion, or a line spoken through the still's mouths because no talking loop can play. One set of videos per
+    // loaded picture; a new picture releases the old one's.
+    function tickFigureVideo(entry, figure, desc, dt) {
+        const video = entry.loadedIdentity === figure.identity ? figure.video : null;
+        const key = video ? JSON.stringify([video.source.packId, video.source.bundleKey, video.source.hash, video.talk?.bundleKey, video.talk?.hash, video.rect]) : '';
+        if (entry.videoKey !== key || entry.videoSprite !== entry.sprite) {
+            const old = entry.video; entry.video = null; entry.videoShown = false;
+            old?.destroy();
+            entry.video = key && entry.sprite ? figureVideos.attach(entry.sprite, video) : null;
+            entry.videoKey = key; entry.videoSprite = entry.sprite;
+        }
+        if (!entry.video) return;
+        const tapped = Boolean(entry.tapTexture && entry.sprite.texture === entry.tapTexture.texture);
+        const talking = Boolean(figure.speaking && !desc.skipping);
+        const stillSpeaks = talking && Boolean(figure.spriteBundle) && !entry.video.talks();
+        entry.video.update({on: !entry.leaving && entry.container.visible && world.visible && !desc.reducedMotion && !desc.skipping && !tapped && !stillSpeaks, talking});
+        entry.videoShown = entry.video.tick(dt);
     }
     const GAL_NO_FIGURES = [];
     // the viewport layout of the directed cast (galFigureLayout), recomputed only
@@ -8484,9 +8509,12 @@ function galCreateScene(host, options, own) {
                 renderer.tick(entry,figure,desc,{now,dt,W,H,framing,reducedHop});
                 if(!renderer.spriteBased)return;
             }else {
-                if (!layeredSpriteTickScene(entry, textures, PIXI, !desc.skipping && figure.speaking)) entry.sprite.texture = entry.baseTexture;
+                // A talking loop on screen speaks with its own mouth: the still under its crossfade keeps its mouth shut.
+                const videoTalks = Boolean(entry.videoShown && entry.video?.talks());
+                if (!layeredSpriteTickScene(entry, textures, PIXI, !desc.skipping && figure.speaking && !videoTalks)) entry.sprite.texture = entry.baseTexture;
                 tickBlink(entry);
                 tapTextureStatic(entry, now);
+                tickFigureVideo(entry, figure, desc, dt * 1000);
             }
             const pose=entry.pose.update({sprite:entry.sprite,fading:entry.fading,now,reduced:reducedHop,
                 command:figure.act,idle:staticIdle(entry,desc,dt,now),framing,W,H,x:entry.cx.v,flip:entry.flip.v,lift:entry.lift.v,size:figure.size,ground:figure.ground});
@@ -14946,6 +14974,8 @@ function GalStage(props) {
     }, [sessionId]);
     const openDeclared = openPage === null ? null : pageList.find(declared => declared.id === openPage) || null;
     const pageOpen = openDeclared !== null;
+    // A full card page (size 'full') fills the stage: the scene under it stops drawing once settled, as under the handheld
+    // phone (scene.cjs desc.covered), so the page's own frames do not share the display with figures and effects nobody sees.
     // entryCardPage: the page this visit's showOn entry opened, while it is the open one. It stands in front of a stage not
     // entered yet: its line waits for it (stageRevealed) and closing it is 返回主页面; continueGame() / fillInput enter.
     const [entryCardPage, setEntryCardPage] = React.useState(null);
@@ -15623,7 +15653,7 @@ function GalStage(props) {
         lateFade:entryGate.visible && !skipping && entryPage.current === turn + ':' + page,
         // a picture the player switched to (bg-manual.js) takes its own transition (fade, or cut under 「减少动态」).
         background:pack.scene?.backgroundUrl ? {identity:pack.scene.backgroundMedia.identity,url:pack.scene.backgroundUrl,scene:JSON.stringify(pack.scene.background),transition:pack.scene.userTransition || (forwardReading&&!skipping?changeKind:'cut'),timing:!pack.scene.userTransition ? sceneChange : null} : null,
-        hideFigures:!!accepted.cg || cg.visible,figureMode:figuresShown ? 'stage' : 'none',figuresAway:sourceWidget.phoneShade,covered:sourceWidget.covered && !callView,reducedMotion:reading.reducedMotion===true,figures:items,figureLayout:{cast:castIds,priority:figurePriority,slots:skinFigures.slots,max:skinFigures.max,phone:skinFigures.phone,framing:skinFigures.framing},packLayers,grade:packLayers?JSON.stringify([packLayers.time,packLayers.mood]):'',timeFadeMs:pack.scene?.timeTransitionMs || 0,
+        hideFigures:!!accepted.cg || cg.visible,figureMode:figuresShown ? 'stage' : 'none',figuresAway:sourceWidget.phoneShade,covered:(sourceWidget.covered && !callView) || openDeclared?.size === 'full',reducedMotion:reading.reducedMotion===true,figures:items,figureLayout:{cast:castIds,priority:figurePriority,slots:skinFigures.slots,max:skinFigures.max,phone:skinFigures.phone,framing:skinFigures.framing},packLayers,grade:packLayers?JSON.stringify([packLayers.time,packLayers.mood]):'',timeFadeMs:pack.scene?.timeTransitionMs || 0,
         tapGate,tapMedia,weather:state?.weather || 'none',screen:state?.screen || null,camera:leasing ? {shot:'',target:''} : {shot:state?.camera.mode || '',target:state?.camera.actor || ''},dof:leasing ? null : state?.dof,effects:sceneEffects,effectTables,safety:effectSafety,skipping,preload:[],
         // The inner-monologue backdrop (the resolved `thinking` effect) while the line on screen is inner monologue.
         thinking:!awaiting && !transitioning && current?.thought ? stageEffectResolve('thinking',effectTables.skin,effectTables.local) : null,
@@ -18961,6 +18991,177 @@ if(typeof module!=='undefined'&&typeof window==='undefined')module.exports={crea
     return {create,dispose(){if(disposed)return;disposed=true;const errors=[];for(const cache of [...caches])try{cache.dispose();}catch(error){errors.push(error);}if(errors.length)throw new AggregateError(errors,'Scene textures cleanup failed');}};
 }
 if(typeof module!=='undefined'&&typeof window==='undefined')module.exports={createStageSceneTextures};
+
+        'use strict';
+// 动态立绘: a pack figure's still may carry looping videos (outfit sprite.videos, 视频 entries whose frames hold the picture on
+// the left and its alpha matte on the right, stageVideo alpha 'right'): an idle loop, and optionally a talking loop whose
+// mouth, jaw and blinks are the video's own. Both are made from the still and start and end on it. The still stays the
+// figure: its size, anatomy, anchor, light, tap and avatar never change. A video only stands in for the still's pixels, drawn
+// as a child of the figure sprite over the still's rect, so every transform and filter of the figure applies to it as well.
+// - The still shows until the idle loop can play, whenever the stage says the motion is off (`on: false`), and for good when
+//   the idle loop cannot play (a decode error, no WebGL upload); the change is a short crossfade, never a gap.
+// - Speech: the talking loop starts from its first frame when the figure starts speaking and loops while it speaks; when the
+//   line ends it plays on to its last frame (the still's pose) and the idle loop takes over from its first frame. Without a
+//   playable talking loop the handle says so (`talks()`) and the stage shows the still's own mouths instead.
+// - Only a figure on stage plays: a video whose motion is off pauses once it has faded out, and the browser's hidden page
+//   pauses it too (forkForeground); a released figure releases its videos (elements, textures and the shared reads).
+// - A texture takes each decoded frame once (requestVideoFrameCallback; PIXI's own updates at 30 fps without it) and
+//   nothing while the element is paused.
+// One H.264 or VP9 file with a side-by-side matte plays with transparency in every browser that plays video (Safari does not
+// render a WebM's alpha channel), and decodes in one hardware decoder.
+function createStageFigureVideos({document, acquire, foreground}) {
+let disposed = false;
+const scopes = new Set();
+const FADE_MS = 240, SWITCH_MS = 150;
+const VERTEX = `attribute vec2 aVertexPosition;attribute vec2 aTextureCoord;uniform mat3 projectionMatrix;uniform mat3 translationMatrix;uniform mat3 uTextureMatrix;varying vec2 vTextureCoord;
+void main(){gl_Position=vec4((projectionMatrix*translationMatrix*vec3(aVertexPosition,1.0)).xy,0.0,1.0);vTextureCoord=(uTextureMatrix*vec3(aTextureCoord,1.0)).xy;}`;
+// The colour of a point is the left half, its opacity the red of the right half; clamped half a texel from the seam.
+const FRAGMENT = `precision mediump float;varying vec2 vTextureCoord;uniform sampler2D uSampler;uniform vec4 uColor;uniform float uSeam;
+void main(){float x=clamp(vTextureCoord.x*0.5,0.0,0.5-uSeam);vec3 c=texture2D(uSampler,vec2(x,vTextureCoord.y)).rgb;
+float a=texture2D(uSampler,vec2(0.5+clamp(vTextureCoord.x*0.5,uSeam,0.5-uSeam),vTextureCoord.y)).r;gl_FragColor=vec4(c*a,a)*uColor;}`;
+function create({PIXI}) {
+    if (disposed) throw new Error('Figure videos disposed');
+    let closed = false;
+    const handles = new Set();
+    let program = null;
+    // One video of a figure: its element, texture and mesh under the figure's own children (a mouth or a blink over it).
+    function clip(sprite, source, loop, place) {
+        const video = document.createElement('video');
+        video.muted = true; video.defaultMuted = true; video.loop = loop; video.playsInline = true; video.preload = 'auto';
+        video.setAttribute('playsinline', ''); video.setAttribute('muted', ''); video.disablePictureInPicture = true;
+        const read = acquire(source, {poster: false});
+        const c = {video, status: 'loading', mix: 0, mesh: null, base: null, playing: false};
+        c.fail = error => {
+            if (c.status === 'released') return;
+            if (error) console.warn('[figure-video] still kept', error);
+            c.status = 'failed'; c.mix = 0; video.pause(); if (c.mesh) c.mesh.visible = false;
+        };
+        video.addEventListener('error', () => c.fail(video.error));
+        video.addEventListener('loadeddata', () => {
+            if (c.status !== 'loading') return;
+            try {
+                // One upload per decoded frame: the browser's frame callback where it has one, else PIXI's own updates at 30 fps.
+                const frames = typeof video.requestVideoFrameCallback === 'function';
+                const resource = new PIXI.VideoResource(video, {autoPlay: false, autoLoad: true, updateFPS: 30});
+                if (frames) resource.autoUpdate = false;
+                c.base = new PIXI.BaseTexture(resource, {mipmap: PIXI.MIPMAP_MODES.OFF});
+                if (frames) {
+                    const next = () => { if (c.status === 'ready') { resource.update(); video.requestVideoFrameCallback(next); } };
+                    video.requestVideoFrameCallback(next);
+                }
+                program ||= PIXI.Program.from(VERTEX, FRAGMENT, 'figure-video');
+                const material = new PIXI.MeshMaterial(new PIXI.Texture(c.base), {program, uniforms: {uSeam: 0.5 / video.videoWidth}});
+                c.mesh = new PIXI.Mesh(new PIXI.PlaneGeometry(1, 1, 2, 2), material);
+                c.mesh.alpha = 0; c.mesh.visible = false;
+                sprite.addChildAt(c.mesh, 0); place(c.mesh);
+                c.status = 'ready';
+            } catch (error) { c.fail(error); }
+        });
+        if (foreground) foreground.media(video);
+        read.video.then(url => { if (c.status === 'loading') { video.src = url; video.load(); } }, c.fail);
+        // from: play from the first frame (the still's pose) rather than where it was.
+        c.start = from => {
+            if (c.status !== 'ready' || (c.playing && !from && !video.ended)) return;
+            c.playing = true;
+            if (from || c.mix <= 0 || video.ended) try { video.currentTime = 0; } catch (_) {}
+            const played = video.play();
+            if (played && played.catch) played.catch(error => { c.playing = false; if (error?.name !== 'AbortError') c.fail(error); });
+        };
+        c.stop = () => { if (c.playing) { c.playing = false; video.pause(); } };
+        // A clip draws once a frame of its current play is on the texture; an ended clip holds its last frame.
+        c.fade = (wanted, dt, ms) => {
+            if (c.status !== 'ready') return;
+            const target = wanted && c.playing && (!video.paused || video.ended) && video.readyState >= 2 ? 1 : 0, step = Math.max(0, dt) / ms;
+            c.mix = target > c.mix ? Math.min(target, c.mix + step) : Math.max(target, c.mix - step);
+            if (c.mix <= 0 && !wanted) c.stop();
+            c.mesh.visible = c.mix > 0; c.mesh.alpha = c.mix;
+        };
+        c.release = () => {
+            c.status = 'released';
+            return [
+                () => video.pause(),
+                () => { video.removeAttribute('src'); video.load(); },
+                () => { if (c.mesh && !c.mesh.destroyed) { c.mesh.parent?.removeChild(c.mesh); c.mesh.destroy({children: true}); } },
+                () => { if (c.base && !c.base.destroyed) c.base.destroy(); },
+                () => read.release()
+            ];
+        };
+        return c;
+    }
+    // sprite: the figure's PIXI sprite (its texture the still or the still's composed frame, anchor set);
+    // motion: {source: the idle loop's 视频 projection, talk: the talking loop's or null, rect: [x, y, w, h] the still canvas
+    // px both pictures cover}.
+    function attach(sprite, motion) {
+        if (closed) return null;
+        let on = false, talking = false, phase = 'idle', released = false, last = null;
+        const place = mesh => {
+            const [x, y, w, h] = motion.rect, ax = sprite.anchor.x * sprite.texture.width, ay = sprite.anchor.y * sprite.texture.height;
+            mesh.position.set(x - ax, y - ay); mesh.scale.set(w, h);
+        };
+        const idle = clip(sprite, motion.source, true, place);
+        const talk = motion.talk ? clip(sprite, motion.talk, false, place) : null;
+        const clips = talk ? [idle, talk] : [idle];
+        // The still draws itself only while no video covers it fully.
+        const drawStill = sprite._render;
+        sprite._render = function (renderer) { if (!clips.some(c => c.mesh && c.mesh.visible && c.mix >= 1)) drawStill.call(this, renderer); };
+        const talks = () => talk?.status === 'ready';
+        const handle = {
+            // on: the stage wants the motion now (on stage, not reduced motion, no tap still); talking: the figure speaks.
+            update({on: nextOn, talking: nextTalking = false}) { on = Boolean(nextOn); talking = Boolean(nextTalking); },
+            // Whether a talking loop can show this figure's speech; without one the stage turns the motion off to speak.
+            talks,
+            // dt: ms since the last frame. Returns whether a video draws this frame.
+            tick(dt) {
+                if (released) return false;
+                if (idle.status === 'failed') { if (talk) { talk.stop(); talk.mix = 0; if (talk.mesh) talk.mesh.visible = false; } return false; }
+                if (phase === 'talk' && !talks()) phase = 'idle';
+                if (on && phase === 'idle' && talking && talks()) { phase = 'talk'; talk.start(true); }
+                if (phase === 'talk' && talk.video.ended) {
+                    if (talking && on) talk.start(true);
+                    else { phase = 'idle'; if (on) idle.start(true); }
+                }
+                if (!on && phase === 'talk' && talk.mix <= 0) phase = 'idle';
+                const active = phase === 'talk' ? talk : idle;
+                if (on) active.start(false);
+                // One clip handing over to the other crossfades quicker than the motion fading in over the still.
+                const ms = clips.some(c => c !== active && c.mix > 0) ? SWITCH_MS : FADE_MS;
+                for (const c of clips) c.fade(on && c === active, dt, ms);
+                if (sprite.texture !== last) { last = sprite.texture; for (const c of clips) if (c.mesh) place(c.mesh); }
+                return clips.some(c => c.mix > 0);
+            },
+            state: () => ({status: idle.status, talk: talk ? talk.status : null, phase, on, talking, mix: idle.mix, talkMix: talk ? talk.mix : 0,
+                playing: idle.playing, time: idle.video.currentTime, size: [idle.video.videoWidth, idle.video.videoHeight]}),
+            destroy() {
+                if (released) return;
+                released = true; handles.delete(handle);
+                const errors = [];
+                const steps = [() => { if (sprite._render !== drawStill) sprite._render = drawStill; }];
+                for (const c of clips) steps.push(...c.release());
+                for (const release of steps) { try { release(); } catch (error) { errors.push(error); } }
+                if (errors.length) throw new AggregateError(errors, 'Figure video cleanup failed');
+            }
+        };
+        handles.add(handle);
+        return handle;
+    }
+    const scope = {attach, dispose() {
+        if (closed) return; closed = true; scopes.delete(scope);
+        const errors = [];
+        for (const handle of [...handles]) { try { handle.destroy(); } catch (error) { errors.push(error); } }
+        if (program) { program = null; }
+        if (errors.length) throw new AggregateError(errors, 'Figure videos cleanup failed');
+    }};
+    scopes.add(scope);
+    return scope;
+}
+return {create, dispose() {
+    if (disposed) return; disposed = true;
+    const errors = [];
+    for (const scope of [...scopes]) { try { scope.dispose(); } catch (error) { errors.push(error); } }
+    if (errors.length) throw new AggregateError(errors, 'Figure videos cleanup failed');
+}};
+}
+if (typeof window === 'undefined' && typeof module !== 'undefined') module.exports = {createStageFigureVideos};
 
         function createStageSceneGraphics({window,document,paintEmpty:stagePaintEmpty,emptyPalette:stageEmptyPalette}) {
 // Ordered, named filter slots on one container: set(name, filter) adds or replaces (null removes);
@@ -26397,7 +26598,8 @@ function openCardPage({sessionId, page, label, size, shortcut, closeControl, sav
     }
     const frameProps = () => ({content, sessionId, turn: latestTurn(helper), partIndex: 0, panelId: 'stage-page-' + page,
         helperContext: helper || undefined, trustedCardMode: trustedCardMode === true, eager: true, persistent: true,
-        observeMvuView: false, runtimeReporting: true});
+        // the sheet sizes the frame (flex), so the page reports no height (frame-document hostSized)
+        observeMvuView: false, runtimeReporting: true, hostSized: true});
     function mount(html) {
         const target = host();
         if (!target) return;
@@ -32196,6 +32398,11 @@ function ModConfirmation({ confirmation: c, nameOf, onAnswer }) {
 // 本卡开启 / 本卡关闭. No segmented control (owner: the scope is rarely changed). `disabled`: greyed while an upstream switch is
 // off (舞台设置 › 基础设置 uses the same tag, asset-pack-card-ui.js StageSwitchTag); the stored choice stays shown.
 const MOD_SWITCH_CHOICES = [['全局开启', 'global', true], ['全局关闭', 'global', false], ['本卡开启', 'card', 'on'], ['本卡关闭', 'card', 'off']];
+// A mod with activation 'card' (检定、数据删除、文字演出、计时器) is an engine interface the card or its skin declares
+// (extensions.dsh_tavern.modSystem.mods / the skin's mods): it has no switch for the player. A card lists it only while it
+// declares it, with the words of who declares, and its row still opens the mod's settings.
+const modDeclared = row => row?.activation === 'card';
+const modDeclaredOn = row => modDeclared(row) && row.switches?.effective === true;
 function ModSwitchTag({ name, switches, cardScoped, busy, disabled, onChange }) {
   const { global, card } = switches || {}, word = modSwitchWord(global, cardScoped ? card : undefined);
   const item = ([label, scope, value]) => { const checked = label === word; return h('button', { key: label, type: 'button', role: 'menuitemradio', 'aria-checked': checked, className: 'ap-state-opt fork-mod-switch-opt', 'data-sw': modSwitchTone(label), onClick: () => { closeMenu.current?.(); if (!checked) onChange(scope, value); } },
@@ -32206,6 +32413,15 @@ function ModSwitchTag({ name, switches, cardScoped, busy, disabled, onChange }) 
         'aria-label': name + '：' + word + '，更改', disabled: busy || disabled || undefined, onClick: toggle },
       busy ? h(Spinner, { key: 'busy' }) : null, h('span', null, word), h(Glyph, { name: 'chevDown' })),
     content: close => { closeMenu.current = close; return h('div', { role: 'group', 'aria-label': name + ' 开关', className: 'fork-mod-switch-group' }, (cardScoped ? MOD_SWITCH_CHOICES : MOD_SWITCH_CHOICES.slice(0, 2)).map(item)); } });
+}
+// The right end of a row: a switched mod's tag, or a declared mod's words (本卡自带 / 皮肤自带 on a card, 由卡声明 off one)
+// in the tag's place and type: the same box and colour key (本卡自带 is this card's, green like 本卡开启), no ⌄ (nothing to
+// change here); the tooltip names who declares it.
+function ModRowSwitch({ row, cardScoped, cardName, busy, change }) {
+  if (!modDeclared(row)) return h(ModSwitchTag, { name: row.name, switches: row.switches, cardScoped, busy, onChange: (scope, value) => change(row, scope, value) });
+  const byCard = cardScoped && row.switches?.card === 'on', words = !cardScoped ? '由卡声明' : byCard ? '本卡自带' : '皮肤自带';
+  const who = !cardScoped ? '用到它的卡自己声明' : byCard ? (cardName ? modQuote(cardName) + '自带' : '这张卡自带') : (row.skinName ? '舞台皮肤' + modQuote(row.skinName) + '自带' : '舞台皮肤自带');
+  return h('span', { className: 'fork-mod-declared', 'data-sw': byCard ? 'card' : 'off', title: who, 'aria-label': row.name + '：' + words + '（' + who + '）' }, words);
 }
 // A switch change as host plans (managedModSwitchPlan). On a card a 全局 choice is two stored writes: clear this card's key
 // (when set), then the global switch (when it differs) — each its own plan, the second on the revision after the first.
@@ -32241,7 +32457,7 @@ const modShownNotices = row => (row?.notices || []).filter(notice => notice.poli
 
 // The 舞台设置 › 模组 rows: icon · name · › · ⚠ (a dependency notice or a version conflict) · the switch tag. The whole row
 // but the tag opens the mod's page.
-function ManagedModRow({ row, cardId, busy, byId, change, onOpen, onVersion, takeFocus }) {
+function ManagedModRow({ row, cardId, cardName, busy, byId, change, onOpen, onVersion, takeFocus }) {
   const open = () => onOpen(row.id), jump = React.useRef(null), notice = modShownNotices(row)[0];
   React.useEffect(() => { if (takeFocus?.(row.id)) jump.current?.focus?.(); }, []);
   const warn = row.status === 'incompatible' && cardId ? h(HintLine, { compact: true, text: modQuote(row.name) + '版本不符', action: '处理', onAction: () => onVersion(row) })
@@ -32250,28 +32466,32 @@ function ManagedModRow({ row, cardId, busy, byId, change, onOpen, onVersion, tak
   return h('div', { className: 'ap-switch-row is-openable fork-mod-row', onClick: switchRowClick(open) },
     h('div', { className: 'ap-switch-main' },
       h('span', { className: 'ap-switch-name' }, h(Glyph, { name: MOD_GLYPHS[row.id] || 'widgets' }), h('span', null, row.name)), warn,
-      h(ModSwitchTag, { name: row.name, switches: row.switches, cardScoped: !!cardId, busy, onChange: (scope, value) => change(row, scope, value) }),
+      h(ModRowSwitch, { row, cardScoped: !!cardId, cardName, busy, change }),
       h('button', { type: 'button', ref: jump, className: 'ap-kind-jump', 'aria-label': row.name + ' 设置', title: row.name, onClick: open }, h(Glyph, { name: 'chevRight' }))));
 }
 // 舞台设置 › 模组: every installed mod with this card's switches. A version conflict of this card's lock is asked by planning
 // the card's current choice again (the host answers with upgrade / keep-missing).
-function ManagedModSection({ rpc, cardId, onOpen, takeFocus }) {
+// Order: the mods the player switches first, then the ones this card or its skin declares (a mod it does not declare is not
+// listed: nothing to do with it here); each group in the host's order.
+function ManagedModSection({ rpc, cardId, cardName, onOpen, takeFocus }) {
   const mods = useManagedMods(rpc, cardId), plans = useModPlans(rpc, mods), change = useModSwitchChange(rpc, mods, plans, cardId);
-  const rows = mods.data?.mods.filter(row => row.installed && !row.internal) || [], byId = id => mods.data?.mods.find(row => row.id === id);
+  const installed = mods.data?.mods.filter(row => row.installed && !row.internal) || [], byId = id => mods.data?.mods.find(row => row.id === id);
+  const switched = installed.filter(row => !modDeclared(row)), declared = installed.filter(modDeclaredOn);
+  const item = row => h(ManagedModRow, { key: row.id, row, cardId, cardName, busy: mods.busy, byId, change, onOpen, takeFocus, onVersion: next => change(next, 'card', 'on') });
+  const notice = plans.notice ? h('p', { className: 'ap-notice', role: 'status' }, h(Glyph, { name: 'check' }), h('span', null, plans.notice)) : null;
+  const rows = [...switched, ...declared];
   return h(StageSection, { title: '模组', meta: mods.data ? rows.length : undefined, className: 'ap-widget-section fork-mod-section',
-      help: '全局开启 / 关闭对所有卡生效，并清除这张卡的设置；本卡开启 / 关闭只在这张卡生效。安装与卸载在侧栏首页的 舞台装置 › 舞台配置 › 舞台模组。' },
-    h(ErrorBox, { error: mods.error, reload: mods.data ? null : mods.reload }),
-    plans.notice ? h('p', { className: 'ap-notice', role: 'status' }, h(Glyph, { name: 'check' }), h('span', null, plans.notice)) : null,
-    !mods.data ? !mods.error && h(Loading) : rows.length ? rows.map(row => h(ManagedModRow, { key: row.id, row, cardId, busy: mods.busy, byId, change, onOpen, takeFocus,
-      onVersion: item => change(item, 'card', 'on') })) : h(EmptyState, { text: '没有安装模组' }),
+      help: '全局开启 / 关闭对所有卡生效，并清除这张卡的设置；本卡开启 / 关闭只在这张卡生效。检定、数据删除、文字演出、计时器由卡或舞台皮肤自带，没有开关，只在自带它们的卡上列出。安装与卸载在侧栏首页的 舞台装置 › 舞台配置 › 舞台模组。' },
+    h(ErrorBox, { error: mods.error, reload: mods.data ? null : mods.reload }), notice,
+    !mods.data ? !mods.error && h(Loading) : rows.length ? rows.map(item) : h(EmptyState, { text: '没有安装模组' }),
     plans.dialog);
 }
 // A mod page's head switch and its dependency notices (舞台设置 › 模组 › <mod>): the notices name what this mod runs without
 // on this card; one the card disables offers 开启 (planned like any card 开启).
-function useManagedModControls({ rpc, cardId, modId, name }) {
+function useManagedModControls({ rpc, cardId, cardName, modId, name }) {
   const mods = useManagedMods(rpc, cardId), plans = useModPlans(rpc, mods), change = useModSwitchChange(rpc, mods, plans, cardId);
   const row = mods.data?.mods.find(item => item.id === modId), byId = id => mods.data?.mods.find(item => item.id === id);
-  const toggle = row ? h(ModSwitchTag, { name, switches: row.switches, cardScoped: !!cardId, busy: mods.busy, onChange: (scope, value) => change(row, scope, value) }) : null;
+  const toggle = row ? h(ModRowSwitch, { row: { ...row, name }, cardScoped: !!cardId, cardName, busy: mods.busy, change }) : null;
   const shown = modShownNotices(row);
   const notices = shown.length || mods.error || plans.notice ? h('div', { className: 'fork-mod-notices' },
     h(ErrorBox, { error: mods.error }),
@@ -32318,7 +32538,7 @@ function ModManager({ rpc, onClose }) {
       : h(React.Fragment, null,
         h('header', { className: 'ap-subhead fork-mod-manager-head' },
           h('h2', { className: 'ap-subhead-title' }, h('span', { className: 'ap-subhead-text' }, '模组管理'),
-            h(Help, { label: '模组管理 说明', text: '模组是引擎的能力，安装后默认全局关闭。每个模组只运行一个版本；本卡开启与关闭在 舞台设置 › 模组。' })),
+            h(Help, { label: '模组管理 说明', text: '模组是引擎的能力，安装后默认全局关闭。每个模组只运行一个版本；本卡开启与关闭在 舞台设置 › 模组；检定、数据删除、文字演出、计时器没有开关，由用到它们的卡自己声明。' })),
           h('span', { className: 'ap-subhead-tools' },
             h(Button, { disabled: mods.busy, onClick: () => importInput.current?.click() }, '导入模组…'),
             h('input', { ref: importInput, type: 'file', hidden: true, tabIndex: -1, onChange: event => { const file = event.target.files?.[0]; event.target.value = ''; if (file) importFile(file); } }),
@@ -32340,7 +32560,7 @@ function ModManagerRow({ row, busy, change, onOpen, focus }) {
       h('span', { className: 'fork-mod-list-version' }, row.version || row.versions?.[0]?.version || ''),
       row.experimental ? h('span', { className: 'fork-mod-list-version' }, '实验性') : null),
     problem || notice ? h(HintLine, { compact: true, text: problem || MOD_DEP_REASONS[notice.reason] || notice.message }) : null,
-    row.installed ? h(ModSwitchTag, { name: row.name, switches: row.switches, busy, onChange: (scope, value) => change(row, scope, value) }) : h('span', { className: 'fork-mod-list-value' }, '未安装'),
+    row.installed ? h(ModRowSwitch, { row, cardScoped: false, busy, change }) : h('span', { className: 'fork-mod-list-value' }, '未安装'),
     h('span', { className: 'fork-mod-list-chevron', 'aria-hidden': true }, h(Glyph, { name: 'chevRight' })));
 }
 // A labelled row of the mod page: name (+ meta, 「?」) left, the value right (iOS: grouped rows with values).
@@ -32375,7 +32595,7 @@ function ModManagerDetail({ rpc, mods, plans, change, row, notice, onBack }) {
   const conflicts = detail?.conflicts || [], assets = detail?.assetKinds, dependents = (detail?.dependents || []).map(item => modQuote(byId(item.consumerId)?.name || item.consumerId));
   return h('article', { className: 'fork-mod-manager-page', onKeyDown: subpageKeys(onBack) },
     h(SubpageHead, { parent: '模组管理', title: row.name, onBack, help: row.summary ? h(Help, { label: row.name + ' 说明', text: row.summary }) : null,
-      tools: row.installed ? h(ModSwitchTag, { name: row.name, switches: row.switches, busy: mods.busy, onChange: (scope, value) => change(row, scope, value) }) : null }),
+      tools: row.installed ? h(ModRowSwitch, { row, cardScoped: false, busy: mods.busy, change }) : null }),
     h(ErrorBox, { error: mods.error }), notice,
     h(StageSection, { title: '版本', foldKey: 'mod-manager/version' },
       h(ModInfoRow, { label: '模组 ID' }, h('span', { className: 'fork-mod-info-meta' }, row.id)),
@@ -34482,6 +34702,7 @@ if (typeof module !== 'undefined') module.exports = {timerClockRemaining,timerCl
                     const figureTap=own(createStageFigureTap({document,geometry:figureGeometry}));
                     const entranceContract=stageEntranceContract();
                     const video=own(createStageVideo(options.video));
+                    const figureVideos=own(createStageFigureVideos({document,acquire:video.acquire,foreground:options.video?.foreground}));
                     const entranceMedia=own(createStageEntranceMedia({...options.entranceMedia,files:entranceContract?.stageEntranceFiles}));
                     const entranceRendererScope=own(createStageEntranceRenderer({window,contractFactory:stageEntranceContract,renderer:entranceRenderer,frames:entrancePlateFrames,loop:entranceLoop}));
                     const entrance=own(createStageEntrancePresentation({React:options.React,window,renderer:entranceRendererScope,media:entranceMedia,video,contract:entranceContract,...options.entrance}));
@@ -34494,7 +34715,7 @@ if (typeof module !== 'undefined') module.exports = {timerClockRemaining,timerCl
                     const ambience=own(createAmbience({...options.ambience, session:getSession,owner:getResourceOwner,player:() => createSoundscapePlayer(options.soundscape)}));
                     const speech=own(createStageSpeech({...options.speech,allowed:options.runtimeProtocol?.phoneBeatKernel?.phoneModAutoVoiceAllowed}));
                     const displayConsumers=own(createStageDisplayConsumers({React:options.React,displays,sfx,ambience,voice:speech}));
-                    const views = {resources:stageResources,speech,sceneMath,runtimeKernel,displays,displayConsumers,sessionRuntime:own(createStageSessionRuntime({kernel:runtimeKernel,displays,createObservation:inputs=>createStageSessionObservation({...inputs,voice:speech,media:{...inputs.media,music:views.bgm,ambience}}),createResourceModule:createStageResourceRunnerModule,resourceDependencies:{...options.resourceDependencies,stageResourceMatches:stageResources.stageResourceMatches,stageRuntimeErrorText:runtimeKernel.stageRuntimeErrorText,lookahead:()=>quality.get()==="high"?Infinity:3},createDirectorModule:createStageDirectorModule,directorCommands:options.directorCommands,createStoreModule:createStageRuntimeStoreModule,createSessionModule:createStageSessionModule})),figurePose:own(createStageFigurePose({resolve:options.figureMetrics?.resolve,flatLayout:sceneMath.galFlatLayout,actionAt:sceneMath.galFlatActAt,ease:visualMath.ease})),castLayout:own(createStageCastLayout({calculate:sceneMath.galFigureLayout,mix:sceneMath.galFrameMix})),cast:own(createStageCast()),figureAppearance:own(createStageFigureAppearance({graphics:sceneGraphics,spring:sceneMath.galSpring,springValue:sceneMath.galSpringValue,light:figureLight})),figureLight,figureBlink:own(createStageFigureBlink({...options.figureBlink,clockwork:{blinkUrls,blinkPlacement,blinkTimingFor,createBlinkScheduler}})),callViews:own(createStageCallViews({...options.callViews,cover:sceneMath.galCover,canvasTexture:sceneGraphics.canvasTexture})),bust:own(createStageBust({...visualMath,framedHead:sceneMath.galFramedHead})),monologue:own(createStageMonologue({canvasTexture:sceneGraphics.canvasTexture})),backgrounds,sceneCamera:createStageSceneCamera(visualMath),sceneTextures:own(createStageSceneTextures({Image:window.Image,now:()=>window.performance.now()})),spineFigures,figureAssets,sceneGraphics,entrance,skinPresentation:own(createStageSkinPresentation({React:options.React,Event:window.Event,...options.skinPresentation,files:stageResources.getStageBundleFiles,skin})),skinResources,skin,effects,lookUi:own(createStageLookUi({React:options.React})),looks,effectColors,weather,emotes,figureMotion,figureGeometry,figureIdle,figureWarp,figureTap,choices,choiceLayout,regenerate:own(createStageRegenerate({React:options.React,window,document,...options.regenerate})),backlogView,backlogPaging,backlogHistory,backlogVoice, transcriptOutfits:own(createStageTranscriptOutfits(options.transcriptOutfits)), skinFrame, skinCursor:own(createStageSkinCursor({React:options.React, ...options.skinCursor})), backlogRows, configAppearance, configText, configScreen:own(createStageConfigScreen({React:options.React, window, document, Sound:mixer.Sound, Text:configText.Text, Appearance:configAppearance.Appearance, Looks:configFields.Looks, ...options.configScreen})), configFields, widgets:own(createStageWidgets({React:options.React, window, document, device:()=>views.sourceDevice, adjust:(...args)=>views.sourceDevice?.useAdjust(...args) ?? null, ...options.widgets})), cg:own(createStageCg({React:options.React, window, ...options.cg})), gallery:own(createStageGallery({React:options.React, window, document, ...options.gallery,owner:getResourceOwner})), pictures:createStagePictures({React:options.React}), device, quality, mixer, sfx, transitions:own(createStageTransitions({React:options.React, window, ...options.transitions,ease:skin.stageSkinTxEase})), speaker:createStageSpeaker(options.speaker || {}), chatEntry:own(createStageChatEntry({React:options.React, ...options.chatEntry})), menu:own(createStageMenu({React:options.React, window, document, ...options.menu,getSession,ransom:labels})), position:own(createStagePosition({React:options.React, window, ...options.position,sameAnchor:runtimeKernel.sameAnchor,navigate:(...args)=>sessions?.owner?.navigate(...args)})), subtitles:createStageSubtitles({React:options.React, document, window, ...options.subtitles}), controls, loader, admission, progress, notices:own(createStageNotices({React:options.React, document, ...options.notices, shortcuts:controls.shortcuts, live2d:live2d?{Entry:live2d.Entry,runtime:live2d.store}:null})), hints:own(createStageHints({React:options.React, window, document, music, voice:options.speech?.player, ...options.hints})), music, bgm:own(createBgmPlayer({...options.bgm, music,session:getSession,owner:getResourceOwner})), ambience, video,
+                    const views = {resources:stageResources,speech,sceneMath,runtimeKernel,displays,displayConsumers,sessionRuntime:own(createStageSessionRuntime({kernel:runtimeKernel,displays,createObservation:inputs=>createStageSessionObservation({...inputs,voice:speech,media:{...inputs.media,music:views.bgm,ambience}}),createResourceModule:createStageResourceRunnerModule,resourceDependencies:{...options.resourceDependencies,stageResourceMatches:stageResources.stageResourceMatches,stageRuntimeErrorText:runtimeKernel.stageRuntimeErrorText,lookahead:()=>quality.get()==="high"?Infinity:3},createDirectorModule:createStageDirectorModule,directorCommands:options.directorCommands,createStoreModule:createStageRuntimeStoreModule,createSessionModule:createStageSessionModule})),figurePose:own(createStageFigurePose({resolve:options.figureMetrics?.resolve,flatLayout:sceneMath.galFlatLayout,actionAt:sceneMath.galFlatActAt,ease:visualMath.ease})),castLayout:own(createStageCastLayout({calculate:sceneMath.galFigureLayout,mix:sceneMath.galFrameMix})),cast:own(createStageCast()),figureAppearance:own(createStageFigureAppearance({graphics:sceneGraphics,spring:sceneMath.galSpring,springValue:sceneMath.galSpringValue,light:figureLight})),figureLight,figureBlink:own(createStageFigureBlink({...options.figureBlink,clockwork:{blinkUrls,blinkPlacement,blinkTimingFor,createBlinkScheduler}})),callViews:own(createStageCallViews({...options.callViews,cover:sceneMath.galCover,canvasTexture:sceneGraphics.canvasTexture})),bust:own(createStageBust({...visualMath,framedHead:sceneMath.galFramedHead})),monologue:own(createStageMonologue({canvasTexture:sceneGraphics.canvasTexture})),backgrounds,sceneCamera:createStageSceneCamera(visualMath),sceneTextures:own(createStageSceneTextures({Image:window.Image,now:()=>window.performance.now()})),figureVideos,spineFigures,figureAssets,sceneGraphics,entrance,skinPresentation:own(createStageSkinPresentation({React:options.React,Event:window.Event,...options.skinPresentation,files:stageResources.getStageBundleFiles,skin})),skinResources,skin,effects,lookUi:own(createStageLookUi({React:options.React})),looks,effectColors,weather,emotes,figureMotion,figureGeometry,figureIdle,figureWarp,figureTap,choices,choiceLayout,regenerate:own(createStageRegenerate({React:options.React,window,document,...options.regenerate})),backlogView,backlogPaging,backlogHistory,backlogVoice, transcriptOutfits:own(createStageTranscriptOutfits(options.transcriptOutfits)), skinFrame, skinCursor:own(createStageSkinCursor({React:options.React, ...options.skinCursor})), backlogRows, configAppearance, configText, configScreen:own(createStageConfigScreen({React:options.React, window, document, Sound:mixer.Sound, Text:configText.Text, Appearance:configAppearance.Appearance, Looks:configFields.Looks, ...options.configScreen})), configFields, widgets:own(createStageWidgets({React:options.React, window, document, device:()=>views.sourceDevice, adjust:(...args)=>views.sourceDevice?.useAdjust(...args) ?? null, ...options.widgets})), cg:own(createStageCg({React:options.React, window, ...options.cg})), gallery:own(createStageGallery({React:options.React, window, document, ...options.gallery,owner:getResourceOwner})), pictures:createStagePictures({React:options.React}), device, quality, mixer, sfx, transitions:own(createStageTransitions({React:options.React, window, ...options.transitions,ease:skin.stageSkinTxEase})), speaker:createStageSpeaker(options.speaker || {}), chatEntry:own(createStageChatEntry({React:options.React, ...options.chatEntry})), menu:own(createStageMenu({React:options.React, window, document, ...options.menu,getSession,ransom:labels})), position:own(createStagePosition({React:options.React, window, ...options.position,sameAnchor:runtimeKernel.sameAnchor,navigate:(...args)=>sessions?.owner?.navigate(...args)})), subtitles:createStageSubtitles({React:options.React, document, window, ...options.subtitles}), controls, loader, admission, progress, notices:own(createStageNotices({React:options.React, document, ...options.notices, shortcuts:controls.shortcuts, live2d:live2d?{Entry:live2d.Entry,runtime:live2d.store}:null})), hints:own(createStageHints({React:options.React, window, document, music, voice:options.speech?.player, ...options.hints})), music, bgm:own(createBgmPlayer({...options.bgm, music,session:getSession,owner:getResourceOwner})), ambience, video,
                         ...createStageSkinButtons({React:options.React, ...options.presentation}),
                         ...createStagePresentation({React:options.React, document, ...options.presentation}),
                         ...createStagePortraits({React:options.React, document, window, ...options.portraits,emoteDataUrl:emotes.dataUrl,cssColor:effectColors.css}),

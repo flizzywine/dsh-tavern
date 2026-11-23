@@ -29,7 +29,8 @@ export function copyPackItems(source, itemRefs, manifest, files, retired, figure
   // Same-pack closure: a background's ambience, everything a performance names in its own pack.
   for (let i = 0; i < queue.length; i++) {
     const {kind, id} = queue[i]
-    if (kind === 'figures') continue
+    // a figure's still loops (outfit sprite.videos) are 视频 entries of its pack: copied with it, named by their copies
+    if (kind === 'figures') { for (const outfit of source.figures[id].outfits) for (const motion of Object.values(outfit.sprite?.videos || {})) for (const video of [motion.video, motion.talk]) if (video !== undefined) add('videos', video); continue }
     const item = asset(kind, id)
     if (kind === 'skins') for (const owned of source.manifest.assets) if (owned.skin === id) add(owned.kind, owned.id)
     if (kind === 'widgets') for (const content of assetContents(item)) for (const ref of Object.values(content.settingsDefaults || {})) if (ref?.kind === 'backgrounds' && ref.packId === sourceId) add('backgrounds', ref.assetId)
@@ -74,7 +75,7 @@ export function copyPackItems(source, itemRefs, manifest, files, retired, figure
   const local = (document, alias) => alias === 'self' || document.packs[alias] === sourceId
   // materialize the complete figure mapping before rewriting any CG.
   const voices = new Map()
-  const figureIds = new Map(queue.filter(item => item.kind === 'figures').map(({id}) => [id, copyFigureAssets(source, id, manifest, files, {credits:false,voices,extensions:figureExtensions[id]}).figureId]))
+  const figureIds = new Map(queue.filter(item => item.kind === 'figures').map(({id}) => [id, copyFigureAssets(source, id, manifest, files, {credits:false,voices,extensions:figureExtensions[id],retired,videos:new Map([...ids].filter(([key]) => key.startsWith('videos/')).map(([key, next]) => [key.slice('videos/'.length), next]))}).figureId]))
   const rewriteRef = ref => {
     if (ref?.packId === sourceId && ids.has(ref.kind + '/' + ref.assetId)) {
       ref.packId = manifest.id; ref.assetId = ids.get(ref.kind + '/' + ref.assetId)

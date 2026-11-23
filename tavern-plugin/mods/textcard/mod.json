@@ -2,6 +2,7 @@
   "format": "dsh-tavern-mod",
   "schemaVersion": 5,
   "experimental": true,
+  "activation": "card",
   "id": "dsh.textcard",
   "name": "文字演出",
   "packageName": "dsh-tavern-mod-textcard",

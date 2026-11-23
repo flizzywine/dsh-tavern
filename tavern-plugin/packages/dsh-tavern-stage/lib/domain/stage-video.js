@@ -7,5 +7,5 @@ export function projectStageVideo(pack, assetId) {
   const bundle = asset && pack.manifest.bundles[asset.bundleKey]
   if (!asset || asset.enabled !== true || bundle?.kind !== 'video') return null
   return {packId: pack.manifest.id, assetId, bundleKey: asset.bundleKey, hash: bundle.contentHash, entry: asset.entry, poster: asset.poster,
-    durationMs: asset.durationMs, loop: asset.loop === true, audio: asset.audio ?? 'none', size: [...asset.size], fit: asset.fit ?? 'cover', volume: asset.volume ?? 1, ...(asset.loudness ? {loudness: {...asset.loudness}} : {})}
+    durationMs: asset.durationMs, loop: asset.loop === true, audio: asset.audio ?? 'none', size: [...asset.size], fit: asset.fit ?? 'cover', volume: asset.volume ?? 1, alpha: asset.alpha ?? 'none', ...(asset.loudness ? {loudness: {...asset.loudness}} : {})}
 }

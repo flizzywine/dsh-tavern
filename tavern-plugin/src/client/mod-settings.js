@@ -6,7 +6,7 @@ function ModDetail({rpc,cardId,cardName,sessionId,modId,onBack,faceOf,ctx}) {
   const view=useModView(rpc,undefined,modId),data=view.data;
   const name=data?modText(data.manifest,data.manifest.name):'模组';
   // the head's text switch (全局 / 本卡) and this card's dependency notices.
-  const managed=useManagedModControls({rpc,cardId,modId,name});
+  const managed=useManagedModControls({rpc,cardId,cardName,modId,name});
   const head=h(React.Fragment,null,h(ModPageHead,{modId,manifest:data?.manifest,name,onBack,toggle:managed.toggle}),managed.dialog);
   if(!data)return h('article',{className:'ap-mod-detail',onKeyDown:subpageKeys(onBack)},head,view.error?h(ErrorBox,{error:view.error,reload:view.reload}):h(Loading,{shape:'fields'}));
   const entries=ctx?h(ModEntrySections,{ctx,modId,manifest:data.manifest}):null;
