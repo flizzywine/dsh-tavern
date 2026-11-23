@@ -8,7 +8,7 @@ import { openZipFile } from './zip-file.js'
 import { DISABLED_FILE, RESTART_FILE, scanUserPlugins, STATUS_FILE, userPluginPaths } from './user-plugins.js'
 import { pluginDataFile } from './plugin-data-store.js'
 import { comparePluginVersions, pluginManifestProblem } from './plugin-manifest.js'
-import { BUNDLED_PLUGIN_RUNTIME_FILES, bundledPluginRelease, bundledReleaseCompatibilityProblem } from './bundled-plugin-release.js'
+import { bundledPluginRelease, bundledPluginRuntimeFiles, bundledPluginVendorHashes, bundledReleaseCompatibilityProblem } from './bundled-plugin-release.js'
 // The first-party mods (one per tavern-plugin/mods folder); their managed copies are listed as built in.
 import { firstPartyManifestIds } from '../mod-system-distributions.js'
 
@@ -288,7 +288,12 @@ async function openPluginArchive(file) {
   try {
     const plugin = locatePluginFiles([...zip.entries].map(([name, entry]) => [name, () => zip.stream(entry)]))
     const manifest = await zip.readBuffer(zip.entries.get(plugin.manifest))
-    return { ...readPluginManifest(plugin, manifest), close: zip.close }
+    const root = plugin.manifest.slice(0, -'package.json'.length)
+    return {
+      ...readPluginManifest(plugin, manifest),
+      readFile: (name, limit) => zip.readBuffer(zip.entries.get(root + name), limit),
+      close: zip.close,
+    }
   } catch (error) { await zip.close(); throw error }
 }
 
@@ -350,7 +355,17 @@ export function createUserPluginInstaller({ dataRoot, fetchImpl = fetch, now = (
       const archive = await openPluginArchive(file)
       try {
         if (archive.pkg.name !== folder || comparePluginVersions(archive.pkg.version, latest) !== 0) fail('插件发布包的包名或版本与 Release 不符')
-        for (const name of BUNDLED_PLUGIN_RUNTIME_FILES) if (!archive.files.has(name)) fail('插件发布包缺少 ' + name)
+        for (const name of bundledPluginRuntimeFiles(folder)) if (!archive.files.has(name)) fail('插件发布包缺少 ' + name)
+        const manifest = bundledPluginRelease(folder, archive.pkg.name)?.vendorManifest
+        if (manifest) {
+          for (const [name, expected] of bundledPluginVendorHashes(await archive.readFile(manifest, 64 * 1024))) {
+            const open = archive.files.get(name)
+            if (!open) fail('插件发布包缺少 ' + name)
+            const hash = createHash('sha256')
+            for await (const chunk of await open()) hash.update(chunk)
+            if (hash.digest('hex') !== expected) fail('插件运行文件 SHA-256 校验失败：' + name)
+          }
+        }
         archive.files.delete(CARD_MARKER)
         return await use(archive)
       } finally { await archive.close() }
@@ -367,7 +382,7 @@ export function createUserPluginInstaller({ dataRoot, fetchImpl = fetch, now = (
     if (relation === null) return { status: 'error', reason: '无法比较插件发布版本', latest }
     if (relation <= 0) return { status: 'latest', latest }
 
-    const fileName = source.assetPrefix + '-' + version + '.zip'
+    const fileName = source.assetName(version)
     const entry = release.assets.find(asset => asset?.name === fileName)
     const digest = String(entry?.digest || '').toLowerCase()
     if (!/^sha256:[a-f0-9]{64}$/.test(digest) || !Number.isSafeInteger(entry?.size) || entry.size <= 0 || entry.size > PLUGIN_ZIP_LIMITS.maxArchiveBytes) {
