@@ -16,11 +16,16 @@ const carriedImage = image => image?.id ? { media: image.id, ...(image.name ? { 
  *  carries the picture as media, figure-image-extras.js). null when the record has none of them. */
 export function imageCharacterExtension(character) {
   const traits = Object.fromEntries(IMAGE_CHARACTER_TRAITS.filter(key => said(character.traits?.[key])).map(key => [key, said(character.traits[key])]))
-  const outfits = (character.outfits || []).map(outfit => ({ id: outfit.id, ...(outfit.name ? { name: outfit.name } : {}),
-    ...Object.fromEntries(OUTFIT_TEXT.filter(key => said(outfit[key])).map(key => [key, said(outfit[key])])),
-    ...(carriedImage(outfit.characterOutfitImage) ? { characterOutfitImage: carriedImage(outfit.characterOutfitImage) } : {}) }))
+  const own = (image, outfit) => character.figureId && character.figurePackId && packPictureCopy(image, character.name, outfit)
+    ? null : carriedImage(image)
+  const outfits = (character.outfits || []).map(outfit => {
+    const image = own(outfit.characterOutfitImage, outfit.name)
+    return { id: outfit.id, ...(outfit.name ? { name: outfit.name } : {}),
+      ...Object.fromEntries(OUTFIT_TEXT.filter(key => said(outfit[key])).map(key => [key, said(outfit[key])])),
+      ...(image ? { characterOutfitImage: image } : {}) }
+  })
     .filter(outfit => outfit.characterOutfitImage || OUTFIT_TEXT.some(key => outfit[key]))
-  const reference = carriedImage(character.referenceImage)
+  const reference = own(character.referenceImage)
   return Object.keys(traits).length || outfits.length || reference
     ? { ...(Object.keys(traits).length ? { traits } : {}), ...(reference ? { referenceImage: reference } : {}), ...(outfits.length ? { outfits } : {}) } : null
 }
@@ -76,9 +81,12 @@ export function appearanceMove(character, figure, { replace = false } = {}) {
   if (!carried && !Object.keys(traits).length && !wears.size) return null
   const dropped = [], fill = {}, outfits = [], references = []
   const place = (outfit, image, own) => { if (image && (replace ? own?.id !== image.media : !own)) references.push({ outfit, media: image.media, ...(image.name ? { name: image.name } : {}) }) }
-  const carriedOwn = image => packPictureCopy(image) ? null : image
+  const carriedOwn = (image, outfit) => packPictureCopy(image, figure.name, outfit) ? null : image
   place(null, carriedOwn(carried?.referenceImage), character.referenceImage)
-  for (const row of carried?.outfits || []) place(row.id, carriedOwn(row.characterOutfitImage), character.outfits.find(item => item.id === row.id)?.characterOutfitImage)
+  for (const row of carried?.outfits || []) {
+    const outfit = figure.outfits.find(item => item.key === row.id)
+    place(row.id, carriedOwn(row.characterOutfitImage, row.name || outfit?.label), character.outfits.find(item => item.id === row.id)?.characterOutfitImage)
+  }
   if (replace) {
     for (const key of IMAGE_CHARACTER_TRAITS) if (said(character.traits?.[key]) !== said(traits[key])) fill[key] = said(traits[key])
     for (const id of new Set([...character.outfits.map(item => item.id), ...wears.keys()])) {
@@ -131,8 +139,12 @@ export function figurePackPictures(pack, figure) {
 
 // Names the copies of pack pictures that records held before ADR 0012 ended with (设定图, borrowed 立绘/差分/头像): a
 // picture so named in a record or an export is a copy, not one a user uploaded; the migration and imports drop it.
-const PACK_COPY = / (?:设定图|立绘参考|差分参考|头像参考)$/
-export const packPictureCopy = image => typeof image?.name === 'string' && PACK_COPY.test(image.name)
+const PACK_COPY = /^ (?:设定图|立绘参考|差分参考|头像参考)$/
+export function packPictureCopy(image, figure, outfit) {
+  const prefix = outfit ? figure + '／' + outfit : figure
+  return typeof prefix === 'string' && typeof image?.name === 'string'
+    && image.name.startsWith(prefix) && PACK_COPY.test(image.name.slice(prefix.length))
+}
 
 /** The 参考图 name a picture carried by a pack gets in the 人物库. */
 export const packReferenceName = (figure, outfit) => figure.name + (outfit ? '／' + outfit.label : '') + ' 参考图'

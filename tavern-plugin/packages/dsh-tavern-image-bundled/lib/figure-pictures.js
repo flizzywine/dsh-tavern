@@ -9,6 +9,24 @@ export function linkedFigures(definitions) {
     .map(item => ({ packId: item.figurePackId, figureId: item.figureId }))
 }
 
+const LEGACY_COPY_SUFFIX = /^ (?:设定图|立绘参考|差分参考|头像参考)$/
+
+/** Hide references named by the old automatic copy operations, while retaining uploaded files. */
+export function withoutCopiedFigurePictures(definitions) {
+  const isCopy = (image, name) => typeof image?.name === 'string'
+    && image.name.startsWith(name) && LEGACY_COPY_SUFFIX.test(image.name.slice(name.length))
+  return { ...definitions, characters: (definitions.characters ?? []).map(item => {
+    if (!item?.figurePackId || !item.figureId) return item
+    const clean = { ...item, outfits: (item.outfits ?? []).map(outfit => {
+      if (!isCopy(outfit.characterOutfitImage, item.name + '／' + outfit.name)) return outfit
+      const { characterOutfitImage, ...remaining } = outfit
+      return remaining
+    }) }
+    if (isCopy(clean.referenceImage, item.name)) delete clean.referenceImage
+    return clean
+  }) }
+}
+
 /** `definitions` as one picture reads them (never saved): a linked person's 人设图 is their 参考图, and each outfit's
  *  服装设定图 its 角色×服装设定图. An outfit with no 设定图 borrows the host's 立绘 only while the record has no picture of
  *  its own for it; a person with no 人设图 keeps the uploaded one. `rows` is the host's answer. */

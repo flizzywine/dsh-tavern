@@ -77,28 +77,30 @@ test('wrong figure, missing pack and stale associations cannot change a characte
 })
 
 // ADR 0012: the pack is the one store of a figure's 设定图; 配图 asks the host for them by the record's link.
-function pictureLibrary(figure) {
+function pictureLibrary(packId, figure) {
   const hash = letter => letter.repeat(64)
-  const pack = { revision: 'r1', manifest: { blobs: Object.fromEntries(['a', 'b', 'c'].map(letter => [hash(letter), { mime: 'image/png', size: PNG.length, ext: 'png' }])) }, sprites: {}, figures: { figure } }
+  const pack = { revision: 'r1', manifest: { blobs: Object.fromEntries(['a', 'b', 'c'].map(letter => [hash(letter), { mime: 'image/png', size: PNG.length, ext: 'png' }])) }, sprites: {}, figures: { [figure.id]: figure } }
   const reads = []
-  return { pack, reads, getPackSnapshot: async ({ packId }) => packId === 'pack' ? structuredClone(pack) : null,
+  return { pack, reads, getPackSnapshot: async input => input.packId === packId ? structuredClone(pack) : null,
     readMedia: async ({ hash: id, expectedRevision }) => { assert.equal(expectedRevision, 'r1'); reads.push(id); return { bytes: PNG, descriptor: { mime: 'image/png' } } } }
 }
 
 test('a figure\'s 设定图 are lent from the pack; a 设定图 the pack drops is gone from the next picture with nothing to sync', async () => {
-  const figure = { id: 'figure', name: '总经理', identitySettei: { board: 'a'.repeat(64) }, outfits: [{ key: 'k', label: '西装', settei: 'b'.repeat(64) }, { key: 'm', label: '大衣' }] }
-  const library = pictureLibrary(figure), pictures = createFigurePictures(() => library)
-  const [row] = await pictures.list([{ packId: 'pack', figureId: 'figure' }, { packId: 'gone', figureId: 'figure' }])
+  const packId = '11111111-1111-4111-8111-111111111111', figureId = '22222222-2222-4222-8222-222222222222'
+  const ref = { packId, figureId }
+  const figure = { id: figureId, name: '总经理', identitySettei: { board: 'a'.repeat(64) }, outfits: [{ key: 'k', label: '西装', settei: 'b'.repeat(64) }, { key: 'm', label: '大衣' }] }
+  const library = pictureLibrary(packId, figure), pictures = createFigurePictures(() => library)
+  const [row] = await pictures.list([null, { packId: 'stale', figureId }, ref])
   assert.deepEqual(row.identity, { id: 'a'.repeat(64), mediaType: 'image/png', byteLength: PNG.length, name: '总经理 人物设定图' })
   assert.deepEqual(row.outfits, { k: { picture: { id: 'b'.repeat(64), mediaType: 'image/png', byteLength: PNG.length, name: '总经理／西装 设定图' }, borrowed: false } })
-  assert.deepEqual(await pictures.read({ packId: 'pack', figureId: 'figure', id: 'b'.repeat(64) }), { data: new Uint8Array(PNG), mediaType: 'image/png' })
-  await assert.rejects(pictures.read({ packId: 'pack', figureId: 'figure', id: 'c'.repeat(64) }), { code: 'NOT_FOUND' }, 'only a picture the figure lends')
+  assert.deepEqual(await pictures.read({ ...ref, id: 'b'.repeat(64) }), { data: new Uint8Array(PNG), mediaType: 'image/png' })
+  await assert.rejects(pictures.read({ ...ref, id: 'c'.repeat(64) }), { code: 'NOT_FOUND' }, 'only a picture the figure lends')
   // The 设定图 is unbound in the pack: the record holds no copy, so the next picture has none.
-  delete library.pack.figures.figure.identitySettei
-  delete library.pack.figures.figure.outfits[0].settei
-  const [after] = await pictures.list([{ packId: 'pack', figureId: 'figure' }])
+  delete figure.identitySettei
+  delete figure.outfits[0].settei
+  const [after] = await pictures.list([ref])
   assert.equal(after.identity, null)
   assert.deepEqual(after.outfits, {})
-  await assert.rejects(pictures.read({ packId: 'pack', figureId: 'figure', id: 'a'.repeat(64) }), { code: 'NOT_FOUND' })
+  await assert.rejects(pictures.read({ ...ref, id: 'a'.repeat(64) }), { code: 'NOT_FOUND' })
   assert.deepEqual(library.reads, ['b'.repeat(64)])
 })

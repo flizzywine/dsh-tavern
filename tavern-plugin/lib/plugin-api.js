@@ -10,6 +10,7 @@ import { pluginMember, pluginMemberId, registerPluginMember } from './domain/bac
 import { CUSTOM_EVENT, STORY_EVENTS } from './domain/story-events.js'
 import { bounded, untilAborted } from './domain/plugin-callback.js'
 import { createPluginImageCatalog } from './domain/plugin-image-catalog.js'
+import { packPictureCopy } from './domain/image-character-appearance.js'
 import path from 'node:path'
 import { publicPluginMedia, pluginMediaSession } from './domain/plugin-media.js'
 import { normalizeGameSettings, coerceSetting, settingValues } from './domain/plugin-game-settings.js'
@@ -666,7 +667,7 @@ export function createTavernPluginApi(deps) {
       if (!imageGateProvider) return
       await imageGateProvider.beforePlan({ gameId, turn, signal })
     },
-    async imagePackCharacters({ gameId, turn, anchor, subjects } = {}) {
+    async imagePackCharacters({ gameId, turn, anchor, subjects, includeReferences = true } = {}) {
       if (!deps.imagePackCharacters) return []
       await guardScope(ownerOf(this), { gameId })
       const material = await requireTurn(gameId, turn)
@@ -674,7 +675,7 @@ export function createTavernPluginApi(deps) {
       const worn = subjects && imageGateProvider ? await imageGateProvider.wearing({ gameId, turn, anchor }) : []
       return deps.imagePackCharacters(packIds, subjects?.map(subject => ({
         ...subject, outfitId: subject.outfitId || worn.find(row => subject.characterId === `pack:${row.packId}:${row.figureId}`)?.outfitKey,
-      })))
+      })), includeReferences === true)
     },
     // The pictures of asset-library figures, read where they live (the pack), for records linked to them
     // (figurePackId, figureId): [{packId, figureId, identity, outfits: {[outfit id]: {picture, borrowed}}}], each picture
@@ -705,7 +706,8 @@ export function createTavernPluginApi(deps) {
       }))
       const answer = Object.keys(outfits).length ? { outfits } : {}
       const drawn = deps.figurePictures && linked.length ? await deps.figurePictures(linked.map(record => ({ packId: record.figurePackId, figureId: record.figureId }))) : []
-      const figures = linked.filter(record => !record.referenceImage && !drawn.some(row => row.identity && row.packId === record.figurePackId && row.figureId === record.figureId))
+      const figures = linked.filter(record => (!record.referenceImage || packPictureCopy(record.referenceImage, record.name))
+        && !drawn.some(row => row.identity && row.packId === record.figurePackId && row.figureId === record.figureId))
         .map(record => ({ packId: record.figurePackId, figureId: record.figureId, name: record.name }))
       if (!figures.length) return answer
       const { unavailable } = await imageGateProvider.awaitReferences({ gameId, figures: figures.map(({ packId, figureId }) => ({ packId, figureId })), signal })

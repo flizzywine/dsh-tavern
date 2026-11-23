@@ -74,7 +74,7 @@ import { createFormatWorldbooks } from './format-worldbooks.js'
 import { listDesignGames, resolveDesignSources } from './design-sources.js'
 import { activeArtistText, applyWeights, resolveWeightMode, prepareImagePrompt } from './prompt-assembly.js'
 export { convertWeights, stripWeights, resolveWeightMode } from './prompt-assembly.js'
-import { linkedFigures, withFigurePictures, figurePictureSources } from './figure-pictures.js'
+import { linkedFigures, withFigurePictures, withoutCopiedFigurePictures, figurePictureSources } from './figure-pictures.js'
 import { normalizeReferenceImage, normalizeConsistencyText, createReferenceImageStore, resolveImageReferences, buildReferenceText, buildStructuredReferenceText, referencePlannerGuidance, referenceScopedDefinitions } from './reference-images.js'
 
 export const name = 'dsh-tavern-image'
@@ -1390,7 +1390,8 @@ function createRuntime(ctx, overrides, logger, deps) {
       for (const [id, at] of figurePictureSources(rows)) lentFrom.set(id, at)
       return rows
     }
-    const lendFigurePictures = async defs => withFigurePictures(defs, await lentPictures(defs))
+    const currentFigurePictures = defs => typeof deps.tavern?.figurePictures === 'function' ? withoutCopiedFigurePictures(defs) : defs
+    const lendFigurePictures = async defs => withFigurePictures(currentFigurePictures(defs), await lentPictures(defs))
     async function storeLentPicture(image) {
       const at = lentFrom.get(image?.id)
       if (!at) return
@@ -3262,7 +3263,7 @@ function createRuntime(ctx, overrides, logger, deps) {
             const selected = pictureSubjects?.filter(subject => packCharacters.some(person => person.id === subject.characterId)) ?? []
             const packFacts = []
             if (selected.length) {
-              const dressed = await deps.tavern.imagePackCharacters({ gameId: sessionId, turn, anchor: image.mount, subjects: selected })
+              const dressed = await deps.tavern.imagePackCharacters({ gameId: sessionId, turn, anchor: image.mount, subjects: selected, includeReferences: false })
               for (const { id, name, consistencyText, outfitId } of dressed) {
                 const person = pictureScope.characters.find(item => item.id === id)
                 const outfit = person.outfits.find(item => item.id === outfitId)
@@ -4023,7 +4024,7 @@ function createRuntime(ctx, overrides, logger, deps) {
           referenceCapacity: (() => { try { return comfyReferenceCapacity(wf, comfyLoadImageBindings(wf)) } catch { return 0 } })(),
           error: wf.error, digest: wf.digest ?? '', summary: wf.summary ?? null, current: wf.id === config.defaultWorkflow,
         })),
-        definitions,
+        definitions: currentFigurePictures(definitions),
         // Pictures the host's asset library lends linked people: {[character id]: {identity, outfits: {[outfit id]: {picture, borrowed}}}}.
         figurePictures: Object.fromEntries(await lentPictures(definitions).then(rows => (definitions.characters ?? []).flatMap(item => {
           const row = rows.find(entry => entry.packId === item.figurePackId && entry.figureId === item.figureId)

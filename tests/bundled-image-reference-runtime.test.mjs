@@ -455,14 +455,15 @@ test('a pack-only character supplies its stage outfit reference and registered c
 test('a linked record draws with its figure\'s 设定图 from the pack; once the pack unbinds it the next picture has none, with nothing to sync', async t => {
   const calls = []; globalThis.fetch = atlasMock(calls)
   const linked = { ...structuredClone(character), figurePackId: 'p', figureId: 'f' }
+  linked.outfits[0].characterOutfitImage = { ...SHEET, name: '林月／白衬衫 设定图' }
   const lent = { f: { shirt: { picture: { ...SHEET, name: '林月／白衬衫 设定图' }, borrowed: false } } }
   const fixture = await imagePluginFixture(t, { tavern: lendingTavern(lent), definitions: { characters: [linked] }, config: { generationMode: 'auto', promptMode: 'structured' } })
   const runtime = await fixture.start()
   const drawn = await runtime.terminal((await runtime.request('jobs', { tag: raw, subjects: [{ characterId: 'lin', outfitId: 'shirt' }] })).body.id)
   assert.equal(drawn.state, 'done', drawn.error)
   assert.deepEqual(drawn.references.map(r => [r.kind, r.image.name]), [['character-outfit', '林月／白衬衫 设定图']])
-  assert.equal((await fixture.read('definitions.json')).characters[0].outfits[0].characterOutfitImage, undefined, 'the record holds no copy')
   const state = (await runtime.request('state')).body
+  assert.equal(state.definitions.characters[0].outfits[0].characterOutfitImage, undefined, 'the legacy copy is excluded from the editable record')
   assert.deepEqual(state.figurePictures, { lin: { identity: null, outfits: lent.f } })
   delete lent.f.shirt
   const after = await runtime.terminal((await runtime.request('jobs', { tag: raw, subjects: [{ characterId: 'lin', outfitId: 'shirt' }] })).body.id)

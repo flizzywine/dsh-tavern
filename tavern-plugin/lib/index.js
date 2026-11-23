@@ -361,7 +361,7 @@ import { createTransferHandlers } from './rpc/transfer.js'
 import { createImageCharacterHandlers } from './rpc/image-characters.js'
 import { createFigureRecords } from './image-character-records.js'
 import { createFigurePictures } from './image-character-pictures.js'
-import { appearanceFromImageCharacter, findFigureImageCharacter, imageCharacterExtension, imageCharacterFromFigure } from './domain/image-character-appearance.js'
+import { appearanceFromImageCharacter, figurePackPictures, findFigureImageCharacter, imageCharacterExtension, imageCharacterFromFigure } from './domain/image-character-appearance.js'
 import { createTransferExportStore } from './domain/transfer-store.js'
 // dsh-tavern 宿主插件（profile 组合行）
 // RPC：同源 HTTP 路由 /api/dsh-tavern/<method>（客户端 fetch 调用）
@@ -3352,7 +3352,7 @@ export async function apply(ctx) {
     // A figure's 设定图 and borrowed 立绘, which 配图 reads by a record's link from the pack, their one store (ADR 0012).
     figurePictures: figures => figurePictures.list(figures),
     readFigurePicture: input => figurePictures.read(input),
-    async imagePackCharacters(packIds, selections) {
+    async imagePackCharacters(packIds, selections, includeReferences) {
       const library = ctx.get('assetLibrary')
       if (!library) return []
       const packs = await Promise.all(packIds.map(packId => library.getPackSnapshot({ packId, readOnly: true })))
@@ -3365,8 +3365,10 @@ export async function apply(ctx) {
           if (selections && !selection) return null
           const outfits = figure.outfits.filter(outfit => outfit.enabled !== false)
           const outfit = selection && (selection.outfitId ? outfits.find(item => item.key === selection.outfitId) : outfits[0])
+          const hash = includeReferences && outfit && figurePackPictures(pack, figure).outfits[outfit.key]?.hash
+          const reference = hash ? await library.readMedia({ packId: pack.manifest.id, expectedRevision: pack.revision, hash }) : null
           return { ...character, id, consistencyText: figure.description, outfits: character.outfits.filter(item => outfits.some(outfit => outfit.key === item.id)),
-            ...(outfit && { outfitId: outfit.key }) }
+            ...(outfit && { outfitId: outfit.key }), ...(reference && { reference: { data: Buffer.from(reference.bytes).toString('base64'), mediaType: reference.descriptor.mime, name: character.name + ' · ' + outfit.label } }) }
         })))).filter(Boolean)
     },
     // A save of 人物库 records linked to figures (ADR 0011: the record is the figure's identity, so only a link that ends writes

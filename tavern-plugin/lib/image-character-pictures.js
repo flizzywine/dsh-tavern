@@ -1,4 +1,7 @@
 import { figurePackPictures } from './domain/image-character-appearance.js'
+import { UUID_PATTERN } from '../packages/dsh-asset-library/lib/shared/asset-pack-refs.js'
+
+const uuid = new RegExp(UUID_PATTERN)
 
 // A figure's 设定图 and borrowed 立绘 live in its pack only (ADR 0012). 配图 reads them by a record's link
 // (figurePackId, figureId) through these two host calls, so a 设定图 the pack drops or replaces is gone from the next
@@ -20,7 +23,9 @@ export function createFigurePictures(library) {
     async list(figures) {
       if (!library() || !Array.isArray(figures)) return []
       const packs = new Map()
-      const rows = await Promise.all(figures.slice(0, 4096).map(async ({ packId, figureId } = {}) => {
+      const rows = await Promise.all(figures.slice(0, 4096).map(async ref => {
+        const { packId, figureId } = ref ?? {}
+        if (typeof packId !== 'string' || !uuid.test(packId) || typeof figureId !== 'string' || !uuid.test(figureId)) return null
         const found = await figureOf(packId, figureId, packs)
         if (!found) return null
         const { pack, figure } = found, pictures = figurePackPictures(pack, figure)
