@@ -9,6 +9,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageInfo;
+import android.content.pm.PackageManager;
 import android.content.pm.ServiceInfo;
 import android.content.res.AssetFileDescriptor;
 import android.net.ConnectivityManager;
@@ -22,6 +23,7 @@ import org.json.JSONObject;
 
 import java.io.BufferedInputStream;
 import java.io.BufferedReader;
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.FilterInputStream;
@@ -39,6 +41,7 @@ import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -56,8 +59,15 @@ public final class TavernService extends Service {
     static final int PORT = 3081;
     static final String ACTION_START = "start", ACTION_STOP = "stop", ACTION_RESTART = "restart", ACTION_EXIT = "exit",
             ACTION_RESET = "reset", ACTION_CHECK = "check", ACTION_SOURCE_UPDATE = "source-update",
-            ACTION_DOWNLOAD_APK = "download-apk", ACTION_PREFS = "prefs";
+            ACTION_DOWNLOAD_APK = "download-apk", ACTION_PREFS = "prefs", ACTION_APK_CHECK = "apk-check";
     static final String PREFS = "launcher";
+    // 新版安装包的发布信息：先读 GitHub raw（不滞后），失败再读 jsDelivr。与酒馆 Release 解耦，发新酒馆版本不影响它。
+    static final String[] APK_FEEDS = {
+            "https://raw.githubusercontent.com/flizzywine/dsh-tavern/main/android/native/latest.json",
+            "https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@main/android/native/latest.json",
+            // 1.0.0-beta.1 读的旧地址：新地址还没发布时兜底。
+            "https://github.com/flizzywine/dsh-tavern/releases/latest/download/dsh-tavern-native.json"};
+    private static final long APK_CHECK_INTERVAL_MS = 6 * 3600_000L;
     private static final String CHANNEL = "tavern";
     // 参数名拆开写：避免被日志脱敏误伤。
     private static final Pattern URL = Pattern.compile("dsh web: (http://127\\.0\\.0\\.1:\\d+/\\?" + "tok" + "en=\\S+)");
@@ -78,12 +88,17 @@ public final class TavernService extends Service {
     static volatile String updateMessage = "";
     static volatile JSONObject apkRelease;
     static volatile String apkFile;
+    // 启动页自动检查到的新版安装包：需要弹窗提示时非空（已排除用户跳过的版本）。
+    static volatile JSONObject apkNotice;
+    static volatile boolean apkForced; // 当前版本低于 minVersionCode：不能跳过
     private static final ArrayDeque<String> tail = new ArrayDeque<>();
 
     private final ExecutorService ops = Executors.newSingleThreadExecutor();
     private volatile Process process;
     private volatile boolean wantRunning;
     private volatile boolean stopping;
+    private volatile boolean exited;
+    private final java.util.concurrent.atomic.AtomicBoolean apkChecking = new java.util.concurrent.atomic.AtomicBoolean();
     private final ArrayDeque<Long> crashes = new ArrayDeque<>();
     private PowerManager.WakeLock wakeLock;
     private File root;
@@ -125,25 +140,36 @@ public final class TavernService extends Service {
     }
 
     private Notification notification(String text) {
-        PendingIntent open = PendingIntent.getActivity(this, 0, new Intent(this, MainActivity.class), PendingIntent.FLAG_IMMUTABLE);
+        JSONObject notice = apkNotice;
+        Intent openIntent = new Intent(this, MainActivity.class);
+        // 有新版安装包时，点通知回到启动页并弹出提示（默认会直接进酒馆，启动页上的提示看不到）。
+        if (notice != null) openIntent.putExtra(MainActivity.EXTRA_SHOW_UPDATE, true);
+        PendingIntent open = PendingIntent.getActivity(this, 0, openIntent, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
         PendingIntent exit = PendingIntent.getService(this, 1, intent(this, ACTION_EXIT), PendingIntent.FLAG_IMMUTABLE);
-        return new Notification.Builder(this, CHANNEL)
+        Notification.Builder b = new Notification.Builder(this, CHANNEL)
                 .setContentTitle("DSH Tavern Beta")
                 .setContentText(text)
                 .setSmallIcon(statIcon())
                 .setContentIntent(open)
                 .addAction(new Notification.Action.Builder(null, "退出", exit).build())
-                .setOngoing(true)
-                .build();
+                .setOngoing(true);
+        if (notice != null) b.setSubText("有新版安装包 " + notice.optString("versionName"));
+        return b.build();
     }
 
     private void notify(String text) {
+        if (exited) return; // 已退出：检查线程晚到的刷新不能把通知再挂回去
         getSystemService(NotificationManager.class).notify(1, notification(text));
     }
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         String action = intent == null || intent.getAction() == null ? ACTION_START : intent.getAction();
+        // 安装包检查只读一个小文件，不排进串行线程：首次启动解压载荷要十几秒，不该等它。
+        if (ACTION_APK_CHECK.equals(action)) {
+            new Thread(this::apkCheck, "apk-check").start();
+            return START_STICKY;
+        }
         // 被系统杀掉后重建（START_STICKY 送来 null intent）：用户之前想让它运行，就接着运行。
         ops.execute(() -> handle(action));
         return START_STICKY;
@@ -170,6 +196,7 @@ public final class TavernService extends Service {
                     wantRunning = false;
                     stopServer();
                     setPhase("stopped", "已退出");
+                    exited = true;
                     stopForeground(STOP_FOREGROUND_REMOVE);
                     stopSelf();
                     break;
@@ -198,6 +225,10 @@ public final class TavernService extends Service {
                     break;
                 case ACTION_PREFS:
                     applyWakeLock();
+                    // 跳过某个安装包版本后，按上次读到的发布信息重算提示，通知栏的「有新版」随之去掉。
+                    String cached = prefs().getString("apkLatest", null);
+                    if (cached != null) updateNotice(new JSONObject(cached));
+                    else notify(status);
                     break;
                 default:
                     break;
@@ -212,6 +243,7 @@ public final class TavernService extends Service {
     @Override
     public void onDestroy() {
         wantRunning = false;
+        exited = true;
         Process p = process;
         if (p != null) p.destroy();
         if (wakeLock.isHeld()) wakeLock.release();
@@ -434,13 +466,22 @@ public final class TavernService extends Service {
             env.put("NODE_USE_ENV_PROXY", "1");
         }
         // 调试钩子：files/t/extra-env 里的 KEY=VALUE 追加进环境（验收用的固定输出模型、测试用的更新源）。
+        env.putAll(extraEnv());
+    }
+
+    private Map<String, String> extraEnv() {
+        Map<String, String> out = new java.util.HashMap<>();
         File extra = new File(root, "extra-env");
-        if (extra.exists()) {
+        if (!extra.exists()) return out;
+        try {
             for (String line : Files.readAllLines(extra.toPath(), StandardCharsets.UTF_8)) {
                 int eq = line.indexOf('=');
-                if (eq > 0 && !line.startsWith("#")) env.put(line.substring(0, eq).trim(), line.substring(eq + 1).trim());
+                if (eq > 0 && !line.startsWith("#")) out.put(line.substring(0, eq).trim(), line.substring(eq + 1).trim());
             }
+        } catch (IOException e) {
+            log("读取 extra-env 失败：" + e.getMessage());
         }
+        return out;
     }
 
     private void startServer() throws Exception {
@@ -616,8 +657,20 @@ public final class TavernService extends Service {
         updateMessage = "正在检查更新";
         try {
             JSONObject r = tool("check", "--apk-version-code", String.valueOf(versionCode()));
+            // 安装包以 Java 读到的发布信息为准（与启动时的自动检查一致）；读不到时才用 Node 读到的旧地址结果。
+            JSONObject feed = null;
+            try {
+                feed = fetchApkFeed();
+                prefs().edit().putLong("apkCheckedAt", System.currentTimeMillis()).apply();
+            } catch (Exception ignored) {
+            }
             JSONObject apk = r.optJSONObject("apk");
-            apkRelease = apk != null && apk.optBoolean("available") ? apk : null;
+            if (feed != null) {
+                apkRelease = apkOffered(feed) ? feed : null;
+                updateNotice(feed);
+            } else {
+                apkRelease = apk != null && apk.optBoolean("available") ? apk : null;
+            }
             String source = r.optString("source");
             JSONObject latest = r.optJSONObject("latest");
             String latestText = latest == null ? "" : "v" + latest.optString("version") + " · " + latest.optString("revision").substring(0, 7);
@@ -631,7 +684,7 @@ public final class TavernService extends Service {
                         : "有新版酒馆 " + latestText + "：依赖没变，可以直接更新源码（约 17 MB，存档和设置保留）";
             } else if (apkRelease != null) {
                 updateState = "apk";
-                updateMessage = "有新版安装包 " + apkRelease.optString("versionName") + "（" + apkRelease.optLong("size") / 1048576 + " MB）";
+                updateMessage = apkMessage(apkRelease);
             } else if ("needs-apk".equals(source)) {
                 updateState = "needs-apk";
                 updateMessage = "有新版酒馆 " + latestText + "，但更换了 DSH 运行时，需要新版安装包；对应的安装包还没发布";
@@ -649,6 +702,142 @@ public final class TavernService extends Service {
             updateState = "error";
             updateMessage = "检查失败：" + (t.getMessage() != null ? t.getMessage() : t);
         }
+    }
+
+    // ---------------------------------------------------------------- 新版安装包（Java 直接检查，不依赖 Node）
+
+    static String apkMessage(JSONObject r) {
+        String notes = r.optString("notes").trim();
+        return "有新版安装包 " + r.optString("versionName") + "（" + r.optLong("size") / 1048576 + " MB）"
+                + (notes.isEmpty() ? "" : "\n" + notes);
+    }
+
+    /** 启动时调用：6 小时内用上次读到的发布信息，否则联网读。失败只记日志，不打扰用户。 */
+    private void apkCheck() {
+        if (!apkChecking.compareAndSet(false, true)) return;
+        try {
+            SharedPreferences p = prefs();
+            boolean custom = extraEnv().containsKey("DSH_NATIVE_APK_FEED");
+            String cached = p.getString("apkLatest", null);
+            JSONObject feed;
+            if (!custom && cached != null && System.currentTimeMillis() - p.getLong("apkCheckedAt", 0) < APK_CHECK_INTERVAL_MS) {
+                feed = new JSONObject(cached);
+            } else {
+                feed = fetchApkFeed();
+                p.edit().putLong("apkCheckedAt", System.currentTimeMillis()).apply();
+            }
+            updateNotice(feed);
+            String us = updateState;
+            if (apkRelease != null && ("idle".equals(us) || "up-to-date".equals(us))) {
+                updateState = "apk";
+                updateMessage = apkMessage(apkRelease);
+            }
+        } catch (Throwable t) {
+            log("检查新版安装包失败：" + (t.getMessage() != null ? t.getMessage() : t));
+        } finally {
+            apkChecking.set(false);
+        }
+    }
+
+    /** 按发布信息决定是否提示：版本更新、签名一致；跳过过的版本不再弹，低于 minVersionCode 时不能跳过。 */
+    private void updateNotice(JSONObject feed) {
+        prefs().edit().putString("apkLatest", feed.toString()).apply();
+        long current = 0;
+        try {
+            current = versionCode();
+        } catch (Exception ignored) {
+        }
+        boolean offered = apkOffered(feed);
+        if (offered) apkRelease = feed;
+        boolean forced = offered && current < feed.optLong("minVersionCode", 0);
+        boolean skipped = prefs().getLong("skipApkVersion", -1) == feed.optLong("versionCode");
+        apkForced = forced;
+        apkNotice = offered && (forced || !skipped) ? feed : null;
+        notify(status);
+    }
+
+    private boolean apkOffered(JSONObject feed) {
+        try {
+            if (feed.optLong("versionCode") <= versionCode()) return false;
+            String want = feed.optString("signer").replace(":", "").trim().toLowerCase(Locale.ROOT);
+            if (!want.isEmpty() && !want.equals(signerDigest())) {
+                log("新版安装包的签名与本机安装的不同（调试版与正式版不能互相覆盖），不提示");
+                return false;
+            }
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private String signerDigest() throws Exception {
+        PackageInfo info = getPackageManager().getPackageInfo(getPackageName(), PackageManager.GET_SIGNING_CERTIFICATES);
+        android.content.pm.Signature[] signers = info.signingInfo.getApkContentsSigners();
+        byte[] digest = java.security.MessageDigest.getInstance("SHA-256").digest(signers[0].toByteArray());
+        StringBuilder hex = new StringBuilder();
+        for (byte b : digest) hex.append(String.format("%02x", b));
+        return hex.toString();
+    }
+
+    /** 依次读各发布信息地址，返回第一个有效的；extra-env 的 DSH_NATIVE_APK_FEED 覆盖全部（测试用）。 */
+    private JSONObject fetchApkFeed() throws Exception {
+        String custom = extraEnv().get("DSH_NATIVE_APK_FEED");
+        String[] feeds = custom != null && !custom.isEmpty() ? new String[]{custom} : APK_FEEDS;
+        StringBuilder errors = new StringBuilder();
+        for (String feed : feeds) {
+            try {
+                return readApkFeed(feed);
+            } catch (Exception e) {
+                errors.append("\n").append(feed).append("：").append(e.getMessage());
+            }
+        }
+        throw new IOException("读不到安装包发布信息" + errors);
+    }
+
+    private static JSONObject readApkFeed(String feed) throws Exception {
+        java.net.URL link = new java.net.URL(feed);
+        for (int hop = 0; hop < 5; hop++) {
+            java.net.HttpURLConnection c = (java.net.HttpURLConnection) link.openConnection();
+            c.setInstanceFollowRedirects(false);
+            c.setConnectTimeout(5_000);
+            c.setReadTimeout(8_000);
+            c.setUseCaches(false);
+            c.setRequestProperty("Accept", "application/json");
+            c.setRequestProperty("Cache-Control", "no-cache");
+            try {
+                int code = c.getResponseCode();
+                String location = c.getHeaderField("Location");
+                if (code >= 300 && code < 400 && location != null) {
+                    link = new java.net.URL(link, location);
+                    continue;
+                }
+                if (code != 200) throw new IOException("HTTP " + code);
+                ByteArrayOutputStream body = new ByteArrayOutputStream();
+                try (InputStream in = c.getInputStream()) {
+                    byte[] buf = new byte[8192];
+                    int n;
+                    while ((n = in.read(buf)) > 0) {
+                        body.write(buf, 0, n);
+                        if (body.size() > 256 * 1024) throw new IOException("发布信息过大");
+                    }
+                }
+                JSONObject info = new JSONObject(new String(body.toByteArray(), StandardCharsets.UTF_8));
+                for (String key : new String[]{"versionCode", "versionName", "url", "sha256", "size"}) {
+                    if (!info.has(key)) throw new IOException("发布信息缺少 " + key);
+                }
+                if (info.optLong("versionCode") <= 0 || !info.optString("sha256").matches("(?i)[0-9a-f]{64}")) {
+                    throw new IOException("发布信息无效");
+                }
+                // 相对地址按读到发布信息的最终地址解析（本地测试源用相对地址）。
+                info.put("url", new java.net.URL(link, info.getString("url")).toString());
+                if (!info.optString("page").isEmpty()) info.put("page", new java.net.URL(link, info.getString("page")).toString());
+                info.put("feed", feed);
+                return info;
+            } finally {
+                c.disconnect();
+            }
+        }
+        throw new IOException("重定向次数过多");
     }
 
     private void sourceUpdate() throws Exception {
