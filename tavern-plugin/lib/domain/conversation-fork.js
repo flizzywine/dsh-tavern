@@ -119,18 +119,21 @@ function assertConversationIdle(chat, options, action) {
     return operation.status === 'running'
   })
   if (unfinished) throw transientForkError('当前轮次尚未完成生成或状态结算，请等待完成后再' + action)
-  if (['pending', 'running'].includes(str(chat.settleStatus))) throw transientForkError('当前轮次尚未完成状态结算，请等待完成后再' + action)
-  if (chat.mvu?.enabled === true && chat.mvu?.openingInitialization?.status === 'pending') {
-    throw transientForkError('MVU 开局状态尚未初始化完成，请等待完成后再' + action)
-  }
 }
 
-export function assertConversationExportable(chat, { agentRunning } = {}) {
+export function assertConversationExportable(chat, { agentRunning, settlementRunning } = {}) {
+  // The save preserves deferred MVU opening initialization. A legacy settlement
+  // status can outlive its job, so export checks the live job and timeline.
   assertConversationIdle(chat, { agentRunning }, '导出存档')
+  if (settlementRunning) throw new Error('当前轮次尚未完成状态结算，请等待完成后再导出存档')
 }
 
 export function assertConversationForkable(chat, options = {}) {
   assertConversationIdle(chat, options, '分叉')
+  if (['pending', 'running'].includes(str(chat.settleStatus))) throw transientForkError('当前轮次尚未完成状态结算，请等待完成后再分叉')
+  if (chat.mvu?.enabled === true && chat.mvu?.openingInitialization?.status === 'pending') {
+    throw transientForkError('MVU 开局状态尚未初始化完成，请等待完成后再分叉')
+  }
   const messages = Array.isArray(chat.messages) ? chat.messages : []
   const last = messages[messages.length - 1]
   if (last && last.role === 'user') throw new Error('当前玩家输入尚未产生正文，不能分叉')

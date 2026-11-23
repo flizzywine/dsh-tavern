@@ -26,10 +26,11 @@ try {
   const opening = await books.capture({ worldBook: book('opening'), chat: { id: 'source' }, turn: 0 })
   const later = await books.capture({ worldBook: book('later'), chat: { id: 'source' }, turn: 1 })
   const unanswered = { role: 'user', text: '继续往前走' }
+  const mvu = { enabled: true, owner: 'official', openingInitialization: { version: 2, status: 'pending' }, openingStartVariables: { level: 2 } }
   const chat = {
     id: 'source', sessionId: 'source-session', mode: 'story', cardPath: 'cards/hero.json', cardName: 'Hero',
     messages: [bindSceneWorldbook({ role: 'assistant', turn: 1, text: 'Hello' }, later), unanswered],
-    sceneOpeningWorldbook: opening, timeline: { checkpoints: [] }
+    sceneOpeningWorldbook: opening, timeline: { checkpoints: [] }, mvu, settleStatus: 'pending'
   }
   const base = computeSceneTarget(chat, 1).key
   const nativeInput = { seq: 1, type: 'user/message', data: { id: 'input-1', role: 'user', content: [{ type: 'text', text: unanswered.text }] } }
@@ -53,10 +54,12 @@ try {
   assert.equal(transferredSave.chat.messages.at(-1).role, unanswered.role)
   assert.equal(transferredSave.chat.messages.at(-1).text, unanswered.text)
   assert.deepEqual(transferredSave.session.events.at(-1), nativeInput)
+  assert.deepEqual(transferredSave.chat.mvu, mvu)
 
   const exported = await host.rpc('exportGameSave', { sessionId: imported.sessionId })
   const saved = readGameSave(Buffer.from(exported.base64, 'base64'))
   assert.deepEqual(saved.chat.messages, transferredSave.chat.messages)
+  assert.deepEqual(saved.chat.mvu, mvu)
   const newBase = computeSceneTarget(saved.chat, 1).key
   for (const slot of [0, 1, 5]) assert.ok(saved.scene.files.some(file => file.path === sceneSlotKey(newBase, slot) + '.json'))
   assert.equal(saved.scene.worldbooks.length, 2)

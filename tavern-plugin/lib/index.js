@@ -2040,7 +2040,10 @@ export async function apply(ctx) {
   }
   const gameSaveSnapshot = createGameSaveSnapshot({
     readChat, readWorldSnapshot: chatPersistence.readWorldSnapshot,
-    assertIdle: chat => assertConversationExportable(chat, { agentRunning: agentRegistry.get(chat.sessionId)?.phase?.kind === 'running' }),
+    assertIdle: chat => assertConversationExportable(chat, {
+      agentRunning: agentRegistry.get(chat.sessionId)?.phase?.kind === 'running',
+      settlementRunning: Boolean(settlementJobs.pending(chat.id))
+    }),
     readSession: async sessionId => {
       const live = sessionStore.get(sessionId)
       if (live) await sessionStore.flush(live)
