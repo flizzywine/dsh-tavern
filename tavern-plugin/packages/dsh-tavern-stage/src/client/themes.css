@@ -5889,6 +5889,8 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
   /* title false (untitled): the original's log has no title - the words stay for screen readers only, no ? tip. */
   .fork-gal-stage[data-fk-skin-art-backlog~="untitled"]:not(.is-film) .fork-gal-backlog-title { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); }
   .fork-gal-stage[data-fk-skin-art-backlog~="untitled"]:not(.is-film) .fork-gal-backlog-title .fork-help-tip { display: none; }
+  /* clip false (noclip): only the original's close; the export starts from a row (Shift-click, long press). */
+  .fork-gal-stage[data-fk-skin-art-backlog~="noclip"]:not(.is-film) .fork-gal-backlog-clip { display: none; }
   .fork-gal-stage[data-fk-skin-art-backlog~="close"]:not(.is-film) .fork-gal-backlog-close,
   .fork-gal-stage[data-fk-skin-art-config~="close"]:not(.is-film) .fork-gal-config-close { --c: var(--art-backlog-close-img); --cf: var(--art-backlog-close-focus); position: absolute; right: auto; bottom: auto; z-index: 2;
     left: calc(var(--gx) + var(--art-backlog-close-x) * var(--mu)); top: calc(var(--gy) + var(--art-backlog-close-y) * var(--mu)); width: calc(var(--art-backlog-close-w) * var(--mu)); height: calc(var(--art-backlog-close-h) * var(--mu));
@@ -6093,6 +6095,7 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
   .fork-gal-stage[data-fk-skin-art-backlog-narrow][data-fk-skin-art-backlog~="close"]:not(.is-film) .fork-gal-backlog-close:is(:hover, :focus-visible) { background-image: var(--art-backlog-close-focus); }
   .fork-gal-stage[data-fk-skin-art-backlog-narrow][data-fk-skin-art-backlog~="close"]:not(.is-film) .fork-gal-backlog-close > svg { display: none; }
   .fork-gal-stage[data-fk-skin-art-backlog-narrow][data-fk-skin-art-backlog~="close"]:not(.is-film) .fork-gal-backlog-clip { position: absolute; right: calc(var(--art-backlog-close-w) * var(--mu)); top: max(0px, calc(var(--art-backlog-close-h) * var(--mu) / 2 - 18px)); }
+  .fork-gal-stage[data-fk-skin-art-backlog-narrow][data-fk-skin-art-backlog~="noclip"]:not(.is-film) .fork-gal-backlog-clip { display: none; }
   .fork-gal-stage[data-fk-skin-art-backlog-narrow]:not(.is-film) .fork-gal-backlog-col { width: 100%; box-sizing: border-box; padding-left: 8px; padding-right: 8px; }
   .fork-gal-stage[data-fk-skin-art-backlog-narrow]:not(.is-film) .fork-gal-backlog-row { display: block; margin: 0 0 calc(var(--art-bl-gap) * var(--mu)); padding: calc(var(--art-bl-top) * var(--mu)) 0; border-radius: 0; box-shadow: none; }
   .fork-gal-stage[data-fk-skin-art-backlog-narrow][data-fk-skin-art-backlog-parts~="name"]:not(.is-film) .fork-gal-backlog-row.is-line { padding-top: calc((var(--art-bl-head) + var(--art-bl-top)) * var(--mu) + 6px); }
