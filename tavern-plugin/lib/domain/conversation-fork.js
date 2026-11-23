@@ -96,13 +96,13 @@ export function forkConversationChat(source, options = {}) {
   return chat
 }
 
-export function assertConversationForkable(chat, options = {}) {
-  if (!chat) throw new Error('找不到要分叉的对话')
-  if (!['story', 'script'].includes(str(chat.mode) || 'story')) throw new Error('只有游玩对话可以分叉')
+function assertConversationIdle(chat, options, action) {
+  if (!chat) throw new Error('找不到要' + action + '的对话')
+  if (!['story', 'script'].includes(str(chat.mode) || 'story')) throw new Error('只有游玩对话可以' + action)
   // A historical snapshot may have been saved while the source was regenerating a later
   // turn (its pre-regeneration checkpoint). Its content up to the fork turn is settled; only
   // the live source's in-flight work blocks forking.
-  if (options.historical !== true && (options.agentRunning === true || chat.regenInProgress === true)) throw new Error('当前正文仍在生成，请等待完成后再分叉')
+  if (options.historical !== true && (options.agentRunning === true || chat.regenInProgress === true)) throw new Error('当前正文仍在生成，请等待完成后再' + action)
   const timeline = object(chat.timeline)
   // Only a live foreground Agent advances a body operation. A body still marked
   // 'running' while nothing runs is an aborted round (page reloaded, host
@@ -118,11 +118,19 @@ export function assertConversationForkable(chat, options = {}) {
     }
     return operation.status === 'running'
   })
-  if (unfinished) throw transientForkError('当前轮次尚未完成生成或状态结算，请等待完成后再分叉')
-  if (['pending', 'running'].includes(str(chat.settleStatus))) throw transientForkError('当前轮次尚未完成状态结算，请等待完成后再分叉')
+  if (unfinished) throw transientForkError('当前轮次尚未完成生成或状态结算，请等待完成后再' + action)
+  if (['pending', 'running'].includes(str(chat.settleStatus))) throw transientForkError('当前轮次尚未完成状态结算，请等待完成后再' + action)
   if (chat.mvu?.enabled === true && chat.mvu?.openingInitialization?.status === 'pending') {
-    throw transientForkError('MVU 开局状态尚未初始化完成，请等待完成后再分叉')
+    throw transientForkError('MVU 开局状态尚未初始化完成，请等待完成后再' + action)
   }
+}
+
+export function assertConversationExportable(chat, { agentRunning } = {}) {
+  assertConversationIdle(chat, { agentRunning }, '导出存档')
+}
+
+export function assertConversationForkable(chat, options = {}) {
+  assertConversationIdle(chat, options, '分叉')
   const messages = Array.isArray(chat.messages) ? chat.messages : []
   const last = messages[messages.length - 1]
   if (last && last.role === 'user') throw new Error('当前玩家输入尚未产生正文，不能分叉')

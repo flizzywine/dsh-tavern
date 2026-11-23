@@ -5,6 +5,7 @@ import { createSceneWorldbooks, bindSceneWorldbook } from '../../tavern-plugin/l
 import { computeSceneTarget } from '../../tavern-plugin/lib/domain/scene-illustration.js'
 import { sceneSlotKey } from '../../tavern-plugin/lib/domain/scene-slots.js'
 import { buildGameSave, readGameSave } from '../../tavern-plugin/lib/domain/game-save.js'
+import { readTransferBundle } from '../../tavern-plugin/lib/domain/transfer-bundle.js'
 
 const host = await createPluginHost()
 try {
@@ -24,15 +25,17 @@ try {
   const book = text => ({ view: { entries: [{ content: text, ref: 'entry:0' }] } })
   const opening = await books.capture({ worldBook: book('opening'), chat: { id: 'source' }, turn: 0 })
   const later = await books.capture({ worldBook: book('later'), chat: { id: 'source' }, turn: 1 })
+  const unanswered = { role: 'user', text: '继续往前走' }
   const chat = {
     id: 'source', sessionId: 'source-session', mode: 'story', cardPath: 'cards/hero.json', cardName: 'Hero',
-    messages: [bindSceneWorldbook({ role: 'assistant', turn: 1, text: 'Hello' }, later)],
+    messages: [bindSceneWorldbook({ role: 'assistant', turn: 1, text: 'Hello' }, later), unanswered],
     sceneOpeningWorldbook: opening, timeline: { checkpoints: [] }
   }
   const base = computeSceneTarget(chat, 1).key
+  const nativeInput = { seq: 1, type: 'user/message', data: { id: 'input-1', role: 'user', content: [{ type: 'text', text: unanswered.text }] } }
   const data = buildGameSave({
     chat, revisions: [], tavernVersion: '2.7.0',
-    session: { header: { id: chat.sessionId }, events: [{ seq: 0, type: 'turn/end', data: { turn: 1 } }] },
+    session: { header: { id: chat.sessionId }, events: [{ seq: 0, type: 'turn/end', data: { turn: 1 } }, nativeInput] },
     card: { payload: { kind: 'text', name: 'hero.json', text: '{"name":"Hero"}' } },
     scene: {
       attachments: [], worldbooks: await books.exportForSave([chat]),
@@ -42,8 +45,18 @@ try {
     }
   })
   const imported = await host.rpc('importGameSave', { fileB64: data.toString('base64') })
+  const transferred = await host.rpc('createTransferExport', { selection: { chats: [imported.chatId] } })
+  const bundle = readTransferBundle(Buffer.from(transferred.base64, 'base64'))
+  const [item] = bundle.manifest.parts.find(part => part.kind === 'chats').items
+  assert.equal(item.key, imported.chatId)
+  const transferredSave = readGameSave(bundle.files.get(item.entry))
+  assert.equal(transferredSave.chat.messages.at(-1).role, unanswered.role)
+  assert.equal(transferredSave.chat.messages.at(-1).text, unanswered.text)
+  assert.deepEqual(transferredSave.session.events.at(-1), nativeInput)
+
   const exported = await host.rpc('exportGameSave', { sessionId: imported.sessionId })
   const saved = readGameSave(Buffer.from(exported.base64, 'base64'))
+  assert.deepEqual(saved.chat.messages, transferredSave.chat.messages)
   const newBase = computeSceneTarget(saved.chat, 1).key
   for (const slot of [0, 1, 5]) assert.ok(saved.scene.files.some(file => file.path === sceneSlotKey(newBase, slot) + '.json'))
   assert.equal(saved.scene.worldbooks.length, 2)
@@ -55,12 +68,17 @@ try {
   const script = await host.rpc('importScript', { cardPath: imported.cardPath, payload: { name: 'same.txt', text: 'NEW STORY' } })
   assert.equal(script.script.sourceChars, 9)
 
+  const agents = host.services.get('agents')
+  agents.set(imported.sessionId, { phase: { kind: 'running' } })
+  await assert.rejects(host.rpc('exportGameSave', { sessionId: imported.sessionId }), /正文仍在生成，请等待完成后再导出存档/)
+  agents.delete(imported.sessionId)
+
   let nativeReads = 0
   const persistence = host.services.get('sessionPersistence'), open = persistence.open
   persistence.open = async id => {
     const handle = await open(id)
     return { ...handle, read: async () => {
-      if (++nativeReads === 2) sessions.get(id).events.push({ seq: 1, type: 'turn/end', data: { turn: 2 } })
+      if (++nativeReads === 2) sessions.get(id).events.push({ seq: 2, type: 'turn/end', data: { turn: 2 } })
       return handle.read()
     } }
   }
