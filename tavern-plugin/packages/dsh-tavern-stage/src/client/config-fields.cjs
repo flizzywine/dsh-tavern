@@ -92,7 +92,8 @@ function GalConfigSwitch(props) {
     if (useGalConfigLook("toggle") === "cycler") return h(GalConfigCycler, { label: props.label, value: on, disabled: props.disabled, options: [[true, "开"], [false, "关"]], onChange: props.onChange });
     return h("button", { type: "button", role: "switch", className: "fork-gal-config-switch", "aria-label": props.label, "aria-checked": on, "aria-busy": props.busy || undefined,
         disabled: Boolean(props.disabled), onClick: () => props.onChange(!on) },
-        h("span", { className: "fork-gal-config-switch-track", "aria-hidden": true }, h("i", null)));
+        // the state word: a drawn toggle (a plate, the skin's images) has none of its own, so the track carries it (theme.css shows it there)
+        h("span", { className: "fork-gal-config-switch-track", "aria-hidden": true }, h("i", null), h("b", { className: "fork-gal-config-switch-word" }, on ? "开" : "关")));
 }
 
 const GAL_CONFIG_ITEM_TYPES = Object.freeze({ text: "text", toggle: "toggle", slider: "slider", segmented: "segmented", select: "select", colour: "colour", "asset-picker": "picker", "sound-picker": "picker", picker: "picker" });

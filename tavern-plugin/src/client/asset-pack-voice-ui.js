@@ -16,7 +16,8 @@ const VOICE_TUNING={
   'fish-audio':[{key:'speed',label:'语速',min:0.5,max:2,step:0.05,base:1,unit:'x'}],
   azure:[{key:'rate',label:'语速',min:-50,max:100,step:5,base:0,unit:'%'},{key:'pitch',label:'音高',min:-50,max:50,step:5,base:0,unit:'%'},{key:'style',label:'风格',kind:'style'}],
   qwen:[{key:'instructions',label:'风格指令',kind:'text'}],
-  'openai-compatible':[{key:'speed',label:'语速',min:0.5,max:2,step:0.05,base:1,unit:'x'}]};
+  'openai-compatible':[{key:'speed',label:'语速',min:0.5,max:2,step:0.05,base:1,unit:'x'}],
+  browser:[{key:'rate',label:'语速',min:0.5,max:2,step:0.05,base:1,unit:'x'}]};
 const voiceFailure=(code,message)=>Object.assign(new Error(message||code),{code});
 const voiceCode=e=>typeof e?.code==='string'?e.code:e?.name==='TimeoutError'?'TIMEOUT':e?.name==='AbortError'?'ABORTED':/^[A-Z][A-Z0-9_]+$/.test(e?.message||'')?e.message:'';
 const VOICE_ERRORS={ENOENT:'找不到配音所需的本地文件或程序，请检查语音服务的安装路径和参考音频。',ENOTDIR:'配音所需的本地路径不是文件夹，请检查语音服务的安装路径。',TTS_DISABLED:'配音插件未启用',PLUGIN_UNAVAILABLE:'配音插件未启用',SERVICE_REQUIRED:'这个声音绑定的语音服务还没设置；请到语音后端设置，或重新选择已设置服务的音色',CREDENTIALS_REQUIRED:'语音服务缺少 API Key',
@@ -551,12 +552,12 @@ const voiceSayTyped=(text,sample)=>text!==null&&text.trim()&&text!==sample?text.
 function VoiceCurrent({binding,figure,muted,preview,rows,readiness,openSettings,general,tools}) {
   const [text,setText]=React.useState(null),[mood,setMood]=React.useState('calm');
   const g=general?.spec?general:null,source=g?g.spec.sources[voiceSourceId(g.spec,g.figure.voice)]:null;
-  const language=g?figureVoiceLanguage(g.spec,g.figure.voice):'zh';
+  const language=g?figureVoiceLanguage(g.spec,g.figure.voice):'zh',rate=g?g.spec.variants?.normal?.tuning?.[voiceSourceId(g.spec,g.figure.voice)]?.rate:undefined;
   const key='saved:'+figure.id,state=preview.of(key),sample=sampleText(language),typed=voiceSayTyped(text,sample);
   const ready=source&&!muted?readiness(source.provider,source.serviceId):null, warn=!muted&&(voiceSourceUnset(source)||ready?.text);
   const goSet=()=>openSettings(source.provider,source.serviceId?{id:source.serviceId}:undefined);
   const play=()=>{
-    if(!g||source?.provider==='browser')return preview.playBrowser(key,{voice:source?.voiceName||'',language,text:typed||sample},{mood});
+    if(!g||source?.provider==='browser')return preview.playBrowser(key,{voice:source?.voiceName||'',language,text:typed||sample,...(typeof rate==='number'?{rate}:{})},{mood});
     return preview.play(key,{packId:g.ref.packId,figureId:g.ref.figureId,expectedRevision:g.pack.revision,...(typed?{text:typed}:{}),mood},{label:'通用声音',mood});
   };
   const cannot=muted||!!warn||!!g&&g.figure.voice.source===null||!!source&&source.provider!=='browser'&&!binding.tts;
@@ -738,7 +739,7 @@ function VoiceEditor({binding,pack,figure,language,readiness,preview,candidate,w
   const say=async()=>{
     if(sayState&&sayState.phase!=='error'){preview.stop();return;}
     setProblem('');clips?.stop();
-    if(kind==='browser'){const spec=draftSpec([]);return preview.playBrowser(sayKey,{voice:spec.sources[spec.defaultSource].voiceName,language:lang,text:line},{mood});}
+    if(kind==='browser'){const spec=draftSpec([]);return preview.playBrowser(sayKey,{voice:spec.sources[spec.defaultSource].voiceName,language:lang,text:line,...(typeof params.rate==='number'?{rate:params.rate}:{})},{mood});}
     if(inline&&spec0&&!dirty)return preview.play(sayKey,{...candidate(),...(typed?{text:typed}:{}),mood},{label:spec0.name,mood});
     setBusy(true);
     try{
