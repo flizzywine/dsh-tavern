@@ -50,3 +50,27 @@ test('one failed unsubscribe cannot retain other subscriptions or sessions', () 
   assert.equal(owner.get('b'), null)
   assert.doesNotThrow(() => owner.dispose())
 })
+
+test('session list updates do not reconcile an unchanged native binding', () => {
+  const list = source({current:'a', byId:{a:{}}})
+  const signal = source({view:{}})
+  const session = source({running:false})
+  const chat = source({nodes:new Map()})
+  const binding = {session}
+  let reconciles = 0
+  const owner = createStageSessionOwner({
+    sessions:{list, binding:()=>binding}, resolveChat:()=>chat,
+    views:{select:()=>signal, invalidate() {}}, coordination:signal,
+    settings:{get:()=>({}), load() {}, subscribe:signal.subscribe},
+    preferences:{get:()=>({}), subscribe:signal.subscribe},
+    createIndex:()=>({getSnapshot:()=>new Map(), reconcile:()=>{reconciles++;return new Map()}, clear() {}}),
+  })
+  try {
+    owner.start()
+    assert.equal(reconciles,1)
+    list.publish({current:'a',byId:{a:{label:'旅行记录'}}})
+    assert.equal(reconciles,1)
+    chat.publish({nodes:new Map()})
+    assert.equal(reconciles,2)
+  } finally { owner.dispose() }
+})
