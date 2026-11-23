@@ -35,7 +35,7 @@ export interface PackManifest extends Metadata {
   blobs: Record<Sha256, BlobDescriptor>; files: FileEntry[];
 }
 export interface VoiceReference {media: Sha256; text: string; language: string}
-export type VoiceSource = {kind:'voice-id'; provider:'fish-audio'; voiceId:string}
+export type VoiceSource = {kind:'voice-id'; provider:'fish-audio'; voiceId:string; serviceId?:string; serviceType?:'fish-official'}
   | {kind:'preset'; provider:string; voiceName:string; model?:string}
   | {kind:'reference-list'; provider:'fish-audio'; references:VoiceReference[]};
 export interface VoiceSpec {name:string; /** 使用情景, ≤ 60 字 */ guidance?:string; /** 通用声音（是否通用）: the casting assistant may pick it (absent: has a guidance); voice-auto-cast.cjs */ autoCast?:boolean; language:string; defaultSource:string; sources:Record<string,VoiceSource>; emotions?:Record<string,{label:string;referenceEmotion?:string;tuning?:Record<string,Record<string,Json>>}>; fallbackSources?:string[]; variants?:Record<string,{name?:string; tuning?:Record<string,Record<string,string|number|boolean|null>>}>}

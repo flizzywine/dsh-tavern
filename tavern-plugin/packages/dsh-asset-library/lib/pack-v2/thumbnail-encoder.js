@@ -8,7 +8,14 @@ try {
   for await (const chunk of process.stdin) chunks.push(chunk)
   const source=Buffer.concat(chunks)
   if(process.argv[2]==='decode') {
-    await sharp(source,{limitInputPixels:32*1024**2}).png().toBuffer()
+    // A batch of uint32 LE length-framed images, decoded on sharp's worker pool; answers null or the first that does not decode.
+    // One libvips thread per image: the pool already decodes several at once.
+    sharp.concurrency(1)
+    const images=[]
+    for(let offset=0;offset<source.length;offset+=4+source.readUInt32LE(offset))images.push(source.subarray(offset+4,offset+4+source.readUInt32LE(offset)))
+    const results=await Promise.allSettled(images.map(image=>sharp(image,{limitInputPixels:32*1024**2}).png().toBuffer().then(()=>{})))
+    const index=results.findIndex(result=>result.status==='rejected')
+    process.stdout.write(JSON.stringify(index<0?null:{index,message:results[index].reason.message}))
   } else if(process.argv[2]==='master') {
     const width=Number(process.argv[3]),height=Number(process.argv[4])
     const input=sharp(source,{limitInputPixels:32*1024**2,sequentialRead:true}),meta=await input.metadata()

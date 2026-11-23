@@ -46,7 +46,7 @@ export async function withFigureImageExtras(pack, options) {
   for (const figureId of pack.manifest.figures || []) {
     const data = pack.files.get('figures/' + figureId + '.json')
     const figure = data && readDocument(data.file ? await readFile(data.file) : Buffer.from(data))
-    check(!figure?.extensions?.[FIGURE_RECORD_UNAVAILABLE], 'figures/' + figureId + '.json', '人物资料暂时读不到（配图插件未启用或人物库记录缺失），这时不能导出或复制这个素材包', 'ASSET_UNAVAILABLE')
+    check(!figure?.extensions?.[FIGURE_RECORD_UNAVAILABLE], 'figures/' + figureId + '.json', '人物资料暂时读不到（配图插件未启用或人物库记录缺失），这时不能导出或复制这个素材包。启用配图插件后再试', 'ASSET_UNAVAILABLE')
   }
   const extras = await figureImageExtras(options, pack.manifest.id, pack.manifest.figures || [])
   if (!Object.keys(extras).length) return pack

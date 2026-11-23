@@ -1,5 +1,4 @@
 import { placementKey, promptOrder } from './worldbook-activation.js'
-import { worldBookChannel } from './worldbook-channel.js'
 import { hasWorldbookRandom } from './worldbook-random.js'
 
 // Every EJS body is executable and may change, even without a known state-read helper.
@@ -9,18 +8,13 @@ export function hasWorldbookStateReads(content) {
   return /<%[\s\S]*?%>/.test(text)
 }
 
-// Separate fixed bodies from changing bodies while keeping both projections wrapped.
-// A pinned channel wins over the content heuristic: 'tail' always re-injects每轮,
-// 'prefix' joins the stable prefix unless the body itself is executable (EJS, random
-// or a last-message read) — a body that re-renders every round can never be static.
+// Keep static, ungrouped constants in the prefix and resolve the rest per turn.
+// Preserve wrappers that span entries in both projections.
 export function worldbookPlacement(entries, renderedEntries = []) {
   const rendered = new Map(renderedEntries.map(entry => [entry.ref, entry.content]))
   const ordered = promptOrder(entries.filter(entry => entry.enabled !== false))
   const refs = new Set(ordered.filter(entry => {
     const changing = hasWorldbookRandom(entry.content) || hasWorldbookStateReads(entry.content)
-    const channel = worldBookChannel(entry)
-    if (channel === 'tail') return true
-    if (channel === 'prefix') return changing
     return !entry.constant || entry.group || changing
   }).map(entry => entry.ref))
   const buckets = new Map()

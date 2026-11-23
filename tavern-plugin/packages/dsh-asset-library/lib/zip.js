@@ -10,7 +10,7 @@ import { createDeflateRaw, createInflateRaw, crc32 } from 'node:zlib'
 import { PACK_BUDGET } from './pack-v2/budget.js'
 
 const U16 = 0xffff, U32 = 0xffffffff
-const STORED = /\.(png|webp|jpe?g|gif|ogg|mp3|m4a|opus|flac)$/i
+const STORED = /\.(png|webp|jpe?g|gif|webm|mp4|m4a|ogg|oga|opus|mp3|aac|flac|woff2?)$/i
 export const ZIP_LIMITS = Object.freeze({ entries: 20000, entrySize: 512 * 1024 ** 2, totalSize: PACK_BUDGET.totalSize, ratio: 200 })
 export function zipPath(name) {
   if (typeof name !== 'string' || !name || name.includes('\\') || name.split('/').some(s => !s || s === '.' || s === '..' || /[\x00-\x1f\x7f:<>"|?*]/.test(s) || /[. ]$/.test(s) || /^(con|prn|aux|nul|com[0-9]|lpt[0-9])(?:\.|$)/i.test(s))) throw new Error('Invalid ZIP path: ' + name)

@@ -104,7 +104,7 @@ export async function cardUpdateChecks({page,step,savedChat,data,output,report})
     assert.deepEqual((await savedChat()).messages.map(message=>message.variables),before)
   })
   await step('更新后继续下一轮，模型读取新版世界书和变量，回退后仍能显示',async()=>{
-    const composer=page.getByRole('textbox',{name:/发消息|Message/})
+    const composer=page.getByRole('textbox',{name:/下一步行动|Next action|发消息|Message/})
     await composer.fill('E2E 更新后继续'); await composer.press('Enter')
     await page.getByText('更新后的世界中，你又获得十枚金币。',{exact:true}).filter({visible:true}).first().waitFor()
     await status().locator('#ejs-current').filter({hasText:/^EJS 金币：20$/}).waitFor()

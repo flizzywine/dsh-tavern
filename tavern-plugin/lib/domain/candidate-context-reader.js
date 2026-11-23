@@ -12,6 +12,9 @@ export const candidateContextFields = Object.freeze([...taskStateFields,
     .map(key=>'cardDefinitionSnapshot.'+key)
 ])
 
+const worldbookFields = ['id', 'sessionId', 'mode', 'cardPath', 'cardDefinitionSnapshot.name', 'openingWorldbookSnapshot', 'worldBookVirtualState']
+const turnFields = ['role', 'turn']
+
 export function createCandidateContextReader({headerForSession,readWindow,readChat}) {
   async function read(id) {
     let window=await readWindow(id,{limit:32,fields:candidateContextFields})
@@ -34,8 +37,25 @@ export function createCandidateContextReader({headerForSession,readWindow,readCh
     }
     return chat
   }
-  return Object.freeze({read,async forSession(sessionId){
-    const header=await headerForSession(sessionId,['id'])
-    return header ? read(header.id) : undefined
-  }})
+  async function readWorldbook(id) {
+    // The prefix reads the bound book and stored rule state. Only the latest
+    // assistant turn is needed to scope the plugin entries.
+    let page = await readWindow(id, { limit: 32, fields: worldbookFields, messageFields: turnFields })
+    if (!page || !page.chat.cardDefinitionSnapshot || page.chat.openingWorldbookSnapshot?.version !== 1) return readChat(id)
+    const chat = page.chat
+    let assistant = chat.messages.findLast(row => row?.role === 'assistant')
+    while (!assistant && page.from > 0) {
+      page = await readWindow(id, {
+        limit: 32, before: page.from, revision: page.revision, stamp: page.stamp, fields: [], messageFields: turnFields
+      })
+      if (!page) return undefined
+      assistant = page.chat.messages.findLast(row => row?.role === 'assistant')
+    }
+    return { ...chat, messages: assistant ? [assistant] : [] }
+  }
+  async function forSession(sessionId, reader = read) {
+    const header = await headerForSession(sessionId, ['id'])
+    return header ? reader(header.id) : undefined
+  }
+  return Object.freeze({ read, forSession, worldbookForSession: sessionId => forSession(sessionId, readWorldbook) })
 }

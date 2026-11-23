@@ -135,7 +135,7 @@ test('stage voice row: the figures 通用声音 / 旁白 point at warn after the
 })
 
 test('a finished synthesis is not a pack change (no stage reload → re-synthesis → event loop)',async()=>{
-  const launcher=await read('asset-launcher.js'),body=slice(launcher,"get('ttsClient').subscribe(",'const offRate')
+  const launcher=await read('asset-launcher.js'),body=slice(launcher,"get('ttsClient').subscribe(",'child.effect(')
   assert.ok(body.indexOf("modelValidationChanged') return")>=0&&body.indexOf("modelValidationChanged') return")<body.indexOf('notifyPackChange(event)'))
 })
 test('stage voice row: the voice plugin off is the one card-wide ⚠; 去设置 opens 语音后端',async t=>{

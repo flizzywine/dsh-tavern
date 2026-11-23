@@ -23,7 +23,7 @@ export async function setupRealGameplay({ root, profile, data, runtimeHome }) {
 
 export async function realGameplayChecks({ page, step, savedChat, output, report, restartServer, root }) {
   const story = chat => chat.messages.map(({ role, text, sourceText, turn, greeting }) => ({ role, text, sourceText, turn, greeting }))
-  const composer = () => page.getByRole('textbox', { name: /发消息|Message/ })
+  const composer = () => page.getByRole('textbox', { name: /下一步行动|Next action|发消息|Message/ })
   async function poll(label, check) {
     const deadline = Date.now() + 240000
     let tick = Date.now()

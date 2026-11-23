@@ -330,7 +330,7 @@ export function createTavernConversationRegistry(options = {}) {
     const currentLinks = await links()
     const index = await store.readIndex()
     const summaries = new Map(chatRows(index).map(function (item) { return [str(item && item.id), item] }))
-    const rows = []
+    const rows = [], cardPaths = new Set()
     for (const sessionId of Object.keys(currentLinks)) {
       // API test identities are not ordinary sessions in the browser controller.
       // Check ownership rather than hiding arbitrary user IDs with a test prefix.
@@ -342,7 +342,17 @@ export function createTavernConversationRegistry(options = {}) {
       const summary = summaries.get(chatId)
       if (!summary) continue
       const normalized = chatSummary(summary)
+      if (normalized.cardPath) cardPaths.add(normalized.cardPath)
       rows.push({ sessionId, chatId, ...(normalized.backgroundHistoryIds ? { backgroundHistoryIds: normalized.backgroundHistoryIds } : {}), ...(typeof normalized.backgroundSessionId === 'string' ? { backgroundSessionId: normalized.backgroundSessionId } : {}), ...(normalized.preview !== undefined ? { preview: normalized.preview } : {}), cardPath: normalized.cardPath, cardName: normalized.cardName, title: normalized.title, mode: normalized.mode, requestMode: normalized.requestMode, createdAt: normalized.createdAt, updatedAt: normalized.updatedAt, lastOpenedAt: normalized.lastOpenedAt })
+    }
+    // A game is listed under its card's current name: the card is the one source (renamed or updated in
+    // place, the history follows at once). The name saved with the game only stands in for a card that
+    // is gone or unreadable, so its history stays recognisable.
+    if (typeof options.cardName === 'function' && cardPaths.size) {
+      const names = new Map(await Promise.all([...cardPaths].map(async function (cardPath) {
+        return [cardPath, str(await options.cardName(cardPath).catch(function () { return '' }))]
+      })))
+      for (const row of rows) if (names.get(row.cardPath)) row.cardName = names.get(row.cardPath)
     }
     // Conversations keep a fixed place: opening or continuing one must not move it.
     rows.sort(function (left, right) { return right.createdAt - left.createdAt || right.lastOpenedAt - left.lastOpenedAt })

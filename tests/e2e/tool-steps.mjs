@@ -4,7 +4,7 @@ import { join } from 'node:path'
 // A reply with tool round trips has several DSH steps; its story shows once, not once per step (#222).
 export async function toolStepsChecks({ page, step, savedChat, output, report }) {
   await step('带工具调用的一轮，正文只显示一次', async () => {
-    const composer = page.getByRole('textbox', { name: /发消息|Message/ }).filter({ visible: true }).first()
+    const composer = page.getByRole('textbox', { name: /下一步行动|Next action|发消息|Message/ }).filter({ visible: true }).first()
     const replies = async () => (await savedChat()).messages.filter(message => message.role === 'assistant').length
     const before = await replies()
     await composer.fill('E2E_TOOL_STEPS 领取任务奖励'); await composer.press('Enter')

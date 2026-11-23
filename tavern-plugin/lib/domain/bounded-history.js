@@ -128,8 +128,11 @@ export async function readRowsAt(readWindow, chatId, revision, indices) {
 /** The latest `limit` floors, extended on the same revision back to `from` when
  * the reader has already viewed older history. `requirePartial` keeps the old
  * contract of returning null for a history the window would cover entirely. */
-export async function readRecentWindow(readWindow, chatId, { limit, from, requirePartial = false, messageFields } = {}) {
-  const projection = messageFields === undefined ? {} : { messageFields }
+export async function readRecentWindow(readWindow, chatId, { limit, from, requirePartial = false, fields, messageFields } = {}) {
+  const projection = {
+    ...(fields === undefined ? {} : { fields }),
+    ...(messageFields === undefined ? {} : { messageFields })
+  }
   const extended = Number.isSafeInteger(from) && from >= 0
   // Background tasks write several times a turn: a revision moving under the extension is
   // read again, never answered with "no window" (which turns the view into the whole history).
@@ -142,7 +145,7 @@ export async function readRecentWindow(readWindow, chatId, { limit, from, requir
     }
     let stitched = true
     while (window && extended && window.from > from) {
-      const page = await readPinnedWindow(readWindow, chatId, windowSnapshot(window), { limit: Math.min(500, window.from - from), before: window.from, fields: ['_storageRevision'], ...projection })
+      const page = await readPinnedWindow(readWindow, chatId, windowSnapshot(window), { ...projection, limit: Math.min(500, window.from - from), before: window.from, fields: ['_storageRevision'] })
       if (!page || page.to !== window.from - 1) { stitched = false; break }
       window = { ...window, from: page.from, chat: { ...window.chat, messages: page.chat.messages.concat(window.chat.messages) } }
     }
