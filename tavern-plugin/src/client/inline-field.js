@@ -403,6 +403,9 @@ function InlineField(props) {
         if (p.disabled || !node || !target || !target.closest || !node.contains(target)) return;
         const hit = target.closest("button, input, textarea, select, a, label, [role], [tabindex], .fork-inline-pop, .fork-inline-error");
         if ((hit && node.contains(hit)) || target.closest(".fork-inline-field") !== node) return;
+        // A menu opens from its own control or its label only: the empty part of a wide value cell (beside a short choice,
+        // up to the dialog's buttons) is not a place anyone means to open a list from.
+        if (kind === "menu" && target.closest(".fork-inline-value")) return;
         const control = node.querySelector(kind === "chips" ? ".fork-inline-chip-add input" : ".fork-inline-value input, .fork-inline-value textarea, .fork-inline-value button");
         if (!control || control.disabled) return;
         if (control.tagName === "INPUT" || control.tagName === "TEXTAREA") { control.focus(); const end = control.value.length; try { control.setSelectionRange(end, end); } catch (_) { /* not a text box */ } }

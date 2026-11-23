@@ -13,7 +13,9 @@
 //   position as one value, then the greetings the player appended, then the ones the author appended.
 // - A block under `extensions` the new file does not have at all says nothing about it: a tool that wrote the file
 //   (SillyTavern, a card's update script) keeps only the blocks it knows, so the card's own block stays.
-// Without a base (no original file) every value the card has counts as the player's.
+// Without a base (no original file: a card copied in, made here, or whose original is gone) nothing can be told apart
+// as the player's, so the update takes the new file, keeping only the extension blocks it does not have. Counting every
+// value as the player's instead made such an update report success and change nothing.
 const object = value => value !== null && typeof value === 'object' && !Array.isArray(value)
 const plain = value => value === null || ['string', 'number', 'boolean'].includes(typeof value)
 
@@ -99,5 +101,5 @@ export function rebaseCardEdits({ base, local, incoming }) {
     const data = cardData(next), extensions = object(data.extensions) ? data.extensions : (data.extensions = {})
     for (const [key, value] of Object.entries(own)) if (!Object.hasOwn(extensions, key)) extensions[key] = structuredClone(value)
   }
-  return structuredClone(merge(base, local, next))
+  return structuredClone(base === undefined ? next : merge(base, local, next))
 }
