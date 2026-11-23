@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "4c9205ec01d04438244ff0bffbf6128d1ea80d5e",
-  "releaseSequence": 2017,
+  "revision": "1de41e9edea1fe32e57c700230ef8a0ba49cfe93",
+  "releaseSequence": 2018,
   "version": "3.4.0",
   "files": [
     {
@@ -4041,8 +4041,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/transfer-plugins.js",
-      "sha256": "e8335640dd5822607616fbd825ee5fcd1ef09f7176279ea3d1168cd68973c717",
-      "size": 2878
+      "sha256": "d114a46c29ba8a9196ca6ed26da1dd22fa0a74be472f952198f06c6b0a298497",
+      "size": 3797
     },
     {
       "path": "tavern-plugin/lib/domain/transfer-skills.js",
@@ -4086,8 +4086,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/user-plugin-install.js",
-      "sha256": "13d21b42aa55c2f0bc783de3eff43d6456b06badc95b23ab8ed078d81f3f8db6",
-      "size": 38787
+      "sha256": "5b8662ffb64dc4b3ad85c463d281d55d088ceb09b71186dacabcb387aee23145",
+      "size": 39071
     },
     {
       "path": "tavern-plugin/lib/domain/user-plugins.js",
@@ -10161,9 +10161,9 @@
     }
   ],
   "archive": {
-    "commit": "51aec239b262471dac3149f851e923b2de07d962",
+    "commit": "1bea9d5c2989695dd49d420c1d029c620d19394e",
     "path": "runtime.zip",
-    "sha256": "4360676fbfb2983094e8db2b3aef12b81b086e52c35c40de958e4e5db0dd38f0",
-    "size": 17851764
+    "sha256": "6932c63ef7aea6df8cfda5369fa08232433da3d5c10425259bd21308a146064f",
+    "size": 17852285
   }
 }
