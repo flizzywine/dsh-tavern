@@ -416,7 +416,9 @@ function GalStage(props) {
         offerLine?.speaker && offerEmotion ? [{name:offerLine.speaker,emotion:offerEmotion}] : null);
     const sceneCast = leasing || travelCastReady ? borrowed?.characters || [] : accepted.figures || [];
     const performer = performed?.characters?.[0];
-    const characters = performer ? sceneCast.map(figure=>figure.alias===performer.alias || figure.name===performer.name ? {...performer,alias:figure.alias} : figure) : sceneCast;
+    const performerAt = performer ? sceneCast.findIndex(figure=>figure.ref?.figureId && figure.ref.figureId===performer.ref?.figureId ||
+        figure.name===offerLine.speaker) : -1;
+    const characters = performerAt < 0 ? sceneCast : sceneCast.map((figure,index)=>index===performerAt ? {...performer,alias:figure.alias} : figure);
     const pack = {state:accepted.layout?.state || accepted.scene?.state, scene:useBgManualScene(sessionId, leasing ? borrowed?.scene : accepted.scene), characters,
         avatars:accepted.avatars || [], widgets:accepted.widgets || [],
         audio:{music:accepted.music,soundscape:accepted.ambience,sfx:[]}, core:leasing ? borrowed?.scene?.core || '' : accepted.layout?.core || accepted.scene?.core || ''};
