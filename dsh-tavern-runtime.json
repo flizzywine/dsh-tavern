@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "7116bb7f30a13f519c628e096102992436717fe5",
-  "releaseSequence": 2016,
+  "revision": "4c9205ec01d04438244ff0bffbf6128d1ea80d5e",
+  "releaseSequence": 2017,
   "version": "3.4.0",
   "files": [
     {
@@ -2366,8 +2366,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/image-character-appearance.js",
-      "sha256": "1ce32738ca778689fb2d88e31df7cc634d6b6377872468fe9194f65d77b3ba0e",
-      "size": 12513
+      "sha256": "596d15fd9b6d3badd783e2ed55302401ce1c74bfb4998695d1d9187901b77d44",
+      "size": 12727
     },
     {
       "path": "tavern-plugin/lib/domain/immutable-json-projection.js",
@@ -10161,9 +10161,9 @@
     }
   ],
   "archive": {
-    "commit": "2a86dd896bfc90303c82ded56cc38f37307638ec",
+    "commit": "51aec239b262471dac3149f851e923b2de07d962",
     "path": "runtime.zip",
-    "sha256": "399a539bb85db546e9bd5bb76329037c4ecca867bdb19890658b720862d2f891",
-    "size": 17851689
+    "sha256": "4360676fbfb2983094e8db2b3aef12b81b086e52c35c40de958e4e5db0dd38f0",
+    "size": 17851764
   }
 }
