@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "c53c550f8cb5c66cab8d14887afe2531f758c2fd",
-  "releaseSequence": 2021,
+  "revision": "177ba1b5ece4c443e25fb62296e3df4bf6718eac",
+  "releaseSequence": 2022,
   "version": "3.4.0",
   "files": [
     {
@@ -1221,8 +1221,8 @@
     },
     {
       "path": "tavern-plugin/lib/client-assets/tavern.css",
-      "sha256": "1b2424b30edd2cd0dd4f5aa79a5c8a9fb8b4a70e496211e50f5c6a8cabb1a30c",
-      "size": 460721
+      "sha256": "0ef4b286a163dda755f0dbcdeda6de552355304ac24ea42c13101188baf62a03",
+      "size": 463079
     },
     {
       "path": "tavern-plugin/lib/client-assets/theme.css",
@@ -1271,8 +1271,8 @@
     },
     {
       "path": "tavern-plugin/lib/client.js",
-      "sha256": "02ecb16b8a9855a5d54cdf8385a7bf85988fdcf23b846257327e914a372cc968",
-      "size": 6509637
+      "sha256": "589016bec6ee8bfe51455f65ea56478872be9f23ff644cd758b43a5239de7cb2",
+      "size": 6512967
     },
     {
       "path": "tavern-plugin/lib/cordis-inspect.js",
@@ -2916,8 +2916,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/pi-ai-vertex-stream.js",
-      "sha256": "b811ab49fcdf451c40dc4a61942ab2900a63547e49277f722ddb28f3de3b5691",
-      "size": 33177
+      "sha256": "7e1ea57b3d74f3e262982f90056fb05c2a05d88094a7de91af60d1779939dd40",
+      "size": 33647
     },
     {
       "path": "tavern-plugin/lib/domain/plain-settlement-engine.js",
@@ -10166,9 +10166,9 @@
     }
   ],
   "archive": {
-    "commit": "57bd404b4f34cbea07d0b940583ca544412d1fa3",
+    "commit": "a328644ebb211ac3f406d0e595620f487e88caea",
     "path": "runtime.zip",
-    "sha256": "3adf8f983c8ba50cc2dfcc8e5df846a06f5694669aebb3b50ee9a99513e68231",
-    "size": 17854576
+    "sha256": "c5a8da6ed591539361326c9aee002ecc837f1d803f641f361e45413f17ee9259",
+    "size": 17855841
   }
 }
