@@ -1105,11 +1105,11 @@ export function createAssetPackService(options) {
     copyFigure(input) {
       validateFigureRef(input.source)
       let carried
-      return edit(input.target, async (manifest, files, _before, hashed) => {
+      return edit(input.target, async (manifest, files, before, hashed) => {
         const source = await load(input.source.packId)
         // the copy takes the source figure's 配图 外貌 along; the host gives it a record of its own
         const extension = (await figureImageExtras(options, input.source.packId, [input.source.figureId]))[input.source.figureId]
-        const result = copyFigureAssets(source, input.source.figureId, manifest, files, {extensions:extension ? {[FIGURE_IMAGE_EXTENSION]:extension} : {}})
+        const result = copyFigureAssets(source, input.source.figureId, manifest, files, {extensions:extension ? {[FIGURE_IMAGE_EXTENSION]:extension} : {}, retired:new Set(before?.local?.retired || [])})
         if (extension) await carryFigureImageMedia(options, input.source.packId, {[input.source.figureId]:extension}, manifest, files, hashed)
         const debt = await readCopyMouthDebt(options.assetRoot,source.manifest.id,source.local,options.mouthDebtRoot)
         carried = copiedMouthDebt(source,{figures:{[result.figureId]:source.figures[input.source.figureId]},sprites:source.sprites},[{kind:'figures',fromId:input.source.figureId,toId:result.figureId}],debt)

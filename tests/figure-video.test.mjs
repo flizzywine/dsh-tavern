@@ -8,6 +8,8 @@ import {entranceDoc} from './fixtures/stage-entrance.mjs'
 import {validateFigure, validateFigureClosure} from '../tavern-plugin/packages/dsh-asset-library/src/asset-packs/figure.js'
 import {validatePackManifest} from '../tavern-plugin/packages/dsh-asset-library/src/asset-packs/manifest.js'
 import {selectPackFigure, packFigureVideo} from '../tavern-plugin/packages/dsh-tavern-stage/lib/domain/asset-pack-presentation.js'
+import {copyFigureAssets} from '../tavern-plugin/packages/dsh-asset-library/src/pack-v2/copy-figure.js'
+import {copyPackItems} from '../tavern-plugin/packages/dsh-asset-library/src/pack-v2/copy-items.js'
 
 const require = createRequire(import.meta.url)
 const {createStageFigureVideos} = require('../tavern-plugin/packages/dsh-tavern-stage/src/client/figure-video.cjs')
@@ -182,4 +184,26 @@ test('speech plays the talking loop from its first frame, loops it, and plays it
   assert.equal(handle.talks(), false); handle.update({on: true, talking: true}); handle.tick(16); assert.equal(handle.state().phase, 'idle')
   scope.dispose()
   assert.equal(sprite.children.length, 0)
+})
+
+test('copying a figure takes its still loops along as entries of the target, renamed where the target has the id', async () => {
+  const pack = await packWithVideo()
+  pack.files.set('bundles/video-calm-loop/loop.mp4', Buffer.from('idle')); pack.files.set('bundles/video-calm-talk/loop.mp4', Buffer.from('talk'))
+  const target = () => ({id: '33333333-3333-4333-8333-333333333333', figures: [], sprites: {}, blobs: {}, files: [],
+    assets: [videoEntry({name: 'Other'})], bundles: {'video-calm-loop': {kind: 'video', entry: 'loop.mp4', contentHash: 'f'.repeat(64)}}})
+  const check = (manifest, files, figureId) => {
+    const figure = JSON.parse(files.get('figures/' + figureId + '.json'))
+    assert.deepEqual(figure.outfits[0].sprite.videos.calm, {video: 'calm-loop-2', talk: 'calm-talk', rect: [100, 40, 320, 768]})
+    const idle = manifest.assets.find(a => a.id === 'calm-loop-2'), talk = manifest.assets.find(a => a.id === 'calm-talk')
+    assert.deepEqual([idle.bundleKey, talk.bundleKey], ['video-calm-loop-2', 'video-calm-talk'])
+    assert.equal(String(files.get('bundles/video-calm-loop-2/loop.mp4')), 'idle'); assert.equal(String(files.get('bundles/video-calm-talk/loop.mp4')), 'talk')
+    assert.deepEqual(idle.extensions.dsh_tavern.copiedFrom, {packId: pack.manifest.id, kind: 'videos', assetId: 'calm-loop'})
+    assert.equal(manifest.assets.filter(a => a.kind === 'videos').length, 3, 'each loop once, beside the target\'s own')
+  }
+  const one = target(), oneFiles = new Map()
+  check(one, oneFiles, copyFigureAssets(pack, FIGURE_ID, one, oneFiles).figureId)
+  // Named together with the figure, a loop is still copied once.
+  const many = target(), manyFiles = new Map()
+  const copied = copyPackItems(pack, [{kind: 'figures', id: FIGURE_ID}, {kind: 'videos', id: 'calm-talk'}], many, manyFiles, new Set())
+  check(many, manyFiles, copied.find(row => row.kind === 'figures').toId)
 })
