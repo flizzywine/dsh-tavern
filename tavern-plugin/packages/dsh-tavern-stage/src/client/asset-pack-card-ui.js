@@ -811,13 +811,17 @@ function StagePackSection({ctx,ready,state}) {
 // unchecked pack also leaves the exported card's bindings (packIds). Figures of the checked packs can be left out (e.g. the one the player plays). The cover shows at the top.
 // 导出 first asks where to save (binding.pickSave, the native save-as dialog; none on phones), then packing (an indeterminate
 // bar: the route sends nothing until the archive is built) and the bytes as they stream to the file; closing the sheet stops it.
-// The file is saved through binding.download like every other export; the sheet then says where it went.
+// The file is saved through binding.download like every other export; the sheet then says where it went, and a refusal
+// says the host's reason (e.g. which pack holds entries only for this machine), never a bare 「请重试」.
+// `encrypt` (加密导出, card-library.js): {askPassword() → password|null, run({password,packIds,excludeFigures}) →
+// {downloadUrl,filename}}: the password comes first (its 确定 click lets the save-as dialog open), then the same save.
 const DSHCARD_FAILURE={404:'找不到这张人物卡。',409:'人物卡刚刚改过，请再导出一次。'};
+const dshCardFailure=error=>DSHCARD_FAILURE[error?.status]||playerErrorText(error,{fallback:'没能导出，请重试。'});
 function dshCardExportUrl(path,excludeFigures,packIds) {
   return '/api/dsh-tavern/card-export?path='+encodeURIComponent(path)+(excludeFigures.length?'&excludeFigures='+encodeURIComponent(JSON.stringify(excludeFigures)):'')
     +'&packIds='+encodeURIComponent(JSON.stringify(packIds));
 }
-function DshCardExportSheet({binding,path,cardName,onClose}) {
+function DshCardExportSheet({binding,path,cardName,encrypt,onClose}) {
   const state=useLoad(binding,async()=>{
     const [card,rows]=await Promise.all([binding.rpc('getCardAssetBindings',{path,metadataOnly:true}),loadPackRows(binding)]);
     const byId=new Map(rows.filter(p=>!p.error).map(p=>[p.manifest.id,p]));
@@ -844,17 +848,30 @@ function DshCardExportSheet({binding,path,cardName,onClose}) {
     if(work||picking.current||!value)return;
     setProblem('');setSaved(null);
     // the save-as dialog needs the click's activation, so it opens before anything is fetched; closing it is no error.
-    let target=null;picking.current=true;
-    try{target=binding.pickSave?await binding.pickSave({name:cardName||'人物卡',description:'DSH 人物卡',extension:'.dshcard'}):null;}
+    let target=null,password=null;picking.current=true;
+    const name=(cardName||'人物卡')+(encrypt?'-加密':'');
+    try{
+      if(encrypt&&(password=await encrypt.askPassword())===null)return;
+      target=binding.pickSave?await binding.pickSave({name,description:'DSH 人物卡',extension:'.dshcard'}):null;
+    }
     catch(error){if(error?.name!=='AbortError'&&mounted.current)setProblem('没能打开保存位置，请重试。');return;}
     finally{picking.current=false;}
     if(!mounted.current)return;
     const controller=new AbortController();abort.current=controller;setWork({loaded:0,total:0});
+    let saving=false;
     try{
-      const url=dshCardExportUrl(path,figures.filter(f=>left.has(f.id)).map(f=>f.id),packIds);
-      const result=await binding.download({url,filename:'人物卡.dshcard'},{target,name:cardName,signal:controller.signal,onProgress:next=>{if(mounted.current)setWork(next);}});
+      const excludeFigures=figures.filter(f=>left.has(f.id)).map(f=>f.id);
+      // 加密导出 packs and encrypts on the host first (no bytes until it is done), then the file streams like a plain one.
+      const source=encrypt?await encrypt.run({password,packIds,excludeFigures}):{url:dshCardExportUrl(path,excludeFigures,packIds),filename:'人物卡.dshcard'};
+      controller.signal.throwIfAborted();
+      saving=true;
+      const result=await binding.download(encrypt?{url:source.downloadUrl,filename:source.filename}:source,{target,name,signal:controller.signal,onProgress:next=>{if(mounted.current)setWork(next);}});
       if(mounted.current)setSaved(result);
-    }catch(error){if(mounted.current&&!controller.signal.aborted)setProblem(error.status===400&&error.message||DSHCARD_FAILURE[error.status]||'没能导出，请重试。');}
+    }catch(error){
+      // the save itself takes back a half-written file; a failure before it leaves the empty file the dialog made.
+      if(!saving&&target?.file)await target.file.remove?.().catch(()=>{});
+      if(mounted.current&&!controller.signal.aborted)setProblem(dshCardFailure(error));
+    }
     finally{abort.current=null;if(mounted.current)setWork(null);}
   }
   const head=(title,meta,extra,help)=>h('header',{className:'ap-section-head'},h('h3',null,title,meta!==undefined&&h('span',{className:'ap-section-meta'},meta),help&&h(Help,{label:title+' 说明',text:help})),extra);
@@ -871,12 +888,13 @@ function DshCardExportSheet({binding,path,cardName,onClose}) {
         check(!left.has(figure.id),figure.name,()=>flip(figure.id)),h('span',{className:'ap-dshcard-name',title:figure.name},figure.name))))),
     work&&h('div',{className:'ap-dshcard-progress'},
       h('div',{className:'ap-cat-progress','data-indeterminate':packing||undefined,role:'progressbar','aria-label':'导出进度','aria-valuemin':0,'aria-valuemax':100,'aria-valuenow':packing?undefined:Math.round(pct)},h('span',{style:packing?undefined:{width:pct+'%'}})),
-      h('p',{className:'ap-cat-job-meta',role:'status'},packing?'正在打包…':stageBytesText(work.loaded)+' / '+stageBytesText(work.total))),
-    saved&&h('p',{className:'ap-notice ap-dshcard-saved',role:'status'},h('span',null,(saved.picked?'已导出到 ':'已开始下载 ')+saved.names.map(n=>'「'+n+'」').join(''))),
+      h('p',{className:'ap-cat-job-meta',role:'status'},packing?(encrypt?'正在打包并加密…':'正在打包…'):stageBytesText(work.loaded)+' / '+stageBytesText(work.total))),
+    saved&&h('p',{className:'ap-notice ap-dshcard-saved',role:'status'},h('span',null,saved.said)),
     problem&&h(CatBand,{role:'alert'},problem));
-  return h(CatSheet,{title:'导出 DSH 人物卡',className:'ap-dshcard-sheet',onClose,initialFocus:'dialog',
-      foot:saved?h(Button,{primary:true,onClick:onClose},'完成'):h(React.Fragment,null,h(Button,{onClick:onClose},'取消'),h(Button,{primary:true,disabled:!!work||!value,onClick:run},catBusyLabel(!!work,work?'正在导出…':'导出')))},
-    h('div',{className:'ap-cat-hero'},h(CardCover,{name:cardName||'',path}),h('div',{className:'ap-cat-hero-text'},h('h3',{className:'ap-cat-hero-name'},cardName||'人物卡'),h(CatSub,null,'.dshcard 文件'))),
+  const verb=encrypt?'加密导出':'导出';
+  return h(CatSheet,{title:verb+' DSH 人物卡',className:'ap-dshcard-sheet',onClose,initialFocus:'dialog',
+      foot:saved?h(Button,{primary:true,onClick:onClose},'完成'):h(React.Fragment,null,h(Button,{onClick:onClose},'取消'),h(Button,{primary:true,disabled:!!work||!value,onClick:run},catBusyLabel(!!work,work?'正在'+verb+'…':verb)))},
+    h('div',{className:'ap-cat-hero'},h(CardCover,{name:cardName||'',path}),h('div',{className:'ap-cat-hero-text'},h('h3',{className:'ap-cat-hero-name'},cardName||'人物卡'),h(CatSub,null,encrypt?'.dshcard 文件，导入时要输密码':'.dshcard 文件'))),
     body);
 }
 // Legacy widget entries remain asset/export data, not registry mod switches.

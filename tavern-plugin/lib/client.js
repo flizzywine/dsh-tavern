@@ -3692,19 +3692,22 @@ window.__ModuleLoader__.load({
 		// pickExportTarget runs first, inside the click: the native save-as dialog (one file, suggested `name`) or a folder
 		// picker (`many`: a batch may come back as several volumes), so the player chooses where before any packing starts.
 		// It resolves null where the browser has no picker (phones, remote browsers): the file then goes through an ordinary
-		// download. It rejects with an AbortError when the dialog is closed.
+		// download. It rejects with an AbortError when the dialog is closed. The dialog opens in Downloads the first time and
+		// then where the last export was saved (the browser remembers the folder per `id`).
+		// `type` is the file's media type for the dialog's filter (default ZIP; a JSON or PNG card export names its own).
 		const PACK_ROOT = '/api/dsh-asset-library/v2/';
 		function exportFileName(name) { return String(name || '').replace(/[\\/:*?"<>|\r\n]/g, '_').trim() || '导出'; }
-		async function pickExportTarget({name, many = false, description = 'ZIP 压缩包', extension = '.zip'}) {
+		async function pickExportTarget({name, many = false, description = 'ZIP 压缩包', extension = '.zip', type = 'application/zip'}) {
 		    if (many ? typeof window.showDirectoryPicker !== 'function' : typeof window.showSaveFilePicker !== 'function') return null;
-		    if (many) return {folder:await window.showDirectoryPicker({id:'dsh-export', mode:'readwrite'})};
-		    const file = await window.showSaveFilePicker({id:'dsh-export', suggestedName:exportFileName(name) + extension, types:[{description, accept:{'application/zip':[extension]}}]});
+		    if (many) return {folder:await window.showDirectoryPicker({id:'dsh-export', mode:'readwrite', startIn:'downloads'})};
+		    const file = await window.showSaveFilePicker({id:'dsh-export', startIn:'downloads', suggestedName:exportFileName(name) + extension, types:[{description, accept:{[type]:[extension]}}]});
 		    return {file};
 		}
 		// saveExportFile(result, {target, name, onProgress, signal}) writes each archive of an export result ({download:{ticket}},
 		// {url} of a GET that streams the file, or {bytes}) to the picked target, streamed to disk with onProgress({loaded,
 		// total}) per file; without a target it hands the file to an ordinary download. `name` (no extension; the archive's
-		// own is kept) overrides the file name of a single archive. Resolves {names:[saved file names], picked:boolean}. A failed write removes the half-written file.
+		// own is kept) overrides the file name of a single archive. Resolves {names:[saved file names], picked:boolean, said}: `said`
+		// is the one sentence every export shows when done, where the file is. A failed write removes the half-written file.
 		async function saveExportFile(result, {target = null, name, onProgress, signal} = {}) {
 		    const archives = result.archives || [result], names = [];
 		    const fileName = archive => archives.length === 1 && name ? exportFileName(name) + (/\.[^.]+$/.exec(archive.filename || '')?.[0] || '.zip') : archive.filename || 'asset-pack.zip';
@@ -3739,7 +3742,9 @@ window.__ModuleLoader__.load({
 		        if (blob) setTimeout(() => URL.revokeObjectURL(url), 1000);
 		        names.push(filename);
 		    }
-		    return {names, picked:!!target};
+		    const files = names.map(n => '「' + n + '」').join('');
+		    // the page never learns the folder the dialog chose (a file handle has no path), so it names the choice instead.
+		    return {names, picked:!!target, said:target ? '已导出 ' + files + '，在刚才保存框里选的文件夹里。' : '已开始下载 ' + files + '，在浏览器的下载列表里。'};
 		}
 		// browser port for the authenticated v2 package transport.
 		function createPackTransport({fetch: request = fetch, interval = 2000, subscribeChanges} = {}) {
@@ -5891,8 +5896,7 @@ window.__ModuleLoader__.load({
 		    async function saveTo(job,result){
 		      setExporting({...job.state,phase:'save',loaded:0,total:0});
 		      const saved=await binding.download(result,{target:job.target,name:job.many?undefined:job.name,onProgress:p=>setExporting({...job.state,phase:'save',...p})});
-		      const names=(saved?.names||[]).map(n=>'「'+n+'」').join('');
-		      setExported({text:saved?.picked?'已导出到 '+names:'已开始下载 '+names});
+		      setExported({text:saved.said});
 		    }
 		    const runExport=(job,start)=>work.task(async()=>{
 		      setExported(null);
@@ -31423,9 +31427,10 @@ function tavernModelRefusalNotice(text) {
 		    const h = React.createElement, forkCardZip = props.target === null ? null : Object.assign({}, zip.api, { pickerRef: picker });
 		    return h(React.Fragment, null, h(props.host, Object.assign({}, hostProps, { forkCardZip })), zip.element);
 		}
-		// 人物卡库 「导出」 opens the one DSH card export sheet (DshCardExportSheet, asset-pack-card-ui.js; 舞台设置 › 素材包
-		// 「导出」 opens the same sheet); without the pack service it downloads the plain .dshcard. useDshCardExport owns the sheet and its pack binding, like
+		// 人物卡库 「导出」 and 「加密导出」 open the one DSH card export sheet (DshCardExportSheet, asset-pack-card-ui.js; 舞台设置 › 素材包
+		// 「导出」 opens the same sheet); without the pack service the card library saves the plain .dshcard itself. useDshCardExport owns the sheet and its pack binding, like
 		// useCardZipImport (card-zip-entry.js); `open` is null while the pack service is not there.
+		// open(card, {encrypt}) opens it for 加密导出: `encrypt` is the sheet's password and host step (see DshCardExportSheet).
 		function useDshCardExport(options) {
 		    const opts = options || {};
 		    const [sheet, setSheet] = React.useState(null);
@@ -31434,11 +31439,12 @@ function tavernModelRefusalNotice(text) {
 		    const binding = useCardPackBinding(opts.binding, service, opts.sessionId || "", !!sheet);
 		    const ui = typeof packUi === "object" && packUi ? packUi : opts.views;
 		    const h = React.createElement;
+		    const props = sheet && { key: sheet.path + (sheet.encrypt ? ":encrypt" : ""), binding, path: sheet.path, cardName: sheet.name, encrypt: sheet.encrypt, onClose: function () { setSheet(null); } };
 		    return {
-		        open: service && ui ? function (card) { setSheet({ path: card.path, name: card.name }); } : null,
+		        open: service && ui ? function (card, how) { setSheet({ path: card.path, name: card.name, encrypt: how && how.encrypt || null }); } : null,
 		        // the sheet is a stage package page (asset-pack-card-ui.js): StagePackView holds the stage client while the sheet is open.
-		        element: sheet && binding && ui ? (!opts.views && typeof StagePackView === "function" ? h(StagePackView, { key: sheet.path, view: function (api) { return api.DshCardExportSheet; }, binding, path: sheet.path, cardName: sheet.name, onClose: function () { setSheet(null); } })
-		            : h(ui.DshCardExportSheet, { key: sheet.path, binding, path: sheet.path, cardName: sheet.name, onClose: function () { setSheet(null); } })) : null
+		        element: sheet && binding && ui ? (!opts.views && typeof StagePackView === "function" ? h(StagePackView, Object.assign({ view: function (api) { return api.DshCardExportSheet; } }, props))
+		            : h(ui.DshCardExportSheet, props)) : null
 		    };
 		}
 		// The current game’s helper scripts, with read-only source and machine-local runtime switches.
@@ -56444,31 +56450,61 @@ function CardExportMenu({ disabled, hasImage, onExport }) {
 				catch (err) { setError(String(err && err.message || err)); }
 				finally { setBusy(false); }
 			}
-			// Native exports keep the card, cover and material together in one DSH container.
+			// The exports the library saves itself (JSON, PNG, a .dshcard with no packs to choose, 加密导出 without the pack
+			// service; the rest go through the DSH card export sheet): the save-as dialog first, inside the click (Downloads the
+			// first time, then the last export's folder), then the progress dialog while the host packs and the file streams to
+			// it, then the result line saying where it is (saveExportFile `said`), or the host's reason. Without a dialog (phones)
+			// the file goes to an ordinary download. `source()` resolves {url, filename} of the GET that streams the file.
+			async function saveCardExport({ extension, type, description, suffix = '', title, packing, source }) {
+				const name = card.name + suffix;
+				let target = null;
+				try { target = await pickExportTarget({ name, description, extension, type }); }
+				catch (error) { if (error?.name !== 'AbortError') setError(error); return; }
+				setBusy(true); setError(''); setImportStatus('');
+				const progress = beginTavernCardImportProgress(name + extension, { title });
+				progress.update(packing);
+				let saving = false;
+				try {
+					const archive = await source();
+					saving = true;
+					const saved = await saveExportFile(archive, { target, name, onProgress: function (p) {
+						progress.update(p.total ? '正在保存 ' + (p.loaded / 1048576).toFixed(1) + ' / ' + (p.total / 1048576).toFixed(1) + ' MB' : packing);
+					} });
+					setImportStatus(saved.said);
+				} catch (error) {
+					// the save takes back a half-written file; a failure before it leaves the empty file the dialog made.
+					if (!saving && target?.file) await target.file.remove?.().catch(function () {});
+					setError(error);
+				}
+				finally { progress.close(); setBusy(false); }
+			}
+			// Native exports keep the card, cover and material together in one DSH container. A card with packs to choose
+			// encrypts through the export sheet (the packs and figures to take, then the password); the host packs and encrypts
+			// (rpc encryptLibraryCard) and the file is saved like any export.
 			async function encryptCurrentCard() {
-                if (!card || busy) return;
-                const password = await askTavernCardPassword({ name: card.name, confirm: true });
-                if (password === null) return;
-                setBusy(true); setError(''); setImportStatus('');
-                const progress = beginTavernCardImportProgress(card.name, { title: '正在加密导出人物卡' });
-                progress.update('正在整理当前卡片、封面、插件和素材并加密…');
-                try {
-                    const result = await rpc('encryptLibraryCard', { path: card.path, password });
-                    const link = document.createElement('a'); link.href = result.downloadUrl; link.download = result.filename;
-                    document.body.append(link); link.click(); link.remove();
-                    setImportStatus('已生成加密卡包：' + result.filename + '。导入时需要密码。');
-                } catch (error) { setError(String(error?.message || error)); }
-                finally { progress.close(); setBusy(false); }
-            }
+				if (!card || busy) return;
+				const path = card.path;
+				const run = function (args) { return rpc('encryptLibraryCard', Object.assign({ path }, args)); };
+				if (dshExport.open && card.extensions?.hasSelectableAssetPacks !== false) {
+					dshExport.open(card, { encrypt: { askPassword: function () { return askTavernCardPassword({ name: card.name, confirm: true }); }, run } });
+					return;
+				}
+				const password = await askTavernCardPassword({ name: card.name, confirm: true });
+				if (password === null) return;
+				await saveCardExport({ extension: '.dshcard', type: 'application/zip', description: 'DSH 人物卡', suffix: '-加密', title: '正在加密导出人物卡',
+					packing: '正在整理当前卡片、封面、插件和素材并加密…',
+					source: async function () { const result = await run({ password }); return { url: result.downloadUrl, filename: result.filename }; } });
+			}
+			const CARD_EXPORT_FILES = { dshcard: { extension: '.dshcard', type: 'application/zip', description: 'DSH 人物卡' }, json: { extension: '.json', type: 'application/json', description: 'JSON 人物卡' }, png: { extension: '.png', type: 'image/png', description: 'PNG 人物卡' } };
 			function exportCardFile(format) {
 				if (!card) return;
 				if (format === "dshcard" && dshExport.open && card.extensions?.hasSelectableAssetPacks !== false) {
 					dshExport.open(card);
 					return;
 				}
-				const link = document.createElement("a");
-				link.href = "/api/dsh-tavern/card-export?" + new URLSearchParams({ path: card.path, format });
-				document.body.appendChild(link); link.click(); link.remove();
+				const url = "/api/dsh-tavern/card-export?" + new URLSearchParams({ path: card.path, format });
+				return saveCardExport(Object.assign({ title: '正在导出人物卡', packing: format === 'dshcard' ? '正在打包卡片、封面和素材…' : '正在准备…',
+					source: function () { return { url, filename: '人物卡' + CARD_EXPORT_FILES[format].extension }; } }, CARD_EXPORT_FILES[format]));
 			}
 			const h = React.createElement;
 			if (selectedPath) {

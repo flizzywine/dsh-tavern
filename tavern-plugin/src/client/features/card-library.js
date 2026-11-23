@@ -165,31 +165,61 @@ function CardExportMenu({ disabled, hasImage, onExport }) {
 				catch (err) { setError(String(err && err.message || err)); }
 				finally { setBusy(false); }
 			}
-			// Native exports keep the card, cover and material together in one DSH container.
+			// The exports the library saves itself (JSON, PNG, a .dshcard with no packs to choose, 加密导出 without the pack
+			// service; the rest go through the DSH card export sheet): the save-as dialog first, inside the click (Downloads the
+			// first time, then the last export's folder), then the progress dialog while the host packs and the file streams to
+			// it, then the result line saying where it is (saveExportFile `said`), or the host's reason. Without a dialog (phones)
+			// the file goes to an ordinary download. `source()` resolves {url, filename} of the GET that streams the file.
+			async function saveCardExport({ extension, type, description, suffix = '', title, packing, source }) {
+				const name = card.name + suffix;
+				let target = null;
+				try { target = await pickExportTarget({ name, description, extension, type }); }
+				catch (error) { if (error?.name !== 'AbortError') setError(error); return; }
+				setBusy(true); setError(''); setImportStatus('');
+				const progress = beginTavernCardImportProgress(name + extension, { title });
+				progress.update(packing);
+				let saving = false;
+				try {
+					const archive = await source();
+					saving = true;
+					const saved = await saveExportFile(archive, { target, name, onProgress: function (p) {
+						progress.update(p.total ? '正在保存 ' + (p.loaded / 1048576).toFixed(1) + ' / ' + (p.total / 1048576).toFixed(1) + ' MB' : packing);
+					} });
+					setImportStatus(saved.said);
+				} catch (error) {
+					// the save takes back a half-written file; a failure before it leaves the empty file the dialog made.
+					if (!saving && target?.file) await target.file.remove?.().catch(function () {});
+					setError(error);
+				}
+				finally { progress.close(); setBusy(false); }
+			}
+			// Native exports keep the card, cover and material together in one DSH container. A card with packs to choose
+			// encrypts through the export sheet (the packs and figures to take, then the password); the host packs and encrypts
+			// (rpc encryptLibraryCard) and the file is saved like any export.
 			async function encryptCurrentCard() {
-                if (!card || busy) return;
-                const password = await askTavernCardPassword({ name: card.name, confirm: true });
-                if (password === null) return;
-                setBusy(true); setError(''); setImportStatus('');
-                const progress = beginTavernCardImportProgress(card.name, { title: '正在加密导出人物卡' });
-                progress.update('正在整理当前卡片、封面、插件和素材并加密…');
-                try {
-                    const result = await rpc('encryptLibraryCard', { path: card.path, password });
-                    const link = document.createElement('a'); link.href = result.downloadUrl; link.download = result.filename;
-                    document.body.append(link); link.click(); link.remove();
-                    setImportStatus('已生成加密卡包：' + result.filename + '。导入时需要密码。');
-                } catch (error) { setError(String(error?.message || error)); }
-                finally { progress.close(); setBusy(false); }
-            }
+				if (!card || busy) return;
+				const path = card.path;
+				const run = function (args) { return rpc('encryptLibraryCard', Object.assign({ path }, args)); };
+				if (dshExport.open && card.extensions?.hasSelectableAssetPacks !== false) {
+					dshExport.open(card, { encrypt: { askPassword: function () { return askTavernCardPassword({ name: card.name, confirm: true }); }, run } });
+					return;
+				}
+				const password = await askTavernCardPassword({ name: card.name, confirm: true });
+				if (password === null) return;
+				await saveCardExport({ extension: '.dshcard', type: 'application/zip', description: 'DSH 人物卡', suffix: '-加密', title: '正在加密导出人物卡',
+					packing: '正在整理当前卡片、封面、插件和素材并加密…',
+					source: async function () { const result = await run({ password }); return { url: result.downloadUrl, filename: result.filename }; } });
+			}
+			const CARD_EXPORT_FILES = { dshcard: { extension: '.dshcard', type: 'application/zip', description: 'DSH 人物卡' }, json: { extension: '.json', type: 'application/json', description: 'JSON 人物卡' }, png: { extension: '.png', type: 'image/png', description: 'PNG 人物卡' } };
 			function exportCardFile(format) {
 				if (!card) return;
 				if (format === "dshcard" && dshExport.open && card.extensions?.hasSelectableAssetPacks !== false) {
 					dshExport.open(card);
 					return;
 				}
-				const link = document.createElement("a");
-				link.href = "/api/dsh-tavern/card-export?" + new URLSearchParams({ path: card.path, format });
-				document.body.appendChild(link); link.click(); link.remove();
+				const url = "/api/dsh-tavern/card-export?" + new URLSearchParams({ path: card.path, format });
+				return saveCardExport(Object.assign({ title: '正在导出人物卡', packing: format === 'dshcard' ? '正在打包卡片、封面和素材…' : '正在准备…',
+					source: function () { return { url, filename: '人物卡' + CARD_EXPORT_FILES[format].extension }; } }, CARD_EXPORT_FILES[format]));
 			}
 			const h = React.createElement;
 			if (selectedPath) {
