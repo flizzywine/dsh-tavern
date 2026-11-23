@@ -1,5 +1,6 @@
 import path from 'node:path'
 import { safeTransferFileName, transferItem } from './transfer-bundle.js'
+import { isPng, pngCardTextChunk, pngWithTextChunks } from './card-assets.js'
 
 function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
@@ -269,8 +270,12 @@ export function createTransferCatalog(deps) {
         const characterBook = await worldBooks.characterBookForCard(cardPath).catch(() => null)
         const document = cardPreparation.present({ card: workspace, as: 'sillytavern-v3', characterBook })
         const title = str(document.name) || stemOf(cardPath)
-        add('cards', '人物卡', { key: cardPath, title }, safeTransferFileName(stemOf(cardPath), 'card') + '.json',
-          JSON.stringify(document, null, 2) + '\n')
+        const text = JSON.stringify(document, null, 2) + '\n'
+        // A card with a cover travels as a card PNG (its cover carrying the card), so the cover arrives with it.
+        const cover = typeof fileResources.readCardImage === 'function' ? await fileResources.readCardImage(cardPath).catch(() => undefined) : undefined
+        const stem = safeTransferFileName(stemOf(cardPath), 'card')
+        if (isPng(cover)) add('cards', '人物卡', { key: cardPath, title }, stem + '.png', pngWithTextChunks(cover, [pngCardTextChunk('chara', text), pngCardTextChunk('ccv3', text)]))
+        else add('cards', '人物卡', { key: cardPath, title }, stem + '.json', text)
         finishedItems += 1
         report('cards', '人物卡', 'item', title)
       }
