@@ -112,6 +112,23 @@ function galSyncFaceOrientation(root, figures) {
 function galCreateScene(host, options, own) {
     const layered=own(createStageLayeredFigures({document,compositor:services.layered || {}}),value=>value.dispose());
     const {clear:layeredSpriteClearScene,tick:layeredSpriteTickScene}=layered;
+    const videoHost=stageViews.video?.player&&document?.createElement?own((()=>{
+        const node=document.createElement('div');
+        node.setAttribute?.('aria-hidden','true');
+        if(node.style)node.style.cssText='position:absolute;left:0;top:0;width:1px;height:1px;opacity:0;pointer-events:none;overflow:hidden;';
+        if(host?.append)host.append(node);else host?.appendChild?.(node);
+        return node;
+    })(),node=>node.remove?.()):null;
+    function supportsVideoSpriteAlpha(source) {
+        if(!source?.entry)return false;
+        if(!/\.webm$/i.test(source.entry))return true;
+        const nav=typeof window!=='undefined'?window.navigator:null;
+        const ua=nav?String(nav.userAgent||''):'';
+        const touchMac=Boolean(nav&&/Macintosh/i.test(ua)&&Number(nav.maxTouchPoints||0)>1);
+        const ios=/iPad|iPhone|iPod/i.test(ua)||touchMac;
+        const safari=/AppleWebKit/i.test(ua)&&!/Chrome|Chromium|Edg|OPR|Firefox|Android/i.test(ua);
+        return !ios&&!safari;
+    }
     const warnings=new Map();
     const recordAssetWarning=warning=>{warnings.set(JSON.stringify(warning),warning);if(warnings.size>50)warnings.delete(warnings.keys().next().value);};
     const assetDiagnostics=()=>[...warnings.values()];
@@ -341,6 +358,7 @@ function galCreateScene(host, options, own) {
         release(()=>entry.appearance.dispose());
         if(entry.contact){const contact=entry.contact;entry.contact=null;release(()=>contact.destroy());}
         release(()=>entry.pose.dispose());
+        release(()=>releaseSpriteVideo(entry));
         release(()=>entry.figureAsset?.destroy());
         entry.figureAsset=null;entry.spineFigure=null;
         for(const item of entry.fading)release(()=>item.asset?.destroy());
@@ -387,6 +405,44 @@ function galCreateScene(host, options, own) {
         if (entry.container.visible) model.update(app.ticker.deltaMS * state.timeScale / 1000);
     }
 
+    function releaseSpriteVideo(entry) {
+        const record=entry.spriteVideo;
+        if(!record)return;
+        entry.spriteVideo=null;record.dead=true;record.playing=false;
+        if(entry.sprite&&entry.baseTexture&&entry.sprite.texture===record.texture)entry.sprite.texture=entry.baseTexture;
+        try{record.texture?.destroy(true);}catch(error){console.warn('[fork-gal-scene] video texture cleanup failed',error);}
+        try{record.player?.dispose();}catch(error){console.warn('[fork-gal-scene] video player cleanup failed',error);}
+    }
+    function syncSpriteVideo(entry,desc) {
+        const record=entry.spriteVideo;
+        if(!record||record.dead||!record.ready)return;
+        const shouldPlay=!entry.leaving&&entry.container.visible&&world.visible&&!desc?.skipping&&!desc?.reducedMotion&&!document.hidden;
+        if(shouldPlay){
+            if(!record.playing){record.playing=true;record.player.play();}
+        }else if(record.playing){
+            record.playing=false;record.player.pause();
+        }
+    }
+    function startSpriteVideo(entry,identity,videoSource) {
+        if(!videoSource||!stageViews.video?.player||!videoHost||!supportsVideoSpriteAlpha(videoSource))return;
+        const player=stageViews.video.player(videoHost,videoSource,{poster:false,audio:false,loop:videoSource.loop!==false});
+        const record={identity,player,texture:null,ready:false,playing:false,dead:false};
+        entry.spriteVideo=record;
+        Promise.resolve(player.ready).then(ok=>{
+            if(!ok&&player.state?.().status==='failed'&&entry.spriteVideo===record&&!record.dead)releaseSpriteVideo(entry);
+        }).catch(()=>{});
+        Promise.resolve(player.playable).then(()=>{
+            if(record.dead||entry.dead||entry.leaving||state.destroyed||entry.spriteVideo!==record||entry.loadedIdentity!==identity||!player.element)return;
+            const base=new PIXI.BaseTexture(player.element,{resourceOptions:{autoPlay:false}});
+            try{record.texture=new PIXI.Texture(base);}catch(error){base.destroy();throw error;}
+            record.ready=true;
+            syncSpriteVideo(entry,state.desc);
+        }).catch(error=>{
+            if(!record.dead)console.warn('[fork-gal-scene] sprite video failed',videoSource.assetId,error);
+            if(entry.spriteVideo===record)releaseSpriteVideo(entry);
+        });
+    }
+
     function showStatic(entry, src) {
         if (!src) return;
         const identity = entry.figure.identity;
@@ -400,9 +456,10 @@ function galCreateScene(host, options, own) {
             try {
                 const sprite=asset.sprite,texture=sprite.texture;
                 entry.container.addChildAt(sprite,0);
-                if(entry.sprite){entry.sprite.texture=entry.baseTexture;layeredSpriteClearScene(entry);clearBlink(entry);entry.fading.push({sprite:entry.sprite,asset:entry.figureAsset,url:entry.src,start:state.clock});}
+                if(entry.sprite){entry.sprite.texture=entry.baseTexture;releaseSpriteVideo(entry);layeredSpriteClearScene(entry);clearBlink(entry);entry.fading.push({sprite:entry.sprite,asset:entry.figureAsset,url:entry.src,start:state.clock});}
                 entry.figureAsset=asset;entry.figureCandidate=asset.candidate;
                 entry.sprite=sprite;entry.src=src;entry.loadedIdentity=identity;entry.baseTexture=texture;entry.pendingSrc='';
+                if(entry.figure.video)startSpriteVideo(entry,identity,entry.figure.video);
                 commitFigureReplacement(entry);
             }catch(error){asset.destroy();throw error;}
         }).catch(function(error){
@@ -756,7 +813,10 @@ function galCreateScene(host, options, own) {
                 renderer.tick(entry,figure,desc,{now,dt,W,H,framing,reducedHop});
                 if(!renderer.spriteBased)return;
             }else {
-                if (!layeredSpriteTickScene(entry, textures, PIXI, !desc.skipping && figure.speaking)) entry.sprite.texture = entry.baseTexture;
+                if (!layeredSpriteTickScene(entry, textures, PIXI, !desc.skipping && figure.speaking)) {
+                    syncSpriteVideo(entry, desc);
+                    entry.sprite.texture = entry.spriteVideo?.ready && entry.spriteVideo.playing ? entry.spriteVideo.texture : entry.baseTexture;
+                }
                 tickBlink(entry);
                 tapTextureStatic(entry, now);
             }
@@ -1349,7 +1409,7 @@ function galCreateScene(host, options, own) {
             clean(()=>app.ticker.remove(frame));
             for(const dispose of [()=>effects.destroy(),()=>cast.dispose(),()=>sceneLayout.dispose()])clean(dispose);
             for(const entry of state.offstage.values()){if(entry.next)clean(()=>destroyFigure(entry.next));clean(()=>destroyFigure(entry));}
-            for(const dispose of [()=>call.dispose(),()=>offstageBox.destroy(),()=>backgrounds.dispose(),()=>figureAssets.dispose(),()=>layered.dispose(),()=>textures.dispose(),()=>bust.dispose(),()=>thinking.dispose(),...[...renderers.values()].map(renderer=>()=>renderer.dispose()),()=>app.destroy(true,{children:true})])clean(dispose);
+            for(const dispose of [()=>call.dispose(),()=>offstageBox.destroy(),()=>backgrounds.dispose(),()=>figureAssets.dispose(),()=>layered.dispose(),()=>textures.dispose(),()=>bust.dispose(),()=>thinking.dispose(),...[...renderers.values()].map(renderer=>()=>renderer.dispose()),()=>app.destroy(true,{children:true}),()=>videoHost?.remove?.()])clean(dispose);
             for(const texture of Object.values(generated))clean(()=>texture.destroy(true));
             if(errors.length)throw new AggregateError(errors,'Stage scene cleanup failed');
         }

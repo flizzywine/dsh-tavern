@@ -13,6 +13,7 @@ import { rawData } from '../../../../lib/domain/card-preparation.js'
 import {expandPerformanceDependencies, performanceWidgetDefaults} from './performance-projection.js'
 import {stagePerformanceImageShown} from '../../../../lib/domain/stage-narration.cjs'
 import { assetPackDigest as jsonHash } from './stage-asset-pack-catalogue.js'
+import { projectStageVideo } from './stage-video.js'
 import { assetEntryEnabled, resolveAssetSnapshot, resolveFigureSnapshot } from '../../../dsh-presentation-protocol/src/asset-packs.js'
 import { assetPackBackgroundVariant } from '../../../dsh-presentation-protocol/src/asset-pack-stage.js'
 import {assetContent} from '../../../dsh-presentation-protocol/src/asset-variant-content.js'
@@ -301,7 +302,7 @@ export function createAssetPackPresentation({raw, getEngine, getService, getAllo
           if (!urls.has(hash)) urls.set(hash, Promise.resolve(resource(ref,revision,hash,descriptors)).then(value => descriptors && value ? {...value,alias:character.alias} : value))
           return urls.get(hash)
         }
-        let spritePack = null, spriteUrls = null, modelUrl = null
+        let spritePack = null, spriteUrls = null, modelUrl = null, spriteVideo = null
         if (character.manifest && ((stage && character.form === 'sprite') || portrait && character.state?.portrait)) {
           const needed = new Set(), manifest = character.manifest, state = character.state
           const collect = value => { if (typeof value === 'string' && Object.hasOwn(outfit.sprite.assets,value)) needed.add(value)
@@ -317,6 +318,9 @@ export function createAssetPackPresentation({raw, getEngine, getService, getAllo
           const project = value => typeof value === 'string' ? mapping[value] || value : Array.isArray(value) ? value.map(project)
             : value && typeof value === 'object' ? Object.fromEntries(Object.entries(value).map(([k,v]) => [k,project(v)])) : value
           spritePack = project(character.manifest)
+          if (stage && character.form === 'sprite' && manifest.kind === 'static-sprites' && state?.video) {
+            spriteVideo = projectStageVideo(await snapshot(ref.packId), state.video)
+          }
         }
         // a Spine skeleton is leased like a Live2D model (one inert relative bundle tree).
         if (stage && ['live2d','spine'].includes(character.form)) {
@@ -331,7 +335,7 @@ export function createAssetPackPresentation({raw, getEngine, getService, getAllo
           model:{identity:['live2d','spine'].includes(character.form) ? mediaIdentity(ref,character.contentHash) : null,url:modelUrl},
           sprite:{identity:mediaIdentity(ref,character.geometry.stage),url:null},
           resources:Object.fromEntries(Object.entries(spriteUrls || {}).map(([name,url]) => [name,{identity:mediaIdentity(ref,outfit.sprite.assets[name]),url}]))}
-        const result = {...character, media:mediaItems, spritePack, spriteUrls, modelUrl, views:{stage:stage && character.form !== 'avatar',portrait}, avatarUrl}
+        const result = {...character, media:mediaItems, spritePack, spriteUrls, ...(spriteVideo ? {spriteVideo} : {}), modelUrl, views:{stage:stage && character.form !== 'avatar',portrait}, avatarUrl}
         if (disposed || generation !== epoch || getService() !== active) throw error('ASSET_STALE')
         return result
       }

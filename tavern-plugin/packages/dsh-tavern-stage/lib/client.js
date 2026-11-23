@@ -4006,7 +4006,7 @@ function stageVideoPlayer(host, source, options) {
     for (const node of [poster, video]) node.style.objectFit = o.fit;
     layer.append(poster, video);
     host.append(layer);
-    let status = 'loading', bound = false, alone = false, settle, playableNow;
+    let status = 'loading', bound = false, alone = false, wanted = false, settle, playableNow;
     // exclusive: from binding until its single play ends, is paused by the consumer (a skip), fails or goes, its soundtrack is
     // the only stage sound (forkStageAudio.exclusive); the rest returns afterwards.
     const unclaim = () => { if (alone) { alone = false; forkStageAudio.exclusive(video, false); } };
@@ -4046,6 +4046,7 @@ function stageVideoPlayer(host, source, options) {
         });
     };
     const player = {
+        element: video,
         ready, playable,
         // time: the consumer's clock (s); rate: its speed (0 holds); alpha: the layer's opacity (0..1).
         sync({time, rate, alpha}) {
@@ -4066,12 +4067,12 @@ function stageVideoPlayer(host, source, options) {
             if (video.paused) start();
         },
         // A free-running use (a looping skin background): the element's own clock.
-        play() { if (status === 'ready') { reveal(1); start(); } else ready.then(ok => { if (ok && status === 'ready') { reveal(1); start(); } }); },
-        pause() { if (status !== 'disposed') { video.pause(); unclaim(); } },
+        play() { wanted = true; if (status === 'ready') { reveal(1); start(); } else ready.then(ok => { if (ok && wanted && status === 'ready') { reveal(1); start(); } }); },
+        pause() { wanted = false; if (status !== 'disposed') { video.pause(); unclaim(); } },
         state: () => ({status, time: video.currentTime, paused: video.paused, muted: video.muted, poster: !poster.hidden}),
         dispose() {
             if (status === 'disposed') return;
-            status = 'disposed'; players.delete(player); clearTimeout(timer); settle(false);
+            wanted = false; status = 'disposed'; players.delete(player); clearTimeout(timer); settle(false);
             const errors = [];
             for (const release of [
                 () => video.pause(),
@@ -7838,6 +7839,23 @@ function galSyncFaceOrientation(root, figures) {
 function galCreateScene(host, options, own) {
     const layered=own(createStageLayeredFigures({document,compositor:services.layered || {}}),value=>value.dispose());
     const {clear:layeredSpriteClearScene,tick:layeredSpriteTickScene}=layered;
+    const videoHost=stageViews.video?.player&&document?.createElement?own((()=>{
+        const node=document.createElement('div');
+        node.setAttribute?.('aria-hidden','true');
+        if(node.style)node.style.cssText='position:absolute;left:0;top:0;width:1px;height:1px;opacity:0;pointer-events:none;overflow:hidden;';
+        if(host?.append)host.append(node);else host?.appendChild?.(node);
+        return node;
+    })(),node=>node.remove?.()):null;
+    function supportsVideoSpriteAlpha(source) {
+        if(!source?.entry)return false;
+        if(!/\.webm$/i.test(source.entry))return true;
+        const nav=typeof window!=='undefined'?window.navigator:null;
+        const ua=nav?String(nav.userAgent||''):'';
+        const touchMac=Boolean(nav&&/Macintosh/i.test(ua)&&Number(nav.maxTouchPoints||0)>1);
+        const ios=/iPad|iPhone|iPod/i.test(ua)||touchMac;
+        const safari=/AppleWebKit/i.test(ua)&&!/Chrome|Chromium|Edg|OPR|Firefox|Android/i.test(ua);
+        return !ios&&!safari;
+    }
     const warnings=new Map();
     const recordAssetWarning=warning=>{warnings.set(JSON.stringify(warning),warning);if(warnings.size>50)warnings.delete(warnings.keys().next().value);};
     const assetDiagnostics=()=>[...warnings.values()];
@@ -8067,6 +8085,7 @@ function galCreateScene(host, options, own) {
         release(()=>entry.appearance.dispose());
         if(entry.contact){const contact=entry.contact;entry.contact=null;release(()=>contact.destroy());}
         release(()=>entry.pose.dispose());
+        release(()=>releaseSpriteVideo(entry));
         release(()=>entry.figureAsset?.destroy());
         entry.figureAsset=null;entry.spineFigure=null;
         for(const item of entry.fading)release(()=>item.asset?.destroy());
@@ -8113,6 +8132,44 @@ function galCreateScene(host, options, own) {
         if (entry.container.visible) model.update(app.ticker.deltaMS * state.timeScale / 1000);
     }
 
+    function releaseSpriteVideo(entry) {
+        const record=entry.spriteVideo;
+        if(!record)return;
+        entry.spriteVideo=null;record.dead=true;record.playing=false;
+        if(entry.sprite&&entry.baseTexture&&entry.sprite.texture===record.texture)entry.sprite.texture=entry.baseTexture;
+        try{record.texture?.destroy(true);}catch(error){console.warn('[fork-gal-scene] video texture cleanup failed',error);}
+        try{record.player?.dispose();}catch(error){console.warn('[fork-gal-scene] video player cleanup failed',error);}
+    }
+    function syncSpriteVideo(entry,desc) {
+        const record=entry.spriteVideo;
+        if(!record||record.dead||!record.ready)return;
+        const shouldPlay=!entry.leaving&&entry.container.visible&&world.visible&&!desc?.skipping&&!desc?.reducedMotion&&!document.hidden;
+        if(shouldPlay){
+            if(!record.playing){record.playing=true;record.player.play();}
+        }else if(record.playing){
+            record.playing=false;record.player.pause();
+        }
+    }
+    function startSpriteVideo(entry,identity,videoSource) {
+        if(!videoSource||!stageViews.video?.player||!videoHost||!supportsVideoSpriteAlpha(videoSource))return;
+        const player=stageViews.video.player(videoHost,videoSource,{poster:false,audio:false,loop:videoSource.loop!==false});
+        const record={identity,player,texture:null,ready:false,playing:false,dead:false};
+        entry.spriteVideo=record;
+        Promise.resolve(player.ready).then(ok=>{
+            if(!ok&&player.state?.().status==='failed'&&entry.spriteVideo===record&&!record.dead)releaseSpriteVideo(entry);
+        }).catch(()=>{});
+        Promise.resolve(player.playable).then(()=>{
+            if(record.dead||entry.dead||entry.leaving||state.destroyed||entry.spriteVideo!==record||entry.loadedIdentity!==identity||!player.element)return;
+            const base=new PIXI.BaseTexture(player.element,{resourceOptions:{autoPlay:false}});
+            try{record.texture=new PIXI.Texture(base);}catch(error){base.destroy();throw error;}
+            record.ready=true;
+            syncSpriteVideo(entry,state.desc);
+        }).catch(error=>{
+            if(!record.dead)console.warn('[fork-gal-scene] sprite video failed',videoSource.assetId,error);
+            if(entry.spriteVideo===record)releaseSpriteVideo(entry);
+        });
+    }
+
     function showStatic(entry, src) {
         if (!src) return;
         const identity = entry.figure.identity;
@@ -8126,9 +8183,10 @@ function galCreateScene(host, options, own) {
             try {
                 const sprite=asset.sprite,texture=sprite.texture;
                 entry.container.addChildAt(sprite,0);
-                if(entry.sprite){entry.sprite.texture=entry.baseTexture;layeredSpriteClearScene(entry);clearBlink(entry);entry.fading.push({sprite:entry.sprite,asset:entry.figureAsset,url:entry.src,start:state.clock});}
+                if(entry.sprite){entry.sprite.texture=entry.baseTexture;releaseSpriteVideo(entry);layeredSpriteClearScene(entry);clearBlink(entry);entry.fading.push({sprite:entry.sprite,asset:entry.figureAsset,url:entry.src,start:state.clock});}
                 entry.figureAsset=asset;entry.figureCandidate=asset.candidate;
                 entry.sprite=sprite;entry.src=src;entry.loadedIdentity=identity;entry.baseTexture=texture;entry.pendingSrc='';
+                if(entry.figure.video)startSpriteVideo(entry,identity,entry.figure.video);
                 commitFigureReplacement(entry);
             }catch(error){asset.destroy();throw error;}
         }).catch(function(error){
@@ -8482,7 +8540,10 @@ function galCreateScene(host, options, own) {
                 renderer.tick(entry,figure,desc,{now,dt,W,H,framing,reducedHop});
                 if(!renderer.spriteBased)return;
             }else {
-                if (!layeredSpriteTickScene(entry, textures, PIXI, !desc.skipping && figure.speaking)) entry.sprite.texture = entry.baseTexture;
+                if (!layeredSpriteTickScene(entry, textures, PIXI, !desc.skipping && figure.speaking)) {
+                    syncSpriteVideo(entry, desc);
+                    entry.sprite.texture = entry.spriteVideo?.ready && entry.spriteVideo.playing ? entry.spriteVideo.texture : entry.baseTexture;
+                }
                 tickBlink(entry);
                 tapTextureStatic(entry, now);
             }
@@ -9075,7 +9136,7 @@ function galCreateScene(host, options, own) {
             clean(()=>app.ticker.remove(frame));
             for(const dispose of [()=>effects.destroy(),()=>cast.dispose(),()=>sceneLayout.dispose()])clean(dispose);
             for(const entry of state.offstage.values()){if(entry.next)clean(()=>destroyFigure(entry.next));clean(()=>destroyFigure(entry));}
-            for(const dispose of [()=>call.dispose(),()=>offstageBox.destroy(),()=>backgrounds.dispose(),()=>figureAssets.dispose(),()=>layered.dispose(),()=>textures.dispose(),()=>bust.dispose(),()=>thinking.dispose(),...[...renderers.values()].map(renderer=>()=>renderer.dispose()),()=>app.destroy(true,{children:true})])clean(dispose);
+            for(const dispose of [()=>call.dispose(),()=>offstageBox.destroy(),()=>backgrounds.dispose(),()=>figureAssets.dispose(),()=>layered.dispose(),()=>textures.dispose(),()=>bust.dispose(),()=>thinking.dispose(),...[...renderers.values()].map(renderer=>()=>renderer.dispose()),()=>app.destroy(true,{children:true}),()=>videoHost?.remove?.()])clean(dispose);
             for(const texture of Object.values(generated))clean(()=>texture.destroy(true));
             if(errors.length)throw new AggregateError(errors,'Stage scene cleanup failed');
         }
@@ -34444,7 +34505,7 @@ if (typeof module !== 'undefined') module.exports = {timerClockRemaining,timerCl
                     const ambience=own(createAmbience({...options.ambience, session:getSession,owner:getResourceOwner,player:() => createSoundscapePlayer(options.soundscape)}));
                     const speech=own(createStageSpeech({...options.speech,allowed:options.runtimeProtocol?.phoneBeatKernel?.phoneModAutoVoiceAllowed}));
                     const displayConsumers=own(createStageDisplayConsumers({React:options.React,displays,sfx,ambience,voice:speech}));
-                    const views = {resources:stageResources,speech,sceneMath,runtimeKernel,displays,displayConsumers,sessionRuntime:own(createStageSessionRuntime({kernel:runtimeKernel,displays,createObservation:inputs=>createStageSessionObservation({...inputs,voice:speech,media:{...inputs.media,music:views.bgm,ambience}}),createResourceModule:createStageResourceRunnerModule,resourceDependencies:{...options.resourceDependencies,stageResourceMatches:stageResources.stageResourceMatches,stageRuntimeErrorText:runtimeKernel.stageRuntimeErrorText,lookahead:()=>quality.get()==="high"?Infinity:3},createDirectorModule:createStageDirectorModule,directorCommands:options.directorCommands,createStoreModule:createStageRuntimeStoreModule,createSessionModule:createStageSessionModule})),figurePose:own(createStageFigurePose({resolve:options.figureMetrics?.resolve,flatLayout:sceneMath.galFlatLayout,actionAt:sceneMath.galFlatActAt,ease:visualMath.ease})),castLayout:own(createStageCastLayout({calculate:sceneMath.galFigureLayout,mix:sceneMath.galFrameMix})),cast:own(createStageCast()),figureAppearance:own(createStageFigureAppearance({graphics:sceneGraphics,spring:sceneMath.galSpring,springValue:sceneMath.galSpringValue,light:figureLight})),figureLight,figureBlink:own(createStageFigureBlink({...options.figureBlink,clockwork:{blinkUrls,blinkPlacement,blinkTimingFor,createBlinkScheduler}})),callViews:own(createStageCallViews({...options.callViews,cover:sceneMath.galCover,canvasTexture:sceneGraphics.canvasTexture})),bust:own(createStageBust({...visualMath,framedHead:sceneMath.galFramedHead})),monologue:own(createStageMonologue({canvasTexture:sceneGraphics.canvasTexture})),backgrounds,sceneCamera:createStageSceneCamera(visualMath),sceneTextures:own(createStageSceneTextures({Image:window.Image,now:()=>window.performance.now()})),spineFigures,figureAssets,sceneGraphics,entrance,skinPresentation:own(createStageSkinPresentation({React:options.React,Event:window.Event,...options.skinPresentation,files:stageResources.getStageBundleFiles,skin})),skinResources,skin,effects,lookUi:own(createStageLookUi({React:options.React})),looks,effectColors,weather,emotes,figureMotion,figureGeometry,figureIdle,figureWarp,figureTap,choices,choiceLayout,regenerate:own(createStageRegenerate({React:options.React,window,document,...options.regenerate})),backlogView,backlogPaging,backlogHistory,backlogVoice, transcriptOutfits:own(createStageTranscriptOutfits(options.transcriptOutfits)), skinFrame, skinCursor:own(createStageSkinCursor({React:options.React, ...options.skinCursor})), backlogRows, configAppearance, configText, configScreen:own(createStageConfigScreen({React:options.React, window, document, Sound:mixer.Sound, Text:configText.Text, Appearance:configAppearance.Appearance, Looks:configFields.Looks, ...options.configScreen})), configFields, widgets:own(createStageWidgets({React:options.React, window, document, device:()=>views.sourceDevice, adjust:(...args)=>views.sourceDevice?.useAdjust(...args) ?? null, ...options.widgets})), cg:own(createStageCg({React:options.React, window, ...options.cg})), gallery:own(createStageGallery({React:options.React, window, document, ...options.gallery,owner:getResourceOwner})), pictures:createStagePictures({React:options.React}), device, quality, mixer, sfx, transitions:own(createStageTransitions({React:options.React, window, ...options.transitions,ease:skin.stageSkinTxEase})), speaker:createStageSpeaker(options.speaker || {}), chatEntry:own(createStageChatEntry({React:options.React, ...options.chatEntry})), menu:own(createStageMenu({React:options.React, window, document, ...options.menu,getSession,ransom:labels})), position:own(createStagePosition({React:options.React, window, ...options.position,sameAnchor:runtimeKernel.sameAnchor,navigate:(...args)=>sessions?.owner?.navigate(...args)})), subtitles:createStageSubtitles({React:options.React, document, window, ...options.subtitles}), controls, loader, admission, progress, notices:own(createStageNotices({React:options.React, document, ...options.notices, shortcuts:controls.shortcuts, live2d:live2d?{Entry:live2d.Entry,runtime:live2d.store}:null})), hints:own(createStageHints({React:options.React, window, document, music, voice:options.speech?.player, ...options.hints})), music, bgm:own(createBgmPlayer({...options.bgm, music,session:getSession,owner:getResourceOwner})), ambience, video,
+                    const views = {resources:stageResources,video,speech,sceneMath,runtimeKernel,displays,displayConsumers,sessionRuntime:own(createStageSessionRuntime({kernel:runtimeKernel,displays,createObservation:inputs=>createStageSessionObservation({...inputs,voice:speech,media:{...inputs.media,music:views.bgm,ambience}}),createResourceModule:createStageResourceRunnerModule,resourceDependencies:{...options.resourceDependencies,stageResourceMatches:stageResources.stageResourceMatches,stageRuntimeErrorText:runtimeKernel.stageRuntimeErrorText,lookahead:()=>quality.get()==="high"?Infinity:3},createDirectorModule:createStageDirectorModule,directorCommands:options.directorCommands,createStoreModule:createStageRuntimeStoreModule,createSessionModule:createStageSessionModule})),figurePose:own(createStageFigurePose({resolve:options.figureMetrics?.resolve,flatLayout:sceneMath.galFlatLayout,actionAt:sceneMath.galFlatActAt,ease:visualMath.ease})),castLayout:own(createStageCastLayout({calculate:sceneMath.galFigureLayout,mix:sceneMath.galFrameMix})),cast:own(createStageCast()),figureAppearance:own(createStageFigureAppearance({graphics:sceneGraphics,spring:sceneMath.galSpring,springValue:sceneMath.galSpringValue,light:figureLight})),figureLight,figureBlink:own(createStageFigureBlink({...options.figureBlink,clockwork:{blinkUrls,blinkPlacement,blinkTimingFor,createBlinkScheduler}})),callViews:own(createStageCallViews({...options.callViews,cover:sceneMath.galCover,canvasTexture:sceneGraphics.canvasTexture})),bust:own(createStageBust({...visualMath,framedHead:sceneMath.galFramedHead})),monologue:own(createStageMonologue({canvasTexture:sceneGraphics.canvasTexture})),backgrounds,sceneCamera:createStageSceneCamera(visualMath),sceneTextures:own(createStageSceneTextures({Image:window.Image,now:()=>window.performance.now()})),spineFigures,figureAssets,sceneGraphics,entrance,skinPresentation:own(createStageSkinPresentation({React:options.React,Event:window.Event,...options.skinPresentation,files:stageResources.getStageBundleFiles,skin})),skinResources,skin,effects,lookUi:own(createStageLookUi({React:options.React})),looks,effectColors,weather,emotes,figureMotion,figureGeometry,figureIdle,figureWarp,figureTap,choices,choiceLayout,regenerate:own(createStageRegenerate({React:options.React,window,document,...options.regenerate})),backlogView,backlogPaging,backlogHistory,backlogVoice, transcriptOutfits:own(createStageTranscriptOutfits(options.transcriptOutfits)), skinFrame, skinCursor:own(createStageSkinCursor({React:options.React, ...options.skinCursor})), backlogRows, configAppearance, configText, configScreen:own(createStageConfigScreen({React:options.React, window, document, Sound:mixer.Sound, Text:configText.Text, Appearance:configAppearance.Appearance, Looks:configFields.Looks, ...options.configScreen})), configFields, widgets:own(createStageWidgets({React:options.React, window, document, device:()=>views.sourceDevice, adjust:(...args)=>views.sourceDevice?.useAdjust(...args) ?? null, ...options.widgets})), cg:own(createStageCg({React:options.React, window, ...options.cg})), gallery:own(createStageGallery({React:options.React, window, document, ...options.gallery,owner:getResourceOwner})), pictures:createStagePictures({React:options.React}), device, quality, mixer, sfx, transitions:own(createStageTransitions({React:options.React, window, ...options.transitions,ease:skin.stageSkinTxEase})), speaker:createStageSpeaker(options.speaker || {}), chatEntry:own(createStageChatEntry({React:options.React, ...options.chatEntry})), menu:own(createStageMenu({React:options.React, window, document, ...options.menu,getSession,ransom:labels})), position:own(createStagePosition({React:options.React, window, ...options.position,sameAnchor:runtimeKernel.sameAnchor,navigate:(...args)=>sessions?.owner?.navigate(...args)})), subtitles:createStageSubtitles({React:options.React, document, window, ...options.subtitles}), controls, loader, admission, progress, notices:own(createStageNotices({React:options.React, document, ...options.notices, shortcuts:controls.shortcuts, live2d:live2d?{Entry:live2d.Entry,runtime:live2d.store}:null})), hints:own(createStageHints({React:options.React, window, document, music, voice:options.speech?.player, ...options.hints})), music, bgm:own(createBgmPlayer({...options.bgm, music,session:getSession,owner:getResourceOwner})), ambience, video,
                         ...createStageSkinButtons({React:options.React, ...options.presentation}),
                         ...createStagePresentation({React:options.React, document, ...options.presentation}),
                         ...createStagePortraits({React:options.React, document, window, ...options.portraits,emoteDataUrl:emotes.dataUrl,cssColor:effectColors.css}),

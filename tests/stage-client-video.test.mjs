@@ -38,3 +38,34 @@ test('plugin disposal releases every video and reclaims URLs arriving after unmo
   assert.deepEqual(released,['t'])
   assert.throws(() => api.player(host,source),/disposed/)
 })
+
+test('pause before ready cancels pending play and player exposes its video element', async () => {
+  const listeners = new Map()
+  let plays = 0
+  const video = {
+    type: 'video', dataset: {}, style: { setProperty() {} }, hidden: true, paused: true,
+    setAttribute() {}, getAttribute() {}, removeAttribute() {}, append() {}, remove() {},
+    addEventListener(type, fn) { listeners.set(type, fn) },
+    pause() { this.paused = true },
+    load() {},
+    play: async () => { plays++; video.paused = false }
+  }
+  const doc = { createElement: type => type === 'video' ? video : { type, dataset: {}, style: { setProperty() {} }, hidden: true, setAttribute() {}, getAttribute() {}, removeAttribute() {}, append() {}, remove() {} } }
+  const host = { ownerDocument: doc, append() {} }
+  const api = createStageVideo({
+    getService: () => ({ leaseBundle: async () => ({ ticket: 't', url: '/lease/t/' }), releaseLease: async () => {} }),
+    fetch: async () => ({ ok: true, blob: async () => ({}) }),
+    URL: { createObjectURL: () => 'blob:0', revokeObjectURL() {} },
+    setTimeout: () => 1, clearTimeout() {},
+  })
+  const p = api.player(host, { packId: 'p', bundleKey: 'v', hash: 'h', entry: 'loop.webm', poster: 'poster.png' }, { poster: false })
+  assert.equal(p.element, video)
+  p.play()
+  p.pause()
+  listeners.get('canplaythrough')?.()
+  assert.equal(await p.ready, true)
+  assert.equal(plays, 0, 'paused before ready must not start playback once ready')
+  p.play()
+  assert.equal(plays, 1)
+  api.dispose()
+})

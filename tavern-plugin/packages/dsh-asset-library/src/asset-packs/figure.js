@@ -214,6 +214,12 @@ export function validateFigureClosure(manifest, figures, sprites) {
       const paths = spriteResourcePaths(sprite), mappings = outfit.sprite.assets
       check(paths.length === Object.keys(mappings).length && paths.every(path => Object.hasOwn(mappings, path)), '$.outfits.sprite.assets', 'Sprite path closure mismatch', 'FILE_CLOSURE_MISMATCH')
       Object.values(mappings).forEach(hash => blob(hash, 'image/'))
+      if (sprite.kind === 'static-sprites') {
+        const states = sprite.emotions ? Object.values(sprite.emotions) : sprite.images ? Object.values(sprite.images) : []
+        for (const state of states) {
+          if (state?.video !== undefined) check(manifest.assets.some(row => row.kind === 'videos' && row.id === state.video), '$.sprites', 'Missing video entry: ' + state.video, 'MISSING_DEPENDENCY')
+        }
+      }
       const images = imageContract.spriteImageTable(sprite)
       check(imageContract.spriteUsesImages(sprite) === (figure.schemaVersion === 2),'$.outfits.sprite','Figure and sprite image schemas must agree')
       if (figure.schemaVersion === 2) {

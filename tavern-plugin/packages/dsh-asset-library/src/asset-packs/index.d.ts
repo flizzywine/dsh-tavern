@@ -82,7 +82,7 @@ export interface LayeredSpriteManifest {
 }
 export interface StaticSpriteManifest {
   version: 1; kind: 'static-sprites';
-  emotions: Record<string, { src: string }>;
+  emotions: Record<string, { src: string; video?: string }>;
 }
 export type SpriteManifest = LayeredSpriteManifest | StaticSpriteManifest;
 export interface PackDocuments { manifest: PackManifest; figures: Record<UUID, Figure>; sprites: Record<string, SpriteManifest> }

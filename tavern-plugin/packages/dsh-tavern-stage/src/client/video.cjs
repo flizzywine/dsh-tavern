@@ -63,7 +63,7 @@ function stageVideoPlayer(host, source, options) {
     for (const node of [poster, video]) node.style.objectFit = o.fit;
     layer.append(poster, video);
     host.append(layer);
-    let status = 'loading', bound = false, alone = false, settle, playableNow;
+    let status = 'loading', bound = false, alone = false, wanted = false, settle, playableNow;
     // exclusive: from binding until its single play ends, is paused by the consumer (a skip), fails or goes, its soundtrack is
     // the only stage sound (forkStageAudio.exclusive); the rest returns afterwards.
     const unclaim = () => { if (alone) { alone = false; forkStageAudio.exclusive(video, false); } };
@@ -103,6 +103,7 @@ function stageVideoPlayer(host, source, options) {
         });
     };
     const player = {
+        element: video,
         ready, playable,
         // time: the consumer's clock (s); rate: its speed (0 holds); alpha: the layer's opacity (0..1).
         sync({time, rate, alpha}) {
@@ -123,12 +124,12 @@ function stageVideoPlayer(host, source, options) {
             if (video.paused) start();
         },
         // A free-running use (a looping skin background): the element's own clock.
-        play() { if (status === 'ready') { reveal(1); start(); } else ready.then(ok => { if (ok && status === 'ready') { reveal(1); start(); } }); },
-        pause() { if (status !== 'disposed') { video.pause(); unclaim(); } },
+        play() { wanted = true; if (status === 'ready') { reveal(1); start(); } else ready.then(ok => { if (ok && wanted && status === 'ready') { reveal(1); start(); } }); },
+        pause() { wanted = false; if (status !== 'disposed') { video.pause(); unclaim(); } },
         state: () => ({status, time: video.currentTime, paused: video.paused, muted: video.muted, poster: !poster.hidden}),
         dispose() {
             if (status === 'disposed') return;
-            status = 'disposed'; players.delete(player); clearTimeout(timer); settle(false);
+            wanted = false; status = 'disposed'; players.delete(player); clearTimeout(timer); settle(false);
             const errors = [];
             for (const release of [
                 () => video.pause(),

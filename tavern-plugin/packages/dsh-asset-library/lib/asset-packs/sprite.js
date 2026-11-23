@@ -4,6 +4,7 @@ import { assertJson, check, shape, text, oneOf, array, unique, record, relativeP
 const rectKeys = ['x', 'y', 'w', 'h']
 const events = ['closed', 'small', 'mid', 'open']
 function source(value, path) { relativePath(value, path); check(/\.(png|webp)$/i.test(value), path, 'Sprite sources must be PNG/WebP paths') }
+function videoId(value, path) { check(typeof value === 'string' && /^[a-z0-9][a-z0-9_-]{0,63}$/.test(value), path, 'Expected a video asset id') }
 function rect(value, path) { shape(value, rectKeys, rectKeys, path) }
 // optional authored blink patch, drawn over the base at a fixed base-canvas rect. Decoded sizes are
 // verified at import.
@@ -45,7 +46,7 @@ export function validateSpriteManifest(value, path = '$') {
   record(value[table], path + '.' + table, (entry, p, id) => {
     if (imageFormat) validateStateId(id,p)
     else check(/^[a-z][a-z0-9_-]{0,23}$/.test(id) && id !== 'default', p, 'Canonical figure emotion ID required')
-    shape(entry, flat ? ['src'] : ['initialPhoneme','mouthSet','mouthFrames','closedMouthFrame','stage','portrait'], flat ? ['src'] : ['stage'], p)
+    shape(entry, flat ? ['src', 'video'] : ['initialPhoneme','mouthSet','mouthFrames','closedMouthFrame','stage','portrait'], flat ? ['src'] : ['stage'], p)
     entries.push({id, ...entry})
     if (entry.mouthSet !== undefined) sets.add(entry.mouthSet)
   })
@@ -85,11 +86,16 @@ function validateSpriteRenderManifest(value, path = '$') {
   try { layeredContract.layeredSpriteAssets(layeredContract.layeredSpriteManifest(candidate)) } catch (error) { check(false, path, 'Invalid layered sprite: ' + error.message) }
   return value
 }
-// Plain stills: one image per state, nothing else.
+// Plain stills: one image per state, with an optional `videos` asset reference for motion.
 function validateStaticSprite(value, path) {
   shape(value, ['version', 'kind', 'defaultState', 'states'], ['version', 'kind', 'defaultState', 'states'], path)
   oneOf(value.version, [1], path + '.version'); check(Array.isArray(value.states), path + '.states', 'Expected array'); check(value.states.length > 0, path)
-  for (const state of value.states) { shape(state, ['id', 'src'], ['id', 'src'], path + '.states'); validateStateId(state.id); source(state.src, path) }
+  for (const state of value.states) {
+    shape(state, ['id', 'src', 'video'], ['id', 'src'], path + '.states')
+    validateStateId(state.id)
+    source(state.src, path)
+    if (state.video !== undefined) videoId(state.video, path + '.states.video')
+  }
   unique(value.states.map(s => s.id), path + '.states'); check(value.states.some(s => s.id === value.defaultState), path + '.defaultState')
   return value
 }
