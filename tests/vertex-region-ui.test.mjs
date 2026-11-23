@@ -192,3 +192,63 @@ test('VertexRegionField：baseURL 缺少 project 时先自动探测，探测不�
     ])
   })
 })
+
+test('VertexRegionField：空 baseURL 不误标为默认 global；探测出 project 后自动回填 global 或待生效地区，且不覆盖自定义代理地址', async () => {
+  const updates = []
+  let probeResolve
+  const { VertexRegionField } = loadFeature({
+    rpc: () => new Promise(resolve => { probeResolve = resolve }),
+  })
+
+  await withDom(async ({ container, root }) => {
+    function Harness({ initialUrl }) {
+      const [url, setUrl] = React.useState(initialUrl)
+      return React.createElement(VertexRegionField, {
+        provider: 'google-vertex',
+        baseURL: url,
+        fallbackBaseURL: '',
+        keyRef: 'GOOGLE_VERTEX_API_KEY',
+        onChangeBaseURL: next => {
+          updates.push(next)
+          setUrl(next)
+        },
+      })
+    }
+
+    act(() => {
+      root.render(React.createElement(Harness, { initialUrl: '' }))
+    })
+
+    const trigger = container.querySelector('.dsh-vertex-region-trigger')
+    assert.equal(trigger.textContent.includes('未指定'), true)
+    assert.equal(trigger.textContent.includes('默认（global）'), false)
+    assert.ok(container.querySelector('.dsh-vertex-region-hint'))
+
+    // 探测成功返回 project 后，自动写入 global 端点并消除未生效提示
+    await act(async () => { probeResolve({ project: '379270002840', location: null }) })
+    assert.deepEqual(updates, [
+      'https://aiplatform.googleapis.com/v1/projects/379270002840/locations/global',
+    ])
+    assert.equal(trigger.textContent.includes('global (全球)'), true)
+    assert.equal(container.querySelector('.dsh-vertex-region-hint'), null)
+  })
+
+  // 自定义代理地址（不含 project 也不含 {location}）不应被自动覆盖
+  const proxyUpdates = []
+  let proxyProbeResolve
+  const feature2 = loadFeature({
+    rpc: () => new Promise(resolve => { proxyProbeResolve = resolve }),
+  })
+  await withDom(async ({ root }) => {
+    act(() => {
+      root.render(React.createElement(feature2.VertexRegionField, {
+        provider: 'google-vertex',
+        baseURL: 'https://my-vertex-proxy.example.com/v1',
+        fallbackBaseURL: '',
+        onChangeBaseURL: next => proxyUpdates.push(next),
+      }))
+    })
+    await act(async () => { proxyProbeResolve({ project: '379270002840', location: null }) })
+    assert.deepEqual(proxyUpdates, [])
+  })
+})
