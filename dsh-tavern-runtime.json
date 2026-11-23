@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "a88ab3ae96ccf84b82ddfd44ee7e0ae997aa60a2",
-  "releaseSequence": 2001,
+  "revision": "0c9410f4205763f8540641baf45ea57955357821",
+  "releaseSequence": 2002,
   "version": "3.4.0",
   "files": [
     {
@@ -1251,8 +1251,8 @@
     },
     {
       "path": "tavern-plugin/lib/client.js",
-      "sha256": "3314f7d22dbf1471d8365c867a6b242098db02fa18d2b62c2b1c443de7768382",
-      "size": 6505388
+      "sha256": "b3fa740095a740c4809e5573a3b601148c1dca49d5f9646f437298b93443a218",
+      "size": 6507106
     },
     {
       "path": "tavern-plugin/lib/cordis-inspect.js",
@@ -1621,8 +1621,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/card-files.js",
-      "sha256": "f6c58bc415f9d7aa4b60be32a617f39030c92fd254b61912e8bd1f3fd385b56f",
-      "size": 38245
+      "sha256": "b750bda049b8b952d07a2369bedf66241f6a475b907a5edd21c72bcd2b157ab1",
+      "size": 39003
     },
     {
       "path": "tavern-plugin/lib/domain/card-import-identity.js",
@@ -4391,8 +4391,8 @@
     },
     {
       "path": "tavern-plugin/lib/index.js",
-      "sha256": "fdd8cf4169b6669ba35d69f6c9638ca890de4776108fa54c26ba9af11e60e832",
-      "size": 336031
+      "sha256": "cbc23cda043153ba101a14e04f7956522a5d3682ad16d5aa9aeccbe0440199f8",
+      "size": 336085
     },
     {
       "path": "tavern-plugin/lib/metadata-backup.js",
@@ -4481,8 +4481,8 @@
     },
     {
       "path": "tavern-plugin/lib/rpc/cards.js",
-      "sha256": "485db8b39fc5c981dab0aab4ea832fa3ea6f774fed5f1e2232a393c05b94a022",
-      "size": 15013
+      "sha256": "a5b31ca642c9a9aa91805b40756aa0016dcba81cbaa68428e58a5d25e5f9d371",
+      "size": 15730
     },
     {
       "path": "tavern-plugin/lib/rpc/conversations.js",
@@ -10146,9 +10146,9 @@
     }
   ],
   "archive": {
-    "commit": "d5260d51a2f50ad413a7ad88039648edc6e25b64",
+    "commit": "710eefc20382b7fd49fe8369c86461ede7399659",
     "path": "runtime.zip",
-    "sha256": "852593609da9ece827daeb9d82e17ccdc0b90bbb8bd12054a1f2acfcc5182b6f",
-    "size": 17830959
+    "sha256": "a85e0ac76b0a252e89aff3015f2a54657e970821bfd99bf886a04928a5f6d964",
+    "size": 17831813
   }
 }
