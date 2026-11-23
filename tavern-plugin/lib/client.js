@@ -27658,6 +27658,8 @@ function tavernModelRefusalNotice(text) {
 		        if (index > 0) queue.unshift(queue.splice(index, 1)[0]);
 		    }
 		    let bytes = 0, current = null, tail = null, client, unsubscribe, enabled = false, disposed = false, generation = 0;
+		    const recordingSource = {};
+		    const available = service => !disposed && (service === recordingSource || enabled && service?.available());
 		    // Streamed clips replaced by their complete line while they still play; disposed once they stop.
 		    const superseded = new Set();
 		    const keyOf = ({cacheKey, owner, id, text, mood = 'default'}) => cacheKey || JSON.stringify([owner, id, text, mood]);
@@ -27726,7 +27728,7 @@ function tavernModelRefusalNotice(text) {
 		        if (clips.has(key)) { const clip = clips.get(key); remember(key, clip); return Promise.resolve(clip); }
 		        if (pending.has(key)) return pending.get(key).promise;
 		        const abort = new AbortController(), epoch = generation, job = {abort,key};
-		        const valid = () => { abort.signal.throwIfAborted(); if (epoch !== generation || !enabled || !service.available()) throw new Error('voice-unavailable'); };
+		        const valid = () => { abort.signal.throwIfAborted(); if (epoch !== generation || !available(service)) throw new Error('voice-unavailable'); };
 		        // Prefetch failures belong to the line even when it never becomes the active player.
 		        const failed = error => {
 		            if (!abort.signal.aborted && epoch === generation && error.name !== 'AbortError') {
@@ -27804,7 +27806,7 @@ function tavernModelRefusalNotice(text) {
 		        }).finally(() => { if (pending.get(key) === job) pending.delete(key); });
 		        pending.set(key, job); queue.push(job); drain(); return job.promise;
 		    }
-		    return {
+		    const player = {
 		        subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn); },
 		        get() { return current; },
 		        blocked() { return blocked; },
@@ -27815,9 +27817,12 @@ function tavernModelRefusalNotice(text) {
 		        cancelPrefetch(items = []) { const keep = new Set(items.map(keyOf)); if (current) keep.add(current.requestKey); cancelPending(keep); },
 		        prioritize(items = []) { for (const item of [...items].reverse()) prioritize(keyOf(item)); },
 		        prefetch(descriptor, input) { const service = activeClient(), key = keyOf(input); return service && canRetry(input) && (pending.size < maxPrefetch || pending.has(key) || clips.has(key)) ? prepare(descriptor,input,service).then(() => true, () => false) : Promise.resolve(false); },
-		        async play(descriptor, input) {
-		            const service = activeClient();
-		            if (!service) return false;
+		        playRecording(url, input) {
+		            return player.play({available:true,url}, input, recordingSource);
+		        },
+		        async play(descriptor, input, source) {
+		            const service = source === recordingSource ? source : activeClient();
+		            if (!available(service)) return false;
 		            const requestKey = keyOf(input), cached = clips.get(requestKey);
 		            if (input.automatic) { if (!canRetry(input)) return false; }
 		            else failures.delete(requestKey);
@@ -27831,7 +27836,7 @@ function tavernModelRefusalNotice(text) {
 		                const prepared = cached || await ready;
 		                // A streamed clip may already be replaced by its complete line.
 		                const clip = clips.get(requestKey) || prepared;
-		                if (current !== entry || !enabled || !service.available()) return false;
+		                if (current !== entry || !available(service)) return false;
 		                entry.audio = clip.audio; entry.loading = false; entry.key = clip.key;
 		                remember(requestKey, clip);
 		                // input.volume / input.rate: a caller's own level and speed for this line (有声书's panel); the stage leaves both.
@@ -27844,7 +27849,7 @@ function tavernModelRefusalNotice(text) {
 		                if (input.masks || clip.covered) { clip.covered = Boolean(input.masks); maskAudio(clip.audio, input.masks?.() || null); }
 		                await clip.audio.play();
 		                setBlocked(false);
-		                if (current !== entry || !enabled || !service.available()) return false;
+		                if (current !== entry || !available(service)) return false;
 		                emit(); return true;
 		            } catch (e) {
 		                if (e.name === 'NotAllowedError') setBlocked(true);
@@ -27854,6 +27859,7 @@ function tavernModelRefusalNotice(text) {
 		        },
 		        dispose() { if (disposed) return; disposed = true; invalidate(); unsubscribe?.(); listeners.clear(); }
 		    };
+		    return player;
 		}
 		// P6 mounts this only beside a new-path bubble/stage descriptor; settings ownership stays outside it.
 		function PackVoiceButton({player, descriptor, text, mood, enabled}) {
@@ -28098,7 +28104,7 @@ function tavernModelRefusalNotice(text) {
 		    const failure = current?.error || voice.error;
 		    const error = {QWEN_INVALID_TEXT:'这句没有可朗读内容或被 Qwen 拒绝，请修改台词后重播',VOICE_NOT_FOUND:'声音绑定未解析，请重新选择该人物的声音','voice-unbound':'声音绑定未解析，请重新选择该人物的声音',QWEN_MODEL_NOT_FOUND:'Qwen 当前服务无法访问此配音模型（404），请在百炼控制台检查模型开通状态与区域',QWEN_RESOURCE_NOT_FOUND:'Qwen 语音服务资源不存在（404），请检查区域、模型与音色',QWEN_AUDIO_NOT_FOUND:'Qwen 合成音频下载失败（404），请重试',QWEN_REQUEST_FAILED:'Qwen 语音服务请求失败'}[failure] || failure;
 		    const state = error ? 'error' : current?.loading ? 'loading' : current?.audio ? (current.audio.paused ? 'paused' : 'playing') : 'idle';
-		    const label = {idle:'合成并播放',loading:'正在准备语音',playing:'暂停播放',paused:'继续播放',error:'重试语音'}[state];
+		    const label = {idle:voice.recorded ? '重播配音' : '合成并播放',loading:'正在准备语音',playing:'暂停播放',paused:'继续播放',error:'重试语音'}[state];
 		    const h = React.createElement;
 		    const path = state === 'playing' ? 'M6 4h4v16H6zm8 0h4v16h-4z' : state === 'error' ? 'M11 4h2v10h-2zm0 13h2v3h-2z' : 'M7 4v16l14-8z';
 		    const click = current?.audio && !current.error ? event => {
@@ -29122,6 +29128,28 @@ function tavernModelRefusalNotice(text) {
 		                h("span", { className: "fork-bubble-line" }, segment.thought ? "（" + segment.text.replace(/^[（(]|[）)]$/g, "") + (segment.streaming ? "" : "）") : segment.text),
 		                // 「从这里进入舞台」 after the last character of the line (StageParagraph); rendered here, not portalled.
 		                props.enter || null)));
+		}
+
+		function TavernPluginDialogueBubbles({sessionId, owner, lines}) {
+		    const h = React.createElement;
+		    const segments = React.useMemo(() => lines.map(line => ({...line, kind: line.name ? 'bubble' : 'markdown'})), [lines]);
+		    const select = React.useMemo(() => bubbleMessageSelector(segments), [segments]);
+		    const config = useBubbles(sessionId, true, select)?.config;
+		    const held = React.useSyncExternalStore(voiceChannel.subscribe, voiceChannel.held);
+		    const activeStage = React.useSyncExternalStore(galActive.subscribe, galActive.get);
+		    const canReplay = !held && activeStage !== sessionId && config?.voice?.enabled !== false;
+		    React.useSyncExternalStore(voicePlayer.subscribe, () => {
+		        const playing = voicePlayer.get();
+		        return playing?.owner === owner ? JSON.stringify([playing.id, playing.loading, playing.error, playing.audio?.paused]) : '';
+		    });
+		    React.useEffect(() => () => { if (voicePlayer.get()?.owner === owner) voicePlayer.stopPlayback(); }, [owner, canReplay]);
+		    return h('div', {className:'fork-bubbles'}, segments.map(segment => {
+		        const {id, recording, text} = segment;
+		        if (segment.kind !== 'bubble') return h('p', {key:id, className:'dsh-tavern-colored-markdown'}, text);
+		        const voice = recording && canReplay ? {id, owner, sessionId, recorded:true, player:voicePlayer.get(),
+		            click() { forkLipSync.wake(); void voicePlayer.playRecording(recording, {id, owner, cacheKey:JSON.stringify([owner, id, recording])}); }} : null;
+		        return h(BubbleRow, {key:id, sessionId, segment, config, voice});
+		    }));
 		}
 
 		// Drop-in for TavernColoredMarkdown on assistant prose.
@@ -38395,6 +38423,13 @@ function tavernFloorHeightRecall(key, width) {
 		  }
 		}
 
+		function tavernPluginAssetUrl(owner, file) {
+			if (typeof file !== "string" || !file || file.split("/").some(part => !part || part === "." || part === ".." || part.startsWith("."))) {
+				throw new TypeError("assetUrl 需要 assets/ 下的相对路径，例如 'map/forest.png'");
+			}
+			return "/api/dsh-tavern/plugin-assets/" + owner.split("/").map(encodeURIComponent).join("/") + "/" + file.split("/").map(encodeURIComponent).join("/");
+		}
+
 		function createTavernUiExtensions() {
 			const mediaRenderers = new Map();
 			const markers = [];
@@ -38978,8 +39013,7 @@ function tavernFloorHeightRecall(key, width) {
 				},
 				// URL of a file in the plugin folder's assets/ (images, maps, sounds, fonts).
 				assetUrl(file) {
-					if (typeof file !== "string" || !file || file.split("/").some(function (part) { return !part || part === "." || part === ".." || part.charAt(0) === "."; })) throw new TypeError("assetUrl 需要 assets/ 下的相对路径，例如 'map/forest.png'");
-					return "/api/dsh-tavern/plugin-assets/" + ownerOf(this).split("/").map(encodeURIComponent).join("/") + "/" + file.split("/").map(encodeURIComponent).join("/");
+					return tavernPluginAssetUrl(ownerOf(this), file);
 				},
 				// Where a game stands now (apiVersion 2): latest turn and whether a reply or settlement runs.
 				getTurnState(gameId) {
@@ -39526,7 +39560,14 @@ function tavernFloorHeightRecall(key, width) {
 			return {...choice, after: views.filter(entry => entry.after && tavernPluginAllowed(entry.owner, sessionId))};
 		}
 		function TavernTurnPluginView(props) {
-			const rendered = props.view.render(props.input);
+			const {view, input} = props;
+			const renderBubbles = lines => {
+				const rows = lines.map(({id, alias, name, mood, text, recording}) => ({id, alias, name, mood, text,
+					recording: recording ? tavernPluginAssetUrl(view.owner, recording) : null}));
+				return rows.length ? React.createElement(TavernPluginDialogueBubbles, {sessionId:input.gameId,
+					owner:JSON.stringify([input.gameId, input.turn, view.key]), lines:rows}) : null;
+			};
+			const rendered = view.render({...input, renderBubbles});
 			return rendered === null || rendered === undefined ? props.fallback : rendered;
 		}
 		/** A turn's story in the chosen plugin look; Tavern's own rendering when there is none or it fails. */

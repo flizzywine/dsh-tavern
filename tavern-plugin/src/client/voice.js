@@ -117,7 +117,7 @@ function VoiceButton({voice, glyph}) {
     const failure = current?.error || voice.error;
     const error = {QWEN_INVALID_TEXT:'这句没有可朗读内容或被 Qwen 拒绝，请修改台词后重播',VOICE_NOT_FOUND:'声音绑定未解析，请重新选择该人物的声音','voice-unbound':'声音绑定未解析，请重新选择该人物的声音',QWEN_MODEL_NOT_FOUND:'Qwen 当前服务无法访问此配音模型（404），请在百炼控制台检查模型开通状态与区域',QWEN_RESOURCE_NOT_FOUND:'Qwen 语音服务资源不存在（404），请检查区域、模型与音色',QWEN_AUDIO_NOT_FOUND:'Qwen 合成音频下载失败（404），请重试',QWEN_REQUEST_FAILED:'Qwen 语音服务请求失败'}[failure] || failure;
     const state = error ? 'error' : current?.loading ? 'loading' : current?.audio ? (current.audio.paused ? 'paused' : 'playing') : 'idle';
-    const label = {idle:'合成并播放',loading:'正在准备语音',playing:'暂停播放',paused:'继续播放',error:'重试语音'}[state];
+    const label = {idle:voice.recorded ? '重播配音' : '合成并播放',loading:'正在准备语音',playing:'暂停播放',paused:'继续播放',error:'重试语音'}[state];
     const h = React.createElement;
     const path = state === 'playing' ? 'M6 4h4v16H6zm8 0h4v16h-4z' : state === 'error' ? 'M11 4h2v10h-2zm0 13h2v3h-2z' : 'M7 4v16l14-8z';
     const click = current?.audio && !current.error ? event => {

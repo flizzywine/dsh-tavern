@@ -48,7 +48,8 @@ test('普通对话在内置开场正文后显示作用于开场的插件补充�
   const [data, list, extensions] = await Promise.all([
     source('story-transcript-data.js'), source('story-transcript-list.js'), source('plugin-extensions.js'),
   ])
-  const view = {key:'continuation', render: input => input.greeting && input.gameId === 'game' ? '已读的续段对白' : null}
+  const view = {key:'continuation:transcript', owner:'continuation', render: input => input.greeting && input.gameId === 'game'
+    ? input.renderBubbles([{id:'line-1', alias:'actor', name:'角色', text:'已读的续段对白', recording:'voices/line 1.mp3'}]) : null}
   const dom = new JSDOM('<main></main>', {pretendToBeVisual:true})
   const previous = {window: globalThis.window, document: globalThis.document, IS_REACT_ACT_ENVIRONMENT: globalThis.IS_REACT_ACT_ENVIRONMENT}
   Object.assign(globalThis, {window:dom.window, document:dom.window.document, IS_REACT_ACT_ENVIRONMENT:true})
@@ -65,9 +66,13 @@ test('普通对话在内置开场正文后显示作用于开场的插件补充�
     useTavernTurnView: () => ({view:null, after:[view]}),
     tavernPluginBoundary: () => props => props.children,
     bubbleCastLines: () => [],
+    TavernPluginDialogueBubbles: ({sessionId, lines}) => React.createElement('p', {
+      'data-session':sessionId, 'data-alias':lines[0].alias, 'data-recording':lines[0].recording,
+    }, lines[0].text),
   })
+  const assetUrl = extensions.slice(extensions.indexOf('function tavernPluginAssetUrl('), extensions.indexOf('function createTavernUiExtensions('))
   const renderer = extensions.slice(extensions.indexOf('function TavernTurnPluginView('), extensions.indexOf('function tavernPluginStatusSection('))
-  vm.runInContext(data + '\n' + list + '\n' + renderer, context)
+  vm.runInContext(data + '\n' + list + '\n' + assetUrl + '\n' + renderer, context)
   const feature = context.createTavernStoryTranscriptFeature({markdown: text => text})
   const transcript = project([
     {role:'assistant', greeting:true, turn:1, text:'原来的序章'},
@@ -77,5 +82,7 @@ test('普通对话在内置开场正文后显示作用于开场的插件补充�
   await act(async () => root.render(React.createElement(feature.StoryTranscriptList, {transcript, sessionId:'game', view:{mode:'story'}})))
   assert.match(main.textContent, /原来的序章已读的续段对白/)
   assert.equal(main.textContent.match(/已读的续段对白/g)?.length, 1)
+  assert.equal(main.querySelector('[data-session="game"][data-alias="actor"]').dataset.recording,
+    '/api/dsh-tavern/plugin-assets/continuation/voices/line%201.mp3')
   assert.match(main.textContent, /普通回复/)
 })

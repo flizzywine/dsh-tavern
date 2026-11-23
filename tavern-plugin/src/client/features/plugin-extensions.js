@@ -3,6 +3,13 @@
 		// Only additive changes: published plugins depend on these names.
 		// @include-domain plugin-text-segments.js
 
+		function tavernPluginAssetUrl(owner, file) {
+			if (typeof file !== "string" || !file || file.split("/").some(part => !part || part === "." || part === ".." || part.startsWith("."))) {
+				throw new TypeError("assetUrl 需要 assets/ 下的相对路径，例如 'map/forest.png'");
+			}
+			return "/api/dsh-tavern/plugin-assets/" + owner.split("/").map(encodeURIComponent).join("/") + "/" + file.split("/").map(encodeURIComponent).join("/");
+		}
+
 		function createTavernUiExtensions() {
 			const mediaRenderers = new Map();
 			const markers = [];
@@ -586,8 +593,7 @@
 				},
 				// URL of a file in the plugin folder's assets/ (images, maps, sounds, fonts).
 				assetUrl(file) {
-					if (typeof file !== "string" || !file || file.split("/").some(function (part) { return !part || part === "." || part === ".." || part.charAt(0) === "."; })) throw new TypeError("assetUrl 需要 assets/ 下的相对路径，例如 'map/forest.png'");
-					return "/api/dsh-tavern/plugin-assets/" + ownerOf(this).split("/").map(encodeURIComponent).join("/") + "/" + file.split("/").map(encodeURIComponent).join("/");
+					return tavernPluginAssetUrl(ownerOf(this), file);
 				},
 				// Where a game stands now (apiVersion 2): latest turn and whether a reply or settlement runs.
 				getTurnState(gameId) {
@@ -1134,7 +1140,14 @@
 			return {...choice, after: views.filter(entry => entry.after && tavernPluginAllowed(entry.owner, sessionId))};
 		}
 		function TavernTurnPluginView(props) {
-			const rendered = props.view.render(props.input);
+			const {view, input} = props;
+			const renderBubbles = lines => {
+				const rows = lines.map(({id, alias, name, mood, text, recording}) => ({id, alias, name, mood, text,
+					recording: recording ? tavernPluginAssetUrl(view.owner, recording) : null}));
+				return rows.length ? React.createElement(TavernPluginDialogueBubbles, {sessionId:input.gameId,
+					owner:JSON.stringify([input.gameId, input.turn, view.key]), lines:rows}) : null;
+			};
+			const rendered = view.render({...input, renderBubbles});
 			return rendered === null || rendered === undefined ? props.fallback : rendered;
 		}
 		/** A turn's story in the chosen plugin look; Tavern's own rendering when there is none or it fails. */

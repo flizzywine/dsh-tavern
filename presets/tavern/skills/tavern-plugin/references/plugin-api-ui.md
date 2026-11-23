@@ -458,6 +458,7 @@ ctx.tavernUi.registerTurnView({
 | `text` | 这一轮模型写的原文 |
 | `lines` | 这一轮对话气泡的台词（同宿主侧 `getCast` 的 `lines`），写完前或没有气泡时为空数组 |
 | `children` | Tavern 自己渲染好的这一轮正文（含人物卡的 HTML 界面、正文标记、插件媒体的位置） |
+| `renderBubbles(lines)` | 将插件的台词画成普通对话的原生气泡。每行传 `{ id, alias?, name?, mood?, text, recording? }`，`id` 是稳定的行标识，`alias` 和 `mood` 用于解析已绑定的人物与表情。有 `name` 的行显示角色气泡，没有 `name` 的行显示旁白。`recording` 是本插件 `assets/` 内录音的相对路径，显示在角色头像边上，可直接播放录音。 |
 
 - 每一轮只由收尾的那一步显示一次，不会重复。
 - 注册后默认用插件的样式；「酒馆状态」页出现「正文样式」选择，玩家可以选回内置，这台浏览器记住选择（卡内插件带的样式按卡记住）。插件卸载后回到内置。
