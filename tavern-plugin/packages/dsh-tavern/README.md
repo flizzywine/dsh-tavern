@@ -208,7 +208,7 @@ curl -fsSL 'https://raw.githubusercontent.com/flizzywine/dsh-tavern/runtime-arch
 
 #### 原生版 APK（Beta，推荐）
 
-直接安装即玩：[下载 APK](https://github.com/flizzywine/dsh-tavern/releases/download/v3.4/dsh-tavern-beta-1.0.0-beta.1.apk)（或前往 [最新 Release](https://github.com/flizzywine/dsh-tavern/releases/latest) 获取最新版）。
+直接安装即玩：[下载 APK](https://github.com/flizzywine/dsh-tavern/releases/download/v3.4/dsh-tavern-beta-1.0.0-beta.2.apk)（或前往 [最新 Release](https://github.com/flizzywine/dsh-tavern/releases/latest) 获取最新版）。
 
 全新底层重构，**彻底告别 Ubuntu + proot 容器与 Termux 命令行**，用 Android 原生 Node 直接驱动酒馆，**流畅度远超容器方案**：
 
