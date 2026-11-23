@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "834bc6bee138236dccb7781001331e155076921d",
-  "releaseSequence": 2027,
+  "revision": "3305aa07c7c8d63598b3ea175938ccf372e1af26",
+  "releaseSequence": 2028,
   "version": "3.4.0",
   "files": [
     {
@@ -826,8 +826,8 @@
     },
     {
       "path": "presets/tavern/skills/debug-card/references/live-update.md",
-      "sha256": "30a0b3ef918b1aae588b90f2a4856bdf083fa21c15fd13536e031f67a462d4d1",
-      "size": 2728
+      "sha256": "8eabc8ee64eca0a81c15959e9977522e0bf9f854a3b51bbdc31aa9958569aad2",
+      "size": 3454
     },
     {
       "path": "presets/tavern/skills/debug-card/SKILL.md",
@@ -2501,8 +2501,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/live-card-update.js",
-      "sha256": "22d0694fc4773f1053f104f44ac53e5281612add2ff5d21d5455ee418f762d22",
-      "size": 18544
+      "sha256": "a3a835a2fa5a8342d2cdda94011f2eb49bf9db86b1bea4bde85215c554d8d903",
+      "size": 20032
     },
     {
       "path": "tavern-plugin/lib/domain/manual-character-design.js",
@@ -2926,8 +2926,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/play-card-snapshots.js",
-      "sha256": "eaf9765e22e2b0e3a1b0ff422afe10dfc81ac4178be9caaecb6f0a1caddbeb11",
-      "size": 22687
+      "sha256": "c00b37605fe85bbfa73d60c9aa0644cae13bf4804cf4cf199b20ebfdbceaad8b",
+      "size": 22815
     },
     {
       "path": "tavern-plugin/lib/domain/play-chat-debug.js",
@@ -10176,9 +10176,9 @@
     }
   ],
   "archive": {
-    "commit": "df8432247cb2ae6466dfd4aac4a1d49974a985dc",
+    "commit": "0047645c3b28cd761c5f97969aa366924f0e946c",
     "path": "runtime.zip",
-    "sha256": "8b970518eea4700793de82fdc7ce6d33406483534b3308c0ca0932945c996adf",
-    "size": 17867868
+    "sha256": "70085e35f5f61623fba90f7595dd738e7bc4b54a970e3260b55deb43ba18bd6e",
+    "size": 17868805
   }
 }
