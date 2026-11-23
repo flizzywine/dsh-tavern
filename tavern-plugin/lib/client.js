@@ -3680,7 +3680,7 @@ window.__ModuleLoader__.load({
 		    // cold catalogue integrity validation can exceed the ordinary RPC deadline.
 		    // Aborting it does not cancel server warming; it used to require a manual Reload afterward.
 		    const control = (method, args = {}) => send('control', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({method,args})}, false,
-		        method === 'inspectCardBundleUrl' ? 22 * 60000 : ['exportPack','exportPacks','inspectImport'].includes(method) ? 10 * 60000 : ['listPackSummaries','getPackSnapshot'].includes(method) ? 90000 : 30000);
+		        method === 'inspectCardBundleUrl' ? 22 * 60000 : ['exportPack','exportPacks','inspectImport','applyImport','inspectCardBundle','applyCardBundle'].includes(method) ? 10 * 60000 : ['listPackSummaries','getPackSnapshot'].includes(method) ? 90000 : 30000);
 		    // list views read listPackSummaries (a few KB); a pack's full document is read per pack
 		    // and kept by revision, so reopening 舞台设置 / 素材库 asks only for packs that changed. Every snapshot that passes through
 		    // (reads and mutation results) refreshes its entry; the change feed drops an entry whose revision moved. Bounded LRU.
@@ -3746,9 +3746,10 @@ window.__ModuleLoader__.load({
 		        const {onProgress, ...args} = input, tickets = [];
 		        if ((method === 'exportPack' || method === 'exportPacks') && typeof onProgress === 'function') return exportWithProgress(method, args, onProgress);
 		        const progress = typeof onProgress === 'function' && typeof XMLHttpRequest === 'function' ? onProgress : null;
-		        const upload = async bytes => { const result = progress ? await sendWithProgress('upload', bytes, progress, 10 * 60000) : await send('upload', {method:'POST', headers:{'Content-Type':'application/octet-stream'}, body:bytes}, false, 10 * 60000); tickets.push(result.ticket); return result.ticket; };
+		        // an archive (a File, streamed from disk by the browser) is written to disk as it arrives, at any size
+		        const upload = async (bytes, archive = false) => { const path = archive ? 'upload?archive=1' : 'upload'; const result = progress ? await sendWithProgress(path, bytes, progress, 10 * 60000) : await send(path, {method:'POST', headers:{'Content-Type':'application/octet-stream'}, body:bytes}, false, 10 * 60000); tickets.push(result.ticket); return result.ticket; };
 		        try {
-		            if (Object.hasOwn(args, 'bytes')) args.bytes = await upload(args.bytes);
+		            if (Object.hasOwn(args, 'bytes')) args.bytes = await upload(args.bytes, method === 'inspectImport' || method === 'inspectCardBundle');
 		            for (const key of ['files','fileUpdates']) if (args[key]) {
 		                const rows = [];
 		                for (const [path, bytes] of args[key]) rows.push([path, bytes === null ? null : await upload(bytes)]);
@@ -5248,6 +5249,7 @@ window.__ModuleLoader__.load({
 		// the 「（HTTP 401）：provider text」 tail; anything else (English, a bare code, a uuid) is the caller's fallback.
 		// The raw text goes to the console (and the 调试视图's 最新错误) only.
 		const PLAYER_ERRORS={REVISION_CONFLICT:'内容已被修改，请重新载入',
+		  DISK_FULL:'磁盘空间不够，没有完成，也没有留下半个文件；腾出素材库所在磁盘的空间后再试一次',
 		  LIMIT_EXCEEDED:'素材数据超过大小或数量限制，未能保存；请减少本次提交的内容后重试',
 		  MISSING_DEPENDENCY:'素材引用不完整，请补齐所引用的图片、差分或资源后重试；无需安装额外程序',
 		  INVALID_ASSET_PACK:'改完的素材没通过保存前的检查，这次修改没有生效，素材包保持原样',
@@ -5412,7 +5414,7 @@ window.__ModuleLoader__.load({
 		  const cardPackAsks=row=>(row.choices||[]).includes('update');
 		  const cardPackAction=(row,decision)=>({noop:'已装过相同的',install:'新安装',update:'替换原来的','keep-both':cardPackAsks(row)?'另存一份':'和已安装的重复，另存一份'})[decision]||'';
 		  const CARD_IMPORT_FILE='这个文件不是卡片 ZIP，或者已经损坏。';
-		  const CARD_IMPORT_ERRORS={INVALID_INPUT:CARD_IMPORT_FILE,INVALID_PATH:CARD_IMPORT_FILE,FILE_CLOSURE_MISMATCH:CARD_IMPORT_FILE,LIMIT_EXCEEDED:'文件太大，或者磁盘空间不够。',
+		  const CARD_IMPORT_ERRORS={INVALID_INPUT:CARD_IMPORT_FILE,INVALID_PATH:CARD_IMPORT_FILE,FILE_CLOSURE_MISMATCH:CARD_IMPORT_FILE,LIMIT_EXCEEDED:'文件太大，或者磁盘空间不够。',DISK_FULL:'磁盘空间不够，没有导入，也没有留下半个文件。腾出空间后再试一次。',
 		    DUPLICATE_ID:'里面的素材和已安装的冲突，不能导入。',REVISION_CONFLICT:'卡片或素材刚刚被改过，请重试。',ASSET_UNAVAILABLE:'暂时无法导入，请重试。',
 		    NOT_FOUND:'找不到这张卡，请重新打开后再试。',RECOVERY_REQUIRED:'舞台素材需要恢复，请重启后再试。'};
 		  const CARD_IMPORT_PICK=new Set(['INVALID_INPUT','INVALID_PATH','FILE_CLOSURE_MISMATCH','LIMIT_EXCEEDED','DUPLICATE_ID']);
@@ -5787,7 +5789,7 @@ window.__ModuleLoader__.load({
 		      setPreview(null);
 		      if(index+1===queue.files.length)return onDone();
 		      const at=index+1;setIndex(at);
-		      const result=await work.task(async()=>binding.service.inspectImport({bytes:new Uint8Array(await queue.files[at].arrayBuffer())}));
+		      const result=await work.task(async()=>binding.service.inspectImport({bytes:queue.files[at]}));
 		      if(result)setPreview(result);
 		    }
 		    if(preview)return preview.kind==='pack-set'?h(PackSetInstall,{key:index,binding,set:preview,onClose:next,onDone:next}):h(ConflictDialog,{key:index,binding,preview,onClose:next,onDone:next});
@@ -11882,7 +11884,7 @@ window.__ModuleLoader__.load({
 		      const files=Array.from(selected||[]),file=files[0];
 		      if(!file)return;if(files.some(item=>!catZipName(item)))return setProblem('请选择 .zip 格式的素材包');
 		      setProblem('');setReading(file);
-		      const preview=await zip.task(async()=>binding.service.inspectImport({bytes:new Uint8Array(await file.arrayBuffer())}));
+		      const preview=await zip.task(async()=>binding.service.inspectImport({bytes:file}));
 		      setReading(null);if(preview)onPreview(files.length===1?preview:{kind:'file-queue',files,current:preview});
 		    }
 		    const frame={'data-drop':over||undefined,

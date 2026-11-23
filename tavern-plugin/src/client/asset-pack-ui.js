@@ -35,6 +35,7 @@ function orderedPackItems(pack,kind) {
 // the 「（HTTP 401）：provider text」 tail; anything else (English, a bare code, a uuid) is the caller's fallback.
 // The raw text goes to the console (and the 调试视图's 最新错误) only.
 const PLAYER_ERRORS={REVISION_CONFLICT:'内容已被修改，请重新载入',
+  DISK_FULL:'磁盘空间不够，没有完成，也没有留下半个文件；腾出素材库所在磁盘的空间后再试一次',
   LIMIT_EXCEEDED:'素材数据超过大小或数量限制，未能保存；请减少本次提交的内容后重试',
   MISSING_DEPENDENCY:'素材引用不完整，请补齐所引用的图片、差分或资源后重试；无需安装额外程序',
   INVALID_ASSET_PACK:'改完的素材没通过保存前的检查，这次修改没有生效，素材包保持原样',
@@ -199,7 +200,7 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
   const cardPackAsks=row=>(row.choices||[]).includes('update');
   const cardPackAction=(row,decision)=>({noop:'已装过相同的',install:'新安装',update:'替换原来的','keep-both':cardPackAsks(row)?'另存一份':'和已安装的重复，另存一份'})[decision]||'';
   const CARD_IMPORT_FILE='这个文件不是卡片 ZIP，或者已经损坏。';
-  const CARD_IMPORT_ERRORS={INVALID_INPUT:CARD_IMPORT_FILE,INVALID_PATH:CARD_IMPORT_FILE,FILE_CLOSURE_MISMATCH:CARD_IMPORT_FILE,LIMIT_EXCEEDED:'文件太大，或者磁盘空间不够。',
+  const CARD_IMPORT_ERRORS={INVALID_INPUT:CARD_IMPORT_FILE,INVALID_PATH:CARD_IMPORT_FILE,FILE_CLOSURE_MISMATCH:CARD_IMPORT_FILE,LIMIT_EXCEEDED:'文件太大，或者磁盘空间不够。',DISK_FULL:'磁盘空间不够，没有导入，也没有留下半个文件。腾出空间后再试一次。',
     DUPLICATE_ID:'里面的素材和已安装的冲突，不能导入。',REVISION_CONFLICT:'卡片或素材刚刚被改过，请重试。',ASSET_UNAVAILABLE:'暂时无法导入，请重试。',
     NOT_FOUND:'找不到这张卡，请重新打开后再试。',RECOVERY_REQUIRED:'舞台素材需要恢复，请重启后再试。'};
   const CARD_IMPORT_PICK=new Set(['INVALID_INPUT','INVALID_PATH','FILE_CLOSURE_MISMATCH','LIMIT_EXCEEDED','DUPLICATE_ID']);
@@ -574,7 +575,7 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
       setPreview(null);
       if(index+1===queue.files.length)return onDone();
       const at=index+1;setIndex(at);
-      const result=await work.task(async()=>binding.service.inspectImport({bytes:new Uint8Array(await queue.files[at].arrayBuffer())}));
+      const result=await work.task(async()=>binding.service.inspectImport({bytes:queue.files[at]}));
       if(result)setPreview(result);
     }
     if(preview)return preview.kind==='pack-set'?h(PackSetInstall,{key:index,binding,set:preview,onClose:next,onDone:next}):h(ConflictDialog,{key:index,binding,preview,onClose:next,onDone:next});

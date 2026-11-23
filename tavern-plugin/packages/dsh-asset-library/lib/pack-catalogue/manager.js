@@ -1,24 +1,23 @@
 // one network job at a time; publication remains owned by pack-v2.
 import { randomUUID, createHash } from 'node:crypto'
 import { createReadStream } from 'node:fs'
-import { mkdir, open, unlink, statfs } from 'node:fs/promises'
+import { mkdir, open, unlink } from 'node:fs/promises'
 import { checkedPath } from '../pack-v2/storage.js'
 import { check } from '../asset-packs/common.js'
 import { CATALOGUE_BYTES, parseCatalogue, digest, httpsUrl, compatibility, compareVersions } from './catalogue.js'
 import {isCuratedEntry} from './curated.js'
 import { publicNetwork, readBounded } from './network.js'
-const errorView = e => ({code:['LIMIT_EXCEEDED','INTEGRITY_MISMATCH','ASSET_UNAVAILABLE','INVALID_INPUT','INVALID_PATH','FILE_CLOSURE_MISMATCH'].includes(e.code)?e.code:'DOWNLOAD_FAILED',message:e.code==='ENOSPC'?'Not enough disk space':e.message?.replace(/https?:\/\/\S+/g,'[URL]') || 'Download failed'})
+const errorView = e => ({code:e.code==='ENOSPC'?'DISK_FULL':['LIMIT_EXCEEDED','INTEGRITY_MISMATCH','ASSET_UNAVAILABLE','INVALID_INPUT','INVALID_PATH','FILE_CLOSURE_MISMATCH'].includes(e.code)?e.code:'DOWNLOAD_FAILED',message:e.code==='ENOSPC'?'Not enough disk space':e.message?.replace(/https?:\/\/\S+/g,'[URL]') || 'Download failed'})
 const terminal = new Set(['completed','cancelled'])
 // a link may fetch a 素材包合集 (inspection.kind 'pack-set'): its packs are applied one by one;
 // a pack already applied or cancelled is marked `done`, and the job finishes when none is left.
 const pending = (j,id) => j.inspection && (j.inspection.inspectionId===id || j.inspection.packs?.some(p=>p.inspectionId===id && !p.done))
-export function createCatalogueManager({assetRoot,limits,settings,network=publicNetwork,inspectFile,discardInspection,listInstalled,resourceUsage=()=>0,now=Date.now,maxArchiveBytes=limits.totalSize}) {
+export function createCatalogueManager({assetRoot,limits,settings,network=publicNetwork,inspectFile,discardInspection,listInstalled,now=Date.now,maxArchiveBytes=limits.totalSize}) {
   const jobs=new Map(), cache=new Map(), refreshes=new Map(), refreshControllers=new Set()
-  const cap=Math.min(limits.totalSize,maxArchiveBytes,limits.spoolBytes)
+  // a download goes to disk and grows with the pack: bounded by the disk, whose ENOSPC fails the job cleanly
+  const cap=Math.min(limits.totalSize,maxArchiveBytes)
   check(Number.isSafeInteger(cap) && cap>0,'$.maxArchiveBytes','Positive archive limit required')
   let active=null, disposed=false
-  const usage=()=>[...jobs.values()].reduce((n,j)=>n+j.receivedBytes,0)
-  const available=size=>check(size+usage()+resourceUsage()<=limits.spoolBytes,'$','Shared spool budget exceeded','LIMIT_EXCEEDED')
   function source(id) { const s=settings?.read().values.sources.find(s=>s.sourceId===id && s.enabled); check(s,'$.sourceId','Catalogue source unavailable','ASSET_UNAVAILABLE'); return s }
   function view(j) { return structuredClone({jobId:j.id,state:j.state,receivedBytes:j.finishedBytes ?? j.receivedBytes,totalBytes:j.totalBytes,speed:j.speed,source:j.source,downloadUrl:j.url,integrity:j.expectedSha256?'sha256':'unverified',...(j.expiresAt?{expiresAt:j.expiresAt}:{}),...(j.error?{error:j.error}:{}),...(j.inspection?{inspection:j.inspection}:{}),...(j.result?{result:j.result}:{})}) }
   function get(id) { const j=jobs.get(id); check(j,'$.jobId','Download job unavailable','ASSET_UNAVAILABLE'); return j }
@@ -55,8 +54,6 @@ export function createCatalogueManager({assetRoot,limits,settings,network=public
     j.state='downloading'; delete j.error
     try {
       await mkdir(await checkedPath(assetRoot,'downloads'),{recursive:true})
-      const space=await statfs(await checkedPath(assetRoot,'downloads'))
-      check(space.bavail*space.bsize > (j.totalBytes || cap)+limits.totalSize*2,'$','Not enough disk space for download and transaction','LIMIT_EXCEEDED')
       if(!j.file) j.file=await checkedPath(assetRoot,'downloads/'+j.id+'.part')
       if(!j.etag && j.receivedBytes) await clear(j)
       if(!j.file) j.file=await checkedPath(assetRoot,'downloads/'+j.id+'.part')
@@ -82,7 +79,6 @@ export function createCatalogueManager({assetRoot,limits,settings,network=public
           for await(const chunk of response.body) {
             signal.throwIfAborted()
             check(j.receivedBytes+chunk.length<=cap && (!j.expectedSize || j.receivedBytes+chunk.length<=j.expectedSize),'$.size','Archive download limit exceeded','LIMIT_EXCEEDED')
-            available(chunk.length)
             j.receivedBytes+=chunk.length
             try {await handle.writeFile(chunk)} catch(error) {j.etag=null;throw error}
             j.speed=Math.round((j.receivedBytes-initial)*1000/Math.max(1,now()-start))
@@ -165,7 +161,7 @@ export function createCatalogueManager({assetRoot,limits,settings,network=public
         check(expectedSha256 && prefix,'$.mirrorPrefix','Mirror requires trusted SHA-256 and configured prefix')
         url=httpsUrl(prefix+url)
       }
-      check(!expectedSize || expectedSize<=cap,'$.size','Archive download limit exceeded','LIMIT_EXCEEDED'); available(expectedSize || 0)
+      check(!expectedSize || expectedSize<=cap,'$.size','Archive download limit exceeded','LIMIT_EXCEEDED')
       for(const [id,j] of jobs) if(terminal.has(j.state) && jobs.size>=32) jobs.delete(id)
       check(jobs.size<32,'$','Download job limit exceeded','LIMIT_EXCEEDED')
       const id=randomUUID(), j={id,state:'queued',url,expectedSha256,expectedSize,source:provenance,receivedBytes:0,totalBytes:expectedSize,speed:0,expiresAt:now()+limits.previewTtlMs}
@@ -191,7 +187,7 @@ export function createCatalogueManager({assetRoot,limits,settings,network=public
       return view(j)
     }
   }
-  return {methods,usage,
+  return {methods,
     applying(id) {const j=[...jobs.values()].find(j=>pending(j,id));if(j) j.state='installing'},
     applied(id,result,error) {
       const j=[...jobs.values()].find(j=>pending(j,id));if(!j) return
