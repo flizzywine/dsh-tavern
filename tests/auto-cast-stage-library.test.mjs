@@ -86,6 +86,21 @@ test('the port casts through the library\'s auto-cast writer: a new figure with 
   assert.equal((await port.readMedia({packId:cast.packId, hash:after.setteiHash})).length > 0, true)
 })
 
+test('automatic casting can copy the figure and its artwork without copying its voice', async t => {
+  const {service, port, templatePack} = await fixture(t)
+  const template = (await port.search('傲娇')).figures.find(row => row.ref.figureId === TEMPLATE)
+  assert.ok(template.voice)
+  const plan = castChanges([{name:'无配音分身', aliases:[]}], {
+    same:{}, copy:{无配音分身:{source:{packId:templatePack, figureId:TEMPLATE}, revision:template.revision}}, appearance:{}, voice:{},
+  }, {voices:false})
+  const written = await port.write({cardPath:'card', changes:plan.changes, sources:plan.sources, source, requestId:'cast-without-voice'})
+  const cast = await port.readCast('card')
+  const pack = await service.getPackSnapshot({packId:written.packId})
+  assert.deepEqual(cast.figures[0].sprites, ['calm'])
+  assert.equal(pack.figures[written.refs[0].figureId].voice, undefined)
+  assert.equal(Object.keys(pack.manifest.voiceLibrary?.voices ?? {}).length, 0)
+})
+
 // 主人 11-15: only 通用声音 (the voice page's switch, else a voice written a 使用情景 before the switch) are offered to the assistant.
 test('the assistant\'s voice candidates are 可选声音 「默认」: a 使用情景, or a voice of the pack 通用声音 / 旁白 point at; never by name; the old switch is not read', async t => {
   const {service, port, world, templatePack} = await fixture(t)
@@ -101,6 +116,15 @@ test('the assistant\'s voice candidates are 可选声音 「默认」: a 使用�
   world.reading = {general:{figure:{packId:system.snapshot.manifest.id, figureId:'f1'}}, narrator:{enabled:false, figure:null}}
   assert.deepEqual((await port.libraryVoices()).voices.map(row => row.name), ['傲娇少女声', '关掉的', '系统既有男声'])
   assert.deepEqual((await port.search('男声')).voices.map(row => row.name), ['系统既有男声'])
+  // 先定语言（主人 11-22）: one language's voices only, by the voice's own language (unset = 中文, zh-CN = zh); the system
+  // pack's are that language's 默认通用声音 (fallback)
+  const current = await service.getPackSnapshot({packId:system.snapshot.manifest.id})
+  await service.patchPack({packId:current.manifest.id, expectedRevision:current.revision, patch:{voiceLibrary:{version:1, voices:{male:{...plain, name:'系统既有男声', language:'zh-CN', sources:sources('zh-d')},
+    jaMale:{...plain, name:'系统既有男声（日语）', language:'ja', sources:sources('ja-a')}}}}})
+  const of = async language => (await port.libraryVoices(language)).voices.map(row => [row.name, row.language, row.fallback ?? false])
+  assert.deepEqual(await of('zh'), [['傲娇少女声', 'zh', false], ['关掉的', 'zh', false], ['系统既有男声', 'zh', true]])
+  assert.deepEqual(await of('ja'), [['系统既有男声（日语）', 'ja', true]])
+  assert.deepEqual(await of('ko'), [], 'a language without a voice lists none: nothing of another language fills it')
   await assert.rejects(service.patchPack({packId:templatePack, expectedRevision:(await service.getPackSnapshot({packId:templatePack})).revision, patch:{voiceLibrary:{version:1, voices:{bad:{...base, autoCast:'yes'}}}}}), {code:'INVALID_INPUT'})
 })
 test('a committed round through the asset library plugin\'s own service: new speakers are written, counted and drawn', async t => {
@@ -115,7 +139,7 @@ test('a committed round through the asset library plugin\'s own service: new spe
   const store = {readJson:async k => files.get(k) ?? null, writeJson:async (k, v) => files.set(k, v), updateJson:async (k, fn) => files.set(k, fn(files.get(k) ?? null)),
     readBytes:async k => files.get(k), writeBytes:async (k, v) => files.set(k, v), remove:async k => files.delete(k)}
   const port = createAutoCastLibrary({getLibrary:() => services.get('assetLibrary')})
-  const cast = createAutoCast({store, settings:async () => ({enabled:true, level:'late'}), library:port, onError:error => errors.push(error),
+  const cast = createAutoCast({store, settings:async () => ({enabled:true, level:'aggressive', sprites:true, voices:true}), library:port, onError:error => errors.push(error),
     images:{status:async () => ({ready:true, model:'m'}), prompt:async input => ({prompt:input.kind, output:{size:'1536x1024', background:'opaque', quality:'high'}}), check:() => ({warnings:[], hasTransparency:false}),
       generate:async input => { drawn.push(input); return {data:new Uint8Array(png([1, 2, 3])), mediaType:'image/png'} }}})
   t.after(async () => { cast.dispose(); for (const dispose of cleanup.reverse()) await dispose?.(); await rm(root, {recursive:true, force:true}) })

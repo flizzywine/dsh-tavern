@@ -10,6 +10,7 @@ import { pluginMember, pluginMemberId, registerPluginMember } from './domain/bac
 import { CUSTOM_EVENT, STORY_EVENTS } from './domain/story-events.js'
 import { bounded, untilAborted } from './domain/plugin-callback.js'
 import { createPluginImageCatalog } from './domain/plugin-image-catalog.js'
+import { packPictureCopy } from './domain/image-character-appearance.js'
 import path from 'node:path'
 import { publicPluginMedia, pluginMediaSession } from './domain/plugin-media.js'
 import { normalizeGameSettings, coerceSetting, settingValues } from './domain/plugin-game-settings.js'
@@ -168,16 +169,15 @@ function boundedWithSignal(promise, label, signal, ms = PLUGIN_TIMEOUT_MS) {
   })
 }
 
-// outfits: {outfit key: new name} the record renamed; release: the record's link to the figure ends (deleted or relinked).
-function linkedFigureEdit({ packId, figureId, name, addAliases = [], removeAliases = [], outfits, release } = {}) {
-  const words = value => Array.isArray(value) && value.length <= 64 && value.every(word => typeof word === 'string' && word.trim() && word.length <= 64)
+// A saved record of the image library that is linked to an asset-library figure: the figure's name, 触发词 and outfit
+// names are the record's own (ADR 0011), so a change needs no write to the figure; release: the record's link to the
+// figure ends (deleted or relinked) and the figure takes its identity back first.
+function linkedRecordChange({ packId, figureId, release, identity } = {}) {
   if (typeof packId !== 'string' || !packId || typeof figureId !== 'string' || !figureId) throw new TypeError('packId、figureId 必须是素材库人物的 ID')
-  if (name !== undefined && (typeof name !== 'string' || !name.trim() || name.length > 100)) throw new TypeError('name 必须是 1–100 字')
-  if (!words(addAliases) || !words(removeAliases)) throw new TypeError('addAliases、removeAliases 必须是最多 64 个、每个不超过 64 字的词')
-  if (outfits !== undefined && (!outfits || typeof outfits !== 'object' || Array.isArray(outfits) || Object.keys(outfits).length > 128 || Object.values(outfits).some(label => typeof label !== 'string' || !label.trim() || label.length > 100))) throw new TypeError('outfits 必须是服装 ID 到 1–100 字名称的对照')
   if (release !== undefined && typeof release !== 'boolean') throw new TypeError('release 必须是布尔值')
-  return { packId, figureId, ...(name === undefined ? {} : { name: name.trim() }), addAliases: addAliases.map(word => word.trim()), removeAliases: removeAliases.map(word => word.trim()),
-    ...(outfits ? { outfits: Object.fromEntries(Object.entries(outfits).map(([key, label]) => [key, label.trim()])) } : {}), ...(release ? { release: true } : {}) }
+  if (identity !== undefined && (!identity || typeof identity.name !== 'string' || typeof identity.match !== 'string'
+    || !Array.isArray(identity.outfits) || identity.outfits.some(name => typeof name !== 'string'))) throw new TypeError('人物资料格式无效')
+  return { packId, figureId, ...(release ? { release: true } : {}), ...(identity ? { identity } : {}) }
 }
 
 export function createTavernPluginApi(deps) {
@@ -669,8 +669,6 @@ export function createTavernPluginApi(deps) {
       if (typeof gameId !== 'string' || !gameId || !Number.isSafeInteger(turn)) throw new TypeError('beforeImagePlan 需要 gameId 与整数 turn')
       if (!imageGateProvider) return
       await imageGateProvider.beforePlan({ gameId, turn, signal })
-      // the people the turn just cast get their 人物库 records from the follow (image-character-follow.js) after their pack write
-      await deps.imageCharactersSettled?.()
     },
     async imagePackCharacters({ gameId, turn, anchor, subjects, includeReferences = true } = {}) {
       if (!deps.imagePackCharacters) return []
@@ -681,6 +679,20 @@ export function createTavernPluginApi(deps) {
       return deps.imagePackCharacters(packIds, subjects?.map(subject => ({
         ...subject, outfitId: subject.outfitId || worn.find(row => subject.characterId === `pack:${row.packId}:${row.figureId}`)?.outfitKey,
       })), includeReferences === true)
+    },
+    // The pictures of asset-library figures, read where they live (the pack), for records linked to them
+    // (figurePackId, figureId): [{packId, figureId, identity, outfits: {[outfit id]: {picture, borrowed}}}], each picture
+    // a reference descriptor {id: sha256, mediaType, byteLength, name}. `identity` is the person's 人设图; an outfit's
+    // picture is its 服装设定图, or (borrowed) the resting 立绘 it lends when the record has no picture of its own.
+    // readFigurePicture({packId, figureId, id}) → {data: Uint8Array, mediaType}.
+    async figurePictures({ figures } = {}) {
+      if (!deps.figurePictures) return []
+      if (!Array.isArray(figures)) throw new TypeError('figurePictures 需要 figures 数组')
+      return deps.figurePictures(figures)
+    },
+    async readFigurePicture({ packId, figureId, id } = {}) {
+      if (!deps.readFigurePicture) throw Object.assign(new Error('素材库未启用'), { code: 'NOT_FOUND' })
+      return deps.readFigurePicture({ packId, figureId, id })
     },
     async beforeImageGenerate({ gameId, turn, anchor, subjects, signal } = {}) {
       if (typeof gameId !== 'string' || !gameId || !Array.isArray(subjects) || subjects.length > 16) throw new TypeError('beforeImageGenerate 需要 gameId 与最多 16 个 subjects')
@@ -696,11 +708,12 @@ export function createTavernPluginApi(deps) {
         return row && record.outfits?.some(outfit => outfit.id === row.outfitKey) ? [[record.id, row.outfitKey]] : []
       }))
       const answer = Object.keys(outfits).length ? { outfits } : {}
-      const figures = linked.filter(record => !record.referenceImage)
+      const drawn = deps.figurePictures && linked.length ? await deps.figurePictures(linked.map(record => ({ packId: record.figurePackId, figureId: record.figureId }))) : []
+      const figures = linked.filter(record => (!record.referenceImage || packPictureCopy(record.referenceImage, record.name))
+        && !drawn.some(row => row.identity && row.packId === record.figurePackId && row.figureId === record.figureId))
         .map(record => ({ packId: record.figurePackId, figureId: record.figureId, name: record.name }))
       if (!figures.length) return answer
       const { unavailable } = await imageGateProvider.awaitReferences({ gameId, figures: figures.map(({ packId, figureId }) => ({ packId, figureId })), signal })
-      await deps.imageCharactersSettled?.()
       const missing = figures.filter(figure => unavailable.some(ref => ref.packId === figure.packId && ref.figureId === figure.figureId))
       return missing.length ? { skip: true, reason: '「' + missing.map(figure => figure.name).join('、') + '」的人设图没有画出来，有他们的图这次没有出' } : answer
     },
@@ -909,27 +922,19 @@ export function createTavernPluginApi(deps) {
       return owned(this, () => imageCatalog.registerLibrary(owner, input), 'tavern.registerImageLibrary()')
     },
 
-    // An image library whose record is linked to an asset-library figure hands an edit of the record's name or
-    // aliases (触发词) to the figure, their one home. Only for plugins installed for every card.
-    async editLinkedFigure(input) {
-      const owner = ownerOf(this)
-      if (deps.cardScope && (await deps.cardScope().catch(() => null))?.get(owner)) throw Object.assign(new Error('卡内插件不能修改素材库人物'), { code: 'TAVERN_PLUGIN_SCOPE' })
-      const change = linkedFigureEdit(input)
-      if (!deps.editLinkedFigure) throw Object.assign(new Error('素材库未启用'), { code: 'NOT_CONFIGURED' })
-      return await deps.editLinkedFigure(change)
-    },
-
     writingFigureRecords() { return deps.writingFigureRecords?.() === true },
 
-    async editLinkedFigures({ changes, receipt } = {}, save) {
+    // An image library saving records linked to asset-library figures (name, 触发词, outfit names, or a link that ends):
+    // the library reads those figures again, and a link that ends gives the figure its identity back in the same save.
+    async saveLinkedRecords({ changes, receipt } = {}, save) {
       const owner = ownerOf(this)
       if (deps.cardScope && (await deps.cardScope().catch(() => null))?.get(owner)) throw Object.assign(new Error('卡内插件不能修改素材库人物'), { code: 'TAVERN_PLUGIN_SCOPE' })
       if (!Array.isArray(changes) || !changes.length || typeof save !== 'function') throw new TypeError('需要人物修改及保存回调')
-      const edits = changes.map(linkedFigureEdit)
+      const edits = changes.map(linkedRecordChange)
       const keys = new Set(edits.map(({ packId, figureId }) => JSON.stringify([packId, figureId])))
       if (keys.size !== edits.length) throw new TypeError('同一素材库人物只能修改一次')
-      if (!deps.editLinkedFigures) throw Object.assign(new Error('素材库未启用'), { code: 'NOT_CONFIGURED' })
-      return await deps.editLinkedFigures(edits, receipt, save)
+      if (!deps.saveLinkedRecords) throw Object.assign(new Error('素材库未启用'), { code: 'NOT_CONFIGURED' })
+      return await deps.saveLinkedRecords(edits, receipt, save)
     },
 
     async listImageCharacters(input = {}) {
