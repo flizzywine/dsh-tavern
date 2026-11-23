@@ -78,7 +78,7 @@ const WRITERS = Object.freeze({
   'auto-figure': {ops:['create'], texts:['name','aliases'], media:false, sourceKind:'story-speaker'},
   'auto-cast': {ops:['create','copy','patch'], texts:['name','aliases','description','guidance'], media:true, sourceKind:'auto-cast'}
 })
-const CHANGE_FIELDS = {create:[['op','kind','value'],['op','kind','value']], copy:[['op','kind','source','patch'],['op','kind','source']], patch:[['op','kind','ref','patch'],['op','kind','ref']]}
+const CHANGE_FIELDS = {create:[['op','kind','value'],['op','kind','value']], copy:[['op','kind','source','patch','copyVoice'],['op','kind','source']], patch:[['op','kind','ref','patch'],['op','kind','ref']]}
 const IMAGE_KEY = /^[A-Za-z0-9_-]{1,40}$/
 
 // The authority binds one immutable request: image bytes compare as bytes, everything else as canonical JSON.
@@ -234,6 +234,7 @@ export function createAutomaticWriteMethods({run, readRun, all, load, metadata, 
         figureId = createFigure(manifest, files, {figure:{schemaVersion:1, ...clone(change.value), enabled:true, recall:{mode:'keyword'}, appearance:'avatar',
           emotions:clone(STANDARD_FIGURE_EMOTIONS), outfits:[], extensions:{'dsh.automatic-write':mark}}}).figureId
       } else if (change.op === 'copy') {
+        check(change.copyVoice === undefined || typeof change.copyVoice === 'boolean', '$.changes[].copyVoice', 'Expected boolean')
         shape(change.source, ['packId','figureId'], ['packId','figureId'], '$.changes[].source')
         catalogued(change.source.packId)
         const source = await sources(change.source.packId)
@@ -242,7 +243,7 @@ export function createAutomaticWriteMethods({run, readRun, all, load, metadata, 
         // the copy takes the source figure's 配图 外貌 along; the host gives it a record of its own
         const look = (await figureImageExtras(source.manifest.id, [change.source.figureId]))[change.source.figureId]
         const had = new Set(Object.keys(manifest.voiceLibrary?.voices || {}))
-        figureId = copyFigureAssets(source, change.source.figureId, manifest, files, {extensions:{...(look ? {[FIGURE_IMAGE_EXTENSION]:look} : {}), 'dsh.automatic-write':mark}}).figureId
+        figureId = copyFigureAssets(source, change.source.figureId, manifest, files, {copyVoice:change.copyVoice, extensions:{...(look ? {[FIGURE_IMAGE_EXTENSION]:look} : {}), 'dsh.automatic-write':mark}}).figureId
         for (const [name, digest] of storedCopyHashes(files, [source])) hashed.set(name, digest)
         if (look) await carryFigureImageMedia(source.manifest.id, {[change.source.figureId]:look}, manifest, files, hashed)
         for (const [id, spec] of Object.entries(manifest.voiceLibrary?.voices || {})) if (!had.has(id)) voices[id] = clone(spec)
@@ -262,7 +263,7 @@ export function createAutomaticWriteMethods({run, readRun, all, load, metadata, 
       // a speaker created before figures came with the standard 差分 gets them with its next automatic change
       if (!figure.emotions?.length) figure.emotions = clone(STANDARD_FIGURE_EMOTIONS)
       // looks: the 外貌 the casting assistant wrote ({face, bodySFW}). Like a copied figure's, it is in transit to the figure's
-      // 配图 人物库 record, its one home: the host moves it there after the write (image-character-follow.js), so 场景配图 draws the
+      // 配图 人物库 record, its one home: the host moves it there as the figure is written (image-character-records.js), so 场景配图 draws the
       // same person as the 立绘.
       if (change.looks !== undefined) {
         shape(change.looks, ['face','bodySFW'], [], '$.changes[].looks')
@@ -310,10 +311,10 @@ export function createAutomaticWriteMethods({run, readRun, all, load, metadata, 
           live()
           return readRun([], async () => searchLibrary((await all()).map(pack => ({manifest:pack.manifest, figures:pack.figures, revision:pack.local.revision})), {query, limit, systemPacks}))
         },
-        // 全库声音: every installed pack's voices, read only (library-search.js).
-        listLibraryVoices({limit, systemPacks} = {}) {
+        // 全库声音: every installed pack's voices, or one language's, read only (library-search.js).
+        listLibraryVoices({limit, systemPacks, language} = {}) {
           live()
-          return readRun([], async () => listLibraryVoices((await all()).map(pack => ({manifest:pack.manifest, figures:pack.figures, revision:pack.local.revision})), {limit, systemPacks}))
+          return readRun([], async () => listLibraryVoices((await all()).map(pack => ({manifest:pack.manifest, figures:pack.figures, revision:pack.local.revision})), {limit, systemPacks, language}))
         },
         authorize(input, source, context) {
           live()

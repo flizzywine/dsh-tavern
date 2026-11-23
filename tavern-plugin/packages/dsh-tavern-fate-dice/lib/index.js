@@ -213,9 +213,13 @@ function sanitizeSettings(input = {}, fallback = DEFAULT_GLOBAL_SETTINGS) {
 
 function normalizeGlobalStore(raw) {
   const data = raw && typeof raw === 'object' ? raw : {}
+  const prevVersion = toInt(data.version, 0)
+  const settings = sanitizeSettings(data.settings, DEFAULT_GLOBAL_SETTINGS)
+  /* v4 起命运之骰的开启/关闭改为按会话记忆：迁移旧版存盘（version < 4）时重置历史全局 enabled，避免污染所有会话 */
+  if (prevVersion > 0 && prevVersion < 4) settings.enabled = false
   return {
-    version: 3,
-    settings: sanitizeSettings(data.settings, DEFAULT_GLOBAL_SETTINGS),
+    version: 4,
+    settings,
     updatedAt: toInt(data.updatedAt, Date.now())
   }
 }
@@ -1773,6 +1777,7 @@ export function apply(ctx) {
 
   async function buildWorkbenchView(params = {}) {
     const gameId = params.gameId || ''
+    if (gameId) lastActiveGameId = gameId
     const globalStore = await readGlobal()
     const game = await readGame(gameId, globalStore.settings.rule)
     const settings = effectiveSettings(globalStore, game)
@@ -1816,7 +1821,7 @@ export function apply(ctx) {
       autoCheck: settings.autoCheck,
       characterProfile,
       contextSources: buildContextSources(characterProfile, profileMaterial),
-      binding: { autoCheck: settings.autoCheck, rule: activeRule },
+      binding: { enabled: Boolean(settings.enabled), autoCheck: settings.autoCheck, rule: activeRule },
       damper: { available: Boolean(tavern.capabilities?.narrativeDamper), linkage: settings.damperLinkage },
       damperBridgeAvailable: Boolean(tavern.capabilities?.narrativeDamper),
       damperLinkage: settings.damperLinkage,
@@ -1838,15 +1843,18 @@ export function apply(ctx) {
     const globalStore = await readGlobal()
     const incoming = params.settings || params.data || params.config || params
     const settings = sanitizeSettings(incoming, globalStore.settings)
-    const saved = await saveGlobal({ ...globalStore, settings })
+    const saved = await saveGlobal({ ...globalStore, version: 4, settings })
     turnCacheByGame.clear()
     storedTurnDataCache.clear()
     const clientSettings = settingsForClient(saved.settings)
-    if (lastActiveGameId) {
+    const syncGameId = params.gameId || lastActiveGameId || ''
+    if (syncGameId) {
+      const activeGame = await readGameView(syncGameId, saved.settings.rule)
+      const effectiveClient = settingsForClient(effectiveSettings(saved, activeGame))
       await tavern.publishState?.({
-        gameId: lastActiveGameId,
+        gameId: syncGameId,
         name: 'workbench-sync',
-        data: { settings: clientSettings }
+        data: { settings: effectiveClient }
       }).catch(() => {})
     }
     return { ok: true, settings: clientSettings }
@@ -1857,6 +1865,7 @@ export function apply(ctx) {
   async function handleSaveBinding(params = {}) {
     const gameId = params.gameId
     if (!gameId) return { ok: false, error: '缺少 gameId' }
+    lastActiveGameId = gameId
     const globalStore = await readGlobal()
     const game = await readGame(gameId, globalStore.settings.rule)
     const incoming = params.binding || params.config || params.settings || params
@@ -1866,14 +1875,37 @@ export function apply(ctx) {
     if (typeof incoming.rule === 'string' && incoming.rule) config.rule = normalizeRule(incoming.rule)
     const activeRule = normalizeRule(config.rule || globalStore.settings.rule)
     const characterProfile = profileOf(game, activeRule)
-    await writeGame(gameId, { ...game, config, characterProfile })
+    const nextGame = await writeGame(gameId, { ...game, config, characterProfile })
     for (const key of [...turnCacheByGame.keys()]) {
       if (key.startsWith(`${gameId}:`)) turnCacheByGame.delete(key)
     }
     for (const key of [...storedTurnDataCache.keys()]) {
       if (key.startsWith(`${gameId}:`)) storedTurnDataCache.delete(key)
     }
-    return { ok: true, config, rule: activeRule, autoCheck: config.autoCheck ?? globalStore.settings.autoCheck }
+    const effective = effectiveSettings(globalStore, nextGame)
+    const clientSettings = settingsForClient(effective)
+    if (!effective.enabled) {
+      await publishPreSendGate(gameId, null)
+    }
+    await tavern.publishState?.({
+      gameId,
+      name: 'workbench-sync',
+      data: {
+        settings: clientSettings,
+        binding: { enabled: Boolean(effective.enabled), autoCheck: effective.autoCheck, rule: activeRule },
+        rule: activeRule,
+        autoCheck: effective.autoCheck
+      }
+    }).catch(() => {})
+    return {
+      ok: true,
+      gameId,
+      enabled: Boolean(effective.enabled),
+      config,
+      settings: clientSettings,
+      rule: activeRule,
+      autoCheck: effective.autoCheck
+    }
   }
   handle('fate-dice:save-binding', handleSaveBinding)
   handle('fate-dice:save-game-config', handleSaveBinding)

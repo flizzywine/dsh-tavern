@@ -331,6 +331,10 @@ export function applyTavernSettingsPatch(current, patch) {
     if (typeof input.polishPrereview !== 'boolean') throw new Error('无效的自动精修设置')
     next.polishPrereview = input.polishPrereview
   }
+  if (Object.hasOwn(input, 'candidatePickMode')) {
+    if (!['fill', 'send'].includes(input.candidatePickMode)) throw new Error('无效的候选项点击方式')
+    next.candidatePickMode = input.candidatePickMode
+  }
   if (Object.hasOwn(input, 'candidateDismissMode')) {
     if (!['after-fill', 'after-send'].includes(input.candidateDismissMode)) throw new Error('无效的候选项收起方式')
     next.candidateDismissMode = input.candidateDismissMode
@@ -512,6 +516,7 @@ export function presentTavernSettings(document, defaults) {
     hideContextAndReasoning: object(document).hideContextAndReasoning === true,
     headerItems: readHeaderItems(object(document).headerItems),
     viewTabs: readViewTabs(object(document).viewTabs),
+    candidatePickMode: document?.candidatePickMode === 'send' ? 'send' : 'fill',
     candidateDismissMode: object(document).candidateDismissMode === 'after-fill' ? 'after-fill' : 'after-send',
     // existing profiles stay manual until explicitly enabled.
     

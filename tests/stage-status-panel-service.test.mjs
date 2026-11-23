@@ -30,3 +30,8 @@ test('live library page supplies figures and only declared ledger',async()=>{
   raw.data.extensions.dsh_tavern.pages[0].html='<p>新港口</p>'
   assert.equal((await reader.read({sessionId:'s',page:'map',withHtml:true})).html,'<p>新港口</p>')
 })
+
+test('the page list carries a top-bar icon for the stage to draw', async () => {
+  const listed = await service({raw:card([page,{id:'title',label:'AgencyOS',html:'<p>桌面</p>',size:'full',showOn:{event:'stage-enter'},shortcut:'o',icon:'monitor'}])}).list({sessionId:'s'})
+  assert.deepEqual(listed.pages.map(item => [item.id, item.icon ?? null, item.shortcut]), [['status', null, 's'], ['title', 'monitor', 'o']])
+})

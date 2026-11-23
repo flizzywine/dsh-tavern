@@ -56,7 +56,7 @@ export async function realCardEditChecks({ page, step, root, data, output, repor
     let chat
     for (const deadline = Date.now() + 60000; !(chat = await cardChat()) && Date.now() < deadline;) await page.waitForTimeout(500)
     assert.ok(chat, '卡片工作台对话未创建')
-    const composer = page.getByRole('textbox', { name: /发消息|Message/ })
+    const composer = page.getByRole('textbox', { name: /下一步行动|Next action|发消息|Message/ })
     await composer.waitFor()
     // Same draft the "修改卡" task builds (src/client/main.js), so the edit-card skill loads.
     const editPrompt = (await readFile(new URL('../../tavern-plugin/prompts/card-task-edit.md', import.meta.url), 'utf8')).trim()

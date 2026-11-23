@@ -22,6 +22,25 @@ export function registerSkillTools({
   }))
 
   tools.register(defineTool({
+    name: 'tavern_read_skill',
+    description: '卡片工作台编辑已有用户 Skill 时使用。按名称读取当前 SKILL.md 和参考文件，省略名称则列出可编辑的用户 Skill。',
+    parameters: { name: { type: 'string', description: '要编辑的 Skill 名称' } },
+    output: { schema: { type: 'object', additionalProperties: false, properties: { content: { type: 'string', required: true } } }, render: (_args, value) => [{ type: 'text', text: value.content }] },
+    isConcurrencySafe: () => true,
+    async execute(args, exec) {
+      if (await skillRoleFor(exec.agent) !== 'card') throw new Error('请在卡片工作台读取待编辑的 Skill')
+      if (args.name === undefined) {
+        const skills = (await tavernSkills.list()).filter(skill => skill.source === 'user')
+        return { content: skills.map(skill => '- ' + skill.name + ' · ' + skill.purpose + ' · ' + skill.description).join('\n') || 'Skill 库中没有自建 Skill。' }
+      }
+      const skill = await tavernSkills.read(args.name)
+      if (skill?.source !== 'user') throw new Error('未找到可编辑的用户 Skill：' + args.name)
+      const references = await tavernSkills.referenceFiles(skill.name)
+      return { content: ['待编辑的 SKILL.md\n' + skill.content, ...references.map(ref => ref.path + '\n' + ref.content)].join('\n\n') }
+    }
+  }))
+
+  tools.register(defineTool({
     name: 'tavern_save_skill',
     description: '仅当用户明确要求创建或修改 Tavern Skill 时，把结构化内容安全保存到用户 Skill 目录。不能覆盖内置 Skill；修改同名用户 Skill 时传 overwrite=true。',
     parameters: {

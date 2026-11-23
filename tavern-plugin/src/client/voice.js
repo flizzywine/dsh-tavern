@@ -22,7 +22,7 @@ const browserSpeechService = (function () {
 })();
 const voicePlayer = createPackVoicePlayer({now: forkForeground.now, schedule: forkForeground.setInterval, cancel: forkForeground.clearInterval, getClient:pageTtsClient,
     createSpeech:line => browserSpeechClip(line),
-    prepareAudio:(audio,blob,result) => {if(audio.browserSpeech){audio.playbackRate=stageReading.get().voiceRate;return;}forkForeground.media(audio);forkStageAudio.prepareVoice(audio,blob,result.loudness);audio.preservesPitch=true;audio.playbackRate=stageReading.get().voiceRate;},
+    prepareAudio:(audio,blob,result) => {if(audio.browserSpeech)return;forkForeground.media(audio);forkStageAudio.prepareVoice(audio,blob,result.loudness);audio.preservesPitch=true;},
     maskAudio:(audio,cover) => { if (!audio.browserSpeech) forkStageAudio.mask(audio,cover); },
     disposeAudio:audio => { if (!audio.browserSpeech) forkStageAudio.release(audio); },
     onAudio:audio => forkStageAudio.voice(Boolean(audio))});
@@ -43,8 +43,8 @@ const voiceChannel = (function () {
             return function release() {
                 if (!holders.delete(token) || holders.size) return;
                 voicePlayer.stop();
-                // clips read at the holder's own speed go back to the stage's 语音速度
-                voicePlayer.setRate(stageReading.get().voiceRate);
+                // clips read at the holder's own speed go back to the voice's own (a service's tuning is part of the audio)
+                voicePlayer.setRate(1);
                 notify();
             };
         },

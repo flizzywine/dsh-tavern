@@ -1,4 +1,4 @@
-function createStageMixer({React, Icon, Slider, audio:forkStageAudio, sounds:forkUiSfx, entries:stageEntries, report:useStageEntryState, icons:ICON_PATHS, fields, reading:readingStore, voiceRateLimits}) {
+function createStageMixer({React, Icon, Slider, audio:forkStageAudio, sounds:forkUiSfx, entries:stageEntries, report:useStageEntryState, icons:ICON_PATHS, fields}) {
 let disposed = false;
 const lowIcon = "M4 9.5v5h3.5l4.5 3.5v-12L7.5 9.5H4zM15.5 9a4.2 4.2 0 0 1 0 6";
 const ownsIcon = ICON_PATHS && !ICON_PATHS['speaker-low'];
@@ -23,7 +23,7 @@ function galMixIcon(level) { return level === "muted" ? "speaker-off" : level ==
 // One row per layer: mute toggle, label, slider and value; a mute keeps the slider's value, unmuting restores it
 // (forkStageAudio keeps volume and mute apart; moving the slider unmutes). No now-playing names here (
 // the skin's sound panel shows no track or ambience titles; those live in the HUD only).
-// props: { state (forkStageAudio.get()), tests: { voice(), sfx() } }.
+// props: { state (forkStageAudio.get()), tests: { voice(), sfx() }, duck ({ on, onChange }: the 自动混音 row, one more row of the same grid) }.
 function GalMixerRows(props) {
     const h = React.createElement;
     const state = props.state, tests = props.tests || {};
@@ -44,7 +44,10 @@ function GalMixerRows(props) {
                 (layer === "master" || layer === "music" || layer === "ambience" ? h("span", { className: "fork-gal-mix-test is-none", "aria-hidden": true })
                     : h("button", { type: "button", className: "fork-gal-mix-test", disabled: !test, title: test ? (layer === "voice" ? "试听本句配音" : layer === "ui" ? "试听界面音效" : "试听音效") : layer === "voice" ? "这一页没有配音" : "没有可试听的音效",
                         "aria-label": layer === "voice" ? "试听配音" : layer === "ui" ? "试听界面音效" : "试听音效", onClick: () => { if (!disposed && test) test(); } }, h(Icon, { name: "play", size: 18 }))));
-        }));
+        }).concat(props.duck ? [h("div", { key: "duck", className: "fork-gal-mix-row is-duck", "data-layer": "duck" },
+            h("span", { className: "fork-gal-mix-label" }, h("b", null, "自动混音")),
+            // Upstream stage core 37: off = no ducking (stage-audio.js); sliders and 总音量 are unchanged.
+            h("div", { className: "fork-gal-mix-switch" }, h(fields.Switch, { label: "自动混音", checked: props.duck.on, onChange: props.duck.onChange })))] : []));
 }
 
 // the top bar's 「声音」 entry opens CONFIG › 声音 - the one set of sliders; its glyph
@@ -63,18 +66,9 @@ const unregister = stageEntries?.register({ id: "sound", priority: 70, group: "s
 function GalConfigSound(props) {
     const h = React.createElement;
     const state = useStageAudioState();
-    const reading = React.useSyncExternalStore(readingStore.subscribe, readingStore.get);
-    const [rateMin, rateMax, rateStep] = voiceRateLimits;
-    return h(React.Fragment, null,
-        fields.group("音量",
-            h(React.Fragment, null, h("span", null, "每层各自静音，静音时滑块保留原值。"), h("span", null, "▶ 试听：配音播放当前这一句，音效播放一个短提示音。")),
-            h(GalMixerRows, { state, tests: props.tests }),
-            // Upstream stage core 37: off = no ducking (stage-audio.js); sliders and 总音量 are unchanged.
-            fields.row("自动混音", h(fields.Switch, { label: "自动混音", checked: state.duck !== false, onChange: on => {if(!disposed)forkStageAudio.setDucking(on);} }))),
-        fields.group("配音", null,
-            fields.row("配音倍速", fields.slider(["慢", "快"], { min: rateMin, max: rateMax, step: rateStep, value: reading.voiceRate, label: "配音倍速",
-                    valueText: reading.voiceRate.toFixed(1) + " 倍", output: reading.voiceRate.toFixed(1) + "×", onChange: value => {if(!disposed)readingStore.set({ voiceRate: value });} }),
-                "所有配音按这个倍率播放，音调不变；舞台和聊天气泡都生效，正在播放的这一句也立即变速。默认 1.0 倍。")));
+    return fields.group("音量",
+        h(React.Fragment, null, h("span", null, "每层各自静音，静音时滑块保留原值。"), h("span", null, "▶ 试听：配音播放当前这一句，音效播放一个短提示音。")),
+        h(GalMixerRows, { state, tests: props.tests, duck: { on: state.duck !== false, onChange: on => {if(!disposed)forkStageAudio.setDucking(on);} } }));
 }
 
 return {Sound:GalConfigSound, Rows:GalMixerRows, level:galMixLevel, icon:galMixIcon, dispose() {

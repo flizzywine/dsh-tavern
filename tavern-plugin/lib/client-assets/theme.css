@@ -472,6 +472,13 @@ body:not(.dsh-fork-debug) [data-dsh-fork-session="play"] .dsh-tavern-question-fr
   border-radius: 7px; background: var(--fork-accent-fill); color: var(--fork-on-accent); font: 600 10px/14px var(--fork-font-ui); text-align: center;
 }
 
+/* Use the active skin for the native composer's primary action. */
+body.dsh-tavern-shell-active [data-composer-card] button[class*="_primary"] {
+  --dsw-alias-button-info-fill: var(--fork-accent-fill, var(--dsh-tavern-accent));
+  --dsw-alias-button-info-hover: var(--fk-s-base-accentHover, var(--dsw-alias-button-info-fill));
+  color: var(--fork-on-accent);
+}
+
 /* Keep the host's thinking shimmer, but tint only this status with the active skin. */
 body.dsh-tavern-shell-active [role="status"][class*="_turnStatus"] {
   --dsw-static-deepseek-500: var(--dsw-alias-brand-primary);
@@ -2102,13 +2109,14 @@ body[data-ds-dark-theme] .fork-popover { color-scheme: dark; }
 .dsh-session-rows > :is(.fork-inline-field, .ap-switch-row) + :is(.fork-inline-field, .ap-switch-row) { border-top: 1px dashed var(--ap-border); }
 .dsh-session-rows > .fork-inline-field { grid-template-columns: minmax(4em, max-content) minmax(0, 1fr); min-height: 42px; }
 .dsh-session-rows > .fork-inline-field > .fork-inline-label { color: var(--fork-ink); font-weight: 500; }
-.dsh-session-rows > .fork-inline-field > .fork-inline-value { justify-content: flex-end; margin: 0 -6px 0 0; }
+.dsh-session-rows > .fork-inline-field > .fork-inline-value { justify-content: flex-end; margin: 0; }
+/* A menu's chevron aligns with the switches; text boxes keep their own edge. */
+.dsh-session-rows > .fork-inline-field:is([data-kind=menu], [data-kind=custom]) > .fork-inline-value { margin-right: -6px; }
 .dsh-session-rows > .fork-inline-field > .fork-inline-error { grid-column: 1 / -1; justify-self: end; margin-top: -6px; text-align: right; }
 .dsh-session-rows > .fork-inline-field input.fork-inline-input { text-align: right; }
 /* 后台模型: model · effort side by side at the right edge, the effort wrapping under the model when the row is narrow. */
 .dsh-session-model-picks { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 0 2px; min-width: 0; }
 .dsh-session-model-picks > .fork-inline-field { min-width: 0; min-height: 0; }
-.dsh-session-rows > .fork-inline-field.dsh-session-model > .fork-inline-value { margin-right: -6px; }
 /* 舞台: the row into 舞台设置, its state at the right edge where 基础设置 puts its switches. */
 .ap-switch-main > .dsh-session-stage-state { display: inline-flex; align-items: center; order: 3; color: var(--fork-ink-2); font-weight: 400; white-space: nowrap; }
 .ap-switch-main > .dsh-session-tool-source { order: 2; }
@@ -2378,9 +2386,16 @@ body[data-ds-dark-theme] .fork-popover { color-scheme: dark; }
    switch row (mark + chip only, the state is the tooltip). Never an indented grey note. */
 .ap-hint-line { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 6px 0; color: var(--fork-ink); font-size: var(--fork-fs-meta); }
 .ap-hint-line.is-compact { display: inline-flex; flex-wrap: nowrap; margin: 0; font-weight: 400; }
+.ap-hint-line.is-link { display: inline-flex; flex-wrap: nowrap; margin: 0; min-height: 30px; padding: 0 8px; border: 0; border-radius: 8px; background: none; color: var(--fork-warn); font: inherit; font-size: var(--fork-fs-meta); cursor: pointer; }
+.ap-hint-line.is-link:hover, .ap-hint-line.is-link:focus-visible { background: var(--fork-hover); }
+/* 自动素材 › 自动立绘 / 自动配音: the switch, its reset, then the way to its service (› or ⚠ 未配置) */
+.ap-auto-cast-part > .fork-inline-value { display: inline-flex; align-items: center; gap: 10px; }
 /* 「智能判断 未设置」's ⚠ sits right after the heading, wrapping under it when narrow. */
 .ap-engine-judge > .ap-section-head { flex-wrap: wrap; row-gap: 4px; }
 .ap-engine-judge > .ap-section-head > .ap-hint-line { margin: 0 auto 0 0; }
+/* 自动素材 › 可选声音 empty: 「⚠ 未配置」 right after the title's (?) */
+.ap-vx-auto > .ap-section-head > h3 { flex: 0 1 auto; }
+.ap-vx-auto > .ap-section-head > .ap-hint-line.is-link { margin: 0 auto 0 0; }
 .ap-hint-mark { display: inline-flex; flex: none; color: var(--fork-warn); }
 .ap-hint-mark .ap-glyph { width: 15px; height: 15px; }
 /* a panel that failed to render — ⚠ + one line + 重试 in its own place
@@ -2786,6 +2801,10 @@ body[data-ds-dark-theme] .fork-popover { color-scheme: dark; }
 .dsh-tavern-global-settings .dsh-tavern-gs-notice { margin: 0; padding: 0 2px; color: var(--fork-ink-3); font-size: var(--fork-fs-meta); }
 .dsh-tavern-global-settings .dsh-tavern-gs-notice.is-alert { color: var(--fork-warn); }
 .dsh-tavern-global-settings .dsh-tavern-global-defaults { gap: 8px; }
+/* A folding entry inside a card (自定义顶栏 in 显示与交互) is one more row of that card, never a card in the card (R2):
+   its summary is the row, hairline above it like the rest. */
+.dsh-tavern-global-settings .dsh-tavern-gs-card > .dsh-tavern-settings-group { padding: 0; border: 0; border-top: 1px solid var(--fork-hairline); border-radius: 0; background: none; }
+.dsh-tavern-global-settings .dsh-tavern-gs-card > .dsh-tavern-settings-group > summary.dsh-tavern-header-summary { min-height: 44px; box-sizing: border-box; padding: 6px 0; color: var(--fork-ink); font-size: var(--fork-fs-body); }
 .dsh-tavern-global-settings :is(.dsh-tavern-gs-card, .dsh-local-section) { padding: 2px 16px; border-color: var(--fork-hairline); border-radius: var(--fork-radius-lg); }
 .dsh-tavern-global-settings :is(.dsh-local-section > h3, .dsh-tavern-gs-subhead) { display: flex; align-items: center; gap: 4px; margin: 0; padding: 12px 0 2px; color: var(--fork-ink-2); font-size: var(--fork-fs-body); font-weight: 500; line-height: 1.5; }
 .dsh-tavern-global-settings .dsh-tavern-settings-row { display: flex; flex-direction: row; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 24px; min-height: 44px; margin: 0; padding: 6px 0; box-sizing: border-box; cursor: default; }
@@ -3207,6 +3226,8 @@ body[data-ds-dark-theme] .fork-popover { color-scheme: dark; }
   --dsw-specific-menu: var(--fk-current-bgSolid); --dsw-specific-input-major: var(--fk-current-bgSolid); --dsw-alias-bg-layer-1: var(--fk-current-hover); --dsw-alias-bg-layer-2: var(--fk-current-hover);
   --dsw-alias-label-primary: var(--fk-current-fg); --dsw-alias-label-secondary: var(--fk-current-fgMuted); --dsw-alias-label-tertiary: var(--fk-current-fgMuted); --dsw-alias-label-caption: var(--fk-current-fgMuted);
   --dsw-alias-interactive-bg-hover: var(--fk-current-hover); --dsw-alias-interactive-bg-active: var(--fk-current-selected); --dsw-alias-border-l2: var(--fk-current-line);
+  /* Keep text boxes and off switches visible when the host and panel use opposite color schemes. */
+  --dsw-alias-bg-base: var(--fk-current-bgSolid); --dsw-alias-border-l3: var(--fk-current-line);
   background: var(--fk-current-bgSolid, Canvas); color: var(--fk-current-fg, CanvasText);
 }
 .ap-ui:is(.dsh-session-settings, .fork-readings, .dsh-opening-setup):not(.fork-gal-theme-scope) {
@@ -3503,7 +3524,7 @@ body { --fork-accent-fill: var(--fk-s-base-fill, var(--fork-accent)); --fork-on-
 .ap-item[data-drop=after] { box-shadow: inset 0 -2px 0 var(--fork-accent); }
 /* 全部 lines up with the lamp items but has no dot; 启用 (演出风格) dots like LampMenu's. */
 .ap-filter-anchor .ap-lamp-opt[data-mode=all] .ap-lamp-dot { visibility: hidden; }
-.ap-filter-anchor .ap-lamp-opt[data-mode=on] .ap-lamp-dot { color: var(--fork-ink-2); }
+.ap-filter-anchor .ap-lamp-opt[data-mode=on] .ap-lamp-dot { color: var(--ap-lamp-green); }
 .ap-ui button.ap-item-main { display: flex; flex: 1; flex-direction: column; align-items: flex-start; gap: 3px; min-width: 0; min-height: 0; padding: 0; border: 0; background: none; color: var(--fork-ink); font-size: var(--fork-fs-body); font-weight: 500; text-align: left; white-space: normal; }
 .ap-ui button.ap-item-main:hover:not(:disabled) { background: none; }
 .ap-item-name { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -3520,7 +3541,7 @@ body { --fork-accent-fill: var(--fk-s-base-fill, var(--fork-accent)); --fork-on-
 .ap-item-lamp { display: grid; flex: none; place-items: center; width: 14px; }
 .ap-item-lamp[data-mode=constant] { color: var(--ap-lamp-blue); }
 .ap-item-lamp[data-mode=keyword] { color: var(--ap-lamp-green); }
-.ap-item-lamp[data-mode=on] { color: var(--fork-ink-2); }
+.ap-item-lamp[data-mode=on] { color: var(--ap-lamp-green); } /* 启用 (演出风格, 舞台皮肤): green on, grey off — never blue */
 .ap-item-lamp[data-mode=off] { color: var(--fork-lamp-off); } /* 关闭 */
 /* the row's lamp dot is a button opening the 蓝灯 / 绿灯 / 关闭 menu (EntryLamp).
    A 30px round hit area drawn as the same 7px dot; negative margins keep the row height. Hover / open widens the dot's ring. */
@@ -3532,9 +3553,9 @@ body { --fork-accent-fill: var(--fk-s-base-fill, var(--fork-accent)); --fork-on-
 .ap-ui button.ap-item-lamp:disabled { cursor: progress; }
 .ap-ui button.ap-item-lamp[data-mode=constant] { color: var(--ap-lamp-blue); }
 .ap-ui button.ap-item-lamp[data-mode=keyword] { color: var(--ap-lamp-green); }
-.ap-ui button.ap-item-lamp[data-mode=on] { color: var(--fork-ink-2); }
+.ap-ui button.ap-item-lamp[data-mode=on] { color: var(--ap-lamp-green); }
 .ap-ui button.ap-item-lamp[data-mode=off] { color: var(--fork-lamp-off); }
-.ap-lamp-pop .ap-lamp-opt[data-mode=on] .ap-lamp-dot { color: var(--fork-ink-2); }
+.ap-lamp-pop .ap-lamp-opt[data-mode=on] .ap-lamp-dot { color: var(--ap-lamp-green); }
 @media (max-width: 720px) { .ap-ui button.ap-item-lamp { width: 36px; min-width: 36px; height: 36px; margin: -10px -10px -10px -6px; } }
 .ap-check-mark { display: grid; flex: none; place-items: center; width: 20px; height: 20px; border-radius: 50%; box-shadow: inset 0 0 0 1.5px var(--ap-border-strong); color: var(--fork-on-accent, #fff); }
 .ap-item[data-checked] .ap-check-mark, .ap-check-row[aria-checked=true] .ap-check-mark { background: var(--fork-accent-fill, var(--fork-accent)); box-shadow: none; }
@@ -3967,7 +3988,6 @@ body { --fork-accent-fill: var(--fk-s-base-fill, var(--fork-accent)); --fork-on-
 /* LampMenu in a 「label value」 row reads 「● 绿灯 ⌄」 like a menu field. */
 .ap-lamp-trigger .ap-lamp-dot { flex: none; margin: 0 4px 0 3px; color: var(--fork-lamp-green); }
 .ap-lamp-trigger[data-mode=constant] .ap-lamp-dot { color: var(--fork-lamp-blue); }
-.ap-lamp-trigger[data-mode=on] .ap-lamp-dot { color: var(--fork-ink-2); }
 .ap-lamp-trigger[data-mode=off] .ap-lamp-dot { color: var(--fork-lamp-off); }
 .ap-lamp-trigger:disabled { cursor: progress; }
 .ap-lamp-pop .ap-lamp-opt[data-mode=constant] .ap-lamp-dot { color: var(--ap-lamp-blue); }
@@ -6597,10 +6617,21 @@ textarea:is(input.fork-edit, textarea.fork-edit, .ap-ui input:not([type=checkbox
 .fork-check-button, .fork-check-confirm { box-sizing: border-box; min-height: 30px; max-width: 100%; margin: 0; padding: 4px 10px; border: 1px solid transparent; border-radius: var(--fork-radius); background: var(--fork-surface); color: var(--fork-ink); font: inherit; text-align: left; overflow-wrap: anywhere; cursor: pointer; }
 .fork-check-button:hover:not(:disabled), .fork-check-confirm:hover:not(:disabled) { background: var(--fork-hover); }
 .fork-check-button.is-on { border-color: var(--fork-accent); background: var(--fork-accent-soft); }
+/* Folding the choices (the stage card): 收起 in the corner, one 等你选择 · 展开 line while folded. */
+.fork-check-fold, .fork-check-unfold { min-height: 28px; margin: 0; padding: 2px 10px; border: 1px solid var(--fork-hairline); border-radius: var(--fork-radius); background: var(--fork-surface); color: var(--fork-ink-2); font: inherit; font-size: var(--fork-fs-meta); cursor: pointer; }
+.fork-check-fold { float: right; margin: 0 0 4px 8px; }
+.fork-check-fold:hover, .fork-check-unfold:hover { background: var(--fork-hover); }
+.fork-check-fold:focus-visible, .fork-check-unfold:focus-visible { outline: var(--fork-focus); outline-offset: 2px; }
+.fork-check-pick { display: inline-flex; max-width: 100%; }
+.fork-check-pick.is-on > .fork-check-button { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.fork-check-pick-count { margin-left: .4em; color: var(--fork-accent); font-weight: 700; }
+.fork-check-pick-less { min-width: 30px; margin: 0; padding: 0 8px; border: 1px solid var(--fork-accent); border-left: 0; border-radius: 0 var(--fork-radius) var(--fork-radius) 0; background: var(--fork-surface); color: var(--fork-ink); font: inherit; cursor: pointer; }
+.fork-check-pick-less:hover:not(:disabled) { background: var(--fork-hover); }
+.fork-check-pick-less:focus-visible { outline: var(--fork-focus); outline-offset: 2px; }
 .fork-check-button:focus-visible, .fork-check-confirm:focus-visible { outline: var(--fork-focus); outline-offset: 2px; }
 .fork-check-button:disabled, .fork-check-confirm:disabled { color: var(--fork-ink-3); cursor: default; }
 .fork-check-confirm { margin-top: 6px; border-color: var(--fork-accent); font-weight: 600; }
-@media (max-width: 720px) { .fork-check-button, .fork-check-confirm { min-height: 36px; } }
+@media (max-width: 720px) { .fork-check-button, .fork-check-confirm { min-height: 36px; } .fork-check-pick-less { min-width: 36px; } }
 /* An outcome the rules stage (outcomes[].show; its stage performance is mods/dice/client/show.js): on the chat floor only its name, in the mark colour. */
 .fork-check[data-show] .fork-roll-tier { color: color-mix(in srgb, var(--fork-check-mark, var(--fork-accent)) 82%, var(--fork-ink)); font-weight: 700; }
 /* ==== round dice throw (mods/dice/client/throw.js) ==== */

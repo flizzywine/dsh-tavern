@@ -33,7 +33,7 @@ description: "创建或迁移 DSH 原生人物卡、制作 .dshcard 卡包，配
 
 1. 已有卡用 `tavern_read_card` 读取原始格式和扩展；新卡整理已确定的设定与模式。需要参考长期偏好时可用 `tavern_user_profile_read`，本次指令优先。
 2. 用 `tavern_read_skill_reference`（name 为 `create-dsh-card`）读取 [references/format-and-stage.md](references/format-and-stage.md)，确认目标格式版本、字段位置和舞台前置条件。
-3. 用 `tavern_update_card.fields` 保存角色设定、玩家身份（新建同时提供 name 与 player）、场景、完整开场及必要的示例对话；需要世界书时用 `tavern_update_lorebook` 写入独立主题条目。扩展用 `rawOperations` 做最小修改。沿用已有素材包的真实 ID 和版本，保留其他扩展。人物与开场引用只能指向真实存在的素材。用户仅要求导出卡包时，保留原卡模式。
+3. 用 `tavern_update_card.fields` 保存角色设定、玩家身份（新建同时提供 name 与 player）、场景、完整开场及必要的示例对话；需要世界书时用 `tavern_update_lorebook` 写入独立主题条目，写法照 `create-card` 的 `references/worldbook-entries.md`（用 `tavern_read_skill_reference` 读取）。扩展用 `rawOperations` 做最小修改。沿用已有素材包的真实 ID 和版本，保留其他扩展。人物与开场引用只能指向真实存在的素材。用户仅要求导出卡包时，保留原卡模式。
 4. 缺少素材时明确缺项。可以先完成文字卡并报告舞台尚未就绪；生成收费素材、启用模型或运行额外插件须遵循用户当前授权。需要独立插件行为时，加载 `tavern-plugin` 查公开接口；舞台展示由内置舞台承担。
 5. 查看保存回执的校验结果；直接改文件后用 `tavern_validate_card`。按参考中的交付要求检查版本、素材及导出。只有实际生成可下载文件，才能报告已导出；当前工具不能生成卡包时，说明已保存的卡路径，并引导用户从卡片库导出，不虚构工具或下载链接。
 

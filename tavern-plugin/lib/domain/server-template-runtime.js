@@ -186,6 +186,6 @@ export function createServerTemplateRuntime({ rpc, store, timeoutMs = 120000, id
         phase: record?.busy ? 'executing' : 'idle', heartbeat: null, task: jobs.get(sessionId) || (store && await store.readJson(journalPath(sessionId))) || null }
     },
     cancel(sessionId) { generations.set(sessionId, randomUUID()); const record = sessions.get(sessionId); if (record) stop(record, new Error('提示词模板任务已手动取消')); wakeCapacity() },
-    dispose() { disposed = true; for (const record of sessions.values()) stop(record); wakeCapacity() }
+    async dispose() { disposed = true; for (const record of sessions.values()) stop(record); wakeCapacity(); await Promise.allSettled([...tails.values()]) }
   }
 }

@@ -233,9 +233,11 @@ const stageClientPlugin = (() => {
                     const progress = createStageProgress({React:options.React, ...options.admission});
                     own(progress.store);
                     const admission = own(createStageAdmission({React:options.React, window, document, loader, StageLoadLine:progress.Line, ...options.admission}));
-                    const configFields = own(createStageConfigFields({React:options.React, ...options.configFields}));
+                    // CONFIG 文字's font rows draw the stage's own picker (config-fields.cjs createStageFontPicker).
+                    const FontPicker = createStageFontPicker({React:options.React, ...options.fontPicker});
+                    const configFields = own(createStageConfigFields({React:options.React, ...options.configFields, FontPicker}));
                     const textViews = createStageText({React:options.React, document, ...options.text});
-                    const configText = own(createStageConfigText({React:options.React, fields:configFields, Typewriter:textViews.Typewriter, ...options.configText, themes:STAGE_THEMES}));
+                    const configText = own(createStageConfigText({React:options.React, fields:configFields, Typewriter:textViews.Typewriter, ...options.configText, FontPicker, themes:STAGE_THEMES}));
                     // The device profile, and the 画质 in force on it (the setting store resolved by the device).
                     const device = own(createStageDevice({React:options.React, window, ...options.device}));
                     const quality = device.quality(options.configAppearance?.quality);
@@ -334,7 +336,7 @@ const stageClientPlugin = (() => {
                     // included): while none is attached the game keeps its page view.
                     const ControllerStage=views.controller.Stage,leases=host.stageLeases;
                     const GalStage=leases?function StageLeaseConsumer(props){options.React.useEffect(()=>leases.attach(props.sessionId),[props.sessionId]);return options.React.createElement(ControllerStage,props);}:ControllerStage;
-                    Object.assign(views,own(createStageViews({...options,GalStage,useGalEntryLoader:admission.useLoader,usePages:views.statusPanel?.usePages})));
+                    Object.assign(views,own(createStageViews({...options,GalStage,useGalEntryLoader:admission.useLoader,usePages:views.statusPanel?.usePages,portable:views.device.portable})));
                     if(options.globalSettings)views.GlobalSettings=createStageSettingsModule({React:options.React,...options.globalSettings,CubismCoreEntry:live2d?.Entry}).TavernStageSettingsSection;
                     // 素材库 / 舞台 tab pages: built over the core asset-pack closure and bound into it for this activation.
                     if(options.assetPack){views.assetPack=createStageAssetPackViews(options.assetPack.names);if(live2d)views.assetPack.live2dKit=live2d.previews;own({dispose:options.assetPack.bind(views.assetPack)});}

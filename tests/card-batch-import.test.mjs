@@ -81,6 +81,39 @@ test('导入文件分流：PNG、JSON 在页面里解析；CHARX、DSH 人物卡
   assert.deepEqual(stages.filter(([name]) => name === 'd.dshcard').map(([, phase]) => phase), ['正在上传卡包…', '正在读取卡包…', '正在导入素材…'])
 })
 
+test('浏览器分段发送超过 1 GiB 的卡包并把同一上传 ID 交给导入', async () => {
+  const requests = [], calls = [], progress = []
+  const file = { name: 'large.dshcard', size: 1024 ** 3 + 9, slice: (start, end) => ({ start, end }) }
+  const importFile = importer(page({ fetch: async (endpoint, { body }) => {
+    const { searchParams } = new URL(endpoint, 'http://tavern.test')
+    assert.equal(searchParams.get('purpose'), 'card-archive')
+    assert.equal(Number(searchParams.get('size')), file.size)
+    assert.equal(Number(searchParams.get('offset')), body.start)
+    assert.equal(searchParams.get('uploadId'), requests.length ? 'archive' : null)
+    requests.push(body)
+    return { status: 200, json: async () => ({ ok: true, uploadId: 'archive', size: body.end }) }
+  } }))
+  await importFile(file, async (method, { uploadId }) => {
+    calls.push([method, uploadId])
+    return { card: {}, packs: [] }
+  }, phase => progress.push(phase))
+  assert.equal(requests.length, 65)
+  assert.deepEqual(requests.at(-1), { start: 1024 ** 3, end: file.size })
+  assert.deepEqual(calls, [['previewCardUpload', 'archive'], ['importCardUpload', 'archive']])
+  assert.ok(progress.includes('正在上传卡包… 100%'))
+})
+
+test('卡包分段上传失败时丢弃部分文件', async () => {
+  const calls = []
+  const file = { name: 'large.charx', size: 1024 ** 3 + 1, slice: (start, end) => ({ start, end }) }
+  const importFile = importer(page({ fetch: async (_url, { body }) => {
+    if (body.start) throw new Error('connection dropped')
+    return { status: 200, json: async () => ({ ok: true, uploadId: 'archive', size: body.end }) }
+  } }))
+  await assert.rejects(importFile(file, async (method, args) => { calls.push([method, args.uploadId]) }), /connection dropped/)
+  assert.deepEqual(calls, [['discardCardUpload', 'archive']])
+})
+
 test('a card carrying another version of an installed pack asks 完全替换 / 增量更新 first; 取消 discards the upload', async () => {
   const packs = [{ packId: 'p', title: '通用SE', choices: ['update', 'merge'], removed: [] }]
   let answer = 'merge'

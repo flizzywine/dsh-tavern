@@ -82,12 +82,14 @@ export function createSettingsHandlers(deps) {
         viewTabs: settings.viewTabs
       }
     },
-    async getCandidatePreferences(args) {
-      const { readTavernSettings } = deps
-
-        const settings = await readTavernSettings()
-        return { candidateDismissMode: settings.candidateDismissMode, candidateAutoGenerate: settings.candidateAutoGenerate, candidateTabs: settings.candidateTabs === true }
-
+    async getCandidatePreferences() {
+      const settings = await readTavernSettings()
+      return {
+        candidatePickMode: settings.candidatePickMode,
+        candidateDismissMode: settings.candidateDismissMode,
+        candidateAutoGenerate: settings.candidateAutoGenerate,
+        candidateTabs: settings.candidateTabs === true
+      }
     },
 
     async getCandidateGuidanceShortcuts() {

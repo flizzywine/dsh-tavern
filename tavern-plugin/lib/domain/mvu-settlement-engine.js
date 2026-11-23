@@ -97,7 +97,8 @@ export function createMvuSettlementEngine(deps) {
       toolResults: await deps.turnToolResults?.(snapshot, toolTurns) || [],
       // The tools the background may use to record what the story shows but the reply did not submit (lib/mod-tools.js).
       backfillTools: await deps.turnBackfillTools?.(snapshot, { ...toolTurns, variables: baseline }) || [],
-      guides: Array.isArray(snapshot.guides) ? snapshot.guides : [],
+      guides: [...(Array.isArray(snapshot.guides) ? snapshot.guides : []),
+        ...(await deps.pluginApi?.guideSections?.(snapshot.sessionId) || [])],
       variableSchema: mvuTarget.variables.schema,
       variableLimits: cardMvuLimits(card) || [],
       charName: card && card.name,

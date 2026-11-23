@@ -92,7 +92,7 @@ export async function storyWriteOperationChecks(context) {
 	const storyRows = () => page.locator('[data-story-row]')
 	const assistantRows = () => page.locator('[data-story-row][data-role="assistant"]')
 	const userRows = () => page.locator('[data-story-row][data-role="user"]')
-	const composer = () => page.getByRole('textbox', { name: /发消息|Message/ })
+	const composer = () => page.getByRole('textbox', { name: /下一步行动|Next action|发消息|Message/ })
 	async function ensureStoryRows() {
 		if (await storyRows().count()) return
 		await storyRows().first().waitFor({ timeout: 30000 })

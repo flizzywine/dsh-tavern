@@ -54,7 +54,7 @@ test('内置命运之骰插件包 client.js 与源码保持同步', async () => 
   assert.equal(res.changed, false)
 })
 
-test('命运之骰标题旁的滑块在两个页签均可开启和关闭功能', async () => {
+test('命运之骰标题旁的滑块按会话独立开启关闭，在两个页签与多会话切换间各自记忆', async () => {
   const clientCode = await readFile(new URL('client.js', PACKAGE_ROOT), 'utf8')
   let mod
   let hook = 0
@@ -73,7 +73,7 @@ test('命运之骰标题旁的滑块在两个页签均可开启和关闭功能',
     },
     useEffect(effect) { mountPanel = effect },
   }
-  vm.runInNewContext(clientCode, { console: quiet, window: { __ModuleLoader__: {
+  vm.runInNewContext(clientCode, { console: quiet, setTimeout, clearTimeout, window: { __ModuleLoader__: {
     load({ factory }) { mod = factory(() => react) },
   } } })
   const registrations = new Set()
@@ -83,26 +83,52 @@ test('命运之骰标题旁的滑块在两个页签均可开启和关闭功能',
     return () => registrations.delete(id)
   }
   const cleanups = []
-  let settings = { enabled: false }
+  const enabledByGame = new Map()
+  let globalSettings = { enabled: false, animation: 'atelier' }
   const ui = {
     registerPanel: () => register('panel'),
     registerMediaRenderer: () => register('capsule'),
     registerTurnView: () => register('turn-view'),
     registerStatusSection: () => register('status'),
-    async callHost(name, payload) {
-      if (name === 'fate-dice:status' || name === 'fate-dice:workbench') return { settings }
-      assert.equal(name, 'fate-dice:save-global-settings')
-      settings = payload.settings
-      return { ok: true, settings }
+    async callHost(name, payload = {}) {
+      if (name === 'fate-dice:status' || name === 'fate-dice:workbench') {
+        const gid = payload.gameId || ''
+        const enabled = gid && enabledByGame.has(gid) ? enabledByGame.get(gid) : globalSettings.enabled
+        return {
+          gameId: gid || null,
+          settings: { ...globalSettings, enabled },
+          globalSettings: { ...globalSettings },
+          binding: { enabled, autoCheck: true }
+        }
+      }
+      if (name === 'fate-dice:save-binding') {
+        assert.ok(payload.gameId, '保存会话开关必须携带 gameId')
+        assert.equal(typeof payload.binding?.enabled, 'boolean')
+        enabledByGame.set(payload.gameId, payload.binding.enabled)
+        return {
+          ok: true,
+          gameId: payload.gameId,
+          enabled: payload.binding.enabled,
+          settings: { ...globalSettings, enabled: payload.binding.enabled }
+        }
+      }
+      if (name === 'fate-dice:save-global-settings') {
+        assert.equal(Object.prototype.hasOwnProperty.call(payload.settings || {}, 'enabled'), false, '修改全局参数不应携带会话 enabled')
+        globalSettings = { ...globalSettings, ...(payload.settings || {}) }
+        return { ok: true, settings: { ...globalSettings } }
+      }
+      throw new Error(`未预期的 RPC: ${name}`)
     },
   }
   mod.apply({ tavernUi: ui, effect: setup => cleanups.push(setup()) })
   await new Promise(resolve => setImmediate(resolve))
   assert.deepEqual([...registrations], ['panel'])
 
-  const renderPanel = () => {
+  let activeGameId = 'g1'
+  const renderPanel = (gameId = activeGameId) => {
+    activeGameId = gameId
     hook = 0
-    const tree = mod.WorkbenchPanel({ ui, gameId: 'g1' })
+    const tree = mod.WorkbenchPanel({ ui, gameId })
     const [header, tabBar] = tree.children[0].children
     assert.match(header.children[0].children[0], /命运之骰/)
     const slider = header.children[1].children[0]
@@ -111,29 +137,112 @@ test('命运之骰标题旁的滑块在两个页签均可开启和关闭功能',
     assert.equal(toggle['aria-label'], '启用命运之骰')
     return { toggle, tabs: tabBar.children[0] }
   }
-  assert.equal(renderPanel().toggle.disabled, true)
-  const unmountPanel = mountPanel()
+  assert.equal(renderPanel('g1').toggle.disabled, true)
+  let unmountPanel = mountPanel()
   await new Promise(resolve => setImmediate(resolve))
-  const checks = renderPanel()
+  const checks = renderPanel('g1')
   assert.equal(checks.tabs[0].props['aria-selected'], 'true')
   assert.equal(checks.toggle.disabled, false)
   assert.equal(checks.toggle['aria-checked'], 'false')
   await checks.toggle.onClick()
+  assert.equal(enabledByGame.get('g1'), true)
+  assert.equal(globalSettings.enabled, false, '开启 g1 不应污染全局 enabled')
+  assert.deepEqual([...registrations], ['panel', 'capsule', 'turn-view', 'status'])
+
+  // 切换到未开启的会话 g2：自动卸载启用视图，开关保持关闭
+  unmountPanel()
+  renderPanel('g2')
+  unmountPanel = mountPanel()
+  await new Promise(resolve => setImmediate(resolve))
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(renderPanel('g2').toggle['aria-checked'], 'false')
+  assert.deepEqual([...registrations], ['panel'])
+
+  // 切回 g1：恢复开启状态并重新挂载视图
+  unmountPanel()
+  renderPanel('g1')
+  unmountPanel = mountPanel()
+  await new Promise(resolve => setImmediate(resolve))
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(renderPanel('g1').toggle['aria-checked'], 'true')
   assert.deepEqual([...registrations], ['panel', 'capsule', 'turn-view', 'status'])
 
   checks.tabs[1].props.onClick()
-  const config = renderPanel()
+  const config = renderPanel('g1')
   assert.equal(config.tabs[1].props['aria-selected'], 'true')
   assert.equal(config.toggle['aria-checked'], 'true')
   await config.toggle.onClick()
+  assert.equal(enabledByGame.get('g1'), false)
   assert.deepEqual([...registrations], ['panel'])
-  assert.equal(renderPanel().toggle['aria-checked'], 'false')
-  await renderPanel().toggle.onClick()
+  assert.equal(renderPanel('g1').toggle['aria-checked'], 'false')
+  await renderPanel('g1').toggle.onClick()
   assert.equal(registrations.has('status'), true)
 
   unmountPanel()
   for (const cleanup of cleanups) cleanup()
   assert.equal(registrations.size, 0)
+})
+
+test('服务端按会话记忆开启关闭状态：不同会话隔离，旧版 v3 全局开启迁移清零，保存全局参数不污染会话开关', async t => {
+  const games = new Map()
+  const handlers = new Map()
+  const published = []
+  let pluginData = { version: 3, settings: { enabled: true, autoCheck: true, animation: 'atelier' } }
+  let tool
+  const tavern = {
+    handle: (name, handler) => handlers.set(name, handler),
+    settlementTool: value => { tool = value },
+    readPluginData: async () => structuredClone(pluginData),
+    savePluginData: async ({ data }) => { pluginData = structuredClone(data) },
+    readGameData: async ({ gameId }) => (games.has(gameId) ? structuredClone(games.get(gameId)) : null),
+    saveGameData: async ({ gameId, data }) => { games.set(gameId, structuredClone(data)) },
+    publishState: async payload => { published.push(structuredClone(payload)) }
+  }
+  const dispose = applyFateDicePlugin({ tavern, inject() {}, effect: run => run() })
+  if (typeof dispose === 'function') t.after(dispose)
+
+  const workbench = handlers.get('fate-dice:workbench')
+  const saveBinding = handlers.get('fate-dice:save-binding')
+  const saveGlobal = handlers.get('fate-dice:save-global-settings')
+  const readTurns = handlers.get('fate-dice:read-turns')
+
+  // 旧版 v3 全局 enabled: true 迁移后默认关闭，不再全局污染所有会话
+  const wbA0 = await workbench({ gameId: 'session-a' })
+  const wbB0 = await workbench({ gameId: 'session-b' })
+  assert.equal(wbA0.settings.enabled, false)
+  assert.equal(wbB0.settings.enabled, false)
+  assert.equal(await tool.enabledFor({ gameId: 'session-a' }), false)
+  assert.equal(await tool.enabledFor({ gameId: 'session-b' }), false)
+
+  // 仅开启 session-a，session-b 保持关闭
+  const enableA = await saveBinding({ gameId: 'session-a', binding: { enabled: true } })
+  assert.equal(enableA.ok, true)
+  assert.equal(enableA.enabled, true)
+  assert.equal((await workbench({ gameId: 'session-a' })).settings.enabled, true)
+  assert.equal((await workbench({ gameId: 'session-b' })).settings.enabled, false)
+  assert.equal(await tool.enabledFor({ gameId: 'session-a' }), true)
+  assert.equal(await tool.enabledFor({ gameId: 'session-b' }), false)
+  assert.equal((await readTurns({ gameId: 'session-a' })).enabled, true)
+  assert.equal((await readTurns({ gameId: 'session-b' })).enabled, false)
+
+  // 修改全局皮肤（不含 enabled）：session-a 保持开启、session-b 保持关闭，且广播给 session-a 的同步事件保持 enabled: true
+  published.length = 0
+  const skinRes = await saveGlobal({ gameId: 'session-a', settings: { animation: 'urushi' } })
+  assert.equal(skinRes.ok, true)
+  assert.equal(skinRes.settings.enabled, false)
+  assert.equal((await workbench({ gameId: 'session-a' })).settings.enabled, true)
+  assert.equal((await workbench({ gameId: 'session-a' })).settings.animation, 'urushi')
+  assert.equal((await workbench({ gameId: 'session-b' })).settings.enabled, false)
+  assert.equal((await workbench({ gameId: 'session-b' })).settings.animation, 'urushi')
+  const syncA = published.find(item => item.gameId === 'session-a' && item.name === 'workbench-sync')
+  assert.equal(syncA?.data?.settings?.enabled, true)
+
+  // 关闭 session-a 后持久化为关闭
+  const disableA = await saveBinding({ gameId: 'session-a', binding: { enabled: false } })
+  assert.equal(disableA.ok, true)
+  assert.equal(disableA.enabled, false)
+  assert.equal((await workbench({ gameId: 'session-a' })).settings.enabled, false)
+  assert.equal(await tool.enabledFor({ gameId: 'session-a' }), false)
 })
 
 test('宿主半能挂上 createTavernPluginApi 并注册 fate-dice:* RPC，停用后清理', async () => {

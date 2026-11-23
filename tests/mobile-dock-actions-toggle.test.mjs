@@ -123,7 +123,7 @@ test('移动端展开/收起按钮控制 dsh-tavern-dock-actions 显隐、保持
     const useLiveTavernView = () => ({ view: { latestAssistantTurn: 1, canClearIncompleteReply: false } });
     const useCompactionState = () => ({ running: false });
     const CandidateAction = () => React.createElement(React.Fragment, null,
-      React.createElement('button', { type: 'button', className: 'dsh-tavern-choice-trigger dsh-tavern-candidate-entry', 'data-fork-action': 'open-choices' }, '行动 7 ⌃'),
+      React.createElement('button', { type: 'button', className: 'dsh-tavern-choice-trigger dsh-tavern-candidate-entry', 'data-fork-action': 'open-choices' }, '行动 ⌃'),
       React.createElement('button', { type: 'button', className: 'dsh-tavern-choice-trigger', 'data-fork-action': 'choices-again' }, '重新生成候选项')
     );
     const TavernPluginComposerActions = () => React.createElement('button', { type: 'button', className: 'dsh-tavern-choice-trigger', 'data-fork-action': 'regen' }, '重新生成正文');
