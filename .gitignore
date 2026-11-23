@@ -18,7 +18,7 @@ test-results/
 output/
 /website/dist/
 /.tmp/
-/.preview/synthetic-fixtures/
+/.preview/
 
 # 本地代码分析资料、快照和缓存
 .ua/
