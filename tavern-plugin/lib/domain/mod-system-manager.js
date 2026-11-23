@@ -1,6 +1,6 @@
 import {randomUUID} from 'node:crypto'
 import {emptyCardMods,modError,assertSchema,MOD_HOST_API} from './mod-system-contract.js'
-import {resolveMods,resolveSwitch,resolveConfig,validateDependencyGraph,modDependencyReason} from './mod-system.js'
+import {resolveMods,resolveSwitch,modGlobalOn,resolveConfig,validateDependencyGraph,modDependencyReason} from './mod-system.js'
 import {skinAssetKeys,validateUserModOptions} from './mod-system-options.js'
 import {modVersionMatches} from './mod-system-semver.js'
 import {planCardModChoices} from './mod-system-choices.js'
@@ -29,7 +29,7 @@ export function createManagedModManager({installations,cards,settings,authorize,
   function dependencyRows(f,manifest) {
     // The resolver diagnoses disabled consumers without changing their switches.
     const state=resolution(f),installed=new Map(f.manifests.map(row=>[row.id,row]))
-    const context={installed,authorized:f.authorized,blocked:new Set(state.blocked),active:id=>resolveSwitch(f.choices.global.mods[id],f.choices.card.mods[id],f.skin?.document?.mods?.[id]?.enabled)}
+    const context={installed,authorized:f.authorized,blocked:new Set(state.blocked),active:id=>resolveSwitch(modGlobalOn(id,installed.get(id),f.choices.global),f.choices.card.mods[id],f.skin?.document?.mods?.[id]?.enabled)}
     return manifest.dependencies.map(edge=>{
       const found=installed.get(edge.id),reason=modDependencyReason(edge,context)
       const mapped={operations:'operation',permission:'unauthorized','dependency-blocked':'disabled'}[reason] || reason
@@ -45,7 +45,8 @@ export function createManagedModManager({installations,cards,settings,authorize,
     const switches={global:f.global.value.mods[id]===true,card:f.card?.value.mods[id] ?? null,effective:!incompatible && state.enabled.includes(id)}
     const notices=dependencyRows(f,manifest).filter(row=>row.reason)
     const status=!selected?'missing':!selected.authorized?'unauthorized':incompatible || !modVersionMatches(MOD_HOST_API,manifest.hostApi)?'incompatible':state.blocked.includes(id)?'blocked':switches.effective?'ready':'disabled'
-    return {id,name:manifest.name,experimental:manifest.experimental===true,...(manifest.summary?{summary:manifest.summary}:{}),packageName:manifest.packageName,version:selected?.manifest.version || null,installed:!!selected,authorized:selected?.authorized===true,
+    // activation 'card': an engine interface the card or its skin declares; no global switch (switchDraft, modGlobalOn).
+    return {id,name:manifest.name,experimental:manifest.experimental===true,activation:manifest.activation==='card'?'card':'switch',skinEnabled:f.skin?.document?.mods?.[id]?.enabled===true,...(f.skin?.document?.mods?.[id]?.enabled===true && f.skin.document.name?{skinName:f.skin.document.name}:{}),...(manifest.summary?{summary:manifest.summary}:{}),packageName:manifest.packageName,version:selected?.manifest.version || null,installed:!!selected,authorized:selected?.authorized===true,
       versions:releases.map(row=>({version:row.manifest.version,digest:row.digest,installed:row.installed,active:row.active})),dependencies:clone(manifest.dependencies),status,switches,notices,
       globalRoot:selected?.globalRoot===true,retainedByCards:(f.installation.value.locks || []).filter(row=>row.modId===id && row.digest===selected?.digest).map(row=>row.cardId)}
   }
@@ -81,7 +82,7 @@ export function createManagedModManager({installations,cards,settings,authorize,
     if(args.scope==='card' && !f.card)fail('MOD_INVALID','Select a card before changing its switch')
     if(args.scope==='global'?typeof args.value!=='boolean':![null,'on','off'].includes(args.value))fail('MOD_INVALID','Invalid switch value')
     if(typeof args.id!=='string' || !args.id || ['__proto__','constructor','prototype'].includes(args.id))fail('MOD_INVALID','Invalid switch identity')
-    if(args.kind==='mod')manifestFor(f,args.id)
+    if(args.kind==='mod' && manifestFor(f,args.id).activation==='card' && args.scope==='global' && args.value===true)fail('MOD_INVALID','This mod is declared by the card that uses it; it has no global switch')
     const choices=clone(f.choices),map=choices[args.scope][args.kind==='mod'?'mods':'packs']
     if(args.value===null)delete map[args.id];else map[args.id]=args.value
     let state

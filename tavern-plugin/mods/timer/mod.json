@@ -2,6 +2,7 @@
   "format": "dsh-tavern-mod",
   "schemaVersion": 5,
   "experimental": true,
+  "activation": "card",
   "id": "dsh.timer",
   "name": "计时器",
   "packageName": "dsh-tavern-mod-timer",

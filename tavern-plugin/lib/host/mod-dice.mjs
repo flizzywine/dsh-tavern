@@ -24,6 +24,7 @@ var mod_default = {
   format: "dsh-tavern-mod",
   schemaVersion: 5,
   experimental: true,
+  activation: "card",
   id: "dsh.dice",
   name: "AI\u68C0\u5B9A",
   packageName: "dsh-tavern-mod-dice",
@@ -174,6 +175,24 @@ var mod_default = {
               type: "string",
               maxLength: 48,
               "x-skin-asset": true
+            },
+            card: {
+              type: "string",
+              enum: [
+                "line",
+                "ledger"
+              ]
+            },
+            tagColors: {
+              type: "object",
+              maxProperties: 16,
+              propertyNames: {
+                maxLength: 24
+              },
+              additionalProperties: {
+                type: "string",
+                pattern: "^#[0-9a-fA-F]{6}$"
+              }
             }
           },
           userAdjustable: false,

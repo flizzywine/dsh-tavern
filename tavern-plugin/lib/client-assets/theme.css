@@ -6691,6 +6691,13 @@ textarea:is(input.fork-edit, textarea.fork-edit, .ap-ui input:not([type=checkbox
 .fork-mod-switch-anchor .ap-popover { min-width: 168px; padding: 5px; }
 .ap-ui button.fork-mod-switch-opt[aria-checked=true] { background: var(--fork-hover); }
 .fork-mod-row .ap-switch-main > .fork-mod-switch-anchor, .ap-switch-row.has-tag .ap-switch-main > .fork-mod-switch-anchor { order: 3; }
+/* A declared mod's words (本卡自带 / 皮肤自带) sit where the tag would, in the tag's box and type with a blank where its ⌄ is, so
+   the words line up with 全局开启 above and the row is as tall as a switched one. */
+.fork-mod-declared { display: inline-flex; align-items: center; flex: none; box-sizing: border-box; min-height: 30px; padding: 0 22px 0 8px; font-size: var(--fork-fs-body); font-weight: 500; white-space: nowrap; cursor: default; }
+.ap-switch-main > .fork-mod-declared { order: 3; }
+.fork-mod-declared[data-sw=card] { color: color-mix(in srgb, var(--ap-state-card) 78%, var(--fork-ink)); }
+.fork-mod-declared[data-sw=off] { color: var(--fork-ink-2); }
+.ap-subhead-tools > .fork-mod-declared { padding-right: 8px; }
 .fork-mod-row .ap-switch-main > .ap-hint-line.is-compact, .ap-switch-row.has-tag .ap-switch-main > .ap-hint-line.is-compact { order: 2; margin-right: 0; }
 /* 舞台设置 › 基础设置 uses the same tag; a row greyed by an upstream switch greys its tag too (the stored choice stays shown). */
 .ap-ui .ap-switch-row[data-disabled] button.fork-mod-switch:disabled { color: var(--fork-ink-3); cursor: default; }
