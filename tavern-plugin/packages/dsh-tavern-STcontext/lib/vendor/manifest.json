@@ -1,0 +1,10 @@
+{
+  "quickjs": "0.32.0",
+  "acorn": "8.19.0",
+  "hashes": {
+    "quickjs.mjs": "f2872d0a743520b1260198f4c3671c10383748151714588bc48482632d1c1ce0",
+    "quickjs.wasm": "105c3bed22d457e43e3d1c3c1c6959fda62a8fe06f0fc8a985303c3a2be72232",
+    "parser.mjs": "832a6e6370bd629e1648d99615f1ae4b094f8c3bd3ead94d61757f359ae8e10c",
+    "LICENSES.txt": "29d369fd15c27759af9dd2c37ebdaa03c348dc700e8da64ee6937f97386a5f5e"
+  }
+}
