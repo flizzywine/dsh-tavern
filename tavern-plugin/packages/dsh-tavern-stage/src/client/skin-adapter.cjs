@@ -399,7 +399,10 @@ function stageSkinArt(document, files, entry = '') {
             // floor keeps them in the floored scale (theme.css --art-pad-t / -b), so a grown box breathes as the drawn one
             Object.assign(tokens,{'--art-m-t':round(Math.max(0,top - y)),'--art-m-b':round(Math.max(0,y + bh - top - block))});
         }
-        if (box.bob) marks['data-fk-skin-art-bob']=box.bob;
+        // A cue that rises or dips 0 px is still: its looping keyframes would restyle the cue every frame for no motion.
+        if (box.bob === 'blink' || marks['data-fk-skin-art-cue-frames'] !== undefined) {if (box.bob) marks['data-fk-skin-art-bob']=box.bob;}
+        else if (!box.rise) marks['data-fk-skin-art-bob']='still';
+        else if (box.bob) marks['data-fk-skin-art-bob']=box.bob;
         // 「代表色」: the masked trim of each box image takes the speaker's own colour (theme.css
         // 「stage skin: art」, a luminosity blend); the cue's colours follow through stageSkinTint.
         if (box.tint) {
@@ -524,7 +527,11 @@ function stageSkinArt(document, files, entry = '') {
     // The end-of-round menu as image bars (theme.css 「stage skin: art choices」): every row is the bar image (9-slice),
     // stacked on its design centre on wide stages; narrow stages draw the same bars at the menu's text size.
     if (art.choices) {
-        const c=art.choices, [w,h]=size(c.images.plain), [st,sr,sb,sl]=stageSkinSlice(c.slice), [left,right,middle]=c.text;
+        const c=art.choices, [w,h]=size(c.images.plain), [slTop,sr,slBottom,sl]=stageSkinSlice(c.slice), [left,right,middle]=c.text;
+        // The bar stretches between its end slices when a row grows past the image's height (a field or a wrapped suggestion of
+        // several lines): the band's edges lie in the end slices (art.choices.band), so the slices reach at least the band's
+        // edges and the bar's rim never stretches over the words, whatever slice the skin declares.
+        const st=Math.max(slTop,c.band?.[0] ?? 0), sb=Math.max(slBottom,c.band ? h - c.band[1] : 0);
         marks['data-fk-skin-choices']='';
         Object.assign(tokens,{'--art-choice':url(c.images.plain),'--art-choice-off':url(c.images.off || c.images.plain),'--art-choice-w':String(w),'--art-choice-h':String(h),
             '--art-choice-st':String(st),'--art-choice-sr':String(sr),'--art-choice-sb':String(sb),'--art-choice-sl':String(sl),
@@ -736,7 +743,8 @@ function stageSkinArt(document, files, entry = '') {
     };
     const screen=(key,s) => {
         const p='--art-' + key;
-        marks['data-fk-skin-art-' + key]=['sheet','title','close'].filter(part => s[part]).join(' ');
+        // untitled: title false (an original log screen with no title; theme.css 「art screens」 keeps only its accessible name)
+        marks['data-fk-skin-art-' + key]=[...['sheet','title','close'].filter(part => s[part]),...(s.title === false ? ['untitled'] : [])].join(' ');
         if (s.sheet) {const [w,h]=size(s.sheet); Object.assign(tokens,{[p + '-sheet']:url(s.sheet),[p + '-sheet-w']:String(w),[p + '-sheet-h']:String(h)});}
         tokens[p + '-dim']=String(s.dim ?? 0);
         tokens[p + '-font']=String(s.font);
@@ -1251,7 +1259,9 @@ function paintStageSkin(root, document, fonts, theme, lead = false, art = null, 
 // C2: the ransom words (name.letter, plates.divider.letter) and the tiles they are cut on - the backlog's own glyphTiles,
 // else the menu's (the validator requires one).
 function stageSkinBacklogLooks(document) {
-    const looks=stageSkinBacklog(document), b=document?.art?.backlog, plates=b?.plates;
+    const base=stageSkinBacklog(document), b=document?.art?.backlog, plates=b?.plates;
+    // textStyle.highlight: the story words the skin draws in an ink, in the rows too
+    const looks=document?.textStyle?.highlight ? {...base,highlight:document.textStyle.highlight} : base;
     const letter=b?.name?.letter || plates?.divider?.letter ? {name:b.name?.letter,divider:plates?.divider?.letter,tiles:b.glyphTiles || document.art.menu.glyphTiles} : null;
     // C3: the face column - whether the player's rows take one and what an unresolved speaker shows (initial / image / none).
     const avatar=b?.avatar ? {player:b.avatar.player === true,placeholder:b.avatar.placeholder === 'initial' ? 'initial' : b.avatar.placeholder ? 'image' : null} : null;

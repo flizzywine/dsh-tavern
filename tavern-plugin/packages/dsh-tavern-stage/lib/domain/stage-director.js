@@ -482,7 +482,7 @@ export function createStageDirector(deps) {
         const finalDisplay = await frozenDisplay(task.chat,turn)
         if (prepared.prepared.binding.unitsDigest !== assetPackDigest(frozen.units) || prepared.prepared.binding.pageDigest !== assetPackDigest(frozen.pageIndex) ||
           canonicalJson(finalDisplay.units) !== canonicalJson(frozen.units) || canonicalJson(finalDisplay.pageIndex) !== canonicalJson(frozen.pageIndex)) throw expired()
-        const binding = {...prepared.prepared.binding,...(job.pack.binding.items ? {items:job.pack.binding.items} : {}),generation:snapshot.epoch,stream:{version:1,operationId:job.operationId,epoch:snapshot.epoch,committed:true}}
+        const binding = {...prepared.prepared.binding,generation:snapshot.epoch,stream:{version:1,operationId:job.operationId,epoch:snapshot.epoch,committed:true}}
         const effect = job.pack.complete(binding,frozen.units.length)
         const result = await task.commit({apply(draft) {
           if (disposed || streams.get(key(chat,turn)) !== job || job.pack.kernel.snapshot().phase !== 'settled' || canonicalJson(withoutRevision(targetAt(draft,index))) !== canonicalJson(withoutRevision(prepared.target))) throw expired()

@@ -30,15 +30,14 @@ const stageFilm = (function () {
 // line at once); autoWait = the auto mode's pause after a line's voice ends. A silent page waits its reading
 // time (galAutoHold) shifted by the same amount. autoSpeed scales both waits;
 // the 1.3x default shortens idle dwell without speeding up or cutting off speech.
-// voiceRate: every dialogue voice clip plays this much faster, pitch preserved (Config → 声音).
 // textScale: { skinId: percent } (CONFIG 文字大小): the stage text at that percent of the skin's own size;
 // a skin without an entry is at 100%.
 // hudReveal: CONFIG 顶栏按钮 (PROPOSAL §二) - 'auto' | 'always' over the skin's hud.reveal; null = the skin's choice.
 // The auto waits and a silent page's reading time (galAutoHold) are stage-auto-timing.cjs, shared with clip exports.
 // @include stage-auto-timing.cjs
 // @include stage-performance-kinds.cjs
-const STAGE_READING_DEFAULTS = { textSpeed: 28, autoWait: STAGE_AUTO.wait, autoSpeed: STAGE_AUTO.speed, voiceRate: 1, frameCap: null, reducedMotion:false, photosensitive:true, skipTitlePage:false, textScale:{}, hudReveal:null };
-const STAGE_READING_LIMITS = { textSpeed: [0, 80, 2], autoWait: [0, 3000, 100], autoSpeed: [0.5, 3, 0.1], voiceRate: [0.8, 2, 0.1] }; // [min, max, step]
+const STAGE_READING_DEFAULTS = { textSpeed: 28, autoWait: STAGE_AUTO.wait, autoSpeed: STAGE_AUTO.speed, frameCap: null, reducedMotion:false, photosensitive:true, skipTitlePage:false, textScale:{}, hudReveal:null };
+const STAGE_READING_LIMITS = { textSpeed: [0, 80, 2], autoWait: [0, 3000, 100], autoSpeed: [0.5, 3, 0.1] }; // [min, max, step]
 const STAGE_TEXT_SCALE = [70, 130, 5]; // [min, max, step] percent of the skin's own size
 function stageTextScaleMap(map) {
     const [min, max, step] = STAGE_TEXT_SCALE, out = {};
@@ -228,7 +227,7 @@ function bindStageViews(createViews) {
             },
             createCardFrame:props=>createTavernMessageFrameLifecycle(props,{executeSlash:stageCardPageSlash()})},
         device:{matchMedia},
-        mixer:{reading:stageReading, voiceRateLimits:STAGE_READING_LIMITS.voiceRate, Icon, Slider, audio:forkStageAudio, sounds:forkUiSfx, entries:stageEntries, report:useStageEntryState, icons:ICON_PATHS},
+        mixer:{Icon, Slider, audio:forkStageAudio, sounds:forkUiSfx, entries:stageEntries, report:useStageEntryState, icons:ICON_PATHS},
         sfx:{Audio, audio:forkStageAudio, foreground:forkForeground},
         music:{audio:forkStageAudio,foreground:forkForeground,fetch,AbortController},
         bgm:{

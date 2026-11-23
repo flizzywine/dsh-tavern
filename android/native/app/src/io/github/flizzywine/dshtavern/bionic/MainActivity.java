@@ -734,12 +734,22 @@ public final class MainActivity extends Activity {
         send(TavernService.ACTION_START);
     }
 
+    private long backPressedAt;
+
     @Override
     public void onBackPressed() {
         if (web.getVisibility() == View.VISIBLE) {
             if (web.canGoBack()) web.goBack();
             else {
-                showLauncher = true; // 酒馆根页按返回：回到启动页
+                // 酒馆根页按返回：2 秒内连按两次才回到启动页，防止误触
+                long now = android.os.SystemClock.elapsedRealtime();
+                if (now - backPressedAt > 2000) {
+                    backPressedAt = now;
+                    Toast.makeText(this, "再按一次返回启动页", Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                backPressedAt = 0;
+                showLauncher = true;
                 render();
             }
         } else {

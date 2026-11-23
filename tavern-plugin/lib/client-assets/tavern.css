@@ -3335,7 +3335,7 @@ body.dsh-tavern-shell-active [class*="_tabs"] [class*="_viewsMoreAnchor"] [class
   }
   /* 宿主的控制行只做分组：拆开（display: contents）后工具落左列、模型与发送落右列，输入框留在中间。 */
   html.dsh-tavern-coarse-play [data-composer-card] > [class*="_row"] { display: contents; }
-  html.dsh-tavern-coarse-play [data-composer-card] > [class*="_row"] > [class*="_tools"] { grid-column: 1; grid-row: 3; gap: 0; }
+  html.dsh-tavern-coarse-play [data-composer-card] > [class*="_row"] > [class*="_tools"] { grid-column: 1; grid-row: 3; gap: 0; align-items: center; min-height: 40px; }
   html.dsh-tavern-coarse-play [data-composer-card] > [class*="_row"] > [class*="_trailing"] { grid-column: 3; grid-row: 3; gap: 2px; }
   /* 只让可收缩的入口（模型、上下文）让位；发送键保持 40px 热区。 */
   html.dsh-tavern-coarse-play [data-composer-card] > [class*="_row"] > [class*="_trailing"] > :not([class*="_primary"], [class*="_activity"]) { min-width: 0; }

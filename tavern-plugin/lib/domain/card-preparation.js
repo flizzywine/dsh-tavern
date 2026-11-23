@@ -565,7 +565,14 @@ export function createCardPreparation(options = {}) {
     editable.alternate_greetings = clone(card.alternate_greetings || [])
     editable.character_book = clone(card.character_book || null)
     if (request.as === 'editable') return editable
-    if (request.as === 'view') return Object.assign({ id: card.id }, editable)
+    if (request.as === 'view') {
+      // Card scripts read their own version marks here (TavernHelper getCharacter). Regex and
+      // helper scripts are large and reach scripts through their own channels.
+      const data = rawData(rawOf(request.card))
+      const extensions = {}
+      for (const [key, value] of Object.entries(object(data.extensions) ? data.extensions : {})) if (!['regex_scripts', 'tavern_helper', 'tavernhelper_scripts'].includes(key.toLowerCase())) extensions[key] = clone(value)
+      return Object.assign({ id: card.id }, editable, { character_version: str(data.character_version), extensions })
+    }
     if (request.as === 'detail') {
       return Object.assign({ id: card.id }, editable, { character_version: str(rawData(rawOf(request.card)).character_version), extensions: inspectCardExtensions(request.card) })
     }

@@ -96,7 +96,12 @@ export function createDirectorHandles(context) {
     }
     for (const [field,kind] of Object.entries(def?.refs || {})) if (Object.hasOwn(op,field)) {
       const map=(value,path) => decode ? readRef(value,kind,path,def) : ref(value)
-      op[field]=Array.isArray(op[field]) ? op[field].map((value,i)=>map(value,'$.'+field+'['+i+']')) : map(op[field],'$.'+field)
+      try {
+        op[field]=Array.isArray(op[field]) ? op[field].map((value,i)=>map(value,'$.'+field+'['+i+']')) : map(op[field],'$.'+field)
+      } catch (error) {
+        if (decode && op.op === 'item.play' && error.code === 'REF_UNAVAILABLE') error.canonicalOperation = op
+        throw error
+      }
     }
     for (const field of Object.keys(actorBindings(def))) if (Object.hasOwn(op,field)) {
       const phone=def?.command?.admission?.source==='phone.message' || def?.command?.admission?.phoneGroup

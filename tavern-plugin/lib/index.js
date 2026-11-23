@@ -24,7 +24,7 @@ import { createConversationBackgroundSettings } from './domain/conversation-back
 import { createChatWrites } from './domain/chat-writes.js'
 import { upgradeReferences, upgradedAnchor } from './domain/session-upgrade-references.js'
 import { createGameSaveImporter } from './domain/game-save-import.js'
-import { createGameSaveSnapshot } from './domain/game-save-snapshot.js'
+import { assertGameSaveExportable, createGameSaveSnapshot } from './domain/game-save-snapshot.js'
 import { createGameSaveResources } from './domain/game-save-resources.js'
 import { createCardEditor, CARD_PROJECTION_REVISIONS, cardProjectionRevisionOf, bumpCardProjectionState } from './domain/card-editor.js'
 import { ensureSessionVariableDirectory } from './domain/session-variable-directory.js'
@@ -186,7 +186,7 @@ import { withoutPlayerChoices } from './domain/card-export-settings.js'
 import { withGlobalRegexScripts, composeTavernRegexScripts } from './domain/card-extension-reading.js'
 import { projectCardOpeningPreviews } from './domain/card-opening-previews.js'
 import { createConversationInitialization } from './domain/conversation-initialization.js'
-import { assertConversationForkable, conversationForkReceipt, forkConversationChat } from './domain/conversation-fork.js'
+import { assertConversationExportable, assertConversationForkable, conversationForkReceipt, forkConversationChat } from './domain/conversation-fork.js'
 import { readBackgroundModelReasoning } from './domain/background-model-selection.js'
 import { createModelCalls } from './domain/model-calls.js'
 import { createPlayCardSnapshots } from './domain/play-card-snapshots.js'
@@ -243,7 +243,7 @@ import { createAssetPacks } from './domain/asset-packs.js'
 import { createMediaStore } from '../packages/dsh-asset-library/lib/pack-v2/media-store.js'
 import { readCardArchive } from './domain/card-archive.js'
 import { openZipFile } from './domain/zip-file.js'
-import { createUploads } from './domain/uploads.js'
+import { createCardArchiveUploads, createUploads } from './domain/uploads.js'
 import { createCardPlugins, createCardPluginUpdates } from './domain/card-plugins.js'
 import { tmpdir } from 'node:os'
 import { createCardFiles } from './domain/card-files.js'
@@ -1007,7 +1007,7 @@ export async function apply(ctx) {
   const hostLibrary = modLibrary
   const workbenchAuthority = Object.freeze({})
   const assetEngineSettings = createAssetEngineSettings(ctx)
-  const stageRuntime = await createOptionalStage({ctx, cardStorage, measure:(name,run)=>requestPerformance.stage(name,run), modelSlots, presentationObservers, resolveSlot, readCardWorkspace, coordinationEvents, sessionSignals,
+  const stageRuntime = await createOptionalStage({ctx, cardStorage, measure:(name,run)=>requestPerformance.stage(name,run), modelSlots, presentationObservers, resolveSlot, readCardWorkspace:readSharedCardWorkspace, coordinationEvents, sessionSignals,
     assetEngineSettings, ensureStage:() => stageSwitch.ensure(),
     // The mods' stage contributions (their host extensions) and the stage reads a mod's stage service scopes its chat with.
     modStageContributions, stageReads:Object.freeze({readCarries:stageReadCarries, readScope:stageReadScope, markRead:markStageRead})}, {enabled:false,onStatus:status=>sessionSignals.publish('plugin:dsh-tavern-stage',{kind:'plugin-lifecycle',version:status+':'+Date.now()+':'+Math.random()})})
@@ -1100,6 +1100,16 @@ export async function apply(ctx) {
       return cardPreparation.migrate({ working, payload })
     })
   }
+  // Readers that only look at a card share the card storage's frozen copy of its current file version (a hit costs a
+  // stat, not a read and parse of the whole card); a card not yet in the workspace shape is migrated first.
+  async function readSharedCardWorkspace(cardPath) {
+    if (str(cardPath) === '') return undefined
+    const normalized = normalizeResourcePath(cardPath, 'card')
+    const shared = await cardStorage.readWorkspace(normalized)
+    if (shared === undefined || cardPreparation.isWorkspace(shared)) return shared
+    await readCardWorkspace(normalized)
+    return cardStorage.readWorkspace(normalized)
+  }
   let assetCardsActive = true
   ctx.effect(() => () => { assetCardsActive = false })
   const {cardZipTargets} = stageRuntime.cards({
@@ -1142,7 +1152,7 @@ export async function apply(ctx) {
     return card
   }
   async function readCardExtensionSources(cardPath, chat) {
-    const workspace = chat?.cardDefinitionSnapshot || await readCardWorkspace(cardPath)
+    const workspace = chat?.cardDefinitionSnapshot || await readSharedCardWorkspace(cardPath)
     if (workspace === undefined) return undefined
     const extensions = cardPreparation.present({ card: workspace, as: 'card-extensions' })
     // A workspace holds the card under raw; a game's definition snapshot is the card itself.
@@ -1380,6 +1390,8 @@ export async function apply(ctx) {
   }
   conversationRegistry = createTavernConversationRegistry({
     trace: requestPerformance,
+    // History lists each game under its card's current name (the cached catalogue summary).
+    cardName: async cardPath => (await cardSummaries.read(cardPath)).name,
     isDeleted: chatId => deletedChatIds.has(chatId),
     onPreviewChange: summary => sessionSignals.publish(summary.sessionId, {
       kind: 'conversation-preview', version: String(summary.preview.storageRevision ?? summary.updatedAt)
@@ -1545,8 +1557,19 @@ export async function apply(ctx) {
   ctx.provide('tavernMediaStore', mediaStore)
   const assetPacks = createAssetPacks({ store: profileData, mediaStore })
   const uploads = createUploads({ root: dataRoot })
+  const cardArchiveUploads = createCardArchiveUploads({ root: dataRoot })
+  ctx.effect(() => {
+    const sweep = () => { void cardArchiveUploads.sweep().catch(() => {}) }
+    sweep()
+    const timer = setInterval(sweep, 60 * 1000)
+    timer.unref?.()
+    return () => clearInterval(timer)
+  }, 'dsh-tavern: card archive upload cleanup')
   const pluginDataStore = createPluginDataStore({ dataRoot })
-  const userPluginInstaller = createUserPluginInstaller({ dataRoot, sync: () => syncUserPlugins({ dataRoot, cardPaths: () => fileResources.list('card'), pending: cardPluginUpdatePending }) })
+  const userPluginInstaller = createUserPluginInstaller({
+    dataRoot, cardPaths: () => fileResources.list('card'),
+    sync: () => syncUserPlugins({ dataRoot, cardPaths: () => fileResources.list('card'), pending: cardPluginUpdatePending }),
+  })
   const cardPlugins = createCardPlugins({ dataRoot, cardPaths: () => fileResources.list('card'), pluginsDir: userPluginPaths(dataRoot).plugins, keyOf: castAssets.keyOf,
     journalPath: cardPluginJournal })
   const cardPluginUploads = createUploads({ root: path.join(tmpdir(), 'dsh-card-plugin-update', castAssets.keyOf(dataRoot)), maxAgeMs: 10 * 60 * 1000 })
@@ -2017,7 +2040,10 @@ export async function apply(ctx) {
   }
   const gameSaveSnapshot = createGameSaveSnapshot({
     readChat, readWorldSnapshot: chatPersistence.readWorldSnapshot,
-    assertIdle: chat => assertConversationForkable(chat, { agentRunning: agentRegistry.get(chat.sessionId)?.phase?.kind === 'running' }),
+    assertIdle: chat => assertGameSaveExportable(chat, {
+      agentRunning: agentRegistry.get(chat.sessionId)?.phase?.kind === 'running',
+      settlementRunning: Boolean(settlementJobs.pending(chat.id))
+    }),
     readSession: async sessionId => {
       const live = sessionStore.get(sessionId)
       if (live) await sessionStore.flush(live)
@@ -2221,6 +2247,7 @@ export async function apply(ctx) {
       return session ? prepareTemplateHistory(session, before, after) : after
     },
     readCard: readChatCard,
+    readLibraryCard: readCard,
     modelFor: chat => modelSelection(chat.sessionId)?.model || '',
     worldBooks,
     scriptDispatch: tavernScriptDispatch,
@@ -4615,7 +4642,7 @@ export async function apply(ctx) {
   const rpcDeps = { readCardAssetExtension, frameStorage, worldbookSkillProvider, sessionDebugEvidence, TAVERN_PACKAGE_VERSION, agentCompaction, agentRegistry, appendStoryRounds, paragraphSpeech,
     applicationUpdater, autoChoices, attachPlayChatDebug, backgroundAgentRunner, backgroundCatalog, storyEvents, workflow,
     backgroundConfigForSession, bindScript, bodyEditor, branchOrigin, callModel, candidateGenerator, candidateTasks, polishPrereview, polishRecords, polishReviewer, chatHeaderWithLatestFloors, cardUpdates, messageDeletion,
-    cardMemory, cardOrganization, cardPacksOf, cardPlugins, cardPluginUpdates, cardPluginUploads, cardPreparation, cardSummaries, cardTaskPrompts, castAssets,
+    cardArchiveUploads, cardMemory, cardOrganization, cardPacksOf, cardPlugins, cardPluginUpdates, cardPluginUploads, cardPreparation, cardSummaries, cardTaskPrompts, castAssets,
     castCardOf, castEdit, castStage, castView, chatForSession, chatHeaderForSession,
     chatHistoryImporter, chatPersistence, commands, compactionAbort, compatibilityDiagnostics,
     conversationBackgroundSettings, conversationGuides, ctx, dataRoot, deleteCard, deleteChat, deleteChats,
@@ -4827,7 +4854,12 @@ export async function apply(ctx) {
     castAssets,
     exportCardFile,
     assetPacks,
-    uploads: { receive: req => new URL(req.url, 'http://localhost').searchParams.get('purpose') === 'card-plugin-update' ? cardPluginUploads.receive(req) : uploads.receive(req) },
+    uploads: { receive(req) {
+      const params = new URL(req.url, 'http://localhost').searchParams
+      if (params.get('purpose') === 'card-plugin-update') return cardPluginUploads.receive(req)
+      if (params.get('purpose') === 'card-archive') return cardArchiveUploads.receive(req, params)
+      return uploads.receive(req)
+    } },
     transferExports,
     exposeHandler: handle => { tavernHttpHandle = handle },
     pluginAssets: createPluginAssets({ pluginsDir: userPluginPaths(dataRoot).plugins }),

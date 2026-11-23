@@ -62,7 +62,7 @@ export function stageHostScript() {
   const sounds={preload:noop,play:noop,useSkin:noop};
   const audioState={master:0,music:0,sfx:0,voice:0,ambience:0,ui:0,muted:{}};
   const audio={get:()=>audioState,getSnapshot:()=>audioState,setDucking:noop,setVolume:noop,toggleMute:noop,subscribe:off,context:()=>null,gain:()=>null,prepareVoice:noop,release:noop,voice:noop,keepAwake:noop};
-  const reading=store({textSpeed:0,autoWait:700,autoSpeed:1,voiceRate:1,frameCap:null,reducedMotion:false,photosensitive:true,textScale:{},hudReveal:null});
+  const reading=store({textSpeed:0,autoWait:700,autoSpeed:1,frameCap:null,reducedMotion:false,photosensitive:true,textScale:{},hudReveal:null});
   reading.set=patch=>{const next={...reading.get(),...patch};reading.get=()=>next;};
   const rpc=(...args)=>window.stageHostRpc?window.stageHostRpc(...args):Promise.reject(new Error('offline stage host: '+args[0]));
   const authority=source=>JSON.stringify([source.sessionId,source.authorityEpoch]);
@@ -101,7 +101,7 @@ export function stageHostScript() {
     timer:{rpc,crypto,performance,setInterval,clearInterval,Icon,foreground,ResizeObserver,MutationObserver,resourceAuthority:authority,useModOptions:()=>null},
     sfx:{Audio,audio,foreground,matches:()=>false},
     soundscape:{Audio,mixer:audio},
-    mixer:{reading,voiceRateLimits:[0.8,2,0.1],Icon,Slider:Nothing,audio,sounds,entries,report:useStageEntryState,icons:{}},
+    mixer:{Icon,Slider:Nothing,audio,sounds,entries,report:useStageEntryState,icons:{}},
     widgets:{sandbox:Nothing,sounds,report:useStageEntryState,entries,setTimeout,clearTimeout,requestAnimationFrame,cancelAnimationFrame},
     video:{getService:()=>null,fetch,URL,stageVideo:{},audio,foreground,setTimeout,clearTimeout},
     loader:{getService:()=>null,fetch,URL,AbortController,decodeImage:async()=>null},

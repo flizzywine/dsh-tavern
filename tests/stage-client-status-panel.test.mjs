@@ -176,3 +176,17 @@ test('an entry page draws no chrome (data-bare) until its document is shown, or 
 // Two card pages a card may author: a full title page entered from text mode and a window menu page from a menu row.
 const TITLE_PAGE = {...PAGE, id: 'title', label: '标题', size: 'full', html: '<button data-dsh-sound id="new">新游戏</button>', figures: []}
 const MENU_PAGE = {...PAGE, id: 'menu', label: '菜单', size: 'window', html: '<button data-dsh-sound id="back">返回</button>', figures: []}
+
+test('a page knows whether it stands in for the stage entry (data().entry)', async () => {
+  for (const entry of [true, undefined]) {
+    const h = harness()
+    const page = openPage(h, {entry})
+    await settle()
+    const frame = h.frames[0]
+    frame.listeners.load()
+    const data = frame.contentWindow.posted.filter(message => message.type === 'dsh-card-page-data').at(-1).data
+    assert.equal(data.entry, entry === true)
+    assert.match(h.lifecycles[0].props.content, entry ? /"entry":true/ : /"entry":false/)
+    page.dispose()
+  }
+})

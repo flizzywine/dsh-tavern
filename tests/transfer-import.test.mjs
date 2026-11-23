@@ -24,7 +24,8 @@ function environment(options = {}) {
       const map = { card: state.cards, worldbook: state.worldbooks, preset: state.presets }
       return [...(map[kind] || new Map()).keys()]
     },
-    async readText(path) { return state.cards.get(path) ?? state.worldbooks.get(path) ?? state.presets.get(path) }
+    async readText(path) { return state.cards.get(path) ?? state.worldbooks.get(path) ?? state.presets.get(path) },
+    async readCardImage(path) { return options.covers && options.covers.get(path) }
   }
 
   const worldBooks = {
@@ -269,4 +270,37 @@ test('游玩记忆随同包的存档并进新局；包里没带存档时明确�
   assert.equal(row.failed.length, 1, '应用时也说明一遍，不静默丢掉')
   assert.match(row.failed[0].error, /无处可并/)
   assert.equal(merged.length, 1, '没有新局，不会再写记忆')
+})
+
+test('带封面的人物卡导出为 PNG 卡，导入另一台机器时按 PNG 卡导入，封面跟着走', async () => {
+  const { crc32, deflateSync } = await import('node:zlib')
+  const { pngCardPayload } = await import('../tavern-plugin/lib/domain/card-assets.js')
+  const chunk = (type, data) => {
+    const body = Buffer.concat([Buffer.from(type, 'ascii'), data])
+    const out = Buffer.alloc(body.length + 8)
+    out.writeUInt32BE(data.length, 0); body.copy(out, 4); out.writeUInt32BE(crc32(body), body.length + 4)
+    return out
+  }
+  const ihdr = Buffer.alloc(13); ihdr.writeUInt32BE(1, 0); ihdr.writeUInt32BE(1, 4); ihdr[8] = 8; ihdr[9] = 2
+  const idat = chunk('IDAT', deflateSync(Buffer.from([0, 255, 0, 0])))
+  const cover = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), chunk('IHDR', ihdr), idat, chunk('IEND', Buffer.alloc(0))])
+
+  const from = environment({ covers: new Map([['cards/作家.json', cover]]) })
+  const bundle = await bundleFrom(from, { cards: ['cards/作家.json'] })
+  const item = bundle.manifest.parts.find(part => part.kind === 'cards').items[0]
+  assert.equal(item.entry, 'parts/cards/作家.png')
+  const packed = bundle.files.get(item.entry)
+  assert.ok(packed.includes(idat), '封面像素原样保留')
+  assert.equal(JSON.parse(Buffer.from(pngCardPayload(packed, '作家.png').b64, 'base64').toString('utf8')).name, '作家')
+
+  const to = environment({ cards: [] })
+  const result = await to.importer.apply({ manifest: bundle.manifest, files: bundle.files })
+  const rows = Object.fromEntries(result.results.map(row => [row.kind, row]))
+  assert.equal(rows.cards.added, 1)
+  assert.equal(rows.cards.failed.length, 0)
+  assert.deepEqual(to.state.imported.cards, ['作家.png'], '按 PNG 卡导入')
+
+  // 没有封面的卡照旧是 JSON
+  const plain = await bundleFrom(environment(), { cards: ['cards/作家.json'] })
+  assert.equal(plain.manifest.parts.find(part => part.kind === 'cards').items[0].entry, 'parts/cards/作家.json')
 })

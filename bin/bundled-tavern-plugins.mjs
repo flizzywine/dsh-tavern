@@ -1,8 +1,8 @@
 import { createHash } from 'node:crypto'
-import { copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { comparePluginVersions } from '../tavern-plugin/lib/domain/plugin-manifest.js'
-import { BUNDLED_PLUGIN_RUNTIME_FILES, bundledPluginRelease, bundledReleaseCompatibilityProblem } from '../tavern-plugin/lib/domain/bundled-plugin-release.js'
+import { bundledPluginRelease, bundledPluginRuntimeFiles, bundledPluginVendorHashes, bundledReleaseCompatibilityProblem } from '../tavern-plugin/lib/domain/bundled-plugin-release.js'
 
 /**
  * 随酒馆发行、但身份是「酒馆插件」的内置插件（第一个是剧情罗盘）。
@@ -45,6 +45,12 @@ export const BUNDLED_TAVERN_PLUGINS = Object.freeze([
     folder: 'dsh-tavern-adventure-medal',
     packageName: 'dsh-tavern-adventure-medal',
     source: ['tavern-plugin', 'packages', 'dsh-tavern-adventure-medal'],
+  },
+  {
+    folder: 'dsh-tavern-STcontext',
+    packageName: 'dsh-tavern-STcontext',
+    source: ['tavern-plugin', 'packages', 'dsh-tavern-STcontext'],
+    preserveExternalInstalls: true,
   },
 ])
 
@@ -92,6 +98,45 @@ function treeDigest(directory, list = []) {
   return createHash('sha256').update(list.sort().join('\n')).digest('hex')
 }
 
+function runtimeFilesMatch(expected, installed) {
+  return readdirSync(expected, { withFileTypes: true }).every(entry => {
+    const source = path.join(expected, entry.name)
+    const target = path.join(installed, entry.name)
+    const stat = lstatSync(target, { throwIfNoEntry: false })
+    if (entry.isDirectory()) return stat?.isDirectory() && runtimeFilesMatch(source, target)
+    return stat?.isFile() && readFileSync(source).equals(readFileSync(target))
+  })
+}
+
+function runtimeProblem(directory, definition, runtimeImports = []) {
+  try {
+    for (const file of [...bundledPluginRuntimeFiles(definition.packageName), ...runtimeImports]) {
+      if (typeof file !== 'string' || /[:\\]/.test(file) || file.split('/').some(part => !part || part === '.' || part === '..')) {
+        return '无效的运行文件路径'
+      }
+      if (!lstatSync(path.join(directory, file), { throwIfNoEntry: false })?.isFile()) return '缺少运行文件 ' + file
+    }
+    const manifest = bundledPluginRelease(definition.folder, definition.packageName)?.vendorManifest
+    if (manifest) {
+      const hashes = bundledPluginVendorHashes(readFileSync(path.join(directory, manifest)))
+      for (const [file, expected] of hashes) {
+        const actual = createHash('sha256').update(readFileSync(path.join(directory, file))).digest('hex')
+        if (actual !== expected) return '运行文件的 SHA-256 校验失败：' + file
+      }
+    }
+    return ''
+  } catch (error) { return error.message }
+}
+
+function otherInstallation(pluginsDir, definition) {
+  if (!existsSync(pluginsDir)) return
+  return readdirSync(pluginsDir, { withFileTypes: true }).find(entry => {
+    if (entry.name.startsWith('.') || entry.name === definition.folder || !(entry.isDirectory() || entry.isSymbolicLink())) return false
+    const pkg = readJson(path.join(pluginsDir, entry.name, 'package.json'))
+    return pkg?.name === definition.packageName
+  })?.name
+}
+
 /** 读发行副本并校验；不完整时返回 { ok: false, reason }。 */
 export function readBundledTavernPlugin(sourceRoot, definition) {
   const directory = path.join(sourceRoot, ...definition.source)
@@ -99,9 +144,9 @@ export function readBundledTavernPlugin(sourceRoot, definition) {
   const version = String(pkg?.version ?? '').trim()
   if (!pkg || pkg.name !== definition.packageName) return { ok: false, directory, reason: '内置插件副本的名称不是 ' + definition.packageName }
   if (!version) return { ok: false, directory, reason: '内置插件副本的 package.json 没有版本号' }
-  for (const file of BUNDLED_PLUGIN_RUNTIME_FILES) {
-    if (!existsSync(path.join(directory, file))) return { ok: false, directory, reason: '内置插件副本不完整，缺少 ' + file }
-  }
+  const release = bundledPluginRelease(definition.folder, definition.packageName)
+  const problem = runtimeProblem(directory, definition) || (release && bundledReleaseCompatibilityProblem(pkg))
+  if (problem) return { ok: false, directory, reason: '内置插件副本不可用：' + problem }
   return { ok: true, directory, version, packageName: pkg.name, description: String(pkg.description ?? '') }
 }
 
@@ -113,28 +158,40 @@ function installOne({ sourceRoot, dataRoot, profileDir, profileDependencies, def
   const target = path.join(pluginsDir, definition.folder)
   const installed = readJson(path.join(target, 'package.json'))
   const installedVersion = String(installed?.version ?? '').trim() || null
+  const release = bundledPluginRelease(definition.folder, definition.packageName)
 
   // profile 侧还登记着同名包：让它做唯一来源，别放一份永远不会加载的副本（同一包两个来源会被跳过）。
   // 优先看这次算出来的 profile 清单；没有清单时才退回磁盘上的 node_modules。
   const registered = profileDependencies && typeof profileDependencies === 'object'
     ? Object.prototype.hasOwnProperty.call(profileDependencies, definition.packageName)
-    : Boolean(profileDir && existsSync(path.join(profileDir, 'node_modules', definition.packageName, 'package.json')))
+    : Boolean(profileDir && (existsSync(path.join(profileDir, 'node_modules', definition.packageName, 'package.json'))
+      || (definition.preserveExternalInstalls && Object.hasOwn(readJson(path.join(profileDir, 'package.json'))?.dependencies || {}, definition.packageName))))
   if (registered) {
     return { action: 'skipped', reason: 'profile 仍登记着同名插件包，保持单一来源', version: bundled.version, installedVersion, target, packageName: definition.packageName }
   }
 
+  if (definition.preserveExternalInstalls) {
+    const other = otherInstallation(pluginsDir, definition)
+    if (other) return { action: 'skipped', reason: '保留已有同名插件目录 ' + other, version: bundled.version, installedVersion, target, packageName: definition.packageName }
+  }
   const replacing = existsNoFollow(target)
   let recorded
+  let installedRuntimeProblem
   if (replacing) {
     const stat = lstatSync(target)
     if (stat.isSymbolicLink() || !stat.isDirectory()) return { action: 'skipped', reason: '目标插件目录不是普通目录，保留现有内容', version: bundled.version, installedVersion, target, packageName: definition.packageName }
     if (existsNoFollow(path.join(target, '.git'))) return { action: 'skipped', reason: '目标插件是 Git 检出，保留现有内容', version: bundled.version, installedVersion, target, packageName: definition.packageName }
     if (installed?.name !== definition.packageName || !installedVersion) return { action: 'skipped', reason: '目标插件目录不是可识别的同名插件，保留现有内容', version: bundled.version, installedVersion, target, packageName: definition.packageName }
     recorded = readJson(path.join(target, SOURCE_FILE))
-    const release = bundledPluginRelease(definition.folder, installed.name)
-    if (release && recorded?.kind === 'builtin' && recorded.releaseRepo === release.owner + '/' + release.repo
-      && comparePluginVersions(installedVersion, bundled.version) === 1 && !bundledReleaseCompatibilityProblem(installed)
-      && BUNDLED_PLUGIN_RUNTIME_FILES.every(file => existsSync(path.join(target, file)))) {
+    if (definition.preserveExternalInstalls && (recorded?.kind !== 'builtin' || existsNoFollow(path.join(target, '.dsh-card.json')))) {
+      return { action: 'skipped', reason: '保留由用户或人物卡安装的同名插件', version: bundled.version, installedVersion, target, packageName: definition.packageName }
+    }
+    const ownRelease = release && recorded?.kind === 'builtin' && (recorded.releaseRepo === release.owner + '/' + release.repo
+      || (definition.preserveExternalInstalls && !recorded.releaseRepo))
+    if (ownRelease) installedRuntimeProblem = runtimeProblem(target, definition,
+      Array.isArray(recorded.runtimeImports) ? recorded.runtimeImports : [])
+    if (ownRelease && comparePluginVersions(installedVersion, bundled.version) === 1
+      && !bundledReleaseCompatibilityProblem(installed) && !installedRuntimeProblem) {
       return { action: 'skipped', reason: '保留已单独更新的兼容版本', version: bundled.version, installedVersion, target, packageName: definition.packageName }
     }
   }
@@ -146,21 +203,26 @@ function installOne({ sourceRoot, dataRoot, profileDir, profileDependencies, def
     const files = copyTree(bundled.directory, staging)
     const staged = readJson(path.join(staging, 'package.json'))
     if (staged?.name !== definition.packageName || String(staged?.version ?? '').trim() !== bundled.version) throw new Error('内置插件复制后的包名或版本校验失败')
-    for (const file of BUNDLED_PLUGIN_RUNTIME_FILES) if (!existsSync(path.join(staging, file))) throw new Error('内置插件复制后缺少 ' + file)
+    const stagedProblem = runtimeProblem(staging, definition)
+    if (stagedProblem) throw new Error('内置插件复制失败：' + stagedProblem)
     const digest = treeDigest(staging)
     // The old installer wrote an empty marker. The plugin manager records manual disables as JSON.
-    const restoreLoadDefault = recorded?.kind === 'builtin' && recorded.defaultDisabled === true
+    const restoreLoadDefault = !release?.defaultDisabled && recorded?.kind === 'builtin' && recorded.defaultDisabled === true
     const unchanged = replacing
       && !restoreLoadDefault
+      && !installedRuntimeProblem
       && comparePluginVersions(bundled.version, installedVersion || '') === 0
       && String(recorded?.digest || '') === digest
+      && (!release?.vendorManifest || runtimeFilesMatch(staging, target))
     if (unchanged) {
       rmSync(staging, { recursive: true, force: true })
       return { action: 'skipped', reason: '已装的插件与内置副本相同，保留现有内容', version: bundled.version, installedVersion, target, packageName: definition.packageName }
     }
     writeFileSync(path.join(staging, SOURCE_FILE), JSON.stringify({ kind: 'builtin', bundled: true, version: bundled.version, digest, installedAt: new Date().toISOString() }, null, 2) + '\n')
     const disabledFile = path.join(target, DISABLED_FILE)
-    if (replacing && existsNoFollow(disabledFile)) {
+    if (!replacing && release?.defaultDisabled) {
+      writeFileSync(path.join(staging, DISABLED_FILE), JSON.stringify({ installedDisabled: true }) + '\n')
+    } else if (replacing && existsNoFollow(disabledFile)) {
       const marker = lstatSync(disabledFile)
       if (marker.isFile() && (!restoreLoadDefault || marker.size > 0)) {
         copyFileSync(disabledFile, path.join(staging, DISABLED_FILE))
@@ -176,7 +238,7 @@ function installOne({ sourceRoot, dataRoot, profileDir, profileDependencies, def
       rmSync(retired, { recursive: true, force: true })
     } else renameSync(staging, target)
     return {
-      action: replacing ? 'upgraded' : 'installed', reason: replacing ? '版本比已装的旧' : '首次安装',
+      action: replacing ? 'upgraded' : 'installed', reason: replacing ? '已同步发行副本' : '首次安装',
       version: bundled.version, installedVersion, target, packageName: definition.packageName, files,
     }
   } finally {
@@ -184,9 +246,10 @@ function installOne({ sourceRoot, dataRoot, profileDir, profileDependencies, def
   }
 }
 
-export function installBundledTavernPlugins({ sourceRoot, dataRoot, profileDir, profileDependencies, logger = console } = {}) {
+export function installBundledTavernPlugins({ sourceRoot, dataRoot, profileDir, profileDependencies, packageName, logger = console } = {}) {
   const results = []
   for (const definition of BUNDLED_TAVERN_PLUGINS) {
+    if (packageName && definition.packageName !== packageName) continue
     try {
       results.push(installOne({ sourceRoot, dataRoot, profileDir, profileDependencies, definition }))
     } catch (error) {

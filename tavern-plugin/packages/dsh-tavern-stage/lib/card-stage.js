@@ -1,6 +1,7 @@
 import {directionStyles} from '../../../lib/domain/direction-styles.js'
 import {figureCatalogue} from '../../../lib/domain/figure-catalogue.js'
 import skinContract from '../../dsh-presentation-protocol/src/stage-skin.cjs'
+import { assetEntryEnabled } from '../../dsh-presentation-protocol/src/asset-packs.js'
 import { effectiveCardStage, cardStageSkin, cardStageSkinPackIds, effectiveNarrator } from '../../../lib/domain/card-stage-settings.js'
 import { selectStageEntrance } from './domain/stage-entrance.js'
 import { rawData } from '../../../lib/domain/card-preparation.js'
@@ -131,13 +132,14 @@ export function cardBubbleConfig(raw, engine, packSnapshots = [], globalEnabledP
   // skin its bundle descriptor, so the select warms the bundle while the player points at it (「切换皮肤需要一段时间」).
   config.stage.skinChoices = Object.values(skinContract.BUILTIN_STAGE_SKINS).map(document=>({value:document.id,label:document.label,preview:stageSkinPreview(document)}));
   // 本卡皮肤 offers the skins of the packs this card may use: bound (本卡开启) or globally enabled (a skin pack
-  // such as 通用皮肤 is switched on globally with its lamp). A switched-off pack's skins are not offered.
+  // such as 通用皮肤 is switched on globally with its lamp). A switched-off pack's skins, and skins switched off (关闭) in
+  // their pack, are not offered.
   const skinPackIds = extension ? new Set([...extension.assetBindings.boundPackIds, ...globalEnabledPackIds]) : new Set()
   const skinRows = new Map()
   for (const packId of skinPackIds) {
     const pack = packSnapshots.find(row => row.manifest.id === packId)
     for (const asset of pack?.manifest.assets || []) {
-      if (asset.kind !== 'skins') continue
+      if (asset.kind !== 'skins' || !assetEntryEnabled(asset)) continue
       const document = pack.skins?.[asset.id], value = {packId,kind:'skins',assetId:asset.id}
       if (!document) continue
       const hash = pack.manifest.bundles?.[asset.bundleKey]?.contentHash

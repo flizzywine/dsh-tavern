@@ -421,6 +421,21 @@ test('tavern 服务 v2：本轮上下文、世界书来源、结算说明与结�
   assert.match(JSON.parse(await call('anchor_submit', {})).error, /不可用/)
 })
 
+test('a settlement tool of another card plugin is refused with a hint to use the listed tools', { skip: !cordis }, async t => {
+  const cards = { 'game-a': '/cards/a.json', 'game-b': '/cards/b.json' }
+  const h = await harness(t, {
+    cardScope: async () => new Map([['card-a', { cards: ['/cards/a.json'] }], ['card-b', { cards: ['/cards/b.json'] }]]),
+    resolveGame: async sessionId => cards[sessionId] ? { chatId: 'chat-' + sessionId, sessionId } : null,
+    cardPathOf: async sessionId => cards[sessionId] ?? null
+  })
+  const tool = name => ({ name, description: name, parameters: { type: 'object' }, execute: async () => ({ ok: true }) })
+  await h.root.plugin({ name: 'card-a', inject: ['tavern'], apply(ctx) { ctx.tavern.settlementTool(tool('alpha_trust')) } })
+  await h.root.plugin({ name: 'card-b', inject: ['tavern'], apply(ctx) { ctx.tavern.settlementTool(tool('beta_trust')) } })
+  await tick()
+  const call = h.api.settlement.calls({ gameId: 'game-a', turn: 1 })
+  assert.match(JSON.parse(await call('beta_trust', {})).error, /不在本局生效.*以结算任务里列出的可用插件工具为准/)
+  assert.deepEqual(JSON.parse(await call('alpha_trust', {})), { ok: true })
+})
 test('插件存档数据：按轮数据绑定正文版本，回退与重新生成后自然读不到旧版本，撤销后恢复；整局数据不随剧情变', { skip: !cordis }, async t => {
   const store = memoryStore()
   // The story line: turn -> the text version currently shown.
