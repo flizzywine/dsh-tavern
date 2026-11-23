@@ -4514,6 +4514,9 @@ body { --fork-accent-fill: var(--fk-s-base-fill, var(--fork-accent)); --fork-on-
 .ap-gd-prompt-acts { display: flex; flex: 1 1 100%; align-items: center; gap: 4px; min-height: 30px; }
 .ap-ui .ap-gd-prompt-acts button.ap-icon-button { width: 30px; height: 30px; color: var(--fork-ink-2); }
 .ap-ui button.ap-inline-link.ap-gd-save-default, .ap-ui button.ap-inline-link.ap-gd-style-save { font-size: var(--fork-fs-meta); }
+/* 画风's 清除画风: a red bin right after the menu (only while a style is chosen). */
+.ap-ui button.ap-icon-button.ap-gd-style-clear, .ap-ui button.ap-icon-button.ap-gd-style-clear:hover:not(:disabled) { color: var(--fork-danger); }
+@media (max-width: 720px) { .ap-ui button.ap-icon-button.ap-gd-style-clear { width: 36px; height: 36px; } }
 .ap-gd-saved { gap: 6px; color: var(--fork-ink-3); font-size: var(--fork-fs-meta); }
 .ap-gd-saved .ap-glyph { width: 12px; height: 12px; }
 /* The footer: 「查看完整提示词」 a quiet icon at the left; then 取消 and the verb. */
@@ -4545,7 +4548,7 @@ body { --fork-accent-fill: var(--fk-s-base-fill, var(--fork-accent)); --fork-on-
 /* A new picture's decision (R9 exception): one pill at the tile's foot — ✕ quiet, ✓ filled. */
 .ap-gw-decide { position: absolute; left: 50%; bottom: 8px; z-index: 2; display: inline-flex; gap: 2px; padding: 2px; border-radius: 999px; background: var(--fk-current-bgSolid, var(--fork-surface));
   box-shadow: 0 0 0 1px var(--fork-hairline), 0 4px 12px color-mix(in srgb, var(--fork-ink) 18%, transparent); transform: translateX(-50%); }
-.ap-ui .ap-gw-decide button.ap-icon-button { width: 36px; height: 28px; min-height: 0; border-radius: 999px; color: var(--fork-ink-2); }
+.ap-ui .ap-gw-decide button.ap-icon-button { width: 40px; height: 32px; min-height: 0; border-radius: 999px; color: var(--fork-ink-2); }
 .ap-ui .ap-gw-decide button.ap-icon-button:hover:not(:disabled) { background: var(--fork-hover); color: var(--fork-ink); }
 .ap-ui .ap-gw-decide button.ap-icon-button.ap-gw-yes, .ap-ui .ap-gw-decide button.ap-icon-button.ap-gw-yes:hover:not(:disabled) { background: var(--fk-current-fill, var(--fork-accent)); color: var(--fk-current-onAccent, Canvas); }
 /* 编辑's 56px 差分 tiles: the same pill on the lower half of the face, its buttons ≥ 30px (375: 36px). */
@@ -4566,7 +4569,7 @@ body { --fork-accent-fill: var(--fk-s-base-fill, var(--fork-accent)); --fork-on-
 .ap-gw-settei { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 12px; align-items: center; min-width: 0; }
 .ap-gw-slot { position: relative; min-width: 0; }
 .ap-gw-slot > .ap-face-menu-anchor { display: block; }
-.ap-gw-slot-art { position: relative; display: grid; place-items: center; width: 72px; aspect-ratio: 3 / 2; overflow: hidden; border-radius: var(--fork-radius); background: var(--fork-hover); }
+.ap-gw-slot-art { position: relative; display: grid; place-items: center; width: 132px; aspect-ratio: 3 / 2; overflow: hidden; border-radius: var(--fork-radius); background: var(--fork-hover); }
 .ap-gw-slot-art[data-checker], .ap-gw-art[data-checker] { background: repeating-conic-gradient(color-mix(in srgb, var(--fork-ink) 8%, var(--fk-current-bgSolid, Canvas)) 0 25%, var(--fk-current-bgSolid, Canvas) 0 50%) 50% / 12px 12px; }
 .ap-gw-slot-art img, .ap-gw-slot-art .ap-thumb { display: block; width: 100%; height: 100%; object-fit: contain; }
 .ap-gw-slot-art > .ap-gw-dim { position: absolute; inset: 0; }
@@ -4615,7 +4618,18 @@ body { --fork-accent-fill: var(--fk-s-base-fill, var(--fork-accent)); --fork-on-
 .ap-gw-face[data-empty] { background: var(--fk-current-bgSolid, var(--fork-surface)); }
 .ap-gw-face .ap-thumb, .ap-gw-face img { display: block; width: 100%; height: 100%; object-fit: cover; }
 .ap-gw-name { display: flex; align-items: center; gap: 4px; min-width: 0; color: var(--fork-ink); font-size: var(--fork-fs-body); }
-.ap-gw-name > span:last-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ap-gw-name > .ap-gw-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* A picture that opens large on a click (查看大图; touch: its menu leads with it). */
+.ap-ui button[data-view] { cursor: zoom-in; }
+/* A waiting 差分: its ⚠ at the end of the name line, the ✕｜✓ pill a full-width row under it — nothing on the picture. */
+.ap-gw-name > .fork-help-tip, .ap-gw-name > .ap-help-anchor { margin-left: auto; }
+.ap-ui button.ap-gw-warn { display: inline-grid; place-items: center; width: 30px; height: 30px; min-height: 0; margin: -4px -4px -4px 0; padding: 0; border: 0; border-radius: 50%; background: none; color: var(--fork-warn); cursor: help; }
+.ap-ui button.ap-gw-warn:hover:not(:disabled) { background: var(--fork-hover); }
+.ap-gw-warn .ap-glyph { width: 16px; height: 16px; }
+.ap-gw-warn-text { white-space: pre-line; }
+.ap-gw-card > .ap-gw-decide { position: static; display: flex; width: 100%; box-sizing: border-box; transform: none; box-shadow: 0 0 0 1px var(--fork-hairline); }
+.ap-ui .ap-gw-card > .ap-gw-decide button.ap-icon-button { flex: 1 1 0; width: auto; height: 32px; }
+.ap-ui .ap-gw-card > button.ap-icon-button.ap-gw-sheet { position: static; justify-self: center; transform: none; }
 .ap-gw-card[data-state=missing] .ap-gw-name { color: var(--fork-ink-2); }
 .ap-gw-art .ap-gen-flag { position: absolute; top: 6px; left: 6px; z-index: 2; }
 .ap-gw-art .ap-gen-marks { z-index: 2; }
@@ -4660,9 +4674,13 @@ body { --fork-accent-fill: var(--fk-s-base-fill, var(--fork-accent)); --fork-on-
   .ap-gen-tools { gap: 2px 8px; }
   .ap-cell-menu { min-width: min(260px, calc(100vw - 32px)); }
   .ap-ui .ap-cell-menu .ap-menu-item { min-height: 44px; }
-  .ap-gw-slot-art { width: 84px; }
+  .ap-gw-slot-art { width: 120px; }
+  /* A waiting 设定图: its ⚠ and pill wrap under the picture, leaving the line beside it room. */
+  .ap-gw-slot[data-state=candidate] { flex-wrap: wrap; max-width: 140px; row-gap: 6px; }
   .ap-ui button.ap-icon-button.ap-gw-round, .ap-ui .ap-gw-slot-tools button.ap-icon-button.ap-gw-round, .ap-ui button.ap-icon-button.ap-gw-round.ap-gw-fallback-btn { width: 36px; height: 36px; }
   .ap-ui .ap-gw-decide button.ap-icon-button { width: 44px; height: 36px; }
+  .ap-ui .ap-gw-card > .ap-gw-decide button.ap-icon-button { width: auto; height: 36px; }
+  .ap-ui button.ap-gw-warn { width: 36px; height: 36px; margin: -4px -6px -4px 0; }
   .ap-emotion-cell > .ap-gw-decide { top: 20px; }
   .ap-ui .ap-emotion-cell > .ap-gw-decide button.ap-icon-button { width: 36px; height: 36px; }
   .ap-gw-wall { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px 8px; }

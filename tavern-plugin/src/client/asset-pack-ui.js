@@ -95,12 +95,13 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
   // 「?」 button whose tooltip shows on hover / keyboard focus and toggles on click or tap; Esc or an outside tap closes.
   // In the client the shared HelpTip is injected (viewport-placed popover, same look as the settings pages);
   // LocalHelp is the self-contained fallback (tests, standalone harnesses).
-  const Help=HelpTip?({text,label='说明'})=>h(HelpTip,{label},text):LocalHelp;
-  function LocalHelp({text,label='说明'}) {
+  // `face` replaces the 「?」 (a ⚠ whose hover / tap says what the check found).
+  const Help=HelpTip?({text,label='说明',face,faceClassName})=>h(HelpTip,{label,face,faceClassName},text):LocalHelp;
+  function LocalHelp({text,label='说明',face,faceClassName}) {
     const [open,setOpen]=React.useState(false),root=React.useRef(null),id=React.useId();
     React.useEffect(()=>{if(!open||typeof document==='undefined')return;const out=e=>{if(root.current&&!root.current.contains(e.target))setOpen(false);};document.addEventListener('pointerdown',out,true);return()=>document.removeEventListener('pointerdown',out,true);},[open]);
     return h('span',{className:'ap-help-anchor',ref:root,'data-open':open||undefined,onKeyDown:e=>{if(e.key==='Escape'&&open){e.stopPropagation();setOpen(false);}}},
-      h('button',{type:'button',className:'ap-help','aria-label':label,'aria-describedby':id,'aria-expanded':open,onClick:e=>{e.preventDefault();e.stopPropagation();setOpen(!open);}},'?'),
+      h('button',{type:'button',className:'ap-help'+(faceClassName?' '+faceClassName:''),'aria-label':label,'aria-describedby':id,'aria-expanded':open,onClick:e=>{e.preventDefault();e.stopPropagation();setOpen(!open);}},face||'?'),
       h('span',{role:'tooltip',id,className:'ap-help-tip'},text));
   }
   function Actions({children}) { return h('div',{className:'ap-actions'},children); }
@@ -500,9 +501,9 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
   // 查看大图 of a pack picture — the shared ImageViewer on the full picture,
   // leased while it shows. `src` instead: a picture not in the pack (a candidate, a
   // draft upload). `actions`: the corner icon buttons ({icon: glyph name, label, onClick, disabled, busy, pressed}).
-  function PackImageView({binding,packId,hash,src,label,actions=[],onClose,onKeyDown}) {
+  function PackImageView({binding,packId,hash,src,label,actions=[],onClose,onKeyDown,viewKey,onSwipe}) {
     const full=useStillPicture(binding,packId,src?null:hash);
-    return h(ImageViewer,{src:src||full.url||null,failed:!src&&(full.failed||src===undefined&&!hash),alt:label,onClose,onKeyDown,
+    return h(ImageViewer,{src:src||full.url||null,failed:!src&&(full.failed||src===undefined&&!hash),alt:label,onClose,onKeyDown,viewKey,onSwipe,
       actions:actions.filter(Boolean).map(a=>({...a,icon:typeof a.icon==='string'?h(Glyph,{name:a.icon}):a.icon}))});
   }
   // line glyphs for the library's icon buttons (16px, currentColor stroke).
