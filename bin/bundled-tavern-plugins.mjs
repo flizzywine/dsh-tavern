@@ -246,9 +246,10 @@ function installOne({ sourceRoot, dataRoot, profileDir, profileDependencies, def
   }
 }
 
-export function installBundledTavernPlugins({ sourceRoot, dataRoot, profileDir, profileDependencies, logger = console } = {}) {
+export function installBundledTavernPlugins({ sourceRoot, dataRoot, profileDir, profileDependencies, packageName, logger = console } = {}) {
   const results = []
   for (const definition of BUNDLED_TAVERN_PLUGINS) {
+    if (packageName && definition.packageName !== packageName) continue
     try {
       results.push(installOne({ sourceRoot, dataRoot, profileDir, profileDependencies, definition }))
     } catch (error) {
