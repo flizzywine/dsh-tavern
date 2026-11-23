@@ -80,17 +80,11 @@ const figureVoiceLanguage=(spec,voice)=>effectiveVoiceLanguage(voice?.language,s
 // `systemPacks`: the packs 通用声音 / 旁白 point at (readingPackIds of tts.reading; useSystemVoicePacks).
 const defaultCastVoices=(catalogue,systemPacks)=>(catalogue?.voices||[]).filter(v=>v.ref.packId&&voiceAutoCast(v.voiceSpec,v.ref.packId,systemPacks)).sort(castVoiceOrder);
 const useSystemVoicePacks=binding=>readingPackIds(useReadingPointers(binding).value);
-<<<<<<< HEAD
 // 选择声音's groups, the one grouping and order every voice picker shows (人物声音页, 舞台设置 › 配音): the voice now in use
 // (`currentId`, a voice of this pack), then 本包's other voices, then 通用声音 (defaultCastVoices, whichever pack holds them —
 // the same voices the casting assistant picks from), then the other packs' by pack. A voice is listed once, in its first
-// group; a 通用声音 of this pack is still picked as its own.
-=======
-// 选择声音's groups, the one grouping every voice picker shows (人物声音页, 舞台设置 › 配音): 通用声音 (defaultCastVoices,
-// whichever pack holds them — the same voices the casting assistant picks from), then 本包's other voices, then the other
-// packs' by pack. A voice is listed once, in its first group; a 通用声音 of this pack is still picked as its own. Each row
+// group; a 通用声音 of this pack is still picked as its own. Each row
 // shows the voice's language as 自动素材 reads it (castLanguage: unset = 中文), which casts a speaker only with voices of its own.
->>>>>>> upstream/main
 // This pack's voices come from `pack` (current), the others' from the catalogue (null while it loads). Rows: this pack's
 // {id, spec, users}, another's the catalogue entry.
 function voicePickerGroups(catalogue,pack,systemPacks,currentId){
@@ -603,11 +597,7 @@ function VoicePicker({binding,pack,figure,current,muted=false,general=false,gene
   const served=spec=>{const src=services&&spec?.sources?.[spec.defaultSource];return src?voiceServiceName(services,src):'';};
   // a 通用声音 row also names its pack (`from`): the group mixes packs.
   const meta=(spec,from)=>[served(spec),from].filter(Boolean).join(' · ');
-<<<<<<< HEAD
-  const ownRow=(close,from)=>({id,spec,users})=>h(VoiceListRow,{key:'p:'+id,name:spec.name,query:q,lang:spec.language,meta:meta(spec,from),current:!muted&&id===current,
-=======
-  const ownRow=(close,from)=>({id,spec,users})=>h(VoiceListRow,{key:'p:'+id,name:spec.name,query:q,lang:castLanguage(spec.language),meta:meta(spec,from),current:id===current,
->>>>>>> upstream/main
+  const ownRow=(close,from)=>({id,spec,users})=>h(VoiceListRow,{key:'p:'+id,name:spec.name,query:q,lang:castLanguage(spec.language),meta:meta(spec,from),current:!muted&&id===current,
     end:h(VoiceFaces,{binding,pack,figures:users}),play:rowPlay(spec,'pick:'+packId+':'+id,candidate(spec),spec.name),
     onPick:()=>!muted&&id===current?close():pick(close,{kind:'own',id,name:spec.name}),
     menu:onDelete&&(closeMenu=>h(MenuItem,{danger:true,onClick:()=>{closeMenu();close();onDelete(id);}},'删除声音…'))});
