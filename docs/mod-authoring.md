@@ -36,7 +36,7 @@ tavern-plugin/mods/<name>/
 
 | 分组 | 字段 | 说明 |
 |---|---|---|
-| 身份 | `format` `schemaVersion` `id` `name` `summary` `packageName` `version` `hostApi` | `format` = `dsh-tavern-mod`，`schemaVersion` = 5；`id` = `dsh.<name>`；`version` 是语义化版本，公开 API 跟随它 |
+| 身份 | `format` `schemaVersion` `id` `name` `summary` `activation` `packageName` `version` `hostApi` | `format` = `dsh-tavern-mod`，`schemaVersion` = 5；`id` = `dsh.<name>`；`version` 是语义化版本，公开 API 跟随它；`activation` 是 `switch`（默认）或 `card`（卡声明，见下） |
 | 依赖 | `dependencies[]` `conflicts[]` `api` | 依赖写其他模组 id + 版本范围 + `onMissing`（默认 notify）；`api.operations` 是对其他模组公开的操作 |
 | 设置 | `config` `preferences` `settingsSchema` | `config` 可随卡携带，全局 / 本卡两层叠加，`userAdjustable` 决定玩家能否在设置页调；`preferences` 只在全局（如音量）。设置页由 schema 生成，模组不自绘设置页；`settingsSchema` 给设置项的标题、控件与分组 |
 | 素材 | `assetKinds` `coreAssets` `admission` | `assetKinds` 是本模组带进素材库的条目种类（走蓝灯 / 绿灯 / 关）；`coreAssets` 是随代码发行的内置素材与界面文件，没有灯态（图片按扩展名认）；`admission.entryKinds` 是本轮召回到这些种类的条目时才准入导演的种类 |
@@ -45,6 +45,8 @@ tavern-plugin/mods/<name>/
 | 入口与 API | `entry` `dataVersion` `provides[]` | `entry` 是 plugin.mjs；`provides` 是给本体用途（如演出组合）的能力，如计时器的 countdown |
 
 清单里**没有开关字段**。新装模组一律全局关闭；四态开关（全局开启 / 全局关闭 / 本卡开启 / 本卡关闭，按「本卡关闭 > 全局开启 > 本卡开启 > 全局关闭」生效）由宿主统一管理，模组不能改默认值。授权与开关独立。
+
+**启用方式 `activation`**：`switch`（默认，不写）由玩家四态开关，只给对一大类卡通用、该由玩家自己决定的功能，如手机；`card` 是**卡声明的引擎接口**，如检定、数据删除、文字演出、计时器：没有玩家开关，全局开关对它不起作用（宿主也拒绝把它全局打开），只有卡（`modSystem.mods` 里写 `on`，随卡导出）或它的皮肤（`mods[id].enabled`）声明了才启用。舞台设置的「模组」只在声明了它的卡上列出这一行，写明是卡还是皮肤声明的，点开仍是它的设置页。卡作者的写法和正例在 `presets/tavern/skills/stage-mods/references/card-declared.md`。
 
 ## 3. 能用的接口
 
