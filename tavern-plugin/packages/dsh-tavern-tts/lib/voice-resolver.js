@@ -1,17 +1,16 @@
+import {usesOfficialFish} from './shared/voice-schema.js'
 import { isFishCloud } from './providers/fish-models.js'
 
 export function sourceProvider(voice, binding) {
   return binding.source === null ? null : voice.sources[binding.source ?? voice.defaultSource].provider
 }
-// Only portable Fish IDs use the machine default; pinned sources and reference lists keep their existing routing.
-export function chooseService(source, services, fishVoiceIdService = '') {
+export function chooseService(source, services) {
   const compatible = services.filter(s => s.kind === source.provider)
-  if (source.provider === 'fish-audio' && source.kind === 'voice-id' && !source.serviceId) {
-    if (fishVoiceIdService) return compatible.find(s => s.id === fishVoiceIdService)
+  if (usesOfficialFish(source)) {
     const official = compatible.filter(s => s.endpoint && isFishCloud({url:s.endpoint}))
     return official.length === 1 ? official[0] : undefined
   }
-  return compatible.find(s => s.id === source.serviceId) ?? (compatible.length === 1 ? compatible[0] : undefined)
+  return source.serviceId ? compatible.find(s => s.id === source.serviceId) : compatible.length === 1 ? compatible[0] : undefined
 }
 // every 配音来源 can be chosen before it is set up. The chosen source then
 // reports what it still lacks and stays silent; nothing falls back to another source.
