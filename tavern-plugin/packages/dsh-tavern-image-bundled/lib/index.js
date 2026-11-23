@@ -7124,10 +7124,13 @@ async function saveLinkedNames(tavern, previous, next, save) {
   const sameOutfitNames = (a, b) => JSON.stringify((a.outfits || []).map(outfit => [outfit.id, String(outfit.name ?? '').trim()])) === JSON.stringify((b.outfits || []).map(outfit => [outfit.id, String(outfit.name ?? '').trim()]))
   const changes = []
   for (const character of next.characters) {
+    if (!character.figureId || !character.figurePackId) continue
     const old = oldById.get(character.id)
-    if (!old?.figureId || old.figureId !== character.figureId || old.figurePackId !== character.figurePackId) continue
-    if (old.name === character.name && old.match === character.match && sameOutfitNames(old, character)) continue
-    changes.push({ packId: character.figurePackId, figureId: character.figureId })
+    if (old?.figureId === character.figureId && old.figurePackId === character.figurePackId
+      && old.name === character.name && old.match === character.match && sameOutfitNames(old, character)) continue
+    changes.push({ packId: character.figurePackId, figureId: character.figureId, identity: {
+      name: character.name, match: character.match, outfits: (character.outfits ?? []).map(outfit => String(outfit.name ?? '').trim()),
+    } })
   }
   for (const old of previous.characters) {
     if (!old.figureId || !old.figurePackId) continue

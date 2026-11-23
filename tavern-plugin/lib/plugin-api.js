@@ -171,10 +171,12 @@ function boundedWithSignal(promise, label, signal, ms = PLUGIN_TIMEOUT_MS) {
 // A saved record of the image library that is linked to an asset-library figure: the figure's name, 触发词 and outfit
 // names are the record's own (ADR 0011), so a change needs no write to the figure; release: the record's link to the
 // figure ends (deleted or relinked) and the figure takes its identity back first.
-function linkedRecordChange({ packId, figureId, release } = {}) {
+function linkedRecordChange({ packId, figureId, release, identity } = {}) {
   if (typeof packId !== 'string' || !packId || typeof figureId !== 'string' || !figureId) throw new TypeError('packId、figureId 必须是素材库人物的 ID')
   if (release !== undefined && typeof release !== 'boolean') throw new TypeError('release 必须是布尔值')
-  return { packId, figureId, ...(release ? { release: true } : {}) }
+  if (identity !== undefined && (!identity || typeof identity.name !== 'string' || typeof identity.match !== 'string'
+    || !Array.isArray(identity.outfits) || identity.outfits.some(name => typeof name !== 'string'))) throw new TypeError('人物资料格式无效')
+  return { packId, figureId, ...(release ? { release: true } : {}), ...(identity ? { identity } : {}) }
 }
 
 export function createTavernPluginApi(deps) {

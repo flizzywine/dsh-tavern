@@ -55,7 +55,10 @@ function imageLibrary() {
 async function syntheticPack() {
   const pack = await makeSyntheticPack()
   // These tests exercise figure storage. The fixture already carries authored audio metadata.
-  for (const asset of pack.manifest.assets) if (asset.kind === 'music') asset.loudness = {v:1, lufs:-20, peak:-3}
+  for (const asset of pack.manifest.assets) {
+    if (['music', 'sfx', 'ambience'].includes(asset.kind)) asset.loudness = {v:1, lufs:-20, peak:-3}
+    if (asset.kind === 'ambience') Object.assign(asset.loudness, {brightnessDb:0, durationMs:1})
+  }
   pack.manifest.contentHash = await computeContentHash(pack.manifest)
   return pack
 }

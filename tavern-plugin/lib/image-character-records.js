@@ -1,5 +1,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { readFile, stat } from 'node:fs/promises'
+import { check, text } from '../packages/dsh-asset-library/lib/shared/asset-pack-json.js'
+import { figureNameKey } from '../packages/dsh-asset-library/lib/asset-packs/figure-names.js'
 import { appearanceMove, findFigureImageCharacter, imageAliasesFromFigure, imageCharacterFromFigure, IMAGE_CHARACTER_EXTENSION, internalAliasCode, packReferenceName, referencePatch, setteiReferences } from './domain/image-character-appearance.js'
 
 // A figure's name, 触发词 and outfit names live in its linked 配图 人物库 record, the one place (ADR 0011); the asset library
@@ -82,11 +84,23 @@ export function createFigureRecords({ api, recordFile, log = () => {} }) {
     async saveLinked(library, changes, receipt, save) {
       // A record write the pack write in progress made itself: that pack holds it already.
       if (own.getStore() === true) return await save()
-      if (typeof library?.releaseFigureIdentities !== 'function') throw Object.assign(new Error('素材库未启用或版本过旧'), { code: 'NOT_CONFIGURED' })
+      for (const { identity } of changes) {
+        if (!identity) continue
+        const aliases = words(identity.match)
+        text(identity.name, '$.name')
+        check(Boolean(figureNameKey(identity.name)), '$.name', 'Invalid figure name')
+        check(new Set(aliases.map(figureNameKey)).size <= 128, '$.aliases', 'Too many trigger words')
+        for (const alias of aliases) text(alias, '$.aliases', 160)
+        for (const name of identity.outfits) if (name) text(name, '$.outfits[].label')
+      }
       const released = changes.filter(change => change.release)
+      if (released.length && typeof library?.releaseFigureIdentities !== 'function') throw Object.assign(new Error('素材库未启用或版本过旧'), { code: 'NOT_CONFIGURED' })
       const result = released.length ? await library.releaseFigureIdentities(released, receipt, () => save()) : await save()
       const packIds = [...new Set(changes.filter(change => !change.release).map(change => change.packId))]
-      if (packIds.length) await library.figureRecordsChanged({ packIds })
+      if (packIds.length && library?.figureRecordsChanged) {
+        try { await library.figureRecordsChanged({ packIds }) }
+        catch (error) { log('素材库人物刷新失败：' + (error?.message ?? error)) }
+      }
       return result
     },
     /** A record write this module is making right now (a pack write in progress). */
