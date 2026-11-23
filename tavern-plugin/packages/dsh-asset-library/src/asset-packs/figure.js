@@ -34,11 +34,14 @@ function avatarCrop(value, path) {
   check(value.w > 0 && value.h > 0 && value.x + value.w <= 1 && value.y + value.h <= 1, path, 'Crop must fit within the sprite')
 }
 // 动态立绘: a direct image's looping video - a 视频 entry of the same pack whose frames carry their alpha on the right
-// (stageVideo alpha 'right'), drawn over rect [x, y, w, h] (still canvas px) in place of the still while it plays. The still
-// stays the image: its size, anatomy, crops and avatar are the still's.
+// (stageVideo alpha 'right'), drawn over rect [x, y, w, h] (still canvas px) in place of the still while it plays - and
+// optionally talk, a second such entry over the same rect that plays while the figure speaks (its mouth, jaw and blinks
+// are the video's own). Both start and end on the still's pose. The still stays the image: its size, anatomy, crops and
+// avatar are the still's.
 function spriteVideo(value, path) {
-  shape(value, ['video', 'rect'], ['video', 'rect'], path)
+  shape(value, ['video', 'talk', 'rect'], ['video', 'rect'], path)
   validateShortId(value.video, path + '.video')
+  if (value.talk !== undefined) validateShortId(value.talk, path + '.talk')
   array(value.rect, path + '.rect', 4)
   check(value.rect.length === 4 && value.rect.every(Number.isInteger) && value.rect[0] >= 0 && value.rect[1] >= 0 && value.rect[2] > 0 && value.rect[3] > 0 && value.rect.every(n => n <= 16384), path + '.rect', 'Expected [x, y, width, height] in still pixels')
 }
@@ -234,11 +237,12 @@ export function validateFigureClosure(manifest, figures, sprites) {
         for (const emotion of Object.keys(images)) check(emotionIds.has(emotion), '$.outfits.sprite.emotions.' + emotion, 'Sprite emotion is not registered on its figure', 'MISSING_DEPENDENCY')
       }
       for (const key of ['avatarCrop', 'avatarCropAuto', 'anatomy', 'videos']) for (const image of Object.keys(outfit.sprite[key] || {})) check(Object.hasOwn(images, image), '$.outfits.sprite.' + key, 'Measurements belong to a direct image', 'MISSING_DEPENDENCY')
-      for (const [image, {video, rect}] of Object.entries(outfit.sprite.videos || {})) {
-        const entry = manifest.assets.find(row => row.kind === 'videos' && row.id === video), q = '$.outfits.sprite.videos.' + image
-        check(entry, q, 'Missing video entry: ' + video, 'MISSING_DEPENDENCY')
+      for (const [image, {video, talk, rect}] of Object.entries(outfit.sprite.videos || {})) for (const [key, id] of [['video', video], ['talk', talk]]) {
+        if (id === undefined) continue
+        const entry = manifest.assets.find(row => row.kind === 'videos' && row.id === id), q = '$.outfits.sprite.videos.' + image + '.' + key
+        check(entry, q, 'Missing video entry: ' + id, 'MISSING_DEPENDENCY')
         check(entry.alpha === 'right', q, 'A figure video carries its alpha on the right half (alpha: right)')
-        check(Math.abs(rect[2] / rect[3] - entry.size[0] / entry.size[1]) <= 0.01 * entry.size[0] / entry.size[1], q + '.rect', 'The rect and the video differ in aspect ratio')
+        check(Math.abs(rect[2] / rect[3] - entry.size[0] / entry.size[1]) <= 0.01 * entry.size[0] / entry.size[1], q, 'The rect and the video differ in aspect ratio')
       }
     }
     for (const hash of figureImageReferenceMedia(figure.extensions?.[FIGURE_IMAGE_EXTENSION])) blob(hash, 'image/')
