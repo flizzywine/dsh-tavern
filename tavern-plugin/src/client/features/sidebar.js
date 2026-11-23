@@ -63,7 +63,9 @@
 			return h("button", { type: "button", role: "checkbox", className: "ap-pack-check dsh-tavern-history-manager-check" + (className ? " " + className : ""), "aria-checked": checked, "aria-label": label, disabled, onClick: onToggle },
 				h("span", { className: "ap-check-mark", "aria-hidden": "true" }, checked === "mixed" ? h("i", { className: "ap-check-dash" }) : checked ? h(InlineGlyph, { name: "check" }) : null),
 				children);
-		}\n\n		// The head of one card's group in 游玩历史: its click folds / unfolds the group; right click, Shift+F10 / the menu key or a
+		}
+
+		// The head of one card's group in 游玩历史: its click folds / unfolds the group; right click, Shift+F10 / the menu key or a
 		// touch long press opens the card's menu (useContextMenu). Items are entries that exist elsewhere:
 		// the card list's 新开游玩, the group's own fold, and the 存档管理 filtered to this card.
 		function HistoryGroupHead({ group, expanded, busy, onToggle, onNewPlay, onManage, children }) {
