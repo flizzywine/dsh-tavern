@@ -129,6 +129,11 @@ node android/native/apk-smoke.mjs            # 卸载 → 安装 → 验收；�
   正式版不可调试，`run-as` 用不了：设备验收脚本照旧用调试版跑；正式版用 `release-smoke.mjs` 走界面冒烟
   （全新安装 → 首次启动 → 进酒馆 → 回启动页 → 检查更新）。发布密钥在打包机的 `~/.config/dsh-tavern-android/`（不进仓库），
   丢了就无法给已安装的用户发覆盖更新，务必备份。
+- **发布脚本**：`bash android/native/release.sh <versionCode> <versionName> <酒馆 Release 标签>`（如 `8 1.0.0-beta.3 v3.5`）。
+  依次导出 HEAD 源码、隔离安装、`RELEASE=1` 打包，核对包名/版本号、非 debuggable、签名指纹与 `latest.json` 一致、发布信息的
+  字节数与 SHA-256；再上传 APK、`.sha256`、`dsh-tavern-native.json`，下载回来逐个比对并按公开地址核对字节数，全部通过后才在本地提交
+  `latest.json`（不推送）。`NO_UPLOAD=1` 只打包核对，`SKIP_BUILD=1` 复用已打好的包续跑；`RELEASE_NOTES`、`MIN_VERSION_CODE` 透传给发布信息。
+  versionCode 不大于 `latest.json` 时拒绝（`FORCE=1` 跳过）；目标标签不是最新 Release 时提醒（1.0.0-beta.1 只读最新 Release）。
 - **1.0.0-beta.1**（versionCode 6，发布在 `v3.4`）：模拟器上正式版冒烟通过，首次启动 22 秒就绪、冷启动 6 秒，
   检查更新显示「已是最新」。
 
