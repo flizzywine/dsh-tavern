@@ -262,7 +262,7 @@ export function createAutomaticWriteMethods({run, readRun, all, load, metadata, 
       // a speaker created before figures came with the standard 差分 gets them with its next automatic change
       if (!figure.emotions?.length) figure.emotions = clone(STANDARD_FIGURE_EMOTIONS)
       // looks: the 外貌 the casting assistant wrote ({face, bodySFW}). Like a copied figure's, it is in transit to the figure's
-      // 配图 人物库 record, its one home: the host moves it there after the write (image-character-follow.js), so 场景配图 draws the
+      // 配图 人物库 record, its one home: the host moves it there as the figure is written (image-character-records.js), so 场景配图 draws the
       // same person as the 立绘.
       if (change.looks !== undefined) {
         shape(change.looks, ['face','bodySFW'], [], '$.changes[].looks')

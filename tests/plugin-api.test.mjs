@@ -1241,8 +1241,7 @@ test('read declaration update rejects in-flight results and pending authorizatio
   assert.equal(await resolving, null)
 })
 test('beforeImagePlan / beforeImageGenerate: the host’s 自动素材 releases a turn and each picture; a picture waits only for linked people without a 参考图', async () => {
-  let settled = 0
-  const api = createTavernPluginApi({ logger: { warn() {} }, imageCharactersSettled: async () => { settled++ }, cardScope: async () => new Map(),
+  const api = createTavernPluginApi({ logger: { warn() {} }, cardScope: async () => new Map(),
     runningUserPlugins: new Map([['dsh-tavern-image', { runtimeName: 'dsh-tavern-image', origin: 'global' }]]) })
   const tavern = Object.assign(Object.create(api.service), { ctx: { fiber: { name: 'dsh-tavern-image' }, effect(setup) { return setup() } } })
   const records = [
@@ -1263,10 +1262,8 @@ test('beforeImagePlan / beforeImageGenerate: the host’s 自动素材 releases 
   const off = api.imageGates({ async beforePlan(input) { asked.push(['plan', input.gameId, input.turn]) },
     async awaitReferences(input) { asked.push(['refs', input.figures]); return { unavailable } } })
   await tavern.beforeImagePlan({ gameId: 'g', turn: 3 })
-  assert.equal(settled, 1, 'the people the turn cast have their records before the plugin plans')
   assert.deepEqual(await tavern.beforeImageGenerate({ gameId: 'g', subjects }), {})
   assert.deepEqual(asked, [['plan', 'g', 3], ['refs', [{ packId: 'p', figureId: 'f-new' }]]], 'only the linked person without a 参考图 is waited for')
-  assert.equal(settled, 2, 'the reference is on the record before the plugin draws')
   unavailable = [{ packId: 'p', figureId: 'f-new' }]
   assert.deepEqual(await tavern.beforeImageGenerate({ gameId: 'g', subjects }), { skip: true, reason: '「阿新」的人设图没有画出来，有他们的图这次没有出' })
   assert.deepEqual(await tavern.beforeImageGenerate({ gameId: 'g', subjects: [{ characterId: 'c-own' }] }), {})
