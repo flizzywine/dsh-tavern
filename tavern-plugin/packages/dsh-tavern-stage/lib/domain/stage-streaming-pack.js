@@ -10,6 +10,7 @@ import {initialAssetPackPacing} from './stage-asset-pack-pacing.js'
 import {createStreamingDirector} from './stage-streaming-director.js'
 import {hasStateImagePools} from '../../../../lib/domain/state-image-admission.js'
 import {canonicalJson} from '../../../dsh-presentation-protocol/src/asset-pack-json.js'
+import {assetRefKey} from '../../../dsh-presentation-protocol/src/asset-packs.js'
 
 const FIRST_WINDOW = 5
 
@@ -28,6 +29,12 @@ export function createStreamingPackDirector({input, identity, runAgent, current,
   const windowPrompt = promptSection('director_window', PROMPT_PROSE.p001 + '\n' + PROMPT_PROSE.p003)
   const system = fixed.system.replace(DIRECTOR_PROSE.p006,PROMPT_PROSE.p002) + '\n' + windowPrompt
   let kernel, latest = first, attempts = 0, retries = 0, imageFailure, conversation = null
+  let itemBinding, itemEpoch = 0
+  const recalledItems = new Map()
+  function roundBinding(binding) {
+    const {items, ...rest} = binding
+    return itemBinding ? {...rest,items:{...itemBinding,catalogue:[...recalledItems.values()]}} : rest
+  }
   // The windows of one source epoch are one conversation: a later window continues after the
   // earlier window's request and submissions. A rewrite, failure or the round's end closes it.
   function closeConversation() {
@@ -63,6 +70,11 @@ export function createStreamingPackDirector({input, identity, runAgent, current,
   }
   kernel = createStreamingDirector({identity, baseline:first.baseline, system, tools:[tool],
     onChange(value) {
+      if (itemEpoch !== value.epoch) {
+        itemEpoch = value.epoch
+        itemBinding = undefined
+        recalledItems.clear()
+      }
       if (conversation && (conversation.epoch !== value.epoch || ['settled','failed','cancelled'].includes(value.phase))) closeConversation()
       if (early && (early.epoch !== value.epoch || ['failed','cancelled'].includes(value.phase))) dropEarly()
       onChange(value)
@@ -92,6 +104,11 @@ export function createStreamingPackDirector({input, identity, runAgent, current,
         window:{request:wire,first:paragraphs[0].at,entries:snapshot.entries,carried,accounting:snapshot.accounting}})
       function windowResult() {
         const record = tx.effect(), fresh = record.entries.slice(snapshot.entries.length)
+        // Each window validates against its own recall; the sealed prefix needs all accepted windows' recall.
+        if (binding.items && epoch === itemEpoch && !signal.aborted) {
+          itemBinding ||= binding.items
+          for (const row of binding.items.catalogue) recalledItems.set(assetRefKey(row.ref),row)
+        }
         // Previews already carry the stream's event namespace (stage-director streamEnvelope), as the committed record will.
         stampAssetPackMusicRequests({binding:{...binding,stream:{version:1,operationId:identity.bodyOperationId,epoch}},baseline:first.baseline,entries:record.entries},record.end)
         let state = carried, accounting = snapshot.accounting
@@ -138,14 +155,15 @@ export function createStreamingPackDirector({input, identity, runAgent, current,
       if (!tx.completed() && lastReply?.errors.length) throw Object.assign(new Error(lastReply.errors[0].message),{code:'STAGE_DIRECTION_REJECTED',rejection:lastReply.errors[0]})
       return windowResult()
     }})
-  return {kernel, baseline:first.baseline, get binding() {return latest.binding},
+  return {kernel, baseline:first.baseline, get binding() {return roundBinding(latest.binding)},
     update(units, closed = false) {
       kernel.update(units)
       if (closed) prepareEarly()
     },
     // The reply stream stopped on its own: the remainder window starts now instead of at the body commit.
     end(units) {kernel.end(units)},
-    complete(binding, count) {
+    complete(finalBinding, count) {
+      const binding = roundBinding(finalBinding)
       const snapshot = kernel.snapshot(), end = structuredClone(snapshot.state)
       if (snapshot.phase !== 'settled') throw new Error('Streaming direction incomplete')
       if (end.figureScale) delete end.figureScale.event

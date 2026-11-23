@@ -3,11 +3,20 @@ import { effectiveCardStage } from './domain/card-stage-settings.js'
 import { rawData } from './domain/card-preparation.js'
 import { cardAssetRawOperations, readCardAssetExtension } from './domain/card-asset-bindings.js'
 import { createHash } from 'node:crypto'
+import { isImmutableJson } from './domain/freeze-json.js'
 import { emptyCardVariableBindings, validateVariableSlots, validateVariableTarget, variableTargetKey, listCardVariableProviders } from './domain/card-variable-bindings.js'
 import { check, shape, text, cloneJson, canonicalJson } from '../packages/dsh-presentation-protocol/src/asset-pack-json.js'
 import { validateAssetRef, validateUuid } from '../packages/dsh-presentation-protocol/src/asset-packs.js'
 
-export const cardAssetWorkspaceRevision = workspace => createHash('sha256').update(canonicalJson(workspace)).digest('hex')
+// A frozen workspace (the card storage's shared read) cannot change, so its revision is hashed once.
+const frozenRevisions = new WeakMap()
+export const cardAssetWorkspaceRevision = workspace => {
+  const known = frozenRevisions.get(workspace)
+  if (known !== undefined) return known
+  const revision = createHash('sha256').update(canonicalJson(workspace)).digest('hex')
+  if (isImmutableJson(workspace)) frozenRevisions.set(workspace, revision)
+  return revision
+}
 export const hasCardAssetBindings = raw => Object.hasOwn(rawData(raw)?.extensions?.dsh_tavern || {}, 'assetBindings')
 const diagnostic = code => ({code})
 const optional = (ctx, name) => { try { return ctx.get(name) } catch { return undefined } }

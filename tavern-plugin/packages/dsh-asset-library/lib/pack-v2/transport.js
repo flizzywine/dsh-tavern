@@ -1,8 +1,9 @@
 import { randomBytes } from 'node:crypto'
-import { createReadStream } from 'node:fs'
+import { createReadStream, createWriteStream } from 'node:fs'
 import { mkdir, mkdtemp, rename, stat, unlink, rmdir } from 'node:fs/promises'
 import path from 'node:path'
-import { Readable } from 'node:stream'
+import { Readable, Transform } from 'node:stream'
+import { pipeline } from 'node:stream/promises'
 import { checkedPath } from './storage.js'
 import { createAssetPackService } from './service.js'
 import { createThumbnailCache } from './thumbnails.js'
@@ -50,11 +51,14 @@ const fields = Object.freeze({
   applyCardBundle:['inspectionId','expectedRevision','cancel','decisions','acceptScriptRisk','disableWidgets'],
   leaseMedia:['packId','hash'], leaseBundle:['packId','bundleKey'], releaseLease:['ticket'], discardUpload:['ticket']
 })
-const status = {FORBIDDEN:403, NOT_AUTHORIZED_WRITER:403, AUTOMATIC_WRITE_CHANGED:409, INVALID_INPUT:400, LIMIT_EXCEEDED:413, REVISION_CONFLICT:409, ASSET_UNAVAILABLE:503, SETTINGS_UNAVAILABLE:503, RECOVERY_REQUIRED:503}
+// The methods that read an uploaded archive: it goes to disk as it arrives (`?archive=1`), never into memory.
+const ARCHIVE_INPUTS = Object.freeze({inspectImport:'inspectImportFile', inspectCardBundle:'inspectCardBundleFile'})
+const status = {DISK_FULL:507, FORBIDDEN:403, NOT_AUTHORIZED_WRITER:403, AUTOMATIC_WRITE_CHANGED:409, INVALID_INPUT:400, LIMIT_EXCEEDED:413, REVISION_CONFLICT:409, ASSET_UNAVAILABLE:503, SETTINGS_UNAVAILABLE:503, RECOVERY_REQUIRED:503}
 const plain = value => value !== null && typeof value === 'object' && !Array.isArray(value)
 const json = (value, code = 200) => Response.json(value, {status:code, headers:{'Cache-Control':'private, no-store','X-Content-Type-Options':'nosniff'}})
 function errorResponse(error) {
-  const code = /^[A-Z_]+$/.test(error?.code || '') ? error.code : 'INVALID_INPUT'
+  // a write that ran out of disk space was rolled back; the player frees space and tries again
+  const code = error?.code === 'ENOSPC' ? 'DISK_FULL' : /^[A-Z_]+$/.test(error?.code || '') ? error.code : 'INVALID_INPUT'
   return json({error:code, ...(['DOWNLOAD_FAILED','INTEGRITY_MISMATCH','SCRIPT_CONFIRMATION_REQUIRED'].includes(code) ? {message:error.message?.replace(/https?:\/\/\S+/g,'[URL]')} : {}), ...(code === 'REVISION_CONFLICT' && typeof error.revision === 'string' ? {revision:error.revision} : {})}, status[code] || 400)
 }
 // Connection authenticates the single browser administrator before invoking us.
@@ -97,7 +101,6 @@ async function readBytes(request, maximum, reserve = () => {}, unreserve = () =>
 export function createAssetPackTransport({settings, ...options}) {
   const now = options.now || Date.now, limits = {...PACK_LIMITS, ...options.limits}
   const uploads = new Map(), downloads = new Map(), exportJobs = new Map(), leases = new Map(), changes = [], outbox = new Set(), cleanup = new Set()
-  const outboxBytes = () => [...outbox].reduce((sum,item) => sum + item.size,0)
   function removeArchive(item) {
     for (const owned of outbox) if (owned.file === item.file) outbox.delete(owned)
     const task = item.dispose().catch(() => {}).finally(() => cleanup.delete(task))
@@ -105,6 +108,7 @@ export function createAssetPackTransport({settings, ...options}) {
   }
   async function exportArchive(source) {
     alive(); sweep()
+    check(outbox.size < limits.previews, '$', 'Too many export archives waiting to be saved', 'LIMIT_EXCEEDED')
     const epoch = generation, folder = await checkedPath(options.assetRoot, 'export-outbox')
     await mkdir(folder, {recursive:true})
     const directory = await mkdtemp(path.join(folder, 'archive-')), file = path.join(directory, 'archive.zip')
@@ -113,15 +117,24 @@ export function createAssetPackTransport({settings, ...options}) {
       await rename(source, file)
       item.size = (await stat(file)).size
       alive(); check(epoch === generation, '$', 'Transport detached', 'ASSET_UNAVAILABLE')
-      check(item.size <= limits.totalSize && pendingBytes + storedBytes + outboxBytes() + core.spoolUsage() + item.size <= limits.spoolBytes, '$', 'Export archive spool budget exceeded', 'LIMIT_EXCEEDED')
       outbox.add(item)
+      return item
+    } catch (error) { await item.dispose(); throw error }
+  }
+  // An archive upload streamed into an import spool; the uploads pool owns it until it is read or expires.
+  async function receiveArchive(request) {
+    check(request.body, '$.body')
+    const spool = await core.openUploadSpool(), file = path.join(spool.dir, 'archive.zip')
+    const item = {file, size:0, expiresAt:now() + limits.previewTtlMs, dispose:spool.dispose}
+    try {
+      await pipeline(Readable.fromWeb(request.body), new Transform({transform(chunk, encoding, callback) { item.size += chunk.length; callback(null, chunk) }}), createWriteStream(file, {flags:'wx'}), {signal:request.signal})
       return item
     } catch (error) { await item.dispose(); throw error }
   }
   let active = true, connection = null, pendingBytes = 0, storedBytes = 0, sequence = 0, generation = 0, routeStops = [], carrierLife = null
   const alive = () => check(active, '$', 'Transport disposed', 'ASSET_UNAVAILABLE')
   // card export may embed globally enabled packs; the service reads them from these settings.
-  const core = createAssetPackService({...options, settings, exportArchive, globalEnabledPackIds:() => settings ? settings.read().values.globalEnabledPackIds : [], externalSpoolUsage:() => pendingBytes + storedBytes + outboxBytes(), authorizeLease:async input => {
+  const core = createAssetPackService({...options, settings, exportArchive, globalEnabledPackIds:() => settings ? settings.read().values.globalEnabledPackIds : [], externalSpoolUsage:() => pendingBytes + storedBytes, authorizeLease:async input => {
     if (!active || !connection || input.scope !== PRINCIPAL) return false
     return options.authorizeLease ? await options.authorizeLease(input) === true : true
   }})
@@ -146,17 +159,24 @@ export function createAssetPackTransport({settings, ...options}) {
   }
   function reserve(size) {
     alive(); sweep()
-    check(pendingBytes + storedBytes + outboxBytes() + core.spoolUsage() + size <= limits.spoolBytes, '$.body', 'Transport spool limit', 'LIMIT_EXCEEDED')
+    check(pendingBytes + storedBytes + core.spoolUsage() + size <= limits.spoolBytes, '$.body', 'Transport spool limit', 'LIMIT_EXCEEDED')
     pendingBytes += size
   }
   function store(pool, bytes, extra = {}) {
     alive(); sweep()
     // A single atomic multipart registration can exceed the import-preview count.
     const countLimit=pool===uploads?Math.min(limits.uploads,limits.entries):limits.previews
-    check(pool.size < countLimit && pendingBytes + storedBytes + outboxBytes() + core.spoolUsage() + bytes.length <= limits.spoolBytes, '$.body', 'Transport spool limit', 'LIMIT_EXCEEDED')
+    check(pool.size < countLimit && pendingBytes + storedBytes + core.spoolUsage() + bytes.length <= limits.spoolBytes, '$.body', 'Transport spool limit', 'LIMIT_EXCEEDED')
     const ticket = randomBytes(24).toString('base64url'), expiresAt = now() + limits.previewTtlMs
     pool.set(ticket,{bytes,expiresAt,...extra}); storedBytes += bytes.length
     return {ticket,expiresAt}
+  }
+  function storeArchive(item) {
+    alive(); sweep()
+    check(uploads.size < Math.min(limits.uploads,limits.entries), '$.body', 'Transport spool limit', 'LIMIT_EXCEEDED')
+    const ticket = randomBytes(24).toString('base64url')
+    uploads.set(ticket,item)
+    return {ticket,expiresAt:item.expiresAt}
   }
   const changeStreams = new Set()
   function changed(event) {
@@ -197,10 +217,13 @@ export function createAssetPackTransport({settings, ...options}) {
     try { alive(); sweep(); packRequestOrigin(request,expected,widget); return await action() }
     catch (error) { await request.body?.cancel().catch(() => {}); return errorResponse(error) }
   }
-  function uploadBytes(ticket, consumed) {
+  function upload(ticket, consumed, archive) {
     check(typeof ticket === 'string' && uploads.has(ticket), '$.upload', 'Upload missing or expired', 'ASSET_UNAVAILABLE')
-    consumed.add(ticket); return uploads.get(ticket).bytes
+    const item = uploads.get(ticket)
+    check(!!item.file === archive, '$.upload', archive ? 'Upload this archive with ?archive=1' : 'An archive upload is read by an archive import only')
+    consumed.add(ticket); return archive ? item.file : item.bytes
   }
+  const uploadBytes = (ticket, consumed) => upload(ticket, consumed, false)
   function fileMap(value, consumed, deletes) {
     check(Array.isArray(value) && value.length <= limits.entries, '$.files')
     const result = new Map()
@@ -230,7 +253,9 @@ export function createAssetPackTransport({settings, ...options}) {
       for (const key of Object.keys(args)) check(fields[input.method].includes(key), '$.args.' + key, 'Unknown field', 'UNKNOWN_FIELD')
       const consumed = new Set()
       try {
-        if (Object.hasOwn(args,'bytes')) args.bytes = uploadBytes(args.bytes,consumed)
+        const archive = Object.hasOwn(ARCHIVE_INPUTS,input.method) ? upload(args.bytes,consumed,true) : null
+        if (archive) delete args.bytes
+        else if (Object.hasOwn(args,'bytes')) args.bytes = uploadBytes(args.bytes,consumed)
         if (Object.hasOwn(args,'fileUpdates')) args.fileUpdates = fileMap(args.fileUpdates,consumed,true)
         if (Object.hasOwn(args,'files')) args.files = fileMap(args.files,consumed,false)
         let result
@@ -261,6 +286,7 @@ export function createAssetPackTransport({settings, ...options}) {
           try { result = await core[input.method](rest, tracked ? {onProgress:progress => exportJobs.set(progressId, progress)} : {}) }
           finally { if (tracked) exportJobs.delete(progressId) }
         }
+        else if (archive) result = await core[ARCHIVE_INPUTS[input.method]]({...args, file:archive})
         else result = await core[input.method](args)
         alive()
         function transfer(result) {
@@ -280,7 +306,12 @@ export function createAssetPackTransport({settings, ...options}) {
     {path:PACK_UPLOAD_PATH,methods:['POST'],requestBody:'streaming',fetch:request => guarded(request,async () => {
       check(request.method === 'POST' && request.headers.get('content-type') === 'application/octet-stream', '$.request')
       const epoch = generation
-      const bytes = await readBytes(request,limits.totalSize,reserve,size => {pendingBytes -= size})
+      if (new URL(request.url).searchParams.get('archive') === '1') {
+        const item = await receiveArchive(request)
+        if (!active || epoch !== generation) { await item.dispose(); check(false, '$', 'Transport detached', 'ASSET_UNAVAILABLE') }
+        return json(storeArchive(item))
+      }
+      const bytes = await readBytes(request,limits.entrySize,reserve,size => {pendingBytes -= size})
       alive(); check(epoch === generation, '$', 'Transport detached', 'ASSET_UNAVAILABLE')
       return json(store(uploads,bytes))
     })},

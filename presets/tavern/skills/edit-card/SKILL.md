@@ -12,7 +12,7 @@ description: "局部修改已有的人物卡：设定、开场、文风、世界
 - 内容位置不明或涉及多处时，用 `tavern_search_card` 一次搜索标准字段、开场、世界书、正则与脚本，按返回位置局部读取。
 - 同一文字需统一修改时，用 `tavern_replace_card_text` 批量替换；只改部分位置用 `pointers` 限定，检查结果中的修改位置和剩余处数。
 - 标准字段用 `tavern_update_card.fields`；扩展字段用 `rawOperations` 按 JSON Pointer 修改或删除。
-- 世界书用 `tavern_update_lorebook` 的条目级 operations，字段包括 `comment`、`content`、`primaryKeys`、`enabled`、`constant`。拆分或合并条目时，一条要值得它的触发：重要人物单独成条，只有一两句的小地点、小配角并入所属条目，例如虚拟世界里的各个小地点合成一条，每处一行。
+- 世界书用 `tavern_update_lorebook` 的条目级 operations，字段包括 `comment`、`content`、`primaryKeys`、`enabled`、`constant`。新增、改写、拆分或合并条目前，用 `tavern_read_skill_reference` 读取 `create-card` 的 `references/worldbook-entries.md`，照它写成模型搜得到的样子：标题「类别·名称」，别名写进正文，纯资料不用宏，要每轮生效的规则勾常驻。重要人物单独成条，只有一两句的小地点、小配角并入所属条目，每处一行。用户要求整理旧卡的世界书时，按同一份写法逐条检查并报告改了哪些。
 - 读取用 `tavern_read_card`、`tavern_read_card_raw`、`tavern_read_lorebook`，按目标局部读取。大段修改可直接编辑目标 JSON，卡片字段在 `{kind, version, raw: {spec, data: {...}}, meta}` 的 `raw.data` 下。
 - `tavern_update_card`、`tavern_update_lorebook` 和批量替换的保存结果已附带校验；只有直接编辑人物卡、预设或世界书文件后才调用 `tavern_validate_card`，指定实际文件路径。修正 errors，判断 warnings 的影响。
 

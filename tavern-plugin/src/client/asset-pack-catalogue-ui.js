@@ -313,7 +313,7 @@ function PackGetSheet({binding,packs,catalogueReady:ready,onClose,onSources,onIn
     const files=Array.from(selected||[]),file=files[0];
     if(!file)return;if(files.some(item=>!catZipName(item)))return setProblem('请选择 .zip 格式的素材包');
     setProblem('');setReading(file);
-    const preview=await zip.task(async()=>binding.service.inspectImport({bytes:new Uint8Array(await file.arrayBuffer())}));
+    const preview=await zip.task(async()=>binding.service.inspectImport({bytes:file}));
     setReading(null);if(preview)onPreview(files.length===1?preview:{kind:'file-queue',files,current:preview});
   }
   const frame={'data-drop':over||undefined,

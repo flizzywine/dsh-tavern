@@ -1,4 +1,4 @@
-import { readEnabledBindings, bindingVerdict, runningUserPlugins } from './user-plugins.js'
+import { readEnabledBindings, bindingVerdict, runningUserPlugins, DISABLED_FILE } from './user-plugins.js'
 import { createHash, randomUUID } from 'node:crypto'
 import { Readable } from 'node:stream'
 import { cp, mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
@@ -9,7 +9,8 @@ import { createCardPluginManagedOwner } from './card-plugin-managed.js'
 import { pluginManifestProblem } from './plugin-manifest.js'
 import { readCardArchive } from './card-archive.js'
 import { openZipFile } from './zip-file.js'
-import { readPluginFiles } from './user-plugin-install.js'
+import { readPluginFiles, SOURCE_FILE } from './user-plugin-install.js'
+import { bundledPluginRelease } from './bundled-plugin-release.js'
 
 // Plugins a DSH card carries (Wiki「设计：dsh-card-format」). Import keeps their files aside,
 // unused; the player turning them on copies them into <data>/plugins/, where the user-plugin
@@ -87,11 +88,17 @@ export function createCardPlugins({ dataRoot, pluginsDir, keyOf = null, cardPath
     bindings ??= await readEnabledBindings({ dataRoot, cardPaths })
     for (const folder of await readdir(pluginsDir).catch(() => [])) {
       if (folder.startsWith('.')) continue
+      const directory = path.join(pluginsDir, folder)
       let name = ''
-      try { name = String(JSON.parse(await readFile(path.join(pluginsDir, folder, 'package.json'), 'utf8')).name || '') } catch { continue }
+      try { name = String(JSON.parse(await readFile(path.join(directory, 'package.json'), 'utf8')).name || '') } catch { continue }
       if (!name) continue
       let marker = null
-      try { marker = JSON.parse(await readFile(path.join(pluginsDir, folder, MARKER), 'utf8')) } catch {}
+      try { marker = JSON.parse(await readFile(path.join(directory, MARKER), 'utf8')) } catch {}
+      if (!marker && bundledPluginRelease(folder, name)?.defaultDisabled && await exists(path.join(directory, DISABLED_FILE))) {
+        let source
+        try { source = JSON.parse(await readFile(path.join(directory, SOURCE_FILE), 'utf8')) } catch {}
+        if (source?.kind === 'builtin') continue
+      }
       // Older installs named one card (`cardPath`); now a list.
       const sha256 = String(marker?.sha256 || '')
       const verdict = bindingVerdict({ name, sha256 }, bindings)

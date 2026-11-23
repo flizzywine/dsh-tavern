@@ -1,5 +1,6 @@
 // Pack integrity and bounded media validation.
 import path from 'node:path'
+import { readFile } from 'node:fs/promises'
 import {assetContent,assetContents,assetContentMedia,assetDocument} from '../shared/asset-variant-content.js'
 import { PACK_BUDGET } from './budget.js'
 import {validateModPrivate} from './mod-private.js'
@@ -10,12 +11,12 @@ import entranceContract from '../shared/stage-entrance.cjs'
 import videoContract from '../shared/stage-video.cjs'
 import widgetContract from '../shared/widget-schema.cjs'
 import {validatePerformancePack, validatePerformanceKeyframeBundle} from './performance-bundle.js'
-import {decodeSkinSvg} from './skin-svg.js'
+import {decodeSkinSvgs} from './skin-svg.js'
 const {validateStageSkin, stageSkinFiles} = skinContract
 import { imageKind, audioKind, imageDimensions, pngSize, wavInfo, MEDIA_PURPOSE_LIMITS, STAGE_IMAGE_MAX_BYTES } from './media.js'
 import { modelReferences } from './model.js'
 import { BLOB_MIME_TYPES, FIGURE_IMAGE_EXTENSION, figureImageReferenceMedia, validatePackIdentities, validateFigureClosure, verifyPackHashes, verifyPackFiles, computeContentHash, computeBundleHash, canonicalJson, parseJson, sha256 } from '../asset-packs/index.js'
-import { check, relativePath, compareCodePoints } from '../asset-packs/common.js'
+import { check, relativePath, compareCodePoints, SpooledFile } from '../asset-packs/common.js'
 import { validateSpineBundle } from '../asset-packs/spine.js'
 
 export const PACK_LIMITS = Object.freeze({ entries:20000, entrySize:512 * 1024 ** 2, ...PACK_BUDGET, ratio:200, previews:16, uploads:512, previewTtlMs:15 * 60000 })
@@ -26,12 +27,21 @@ export const cloneFiles = files => new Map([...files].map(([name, bytes]) => [na
 export class StoredFile {
   constructor(size, file) { this.length = size; if (file !== undefined) this.file = file; Object.freeze(this) }
 }
+export { SpooledFile }
+// An import's spooled entry, read for one check and dropped again.
+export async function spooledBytes(ref) {
+  const bytes = await readFile(ref.file)
+  check(bytes.length === ref.length, ref.file, 'Spooled file size changed', 'FILE_CLOSURE_MISMATCH')
+  return bytes
+}
+// The bytes a pack holds in memory: stored and spooled files stay on disk.
+export const heldBytes = files => [...files.values()].reduce((sum, bytes) => sum + (bytes instanceof Uint8Array ? bytes.length : 0), 0)
 export function budget(files, limits) {
   check(files instanceof Map && files.size <= limits.entries, '$.files', 'File count budget exceeded', 'LIMIT_EXCEEDED')
   let total = 0
   for (const [name, bytes] of files) {
     relativePath(name)
-    check((bytes instanceof Uint8Array || bytes instanceof StoredFile) && Number.isSafeInteger(bytes.length) && bytes.length >= 0 && bytes.length <= limits.entrySize, name, 'File size budget exceeded', 'LIMIT_EXCEEDED')
+    check((bytes instanceof Uint8Array || bytes instanceof StoredFile || bytes instanceof SpooledFile) && Number.isSafeInteger(bytes.length) && bytes.length >= 0 && bytes.length <= limits.entrySize, name, 'File size budget exceeded', 'LIMIT_EXCEEDED')
     total += bytes.length
   }
   check(total <= limits.totalSize, '$.files', 'Pack budget exceeded', 'LIMIT_EXCEEDED')
@@ -67,7 +77,7 @@ export async function sealPack(manifest, files, previous, hashed) {
   const prior = new Map((previous?.manifest.files || []).map(file => [file.path, file]))
   const listed = new Set((manifest.files || []).map(file => file.path))
   const names = [...listed].filter(name => files.has(name)).concat([...files.keys()].filter(name => !listed.has(name)).sort(compareCodePoints))
-  manifest.files = await Promise.all(names.map(async path => previous?.files.get(path) === files.get(path) && prior.has(path) ? prior.get(path) : {path, size:files.get(path).length, sha256:hashed?.get(path) ?? await sha256(files.get(path))}))
+  manifest.files = await Promise.all(names.map(async path => previous?.files.get(path) === files.get(path) && prior.has(path) ? prior.get(path) : {path, size:files.get(path).length, sha256:hashed?.get(path) ?? files.get(path).sha256 ?? await sha256(files.get(path))}))
   const grouped = groupBundleFiles(manifest.files), priorGrouped = previous && groupBundleFiles(previous.manifest.files)
   for (const [key, bundle] of Object.entries(manifest.bundles)) {
     const prefix = `bundles/${key}/`
@@ -102,6 +112,7 @@ export async function verifyBytes(manifest, files, {limits = PACK_LIMITS, decode
   let beforeSkinNormalization
   async function materialize(name) {
     const ref = files.get(name)
+    if (ref instanceof SpooledFile) return spooledBytes(ref)
     if (!(ref instanceof StoredFile)) return ref
     check(sealed && previous?.files.get(name) === ref && readStoredFile, name, 'Stored bytes unavailable', 'ASSET_UNAVAILABLE')
     const bytes = await readStoredFile(name, ref.length)
@@ -160,6 +171,8 @@ export async function verifyBytes(manifest, files, {limits = PACK_LIMITS, decode
   const bundleFiles = Map.groupBy(files, ([name]) => name.startsWith('bundles/') ? name.split('/')[1] : null)
   const bundleAssets = Map.groupBy(manifest.assets.flatMap(asset=>assetContents(asset).map(content=>({...asset,...content}))), asset => asset.bundleKey)
   const previousAssets = previous && Map.groupBy(previous.manifest.assets.flatMap(asset=>assetContents(asset).map(content=>({...asset,...content}))), asset => asset.bundleKey)
+  // Static SVGs must pass both the inert drawing policy and a full image decode at ingress, the whole pack's in one batch.
+  const drawings = []
   for (const [key, bundle] of Object.entries(manifest.bundles)) {
     const prefix = `bundles/${key}/`, entries = bundleFiles.get(key) || [], assets = bundleAssets.get(key) || []
     if (previous?.manifest.bundles[key] && canonicalJson(previous.manifest.bundles[key]) === canonicalJson(bundle)
@@ -249,8 +262,7 @@ export async function verifyBytes(manifest, files, {limits = PACK_LIMITS, decode
         check(name === entry || dependencies.has(name), name, 'Executable or undeclared skin/performance resource rejected')
         // skin images take the media checks; only sounds have the three-second limit.
         // a skin's own font face is inert WOFF2 data (signature, 16 MiB), never media.
-        // Static SVGs must pass both the inert drawing policy and a full image decode at ingress.
-        if (name !== entry && /\.svg$/.test(name)) {if (!unchanged(name)) try {await decodeSkinSvg(await materialize(name))} catch (error) {check(false, name, error.message, 'INVALID_SKIN')} continue}
+        if (name !== entry && /\.svg$/.test(name)) {if (!unchanged(name)) drawings.push([name, await materialize(name)]); continue}
         if (name !== entry && /\.woff2$/.test(name)) {check(bytes.length >= 48 && bytes.length <= 16 * 1024 ** 2 && Buffer.from(bytes.subarray(0,4)).toString('latin1') === 'wOF2', name, 'Skin font face is not a WOFF2 file within 16 MiB'); continue}
         if (name !== entry && !overlayFiles.has(name) && !keyframeFiles.has(name)) {const ext = path.posix.extname(name).slice(1); const info = await inspect(bytes,{ext,mime:BLOB_MIME_TYPES[ext],size:bytes.length},decodeMedia); if (!/^(png|webp)$/.test(ext)) check(info.durationMs <= 3000,name,'Skin sound exceeds three seconds')}
       }
@@ -282,6 +294,7 @@ export async function verifyBytes(manifest, files, {limits = PACK_LIMITS, decode
       }
     }
   }
+  if (drawings.length) try {await decodeSkinSvgs(drawings)} catch (error) {check(false, error.file, error.message, 'INVALID_SKIN')}
   for (const figure of Object.values(figures)) for (const outfit of figure.outfits) if (outfit.sprite) {
     const sprite = sprites[outfit.sprite.manifestKey]
     async function walk(value) {

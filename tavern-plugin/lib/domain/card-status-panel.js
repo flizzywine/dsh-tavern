@@ -4,7 +4,9 @@ import { emptyLedger } from './story-ledger.js'
 export const STATUS_PANEL_LEDGER_SECTIONS = Object.freeze(Object.keys(emptyLedger()).filter(name => name !== 'version'))
 export const STATUS_PANEL_SIZES = Object.freeze(['window', 'full'])
 export const CARD_PAGE_SHORTCUT_KEYS = Object.freeze([... 'bcdefijkmnopqrstuwxyz'])
-const KEYS = ['id', 'label', 'html', 'shortcut', 'menu', 'showOn', 'initial', 'opening', 'size', 'closeControl', 'ledger', 'preload', 'figures']
+// icon: the page's button in the stage's top bar, one of the stage's own line icons (so it wears the skin's top-bar look)
+export const CARD_PAGE_ICONS = Object.freeze(['monitor', 'card', 'folder', 'message', 'phone', 'users', 'globe', 'clock'])
+const KEYS = ['id', 'label', 'html', 'shortcut', 'icon', 'menu', 'showOn', 'initial', 'opening', 'size', 'closeControl', 'ledger', 'preload', 'figures']
 
 // The card's opening page (opening: true): its stage completes the card's openingSetup there, in place of the generic
 // 游戏准备 (presets/tavern/skills/stage-status-panel/references/panel-contract.md「开局页」). The one reading of the declaration; null when the card has none.
@@ -46,6 +48,7 @@ function validatePage(value, path) {
   text(value.label, path + '.label', 16)
   if (typeof value.html !== 'string' || !value.html.trim()) invalid(path + '.html', '必须是非空的 HTML 字符串')
   if (value.shortcut !== undefined && !CARD_PAGE_SHORTCUT_KEYS.includes(value.shortcut)) invalid(path + '.shortcut', '必须是可用的小写字母快捷键')
+  if (value.icon !== undefined && !CARD_PAGE_ICONS.includes(value.icon)) invalid(path + '.icon', '顶栏图标只能是：' + CARD_PAGE_ICONS.join('、'))
   if (value.menu !== undefined && typeof value.menu !== 'boolean') invalid(path + '.menu', '必须是布尔值')
   if (value.showOn !== undefined && (!plain(value.showOn) || value.showOn.event !== 'stage-enter' || Object.keys(value.showOn).some(key => key !== 'event'))) invalid(path + '.showOn', '必须是 {event:"stage-enter"}')
   if (value.initial !== undefined && (value.initial !== true || value.showOn === undefined)) invalid(path + '.initial', '只能是 true，且需要 showOn')

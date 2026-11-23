@@ -11,7 +11,7 @@
  * @module dsh-tavern/state
  */
 import { existsSync, lstatSync, readFileSync, readdirSync, readlinkSync, realpathSync } from 'node:fs'
-import { basename, dirname, join, relative, resolve } from 'node:path'
+import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import { homedir } from 'node:os'
 import { inspectInstallation } from './installation.mjs'
 import { readDefaultProfile } from './startup-profile.mjs'
@@ -38,8 +38,14 @@ export function isOfficialDesktopApp() {
 export function launcherPaths(ctx, env = process.env) {
   const profile = ctx.get?.('profileContext') ?? ctx.profileContext
   const desktop = ctx.get?.('desktopProfiles')?.current
-  if (!desktop || !profile || desktop.dir !== profile.dir) return resolvePaths(env)
-  return { ...resolvePaths({ DSH_HOME: profile.home, DSH_PROFILE: profile.name, DSH_PROFILE_DIR: profile.dir }), host: 'next' }
+  if (desktop && profile && desktop.dir === profile.dir) {
+    return { ...resolvePaths({ DSH_HOME: profile.home, DSH_PROFILE: profile.name, DSH_PROFILE_DIR: profile.dir }), host: 'next' }
+  }
+  if (env.DSH_TAVERN_RUNTIME_HOST === 'desktop' && !isDesktopApp() && profile?.name === 'tavern' &&
+      typeof profile.home === 'string' && isAbsolute(profile.home) && typeof profile.dir === 'string' && isAbsolute(profile.dir)) {
+    return resolvePaths({ DSH_HOME: profile.home, DSH_PROFILE: profile.name, DSH_PROFILE_DIR: profile.dir })
+  }
+  return resolvePaths(env)
 }
 
 export function isActiveTavern(paths, installation) {

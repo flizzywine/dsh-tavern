@@ -9,6 +9,7 @@ import { inspectWorldBookDocument, exportSillyTavernWorldBook } from './worldboo
 import { statusViewDeclaration } from './status-view-declaration.js'
 import { projectTavernHelperWorldbook } from './tavern-helper-worldbook.js'
 import { projectPersistentStatusView } from './persistent-status-view.js'
+import { rebindImportedStage } from './stage-import-rebind.js'
 
 const clone = value => structuredClone(value)
 const object = value => value !== null && typeof value === 'object' && !Array.isArray(value)
@@ -263,6 +264,9 @@ export function createLiveCardUpdate({readGlobals = async () => ({}), readWorldB
       states[index]=await initialDefaults({...chat,messages:[{greeting:true,swipeId:index}]},card)
     }
     refreshOpeningInitvar(migrated,states)
+    // The refreshed <initvar> is part of every later round's stage prefix: carry the stage records the
+    // game already had over to the new prefix, as an imported save does, so its rounds keep their scenes.
+    rebindImportedStage(chat, migrated, () => {})
     if (unchanged) return migrated
     const count = migrateCardSnapshots(migrated, defaults, plans, removedPaths)
     if ((Object.keys(defaults).length && chat.mvu?.enabled || plans.length || removedPaths.length) && !count) throw Error('当前存档缺少可迁移的 MVU 快照，未应用更新')

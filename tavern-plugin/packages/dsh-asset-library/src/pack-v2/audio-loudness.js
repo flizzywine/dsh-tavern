@@ -42,6 +42,7 @@ export async function measureAudioFile(file, kind) {
 
 import {mkdtemp, writeFile, unlink, rmdir} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
+import {SpooledFile} from '../asset-packs/common.js'
 import path from 'node:path'
 import {assetContents} from '../shared/asset-variant-content.js'
 
@@ -88,12 +89,16 @@ export async function authorAudioLoudness(manifest, files, {previous, read, meas
         const extension = path.extname(name)
         if (!/^\.(wav|mp3|ogg|flac|m4a|aac|opus|webm|mp4)$/.test(extension)) throw new Error('Unsupported audio extension')
         const stored = files.get(name)
-        const bytes = stored instanceof Uint8Array ? stored : await read(name, stored.length)
-        temporary ??= await mkdtemp(path.join(tmpdir(), 'dsh-audio-ingress-'))
-        const file = path.join(temporary, 'audio' + extension)
-        await writeFile(file, bytes)
         let value
-        try { value = await measure(file, asset.kind) } finally { await unlink(file) }
+        // an import's spooled entry is measured where it lies (the spool keeps the extension)
+        if (stored instanceof SpooledFile) value = await measure(stored.file, asset.kind)
+        else {
+          const bytes = stored instanceof Uint8Array ? stored : await read(name, stored.length)
+          temporary ??= await mkdtemp(path.join(tmpdir(), 'dsh-audio-ingress-'))
+          const file = path.join(temporary, 'audio' + extension)
+          await writeFile(file, bytes)
+          try { value = await measure(file, asset.kind) } finally { await unlink(file) }
+        }
         if (!value) throw new Error('素材包音频缺少响度信息且无法补测，请安装 ffmpeg 后重新导入，或请作者重新导出带响度信息的素材包：' + asset.name)
         known.set(key, value)
       }

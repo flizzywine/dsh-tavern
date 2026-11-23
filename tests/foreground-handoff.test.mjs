@@ -73,6 +73,11 @@ test('a turn that ends in an error records why on its kept input before the disc
     ['failure', { sessionId: 's', turn: 4, code: 'BAD_REQUEST', message: '这一轮没有生成正文：API error (400): invalid thinking signature' }],
     ['discard', { sessionId: 's', turn: 4 }]
   ])
+  // A provider that ends early names only its finish reason; the player reads what happened and what to do.
+  order.length = 0
+  handoff.end({ sessionId: 's', turn: 6, reason: 'error', error: { code: 'PI_AI_ERROR', message: 'Provider stopped with: MALFORMED_RESPONSE' } })
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(order[0][1].message, '这一轮没有生成正文：模型提前结束了回答（MALFORMED_RESPONSE），可以重新生成这一轮')
   // A stop by the player is not a failure.
   order.length = 0
   handoff.end({ sessionId: 's', turn: 5, reason: 'aborted' })

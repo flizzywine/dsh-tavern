@@ -271,3 +271,13 @@ test('运行时压缩包：只下一个文件，逐个核对后写出；压缩�
     }
   }
 })
+
+test('downloadRuntime reuses preloaded manifest without fetching metadataUrl again', async t => {
+  const files = new Map([['bin/a.js', Buffer.from('hello')]])
+  const { root, metadata, hits, args } = await runtimeFixture(t, files)
+  const out = path.join(root, 'preloaded-out')
+  const got = await downloadRuntime({ manifest: metadata, rootUrl: args.rootUrl, destination: out, attempts: 1 })
+  assert.equal(got.revision, metadata.revision)
+  assert.equal(hits.get('/manifest') || 0, 0, '传入 manifest 时不再请求 metadataUrl')
+  assert.deepEqual(await readFile(path.join(out, 'bin/a.js')), Buffer.from('hello'))
+})

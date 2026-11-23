@@ -39,6 +39,8 @@ test('旧配置仍通过 Tavern 正文入口注入自动配图标记，智能选
   assert.match(prompt.text(), /选出 4 个.*\n\nimage###<英文提示词>###/)
   assert.equal((await runtime.request('config', { smartImageSelection: true })).status, 200)
   assert.equal(prompt.text(), '')
+  assert.equal((await runtime.request('config', { smartImageSelection: false, imageEnabled: false })).status, 200)
+  assert.equal(prompt.text(), '', '配图总开关关着时不教模型写标记')
 })
 
 test('draw-turn 单次要求使用已有角色快照但不写回；空白要求保持原提示词兼容', async t => {
@@ -76,7 +78,7 @@ test('draw-turn 单次要求使用已有角色快照但不写回；空白要求�
   assert.equal(blank.status, 200)
   assert.equal(userPrompt(calls[1]), '雨夜，她望向窗外。')
   assert.equal(reads, 2)
-  assert.equal(writes, 1, '空白要求沿用原本角色历史写回行为')
+  assert.equal(writes, 0, '空白要求没有改变角色状态时无需重复保存')
   assert.deepEqual(await fixture.read('definitions.json'), definitionsBefore)
 })
 

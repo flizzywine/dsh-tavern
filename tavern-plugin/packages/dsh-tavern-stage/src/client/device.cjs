@@ -155,7 +155,7 @@ function galDeviceQuality(store) {
     };
 }
 
-return {useProfile:useGalDeviceProfile, state:galDeviceState, profile:galDeviceProfile, subscribe:galDeviceSubscribe, handheld:galDeviceHandheld, skinSide:galDeviceSkinSide, quality:galDeviceQuality, recommend:galQualityRecommend, tiers:GAL_QUALITY_TIERS, dispose() {
+return {useProfile:useGalDeviceProfile, state:galDeviceState, profile:galDeviceProfile, subscribe:galDeviceSubscribe, handheld:galDeviceHandheld, portable:galDevicePortable, skinSide:galDeviceSkinSide, quality:galDeviceQuality, recommend:galQualityRecommend, tiers:GAL_QUALITY_TIERS, dispose() {
     if (disposed) return;
     disposed = true;
     const errors = [];

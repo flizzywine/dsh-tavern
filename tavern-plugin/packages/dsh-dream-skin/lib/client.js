@@ -2356,6 +2356,7 @@ window.__ModuleLoader__.load({
             // gone the page shows through the menu, so give them the opaque menu colour.
             parts.push('html[data-dsh-material="none"] body { --dsw-menu-surface-fill: var(--dsw-specific-menu, var(--dsw-alias-bg-base)); }');
 			const el = document.createElement("style");
+			el.dataset.plugin = "dsh-dream-skin";
 			el.id = MATERIAL_CSS_SOURCE;
 			el.textContent = parts.join("\n");
 			(document.head || document.body).appendChild(el);

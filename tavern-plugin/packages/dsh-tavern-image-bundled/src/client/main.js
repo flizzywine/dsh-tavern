@@ -502,6 +502,7 @@ let openImageOverlay = null
               render: ({ groups, gameId, turn, streaming }) => {
                 try {
                   if (streaming) return null            // 生成中不画，免得画出半句话
+                  if (!settings.imageEnabled) return null  // 配图总开关关着：不提交生图，标记原样显示
                   if (settings.smartImageSelection) return h('span', { style: { display: 'none' } })
                   const prompt = String((groups && groups[0]) || '').trim()
                   if (!prompt) return null

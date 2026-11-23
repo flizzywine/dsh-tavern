@@ -425,7 +425,9 @@ function galCreateScene(host, options, own) {
     const GAL_NO_FIGURES = [];
     // the viewport layout of the directed cast (galFigureLayout), recomputed only
     // when the stage size, text box, ruler, cast or priority change. The fit eases like the face rest (700 ms).
-    let castMeasure=null;
+    // widthSeen: each present figure's measured pictures so far (by picture), the widest of them standing for it, so the cast
+    // does not shift whenever one of them changes expression or pose; forgotten when the figure leaves.
+    let castMeasure=null;const widthSeen=new Map();
     function figureLayout(desc,W,H,now) {
         // Missing lower-body artwork contributes to the shared viewport fit; each figure's height and ground stand the ruler
         // on the drawn cast. Measured when the descriptors or the loads change, not per frame.
@@ -444,12 +446,25 @@ function galCreateScene(host, options, own) {
             if(anatomy&&anatomy.feet>anatomy.visibleBottom)crops[figure.alias]=(anatomy.feet-anatomy.visibleBottom)/(anatomy.feet-(anatomy.headTop??anatomy.figureTop));
             const size=input&&resolveFigureSizing({...input,canvas:input.metrics?.canvas,W:1,H:1});
             if(size?.mode==='physical')sizes[figure.alias]={cm:size.heightCm,ground:size.restHead?(size.support.y-size.restHead.top)/size.displayPx:1};
-            // How far the picture's ink reaches either side of where it stands, and its face's half width, per displayed
-            // body: the layout keeps every face clear of its neighbours' pictures (galFigureLayout widths).
+            // How far the picture's ink reaches either side of where it stands (its farthest ink and its body's mass), and its
+            // face's half width, per displayed body: the layout keeps every face clear of its neighbours' pictures and
+            // spaces the bodies (galFigureLayout widths).
+            // Heights are above the ground, per displayed body; bands keep each row's farthest ink for the faces at its height.
             const ink=!entry?.model&&entry?.sprite?.forkInkX;
-            if(size?.mode==='physical'&&ink&&size.restHead&&size.displayPx>0)
-                widths[figure.alias]={reach:Math.max(size.supportX-ink[0],ink[1]-size.supportX)*size.scale/size.displayPx,face:size.restHead.width/2/size.displayPx};
+            if(size?.mode==='physical'&&ink&&size.restHead&&size.displayPx>0){
+                const per=size.scale/size.displayPx,X=size.supportX,up=y=>(size.groundY-y)/size.displayPx,at=c=>up(size.y+c*size.scale);
+                const pictures=widthSeen.get(figure.alias)||new Map();
+                pictures.set(ink,{left:(X-ink.x[0])*per,right:(ink.x[1]-X)*per,bodyLeft:Math.max(0,X-ink.body[0])*per,bodyRight:Math.max(0,ink.body[1]-X)*per,
+                    face:size.restHead.width/2/size.displayPx,faceTop:up(size.restHead.top),faceChin:up(size.restHead.chin),
+                    bands:ink.bands.map(([top,bottom,l,r])=>[at(top),at(bottom),(X-l)*per,(r-X)*per])});
+                widthSeen.set(figure.alias,pictures);
+            }
+            const pictures=[...(widthSeen.get(figure.alias)?.values()||[])];
+            if(pictures.length)widths[figure.alias]={...Object.fromEntries(['left','right','bodyLeft','bodyRight','face','faceTop','faceChin'].map(k=>[k,Math.max(...pictures.map(p=>p[k]))])),
+                bands:pictures.flatMap(p=>p.bands)};
         }
+        const present=new Set((desc.figures||[]).map(figure=>figure?.alias));
+        for(const alias of widthSeen.keys())if(!present.has(alias))widthSeen.delete(alias);
         return {figures:desc.figures,loads:state.figureLoads,crops,sizes,widths};
     }
     // One report for the stage: the layout plus where the camera settles (its goal, sampled when the shot or the stage size

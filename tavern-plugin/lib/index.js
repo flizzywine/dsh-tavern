@@ -24,7 +24,7 @@ import { createConversationBackgroundSettings } from './domain/conversation-back
 import { createChatWrites } from './domain/chat-writes.js'
 import { upgradeReferences, upgradedAnchor } from './domain/session-upgrade-references.js'
 import { createGameSaveImporter } from './domain/game-save-import.js'
-import { createGameSaveSnapshot } from './domain/game-save-snapshot.js'
+import { assertGameSaveExportable, createGameSaveSnapshot } from './domain/game-save-snapshot.js'
 import { createGameSaveResources } from './domain/game-save-resources.js'
 import { createCardEditor, CARD_PROJECTION_REVISIONS, cardProjectionRevisionOf, bumpCardProjectionState } from './domain/card-editor.js'
 import { ensureSessionVariableDirectory } from './domain/session-variable-directory.js'
@@ -186,7 +186,7 @@ import { withoutPlayerChoices } from './domain/card-export-settings.js'
 import { withGlobalRegexScripts, composeTavernRegexScripts } from './domain/card-extension-reading.js'
 import { projectCardOpeningPreviews } from './domain/card-opening-previews.js'
 import { createConversationInitialization } from './domain/conversation-initialization.js'
-import { assertConversationForkable, conversationForkReceipt, forkConversationChat } from './domain/conversation-fork.js'
+import { assertConversationExportable, assertConversationForkable, conversationForkReceipt, forkConversationChat } from './domain/conversation-fork.js'
 import { readBackgroundModelReasoning } from './domain/background-model-selection.js'
 import { createModelCalls } from './domain/model-calls.js'
 import { createPlayCardSnapshots } from './domain/play-card-snapshots.js'
@@ -243,7 +243,7 @@ import { createAssetPacks } from './domain/asset-packs.js'
 import { createMediaStore } from '../packages/dsh-asset-library/lib/pack-v2/media-store.js'
 import { readCardArchive } from './domain/card-archive.js'
 import { openZipFile } from './domain/zip-file.js'
-import { createUploads } from './domain/uploads.js'
+import { createCardArchiveUploads, createUploads } from './domain/uploads.js'
 import { createCardPlugins, createCardPluginUpdates } from './domain/card-plugins.js'
 import { tmpdir } from 'node:os'
 import { createCardFiles } from './domain/card-files.js'
@@ -359,10 +359,9 @@ import { createConversationHandlers } from './rpc/conversations.js'
 import { createPlayHandlers } from './rpc/play.js'
 import { createTransferHandlers } from './rpc/transfer.js'
 import { createImageCharacterHandlers } from './rpc/image-characters.js'
-import { followImageCharacters } from './image-character-follow.js'
 import { createFigureRecords } from './image-character-records.js'
-import { figureOutfitReference } from './domain/figure-sprite-reference.js'
-import { appearanceFromImageCharacter, findFigureImageCharacter, imageAliasesFromFigure, imageCharacterExtension, imageCharacterFromFigure } from './domain/image-character-appearance.js'
+import { createFigurePictures } from './image-character-pictures.js'
+import { appearanceFromImageCharacter, figurePackPictures, findFigureImageCharacter, imageCharacterExtension, imageCharacterFromFigure } from './domain/image-character-appearance.js'
 import { createTransferExportStore } from './domain/transfer-store.js'
 // dsh-tavern 宿主插件（profile 组合行）
 // RPC：同源 HTTP 路由 /api/dsh-tavern/<method>（客户端 fetch 调用）
@@ -1008,7 +1007,7 @@ export async function apply(ctx) {
   const hostLibrary = modLibrary
   const workbenchAuthority = Object.freeze({})
   const assetEngineSettings = createAssetEngineSettings(ctx)
-  const stageRuntime = await createOptionalStage({ctx, cardStorage, measure:(name,run)=>requestPerformance.stage(name,run), modelSlots, presentationObservers, resolveSlot, readCardWorkspace, coordinationEvents, sessionSignals,
+  const stageRuntime = await createOptionalStage({ctx, cardStorage, measure:(name,run)=>requestPerformance.stage(name,run), modelSlots, presentationObservers, resolveSlot, readCardWorkspace:readSharedCardWorkspace, coordinationEvents, sessionSignals,
     assetEngineSettings, ensureStage:() => stageSwitch.ensure(),
     // The mods' stage contributions (their host extensions) and the stage reads a mod's stage service scopes its chat with.
     modStageContributions, stageReads:Object.freeze({readCarries:stageReadCarries, readScope:stageReadScope, markRead:markStageRead})}, {enabled:false,onStatus:status=>sessionSignals.publish('plugin:dsh-tavern-stage',{kind:'plugin-lifecycle',version:status+':'+Date.now()+':'+Math.random()})})
@@ -1101,6 +1100,16 @@ export async function apply(ctx) {
       return cardPreparation.migrate({ working, payload })
     })
   }
+  // Readers that only look at a card share the card storage's frozen copy of its current file version (a hit costs a
+  // stat, not a read and parse of the whole card); a card not yet in the workspace shape is migrated first.
+  async function readSharedCardWorkspace(cardPath) {
+    if (str(cardPath) === '') return undefined
+    const normalized = normalizeResourcePath(cardPath, 'card')
+    const shared = await cardStorage.readWorkspace(normalized)
+    if (shared === undefined || cardPreparation.isWorkspace(shared)) return shared
+    await readCardWorkspace(normalized)
+    return cardStorage.readWorkspace(normalized)
+  }
   let assetCardsActive = true
   ctx.effect(() => () => { assetCardsActive = false })
   const {cardZipTargets} = stageRuntime.cards({
@@ -1143,7 +1152,7 @@ export async function apply(ctx) {
     return card
   }
   async function readCardExtensionSources(cardPath, chat) {
-    const workspace = chat?.cardDefinitionSnapshot || await readCardWorkspace(cardPath)
+    const workspace = chat?.cardDefinitionSnapshot || await readSharedCardWorkspace(cardPath)
     if (workspace === undefined) return undefined
     const extensions = cardPreparation.present({ card: workspace, as: 'card-extensions' })
     // A workspace holds the card under raw; a game's definition snapshot is the card itself.
@@ -1381,6 +1390,8 @@ export async function apply(ctx) {
   }
   conversationRegistry = createTavernConversationRegistry({
     trace: requestPerformance,
+    // History lists each game under its card's current name (the cached catalogue summary).
+    cardName: async cardPath => (await cardSummaries.read(cardPath)).name,
     isDeleted: chatId => deletedChatIds.has(chatId),
     onPreviewChange: summary => sessionSignals.publish(summary.sessionId, {
       kind: 'conversation-preview', version: String(summary.preview.storageRevision ?? summary.updatedAt)
@@ -1546,8 +1557,19 @@ export async function apply(ctx) {
   ctx.provide('tavernMediaStore', mediaStore)
   const assetPacks = createAssetPacks({ store: profileData, mediaStore })
   const uploads = createUploads({ root: dataRoot })
+  const cardArchiveUploads = createCardArchiveUploads({ root: dataRoot })
+  ctx.effect(() => {
+    const sweep = () => { void cardArchiveUploads.sweep().catch(() => {}) }
+    sweep()
+    const timer = setInterval(sweep, 60 * 1000)
+    timer.unref?.()
+    return () => clearInterval(timer)
+  }, 'dsh-tavern: card archive upload cleanup')
   const pluginDataStore = createPluginDataStore({ dataRoot })
-  const userPluginInstaller = createUserPluginInstaller({ dataRoot, sync: () => syncUserPlugins({ dataRoot, cardPaths: () => fileResources.list('card'), pending: cardPluginUpdatePending }) })
+  const userPluginInstaller = createUserPluginInstaller({
+    dataRoot, cardPaths: () => fileResources.list('card'),
+    sync: () => syncUserPlugins({ dataRoot, cardPaths: () => fileResources.list('card'), pending: cardPluginUpdatePending }),
+  })
   const cardPlugins = createCardPlugins({ dataRoot, cardPaths: () => fileResources.list('card'), pluginsDir: userPluginPaths(dataRoot).plugins, keyOf: castAssets.keyOf,
     journalPath: cardPluginJournal })
   const cardPluginUploads = createUploads({ root: path.join(tmpdir(), 'dsh-card-plugin-update', castAssets.keyOf(dataRoot)), maxAgeMs: 10 * 60 * 1000 })
@@ -2018,7 +2040,10 @@ export async function apply(ctx) {
   }
   const gameSaveSnapshot = createGameSaveSnapshot({
     readChat, readWorldSnapshot: chatPersistence.readWorldSnapshot,
-    assertIdle: chat => assertConversationForkable(chat, { agentRunning: agentRegistry.get(chat.sessionId)?.phase?.kind === 'running' }),
+    assertIdle: chat => assertGameSaveExportable(chat, {
+      agentRunning: agentRegistry.get(chat.sessionId)?.phase?.kind === 'running',
+      settlementRunning: Boolean(settlementJobs.pending(chat.id))
+    }),
     readSession: async sessionId => {
       const live = sessionStore.get(sessionId)
       if (live) await sessionStore.flush(live)
@@ -2222,6 +2247,7 @@ export async function apply(ctx) {
       return session ? prepareTemplateHistory(session, before, after) : after
     },
     readCard: readChatCard,
+    readLibraryCard: readCard,
     modelFor: chat => modelSelection(chat.sessionId)?.model || '',
     worldBooks,
     scriptDispatch: tavernScriptDispatch,
@@ -3333,12 +3359,11 @@ export async function apply(ctx) {
   }
   const gameForegroundQueues = new Map()
   let figureRecords = null
+  const figurePictures = createFigurePictures(() => ctx.get('assetLibrary'))
   pluginApi = createTavernPluginApi({
     ctx,get modHost() {return ctx.get('tavernManagedModules')},
     replyStreamRewriters,
     logger: console,
-    // tavern.beforeImageGenerate: a landed 人设图 is on its 人物库 record once the follower below has caught up.
-    imageCharactersSettled: () => follow?.settled(),
     // The asset packs a card plays with: its own and the ones every card uses.
     async cardAssetPacks(cardPath) {
       const own = (await cardStageExtension(cardPath))?.assetBindings.boundPackIds || []
@@ -3352,6 +3377,9 @@ export async function apply(ctx) {
       library?.figureRecordsChanged?.({}).then(() => figureRecords?.foldWhole(library)).catch(error => console.warn('dsh-tavern: 素材库人物刷新失败', str(error?.message || error)))
     },
     writingFigureRecords: () => figureRecords?.writing() === true,
+    // A figure's 设定图 and borrowed 立绘, which 配图 reads by a record's link from the pack, their one store (ADR 0012).
+    figurePictures: figures => figurePictures.list(figures),
+    readFigurePicture: input => figurePictures.read(input),
     async imagePackCharacters(packIds, selections, includeReferences) {
       const library = ctx.get('assetLibrary')
       if (!library) return []
@@ -3365,32 +3393,15 @@ export async function apply(ctx) {
           if (selections && !selection) return null
           const outfits = figure.outfits.filter(outfit => outfit.enabled !== false)
           const outfit = selection && (selection.outfitId ? outfits.find(item => item.key === selection.outfitId) : outfits[0])
-          const hash = includeReferences && outfit && (outfit.settei || figureOutfitReference(pack, figure, outfit)?.hash)
+          const hash = includeReferences && outfit && figurePackPictures(pack, figure).outfits[outfit.key]?.hash
           const reference = hash ? await library.readMedia({ packId: pack.manifest.id, expectedRevision: pack.revision, hash }) : null
           return { ...character, id, consistencyText: figure.description, outfits: character.outfits.filter(item => outfits.some(outfit => outfit.key === item.id)),
             ...(outfit && { outfitId: outfit.key }), ...(reference && { reference: { data: Buffer.from(reference.bytes).toString('base64'), mediaType: reference.descriptor.mime, name: character.name + ' · ' + outfit.label } }) }
         })))).filter(Boolean)
     },
-    async editLinkedFigures(changes, receipt, save) {
-      // A record write the pack write in progress made itself (image-character-records.js): that pack holds it already.
-      if (figureRecords?.writing()) return await save([])
-      const library = ctx.get('assetLibrary')
-      if (typeof library?.editFigureIdentities !== 'function') throw Object.assign(new Error('素材库未启用或版本过旧'), { code: 'NOT_CONFIGURED' })
-      return await library.editFigureIdentities(changes, receipt, identities => save(identities.map(figure => ({
-        packId: figure.packId, figureId: figure.figureId, name: figure.name, match: imageAliasesFromFigure(figure).join(', '),
-      }))))
-    },
-    // A linked image record's name or alias edit, written to its figure (tavern.editLinkedFigure).
-    async editLinkedFigure({ packId, figureId, name, addAliases, removeAliases }) {
-      const library = ctx.get('assetLibrary')
-      if (!library) throw Object.assign(new Error('素材库未启用'), { code: 'NOT_CONFIGURED' })
-      const pack = await library.getPackSnapshot({ packId }), figure = pack?.figures[figureId]
-      if (!figure) throw Object.assign(new Error('素材库人物已删除'), { code: 'NOT_FOUND' })
-      const had = figure.aliases || [], aliases = [...had.filter(word => !removeAliases.includes(word)), ...addAliases.filter(word => !had.includes(word))]
-      const patch = { ...(name && name !== figure.name ? { name } : {}), ...(aliases.join('\n') !== had.join('\n') ? { aliases } : {}) }
-      if (Object.keys(patch).length) await library.patchFigure({ packId, expectedRevision: pack.revision, figureId, patch })
-      return { changed: Object.keys(patch).length > 0 }
-    },
+    // A save of 人物库 records linked to figures (ADR 0011: the record is the figure's identity, so only a link that ends writes
+    // the pack, giving the figure its identity back in the same save). Then the library reads the changed figures again.
+    saveLinkedRecords: (changes, receipt, save) => figureRecords.saveLinked(ctx.get('assetLibrary'), changes, receipt, save),
     storyEvents,
     workflow,
     // A plugin's settings changed in a game: its page side re-reads them (tavernUi.watchGameSettings).
@@ -3612,17 +3623,11 @@ export async function apply(ctx) {
     isBackground: sessionId => backgroundAgentRunner.owns(sessionId),
     regenerateWithProvider: input => regenerateWithProvider(input) })
   ctx.provide('tavern', pluginApi.service)
-  // A figure's name, 触发词 and outfit names: in its 配图 人物库 record once switched there (image-character-records.js),
-  // else in its pack with the follower below bringing the record along.
-  figureRecords = createFigureRecords({ api: pluginApi, file: path.join(dataRoot, 'figure-records.json'), recordFile: path.join(dataRoot, 'plugins', 'dsh-tavern-image', 'definitions.json'), log: text => console.warn('dsh-tavern: ' + text) })
+  // A figure's name, 触发词 and outfit names: in its 配图 人物库 record, the one place (image-character-records.js, ADR 0011).
+  figureRecords = createFigureRecords({ api: pluginApi, recordFile: path.join(dataRoot, 'plugins', 'dsh-tavern-image', 'definitions.json'), log: text => console.warn('dsh-tavern: ' + text) })
   ctx.provide('tavernFigureRecords', figureRecords)
-  let follow = null
-  ctx.inject(['assetLibrary'], scope => {
-    const current = follow = followImageCharacters({ library: scope.get('assetLibrary'), api: pluginApi, active: async () => await figureRecords.mode() === 'pack', log: text => console.warn('dsh-tavern: ' + text) })
-    scope.effect(() => () => { current.dispose(); if (follow === current) follow = null })
-  })
   // A pack leaving this library (export, copy) takes its figures' 配图 外貌 and 参考图 along as dsh.image-character; the
-  // asset library asks here, the follower above moves it back into a record where the pack lands.
+  // asset library asks here, the figure records (image-character-records.js) move it back into a record where the pack lands.
   ctx.provide('tavernFigureImageExtras', { async forFigures({ packId, figureIds }) {
     const extras = {}
     for (const figureId of figureIds) {
@@ -3641,7 +3646,7 @@ export async function apply(ctx) {
     return { bytes: data }
   },
   // an update confirmed with 「用导入的外貌」 for these figures (asset library applyImport adoptLooks), before it is written
-  adopt(input) { follow?.adopt(input); figureRecords.adopt(input) } })
+  adopt(input) { figureRecords.adopt(input) } })
   ctx.provide('tavernStContract', tavernStContract)
   cardRevisionListeners.add((cardPath, revision) => pluginApi.cardChanged(cardPath, revision))
   // Tell plugins the story line changed (informational: their turn data follows text versions
@@ -4637,7 +4642,7 @@ export async function apply(ctx) {
   const rpcDeps = { readCardAssetExtension, frameStorage, worldbookSkillProvider, sessionDebugEvidence, TAVERN_PACKAGE_VERSION, agentCompaction, agentRegistry, appendStoryRounds, paragraphSpeech,
     applicationUpdater, autoChoices, attachPlayChatDebug, backgroundAgentRunner, backgroundCatalog, storyEvents, workflow,
     backgroundConfigForSession, bindScript, bodyEditor, branchOrigin, callModel, candidateGenerator, candidateTasks, polishPrereview, polishRecords, polishReviewer, chatHeaderWithLatestFloors, cardUpdates, messageDeletion,
-    cardMemory, cardOrganization, cardPacksOf, cardPlugins, cardPluginUpdates, cardPluginUploads, cardPreparation, cardSummaries, cardTaskPrompts, castAssets,
+    cardArchiveUploads, cardMemory, cardOrganization, cardPacksOf, cardPlugins, cardPluginUpdates, cardPluginUploads, cardPreparation, cardSummaries, cardTaskPrompts, castAssets,
     castCardOf, castEdit, castStage, castView, chatForSession, chatHeaderForSession,
     chatHistoryImporter, chatPersistence, commands, compactionAbort, compatibilityDiagnostics,
     conversationBackgroundSettings, conversationGuides, ctx, dataRoot, deleteCard, deleteChat, deleteChats,
@@ -4849,7 +4854,12 @@ export async function apply(ctx) {
     castAssets,
     exportCardFile,
     assetPacks,
-    uploads: { receive: req => new URL(req.url, 'http://localhost').searchParams.get('purpose') === 'card-plugin-update' ? cardPluginUploads.receive(req) : uploads.receive(req) },
+    uploads: { receive(req) {
+      const params = new URL(req.url, 'http://localhost').searchParams
+      if (params.get('purpose') === 'card-plugin-update') return cardPluginUploads.receive(req)
+      if (params.get('purpose') === 'card-archive') return cardArchiveUploads.receive(req, params)
+      return uploads.receive(req)
+    } },
     transferExports,
     exposeHandler: handle => { tavernHttpHandle = handle },
     pluginAssets: createPluginAssets({ pluginsDir: userPluginPaths(dataRoot).plugins }),
