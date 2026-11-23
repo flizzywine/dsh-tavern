@@ -190,7 +190,7 @@ export function createMediaActions({
     const data = item.data || {}
     const existing = data.replacement
     if (input.operation === 'retry' && existing) {
-      input = { ...input, generationMode: input.generationMode ?? existing.generationMode, refreshReferences: input.refreshReferences ?? (existing.jobId ? false : existing.refreshReferences),
+      input = { ...input, generationMode: input.generationMode ?? existing.generationMode, sameSeed: input.sameSeed ?? existing.sameSeed, refreshReferences: input.refreshReferences ?? (existing.jobId ? false : existing.refreshReferences),
         prompt: input.prompt ?? existing.prompt, characters: input.characters ?? existing.characters, negative: input.negative ?? existing.negative, channelId: input.channelId ?? existing.channelId }
     }
     // 玩家点了「仍然重画」：接受可能重复扣费，不再被上一次未确认的请求卡住。
@@ -199,7 +199,7 @@ export function createMediaActions({
       if (existing.state === 'uncertain') throw Object.assign(new Error('该图片上一次请求结果未知，请先确认生图平台；为避免重复扣费，暂不自动重试'), { code: 'UNCERTAIN' })
       if (existing.operation && (existing.operation !== input.operation || (existing.prompt || '') !== (input.prompt || '')
         || (existing.negative || '') !== (input.negative || '') || (existing.channelId || '') !== (input.channelId || '')
-        || (existing.generationMode ?? '') !== (input.generationMode ?? '') || Boolean(existing.refreshReferences) !== Boolean(input.refreshReferences))) {
+        || (existing.generationMode ?? '') !== (input.generationMode ?? '') || Boolean(existing.refreshReferences) !== Boolean(input.refreshReferences) || Boolean(existing.sameSeed) !== Boolean(input.sameSeed))) {
         throw Object.assign(new Error('这张图片已有不同的重绘任务正在运行'), { code: 'ACTION_BUSY' })
       }
       const job = await readJob(existing.jobId)
@@ -252,7 +252,7 @@ export function createMediaActions({
       throw Object.assign(new Error('作业号与这张图片当前记录不匹配'), { code: 'JOB_MISMATCH' })
     }
     const key = keyOf(input)
-    const dedupe = JSON.stringify([key, input.operation, sourceJobId, input.prompt || '', input.negative || '', input.characters || [], input.channelId || '', input.generationMode ?? '', input.refreshReferences === true])
+    const dedupe = JSON.stringify([key, input.operation, sourceJobId, input.prompt || '', input.negative || '', input.characters || [], input.channelId || '', input.generationMode ?? '', input.refreshReferences === true, input.sameSeed === true])
     let task = tasks.get(key)
     if (task) {
       if (task.dedupe !== dedupe) throw Object.assign(new Error('这张图片已有不同的重绘任务正在运行'), { code: 'ACTION_BUSY' })
@@ -273,19 +273,19 @@ export function createMediaActions({
             sourceJobId: input.operation === 'retry' && existing?.jobId ? existing.jobId : sourceJobId,
             prompt: input.prompt, characters: input.characters, negative: input.negative, channelId: input.channelId,
             sessionId: input.gameId, turn: Number(input.turn), textVersion: input.textVersion, acceptUncertain: accepted,
-            generationMode: input.generationMode, refreshReferences: input.refreshReferences === true,
+            generationMode: input.generationMode, refreshReferences: input.refreshReferences === true, sameSeed: input.sameSeed === true,
           })),
           new Promise((_resolve, reject) => { startTimer = setTimeout(() => reject(Object.assign(new Error('提交作业超时；请到生图平台确认，不能安全地自动重发'), { uncertain: true })), 60000) }),
         ])
       } catch (error) {
       if (error?.submissionNotStarted === true) {
-          try { await tavern.update(item.id, { data: { ...data, replacement: { jobId: '', state: 'failed', submissionNotStarted: true, error: safeError(error), prompt: input.prompt || '', characters: input.characters || [], negative: input.negative || '', channelId: input.channelId || '', generationMode: input.generationMode, refreshReferences: input.refreshReferences === true } } }) } catch {}
+          try { await tavern.update(item.id, { data: { ...data, replacement: { jobId: '', state: 'failed', submissionNotStarted: true, error: safeError(error), prompt: input.prompt || '', characters: input.characters || [], negative: input.negative || '', channelId: input.channelId || '', generationMode: input.generationMode, refreshReferences: input.refreshReferences === true, sameSeed: input.sameSeed === true } } }) } catch {}
           error.code ||= 'REJECTED'
           throw error
         }
         const unknownId = 'unknown-' + Date.now().toString(36)
         taskBase.jobId = unknownId
-        try { await tavern.update(item.id, { data: { ...data, replacement: { jobId: unknownId, state: 'uncertain', error: safeError(error), prompt: input.prompt || '', characters: input.characters || [], negative: input.negative || '', channelId: input.channelId || '', generationMode: input.generationMode, refreshReferences: input.refreshReferences === true } } }) } catch {}
+        try { await tavern.update(item.id, { data: { ...data, replacement: { jobId: unknownId, state: 'uncertain', error: safeError(error), prompt: input.prompt || '', characters: input.characters || [], negative: input.negative || '', channelId: input.channelId || '', generationMode: input.generationMode, refreshReferences: input.refreshReferences === true, sameSeed: input.sameSeed === true } } }) } catch {}
         throw Object.assign(new Error(safeError(error)), { code: 'UNCERTAIN' })
       } finally { clearTimeout(startTimer) }
       const jobId = String(started?.jobId || started?.id || '')
@@ -301,7 +301,7 @@ export function createMediaActions({
         throw Object.assign(new Error('图片记录已变化，拒绝发布旧请求结果'), { code: 'STALE_MEDIA' })
       }
       taskBase.jobId = jobId
-      await tavern.update(item.id, { data: { ...data, replacement: { jobId, state: 'pending', operation: input.operation, sourceJobId, prompt: input.prompt || '', characters: input.characters || [], negative: input.negative || '', channelId: input.channelId || '', generationMode: input.generationMode, refreshReferences: input.refreshReferences === true, startedAt: Date.now() } } })
+      await tavern.update(item.id, { data: { ...data, replacement: { jobId, state: 'pending', operation: input.operation, sourceJobId, prompt: input.prompt || '', characters: input.characters || [], negative: input.negative || '', channelId: input.channelId || '', generationMode: input.generationMode, refreshReferences: input.refreshReferences === true, sameSeed: input.sameSeed === true, startedAt: Date.now() } } })
       return jobId
     })()
     let jobId
