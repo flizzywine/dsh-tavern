@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "5b12efccfe0c8a2ca92ee7959a67c3692a07ac7d",
-  "releaseSequence": 1990,
+  "revision": "eaacd543542a2338b16c4c77078039ed0a5525ab",
+  "releaseSequence": 1991,
   "version": "3.4.0",
   "files": [
     {
@@ -961,8 +961,8 @@
     },
     {
       "path": "presets/tavern/skills/stage-mods/references/mod-config.md",
-      "sha256": "c5411486d848583610755a6780b23fcb0c26ec0d0b2541aad18dea4e7cbc526e",
-      "size": 2403
+      "sha256": "05ce3a11036118cea49d0f6a5fcb222dcf6c82305990edca103784dc69dfa7fe",
+      "size": 2262
     },
     {
       "path": "presets/tavern/skills/stage-mods/references/phone.md",
@@ -1246,8 +1246,8 @@
     },
     {
       "path": "tavern-plugin/lib/client.js",
-      "sha256": "48c4cdd20d866e072d79079b614a7f7cd403d946a1e1105c9e682afa4be4493e",
-      "size": 6488459
+      "sha256": "1ca2dde3a8d8b410a5e086bfa29d0cf21a7ca03259783fad1874f245b263e5a3",
+      "size": 6486961
     },
     {
       "path": "tavern-plugin/lib/cordis-inspect.js",
@@ -2706,8 +2706,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/mods/state-source.js",
-      "sha256": "99e3aab52658afadc5e484d15717e41eb5286e721c394c0aaf6e30bc818e5140",
-      "size": 3794
+      "sha256": "6d52241df8ae81e661a39f2bea60d323de2cbafc9076960a2bfb9ef61ab2f2fb",
+      "size": 3426
     },
     {
       "path": "tavern-plugin/lib/domain/mvu-background-settlement.js",
@@ -6026,8 +6026,8 @@
     },
     {
       "path": "tavern-plugin/mods/phone/client/settings.js",
-      "sha256": "9526ab3d1e880b531785182c1f6d48781d5bdd111c76d1a866d2b6bd0a0c1222",
-      "size": 13079
+      "sha256": "0a27634132bb2d03909f79fc2172e1977b23acf2551009bf672994f7a3b197d9",
+      "size": 13025
     },
     {
       "path": "tavern-plugin/mods/phone/client/stage.cjs",
@@ -8976,8 +8976,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/mod-config-host.js",
-      "sha256": "e6f6cfbd5ce813c50ef80131b1ea938e08911e07bcf6a28e9cf3a87ffe1057f9",
-      "size": 12533
+      "sha256": "6ad689c948e06399dac2c27a1b630b2d97f381e6cea3b7bd31a03dc6c3e92e3d",
+      "size": 12226
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/mod-config.js",
@@ -9001,8 +9001,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/mod-system-execution.js",
-      "sha256": "71c63530ea8738769bed7027a7bb4e95e0e08822d66667ff3112d8daffd53ee9",
-      "size": 13450
+      "sha256": "5ac515a11a39f767311351fd2c9b8147b08e01880ecc154779fd6f1ce6bb24bd",
+      "size": 12832
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/mod-system-production.js",
@@ -9011,8 +9011,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/module.js",
-      "sha256": "8181be4e406a1d43ca6f313c347217c1b4397ceb5be2288e2fefc37d145b6c52",
-      "size": 40623
+      "sha256": "452a409f86a37ae47fd03c0c8e7010d91d533ca92d799ee3b333a7dafcdc0c05",
+      "size": 40576
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/reading-voice-migration.js",
@@ -10136,9 +10136,9 @@
     }
   ],
   "archive": {
-    "commit": "14f751bec30adcf4a1a36f002c5226c6559e7ddf",
+    "commit": "951476a41269b9f5c27fe4df5f4046db03867896",
     "path": "runtime.zip",
-    "sha256": "462f911add8b3b74afec923455ebc5aefe822e5968f12028d43303a57865595f",
-    "size": 17814235
+    "sha256": "9c9e314cdc589bbab7a18750c825028fa8091470527d31de22e7b83af63edc5b",
+    "size": 17813345
   }
 }
