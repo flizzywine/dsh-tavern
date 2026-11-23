@@ -493,6 +493,7 @@
             const blocksText = String(r.job.promptText || '')
             openPromptEditor({
               forJobId: String(jobId), forRequestId: requestId, loading: false,
+              canCompareOriginal: r.job.canCompareOriginal === true,
               prompt: blocksText || sceneText,
               negative: String(r.job.negative || ''),
               note: blocksText ? '场景与角色块一起显示；改完重画会按角色分区重新发送' : '',
@@ -906,7 +907,7 @@ function versionsOf(jobId) {
           btn('🤖 让后台改', improve),
           btn('👁 看展开结果', () => openPromptEditor({ showInputs: true })),
           btn(view.busy === 'redraw' ? '🎨 提交中…' : '🎨 用这段重画', () => redraw(false), true),
-          view.generationMode !== 'reference' ? btn('按原参数对照', () => redraw(true)) : null,
+          view.canCompareOriginal && !view.loading && !view.channelId && view.generationMode === 'text' ? btn('按原参数对照', () => redraw(true)) : null,
           view.note ? React.createElement('span', { style: { fontSize: '12px', color: '#9aa3b2' } }, view.note) : null,
         ),
         React.createElement('div', { style: { fontSize: '11px', color: '#6b7480', marginTop: '14px' } }, '提示：改完提示词点「用这段重画」，会在同一条消息里换成新图。'),
