@@ -129,7 +129,8 @@ function galOpen(sessionId, target) {
     galEntry = target && Number.isInteger(target.turn) ? { sessionId, turn: target.turn, para: Math.max(1, Number(target.para) || 1), token: Date.now() } : null;
     // target.page: this entry opens that card page in place of the one stageEnterPage picks ('' : none; a new game's
     // opening page, or the first act right after it)
-    galEntryPage = target && typeof target.page === 'string' ? { sessionId, page: target.page, visit: galVisit } : null;
+    galEntryPage = target && typeof target.page === 'string'
+        ? {sessionId, page:target.page, visit:galVisit, ...(target.reader ? {reader:target.reader} : {})} : null;
     galActive.set(sessionId);
     // Called from the click itself, so the browser grants full screen.
     const root = document.documentElement;
@@ -894,7 +895,7 @@ function own(cleanup) {
 // paragraph (copying prose never picks up a label); the tooltip and the accessible name carry the words.
 function StageEnterHere(props) {
     return React.createElement('button', { type: 'button', className: 'fork-stage-enter-here', 'aria-label': '从这里进入舞台', title: '从这里进入舞台',
-        onClick: event => { event.preventDefault(); event.stopPropagation(); galEnter(props.sessionId, { turn: props.turn, para: props.para }); } });
+        onClick: event => { event.preventDefault(); event.stopPropagation(); galEnter(props.sessionId, props.target || { turn: props.turn, para: props.para }); } });
 }
 // The entry sits at the end of the bubble's last line: the row renders it (props.enter) inside its text block.
 // no portal; each portal container installed React's full delegated listener set.
@@ -902,7 +903,7 @@ function StageParagraph(props) {
     const timer = React.useRef(null), root = React.useRef(null);
     const [pressed, setPressed] = React.useState(false);
     React.useLayoutEffect(function () {
-        if (!root.current) return;
+        if (!root.current || !Number.isInteger(props.turn)) return;
         root.current.querySelectorAll('p, .fork-bubble').forEach(node => {
             node.setAttribute('data-fork-stage-turn', props.turn); node.setAttribute('data-fork-stage-para', props.para);
         });
@@ -15104,7 +15105,10 @@ function GalStage(props) {
             if (reading.skipTitlePage === true && cardPages.pages.some(page => page.showOn && !page.initial)) jumpLatest();
             return;
         }
-        setHidden(false); setOpenPage(id); setEntryCardPage(id); entrance.end();
+        setHidden(false);
+        if (named && asked.reader) openStageReader(asked.reader, id);
+        else { setOpenPage(id); setEntryCardPage(id); }
+        entrance.end();
     // a layout effect: the page is open in the same paint its declarations arrive in, never a frame of the stage before it
     }, [cardPages, stageVisit, sessionId, reading.skipTitlePage]);
     const narrow = useGalNarrow(); // the one stage breakpoint, 640px
@@ -15863,7 +15867,8 @@ function GalStage(props) {
         onContextMenu: event => { event.preventDefault(); if(galleryOpen||pageOpen)return; if (hidden) setHidden(false); else setHidden(true); } },
         h(GalScene, { start:loadGate.visible, onPresented:revision => { loadGate.onPresented(revision); if (entryGate.visible) onPresented(revision); else if (entrance.active) heldPresented.current = revision; }, onBackdrop:loadGate.onBackdrop, scene: displayScene, onDebug: onSceneDebug, onUi, onError: setSceneError, reload: sceneReload, onLayout: setFigureLayout }),
         readerPanel ? h('div', {className:'fork-gal-reader-scene', style:{position:'absolute',inset:0,zIndex:1}}, h(stageViews.statusPanel.PluginPanel, {
-            key:sessionId + ':' + readerPanel.pageId, sessionId, plugin:readerPanel.plugin, id:readerPanel.id, stagePageId:readerPanel.pageId,
+            key:JSON.stringify([sessionId, readerPanel.pageId, readerPanel.anchor]), sessionId, plugin:readerPanel.plugin, id:readerPanel.id,
+            stagePageId:readerPanel.pageId, entryAnchor:readerPanel.anchor,
             reader:{publish:setReaderState, paused:backlog || configOpen || galleryOpen || pageOpen || menuOpen, silent:skipping,
                 key:(key, released, shiftKey) => window.dispatchEvent(new window.KeyboardEvent(released ? 'keyup' : 'keydown', {key, shiftKey, cancelable:true}))},
         })) : null,

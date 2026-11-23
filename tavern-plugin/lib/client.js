@@ -29137,6 +29137,7 @@ function tavernModelRefusalNotice(text) {
 		    const config = useBubbles(sessionId, true, select)?.config;
 		    const held = React.useSyncExternalStore(voiceChannel.subscribe, voiceChannel.held);
 		    const activeStage = React.useSyncExternalStore(galActive.subscribe, galActive.get);
+		    const stageAvailable = React.useSyncExternalStore(galStageAvailable.subscribe, galStageAvailable.get);
 		    const canReplay = !held && activeStage !== sessionId && config?.voice?.enabled !== false;
 		    React.useSyncExternalStore(voicePlayer.subscribe, () => {
 		        const playing = voicePlayer.get();
@@ -29148,7 +29149,10 @@ function tavernModelRefusalNotice(text) {
 		        if (segment.kind !== 'bubble') return h('p', {key:id, className:'dsh-tavern-colored-markdown'}, text);
 		        const voice = recording && canReplay ? {id, owner, sessionId, recorded:true, player:voicePlayer.get(),
 		            click() { forkLipSync.wake(); void voicePlayer.playRecording(recording, {id, owner, cacheKey:JSON.stringify([owner, id, recording])}); }} : null;
-		        return h(BubbleRow, {key:id, sessionId, segment, config, voice});
+		        const enter = stageAvailable && segment.stageTarget
+		            ? h(StageEnterHere, {sessionId, target:segment.stageTarget}) : null;
+		        const row = h(BubbleRow, {key:id, sessionId, segment, config, voice, enter});
+		        return enter ? h(StageParagraph, {key:id}, row) : row;
 		    }));
 		}
 
@@ -39561,9 +39565,14 @@ function tavernFloorHeightRecall(key, width) {
 		}
 		function TavernTurnPluginView(props) {
 			const {view, input} = props;
-			const renderBubbles = lines => {
-				const rows = lines.map(({id, alias, name, mood, text, recording}) => ({id, alias, name, mood, text,
-					recording: recording ? tavernPluginAssetUrl(view.owner, recording) : null}));
+			const renderBubbles = (lines, {stageReader} = {}) => {
+				const pageId = stageReader?.pageId, panelId = stageReader?.panelId;
+				const reader = typeof pageId === 'string' && pageId && typeof panelId === 'string'
+					&& tavernUiExtensions.stagePanel(input.gameId, view.owner, panelId)?.stageReader;
+				const rows = lines.map(({id, alias, name, mood, text, recording, stageAnchor}) => ({id, alias, name, mood, text,
+					recording: recording ? tavernPluginAssetUrl(view.owner, recording) : null,
+					stageTarget: reader && typeof stageAnchor === 'string' && stageAnchor.length > 0 && stageAnchor.length <= 128
+						? {page:pageId, reader:{plugin:view.owner, id:panelId, anchor:stageAnchor}} : null}));
 				return rows.length ? React.createElement(TavernPluginDialogueBubbles, {sessionId:input.gameId,
 					owner:JSON.stringify([input.gameId, input.turn, view.key]), lines:rows}) : null;
 			};
@@ -39620,14 +39629,14 @@ function tavernFloorHeightRecall(key, width) {
 			return React.useSyncExternalStore(tavernUiExtensions.subscribe, tavernUiExtensions.getSnapshot, tavernUiExtensions.getSnapshot);
 		}
 
-		function TavernStagePluginPanel({ sessionId, plugin, id, stagePageId, reader }) {
+		function TavernStagePluginPanel({ sessionId, plugin, id, stagePageId, reader, entryAnchor }) {
 			useTavernUiExtensions();
 			useTavernCardPluginScopes();
 			const panel = tavernUiExtensions.stagePanel(sessionId, plugin, id), h = React.createElement;
 			if (!panel) return h("p", { role: "status" }, "这局游戏的插件面板已不可用。");
 			return h(tavernPluginBoundary(), {
 				owner: panel.owner, fallback: h("p", { role: "alert" }, "插件面板加载失败。")
-			}, h(panel.render, { gameId: sessionId, visible: true, stagePageId, ...(panel.stageReader && reader ? {reader} : {}) }));
+			}, h(panel.render, { gameId: sessionId, visible: true, stagePageId, ...(panel.stageReader && reader ? {reader, entryAnchor} : {}) }));
 		}
 		async function findTavernStagePluginPanel(sessionId, plugin, id) {
 			await tavernCardPluginScopes.load();
