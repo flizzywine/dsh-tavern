@@ -542,7 +542,9 @@ export function createAssetGeneration({store, imageProvider = () => null, getLib
     // 自动选角's cheap checks of one picture (decode, size, transparency, edge contact): the same as a drawn candidate's.
     autoCheck: (data, kind) => pictureChecks(data, kind),
     // The image plugin's style presets for the 画风 menu (id, name, stable/experimental, the uses with their own text).
-    styles: ({genStyle} = {}) => ({current:packGenStyle(genStyle), styles:imageProvider()?.presets?.() ?? []}),
+    // The 画风 menu lists the image plugin's presets that add a painting style (its addsStyle): not 'no-style' (the menu's
+    // 清除画风 is that) nor the structured scene templates.
+    styles: ({genStyle} = {}) => ({current:packGenStyle(genStyle), styles:(imageProvider()?.presets?.() ?? []).filter(s => s.addsStyle)}),
     get: ({jobId}) => serial(() => publicJob(find(jobId))),
     list: ({packId}) => serial(() => { validateUuid(packId); return Object.values(jobs).filter(j => j.target.packId === packId).map(publicJob) }),
     read: ({jobId,emotionId,forImport = false}) => serial(async () => {
