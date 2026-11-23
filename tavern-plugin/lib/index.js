@@ -1007,7 +1007,7 @@ export async function apply(ctx) {
   const hostLibrary = modLibrary
   const workbenchAuthority = Object.freeze({})
   const assetEngineSettings = createAssetEngineSettings(ctx)
-  const stageRuntime = await createOptionalStage({ctx, cardStorage, measure:(name,run)=>requestPerformance.stage(name,run), modelSlots, presentationObservers, resolveSlot, readCardWorkspace, coordinationEvents, sessionSignals,
+  const stageRuntime = await createOptionalStage({ctx, cardStorage, measure:(name,run)=>requestPerformance.stage(name,run), modelSlots, presentationObservers, resolveSlot, readCardWorkspace:readSharedCardWorkspace, coordinationEvents, sessionSignals,
     assetEngineSettings, ensureStage:() => stageSwitch.ensure(),
     // The mods' stage contributions (their host extensions) and the stage reads a mod's stage service scopes its chat with.
     modStageContributions, stageReads:Object.freeze({readCarries:stageReadCarries, readScope:stageReadScope, markRead:markStageRead})}, {enabled:false,onStatus:status=>sessionSignals.publish('plugin:dsh-tavern-stage',{kind:'plugin-lifecycle',version:status+':'+Date.now()+':'+Math.random()})})
@@ -1100,6 +1100,16 @@ export async function apply(ctx) {
       return cardPreparation.migrate({ working, payload })
     })
   }
+  // Readers that only look at a card share the card storage's frozen copy of its current file version (a hit costs a
+  // stat, not a read and parse of the whole card); a card not yet in the workspace shape is migrated first.
+  async function readSharedCardWorkspace(cardPath) {
+    if (str(cardPath) === '') return undefined
+    const normalized = normalizeResourcePath(cardPath, 'card')
+    const shared = await cardStorage.readWorkspace(normalized)
+    if (shared === undefined || cardPreparation.isWorkspace(shared)) return shared
+    await readCardWorkspace(normalized)
+    return cardStorage.readWorkspace(normalized)
+  }
   let assetCardsActive = true
   ctx.effect(() => () => { assetCardsActive = false })
   const {cardZipTargets} = stageRuntime.cards({
@@ -1142,7 +1152,7 @@ export async function apply(ctx) {
     return card
   }
   async function readCardExtensionSources(cardPath, chat) {
-    const workspace = chat?.cardDefinitionSnapshot || await readCardWorkspace(cardPath)
+    const workspace = chat?.cardDefinitionSnapshot || await readSharedCardWorkspace(cardPath)
     if (workspace === undefined) return undefined
     const extensions = cardPreparation.present({ card: workspace, as: 'card-extensions' })
     // A workspace holds the card under raw; a game's definition snapshot is the card itself.
