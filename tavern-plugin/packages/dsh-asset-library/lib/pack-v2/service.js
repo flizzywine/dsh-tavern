@@ -564,9 +564,10 @@ export function createAssetPackService(options) {
     const authenticated = {manifest:{...manifest}, files:new Map(files)}
     const normalized = normalizePackImport(manifest,files)
     manifest = normalized.manifest
-    const audioChanged = await authorAudioLoudness(manifest, files, {measure:options.measureAudio})
+    // Loudness is measured where a pack is authored (an edit here, an offline seal) and travels in the pack: an import
+    // only reads it, so it never needs ffmpeg. Audio without a measurement plays unnormalized, never boosted.
     const hashed=new Map(),resolution=await applyResolutionWrites({manifest,files,hashed,read:name => spooledBytes(files.get(name))})
-    if (normalized.changed||audioChanged||resolution.changes.length) await sealPack(manifest,files,authenticated,hashed)
+    if (normalized.changed||resolution.changes.length) await sealPack(manifest,files,authenticated,hashed)
     return verify(manifest, files, undefined, true)
   }
   // A widget default that names a background of a pack the export does not carry only keeps its reference.
