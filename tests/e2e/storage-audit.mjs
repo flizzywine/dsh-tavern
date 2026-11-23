@@ -68,7 +68,7 @@ export async function storageAuditChecks({ page, step, savedChat, data, root, ou
   const lastReceipt = async () => replies(await savedChat()).at(-1)?.mvu?.receipt?.diagnosticId
   async function send(round) {
     await nextModel(round * 10)
-    const composer = page.getByRole('textbox', { name: /发消息|Message/ })
+    const composer = page.getByRole('textbox', { name: /下一步行动|Next action|发消息|Message/ })
     await composer.fill('第' + round + '轮：继续领取任务奖励')
     await composer.press('Enter')
     await settled(round)

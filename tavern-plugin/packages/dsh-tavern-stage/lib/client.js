@@ -8103,27 +8103,40 @@ function galCreateScene(host, options, own) {
     const GAL_NO_FIGURES = [];
     // the viewport layout of the directed cast (galFigureLayout), recomputed only
     // when the stage size, text box, ruler, cast or priority change. The fit eases like the face rest (700 ms).
-    let castMeasure=null;
+    // widthSeen: each present figure's widest measured picture so far, so the cast does not shift whenever one of them
+    // changes expression or pose; forgotten when the figure leaves.
+    let castMeasure=null;const widthSeen=new Map();
     function figureLayout(desc,W,H,now) {
         // Missing lower-body artwork contributes to the shared viewport fit; each figure's height and ground stand the ruler
         // on the drawn cast. Measured when the descriptors or the loads change, not per frame.
         if(!castMeasure||castMeasure.figures!==desc.figures||castMeasure.loads!==state.figureLoads)castMeasure=measureCast(desc);
-        const {crops,sizes}=castMeasure;
+        const {crops,sizes,widths}=castMeasure;
         const result=sceneLayout.update({plan:desc.figureLayout,figures:desc.figures,W,H,now,
-            top:faceEnvironment(desc,W,H).layoutTop,ruler:state.figureScale,loaded:state.figureLoads,crops,sizes,instant:desc.snap||desc.skipping});
+            top:faceEnvironment(desc,W,H).layoutTop,ruler:state.figureScale,loaded:state.figureLoads,crops,sizes,widths,instant:desc.snap||desc.skipping});
         if(result.report&&options.onLayout){state.layoutReport=result.report;reportLayout();}
         return result.layout;
     }
     function measureCast(desc) {
-        const crops={},sizes={};
+        const crops={},sizes={},widths={};
         for(const figure of desc.figures||[]){
             const entry=figure&&state.figures.get(figure.key);
             const input=(entry?.model?entry.figureSizing:entry?.sprite?.figureInput)||figure?.figureSizing,anatomy=input?.anatomy||figure?.figureSizing?.anatomy;
             if(anatomy&&anatomy.feet>anatomy.visibleBottom)crops[figure.alias]=(anatomy.feet-anatomy.visibleBottom)/(anatomy.feet-(anatomy.headTop??anatomy.figureTop));
             const size=input&&resolveFigureSizing({...input,canvas:input.metrics?.canvas,W:1,H:1});
             if(size?.mode==='physical')sizes[figure.alias]={cm:size.heightCm,ground:size.restHead?(size.support.y-size.restHead.top)/size.displayPx:1};
+            // How far the picture's ink reaches either side of where it stands, and its face's half width, per displayed
+            // body: the layout keeps every face clear of its neighbours' pictures (galFigureLayout widths).
+            const ink=!entry?.model&&entry?.sprite?.forkInkX;
+            const seen=widthSeen.get(figure.alias);
+            if(size?.mode==='physical'&&ink&&size.restHead&&size.displayPx>0){
+                const per=size.scale/size.displayPx,now={left:(size.supportX-ink[0])*per,right:(ink[1]-size.supportX)*per,face:size.restHead.width/2/size.displayPx};
+                widthSeen.set(figure.alias,seen?{left:Math.max(seen.left,now.left),right:Math.max(seen.right,now.right),face:Math.max(seen.face,now.face)}:now);
+            }
+            if(widthSeen.has(figure.alias))widths[figure.alias]=widthSeen.get(figure.alias);
         }
-        return {figures:desc.figures,loads:state.figureLoads,crops,sizes};
+        const present=new Set((desc.figures||[]).map(figure=>figure?.alias));
+        for(const alias of widthSeen.keys())if(!present.has(alias))widthSeen.delete(alias);
+        return {figures:desc.figures,loads:state.figureLoads,crops,sizes,widths};
     }
     // One report for the stage: the layout plus where the camera settles (its goal, sampled when the shot or the stage size
     // changes, never per frame), so the speaker anchor can place a figure under a close-up: screen x = (x - fx) * zoom + ax.
@@ -9474,7 +9487,7 @@ function galCallView(video, inputs, { skipping = false, sessionId } = {}) {
         const input = figure ? inputs(figure, { audio, speaking: Boolean(audio), skipping, voiceKey: "facetime:" + role, sessionId }).stage : null;
         return input ? { ...input, key: "call:" + role, alias: figure.alias, offstage: true, x: 0.5, visible: true, enter: "none", exit: "none", shade: 1, speaking: Boolean(audio),
             figureSizing: { pack: true, heightCm: figure.heightCm, version: 1, source: figure.geometry?.stage, sourceUrl: input.src, heightBasis: figure.heightBasis, outfitKey: figure.outfitKey,
-                anatomy: figure.anatomy, head: figure.head, assetScale: figure.anatomy?.assetScale ?? 1, elevationCm: figure.elevationCm } } : null;
+                anatomy: figure.anatomy, head: figure.head, face: figure.face, assetScale: figure.anatomy?.assetScale ?? 1, elevationCm: figure.elevationCm } } : null;
     };
     return { frame: video.layout.frame, backdrop: video.layout.backdrop, glass: video.layout.glass || null, frozen: video.frozen === true,
         views: video.layout.views.map(view => ({ ...view, figure: view.role === "remote" ? party("remote", video.remote, video.audio) : party("self", video.self, null) })) };
@@ -9700,10 +9713,47 @@ function galSlotGap(count) {
 function galSlots(count, skinSlots) {
     return skinSlots?.[count] || Array.from({ length: count }, (_, i) => (i + galSlotEdge(count)) * galSlotGap(count));
 }
+// Where figures of different widths stand: spaced by their measured widths rather than shrunk together.
+// extents: [{left, right, reach, face}] px at fit 1 in stage order (the ink either side of the stand point, the farther of
+// the two, half the face's width); edge: galSlotEdge. Between neighbours a and b the stand points are at least
+// max(a.reach + b.face, b.reach + a.face) apart - no picture over a face beside it, whichever way either figure turns - and
+// would like to be a.right + b.left + gap: the pictures as drawn clear by an equal gap. Each screen edge counts as a mirror:
+// edge x the pair a figure would make with its own reflection - at least edge (reach + face) and never closer than a face
+// width from the face's centre (half a face of margin), ideally edge (2 x its outer side + gap), so the outer faces keep a
+// margin and, with room, the outer pictures half a gap (2-3 figures). One gap for the
+// whole row, as large as the width allows; a pair at its least distance stays there and the rest share what is left.
+// A turned figure (gaze) keeps its place: the faces stay clear, only the pictures' gap differs.
+// Equal extents land exactly on the default slots (galSlots); a broad figure takes the room its picture needs.
+// -> { least: px the row needs at fit 1, at(fit, W): stand points 0..1 at that fit on a W px stage }
+function galSpacing(extents, edge) {
+    const n = extents.length, pairs = [];
+    for (let i = 1; i < n; i++) {
+        const a = extents[i - 1], b = extents[i];
+        pairs.push({ least: Math.max(a.reach + b.face, b.reach + a.face), clear: a.right + b.left });
+    }
+    const sides = [[extents[0], extents[0].left], [extents[n - 1], extents[n - 1].right]]
+        .map(([e, outer]) => ({ least: Math.max(edge * (e.reach + e.face), 2 * e.face), clear: edge * 2 * outer, share: edge }));
+    const parts = pairs.map(p => ({ ...p, share: 1 })).concat(sides);
+    const least = parts.reduce((sum, p) => sum + p.least, 0);
+    const at = (fit, W) => {
+        const span = g => parts.map(p => Math.max(p.least * fit, p.clear * fit + p.share * g));
+        const total = g => span(g).reduce((sum, v) => sum + v, 0);
+        // total(g) never falls as the gap grows: halve the bracket down to the gap that fills the width.
+        let lo = -Math.max(...parts.map(p => p.clear / p.share)) * fit, hi = W;
+        for (let i = 0; i < 60; i++) { const mid = (lo + hi) / 2; if (total(mid) < W) lo = mid; else hi = mid; }
+        const lengths = span(hi), sum = lengths.reduce((s, v) => s + v, 0), x = [];
+        // lengths: the n - 1 neighbour distances, then the left and the right edge.
+        for (let i = 0, at = lengths[n - 1]; i < n; at += lengths[i++]) x.push(at / sum);
+        return x;
+    };
+    return { least, at };
+}
 // { W, H, boxTop, hMax, groundRatio, cast: ids in stage order, priority: ids, most important first,
 //   crops: { id: share of the head-to-feet span missing below the picture }, slots: the skin's figureSlots,
 //   max: the skin's maxFigures, phone: its phoneFigures (portrait cap, omitted = 1), framing: the skin's figures {scale, top},
-//   sizes: { id: { cm, ground } } of the cast's calibrated figures (ground: their groundRatio) }
+//   sizes: { id: { cm, ground } } of the cast's calibrated figures (ground: their groundRatio),
+//   widths: { id: { left, right, face } } of the measured pictures: how far the ink reaches either side of the stand point and the
+//   face's half width, per displayed body }
 // -> { count, fit, drop, top (head line px), framed, head (shown head span px), x: { id: 0..1 }, visible: ids in stage order }
 // One framing for the whole cast; face visibility is handled by the renderer's existing lift, not a per-figure zoom.
 // The skin's maxFigures  and the viewport are one cap - the smaller wins - and
@@ -9730,26 +9780,52 @@ function galFigureLayout(input) {
     const floor = Math.min(1, c.minHeadPx / (head * zoom)), portrait = H > W, gapOf = n => { const slots = galSlots(n, input.slots); return Math.min(galSlotGap(n), ...slots.slice(1).map((x, i) => x - slots[i])); };
     // A lone figure (and, in portrait, everyone) still fits the stage's width (its nominal body, bodyHeads heads wide).
     const lone = zoom > 1 ? Math.min(1, W / (head * zoom * c.bodyHeads)) : 1;
+    const ranked = [];
+    for (const id of (input.priority || []).concat(cast)) if (cast.includes(id) && !ranked.includes(id)) ranked.push(id);
+    const drawnOf = n => { const shown = new Set(ranked.slice(0, Math.min(n, input.max || Infinity))); return cast.filter(id => shown.has(id)); };
+    // Every face stays clear of its neighbours' pictures: a figure whose ink reaches far across (widths: reach and face half
+    // width per displayed body, measured on the picture) - plate armour, a hammer on the shoulder - must not stand over the
+    // face beside it (三角机构 雷蒙德 over 罗蕾莱). The same shared fit as the nominal bound; figures without a width keep only that.
+    const body = id => input.sizes?.[id] && figureDisplayCm(input.sizes[id].cm, hMax, framing?.spread ?? 1) * figurePixelsPerCm(H, hMax) * zoom;
+    // Each figure's extent in px at fit 1: reach (its ink's farthest side from the stand point) and face (half the face's
+    // width). Measured pictures bring their own; the others are the nominal body (bodyHeads head spans of the ruler's head,
+    // its face such that two nominal bodies overlap by maxOverlap with the faces just clear: the former bound, unchanged).
+    const half = head * zoom * c.bodyHeads / 2, nominal = { left: half, right: half, reach: half, face: head * zoom * c.bodyHeads * (0.5 - c.maxOverlap) };
+    const extent = id => {
+        const w = input.widths?.[id], px = body(id);
+        return w && px ? { left: w.left * px, right: w.right * px, reach: Math.max(w.left, w.right) * px, face: w.face * px } : nominal;
+    };
+    // A skin's figureSlots stay where its original stood them: the cast only shrinks there, as far as the default gap's
+    // nominal bound and every face clear of its neighbours' pictures need.
+    const skinFit = ids => {
+        const slots = input.slots[ids.length];
+        let need = Math.min(1, W * gapOf(ids.length) / (head * zoom * c.bodyHeads * (1 - c.maxOverlap)));
+        for (let i = 1; i < ids.length; i++) {
+            if (!input.widths?.[ids[i - 1]] || !input.widths?.[ids[i]]) continue;
+            const a = extent(ids[i - 1]), b = extent(ids[i]), span = Math.max(a.reach + b.face, b.reach + a.face);
+            if (span > 0) need = Math.min(need, W * (slots[i] - slots[i - 1]) / span);
+        }
+        return need;
+    };
     let count = Math.min(cast.length, input.max || Infinity), fit = 1;
     if (portrait) {
         count = Math.min(count, input.phone || 1);
         fit = lone;
     } else {
         for (; count > 1; count--) {
-            // A skin's slots never fit more or larger figures than the default gap; closer ones shrink more.
-            fit = Math.min(1, W * gapOf(count) / (head * zoom * c.bodyHeads * (1 - c.maxOverlap)));
+            const ids = drawnOf(count);
+            fit = input.slots?.[count] ? skinFit(ids) : Math.min(1, W / galSpacing(ids.map(extent), galSlotEdge(count)).least);
             if (fit >= floor) break;
         }
         if (count <= 1) fit = lone;
     }
-    const ranked = [];
-    for (const id of (input.priority || []).concat(cast)) if (cast.includes(id) && !ranked.includes(id)) ranked.push(id);
-    const shown = new Set(ranked.slice(0, Math.min(count, input.max || Infinity))), visible = cast.filter(id => shown.has(id)), x = {};
+    const visible = drawnOf(count), x = {};
     const ground = figureGroundY(H, ruler ? 1 : input.groundRatio), framedGround = top + (ground - headLine) * zoom, fitGround = top + (ground - headLine) * zoom * fit;
     // Over the whole cast, so a speaker swap never moves the figures that stay.
     const crop = Math.max(0, ...cast.map(id => input.crops && input.crops[id] || 0));
     const drop = Math.min(framedGround - fitGround, Math.max(0, input.boxTop + H * c.feetBelow + crop * (fitGround - top) - fitGround));
-    const slots = galSlots(visible.length, input.slots);
+    const slots = portrait || visible.length < 2 || input.slots?.[visible.length] ? galSlots(visible.length, input.slots)
+        : galSpacing(visible.map(extent), galSlotEdge(visible.length)).at(fit, W);
     visible.forEach((id, i) => { x[id] = slots[i]; });
     // A figure the cap leaves out does not stand on the ruler: a tall one nobody sees would sink the cast that is drawn (head line,
     // size, ground). The ruler is the tallest drawn figure's; with the cast it is the scene's again.
@@ -9757,7 +9833,8 @@ function galFigureLayout(input) {
         const drawn = visible.map(id => input.sizes[id]).filter(Boolean), tallest = Math.max(0, ...drawn.map(s => s.cm));
         if (tallest > 0 && tallest < hMax) {
             const groundRatio = Math.max(0, ...drawn.filter(s => s.cm === tallest).map(s => s.ground)) || 1;
-            return { ...galFigureLayout({ ...input, cast: visible, hMax: tallest, groundRatio, sizes: null }), drawn: { hMax: tallest, groundRatio } };
+            const inner = galFigureLayout({ ...input, cast: visible, hMax: tallest, groundRatio, sizes: Object.fromEntries(visible.filter(id => input.sizes[id]).map(id => [id, input.sizes[id]])) });
+            return { ...inner, drawn: inner.drawn ?? { hMax: tallest, groundRatio } };
         }
     }
     const framed = framing?.scale != null || framing?.top != null || ruler != null;
@@ -15350,7 +15427,7 @@ function GalStage(props) {
             ...(member.lease ? {emotion:member.lease.emotion,focus:member.lease.focus,dim:member.lease.dim} : null),
             // reopening/restoring is not a new entrance (same policy as the background cut).
             visible:true,enter:forwardReading&&!skipping?'soft':'none',exit:'soft',gaze:stageViews.speaker.gaze(member.gaze,member.x,xs),act:shotHere&&shot.acts[member.id]?{name:shot.acts[member.id],nonce:shot.n}:null,
-            figureSizing:{pack:true,heightCm:selected.heightCm,version:1,source:selected.geometry.stage,sourceUrl:input.src,heightBasis:selected.heightBasis,outfitKey:selected.outfitKey,anatomy:selected.anatomy,head:selected.head,assetScale:selected.anatomy?.assetScale ?? 1,elevationCm:selected.elevationCm}};
+            figureSizing:{pack:true,heightCm:selected.heightCm,version:1,source:selected.geometry.stage,sourceUrl:input.src,heightBasis:selected.heightBasis,outfitKey:selected.outfitKey,anatomy:selected.anatomy,head:selected.head,face:selected.face,assetScale:selected.anatomy?.assetScale ?? 1,elevationCm:selected.elevationCm}};
     });
     const quality = useStageQuality();
     // core stage behaviour; tap reactions borrow the figure's own emotionMap entries.
@@ -17557,17 +17634,17 @@ function createStageCastLayout({calculate,mix}) {
             return {fit:from.fit+(to.fit-from.fit)*k,drop:from.drop+(to.drop-from.drop)*k,
                 top:from.top+(to.top-from.top)*k,framed:to.framed,ruler:to.ruler,shrunk:to.shrunk,spread:to.spread,...sceneAt(from,to,k)};
         }
-        function update({plan,figures,W,H,now,top,ruler,loaded,crops,sizes,instant}){
+        function update({plan,figures,W,H,now,top,ruler,loaded,crops,sizes,widths,instant}){
             if(closed)return {layout:null,report:null};
             if(!plan){layout=seen=transition=null;return {layout:null,report:null};}
             if(seen&&seen.plan===plan&&seen.figures===figures&&seen.W===W&&seen.H===H&&seen.top===top&&seen.ruler===ruler&&seen.loaded===loaded){
                 if(instant)transition.from=transition.to;
                 return {layout,report:null};
             }
-            const key=[W,H,top,ruler?.to,ruler?.groundTo,plan.cast.join('\n'),plan.priority.join('\n'),JSON.stringify(crops),JSON.stringify(sizes||null),JSON.stringify(plan.slots||null),plan.max||0,plan.phone||0,JSON.stringify(plan.framing||null)].join('|');
+            const key=[W,H,top,ruler?.to,ruler?.groundTo,plan.cast.join('\n'),plan.priority.join('\n'),JSON.stringify(crops),JSON.stringify(sizes||null),JSON.stringify(widths||null),JSON.stringify(plan.slots||null),plan.max||0,plan.phone||0,JSON.stringify(plan.framing||null)].join('|');
             let report=null;
             if(layout?.key!==key){
-                const next={key,W,H,...calculate({W,H,boxTop:top,hMax:ruler?.to,groundRatio:ruler?.groundTo,cast:plan.cast,priority:plan.priority,crops,sizes,slots:plan.slots,max:plan.max,phone:plan.phone,framing:plan.framing})};
+                const next={key,W,H,...calculate({W,H,boxTop:top,hMax:ruler?.to,groundRatio:ruler?.groundTo,cast:plan.cast,priority:plan.priority,crops,sizes,widths,slots:plan.slots,max:plan.max,phone:plan.phone,framing:plan.framing})};
                 const to={fit:next.fit,drop:next.drop,top:next.top,framed:next.framed,ruler:next.ruler,shrunk:next.shrunk,spread:next.spread,...(next.drawn?{drawn:true,sceneH:next.drawn.hMax,sceneG:next.drawn.groundRatio}:null)};
                 const was=transition&&fit(now);
                 // an eased scene ruler has both ends, whichever side is the scene's own
@@ -17937,8 +18014,11 @@ function createStageFigureAssets({spineFigures,metrics}) {
     // (the centre of its opaque bounds) moves with a tail, a raised arm or a prop on one side - a long tail put
     // one figure 4% of the stage width off her slot. undefined when unreadable or empty. Once per
     // picture and head band.
-    function headCentre(document, key, texture, top, chin) {
-        const id = key + ":head-x:" + top + ":" + chin;
+    // face: [left, right] canvas fractions where the pack framed the face (asset-pack-presentation packFaceSpan); only ink
+    // inside it counts, so a hammer head or a scythe blade beside the head does not pull the centre over (三角机构 雷蒙德
+    // stood on his hammer). Omitted = the whole width.
+    function headCentre(document, key, texture, top, chin, face) {
+        const id = key + ":head-x:" + top + ":" + chin + ":" + (face ? face.join(",") : "");
         if (headCentres.has(id)) return headCentres.get(id);
         let result;
         try {
@@ -17949,14 +18029,36 @@ function createStageFigureAssets({spineFigures,metrics}) {
             const y0 = Math.max(0, Math.floor(top * canvas.height)), y1 = Math.min(canvas.height, Math.ceil(chin * canvas.height));
             if (y1 > y0) {
                 const data = ctx.getImageData(0, y0, canvas.width, y1 - y0).data, columns = new Float64Array(canvas.width);
+                const x0 = face ? Math.max(0, Math.floor(face[0] * canvas.width)) : 0, x1 = face ? Math.min(canvas.width, Math.ceil(face[1] * canvas.width)) : canvas.width;
                 let total = 0;
-                for (let i = 3; i < data.length; i += 4) if (data[i] >= 64) { columns[((i - 3) / 4) % canvas.width]++; total++; }
+                for (let i = 3; i < data.length; i += 4) { const x = ((i - 3) / 4) % canvas.width; if (data[i] >= 64 && x >= x0 && x < x1) { columns[x]++; total++; } }
                 if (total >= 16) {
                     let seen = 0, low = -1, high = -1;
                     for (let x = 0; x < canvas.width; x++) { seen += columns[x]; if (low < 0 && seen >= total * 0.1) low = x; if (high < 0 && seen >= total * 0.9) high = x; }
                     result = (low + high + 1) / 2 / ratio;
                 }
             }
+        } catch (_) { result = undefined; }
+        if (headCentres.size >= 256) headCentres.delete(headCentres.keys().next().value);
+        headCentres.set(id, result);
+        return result;
+    }
+    // How far a picture's ink reaches across its canvas: [left, right] in canvas px (alpha >= 64, read at 256 px), so the
+    // cast layout knows a broad figure - plate armour, a hammer on the shoulder, wings - from a slim one. undefined when
+    // unreadable or empty. Once per picture.
+    function inkSpan(document, key, texture) {
+        const id = key + ":ink-x";
+        if (headCentres.has(id)) return headCentres.get(id);
+        let result;
+        try {
+            const canvas = document.createElement("canvas"), ratio = Math.min(1, 256 / Math.max(texture.width, texture.height));
+            canvas.width = Math.max(1, Math.round(texture.width * ratio)); canvas.height = Math.max(1, Math.round(texture.height * ratio));
+            const ctx = canvas.getContext("2d", { willReadFrequently: true });
+            ctx.drawImage(texture.baseTexture.resource.source, 0, 0, canvas.width, canvas.height);
+            const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+            let left = canvas.width, right = -1;
+            for (let i = 3; i < data.length; i += 4) if (data[i] >= 64) { const x = ((i - 3) / 4) % canvas.width; if (x < left) left = x; if (x > right) right = x; }
+            if (right >= left) result = [left / ratio, (right + 1) / ratio];
         } catch (_) { result = undefined; }
         if (headCentres.size >= 256) headCentres.delete(headCentres.keys().next().value);
         headCentres.set(id, result);
@@ -17989,7 +18091,7 @@ function createStageFigureAssets({spineFigures,metrics}) {
                     candidate = sprite.figureInput.pack && sprite.figureInput.anatomy ? null : metrics.measure(sprite.figureInput.source, texture);
                     if (sprite.figureInput.pack) {
                         // Sized by the picture's head (its crop) unless its anatomy really knows head and feet (metrics.anatomy).
-                        const canvas = [texture.width, texture.height], anatomy = centred(metrics.anatomy(sprite.figureInput, canvas, candidate), canvas, anatomy => headCentre(document, src, texture, anatomy.headTop, anatomy.chin));
+                        const canvas = [texture.width, texture.height], anatomy = centred(metrics.anatomy(sprite.figureInput, canvas, candidate), canvas, anatomy => headCentre(document, src, texture, anatomy.headTop, anatomy.chin, sprite.figureInput.face));
                         sprite.figureInput = { ...sprite.figureInput, anatomy, metrics: metrics.record({ ...sprite.figureInput, anatomy }, canvas, candidate) };
                     }
                     const sizing = metrics.resolve({ ...sprite.figureInput, W: screen.width, H: screen.height, canvas: [texture.width, texture.height] });
@@ -17997,6 +18099,7 @@ function createStageFigureAssets({spineFigures,metrics}) {
                 } else sprite.figureInput = null;
                 // The body's centre across the picture (canvases are often off-centre), for the speaker anchor.
                 sprite.forkBodyX = metrics.bodyX(sprite.figureInput?.metrics, sprite.figureInput ? candidate : null) ?? metrics.bodyCentre(src, texture) ?? texture.width / 2;
+                if (sprite.figureInput) sprite.forkInkX = inkSpan(document, src, texture);
 
                 return own(sprite,candidate);
             }catch(error){try{if(sprite&&!sprite.destroyed)sprite.destroy({children:true});}catch(cleanup){throw new AggregateError([error,cleanup],'Picture preparation failed');}throw error;}
@@ -25497,7 +25600,7 @@ function CgGallery({sessionId,store,onClose,onExit}) {
     const [uiOff,setUiOff]=React.useState(false),[active,setActive]=React.useState(false),[cropOpen,setCropOpen]=React.useState(false);
     // the viewer's size and the shown picture's aspect decide where its controls go (fork-cg-viewer data-fit).
     const viewerNode=React.useRef(null),[box,setBox]=React.useState(null),[aspect,setAspect]=React.useState(0);
-    const revision=usePackRevision(),generation=React.useRef(0),lastIndex=React.useRef(0),idle=React.useRef(0),swipe=React.useRef(null),swiped=React.useRef(false);
+    const revision=usePackRevision(),generation=React.useRef(0),reread=React.useRef(false),lastIndex=React.useRef(0),idle=React.useRef(0),swipe=React.useRef(null),swiped=React.useRef(false);
     const wasViewer=React.useRef(false),taps=React.useRef(null),toggleUi=React.useRef(null);
     // 手势缩放: the player's own view over the 完整/特写 composition, 1–4×: translate + scale on the pictures (the painter writes transform).
     const view=React.useRef({s:1,x:0,y:0}),pointers=React.useRef(new Map()),gesture=React.useRef(null),[zoomed,setZoomed]=React.useState(false);
@@ -25513,8 +25616,15 @@ function CgGallery({sessionId,store,onClose,onExit}) {
         try {
             const result=await rpc('getCgGallery',{...(next?{cursor:next}:{})},sessionId);
             if(disposed||token!==generation.current)return;
+            if(next)reread.current=false;
             setItems(old=>next?[...old,...result.items]:result.items);setCursor(result.nextCursor);
-        } catch(e) {if(!disposed&&token===generation.current)setError(e.code==='REVISION_CONFLICT'?'素材目录已改变':'回想没能载入');}
+        } catch(e) {
+            if(disposed||token!==generation.current)return;
+            // a later page's cursor names the list as its first page was read; the list has changed since (a CG unlocked,
+            // a pack written): read it again from the top, once until a later page loads again.
+            if(next&&e.code==='REVISION_CONFLICT'&&!reread.current){reread.current=true;void load();return;}
+            setError(e.code==='REVISION_CONFLICT'?'素材目录已改变':'回想没能载入');
+        }
         finally {if(!disposed&&token===generation.current)setBusy(false);}
     }
     // a new revision re-reads the list in place; the open CG stays open while it still exists.
@@ -25544,14 +25654,14 @@ function CgGallery({sessionId,store,onClose,onExit}) {
         observer.observe(node);
         return ()=>observer.disconnect();
     },[!!item]);
-    // more of the list loads when its end scrolls into view.
+    // more of the list loads when its end scrolls into view; after a failed read only 刷新 reads again.
     useEffect(()=>{
         const node=more.current;
-        if (!node || !cursor || busy || item) return;
+        if (!node || !cursor || busy || item || error) return;
         const observer=new IntersectionObserver(rows=>{if(!disposed&&rows.some(row=>row.isIntersecting))void load(cursor);},{root:node.parentElement});
         observer.observe(node);
         return ()=>observer.disconnect();
-    },[cursor,busy,!!item]);
+    },[cursor,busy,!!item,error]);
     function show(next) {
         if (disposed || !next) return;
         lastCell.current=refKey(next);setSelected(refKey(next));setVariant(next.defaultVariant);setFocus(null);setRemoving(null);setCropOpen(false);
@@ -25984,9 +26094,9 @@ function openCardPage({sessionId, page, label, size, shortcut, closeControl, sav
             const {plugin, panelId: id} = args || {};
             if (typeof plugin !== 'string' || plugin.length > 160 || !plugin || typeof id !== 'string' || !/^[a-z0-9][a-z0-9._-]{0,63}$/.test(id))
                 throw new Error('openPluginPanel 需要插件名和面板 ID');
-            const title = onPluginPanel && await findPluginPanel?.(sessionId, plugin, id);
-            if (!title || closed || !shown) throw new Error('当前卡的舞台插件面板不可用');
-            onPluginPanel({plugin, id, title});
+            const panel = onPluginPanel && await findPluginPanel?.(sessionId, plugin, id);
+            if (!panel || closed || !shown) throw new Error('当前卡的舞台插件面板不可用');
+            onPluginPanel({plugin, id, title: panel.title, size: panel.size});
             return {opened: true};
         }
         if (method === 'fillInput') {
@@ -26267,14 +26377,15 @@ function Overlay({sessionId, pageId, label: declaredLabel, shortcut, size, close
     const title = pluginPanel?.title || state.title || label;
     const closeLabel = pluginPanel ? '返回' + label : entry ? '返回主页面' : '关闭' + label;
     const pageCloses = !pluginPanel && owned && state.shown && state.phase === 'ready';
-    return h('div', {className: 'fork-gal-status', 'data-size': pluginPanel ? 'window' : state.size, 'data-page': pageId, 'data-entry-page': entry ? '' : undefined, 'data-plugin-panel': pluginPanel ? '' : undefined, 'data-close-control': pageCloses ? 'page' : undefined, 'data-bare': entry && !state.shown && (state.phase === 'loading' || state.phase === 'ready') ? '' : undefined, onClick: event => { event.stopPropagation(); if (event.target === event.currentTarget) request(); },
+    const displaySize = pluginPanel ? pluginPanel.size || 'window' : state.size;
+    return h('div', {className: 'fork-gal-status', 'data-size': displaySize, 'data-page': pageId, 'data-entry-page': entry ? '' : undefined, 'data-plugin-panel': pluginPanel ? '' : undefined, 'data-close-control': pageCloses ? 'page' : undefined, 'data-bare': entry && !state.shown && (state.phase === 'loading' || state.phase === 'ready') ? '' : undefined, onClick: event => { event.stopPropagation(); if (event.target === event.currentTarget) request(); },
         onWheel: event => event.stopPropagation(), onContextMenu: event => { event.preventDefault(); event.stopPropagation(); request(); }},
         h('section', {ref: root, tabIndex: -1, className: 'fork-gal-status-sheet', role: 'dialog', 'aria-modal': 'true', 'aria-label': title, 'data-phase': state.phase},
             // the empty first child: dsh-pocket's phone stylesheet otherwise takes a page-closed sheet whose body ends in 重试 for DSH's
             // settings dialog — the stopgap of Modal in src/client/asset-pack-ui.js (bug:asset-figure-dialog-phone), deleted with it.
             h('i', {hidden: true}),
             pageCloses ? null : h('header', {className: 'fork-gal-status-head'},
-                state.size === 'full' && !pluginPanel ? null : h('b', {className: 'fork-gal-status-title'}, title),
+                displaySize === 'full' ? null : h('b', {className: 'fork-gal-status-title'}, title),
                 h('button', {type: 'button', className: 'fork-gal-status-close', title: closeLabel, 'aria-label': closeLabel, onClick: request},
                     h('svg', {viewBox: '0 0 24 24', width: 18, height: 18, fill: 'none', stroke: 'currentColor', strokeWidth: 1.6, strokeLinecap: 'round', 'aria-hidden': true, focusable: 'false'}, h('path', {d: 'M7 7l10 10M17 7L7 17'})))),
             pluginPanel ? h('div', {className: 'fork-gal-status-plugin', onContextMenu: event => event.stopPropagation()},

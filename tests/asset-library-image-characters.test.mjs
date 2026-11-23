@@ -104,3 +104,20 @@ test('a figure\'s 设定图 are lent from the pack; a 设定图 the pack drops i
   await assert.rejects(pictures.read({ ...ref, id: 'a'.repeat(64) }), { code: 'NOT_FOUND' })
   assert.deepEqual(library.reads, ['b'.repeat(64)])
 })
+
+test('a 设定图 the pack no longer registers leaves the record; other pictures stay', async () => {
+  const { api, service } = host(), images = imageLibrary()
+  const picture = name => ({ id: 'a'.repeat(64), mediaType: 'image/png', name, byteLength: 9 })
+  const figure = { id: 'figure', name: '总经理', outfits: [{ key: 'k', label: '西装' }, { key: 'm', label: '大衣' }] }
+  const character = { ...images.store.characters[0], figureId: 'figure', figurePackId: 'pack', referenceImage: picture('入职主管 设定图'),
+    outfits: [{ id: 'k', name: '西装', characterOutfitImage: picture('总经理／西装 立绘参考') }, { id: 'm', name: '大衣', characterOutfitImage: picture('总经理／大衣 设定图') }] }
+  images.store.characters = [character]
+  service.registerImageLibrary(images.registration)
+  const library = { getPackSnapshot: async () => ({ revision: 'r1', figures: { figure } }), readMedia: async () => assert.fail('nothing to copy') }
+  const handlers = createImageCharacterHandlers({ ctx: { get: () => library }, pluginApi: api })
+  const synced = await handlers.syncFigureSetteiToImageCharacter({ packId: 'pack', figureId: 'figure', providerId: 'dsh-tavern-image/definitions', characterId: character.id, expected: structuredClone(character) })
+  assert.equal(synced.character.referenceImage, null, 'the retired 人设图 copy goes')
+  assert.equal(synced.character.outfits.find(o => o.id === 'k').characterOutfitImage.name, '总经理／西装 立绘参考', 'a sprite fallback stays')
+  assert.equal(synced.character.outfits.find(o => o.id === 'm').characterOutfitImage, null, 'a retired 服装设定图 copy goes')
+  assert.deepEqual(images.store.images, [])
+})

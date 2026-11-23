@@ -4,7 +4,7 @@ import path from 'node:path'
 import test from 'node:test'
 import { parseDocument } from 'yaml'
 
-import { mergeProfileManifest, migrateLegacyProfilePatch } from '../bin/profile-configuration.mjs'
+import { mergeProfileManifest, migrateLegacyProfilePatch, prepareProfileWorkspace } from '../bin/profile-configuration.mjs'
 
 const legacyPatch = await readFile(new URL('../config/legacy-profile-patch-v0.6.yml', import.meta.url), 'utf8')
 
@@ -95,6 +95,27 @@ for (const host of ['desktop', 'next', 'android', 'cli']) {
     })
   }
 }
+
+test('侧栏版本和补丁跟随宿主，较早的 0.2.2 预发布版沿用旧版', async () => {
+  const source = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'))
+  const workspace = await readFile(new URL('../pnpm-workspace.yaml', import.meta.url), 'utf8')
+  const options = { source, pluginPath: '/app/tavern-plugin', dataRoot: '/data', host: 'desktop' }
+  for (const [dshVersion, sidebar] of [
+    ['0.2.0-rc.2', '0.26.0'],
+    ['0.2.1-rc.2', '0.28.0'],
+    ['0.2.2-rc.1', '0.28.0'],
+    ['0.2.2-rc.2', '0.32.1'],
+    ['0.2.2-rc.5', '0.32.1'],
+    ['0.2.2', '0.32.1'],
+  ]) {
+    const manifest = mergeProfileManifest({ ...options, dshVersion })
+    assert.equal(manifest.dependencies['dsh-better-sidebar'], sidebar, dshVersion)
+    const { patchedDependencies } = parseDocument(prepareProfileWorkspace(workspace, manifest)).toJS()
+    const key = 'dsh-better-sidebar@' + sidebar
+    assert.deepEqual(Object.keys(patchedDependencies).filter(name => name.startsWith('dsh-better-sidebar@')), [key])
+    assert.equal(patchedDependencies[key], 'patches/' + key + '.patch')
+  }
+})
 
 test('首次迁移按 YAML 结构移除旧项目配置并保留用户覆盖', () => {
   const current = `# 用户排版可以不同

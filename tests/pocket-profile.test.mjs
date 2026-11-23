@@ -42,3 +42,19 @@ for (const host of ['desktop', 'next', 'android', 'cli']) {
     }
   })
 }
+
+test('APK 内的命令行版（DSH_TAVERN_MOBILE_LAYOUT）与 Android 一样装 dsh-web-mobile 及其补丁', async t => {
+  const profileDir = await mkdtemp(path.join(tmpdir(), 'tavern-mobile-profile-'))
+  t.after(() => rm(profileDir, { recursive: true, force: true }))
+  const options = { source, current: {}, host: 'cli', dshVersion: '0.2.1-rc.2', pluginPath: path.join(sourceRoot, 'tavern-plugin'), dataRoot: '/fixture/data' }
+  const plain = mergeProfileManifest({ ...options, mobileLayout: false })
+  assert.equal(plain.dependencies['dsh-web-mobile'], undefined)
+  assert.ok(!plain.dsh.profile.bundles.includes('dsh-web-mobile'))
+  const mobile = mergeProfileManifest({ ...options, mobileLayout: true })
+  assert.equal(mobile.dependencies['dsh-web-mobile'], source.devDependencies['dsh-web-mobile'])
+  assert.ok(mobile.dsh.profile.bundles.includes('dsh-web-mobile'))
+  assert.ok(!mobile.dsh.profile.bundles.includes('dsh-pocket'))
+  assert.deepEqual(mergeProfileManifest({ ...options, current: mobile, mobileLayout: true }), mobile)
+  const patches = parse(prepareProfileWorkspace(workspace, mobile)).patchedDependencies
+  assert.deepEqual(Object.keys(patches).filter(key => key.startsWith('dsh-web-mobile@')), [`dsh-web-mobile@${source.devDependencies['dsh-web-mobile']}`])
+})

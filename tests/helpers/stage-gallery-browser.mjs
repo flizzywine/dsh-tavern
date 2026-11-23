@@ -15,7 +15,10 @@ export function galleryItems(count, { scene = true, variants = 1, focus = false,
   }))
 }
 
-export async function mountGallery(page, { items, imageUrl = null } = {}) {
+// pageSize pages the catalogue like cg-gallery.js: a cursor names the list's stamp, and a cursor of an older stamp is a REVISION_CONFLICT.
+// stale: 'once' | 'always' — right after a first page is read, the list changes (a CG is unlocked: a new stamp and one more CG),
+// as a 场景生图 does after the pack write the page already heard. failCursor: every later page fails (not a conflict).
+export async function mountGallery(page, { items, imageUrl = null, pageSize = 1000, stale = null, failCursor = false } = {}) {
   const [react, effects, consumer, stage, gallery, theme, stageTheme] = await Promise.all([browserReactScript(),
     read('tavern-plugin/src/client/stage-effects.cjs'), read('tavern-plugin/src/client/cg-consumer.cjs'), read('tavern-plugin/src/client/cg-stage.js'),
     read('tavern-plugin/packages/dsh-tavern-stage/src/client/gallery.cjs'), read('tavern-plugin/lib/client-assets/theme.css'),
@@ -24,7 +27,7 @@ export async function mountGallery(page, { items, imageUrl = null } = {}) {
   await page.addStyleTag({ content: theme + '\n' + stageTheme })
   await page.addScriptTag({ content: react + '\nwindow.React=modules.react;window.ReactDOMClient=modules["react-dom/client"];' })
   await page.addScriptTag({ content: effects + '\n' + consumer + '\n' + stage + '\n' + gallery })
-  await page.evaluate(({ items, imageUrl }) => {
+  await page.evaluate(({ items, imageUrl, pageSize, stale, failCursor }) => {
     const h = React.createElement
     const picture = ({ paint: [i, v], width, height }) => {
       if (imageUrl) return [imageUrl].flat()[(i + v) % [imageUrl].flat().length]
@@ -33,10 +36,28 @@ export async function mountGallery(page, { items, imageUrl = null } = {}) {
       g.fillStyle = '#fff'; g.font = '48px sans-serif'; g.fillText(`${i + 1}${v ? '·' + (v + 1) : ''}`, 24, 110)
       return canvas.toDataURL()
     }
-    const state = window.galleryState = { items, calls: [], closed: 0, fail: false }
+    const state = window.galleryState = { items, calls: [], closed: 0, fail: false, stamp: 1 }
     const rpc = async (method, args) => {
       state.calls.push({ method, args })
-      if (method === 'getCgGallery') return { items: structuredClone(state.items), nextCursor: null }
+      if (method === 'getCgGallery') {
+        // a read takes a moment, as over the wire (the page renders its busy state in between).
+        await new Promise(resolve => setTimeout(resolve, 15))
+        let start = 0
+        if (args.cursor) {
+          if (failCursor) throw new Error('nope')
+          const [stamp, at] = args.cursor.split(':')
+          if (Number(stamp) !== state.stamp) throw Object.assign(new Error('CG gallery changed; reload'), { code: 'REVISION_CONFLICT' })
+          start = Number(at)
+        }
+        const end = start + pageSize
+        const result = { items: structuredClone(state.items.slice(start, end)), nextCursor: end < state.items.length ? `${state.stamp}:${end}` : null }
+        if (!args.cursor && (stale === 'always' || stale === 'once' && !state.staled)) {
+          state.staled = true; state.stamp++
+          const n = state.items.length + 1
+          state.items = [...state.items, { ...structuredClone(state.items[0]), ref: { ...state.items[0].ref, assetId: `cg-${n}` }, label: `第 ${n} 张 CG` }]
+        }
+        return result
+      }
       if (method === 'removeSceneCg') {
         if (state.fail) throw new Error('nope')
         state.items = state.items.filter(item => JSON.stringify(item.ref) !== JSON.stringify(args.ref)); return {}
@@ -51,6 +72,6 @@ export async function mountGallery(page, { items, imageUrl = null } = {}) {
       consumer: createCgConsumer, paint: cgPaintFrame, revision: () => 1, rpc, Spinner, EmptyState, openLibrary: async () => {} })
     const store = { getSnapshot: () => ({ source: { sessionId: 's', authorityEpoch: 1 } }) }
     ReactDOMClient.createRoot(document.getElementById('root')).render(h(views.Gallery, { sessionId: 's', store, onClose: () => { state.closed++ } }))
-  }, { items, imageUrl })
+  }, { items, imageUrl, pageSize, stale, failCursor })
   await page.waitForSelector('.fork-cg-gallery-cell, .fork-empty')
 }

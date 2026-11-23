@@ -201,6 +201,11 @@ test('the 人物库 page edits a figure\'s names in its record and a deleted rec
   assert.deepEqual((await files.read('definitions.json')).characters.map(item => [item.name, item.match, item.outfits.map(outfit => outfit.name)]), [['Alice', 'Ally', ['Coat']]])
 
   const next = structuredClone((await runtime.request('state')).body.definitions)
+  const invalid = structuredClone(next)
+  invalid.characters[0].match = '字'.repeat(161)
+  const rejected = await runtime.request('definitions', { definitions: invalid })
+  assert.equal(rejected.status, 400)
+  assert.equal((await files.read('definitions.json')).characters[0].match, 'Ally')
   next.characters[0].name = 'Alicia'
   next.characters[0].match = 'Ally, Lici'
   next.characters[0].outfits[0].name = 'Winter coat'

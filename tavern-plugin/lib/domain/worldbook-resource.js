@@ -1,5 +1,3 @@
-import { worldBookChannelValue, worldBookDefaultChannel } from './worldbook-channel.js'
-
 function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
 }
@@ -47,12 +45,8 @@ function identifyDocument(document) {
   throw new Error('无法识别世界书：需要 entries 对象、character_book，或 entries 数组')
 }
 
-function entryProjection(entry, sourceRef, format, index, bookChannel = 'auto', summaryOnly = false) {
+function entryProjection(entry, sourceRef, format, index, summaryOnly = false) {
   const embedded = format !== 'sillytavern-worldbook'
-  // A book-wide channel applies to every entry that does not pin one; the entry
-  // only owns a channel once someone overrides it there.
-  const ownChannel = extensionValue(entry, ['tavern_channel'], null)
-  const extensions = object(entry.extensions) || {}
   const primaryKeys = array(embedded ? entry.keys : entry.key).map(str)
   const secondaryKeys = array(embedded ? entry.secondary_keys : entry.keysecondary).map(str)
   const enabled = embedded ? entry.enabled !== false : entry.disable !== true
@@ -69,8 +63,6 @@ function entryProjection(entry, sourceRef, format, index, bookChannel = 'auto', 
     primaryKeys,
     secondaryKeys,
     constant: entry.constant === true,
-    channel: ownChannel === null || ownChannel === undefined ? worldBookChannelValue(bookChannel) : worldBookChannelValue(ownChannel),
-    channelInherited: ownChannel === null || ownChannel === undefined,
     selective: entry.selective === true,
     selectiveLogic: numberOr(embedded ? extensionValue(entry, ['selective_logic', 'selectiveLogic'], 0) : entry.selectiveLogic, 0),
     vectorized: embedded ? extensionValue(entry, ['vectorized'], false) === true : entry.vectorized === true,
@@ -130,13 +122,11 @@ export function inspectWorldBookDocument(document, options = {}) {
   const records = identified.format === 'sillytavern-worldbook'
     ? Object.entries(book.entries).map(function ([key, entry], index) { return { ref: 'entry:' + key, entry: object(entry) || {}, index } })
     : array(book.entries).map(function (entry, index) { return { ref: 'entry:' + index, entry: object(entry) || {}, index } })
-  const channel = worldBookDefaultChannel(book)
-  const entries = records.map(function (record) { return entryProjection(record.entry, record.ref, identified.format, record.index, channel, summaryOnly) })
+  const entries = records.map(function (record) { return entryProjection(record.entry, record.ref, identified.format, record.index, summaryOnly) })
   const view = {
     format: identified.format,
     displayName: worldBookDisplayName(document, options),
     description: str(book.description),
-    channel,
     scanDepth: book.scan_depth ?? 2,
     tokenBudget: book.token_budget ?? 8192,
     recursiveScanning: book.recursive_scanning === true,
@@ -348,7 +338,7 @@ function nextId(entries, field) {
 }
 
 // Field vocabulary accepted by entry patches; anything else would be dropped silently.
-export const WORLD_BOOK_PATCH_FIELDS = Object.freeze(['comment', 'content', 'enabled', 'primaryKeys', 'secondaryKeys', 'constant', 'channel', 'selective', 'order', 'caseSensitive', 'displayIndex', 'selectiveLogic', 'vectorized', 'position', 'depth', 'role', 'probabilityEnabled', 'probability', 'groupOverride', 'groupWeight', 'useGroupScoring', 'scanDepth', 'matchWholeWords', 'excludeRecursion', 'preventRecursion', 'group', 'delayUntilRecursion', 'sticky', 'cooldown', 'delay', 'helperExtra'])
+export const WORLD_BOOK_PATCH_FIELDS = Object.freeze(['comment', 'content', 'enabled', 'primaryKeys', 'secondaryKeys', 'constant', 'selective', 'order', 'caseSensitive', 'displayIndex', 'selectiveLogic', 'vectorized', 'position', 'depth', 'role', 'probabilityEnabled', 'probability', 'groupOverride', 'groupWeight', 'useGroupScoring', 'scanDepth', 'matchWholeWords', 'excludeRecursion', 'preventRecursion', 'group', 'delayUntilRecursion', 'sticky', 'cooldown', 'delay', 'helperExtra'])
 
 function assignKnownPatch(entry, patch, format) {
   const embedded = format !== 'sillytavern-worldbook'
@@ -383,14 +373,7 @@ function assignKnownPatch(entry, patch, format) {
     if (has(field)) { if (embedded) extensions[embeddedField] = patch[field]; else entry[field] = patch[field] }
   }
   if (has('helperExtra')) extensions.dsh_tavern_helper_extra = clone(object(patch.helperExtra) || {})
-  // 'auto' is the default decision, so it never keeps a stale extension key.
-  if (has('channel')) {
-    const channel = worldBookChannelValue(patch.channel)
-    if (channel === 'auto') delete extensions.tavern_channel
-    else extensions.tavern_channel = channel
-  }
-
-  if (embedded || has('helperExtra') || has('channel')) entry.extensions = extensions
+  if (embedded || has('helperExtra')) entry.extensions = extensions
   return entry
 }
 
@@ -434,16 +417,6 @@ export function updateWorldBookDocument(document, request = {}) {
     book.token_budget = budget
   }
   if (Object.hasOwn(request, 'recursiveScanning')) book.recursive_scanning = request.recursiveScanning === true
-  // The book-wide channel sits on the document root so one switch covers every
-  // entry without an override; 'auto' keeps the key out of the file.
-  if (Object.hasOwn(request, 'channel')) {
-    const channel = worldBookChannelValue(request.channel)
-    const extensions = Object.assign({}, object(book.extensions) || {})
-    delete book.channel
-    if (channel === 'auto') delete extensions.tavern_channel
-    else extensions.tavern_channel = channel
-    if (Object.keys(extensions).length || Object.hasOwn(book, 'extensions')) book.extensions = extensions
-  }
   let operations = Array.isArray(request.operations) ? request.operations : (request.operations ? [request.operations] : [])
   if (identified.format !== 'sillytavern-worldbook') {
     const priority = { update: 0, delete: 1, add: 2 }
