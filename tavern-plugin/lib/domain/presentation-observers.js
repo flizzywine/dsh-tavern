@@ -63,6 +63,8 @@ export function createPresentationObservers({warn = () => {}} = {}) {
     },
     modelChanged:(...args) => notify('modelChanged', ...args),
     cardChanged:(...args) => notify('cardChanged', ...args),
+    // (cardPath, cardId): the card was deleted; cardId is undefined when its storage no longer knew it.
+    cardRemoved:(...args) => notify('cardRemoved', ...args),
     cancelled:(...args) => notify('cancelled', ...args),
     settlementQueued:(...args) => notify('settlementQueued', ...args),
     saved:(...args) => notify('saved', ...args),
