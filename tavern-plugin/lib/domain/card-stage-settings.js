@@ -3,7 +3,7 @@ const {cardStageMode} = cardStageModeProtocol
 // Global stage toggles and card-owned visual/module preferences.
 import { DIRECTOR_DIMENSIONS, RETIRED_STAGE_SKINS, STAGE_TOGGLES, defaultAssetEngineSettings, validateNarratorSettings } from './asset-engine-settings.js'
 import { resolveSwitch } from './mod-system.js'
-import { validateAssetRef } from '../../packages/dsh-presentation-protocol/src/asset-packs.js'
+import { assetEntryEnabled, validateAssetRef } from '../../packages/dsh-presentation-protocol/src/asset-packs.js'
 import skinContract from '../../packages/dsh-presentation-protocol/src/stage-skin.cjs'
 import { shape, bool, check } from '../../packages/dsh-presentation-protocol/src/asset-pack-json.js'
 
@@ -52,14 +52,14 @@ export function validateCardStage(value, path = '$.stage') {
 // saved custom dialogue theme reads as its built-in theme) > 经典. { skin, fallback }: fallback = global, else classic - what
 // the card shows without its own value (CONFIG's ↺ clears the value back to it). `manifests`: the manifests of the packs this
 // card may use that the selections name (cardStageSkinPackIds). A pack skin is drawn only while its pack is on for this card
-// (bound or globally enabled) and still has it; otherwise the next in the order applies - presentation only, the stored value
+// (bound or globally enabled) and still has it, switched on (启用); otherwise the next in the order applies - presentation only, the stored value
 // is never rewritten, and it applies again once its skin is back (§17.5).
 export function cardStageSkin(extension, engine, manifests = []) {
   const stage = extension?.stage || {}, theme = engine?.dialogueTheme
   const global = theme && typeof theme === 'object' ? theme : Object.hasOwn(skinContract.BUILTIN_STAGE_SKINS, theme ?? '') ? theme
     : engine?.dialogueThemes?.find(item => item.id === theme)?.style.theme
   const usable = skin => typeof skin === 'string' ? Object.hasOwn(skinContract.BUILTIN_STAGE_SKINS, skin)
-    : !!skin && manifests.some(manifest => manifest?.id === skin.packId && manifest.assets.some(asset => asset.kind === 'skins' && asset.id === skin.assetId))
+    : !!skin && manifests.some(manifest => manifest?.id === skin.packId && manifest.assets.some(asset => asset.kind === 'skins' && asset.id === skin.assetId && assetEntryEnabled(asset)))
   const fallback = usable(global) ? global : 'classic'
   return {skin: usable(stage.defaultSkin) ? stage.defaultSkin : fallback, fallback}
 }

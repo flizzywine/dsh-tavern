@@ -3521,7 +3521,7 @@ body { --fork-accent-fill: var(--fk-s-base-fill, var(--fork-accent)); --fork-on-
 .ap-item[data-drop=after] { box-shadow: inset 0 -2px 0 var(--fork-accent); }
 /* 全部 lines up with the lamp items but has no dot; 启用 (演出风格) dots like LampMenu's. */
 .ap-filter-anchor .ap-lamp-opt[data-mode=all] .ap-lamp-dot { visibility: hidden; }
-.ap-filter-anchor .ap-lamp-opt[data-mode=on] .ap-lamp-dot { color: var(--fork-ink-2); }
+.ap-filter-anchor .ap-lamp-opt[data-mode=on] .ap-lamp-dot { color: var(--ap-lamp-green); }
 .ap-ui button.ap-item-main { display: flex; flex: 1; flex-direction: column; align-items: flex-start; gap: 3px; min-width: 0; min-height: 0; padding: 0; border: 0; background: none; color: var(--fork-ink); font-size: var(--fork-fs-body); font-weight: 500; text-align: left; white-space: normal; }
 .ap-ui button.ap-item-main:hover:not(:disabled) { background: none; }
 .ap-item-name { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -3538,7 +3538,7 @@ body { --fork-accent-fill: var(--fk-s-base-fill, var(--fork-accent)); --fork-on-
 .ap-item-lamp { display: grid; flex: none; place-items: center; width: 14px; }
 .ap-item-lamp[data-mode=constant] { color: var(--ap-lamp-blue); }
 .ap-item-lamp[data-mode=keyword] { color: var(--ap-lamp-green); }
-.ap-item-lamp[data-mode=on] { color: var(--fork-ink-2); }
+.ap-item-lamp[data-mode=on] { color: var(--ap-lamp-green); } /* 启用 (演出风格, 舞台皮肤): green on, grey off — never blue */
 .ap-item-lamp[data-mode=off] { color: var(--fork-lamp-off); } /* 关闭 */
 /* the row's lamp dot is a button opening the 蓝灯 / 绿灯 / 关闭 menu (EntryLamp).
    A 30px round hit area drawn as the same 7px dot; negative margins keep the row height. Hover / open widens the dot's ring. */
@@ -3550,9 +3550,9 @@ body { --fork-accent-fill: var(--fk-s-base-fill, var(--fork-accent)); --fork-on-
 .ap-ui button.ap-item-lamp:disabled { cursor: progress; }
 .ap-ui button.ap-item-lamp[data-mode=constant] { color: var(--ap-lamp-blue); }
 .ap-ui button.ap-item-lamp[data-mode=keyword] { color: var(--ap-lamp-green); }
-.ap-ui button.ap-item-lamp[data-mode=on] { color: var(--fork-ink-2); }
+.ap-ui button.ap-item-lamp[data-mode=on] { color: var(--ap-lamp-green); }
 .ap-ui button.ap-item-lamp[data-mode=off] { color: var(--fork-lamp-off); }
-.ap-lamp-pop .ap-lamp-opt[data-mode=on] .ap-lamp-dot { color: var(--fork-ink-2); }
+.ap-lamp-pop .ap-lamp-opt[data-mode=on] .ap-lamp-dot { color: var(--ap-lamp-green); }
 @media (max-width: 720px) { .ap-ui button.ap-item-lamp { width: 36px; min-width: 36px; height: 36px; margin: -10px -10px -10px -6px; } }
 .ap-check-mark { display: grid; flex: none; place-items: center; width: 20px; height: 20px; border-radius: 50%; box-shadow: inset 0 0 0 1.5px var(--ap-border-strong); color: var(--fork-on-accent, #fff); }
 .ap-item[data-checked] .ap-check-mark, .ap-check-row[aria-checked=true] .ap-check-mark { background: var(--fork-accent-fill, var(--fork-accent)); box-shadow: none; }
@@ -3985,7 +3985,6 @@ body { --fork-accent-fill: var(--fk-s-base-fill, var(--fork-accent)); --fork-on-
 /* LampMenu in a 「label value」 row reads 「● 绿灯 ⌄」 like a menu field. */
 .ap-lamp-trigger .ap-lamp-dot { flex: none; margin: 0 4px 0 3px; color: var(--fork-lamp-green); }
 .ap-lamp-trigger[data-mode=constant] .ap-lamp-dot { color: var(--fork-lamp-blue); }
-.ap-lamp-trigger[data-mode=on] .ap-lamp-dot { color: var(--fork-ink-2); }
 .ap-lamp-trigger[data-mode=off] .ap-lamp-dot { color: var(--fork-lamp-off); }
 .ap-lamp-trigger:disabled { cursor: progress; }
 .ap-lamp-pop .ap-lamp-opt[data-mode=constant] .ap-lamp-dot { color: var(--ap-lamp-blue); }
