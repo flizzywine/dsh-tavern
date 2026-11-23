@@ -125,9 +125,13 @@ function retireVoices(manifest, files, voices) {
 const routedPack = (packs, card) => packs.find(pack => pack.local.autoWrite?.cardId === card.cardId)
 const automaticPackName = cardName => cardName + ' · 自动素材'
 
-export function createAutomaticWriteMethods({run, readRun, all, load, metadata, verify, storage, cards, nextLocal, emit, blankManifest, createFigure, cas, now, limits, evictMetadata, globalPackIds = () => [], figureImageExtras = async () => ({}), carryFigureImageMedia = async () => {}}) {
+export function createAutomaticWriteMethods({run, readRun, load, metadata, verify, storage, cards, nextLocal, emit, blankManifest, createFigure, cas, now, limits, evictMetadata, globalPackIds = () => [], figureImageExtras = async () => ({}), carryFigureImageMedia = async () => {}}) {
   const authorities = new WeakMap()
   const clone = structuredClone
+  // What a writer plans against and the library search reads: every pack's manifest, figures and local state. Sprite, skin
+  // and performance documents are most of an installation's JSON; reading them for every pack overflows the metadata cache,
+  // so each call would read the whole library from disk again.
+  async function catalogue() { const packs = []; for (const id of await storage.listIds()) packs.push(await metadata(id, 'figures')); return packs }
   const receipt = (pack, writeId) => {
     const entry = pack.local.automaticWrites?.find(row => row.writeId === writeId)
     check(entry, '$.writeId', 'Automatic write not found', 'NOT_FOUND')
@@ -293,10 +297,11 @@ export function createAutomaticWriteMethods({run, readRun, all, load, metadata, 
       return Object.freeze({
         readContext({path}) {
           live()
-          return run([], async () => {
+          // A read: the write that follows checks the card and pack revisions it planned against.
+          return readRun([], async () => {
             const card = await cards.snapshot({path})
             check(card.raw, '$.path', 'Card unavailable', 'NOT_FOUND')
-            const packs = await all(), identity = cards.inspectRaw(card.raw), globalEnabledPackIds = globalPackIds()
+            const packs = await catalogue(), identity = cards.inspectRaw(card.raw), globalEnabledPackIds = globalPackIds()
             // A bound or global pack that is not installed is no catalogue to plan against (a shared card, a deleted pack):
             // the card is exactly one 自动素材 is for, so it is named (missingPackIds) and the automatic pack is still written.
             const named = [...new Set([...identity.boundPackIds,...globalEnabledPackIds])], ids = named.filter(id => packs.some(pack => pack.manifest.id === id))
@@ -309,12 +314,12 @@ export function createAutomaticWriteMethods({run, readRun, all, load, metadata, 
         // systemPacks: the packs 通用声音 / 旁白 point at (their voices are 通用声音 too, voice-auto-cast.cjs).
         searchLibrary({query, limit, systemPacks}) {
           live()
-          return readRun([], async () => searchLibrary((await all()).map(pack => ({manifest:pack.manifest, figures:pack.figures, revision:pack.local.revision})), {query, limit, systemPacks}))
+          return readRun([], async () => searchLibrary((await catalogue()).map(pack => ({manifest:pack.manifest, figures:pack.figures, revision:pack.local.revision})), {query, limit, systemPacks}))
         },
         // 全库声音: every installed pack's voices, or one language's, read only (library-search.js).
         listLibraryVoices({limit, systemPacks, language} = {}) {
           live()
-          return readRun([], async () => listLibraryVoices((await all()).map(pack => ({manifest:pack.manifest, figures:pack.figures, revision:pack.local.revision})), {limit, systemPacks, language}))
+          return readRun([], async () => listLibraryVoices((await catalogue()).map(pack => ({manifest:pack.manifest, figures:pack.figures, revision:pack.local.revision})), {limit, systemPacks, language}))
         },
         authorize(input, source, context) {
           live()
@@ -338,7 +343,7 @@ export function createAutomaticWriteMethods({run, readRun, all, load, metadata, 
         check(grant.active(), '$.authority', 'Writer has been released', 'NOT_AUTHORIZED_WRITER')
         const card = await cards.snapshot({path:request.path})
         check(card.raw && card.revision === request.expectedCardRevision, '$.expectedCardRevision', 'Card changed', 'REVISION_CONFLICT')
-        const identity = cards.inspectRaw(card.raw), packs = await all()
+        const identity = cards.inspectRaw(card.raw), packs = await catalogue()
         const routed = routedPack(packs, card)
         if (routed && !identity.boundPackIds.includes(routed.manifest.id)) return result(routed, card.revision)
         check((request.target?.packId || null) === (routed?.manifest.id || null), '$.target', 'Automatic target changed', 'REVISION_CONFLICT')
@@ -408,7 +413,7 @@ export function createAutomaticWriteMethods({run, readRun, all, load, metadata, 
       return run([], async () => {
         const card = await cards.snapshot({path})
         check(card.raw, '$.path', 'Card unavailable', 'NOT_FOUND')
-        const identity = cards.inspectRaw(card.raw), packs = await all(), routed = routedPack(packs, card)
+        const identity = cards.inspectRaw(card.raw), packs = await catalogue(), routed = routedPack(packs, card)
         if (routed) return identity.boundPackIds.includes(routed.manifest.id) ? {packId:routed.manifest.id} : null
         if (!create) return null
         const packId = randomUUID(), manifest = blankManifest(packId, automaticPackName(identity.name)), files = new Map()
@@ -433,7 +438,7 @@ export function createAutomaticWriteMethods({run, readRun, all, load, metadata, 
         cas(before, expectedRevision)
         check(before.local.autoWrite, '$.packId', 'Not an automatic pack', 'ASSET_UNAVAILABLE')
         check(cards.inspectRaw(card.raw).boundPackIds.includes(packId), '$.packId', 'The pack is not bound to this card', 'ASSET_UNAVAILABLE')
-        const routed = routedPack(await all(), card)
+        const routed = routedPack(await catalogue(), card)
         if (routed?.manifest.id === packId) return {packId, cardId:card.cardId, revision:before.local.revision, adopted:false}
         check(!routed, '$.path', 'The card already has an automatic pack: ' + routed?.manifest.id, 'REVISION_CONFLICT')
         const local = nextLocal(before.local)
