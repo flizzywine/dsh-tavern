@@ -1,7 +1,7 @@
 // each figure registers its own immutable, pack-scoped portable preset.
 import { effectiveCardStage, effectiveNarrator } from './card-stage-settings.js'
 import { assetPackDigest } from '../../packages/dsh-tavern-stage/lib/domain/stage-asset-pack-catalogue.js'
-import { figureTtsVoice, assetVoiceBinding, browserSpeechSource } from './figure-voice.js'
+import { figureTtsVoice, assetVoiceBinding, browserSpeechSource, browserSpeechRate } from './figure-voice.js'
 const failure = code => Object.assign(new Error(code), {code})
 // The key the narrator's voice opens under (旁白配音); never a figure name, so it cannot resolve to a cast member.
 export const NARRATOR_VOICE = '\u0000narrator'
@@ -79,7 +79,7 @@ export function createAssetPackSpeech({presentation, getEngine, getTts, getBindi
     const spoken = browserSpeechSource(resolved.voiceSpec, figure.voice)
     if (spoken) {
       drop()
-      return {available:true,browser:{voice:spoken.voiceName ?? ''},voiceId:figure.voice.voice,language:voice.languages[0],scope,diagnostics:[]}
+      return {available:true,browser:{voice:spoken.voiceName ?? '',...browserSpeechRate(resolved.voiceSpec, figure.voice)},voiceId:figure.voice.voice,language:voice.languages[0],scope,diagnostics:[]}
     }
     const declaration = {voice:resolved.voiceSpec,binding:figure.voice}
     // Opening a voice names its service without asking it: a cached line plays with the service stopped, and a new line

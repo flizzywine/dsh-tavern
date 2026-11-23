@@ -1582,7 +1582,7 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
   }
   // Modal, Button, IconButton: the house dialog for the host's own dialogs too (人物卡更新, card-update-dialog.js).
   // SwitchRow, Popover, MenuItem, HintLine, Glyph: the panel rows and menus 本局设置 shares (conversation-settings.js).
-  const api=stageExposed({App,Home,StageSection,Modal,Button,IconButton,SwitchRow,Popover,MenuItem,HintLine,Glyph,PackPreviewList,KIND_ORDER,kinds,ModDetail,StageModSection,StageModPage,PackModal,PackRow,PackStateTag,EntryDetail,FigureDetail,applyEntryFields,splitKeywords,ConflictDialog,CardImportSheet,CardUrlSheet,
+  const api=stageExposed({App,Home,StageSection,Modal,Button,IconButton,SwitchRow,Popover,MenuItem,useContextMenu,HintLine,Glyph,PackPreviewList,KIND_ORDER,kinds,ModDetail,StageModSection,StageModPage,PackModal,PackRow,PackStateTag,EntryDetail,FigureDetail,applyEntryFields,splitKeywords,ConflictDialog,CardImportSheet,CardUrlSheet,
     // the stage pages' seam: names in (stageScope.names), bind / use (gal-stage.js, asset-launcher.js, settings.js).
     stageScope,
     // the manager and the card's mod section, for tests and the offline screenshot harness.

@@ -12,9 +12,21 @@ function createStageNavigation({window, document, navigator, playCue, checkSetup
 const GAL_COVER_BOX = ['width', 'height', 'min-width', 'min-height', 'max-width', 'max-height', 'flex'];
 let releaseCover = null;
 function galUncover() { releaseCover?.(); }
-function galCoverChat() {
+// wholeApp (a phone or tablet, device.cjs galDevicePortable): the rest of the host app is covered too - every region beside
+// the session on its way up to the app's root (sidebar, side panels, ...). The host's own :has() rules restyle every rendered
+// element of the document whenever the stage inserts or removes one (a typed page, a measuring clone), so those regions are
+// what a phone pays for on every page. Each region is its own cover: a host read inside one (a panel's polled visibility)
+// restyles only that region, never the whole app. A desktop keeps them: its title strip's window drag region is in the app
+// and works through the stage (drag regions go by position).
+function galCoverPieces(node) {
+    return window.getComputedStyle(node).display === 'contents' ? [...node.children].flatMap(galCoverPieces) : [node];
+}
+function galCoverChat({wholeApp = false} = {}) {
     if (releaseCover) return;
+    const session = document.querySelector('[data-dsh-fork-session="play"]');
     const roots = [...document.querySelectorAll('[data-dsh-fork-session="play"] > *')];
+    if (wholeApp && session) for (let node = session; node.parentElement && node.parentElement !== document.body; node = node.parentElement)
+        for (const region of node.parentElement.children) if (region !== node) roots.push(...galCoverPieces(region));
     // One layout read for all roots before any write.
     const boxes = roots.map(node => node.getBoundingClientRect());
     const saved = roots.map((node, i) => {

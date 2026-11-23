@@ -35,9 +35,9 @@ export function createCardPagesService({ readWorkspace, chatForSession, index, p
       if (!value?.pages.length) return { pages: [], fresh: false }
       const indexed = await index(sessionId)
       return {
-        pages: value.pages.map(({ id, label, shortcut, menu, showOn, initial, opening, size = 'window', closeControl }) => ({
+        pages: value.pages.map(({ id, label, shortcut, icon, menu, showOn, initial, opening, size = 'window', closeControl }) => ({
           id, label, size, ...(closeControl !== undefined ? { closeControl } : {}),
-          ...(shortcut !== undefined ? { shortcut } : {}), ...(menu !== undefined ? { menu } : {}),
+          ...(shortcut !== undefined ? { shortcut } : {}), ...(icon !== undefined ? { icon } : {}), ...(menu !== undefined ? { menu } : {}),
           ...(showOn !== undefined ? { showOn } : {}), ...(initial !== undefined ? { initial } : {}), ...(opening !== undefined ? { opening } : {})
         })),
         // never played: no player message, and not a game set up before it began (an opening page's kept greeting)

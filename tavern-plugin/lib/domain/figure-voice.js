@@ -11,6 +11,13 @@ export function browserSpeechSource(voice, binding) {
   const source = voice.sources[binding.source ?? voice.defaultSource]
   return source?.provider === 'browser' ? source : null
 }
+// A browser source speaks at the 语速 of its 调音 (variants.normal, then the bound variant: 'rate', 0.5-2, schema-checked): the same
+// per-voice setting a service's 语速 is, there being no global speed. {} = the system's own pace.
+export function browserSpeechRate(voice, binding) {
+  const sourceId = binding.source ?? voice.defaultSource
+  const rate = {...voice.variants?.normal?.tuning?.[sourceId], ...voice.variants?.[binding.variant]?.tuning?.[sourceId]}.rate
+  return typeof rate === 'number' ? {rate} : {}
+}
 export async function assetVoiceBinding(tts, declaration, options) {
   if (tts?.apiVersion !== 1) return null
   return (await tts.resolveVoiceService(declaration,options)).effective
@@ -28,7 +35,7 @@ export async function figureRefTtsVoice(library, tts, ref, options) {
   const binding = figure.voice
   if (binding.source === null) return null
   const browser = browserSpeechSource(voice, binding)
-  if (browser) return {browser:browser.voiceName ?? '',language:effectiveVoiceLanguage(binding.language, voice.language)}
+  if (browser) return {browser:browser.voiceName ?? '',...browserSpeechRate(voice, binding),language:effectiveVoiceLanguage(binding.language, voice.language)}
   const effective = await assetVoiceBinding(tts,{voice,binding},options)
   if (!effective) throw Object.assign(new Error('SERVICE_REQUIRED'), {code:'SERVICE_REQUIRED'})
   return {voice:figureTtsVoice(binding,voice,`${pack.manifest.id}:${figure.id}`),binding:effective,voiceId:binding.voice,revision:pack.revision,
