@@ -568,11 +568,14 @@
 					if (input.stageReader !== undefined && typeof input.stageReader !== "boolean") throw new TypeError("registerPanel 的 stageReader 必须是布尔值");
 					const stageReader = input.stageReader === true;
 					if (stageReader && (!stage || input.stageSize !== "full")) throw new TypeError("registerPanel 的 stageReader 需要全屏舞台面板");
+					// roundAction({ gameId, turn }) → { label, run } | null (or a Promise of it): the stage's button beside a read round's choices.
+					if (input.roundAction !== undefined && typeof input.roundAction !== "function") throw new TypeError("registerPanel 的 roundAction 必须是函数");
+					if (!stage && input.roundAction !== undefined) throw new TypeError("registerPanel 的 roundAction 需要 stage: true");
 					const owner = ownerOf(this);
 					const tabId = "tavern-plugin:" + owner + ":" + input.id;
 					const render = input.render, title = input.title.trim();
 					const sidebar = input.stageOnly !== true;
-					const stageSize = input.stageSize ?? "window";
+					const stageSize = input.stageSize ?? "window", roundAction = input.roundAction || null;
 					return owned(this, function () {
 						if (panels.has(tabId)) throw new Error("面板 " + input.id + " 已注册");
 						if (sidebar && typeof host?.betterSidebar?.registerTab !== "function") throw new Error("当前界面没有侧栏，无法注册插件面板");
@@ -586,7 +589,7 @@
 								return React.createElement(tavernPluginBoundary(), { owner: owner, fallback: React.createElement("p", { className: "dsh-tavern-plugin-panel-error" }, "插件 " + owner + " 的面板出错了") },
 									gameId ? React.createElement(render, { gameId: gameId, visible: props.visible !== false }) : React.createElement("p", { className: "dsh-tavern-plugin-panel-empty" }, "请先打开一局游戏。"));
 							} }) : null;
-						panels.set(tabId, { owner, title, render, stage, stageSize, stageReader });
+						panels.set(tabId, { owner, title, render, stage, stageSize, stageReader, roundAction });
 						changed();
 						return function () { if (typeof dispose === "function") dispose(); panels.delete(tabId); changed(); };
 					}, "tavernUi.registerPanel()");
@@ -1048,6 +1051,13 @@
 					return panel?.stage && panel.owner === plugin && scopes && Object.hasOwn(scopes, plugin) &&
 						Array.isArray(scopes[plugin]) && tavernPluginAllowed(plugin, sessionId) ? panel : null;
 				},
+				// The game's card plugins' stage panels with a roundAction, in registration order: [{ owner, id, roundAction }].
+				stageRoundActions: function (sessionId) {
+					const scopes = tavernCardPluginScopes.get(), rows = [];
+					for (const [tabId, panel] of panels) if (panel.stage && panel.roundAction && scopes && Object.hasOwn(scopes, panel.owner) && Array.isArray(scopes[panel.owner]) && tavernPluginAllowed(panel.owner, sessionId))
+						rows.push({ owner: panel.owner, id: tabId.slice(tabId.lastIndexOf(":") + 1), roundAction: panel.roundAction });
+					return rows;
+				},
 				attachCandidateRunner: function (fn) {
 					candidateRunner = typeof fn === "function" ? fn : null;
 					return function () { if (candidateRunner === fn) candidateRunner = null; };
@@ -1205,14 +1215,15 @@
 			return React.useSyncExternalStore(tavernUiExtensions.subscribe, tavernUiExtensions.getSnapshot, tavernUiExtensions.getSnapshot);
 		}
 
-		function TavernStagePluginPanel({ sessionId, plugin, id, stagePageId, reader, entryAnchor }) {
+		// stage: what the stage lends the panel it opened (stage.borrow, the stage's plugin docs); absent in the sidebar.
+		function TavernStagePluginPanel({ sessionId, plugin, id, stagePageId, reader, entryAnchor, stage }) {
 			useTavernUiExtensions();
 			useTavernCardPluginScopes();
 			const panel = tavernUiExtensions.stagePanel(sessionId, plugin, id), h = React.createElement;
 			if (!panel) return h("p", { role: "status" }, "这局游戏的插件面板已不可用。");
 			return h(tavernPluginBoundary(), {
 				owner: panel.owner, fallback: h("p", { role: "alert" }, "插件面板加载失败。")
-			}, h(panel.render, { gameId: sessionId, visible: true, stagePageId, ...(panel.stageReader && reader ? {reader, entryAnchor} : {}) }));
+			}, h(panel.render, { gameId: sessionId, visible: true, stagePageId, stage, ...(panel.stageReader && reader ? {reader, entryAnchor} : {}) }));
 		}
 		async function findTavernStagePluginPanel(sessionId, plugin, id) {
 			await tavernCardPluginScopes.load();
