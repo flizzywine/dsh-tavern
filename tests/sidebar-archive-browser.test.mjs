@@ -291,7 +291,7 @@ test('宽屏管理沿用侧栏的组顺序和组内排序，筛选保留原顺�
       assert.equal(await cardToggle.getAttribute('aria-expanded'), 'true')
       assert.deepEqual(await managerTitles(), sidebarTitles)
 
-      const search = manager.getByRole('textbox', { name: '搜索会话' })
+      const search = manager.getByRole('searchbox', { name: '搜索会话' })
       await search.fill('月光')
       assert.deepEqual(await groupNames(), ['乙卡', '甲卡'])
       assert.deepEqual(await managerTitles(), ['乙新', '甲新'])
@@ -340,7 +340,7 @@ test('人物卡筛选限高滚动，支持搜索、区分同名卡和清除', as
   const manager = page.getByRole('dialog', { name: '会话管理' })
   const trigger = manager.getByRole('button', { name: /^按人物卡筛选：/ })
   const picker = page.getByRole('dialog', { name: '筛选人物卡', exact: true })
-  const search = picker.getByRole('textbox', { name: '搜索人物卡' })
+  const search = picker.getByRole('searchbox', { name: '搜索人物卡' })
   const list = picker.getByRole('menu', { name: '人物卡', exact: true })
   const titles = () => manager.locator('.dsh-tavern-history-manager-title').allTextContents()
 

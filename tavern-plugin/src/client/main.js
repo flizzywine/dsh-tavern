@@ -317,6 +317,23 @@ window.__ModuleLoader__.load({
 			return String(file && file.name || "");
 		}
 
+		function mobileImportSizeText(bytes) {
+			const size = Number(bytes);
+			if (size >= 1024 ** 3) return (size / 1024 ** 3).toFixed(1) + " GB";
+			if (size >= 1024 ** 2) return Math.ceil(size / 1024 ** 2) + " MB";
+			return Math.ceil(size / 1024) + " KB";
+		}
+
+		/** What importing a pack ZIP did: the packs now in the asset library, and what is left for the player to decide there. */
+		function mobileImportPackNote(name, result) {
+			const packs = Array.isArray(result && result.packs) ? result.packs : [];
+			const titles = function (status) { return packs.filter(function (pack) { return pack.status === status; }).map(function (pack) { return "「" + pack.title + "」"; }).join("、"); };
+			const lines = [];
+			if (titles("installed")) lines.push(name + "：已装入素材库 " + titles("installed"));
+			if (titles("existing")) lines.push(name + "：素材库里已有 " + titles("existing"));
+			return lines.concat((result && result.notices) || []).join("\n");
+		}
+
 		function isMobileImportImage(name) {
 			return /\.png$/i.test(String(name || ""));
 		}
@@ -421,7 +438,7 @@ window.__ModuleLoader__.load({
 						if (result.card) {
 							last = result.card;
 							if (last.status === "partial") notes.push(name + "：素材未完整导入\n" + last.libraryNotices.join("\n"));
-						}
+						} else notes.push(mobileImportPackNote(name, result));
 					}
 					catch (err) { if (err?.code !== 'TAVERN_CARD_IMPORT_CANCELLED') failures.push(mobileImportNameOf(queue[index]) + "：" + String(err && err.message || err)); }
 				}
@@ -468,11 +485,11 @@ window.__ModuleLoader__.load({
 					thumbnailOf(file),
 					h("span", { className: "dsh-tavern-mobile-import-meta" },
 						h("b", { title: mobileImportNameOf(file) }, mobileImportNameOf(file)),
-						h("span", null, file.directory + " · " + Math.ceil(file.size / 1024) + " KB")));
+						h("span", null, file.directory + " · " + mobileImportSizeText(file.size))));
 			}
 			function emptyState() {
 				if (needle) return h(EmptyState, { query: filter, onClear: function () { setFilter(""); } });
-				return catalog && catalog.storageAccessible === false ? h("div", { className: "dsh-tavern-empty" }, "DSHA 无法读取下载目录。请在系统设置中允许 DSHA ‘访问所有文件’，然后点刷新；也可尝试系统文件选择器。") : h(EmptyState, { text: "下载目录里还没有可导入的人物卡" });
+				return catalog && catalog.storageAccessible === false ? h("div", { className: "dsh-tavern-empty" }, "DSHA 无法读取下载目录。请在系统设置中允许 DSHA ‘访问所有文件’，然后点刷新；也可尝试系统文件选择器。") : h(EmptyState, { text: "下载目录里还没有人物卡或素材包" });
 			}
 			const countText = "共 " + allFiles.length + " 个文件"
 				+ (needle ? "，匹配 " + files.length + " 个" : "")
@@ -482,10 +499,10 @@ window.__ModuleLoader__.load({
 				h("button", { type: "button", className: "dsh-tavern-btn primary", disabled: props.disabled || busy, onClick: activate }, props.batch ? "批量导入" : "导入人物卡"),
 				open ? h("div", { className: "dsh-tavern-mobile-import", role: "dialog", "aria-modal": "true", "aria-label": "从手机下载目录导入人物卡" }, h("div", { className: "dsh-tavern-mobile-import-shell" }, h("div", { className: "dsh-tavern-mobile-import-panel" },
 					h("div", { className: "dsh-tavern-mobile-import-title" }, "从手机下载目录导入"),
-					h("div", { className: "dsh-tavern-question-sub" }, "把人物卡放进手机 Download 后直接点选，.dshcard 和 .charx 卡包文件读取上限为 8 GiB。"),
+					h("div", { className: "dsh-tavern-question-sub" }, "把人物卡（PNG、JSON、卡包）或素材包 ZIP 放进手机 Download，回到这里点选；大文件也能直接导入。"),
 					h("div", { className: "dsh-tavern-mobile-import-count", role: 'status', 'aria-busy': !!progress }, progress ? h(Spinner) : null, countText),
 					error ? h("div", { className: "dsh-tavern-dock-error", role: "alert" }, error) : null,
-					notice ? h("div", { role: "status" }, notice) : null,
+					notice ? h("div", { className: "dsh-tavern-question-sub dsh-tavern-mobile-import-notice", role: "status" }, notice) : null,
 					h("div", { className: "dsh-tavern-mobile-import-tools" },
 						h("input", { className: "dsh-tavern-mobile-import-search", type: "search", value: filter, placeholder: "筛选文件名", disabled: busy, onChange: function (event) { setFilter(event.target.value); } }),
 						h("select", { className: "dsh-tavern-mobile-import-sort", value: sort, disabled: busy, "aria-label": "排序方式", onChange: function (event) { const value = event.target.value; setSort(value); saveMobileImportSort(value); } },
@@ -1223,6 +1240,7 @@ window.__ModuleLoader__.load({
 // @include features/opening-setup-form.js
 // @include features/opening-setup-template.js
 // @include modules/card-update-dialog.js
+// @include modules/script-card-update.js
 // @include features/sidebar.js
 
 // @include features/scene-images.js
@@ -1475,6 +1493,7 @@ function clipReplayCore() {
 			tavernSessionSignals = signals;
 			ctx.effect(function () { return function () { if (tavernSessionSignals === signals) tavernSessionSignals = undefined; }; }, "dsh-tavern: remote session signals");
 			ctx.effect(function () { return tavernRuntimeGenerationMonitor.start(); }, "dsh-tavern: runtime generation monitor");
+            ctx.effect(() => installTavernScriptCardUpdate({ window, rpc, onUpdated: sessionId => { liveTavernView.invalidate(sessionId); notifyTavernDataChanged(["cards"], "script-card-update"); } }), "dsh-tavern: card scripts updating their own card");
             // Host shortcuts and exit registration; the plugin starts its own session runtime.
             stageEffect(() => galStageShortcut(ctx), "dsh-tavern: stage keyboard shortcut");
             stageEffect(() => galStageLifetime(), "dsh-tavern: stage visibility lifetime");

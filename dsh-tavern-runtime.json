@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "066d6bc60a715601e578b9f3457723c15510057c",
-  "releaseSequence": 1994,
+  "revision": "f80adde5f1d1b428a510c7c6196ad2ddbcd84b63",
+  "releaseSequence": 2000,
   "version": "3.4.0",
   "files": [
     {
@@ -111,8 +111,8 @@
     },
     {
       "path": "android/native/app/src/io/github/flizzywine/dshtavern/bionic/MainActivity.java",
-      "sha256": "eba7cca79281b26a5dc9a80af5af295fa0e2575de3fa9a531da8d0a89f287c1f",
-      "size": 35872
+      "sha256": "9ebdcb4345900e31603408d4f1bcc6b5ec885905912a0b278a9fbba5918a46c5",
+      "size": 38450
     },
     {
       "path": "android/native/app/src/io/github/flizzywine/dshtavern/bionic/TarExtractor.java",
@@ -121,8 +121,8 @@
     },
     {
       "path": "android/native/app/src/io/github/flizzywine/dshtavern/bionic/TavernService.java",
-      "sha256": "307cad3a8fbd536d77ab1d32d5bde3b4a0fb6a3d35d929d46608147228d63535",
-      "size": 34825
+      "sha256": "a10ad25b401867cae58070ddd0f7cea7605d2793fc2c0f44f38cff090c906d88",
+      "size": 44741
     },
     {
       "path": "android/native/app/src/io/github/flizzywine/dshtavern/bionic/UpdatedReceiver.java",
@@ -131,8 +131,8 @@
     },
     {
       "path": "android/native/build-apk.sh",
-      "sha256": "072a6486ba79305eab7d7ffa2f772c79475be4dd4501630a3938dbd197e80d06",
-      "size": 6085
+      "sha256": "d700b9d1e336d760b1f68b3a8631cfef5b908d34bcc947e86904e64be10a420a",
+      "size": 6808
     },
     {
       "path": "android/native/device-smoke.mjs",
@@ -148,6 +148,11 @@
       "path": "android/native/fetch-termux-node.py",
       "sha256": "9562d8412254062200ec54284445d863974bae7ebd43220aaea91d2123f3c089",
       "size": 4471
+    },
+    {
+      "path": "android/native/latest.json",
+      "sha256": "1960f9f17c849e51d251c056122ce9e0f7a38a5e763a4c32972cad0f2226032e",
+      "size": 456
     },
     {
       "path": "android/native/make-icons.py",
@@ -171,8 +176,8 @@
     },
     {
       "path": "android/native/README.md",
-      "sha256": "d3d24fff8f0aa96328dee58ee195e1a3edf6dc46e0beba18c23803bf66f867f5",
-      "size": 17726
+      "sha256": "2cb1a37eec074dc79c86f64dd38d28ba8bd290b277c89c806a01cabe34e533eb",
+      "size": 18470
     },
     {
       "path": "android/native/release-smoke.mjs",
@@ -1196,13 +1201,13 @@
     },
     {
       "path": "tavern-plugin/lib/client-assets/tavern.css",
-      "sha256": "b1a0135afb78979e3539e6179d0f3aea1b19bc3a56ad698d490faa3d9e66c586",
-      "size": 459638
+      "sha256": "1b2424b30edd2cd0dd4f5aa79a5c8a9fb8b4a70e496211e50f5c6a8cabb1a30c",
+      "size": 460721
     },
     {
       "path": "tavern-plugin/lib/client-assets/theme.css",
-      "sha256": "7aaf756f44989e3b7eb4ad22139c19a67757ce8ca63956554d143b43ceb578f9",
-      "size": 737367
+      "sha256": "78306553b9fd567ad75592ddaadb47e1d36fe66bb11fef37ea2b05e5cb5cc137",
+      "size": 737660
     },
     {
       "path": "tavern-plugin/lib/client-assets/ui-sfx/cancel.ogg",
@@ -1246,8 +1251,8 @@
     },
     {
       "path": "tavern-plugin/lib/client.js",
-      "sha256": "6ad65e815394f15db64a997245d31c1648f22347de776795b73933d9ebe86740",
-      "size": 6487426
+      "sha256": "c609c8056dcc0614362c49aef6ec12d3b1c05134caa10974f465cb41fbc9ff98",
+      "size": 6490084
     },
     {
       "path": "tavern-plugin/lib/cordis-inspect.js",
@@ -1616,8 +1621,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/card-files.js",
-      "sha256": "7da489da7a49a945cdb7d05ebc93f7f2334a3c002e68fa4040ec13bd6e740d69",
-      "size": 34788
+      "sha256": "f6c58bc415f9d7aa4b60be32a617f39030c92fd254b61912e8bd1f3fd385b56f",
+      "size": 38245
     },
     {
       "path": "tavern-plugin/lib/domain/card-import-identity.js",
@@ -2506,8 +2511,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/mobile-card-import.js",
-      "sha256": "ff3691b4db46232812c2e4a02e2ddd348e7ae5897f0c507e9e38535f7c4fad0a",
-      "size": 5820
+      "sha256": "6e95eb8d4769fe6fa67c02989f2ebffb92abaa7d92261014111e03f1cb0e7392",
+      "size": 5795
     },
     {
       "path": "tavern-plugin/lib/domain/mod-system-choices.js",
@@ -4381,8 +4386,8 @@
     },
     {
       "path": "tavern-plugin/lib/index.js",
-      "sha256": "4570efd96c8effb3ced996511959d33ecb2ee194241b3defb1149eb88464f935",
-      "size": 335968
+      "sha256": "b0c1439583bac90c5bca41ff5ec89637a94e6a782bd4c725e29ea8e729d87eea",
+      "size": 336014
     },
     {
       "path": "tavern-plugin/lib/metadata-backup.js",
@@ -4471,8 +4476,8 @@
     },
     {
       "path": "tavern-plugin/lib/rpc/cards.js",
-      "sha256": "bd8a890312da44320bf7bdc0ecfd18dda2930fb99c08d165da7f54db623db4c2",
-      "size": 13961
+      "sha256": "06734cacdf90640e89dbc13ee1d70a70308bd5f6f25fd9050cf40354262c9524",
+      "size": 14084
     },
     {
       "path": "tavern-plugin/lib/rpc/conversations.js",
@@ -6616,8 +6621,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-asset-library/lib/pack-v2/automatic-writes.js",
-      "sha256": "f8acb91c6201fff02eb30a3b624190c096d5efcd9472361aaabb9446c17f0e95",
-      "size": 35988
+      "sha256": "1538f589a046cf7637165c99089f89de490781c77c6cdecedf78c986e702229d",
+      "size": 36584
     },
     {
       "path": "tavern-plugin/packages/dsh-asset-library/lib/pack-v2/budget.js",
@@ -6811,8 +6816,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-asset-library/lib/pack-v2/service.js",
-      "sha256": "2efca2252e5fbb56f003c81c937ccb53d5368c24c1e37ef7363d551bfb6f2d3e",
-      "size": 125418
+      "sha256": "fecd62e2311ae6161ff82122910e2d7d2986ee2b906017a67e7e75768122a779",
+      "size": 126224
     },
     {
       "path": "tavern-plugin/packages/dsh-asset-library/lib/pack-v2/settings-config.js",
@@ -7691,8 +7696,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-fate-dice/client.js",
-      "sha256": "328c5e422315caf67a2b3a31716a417848822306616b7b8df26c1147d6a6a90d",
-      "size": 615816
+      "sha256": "4bba961cafc521b34ce779060a9d655953d9c543230a1572202191e3603031a8",
+      "size": 617948
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-fate-dice/cordis.patch.yml",
@@ -8316,8 +8321,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-narrative-damper/client.js",
-      "sha256": "dc08de2f27463dd1975d7889cefc5cb57bef45fdb410f6c2d78ae9304184c82f",
-      "size": 53715
+      "sha256": "8299095076ebec0153b01ca00e2bd1430c6212149360edefb302a5851bb57fea",
+      "size": 55254
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-narrative-damper/cordis.patch.yml",
@@ -8361,8 +8366,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-narrative-damper/src/client/styles.js",
-      "sha256": "6ae7845947bf15e249f35b3eed3c47b5284def76a07ae32c87d684bf14370b7a",
-      "size": 12780
+      "sha256": "22ce8770d5105ee1b0c7df6be94c6042473ddb01c3dba76a2b5da4e999dc7c65",
+      "size": 14319
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-plot-compass/build.mjs",
@@ -8371,8 +8376,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-plot-compass/client.js",
-      "sha256": "fd57d1f3a0a5feeaee8e36bce4f969a9d7851b711415cb080e432253246b3307",
-      "size": 125936
+      "sha256": "799b4c249f1f7bc0038ef4ac3600401b3cf8a57f9d5152c86164715b4a9bfdd7",
+      "size": 127868
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-plot-compass/cordis.patch.yml",
@@ -10136,9 +10141,9 @@
     }
   ],
   "archive": {
-    "commit": "7f6b2254b36054048644a6a43329f78a4b7c2141",
+    "commit": "0bfb930cc83026c138e51d9e1bb549e9b56ae171",
     "path": "runtime.zip",
-    "sha256": "bd2c88d1be379ef563ec650b5e2cbe51c968b5de011a232192b9ee2749d4a22a",
-    "size": 17816105
+    "sha256": "92926518b07894090c1d819ad1966bdf946037a25ca1cb5e2c7514a58a013f34",
+    "size": 17824351
   }
 }

@@ -570,6 +570,9 @@
 					functionTools.set(name, tool);
 				},
 				unregisterFunctionTool: function (name) { functionTools.delete(String(name || "")); },
+				// The SillyTavern routes card scripts call are answered in the page (modules/script-card-update.js).
+				getRequestHeaders: function () { return { "Content-Type": "application/json", "X-CSRF-Token": "dsh-tavern" }; },
+				getCurrentChatId: function () { return String(context().chatId || ""); },
 				getCurrentLocale: function () { return "zh-CN"; },
 				getCharacterCardFields: function () { const character = options.readCharacter ? options.readCharacter() : context().character; return copy(character && (character.data || character) || {}); },
 				loadWorldInfo: async function (name) {

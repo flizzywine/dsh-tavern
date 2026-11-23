@@ -4,15 +4,23 @@ import { pngPayload } from '../domain/mobile-card-import.js'
 import { readFile, rm } from 'node:fs/promises'
 import { isCardArchiveUpload } from '../domain/uploads.js'
 import { encryptCardArchiveFile, isCardPasswordError } from '../domain/card-encryption.js'
+import { createScriptCardUpdate } from '../domain/script-card-update.js'
 
 // Card library, card workspace and card import requests.
 // `deps` carries the services ../index.js builds; dispatchMethod routes by method name.
 export function createCardHandlers(deps) {
   const { agentRegistry, cardMemory, cardOrganization, cardPacksOf, cardPlugins, cardPreparation,
     cardTaskPrompts, castAssets, chatForSession, deleteCard, ensureNativeCardWorkspace, fileResources,
-    importCard, importCardArchiveFile, importPluginCardFile, previewCardArchiveFile, discardCardArchivePreview, replaceCard, revertCardUpdate, listCards, mobileCardImport, pluginApi,
+    importCard, importCardArchiveFile, importPackArchiveFile, importPluginCardFile, previewCardArchiveFile, discardCardArchivePreview, replaceCard, revertCardUpdate, listCards, mobileCardImport, pluginApi,
     readCardWorkspace, runtimePrompt, sessionStore, setCardPlugins, sleep, str, updateCard, uploads,
     worldBooks } = deps
+  const scriptCard = createScriptCardUpdate({ presentCardText: path => deps.presentCardText(path), readCardWorkspace,
+    readCardImage: path => fileResources.readCardImage(path), replaceCard })
+  async function sessionCardPath(args) {
+    const chat = await chatForSession(args?.sessionId)
+    if (!chat?.cardPath) throw new Error('找不到对话或人物卡')
+    return chat.cardPath
+  }
 
   const cardUploadFor = id => isCardArchiveUpload(id) ? deps.cardArchiveUploads : uploads
 
@@ -24,6 +32,15 @@ export function createCardHandlers(deps) {
   }
 
   return {
+    // A card script updating its own card (script-card-update.js): the session's card only.
+    async getScriptCard(args) {
+      const cardPath = await sessionCardPath(args)
+      return { path: cardPath, ...await scriptCard.read(cardPath) }
+    },
+    async replaceScriptCard(args) {
+      const card = await scriptCard.replace(await sessionCardPath(args), { card: args?.card, world: args?.world || null, cover: str(args?.cover) })
+      return { card }
+    },
     async getCardOrganization(args) {
       return { groups: (await cardOrganization.read()).groups }
     },
@@ -81,6 +98,7 @@ export function createCardHandlers(deps) {
     async importMobileCard(args) {
       const archive = await mobileCardImport.archive(args && args.id)
       if (!archive) return { card: await importCard(await mobileCardImport.read(args && args.id)) }
+      if (/\.zip$/i.test(archive.name)) return await importPackArchiveFile(archive.file)
       if (args?.discard) { await discardCardArchivePreview(archive.file); return {} }
       if (args?.preview) return { preview: await previewCardArchiveFile(archive.file, archive.name, { password: args.password }) }
       return { card: await importCardArchiveFile(archive.file, archive.name, { password: args?.password, packDecisions: args?.packDecisions, acceptMissingPacks: args?.acceptMissingPacks === true, previewed: args?.previewed === true }) }

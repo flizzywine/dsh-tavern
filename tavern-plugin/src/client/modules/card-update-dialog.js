@@ -63,6 +63,7 @@ function TavernCardUpdateCard(props) {
 // only when the card carries another version of an installed pack). The asset library's Modal; no explanatory text.
 //   current {name, version, cover}, incoming {name, version, cover} (null while the file is read: loading),
 //   packs [{packId, title, choices, removed}], way / onWay, file / pick, result (after the update) / revert.
+//   request {source, changes[], current, incoming} instead of a file: the card's own script asks for this update (script-card-update.js).
 function TavernCardUpdateDialog(props) {
     const h = React.createElement, p = props, ui = packUi;
     const importing = p.mode === 'import', title = importing ? '导入人物卡' : '更新人物卡';
@@ -81,7 +82,7 @@ function TavernCardUpdateDialog(props) {
                 notes.length ? h('ul', null, notes.map((note, index) => h('li', { key: index }, note))) : null),
             error);
     }
-    const incoming = p.incoming, loading = Boolean(p.file) && !incoming && !p.error;
+    const request = p.request, incoming = request ? request.incoming : p.incoming, loading = Boolean(p.file) && !incoming && !p.error;
     const packs = p.packs || [], packNotices = p.packNotices || [];
     return h(ui.Modal, { title, head, busy: p.busy, onClose: p.close, className: 'fork-card-update',
         foot: h('div', { className: 'ap-actions fork-card-update-foot' },
@@ -89,6 +90,8 @@ function TavernCardUpdateDialog(props) {
             h(ui.Button, { primary: true, disabled: p.busy || !p.ready, onClick: p.replace }, p.busy ? (importing ? '正在导入…' : '正在更新…') : packNotices.length ? (importing ? '仍然导入' : '仍然更新') : importing ? '导入' : '更新')) },
         h(TavernCardUpdateCard, { cover: incoming?.cover || p.current?.cover, name: incoming?.name || p.current?.name || p.name || '',
             from: importing ? '' : p.current?.version, to: incoming?.version, file: p.file, pick: importing ? null : p.pick, busy: p.busy }),
+        request ? h('div', { className: 'fork-card-update-request' }, h('span', null, '来源'), h('code', null, request.source || '这张卡的脚本'), h('span', null, '会改动'),
+            h('ul', null, request.changes.map((change, index) => h('li', { key: index }, change)))) : null,
         loading ? h('p', { className: 'fork-card-update-loading', role: 'status' }, h(Spinner), '正在读取…') : null,
         packs.length ? h(TavernCardPacks, { packs, way: p.way, onWay: p.onWay, busy: p.busy }) : null,
         packNotices.length ? h('ul', { className: 'fork-card-update-error', role: 'alert' }, packNotices.map((note, index) => h('li', { key: index }, note))) : null,

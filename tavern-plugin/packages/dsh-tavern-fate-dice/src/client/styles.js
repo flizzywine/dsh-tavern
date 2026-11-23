@@ -281,7 +281,9 @@ const CSS_TEXT = `
 .fd-switch {
   position: relative;
   width: 44px;
+  min-width: 44px;
   height: 26px;
+  min-height: 26px;
   flex: 0 0 auto;
   border-radius: 999px;
   border: 1px solid var(--fd-line);
@@ -293,7 +295,7 @@ const CSS_TEXT = `
 .fd-switch::after {
   content: '';
   position: absolute;
-  top: 2px;
+  top: calc(50% - 10px);
   left: 2px;
   width: 20px;
   height: 20px;
@@ -494,12 +496,16 @@ const CSS_TEXT = `
 }
 .fd-help.is-open { flex: 1 1 100%; }
 .fd-help-btn {
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   flex: 0 0 auto;
   width: 17px;
+  min-width: 17px;
   height: 17px;
+  min-height: 17px;
+  aspect-ratio: 1 / 1;
   padding: 0;
   border-radius: 999px;
   border: 1px solid color-mix(in oklab, var(--fd-accent) 48%, transparent);
@@ -555,6 +561,8 @@ const CSS_TEXT = `
 }
 .fd-help-close {
   flex: 0 0 auto;
+  min-width: 0;
+  min-height: 0;
   padding: 0 5px;
   border: 1px solid transparent;
   border-radius: 6px;
@@ -926,11 +934,15 @@ const CSS_TEXT = `
   animation: fd-rise 0.16s ease-out;
 }
 .fd-popover-close {
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   width: 20px;
+  min-width: 20px;
   height: 20px;
+  min-height: 20px;
+  aspect-ratio: 1 / 1;
   padding: 0;
   border-radius: 999px;
   border: 1px solid transparent;
@@ -1957,11 +1969,73 @@ article.dsh-tavern-story-floor {
   to { transform: translateY(0); opacity: 1; }
 }
 
+/* 宿主右侧栏移动端触控地板（min-height: 40px）不得撑坏命运之骰内圆点、开关、胶囊与紧凑按钮 */
+@media (max-width: 1023px), (pointer: coarse) {
+  body.dsh-tavern-shell-active [data-sidebar-right-panel] .fd-root button.fd-help-btn {
+    width: 17px;
+    min-width: 17px;
+    height: 17px;
+    min-height: 17px;
+    padding: 0;
+  }
+  .fd-root .fd-help-btn::after {
+    content: '';
+    position: absolute;
+    inset: -8px;
+  }
+  body.dsh-tavern-shell-active [data-sidebar-right-panel] .fd-root button.fd-switch {
+    width: 44px;
+    min-width: 44px;
+    height: 26px;
+    min-height: 26px;
+    padding: 0;
+  }
+  .fd-root .fd-switch::before {
+    content: '';
+    position: absolute;
+    inset: -7px -4px;
+  }
+  body.dsh-tavern-shell-active [data-sidebar-right-panel] .fd-root button.fd-popover-close {
+    width: 20px;
+    min-width: 20px;
+    height: 20px;
+    min-height: 20px;
+    padding: 0;
+  }
+  .fd-root .fd-popover-close::after {
+    content: '';
+    position: absolute;
+    inset: -8px;
+  }
+  body.dsh-tavern-shell-active [data-sidebar-right-panel] .fd-root button.fd-help-close {
+    min-height: 0;
+  }
+  body.dsh-tavern-shell-active [data-sidebar-right-panel] .fd-root button.fd-chip {
+    min-height: 30px;
+  }
+  body.dsh-tavern-shell-active [data-sidebar-right-panel] .fd-root button.fd-btn {
+    min-height: 34px;
+  }
+  body.dsh-tavern-shell-active [data-sidebar-right-panel] .fd-root button.fd-btn.is-sm {
+    min-height: 29px;
+  }
+  body.dsh-tavern-shell-active [data-sidebar-right-panel] .fd-root button.fd-tab {
+    min-height: 34px;
+  }
+  body.dsh-tavern-shell-active [data-sidebar-right-panel] .fd-root button.fd-turn-head {
+    min-height: 34px;
+  }
+  .fd-wb-scroll {
+    padding-bottom: calc(72px + env(safe-area-inset-bottom, 0px));
+  }
+}
+
 /* ---------- 手机竖屏 / 窄栏单列 ---------- */
 @media (max-width: 720px) {
   .fd-wb-top { gap: 6px; padding-bottom: 6px; }
   .fd-tabbar { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .fd-tab { min-height: 30px; padding: 4px 8px; }
+  .fd-tab,
+  body.dsh-tavern-shell-active [data-sidebar-right-panel] .fd-root button.fd-tab { min-height: 30px; padding: 4px 8px; }
   .fd-live-sub { white-space: normal; }
   .fd-row { align-items: flex-start; }
 }

@@ -231,12 +231,23 @@ export function createAssetPackService(options) {
   const covers = (have, want) => want === true || !have || have === want || have === 'figures' && want === 'manifest'
   // A record edit outside a pack write changes the figures a pack shows (figureRecordsChanged): its reads start over.
   const recordGenerations = new Map()
+  // Readers that miss together share one read of the pack: after a restart every card's 自动选角 context and the stage read
+  // the same packs at once, and each reading them on its own multiplied a cold library read by the readers (11-23: 12 readers,
+  // 15 s each, the stage's own pack reads waited behind them).
+  const metadataReads = new Map()
   async function metadata(id, summaryOnly = false) {
     const stamp = await storage.stamp(id), signature = stamp === null ? null : stamp + '#' + (recordGenerations.get(id) || 0), cached = metadataCache.get(id)
     if (cached?.signature === signature && covers(cached.summaryOnly, summaryOnly)) {
       metadataCache.delete(id); metadataCache.set(id, cached)
       return cached.pack
     }
+    const reading = metadataReads.get(id)
+    if (reading?.signature === signature && covers(reading.summaryOnly, summaryOnly)) return reading.pack
+    const read = {signature, summaryOnly, pack:readMetadata(id, stamp, signature, summaryOnly)}
+    metadataReads.set(id, read)
+    try { return await read.pack } finally { if (metadataReads.get(id) === read) metadataReads.delete(id) }
+  }
+  async function readMetadata(id, stamp, signature, summaryOnly) {
     evictMetadata(id)
     if (signature === null) return null
     // Stored bytes were validated on ingress. Reads parse author documents only.
@@ -634,7 +645,7 @@ export function createAssetPackService(options) {
   const service = {
     ...createVoiceAuthoring({assetRoot:options.assetRoot,storage,run,load,edit,cas,limits}),
     ...createStageSetupMethods({assetRoot:options.assetRoot,run,all,load,verify,storage,cards:options.cardTransactions,nextLocal,emit,blankManifest,createFigure}),
-    ...createAutomaticWriteMethods({run,readRun,all,load,metadata,verify,storage,cards:options.cardTransactions,nextLocal,emit,blankManifest,createFigure,cas,now,limits,evictMetadata,globalPackIds:options.globalEnabledPackIds,
+    ...createAutomaticWriteMethods({run,readRun,load,metadata,verify,storage,cards:options.cardTransactions,nextLocal,emit,blankManifest,createFigure,cas,now,limits,evictMetadata,globalPackIds:options.globalEnabledPackIds,
       figureImageExtras:(packId, figureIds) => figureImageExtras(options, packId, figureIds),
       carryFigureImageMedia:(packId, extras, manifest, files, hashed) => carryFigureImageMedia(options, packId, extras, manifest, files, hashed)}),
     ...createModPrivateMethods({validators:modValidators,run,metadata,storage,cas,edit,readDocument,jsonBytes,load,verify,sealPack,nextLocal,emit,cards:options.cardTransactions,randomUUID,blankManifest,remapPack}),

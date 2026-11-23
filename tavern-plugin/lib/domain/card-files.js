@@ -23,11 +23,13 @@ const COVER_TYPES = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', w
 // An installed pack the card carries another version of: the player chooses 完全替换 (update) or, where the asset
 // library offers it, 增量更新 (merge). A pack with scripts is never installed from a card (the asset library asks).
 const packConflict = preview => preview.choices.includes('update') && !(preview.scriptRisk || []).length
-
+// What applies a preview without asking: an identical pack is left as it is, a new one installed; a pack with scripts
+// is never applied, and one that clashes with an installed version takes onConflict ('' leaves it to the player).
 const previewDecision = (preview, onConflict) => preview.choices.includes('noop') ? 'noop'
   : (preview.scriptRisk || []).length ? ''
     : preview.choices.includes('install') ? 'install'
       : packConflict(preview) ? onConflict : ''
+
 
 // Card files in and out of the card library. pluginApi is a getter: it is built after the library.
 // backupPack(file, {packId, expectedRevision}) writes an installed pack, unchanged, to a private file (the asset
@@ -129,6 +131,45 @@ export function createCardFiles({ cardPreparation, fileResources, castAssets, as
   }
   function cardLibraryResult(notices) {
     return notices.length ? { status: 'partial', libraryNotices: notices } : {}
+  }
+
+  // A pack ZIP (or 素材包合集) read from disk where it is, as the asset library's import does it (inspectImportFile: the media
+  // stream to disk and a full disk undoes the whole pack). A new pack is installed and an identical one left as it is; a pack
+  // with scripts, or that clashes with an installed version, is not applied: the player decides in the asset library.
+  async function importPackArchiveFile(file) {
+    const library = packLibrary()
+    if (!library) throw new Error('素材库不可用，没法导入素材包')
+    const installed = [], notices = []
+    const preview = await library.inspectImportFile({ file }).catch(error => {
+      // not a pack ZIP: a card ZIP, a plain ZIP or a damaged file (the same codes the asset library's own import page maps)
+      if (!error?.code || ['INVALID_INPUT', 'INVALID_PATH', 'FILE_CLOSURE_MISMATCH'].includes(error.code)) throw new Error('这个文件不是素材包，或者已经损坏。卡 ZIP 请用「导入卡 ZIP」导入。')
+      if (error?.code === 'ENOSPC') throw new Error('磁盘空间不够，没有导入这个素材包，也没有留下半个文件。腾出空间后再试一次。')
+      throw error
+    })
+    // A pack collection is one preview per pack, applied one by one: a failure leaves the packs before it installed (said
+    // below), and the ones after it are cancelled so their previews do not wait for the asset library to expire them.
+    const previews = preview.kind === 'pack-set' ? preview.packs : [preview]
+    for (const [index, one] of previews.entries()) {
+      try { await applyPackPreview(library, one, installed, notices) }
+      catch (error) {
+        for (const rest of previews.slice(index)) await library.applyImport({ inspectionId: rest.inspectionId, decision: 'cancel' }).catch(() => {})
+        const reason = error?.code === 'ENOSPC' ? '磁盘空间不够，腾出空间后再试一次' : str(error?.message || error)
+        throw new Error('素材包「' + (one.incoming?.manifest?.name || one.packId) + '」没有装入：' + reason + '（没有留下半个包）'
+          + (installed.length ? '。已装入：' + installed.map(pack => '「' + pack.title + '」').join('、') : '') + (previews.length > index + 1 ? '。其余 ' + (previews.length - index - 1) + ' 个包没有处理' : ''))
+      }
+    }
+    return { packs: installed, ...(notices.length ? { notices } : {}) }
+  }
+  async function applyPackPreview(library, one, installed, notices) {
+    const label = one.incoming?.manifest?.name || one.packId
+    const decision = previewDecision(one, '')
+    if (!decision) {
+      await library.applyImport({ inspectionId: one.inspectionId, decision: 'cancel' }).catch(() => {})
+      notices.push('素材包「' + label + '」' + ((one.scriptRisk || []).length ? '带脚本' : '和素材库里已有的包冲突') + '，没有装入，请在素材库里处理')
+      return
+    }
+    await library.applyImport({ inspectionId: one.inspectionId, decision, expectedRevision: one.expectedRevision })
+    installed.push({ id: one.packId, title: label, status: decision === 'noop' ? 'existing' : 'installed' })
   }
   // Bound packs a .dshcard does not carry: the binding stays and works once the pack is in the asset library.
   async function dependencyNotices(dependencies) {
@@ -465,5 +506,5 @@ export function createCardFiles({ cardPreparation, fileResources, castAssets, as
       return { path: record.cardPath, reverted: true }
     })
   }
-  return { discardCardArchivePreview, replaceCard, revertCardUpdate, importCard, importCardArchiveFile, previewCardArchiveFile, importPluginCardFile, presentCardText, exportCardPng, exportCardFile }
+  return { discardCardArchivePreview, replaceCard, revertCardUpdate, importCard, importCardArchiveFile, importPackArchiveFile, previewCardArchiveFile, importPluginCardFile, presentCardText, exportCardPng, exportCardFile }
 }
