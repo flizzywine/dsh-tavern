@@ -399,7 +399,10 @@ function stageSkinArt(document, files, entry = '') {
             // floor keeps them in the floored scale (theme.css --art-pad-t / -b), so a grown box breathes as the drawn one
             Object.assign(tokens,{'--art-m-t':round(Math.max(0,top - y)),'--art-m-b':round(Math.max(0,y + bh - top - block))});
         }
-        if (box.bob) marks['data-fk-skin-art-bob']=box.bob;
+        // A cue that rises or dips 0 px is still: its looping keyframes would restyle the cue every frame for no motion.
+        if (box.bob === 'blink' || marks['data-fk-skin-art-cue-frames'] !== undefined) {if (box.bob) marks['data-fk-skin-art-bob']=box.bob;}
+        else if (!box.rise) marks['data-fk-skin-art-bob']='still';
+        else if (box.bob) marks['data-fk-skin-art-bob']=box.bob;
         // 「代表色」: the masked trim of each box image takes the speaker's own colour (theme.css
         // 「stage skin: art」, a luminosity blend); the cue's colours follow through stageSkinTint.
         if (box.tint) {
