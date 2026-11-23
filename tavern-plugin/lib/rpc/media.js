@@ -32,8 +32,10 @@ export function createMediaHandlers(deps) {
     },
     // Speech recognition: the host's shared service (speech-recognition-host.js).
     getSpeechRecognitionConfig(args) { return deps.speechRecognition.methods.getSpeechRecognitionConfig(args) },
-    saveSpeechRecognitionConfig(args) { return deps.speechRecognition.methods.saveSpeechRecognitionConfig(args) },
-    setSpeechRecognitionKey(args) { return deps.speechRecognition.methods.setSpeechRecognitionKey(args) },
+    saveSpeechRecognitionService(args) { return deps.speechRecognition.methods.saveSpeechRecognitionService(args) },
+    deleteSpeechRecognitionService(args) { return deps.speechRecognition.methods.deleteSpeechRecognitionService(args) },
+    describeSpeechRecognitionService(args) { return deps.speechRecognition.methods.describeSpeechRecognitionService(args) },
+    listSpeechRecognitionServices(args) { return deps.speechRecognition.methods.listSpeechRecognitionServices(args) },
     startSpeechRecognition(args) { return deps.speechRecognition.methods.startSpeechRecognition(args) },
     appendSpeechRecognition(args) { return deps.speechRecognition.methods.appendSpeechRecognition(args) },
     pollSpeechRecognition(args) { return deps.speechRecognition.methods.pollSpeechRecognition(args) },

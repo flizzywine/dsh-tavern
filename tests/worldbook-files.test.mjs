@@ -5,7 +5,7 @@ import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { createWorldbookFiles } from '../tavern-plugin/lib/domain/worldbook-files.js'
-import { virtualHash, virtualScope } from '../tavern-plugin/lib/domain/worldbook-virtual-state.js'
+import { recentWorldbookLookups, worldbookTitleHints } from '../tavern-plugin/lib/domain/worldbook-title-hints.js'
 
 async function fixture(t) {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'worldbook-files-'))
@@ -23,26 +23,6 @@ async function fixture(t) {
   return { directory, agent, state, provider, lookup: { scope: agent } }
 }
 
-test('files include static constants but never expose unrendered dynamic code', async t => {
-  const { provider, lookup } = await fixture(t)
-  const listed = await provider.listFiles({ limit: 1 }, lookup)
-  assert.equal(listed.total, 3); assert.equal(listed.nextOffset, 1)
-  const next = await provider.listFiles({ offset: listed.nextOffset, version: listed.version }, lookup)
-  assert.notEqual(next.files[0].path, listed.files[0].path)
-  const names = await fs.readdir(listed.directory)
-  assert.deepEqual(names.sort(), ['.scope-id', '港口--2.md', '港口.md', '常驻资料'].sort())
-  assert.match(await fs.readFile(listed.files[0].path, 'utf8'), /Harbor\n港口秘密/)
-  const result = await provider.searchFiles({ query: 'HARBOR' }, lookup)
-  assert.equal(result.total, 1); assert.equal(result.matches[0].line, 3)
-  assert.equal((await provider.searchFiles({ query: 'HARBOR', caseSensitive: true }, lookup)).total, 0)
-  const search = await provider.searchFiles({ query: '港口', limit: 2 }, lookup)
-  assert.equal(search.total, 5); assert.equal(search.nextOffset, 2)
-  assert.equal((await provider.searchFiles({ query: '港口', offset: 2, version: search.version }, lookup)).matches.length, 3)
-  assert.equal((await provider.searchFiles({ query: '秘密' }, lookup)).total, 2)
-  await assert.rejects(provider.searchFiles({ query: '', limit: 1 }, lookup), /query/)
-  await assert.rejects(provider.listFiles({ limit: 0 }, lookup), /limit/)
-})
-
 test('reads reject foreign scope, traversal, symlinks, cancellation and permits legacy saves', async t => {
   const { provider, lookup, state } = await fixture(t)
   const { files } = await provider.listFiles({}, lookup)
@@ -59,70 +39,84 @@ test('reads reject foreign scope, traversal, symlinks, cancellation and permits 
   assert.ok((await provider.listFiles({}, lookup)).files.length > 0)
 })
 
-test('preprocessing visibility remains authoritative and is never executed by file generation', async t => {
-  const { provider, lookup, state } = await fixture(t)
-  const entries = state.worldBook.view.entries
-  entries.push({ ref: 'controller', constant: true, content: '@@generate_before\n<% throw new Error("never execute") %>' })
-  assert.equal((await provider.listFiles({}, lookup)).total, 0)
-  state.chat.worldBookVirtualState = { schemaVersion: 1, scope: virtualScope(state.chat), visibility: { version: virtualHash(entries), refs: ['a'] }, entries: {} }
-  assert.equal((await provider.listFiles({}, lookup)).total, 1)
-  entries[0].content = 'changed without runtime visibility update'
-  assert.equal((await provider.listFiles({}, lookup)).total, 0)
+test('成功查到正文的条目安静十个剧情回合，标题命中、失效路径和不可见回执不计入', async t => {
+  const { provider, agent, lookup, state } = await fixture(t)
+  const { files } = await provider.inspect(lookup)
+  const first = files.find(file => file.ref === 'a')
+  const second = files.find(file => file.ref === 'b')
+  await provider.refresh(agent)
+
+  const events = []
+  function lookupAt(turn, name, args, text, isError = false, meta = undefined) {
+    const id = 'call-' + events.length
+    events.push(
+      { type: 'assistant/message', data: { turn, message: { role: 'assistant', source: { kind: 'model' },
+        content: [{ type: 'tool-call', id, name, arguments: JSON.stringify(args) }] } } },
+      { type: 'tool/result', data: { turn, meta, message: { role: 'tool', toolCallId: id, isError, content: [{ type: 'text', text }] } } }
+    )
+  }
+  lookupAt(2, 'worldbook_grep', { query: '港口' }, JSON.stringify({ matches: [
+    { path: first.path, line: 4, text: '港口秘密' },
+    { path: second.path, line: 1, text: '# 港口' }
+  ] }))
+  lookupAt(4, 'read', { file_path: second.path }, '读取失败', true)
+  lookupAt(6, 'read', { file_path: second.path }, '3: 另一港口')
+  const session = { surface: { nodes: [0, 1, 2, 3, 4] }, eventAt: index => events[index] }
+  const messages = Array.from({ length: 10 }, (_, index) => ({ role: 'assistant', turn: 2 * (index + 1) }))
+  const lookups = recentWorldbookLookups(session, messages)
+  assert.deepEqual(provider.refsForLookups(agent, lookups), ['a'])
+  assert.deepEqual(provider.refsForLookups({}, lookups), [])
+  assert.deepEqual(recentWorldbookLookups(session, [...messages, { role: 'assistant', turn: 22 }]), { paths: new Set(), ids: new Set() })
+  session.surface.nodes.push(5)
+  assert.deepEqual(provider.refsForLookups(agent, recentWorldbookLookups(session, messages)), ['b', 'a'])
+
+  const body = await provider.readByKeyword({ keyword: second.lookupId }, lookup)
+  lookupAt(8, 'read_lorebook', { keyword: second.lookupId }, body.text, false, { worldbookRead: { id: body.id, title: body.title } })
+  lookupAt(10, 'read_lorebook', { keyword: '港口' }, JSON.stringify(await provider.readByKeyword({ keyword: '港口' }, lookup)))
+  session.surface.nodes = [6, 7, 8, 9]
+  assert.deepEqual(provider.refsForLookups(agent, recentWorldbookLookups(session, messages)), ['b'])
+  lookupAt(12, 'grep_lorebook', { query: '秘密' }, '港口\n港口秘密', false, { lorebookGrepIds: [first.lookupId] })
+  lookupAt(14, 'grep_lorebook', { query: '港口' }, '港口', false, { lorebookGrepIds: [] })
+  session.surface.nodes = [10, 11, 12, 13]
+  const grepLookups = recentWorldbookLookups(session, messages)
+  assert.deepEqual(provider.refsForLookups(agent, grepLookups), ['a'])
+
+  state.worldBook.view.entries[0].content += '\n改写'
+  await provider.refresh(agent)
+  assert.deepEqual(provider.refsForLookups(agent, lookups), [])
+  assert.deepEqual(provider.refsForLookups(agent, grepLookups), [])
+  assert.deepEqual(provider.refsForLookups(agent, recentWorldbookLookups(session, messages)), [])
 })
 
- test('runtime renders feed searchable snapshots without search side effects, dynamic updates preserve static paths', async t => {
-  const { createForegroundWorldbook } = await import('../tavern-plugin/lib/domain/foreground-worldbook.js')
-  const { projectVirtualWorldbookPrefix } = await import('../tavern-plugin/lib/domain/worldbook-virtual-state.js')
-  const { provider, lookup, state, directory } = await fixture(t)
-  const dynamic = state.worldBook.view.entries.find(entry => entry.ref === 'd')
-  dynamic.constant = true
-  let output = '晴天，港口开放', calls = 0
-  const project = createForegroundWorldbook({ bound: async () => state.worldBook,
-    runtime: async () => ({ render: async () => { calls++; return { ok: true, text: output, scopes: {} } } }), globalVariables: async () => ({}) })
-  const run = async requestKey => {
-    const projected = await project({ chat: state.chat, card: {}, requestKey })
-    state.chat.worldBookVirtualState = projected.virtualState
-    return projected
+test('按标题、别名或正文关键词读取；同名条目按候选 ID 区分', async t => {
+  const { provider, lookup, state } = await fixture(t)
+  state.worldBook.view.entries[2].primaryKeys = ['港口', '默认规则']
+  const read = (keyword, options) => provider.readByKeyword({ keyword, ...options }, lookup)
+  const duplicate = await read(' 港口 ')
+  assert.equal(duplicate.status, 'multiple')
+  assert.equal(duplicate.total, 2, 'exact titles take precedence over aliases and body mentions')
+  assert.deepEqual(duplicate.candidates.map(row => row.title), ['港口', '港口'])
+  const second = await read(duplicate.candidates[1].id)
+  assert.equal(second.text, '另一港口')
+  assert.equal((await read('harbor')).text, 'Harbor\n港口秘密\n另一行港口')
+  assert.equal((await read('默认规则')).text, '常驻秘密')
+  for (const keyword of ['关闭秘密', '更新规则', '<%= value %>', '不存在']) {
+    assert.deepEqual(await read(keyword), { status: 'not_found' })
   }
-  const first = await run('one')
-  assert.equal(first.context, '')
-  assert.doesNotMatch(first.context, /晴天|港口开放/)
-  const { appendWorldbookSkillChanges } = await import('../tavern-plugin/lib/domain/worldbook-skill-changes.js')
-  const payload = { agent: { session: { events: [] } }, messages: [] }
-  const notify = async () => {
-    await provider.refresh(lookup.scope)
-    return appendWorldbookSkillChanges(payload, provider.changeSnapshot(lookup.scope))
-  }
-  const initialNotice = await notify()
-  assert.match(initialNotice.content[0].text, /动态快照已就绪.*动态/)
-  assert.doesNotMatch(initialNotice.content[0].text, /晴天|港口开放/)
-  assert.equal(await notify(), null)
-  const list = await provider.listFiles({}, lookup)
-  const staticPath = list.files.find(file => file.title === '港口').path
-  const snapshotPath = list.files.find(file => file.category === '动态快照').path
-  assert.match(await provider.readResource(snapshotPath, lookup), /晴天，港口开放/)
-  assert.equal((await provider.searchFiles({ query: '港口开放' }, lookup)).total, 1)
-  assert.equal(calls, 1, 'listing/search/read never execute EJS')
-  assert.equal(projectVirtualWorldbookPrefix(state.worldBook, state.chat).snapshots, '', 'compaction cannot restore data bodies')
-  assert.equal((await run('two')).context, '', 'unchanged output has no notification')
-  output = '暴雨，港口关闭'
-  const changed = await run('three')
-  assert.equal(changed.context, '')
-  const changeNotice = await notify()
-  assert.match(changeNotice.content[0].text, /改写.*动态/)
-  assert.doesNotMatch(changeNotice.content[0].text, /暴雨|港口关闭/)
-  assert.equal(await notify(), null)
-  assert.doesNotMatch(changed.context, /暴雨|港口关闭/)
-  assert.equal(await provider.authorizeRead(staticPath, lookup), true)
-  assert.equal(await provider.authorizeRead(snapshotPath, lookup), false)
-  assert.equal((await provider.searchFiles({ query: '晴天' }, lookup)).total, 0)
-  assert.equal((await provider.searchFiles({ query: '港口关闭' }, lookup)).total, 1)
-  const other = { ...state.chat, sessionId: 'other' }
-  const isolated = createWorldbookFiles({ directory, load: async () => ({ chat: other, worldBook: state.worldBook }) })
-  assert.equal((await isolated.searchFiles({ query: '港口关闭' }, { scope: { session: { id: 'other' } } })).total, 0)
-  output = ''
-  assert.equal((await run('four')).context, '')
-  assert.match((await notify()).content[0].text, /撤回资料.*动态/)
-  assert.equal((await provider.searchFiles({ query: '港口关闭' }, lookup)).total, 0)
-  assert.equal((await run('five')).context, '')
+  state.worldBook.view.entries[2].content = '🍵'.repeat(8001)
+  const firstPage = await read('默认规则')
+  assert.equal(firstPage.text, '🍵'.repeat(8000))
+  const nextPage = await read(firstPage.id, { offset: firstPage.nextOffset })
+  assert.equal(nextPage.text, '🍵')
+  assert.equal(nextPage.nextOffset, null)
+})
+
+test('标题提醒用一行列出至多三个近期未读的静态匹配项', () => {
+  const entries = ['薛姨妈', '史太君', '王夫人', '贾琏', '凤姐'].map((title, index) => ({
+    ref: title, title, enabled: true, order: 100 + index, primaryKeys: [title], content: title + '正文'
+  }))
+  const input = { worldBook: { view: { entries } }, chat: { messages: [] },
+    turn: 15, userText: entries.map(entry => entry.title).join(' '), recentlyReadRefs: ['史太君'] }
+  assert.equal(worldbookTitleHints(input), '<lorebook_title_hints>\n可能用到的世界书条目：薛姨妈、王夫人、贾琏\n</lorebook_title_hints>')
+  assert.equal(worldbookTitleHints({ ...input, userText: '史太君' }), '')
 })

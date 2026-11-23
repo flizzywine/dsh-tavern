@@ -33,9 +33,9 @@ export function projectGameModeForeground(session, { key, text }) {
   return true
 }
 
-export async function restoreGameModeForeground({ sessions, agents }, gameId, projection) {
-  return withHostSession({ sessions, agents }, gameId, async session => {
+export async function restoreGameModeForeground(host, gameId, projection) {
+  return withHostSession(host, gameId, async session => {
     projectGameModeForeground(session, projection)
-    await sessions.flush(session)
+    await host.sessions.flush(session)
   })
 }

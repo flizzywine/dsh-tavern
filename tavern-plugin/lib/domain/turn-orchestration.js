@@ -18,7 +18,7 @@ import { applyJsonChangesShared, diffJson } from './json-mutation.js'
 import { hasTavernCredit, withTavernCredit } from './card-credit.js'
 import { projectPluginBody } from './st-contract-service.js'
 import { STORY_CONTEXT_TOOL_NAME, STORY_GENERATE_TOOL_NAME, STORY_SUBMIT_TOOL_NAME, storyToolCallEnabled } from './story-tool-submission.js'
-import { normalizeDisabledForegroundTools } from './foreground-tools.js'
+import { normalizeDisabledForegroundTools, WORLDBOOK_ACCESS_TOOLS, WORKBENCH_READ_LOREBOOK_TOOL, WORKBENCH_UPDATE_LOREBOOK_TOOL } from './foreground-tools.js'
 import { variableUpdateFor } from './variable-update.js'
 import { replyProse } from './reply-prose.js'
 import { captureBodyRegenerationSource } from './body-regeneration-materials.js'
@@ -246,6 +246,7 @@ function rememberFrame(chat, frame) {
 const FRAME_INSTRUCTION_KIND = Object.freeze({
   base: 'foreground.writing-rules',
   'world-book': 'foreground.active-worldbook',
+  'world-book-title-hints': 'foreground.worldbook-title-hints',
   posture: 'foreground.current-state',
   'variable-update': 'foreground.current-state',
   guide: 'foreground.guide',
@@ -830,7 +831,8 @@ export function createTurnOrchestrator(options) {
       const macroState = templateMacros && state.macroState?.userName !== plannedUserName
         ? { ...templateMacros, userName: state.macroState?.userName } : templateMacros
       return planner.plan({ purpose: 'body', card, chat: macroState ? { ...state, macroState } : state, userText: runtimeUserText,
-        sessionId: input.sessionId, nativeTurn: turn, scriptReference, styleReference: null, variableUpdate: variableUpdateFor(state), worldBookContext })
+        sessionId: input.sessionId, nativeTurn: turn, scriptReference, styleReference: null, variableUpdate: variableUpdateFor(state),
+        worldBookContext, worldBookTitleHints: foregroundWorldBook?.titleHints })
     }
     const plan = await planBody(chat)
     // Seam to the plugin layer; it never throws and drops a failing plugin's part.
@@ -1123,7 +1125,7 @@ export function createTurnOrchestrator(options) {
       if (generated?.status !== 'ready' || generated.receipt?.text?.trim() !== rawAssistantText) throw new Error('本轮未取得有效的插件正文，不能保存或自动补记')
     }
     const extractedForegroundChoices = mode === 'story'
-      ? extractForegroundStoryChoices(rawAssistantText, { card: { name: chat.cardName }, chat })
+      ? await (options.extractForegroundChoices || extractForegroundStoryChoices)(rawAssistantText, { card: { name: chat.cardName }, chat })
       : { proseText: rawAssistantText, choices: null, hadTag: false }
     const sourceText = str(extractedForegroundChoices.proseText).trim()
     let assistantText = sourceText
@@ -1464,6 +1466,19 @@ export function createTurnOrchestrator(options) {
               }
             }
           }
+        } else if (!Object.values(timeline.inspect({ chat }).operations).some(function (item) {
+          return item.kind === 'body' && item.status === 'running'
+        })) {
+          // A turn that failed or aborted before prepare created an operation still
+          // left appendUser's placeholder flag on the tail row; retire that flag so
+          // unansweredTailIndex recognizes it for regeneration just like post-prepare failures.
+          const tailIndex = Array.isArray(chat.messages) ? chat.messages.length - 1 : -1
+          const tail = tailIndex >= 0 ? chat.messages[tailIndex] : null
+          if (tail?.role === 'user' && tail.native === true && tail.placeholder === true && str(tail.source?.rpcId).trim()) {
+            chat.messages[tailIndex] = { ...tail }
+            delete chat.messages[tailIndex].placeholder
+            changed = true
+          }
         }
       }
       return changed ? chat : undefined
@@ -1489,10 +1504,7 @@ export function createTurnOrchestrator(options) {
     }
     if (pluginGeneration && ['story', 'script'].includes(mode)) storyTools.push(STORY_GENERATE_TOOL_NAME)
     // Card workbenches keep their fixed editing tools; the per-game switches are play-only.
-    if (mode === 'card') return [...CARD_MEMORY_TOOLS, 'web_search', 'web_fetch', shellToolName, ...dshFileToolNames, 'skill', 'tavern_read_skill_reference', 'tavern_save_skill', ...cordisToolNames, 'tavern_user_profile_read', 'tavern_user_profile_save', 'tavern_read_card', 'tavern_read_card_raw', 'tavern_search_card', 'tavern_replace_card_text', 'tavern_mvu_overview', 'tavern_apply_mvu', 'tavern_read_play_chat', 'tavern_read_runtime_health', 'tavern_read_worldbook', 'tavern_update_worldbook', 'tavern_read_preset', 'tavern_update_preset', 'tavern_read_regex_library', 'tavern_copy_card', 'tavern_set_card_cover', 'tavern_export_card_png', 'tavern_update_card', 'tavern_restore_card', 'tavern_validate_card', 'tavern_test_response']
-    // Search and browse expose current real files; native read is restricted
-    // to the calling game's effective static worldbook generation.
-    const worldbookTools = ['read', 'worldbook_list', 'worldbook_grep']
+    if (mode === 'card') return [...CARD_MEMORY_TOOLS, 'web_search', 'web_fetch', shellToolName, ...dshFileToolNames, 'skill', 'tavern_read_skill_reference', 'tavern_read_skill', 'tavern_save_skill', ...cordisToolNames, 'tavern_user_profile_read', 'tavern_user_profile_save', 'tavern_read_card', 'tavern_read_card_raw', 'tavern_search_card', 'tavern_replace_card_text', 'tavern_mvu_overview', 'tavern_apply_mvu', 'tavern_read_play_chat', 'tavern_read_runtime_health', WORKBENCH_READ_LOREBOOK_TOOL, WORKBENCH_UPDATE_LOREBOOK_TOOL, 'tavern_read_preset', 'tavern_update_preset', 'tavern_read_regex_library', 'tavern_copy_card', 'tavern_set_card_cover', 'tavern_export_card_png', 'tavern_update_card', 'tavern_restore_card', 'tavern_validate_card', 'tavern_test_response']
     // A mod's foreground tool (options.modTools: [{modId, name}]) is offered where this game's history already calls it (a
     // replayed call needs its tool declared), where the card offers it (cardOffer, lib/mod-tools.js: 'card'), or where the card
     // leaves it to the mod switch (null) and the card has the mod on.
@@ -1503,8 +1515,8 @@ export function createTurnOrchestrator(options) {
       if ((chat.usedModTools || []).includes(tool.name) || from === 'card' || (from === null && await options.modEnabled?.(tool.modId, chat.cardPath) === true)) modTools.push(tool.name)
     }
     const names = mode === 'script'
-      ? [...modTools, 'tavern_read_variables', 'skill', 'tavern_read_skill_reference', 'tavern_read_script', 'tavern_recall_history', ...worldbookTools, ...webTools, ...storyTools]
-      : [...modTools, 'tavern_read_variables', 'skill', 'tavern_read_skill_reference', 'tavern_recall_history', ...worldbookTools, ...webTools, ...storyTools]
+      ? [...modTools, 'tavern_read_variables', 'skill', 'tavern_read_skill_reference', 'tavern_read_script', 'tavern_recall_history', ...WORLDBOOK_ACCESS_TOOLS, ...webTools, ...storyTools]
+      : [...modTools, 'tavern_read_variables', 'skill', 'tavern_read_skill_reference', 'tavern_recall_history', ...WORLDBOOK_ACCESS_TOOLS, ...webTools, ...storyTools]
     if (mode === 'story' && chat.backgroundTasks?.styleReference === true) names.push('style_reference_submit')
     const disabled = new Set(normalizeDisabledForegroundTools(chat.disabledForegroundTools))
     if (pluginGeneration && disabled.has(STORY_GENERATE_TOOL_NAME)) throw new Error('已选择插件生成正文，但本局禁用了正文生成工具')

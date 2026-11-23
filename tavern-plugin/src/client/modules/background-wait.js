@@ -265,7 +265,7 @@ function TavernBackgroundMembers(props) {
     return h("div", { className: "dsh-tavern-members" }, groups.map(group => h("div", { key: group.key, className: "dsh-tavern-member" },
         h("div", { className: "dsh-tavern-member-head" }, h("b", null, group.name), h("span", null, group.kind), h("span", { className: "dsh-tavern-member-now" }, now(group))),
         group.tasks.length ? h("div", { className: "dsh-tavern-member-tasks" }, group.tasks.map(item => h("button", { key: item.task, type: "button", onClick: () => props.openSpec(item.task), title: item.does },
-            (item.plugin && !group.name.includes(item.plugin) ? "插件「" + item.plugin + "」" : "") + item.name))) : h("div", { className: "dsh-tavern-member-tasks" }, "还没有登记任务"))));
+            (item.plugin && !group.name.includes(item.plugin) ? "插件「" + item.plugin + "」" : "") + item.name))) : h(EmptyState, { noun: "登记任务", compact: true }))));
 }
 // The 后台任务 sidebar page, for development: per turn, which moment started which task and
 // what ran after what; the timeline and the full task list are folded below.

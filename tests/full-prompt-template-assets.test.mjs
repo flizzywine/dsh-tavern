@@ -5,7 +5,8 @@ import { FULL_PROMPT_TEMPLATE_ASSET_PREFIX as prefix } from '../tavern-plugin/li
 test('模板 HTTP 条件请求返回 304，不重复传输资源正文', async () => {
   const { registerTavernHttpRoutes } = await import('../tavern-plugin/lib/http/routes.js')
   let handler
-  registerTavernHttpRoutes({ ctx: { get() {} }, exposeHandler: value => { handler = value } })
+  const webServer = { register(route) { if (route.path === '/api/dsh-tavern') handler = route.handler; return () => {} } }
+  registerTavernHttpRoutes({ ctx: { get: name => name === 'webServer' ? webServer : undefined, effect: fn => fn() } })
   async function request(etag, host = '127.0.0.1:43170') {
     const response = {}
     await handler({ method: 'GET', url: prefix + 'index.js', headers: { host, 'if-none-match': etag } }, {

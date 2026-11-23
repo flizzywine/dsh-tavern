@@ -30,7 +30,8 @@ export function createStageRequests(deps, modules = deps) {
   return Object.freeze({
     methods:Object.freeze([...new Set([...delegated.keys(),...Object.keys(handlers)])]),
     handles:method => delegated.has(method) || Object.hasOwn(handlers,method),
-    remoteRead:method => remoteReads.has(method),
+    // getStageDirection reads only when asked readOnly; otherwise it may run and save the director, which is no mux read.
+    remoteRead:(method,args) => remoteReads.has(method) && (method !== 'getStageDirection' || args?.readOnly === true),
     async call(method, args, authority, serverTemplate = false) {
       if (!active) throw unavailable()
       let result

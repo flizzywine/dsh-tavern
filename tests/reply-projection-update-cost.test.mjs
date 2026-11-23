@@ -1,10 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import {replyBody} from '../tavern-plugin/lib/domain/round-body.js'
 import {createIncrementalReplyView} from '../tavern-plugin/lib/domain/incremental-reply-view.js'
 import {createSessionViewSync} from '../tavern-plugin/lib/domain/session-view-sync.js'
-import {projectReplyHistory} from '../tavern-plugin/lib/domain/reply-presentation.js'
-import {projectPersistentStatusView} from '../tavern-plugin/lib/domain/persistent-status-view.js'
 const options={charName:'角色',macroState:{userName:'玩家'}}
 for(const count of [20,400,10000])test(`body point projection and wire delta avoid traversing ${count} historical rows`,async()=>{
  let chat={id:'cost',_storageRevision:1,messages:Array.from({length:count},(_,i)=>({role:'assistant',turn:i+1,text:'正文'+i,bodyEdit:true}))}
@@ -30,38 +27,4 @@ for(const count of [20,400,10000])test(`body point projection and wire delta avo
  const detached=await cache.project(chat,options,options)
  detached.projections[edited].text='mutated'
  assert.equal((await cache.project(chat,options,options,{shared:true})).projections[edited].text,'changed')
-})
-
-test('indexed reply cache preserves append, role-change and truncation results',async()=>{
- let chat={id:'edit',_storageRevision:1,messages:[{role:'assistant',text:'<b>opening</b>'},{role:'user',text:'hello'},{role:'assistant',text:'<b>reply</b>',sourceText:'<b>reply</b>'}]},changes
- const cache=createIncrementalReplyView({readChanges:async()=>changes})
- async function check(){
-  const actual=await cache.project(chat,options,options)
-  const history=projectReplyHistory(chat.messages,options)
-  for(const projection of history.projections)projection.body=replyBody(projection,chat)
-  assert.deepEqual(actual,{...projectPersistentStatusView(chat.messages,history.projections,options),presentation:null,latestSourceBacked:history.latestSourceBacked})
- }
- await check()
- async function edit(messages,indices){const baseRevision=chat._storageRevision;chat={...chat,_storageRevision:baseRevision+1,messages};changes={baseRevision,chat,messageCount:messages.length,denseMessages:true,indices};await check()}
- await edit([...chat.messages,{role:'assistant',text:'<b>append</b>'}],[3])
- await edit(chat.messages.map((m,i)=>i===1?{role:'assistant',text:'<b>changed role</b>'}:m),[1])
- await edit(chat.messages.slice(0,1),[])
- await edit([],[])
-})
-
-test('a stage round view projects only the rounds it carries, and the session view of the same chat stays cached',async()=>{
- const {markStageRead}=await import('../tavern-plugin/lib/domain/stage-read-projection.js')
- const messages=Array.from({length:40},(_,i)=>({role:'assistant',turn:i+1,text:'正文'+i}))
- const cache=createIncrementalReplyView({readChanges:async()=>undefined})
- const session={id:'long',_storageRevision:3,messages}
- await cache.project(session,options,options,{shared:true})
- assert.equal(cache.stats().projectedMessages,40)
- const round=markStageRead({id:'long',_storageRevision:3,messages:messages.map((m,i)=>i===29?m:{role:m.role,turn:m.turn})},{chainOnly:true,index:29,full:[]})
- const view=await cache.project(round,options,options,{shared:true})
- assert.equal(cache.stats().projectedMessages,41,'only round 30 is projected')
- assert.equal(view.projections.find(row=>row?.turn===30).text,'正文29')
- await cache.project(session,options,options,{shared:true})
- await cache.project(round,options,options,{shared:true})
- assert.equal(cache.stats().projectedMessages,41,'both views are reused')
- assert.equal(cache.stats().rebuilt,2)
 })

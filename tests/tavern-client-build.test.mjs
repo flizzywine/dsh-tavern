@@ -48,7 +48,7 @@ for (const check of [false, true]) {
     await copyStageBuildSiblings(path.join(root, 'tavern-plugin'))
     for(const name of ['lifetime.cjs','entry.cjs','resources.cjs','runtime-store.cjs','session.cjs','director-source.cjs','resource-runner.cjs','runtime-kernel.cjs'])await copyFile(new URL('../tavern-plugin/packages/dsh-tavern-stage/lib/client/'+name,import.meta.url),path.join(stage,name))
     await copyFile(new URL('../tavern-plugin/packages/dsh-tavern-stage/build.mjs', import.meta.url), path.join(stage, '../../build.mjs'))
-    await copyFile(new URL('../tavern-plugin/packages/dsh-tavern-stage/lib/client-assets.js', import.meta.url), path.join(stage, '../client-assets.js'))
+    for (const name of ['client-assets.js', 'theme-parts.js']) await copyFile(new URL('../tavern-plugin/packages/dsh-tavern-stage/lib/' + name, import.meta.url), path.join(stage, '..', name))
     await cp(new URL('../tavern-plugin/packages/dsh-tavern-stage/src/', import.meta.url), path.join(stage, '../../src'), {recursive:true})
     await copyFile(new URL('../bin/lib/client-export-guard.mjs', import.meta.url), path.join(root, 'bin/lib/client-export-guard.mjs'))
     await copyFile(new URL('../bin/lib/css-syntax-guard.mjs', import.meta.url), path.join(root, 'bin/lib/css-syntax-guard.mjs'))

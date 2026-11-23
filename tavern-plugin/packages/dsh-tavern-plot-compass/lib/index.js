@@ -1,8 +1,12 @@
 import { readFileSync } from 'node:fs'
 import {
+  PLOT_COMPASS_DEFAULT_MAX_ROUTES,
+  normalizePlotCompassMaxRoutes,
+  normalizePlotCompassStrength,
   plotCompassBodyText,
   plotCompassCandidateText,
   plotCompassCompactionNote,
+  plotCompassSettlementNote,
   plotCompassWorldbookScanText,
   readPlotCompass
 } from './plot-compass.js'
@@ -38,10 +42,13 @@ function normalizeGlobalDefaults(raw) {
   const interval = Number.isSafeInteger(Number(src.autoUpdateInterval))
     ? Math.max(0, Math.min(100, Number(src.autoUpdateInterval)))
     : 0
+  const maxRoutes = normalizePlotCompassMaxRoutes(src.maxRoutes) ?? PLOT_COMPASS_DEFAULT_MAX_ROUTES
   return {
     version: 1,
     enabled: typeof src.enabled === 'boolean' ? src.enabled : false,
+    strength: normalizePlotCompassStrength(src.strength),
     autoUpdateInterval: interval,
+    maxRoutes,
     modelSelection: normalizePlotCompassModel(src.modelSelection) || 'background'
   }
 }
@@ -71,8 +78,10 @@ export function apply(ctx, options = {}) {
   const plannerPrompt = typeof options?.prompt === 'string' ? options.prompt : loadDefaultPrompt()
   const gameLocks = new Map()
   const gameCache = new Map()
+  const knownGameIds = new Set()
   let globalCache = null
-  let syncingGameSettings = false
+  let globalReadInflight = null
+  let hasExplicitGlobalModel = false
 
   function serializeGame(gameId, work) {
     const id = str(gameId)
@@ -83,31 +92,66 @@ export function apply(ctx, options = {}) {
 
   async function readDefaults() {
     if (globalCache) return globalCache
-    let raw = null
-    try {
-      if (typeof tavern.readPluginData === 'function') raw = await tavern.readPluginData()
-    } catch {
-      raw = null
-    }
-    const payload = raw && typeof raw === 'object' && raw.data !== undefined ? raw.data : raw
-    globalCache = normalizeGlobalDefaults(payload)
-    return globalCache
+    if (globalReadInflight) return globalReadInflight
+    globalReadInflight = (async () => {
+      let raw = null
+      let readable = false
+      try {
+        if (typeof tavern.readPluginData === 'function') {
+          raw = await tavern.readPluginData()
+          readable = true
+        } else {
+          readable = true
+        }
+      } catch {
+        raw = null
+        readable = false
+      }
+      const payload = raw && typeof raw === 'object' && raw.data !== undefined ? raw.data : raw
+      if (payload && typeof payload === 'object' && !Array.isArray(payload) && normalizePlotCompassModel(payload.modelSelection)) {
+        hasExplicitGlobalModel = true
+      }
+      const normalized = normalizeGlobalDefaults(payload)
+      if (readable) globalCache = normalized
+      return normalized
+    })().finally(() => {
+      globalReadInflight = null
+    })
+    return globalReadInflight
   }
 
-  async function saveDefaults(patch = {}) {
+  async function saveDefaults(patch = {}, { broadcastExcept = '' } = {}) {
     const prev = await readDefaults()
+    const modelChanged = patch && typeof patch === 'object' && patch.modelSelection !== undefined
+    if (modelChanged && normalizePlotCompassModel(patch.modelSelection)) {
+      hasExplicitGlobalModel = true
+    }
     const next = normalizeGlobalDefaults({ ...prev, ...patch })
     globalCache = next
     try {
       if (typeof tavern.savePluginData === 'function') await tavern.savePluginData({ data: next })
     } catch {}
+    if (modelChanged) {
+      const skip = str(broadcastExcept)
+      for (const gid of knownGameIds) {
+        if (gid && gid !== skip) void publishCompassState(gid)
+      }
+    }
     return next
   }
 
-  async function readGame(gameId) {
+  async function saveGlobalModel(model, gameId) {
+    const id = str(gameId)
+    if (id) knownGameIds.add(id)
+    const saved = await saveDefaults({ modelSelection: model })
+    return saved.modelSelection
+  }
+
+  async function readGameView(gameId) {
     const id = str(gameId)
     if (!id) return normalizeGameRecord(null, await readDefaults())
-    if (gameCache.has(id)) return structuredClone(gameCache.get(id))
+    knownGameIds.add(id)
+    if (gameCache.has(id)) return gameCache.get(id)
     const defaults = await readDefaults()
     let raw = null
     try {
@@ -116,20 +160,19 @@ export function apply(ctx, options = {}) {
       raw = null
     }
     const payload = raw && typeof raw === 'object' && raw.data !== undefined ? raw.data : raw
-    let record = normalizeGameRecord(payload, defaults)
-    if (!payload && typeof tavern.getGameSettings === 'function') {
-      try {
-        const gs = await tavern.getGameSettings({ gameId: id })
-        if (gs && typeof gs === 'object') {
-          if (typeof gs.enabled === 'boolean') record.enabled = gs.enabled
-          if (Number.isSafeInteger(Number(gs.autoUpdateInterval))) {
-            record.compass.autoUpdateInterval = Math.max(0, Math.min(100, Number(gs.autoUpdateInterval)))
-          }
-        }
-      } catch {}
-    }
+    const legacyModel = !hasExplicitGlobalModel && payload && typeof payload === 'object' && !Array.isArray(payload)
+      ? normalizePlotCompassModel(payload.modelSelection)
+      : null
+    const record = normalizeGameRecord(payload, defaults)
     gameCache.set(id, record)
-    return structuredClone(record)
+    if (legacyModel && legacyModel !== 'background') {
+      await saveDefaults({ modelSelection: legacyModel }, { broadcastExcept: id })
+    }
+    return record
+  }
+
+  async function readGame(gameId) {
+    return structuredClone(await readGameView(gameId))
   }
 
   async function updateGame(gameId, mutator) {
@@ -142,9 +185,12 @@ export function apply(ctx, options = {}) {
       const mutated = await mutator(draft)
       if (mutated === undefined) return current
       const next = normalizeGameRecord(mutated, defaults)
-      gameCache.set(id, next)
       if (typeof tavern.saveGameData === 'function') {
         await tavern.saveGameData({ gameId: id, data: next })
+      }
+      gameCache.set(id, next)
+      if (next.enabled !== current.enabled || next.compass.autoUpdateInterval !== current.compass.autoUpdateInterval || next.compass.maxRoutes !== current.compass.maxRoutes) {
+        try { await tavern.notifyGameSettings?.({ gameId: id }) } catch {}
       }
       return structuredClone(next)
     })
@@ -164,16 +210,20 @@ export function apply(ctx, options = {}) {
     if (!id || typeof tavern.publishState !== 'function') return
     try {
       const [record, turn] = await Promise.all([readGame(id), latestTurnOf(id)])
+      const defaults = await readDefaults()
       await tavern.publishState({
         gameId: id,
         name: 'compass',
-        data: service.viewState(record, id, turn)
+        data: service.viewState(record, id, turn, defaults.modelSelection)
       })
     } catch {}
   }
 
   async function resolveModel(gameId, record) {
-    const spec = normalizePlotCompassModel(record?.modelSelection) || 'background'
+    const defaults = await readDefaults()
+    const spec = normalizePlotCompassModel(defaults?.modelSelection)
+      || normalizePlotCompassModel(record?.modelSelection)
+      || 'background'
     if (typeof spec === 'object') return spec
     if (spec === 'foreground' && typeof tavern.foregroundModel === 'function') {
       try {
@@ -338,7 +388,12 @@ export function apply(ctx, options = {}) {
   }
 
   const service = createPlotCompassService({
-    store: { readGame, updateGame },
+    store: {
+      readGame,
+      updateGame,
+      readModel: async () => (await readDefaults()).modelSelection,
+      saveModel: saveGlobalModel
+    },
     contextReader,
     promptText: () => plannerPrompt,
     resolveModel,
@@ -349,15 +404,49 @@ export function apply(ctx, options = {}) {
 
   // ── 提示词与世界书扩展点 ──────────────────────────────────────────
   if (typeof tavern.turnSection === 'function') {
+    let supportsLastPosition = false
+    try {
+      keep(tavern.turnSection({
+        name: 'plot-compass-director',
+        position: 'last',
+        target: 'story',
+        async text({ gameId } = {}) {
+          if (!gameId) return ''
+          const record = await readGameView(gameId)
+          if (!record.enabled) return ''
+          const compass = readPlotCompass(record.compass)
+          if (compass.strength === 'soft') return ''
+          return plotCompassBodyText(compass)
+        }
+      }))
+      supportsLastPosition = true
+    } catch {
+      supportsLastPosition = false
+    }
+
     keep(tavern.turnSection({
       name: 'plot-compass',
       position: 'after',
       target: 'story',
       async text({ gameId } = {}) {
         if (!gameId) return ''
-        const record = await readGame(gameId)
+        const record = await readGameView(gameId)
         if (!record.enabled) return ''
-        return plotCompassBodyText(record.compass)
+        const compass = readPlotCompass(record.compass)
+        if (supportsLastPosition && compass.strength !== 'soft') return ''
+        return plotCompassBodyText(compass)
+      }
+    }))
+  }
+
+  if (typeof tavern.settlementSection === 'function') {
+    keep(tavern.settlementSection({
+      name: 'plot-compass',
+      async text({ gameId } = {}) {
+        if (!gameId) return ''
+        const record = await readGameView(gameId)
+        if (!record.enabled) return ''
+        return plotCompassSettlementNote(record)
       }
     }))
   }
@@ -367,7 +456,7 @@ export function apply(ctx, options = {}) {
       name: 'plot-compass',
       async text({ gameId } = {}) {
         if (!gameId) return ''
-        const record = await readGame(gameId)
+        const record = await readGameView(gameId)
         if (!record.enabled) return ''
         return plotCompassCandidateText(record.compass)
       }
@@ -379,7 +468,7 @@ export function apply(ctx, options = {}) {
       name: 'plot-compass',
       async text({ gameId } = {}) {
         if (!gameId) return ''
-        const record = await readGame(gameId)
+        const record = await readGameView(gameId)
         if (!record.enabled) return ''
         return plotCompassCompactionNote(record)
       }
@@ -391,7 +480,7 @@ export function apply(ctx, options = {}) {
       name: 'plot-compass',
       async text({ gameId } = {}) {
         if (!gameId) return ''
-        const record = await readGame(gameId)
+        const record = await readGameView(gameId)
         if (!record.enabled) return ''
         return plotCompassWorldbookScanText(record)
       }
@@ -430,57 +519,8 @@ export function apply(ctx, options = {}) {
       service.clearMemory(id)
       gameCache.delete(id)
       gameLocks.delete(id)
+      knownGameIds.delete(id)
     }))
-  }
-
-  if (typeof tavern.gameSettings === 'function') {
-    try {
-      tavern.gameSettings({
-        title: '剧情罗盘',
-        fields: [
-          {
-            key: 'enabled',
-            type: 'boolean',
-            label: '启用剧情罗盘',
-            description: '推演短期、中期、长期多路线剧情发展灵感；关闭后不注入提示词且不自动演进，已保存的路线数据会保留。',
-            default: false
-          },
-          {
-            key: 'autoUpdateInterval',
-            type: 'number',
-            label: '自动更新间隔（楼数）',
-            description: '每隔 N 楼自动全层刷新路线规划（0 表示关闭定时自动更新）',
-            default: 0,
-            min: 0,
-            max: 100
-          }
-        ]
-      })
-    } catch {}
-  }
-
-  if (typeof tavern.onGameSettingsChanged === 'function') {
-    tavern.onGameSettingsChanged(async ({ gameId, values } = {}) => {
-      if (!gameId || !values || syncingGameSettings) return
-      syncingGameSettings = true
-      try {
-        if (typeof values.enabled === 'boolean') {
-          await service.setEnabled({ gameId, enabled: values.enabled })
-        }
-        if (values.autoUpdateInterval !== undefined) {
-          const interval = Number(values.autoUpdateInterval)
-          if (Number.isSafeInteger(interval) && interval >= 0 && interval <= 100) {
-            await updateGame(gameId, current => {
-              current.compass.autoUpdateInterval = interval
-              return current
-            })
-            void publishCompassState(gameId)
-          }
-        }
-      } finally {
-        syncingGameSettings = false
-      }
-    })
   }
 
   // ── 浏览器侧 RPC 处理 ─────────────────────────────────────────────
@@ -491,7 +531,8 @@ export function apply(ctx, options = {}) {
   handle('plot-compass:state', async ({ gameId } = {}) => {
     if (!gameId) return { ok: false, error: '缺少 gameId' }
     const [record, turn] = await Promise.all([readGame(gameId), latestTurnOf(gameId)])
-    return { ok: true, ...service.viewState(record, gameId, turn) }
+    const defaults = await readDefaults()
+    return { ok: true, ...service.viewState(record, gameId, turn, defaults.modelSelection) }
   })
 
   handle('plot-compass:set-enabled', async ({ gameId, enabled } = {}) => {
@@ -539,8 +580,13 @@ export function apply(ctx, options = {}) {
     return { ok: true, plotCompass }
   })
 
-  handle('plot-compass:set-preferences', async ({ gameId, pace, blindBox, customDirective, autoUpdateInterval } = {}) => {
-    const plotCompass = await service.setPreferences({ gameId, pace, blindBox, customDirective, autoUpdateInterval })
+  handle('plot-compass:set-goal', async ({ gameId, text, horizon, enabled } = {}) => {
+    const plotCompass = await service.setGoal({ gameId, text, horizon, enabled })
+    return { ok: true, plotCompass }
+  })
+
+  handle('plot-compass:set-preferences', async ({ gameId, strength, pace, blindBox, customDirective, autoUpdateInterval, maxRoutes, goal } = {}) => {
+    const plotCompass = await service.setPreferences({ gameId, strength, pace, blindBox, customDirective, autoUpdateInterval, maxRoutes, goal })
     return { ok: true, plotCompass }
   })
 
@@ -577,9 +623,11 @@ export function apply(ctx, options = {}) {
       const info = typeof runtimeLlm.resolveModelInfo === 'function'
         ? await Promise.resolve(runtimeLlm.resolveModelInfo(provider, model))
         : null
-      const efforts = Array.isArray(info?.reasoningEfforts)
-        ? info.reasoningEfforts
-        : (Array.isArray(info?.capabilities?.reasoningEfforts) ? info.capabilities.reasoningEfforts : [])
+      const efforts = Array.isArray(info?.reasoning?.efforts)
+        ? info.reasoning.efforts
+        : (Array.isArray(info?.reasoningEfforts)
+          ? info.reasoningEfforts
+          : (Array.isArray(info?.capabilities?.reasoningEfforts) ? info.capabilities.reasoningEfforts : []))
       return {
         ok: true,
         reasoning: efforts.length

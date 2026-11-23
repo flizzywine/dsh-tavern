@@ -2,14 +2,13 @@ import path from 'node:path'
 import { createHash } from 'node:crypto'
 import { CAST_EMOTIONS } from './cast-annotation.js'
 import { readZipEntries } from './zip-entries.js'
-import { emotionRank, emotionSlot as emotionSlotOf } from './card-assets.js'
+import { emotionRank, emotionSlot as emotionSlotOf, MAX_CARD_ASSET_BYTES } from './card-assets.js'
 
 // Per-card character material (Wiki「设计：cast-presentation」): avatar and expression sprites
 // per character, laid out like a SillyTavern sprite pack so such packs import as they are.
 const hash = value => createHash('sha256').update(value).digest('hex')
 export const castManifestPath = (dataRoot, cardPath) => path.join(path.resolve(dataRoot), 'cast-assets', hash(String(cardPath)), 'cast.json')
-const MAX_IMAGE_BYTES = 8 * 1024 * 1024
-const MAX_EXTRA_BYTES = 20 * 1024 * 1024
+const MAX_IMAGE_BYTES = 16 * 1024 * 1024
 const MAX_CHARACTERS = 64
 const MAX_NAME = 24
 const IMAGE_TYPES = Object.freeze({ png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', gif: 'image/gif' })
@@ -89,7 +88,7 @@ export function createCastAssets({ store }) {
   /** Store one image, content-addressed, so a browser may cache its URL forever. */
   async function writeImage(cardPath, bytes) {
     if (!bytes?.length) throw invalid('图片为空')
-    if (bytes.length > MAX_IMAGE_BYTES) throw invalid('单张图片不能超过 8 MB')
+    if (bytes.length > MAX_IMAGE_BYTES) throw invalid('单张图片不能超过 ' + MAX_IMAGE_BYTES / 1024 ** 2 + ' MiB')
     const extension = imageExtension(bytes)
     if (!extension) throw invalid('只支持 PNG、JPEG、WebP、GIF 图片')
     const file = hash(bytes).slice(0, 32) + '.' + extension
@@ -184,7 +183,7 @@ export function createCastAssets({ store }) {
   /** A file kept only to be exported again (audio, models, unrecognized expressions). */
   async function writeExtra(cardPath, bytes, ext) {
     if (!bytes?.length) throw invalid('文件为空')
-    if (bytes.length > MAX_EXTRA_BYTES) throw invalid('单个素材不能超过 20 MB')
+    if (bytes.length > MAX_CARD_ASSET_BYTES) throw invalid('单个素材不能超过 ' + MAX_CARD_ASSET_BYTES / 1024 ** 2 + ' MiB')
     const file = hash(bytes).slice(0, 32) + '.' + (/^[a-z0-9]{1,10}$/.test(ext) ? ext : 'bin')
     await store.writeBytes(dirOf(cardPath) + '/files/' + file, bytes)
     return file
@@ -267,6 +266,28 @@ export function createCastAssets({ store }) {
     return read(cardPath)
   }
 
+  /** Replace one existing binding without normalizing unrelated records or material fields. */
+  async function updatePlugin(cardPath, expected, replacement) {
+    await update(cardPath, manifest => {
+      const matches = (manifest.plugins || []).filter(plugin => plugin.name === expected.name)
+      if (matches.length !== 1 || JSON.stringify(matches[0]) !== JSON.stringify(expected)) throw invalid('插件绑定已变化，请重新预览')
+      const index = manifest.plugins.indexOf(matches[0])
+      manifest.plugins[index] = { ...matches[0], ...replacement, enabled: matches[0].enabled }
+    })
+  }
+
+  async function restorePlugin(cardPath, expected, replacement) {
+    await store.updateJson(dirOf(cardPath) + '/cast.json', manifest => {
+      const matches = (manifest?.plugins || []).filter(plugin => plugin.name === expected.name)
+      if (matches.length !== 1) throw invalid('插件绑定在恢复前已变化')
+      if (JSON.stringify(matches[0]) === JSON.stringify(expected)) return undefined
+      const installed = { ...expected, ...replacement, enabled: expected.enabled }
+      if (JSON.stringify(matches[0]) !== JSON.stringify(installed)) throw invalid('插件绑定在恢复前已变化')
+      manifest.plugins[manifest.plugins.indexOf(matches[0])] = expected
+      return manifest
+    })
+  }
+
   /** The file the card was imported from (card-import-identity.js): { archiveSha256, cardSha256 }. */
   async function setSource(cardPath, source) {
     await update(cardPath, manifest => { if (source) manifest.source = source; else delete manifest.source })
@@ -292,5 +313,5 @@ export function createCastAssets({ store }) {
     return bytes ? { bytes, mediaType: IMAGE_TYPES[file.split('.').pop()] } : undefined
   }
 
-  return Object.freeze({ replaceManifest: (cardPath, manifest) => store.writeJson(dirOf(cardPath) + "/cast.json", manifest || empty()), read, movePath, setImage, removeImage, setCharacter, setVoice, removeCharacter, importSpritePack, importCardAssets, bindPacks, setPlugins, setStartDefaults, setSource, readFile, readImage, keyOf: cardPath => hash(String(cardPath)) })
+  return Object.freeze({ replaceManifest: (cardPath, manifest) => store.writeJson(dirOf(cardPath) + "/cast.json", manifest || empty()), read, movePath, setImage, removeImage, setCharacter, setVoice, removeCharacter, importSpritePack, importCardAssets, bindPacks, setPlugins, updatePlugin, restorePlugin, setStartDefaults, setSource, readFile, readImage, keyOf: cardPath => hash(String(cardPath)) })
 }

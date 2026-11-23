@@ -1,6 +1,9 @@
 'use strict';
 // presentation-only clock. Canonical CG intent remains in the stage store.
-const CG_TIMINGS = Object.freeze({enter:300,variant:150,pan:4000,exit:250});
+const CG_TIMINGS = Object.freeze({enter:750,variant:450,pan:4200,exit:600});
+// AUTO's theatre dwell: after a CG fades in (or changes variant) the page waits at least this long, and for as long as a
+// focus pan is still moving (consumer.holdMs), so a short line does not turn away from a CG that has only just appeared.
+const CG_DWELL = Object.freeze({enter:2200,variant:1200});
 function cgTransform(view, image, focus) {
     const base = Math.min(view.width / image.width, view.height / image.height);
     const zoom = focus?.zoom || 1, clamp = (n, edge) => edge ? Math.max(-edge,Math.min(edge,n)) : 0;
@@ -22,12 +25,12 @@ function cgMotionPolicy(reading = {}, osReduced = false) {
     const safety = cgEffects.stageSafety(reading || {}, osReduced);
     return {reducedMotion:safety.reducedMotion,photosensitive:safety.photosensitive,whitePeak:safety.photosensitive ? .5 : 1};
 }
-function createCgConsumer({clock,onFrame = () => false,onVisible = () => {},onPlayed = () => {}}) {
+function createCgConsumer({clock,onFrame = () => false,onVisible = () => {},onPlayed = () => {},onHold = () => {}}) {
     const full = () => ({x:0.5,y:0.5,zoom:1});
     const sameRef = (a,b) => a && b && ['packId','kind','assetId'].every(k => a.ref[k] === b.ref[k]);
     let current = null, previous = null, alpha = 0, focus = full(), motion = null, fade = null;
     let frame = null, last = clock.now(), paused = false, reduced = false, disposed = false, visible = false;
-    let settle = null, token = null, painted = false, acknowledged = false, white = 0, whitePeak = 0, safety = {photosensitive:true};
+    let holdUntil = 0, settle = null, token = null, painted = false, acknowledged = false, white = 0, whitePeak = 0, safety = {photosensitive:true};
     const flashed = new Set();
     function visibility(value) {if (visible !== value) {visible=value;onVisible(value);}}
     function finish() {const done=settle;settle=null;done?.();}
@@ -47,7 +50,7 @@ function createCgConsumer({clock,onFrame = () => false,onVisible = () => {},onPl
         if (fade) {
             fade.elapsed+=delta;
             const progress=Math.min(1,fade.elapsed/fade.duration);
-            const blend=fade.white ? Math.max(0,(fade.elapsed-80)/220) : progress;
+            const blend=fade.white ? Math.max(0,(fade.elapsed-80)/220) : progress*progress*(3-2*progress);
             alpha=fade.from+(fade.to-fade.from)*Math.min(1,blend);
             white=fade.white ? whitePeak*(1-Math.min(1,blend)) : 0;
             if (progress === 1) {fade=null;previous=null;white=0;if (!current) visibility(false);finish();}
@@ -62,6 +65,8 @@ function createCgConsumer({clock,onFrame = () => false,onVisible = () => {},onPl
     }
     return {
         snapshot,
+        // ms AUTO should still wait on this CG: the dwell after it entered / changed variant, or the rest of a focus pan.
+        holdMs() {return paused || !current ? 0 : Math.max(0,holdUntil-clock.now(),motion ? (1-Math.min(1,motion.elapsed/CG_TIMINGS.pan))*CG_TIMINGS.pan : 0);},
         redraw() {publish();schedule();},
         present(value,{snap=false,provenance}={}) {
             if (disposed) return Promise.resolve();
@@ -71,6 +76,8 @@ function createCgConsumer({clock,onFrame = () => false,onVisible = () => {},onPl
             if (!same) {acknowledged=false;painted=false;}
             if (token !== provenance) {painted=false;acknowledged=false;}
             token=provenance;current=value;last=clock.now();
+            if (!value || snap || reduced) holdUntil=0; else if (!continuing) holdUntil=clock.now()+(same ? CG_DWELL.variant : CG_DWELL.enter);
+            onHold();
             const target=value?.focus || full();
             if (value) visibility(true);
             if (!continuing) white=0;
@@ -88,7 +95,7 @@ function createCgConsumer({clock,onFrame = () => false,onVisible = () => {},onPl
             const receipt=value?.receipt, identity=JSON.stringify([receipt?.binding?.stream?.operationId || receipt?.expectedDirectionToken?.sourceKey,receipt?.expectedDirectionToken?.generation,value?.ref]);
             const flash=!!value && !same && value.transition === 'white' && whitePeak > 0 && !flashed.has(identity) && cgEffects.gate().admit(safety);
             if (flash) {flashed.add(identity);white=whitePeak;if(flashed.size>128)flashed.delete(flashed.values().next().value);}
-            fade={from:alpha,to:value ? 1 : 0,elapsed:0,white:flash,duration:value ? same ? CG_TIMINGS.variant : CG_TIMINGS.enter : CG_TIMINGS.exit};
+            fade={from:alpha,to:value ? 1 : 0,elapsed:0,white:flash,duration:flash ? 300 : value ? same ? CG_TIMINGS.variant : CG_TIMINGS.enter : CG_TIMINGS.exit};
             const promise=new Promise(resolve=>{settle=resolve;});
             publish();schedule();return promise;
         },
@@ -102,4 +109,4 @@ function createCgConsumer({clock,onFrame = () => false,onVisible = () => {},onPl
         dispose() {disposed=true;if(frame !== null)clock.cancelAnimationFrame(frame);frame=null;current=previous=null;motion=fade=null;alpha=white=0;visibility(false);finish();onFrame(snapshot());}
     };
 }
-if (typeof module !== 'undefined' && typeof window === 'undefined') module.exports = {CG_TIMINGS,cgTransform,cgWindow,cgMotionPolicy,createCgConsumer};
+if (typeof module !== 'undefined' && typeof window === 'undefined') module.exports = {CG_TIMINGS,CG_DWELL,cgTransform,cgWindow,cgMotionPolicy,createCgConsumer};

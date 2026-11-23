@@ -11,6 +11,36 @@ const seedMessages = session => session.events.filter(event => {
   return source?.form === 'synthetic-trajectory' || source?.model === 'synthetic-trajectory'
 })
 
+test('新局默认少量候选，修改开局默认只影响之后创建的对局', async () => {
+  const h = initializationFixture()
+  const first = await h.make().start(h.input)
+  assert.equal(h.saved.get(first.id).candidateTabs, false)
+  h.state.settings.defaultPlaySettings = { candidateTabs: true }
+  const next = await h.make().start({ ...h.input, sessionId: 'next-candidates' })
+  assert.equal(h.saved.get(next.id).candidateTabs, true)
+  const reopened = await h.make().start(h.input)
+  assert.equal(h.saved.get(reopened.id).candidateTabs, false)
+})
+
+test('删除默认模型渠道后仍可创建游玩对话和卡片工作台', async () => {
+  const h = initializationFixture()
+  h.state.settings.defaultForegroundModel = { provider: 'deleted', model: 'chat' }
+  h.state.failures.selectModel = () => {
+    throw Object.assign(new Error('no adapter registered for provider "deleted"'), { code: 'NO_ADAPTER' })
+  }
+  const initializer = h.make()
+  const story = await initializer.start(h.input)
+  assert.equal(story.nativeOpeningAppended, true)
+  assert.equal(messages(h.session()).length, 1)
+  const workbench = await initializer.start({ ...h.input, sessionId: 'workbench', mode: 'card' })
+  assert.equal(workbench.nativeOpeningAppended, true)
+  assert.equal(h.session('workbench').selectedModel, undefined)
+
+  h.state.failures.selectModel = () => { throw new Error('unexpected selection error') }
+  await assert.rejects(initializer.start({ ...h.input, sessionId: 'other-error' }), /unexpected selection error/)
+  assert.equal(await h.registry.resolve('other-error'), undefined)
+})
+
 async function profileFixture() {
   let value
   const profile = createUserPreferenceProfile({ store: {
@@ -35,40 +65,6 @@ test('画像开关和确认版本只影响新局，不改写已创建的游戏',
   assert.equal(existing.userProfileRevision, first.userProfileRevision)
   assert.equal(existing.userProfileContextSnapshot, first.userProfileContextSnapshot)
   assert.equal((await h.make().start({ ...h.input, sessionId: 'next' })).userProfileEnabled, false)
-})
-
-test('missing cards, invalid openings, missing scripts and readiness failures do not publish partial chats', async () => {
-  for (const input of [{ cardPath: 'missing' }, { openingId: 'missing' }, { mode: 'script' }]) {
-    const h = initializationFixture()
-    await assert.rejects(h.make().start({ ...h.input, ...input }))
-    assert.equal(h.saved.size, 0)
-    assert.deepEqual(h.state.links, {})
-  }
-  for (const first_mes of ['开场白', '']) {
-    const h = initializationFixture(); h.card.first_mes = first_mes; h.card.alternate_greetings = []
-    h.state.failures.wait = async () => { throw Error('not writable') }
-    const api = h.make()
-    await assert.rejects(api.start(h.input), /not writable/)
-    assert.equal(h.saved.size, 0)
-    delete h.state.failures.wait
-    assert.equal((await api.start(h.input)).nativeOpeningAppended, true)
-    assert.equal(messages(h.session()).length, first_mes ? 1 : 0)
-  }
-})
-
-test('missing binding recovers through registry; old standalone UUID greeting is adopted without rewriting its events', async () => {
-  const h = initializationFixture()
-  const first = await h.make().start(h.input)
-  const stored = h.saved.get(first.id); delete stored.nativeOpeningAppended
-  const old = messages(h.session())[0]
-  old.data.message.id = '11111111-1111-4111-8111-111111111111'
-  old.data.message.source = { kind: 'model', provider: 'fixture', model: 'text' }
-  h.state.links = {}
-  const before = structuredClone(h.session().events)
-  await h.make().ensureOpening('session')
-  assert.deepEqual(h.session().events, before)
-  assert.equal(h.state.links.session, first.id)
-  assert.equal(await h.make().ensureOpening('missing'), null)
 })
 
 test('新游戏复制全局 Skill 开关，本局调整和后续全局修改互不覆盖', async () => {

@@ -5,7 +5,7 @@ import { readFile } from 'node:fs/promises'
 import vm from 'node:vm'
 import React, { act } from 'react'
 import { JSDOM } from 'jsdom'
-import { createPlayInteractionFlow } from '../tavern-plugin/lib/domain/play-interaction-flow.js'
+import { candidatePanelForRound, createPlayInteractionFlow } from '../tavern-plugin/lib/domain/play-interaction-flow.js'
 import { createSessionSignalTransport } from '../tavern-plugin/lib/domain/session-signal-transport.js'
 import { clientControls } from './fixtures/native-controls.mjs'
 import { syncClock } from './fixtures/sync-clock.mjs'
@@ -13,6 +13,7 @@ import { syncClock } from './fixtures/sync-clock.mjs'
 const require = createRequire(import.meta.url)
 const candidateTabs = require('../tavern-plugin/packages/dsh-presentation-protocol/src/candidate-tabs.cjs')
 const source = await readFile(new URL('../tavern-plugin/src/client/features/play-interaction-panels.js', import.meta.url), 'utf8')
+const shortcutsSource = await readFile(new URL('../tavern-plugin/src/client/features/candidate-guidance-shortcuts.js', import.meta.url), 'utf8')
 const refreshSource = await readFile(new URL('../tavern-plugin/src/client/modules/session-refresh-controller.js', import.meta.url), 'utf8')
 const polishSource = await readFile(new URL('../tavern-plugin/src/client/features/polish-compare.js', import.meta.url), 'utf8')
 test('panels use the flow interface and candidate selection preserves user edits', async t => {
@@ -23,14 +24,19 @@ test('panels use the flow interface and candidate selection preserves user edits
   t.after(() => { Object.assign(globalThis, { window: previous.window, document: previous.document, IS_REACT_ACT_ENVIRONMENT: previous.act }); dom.window.close() })
   const { createRoot } = await import('react-dom/client')
   const calls = [], errors = [], playEvents = []
+  let shortcutReads = 0
   const signals = createSessionSignalTransport(), invalidated = []
   let pendingPolish, requestId
   dom.window.addEventListener('error', event => errors.push(event.error))
   const interactions = createPlayInteractionFlow({ rpc: async (...args) => { calls.push(args); return { task: {}, view: {} } },
     coordinationView: v => v, coordination: { setView() {}, invalidate() {} }, applyBodyResult() {}, reportError: (...args) => errors.push(args) })
-  const context = vm.createContext({ React, ...clientControls(React), setInterval, clearInterval, candidateTabs,
+  const context = vm.createContext({ React, ...clientControls(React), setInterval, clearInterval, candidateTabs, candidatePanelForRound,
     tavernSessionSignals: signals, liveTavernView: { invalidate: id => invalidated.push(id) },
     rpc: async (method, args) => {
+      if (method === 'getCandidateGuidanceShortcuts') {
+        shortcutReads++
+        return { shortcuts: { story: ['让对手戏角色更主动'], script: ['侧重角色行动'] } }
+      }
       if (method === 'polishBody') {
         requestId = args.requestId
         pendingPolish = Promise.withResolvers()
@@ -38,13 +44,15 @@ test('panels use the flow interface and candidate selection preserves user edits
       }
       if (method === 'polishProgress') return { progress: { edits: [{ reason: '更具体', find: '原句', replace: '改句' }] } }
     }, window: dom.window, document: dom.window.document,
-    useCandidatePreferences: () => 'after-send', useTavernSessionMode: () => 'story',
+    useCandidatePreferences: () => ({ candidateDismissMode: 'after-send' }), useTavernSessionMode: () => 'story',
     latestTavernAssistantMessageId: () => 'm', isPlayMode: () => true, TAVERN_MOBILE_QUERY: '(max-width: 1023px)',
     useLiveTavernView: () => ({ view: {} }), tavernPlayEvents: { emit: (...args) => playEvents.push(args) } })
-  vm.runInContext(source, context)
+  vm.runInContext(shortcutsSource + '\n' + source, context)
   const usePanel = store => () => React.useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot)
+  let polishEnabled = false
   const panels = context.createPlayInteractionPanels({ interactions, useCandidatePanel: usePanel(interactions.candidates),
     useCandidateGuidePanel: usePanel(interactions.guide), useRegenPanel: usePanel(interactions.regeneration),
+    usePolishEnabled: () => polishEnabled,
     usePhonePlay: () => false })
   let draft = '玩家原文'
   let running = false
@@ -69,6 +77,9 @@ test('panels use the flow interface and candidate selection preserves user edits
   interactions.regeneration.set({ sessionId: 'a', messageId: 'm', phase: 'input' })
   await render(panels.RegenPanel)
   assert.equal(dom.window.document.querySelectorAll(".dsh-tavern-regen-submit").length, 1)
+  assert.equal([...dom.window.document.querySelectorAll('button')].some(button => button.textContent === '精修'), false)
+  assert.equal(dom.window.document.querySelector('.dsh-tavern-candidate-shortcuts'), null)
+  assert.equal(shortcutReads, 1, '正文重生成不读候选快捷提示')
   await act(async () => dom.window.document.querySelector('.dsh-tavern-regen-submit').click())
   assert.deepEqual(calls[1], ['regenBody', { guidance: '' }, 'a'])
   // 在途的重新生成面板在宿主报运行中（发送键已换成停止）时还要留着显示进度，
@@ -89,6 +100,7 @@ test('panels use the flow interface and candidate selection preserves user edits
   await render(panels.RegenPanel)
   assert.equal(dom.window.document.querySelector('.dsh-tavern-regen'), null)
   running = false
+  polishEnabled = true
   await act(async () => interactions.regeneration.set({ sessionId: 'a', phase: 'input' }))
   await act(async () => [...dom.window.document.querySelectorAll('button')].find(button => button.textContent === '精修').click())
   assert.match(dom.window.document.querySelector('.dsh-tavern-regen-loading').textContent, /已修 1 处/)
@@ -107,6 +119,43 @@ test('panels use the flow interface and candidate selection preserves user edits
   assert.deepEqual(invalidated, ['a'])
   assert.deepEqual(errors, [])
   await act(async () => root.unmount())
+})
+
+test('候选快捷提示保存尚未完成时重开面板，完成后直接看到新按钮', async t => {
+  const dom = new JSDOM('<main></main>', { pretendToBeVisual: true })
+  const previous = { window: globalThis.window, document: globalThis.document, act: globalThis.IS_REACT_ACT_ENVIRONMENT }
+  Object.assign(globalThis, { window: dom.window, document: dom.window.document, IS_REACT_ACT_ENVIRONMENT: true })
+  const { createRoot } = await import('react-dom/client')
+  const root = createRoot(document.querySelector('main'))
+  t.after(async () => {
+    await act(async () => root.unmount())
+    Object.assign(globalThis, { window: previous.window, document: previous.document, IS_REACT_ACT_ENVIRONMENT: previous.act })
+    dom.window.close()
+  })
+  let story = ['先询问信件的来历'], reads = 0
+  const draft = '保持当前场景，让配角推进剧情'
+  const written = Promise.withResolvers()
+  const context = vm.createContext({ React, rpc: async (method, args) => {
+    if (method === 'getCandidateGuidanceShortcuts') reads++
+    else {
+      assert.equal(method, 'saveCandidateGuidanceShortcuts')
+      await written.promise
+      story = args.items
+    }
+    return { shortcuts: { story, script: [] } }
+  } })
+  vm.runInContext(shortcutsSource, context)
+  const render = open => act(async () => root.render(open ? React.createElement(context.CandidateGuidanceShortcuts,
+    { mode: 'story', guidance: draft, onPick() {} }) : null))
+  const buttons = () => Array.from(document.querySelectorAll('.dsh-tavern-candidate-shortcut-chip'), button => button.textContent)
+  await render(true)
+  assert.deepEqual(buttons(), story)
+  await act(async () => [...document.querySelectorAll('button')].find(button => button.textContent === '保存为快捷提示').click())
+  await render(false)
+  await render(true)
+  assert.equal(reads, 1, '重开时等上一笔保存落盘')
+  await act(async () => written.resolve())
+  assert.deepEqual(buttons(), ['先询问信件的来历', draft])
 })
 
 test('已打开的精修对比收到保存信号后自动刷新，首次读取失败可恢复', async t => {
@@ -150,38 +199,6 @@ test('已打开的精修对比收到保存信号后自动刷新，首次读取�
   assert.match(document.querySelector('main').textContent, /自动精修 · 第 9 轮/)
 })
 
-test('宿主没有消息 id 时，候选面板仍然显示这一局的候选项', async t => {
-  const dom = new JSDOM('<main></main>', { pretendToBeVisual: true })
-  const previous = { window: globalThis.window, document: globalThis.document, act: globalThis.IS_REACT_ACT_ENVIRONMENT }
-  Object.assign(globalThis, { window: dom.window, document: dom.window.document, IS_REACT_ACT_ENVIRONMENT: true })
-  t.after(() => { Object.assign(globalThis, { window: previous.window, document: previous.document, IS_REACT_ACT_ENVIRONMENT: previous.act }); dom.window.close() })
-  const { createRoot } = await import('react-dom/client')
-  const signals = createSessionSignalTransport()
-  const interactions = createPlayInteractionFlow({ rpc: async () => ({ candidates: null }),
-    coordinationView: v => v, coordination: { setView() {}, invalidate() {} }, applyBodyResult() {}, reportError() {} })
-  const context = vm.createContext({ React, ...clientControls(React), candidateTabs,
-    tavernSessionSignals: signals, liveTavernView: { invalidate() {} }, rpc: async () => ({}),
-    window: dom.window, document: dom.window.document,
-    useCandidatePreferences: () => 'after-send', useTavernSessionMode: () => 'story',
-    latestTavernAssistantMessageId: () => null, isPlayMode: () => true, TAVERN_MOBILE_QUERY: '(max-width: 1023px)',
-    useLiveTavernView: () => ({ view: {} }), tavernPlayEvents: { emit() {} } })
-  vm.runInContext(source, context)
-  const panels = context.createPlayInteractionPanels({ interactions,
-    useCandidatePanel: () => React.useSyncExternalStore(interactions.candidates.subscribe, interactions.candidates.getSnapshot, interactions.candidates.getSnapshot),
-    useCandidateGuidePanel: () => React.useSyncExternalStore(interactions.guide.subscribe, interactions.guide.getSnapshot, interactions.guide.getSnapshot),
-    useRegenPanel: () => null, usePhonePlay: () => false })
-  const props = { sessionId: 'a', useSession: select => select({ running: false }),
-    useChat: select => select({ legacy: { nodes: [] } }), useInput: select => select({ draft: '' }),
-    inputActions: { setDraft() {} } }
-  const root = createRoot(dom.window.document.querySelector('main'))
-  // 存档里的候选项属于这一局最近一轮；面板记的是页面手里的消息 id，宿主没给就是 null。
-  interactions.candidates.set({ sessionId: 'a', messageId: null, phase: 'ready', choices: [{ type: 'action', text: '走近' }] })
-  await act(async () => root.render(React.createElement(panels.CandidateQuestion, props)))
-  assert.equal(dom.window.document.querySelectorAll('.dsh-tavern-question').length, 1, '宿主没有消息 id 也要显示这一轮的候选项')
-  assert.match(dom.window.document.querySelector('.dsh-tavern-question-head').textContent, /接下来的行动/)
-  await act(async () => root.unmount())
-})
-
 test('多角色与全局候选默认停在 [精选]，焦点角色排前，支持无“我”第三人称及跨 Tab 勾选拼接', async t => {
   const dom = new JSDOM('<main></main>', { pretendToBeVisual: true })
   const previous = { window: globalThis.window, document: globalThis.document, act: globalThis.IS_REACT_ACT_ENVIRONMENT }
@@ -192,11 +209,10 @@ test('多角色与全局候选默认停在 [精选]，焦点角色排前，支�
   const interactions = createPlayInteractionFlow({ rpc: async () => ({ candidates: null }),
     coordinationView: v => v, coordination: { setView() {}, invalidate() {} }, applyBodyResult() {}, reportError() {} })
   let draft = ''
-  const context = vm.createContext({ React, ...clientControls(React), candidateTabs,
+  const context = vm.createContext({ React, ...clientControls(React), candidateTabs, candidatePanelForRound,
     tavernSessionSignals: signals, liveTavernView: { invalidate() {} }, rpc: async () => ({}),
     window: dom.window, document: dom.window.document,
-    useCandidatePreferences: () => 'after-send', useTavernSessionMode: () => 'story',
-    useCandidateTabPreference: () => true,
+    useCandidatePreferences: () => ({ candidateDismissMode: 'after-send' }), useTavernSessionMode: () => 'story',
     latestTavernAssistantMessageId: () => 'm-1', isPlayMode: () => true, TAVERN_MOBILE_QUERY: '(max-width: 1023px)',
     useLiveTavernView: () => ({ view: {} }), tavernPlayEvents: { emit() {} } })
   vm.runInContext(source, context)
@@ -234,7 +250,7 @@ test('多角色与全局候选默认停在 [精选]，焦点角色排前，支�
   assert.equal(featuredOptions[4].querySelector('.dsh-tavern-question-tag-event').textContent, '突发事件')
   assert.equal(featuredOptions[5].querySelector('.dsh-tavern-question-tag-scene').textContent, '场景变化')
 
-  // 切到 [苏晚] Tab 点选第 1 条，再切到 [全局] Tab 点选突发事件，草稿按行拼接且 [苏晚] Tab 显示 ✓1
+  // 切到 [苏晚] Tab 点选第 1 条，再切到 [全局] Tab 点选突发事件，草稿按行拼接且 [苏晚] Tab 显示 ✓
   await act(async () => tabs[1].click())
   const suwanOptions = [...dom.window.document.querySelectorAll('.dsh-tavern-question-option')]
   assert.equal(suwanOptions.length, 3)
@@ -243,7 +259,7 @@ test('多角色与全局候选默认停在 [精选]，焦点角色排前，支�
   await act(async () => root.render(React.createElement(panels.CandidateQuestion, makeProps())))
 
   const updatedTabs = [...dom.window.document.querySelectorAll('.dsh-tavern-question-tab')]
-  assert.equal(updatedTabs[1].querySelector('.dsh-tavern-question-tab-count').textContent, '✓1')
+  assert.equal(updatedTabs[1].querySelector('.dsh-tavern-question-tab-picked').textContent, '✓')
   await act(async () => updatedTabs[3].click())
   const globalOptions = [...dom.window.document.querySelectorAll('.dsh-tavern-question-option')]
   assert.equal(globalOptions.length, 2)
@@ -253,7 +269,7 @@ test('多角色与全局候选默认停在 [精选]，焦点角色排前，支�
   await act(async () => root.unmount())
 })
 
-test('AI 融合精选条目独占 [精选] Tab，渲染多角色/事件/场景徽章并在选中时显示 ✓ 计数与场景前缀', async t => {
+test('AI 融合精选条目独占 [精选] Tab，渲染多角色/事件/场景徽章并在选中时显示 ✓与场景前缀', async t => {
   const dom = new JSDOM('<main></main>', { pretendToBeVisual: true })
   const previous = { window: globalThis.window, document: globalThis.document, act: globalThis.IS_REACT_ACT_ENVIRONMENT }
   Object.assign(globalThis, { window: dom.window, document: dom.window.document, IS_REACT_ACT_ENVIRONMENT: true })
@@ -263,11 +279,10 @@ test('AI 融合精选条目独占 [精选] Tab，渲染多角色/事件/场景�
   const interactions = createPlayInteractionFlow({ rpc: async () => ({ candidates: null }),
     coordinationView: v => v, coordination: { setView() {}, invalidate() {} }, applyBodyResult() {}, reportError() {} })
   let draft = ''
-  const context = vm.createContext({ React, ...clientControls(React), candidateTabs,
+  const context = vm.createContext({ React, ...clientControls(React), candidateTabs, candidatePanelForRound,
     tavernSessionSignals: signals, liveTavernView: { invalidate() {} }, rpc: async () => ({}),
     window: dom.window, document: dom.window.document,
-    useCandidatePreferences: () => 'after-send', useTavernSessionMode: () => 'story',
-    useCandidateTabPreference: () => true,
+    useCandidatePreferences: () => ({ candidateDismissMode: 'after-send' }), useTavernSessionMode: () => 'story',
     latestTavernAssistantMessageId: () => 'm-featured', isPlayMode: () => true, TAVERN_MOBILE_QUERY: '(max-width: 1023px)',
     useLiveTavernView: () => ({ view: {} }), tavernPlayEvents: { emit() {} } })
   vm.runInContext(source, context)
@@ -313,12 +328,18 @@ test('AI 融合精选条目独占 [精选] Tab，渲染多角色/事件/场景�
   await act(async () => featuredOptions[1].click())
   await act(async () => root.render(React.createElement(panels.CandidateQuestion, makeProps())))
   assert.equal(draft, '【场景变化】走廊脚步声逼近之际，苏晚吹熄灯火退往暗门，众人直至次日清晨才在议事厅重新碰头')
-  assert.equal(dom.window.document.querySelectorAll('.dsh-tavern-question-tab')[0].querySelector('.dsh-tavern-question-tab-count').textContent, '✓1')
+  assert.equal(dom.window.document.querySelectorAll('.dsh-tavern-question-tab')[0].querySelector('.dsh-tavern-question-tab-picked').textContent, '✓')
+
+  const compactChoices = choices.slice(0, 4).map(({ type, text }) => ({ type, text })).concat(choices[5]);
+  await act(async () => interactions.candidates.set({ sessionId: 'a', messageId: 'm-featured', phase: 'ready', expanded: true, choices: compactChoices }))
+  assert.equal(dom.window.document.querySelector('.dsh-tavern-question-head').textContent, '接下来的行动⌃')
+  assert.equal(dom.window.document.querySelectorAll('.dsh-tavern-question-tab').length, 0)
+  assert.equal(dom.window.document.querySelectorAll('.dsh-tavern-question-option').length, 5)
 
   await act(async () => root.unmount())
 })
 
-test('候选项面板展示 routeTag 角标，并支持填入/直发模式切换', async t => {
+test('候选项面板展示 routeTag 角标，并按全局设置填入或直发', async t => {
   const dom = new JSDOM('<main></main>', { pretendToBeVisual: true })
   dom.window.matchMedia = () => ({ matches: false })
   const previous = { window: globalThis.window, document: globalThis.document, act: globalThis.IS_REACT_ACT_ENVIRONMENT }
@@ -329,10 +350,11 @@ test('候选项面板展示 routeTag 角标，并支持填入/直发模式切换
   const interactions = createPlayInteractionFlow({ rpc: async () => ({ task: {}, view: {} }),
     coordinationView: v => v, coordination: { setView() {}, invalidate() {} }, applyBodyResult() {}, reportError() {} })
   const playEvents = []
-  const context = vm.createContext({ React, ...clientControls(React), setInterval, clearInterval, candidateTabs,
+  let candidatePickMode = 'fill'
+  const context = vm.createContext({ React, ...clientControls(React), setInterval, clearInterval, candidateTabs, candidatePanelForRound,
     tavernSessionSignals: signals, liveTavernView: { invalidate() {} },
     rpc: async () => ({}), window: dom.window, document: dom.window.document,
-    useCandidatePreferences: () => 'after-send', useTavernSessionMode: () => 'story',
+    useCandidatePreferences: () => ({ candidatePickMode, candidateDismissMode: 'after-send' }), useTavernSessionMode: () => 'story',
     latestTavernAssistantMessageId: () => 'm', isPlayMode: () => true, TAVERN_MOBILE_QUERY: '(max-width: 1023px)',
     useLiveTavernView: () => ({ view: {} }), tavernPlayEvents: { emit: (...args) => playEvents.push(args) } })
   vm.runInContext(source, context)
@@ -366,99 +388,21 @@ test('候选项面板展示 routeTag 角标，并支持填入/直发模式切换
   const routeBadge = dom.window.document.querySelector('.dsh-tavern-question-tag-route')
   assert.ok(routeBadge && routeBadge.textContent.includes('顺势破防'))
 
-  const modeBtn = dom.window.document.querySelector('.dsh-tavern-question-mode-pill')
-  assert.ok(modeBtn.textContent.includes('填入'))
-  await act(async () => modeBtn.click())
-  assert.ok(dom.window.document.querySelector('.dsh-tavern-question-mode-pill').textContent.includes('直发'))
+  assert.equal(dom.window.document.querySelector('.dsh-tavern-question-head').textContent, '接下来的行动⌃')
+  const option = dom.window.document.querySelector('.dsh-tavern-question-option')
+  await act(async () => option.click())
+  assert.equal(draft, '顾青：把烤焦的一角推回灯下追问')
+  assert.deepEqual(submits, [])
+  assert.ok(interactions.candidates.getSnapshot())
+  await act(async () => option.click())
+  assert.equal(draft, '')
 
-  await act(async () => dom.window.document.querySelector('.dsh-tavern-question-option').click())
+  candidatePickMode = 'send'
+  await act(async () => root.render(React.createElement(panels.CandidateQuestion, makeProps())))
+  await act(async () => option.click())
   assert.equal(draft, '顾青：把烤焦的一角推回灯下追问')
   assert.deepEqual(submits, [{ mode: 'queue', draft: '顾青：把烤焦的一角推回灯下追问' }])
   assert.equal(interactions.candidates.getSnapshot(), null, '直发后应立即收起候选项面板')
 
-  await act(async () => root.unmount())
-})
-
-
-test('候选多角色/全局 Tab 默认关闭：设置 › 高级 未打开时只显示精选一组，没有 Tab 条', async t => {
-  const dom = new JSDOM('<main></main>', { pretendToBeVisual: true })
-  const previous = { window: globalThis.window, document: globalThis.document, act: globalThis.IS_REACT_ACT_ENVIRONMENT }
-  Object.assign(globalThis, { window: dom.window, document: dom.window.document, IS_REACT_ACT_ENVIRONMENT: true })
-  t.after(() => { Object.assign(globalThis, { window: previous.window, document: previous.document, IS_REACT_ACT_ENVIRONMENT: previous.act }); dom.window.close() })
-  const { createRoot } = await import('react-dom/client')
-  const signals = createSessionSignalTransport()
-  const interactions = createPlayInteractionFlow({ rpc: async () => ({ candidates: null }),
-    coordinationView: v => v, coordination: { setView() {}, invalidate() {} }, applyBodyResult() {}, reportError() {} })
-  let draft = ''
-  const context = vm.createContext({ React, ...clientControls(React), candidateTabs,
-    tavernSessionSignals: signals, liveTavernView: { invalidate() {} }, rpc: async () => ({}),
-    window: dom.window, document: dom.window.document,
-    useCandidatePreferences: () => 'after-send', useTavernSessionMode: () => 'story',
-    useCandidateTabPreference: () => false,
-    latestTavernAssistantMessageId: () => 'm-off', isPlayMode: () => true, TAVERN_MOBILE_QUERY: '(max-width: 1023px)',
-    useLiveTavernView: () => ({ view: {} }), tavernPlayEvents: { emit() {} } })
-  vm.runInContext(source, context)
-  const panels = context.createPlayInteractionPanels({ interactions,
-    useCandidatePanel: () => React.useSyncExternalStore(interactions.candidates.subscribe, interactions.candidates.getSnapshot, interactions.candidates.getSnapshot),
-    useCandidateGuidePanel: () => React.useSyncExternalStore(interactions.guide.subscribe, interactions.guide.getSnapshot, interactions.guide.getSnapshot),
-    useRegenPanel: () => null, usePhonePlay: () => false })
-  const makeProps = () => ({ sessionId: 'a', useSession: select => select({ running: false }),
-    useChat: select => select({ legacy: { nodes: [] } }), useInput: select => select({ draft }),
-    inputActions: { setDraft(next) { draft = next } } })
-  const root = createRoot(dom.window.document.querySelector('main'))
-
-  const choices = [
-    { type: 'action', actor: '苏晚', text: '苏晚突然拉开门审视门外' },
-    { type: 'action', actor: '陆沉', text: '陆沉推门而入坦然应对' },
-    { type: 'event', text: '走廊尽头突然传来急促脚步声' },
-    { type: 'featured', actors: ['苏晚', '陆沉'], text: '苏晚借审视门外顺势拉开门闩，陆沉趁隙推门而入交换眼色' }
-  ]
-  interactions.candidates.set({ sessionId: 'a', messageId: 'm-off', phase: 'ready', expanded: true, choices })
-  await act(async () => root.render(React.createElement(panels.CandidateQuestion, makeProps())))
-
-  assert.equal(dom.window.document.querySelectorAll('.dsh-tavern-question-tab').length, 0, '开关关闭时不应渲染 Tab 条')
-  const options = [...dom.window.document.querySelectorAll('.dsh-tavern-question-option')]
-  assert.equal(options.length, 1, '关闭时只列精选一组')
-  assert.ok(options[0].textContent.includes('苏晚借审视门外顺势拉开门闩'), '精选条目照常渲染')
-  await act(async () => options[0].click())
-  assert.equal(draft, '苏晚借审视门外顺势拉开门闩，陆沉趁隙推门而入交换眼色')
-  await act(async () => root.unmount())
-})
-test('候选项从无到有不改 hook 数量：没有候选项的那一版渲染也经过 Tab 开关 hook', async t => {
-  const dom = new JSDOM('<main></main>', { pretendToBeVisual: true })
-  const previous = { window: globalThis.window, document: globalThis.document, act: globalThis.IS_REACT_ACT_ENVIRONMENT }
-  Object.assign(globalThis, { window: dom.window, document: dom.window.document, IS_REACT_ACT_ENVIRONMENT: true })
-  t.after(() => { Object.assign(globalThis, { window: previous.window, document: previous.document, IS_REACT_ACT_ENVIRONMENT: previous.act }); dom.window.close() })
-  const { createRoot } = await import('react-dom/client')
-  const signals = createSessionSignalTransport()
-  const interactions = createPlayInteractionFlow({ rpc: async () => ({ candidates: null }),
-    coordinationView: v => v, coordination: { setView() {}, invalidate() {} }, applyBodyResult() {}, reportError() {} })
-  let draft = ''
-  const context = vm.createContext({ React, ...clientControls(React), candidateTabs,
-    tavernSessionSignals: signals, liveTavernView: { invalidate() {} }, rpc: async () => ({}),
-    window: dom.window, document: dom.window.document,
-    useCandidatePreferences: () => 'after-send', useTavernSessionMode: () => 'story',
-    useCandidateTabPreference: () => true,
-    latestTavernAssistantMessageId: () => 'm-hooks', isPlayMode: () => true, TAVERN_MOBILE_QUERY: '(max-width: 1023px)',
-    useLiveTavernView: () => ({ view: {} }), tavernPlayEvents: { emit() {} } })
-  vm.runInContext(source, context)
-  const panels = context.createPlayInteractionPanels({ interactions,
-    useCandidatePanel: () => React.useSyncExternalStore(interactions.candidates.subscribe, interactions.candidates.getSnapshot, interactions.candidates.getSnapshot),
-    useCandidateGuidePanel: () => React.useSyncExternalStore(interactions.guide.subscribe, interactions.guide.getSnapshot, interactions.guide.getSnapshot),
-    useRegenPanel: () => null, usePhonePlay: () => false })
-  const makeProps = () => ({ sessionId: 'a', useSession: select => select({ running: false }),
-    useChat: select => select({ legacy: { nodes: [] } }), useInput: select => select({ draft }),
-    inputActions: { setDraft(next) { draft = next } } })
-  const root = createRoot(dom.window.document.querySelector('main'))
-
-  // 第一版：这一局还没有候选项，组件在早退处返回 null。开关 hook 必须已经跑过，否则候选项到手时 hook 数会多出来。
-  await act(async () => root.render(React.createElement(panels.CandidateQuestion, makeProps())))
-  assert.equal(dom.window.document.querySelectorAll('.dsh-tavern-question-option').length, 0)
-
-  interactions.candidates.set({ sessionId: 'a', messageId: 'm-hooks', phase: 'ready', expanded: true,
-    choices: [{ type: 'action', actor: '苏晚', text: '苏晚拉开门' }, { type: 'featured', actors: ['苏晚'], text: '苏晚拉开门迎客' }] })
-  await act(async () => root.render(React.createElement(panels.CandidateQuestion, makeProps())))
-  assert.ok(dom.window.document.querySelectorAll('.dsh-tavern-question-option').length > 0, '候选项到手后照常渲染')
-  assert.equal(dom.window.document.querySelectorAll('.dsh-tavern-question-tab').length, 2, '开关打开时 Tab 条照常（精选 + 苏晚）')
   await act(async () => root.unmount())
 })

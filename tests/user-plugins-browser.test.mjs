@@ -37,6 +37,24 @@ for (const installed of [false, true]) {
   })
 }
 
+test('酒馆插件列表隐藏卡内插件，保留酒馆内置插件和第三方舞台模组', async t => {
+  const plugins = [
+    { folder: 'werewolf', name: 'dsh-card-werewolf', source: { kind: 'card' }, enabled: true, state: 'loaded' },
+    { folder: 'massage', name: 'dsh-tavern-massage', source: { kind: 'card' }, enabled: false, state: 'disabled' },
+    { folder: 'audiobook', name: 'dsh-tavern-audiobook', source: { kind: 'builtin' }, enabled: true, state: 'loaded' },
+    { folder: 'stage-builtin', name: 'stage-builtin-mod', source: { kind: 'managed', builtin: true }, enabled: true, state: 'loaded' },
+    { folder: 'stage-custom', name: 'stage-custom-mod', source: { kind: 'managed', builtin: false }, enabled: true, state: 'loaded' },
+  ]
+  const { page } = await openTavernSettings(t, {
+    section: 'dsh-tavern: plugins settings section',
+    respond: method => method === 'listUserPlugins' ? { plugins, dir: '/tmp/tavern/plugins' } : undefined,
+  })
+  const rows = page.locator('.dsh-tavern-user-plugin')
+  await rows.filter({ hasText: 'dsh-tavern-audiobook' }).getByRole('button', { name: '停用', exact: true }).waitFor()
+  await rows.filter({ hasText: 'stage-custom-mod' }).getByRole('button', { name: '管理模组', exact: true }).waitFor()
+  assert.equal(await rows.count(), 2)
+})
+
 // 设置 → 插件：已是最新时不显示更新按钮，有新版时按钮写明版本，停用/启用原地切换。
 // 手动「检查更新」跳过自动检查的缓存，按钮旁边写明结果，徽标和更新按钮随之刷新。
 test('插件列表可以手动检查更新', async t => {
@@ -79,6 +97,39 @@ test('插件列表可以手动检查更新', async t => {
   await page.getByRole('alert').getByText('检查完成：1 个插件检查失败。', { exact: true }).waitFor()
   assert.equal(checks().length, 4)
   assert.equal(checks()[3].args?.fresh, true)
+})
+
+test('有独立 Release 的内置插件显示检查入口，只能安装兼容且已检查的版本', async t => {
+  const folder = 'dsh-tavern-fate-dice'
+  const target = 'v1.5.0:sha256:checked'
+  const dice = { folder, name: folder, version: '1.4.2', source: { kind: 'builtin', releaseRepo: 'bigmalove/' + folder }, enabled: true, state: 'loaded' }
+  const image = { folder: 'dsh-tavern-image', name: 'dsh-tavern-image', source: { kind: 'builtin' }, enabled: true, state: 'loaded' }
+  let update = { folder, status: 'blocked', reason: '新版需要 Tavern 插件 API v9，请先更新酒馆' }
+  const { page, calls } = await openTavernSettings(t, {
+    section: 'dsh-tavern: plugins settings section',
+    respond(method) {
+      if (method === 'listUserPlugins') return { plugins: [dice, image], dir: '/tmp/tavern/plugins' }
+      if (method === 'checkUserPluginUpdates') return { plugins: [update] }
+      if (method === 'updateUserPlugin') {
+        Object.assign(dice, { version: '1.5.0', state: 'restart' })
+        update = { folder, status: 'latest' }
+        return { plugin: { name: folder, version: dice.version, replaced: true } }
+      }
+    },
+  })
+  const diceRow = page.locator('.dsh-tavern-user-plugin').filter({ hasText: folder })
+  const imageRow = page.locator('.dsh-tavern-user-plugin').filter({ hasText: image.name })
+  await diceRow.getByText(update.reason, { exact: true }).waitFor()
+  assert.equal(await diceRow.getByRole('button', { name: /更新/ }).count(), 0)
+  assert.equal(await imageRow.getByRole('button', { name: /更新/ }).count(), 0)
+
+  update = { folder, status: 'available', latest: 'v1.5.0', target }
+  await page.getByRole('button', { name: '检查更新', exact: true }).click()
+  await diceRow.getByRole('button', { name: '更新到 1.5.0', exact: true }).click()
+  await diceRow.getByText('重启 DSH 后生效', { exact: true }).waitFor()
+  const { args } = calls.find(call => call.method === 'updateUserPlugin')
+  assert.equal(args.folder, folder)
+  assert.equal(args.target, target)
 })
 
 // 手机宽度下卡片内宽只剩两百多像素，「启用 / 更新 / 删除」三个按钮自己就要一百五十多像素：

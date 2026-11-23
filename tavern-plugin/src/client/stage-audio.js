@@ -8,6 +8,14 @@ function audioContentKey(identity) {
     const match = /(?:^|[^0-9a-f])([0-9a-f]{64})(?![0-9a-f])/.exec(String(identity || ""));
     return match ? match[1] : null;
 }
+// Freezes a param's glide in progress at its current value before a new target. Firefox has no cancelAndHoldAtTime:
+// there the value the param reports now is pinned instead.
+function holdAudioParam(param, time) {
+    if (typeof param.cancelAndHoldAtTime === "function") { param.cancelAndHoldAtTime(time); return; }
+    const value = param.value;
+    param.cancelScheduledValues(time);
+    param.setValueAtTime(value, time);
+}
 function audioPreferences(storage) {
     // quarter-strength UI cues; migrate the saved slider once, in the same record.
     // every bus slider defaults to 1; the bus targets carry the balance.
@@ -131,25 +139,31 @@ const forkStageAudio = (function () {
     const installedHosts = new WeakSet();
     function install(host) {
         if (!host || !host.addEventListener || installedHosts.has(host)) return;
-        const resume = () => { if (context && context.state === "suspended") context.resume().catch(() => {}); };
+        // The mixer's context is made, or woken, inside the user's own gesture: a phone browser (iOS Safari, Android Chrome) only
+        // lets a context start running there, and a context first made later (when a voice's audio arrives from the network)
+        // stays suspended, so every voice routed through it is silent while system speech (no mixer) still sounds. pointerdown
+        // is not an activation on these browsers; touchend, click and keydown are.
+        const unlock = () => { ensure(); };
+        const events = ["pointerdown", "touchend", "click", "keydown"];
         installedHosts.add(host);
-        host.addEventListener("pointerdown", resume, { passive: true });
+        for (const event of events) host.addEventListener(event, unlock, { passive: true, capture: true });
         let disposed = false;
         return () => {
             if (disposed) return;
             disposed = true;
-            host.removeEventListener("pointerdown", resume);
+            for (const event of events) host.removeEventListener(event, unlock, { capture: true });
             installedHosts.delete(host);
         };
     }
     // One trigger changed: each bus glides to its new dip - down at the attack of the trigger now setting it, up after
-    // the hold and at the release of the trigger that set it. cancelAndHoldAtTime keeps a glide in progress continuous.
+    // the hold and at the release of the trigger that set it. holdAudioParam keeps a glide in progress continuous.
     function retarget() {
         if (context) for (const layer of Object.keys(buses)) {
             const bus = buses[layer], dip = dipOf(layer);
             if (dip.db === bus.db) { bus.by = dip.by; continue; }
-            const now = context.currentTime, deeper = dip.db < bus.db, time = AUDIO_DUCK_TIME[deeper ? dip.by : bus.by];
-            bus.duck.gain.cancelAndHoldAtTime(now);
+            const now = context.currentTime, deeper = dip.db < bus.db, by = deeper ? dip.by : bus.by;
+            const time = layer === "ambience" && by === "voice" ? AUDIO_AMBIENCE_VOICE_TIME : AUDIO_DUCK_TIME[by];
+            holdAudioParam(bus.duck.gain, now);
             bus.duck.gain.setTargetAtTime(Math.pow(10, dip.db / 20), deeper ? now : now + time.hold, deeper ? time.attack : time.release);
             bus.db = dip.db; bus.by = dip.by; bus.to = Math.pow(10, dip.db / 20);
         }
@@ -470,8 +484,7 @@ const forkStageAudio = (function () {
             const cutoff = Math.max(20, Math.min((context.sampleRate || 48000) / 2, cutoffHz));
             if (typeof frequency.setTargetAtTime === "function") {
                 // Hold an in-progress target where supported before retargeting it.
-                if (typeof frequency.cancelAndHoldAtTime === "function") frequency.cancelAndHoldAtTime(time);
-                else if (typeof frequency.cancelScheduledValues === "function") frequency.cancelScheduledValues(time);
+                holdAudioParam(frequency, time);
                 frequency.setTargetAtTime(cutoff, time, 0.05);
             } else frequency.value = cutoff;
             return true;

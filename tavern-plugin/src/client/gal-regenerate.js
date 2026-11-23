@@ -4,7 +4,9 @@ async function galSubmitRegeneration(sessionId, turn, target, guidance, messageI
     const text = String(guidance || "").trim();
     let started = null;
     // 提交后服务端才写 regenInProgress；视图没读到之前正文被标记遮住，靠它自己重读。
-    notifyRegenerating(sessionId, true);
+    // 只有正文重生成占前台对话轮次，其它后台目标不切换发送键。
+    const foreground = target === "body";
+    notifyRegenerating(sessionId, true, { foreground });
     try {
         if (target === "body") await submitBodyRegeneration(sessionId, { tail: null }, text);
         else if (target === "mvu") await rpc("retryMvuSettlement", { turn, guidance: text }, sessionId);
@@ -13,7 +15,7 @@ async function galSubmitRegeneration(sessionId, turn, target, guidance, messageI
     } finally {
         // 正文落盘、被停止、报错都是这一轮的收尾：视图、协调状态和故事列表一起重读。
         // 少读故事这一份时，新正文只写进存档，页面上仍是原来那几行，要刷新才回来。
-        notifyRegenerating(sessionId, false);
+        notifyRegenerating(sessionId, false, { foreground });
     }
     return started;
 }
@@ -36,7 +38,7 @@ async function galStopRegeneration(sessionId, target, started, turn) {
             if (activity && activity.operationId) await rpc("stopBackground", { operationId: activity.operationId }, sessionId);
         }
     } catch (error) { tavernErrorHub.report("停止重新生成", error); }
-    finally { notifyRegenerating(sessionId, false); }
+    finally { notifyRegenerating(sessionId, false, { foreground: false }); }
 }
 
 function GalRegenerate(props) {

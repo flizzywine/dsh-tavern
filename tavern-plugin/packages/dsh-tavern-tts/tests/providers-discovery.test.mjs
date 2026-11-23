@@ -503,14 +503,13 @@ test('another plugin\'s provider is listed with the 配音来源 it declares; on
     ['speaker-box','reference','speaker-box','paid','provider','preset+voice-id']])
   assert.equal(discovered,1)
 })
-// A self-hosted Fish server (a local worker) has no key to get wrong: not running reads 未启动, running reads 可用, and a
-// server that refuses the saved token reads 被拒绝 — none of them says anything about an API Key. A cloud service keeps its key words.
+// A self-hosted Fish service distinguishes readiness from connectivity and token rejection.
 const KEY_WORDS = /Key|密钥|API/i
-async function localRow(t, answer) {
+async function localRow(t, answer, key) {
   let settings = {enabled:true,providers:[],voices:[],cacheMaxGB:1,cacheMaxAgeDays:30}
-  const tts = createTts(), services = createServiceSettings({tts,fetch:async (input, init) => answer(new URL(String(input)), init),get:() => settings,replace:async v => {settings=v},credentials:() => null})
+  const tts = createTts(), services = createServiceSettings({tts,fetch:async (input, init) => answer(new URL(String(input)), init),get:() => settings,replace:async v => {settings=v},credentials:() => key ? {resolve:async ref => ref.endsWith('_KEY') ? {value:key} : undefined,describe:async () => ({configured:true}),set:async () => {}} : null})
   t.after(async () => {services.dispose();await tts.dispose()})
-  await services.save({id:'fish-local',kind:'fish-audio',label:'本地 Drama3',config:{url:'http://local.invalid'},secrets:{key:''}})
+  await services.save({id:'fish-local',kind:'fish-audio',label:'本地 Drama3',config:{url:'http://local.invalid'},secrets:{}})
   const row = async () => { const listed = (await services.list())[0]; return {status:listed.check?.status,message:listed.check?.message || '',selfHosted:listed.selfHosted,state:(await services.voiceServices()).services.find(s => s.id === 'fish-local').state} }
   return {services,row}
 }
@@ -521,11 +520,34 @@ test('a self-hosted server that is not running reads 未启动, never an API Key
   assert.deepEqual([seen.status,seen.state,seen.selfHosted],['offline','stopped',true])
   assert.doesNotMatch(seen.message,KEY_WORDS)
 })
-test('a self-hosted server that answers reads 可用',async t => {
+test('a self-hosted server without readiness metadata still reports connectivity',async t => {
   const {services,row} = await localRow(t,url => fishServers([])(url.href))
   const result = await services.test({id:'fish-local'})
   assert.equal(result.ok,true)
   assert.deepEqual(await row(),{status:'connected',message:'',selfHosted:true,state:'ready'})
+})
+test('a fresh authenticated Fish check distinguishes an unloaded resident model from a usable one',async t => {
+  let metadata = {state:'ready',loaded:false,pressure:0,capabilities:{idleUnloadMs:0}}
+  const requests = []
+  const {services,row} = await localRow(t,(url,init) => {
+    requests.push([init.method,url.pathname,init.headers.Authorization])
+    return Response.json({models:[{id:'server-model'}],...metadata})
+  },'test-token')
+  requests.length = 0
+  let result = await services.test({id:'fish-local'})
+  assert.deepEqual(requests,[['GET','/v1/info','Bearer test-token']])
+  assert.deepEqual([result.ok,result.reachable,result.synthesisTested],[false,true,false])
+  assert.deepEqual(await row(),{status:'not-ready',message:'服务已启动，但语音模型尚未加载，暂时不能合成',selfHosted:true,state:'offline'})
+  metadata = {...metadata,state:'loading'}
+  result = await services.test({id:'fish-local'})
+  assert.match(result.message,/正在加载/)
+  metadata = {...metadata,state:'ready',loaded:true,pressure:2}
+  result = await services.test({id:'fish-local'})
+  assert.match(result.message,/系统资源不足/)
+  metadata = {...metadata,pressure:0}
+  result = await services.test({id:'fish-local'})
+  assert.equal(result.ok,true)
+  assert.equal((await row()).state,'ready')
 })
 test('a self-hosted server that refuses the saved token reads 被拒绝, without a word about an API Key',async t => {
   for (const status of [401,403]) {
@@ -544,7 +566,7 @@ test('a self-hosted server that is loading (503) reads 连不上 with its reason
 })
 test('the Fish cloud refusing a key is still an API Key problem',async t => {
   let settings = {enabled:true,providers:[],voices:[],cacheMaxGB:1,cacheMaxAgeDays:30}
-  const tts = createTts(), services = createServiceSettings({tts,fetch:async () => new Response('{}',{status:401}),get:() => settings,replace:async v => {settings=v},credentials:() => ({resolve:async () => ({value:'bad'}),describe:async () => ({configured:true})})})
+  const tts = createTts(), services = createServiceSettings({tts,fetch:async () => new Response('{}',{status:401}),get:() => settings,replace:async v => {settings=v},credentials:() => ({resolve:async ref => ref.endsWith('_KEY') ? {value:'bad'} : undefined,describe:async () => ({configured:true})})})
   t.after(async () => {services.dispose();await tts.dispose()})
   await services.save({id:'fish',kind:'fish-audio',label:'Fish Audio',config:{url:'https://api.fish.audio'},secrets:{}})
   await services.test({id:'fish'})
@@ -569,7 +591,7 @@ test('a failed cloud check expires, so a service that came back stops reading �
   let settings = {enabled:true,providers:[],voices:[],cacheMaxGB:1,cacheMaxAgeDays:30}, offline = true
   const tts = createTts()
   const fetch = async () => { if (offline) throw new TypeError('fetch failed'); return Response.json({total:0,items:[]}) }
-  const services = createServiceSettings({tts,fetch,get:() => settings,replace:async v => {settings=v},credentials:() => ({resolve:async () => ({value:'k'}),describe:async () => ({configured:true})})})
+  const services = createServiceSettings({tts,fetch,get:() => settings,replace:async v => {settings=v},credentials:() => ({resolve:async ref => ref.endsWith('_KEY') ? {value:'k'} : undefined,describe:async () => ({configured:true})})})
   t.after(async () => {services.dispose();await tts.dispose()})
   await services.save({id:'fish',kind:'fish-audio',label:'Fish Audio',config:{url:'https://api.fish.audio'},secrets:{}})
   await services.test({id:'fish'})

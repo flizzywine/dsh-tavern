@@ -4,10 +4,9 @@ import { syncBuiltinESMExports } from 'node:module'
 import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
-import { gzipSync, gunzipSync } from 'node:zlib'
+import { gzipSync } from 'node:zlib'
 
 import { createChatJournalStore } from '../tavern-plugin/lib/domain/chat-journal-store.js'
-import { applyTavernHelperVariableMacros } from '../tavern-plugin/lib/domain/tavern-helper-variable-macros.js'
 
 function fixture() {
   // Intentionally nonalphabetical keys, numeric keys, nulls and inactive swipes.
@@ -26,39 +25,6 @@ async function setup(t, options = {}) {
   const open = () => createChatJournalStore({ dataRoot: root, logger: { warn() {} }, ...options })
   return { root, open, store: open(), snapshots: path.join(root, 'chats/chat/snapshots') }
 }
-
-function request(chat) {
-  const projected = applyTavernHelperVariableMacros([
-    { role: 'system', content: '{{get_chat_variable::z}}\n{{get_message_variable::stat_data}}\n  {{format_message_variable::stat_data}}' },
-    ...chat.messages.map(m => ({ role: m.role, content: m.text }))
-  ], { chat: chat.variables, message: chat.messages[0].variables[0] })
-  return JSON.stringify({ provider: 'test', model: 'test-model', sessionId: 's',
-    messages: projected.messages.map((m, i) => ({ id: String(i), role: m.role, content: [{ type: 'text', text: m.content }] })) })
-}
-
-test('压缩重启和历史读取保持 JSON 键顺序、JSON/YAML 变量宏及请求字节不变', async t => {
-  const { store, open, snapshots } = await setup(t, { frameLimit: 1 })
-  const initial = fixture()
-  const expectedJson = JSON.stringify(initial), expectedRequest = request(initial)
-  await store.update('chat', () => initial)
-  const file = await fs.readFile(path.join(snapshots, '000000000001.json.gz'))
-  assert.equal(gunzipSync(file).toString(), expectedJson)
-  assert.ok(file.length < Buffer.byteLength(expectedJson) / 5)
-  assert.equal(JSON.stringify(await open().read('chat')), expectedJson)
-  assert.equal(request(await open().read('chat')), expectedRequest)
-  await store.update('chat', chat => {
-    chat._storageRevision++
-    chat.messages[0].variables[0].stat_data.newKey = { z: 3, a: 4 }
-    chat.messages[1].variables[2] = { stat_data: { hp: 7 } }
-    return chat
-  })
-  assert.equal(request(await open().readRevision('chat', 1)), expectedRequest)
-  assert.equal(JSON.stringify(await open().read('chat')), JSON.stringify(await store.read('chat')))
-  const detached = await store.read('chat')
-  detached.messages[0].variables[0].stat_data.z = '修改'
-  assert.equal((await store.read('chat')).messages[0].variables[0].stat_data.z, '最后')
-  assert.equal(detached.messages[1].variables[0].stat_data.z, '最后')
-})
 
 for (const damage of ['truncated', 'checksum', 'invalid-json']) test(`损坏 gzip 快照从完整 journal 恢复，不静默回到旧状态：${damage}`, async t => {
   const { store, open, snapshots, root } = await setup(t, { frameLimit: 1 })

@@ -1,3 +1,4 @@
+import brightness from '../shared/ambience-brightness.cjs'
 // Offline audio analysis for authoring tools and ffmpeg comparison tests.
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
@@ -17,22 +18,31 @@ export async function resolveAudioFfmpeg() {
   if (!found) executable = undefined
   return found
 }
-export async function measureAudioFile(file) {
+export async function measureAudioFile(file, kind) {
   const ffmpeg = await resolveAudioFfmpeg()
   if (!ffmpeg) return null
   try {
-    const { stderr } = await execute(ffmpeg, ['-hide_banner', '-nostdin', '-i', file, '-map', '0:a:0', '-af', 'apad=whole_dur=0.4,ebur128=peak=true', '-f', 'null', '-'], { windowsHide: true, timeout: 180000, maxBuffer: 16 * 1024 * 1024 })
+    const { stderr, stdout } = await execute(ffmpeg, ['-hide_banner', '-nostdin', '-progress', 'pipe:1', '-i', file, '-map', '0:a:0', '-af', 'apad=whole_dur=0.4,ebur128=peak=true', '-f', 'null', '-'], { windowsHide: true, timeout: 180000, maxBuffer: 16 * 1024 * 1024 })
     const summary = stderr.slice(stderr.lastIndexOf('Summary:'))
     const lufs = Number(/I:\s+(-?[\d.]+) LUFS/.exec(summary)?.[1]), rawPeak = /Peak:\s+(-inf|-?[\d.]+) dBFS/.exec(summary)?.[1]
     // ffmpeg prints a peak just under full scale as -0.0; stored JSON reads back +0, so keep +0 (read-back compares deep-strictly).
     const peak = rawPeak === '-inf' ? -100 : Math.max(-100, Number(rawPeak)) + 0
     const result = { lufs: peak === -100 && lufs <= -70 ? -100 : lufs, peak, v: 1 }
-    return validLoudness(result) ? result : null
+    if (!validLoudness(result)) return null
+    if (kind === 'ambience') {
+      const { stdout: pcm } = await execute(ffmpeg, ['-v', 'error', '-nostdin', '-i', file, '-map', '0:a:0', '-t', '60', '-ac', '1', '-ar', '32000', '-f', 'f32le', '-'],
+        { encoding: 'buffer', windowsHide: true, timeout: 180000, maxBuffer: 8 * 1024 * 1024 })
+      result.brightnessDb = brightness.measureAmbienceBrightness([new Float32Array(pcm.buffer, pcm.byteOffset, pcm.length / 4)], 32000)
+      result.durationMs = Number([...stdout.matchAll(/out_time_us=(\d+)/g)].at(-1)?.[1]) / 1000
+      if (!Number.isFinite(result.durationMs)) return null
+    }
+    return result
   } catch { return null }
 }
 
 import {mkdtemp, writeFile, unlink, rmdir} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
+import {SpooledFile} from '../asset-packs/common.js'
 import path from 'node:path'
 import {assetContents} from '../shared/asset-variant-content.js'
 
@@ -51,9 +61,9 @@ export async function authorAudioLoudness(manifest, files, {previous, read, meas
     for (const content of assetContents(asset)) {
       const name = audioContentFile(previous.manifest, asset, content)
       if (!name) continue
-      const key = identity(previous.manifest, name)
+      const key = (asset.kind === 'ambience' ? 'ambience/' : '') + identity(previous.manifest, name)
       old.set(asset.kind + '/' + asset.id + '/' + name, {key, loudness:content.loudness})
-      if (content.loudness) known.set(key, content.loudness)
+      if (content.loudness && (asset.kind !== 'ambience' || content.loudness.brightnessDb !== undefined)) known.set(key, content.loudness)
     }
   }
   let temporary, changed = false
@@ -62,11 +72,16 @@ export async function authorAudioLoudness(manifest, files, {previous, read, meas
       const name = audioContentFile(manifest, asset, content)
       if (!name) continue
       const replacedVideo = previous && asset.kind === 'videos' && files.get(name) instanceof Uint8Array
-      const key = replacedVideo ? name : identity(manifest, name)
-      if (content.loudness) { known.set(key, content.loudness); continue }
-      // Retain this entry's measurement, without migrating unchanged legacy entries sharing its media.
+      const key = (asset.kind === 'ambience' ? 'ambience/' : '') + (replacedVideo ? name : identity(manifest, name))
       const prior = old.get(asset.kind + '/' + asset.id + '/' + name)
+      const isAmbience = asset.kind === 'ambience'
+      if (isAmbience && content.loudness?.brightnessDb !== undefined && content.loudness.durationMs !== undefined && prior?.key !== key) {
+        known.set(key, content.loudness); continue
+      }
+      if (content.loudness && !isAmbience) { known.set(key, content.loudness); continue }
+      // Retain this entry's measurement, without migrating unchanged legacy entries sharing its media.
       if (!replacedVideo && prior?.key === key) {
+        if (content.loudness) continue
         if (prior.loudness) { content.loudness = {...prior.loudness}; changed = true }
         continue
       }
@@ -74,28 +89,22 @@ export async function authorAudioLoudness(manifest, files, {previous, read, meas
         const extension = path.extname(name)
         if (!/^\.(wav|mp3|ogg|flac|m4a|aac|opus|webm|mp4)$/.test(extension)) throw new Error('Unsupported audio extension')
         const stored = files.get(name)
-        const bytes = stored instanceof Uint8Array ? stored : await read(name, stored.length)
-        temporary ??= await mkdtemp(path.join(tmpdir(), 'dsh-audio-ingress-'))
-        const file = path.join(temporary, 'audio' + extension)
-        await writeFile(file, bytes)
         let value
-        try { value = await measure(file) } finally { await unlink(file) }
+        // an import's spooled entry is measured where it lies (the spool keeps the extension)
+        if (stored instanceof SpooledFile) value = await measure(stored.file, asset.kind)
+        else {
+          const bytes = stored instanceof Uint8Array ? stored : await read(name, stored.length)
+          temporary ??= await mkdtemp(path.join(tmpdir(), 'dsh-audio-ingress-'))
+          const file = path.join(temporary, 'audio' + extension)
+          await writeFile(file, bytes)
+          try { value = await measure(file, asset.kind) } finally { await unlink(file) }
+        }
         if (!value) throw new Error('素材包音频缺少响度信息且无法补测，请安装 ffmpeg 后重新导入，或请作者重新导出带响度信息的素材包：' + asset.name)
         known.set(key, value)
       }
-      content.loudness = {...known.get(key)}; changed = true
+      const loudness = known.get(key)
+      content.loudness = {...loudness}; changed = true
     }
     return changed
   } finally { if (temporary) await rmdir(temporary) }
-}
-
-export async function measureAudioBytes(bytes, extension) {
-  const directory = await mkdtemp(path.join(tmpdir(), 'dsh-audio-write-'))
-  const file = path.join(directory, 'audio.' + extension)
-  try {
-    await writeFile(file, bytes)
-    const loudness = await measureAudioFile(file)
-    if (!loudness) throw new Error('无法测量音频响度，请检查音频文件和 ffmpeg')
-    return loudness
-  } finally { await unlink(file).catch(() => {}); await rmdir(directory) }
 }

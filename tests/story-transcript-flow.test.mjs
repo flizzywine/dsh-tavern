@@ -613,3 +613,145 @@ test('非当前会话在后台完成生成时自动预热缓存，切回首帧�
 	assert.match(p.dom.window.document.querySelector('main').textContent, /后台自动预热的最新楼层/)
 })
 
+test('故事列表透传并按时间线定位 manual-compaction、compaction 与 command 节点，且响应节点状态更新', async t => {
+	const p = page(t)
+	const data = p.context.createTavernStoryTranscriptDataModule({
+		rpc: async () => ({ storyTranscript: transcript(messages), view: { mode: 'story' }, revision: 1 })
+	})
+	const feature = p.context.createTavernStoryTranscriptFeature({ dataModule: data })
+	const listeners = new Set()
+	const nodeListeners = new Map()
+	const nodesMap = new Map([
+		['cmp:auto-1', { key: 'cmp:auto-1', kind: 'compaction', anchorSeq: 15, data: { summary: '更早剧情摘要' } }],
+		['cmd:compact-1', { key: 'cmd:compact-1', kind: 'manual-compaction', anchorSeq: 50, data: { command: { outcome: null }, compaction: null } }],
+		['cmd:ejs-1', { key: 'cmd:ejs-1', kind: 'command', anchorSeq: 55, data: { name: 'ejs', outcome: { kind: 'ok', text: '模板已刷新' } } }],
+		['turn:1:user', { key: 'turn:1:user', kind: 'user', anchorSeq: 10, data: {} }]
+	])
+	let chatSnapshot = {
+		legacy: {},
+		order: ['turn:1:user', 'cmp:auto-1', 'cmd:compact-1', 'cmd:ejs-1'],
+		nodes: { get: key => nodesMap.get(key) },
+		timeline: {
+			turns: new Map([
+				[1, { turn: 1, start: { seq: 10 }, end: { seq: 12 } }],
+				[9, { turn: 9, start: { seq: 20 }, end: { seq: 30 } }]
+			])
+		}
+	}
+	function useChat(selector) {
+		return React.useSyncExternalStore(
+			fn => { listeners.add(fn); return () => listeners.delete(fn) },
+			() => selector(chatSnapshot)
+		)
+	}
+	function useChatNode(key) {
+		return React.useSyncExternalStore(
+			fn => {
+				let set = nodeListeners.get(key)
+				if (!set) { set = new Set(); nodeListeners.set(key, set) }
+				set.add(fn)
+				return () => set.delete(fn)
+			},
+			() => nodesMap.get(key)
+		)
+	}
+	function renderSlot(slotName, owner, opts) {
+		assert.equal(slotName, 'conversation.chat.node')
+		const node = owner.node
+		if (opts.entryKey === 'manual-compaction') {
+			const outcome = node.data.command.outcome
+			const phase = outcome === null ? 'running' : outcome.kind === 'error' ? 'failed' : 'succeeded'
+			return React.createElement('div', { 'data-fork-compaction': phase },
+				phase === 'running' ? '正在整理较早的剧情…' : phase === 'failed' ? '这次未能整理较早的剧情。' : '已整理较早的剧情')
+		}
+		if (opts.entryKey === 'compaction') return React.createElement('div', { 'data-fork-compaction': 'succeeded' }, node.data.summary)
+		return React.createElement('div', { 'data-command': node.data.name }, node.data.outcome.text)
+	}
+	const flow = React.createElement(feature.StoryTranscriptFlow, {
+		sessionId: 's-compact',
+		renderNative: () => null,
+		useChat,
+		useChatNode,
+		useSession: selector => selector({ running: false }),
+		renderSlot
+	})
+	await mount(p, flow)
+
+	const main = p.dom.window.document.querySelector('main')
+	const keys = Array.from(main.children).map(el => el.getAttribute('data-chat-flow-key'))
+	assert.deepEqual(keys, ['turn:1', 'cmp:auto-1', 'index:1', 'turn:9', 'cmd:compact-1', 'cmd:ejs-1'], '自动压缩插在对应楼层后，手动压缩与命令插在最新楼层后，原生 user 节点不重复渲染')
+	assert.equal(main.querySelector('[data-chat-flow-key="cmd:compact-1"]').textContent, '正在整理较早的剧情…')
+
+	nodesMap.set('cmd:compact-1', {
+		key: 'cmd:compact-1', kind: 'manual-compaction', anchorSeq: 50,
+		data: { command: { outcome: { kind: 'error', text: 'failed' } }, compaction: null }
+	})
+	await act(async () => {
+		for (const fn of nodeListeners.get('cmd:compact-1') || []) fn()
+	})
+	assert.equal(main.querySelector('[data-chat-flow-key="cmd:compact-1"]').textContent, '这次未能整理较早的剧情。', '命令结束时通过 useChatNode 实时更新状态')
+})
+
+test('点击压缩上下文或自动压缩进行中时，在对话末尾显示正在压缩提示，完成后消失，且不与进行中的 manual-compaction 重复', async t => {
+	const p = page(t)
+	const data = p.context.createTavernStoryTranscriptDataModule({
+		rpc: async () => ({ storyTranscript: transcript(messages), view: { mode: 'story' }, revision: 1 })
+	})
+	const compactionListeners = new Set()
+	let compactionState = { running: false, operation: null }
+	const feature = p.context.createTavernStoryTranscriptFeature({
+		dataModule: data,
+		useCompactionState: () => React.useSyncExternalStore(
+			fn => { compactionListeners.add(fn); return () => compactionListeners.delete(fn) },
+			() => compactionState
+		),
+		compactionProgressTitle: op => op ? '前台：压缩中…；后台：等待中' : ''
+	})
+	const chatListeners = new Set()
+	let chatSnapshot = { legacy: {}, order: [], nodes: new Map(), timeline: { turns: new Map() } }
+	const useChat = selector => React.useSyncExternalStore(
+		fn => { chatListeners.add(fn); return () => chatListeners.delete(fn) },
+		() => selector(chatSnapshot)
+	)
+	const flow = React.createElement(feature.StoryTranscriptFlow, {
+		sessionId: 's-compact-hint',
+		renderNative: () => null,
+		useChat,
+		useChatNode: key => chatSnapshot.nodes.get(key),
+		useSession: selector => selector({ running: false }),
+		renderSlot: (_slot, owner, opts) => opts.entryKey === 'manual-compaction'
+			? React.createElement('div', { 'data-fork-compaction': 'running' }, '正在整理较早的剧情…')
+			: null
+	})
+	await mount(p, flow)
+
+	const main = p.dom.window.document.querySelector('main')
+	assert.equal(main.querySelector('[data-chat-flow-kind="compaction-running"]'), null, '未压缩时不显示提示')
+
+	compactionState = { running: true, operation: { status: 'running', foreground: { status: 'dispatching' }, background: { status: 'pending' } } }
+	await act(async () => { for (const fn of compactionListeners) fn() })
+	const row = main.querySelector('[data-chat-flow-kind="compaction-running"]')
+	assert.ok(row, '压缩进行中时在对话里显示提示行')
+	assert.equal(row.querySelector('[role="status"]').getAttribute('data-fork-compaction'), 'running')
+	assert.match(row.textContent, /正在压缩对话…/)
+	assert.equal(row.querySelector('.fork-compaction-text').getAttribute('title'), '前台：压缩中…；后台：等待中')
+
+	// 若同时存在原生进行中的 manual-compaction 节点，不重复显示两条提示
+	const manualNode = { key: 'cmd:compact-2', kind: 'manual-compaction', anchorSeq: 99, data: { command: { outcome: null }, compaction: null } }
+	chatSnapshot = { legacy: {}, order: ['cmd:compact-2'], nodes: new Map([['cmd:compact-2', manualNode]]), timeline: { turns: new Map() } }
+	await act(async () => { for (const fn of chatListeners) fn() })
+	assert.equal(main.querySelector('[data-chat-flow-kind="compaction-running"]'), null, '已有进行中的 manual-compaction 节点时不重复显示')
+	assert.ok(main.querySelector('[data-chat-flow-key="cmd:compact-2"]'))
+
+	// 清除 manual-compaction 且压缩结束，提示消失
+	chatSnapshot = { legacy: {}, order: [], nodes: new Map(), timeline: { turns: new Map() } }
+	compactionState = { running: false, operation: { status: 'completed' } }
+	await act(async () => {
+		for (const fn of chatListeners) fn()
+		for (const fn of compactionListeners) fn()
+	})
+	assert.equal(main.querySelector('[data-chat-flow-kind="compaction-running"]'), null, '压缩结束后提示消失')
+})
+
+
+

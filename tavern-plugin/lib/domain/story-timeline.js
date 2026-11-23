@@ -1,4 +1,5 @@
 import { createScopedMessages } from './scoped-messages.js'
+import { applyWidgetVariableIntent, assertWidgetSettlementAdmission, cancelWidgetVariableEdits } from './widget-variable-transaction.js'
 import { participantOf } from './background-members.js'
 import { clearRegenerationFailure } from './regeneration-discard.js'
 function clone(value) {
@@ -136,6 +137,8 @@ export function createStoryTimeline(options = {}) {
       runtimeInputs: chat.runtimeInputs === undefined ? null : chat.runtimeInputs,
       posture: str(chat.posture),
       ledger: chat.ledger || null,
+      ledgerInjection: chat.ledgerInjection,
+      ledgerTask: chat.ledgerTask,
       scriptState: chat.scriptState === undefined ? null : chat.scriptState,
       candidates: chat.candidates === undefined ? null : chat.candidates,
       settleStatus: str(chat.settleStatus) || 'idle',
@@ -157,7 +160,7 @@ export function createStoryTimeline(options = {}) {
     if (Object.hasOwn(source, 'macroState')) chat.macroState = clone(source.macroState)
     // These chat-local values belong to the story, unlike model/UI settings.
     // Absence in the historical state must also remove values created later.
-    for (const key of ['variables', 'tavernPluginMetadata', 'tavernHelperScriptVariables']) {
+    for (const key of ['variables', 'tavernPluginMetadata', 'tavernHelperScriptVariables', 'ledgerInjection', 'ledgerTask']) {
       if (Object.hasOwn(source, key)) chat[key] = clone(source[key])
       else delete chat[key]
     }
@@ -179,10 +182,11 @@ export function createStoryTimeline(options = {}) {
 
   function trimOperations(timeline) {
     const entries = Object.values(timeline.operations).sort(function (left, right) { return (Number(right.createdAt) || 0) - (Number(left.createdAt) || 0) })
-    // Only finished history is trimmed: an old running or deferred operation (and the
-    // round it belongs to) must still be found when it completes or resumes.
-    const retained = new Set(entries.filter(operation => ['running', 'deferred'].includes(operation.status))
-      .flatMap(operation => [operation.id, operation.roundOperationId].filter(Boolean)))
+    const active = entries.filter(operation => ['running', 'deferred'].includes(operation.status))
+    const retained = new Set(active.flatMap(operation => [operation.id, operation.roundOperationId].filter(Boolean)))
+    const latest=entries.filter(row=>row.modReceipt).sort((a,b)=>Number(b.modReceipt.revision)-Number(a.modReceipt.revision))[0]
+    // A still-current source must not lose retry receipts to unrelated background operations.
+    for(const operation of entries)if(operation.modReceipt && ['branchId','sourceKey','generation'].every(key=>operation.modSource[key]===latest.modSource[key]))retained.add(operation.id)
     for (const operation of entries.slice(80)) if (!retained.has(operation.id)) delete timeline.operations[operation.id]
   }
 
@@ -264,6 +268,7 @@ export function createStoryTimeline(options = {}) {
   }
 
   function beginBody(chat, intent) {
+    cancelWidgetVariableEdits(chat)
     const turn = Math.max(0, Number(intent.turn) || 0)
     const userText = str(intent.userText).trim()
     const existing = Object.values(chat.timeline.operations).find(function (operation) {
@@ -391,6 +396,7 @@ export function createStoryTimeline(options = {}) {
     const role = str(intent.role).trim()
     const requestId = str(intent.requestId).trim().slice(0, 160)
     if (role === '') throw new Error('Agent role 不能为空')
+    if (role === 'settlement') assertWidgetSettlementAdmission(chat)
     if (requestId !== '') {
       const existing = Object.values(chat.timeline.operations).find(function (operation) {
         return operation.kind === 'agent' && str(operation.requestId) === requestId
@@ -425,7 +431,13 @@ export function createStoryTimeline(options = {}) {
     const orphan = operation => !(Number(intent.startedBefore) > 0) || Number(operation.createdAt) < Number(intent.startedBefore)
     let interruptedRole = ''
     let changed = false
+    const requested = intent.operationId ? chat.timeline.operations[intent.operationId] : null
     for (const operation of Object.values(chat.timeline.operations)) {
+      if (intent.operationId && operation.id !== intent.operationId && !(requested?.kind === 'body' && operation.roundOperationId === requested.id)) continue
+      if (operation.kind === 'variables.edit' && operation.status === 'running') {
+        operation.status = 'cancelled'
+        changed = true
+      }
       if (operation.kind !== 'agent' || (operation.status !== 'running'
         && !(intent.cancelDelivery === true && operation.role === 'settlement' && operation.status === 'deferred'))) continue
       if (!orphan(operation)) continue
@@ -442,8 +454,9 @@ export function createStoryTimeline(options = {}) {
       changed = true
       if (operation.role === 'settlement' && !recoverable) interruptedRole = operation.role
     }
+    const targeted = intent.operationId ? chat.timeline.operations[intent.operationId] : null
     const background = backgroundBody(chat)
-    if (background !== undefined) {
+    if (background !== undefined && (!intent.operationId || targeted?.role === 'settlement' || background.id === intent.operationId)) {
       const latest = Object.values(chat.timeline.operations).filter(function (operation) {
         return operation.kind === 'agent' && operation.role === 'settlement' &&
           operation.roundOperationId === background.id
@@ -542,10 +555,14 @@ export function createStoryTimeline(options = {}) {
   }
 
   function apply(input) {
-    let chat = ensure(input && input.chat, input?.detach !== false)
+    const scoped = Array.isArray(input?.messageIndices)
+    let chat = ensure(scoped ? {...input.chat, messages: []} : input && input.chat, input?.detach !== false)
+    if (scoped) chat.messages = createScopedMessages(input.chat.messages.length,
+      input.messageIndices.map(id => [id, clone(input.chat.messages[id])]))
     const intent = object(input && input.intent)
     let value
     if (intent.kind === 'ensure') value = { status: 'applied', branchId: chat.timeline.branchId, revision: chat.timeline.revision }
+    else if (intent.kind.startsWith('variables.edit.')) value = applyWidgetVariableIntent(chat, intent, now)
     else if (intent.kind === 'ledger.edit') {
       chat.ledger = clone(intent.ledger)
       chat.timeline.revision++
@@ -553,6 +570,7 @@ export function createStoryTimeline(options = {}) {
       value = { status: 'edited', revision: chat.timeline.revision }
     }
     else if (intent.kind === 'body.edit') {
+      cancelWidgetVariableEdits(chat)
       const index = chat.messages.findLastIndex(message => message?.role === 'assistant')
       if (index !== chat.messages.length - 1 || chat.messages[index]?.greeting || Number(chat.messages[index]?.turn) !== Number(intent.turn)) throw new Error('只能编辑最后一轮正文')
       Object.assign(chat.messages[index], intent.patch)

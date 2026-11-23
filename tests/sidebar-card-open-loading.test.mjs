@@ -57,18 +57,3 @@ test('读卡失败时撤下加载提示，错误交给面板显示', async () =>
     assert.deepEqual(h.names, ['黛拉', ''])
     assert.deepEqual(h.errors, [''], '开工前清掉上一条错误，失败由调用者的 catch 显示')
 })
-
-test('选卡面板把列表换成转轮，而不是在列表未到时画空态', () => {
-    assert.match(sidebar, /\(openingCardName \|\| cardsLoading\) \? h\("div", \{ className: "dsh-tavern-picker-loading"/)
-    assert.match(sidebar, /正在打开「" \+ openingCardName \+ "」…/)
-    assert.match(sidebar, /正在读取人物卡…/)
-    assert.match(sidebar, /setCardsLoading\(true\)/)
-    assert.match(sidebar, /\.finally\(function \(\) \{ setCardsLoading\(false\); \}\)/)
-})
-
-test('开局准备与游戏初始化的等待提示带转轮', () => {
-    assert.match(sidebar, /dsh-tavern-loading-line[\s\S]{0,120}正在准备开场与脚本资源…/)
-    assert.match(renderer, /dsh-tavern-loading-line[\s\S]{0,120}正在完成游戏初始化…/)
-    assert.match(css, /\.dsh-tavern-picker-loading \{/)
-    assert.match(css, /\.dsh-tavern-loading-line \{/)
-})

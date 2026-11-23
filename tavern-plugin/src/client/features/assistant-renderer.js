@@ -734,7 +734,8 @@
 					pinned: true,
 					prevActive: Boolean(active),
 					lastTop: 0,
-					programmaticTop: null
+					programmaticTop: null,
+					rafId: 0
 				});
 				const useEffectHook = typeof React.useLayoutEffect === "function" ? React.useLayoutEffect : React.useEffect;
 				const syncToBottom = React.useCallback(function () {
@@ -758,8 +759,25 @@
 					if (active && !state.prevActive) state.pinned = true;
 					state.prevActive = Boolean(active);
 					if (!text) return;
-					syncToBottom();
+					if (typeof requestAnimationFrame !== "function") {
+						syncToBottom();
+						return;
+					}
+					if (state.rafId) return;
+					state.rafId = requestAnimationFrame(function () {
+						state.rafId = 0;
+						syncToBottom();
+					});
 				}, [active, text, syncToBottom]);
+				React.useEffect(function () {
+					return function () {
+						const state = stateRef.current;
+						if (state.rafId && typeof cancelAnimationFrame === "function") {
+							cancelAnimationFrame(state.rafId);
+							state.rafId = 0;
+						}
+					};
+				}, []);
 				const onScroll = React.useCallback(function (event) {
 					const el = event && event.currentTarget;
 					if (!el) return;
@@ -963,8 +981,6 @@
 				const forkStageSource = React.useMemo(() => ({ nativeTurn: turn, nodeId: props.node.id, order: props.node.anchorSeq, superseded }), [turn, props.node.id, props.node.anchorSeq, superseded]);
 				const waitingForHistory = Boolean(currentView?.historyWindow && ownsTurn && !projection && settled && storyTurn>0 && storyTurn<latestProjectionTurn);
 				const playView = isPlayMode(liveState.view && liveState.view.mode) && storyTurn > 0 && !sessionTransitioning && ownsTurn;
-				useTavernUiExtensions();
-				useTavernProseLayoutRevision();
 				const turnView = useTavernTurnView(props.sessionId);
 				const pluginMedia = useTavernPluginMedia(props.sessionId, storyTurn, playView && settled);
 				const pluginText = playView ? createTavernPluginTextContext({ items: pluginMedia.items, extras: [], sessionId: props.sessionId, turn: storyTurn, streaming: data.status === "running" }) : null;
@@ -1238,12 +1254,12 @@
 							React.createElement(TavernIllustrateIcon, null))),
 					manualOpen ? React.createElement("section", { className: "dsh-tavern-illustration-instructions", "aria-labelledby": instructionTitleId },
 						React.createElement("form", { onSubmit: submitManual, onKeyDown: function (event) { if (event.key === "Escape" && !manualBusy) { event.preventDefault(); closeManual(); } } },
-							React.createElement("h2", { id: instructionTitleId, style: { margin: "0 0 6px", fontSize: "16px" } }, "本次配图要求"),
-							React.createElement("p", { style: { margin: "0 0 12px", color: "var(--dsw-alias-label-secondary, GrayText)", fontSize: "12px", lineHeight: 1.5 } }, "仅本次生图使用，不会保存到设置。可写视角、镜头、动作或想画的内容。"),
-							React.createElement("textarea", { ref: instructionRef, rows: 4, maxLength: 2000, value: instruction, disabled: manualBusy, "aria-label": "本次配图要求（最多 2000 字）", placeholder: "例如：从门外侧拍摄，镜头略低；角色正在推开窗户。", onChange: function (event) { setInstruction(event.target.value); },
+							React.createElement("h2", { id: instructionTitleId, style: { margin: "0 0 6px", fontSize: "var(--fork-fs-heading)" } }, "本次配图要求"),
+							React.createElement("p", { style: { margin: "0 0 12px", color: "var(--dsw-alias-label-secondary, GrayText)", fontSize: "var(--fork-fs-meta)", lineHeight: 1.5 } }, "仅本次生图使用，不会保存到设置。可写视角、镜头、动作或想画的内容。"),
+							React.createElement(TextArea, { inputRef: instructionRef, rows: 4, maxLength: 2000, value: instruction, disabled: manualBusy, "aria-label": "本次配图要求（最多 2000 字）", placeholder: "例如：从门外侧拍摄，镜头略低；角色正在推开窗户。", onChange: function (text) { setInstruction(text); },
 								style: { boxSizing: "border-box", width: "100%", resize: "vertical", padding: "9px", borderRadius: "8px", border: "1px solid var(--dsw-alias-border-l2, currentColor)", background: "var(--dsw-specific-input-major, Canvas)", color: "var(--dsw-alias-label-primary, CanvasText)", font: "inherit" } }),
-							React.createElement("div", { style: { marginTop: "5px", textAlign: "right", color: "var(--dsw-alias-label-secondary, GrayText)", fontSize: "11px" } }, instruction.length + " / 2000"),
-							manualError ? React.createElement("div", { role: "alert", style: { marginTop: "8px", color: "var(--dsh-tavern-accent-error, #c54f4f)", fontSize: "12px" } }, manualError) : null,
+							React.createElement("div", { style: { marginTop: "5px", textAlign: "right", color: "var(--dsw-alias-label-secondary, GrayText)", fontSize: "var(--fork-fs-meta)" } }, instruction.length + " / 2000"),
+							manualError ? React.createElement("div", { role: "alert", style: { marginTop: "8px", color: "var(--fork-danger)", fontSize: "var(--fork-fs-meta)" } }, manualError) : null,
 							React.createElement("div", { style: { display: "flex", justifyContent: "flex-end", gap: "8px", marginTop: "14px" } },
 								React.createElement("button", { type: "button", className: "dsh-tavern-btn", disabled: manualBusy, onClick: closeManual }, "取消"),
 								React.createElement("button", { type: "submit", className: "dsh-tavern-btn", disabled: manualBusy }, manualBusy ? "正在提交…" : "按要求配图")))) : null)

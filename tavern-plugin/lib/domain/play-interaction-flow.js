@@ -1,6 +1,14 @@
 /** Candidate and regeneration interaction state, independent of React and the host composer. */
 function panelMessageKey(value) { return String(value == null ? "" : value); }
-function createPlayInteractionFlow({ rpc, coordinationView, coordination, applyBodyResult, reportError, notifyRegenerating = function () {}, timers = globalThis }) {
+function candidatePanelForRound(panel, sessionId, messageId, running = false) {
+    if (running || !panel || panel.sessionId !== sessionId) return null;
+    if (panel.messageId && messageId && panelMessageKey(panel.messageId) !== panelMessageKey(messageId)) return null;
+    return panel;
+}
+function createPlayInteractionFlow({ rpc, coordinationView, coordination, applyBodyResult, reportError,
+    candidateErrorText = error => String(error?.message || error || "候选生成未完成"),
+    candidateErrorDismissed = () => false, bodyErrorText = error => String(error?.message || error),
+    notifyRegenerating = function () {}, timers = globalThis }) {
     function store(normalize = value => value) {
         let value = null;
         const listeners = new Set();
@@ -12,11 +20,17 @@ function createPlayInteractionFlow({ rpc, coordinationView, coordination, applyB
     }
     const candidates = store((value, previous) => {
         if (!value) return value;
-        const sameChoices = previous && previous.sessionId === value.sessionId && previous.messageId === value.messageId && previous.phase === value.phase && JSON.stringify(previous.choices) === JSON.stringify(value.choices);
-        return Object.assign({}, value, { expanded: value.expanded ?? (sameChoices ? previous.expanded : value.phase === "error") });
+        const { expandOnReady, ...panel } = value;
+        const sameRound = previous && previous.sessionId === panel.sessionId && panelMessageKey(previous.messageId) === panelMessageKey(panel.messageId);
+        const sameChoices = sameRound && previous.phase === panel.phase && JSON.stringify(previous.choices) === JSON.stringify(panel.choices);
+        const openResult = expandOnReady || (sameRound && previous.phase === "loading" && previous.expandOnReady);
+        if (panel.phase === "loading" && openResult) panel.expandOnReady = true;
+        panel.expanded ??= sameChoices ? previous.expanded : panel.phase === "error" || (panel.phase === "ready" && openResult === true);
+        return panel;
     });
     const guide = store(), regeneration = store();
     const guidanceBySession = new Map(), pendingCandidates = new Map(), pendingBodies = new Map();
+    let observedCandidateRound = null;
     function once(pending, key, work) {
         if (pending.has(key)) return pending.get(key);
         const promise = Promise.resolve().then(work).finally(() => { if (pending.get(key) === promise) pending.delete(key); });
@@ -65,29 +79,73 @@ function createPlayInteractionFlow({ rpc, coordinationView, coordination, applyB
     // 所以落地后要按这一轮的消息读一次，否则「写完即显示」只在生成的那一页成立。
     // 面板认页面手里的这一轮消息 id：存下来的 id 可能是工具回复或重新生成的那一套，
     // 跟宿主给页面的 id 不一致，对不上不该当成「没有候选项」。
-    async function loadSavedCandidates(sessionId, messageId) {
-        if (!sessionId) return null;
+    async function loadSavedCandidates(sessionId, messageId, observation, signal) {
         const key = panelMessageKey(messageId);
         const shown = panel => panel && panel.sessionId === sessionId && panelMessageKey(panel.messageId) === key && panel.phase !== "error";
         if (shown(candidates.getSnapshot())) return candidates.getSnapshot();
         let result = null;
-        try { result = await rpc("getChoices", { sessionId, messageId: key, latest: true }, sessionId); }
-        catch (error) { console.warn("[dsh-tavern] 读取前台候选项失败", error); return null; }
-        const saved = result && result.candidates;
-        if (!saved || !Array.isArray(saved.choices) || saved.choices.length === 0) {
-            // 这一轮没有候选项：上一轮留下的、已经显示好的选项不能继续挂在新的正文下面。
-            const current = candidates.getSnapshot();
-            if (current && current.sessionId === sessionId && panelMessageKey(current.messageId) !== key && current.phase === "ready") candidates.set(null);
+        try { result = await rpc("getChoices", { sessionId, messageId: key, latest: true }, sessionId, { signal }); }
+        catch (error) {
+            if (!signal?.aborted) console.warn("[dsh-tavern] 读取前台候选项失败", error);
             return null;
         }
+        if (signal?.aborted || observedCandidateRound !== observation) return null;
+        const saved = result && result.candidates;
+        if (!saved || !Array.isArray(saved.choices) || saved.choices.length === 0) return null;
         // The player may have started a task or dismissed a failure while this read ran.
         if (shown(candidates.getSnapshot())) return candidates.getSnapshot();
         return candidates.set(readyCandidatePanel(sessionId, messageId, saved));
     }
+    // The reply id can change during streaming, before the save replaces
+    // its candidates. All presenters wait for the foreground to finish.
+    function syncCandidateRound({ sessionId, messageId, running, task }, signal) {
+        if (!sessionId || signal?.aborted) return null;
+        const panel = candidates.getSnapshot();
+        if (panel?.sessionId === sessionId && !candidatePanelForRound(panel, sessionId, messageId, running)) candidates.set(null);
+        const form = guide.getSnapshot();
+        if (form?.sessionId === sessionId && !candidatePanelForRound(form, sessionId, messageId, running)) guide.set(null);
+        const roundKey = JSON.stringify([sessionId, panelMessageKey(messageId)]);
+        const taskKey = task ? String(task.taskId || "") + ":" + String(task.version || 0) + ":" + String(task.status || "") : "";
+        const observationKey = JSON.stringify([roundKey, running, taskKey]);
+        if (observedCandidateRound?.observationKey !== observationKey) {
+            observedCandidateRound = {
+                roundKey, observationKey,
+                projectedTaskKey: observedCandidateRound?.roundKey === roundKey ? observedCandidateRound.projectedTaskKey : ""
+            };
+        }
+        if (running) return null;
+        if (!task) return loadSavedCandidates(sessionId, messageId, observedCandidateRound, signal);
+        if (observedCandidateRound.projectedTaskKey === taskKey) return candidatePanelForRound(candidates.getSnapshot(), sessionId, messageId);
+        observedCandidateRound.projectedTaskKey = taskKey;
+        if (task.busy) return candidates.set({ sessionId, messageId, phase: "loading", choices: [], error: "" });
+        if (task.status === "succeeded" && task.result?.candidates) {
+            if (candidatePanelForRound(guide.getSnapshot(), sessionId, messageId)) guide.set(null);
+            return candidates.set(readyCandidatePanel(sessionId, messageId, task.result.candidates));
+        }
+        if (task.status === "cancelled") {
+            if (candidatePanelForRound(candidates.getSnapshot(), sessionId, messageId)) candidates.set(null);
+            return null;
+        }
+        if (task.terminal && !candidateErrorDismissed(taskKey)) {
+            return candidates.set({ sessionId, messageId, phase: "error", choices: [], taskKey, error: candidateErrorText(task.error) });
+        }
+        return null;
+    }
+    async function generateCandidates(sessionId, messageId, { expandOnReady = false } = {}) {
+        const loading = candidates.set({ sessionId, messageId, phase: "loading", choices: [], error: "", expandOnReady });
+        try { return await submitCandidateTask(sessionId, messageId, ""); }
+        catch (error) {
+            reportError("候选项生成", error);
+            if (candidates.getSnapshot() === loading) candidates.set({ ...loading, phase: "error", error: candidateErrorText(error) });
+            return null;
+        } finally {
+            coordination.invalidate(sessionId);
+        }
+    }
     async function regenerateCandidates(panel, guidance) {
         if (!panel || guide.getSnapshot() !== panel || panel.phase === "loading") return;
         const loading = guide.set({ ...panel, phase: "loading", error: "" });
-        const candidate = candidates.set({ sessionId: panel.sessionId, messageId: panel.messageId, phase: "loading", choices: [], error: "" });
+        const candidate = candidates.set({ sessionId: panel.sessionId, messageId: panel.messageId, phase: "loading", choices: [], error: "", expandOnReady: true });
         try {
             await submitCandidateTask(panel.sessionId, panel.messageId, String(guidance || "").trim());
             if (guide.getSnapshot() === loading) guide.set(null);
@@ -113,15 +171,17 @@ function createPlayInteractionFlow({ rpc, coordinationView, coordination, applyB
             // the request itself runs for as long as the model takes. Tell the page the
             // replacement started, so it can take the old reply down right away.
             notifyRegenerating(panel.sessionId, true);
+            let sessionRunning = false;
             try {
                 const result = await rpc("regenBody", Object.assign({ guidance: text }, restyle ? { restyle: true, styleGuidance: text } : {}), panel.sessionId);
+                sessionRunning = Boolean(result?.sessionRunning);
                 applyBodyResult(panel.sessionId, result.view, panel.tail);
                 if (!result?.view?.aborted && candidates.getSnapshot() === candidate) candidates.set(null);
                 if (regeneration.getSnapshot() === loading) regeneration.set(null);
             } catch (error) {
                 reportError("正文重新生成", error);
-                if (regeneration.getSnapshot() === loading) regeneration.set({ ...panel, phase: "error", error: String(error?.message || error) });
-            } finally { notifyRegenerating(panel.sessionId, false); }
+                if (regeneration.getSnapshot() === loading) regeneration.set({ ...panel, phase: "error", error: bodyErrorText(error) });
+            } finally { notifyRegenerating(panel.sessionId, false, { sessionRunning }); }
         });
     }
     // A body regeneration asked for without the guidance panel (the send key's long press,
@@ -141,21 +201,23 @@ function createPlayInteractionFlow({ rpc, coordinationView, coordination, applyB
         return once(pendingBodies, sessionId, async () => {
             const candidate = candidates.getSnapshot();
             notifyRegenerating(sessionId, true);
+            let sessionRunning = false;
             try {
                 const payload = { guidance: text };
                 if (fresh) payload.fresh = true;
                 const result = await rpc("regenBody", payload, sessionId);
+                sessionRunning = Boolean(result?.sessionRunning);
                 applyBodyResult(sessionId, result.view, tail);
                 if (!result?.view?.aborted && candidates.getSnapshot() === candidate) candidates.set(null);
                 return result;
             } catch (error) {
                 reportError("正文重新生成", error);
                 throw error;
-            } finally { notifyRegenerating(sessionId, false); }
+            } finally { notifyRegenerating(sessionId, false, { sessionRunning }); }
         });
     }
-    return Object.freeze({ candidates, guide, regeneration, readyCandidatePanel, submitCandidateTask, loadSavedCandidates,
+    return Object.freeze({ candidates, guide, regeneration, syncCandidateRound, generateCandidates, submitCandidateTask,
         regenerateCandidates, cancelGuide, regenerateBody, submitBodyRegeneration,
         guidance: sessionId => guidanceBySession.get(sessionId) || "" });
 }
-export { createPlayInteractionFlow };
+export { createPlayInteractionFlow, candidatePanelForRound };

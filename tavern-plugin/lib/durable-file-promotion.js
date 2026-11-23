@@ -100,21 +100,14 @@ export function createDurableFilePromotion(options = {}) {
     return Number.isSafeInteger(revision) && revision > 0 ? revision : null
   }
 
-  async function pendingSnapshots(target, retryAfterPromotion = true) {
+  async function pendingSnapshots(target) {
     let names
     try { names = await readdir(path.dirname(target)) } catch (error) { if (error?.code === 'ENOENT') return []; throw error }
     const snapshots = []
     for (const name of names) {
       const revision = pendingRevision(target, name)
       if (revision === null) continue
-      const snapshotPath = path.join(path.dirname(target), name)
-      let value
-      try { value = await readFile(snapshotPath) } catch (error) {
-        if (error?.code === 'ENOENT' && retryAfterPromotion) return pendingSnapshots(target, false)
-        error.message = `待恢复快照损坏，无法安全读取：${snapshotPath}。${error.message}`
-        throw error
-      }
-      snapshots.push({ path: snapshotPath, revision, value })
+      snapshots.push({ path: path.join(path.dirname(target), name), revision })
     }
     snapshots.sort(function (left, right) { return left.revision - right.revision || left.path.localeCompare(right.path) })
     for (let index = 1; index < snapshots.length; index++) {
@@ -127,22 +120,22 @@ export function createDurableFilePromotion(options = {}) {
     return snapshots
   }
 
-  // Targets this process promoted itself. A successful promotion clears every pending
-  // snapshot it wrote, so a reader that already promoted a target has nothing to recover
-  // there and can skip the directory listing every read used to pay for. A snapshot left
-  // by another process that later crashed is still picked up on the next start.
-  const promoted = new Set()
-  async function readTarget(target) {
-    if (promoted.has(target)) {
-      try { return await readFile(target) } catch (error) {
-        if (error?.code !== 'ENOENT') throw error
-        promoted.delete(target)
+  // Read and version use the same authority, including pending writes from other
+  // stores. Retry selection if the pending file moved during the read.
+  async function inspectTarget(target, inspect) {
+    for (let attempt = 0; ; attempt++) {
+      const pending = (await pendingSnapshots(target)).at(-1)
+      try { return await inspect(pending?.path ?? target, pending?.revision) } catch (error) {
+        if (error?.code === 'ENOENT') {
+          if (!pending) return undefined
+          if (attempt < 2) continue
+        }
+        if (pending) error.message = `待恢复快照损坏，无法安全读取：${pending.path}。${error.message}`
+        throw error
       }
     }
-    const snapshots = await pendingSnapshots(target)
-    if (snapshots.length > 0) return snapshots[snapshots.length - 1].value
-    try { return await readFile(target) } catch (error) { if (error?.code === 'ENOENT') return undefined; throw error }
   }
+  const readTarget = target => inspectTarget(target, file => readFile(file))
 
   async function replaceTarget(temporary, target) {
     for (let attempt = 0; ; attempt += 1) {
@@ -171,30 +164,37 @@ export function createDurableFilePromotion(options = {}) {
     } finally { if (handle) await handle.close().catch(function () {}) }
   }
 
-  async function writeTarget(target, value) {
+  async function writeTarget(target, value, beforeCommit) {
     await mkdir(path.dirname(target), { recursive: true })
     const snapshots = await pendingSnapshots(target)
     const revision = snapshots.length === 0 ? 1 : snapshots[snapshots.length - 1].revision + 1
     const pending = path.join(path.dirname(target), `${pendingPrefix(target)}${revision}-${randomUUID()}`)
     const staging = `${pending}.staging-${randomUUID()}`
-    let handle
+    let handle, published = false
     try {
       handle = await open(staging, 'wx')
       await handle.writeFile(bytes(value))
       await handle.sync()
       await handle.close(); handle = null
+      // Pending snapshots are visible to readers, so authority is fenced before publication.
+      await beforeCommit?.()
       await rename(staging, pending)
       await syncDirectory(path.dirname(target))
+      published = true
+      // A reader always prefers pending files. Retire older snapshots while
+      // the newest one still has its pending name.
+      if (snapshots.length > 0) {
+        await cleanupPending(target, pending)
+        await syncDirectory(path.dirname(target))
+      }
       await replaceTarget(pending, target)
       await syncDirectory(path.dirname(target))
-      await cleanupPending(target)
-      promoted.add(target)
       return { status: 'promoted', revision }
     } catch (error) {
       if (handle) await handle.close().catch(function () {})
       if (error?.dshTavernRenameRetriesExhausted) return { status: 'deferred', revision, recoveryPath: pending }
       await rm(staging, { force: true }).catch(function () {})
-      await rm(pending, { force: true }).catch(function () {})
+      if (!published) await rm(pending, { force: true }).catch(function () {})
       throw error
     }
   }
@@ -209,20 +209,13 @@ export function createDurableFilePromotion(options = {}) {
 
   return Object.freeze({
     async version(target) {
-      const absolute = path.resolve(target)
-      const snapshots = await pendingSnapshots(absolute)
-      if (snapshots.length > 0) {
-        const latest = snapshots[snapshots.length - 1]
-        try {
-          const info = await stat(latest.path, { bigint: true })
-          return ['pending', latest.revision, info.dev, info.ino, info.size, info.mtimeNs].join(':')
-        } catch (error) { if (error?.code !== 'ENOENT') throw error }
-      }
-      try {
-        const info = await stat(absolute, { bigint: true })
-        return [info.dev, info.ino, info.size, info.mtimeNs].join(':')
-      } catch (error) { if (error?.code === 'ENOENT') return ''; throw error }
+      return await inspectTarget(path.resolve(target), async (file, revision) => {
+        const info = await stat(file, { bigint: true })
+        const identity = [info.dev, info.ino, info.size, info.mtimeNs].join(':')
+        return revision === undefined ? identity : `pending:${revision}:${identity}`
+      }) ?? ''
     },
+    async size(target) { return await inspectTarget(path.resolve(target), async file => (await stat(file)).size) ?? 0 },
     async read(target) { return readTarget(path.resolve(target)) },
     // Newline-framed diagnostic logs: ordinary commits append and fsync only
     // the new frame. Creation, rotation and torn-tail recovery use the same
@@ -241,7 +234,7 @@ export function createDurableFilePromotion(options = {}) {
           if (snapshot.length > maxBytes || snapshot.at(-1) !== 10) throw new Error('日志压缩结果超出限制或缺少行边界')
           return writeTarget(absolute, snapshot)
         }
-        if (pending.length) return rewrite(pending.at(-1).value)
+        if (pending.length) return rewrite(await readFile(pending.at(-1).path))
         if (!info || info.size === 0 || info.size + frame.length > maxBytes) return rewrite(await readTarget(absolute))
         const handle = await open(absolute, 'a+')
         let incomplete = false
@@ -258,9 +251,9 @@ export function createDurableFilePromotion(options = {}) {
         return { status: 'appended', bytes: frame.length }
       }))
     },
-    async write(target, value) {
+    async write(target, value, { beforeCommit } = {}) {
       const absolute = path.resolve(target)
-      return enqueue(absolute, () => withWriteLock(absolute, () => writeTarget(absolute, value)))
+      return enqueue(absolute, () => withWriteLock(absolute, () => writeTarget(absolute, value, beforeCommit)))
     },
     async update(target, updater) {
       if (typeof updater !== 'function') throw new Error('Durable File Promotion 缺少 updater')
@@ -276,7 +269,6 @@ export function createDurableFilePromotion(options = {}) {
     async remove(target) {
       const absolute = path.resolve(target)
       await enqueue(absolute, () => withWriteLock(absolute, async function () {
-        promoted.delete(absolute)
         await rm(absolute, { force: true })
         await cleanupPending(absolute)
         await syncDirectory(path.dirname(absolute))

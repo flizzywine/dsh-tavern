@@ -6,6 +6,8 @@ import test from 'node:test'
 import { createFileSymlink } from './helpers/file-symlink.mjs'
 
 import { createTavernSkillModule } from '../tavern-plugin/lib/domain/tavern-skills.js'
+import { createSkillGatedTools } from '../tavern-plugin/lib/domain/skill-gated-tools.js'
+import { registerSkillTools } from '../tavern-plugin/lib/tools/skills.js'
 
 async function harness(t) {
   const root = await mkdtemp(path.join(tmpdir(), 'tavern-skills-'))
@@ -15,20 +17,49 @@ async function harness(t) {
   return { root, user, builtin, skills: createTavernSkillModule({ directory: user, builtInDirectory: builtin }) }
 }
 
-test('写作与后台用途默认分配，旧 Skill 保留卡片用途，停用与重新分配可持久化', async t => {
-  const { skills, user, builtin } = await harness(t)
-  for (const purpose of ['writing', 'background', 'card']) await skills.write({ name: purpose, purpose, description: '用途', body: '步骤' })
-  assert.deepEqual((await skills.read('writing')).agents, ['foreground'])
-  assert.deepEqual((await skills.read('background')).agents, ['background'])
-  assert.deepEqual((await skills.read('card')).agents, ['card'])
-  await skills.assign('writing', [])
-  assert.deepEqual((await createTavernSkillModule({ directory: user, builtInDirectory: builtin }).read('writing')).agents, [])
-  await skills.assign('writing', ['foreground', 'background'])
-  assert.equal((await skills.list()).length, 3)
-  await assert.rejects(skills.assign('writing', ['unknown']), /用途/)
+test('工作台能读取并修改前台专用用户 Skill，无需更改分配', async t => {
+  const { builtin, skills } = await harness(t)
+  const name = 'dialogue'
+  const original = await skills.write({ name, purpose: 'writing', description: '争执场景', body: '初始写法', modelInvocable: false })
+  await skills.edit({
+    name,
+    content: original.content.replace('初始写法', '库中现行写法'),
+    references: [{ path: 'references/lesson.md', content: '现行参考' }]
+  })
+  await mkdir(path.join(builtin, 'example'), { recursive: true })
+  await writeFile(path.join(builtin, 'example', 'SKILL.md'), original.content.replace('name: dialogue', 'name: example'))
+
+  const registered = new Map()
+  registerSkillTools({
+    chatForSession: async id => id === 'card' ? { mode: 'card' } : null,
+    skillRoleFor: async agent => agent.session.id,
+    skillEnabledFor: async () => true,
+    tavernSkills: skills,
+    tools: { register: tool => registered.set(tool.name, tool) }
+  })
+  const call = (tool, args, role = 'card') => registered.get(tool).execute(args, { agent: { session: { id: role } } })
+  const read = (args, role) => call('tavern_read_skill', args, role)
+  const visible = createSkillGatedTools()
+  assert.deepEqual(visible(['tavern_read_skill'], { id: 'card', events: [] }), [])
+  for (const skill of ['create-skill', 'create-writing-skill']) {
+    const event = { type: 'tool/result', data: { content: '<skill_content name="' + skill + '">' } }
+    assert.deepEqual(visible(['tavern_read_skill', 'tavern_save_skill'], { id: skill, events: [event] }), ['tavern_read_skill', 'tavern_save_skill'])
+  }
+
+  assert.match((await read({})).content, /^- dialogue · writing · 争执场景$/)
+  assert.match((await read({ name })).content, /库中现行写法[\s\S]*references\/lesson\.md\n现行参考/)
+  await assert.rejects(read({ name: 'example' }), /未找到可编辑/)
+  await assert.rejects(read({ name }, 'background'), /卡片工作台/)
+  await assert.rejects(read({ name }, 'foreground'), /卡片工作台/)
+
+  await call('tavern_save_skill', { name, description: '争执场景', body: '改好的写法', overwrite: true })
+  const saved = await skills.read(name)
+  assert.deepEqual(saved.agents, ['foreground'])
+  assert.equal(saved.modelInvocable, false)
+  assert.match((await read({ name })).content, /改好的写法[\s\S]*现行参考/)
 })
 
-test('参考文件独立于素材，覆盖保留引用，拒绝路径越界与符号链接', async t => {
+test('参考文件独立于素材，覆盖保留引用，拒绝路径越界与符号链接', { skip: process.platform === 'win32' ? 'Requires symlinks, which Windows only allows with extra privileges' : false }, async t => {
   const { skills, root, user } = await harness(t)
   const source = path.join(root, 'teaching.md')
   await writeFile(source, '现成教学方法')
@@ -55,23 +86,6 @@ test('并发创建同名 Skill 只有一个成功，非法参考文件不损坏�
   assert.equal(results.filter(result => result.status === 'fulfilled').length, 1)
   await assert.rejects(skills.write({ ...input, body: '新', overwrite: true, references: [{ path: '../escape.md', content: '逃逸' }] }))
   assert.match((await skills.read('same')).content, /旧正文/)
-})
-
-test('库内编辑覆盖内置正文和参考，保留原包并持久生效', async t => {
-  const run = await harness(t)
-  await mkdir(path.join(run.builtin, 'example', 'references'), { recursive: true })
-  const original = '---\nname: example\ndescription: original\n---\nOriginal body\n'
-  await writeFile(path.join(run.builtin, 'example', 'SKILL.md'), original)
-  await writeFile(path.join(run.builtin, 'example', 'references', 'notes.md'), 'old')
-  const content = original.replace('original', 'edited').replace('Original body', 'Edited body')
-  await run.skills.edit({ name: 'example', content, references: [{ path: 'references/notes.md', content: 'new' }] })
-  const fresh = createTavernSkillModule({ directory: run.user, builtInDirectory: run.builtin })
-  assert.equal((await fresh.read('example')).content, content)
-  assert.equal((await fresh.read('example')).description, 'edited')
-  assert.equal(await fresh.readReference('example', 'references/notes.md'), 'new')
-  assert.equal(await readFile(path.join(run.builtin, 'example', 'SKILL.md'), 'utf8'), original)
-  await assert.rejects(fresh.edit({ name: 'example', content: content.replace('name: example', 'name: other') }))
-  assert.equal((await fresh.read('example')).content, content)
 })
 
 test('导入 Skill：单个 SKILL.md 或文件夹压缩包，带参考文件，同名先确认再覆盖，内置 Skill 不可覆盖', async t => {
@@ -123,25 +137,4 @@ test('导入 Skill：单个 SKILL.md 或文件夹压缩包，带参考文件，�
   await skills.write({ name: 'example', description: 'test', body: 'Replacement body', overwrite: true })
   assert.match((await restarted.read('example')).content, /Replacement body/)
   assert.equal(await files.read(path.join(user, '.edits', 'example.json')), undefined)
-})
-
-test('插件 Skill 来源：只读，排在内置之后、玩家之前；同名不能写，删除只隐藏，移除来源后消失', async t => {
-  const { skills, root } = await harness(t)
-  const plugin = path.join(root, 'plugin-skills')
-  await mkdir(path.join(plugin, 'stage-direction'), { recursive: true })
-  await writeFile(path.join(plugin, 'stage-direction', 'SKILL.md'), '---\nname: stage-direction\ndescription: 舞台导演\n---\n怎样写舞台指令')
-  let notified = 0
-  skills.subscribe(() => { notified++ })
-  const remove = skills.addRoot({ path: plugin, role: 'background', owner: 'director' })
-  assert.equal(notified, 1)
-  const skill = await skills.read('stage-direction')
-  assert.equal(skill.source, 'plugin')
-  assert.deepEqual(skill.agents, ['background'])
-  assert.ok((await skills.list()).some(item => item.name === 'stage-direction'))
-  await assert.rejects(skills.write({ name: 'stage-direction', description: 'x', body: 'y' }), /不可覆盖/)
-  await skills.remove('stage-direction')
-  assert.equal(await skills.read('stage-direction'), null, '删除只是隐藏')
-  assert.ok(await readFile(path.join(plugin, 'stage-direction', 'SKILL.md'), 'utf8'), '插件文件不被删除')
-  remove()
-  assert.equal((await skills.list()).some(item => item.name === 'stage-direction'), false)
 })

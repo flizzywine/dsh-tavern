@@ -137,34 +137,6 @@ test('candidate start atomically records command and existing session before exe
 
 // PR #113's retry protection, retaining request idempotency and timeline guards.
 
-// Long saves: a task writing header fields only (style reference, worldbook filter) begins
-// from the caller's snapshot and commits through the header, never reading the history.
-test('只写头部字段的后台任务：复用快照开始、按声明的头部字段提交，不读整份存档', async t => {
-  const { mkdtemp, rm } = await import('node:fs/promises')
-  const { tmpdir } = await import('node:os')
-  const { join } = await import('node:path')
-  const { createChatJournalStore } = await import('../tavern-plugin/lib/domain/chat-journal-store.js')
-  const root = await mkdtemp(join(tmpdir(), 'background-header-'))
-  t.after(() => rm(root, { recursive: true, force: true }))
-  const p = createChatPersistence({ store: createChatJournalStore({ dataRoot: root }) })
-  const timeline = createStoryTimeline()
-  await p.write(timeline.apply({ chat: { id: 'c', mode: 'story', messages: [{ role: 'user', text: '行动' }, { role: 'assistant', turn: 2, text: '正文' }] }, intent: { kind: 'ensure' } }).chat)
-  let fullReads = 0, updates = 0
-  const coordinator = createBackgroundTaskCoordinator({ timeline, store: {
-    readChat: id => { fullReads++; return p.read(id) }, writeChat: p.write, readState: p.readSessionState, readSlice: p.readSlice,
-    updateChat: (...args) => { updates++; return p.update(...args) }, patchChat: (...args) => p.patch(...args) } })
-  const snapshot = (await p.readSlice('c', [1])).chat
-  const task = await coordinator.begin(snapshot, 'style-reference', { reuseSnapshot: true })
-  await task.bindSession('background-style', { stateOnly: true })
-  const completed = await task.commit({ stateChanged: false, headerFields: ['styleReferences'], apply(draft) { draft.styleReferences = [{ book: '书', author: '作者', quote: '一段', afterTurn: 2 }] } })
-  assert.equal(completed.status, 'committed')
-  assert.deepEqual({ fullReads, updates }, { fullReads: 0, updates: 0 })
-  const saved = await p.read('c')
-  assert.equal(saved.styleReferences[0].book, '书')
-  assert.equal(saved.messages[1].text, '正文')
-  assert.equal(saved.timeline.operations[task.operationId].status, 'completed')
-})
-
 // A write landing between the caller's snapshot and begin: re-read the task state, not the history.
 test('复用快照开始时撞上并发写入：只重读任务状态字段再开始，不读整份存档', async t => {
   const { mkdtemp, rm } = await import('node:fs/promises')

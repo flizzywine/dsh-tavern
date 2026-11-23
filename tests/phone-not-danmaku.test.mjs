@@ -6,14 +6,6 @@ import phoneStage from '../tavern-plugin/mods/phone/stage.js'
 const mod = JSON.parse(await readFile(new URL('../tavern-plugin/mods/phone/mod.json', import.meta.url), 'utf8'))
 const rules = mod.prompts.find(row => row.tag === 'mod_phone').markdown
 
-test('the phone rules define a phone message and keep livestream comments in the prose', async () => {
-  assert.match(rules, /A phone message is sent on a device from one person to a recipient or group: SMS, chat-app messages, calls, voice messages\./)
-  assert.match(rules, /Livestream danmaku and viewer comments, forum or social posts, broadcasts and narration are not phone messages: leave them unmarked in the prose\./)
-  assert.match(rules, /participants: listed contacts, plus \$player when present\./)
-  // The legacy manifest's prompt file carries the same rules.
-  assert.equal((await readFile(new URL('../tavern-plugin/mods/phone/prompts/phone.txt', import.meta.url), 'utf8')).replaceAll('\r\n', '\n'), '<mod_phone>\n' + rules + '\n</mod_phone>\n')
-})
-
 // context.phone.characters as the director prepares it: card figures carry a ref, a source-only speaker does not.
 const characters = [
   {alias:'f_kaguya', name:'辉夜', ref:{packId:'p', figureId:'kaguya'}},

@@ -2,17 +2,27 @@ import { worldbookContentDigest } from './worldbook-version.js'
 import { createHash } from 'node:crypto'
 import { constantWorldBookContext } from './worldbook-recall.js'
 import { inspectWorldBookDocument } from './worldbook-resource.js'
-import { sanitizeAgentProjectionText } from './runtime-content-projection.js'
 import { defaultUserPreferenceProfile } from './user-preference-profile.js'
 
 export function cardContentDigest(card) { return createHash('sha256').update(JSON.stringify(withoutPresentationOnly(card ?? null))).digest('hex') }
-// The card's pages (dsh_tavern.pages) is read live from the library card, never from the game's frozen
-// card: editing it must not offer a save migration or reload the game. Cards without it hash unchanged.
+// the Card Stage (extensions.dsh_stage), the stage skin (dsh_tavern.stage defaultSkin 「使用皮肤」, CONFIG 本卡皮肤) and the
+// card's mod choices and settings (dsh_tavern.modSystem: 本卡开启/关闭, the phone's 仅此角色卡 settings) are read live from the
+// card on disk, never from the game's frozen card; editing them must not offer a save migration or auto-reload the game (a
+// reload restarts the card scripts and the stage: skin, background and phone dropped for seconds, the reader thrown back to
+// the round's first page). The card's status panel (dsh_tavern.pages) is read live from the library card the same way.
+// Cards without them hash unchanged.
 function withoutPresentationOnly(card) {
-  const tavern = card?.extensions?.dsh_tavern
-  if (!tavern || typeof tavern !== 'object' || !('pages' in tavern)) return card
-  const { pages: _panel, ...rest } = tavern
-  return { ...card, extensions: { ...card.extensions, dsh_tavern: rest } }
+  if (!card || typeof card !== 'object' || !card.extensions || typeof card.extensions !== 'object') return card
+  const { dsh_stage: _stage, ...extensions } = card.extensions, tavern = extensions.dsh_tavern, stage = tavern?.stage
+  const skin = stage && typeof stage === 'object' && 'defaultSkin' in stage, mods = !!tavern && typeof tavern === 'object' && 'modSystem' in tavern
+  const panel = !!tavern && typeof tavern === 'object' && 'pages' in tavern
+  if (!('dsh_stage' in card.extensions) && !skin && !mods && !panel) return card
+  if (skin || mods || panel) {
+    const { modSystem: _mods, pages: _panel, ...rest } = tavern
+    if (skin) { const { defaultSkin: _skin, ...stageRest } = stage; rest.stage = stageRest }
+    extensions.dsh_tavern = rest
+  }
+  return { ...card, extensions }
 }
 // The constant entries are baked into the fixed prefix, so a game that keeps no
 // world-book copy still needs to know when that text went stale.
@@ -33,24 +43,29 @@ export function createPlayCardSnapshots({ worldBooks, planner, readCard, readLat
   const lastSyncWarning = new Map()
 
   async function constantContext(chat, card) {
-    try { return constantWorldBookContext({ worldBook: await worldBooks.bound(chat.cardPath, card, chat) }).context }
+    try { return prefixText(await worldBooks.bound(chat.cardPath, card, chat)) }
     catch (error) { logger.warn('dsh-tavern: 常驻世界书读取失败，已跳过:', str(error && error.message || error)) }
     return ''
   }
+
+  // The one projection of the constant text a prefix bakes in and digests: the card's bound book only,
+  // the same before and after the first floor. Foreground capabilities keep their own snapshot
+  // (foreground-capabilities.js), which replaces this section in every real request.
+  function prefixText(worldBook) { return constantWorldBookContext({ worldBook }).context }
 
   async function build(chat, card, preservePreferences = false, resolvedWorldBook) {
     let worldBook = resolvedWorldBook ?? null
     try { if (!preferenceOnly(chat) && resolvedWorldBook === undefined) worldBook = await worldBooks.bound(chat.cardPath, card, chat) }
     catch (error) { logger.warn('dsh-tavern: 常驻世界书读取失败，已跳过:', str(error && error.message || error)) }
-    const worldBookContext = constantWorldBookContext({ worldBook }).context
-    const planned = preferenceOnly(chat) ? '' : sanitizeAgentProjectionText((await planner.plan({ purpose: 'play-card-snapshot', card, chat, worldBookContext, worldBookLabel: '常驻世界书' })).text)
+    const worldBookContext = prefixText(worldBook)
+    const planned = preferenceOnly(chat) ? '' : (await planner.plan({ purpose: 'play-card-snapshot', card, chat, worldBookContext })).text
     let preference = null
     if (preservePreferences) {
       if (chat.userProfileContextSnapshot) preference = { text: chat.userProfileContextSnapshot, revision: chat.userProfileRevision, profileId: chat.userProfileId }
     } else if (chat.userProfileEnabled === true && userPreferenceProfile) {
       preference = await userPreferenceProfile.stableContext(chat.userProfileId || 'default')
     }
-    const text = preference === null ? planned : sanitizeAgentProjectionText([preference.text, planned].filter(Boolean).join('\n\n'))
+    const text = preference === null ? planned : [preference.text, planned].filter(Boolean).join('\n\n')
     const patch = {
       cardContextSnapshot: text,
       cardContextSnapshotVersion: VERSION,
@@ -94,7 +109,7 @@ export function createPlayCardSnapshots({ worldBooks, planner, readCard, readLat
     if (!usesFixedContext(header)) return ''
     const existing = str(header.cardContextSnapshot)
     if ((existing !== '' || preferenceOnly(header)) && Number(header.cardContextSnapshotVersion) >= VERSION
-      && sanitizeAgentProjectionText(existing) === existing && !pending.has(header.id)) return existing
+      && !pending.has(header.id)) return existing
     return undefined
   }
 
@@ -109,27 +124,21 @@ export function createPlayCardSnapshots({ worldBooks, planner, readCard, readLat
     }
     const operation = (async function () {
       const existing = str(chat.cardContextSnapshot)
-      let patch, source
       if ((existing !== '' || preferenceOnly(chat)) && Number(chat.cardContextSnapshotVersion) >= VERSION) {
-        const sanitized = sanitizeAgentProjectionText(existing)
-        patch = { cardContextSnapshot: sanitized, cardContextSnapshotVersion: chat.cardContextSnapshotVersion }
-        if (sanitized === existing) return patch
-        source = 'card-context.sanitize'
-      } else {
-        let preparation = chat
-        if (preferenceOnly(chat)) {
-          // Old card workspaces had no preference snapshot. Freeze the current
-          // default once, including disabled state, without changing their tool target.
-          const profile = await defaultUserPreferenceProfile(userPreferenceProfile)
-          preparation = { ...chat, userProfileEnabled: profile?.hasConfirmed === true && profile.defaultEnabled === true,
-            userProfileId: profile?.profileId || 'default', userProfileManagementId: chat.userProfileManagementId || chat.userProfileId || 'default' }
-        }
-        patch = await build(preparation, preferenceOnly(chat) ? null : card === undefined ? await readCard(chat) : card)
-        if (preferenceOnly(chat)) Object.assign(patch, { userProfileEnabled: preparation.userProfileEnabled, userProfileManagementId: preparation.userProfileManagementId })
-        source = 'card-context.snapshot'
+        return { cardContextSnapshot: existing, cardContextSnapshotVersion: chat.cardContextSnapshotVersion }
       }
+      let preparation = chat
+      if (preferenceOnly(chat)) {
+        // Old card workspaces had no preference snapshot. Freeze the current
+        // default once, including disabled state, without changing their tool target.
+        const profile = await defaultUserPreferenceProfile(userPreferenceProfile)
+        preparation = { ...chat, userProfileEnabled: profile?.hasConfirmed === true && profile.defaultEnabled === true,
+          userProfileId: profile?.profileId || 'default', userProfileManagementId: chat.userProfileManagementId || chat.userProfileId || 'default' }
+      }
+      const patch = await build(preparation, preferenceOnly(chat) ? null : card === undefined ? await readCard(chat) : card)
+      if (preferenceOnly(chat)) Object.assign(patch, { userProfileEnabled: preparation.userProfileEnabled, userProfileManagementId: preparation.userProfileManagementId })
       const draft = Object.assign({}, chat, patch)
-      const saved = await writeChat(draft, { source })
+      const saved = await writeChat(draft, { source: 'card-context.snapshot' })
       // Persistence may merge unrelated concurrent edits. The owner must adopt
       // that committed record before adopting its revision; waiters do not.
       const committed = saved && typeof saved === 'object' ? saved : draft
@@ -280,7 +289,8 @@ export function createPlayCardSnapshots({ worldBooks, planner, readCard, readLat
     if (!chat.cardContextConstants) return { applied: false }
     let record = null
     try { record = await worldBooks.bound(chat.cardPath, definition, chat) } catch { return { applied: false } }
-    const digest = constantWorldbookDigest(constantWorldBookContext({ worldBook: record }).context)
+    // Digest exactly what build() bakes in; a different projection rewrites the save on every read.
+    const digest = constantWorldbookDigest(prefixText(record))
     if (chat.cardContextConstants === digest) return { applied: false }
     const patch = await build({ ...chat, cardContextConstants: digest }, chat.cardDefinitionSnapshot || definition, true, record)
     patch.cardContextRevision = (Number(chat.cardContextRevision) || 0) + 1
@@ -327,18 +337,20 @@ export function createPlayCardSnapshots({ worldBooks, planner, readCard, readLat
     if (enabled && !preference) throw new Error('请先建立并确认用户画像')
     let base = str(chat.cardContextSnapshot)
     if (!base) throw new Error('当前游戏缺少人物卡快照，请先恢复会话后重试')
-    const previous = sanitizeAgentProjectionText(str(chat.userProfileContextSnapshot))
+    const previous = str(chat.userProfileContextSnapshot)
     if (previous) {
-      if (base === previous) base = ''
-      else if (base.startsWith(previous + '\n\n')) base = base.slice(previous.length + 2)
-      else throw new Error('当前画像与提示词快照不一致，未修改游戏')
+      // Older snapshots stripped braces from the assembled prefix.
+      const prefix = [previous, previous.replace(/\{\{([^{}]*)\}\}|\{\{/g, (_match, body) => body ?? ''),
+        previous.replaceAll('{{', '').replaceAll('}}', '')].find(text => base === text || base.startsWith(text + '\n\n'))
+      if (prefix === undefined) throw new Error('当前画像与提示词快照不一致，未修改游戏')
+      base = base.slice(prefix.length + 2)
     }
     return {
       userProfileEnabled: enabled,
       userProfileId: preference?.profileId || chat.userProfileId || 'default',
       userProfileRevision: preference?.revision || 0,
       userProfileContextSnapshot: preference?.text || '',
-      cardContextSnapshot: sanitizeAgentProjectionText([preference?.text, base].filter(Boolean).join('\n\n')),
+      cardContextSnapshot: [preference?.text, base].filter(Boolean).join('\n\n'),
       cardContextRevision: (Number(chat.cardContextRevision) || 0) + 1
     }
   }

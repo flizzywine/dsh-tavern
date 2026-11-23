@@ -19,7 +19,7 @@ const {stageEffectResolve,stageSafety}=options.effects?.policy || {};
 const stageTextScaleOf=options.configText?.scaleOf;
 const useStageFilm=()=>React.useSyncExternalStore(legacy.film.subscribe,legacy.film.get);
 const useStageReading=()=>React.useSyncExternalStore(options.entrance.reading.subscribe,options.entrance.reading.get);
-const useStageQuality=()=>React.useSyncExternalStore(options.configAppearance.quality.subscribe,options.configAppearance.quality.get);
+const useStageQuality=()=>React.useSyncExternalStore(stageViews.quality.subscribe,stageViews.quality.get);
 const stageSessions={get:id=>stageViews.sessions.get(id),get owner(){return stageViews.sessions.owner;},get resourceOwner(){return stageViews.sessions.resourceOwner;}};
 const {Event}=window;
 const matchMedia=(...args)=>window.matchMedia(...args),queueMicrotask=fn=>window.queueMicrotask(()=>{if(!closed)fn();});
@@ -31,6 +31,18 @@ const React={...react,useEffect:(setup,deps)=>effect(react.useEffect,setup,deps)
 useSyncExternalStore:(subscribe,get,...rest)=>react.useSyncExternalStore(react.useCallback(listener=>closed?()=>{}:own(subscribe(listener)),[subscribe]),get,...rest)};
 const setTimeout=(fn,ms)=>{if(closed)return null;const id=window.setTimeout(()=>{timers.delete(id);if(!closed)fn();},ms);timers.set(id,()=>window.clearTimeout(id));return id;};
 const clearTimeout=id=>{timers.delete(id);window.clearTimeout(id);};
+// 卡片页面 with an icon (status-panel.cjs, card-status-panel.js CARD_PAGE_ICONS): one top-bar button each, after the mods'
+// launcher; its shortcut is named in the title. ctx.cardPages: {pages, open(id), openId} of the stage on screen.
+function GalCardPageEntries({pages,open,openId}) {
+    const shown=pages.filter(page => page.icon);
+    options.widgets?.report?.('card-pages',{available:shown.length>0});
+    return shown.map(page => {
+        const name=page.label + (page.shortcut ? '（' + page.shortcut.toUpperCase() + '）' : '');
+        return React.createElement('button',{key:page.id,type:'button',className:'fork-gal-page-entry','data-page':page.id,title:name,'aria-label':name,'aria-pressed':openId===page.id,
+            onClick:event => { event.stopPropagation(); open(page.id); event.currentTarget.blur(); }},React.createElement(Icon,{name:page.icon,size:16}));
+    });
+}
+if (stageEntries) own(stageEntries.register({id:'card-pages',priority:85,group:'feature',icon:'card',label:'卡片页面',render:ctx => ctx.cardPages ? React.createElement(GalCardPageEntries,ctx.cardPages) : null}));
 function foregroundTimeout(fn,ms){if(closed)return null;const id=forkForeground.setTimeout(()=>{foregroundTimers.delete(id);if(!closed)fn();},ms);foregroundTimers.add(id);return id;}
 const useBgManualScene=(...args)=>legacy.background(...args);
 const useWidgetTheme=(...args)=>legacy.widgetTheme(...args);
@@ -267,7 +279,10 @@ function GalStage(props) {
     const partsMap = React.useMemo(() => new Map([...runtime.textIndex.values()].flatMap(row => (row.unloaded ? [{scope:'unloaded:' + row.turn,turn:row.turn,segments:[],unloaded:true}] : row.parts).map(part => [part.scope, part]))), [runtime.textIndex]);
     const config = props.data && props.data.config || { characters: [] };
     const [, redraw] = React.useState(0);
-    React.useEffect(() => voicePlayer.subscribe(() => redraw(n => n + 1)), []);
+    // The voice player notifies on every clip it prepares, fails or retires for any line; the stage draws again only
+    // when what it shows of the line on screen changes (galVoiceView, kept below once the line is known).
+    const voiceSeen = React.useRef({voice:null,view:''});
+    React.useEffect(() => voicePlayer.subscribe(() => { if (galVoiceView(voicePlayer, voiceSeen.current.voice) !== voiceSeen.current.view) redraw(n => n + 1); }), []);
     const grouped = React.useMemo(() => stageViews.position.turnIndex(partsMap ? Array.from(partsMap.values()) : []), [partsMap]);
     const turns = Array.from(runtime.textIndex.keys()).sort((a, b) => a - b);
     const latestTurn = runtime.latestSource?.turn || turns[turns.length - 1] || 0;
@@ -535,6 +550,18 @@ function GalStage(props) {
     // The insert page whose picture has loaded and shows (its page key); AUTO's wait starts there, not at the page turn.
     const insertPageKey = insertPicture ? insert.key + ':' + insertPicture.id : '';
     const [pictureShown, setPictureShown] = React.useState('');
+    const [picturePaused, setPicturePaused] = React.useState(false);
+    React.useEffect(() => { setPicturePaused(false); }, [auto, insertPageKey]);
+    // the page that has just closed fades out for leaveMs over the stage (not when skipping or with reduced motion)
+    const lastPicture = React.useRef(null), [leavingPicture, setLeavingPicture] = React.useState(null);
+    React.useEffect(() => {
+        if (insertPicture) { lastPicture.current = insertPicture; setLeavingPicture(null); return; }
+        const gone = lastPicture.current; lastPicture.current = null;
+        if (!gone || skipping || reading.reducedMotion === true) return;
+        setLeavingPicture(gone);
+        const timer = setTimeout(() => setLeavingPicture(null), stageViews.pictures.leaveMs);
+        return () => clearTimeout(timer);
+    }, [insertPageKey]);
     React.useEffect(() => { if (!insertPageKey) setPictureShown(''); }, [insertPageKey]);
     const pictureWorking = pictureState ? stageViews.pictures.working(pictureState) : null;
     // A picture finished after its page was read: 「CG 已生成 · 查看」 for a while; 查看 opens it where the reader is.
@@ -550,7 +577,7 @@ function GalStage(props) {
         if (late) setPictureLate({key:pictureKey, picture:late});
     }, [pictureState, pictureKey]);
     const lateShown = pictureLate && pictureLate.key === pictureKey && !insert ? pictureLate : null;
-    React.useEffect(() => { if (!lateShown) return; const timer = setTimeout(() => setPictureLate(null), 8000); return () => clearTimeout(timer); }, [lateShown]);
+    React.useEffect(() => { if (!lateShown) return; const timer = setTimeout(() => setPictureLate(null), 24000); return () => clearTimeout(timer); }, [lateShown]);
     // opened from the system menu's 回想 item (gal-menu.js), not from the control row.
     function openGallery() { setHidden(false); setGallery(true); }
     function closeGallery() { setGallery(false); backlogClosedAt.current = Date.now(); }
@@ -819,7 +846,8 @@ function GalStage(props) {
         if (sourceWidget.openKey) sourceWidget.action(sourceWidget.openKey, 'collapse');
     }, [choicesUp, sessionId, turn]);
     function selectTurn(nextTurn, nextPage, para, forward = false) {
-        voicePlayer.stop(undefined, true);
+        // Stop the line being heard only: what keeps warming is the session observation's (it keeps the latest turn).
+        voicePlayer.stopPlayback();
         setTransition(null);
         setForwardReading(forward);
         if (!forward) setSceneVisit(n => n + 1);
@@ -936,7 +964,9 @@ function GalStage(props) {
     // wheel stops it (the Ctrl hold effect below owns that for both), and that input is not also a page turn.
     const skippingRef = React.useRef(false);
     skippingRef.current = skipping;
-    React.useEffect(() => () => voicePlayer.stop(),[sessionId]);
+    // Leaving the stage silences it; the latest turn's lines still being synthesized finish into the cache, so the
+    // transcript's ▶ plays them at once (the session observation cancels whatever it no longer keeps).
+    React.useEffect(() => () => voicePlayer.stopPlayback(),[sessionId]);
     // Warm a small spoken opening even when its first page is narration; keep the existing two workers.
     const voiceWindow = skipping || backlog || awaiting ? [] : leasing ? pages.slice(page, page + 2).map(row => row.voice).filter(Boolean)
         : stageVoiceWindowFromIndex(sessionId,runtime.textIndex,turn,pages,page,config,entryGate.visible ? Infinity : 1);
@@ -1073,6 +1103,7 @@ function GalStage(props) {
     const phoneCall = typeof phoneModCall === 'object' && phoneModCall ? phoneModCall : null;
     const phoneCallKey = React.useSyncExternalStore((phoneCall || GAL_NO_PHONE_CALL).subscribe, (phoneCall || GAL_NO_PHONE_CALL).stage);
     const phoneVoice = phoneCallKey ? phoneCall.speaking() : null, callAudio = phoneVoice?.audio || null;
+    voiceSeen.current = {voice, view:galVoiceView(voicePlayer, voice)};
     const voiceError = (playingHere ? player.error : null) || voicePlayer.getError(voice);
     const voiceState = voiceError ? "error" : playingHere ? (player.audio ? (player.audio.paused ? "paused" : "playing") : "loading") : voice ? "ready" : "";
     // The top-right voice line (notices.cjs useVoiceStatus): her reply on a call, else the line on screen (silent under SKIP).
@@ -1104,7 +1135,7 @@ function GalStage(props) {
             ...(member.lease ? {emotion:member.lease.emotion,focus:member.lease.focus,dim:member.lease.dim} : null),
             // reopening/restoring is not a new entrance (same policy as the background cut).
             visible:true,enter:forwardReading&&!skipping?'soft':'none',exit:'soft',gaze:stageViews.speaker.gaze(member.gaze,member.x,xs),act:shotHere&&shot.acts[member.id]?{name:shot.acts[member.id],nonce:shot.n}:null,
-            figureSizing:{pack:true,heightCm:selected.heightCm,version:1,source:selected.geometry.stage,sourceUrl:input.src,heightBasis:selected.heightBasis,outfitKey:selected.outfitKey,anatomy:selected.anatomy,head:selected.head,assetScale:selected.anatomy?.assetScale ?? 1,elevationCm:selected.elevationCm}};
+            figureSizing:{pack:true,heightCm:selected.heightCm,version:1,source:selected.geometry.stage,sourceUrl:input.src,heightBasis:selected.heightBasis,outfitKey:selected.outfitKey,anatomy:selected.anatomy,head:selected.head,face:selected.face,assetScale:selected.anatomy?.assetScale ?? 1,elevationCm:selected.elevationCm}};
     });
     const quality = useStageQuality();
     // core stage behaviour; tap reactions borrow the figure's own emotionMap entries.
@@ -1280,7 +1311,7 @@ function GalStage(props) {
     const historyRolls=stageViews.playback.usePlayback({sessionId,runtime,reading,auto,skipping,hidden,
         overlay:backlog||configOpen||galleryOpen||pageOpen||menuOpen||!!insert,typed,current,atEnd,awaiting,sceneHolding,
         line:{turn,page,card,inputCard,transitioning,subtitles,inputSubtitles,lastCard,voice,audioBusy,heldMs:handoff.heldMs,film,pageCount:pages.length},
-        performance:{replayable:performanceKinds.replayable,holds:modPerformances.holds,blocking:takeover.busy||!!title,dialogueHeld,busy:presentationBusy}},
+        performance:{replayable:performanceKinds.replayable,holds:[...modPerformances.holds,{remainingMs:cg.holdMs()}],holdKey:cg.holdTick,blocking:takeover.busy||!!title,dialogueHeld,busy:presentationBusy}},
         {advance:()=>go(1,true),finishSkip:()=>{turnPastEnd();stopSkip();},finishTyping:()=>setTyped(true)});
     // An insert page holds the playback clock (overlay above): AUTO turns it a wordless page's wait (the CONFIG auto wait,
     // galAutoDelay), at least the picture minimum, after its picture has shown, or passes it once the grace from reaching
@@ -1288,11 +1319,11 @@ function GalStage(props) {
     React.useEffect(() => {
         if (!insert) return;
         if (skipping) { setInserted(null); return; }
-        if (!auto || hidden || backlog || configOpen || galleryOpen || pageOpen || menuOpen) return;
+        if (!auto || picturePaused || hidden || backlog || configOpen || galleryOpen || pageOpen || menuOpen) return;
         const shown = !!insertPageKey && pictureShown === insertPageKey;
         const timer = setTimeout(() => go(1, true), stageViews.pictures.autoDelay(shown, options.configText.autoDelay(reading, false, ''), Date.now() - insert.since));
         return () => clearTimeout(timer);
-    }, [insert, auto, skipping, hidden, backlog, configOpen, galleryOpen, pageOpen, menuOpen, pictureShown, insertPageKey]);
+    }, [insert, auto, picturePaused, skipping, hidden, backlog, configOpen, galleryOpen, pageOpen, menuOpen, pictureShown, insertPageKey]);
     // Portraits retain historical stage actor keys; the card speaker identifies the same figure by ref.
     function avatarOf(entry) { return stageViews.speaker.avatarOf(config, pack.avatars, portraits, entry); }
     function nameOf(alias) { const character = bubbleCharacter(config,alias); return character && character.name || ""; }
@@ -1341,10 +1372,14 @@ function GalStage(props) {
     // the page's text marks in the words the box shows (a subtitle card of the page, a quoted line)
     const boxMarks = (function () {
         const shift = current?.textMarks?.length && !transitioning ? shownText.indexOf(subtitles.text) : -1;
-        if (shift < 0) return undefined;
-        const start = Array.from(current.text).slice(0, subtitles.cards[card]?.start || 0).join('').length;
-        const ranges = stageTextMarks.textMarkShift(current.textMarks, start, subtitles.text.length).map(row => ({...row, start:row.start + shift, end:row.end + shift}));
-        return stageTextMarkRender(ranges, {...markTurn, para:current.para}, reading.reducedMotion === true);
+        let own = [];
+        if (shift >= 0) {
+            const start = Array.from(current.text).slice(0, subtitles.cards[card]?.start || 0).join('').length;
+            const ranges = stageTextMarks.textMarkShift(current.textMarks, start, subtitles.text.length).map(row => ({...row, start:row.start + shift, end:row.end + shift}));
+            own = stageTextMarkRender(ranges, {...markTurn, para:current.para}, reading.reducedMotion === true);
+        }
+        const all = stageTextMarks.textMarksHighlighted(shownText, activeSkin?.textStyle?.highlight, own, React.createElement);
+        return all.length ? all : undefined;
     })();
     // the unfinished sentence that may still move to the next page stays
     // hidden on the last card of a streaming narration page, so the page never takes back text it showed. Only the last
@@ -1391,7 +1426,7 @@ function GalStage(props) {
     const menuProps = leaving => Object.assign({ leaving, sessionId, useChat: props.choiceProps.useChat, Regenerate: props.Regenerate, waitLines, regenerate: menuRegenerate, historical: turn !== latestTurn, latestTurn,
         busy: regenerateBlocked, controls: homes.menu, auto, skipping: skipLatch, atEnd, touch: firstRun.touch,
         letter: activeSkin?.art?.menu?.rows?.letter, titleLetter: activeSkin?.art?.menu?.title?.letter, glyphTiles: activeSkin?.art?.menu?.glyphTiles, pages: pageList }, menuActions);
-    return h("div", { ref: rootRef, tabIndex: -1, className: "fork-gal-stage" + (film ? " is-film" : "") + (backlog ? " is-backlog" : "") + (configOpen ? " is-config" : "") + (menuOpen ? " is-menu" : "") + (hidden ? " is-ui-hidden" : "") + (takeover.up ? " is-takeover" : "") + (insertPicture ? " is-picture" : ""), "data-theme": theme, "data-card-page-menu": pageList.filter(declared => declared.menu).map(declared => declared.id).join(" ") || undefined, "data-entry": entryGate.phase, "data-entrance": entrance.stageAttr, "data-skin-buttons": homes.declared.join(" ") || undefined, "data-reduced-motion": reading.reducedMotion === true || undefined, "data-cg-visible": !!accepted.cg || cg.visible || undefined, "data-narration-layout": narrationLayout, "data-fk-device": device, "data-phone-open": sourceWidget.phoneOpen || undefined, "data-covered": scene.covered || undefined, "data-fk-context": "stage-" + theme, "data-hud": hud.state || undefined, "data-speaking": speaker ? "true" : "false", "data-fk-portrait-bust": bustAlias ? "" : undefined,
+    return h("div", { ref: rootRef, tabIndex: -1, className: "fork-gal-stage" + (film ? " is-film" : "") + (backlog ? " is-backlog" : "") + (configOpen ? " is-config" : "") + (menuOpen ? " is-menu" : "") + (hidden ? " is-ui-hidden" : "") + (takeover.up ? " is-takeover" : "") + (insertPicture ? " is-picture" : ""), "data-theme": theme, "data-card-page-menu": pageList.filter(declared => declared.menu).map(declared => declared.id).join(" ") || undefined, "data-entry": entryGate.phase, "data-entrance": entrance.stageAttr, "data-skin-buttons": homes.declared.join(" ") || undefined, "data-reduced-motion": reading.reducedMotion === true || undefined, "data-cg-visible": !!accepted.cg || cg.visible || undefined, "data-narration-layout": narrationLayout, "data-fk-device": device, "data-fk-quality": quality, "data-phone-open": sourceWidget.phoneOpen || undefined, "data-covered": scene.covered || undefined, "data-fk-context": "stage-" + theme, "data-hud": hud.state || undefined, "data-speaking": speaker ? "true" : "false", "data-fk-portrait-bust": bustAlias ? "" : undefined,
         // a square skin (its --gal-ui-radius, stage-skin-adapter.cjs, is 0): its engine widgets drop their soft shadows (theme.css)
         "data-fk-skin-square": activeSkin && (activeSkin.ui?.radius ?? activeSkin.textbox?.shape?.radius ?? 10) === 0 ? "" : undefined, "data-fork-stage-turn": turn, "data-fork-stage-para": para,
         "data-stage-lease": leasing ? leaseView.lease.owner : undefined,
@@ -1414,7 +1449,10 @@ function GalStage(props) {
         modPerformances.node && React.cloneElement(modPerformances.node,{accent:color || undefined,skinItem:skinItem || undefined}),
         takeover.node,
         // the CG insert page over the scene and the box, under the top bar and its notices.
-        insertPicture ? h(stageViews.pictures.Page, { key: insertPageKey, picture: insertPicture, onShown: () => setPictureShown(insertPageKey), onFailed: () => turnPicture(insert.view ? 0 : insert.delta) }) : null,
+        insertPicture ? h(stageViews.pictures.Page, { key: insertPageKey, picture: insertPicture, auto, paused: picturePaused, Icon,
+            onTogglePause: event => { setPicturePaused(value => !value); refocusStage(event); },
+            onShown: () => setPictureShown(insertPageKey), onFailed: () => turnPicture(insert.view ? 0 : insert.delta) })
+            : leavingPicture ? h(stageViews.pictures.Page, { key: 'leaving:' + leavingPicture.id, picture: leavingPicture, leaving: true }) : null,
         h("div", {className:"fork-gal-scene-hold" + (entryGate.visible ? " is-resolved" : ""), "aria-hidden":true}),
         h(GalWidgets,{owner:sourceWidget,onBacklog:openBacklog,onAdvance:()=>input(1),onWheel:wheel}),
         voiceOverSheet ? h(GalRuntimeStatus, { voice: voiceStatus, overSheet: true, scope: sessionId }) : null,
@@ -1488,7 +1526,7 @@ function GalStage(props) {
             transitioning ? h("div", { className: "fork-gal-transition-label" }, "你 · 第 " + turns[turnIndex + 1] + " 轮") : null,
             h("div", { ref: textRef, className: "fork-gal-text", "aria-live": phoneLine ? "off" : "polite", 'data-fk-open': openBlock ? "" : undefined, style: openBlock ? { "--fk-page-block": openBlock + "px" } : undefined },
                 phoneLine && boxLine ? h(GalTypewriter, { key: "held:" + boxPageKey, text: heldText, speed: reading.textSpeed, skin: activeSkin, instant: true, reducedMotion:reading.reducedMotion,photosensitive:reading.photosensitive }) : null,
-                current ? h(phoneLine ? "span" : React.Fragment, phoneLine ? { className: "fork-gal-phone-reader", "aria-hidden": true } : null, h(narrationLines ? GalNarrationLines : GalTypewriter, { key: sessionId + ":" + readTurn + ":" + page + ":" + card + (transitioning ? ":transition:" + inputCard : ""), text: shownText, marks: boxMarks, lines: narrationLines, speed: reading.textSpeed, skin: activeSkin, instant: typed || skipping, hold: handoff.holding || beatHeld || cgHeld, pending: current.pending && lastCard, movable,reducedMotion:reading.reducedMotion,photosensitive:reading.photosensitive,
+                current ? h(phoneLine ? "span" : React.Fragment, phoneLine ? { className: "fork-gal-phone-reader", "aria-hidden": true } : null, h(narrationLines ? GalNarrationLines : GalTypewriter, { key: sessionId + ":" + readTurn + ":" + page + ":" + card + (transitioning ? ":transition:" + inputCard : ""), text: shownText, marks: boxMarks, lines: narrationLines, speed: reading.textSpeed, skin: activeSkin, instant: typed || skipping, hold: handoff.holding || beatHeld || cgHeld, pending: current.pending && lastCard, movable,reducedMotion:reading.reducedMotion,photosensitive:reading.photosensitive,glyphFade:quality === "high",
                     visibleKey:sourceWidget.readingKey,onVisible:value=>sourceWidget.onVisible(Array.from(current.text).slice(0,subtitles.cards[card]?.start || 0).join('') + value.slice(Math.max(0,shownText.indexOf(subtitles.text)),Math.max(0,shownText.indexOf(subtitles.text))+subtitles.text.length)),
                     onReveal:ordinal=>performanceLayer.cue({cueId:'type',ordinal:[page,card,ordinal]}), onDone: () => setTyped(true) }))
                     : h("span", { className: "stage-waiting" }, streaming || leasing ? "……" : "还没有正文"),
@@ -1500,7 +1538,7 @@ function GalStage(props) {
             // the reply wait's look (StageWaitStop + StageWaitLines, portalled by gal-choices.js); empty, it takes no room.
             h("div", { ref: setChoiceWaitSlot, className: "fork-gal-box-wait" }),
             // the mods' page parts sit on the box's top edge, out of its flow (mod-clients.js; e.g. a live roll's one-shot strip).
-            props.choiceProps && props.choiceProps.useChat ? modClients.slot('page').map(part => h(part.value, { key: part.modId, useChat: props.choiceProps.useChat, nativeTurn: runtime.textIndex.get(turn)?.nativeTurn || 0, pageKey, input: modClients.input(props.choiceProps.executeSlash, sessionId) })) : null,
+            props.choiceProps && props.choiceProps.useChat ? modClients.slot('page').map(part => h(part.value, { key: part.modId, useChat: props.choiceProps.useChat, nativeTurn: runtime.textIndex.get(turn)?.nativeTurn || 0, pageKey, sessionId, input: modClients.input(props.choiceProps.executeSlash, sessionId) })) : null,
             // film mode shows the page count briefly on each page turn
             // (the keyed node restarts its CSS fade); hover still shows it in full.
             h("div", { key: film ? "flash:" + pageKey : "meta", className: "fork-gal-meta" + (film ? " is-flash" : "") },
@@ -1560,7 +1598,7 @@ function GalStage(props) {
     // the registered entries of one top-bar side, in priority order. Each sits in a
     // .fork-stage-entry (display: contents); one with a badge carries data-attention and stays on screen while the bar hides.
     function entryDock(group) {
-        const ctx = { sessionId, rpc, place, live: runtime.cursor.mode !== 'history' && !skipping, widgets: sourceWidget, film,
+        const ctx = { sessionId, rpc, place, live: runtime.cursor.mode !== 'history' && !skipping, widgets: sourceWidget, film, cardPages: { pages: pageList, open: openCardPage, openId: openPage },
             // the page's round, whether the latest page is shown, whether a reply is under way, AUTO's stop.
             turn, atEnd, busy: running, stopAuto: () => setAuto(false),
             openConfig: (tab, opener) => { stageViews.configScreen.select(tab); openConfig(opener); } };
@@ -1640,6 +1678,12 @@ function galCallVoice(call) {
     const state = call?.get?.(), voice = state?.voice;
     if (!voice || voice.state === 'loading' && state.status !== 'thinking') return '';
     return JSON.stringify({key:['phone-call', voice.turn], state:voice.state, failed:voice.failed === true});
+}
+// What the stage shows of the voice player for the line on screen, as a string: the clip playing (whose, loaded,
+// paused, failed) and the line's own failure.
+function galVoiceView(player, voice) {
+    const now = player.get(), audio = now?.audio;
+    return JSON.stringify([now?.owner ?? null, now?.id ?? null, Boolean(audio), Boolean(audio?.paused), now?.error ?? null, voice ? player.getError(voice) ?? null : null]);
 }
 function useGalFirstRunHints(...args) { return stageViews.hints.useHints(...args); }
 // The text box's wait names it (its aria-label); the default one shows the rotating wait lines (wait-lines.js).

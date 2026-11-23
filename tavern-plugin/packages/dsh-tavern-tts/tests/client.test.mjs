@@ -112,3 +112,33 @@ test('stalled requests abort with a typed Chinese timeout and preserve server re
   const failed=await mount(async()=>({ok:false,status:400,json:async()=>({error:'CREDENTIALS_REQUIRED',message:'请在设置中填写密钥。'})}))
   try {await assert.rejects(failed.client.synthesize({text:'hello'}),{code:'CREDENTIALS_REQUIRED',message:'请在设置中填写密钥。',status:400})} finally {failed.dispose()}
 })
+
+test('uses host ttsEnabledFeed without opening EventSource and falls back cleanly if needed', async () => {
+  let sseCount = 0, feedHandlers = null, feedStopped = false
+  class EventSource { static CLOSED = 2; readyState = 1; constructor() { sseCount++ } close() { this.closed = true } }
+  const exports = {}, effects = [], provided = new Map()
+  const feed = {
+    subscribe(handlers) {
+      feedHandlers = handlers
+      return () => { feedStopped = true }
+    }
+  }
+  const sandbox = vm.createContext({ exports, feed, require: () => ({ createElement: () => null }), fetch: async () => response({}), EventSource, AbortController, Date, Set, Symbol, setTimeout, clearTimeout })
+  vm.runInContext("globalThis[Symbol.for('dsh.tts.enabledFeed')] = feed", sandbox)
+  vm.runInContext(source, sandbox)
+  exports.apply({ provide: (k, v) => { provided.set(k, v); return () => provided.delete(k) }, effect: fn => effects.push(fn()), inject: () => {}, slots: { inject: () => {} } })
+
+  assert.equal(sseCount, 0, '存在 WebSocket 状态流时不打开 EventSource')
+  feedHandlers.onEnabled(true)
+  await Promise.resolve()
+  assert.equal(provided.get('ttsClient')?.available(), true)
+
+  feedHandlers.onClosed()
+  await Promise.resolve()
+  assert.equal(provided.has('ttsClient'), false)
+
+  feedHandlers.onFallback()
+  assert.equal(sseCount, 1, 'WebSocket 不可用时平滑回退到 SSE')
+  effects.forEach(fn => fn())
+  assert.equal(feedStopped, true)
+})

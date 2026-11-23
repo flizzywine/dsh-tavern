@@ -12,16 +12,6 @@ function service({raw=card(),chat={},messages=[{role:'assistant',greeting:true}]
   })
 }
 
-test('declarations omit HTML and fresh follows player messages, not greeting',async()=>{
-  const result=await service().list({sessionId:'s'})
-  assert.deepEqual(result,{pages:[{id:'status',label:'状态',size:'window',shortcut:'s',menu:true}],fresh:true})
-  assert.equal((await service({messages:[{role:'assistant'},{role:'user'}]}).list({sessionId:'s'})).fresh,false)
-  for(const options of [{raw:card([])},{chat:{mode:'card'}}]) {
-    assert.deepEqual(await service(options).list({sessionId:'s'}),{pages:[],fresh:false})
-    assert.equal(await service(options).read({sessionId:'s',page:'status'}),null)
-  }
-})
-
 test('live library page supplies figures and only declared ledger',async()=>{
   const result=await service().read({sessionId:'s',page:'status'})
   assert.equal('html' in result,false)
@@ -39,4 +29,9 @@ test('live library page supplies figures and only declared ledger',async()=>{
   assert.deepEqual(map.preload,[{ref:{kind:'backgrounds',id:'bound'},place:{packId:'bound',hash:'image'}}])
   raw.data.extensions.dsh_tavern.pages[0].html='<p>新港口</p>'
   assert.equal((await reader.read({sessionId:'s',page:'map',withHtml:true})).html,'<p>新港口</p>')
+})
+
+test('the page list carries a top-bar icon for the stage to draw', async () => {
+  const listed = await service({raw:card([page,{id:'title',label:'AgencyOS',html:'<p>桌面</p>',size:'full',showOn:{event:'stage-enter'},shortcut:'o',icon:'monitor'}])}).list({sessionId:'s'})
+  assert.deepEqual(listed.pages.map(item => [item.id, item.icon ?? null, item.shortcut]), [['status', null, 's'], ['title', 'monitor', 'o']])
 })

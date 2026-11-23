@@ -2,24 +2,12 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {pathToFileURL} from 'node:url'
 import {join} from 'node:path'
-import {registerTemplateModule,materializeTemplateModules,materializeTemplateModulesAsync,applyModuleWorkflowValues} from '../tavern-plugin/packages/dsh-tavern-image-bundled/lib/template-modules.js'
-import {normalizePromptStructure} from '../tavern-plugin/packages/dsh-tavern-image-bundled/lib/prompt-structure.js'
+import { registerTemplateModule, materializeTemplateModulesAsync } from '../tavern-plugin/packages/dsh-tavern-image-bundled/lib/template-modules.js'
 import {composePluginImagePrompt,composePluginImagePromptAsync,createImageGenerator} from '../tavern-plugin/packages/dsh-tavern-image-bundled/lib/model-provider.js'
 import {imagePluginFixture,IMAGE_PNG,imageJson} from './fixtures/image-plugin-runtime.mjs'
 const template=blocks=>({name:'自制模板',independent:true,structure:{format:'natural',targets:[],blocks:[{kind:'scene',title:'场景',text:''},...blocks]}})
 const block={kind:'extension',title:'自己的光线模块',moduleId:'core.custom',values:{positive:'soft light in {{city}}',negative:'watermark',rules:'保持当前动作',keywords:'tea',parameters:'{"steps":18,"cfg":6}'}}
 
-test('a player module uses declared variables and conditions, combines positive/negative/rules, and round-trips opaque plugin settings',()=>{
- const structure=normalizePromptStructure({...template([block]).structure,inputs:[{key:'city',label:'城市',default:'南京'}]})
- assert.deepEqual(structure.blocks[1].values,block.values)
- const resolved=materializeTemplateModules(structure,{scene:'tea room',inputs:{city:'Nanjing'}})
- assert.match(resolved.structure.blocks.map(b=>b.text).join('\n'),/soft light in Nanjing/)
- assert.deepEqual(resolved.parameters,{steps:18,cfg:6})
- assert.equal(materializeTemplateModules(structure,{scene:'mountain'}).structure.blocks.length,1)
- const unknown=normalizePromptStructure(template([{...block,moduleId:'another.plugin',enabled:false}]).structure)
- assert.equal(unknown.blocks[1].moduleId,'another.plugin');assert.deepEqual(unknown.blocks[1].values,block.values)
- assert.doesNotThrow(()=>materializeTemplateModules(unknown))
-})
 test('independent sync/async APIs resolve plugin modules without mutating saved templates or leaking configuration',async()=>{
  const remove=registerTemplateModule({id:'test.palette',name:'配色模块',fields:[{key:'color',label:'颜色',type:'text',default:'blue'}],async resolve(context){await Promise.resolve();assert.equal('apiKey' in context,false);return{positive:context.values.color+' light',negative:'watermark',parameters:{steps:12}}}})
  try{
@@ -32,12 +20,6 @@ test('independent sync/async APIs resolve plugin modules without mutating saved 
   const stopped=new AbortController();stopped.abort(new Error('user stopped'))
   await assert.rejects(materializeTemplateModulesAsync(config.promptDefault.structure,{signal:stopped.signal}),/user stopped/)
  }finally{remove()}
-})
-test('literal workflow inputs are patched per request while the saved graph and connections stay intact',()=>{
- const workflow={prompt:{'1':{class_type:'CustomCaption',inputs:{caption:'old',options:{enabled:false}}},'2':{class_type:'Consumer',inputs:{text:['1',0]}}}}
- const changed=applyModuleWorkflowValues(workflow,[{node:'1',input:'caption',value:'new'},{node:'1',input:'options',value:{enabled:true}}])
- assert.equal(workflow.prompt['1'].inputs.caption,'old');assert.equal(changed.prompt['1'].inputs.caption,'new')
- assert.deepEqual(changed.prompt['2'].inputs.text,['1',0])
 })
 test('runtime jobs and planner use a registered asynchronous module, with explicit request seed taking precedence',async t=>{
  const saved=template([{kind:'extension',title:'插件能力',moduleId:'test.runtime',values:{tone:'amber'}}])

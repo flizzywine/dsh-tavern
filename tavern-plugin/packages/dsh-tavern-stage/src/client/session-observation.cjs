@@ -23,6 +23,8 @@ function createStageSessionObservation({owner,resources,resourceOwner,selection,
         // the session index survives transcript virtualization. Only the
         // selected chat's sealed latest lines and viewed/next turns are synthesized.
         let voiceStore = null, stopVoiceSource = null;
+        // The anchor of a page read back (history mode) whose projection or media are still loading, else null.
+        const settlingAt = state => state.cursor?.mode === 'history' && (state.pending?.projection || state.pending?.resources) ? state.cursor.anchor : null;
         own(() => stopVoiceSource?.());
         const syncVoice = () => {
             if (!active()) return;
@@ -32,7 +34,7 @@ function createStageSessionObservation({owner,resources,resourceOwner,selection,
                 stopVoiceSource?.(); voiceStore = store; stopVoiceSource = null;
                 if (store) {
                     stopVoiceSource = observe(store,state => ({textIndex:state.textIndex,source:state.source,latestSource:state.latestSource,
-                        settings:state.settings,opened:state.opened,interrupted:state.interrupted}),syncVoice,equal);
+                        settings:state.settings,opened:state.opened,interrupted:state.interrupted,settlingAt:settlingAt(state)}),syncVoice,equal);
                 }
             }
             const state = store?.getSnapshot(), handles = [];
@@ -41,21 +43,36 @@ function createStageSessionObservation({owner,resources,resourceOwner,selection,
             // Sealed latest dialogue is latency-sensitive, not speculative history. The voice player's two
             // workers bound synthesis; entry readiness and the reader's page must never gate this queue.
             const turns = new Set(latest === undefined ? [] : [latest]);
+            const available = voice.available();
+            const add = (pages, limit = Infinity) => {
+                for (const page of pages) {
+                    if (page.pending) continue;
+                    const handle = voice.handle(id,page.voice,config,page.anchor.paragraphId,available);
+                    if (!handle) continue;
+                    handles.push(handle);
+                    if (--limit === 0) return;
+                }
+            };
             // Historical lookahead waits for reveal; sealed lines in the latest body can warm immediately.
             if (state?.opened && state.source && entry.shown.get() === store) {
-                turns.add(state.source.turn);
-                const next = [...state.textIndex.keys()].filter(turn => turn > state.source.turn).sort((a,b) => a-b)[0];
-                if (next !== undefined) turns.add(next);
+                const anchor = settlingAt(state), row = anchor && state.textIndex.get(state.source.turn);
+                if (anchor) {
+                    // A page read back (a jump, history paging) that is still being drawn: only its own lines and the next
+                    // few warm now, so the voice reads do not queue ahead of the page's requests; the rest follow once drawn.
+                    if (row && !(state.interrupted && state.source.turn === latest)) {
+                        const at = Math.max(0, row.text.pages.findLastIndex(page => page.anchor.offset <= anchor.offset));
+                        add(row.text.pages.slice(Math.max(0, at - 1)), 4);
+                    }
+                } else {
+                    turns.add(state.source.turn);
+                    const next = [...state.textIndex.keys()].filter(turn => turn > state.source.turn).sort((a,b) => a-b)[0];
+                    if (next !== undefined) turns.add(next);
+                }
             }
-            const available = voice.available();
             for (const turn of turns) {
                 const row = state.textIndex.get(turn);
                 if (!row || state.interrupted && turn === latest) continue;
-                for (const page of row.text.pages) {
-                    if (page.pending) continue;
-                    const handle = voice.handle(id,page.voice,config,page.anchor.paragraphId,available);
-                    if (handle) handles.push(handle);
-                }
+                add(row.text.pages);
             }
             voice.retain(handles);
             for (const handle of handles) void handle.prefetch();
@@ -72,6 +89,8 @@ function createStageSessionObservation({owner,resources,resourceOwner,selection,
         own(() => media.music.activate(null));
         own(() => media.background.activate(null));
         own(() => media.ambience.activate(null));
+        // The BGM pause is the pause of every looping sound: the ambience holds while the player's pause is on.
+        own(media.music.subscribe(() => media.ambience.hold(media.music.get().loopsPaused)));
         own(selection.list.subscribe(bgmSelect));
         const bgmKick = () => { if(!active())return; media.music.kick(); media.ambience.resume(); };
         document.addEventListener('pointerdown', bgmKick, true);

@@ -3,27 +3,36 @@ import {resolution} from '../../../../lib/domain/figure-catalogue.js'
 import { effectiveBubbleMoods } from '../../../../lib/domain/dialogue-bubbles.js'
 import { matchBubbleMood } from '../../../../src/client/bubble-line.cjs'
 import { stageAssetRefs } from './stage-asset-pack-catalogue.js'
-import { foldAssetPackEntries } from './stage-asset-pack-director.js'
+import { cgPlaybackAvailable } from '../scene-cg.js'
+import { foldAssetPackEntries, stageOutfitKey } from './stage-asset-pack-director.js'
 import {foldPerformanceAt, performanceWidgetDefaults} from './performance-projection.js'
 import { reuseStagePlayback, stagePlaybackKey, stagePlaybackRuler, stagePlaybackEmotions, stagePlaybackWriter } from './stage-playback.js'
 
 import {isImmutableJson} from '../../../../lib/domain/freeze-json.js'
 import {stageNarrationLayout} from '../../../../lib/domain/stage-narration.cjs'
+import {stagePageAtAnchor} from '../../../../src/client/stage-page-index.cjs'
+import {standInShown, standInFor} from './stage-stand-in.js'
 
 const same = (a,b) => JSON.stringify(a) === JSON.stringify(b)
 // Only completed sidecar checks are cached, never current media or authority.
 // The chat cache owns these immutable objects and their lifetime across revisions.
 const completedPlaybacks = new WeakMap()
 // Canonical pages are independent of subtitle-card layout and viewport size.
+// A requested page is the reader's anchor (paragraph and character offset), as the client keeps it. A round's text can be
+// laid out anew under the same direction (a card update re-projects old rounds with its new regex), so a page the reader
+// took from the earlier layout lands on the current page holding that character, as the client's own reconcile does.
 export function stageProjectionPage(direction, at, page) {
   const pages = direction.pageIndex?.pages
   if (!pages) {
     if (page) throw Object.assign(new Error('Canonical page index unavailable'), {code:'STAGE_PAGE_MISMATCH'})
     return null
   }
-  const coordinate = page ? pages[page.index] : pages.find(item => item.para === at)
-  if (page && (page.version !== 1 || !Number.isSafeInteger(page.index) || !coordinate || coordinate.para !== page.para || coordinate.offset !== page.offset)) {
-    throw Object.assign(new Error('Canonical stage page does not match frozen source'), {code:'STAGE_PAGE_MISMATCH'})
+  if (page && (page.version !== 1 || !Number.isSafeInteger(page.index) || !Number.isSafeInteger(page.para) || !Number.isSafeInteger(page.offset))) {
+    throw Object.assign(new Error('Malformed stage page'), {code:'STAGE_PAGE_MISMATCH'})
+  }
+  let coordinate = page ? pages[page.index] : pages.find(item => item.para === at)
+  if (page && (coordinate?.para !== page.para || coordinate.offset !== page.offset)) {
+    coordinate = pages[stagePageAtAnchor(direction.pageIndex,page) ?? -1] || pages.find(item => item.para === page.para)
   }
   return coordinate ? {index:coordinate.page,para:coordinate.para,offset:coordinate.offset,version:1} : null
 }
@@ -136,7 +145,7 @@ async function readCurrentProjection({trace, expectedDirectionToken, readDirecti
     let ops = entry?.at === at ? entry.ops.map(op => directorCommands.recordOperation(op,checked.binding)).filter(Boolean) : []
     const chain = [...(direction.predecessor || []),checked]
     // Sidecar frames contain scene/audio/figures, not performance execution plans.
-    const performanceRefs = snapshotOnly || !performanceEnabled ? [] : [...new Map(chain.flatMap(record => [record.baseline.performance?.ref,...record.entries.map(entry => entry.state.performance?.ref)]).filter(Boolean).map(ref => [JSON.stringify(ref),ref])).values()]
+    const performanceRefs = snapshotOnly || !performanceEnabled ? [] : [...new Map(chain.flatMap(record => [record.baseline.performance?.ref,...record.entries.flatMap(entry => [entry.state.performance?.ref,entry.state.performance?.cutIn?.ref])]).filter(Boolean).map(ref => [JSON.stringify(ref),ref])).values()]
     let metadata = [], performanceFailure = null, performancePlan = null
     const unavailablePerformance = error => {
       performanceFailure = {ref:state.performance?.ref || performanceRefs[0],dependencies:[],executionDependencies:[],
@@ -170,6 +179,8 @@ async function readCurrentProjection({trace, expectedDirectionToken, readDirecti
     }
     const version = revision(), extension = presentation.extension
     const figureRows = await measure('projection.figureRows', () => presentation.figureRows(state.actors))
+    // a stand-in shows its person's own figure as soon as that has a 立绘 (it landed while the round is read)
+    for (const [alias,actor] of Object.entries(state.actors)) state.actors[alias] = standInShown(actor,figureRows,stageOutfitKey)
     await measure('projection.resolveFigures', () => presentation.prepareFigures([
       ...figureRows.filter(row => row.enabled).map(row => row.ref),
       ...referenced.filter(ref => ref.figureId && consumer.allowedPackIds.includes(ref.packId))
@@ -177,7 +188,8 @@ async function readCurrentProjection({trace, expectedDirectionToken, readDirecti
     await measure('projection.referencedAssets', async () => { for (const ref of referenced) {
       const resolved = consumer.allowedPackIds.includes(ref.packId)
         ? await presentation[ref.figureId ? 'resolveFigure' : 'resolveAsset'](ref) : null
-      if (!resolved?.value?.enabled || resolved.value.pendingMedia) {missing.push(ref); unavailable.add(refKey(ref))}
+      const asset = resolved?.value
+      if (!(ref.kind === 'cg' ? cgPlaybackAvailable(asset) : asset?.enabled && !asset.pendingMedia)) {missing.push(ref); unavailable.add(refKey(ref))}
     } })
     const available = ref => !ref || !unavailable.has(refKey(ref))
     // revocation removes only the affected projection element, not the
@@ -214,7 +226,7 @@ async function readCurrentProjection({trace, expectedDirectionToken, readDirecti
     // derive speaker -> actor without rewriting units, historical ops or playback keys.
     const emotions = {...direction.opening?.emotions, ...stagePlaybackEmotions(direction,at,segment => {
       const result = resolution.resolveFigureName(figureRows,segment,state.actors)
-      return result.status === 'resolved' ? result.actorKey : undefined
+      return result.status === 'resolved' && (state.actors[result.actorKey] || !standInFor(state.actors,segment.name)) ? result.actorKey : standInFor(state.actors,segment.name)
     })}
     const refs = new Map(figureRows.filter(row => row.enabled).map(row => [row.actorKey,row.ref]))
     for (const [alias,actor] of Object.entries(state.actors)) refs.set(alias,actor.figure)

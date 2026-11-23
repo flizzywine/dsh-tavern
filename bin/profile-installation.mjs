@@ -18,9 +18,10 @@ import { extractDshVersion, assertCompatibleDshVersion, dshCompatibilityNotice }
 import { patchThemeFontLimit } from './theme-font-limit.mjs'
 import { patchChatAnswerStep } from './chat-answer-step-patch.mjs'
 import { patchChatReasoningFold } from './chat-reasoning-fold-patch.mjs'
+import { patchSettingsModelsEndpoints, SETTINGS_MODELS_PATCHED_VERSION } from './settings-models-endpoints-patch.mjs'
 import { patchChatToolReplyStream } from './chat-tool-reply-stream-patch.mjs'
 import { patchDeepSeekStreamOption } from './deepseek-stream-option-patch.mjs'
-import { patchPiAiNonStream } from './pi-ai-nonstream-patch.mjs'
+import { patchPiAiGoogleStopReason, patchPiAiGoogleToolMode, patchPiAiNonStream, patchPiAiOpenAIStore } from './pi-ai-nonstream-patch.mjs'
 import { patchPiAiVertexStream, resolveVertexProject } from './pi-ai-vertex-stream-patch.mjs'
 import { patchWebViewportMeta } from './web-viewport-patch.mjs'
 import { installPluginDependencies, resolveHostAnchor, resolveHostDependencies } from './plugin-dependencies.mjs'
@@ -35,17 +36,19 @@ import { ensureSidebarDefaults } from './launcher-settings.mjs'
 import { assertProfileBundlesLoad } from './profile-bundle-check.mjs'
 import { nextUpdatePreparation } from './prepared-next-profile.mjs'
 import { swap as swapApp, rollback as rollbackApp, commit as commitApp } from './staged-app-install.mjs'
-import { INSTALL_HOSTS, SOURCE_ROOT, DSH_ROOT, BACKUP_ROOT, writeInstallationFile, LEGACY_DSH_ROOT, CLI_RUNTIME_ROOT, RUNTIME_HOST, PROFILE_DIR, LOG_DIR, SCRIPT_PATH, PROFILE, RELEASE_FILE, DEFAULT_COMMIT_URL, REQUIRED_SOURCE_FILES, findDshCommand, pinnedDesktopDsh, requireCommand, run, runInstallCommand, runInstallDsh } from './launcher-environment.mjs'
+import { INSTALL_HOSTS, SOURCE_ROOT, DSH_ROOT, BACKUP_ROOT, writeInstallationFile, LEGACY_DSH_ROOT, CLI_RUNTIME_ROOT, RUNTIME_HOST, argsBeforeOptionTerminator, PROFILE_DIR, LOG_DIR, SCRIPT_PATH, PROFILE, RELEASE_FILE, DEFAULT_COMMIT_URL, REQUIRED_SOURCE_FILES, findDshCommand, pinnedDesktopDsh, requireCommand, run, runInstallCommand, runInstallDsh } from './launcher-environment.mjs'
 
 // Own installation transaction and legacy-source discovery. Desktop never installs a CLI shim.
 export { extractDshVersion } from './dsh-compatibility.mjs'
 
 export function parseInstallHost(args = []) {
+  const options = argsBeforeOptionTerminator(args)
+  if (args.length > options.length + 1) throw new Error(`无法识别的安装参数：${args[options.length + 1]}`)
   let host = RUNTIME_HOST
-  for (let index = 0; index < args.length; index += 1) {
-    const argument = args[index]
+  for (let index = 0; index < options.length; index += 1) {
+    const argument = options[index]
     if (argument === '--host') {
-      host = args[index + 1]
+      host = options[index + 1]
       index += 1
     } else if (argument.startsWith('--host=')) {
       host = argument.slice('--host='.length)
@@ -66,11 +69,11 @@ function verifySource() {
   }
 }
 
-function prepareProfileConfiguration(host, dshVersion) {
-  const source = JSON.parse(readFileSync(path.join(SOURCE_ROOT, 'package.json'), 'utf8'))
-  const current = loadProfileManifest({ profileDir: PROFILE_DIR })
+export function prepareProfileConfiguration(host, dshVersion, { sourceRoot = SOURCE_ROOT, profileDir = PROFILE_DIR, dshHome = DSH_ROOT } = {}) {
+  const source = JSON.parse(readFileSync(path.join(sourceRoot, 'package.json'), 'utf8'))
+  let current = loadProfileManifest({ profileDir })
   const desktop = host === 'desktop' || host === 'next'
-  const legacyNext = desktop && hasNextTavern(DSH_ROOT)
+  const legacyNext = desktop && hasNextTavern(dshHome)
   if (desktop && current.dsh?.profile?.bundles?.includes('dsh-tavern-bundle') && !legacyNext) {
     throw new Error('无法核对现有 NEXT 酒馆包的来源，请先检查 tavern Profile。')
   }
@@ -78,29 +81,29 @@ function prepareProfileConfiguration(host, dshVersion) {
     throw new Error(`目标 profile 已属于其他项目：${current.name}`)
   }
 
-  const pluginPath = path.join(SOURCE_ROOT, 'tavern-plugin')
+  const pluginPath = path.join(sourceRoot, 'tavern-plugin')
   const manifest = mergeProfileManifest({
     source,
     current,
     previousLaunchers: [
-      ...launcherBundles(current, PROFILE_DIR, 'desktop'),
-      ...launcherBundles(current, PROFILE_DIR, 'next'),
+      ...launcherBundles(current, profileDir, 'desktop'),
+      ...launcherBundles(current, profileDir, 'next'),
       ...(legacyNext ? ['dsh-tavern-bundle'] : []),
     ],
     pluginPath,
-    dataRoot: resolveTavernDataRoot({ dshHome: DSH_ROOT }),
+    dataRoot: resolveTavernDataRoot({ dshHome }),
     host,
     dshVersion,
   })
   let patchText = prepareProfilePatch({
-    profileDir: PROFILE_DIR,
-    templateText: readFileSync(path.join(SOURCE_ROOT, 'cordis.patch.yml'), 'utf8'),
-    legacyManagedText: readFileSync(path.join(SOURCE_ROOT, 'config', 'legacy-profile-patch-v0.6.yml'), 'utf8'),
+    profileDir,
+    templateText: readFileSync(path.join(sourceRoot, 'cordis.patch.yml'), 'utf8'),
+    legacyManagedText: readFileSync(path.join(sourceRoot, 'config', 'legacy-profile-patch-v0.6.yml'), 'utf8'),
     host,
     profileConfigurationVersion: current.dshTavern && current.dshTavern.profileConfigurationVersion,
   })
   if (desktop) {
-    assertLauncherSlotAvailable(current, PROFILE_DIR, { replaceNext: true })
+    assertLauncherSlotAvailable(current, profileDir, { replaceNext: true })
     manifest.dshTavern.officialDesktop = true
     manifest.dshTavern.profileBridge = true
     if (!manifest.dsh.profile.bundles.includes(LAUNCHER_BUNDLE)) manifest.dsh.profile.bundles.push(LAUNCHER_BUNDLE)
@@ -445,7 +448,13 @@ async function installProfileOwned(host, { attemptId, runInstall, runDsh, guiRoo
         if (toolStreamed === null) console.log('当前 DSH 的对话界面与工具流式预览补丁不符，已跳过。')
         else if (toolStreamed) console.log('已启用 submit_story 工具调用期间的思维链与正文实时流式显示。')
       }
-      if (!isAsarPath(deepseek.directory)) {
+      // An optional page addition: a host without this card (or with another shape) installs as before, and says so.
+      try {
+        const [models] = resolveHostDependencies({ dsh, host, requiredExports: { '@deepseek-ai/dsh-client-ui-settings-models': null } })
+        const patched = isAsarPath(models.directory) ? null : patchSettingsModelsEndpoints(models.directory)
+        if (patched === null) console.log(`当前 DSH 的「设置 › 模型」与最近网址补丁不符（补丁按 ${SETTINGS_MODELS_PATCHED_VERSION} 写），已跳过。`)
+        else if (patched) console.log('已为 DSH「设置 › 模型」的 API 地址加上「最近用过的网址」。')
+      } catch (error) { console.log(`「设置 › 模型」最近网址补丁没有打上：${error?.message ?? error}`) }      if (!isAsarPath(deepseek.directory)) {
         const patched = patchDeepSeekStreamOption(deepseek.directory)
         if (patched === null) console.log('当前 DSH 的 DeepSeek 适配器与流式设置补丁不符，已跳过；非流式仍在响应完成后一次性显示。')
         else if (patched) console.log('已为 DeepSeek 适配器启用流式/非流式请求切换。')
@@ -475,6 +484,15 @@ async function installProfileOwned(host, { attemptId, runInstall, runDsh, guiRoo
         const patched = patchPiAiNonStream({ adapterDirectory: piAi.adapter.directory, sdkDirectory: piAi.sdkDirectory })
         if (patched === null) console.log('当前 DSH 的 pi-ai 适配器与非流式补丁不符，已跳过；非流式仍在响应完成后一次性显示。')
         else if (patched) console.log('已为 pi-ai 的 OpenAI 兼容模型启用上游非流式请求。')
+        const store = patchPiAiOpenAIStore({ sdkDirectory: piAi.sdkDirectory })
+        if (store === null) console.log('当前 DSH 的 pi-ai 与 store 字段补丁不符，已跳过；OpenAI 兼容渠道可在 compat 里设 supportsStore: false。')
+        else if (store) console.log('已让 pi-ai 的 OpenAI 兼容渠道只在声明支持时发送 store 字段。')
+        const stopReason = patchPiAiGoogleStopReason({ sdkDirectory: piAi.sdkDirectory })
+        if (stopReason === null) console.log('当前 DSH 的 pi-ai 与 Gemini 结束原因补丁不符，已跳过。')
+        else if (stopReason) console.log('已让 pi-ai 把 Gemini 新增的结束原因当作普通报错。')
+        const toolMode = patchPiAiGoogleToolMode({ sdkDirectory: piAi.sdkDirectory })
+        if (toolMode === null) console.log('当前 DSH 的 pi-ai 与 Gemini 工具调用约束补丁不符，已跳过。')
+        else if (toolMode) console.log('已让 pi-ai 对 Gemini 3 以上的工具调用默认按定义约束生成。')
       }
       if (piAi && !isAsarPath(piAi.sdkDirectory)) {
         // Gemini 3/4 answer only at `locations/global`, a resource path: the catalog can

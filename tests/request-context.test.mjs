@@ -2,6 +2,9 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import vm from 'node:vm'
+import { createElement } from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
+import { computeRequestCacheDiff, extractPrefixSlots } from '../tavern-plugin/lib/domain/request-cache-diff.js'
 
 
 // The panel is a client fragment concatenated into the built bundle, so exercise
@@ -57,4 +60,215 @@ test('token 估算：中文约 1.5、拉丁约每 4 字母 1 个、数字约每 
   assert.equal(tokens('1'.repeat(30)), 10)
   // 只做量级比较：加字不会让估算变少。
   for (let length = 1; length <= 40; length += 3) assert.ok(tokens('汉'.repeat(length + 3)) >= tokens('汉'.repeat(length)))
+})
+
+test('前端 requestContextSections 的 cacheKey 与后端 extractPrefixSlots 完全对齐', () => {
+  const request = {
+    model: 'claude-sonnet',
+    system: '根系统提示',
+    tools: [{ type: 'function', function: { name: 't1' } }],
+    messages: [
+      { role: 'system', content: '【前段】主体', source: { sections: [{ name: 'tavern:runtime-preset-front', text: '【前段】' }, { name: 'tavern:dsh-system', text: '主体' }] } },
+      { role: 'user', content: '你好' },
+      { role: 'assistant', content: '你好呀' }
+    ]
+  }
+  const clientKeys = sections(request).map(s => s.cacheKey).filter(key => key !== 'field:metadata')
+  const serverKeys = extractPrefixSlots(request).map(s => s.key)
+  assert.deepEqual(clientKeys, serverKeys)
+})
+
+test('缓存对比：纯追加场景标记 hit 与 appended，并按互斥 usage 桶计算真实命中率', () => {
+  const prev = {
+    id: 'r1', turn: 1, step: 1, createdAt: 1000,
+    request: {
+      model: 'claude-sonnet',
+      system: '稳定系统提示',
+      tools: [{ name: 'tool_a' }],
+      messages: [{ role: 'user', content: '第一句' }, { role: 'assistant', content: '第一答' }]
+    }
+  }
+  const cur = {
+    id: 'r2', turn: 2, step: 1, createdAt: 2000,
+    usage: { inputTokens: 100, cacheReadTokens: 800, cacheWriteTokens: 100, outputTokens: 50 },
+    request: {
+      ...prev.request,
+      messages: [...prev.request.messages, { role: 'user', content: '第二句' }]
+    }
+  }
+  const diff = computeRequestCacheDiff(cur, prev, { id: 'r1', turn: 1, step: 1, createdAt: 1000 })
+  assert.equal(diff.compareStatus, 'compared')
+  assert.equal(diff.breakPoint, null)
+  assert.equal(diff.usage.totalInputTokens, 1000)
+  assert.equal(diff.usage.hitRate, 0.8)
+  assert.equal(diff.sectionStatus['field:system'], 'hit')
+  assert.equal(diff.sectionStatus['field:tools'], 'hit')
+  assert.equal(diff.sectionStatus['msg:0'], 'hit')
+  assert.equal(diff.sectionStatus['msg:1'], 'hit')
+  assert.equal(diff.sectionStatus['msg:2'], 'appended')
+})
+
+test('缓存对比：系统段内世界书变动精确定位到破坏源头与行级 diff，并标出受波及历史段落', () => {
+  const makeSys = wb => ({
+    role: 'system',
+    content: '固定设定\n' + wb,
+    source: { sections: [{ name: 'tavern:dsh-system', text: '固定设定\n' }, { name: 'tavern:activeWorldbook:1', text: wb }] }
+  })
+  const prev = {
+    id: 'r1', turn: 1, step: 1, createdAt: 1000,
+    request: {
+      model: 'claude-sonnet',
+      messages: [makeSys('世界书旧条目A'), { role: 'user', content: '历史问' }, { role: 'assistant', content: '历史答' }]
+    }
+  }
+  const cur = {
+    id: 'r2', turn: 2, step: 1, createdAt: 2000,
+    request: {
+      model: 'claude-sonnet',
+      messages: [makeSys('世界书新条目B'), { role: 'user', content: '历史问' }, { role: 'assistant', content: '历史答' }, { role: 'user', content: '本轮新问' }]
+    }
+  }
+  const diff = computeRequestCacheDiff(cur, prev, { id: 'r1', turn: 1, step: 1, createdAt: 1000 })
+  assert.equal(diff.sectionStatus['msg:0'], 'break')
+  assert.equal(diff.sectionStatus['msg:1'], 'cascade')
+  assert.equal(diff.sectionStatus['msg:2'], 'cascade')
+  assert.equal(diff.sectionStatus['msg:3'], 'appended')
+  assert.equal(diff.breakPoint.key, 'msg:0')
+  assert.equal(diff.breakPoint.partLabel, '本轮世界书')
+  assert.equal(diff.breakPoint.affectedSections, 2)
+  assert.equal(diff.breakPoint.diff.removedLines, 1)
+  assert.equal(diff.breakPoint.diff.addedLines, 1)
+  assert.ok(diff.breakPoint.diff.lines.some(l => l.type === 'del' && l.text.includes('世界书旧条目A')))
+  assert.ok(diff.breakPoint.diff.lines.some(l => l.type === 'add' && l.text.includes('世界书新条目B')))
+  // 同一段内破坏点之前的「固定设定」仍计入 hitTokens，不归入 breakTokens
+  assert.ok(diff.estimated.hitTokens > 0)
+  assert.equal(
+    diff.estimated.hitTokens + diff.estimated.breakTokens + diff.estimated.cascadeTokens + diff.estimated.appendedTokens,
+    diff.estimated.totalTokens
+  )
+})
+
+test('缓存对比：同一消息段内中部子块变动时，前置子块计入 hit、中段计入 break、后置子块计入 cascade', () => {
+  const partA = '前置固定正文内容，用于验证仍然命中缓存前缀。'
+  const partB1 = '掷骰结果: 2d6 骰出 [3 + 6] = 9'
+  const partB2 = '掷骰结果: 2d6 骰出 [4 + 4] = 8'
+  const partC = '后置候选项列表内容，受前面差异波及而失效。'
+  const makeMsg = mid => ({
+    role: 'user',
+    content: partA + '\n\n' + mid + '\n\n' + partC,
+    source: {
+      sections: [
+        { name: 'tavern:turn', text: partA },
+        { name: 'tavern:currentStateProjection:1', text: mid },
+        { name: 'tavern:currentStateProjection:2', text: partC }
+      ]
+    }
+  })
+  const prev = { id: 'r1', turn: 1, step: 1, createdAt: 1000, request: { model: 'claude-sonnet', messages: [makeMsg(partB1)] } }
+  const cur = { id: 'r2', turn: 2, step: 1, createdAt: 2000, request: { model: 'claude-sonnet', messages: [makeMsg(partB2)] } }
+  const diff = computeRequestCacheDiff(cur, prev, { id: 'r1', turn: 1, step: 1, createdAt: 1000 })
+  assert.equal(diff.sectionStatus['msg:0'], 'break')
+  assert.equal(diff.breakPoint.partIndex, 1)
+  assert.equal(diff.breakPoint.partLabel, '当前状态')
+  assert.ok(diff.estimated.hitTokens > 0)
+  assert.ok(diff.estimated.breakTokens > 0)
+  assert.ok(diff.estimated.cascadeTokens > 0)
+  assert.equal(
+    diff.estimated.hitTokens + diff.estimated.breakTokens + diff.estimated.cascadeTokens + diff.estimated.appendedTokens,
+    diff.estimated.totalTokens
+  )
+  assert.equal(diff.breakPoint.affectedTokens, diff.estimated.cascadeTokens)
+})
+
+test('实际命中率优先展示，本地前缀差异仍可定位，估算 token 不混入实际用量', () => {
+  const previous = { id: 'r1', turn: 1, step: 1, request: { model: 'm', system: '原系统提示' } }
+  const current = { id: 'r2', status: 'completed', request: { model: 'm', system: '汉'.repeat(26213) } }
+  const render = usage => {
+    const record = { ...current, usage }
+    record.cacheDiff = computeRequestCacheDiff(record, previous, previous)
+    return renderToStaticMarkup(client.renderCacheDiffSummary(createElement, record, () => {}))
+  }
+
+  const actual = render({ inputTokens: 215, cacheReadTokens: 25344 })
+  assert.match(actual, /实际命中 99\.2%/)
+  assert.ok(actual.includes('总输入 ' + (25559).toLocaleString()))
+  assert.match(actual, /定位前缀差异/)
+  assert.match(actual, /本地前缀差异/)
+  assert.doesNotMatch(actual, /破坏命中|连带失效|tokens/)
+
+  const estimated = render(undefined)
+  assert.match(estimated, /预估一致前缀 0\.0%/)
+  assert.ok(estimated.includes('本地估算共约 ' + (39320).toLocaleString() + ' tokens'))
+  assert.match(estimated, /定位前缀差异/)
+})
+
+test('缓存对比：模型变更、TTL 零命中与基线已清理场景', () => {
+  const baseReq = { model: 'm-a', system: 's', messages: [{ role: 'user', content: 'hi' }] }
+  const switched = computeRequestCacheDiff(
+    { id: 'r2', usage: { inputTokens: 500, cacheReadTokens: 0, cacheWriteTokens: 0 }, request: { ...baseReq, model: 'm-b' } },
+    { id: 'r1', request: baseReq },
+    { id: 'r1', turn: 1, step: 1, createdAt: 1000 }
+  )
+  assert.equal(switched.modelChanged, true)
+  assert.equal(switched.breakPoint.kind, 'model')
+  assert.equal(switched.sectionStatus['field:metadata'], 'break')
+  assert.equal(switched.sectionStatus['field:system'], 'cascade')
+  assert.equal(switched.zeroReadReason, 'model-changed')
+
+  const ttlZero = computeRequestCacheDiff(
+    { id: 'r2', usage: { inputTokens: 500, cacheReadTokens: 0, cacheWriteTokens: 0 }, request: { ...baseReq, messages: [...baseReq.messages, { role: 'user', content: 'next' }] } },
+    { id: 'r1', request: baseReq },
+    { id: 'r1', turn: 1, step: 1, createdAt: 1000 }
+  )
+  assert.equal(ttlZero.breakPoint, null)
+  assert.equal(ttlZero.zeroReadReason, 'ttl-or-provider')
+
+  const pruned = computeRequestCacheDiff(
+    { id: 'r2', request: baseReq },
+    null,
+    { id: 'r1', turn: 1, step: 1, createdAt: 1000, pruned: true }
+  )
+  assert.equal(pruned.compareStatus, 'baseline-pruned')
+  assert.equal(pruned.baseline.pruned, true)
+})
+
+test('每段消息按世界书、预设、人物卡、正文、状态、插件、工具正确标注来源', () => {
+  const request = {
+    model: 'claude-sonnet',
+    system: '根系统提示',
+    tools: [{ name: 't1' }],
+    messages: [
+      {
+        role: 'system',
+        content: '常驻条目\n人物设定\n长期偏好',
+        source: {
+          sections: [
+            { name: 'tavern:constant-worldbook', text: '常驻条目' },
+            { name: 'tavern:character-card', text: '人物设定' },
+            { name: 'tavern:user-preference', text: '长期偏好' }
+          ]
+        }
+      },
+      { role: 'user', content: '变量已变更', source: { kind: 'plugin:dsh-tavern', form: 'variable-changes' } },
+      { role: 'user', content: '写作规则注入', source: { kind: 'plugin:dsh-tavern', form: 'writing-rules' } },
+      { role: 'user', content: '我推开门', source: { kind: 'user' } },
+      { role: 'assistant', content: '开场白', source: { kind: 'model', provider: 'dsh-tavern', model: 'character-card' } },
+      { role: 'assistant', content: '正文回复', source: { kind: 'model', provider: 'openai', model: 'gpt' } },
+      { role: 'tool', content: '{"ok":true}', source: { kind: 'tool', callId: 'c1' } }
+    ]
+  }
+  const byKey = Object.fromEntries(sections(request).map(s => [s.cacheKey, s.sources]))
+  assert.deepEqual(byKey['field:system'], [{ category: 'system', label: '系统提示' }])
+  assert.deepEqual(byKey['field:tools'], [{ category: 'tool', label: '工具定义' }])
+  assert.deepEqual(byKey['msg:0'], [
+    { category: 'worldbook', label: '常驻世界书' },
+    { category: 'card', label: '人物卡' },
+    { category: 'preset', label: '长期偏好' }
+  ])
+  assert.deepEqual(byKey['msg:1'], [{ category: 'state', label: '变量变更' }])
+  assert.deepEqual(byKey['msg:2'], [{ category: 'plugin', label: '写作规则' }])
+  assert.deepEqual(byKey['msg:3'], [{ category: 'story', label: '玩家输入' }])
+  assert.deepEqual(byKey['msg:4'], [{ category: 'card', label: '人物卡开场白' }])
+  assert.deepEqual(byKey['msg:5'], [{ category: 'story', label: '模型回复' }])
+  assert.deepEqual(byKey['msg:6'], [{ category: 'tool', label: '工具结果' }])
 })

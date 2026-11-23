@@ -368,7 +368,7 @@ function applyRawOperations(raw, operations) {
     if (parts.length === 0) throw new Error('不能整体替换或删除人物卡 raw')
     const root = parts[0] === 'data' ? parts[1] : parts[0]
     if (root === 'character_book' || root === 'world_book') {
-      throw new Error('世界书只能通过 tavern_update_worldbook 修改: ' + pointer)
+      throw new Error('世界书只能通过 tavern_update_lorebook 修改: ' + pointer)
     }
     let parent = raw
     for (const part of parts.slice(0, -1)) {
@@ -429,7 +429,6 @@ export function createCardPreparation(options = {}) {
       if (str(draft.name).trim() === '') throw new Error('新人物卡还没有角色名，请先在对话中确认')
       const player = str(request.player).trim()
       if (player === '' && request.allowMissingPlayer !== true) throw new Error('玩家身份还没有确认，无法保存人物卡')
-      if (/^你是/.test(str(draft.system_prompt).trim())) throw new Error('人物卡使用第二人称描述角色，与玩家身份冲突')
       const data = {}
       for (const field of TEXT_FIELDS) data[field] = str(draft[field])
       data.name = str(draft.name).trim()
@@ -566,7 +565,14 @@ export function createCardPreparation(options = {}) {
     editable.alternate_greetings = clone(card.alternate_greetings || [])
     editable.character_book = clone(card.character_book || null)
     if (request.as === 'editable') return editable
-    if (request.as === 'view') return Object.assign({ id: card.id }, editable)
+    if (request.as === 'view') {
+      // Card scripts read their own version marks here (TavernHelper getCharacter). Regex and
+      // helper scripts are large and reach scripts through their own channels.
+      const data = rawData(rawOf(request.card))
+      const extensions = {}
+      for (const [key, value] of Object.entries(object(data.extensions) ? data.extensions : {})) if (!['regex_scripts', 'tavern_helper', 'tavernhelper_scripts'].includes(key.toLowerCase())) extensions[key] = clone(value)
+      return Object.assign({ id: card.id }, editable, { character_version: str(data.character_version), extensions })
+    }
     if (request.as === 'detail') {
       return Object.assign({ id: card.id }, editable, { character_version: str(rawData(rawOf(request.card)).character_version), extensions: inspectCardExtensions(request.card) })
     }

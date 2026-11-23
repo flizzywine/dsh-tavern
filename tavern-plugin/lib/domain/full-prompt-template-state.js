@@ -9,13 +9,16 @@ const fixedMessageFields = ['mes', 'is_user', 'is_system', 'name', 'swipe_id', '
 const templateFields = ['variables_initialized', 'is_ejs_processed', 'template_display', 'template_rendered']
 
 /** Detached upstream-shaped state, not a second authoritative chat history. */
-export function projectFullPromptTemplateState(chat) {
-  const helper = projectTavernHelperContext(chat.promptTemplateInput?.message ? {...chat,messages:[...chat.messages,chat.promptTemplateInput.message]} : chat)
+export function projectFullPromptTemplateState(chat, helper = projectTavernHelperContext(chat)) {
+  if (chat.promptTemplateInput?.message) helper = projectTavernHelperContext(
+    {...chat, messages:[...chat.messages, chat.promptTemplateInput.message]},
+    {indexed:true, previousContext:helper, previousMessages:helper.messages,
+      dirtyIndices:new Set([chat.messages.length]), layoutFrom:chat.messages.length})
   return {
     chatId: chat.id, sessionId: chat.sessionId,
     stateRevision: helper.stateRevision, lifecycleRevision: helper.lifecycleRevision,
-    // A fresh, unshared projection: the template rows take its values over.
-    chat: helper.messages.map(message => projectTemplateMessage(message, { owned: true })),
+    // Cached Helper rows are shared and frozen; script-visible state must stay detached.
+    chat: helper.messages.map(message => projectTemplateMessage(message, { owned: !Object.isFrozen(message) })),
     chat_metadata: { ...structuredClone(helper.chatMetadata), variables: structuredClone(helper.chatVariables) }
   }
 }

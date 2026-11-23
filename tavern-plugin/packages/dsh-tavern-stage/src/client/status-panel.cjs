@@ -7,7 +7,8 @@
 // live view's tavernHelper, so send, generate, triggerSlash, variables, MVU and worldbook work as in a message.
 // The stage adds only window.DshCardPage (a short prelude talking to this host by postMessage; a message counts only
 // when its source is one of this page's iframe windows):
-//   page; data() → {ledger, figures:[{name, emotion?, avatar}], theme, card:{name}, saved}; onData(fn) → its unsubscribe;
+//   page; data() → {ledger, figures:[{name, emotion?, avatar}], theme, card:{name}, saved, entry}; onData(fn) → its unsubscribe;
+//   (entry: the page stands in for this stage entry - a showOn page opened by entering the stage - not one opened in play);
 //   onCloseRequest(fn) → its unsubscribe (closeControl 'page': Esc, the page's shortcut and the backdrop ask the page,
 //   which goes back inside itself or calls close(); with no listener the request closes, as without the declaration);
 //   close(); open(id) another page; openSettings() the stage's 设置; fillInput(text) fills the stage's 自由输入 (never sends);
@@ -24,7 +25,7 @@
 //   runs can enable them again. An element with data-dsh-sound sounds move on hover / focus and confirm on click.
 // The data is the page's ledger sections (readCardPage), the declared figures' faces as data: URLs (useFaces) and the
 // stage skin tokens (--gal-ui-*). It is read once on open and again, coalesced, after each session state signal.
-function createStageStatusPanel({React, window, document, rpc, signals, themeTokens, sounds, confirm, newGame, startOpening, useFaces, useLiveView, createCardFrame, packService, fillInput}) {
+function createStageStatusPanel({React, window, document, rpc, signals, themeTokens, sounds, confirm, newGame, startOpening, useFaces, useLiveView, createCardFrame, packService, fillInput, findPluginPanel, PluginPanel}) {
 const FACE_PX = 96;
 let disposed = false;
 const open = new Set(), faceData = new Map(), readers = new Map();
@@ -70,7 +71,7 @@ function cardPagePrelude(token, page, snapshot, shortcut, scrollbars, owned) {
         + 'if(d.type==="dsh-card-page-data"){data=d.data;listeners.forEach(function(fn){try{fn(copy(data));}catch(error){console.error(error);}});return;}'
         + 'if(d.type==="dsh-card-page-close-request"){if(!closers.size){call("close");return;}closers.forEach(function(fn){try{fn();}catch(error){console.error(error);}});return;}'
         + 'if(d.type!=="dsh-card-page-response")return;var task=pending[d.requestId];if(!task)return;delete pending[d.requestId];if(d.ok)task.resolve(d.result);else task.reject(new Error(String(d.error||"页面请求失败")));});'
-        + 'addEventListener("keydown",function(event){if(event.isComposing||event.repeat)return;var own=' + json(shortcut || '') + ';var target=event.target,editing=target&&(target.isContentEditable||/^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName));if(event.key!=="Escape"&&(!own||event.key.toLowerCase()!==own||editing||event.ctrlKey||event.altKey||event.metaKey))return;event.preventDefault();call(' + json(owned ? 'escape' : 'close') + ');});'
+        + 'addEventListener("keydown",function(event){if(event.isComposing||event.repeat)return;var own=' + json(shortcut || '') + ';var target=event.composedPath?event.composedPath()[0]:event.target,editing=target&&(target.isContentEditable||/^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName));if(event.key!=="Escape"&&(!own||event.key.toLowerCase()!==own||editing||event.ctrlKey||event.altKey||event.metaKey))return;event.preventDefault();call(' + json(owned ? 'escape' : 'close') + ');});'
         + 'function cue(event){var node=event.target&&event.target.closest?event.target.closest("[data-dsh-sound]"):null;if(!node||node.disabled||node.getAttribute("aria-disabled")==="true")return null;return node;}'
         + 'function hover(event){var node=cue(event);if(node&&!(event.relatedTarget&&node.contains(event.relatedTarget)))call("sound",{name:"move"}).catch(function(){});}'
         // A real pointer move fires mouseover and then mousemove in one dispatch; a page that appears under a resting pointer gets the mouseover alone, which is not a hover; focus sounds only right after a key press (a page focusing a button by script is silent).
@@ -80,6 +81,7 @@ function cardPagePrelude(token, page, snapshot, shortcut, scrollbars, owned) {
         + 'onCloseRequest:function(fn){if(typeof fn!=="function")throw new TypeError("onCloseRequest 需要一个函数");closers.add(fn);return function(){closers.delete(fn);};},'
         + 'close:function(){return call("close");},open:function(id){return call("open",{id:String(id==null?"":id)});},openSettings:function(){return call("settings");},'
         + 'fillInput:function(text){return call("fillInput",{text:String(text==null?"":text)});},assets:function(kind){return call("assets",{kind:String(kind||"")});},'
+        + 'openPluginPanel:function(ref){return call("openPluginPanel",ref||{});},'
         + 'opening:function(userName){return call("opening",{userName:String(userName==null?"":userName)});},startGame:function(choice){return call("startGame",choice||{});},'
         + 'newGame:function(){return call("newGame");},continueGame:function(){return call("continue");},openGallery:function(){return call("gallery");},openBacklog:function(){return call("backlog");},exit:function(){return call("exit");},'
         + 'sound:function(name){return call("sound",{name:String(name||"")});},title:function(text){return call("title",{text:String(text==null?"":text)});},'
@@ -141,7 +143,7 @@ function createAssetReader(sessionId, page) {
 // saved: the chat has a player message (usePages' fresh is false), so newGame() asks first; unsaved, newGame() is 'exit' into a replacing 游戏准备 or 'continue'.
 // closeControl 'page': the page answers close requests itself; onEscape() is its Esc / shortcut (the Overlay decides
 // whether it closes a page over this one or asks this page by requestClose()).
-function openCardPage({sessionId, page, label, size, shortcut, closeControl, saved, openingPage, opening, trustedCardMode, helperContext, host, onClose, onEscape, onState, onAction}) {
+function openCardPage({sessionId, page, label, size, shortcut, closeControl, saved, entry, openingPage, opening, trustedCardMode, helperContext, host, onClose, onEscape, onState, onAction, onPluginPanel, pluginPanelShowing}) {
     let closed = false, raw = null, shown = false, avatars = new Map(), theme = {}, helper = helperContext || null, phaseNow = 'loading', title = '';
     let inFlight = false, again = false, faceJob = 0, token = '', content = '', readAsset = null, heldFaces = null;
     let lifecycle = null, stopLifecycle = null, stopSignals = null, stopMessages = null;
@@ -149,7 +151,7 @@ function openCardPage({sessionId, page, label, size, shortcut, closeControl, sav
     const snapshot = () => ({
         ledger: copy(raw?.data?.ledger || {}),
         figures: (raw?.figures || []).map(figure => ({name: figure.name, ...(figure.emotion ? {emotion: figure.emotion} : {}), avatar: avatars.get(figure.name) || null})),
-        theme: copy(theme), card: {name: String(raw?.card?.name || '')}, saved: saved === true
+        theme: copy(theme), card: {name: String(raw?.card?.name || '')}, saved: saved === true, entry: entry === true
     });
     const windows = () => [...frames.values()].map(item => item.node.contentWindow).filter(Boolean);
     const post = (target, value) => { try { target.postMessage({type: 'dsh-card-page-data', token, data: value}, '*'); } catch (_) {} };
@@ -163,9 +165,19 @@ function openCardPage({sessionId, page, label, size, shortcut, closeControl, sav
         if (!closed) onState({phase, label: raw?.label || label || '', title, size: raw?.size || size || 'window', figures: raw?.figures || [], shown, ...extra});
     }
     async function answer(method, args) {
+        if (pluginPanelShowing?.() && !['asset', 'assets', 'title', 'sound', 'opening'].includes(method)) throw new Error('请先关闭插件面板');
         if (method === 'title') { title = String(args?.text ?? '').trim().slice(0, 60); state(phaseNow); return {title}; }
         if (method === 'asset') return await readAsset(args);
         if (method === 'assets') return await readAsset.list(String(args?.kind || ''));
+        if (method === 'openPluginPanel') {
+            const {plugin, panelId: id} = args || {};
+            if (typeof plugin !== 'string' || plugin.length > 160 || !plugin || typeof id !== 'string' || !/^[a-z0-9][a-z0-9._-]{0,63}$/.test(id))
+                throw new Error('openPluginPanel 需要插件名和面板 ID');
+            const panel = onPluginPanel && await findPluginPanel?.(sessionId, plugin, id);
+            if (!panel || closed || !shown) throw new Error('当前卡的舞台插件面板不可用');
+            onPluginPanel({plugin, id, title: panel.title, size: panel.size});
+            return {opened: true};
+        }
         if (method === 'fillInput') {
             if (typeof fillInput !== 'function') throw new Error('舞台输入框不可用');
             fillInput(sessionId, String(args?.text ?? ''));
@@ -388,7 +400,15 @@ function Overlay({sessionId, pageId, label: declaredLabel, shortcut, size, close
     const close = React.useRef(onClose), act = React.useRef(onAction), coveredNow = React.useRef(covered);
     close.current = onClose; act.current = onAction; coveredNow.current = covered === true;
     const owned = closeControl === 'page';
-    const request = () => { if (!owned || coveredNow.current || !panel.current?.requestClose()) close.current?.(); };
+    const [pluginPanel, setPluginPanel] = React.useState(null);
+    const pluginNow = React.useRef(null);
+    const request = () => {
+        if (pluginNow.current && !coveredNow.current) {
+            pluginNow.current = null;
+            setPluginPanel(null);
+            root.current?.focus();
+        } else if (!owned || coveredNow.current || !panel.current?.requestClose()) close.current?.();
+    };
     const live = useLiveView ? useLiveView(sessionId, 'card-page', [['tavernRuntimePolicy'], ['tavernHelper']]) : null;
     const ready = !useLiveView || Boolean(live?.view);
     const trusted = useLiveView ? Boolean(live?.view?.tavernRuntimePolicy?.trustedCardMode) : true;
@@ -398,12 +418,17 @@ function Overlay({sessionId, pageId, label: declaredLabel, shortcut, size, close
     const facesNow = React.useRef(null);
     React.useEffect(() => {
         if (disposed || !ready) return;
-        const current = openCardPage({sessionId, page: pageId, label: declaredLabel, size, shortcut, closeControl, saved: saved === true, openingPage, opening: opening === true, trustedCardMode: trusted, helperContext: helperNow.current, host: () => body.current,
-            onClose: () => close.current?.(), onEscape: request, onState: setState, onAction: (kind, arg) => act.current?.(kind, arg)});
+        const current = openCardPage({sessionId, page: pageId, label: declaredLabel, size, shortcut, closeControl, saved: saved === true, entry: entry === true, openingPage, opening: opening === true, trustedCardMode: trusted, helperContext: helperNow.current, host: () => body.current,
+            onClose: () => close.current?.(), onEscape: request, onState: setState, onAction: (kind, arg) => act.current?.(kind, arg),
+            pluginPanelShowing: () => Boolean(pluginNow.current),
+            onPluginPanel: PluginPanel ? selected => {
+                if (coveredNow.current || pluginNow.current) throw new Error('请先关闭当前舞台窗口');
+                pluginNow.current = selected; setPluginPanel(selected); root.current?.focus();
+            } : null});
         panel.current = current;
         if (facesNow.current) current.setFaces(facesNow.current);
         return () => { if (panel.current === current) panel.current = null; current.dispose(); };
-    }, [sessionId, pageId, declaredLabel, size, shortcut, closeControl, saved, openingPage, opening, ready, trusted]);
+    }, [sessionId, pageId, declaredLabel, size, shortcut, closeControl, saved, entry, openingPage, opening, ready, trusted]);
     React.useEffect(() => { panel.current?.setHelper(helper); }, [helper]);
     const names = state.figures.map(figure => figure.name);
     const faces = useFaces ? useFaces({config, sessionId, source, names, px: FACE_PX}) : new Map();
@@ -418,7 +443,7 @@ function Overlay({sessionId, pageId, label: declaredLabel, shortcut, size, close
     React.useEffect(() => {
         // a page that closes itself takes its own shortcut here too, before the stage's keys close it
         const key = event => {
-            const letter = owned && shortcut && !event.repeat && !event.isComposing && !event.ctrlKey && !event.altKey && !event.metaKey && String(event.key).toLowerCase() === shortcut;
+            const letter = owned && !pluginNow.current && shortcut && !event.repeat && !event.isComposing && !event.ctrlKey && !event.altKey && !event.metaKey && String(event.key).toLowerCase() === shortcut;
             if (event.key !== 'Escape' && !letter) return;
             event.preventDefault();
             event.stopImmediatePropagation();
@@ -428,19 +453,23 @@ function Overlay({sessionId, pageId, label: declaredLabel, shortcut, size, close
         return () => window.removeEventListener('keydown', key, true);
     }, []);
     const label = state.label || '页面';
-    const closeLabel = entry ? '返回主页面' : '关闭' + label;
-    const pageCloses = owned && state.shown && state.phase === 'ready';
-    return h('div', {className: 'fork-gal-status', 'data-size': state.size, 'data-page': pageId, 'data-entry-page': entry ? '' : undefined, 'data-close-control': pageCloses ? 'page' : undefined, 'data-bare': entry && !state.shown && (state.phase === 'loading' || state.phase === 'ready') ? '' : undefined, onClick: event => { event.stopPropagation(); if (event.target === event.currentTarget) request(); },
+    const title = pluginPanel?.title || state.title || label;
+    const closeLabel = pluginPanel ? '返回' + label : entry ? '返回主页面' : '关闭' + label;
+    const pageCloses = !pluginPanel && owned && state.shown && state.phase === 'ready';
+    const displaySize = pluginPanel ? pluginPanel.size || 'window' : state.size;
+    return h('div', {className: 'fork-gal-status', 'data-size': displaySize, 'data-page': pageId, 'data-entry-page': entry ? '' : undefined, 'data-plugin-panel': pluginPanel ? '' : undefined, 'data-close-control': pageCloses ? 'page' : undefined, 'data-bare': entry && !state.shown && (state.phase === 'loading' || state.phase === 'ready') ? '' : undefined, onClick: event => { event.stopPropagation(); if (event.target === event.currentTarget) request(); },
         onWheel: event => event.stopPropagation(), onContextMenu: event => { event.preventDefault(); event.stopPropagation(); request(); }},
-        h('section', {ref: root, tabIndex: -1, className: 'fork-gal-status-sheet', role: 'dialog', 'aria-modal': 'true', 'aria-label': state.title || label, 'data-phase': state.phase},
+        h('section', {ref: root, tabIndex: -1, className: 'fork-gal-status-sheet', role: 'dialog', 'aria-modal': 'true', 'aria-label': title, 'data-phase': state.phase},
             // the empty first child: dsh-pocket's phone stylesheet otherwise takes a page-closed sheet whose body ends in 重试 for DSH's
             // settings dialog — the stopgap of Modal in src/client/asset-pack-ui.js (bug:asset-figure-dialog-phone), deleted with it.
             h('i', {hidden: true}),
             pageCloses ? null : h('header', {className: 'fork-gal-status-head'},
-                state.size === 'full' ? null : h('b', {className: 'fork-gal-status-title'}, state.title || label),
-                h('button', {type: 'button', className: 'fork-gal-status-close', title: closeLabel, 'aria-label': closeLabel, onClick: () => close.current?.()},
+                displaySize === 'full' ? null : h('b', {className: 'fork-gal-status-title'}, title),
+                h('button', {type: 'button', className: 'fork-gal-status-close', title: closeLabel, 'aria-label': closeLabel, onClick: request},
                     h('svg', {viewBox: '0 0 24 24', width: 18, height: 18, fill: 'none', stroke: 'currentColor', strokeWidth: 1.6, strokeLinecap: 'round', 'aria-hidden': true, focusable: 'false'}, h('path', {d: 'M7 7l10 10M17 7L7 17'})))),
-            h('div', {ref: body, className: 'fork-gal-status-body'},
+            pluginPanel ? h('div', {className: 'fork-gal-status-plugin', onContextMenu: event => event.stopPropagation()},
+                h(PluginPanel, {sessionId, plugin:pluginPanel.plugin, id:pluginPanel.id, stagePageId:pageId})) : null,
+            h('div', {ref: body, className: 'fork-gal-status-body', style:pluginPanel ? {display:'none'} : undefined},
                 state.phase === 'loading' && !entry ? h('p', {className: 'fork-gal-status-note', role: 'status'}, '正在读取' + label + '…') : null,
                 state.phase === 'empty' ? h('p', {className: 'fork-gal-status-note'}, '本卡没有这个页面') : null,
                 state.phase === 'error' ? h('p', {className: 'fork-gal-status-note', role: 'alert'}, label + '读取失败',

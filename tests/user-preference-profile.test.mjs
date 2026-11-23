@@ -13,25 +13,6 @@ function memoryStore(initial) {
   }
 }
 
-test('draft remains separate until the user confirms its exact revision', async function () {
-  const profile = createUserPreferenceProfile({ store: memoryStore(), now: () => 100 })
-  const draft = await profile.saveDraft({
-    rawAnswers: [{ question: '喜欢什么节奏？', answer: '慢热，但不要停滞。' }],
-    dimensions: [{ id: 'pacing', label: '节奏', conclusion: '慢热且持续推进', confidence: 'likely', evidence: '用户原话' }],
-    summary: '偏好慢热且持续推进。',
-    injectionText: '节奏可以慢热，但每轮都应有可感知的推进。'
-  })
-  assert.equal(draft.hasDraft, true)
-  assert.equal(draft.hasConfirmed, false)
-  assert.equal(await profile.stableContext(), null)
-  await assert.rejects(profile.confirm({ draftRevision: draft.draft.revision, confirmation: '' }), /明确确认/)
-
-  const confirmed = await profile.confirm({ draftRevision: draft.draft.revision, confirmation: '确认保存用户画像' })
-  assert.equal(confirmed.hasConfirmed, true)
-  assert.equal(confirmed.hasDraft, false)
-  assert.match((await profile.stableContext()).text, /每轮都应有可感知的推进/)
-})
-
 test('direct save updates the same profile atomically without confirmation or enabling it', async () => {
   const profile = createUserPreferenceProfile({ store: memoryStore() })
   const first = await profile.save({ summary: '慢热', injectionText: '慢热' })

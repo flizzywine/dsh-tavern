@@ -32,6 +32,8 @@
 
 用户在「设置 → DSH Tavern → 剧情」先选正文生成插件，再选择「插件直接生成」或「前台检索后由插件生成」。本局设置可以覆盖全局选择，也可以恢复跟随。生成器标识由宿主组成 `插件名:name`，仅允许当前游戏作用域内已启用的插件。插件注册不会自动改变用户的选择。
 
+当 `ctx.tavern.capabilities?.bodyGenerationDefaults === 1` 时，全局插件可在自己的面板管理已注册生成器的默认设置。`await ctx.tavern.bodyGenerationDefaults({ name })` 返回 `{ mode, hostRegex }`。未使用本生成器时 `mode` 为 `host`。传入 `mode: 'plugin-direct' | 'plugin-tool-call'` 将本生成器设为默认，传入 `mode: 'host'` 则取消本生成器的默认选择。设为默认时可同时传入布尔值 `hostRegex`，也可在本生成器已经是默认时单独更新它。接口与宿主剧情设置共用数据，保留本局覆盖，更新从下一次生成操作生效。
+
 - **直接生成**：宿主准备人物、已激活世界书、输入和状态后直接调用插件；不额外请求前台模型。内部通过宿主工具完成原生回合收尾，插件无需调用该工具。
 - **前台检索后生成**：前台模型可以查询世界书，再调用宿主工具结束资料收集，宿主把成功查询结果加入材料并调用插件。该模式会产生额外的前台模型请求。
 
@@ -136,7 +138,7 @@ message 必须是适合玩家阅读的安全摘要（宿主最多保留 500 字�
 | `guidance` | 本次重生成指导；空字符串表示未提供 |
 | `outputProcessing?.hostRegex` | 本轮开始时选定的宿主正则开关。为 `true` 时，宿主在插件输出处理完成后应用自己的规则。旧宿主可能省略此字段。插件可用它说明处理顺序 |
 
-`context` 的世界书段已包含当轮有效设定和成功的查询补充。查询补充只接受本轮有效的 `worldbook_list/grep/search` 和宿主世界书文件的受限 `read`；失败、隐藏、其他轮次和任意文件读取结果不会传入。已保存材料不会在恢复时重新读文件或执行宏。
+`context` 的世界书段已包含当轮有效设定和成功的查询补充。查询补充只接受本轮有效的 `read_lorebook`、`list_lorebook`、`grep_lorebook` 和宿主世界书文件的受限 `read`；失败、隐藏、其他轮次和任意文件读取结果不会传入。已保存材料不会在恢复时重新读文件或执行宏。
 
 历史来自完整存档投影，不从压缩后的模型消息反推，也不重新执行历史宏。材料无法可靠恢复时明确失败；旧存档、已编辑输入或导入记录可能缺少必要快照。`context` 按宿主现有语义段拆分；旧人物快照中未单独保存的字段可能合并为一个人物段，不保证与 ST 原始人物字段逐项对应。
 
@@ -264,7 +266,7 @@ async function settle({ currentVariables, signal }) {
   gameId, turn, textVersion,
   greeting,      // 这一轮是不是开场白（onTurnSettled 里总是 false）
   text,          // 这一轮正文的纯文本（去掉了 HTML 标签与程序块，宏已展开）
-  rawText,       // 模型原始输出（含插件让模型写进正文的标记）
+  rawText,       // 模型原始输出，保留未经展示处理的文本
   card: { id, name },  // id 是人物卡在库里的位置，卡被移动或改名后可能变化
   variables,     // 这一轮结算后的消息变量（副本），没有时为 null
   settledAt,     // 毫秒时间戳
@@ -279,12 +281,19 @@ async function settle({ currentVariables, signal }) {
 
 ## `beforeImagePlan({ gameId, turn, manual, signal })`、`beforeImageGenerate({ gameId, turn, subjects, manual, signal })`
 
-给场景配图类插件的两个放行口子（插件按 `typeof tavern.beforeImagePlan === 'function'` 判断，宿主没有就照旧）。宿主在这一轮还要先准备东西时，用它们让插件等：Tavern 的自动素材会给正文里新出场的人物建人物库记录、写外貌，再画人设图并设成记录的参考图，等到了再画，画出来的人才和立绘一致。
+给场景配图类插件的两个放行口子（插件按 `typeof tavern.beforeImagePlan === 'function'` 判断，宿主没有就照旧）。宿主在这一轮还要先准备东西时，用它们让插件等：Tavern 的自动素材会给正文里新出场的人物建人物库记录、写外貌，再画人设图登记在素材包里（插件用 `figurePictures` 读到），等到了再画，画出来的人才和立绘一致。
 
 - `beforeImagePlan`：规划这一轮的画面之前调用，返回后再规划（插件应重读这一轮）。这一轮新来的人物写好后返回；这张卡不用自动素材时立即返回。
-- `beforeImageGenerate`：出某一张图之前调用，`subjects` 是这张图规划出的人物 `[{ characterId, … }]`（最多 16 个）。其中关联了素材库人物、记录还没有参考图的，等他的人设图挂上；返回 `{}` 放行，或 `{ skip: true, reason }`：人设图画不出来，这张不出（不凭名字另画一个人），`reason` 给玩家看。
+- `beforeImageGenerate`：出某一张图之前调用，`subjects` 是这张图规划出的人物 `[{ characterId, … }]`（最多 16 个）。其中关联了素材库人物、素材包里还没有人设图、记录里也没有上传参考图的，等他的人设图画好；返回 `{}` 放行，或 `{ skip: true, reason }`：人设图画不出来，这张不出（不凭名字另画一个人），`reason` 给玩家看。
 
 两个口子都有上限（选角约 90 秒，人设图约 5 分钟），到时照常返回；`signal` 中止时立即返回。
+
+## `figurePictures({ figures })`、`readFigurePicture({ packId, figureId, id })`
+
+素材库人物的设定图只存在素材包里。配图类插件的人物记录关联了素材库人物（`figurePackId`、`figureId`）时，每次出图前按关联来这里读，不要把它们复制进记录：设定图在素材库里换掉或撤下，下一张图就跟着变。
+
+- `figurePictures({ figures: [{ packId, figureId }] })` 返回 `[{ packId, figureId, identity, outfits }]`：`identity` 是这个人的人设图；`outfits` 以服装 ID 为键，值是 `{ picture, borrowed }`，有服装设定图时就是它，没有时是借用的平静立绘（`borrowed: true`，记录里自己上传了图就用上传的）。每张图是参考图描述 `{ id, mediaType, byteLength, name }`，`id` 是内容的 SHA-256。已不在素材库里的人物不返回。素材库未启用时返回空数组。
+- `readFigurePicture` 返回其中一张的 `{ data: Uint8Array, mediaType }`；不是这个人物的图时报 `NOT_FOUND`。
 ## `getTurn({ gameId, turn })`
 
 读某一轮**当前显示版本**的同一份内容（含 `variables`，不含 `settledAt`）。这一轮不存在、或者是还没结算完的最新一轮时返回 `null`。用于插件自己的「手动生成」按钮。只读这一轮，不读整局历史，可以按需随时调用。
@@ -464,7 +473,7 @@ ctx.tavern.onTurnSettled(async ({ gameId, turn, textVersion, variables }) => {
 
 ## 决策判定模型（`capabilities.decisionJudge === 1`）
 
-当 `ctx.tavern.capabilities?.decisionJudge === 1` 时，插件可以直接复用玩家在 Tavern「叙事阻尼器」中配置好的决策判定模型（`gemini` / `gemini-compatible` / `jev` / `openai` / `openai-compatible`），执行低延迟的是非概率、评分或单选枚举判定，无需自己管理 API Key 或端点地址。只要用户已配置有效的提供方与密钥，即使暂未开启叙事阻尼器本身的拦截开关，该开放接口仍可使用。
+当 `ctx.tavern.capabilities?.decisionJudge === 1` 时，插件可以直接复用玩家在「插件 › 叙事阻尼器」面板里配置好的决策判定模型（`gemini` / `gemini-compatible` / `jev` / `jev-compatible` / `openai` / `openai-compatible`），执行低延迟的是非概率、评分或单选枚举判定，无需自己管理 API Key 或端点地址。只要用户已配置有效的提供方与密钥，即使暂未开启叙事阻尼器本身的拦截开关，该开放接口仍可使用。
 
 ### `decisionJudgeStatus()`
 
@@ -525,3 +534,27 @@ const res = await ctx.tavern.judgeDecision({ gameId, input: contextText, questio
 - `TAVERN_PLUGIN_DECISION_TIMEOUT` / `TAVERN_PLUGIN_DECISION_ABORTED`：请求超时或被 `AbortSignal` 取消。
 - `TAVERN_PLUGIN_DECISION_INVALID_RESPONSE` / `TAVERN_PLUGIN_DECISION_FAILED`：返回结构无效或请求失败。
 
+## 叙事阻尼器设置（`capabilities.damperSettings === 1`）
+
+「插件 › 叙事阻尼器」面板属于内置插件 `dsh-tavern-narrative-damper`；宿主把同一份设置实现开给插件，
+插件可以读写它，不必自己维护密钥或另造一套配置。密钥只回 `{ configured, source, keyName }`，
+明文留在宿主安全凭据库。
+
+```js
+const { config, credential } = await ctx.tavern.readDamperSettings()
+// config 字段：enabled / showTurnStatus / mode / judgeMode / provider / model / baseUrl /
+//              keyName / godmodeThreshold / desensitizeR18 / clampMvuDelta /
+//              fallbackStateForPlainCards / timeoutMs / preamble
+
+// 只发改动字段；服务端照旧校验，非法值抛 DAMPER_INVALID_CONFIG
+await ctx.tavern.updateDamperSettings({ patch: { mode: 'strict' } })
+
+// 保存（字符串）或清除（null）密钥；传环境变量名时保存键名引用并清掉已存明文
+await ctx.tavern.setDamperKey({ provider: 'gemini', value: 'GEMINI_API_KEY' })
+
+// 用当前或草稿设置真发一次决策请求
+const probe = await ctx.tavern.testDamperConnection({})
+// probe => { ok: true, latencyMs: 12, sampleProbability: 0.87 } | { ok: false, latencyMs, error: { code, message } }
+```
+
+宿主接口缺失时调用抛 `TAVERN_PLUGIN_NOT_FOUND`；`decisionJudge` 仍可单独使用。

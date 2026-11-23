@@ -245,7 +245,10 @@ function GalTypewriter(props) {
     // A glyph holds each of its `poses` entrance poses `hold` steps (stageSkinReveal), then joins the shown run.
     const span = stepped ? reveal.poses * reveal.hold : 0;
     const landed = stepped ? hop.current.born.findIndex((born, i) => i < visible && born + span > skinStep) : -1;
-    const done = instant ? visible : stepped ? (landed < 0 ? visible : landed) : Math.min(visible, Math.max(0, settled, visible - tail));
+    // props.glyphFade false (画质 below high): glyphs appear without the fade, so typing only rewrites the shown and hidden
+    // runs' text. Each fading glyph is an element put in and taken out, and on the host page every element inserted or
+    // removed restyles the whole stage (its :has() rules), a phone's largest reading cost.
+    const done = instant || props.glyphFade === false && !stepped ? visible : stepped ? (landed < 0 ? visible : landed) : Math.min(visible, Math.max(0, settled, visible - tail));
     const h = React.createElement;
     const fx = stepped ? props.skin.textFx : null;
     // The page's line starts as laid out whole (one run, as the typed page shows it). A revealing page is several runs
@@ -259,11 +262,20 @@ function GalTypewriter(props) {
     React.useLayoutEffect(() => {
         const type = typeRef.current, host = type && type.parentElement;
         if (instant || !fontsReady || !host || !host.parentNode || typeof ResizeObserver !== "function") return;
-        const measure = () => { const starts = galTypeLineStarts(type, whole, glyphs); setLaid(old => old && old.text === whole && old.starts.join() === starts.join() ? old : { text: whole, starts }); };
-        measure();
-        const observer = new ResizeObserver(measure); observer.observe(host);
-        document.fonts?.addEventListener('loadingdone', measure);
-        return () => { observer.disconnect(); document.fonts?.removeEventListener('loadingdone', measure); };
+        // The probe is an element put into the page (a whole-stage restyle on the host page), so the observer's calls that
+        // leave the text's width and font as they were (its first call, the box growing a line taller) measure nothing.
+        let laidFor = null;
+        const measure = force => {
+            const style = getComputedStyle(host), key = [host.clientWidth, style.font, style.letterSpacing, style.padding].join('|');
+            if (force !== true && key === laidFor) return;
+            laidFor = key;
+            const starts = galTypeLineStarts(type, whole, glyphs); setLaid(old => old && old.text === whole && old.starts.join() === starts.join() ? old : { text: whole, starts });
+        };
+        const fontLoaded = () => measure(true);
+        measure(true);
+        const observer = new ResizeObserver(() => measure()); observer.observe(host);
+        document.fonts?.addEventListener('loadingdone', fontLoaded);
+        return () => { observer.disconnect(); document.fonts?.removeEventListener('loadingdone', fontLoaded); };
     }, [whole, instant, fontsReady]);
     const glyphNode = (glyph, at) => {
         const mark = markOf(at);
@@ -274,12 +286,15 @@ function GalTypewriter(props) {
                 style:jitter ? {'--gj-x':jitter[0] + 'em','--gj-y':jitter[1] + 'em'} : undefined}) : null);
     };
     // the shown run, the fading glyphs and the hidden rest within [from, to)
+    // Typing without the fade keeps both runs of every line in place (empty while unused), so a line starting or ending
+    // changes text, not elements.
+    const steady = props.glyphFade === false && !stepped && !instant;
     const runs = (from, to) => {
         const a = Math.max(from, 0), b = Math.min(to, done), out = [];
-        if (b > a) out.push(h("span", { key: "shown", className: "fork-gal-type-shown" }, ...stepRun(a, b)));
+        if (b > a || steady) out.push(h("span", { key: "shown", className: "fork-gal-type-shown" }, ...stepRun(a, Math.max(a, b))));
         for (let at = Math.max(from, done); at < Math.min(to, visible); at++) out.push(glyphNode(glyphs[at], at));
         const r = Math.max(from, visible);
-        if (to > r) out.push(h("span", { key: "rest", className: "fork-gal-type-rest" }, ...stepRun(r, to)));
+        if (to > r || steady) out.push(h("span", { key: "rest", className: "fork-gal-type-rest" }, ...stepRun(Math.min(r, to), to)));
         return out;
     };
     const lines = !instant && done < glyphs.length && laid && laid.text === whole && laid.starts.length ? [0, ...laid.starts, glyphs.length] : null;

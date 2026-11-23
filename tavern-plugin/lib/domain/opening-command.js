@@ -1,4 +1,5 @@
 import { mutateScriptPrompts } from './tavern-script-prompts.js'
+import { projectOpeningInput } from './opening-setup.js'
 
 const TRIGGER_COMMAND_RE = /^\/trigger(?:\s+await=(?:true|false))?\s*$/i
 
@@ -14,7 +15,7 @@ export function parseOpeningCommand(line) {
     throw new Error('准备页只支持 /sys … | /cut 0 | /trigger；不能删除其他楼层或执行其他管道')
   }
   const text = head[2].trim().replace(/\\\|/g, '|')
-  return head[1] === 'send' ? { input: text } : { input: '继续。', systemText: text, removeGreeting }
+  return head[1] === 'send' ? { input: projectOpeningInput(text) } : { input: '继续。', systemText: text, removeGreeting }
 }
 
 // A wizard usually sends its input ("/send text") or its narration ("/sys text")

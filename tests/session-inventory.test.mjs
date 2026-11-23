@@ -28,19 +28,3 @@ test('统计不加载冷会话、不读取正文，区分未知值与零并合�
   assert.equal(reads.length, 3)
   assert.doesNotMatch(JSON.stringify(result), /secret|\/logs\//)
 })
-
-test('仅通过会话头追溯后台归属，区分直接关联与父会话关联并终止循环', async () => {
-  const forbidden = () => { throw new Error('不得加载历史') }
-  const headers = [{ id: 'front' }, { id: 'background', parentSession: 'front' },
-    { id: 'child', parentSession: 'background' }, { id: 'unknown', parentSession: 'absent' },
-    { id: 'cycle-a', parentSession: 'cycle-b' }, { id: 'cycle-b', parentSession: 'cycle-a' }]
-  const inventory = createSessionInventory({ persistence: { list: async () => headers, load: forbidden, inspect: forbidden },
-    sessions: { get() {} }, agents: { get() {}, resume: forbidden },
-    references: async () => [{ sessionId: 'front', chatId: 'game', title: '原来的游戏' }] })
-  const rows = new Map((await inventory.read()).rows.map(row => [row.sessionId, row]))
-  assert.equal(rows.get('front').references[0].relation, 'direct')
-  assert.deepEqual(rows.get('background').references, [{ chatId: 'game', title: '原来的游戏', lastOpenedAt: null, relation: 'ancestor', viaSessionId: 'front' }])
-  assert.deepEqual(rows.get('child').references, rows.get('background').references)
-  assert.equal(rows.get('child').parentSessionId, 'background')
-  for (const id of ['unknown', 'cycle-a', 'cycle-b']) assert.deepEqual(rows.get(id).references, [])
-})

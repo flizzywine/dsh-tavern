@@ -4,6 +4,32 @@ function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
 }
 
+// The DSH composer sends its stop action to the subagent service. Tavern's
+// settlement workers are listed in that catalog but are owned by Tavern.
+export function installSettlementSubagentStop(service, stopSettlementAgent) {
+  const subagents = service?.[Symbol.for('cordis.original')] || service
+  const restore = []
+  for (const method of ['interruptByUser', 'interruptByParent']) {
+    const original = subagents?.[method]
+    if (typeof original !== 'function') continue
+    const own = Object.hasOwn(subagents, method)
+    function interrupt(...args) {
+      const [childSessionId, parentSessionId, mode] = args
+      const stopping = method === 'interruptByUser' ? stopSettlementAgent(childSessionId)
+        : typeof parentSessionId === 'string' && parentSessionId !== '' && mode === 'continuable'
+          ? stopSettlementAgent(childSessionId, parentSessionId) : undefined
+      return stopping ? stopping.then(() => ({ accepted: true })) : original.apply(this, args)
+    }
+    subagents[method] = interrupt
+    restore.push(() => {
+      if (subagents[method] !== interrupt) return
+      if (own) subagents[method] = original
+      else delete subagents[method]
+    })
+  }
+  return () => { for (const dispose of restore) dispose() }
+}
+
 // What the player does to a game's background work: stop it, retry the latest reply's
 // settlement, and start the settlement an older opening still waits for.
 // `deps` is read on each call, so a test may swap a service after creation.
@@ -17,7 +43,6 @@ export function createSettlementControls(deps) {
     if (!operationId || !(coreActive && activity.operationId === operationId || activity.director?.operationId === operationId)) return view(chat, await readChatCard(chat))
     stageDirector?.cancel(chat)
     backgroundAgentRunner.cancel(chat.sessionId, { task: 'stage-director' })
-    // Abort the provider request first; interrupted operations reject late commits.
     pluginApi.stopTasks(chat.sessionId)
     backgroundAgentRunner.cancel(chat.sessionId)
     await cancelSettlement(chat.id, { wait: false })
@@ -25,8 +50,25 @@ export function createSettlementControls(deps) {
     return view(stopped.chat, await readChatCard(stopped.chat))
   }
 
+  function stopSettlementAgent(childSessionId, parentSessionId) {
+    const context = deps.backgroundAgentRunner.activeRequestContext(childSessionId)
+    if (context?.task !== 'settlement' || !context.operationId) return
+    if (parentSessionId !== undefined && context.parentSessionId !== parentSessionId) return
+    return interruptSettlement(context.operationId)
+  }
+
+  async function interruptSettlement(operationId) {
+    const { cancelSettlementOperation, readChat, backgroundTasks } = deps
+    // Abort the exact job before reading storage. The provider can finish while the
+    // read is in flight, and the chat may already have queued a different operation.
+    const chatId = await cancelSettlementOperation(operationId)
+    if (chatId === undefined) return
+    const chat = await readChat(chatId)
+    if (chat) await backgroundTasks.recover(chat, { operationId })
+  }
+
   async function retrySettlement(sessionId, turn, guidance) {
-    const { backgroundTasks, chatForSession, mvuSettlementEngine, patchChat, projectOpeningWindow, queueSettlement, readChatCard, readOpeningWindow, storyTimeline, view } = deps
+    const { backgroundTasks, chatForSession, mvuSettlementEngine, patchChat, projectOpeningWindow, queueSettlement, readChatCard, readOpeningWindow, readSlice, storyTimeline, view } = deps
     for (let attempt=0;attempt<5;attempt++) {
       const recent = await readOpeningWindow(sessionId)
       const window = recent && recent.chat.timeline?.schemaVersion === 1
@@ -49,6 +91,14 @@ export function createSettlementControls(deps) {
       }
       if (target === null || Math.max(0, Number(target.message.turn) || 0) !== Math.max(0, Number(turn) || 0)) {
         throw new Error('只能重试当前最新正文的后台结算')
+      }
+      if (window) {
+        // The display window omits settlement baselines and participant records.
+        // Read only this reply in full, and restart if the window is already stale.
+        const selected = await readSlice(chat.id, [target.messageId], ['id', '_storageRevision'])
+        if (!selected || selected.chat._storageRevision !== chat._storageRevision) continue
+        target.message = selected.chat.messages[0]
+        chat.messages[target.messageId - window.from] = target.message
       }
       const mvuRetry = mvuSettlementEngine.prepareRetry({ chat, target, guidance, activity })
       if (mvuRetry === 'redeliver') {
@@ -97,5 +147,5 @@ export function createSettlementControls(deps) {
     return false
   }
 
-  return Object.freeze({ stopBackground, retrySettlement, pullBackgroundCycle })
+  return Object.freeze({ stopBackground, stopSettlementAgent, retrySettlement, pullBackgroundCycle })
 }

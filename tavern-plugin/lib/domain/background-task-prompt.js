@@ -1,6 +1,7 @@
 // Common background request assembly. Keep this production seam independent of DSH.
 import { promptSection } from './prompt-section.js'
 import { prependSystemInstruction } from './system-append.js'
+import { managedPromptText } from './mod-system-prompt-adapter.js'
 
 // Prompt prose source. Keys are stable; interpolation arguments are data.
 export const PROMPT_PROSE = Object.freeze({
@@ -18,7 +19,10 @@ export const PROMPT_PROSE = Object.freeze({
   p017: "Task type: ",
   p018: "DSH background task protocol (final instructions):\n",
   p019: "",
-  p020: "Card instructions:\n"
+  p020: "Card instructions:\n",
+  p021: "Use the current Guide and any regeneration guidance below to shape the directions, pacing and wording of the next-turn choices. Where they conflict, follow the current regeneration guidance within the story, script and choice-format rules. Earlier candidate requests, Guides and submitted choices do not carry forward.",
+  p022: "There is no active Guide for this request.",
+  p023: "Start from the end of the latest story. The Guide, regeneration guidance and upcoming script describe possible future developments. If they ask for a reveal, arrival or scene change, offer it as something that can happen next, starting from the current scene. Do not assume it already happened, change the starting state, or narrate the requested outcome as story history."
 })
 
 function str(value) {
@@ -54,8 +58,18 @@ export function backgroundPrompt(messages, turnContext, task, taskProtocol, inpu
   sections.push(promptSection('recent_task', PROMPT_PROSE.p017 + taskName + '\n' + recent))
   const protocol = str(taskProtocol).trim()
   if (protocol !== '') sections.push(promptSection('task_requirements', (task === 'stage-director' ? PROMPT_PROSE.p018 : PROMPT_PROSE.p019) + protocol))
+  const candidate = task === 'candidate' ? input.candidateRequest : undefined
+  if (candidate) sections.push(promptSection('candidate_request', candidate.text))
   if ((task === 'candidate' || sharedDirector) && str(input.postHistoryText).trim()) {
     sections.push(promptSection('post_history', PROMPT_PROSE.p020 + str(input.postHistoryText).trim()))
+  }
+  if (candidate) {
+    sections.push(promptSection('candidate_directions', [
+      PROMPT_PROSE.p021,
+      candidate.guideText || PROMPT_PROSE.p022,
+      promptSection('regeneration_guidance', candidate.guidance || ''),
+      PROMPT_PROSE.p023
+    ].filter(Boolean).join('\n\n')))
   }
   return sections.join('\n\n')
 }
@@ -67,8 +81,12 @@ export function backgroundSystemPrompt({ input, sections, persona, systemAppend 
 }
 
 export function backgroundTaskPrompt({ input, messages = input.messages, turnContext = input.turnContext, foregroundReads, worldbook, systemUpdate, pluginText }) {
+  const contributions = input.task === 'stage-director' ? undefined : input.modPrompts
   return [foregroundReads, worldbook?.rendered, systemUpdate?.rendered,
-    backgroundPrompt(messages, turnContext, input.task, input.system, input), pluginText].filter(Boolean).join('\n\n')
+    managedPromptText(contributions, 'background', 'rules.after-core'),
+    managedPromptText(contributions, 'background', 'catalogue'),
+    backgroundPrompt(messages, turnContext, input.task, input.system, input), pluginText,
+    managedPromptText(contributions, 'background', 'task')].filter(Boolean).join('\n\n')
 }
 
 // Directors may opt into the existing shared read adapters, never settlement writes.

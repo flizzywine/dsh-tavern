@@ -6,6 +6,7 @@ import { join, basename, resolve } from 'node:path'
 import { pathToFileURL, fileURLToPath } from 'node:url'
 import { Readable } from 'node:stream'
 import { setTimeout as delay } from 'node:timers/promises'
+import { createDiagnostics } from '../tavern-plugin/packages/dsh-tavern-image-bundled/lib/diagnostics.js'
 
 const source = fileURLToPath(new URL('../tavern-plugin/packages/dsh-tavern-image-bundled/', import.meta.url))
 const SECRET = 'sk-SUPERSECRET-123456'
@@ -29,8 +30,8 @@ async function runtime(t, { diagnostics, definitions = DEFINITIONS, plannerText 
   }
   await writeFile(join(root, 'workflows', 'test.json'), JSON.stringify({
     format: 'dsh-tavern-comfy-v1', outputNode: '9',
-    prompt: { '1': { class_type: 'CLIPTextEncode', _meta: { title: '正向提示词' }, inputs: { text: '' } }, '2': { class_type: 'CLIPTextEncode', _meta: { title: '负面提示词' }, inputs: { text: 'lowres' } }, '9': { class_type: 'SaveImage', inputs: { images: ['1', 0] } } },
-    bindings: { positive: [{ node: '1', input: 'text' }], negative: [{ node: '2', input: 'text' }] },
+    prompt: { '1': { class_type: 'CLIPTextEncode', _meta: { title: '正向提示词' }, inputs: { text: '' } }, '2': { class_type: 'CLIPTextEncode', _meta: { title: '负面提示词' }, inputs: { text: 'lowres' } }, '3': { class_type: 'KSampler', inputs: { seed: 0, steps: 28, positive: ['1', 0], negative: ['2', 0] } }, '9': { class_type: 'SaveImage', inputs: { images: ['3', 0] } } },
+    bindings: { positive: [{ node: '1', input: 'text' }], negative: [{ node: '2', input: 'text' }], seed: [{ node: '3', input: 'seed' }] },
   }))
   if (setup) await setup(root)
   const routes = new Map(), disposes = [], bodies = [], llmCalls = []
@@ -69,9 +70,21 @@ async function runtime(t, { diagnostics, definitions = DEFINITIONS, plannerText 
     for (const id of await readdir(dir)) out.push(...(await readFile(join(dir, id, 'events.jsonl'), 'utf8')).trim().split('\n').map(l => JSON.parse(l)))
     return out
   }
-  return { root, plan, bodies, llmCalls, events }
+  return { root, plan, request, bodies, llmCalls, events }
 }
 
+
+test('ComfyUI 对照重绘只替换提示词，沿用原图种子和采样设置', async t => {
+  const f = await runtime(t)
+  const original = await f.plan()
+  const jobId = original.body.plans[0].jobId
+  const redrawn = await f.request('redraw', { jobId, prompt: 'a red umbrella', sameSeed: true })
+  assert.equal(redrawn.status, 200)
+  assert.equal(redrawn.body.ok, true)
+  const [first, second] = f.bodies.map(entry => entry.prompt)
+  assert.match(second['1'].inputs.text, /red umbrella/)
+  assert.deepEqual(second['3'], first['3'])
+})
 
 test('开着诊断时规划照常出图，并记录宏展开结果（以前引用不存在的变量，每张图都提交失败）', async t => {
   const f = await runtime(t, { diagnostics: { enabled: true, contentMode: 'full' } })
@@ -83,53 +96,6 @@ test('开着诊断时规划照常出图，并记录宏展开结果（以前引�
   assert.match(JSON.stringify(macro.data.expanded), /cream cardigan/)
 })
 
-test('规划调用了人物库里没有的角色时在结果里说明；服装宏和库里对得上的人不算', async t => {
-  const definitions = { characters: [
-    { id: 'y', name: '宋玉轩', match: 'Song Yuxuan', enabled: true, cards: ['cards/另一张卡.json'], traits: { face: 'long black hair' }, outfits: [] },
-  ] }
-  const plannerText = '<image><regex>阿梅和他共撑一把伞</regex><title>雨夜</title><prompts>1girl, solo, ${"name":"Song Yuxuan", "angle":"from front", "upperBody":"sfw"}$, ${"name":"Lu Qi", "angle":"from front", "upperBody":"sfw"}$, ${"name":"红裙", "upperBody":"visible"}$, umbrella, rain</prompts></image>'
-  const f = await runtime(t, { definitions, plannerText })
-  const r = await f.plan()
-  assert.equal(r.status, 200)
-  const warnings = r.body.characterWarnings ?? r.body.plan?.characterWarnings
-  assert.ok(Array.isArray(warnings), JSON.stringify(Object.keys(r.body)))
-  assert.equal(warnings.length, 1, warnings.join(' / '))
-  assert.match(warnings[0], /「Lu Qi」不在人物库里/)
-})
-
-test('cache 兜底补回的历史图不落盘，不再挤掉带 key 的真实作业记录', async t => {
-  const realId = '00000000-0000-4000-8000-000000000001'
-  const png = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(32)])
-  const old = new Date('2026-01-01T00:00:00Z')
-  const f = await runtime(t, { setup: async root => {
-    const { utimes } = await import('node:fs/promises')
-    await mkdir(join(root, 'cache'))
-    await writeFile(join(root, 'cache', realId + '.img'), png)
-    // 上一版留下的占位记录：无 key、无提示词、createdAt 是某次启动时间
-    const placeholderId = '00000000-0000-4000-8000-0000000000ff'
-    await writeFile(join(root, 'cache', placeholderId + '.img'), png)
-    await utimes(join(root, 'cache', placeholderId + '.img'), old, old)
-    await writeFile(join(root, 'jobs-store.json'), JSON.stringify({
-      [realId]: { id: realId, state: 'done', createdAt: Date.parse('2026-06-01T00:00:00Z'), key: 'game-1:3:abc', positive: '1girl, solo', label: 'agent 规划', file: join(root, 'cache', realId + '.img') },
-      [placeholderId]: { id: placeholderId, state: 'done', createdAt: Date.now(), label: '历史图片', params: {} },
-    }))
-    for (let i = 0; i < 200; i++) {
-      const id = '00000000-0000-4000-8000-1' + String(i).padStart(11, '0')
-      await writeFile(join(root, 'cache', id + '.img'), png)
-      await utimes(join(root, 'cache', id + '.img'), old, old)
-    }
-  } })
-  await delay(150)
-  const r = await f.plan(); await delay(80)
-  assert.equal(r.status, 200)
-  const saved = JSON.parse(await readFile(join(f.root, 'jobs-store.json'), 'utf8'))
-  const list = Object.values(saved)
-  assert.ok(saved[realId], '真实作业记录还在')
-  assert.equal(saved[realId].key, 'game-1:3:abc')
-  assert.equal(list.filter(job => job.label === '历史图片').length, 0, '占位记录不落盘')
-  assert.ok(list.length <= 150)
-})
-
 test('挂载句只差 Markdown 记号或换行时照样出图（以前逐字比对，整张图静默不画）', async t => {
   const f = await runtime(t, { text: '雨夜，**阿梅**和他\r\n共撑一把伞。' })
   const r = await f.plan(); await delay(30)
@@ -138,10 +104,27 @@ test('挂载句只差 Markdown 记号或换行时照样出图（以前逐字比�
   assert.equal(r.body.characterWarnings, undefined)
 })
 
-test('人物宏点名的衣服，负面词也进负向通道（以前只补人物自己的负面词）', async t => {
-  const f = await runtime(t)
-  await f.plan(); await delay(30)
-  const negative = f.bodies[0].prompt['2'].inputs.text
-  assert.match(negative, /jeans/)
-  assert.match(negative, /glasses/)
+test('归一化后重复的挂载句不提交作业', async t => {
+  const f = await runtime(t, { text: '阿梅和他共撑一把伞。稍后，**阿梅**和他共撑一把伞。' })
+  const r = await f.plan()
+  assert.equal(f.bodies.length, 0)
+  assert.match(r.body.error, /挂载句/)
+})
+
+test('诊断容量按多个追踪的 UTF-8 字节计量，作业终止后释放追踪', async t => {
+  const f = await runtime(t, { diagnostics: { enabled: true, nextTraceOnly: false, maxTotalBytes: 900 } })
+  const diag = createDiagnostics({ root: f.root })
+  const first = diag.begin()
+  const second = diag.begin()
+  diag.bindJob('job', first, 0)
+  diag.end(first)
+  diag.recordJob('job', 'job-done', { note: '图'.repeat(100) })
+  diag.finishJob('job')
+  assert.equal(diag.status().active, 1)
+  diag.record(second, 'too-large', { note: '图'.repeat(100) })
+  diag.end(second)
+  assert.equal(diag.status().active, 0)
+  const events = await f.events()
+  assert.ok(events.some(event => event.stage === 'job-done'))
+  assert.ok(!events.some(event => event.stage === 'too-large'))
 })

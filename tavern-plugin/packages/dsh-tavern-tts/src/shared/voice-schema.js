@@ -33,6 +33,21 @@ function refs(v, path) {
 export function voiceReferences(voice) {
   return Object.values(voice.sources).flatMap(s => s.kind === 'reference-list' ? s.references : [])
 }
+export const usesOfficialFish = source => source.kind === 'voice-id' && source.provider === 'fish-audio' && !source.serviceId
+
+export function normalizeVoiceServices(library) {
+  const changes = []
+  for (const [voiceId, voice] of Object.entries(library?.voices || {})) {
+    for (const [sourceId, source] of Object.entries(voice?.sources || {})) {
+      if (!source || !usesOfficialFish(source) || source.serviceType !== undefined) continue
+      delete source.serviceId
+      source.serviceType = 'fish-official'
+      changes.push({voiceId,sourceId})
+    }
+  }
+  return changes
+}
+
 export function validateVoiceSpec(v, path = '$.voice') {
   shape(v,['name','guidance','autoCast','language','defaultSource','sources','variants','emotions','fallbackSources'],['name','language','defaultSource','sources'],path)
   text(v.name,path+'.name'); language(v.language,path+'.language'); id(v.defaultSource,path+'.defaultSource')
@@ -43,9 +58,10 @@ export function validateVoiceSpec(v, path = '$.voice') {
   record(v.sources,path+'.sources',(s,p) => {
     // `model`: the provider's synthesis model this source speaks with (a figure's choice, never the service's); absent = the
     // service's default model.
-    const fields = {'voice-id':['voiceId','model'],preset:['voiceName','model'],'reference-list':['references','model']}[s?.kind]
-    check(fields,p+'.kind'); shape(s,['kind','provider','serviceId',...fields],['kind','provider'],p); id(s.provider,p+'.provider')
+    const fields = {'voice-id':['voiceId','model'],preset:['voiceName','model'],'reference-list':['references','model','private']}[s?.kind]
+    check(fields,p+'.kind'); shape(s,['kind','provider','serviceId','serviceType',...fields],['kind','provider'],p); id(s.provider,p+'.provider')
     // the service instance this source speaks through (one of several of its provider); the same name as a reading voice's.
+    if (s.serviceType !== undefined) check(s.serviceType === 'fish-official' && usesOfficialFish(s) && s.serviceId === undefined,p+'.serviceType')
     if (s.serviceId !== undefined) id(s.serviceId,p+'.serviceId')
     // every source may be chosen before it is set up — a clone without clips,
     // a library voice or online preset without its voice. Resolving it reports what is
@@ -53,7 +69,10 @@ export function validateVoiceSpec(v, path = '$.voice') {
     if (s.kind === 'voice-id') { check(s.provider === 'fish-audio',p+'.provider'); if (s.voiceId !== undefined) check(typeof s.voiceId === 'string' && /^[A-Za-z0-9_-]{1,160}$/.test(s.voiceId),p+'.voiceId') }
     if (s.kind === 'preset' && s.voiceName !== undefined) text(s.voiceName,p+'.voiceName')
     if (s.model !== undefined) text(s.model,p+'.model')
-    if (s.kind === 'reference-list') { check(s.provider === 'fish-audio',p+'.provider'); refs(s.references,p+'.references') }
+    if (s.kind === 'reference-list') {
+      check(s.provider === 'fish-audio',p+'.provider'); refs(s.references,p+'.references')
+      if (s.private !== undefined) check(typeof s.private === 'boolean',p+'.private')
+    }
     if (s.model !== undefined) safeData(s.model,p+'.model')
   })
   check(own(v.sources,v.defaultSource),path+'.defaultSource','Unknown source')
@@ -72,6 +91,8 @@ export function validateVoiceSpec(v, path = '$.voice') {
       check(own(v.sources,source),q,'Unknown source'); object(params,q)
       check(Object.keys(params).every(k => !['provider','voiceId','voiceName','voice','speaker','referenceId','model','references','engine','moods','moodStyles'].includes(k)),q,'Tuning cannot change identity or define a second emotion map')
       for (const [key,item] of Object.entries(params)) check(item === null || ['boolean','string'].includes(typeof item) || typeof item === 'number' && Number.isFinite(item),q+'.'+key)
+      // a browser source's only tuning is its 语速 (rate, the system voice's pace); a service's parameters are checked by its adapter.
+      if (v.sources[source].provider === 'browser') for (const [key,item] of Object.entries(params)) check(key === 'rate' && typeof item === 'number' && item >= 0.5 && item <= 2,q+'.'+key)
       safeData(params,q)
     })
   })

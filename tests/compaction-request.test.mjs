@@ -34,6 +34,27 @@ test('one hook projects, applies the story prompt and sends a single summary req
   assert.deepEqual(sent[0].messages.map(m => m.content[0]?.text), ['剧情压缩提示'])
 })
 
+test('summary replay omits empty messages by content and preserves images and tool exchanges', async () => {
+  const { projectCompactionRequest } = await import('../tavern-plugin/lib/domain/compaction-request.js')
+  const image = { role: 'user', content: [{ type: 'image', mediaType: 'image/png', data: 'AA==' }] }
+  const call = { role: 'assistant', content: [{ type: 'tool-call', id: 'call-1', name: 'dice', arguments: '{}' }] }
+  const result = { role: 'tool', content: [{ type: 'tool-result', id: 'call-1', content: [] }] }
+  const instruction = { role: 'user', content: [{ type: 'text', text: 'Summarize' }] }
+  const request = { purpose: 'compaction', messages: [
+    { role: 'system', content: [], source: { kind: 'system-prompt' } },
+    empty('dsh-tavern-context-window'),
+    { role: 'user', content: [], source: { kind: 'plugin:dsh-tavern-surface-restore' } },
+    { role: 'assistant', content: [], source: { kind: 'model', provider: 'dsh-tavern', model: 'reply-projection' } },
+    { role: 'assistant', content: [{ type: 'reasoning', text: 'thinking' }, { type: 'text', text: ' \n' }] },
+    image, call, result, instruction
+  ] }
+  const before = structuredClone(request)
+  const projected = projectCompactionRequest(request)
+  assert.deepEqual(projected.messages, [image, call, result, instruction])
+  assert.equal(projectCompactionRequest(projected), projected)
+  assert.deepEqual(request, before)
+})
+
 test('story compaction summarizes only history before the latest rounds and appends them verbatim', async () => {
   const { installCompactionRequestProjection } = await import('../tavern-plugin/lib/domain/compaction-request.js')
   const { retainRecentStoryRounds } = await import('../tavern-plugin/lib/domain/story-compaction.js')
@@ -150,4 +171,92 @@ test('summary replay drops prefix-bound reasoning before the provider without ch
   assert.deepEqual(request, before, 'saved history is never edited')
   const normal = { ...request, purpose: undefined }
   assert.equal(projectCompactionRequest(normal), normal, 'normal turns retain native replay and existing binding controls')
+})
+
+test('前台对话压缩使用专用压缩模型设置，后台压缩保持各自模型且保留轮数仍按前台模型计算', async () => {
+  const { applyTavernSettingsPatch, presentTavernSettings } = await import('../tavern-plugin/lib/domain/tavern-settings.js')
+  const { applyCompactionModel, registerModelStreamHooks } = await import('../tavern-plugin/lib/hooks/model-stream.js')
+
+  const defaults = presentTavernSettings({})
+  assert.equal(defaults.defaultCompactionModel, null)
+  const saved = applyTavernSettingsPatch({}, { defaultCompactionModel: { provider: 'deepseek', model: 'deepseek-v4.1-flash-thinking-max', reasoningEffort: 'low' } })
+  assert.deepEqual(presentTavernSettings(saved).defaultCompactionModel, { provider: 'deepseek', model: 'deepseek-v4.1-flash-thinking-max', reasoningEffort: 'low' })
+  const reset = applyTavernSettingsPatch(saved, { defaultCompactionModel: null })
+  assert.equal(presentTavernSettings(reset).defaultCompactionModel, null)
+
+  const base = { provider: 'google-vertex', model: 'gemini-4-hydrogen', reasoningEffort: 'high', purpose: 'compaction', messages: [] }
+  assert.equal(applyCompactionModel(base, null), base)
+  assert.deepEqual(applyCompactionModel(base, { provider: 'deepseek', model: 'deepseek-chat' }), {
+    provider: 'deepseek', model: 'deepseek-chat', purpose: 'compaction', messages: []
+  })
+  assert.deepEqual(applyCompactionModel(base, { provider: 'deepseek', model: 'deepseek-reasoner', reasoningEffort: 'low' }), {
+    provider: 'deepseek', model: 'deepseek-reasoner', reasoningEffort: 'low', purpose: 'compaction', messages: []
+  })
+
+  const hooks = [], sent = [], retentionModels = []
+  const dispatch = (request, index = 0) => index < hooks.length
+    ? hooks[index](request, () => dispatch(request, index + 1))
+    : (async function* () {
+        sent.push(request)
+        yield { type: 'block-end', index: 0, block: { type: 'text', text: '摘要' } }
+        yield { type: 'finish', reason: { kind: 'stop' } }
+      })()
+  const ctx = {
+    on: (name, hook) => { if (name === 'llm/stream') hooks.push(hook) },
+    get: () => null,
+    llm: { stream: dispatch, resolveModelInfo: async () => undefined }
+  }
+  const emptyMap = { get: () => null, set: () => {}, delete: () => {} }
+  let activeCompactionModel = { provider: 'deepseek', model: 'deepseek-v4.1-flash-thinking-max', reasoningEffort: 'low' }
+  registerModelStreamHooks({
+    agentRegistry: emptyMap,
+    backgroundAgentRunner: {
+      owns: id => id === 'bg-1',
+      requestContext: id => id === 'bg-1' ? { scope: 'background', task: 'background', parentSessionId: 'fg-story' } : null,
+      requestSession: () => null
+    },
+    chatForSession: async () => ({ mode: 'story', messages: [] }),
+    chatHeaderForSession: async id => id === 'fg-story' ? { id, mode: 'story' } : id === 'fg-card' ? { id, mode: 'card' } : null,
+    compactionModel: async () => activeCompactionModel,
+    ctx,
+    foregroundStrategies: { activeToolProtocol: () => null, activeStrategy: () => null, projectRequest: (_id, req) => req, completeRequest: () => {} },
+    fullTemplateRuntime: null,
+    modelRequestLog: { record: async () => null, list: async () => [] },
+    modelSelection: () => null,
+    openReplyObservers: null,
+    pluginBodyGeneration: null,
+    pluginCompactionNotes: null,
+    pluginSettlementProgress: null,
+    recentStateForSession: async () => ({ messagesFrom: 0, messages: [] }),
+    replyStarted: () => {},
+    replyStreamRewriters: null,
+    requestCoordinates: emptyMap,
+    runtimePrompt: () => '剧情压缩提示',
+    sessionStateForSession: async () => null,
+    sessionStore: emptyMap,
+    storyRetention: async req => {
+      retentionModels.push(`${req.provider}/${req.model}`)
+      return { rounds: 2, budget: Infinity, volumeBudget: 30000, estimate: () => 1 }
+    },
+    str: v => String(v || ''),
+    updateChat: async () => {},
+    worldbookRecallLog: null
+  })
+  const drain = async req => { for await (const _ of dispatch(req)) { /* drain */ } }
+  const instruction = { role: 'user', content: [{ type: 'text', text: 'Summarize' }], source: { kind: 'plugin', plugin: 'dsh-compaction-basic' } }
+
+  await drain({ purpose: 'compaction', sessionId: 'fg-story', provider: 'google-vertex', model: 'gemini-4-hydrogen', reasoningEffort: 'high', messages: [instruction] })
+  await drain({ purpose: 'compaction', sessionId: 'fg-card', provider: 'google-vertex', model: 'gemini-4-hydrogen', reasoningEffort: 'high', messages: [instruction] })
+  await drain({ purpose: 'compaction', sessionId: 'bg-1', provider: 'anthropic', model: 'claude-haiku', reasoningEffort: 'medium', messages: [instruction] })
+
+  assert.deepEqual(sent.map(r => [r.sessionId, r.provider, r.model, r.reasoningEffort]), [
+    ['fg-story', 'deepseek', 'deepseek-v4.1-flash-thinking-max', 'low'],
+    ['fg-card', 'deepseek', 'deepseek-v4.1-flash-thinking-max', 'low'],
+    ['bg-1', 'anthropic', 'claude-haiku', 'medium']
+  ])
+  assert.deepEqual(retentionModels, ['google-vertex/gemini-4-hydrogen'], 'storyRetention 仍按前台原模型窗口计算')
+
+  activeCompactionModel = null
+  await drain({ purpose: 'compaction', sessionId: 'fg-story', provider: 'google-vertex', model: 'gemini-4-hydrogen', reasoningEffort: 'high', messages: [instruction] })
+  assert.deepEqual([sent[3].provider, sent[3].model, sent[3].reasoningEffort], ['google-vertex', 'gemini-4-hydrogen', 'high'], '未配置专用压缩模型时跟随当前前台模型')
 })

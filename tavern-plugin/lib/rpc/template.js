@@ -10,7 +10,7 @@ import { randomUUID } from 'node:crypto'
 // Prompt template and Tavern Helper script runtime requests.
 // `deps` carries the services ../index.js builds; dispatchMethod routes by method name.
 export function createTemplateHandlers(deps) {
-  const { agentRegistry, callModel, chatForSession, chatPersistence, commands, ctx, fullTemplateRuntime,
+  const { agentRegistry, callModel, chatForSession, chatHeaderForSession, chatPersistence, commands, ctx, fullTemplateRuntime,
     helperGenerationPreset, helperGenerationTasks, helperHistoryAccess, openingPreparation, pagesInFront,
     projectOpeningWindow, readCardExtensions, readChatCard, readOpeningWindow, readSessionMap, sessionViews,
     str, tavernScriptHostAdapter, updateChat, worldBooks } = deps
@@ -62,15 +62,18 @@ export function createTemplateHandlers(deps) {
       // Non-transaction writes (player MVU editor or display frame scripts) must not overwrite
       // hidden attributes with masked placeholders or tamper with locked values.
       if (!args?.eventId && incomingVariables && typeof incomingVariables === 'object' && incomingVariables.stat_data && typeof incomingVariables.stat_data === 'object' && !Array.isArray(incomingVariables.stat_data)) {
-        const currentChat = await chatForSession(args?.sessionId)
-        const extensions = currentChat?.cardPath ? await readCardExtensions(currentChat.cardPath, currentChat) : null
+        const headerChat = typeof chatHeaderForSession === 'function'
+          ? await chatHeaderForSession(args?.sessionId, ['id', 'cardPath', 'cardId', 'cardDefinitionSnapshot', 'regexOverrides'])
+          : await chatForSession(args?.sessionId)
+        const extensions = headerChat?.cardPath ? await readCardExtensions(headerChat.cardPath, headerChat) : null
         if (hasMvuVisibilityRules(extensions?.mvuVisibility)) {
+          const currentChat = headerChat && Array.isArray(headerChat.messages) ? headerChat : await chatForSession(args?.sessionId)
           let authStatData = null
           const opt = args.option && typeof args.option === 'object' ? args.option : { type: 'message' }
           if (opt.type === 'chat') {
-            authStatData = currentChat.variables?.stat_data || null
+            authStatData = currentChat?.variables?.stat_data || null
           } else if (!opt.type || opt.type === 'message') {
-            const messages = Array.isArray(currentChat.messages) ? currentChat.messages : []
+            const messages = Array.isArray(currentChat?.messages) ? currentChat.messages : []
             const rawId = Number(opt.message_id)
             const msgId = Number.isInteger(rawId) ? (rawId < 0 ? messages.length + rawId : rawId) : messages.length - 1
             const msg = messages[msgId]

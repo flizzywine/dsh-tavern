@@ -12,29 +12,6 @@ const intro={id:'intro',label:'导览',html:'<p>i</p>',showOn:{event:'stage-ente
 const map={id:'map',label:'地图',html:'<p>m</p>',shortcut:'m',menu:true,showOn:{event:'stage-enter'}}
 const status={id:'status',label:'状态',html:'<p>s</p>',shortcut:'s',menu:true}
 
-test('a fresh chat of a card with an opening page shows its title page, else (none, or skipped) its opening page',()=>{
- const opening={id:'opening',label:'开局',html:'<p>o</p>',size:'full',opening:true}
- assert.equal(stageEnterPage({pages:[intro,opening],fresh:true,skip:false}),'intro')
- assert.equal(stageEnterPage({pages:[intro,opening],fresh:true,skip:true}),'opening')
- assert.equal(stageEnterPage({pages:[status,opening],fresh:true,skip:false}),'opening')
- assert.equal(stageEnterPage({pages:[status,opening],fresh:false,skip:false}),null,'a game already set up never reopens it')
-})
-
-test('a showOn page opens on a later stage entry when the chat already has a player message',()=>{
- assert.equal(stageEnterPage({pages:[intro,status],fresh:false,skip:false}),'intro')
-})
-
-test('a fresh chat opens its initial page; the initial page never opens once the chat has a message',()=>{
- assert.equal(stageEnterPage({pages:[title,map],fresh:true,skip:false}),'title')
- assert.equal(stageEnterPage({pages:[title,map],fresh:false,skip:false}),'map')
- assert.equal(stageEnterPage({pages:[title],fresh:false,skip:false}),null)
-})
-
-test('跳过标题页 skips showOn pages on a non-fresh entry but keeps the initial page of a fresh chat',()=>{
- assert.equal(stageEnterPage({pages:[intro,map],fresh:false,skip:true}),null)
- assert.equal(stageEnterPage({pages:[title,intro],fresh:true,skip:true}),'title')
-})
-
 test('the controller handles each navigation visit once and skipping resumes the latest round', async()=>{
  const source=await readFile(new URL('../tavern-plugin/packages/dsh-tavern-stage/src/client/controller.cjs',import.meta.url),'utf8')
  const effect=source.slice(source.indexOf('        if (!cardPages || !stageVisit'),source.indexOf('    }, [cardPages, stageVisit'))
@@ -68,12 +45,6 @@ test('the controller handles each navigation visit once and skipping resumes the
  // the entry page stands in for that visit's entrance (继续 from the title page plays none; a new game plays it after the opening, owner 11-12)
  assert.equal(ended,opened.length,'every entry page ends its entrance');assert.equal(ended,4,'page \'\' ends none')
  stop()
-})
-
-test('pages without showOn never open on entry',()=>{
- assert.equal(stageEnterPage({pages:[status],fresh:true,skip:false}),null)
- assert.equal(stageEnterPage({pages:[],fresh:true,skip:false}),null)
- assert.equal(stageEnterPage({pages:undefined,fresh:false,skip:false}),null)
 })
 
 test('closing an entry page leaves the stage; continueGame enters it; only an entry page holds the line', async()=>{

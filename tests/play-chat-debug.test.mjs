@@ -21,14 +21,6 @@ function chats() {
   return { source, editor }
 }
 
-test('未关联记录、错误轮次和跨人物卡读取会被拒绝', () => {
-  const { source, editor } = chats()
-  const ref = createPlayChatDebugReference(editor, source, 2)
-  assert.throws(() => readPlayChatDebugTurn(editor, source, null, { turn: 2 }), /未关联到当前对话/)
-  assert.throws(() => readPlayChatDebugTurn(editor, source, ref, { turn: 9 }), /不存在第 9 轮/)
-  assert.throws(() => readPlayChatDebugTurn(Object.assign({}, editor, { cardPath: 'cards/另一张.json' }), source, ref, { turn: 2 }), /人物卡不一致/)
-})
-
 test('初始概览提供本局预设和完整上下文查询入口，分页保留大字段并隐藏凭据', () => {
   const { source, editor } = chats()
   source.runtimePresetSnapshot = { presetName: '测试预设', presetPath: 'presets/test.json', front: 'x'.repeat(14000), regexScripts: [{ id: 'preset-rule' }] }

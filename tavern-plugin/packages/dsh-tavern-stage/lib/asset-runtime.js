@@ -1,6 +1,6 @@
 import { createAssetPackPresentation } from './domain/asset-pack-presentation.js'
 import { createAssetPackSpeech } from '../../../lib/domain/asset-pack-speech.js'
-import { readCardAssetExtension } from '../../../lib/domain/card-asset-bindings.js'
+import { readCardAssetExtension, cardAssetExtensionView } from '../../../lib/domain/card-asset-bindings.js'
 import { cardAssetWorkspaceRevision, hasCardAssetBindings } from '../../../lib/card-asset-bindings.js'
 import { cardEngineSettings, effectiveCardStage } from '../../../lib/domain/card-stage-settings.js'
 import { assetRefKey, resolveAssetSnapshot } from '../../dsh-presentation-protocol/src/asset-packs.js'
@@ -8,6 +8,7 @@ import { assetRefKey, resolveAssetSnapshot } from '../../dsh-presentation-protoc
 import { assetVoiceBinding } from '../../../lib/domain/figure-voice.js'
 import { migrateServiceSourceModels } from './service-model-migration.js'
 import { migrateReadingVoices } from './reading-voice-migration.js'
+import { cgPlaybackAvailable } from './scene-cg.js'
 export { assetVoiceBinding } from '../../../lib/domain/figure-voice.js'
 
 // The authenticated Tavern carrier owns sessions; pack services own bytes and leases.
@@ -47,7 +48,7 @@ export function createAssetRuntime({ctx, readWorkspace, engineSettings, onInvali
       }
       // readingChanged: tts.reading changed (旁白配音's global layer, or the figure 通用声音 / 旁白 point at), so each card's
       // config.voice.general / config.narrator is projected again.
-      else if (['providerChanged','providerRemoved','disposed','cacheInvalidated','readingChanged'].includes(event.type)) {
+      else if (['providerChanged','providerRemoved','disposed','cacheInvalidated','readingChanged','voiceRoutingChanged'].includes(event.type)) {
         for (const entry of consumers.values()) {entry.speech?.dispose(); entry.speech = null}
         clear()
       }
@@ -75,7 +76,8 @@ export function createAssetRuntime({ctx, readWorkspace, engineSettings, onInvali
       }
       for (const pack of snapshots) for (const asset of pack.manifest.assets) {
         const row = resolveAssetSnapshot(pack,{packId:pack.manifest.id,kind:asset.kind,assetId:asset.id})
-        assetStatus[assetRefKey(row.ref)] = {available:!!row.value && (row.ref.kind === 'props' || row.value.pendingMedia !== true) && !row.diagnostics.length}
+        const available = row.ref.kind === 'cg' ? cgPlaybackAvailable(row.value) : !!row.value && !row.diagnostics.length && (row.ref.kind === 'props' || row.value.pendingMedia !== true)
+        assetStatus[assetRefKey(row.ref)] = {available}
       }
 
     }
@@ -121,7 +123,7 @@ export function createAssetRuntime({ctx, readWorkspace, engineSettings, onInvali
     return entry
   }
   return {snapshot, consumer, invalidate:clear, get revision() {return generation},
-    async hasBindings(cardPath) {const raw = (await readWorkspace(cardPath))?.raw; return !!raw && hasCardAssetBindings(raw) && effectiveCardStage(readCardAssetExtension(raw), engineSettings.read().values).stage},
+    async hasBindings(cardPath) {const raw = (await readWorkspace(cardPath))?.raw; return !!raw && hasCardAssetBindings(raw) && effectiveCardStage(cardAssetExtensionView(raw), engineSettings.read().values).stage},
     subscribe(fn) {listeners.add(fn); return () => listeners.delete(fn)},
     dispose() {disposed = true; offEngine(); clear(undefined,{kind:'revoked',scope:{authority:true},reason:'disposed'}); listeners.clear()}}
 }

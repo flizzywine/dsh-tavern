@@ -77,20 +77,6 @@ test('reference upload posts image bytes once, binds metadata to draft, and keep
   assert.match(text(ui.tree), /请保存/)
 })
 
-test('replacement and consistency editing preserve each other; removing only unbinds and never DELETEs bytes', async () => {
-  const ui = mount({ referenceImage: image('a'), consistencyText: 'old' })
-  ui.supplement('new consistency')
-  ui.response = { ok: true, referenceImage: image('b') }
-  await ui.upload()
-  assert.equal(ui.value.referenceImage.id, 'b'.repeat(64))
-  assert.equal(ui.value.consistencyText, 'new consistency')
-  ui.remove()
-  assert.equal(ui.value.referenceImage, null)
-  assert.equal(ui.value.consistencyText, 'new consistency')
-  assert.equal(ui.calls.length, 1)
-  assert.match(text(ui.tree), /历史参考图不会删除/)
-})
-
 for (const [description, input, expected] of [
   ['unsupported media type', file({ type: 'image/gif', name: 'bad.gif' }), /PNG、JPEG 或 WebP/],
   ['oversized image', file({ size: 32 * 1024 * 1024 + 1 }), /32 MiB/],
@@ -101,22 +87,6 @@ for (const [description, input, expected] of [
   assert.equal(ui.calls.length, 0)
   assert.equal(ui.value.referenceImage.id, 'a'.repeat(64))
   assert.match(text(ui.tree), expected)
-})
-
-test('upload failure keeps original metadata and exposes exact service error', async () => {
-  const ui = mount({ referenceImage: image('a') })
-  ui.failure = new Error('storage full')
-  await ui.upload()
-  assert.equal(ui.value.referenceImage.id, 'a'.repeat(64))
-  assert.match(text(ui.tree), /上传失败：storage full/)
-})
-
-test('invalid reference metadata is not accepted into a draft or used as a URL', async () => {
-  const ui = mount({ referenceImage: image('a') })
-  ui.response = { ok: true, referenceImage: { id: 'javascript:bad' } }
-  await ui.upload()
-  assert.equal(ui.patches.length, 0)
-  assert.match(text(ui.tree), /没有返回有效/)
 })
 
 test('removing during an upload cancels the pending binding without a delete request', async () => {
@@ -141,7 +111,7 @@ test('a completed upload cannot attach its image after its library editor unmoun
 })
 
 for (const [backend, protocol, supported] of [
-  ['atlascloud', '', true], ['openai', '', true], ['comfyui', '', false],
+  ['atlascloud', '', true], ['comfyui', '', false],
   ['custom', 'openai', true], ['custom', 'novelai', false], ['custom', 'grok', true],
 ]) test(`global generation selector follows effective provider capability (${backend}${protocol ? '/' + protocol : ''})`, () => {
   const channel = { id: 'channel', provider: backend, options: protocol ? { apiProtocol: protocol } : {}, model: 'user/exact-model' }

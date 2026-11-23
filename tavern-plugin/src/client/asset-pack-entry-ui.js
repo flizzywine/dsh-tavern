@@ -61,14 +61,14 @@ const LAMP_HELP='同 SillyTavern 世界书：蓝灯始终可选，绿灯在名�
   // recall.mode, so turning it back on returns to the same lamp (the figure editor's outfit lamp uses the same mapping).
   // Only stage skins stay outside the director's recall catalogue.
   // 演出风格 is 启用 / 关闭 as well — its pack's lamp decides where it applies.
-  // a standalone 舞台皮肤 entry has no 状态 at all — the library only shows which skins
-  // are imported (all of them are offered as 默认舞台皮肤) and ⋯ › 删除 removes one. Skins inside a performance are untouched.
-  const LAMPLESS_KINDS=['skins','directions','entrances'],STATELESS_KINDS=['skins','entrances'];
-  // Entrances are explicit card choices, like skins; neither is selected through lamps.
+  // a standalone 舞台皮肤 entry is 启用 / 关闭 too: 启用 skins are offered as 默认皮肤 / 本卡皮肤, a 关闭 one is not
+  // (a card still set to it shows its fallback until it is back). Skins inside a performance are untouched.
+  const LAMPLESS_KINDS=['skins','directions','entrances'],STATELESS_KINDS=['entrances'];
+  // Entrances are explicit card choices, never selected through lamps.
   const BLUE_ONLY_KINDS=['videos'],UNDIRECTED_KINDS=['entrances','videos'];
   const lampChoices=kind=>BLUE_ONLY_KINDS.includes(kind)?['constant','off']:undefined;
   const BLUE_ONLY_HELP={videos:'蓝灯：引用它的入场演出、演出或皮肤可以播放它；关闭：不播放（引用方改用自己的画面）。'};
-  const LAMPLESS_HELP={directions:'启用的演出风格每次都发给导演，不用触发词。素材包亮蓝灯（全局）时算玩家的，只亮绿灯（本卡）时算卡片作者的；两者是同类条目，可同时启用叠加，冲突由作者和玩家自行管理。导演指令的开关和每轮上限始终优先。关闭：不再发送。'};
+  const LAMPLESS_HELP={skins:'启用的皮肤可以选作默认皮肤和本卡皮肤。关闭：不再出现在选择里；正在用它的卡改用默认皮肤，重新启用后恢复。',directions:'启用的演出风格每次都发给导演，不用触发词。素材包亮蓝灯（全局）时算玩家的，只亮绿灯（本卡）时算卡片作者的；两者是同类条目，可同时启用叠加，冲突由作者和玩家自行管理。导演指令的开关和每轮上限始终优先。关闭：不再发送。'};
   // the stored `category` reads as 「标签」 — it only filters the library.
   // 标签 holds several tags; each chip is one full path (/ is a level inside it).
   const CATEGORY_HELP='可以有多个；用 / 分级。只用来筛选和分组物品，不发给导演。';
@@ -377,16 +377,14 @@ const LAMP_HELP='同 SillyTavern 世界书：蓝灯始终可选，绿灯在名�
     const lead=['backgrounds','cg','props'].includes(kind)?h(Thumb,{binding,packId,hash:entryContent(item).media||(kind==='props'?assetTags.icon(pack.manifest,item.category):null),label:item.name,className:'ap-item-thumb'+(kind==='props'?' is-object':'')}):AUDIO_KINDS.includes(kind)?h(PlayButton,{audio,asset:entryView(item)}):
       figure?h(FigureCastFace,{binding,packId,pack,figure:item,sprites:pack.sprites,avatar:figureAvatar(thumbnail,pack.sprites),label:item.name,className:'ap-item-avatar',frame:'face'}):
       kind==='skins'?h(SkinSample,{skin:pack.skins?.[item.id],label:item.name,compact:true}):h('span',{className:'ap-item-glyph'},h(KindIcon,{kind}));
-    // a figure row is one line — face and name; no second meta row. r6 (owner
-    // 2026-10): no outfit count either (the figure page lists its outfits).
+    const unillustrated=figure&&!item.outfits.some(o=>o.sprite||o.live2d||o.spine);
+    // Keep the appearance status inline; the figure page lists the outfits.
     return h('li',{role:'option','aria-selected':checked===null?focused:checked,className:'ap-item'+(checked!==null?' is-picking':'')+(figure?' is-figure':''),'data-checked':checked||undefined,'data-disabled':item.enabled===false||undefined,onClick:onSelect,...mergeProps(reorder,rowMenu.target)},
       rowMenu.layer,
       h('span',{className:'ap-item-lead-box'},
         onPreview?h('button',{type:'button',className:'ap-item-lead','aria-label':'查看大图 '+item.name,title:'查看大图',onClick:e=>{e?.stopPropagation?.();onPreview();}},lead):lead,
         checked!==null&&h('span',{className:'ap-check-mark','aria-hidden':true},checked&&h(Glyph,{name:'check'}))),
-      h('button',{type:'button',className:'ap-item-main','aria-keyshortcuts':rowMenu.trigger['aria-keyshortcuts'],onClick:e=>{e?.stopPropagation?.();onSelect(e);}},h('span',{className:'ap-item-name'},item.name)),
-      // the list dot is the same 蓝灯 / 绿灯 / 关闭 (启用 / 关闭 for 演出风格).
-      // the dot is a quick menu (LampMenu) — no need to open the entry.
+      h('button',{type:'button',className:'ap-item-main','aria-keyshortcuts':rowMenu.trigger['aria-keyshortcuts'],onClick:e=>{e?.stopPropagation?.();onSelect(e);}},h('span',{className:'ap-item-name'},item.name),unillustrated&&h('span',{className:'ap-item-meta'},'未出图')),
       !figure&&item.recall&&!STATELESS_KINDS.includes(kind)&&(onLamp?h(LampMenu,{mode:entryLamp(item,LAMPLESS_KINDS.includes(kind)),onOff:LAMPLESS_KINDS.includes(kind),choices:lampChoices(kind),label:item.name+(LAMPLESS_KINDS.includes(kind)?' 的状态':' 的触发策略'),
           anchorClassName:'ap-item-lamp-anchor',className:'ap-item-lamp',onChange:onLamp}):
         (()=>{const lamp=entryLamp(item,LAMPLESS_KINDS.includes(kind)),word=ENTRY_LAMPS[lamp];return h('span',{className:'ap-item-lamp','data-mode':lamp,role:'img','aria-label':word,title:word},h('span',{className:'ap-lamp-dot'}));})()));
@@ -483,7 +481,7 @@ const LAMP_HELP='同 SillyTavern 世界书：蓝灯始终可选，绿灯在名�
   function entryRemoveItem({asset,pack,remove,ask,onError}) {
     const run=()=>Promise.resolve(remove(asset.kind,asset.id)).catch(e=>onError(errorText(e)));
     return close=>h(MenuItem,{key:'remove',danger:true,onClick:()=>{close();if(entryIsBlank(asset))run();
-      else askDelete(ask,{title:'删除'+(kinds[asset.kind]||'素材')+'「'+asset.name+'」？',body:'从素材包「'+pack.manifest.name+'」中删除它和它的文件，'+(asset.kind==='skins'?'以它为默认舞台皮肤的卡改回经典皮肤。':'用到它的卡会少掉这条素材，不会自动换成别的。'),confirmLabel:'删除',danger:true},run);}},'删除…');
+      else askDelete(ask,'asset-entry',{title:'删除'+(kinds[asset.kind]||'素材')+'「'+asset.name+'」？',body:'从素材包「'+pack.manifest.name+'」中删除它和它的文件，'+(asset.kind==='skins'?'以它为默认舞台皮肤的卡改回经典皮肤。':'用到它的卡会少掉这条素材，不会自动换成别的。'),confirmLabel:'删除',danger:true},run);}},'删除…');
   }
   function EntryMoreMenu({asset,busy,items}) {
     return h(Popover,{label:asset.name+' 操作',className:'ap-entry-menu',trigger:({toggle,open})=>h(IconButton,{icon:'more',label:'更多操作 '+asset.name,'aria-expanded':open,disabled:busy,onClick:toggle}),content:close=>items(close)});
@@ -526,7 +524,7 @@ const LAMP_HELP='同 SillyTavern 世界书：蓝灯始终可选，绿灯在名�
     const [variantChoice,setVariant]=React.useState(undefined),selected=asset.variants&&(assetVariantRow(asset.variants,variantChoice)||assetVariantRow(asset.variants));
     const content=selected?selected.content:asset;
     const write=update=>{setError('');return commit('directions',asset.id,update).catch(e=>setError(errorText(e)));};
-    const askRemove=()=>askDelete(setConfirm,{title:'删除演出风格「'+asset.name+'」？',body:'从素材包「'+pack.manifest.name+'」中删除，用到这个素材包的卡都不再发送它。',confirmLabel:'删除',danger:true},()=>remove(asset.id));
+    const askRemove=()=>askDelete(setConfirm,'asset-entry',{title:'删除演出风格「'+asset.name+'」？',body:'从素材包「'+pack.manifest.name+'」中删除，用到这个素材包的卡都不再发送它。',confirmLabel:'删除',danger:true},()=>remove(asset.id));
     const menu=remove&&h(Popover,{label:asset.name+' 操作',className:'ap-entry-menu',trigger:({toggle,open})=>h(IconButton,{icon:'more',label:'更多操作 '+asset.name,'aria-expanded':open,disabled:busy,onClick:toggle}),
       content:close=>h(MenuItem,{danger:true,onClick:()=>{close();askRemove();}},'删除')});
     return h('div',{className:'ap-detail-pane ap-style-detail','data-disabled':!on||undefined},h(ErrorBox,{error}),
@@ -692,7 +690,7 @@ const LAMP_HELP='同 SillyTavern 世界书：蓝灯始终可选，绿灯在名�
     const save=action=>write(entry=>entryWithVariants(entry,editAssetVariantTable(entry.variants||entryVariantTable(entry),action)));
     const rename=(row,name)=>{setRenaming(null);const v=name.trim();if(!v||v===row.name)return;if(chars(v)>256){onError('名称最多 256 字');return;}save({type:'rename',id:row.id,name:v});};
     const replace=row=>{target.current=own?row.id:undefined;input.current?.click?.();};
-    const askRemove=row=>setConfirm({title:'删除变体「'+row.name+'」？',body:'仅删除这个变体，保留条目与其它变体。',confirmLabel:'删除',danger:true,onConfirm:()=>save({type:'remove',id:row.id})});
+    const askRemove=row=>askDelete(setConfirm,'asset-variant',{title:'删除变体「'+row.name+'」？',body:'仅删除这个变体，保留条目与其它变体。',confirmLabel:'删除',danger:true},()=>save({type:'remove',id:row.id}));
     const addControl=h(VariantAdd,{asset,selected,onSelect,write,busy,
       button:p=>h('button',{type:'button',className:'ap-cg-add-chip ap-variant-add','aria-label':'添加变体',title:'添加变体',...p},h(Glyph,{name:'plus'}))});
     const fileInput=media&&h('input',{ref:input,type:'file',hidden:true,tabIndex:-1,accept:AUDIO_KINDS.includes(asset.kind)?AUDIO_ACCEPT:IMAGE_ACCEPT,onChange:e=>{const file=e.target.files?.[0];e.target.value='';if(file&&upload)Promise.resolve(upload(target.current,file)).catch(error=>onError(errorText(error)));}});

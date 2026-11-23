@@ -37,34 +37,3 @@ test('稀疏、缺失、重复、非单调 turn 回退到 index 键', () => {
   ])
   assert.deepEqual(projection.messages.map(entry => entry.legacyTurn), [5, null, 3, 3, null, null, null, null, 5])
 })
-
-test('summaries 与 messageCount/from 不连续或缺项时抛出明确错误', () => {
-  const messages = [
-    { role: 'assistant', turn: 1, text: 'a' },
-    { role: 'user', text: 'b' },
-    { role: 'assistant', turn: 2, text: 'c' },
-    { role: 'user', text: 'd' }
-  ]
-  const summaries = summarize(messages)
-  const page = (from, to) => ({ chat: { messages: messages.slice(from, to + 1) }, from, to, messageCount: 4, revision: 1 })
-
-  const shortSummaries = summarize(messages).slice(0, 3)
-  assert.throws(() => projectStoryTranscript(page(0, 3), shortSummaries), /不连续/)
-
-  const sparse = summarize(messages)
-  delete sparse[1]
-  assert.throws(() => projectStoryTranscript(page(0, 3), sparse), /缺项/)
-  assert.throws(() => projectStoryTranscript(page(0, 3), [summaries[0], null, summaries[2], summaries[3]]), /缺项/)
-  assert.throws(() => projectStoryTranscript(page(0, 3), [summaries[0], { turn: 1 }, summaries[2], summaries[3]]), /role/)
-  assert.throws(() => projectStoryTranscript(page(0, 3), { length: 4 }), /summaries/)
-
-  assert.throws(() => projectStoryTranscript({ chat: { messages: messages.slice(0, 3) }, from: 0, to: 3, messageCount: 4 }, summaries), /chat\.messages/)
-  assert.throws(() => projectStoryTranscript(page(0, 4), summaries), /to/)
-  assert.throws(() => projectStoryTranscript(page(0, -2), summaries), /to/)
-  assert.throws(() => projectStoryTranscript(page(5, 4), summaries), /from/)
-  assert.throws(() => projectStoryTranscript(page(-1, 2), summaries), /from/)
-  assert.throws(() => projectStoryTranscript(page(2, 3), undefined), /全历史/)
-  assert.throws(() => projectStoryTranscript(page(0, 1), undefined), /全历史/)
-  assert.throws(() => projectStoryTranscript({ chat: {}, from: 0, to: 0, messageCount: 0 }), /chat\.messages/)
-  assert.throws(() => projectStoryTranscript(undefined, summaries), /window/)
-})

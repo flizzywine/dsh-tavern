@@ -8,8 +8,8 @@ export interface PackExportSnapshot { manifest: PackManifest; files: Map<string,
 export interface PackZipEntry {path: string; size: number; crc: number; method: number; start: number; end: number}
 export declare function packZipPath(value: string): string
 export declare function openPackZip(filename: string): Promise<{entries: PackZipEntry[]; totalSize: number; read(entry: PackZipEntry): Promise<Buffer>; consume(entry: PackZipEntry, destination: import('node:stream').Writable): Promise<void>}>
-/** Stream host-owned buffers or files into an archive. */
-export declare function writePackZip(filename: string, entries: Array<{path: string; data?: Uint8Array; file?: string}>): Promise<{size: number; entries: number; uncompressedSize: number}>
+/** Stream host-owned buffers, files or readable streams into an archive. */
+export declare function writePackZip(filename: string, entries: Array<{path: string; data?: Uint8Array; file?: string; stream?: () => import('node:stream').Readable | Promise<import('node:stream').Readable>}>): Promise<{size: number; entries: number; uncompressedSize: number}>
 /** Detached export projection; no storage writes. */
 export declare function projectPackFigures<T extends PackExportSnapshot>(packs: T[], excludeFigures: string[]): Promise<{packs: T[]; figures: Array<Figure & {ref: FigureRef}>}>
 type ReadonlyPackValue<T> = T extends object ? {readonly [K in keyof T]: ReadonlyPackValue<T[K]>} : T;
@@ -37,7 +37,7 @@ export interface AutomaticFigureExtras {
   sprites?: Array<{emotion: string; image: string; outfit?: string}>;
 }
 export type AutomaticCreate = {op: 'create'; kind: 'figures'; value: AutomaticFigureTexts & {name: string; aliases: string[]}} & AutomaticFigureExtras
-export type AutomaticCopy = {op: 'copy'; kind: 'figures'; source: FigureRef; patch?: AutomaticFigureTexts} & AutomaticFigureExtras
+export type AutomaticCopy = {op: 'copy'; kind: 'figures'; source: FigureRef; patch?: AutomaticFigureTexts; copyVoice?: boolean} & AutomaticFigureExtras
 export type AutomaticPatch = {op: 'patch'; kind: 'figures'; ref: FigureRef & {kind: 'figures'}; patch?: AutomaticFigureTexts} & AutomaticFigureExtras
 export type AutomaticChange = AutomaticCreate | AutomaticCopy | AutomaticPatch
 export interface AutomaticWriteInput {
@@ -57,7 +57,7 @@ export interface LibrarySearchResult {
   query: string; identity: {status: 'resolved'; ref: FigureRef} | {status: 'ambiguous' | 'unknown'};
   figures: Array<{packId: string; packName: string; revision: string; ref: FigureRef; name: string; aliases: string[]; description?: string; guidance?: string;
     outfits: number; emotions: number; stage: boolean; voice: {voiceId: string; name: string; guidance?: string} | null; copyable: boolean; match: 'exact' | 'name' | 'text'}>;
-  voices: Array<{packId: string; packName: string; revision: string; voiceId: string; name: string; language: string; guidance?: string; figures: string[]}>;
+  voices: Array<{packId: string; packName: string; revision: string; voiceId: string; name: string; language: string; sound: string; fallback?: true; guidance?: string; figures: string[]}>;
   more: {figures: number; voices: number};
 }
 export interface AutomaticWriteResult {
@@ -79,7 +79,10 @@ export interface FigureDelivery {
   audio?: Array<{hash: string; descriptor: BlobDescriptor; bytes: Uint8Array}>;
 }
 export interface PackMapping { packId: string; figures: Record<string, string> }
-export type ImportDecision = 'install' | 'update' | 'keep-both' | 'noop' | 'cancel'
+/** update: the new version replaces the installed one (完全替换); merge: 增量更新 — the new version plus the entries only the installed one has (same ids / UUIDs), keeping local 启用 / 召回词 / 别名. */
+export type ImportDecision = 'install' | 'update' | 'merge' | 'keep-both' | 'noop' | 'cancel'
+/** an entry only the installed version has: update deletes it, merge keeps it. kind: 'figures' or an entry kind. */
+export interface RemovedEntry { kind: string; id: string; name: string }
 export interface PackDiff { metadataChanged: boolean; assets: ChangeList; files: ChangeList; figures: ChangeList; affectedCards: {status: 'unknown'} }
 export interface ChangeList { added: string[]; removed: string[]; changed: string[] }
 export interface PackInspection {
@@ -88,6 +91,8 @@ export interface PackInspection {
   scriptRisk: ScriptRisk[];
   /** an update: kept figures whose carried 配图 外貌 (dsh.image-character) differs from their local one; applyImport adoptLooks picks the incoming one */
   figureLooks: Array<{figureId: string; name: string; local: unknown; incoming: unknown}>;
+  /** the installed version's entries the new one lacks, in the installed order (figures first); [] when merge is not offered */
+  removed: RemovedEntry[];
   distribution?: {sourceId?: string; catalogueUrl?: string; official?: boolean; version?: string; packId?: string; archiveSha256: string; integrity: 'sha256' | 'unverified'};
   merge?: MergeSummary;
 }
@@ -100,6 +105,7 @@ export interface CardBundleAdapter {
   snapshot(input: {path: string}): Promise<{path: string; cardId: string; revision: string | null; raw: unknown; cover?: Uint8Array}>;
   inspectRaw(raw: unknown): {raw: unknown; boundPackIds: string[]; modConfigPackId?: string; name?: string};
   unbindPack(input: {packId: string}): Promise<void>;
+  requireUnboundPack?(input: {packId: string}): Promise<void>;
   withExistingBoundPack?<T>(input: {path: string; expectedRevision: string; packId: string}, publish: (card: {cardId: string; revision: string}) => Promise<T>): Promise<T>;
   withBoundPack?(input: {path: string; expectedRevision: string; packId: string}, publish: (card: {record: unknown; commit(): Promise<void>; status(): Promise<'before' | 'after' | 'unknown'>}) => Promise<void>): Promise<void>;
   withConfigPack?(input: {path: string; expectedRevision: string; packId: string}, publish: (card: {record: unknown; commit(): Promise<void>; status(): Promise<'before' | 'after' | 'unknown'>}) => Promise<void>): Promise<void>;
@@ -114,9 +120,11 @@ export interface CardBundleAdapter {
 export interface CardBundleInspection {
   inspectionId: string; path: string; expectedRevision: string | null; expiresAt: number; raw: unknown; currentRaw: unknown;
   dependencies: Array<{packId: string; contentHash: string | null; embedded: boolean}>;
-  packs: Array<Pick<PackInspection, 'packId' | 'expectedRevision' | 'choices' | 'incoming' | 'diff' | 'mapping' | 'scriptRisk'> & {current: {manifest: PackManifest; figures: Record<string, Figure>} | null; affectedCards: {available: false; count: null}}>;
+  packs: Array<Pick<PackInspection, 'packId' | 'expectedRevision' | 'choices' | 'incoming' | 'diff' | 'mapping' | 'scriptRisk' | 'removed'> & {current: {manifest: PackManifest; figures: Record<string, Figure>} | null; affectedCards: {available: false; count: null}}>;
 }
 export type PackArchive = {file: string; size: number; expiresAt: number; dispose(): Promise<void>} & {filename: string};
+/** Export progress callback; total is the sum of the archive's entry sizes. */
+export interface ExportProgress { onProgress?(progress: {done: number; total: number}): void }
 export interface PackServiceOptions {
   /** Explicit absolute profile-owned root; never inferred from legacyDataRoot. One process owns this directory. */
   assetRoot: string;
@@ -164,8 +172,8 @@ export interface AssetPackService extends CatalogueService {
     readContext(input: {path: string}): Promise<AutomaticReadContext & {detached: boolean; target: AutomaticWriteInput['target']}>;
     /** 全库搜索 over every installed pack; read only. */
     searchLibrary(input: {query: string; limit?: number}): Promise<LibrarySearchResult>;
-    /** Every installed pack's voices (search rows), for a caster that reads them all. */
-    listLibraryVoices(input?: {limit?: number}): Promise<{voices: LibrarySearchResult['voices']; more: number}>;
+    /** Eligible installed voices, one row per distinct voice and language. */
+    listLibraryVoices(input?: {limit?: number; systemPacks?: string[]; language?: string}): Promise<{voices: LibrarySearchResult['voices']; more: number}>;
     /** Context is ephemeral host evidence (e.g. canonical body), never receipt data. */
     authorize(input: AutomaticWriteInput, source: AutomaticSource, context?: Context): AutomaticWriteAuthority;
     dispose(): void;
@@ -176,6 +184,7 @@ export interface AssetPackService extends CatalogueService {
   listAutomaticWrites(input: {packId: string; cursor?: number; limit?: number}): Promise<{revision: string; entries: AutomaticWriteEntry[]; nextCursor: number | null}>;
   reviewAutomaticWrite(input: PackWrite & {writeId: string}): Promise<{status: AutomaticWriteEntry['status']; revision: string}>;
   undoAutomaticWrite(input: PackWrite & {writeId: string}): Promise<{status: 'undone'; revision: string; refs: Array<FigureRef & {kind: 'figures'}>}>;
+  adoptAutomaticPack(input: PackWrite & {path: string}): Promise<{packId: string; cardId: string; previousCardId?: string; revision: string; adopted: boolean}>;
   readonly apiVersion: 2;
   readonly capabilities: readonly string[];
   /** Host-only config namespace; not exposed by the asset editor control RPC. */
@@ -229,6 +238,7 @@ export interface AssetPackService extends CatalogueService {
   getStageSetupStatus(input: {path: string; autoOpened?: boolean}): Promise<StageSetupStatus>;
   mergeStageSetupPack(input: {path: string; expectedCardRevision: string; expectedLibraryRevision: string; selections: Array<{packId: string; itemRefs: Array<{kind: string; id: string}>}>; name?: string; figure?: Omit<Figure, 'id'>}): Promise<StageSetupStatus & {figureId?: string; copied: Array<{sourcePackId: string; kind: string; fromId: string; toId: string}>}>;
   copyItems(input: {sourcePackId: string; itemRefs: Array<{kind: string; id: string}>; target: PackWrite | {newPackName: string}}): Promise<{packId: string; revision: string; copied: Array<{kind: string; fromId: string; toId: string}>}>;
+  publishSkins(input: PackWrite & {sources: Array<PackWrite & {skinIds: string[]; replace?: string[]}>; dryRun?: boolean}): Promise<{status: 'noop' | 'updated' | 'dry-run'; snapshot: PackSnapshot; published: Array<{id: string; contentHash: string; source: {packId: string; kind: 'skins'; assetId: string}}>; replacedFiles: string[]}>;
   /** Manual avatar crop for a static outfit, in the pack the figure lives in (outfit scope clears per-state manual crops; null resets). */
   setFigureAvatarCrop(input: PackWrite & {figureId: string; outfitKey: string; scope: 'outfit' | 'state'; stateId?: string; crop: {x: number; y: number; w: number; h: number} | null}): Promise<PackMutation>;
   createSimpleSprite(input: PackWrite & {spriteKey: string; name?: string; images: Record<string, {hash: string; width: number; height: number}>}): Promise<PackMutation & {sprite: {manifestKey: string; assets: Record<string, string>}}>;
@@ -239,6 +249,8 @@ export interface AssetPackService extends CatalogueService {
   createFigure(input: PackWrite & {figure: Omit<Figure, 'id'>}): Promise<PackMutation & {figureId: string}>;
   /** host-only figure + card publication through the existing journal; not a browser pack control method. */
   createFigureWithCard(input: {target: PackWrite | {packId: string; expectedRevision: null; newPackName: string}; figure: Figure; card: {path: string; expectedRevision: string; raw: unknown}}, authorize?: () => Promise<void>): Promise<{status: 'committed'; snapshot: PackSnapshot; figureId: string}>;
+  /** host-only: the figures take the identity their records gave them into their own documents, in the same save as the records'. */
+  releaseFigureIdentities<T>(releases: {packId: string; figureId: string}[], receipt: {file: string; id: string}, save: () => Promise<T>): Promise<T>;
   patchFigure(input: PackWrite & {figureId: string; patch: {[K in keyof Omit<Figure, 'id'>]?: Figure[K] | (undefined extends Figure[K] ? null : never)}}): Promise<PackMutation>;
   removeFigure(input: PackWrite & {figureId: string}): Promise<PackMutation | PackRemoval>;
   migrateCharacterEmotions(input: PackWrite): Promise<PackMutation>;
@@ -252,8 +264,9 @@ export interface AssetPackService extends CatalogueService {
   inspectCardBundleFile(input: {file: string; path: string}): Promise<CardBundleInspection>;
   inspectImport(input: {bytes: Uint8Array; copy?: boolean}): Promise<PackInspection | PackSetInspection>;
   applyImport(input: {inspectionId: string; expectedRevision: string | null; decision: ImportDecision; acceptScriptRisk?: boolean; adoptLooks?: string[]}): Promise<(PackMutation & {mapping?: PackMapping}) | PackRemoval | {status: 'cancelled'}>;
-  exportPack(input: PackWrite): Promise<PackArchive & {contentHash: string; revision: string; warnings: WidgetDefaultExportWarning[]}>;
-  exportPacks(input: {packs: PackWrite[]}): Promise<(PackArchive | {archives: PackArchive[]}) & {packs: Array<{packId: string; contentHash: string; revision: string}>; warnings: WidgetDefaultExportWarning[]}>;
+  /** Host-local option (never RPC input): input bytes written so far while the archive is built. */
+  exportPack(input: PackWrite, progress?: ExportProgress): Promise<PackArchive & {contentHash: string; revision: string; warnings: WidgetDefaultExportWarning[]}>;
+  exportPacks(input: {packs: PackWrite[]}, progress?: ExportProgress): Promise<(PackArchive | {archives: PackArchive[]}) & {packs: Array<{packId: string; contentHash: string; revision: string}>; warnings: WidgetDefaultExportWarning[]}>;
   /** Host-only export callback; absent from the remote method table. */
   /** packIds: the packs to embed (default: every bound pack). The exported card stays bound to every pack it binds;
    * bound packs not embedded are dependencies (contentHash null when this library lacks the pack). */

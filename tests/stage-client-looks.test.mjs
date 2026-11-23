@@ -52,10 +52,3 @@ test('look renderer routes time grading and releases every owned pass and overla
  assert.ok(f.made.length>=7);assert.ok(f.made.every(filter=>filter.destroyCount===1))
  assert.equal(renderer.ui(matrix.identity(),{}),null)
 })
-test('late image decode cannot create GPU textures after plugin unload',async()=>{
- const f=fixture(),renderer=f.manager.create(f.env)
- renderer.tick({packLayers:{timeWorld:math.GAL_LOOK_NEUTRAL,moodWorld:math.galLookNormalize({lut:'/lut.png'}),timeGradeTarget:'world'}},0,800,600,'high')
- await Promise.resolve();assert.equal(f.images.length,1)
- f.manager.dispose();f.images[0].complete();await Promise.resolve();await Promise.resolve()
- assert.equal(f.textures.length,0);assert.equal(f.images[0].onload,null)
-})

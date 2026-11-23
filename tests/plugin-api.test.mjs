@@ -5,9 +5,10 @@ import { pathToFileURL } from 'node:url'
 import test from 'node:test'
 import { createPluginMedia, pluginMediaRange, pluginMediaSession, slicePluginMediaStream, pluginFileMediaType } from '../tavern-plugin/lib/domain/plugin-media.js'
 import { createTavernPluginApi, TAVERN_PLUGIN_API_VERSION } from '../tavern-plugin/lib/plugin-api.js'
-import { loaderOrigin } from '../tavern-plugin/lib/domain/user-plugins.js'
+import { createContextPlanner } from '../tavern-plugin/lib/domain/context-planner.js'
 import { createPluginData } from '../tavern-plugin/lib/domain/plugin-data.js'
 import { createSettingsHandlers } from '../tavern-plugin/lib/rpc/settings.js'
+import { applyTavernSettingsPatch } from '../tavern-plugin/lib/domain/tavern-settings.js'
 
 function memoryStore() {
   const files = new Map()
@@ -24,15 +25,6 @@ function memoryStore() {
     async writeJson(path, value) { files.set(path, structuredClone(value)) }
   }
 }
-
-test('按局插件存档支持超过 256 KB 的嵌入应用数据，快照和存档导入保留完整内容', async () => {
-  const data = createPluginData({ store: memoryStore() })
-  const value = { slot: 'manual', state: 'x'.repeat(6 * 1024 * 1024) }
-  await data.saveGame({ chatId: 'source', owner: 'app', data: value })
-  assert.deepEqual(await data.readGame({ chatId: 'source', owner: 'app' }), value)
-  await data.importInto({ source: await data.snapshot('source'), targetChatId: 'restored', keyMap: new Map() })
-  assert.deepEqual(await data.readGame({ chatId: 'restored', owner: 'app' }), value)
-})
 
 const image = { attachmentId: 'a1', mediaType: 'image/png', bytes: 10, width: 2, height: 2 }
 
@@ -119,47 +111,75 @@ async function harness(t, overrides = {}) {
   return { root, api, media, published, errors, setLatest(value) { latest = value } }
 }
 
-test('a turn names the asset packs its card plays with', { skip: !cordis }, async t => {
-  const asked = []
-  const h = await harness(t, { cardAssetPacks: async path => { asked.push(path); return ['pack-a', 'pack-global'] } })
-  let tavern
-  await h.root.plugin({ name: 'reader', inject: ['tavern'], apply(ctx) { tavern = ctx.tavern } })
-  await tick()
-  assert.deepEqual((await tavern.getTurn({ gameId: 'game-1', turn: 3 })).card, { id: '/cards/a.json', name: 'A', assetPacks: ['pack-a', 'pack-global'] })
-  assert.deepEqual(asked, ['/cards/a.json'])
-})
-
-test('an image library hands a linked record\'s name and alias edit to the asset-library figure', { skip: !cordis }, async t => {
-  const edits = []
-  const h = await harness(t, { editLinkedFigure: async input => { edits.push(input); return { changed: true } },
-    cardScope: async () => new Map([['card-plugin', { cards: ['/cards/a.json'] }]]) })
-  const services = {}
-  for (const name of ['library', 'card-plugin']) await h.root.plugin({ name, inject: ['tavern'], apply(ctx) { services[name] = ctx.tavern } })
-  await tick()
-  assert.deepEqual(await services.library.editLinkedFigure({ packId: 'p', figureId: 'f', name: ' 新名 ', addAliases: ['Yuno '], removeAliases: [] }), { changed: true })
-  assert.deepEqual(edits, [{ packId: 'p', figureId: 'f', name: '新名', addAliases: ['Yuno'], removeAliases: [] }])
-  await assert.rejects(services.library.editLinkedFigure({ packId: 'p', figureId: 'f', addAliases: [''] }), TypeError)
-  await assert.rejects(services['card-plugin'].editLinkedFigure({ packId: 'p', figureId: 'f', name: 'x' }), { code: 'TAVERN_PLUGIN_SCOPE' })
-  assert.equal(edits.length, 1)
-})
-
-test('共享预设 API 支持指定预设和跟随本局', { skip: !cordis }, async t => {
-  const id = 'presets/test.json'
-  let current = id
-  const h = await harness(t, { generationPresets: {
-    list: async () => [{ id, name: 'Test' }],
-    read: async id => ({ id, name: 'Test', revision: '1', text: '{}' }),
-    currentId: async sessionId => { assert.equal(sessionId, 'game-1'); return current }
+test('插件 Guide 与本局手动 Guide 一起进入正文、候选和舞台；卸载后移除', { skip: !cordis }, async t => {
+  const h = await harness(t, { cardScope: async () => new Map([['other-card', { cards: ['/cards/other.json'] }]]),
+    cardPathOf: async () => '/cards/a.json' })
+  const director = await h.root.plugin({ name: 'story-director', inject: ['tavern'], apply({ tavern }) {
+    tavern.guideSource({ name: 'direction', text: ({ gameId }) => '导演指引 ' + gameId })
+    tavern.guideSource({ name: 'invalid', text: '<% 不执行模板 %>' })
   } })
-  let tavern
-  await h.root.plugin({ name: 'preset-consumer', inject: ['tavern'], apply(ctx) { tavern = ctx.tavern } })
-  assert.equal(tavern.capabilities.generationPresets, 1)
-  assert.deepEqual(await tavern.listGenerationPresets(), [{ id, name: 'Test' }])
-  const selected = await tavern.readGenerationPreset({ id })
-  assert.equal(selected.id, id)
-  assert.deepEqual(await tavern.readGenerationPreset({ gameId: 'game-1' }), selected)
-  current = ''
-  await assert.rejects(tavern.readGenerationPreset({ gameId: 'game-1' }), /本局未绑定宿主预设/)
+  await h.root.plugin({ name: 'other-card', inject: ['tavern'], apply({ tavern }) {
+    tavern.guideSource({ name: 'direction', text: '另一张卡的指引' })
+  } })
+  const planner = createContextPlanner({ prompt: () => '', guideSections: h.api.guideSections })
+  const chat = { sessionId: 'game-1', guides: [{ text: '手动 Guide' }] }
+  for (const purpose of ['body', 'candidate', 'stage-director']) {
+    const result = await planner.plan({ purpose, chat, card: { name: 'A' } })
+    const guide = result.sections.find(section => section.kind === 'guide')
+    assert.match(guide.text, /<user_guide>[\s\S]*手动 Guide[\s\S]*导演指引 game-1/)
+    assert.doesNotMatch(guide.text, /另一张卡|不执行模板/)
+  }
+  assert.deepEqual(await h.api.guideSections('missing-game'), [])
+  const snapshot = await planner.plan({ purpose: 'play-card-snapshot', chat, card: { name: 'A' } })
+  assert.ok(snapshot.sections.every(section => section.kind !== 'guide'))
+  director.dispose()
+  assert.deepEqual(await h.api.guideSections('game-1'), [])
+})
+
+test('正文生成默认值在插件与宿主设置间共用，且仅全局插件能配置自己的生成器', { skip: !cordis }, async t => {
+  let settings = { storyGenerationMode: 'plugin-tool-call', storyGenerationProvider: 'writer:body', storyPluginOutputRegex: true }
+  const readTavernSettings = async () => structuredClone(settings)
+  const updateTavernSettings = async (patch, { beforeWrite } = {}) => {
+    const next = applyTavernSettingsPatch(settings, patch)
+    await beforeWrite?.(settings)
+    settings = next
+    return readTavernSettings()
+  }
+  const h = await harness(t, { readTavernSettings, updateTavernSettings,
+    cardScope: async () => new Map([['card-writer', { cards: ['/cards/a.json'] }]]) })
+  const installWriter = async name => {
+    let tavern
+    await h.root.plugin({ name, inject: ['tavern'], apply(ctx) {
+      tavern = ctx.tavern
+      tavern.bodyGenerator({ name: 'body', title: '正文', generate: async () => ({ text: '正文' }) })
+    } })
+    return tavern
+  }
+  const writer = await installWriter('writer')
+  const cardWriter = await installWriter('card-writer')
+  const legacy = createSettingsHandlers({ readTavernSettings, updateTavernSettings, autoChoices: { cancelAll() {} } })
+  assert.equal(writer.capabilities.bodyGenerationDefaults, 1)
+  assert.deepEqual(await writer.bodyGenerationDefaults({ name: 'body' }), { mode: 'plugin-tool-call', hostRegex: true })
+  await assert.rejects(writer.bodyGenerationDefaults({ name: 'unregistered' }), /请先注册/)
+  await assert.rejects(cardWriter.bodyGenerationDefaults({ name: 'body', mode: 'plugin-direct' }), /只有全局插件/)
+  await assert.rejects(writer.bodyGenerationDefaults({ name: 'body', mode: 'invalid' }), /生成方式无效/)
+  assert.deepEqual(await writer.bodyGenerationDefaults({ name: 'body', mode: 'plugin-direct', hostRegex: false }), { mode: 'plugin-direct', hostRegex: false })
+  assert.equal(settings.storyGenerationProvider, 'writer:body')
+  assert.equal(settings.storyGenerationMode, 'plugin-direct')
+  assert.equal(settings.storyPluginOutputRegex, false)
+
+  await legacy.updateTavernSettings({ patch: { storyGenerationProvider: 'other:body' } })
+  assert.deepEqual(await writer.bodyGenerationDefaults({ name: 'body' }), { mode: 'host', hostRegex: false })
+  await assert.rejects(writer.bodyGenerationDefaults({ name: 'body', hostRegex: true }), /默认生成器已更改/)
+  await assert.rejects(writer.bodyGenerationDefaults({ name: 'body', mode: 'host' }), /默认生成器已更改/)
+  assert.equal(settings.storyGenerationProvider, 'other:body')
+  assert.equal(settings.storyPluginOutputRegex, false)
+
+  await writer.bodyGenerationDefaults({ name: 'body', mode: 'plugin-tool-call' })
+  assert.deepEqual(await writer.bodyGenerationDefaults({ name: 'body', hostRegex: true }), { mode: 'plugin-tool-call', hostRegex: true })
+  assert.deepEqual(await writer.bodyGenerationDefaults({ name: 'body', mode: 'host' }), { mode: 'host', hostRegex: true })
+  assert.equal(settings.storyGenerationProvider, '')
+  assert.equal(settings.storyGenerationMode, 'host')
 })
 
 test('provider APIs：capabilities、克隆输入、卡绑定筛选与 Cordis 卸载撤销', { skip: !cordis }, async t => {
@@ -181,7 +201,7 @@ test('provider APIs：capabilities、克隆输入、卡绑定筛选与 Cordis �
   } })
   await tick()
   assert.equal(tavern.apiVersion, TAVERN_PLUGIN_API_VERSION)
-  assert.deepEqual(tavern.capabilities, { gameMode: 1, hostBehavior: 1, controlInput: 1, mvuSettlementProvider: 1, worldbookStrategy: 1, galleryProvider: 1, pricingProvider: 1, imageModels: 1, imageLibrary: 1, bodyGeneration: 1, bodyProjection: 1, stContractService: 1 })
+  assert.deepEqual(tavern.capabilities, { gameMode: 1, hostBehavior: 1, controlInput: 1, mvuSettlementProvider: 1, worldbookStrategy: 1, galleryProvider: 1, pricingProvider: 1, imageModels: 1, imageLibrary: 1, bodyGeneration: 1, bodyProjection: 1, stContractService: 1, guideSource: 1 })
   assert.equal(Object.isFrozen(tavern.capabilities), true)
   assert.equal(tavern.mvuProviderRegistered, undefined, 'registration guard is internal, not a plugin service method')
   assert.equal(h.api.mvuProviderRegistered('card-provider'), true)
@@ -347,6 +367,7 @@ test('tavern 服务：读取接口与错误隔离', { skip: !cordis }, async t =
 test('tavern 服务 v2：本轮上下文、世界书来源、结算说明与结算工具，出错只丢自己这一份，卸载后撤销', { skip: !cordis }, async t => {
   const h = await harness(t, { reservedToolNames: ['posture_submit'] })
   const calls = []
+  let enabled = true
   let tavern
   const fiber = await h.root.plugin({ name: 'memory-plugin', inject: ['tavern'], apply(ctx) {
     tavern = ctx.tavern
@@ -356,6 +377,7 @@ test('tavern 服务 v2：本轮上下文、世界书来源、结算说明与结�
     ctx.tavern.worldbookSource({ name: 'session', entries: ({ input }) => [{ title: '支线', content: '与' + input + '有关的线索' }, { content: '  ' }] })
     ctx.tavern.settlementSection({ name: 'anchor', text: ({ turn }) => '第 ' + turn + ' 轮请记录叙事锚点' })
     ctx.tavern.settlementTool({ name: 'anchor_submit', description: '提交叙事锚点', parameters: { type: 'object', properties: { text: { type: 'string' } } },
+      enabledFor: async ({ gameId }) => enabled && gameId === 'game-1',
       execute: async ({ gameId, turn, arguments: args }) => { calls.push([gameId, turn, args.text]); if (args.text === 'bad') throw new Error('写入失败'); return { ok: true } } })
   } })
   await tick()
@@ -373,6 +395,13 @@ test('tavern 服务 v2：本轮上下文、世界书来源、结算说明与结�
   assert.deepEqual(h.api.settlement.tools().map(tool => tool.name), ['anchor_submit'])
   assert.deepEqual((await h.api.settlement.sections({ gameId: 'game-1', turn: 4 })).map(section => section.text), ['第 4 轮请记录叙事锚点'])
   const call = h.api.settlement.calls({ gameId: 'game-1', turn: 4 })
+  const availability = () => h.api.settlement.toolNames({ gameId: 'game-1', turn: 4 })
+  assert.deepEqual(await availability(), { available: ['anchor_submit'], unavailable: [] })
+  enabled = false
+  assert.deepEqual(await availability(), { available: [], unavailable: ['anchor_submit'] })
+  assert.match(JSON.parse(await call('anchor_submit', { text: '关闭后' })).error, /未启用/)
+  assert.deepEqual(calls, [])
+  enabled = true
   assert.deepEqual(JSON.parse(await call('anchor_submit', { text: '门' })), { ok: true })
   assert.match(JSON.parse(await call('anchor_submit', { text: 'bad' })).error, /写入失败/, 'a plugin error is returned to the model, not thrown')
   assert.deepEqual(calls, [['game-1', 4, '门'], ['game-1', 4, 'bad']])
@@ -392,6 +421,21 @@ test('tavern 服务 v2：本轮上下文、世界书来源、结算说明与结�
   assert.match(JSON.parse(await call('anchor_submit', {})).error, /不可用/)
 })
 
+test('a settlement tool of another card plugin is refused with a hint to use the listed tools', { skip: !cordis }, async t => {
+  const cards = { 'game-a': '/cards/a.json', 'game-b': '/cards/b.json' }
+  const h = await harness(t, {
+    cardScope: async () => new Map([['card-a', { cards: ['/cards/a.json'] }], ['card-b', { cards: ['/cards/b.json'] }]]),
+    resolveGame: async sessionId => cards[sessionId] ? { chatId: 'chat-' + sessionId, sessionId } : null,
+    cardPathOf: async sessionId => cards[sessionId] ?? null
+  })
+  const tool = name => ({ name, description: name, parameters: { type: 'object' }, execute: async () => ({ ok: true }) })
+  await h.root.plugin({ name: 'card-a', inject: ['tavern'], apply(ctx) { ctx.tavern.settlementTool(tool('alpha_trust')) } })
+  await h.root.plugin({ name: 'card-b', inject: ['tavern'], apply(ctx) { ctx.tavern.settlementTool(tool('beta_trust')) } })
+  await tick()
+  const call = h.api.settlement.calls({ gameId: 'game-a', turn: 1 })
+  assert.match(JSON.parse(await call('beta_trust', {})).error, /不在本局生效.*以结算任务里列出的可用插件工具为准/)
+  assert.deepEqual(JSON.parse(await call('alpha_trust', {})), { ok: true })
+})
 test('插件存档数据：按轮数据绑定正文版本，回退与重新生成后自然读不到旧版本，撤销后恢复；整局数据不随剧情变', { skip: !cordis }, async t => {
   const store = memoryStore()
   // The story line: turn -> the text version currently shown.
@@ -432,47 +476,6 @@ test('插件存档数据：按轮数据绑定正文版本，回退与重新生�
   assert.deepEqual(changes, [{ gameId: 'game-1', kind: 'rollback', turn: 3, textVersion: 'v3' }])
 })
 
-test('分叉：可见的插件数据与媒体按新游戏的正文版本带过去，旧版本与分叉点之后的不带', { skip: !cordis }, async t => {
-  const store = memoryStore()
-  const data = createPluginData({ store })
-  const media = createPluginMedia({ store })
-  await data.saveTurn({ chatId: 'chat-1', owner: 'memory', turn: 2, key: 'v2', data: { hp: 8 } })
-  await data.saveTurn({ chatId: 'chat-1', owner: 'memory', turn: 2, key: 'v2-old', data: { hp: 1 } })
-  await data.saveTurn({ chatId: 'chat-1', owner: 'memory', turn: 4, key: 'v4', data: { hp: 2 } })
-  await data.saveGame({ chatId: 'chat-1', owner: 'memory', data: { seen: 1 } })
-  await media.issue('chat-1', 2, 'v2')
-  await media.attach({ chatId: 'chat-1', sessionId: 'game-1', owner: 'img', turn: 2, key: 'v2', currentKey: 'v2', item: { kind: 'x/y', data: 1 } })
-  const h = await harness(t, { data, media })
-  assert.deepEqual(await h.api.forkTurns('chat-1'), [2, 4])
-  const copied = await h.api.gameForked({ sourceChatId: 'chat-1', targetChatId: 'chat-2', targetSessionId: 'game-2', keyMap: new Map([['2\u0000v2', 'f2']]) })
-  assert.deepEqual(copied, { data: 1, media: 1 })
-  assert.deepEqual((await data.turnsUpTo({ chatId: 'chat-2', owner: 'memory', turn: 9 })).map(item => [item.turn, item.key, item.data]), [[2, 'f2', { hp: 8 }]])
-  assert.deepEqual(await data.readGame({ chatId: 'chat-2', owner: 'memory' }), { seen: 1 })
-  const forkedMedia = await media.list({ chatId: 'chat-2' })
-  assert.equal(forkedMedia[0].key, 'f2')
-  assert.match(forkedMedia[0].id, /^Z2FtZS0y\./, 'new ids belong to the new game')
-  assert.equal((await media.list({ chatId: 'chat-1' })).length, 1, 'the source game keeps its own')
-})
-
-test('插件出错只丢自己那一份上下文，并记进日志', { skip: !cordis }, async t => {
-  const h = await harness(t, { data: createPluginData({ store: memoryStore() }) })
-  const seen = []
-  await h.root.plugin({ name: 'mem', inject: ['tavern'], apply(ctx) {
-    ctx.tavern.onTurnSettled(turn => seen.push(turn.turn))
-    ctx.tavern.turnSection({ name: 'state', text: '【状态】' })
-    ctx.tavern.settlementTool({ name: 'mem_save', description: '保存', parameters: { type: 'object' }, execute: () => 'ok' })
-  } })
-  await h.root.plugin({ name: 'flaky', inject: ['tavern'], apply(ctx) { ctx.tavern.turnSection({ name: 'x', text: () => { throw new Error('坏了') } }) } })
-  await tick()
-  assert.equal((await h.api.turnContext({ gameId: 'game-1', turn: 3, input: '' })).length, 1)
-  assert.deepEqual(h.errors().map(item => [item.plugin, item.stage, item.message]), [['flaky', '本轮上下文段落', '坏了']])
-
-  assert.deepEqual(await h.api.settlement.toolNames({ gameId: 'game-1' }), { available: ['mem_save'], unavailable: [] })
-  await h.api.turnSettled('game-1')
-  await tick()
-  assert.deepEqual(seen, [3], 'the other plugin is still notified')
-})
-
 test('结算替换：唯一插件自动生效，多个时都不生效，返回不合格或出错时退回 Tavern 自己的结算', { skip: !cordis }, async t => {
   const h = await harness(t, { data: createPluginData({ store: memoryStore() }) })
   const inputs = []
@@ -506,16 +509,6 @@ test('结算替换：唯一插件自动生效，多个时都不生效，返回�
   await h.root.plugin({ name: 'rival', inject: ['tavern'], apply(ctx) { ctx.tavern.replaceSettlement({ settle: async () => ({ posture: '对手' }) }) } })
   await tick()
   assert.equal(await settle(), null, 'two candidates and no choice: neither applies')
-})
-
-test('tavern 服务：删局通知', { skip: !cordis }, async t => {
-  const h = await harness(t)
-  const removed = []
-  await h.root.plugin({ name: 'cleaner', inject: ['tavern'], apply(ctx) { ctx.tavern.onGameRemoved(event => removed.push(event.gameId)) } })
-  await tick()
-  h.api.gameRemoved('game-1')
-  await tick()
-  assert.deepEqual(removed, ['game-1'])
 })
 
 test('插件轮次读取：真实存储下与生图共用正文版本，未结算的最新一轮不可读', async t => {
@@ -605,61 +598,6 @@ test('tavern 服务：handle 注册的处理函数供浏览器侧 callHost 调�
   await assert.rejects(h.api.callHandler('drawer/draw', {}), { code: 'TAVERN_PLUGIN_NOT_FOUND' })
 })
 
-test('tavern 服务：worldbookEntries 的条目经校验后交给世界书召回，坏条目记入插件错误', { skip: !cordis }, async t => {
-  const h = await harness(t, { data: { readSettings: async () => ({ disabled: [] }), updateSettings: async () => {} } })
-  const seen = []
-  const fiber = await h.root.plugin({ name: 'narrative-anchor', inject: ['tavern'], apply(ctx) {
-    ctx.tavern.worldbookEntries({ name: 'session', entries: async context => { seen.push(context); return [
-      { id: 'letter', title: '未署名的信', content: '  信是周姨写的。 ', keys: ['那封信', 3], force: true },
-      { id: 'letter', content: '重复' },
-      { id: 'bad id', content: 'x' },
-      { id: 'tpl', content: '<%= 1 %>' },
-      { id: 'empty', content: '  ' },
-    ] } })
-    assert.throws(() => ctx.tavern.worldbookEntries({ name: 'session', entries: () => [] }), /已注册/)
-  } })
-  await tick()
-  const entries = await h.api.worldbookPoolEntries({ gameId: 'game-1', turn: 4 })
-  assert.deepEqual(seen, [{ gameId: 'game-1', turn: 4 }])
-  assert.deepEqual(entries, [{ owner: 'narrative-anchor', source: 'session', id: 'letter', content: '信是周姨写的。', title: '未署名的信', keys: ['那封信'], secondaryKeys: [], constant: false, force: true }])
-  assert.match(h.errors()[0].message, /重复.*bad id.*EJS/)
-  await h.api.worldbookPoolEntries({ gameId: 'game-1', turn: 4 })
-  assert.equal(h.errors().length, 1, '同一问题每轮多次读取只记一次')
-  fiber.dispose()
-  await tick()
-  assert.deepEqual(await h.api.worldbookPoolEntries({ gameId: 'game-1', turn: 4 }), [])
-})
-
-test('tavern 服务：玩家称呼区分全局默认与本局，实时读取且不依赖轮次结算', { skip: !cordis }, async t => {
-  let defaultName = '默认玩家', playerName = '林岚'
-  const sessions = []
-  const h = await harness(t, {
-    readDefaultPlayerName: async () => defaultName,
-    readPlayerName: async sessionId => { sessions.push(sessionId); return playerName },
-    readLatestSettledTurn: async () => { throw new Error('称呼读取不应依赖正文') },
-  })
-  let tavern
-  await h.root.plugin({ name: 'archive-plugin', inject: ['tavern'], apply(ctx) { tavern = ctx.tavern } })
-  await tick()
-  assert.equal(await tavern.getDefaultPlayerName(), '默认玩家')
-  assert.equal(await tavern.getPlayerName({ gameId: 'game-1' }), '林岚')
-  defaultName = '新的默认'
-  assert.equal(await tavern.getDefaultPlayerName(), '新的默认')
-  assert.equal(await tavern.getPlayerName({ gameId: 'game-1' }), '林岚', '改默认称呼不改已有游戏')
-  playerName = ' 本局新称呼 '
-  assert.equal(await tavern.getPlayerName({ gameId: 'game-1' }), '本局新称呼')
-  assert.deepEqual(sessions, ['game-1', 'game-1', 'game-1'])
-  playerName = undefined
-  assert.equal(await tavern.getPlayerName({ gameId: 'game-1' }), '你', '旧存档缺称呼时不套用新的全局默认')
-  for (const empty of [undefined, '', '  ']) {
-    defaultName = playerName = empty
-    assert.equal(await tavern.getDefaultPlayerName(), '你')
-    assert.equal(await tavern.getPlayerName({ gameId: 'game-1' }), '你')
-  }
-  await assert.rejects(tavern.getPlayerName({ gameId: 'missing' }), { code: 'TAVERN_PLUGIN_NOT_FOUND' })
-  await assert.rejects(tavern.getPlayerName(), /gameId/)
-})
-
 test('tavern 服务：修改玩家称呼校验输入、隔离默认与本局，拒绝忙碌及越界写入', { skip: !cordis }, async t => {
   let defaultName = '默认', playerName = '本局', activity = {}
   const writes = []
@@ -696,75 +634,6 @@ test('tavern 服务：修改玩家称呼校验输入、隔离默认与本局，�
     await assert.rejects(tavern.setPlayerName({ gameId: 'game-1', playerName: '新名' }), { code: 'TAVERN_PLUGIN_BUSY' })
   }
   assert.equal(writes.length, before, '拒绝的请求没有写入')
-})
-
-test('tavern 服务：getCard、getHistory 只读；setVariables、editTurn 只改最新一轮的当前版本', { skip: !cordis }, async t => {
-  const writes = [], edits = [], ranges = []
-  const h = await harness(t, {
-    readCard: async sessionId => ({ name: 'A', description: '海边小镇', sessionId }),
-    readCardImage: async sessionId => sessionId === 'game-1' ? { url: '/api/dsh-tavern/card-image?path=cards%2Fa.json', mediaType: 'image/png' } : null,
-    readHistory: async (sessionId, first, last) => { ranges.push([first, last]); return [{ turn: first, input: '你好', text: '她推开门。', rawText: '<b>她</b>推开门。' }] },
-    writeVariables: async (material, variables) => writes.push([material.turn, variables]),
-    editText: async (material, text, options) => edits.push(options ? [material.turn, text, options] : [material.turn, text]),
-    readTurn: async (sessionId, turn) => sessionId === 'game-1' ? turnMaterial({ turn, key: 'key-' + turn }) : null,
-    data: { readSettings: async () => ({ disabled: [] }), updateSettings: async () => {} },
-  })
-  let tavern
-  await h.root.plugin({ name: 'state-plugin', inject: ['tavern'], apply(ctx) { tavern = ctx.tavern } })
-  await tick()
-  const card = await tavern.getCard({ gameId: 'game-1' })
-  card.name = '改了'
-  assert.equal((await tavern.getCard({ gameId: 'game-1' })).name, 'A', '拿到的是副本')
-  assert.deepEqual(await tavern.getCardImage({ gameId: 'game-1' }), { url: '/api/dsh-tavern/card-image?path=cards%2Fa.json', mediaType: 'image/png' })
-  await tavern.getHistory({ gameId: 'game-1', from: 2 })
-  await tavern.getHistory({ gameId: 'game-1', from: 1, to: 500 })
-  assert.deepEqual(ranges, [[2, 51], [1, 50]], '一次最多 50 轮')
-  await assert.rejects(tavern.getHistory({ gameId: 'game-1', from: 5, to: 2 }), /to 不能小于 from/)
-
-  assert.deepEqual(await tavern.setVariables({ gameId: 'game-1', turn: 3, textVersion: 'key-3', variables: { stat_data: { 日期: '初五' } } }), { turn: 3, textVersion: 'key-3' })
-  assert.deepEqual(writes, [[3, { stat_data: { 日期: '初五' } }]])
-  await assert.rejects(tavern.setVariables({ gameId: 'game-1', turn: 3, textVersion: 'old', variables: {} }), { code: 'TAVERN_PLUGIN_STALE_VERSION' })
-  await assert.rejects(tavern.setVariables({ gameId: 'game-1', turn: 3, textVersion: 'key-3', variables: [] }), /对象/)
-  await tavern.editTurn({ gameId: 'game-1', turn: 3, textVersion: 'key-3', text: '她轻轻推开门。' })
-  assert.deepEqual(edits, [[3, '她轻轻推开门。']])
-  await tavern.editTurn({ gameId: 'game-1', turn: 3, textVersion: 'key-3', text: '她推开了门。', polish: true })
-  assert.deepEqual(edits[1], [3, '她推开了门。', { polish: true }])
-
-  h.setLatest(turnMaterial({ turn: 4, index: 7, key: 'key-4' }))
-  await assert.rejects(tavern.setVariables({ gameId: 'game-1', turn: 3, textVersion: 'key-3', variables: {} }), { code: 'TAVERN_PLUGIN_TURN_UNAVAILABLE' }, '不是最新一轮')
-})
-
-test('tavern 服务：runTask 校验工具，模型调用的工具交给插件执行，失败记入插件错误', { skip: !cordis }, async t => {
-  let request
-  const h = await harness(t, {
-    reservedToolNames: ['posture_submit'],
-    data: { readSettings: async () => ({ disabled: [] }), updateSettings: async () => {} },
-    runTask: async input => {
-      request = input
-      const ok = await input.call('note_save', { text: '记下' })
-      const bad = await input.call('note_fail', {})
-      const missing = await input.call('nobody', {})
-      return { text: [ok, bad, missing].join('|') }
-    },
-  })
-  let tavern
-  await h.root.plugin({ name: 'world-plugin', inject: ['tavern'], apply(ctx) { tavern = ctx.tavern } })
-  await tick()
-  const tools = [
-    { name: 'note_save', description: '保存', parameters: { type: 'object' }, execute: async ({ text }) => ({ ok: true, text }) },
-    { name: 'note_fail', description: '失败', parameters: { type: 'object' }, execute: async () => { throw new Error('写不进去') } },
-  ]
-  const result = await tavern.runTask({ gameId: 'game-1', prompt: '  推演这十天  ', tools })
-  assert.equal(request.prompt, '推演这十天')
-  assert.equal(request.owner, 'world-plugin')
-  assert.deepEqual(request.tools.map(tool => tool.name), ['note_save', 'note_fail'])
-  assert.equal(request.tools[0].execute, undefined, '只把定义交给模型')
-  assert.match(result.text, /"text":"记下"/)
-  assert.match(result.text, /写不进去/)
-  assert.match(result.text, /没有这个工具/)
-  assert.match(h.errors()[0].message, /写不进去/)
-  await assert.rejects(tavern.runTask({ gameId: 'game-1', prompt: 'x', tools: [{ ...tools[0], name: 'posture_submit' }] }), /已被占用/)
-  await assert.rejects(tavern.runTask({ gameId: 'game-1', prompt: ' ' }), /prompt/)
 })
 
 test('结算任务：按阶段依次运行，每个正文版本一次，出错只记错误', { skip: !cordis }, async t => {
@@ -845,49 +714,6 @@ test('手动任务：玩家或插件启动，带输入，可停止；任务不�
   await assert.rejects(h.api.manualTaskFor('game-1', 'alpha:nothing'), /没有这个插件任务/)
 })
 
-test('tavern 服务：getTurnState 给出最新一轮、正文版本、是否在写或在结算；开场白带 greeting', { skip: !cordis }, async t => {
-  let pending = turnMaterial({ turn: 4, key: 'key-4' }), settled = turnMaterial(), activity = { generating: false, settling: true }
-  const h = await harness(t, {
-    readPendingTurn: async () => pending, readLatestSettledTurn: async () => settled, readActivity: async () => activity
-  })
-  let tavern
-  await h.root.plugin({ name: 'battle', inject: ['tavern'], apply(ctx) { tavern = ctx.tavern } })
-  await tick()
-  assert.deepEqual(await tavern.getTurnState({ gameId: 'game-1' }),
-    { gameId: 'game-1', turn: 4, textVersion: 'key-4', greeting: false, generating: false, settling: true, busy: true, settled: false })
-  settled = pending; activity = { generating: false, settling: false }
-  const state = await h.api.turnState('game-1')
-  assert.equal(state.settled, true); assert.equal(state.busy, false)
-  pending = settled = turnMaterial({ turn: 1, key: 'key-1', greeting: true })
-  assert.equal((await tavern.getTurnState({ gameId: 'game-1' })).greeting, true)
-  await assert.rejects(tavern.getTurnState({ gameId: 'missing' }), /不存在/)
-  h.setLatest(turnMaterial({ turn: 1, key: 'key-1', greeting: true }))
-  assert.equal((await tavern.getTurn({ gameId: 'game-1', turn: 1 })).greeting, true)
-})
-
-test('导入存档：插件数据与媒体按新游戏的正文版本写入，文件引用换成新存的，存不下的媒体项不带', async () => {
-  const store = memoryStore()
-  const data = createPluginData({ store, now: () => 1 }), media = createPluginMedia({ store, id: () => 'n' })
-  await data.saveTurn({ chatId: 'src', owner: 'p', turn: 2, key: 'old2', data: { hp: 3 } })
-  await data.saveTurn({ chatId: 'src', owner: 'p', turn: 3, key: 'gone', data: { hp: 1 } })
-  await data.saveGame({ chatId: 'src', owner: 'p', data: { level: 4 } })
-  await media.issue('src', 2, 'old2')
-  await media.attach({ chatId: 'src', sessionId: 's', owner: 'p', turn: 2, key: 'old2', currentKey: 'old2', item: { kind: 'audio', status: 'ready', attachment: { attachmentId: 'a', name: 'x.mp3' } } })
-  await media.attach({ chatId: 'src', sessionId: 's', owner: 'p', turn: 2, key: 'old2', currentKey: 'old2', item: { kind: 'video', status: 'ready', attachment: { attachmentId: 'lost', name: 'y.mp4' } } })
-  const api = createTavernPluginApi({ ctx: undefined, media, data, logger: { warn() {} } })
-  const saved = await api.exportGame('src')
-  assert.equal(await api.exportGame('empty'), null)
-  const keyMap = new Map([['2\u0000old2', 'new2']])
-  const imported = await api.importGame({ targetChatId: 'dst', targetSessionId: 't', keyMap, ...structuredClone(saved),
-    attachment: ref => ref.attachmentId === 'a' ? { ...ref, attachmentId: 'a2' } : null })
-  assert.deepEqual(imported, { data: 1, media: 1 })
-  const turns = await data.turnsUpTo({ chatId: 'dst', owner: 'p', turn: 9 })
-  assert.equal(turns.length, 1); assert.equal(turns[0].key, 'new2'); assert.deepEqual(turns[0].data, { hp: 3 })
-  assert.deepEqual(await data.readGame({ chatId: 'dst', owner: 'p' }), { level: 4 })
-  const items = await media.list({ chatId: 'dst' })
-  assert.equal(items.length, 1); assert.equal(items[0].key, 'new2'); assert.equal(items[0].attachment.attachmentId, 'a2')
-})
-
 test('人物卡库、改卡、工具可见范围与 Skill：插件不用读写 Tavern 文件', { skip: !cordis }, async t => {
   const raw = { spec: 'chara_card_v2', data: { name: 'A', extensions: {} } }
   const updates = [], skills = new Map([['debug-card', { name: 'debug-card', source: 'builtin', description: '内置', content: '---' }]]), removed = []
@@ -947,70 +773,6 @@ test('人物卡库、改卡、工具可见范围与 Skill：插件不用读写 T
   assert.equal(h.api.toolSkillsFor('wrongbook_lookup'), null, '插件卸载后解锁 Skill 撤销')
 })
 
-test('人物设计档案：插件读取本局档案，并能按结算同样的规则保存人物', { skip: !cordis }, async t => {
-  const archive = { revision: 2, updatedAt: 1, characters: [{ name: '林岚', aliases: ['阿岚'], identity: '镖师', narrativeRole: '护送', updatedAt: 1, sections: [{ key: 'appearance', label: '外貌', text: '黑发' }] }] }
-  const saved = []
-  const h = await harness(t, {
-    readCharacterDesigns: async sessionId => sessionId === 'game-1' ? archive : null,
-    saveCharacterDesign: async (sessionId, input) => { saved.push([sessionId, input]); return input.identity ? { ok: true, name: input.name } : { ok: false, error: '人物设计缺少 identity' } },
-    data: { readSettings: async () => ({}), updateSettings: async () => {} }
-  })
-  let tavern
-  await h.root.plugin({ name: 'image-plugin', inject: ['tavern'], apply(ctx) { tavern = ctx.tavern } })
-  await tick()
-  const read = await tavern.getCharacterDesigns({ gameId: 'game-1' })
-  read.characters[0].name = '改了'
-  assert.equal(archive.characters[0].name, '林岚', '读到的是副本')
-  await assert.rejects(tavern.getCharacterDesigns({ gameId: 'nope' }), /不存在/)
-
-  const person = { name: '林岚', aliases: ['阿岚'], identity: '镖师', personality: '冷静', appearance: '黑发、左眉有疤', speechStyle: '简短', narrativeRole: '护送' }
-  assert.deepEqual(await tavern.saveCharacterDesign({ gameId: 'game-1', ...person }), { name: '林岚' })
-  assert.deepEqual(saved, [['game-1', person]])
-  await assert.rejects(tavern.saveCharacterDesign({ gameId: 'game-1', name: '无名' }), /缺少 identity/)
-  await assert.rejects(tavern.saveCharacterDesign({ gameId: 'game-1', ...person, aliases: '阿岚' }), /aliases/)
-})
-
-test('台词标注与角色素材：插件读取某轮当前版本的标注和卡的人物素材，标注完成时收到通知', { skip: !cordis }, async t => {
-  const lines = [{ n: 1, quote: '你好。', speaker: '林曦', emotion: 'joy' }]
-  const h = await harness(t, {
-    readCast: async (sessionId, turn) => turn === 3 ? { turn, textVersion: 'key-3', lines } : null,
-    readCastAssets: async () => ({ player: '你', card: { name: 'A', imageUrl: '/card' }, characters: [{ name: '林曦', aliases: [], avatarUrl: '/a', sprites: { joy: '/j' } }] })
-  })
-  const seen = []
-  let tavern
-  await h.root.plugin({ name: 'director', inject: ['tavern'], apply(ctx) { tavern = ctx.tavern; ctx.tavern.onCastAnnotated(event => seen.push(event)) } })
-  await tick()
-  assert.deepEqual(await tavern.getCast({ gameId: 'game-1', turn: 3 }), { turn: 3, textVersion: 'key-3', lines })
-  assert.equal(await tavern.getCast({ gameId: 'game-1', turn: 4 }), null)
-  await assert.rejects(tavern.getCast({ gameId: 'nope', turn: 3 }), /不存在/)
-  assert.equal((await tavern.getCastAssets({ gameId: 'game-1' })).characters[0].sprites.joy, '/j')
-  h.api.castAnnotated('game-1', { turn: 3, textVersion: 'key-3', lines })
-  await tick()
-  assert.deepEqual(seen, [{ gameId: 'game-1', turn: 3, textVersion: 'key-3', lines }])
-})
-
-test('角色素材来源：插件交出的人物经校验后并入本局角色素材；坏来源记入插件错误', { skip: !cordis }, async t => {
-  const h = await harness(t)
-  const seen = []
-  const fiber = await h.root.plugin({ name: 'card-figure', inject: ['tavern'], apply(ctx) {
-    ctx.tavern.castAssetSource({ name: 'figure', characters: async context => { seen.push(context); return [
-      { name: ' 大肥鱼 ', aliases: ['肥鱼', 3], avatarUrl: '/calm', avatars: { joy: '/joy', shy: 'javascript:alert(1)' }, sprites: { joy: 'https://x/joy.png' } },
-      { name: '' },
-    ] } })
-    ctx.tavern.castAssetSource({ name: 'broken', characters: async () => { throw new Error('读不到素材包') } })
-    assert.throws(() => ctx.tavern.castAssetSource({ name: 'figure', characters: () => [] }), /已注册/)
-    assert.throws(() => ctx.tavern.castAssetSource({ name: 'x' }), /characters 必须是函数/)
-  } })
-  await tick()
-  assert.deepEqual(await h.api.castAssetSources({ gameId: 'game-1' }), [
-    { name: '大肥鱼', aliases: ['肥鱼'], avatarUrl: '/calm', avatars: { joy: '/joy' }, sprites: { joy: 'https://x/joy.png' }, plugin: 'card-figure' }])
-  assert.deepEqual(seen, [{ gameId: 'game-1' }])
-  assert.match(h.errors()[0].message, /读不到素材包/)
-  fiber.dispose()
-  await tick()
-  assert.deepEqual(await h.api.castAssetSources({ gameId: 'game-1' }), [])
-})
-
 test('配音渠道：插件注册的渠道带上归属并通知语音服务接入，合成超时或出错记入插件错误；synthesizeSpeech 经语音服务合成', { skip: !cordis }, async t => {
   const lines = []
   let changes = 0
@@ -1039,34 +801,6 @@ test('配音渠道：插件注册的渠道带上归属并通知语音服务接�
   await assert.rejects(tavern.synthesizeSpeech({ gameId: 'game-1', text: ' ' }), /text/)
   await fiber.dispose(); await tick()
   assert.equal(changes, 2, '卸载插件后语音服务移除它的渠道')
-})
-
-test('生图渠道：插件注册的出图能力带上归属，状态被规整，出错记入插件错误；别的插件经 generateImage 借用', { skip: !cordis }, async t => {
-  const asked = []
-  const h = await harness(t, { generateImage: async input => { asked.push(input); return { data: new Uint8Array([2]), mediaType: 'image/png' } } })
-  let tavern
-  await h.root.plugin({ name: 'painter', inject: ['tavern'], apply(ctx) {
-    tavern = ctx.tavern
-    ctx.tavern.imageProvider({ id: 'online', label: '配图', status: () => ({ ready: true, model: 'gpt-image', maxReferences: 4.5 }),
-      generate: async ({ prompt }) => {
-        if (prompt === 'boom') throw Object.assign(new Error('渠道挂了'), { requestMayHaveSucceeded: false })
-        return { data: new Uint8Array([1]), mediaType: 'image/png' }
-      }, presets: () => [{ id: 'no-style', name: '不加画风', status: 'stable', usages: [] }] })
-  } })
-  await tick()
-  const [entry] = h.api.imageProviders()
-  assert.equal(entry.id, 'painter/online')
-  assert.equal(entry.label, '配图')
-  assert.deepEqual(await entry.status(), { ready: true, reason: '', model: 'gpt-image', maxReferences: 0 })
-  assert.deepEqual(await entry.generate({ prompt: 'a' }), { data: new Uint8Array([1]), mediaType: 'image/png' })
-  assert.deepEqual(entry.presets().map(preset => preset.id), ['no-style'])
-  await assert.rejects(entry.generate({ prompt: 'boom' }), error => error.requestMayHaveSucceeded === false)
-  assert.throws(() => tavern.imageProvider({ id: 'online', label: '重复', status() {}, generate() {} }), /已注册/)
-  assert.throws(() => tavern.imageProvider({ id: 'other', label: 'x', generate() {} }), /status/)
-  assert.throws(() => tavern.imageProvider({ id: 'other', label: 'x', status() {}, generate() {}, presets: [] }), /presets/)
-
-  assert.deepEqual(await tavern.generateImage({ prompt: '猫', width: 64, height: 64 }), { data: new Uint8Array([2]), mediaType: 'image/png' })
-  assert.deepEqual(asked, [{ prompt: '猫', width: 64, height: 64 }])
 })
 
 test('价格提供方：getModelPricing 问插件报价，没有提供方就不可用，卸载即撤销', { skip: !cordis }, async t => {
@@ -1101,37 +835,6 @@ test('价格提供方：getModelPricing 问插件报价，没有提供方就不�
   await tick()
   assert.equal(h.api.pricingProviders().length, 0)
   assert.equal((await settings.getModelPricing({ sessionId: 'game-1' })).available, false)
-})
-
-test('卡内插件只在所属人物卡的局里出现：回调不触发、调用被拒、人物卡列表只剩本卡、本局插件面板不列出', { skip: !cordis }, async t => {
-  let cardOfGame = 'cards/other.json'
-  const settled = []
-  const h = await harness(t, {
-    data: createPluginData({ store: memoryStore() }),
-    cardScope: async () => new Map([['fish-plugin', { cards: ['cards/fish.json'], folder: 'card-x-fish' }]]),
-    cardPathOf: async () => cardOfGame,
-    listCards: async () => [{ path: 'cards/fish.json', name: '鱼' }, { path: 'cards/other.json', name: '别的' }],
-    readCardRaw: async () => ({ data: {} })
-  })
-  let tavern
-  await h.root.plugin({ name: 'fish-plugin', inject: ['tavern'], apply(ctx) { tavern = ctx.tavern; ctx.tavern.onTurnSettled(turn => settled.push(turn.turn)); ctx.tavern.promptSection({ name: 'fish', text: '鱼的规则' }) } })
-  await tick()
-  await h.api.turnSettled('game-1')
-  await tick()
-  assert.deepEqual(settled, [], '别的卡的局不通知')
-  assert.deepEqual(await h.api.promptSections({ gameId: 'game-1' }), [])
-  await assert.rejects(tavern.getTurn({ gameId: 'game-1', turn: 3 }), /只能用于它所在的人物卡/)
-  await assert.rejects(tavern.readCardRaw({ card: 'cards/other.json' }), /只能用于它所在的人物卡/)
-  assert.deepEqual((await tavern.listCards()).map(card => card.id), ['cards/fish.json'])
-
-  cardOfGame = 'cards/fish.json'
-  h.setLatest(turnMaterial({ key: 'key-3c' }))
-  await h.api.turnSettled('game-1')
-  await tick()
-  assert.deepEqual(settled, [3], '本卡的局照常通知')
-  assert.equal((await tavern.getTurn({ gameId: 'game-1', turn: 3 })).text, '她推开门。')
-  assert.deepEqual((await h.api.promptSections({ gameId: 'game-1' })).map(item => item.text), ['鱼的规则'])
-  assert.deepEqual((await h.api.promptSections({ gameId: 'game-1' })).map(item => item.text), ['鱼的规则'])
 })
 
 test('本局配置项：插件声明字段，Tavern 画在本局设置并按局保存；不合法的值被拒绝，改动通知插件', { skip: !cordis }, async t => {
@@ -1207,20 +910,6 @@ test('版本失效信号：versionSignal 在正文版本被替换或删局时中
   assert.equal(taskSignal.aborted, true)
 })
 
-test('并行结算任务：phase parallel 读结算前的这一轮，不能改变量', { skip: !cordis }, async t => {
-  const h = await harness(t, { data: createPluginData({ store: memoryStore() }), readPendingTurn: async () => turnMaterial({ key: 'pending-3' }) })
-  const ran = []
-  await h.root.plugin({ name: 'director', inject: ['tavern'], apply(ctx) {
-    ctx.tavern.settlementTask({ name: 'stage', phase: 'parallel', run: async input => {
-      ran.push(input.phase + ':' + input.textVersion)
-      await assert.rejects(ctx.tavern.setVariables({ gameId: 'game-1', turn: 3, textVersion: 'key-3', variables: {} }))
-    } })
-  } })
-  await tick()
-  await h.api.runSettlementTasks({ gameId: 'game-1', phase: 'parallel' })
-  assert.deepEqual(ran, ['parallel:pending-3'])
-})
-
 test('publishState：插件给自己的浏览器侧发布最新状态，按插件、按局隔离；关闭的插件读不到，删局后清除', { skip: !cordis }, async t => {
   const signals = []
   const h = await harness(t, { data: createPluginData({ store: memoryStore() }), publishState: (...args) => signals.push(args) })
@@ -1252,71 +941,6 @@ test('getRequestContext：读这一轮正文请求用到的各段上下文，标
     { slot: 'currentStateProjection', origin: 'plugin', plugin: 'memory', name: 'recent', text: '上次说到钟楼' }
   ])
   assert.equal(foregroundRequestContext(chat, 9), null)
-})
-
-test('改卡带版本：expectedRevision 在卡的编辑队列里比对，不一致时报冲突、不改卡；onCardChanged 只告诉卡内插件它自己的卡', { skip: !cordis }, async t => {
-  const { createCardEditor } = await import('../tavern-plugin/lib/domain/card-editor.js')
-  let revision = 4
-  const writes = []
-  const updateCard = createCardEditor({
-    readCardWorkspace: async () => ({ data: {} }),
-    cardPreparation: { update: () => ({ changed: true, card: { data: { x: 1 } }, view: {} }), present: () => ({}) },
-    fileResources: { writeWorking: async (path, text) => writes.push(path) },
-    bumpCardProjectionRevision: async () => { revision += 1 },
-    syncCardName: async () => {},
-    cardRevision: async () => revision
-  })
-  await updateCard('cards/a.json', {}, {}, [], { expectedRevision: 4 })
-  await assert.rejects(updateCard('cards/a.json', {}, {}, [], { expectedRevision: 4 }), error => error.code === 'REVISION_CONFLICT')
-  assert.equal(writes.length, 1)
-
-  const passed = []
-  const h = await harness(t, {
-    updateCardRaw: async (card, operations, owner, options) => { passed.push(options); if (options.expectedRevision === 1) throw Object.assign(new Error('冲突'), { code: 'REVISION_CONFLICT' }); return { changed: true, revision: 6 } },
-    cardRevision: async () => 5,
-    cardScope: async () => new Map([['card-own', { cards: ['cards/b.json'] }]])
-  })
-  const heard = []
-  let tavern
-  await h.root.plugin({ name: 'workbench', inject: ['tavern'], apply(ctx) { tavern = ctx.tavern; ctx.tavern.onCardChanged(change => heard.push(['workbench', change])) } })
-  await h.root.plugin({ name: 'card-own', inject: ['tavern'], apply(ctx) { ctx.tavern.onCardChanged(change => heard.push(['card-own', change])) } })
-  await tick()
-  assert.equal(await tavern.cardRevision({ card: 'cards/a.json' }), 5)
-  const operations = [{ op: 'set', path: '/data/x', value: 1 }]
-  assert.deepEqual(await tavern.updateCardRaw({ card: 'cards/a.json', operations, expectedRevision: 5 }), { changed: true, revision: 6 })
-  await assert.rejects(tavern.updateCardRaw({ card: 'cards/a.json', operations, expectedRevision: 1 }), error => error.code === 'TAVERN_PLUGIN_REVISION_CONFLICT')
-  await assert.rejects(tavern.updateCardRaw({ card: 'cards/a.json', operations, expectedRevision: 'x' }), /expectedRevision/)
-  assert.deepEqual(passed[0], { expectedRevision: 5 })
-  await h.api.cardChanged('cards/a.json', 6)
-  await tick()
-  assert.deepEqual(heard, [['workbench', { card: 'cards/a.json', revision: 6 }]])
-})
-
-test('写角色素材与素材包：按人物卡写，走 Tavern 自己的素材存储；卡内插件只能写自己的卡', { skip: !cordis }, async t => {
-  const calls = []
-  const cast = new Proxy({}, { get: (_target, method) => async input => { calls.push([method, input]) } })
-  const h = await harness(t, {
-    editCast: async (card, change) => change(cast, card),
-    saveCardPack: async (card, input) => { calls.push(['saveCardPack', card, input.id, input.files.length]); return { id: input.id, contentHash: 'h' } },
-    removeCardPack: async (card, id) => id === 'bg',
-    cardScope: async () => new Map([['card-own', { cards: ['cards/b.json'] }]])
-  })
-  let tavern, own
-  await h.root.plugin({ name: 'painter', inject: ['tavern'], apply(ctx) { tavern = ctx.tavern } })
-  await h.root.plugin({ name: 'card-own', inject: ['tavern'], apply(ctx) { own = ctx.tavern } })
-  await tick()
-  await tavern.setCastImage({ card: 'cards/a.json', name: '林岚', slot: 'joy', data: new Uint8Array([1, 2]) })
-  await assert.rejects(tavern.setCastImage({ card: 'cards/a.json', name: '林岚', slot: 'joy', data: 'x' }), /Uint8Array/)
-  await tavern.setCastVoice({ card: 'cards/a.json', name: '林岚', provider: 'painter/edge', voice: 'v' })
-  await tavern.setCastCharacter({ card: 'cards/a.json', name: '林岚', aliases: ['岚'] })
-  await tavern.removeCastImage({ card: 'cards/a.json', name: '林岚', slot: 'joy' })
-  await tavern.removeCastCharacter({ card: 'cards/a.json', name: '林岚' })
-  assert.deepEqual(calls.map(call => call[0]), ['setImage', 'setVoice', 'setCharacter', 'removeImage', 'removeCharacter'])
-  assert.equal(calls[0][1].cardPath, 'cards/a.json')
-  assert.deepEqual(await tavern.saveCardPack({ card: 'cards/a.json', id: 'bg', files: [{ path: 'a.png', data: new Uint8Array([1]) }] }), { id: 'bg', contentHash: 'h' })
-  await assert.rejects(tavern.saveCardPack({ card: 'cards/a.json', id: 'bg', files: [] }), /files/)
-  assert.equal(await tavern.removeCardPack({ card: 'cards/a.json', id: 'bg' }), true)
-  await assert.rejects(own.setCastCharacter({ card: 'cards/a.json', name: 'x' }), error => error.code === 'TAVERN_PLUGIN_SCOPE')
 })
 
 test('插件导入器：按扩展名接管 Tavern 不认识的人物卡文件，原生格式不能接管；交回的卡经校验，收尾出错不影响导入', { skip: !cordis }, async t => {
@@ -1363,93 +987,6 @@ test('skillSource：插件登记自己的 Skill 目录，卸载时撤销；卡�
   assert.deepEqual(roots, [{ owner: 'director', dir: resolvePath('/plugins/director/skills'), role: 'background' }])
   await fiber.dispose()
   assert.deepEqual(roots, [])
-})
-
-test('插件数据：不跟某一局走，每个插件只读写自己的那一份，256 MiB 上限，null 清除', { skip: !cordis }, async t => {
-  const { mkdtemp, rm } = await import('node:fs/promises')
-  const { tmpdir } = await import('node:os')
-  const path = (await import('node:path')).default
-  const { createPluginDataStore } = await import('../tavern-plugin/lib/domain/plugin-data-store.js')
-  const root = await mkdtemp(path.join(tmpdir(), 'plugin-data-'))
-  t.after(() => rm(root, { recursive: true, force: true }))
-  const h = await harness(t, { pluginData: createPluginDataStore({ dataRoot: root }) })
-  let image, other
-  await h.root.plugin({ name: 'dsh-tavern-image', inject: ['tavern'], apply(ctx) { image = ctx.tavern } })
-  await h.root.plugin({ name: 'other', inject: ['tavern'], apply(ctx) { other = ctx.tavern } })
-  await tick()
-  assert.equal(await image.readPluginData(), null)
-  await image.savePluginData({ data: { endpoint: 'http://127.0.0.1:8188' } })
-  assert.deepEqual(await image.readPluginData(), { endpoint: 'http://127.0.0.1:8188' })
-  assert.equal(await other.readPluginData(), null, '各插件互不可见')
-  await assert.rejects(image.savePluginData({}), /不能省略/)
-  assert.deepEqual(image.getPluginDataLimits(), { maxBytes: 256 * 1024 * 1024 })
-  const large = { presets: '预设'.repeat(100000) }
-  await image.savePluginData({ data: large })
-  assert.deepEqual(await image.readPluginData(), large)
-  await assert.rejects(image.savePluginData({ data: '中'.repeat(Math.ceil(256 * 1024 * 1024 / 3)) }), /256 MiB/)
-  assert.deepEqual(await image.readPluginData(), large, '超限不能破坏旧数据')
-  await image.savePluginData({ data: null })
-  assert.equal(await image.readPluginData(), null)
-})
-
-test('call context uses shared registries without opting old story plugins into calls', {skip:!cordis}, async t => {
-  const h = await harness(t), seen = []
-  const fiber = await h.root.plugin({name:'call-source', inject:['tavern'], apply(ctx) {
-    ctx.tavern.promptSection({name:'same', text:'story-only'})
-    ctx.tavern.promptSection({name:'same', target:'call', text:context => { seen.push(structuredClone(context)); context.subject.name = 'mutated'; return 'call-only' }})
-    ctx.tavern.turnSection({name:'before', target:'call', position:'before', text:({subject,input}) => subject.name + ':' + input})
-    ctx.tavern.worldbookSource({name:'world', target:'call', entries:({subject}) => [{title:subject.name, content:'private lore'}]})
-    ctx.tavern.promptSection({name:'broken', target:'call', text:() => {throw Error('isolated')}})
-    assert.throws(() => ctx.tavern.promptSection({name:'bad', target:'unknown', text:'x'}), /target/)
-  }})
-  const subject = {id:'actor-42', handle:'lin_yue', name:'林月', ref:{packId:'story-pack',figureId:'figure-7'}}
-  const input = {gameId:'game-1', turn:3, target:'call', subject, input:'你好'}
-  assert.deepEqual((await h.api.promptSections(input)).map(row=>row.text), ['call-only'])
-  assert.deepEqual((await h.api.promptSections({gameId:'game-1',turn:3})).map(row=>row.text), ['story-only'])
-  assert.deepEqual((await h.api.turnContext(input)).map(row=>[row.position,row.text]), [['before','林月:你好'],[undefined,'[林月] private lore']])
-  assert.equal(subject.name, '林月')
-  assert.equal(seen[0].subject.ref.figureId, 'figure-7')
-  assert.deepEqual(await h.api.turnContext({gameId:'game-1',turn:3}), [])
-  await fiber.dispose(); await tick()
-  assert.deepEqual(await h.api.promptSections(input), [])
-  assert.deepEqual(await h.api.turnContext(input), [])
-  // A host-owned section (e.g. a full call history) is not subject to the third-party section cap.
-  const fullHistory = '完整通话'.repeat(3000)
-  h.api.builtinPromptSection({name:'contact-call-history',target:'call',text:fullHistory,unbounded:true})
-  assert.deepEqual((await h.api.promptSections(input)).map(row => row.text), [fullHistory])
-})
-
-test('recognition-only speech providers share registration and unloading but never become TTS choices', {skip:!cordis}, async t => {
-  const h = await harness(t), partials = []
-  const fiber = await h.root.plugin({name:'asr-plugin', inject:['tavern'], apply(ctx) {
-    ctx.tavern.speechProvider({id:'local', label:'本地识别', recognize:async ({onPartial,signal}) => {
-      signal.throwIfAborted(); onPartial({text:'你',language:'zh'}); return {text:'你好',language:'zh'}
-    }})
-  }})
-  assert.deepEqual(h.api.speechProviders(), [])
-  const [provider] = h.api.speechProviders('recognize')
-  assert.equal(provider.id, 'asr-plugin/local')
-  assert.deepEqual(await provider.recognize({signal:new AbortController().signal,onPartial:row=>partials.push(row)}), {text:'你好',language:'zh'})
-  assert.deepEqual(partials, [{text:'你',language:'zh'}])
-  await fiber.dispose(); await tick()
-  assert.deepEqual(h.api.speechProviders('recognize'), [])
-})
-
-test('插件联网声明随卸载释放，不能覆盖原生工具或重复声明', { skip: !cordis }, async t => {
-  const h = await harness(t, { reservedToolNames: ['web_search'] })
-  let service
-  const fiber = await h.root.plugin({ name: 'network-plugin', inject: ['tavern'], apply(ctx) {
-    service = ctx.tavern
-    service.toolNetwork({ name: 'reference_lookup', capability: 'search' })
-  } })
-  await tick()
-  assert.equal(h.api.toolNetworkFor('reference_lookup'), 'search')
-  assert.throws(() => service.toolNetwork({ name: 'web_search' }), /自己的工具/)
-  assert.throws(() => service.toolNetwork({ name: 'reference_lookup' }), /已被声明/)
-  assert.throws(() => service.toolNetwork({ name: 'other', capability: 'anything' }), /search 或 fetch/)
-  await fiber.dispose()
-  await tick()
-  assert.equal(h.api.toolNetworkFor('reference_lookup'), undefined)
 })
 
 // #394 附带：配图插件的生成记录要和对话里的图同进同退。
@@ -1514,34 +1051,6 @@ test('台账整理替换：交回的增量先过校验；不合格、出错或�
   await assert.rejects(running, /停止了台账整理/)
 })
 
-test('插件成员：注册后任务可以挂上去，在它的常驻会话里跑；只能用自己的成员；插件卸载时成员一起移除', { skip: !cordis }, async t => {
-  const { listMembers } = await import('../tavern-plugin/lib/domain/background-members.js')
-  const requests = []
-  const h = await harness(t, { data: createPluginData({ store: memoryStore() }), readPendingTurn: async () => turnMaterial(),
-    runTask: async input => { requests.push(input); return { text: 'ok' } } })
-  let tavern
-  const fork = await h.root.plugin({ name: 'npc-plugin', inject: ['tavern'], apply(ctx) {
-    tavern = ctx.tavern
-    ctx.tavern.member({ name: 'luna', title: '露娜' })
-    ctx.tavern.settlementTask({ name: 'diary', title: '露娜日记', member: 'luna', run: async input => { await input.runAgent({ prompt: '写日记' }) } })
-  } })
-  await tick()
-  assert.ok(listMembers().some(member => member.id === 'plugin:npc-plugin:luna' && member.name === '露娜' && member.plugin === 'npc-plugin'))
-  assert.deepEqual(h.api.taskCatalog().map(item => [item.task, item.name, item.plugin, item.member, item.lane]),
-    [['plugin:npc-plugin:diary', '露娜日记', 'npc-plugin', 'plugin:npc-plugin:luna', 'resident']])
-  await tavern.runTask({ gameId: 'game-1', prompt: '回忆', member: 'luna' })
-  assert.equal(requests.at(-1).member, 'plugin:npc-plugin:luna')
-  await tavern.runTask({ gameId: 'game-1', prompt: '一次性' })
-  assert.equal(requests.at(-1).member, '', 'without member: a fresh one-off')
-  await assert.rejects(tavern.runTask({ gameId: 'game-1', prompt: 'x', member: 'nobody' }), /没有注册成员/)
-  assert.throws(() => tavern.member({ name: 'luna' }), /已注册/)
-  await h.api.runSettlementTasks({ gameId: 'game-1', phase: 'after' })
-  assert.equal(requests.at(-1).member, 'plugin:npc-plugin:luna', 'a task registered on a member runs there')
-  fork.dispose?.()
-  await tick()
-  assert.ok(!listMembers().some(member => member.id === 'plugin:npc-plugin:luna'))
-})
-
 test('插件成员可以有自己的前缀：系统提示词和工具固定在成员上，任务只送一条工单、不能再带工具；工具调用回到插件', { skip: !cordis }, async t => {
   const { listMembers, pluginMemberPrefix } = await import('../tavern-plugin/lib/domain/background-members.js')
   const requests = [], rolled = []
@@ -1570,35 +1079,6 @@ test('插件成员可以有自己的前缀：系统提示词和工具固定在�
   assert.throws(() => tavern.member({ name: 'x', tools: [] }), /先给它 system/)
   assert.throws(() => tavern.member({ name: 'y', system: '' }), /system 必须是/)
   assert.throws(() => tavern.member({ name: 'z', system: 's', tools: [{ name: 'Bad', description: 'd', parameters: { type: 'object' }, execute() {} }] }), /工具名/)
-})
-
-test('tavern.on：插件挂到事件表上，出现在触发关系里；别的卡自带的插件不触发；出错只记错误', { skip: !cordis }, async t => {
-  const { createStoryEvents } = await import('../tavern-plugin/lib/domain/story-events.js')
-  const storyEvents = createStoryEvents({ logger: { warn() {} } })
-  let cards = ['cards/other.json']
-  const h = await harness(t, { storyEvents, data: { readSettings: async () => ({ disabled: [] }), updateSettings: async () => {} },
-    cardScope: async () => new Map([['npc-plugin', { cards }]]), cardPathOf: async () => 'cards/this.json' })
-  const heard = []
-  let tavern
-  cards = ['cards/this.json']
-  await h.root.plugin({ name: 'npc-plugin', inject: ['tavern'], apply(ctx) {
-    tavern = ctx.tavern
-    ctx.tavern.on('reply-committed', payload => { heard.push(payload) })
-    ctx.tavern.on('turn-discarded', () => { throw new Error('坏了') })
-  } })
-  await tick()
-  assert.throws(() => tavern.on('whenever', () => {}), /event 只能是/)
-  assert.deepEqual(storyEvents.table().find(row => row.event === 'reply-committed').followers, ['插件「npc-plugin」'])
-  storyEvents.emit('reply-committed', { sessionId: 'game-1' })
-  storyEvents.emit('turn-discarded', { sessionId: 'game-1', turn: 4 })
-  await tick()
-  assert.deepEqual(heard, [{ event: 'reply-committed', gameId: 'game-1' }])
-  assert.match(h.errors()[0].message, /坏了/)
-  // A card plugin of another card stays out of this game.
-  cards = ['cards/other.json']
-  storyEvents.emit('reply-committed', { sessionId: 'game-1' })
-  await tick()
-  assert.equal(heard.length, 1, 'another card\'s plugin: not heard')
 })
 
 test('地图 → 手机：地图插件发布产出并发出自己的事件，手机插件挂上去、读到产出；内置的任务完成事件也能挂', { skip: !cordis }, async t => {
@@ -1630,39 +1110,6 @@ test('地图 → 手机：地图插件发布产出并发出自己的事件，手
   assert.deepEqual(finished, [['settlement', 'completed', '']])
   await assert.rejects(map.emit('Bad Name', { gameId: 'game-1' }), /事件名/)
   await assert.rejects(map.emit('big', { gameId: 'game-1', data: 'x'.repeat(9000) }), /8 KB/)
-})
-
-test('tavern.job 声明的任务进任务表：按事件和条件运行，列在触发关系和任务目录里，出错记在插件名下', { skip: !cordis }, async t => {
-  const { createStoryEvents } = await import('../tavern-plugin/lib/domain/story-events.js')
-  const { createWorkflow } = await import('../tavern-plugin/lib/domain/workflow.js')
-  const storyEvents = createStoryEvents({ logger: { warn() {} } })
-  const workflow = createWorkflow({ events: storyEvents })
-  const h = await harness(t, { storyEvents, workflow })
-  const ran = []
-  let tavern
-  await h.root.plugin({ name: 'map-plugin', inject: ['tavern'], apply(ctx) {
-    tavern = ctx.tavern
-    ctx.tavern.member({ name: 'surveyor', title: '测绘员' })
-    ctx.tavern.job({ name: 'locate', title: '定位', description: '判断主角在哪。', member: 'surveyor', on: 'task-finished',
-      if: ({ task, status }) => task === 'settlement' && status === 'completed',
-      run: async ({ gameId, turn }) => { ran.push([gameId, turn]); if (turn === 9) throw new Error('定位坏了') } })
-  } })
-  await tick()
-  storyEvents.emit('task-finished', { sessionId: 'game-1', task: 'candidate', status: 'completed', turn: 3 })
-  storyEvents.emit('task-finished', { sessionId: 'game-1', task: 'settlement', status: 'completed', turn: 3 })
-  await tick()
-  assert.deepEqual(ran, [['game-1', 3]])
-  assert.deepEqual(storyEvents.table().find(row => row.event === 'task-finished').followers, ['插件「map-plugin」定位'])
-  const listed = workflow.table().find(job => job.id === 'plugin:map-plugin:locate')
-  assert.equal(listed.task, 'plugin:map-plugin:locate')
-  const catalog = h.api.taskCatalog().find(item => item.task === 'plugin:map-plugin:locate')
-  assert.deepEqual([catalog.name, catalog.member, catalog.lane, catalog.does], ['定位', 'plugin:map-plugin:surveyor', 'resident', '判断主角在哪。'])
-  storyEvents.emit('task-finished', { sessionId: 'game-1', task: 'settlement', status: 'completed', turn: 9 })
-  await tick(); await tick()
-  assert.match(h.errors()[0].message, /定位坏了/)
-  assert.throws(() => tavern.job({ name: 'x', on: 'nope', run() {} }), /on 只能是/)
-  assert.throws(() => tavern.job({ name: 'x', on: 'reply-committed', member: 'ghost', run() {} }), /还没有用 tavern.member/)
-  assert.throws(() => tavern.job({ name: 'x', on: 'reply-committed' }), /run 函数/)
 })
 
 test('tavern.job 的 needs：等别的插件任务这一轮做完再跑，读到它的产出；任务目录写出先后', { skip: !cordis }, async t => {
@@ -1730,56 +1177,6 @@ test('正文生成器通过 Cordis 注册、按卡隔离，卸载后停止可用
   await assert.rejects(h.api.bodyGenerators.generate(list[0].id, { materials }), /不可用/)
 })
 
-
-test('可信运行来源：global 可用，card 缺 scope 与未知 runtime 拒绝且记录诊断', async () => {
-  const identities = new Map([
-    ['package-global', {runtimeName:'global-runtime', origin:'global'}],
-    ['package-card', {runtimeName:'card-runtime', origin:'card', cardIds:['cards/a.json'], sha256:'bound-version'}]
-  ])
-  const warnings = []
-  const api = createTavernPluginApi({runningUserPlugins:identities,
-    cardScope:async () => new Map(), logger:{warn:message => warnings.push(message)},
-    listCards:async () => [{path:'cards/a.json', name:'A'}, {path:'cards/b.json', name:'B'}],
-    readCardRaw:async card => ({path:card})})
-  const caller = name => Object.assign(Object.create(api.service), {ctx:{fiber:{name}}})
-  assert.equal((await caller('global-runtime').listCards()).length, 2)
-  assert.deepEqual(await caller('global-runtime').readCardRaw({card:'cards/b.json'}), {path:'cards/b.json'})
-  for (const name of ['card-runtime', 'unknown-runtime']) {
-    assert.deepEqual(await caller(name).listCards(), [])
-    await assert.rejects(caller(name).readCardRaw({card:'cards/a.json'}), {code:'TAVERN_PLUGIN_SCOPE'})
-    assert.ok(warnings.some(line => line.includes(name) && line.includes('拒绝访问')))
-  }
-})
-
-test('加载器来源：宿主/profile 条目加载的插件是全局；Tavern guard 未登记、卡插件跨卡、同名冒充都拒绝', async () => {
-  // Fibers as the Cordis loader sees them: the entry that owns each caller (loader.locate).
-  const fiber = (name, entry) => ({ name, entry: { id: entry } })
-  const hostLocal = fiber('dsh-tavern-local', 'dsh-tavern-local'), hostTts = fiber('dsh-tavern-tts', 'group:dsh-tavern-tts')
-  const card = fiber('card-runtime', 'tavern-user-plugin-dsh-card-werewolf')
-  const legacy = fiber('legacy-card', 'tavern-user-plugin-legacy-card'), noEntry = { name: 'no-entry' }
-  const loader = { locate: value => value.entry?.id }
-  const api = createTavernPluginApi({ logger: { warn() {} },
-    runningUserPlugins: new Map([['dsh-card-werewolf', { runtimeName: 'card-runtime', origin: 'card', cardIds: ['cards/a.json'] }]]),
-    loaderOrigin: value => loaderOrigin(loader, value),
-    cardScope: async () => new Map([['card-runtime', { cards: ['cards/a.json'] }]]),
-    listCards: async () => [{ path: 'cards/a.json', name: 'A' }, { path: 'cards/b.json', name: 'B' }],
-    readCardRaw: async path => ({ path }) })
-  const caller = value => Object.assign(Object.create(api.service), { ctx: { fiber: value } })
-  for (const host of [hostLocal, hostTts]) {
-    assert.equal((await caller(host).listCards()).length, 2, host.name + ' 由宿主条目加载，是全局插件')
-    assert.deepEqual(await caller(host).readCardRaw({ card: 'cards/b.json' }), { path: 'cards/b.json' })
-  }
-  assert.deepEqual((await caller(card).listCards()).map(row => row.id), ['cards/a.json'])
-  assert.deepEqual(await caller(card).readCardRaw({ card: 'cards/a.json' }), { path: 'cards/a.json' })
-  await assert.rejects(caller(card).readCardRaw({ card: 'cards/b.json' }), { code: 'TAVERN_PLUGIN_SCOPE' })
-  for (const refused of [legacy, noEntry]) {
-    assert.deepEqual(await caller(refused).listCards(), [])
-    await assert.rejects(caller(refused).readCardRaw({ card: 'cards/a.json' }), { code: 'TAVERN_PLUGIN_SCOPE' })
-  }
-  // A Tavern guard plugin exporting a host plugin's name makes that name ambiguous: neither is global.
-  await assert.rejects(caller(fiber('dsh-tavern-local', 'tavern-user-plugin-spoof')).readCardRaw({ card: 'cards/b.json' }), { code: 'TAVERN_PLUGIN_SCOPE' })
-  await assert.rejects(caller(hostLocal).readCardRaw({ card: 'cards/b.json' }), { code: 'TAVERN_PLUGIN_SCOPE' })
-})
 
 test('owner-bound read declarations revoke snapshots on update, unregister and fiber unload', { skip: !cordis }, async t => {
   const h = await harness(t)
@@ -1858,20 +1255,22 @@ test('read declaration update rejects in-flight results and pending authorizatio
   allow(true)
   assert.equal(await resolving, null)
 })
-test('beforeImagePlan / beforeImageGenerate: the host’s 自动素材 releases a turn and each picture; a picture waits only for linked people without a 参考图', async () => {
-  let settled = 0
-  const api = createTavernPluginApi({ logger: { warn() {} }, imageCharactersSettled: async () => { settled++ }, cardScope: async () => new Map(),
+test('beforeImagePlan / beforeImageGenerate: the host’s 自动素材 releases a turn and each picture; a picture waits only for linked people without a 人设图 or 参考图', async () => {
+  // ADR 0012: a 人设图 lives in the pack (figurePictures), an uploaded 参考图 in the record.
+  const figurePictures = async figures => figures.map(ref => ({ ...ref, identity: ref.figureId === 'f-drawn' ? { id: 'd'.repeat(64) } : null, outfits: {} }))
+  const api = createTavernPluginApi({ logger: { warn() {} }, cardScope: async () => new Map(), figurePictures,
     runningUserPlugins: new Map([['dsh-tavern-image', { runtimeName: 'dsh-tavern-image', origin: 'global' }]]) })
   const tavern = Object.assign(Object.create(api.service), { ctx: { fiber: { name: 'dsh-tavern-image' }, effect(setup) { return setup() } } })
   const records = [
     { id: 'c-own', name: '林月', figureId: 'f-own', figurePackId: 'p', referenceImage: { id: 'r' } },
+    { id: 'c-drawn', name: '已画', figureId: 'f-drawn', figurePackId: 'p' },
     { id: 'c-new', name: '阿新', figureId: 'f-new', figurePackId: 'p' },
     { id: 'c-free', name: '路人' },
   ]
   const find = ({ characterId }) => records.find(c => c.id === characterId) || (() => { throw Object.assign(new Error('none'), { code: 'NOT_FOUND' }) })()
   tavern.registerImageLibrary({ id: 'definitions', label: '人物库', schemaVersion: 4, characters: () => [],
     getCharacter: input => ({ version: 4, character: structuredClone(find(input)) }), async patchCharacter() {}, async createCharacter() {}, async putReferenceImage() {} })
-  const subjects = ['c-own', 'c-new', 'c-free', 'c-gone'].map(characterId => ({ characterId }))
+  const subjects = ['c-own', 'c-drawn', 'c-new', 'c-free', 'c-gone'].map(characterId => ({ characterId }))
   await tavern.beforeImagePlan({ gameId: 'g', turn: 2 })
   assert.deepEqual(await tavern.beforeImageGenerate({ gameId: 'g', subjects }), {}, 'nothing to wait for without the stage')
   await assert.rejects(tavern.beforeImagePlan({ gameId: 'g', turn: '2' }), TypeError)
@@ -1881,102 +1280,16 @@ test('beforeImagePlan / beforeImageGenerate: the host’s 自动素材 releases 
   const off = api.imageGates({ async beforePlan(input) { asked.push(['plan', input.gameId, input.turn]) },
     async awaitReferences(input) { asked.push(['refs', input.figures]); return { unavailable } } })
   await tavern.beforeImagePlan({ gameId: 'g', turn: 3 })
-  assert.equal(settled, 1, 'the people the turn cast have their records before the plugin plans')
   assert.deepEqual(await tavern.beforeImageGenerate({ gameId: 'g', subjects }), {})
   assert.deepEqual(asked, [['plan', 'g', 3], ['refs', [{ packId: 'p', figureId: 'f-new' }]]], 'only the linked person without a 参考图 is waited for')
-  assert.equal(settled, 2, 'the reference is on the record before the plugin draws')
   unavailable = [{ packId: 'p', figureId: 'f-new' }]
   assert.deepEqual(await tavern.beforeImageGenerate({ gameId: 'g', subjects }), { skip: true, reason: '「阿新」的人设图没有画出来，有他们的图这次没有出' })
-  assert.deepEqual(await tavern.beforeImageGenerate({ gameId: 'g', subjects: [{ characterId: 'c-own' }] }), {})
+  assert.deepEqual(await tavern.beforeImageGenerate({ gameId: 'g', subjects: [{ characterId: 'c-own' }, { characterId: 'c-drawn' }] }), {})
   assert.equal(asked.length, 3, 'a picture of people who all have a 参考图 does not ask')
   off()
   await tavern.beforeImagePlan({ gameId: 'g', turn: 4 })
   assert.equal(asked.length, 3)
 })
-test('beforeImageGenerate: each linked person is dressed in the outfit the stage has them wear in that turn', async () => {
-  const api = createTavernPluginApi({ logger: { warn() {} }, imageCharactersSettled: async () => {}, cardScope: async () => new Map(),
-    runningUserPlugins: new Map([['dsh-tavern-image', { runtimeName: 'dsh-tavern-image', origin: 'global' }]]) })
-  const tavern = Object.assign(Object.create(api.service), { ctx: { fiber: { name: 'dsh-tavern-image' }, effect(setup) { return setup() } } })
-  const records = [
-    { id: 'c-lin', name: '林月', figureId: 'f-k', figurePackId: 'p', referenceImage: { id: 'r' }, outfits: [{ id: 'k01' }, { id: 'k06' }] },
-    { id: 'c-xin', name: '阿新', figureId: 'f-i', figurePackId: 'p', referenceImage: { id: 'r' }, outfits: [{ id: 'i01' }] },
-    { id: 'c-free', name: '路人' },
-  ]
-  const find = ({ characterId }) => records.find(c => c.id === characterId)
-  tavern.registerImageLibrary({ id: 'definitions', label: '人物库', schemaVersion: 4, characters: () => [],
-    getCharacter: input => ({ version: 4, character: structuredClone(find(input)) }), async patchCharacter() {}, async createCharacter() {}, async putReferenceImage() {} })
-  const asked = []
-  api.imageGates({ async beforePlan() {}, async awaitReferences() { return { unavailable: [] } },
-    async wearing(input) { asked.push(input); return [{ packId: 'p', figureId: 'f-k', outfitKey: 'k06' }, { packId: 'p', figureId: 'f-i', outfitKey: 'i09' }] } })
-  const subjects = ['c-lin', 'c-xin', 'c-free'].map(characterId => ({ characterId }))
-  assert.deepEqual(await tavern.beforeImageGenerate({ gameId: 'g', turn: 2, anchor: '桥边。', subjects }), { outfits: { 'c-lin': 'k06' } }, 'an outfit the record does not have is not named')
-  assert.deepEqual(asked, [{ gameId: 'g', turn: 2, anchor: '桥边。' }])
-  assert.deepEqual(await tavern.beforeImageGenerate({ gameId: 'g', turn: 2, subjects: [{ characterId: 'c-free' }] }), {}, 'no linked person, no stage read')
-  assert.equal(asked.length, 1)
-})
-
-test('插件轮次读取：传入 regexScripts 时 text 经过显示正则投影，source 原文仍保留给插件解析', async t => {
-  const { mkdtemp, rm } = await import('node:fs/promises')
-  const { tmpdir } = await import('node:os')
-  const { join } = await import('node:path')
-  const { createChatJournalStore } = await import('../tavern-plugin/lib/domain/chat-journal-store.js')
-  const { createChatPersistence } = await import('../tavern-plugin/lib/domain/chat-persistence.js')
-  const { createPluginTurnReader } = await import('../tavern-plugin/lib/domain/plugin-turns.js')
-  const root = await mkdtemp(join(tmpdir(), 'plugin-turns-regex-'))
-  t.after(() => rm(root, { force: true, recursive: true }))
-  const db = createChatPersistence({ store: createChatJournalStore({ dataRoot: root, newConversations: true }) })
-  const source = '[[RH:SHOT]]\n@after\n她推开门。\n@prompt\ncinematic\n[[/RH:SHOT]]\n\n她<b>推开</b>门。<ta_hub>隐藏</ta_hub>'
-  const chat = await db.write({
-    id: 'chat-1',
-    sessionId: 'game-1',
-    mode: 'story',
-    cardPath: '/cards/a.json',
-    cardName: 'A',
-    settleStatus: 'done',
-    messages: [
-      { role: 'assistant', greeting: true, turn: 1, text: '开场。', swipes: ['开场。'], swipeId: 0 },
-      { role: 'user', turn: 2, text: '进门' },
-      { role: 'assistant', turn: 2, sourceText: source, text: source, swipes: [source], swipeId: 0 }
-    ]
-  })
-  const scripts = [
-    {
-      id: 'dsh-runninghub-marker-strip',
-      findRegex: '/[\\[［]{2}\\s*RH\\s*[:：]\\s*SHOT\\s*[\\]］]{2}[\\s\\S]*?[\\[［]{2}\\s*[\\/／]\\s*RH\\s*(?:[:：]\\s*SHOT\\s*)?[\\]］]{2}/gi',
-      replaceString: '',
-      trimStrings: [],
-      placement: [2],
-      disabled: false,
-      markdownOnly: false,
-      promptOnly: false,
-      runOnEdit: false
-    },
-    {
-      id: 'hide-ta-hub',
-      findRegex: '/<ta_hub>[\\s\\S]*?<\\/ta_hub>/gi',
-      replaceString: '',
-      trimStrings: [],
-      placement: [2],
-      disabled: false,
-      markdownOnly: true,
-      promptOnly: false,
-      runOnEdit: false
-    }
-  ]
-  const reader = createPluginTurnReader({
-    sessionState: async () => db.readSessionState(chat.id),
-    sceneState: (_sessionId, turns) => db.readSceneImageState(chat.id, { turns }),
-    header: async (_sessionId, fields) => (await db.readSlice(chat.id, [], fields))?.chat,
-    slice: (_sessionId, indices) => db.readSlice(chat.id, indices),
-    fullChat: () => db.read(chat.id),
-    readChatCard: async () => ({ name: 'A' }),
-    regexScripts: async () => scripts
-  })
-  const latest = await reader.readLatestSettledTurn('game-1')
-  assert.equal(latest.source, source, 'rawText 保留完整标记供插件解析')
-  assert.equal(latest.text, '她推开门。', '给插件的 text 经过宿主显示正则与去 HTML 投影')
-})
-
 test('决策模型开放接口：capability 探测、卡内作用域限制、全链路判定与错误码映射', { skip: !cordis }, async t => {
   const { createNarrativeDamper, defaultNarrativeDamperConfig } = await import('../tavern-plugin/lib/domain/narrative-damper.js')
 

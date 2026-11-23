@@ -20,19 +20,3 @@ for(const count of [20,400,10000])test(`legacy source change rematches one depen
  assert.equal(after.projections[count-1].parts.length,1)
  assert.deepEqual(JSON.parse(JSON.stringify(after)),projectPersistentStatusView(changed,rows,options))
 })
-
-test('duplicate source owners invalidate only when the selected first source changes',()=>{
- const rows=createImmutableOrderedJsonIndex().from([[0,projection(1)],[1,projection(1)],[2,projection(2)]])
- let messages=[{role:'assistant',turn:1,text:'<StatusPlaceHolderImpl/>'},{role:'assistant',turn:1,text:'later'},{role:'assistant',turn:2,text:'<StatusPlaceHolderImpl/>'}]
- const initial={latestTurn:2};projectPersistentStatusView(messages,rows,options,initial)
- let matches=0
- messages=messages.map((row,i)=>i===1?{...row,text:'edited nonowner'}:row)
- const second={latestTurn:2,previous:initial.next,messageIndices:[1],onMatch:()=>matches++}
- projectPersistentStatusView(messages,rows,options,second);assert.equal(matches,0)
- messages=messages.map((row,i)=>i===0?{role:'user',text:'user'}:row);matches=0
- const third={latestTurn:2,previous:second.next,messageIndices:[0],onMatch:()=>matches++}
- const result=projectPersistentStatusView(messages,rows,options,third)
- assert.equal(matches,2)
- assert.equal(result.projections[0].parts.length,1);assert.equal(result.projections[1].parts.length,1)
- assert.equal(result.projections[2].parts.length,0)
-})

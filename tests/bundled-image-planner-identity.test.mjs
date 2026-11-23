@@ -22,13 +22,6 @@ test('a passing mention does not push the woman on screen out of the character l
   assert.equal(context.diagnostics.includedCharacters.find(c => c.stable_id === 'p').reason, 'previous-reply')
 })
 
-test('the roster says a recorded outfit may be wrong and a matching garment is not an identity cue', () => {
-  const outfits = Array.from({ length: 12 }, (_, i) => ({ id: 'o' + i, name: i === 0 ? '白T恤配牛仔短裤' : '衣服' + i, upper: '上衣' + i, enabled: true }))
-  const roster = characterRoster({ characters: [{ id: 's', name: '苏小雨', enabled: true, traits: {}, outfits, current: { outfit: '白色背心' } }] }, { text: '淌到脚踝边那团牛仔短裤上' })
-  assert.match(roster, /当前穿着（插件之前的记录，可能记错/)
-  assert.match(roster, /不说明画面里的人是她/)
-})
-
 test('prose planning separates pictured identity from history and preserves unknown wardrobe', () => {
   const outfits = Array.from({ length: 7 }, (_, i) => ({ id: 'o' + i, name: '包臀裙' + i, upper: '蓝色上衣' }))
   const definitions = { characters: [

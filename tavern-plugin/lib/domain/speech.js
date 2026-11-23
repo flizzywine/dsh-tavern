@@ -9,7 +9,7 @@ import { canonicalJson } from '../../packages/dsh-presentation-protocol/src/asse
 const MAX_TEXT = 1000
 const PRINCIPAL = 'dsh-browser', SCOPE = 'dsh-browser'
 // Events after which a registered reading voice may name a provider that changed or is gone.
-const RESET_EVENTS = ['disposed', 'providerChanged', 'providerRemoved', 'cacheInvalidated']
+const RESET_EVENTS = ['disposed', 'providerChanged', 'providerRemoved', 'cacheInvalidated', 'voiceRoutingChanged']
 const failure = code => Object.assign(new Error(code), { code })
 // The card speech's narrator key and voice digest (asset-pack-speech.js NARRATOR_VOICE / assetPackDigest), restated because the core
 // loads without the stage package; a reading voice registers the same source as the stage's narrator.
@@ -55,7 +55,7 @@ export function createLineSpeech({ getTts, getLibrary }) {
   async function openFigureRef(tts, figure) {
     const selected = await figureRefTtsVoice(getLibrary(), tts, figure)
     if (!selected) return null
-    if (selected.browser !== undefined) return {browser:selected.browser, language:selected.language || 'zh'}
+    if (selected.browser !== undefined) return {browser:selected.browser, ...(selected.rate === undefined ? {} : {rate:selected.rate}), language:selected.language || 'zh'}
     const revision = voiceDigest({voice:selected.voice, binding:selected.binding, revision:selected.revision})
     const sourceId = 'reading:' + revision
     if (!voices.has(sourceId)) {
@@ -70,7 +70,7 @@ export function createLineSpeech({ getTts, getLibrary }) {
   async function figureRefLine(tts, figure, text, emotion) {
     const opened = await openFigureRef(tts, figure)
     if (!opened) return {skip:true, reason:'silent'}
-    if (opened.browser !== undefined) return {browser:true, voice:opened.browser, text}
+    if (opened.browser !== undefined) return {browser:true, voice:opened.browser, ...(opened.rate === undefined ? {} : {rate:opened.rate}), text}
     const {sourceId, grant, language} = opened
     const result = await tts.synthesize({voice:{source:sourceId, id:'voice'}, text, mood:mood(emotion), language}, {grant:grant.grant, scope:SCOPE})
     return url(tts, await tts.createAudioTicket({key:result.key, grant:grant.grant}), result.loudness)
@@ -81,7 +81,7 @@ export function createLineSpeech({ getTts, getLibrary }) {
     // A fresh runtime's first open can race its own revision check; it asks to be opened again.
     if (opened.diagnostics?.[0] === 'TTS_STALE') opened = await figures.open(alias)
     if (!opened.available) return null
-    if (opened.browser) return { browser: true, voice: opened.browser.voice || '', text }
+    if (opened.browser) return { browser: true, voice: opened.browser.voice || '', ...(opened.browser.rate === undefined ? {} : {rate:opened.browser.rate}), text }
     const { requestId } = tts.jobs.submit({ voice: opened.voice, text, mood: mood(emotion), language: opened.language }, { principal: PRINCIPAL, scope: opened.scope })
     for (;;) {
       const status = await tts.jobs.wait(requestId, PRINCIPAL)
@@ -124,7 +124,7 @@ export function createLineSpeech({ getTts, getLibrary }) {
       try { opened = await openFigureRef(tts, figure === undefined ? tts.reading().narrator.figure : figure) }
       catch (error) { return {available:false, diagnostics:[error.code || 'VOICE_NOT_FOUND']} }
       if (!opened) return {available:false, diagnostics:['silent']}
-      if (opened.browser !== undefined) return {available:true, browser:{voice:opened.browser}, language:opened.language, scope:SCOPE, diagnostics:[]}
+      if (opened.browser !== undefined) return {available:true, browser:{voice:opened.browser, ...(opened.rate === undefined ? {} : {rate:opened.rate})}, language:opened.language, scope:SCOPE, diagnostics:[]}
       if (!opened.entry.warmed) {
         opened.entry.warmed = true
         tts.prewarm({voice:{source:opened.sourceId, id:'voice'}, language:opened.language}, {scope:SCOPE, grant:opened.grant.grant}).catch(() => {})

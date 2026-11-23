@@ -17,7 +17,7 @@ export function createExtensionRequests({reserved = []} = {}) {
   }
   return Object.freeze({register,
     handles:method => routes.has(method),
-    remoteRead:method => routes.get(method)?.provider.remoteRead?.(method) === true,
+    remoteRead:(method,args) => routes.get(method)?.provider.remoteRead?.(method,args) === true,
     async call(method,...args) {
       const entry=routes.get(method)
       if(!entry)throw unavailable()

@@ -37,10 +37,12 @@ async function read(handle, position, length) {
  * Open a ZIP file. Returns { entries: Map<path, entry>, readBuffer(entry, limit), stream(entry), close() }.
  * Entries: { path, size, compressedSize, method, crc, localOffset }.
  */
-export async function openZipFile(file, { label = 'ZIP', allowEncrypted = false } = {}) {
+export async function openZipFile(file, { label = 'ZIP', allowEncrypted = false,
+  maxArchiveBytes = Infinity, maxExpandedBytes = Infinity, maxEntries = MAX_ENTRIES } = {}) {
   const handle = await open(file, 'r')
   try {
     const { size: fileSize } = await handle.stat()
+    if (fileSize > maxArchiveBytes) fail(label, '文件超过 ' + maxArchiveBytes / 1024 ** 2 + ' MiB')
     if (fileSize < 22) fail(label, '文件太小')
     const tailLength = Math.min(fileSize, 65557 + 20)
     const tail = await read(handle, fileSize - tailLength, tailLength)
@@ -68,11 +70,11 @@ export async function openZipFile(file, { label = 'ZIP', allowEncrypted = false 
       if (prefix < 0) fail(label, '中央目录越界')
     }
     directoryOffset += prefix
-    if (count > MAX_ENTRIES) fail(label, '文件数量过多')
+    if (count > maxEntries) fail(label, '文件数量过多')
     if (directorySize > MAX_DIRECTORY_BYTES || directoryOffset + directorySize > fileSize) fail(label, '中央目录越界')
     const directory = await read(handle, directoryOffset, directorySize)
     const entries = new Map()
-    let offset = 0
+    let offset = 0, expanded = 0
     for (let index = 0; index < count; index++) {
       if (offset + 46 > directory.length || directory.readUInt32LE(offset) !== 0x02014b50) fail(label, '中央目录损坏')
       const flags = directory.readUInt16LE(offset + 8), method = directory.readUInt16LE(offset + 10), crc = directory.readUInt32LE(offset + 16)
@@ -97,6 +99,9 @@ export async function openZipFile(file, { label = 'ZIP', allowEncrypted = false 
       const encrypted = (flags & 1) !== 0
       if (encrypted && !allowEncrypted) fail(label, '包含加密文件')
       if (method !== 0 && method !== 8 && !(encrypted && allowEncrypted && method === 99)) fail(label, '包含不支持的压缩格式：' + entryPath)
+      if (!Number.isSafeInteger(size) || !Number.isSafeInteger(compressedSize) || !Number.isSafeInteger(localOffset)) fail(label, '文件长度或偏移无效')
+      expanded += size
+      if (expanded > maxExpandedBytes) fail(label, '解压后内容超过 ' + maxExpandedBytes / 1024 ** 2 + ' MiB')
       entries.set(entryPath, { path: entryPath, size, compressedSize, method, crc, localOffset: localOffset + prefix, ...(encrypted ? { encrypted: true } : {}) })
     }
 
@@ -111,9 +116,10 @@ export async function openZipFile(file, { label = 'ZIP', allowEncrypted = false 
     /** One entry's bytes, checked against its size and CRC; refused above `limit`. */
     async function readBuffer(entry, limit = 32 * 1024 * 1024) {
       if (entry.size > limit) fail(label, entry.path + ' 超过 ' + Math.round(limit / 1048576) + ' MB')
-      const chunks = []
-      for await (const chunk of await stream(entry)) chunks.push(chunk)
-      return Buffer.concat(chunks)
+      const bytes = Buffer.allocUnsafe(entry.size)
+      let position = 0
+      for await (const chunk of await stream(entry)) position += chunk.copy(bytes, position)
+      return bytes
     }
 
     /** One entry as a stream of its uncompressed bytes; errors on a size or CRC mismatch. */
@@ -143,7 +149,7 @@ export async function openZipFile(file, { label = 'ZIP', allowEncrypted = false 
     }
 
     // prefix: how many bytes come before the archive (0 for a plain ZIP).
-    return { entries, readBuffer, stream, size: fileSize, prefix, close: () => handle.close() }
+    return { file, entries, readBuffer, stream, size: fileSize, prefix, close: () => handle.close() }
   } catch (error) {
     await handle.close().catch(() => {})
     throw error

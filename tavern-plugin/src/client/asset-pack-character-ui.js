@@ -1,5 +1,5 @@
 // shared figure image, preview and crop authoring; no card-level character editor.
-const IMAGE_LIMIT=6*1024*1024, IMAGE_KEPT={'image/png':'png','image/webp':'webp'};
+const IMAGE_LIMIT=12*1024*1024, IMAGE_KEPT={'image/png':'png','image/webp':'webp'};
 const DEFAULT_AVATAR_CROP={x:0.3,y:0,w:0.4,h:0.21};
 // sample only at explicit authoring ingress, never in a thumbnail/read effect.
 async function figureAutoValue(binding,pack,figure,imported) {
@@ -35,7 +35,7 @@ async function fillImportedFigureColors(binding,pack) {
 // measured here for the §7.2 warnings.
 async function browserPrepareImage(file,kind,sampleColor=true) {
   const kept=IMAGE_KEPT[file?.type]||(/\.png$/i.test(file?.name)?'png':/\.webp$/i.test(file?.name)?'webp':'');
-  if(kept&&file.size>IMAGE_LIMIT)throw new Error('图片过大（上限 6 MB）');
+  if(kept&&file.size>IMAGE_LIMIT)throw new Error('图片过大（上限 12 MiB）');
   const bitmap=await createImageBitmap(file).catch(()=>{throw new Error('读不出这张图片，请换成 PNG、JPG 或 WebP 图片');}),width=bitmap.width,height=bitmap.height;
   try {
   if(width>8192||height>8192||width*height>32*1024*1024)throw new Error('图片尺寸过大（上限 8192 像素、总计 32 MP）');
@@ -46,7 +46,7 @@ async function browserPrepareImage(file,kind,sampleColor=true) {
     blob=await new Promise(resolve=>c.toBlob(resolve,'image/webp',0.92));ext='webp';
     if(!blob||blob.type!=='image/webp'){blob=await new Promise(resolve=>c.toBlob(resolve,'image/png'));ext='png';}
     if(!blob)throw new Error('没能转换这张图片，请换成 PNG 或 WebP 图片');
-    if(blob.size>IMAGE_LIMIT)throw new Error('图片转换后过大（上限 6 MB）');
+    if(blob.size>IMAGE_LIMIT)throw new Error('图片转换后过大（上限 12 MiB）');
   }
   const side=64,c=canvas(side,side),g=c.getContext('2d');g.drawImage(bitmap,0,0,side,side);
   const data=g.getImageData(0,0,side,side).data;for(let i=3;i<data.length;i+=4)if(data[i]<250){alpha=true;break;}

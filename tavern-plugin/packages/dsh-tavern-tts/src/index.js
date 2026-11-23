@@ -2,6 +2,7 @@ import { join } from 'node:path'
 import { installSettingsSection, settingsSectionProvider } from './shared/native-settings.js'
 import { installTtsSettingsMigration } from './settings-config.js'
 export { Config } from './settings-config.js'
+import { createModelEndpoints } from './model-endpoints.js'
 import { createReadingPresetStore } from './reading-presets.js'
 import { createTts } from './service.js'
 import { createCache } from './cache.js'
@@ -29,6 +30,7 @@ export function apply(ctx, config = {}) {
   }
   const samples = config.dataDir ? createSampleCache({dataDir:config.dataDir}) : undefined
   // Pilot files and its cumulative budget follow the host's stable plugin data directory.
+  const modelEndpoints = createModelEndpoints({credentials:() => ctx.get('credentials'), settings:() => ctx.get('settings')})
   const services = createServiceSettings({ tts, samples, pilotBudgetRoot:config.dataDir, get:() => source(), changed:() => tts.servicesChanged(), credentials:() => ctx.get('credentials'), warn:message => ctx.logger.warn(message),
     replace: async value => { const settings = settingsSectionProvider(ctx, 'tts'); if (!settings) fail('SETTINGS_UNAVAILABLE'); await settings.replace('tts',validateSettings(value),settings.describe().find(row => row.ns === 'tts')?.revision) },
   })
@@ -123,7 +125,9 @@ export function apply(ctx, config = {}) {
   services.sync()
   void syncEnabled()
   void settingsReady.then(async ok => { ready = ok; if (ok) await changed() }).catch(error => ctx.logger.warn(error))
-  registerEnabledRoute(ctx, { get:() => ready && source().enabled, subscribe(fn) { enabledListeners.add(fn); return () => enabledListeners.delete(fn) } })
+  const enabledState = Object.freeze({ get:() => ready && source().enabled, subscribe(fn) { enabledListeners.add(fn); return () => enabledListeners.delete(fn) } })
+  registerEnabledRoute(ctx, enabledState)
+  ctx.provide('ttsEnabledState', enabledState)
   const control=async (method,args = {}) => {
     switch (method) {
       case 'getEnabled': return {enabled:ready && source().enabled}
@@ -137,7 +141,7 @@ export function apply(ctx, config = {}) {
       case 'setReading': return tts.setReading(args)
       case 'capabilities': return tts.capabilities()
       case 'settings': return { ...source(), providers:await services.list() }
-      case 'services': return { configured:await services.list(), running:await runningStatus(await tts.listServices()) }
+      case 'services': return { configured:await services.list(), running:runningStatus(await tts.listServices()) }
       case 'voiceServices': return services.voiceServices()
       case 'providerKinds': return services.kinds()
       case 'listRecommendedFishVoices': return services.listRecommendedFishVoices(args)
@@ -157,6 +161,13 @@ export function apply(ctx, config = {}) {
       case 'listVoices': { const result = await providerVoices(args); return {...result,models:undefined} }
       case 'saveService': return services.save(args)
       case 'deleteService': return services.delete(args)
+      case 'useEndpoint': return services.useEndpoint(args)
+      case 'addEndpoint': return services.addEndpoint(args)
+      case 'renameEndpoint': return services.renameEndpoint(args)
+      case 'forgetEndpoint': return services.forgetEndpoint(args)
+      case 'clearEndpoints': return services.clearEndpoints(args)
+      // 设置 › 模型's 最近用过的网址 (model-endpoints.js): list · use · forget · clear
+      case 'modelEndpoints': if (!['list','use','forget','clear'].includes(args.op)) fail('INVALID_INPUT'); return modelEndpoints[args.op](args)
       // how many figures speak with a service (the registered usage sources); asked before deleting one in use.
       case 'serviceUsage': return {count:(await tts.inspectUsage(id(args.id))).reduce((n,u) => n + u.count,0)}
       case 'testService': return services.test(args)

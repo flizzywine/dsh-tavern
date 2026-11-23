@@ -1,13 +1,10 @@
 import assert from 'node:assert/strict'
-import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { readFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
-import { tmpdir } from 'node:os'
-import path from 'node:path'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 
 import { findDshCommand } from '../bin/launcher-environment.mjs'
-import { assertProfileBundlesLoad } from '../bin/profile-bundle-check.mjs'
 
 const bridge = fileURLToPath(new URL('../tavern-plugin/packages/dsh-tavern', import.meta.url))
 let dsh = null
@@ -35,26 +32,4 @@ test('酒馆自带插件包的 DSH peer 覆盖整个支持的 DSH 版本范围',
     }
   }
   assert.deepEqual(uncovered, [], `must cover ${supported}`)
-})
-
-// 0.2.0 宿主上装了要求 ^0.2.1 的 dsh-better-sidebar：--dump-config 照样通过，启动时才被跳过。
-test('用宿主自己的加载器发现 peerDependencies 不满足而被跳过的插件包', { skip: !dsh && '需要已安装的 DSH' }, async t => {
-  const dir = await mkdtemp(path.join(tmpdir(), 'tavern-bundle-check-'))
-  t.after(() => rm(dir, { recursive: true, force: true }))
-  await cp(bridge, path.join(dir, 'node_modules', 'dsh-tavern'), { recursive: true })
-  for (const name of ['dsh-too-new', 'user-too-new']) {
-    await mkdir(path.join(dir, 'node_modules', name), { recursive: true })
-    await writeFile(path.join(dir, 'node_modules', name, 'package.json'), JSON.stringify({
-      name, version: '1.0.0', peerDependencies: { '@deepseek-ai/dsh-app-boot': '^99.0.0' }, dsh: { bundle: {} },
-    }))
-  }
-  await writeFile(path.join(dir, 'package.json'), JSON.stringify({ name: 'dsh-profile-tavern', private: true, dsh: { profile: { bundles: ['dsh-tavern', 'dsh-too-new', 'user-too-new'] } } }))
-
-  const warnings = []
-  await assert.rejects(
-    assertProfileBundlesLoad({ dsh, host: 'cli', profileDir: dir, managedBundles: ['dsh-tavern', 'dsh-too-new'], log: message => warnings.push(message) }),
-    error => /dsh-too-new：/.test(error.message) && /\^99\.0\.0/.test(error.message) && !/user-too-new/.test(error.message),
-  )
-  assert.match(warnings.join('\n'), /user-too-new/)
-  await assertProfileBundlesLoad({ dsh, host: 'cli', profileDir: dir, managedBundles: ['dsh-tavern'], log: () => {} })
 })

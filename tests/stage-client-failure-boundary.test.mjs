@@ -21,9 +21,14 @@ for(const fault of ['render','effect','loader'])test(`stage ${fault} failure pre
   useBubbles:()=>({cardPath:'card',config:{enabled:true}}),useGalEntryLoader:()=>{if(fail&&fault==='loader')throw Error('loader failed');return 'ready'}})
  function Chat(){React.useEffect(()=>()=>chatUnmounts++,[]);return React.createElement('section',{id:'chat'},React.createElement('textarea',{defaultValue:'unsent text'}),React.createElement('button',{onClick:()=>generated++},'generate'))}
  function App(){return React.createElement(React.Fragment,null,React.createElement(Chat),React.createElement(views.Host,{sessionId:'s'}))}
- const errors=[],root=createRoot(document.getElementById('app'),{onCaughtError:error=>errors.push(error)})
+ const errors=[],logged=[],root=createRoot(document.getElementById('app'),{onCaughtError:error=>errors.push(error)})
+ const consoleError=window.console.error;window.console.error=(...args)=>logged.push(args)
  try {
  await act(async()=>root.render(React.createElement(App)))
+ // the reason reaches the player's screen and the console, not just a generic sentence
+ const reason=fault==='loader'?'loader failed':'stage '+fault+' failed'
+ assert.equal(document.querySelector('[data-stage-failure-reason]').textContent,'原因：'+reason)
+ assert.ok(logged.some(args=>String(args[0]).startsWith('[dsh-tavern-stage]')&&args[1]?.message===reason))
  assert.ok(errors.length);assert.equal(chatUnmounts,0);assert.equal(covered,false);assert.equal(document.querySelector('#chat').hidden,false)
  assert.equal(document.querySelector('textarea').value,'unsent text');assert.equal(document.querySelectorAll('.fork-gal-mount').length,0)
  act(()=>document.querySelector('#chat button').click());assert.equal(generated,1)
@@ -31,5 +36,5 @@ for(const fault of ['render','effect','loader'])test(`stage ${fault} failure pre
  fail=false;await act(async()=>navigation.galEnter('s'))
  assert.ok(document.querySelector('[data-stage-content]'));assert.equal(covered,true);assert.equal(chatUnmounts,0)
  act(()=>views.dispose());assert.equal(document.querySelectorAll('.fork-gal-mount').length,0);assert.equal(covered,false)
- }finally{views.dispose();act(()=>root.unmount());window.close();Object.assign(globalThis,{window:before.window,document:before.document,IS_REACT_ACT_ENVIRONMENT:before.act})}
+ }finally{window.console.error=consoleError;views.dispose();act(()=>root.unmount());window.close();Object.assign(globalThis,{window:before.window,document:before.document,IS_REACT_ACT_ENVIRONMENT:before.act})}
 })

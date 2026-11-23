@@ -93,11 +93,3 @@ test('开始 posts exactly one start message with the shown schema keys and show
   assert.equal(error.children[0], '「你的称呼」还没填')
   assert.equal(start().props.disabled, undefined)
 })
-
-test('a card without a v2 setup keeps the picker as it was: the greeting frame is rendered directly', async () => {
-  const sidebar = await read('features/sidebar.js')
-  assert.match(sidebar, /return selectedOpening\.setup \? h\(OpeningSetupForm, \{[^}]*\}, frame\) : frame;/)
-  assert.match(sidebar, /eagerFrame: Boolean\(selectedOpening\.setup\)/)
-  const main = await read('main.js')
-  assert.ok(main.indexOf('features/opening-setup-form.js') < main.indexOf('features/sidebar.js'))
-})

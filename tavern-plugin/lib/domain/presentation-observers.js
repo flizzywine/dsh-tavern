@@ -36,10 +36,11 @@ export function createPresentationObservers({warn = () => {}} = {}) {
     let closed = false
     return {
       append(delta) {if (!closed) for (const {stream} of streams) stream.append(delta)},
-      finish(completed) {
+      // stopped: the provider ended the reply on its own (finish kind stop), so its text is complete.
+      finish(completed, stopped = false) {
         if (closed) return
         closed = true
-        for (const {entry, stream} of streams) {stream.finish(completed);entry.streams.delete(stream)}
+        for (const {entry, stream} of streams) {stream.finish(completed, stopped);entry.streams.delete(stream)}
       },
       cancel() {
         closed = true

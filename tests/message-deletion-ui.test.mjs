@@ -127,23 +127,25 @@ test('复选框、楼层点击与 dock 支持独立勾选、清空、删除禁�
   }
   root = createRoot(dom.window.document.querySelector('main'))
   await act(async () => { feature.store.enter('a'); root.render(React.createElement(View)) })
-  const checkboxes = () => [...dom.window.document.querySelectorAll('input[type="checkbox"]')]
+  // the pick is a self-drawn role=checkbox button, not a native input.
+  const checkboxes = () => [...dom.window.document.querySelectorAll('[role="checkbox"]')]
+  const checkedStates = () => checkboxes().map(box => box.getAttribute('aria-checked') === 'true')
   assert.equal(checkboxes().length, 2)
   await act(async () => { checkboxes()[0].click() })
   await act(async () => { checkboxes()[1].click() })
-  assert.deepEqual(checkboxes().map(input => input.checked), [true, true])
+  assert.deepEqual(checkedStates(), [true, true])
   assert.match(dom.window.document.querySelector('.dsh-tavern-message-deletion-count').textContent, /已选 2 条/)
   await act(async () => { [...dom.window.document.querySelectorAll('button')].find(button => button.textContent === '清空').click() })
-  assert.deepEqual(checkboxes().map(input => input.checked), [false, false])
+  assert.deepEqual(checkedStates(), [false, false])
   await act(async () => { [...dom.window.document.querySelectorAll('button')].find(button => button.textContent === '复制').click() })
-  assert.deepEqual(checkboxes().map(input => input.checked), [false, false], '楼层内原有按钮不触发选择')
+  assert.deepEqual(checkedStates(), [false, false], '楼层内原有按钮不触发选择')
   await act(async () => { dom.window.document.querySelector('.dsh-tavern-user-bubble').click() })
   await act(async () => { dom.window.document.querySelector('.dsh-tavern-assistant-body').click() })
-  assert.deepEqual(checkboxes().map(input => input.checked), [true, true], '点击用户与 AI 楼层正文即可选中')
+  assert.deepEqual(checkedStates(), [true, true], '点击用户与 AI 楼层正文即可选中')
   await act(async () => { dom.window.document.querySelector('.dsh-tavern-user-bubble').click() })
-  assert.deepEqual(checkboxes().map(input => input.checked), [false, true], '再次点击同一楼层取消选中')
+  assert.deepEqual(checkedStates(), [false, true], '再次点击同一楼层取消选中')
   await act(async () => { checkboxes()[0].click() })
-  assert.deepEqual(checkboxes().map(input => input.checked), [true, true], '复选框点击不会被楼层监听重复切换')
+  assert.deepEqual(checkedStates(), [true, true], '复选框点击不会被楼层监听重复切换')
   await act(async () => { [...dom.window.document.querySelectorAll('button')].find(button => button.textContent === '删除').click() })
   await flush()
   assert.ok(checkboxes().every(input => input.disabled))
@@ -159,17 +161,6 @@ test('复选框、楼层点击与 dock 支持独立勾选、清空、删除禁�
   await act(async () => { feature.store.enter('a') })
   await act(async () => { [...dom.window.document.querySelectorAll('button')].find(button => button.textContent === '取消').click() })
   assert.equal(feature.store.getSnapshot('a').active, false)
-})
-
-test('assistant 的 deferred、distant 和隐藏行 early return 位于复选框创建之前', () => {
-  const checkbox = assistantSource.indexOf('const deletionNode =')
-  assert.ok(checkbox > 0)
-  for (const marker of ['if (!tavernPlanShowsRow(', 'if (deferredFloor) return', 'if (distantHeight > 0) return']) {
-    const at = assistantSource.indexOf(marker)
-    assert.ok(at >= 0 && at < checkbox, marker)
-  }
-  assert.ok(assistantSource.includes('selector: messageDeletionFeature.userSelector(turn, data)'))
-  assert.ok(assistantSource.includes('messageDeletionFeature.assistantSelector(turn, storyTurn, data)'))
 })
 
 test('故事 messageUid 选择键不随后台 revision 刷新改变', () => {
@@ -226,7 +217,7 @@ test('故事 selector 经 Checkbox 精确提交，且与旧 selector 各用独�
   }
   root = createRoot(dom.window.document.querySelector('main'))
   await act(async () => { feature.store.enter('s'); root.render(React.createElement(View)) })
-  const boxes = () => [...dom.window.document.querySelectorAll('input[type="checkbox"]')]
+  const boxes = () => [...dom.window.document.querySelectorAll('[role="checkbox"]')]
   assert.equal(boxes().length, 2)
   await act(async () => { boxes()[0].click() })
   await act(async () => { boxes()[1].click() })

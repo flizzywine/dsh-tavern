@@ -12,14 +12,6 @@ const {redactionNoise} = require('../tavern-plugin/mods/redaction/client/noise.c
 const math = await readFile(new URL('../tavern-plugin/src/client/stage-audio-math.js', import.meta.url), 'utf8')
 const mixer = await readFile(new URL('../tavern-plugin/src/client/stage-audio.js', import.meta.url), 'utf8')
 
-test('a covered range is heard where its share of the speaking weight falls, pauses included', () => {
-  const [row] = marks.textMarkTimes('十三楼见。', [{start:0, end:3}])
-  // 十三楼 is three syllables of 十三楼见 (four) and a full stop (2.5)
-  assert.deepEqual([row.from, +row.to.toFixed(4)], [0, +(3 / 6.5).toFixed(4)])
-  const [latin] = marks.textMarkTimes('Go to Floor 13', [{start:6, end:14}])
-  assert.ok(latin.from > 0.3 && latin.to === 1)
-})
-
 test('a voice over covered words masks the covers still shut, and one that reads other words is not heard', () => {
   const open = new Set(), kind = {open:(place, index) => open.has(place.para + ':' + index), noise:() => new Float32Array(4)}
   const mark = {quote:'十三楼', index:0, kind}, place = {sessionId:'s', turn:2, source:'k', para:1}

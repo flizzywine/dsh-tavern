@@ -5,24 +5,6 @@ import assert from 'node:assert/strict'
 import {createRequire} from 'node:module'
 const require=createRequire(import.meta.url)
 const {createStageFigureAssets}=require('../tavern-plugin/packages/dsh-tavern-stage/src/client/figure-assets.cjs')
-function fixture(){
- const sprites=[],texture={width:100,height:200};let fail=false
- class Sprite{constructor(texture){this.texture=texture;this.dead=0;this.anchor={set(...v){this.values=v}};sprites.push(this)}destroy(options){assert.deepEqual(options,{children:true});this.dead++;this.destroyed=true}}
- const candidate={bodyX:40},metrics={headTop:()=>.1,source:src=>src,measure:()=>candidate,anatomy:()=>({headTop:.1}),record:()=>({bodyX:40}),resolve(){if(fail)throw Error('sizing failed');return {mode:'physical',supportX:30,feet:190}},bodyX:m=>m?.bodyX,bodyCentre:()=>45}
- let resolvePicture,resolveSpine;const textures={load:()=>new Promise(resolve=>resolvePicture=resolve)}
- const owner=createStageFigureAssets({metrics,spineFigures:{prepare:()=>new Promise(resolve=>resolveSpine=resolve)}})
- const scope=owner.create({PIXI:{Sprite},renderer:{},screen:{width:800,height:600},textures,centred:anatomy=>anatomy})
- const rig=()=>{const body=new Sprite(texture);return {body,frame:[0,0,100,200],measured:{candidate},dead:0,mood(value){this.animation=value},destroy(){this.dead++;if(!body.destroyed)body.destroy({children:true})}}}
- return {scope,owner,texture,sprites,candidate,rig,picture(){resolvePicture(texture)},spine(figure){resolveSpine(figure)},fail(){fail=true}}
-}
-test('figure assets prepare sizing and own sprites without owning cached textures',async()=>{
- const e=fixture(),pending=e.scope.picture({src:'a',input:{source:'a',pack:true}});e.picture();const asset=await pending
- assert.equal(asset.candidate,e.candidate);assert.deepEqual(asset.sprite.anchor.values,[.3,.95]);assert.equal(asset.sprite.forkHeadTop,.1);assert.equal(asset.sprite.forkBodyX,40)
- const second=e.scope.picture({src:'b',input:{source:'other'}});e.picture();const plain=await second
- assert.equal(plain.sprite.figureInput,null);assert.equal(plain.sprite.forkBodyX,45)
- asset.destroy();e.owner.dispose();plain.destroy();assert.ok(e.sprites.every(s=>s.dead===1));assert.equal(e.texture.destroyed,undefined)
-})
-
 test('scene accepts only the newest picture request even when identity returns to A',async()=>{
  const source=readFileSync(new URL('../tavern-plugin/packages/dsh-tavern-stage/src/client/scene.cjs',import.meta.url),'utf8'),start=source.indexOf('    function showStatic('),end=source.indexOf('    // authored blink',start)
  const pending=[],attached=[],committed=[],state={clock:0},entry={figure:{identity:'A'},container:{addChildAt(sprite){attached.push(sprite)}},fading:[]}
@@ -31,4 +13,39 @@ test('scene accepts only the newest picture request even when identity returns t
  const asset=()=>({sprite:{texture:{}},dead:0,destroy(){this.dead++}}),first=asset(),second=asset(),latest=asset()
  pending[2](latest);await Promise.resolve();pending[0](first);pending[1](second);await Promise.resolve()
  assert.equal(entry.figureAsset,latest);assert.deepEqual(attached,[latest.sprite]);assert.equal(committed.length,1);assert.equal(first.dead,1);assert.equal(second.dead,1);assert.equal(latest.dead,0)
+})
+
+// A hammer head beside the head, at the same height and broader, pulled the head's centre - and so where the figure stands -
+// onto the hammer. The pack's framed face span (an avatar crop of the outfit) bounds where the centre is looked for; without one
+// the body below the chin does (a reaper's blade beside the hood, no avatar crop).
+test('a picture\'s head centre is looked for inside the framed face span or above the body, so a weapon beside the head does not move the stand', async () => {
+ const W = 100, H = 100, alpha = new Uint8ClampedArray(W * H * 4)
+ const paint = (x0, x1, y0, y1) => { for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) alpha[(y * W + x) * 4 + 3] = 255 }
+ paint(40, 60, 0, 20); paint(66, 100, 0, 20); paint(40, 60, 20, 100)
+ const document = { createElement: () => ({ getContext: () => ({ drawImage() {}, getImageData: (x, y, w, h) => ({ data: alpha.slice(y * W * 4, (y + h) * W * 4) }) }) }) }
+ class Sprite { constructor(texture) { this.texture = texture; this.anchor = { set() {} } } destroy() { this.destroyed = true } }
+ const texture = { width: W, height: H, baseTexture: { resource: { source: {} } } }
+ const metrics = { headTop: () => 0, source: s => s, measure: () => null, anatomy: () => ({ headTop: 0, chin: 0.2 }), record: () => ({}), resolve: () => ({ mode: 'legacy' }), bodyX: () => null, bodyCentre: () => null }
+ const stand = async face => {
+  const owner = createStageFigureAssets({ metrics, spineFigures: {} })
+  const scope = owner.create({ PIXI: { Sprite }, renderer: {}, screen: { width: 800, height: 600 }, textures: { load: async () => texture }, document,
+   centred: (anatomy, canvas, centre) => ({ ...anatomy, supportX: centre(anatomy) / canvas[0] }) })
+  const asset = await scope.picture({ src: 'p.png', input: { pack: true, source: 'p.png', face } })
+  const x = asset.sprite.figureInput.anatomy.supportX; owner.dispose(); return x
+ }
+ assert.ok(Math.abs(await stand(null) - 0.5) < 0.01, 'no framed face: above the body, not the broader weapon')
+ assert.ok(Math.abs(await stand([0.3, 0.64]) - 0.5) < 0.01, 'inside the face span: the head itself')
+})
+
+test('a pack Spine figure is sized through the same head rule as a picture, with its rig head',async()=>{
+ const seen=[],texture={width:100,height:200}
+ class Sprite{constructor(){this.anchor={set(...v){this.values=v}}}destroy(){this.destroyed=true}}
+ const metrics={source:s=>s,anatomy:(input,canvas)=>{seen.push(['anatomy',input.head,canvas]);return {headTop:.1,chin:.2}},record:input=>{seen.push(['record',input.anatomy]);return {}},resolve:()=>({mode:'physical',supportX:50,feet:400}),bodyX:()=>null}
+ const body=new Sprite(),figure={body,frame:[0,0,100,200],measured:{candidate:{auto:{}}},head:{top:.1,chin:.2,x:60},mood(){},destroy(){}}
+ const owner=createStageFigureAssets({metrics,spineFigures:{prepare:async()=>figure}})
+ const scope=owner.create({PIXI:{Sprite},renderer:{},screen:{width:800,height:600},textures:{},centred:(anatomy,canvas,centre)=>({...anatomy,supportX:centre(anatomy)/canvas[0]})})
+ await scope.spine({url:'m',identity:'m',config:{},input:{pack:true,source:'m'}})
+ assert.deepEqual(seen,[['anatomy',{top:.1,chin:.2},[100,200]],['record',{headTop:.1,chin:.2,supportX:.6}]])
+ assert.deepEqual(body.figureInput.anatomy,{headTop:.1,chin:.2,supportX:.6});assert.deepEqual(body.anchor.values,[.5,2])
+ owner.dispose()
 })

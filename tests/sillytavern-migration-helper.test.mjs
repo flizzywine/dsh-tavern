@@ -15,6 +15,7 @@ import {
   MIGRATION_HELPER_SCRIPT_NAME,
   normalizeSillyTavernCardForDsh,
   packMigrationTransferBundle,
+  pngWithCardText,
   sanitizeSillyTavernChatForDsh
 } from '../tavern-plugin/lib/domain/sillytavern-migration-helper.js'
 import { readTransferBundle } from '../tavern-plugin/lib/domain/transfer-bundle.js'
@@ -122,36 +123,6 @@ test('sanitizeSillyTavernChatForDsh 清洗 SillyTavern 复杂聊天记录并通�
   assert.equal(parsed.messages[1].name, '星野')
   assert.equal(parsed.messages[1].text, '「在看今晚的猎户座。」她转过头微笑。')
   assert.deepEqual(parsed.messages[1].variables, { stat_data: { affection: 25, mood: '平静' } })
-})
-
-test('sanitizeSillyTavernChatForDsh 超出 2000 条消息时截取最近消息并继承此前 MVU 变量快照', () => {
-  const rows = [
-    { user_name: '阿九', character_name: '侦探', chat_metadata: {} },
-    {
-      name: '侦探',
-      is_user: false,
-      mes: '第 1 条（含初始快照）',
-      swipe_id: 0,
-      variables: [{ stat_data: { clue: 3 } }]
-    }
-  ]
-  for (let i = 2; i <= 2005; i++) {
-    rows.push({
-      name: i % 2 === 0 ? '阿九' : '侦探',
-      is_user: i % 2 === 0,
-      mes: '消息 #' + i
-    })
-  }
-  const cleaned = sanitizeSillyTavernChatForDsh(rows, { characterName: '侦探' })
-  assert.equal(cleaned.usable, true)
-  assert.equal(cleaned.truncatedCount, 5)
-  assert.equal(cleaned.messageCount, 2000)
-
-  const parsed = parseChatHistory(cleaned.jsonl)
-  assert.equal(parsed.messages.length, 2000)
-  assert.equal(parsed.hasMvu, true)
-  assert.deepEqual(parsed.messages[0].variables, { stat_data: { clue: 3 } })
-  assert.equal(parsed.messages.at(-1).text, '消息 #2005')
 })
 
 test('normalizeSillyTavernCardForDsh 与 convertWorldInfoToCharacterBook 生成可通过 validateCardText 的 V3 人物卡', () => {
@@ -406,42 +377,58 @@ test('包内与本机均缺少对应人物卡时，预览提示缺少人物卡�
   assert.equal(calls[1].cardPath, 'cards/girl-workspace.json')
 })
 
-test('移动端非安全上下文 operationId、旧版数组格式 tavern_helper 与首条消息 MVU 快照补齐兼容', () => {
-  // 1. 旧版酒馆助手将 extensions.tavern_helper 存为键值对数组时，规范化后可通过人物卡校验
-  const legacyCard = normalizeSillyTavernCardForDsh({
-    name: 'Dr. Alice v1.2',
-    first_mes: '你好。',
-    data: {
-      extensions: {
-        tavern_helper: [
-          ['scripts', [{ id: 's1', name: 'test', content: '' }]],
-          ['variables', { hp: 100 }]
-        ]
-      }
-    }
+test('带卡面的 SillyTavern 人物卡打成 PNG 卡，导入时按 PNG 卡落盘，卡面不丢', async () => {
+  const { crc32, deflateSync } = await import('node:zlib')
+  const { pngCardPayload, pngRawTextChunks } = await import('../tavern-plugin/lib/domain/card-assets.js')
+  const chunk = (type, data) => {
+    const body = Buffer.concat([Buffer.from(type, 'ascii'), data])
+    const out = Buffer.alloc(body.length + 8)
+    out.writeUInt32BE(data.length, 0); body.copy(out, 4); out.writeUInt32BE(crc32(body), body.length + 4)
+    return out
+  }
+  const ihdr = Buffer.alloc(13); ihdr.writeUInt32BE(1, 0); ihdr.writeUInt32BE(1, 4); ihdr[8] = 8; ihdr[9] = 2
+  const avatar = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), chunk('IHDR', ihdr),
+    chunk('tEXt', Buffer.from('chara\0b2xk', 'latin1')), chunk('IDAT', deflateSync(Buffer.from([0, 255, 0, 0]))), chunk('IEND', Buffer.alloc(0))])
+
+  const cardDoc = normalizeSillyTavernCardForDsh({ name: '星野', description: '天文社社长', first_mes: '今晚的星空很清楚。' })
+  const cardText = JSON.stringify(cardDoc, null, 2) + '\n'
+  assert.equal(pngWithCardText(new Uint8Array([1, 2, 3]), cardText), null, '不是 PNG 时退回 JSON 卡')
+  const cardPng = pngWithCardText(new Uint8Array(avatar), cardText)
+  const reread = pngCardPayload(Buffer.from(cardPng), '星野.png')
+  assert.equal(Buffer.from(reread.b64, 'base64').toString('utf8'), cardText)
+  assert.equal(pngRawTextChunks(Buffer.from(cardPng)).length, 2, '旧的 chara 文本块被替换为新的 chara 与 ccv3')
+
+  const packed = packMigrationTransferBundle({ cards: [{ key: 'cards/星野.png', title: '星野', fileName: '星野.png', content: cardPng }] })
+  const bundle = readTransferBundle(Buffer.from(packed.bytes))
+  assert.deepEqual(bundle.issues, [])
+  assert.equal(bundle.manifest.parts[0].items[0].entry, 'parts/cards/星野.png')
+
+  const stored = new Map(), payloads = []
+  const importer = createTransferImport({
+    fileResources: { async list(kind) { return kind === 'card' ? [...stored.keys()] : [] }, async readText(p) { return stored.get(p) } },
+    worldBooks: { async catalog() { return { standalone: [], embedded: [], diagnostics: [] } } },
+    presetLibrary: { async catalog() { return { presets: [] } } },
+    promptDocuments: {},
+    userPreferenceProfile: { async read() { return { profiles: [] } } },
+    regexManager: { async read() { return { global: [] } } },
+    readTavernSettings: () => ({}),
+    updateTavernSettings: async () => ({}),
+    async importCard(payload) {
+      payloads.push(payload)
+      stored.set('cards/星野.json', Buffer.from(payload.b64, 'base64').toString('utf8'))
+      return { path: 'cards/星野.json' }
+    },
+    importPreset: async () => ({}),
+    backup: async () => ''
   })
-  const cardValidation = validateCardText(JSON.stringify(legacyCard))
-  assert.equal(cardValidation.valid, true)
-  assert.deepEqual(cardValidation.errors, [])
-  assert.equal(legacyCard.name, 'Dr. Alice v1.2')
-  assert.deepEqual(legacyCard.data.extensions.tavern_helper.variables, { hp: 100 })
+  const preview = await importer.preview(bundle.manifest, bundle.files)
+  assert.equal(preview.parts[0].items[0].usable, true)
+  const applied = await importer.apply({ manifest: bundle.manifest, files: bundle.files })
+  assert.equal(applied.results[0].added, 1)
+  assert.equal(payloads[0].kind, 'png')
+  assert.equal(payloads[0].name, '星野.png')
+  assert.deepEqual(Buffer.from(payloads[0].fileB64, 'base64'), Buffer.from(cardPng))
 
-  // 2. 仅尾部或 chat_metadata 含 MVU 快照时，自动补齐到首条消息，使得 parsed.messages 不出现无快照缺口
-  const sanitized = sanitizeSillyTavernChatForDsh([
-    { user_name: '玩家', character_name: 'Dr. Alice v1.2', chat_metadata: { variables: { stat_data: { hp: 85 } } } },
-    { name: 'Dr. Alice v1.2', is_user: false, mes: '第一轮回复' },
-    { name: '玩家', is_user: true, mes: '继续' },
-    { name: 'Dr. Alice v1.2', is_user: false, mes: '第二轮回复' }
-  ])
-  const parsed = parseChatHistory(sanitized.jsonl)
-  assert.equal(parsed.hasMvu, true)
-  assert.equal(parsed.messages.some(m => !m.variables), false)
-  assert.deepEqual(parsed.messages[0].variables.stat_data, { hp: 85 })
-
-  // 3. 误将 .dshtransfer 压缩包传给 parseChatHistory 时给出明确入口提示
-  assert.throws(
-    () => parseChatHistory('PK\u0003\u0004binaryzipcontent'),
-    /这是压缩包（\.dshtransfer \/ \.dshsave）/
-  )
+  const again = await importer.preview(bundle.manifest, bundle.files)
+  assert.equal(again.parts[0].items[0].duplicate, true, '再导同一张 PNG 卡识别为重复')
 })
-

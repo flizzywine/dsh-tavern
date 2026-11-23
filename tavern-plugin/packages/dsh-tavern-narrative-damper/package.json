@@ -1,0 +1,40 @@
+{
+  "name": "dsh-tavern-narrative-damper",
+  "version": "1.0.0",
+  "description": "DSH Tavern 叙事阻尼器插件：防口胡与状态惯性引擎的面板——每轮生成前的裁定开关、判定与阻尼模式、决策模型、密钥、阈值与超时都在这里配置。",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./client.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "src",
+    "client.js",
+    "build.mjs",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "dsh-tavern-plugin"
+      ]
+    },
+    "compatibility": {
+      "tavernApiVersion": 8
+    }
+  },
+  "scripts": {
+    "build": "node build.mjs",
+    "build:check": "node build.mjs --check"
+  },
+  "license": "MIT"
+}

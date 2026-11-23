@@ -1,6 +1,6 @@
 {
   "name": "dsh-profile-tavern",
-  "version": "3.3.0",
+  "version": "3.4.0",
   "scripts": {
     "build:website": "node bin/build-website.mjs",
     "wiki:references": "node bin/sync-wiki-references.mjs",
@@ -26,9 +26,9 @@
   },
   "dependencies": {
     "acorn": "8.15.0",
-    "pinyin-pro": "3.29.5",
     "chevrotain": "^11.2.0",
     "jsdom": "26.1.0",
+    "parse5": "7.3.0",
     "@jsquash/jpeg": "1.6.0",
     "@jsquash/png": "3.1.1",
     "@jsquash/webp": "1.5.0",
@@ -67,7 +67,7 @@
     "scheduler": "0.27.0",
     "dsh-tavern-plugin": "link:./tavern-plugin",
     "dsh-tavern-remote": "link:./tavern-plugin/packages/dsh-tavern-remote",
-    "dsh-pocket": "2.13.1",
+    "dsh-pocket": "2.13.2",
     "dsh-web-mobile": "3.1.0",
     "dsh-better-sidebar": "0.28.0",
     "dsh-dream-skin": "link:./tavern-plugin/packages/dsh-dream-skin",

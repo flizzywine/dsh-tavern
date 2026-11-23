@@ -13,6 +13,7 @@ window.__ModuleLoader__.load({
 
     /** Shared RPC channel owned by this plugin's Host half. */
     const CHANNEL = '/profile-bridge'
+    const ACHIEVEMENT_UNLOCK_EVENT = 'dsh-tavern-adventure-medal:unlocked'
     /** Locale namespace of this page. */
     const NS = 'profileBridge'
 
@@ -41,6 +42,21 @@ window.__ModuleLoader__.load({
       lastOperationFailure: "上次操作失败",
       operationDone: "上次操作已完成。",
       updates: '酒馆版本与更新',
+      achievements: '成就库',
+      refreshAchievements: '刷新成就',
+      refreshingAchievements: '正在检查存档…',
+      achievementsAdded: '已补记 {count} 项成就。',
+      noNewAchievements: '没有新的成就可补记。',
+      achievementRefreshUnavailable: '请在「酒馆插件」中启用成就插件后重试。',
+      achievementRefreshFailed: '刷新成就失败，请重试。',
+      achievementCharacter: '人物卡',
+      achievementTotalChars: '总字数',
+      achievementStartedAt: '开始游玩',
+      achievementReached: '游玩满',
+      achievementMilestoneSuffix: '轮！',
+      achievementMemento: 'DSH Tavern 游玩纪念',
+      achievementMotto: '愿每一次游玩，都有星光作伴',
+      achievementCharUnit: '字',
       installedBuild: '当前安装',
       latestBuild: '最新发布',
       unknownBuild: '构建未知',
@@ -52,6 +68,7 @@ window.__ModuleLoader__.load({
       updateTavern: '更新酒馆',
       repairTavern: '修复安装',
       switchToUpdate: '请先切换到 DSH 酒馆，再在启动器中更新。',
+      standaloneUpdate: '请在系统 PowerShell 运行 dsh-tavern stop --host desktop 停止独立后台，然后在官方 DeepSeek Harness 中切换到酒馆并更新。',
       updating: '正在更新酒馆…',
       cancelUpdate: '取消更新',
       cancellingUpdate: '正在取消更新…',
@@ -144,6 +161,20 @@ window.__ModuleLoader__.load({
       lastOperationFailure: "The last operation failed",
       operationDone: "The last operation completed.",
       updates: 'Tavern version and updates',
+      achievements: 'Achievements',
+      refreshAchievements: 'Refresh achievements',
+      refreshingAchievements: 'Checking saves…',
+      achievementsAdded: 'Added {count} to the achievement library.',
+      noNewAchievements: 'No new achievements found.',
+      achievementRefreshUnavailable: 'Enable the achievement plugin in Tavern Plugins, then try again.',
+      achievementRefreshFailed: 'Could not refresh achievements. Try again.',
+      achievementCharacter: 'Character card',
+      achievementTotalChars: 'Total characters',
+      achievementStartedAt: 'Started playing',
+      achievementReached: 'Reached',
+      achievementMilestoneSuffix: 'rounds!',
+      achievementMemento: 'DSHTavern Memento',
+      achievementCharUnit: 'characters',
       installedBuild: 'Installed build',
       latestBuild: 'Latest release',
       unknownBuild: 'Unknown build',
@@ -155,6 +186,7 @@ window.__ModuleLoader__.load({
       updateTavern: 'Update Tavern',
       repairTavern: 'Repair installation',
       switchToUpdate: 'Switch to DSH Tavern, then update from the launcher.',
+      standaloneUpdate: 'Run dsh-tavern stop --host desktop in PowerShell, then switch to Tavern in the official DeepSeek Harness app and update.',
       updating: 'Updating Tavern…',
       cancelUpdate: 'Cancel update',
       cancellingUpdate: 'Cancelling update…',
@@ -225,10 +257,13 @@ window.__ModuleLoader__.load({
 
     /** Scoped stylesheet; class names are prefixed so they never leak into the host. */
     const CSS = `
+@import url('/profile-bridge/achievement-art.css');
 .pb { display: grid; gap: 16px; font-size: 13px; line-height: 1.6; color: inherit; width: 100%; max-width: 640px; min-width: 0;
   --pb-accent: #4d6bfe; --pb-accent-soft: rgba(77,107,254,0.07); --pb-line: rgba(127,127,127,0.25); --pb-fill: rgba(127,127,127,0.06); }
 .pb * { box-sizing: border-box; }
-.pb-head { display: grid; gap: 2px; }
+.pb-head { display: flex; align-items: center; gap: 12px; }
+.pb-brand { display: grid; gap: 2px; min-width: 0; }
+.pb-logo { display: block; flex: none; }
 .pb-title { margin: 0; font-size: 16px; font-weight: 600; }
 .pb-sub { margin: 0; opacity: 0.6; }
 .pb-bar { display: flex; align-items: center; gap: 12px; padding: 10px 12px 10px 16px; border-radius: 10px; background: var(--pb-accent-soft); }
@@ -264,6 +299,11 @@ window.__ModuleLoader__.load({
 .pb-fold[open] summary::before { transform: rotate(90deg); }
 .pb-fold summary:hover { opacity: 1; }
 .pb-fold p { margin: 6px 0; opacity: 0.6; font-size: 12px; }
+.pb-achievement-library { display: grid; gap: 12px; min-width: 0; }
+.pb-achievement-library h3 { margin: 0; font-size: 14px; }
+.pb-achievement-header { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
+.pb-achievements { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 220px), 1fr)); gap: 14px; margin: 0; padding: 0; list-style: none; }
+.pb-achievement-card { min-width: 0; width: 100%; max-width: 290px; aspect-ratio: 3 / 4; }
 .pb-pre { margin: 0; padding: 10px 12px; border-radius: 8px; background: var(--pb-fill); max-height: 200px; overflow: auto; font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; word-break: break-all; }
 `
 
@@ -284,6 +324,82 @@ window.__ModuleLoader__.load({
         /^[0-9a-f]{40}$/i.test(commit || '')
           ? h('a', { href: `https://github.com/flizzywine/dsh-tavern/commit/${commit}`, target: '_blank', rel: 'noreferrer', title: commit }, h('code', null, commit.slice(0, 8)))
           : t('unknownBuild'))
+    }
+
+    function AchievementCard({ tier, t }) {
+      const number = value => Number.isSafeInteger(value) && value >= 0 ? value.toLocaleString() : '—'
+      const date = value => value ? new Intl.DateTimeFormat('sv-SE', { year: 'numeric', month: '2-digit', day: '2-digit' })
+        .format(value).replaceAll('-', '.') : '—'
+      const unlocked = tier.unlockedAt ? new Date(tier.unlockedAt) : null
+      const chars = number(tier.contextChars)
+      const motto = t('achievementMotto')
+      const fields = [
+        ['name', 'achievementCharacter', tier.cardName || '—'],
+        ['words', 'achievementTotalChars', chars === '—' ? chars : chars + ' ' + t('achievementCharUnit')],
+        ['date', 'achievementStartedAt', date(tier.startedAt)],
+      ]
+      return h('li', { className: 'pb-achievement-card achievement-art', 'data-tier': tier.id },
+        tier.cover ? h('img', { className: 'achievement-art-cover', src: tier.cover, alt: '', draggable: false }) : null,
+        motto !== 'achievementMotto' ? h('span', { className: 'achievement-art-motto', 'aria-hidden': 'true' }, motto) : null,
+        h('img', { className: 'achievement-art-medal', src: '/profile-bridge/achievement-medal.webp', alt: '', draggable: false }),
+        h('div', { className: 'achievement-art-stars', 'aria-hidden': 'true' },
+          Array.from({ length: 6 }, (_, i) => h('span', { key: i }))),
+        h('span', { className: 'achievement-art-badge', 'aria-hidden': 'true' }, tier.rounds),
+        h('div', { className: 'achievement-art-pills' }, fields.map(([icon, label, value]) =>
+          h('div', { className: 'achievement-art-pill', key: icon, 'data-stat': icon },
+            h('span', { className: 'achievement-art-icon', 'data-icon': icon, 'aria-hidden': 'true' }),
+            h('span', { className: 'achievement-art-pill-label' }, t(label)),
+            h('b', { className: 'achievement-art-pill-value', title: icon === 'name' ? value : undefined }, value)))),
+        h('div', { className: 'achievement-art-result' },
+          h('div', { className: 'achievement-art-sticker' },
+            t('achievementReached') + ' ', h('b', null, tier.rounds), ' ' + t('achievementMilestoneSuffix')),
+          h('strong', { className: 'achievement-art-title' }, tier.title)),
+        h('div', { className: 'achievement-art-footer' }, t('achievementMemento'),
+          unlocked ? h(React.Fragment, null, ' · ', h('time', { dateTime: unlocked.toISOString() }, date(unlocked))) : null))
+    }
+
+    function AchievementLibrary({ call, refreshAchievements, t }) {
+      const [earned, setEarned] = React.useState([])
+      const [refresh, setRefresh] = React.useState(null)
+      const request = React.useRef(0)
+      const loadEarned = React.useCallback(async () => {
+        const current = ++request.current
+        const result = await call('achievements', {})
+        if (result?.ok !== true || !Array.isArray(result.value)) throw new Error(describeFailure(result?.error))
+        if (current === request.current) setEarned(result.value.filter(tier => tier.earned === true))
+      }, [call])
+
+      React.useEffect(() => {
+        const onUnlock = () => { void loadEarned().catch(() => {}) }
+        window.addEventListener(ACHIEVEMENT_UNLOCK_EVENT, onUnlock)
+        onUnlock()
+        return () => {
+          request.current++
+          window.removeEventListener(ACHIEVEMENT_UNLOCK_EVENT, onUnlock)
+        }
+      }, [loadEarned])
+
+      async function refreshFromSaves() {
+        setRefresh({ busy: true })
+        try {
+          const { added } = await refreshAchievements()
+          await loadEarned()
+          setRefresh({ added })
+        } catch (error) {
+          setRefresh({ error: error?.code === 'TAVERN_PLUGIN_NOT_FOUND' ? 'achievementRefreshUnavailable' : 'achievementRefreshFailed' })
+        }
+      }
+
+      if (!earned.length && !refreshAchievements) return null
+      return h('section', { className: 'pb-achievement-library', 'aria-label': t('achievements') },
+        h('div', { className: 'pb-achievement-header' },
+          h('h3', null, t('achievements')),
+          refreshAchievements ? h('button', { type: 'button', className: 'pb-btn pb-btn-quiet', disabled: refresh?.busy,
+            onClick: () => void refreshFromSaves() }, t(refresh?.busy ? 'refreshingAchievements' : 'refreshAchievements')) : null),
+        refresh?.error ? h('p', { className: 'pb-error', role: 'alert' }, t(refresh.error)) : null,
+        refresh?.added !== undefined ? h('p', { className: 'pb-sub', role: 'status' },
+          refresh.added ? t('achievementsAdded').replace('{count}', refresh.added) : t('noNewAchievements')) : null,
+        earned.length ? h('ul', { className: 'pb-achievements' }, earned.map(tier => h(AchievementCard, { key: tier.id, tier, t }))) : null)
     }
 
     /** @param {{ t: Function, rpcCall: Function }} props */
@@ -507,6 +623,7 @@ window.__ModuleLoader__.load({
       }
       const updateAvailable = update?.phase === 'update-available'
       const repairRequired = update?.phase === 'repair-required'
+      const updateHint = next ? 'nextSwitchToUpdate' : standalone && status.platform === 'win32' ? 'standaloneUpdate' : 'switchToUpdate'
       const showUpdateAction = (updateAvailable || repairRequired) && update.canUpdate && !pending && !updateAction
       const updateButtonLabel = repairRequired ? (next ? 'nextRepair' : 'repairTavern') : (next ? 'nextUpdate' : 'updateTavern')
       const checking = updateAction === 'check-update'
@@ -549,8 +666,11 @@ window.__ModuleLoader__.load({
       return h('section', { className: 'pb' },
         h('style', null, CSS),
         h('header', { className: 'pb-head' },
-          h('h2', { className: 'pb-title' }, title),
-          h('p', { className: 'pb-sub' }, status === null ? t('loading') : !isDesktop ? t('cliHint') : standalone ? t('standalone') : t(next ? 'nextExplain' : 'explain')),
+          h('img', { className: 'pb-logo', src: `${CHANNEL}/logo.png`, width: 48, height: 48, alt: '' }),
+          h('div', { className: 'pb-brand' },
+            h('h2', { className: 'pb-title' }, title),
+            h('p', { className: 'pb-sub' }, status === null ? t('loading') : !isDesktop ? t('cliHint') : standalone ? t('standalone') : t(next ? 'nextExplain' : 'explain')),
+          ),
         ),
         !isDesktop ? null : standalone ? h('div', { className: 'pb-bar' },
           h('span', { className: 'pb-bar-text' }),
@@ -615,7 +735,7 @@ window.__ModuleLoader__.load({
           !checking && !updateAction && (updateAvailable || update?.phase === 'up-to-date') ? h('p', {
             className: 'pb-update-badge' + (updateAvailable ? ' pb-update-badge-available' : ''), role: 'status',
           }, t(updateAvailable ? 'updateAvailable' : 'upToDate')) : null,
-          !checking && (updateAvailable || repairRequired) && update?.canUpdate === false && !pending ? h('p', { className: 'pb-sub' }, t(next ? 'nextSwitchToUpdate' : 'switchToUpdate')) : null,
+          !checking && (updateAvailable || repairRequired) && update?.canUpdate === false && !pending ? h('p', { className: 'pb-sub' }, t(updateHint)) : null,
           next && showUpdateAction && !pending ? h('p', { className: 'pb-sub' }, t('nextUpdateHint')) : null,
           !checking && update?.checkWarning ? h('p', { className: 'pb-sub' }, update.checkWarning) : null,
           checking ? h('p', { role: 'status' }, t('checkingUpdate')) : null,
@@ -664,6 +784,7 @@ window.__ModuleLoader__.load({
               h('button', { type: 'button', className: 'pb-btn pb-btn-quiet', disabled: busy || pending, onClick: () => { setManagementAction(null); setDestination(''); setFailure(null) } }, t('cancel'))),
           ) : null,
         ) : null,
+        h(AchievementLibrary, { call, refreshAchievements: inTavern() ? props.refreshAchievements : undefined, t }),
         h('details', { className: 'pb-fold' },
           h('summary', null, t('more')),
           h('p', null, t(next ? 'nextExplain' : 'why')),
@@ -690,13 +811,22 @@ window.__ModuleLoader__.load({
         }
         const t = ctx.locale.bind(NS)
         const rpcCall = (endpoint, payload) => ctx.connection.rpc.call(CHANNEL, endpoint, payload)
+        let tavernUi
+        ctx.inject?.(['tavernUi'], owner => owner.effect(() => {
+          tavernUi = owner.tavernUi
+          return () => { tavernUi = undefined }
+        }, 'profile-bridge: achievement refresh'))
+        const refreshAchievements = () => {
+          if (!tavernUi) throw Object.assign(new Error('Tavern UI is unavailable'), { code: 'TAVERN_PLUGIN_NOT_FOUND' })
+          return tavernUi.callHost('dsh-tavern-adventure-medal/refresh-achievements', {})
+        }
         ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'profile-bridge: locale dictionaries')
         ctx.slots.inject('settings.section', () => ctx.slots.register({
           name: 'settings.section',
           id: 'profile-bridge',
           order: 60,
           label: () => t('section'),
-          inject: () => ({ rpcCall, t }),
+          inject: () => ({ rpcCall, refreshAchievements, t }),
         }, ProfileBridgeSettings))
       },
     }

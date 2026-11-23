@@ -1,9 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import {replyBody} from '../tavern-plugin/lib/domain/round-body.js'
 import {createIncrementalReplyView} from '../tavern-plugin/lib/domain/incremental-reply-view.js'
 import {projectPersistentStatusView} from '../tavern-plugin/lib/domain/persistent-status-view.js'
-import {projectReplyHistory} from '../tavern-plugin/lib/domain/reply-presentation.js'
 const options={regexScripts:[{id:'panel',placement:[2],markdownOnly:true,findRegex:'<StatusPlaceHolderImpl/>',replaceString:'<script>show()</script>'}]}
 const panelId=projectPersistentStatusView([{role:'assistant',turn:2}],[],options).statusView.viewId
 for(const count of [20,400,10000])test(`sidebar fallback reads only the changed message among ${count}`,async()=>{
@@ -22,27 +20,4 @@ for(const count of [20,400,10000])test(`sidebar fallback reads only the changed 
  assert.equal(checks,1);assert.ok(reads<10,`message reads: ${reads}`)
  assert.equal(result.statusView.sourceTurn,1);assert.equal(result.statusView.sourcePartIndex,3)
  assert.equal(old.statusView.sourceTurn,count)
-})
-
-test('opening declarations retain priority over receipts and survive transitions and truncation',async()=>{
- let changes,chat={id:'priority',_storageRevision:1,messages:[
-  {role:'assistant',turn:1,greeting:true,text:'<StatusPlaceHolderImpl/>',projectionText:'opening',bodyEdit:true},
-  {role:'assistant',turn:2,text:'later',bodyEdit:true,displayRuntime:{frames:[{placement:'sidebar',panelId,partIndex:4}]}}
- ]}
- const cache=createIncrementalReplyView({readChanges:async()=>changes})
- async function check(expected){
-  const result=await cache.project(chat,options,options)
-  const history=projectReplyHistory(chat.messages,options)
-  for(const projection of history.projections)projection.body=replyBody(projection,chat)
-  assert.deepEqual(result,{...projectPersistentStatusView(chat.messages,history.projections,options),presentation:null,latestSourceBacked:history.latestSourceBacked})
-  assert.equal(result.statusView?.sourceTurn,expected)
- }
- await check(1)
- const baseRevision=chat._storageRevision
- chat={...chat,_storageRevision:2,messages:[{...chat.messages[0],text:'no marker'},chat.messages[1]]}
- changes={baseRevision,chat,messageCount:2,denseMessages:true,indices:[0]}
- await check(2)
- chat={...chat,_storageRevision:3,messages:chat.messages.slice(0,1)}
- changes={baseRevision:2,chat,messageCount:1,denseMessages:true,indices:[]}
- await check(undefined)
 })

@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtemp, readFile, writeFile, readdir, rm, mkdir, copyFile } from 'node:fs/promises'
-import { join, dirname } from 'node:path'
+import { mkdtemp, readFile, writeFile, readdir, rm, mkdir, copyFile, realpath } from 'node:fs/promises'
+import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { createServer, request as httpRequest } from 'node:http'
 import { imagePluginFixture, IMAGE_PNG as PNG, imageJson as json } from './fixtures/image-plugin-runtime.mjs'
@@ -12,6 +12,7 @@ import { imageDimensions } from '../tavern-plugin/packages/dsh-tavern-image-bund
 import { expandRosterCalls } from '../tavern-plugin/packages/dsh-tavern-image-bundled/lib/index.js'
 
 const b64 = PNG.toString('base64'), dataUrl = 'data:image/png;base64,' + b64
+const gif = Buffer.from('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7', 'base64')
 const png = () => new Response(PNG, { headers: { 'content-type': 'image/png' } })
 const own = { agent: { session: { id: 'card-session-a' } } }
 // 测试里需要「一次拿到图」的地方走异步提交和查询，
@@ -113,13 +114,21 @@ test('card tool returns reachable absolute image Markdown on CLI HTTP, including
   assert.equal(Number(head.headers['content-length']), PNG.length)
   const range = await read(image.url, { range: 'bytes=0-7' })
   assert.equal(range.status, 206); assert.deepEqual(range.bytes, PNG.subarray(0, 8))
+  const jobImage = () => origin + '/plugins/dsh-tavern-image/jobs?id=' + image.jobId + '&image=1'
+  assert.deepEqual((await read(jobImage())).bytes, PNG)
+  assert.deepEqual((await read(jobImage(), { range: 'bytes=0-7' })).bytes, PNG.subarray(0, 8))
   assert.equal((await read(image.url, {}, 'DELETE')).status, 405)
   assert.equal((await read(origin + '/dsh-tavern-gen/img/not-a-gallery-file.png')).status, 404)
   assert.equal((await read(origin + '/dsh-tavern-gen/api/gallery', { origin: 'https://evil.invalid', 'sec-fetch-site': 'cross-site' })).status, 403)
+  assert.equal((await f.runtime.request('/dsh-tavern-gen/api/gallery-delete', { id: image.jobId })).body.removed, 1)
+  assert.equal((await f.runtime.request('job-detail?id=' + image.jobId)).body.job.hasImage, false)
+  assert.equal((await read(jobImage())).status, 404)
   origin = 'http://127.0.0.1:' + servers[1].address().port
   const next = await draw(f, { prompt: 'second traveler' }, own)
   assert.equal(new URL(next.images[0].url).origin, origin, 'read the current listener address for each tool call')
   assert.equal((await read(next.images[0].url)).status, 200)
+  assert.equal((await f.runtime.request('delete-job', { jobId: next.images[0].jobId })).body.removed, 1)
+  assert.deepEqual((await f.runtime.request('/dsh-tavern-gen/api/gallery')).body.items, [])
   assert.ok((await f.runtime.request('/dsh-tavern-gen/api/gallery')).body.items.every(item => item.url.startsWith('/')), 'saved gallery paths survive port changes')
   assert.equal(calls, 2)
 })
@@ -256,6 +265,45 @@ test('workbench saves share the live definitions store and reject stale versions
   assert.equal(f.tools.size, 0)
   assert.equal((await f.runtime.request('/dsh-tavern-gen/api/tools-enabled', { enabled: true })).body.enabled, true)
   assert.equal(f.tools.size, 7)
+})
+
+test('clearing migrated outfit fields survives a save and a restart', async t => {
+  const f = await studio(t, { definitions: { characters: [], outfits: [{ id: 'coat', name: 'Coat', body: 'blue wool', bodyBack: 'belt' }] } })
+  const state = (await f.runtime.request('/dsh-tavern-gen/api/state')).body.outfits
+  const [outfit] = state.outfits
+  assert.equal(outfit.upper, 'blue wool')
+  assert.equal(outfit.back, 'belt')
+  const saved = await f.runtime.request('/dsh-tavern-gen/api/save', { target: 'outfits', content: { revision: state.revision, outfits: [{ ...outfit, upper: '', back: '' }] } })
+  assert.equal(saved.status, 200)
+  f.runtime.close()
+  const runtime = await f.start()
+  const [reloaded] = (await runtime.request('/dsh-tavern-gen/api/state')).body.outfits.outfits
+  assert.equal(reloaded.upper, '')
+  assert.equal(reloaded.back, '')
+  assert.equal(reloaded.body, 'blue wool')
+})
+
+test('single-record workbench edits preserve other fields and reject malformed collections', async t => {
+  const f = await studio(t, { definitions: { characters: [
+    { id: 'a', name: 'A', traits: { face: 'green eyes' }, outfits: [{ id: 'coat', name: 'Coat', upper: 'blue wool' }] },
+    { id: 'b', name: 'B' },
+  ] } })
+  const state = async () => (await f.runtime.request('/dsh-tavern-gen/api/state')).body.characters
+  const before = await state()
+  const save = (item, revision = before.revision) => f.runtime.request('/dsh-tavern-gen/api/save', { target: 'characters', content: { item, revision } })
+  for (const item of [{ id: 'a', traits: null }, { id: 'a', outfits: {} }, { id: 'a', outfits: [{}] }]) {
+    assert.equal((await save(item)).status, 400)
+  }
+  assert.deepEqual(await state(), before)
+  const updated = await save({ id: 'a', traits: { faceBack: 'long hair' }, outfits: [{ id: 'coat', lower: 'black trousers' }] })
+  assert.equal(updated.status, 200)
+  const [person, other] = updated.body.characters.characters
+  assert.equal(person.traits.face, 'green eyes')
+  assert.equal(person.traits.faceBack, 'long hair')
+  assert.equal(person.outfits[0].upper, 'blue wool')
+  assert.equal(person.outfits[0].lower, 'black trousers')
+  assert.deepEqual(other, before.characters[1])
+  assert.equal((await save({ id: 'a', note: 'stale' })).status, 409)
 })
 
 test('read_character gives the macro instead of traits and full traits only on request', async t => {
@@ -525,8 +573,9 @@ test('async status separates a definitive failure from an ambiguous one', { time
 
 test('card and play galleries stay separate while task history, reload and legacy records preserve both pictures', async t => {
   const f = await studio(t, { config: { imageBackend: 'openai', activeImageChannel: 'openai', imageChannels: [channel('openai')] } })
-  globalThis.fetch = async () => json({ data: [{ b64_json: b64 }] })
+  globalThis.fetch = async () => json({ data: [{ b64_json: gif.toString('base64') }] })
   const card = await draw(f, { prompt: 'card portrait' }, own)
+  globalThis.fetch = async () => json({ data: [{ b64_json: b64 }] })
   const play = await f.runtime.request('jobs', { tag: 'story scene', key: 'play-scene', sessionId: 'play-session' })
   await f.runtime.terminal(play.body.id)
   const cardId = card.images[0].jobId
@@ -543,23 +592,32 @@ test('card and play galleries stay separate while task history, reload and legac
     await new Promise(resolve => setTimeout(resolve, 5))
   }
   assert.equal(saved[cardId].source, 'card')
+  const galleryDir = join(f.pluginRoot, '../../image-cache/dsh-tavern-gen')
+  const cacheDir = join(f.pluginRoot, 'cache')
+  assert.equal(await realpath(saved[cardId].file), await realpath(join(galleryDir, 'images', cardId + '.gif')))
+  assert.deepEqual(await readFile(saved[cardId].file), gif)
+  assert.deepEqual(await readdir(cacheDir), [play.body.id + '.img'], 'new card output does not write a second file to cache')
   f.runtime.close()
   delete saved[cardId].source; delete saved[play.body.id].source
   const legacyId = '11111111-2222-4333-8444-555555555555'
-  const legacyFile = join(dirname(saved[cardId].file), legacyId + '.png')
+  const legacyFile = join(cacheDir, legacyId + '.img')
   await copyFile(saved[cardId].file, legacyFile)
-  await createCardGallery(join(f.pluginRoot, '../../image-cache/dsh-tavern-gen')).add({ jobId: legacyId, file: legacyFile, mediaType: 'image/png', prompt: 'older card portrait' }, { sessionId: 'card-session-a' })
+  await createCardGallery(galleryDir).add({ jobId: legacyId, file: legacyFile, mediaType: 'image/gif', prompt: 'older card portrait' }, { sessionId: 'card-session-a' })
   saved[legacyId] = { ...saved[cardId], id: legacyId, file: legacyFile, key: 'card-older-version' }
+  saved[cardId].file = join(galleryDir, 'old-images', cardId + '.gif')
   await writeFile(join(f.pluginRoot, 'jobs-store.json'), JSON.stringify(saved))
   const restarted = await f.start()
   assert.deepEqual((await restarted.request('history?source=play')).body.jobs.map(job => job.id), [play.body.id])
   assert.deepEqual(new Set((await restarted.request('history?source=card')).body.jobs.map(job => job.id)), new Set([cardId, legacyId]), 'pre-fix UUID card jobs are recognized without deleting or regenerating them')
+  assert.equal((await restarted.request('job-detail?id=' + cardId)).body.job.hasImage, true, 'restore finds a relocated GIF')
   assert.equal((await restarted.request('/dsh-tavern-gen/api/gallery')).body.items.length, 2)
   restarted.close()
   await writeFile(join(f.pluginRoot, 'jobs-store.json'), '{}')
   const recovered = await f.start()
   assert.deepEqual((await recovered.request('history?source=play')).body.jobs.map(job => job.id), [play.body.id])
-  assert.deepEqual(new Set((await recovered.request('history?source=card')).body.jobs.map(job => job.id)), new Set([cardId, legacyId]), 'cache-only recovery retains card sources for prefixed IDs and old gallery UUIDs')
+  const recoveredCards = (await recovered.request('history?source=card')).body.jobs
+  assert.deepEqual(new Set(recoveredCards.map(job => job.id)), new Set([cardId, legacyId]), 'disk recovery retains card sources for prefixed IDs and old gallery UUIDs')
+  assert.ok(recoveredCards.every(job => job.hasImage && job.mediaType === 'image/gif'))
 })
 
 test('cancelling a status call stops only the wait, never the job or a second paid request', async t => {
@@ -651,6 +709,82 @@ test('gallery writes do not lose concurrent additions and remove compares stable
   assert.equal((await gallery.list('a')).length, 19)
   assert.equal(await gallery.remove('job-4', 'b'), false)
   await assert.rejects(gallery.file('../output.png'))
+  const staleTarget = join(root, 'gallery', 'images', 'output.png')
+  await writeFile(staleTarget, 'stale bytes')
+  await gallery.add({ jobId: 'output', file, mediaType: 'image/png' })
+  assert.deepEqual((await gallery.read('output')).data, PNG, 'equal basenames in different directories still require a copy')
+})
+
+test('gallery favorites and trash are record flags, and bulk delete only touches the ids it is given', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'card-gallery-flags-'))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const file = join(root, 'output.png'); await writeFile(file, PNG)
+  const gallery = createCardGallery(join(root, 'gallery'))
+  for (const jobId of ['one', 'two']) await gallery.add({ jobId, file, mediaType: 'image/png' }, { sessionId: 'a' })
+  assert.deepEqual((await gallery.list()).map(item => [item.id, item.favorite, item.trashedAt]),
+    [['two', false, null], ['one', false, null]], '新记录默认既不收藏也不在回收站')
+
+  const favorited = await gallery.setState('one', { favorite: true })
+  assert.equal(favorited.favorite, true)
+  assert.match(favorited.url, /^\/dsh-tavern-gen\/img\//, '收藏回执仍带可直接渲染的地址')
+  assert.equal((await gallery.read('one', 'a')).data.length, PNG.length, '收藏不动图片文件')
+
+  const trashed = await gallery.setState('two', { trashedAt: 1700000000000 })
+  assert.equal(trashed.trashedAt, 1700000000000)
+  assert.equal(await gallery.setState('missing', { favorite: true }), null, '找不到的记录返回 null 而不是新建')
+
+  await gallery.setState('one', { trashedAt: 1700000000000 })
+  const restore = gallery.setState('one', { trashedAt: null })
+  const deleteSelection = assert.rejects(gallery.removeTrashed(['one']), { code: 'INVALID_ARGUMENT' })
+  assert.equal((await restore).trashedAt, null)
+  await deleteSelection
+  assert.deepEqual((await gallery.read('one', 'a')).data, PNG, '排在恢复后面的删除不会移除已恢复的图片')
+
+  await gallery.setState('one', { trashedAt: 1700000000000 })
+  assert.deepEqual(await gallery.removeTrashed(['one']), { deleted: ['one'], failed: [] })
+  assert.deepEqual((await gallery.list()).map(item => item.id), ['two'], '批量删除只删点名的，回收站里那张不动')
+  await assert.rejects(gallery.read('one', 'a'), { code: 'NOT_FOUND' })
+})
+
+test('card gallery exposes favorite and trash routes so both gallery views share one tile UI', async t => {
+  const f = await studio(t, { config: { imageBackend: 'openai', activeImageChannel: 'openai', imageChannels: [channel('openai')] } })
+  globalThis.fetch = async () => json({ data: [{ b64_json: b64 }] })
+  const first = await draw(f, { prompt: 'first portrait' }, own)
+  const second = await draw(f, { prompt: 'second portrait' }, own)
+  const keepId = first.images[0].jobId, dropId = second.images[0].jobId
+  const gallery = () => f.runtime.request('/dsh-tavern-gen/api/gallery')
+  const items = (await gallery()).body.items
+  assert.equal(items.length, 2)
+  assert.ok(items.every(item => item.favorite === false && item.trashedAt === null), '老记录也要带默认标记，前端才好统一渲染')
+
+  assert.equal((await f.runtime.request('/dsh-tavern-gen/api/gallery-item', { id: keepId, operation: 'explode' })).status, 400)
+  const favorite = await f.runtime.request('/dsh-tavern-gen/api/gallery-item', { id: keepId, operation: 'favorite' })
+  assert.equal(favorite.status, 200, JSON.stringify(favorite.body))
+  assert.equal(favorite.body.item.favorite, true)
+  assert.equal((await f.runtime.request('/dsh-tavern-gen/api/gallery-item', { id: 'nope', operation: 'favorite' })).status, 404)
+  assert.equal((await gallery()).body.items.find(item => item.id === keepId).favorite, true, '收藏要落盘')
+
+  const trashed = await f.runtime.request('/dsh-tavern-gen/api/gallery-item', { id: dropId, operation: 'trash' })
+  assert.ok(trashed.body.item.trashedAt > 0)
+  assert.deepEqual((await f.galleries[0].list({ sessionId: 'card-session-a' })).map(item => item.id), [keepId],
+    '回收站里的图不再出现在 Tavern 原生画廊')
+
+  assert.equal((await f.runtime.request('/dsh-tavern-gen/api/gallery-delete', { ids: [keepId] })).status, 400,
+    '回收站外的图不许彻底删除')
+  const deleted = await f.runtime.request('/dsh-tavern-gen/api/gallery-delete', { ids: [dropId] })
+  assert.deepEqual(deleted.body.deleted, [dropId])
+  assert.deepEqual((await gallery()).body.items.map(item => item.id), [keepId], '收藏的那张留在画廊里')
+
+  const again = await f.runtime.request('/dsh-tavern-gen/api/gallery-item', { id: keepId, operation: 'trash' })
+  assert.ok(again.body.item.trashedAt > 0)
+  const restored = await f.runtime.request('/dsh-tavern-gen/api/gallery-item', { id: keepId, operation: 'restore' })
+  assert.equal(restored.body.item.trashedAt, null)
+  assert.equal(restored.body.item.favorite, true, '恢复回收站不动收藏标记')
+
+  await f.runtime.request('/dsh-tavern-gen/api/gallery-item', { id: keepId, operation: 'trash' })
+  const cleared = await f.runtime.request('/dsh-tavern-gen/api/gallery-delete', { all: true })
+  assert.deepEqual(cleared.body.deleted, [keepId], '清空回收站只删回收站里的图')
+  assert.deepEqual((await gallery()).body.items, [])
 })
 
 test('a locked image keeps its gallery record for retry, including partial clear failures', async t => {

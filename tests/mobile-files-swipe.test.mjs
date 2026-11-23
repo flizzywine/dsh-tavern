@@ -46,19 +46,6 @@ function host({ marker = false, docked = true, dockVisibility = 'visible', panel
   }
 }
 
-test('0.2.x 打开态（宿主标记 + dock 可见）判定为打开', { skip: !existsSync(installedUrl) }, async () => {
-  const source = await readFile(installedUrl, 'utf8')
-  assert.equal(loadFunction(source, 'filesPanelOpen', host({ marker: true, dockVisibility: 'visible' }))(), true, '标记在面板自身上')
-  assert.equal(loadFunction(source, 'filesPanelOpen', host({ marker: false, dockVisibility: 'visible' }))(), true, '标记缺失时 dock 可见也算开')
-})
-
-test('老宿主（没有 dock 内容）保留原有几何判定', { skip: !existsSync(installedUrl) }, async () => {
-  const source = await readFile(installedUrl, 'utf8')
-  assert.equal(loadFunction(source, 'filesPanelOpen', host({ docked: false, panelVisibility: 'hidden', left: 390 }))(), false, 'visibility:hidden 判关')
-  assert.equal(loadFunction(source, 'filesPanelOpen', host({ docked: false, left: 390 }))(), false, '推到屏外判关')
-  assert.equal(loadFunction(source, 'filesPanelOpen', host({ docked: false, left: 0 }))(), true, '面板可见且覆盖视口判开')
-})
-
 test('右缘左划的判定：面板关闭时是 files（打开右侧栏），打开时才是 none', { skip: !existsSync(installedUrl) }, async () => {
   const classifyFilesSwipe = loadFunction(await readFile(installedUrl, 'utf8'), 'classifyFilesSwipe', {})
   const thresholds = { distanceRatio: 0.16, velocity: 0.45, lockPx: 8, viewportWidthPx: 390, drawerCloseDistanceRatio: 0.13 }

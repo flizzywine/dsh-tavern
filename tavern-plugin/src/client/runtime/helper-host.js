@@ -326,6 +326,9 @@
                 + 'createTurnFieldIndex:' + createTurnFieldIndex.toString() + ','
                 + 'applyVariableReceipt:' + applyTavernVariableReceipt.toString() + ','
 				+ 'createMessageReader:' + createTavernHelperMessageReader.toString() + ','
+                + 'createMessageWriter:' + createTavernHelperMessageWriter.toString() + ','
+                + 'installContext:' + installTavernHelperContext.toString() + ','
+                + 'isCurrentContext:' + isCurrentTavernHelperContext.toString() + ','
                 + 'installUtilities:' + installTavernHelperUtilities.toString() + ','
                 + 'installCompatibilityApi:' + installTavernHelperCompatibilityApi.toString() + ','
                 + 'installPromptApi:' + installTavernHelperPromptApi.toString() + ','
@@ -358,7 +361,7 @@
 				+ 'try{'
 				+ (input && input.trustedCardMode ? 'const frame=window.frameElement;await frame.__dshTavernPrepareTrustedHost();const artifacts=frame.__dshTavernHostArtifacts;window.$=window.jQuery=artifacts?artifacts.bindJQuery(window.parent.jQuery):window.parent.jQuery;const installHostFacade=' + installTavernTrustedHostFacade.toString() + ';const releaseHostFacade=installHostFacade(window.parent,window);window.addEventListener("pagehide",releaseHostFacade,{once:true});window.addEventListener("unload",releaseHostFacade,{once:true});\n' : '')
 				+ 'const installComposer=' + installLegacyTavernComposer.toString() + ';await installComposer();\n'
-                + 'window.__dshTavernComposerWindow=(' + createTavernComposerWindow.toString() + ')(window);if(window.jQuery){window.$=window.jQuery=window.__dshTavernComposerWindow.jQuery;}\n'
+                + (input && input.trustedCardMode ? 'window.__dshTavernComposerWindow=(' + createTavernComposerWindow.toString() + ')(window);if(window.jQuery){window.$=window.jQuery=window.__dshTavernComposerWindow.jQuery;}\n' : '')
                 + 'const installNodeCompatibility=' + installTavernNodeCompatibility.toString() + ';installNodeCompatibility(window);\n'
 				+ 'for(const script of scripts){window.__dshTavernHelperSetCurrentScript(script.id);try{'
 				+ 'if(script.system==="official-mvu"&&script.assetUrl){const loader=createMvuLoader({fetch:window.fetch.bind(window),evaluate:source=>loadModule(source,script.id,false,installComposer),onDiagnostic(diagnostic){parent.postMessage({type:"dsh-tavern-mvu-load-diagnostic",token,diagnostic},"*");},onState(state){parent.postMessage({type:"dsh-tavern-mvu-load-state",token,state},"*");}});'

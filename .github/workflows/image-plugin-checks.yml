@@ -7,6 +7,7 @@ on:
       - 'bin/bundled-scene-image-plugin.mjs'
       - 'tests/bundled-image-*.test.mjs'
       - 'tests/bundled-scene-image-plugin.test.mjs'
+      - 'tests/browser/bundled-image-gallery-views-browser-smoke.mjs'
       - 'tests/browser/bundled-image-prompt-editor-browser-smoke.mjs'
       - 'tests/browser/bundled-image-reference-settings-browser-smoke.mjs'
       - 'tests/browser/bundled-image-scenarios-browser-smoke.mjs'
@@ -115,6 +116,9 @@ jobs:
       - name: Run prompt editor redraw error browser check
         if: matrix.os == 'ubuntu-22.04'
         run: node tests/browser/bundled-image-prompt-editor-browser-smoke.mjs
+      - name: Run gallery views browser check
+        if: matrix.os == 'ubuntu-22.04'
+        run: node tests/browser/bundled-image-gallery-views-browser-smoke.mjs
       - name: Run gallery provider browser check
         if: matrix.os == 'ubuntu-22.04'
         run: node tests/browser/tavern-gallery-provider-browser-smoke.mjs

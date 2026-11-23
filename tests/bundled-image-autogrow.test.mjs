@@ -2,7 +2,6 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {compactComfySchema} from '../tavern-plugin/packages/dsh-tavern-image-bundled/lib/comfy-inputs.js'
 import {applyComfyReferenceImages} from '../tavern-plugin/packages/dsh-tavern-image-bundled/lib/comfy-reference-images.js'
-import {comfyReferenceCapacity} from '../tavern-plugin/packages/dsh-tavern-image-bundled/lib/comfy-dynamic.js'
 
 function graph({names = false, min = 1, loaders = 5, max = 5, legacy = false} = {}) {
   const template = {input:{required:{image:['IMAGE']}}, min,
@@ -38,18 +37,6 @@ function checkPrompt(prompt, count) {
   }
 }
 
-test('official prefix and named autogrow accept 1–5 references across positive and negative encoders', () => {
-  for (const names of [false, true]) for (const legacy of [false, true]) for (const loaders of [1,5]) {
-    const workflow = graph({names, legacy, loaders}), before = JSON.stringify(workflow)
-    const maximum = legacy && loaders === 1 ? 1 : 5
-    assert.equal(comfyReferenceCapacity(workflow, workflow.bindings.referenceImages), maximum)
-    for (let count = 1; count <= maximum; count++) {
-      checkPrompt(applyComfyReferenceImages(workflow, Array.from({length:count}, (_, i) => 'ref' + i + '.png')).prompt, count)
-    }
-    assert.equal(JSON.stringify(workflow), before)
-  }
-})
-
 test('autogrow preserves the declared minimum, including zero and more than one', () => {
   for (const loaders of [1,5]) for (const min of [0,1,2]) {
     const workflow = graph({loaders,min})
@@ -59,16 +46,4 @@ test('autogrow preserves the declared minimum, including zero and more than one'
     checkPrompt(applyComfyReferenceImages(workflow, ['ref0.png','ref1.png']).prompt, 2)
   }
   assert.throws(() => applyComfyReferenceImages(graph({loaders:1}), Array(6).fill('ref.png')), /最多支持 5 张/)
-})
-
-test('multiple explicit loaders expand up to the declared template maximum', () => {
-  const workflow = graph({loaders:2, max:5})
-  assert.equal(comfyReferenceCapacity(workflow, workflow.bindings.referenceImages), 5)
-  checkPrompt(applyComfyReferenceImages(workflow, Array.from({length:5}, (_, i) => 'ref' + i + '.png')).prompt, 5)
-})
-
-test('a required first slot cannot be replaced by a later populated slot', () => {
-  const workflow = graph({loaders:2})
-  workflow.prompt.load1.inputs.image = 'existing.png'
-  assert.throws(() => applyComfyReferenceImages(workflow, []), /至少需要 1 张参考图/)
 })

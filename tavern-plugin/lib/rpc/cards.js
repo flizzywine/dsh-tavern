@@ -2,6 +2,7 @@ import { waitForWritableSession } from '../domain/agent-readiness.js'
 import { normalizeResourcePath } from '../domain/file-resources.js'
 import { pngPayload } from '../domain/mobile-card-import.js'
 import { readFile, rm } from 'node:fs/promises'
+import { isCardArchiveUpload } from '../domain/uploads.js'
 import { encryptCardArchiveFile, isCardPasswordError } from '../domain/card-encryption.js'
 import { createScriptCardUpdate } from '../domain/script-card-update.js'
 
@@ -10,7 +11,7 @@ import { createScriptCardUpdate } from '../domain/script-card-update.js'
 export function createCardHandlers(deps) {
   const { agentRegistry, cardMemory, cardOrganization, cardPacksOf, cardPlugins, cardPreparation,
     cardTaskPrompts, castAssets, chatForSession, deleteCard, ensureNativeCardWorkspace, fileResources,
-    importCard, importCardArchiveFile, importPluginCardFile, replaceCard, listCards, mobileCardImport, pluginApi,
+    importCard, importCardArchiveFile, importPluginCardFile, previewCardArchiveFile, replaceCard, revertCardUpdate, listCards, mobileCardImport, pluginApi,
     readCardWorkspace, runtimePrompt, sessionStore, setCardPlugins, sleep, str, updateCard, uploads,
     worldBooks } = deps
   const scriptCard = createScriptCardUpdate({ presentCardText: path => deps.presentCardText(path), readCardWorkspace,
@@ -20,6 +21,16 @@ export function createCardHandlers(deps) {
     if (!chat?.cardPath) throw new Error('找不到对话或人物卡')
     return chat.cardPath
   }
+
+  const cardUploadFor = id => isCardArchiveUpload(id) ? deps.cardArchiveUploads : uploads
+
+  async function readSessionScripts(sessionId) {
+    const chat = await chatForSession(sessionId)
+    if (!chat?.cardPath) throw new Error('找不到对话或人物卡')
+    const extensions = await deps.readCardExtensions(chat.cardPath, chat, true)
+    return { chat, scripts: (extensions?.helperScripts || []).filter(script => script.type === 'script') }
+  }
+
   return {
     // A card script updating its own card (script-card-update.js): the session's card only.
     async getScriptCard(args) {
@@ -69,8 +80,15 @@ export function createCardHandlers(deps) {
       return await cardMemory.experience(await chatForSession(args?.sessionId), args || {}, { manual: true })
     },
     async updateCard(args) {
-      const change = await updateCard(args && args.path, args && args.patch)
-      return { card: change.card, changed: change.changed }
+      const { path, updateCard } = deps
+
+        // Same host function the card Agent's tavern_update_card tool ends at: Card Preparation
+        // validation, the shared card lock and the projection bump. rawOperations (extension
+        // fields such as /data/extensions/regex_scripts) stay on that one path; the revision entry
+        // stays tool-owned so an RPC caller cannot write changelog records.
+        const change = await updateCard(args && args.path, args && args.patch, undefined, args && args.rawOperations, {expectedAssetRevision: args && args.expectedAssetRevision, expectedRevision: args && args.expectedRevision})
+        return { card: change.card, changed: change.changed }
+
     },
     // A log the host cannot open is repaired on demand: the client retries the open
     // once after this reports a rewrite, and untouched logs cost one read.
@@ -84,17 +102,27 @@ export function createCardHandlers(deps) {
     async importCard(args) {
       return { card: args?.replacePath ? await replaceCard(args.replacePath, { payload: args.payload }) : await importCard(args && args.payload) }
     },
+    // An uploaded card archive before it is imported or replaces a card: its name, version, cover and the installed
+    // packs it carries another version of (card-files.js previewCardArchiveFile). The upload stays for importCardUpload.
+    async previewCardUpload(args) {
+      const upload = await cardUploadFor(args?.uploadId).take(args?.uploadId)
+      return await previewCardArchiveFile(upload.file, str(args?.name) || '人物卡.dshcard', { password: args?.password })
+    },
+    // packDecisions: pack id → 'update' | 'merge', for the packs previewCardUpload listed.
     async importCardUpload(args) {
-      const upload = await uploads.take(args && args.uploadId)
       const name = str(args && args.name) || '人物卡.dshcard'
+      if (isCardArchiveUpload(args?.uploadId) && !/\.(charx|dshcard)$/i.test(name)) throw new Error('分段上传仅支持 CHARX 和 DSHCARD 人物卡')
+      const upload = await cardUploadFor(args?.uploadId).take(args?.uploadId)
+      const packDecisions = args?.packDecisions ?? {}
+      if (!packDecisions || typeof packDecisions !== 'object' || Array.isArray(packDecisions) || Object.values(packDecisions).some(value => typeof value !== 'string')) throw new Error('素材包的更新方式无效')
       let keepForPasswordRetry = false
       try {
         if (args?.replacePath) {
-          if (/\.(charx|dshcard)$/i.test(name)) return { card: await replaceCard(args.replacePath, { file: upload.file, name, password: args.password }) }
+          if (/\.(charx|dshcard)$/i.test(name)) return { card: await replaceCard(args.replacePath, { file: upload.file, name, password: args.password, packDecisions }) }
           if (/\.png$/i.test(name)) return { card: await replaceCard(args.replacePath, { payload: pngPayload(await readFile(upload.file), name) }) }
           throw new Error('更新支持 PNG、JSON、CHARX 和 DSHCARD 人物卡')
         }
-        if (/\.(charx|dshcard)$/i.test(name)) return { card: await importCardArchiveFile(upload.file, name, { password: args?.password }) }
+        if (/\.(charx|dshcard)$/i.test(name)) return { card: await importCardArchiveFile(upload.file, name, { password: args?.password, packDecisions }) }
         if (/\.(dshcard|charx)\.png$/i.test(name)) throw new Error('卡包请使用 .dshcard 文件')
         if (/\.png$/i.test(name)) return { card: await importCard(pngPayload(await readFile(upload.file), name)) }
         if (await pluginApi.cardImporterFor(name)) return { card: await importPluginCardFile(upload.file, name) }
@@ -103,9 +131,12 @@ export function createCardHandlers(deps) {
       catch (error) { keepForPasswordRetry = isCardPasswordError(error); throw error }
       finally { if (!keepForPasswordRetry) await upload.remove() }
     },
+    async revertCardUpdate(args) {
+      return await revertCardUpdate(args?.updateId)
+    },
     async discardCardUpload(args) {
-      const upload = await uploads.take(args?.uploadId)
-      await upload.remove()
+      if (isCardArchiveUpload(args?.uploadId)) await deps.cardArchiveUploads.discard(args.uploadId)
+      else await (await uploads.take(args?.uploadId)).remove()
       return { removed: true }
     },
     async encryptCardUpload(args) {
@@ -153,6 +184,21 @@ export function createCardHandlers(deps) {
     async setCardPlugins(args) {
       return { plugins: await setCardPlugins(args && args.path, args && args.enabled === true) }
     },
+    async previewCardPluginUpdate(args) {
+      const cardPath = normalizeResourcePath(args?.path, 'card')
+      if (await fileResources.readCard(cardPath) === undefined) throw new Error('人物卡不存在')
+      const upload = await deps.cardPluginUploads.take(args?.uploadId)
+      try { return await deps.cardPluginUpdates.preview({cardPath, file:upload.file, pluginName:args?.pluginName}) }
+      finally { await upload.remove() }
+    },
+    async recoverCardPluginUpdate() {
+      return await deps.cardPluginUpdates.recover()
+    },
+    async updateCardPlugin(args) {
+      const cardPath = normalizeResourcePath(args?.path, 'card')
+      if (await fileResources.readCard(cardPath) === undefined) throw new Error('人物卡不存在')
+      return await deps.cardPluginUpdates.confirm({cardPath, inspectionId:args?.inspectionId, acceptPluginRisk:args?.acceptPluginRisk})
+    },
     async cardPluginScopes(args) {
       return { scopes: Object.fromEntries([...await cardPlugins.scope()].map(([name, scope]) => [name, scope.cards])) }
     },
@@ -178,18 +224,22 @@ return cardZipTargets.release(normalizeResourcePath(args && args.path, 'card'))
       const { duplicateCard, path } = deps
 return { card: await duplicateCard(args && args.path, args && args.name) }
     },
-    async setCardScriptMuted(args, method, serverTemplate, authority) {
-      const { cardScripts, resolveCardId, chatForSession, readCardExtensions, str } = deps
-        const chat = await chatForSession(args && args.sessionId)
-        if (!chat?.cardPath) throw new Error('找不到对话或人物卡')
-        const extensions = await readCardExtensions(chat.cardPath, chat, true)
-        const scripts = await cardScripts.list(extensions?.helperScripts, chat.cardPath)
-        if (method === 'setCardScriptMuted') {
-          const id = typeof args?.id === 'string' ? args.id.trim() : ''
-          if (!scripts.scripts.some(script => script.id === id)) throw new Error('Unknown card script ID')
-          await cardScripts.setMuted(chat.cardPath, id, args.muted)
-        }
-        return { cardName: str(chat.cardName), cardId: await resolveCardId(chat.cardPath), ...(await cardScripts.list(extensions?.helperScripts, chat.cardPath)) }
+    async getCardScriptSource(args) {
+      const { scripts } = await readSessionScripts(args?.sessionId)
+      const ref = str(args?.ref).trim(), id = str(args?.id).trim()
+      const script = ref && scripts.find(item => item.ref === ref && item.id === id)
+      if (!script) throw new Error('找不到该脚本，请重新打开卡片脚本页')
+      return { content: script.content }
+    },
+    async setCardScriptMuted(args, method) {
+      const { chat, scripts } = await readSessionScripts(args?.sessionId)
+      if (method === 'setCardScriptMuted') {
+        const id = str(args?.id).trim()
+        if (!scripts.some(script => script.id === id)) throw new Error('Unknown card script ID')
+        await deps.cardScripts.setMuted(chat.cardPath, id, args.muted)
+      }
+      return { cardName: str(chat.cardName), cardId: await deps.resolveCardId(chat.cardPath),
+        ...await deps.cardScripts.list(scripts, chat.cardPath) }
     },
   }
 }

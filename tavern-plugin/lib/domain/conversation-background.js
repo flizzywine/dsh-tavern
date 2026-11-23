@@ -1,6 +1,6 @@
 import { configuredChatBackgroundModel, normalizeBackgroundModel } from './background-model-selection.js'
 import { normalizeDisabledForegroundTools } from './foreground-tools.js'
-import { normalizeConfiguredBackgroundTasks } from './tavern-settings.js'
+import { applyTavernSettingsPatch, normalizeConfiguredBackgroundTasks } from './tavern-settings.js'
 
 // Legacy settings are read only when adopting an old save. New games own defaults.
 export function adoptConversationBackground(chat, legacy = {}) {
@@ -12,6 +12,7 @@ export function adoptConversationBackground(chat, legacy = {}) {
 
 export function patchConversationBackground(chat, patch) {
   const next = { ...chat, backgroundConfigVersion: 1 }
+  if (Object.hasOwn(patch, 'modModelSelection')) next.modModels = applyTavernSettingsPatch({modModels:chat.modModels || {}}, {modModelSelection:patch.modModelSelection}).modModels
   if (Object.hasOwn(patch, 'backgroundModel')) {
     next.backgroundModelSelection = normalizeBackgroundModel(patch.backgroundModel)
     if (patch.backgroundModel !== null && !next.backgroundModelSelection) throw new Error('后台模型配置无效')
@@ -22,6 +23,10 @@ export function patchConversationBackground(chat, patch) {
   }
   if (Object.hasOwn(patch, 'backgroundTasks')) {
     next.backgroundTasks = normalizeConfiguredBackgroundTasks({ ...normalizeConfiguredBackgroundTasks(chat.backgroundTasks), ...patch.backgroundTasks })
+  }
+  if (Object.hasOwn(patch, 'candidateTabs')) {
+    if (typeof patch.candidateTabs !== 'boolean') throw new Error('无效的候选项数量设置')
+    next.candidateTabs = patch.candidateTabs
   }
   if (Object.hasOwn(patch, 'webSearchEnabled')) {
     if (typeof patch.webSearchEnabled !== 'boolean') throw new Error('开关配置必须为布尔值')

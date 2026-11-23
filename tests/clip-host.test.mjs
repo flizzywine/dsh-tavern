@@ -3,8 +3,7 @@ import assert from 'node:assert/strict'
 import {mkdtemp,readFile,rm,stat} from 'node:fs/promises'
 import {join} from 'node:path'
 import {tmpdir} from 'node:os'
-import {createClipHost,clipLeaseAsset} from '../tavern-plugin/packages/dsh-tavern-stage/lib/clip/clip-export-host.js'
-import {PACK_LEASE_PATH} from '../tavern-plugin/packages/dsh-asset-library/lib/pack-v2/service.js'
+import { createClipHost } from '../tavern-plugin/packages/dsh-tavern-stage/lib/clip/clip-export-host.js'
 import {roundBody} from '../tavern-plugin/lib/domain/round-body.js'
 import {paragraphSpeech} from '../tavern-plugin/lib/domain/paragraph-speech.js'
 import {syntheticPack,PACK_ID,FIGURE_ID} from './fixtures/asset-packs/pack.mjs'
@@ -19,21 +18,6 @@ function pcmWav(pcm, sampleRate = 24000) {
   head.write('data', 36); head.writeUInt32LE(pcm.length, 40)
   return Buffer.concat([head, pcm])
 }
-
-test('export lease adapter preserves multipart skin and deferred-font query semantics',async()=>{
-  const tickets=new Set(['owned']),calls=[];
-  const library={async respondLease(options){calls.push(options);const form=new FormData();form.set('skin.json',new Blob(['{}'],{type:'application/json'}),'skin.json');return options.bundle?new Response(form):new Response('{}',{headers:{'Content-Type':'application/json'}})}};
-  const url=new URL('https://clip-export.invalid'+PACK_LEASE_PATH+'owned/skin.json?bundle=1&deferFonts=1');
-  const asset=await clipLeaseAsset(library,url,tickets);
-  const form=await new Response(asset.body,{headers:{'Content-Type':asset.mediaType}}).formData();
-  assert.equal(await form.get('skin.json').text(),'{}');
-  assert.equal(calls[0].bundle,true);assert.equal(calls[0].deferFonts,true);
-  assert.equal(calls[0].request.headers.get('sec-fetch-site'),'same-origin');
-  url.search='';await clipLeaseAsset(library,url,tickets);
-  assert.equal(calls[1].bundle,false);assert.equal(calls[1].deferFonts,false);
-  await assert.rejects(clipLeaseAsset(library,url,new Set()),/not owned/);
-  assert.equal(calls.length,2);
-});
 
 test('six host RPCs export a read-only recorded paragraph through the real isolated client and encoder',{timeout:180000},async t=>{
   const root=await mkdtemp(join(process.env.DSH_CLIP_TEST_TEMP || tmpdir(),'clip-host-'));t.after(()=>rm(root,{recursive:true,force:true}))
@@ -104,33 +88,6 @@ test('a cold export binds the presentation before querying the first cached line
   assert.equal(reads,2,'each new snapshot reads its very first line exactly once, without a retry')
 })
 
-test('旁白配音: an export reads each measured narration page\'s cached narrator voice and plans it on that page', {timeout:60000}, async t => {
-  const root = await mkdtemp(join(tmpdir(), 'clip-narrator-')); t.after(() => rm(root, {recursive:true, force:true}))
-  const pack = await syntheticPack(), body = roundBody([{kind:'markdown', text:'雨下了一整夜。\n\n@bubble:actor|Synthetic figure|calm|[早上好。]|[おはよう。]'}], {chatId:'narrated', turn:1})
-  const config = {characters:[{alias:'actor', name:'Synthetic figure', voice:'voice', voiceKey:'voice', voiceLanguage:'ja'}], voice:{enabled:true}, narrator:{voiceKey:'narrator-key'},
-    stage:{textLanguage:'zh', director:false, face:'off', music:false, theme:'classic'}}
-  const pcm = Buffer.alloc(48000); for (let i = 0; i < 24000; i++) pcm.writeInt16LE(Math.round(9000 * Math.sin(i / 24000 * 523 * Math.PI * 2)), i * 2)
-  const reads = []
-  // 旁白 points at a figure of the pack whose voice speaks 中文.
-  const tts = {apiVersion:1, subscribe:() => () => {}, reading:() => ({general:{figure:null}, narrator:{enabled:false, figure:{packId:PACK_ID, figureId:'narrator'}}}), resolveVoiceService:async () => ({effective:{serviceId:'fixture', capabilities:{}}, issues:[]}),
-    registerVoiceSource:() => ({dispose() {}}), grantConsumer:() => ({grant:{}, dispose() {}}),
-    async readCached(input) { reads.push([input.text, input.language]); return input.text === '雨下了一整夜。' ? {key:'narrator-page', audio:pcmWav(pcm), durationMs:1000, loudness:{version:1, gain:1, gainDb:0}} : null }}
-  const figure = pack.figures[FIGURE_ID], withNarrator = {...pack, revision:'r1', figures:{...pack.figures, narrator:{...figure, id:'narrator', voice:{...figure.voice, language:'zh'}}}}
-  const library = {apiVersion:2, subscribe:() => () => {}, getPackSnapshot:async () => withNarrator, readMedia:async () => ({bytes:new Uint8Array()}),
-    resolveFigures:async ({refs}) => refs.map(ref => resolveFigureSnapshot({...pack, revision:'r1'}, ref))}
-  const service = createClipHost({paragraphSpeech,readChat:async sessionId => ({id:'narrated', sessionId, cardPath:'fixture.json'}), readDisplay:async () => ({projections:[{turn:1, body}]}), readConfig:async () => config,
-    readWorkspace:async () => ({meta:{id:'card-1'}, raw:{extensions:{dsh_tavern:{schemaVersion:1, assetBindings:{boundPackIds:[PACK_ID]}, stage:{narrator:{enabled:true}}}}}}),
-    readDirection:async () => ({phase:'off', revision:0, generation:0, token:null}),
-    library:() => library, tts:() => tts, settings:() => ({revision:1, values:{stageToggles:{voice:true}}}), globalPacks:() => [], extras:async () => ({mods:{}, fonts:{fonts:[]}}), readHostAsset:async () => null,
-    exportsRoot:join(root, 'exports'), tempRoot:join(root, 'temp'), openFolder:async () => {}, checkDisk:async () => {}})
-  t.after(() => service.dispose())
-  const estimate = await service.call('estimateClipExport', {sessionId:'session', range:{chatId:'narrated', from:{turn:1, para:1}, to:{turn:1, para:2}}})
-  assert.deepEqual(reads.find(row => row[0] === '雨下了一整夜。'), ['雨下了一整夜。', 'zh'], 'the narrator reads the page text in Chinese')
-  assert.deepEqual(estimate.timeline.voices.map(row => [row.id, row.key, row.startFrame]), [['1:1:0', 'narrator-page', 0]])
-  assert.ok(estimate.timeline.lines[0].frames >= 30, 'the page holds for its narrator voice')
-  assert.equal(estimate.missingVoiceCount, 1, 'the uncached line is counted')
-  assert.deepEqual(estimate.voiceCache.keys, ['narrator-page'])
-})
 // 旁白 in another language reads its paragraph's whole 配音补译 voice text on the first page, as the stage does.
 test('旁白配音 in another language: an export plans the whole translated paragraph on its first page', {timeout:60000}, async t => {
   const KEY = JSON.stringify(['旁白', '雨下了一整夜。'])

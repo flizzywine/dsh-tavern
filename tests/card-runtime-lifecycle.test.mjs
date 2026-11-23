@@ -54,9 +54,9 @@ function execution(options = {}) {
       })
     },
     createRuntime(options) {
-      const runtime = { options, syncs: [], emissions: [], disposed: 0,
+      const runtime = { options, syncs: [], emissions: [], disposed: 0, documentToken: 'document-1',
         sync(sessionId, view) { this.syncs.push({ sessionId, view }) },
-        inspect() { return { scripts: [{ subscriptionsReady: true }] } },
+        inspect() { return { documentToken: this.documentToken, scripts: [{ subscriptionsReady: true }] } },
         emit(...args) { this.emissions.push(args); return Promise.resolve(args[1]) },
         triggerButton: () => Promise.resolve('clicked'),
         dispose() { this.disposed++ }
@@ -75,6 +75,24 @@ function execution(options = {}) {
 
 const announcementDelays = [1500, 4000, 9000]
 const announcementTimers = h => [...h.timers.entries()].filter(([, timer]) => announcementDelays.includes(timer.delay))
+
+test('切入正在自动更新人物卡的存档，脚本等新版本再初始化', async () => {
+  const h = execution()
+  h.module.sync('A', { ...view(), cardUpdate: { autoReloading: true } })
+  await h.settle()
+  assert.equal(h.calls.length, 0)
+  assert.equal(h.runtimes.length, 0)
+
+  const updated = view(2)
+  updated.tavernHelper.lifecycleRevision = 2
+  h.module.sync('A', { ...updated, cardUpdate: { autoReloading: false } })
+  await h.settle()
+  await h.runtimes[0].options.onReady('A')
+  assert.equal(h.runtimes[0].emissions[0][0], 'CHAT_CHANGED')
+  assert.equal(h.runtimes[0].emissions[0][2].lifecycleRevision, 2)
+  h.module.dispose()
+})
+
 function runAnnouncement(h, delay) {
   const entry = announcementTimers(h).find(([, timer]) => timer.delay === delay)
   assert.ok(entry, `no pending chat announcement timer for ${delay}ms`)
@@ -128,6 +146,69 @@ test('script owner acquires one lease, reuses sandbox on variable changes, initi
   assert.equal(h.calls.at(-1).requestOptions.keepalive, true, 'navigation must not abort the ownership release')
   h.module.dispose()
   assert.equal(h.calls.filter(x => x.method === 'releaseTavernHelperRuntime').length, 1)
+})
+
+test('the official MVU owner waits for the chat announcement before accepting settlement work', async t => {
+  const h = execution(), ready = deferred()
+  t.after(() => h.module.dispose())
+  h.module.sync('A', mvuView())
+  await h.settle()
+  const runtime = h.runtimes[0]
+  runtime.emit = () => ready.promise
+  const announcement = runtime.options.onReady('A')
+  runtime.options.onMvuLoadState({ phase: 'ready' })
+  h.wake()
+  await h.settle()
+  const claims = () => h.calls.filter(row => row.method === 'claimTavernScriptWork')
+  assert.ok(claims().length > 1)
+  assert.ok(claims().every(row => row.args.ready === false))
+  ready.resolve([])
+  await announcement
+  await h.settle()
+  assert.equal(claims().at(-1).args.ready, true)
+})
+
+test('CHAT_CHANGED 失败后继续报告未就绪，成功重试后才申领 MVU 结算', async t => {
+  const h = execution()
+  t.after(() => h.module.dispose())
+  h.module.sync('A', mvuView())
+  await h.settle()
+  const runtime = h.runtimes[0]
+  runtime.emit = async () => { throw new Error('CHAT_CHANGED 失败') }
+  await assert.rejects(runtime.options.onReady('A'), /CHAT_CHANGED 失败/)
+  runtime.options.onMvuLoadState({ phase: 'ready' })
+  await h.settle()
+  const claims = () => h.calls.filter(row => row.method === 'claimTavernScriptWork')
+  assert.ok(claims().every(row => row.args.ready === false))
+  runtime.emit = async (...args) => { runtime.emissions.push(args); return [] }
+  runAnnouncement(h, 1500)
+  await h.settle()
+  assert.deepEqual(runtime.emissions.map(args => [...args[1]]), [[''], ['tavern-chat']])
+  assert.equal(claims().at(-1).args.ready, true)
+})
+
+test('旧沙箱迟到的 CHAT_CHANGED 回执不会让新沙箱提前就绪', async t => {
+  const h = execution(), oldReply = deferred(), newReply = deferred()
+  t.after(() => h.module.dispose())
+  h.module.sync('A', mvuView())
+  await h.settle()
+  const runtime = h.runtimes[0]
+  runtime.emit = () => oldReply.promise
+  const oldInitialization = runtime.options.onReady('A')
+  await h.settle()
+  runtime.documentToken = 'document-2'
+  runtime.emit = () => newReply.promise
+  const newInitialization = runtime.options.onReady('A')
+  oldReply.resolve([])
+  await oldInitialization
+  h.wake()
+  await h.settle()
+  const claims = () => h.calls.filter(row => row.method === 'claimTavernScriptWork')
+  assert.ok(claims().every(row => row.args.ready === false))
+  newReply.resolve([])
+  await newInitialization
+  await h.settle()
+  assert.equal(claims().at(-1).args.ready, true)
 })
 
 test('初始变量尚未保存时重发 CHAT_CHANGED，让卡脚本重跑聊天级初始化且重发有界', async () => {
@@ -233,6 +314,26 @@ test('helper sandbox accepts nested worldbooks and legacy aliases without overwr
     assert.deepEqual(delivered.context.worldbook, nested === undefined ? input.tavernHelperWorldbook : nested)
     h.runtime.dispose()
   }
+})
+
+test('finishing a different event does not replace an active settlement draft with a refreshed save', async t => {
+  const h = sandbox()
+  t.after(() => h.runtime.dispose())
+  h.runtime.sync('A', view())
+  const frame = h.ready()
+  const initialization = h.runtime.emit('UPDATE', [], null, [], 'initialization')
+  const draft = { ...context(), chatId: 'tavern-chat', transaction: { eventId: 'settlement', sequence: 0 } }
+  const settlement = h.runtime.emit('UPDATE', [], draft, [], 'settlement')
+  const delivered = () => frame.contentWindow.messages.filter(row => row.type === 'dsh-tavern-helper-context').length
+  const initial = delivered()
+  h.runtime.sync('A', view(2))
+  assert.equal(delivered(), initial)
+  h.message(frame, 'dsh-tavern-helper-event-complete', { eventId: 'initialization', args: [] })
+  await initialization
+  assert.equal(delivered(), initial)
+  h.message(frame, 'dsh-tavern-helper-event-complete', { eventId: 'settlement', args: [] })
+  await settlement
+  assert.equal(delivered(), initial + 1)
 })
 
 test('下载等待暂停初始化超时，同一沙箱可手动恢复且拒绝重复、伪造和旧窗口重试', () => {

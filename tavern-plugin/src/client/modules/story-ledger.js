@@ -65,7 +65,7 @@ function TavernLedger(props) {
     void submit({ [e.kind]: ops }, e.expected);
   }
   async function remove(row) {
-    if (!await askConfirm(tab === "scenes" ? "删除这个地点及其下属地点？" : "删除这条台账记录？")) return;
+    if (!await askConfirm(tab === "scenes" ? "下属地点一起删除。" : "这条记录会从台账移除。", { title: tab === "scenes" ? "删除这个地点？" : "删除这条台账记录？", confirmText: "删除", danger: true, hide: "story-ledger" })) return;
     void submit({ [tab]: { remove: [tab === "scenes" ? row.path : row.name] } }, JSON.stringify(ledger));
   }
   function actions(row) { return h("span", { className: "dsh-ledger-actions" },

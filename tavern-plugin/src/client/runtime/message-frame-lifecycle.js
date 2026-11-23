@@ -11,7 +11,9 @@ function bubbleCardFace(config, name, sessionId) {
 // (a sandboxed frame cannot load the host's). A name without a face is left out; a card without bubble settings has none.
 // The avatar cache is bound to a session by the stage client's session observation; with the stage off (or not started
 // yet) nothing binds it, so a frame binds it itself before preparing its face (as the transcript rows work with the stage off).
-const BUBBLE_FRAME_FACE_PX = 96;
+// A card shows its face in a photo window well above transcript avatar size (a badge photo is ~130 CSS px wide, cover-fitted),
+// and the frame cannot resample: the face is cut at 256 CSS px (x devicePixelRatio) so it stays sharp when scaled to the window.
+const BUBBLE_FRAME_FACE_PX = 256;
 async function bubbleCardFaceBlobs(sessionId, names) {
     const data = bubbleStore.get(sessionId) || await rpc("getDialogueBubbles", { sessionId: sessionId }, sessionId);
     const faces = await Promise.all([...new Set(names)].map(async name => {
@@ -25,7 +27,7 @@ async function bubbleCardFaceBlobs(sessionId, names) {
             const stop = session.subscribe(() => { if (session.getSnapshot().source) { stop(); resolve(); } });
         });
         const source = session?.getSnapshot().source, authority = source ? JSON.stringify([source.sessionId,source.authorityEpoch]) : null;
-        let url = avatarCache.get(face,BUBBLE_FRAME_FACE_PX) || avatarCache.ready(face);
+        let url = avatarCache.get(face,BUBBLE_FRAME_FACE_PX);
         if (!url && !(stageSessions.resourceOwner && !authority)) {
             const pool = bubbleMediaPool.retain(), {sessionId: _session, ...descriptor} = face;
             try {
@@ -33,6 +35,8 @@ async function bubbleCardFaceBlobs(sessionId, names) {
                 try { url = await avatarCache.prepare(face,pin.handle.url,BUBBLE_FRAME_FACE_PX); } finally { pin.release(); }
             } catch (_) { /* an unleasable face is left out, as the transcript leaves its avatar empty */ } finally { pool.release(); }
         }
+        // a face that could not be cut at this size still shows as the transcript's smaller one
+        url = url || avatarCache.ready(face);
         return url ? {name, blob: await (await fetch(url)).blob()} : null;
     }));
     return faces.filter(Boolean);}		const TAVERN_FRAME_MAX_HEIGHT = 32000;

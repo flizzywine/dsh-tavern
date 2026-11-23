@@ -7,7 +7,9 @@ import { absent, checkedPath } from './storage-path.js'
 import { createMediaStore } from './media-store.js'
 export { checkedPath } from './storage-path.js'
 import { check, relativePath, validateUuid } from '../asset-packs/common.js'
-import { readDocument, jsonBytes, budget, StoredFile } from './validation.js'
+import { readDocument, jsonBytes, budget, StoredFile, SpooledFile } from './validation.js'
+import { FIGURE_DOCUMENT, FIGURE_RECORD_UNAVAILABLE, figureWithIdentity, freshenFigureRows, isStoredWithoutIdentity } from './figure-records.js'
+import { FIGURE_IMAGE_EXTENSION } from '../asset-packs/figure.js'
 
 export const supportsIndependentFiles = true
 const roots = new Map()
@@ -21,7 +23,7 @@ async function durableWrite(file, bytes) {
 }
 // One gate per explicit profile root, shared by service instances in this process.
 // Reads also enter it, so neither replacement gaps nor recovery trees are observable.
-export function createPackStorage({assetRoot, limits, cardTransactions, mediaStore, inspectPath = lstat, fault = async () => {}}) {
+export function createPackStorage({assetRoot, limits, cardTransactions, mediaStore, figureRecords, inspectPath = lstat, fault = async () => {}}) {
   check(typeof assetRoot === 'string' && path.isAbsolute(assetRoot), '$.assetRoot', 'An absolute profile assetRoot is required')
   const root = path.resolve(assetRoot), key = process.platform === 'win32' ? root.toLowerCase() : root
   let shared = roots.get(key)
@@ -38,7 +40,48 @@ export function createPackStorage({assetRoot, limits, cardTransactions, mediaSto
     const bytes = await readFile(file)
     check(bytes.length <= maxBytes, relative, 'Stored file exceeds budget', 'LIMIT_EXCEEDED')
     if (readTiming.hasSubscribers) readTiming.publish({name:'pack.read.' + (/^packs\/[^/]+\/manifest\.json$/.test(relative) ? 'manifest' : 'document'), packId:relative.split('/')[1]?.replace(/\.json$/, ''), bytes:bytes.length, durationMs:performance.now() - started})
-    return bytes
+    const figure = FIGURE_DOCUMENT.exec(relative)
+    return figure ? wholeFigure(figure[1], figure[2], bytes) : bytes
+  }
+  // Bytes of whole figures read back from identity-less documents (their manifest rows are refreshed from these).
+  const restored = new WeakSet()
+  const moved = new Set() // packs a write moved carried 外貌 out of
+  async function wholeFigure(packId, figureId, bytes) {
+    const stored = readDocument(bytes)
+    if (!isStoredWithoutIdentity(stored)) return bytes
+    let identity = null
+    try { identity = await figureRecords?.read({packId, figureId}) ?? null } catch { /* an unreadable record shows the figure as unavailable */ }
+    const whole = jsonBytes(figureWithIdentity(stored, identity))
+    restored.add(whole)
+    return whole
+  }
+  // The document stored for a whole figure: the host keeps its identity in a record when it can (figureRecords.write).
+  // intent: 'held' when the record is being saved with this identity by its own store, 'released' when its link ends.
+  async function storedFigure(packId, figureId, bytes, {manifest, intent}) {
+    const figure = readDocument(bytes)
+    const media = async hash => {
+      const descriptor = manifest.blobs?.[hash]
+      check(descriptor, '$.blobs', 'Figure media missing', 'MISSING_DEPENDENCY')
+      const name = `media/${hash}.${descriptor.ext}`
+      const data = await read(`packs/${packId}/${name}`, descriptor.size ?? limits.entrySize)
+      check(data, name, 'Figure media missing', 'MISSING_DEPENDENCY')
+      return {bytes:Buffer.from(data), mime:descriptor.mime}
+    }
+    // a figure kept whole keeps its bytes: the manifest row hashes them
+    const stored = await figureRecords.write({packId, figureId, figure, intent, media})
+    return {
+      bytes: stored === figure ? bytes : jsonBytes(stored),
+      moved: Boolean(figure.extensions?.[FIGURE_IMAGE_EXTENSION] && !stored.extensions?.[FIGURE_IMAGE_EXTENSION]),
+    }
+  }
+  async function storedFigureIds(id) {
+    const bytes = await read(`packs/${id}/manifest.json`)
+    return bytes ? readDocument(bytes).figures || [] : []
+  }
+  // After a committed write: records of figures it removed are released. A record that cannot be released stays linked.
+  async function releaseFigures(packId, figureIds) {
+    if (!figureRecords || !figureIds.length) return
+    try { await figureRecords.release({packId, figureIds}) } catch { /* the write is committed */ }
   }
   // Stored media is served by byte range; the handle closes before the caller's fence is released.
   const readRange = async (relative, position, length) => {
@@ -150,6 +193,20 @@ export function createPackStorage({assetRoot, limits, cardTransactions, mediaSto
       else if (!had) await erase(live)
     }
   }
+  function validateMetadataJournal(journal, tx) {
+    validateUuid(journal.id)
+    check(Array.isArray(journal.files) && journal.files.length > 0 && new Set(journal.files).size === journal.files.length && journal.files.every(name => typeof name === 'string' && name !== '@local'), tx, 'Invalid file journal', 'RECOVERY_REQUIRED')
+    for (const name of journal.files) relativePath(name)
+    if (journal.added) check(Array.isArray(journal.added) && journal.added.every(name => journal.files.includes(name)), tx, 'Invalid added files', 'RECOVERY_REQUIRED')
+  }
+  async function hasImageDefinitionsCommit({file, id}) {
+    check(path.isAbsolute(file) && path.basename(file) === 'definitions.json', '$.file', 'Invalid image definitions receipt')
+    validateUuid(id)
+    const info = await lstat(file).catch(absent)
+    if (!info) return false
+    check(info.isFile() && !info.isSymbolicLink(), '$.file', 'Unsafe image definitions receipt')
+    return readDocument(await readFile(file))._linkedFigureCommit === id
+  }
   async function recover(readOnly = false) {
     for (const parent of ['staging-pending', 'staging']) {
       for (const entry of await readdir(await locate(parent), {withFileTypes:true}).catch(error => error.code === 'ENOENT' ? [] : Promise.reject(error))) {
@@ -161,7 +218,13 @@ export function createPackStorage({assetRoot, limits, cardTransactions, mediaSto
         const bytes = await read(tx + '/journal.json')
         if (bytes) {
           const journal = readDocument(bytes)
-          if (journal.version === 2) {
+          if (journal.version === 4) {
+            check(Array.isArray(journal.packs) && journal.packs.length, tx, 'Invalid metadata batch journal', 'RECOVERY_REQUIRED')
+            for (const item of journal.packs) validateMetadataJournal(item, tx)
+            if (!await exists(tx + '/committed') && !await hasImageDefinitionsCommit(journal.receipt)) {
+              for (const item of [...journal.packs].reverse()) await rollback(tx + '/' + item.id, item)
+            }
+          } else if (journal.version === 2) {
             check(Array.isArray(journal.packs) && cardTransactions, tx, 'Card recovery adapter required', 'RECOVERY_REQUIRED')
             for (const item of journal.packs) { validateUuid(item.id); check(typeof item.hadPack === 'boolean' && typeof item.hadLocal === 'boolean', tx, 'Invalid journal', 'RECOVERY_REQUIRED') }
             if (!await exists(tx + '/committed')) {
@@ -171,11 +234,7 @@ export function createPackStorage({assetRoot, limits, cardTransactions, mediaSto
             }
           } else {
             validateUuid(journal.id)
-            if (journal.version === 3) {
-              check(Array.isArray(journal.files) && journal.files.length > 0 && new Set(journal.files).size === journal.files.length && journal.files.every(name => typeof name === 'string' && name !== '@local'), tx, 'Invalid file journal', 'RECOVERY_REQUIRED')
-              for (const name of journal.files) relativePath(name)
-              if (journal.added) check(Array.isArray(journal.added) && journal.added.every(name => journal.files.includes(name)), tx, 'Invalid added files', 'RECOVERY_REQUIRED')
-            }
+            if (journal.version === 3) validateMetadataJournal(journal, tx)
             else check(journal.version === 1 && typeof journal.hadPack === 'boolean' && typeof journal.hadLocal === 'boolean', tx, 'Invalid recovery journal', 'RECOVERY_REQUIRED')
             if (!await exists(tx + '/committed')) await rollback(tx, journal)
           }
@@ -239,6 +298,7 @@ export function createPackStorage({assetRoot, limits, cardTransactions, mediaSto
     const manifest = readDocument(bytes), local = await readLocal(id)
     check(manifest.id === id && local, id, 'Incomplete pack publication', 'RECOVERY_REQUIRED')
     check(typeof local.revision === 'string' && Array.isArray(local.retired), id, 'Invalid local state', 'RECOVERY_REQUIRED')
+    await freshenFigureRows(manifest, files, restored)
     return {manifest, files, local}
   }
   async function listIds() {
@@ -248,14 +308,47 @@ export function createPackStorage({assetRoot, limits, cardTransactions, mediaSto
     return entries.map(entry => { validateUuid(entry.name); check(entry.isDirectory() && !entry.isSymbolicLink(), entry.name, 'Unsafe pack directory', 'INVALID_PATH'); return entry.name }).sort()
   }
   // Reuse validated content identities; metadata and publication journals stay pack-owned.
-  async function stageFiles(base, pack) {
+  // Keep a whole figure in the journal until the pack is committed. The only exception is a figure whose record the
+  // same journal already saves via its definitions receipt.
+  async function stageFiles(base, pack, id, {intents} = {}) {
     const descriptors = new Map(pack.manifest.files.map(file => [file.path, file]))
+    const figures = []
     for (const [name, bytes] of pack.files) {
       const descriptor = descriptors.get(name)
       // Lazy export/merge inputs hydrate one file at a time, not the entire source pack.
-      const source = bytes instanceof StoredFile ? await read(path.relative(root, bytes.file).split(path.sep).join('/'), bytes.length) : bytes
+      const source = bytes instanceof StoredFile || bytes instanceof SpooledFile ? await read(path.relative(root, bytes.file).split(path.sep).join('/'), bytes.length) : bytes
+      const figureId = /^figures\/([0-9a-f-]{36})\.json$/.exec(name)?.[1]
+      if (figureId) {
+        const figure = readDocument(source)
+        check(!figure.extensions?.[FIGURE_RECORD_UNAVAILABLE], name, '人物的名字和触发词存在配图人物库的记录里，现在读不到（配图插件没启用，或这个人物的记录不见了），所以不能修改这个人物。先启用配图插件再改；插件已启用还是读不到，就是记录被删了，请从备份恢复配图人物库', 'ASSET_UNAVAILABLE')
+        if (figureRecords) {
+          const intent = intents?.get(figureId)
+          const staged = intent === 'held' ? (await storedFigure(id, figureId, source, {manifest:pack.manifest, intent})).bytes : source
+          await durableWrite(await locate(base + '/' + name), staged)
+          if (!intent) figures.push({id, figureId, name, manifest:pack.manifest})
+          continue
+        }
+      }
       const ref = await mediaStore.put(source, {ref:descriptor, maxBytes:limits.entrySize})
       await mediaStore.materialize(ref, await locate(base + '/' + name))
+    }
+    return figures
+  }
+  async function foldCommittedFigures(tx, figures) {
+    for (const {id, figureId, name, manifest} of figures) {
+      try {
+        const live = `packs/${id}/${name}`
+        const whole = await read(live)
+        const stored = await storedFigure(id, figureId, whole, {manifest})
+        if (stored.bytes === whole) continue
+        const pending = `${tx}/fold/${id}/${name}`
+        await durableWrite(await locate(pending), stored.bytes)
+        await rename(await locate(pending), await locate(live))
+        if (stored.moved) moved.add(id)
+      } catch (error) {
+        // A committed whole figure remains authoritative and can be folded again when the library comes back.
+        try { figureRecords.report?.(error) } catch { /* Reporting cannot fail a committed publication. */ }
+      }
     }
   }
   async function publish(id, pack, local, before) {
@@ -271,10 +364,11 @@ export function createPackStorage({assetRoot, limits, cardTransactions, mediaSto
     }
     const tx = await createTransaction()
     const journal = {version:1, id, hadPack:await exists('packs/' + id), hadLocal:await exists(`local/${id}.json`)}
-    let committed = false
+    const removed = (before?.manifest.figures ?? await storedFigureIds(id)).filter(figureId => !pack?.manifest.figures.includes(figureId))
+    let figures = []
     try {
       if (pack) {
-        await stageFiles(`${tx}/new-pack`,pack)
+        figures = await stageFiles(`${tx}/new-pack`, pack, id)
         await durableWrite(await locate(`${tx}/new-pack/manifest.json`), jsonBytes(pack.manifest))
       }
       // Tombstone local state survives removal so retired identities cannot be recycled.
@@ -290,73 +384,127 @@ export function createPackStorage({assetRoot, limits, cardTransactions, mediaSto
       await rename(await locate(tx + '/new-local.json'), await locate(`local/${id}.json`))
       await fault('local-published')
       await durableWrite(await locate(tx + '/committed'), Buffer.from('1'))
-      committed = true
     } catch (error) {
       try { if (await exists(tx + '/journal.json')) await rollback(tx, journal); await erase(tx) }
       catch (cause) { throw Object.assign(new Error('Pack rollback requires recovery', {cause}), {code:'RECOVERY_REQUIRED'}) }
       throw error
     }
     // Cleanup failure is recoverable on the next entry, never a failed committed edit.
-    if (committed) await erase(tx).catch(() => {})
+    await foldCommittedFigures(tx, figures)
+    await erase(tx).catch(() => {})
+    await releaseFigures(id, removed)
   }
   // Metadata and resource edits share one journal: only changed files move.
   // Null removes a file; added paths are recorded so rollback also removes new files.
-  async function publishMetadata(id, manifest, updates, local) {
-    const tx = await createTransaction(), files = new Map([...updates, ['manifest.json', jsonBytes(manifest)]])
+  async function prepareMetadata(tx, id, manifest, updates, local, intents) {
+    const files = new Map([...updates, ['manifest.json', jsonBytes(manifest)]])
     const journal = {version:3, id, files:[...files.keys()], added:[]}
     for (const name of files.keys()) if (!await exists(`packs/${id}/${name}`)) journal.added.push(name)
     files.set('@local', jsonBytes(local))
+    const resources = new Map([...updates].filter(([, bytes]) => bytes !== null))
+    const figures = await stageFiles(`${tx}/new`, {manifest, files:resources}, id, {intents})
+    await durableWrite(await locate(`${tx}/new/manifest.json`), files.get('manifest.json'))
+    await durableWrite(await locate(`${tx}/new/@local`), files.get('@local'))
+    return {journal, files, figures}
+  }
+  async function replaceMetadata(tx, {journal, files}) {
+    const {id} = journal
+    // The gate above is per process; another process installing assets reads this tree
+    // without it. Back up by copy and replace each file by one rename over it, manifest and local state last and
+    // removals after them, so such a reader never finds the manifest or local state missing (an absent pack:
+    // a stage would drop the pack's skin, figures and media) - only, briefly, a mix it re-reads on the next stamp.
+    for (const name of files.keys()) {
+      const live = name === '@local' ? `local/${id}.json` : `packs/${id}/${name}`
+      const backup = await locate(`${tx}/old/${name}`)
+      if (!journal.added.includes(name)) {
+        await mkdir(path.dirname(backup), {recursive:true})
+        // Complete or absent: recovery restores whatever backup exists over the untouched live file.
+        await copyFile(await locate(live), backup + '.part')
+        const handle = await open(backup + '.part', 'r+')
+        try { await handle.sync() } finally { await handle.close() }
+        await rename(backup + '.part', backup)
+      }
+    }
+    await fault('backed-up')
+    for (const name of journal.files) if (files.get(name) !== null && name !== 'manifest.json') {
+      const destination = await locate(`packs/${id}/${name}`)
+      await mkdir(path.dirname(destination), {recursive:true})
+      await rename(await locate(`${tx}/new/${name}`), destination)
+    }
+    await rename(await locate(`${tx}/new/manifest.json`), await locate(`packs/${id}/manifest.json`))
+    await fault('pack-published')
+    await rename(await locate(tx + '/new/@local'), await locate(`local/${id}.json`))
+    for (const name of journal.files) if (files.get(name) === null) await erase(`packs/${id}/${name}`)
+    await fault('local-published')
+  }
+  async function publishMetadata(id, manifest, updates, local) {
+    const tx = await createTransaction()
+    let staged
     try {
-      const resources = new Map([...updates].filter(([, bytes]) => bytes !== null))
-      if (resources.size) await stageFiles(`${tx}/new`, {manifest, files:resources})
-      await durableWrite(await locate(`${tx}/new/manifest.json`), files.get('manifest.json'))
-      await durableWrite(await locate(`${tx}/new/@local`), files.get('@local'))
-      await durableWrite(await locate(tx + '/journal.json'), jsonBytes(journal))
+      staged = await prepareMetadata(tx, id, manifest, updates, local)
+      await durableWrite(await locate(tx + '/journal.json'), jsonBytes(staged.journal))
       await fault('prepared')
-      // The gate above is per process; another process installing assets reads this tree
-      // without it. Back up by copy and replace each file by one rename over it, manifest and local state last and
-      // removals after them, so such a reader never finds the manifest or local state missing (an absent pack:
-      // a stage would drop the pack's skin, figures and media) - only, briefly, a mix it re-reads on the next stamp.
-      for (const name of files.keys()) {
-        const live = name === '@local' ? `local/${id}.json` : `packs/${id}/${name}`
-        const backup = await locate(`${tx}/old/${name}`)
-        if (!journal.added.includes(name)) {
-          await mkdir(path.dirname(backup), {recursive:true})
-          // Complete or absent: recovery restores whatever backup exists over the untouched live file.
-          await copyFile(await locate(live), backup + '.part')
-          const handle = await open(backup + '.part', 'r+')
-          try { await handle.sync() } finally { await handle.close() }
-          await rename(backup + '.part', backup)
-        }
-      }
-      await fault('backed-up')
-      for (const name of journal.files) if (files.get(name) !== null && name !== 'manifest.json') {
-        const destination = await locate(`packs/${id}/${name}`)
-        await mkdir(path.dirname(destination), {recursive:true})
-        await rename(await locate(`${tx}/new/${name}`), destination)
-      }
-      await rename(await locate(`${tx}/new/manifest.json`), await locate(`packs/${id}/manifest.json`))
-      await fault('pack-published')
-      await rename(await locate(tx + '/new/@local'), await locate(`local/${id}.json`))
-      for (const name of journal.files) if (files.get(name) === null) await erase(`packs/${id}/${name}`)
-      await fault('local-published')
+      await replaceMetadata(tx, staged)
       await durableWrite(await locate(tx + '/committed'), Buffer.from('1'))
     } catch (error) {
-      try { if (await exists(tx + '/journal.json')) await rollback(tx, journal); await erase(tx) }
+      try { if (await exists(tx + '/journal.json')) await rollback(tx, staged.journal); await erase(tx) }
       catch (cause) { throw Object.assign(new Error('Pack rollback requires recovery', {cause}), {code:'RECOVERY_REQUIRED'}) }
       throw error
     }
+    await foldCommittedFigures(tx, staged.figures)
     await erase(tx).catch(() => {})
+    await releaseFigures(id, [...updates].filter(([name, bytes]) => bytes === null && /^figures\/[^/]+\.json$/.test(name)).map(([name]) => name.slice(8, -5)))
+  }
+  // The same publication fence and journal cover every changed pack in the save.
+  // Each entry's `intents` (figureId -> 'held' | 'released') says what the save does to that figure's record.
+  async function publishMetadataBatch(entries, receipt, save) {
+    if (!entries.length) return await save()
+    const tx = await createTransaction(), staged = []
+    let saved
+    try {
+      for (const {id, manifest, updates, local, intents} of entries) {
+        staged.push(await prepareMetadata(tx + '/' + id, id, manifest, updates, local, intents))
+      }
+      if (await hasImageDefinitionsCommit(receipt)) throw new Error('Image definitions receipt already used')
+      await durableWrite(await locate(tx + '/journal.json'), jsonBytes({version:4, receipt, packs:staged.map(entry => entry.journal)}))
+      await fault('batch-prepared')
+      for (const entry of staged) {
+        await replaceMetadata(tx + '/' + entry.journal.id, entry)
+        await fault('batch-local-published', entry.journal.id)
+      }
+      saved = await save()
+    } catch (error) {
+      try {
+        if (await exists(tx + '/journal.json')) for (const {journal} of staged.reverse()) await rollback(tx + '/' + journal.id, journal)
+        await erase(tx)
+      } catch (cause) {
+        throw Object.assign(new Error('Pack rollback requires recovery', {cause}), {code:'RECOVERY_REQUIRED'})
+      }
+      throw error
+    }
+    // The image definitions receipt is the commit point. Recovery can finish cleanup if the marker write fails.
+    try {
+      await fault('batch-image-committed')
+      await durableWrite(await locate(tx + '/committed'), Buffer.from('1'))
+      await erase(tx)
+    } catch { /* The durable receipt is sufficient to recover the batch. */ }
+    return saved
   }
   async function publishMany(entries, card) {
-    const tx = await createTransaction(), packs = []
-    for (const entry of entries) packs.push({id:entry.pack.manifest.id, hadPack:await exists('packs/' + entry.pack.manifest.id), hadLocal:await exists(`local/${entry.pack.manifest.id}.json`)})
+    const tx = await createTransaction(), packs = [], removed = new Map(), figures = []
+    for (const {pack, removeId} of entries) {
+      const id = pack?.manifest.id ?? removeId
+      packs.push({id, hadPack:await exists('packs/' + id), hadLocal:await exists(`local/${id}.json`)})
+      removed.set(id, (await storedFigureIds(id)).filter(figureId => !pack?.manifest.figures.includes(figureId)))
+    }
     const journal = {version:2, packs, card:card.record}
     try {
-      for (const {pack, local} of entries) {
-        const base = `${tx}/${pack.manifest.id}`
-        await stageFiles(`${base}/new-pack`,pack)
-        await durableWrite(await locate(base + '/new-pack/manifest.json'), jsonBytes(pack.manifest))
+      for (const {pack, removeId, local} of entries) {
+        const base = `${tx}/${pack?.manifest.id ?? removeId}`
+        if (pack) {
+          figures.push(...await stageFiles(`${base}/new-pack`, pack, pack.manifest.id))
+          await durableWrite(await locate(base + '/new-pack/manifest.json'), jsonBytes(pack.manifest))
+        }
         await durableWrite(await locate(base + '/new-local.json'), jsonBytes(local))
       }
       await durableWrite(await locate(tx + '/journal.json'), jsonBytes(journal))
@@ -367,7 +515,7 @@ export function createPackStorage({assetRoot, limits, cardTransactions, mediaSto
         if (item.hadPack) await rename(await locate('packs/' + item.id), await locate(base + '/old-pack'))
         if (item.hadLocal) await rename(await locate(`local/${item.id}.json`), await locate(base + '/old-local.json'))
         await fault('batch-backed-up', item.id)
-        await rename(await locate(base + '/new-pack'), await locate('packs/' + item.id))
+        if (await exists(base + '/new-pack')) await rename(await locate(base + '/new-pack'), await locate('packs/' + item.id))
         await fault('batch-pack-published', item.id)
         await rename(await locate(base + '/new-local.json'), await locate(`local/${item.id}.json`))
         await fault('batch-local-published', item.id)
@@ -394,7 +542,9 @@ export function createPackStorage({assetRoot, limits, cardTransactions, mediaSto
     }
     // Never discard the journal before recording the durable commit decision.
     if (!await exists(tx + '/committed')) await durableWrite(await locate(tx + '/committed'), Buffer.from('1'))
+    await foldCommittedFigures(tx, figures)
     await erase(tx).catch(() => {})
+    for (const [id, figureIds] of removed) await releaseFigures(id, figureIds)
   }
   // old installs use the local commit file's mtime until their next write.
   // This reads metadata only; the normal publication transaction persists the fill.
@@ -408,13 +558,36 @@ export function createPackStorage({assetRoot, limits, cardTransactions, mediaSto
     }
     return local
   }
-  return {run, readRun, load, stamp, listIds, publish, publishMetadata, publishMany, locate, tree, read, readRange, exists, subscribers:shared.subscribers,
+  return {run, readRun, load, stamp, listIds, publish, publishMetadata, publishMetadataBatch, publishMany, locate, tree, read, readRange, exists, subscribers:shared.subscribers,
+    freshen:(manifest, files) => freshenFigureRows(manifest, files, restored),
+    takeMoved:id => moved.delete(id),
+    // How each figure of a pack is stored: whole, or without its identity (kept in its record).
+    async figureForms(id) {
+      const forms = {whole:[], withoutIdentity:[]}
+      for (const figureId of await storedFigureIds(id)) {
+        const file = await locate(`packs/${id}/figures/${figureId}.json`)
+        forms[isStoredWithoutIdentity(readDocument(await readFile(file))) ? 'withoutIdentity' : 'whole'].push(figureId)
+      }
+      return forms
+    },
     local:readLocal,
     async retainArchive(source) {
       const relative = 'export-outbox/' + randomUUID() + '.zip', file = await locate(relative)
       await mkdir(await locate('export-outbox'), {recursive:true})
       await rename(source, file)
       return {file, size:(await lstat(file)).size, dispose:() => erase(relative)}
+    },
+    // An import's spool: archive entries kept on disk until its previews go. A spool left by a process that is gone
+    // is removed when the next one opens.
+    async spool() {
+      for (const name of await readdir(await locate('ingress')).catch(error => error.code === 'ENOENT' ? [] : Promise.reject(error))) {
+        const pid = Number(name.split('.')[0])
+        if (!Number.isSafeInteger(pid) || pid === process.pid) continue
+        try { process.kill(pid, 0) } catch (error) { if (error.code === 'ESRCH') await erase('ingress/' + name) }
+      }
+      const relative = `ingress/${process.pid}.${ownerToken}/${randomUUID()}`
+      await mkdir(await locate(relative), {recursive:true})
+      return {dir:await locate(relative), dispose:() => erase(relative)}
     },
     async temporary(task) {
       const tx = await createTransaction()

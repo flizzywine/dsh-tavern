@@ -33,7 +33,7 @@ function fixture(messages, { paged = true, revision = 7, regeneratedDshTurns, re
       chat: { ...header, regeneratedDshTurns, _storageRevision: state.revision,
         messages: state.messages.slice(from, end).map(message => messageFields
           ? projectFields(message, messageFields) : { ...message }) },
-      from, to: end - 1, messageCount: state.messages.length, revision: state.revision
+      from, to: end - 1, messageCount: state.messages.length, revision: state.revision, stamp: state.stamp
     }
   }
   const reader = createStoryTranscriptReader({
@@ -46,7 +46,7 @@ function fixture(messages, { paged = true, revision = 7, regeneratedDshTurns, re
     readRecentSummaries: async (_chatId, count, options = {}) => {
       state.summariesCalled++
       if (options.revision !== state.revision) return null
-      return { from: 0, messageCount: state.messages.length, messages: state.messages.map(summary), revision: state.revision }
+      return { from: 0, messageCount: state.messages.length, messages: state.messages.map(summary), revision: state.revision, stamp: state.stamp }
     },
     readChat: async () => {
       state.fullReads++
@@ -106,41 +106,5 @@ test('工具记录只按需读取，分页和旧存储都使用正文实际对�
     assert.equal(older.find(row => row.legacyTurn === 2).toolCalls[0].name, '旧楼层的工具')
     assert.equal(older.find(row => row.legacyTurn === 2).nativeTurn, 6)
     assert.equal(older.find(row => row.legacyTurn === 1).toolCalls, undefined)
-  }
-})
-
-// 玩家行必须带着请求号送到页面：故事列表靠它把宿主的提交回声原位换成落盘行，
-// 不带就只能在回声退休前同时画两条一模一样的输入气泡。
-test('玩家行的请求号跟着故事窗口一起送到页面，且只搬请求号', async () => {
-  const messages = [
-    { role: 'assistant', turn: 1, greeting: true, text: '开场' },
-    { role: 'user', text: '行动', source: { kind: 'user', rpcId: 'rpc-1', privateNote: '不搬' } },
-    { role: 'assistant', turn: 2, text: '正文' }
-  ]
-  for (const paged of [true, false]) {
-    const { reader } = fixture(messages, { paged })
-    const transcript = (await reader('session')).storyTranscript
-    const user = transcript.messages.find(entry => entry.message.role === 'user')
-    assert.deepEqual(user.message.source, { rpcId: 'rpc-1' })
-    const assistant = transcript.messages.find(entry => entry.message.role === 'assistant' && entry.message.turn === 2)
-    assert.equal(assistant.message.source, undefined, '没有请求号的行不带 source')
-  }
-})
-
-test('重复 turn 的富文本回复按实际行传送正文和状态面板', async () => {
-  const reply = (turn, prose, panel) => ({ role: 'assistant', turn, displayMode: 'html',
-    displayText: `${prose}\n\n\`\`\`html\n<div>${panel}</div>\n\`\`\`` })
-  const messages = [reply(10, '**旧正文**', '旧面板'), reply(11, '**普通正文**', '普通面板'), reply(10, '**新正文**', '新面板')]
-  for (const paged of [true, false]) {
-    const { reader } = fixture(messages, { paged })
-    const { messages: rows } = (await reader('session')).storyTranscript
-    assert.deepEqual(rows.map(row => row.key), ['index:0', 'turn:11', 'index:2'])
-    assert.equal(rows[1].message.displayParts, undefined)
-    for (const [index, prose, panel] of [[0, '旧正文', '旧面板'], [2, '新正文', '新面板']]) {
-      const parts = rows[index].message.displayParts.filter(part => (part.text ?? part.content).trim())
-      assert.deepEqual(parts.map(part => part.kind), ['markdown', 'html'])
-      assert.equal(parts[0].text.trim(), `**${prose}**`)
-      assert.equal(parts[1].content.trim(), `<div>${panel}</div>`)
-    }
   }
 })

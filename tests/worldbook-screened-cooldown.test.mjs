@@ -35,8 +35,21 @@ for (const screening of [false, true]) test(`世界书模型筛选已退役，�
   assert.ok(!Object.values(prepared.reads).some(read => read.kind === 'screened'))
   // An exclusion left by an earlier session with screening on no longer holds the entry back.
   h.chat.worldBookReads = { e1: { turn: 1, fingerprint: fingerprint(h.worldBook.view.entries[1].content), kind: 'screened' } }
+  h.chat.messages[0].text = '剑宗'
   const sent = await h.project({ chat: h.chat, card: {}, userText: '继续' })
-  assert.doesNotMatch(sent.context, /x{100}/)
-  assert.match(sent.context, /剑宗/)
+  assert.equal(sent.context, '')
+  assert.match(sent.titleHints, /可能用到的世界书条目：剑宗/)
   assert.equal(h.screened.length, 0)
+})
+
+test('十轮内已有工具结果时不补标题，也不影响常驻设定', async () => {
+  const h = setup()
+  h.chat.messages[0].text = '剑宗'
+  h.worldBook.view.entries.push({ ref: 'constant', enabled: true, constant: true, content: '常驻设定' })
+  const request = { chat: h.chat, card: {}, userText: '继续', requestKey: 'same-request' }
+  assert.match((await h.project(request)).titleHints, /可能用到的世界书条目：剑宗/)
+  const lookedUp = await h.project({ ...request, recentlyReadRefs: ['e1'] })
+  assert.equal(lookedUp.context, '')
+  assert.equal(lookedUp.titleHints, '')
+  assert.equal(lookedUp.prefixContext, '常驻设定')
 })

@@ -24,7 +24,8 @@ function environment(options = {}) {
       const map = { card: state.cards, worldbook: state.worldbooks, preset: state.presets }
       return [...(map[kind] || new Map()).keys()]
     },
-    async readText(path) { return state.cards.get(path) ?? state.worldbooks.get(path) ?? state.presets.get(path) }
+    async readText(path) { return state.cards.get(path) ?? state.worldbooks.get(path) ?? state.presets.get(path) },
+    async readCardImage(path) { return options.covers && options.covers.get(path) }
   }
 
   const worldBooks = {
@@ -85,8 +86,9 @@ function environment(options = {}) {
     }
   }
 
-  const readTavernSettings = () => state.settings
-  const updateTavernSettings = async patch => {
+  const readTavernSettings = async () => state.settings
+  const updateTavernSettings = async (patch, { beforeWrite } = {}) => {
+    await beforeWrite?.(options.rawSettings ?? state.settings)
     if (patch.promptSet) state.imported.prompts.push(patch.promptSet)
     state.imported.settings.push(patch)
     state.settings = Object.assign({}, state.settings, patch)
@@ -137,7 +139,7 @@ function environment(options = {}) {
     assets: options.assets,
     chats: options.chats,
     memory: options.memory,
-    backup: async (name, text) => { state.backups.push({ name, text }); return 'backups/transfer/20261027-160000/' + name },
+    backup: options.backup ?? (async (name, text) => { state.backups.push({ name, text }); return 'backups/transfer/20261027-160000/' + name }),
     removeCreated: async (kind, path) => {
       const map = { cards: state.cards, worldbooks: state.worldbooks, presets: state.presets }[kind]
       if (map) map.delete(path)
@@ -180,7 +182,8 @@ test('预览指出同名冲突，应用时全部新建、不覆盖，并在写�
   })
   const bundle = await bundleFrom(from, { cards: ['cards/作家.json'], worldbooks: ['worldbooks/世界观总纲.json'], presets: ['presets/默认.json'], prompts: ['current'], profile: ['default'], regex: ['rx-1'], settings: ['current'] })
 
-  const to = environment()
+  const rawSettings = { candidateTabs: true, promptOverrides: { story: '仅在原始设置中保存的提示词' } }
+  const to = environment({ rawSettings })
   const preview = await to.importer.preview(bundle.manifest)
   const cards = preview.parts.find(part => part.kind === 'cards')
   assert.equal(cards.conflicts, 1, '本机已有同名人物卡')
@@ -201,8 +204,21 @@ test('预览指出同名冲突，应用时全部新建、不覆盖，并在写�
   assert.equal(to.state.imported.regex, 1)
   assert.equal(to.state.imported.settings.filter(patch => !patch.promptSet).length, 1)
   assert.equal(to.state.backups.length, 1, '设置写入前留备份')
+  assert.deepEqual(JSON.parse(to.state.backups[0].text), rawSettings)
   assert.match(result.backupPath, /^backups\/transfer\//)
   assert.equal(to.state.profiles.at(-1).confirmed.injectionText, '来自另一台机器')
+})
+
+test('备份写入失败时不覆盖任何设置字段', async () => {
+  const from = environment()
+  const bundle = await bundleFrom(from, { settings: ['current'] })
+  let writes = 0
+  const to = environment({ backup: async () => { writes++; throw new Error('backup disk unavailable') } })
+  const result = await to.importer.apply({ manifest: bundle.manifest, files: bundle.files })
+  assert.equal(writes, 1)
+  assert.deepEqual(to.state.imported.settings, [])
+  assert.equal(result.results[0].overwritten, 0)
+  assert.match(result.results[0].failed[0].error, /backup disk unavailable/)
 })
 
 test('策略 skip 不写入该板块；导入包里的损坏条目单独记失败', async () => {
@@ -254,4 +270,37 @@ test('游玩记忆随同包的存档并进新局；包里没带存档时明确�
   assert.equal(row.failed.length, 1, '应用时也说明一遍，不静默丢掉')
   assert.match(row.failed[0].error, /无处可并/)
   assert.equal(merged.length, 1, '没有新局，不会再写记忆')
+})
+
+test('带封面的人物卡导出为 PNG 卡，导入另一台机器时按 PNG 卡导入，封面跟着走', async () => {
+  const { crc32, deflateSync } = await import('node:zlib')
+  const { pngCardPayload } = await import('../tavern-plugin/lib/domain/card-assets.js')
+  const chunk = (type, data) => {
+    const body = Buffer.concat([Buffer.from(type, 'ascii'), data])
+    const out = Buffer.alloc(body.length + 8)
+    out.writeUInt32BE(data.length, 0); body.copy(out, 4); out.writeUInt32BE(crc32(body), body.length + 4)
+    return out
+  }
+  const ihdr = Buffer.alloc(13); ihdr.writeUInt32BE(1, 0); ihdr.writeUInt32BE(1, 4); ihdr[8] = 8; ihdr[9] = 2
+  const idat = chunk('IDAT', deflateSync(Buffer.from([0, 255, 0, 0])))
+  const cover = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), chunk('IHDR', ihdr), idat, chunk('IEND', Buffer.alloc(0))])
+
+  const from = environment({ covers: new Map([['cards/作家.json', cover]]) })
+  const bundle = await bundleFrom(from, { cards: ['cards/作家.json'] })
+  const item = bundle.manifest.parts.find(part => part.kind === 'cards').items[0]
+  assert.equal(item.entry, 'parts/cards/作家.png')
+  const packed = bundle.files.get(item.entry)
+  assert.ok(packed.includes(idat), '封面像素原样保留')
+  assert.equal(JSON.parse(Buffer.from(pngCardPayload(packed, '作家.png').b64, 'base64').toString('utf8')).name, '作家')
+
+  const to = environment({ cards: [] })
+  const result = await to.importer.apply({ manifest: bundle.manifest, files: bundle.files })
+  const rows = Object.fromEntries(result.results.map(row => [row.kind, row]))
+  assert.equal(rows.cards.added, 1)
+  assert.equal(rows.cards.failed.length, 0)
+  assert.deepEqual(to.state.imported.cards, ['作家.png'], '按 PNG 卡导入')
+
+  // 没有封面的卡照旧是 JSON
+  const plain = await bundleFrom(environment(), { cards: ['cards/作家.json'] })
+  assert.equal(plain.manifest.parts.find(part => part.kind === 'cards').items[0].entry, 'parts/cards/作家.json')
 })

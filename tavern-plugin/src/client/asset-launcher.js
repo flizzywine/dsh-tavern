@@ -36,8 +36,32 @@ function stageSetupGate(sessionId, current = () => true) {
     return packUi.stageSetup.enter({ current, service: packClient(), path: data?.cardPath, stageOn: data?.config?.stage?.director === true,
         open: () => openSidebarTab('dsh-tavern:bubbles', sessionId) });
 }
+// a section of the app's 设置 window by its name in the window's list (「配图」): the host offers no link into the window,
+// so this opens it the way a player does (the sidebar's 设置 button › its 「设置」 item, then the section in the window's list),
+// like the theme menu's 「更多外观设置…」.
+let settingsWatch = null;
+function openSettingsSection(name) {
+    if (settingsWatch) settingsWatch();
+    const own = node => node.getAttribute('aria-label') || node.textContent.trim();
+    const pick = () => { const item = [...document.querySelectorAll('[data-shortcut-modal="settings"] nav button')].find(node => node.textContent.trim() === name); if (item) item.click(); return !!item; };
+    if (pick()) return;
+    const entry = [...document.querySelectorAll('button')].find(node => own(node) === '设置' && !node.closest('[role="dialog"], .ap-ui'));
+    if (!entry) { navFailed('打开设置', new Error('找不到「设置」入口')); return; }
+    let menu = false;
+    const step = () => {
+        if (pick()) { settingsWatch(); return; }
+        const item = !menu && [...document.querySelectorAll('[role="menuitem"]')].find(node => /^(Settings|设置)/.test(node.textContent.trim()));
+        if (item) { menu = true; item.click(); }
+    };
+    const observer = new MutationObserver(step), timer = setTimeout(() => settingsWatch(), 3000);
+    settingsWatch = () => { observer.disconnect(); clearTimeout(timer); settingsWatch = null; };
+    observer.observe(document.body, { subtree: true, childList: true });
+    entry.click();
+    step();
+}
 function stageNav(sessionId) {
     return { openTab: type => openSidebarTab(type, sessionId).catch(error => navFailed('打开侧栏标签', error)),
+        openSettings: openSettingsSection,
         // a pack opened from 舞台设置 gets the sub-page ‹ back to it.
         openLibrary: target => { packNav.go(target && target.packId ? { ...target, back: { label: '舞台设置', open: () => openSidebarTab('dsh-tavern:bubbles', sessionId).catch(error => navFailed('返回舞台设置', error)) } } : target); return openSidebarTab('dsh-asset-library:library', sessionId).catch(error => navFailed('打开舞台素材', error)); } };
 }
@@ -71,9 +95,9 @@ function PackWorkbench({sessionId,cardPath,cardName,cardStamp,loading,page = 'li
     const transport = packTransport, service = packClient(), tts=forkTtsScope?.get('ttsClient');
     const binding = React.useMemo(() => service ? createAssetPackBinding({service,tts,
         rpc:workbenchRpc(sessionId), engineRpc:engineRpc, settings:transport.settings,
-        download:result => transport.download(result), readExport:result => transport.bytes(result),
+        download:(result,options) => transport.download(result,options), pickSave:options => transport.pickSave(options), readExport:result => transport.bytes(result),
         onUnavailable:fn => transport.onUnavailable(fn)
-    }) : {rpc:workbenchRpc(sessionId),engineRpc:engineRpc,download:result=>transport.download(result),tts}, [transport,service,sessionId,tts]);
+    }) : {rpc:workbenchRpc(sessionId),engineRpc:engineRpc,download:(result,options)=>transport.download(result,options),pickSave:options=>transport.pickSave(options),tts}, [transport,service,sessionId,tts]);
     const nav = React.useMemo(() => stageNav(sessionId), [sessionId]);
     // the library's deep links (packNav) plus the sidebar tabs its pages open (the voice page's 「语音后端 ›」).
     const libraryNav = React.useMemo(() => ({ take: packNav.take, subscribe: packNav.subscribe, openTab: nav.openTab }), [nav]);
@@ -139,11 +163,20 @@ function installTavernAssetLaunchers(ctx, slots) {
             if (event?.type === 'readingsChanged') { voicePlayer.invalidate(); return; }
             notifyPackChange(event);
         });
-        const offRate=stageReading.subscribe(() => voicePlayer.setRate(stageReading.get().voiceRate));
-        child.effect(() => () => {off();offRate();if(forkTtsScope!==child)return;forkTtsScope=undefined;voicePlayer.setEnabled(false);voicePlayer.invalidate();notifyPackChange();});
+        child.effect(() => () => {off();if(forkTtsScope!==child)return;forkTtsScope=undefined;voicePlayer.setEnabled(false);voicePlayer.invalidate();notifyPackChange();});
     });
     ctx.effect(() => {
-        const transport = createPackTransport(); packTransport = transport;
+        const wsClient = typeof tavernWsRpc !== 'undefined' ? tavernWsRpc : null;
+        const transport = createPackTransport(wsClient && typeof wsClient.subscribe === 'function' ? {
+            subscribeChanges: handlers => wsClient.subscribe('asset-pack-changes', {
+                getArgs: () => ({since: handlers.getSince()}),
+                onEvent: handlers.onEvent,
+                onUnavailable: handlers.onUnavailable,
+                onFallback: handlers.onFallback,
+                onReconnected: handlers.onReconnected
+            })
+        } : undefined);
+        packTransport = transport;
         const stop = transport.service.subscribe(notifyPackChange);
         transport.start();
         return () => { stop(); transport.dispose(); if (packTransport === transport) packTransport = undefined; notifyPackChange(); };

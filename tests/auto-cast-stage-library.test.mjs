@@ -12,7 +12,7 @@ import {createCardBundleAdapter} from '../tavern-plugin/packages/dsh-tavern-stag
 import {createCardPreparation} from '../tavern-plugin/lib/domain/card-preparation.js'
 import {createAutoCastLibrary} from '../tavern-plugin/packages/dsh-tavern-stage/lib/auto-cast-library.js'
 import {selectPackFigure} from '../tavern-plugin/packages/dsh-tavern-stage/lib/domain/asset-pack-presentation.js'
-import {castChanges, createAutoCast, roundRequests} from '../tavern-plugin/packages/dsh-tavern-stage/lib/auto-cast.js'
+import { castChanges, createAutoCast } from '../tavern-plugin/packages/dsh-tavern-stage/lib/auto-cast.js'
 import {createMediaStore} from '../tavern-plugin/packages/dsh-asset-library/src/pack-v2/media-store.js'
 import {apply as applyAssetLibrary} from '../tavern-plugin/packages/dsh-asset-library/src/pack-v2/plugin.js'
 import {createCardAssetBoundary} from '../tavern-plugin/lib/card-asset-bindings.js'
@@ -41,9 +41,11 @@ async function fixture(t) {
     patch:{figures:[TEMPLATE], sprites:{uniform:'sprites/uniform/manifest.json'}, blobs:{[hash]:{ext:'png', mime:'image/png', size:face.length}},
       voiceLibrary:{version:1, voices:{tsundere:{name:'傲娇少女声', language:'zh', guidance:'傲娇的少女', defaultSource:'browser', sources:{browser:{kind:'preset', provider:'browser', voiceName:'zh-a'}}}}}},
     fileUpdates:new Map([[`media/${hash}.png`, face], ['sprites/uniform/manifest.json', json(sprite)], [`figures/${TEMPLATE}.json`, json(figure)]])})
-  const port = createAutoCastLibrary({getLibrary:() => service, pluginApi:{imageCharacterLibraries:async () => []}})
+  // tts.reading(): which figures 通用声音 / 旁白 point at (none until a test points them).
+  const world = {reading:null}
+  const port = createAutoCastLibrary({getLibrary:() => service, getReading:() => world.reading, pluginApi:{imageCharacterLibraries:async () => []}})
   t.after(async () => { port.dispose(); await service.dispose(); await rm(root, {recursive:true, force:true}) })
-  return {service, port, templatePack:created.snapshot.manifest.id}
+  return {service, port, world, templatePack:created.snapshot.manifest.id}
 }
 
 test('the port casts through the library\'s auto-cast writer: a new figure with a library voice, a copy, then 人设图 and 立绘 land', async t => {
@@ -55,7 +57,7 @@ test('the port casts through the library\'s auto-cast writer: a new figure with 
   const voice = found.voices.find(row => row.voiceId === 'tsundere'), template = found.figures.find(row => row.ref.figureId === TEMPLATE)
   assert.ok(voice && template)
   const plan = castChanges([{name:'值班老师', aliases:[]}, {name:'冰川理沙', aliases:['理沙']}],
-    {same:{}, copy:{冰川理沙:{source:{packId:templatePack, figureId:TEMPLATE}, revision:template.revision}}, appearance:{}, voice:{值班老师:{from:{packId:templatePack, voiceId:'tsundere'}, revision:voice.revision}}})
+    {same:{}, copy:{冰川理沙:{source:{packId:templatePack, figureId:TEMPLATE}, revision:template.revision}}, appearance:{}, voice:{值班老师:{from:{packId:templatePack, voiceId:'tsundere'}, revision:voice.revision, reason:'讲话尖锐，适合带点锋芒的女声'}}})
   const written = await port.write({cardPath:'card', changes:plan.changes, sources:plan.sources, source, requestId:'cast-1'})
   assert.equal(written.status, 'committed'); assert.equal(written.refs.length, 2)
   cast = await port.readCast('card')
@@ -65,6 +67,9 @@ test('the port casts through the library\'s auto-cast writer: a new figure with 
   assert.deepEqual([teacher.settei, teacher.sprites], [false, []])
   assert.deepEqual(copy.sprites, ['calm'], 'the copy brings its pictures')
   assert.ok(cast.rows.some(row => row.name === '冰川理沙'), 'the whole cast resolves the new names')
+  assert.deepEqual([...cast.voiceKeys], [voice.sound], 'a copied voice still occupies the original sound')
+  assert.equal((await port.libraryVoices()).voices.filter(row => row.sound === voice.sound).length, 1, 'the catalogue lists the same sound and language once')
+  assert.equal((await service.getPackSnapshot({packId:cast.packId})).figures[teacher.ref.figureId].description, '配音选择：讲话尖锐，适合带点锋芒的女声')
   // On the stage: before its first 立绘 the figure has no outfit (voice only): it speaks in bubbles (name and initial) and is not placed.
   const shown = async emotion => { const pack = await service.getPackSnapshot({packId:cast.packId}); return selectPackFigure(pack.figures[teacher.ref.figureId], pack.sprites || {}, {emotion}) }
   assert.deepEqual([(await shown('joy')).form, (await shown('joy')).diagnostics], [null, ['voice-only']], 'no picture yet: a voice-only figure, not on the stage')  // landing: one write with the 人设图 and a 立绘
@@ -81,47 +86,45 @@ test('the port casts through the library\'s auto-cast writer: a new figure with 
   assert.equal((await port.readMedia({packId:cast.packId, hash:after.setteiHash})).length > 0, true)
 })
 
-// 11-11 三角机构: 入职主管's 人物介绍 was empty and her 外貌 never left the drawing's own record, so 场景配图 did not know her face.
-test('a new figure takes its 人物介绍 into the pack and its 外貌 on the way to its 配图 record (the copy\'s path)', async t => {
-  const {service, port} = await fixture(t)
-  const looks = {face:'齐肩深棕卷发，棕褐色眼睛', bodySFW:'米白西装套裙，银色机构徽章'}
-  const plan = castChanges([{name:'入职主管', aliases:[]}], {same:{}, copy:{}, appearance:{入职主管:looks}, about:{入职主管:'特工的直属主管，永远在微笑'}, voice:{}})
-  await port.write({cardPath:'card', changes:plan.changes, sources:plan.sources, source, requestId:'cast-looks'})
-  const cast = await port.readCast('card'), figure = (await service.getPackSnapshot({packId:cast.packId})).figures[cast.figures[0].ref.figureId]
-  assert.equal(figure.description, '特工的直属主管，永远在微笑')
-  assert.deepEqual(figure.extensions['dsh.image-character'], {traits:looks}, 'the host moves it into the 人物库 record (image-character-follow)')
-  // a figure made before 外貌 went with it: one patch with only looks takes it there
-  const later = {face:'短发', bodySFW:'风衣'}
-  assert.equal((await port.write({cardPath:'card', source, requestId:'looks-later', changes:[{op:'patch', kind:'figures', ref:{...cast.figures[0].ref, kind:'figures'}, looks:later}]})).status, 'committed')
-  assert.deepEqual((await service.getPackSnapshot({packId:cast.packId})).figures[cast.figures[0].ref.figureId].extensions['dsh.image-character'], {traits:later})
-})
-
-// 11-11 验收 (大肥鱼): 保安 / 妈妈 / 千问, created by 自动建人物 before figures came with the standard 差分, never asked for a picture.
-test('an automatic figure without emotions counts its lines against the standard ones, and its 人设图 brings them', async t => {
-  const {service, port} = await fixture(t)
-  const plan = castChanges([{name:'保安', aliases:[]}], {same:{}, copy:{}, appearance:{}, voice:{}})
-  await port.write({cardPath:'card', changes:plan.changes, sources:plan.sources, source, requestId:'cast-old'})
-  let cast = await port.readCast('card')
-  const ref = cast.figures[0].ref, pack = await service.getPackSnapshot({packId:cast.packId})
-  const {emotions:_gone, ...legacy} = pack.figures[ref.figureId]
-  await service.patchPack({packId:cast.packId, expectedRevision:pack.revision, patch:{}, fileUpdates:new Map([[`figures/${ref.figureId}.json`, json(legacy)]])})
-  cast = await port.readCast('card')
-  assert.deepEqual([cast.figures[0].emotions.length, cast.figures[0].defaultEmotion], [9, 'calm'])
-  const line = mood => ({paragraphs:[{paragraphId:'p', kind:'line', segment:{name:'保安', ...(mood ? {mood} : {}), text:'有你的快递。'}}]})
-  assert.deepEqual([roundRequests(line(), cast), roundRequests(line('紧张'), cast)].map(rows => rows.map(row => row.emotionId)), [['calm'], ['anxious']])
-  await port.write({cardPath:'card', source, requestId:'land-old', images:{i0:png([10, 20, 30])}, changes:[{op:'patch', kind:'figures', ref:{...ref, kind:'figures'}, settei:{image:'i0'}}]})
-  const stored = (await service.getPackSnapshot({packId:cast.packId})).figures[ref.figureId]
-  assert.equal(stored.emotions.length, 9, 'the library gives the standard 差分 with the 人设图')
+test('automatic casting can copy the figure and its artwork without copying its voice', async t => {
+  const {service, port, templatePack} = await fixture(t)
+  const template = (await port.search('傲娇')).figures.find(row => row.ref.figureId === TEMPLATE)
+  assert.ok(template.voice)
+  const plan = castChanges([{name:'无配音分身', aliases:[]}], {
+    same:{}, copy:{无配音分身:{source:{packId:templatePack, figureId:TEMPLATE}, revision:template.revision}}, appearance:{}, voice:{},
+  }, {voices:false})
+  const written = await port.write({cardPath:'card', changes:plan.changes, sources:plan.sources, source, requestId:'cast-without-voice'})
+  const cast = await port.readCast('card')
+  const pack = await service.getPackSnapshot({packId:written.packId})
+  assert.deepEqual(cast.figures[0].sprites, ['calm'])
+  assert.equal(pack.figures[written.refs[0].figureId].voice, undefined)
+  assert.equal(Object.keys(pack.manifest.voiceLibrary?.voices ?? {}).length, 0)
 })
 
 // 主人 11-15: only 通用声音 (the voice page's switch, else a voice written a 使用情景 before the switch) are offered to the assistant.
-test('the assistant\'s voice candidates are 可选声音 「默认」: a 使用情景 or 「通用」 in the name; the old switch is not read', async t => {
-  const {service, port, templatePack} = await fixture(t)
+test('the assistant\'s voice candidates are 可选声音 「默认」: a 使用情景, or a voice of the pack 通用声音 / 旁白 point at; never by name; the old switch is not read', async t => {
+  const {service, port, world, templatePack} = await fixture(t)
   const pack = await service.getPackSnapshot({packId:templatePack}), base = pack.manifest.voiceLibrary.voices.tsundere
   const {guidance:_g, ...plain} = base
-  await service.patchPack({packId:templatePack, expectedRevision:pack.revision, patch:{voiceLibrary:{version:1, voices:{tsundere:base, off:{...base, name:'关掉的', autoCast:false}, own:{...plain, name:'萌宝', autoCast:true}, on:{...plain, name:'通用男性声音'}}}}})
-  assert.deepEqual((await port.libraryVoices()).voices.map(row => row.name), ['傲娇少女声', '关掉的', '通用男性声音'])
+  const sources = voiceName => ({browser:{kind:'preset', provider:'browser', voiceName}})
+  await service.patchPack({packId:templatePack, expectedRevision:pack.revision, patch:{voiceLibrary:{version:1, voices:{tsundere:base, off:{...base, name:'关掉的', autoCast:false, sources:sources('zh-b')}, own:{...plain, name:'萌宝', autoCast:true}, on:{...plain, name:'通用男性声音', sources:sources('zh-c')}}}}})
+  assert.deepEqual((await port.libraryVoices()).voices.map(row => row.name), ['傲娇少女声', '关掉的'], '「通用」 in a name alone is not a 使用情景')
   assert.deepEqual((await port.search('傲娇')).voices.map(row => row.voiceId), ['tsundere', 'off'], 'the search offers the same candidates')
+  // a system pack (the one 通用声音 points at): all its voices, with or without a 使用情景
+  const system = await service.createPack({name:'系统设置', expectedRevision:null})
+  await service.patchPack({packId:system.snapshot.manifest.id, expectedRevision:system.snapshot.revision, patch:{voiceLibrary:{version:1, voices:{male:{...plain, name:'系统既有男声', sources:sources('zh-d')}}}}})
+  world.reading = {general:{figure:{packId:system.snapshot.manifest.id, figureId:'f1'}}, narrator:{enabled:false, figure:null}}
+  assert.deepEqual((await port.libraryVoices()).voices.map(row => row.name), ['傲娇少女声', '关掉的', '系统既有男声'])
+  assert.deepEqual((await port.search('男声')).voices.map(row => row.name), ['系统既有男声'])
+  // 先定语言（主人 11-22）: one language's voices only, by the voice's own language (unset = 中文, zh-CN = zh); the system
+  // pack's are that language's 默认通用声音 (fallback)
+  const current = await service.getPackSnapshot({packId:system.snapshot.manifest.id})
+  await service.patchPack({packId:current.manifest.id, expectedRevision:current.revision, patch:{voiceLibrary:{version:1, voices:{male:{...plain, name:'系统既有男声', language:'zh-CN', sources:sources('zh-d')},
+    jaMale:{...plain, name:'系统既有男声（日语）', language:'ja', sources:sources('ja-a')}}}}})
+  const of = async language => (await port.libraryVoices(language)).voices.map(row => [row.name, row.language, row.fallback ?? false])
+  assert.deepEqual(await of('zh'), [['傲娇少女声', 'zh', false], ['关掉的', 'zh', false], ['系统既有男声', 'zh', true]])
+  assert.deepEqual(await of('ja'), [['系统既有男声（日语）', 'ja', true]])
+  assert.deepEqual(await of('ko'), [], 'a language without a voice lists none: nothing of another language fills it')
   await assert.rejects(service.patchPack({packId:templatePack, expectedRevision:(await service.getPackSnapshot({packId:templatePack})).revision, patch:{voiceLibrary:{version:1, voices:{bad:{...base, autoCast:'yes'}}}}}), {code:'INVALID_INPUT'})
 })
 test('a committed round through the asset library plugin\'s own service: new speakers are written, counted and drawn', async t => {
@@ -136,7 +139,7 @@ test('a committed round through the asset library plugin\'s own service: new spe
   const store = {readJson:async k => files.get(k) ?? null, writeJson:async (k, v) => files.set(k, v), updateJson:async (k, fn) => files.set(k, fn(files.get(k) ?? null)),
     readBytes:async k => files.get(k), writeBytes:async (k, v) => files.set(k, v), remove:async k => files.delete(k)}
   const port = createAutoCastLibrary({getLibrary:() => services.get('assetLibrary')})
-  const cast = createAutoCast({store, settings:async () => ({enabled:true, level:'late'}), library:port, onError:error => errors.push(error),
+  const cast = createAutoCast({store, settings:async () => ({enabled:true, level:'aggressive', sprites:true, voices:true}), library:port, onError:error => errors.push(error),
     images:{status:async () => ({ready:true, model:'m'}), prompt:async input => ({prompt:input.kind, output:{size:'1536x1024', background:'opaque', quality:'high'}}), check:() => ({warnings:[], hasTransparency:false}),
       generate:async input => { drawn.push(input); return {data:new Uint8Array(png([1, 2, 3])), mediaType:'image/png'} }}})
   t.after(async () => { cast.dispose(); for (const dispose of cleanup.reverse()) await dispose?.(); await rm(root, {recursive:true, force:true}) })

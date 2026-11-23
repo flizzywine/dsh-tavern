@@ -53,6 +53,12 @@ function galFill(sessionId, text) {
     galFills.set(String(sessionId), String(text));
     for (const fn of [...galFillListeners]) fn();
 }
+// The stage lists the options flat, as a visual novel does: the featured list (the AI's combined options, or the
+// per-actor picks when there are none) with each option's actor shown on it. The chat view keeps its tabs.
+function galFlatChoices(choices) {
+    const group = stageCandidateTabs.buildCandidateChoiceTabs(choices);
+    return { current: group.hasTabs ? group.tabs[0] : group.current, badges: group.hasTabs };
+}
 function galChoiceBadges(choice, tabKind, hasTabs) {
     return stageCandidateTabs.candidateChoiceBadges(choice, { tabKind, hasTabs });
 }
@@ -99,14 +105,14 @@ function GalChoices(props) {
     const rootRef = React.useRef(null);
     useForkUiSfxControls(rootRef, state !== "hidden");
     const rawChoices = panel && panel.phase === "ready" ? (panel.choices || []).map(choice => stageCandidateTabs.normalizeCandidateChoice(choice, undefined, props.decode)) : [];
-    // The stage lists every choice flat: no 精选 / 角色 / 全局 tab strip (that grouping is the chat card's, behind
-    // 设置 › 高级 › 候选多角色 / 全局 Tab). Badges carry who/what each row is, since the tabs no longer do.
+    const flat = galFlatChoices(rawChoices);
+    const currentTab = flat.current;
     // A short stage: when the list overflows its bottom rows stay in view and the choices above scroll.
-    const choiceCount = rawChoices.length;
+    const choiceCount = currentTab.items.length;
     (React.useLayoutEffect || React.useEffect)(function () {
         const el = rootRef.current;
         if (el && el.scrollHeight > el.clientHeight + 1) el.scrollTop = el.scrollHeight;
-    }, [state, choiceCount]);
+    }, [state, choiceCount, currentTab.key]);
     // Image bars on the pixel step (galSnapChoices): after layout, on every resize of the list or the window, and
     // when the screen's pixel ratio changes (a window moved to another monitor, the zoom).
     // only new choices, a new state or a resize
@@ -167,7 +173,7 @@ function GalChoices(props) {
         // Fit before the first paint: one pass per frame painted the menu at every in-between size (it jumped on each tab switch).
         resnapRef.current(null, null);
         return function () { stopped = true; resnapRef.current = null; if (frame) cancelAnimationFrame(frame); observer?.disconnect(); window.removeEventListener("resize", resize); media?.removeEventListener?.("change", onRatio); };
-    }, [state, choiceCount]);
+    }, [state, choiceCount, currentTab.key]);
     (React.useLayoutEffect || React.useEffect)(function () {
         const field = rootRef.current?.querySelector?.(":scope > .is-editing") || null;
         // An opened suggestion is edited from its end: the caret after its text (autoFocus left it at the start).
@@ -176,6 +182,24 @@ function GalChoices(props) {
         resnapRef.current?.(fieldRowRef.current, field);
         fieldRowRef.current = field;
     }, [editingAt]);
+    // A field that outgrows the menu's room (the list's own max height, whatever the skin's art makes of it) stops growing there
+    // and scrolls inside - the whole field stays on the bar, never past the list's edge - and each keystroke brings the field
+    // back into the list's view, where the caret line stands (the field scrolls to its caret itself). Nothing here runs between
+    // keystrokes, so a list scrolled up by hand stays where it is until the next one.
+    (React.useLayoutEffect || React.useEffect)(function () {
+        const list = rootRef.current, field = list?.querySelector?.(":scope > .is-editing"), input = field?.querySelector?.(".fork-gal-choice-input");
+        if (!input) return;
+        input.style.maxHeight = "";
+        if (list.scrollHeight > list.clientHeight + 1) {
+            const box = getComputedStyle(list), room = list.clientHeight - parseFloat(box.paddingTop) - parseFloat(box.paddingBottom) - (field.offsetHeight - input.offsetHeight);
+            input.style.maxHeight = Math.max(room, parseFloat(getComputedStyle(input).lineHeight) || 0) + "px";
+        }
+        // A caret at the end stands on the last line, with the field's bottom padding under it (the browser stops at the line).
+        if (input.selectionEnd === input.value.length && input.scrollHeight > input.clientHeight) input.scrollTop = input.scrollHeight;
+        const edge = field.getBoundingClientRect(), view = list.getBoundingClientRect();
+        if (edge.bottom > view.bottom) list.scrollTop += edge.bottom - view.bottom;
+        else if (edge.top < view.top) list.scrollTop -= view.top - edge.top;
+    }, [editingAt, editingAt !== null && drafts[editingAt]]);
     const offered = state === "ready" && Boolean(panel && panel.choices && panel.choices.length);
     React.useEffect(function () { if (offered) forkUiSfx.play("choice"); }, [offered, messageId]);
     // A click outside the open field closes it and keeps what was typed (capture phase, before the click acts).
@@ -287,7 +311,7 @@ function GalChoices(props) {
         try {await commands.generate();}finally{requestRef.current=false;}
     }
     const choices = rawChoices;
-    const visibleChoices = rawChoices;
+    const visibleChoices = currentTab.items;
     const textOf = choice => stageCandidateTabs.formatCandidateChoiceText(choice);
     // The reply deadline's fallback goes through this panel's one send lock, synchronously checked: nothing typed or picked,
     // nothing sending. It returns whether it was sent (the caller marks the offer consumed before, so it is never retried).
@@ -358,7 +382,7 @@ function GalChoices(props) {
     return h("div", { ref: rootRef, className: "fork-gal-choices fork-gal-endpanel", style: props.hidden ? { display: "none" } : { "--rows": rows }, "data-hidden": props.hidden ? "" : undefined, "data-state": state, "data-settled": settledRef.current ? "" : undefined, "data-picked": picked !== null ? "" : undefined, role: "menu", "aria-label": "接下来", onClick: e => e.stopPropagation(), onWheel: e => e.stopPropagation() },
         visibleChoices.map(function (choice, index) {
             const key = textOf(choice), draft = drafts[key];
-            const badges = draft == null ? galChoiceBadges(choice, "featured", true) : [];
+            const badges = draft == null ? galChoiceBadges(choice, currentTab.kind, flat.badges) : [];
             const actorAttr = choice.actor || (Array.isArray(choice.actors) && choice.actors.length > 0 ? choice.actors.join(",") : undefined);
             // data-index stays on the open field: a numbered skin keeps its number in the cell (theme.css) and the rows below it theirs.
             if (editingAt === key) return h("div", { key: key, ref: editorRef, className: "fork-gal-choice is-editing", "data-type": choice.type, "data-index": index }, editor(key, '[data-index="' + index + '"] > .fork-gal-choice-main'));

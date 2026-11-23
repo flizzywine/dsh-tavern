@@ -524,7 +524,7 @@ export function formatMvuUpdateCommand(value) {
   return [
     '<UpdateVariable>',
     '<JSONPatch>',
-    JSON.stringify(officialMvuOperations(submission.operations), null, 2),
+    JSON.stringify(officialMvuOperations(submission.operations), null, 2).replace(/[<>&]/g, char => '\\u' + char.charCodeAt(0).toString(16).padStart(4, '0')),
     '</JSONPatch>',
     '</UpdateVariable>'
   ].join('\n')
@@ -871,7 +871,7 @@ export function createMvuSettlementModule(options = {}) {
     let run = {}
     try {
       run = await options.model.run({
-        task: 'settlement', backgroundTasks: tasks, persistent: true, persistentSessionId: traceSessionId, rewindTo: -1,
+        task: 'settlement', operationId: input.operationId, backgroundTasks: tasks, persistent: true, persistentSessionId: traceSessionId, rewindTo: -1,
         onPersistentSessionReady: input.onPersistentSessionReady,
         selection: input.selection, messages: request.messages, turnContext: request.turnContext,
         system: [str(input.system).trim(), request.system].filter(Boolean).join('\n\n'),
@@ -937,7 +937,7 @@ export function createMvuSettlementModule(options = {}) {
     let posture = null
     let toolTail = Promise.resolve()
     const run = await options.model.run({
-      task: 'settlement', backgroundTasks: tasks, persistent: true,
+      task: 'settlement', operationId: input.operationId, backgroundTasks: tasks, persistent: true,
       persistentSessionId: str(input.persistentSessionId), rewindTo: -1,
       onPersistentSessionReady: input.onPersistentSessionReady,
       selection: input.selection, messages: request.messages, turnContext: request.turnContext,

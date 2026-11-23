@@ -13,7 +13,7 @@ export async function backgroundFailureChecks({page,step,savedChat,output,report
     throw failure
   }
   async function send(text) {
-    const composer=page.getByRole('textbox',{name:/发消息|Message/})
+    const composer=page.getByRole('textbox',{name:/下一步行动|Next action|发消息|Message/})
     await composer.fill(text); await composer.press('Enter')
   }
   const gold = chat => chat.messages.at(-1).variables[0].stat_data.gold

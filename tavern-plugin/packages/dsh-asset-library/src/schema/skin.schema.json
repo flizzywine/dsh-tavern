@@ -382,6 +382,55 @@
      "$ref": "#/$defs/color",
      "description": "§18 N9: the ink of narration (a page with no speaker) in the box and the backlog, at least 7:1 on textbox.paint.bg."
     },
+    "highlight": {
+     "type": "object",
+     "additionalProperties": false,
+     "required": [
+      "ink",
+      "words"
+     ],
+     "properties": {
+      "ink": {
+       "$ref": "#/$defs/color"
+      },
+      "words": {
+       "type": "array",
+       "minItems": 1,
+       "maxItems": 16,
+       "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+         "text"
+        ],
+        "properties": {
+         "text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 16
+         },
+         "caseless": {
+          "type": "boolean"
+         },
+         "whole": {
+          "type": "boolean"
+         },
+         "except": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 16,
+          "items": {
+           "type": "string",
+           "minLength": 1,
+           "maxLength": 16
+          }
+         }
+        }
+       }
+      }
+     },
+     "description": "words of the story text drawn in this ink in the box, the narration lines and the backlog (display only: the text, the voice and the saved story stay as written). Each word: text; caseless matches any letter case; whole skips a match inside a longer number or word (13, 30, 3.5, threesome); except lists longer phrases whose occurrences keep the word plain. Contrast with textbox.paint.bg at least 4.5:1."
+    },
     "wrap": {
      "enum": [
       "phrase"
@@ -2212,35 +2261,43 @@
        "maximum": 1
       },
       "title": {
-       "type": "object",
-       "description": "A placed image: its top-left at x, y on the design screen at scale design px per image px; focus = the image under the pointer and keyboard focus.",
-       "additionalProperties": false,
-       "required": [
-        "image",
-        "x",
-        "y"
-       ],
-       "properties": {
-        "image": {
-         "$ref": "#/$defs/image"
+       "description": "The log screen's title: a placed image, or false = none (an original whose log has no title; the overlay keeps its accessible name). Omitted = the shared title centred at the top of the game area.",
+       "oneOf": [
+        {
+         "type": "object",
+         "description": "A placed image: its top-left at x, y on the design screen at scale design px per image px; focus = the image under the pointer and keyboard focus.",
+         "additionalProperties": false,
+         "required": [
+          "image",
+          "x",
+          "y"
+         ],
+         "properties": {
+          "image": {
+           "$ref": "#/$defs/image"
+          },
+          "focus": {
+           "$ref": "#/$defs/image"
+          },
+          "scale": {
+           "$ref": "#/$defs/artScale"
+          },
+          "x": {
+           "type": "number",
+           "minimum": -4096,
+           "maximum": 4096
+          },
+          "y": {
+           "type": "number",
+           "minimum": -4096,
+           "maximum": 4096
+          }
+         }
         },
-        "focus": {
-         "$ref": "#/$defs/image"
-        },
-        "scale": {
-         "$ref": "#/$defs/artScale"
-        },
-        "x": {
-         "type": "number",
-         "minimum": -4096,
-         "maximum": 4096
-        },
-        "y": {
-         "type": "number",
-         "minimum": -4096,
-         "maximum": 4096
+        {
+         "const": false
         }
-       }
+       ]
       },
       "close": {
        "type": "object",
@@ -3888,6 +3945,16 @@
          "minimum": 16,
          "maximum": 4096,
          "description": "The menu's capacity: the bars' most height in design px from y; more bars scroll inside it (the focused bar kept in view, an indicator at each clipped edge)."
+        },
+        "stroke": {
+         "type": "object",
+         "additionalProperties": false,
+         "required": ["color", "width"],
+         "description": "A hard outline round the labels, under the ink (an original's white words with a darker rim), wide and on phones: colour and width (design px).",
+         "properties": {
+          "color": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$" },
+          "width": { "type": "number", "minimum": 0, "maximum": 16 }
+         }
         }
        }
       },
@@ -4006,6 +4073,7 @@
        "properties": {
         "unit": { "type": "number", "minimum": 0.05, "maximum": 0.5 },
         "sheet": { "$ref": "#/$defs/image", "description": "The phone's own backdrop, covering the screen (default the wide sheet)." },
+        "anchor": { "enum": ["middle"], "description": "middle: the title and the bars stand as one block centred in the screen's height under the top bar, on phones of every height (taller than the screen, it scrolls from its top); rows.y is then the space from the title to the first bar, title.y unused." },
         "rows": {
          "type": "object",
          "additionalProperties": false,

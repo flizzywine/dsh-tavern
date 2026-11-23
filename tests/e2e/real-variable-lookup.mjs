@@ -29,7 +29,7 @@ export async function realVariableLookupChecks({page,step,savedChat,root,output,
  }
  async function send(input,expected){
   const old=(await savedChat()).messages.length
-  const box=page.getByRole('textbox',{name:/发消息|Message/});await box.fill(input);await box.press('Enter')
+  const box=page.getByRole('textbox',{name:/下一步行动|Next action|发消息|Message/});await box.fill(input);await box.press('Enter')
   const deadline=Date.now()+180000;let tick=Date.now()
   while(Date.now()<deadline){
    const chat=await savedChat(),message=chat.messages.at(-1)

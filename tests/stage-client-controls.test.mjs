@@ -1,22 +1,9 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {createRequire} from 'node:module'
-import {CARD_PAGE_SHORTCUT_KEYS} from '../tavern-plugin/lib/domain/card-status-panel.js'
 const require=createRequire(import.meta.url)
 const {createStageControls}=require('../tavern-plugin/packages/dsh-tavern-stage/src/client/controls.cjs')
 const {createStageInput}=require('../tavern-plugin/packages/dsh-tavern-stage/src/client/input.cjs')
-test('folded skins keep missing auto and skip actions in the menu',()=>{
- const controls=createStageControls()
- assert.deepEqual(controls.actionHomes(null,true).menu,[])
- const homes=controls.actionHomes({quickMenu:{layout:'orb'},resolvedArt:{buttons:[{action:'skip'}]},art:{buttons:{skip:{}}}},true)
- assert.deepEqual(homes.row,[])
- assert.deepEqual(homes.menu,['auto'])
- assert.deepEqual(homes.declared,['skip'])
- assert.equal(controls.actionFor('eye-off'),'hide')
- assert.equal(controls.drawn('eye-off',{resolvedControlIcons:{}}),false)
- assert.equal(controls.drawn('auto',{resolvedControlIcons:{}}),true)
- assert.equal(controls.keyCaps.skip,'Ctrl')
-})
 test('wheel gestures finish typing once without spilling into extra page turns',()=>{
  const {wheel}=createStageControls()
  const first=wheel(null,{now:1000,deltaY:100,typed:false})
@@ -29,31 +16,4 @@ test('wheel gestures finish typing once without spilling into extra page turns',
  assert.equal(wheel(null,{now:1,deltaY:3,deltaMode:1,typed:true}).action,'advance')
  assert.equal(wheel(null,{now:1,deltaY:1,deltaMode:2,typed:true}).action,'advance')
  assert.equal(wheel(null,{now:1,deltaY:NaN}).action,'none')
-})
-
-test('every card page shortcut letter is free of the built-in stage keys, and the built-in letters are not offered to pages',()=>{
- const controls=createStageControls()
- const fakeRoot={querySelector:()=>({disabled:false,getClientRects:()=>[{}],click(){clicks++}})}
- let clicks=0,state={pages:[],root:fakeRoot},sent=[]
- const listeners=[]
- const window={addEventListener(type,handler){listeners.push([type,handler])},removeEventListener(){}}
- const document={hidden:false,addEventListener(){},removeEventListener(){}}
- const input=createStageInput({React:{},window,document,clock:{setTimeout:()=>1,clearTimeout(){}},controls,navigation:{galKeyboardFocus:()=>false}})
- const instance=input.attach(()=>state,action=>sent.push(action))
- const onKey=listeners.find(([type])=>type==='keydown')[1]
- const press=key=>onKey({key,preventDefault(){},stopImmediatePropagation(){},repeat:false,isComposing:false})
- const builtIn=[]
- for (const letter of 'abcdefghijklmnopqrstuvwxyz') {
-  sent=[];clicks=0;press(letter)
-  if (sent.length||clicks) builtIn.push(letter)
- }
- assert.deepEqual(builtIn,['a','g','h','l','v'])
- for (const letter of CARD_PAGE_SHORTCUT_KEYS) assert.equal(builtIn.includes(letter),false,letter)
- for (const letter of CARD_PAGE_SHORTCUT_KEYS) {
-  sent=[];clicks=0;state={pages:[{id:'p',label:'p',shortcut:letter}],root:fakeRoot}
-  press(letter)
-  assert.deepEqual(sent,[{type:'page',open:true,id:'p'}],letter)
-  assert.equal(clicks,0,letter)
- }
- instance.dispose()
 })

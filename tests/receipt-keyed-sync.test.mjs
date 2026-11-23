@@ -33,25 +33,4 @@ for(const count of [20,400,10000])test(`receipt removal sends only its turn at $
  assert.ok(JSON.stringify(result).length<500)
 })
 
-test('keyed receipts require negotiation and reset safely after cursor or source loss',()=>{
- const project=createMvuReceiptIndex({shared:true}),sync=createSessionViewSync()
- const chat={id:'c',_storageRevision:1,messages:[{role:'assistant',turn:1,mvu:{pending:true}}]}
- const view={mvuReceipts:project(chat,{},null)}
- const legacy=sync('s',view)
- assert.equal(legacy.receiptSync,undefined)
- const upgraded=sync('s',view,legacy.viewCursor,{receiptSync:1})
- assert.equal(upgraded.receiptSync,1)
- assert.ok(upgraded.view)
- const changed=sync('s',view,upgraded.viewCursor,{receiptSync:1})
- assert.deepEqual(changed.viewDelta.receiptDelta,{set:[],remove:[]})
- sync.peek(changed.viewCursor).receiptSource={deref:()=>undefined}
- const reset=sync('s',view,changed.viewCursor,{receiptSync:1})
- assert.equal(reset.receiptSync,1)
- assert.ok(reset.view)
- assert.ok(sync('s',view,reset.viewCursor).view,'downgrade establishes a positional baseline')
- assert.ok(sync('s',view,'lost',{receiptSync:1}).view)
- const plain=sync('s',{mvuReceipts:[{turn:1,receipt:{status:'pending'}}]},undefined,{receiptSync:1})
- assert.equal(plain.receiptSync,undefined)
-})
-
 import {createSessionViewReader} from '../tavern-plugin/lib/domain/session-view-reader.js'

@@ -40,15 +40,15 @@
 | --- | --- |
 | stage.enabled: true | 舞台，自动开启气泡前置能力 |
 | stage.enabled: false | 普通游玩，覆盖残留的旧开关 |
-| enabled 缺省且没有旧字段 | 普通游玩 |
+| enabled 缺省且没有旧字段 | 跟随玩家的全局开关（全局默认关，即普通游玩） |
 
 **新卡只使用 `stage.enabled` 一个开关。** 它必须是布尔值。有素材、皮肤、openings、widgets、@bubble 或 galgame 插件，均不能替代此声明。
 
-旧卡未写 enabled 时保留原语义：dialogue:true 开气泡，dialogue:true 与 stage:true 同时存在才开完整舞台。旧的气泡专用卡仍能运行；新 enabled 字段一旦存在就优先于旧字段。新界面保存开关时写 enabled 并移除两个旧字段。
+旧卡未写 enabled 时保留原语义：dialogue:true 开气泡，dialogue:true 与 stage:true 同时存在才开完整舞台。旧的气泡专用卡仍能运行；新 enabled 字段一旦存在就优先于旧字段。界面保存本卡开关时写 enabled 并移除两个旧字段；只有「气泡开、舞台关」这一组合仍写成 dialogue:true、stage:false；改选「全局…」时三个字段都移除，跟随全局。
 
-`.dshcard` 导入器仍接受 `dsh.json.defaults.stage: true` 快捷声明，将其转换为 enabled:true。新增卡优先显式填写卡片字段。新字段需要包含单开关实现的新版酒馆；早期 v3.2 标签不支持此字段，不能只看发行版本就保证兼容。遇到旧运行时应要求更新，或按用户明确要求另做旧格式兼容副本。
+`.dshcard` 导入器仍接受 `dsh.json.defaults.stage: true` 快捷声明，将其转换为 enabled:true。新增卡优先显式填写卡片字段。不能只看发行版本号就保证旧版酒馆认识这个字段；遇到旧运行时应要求更新，或按用户明确要求另做旧格式兼容副本。
 
-stage.defaultSkin 是这张卡唯一的皮肤值「使用皮肤」：随卡导出导入，玩家在舞台 CONFIG › 画面「本卡皮肤」里改的也是它。没有填写或皮肤不可用时依次用全局「默认皮肤」和「经典」；素材包不再声明默认皮肤，旧的 stage.skinChoice 不再读取。widgets 与 modSystem 另管模组配置，不替代舞台声明。玩家密钥、静音和权限不能由卡包覆盖。
+stage.defaultSkin 是这张卡唯一的皮肤值「使用皮肤」：随卡导出导入，玩家在舞台 CONFIG › 画面「本卡皮肤」里改的也是它。没有填写或皮肤不可用时依次用全局「默认皮肤」和「经典」；素材包不再声明默认皮肤，旧的 stage.skinChoice 不再读取。stage.defaultEntrance 是本卡的「入场演出」（`{packId, kind:'entrances', assetId}`，缺省即不播放），只在玩家进入舞台时代替「载入中」播放，不替代舞台声明。模组的本卡设置由模组工具管理（stage-mods），不手写进卡。玩家密钥、静音和权限不能由卡包覆盖。
 
 ## 素材与迁移
 
@@ -56,7 +56,7 @@ stage.defaultSkin 是这张卡唯一的皮肤值「使用皮肤」：随卡导�
 
 内容文件、manifest.files 与 contentHash 必须由同一份最终内容生成。修改人物、清单或媒体后重新经素材库导出。哈希失败时保留原包并报告，不跳过检查或手改指纹来宣称兼容。
 
-旧插件的 registerStageView 已停用。将展示数据迁入卡片声明、开场配置与素材包，独立剧情逻辑再按公开插件接口处理；只删除旧调用、重命名插件或降低格式版本都不构成完整迁移。
+旧插件的 registerStageView 已停用。将展示数据迁入卡片声明、开场配置与素材包；旧插件里的整页界面（状态、地图等）改写成卡页面（`stage-status-panel`）；独立剧情逻辑再按公开插件接口处理。只删除旧调用、重命名插件或降低格式版本都不构成完整迁移。
 
 ## 封面与交付格式
 

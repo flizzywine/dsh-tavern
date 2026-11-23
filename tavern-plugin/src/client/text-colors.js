@@ -217,6 +217,12 @@ function installTavernTextColors(root, options, findQuotes) {
             if (!near && enabled) { dirty = true; return; }
             refresh();
         },
+        schedule() {
+            if (disposed) return;
+            observer.takeRecords();
+            if (!near && enabled) { dirty = true; return; }
+            schedule();
+        },
         setColors,
         setEnabled(value) {
             if (disposed) return;
@@ -251,7 +257,9 @@ function TavernColoredMarkdown(props) {
     const stageHidden = React.useSyncExternalStore(
         typeof galActive === "undefined" ? () => () => {} : galActive.subscribe,
         () => Boolean(props.stageTranscript && typeof galActive !== "undefined" && galActive.get()));
-    const suspend = props.streaming === true || props.suspendTextColors || stageHidden;
+    // a streaming reply keeps its quote colours live (each streamed commit refreshes below),
+    // so only an explicit suspension or the occluding stage releases them.
+    const suspend = props.suspendTextColors || stageHidden;
     const root = React.useRef(null), colors = React.useRef(null), mounted = React.useRef(false);
     React.useLayoutEffect(function () {
         if (suspend) return undefined;
@@ -267,7 +275,9 @@ function TavernColoredMarkdown(props) {
         // on mount the installer's batched timer does the first pass. A synchronous
         // pass per message made opening a long chat recalc document style once per message.
         if (!mounted.current) { mounted.current = true; return; }
-        colors.current?.refresh();
+        // 流式输出期间走 32ms 读写分离批处理队列，避免每 chunk 同步触发 getComputedStyle 重算样式。
+        if (props.streaming) colors.current?.schedule();
+        else colors.current?.refresh();
     }, [props.text, props.streaming]);
     const { suspendTextColors, stageTranscript, ...markdownProps } = props;
     return React.createElement('div', { ref: root, className: 'dsh-tavern-colored-markdown' }, React.createElement(DshUi.MarkdownText, markdownProps));

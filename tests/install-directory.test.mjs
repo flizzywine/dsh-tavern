@@ -33,7 +33,7 @@ test('Desktop 宿主版本不兼容时在覆盖旧安装前停止', { skip: proc
   const sentinel = path.join(root, 'installed.txt')
   writeFileSync(sentinel, 'old installation')
   const start = source.indexOf('# Validate the downloaded release against the host')
-  const end = source.indexOf('if [ "${INSTALL_HOST}" = "cli" ] &&', start)
+  const end = source.indexOf('\nSTAGER=', start)
   assert.ok(start > 0 && end > start)
   assert.ok(end < source.indexOf('cp -R "${SOURCE_DIR}/."'))
   const preflight = source.slice(start, end)

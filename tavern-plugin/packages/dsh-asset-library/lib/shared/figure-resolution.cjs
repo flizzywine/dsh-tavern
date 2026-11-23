@@ -13,14 +13,31 @@ const codepointCompare = (a, b) => {
   return x.length - y.length
 }
 
+// Names, aliases and handles repeat on every resolution (a playback rebuild resolves each figure name thousands of times),
+// so short values keep their normalized form; the cache is cleared when full.
+const normalizedNames = new Map()
 function normalizeCatalogueText(value) {
-  return String(value ?? '').normalize('NFKC').replace(traditionalPattern, c => conversion.get(c)).toLowerCase().replace(/\s+/gu, ' ').trim()
+  const text = String(value ?? '')
+  let normalized = normalizedNames.get(text)
+  if (normalized !== undefined) return normalized
+  normalized = text.normalize('NFKC').replace(traditionalPattern, c => conversion.get(c)).toLowerCase().replace(/\s+/gu, ' ').trim()
+  if (text.length <= 128) { if (normalizedNames.size >= 4096) normalizedNames.clear(); normalizedNames.set(text, normalized) }
+  return normalized
 }
 
 
 // Shared display normalization; director resources retain their identity suffix.
+const handleStems = new Map()
 function promptHandleStem(value, separator = '_', limit = 24) {
-  return [...String(value ?? '').normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, separator).replace(new RegExp('^' + separator + '|' + separator + '$', 'g'), '')].slice(0, limit).join('')
+  const text = String(value ?? ''), cached = separator === '_' && limit === 24 && text.length <= 128
+  let stem = cached ? handleStems.get(text) : undefined
+  if (stem !== undefined) return stem
+  stem = handleStem(text, separator, limit)
+  if (cached) { if (handleStems.size >= 4096) handleStems.clear(); handleStems.set(text, stem) }
+  return stem
+}
+function handleStem(value, separator, limit) {
+  return [...value.normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, separator).replace(new RegExp('^' + separator + '|' + separator + '$', 'g'), '')].slice(0, limit).join('')
 }
 const speakerKey = row => row.actorKey || row.alias
 const speakerIdentity = row => row.ref ? row.ref.packId + '/' + row.ref.figureId : speakerKey(row)

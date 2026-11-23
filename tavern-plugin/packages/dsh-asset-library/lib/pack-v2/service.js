@@ -13,11 +13,13 @@ import {normalizePackTags,normalizeEntryTags} from '../asset-packs/item-migratio
 import {migrateRecallPriorityManifest, migrateRecallPriorityFigure, migrateRecallPriorityBaselines} from '../asset-packs/recall-priority.js'
 import {BLOB_MIME_TYPES,verifyPackFiles,verifyPackHashes} from '../asset-packs/index.js'
 import { randomUUID, createHash } from 'node:crypto'
-import { createReadStream } from 'node:fs'
-import { publicNetwork, readBounded } from '../pack-catalogue/network.js'
+import { createReadStream, createWriteStream } from 'node:fs'
+import { compose, Transform } from 'node:stream'
+import { publicNetwork, downloadBounded } from '../pack-catalogue/network.js'
 import { httpsUrl } from '../pack-catalogue/catalogue.js'
 import { createCatalogueManager } from '../pack-catalogue/manager.js'
 import { baseMetadata, mergeMetadata } from '../pack-catalogue/merge.js'
+import { removedEntries, withRemovedEntries } from './incremental-update.js'
 const REMOTE_ARCHIVE = Symbol('host-only downloaded archive')
 const CARD_URL_DEADLINE_MS = 20 * 60000
 import { assertPublicPackChain } from './public-export.js'
@@ -34,14 +36,14 @@ import { mergePackContents } from './merge-packs.js'
 import { moveFigureContents } from './move-figures.js'
 import {createStageSetupMethods} from './stage-setup.js'
 import {createAutomaticWriteMethods, patchFigureDocument} from './automatic-writes.js'
-import { stat, writeFile } from 'node:fs/promises'
+import { mkdir, stat, unlink, writeFile } from 'node:fs/promises'
 import { createPackStorage } from './storage.js'
 import {createModPrivateMethods,isModConfigPack} from './mod-private.js'
 import { isMetadataEdit } from './metadata-edit.js'
 import { createCardBundleMethods } from './card-bundle.js'
 import { isPackSet, readPackSet, packSetFiles } from './pack-set.js'
 import { partitionPackSets, COLLECTION_BYTES } from './pack-set-partition.js'
-import { PACK_LIMITS, jsonBytes, readDocument, cloneFiles, budget, sealPack, storedCopyHashes, StoredFile, verifyBytes, inspectPackScripts, packDiff } from './validation.js'
+import { PACK_LIMITS, jsonBytes, readDocument, cloneFiles, budget, sealPack, storedCopyHashes, StoredFile, SpooledFile, heldBytes, spooledBytes, verifyBytes, inspectPackScripts, packDiff } from './validation.js'
 import widgetContract from '../shared/widget-schema.cjs'
 import { createPackLeases } from './leases.js'
 export { PACK_LEASE_PATH } from './leases.js'
@@ -149,6 +151,13 @@ async function remapPack(pack, mapping) {
   return sealPack(manifest, files, pack, storedCopyHashes(files,[pack]))
 }
 
+// writeZip's input-byte count as {done,total} over these entries (an export's progress bar).
+const zipProgress = (entries, onProgress) => {
+  if (!onProgress) return {}
+  const total = entries.reduce((sum, entry) => sum + entry.data.length, 0)
+  return {onProgress:done => onProgress({done, total})}
+}
+
 /** Construct explicitly; this service is not composed into Tavern or registered as v1. */
 export function createAssetPackService(options) {
   const limits = {...PACK_LIMITS, ...options.limits}, now = options.now || Date.now
@@ -156,12 +165,13 @@ export function createAssetPackService(options) {
   const retiredModIds = options.retiredModIds || []
   for (const [key, value] of Object.entries(limits)) check(Number.isSafeInteger(value) && value > 0, '$.limits.' + key)
   const storage = createPackStorage({...options, limits}), previews = new Map(), listeners = new Set()
+  // limits.spoolBytes bounds the bytes held in memory at once (previews, archives read from bytes, card downloads).
+  // What lies on disk (an import's spool, export archives, downloads) grows with the pack and is bounded by the disk
+  // alone: a write that runs out of space fails and is cleaned up, never half-installed.
   const archives = new Set()
-  const archiveBytes = () => [...archives].reduce((sum, archive) => sum + archive.size, 0)
   const exportArchive = options.exportArchive || (async file => {
     await Promise.all([...archives].filter(archive => archive.expiresAt <= now()).map(archive => archive.dispose()))
-    const {size} = await stat(file)
-    check(size <= limits.totalSize && previewBytes + cardBundleUsage().bytes + externalUsage() + size <= limits.spoolBytes, '$', 'Export archive spool budget exceeded', 'LIMIT_EXCEEDED')
+    check(archives.size < limits.previews, '$', 'Too many export archives waiting to be saved', 'LIMIT_EXCEEDED')
     const retained = await storage.retainArchive(file)
     const archive = {...retained, expiresAt:now() + limits.previewTtlMs, async dispose() { await retained.dispose(); archives.delete(archive) }}
     archives.add(archive)
@@ -190,7 +200,7 @@ export function createAssetPackService(options) {
   let disposed = false, previewBytes = 0, ingressBytes = 0, catalogue, cardUrlTask, cardUrlController
   let cardUrlBytes = 0
   const pendingSnapshots = new Map()
-  const externalUsage = () => archiveBytes() + cardUrlBytes + (options.externalSpoolUsage?.() || 0) + (catalogue?.usage() || 0)
+  const externalUsage = () => cardUrlBytes + (options.externalSpoolUsage?.() || 0)
   function alive() { check(!disposed, '$', 'Asset service disposed', 'ASSET_UNAVAILABLE') }
   const run = (ids, task, readOnly = false) => storage.run(ids, async () => { alive(); try {return await task()} finally {ingressBytes=0} }, readOnly)
   const readRun = (ids, task, readOnly = false) => storage.readRun(ids, async () => { alive(); return task() }, readOnly)
@@ -219,12 +229,25 @@ export function createAssetPackService(options) {
   // 'manifest' serves media without hydrating figure/sprite documents; 'figures' adds the figure documents only (the voice
   // catalogue: Live2D sprite documents are most of an installation's JSON); true is list-summary only.
   const covers = (have, want) => want === true || !have || have === want || have === 'figures' && want === 'manifest'
+  // A record edit outside a pack write changes the figures a pack shows (figureRecordsChanged): its reads start over.
+  const recordGenerations = new Map()
+  // Readers that miss together share one read of the pack: after a restart every card's 自动选角 context and the stage read
+  // the same packs at once, and each reading them on its own multiplied a cold library read by the readers (11-23: 12 readers,
+  // 15 s each, the stage's own pack reads waited behind them).
+  const metadataReads = new Map()
   async function metadata(id, summaryOnly = false) {
-    const signature = await storage.stamp(id), cached = metadataCache.get(id)
+    const stamp = await storage.stamp(id), signature = stamp === null ? null : stamp + '#' + (recordGenerations.get(id) || 0), cached = metadataCache.get(id)
     if (cached?.signature === signature && covers(cached.summaryOnly, summaryOnly)) {
       metadataCache.delete(id); metadataCache.set(id, cached)
       return cached.pack
     }
+    const reading = metadataReads.get(id)
+    if (reading?.signature === signature && covers(reading.summaryOnly, summaryOnly)) return reading.pack
+    const read = {signature, summaryOnly, pack:readMetadata(id, stamp, signature, summaryOnly)}
+    metadataReads.set(id, read)
+    try { return await read.pack } finally { if (metadataReads.get(id) === read) metadataReads.delete(id) }
+  }
+  async function readMetadata(id, stamp, signature, summaryOnly) {
     evictMetadata(id)
     if (signature === null) return null
     // Stored bytes were validated on ingress. Reads parse author documents only.
@@ -278,6 +301,7 @@ export function createAssetPackService(options) {
       const failed = reads.find(result => result.status === 'rejected')
       if (failed) throw failed.reason
       for (const figureId of manifest.figures) figures[figureId] = storedDocument(await documentBytes(`figures/${figureId}.json`))
+      await storage.freshen(manifest, documents)
       if (!summaryOnly) {
         for (const [key, name] of Object.entries(manifest.sprites)) sprites[key] = storedDocument(await documentBytes(name))
         for (const asset of manifest.assets.filter(a => a.kind === 'skins')) skins[asset.id] = storedDocument(await documentBytes('bundles/' + assetContent(asset).bundleKey + '/' + assetContent(asset).entry))
@@ -306,7 +330,7 @@ export function createAssetPackService(options) {
       for (const row of asset.variants.entries) documents[row.id] = storedDocument(await documentBytes('bundles/'+row.content.bundleKey+'/'+row.content.entry));
       variantDocuments[asset.kind+'/'+asset.id] = documents;
     }
-    check(signature === await storage.stamp(id), '$.packId', 'Pack changed during validation', 'REVISION_CONFLICT')
+    check(stamp === await storage.stamp(id), '$.packId', 'Pack changed during validation', 'REVISION_CONFLICT')
     // Inline voice transcripts are already retained in the figure document.
     // Summary entries retain only the projection, not megabytes of manifest indexes.
     const retained = summaryOnly === true ? {summary:packSummary({manifest, diagnostics, local})} : {manifest, figures, sprites, skins, performances, widgets, variantDocuments, diagnostics, local, documents:summaryOnly === 'figures' ? new Map() : documents, files:new Map()}
@@ -319,9 +343,30 @@ export function createAssetPackService(options) {
     return retained
   }
   async function all() { const packs = []; for (const id of await storage.listIds()) packs.push(await metadata(id)); return packs }
+  async function prepareMerge(source, before, input) {
+    const merged = mergePackContents(source,before,input)
+    trimAuthoringImages(merged.manifest,merged.files,{...source.figures,...before.figures})
+    await sealPack(merged.manifest,merged.files,before,storedCopyHashes(merged.files,[source,before]))
+    const bytes = merged.manifest.files.reduce((sum,row)=>sum+row.size,0)
+    budget(merged.files,limits)
+    const manifestBytes = jsonBytes(merged.manifest).length
+    check(bytes + manifestBytes <= limits.totalSize && manifestBytes <= limits.entrySize && merged.files.size + 1 <= limits.entries,'$.files','Merged pack exceeds budget','LIMIT_EXCEEDED')
+    const figures = Object.fromEntries(merged.manifest.figures.map(id=>[id,readDocument(merged.files.get('figures/'+id+'.json'))]))
+    const sprites = Object.fromEntries(Object.entries(merged.manifest.sprites).map(([key,file])=>[key,readDocument(merged.files.get(file))]))
+    const pack = {manifest:merged.manifest, files:merged.files, figures, sprites, local:before.local}
+    validatePackDocuments(pack)
+    return {pack, bytes, mapping:merged.mapping, bundleKeys:merged.bundleKeys, spriteKeys:merged.spriteKeys, voiceKeys:merged.voiceKeys}
+  }
   function emit(pack, before) {
+    // the host moved the 外貌 a written figure carried into its record (figureRecords): its pictures leave the pack, as
+    // after any figure edit (trimAuthoringImages), in a write of their own once this one is done
+    if (pack && storage.takeMoved(pack.manifest.id)) queueMicrotask(() => trimMoved(pack.manifest.id).catch(() => { /* the next figure edit trims them */ }))
     const event = {packId:pack?.manifest.id || before.manifest.id, revision:pack?.local.revision ?? null, kinds:[...new Set([...(before?.manifest.assets || []), ...(pack?.manifest.assets || [])].map(a => a.kind))], figures:[...new Set([...(before?.manifest.figures || []), ...(pack?.manifest.figures || [])])]}
     for (const listener of storage.subscribers) { try { listener(copy(event)) } catch { /* Observers cannot roll back a committed write. */ } }
+  }
+  async function trimMoved(packId) {
+    const current = await readRun([packId], () => metadata(packId), true)
+    if (current) await edit({packId, expectedRevision:current.local.revision}, (manifest, files, before) => trimAuthoringImages(manifest, files, before.figures), true)
   }
   async function removeInstalledPack(before) {
     const packId = before.manifest.id
@@ -338,7 +383,7 @@ export function createAssetPackService(options) {
   async function install(pack, before, distribution, dryRun = false, resolution, copiedDebt) {
     if(!resolution) {
       const original={manifest:copy(pack.manifest),files:new Map(pack.files)},hashed=new Map()
-      resolution=await applyResolutionWrites({manifest:pack.manifest,files:pack.files,previous:before,hashed})
+      resolution=await applyResolutionWrites({manifest:pack.manifest,files:pack.files,previous:before,hashed,read:name => spooledBytes(pack.files.get(name))})
       if(resolution.changes.length) {
         await sealPack(pack.manifest,pack.files,original,hashed)
         pack=await verify(pack.manifest,pack.files,before,true)
@@ -380,9 +425,9 @@ export function createAssetPackService(options) {
     manifest.figures.push(id); files.set(`figures/${id}.json`, jsonBytes(figure))
     return {figureId:id}
   }
-  async function edit(input, mutate, tryMetadata = false, migrateLocal, dryRun = false, resolutionTargets, resolutionRestore, imageResolutions, avatarReplacements, imageRemovals) {
+  async function edit(input, mutate, tryMetadata = false, migrateLocal, dryRun = false, resolutionTargets, resolutionRestore, imageResolutions, avatarReplacements, imageRemovals, sourcePackIds = []) {
     validateUuid(input.packId)
-    return run([input.packId], async () => {
+    return run([input.packId, ...sourcePackIds], async () => {
       if (tryMetadata) {
         const before = await metadata(input.packId); cas(before, input.expectedRevision)
         check(before, '$.packId', 'Pack missing', 'ASSET_UNAVAILABLE')
@@ -451,18 +496,51 @@ export function createAssetPackService(options) {
       return {...result, ...extra, resolution}
     }, dryRun)
   }
-  function sweep() { for (const [id, entry] of previews) if (entry.expiresAt <= now()) { previews.delete(id); previewBytes -= entry.size } }
+  // An import's spooled entries stay on disk until the last preview reading them goes.
+  const spoolDisposals = new Set()
+  async function openSpool() {
+    let users = 1, opened
+    const dir = () => opened ??= storage.spool()
+    return {
+      // one entry streamed to its spool file and hashed on the way; the extension stays for decoders that read the file
+      async take(zip, entry, index) {
+        const file = path.join((await dir()).dir, index + path.posix.extname(entry.path)), hash = createHash('sha256')
+        await zip.consume(entry, compose(new Transform({transform(chunk, encoding, callback) { hash.update(chunk); callback(null, chunk) }}), createWriteStream(file, {flags:'wx'})))
+        return new SpooledFile(entry.size, file, hash.digest('hex'))
+      },
+      retain() { users++ },
+      // resolves when the last user's release has removed the spool; callers that can wait do, so nothing runs after them
+      release() {
+        if (--users || !opened) return
+        const task = opened.then(spool => spool.dispose()).catch(() => {}).finally(() => spoolDisposals.delete(task))
+        spoolDisposals.add(task)
+        return task
+      }
+    }
+  }
+  function forget(id) { const entry = previews.get(id); previews.delete(id); previewBytes -= entry.size; return entry.spool?.release() }
+  function sweep() { for (const [id, entry] of previews) if (entry.expiresAt <= now()) forget(id) }
   // a 素材包合集 holds one preview per pack but counts as one inspection.
   const previewCount = () => new Set([...previews].map(([id, entry]) => entry.set || id)).size
-  function dropSet(setId) { for (const [id, entry] of previews) if (entry.set === setId) { previews.delete(id); previewBytes -= entry.size } }
+  function dropSet(setId) { for (const [id, entry] of previews) if (entry.set === setId) forget(id) }
+  // An archive's documents are read into memory; its media blobs (by far most of a large pack) go to a spool on disk.
+  // Resolves {files, spool}: the caller releases the spool once, after retaining it for each preview it keeps.
   async function readZipFile(file, archiveBytes, extraBytes, signal) {
     const zip = await openZip(file, limits), files = new Map()
     guardArchive(zip.entries)
-    check(zip.totalSize + archiveBytes + ingressBytes + previewBytes + extraBytes + externalUsage() <= limits.spoolBytes, '$.bytes', 'Import spool budget exceeded', 'LIMIT_EXCEEDED')
-    ingressBytes += zip.totalSize + archiveBytes
-    // Even zero-length directory entries must pass CRC verification.
-    for (const entry of zip.entries) { signal?.throwIfAborted(); const content = await zip.read(entry); if (!entry.directory) files.set(entry.path, content) }
-    return files
+    const held = zip.entries.reduce((sum, entry) => sum + (SPOOLED.test(entry.path) ? 0 : entry.size), 0)
+    check(held + archiveBytes + ingressBytes + previewBytes + extraBytes + externalUsage() <= limits.spoolBytes, '$.bytes', 'Import spool budget exceeded', 'LIMIT_EXCEEDED')
+    ingressBytes += held + archiveBytes
+    const spool = await openSpool()
+    try {
+      // Even zero-length directory entries must pass CRC verification.
+      for (const [index, entry] of zip.entries.entries()) {
+        signal?.throwIfAborted()
+        if (entry.directory) await zip.read(entry)
+        else files.set(entry.path, SPOOLED.test(entry.path) ? await spool.take(zip, entry, index) : await zip.read(entry))
+      }
+    } catch (error) { spool.release(); throw error }
+    return {files, spool}
   }
   async function readZipFiles(bytes, extraBytes = cardBundles.cardBundleUsage().bytes) {
     check(bytes instanceof Uint8Array && bytes.length <= limits.spoolBytes, '$.bytes', 'Archive exceeds spool budget', 'LIMIT_EXCEEDED')
@@ -472,11 +550,13 @@ export function createAssetPackService(options) {
     })
   }
   async function readArchive(bytes, remote) {
-    const files = remote ? await readZipFile(remote.file, 0, cardBundleUsage().bytes, remote.signal) : await readZipFiles(bytes)
-    if (isPackSet(files)) { const set = []; for (const pack of readPackSet(files)) set.push(await importPack(pack.manifest, pack.files)); return {set} }
-    const root = files.get('manifest.json'); check(root, '$', 'Missing pack manifest', 'FILE_CLOSURE_MISMATCH')
-    files.delete('manifest.json')
-    return importPack(readDocument(root),files)
+    const {files, spool} = remote ? await readZipFile(remote.file, 0, cardBundleUsage().bytes, remote.signal) : await readZipFiles(bytes)
+    try {
+      if (isPackSet(files)) { const set = []; for (const pack of readPackSet(files)) set.push(await importPack(pack.manifest, pack.files)); return {set, spool} }
+      const root = files.get('manifest.json'); check(root, '$', 'Missing pack manifest', 'FILE_CLOSURE_MISMATCH')
+      files.delete('manifest.json')
+      return {pack:await importPack(readDocument(root),files), spool}
+    } catch (error) { spool.release(); throw error }
   }
   async function importPack(manifest,files) {
     // Authenticate external bytes once before shared import normalization can reseal them.
@@ -485,7 +565,7 @@ export function createAssetPackService(options) {
     const normalized = normalizePackImport(manifest,files)
     manifest = normalized.manifest
     const audioChanged = await authorAudioLoudness(manifest, files, {measure:options.measureAudio})
-    const hashed=new Map(),resolution=await applyResolutionWrites({manifest,files,hashed})
+    const hashed=new Map(),resolution=await applyResolutionWrites({manifest,files,hashed,read:name => spooledBytes(files.get(name))})
     if (normalized.changed||audioChanged||resolution.changes.length) await sealPack(manifest,files,authenticated,hashed)
     return verify(manifest, files, undefined, true)
   }
@@ -500,7 +580,7 @@ export function createAssetPackService(options) {
     return warnings
   }
   // One pack of an import (a single-pack ZIP, or one pack of a 素材包合集): its preview, kept until applyImport.
-  async function inspectPack(pack, {remote, uploadHash, installed, copyOnly, setId}) {
+  async function inspectPack(pack, {remote, uploadHash, installed, copyOnly, setId, spool}) {
     const before = await metadata(pack.manifest.id)
     let distribution, merge
     if (remote) {
@@ -517,15 +597,15 @@ export function createAssetPackService(options) {
     const conflictFigures = pack.manifest.figures.filter(id => installed.some(p => p.manifest.id !== pack.manifest.id && p.manifest.figures.includes(id)))
     const identityConflict = conflictFigures.length > 0 || installed.some(p => p.manifest.id !== pack.manifest.id && (pack.manifest.figures.includes(p.manifest.id) || p.manifest.figures.includes(pack.manifest.id)))
     const same = before?.manifest.contentHash === pack.manifest.contentHash && (!remote || canonicalJson(before.local.distribution || null) === canonicalJson(distribution))
-    let choices = identityConflict || copyOnly ? ['keep-both','cancel'] : same ? ['noop','cancel'] : before ? ['update','keep-both','cancel'] : ['install','keep-both','cancel']
+    let choices = identityConflict || copyOnly ? ['keep-both','cancel'] : same ? ['noop','cancel'] : before ? ['update','merge','keep-both','cancel'] : ['install','keep-both','cancel']
     const mapping = {packId:randomUUID(), figures:Object.fromEntries(pack.manifest.figures.map(id => [id,randomUUID()]))}
     const remapped = await remapPack(pack, mapping)
     const keep = await verify(remapped.manifest, remapped.files, pack, true)
-    const id = randomUUID(), expiresAt = now() + limits.previewTtlMs, size = budget(pack.files, limits) + jsonBytes(pack.manifest).length
+    const id = randomUUID(), expiresAt = now() + limits.previewTtlMs, size = heldBytes(pack.files) + jsonBytes(pack.manifest).length
     check(previewBytes + cardBundleUsage().bytes + size + externalUsage() <= limits.spoolBytes, '$', 'Preview spool budget exceeded', 'LIMIT_EXCEEDED')
-    const preview = {inspectionId:id, uploadHash, packId:pack.manifest.id, contentHash:pack.manifest.contentHash, expectedRevision:before?.local.revision ?? (await storage.local(pack.manifest.id))?.revision ?? null, choices, expiresAt, diff:packDiff(before?.manifest, pack.manifest), incoming:contentSnapshot(pack), current:snapshot(before), conflictFigures, mapping, scriptRisk:inspectPackScripts(pack), figureLooks:choices.includes('update') ? await figureLookChanges(options, before, pack) : []}
+    const preview = {inspectionId:id, uploadHash, packId:pack.manifest.id, contentHash:pack.manifest.contentHash, expectedRevision:before?.local.revision ?? (await storage.local(pack.manifest.id))?.revision ?? null, choices, expiresAt, diff:packDiff(before?.manifest, pack.manifest), incoming:contentSnapshot(pack), current:snapshot(before), conflictFigures, mapping, scriptRisk:inspectPackScripts(pack), figureLooks:choices.includes('update') ? await figureLookChanges(options, before, pack) : [], removed:choices.includes('merge') ? removedEntries(before, pack) : []}
     if (remote) { preview.distribution = {...remote.source, archiveSha256:remote.archiveSha256, integrity:remote.integrity}; preview.merge = merge || {preserved:[],removedEdited:[],withoutBaseline:false,wholePackReplacement:false} }
-    previews.set(id, {pack, keep, preview, expiresAt, size, distribution, ...(setId ? {set:setId} : {})}); previewBytes += size
+    spool.retain(); previews.set(id, {pack, keep, preview, expiresAt, size, distribution, spool, ...(setId ? {set:setId} : {})}); previewBytes += size
     return preview
   }
   const cardBundles = createCardBundleMethods({storage, run, readRun, privateExportFile:options.privateExportFile, alive, load:loadForExport, metadata, exportArchive, readZipFile, archiveKey:REMOTE_ARCHIVE, all, verify, importPack, cas, keys, remapPack, remapValue, readZipFiles, limits, now, nextLocal, emit, cards:options.cardTransactions, globalPackIds:options.globalEnabledPackIds, withFigureImageExtras:pack => withFigureImageExtras(pack, options), packPreviewUsage:() => {sweep();return {count:previewCount(),bytes:previewBytes}}})
@@ -565,7 +645,7 @@ export function createAssetPackService(options) {
   const service = {
     ...createVoiceAuthoring({assetRoot:options.assetRoot,storage,run,load,edit,cas,limits}),
     ...createStageSetupMethods({assetRoot:options.assetRoot,run,all,load,verify,storage,cards:options.cardTransactions,nextLocal,emit,blankManifest,createFigure}),
-    ...createAutomaticWriteMethods({run,readRun,all,load,metadata,verify,storage,cards:options.cardTransactions,nextLocal,emit,blankManifest,createFigure,cas,now,limits,evictMetadata,globalPackIds:options.globalEnabledPackIds,
+    ...createAutomaticWriteMethods({run,readRun,load,metadata,verify,storage,cards:options.cardTransactions,nextLocal,emit,blankManifest,createFigure,cas,now,limits,evictMetadata,globalPackIds:options.globalEnabledPackIds,
       figureImageExtras:(packId, figureIds) => figureImageExtras(options, packId, figureIds),
       carryFigureImageMedia:(packId, extras, manifest, files, hashed) => carryFigureImageMedia(options, packId, extras, manifest, files, hashed)}),
     ...createModPrivateMethods({validators:modValidators,run,metadata,storage,cas,edit,readDocument,jsonBytes,load,verify,sealPack,nextLocal,emit,cards:options.cardTransactions,randomUUID,blankManifest,remapPack}),
@@ -575,26 +655,33 @@ export function createAssetPackService(options) {
     inspectCardBundleUrl({path, url}) {
       alive(); httpsUrl(url);
       check(!cardUrlTask, '$.url', 'A card download is already running', 'ASSET_UNAVAILABLE');
-      const maximum = Math.min(256 * 1024 ** 2, Math.floor(limits.spoolBytes / 3));
+      const maximum = Math.min(1024 ** 3, limits.totalSize, Math.floor(limits.spoolBytes / 3));
       check(maximum + previewBytes + cardBundleUsage().bytes + externalUsage() <= limits.spoolBytes, '$', 'Shared spool budget exceeded', 'LIMIT_EXCEEDED');
       cardUrlBytes = maximum; const controller = cardUrlController = new AbortController();
       // a whole-download deadline, not a stall timer (the request already drops a connection
       // idle for 30 s). 3 minutes cut a 206 MB GitHub Release bundle below ~9 Mbit/s; 20 minutes allows ~1.4 Mbit/s.
       const timer = setTimeout(() => controller.abort(), CARD_URL_DEADLINE_MS); timer.unref?.();
       cardUrlTask = (async () => {
+        const directory = await storage.locate('downloads')
+        await mkdir(directory, {recursive:true})
+        const file = await storage.locate('downloads/card-' + randomUUID() + '.part')
         try {
-          let bytes
-          try { bytes = await readBounded(options.catalogueNetwork || publicNetwork, url, maximum, controller.signal) }
+          try { await downloadBounded(options.catalogueNetwork || publicNetwork, url, maximum, controller.signal, file) }
           catch (error) {
             // a download failure is always DOWNLOAD_FAILED with a reason the UI can word
-            // (HTTP status from readBounded, timeout, or the network error code), never a raw socket error.
+            // (HTTP status, timeout, or the network error code), never a raw socket error.
             if (disposed || ['DOWNLOAD_FAILED','LIMIT_EXCEEDED'].includes(error?.code)) throw error
+            if (error?.code === 'ENOSPC') throw Object.assign(new Error('Not enough disk space for card download'), {code:'LIMIT_EXCEEDED', path:'$.url'})
             throw Object.assign(new Error(controller.signal.aborted ? 'Download timed out' : 'Network request failed' + (/^E[A-Z_]+$/.test(error?.code || '') ? ' (' + error.code + ')' : '')), {code:'DOWNLOAD_FAILED', path:'$.url'})
           }
           alive();
-          return await bundleMethods.inspectCardBundle({path, bytes});
-        } finally { clearTimeout(timer); cardUrlBytes = 0; cardUrlTask = null; cardUrlController = null; }
-      })();
+          return await service.inspectCardBundleFile({path, file});
+        } finally {
+          await unlink(file).catch(error => { if (error.code !== 'ENOENT') throw error })
+        }
+      })().finally(() => {
+        clearTimeout(timer); cardUrlBytes = 0; cardUrlTask = null; cardUrlController = null;
+      });
       return cardUrlTask;
     },
     capabilities:Object.freeze(['layered-face-v1', 'packs', 'figures', 'blobs', 'bundles', 'pack-zip', 'card-bundle', 'leases', 'widget-risk-data', 'pack-catalogue-v1', 'url-install', 'pack-set', 'stage-setup-v1']),
@@ -890,20 +977,14 @@ export function createAssetPackService(options) {
         const source = await loadForExport(input.sourcePackId), before = await loadForExport(input.packId)
         cas(source,input.sourceRevision); cas(before,input.expectedRevision)
         check(source && before, '$', 'Both packs must exist', 'ASSET_UNAVAILABLE')
-        const merged = mergePackContents(source,before,input)
-        trimAuthoringImages(merged.manifest,merged.files,{...source.figures,...before.figures})
-        const hashes = storedCopyHashes(merged.files,[source,before])
-        await sealPack(merged.manifest,merged.files,before,hashes)
-        budget(merged.files,limits)
-        const checked = {figures:Object.fromEntries(merged.manifest.figures.map(id=>[id,readDocument(merged.files.get('figures/'+id+'.json'))])),sprites:Object.fromEntries(Object.entries(merged.manifest.sprites).map(([key,file])=>[key,readDocument(merged.files.get(file))]))}
-        validatePackDocuments({...checked,manifest:merged.manifest})
+        const {pack, ...details} = await prepareMerge(source,before,input)
         const installed = await all()
-        validatePackIdentities([...installed.filter(pack=>![input.packId,input.sourcePackId].includes(pack.manifest.id)).map(pack=>pack.manifest),merged.manifest])
+        validatePackIdentities([...installed.filter(pack=>![input.packId,input.sourcePackId].includes(pack.manifest.id)).map(pack=>pack.manifest),pack.manifest])
         const retired = new Set(before.local.retired || [])
-        for (const key of keys({...checked,manifest:merged.manifest})) check(!retired.has(key),'$.identity','Retired identity cannot be reused: '+key,'DUPLICATE_ID')
-        const plan = {mapping:merged.mapping,bundleKeys:merged.bundleKeys,spriteKeys:merged.spriteKeys,voiceKeys:merged.voiceKeys,contentHash:merged.manifest.contentHash,figures:merged.manifest.figures.length,assets:merged.manifest.assets.length,bytes:merged.manifest.files.reduce((sum,row)=>sum+row.size,0)}
-        if (input.dryRun) return {status:'dry-run',...plan,...(input.includeSnapshot ? {snapshot:snapshot({...checked,manifest:merged.manifest,local:before.local})} : {})}
-        const pack = {...checked,manifest:merged.manifest,files:merged.files}, local = nextLocal(before.local)
+        for (const key of keys(pack)) check(!retired.has(key),'$.identity','Retired identity cannot be reused: '+key,'DUPLICATE_ID')
+        const plan = {...details,contentHash:pack.manifest.contentHash,figures:pack.manifest.figures.length,assets:pack.manifest.assets.length}
+        if (input.dryRun) return {status:'dry-run',...plan,...(input.includeSnapshot ? {snapshot:snapshot(pack)} : {})}
+        const local = nextLocal(before.local)
         await storage.publish(input.packId,pack,local,before)
         // The offline command owns a full two-pack backup and writes a partial receipt on failure.
         await storage.publish(input.sourcePackId,null,nextLocal(source.local))
@@ -911,6 +992,59 @@ export function createAssetPackService(options) {
         emit({...pack,local},before); emit(null,source)
         return {status:'merged',revision:local.revision,...plan}
       },input.dryRun === true)
+    },
+    // Replace only unbound sources. The card commit is the durable decision for the whole pack batch.
+    consolidatePacks(input) {
+      const {packId, expectedRevision, sources, name, card, dryRun, approvedContentHash, assetNames = []} = input
+      validateUuid(packId); validateUuid(expectedRevision)
+      check(Array.isArray(sources) && sources.length >= 1 && sources.length <= 8,'$.sources','Choose installed source packs')
+      for (const source of sources) {
+        shape(source,['packId','expectedRevision'],['packId','expectedRevision'],'$.sources')
+        validateUuid(source.packId); validateUuid(source.expectedRevision)
+      }
+      const sourceIds = sources.map(source=>source.packId), ids = new Set([packId,...sourceIds])
+      check(ids.size === sources.length+1,'$.sources','Choose distinct packs')
+      shape(card,['path','expectedRevision'],['path','expectedRevision'],'$.card')
+      check(typeof card.path === 'string' && typeof card.expectedRevision === 'string' && card.expectedRevision.length > 0,'$.card')
+      check(typeof name === 'string' && name.trim() && name.length <= 180,'$.name')
+      check(typeof dryRun === 'boolean' && Array.isArray(assetNames),'$.dryRun')
+      if (!dryRun) validateHash(approvedContentHash)
+      const cards = options.cardTransactions
+      return run([...ids],async()=>{
+        const currentCard = await cards.snapshot({path:card.path})
+        check(currentCard.raw && currentCard.revision === card.expectedRevision,'$.card','Card changed','REVISION_CONFLICT')
+        const oldCardPacks = cards.inspectRaw(currentCard.raw).boundPackIds
+        check(!oldCardPacks.some(id=>ids.has(id) && id !== packId),'$.card','Source still bound','REVISION_CONFLICT')
+        const before = await loadForExport(packId); cas(before,expectedRevision)
+        check(before && !isModConfigPack(before),'$.packId','Target must be a normal installed pack','ASSET_UNAVAILABLE')
+        let pack = before, bytes
+        const retire = [], mouthDebt = {...before.local.mouthDebt}, mappings = []
+        for (const row of sources) {
+          const source = await loadForExport(row.packId); cas(source,row.expectedRevision)
+          check(source && !isModConfigPack(source) && !source.local.autoWrite && !source.local.stageSetupCardId,'$.sources','Only normal unbound packs may be consolidated','ASSET_UNAVAILABLE')
+          await cards.requireUnboundPack({packId:row.packId})
+          check(!options.globalEnabledPackIds?.().includes(row.packId),'$.sources','Source is enabled globally','REVISION_CONFLICT')
+          const result = await prepareMerge(source,pack,{name,assetNames:sources.at(-1) === row ? assetNames : []})
+          pack = result.pack; bytes = result.bytes; mappings.push(result.mapping)
+          const debt = await readCopyMouthDebt(options.assetRoot,row.packId,source.local,options.mouthDebtRoot)
+          Object.assign(mouthDebt,copiedMouthDebt(source,pack,source.manifest.figures.map(id=>({kind:'figures',fromId:id,toId:id})),debt))
+          retire.push({source,entry:{removeId:row.packId,local:nextLocal(source.local)}})
+        }
+        const installed = await all()
+        validatePackIdentities([...installed.filter(item=>!ids.has(item.manifest.id)).map(item=>item.manifest),pack.manifest])
+        const retired = new Set(before.local.retired)
+        for (const key of keys(pack)) check(!retired.has(key),'$.identity','Retired identity cannot be reused: '+key,'DUPLICATE_ID')
+        const result = {packId,name,figures:pack.manifest.figures.length,assets:pack.manifest.assets.length,bytes,contentHash:pack.manifest.contentHash,sourceIds,card:card.path,mappings}
+        if (dryRun) return {status:'dry-run',...result}
+        check(result.contentHash === approvedContentHash,'$.approvedContentHash','Candidate differs from the verified pack','REVISION_CONFLICT')
+        const local = nextLocal({...before.local,mouthDebt})
+        await cards.withBoundPack({...card,packId},async transaction=>{
+          await storage.publishMany([{pack,local},...retire.map(row=>row.entry)],transaction)
+        })
+        evictMetadata(packId); emit({...pack,local},before)
+        for (const {source} of retire) { evictMetadata(source.manifest.id); emit(null,source) }
+        return {status:'merged',revision:local.revision,...result}
+      },dryRun)
     },
     // Host maintenance only, like mergePacks: figures keep their ids and change owner pack; the caller stops the profile and
     // rewrites the (pack, figure) references. Target first, then source; the offline command's backup covers an interruption.
@@ -995,6 +1129,55 @@ export function createAssetPackService(options) {
         carried = copiedMouthDebt(source,before,[{kind:'figures',fromId:input.source.figureId,toId:input.figureId}],debt)
       },true,local => ({...local,mouthDebt:{...local.mouthDebt,...carried}}),input.dryRun === true)
       return {...result,carriedGaps:carried[input.figureId]?.gaps.length || 0}
+    },
+    // Publish standalone skins without bringing along the source pack's skin-specific performances.
+    publishSkins(input) {
+      shape(input, ['packId','expectedRevision','sources','dryRun'], ['packId','expectedRevision','sources'], '$')
+      check(input.dryRun === undefined || typeof input.dryRun === 'boolean', '$.dryRun')
+      check(Array.isArray(input.sources) && input.sources.length && input.sources.length <= 64, '$.sources')
+      const ids = new Set(), sourcePackIds = input.sources.map(row => {
+        shape(row, ['packId','expectedRevision','skinIds','replace'], ['packId','expectedRevision','skinIds'], '$.sources[]')
+        return validateUuid(row.packId)
+      })
+      return edit(input, async (manifest, files, before, hashed) => {
+        const replacedFiles = [], published = []
+        for (const row of input.sources) {
+          check(row.packId !== input.packId && Array.isArray(row.skinIds) && row.skinIds.length && row.skinIds.length <= 64, '$.sources[]')
+          check(row.replace === undefined || Array.isArray(row.replace) && row.replace.every(id => row.skinIds.includes(id)), '$.sources[].replace')
+          const source = await metadata(row.packId, 'manifest')
+          cas(source, row.expectedRevision)
+          check(source && !isModConfigPack(source), '$.sources[].packId', 'Source pack unavailable', 'ASSET_UNAVAILABLE')
+          for (const id of row.skinIds) {
+            validateShortId(id)
+            check(!ids.has(id), '$.sources[].skinIds', 'Duplicate skin ID', 'DUPLICATE_ID'); ids.add(id)
+            const entry = source.manifest.assets.find(a => a.kind === 'skins' && a.id === id)
+            check(entry?.bundleKey && entry.entry, '$.sources[].skinIds', 'Skin missing', 'ASSET_UNAVAILABLE')
+            const index = manifest.assets.findIndex(a => a.kind === 'skins' && a.id === id), old = manifest.assets[index]
+            const origin = {packId:row.packId, kind:'skins', assetId:id}
+            const recorded = old?.extensions?.dsh_tavern?.copiedFrom
+            check(!old || recorded?.packId === row.packId && recorded.assetId === id || !recorded && row.replace?.includes(id), '$.sources[].skinIds', 'Skin already has a different source', 'REVISION_CONFLICT')
+            const bundleKey = old?.bundleKey || entry.bundleKey, bundle = source.manifest.bundles[entry.bundleKey]
+            check(old || !Object.hasOwn(manifest.bundles, bundleKey), '$.sources[].skinIds', 'Bundle key already exists', 'DUPLICATE_ID')
+            const {credits, extensions, ...sourceEntry} = entry
+            const next = {...sourceEntry,bundleKey,extensions:{dsh_tavern:{copiedFrom:origin}}}
+            if (index < 0) manifest.assets.push(next); else manifest.assets[index] = next
+            if (manifest.bundles[bundleKey]?.contentHash !== bundle.contentHash) {
+              const prefix = `bundles/${bundleKey}/`, sourcePrefix = `bundles/${entry.bundleKey}/`
+              for (const name of files.keys()) if (name.startsWith(prefix)) {
+                replacedFiles.push(name); files.delete(name)
+              }
+              for (const file of source.manifest.files) if (file.path.startsWith(sourcePrefix)) {
+                const name = prefix + file.path.slice(sourcePrefix.length)
+                files.set(name, await storage.read(`packs/${row.packId}/${file.path}`, file.size))
+                hashed.set(name, file.sha256)
+              }
+              manifest.bundles[bundleKey] = copy(bundle)
+            }
+            published.push({id, contentHash:bundle.contentHash, source:origin})
+          }
+        }
+        return {published,replacedFiles}
+      }, false, undefined, input.dryRun === true, undefined, undefined, undefined, undefined, undefined, sourcePackIds)
     },
     // items of any kind plus their same-pack closure, into an existing pack (CAS) or a new one.
     copyItems(input) {
@@ -1111,6 +1294,92 @@ export function createAssetPackService(options) {
     createFigure(input) {
       return edit(input, async (manifest, files) => createFigure(manifest, files, input))
     },
+    // The records of these figures are going away or linking elsewhere: each figure takes the identity its record gave it
+    // (what readers see now) into its own document, in the same save as the record's (ADR 0011).
+    releaseFigureIdentities(releases, receipt, save) {
+      const groups = Map.groupBy(releases, release => release.packId)
+      return run([...groups.keys()], async () => {
+        const entries = []
+        for (const [id, edits] of groups) {
+          validateUuid(id)
+          const before = await metadata(id)
+          // a record whose figure is gone already ends a link to nothing
+          if (!before) continue
+          const manifest = copy(before.manifest), figures = {...before.figures}, updates = new Map(), intents = new Map()
+          for (const {figureId} of edits) {
+            validateUuid(figureId)
+            if (!figures[figureId]) continue
+            intents.set(figureId, 'released')
+            updates.set('figures/' + figureId + '.json', jsonBytes(figures[figureId]))
+          }
+          if (!updates.size) continue
+          validatePackDocuments({manifest, figures, sprites:before.sprites})
+          manifest.files = await Promise.all(manifest.files.map(async file => {
+            const bytes = updates.get(file.path)
+            return bytes ? {path:file.path, size:bytes.length, sha256:await sha256(bytes)} : file
+          }))
+          manifest.contentHash = await computeContentHash(manifest)
+          check([...updates.values()].every(bytes => bytes.length <= limits.entrySize)
+            && jsonBytes(manifest).length + manifest.files.reduce((sum, file) => sum + file.size, 0) <= limits.totalSize, '$.files', 'Pack budget exceeded', 'LIMIT_EXCEEDED')
+          const local = nextLocal(before.local)
+          entries.push({id, manifest, figures, updates, local, before, intents})
+        }
+        const result = await storage.publishMetadataBatch(entries, receipt, () => save())
+        for (const {id, manifest, figures, local, before} of entries) {
+          evictMetadata(id)
+          emit({...before, manifest, figures, local}, before)
+        }
+        return result
+      })
+    },
+    // The host's character records changed outside a pack write (a 人物库 edit): these packs' figures read again.
+    // packIds omitted: every installed pack (a 人物库 came or went).
+    async figureRecordsChanged({packIds} = {}) {
+      const ids = packIds ?? await readRun([], () => storage.listIds())
+      return readRun(ids, async () => {
+        for (const id of ids) {
+          recordGenerations.set(id, (recordGenerations.get(id) || 0) + 1)
+          evictMetadata(id)
+          const bytes = await storage.read(`packs/${id}/manifest.json`), local = bytes && await storage.local(id)
+          const figures = bytes ? readDocument(bytes).figures : []
+          if (figures.length) for (const listener of storage.subscribers) { try { listener({packId:id, revision:local.revision, kinds:[], figures:[...figures]}) } catch { /* observers cannot fail a read */ } }
+        }
+      })
+    },
+    // Read-only: how each installed figure is stored (whole, or without its identity), per pack with figures.
+    figureDocumentForms() {
+      return readRun([], async () => {
+        const rows = []
+        for (const packId of await storage.listIds()) {
+          const forms = await storage.figureForms(packId)
+          if (forms.whole.length || forms.withoutIdentity.length) rows.push({packId, ...forms})
+        }
+        return rows
+      })
+    },
+    // Writes every figure document of these packs again, as the host's figureRecords stores them now (switching where a
+    // figure's identity is kept, and back). The figures readers see do not change.
+    rewriteFigureDocuments({packIds}) {
+      return run(packIds, async () => {
+        const rewritten = []
+        for (const id of packIds) {
+          validateUuid(id)
+          const before = await metadata(id)
+          check(before, '$.packId', 'Pack missing', 'ASSET_UNAVAILABLE')
+          if (!before.manifest.figures.length) continue
+          const updates = new Map(before.manifest.figures.map(figureId => ['figures/' + figureId + '.json', before.documents.get('figures/' + figureId + '.json')]))
+          // the stored manifest, not the read projection (which hides unavailable optional items)
+          const manifest = readDocument(await storage.read(`packs/${id}/manifest.json`))
+          await storage.freshen(manifest, before.documents)
+          const local = nextLocal(before.local)
+          await storage.publishMetadata(id, manifest, updates, local)
+          evictMetadata(id)
+          emit({...before, local}, before)
+          rewritten.push({packId:id, figures:before.manifest.figures.length})
+        }
+        return {rewritten}
+      })
+    },
     patchFigure(input) {
       validateUuid(input.figureId)
       const patch = copy(input.patch)
@@ -1222,10 +1491,14 @@ export function createAssetPackService(options) {
       const bytes = remote ? null : Buffer.from(input.bytes)
       return run([], async () => {
         sweep(); check(previewCount() + cardBundleUsage().count < limits.previews, '$', 'Preview limit exceeded', 'LIMIT_EXCEEDED')
-        const read = await readArchive(bytes, remote), installed = await all()
+        const read = await readArchive(bytes, remote)
+        try { return await inspectRead(read) } finally { await read.spool.release() }
+      })
+      async function inspectRead(read) {
+        const installed = await all()
         // One hash per transfer: a downloaded archive's own digest, else the uploaded bytes once (shared by a set's packs).
-        const uploadHash = remote?.archiveSha256 || await sha256(bytes), options = {remote:remote?.local ? undefined : remote, uploadHash, installed, copyOnly:input.copy === true}
-        if (!read.set) return copy(await inspectPack(read, options))
+        const uploadHash = remote?.archiveSha256 || await sha256(bytes), options = {remote:remote?.local ? undefined : remote, uploadHash, installed, copyOnly:input.copy === true, spool:read.spool}
+        if (!read.set) return copy(await inspectPack(read.pack, options))
         // a 素材包合集 — one ordinary preview per pack, each confirmed and applied on its own
         // (applyImport); discarding the set's inspectionId drops every pack still pending. A catalogue entry is one pack.
         check(!remote?.source, '$.packId', 'Catalogue entry is not a pack set', 'INTEGRITY_MISMATCH')
@@ -1233,21 +1506,27 @@ export function createAssetPackService(options) {
         try { for (const pack of read.set) packs.push(await inspectPack(pack, {...options, setId})) }
         catch (error) { dropSet(setId); throw error }
         return copy({kind:'pack-set', inspectionId:setId, uploadHash, expiresAt:Math.min(...packs.map(p => p.expiresAt)), packs})
-      })
+      }
     },
     applyImport(input) {
       return run([], async () => {
         sweep(); const entry = previews.get(input.inspectionId)
         check(entry, '$.inspectionId', 'Import preview expired', 'ASSET_UNAVAILABLE')
         check(entry.preview.choices.includes(input.decision), '$.decision', 'Explicit preview decision required')
-        if (input.decision === 'cancel') { previews.delete(input.inspectionId); previewBytes -= entry.size; return {status:'cancelled'} }
+        if (input.decision === 'cancel') { await forget(input.inspectionId); return {status:'cancelled'} }
         const before = await metadata(entry.pack.manifest.id)
         cas(before || {local:await storage.local(entry.pack.manifest.id)}, input.expectedRevision, entry.pack.manifest)
         check(input.expectedRevision === entry.preview.expectedRevision, '$.expectedRevision', 'Preview revision changed', 'REVISION_CONFLICT')
         check(input.decision === 'noop' || !entry.preview.scriptRisk.length || input.acceptScriptRisk === true,'$.acceptScriptRisk','Accept or cancel this import script risk','SCRIPT_CONFIRMATION_REQUIRED')
         const adopt = input.adoptLooks ?? []
-        check(Array.isArray(adopt) && (!adopt.length || input.decision === 'update') && new Set(adopt).size === adopt.length && adopt.every(id => entry.preview.figureLooks.some(row => row.figureId === id)), '$.adoptLooks', 'Adopted looks must be figures the update preview lists')
+        const updating = ['update','merge'].includes(input.decision)
+        check(Array.isArray(adopt) && (!adopt.length || updating) && new Set(adopt).size === adopt.length && adopt.every(id => entry.preview.figureLooks.some(row => row.figureId === id)), '$.adoptLooks', 'Adopted looks must be figures the update preview lists')
         let candidate = input.decision === 'keep-both' ? entry.keep : entry.pack
+        // 增量更新 keeps the local 启用 / 召回词 / 别名 (a catalogue download merged them at inspection) and the entries only the installed version has.
+        if (input.decision === 'merge') {
+          const merged = entry.distribution ? candidate : (await mergeMetadata(candidate, before, before.local.distribution?.baseMetadata)).pack
+          candidate = await withRemovedEntries(merged, before, {verify, read:(name, size) => storage.read(`packs/${before.manifest.id}/${name}`, size)})
+        }
         if (input.createFigures !== undefined) {
           check(before && ['update','noop'].includes(input.decision) && Array.isArray(input.createFigures), '$.createFigures', 'Figure creation requires an installed-pack update')
           const added = candidate.manifest.figures.filter(id => !before.manifest.figures.includes(id))
@@ -1265,27 +1544,29 @@ export function createAssetPackService(options) {
           candidate = {...candidate,manifest,files}
         }
         // The host learns which figures take the incoming 外貌 before the write it follows; a failed write takes the choice back.
-        const adopting = input.decision === 'update' && options.adoptFigureImageLooks
+        const adopting = updating && options.adoptFigureImageLooks
         if (adopting) await options.adoptFigureImageLooks({packId:entry.pack.manifest.id, figureIds:adopt})
         let result
         try { result = input.decision === 'noop' ? {status:'noop',snapshot:snapshot(before)} : await install(candidate, input.decision === 'keep-both' ? null : before, input.decision === 'keep-both' ? null : entry.distribution) }
         catch (error) { if (adopting && adopt.length) await options.adoptFigureImageLooks({packId:entry.pack.manifest.id, figureIds:[]}); throw error }
-        previews.delete(input.inspectionId); previewBytes -= entry.size
+        await forget(input.inspectionId)
         return {...result, ...(input.decision === 'keep-both' ? {mapping:copy(entry.preview.mapping)} : {})}
       })
     },
-    exportPack(input) {
+    // `progress` ({onProgress}) is a local option of the host transport, never RPC input: onProgress({done,total}) in
+    // input bytes while the archive is written (the browser's export progress bar).
+    exportPack(input, progress = {}) {
       validateUuid(input.packId)
       return (options.privateExportFile ? readRun : run)([input.packId], async () => {
         let pack = await loadForExport(input.packId); cas(pack, input.expectedRevision)
         check(pack, '$.packId', 'Pack missing', 'ASSET_UNAVAILABLE')
         // Only a local service constructor can select a private destination, never RPC input.
         if (!options.privateExportFile) await assertPublicPackChain(pack, metadata)
-        check(budget(pack.files, limits) * 2 <= limits.spoolBytes, '$', 'Export spool budget exceeded', 'LIMIT_EXCEEDED')
         pack = await exportPrivacyView(await withFigureImageExtras(pack, options))
         const warnings = await exportWarnings(pack)
         const write = async file => {
-          await writeZip(file, [{path:'manifest.json',data:jsonBytes(pack.manifest)}, ...[...pack.files].map(([path,data]) => ({path,data,file:data.file}))])
+          const entries = [{path:'manifest.json',data:jsonBytes(pack.manifest)}, ...[...pack.files].map(([path,data]) => ({path,data,file:data.file}))]
+          await writeZip(file, entries, zipProgress(entries, progress.onProgress))
           const archive = options.privateExportFile ? {output:file} : await exportArchive(file)
           return {...archive, contentHash:pack.manifest.contentHash, revision:pack.local.revision, filename:pack.manifest.id + '.zip',warnings}
         }
@@ -1295,7 +1576,7 @@ export function createAssetPackService(options) {
     // the 素材库's batch export — two or more whole packs, each through the
     // exportPack checks (CAS, public chain, layered export), in bounded 素材包合集 volumes. A widget default pointing into another
     // pack of the same set is carried, so it is no warning.
-    exportPacks(input) {
+    exportPacks(input, progress = {}) {
       check(input && Object.keys(input).every(key => key === 'packs') && Array.isArray(input.packs) && input.packs.length > 1, '$.packs', 'Two or more packs required')
       for (const item of input.packs) check(item && Object.keys(item).every(key => ['packId','expectedRevision'].includes(key)), '$.packs', 'Unknown export field', 'UNKNOWN_FIELD')
       const ids = input.packs.map(item => validateUuid(item.packId))
@@ -1311,15 +1592,18 @@ export function createAssetPackService(options) {
         }
         // Partition declarations before loading media: memory scales with one volume, not the library.
         const groups = partitionPackSets(declared, {bytes:Math.min(options.collectionBytes || COLLECTION_BYTES, limits.totalSize), entries:limits.entries})
+        const total = declared.reduce((sum, pack) => sum + pack.manifest.files.reduce((n, file) => n + file.size, 0), 0)
+        let before = 0
         try {
           for (const group of groups) {
             const packs = []
             for (const item of group) packs.push(await exportPrivacyView(await withFigureImageExtras(await loadForExport(item.manifest.id), options)))
             const files = packs.length === 1 ? new Map([['manifest.json',jsonBytes(packs[0].manifest)], ...packs[0].files]) : packSetFiles(packs)
-            check(budget(files, limits) * 2 <= limits.spoolBytes, '$', 'Export spool budget exceeded', 'LIMIT_EXCEEDED')
             exported.push(...packs.map(pack => ({packId:pack.manifest.id, contentHash:pack.manifest.contentHash, revision:pack.local.revision})))
             archives.push(await storage.temporary(async file => {
-              await writeZip(file, [...files].map(([path,data]) => ({path,data,file:data.file})))
+              const entries = [...files].map(([path,data]) => ({path,data,file:data.file}))
+              await writeZip(file, entries, {onProgress:progress.onProgress && (done => progress.onProgress({done:Math.min(total, before + done), total}))})
+              before += entries.reduce((sum, entry) => sum + entry.data.length, 0)
               const archive = await exportArchive(file)
               return {...archive, filename:groups.length === 1 ? 'asset-packs-' + ids.length + '.zip' : '\u7d20\u6750\u5305\u5408\u96c6-' + (archives.length + 1) + 'of' + groups.length + '.zip'}
             }))
@@ -1387,18 +1671,19 @@ export function createAssetPackService(options) {
     respondLease:(input) => leases.response(input),
     releaseLease:(ticket) => leases.release(ticket),
     subscribe(listener) { alive(); check(typeof listener === 'function', '$.listener'); storage.subscribers.add(listener); listeners.add(listener); return () => { storage.subscribers.delete(listener); listeners.delete(listener) } },
-    async dispose() { cardUrlController?.abort(); await Promise.allSettled([cardUrlTask]); await catalogue.dispose(); disposed = true; leases.dispose(); disposeCardBundles(); previews.clear(); previewBytes = 0; metadataCache.clear(); metadataBytes = 0; for (const fn of listeners) storage.subscribers.delete(fn); listeners.clear(); await storage.run([], async () => {}); await Promise.all([...archives].map(archive => archive.dispose())) }
+    async dispose() { cardUrlController?.abort(); await Promise.allSettled([cardUrlTask]); await catalogue.dispose(); disposed = true; leases.dispose(); disposeCardBundles(); for (const id of [...previews.keys()]) forget(id); metadataCache.clear(); metadataBytes = 0; for (const fn of listeners) storage.subscribers.delete(fn); listeners.clear(); await storage.run([], async () => {}); await Promise.all([...archives].map(archive => archive.dispose())); await Promise.all(spoolDisposals) }
   }
   catalogue = createCatalogueManager({assetRoot:options.assetRoot, limits, settings:options.catalogueSettings, network:options.catalogueNetwork, now,
     maxArchiveBytes:options.maxArchiveBytes,
-    resourceUsage:() => {sweep();return archiveBytes() + ingressBytes + previewBytes + cardBundleUsage().bytes + (options.externalSpoolUsage?.() || 0)},
     listInstalled:() => run([], all),
     inspectFile:(file, info) => service.inspectImport({[REMOTE_ARCHIVE]:{file,...info}}),
-    discardInspection:id => run([], () => {const entry=previews.get(id);if(entry) {previews.delete(id);previewBytes-=entry.size} else dropSet(id)})
+    discardInspection:id => run([], () => {if(previews.has(id)) forget(id); else dropSet(id)})
   })
   const applyImport = service.applyImport
   return Object.freeze({...service,...catalogue.methods,
-    spoolUsage:() => archiveBytes() + ingressBytes + previewBytes + cardBundleUsage().bytes + catalogue.usage(),
+    spoolUsage:() => cardUrlBytes + ingressBytes + previewBytes + cardBundleUsage().bytes,
+    // host transport only: a directory on the library's disk for one streamed archive upload
+    openUploadSpool:() => storage.spool(),
     async applyImport(input) {
       catalogue.applying(input.inspectionId)
       try {const result=await applyImport(input);catalogue.applied(input.inspectionId,result);return result}
@@ -1406,6 +1691,8 @@ export function createAssetPackService(options) {
     }
   })
 }
+// A pack's media blobs, also inside a 素材包合集 or card bundle (packs/<id>/media/…): the entries an import spools to disk.
+const SPOOLED = /^(?:packs\/[0-9a-f-]{36}\/)?media\/[0-9a-f]{64}\.[a-z0-9]+$/
 function cloneFilesWithDeletes(files) { return new Map([...files].map(([key,value]) => [key,value === null ? null : Buffer.from(value)])) }
 function guardArchive(entries) {
   const spellings = new Map(), files = new Set(entries.filter(e => !e.directory).map(e => e.path.toLowerCase()))

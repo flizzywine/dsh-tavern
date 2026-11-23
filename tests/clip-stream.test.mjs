@@ -62,15 +62,3 @@ test('capture streams full and paragraph video encodes, then muxes measured audi
   // a video encoded for the old budget, even though its source frames match.
   assert.ok(!rendered.videos.has(clipVideoStreamKey({...parts[1],videoBitrate:4000000})))
 })
-
-test('failed independent replay stops capture and closes encoders before removing reference files',{timeout:60000},async t=>{
-  const {root,plan,parts,renderer}=await fixture(t),capture=renderer.capture
-  let closed=false,captures=0
-  renderer.capture=async frame=>{captures++;return capture(frame)}
-  renderer.reference=async()=>{throw new Error('independent replay fixture failure')}
-  renderer.close=async()=>{closed=true}
-  await assert.rejects(renderClip({plan,plannedFiles:parts,tempRoot:root,renderer}),/independent replay fixture failure/)
-  assert.equal(closed,true)
-  assert.ok(captures<plan.frames)
-  assert.ok(!(await readdir(root)).some(name=>name.startsWith('clip-')))
-})

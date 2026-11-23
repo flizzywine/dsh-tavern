@@ -41,14 +41,20 @@ test('a typing page keeps the whole page line breaks until its last glyph shows'
       }
       return starts
     };
-    window.typePage=text=>new Promise(resolve=>{
-      const samples=[]
-      const sample=()=>{const type=document.querySelector('.fork-gal-type');if(type)samples.push({starts:lineStarts(),runs:type.querySelectorAll('.fork-gal-type-line').length});requestAnimationFrame(sample)}
+    // the elements put into or taken out of a laid-out line while it types (a glyph fading in, a run appearing or going)
+    window.typePage=(text,props={})=>new Promise(resolve=>{
+      const samples=[],host=document.querySelector('#text');let moved=0,glyphs=0
+      host.replaceChildren()
+      const observer=new MutationObserver(list=>{for(const m of list)if(m.target.closest?.('.fork-gal-type-line'))moved+=[...m.addedNodes,...m.removedNodes].filter(node=>node.nodeType===1).length})
+      observer.observe(host,{subtree:true,childList:true})
+      const sample=()=>{const type=document.querySelector('.fork-gal-type');if(type){samples.push({starts:lineStarts(),runs:type.querySelectorAll('.fork-gal-type-line').length});glyphs+=type.querySelectorAll('.fork-gal-glyph').length}requestAnimationFrame(sample)}
       requestAnimationFrame(sample)
-      ReactDOM.createRoot(document.querySelector('#text')).render(React.createElement(Typewriter,{text,speed:12,onDone:()=>setTimeout(()=>resolve({samples,starts:lineStarts(),lines:document.querySelectorAll('.fork-gal-type-line').length}),400)}))
+      const root=ReactDOM.createRoot(host)
+      root.render(React.createElement(Typewriter,{text,speed:12,...props,onDone:()=>setTimeout(()=>{observer.disconnect();const result={samples,moved,glyphs,starts:lineStarts(),lines:document.querySelectorAll('.fork-gal-type-line').length};root.unmount();resolve(result)},400)}))
     });
   `})
   const got = await page.evaluate(text => typePage(text), TEXT)
+  assert.ok(got.glyphs > 0, 'the fading glyphs are their own elements')
   assert.ok(got.starts.length >= 2, `the page wraps onto several lines: ${JSON.stringify(got.starts)}`)
   // typed: one run again, laid out as the plain page
   assert.equal(got.lines, 0)
@@ -58,5 +64,15 @@ test('a typing page keeps the whole page line breaks until its last glyph shows'
     assert.equal(sample.runs, got.starts.length + 1)
     assert.deepEqual(sample.starts, got.starts)
   }
+  // 画质 below high (glyphFade false): no fade, and a typing line only changes text - every element insertion restyles
+  // the whole stage on the host page.
+  const plain = await page.evaluate(text => typePage(text, {glyphFade: false}), TEXT)
+  assert.deepEqual(plain.starts, got.starts)
+  assert.equal(plain.lines, 0)
+  assert.equal(plain.glyphs, 0)
+  assert.equal(plain.moved, 0)
+  const steady = plain.samples.filter(sample => sample.runs)
+  assert.ok(steady.length > 10, `${steady.length} typing frames sampled`)
+  for (const sample of steady) assert.deepEqual(sample.starts, got.starts)
   assert.deepEqual(errors, [])
 })

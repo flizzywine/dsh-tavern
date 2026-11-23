@@ -1,25 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
-import { createWholeReadGuard, scopeTurnHooks } from '../tavern-plugin/lib/domain/whole-read-guard.js'
-
-const tick = () => new Promise(resolve => setTimeout(resolve, 1))
-
-test('turn hooks run marked, streams while consumed; other events and members pass through', async () => {
-  const guard = createWholeReadGuard({ mode: 'throw' })
-  const handlers = new Map()
-  const host = { secret: 7, get() { return this.secret }, on(event, handler) { handlers.set(event, handler); return 'off' } }
-  const ctx = scopeTurnHooks(host, guard)
-  assert.equal(ctx.get(), 7)
-  assert.equal(ctx.on('agent/pre-step', async () => guard.active()), 'off')
-  ctx.on('theme/change', () => guard.active())
-  ctx.on('llm/stream', () => (async function* () { await tick(); yield guard.active() })())
-  assert.equal(await handlers.get('agent/pre-step')(), true)
-  assert.equal(handlers.get('theme/change')(), false)
-  const seen = []
-  for await (const value of handlers.get('llm/stream')()) seen.push(value)
-  assert.deepEqual(seen, [true])
-})
+import { createWholeReadGuard } from '../tavern-plugin/lib/domain/whole-read-guard.js'
 
 test('storage reports whole copies and whole rebuilds, not narrow reads of a cached native save', async t => {
   const { mkdtemp, rm } = await import('node:fs/promises')

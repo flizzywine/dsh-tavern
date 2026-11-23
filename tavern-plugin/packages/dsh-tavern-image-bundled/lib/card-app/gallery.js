@@ -1,13 +1,16 @@
 import { randomUUID } from 'node:crypto'
 import { copyFile, mkdir, readFile, rm, stat } from 'node:fs/promises'
-import { join, basename } from 'node:path'
+import { join, basename, resolve } from 'node:path'
 import { atomicWrite, readJson, serialQueue } from './storage.js'
 
 const MIME = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', gif: 'image/gif' }
+export const cardImageExtension = mediaType => Object.keys(MIME).find(key => MIME[key] === mediaType) || 'png'
 const validFile = value => typeof value === 'string' && value === basename(value) && /^[\w-]+\.(png|jpe?g|webp|gif)$/i.test(value)
+// 收藏与回收站标记跟着记录一起落盘，卡片画廊和游玩画廊共用同一套图块操作。
+const flags = item => ({ favorite: item.favorite === true, trashedAt: item.trashedAt || null })
 
 /** One mutation gate covers append, delete and clear, including calls from the host gallery. */
-export function createCardGallery(directory, { removeFile = rm } = {}) {
+export function createCardGallery(directory, { removeFile = rm, onImageRemoved } = {}) {
   const images = join(directory, 'images'), index = join(directory, 'jobs.json'), serial = serialQueue()
   let loading
   const load = () => loading ||= readJson(index, []).then(value => {
@@ -16,36 +19,76 @@ export function createCardGallery(directory, { removeFile = rm } = {}) {
   }).catch(error => { loading = null; throw error })
   const publish = async next => { await atomicWrite(index, next); loading = Promise.resolve(next) }
   const url = file => '/dsh-tavern-gen/img/' + encodeURIComponent(file)
+  async function removeImage(id, file) {
+    await removeFile(file, { force: true })
+    await onImageRemoved?.(id, file)
+  }
   async function find(id, sessionId) {
     return (await load()).find(item => item.id === id && (sessionId === undefined || sessionId && item.session === sessionId))
   }
   return {
-    async list(sessionId) { return (await load()).filter(item => sessionId === undefined || sessionId && item.session === sessionId).slice().reverse().map(item => ({ ...item, url: url(item.file) })) },
+    async list(sessionId) { return (await load()).filter(item => sessionId === undefined || sessionId && item.session === sessionId).slice().reverse().map(item => ({ ...item, ...flags(item), url: url(item.file) })) },
     async add(result, { sessionId, preset } = {}) {
-      const extension = Object.keys(MIME).find(key => MIME[key] === result.mediaType) || 'png'
+      const extension = cardImageExtension(result.mediaType)
       const id = result.jobId || randomUUID(), file = id + '.' + extension
       return serial(async () => {
         const list = await load(), existing = list.find(item => item.id === id)
         if (existing) return { ...existing, url: url(existing.file) }
         await mkdir(images, { recursive: true })
-        await copyFile(result.file, join(images, file))
+        const target = join(images, file)
+        // 直出的原图由引擎写入，登记失败时只回滚画廊自己复制的文件。
+        const sharedFile = typeof result.file === 'string' && resolve(result.file) === resolve(target)
+        if (sharedFile) await stat(target)
+        else await copyFile(result.file, target)
         const entry = { id, file, at: Date.now(), session: sessionId || '', prompt: result.prompt, negative: result.negative,
           preset: typeof result.preset === 'string' ? result.preset : (preset || ''), channel: result.channel, size: result.size, mediaType: result.mediaType, seed: result.seed, jobId: result.jobId }
         const next = [...list, entry].slice(-500)
         try { await publish(next) }
-        catch (error) { await rm(join(images, file), { force: true }); throw error }
-        for (const old of list.slice(0, Math.max(0, list.length + 1 - 500))) await rm(join(images, old.file), { force: true }).catch(() => {})
+        catch (error) { if (!sharedFile) await rm(target, { force: true }); throw error }
+        for (const old of list.slice(0, Math.max(0, list.length + 1 - 500))) await removeImage(old.id, join(images, old.file)).catch(() => {})
         return { ...entry, url: url(file) }
       })
     },
-    remove(id, sessionId) {
+    remove(id, sessionId, { unregisteredFile } = {}) {
       return serial(async () => {
         const list = await load(), target = await find(id, sessionId)
-        if (!target) return false
+        if (!target) {
+          if (unregisteredFile) await removeImage(id, unregisteredFile)
+          return false
+        }
         // Keep the record available for retry when Windows still holds the image file.
-        await removeFile(join(images, target.file), { force: true })
+        await removeImage(id, join(images, target.file))
         await publish(list.filter(item => item.id !== target.id))
         return true
+      })
+    },
+    /** 收藏 / 回收站：只改标记，不动图片文件；找不到记录时返回 null。 */
+    setState(id, patch) {
+      return serial(async () => {
+        const list = await load(), at = list.findIndex(item => item.id === id)
+        if (at < 0) return null
+        const next = list.slice()
+        next[at] = { ...list[at], ...patch }
+        await publish(next)
+        return { ...next[at], ...flags(next[at]), url: url(next[at].file) }
+      })
+    },
+    /** 批量彻底删除；与恢复共用同一队列，只删除执行时仍在回收站的图片。 */
+    removeTrashed(ids) {
+      return serial(async () => {
+        const list = await load(), trashed = new Set(list.filter(item => item.trashedAt).map(item => item.id))
+        const wanted = ids === undefined ? trashed : new Set(ids)
+        for (const id of wanted) {
+          if (!trashed.has(id)) throw Object.assign(new Error('只能彻底删除回收站里的图片，请刷新后重试'), { code: 'INVALID_ARGUMENT' })
+        }
+        const keep = [], deleted = [], failed = []
+        for (const item of list) {
+          if (!wanted.has(item.id)) { keep.push(item); continue }
+          try { await removeImage(item.id, join(images, item.file)); deleted.push(item.id) }
+          catch (error) { failed.push({ id: item.id, error: String(error?.message ?? error) }); keep.push(item) }
+        }
+        if (deleted.length) await publish(keep)
+        return { deleted, failed }
       })
     },
     clear() {
@@ -53,7 +96,7 @@ export function createCardGallery(directory, { removeFile = rm } = {}) {
         const list = await load()
         const failed = []
         for (const item of list) {
-          try { await removeFile(join(images, item.file), { force: true }) }
+          try { await removeImage(item.id, join(images, item.file)) }
           catch { failed.push(item) }
         }
         await publish(failed)

@@ -1,12 +1,13 @@
 // 素材生图 on a channel that cannot do everything (a text-only one such as NovelAI, a relay answering in JPEG): what it
 // can draw it draws, and what fails says why in plain words instead of 「请稍后再试」.
 import test from 'node:test'
+import {randomBytes} from 'node:crypto'
 import assert from 'node:assert/strict'
 import {mkdir, mkdtemp, readFile} from 'node:fs/promises'
 import {createRequire} from 'node:module'
 import {fileURLToPath} from 'node:url'
 import {createAssetPackService} from '../tavern-plugin/packages/dsh-asset-library/src/pack-v2/service.js'
-import {createAssetGeneration, generationFailure} from '../tavern-plugin/lib/domain/asset-generation.js'
+import { createAssetGeneration } from '../tavern-plugin/lib/domain/asset-generation.js'
 import {createProfileDataStore} from '../tavern-plugin/lib/profile-data-store.js'
 import {encodeAssetRgba} from '../tavern-plugin/lib/domain/asset-image-processing.js'
 import publication from '../tavern-plugin/shared/asset-image-publication.cjs'
@@ -34,7 +35,9 @@ async function fixture(t) {
   const channel = {maxReferences:0, sent:[], reply:async () => ({data:await jpeg(), mediaType:'image/jpeg'})}
   const provider = {label:'配图', status:async () => ({ready:true, model:'nai-diffusion-4-5-full', maxReferences:channel.maxReferences}),
     generate:async request => { channel.sent.push(request); return channel.reply(request) }}
-  const service = createAssetGeneration({store, getLibrary:() => library, imageProvider:() => provider})
+  // Which pictures the generation read from the pack: a reference left out for the channel is never read.
+  const reads = [], reading = {readMedia:input => { reads.push(input.hash); return library.readMedia(input) }}
+  const service = createAssetGeneration({store, getLibrary:() => ({...Object.fromEntries(Object.keys(library).map(k => [k, typeof library[k] === 'function' ? library[k].bind(library) : library[k]])), ...reading}), imageProvider:() => provider})
   t.after(async () => { await service.dispose(); await library.dispose() })
   const pack = (await library.createPack({name:'Limits', expectedRevision:null})).snapshot
   const created = await library.createFigure({packId:pack.manifest.id, expectedRevision:pack.revision, figure:{schemaVersion:1, name:'Mio', appearance:'sprite',
@@ -53,7 +56,16 @@ async function fixture(t) {
     const snapshot = await library.getPackSnapshot({packId:pack.manifest.id})
     await library.patchPack(await publisher.figure({snapshot, image, media:await publication.closure(image), figureId:created.figureId, outfitKey:'daily', emotion:'calm', kind:'sprite'}))
   }
-  return {service, channel, provider, revision, prepare, draw, addSprite}
+  // An outfit settei of two sheets (four views, then eye and pieces over the colour card), registered as pack install does.
+  async function addSettei(partsPng) {
+    const sheet = (n, bytes = encodeAssetRgba({width:16, height:9, data:new Uint8ClampedArray(16 * 9 * 4).fill(n)})) => publication.closure({bytes, descriptor:{ext:'png', mime:'image/png', size:bytes.length}})
+    const [views, parts] = [await sheet(90), await sheet(180, partsPng)], snapshot = await library.getPackSnapshot({packId:pack.manifest.id}), figure = snapshot.figures[created.figureId]
+    const files = new Map([...views.files, ...parts.files, ['figures/' + created.figureId + '.json', publication.jsonBytes({...figure, outfits:figure.outfits.map(o => ({...o, settei:views.hash, setteiParts:parts.hash}))})]])
+    await library.patchPack(publication.publish(snapshot, {blobs:{...views.blobs, ...parts.blobs}, files}))
+    return {views:views.hash, parts:parts.hash}
+  }
+  const outfit = async () => (await library.getPackSnapshot({packId:pack.manifest.id})).figures[created.figureId].outfits[0]
+  return {service, channel, provider, revision, prepare, draw, addSprite, addSettei, reads, outfit}
 }
 
 test('a text-only channel draws the 设定图 from text, and a JPEG answer is stored as PNG', async t => {
@@ -79,15 +91,6 @@ test('a text-only channel draws the 设定图 from text, and a JPEG answer is st
   await assert.rejects(f.prepare('settei'), e => e.code === 'INVALID_ARGUMENT' && /不能带参考图.*外貌或服装描述/.test(e.message))
 })
 
-test('a refused request says why and what to change; the channel’s own words are kept for the hover', async t => {
-  const f = await fixture(t)
-  f.channel.reply = async () => { throw Object.assign(new Error('生图服务 HTTP 400：{"statusCode":400,"message":"Invalid size"}'), {requestMayHaveSucceeded:false}) }
-  const {job} = await f.draw('identity-settei', {userPrompt:'silver hair'})
-  assert.equal(job.status, 'failed')
-  assert.equal(job.error.message, '生图渠道不接受这次请求：这张素材要 1536×1024 的图，这个渠道可能不支持。可在 设置 → 配图 换一个渠道再试')
-  assert.match(job.error.detail, /Invalid size/)
-})
-
 test('a 头像 is drawn from its 立绘 where the channel takes it, from the text where it does not (NovelAI), never refused for it', async t => {
   const f = await fixture(t)
   await f.addSprite()
@@ -100,17 +103,50 @@ test('a 头像 is drawn from its 立绘 where the channel takes it, from the tex
   assert.equal(f.channel.sent.at(-1).references.length, 1); assert.equal(drawn.plan.references[0].purpose, 'emotion-sprite')
 })
 
-test('a 头像 without a 立绘 is drawn from the 设定文字', async t => {
+test('a 立绘 takes both settei sheets, four views first, where the channel takes several, and the four views alone where it takes one', async t => {
   const f = await fixture(t)
+  await f.addSprite()
+  const sheets = await f.addSettei()
   f.channel.maxReferences = 4
-  await f.draw('avatar', {emotionId:'calm', userPrompt:'silver hair'})
-  assert.equal(f.channel.sent.at(-1).references.length, 0)
+  const both = await f.prepare('sprite', {emotionId:'calm'})
+  assert.deepEqual(both.references.filter(r => [sheets.views, sheets.parts].includes(r.hash)).map(r => r.hash), [sheets.views, sheets.parts])
+  f.channel.maxReferences = 1
+  const one = await f.prepare('sprite', {emotionId:'calm'})
+  assert.deepEqual(one.references.map(r => r.hash), [sheets.views])
+})
+test('single-picture sprites and two-picture avatar sheets skip an installed accessory sheet over 8 MiB', async t => {
+  const f = await fixture(t)
+  await f.addSprite()
+  const width = 2048, height = 1024, png = encodeAssetRgba({width,height,data:randomBytes(width * height * 4)})
+  assert.ok(png.length > 8 * 1024 ** 2)
+  const sheets = await f.addSettei(png)
+  f.channel.maxReferences = 1
+  f.reads.length = 0
+  const preview = await f.prepare('sprite', {emotionId:'calm', preview:true})
+  assert.deepEqual(preview.references.map(r => r.hash), [sheets.views])
+  assert.deepEqual(f.reads, [], 'preview only needs the reference list')
+  assert.deepEqual((await f.prepare('sprite', {emotionId:'calm'})).references.map(r => r.hash), [sheets.views])
+  assert.ok(!f.reads.includes(sheets.parts), 'the parts sheet left out is not read')
+  // four views and the calm 立绘 fit a channel of two; the parts sheet gives way instead of refusing the sheet.
+  f.channel.maxReferences = 2
+  const avatars = await f.draw('avatar-sheet')
+  assert.equal(avatars.job.status, 'candidate')
+  assert.equal(f.channel.sent.at(-1).references.length, 2)
+  const [views, sprite] = avatars.plan.references
+  assert.equal(views.hash, sheets.views)
+  assert.equal(sprite.purpose, 'default-sprite')
+  assert.ok(!f.reads.includes(sheets.parts))
 })
 
-test('HTTP statuses read as plain causes; a plain message passes as it is', () => {
-  const said = status => generationFailure(new Error('生图服务 HTTP ' + status + '：{"error":"x"}')).message
-  assert.match(said(401), /密钥/); assert.match(said(402), /余额或点数/); assert.match(said(404), /地址或模型/)
-  assert.match(said(429), /太频繁/); assert.match(said(503), /服务那边出错/)
-  assert.match(generationFailure(new Error('HTTP 422'), {size:'1024x1536', references:2}).message, /1024×1536 的图、带 2 张参考图/)
-  assert.deepEqual(generationFailure(new Error('生图请求超时')), {message:'生图请求超时'})
+test('adopting a drawn outfit settei over two sheets leaves one sheet: the old parts sheet is not used again', async t => {
+  const f = await fixture(t)
+  await f.addSprite()
+  const sheets = await f.addSettei()
+  f.channel.maxReferences = 4
+  const drawn = await f.draw('settei', {userPrompt:'school uniform'})
+  await f.service.accept({jobId:drawn.job.jobId, expectedRevision:await f.revision(), replace:true})
+  const outfit = await f.outfit()
+  assert.notEqual(outfit.settei, sheets.views)
+  assert.equal(outfit.setteiParts, undefined)
+  assert.deepEqual((await f.prepare('sprite', {emotionId:'calm'})).references.map(r => r.hash), [outfit.settei])
 })

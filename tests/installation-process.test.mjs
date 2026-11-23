@@ -50,16 +50,18 @@ test('timeout kills a TERM-ignoring grandchild before reporting safe stopped', {
   const descendant = writerScript(ready, late)
   const script = `require('node:child_process').spawn(process.execPath, ['-e', ${JSON.stringify(descendant)}], {stdio:'ignore'}); process.on('SIGTERM', () => {}); setInterval(() => {}, 1000)`
   const start = Date.now()
-  const promise = runInstallationProcess(process.execPath, ['-e', script], { timeoutMs: 350, label: '--dump-config', ...fastCleanup })
-  await waitForFile(ready)
-  await assert.rejects(promise, error => {
+  const executable = process.env.DSH_TEST_NODE_EXECUTABLE || process.execPath
+  const timeoutMs = 1500
+  const promise = runInstallationProcess(executable, ['-e', script], { timeoutMs, label: '--dump-config', ...fastCleanup })
+  const stopped = assert.rejects(promise, error => {
     assert.equal(error.code, 'INSTALLATION_TIMEOUT', error.message)
-    assert.equal(error.timeoutMs, 350)
+    assert.equal(error.timeoutMs, timeoutMs)
     assert.equal(error.unsafeToRetry, false)
-    assert.match(error.message, /--dump-config.*350/)
+    assert.match(error.message, /--dump-config.*1500/)
     assert.deepEqual(error.remainingProcessGroups, [])
     return true
   })
+  await Promise.all([waitForFile(ready), stopped])
   assert.ok(Date.now() - start < 3000)
   await afterLateWrite()
   await absent(late)

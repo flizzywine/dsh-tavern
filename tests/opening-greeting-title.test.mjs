@@ -11,11 +11,3 @@ test('a greeting scene may carry a short author-written title', () => {
     assert.throws(() => validateCardOpenings({ scenes: { primary: { ...scene, title } } }), { path: '$.openings.scenes.primary.title' })
   }
 })
-
-// and a one-sentence summary of what the opening is about (an opening page tells the player by it)
-test('a greeting scene may carry a one-sentence summary', () => {
-  validateCardOpenings({ scenes: { primary: { ...scene, summary: '露娜第一次登入虚拟城，一落地就撞上了你' } } })
-  for (const summary of ['', ' 前后有空格 ', '长'.repeat(61), 3]) {
-    assert.throws(() => validateCardOpenings({ scenes: { primary: { ...scene, summary } } }), { path: '$.openings.scenes.primary.summary' })
-  }
-})

@@ -21,6 +21,7 @@ const developmentOnly = [
   { prefix: 'tavern-plugin/packages/dsh-tavern-tts/src/' },
   { prefix: 'tavern-plugin/packages/dsh-tavern-stage/src/' },
   { prefix: 'tavern-plugin/packages/dsh-tavern-plot-compass/src/' },
+  { prefix: 'tavern-plugin/packages/dsh-tavern-fate-dice/src/' },
   // These pure contracts are also imported by the server and must survive CDN packaging.
   { prefix: 'tavern-plugin/src/', keep: ['client/bubble-line.cjs', 'client/widget-contracts.cjs', 'client/stage-page-index.cjs', 'client/mod-projection.cjs', 'client/stage-performance-kinds.cjs', 'client/stage-auto-timing.cjs', 'client/stage-widgets.cjs', 'client/widget-definitions.cjs', 'client/widgets/countdown.cjs', 'client/widgets/notification.cjs', 'client/widgets/note.cjs', 'client/widgets/chat-thread.cjs'] },
   { prefix: 'tavern-plugin/lib/vendor/st-prompt-template/upstream/', keep: ['LICENSE', 'settings.html'] },

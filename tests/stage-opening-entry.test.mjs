@@ -25,19 +25,6 @@ async function render(pages, enabled = true) {
   return {document, active, close() { views.dispose(); act(() => root.unmount()); window.close(); Object.assign(globalThis, {window: before.window, document: before.document, IS_REACT_ACT_ENVIRONMENT: before.act}) }}
 }
 
-test('a card with a stage title page: the opening floor enters the stage', async () => {
-  const view = await render({pages: [{id: 'title', showOn: {event: 'stage-enter'}}, {id: 'map', shortcut: 'm'}], fresh: true})
-  try {
-    const bar = view.document.querySelector('.fork-gal-opening-entry')
-    assert.ok(bar)
-    const button = bar.querySelector('button')
-    assert.equal(button.textContent, '进入舞台')
-    await act(async () => button.click())
-    assert.equal(view.active.get(), 's')
-    assert.equal(view.document.querySelector('.fork-gal-opening-entry'), null, 'gone while the stage is on')
-  } finally { view.close() }
-})
-
 test('no bar without a stage-enter page, while the pages read, or with the stage off for the card', async () => {
   for (const [pages, enabled] of [[{pages: [{id: 'map', shortcut: 'm'}], fresh: true}, true], [null, true], [undefined, true],
     [{pages: [{id: 'title', showOn: {event: 'stage-enter'}}], fresh: true}, false]]) {

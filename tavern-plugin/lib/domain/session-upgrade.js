@@ -2,7 +2,7 @@
 // current generation is published, atomically and without replacing newer play.
 import { createHash, randomUUID } from 'node:crypto'
 import { isDeepStrictEqual } from 'node:util'
-import { link, open, readdir, readFile, stat, unlink } from 'node:fs/promises'
+import { link, open, readdir, readFile, rename, stat, unlink, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { encodeCurrentGeneration, parseSessionLog } from './session-log-codec.js'
 
@@ -195,7 +195,7 @@ function normalizeStrayCheckpoints(artifact) {
     const source = event.data.source
     if (open !== null && source.compactionId === open) return event
     changed = true
-    return { ...event, data: { ...event.data, source: { kind: 'plugin', plugin: 'dsh-tavern', form: STRAY_CHECKPOINT_FORM,
+    return { ...event, data: { ...event.data, source: { kind: 'plugin:dsh-tavern', form: STRAY_CHECKPOINT_FORM,
       ...(source.compactionId === undefined ? {} : { compactionId: source.compactionId }) } } }
   })
   return changed ? { ...artifact, events } : artifact
@@ -354,14 +354,33 @@ function assertContentPreserved(before, after) {
 // Inherited history stays on its side of the seed marker.
 function normalizeHistoricalEdits(artifact) {
   const events = structuredClone(artifact.events)
-  let turn = null, step = null, changed = false, restoredTools = false, synthetic = -1
+  // Native repair replaced a whole saved round with an input/reply pair after
+  // its original turn closed. Admit only that explicit producer-owned shape.
+  const nativeRepairs = new Map()
+  for (let index = 0; index < events.length; index++) {
+    const input = events[index], reply = events[index + 1]
+    const match = /^tavern-native-repair:([a-f0-9-]{36}):(\d+):input$/.exec(input.data?.id || '')
+    if (input.type !== 'user/message' || input.surfaceOp?.op !== 'replace' || !match
+      || input.data.source?.kind !== 'user' || input.data.source?.repair?.id !== match[1]
+      || reply?.type !== 'assistant/message' || reply.surfaceOp !== 'append'
+      || reply.data.message?.id !== `tavern-native-repair:${match[1]}:${match[2]}:reply`
+      || reply.data.message.source?.kind !== 'model' || reply.data.message.source?.provider !== 'dsh-tavern'
+      || reply.data.message.source?.model !== 'native-repair' || reply.data.stream?.length !== 0) continue
+    const original = input.sourceEventSeqs?.map(seq => artifact.events[seq]).find(row => row?.type === 'assistant/message'
+      && row.seq >= input.surfaceOp.startSeq && row.seq <= input.surfaceOp.endSeq
+      && row.data.turn === reply.data.turn && row.data.step === reply.data.step)
+    if (original) nativeRepairs.set(input, reply)
+  }
+  let turn = null, step = null, changed = false, restoredTools = false, restoredNative = false, synthetic = -1
   for (let index = 0; index < events.length; index++) {
     const event = events[index]
     if (event.type === 'turn/start') turn = event.data.turn
     if (event.type === 'step/start') step = event.data.step
     if (event.type === 'step/end') step = null
     if (event.type === 'turn/end') turn = null
-    if (!['assistant/message', 'system/message'].includes(event.type) || event.surfaceOp?.op !== 'replace' || step !== null) continue
+    const nativeReply = nativeRepairs.get(event)
+    if (step !== null || !nativeReply && (!['assistant/message', 'system/message'].includes(event.type) || event.surfaceOp?.op !== 'replace')) continue
+    restoredNative ||= Boolean(nativeReply)
     const followingStep = events.slice(index + 1).find(row => row.type === 'step/start')
     // The edit's own rows run up to the next step, whichever turn that step is in.
     const end = followingStep ? events.indexOf(followingStep) : events.length
@@ -380,15 +399,19 @@ function normalizeHistoricalEdits(artifact) {
       && events.slice(index + 1, events.indexOf(nextTurn)).some(row => (row.type === 'compaction/start' && (row.data?.turn ?? null) === null)
         || row.type === 'session/end-seed' || row.type === 'command/run')) {
       let last = index
-      while (['assistant/message', 'system/message'].includes(events[last + 1]?.type) && events[last + 1].surfaceOp?.op === 'replace') last++
-      for (const row of events.slice(index, last + 1)) { row.data.turn = turnEnd.data.turn; row.data.step = stepEnd.data.step }
+      while (events[last + 1] && ((['assistant/message', 'system/message'].includes(events[last + 1].type) && events[last + 1].surfaceOp?.op === 'replace')
+        || nativeRepairs.get(events[last]) === events[last + 1])) last++
+      // A recognized repair's appended reply belongs before the closing edges too.
+      for (const row of events.slice(index, last + 1)) if (row.type !== 'user/message') { row.data.turn = turnEnd.data.turn; row.data.step = stepEnd.data.step }
       events.splice(index - 2, 2)
       events.splice(last - 1, 0, stepEnd, turnEnd)
       changed = true
       index = last
       continue
     }
-    const replacements = events.slice(index, end).filter(row => (['assistant/message', 'system/message'].includes(row.type) && row.surfaceOp?.op === 'replace') || row.type === 'tool/result')
+    const repairReplies = new Set(events.slice(index, end).map(row => nativeRepairs.get(row)).filter(Boolean))
+    restoredNative ||= repairReplies.size > 0
+    const replacements = events.slice(index, end).filter(row => (['assistant/message', 'system/message'].includes(row.type) && row.surfaceOp?.op === 'replace') || row.type === 'tool/result' || repairReplies.has(row))
     const restoredCalls = []
     // Undo replay wrote an empty tool-result placeholder, followed immediately
     // by an exact copy of an earlier result. Reuse the recorded call as explicit
@@ -435,7 +458,7 @@ function normalizeHistoricalEdits(artifact) {
   events.forEach((event, seq) => { mapping[event.seq] = seq })
   const cut = artifact.header.isSeeded ? mapping[artifact.inheritedEventCount] : 0
   if (cut === undefined || artifact.events.some(event => (event.seq < artifact.inheritedEventCount) !== (mapping[event.seq] < cut))) throw new Error('正文编辑调整会跨越分支继承边界')
-  return { ...artifact, repairedHistory: artifact.repairedHistory || restoredTools, inheritedEventCount: cut, upgradeOrigins: events.map(event => event.seq < 0 ? null : (artifact.upgradeOrigins ? artifact.upgradeOrigins[event.seq] : event.seq)), events: events.map((event, seq) => event.seq < 0 && event.type !== 'tool/call' ? { ...event, seq } : remapReferences(event, mapping)) }
+  return { ...artifact, repairedHistory: artifact.repairedHistory || restoredTools || restoredNative, inheritedEventCount: cut, upgradeOrigins: events.map(event => event.seq < 0 ? null : (artifact.upgradeOrigins ? artifact.upgradeOrigins[event.seq] : event.seq)), events: events.map((event, seq) => event.seq < 0 && event.type !== 'tool/call' ? { ...event, seq } : remapReferences(event, mapping)) }
 }
 
 async function inventory(root) {
@@ -497,12 +520,24 @@ async function publish(file, bytes, verify) {
   } finally { await unlink(temporary).catch(error => { if (error.code !== 'ENOENT') throw error }) }
 }
 
-export async function migrateSessionDirectory(root, migration) {
+// `refused` lists old generations an earlier run refused, with the size and mtime they had then. An old parent cannot
+// run, so neither it nor its children gain events: while every old generation is such an unchanged refusal, the result
+// is known without reading the current logs (live 2026-10-27: 3 refused workers made every start read all 718 logs).
+export async function migrateSessionDirectory(root, migration, { refused = [] } = {}) {
   const currentVersion = migration.sessionFormatCatalog.currentVersion
   if (currentVersion !== 4) throw new Error('升级器仅支持 DSH v4 存档')
   const { records, directories } = await inventory(root)
   const summary = { seen: records.length, migrated: 0, unchanged: 0, refused: 0, failures: [] }
-  if (records.every(record => record.version >= currentVersion)) return { ...summary, unchanged: records.length, sessions: records.map(record => ({ id: path.basename(path.dirname(record.file)), ready: record.version === currentVersion })) }
+  const sessionOf = (record, error) => ({ id: path.basename(path.dirname(record.file)), ready: record.version === currentVersion, ...(error ? { error } : {}) })
+  if (records.every(record => record.version >= currentVersion)) return { ...summary, unchanged: records.length, sessions: records.map(record => sessionOf(record)) }
+  const old = records.filter(record => record.version < currentVersion)
+  for (const record of old) ({ size: record.size, mtimeMs: record.mtimeMs } = await stat(record.file))
+  const known = old.map(record => refused.find(row => row.file === record.file && row.size === record.size && row.mtimeMs === record.mtimeMs))
+  if (known.every(Boolean)) {
+    const failures = known.map(({ file, size, mtimeMs, reason }) => ({ file, size, mtimeMs, reason }))
+    return { ...summary, unchanged: records.length - old.length, refused: old.length, failures, remembered: true,
+      sessions: records.map(record => sessionOf(record, failures.find(failure => failure.file === record.file)?.reason)) }
+  }
   // Collect complete child evidence before publishing anything; a bad child
   // blocks its parent, rather than silently declaring that the parent has none.
   for (const record of records) {
@@ -543,18 +578,28 @@ export async function migrateSessionDirectory(root, migration) {
       summary.migrated++
     } catch (error) {
       summary.refused++
-      summary.failures.push({ file: record.file, reason: error.message || String(error) })
+      summary.failures.push({ file: record.file, size: record.size, mtimeMs: record.mtimeMs, reason: error.message || String(error) })
     }
   }
   summary.sessions = records.map(record => ({ id: record.header?.id || path.basename(path.dirname(record.file)), ready: Boolean(record.published) || record.version === currentVersion, error: summary.failures.find(failure => failure.file === record.file)?.reason }))
   return summary
 }
 
+// Beside the sessions directory it describes; only this upgrader reads or writes it.
+export const refusedSessionsFile = dataRoot => path.join(path.dirname(dataRoot), 'session-upgrade-refused.json')
+
 export async function migrateInstalledSessions(dataRoot, loadMigration) {
   try {
-    const summary = await migrateSessionDirectory(path.join(path.dirname(dataRoot), 'sessions'), await loadMigration())
-    if (summary.migrated || summary.refused) console.warn(`dsh-tavern: DSH 0.2.1 存档升级：完成 ${summary.migrated}，已有新版 ${summary.unchanged}，保留原档待处理 ${summary.refused}`)
-    for (const failure of summary.failures) console.warn(`dsh-tavern: 未升级 ${failure.file}：${failure.reason}`)
+    const file = refusedSessionsFile(dataRoot)
+    const refused = await readFile(file, 'utf8').then(JSON.parse, error => { if (error.code === 'ENOENT') return []; throw error })
+    const summary = await migrateSessionDirectory(path.join(path.dirname(dataRoot), 'sessions'), await loadMigration(), { refused })
+    if (summary.migrated || summary.refused) console.warn(`dsh-tavern: DSH 0.2.1 存档升级：完成 ${summary.migrated}，已有新版 ${summary.unchanged}，保留原档待处理 ${summary.refused}${summary.remembered ? '（沿用上次结果，原档未变）' : ''}`)
+    if (!summary.remembered) {
+      for (const failure of summary.failures) console.warn(`dsh-tavern: 未升级 ${failure.file}：${failure.reason}`)
+      const temporary = file + '.tmp-' + randomUUID()
+      await writeFile(temporary, JSON.stringify(summary.failures))
+      await rename(temporary, file)
+    }
     return summary
   } catch (error) {
     console.warn('dsh-tavern: 存档升级未完成，原档保留：' + (error.message || error))

@@ -13,7 +13,7 @@ const MAX_ZIP_BYTES = 512 * 1024 * 1024
 const MAX_EXPANDED_BYTES = 1024 * 1024 * 1024
 // 一个素材包是一整项，导入时要能塞进一份 .dshtransfer 里（导入接口按 128 MB 收包）。
 // 素材包里的媒体本来就不压缩，再包一层也不会变小，超了就预先挡住，不留一个导不回去的包。
-const BUNDLE_ITEM_LIMIT = 96 * 1024 * 1024
+const BUNDLE_ITEM_LIMIT = 256 * 1024 * 1024
 
 function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
@@ -66,9 +66,10 @@ export function createTransferAssets({ root, library } = {}) {
     return rows.sort((left, right) => left.title.localeCompare(right.title, 'zh-CN'))
   }
 
-  async function collect(ids) {
+  async function collect(ids, options = {}) {
     const wanted = (Array.isArray(ids) ? ids : [ids]).map(str).filter(Boolean)
     const items = []
+    const onItem = options && typeof options.onItem === 'function' ? options.onItem : null
     for (const id of wanted) {
       const pack = await library.getPackSnapshot({ packId: id }).catch(() => null)
       if (!pack || !pack.manifest) fail('素材包不存在：' + id)
@@ -86,6 +87,7 @@ export function createTransferAssets({ root, library } = {}) {
       }
       const dir = packDir(id)
       const title = document.name || id
+      if (onItem) onItem({ phase: 'start', key: id, title })
       const entries = [{ path: PACK_FILE, content: JSON.stringify(document, null, 2) + '\n' }]
       let bytes = 0
       for (const file of manifest.files || []) {
@@ -96,12 +98,13 @@ export function createTransferAssets({ root, library } = {}) {
         // 包在导出中途被替换时，字节数会与清单不符：宁可不带，也不产出半份包。
         if (Number(file.size) > 0 && content.length !== Number(file.size)) fail('素材包「' + title + '」的文件在导出过程中变了：' + relative)
         bytes += content.length
-        if (bytes > BUNDLE_ITEM_LIMIT) fail('素材包「' + title + '」约 ' + Math.round(bytes / 1048576) + ' MB，超过单个导出项的上限（96 MB）；先移除大文件，或把包拆小再导出')
+        if (bytes > BUNDLE_ITEM_LIMIT) fail('素材包「' + title + '」约 ' + Math.round(bytes / 1048576) + ' MiB，超过单个导出项的 ' + BUNDLE_ITEM_LIMIT / 1024 ** 2 + ' MiB 上限；可改从素材库单独导出')
         entries.push({ path: FILES_PREFIX + relative, content })
       }
       if (entries.length === 1) fail('素材包「' + title + '」是空的')
       const content = writeZipEntries(entries, { label: '素材包', maxArchiveBytes: MAX_ZIP_BYTES, maxExpandedBytes: MAX_EXPANDED_BYTES })
       items.push({ key: id, title, fileName: id + '.zip', content })
+      if (onItem) onItem({ phase: 'done', key: id, title })
     }
     return items
   }

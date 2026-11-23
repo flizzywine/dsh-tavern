@@ -28,6 +28,7 @@ import directorCommands from '../../../dsh-presentation-protocol/src/director-co
 import packAvatar from '../../../../lib/domain/pack-avatar.cjs' // shared cast appearance projection
 import { cgPromptRow } from './stage-cg.js'
 import { createDirectorHandles } from './stage-director-handles.js'
+import { standInActors, rekeyStandIns } from './stage-stand-in.js'
 import {coreItemCatalogue} from '../../../../lib/domain/item-catalogue.js'
 import { assembleModPrompt } from '../../../../lib/domain/mods/prompts.js'
 import {assembleModPrompts} from '../../../../lib/domain/mod-system-prompts.js'
@@ -67,26 +68,22 @@ export function frozenActors(extension, snapshots, state, globalEnabledPackIds =
   const rows = selected || figureCatalogue({snapshots,bindings:extension.assetBindings,globalEnabledPackIds,roster:state?.actors})
   for (const row of rows) {
     const {actorKey:alias, figure, ref} = row
-    if (!figure.enabled || figure.appearance === 'avatar') continue
-    const character = figure
-    // a newly reordered empty opening outfit must not evict a valid carried stage outfit.
-    const carried = state?.actors?.[alias]
-    const current = carried?.figure?.packId === ref.packId && carried?.figure?.figureId === ref.figureId
-      ? figure?.outfits.find(outfit => outfit.enabled && outfit.key === carried.outfitKey) : null
-    const opening = figure?.outfits.find(outfit => outfit.enabled)
-    if (packAvatar.packAppearance(current || opening, character.appearance).form === 'avatar') continue
-    const outfits = (figure?.outfits || []).filter(outfit => outfit.enabled).map(outfit => {
-      const form = packAvatar.packAppearance(outfit, character.appearance).form
+    if (!figure.enabled) continue
+    // One catalogue supplies choices, initialization and reset. Portrait-only outfits stay in the library.
+    const outfits = figure.outfits.flatMap(outfit => {
+      if (!outfit.enabled) return []
+      const {form} = packAvatar.packAppearance(outfit, figure.appearance)
+      if (form === 'avatar') return []
       const derive = a => figureScale.packHeadRelativeAnatomy(a, figureHeadReference(figure))
       const spriteAnatomy = Object.fromEntries(Object.entries(outfit.sprite?.anatomy || {}).map(([id, a]) => [id, derive(a)]))
       const anatomy = form === 'sprite' ? Object.values(spriteAnatomy) : [outfit[form]?.anatomy].filter(Boolean).map(derive)
       // the outfit's 使用情景 travels with it; empty adds nothing.
-      return {key:outfit.key, label:outfit.label, ...(outfit.sprite?.imagePools ? {sprite:{manifestKey:outfit.sprite.manifestKey,imagePools:outfit.sprite.imagePools,anatomy:spriteAnatomy},defaultEmotion:figureDefaultEmotion(figure,outfit),fallbackTo:outfit.fallbackTo || {}} : {}), ...(outfit.guidance ? {guidance:outfit.guidance} : {}), ...(outfit.recall ? {recall:outfit.recall} : {}), enabled:outfit.enabled, ruler:form !== 'avatar' ? {heightCm:figure.heightCm ?? 150,
-        headRatio:Math.max(0, ...anatomy.map(a => a.headRatio)) || 1, elevationCm:figure.elevationCm ?? 0} : null}
+      return [{key:outfit.key, label:outfit.label, ...(outfit.sprite?.imagePools ? {sprite:{manifestKey:outfit.sprite.manifestKey,imagePools:outfit.sprite.imagePools,anatomy:spriteAnatomy},defaultEmotion:figureDefaultEmotion(figure,outfit),fallbackTo:outfit.fallbackTo || {}} : {}), ...(outfit.guidance ? {guidance:outfit.guidance} : {}), ...(outfit.recall ? {recall:outfit.recall} : {}), enabled:outfit.enabled, ruler:{heightCm:figure.heightCm ?? 150,
+        headRatio:Math.max(0, ...anatomy.map(a => a.headRatio)) || 1, elevationCm:figure.elevationCm ?? 0}}]
     })
     // figure order initializes outfits; carry keeps valid story state.
     if (!outfits.length) continue
-    actors[alias] = { figure: ref, emotions:figureEmotionRows(figure), outfits, name: character.name, constant:figure.recall.mode === 'constant', ruler: outfits[0]?.ruler || null }
+    actors[alias] = { figure: ref, emotions:figureEmotionRows(figure), outfits, name: figure.name, constant:figure.recall.mode === 'constant', ruler: outfits[0].ruler }
   }
   return actors
 }
@@ -195,7 +192,12 @@ export function assetPackDirectorCatalogue({ raw, snapshots = [], globalEnabledP
 /** Only a new Card Preparation binding extension opts in. An absent extension returns null;
  * a malformed extension rejects, and a missing asset service never selects the old catalogue.
  */
-export function prepareAssetPackDirector({ raw, cardRevision, snapshots = [], globalEnabledPackIds = [], engine, target, units, imageUnits = units, pageIndex, assetStatus = {}, record, predecessor = [], generation = 0, baseline, opening, modelInfo, recallUnits = units, continuation = false, items, condition, judgeRecall, modPrompts = [], modPromptContext, mods, stateSource, playerInput = '', playerName, modTurn = {}, activeStageSkin }) {
+// A figure's first outfit with something to show on stage (not only an avatar), or null: a stand-in turns into it.
+export function stageOutfitKey(figure) {
+  return (figure?.outfits || []).find(outfit => outfit.enabled && packAvatar.packAppearance(outfit, figure.appearance).form !== 'avatar')?.key ?? null
+}
+
+export function prepareAssetPackDirector({ raw, cardRevision, snapshots = [], globalEnabledPackIds = [], engine, target, units, imageUnits = units, pageIndex, assetStatus = {}, record, predecessor = [], generation = 0, baseline, opening, modelInfo, recallUnits = units, continuation = false, items, condition, judgeRecall, modPrompts = [], modPromptContext, mods, stateSource, playerInput = '', playerName, modTurn = {}, activeStageSkin, standInLooks = {}, standInPacks = [] }) {
   if(modPromptContext && modPrompts.length)throw modError('MOD_CODE_CONFLICT','Use one director mod contribution source')
   const promptContext=modPromptContext && captureModPromptContext(modPromptContext)
   const extension = readCardAssetExtension(raw)
@@ -207,7 +209,8 @@ export function prepareAssetPackDirector({ raw, cardRevision, snapshots = [], gl
   const eligibleActors = dimensions.actors ? frozenActors(extension, snapshots, carried, globalEnabledPackIds, figureRows) : {}
   const figureRecall = recallFigures({rows:figureRows.filter(row => Object.hasOwn(eligibleActors,row.actorKey)),units:recallUnits,roster:carried?.actors,judgeRecall})
   const actors = Object.fromEntries(figureRecall.rows.map(row => [row.actorKey,eligibleActors[row.actorKey]]))
-  let previous = projectAssetPackSnapshot(carried || initialAssetPackStage({}))
+  // A stand-in whose person now has a figure to show becomes that figure's actor, in its place on stage.
+  let previous = rekeyStandIns(projectAssetPackSnapshot(carried || initialAssetPackStage({})), figureRows, eligibleActors)
   // A mod's measured progress since its last record (a timer's balance) folds into the carried draft first.
   if(!continuation)for(const [modId,turn] of Object.entries(modTurn))if(turn.progress)previous=modStageContribution(modId)?.applyProgress?.(previous,turn.progress) || previous
   if(!continuation)previous=releaseStageControls(previous,control=>
@@ -216,12 +219,22 @@ export function prepareAssetPackDirector({ raw, cardRevision, snapshots = [], gl
     mods?.capabilities && !mods.capabilities[control.consumer]?.some(edge=>edge.available && edge.provider===control.provider))
   if (!continuation && previous.performance?.phase === 'exit') previous.performance = null
   validateAssetPackStage(previous)
+  // New speakers with nothing of their own to show yet (and stand-ins still on the carried stage) are actors too, in the
+  // 通用角色 立绘 自动素材 lent them (借用形象; standInLooks: its record's looks, read for every window). A lent figure need not be
+  // bound to the card: 自动素材 lends from the whole library (standInPacks: the lent packs' snapshots).
+  const lentPackIds = [...new Set(Object.values(standInLooks).map(look => look.packId))]
+  const lentRows = lentPackIds.length ? figureCatalogue({snapshots:standInPacks, bindings:{boundPackIds:lentPackIds}}) : []
+  const standIns = dimensions.actors ? standInActors({units, carried:previous, castRows:figureRows, lentRows, actors:eligibleActors, player:playerName, looks:standInLooks,
+    actorOf:row => Object.values(frozenActors(extension, snapshots, null, globalEnabledPackIds, [row]))[0]}) : {actors:{}, speakers:{}}
+  Object.assign(actors, standIns.actors)
+  const castActors = {...eligibleActors, ...standIns.actors}
   const catalogue = recallDirectorCatalogue({extension, snapshots, globalEnabledPackIds, mods, recallUnits, dimensions, assetStatus, judgeRecall, engine, activeStageSkin, condition, state:previous})
   items = dimensions.items !== false && catalogue.candidates.props?.length ? {...items,version:2,enabled:true,catalogue:coreItemCatalogue(catalogue,snapshots)} : undefined
   // retain motion/photosensitivity safety, not presentation quotas.
   const actionCaps = { act: engine.actionCaps?.act ?? 4, beat: engine.actionCaps?.beat ?? 6 }
   for (const [key, cap] of Object.entries(actionCaps)) check(Number.isSafeInteger(cap) && cap >= 0 && cap <= 256, '$.actionCaps.' + key)
   const speakerActors = Object.fromEntries(units.filter(unit => typeof unit !== 'string' && unit.kind === 'line').flatMap(unit => {
+    if (standIns.speakers[unit.alias]) return [[unit.alias,standIns.speakers[unit.alias]]]
     const resolved = resolution.resolveFigureName(figureRows, unit, carried?.actors)
     return resolved.status === 'resolved' && unit.alias !== resolved.actorKey ? [[unit.alias,resolved.actorKey]] : []
   }))
@@ -249,7 +262,7 @@ export function prepareAssetPackDirector({ raw, cardRevision, snapshots = [], gl
   }
   const context = { catalogue, actors, dimensions, actionCaps, phone, speakerActors, figureRows:figureRecall.all, performanceEnabled:engine.stageToggles?.performance !== false, performanceDocuments, ...(items?.enabled ? {items} : {}), ...(mods ? {modCommands:mods.commands,schemaModCommands:mods.schemaCommands || mods.commands,capabilities:mods.capabilities} : {}) }
   // carry recorded actors independently of this turn's trigger-only choices.
-  const projected = carryProjection(previous, {...context, actors:eligibleActors})
+  const projected = carryProjection(previous, {...context, actors:castActors})
   // Recall hides choices, not persistent state. Keep only stop/clear when a kind is empty.
   const state = projected.state
   const judgeQuestions = judgeEnabled(engine.judge) ? greenJudgeQuestions({catalogue,actors:eligibleActors,figures:figureRecall,units:recallUnits,state,dimensions}) : undefined

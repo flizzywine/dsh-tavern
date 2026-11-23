@@ -203,3 +203,32 @@ test('外壳比布局视口矮时只让出真正重叠的那一截，底部不�
   assert.ok(measured.rowGap > -1 && measured.rowGap <= 16, '版本行和设置行之间只留常规间距：' + JSON.stringify(measured))
   assert.equal(measured.pillHit, 'settings', '宿主设置按钮仍然可点')
 })
+
+test('手机端未在更新时隐藏底部更新详情行（含检查中与带警告的检查结果）', async t => {
+  for (const status of [
+    { phase: 'checking', host: 'cli', currentVersion: '3.3.0', currentCommit: 'a390af1c0ffee5' },
+    { phase: 'up-to-date', host: 'cli', currentVersion: '3.3.0', currentCommit: 'a390af1c0ffee5', checkWarning: 'GitHub 核实不可用；CDN 可能有数小时缓存延迟。' },
+    { phase: 'update-available', host: 'cli', currentVersion: '3.3.0', currentCommit: 'a390af1c0ffee5', latestCommit: '6e511e9d4f00d', checkWarning: 'GitHub 核实不可用；已发现清单上的较新构建。' },
+    { phase: 'check-failed', host: 'cli', currentVersion: '3.3.0', currentCommit: 'a390af1c0ffee5', error: '暂时无法确认最新版本' },
+  ]) {
+    const { page } = await mountMobileSidebar(t, { status })
+    await page.locator('.dsh-tavern-sidebar:not(.collapsed)').waitFor({ state: 'attached' })
+    await page.waitForFunction(() => document.querySelector('.dsh-tavern-update-identity')?.textContent?.includes('v3.3.0'))
+    const detail = await page.evaluate(() => {
+      const el = document.querySelector('.dsh-tavern-update-status')
+      return {
+        exists: Boolean(el),
+        attr: el?.getAttribute('data-mobile-update-detail') ?? null,
+        display: el ? getComputedStyle(el).display : null,
+        identity: document.querySelector('.dsh-tavern-update-identity')?.innerText?.trim() ?? '',
+      }
+    })
+    assert.equal(detail.exists, true, `${status.phase} 仍保留 DOM 给宽屏展示：` + JSON.stringify(detail))
+    assert.equal(detail.attr, 'hidden', `${status.phase} 在移动端标记为隐藏：` + JSON.stringify(detail))
+    assert.equal(detail.display, 'none', `${status.phase} 在移动端隐藏更新详情行：` + JSON.stringify(detail))
+    if (status.phase === 'update-available') {
+      assert.equal(detail.identity, 'v3.3.0 · a390af1 → 6e511e9', '带警告发现更新时移动端版本行仍附带目标构建')
+    }
+    await page.context().close()
+  }
+})

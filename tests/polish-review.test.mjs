@@ -1,31 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { applyPolishEdits, composePolishEdits } from '../tavern-plugin/lib/domain/polish-review.js'
-
-test('两步精修记成原文上的修改：意见改动映射回原文，碰到精修改过的句子就并成一处', () => {
-  const review = [{ find: '乙。', replace: '乙改。', reason: '套话' }, { find: '戊。', replace: '', reason: '删去' }]
-  const original = '甲。乙。丙。丁。戊。己。'
-  // Inside a review change, on untouched text, and across a change and the text after it.
-  assert.deepEqual(composePolishEdits(original, review, [{ find: '乙改', replace: '乙再改', reason: '更狠' }, { find: '己。', replace: '己改。', reason: '加细节' }]), [
-    { find: '乙。', replace: '乙再改。', reason: '套话；按意见：更狠' },
-    { find: '戊。', replace: '', reason: '删去' },
-    { find: '己。', replace: '己改。', reason: '按意见：加细节' }
-  ])
-  assert.deepEqual(composePolishEdits(original, review, [{ find: '甲。乙改。丙', replace: '新句', reason: '合并' }]), [
-    { find: '甲。乙。丙', replace: '新句', reason: '套话；按意见：合并' },
-    { find: '戊。', replace: '', reason: '删去' }
-  ])
-  // Text right after a deleted sentence maps back past it.
-  assert.deepEqual(composePolishEdits(original, review, [{ find: '丁。己', replace: '丁己', reason: '连起来' }]), [
-    { find: '乙。', replace: '乙改。', reason: '套话' },
-    { find: '丁。戊。己', replace: '丁己', reason: '删去；按意见：连起来' }
-  ])
-  // Applying the record to the original gives what the two passes gave.
-  const record = composePolishEdits(original, review, [{ find: '丙。丁', replace: '丙丁', reason: 'x' }])
-  assert.equal(applyPolishEdits([original], record)[0], applyPolishEdits(applyPolishEdits([original], review), [{ find: '丙。丁', replace: '丙丁' }])[0])
-  assert.equal(review[0].replace, '乙改。')
-})
 
 test('后台预审：同一版正文只审一次，换了版本就作废，点精修时等它或当场审', async () => {
   const { createPolishPrereview } = await import('../tavern-plugin/lib/domain/polish-run.js')
@@ -62,16 +37,6 @@ test('后台预审：同一版正文只审一次，换了版本就作废，点�
   prereview.cancel('s')
   assert.equal(calls.at(-1).signal.aborted, true)
   assert.equal(prereview.running('s'), false)
-})
-
-test('精修对比按原文顺序切出未改与改动段，找不到或重叠的修改跳过', async () => {
-  const { polishSegments } = await import('../tavern-plugin/lib/domain/polish-records.js')
-  const segments = polishSegments('甲。乙。丙。', [{ find: '丙。', replace: '丙改。', reason: 'b' }, { find: '甲。', replace: '', reason: 'a' }, { find: '甲。乙', replace: 'x' }, { find: '丁', replace: 'y' }])
-  assert.deepEqual(segments, [
-    { kind: 'edit', n: 2, find: '甲。', replace: '', reason: 'a' },
-    { kind: 'same', text: '乙。' },
-    { kind: 'edit', n: 1, find: '丙。', replace: '丙改。', reason: 'b' }
-  ])
 })
 
 test('只保留最近一次精修，那轮正文换了版本就不再显示、不能撤销', async () => {

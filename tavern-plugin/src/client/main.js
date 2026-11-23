@@ -13,21 +13,23 @@ window.__ModuleLoader__.load({
 			let ReactDOM = (function () { try { return require("react-dom"); } catch (_) { return null; } })();
 
 		// @include crypto-digest.js
+		// http on a LAN address is not a secure context: no crypto.subtle, no crypto.randomUUID.
+		if (typeof window !== "undefined") installTavernCryptoSubtlePolyfill(window);
+		// @include-protocol random-id.cjs
 		// @include stylesheet.js
         // @include surfaces.cjs
 		// @include hscroll.js
 		if (typeof document !== "undefined") { installTavernStylesheet(document, __TAVERN_BUNDLED_CSS__, __TAVERN_FEATURE_CSS__);  }
+		// @include hidden-confirms.js
 		// @include spinner.js
 		// @include panel-loading.cjs
 		// @include wait-lines.js
 		// @include jump-latest.js
 		// @include inline-field.js
-		// @include spine-runtime-entry.js
-        // @include pixi-runtime.js
 		// @include image-viewer.js
 		// @include data-picker.js
 		// @include mod-config-ui.js
-
+		// @include spine-runtime-entry.js
 
 		// `dsh-tavern-shell-active` gates every Tavern rule that touches host chrome.
 		// It used to be added only when the left sidebar mounted. On a phone that
@@ -51,6 +53,7 @@ window.__ModuleLoader__.load({
 		// @include foreground.js
 		// @include-domain mvu-visibility.js
 		// @include tab-icons.js
+		// @include settings-nav-icons.js
 		// @include variable-bindings.cjs
 		// @include pack-transport.js
 		// @include asset-pack-binding.js
@@ -93,33 +96,89 @@ window.__ModuleLoader__.load({
 
 		// @include modules/card-password.js
 		// @include modules/task-poll.js
-		/** Import one card file: PNG and JSON go as parsed JSON; archives (CHARX, DSH cards) and other
-		 * formats (a plugin's importer, tavern.cardImporter) go up as raw files. */
-		async function importTavernCardFile(file, call, onProgress = () => {}, replacePath) {
+		/** Import one card file. PNG and JSON go as parsed JSON; archives (CHARX, DSH cards) and other formats (a plugin's
+		 * importer, tavern.cardImporter) go up as raw files. A card carrying another version of an installed pack asks first
+		 * (导入人物卡, card-update-dialog.js). */
+		async function importTavernCardFile(file, call, onProgress = () => {}) {
 			if (/\.(dshcard|charx)\.png$/i.test(String(file.name || ''))) throw new Error('卡包请使用 .dshcard 文件');
-			const progress = beginTavernCardImportProgress(file.name);
-			const report = value => { progress.update(value); onProgress(value); };
+			let progress = beginTavernCardImportProgress(file.name);
+			const report = value => { progress?.update(value); onProgress(value); };
 			try {
-			const archive = !/\.(png|json)$/i.test(String(file.name || "")) && /\.[^./\\]+$/.test(String(file.name || ""));
-			if (archive) {
-				report('正在上传卡包…');
-				const response = await fetch("/api/dsh-tavern/card-upload", { method: "POST", headers: { "Content-Type": "application/octet-stream" }, body: file });
+				if (!isTavernCardArchive(file)) { report('正在读取人物卡…'); return await commitTavernCardFile(file, null, call); }
+				if (!isTavernCardPackArchive(file)) { const uploadId = await uploadTavernCardFile(file, report, call); report('正在导入…'); return await commitTavernCardFile(file, { uploadId }, call); }
+				const staged = await previewTavernCardArchive(file, call, report);
+				let packDecisions = {};
+				if (staged.packs.length) {
+					progress.close(); progress = null;
+					const way = await askTavernCardPackWay(file, staged);
+					if (!way) {
+						await call("discardCardUpload", { uploadId: staged.uploadId }).catch(() => {});
+						throw Object.assign(new Error('已取消人物卡导入'), { code: 'TAVERN_CARD_IMPORT_CANCELLED' });
+					}
+					packDecisions = tavernCardPackDecisions(staged.packs, way);
+					progress = beginTavernCardImportProgress(file.name);
+				}
+				report('正在导入素材…');
+				return await commitTavernCardFile(file, staged, call, { packDecisions });
+			} finally { progress?.close(); }
+		}
+		function isTavernCardArchive(file) {
+			const name = String(file.name || "");
+			return !/\.(png|json)$/i.test(name) && /\.[^./\\]+$/.test(name);
+		}
+		/** CHARX and DSH cards: archives that can carry packs, read by the server before they are imported. */
+		function isTavernCardPackArchive(file) { return /\.(dshcard|charx)$/i.test(String(file.name || "")); }
+		async function uploadTavernCardFile(file, report, call) {
+			report('正在上传卡包…');
+			const route = '/api/dsh-tavern/card-upload';
+			async function upload(url, body) {
+				const response = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body });
 				let reply = null;
 				try { reply = await response.json(); } catch (_error) {}
-				if (!reply || !reply.ok) throw new Error(reply && reply.error || "上传失败（HTTP " + response.status + "）");
-				return await importTavernPasswordCard(password => {
-					report(password === undefined ? '正在读取卡包并导入素材…' : '正在校验密码并导入素材…');
-					return call("importCardUpload", { uploadId: reply.uploadId, name: file.name, ...(replacePath ? { replacePath } : {}), ...(password === undefined ? {} : { password }) });
-				}, file.name, () => call("discardCardUpload", { uploadId: reply.uploadId }), options => {
+				if (!reply?.ok) throw new Error(reply?.error || '上传失败（HTTP ' + response.status + '）');
+				return reply;
+			}
+			if (!isTavernCardPackArchive(file) || !(file.size > 1024 ** 3)) return (await upload(route, file)).uploadId;
+			const chunkSize = 16 * 1024 ** 2;
+			let uploadId;
+			try {
+				for (let offset = 0; offset < file.size; offset += chunkSize) {
+					const end = Math.min(offset + chunkSize, file.size);
+					const query = new URLSearchParams({ purpose: 'card-archive', size: file.size, offset });
+					if (uploadId) query.set('uploadId', uploadId);
+					const reply = await upload(route + '?' + query, file.slice(offset, end));
+					uploadId = reply.uploadId;
+					if (reply.size !== end) throw new Error('卡包上传进度不一致，请重新导入');
+					report('正在上传卡包… ' + Math.floor(end / file.size * 100) + '%');
+				}
+				return uploadId;
+			} catch (error) {
+				if (uploadId) await call('discardCardUpload', { uploadId }).catch(() => {});
+				throw error;
+			}
+		}
+		/** A CHARX or DSH card uploaded and read before it is imported or replaces a card: {uploadId, password?, card: {name,
+		 * version, cover}, packs: the installed packs it carries another version of}. The upload is discarded on failure or cancel. */
+		async function previewTavernCardArchive(file, call, report = () => {}) {
+			const uploadId = await uploadTavernCardFile(file, report, call);
+			let password;
+			try {
+				const preview = await importTavernPasswordCard(value => {
+					password = value;
+					report(value === undefined ? '正在读取卡包…' : '正在校验密码…');
+					return call("previewCardUpload", { uploadId, name: file.name, ...(value === undefined ? {} : { password: value }) });
+				}, file.name, null, options => {
 					report('等待输入密码…');
 					return askTavernCardPassword(options);
 				});
-			}
-			report('正在读取人物卡…');
-			return await call("importCard", { payload: await parseCardFile(file), ...(replacePath ? { replacePath } : {}) });
-			} finally { progress.close(); }
+				return { uploadId, ...(password === undefined ? {} : { password }), card: preview.card, packs: preview.packs };
+			} catch (error) { await call("discardCardUpload", { uploadId }).catch(() => {}); throw error; }
 		}
-
+		/** The card file into the library, or in place of replacePath: staged is the upload (and preview) of an archive, null for PNG / JSON. */
+		async function commitTavernCardFile(file, staged, call, { replacePath, packDecisions } = {}) {
+			if (staged) return await call("importCardUpload", { uploadId: staged.uploadId, name: file.name, ...(replacePath ? { replacePath } : {}), ...(staged.password === undefined ? {} : { password: staged.password }), packDecisions: packDecisions || {} });
+			return await call("importCard", { payload: await parseCardFile(file), ...(replacePath ? { replacePath } : {}) });
+		}
 		/** What a card file brought into its character material, for the import notice. */
 		function tavernCardAssetNotice(assets, card) {
 			const extra = [];
@@ -388,7 +447,7 @@ window.__ModuleLoader__.load({
 			}
 			function emptyState() {
 				if (needle) return h(EmptyState, { query: filter, onClear: function () { setFilter(""); } });
-				return catalog && catalog.storageAccessible === false ? h("div", { className: "dsh-tavern-empty" }, "DSHA 无法读取下载目录。请在系统设置中允许 DSHA ‘访问所有文件’，然后点刷新；也可尝试系统文件选择器。") : h(EmptyState, { text: "下载目录里还没有 PNG/JSON 人物卡" });
+				return catalog && catalog.storageAccessible === false ? h("div", { className: "dsh-tavern-empty" }, "DSHA 无法读取下载目录。请在系统设置中允许 DSHA ‘访问所有文件’，然后点刷新；也可尝试系统文件选择器。") : h(EmptyState, { text: "下载目录里还没有可导入的人物卡" });
 			}
 			const countText = "共 " + allFiles.length + " 个文件"
 				+ (needle ? "，匹配 " + files.length + " 个" : "")
@@ -398,7 +457,7 @@ window.__ModuleLoader__.load({
 				h("button", { type: "button", className: "dsh-tavern-btn primary", disabled: props.disabled || busy, onClick: activate }, props.batch ? "批量导入" : "导入人物卡"),
 				open ? h("div", { className: "dsh-tavern-mobile-import", role: "dialog", "aria-modal": "true", "aria-label": "从手机下载目录导入人物卡" }, h("div", { className: "dsh-tavern-mobile-import-shell" }, h("div", { className: "dsh-tavern-mobile-import-panel" },
 					h("div", { className: "dsh-tavern-mobile-import-title" }, "从手机下载目录导入"),
-					h("div", { className: "dsh-tavern-question-sub" }, "把 PNG 或 JSON 人物卡放进手机 Download，回到这里点选。"),
+					h("div", { className: "dsh-tavern-question-sub" }, "把人物卡放进手机 Download 后直接点选，.dshcard 和 .charx 卡包文件读取上限为 8 GiB。"),
 					h("div", { className: "dsh-tavern-mobile-import-count", role: 'status', 'aria-busy': !!progress }, progress ? h(Spinner) : null, countText),
 					error ? h("div", { className: "dsh-tavern-dock-error", role: "alert" }, error) : null,
 					h("div", { className: "dsh-tavern-mobile-import-tools" },
@@ -499,6 +558,99 @@ window.__ModuleLoader__.load({
 
         // @include rpc-transport.cjs
         const presentationRequest = createPresentationQueue();
+        let tavernWsRpc = null;
+        const TTS_ENABLED_FEED_KEY = Symbol.for("dsh.tts.enabledFeed");
+        function createTtsEnabledFeedBridge() {
+            const subscribers = new Set();
+            let wsClient = null;
+            let stopSub = null;
+            let latestEnabled;
+            let unavailable = false;
+            let fallbackMode = false;
+            function syncSubscription() {
+                if (!wsClient || typeof wsClient.subscribe !== "function" || subscribers.size === 0) {
+                    if (stopSub) { stopSub(); stopSub = null; }
+                    return;
+                }
+                if (stopSub) return;
+                stopSub = wsClient.subscribe("tts-enabled", {
+                    onEvent(data) {
+                        fallbackMode = false;
+                        unavailable = false;
+                        latestEnabled = Boolean(data && data.enabled);
+                        for (const sub of Array.from(subscribers)) {
+                            try { if (typeof sub.onEnabled === "function") sub.onEnabled(latestEnabled); } catch (_) {}
+                        }
+                    },
+                    onUnavailable() {
+                        unavailable = true;
+                        latestEnabled = false;
+                        for (const sub of Array.from(subscribers)) {
+                            try { if (typeof sub.onClosed === "function") sub.onClosed(); } catch (_) {}
+                        }
+                    },
+                    onFallback() {
+                        fallbackMode = true;
+                        for (const sub of Array.from(subscribers)) {
+                            try { if (typeof sub.onFallback === "function") sub.onFallback(); } catch (_) {}
+                        }
+                    },
+                    onReconnected() {
+                        fallbackMode = false;
+                        for (const sub of Array.from(subscribers)) {
+                            try { if (typeof sub.onReconnected === "function") sub.onReconnected(); } catch (_) {}
+                        }
+                    }
+                });
+            }
+            return {
+                attach(nextClient) {
+                    if (wsClient === nextClient) return;
+                    if (stopSub) { stopSub(); stopSub = null; }
+                    wsClient = nextClient || null;
+                    syncSubscription();
+                },
+                detach(prevClient) {
+                    if (prevClient && wsClient !== prevClient) return;
+                    if (stopSub) { stopSub(); stopSub = null; }
+                    wsClient = null;
+                },
+                subscribe(handlers) {
+                    const entry = typeof handlers === "function" ? { onEnabled: handlers } : (handlers || {});
+                    subscribers.add(entry);
+                    syncSubscription();
+                    if (fallbackMode && typeof entry.onFallback === "function") {
+                        try { entry.onFallback(); } catch (_) {}
+                    } else if (latestEnabled !== undefined && !unavailable && typeof entry.onEnabled === "function") {
+                        Promise.resolve().then(function () {
+                            if (subscribers.has(entry) && latestEnabled !== undefined && !unavailable) {
+                                try { entry.onEnabled(latestEnabled); } catch (_) {}
+                            }
+                        });
+                    }
+                    return function unsubscribe() {
+                        if (!subscribers.delete(entry)) return;
+                        if (subscribers.size === 0) syncSubscription();
+                    };
+                }
+            };
+        }
+        const ttsEnabledFeedBridge = (typeof window !== "undefined" && !window.__dshTavernHeadless && window.location?.hostname !== "clip-export.invalid")
+            ? createTtsEnabledFeedBridge() : null;
+        if (ttsEnabledFeedBridge && typeof window !== "undefined") {
+            window[TTS_ENABLED_FEED_KEY] = ttsEnabledFeedBridge;
+        }
+        function openTavernWsSocket(connectionService) {
+            if (connectionService && typeof connectionService.openWebSocket === "function") {
+                return connectionService.openWebSocket(TAVERN_WS_RPC_PATH);
+            }
+            if (typeof window === "undefined" || typeof window.WebSocket !== "function") return null;
+            const base = (typeof document !== "undefined" && document.baseURI) || (window.location && window.location.href) || "";
+            if (!/^https?:/i.test(base)) return null;
+            const url = new URL(TAVERN_WS_RPC_PATH, base);
+            url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+            return new window.WebSocket(url.href);
+        }
         // The isolated clip export page answers every request from its frozen export snapshot (clipReplayCore below).
         let clipExportTransport = null;
 		// A save whose session log cannot be upgraded may not open at all, so this works from the
@@ -523,8 +675,10 @@ window.__ModuleLoader__.load({
 				}
 			}
 			const runtimeControl = ["claimTavernScriptWork", "startTavernScriptWork", "getTavernScriptWorkState", "heartbeatTavernScriptRuntime", "completeTavernHelperEvent", "releaseTavernHelperRuntime"].includes(method);
-            // Keep stage reads on authenticated HTTP; the upstream mux only declares script controls.
-			const controlChannel = runtimeControl && typeof tavernSessionSignals !== "undefined" && typeof tavernSessionSignals.control === "function" ? tavernSessionSignals : null;
+            // Only small/light reads ride the mux: getStageDirection without readOnly may run and save the director,
+            // and getStoryTranscript carries MB-scale story windows whose double-JSON frame stalls the 2s mux heartbeat.
+            const multiplexedRead = ['syncSession', 'pluginTurnState', 'pluginState', 'getStageModHistory', 'getDialogueBubbles'].includes(method) || method === 'getStageDirection' && args?.readOnly === true;
+			const controlChannel = (runtimeControl || multiplexedRead) && typeof tavernSessionSignals !== "undefined" && typeof tavernSessionSignals.control === "function" ? tavernSessionSignals : null;
 			const started = Date.now();
             const clockStart = performance.now();
             const roundKey = method + ':' + (sessionId || args?.sessionId || '');
@@ -532,7 +686,10 @@ window.__ModuleLoader__.load({
                 && roundLoadCounts.size < 64 && (roundLoadCounts.get(roundKey) || 0) < 3;
             if (roundTrace) {
                 roundLoadCounts.set(roundKey, (roundLoadCounts.get(roundKey) || 0) + 1);
-                roundLoadTrace.mark('rpc.begin', {method, sessionId:sessionId || args?.sessionId, channel:controlChannel ? 'mux' : 'http'});
+                const previewChannel = controlChannel
+                    ? 'mux'
+                    : (typeof tavernWsRpc !== "undefined" && tavernWsRpc && typeof tavernWsRpc.canCarry === "function" && tavernWsRpc.canCarry(method, 0, requestOptions) ? 'ws' : 'http');
+                roundLoadTrace.mark('rpc.begin', {method, sessionId:sessionId || args?.sessionId, channel:previewChannel});
             }
             const traced = ["getSession", "syncSession", "getCardOpenings", "initializeOpeningTemplate", "preparePlayStart", "startChat"].includes(method);
             const trace = traced ? { id: window.crypto?.randomUUID?.() || "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, c => { const n = Math.floor(Math.random() * 16); return (c === "x" ? n : (n & 3) | 8).toString(16); }), method, sentAt: started, active: ++performanceActiveRequests } : null;
@@ -547,7 +704,12 @@ window.__ModuleLoader__.load({
 			}
 			if (!runtimeControl && (started - performanceReportAt >= 60000 || /diagnostic|export/i.test(method))) {
 				pagePerformance.observedMs = started - pagePerformanceStarted;
-				payload._performance = Object.assign({}, pagePerformance, { requests: performanceRequests.slice(), openingRequests: typeof openingPerformance !== "undefined" ? openingPerformance.requests() : [], openings: typeof openingPerformance !== "undefined" ? openingPerformance.read() : [] });
+				payload._performance = Object.assign({}, pagePerformance, {
+					requests: performanceRequests.slice(),
+					openingRequests: typeof openingPerformance !== "undefined" ? openingPerformance.requests() : [],
+					openings: typeof openingPerformance !== "undefined" ? openingPerformance.read() : [],
+					...(typeof tavernWsRpc !== "undefined" && tavernWsRpc && typeof tavernWsRpc.stats === "function" ? { wsRpc: tavernWsRpc.stats() } : {})
+				});
 				performanceReportAt = started;
 			}
 			if (trace) payload._traceId = trace.id;
@@ -592,11 +754,33 @@ window.__ModuleLoader__.load({
                 return result;
                 });
             };
-            // Projections retain their HTTP authority and origin-bound media lease checks.
+            // The authenticated Remote mux carries small control reads; Tavern's own /api/dsh-tavern/ws
+            // channel multiplexes general JSON RPCs with relaxed keepalive outside the 6-socket HTTP/1.1 pool.
+            // Projections mint origin-bound media leases, so retain their HTTP authority checks.
+            const wsChannel = !controlChannel
+                && typeof tavernWsRpc !== "undefined"
+                && tavernWsRpc
+                && typeof tavernWsRpc.canCarry === "function"
+                && tavernWsRpc.canCarry(method, requestBody.length, requestOptions)
+                ? tavernWsRpc : null;
+            const httpFallback = () => ['getAssetPackPresentation', 'getStagePhonePresentation'].includes(method)
+                ? presentationRequest(httpRead, request.signal) : httpRead();
             const responsePromise = controlChannel
                 ? Promise.resolve().then(() => controlChannel.control(method, JSON.parse(requestBody), requestOptions && requestOptions.signal))
-                : ['getAssetPackPresentation', 'getStagePhonePresentation'].includes(method)
-                    ? presentationRequest(httpRead, request.signal) : httpRead();
+                : wsChannel
+                    ? wsChannel.call(method, requestBody, {
+                        signal: request.signal,
+                        fallback: httpFallback,
+                        onBody: trace ? function (body) {
+                            trace.transport = "ws";
+                            trace.headersMs = Math.round(performance.now() - clockStart);
+                            trace.bodyChars = body.length;
+                        } : undefined,
+                        onParsed: trace ? function () {
+                            trace.parsedMs = Math.round(performance.now() - clockStart);
+                        } : undefined
+                    })
+                    : httpFallback();
 			function checkCancelled() {
 				if (request.signal && request.signal.aborted) {
 					if (typeof request.signal.throwIfAborted === "function") request.signal.throwIfAborted();
@@ -1019,6 +1203,7 @@ window.__ModuleLoader__.load({
 // @include features/scene-images.js
 // @include modules/view-tabs.js
 // @include features/settings.js
+// @include features/vertex-region.js
 
 // @include features/prose-layout.js
 // @include features/text-layout.js
@@ -1080,9 +1265,12 @@ function clipReplayCore() {
 
 
 		const storyTranscriptFeature = createTavernStoryTranscriptFeature({
+			useCompactionState: playControlsFeature.useCompactionState,
+			compactionProgressTitle: playControlsFeature.compactionProgressTitle,
 			replyActions: {
 				Receipt: playControlsFeature.TurnReceiptButton,
 				Latest: playControlsFeature.LatestReplyActions,
+				Menu: playControlsFeature.TurnMenu,
 				RollbackTo: playControlsFeature.RollbackToTurnButton,
 				Illustrate: assistantRendererFeature.IllustrateTurnAction,
 				IllustrationDraft: TavernIllustrationDraft,
@@ -1093,9 +1281,26 @@ function clipReplayCore() {
 
 		// @include tavern-presentation.js
 
+		function installTavernComposerPlaceholder(locale) {
+			const translate = locale.translate;
+			const label = { zh: "下一步行动", en: "Next action" };
+			// The native composer uses the same locale key for the hint and the textbox's accessible name.
+			function translateWithTavernPlaceholder(namespace, key, params) {
+				if (namespace === "conversation" && key === "placeholder.default") return locale.resolveText(label);
+				return translate.call(this, namespace, key, params);
+			}
+			locale.translate = translateWithTavernPlaceholder;
+			return function () {
+				if (locale.translate === translateWithTavernPlaceholder) locale.translate = translate;
+			};
+		}
+
 		function apply(ctx) {
 			// The Tavern profile switch page names itself by side from this flag.
 			window.__dshTavernLoaded = true;
+			ctx.inject(["locale"], child => {
+				child.effect(() => installTavernComposerPlaceholder(child.locale), "dsh-tavern: composer placeholder");
+			});
             installTavernPresentation(ctx);
             // Stage registration is deferred until its optional client plugin mounts.
             const stageRegistrations = [];
@@ -1152,6 +1357,34 @@ function clipReplayCore() {
 			ctx.effect(function () { return tavernTextLayoutFeature.register(ctx); }, "dsh-tavern: text layout in appearance settings");
 			ctx.effect(() => displayPreferences.start(), "dsh-tavern: global display preferences");
 			ctx.effect(() => tavernInteractionDiagnostics.start(), "dsh-tavern: interaction diagnostics");
+			if (!window.__dshTavernHeadless && window.location?.hostname !== "clip-export.invalid") {
+				if (ttsEnabledFeedBridge && typeof ctx.provide === "function") {
+					ctx.provide("ttsEnabledFeed", ttsEnabledFeedBridge);
+				}
+				ctx.effect(() => {
+					const client = createTavernWsRpcClient({
+						openSocket: () => openTavernWsSocket(ctx.connection)
+					}).start();
+					tavernWsRpc = client;
+					if (ttsEnabledFeedBridge) ttsEnabledFeedBridge.attach(client);
+					const onWake = () => {
+						if (typeof document === "undefined" || document.visibilityState !== "hidden") client.poke();
+					};
+					if (typeof window.addEventListener === "function") window.addEventListener("online", onWake);
+					if (typeof document !== "undefined" && typeof document.addEventListener === "function") {
+						document.addEventListener("visibilitychange", onWake);
+					}
+					return () => {
+						if (typeof window.removeEventListener === "function") window.removeEventListener("online", onWake);
+						if (typeof document !== "undefined" && typeof document.removeEventListener === "function") {
+							document.removeEventListener("visibilitychange", onWake);
+						}
+						if (ttsEnabledFeedBridge) ttsEnabledFeedBridge.detach(client);
+						if (tavernWsRpc === client) tavernWsRpc = null;
+						client.dispose();
+					};
+				}, "dsh-tavern: dedicated websocket rpc");
+			}
 			ctx.effect(() => syncTavernSubagentCatalogs(ctx.sessions, ctx.tavernSessionSignals), "dsh-tavern: subagent catalog synchronization");
 			ctx.effect(() => syncTavernCardAgentResources(ctx.sessions), "dsh-tavern: card Agent resource refresh");
 			// Public browser API for third-party plugins (docs/plugin-api.md). Provided before the
@@ -1172,6 +1405,13 @@ function clipReplayCore() {
 			if (typeof ctx.provide === "function") provideAssetPackWorkbench(ctx);
 			const slots = ctx.slots;
 			if (slots === undefined) return;
+			if (ctx.betterSidebar) {
+				ctx.effect(() => registerTab(ctx.betterSidebar, {
+					id: "dsh-tavern:stage-config", title: "舞台配置", order: 9.75, single: true,
+					component: TavernStageConfigTab
+				}), "dsh-tavern: stage config tab");
+				tavernUiExtensions.service.registerStartGroup({ title: "舞台装置", tabs: ["dsh-tavern:stage-config"] });
+			}
 			if (ctx.betterSidebar) stageEffect(() => registerTab(ctx.betterSidebar, {
 				// the tab reads 「舞台设置」 (「Tavern 舞台」 was cut off).
 				id: "dsh-tavern:bubbles", title: "舞台设置", order: 9, single: true,
@@ -1218,7 +1458,7 @@ function clipReplayCore() {
             // (view.stage, host-decided); availability = server stage ready and such a session is open.
             const stageClientLoader = createStageClientLoader({
                 sessions: ctx.sessions, views: liveTavernView,
-                runtime: {read: () => rpc('getStageRuntimeStatus', {}), subscribe: (changed, wake) => signals.subscribe('plugin:dsh-tavern-stage', 'plugin-lifecycle', changed, wake, wake)},
+                runtime: {read: ({workbench}) => rpc(workbench ? 'prepareStageWorkbench' : 'getStageRuntimeStatus', {}), subscribe: (changed, wake) => signals.subscribe('plugin:dsh-tavern-stage', 'plugin-lifecycle', changed, wake, wake)},
                 load: () => import('/api/dsh-tavern/client-assets/stage-client.mjs'),
                 install: plugin => ctx.plugin(plugin),
                 report: error => tavernErrorHub.report("舞台", error)
@@ -1311,12 +1551,12 @@ function clipReplayCore() {
 				const appendMentions = function () { if (mentions) input.setDraft(withMention(String(input.state.getSnapshot().draft || ""), mentions)); };
 				if (task === "writing-skill") {
 					const references = String(input.state.getSnapshot().draft || "");
-					input.setDraft("/create-writing-skill\n\n请从已引用的素材中提炼写作 Skill，用于前台正文写作。先与我确认适用场景、禁用场景和写作要求，再编写自包含的提示词；成品不依赖原素材或参考文件。\n\n" + tagged("reference_materials", withMention(references, mentions)));
+					input.setDraft("/create-writing-skill\n\n请根据引用的素材创建前台写作 Skill。\n\n" + tagged("reference_materials", withMention(references, mentions)));
 					return;
 				}
 				if (task === "gentle") {
 					if (!targetPath) throw new Error("温和改写缺少目标人物卡");
-					input.setDraft("/gentle-rewrite\n\n@\"" + targetPath + "\"\n\n先调用 tavern_copy_card 创建保留原卡图片的独立副本，再按温和改写 skill 完成改写，交付副本路径与改写摘要。");
+					input.setDraft("/gentle-rewrite\n\n@\"" + targetPath + "\"\n\n请为这张卡制作保留封面的温和改写副本。");
 					appendMentions();
 					return;
 				}
@@ -1324,41 +1564,39 @@ function clipReplayCore() {
 					if (!targetPath) throw new Error("MVU 转换缺少目标人物卡");
 					input.setDraft(
 						"/card-to-mvu\n\n" + tagged("target_card", "@\"" + targetPath + "\"") + "\n\n" +
-						"先用 tavern_copy_card 建一份副本，在副本上改成 MVU 版，原卡保持不变；保留剧情设定与状态栏视觉风格。原卡自带的候选项（生成提示、按钮、正则和专用脚本）移除，统一使用 DSH Tavern 内置候选项；手机、开场主页等与状态栏和候选项无关的美化与脚本原样保留。"
+						"请为这张卡制作 MVU 副本，并改用 DSH Tavern 内置候选项。"
 					);
 					appendMentions();
 					return;
 				}
 				if (task === "create") {
-					input.setDraft("/create-card\n\n我想新建一张人物卡。请逐题问我，每次一个问题并给参考选项；问清角色、玩家身份、世界和开场，再问我是否需要 MVU 变量和前端美化。选了美化先给 HTML 草图让我挑，确认设定后再创建。\n\n我的初步想法：");
+					input.setDraft("/create-card\n\n我想新建一张人物卡。\n\n我的初步想法：");
 					appendMentions();
 					return;
 				}
 				if (task === "user-profile") {
-					input.setDraft(
-						"/user-profile\n\n通过分批提问了解我的长期游玩与写作偏好。可以提供差异明确的参考选项，也允许我自由回答或跳过；信息足够后形成长期偏好草案让我核对，只有我明确确认后才保存。"
-					);
+					input.setDraft("/user-profile\n\n请帮我梳理长期游玩与写作偏好。");
 					appendMentions();
 					return;
 				}
 				const result = await rpc("getCardTaskPrompt", { task: task }, sessionId);
+				const taskPrompt = String(result && result.text || "").trim();
 				const draft = String(input.state.getSnapshot().draft || "");
-				const supplement = draft + (taskSupplement ? "\n\n" + taskSupplement : "");
+				const supplement = [draft, taskSupplement].filter(Boolean).join("\n\n");
 				const targetSection = targetPath ? "\n\n" + tagged("target_card", "@\"" + targetPath + "\"") : "";
 				const resourceSection = mentions ? "\n\n" + tagged(task === "worldbook" || task === "preset" || task === "script" ? "edit_target" : "initial_script", mentions) : "";
 				if (task === "debug-play") {
-					input.setDraft("/debug-card" + targetSection + "\n\n" + supplement.trim() + "\n\n请结合已引用的游玩记录，检查这张人物卡的异常表现，按需读取相关日志和状态，说明原因并给出修改建议。");
+					input.setDraft(taskPrompt + targetSection + "\n\n" + supplement.trim() + "\n\n请排查引用的游玩记录，说明异常原因和修改建议。");
 					appendMentions();
 					return;
 				}
 				if (task === "edit") {
-					const editPrompt = String(result && result.text || "").trim();
 					const target = targetPath ? "\n\n目标卡：@\"" + targetPath + "\"" : "";
-					input.setDraft(editPrompt.replace("/edit-card", "/edit-card" + target) + resourceSection + (supplement ? "\n\n" + supplement : ""));
+					input.setDraft(taskPrompt.replace("/edit-card", "/edit-card" + target) + resourceSection + (supplement ? "\n\n" + supplement : ""));
 					return;
 				}
-				const taskText = "<card_task>" + label + "</card_task>" + targetSection + "\n\n" + String(result && result.text || "").trim() + resourceSection;
-				input.setDraft(taskText + supplement);
+				const taskText = "<card_task>" + label + "</card_task>" + targetSection + "\n\n" + taskPrompt + resourceSection;
+				input.setDraft(taskText + (supplement ? "\n\n" + supplement : ""));
 			}
 			registerTavernStartPage(ctx, slots);
 			registerTavernPhonePanel(ctx);
@@ -1383,18 +1621,16 @@ function clipReplayCore() {
                     children: { "settings.tavern.appearance": { kind: "list", scope: "root" } }
 				}, TavernSettingsSection); });
 			}, "dsh-tavern: settings section");
+			if (typeof document !== "undefined") ctx.effect(() => installSettingsNavIcons(slots, document), "dsh-tavern: settings navigation icons");
+			createVertexRegionFeature({ React: React, rpc: rpc }).register(ctx);
 			// The voice plugin's 配音 page lists browser speech as a 语音服务 row; the 🔊 line button speaks through the voice
 			// service, so the Tavern has no speech settings of its own.
 			ctx.provide("ttsBrowserSpeech", browserSpeechService);
-            ctx.effect(function () {
-                return slots.inject("settings.section", function () { return slots.register({ name:"settings.section", id:"dsh-tavern-narrative-damper", order:112, label:() => "叙事阻尼器" }, TavernNarrativeDamperSettingsSection); });
-            }, "dsh-tavern: narrative damper settings section");
+            // 叙事阻尼器的设置面板不在这里：它是内置插件 dsh-tavern-narrative-damper 的侧栏面板，
+            // 宿主设置里不再有这一页（宿主只管引擎，面板随插件启停）。
             ctx.effect(function () {
                 return slots.inject("settings.section", function () { return slots.register({ name:"settings.section", id:"dsh-tavern-plugins", order:113, label:() => "酒馆插件" }, TavernPluginsSettingsSection); });
             }, "dsh-tavern: plugins settings section");
-            ctx.effect(function () {
-                return slots.inject("settings.section", function () { return slots.register({ name:"settings.section", id:"dsh-tavern-stage-settings", order:114, label:() => "舞台" }, TavernStageSettingsSection); });
-            }, "dsh-tavern: stage settings section");
 			// 系统提示词与长期偏好在「预设」标签页（preset-hub.js）。
 
 			presetLibraryFeature.register({ ctx: ctx, appendMention: appendMention });

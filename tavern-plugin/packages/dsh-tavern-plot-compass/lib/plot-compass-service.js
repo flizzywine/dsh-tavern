@@ -1,19 +1,23 @@
 import {
   PLOT_COMPASS_BRAINSTORM_SYSTEM,
-  PLOT_COMPASS_CHAT_SUBMIT_TOOL,
+  PLOT_COMPASS_DEFAULT_MAX_ROUTES,
+  PLOT_COMPASS_GOAL_HORIZON_LABELS,
   PLOT_COMPASS_PROGRESS_SYSTEM,
   PLOT_COMPASS_SCOPES,
-  PLOT_COMPASS_SUBMIT_TOOL,
   PLOT_COMPASS_SUBMIT_TOOL_NAME,
+  activePlotCompassGoal,
   appendPlotCompassChat,
   applyPlotCompassAutoProgress,
   applyPlotCompassCustomArchetypes,
+  applyPlotCompassGoal,
   applyPlotCompassPin,
   applyPlotCompassPreferences,
   applyPlotCompassStepToggle,
   buildPlotCompassBrainstormPrompt,
+  buildPlotCompassChatSubmitTool,
   buildPlotCompassMaterial,
   buildPlotCompassProgressPrompt,
+  buildPlotCompassSubmitTool,
   clearPlotCompassChat,
   collectAssistantProseForGrounding,
   collectPendingCompassSteps,
@@ -22,6 +26,7 @@ import {
   extractStoryProseForGrounding,
   isPlotCompassEnabled,
   mergePlotCompassUpdate,
+  normalizePlotCompassMaxRoutes,
   parsePlotCompassProgressOutcome,
   parsePlotCompassSubmission,
   readPlotCompass,
@@ -48,12 +53,16 @@ export function defaultGameRecord(defaults = {}) {
   const interval = Number.isSafeInteger(Number(defaults.autoUpdateInterval))
     ? Math.max(0, Math.min(100, Number(defaults.autoUpdateInterval)))
     : 0
+  const maxRoutes = normalizePlotCompassMaxRoutes(defaults.maxRoutes) ?? PLOT_COMPASS_DEFAULT_MAX_ROUTES
   const baseCompass = emptyPlotCompass()
   if (interval > 0) baseCompass.autoUpdateInterval = interval
+  baseCompass.maxRoutes = maxRoutes
+  if (typeof defaults.strength === 'string' && ['soft', 'guided', 'strict'].includes(defaults.strength)) {
+    baseCompass.strength = defaults.strength
+  }
   return {
     version: 1,
     enabled: Boolean(defaults.enabled),
-    modelSelection: normalizePlotCompassModel(defaults.modelSelection) || 'background',
     compass: baseCompass,
     task: { status: 'idle', scope: 'all', error: '', updatedAt: 0 }
   }
@@ -66,7 +75,6 @@ export function normalizeGameRecord(raw, defaults = {}) {
   return {
     version: 1,
     enabled: typeof src.enabled === 'boolean' ? src.enabled : Boolean(defaults.enabled),
-    modelSelection: normalizePlotCompassModel(src.modelSelection) || normalizePlotCompassModel(defaults.modelSelection) || 'background',
     compass: readPlotCompass(src.compass),
     task: {
       status: str(taskRaw.status) || 'idle',
@@ -131,6 +139,7 @@ export function createPlotCompassService({
 }) {
   const jobs = new Map()
   const progressJobs = new Set()
+  let fallbackModelSelection = 'background'
 
   function projectTask(record, gameId) {
     const raw = record?.task && typeof record.task === 'object'
@@ -185,6 +194,8 @@ export function createPlotCompassService({
       const ctxData = await loadGenerationContext(gameId, freshRecord)
       const basedOnTurn = ctxData.basedOnTurn
 
+      const compassConfig = readPlotCompass(freshRecord.compass)
+      const maxRoutes = compassConfig.maxRoutes
       const material = buildPlotCompassMaterial({
         card: ctxData.card,
         messages: ctxData.messages,
@@ -192,7 +203,7 @@ export function createPlotCompassService({
         posture: ctxData.posture,
         ledger: ctxData.ledger,
         guides: ctxData.guides,
-        compass: freshRecord.compass,
+        compass: compassConfig,
         worldbookEntries: ctxData.worldbookEntries,
         constantWorldbookText: ctxData.constantWorldbookText,
         activatedWorldbookTitles: ctxData.activatedWorldbookTitles,
@@ -210,7 +221,7 @@ export function createPlotCompassService({
         signal: controller.signal,
         system: typeof promptText === 'function' ? promptText() : str(promptText),
         prompt: material,
-        tools: [PLOT_COMPASS_SUBMIT_TOOL],
+        tools: [buildPlotCompassSubmitTool(maxRoutes)],
         maxToolCalls: 4,
         stopToolsWhen: () => submitted !== null,
         acceptWithoutText: () => submitted !== null,
@@ -222,7 +233,8 @@ export function createPlotCompassService({
             submitted = parsePlotCompassSubmission(call.arguments, {
               scope,
               card: ctxData.card,
-              playerName: ctxData.playerName
+              playerName: ctxData.playerName,
+              maxRoutes
             })
             submissionError = null
             return JSON.stringify({
@@ -306,6 +318,7 @@ export function createPlotCompassService({
         message
       })
 
+      const maxRoutes = compassNow.maxRoutes
       controller.signal.throwIfAborted()
       runResult = await runAgent({
         gameId: str(gameId),
@@ -314,7 +327,7 @@ export function createPlotCompassService({
         signal: controller.signal,
         system: PLOT_COMPASS_BRAINSTORM_SYSTEM,
         prompt: brainstormPrompt,
-        tools: [PLOT_COMPASS_CHAT_SUBMIT_TOOL],
+        tools: [buildPlotCompassChatSubmitTool(maxRoutes)],
         maxToolCalls: 2,
         acceptWithoutText: () => submitted !== null,
         onToolCall: async call => {
@@ -325,7 +338,8 @@ export function createPlotCompassService({
             submitted = parsePlotCompassSubmission(call.arguments, {
               scope: 'chat',
               card: ctxData.card,
-              playerName: ctxData.playerName
+              playerName: ctxData.playerName,
+              maxRoutes
             })
             submissionError = null
             return JSON.stringify({
@@ -563,16 +577,16 @@ export function createPlotCompassService({
   }
 
   async function setModel({ gameId, model } = {}) {
-    const id = str(gameId)
-    if (!id) throw new Error('请先打开游玩会话')
     const normalized = normalizePlotCompassModel(model)
     if (!normalized) throw new Error('剧情罗盘模型配置无效')
-    const saved = await store.updateGame(id, current => {
-      current.modelSelection = normalized
-      return current
-    })
-    onStatus(id)
-    return { plotCompassModel: saved.modelSelection }
+    const savedModel = typeof store?.saveModel === 'function'
+      ? (normalizePlotCompassModel(await store.saveModel(normalized, gameId)) || normalized)
+      : (fallbackModelSelection = normalized)
+    if (typeof store?.saveModel !== 'function') {
+      const id = str(gameId)
+      if (id) onStatus(id)
+    }
+    return { modelSelection: savedModel, plotCompassModel: savedModel }
   }
 
   async function pin({ gameId, horizon, routeId, exact = false } = {}) {
@@ -619,7 +633,21 @@ export function createPlotCompassService({
     return readPlotCompass(saved?.compass)
   }
 
-  async function setPreferences({ gameId, pace, blindBox, customDirective, autoUpdateInterval } = {}) {
+  async function setGoal({ gameId, text, horizon, enabled } = {}) {
+    const id = str(gameId)
+    if (!id) throw new Error('请先打开游玩会话')
+    const record = await store.readGame(id)
+    if (!isPlotCompassEnabled(record)) throw new Error('剧情罗盘已关闭，请先开启')
+    const saved = await store.updateGame(id, current => {
+      if (!isPlotCompassEnabled(current)) throw new Error('剧情罗盘已关闭，请先开启')
+      current.compass = applyPlotCompassGoal(current.compass, { text, horizon, enabled, now: now() })
+      return current
+    })
+    onStatus(id)
+    return readPlotCompass(saved?.compass)
+  }
+
+  async function setPreferences({ gameId, strength, pace, blindBox, customDirective, autoUpdateInterval, maxRoutes, goal } = {}) {
     const id = str(gameId)
     if (!id) throw new Error('请先打开游玩会话')
     const record = await store.readGame(id)
@@ -627,16 +655,26 @@ export function createPlotCompassService({
     const saved = await store.updateGame(id, current => {
       if (!isPlotCompassEnabled(current)) throw new Error('剧情罗盘已关闭，请先开启')
       current.compass = applyPlotCompassPreferences(current.compass, {
+        strength,
         pace,
         blindBox,
         customDirective,
         autoUpdateInterval,
+        maxRoutes,
+        goal,
         now: now()
       })
       return current
     })
     onStatus(id)
     return readPlotCompass(saved?.compass)
+  }
+
+  function goalGuidanceSuffix(compass) {
+    const activeGoal = activePlotCompassGoal(compass)
+    if (!activeGoal) return ''
+    const label = PLOT_COMPASS_GOAL_HORIZON_LABELS[activeGoal.horizon] || '短期'
+    return `同时必须严格保持目标导向收束：所有生成或演进的路线均须导向达成玩家设定的${label}目标结果「${activeGoal.text}」。`
   }
 
   async function autoEvolveAfterCompaction(gameId) {
@@ -646,14 +684,15 @@ export function createPlotCompassService({
       const record = await store.readGame(id)
       if (!isPlotCompassEnabled(record)) return null
       const compass = readPlotCompass(record.compass)
+      const activeGoal = activePlotCompassGoal(compass)
       const hasPinned = Boolean(compass.pinned.shortTerm || compass.pinned.midTerm || compass.pinned.longTerm)
-      if (!hasPinned) return null
+      if (!hasPinned && !activeGoal) return null
       const latestTurn = await contextReader.latestTurn(id)
       if (latestTurn <= compass.basedOnTurn) return null
       return await generate({
         gameId: id,
         scope: 'all',
-        guidance: '本次为上下文归卷后的增量演进：请对照最新剧情勾选已完成节拍/里程碑，延续玩家已点亮路线并补充新分支。'
+        guidance: '本次为上下文归卷后的增量演进：请对照最新剧情勾选已完成节拍/里程碑，延续玩家已点亮路线并补充新分支。' + goalGuidanceSuffix(compass)
       })
     } catch {
       return null
@@ -682,9 +721,10 @@ export function createPlotCompassService({
     const compass = readPlotCompass(record.compass)
     const interval = compass.autoUpdateInterval || 0
     const hasExisting = compass.shortTerm.length > 0 || compass.midTerm.length > 0 || compass.longTerm.length > 0
-    const guidance = hasExisting
+    const baseGuidance = hasExisting
       ? `本次为每 ${interval} 楼定时自动演进刷新（当前第 ${latestTurn} 轮，距上次推演已过 ${latestTurn - compass.basedOnTurn} 轮）：请对照最新剧情勾选已完成节拍/里程碑，延续玩家已点亮路线并补充新分支。`
       : `本次为每 ${interval} 楼定时自动推演（当前第 ${latestTurn} 轮）：请结合当前剧情、人物卡与世界书暗线，生成今期、中期、长期的多路线剧情发展规划。`
+    const guidance = baseGuidance + goalGuidanceSuffix(compass)
     return await generate({
       gameId: id,
       scope: 'all',
@@ -746,13 +786,13 @@ export function createPlotCompassService({
         await generate({
           gameId: id,
           scope: 'shortTerm',
-          guidance: `上一幕点亮的近期路线「${outcome.completedPinnedShortTitle}」全部节拍已在剧情中达成，请紧承最新回合结尾与已点亮的中长期方向，推演下一幕新的今期（2-5轮）多路线节拍。`
+          guidance: `上一幕点亮的近期路线「${outcome.completedPinnedShortTitle}」全部节拍已在剧情中达成，请紧承最新回合结尾与已点亮的中长期方向，推演下一幕新的今期（2-5轮）多路线节拍。` + goalGuidanceSuffix(outcome.compass)
         }).catch(() => {})
       } else if (outcome?.pinnedShortLapsed && !jobs.has(id)) {
         await generate({
           gameId: id,
           scope: 'shortTerm',
-          guidance: `原定近期路线「${outcome.lapsedPinnedShortTitle}」因玩家行动或局势变化已不再成立（${outcome.lapsedPinnedShortReason}），请严格依据最新场面定格与已有中长期基调，重新推演符合当前因果与处境的今期（2-5轮）新分支。`
+          guidance: `原定近期路线「${outcome.lapsedPinnedShortTitle}」因玩家行动或局势变化已不再成立（${outcome.lapsedPinnedShortReason}），请严格依据最新场面定格与已有中长期基调，重新推演符合当前因果与处境的今期（2-5轮）新分支。` + goalGuidanceSuffix(outcome.compass)
         }).catch(() => {})
       }
       return outcome
@@ -776,10 +816,13 @@ export function createPlotCompassService({
     return await syncTurnProgress({ gameId: id, turn: latestTurn })
   }
 
-  function viewState(record, gameId, latestTurn = 0) {
+  function viewState(record, gameId, latestTurn = 0, modelSelection) {
     return {
       enabled: isPlotCompassEnabled(record),
-      modelSelection: normalizePlotCompassModel(record?.modelSelection) || 'background',
+      modelSelection: normalizePlotCompassModel(modelSelection)
+        || normalizePlotCompassModel(record?.modelSelection)
+        || normalizePlotCompassModel(fallbackModelSelection)
+        || 'background',
       plotCompass: readPlotCompass(record?.compass),
       plotCompassTask: projectTask(record, gameId),
       latestAssistantTurn: Math.max(0, Number(latestTurn) || 0)
@@ -798,6 +841,7 @@ export function createPlotCompassService({
     pin,
     toggleStep,
     setArchetypes,
+    setGoal,
     setPreferences,
     isAutoUpdateDue,
     autoUpdateOnTurn,

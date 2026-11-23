@@ -8,8 +8,6 @@ import {performanceInteropUse} from '../../../lib/domain/mods/interop.js'
 import {emptyCardMods,modError,assertSchema} from '../../../lib/domain/mod-system-contract.js'
 import {managedConfigFields} from '../../../lib/domain/mod-system-config.js'
 import {builtinConfigSchemas} from '../../../lib/domain/mods/config-builtins.js'
-import {stateSourceSchema} from '../../../lib/domain/mods/state-source.js'
-import {validateConfigValue} from '../../../lib/domain/mods/config.js'
 
 export function managedConfigSchemas(manifests,resources,library) {
   const labels=builtinConfigSchemas(resources,library)
@@ -83,50 +81,50 @@ export async function managedExecutionView({management,builtins}) {
 // `files` (createModConfigFiles) holds a layer's uploaded pictures (the phone's Photos library and
 // wallpaper); without it uploads stay with the asset library.
 export function managedConfigStore({management,readCard,listCards,files}) {
-  async function cardOwner(cardId) {await management.cards.list();return management.cards.read({cardId})}
+  // The card's known path answers; the card list is read again only for a card it does not know (new, moved or copied).
+  async function cardOwner(cardId) {
+    try {return await management.cards.read({cardId})}
+    catch(error) {if(error?.code!=='MOD_MISSING')throw error}
+    await management.cards.list()
+    return management.cards.read({cardId})
+  }
   return Object.freeze({
     async read({modId,cardId,sessionId}) {
-      const global=management.settings.read(),card=cardId?await cardOwner(cardId):null
+      const global=management.settings.value(),card=cardId?await cardOwner(cardId):null
       const installed=await management.installations.read(),manifest=installed.value.releases.find(row=>row.active && row.installed && row.manifest.id===modId)?.manifest
-      const preferences=Object.fromEntries(Object.entries(global.value.preferences[modId] || {}).filter(([key])=>Object.hasOwn(manifest?.preferences.schema.properties || {},key)).map(([key,fixed])=>[key,{fixed}]))
+      const preferences=Object.fromEntries(Object.entries(global.preferences[modId] || {}).filter(([key])=>Object.hasOwn(manifest?.preferences.schema.properties || {},key)).map(([key,fixed])=>[key,{fixed}]))
       const skin=await management.skinFor?.({cardId,sessionId})
-      return {revision:createHash('sha256').update(JSON.stringify([global.revision,card?.revision || '0',skin?.resource?.identity || skin?.document?.id || null,skin?.document?.mods || null])).digest('hex'),global:{...global.value.config[modId]?.values,...preferences},card:card?.value.config[modId]?.values || {}}
+      // The revision (it describes the whole settings profile) is computed once, when asked for: a write's check and the
+      // config view ask at once; resolving values, as every stage request does, never needs it.
+      let revision
+      return {get revision(){return revision ??= createHash('sha256').update(JSON.stringify([management.settings.read().revision,card?.revision || '0',skin?.resource?.identity || skin?.document?.id || null,skin?.document?.mods || null])).digest('hex')},global:{...global.config[modId]?.values,...preferences},card:card?.value.config[modId]?.values || {}}
     },
     async write({modId,cardId,sessionId,layer,values,expectedRevision}) {
       const before=await this.read({modId,cardId,sessionId})
       if(before.revision!==expectedRevision)throw modError('MOD_REVISION_CONFLICT','Configuration changed')
       const owner=layer==='card'?management.cards:management.settings,current=layer==='card'?await cardOwner(cardId):owner.read(),next=structuredClone(current.value)
       const installed=await management.installations.read(),manifest=installed.value.releases.find(row=>row.active && row.manifest.id===modId)?.manifest
-      if(!manifest && modId!=='dsh.state')throw modError('MOD_MISSING','Configuration owner is not installed')
+      if(!manifest)throw modError('MOD_MISSING','Configuration owner is not installed')
       const config={}
-      if(layer==='global' && manifest)next.preferences[modId]={}
+      if(layer==='global')next.preferences[modId]={}
       for(const [key,value] of Object.entries(values)) {
-        if(Object.hasOwn(manifest?.preferences.schema.properties || {},key)) {
+        if(Object.hasOwn(manifest.preferences.schema.properties,key)) {
           if(layer!=='global')throw modError('MOD_INVALID','Preferences are global values')
           if(value.auto===true)continue
           if(!Object.hasOwn(value,'fixed'))throw modError('MOD_INVALID','Preferences are fixed values')
           next.preferences[modId][key]=value.fixed
         } else config[key]=value
       }
-      if(manifest) {
-        const skin=await management.skinFor?.({cardId,sessionId}),locked=skin?.document?.mods?.[modId]?.locks || []
-        for(const key of new Set([...Object.keys(before[layer] || {}),...Object.keys(values)])) {
-          if(equal(before[layer]?.[key],values[key]))continue
-          if(manifest.config.schema.properties[key]?.userAdjustable===false || locked.includes(key))throw modError('MOD_INVALID','This option is controlled by the skin',{key})
-        }
-        validateManagedConfigValues(manifest,config)
-        for(const [key,value] of Object.entries(config))if(Object.hasOwn(value,'fixed'))assertSchema(manifest.config.schema.properties[key],value.fixed)
-        await management.validateReferences({manifest,values:config,cardId,scope:layer})
-        if(layer==='global')assertSchema(manifest.preferences.schema,{...manifest.preferences.defaults,...next.preferences[modId]})
-      } else {
-        if(layer!=='global')throw modError('MOD_INVALID','State source is a global core preference')
-        for(const [key,value] of Object.entries(config)) {
-          const field=stateSourceSchema.fields.find(row=>row.key===key)
-          if(!field)throw modError('MOD_INVALID','Unknown state preference')
-          validateConfigValue(value,field)
-        }
+      const skin=await management.skinFor?.({cardId,sessionId}),locked=skin?.document?.mods?.[modId]?.locks || []
+      for(const key of new Set([...Object.keys(before[layer] || {}),...Object.keys(values)])) {
+        if(equal(before[layer]?.[key],values[key]))continue
+        if(manifest.config.schema.properties[key]?.userAdjustable===false || locked.includes(key))throw modError('MOD_INVALID','This option is controlled by the skin',{key})
       }
-      next.config[modId]={version:manifest?.config.version || 1,values:config}
+      validateManagedConfigValues(manifest,config)
+      for(const [key,value] of Object.entries(config))if(Object.hasOwn(value,'fixed'))assertSchema(manifest.config.schema.properties[key],value.fixed)
+      await management.validateReferences({manifest,values:config,cardId,scope:layer})
+      if(layer==='global')assertSchema(manifest.preferences.schema,{...manifest.preferences.defaults,...next.preferences[modId]})
+      next.config[modId]={version:manifest.config.version,values:config}
       if(!equal(current.value,next))await owner.compareAndSwap({...(layer==='card'?{cardId}:{}),expectedRevision:current.revision,expectedValue:current.value,value:next})
       return this.read({modId,cardId,sessionId})
     },

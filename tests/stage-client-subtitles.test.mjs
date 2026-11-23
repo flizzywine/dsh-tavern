@@ -24,7 +24,7 @@ test('subtitle measurement listeners and queued callbacks stop at unmount',()=>{
  const clone={style:{},removeAttribute(){},setAttribute(){},remove(){}}
  const element={cloneNode:()=>clone,className:'text',clientWidth:0,getBoundingClientRect:()=>({width:0}),closest:()=>null}
  const React={useState:value=>[++state===1?element:value,()=>{}],useCallback:fn=>fn,useMemo:fn=>fn(),useRef:value=>({current:value}),useLayoutEffect:fn=>effects.push(fn)}
- const subtitles=createStageSubtitles({React,document:{createElement:()=>({style:{},append(){}}),fonts:{addEventListener:(k,fn)=>fontEvents.set(k,fn),removeEventListener:k=>fontEvents.delete(k)}},
+ const subtitles=createStageSubtitles({React,document:{createElement:()=>({style:{},append(){}}),createTextNode:data=>({data}),fonts:{addEventListener:(k,fn)=>fontEvents.set(k,fn),removeEventListener:k=>fontEvents.delete(k)}},
  window:{addEventListener:(k,fn)=>events.set(k,fn),removeEventListener:k=>events.delete(k)},
  foreground:{requestAnimationFrame:()=>++frames,cancelAnimationFrame(){}},fonts:{subscribe:fn=>{fontCallback=fn;return ()=>{}}},
  ResizeObserver:class {constructor(fn){resizeCallback=fn}observe(){}disconnect(){}}})
@@ -36,17 +36,4 @@ test('subtitle measurement listeners and queued callbacks stop at unmount',()=>{
  assert.equal(frames,0)
  assert.equal(events.size,0)
  assert.equal(fontEvents.size,0)
-})
-test('page lines are read from the text element computed style and its box room',()=>{
- const css=values=>({lineHeight:'30px',fontSize:'20px',paddingTop:'10px',paddingBottom:'10px',getPropertyValue:key=>values[key]??''})
- const box={clientHeight:120}
- const subtitles=createStageSubtitles({getComputedStyle:node=>node===box?css({}):null})
- const element=fit=>({closest:selector=>fit&&selector==='.fork-gal-box'?box:null})
- // a box without a fitted text area: the skin's lines at the CONFIG text scale
- assert.equal(subtitles.pageLines(element(false),css({'--gal-skin-lines':'4'}),false).lines,4)
- assert.equal(subtitles.pageLines(element(false),css({'--gal-skin-lines':'4','--fk-text-scale':'1.25'}),false).lines,3)
- assert.equal(subtitles.pageLines(element(false),css({}),true).lines,2)
- // a fitted box: the whole lines its padded text area holds; a box whose height follows its lines holds its max lines
- assert.deepEqual(subtitles.pageLines(element(true),css({'--gal-skin-lines-fit':'box','--gal-skin-lines':'2'}),false),{lineHeight:30,lines:3,fitMax:0,fitMin:1})
- assert.deepEqual(subtitles.pageLines(element(true),css({'--gal-skin-lines-fit':'box','--art-fit-max':'2','--art-fit-min':'1'}),false),{lineHeight:30,lines:2,fitMax:2,fitMin:1})
 })

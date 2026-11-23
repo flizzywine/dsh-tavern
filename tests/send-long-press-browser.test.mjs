@@ -1,4 +1,4 @@
-import test from 'node:test'
+import test from './helpers/parallel-test.mjs'
 import assert from 'node:assert/strict'
 import { openTavernSettings } from './fixtures/tavern-settings-browser.mjs'
 

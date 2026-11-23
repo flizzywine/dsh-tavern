@@ -23,6 +23,8 @@ for (const side of ['foreground', 'background']) {
     appendSessionEvent(agent.session, 'user/message', { id: 'frame', role: 'user', content: [], source: { kind: 'plugin:dsh-tavern', form: 'foreground-frame' } }, { surfaceOp: 'append' })
     await ensureSessionStablePrefix(agent.session, '不可丢失的固定背景：更新后的世界书', undefined, 1)
     appendSessionEvent(agent.session, 'user/message', { id: 'cleanup', role: 'user', content: [], source: { kind: 'plugin:dsh-tavern-failed-turn-cleanup' } }, { surfaceOp: 'append' })
+    appendSessionEvent(agent.session, 'user/message', { id: 'regeneration-abort', role: 'user', content: [], source: { kind: 'plugin:dsh-tavern-regeneration-abort' } }, { surfaceOp: 'append' })
+    appendSessionEvent(agent.session, 'user/message', { id: 'import-context', role: 'user', content: [], source: { kind: 'plugin:dsh-tavern-context-window' } }, { surfaceOp: 'append' })
     // The prefix writer reserved an opening turn that no greeting fills, and this
     // test drives the Agent directly: close it the way Tavern's own turn starters do.
     releaseOpeningTurn(agent.session, agent)
@@ -35,13 +37,14 @@ for (const side of ['foreground', 'background']) {
     h.ctx.on('llm/stream', (request, next) => {
       if (request.purpose === 'compaction') {
         requests.push(request)
-        if (request.messages.some(m => m.role === 'user' && m.content.length === 0)) throw Error('400: user message must have content')
+        const empty = request.messages.filter(m => ['system', 'user', 'assistant'].includes(m.role) && m.content.length === 0)
+        if (empty.length) throw Error('400: empty messages: ' + empty.map(m => m.id).join(', '))
       }
       return next()
     })
     const result = await new BasicCompactionEngine(h.ctx, { auto: false, maxTokens: 4096 }).compactNow(agent, new AbortController().signal).catch(error => { throw error.cause || error })
     assert.ok(requests.length, 'must reach the real summary request')
-    assert.ok(result, 'compaction must produce a summary instead of failing on an empty user message')
+    assert.ok(result, 'compaction must produce a summary instead of failing on empty messages')
     assert.ok(sessionEvents(agent.session).some(e => e.type === 'compaction/summary'))
     assert.equal(readSessionStablePrefix(agent.session).text, prefix)
     assert.deepEqual(sessionEvents(agent.session).slice(0, before.length), before, 'original events stay immutable')

@@ -1,4 +1,5 @@
-// SHA-256 fallback adapted from PR #113; scoped to card frames without native SubtleCrypto.
+// SHA-256 fallback adapted from PR #113; installed in the main page and card frames without native SubtleCrypto
+// (outside a secure context, e.g. http on a LAN address).
 function installTavernCryptoSubtlePolyfill(host) {
 	try {
 		if (!host || !host.crypto || host.crypto.subtle) return;

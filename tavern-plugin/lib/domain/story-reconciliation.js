@@ -3,6 +3,10 @@ import { repairNativeSurface, recordNativeSurfaceRepair, planNativeSurfaceRepair
 import { reshadowRolledBackRounds } from './rollback-surface.js'
 import { reserveStoryTurns, sessionEvents } from './session-events.js'
 import { inspectStoryAlignment, nativeStoryTurns } from './story-alignment.js'
+import { readRecentWindow } from './bounded-history.js'
+import { withConversationReadLane } from './conversation-read-lanes.js'
+
+const alignmentMessageFields = ['role', 'greeting', 'turn', 'text', 'sourceText', 'projectionText', 'nativeAnchor']
 
 function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
@@ -12,13 +16,13 @@ function str(value) {
 // acts on "the latest round" (#196): record a round the save missed, re-shadow
 // a rolled-back round the model still sees, and rewrite the native tail from the
 // save when their text drifted. The save is the truth. Never blocks the caller.
-export function createStoryReconciliation({ agentRegistry, sessionStore, chatForSession, chatSliceForSession, updateChat, turns }) {
+export function createStoryReconciliation({ agentRegistry, sessionStore, chatForSession, chatSliceForSession, readWindow, updateChat, turns }) {
   const liveSession = sessionId => sessionStore.get(sessionId) || agentRegistry.get(sessionId)?.session
   // Reconciling writes the save: never while a turn of that session runs, where
   // it would wait on the very turn it shares the template runtime with.
   const reconciledSessions = new Set(), reconciling = new Map()
 
-  async function reconcileWhenIdle(sessionId, { once = false } = {}) {
+  async function reconcileWhenIdle(sessionId, { once = false, background = false } = {}) {
     sessionId = str(sessionId)
     if (!sessionId || (once && reconciledSessions.has(sessionId))) return null
     // Any phase but idle may be a turn being prepared; reconciling then would race it.
@@ -32,7 +36,7 @@ export function createStoryReconciliation({ agentRegistry, sessionStore, chatFor
       const started = events.findLastIndex(event => event?.type === 'turn/start'), ended = events.findLastIndex(event => event?.type === 'turn/end')
       return started > ended
     }
-    if (busy()) {
+    if (!background && busy()) {
       const agent = agentRegistry.get(sessionId)
       if (once || typeof agent?.whenIdle !== 'function') return null
       await agent.whenIdle()
@@ -40,7 +44,13 @@ export function createStoryReconciliation({ agentRegistry, sessionStore, chatFor
     }
     // One reconcile per session at a time; concurrent view reads share it.
     if (reconciling.has(sessionId)) return await reconciling.get(sessionId)
-    const run = reconcileStory(sessionId, { stillIdle: () => !busy() })
+    const reconcile = () => reconcileStory(sessionId, { stillIdle: () => !busy() })
+    // Register the work before the first send can race it. Yield to the opening
+    // reply and keep its disk reads behind interactive work.
+    const run = background
+      ? new Promise(resolve => setImmediate(resolve)).then(() =>
+        busy() ? null : withConversationReadLane('background', reconcile))
+      : reconcile()
     reconciling.set(sessionId, run)
     try {
       const report = await run
@@ -91,14 +101,22 @@ export function createStoryReconciliation({ agentRegistry, sessionStore, chatFor
 
   // The save's latest player rounds, oldest first: enough rows to cover the native window.
   async function storyAlignmentInput(sessionId, nativeCount) {
-    const fields = ['id', 'mode', 'nativeCommits', 'suppressedDshTurns', 'regeneratedDshTurns', 'regenInProgress', 'nativeSync']
+    const fields = ['id', '_storageRevision', 'mode', 'nativeCommits', 'suppressedDshTurns', 'regeneratedDshTurns', 'regenInProgress', 'nativeSync']
     const head = await chatSliceForSession(sessionId, [], fields)
     let header, rows
     if (head?.chat) {
       const total = Number(head.messageCount) || 0, want = Math.min(total, nativeCount * 3 + 20)
-      const selected = want ? await chatSliceForSession(sessionId, Array.from({ length: want }, (_, index) => total - want + index), []) : null
       header = head.chat
-      rows = selected?.chat?.messages || []
+      rows = []
+      if (want) {
+        const window = readWindow && await readRecentWindow(readWindow, header.id, {
+          limit: Math.min(want, 500), from: total - want, fields: ['id', '_storageRevision'], messageFields: alignmentMessageFields
+        })
+        if (window && window.messageCount !== total) return null
+        const selected = window || await chatSliceForSession(sessionId, Array.from({ length: want }, (_, index) => total - want + index), ['_storageRevision'])
+        if (!selected?.chat || selected.chat.id !== header.id || selected.chat._storageRevision !== header._storageRevision) return null
+        rows = selected.chat.messages
+      }
     } else {
       header = await chatForSession(sessionId)
       rows = header?.messages || []
@@ -132,6 +150,7 @@ export function createStoryReconciliation({ agentRegistry, sessionStore, chatFor
         const adopted = await turns.finalize({ sessionId, turn: round.turn, requestId: round.requestId, userText: round.userText, userContent: round.userContent, assistantText: round.assistantText, nativeAnchor: round.nativeAnchor, adopt: true })
         if (adopted?.saved && !adopted.duplicate) console.warn('dsh-tavern: 第 ' + round.turn + ' 轮已完成但未写入存档，已补记')
       }
+      if (!stillIdle()) return report
       const shadowed = reshadowRolledBackRounds(session, new Set(report.rolledBackVisible))
       if (shadowed.length) {
         await sessionStore.flush(session)
@@ -139,7 +158,12 @@ export function createStoryReconciliation({ agentRegistry, sessionStore, chatFor
       }
       // No automatic rewrite of the native tail: a drift is reported, never fixed
       // behind the player's back. Only an explicit action (撤回 / 回退 / 重发) changes it.
-      const after = alignStory(session, await storyAlignmentInput(sessionId, nativeStoryTurns(session).length))
+      let after = report
+      if (report.adopt.length || shadowed.length) {
+        const updated = await storyAlignmentInput(sessionId, nativeStoryTurns(session).length)
+        if (!updated) return null
+        after = alignStory(session, updated)
+      }
       if (after.state === 'mismatch') console.warn('dsh-tavern: 存档与模型上下文的轮次不一致（不自动修复）：' + JSON.stringify(after.mismatch))
       else if (!after.aligned) console.warn('dsh-tavern: 存档与模型上下文未对齐（不自动修复）：' + (after.nativeSync === 'stale' ? '上次同步失败' : after.textDrift ? '正文不一致' : '找不到原生位置'))
       return after

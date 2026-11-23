@@ -508,12 +508,6 @@ body.dsh-tavern-shell-active [data-dsh-dock-fallback]:hover { opacity: 1; }
   background: linear-gradient(135deg, rgba(var(--accent-rgb),.11), rgba(var(--white-rgb),.42));
   border-color: var(--accent-ring);
 }
-/* 「⋯」对话操作菜单是卡片内的绝对定位层：卡片默认 overflow:hidden 会把它裁掉，
-   并且后面的卡片会盖住它。菜单打开的那一张放开裁剪并抬到同层最上面。 */
-.dsh-tavern-history-group:has(.dsh-tavern-side-row-menu) {
-  overflow: visible;
-  z-index: 6;
-}
 
 .dsh-tavern-history-group-toggle {
   display: flex !important;
@@ -1222,8 +1216,6 @@ button[aria-label*="子智能体"]::before {
   background: linear-gradient(135deg, rgba(var(--accent-rgb),.11), rgba(var(--white-rgb),.42));
   border-color: var(--accent-ring);
 }
-/* 行内「⋯」菜单要浮到相邻卡片之上（列表本身仍可滚动） */
-.dsh-tavern-side-list > .dsh-tavern-side-row:has(.dsh-tavern-side-row-menu) { z-index: 6; }
 .dsh-tavern-side-list > .dsh-tavern-side-row .dsh-tavern-side-row-main {
   display: block;
   flex: 1 1 auto;
@@ -1887,7 +1879,7 @@ button[aria-label*="子智能体"]::before {
   text-decoration-thickness: 1px;
 }
 
-/* 移动端把宿主实时状态折叠到操作行末尾；桌面继续显示完整状态。 */
+/* 移动端紧凑排列操作行；运行状态收纳进模型菜单末行，桌面继续显示完整状态。 */
 @media (max-width: 1023px), (pointer: coarse) {
   .dsh-tavern-dock-actions { gap: 5px !important; padding: 4px 8px !important; }
   .dsh-tavern-dock-actions-primary { gap: 5px; }
@@ -1895,9 +1887,21 @@ button[aria-label*="子智能体"]::before {
   .dsh-tavern-dock-actions .dsh-tavern-choice-trigger:is([data-fork-action="choices"], [data-fork-action="choices-again"]) {
     background: color-mix(in srgb, var(--accent) 10%, transparent) !important; color: var(--accent) !important;
   }
-  .dsh-tavern-dock-actions .dsh-tavern-mobile-stats-toggle {
-    min-height: 44px !important; padding: 0 !important; border: 0 !important;
-    background: transparent !important; color: var(--text-muted) !important;
+  .dsh-tavern-mobile-dock-toggle { color: var(--text-muted) !important; }
+  .dsh-tavern-mobile-dock-toggle-tab {
+    border-color: var(--border-subtle, var(--dsw-alias-border-l2)) !important;
+    background: var(--bg-surface, var(--dsw-specific-sidebar-fill)) !important;
+  }
+  .dsh-tavern-mobile-dock-toggle:active .dsh-tavern-mobile-dock-toggle-tab,
+  .dsh-tavern-mobile-dock-toggle:focus-visible .dsh-tavern-mobile-dock-toggle-tab {
+    color: var(--accent) !important;
+    border-color: color-mix(in srgb, var(--accent) 45%, var(--border-subtle, var(--dsw-alias-border-l2))) !important;
+  }
+  @media (hover: hover) {
+    .dsh-tavern-mobile-dock-toggle:hover .dsh-tavern-mobile-dock-toggle-tab {
+      color: var(--accent) !important;
+      border-color: color-mix(in srgb, var(--accent) 45%, var(--border-subtle, var(--dsw-alias-border-l2))) !important;
+    }
   }
 }
 

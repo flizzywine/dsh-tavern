@@ -55,7 +55,7 @@
 					name = await askTavernText({ title: action === "rename" ? "重命名方案" : "新方案名称", initialValue: action === "rename" ? (active && active.name || "") : action === "duplicate" ? (active && active.name || "") + " 副本" : "", maxLength: 80 });
 					if (!name) return;
 				}
-				if (action === "delete" && !await askConfirm("删除方案“" + (state.promptSets.sets.find(function (item) { return item.id === id; }) || {}).name + "”？删除后切换到另一个方案，此操作不能撤销。")) return;
+				if (action === "delete" && !await askConfirm("删除后切换到另一个方案，此操作不能撤销。", { title: "删除方案“" + (state.promptSets.sets.find(function (item) { return item.id === id; }) || {}).name + "”？", confirmText: "删除", danger: true, hide: "prompt-set" })) return;
 				if (action === "select" && Object.keys(state.drafts).length > 0 && !await askConfirm("切换方案会丢弃未保存的修改，是否继续？")) return;
 				setState(function (current) { return Object.assign({}, current, { busy: true, error: "", notice: "" }); });
 				try { accept(await rpc("manageSystemPromptSet", { action: action, id: id, name: name }), action === "select" ? "已切换方案，将从下一次请求开始生效。" : action === "delete" ? "方案已删除，已切换到其他方案。" : action === "rename" ? "已重命名。" : "已新建方案并切换使用。"); }

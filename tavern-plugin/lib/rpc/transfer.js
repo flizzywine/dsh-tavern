@@ -1,8 +1,8 @@
 import { createHash, randomUUID } from 'node:crypto'
-import { mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, readdir, stat, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { exportSillyTavernMigrationScript, MIGRATION_HELPER_FILENAME } from '../domain/sillytavern-migration-helper.js'
-import { buildTransferManifest, packTransferBundle, readTransferBundle, safeTransferFileName, TRANSFER_EXTENSION } from '../domain/transfer-bundle.js'
+import { buildTransferManifest, packTransferBundle, readTransferBundleFile, safeTransferFileName, TRANSFER_EXTENSION } from '../domain/transfer-bundle.js'
 import { createTransferAssets } from '../domain/transfer-assets.js'
 import { createTransferCatalog } from '../domain/transfer-catalog.js'
 import { createTransferChats } from '../domain/transfer-chats.js'
@@ -20,10 +20,8 @@ function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
 }
 
-// A package waiting to be applied lives in memory for a quarter of an hour; a reload asks again.
+// A verified upload stays on disk while its preview token can be applied.
 const TOKEN_TTL_MS = 15 * 60 * 1000
-// P0 bundles carry text only; anything far larger is probably not one of ours.
-const MAX_IMPORT_BYTES = 128 * 1024 * 1024
 // A 16 MB ZIP is already awkward as base64 inside one JSON reply.
 const STREAM_THRESHOLD_BYTES = 16 * 1024 * 1024
 
@@ -36,7 +34,7 @@ function stamp() {
 
 /** Export / import of `.dshtransfer` bundles (Wiki「设计：data-transfer」). */
 export function createTransferHandlers(deps) {
-  const { dataRoot, uploads, fileResources, worldBooks, presetLibrary, promptDocuments, userPreferenceProfile,
+  const { ctx, dataRoot, uploads, fileResources, worldBooks, presetLibrary, promptDocuments, userPreferenceProfile,
     regexManager, readTavernSettings, updateTavernSettings, importCard, importPreset, readCardWorkspace,
     cardPreparation, TAVERN_PACKAGE_VERSION, listTavernSessions, readChat, chatPersistence, exportGameSave, importGameSave,
     importChatHistoryText, userPluginInstaller, pluginDataStore, tavernSkills, transferExports, exportTavernLogs,
@@ -51,10 +49,11 @@ export function createTransferHandlers(deps) {
   }
 
   async function writeBackup(name, text) {
-    const directory = path.join(dataRoot, '..', 'backups', 'transfer', stamp())
-    await mkdir(directory, { recursive: true })
+    const backupRoot = path.join(dataRoot, '..', 'backups', 'transfer')
+    await mkdir(backupRoot, { recursive: true })
+    const directory = await mkdtemp(path.join(backupRoot, stamp() + '-'))
     const target = path.join(directory, safeTransferFileName(name, 'backup.json'))
-    await writeFile(target, text)
+    await writeFile(target, text, { flag: 'wx', flush: true })
     return path.relative(path.join(dataRoot, '..'), target).split(path.sep).join('/')
   }
 
@@ -129,11 +128,28 @@ export function createTransferHandlers(deps) {
   const runningApplies = new Map()
   const finishedApplies = new Map()
   const applyProgress = new Map()
+  const runningExports = new Set()
+  const exportProgress = new Map()
+  const previewsByUpload = new Map()
+  async function discardPreview(token) {
+    const entry = tokens.get(token)
+    if (!entry) return
+    tokens.delete(token)
+    previewsByUpload.delete(entry.uploadId)
+    clearTimeout(entry.expiry)
+    try { await entry.close() } finally { await entry.remove() }
+  }
+  ctx?.effect?.(() => () => {
+    for (const token of tokens.keys()) if (!runningApplies.has(token)) void discardPreview(token).catch(() => {})
+  })
   function sweepTokens(now = Date.now()) {
-    for (const [token, entry] of tokens) if (now - entry.at > TOKEN_TTL_MS) tokens.delete(token)
+    for (const [token, entry] of tokens) {
+      if (now - entry.at >= TOKEN_TTL_MS && !runningApplies.has(token)) void discardPreview(token).catch(() => {})
+    }
     for (const [token, entry] of undoTokens) if (now - entry.at > TOKEN_TTL_MS) undoTokens.delete(token)
     for (const [token, entry] of finishedApplies) if (now - entry.at > TOKEN_TTL_MS) finishedApplies.delete(token)
     for (const [token, entry] of applyProgress) if (now - entry.at > TOKEN_TTL_MS) applyProgress.delete(token)
+    for (const [exportId, entry] of exportProgress) if (now - entry.at > TOKEN_TTL_MS) exportProgress.delete(exportId)
   }
 
   const fileHash = async relative => {
@@ -169,65 +185,101 @@ export function createTransferHandlers(deps) {
     },
 
     async createTransferExport(args) {
+      sweepTokens()
+      const exportId = str(args && args.exportId).trim().slice(0, 120)
       const selection = args && typeof args.selection === 'object' && args.selection !== null ? args.selection : {}
-      const collected = await catalog.collect(selection, { images: args && args.includeImages !== false })
-      if (!collected.parts.length) throw new Error('请至少选择一个板块')
-      const name = safeTransferFileName(str(args && args.name) || 'DSH酒馆备份-' + stamp(), 'DSH酒馆备份')
-      const manifest = buildTransferManifest({
-        name,
-        source: { tavern: str(TAVERN_PACKAGE_VERSION), platform: process.platform },
-        parts: collected.parts
-      })
-      const buffer = packTransferBundle({ manifest, files: collected.files })
-      const filename = manifest.name + TRANSFER_EXTENSION
-      const parts = manifest.parts.map(function (part) {
-        return { kind: part.kind, label: part.label, items: part.items.length, bytes: part.bytes }
-      })
-      // Past this size the page downloads by URL instead of carrying base64 through JSON.
-      // 文件名放进路径：Android 的 URLUtil.guessFileName 在 DownloadListener 拿不到
-      // Content-Disposition 时会退回 URL 最后一段，只写 query 会得到 transfer-export.bin。
-      if (transferExports && buffer.length > STREAM_THRESHOLD_BYTES) {
-        const stored = await transferExports.put(buffer, filename)
-        return { filename, name: manifest.name,
-          downloadUrl: '/api/dsh-tavern/transfer-export/' + encodeURIComponent(filename) + '?token=' + stored.token,
-          bytes: buffer.length, totals: manifest.totals, parts }
+      const startedAt = Date.now()
+      let lastTotal = 0
+      const report = function (step) {
+        if (!exportId) return
+        if (Number(step && step.total) > 0) lastTotal = Number(step.total)
+        exportProgress.set(exportId, Object.assign({ at: Date.now(), startedAt }, step))
       }
-      return {
-        filename,
-        name: manifest.name,
-        base64: buffer.toString('base64'),
-        bytes: buffer.length,
-        totals: manifest.totals,
-        parts
+      if (exportId) {
+        runningExports.add(exportId)
+        report({ stage: 'start', kind: '', label: '准备中', itemTitle: '', items: 0, total: 0 })
+      }
+      try {
+        const collected = await catalog.collect(selection, {
+          images: args && args.includeImages !== false,
+          onProgress: exportId ? step => report(step) : null
+        })
+        if (!collected.parts.length) throw new Error('请至少选择一个板块')
+        const totalDone = lastTotal || collected.parts.reduce(function (sum, part) { return sum + part.items.length }, 0)
+        report({ stage: 'pack', kind: 'pack', label: '正在打包压缩', itemTitle: '', items: totalDone, total: totalDone })
+        if (exportId) await new Promise(resolve => setImmediate(resolve))
+        const name = safeTransferFileName(str(args && args.name) || 'DSH酒馆备份-' + stamp(), 'DSH酒馆备份')
+        const manifest = buildTransferManifest({
+          name,
+          source: { tavern: str(TAVERN_PACKAGE_VERSION), platform: process.platform },
+          parts: collected.parts
+        })
+        const buffer = packTransferBundle({ manifest, files: collected.files })
+        const filename = manifest.name + TRANSFER_EXTENSION
+        const parts = manifest.parts.map(function (part) {
+          return { kind: part.kind, label: part.label, items: part.items.length, bytes: part.bytes }
+        })
+        // Past this size the page downloads by URL instead of carrying base64 through JSON.
+        // 文件名放进路径：Android 的 URLUtil.guessFileName 在 DownloadListener 拿不到
+        // Content-Disposition 时会退回 URL 最后一段，只写 query 会得到 transfer-export.bin。
+        if (transferExports && buffer.length > STREAM_THRESHOLD_BYTES) {
+          report({ stage: 'save', kind: 'save', label: '正在生成下载文件', itemTitle: '', items: totalDone, total: totalDone })
+          const stored = await transferExports.put(buffer, filename)
+          return { filename, name: manifest.name,
+            downloadUrl: '/api/dsh-tavern/transfer-export/' + encodeURIComponent(filename) + '?token=' + stored.token,
+            bytes: buffer.length, totals: manifest.totals, parts }
+        }
+        return {
+          filename,
+          name: manifest.name,
+          base64: buffer.toString('base64'),
+          bytes: buffer.length,
+          totals: manifest.totals,
+          parts
+        }
+      } finally {
+        if (exportId) {
+          runningExports.delete(exportId)
+          exportProgress.delete(exportId)
+        }
       }
     },
 
     async previewTransferBundle(args) {
       sweepTokens()
-      const upload = await uploads.take(str(args && args.uploadId))
-      try {
-        const buffer = await readFile(upload.file)
-        if (buffer.length > MAX_IMPORT_BYTES) throw new Error('导出包超过 ' + Math.round(MAX_IMPORT_BYTES / 1048576) + ' MB，暂不支持这么大的包')
-        const bundle = readTransferBundle(buffer)
-        const preview = await importer.preview(bundle.manifest, bundle.files)
-        const token = randomUUID()
-        tokens.set(token, { at: Date.now(), manifest: bundle.manifest, files: bundle.files })
-        return {
-          token,
-          bundle: {
-            name: bundle.manifest.name,
-            createdAt: bundle.manifest.createdAt,
-            source: bundle.manifest.source,
-            bytes: buffer.length,
-            totals: preview.totals,
-            parts: preview.parts,
-            canApply: preview.canApply,
-            issues: bundle.issues
+      const uploadId = str(args && args.uploadId)
+      if (previewsByUpload.has(uploadId)) return await previewsByUpload.get(uploadId)
+      const read = (async () => {
+        const upload = await uploads.take(uploadId)
+        let bundle
+        try {
+          bundle = await readTransferBundleFile(upload.file)
+          const preview = await importer.preview(bundle.manifest, bundle.files)
+          const token = randomUUID()
+          const expiry = setTimeout(() => { if (!runningApplies.has(token)) void discardPreview(token).catch(() => {}) }, TOKEN_TTL_MS)
+          expiry.unref?.()
+          tokens.set(token, { ...bundle, uploadId, at: Date.now(), expiry, remove: upload.remove })
+          return {
+            token,
+            bundle: {
+              name: bundle.manifest.name,
+              createdAt: bundle.manifest.createdAt,
+              source: bundle.manifest.source,
+              bytes: bundle.bytes,
+              totals: preview.totals,
+              parts: preview.parts,
+              canApply: preview.canApply,
+              issues: bundle.issues
+            }
           }
+        } catch (error) {
+          try { await bundle?.close() } finally { await upload.remove() }
+          throw error
         }
-      } finally {
-        await upload.remove()
-      }
+      })()
+      previewsByUpload.set(uploadId, read)
+      try { return await read }
+      catch (error) { previewsByUpload.delete(uploadId); throw error }
     },
 
     async applyTransferBundle(args) {
@@ -270,8 +322,8 @@ export function createTransferHandlers(deps) {
       runningApplies.set(token, run)
       try {
         const result = await run
-        tokens.delete(token)
         finishedApplies.set(token, { at: Date.now(), result })
+        await discardPreview(token).catch(() => {})
         return result
       } catch (error) {
         // Token 还在 tokens 里，用户可以原地再试一次；只有成功才把它回收。
@@ -279,7 +331,27 @@ export function createTransferHandlers(deps) {
       } finally {
         runningApplies.delete(token)
         applyProgress.delete(token)
+        sweepTokens()
       }
+    },
+
+    async getTransferExportProgress(args) {
+      sweepTokens()
+      const exportId = str(args && args.exportId).trim()
+      const entry = exportProgress.get(exportId)
+      if (entry) {
+        return {
+          running: true,
+          stage: str(entry.stage),
+          kind: str(entry.kind),
+          label: str(entry.label),
+          itemTitle: str(entry.itemTitle),
+          items: Number(entry.items) || 0,
+          total: Number(entry.total) || 0,
+          elapsedMs: Math.max(0, Date.now() - entry.startedAt)
+        }
+      }
+      return { running: runningExports.has(exportId), stage: '', kind: '', label: '', itemTitle: '', items: 0, total: 0, elapsedMs: 0 }
     },
 
     async getTransferImportProgress(args) {

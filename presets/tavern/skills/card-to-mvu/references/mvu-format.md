@@ -1,6 +1,6 @@
 # MVU 卡格式约定
 
-MVU 卡就是一张普通人物卡，按下面的约定写几处内容。`tavern_apply_mvu` 会按这些约定写入开场初值、两条世界书条目和两条正则（面板 HTML 可由你在 `panel.html` 里给出，美元符号照常写）。也都可以直接改：字段用 `tavern_update_card`（`rawOperations` 可改 `extensions/regex_scripts`），世界书条目用 `tavern_update_worldbook`，也可以用文件编辑器或脚本直接改卡片 JSON（字段都在 `raw.data` 下）。改完调用 `tavern_validate_card`，按 errors 修正。
+MVU 卡就是一张普通人物卡，按下面的约定写几处内容。`tavern_apply_mvu` 会按这些约定写入开场初值、两条世界书条目和两条正则（面板 HTML 可由你在 `panel.html` 里给出，美元符号照常写）。也都可以直接改：字段用 `tavern_update_card`（`rawOperations` 可改 `extensions/regex_scripts`），世界书条目用 `tavern_update_lorebook`，也可以用文件编辑器或脚本直接改卡片 JSON（字段都在 `raw.data` 下）。改完调用 `tavern_validate_card`，按 errors 修正。
 
 ## 1. 开场初值
 
@@ -15,7 +15,7 @@ MVU 卡就是一张普通人物卡，按下面的约定写几处内容。`tavern
   "时间": {"日期": "民国二十五年十一月七日", "时段": "夜"},
   "地点": {"名称": "霞飞路事务所"},
   "状态": {"体力": 62},
-  "线索": []
+  "线索": ["$__META_EXTENSIBLE__$"]
 }
 </initvar>
 
@@ -24,6 +24,10 @@ MVU 卡就是一张普通人物卡，按下面的约定写几处内容。`tavern
 
 - 内容是 JSON 对象（YAML 也能解析）。各开场字段结构保持一致，值按各自场景填；未知就写明确的空值，不要借用别的开场。
 - 根上的 `"$meta": {"strictSet": true}` 让后台按字面值写入数组，避免 MVU 把 `[值, "说明"]` 当作带说明的值。
+- 初值里的数组和对象默认结构固定：后台只能改已有的项，不能给数组加减元素，也不能给对象加新键。玩法中会增减的列表（线索、物品、同行者）要标成可扩展：
+  - 数组：在初值里放一个 `"$__META_EXTENSIBLE__$"` 元素，空列表写 `["$__META_EXTENSIBLE__$"]`，有初始元素时写 `["$__META_EXTENSIBLE__$", "旧照片"]`。写成 `[]` 时后台追加元素会被拒绝（「无法向……不可扩展的数组写入元素」）。
+  - 对象（键会增加，例如按人名记录的关系）：在这一层写 `"$meta": {"extensible": true}`。
+  - 标记只在初值里写。开局时 MVU 读出后就从变量里去掉，面板读到的数组里没有它。
 - 正文里不要写给模型看的状态格式说明；状态由后台按规则维护。
 
 ## 2. 世界书条目

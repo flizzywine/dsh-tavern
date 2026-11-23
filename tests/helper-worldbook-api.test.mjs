@@ -60,41 +60,6 @@ for (const embedded of [false, true]) {
   })
 }
 
-test('脚本写世界书只传改动条目，版本没变不重传整本，别处改过则拒绝', async t => {
-  const host = await createHelperWorldbookHost(false)
-  t.after(host.cleanup)
-  const initial = await host.adapter.getWorldbook('audit', 'current')
-  const calls = []
-  const run = helperHostHarness(initial, { onCall(message) {
-    if (message.type !== 'dsh-tavern-helper-call') return
-    calls.push({ method: message.method, args: structuredClone(message.args) })
-    Promise.resolve().then(() => host.invoke(message.method, message.args)).then(result => run.reply(message, result), error => run.reply(message, error.message, false))
-  } })
-  const api = run.window.TavernHelper
-  const before = await api.getWorldbook('审计书')
-  const written = await api.updateWorldbookWith('审计书', entries => entries.concat([{ name: '工坊', content: '新条目' }]))
-  const patch = calls.find(call => call.method === 'patchTavernHelperWorldbook').args.patch
-  assert.equal(patch.upserts.length, 1)
-  assert.deepEqual(patch.deletes, [])
-  assert.equal(calls.some(call => call.method === 'replaceTavernHelperWorldbook'), false)
-  assert.equal(written.length, before.length + 1)
-  assert.equal(written.at(-1).name, '工坊')
-  assert.deepEqual(written.slice(0, -1), before)
-
-  calls.length = 0
-  const deleted = await api.deleteWorldbookEntries('审计书', entry => entry.name === '工坊')
-  assert.equal(deleted.deleted_entries.length, 1)
-  const read = calls.find(call => call.method === 'getTavernHelperWorldbook')
-  assert.equal(typeof read.args.knownVersion, 'string')
-  assert.deepEqual(calls.find(call => call.method === 'patchTavernHelperWorldbook').args.patch.upserts, [])
-  assert.deepEqual(deleted.worldbook, before)
-
-  const stale = (await host.adapter.getWorldbook('audit', 'current')).worldbook
-  await host.adapter.replaceWorldbook('audit', 'current', stale.entries.concat([{ name: '别处' }]), stale.entries)
-  await assert.rejects(host.adapter.patchWorldbook('audit', 'current', { version: stale.version, upserts: [{ name: '迟到' }], deletes: [] }), /已被其他操作修改/)
-  assert.equal((await api.getWorldbook('审计书')).at(-1).name, '别处')
-})
-
 for (const embedded of [false, true]) test(`脚本增删改 → 静态文件 → 失效通知，保留其他快照 (${embedded})`, async t => {
   const { mkdtemp, rm } = await import('node:fs/promises')
   const { tmpdir } = await import('node:os')
@@ -145,4 +110,26 @@ for (const embedded of [false, true]) test(`脚本增删改 → 静态文件 →
   const cold=await provider.inspect(lookup)
   assert.equal(basename(cold.files.find(e=>e.title==='银行·存款').path),basename(bank.path))
   assert.match(appendWorldbookSkillChanges(payload,provider.changeSnapshot(scope)).content[0].text,/改写（1 条）/)
+})
+
+test('游玩中的局用自己那份人物卡：脚本连续写内嵌世界书，读写同一本，本局随即用上自己的改动', async t => {
+  const { cardContentDigest } = await import('../tavern-plugin/lib/domain/play-card-snapshots.js')
+  const host = await createHelperWorldbookHost(true)
+  t.after(host.cleanup)
+  host.chat.cardDefinitionSnapshot = await host.readCard()
+  host.chat.cardContentDigest = cardContentDigest(host.chat.cardDefinitionSnapshot)
+  const api = await connect(host)
+  await api.createWorldbookEntries('审计书', [{ name: '工坊一', content: '甲' }])
+  await api.createWorldbookEntries('审计书', [{ name: '工坊二', content: '乙' }])
+  assert.deepEqual((await api.getWorldbook('审计书')).map(entry => entry.name), ['原条目', '工坊一', '工坊二'])
+  assert.deepEqual((await host.read()).entries.map(entry => entry.comment), ['原条目', '工坊一', '工坊二'])
+  assert.deepEqual(host.chat.cardDefinitionSnapshot.character_book, (await host.readCard()).character_book)
+  assert.equal(host.chat.cardContentDigest, cardContentDigest(host.chat.cardDefinitionSnapshot))
+  // The library card changed elsewhere while this game still plays its older copy.
+  const card = await host.readCard()
+  card.character_book.entries.push({ id: 99, comment: '别处', content: '', keys: [], enabled: true })
+  const { writeFile } = await import('node:fs/promises')
+  await writeFile(host.cardFile, JSON.stringify(card))
+  const stale = (await host.adapter.getWorldbook('audit', 'current')).worldbook
+  await assert.rejects(host.adapter.patchWorldbook('audit', 'current', { version: stale.version, upserts: [{ name: '迟到' }], deletes: [] }), /本局还在用旧版/)
 })

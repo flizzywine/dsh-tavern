@@ -13,6 +13,9 @@ import { pluginMediaRange, slicePluginMediaStream } from '../domain/plugin-media
 import { PLUGIN_ASSET_PREFIX } from '../domain/plugin-assets.js'
 import { isTrustedHostRequest } from './host-fence.js'
 import { isSameOriginRequest, requestAuthorityOrigin } from './request-origin.js'
+import { createTavernWsRpcServer, TAVERN_WS_RPC_PATH } from './ws-rpc.js'
+import ttsMessages from '../../packages/dsh-presentation-protocol/src/tts-messages.cjs'
+const { describeTtsError } = ttsMessages
 
 // A 50 MiB save/skill ZIP expands to 69,905,068 base64 bytes, plus its JSON envelope.
 export const DEFAULT_RPC_BODY_LIMIT = 80 * 1024 * 1024
@@ -57,6 +60,54 @@ export function registerTavernHttpRoutes({
   transferExports,
   exposeHandler,
 }) {
+  const isFigureVoiceMethod = method => /^(?:getFigureVoiceEditor|listFigureVoiceChoices|assignFigureVoice|previewFigureVoice|openFigureVoicePreview|closeFigureVoicePreview)$/.test(method)
+  const isAssetGenerationMethod = method => /^(?:prepareAssetGeneration|generateAssetCandidate|getAssetGenerationJob|cancelAssetGenerationJob|listAssetCandidates|readAssetCandidate|rejectAssetCandidate|retryAssetCandidateSave|acceptAssetCandidate|listAssetGenStyles)$/.test(method)
+  const isGameplayMethod = method => method.startsWith('gameplay.')
+  const isSceneImageMethod = method => /^(?:listSceneImageHistory|removeSceneImageHistory)$/.test(method)
+
+  function assertTavernRpcBodyBytes(method, byteLength) {
+    // Scene-image calls carry ids only: a gallery batch delete of 500 items fits easily.
+    const sceneImageBodyLimit = 256 * 1024
+    const rpcBodyLimit = method === 'pluginData' ? PLUGIN_DATA_RPC_BODY_LIMIT : DEFAULT_RPC_BODY_LIMIT
+    if (byteLength > rpcBodyLimit) throw new Error(method === 'pluginData' ? '插件数据请求超过 256 MiB 及封装大小限制' : 'RPC request exceeds 80 MiB')
+    if (isAssetGenerationMethod(method) && byteLength > (method === 'prepareAssetGeneration' ? 45 * 1024 * 1024 : 16384)) throw new Error('素材生成请求过大')
+    if (isGameplayMethod(method) && byteLength > 2 * 1024 * 1024) throw new Error('游戏 API 请求超过 2 MB')
+    if (isSceneImageMethod(method) && byteLength > sceneImageBodyLimit) {
+      throw new Error('图片请求数据超过 256 KB 大小限制，请减少一次批量删除的图片后重试。')
+    }
+  }
+
+  function serializeTavernRpcError(method, err) {
+    const voiceCode = isFigureVoiceMethod(method) ? (/^[A-Z_]+$/.test(err?.code || '') ? err.code : 'REQUEST_FAILED') : undefined
+    if (voiceCode) ctx.logger?.warn(`[voice-rpc] ${method} ${voiceCode}`)
+    return JSON.stringify({
+      ok: false,
+      error: voiceCode ? describeTtsError(voiceCode) : err?.failure ? bodyGenerationFailure(err).message : str(err && err.message || err),
+      errorCode: voiceCode || (typeof err?.code === 'string' ? err.code : undefined),
+      ...(err?.failure ? { failure: bodyGenerationFailure(err) } : {}),
+      ...(method.startsWith('managedMod') && err?.details ? { errorDetails: err.details } : {}),
+    })
+  }
+
+  async function executeTavernJsonRpc({ method, rawBody, byteLength, trustedOrigin }) {
+    try {
+      assertTavernRpcBodyBytes(method, byteLength)
+      let args = {}
+      try {
+        args = rawBody.trim() === '' ? {} : JSON.parse(rawBody)
+      } catch {
+        return JSON.stringify({ ok: false, error: 'bad json', errorCode: 'BAD_JSON' })
+      }
+      const readiness = await runtimeReadiness
+      if (readiness && !readiness.ok) throw readiness.error
+      const result = await dispatch(method, args, { origin: trustedOrigin })
+      const reply = Object.assign({ ok: true }, result, { runtimeGeneration })
+      return requestPerformance ? requestPerformance.serialize(method, args?.sessionId, reply) : JSON.stringify(reply)
+    } catch (err) {
+      return serializeTavernRpcError(method, err)
+    }
+  }
+
   const webServer = ctx.get('webServer')
   if (webServer !== undefined) {
     ctx.effect(() => observeHttpRequests(webServer.server, snapshot => performanceDiagnostics.http(snapshot)))
@@ -79,11 +130,53 @@ export function registerTavernHttpRoutes({
       path: '/api/dsh-tavern',
       handler: (req, res) => handleTavernRequest(req, res, true)
     }), 'dsh-tavern: web route')
+    if (typeof webServer.registerUpgrade === 'function') {
+      const wsRpcServer = createTavernWsRpcServer({
+        ctx,
+        executeRpc: executeTavernJsonRpc,
+        maxFrameBytes: Math.max(DEFAULT_RPC_BODY_LIMIT, PLUGIN_DATA_RPC_BODY_LIMIT) + 65536,
+      })
+      ctx.effect(() => {
+        const unregister = webServer.registerUpgrade({
+          path: TAVERN_WS_RPC_PATH,
+          handler: (req, socket, head) => wsRpcServer.handleUpgrade(req, socket, head),
+        })
+        return () => {
+          unregister?.()
+          wsRpcServer.close()
+        }
+      }, 'dsh-tavern: ws rpc route')
+      ctx.inject?.(['ttsEnabledState'], child => {
+        const state = child.get('ttsEnabledState')
+        if (!state || typeof state.get !== 'function' || typeof state.subscribe !== 'function') return
+        child.effect(() => wsRpcServer.registerTopic('tts-enabled', ({ push }) => {
+          push({ enabled: Boolean(state.get()) })
+          return state.subscribe(enabled => {
+            push({ enabled: Boolean(enabled) })
+          })
+        }), 'dsh-tavern: ws tts-enabled topic')
+      })
+      ctx.inject?.(['assetPackFeed'], child => {
+        const feed = child.get('assetPackFeed')
+        if (!feed || typeof feed.read !== 'function' || typeof feed.subscribe !== 'function') return
+        child.effect(() => wsRpcServer.registerTopic('asset-pack-changes', ({ args, push }) => {
+          let cursor = Number.isSafeInteger(args?.since) && args.since >= 0 ? args.since : 0
+          const initial = feed.read(cursor)
+          cursor = initial.sequence
+          push({ ...feed.capabilities(), feed: initial })
+          return feed.subscribe(() => {
+            const next = feed.read(cursor)
+            cursor = next.sequence
+            push({ feed: next })
+          })
+        }), 'dsh-tavern: ws asset-pack-changes topic')
+      })
+    }
   }
-  // In-process callers (the server script runtime) share these exact routes.
-  exposeHandler?.(handleTavernRequest)
+  // The script executor validates the method and pins the session before reaching this entry.
+  exposeHandler?.((req, res) => handleTavernRequest(req, res, false))
 
-  async function handleTavernRequest(req, res, external = false) {
+  async function handleTavernRequest(req, res, external = true) {
       {
         let pathname
         try { pathname = decodeURIComponent(new URL(req.url ?? '/', 'http://x').pathname) }
@@ -98,14 +191,16 @@ export function registerTavernHttpRoutes({
         const readsCachedAsset = req.method === 'GET' && cachedAssetMatch
         const readsCapability = req.method === 'GET' && ['/api/dsh-tavern/session-resource', '/api/dsh-tavern/helper-history'].includes(pathname)
         const cookieFree = req.method === 'GET' && (readsCapability || readsCachedAsset || readsStaticAsset || readsOfficialMvu || readsFullTemplate || readsRuntimeAsset || readsClientAsset || readsPluginAsset)
-        if (cookieFree) {
-          if (!isTrustedHostRequest(req, ctx.get('connection')?.trustedHosts)) {
-            res.writeHead(403); res.end('forbidden'); return
+        if (external) {
+          if (cookieFree) {
+            if (!isTrustedHostRequest(req, ctx.get('connection')?.trustedHosts)) {
+              res.writeHead(403); res.end('forbidden'); return
+            }
+          } else {
+            const connection = ctx.get('connection')
+            const rejection = connection ? connection.requestRejection(req) : 503
+            if (rejection) { res.writeHead(rejection); res.end('forbidden'); return }
           }
-        } else {
-          const connection = ctx.get('connection')
-          const rejection = connection ? connection.requestRejection(req) : 503
-          if (rejection) { res.writeHead(rejection); res.end('forbidden'); return }
         }
         const origin = req.headers.origin
         if (!isSameOriginRequest({ host: req.headers.host, origin }) && !(cookieFree && origin === 'null')) {
@@ -428,20 +523,12 @@ export function registerTavernHttpRoutes({
             res.end()
             return
           }
-          // Scene-image calls carry ids only: a gallery batch delete of 500 items fits easily.
-          const sceneImageBodyLimit = 256 * 1024
-          const rpcBodyLimit = method === 'pluginData' ? PLUGIN_DATA_RPC_BODY_LIMIT : DEFAULT_RPC_BODY_LIMIT
           const bodyChunks = []
           let bodyBytes = 0
           for await (const chunk of req) {
             const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
             bodyBytes += bytes.length
-            if (bodyBytes > rpcBodyLimit) throw new Error(method === 'pluginData' ? '插件数据请求超过 256 MiB 及封装大小限制' : 'RPC request exceeds 80 MiB')
-            if (assetGenerationRoute && bodyBytes > (method === 'prepareAssetGeneration' ? 45 * 1024 * 1024 : 16384)) throw new Error('素材生成请求过大')
-            if (gameplayRoute && bodyBytes > 2 * 1024 * 1024) throw new Error('游戏 API 请求超过 2 MB')
-            if (sceneImageRoute && bodyBytes > sceneImageBodyLimit) {
-              throw new Error('图片请求数据超过 256 KB 大小限制，请减少一次批量删除的图片后重试。')
-            }
+            assertTavernRpcBodyBytes(method, bodyBytes)
             bodyChunks.push(bytes)
           }
           // HTTP chunks may split a UTF-8 code point. Decode only after joining bytes;
@@ -476,13 +563,8 @@ export function registerTavernHttpRoutes({
             res.end(JSON.stringify({ ok: false, error: msg }))
             return
           }
-          const voiceCode = figureVoiceRoute ? (/^[A-Z_]+$/.test(err?.code || '') ? err.code : 'REQUEST_FAILED') : undefined
-          if (voiceCode) ctx.logger?.warn(`[voice-rpc] ${pathname.split('/').at(-1)} ${voiceCode}`)
           res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' })
-          res.end(JSON.stringify({ ok: false, error: voiceCode ? '声音暂时不可用' : err?.failure ? bodyGenerationFailure(err).message : str(err && err.message || err),
-            errorCode: voiceCode || (typeof err?.code === 'string' ? err.code : undefined),
-            ...(err?.failure ? { failure: bodyGenerationFailure(err) } : {}),
-            ...(pathname.split('/').at(-1).startsWith('managedMod') && err?.details ? {errorDetails:err.details} : {}) }))
+          res.end(serializeTavernRpcError(pathname.split('/').at(-1) || '', err))
         }
       }
   }

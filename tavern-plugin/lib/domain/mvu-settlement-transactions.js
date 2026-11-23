@@ -1,8 +1,11 @@
+import { freezeJson } from './freeze-json.js'
+import { formatMvuUpdateCommand } from './mvu-background-settlement.js'
+import { prepareWidgetVariableOperations, auditWidgetVariableResult, widgetVariableDigest } from './widget-variables.js'
 import { createMvuWorkingCopy, projectMvuReceipt } from './mvu-working-copy.js'
 import { randomUUID } from 'node:crypto'
 import { isDeepStrictEqual } from 'node:util'
 import { projectTavernHelperContext } from './tavern-helper-context.js'
-import { createMvuSettlementEffect } from './mvu-settlement-effect.js'
+import { createMvuSettlementEffect, diffMvuChanges } from './mvu-settlement-effect.js'
 import { REPLY_PROSE_FIELDS } from './reply-prose.js'
 
 const str = value => value == null ? '' : String(value)
@@ -82,7 +85,7 @@ export function createMvuSettlementTransactions({ resolveChat, resolveSettlement
     const id = str(eventId)
     // Scripts lose the event identity after an await or timer. SillyTavern applies
     // such writes to the current state, so they join the running settlement too.
-    if (transaction !== undefined && id !== '' && transaction.eventId !== id) {
+    if (transaction !== undefined && (transaction.variableEdit || id !== '') && transaction.eventId !== id) {
       const error = new Error('脚本写入不属于当前 MVU 结算事件')
       error.code = 'MVU_SETTLEMENT_EVENT_MISMATCH'
       throw error
@@ -100,22 +103,32 @@ export function createMvuSettlementTransactions({ resolveChat, resolveSettlement
     return transaction === undefined ? await resolveChat(sessionId) : transaction.draft
   }
 
+  function projectCommand(transaction, messages) {
+    const message = messages.find(row => row.message_id === transaction.messageId)
+    if (!message || message.swipe_id !== transaction.swipeId) return
+    // The command belongs only to the executor's view of this draft.
+    message.message = transaction.internalText
+    message.swipes[transaction.swipeId] = transaction.internalText
+  }
+
   async function transactionResult(sessionId, target, multiple = false, eventId = '') {
     const transaction = settlementTransactions.get(str(sessionId))
     assertTransactionEvent(transaction, eventId)
     if (transaction === undefined) return null
     transaction.mutations++
+    const projection = transaction.compact ? projectMvuReceipt(transaction.work, multiple ? target : [target]) : await fullContext(transaction.draft)
+    projectCommand(transaction, projection.messages)
     return {
       updated: true,
       transactional: true,
       ...(multiple ? { targets: target } : { target }),
-      ...(transaction.compact ? { contextDelta: projectMvuReceipt(transaction.work, multiple ? target : [target]) }
-        : { context: await fullContext(transaction.draft) })
+      ...(transaction.compact ? { contextDelta: projection } : { context: projection })
     }
   }
 
   /** Run one internal MVU command against an isolated draft and commit once. */
   async function settleMvuUpdate(input = {}) {
+    const pinnedBaseline = input.baseline === undefined ? undefined : freezeJson(structuredClone(input.baseline))
     const sessionId = str(input.sessionId)
     async function record(stage, details = {}) {
       try { await diagnostics?.record(sessionId, { diagnosticId: input.diagnosticId, messageId: input.messageId, swipeId: input.swipeId, stage, ...details }) } catch {}
@@ -135,7 +148,16 @@ export function createMvuSettlementTransactions({ resolveChat, resolveSettlement
     if (!Number.isInteger(swipeId) || swipeId < 0 || swipeId !== Math.max(0, Number(message.swipeId) || 0)) {
       return { updated: false, stale: true, context: await fullContext(current) }
     }
-    const command = str(input.command).trim()
+    const variableEdit = input.variableEdit === true
+    if (!variableEdit && message.variableEdits?.[swipeId]?.editedAfterSettlement === true) throw new Error('本轮已有用户变量修改；回退/重生成本轮将一并撤销')
+    const baseline = message.variables?.[swipeId]
+    const baselineCurrent = chat => pinnedBaseline === undefined
+      ? widgetVariableDigest(chat.messages[messageId]?.variables?.[swipeId]) === input.baselineDigest
+      : pinnedBaseline && typeof pinnedBaseline.revision === 'string' && String(chat._storageRevision) === pinnedBaseline.revision
+        && isDeepStrictEqual(chat.messages[messageId]?.variables?.[swipeId], pinnedBaseline.value)
+    if (variableEdit && (!baseline?.stat_data || baseline.schema === undefined || !baselineCurrent(current))) return { updated: false, stale: true }
+    const preparedEdit = variableEdit ? prepareWidgetVariableOperations(input.declarations, baseline.stat_data, input.operations) : null
+    const command = variableEdit ? formatMvuUpdateCommand(preparedEdit) : str(input.command).trim()
     if (command === '') throw new Error('MVU 变量结算命令为空')
     // resolveChat awaited above: another attempt may have reserved this session
     // in the meantime. Never overwrite its draft or release its ownership.
@@ -155,11 +177,12 @@ export function createMvuSettlementTransactions({ resolveChat, resolveSettlement
     if (reader) settlementReaders.set(work.chat, reader)
     work.touch(messageId)
     const transaction = {
-      work, compact: input.compactContext === true,
+      work, compact: input.compactContext === true, variableEdit,
       draft: work.chat,
       eventId,
       messageId,
       swipeId,
+      internalText: variableEdit ? originalText : str(input.storyText).trim() + '\n\n' + command,
       mutations: 0
     }
     if (input.baselineVariables) {
@@ -169,13 +192,13 @@ export function createMvuSettlementTransactions({ resolveChat, resolveSettlement
     }
     settlementTransactions.set(sessionId, transaction)
     try {
-      const internalText = str(input.storyText).trim() + '\n\n' + command
       const hasMvuSnapshot = value => value && value.stat_data !== undefined && value.schema !== undefined
       const baselineStatData = input.baselineVariables?.stat_data
       const useCurrentVariables = baselineStatData !== null && typeof baselineStatData === 'object' && !Array.isArray(baselineStatData)
       const indexedBase = settlementReaders.get(current)
-      let priorId = !useCurrentVariables && indexedBase ? await indexedBase.previousMvu(messageId) : -1
-      for (let i=useCurrentVariables || indexedBase ? -1 : messageId-1;i>=0;i--) {
+      const ownBaseline = variableEdit || useCurrentVariables
+      let priorId = !ownBaseline && indexedBase ? await indexedBase.previousMvu(messageId) : -1
+      for (let i=ownBaseline || indexedBase ? -1 : messageId-1;i>=0;i--) {
         const row=current.messages[i]
         if (hasMvuSnapshot(row.variables?.[row.swipeId || 0])) { priorId=i; break }
       }
@@ -197,10 +220,7 @@ export function createMvuSettlementTransactions({ resolveChat, resolveSettlement
         }
         if (indices) indices=[...new Set([...indices,messageId])].filter(i=>i<current.messages.length)
         const projected = await context(sessionId, transaction.draft, '', indices)
-        const target = indices ? projected.messages.find(row=>row.message_id===messageId) : projected.messages[messageId]
-        target.message=internalText
-        if (!Array.isArray(target.swipes)) target.swipes=[originalText]
-        target.swipes[swipeId]=internalText
+        projectCommand(transaction, projected.messages)
         if (transaction.compact) projected.transaction={eventId,sequence:work.sequence}
         if (!indices) return projected
         const {messages,...header}=projected
@@ -238,8 +258,8 @@ export function createMvuSettlementTransactions({ resolveChat, resolveSettlement
         await record('runtime-deferred', { availability })
         return { updated: false, deferred: true, deferredReason: 'runtime-not-ready', context: await fullContext(current) }
       }
-      const args = useCurrentVariables ? [messageId, { useCurrentVariables: true }] : [messageId]
-      const dispatched = await scriptDispatch.dispatch(sessionId, 'MESSAGE_RECEIVED', args, eventContext, { eventId: transaction.eventId, signal: input.signal, ...(lazy ? { contextForBaseline: executionContext } : {}) })
+      const args = variableEdit ? [messageId, command] : useCurrentVariables ? [messageId, { useCurrentVariables: true }] : [messageId]
+      const dispatched = await scriptDispatch.dispatch(sessionId, variableEdit ? 'DSH_VARIABLE_EDIT' : 'MESSAGE_RECEIVED', args, eventContext, { eventId: transaction.eventId, signal: input.signal, ...(lazy ? { contextForBaseline: executionContext } : {}) })
       await record('runtime-completed', { handled: dispatched.handled === true, timedOut: dispatched.timedOut === true, executionLost: dispatched.executionLost === true, claimTimedOut: dispatched.claimTimedOut === true, phase: dispatched.phase, disposed: dispatched.disposed === true, error: dispatched.error, diagnostics: dispatched.diagnostics || [] })
       if (dispatched.handled !== true) {
         if (dispatched.initializationFailed === true) return await initializationRejected(str(dispatched.error))
@@ -269,9 +289,10 @@ export function createMvuSettlementTransactions({ resolveChat, resolveSettlement
         if (Object.hasOwn(message, key)) settled[key] = structuredClone(message[key])
         else delete settled[key]
       }
-      if (!Array.isArray(settled.swipes)) settled.swipes = [originalText]
+      if (!variableEdit && !Array.isArray(settled.swipes)) settled.swipes = [originalText]
       const beforeVariables = input.baselineVariables || current.messages[messageId].variables?.[swipeId] || {}
       const afterVariables = transaction.draft.messages[messageId].variables?.[swipeId] || {}
+      const editAudit = variableEdit ? auditWidgetVariableResult(input.declarations, baseline.stat_data, afterVariables.stat_data, preparedEdit.expected) : null
       const validation = typeof input.validate === 'function'
         ? await input.validate({ before: beforeVariables, after: afterVariables })
         : null
@@ -291,10 +312,24 @@ export function createMvuSettlementTransactions({ resolveChat, resolveSettlement
         operationId, chatId: current.id, sessionId,
         branchId: input.branchId, basedOnRevision: input.basedOnRevision,
         expectedLifecycleRevision, messageId, swipeId,
-        before: current, after: transaction.draft, messageIndices: work.dirty, guardChanges: Boolean(reader?.ensure)
+        before: current, after: transaction.draft, messageIndices: work.dirty, guardChanges: Boolean(reader?.ensure || transaction.worldbookChanged)
       })
+      if (variableEdit) {
+        // Only the selected snapshot and MVU-derived mirrors may leave this draft.
+        const allowed = new Set(['stat_data', 'schema', 'display_data', 'delta_data'])
+        const outside = diffMvuChanges(current, transaction.draft, work.dirty).find(change => change.path[0] !== 'messages' || change.path[1] !== messageId || change.path[2] !== 'variables' || change.path[3] !== swipeId || !allowed.has(change.path[4]))
+        if (outside) throw new Error('Variable edit attempted an out-of-scope storage mutation: ' + outside.path.join('/'))
+        if (!baselineCurrent(latest)) {
+          await record('edit-baseline-conflict', pinnedBaseline === undefined
+            ? { expected: input.baselineDigest, actual: widgetVariableDigest(latest.messages[messageId]?.variables?.[swipeId]) }
+            : { expectedRevision: pinnedBaseline?.revision, actualRevision: String(latest._storageRevision) })
+          return { updated: false, stale: true }
+        }
+        if (editAudit.status === 'unchanged') return { updated: false, unchanged: true }
+      }
       await record('prepared', { mutations: transaction.mutations })
       return {
+        ...(editAudit ? { editAudit } : {}),
         updated: true,
         validation,
         diagnostics: dispatched.diagnostics || [],
@@ -360,10 +395,29 @@ export function createMvuSettlementTransactions({ resolveChat, resolveSettlement
     const transaction=settlementTransactions.get(str(sessionId))
     assertTransactionEvent(transaction,eventId)
     if (!transaction) return context(sessionId)
-    if (transaction.work.sequence === 0) return transaction.executionContext({workContextVersion:1,full:true})
-    return {...await context(sessionId,transaction.draft),transaction:{eventId:transaction.eventId,sequence:transaction.work.sequence}}
+    return transaction.executionContext({workContextVersion:1,full:true})
+  }
+  // Tokens carry draft identity, not the private transaction registry. A resumed
+  // worldbook write must still belong to the same live settlement.
+  function worldbookDraft(sessionId) {
+    const transaction = settlementTransactions.get(str(sessionId))
+    return transaction ? Object.freeze({ draft: transaction.draft, eventId: transaction.eventId }) : undefined
+  }
+  function writeWorldbookDraft(sessionId, token, snapshot) {
+    const transaction = settlementTransactions.get(str(sessionId))
+    assertTransactionEvent(transaction, token?.eventId)
+    if (!transaction || transaction.draft !== token?.draft || transaction.eventId !== token?.eventId) {
+      const error = new Error('Worldbook write no longer belongs to the active MVU settlement')
+      error.code = 'MVU_SETTLEMENT_EVENT_MISMATCH'
+      throw error
+    }
+    transaction.draft.openingWorldbookSnapshot = snapshot
+    transaction.mutations++
+    transaction.worldbookChanged = true
   }
   return Object.freeze({
+    worldbookDraft, writeWorldbookDraft,
+    isVariableEdit: sessionId => settlementTransactions.get(str(sessionId))?.variableEdit === true,
     settle: settleMvuUpdate, has: sessionId => settlementTransactions.has(str(sessionId)),
     assertEvent, mutationChat, result: transactionResult, touchMessage, prepareMessages, updateGlobals,
     ensureRows, fullContext, context: transactionContext

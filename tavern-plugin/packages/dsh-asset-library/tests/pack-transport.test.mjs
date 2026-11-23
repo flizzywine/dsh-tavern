@@ -1,10 +1,11 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtemp, rm, readFile, lstat } from 'node:fs/promises'
+import { mkdtemp, rm, readFile, lstat, readdir } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createAssetPackTransport, PACK_CONTROL_PATH, PACK_UPLOAD_PATH, PACK_DOWNLOAD_PATH, PACK_CHANGES_PATH, PACK_THUMBNAIL_PATH, PACK_THUMBNAILS_PATH } from '../src/pack-v2/transport.js'
 import { writeZip } from '../src/zip.js'
+import { createMediaStore } from '../src/pack-v2/media-store.js'
 import { jsonBytes } from '../src/pack-v2/validation.js'
 import { syntheticPack, digest, PACK_ID } from '../../../../tests/fixtures/asset-packs/pack.mjs'
 const origin = 'http://localhost:123'
@@ -26,7 +27,7 @@ async function fixture(t, options = {}) {
     const pack = await syntheticPack(), zip = join(root,'pack.zip')
     await writeZip(zip,[{path:'manifest.json',data:jsonBytes(pack.manifest)},...[...pack.files].map(([path,data]) => ({path,data}))])
     const bytes = await readFile(zip)
-    const upload = await (await fetch(request(PACK_UPLOAD_PATH,{method:'POST',headers:{'content-type':'application/octet-stream'},body:bytes}))).json()
+    const upload = await (await fetch(request(PACK_UPLOAD_PATH + '?archive=1',{method:'POST',headers:{'content-type':'application/octet-stream'},body:bytes}))).json()
     const preview = await (await control('inspectImport',{bytes:upload.ticket})).json()
     const response = await control('applyImport',{inspectionId:preview.inspectionId,expectedRevision:null,decision:'install'})
     assert.equal(response.status,200,await response.clone().text())
@@ -34,6 +35,29 @@ async function fixture(t, options = {}) {
   }
   return {root,routes,transport,carrier,detach,fetch,control,install,service:transport.service}
 }
+test('an archive upload streams to disk; a disk that fills during install rolls back whole and says DISK_FULL',async t => {
+  const assetRoot = await mkdtemp(join(tmpdir(),'pack-disk-full-')), real = createMediaStore({root:assetRoot})
+  let room = 2
+  const mediaStore = {...real, async put(...args) { if (room-- <= 0) throw Object.assign(new Error('ENOSPC: no space left on device, write'),{code:'ENOSPC'}); return real.put(...args) }}
+  const f = await fixture(t,{assetRoot,mediaStore}), pack = await syntheticPack(), zip = join(f.root,'pack.zip')
+  // after hooks run in registration order: the library goes only after the transport is disposed
+  t.after(() => rm(assetRoot,{recursive:true,force:true}))
+  await writeZip(zip,[{path:'manifest.json',data:jsonBytes(pack.manifest)},...[...pack.files].map(([path,data]) => ({path,data}))])
+  const bytes = await readFile(zip), send = async query => (await f.fetch(request(PACK_UPLOAD_PATH + query,{method:'POST',headers:{'content-type':'application/octet-stream'},body:bytes}))).json()
+  // an archive import reads only an archive upload, which never sits in memory
+  assert.equal((await f.control('inspectImport',{bytes:(await send('')).ticket})).status,400)
+  const preview = await (await f.control('inspectImport',{bytes:(await send('?archive=1')).ticket})).json()
+  const apply = () => f.control('applyImport',{inspectionId:preview.inspectionId,expectedRevision:null,decision:'install'})
+  const full = await apply()
+  assert.equal(full.status,507); assert.deepEqual(await full.json(),{error:'DISK_FULL'})
+  // nothing half-installed: no pack and no transaction left behind
+  assert.deepEqual(await (await f.control('listPackSummaries',{})).json(),[])
+  assert.deepEqual(await readdir(join(assetRoot,'staging')),[])
+  // space freed: the same preview installs
+  room = Infinity
+  assert.equal((await apply()).status,200)
+  assert.equal((await (await f.control('listPackSummaries',{})).json()).length,1)
+})
 test('v2 control and binary upload install a complete ordinary pack; no v1 dispatch',async t => {
   const f = await fixture(t), {snapshot,bytes} = await f.install()
   assert.deepEqual([...f.routes.keys()],[PACK_THUMBNAIL_PATH,PACK_THUMBNAILS_PATH,PACK_CONTROL_PATH,PACK_UPLOAD_PATH,PACK_DOWNLOAD_PATH,PACK_CHANGES_PATH])
@@ -50,6 +74,20 @@ test('v2 control and binary upload install a complete ordinary pack; no v1 dispa
   assert.ok((await response.arrayBuffer()).byteLength >= bytes.byteLength)
   const events = await (await f.fetch(request(PACK_CHANGES_PATH + '?since=0',{headers:{origin:''}}))).json()
   assert.equal(events.changes[0].packId,PACK_ID)
+})
+test('exportPack reports its archive progress under the browser-named progressId while it runs',async t => {
+  const seen = []
+  const f = await fixture(t), {snapshot} = await f.install()
+  const progressId = 'export-progress-1'
+  // the poll during the call sees a {done,total} row; the service gets the callback, never the id.
+  assert.equal((await (await f.control('exportProgress',{progressId})).json()),null)
+  const running = f.control('exportPack',{packId:PACK_ID,expectedRevision:snapshot.revision,progressId})
+  for (let i = 0; i < 50 && !seen.length; i++) { const row = await (await f.control('exportProgress',{progressId})).json(); if (row) seen.push(row); else await new Promise(r => setTimeout(r, 1)) }
+  const exported = await (await running).json()
+  assert.ok(exported.download.ticket, JSON.stringify(exported))
+  assert.ok(seen.length && Number.isSafeInteger(seen[0].done) && Number.isSafeInteger(seen[0].total))
+  assert.equal(await (await f.control('exportProgress',{progressId})).json(),null,'the row ends with the call')
+  assert.equal((await f.control('exportPack',{packId:PACK_ID,expectedRevision:snapshot.revision,progressId:'bad id!'})).status,400)
 })
 test('card bundle route accepts the explicit widget consent choice',async t => {
   const f = await fixture(t)

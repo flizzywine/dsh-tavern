@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { Session, adoptSessionEvent } from './fixtures/dsh-session-host.mjs'
 import { sessionEvents, appendSessionEvent } from '../tavern-plugin/lib/domain/session-events.js'
-import { rollbackAvailability, clearFailedTurnSurface, locateRegenerationSurface, locateRollbackSurface, interruptedSurfaceTurns } from '../tavern-plugin/lib/domain/rollback-surface.js'
+import { rollbackAvailability, clearFailedTurnSurface, locateRegenerationSurface, locateRollbackSurface, interruptedSurfaceTurns, supersededTailPlayerInputIndices, pruneSupersededTailPlayerInputs } from '../tavern-plugin/lib/domain/rollback-surface.js'
 
 function fixture() {
   const session = Session.create('failed-turn-restore')
@@ -77,4 +77,60 @@ test('服务中途停掉、从未结束的回合：下一轮开始时按失败�
   assert.ok(!texts.includes('崩溃时的输入') && !texts.includes('半截'), JSON.stringify(texts))
   assert.ok(texts.includes('正文') && texts.includes('新的输入'))
   assert.deepEqual(interruptedSurfaceTurns({ events: sessionEvents(session), nodes: session.surface.nodes }), [])
+})
+
+test('回合在 step/start 前失败或中止消费了 inbox，下一轮发送新消息时清理 chat.messages 里的幽灵玩家气泡且保留排队输入与拆轮独立玩家楼层', () => {
+  const session = Session.create('ghost-user-bubble')
+  const modelSource = { kind: 'model', provider: 'test', model: 'test' }
+  session.append('turn/start', { turn: 1 })
+  appendSessionEvent(session, 'assistant/message', { turn: 1, step: 1, message: { id: 'opening', role: 'assistant', content: [{ type: 'text', text: '开场正文' }], source: modelSource } }, { surfaceOp: 'append' })
+  session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+
+  // 样本A/B：进入 turn 2 并从 inbox 消费了 req-ghost-1，但在 step/start 之前即因 settlement 报错或用户中止退出，从未写入 user/message
+  session.append('agent/inbox/spliced', { target: 'next-turn', start: 0, removedCount: 0, inserted: [{ id: 'm-ghost-1', role: 'user', content: [{ type: 'text', text: '幽灵输入一' }], source: { kind: 'user', rpcId: 'req-ghost-1' } }] })
+  session.append('turn/start', { turn: 2 })
+  session.append('agent/inbox/spliced', { target: 'next-turn', start: 0, removedCount: 1, inserted: [] })
+  session.append('turn/end', { turn: 2, reason: { kind: 'error', error: { code: 'UNKNOWN', message: '后台 Agent 正在执行 settlement，请等待完成' } } })
+
+  // 样本2：turn 3 写入了 user/message 后失败，下一轮清理 surface 后 chat.messages 也不得残留该气泡
+  session.append('turn/start', { turn: 3 })
+  session.append('user/message', { id: 'm-ghost-2', role: 'user', content: [{ type: 'text', text: '幽灵输入二' }], source: { kind: 'user', rpcId: 'req-ghost-2' } }, { surfaceOp: 'append' })
+  session.append('turn/end', { turn: 3, reason: { kind: 'aborted' } })
+  assert.equal(clearFailedTurnSurface({ session, turn: 3 }), 1)
+
+  // 玩家随后发送真正进入 turn 4 的新消息 req-live，并在准备期间又排队了一条 req-queued
+  session.append('turn/start', { turn: 4 })
+  session.append('user/message', { id: 'm-live', role: 'user', content: [{ type: 'text', text: '幽灵输入一' }], source: { kind: 'user', rpcId: 'req-live' } }, { surfaceOp: 'append' })
+  session.append('agent/inbox/spliced', { target: 'next-turn', start: 0, removedCount: 0, inserted: [{ id: 'm-queued', role: 'user', content: [{ type: 'text', text: '排队中的下一条' }], source: { kind: 'user', rpcId: 'req-queued' } }] })
+
+  const chat = {
+    mode: 'story',
+    messages: [
+      { role: 'assistant', greeting: true, turn: 1, text: '开场正文' },
+      // 手动删掉回复后保留的独立拆轮玩家楼层（带显式正整数 turn）
+      { role: 'user', native: true, turn: 1, text: '已删回复但保留的玩家楼层', source: { kind: 'user', rpcId: 'req-split-floor' } },
+      { role: 'user', native: true, placeholder: true, text: '幽灵输入一', sourceText: '幽灵输入一', source: { kind: 'user', rpcId: 'req-ghost-1' } },
+      { role: 'user', native: true, text: '幽灵输入二', sourceText: '幽灵输入二', source: { kind: 'user', rpcId: 'req-ghost-2' } },
+      { role: 'user', native: true, placeholder: true, text: '幽灵输入一', sourceText: '幽灵输入一', source: { kind: 'user', rpcId: 'req-live' } },
+      { role: 'user', native: true, placeholder: true, text: '排队中的下一条', sourceText: '排队中的下一条', source: { kind: 'user', rpcId: 'req-queued' } }
+    ]
+  }
+
+  assert.deepEqual(
+    supersededTailPlayerInputIndices(chat.messages, { events: sessionEvents(session), nodes: session.surface.nodes, currentRequestId: 'req-live' }),
+    [2, 3]
+  )
+  assert.equal(
+    pruneSupersededTailPlayerInputs(chat, { events: sessionEvents(session), nodes: session.surface.nodes, currentRequestId: 'req-live' }),
+    2
+  )
+  assert.deepEqual(
+    chat.messages.map(row => [row.role, row.source?.rpcId || null, row.text]),
+    [
+      ['assistant', null, '开场正文'],
+      ['user', 'req-split-floor', '已删回复但保留的玩家楼层'],
+      ['user', 'req-live', '幽灵输入一'],
+      ['user', 'req-queued', '排队中的下一条']
+    ]
+  )
 })

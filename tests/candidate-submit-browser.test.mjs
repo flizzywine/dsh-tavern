@@ -1,17 +1,22 @@
 import assert from 'node:assert/strict'
-import { readFile } from 'node:fs/promises'
+import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import test from 'node:test'
 import { chromium } from 'playwright'
 import { browserReactScript } from './fixtures/browser-react.mjs'
+import { applyTavernSettingsPatch, presentTavernSettings } from '../tavern-plugin/lib/domain/tavern-settings.js'
+import { createProfileDataStore } from '../tavern-plugin/lib/profile-data-store.js'
+import { createSettingsHandlers } from '../tavern-plugin/lib/rpc/settings.js'
 
 const clientSource = await readFile(new URL('../tavern-plugin/lib/client.js', import.meta.url), 'utf8')
 
 // Mount the shipped sidebar and dock. listSessions populates mode through the
 // real sidebar, so this exercises the registered click handler and HTTP client.
-async function mount(t, outcome) {
-  const browser = await chromium.launch({ headless: true })
-  t.after(() => browser.close())
-  const page = await browser.newPage()
+async function mount(t, outcome, { mode = 'story', settings, browser: sharedBrowser, viewport, hasTouch, completedChoices, savedChoices } = {}) {
+  const browser = sharedBrowser || await chromium.launch({ headless: true })
+  if (!sharedBrowser) t.after(() => browser.close())
+  const page = await browser.newPage({ viewport, hasTouch })
   page.setDefaultTimeout(5000)
   const errors = [], calls = [], unexpected = []
   page.on('pageerror', error => errors.push(error.message))
@@ -19,7 +24,11 @@ async function mount(t, outcome) {
   const sync = () => ({ activity: { busy: false, phase: 'idle' }, task, tasks: { candidate: task, background: null } })
   await page.route('http://tavern.test/**', async route => {
     const method = new URL(route.request().url()).pathname.split('/').at(-1)
-    if (!route.request().url().includes('/api/dsh-tavern/')) return route.fulfill({ contentType: 'text/html', body: '<main id="sidebar"></main><div id="dock"></div>' })
+    if (!route.request().url().includes('/api/dsh-tavern/')) {
+      // As on a phone, the sidebar is out of the way while the player uses the composer.
+      const sidebar = settings ? '<main id="sidebar" style="display:none"></main>' : '<main id="sidebar"></main>'
+      return route.fulfill({ contentType: 'text/html', body: '<meta name="viewport" content="width=device-width,initial-scale=1">' + sidebar + '<div id="dock"></div>' })
+    }
     const args = route.request().postDataJSON() || {}
     calls.push({ method, args })
     let result
@@ -29,23 +38,31 @@ async function mount(t, outcome) {
       if (outcome === 'network' || outcome === 'recover' && attempts === 1) return route.abort('failed')
       if (outcome === 'reject') result = { ok: false, error: '候选输入已过期' }
       else {
-        task = { taskId: 'candidate-1', kind: 'candidate', input: { messageId: 'reply-1' }, status: 'queued', busy: true }
+        task = { taskId: `candidate-${attempts}`, kind: 'candidate', input: { messageId: 'reply-1' }, status: 'queued', busy: true }
         result = { ok: true, sync: sync() }
       }
+    } else if (settings && ['getCandidateGuidanceShortcuts', 'saveCandidateGuidanceShortcuts'].includes(method)) {
+      try { result = { ok: true, ...await settings[method](args) } }
+      catch (error) { result = { ok: false, error: error.message, errorCode: error.code } }
     } else {
+      if (method === 'syncSession' && task?.busy && completedChoices) {
+        task = { ...task, status: 'succeeded', busy: false, terminal: true, result: { candidates: { choices: completedChoices } } }
+      }
       const responses = {
         listCards: { cards: [] },
         getCardOrganization: { organization: { groups: [], assignments: {} } },
-        listSessions: { sessions: [{ sessionId: 'game', chatId: 'chat', mode: 'story', cardName: '测试' }] },
+        listSessions: { sessions: [{ sessionId: 'game', chatId: 'chat', mode, cardName: '测试' }] },
         getUpdateStatus: { status: { phase: 'idle', host: 'cli' } },
         getHostCompatibility: {},
         confirmSessionPatch: {},
         gameMode: args.op === 'list' ? { modes: [] } : { mode: null },
         syncSession: { sync: sync() },
-        getSession: { view: { mode: 'story', latestAssistantTurn: 1, activity: { busy: false }, tavernHelper: { messages: [] } } },
+        getSession: { view: { mode, latestAssistantTurn: 1, activity: { busy: false }, tavernHelper: { messages: [] } } },
         getActiveInterfaceSkin: { css: '' },
         getTavernSettings: { settings: {} }, // composer and sidebar preferences
-        getChoices: { candidates: null }, // the dock reads the round's saved candidates
+        getCandidatePreferences: { candidateDismissMode: 'after-send' },
+        getCandidateGuidanceShortcuts: { shortcuts: { story: [] } },
+        getChoices: { candidates: savedChoices ?? (settings ? { choices: ['继续走近'] } : null) },
         loadSessionPreviews: { previews: {} },
         cardPluginScopes: { scopes: {} }, // plugin composer actions wait for which plugins belong to which cards
       }
@@ -56,16 +73,16 @@ async function mount(t, outcome) {
   })
   await page.goto('http://tavern.test/')
   await page.addScriptTag({ content: await browserReactScript() })
-  await page.addScriptTag({ content: `window.__ModuleLoader__={load(d){window.client=d.factory(name=>name==='react'?modules.react:{});}};` })
+  await page.addScriptTag({ content: `window.__ModuleLoader__={load(d){window.client=d.factory(name=>modules[name]||{});}};` })
   await page.addScriptTag({ content: clientSource })
-  await page.evaluate(() => {
+  await page.evaluate(showResults => {
     const slots = {}, noop = () => () => {}
     const sessionState = { current: '', byId: {} }
     const ctx = {
       inject() { return { dispose() {} } },
       get() {}, provide() {},
       effect(run, label) {
-        if (['dsh-tavern: Tavern workspace browser', 'dsh-tavern: candidate dock actions'].includes(label)) return run()
+        if (['dsh-tavern: Tavern workspace browser', 'dsh-tavern: candidate dock actions', 'dsh-tavern: candidate guide panel'].includes(label) || (showResults && label === 'dsh-tavern: candidate question panel')) return run()
         return () => {}
       },
       slots: { inject(_name, run) { return run() }, register(spec, component) { slots[spec.id || spec.name] = component; return () => {} } },
@@ -79,14 +96,235 @@ async function mount(t, outcome) {
       wide: true, useSessions: select => select(sessionState), useWorkspaces: select => select({ items: [] }), renderSlot: () => null,
     }))
     // A top-level play session shows its round actions in the composer (input.left).
-    modules['react-dom/client'].createRoot(document.querySelector('#dock')).render(React.createElement(slots['dsh-tavern-candidate-actions'], {
-      sessionId: 'game', useSession: select => select({ running: false }), useInput: select => select({ draft: '' }),
-      useChat: select => select({ legacy: { nodes: [{ kind: 'assistant', messageId: 'reply-1' }] } }),
-    }))
-  })
-  await page.getByRole('button', { name: '生成候选项', exact: true }).waitFor()
-  return { page, calls, errors, unexpected }
+    let draft = ''
+    const root = modules['react-dom/client'].createRoot(document.querySelector('#dock'))
+    window.renderCandidateRound = (running, messageId) => {
+      const props = {
+        sessionId: 'game', useSession: select => select({ running }), useInput: select => select({ draft }),
+        useChat: select => select({ legacy: { nodes: [{ kind: 'assistant', messageId }] } }),
+        inputActions: { setDraft(value) { draft = value } }
+      }
+      root.render(React.createElement(React.Fragment, null,
+        React.createElement(slots['dsh-tavern-candidate-actions'], props), React.createElement(slots['dsh-tavern-candidate-guide'], props),
+        showResults ? React.createElement(slots['dsh-tavern-question'], props) : null))
+    }
+    window.renderCandidateRound(false, 'reply-1')
+  }, Boolean(completedChoices || savedChoices))
+  await page.getByRole('button', { name: settings || savedChoices ? '重新生成候选项' : '生成候选项', exact: true }).waitFor()
+  return { page, calls, errors, unexpected, setSavedChoices: value => { savedChoices = value } }
 }
+
+test('填入候选并发送后移除上一轮面板，新候选只在正文落盘后显示', async t => {
+  const { page, calls, errors, setSavedChoices } = await mount(t, 'success', { savedChoices: { choices: ['走到门前'] } })
+  const panel = page.locator('.dsh-tavern-candidate-question')
+  await page.getByRole('button', { name: '展开行动列表', exact: true }).click()
+  await panel.getByRole('button', { name: '走到门前' }).click()
+  await panel.locator('.dsh-tavern-question-option[aria-pressed="true"]').waitFor()
+  // DSH publishes the new reply id while the previous candidates are still saved.
+  await page.evaluate(() => window.renderCandidateRound(true, 'reply-2'))
+  await panel.waitFor({ state: 'detached' })
+  setSavedChoices(null)
+  const postCommit = page.waitForResponse(response => response.url().endsWith('/getChoices')
+    && response.request().postDataJSON().messageId === 'reply-2')
+  await page.evaluate(() => window.renderCandidateRound(false, 'reply-2'))
+  await postCommit
+  await page.getByRole('button', { name: '生成候选项', exact: true }).waitFor()
+  assert.equal(await panel.count(), 0)
+  assert.equal(calls.filter(call => call.method === 'getChoices' && call.args.messageId === 'reply-2').length, 1)
+
+  // Foreground-generated candidates for a later reply still appear normally.
+  await page.evaluate(() => window.renderCandidateRound(true, 'reply-3'))
+  setSavedChoices({ choices: ['查看信件'] })
+  await page.evaluate(() => window.renderCandidateRound(false, 'reply-3'))
+  await panel.waitFor()
+  await page.getByRole('button', { name: '展开行动列表', exact: true }).click()
+  await panel.getByRole('button', { name: '查看信件' }).waitFor()
+  assert.equal(await panel.getByRole('button', { name: '走到门前' }).count(), 0)
+  assert.deepEqual(errors, [])
+})
+
+test('手动生成和重新生成完成后，自动展开分组候选项', async t => {
+  const completedChoices = [
+    { type: 'action', actor: '甲', text: '甲打开门' },
+    { type: 'action', actor: '乙', text: '乙检查窗户' },
+    { type: 'event', text: '有人敲门' },
+    { type: 'featured', actors: ['甲', '乙'], text: '甲和乙一起查找线索' },
+  ]
+  const { page, errors } = await mount(t, 'success', { completedChoices })
+  const featured = page.getByRole('tab', { name: '精选', selected: true })
+  await page.getByRole('button', { name: '生成候选项', exact: true }).click()
+  await featured.waitFor()
+  for (const name of ['甲', '乙', '全局']) await page.getByRole('tab', { name }).waitFor()
+  await page.getByRole('button', { name: '收起行动列表', exact: true }).click()
+  await featured.waitFor({ state: 'hidden' })
+  await page.getByRole('button', { name: '重新生成候选项', exact: true }).click()
+  await page.getByRole('button', { name: '重新生成', exact: true }).click()
+  await featured.waitFor()
+  assert.deepEqual(errors, [])
+})
+
+test('候选快捷提示可保存、编辑和排序，重开后按模式读回并恢复默认', async t => {
+  const dataRoot = await mkdtemp(join(tmpdir(), 'tavern-candidate-shortcuts-'))
+  t.after(() => rm(dataRoot, { recursive: true, force: true }))
+  const browser = await chromium.launch({ headless: true })
+  t.after(() => browser.close())
+  const storyDefaults = ['让对手戏角色更主动', '多点暧昧动作', '增加突发插曲', '场景换到白天户外']
+  const scriptDefaults = ['侧重角色行动', '直接开新场景']
+  const shortcutSelector = '.dsh-tavern-candidate-shortcut-chip'
+
+  async function openGuide(mode, options) {
+    // Each new page reads from a new settings service backed by the same profile directory.
+    const store = createProfileDataStore({ dataRoot })
+    const path = 'tavern-settings.json'
+    const settings = createSettingsHandlers({
+      readTavernSettings: async () => presentTavernSettings(await store.readJson(path), {}),
+      updateTavernSettings: async patch => presentTavernSettings(await store.updateJson(path, current => applyTavernSettingsPatch(current, patch)), {}),
+    })
+    const run = await mount(t, 'guide', { mode, settings, browser, ...options })
+    const { page } = run
+    await page.getByRole('button', { name: '重新生成候选项', exact: true }).click()
+    const manage = page.getByRole('button', { name: '管理', exact: true })
+    await manage.waitFor()
+    return { ...run, manage, input: page.getByPlaceholder('对候选的要求（可选）'),
+      saveDraft: page.getByRole('button', { name: '保存为快捷提示' }),
+      dialog: page.getByRole('dialog', { name: '管理快捷提示' }), chips: page.locator(shortcutSelector) }
+  }
+
+  async function checkOrder(page, texts) {
+    await page.waitForFunction(({ selector, texts }) => {
+      const actual = Array.from(document.querySelectorAll(selector), button => button.textContent)
+      return actual.length === texts.length && actual.every((text, index) => text === texts[index])
+    }, { selector: shortcutSelector, texts })
+  }
+
+  const story = await openGuide('story', { viewport: { width: 390, height: 680 }, hasTouch: true })
+  await checkOrder(story.page, storyDefaults)
+  assert.equal(await story.saveDraft.isDisabled(), true, '空要求不能保存')
+  await story.chips.first().click()
+  assert.equal(await story.input.inputValue(), storyDefaults[0])
+  await story.chips.nth(1).click()
+  assert.equal(await story.input.inputValue(), storyDefaults[0] + '；' + storyDefaults[1])
+  const draft = '保持当前场景，让配角主动推进剧情'
+  await story.input.fill(draft)
+  await story.saveDraft.click()
+  await checkOrder(story.page, [...storyDefaults, draft])
+  assert.equal(await story.input.inputValue(), draft)
+
+  await story.manage.click()
+  await story.dialog.getByText('普通模式', { exact: true }).waitFor()
+  await story.dialog.getByRole('button', { name: '新增快捷提示' }).click()
+  const long = '保留当前地点和时间。\n' + '让等候已久的配角先提出一个可以马上行动的建议。'.repeat(28)
+  const editor = story.dialog.getByRole('textbox', { name: '快捷提示内容' })
+  const saveEdit = story.dialog.getByRole('button', { name: '保存', exact: true })
+  await editor.fill(long)
+  await saveEdit.click()
+  await editor.waitFor({ state: 'hidden' })
+  await checkOrder(story.page, [...storyDefaults, draft, long])
+  assert.equal(await story.chips.last().evaluate(chip => chip.scrollWidth > chip.clientWidth), true, '长提示在按钮上省略显示')
+  const [scrollWidth, clientWidth] = await story.dialog.evaluate(dialog => {
+    const body = dialog.querySelector('.fork-modal-body')
+    return [body.scrollWidth, body.clientWidth]
+  })
+  assert.equal(scrollWidth, clientWidth, '手机上的管理列表不必横向滚动')
+
+  const revised = '保持当前场景，让配角先提议查找信件'
+  await story.dialog.getByRole('button', { name: '编辑第 5 条快捷提示' }).click()
+  assert.equal(await editor.inputValue(), draft)
+  await editor.fill(revised)
+  await saveEdit.click()
+  await editor.waitFor({ state: 'hidden' })
+  await story.dialog.getByRole('button', { name: '上移第 5 条快捷提示' }).click()
+  await checkOrder(story.page, [...storyDefaults.slice(0, 3), revised, storyDefaults[3], long])
+  await story.dialog.getByRole('button', { name: '下移第 4 条快捷提示' }).click()
+  await checkOrder(story.page, [...storyDefaults, revised, long])
+  await story.dialog.getByRole('button', { name: '下移第 4 条快捷提示' }).click()
+  await story.dialog.getByRole('button', { name: '删除第 2 条快捷提示' }).click()
+  const storyCustom = [storyDefaults[0], storyDefaults[2], revised, storyDefaults[3], long]
+  await checkOrder(story.page, storyCustom)
+  await story.page.keyboard.press('Escape')
+  await story.dialog.waitFor({ state: 'hidden' })
+  assert.equal(await story.input.inputValue(), draft, '管理时保留重生成草稿')
+  assert.equal(story.calls.some(call => call.method === 'submitTask'), false)
+
+  const script = await openGuide('script')
+  await checkOrder(script.page, scriptDefaults)
+  const scriptDraft = '照剧本推进，让主角先调查门口'
+  await script.input.fill(scriptDraft)
+  await script.saveDraft.click()
+  await checkOrder(script.page, [...scriptDefaults, scriptDraft])
+  await script.manage.click()
+  await script.dialog.getByText('剧本模式', { exact: true }).waitFor()
+  await script.dialog.getByRole('button', { name: '恢复默认' }).click()
+  await checkOrder(script.page, scriptDefaults)
+  const deleteFirst = script.dialog.getByRole('button', { name: '删除第 1 条快捷提示' })
+  await deleteFirst.click()
+  await checkOrder(script.page, scriptDefaults.slice(1))
+  await deleteFirst.press('Enter')
+  await script.dialog.getByText('还没有快捷提示').waitFor()
+  await checkOrder(script.page, [])
+  await script.page.keyboard.press('Tab')
+  assert.equal(await script.dialog.evaluate(dialog => dialog.contains(document.activeElement)), true, '键盘删除后焦点留在管理弹窗内')
+
+  const reopenedScript = await openGuide('script')
+  await checkOrder(reopenedScript.page, [])
+  const reopenedStory = await openGuide('story')
+  await checkOrder(reopenedStory.page, storyCustom)
+  await reopenedStory.input.fill('先留在房间')
+  await reopenedStory.chips.last().click()
+  assert.equal(await reopenedStory.input.inputValue(), '先留在房间；' + long)
+  assert.equal(reopenedStory.calls.some(call => call.method === 'submitTask'), false, '快捷提示只填入全文')
+  await reopenedStory.input.fill('先留在房间；确认信件的来历')
+  const submitted = reopenedStory.page.waitForResponse(response => response.url().endsWith('/submitTask'))
+  await reopenedStory.page.getByRole('button', { name: '重新生成', exact: true }).click()
+  await submitted
+  const [request] = reopenedStory.calls.filter(call => call.method === 'submitTask')
+  assert.equal(request.args.guidance, '先留在房间；确认信件的来历')
+  for (const run of [story, script, reopenedScript, reopenedStory]) {
+    assert.deepEqual(run.unexpected, [])
+    assert.deepEqual(run.errors, [])
+  }
+})
+
+test('候选快捷提示管理弹窗在键盘保存期间保留焦点，失败后可重试', async t => {
+  const pendingDraft = Promise.withResolvers()
+  const pendingEdit = Promise.withResolvers()
+  let saves = 0
+  const settings = {
+    getCandidateGuidanceShortcuts: async () => ({ shortcuts: { story: [] } }),
+    saveCandidateGuidanceShortcuts: async ({ items }) => {
+      saves++
+      if (saves === 1) await pendingDraft.promise
+      if (saves === 2) await pendingEdit.promise
+      return { shortcuts: { story: items } }
+    },
+  }
+  const { page } = await mount(t, 'guide', { settings })
+  await page.getByRole('button', { name: '重新生成候选项', exact: true }).click()
+  await page.getByPlaceholder('对候选的要求（可选）').fill('先调查门口')
+  await page.getByRole('button', { name: '保存为快捷提示' }).press('Enter')
+  await page.getByText('正在保存快捷提示…').waitFor()
+  await page.getByRole('button', { name: '管理', exact: true }).press('Enter')
+  const dialog = page.getByRole('dialog', { name: '管理快捷提示' })
+  await dialog.getByText('正在保存快捷提示…').waitFor()
+  assert.equal(await dialog.evaluate(node => node.contains(document.activeElement)), true)
+  pendingDraft.resolve()
+  await dialog.getByRole('button', { name: '编辑第 1 条快捷提示' }).and(page.locator(':enabled')).press('Enter')
+
+  const editor = dialog.getByRole('textbox', { name: '快捷提示内容' })
+  const save = dialog.getByRole('button', { name: '保存', exact: true })
+  await editor.fill('再调查窗户')
+  await save.press('Enter')
+  await dialog.getByText('正在保存快捷提示…').waitFor()
+  assert.equal(await editor.evaluate(node => node === document.activeElement), true)
+  pendingEdit.reject(new Error('模拟保存失败'))
+  await dialog.getByText(/模拟保存失败/).waitFor()
+  assert.equal(await editor.evaluate(node => node === document.activeElement), true)
+  assert.equal(await editor.inputValue(), '再调查窗户')
+  await save.press('Enter')
+  await editor.waitFor({ state: 'hidden' })
+  await dialog.getByText('再调查窗户', { exact: true }).waitFor()
+  await dialog.getByRole('button', { name: '新增快捷提示' }).and(page.locator(':focus')).waitFor()
+})
 
 for (const [outcome, contract] of [
   ['recover', '网络失败后复用请求标识并恢复提交'],

@@ -5,6 +5,7 @@ import { lstatSync, realpathSync, readdirSync, readFileSync, writeFileSync, mkdi
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { copyTreeSync, removeTreeSync } from './portable-fs.mjs'
+import { setLauncherPackageName } from './launcher-package-name.mjs'
 import installationLocation from './installation-location.cjs'
 import { assertDesktopStopped } from './import-user-home.mjs'
 import { acquirePendingLock, installPublishGate, processAlive, readLastResult } from '../tavern-plugin/packages/dsh-tavern/lib/helper.mjs'
@@ -170,9 +171,9 @@ export function beginOriginalBridgeUpdate({ home, sourceRoot, launcherGate, prep
     const backup = path.join(state, 'bridge-update-' + randomUUID())
     mkdirSync(backup)
     const targets = ['vendor', 'node_modules'].map(name => {
-      const parent = path.join(original, name)
-      ordinary(parent)
-      return path.join(parent, bundle)
+      const target = path.join(original, name, bundle)
+      ordinary(path.dirname(target))
+      return target
     })
     const assertIndependentBridge = () => {
       for (const target of targets) ordinary(path.dirname(target))
@@ -195,18 +196,7 @@ export function beginOriginalBridgeUpdate({ home, sourceRoot, launcherGate, prep
       copy(source, prepared)
       // Keep the original manifest and pnpm lockfile valid on older installs.
       // Refresh their launcher under the name the profile already resolves.
-      if (bundle !== LAUNCHER_BUNDLE) {
-        for (const [file, entry] of [
-          ['package.json', `"name": "${LAUNCHER_BUNDLE}"`],
-          ['cordis.patch.yml', `name: '${LAUNCHER_BUNDLE}'`],
-          ['client.js', `id: '${LAUNCHER_BUNDLE}'`],
-        ]) {
-          const target = path.join(prepared, file)
-          const contents = readFileSync(target, 'utf8')
-          if (!contents.includes(entry)) throw Error(`切换组件源缺少入口：${file}`)
-          writeFileSync(target, contents.replace(entry, entry.replace(LAUNCHER_BUNDLE, bundle)))
-        }
-      }
+      if (bundle !== LAUNCHER_BUNDLE) setLauncherPackageName(prepared, LAUNCHER_BUNDLE, bundle)
     }
     const move = (from, to) => {
       journal.actions.push({ from, to }); save()

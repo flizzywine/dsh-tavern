@@ -1,6 +1,10 @@
 import path from 'node:path'
-import { readdir, stat } from 'node:fs/promises'
+import { readdir } from 'node:fs/promises'
 import { createDurableFilePromotion } from './durable-file-promotion.js'
+import {channel} from 'node:diagnostics_channel'
+import {performance} from 'node:perf_hooks'
+const readMetrics=channel('dsh.chat.read')
+export const TAVERN_SETTINGS_PATH = 'tavern-settings.json'
 
 function resolveSafePath(dataRoot, relativePath) {
   if (typeof relativePath !== 'string' || relativePath === '' || path.isAbsolute(relativePath)) throw new Error('Profile 数据路径不合法')
@@ -10,8 +14,10 @@ function resolveSafePath(dataRoot, relativePath) {
   return target
 }
 
-function decodeJson(value) {
-  return value === undefined ? undefined : JSON.parse(value.toString('utf8'))
+function decodeJson(value, allowEmpty) {
+  if (value === undefined) return undefined
+  const text = value.toString('utf8')
+  return allowEmpty && text.trim() === '' ? undefined : JSON.parse(text)
 }
 
 function encodeJson(value) {
@@ -22,10 +28,17 @@ function encodeJson(value) {
 export function createProfileDataStore(options) {
   const dataRoot = path.resolve(options.dataRoot)
   const files = createDurableFilePromotion(options)
+  const settingsFile = path.join(dataRoot, TAVERN_SETTINGS_PATH)
   return Object.freeze({
     async version(relativePath) { return files.version(resolveSafePath(dataRoot, relativePath)) },
-    async size(relativePath) { try { return (await stat(resolveSafePath(dataRoot, relativePath))).size } catch (error) { if (error?.code === 'ENOENT') return 0; throw error } },
-    async readJson(relativePath) { return decodeJson(await files.read(resolveSafePath(dataRoot, relativePath))) },
+    async size(relativePath) { return files.size(resolveSafePath(dataRoot, relativePath)) },
+    async readJson(relativePath) {
+      const target = resolveSafePath(dataRoot, relativePath)
+      const started=performance.now(),bytes=await files.read(target),loaded=performance.now()
+      const value=decodeJson(bytes,target===settingsFile)
+      if(readMetrics.hasSubscribers && ['sessions.json','index.json'].includes(relativePath))readMetrics.publish({name:'chat.routing.'+relativePath,durationMs:performance.now()-started,readMs:loaded-started,decodeMs:performance.now()-loaded,bytes:bytes?.length||0})
+      return value
+    },
     async readText(relativePath) { return (await files.read(resolveSafePath(dataRoot, relativePath)))?.toString('utf8') },
     async appendText(relativePath, text, options) {
       return files.append(resolveSafePath(dataRoot, relativePath), text, {
@@ -35,13 +48,15 @@ export function createProfileDataStore(options) {
     },
     async readBytes(relativePath) { return files.read(resolveSafePath(dataRoot, relativePath)) },
     async writeBytes(relativePath, data) { return files.write(resolveSafePath(dataRoot, relativePath), data) },
-    async writeJson(relativePath, value) { return files.write(resolveSafePath(dataRoot, relativePath), encodeJson(value)) },
+    async writeJson(relativePath, value, options) { return files.write(resolveSafePath(dataRoot, relativePath), encodeJson(value), options) },
     async updateJson(relativePath, updater) {
-      const result = await files.update(resolveSafePath(dataRoot, relativePath), async function (current) {
-        const next = await updater(decodeJson(current))
+      const target = resolveSafePath(dataRoot, relativePath)
+      const allowEmpty = target === settingsFile
+      const result = await files.update(target, async function (current) {
+        const next = await updater(decodeJson(current, allowEmpty))
         return next === undefined ? undefined : encodeJson(next)
       })
-      return decodeJson(result)
+      return decodeJson(result, allowEmpty)
     },
     async remove(relativePath) { await files.remove(resolveSafePath(dataRoot, relativePath)) },
     /** Directory entries; a missing directory is empty. */

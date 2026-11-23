@@ -6,7 +6,7 @@ import {runWorkbenchAction} from './actions.js'
 // user approval before any change that reaches beyond the current card.
 const globalAssets=new Set(['global-packs','catalogue-settings'])
 const localVoice=new Set(['assign-figure','binding','pack-voice','assign-template'])
-export function createWorkbenchHost({chatForSession,getLibrary,getPackSettings,getTtsControl,rpc,approval,readChat,cardIdentity,core}) {
+export function createWorkbenchHost({chatForSession,getLibrary,getPackSettings,getTtsControl,rpc,approval,readChat,cardIdentity,core,ensure}) {
   const plans=new Map()
   const callRpc=async(method,args)=>{
     const value=await rpc(method,args)
@@ -50,6 +50,8 @@ export function createWorkbenchHost({chatForSession,getLibrary,getPackSettings,g
         assertFeatureInput(input)
         const session=exec?.agent?.session,chat=session&&await chatForSession(session.id)
         if(chat?.mode!=='card') throw featureError('CARD_MODE_REQUIRED','$','Use a card workbench session.')
+        exec.signal?.throwIfAborted()
+        if (name !== 'script_manage') await ensure?.()
         exec.signal?.throwIfAborted()
         const library=getLibrary(),files=createWorkbenchFiles(session.header?.cwd)
         const context={input,chat,exec,library,files,plans,core,sessionId:session.id,rpc:callRpc,packSettings:getPackSettings(),tts:getTtsControl(),

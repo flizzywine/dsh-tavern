@@ -4,57 +4,9 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
 
-import { createTransferChats } from '../tavern-plugin/lib/domain/transfer-chats.js'
 import { createTransferLogs } from '../tavern-plugin/lib/domain/transfer-logs.js'
 import { readZipEntries, writeZipEntries } from '../tavern-plugin/lib/domain/zip-entries.js'
 import { createTransferHandlers } from '../tavern-plugin/lib/rpc/transfer.js'
-
-test('transfer-chats list 与 importedHashes 优先使用轻量摘要与头部读取，零次触发全量 readChat', async () => {
-  let fullReadCount = 0
-  let summaryReadCount = 0
-  let headerReadCount = 0
-
-  const chats = createTransferChats({
-    async listSessions() {
-      return [
-        { id: 'chat-a', sessionId: 'sess-a', title: '第一章', cardName: '角色A', mode: 'story', requestMode: 'tavern' },
-        { id: 'chat-b', sessionId: 'sess-b', title: '第二章', cardName: '角色B', mode: 'story', requestMode: 'tavern' }
-      ]
-    },
-    async readRecentSummaries(chatId) {
-      summaryReadCount += 1
-      if (chatId === 'chat-a') {
-        return { revision: 5, from: 0, messageCount: 3, messages: [{ role: 'user' }, { role: 'assistant' }, { role: 'assistant' }] }
-      }
-      return { revision: 1, from: 0, messageCount: 1, messages: [{ role: 'user' }] }
-    },
-    async readChatHeader(chatId) {
-      headerReadCount += 1
-      return chatId === 'chat-a'
-        ? { id: 'chat-a', importedSave: { sourceHash: 'hash-a' } }
-        : { id: 'chat-b', importHistory: { digest: 'digest-b' } }
-    },
-    async readChat() {
-      fullReadCount += 1
-      throw new Error('不应回退到全量 readChat')
-    },
-    async exportSave() { throw new Error('unused') },
-    async importSave() { throw new Error('unused') }
-  })
-
-  const items = await chats.list()
-  assert.equal(fullReadCount, 0)
-  assert.equal(summaryReadCount, 2)
-  assert.deepEqual(items, [
-    { key: 'chat-a', title: '第一章', meta: '2 轮 · 角色A', bytes: 0 },
-    { key: 'chat-b', title: '第二章', meta: '0 轮 · 角色B', bytes: 0 }
-  ])
-
-  const hashes = await chats.importedHashes()
-  assert.equal(fullReadCount, 0)
-  assert.equal(headerReadCount, 2)
-  assert.deepEqual([...hashes].sort(), ['digest-b', 'hash-a'])
-})
 
 test('getTransferCatalog 服务端 single-flight 合并并发请求并共享单次 listTavernSessions', async t => {
   const root = await mkdtemp(path.join(tmpdir(), 'transfer-catalog-sf-'))

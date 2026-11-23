@@ -2,12 +2,12 @@ import { applyOpeningCommand } from './opening-command.js'
 import { ensureOpeningTurn, releaseOpeningTurn, sessionEvents, appendSessionEvent } from './session-events.js'
 import { nativeOpeningMessageId } from './native-opening.js'
 import { cardOpeningChoices, resolveCardOpening } from './card-openings.js'
-import { projectAgentContent, projectOpeningCommit } from './runtime-content-projection.js'
+import { projectOpeningCommit } from './runtime-content-projection.js'
 import { OFFICIAL_MVU_VERSION } from './official-mvu-assets.js'
 import { createScriptContinuity } from './script-continuity.js'
 import { normalizeBackgroundModel } from './background-model-selection.js'
 import { normalizeDisabledForegroundTools } from './foreground-tools.js'
-import { normalizeConfiguredBackgroundTasks, normalizeDefaultBodyGeneration, normalizeDefaultPluginGameSettings, normalizePlayDefaults } from './tavern-settings.js'
+import { normalizeConfiguredBackgroundTasks, normalizeDefaultPluginGameSettings, normalizePlayDefaults } from './tavern-settings.js'
 import { ensureSessionSeedTrajectory } from './session-seed-trajectory.js'
 import { defaultUserPreferenceProfile } from './user-preference-profile.js'
 import { replyProse } from './reply-prose.js'
@@ -175,9 +175,8 @@ export function createConversationInitialization(options) {
     // blank character keeps the native opening structure, which the chat and provider requests skip.
     // A stage opening page picked this greeting (startCommand.keepGreeting): it is the game's first floor.
     const formOpening = Boolean(openingExtensions?.openingSetup) && openingProjection.sessionText !== '' && preparation?.startCommand?.keepGreeting !== true
-    // Keep an anchor in the DSH transcript for a selectable blank greeting.
-    const greeting = formOpening || (openingChoices.length > 1 && openingProjection.sessionText === '')
-      ? '\u3000' : openingProjection.sessionText
+    // an explicitly blank greeting starts an empty chat (no anchor floor); MVU initializes in the chat scope.
+    const greeting = formOpening ? '\u3000' : openingProjection.sessionText
     // connectWorkspace 返回时，Agent 注册偶尔仍在异步完成。先等到原生会话可写，
     // 再落盘 Tavern 对话，避免失败时留下只有映射、没有原生开场白的半初始化记录。
     const openingTarget = typeof sessionId === 'string' && sessionId !== '' ? await trace.stage('waitSession', () => native.wait(sessionId)) : undefined
@@ -201,19 +200,14 @@ export function createConversationInitialization(options) {
     chat.userProfileId = profile?.profileId || 'default'
     chat.userProfileEnabled = profile?.hasConfirmed === true && profile.defaultEnabled === true
     chat.webSearchEnabled = groupOfMode(chat.mode) === 'play' && defaults.webSearchEnabled
-    if (groupOfMode(chat.mode) === 'play') chat.worldbookStrategy = defaults.worldbookStrategy
+    if (groupOfMode(chat.mode) === 'play') {
+      chat.worldbookStrategy = defaults.worldbookStrategy
+      chat.candidateTabs = defaults.candidateTabs
+    }
     chat.conversationFeaturesVersion = 1
     chat.backgroundModelSelection = groupOfMode(chat.mode) === 'play' ? normalizeBackgroundModel(currentSettings.defaultBackgroundModel) : null
     chat.disabledWritingSkills = groupOfMode(chat.mode) === 'play' ? [...(currentSettings.defaultDisabledWritingSkills || [])] : []
     chat.disabledForegroundTools = groupOfMode(chat.mode) === 'play' ? normalizeDisabledForegroundTools(currentSettings.defaultDisabledForegroundTools) : []
-    if (groupOfMode(chat.mode) === 'play') {
-      const bodyDefaults = normalizeDefaultBodyGeneration(currentSettings.defaultBodyGeneration)
-      if (bodyDefaults.mode !== 'inherit') {
-        chat.storyGenerationMode = bodyDefaults.mode
-        chat.storyGenerationProvider = bodyDefaults.provider
-      }
-      if (typeof bodyDefaults.hostRegex === 'boolean') chat.storyPluginOutputRegex = bodyDefaults.hostRegex
-    }
     chat.backgroundConfigVersion = 1
     chat.backgroundTasks = normalizeConfiguredBackgroundTasks(groupOfMode(chat.mode) === 'play' ? defaults.backgroundTasks : {})
     chat.mvu = usesMvu ? {
@@ -227,6 +221,7 @@ export function createConversationInitialization(options) {
         status: 'pending'
       }
     } : { enabled: false }
+    if (typeof sessionId === 'string') chat.sessionId = sessionId
     // The opening draft already projected this book; rebuilding the prefix from
     // that projection avoids a second read and inspect of the same document.
     // New games keep no copy: they follow the library, so an edit takes effect.
@@ -250,7 +245,9 @@ export function createConversationInitialization(options) {
       ts: now(),
       greeting: true,
       ...(!formOpening && openingChoices[selectedOpeningIndex] ? { openingChoiceId: openingChoices[selectedOpeningIndex].id } : {}),
-      turn: 1
+      turn: 1,
+      // which greeting this is, for its opening scene (stage-opening-scene.js).
+      ...(openingChoices[selectedOpeningIndex] ? { openingId: openingChoices[selectedOpeningIndex].id } : {})
     }, usesMvu !== true ? {} : {
       swipeId: selectedOpeningIndex,
       swipes: openingChoices.map(function (choice) { return choice.text }),
@@ -322,7 +319,15 @@ export function createConversationInitialization(options) {
     const group = groupOfMode(chat.mode)
     const defaultModel = group === 'play' ? currentSettings.defaultForegroundModel
       : group === 'card' ? currentSettings.defaultWorkbenchModel || currentSettings.defaultForegroundModel : null
-    if (openingTarget && defaultModel) await trace.stage('selectModel', () => native.selectModel(openingTarget, defaultModel))
+    if (openingTarget && defaultModel) {
+      try { await trace.stage('selectModel', () => native.selectModel(openingTarget, defaultModel)) }
+      catch (error) {
+        if (error?.code !== 'NO_ADAPTER') throw error
+        // This Tavern default still points to a removed host provider. Creating
+        // the opening needs no model call, so keep the host's session selection.
+        logger.warn('dsh-tavern: 新对话跳过已不可用的默认模型渠道', { sessionId, provider: defaultModel.provider })
+      }
+    }
     await trace.stage('publish', () => chats.publish(chat))
     if (group === 'play' && options.pluginDataStore?.updateSettings) {
       const defaultPluginValues = normalizeDefaultPluginGameSettings(currentSettings.defaultPluginGameSettings)
@@ -347,7 +352,7 @@ export function createConversationInitialization(options) {
     if (typeof chat.openingText === 'string') return chat.openingText
     const greeting = Array.isArray(chat.messages) ? chat.messages.find(message => message && message.greeting === true && typeof message.text === 'string') : undefined
     if (greeting !== undefined) return greeting.text
-    const projection = projectAgentContent(card.first_mes, { charName: str(card && card.name), macroState: chat.macroState || {} })
+    const projection = projectOpeningCommit(card.first_mes, { charName: str(card && card.name), macroState: chat.macroState || {} })
     Object.assign(chat.macroState || (chat.macroState = {}), projection.macroState)
     return projection.renderedText
   }

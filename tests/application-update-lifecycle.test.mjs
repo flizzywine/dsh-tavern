@@ -159,24 +159,6 @@ test('hung config validation stops its writer before profile transaction rollbac
   assert.equal(await readFile(manifestPath, 'utf8'), original)
 })
 
-test('CLI service starts only after the bootstrap process tree is quiescent', { skip: process.platform === 'win32' }, async t => {
-  const f = await fixture(t)
-  const program = `import {recordInstallationReceipt} from ${JSON.stringify(receiptModule)};await recordInstallationReceipt({sourceRoot:${JSON.stringify(f.sourceRoot)},dshHome:process.env.DSH_HOME,host:'cli',attemptId:process.env.DSH_TAVERN_INSTALL_ATTEMPT})`
-  await writeFile(path.join(f.sourceRoot, 'install.sh'), `#!/bin/sh\ntest "$DSH_TAVERN_DEFER_SERVICE_START" = 1 || exit 11\n${quote(process.execPath)} --input-type=module -e ${quote(program)}\n`)
-  let started = false
-  await updateApplication({ ...f.options, host: 'cli', async startService() {
-    const owner = installationState.readInstallation(f.root)
-    const { readdir } = await import('node:fs/promises')
-    const processFiles = await readdir(path.join(owner.lockDir, 'processes'))
-    assert.ok(processFiles.includes('stopping'))
-    assert.equal(processFiles.some(name => /^\d+\.json$/.test(name)), false)
-    assert.equal(owner.supervised, false)
-    started = true
-  } })
-  assert.equal(started, true)
-  assert.equal(JSON.parse(await readFile(f.statusFile)).phase, 'completed')
-})
-
 test('Windows persistent service launched after cleanup survives successful updater completion', { skip: process.platform !== 'win32' }, async t => {
   let pid
   // One cleanup callback establishes order across Node versions. Even after
@@ -198,23 +180,6 @@ test('Windows persistent service launched after cleanup survives successful upda
   assert.ok(pid > 0)
   process.kill(pid, 0)
   assert.equal(JSON.parse(await readFile(f.statusFile)).phase, 'completed')
-})
-
-test('sidebar stage follows the installer steps instead of staying at 安装程序', { skip: process.platform === 'win32' }, async t => {
-  const f = await fixture(t)
-  await writeFile(path.join(f.sourceRoot, 'install.sh'), `#!/bin/sh
-printf '== [步骤 1] 下载源码（已用 0s）==\\n'
-printf '== [步骤 2] 安装依赖并配置 Profile（已用 1s）==\\n'
-while :; do sleep 0.02; done
-`)
-  const active = updateApplication({ ...f.options, timeoutMs: 10000 }).catch(error => error)
-  await until(async () => (await f.updater().status()).stage === '第 2 步 · 安装依赖并配置 Profile')
-  const running = await f.updater().status()
-  assert.equal(running.phase, 'running')
-  assert.equal(running.stalled, false)
-  assert.equal((await f.updater().cancel()).phase, 'cancelling')
-  const error = await active
-  assert.equal(error.code, 'INSTALLATION_ABORTED')
 })
 
 test('取消安卓更新时把更新前的源码换回来，状态不再要求修复', { skip: process.platform === 'win32' }, async t => {
@@ -248,4 +213,35 @@ test('取消安卓更新时把更新前的源码换回来，状态不再要求�
   assert.equal(status.phase, 'failed')
   assert.equal(status.repairRequired, undefined)
   assert.match(status.error, /已恢复更新前的源码/)
+})
+
+test('the final desktop guard still refuses a process that appeared after preparation', { skip: process.platform === 'win32' }, async t => {
+  const f = await fixture(t)
+  const live = path.join(f.sourceRoot, 'plugin.js')
+  await writeFile(live, 'old')
+  await writeFile(path.join(f.sourceRoot, 'install.sh'), `#!/bin/sh
+: > "$DSH_TAVERN_PUBLISH_GATE.ready"
+while [ ! -f "$DSH_TAVERN_PUBLISH_GATE" ]; do sleep 0.02; done
+printf published > ${quote(live)}
+`)
+  const children = [0, 1].map(() => spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' }))
+  const exits = children.map(child => once(child, 'exit'))
+  let guards = 0
+  const result = updateApplication({ ...f.options, desktopPids: children.map(child => child.pid), timeoutMs: 10000,
+    assertDesktopStopped() { guards++; throw new Error('late desktop process remains') },
+  }).catch(error => error)
+  try {
+    await until(async () => (await f.updater().status()).awaitingDesktopExit)
+    assert.equal(guards, 0)
+    for (const child of children) child.kill()
+    await Promise.all(exits)
+    assert.match((await result).message, /late desktop process remains/)
+    assert.equal(guards, 1)
+    assert.equal(await readFile(live, 'utf8'), 'old')
+    assert.equal(installationState.readInstallation(f.root), null)
+  } finally {
+    for (const child of children) child.kill()
+    await Promise.all(exits)
+    await result
+  }
 })

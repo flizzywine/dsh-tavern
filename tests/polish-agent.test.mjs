@@ -1,25 +1,24 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { createPolishDraft, createPolishReviewer, POLISH_TOOLS } from '../tavern-plugin/lib/domain/polish-agent.js'
+import { createPolishReviewer } from '../tavern-plugin/lib/domain/polish-agent.js'
 import { applyPolishEdits } from '../tavern-plugin/lib/domain/polish-review.js'
 import { prompt } from '../tavern-plugin/lib/prompt-catalog.js'
 import { createPlayHandlers } from '../tavern-plugin/lib/rpc/play.js'
+import { withHostAgent } from '../tavern-plugin/lib/host/sessions.js'
 
-test('逐处修改校验、重试、去重和完成；按原文坐标应用，不误改替换结果', () => {
-  const texts = ['甲。乙。', '重复。重复。']
-  const changes = [], draft = createPolishDraft(texts, edits => changes.push(edits.length))
-  const edit = (find, replace) => JSON.parse(draft.call({ name: 'polish_edit', arguments: { find, replace, reason: '原因' } }))
-  assert.equal(edit('没有', '新').ok, false)
-  assert.equal(edit('重复。', '新').ok, false)
-  assert.equal(edit('甲。', '乙。').ok, true)
-  assert.equal(edit('甲。', '乙。').duplicate, true)
-  assert.equal(edit('甲。乙。', '新').ok, false)
-  assert.equal(edit('乙。', '丙。').ok, true)
-  assert.deepEqual(applyPolishEdits(texts, draft.result().edits), ['乙。丙。', '重复。重复。'])
-  draft.call({ name: 'polish_finish', arguments: {} })
-  assert.equal(edit('重复。重复。', '').ok, false)
-  assert.deepEqual(changes, [1, 2, 2])
-})
+function coldForeground() {
+  const agent = { session: { id: 'parent' } }
+  const state = { live: false, resumes: 0, disposals: 0 }
+  const host = { sessions: { get: () => state.live ? agent.session : undefined }, agents: {
+    get: () => state.live ? agent : undefined,
+    async resume() {
+      state.live = true
+      state.resumes++
+      return { agent, async dispose() { state.live = false; state.disposals++ } }
+    }
+  } }
+  return { state, host, withAgent: (id, work) => withHostAgent(host, id, work) }
+}
 
 function fixture() {
   let saved, sequence = 0, replaceSession = false, fail = false
@@ -66,26 +65,58 @@ test('回退、重生成、前文变化仍用同一个润色会话并说明剧�
   }
 })
 
-test('无修改必须显式完成，正文或模型错误不冒充成功', async () => {
-  const f = fixture()
-  f.options.runAgent = async input => { await input.onPersistentSessionReady('child'); return { traceSessionId: 'child', text: '完成了' } }
+test('精修在借用前台 Agent 后选模型，取消等待中的审稿会释放 Agent', async () => {
+  const f = fixture(), foreground = coldForeground()
+  const resume = foreground.host.agents.resume
+  const opening = Promise.withResolvers(), publish = Promise.withResolvers()
+  foreground.host.agents.resume = async () => {
+    opening.resolve()
+    await publish.promise
+    return resume()
+  }
+  f.options.withForegroundAgent = foreground.withAgent
+  let selections = 0
+  f.options.selection = async () => {
+    assert.equal(foreground.state.live, true)
+    selections++
+    return { provider: 'configured', model: 'polish' }
+  }
+  const runAgent = f.options.runAgent
+  f.options.runAgent = async input => {
+    assert.equal(foreground.state.live, true)
+    return runAgent(input)
+  }
   const reviewer = createPolishReviewer(f.options)
-  await assert.rejects(reviewer.review('parent', ['甲。乙。']), /未调用完成工具/)
-  assert.equal(reviewer.progress('parent').phase, 'failed')
-  const controller = new AbortController(); controller.abort()
-  await assert.rejects(reviewer.review('parent', ['甲。乙。'], controller.signal), { name: 'AbortError' })
-  assert.equal(POLISH_TOOLS.length, 2)
+  const controller = new AbortController()
+  const aborted = assert.rejects(reviewer.review('parent', ['甲。乙。'], controller.signal), { name: 'AbortError' })
+  try {
+    await Promise.race([opening.promise, aborted])
+    controller.abort()
+  } finally { publish.resolve(); await aborted }
+  assert.equal(selections, 0)
+  assert.deepEqual(foreground.state, { live: false, resumes: 1, disposals: 1 })
+
+  await reviewer.guide('parent', ['甲。乙。'], '写具体一些')
+  assert.deepEqual(f.calls[0].selection, { provider: 'configured', model: 'polish' })
+  assert.deepEqual(foreground.state, { live: false, resumes: 2, disposals: 2 })
 })
 
 test('RPC 只在两步精修都完成后保存一次，失败不写入半成品；保留原文供撤销', async () => {
   for (const outcome of ['saved', 'failed', 'queued']) {
     const saves = [], records = []
-    let onSaved
+    const foreground = coldForeground()
+    let onSaved, polishEnabled = false
     const handlers = createPlayHandlers({
       str: value => String(value || ''), reconcileStory: async () => {}, notifyPluginTimeline() {},
+      readTavernSettings: async () => ({ polishEnabled }),
+      withForegroundTaskAgent: foreground.withAgent,
       polishPrereview: { settle() {}, take: async () => null },
-      bodyEditor: { read: async () => ({ token: 'original-version', turn: 1, parts: [{ kind: 'text', text: '甲。乙。' }] }),
+      bodyEditor: { read: async () => {
+        assert.equal(foreground.state.live, true)
+        return { token: 'original-version', turn: 1, parts: [{ kind: 'text', text: '甲。乙。' }] }
+      },
         save: async (_id, change, options) => {
+          assert.equal(foreground.state.live, true)
           saves.push(change)
           if (outcome === 'queued') {
             onSaved = options.onSaved
@@ -97,6 +128,7 @@ test('RPC 只在两步精修都完成后保存一次，失败不写入半成品�
       polishReviewer: {
         review: async () => ({ edits: [{ find: '甲。', replace: '甲改。', reason: '原则', status: 'ok' }], fallback: '' }),
         guide: async (_id, texts) => {
+          assert.equal(foreground.state.live, true)
           assert.deepEqual(texts, ['甲改。乙。'])
           assert.equal(saves.length, 0)
           if (outcome === 'failed') throw new Error('模型中断')
@@ -105,6 +137,9 @@ test('RPC 只在两步精修都完成后保存一次，失败不写入半成品�
       },
       polishRecords: { save: async (_id, _turn, record) => records.push(record) }
     })
+    await assert.rejects(handlers.polishBody({ sessionId: 'parent' }), /开启精修/)
+    assert.equal(saves.length, 0)
+    polishEnabled = true
     if (outcome === 'failed') {
       await assert.rejects(handlers.polishBody({ sessionId: 'parent', guidance: '更短' }), /模型中断/)
       assert.equal(saves.length, 0); assert.equal(records.length, 0)
@@ -121,5 +156,6 @@ test('RPC 只在两步精修都完成后保存一次，失败不写入半成品�
       assert.equal(records[0].requestId, 'polish-test')
       assert.deepEqual(applyPolishEdits(records[0].original, records[0].edits), ['甲再改。乙。'])
     }
+    assert.deepEqual(foreground.state, { live: false, resumes: 1, disposals: 1 })
   }
 })

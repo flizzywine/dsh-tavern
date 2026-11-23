@@ -1,7 +1,8 @@
 import { createHash } from 'node:crypto'
 import { constants } from 'node:fs'
-import { lstat, mkdir, open, realpath } from 'node:fs/promises'
+import { lstat, lutimes, mkdir, open, realpath } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
+import { normalizeOutfitParts } from './outfit-parts.js'
 
 /** Local-only immutable references. No URLs, caller-selected paths, or network I/O. */
 const DEFAULT_MAX_BYTES = 32 * 1024 * 1024
@@ -188,7 +189,7 @@ function decodeUpload(value, maxBytes) {
  * its descriptor; all older descriptors keep resolving to their original bytes.
  * root is a trusted application-selected directory, never a request field.
  */
-export function createReferenceImageStore(root, { maxBytes = DEFAULT_MAX_BYTES } = {}) {
+export function createReferenceImageStore(root, { maxBytes = DEFAULT_MAX_BYTES, refreshUploadTime = false } = {}) {
   if (typeof root !== 'string' || !root.trim() || /^(?:https?|file|data):/i.test(root) || root.includes('\0')) throw fail('REFERENCE_STORE_INVALID', '参考图目录无效')
   if (!Number.isSafeInteger(maxBytes) || maxBytes < 1) throw fail('REFERENCE_STORE_INVALID', '参考图大小上限必须是正整数')
   const directory = resolve(root)
@@ -260,6 +261,11 @@ export function createReferenceImageStore(root, { maxBytes = DEFAULT_MAX_BYTES }
         }
         // An existing file is verified, never repaired/overwritten in place.
         await read(descriptor)
+        // A repeated upload of the same bytes can also be waiting for a draft save.
+        if (refreshUploadTime) {
+          const now = new Date()
+          await lutimes(file, now, now)
+        }
       })()
       writes.set(file, pending)
       pending.finally(() => { if (writes.get(file) === pending) writes.delete(file) }).catch(() => {})
@@ -277,7 +283,7 @@ export function createReferenceImageStore(root, { maxBytes = DEFAULT_MAX_BYTES }
       throw fail('REFERENCE_STORAGE_UNAVAILABLE', '本地参考图存储不可用（' + errno + '）')
     }
   }
-  return { put: ioGuard(put), read: ioGuard(read), readById: ioGuard(readById) }
+  return { put: ioGuard(put), read: ioGuard(read), readById: ioGuard(readById), prepareDirectory: ioGuard(ready) }
 }
 
 const arr = value => Array.isArray(value) ? value : []
@@ -619,8 +625,8 @@ export function referencePlannerGuidance(definitions = {}, { structured = false 
   const lib = catalog(definitions)
   const lines = ['【参考图模式规划规则】',
     '只为当前这张 image 中实际出现的人物选择参考图，不得把整个图库或仅在正文被提及但不出镜的人物传入。',
-    '每个 <image> 内必须输出一次 <subjects>JSON数组</subjects>，例如 <subjects>[{"characterId":"精确角色ID","outfitId":"当刻精确服装ID或空字符串"}]</subjects>。ID 必须从下列清单原样复制，不使用姓名代替 ID，不猜测 ID。无人时输出 []。',
-    '同一角色仅列一次。outfitId 必须对应该角色在这一张画面、这一时刻实际穿的服装；需要沿用舞台当刻服装时省略 outfitId。明确不选图库服装、裸露、衣物不可见或用纯文字描述衣物时填 ""，不要因此补常穿。未知或未建库人物保留在画面描述中，可在 subjects 中写 {"name":"该人物名称"}，不要编造 characterId；若穿通用服装，可另外填写该通用服装的 outfitId。',
+    '每个 <image> 内必须输出一次 <subjects>JSON数组</subjects>，例如 <subjects>[{"characterId":"精确角色ID"}]</subjects>。ID 必须从下列清单原样复制，不使用姓名代替 ID，不猜测 ID。无人时输出 []。',
+    '同一角色仅列一次。outfitId 可省略：省略时按舞台当刻让这个人穿的服装出图；只有正文明确这一刻穿的是清单里另一套服装时，才填那套的精确 outfitId。没有舞台服装时，不选图库服装、裸露、衣物不可见或用纯文字描述衣物也省略 outfitId，不要因此补常穿。未知或未建库人物保留在画面描述中，可在 subjects 中写 {"name":"该人物名称"}，不要编造 characterId；若穿通用服装，可另外填写该通用服装的 outfitId。',
     '服装可以只用文字描述，不必从图库挑一套；当前剧情明确的衣着、状态变化优先，脱下、拿在手中或放在一旁的衣服不作为正在穿着的服装。',
     '有图对象以图片及其一致性补充约束固定外观，不再完整堆叠它的固定 traits 或服装标签；缺图对象继续使用完整文字描述。角色图不继承服装、姿势或背景，服装图不继承模特身份；动作和场景依据当前剧情。',
     '取图顺序由插件决定，照常填写 characterId 与 outfitId 即可：服装标有 characterOutfitImage（角色×服装设定图）时只用这一张同时约束身份与服装；否则用角色图加服装图；服装没有图时保留服装文字。',
@@ -670,13 +676,9 @@ export function referenceScopedDefinitions(definitions = {}, references = [], { 
   // also enter per-character expansion below, whose schema is upper/full/back.
   // Map on the clone (including standalone shared macros), keeping author data
   // untouched. Pictured costumes will subsequently have all these fields erased.
-  for (const outfit of arr(result.outfits).filter(enabled)) {
-    if (!cleanText(outfit.upper) && cleanText(outfit.body)) outfit.upper = outfit.body
-    if (!cleanText(outfit.back)) {
-      const back = [outfit.bodyBack, outfit.fullBack].map(cleanText).filter(Boolean).join('\n')
-      if (back) outfit.back = back
-    }
-  }
+  // 通用服装与角色服装的字段已统一；旧 body/fullBack/bodyBack 在这里映射到 upper/back。
+  // 映射发生在克隆上，不动作者数据；带参考图的服装随后会把服装字段整块擦掉换成标记。
+  for (const outfit of arr(result.outfits).filter(enabled)) Object.assign(outfit, normalizeOutfitParts(outfit))
   const original = catalog(result)
   const characterRefs = new Map(checked.filter(ref => ref.kind !== 'outfit').map(ref => [ref.characterId, ref]))
   const outfitRefs = new Map(checked.filter(ref => ref.kind !== 'character').map(ref => [JSON.stringify([ref.characterId || '', ref.outfitId]), ref]))

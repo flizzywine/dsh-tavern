@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
+import { createHash } from 'node:crypto'
 import { imagePluginFixture, IMAGE_PNG, imageJson } from './fixtures/image-plugin-runtime.mjs'
 
 const character = { id: 'lin', name: '林月', match: 'Lin Yue', traits: { face: 'red hair, violet eyes' }, outfits: [{ id: 'shirt', name: '白衬衫', upper: 'white shirt' }] }
@@ -134,6 +135,8 @@ test('规划只收文字及清单，结构化subjects到实际图片编号绑定
   assert.equal(prompts[0].messages.length, 1)
   assert.ok(prompts[0].messages[0].content.every(part => part.type === 'text'))
   assert.match(prompts[0].system, /subjects/)
+  // The fixed output template shows <subjects> too; a template without it is copied and the picture loses its references.
+  assert.match(prompts[0].system, /<size>\.\.\.<\/size><subjects>\[\{"characterId"/)
   assert.match(prompts[0].system, /不再描述年龄、性别、面部、发型或固有体型等固定身份属性/)
   assert.match(prompts[0].system, /一个可同时成立的定格姿态/)
   assert.match(prompts[0].system, /不为解释光线新增窗帘、开口、掀布或光源/)
@@ -269,7 +272,7 @@ test('beforeImageGenerate: the host releases each picture with its subjects, or 
     if (skip) assert.ok(JSON.stringify(result.body).includes('not ready yet'), 'the reason reaches the turn warnings')
   })
 })
-test('beforeImageGenerate: inherit omitted outfits at the picture anchor, preserving explicit empty and selected outfits', async t => {
+test('beforeImageGenerate: a person the plan leaves undressed (omitted or empty outfitId) wears the host outfit at the picture anchor; a selected outfit stays', async t => {
   for (const mode of ['inherit', 'empty', 'explicit', 'legacy']) await t.test(mode, async t => {
     const calls = [], asked = []
     const subject = { characterId: 'lin', ...(mode === 'empty' ? { outfitId: '' } : mode === 'explicit' ? { outfitId: 'shirt' } : {}) }
@@ -286,7 +289,7 @@ test('beforeImageGenerate: inherit omitted outfits at the picture anchor, preser
     assert.equal(result.status, 200, JSON.stringify(result.body))
     const job = await runtime.terminal(result.body.plans[0].jobId)
     assert.equal(job.state, 'done', job.error)
-    const inherited = mode === 'inherit' || mode === 'legacy'
+    const inherited = mode !== 'explicit'
     assert.deepEqual(job.references.map(reference => reference.image.id), [inherited ? kimono.id : identity.id])
     if (inherited) assert.match(job.submittedPrompt, /林月／红和服/)
     else assert.doesNotMatch(job.submittedPrompt, /红和服|red kimono/)
@@ -406,4 +409,65 @@ test('structured reference submission shares identities across prose and charact
   assert.equal(replaced.state, 'done', replaced.error)
   assert.match(replaced.submittedPrompt, /撑着伞/)
   assert.doesNotMatch(replaced.submittedPrompt, /坐在身后|正在递伞|未匹配人物/)
+})
+
+// The host lends a linked figure's 设定图 from its pack (ADR 0012); `lent` is what the pack holds right now.
+const SHEET = { id: createHash('sha256').update(IMAGE_PNG).digest('hex'), mediaType: 'image/png', byteLength: IMAGE_PNG.length }
+function lendingTavern(lent, extra = {}) {
+  const reads = []
+  return { reads, async figurePictures({ figures }) { return figures.map(ref => ({ ...ref, identity: null, outfits: lent[ref.figureId] || {} })) },
+    async readFigurePicture(input) { reads.push(input); return { data: new Uint8Array(IMAGE_PNG), mediaType: 'image/png' } }, ...extra }
+}
+
+test('a pack-only character supplies its stage outfit reference and registered colors', async t => {
+  const calls = [], id = 'pack:p:f'
+  globalThis.fetch = atlasMock(calls)
+  const person = { id, name: 'Mira', figurePackId: 'p', figureId: 'f', consistencyText: 'Pale green skin and a silver spear.', outfits: [{ id: 'armor', name: 'Armor', upper: 'pink leather armor' }] }
+  const tavern = lendingTavern({ f: { armor: { picture: { ...SHEET, name: 'Mira armor' }, borrowed: true } } }, { async imagePackCharacters({ subjects }) {
+    if (!subjects) return [person]
+    assert.equal(subjects[0].characterId, id)
+    return [{ ...person, outfitId: 'armor' }]
+  } })
+  const fixture = await imagePluginFixture(t, { tavern, config: { generationMode: 'auto', promptMode: 'structured' }, llm: { async *stream(request) {
+    assert.match(JSON.stringify(request), /pink leather armor/)
+    yield { type: 'text-delta', text: '<images><image><regex>Mira waits by the bridge.</regex><prompts>Mira waits by the bridge.</prompts><subjects>[{"name":"Mira"}]</subjects></image></images>' }
+  } } })
+  const runtime = await fixture.start()
+  const result = await runtime.request('plan', { text: 'Mira waits by the bridge.', messageId: 'pack-reference', count: 1, manual: true, sessionId: 'game-1', turn: 2 })
+  assert.equal(result.status, 200, JSON.stringify(result.body))
+  assert.equal(result.body.plans.length, 1, JSON.stringify(result.body))
+  const job = await runtime.terminal(result.body.plans[0].jobId)
+  assert.equal(job.state, 'done', job.error)
+  assert.equal(job.generationMode, 'reference')
+  assert.equal(job.references[0].image.name, 'Mira armor')
+  assert.match(job.submittedPrompt, /pink leather armor/i)
+  await runtime.request('config', { generationMode: 'text' })
+  const text = await runtime.request('plan', { text: 'Mira waits by the bridge.', messageId: 'pack-text', count: 1, manual: true, sessionId: 'game-1', turn: 2 })
+  assert.equal(text.body.plans.length, 1, JSON.stringify(text.body))
+  const textJob = await runtime.terminal(text.body.plans[0].jobId)
+  assert.equal(textJob.state, 'done', textJob.error)
+  assert.equal(textJob.generationMode, 'text')
+  assert.deepEqual(textJob.references, [])
+  assert.match(textJob.submittedPrompt, /pink leather armor/i)
+  assert.deepEqual(tavern.reads.map(read => read.id), [SHEET.id], 'the bytes come from the pack once, then the local store')
+})
+
+test('a linked record draws with its figure\'s 设定图 from the pack; once the pack unbinds it the next picture has none, with nothing to sync', async t => {
+  const calls = []; globalThis.fetch = atlasMock(calls)
+  const linked = { ...structuredClone(character), figurePackId: 'p', figureId: 'f' }
+  linked.outfits[0].characterOutfitImage = { ...SHEET, name: '林月／白衬衫 设定图' }
+  const lent = { f: { shirt: { picture: { ...SHEET, name: '林月／白衬衫 设定图' }, borrowed: false } } }
+  const fixture = await imagePluginFixture(t, { tavern: lendingTavern(lent), definitions: { characters: [linked] }, config: { generationMode: 'auto', promptMode: 'structured' } })
+  const runtime = await fixture.start()
+  const drawn = await runtime.terminal((await runtime.request('jobs', { tag: raw, subjects: [{ characterId: 'lin', outfitId: 'shirt' }] })).body.id)
+  assert.equal(drawn.state, 'done', drawn.error)
+  assert.deepEqual(drawn.references.map(r => [r.kind, r.image.name]), [['character-outfit', '林月／白衬衫 设定图']])
+  const state = (await runtime.request('state')).body
+  assert.equal(state.definitions.characters[0].outfits[0].characterOutfitImage, undefined, 'the legacy copy is excluded from the editable record')
+  assert.deepEqual(state.figurePictures, { lin: { identity: null, outfits: lent.f } })
+  delete lent.f.shirt
+  const after = await runtime.terminal((await runtime.request('jobs', { tag: raw, subjects: [{ characterId: 'lin', outfitId: 'shirt' }] })).body.id)
+  assert.equal(after.state, 'done', after.error)
+  assert.equal(after.generationMode, 'text', 'no picture left to draw with')
+  assert.deepEqual(after.references, [])
 })

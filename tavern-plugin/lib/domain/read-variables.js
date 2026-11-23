@@ -31,7 +31,9 @@ export function settledVariables(chat,before=chat?.messages?.length??0){
 
 export function readVariables(chat,args={}) {
   if(!chat||!['story','script'].includes(chat.mode||'story'))throw Error('变量查询仅用于当前游玩会话')
-  const action=args.action||'list',path=args.path||'',query=args.query||''
+  const action=args.action||'list',query=args.query||''
+  let path=args.path||''
+  if(typeof path==='string'&&path&&!path.startsWith('/'))path='/'+path
   if(!['list','read','search'].includes(action))throw Error('action 必须是 list、read 或 search')
   if(typeof path!=='string'||path.length>1024||path&&!path.startsWith('/')||/~(?![01])/u.test(path))throw Error('path 必须是变量根下的 JSON Pointer；根目录用空字符串')
   if(typeof query!=='string'||query.length>100||action==='search'&&!query.trim())throw Error('search 需要 1–100 字符的 query')
@@ -83,5 +85,5 @@ export function readVariables(chat,args={}) {
 }
 
 export function registerVariableReadTool({tools,defineTool,chatForSession}){
- tools.register(defineTool({name:'tavern_read_variables',description:'只读查询当前游玩存档变量。默认 list 仅列顶层路径和类型，每页20项；path 分层展开。search 按路径名搜索，结果分页；read 读取路径值，对象只返回一层，长文本分段。路径相对于 stat_data，不含 /stat_data。nextCursor 非空可续读，续页保留 action/path/query；变量变化则重新查询。settlement 表示当前结算状态，pending/running/waiting-runtime 时结果可能仍为上一轮已保存值。仅按需查询，不修改变量。',parameters:{action:{type:'string',enum:['list','search','read']},path:{type:'string'},query:{type:'string'},cursor:{type:'string'},limit:{type:'integer'}},output:{schema:{type:'object',additionalProperties:false,properties:{report:{type:'json',required:true}}},render:(_args,value)=>[{type:'text',text:JSON.stringify(value.report)}]},isConcurrencySafe:()=>true,async execute(args,exec){return {report:readVariables(await chatForSession(exec?.agent?.session?.id||''),args)}}}))
+ tools.register(defineTool({name:'tavern_read_variables',description:'只读查询当前游玩存档变量。默认 list 仅列顶层路径和类型，每页20项；path 形如 /系统 或 /角色/小圆，根目录用空字符串，分层展开。search 按路径名搜索，结果分页；read 读取路径值，对象只返回一层，长文本分段。路径相对于 stat_data，不含 /stat_data。nextCursor 非空可续读，续页保留 action/path/query；变量变化则重新查询。settlement 表示当前结算状态，pending/running/waiting-runtime 时结果可能仍为上一轮已保存值。仅按需查询，不修改变量。',parameters:{action:{type:'string',enum:['list','search','read']},path:{type:'string'},query:{type:'string'},cursor:{type:'string'},limit:{type:'integer'}},output:{schema:{type:'object',additionalProperties:false,properties:{report:{type:'json',required:true}}},render:(_args,value)=>[{type:'text',text:JSON.stringify(value.report)}]},isConcurrencySafe:()=>true,async execute(args,exec){return {report:readVariables(await chatForSession(exec?.agent?.session?.id||''),args)}}}))
 }

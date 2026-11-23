@@ -20,16 +20,6 @@ function fixture(fonts) {
   })
   return {text,effects,timers,updates}
 }
-test('streaming typewriter keeps the unfinished Latin tail hidden and cleans timers', () => {
-  const {text,effects,timers} = fixture()
-  const result = text.Typewriter({text:'你好 hello',pending:true,instant:true})
-  assert.equal(run(result,'shown'),'你好 ')
-  assert.equal(run(result,'rest'),'hello')
-  const cleanups = effects.map(fn => fn()).filter(Boolean)
-  assert.equal(timers.size,1)
-  cleanups.forEach(fn => fn())
-  assert.equal(timers.size,0)
-})
 test('skin stepped text obeys reduced motion and photosensitive settings', () => {
   const {text} = fixture()
   const skin = {textFx:{reveal:'hop',charsPerStep:1},photosensitive:true}

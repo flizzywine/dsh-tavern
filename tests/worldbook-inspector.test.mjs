@@ -1,16 +1,8 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { worldbookReadHistory, createWorldbookInspectorHandlers } from '../tavern-plugin/lib/rpc/worldbook-inspector.js'
+import { createWorldbookInspectorHandlers } from '../tavern-plugin/lib/rpc/worldbook-inspector.js'
 const call = (id, name, args) => ({ type: 'tool/call', seq: 1, data: { callId: id, name, arguments: JSON.stringify(args), turn: 2, step: 1 } })
 const result = (id, isError = false) => ({ type: 'tool/result', data: { message: { toolCallId: id, isError, content: [{ type: 'text', text: 'result' }] }, meta: { totalLines: 2, lines: [{ number: 1, text: 'original' }] } } })
-test('history pairs calls/results, retains pending/errors, excludes unrelated tools and malformed arguments', () => {
-  const events = [call('a', 'skill', { name: 'wb-old-cluster' }), call('b', 'read', { file_path: '/__tavern_worldbook__/old/entries/a.md', offset: 1 }), call('c', 'read', { file_path: '/etc/file' }), call('d', 'skill', { name: 'normal' }), { type: 'tool/call', data: { arguments: '{' } }, result('b', true), result('a'), call('e', 'skill', { name: 'wb-new' })]
-  const rows = worldbookReadHistory(events)
-  assert.deepEqual(rows.map(r => [r.id, r.status]), [['e', 'pending'], ['b', 'error'], ['a', 'success']])
-  assert.equal(rows[1].result, 'result')
-  const metaOnly = result('b'); metaOnly.data.message.content = []
-  assert.match(worldbookReadHistory([events[1], metaOnly])[0].result, /1: original/)
-})
 test('RPC validates loaded game, scopes reads and paginates without losing aggregate counts', async () => {
   const agent = { session: { id: 'one' } }
   const deps = { agentRegistry: { get: id => id === 'one' ? agent : undefined }, chatForSession: async id => id === 'one' ? { sessionId: id } : null,
@@ -22,4 +14,28 @@ test('RPC validates loaded game, scopes reads and paginates without losing aggre
   await assert.rejects(rpc.inspectWorldbookSkills({ sessionId: 'other' }), /对局/)
   await assert.rejects(rpc.readWorldbookSkillSource({ sessionId: 'one', path: 'other-game' }), /不属于本局/)
   assert.equal((await rpc.readWorldbookSkillSource({ sessionId: 'one', path: 'allowed' })).content, ' exact\n')
+})
+
+test('关键词直读在排查面板按命中的条目记数', async () => {
+  const agent = { session: { id: 'one' } }
+  const finish = (id, data) => {
+    const event = result(id)
+    event.data.message.content[0].text = JSON.stringify(data)
+    return event
+  }
+  const rpc = createWorldbookInspectorHandlers({
+    agentRegistry: { get: () => agent }, chatForSession: async () => ({ sessionId: 'one' }),
+    worldbookSkillProvider: { inspect: async () => ({ files: [{ title: '薛姨妈', lookupId: 'entry-id' }] }) },
+    sessionDebugEvidence: () => ({ loaded: true, events: [
+      call('legacy', 'worldbook_list', {}), result('legacy'),
+      call('a', 'read_lorebook', { keyword: '薛姨妈' }), finish('a', { status: 'found', id: 'entry-id', title: '薛姨妈', text: '设定正文' }),
+      call('b', 'read_lorebook', { keyword: '薛' }), finish('b', { status: 'multiple', total: 2 }),
+    ] }),
+  })
+  const page = await rpc.inspectWorldbookSkills({ sessionId: 'one' })
+  assert.equal(page.counts.entries, 1)
+  assert.equal(page.catalog.files[0].readCount, 1)
+  assert.equal(page.records[1].title, '薛姨妈')
+  assert.equal(page.records[1].result, '设定正文')
+  assert.equal(page.records[2].kind, 'list_lorebook')
 })

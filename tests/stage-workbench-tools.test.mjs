@@ -168,6 +168,7 @@ test('real approval policy never auto-rejects without answerer; ask waits, rejec
   Object.defineProperty(session,'seq',{get:()=>events.length})
   session.eventAt=index=>events[index]
   session.append=(type,data)=>events.push({type,data})
+  service.approvalProjectionHandle={stateOf:()=>({turnOpen:true})}
   const input={action:'engine',expectedRevision:f.engine.read().revision,patch:{stageToggles:{music:false}}}
   const policy=await f.invoke('stage_patch',input)
   assert.equal(policy.error.reason,'policy-rejected')

@@ -2,8 +2,14 @@ function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
 }
 
+// A provider that ends its answer early names only its own finish reason (pi-ai: `Provider stopped with: REASON`).
+const PROVIDER_STOP = /^Provider stopped with: ([A-Z_]+)$/
+
 function failureMessage(error) {
-  return '这一轮没有生成正文：' + (str(error.message).trim() || '模型请求失败')
+  const message = str(error.message).trim()
+  const stop = PROVIDER_STOP.exec(message)
+  if (stop) return '这一轮没有生成正文：模型提前结束了回答（' + stop[1] + '），可以重新生成这一轮'
+  return '这一轮没有生成正文：' + (message || '模型请求失败')
 }
 
 /** Pull a persistent background cycle only when the foreground needs its result. */
@@ -63,7 +69,7 @@ export function createForegroundHandoff(options = {}) {
     if (chat !== undefined) await options.beforeNextTurn?.(chat)
     // A failed turn is cleaned up after the failure, but that may not have happened (no live
     // session then, or it failed). Its input must not reach this request beside the new one.
-    if (chat !== undefined) await options.clearFailedTurns?.(input.sessionId)
+    if (chat !== undefined) await options.clearFailedTurns?.(input.sessionId, { requestId: input.requestId, turn: input.turn })
     // The stable prefix is rebuilt after this, so a world book edit received by
     // the previous turn must be adopted now rather than one turn later.
     if (chat !== undefined) await options.syncWorldBook?.(chat)

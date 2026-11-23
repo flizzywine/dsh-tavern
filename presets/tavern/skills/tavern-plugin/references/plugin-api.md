@@ -33,7 +33,7 @@ DSH Tavern 把扩展功能交给第三方 **DSH 插件**：文生图、文生视
    └─ assets/        图片、地图、音效等静态资源（可选），用 tavernUi.assetUrl() 取地址
 ```
 
-设置了 `DSH_HOME` 时，数据目录在 `$DSH_HOME/profile-data/tavern/data/`。最小示例 [`examples/tavern-plugin-hello`](https://github.com/flizzywine/dsh-tavern/blob/main/examples/tavern-plugin-hello/) 就是这样一个文件夹，整个复制过去即可：宿主侧每轮在第一句话所在段落后挂一张图（先显示「生成中…」再换成图片），浏览器侧把正文里的 `hello###…###` 显示成徽章。把其中的 `drawImage()` 换成你的生图服务，就是一个完整的生图插件。
+设置了 `DSH_HOME` 时，数据目录在 `$DSH_HOME/profile-data/tavern/data/`。宿主侧可以通过媒体接口在本轮段落后挂图，先显示生成状态，再显示图片；实际生成服务由插件提供并遵守当次付费授权。舞台演出使用导演命令，不为这些效果添加正文协议。
 
 按「要做什么插件」找写法（配图、记忆、读变量、后台推演、接管结算等），见[常见用法](plugin-recipes.md)。
 

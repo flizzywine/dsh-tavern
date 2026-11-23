@@ -24,7 +24,7 @@ const deferred = () => { let resolve; const promise = new Promise(done => { reso
 function persistence(jobs, writer) {
   const warnings = [], snapshots = []
   const persist = vm.runInNewContext(section('function jobSource(job)', '\n    function publicJob(') + '\n' + persistenceSource + '\npersistJobs;', {
-    jobs, JOBS_STORE: 'virtual-jobs-store',
+    jobs, JOBS_STORE: 'virtual-jobs-store', diag: { finishJob() {} },
     writeJsonAtomic: async (_path, snapshot) => { snapshots.push(copy(snapshot)); await writer?.(snapshot, snapshots.length) },
     logger: { warn: message => warnings.push(message) },
   })
@@ -122,9 +122,11 @@ test('内存 sweep 与落盘使用相同风险边界，不能先删掉 uncertain
   for (let i = 0; i < 205; i++) {
     const job = trackedJob({ id: 'history-' + i, key: 'history-key-' + i, state: 'done', createdAt: 100 + i })
     jobs.set(job.id, job); byKey.set(job.key, job.id)
+    const card = trackedJob({ id: 'card-' + i, source: 'card', state: 'done', createdAt: 1000 + i })
+    jobs.set(card.id, card)
   }
   vm.runInNewContext(section('function sweep()', '\n    function publicJob(') + '\nsweep();', { jobs, byKey })
-  assert.equal(jobs.size, 200)
+  assert.equal(jobs.size, 400)
   for (const job of retained) {
     assert.equal(jobs.get(job.id), job)
     assert.equal(byKey.get(job.key), job.id, '不能丢去重 key 再次提交可能付费的任务')
@@ -132,6 +134,8 @@ test('内存 sweep 与落盘使用相同风险边界，不能先删掉 uncertain
   assert.equal(jobs.has('history-10'), false)
   assert.equal(byKey.has('history-key-10'), false)
   assert.equal(jobs.has('history-11'), true)
+  assert.equal(jobs.has('card-4'), false)
+  assert.equal(jobs.has('card-5'), true)
 })
 
 async function drainHarness({ failRequiredWrite = 0, localFailure = '', stop = '' } = {}) {
@@ -185,6 +189,8 @@ async function drainHarness({ failRequiredWrite = 0, localFailure = '', stop = '
       if (localFailure === 'transcode') throw new Error('mock local transcode failure')
       return { bytes: PNG, mediaType: 'image/png' }
     },
+    // 成品路径由 outputFileFor 决定（卡片作业进画廊目录，其余进 cache），这里只验证“写了一次”。
+    outputFileFor: () => 'virtual-cache/output.png', dirname: () => 'virtual-cache', mkdir: async () => {},
     cacheRoot: () => 'virtual-cache', join: (...parts) => parts.join('/'),
     writeFile: async () => { outputWrites++; if (localFailure === 'write') throw new Error('mock local output write failure') },
     rm: async () => {}, logger: { warn() {} },

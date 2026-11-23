@@ -28,22 +28,24 @@ export function assistantResultForTurn(session, turn) {
   }
   const events = sessionEvents(session)
   const start = turnStartIndex(events, turn)
-  for (let index = events.length - 1; index > start; index -= 1) {
+  const texts = [], textEvents = []
+  let latest = null
+  const visible = Array.isArray(session?.surface?.nodes) ? new Set(session.surface.nodes.map(Number)) : null
+  for (let index = start + 1; index < events.length; index += 1) {
     const event = events[index]
     if (!event || event.type !== 'assistant/message') continue
     if (Number(event.data?.turn) !== Number(turn) && storyEventTurn(event) !== Number(turn)) continue
     const message = event.data && event.data.message
     const source = message && message.source
-    if (!source || source.kind !== 'model') continue
+    if (!source || source.kind !== 'model' || visible && !visible.has(Number(event.seq ?? index))) continue
     const text = blockText(message, 'text')
     const reasoningText = blockText(message, 'reasoning')
-    return {
-      index,
-      event,
-      text,
-      reasoningText,
-      reasoningOnly: text === '' && reasoningText !== ''
-    }
+    // A projected reply already contains the whole round, not just the last step.
+    if (source.provider === 'dsh-tavern' && source.model === 'reply-projection') {texts.length = 0; textEvents.length = 0}
+    if (text) {texts.push(text);textEvents.push({index,event})}
+    latest = {index, event, reasoningText}
   }
-  return null
+  if (!latest) return null
+  const text = texts.join('\n\n')
+  return {...latest, text, textEvents, reasoningOnly:text === '' && latest.reasoningText !== ''}
 }

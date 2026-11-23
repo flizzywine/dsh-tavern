@@ -31,7 +31,7 @@ function TavernWorldbookInspector(props) {
             h('div', { className: 'dsh-wb-stats' }, `${files.length} 条原文`, h('br'), `成功读取 ${data.counts.entries} 次 · 错误 ${data.counts.errors} 次`),
             data.catalog?.directory && h('details', null, h('summary', null, '实体文件夹'), h('code', null, data.catalog.directory), h('p', { className: 'dsh-wb-muted' }, '由世界书自动同步；修改生成文件不会修改世界书。')),
             h('nav', null, button('文件与内容', () => { setMode('catalog'); setSource(null); }), button(`调用记录 (${data.total})`, () => { setMode('history'); setSource(null); })),
-            h('input', { type: 'search', placeholder: '搜索条目或本页调用', 'aria-label': '搜索世界书文件', value: query, onChange: e => setQuery(e.target.value) }),
+            h(SearchBox, { label: '搜索世界书文件', placeholder: '搜索条目或本页调用', value: query, onChange: setQuery, bare: true }),
             source ? h('section', null, button('← 返回目录', () => setSource(null)), h('h3', null, source.title), h('pre', null, source.content)) : mode === 'catalog' ? h('section', null,
                 !data.catalog && h('p', null, '当前对局未启用世界书文件，或原生读取工具不可用。'),
                 data.catalog && !files.length && h('p', null, '当前没有可用的静态条目；预处理尚未完成或条目被排除时，目录也可能为空。'),
@@ -39,6 +39,6 @@ function TavernWorldbookInspector(props) {
                 files.filter(e => matches(e.title)).map(e => h('div', { key: e.ref, className: 'dsh-wb-entry' }, button(e.title + ' · 读取 ' + e.readCount + ' 次', () => read(e), busy), h('small', null, e.path)))) : h('section', null,
                 h('p', { className: 'dsh-wb-muted' }, '原生调用历史（含重试／回退前记录）。成功读取不代表正文一定采用；轮次为原生会话轮次。'),
                 !data.historyLoaded && h('p', null, '会话事件尚未加载，统计暂不可用。'),
-                data.records.filter(r => matches(r.target) || matches(r.title)).map(r => h('details', { key: r.id }, h('summary', null, `第 ${r.turn} 轮 · ${r.kind === 'skill' ? '历史 Skill' : r.kind === 'worldbook_grep' ? '搜索原文' : r.kind === 'worldbook_list' ? '浏览目录' : '读取原文'} · ${{ success: '成功', error: '失败', pending: '等待结果' }[r.status]}`), h('p', null, r.title), h('code', null, r.target), h('p', null, `步骤 ${r.step}${r.offset ? ' · 起始行 ' + r.offset : ''}${r.totalLines !== undefined ? ' · 共 ' + r.totalLines + ' 行' : ''}`), h('pre', null, r.result || '暂无返回内容'))),
+                data.records.filter(r => matches(r.target) || matches(r.title)).map(r => h('details', { key: r.id }, h('summary', null, `第 ${r.turn} 轮 · ${r.kind === 'skill' ? '历史 Skill' : r.kind === 'grep_lorebook' ? '搜索原文' : r.kind === 'list_lorebook' ? '浏览目录' : '读取原文'} · ${{ success: '成功', error: '失败', pending: '等待结果' }[r.status]}`), h('p', null, r.title), h('code', null, r.target), h('p', null, `步骤 ${r.step}${r.offset ? ' · 起始行 ' + r.offset : ''}${r.totalLines !== undefined ? ' · 共 ' + r.totalLines + ' 行' : ''}`), h('pre', null, r.result || '暂无返回内容'))),
                 h('nav', null, button('上一页', () => setPage(Math.max(0, page - 40)), busy || page === 0), h('small', null, `${data.total ? page + 1 : 0}–${Math.min(page + 40, data.total)} / ${data.total}`), button('下一页', () => setPage(page + 40), busy || page + 40 >= data.total)))));
 }

@@ -1,5 +1,6 @@
 // 应用内安装插件：GitHub 地址 / ZIP → plugins/<文件夹>，列出加载情况，更新与删除都留备份。
 import assert from 'node:assert/strict'
+import { createHash } from 'node:crypto'
 import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
@@ -25,6 +26,83 @@ async function setup(t, fetchImpl, installerOptions = {}) {
   const installer = createUserPluginInstaller({ dataRoot, fetchImpl, sync: async () => { syncs++ }, ...installerOptions })
   return { root, dataRoot, installer, plugins: path.join(dataRoot, 'plugins'), syncs: () => syncs }
 }
+
+test('STcontext 手动检查和更新只接受官方附件，核对包内运行文件并保留停用状态', async t => {
+  const folder = 'dsh-tavern-STcontext'
+  const repo = 'koabop/' + folder
+  const assetName = folder + '-v0.8.3.zip'
+  const api = 'https://api.github.com/repos/' + repo + '/releases/latest'
+  const download = 'https://github.com/' + repo + '/releases/download/v0.8.3/' + assetName
+  const sha256 = bytes => createHash('sha256').update(bytes).digest('hex')
+  function files() {
+    const pkg = { name: folder, version: '0.8.3', exports: { '.': './index.mjs' }, dsh: { compatibility: { tavernApiVersion: 7 } } }
+    const runtime = { 'package.json': pkg, 'index.mjs': "export { apply } from './lib/generation.mjs'", 'client.js': '/* client */', NOTICE: 'release notice',
+      'lib/generation.mjs': 'export function apply() {}',
+      'lib/worker.mjs': '/* worker */', 'lib/worker-client.mjs': '/* worker client */' }
+    const hashes = {}
+    for (const name of ['quickjs.mjs', 'quickjs.wasm', 'parser.mjs', 'LICENSES.txt']) {
+      runtime['lib/vendor/' + name] = name
+      hashes[name] = sha256(name)
+    }
+    runtime['lib/vendor/manifest.json'] = { hashes }
+    return runtime
+  }
+
+  async function fixture(t, change = () => {}) {
+    const runtime = files()
+    change(runtime)
+    const zip = pluginZip(runtime, '')
+    const digest = 'sha256:' + sha256(zip)
+    const requests = []
+    const { installer, plugins } = await setup(t, async url => {
+      requests.push(url)
+      if (url === api) return Response.json({ tag_name: 'v0.8.3', assets: [{ name: assetName, size: zip.length, digest }] })
+      assert.equal(url, download)
+      return new Response(zip)
+    })
+    const dir = path.join(plugins, folder)
+    await mkdir(dir, { recursive: true })
+    await writeFile(path.join(dir, 'package.json'), JSON.stringify({ name: folder, version: '0.8.2' }))
+    await writeFile(path.join(dir, '.tavern-source.json'), JSON.stringify({ kind: 'builtin' }))
+    await writeFile(path.join(dir, '.tavern-disabled'), '{}')
+    return { dir, installer, requests, digest }
+  }
+
+  await t.test('保留已停用、官方来源和实际入口', async t => {
+    const { dir, installer, requests, digest } = await fixture(t)
+    const [check] = await installer.checkUpdates()
+    assert.equal(check.status, 'available')
+    assert.equal(check.target, 'v0.8.3:' + digest)
+    await installer.update(folder, check.target)
+    assert.deepEqual(requests, [api, download, download])
+    const [item] = await installer.list()
+    assert.equal(item.enabled, false)
+    assert.equal(item.version, '0.8.3')
+    assert.equal(item.source.releaseRepo, repo)
+    const record = JSON.parse(await readFile(path.join(dir, '.tavern-source.json'), 'utf8'))
+    assert.ok(record.runtimeImports.includes('lib/generation.mjs'))
+    assert.equal(await readFile(path.join(dir, 'NOTICE'), 'utf8'), 'release notice')
+    assert.equal(await readFile(path.join(dir, 'lib/vendor/quickjs.wasm'), 'utf8'), 'quickjs.wasm')
+  })
+
+  for (const [label, change, reason, status] of [
+    ['包名大小写错误', files => { files['package.json'].name = folder.toLowerCase() }, /包名或版本与 Release 不符/, 'error'],
+    ['worker 缺失', files => { delete files['lib/worker.mjs'] }, /缺少 lib\/worker\.mjs/, 'error'],
+    ['宿主入口引用的模块缺失', files => { delete files['lib/generation.mjs'] }, /缺少 lib\/generation\.mjs/, 'error'],
+    ['WASM 与清单不符', files => { files['lib/vendor/quickjs.wasm'] += 'changed' }, /SHA-256 校验失败.*quickjs\.wasm/, 'error'],
+    ['清单缺 WASM 摘要', files => { delete files['lib/vendor/manifest.json'].hashes['quickjs.wasm'] }, /清单无效或不完整/, 'error'],
+    ['要求未实现的 API', files => { files['package.json'].dsh.compatibility.tavernApiVersion = 999 }, /请先更新酒馆/, 'blocked'],
+  ]) {
+    await t.test(label, async t => {
+      const { dir, installer, digest } = await fixture(t, change)
+      const [check] = await installer.checkUpdates()
+      assert.equal(check.status, status)
+      assert.match(check.reason, reason)
+      await assert.rejects(installer.update(folder, 'v0.8.3:' + digest), reason)
+      assert.equal(JSON.parse(await readFile(path.join(dir, 'package.json'), 'utf8')).version, '0.8.2')
+    })
+  }
+})
 
 test('GitHub 地址：仓库、.git、tree/分支 都认；其他网站拒绝', () => {
   assert.deepEqual(parseGithubSource('https://github.com/a/b'), { owner: 'a', repo: 'b', ref: null })
@@ -66,7 +144,9 @@ test('压缩包检查：找插件根，去掉 .github；缺入口、依赖 npm �
 
 test('上传 ZIP 安装、列表、删除进备份', async t => {
   const { installer, plugins, dataRoot, syncs } = await setup(t)
-  const installed = await installer.installFromZip(hello(), 'dsh-tavern-hello.zip')
+  const upload = path.join(dataRoot, 'upload.zip')
+  await writeFile(upload, hello())
+  const installed = await installer.installFromZipFile(upload, 'dsh-tavern-hello.zip')
   assert.deepEqual(installed, { folder: 'dsh-tavern-hello', name: 'dsh-tavern-hello', version: '1.0.0', replaced: false })
   assert.equal(syncs(), 1)
   assert.equal(await readFile(path.join(plugins, 'dsh-tavern-hello', 'index.mjs'), 'utf8'), 'export function apply() {}')

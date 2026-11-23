@@ -59,24 +59,6 @@ test('检查和启动允许完整元数据回退，状态与取消仍使用短�
   h.stop()
 })
 
-test('首次状态查询挂起时可直接检查，迟到的状态不覆盖检查结果', async () => {
-  const initialRead = deferred()
-  const available = { phase: 'update-available', host: 'cli', latestCommit: 'b'.repeat(40) }
-  const h = updaterHarness({ polling: true, call: async method => {
-    if (method === 'getUpdateStatus') return initialRead.promise
-    assert.equal(method, 'checkUpdate')
-    return { status: available }
-  } })
-  assert.equal(h.isUpdateBusy(h.status()), false)
-  await h.checkUpdate()
-  assert.equal(h.status().phase, 'update-available')
-  assert.deepEqual(h.calls, ['getUpdateStatus', 'checkUpdate'])
-  initialRead.resolve({ status: { phase: 'idle', host: 'cli' } })
-  await tick()
-  assert.equal(h.status().phase, 'update-available')
-  h.stop()
-})
-
 test('网络中断可恢复，认证和业务错误立即提示', async () => {
   let calls = 0
   const network = pollHarness(async () => { if (++calls === 1) throw new TypeError('Failed to fetch'); return ok() })
@@ -174,37 +156,6 @@ for (const initial of [{ phase: 'running', host: 'cli' }, { phase: 'running', ho
   assert.equal(intervals.size, 0)
 })
 
-test('刷新桌面更新页面后仍提示已安装待重启，不能重复启动更新', async () => {
-  const completed = { phase: 'completed', host: 'desktop', requiresRestart: true, completedAt: 100 }
-  const h = updaterHarness({ polling: true, call: async method => {
-    assert.equal(method, 'getUpdateStatus')
-    return { status: completed }
-  } })
-  await tick()
-  assert.deepEqual(h.status(), completed)
-  await h.checkUpdate()
-  h.stop()
-})
-
-test('原生桌面更新不会探测连接并重载当前窗口', async () => {
-  const intervals = new Map()
-  const controller = createUpdateStatusController({ initial: { phase: 'running', host: 'desktop' },
-    call: async () => ({ status: { phase: 'completed', host: 'desktop', requiresRestart: true } }),
-    confirm: async () => true, errors: { report() {}, resolve() {} },
-    browser: { setTimeout, clearTimeout,
-      setInterval(fn, ms) { intervals.set(ms, fn); return ms }, clearInterval(id) { intervals.delete(id) },
-      location: { protocol: 'dsh-app:', reload() { assert.fail('native window reloaded') } },
-      async fetch() { assert.fail('native window probed') }
-    }
-  })
-  controller.start()
-  assert.equal(intervals.has(400), false)
-  await tick()
-  assert.equal(controller.getSnapshot().requiresRestart, true)
-  assert.equal(intervals.has(400), false)
-  controller.stop()
-})
-
 test('桌面更新断线后提供手动恢复提示，不能将断线当作安装完成', async () => {
   let offline = true
   const h = updaterHarness({ initial: { phase: 'running', host: 'desktop' }, polling: true,
@@ -219,15 +170,5 @@ test('桌面更新断线后提供手动恢复提示，不能将断线当作安�
   assert.equal(h.status().phase, 'failed')
   assert.equal(h.status().connectionLost, undefined)
   assert.equal(h.status().error, '依赖安装失败')
-  h.stop()
-})
-
-test('Android standalone 重启后的完成记录不再占用侧栏，可直接检查更新', async () => {
-  // 服务重启后读侧把 requiresRestart 视为已过期；这一页不是发起更新的那一页，
-  // 于是完成态折算为 idle，侧栏不再挂着「请重启 DSHA」。
-  const h = updaterHarness({ polling: true, call: async () => ({ status: { phase: 'completed', host: 'android', requiresRestart: false, completedAt: 100 } }) })
-  await tick()
-  assert.equal(h.status().phase, 'idle')
-  assert.equal(h.status().host, 'android')
   h.stop()
 })

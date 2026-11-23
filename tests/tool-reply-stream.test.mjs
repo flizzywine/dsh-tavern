@@ -1,12 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { readFileSync } from 'node:fs'
-import {
-  createIncrementalJsonStringExtractor,
-  createToolReplyStreamTracker,
-  extractStreamedToolReplyContent,
-  parsePartialToolReplyJson,
-} from '../tavern-plugin/lib/domain/tool-reply-stream-parser.js'
+import { createIncrementalJsonStringExtractor, createToolReplyStreamTracker, parsePartialToolReplyJson } from '../tavern-plugin/lib/domain/tool-reply-stream-parser.js'
 import { patchToolReplyStreamChatSource } from '../tavern-plugin/lib/domain/chat-tool-reply-stream.js'
 
 test('增量 JSON 字符串状态机：正确解码字面反斜杠、换行、Unicode 与跨分片代理对，忽略嵌套噪音', () => {
@@ -35,8 +30,8 @@ test('增量 JSON 字符串状态机：正确解码字面反斜杠、换行、Un
 
 test('ToolReplyStreamTracker：仅跟踪 submit_story，支持工具名迟到与多工具并行隔离', () => {
   const tracker = createToolReplyStreamTracker('submit_story')
-  // index 0 是查询工具 worldbook_grep，不产生正文流
-  assert.equal(tracker.pushToolDelta({ type: 'tool-call-delta', index: 0, id: 'c0', name: 'worldbook_grep', argumentsDelta: '{"content":"不应流出"}' }).matched, false)
+  // index 0 是查询工具 grep_lorebook，不产生正文流
+  assert.equal(tracker.pushToolDelta({ type: 'tool-call-delta', index: 0, id: 'c0', name: 'grep_lorebook', argumentsDelta: '{"content":"不应流出"}' }).matched, false)
 
   // index 1 先到半截参数，后到工具名 submit_story
   assert.equal(tracker.pushToolDelta({ type: 'tool-call-delta', index: 1, id: 'c1', argumentsDelta: '{"think":"铺垫' }).matched, false)
@@ -47,15 +42,6 @@ test('ToolReplyStreamTracker：仅跟踪 submit_story，支持工具名迟到与
 
   const step2 = tracker.pushToolDelta({ type: 'tool-call-delta', index: 1, id: 'c1', argumentsDelta: '洒满庭院。"}' })
   assert.equal(step2.contentDelta, '洒满庭院。')
-})
-
-test('extractStreamedToolReplyContent：兼容宿主累加器仅首片带 name 的拆分 tool-call-chunks 记录', () => {
-  const stream = [
-    { type: 'reasoning-chunks', index: 0, dt: [], texts: ['先想一下'] },
-    { type: 'tool-call-chunks', index: 1, dt: [], id: 'call_1', name: 'submit_story', args: [''] },
-    { type: 'tool-call-chunks', index: 1, dt: [15], id: 'call_1', args: ['{"think":"构思","content":"第一段\\n', '第二段未闭合'] }
-  ]
-  assert.equal(extractStreamedToolReplyContent(stream, 'submit_story'), '第一段\n第二段未闭合')
 })
 
 test('ui-chat 工具流式补丁：兼容 0.2.1 与 2.0.22 两种宿主源码形状，实时投影思考行与正文并抑制工具外裸文本闪烁', () => {
@@ -188,7 +174,7 @@ test('ui-chat 工具流式补丁：0.2.2-rc.2+ 压缩形状（反引号、无空
 
   // 非 submit_story 工具在首个 token 之后仍被早退抑制，不产生流式预览
   let other = runtime.initialState(1, 1)
-  other = runtime.updateChunk(other, { type: 'tool-call-delta', index: 0, id: 'call_2', name: 'worldbook_grep', argumentsDelta: '{"query":"x"}' }, 1, 100)
+  other = runtime.updateChunk(other, { type: 'tool-call-delta', index: 0, id: 'call_2', name: 'grep_lorebook', argumentsDelta: '{"query":"x"}' }, 1, 100)
   const suppressed = runtime.updateChunk(other, { type: 'tool-call-delta', index: 0, id: 'call_2', argumentsDelta: 'more' }, 2, 110)
   assert.equal(suppressed, other)
 })

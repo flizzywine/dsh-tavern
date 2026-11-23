@@ -1,10 +1,15 @@
 import { normalizeBackgroundModel, readBackgroundModelReasoning } from '../domain/background-model-selection.js'
 import { SYSTEM_PROMPT_NAMES } from '../prompt-catalog.js'
-import { configuredBodyGeneration } from '../domain/plugin-body-generation.js'
 import { normalizeDisabledForegroundTools } from '../domain/foreground-tools.js'
 import { canonicalTavernSkillName } from '../domain/tavern-skills.js'
-import { normalizeConfiguredBackgroundTasks, normalizeDefaultBodyGeneration } from '../domain/tavern-settings.js'
-import { DAMPER_KEY_REFS, validateNarrativeDamperConfig } from '../domain/narrative-damper.js'
+import { conversationUsesExpandedCandidates, normalizeConfiguredBackgroundTasks } from '../domain/tavern-settings.js'
+import { createDamperSettings } from '../domain/damper-settings.js'
+import {
+  discoverVertexProject,
+  normalizeVertexProject,
+  vertexLocationFromBaseUrl,
+  vertexProjectFromBaseUrl,
+} from '../domain/pi-ai-vertex-stream.js'
 
 // Tavern settings, system prompts, user profile and background model requests.
 // `deps` carries the services ../index.js builds; dispatchMethod routes by method name.
@@ -12,40 +17,14 @@ export function createSettingsHandlers(deps) {
   const { agentRegistry, autoChoices, chatForSession, chatHeaderForSession, conversationBackgroundSettings, groupOfMode,
     llm, playCardSnapshots, presentSystemPrompts, presentUserPreferenceProfile, readTavernSettings,
     sessionActivity, str, tavernModelCatalog, updateChat, updateTavernSettings, userPreferenceProfile } = deps
+  // 叙事阻尼器的设置实现只有一份（../domain/damper-settings.js）：内置插件面板也走它。
+  // 按调用时构造：只测其他设置的调用方不必带上这组依赖，缺依赖也在真正调用时才报错。
+  let damperSettings = deps.damperSettings || null
+  const damperSettingsOf = () => damperSettings || (damperSettings = createDamperSettings({
+    readTavernSettings, updateTavernSettings, damper: deps.narrativeDamper, str
+  }))
   let tavernSettingsPending = null
   const handlers = {
-    async getBodyGenerationSettings(args) {
-      const chat = await chatForSession(str(args?.sessionId))
-      if (!chat || groupOfMode(chat.mode) !== 'play') throw new Error('请先打开游玩会话')
-      return { ...configuredBodyGeneration(chat, await readTavernSettings()),
-        inherited: chat.storyGenerationMode === undefined,
-        hostRegexInherited: chat.storyPluginOutputRegex === undefined,
-        providers: await deps.pluginApi.bodyGenerators.list(chat.sessionId) }
-    },
-    async setBodyGenerationSettings(args) {
-      const chat = await chatForSession(str(args?.sessionId))
-      if (!chat || groupOfMode(chat.mode) !== 'play') throw new Error('请先打开游玩会话')
-      const regexChange = Object.hasOwn(args, 'hostRegex')
-      const routeChange = !regexChange || args.inherit === true || Object.hasOwn(args, 'mode') || Object.hasOwn(args, 'provider')
-      if (regexChange && args.hostRegex !== null && typeof args.hostRegex !== 'boolean') throw new Error('插件正文宿主正则设置无效')
-      if (routeChange && args.inherit !== true) {
-        if (!['host', 'plugin-direct', 'plugin-tool-call'].includes(args.mode)) throw new Error('正文生成方式无效')
-        if (typeof args.provider !== 'string' || args.provider.length > 300) throw new Error('正文生成器无效')
-        if (args.mode !== 'host') await deps.pluginApi.bodyGenerators.require(args.provider, chat.sessionId)
-      }
-      await updateChat(chat.id, current => {
-        if (routeChange) {
-          if (args.inherit === true) { delete current.storyGenerationMode; delete current.storyGenerationProvider }
-          else { current.storyGenerationMode = args.mode; current.storyGenerationProvider = args.provider }
-        }
-        if (regexChange) {
-          if (args.hostRegex === null) delete current.storyPluginOutputRegex
-          else current.storyPluginOutputRegex = args.hostRegex
-        }
-        return current
-      }, { source: 'settings.body-generation' })
-      return handlers.getBodyGenerationSettings(args)
-    },
     async getUserPreferenceProfile(args) {
       const chat = args?.sessionId && args.globalDefaults !== true ? await chatHeaderForSession(args.sessionId, ['userProfileEnabled','userProfileContextSnapshot','userProfileId','userProfileRevision']) : null
       return {
@@ -96,18 +75,30 @@ export function createSettingsHandlers(deps) {
       const settings = await readTavernSettings()
       return {
         showPlayProcess: settings.showPlayProcess,
+        polishEnabled: settings.polishEnabled,
         showDamperStatus: settings.narrativeDamper?.showTurnStatus !== false,
         hideContextAndReasoning: settings.hideContextAndReasoning,
         headerItems: settings.headerItems,
         viewTabs: settings.viewTabs
       }
     },
-    async getCandidatePreferences(args) {
-      const { readTavernSettings } = deps
+    async getCandidatePreferences() {
+      const settings = await readTavernSettings()
+      return {
+        candidatePickMode: settings.candidatePickMode,
+        candidateDismissMode: settings.candidateDismissMode,
+        candidateAutoGenerate: settings.candidateAutoGenerate,
+        candidateTabs: settings.candidateTabs === true
+      }
+    },
 
-        const settings = await readTavernSettings()
-        return { candidateDismissMode: settings.candidateDismissMode, candidateAutoGenerate: settings.candidateAutoGenerate, candidateTabs: settings.candidateTabs === true }
-
+    async getCandidateGuidanceShortcuts() {
+      const settings = await readTavernSettings()
+      return { shortcuts: settings.candidateGuidanceShortcuts }
+    },
+    async saveCandidateGuidanceShortcuts(args) {
+      const settings = await updateTavernSettings({ candidateGuidanceShortcuts: args })
+      return { shortcuts: settings.candidateGuidanceShortcuts }
     },
 
     async getTavernSettings(args) {
@@ -196,14 +187,6 @@ export function createSettingsHandlers(deps) {
       const disabledWritingSkills = (Array.isArray(chat.disabledWritingSkills) ? chat.disabledWritingSkills : [])
         .map(canonicalTavernSkillName)
         .filter(name => typeof name === 'string' && /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(name))
-      const defaultBodyGeneration = {
-        mode: ['host', 'plugin-direct', 'plugin-tool-call'].includes(chat.storyGenerationMode) ? chat.storyGenerationMode : 'inherit',
-        provider: typeof chat.storyGenerationProvider === 'string' ? chat.storyGenerationProvider : '',
-        hostRegex: typeof chat.storyPluginOutputRegex === 'boolean' ? chat.storyPluginOutputRegex : null
-      }
-      if (defaultBodyGeneration.mode.startsWith('plugin-') && !defaultBodyGeneration.provider.trim()) {
-        defaultBodyGeneration.mode = 'inherit'
-      }
       const defaultPluginGameSettings = { ...(currentSettings.defaultPluginGameSettings || {}) }
       const gamePlugins = await deps.pluginApi?.gamePlugins?.(sessionId).catch(() => null)
       for (const entry of gamePlugins?.settings || []) {
@@ -236,11 +219,11 @@ export function createSettingsHandlers(deps) {
         defaultPlaySettings: {
           playerName,
           backgroundTasks: { posture: tasks.posture !== false, styleReference: tasks.styleReference === true, foregroundCandidates: tasks.foregroundCandidates === true, preset: tasks.preset === true },
+          candidateTabs: conversationUsesExpandedCandidates(chat, currentSettings.candidateTabs),
           webSearchEnabled: chat.webSearchEnabled === true
         },
         defaultDisabledForegroundTools: disabledForegroundTools,
         defaultDisabledWritingSkills: disabledWritingSkills,
-        defaultBodyGeneration,
         defaultPluginGameSettings,
         ...(includeBackgroundModel ? { defaultBackgroundModel: backgroundModel } : {})
       }
@@ -266,13 +249,6 @@ export function createSettingsHandlers(deps) {
             presetSnapshot = null
             warnings.push('默认预设不可用，已切换为不使用酒馆预设')
           }
-        }
-      }
-      let bodyDefaults = normalizeDefaultBodyGeneration(settings.defaultBodyGeneration)
-      if (bodyDefaults.mode !== 'inherit' && bodyDefaults.mode !== 'host' && deps.pluginApi?.bodyGenerators?.require) {
-        try { await deps.pluginApi.bodyGenerators.require(bodyDefaults.provider, chat.sessionId) } catch {
-          bodyDefaults = { ...bodyDefaults, mode: 'inherit', provider: '' }
-          warnings.push('默认正文生成插件不可用，已恢复为跟随全局设置')
         }
       }
       if (typeof deps.setPlayerName === 'function') {
@@ -309,18 +285,10 @@ export function createSettingsHandlers(deps) {
         current.conversationFeaturesVersion = 1
         current.backgroundModelSelection = normalizeBackgroundModel(settings.defaultBackgroundModel)
         current.backgroundTasks = normalizeConfiguredBackgroundTasks(defaults.backgroundTasks)
+        current.candidateTabs = defaults.candidateTabs
         current.webSearchEnabled = defaults.webSearchEnabled === true
         current.disabledForegroundTools = normalizeDisabledForegroundTools(settings.defaultDisabledForegroundTools)
         current.disabledWritingSkills = [...(settings.defaultDisabledWritingSkills || [])]
-        if (bodyDefaults.mode === 'inherit') {
-          delete current.storyGenerationMode
-          delete current.storyGenerationProvider
-        } else {
-          current.storyGenerationMode = bodyDefaults.mode
-          current.storyGenerationProvider = bodyDefaults.provider
-        }
-        if (bodyDefaults.hostRegex === null) delete current.storyPluginOutputRegex
-        else current.storyPluginOutputRegex = bodyDefaults.hostRegex
         return current
       }, { source: 'settings.restore-default-template' })
       deps.invalidateTavernSkills?.()
@@ -328,46 +296,52 @@ export function createSettingsHandlers(deps) {
       return { restored: true, warnings }
     },
     async getNarrativeDamperSettings() {
-      const settings = await readTavernSettings()
-      const config = settings.narrativeDamper
-      const credential = deps.narrativeDamper
-        ? await deps.narrativeDamper.credentialStatus(config.provider, config.keyName)
-        : { configured: false, source: null, keyName: config.keyName }
-      return { config, credential }
+      return damperSettingsOf().read()
     },
     async updateNarrativeDamperSettings(args) {
-      const patch = args?.patch
-      if (!patch || typeof patch !== 'object' || Array.isArray(patch)) throw new Error('叙事阻尼器设置补丁无效')
-      const updated = await updateTavernSettings({ narrativeDamper: patch })
-      const config = updated.narrativeDamper
-      const credential = deps.narrativeDamper
-        ? await deps.narrativeDamper.credentialStatus(config.provider, config.keyName)
-        : { configured: false, source: null, keyName: config.keyName }
-      return { config, credential, settings: updated }
+      return damperSettingsOf().update(args?.patch)
     },
     async setNarrativeDamperKey(args) {
-      if (!deps.narrativeDamper) throw new Error('叙事阻尼器服务未就绪')
-      const provider = str(args?.provider)
-      const value = args?.value ?? null
-      if (!Object.hasOwn(DAMPER_KEY_REFS, provider)) throw new Error('决策模型提供方无效')
-      if (value !== null && (typeof value !== 'string' || !/^[\x21-\x7e]{1,4096}$/.test(value))) {
-        throw new Error('API Key 须为不含空格或中文的可见 ASCII 字符')
-      }
-      let settings = await readTavernSettings()
-      if (value !== null && await deps.narrativeDamper.isReference(value)) {
-        settings = await updateTavernSettings({ narrativeDamper: { ...settings.narrativeDamper, provider, keyName: value } })
-        await deps.narrativeDamper.setKey(provider, null)
-      } else {
-        await deps.narrativeDamper.setKey(provider, value)
-      }
-      const config = settings.narrativeDamper
-      const credential = await deps.narrativeDamper.credentialStatus(provider, provider === config.provider ? config.keyName : '')
-      return { credential, config }
+      return damperSettingsOf().setKey({ provider: args?.provider, value: args?.value })
     },
     async testNarrativeDamperConnection(args = {}) {
-      if (!deps.narrativeDamper) throw new Error('叙事阻尼器服务未就绪')
-      const draft = args?.config === undefined ? undefined : validateNarrativeDamperConfig(args.config)
-      return deps.narrativeDamper.test(draft)
+      return damperSettingsOf().test(args?.config)
+    },
+    async resolveVertexConfig(args = {}) {
+      const baseUrl = typeof args?.baseUrl === 'string' ? args.baseUrl.trim() : ''
+      const location = vertexLocationFromBaseUrl(baseUrl)
+      let project = vertexProjectFromBaseUrl(baseUrl)
+      if (!project) {
+        const env = deps.vertexEnv || process.env
+        for (const value of [env.GOOGLE_CLOUD_PROJECT, env.GCLOUD_PROJECT]) {
+          const parsed = normalizeVertexProject(value)
+          if (parsed) { project = parsed; break }
+        }
+      }
+      if (!project) {
+        const keyRef = typeof args?.keyRef === 'string' && /^[A-Z][A-Z0-9_]{0,127}$/.test(args.keyRef)
+          ? args.keyRef
+          : 'GOOGLE_VERTEX_API_KEY'
+        let apiKey = typeof args?.apiKey === 'string' ? args.apiKey.trim() : ''
+        if (!apiKey && typeof deps.resolveCredentialValue === 'function') {
+          try {
+            const resolved = await deps.resolveCredentialValue(keyRef)
+            if (typeof resolved === 'string' && resolved.trim()) apiKey = resolved.trim()
+          } catch {}
+        }
+        if (!apiKey) {
+          const env = deps.vertexEnv || process.env
+          for (const name of [keyRef, 'GOOGLE_VERTEX_API_KEY', 'GOOGLE_CLOUD_API_KEY', 'GOOGLE_API_KEY']) {
+            const value = typeof env[name] === 'string' ? env[name].trim() : ''
+            if (value) { apiKey = value; break }
+          }
+        }
+        if (apiKey) {
+          const discover = deps.discoverVertexProject || discoverVertexProject
+          project = await discover({ apiKey })
+        }
+      }
+      return { project: project || null, location: location || null }
     },
   }
   handlers.getConversationBackgroundConfig = handlers.getConversationBackgroundModel

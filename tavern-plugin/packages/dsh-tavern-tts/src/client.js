@@ -11,12 +11,12 @@ exports.apply = function(ctx) {
     const result = await request('control',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({method,args})},['probeService','testService'].includes(method) ? 125000 : 15000)
     // a change to the active reading preset changes every line's identity; players drop their decoded audio.
     if (READING_METHODS.has(method) && !args.dryRun) for (const fn of listeners) fn({type:'readingsChanged'})
-    if (['saveVoicePreset','deleteVoicePreset','importVoicePresets','saveService','deleteService'].includes(method)) {
+    if (['saveVoicePreset','deleteVoicePreset','importVoicePresets','saveService','deleteService','useEndpoint','renameEndpoint','forgetEndpoint','clearEndpoints'].includes(method)) {
       for (const fn of listeners) fn({type:'voicesChanged'})
       for (const fn of managementListeners) fn()
     }
     // the voice services catalog (`voiceServices`) changed: a service saved, removed or checked.
-    if (['saveService','deleteService','testService','probeService'].includes(method)) for (const fn of listeners) fn({type:'servicesChanged'})
+    if (['saveService','deleteService','testService','probeService','useEndpoint'].includes(method)) for (const fn of listeners) fn({type:'servicesChanged'})
     return result
   }
   const listeners = new Set(), jobs = new Set()
@@ -94,13 +94,39 @@ exports.apply = function(ctx) {
     if (active && enabled && !unprovide) unprovide = ctx.provide('ttsClient',client)
   }
   ctx.effect(() => {
-    const events = new EventSource('/api/dsh-tts/v1/enabled')
-    events.onmessage = event => { void setEnabled(JSON.parse(event.data).enabled) }
-    // EventSource reconnects by itself (readyState CONNECTING) and the server then resends the
-    // current state, so only a closed stream means the service is gone; a reconnect keeps playback.
-    events.onerror = () => { if (events.readyState === EventSource.CLOSED) void setEnabled(false) }
+    let events, stopFeed
+    const closeEvents = () => { if (events) { events.close(); events = undefined } }
+    const openEvents = () => {
+      if (!active || events) return
+      events = new EventSource('/api/dsh-tts/v1/enabled')
+      events.onmessage = event => { void setEnabled(JSON.parse(event.data).enabled) }
+      // EventSource reconnects by itself (readyState CONNECTING) and the server then resends the
+      // current state, so only a closed stream means the service is gone; a reconnect keeps playback.
+      events.onerror = () => { if (events && events.readyState === EventSource.CLOSED) void setEnabled(false) }
+    }
+    const attachFeed = feed => {
+      if (!active || stopFeed || !feed || typeof feed.subscribe !== 'function') return false
+      closeEvents()
+      stopFeed = feed.subscribe({
+        onEnabled: value => { closeEvents(); void setEnabled(Boolean(value)) },
+        onClosed: () => { void setEnabled(false) },
+        onFallback: () => { openEvents() },
+        onReconnected: () => { closeEvents() },
+      })
+      return true
+    }
+    const earlyFeed = ctx.get?.('ttsEnabledFeed') || (typeof globalThis !== 'undefined' && globalThis[Symbol.for('dsh.tts.enabledFeed')])
+    if (!attachFeed(earlyFeed)) {
+      ctx.inject?.(['ttsEnabledFeed'], child => {
+        if (attachFeed(child.get?.('ttsEnabledFeed'))) {
+          child.effect?.(() => () => { if (stopFeed) { stopFeed(); stopFeed = undefined } })
+        }
+      })
+      openEvents()
+    }
     return () => {
-      events.close(); void setEnabled(false); active = false; stateListeners.clear(); managementListeners.clear()
+      if (stopFeed) { stopFeed(); stopFeed = undefined }
+      closeEvents(); void setEnabled(false); active = false; stateListeners.clear(); managementListeners.clear()
     }
   })
   // panel UI. one page — no
@@ -122,12 +148,12 @@ exports.apply = function(ctx) {
   const COMMON_KINDS = ['fish-audio','qwen','azure']
   // async synthesis jobs expose safe codes, never upstream response bodies.
   const FISH_ERRORS = {FISH_AUTH_FAILED:'服务要求鉴权，请填写或检查 API Key 与访问权限',FISH_BILLING_REQUIRED:'Fish Audio 额度或余额不足（402），未切换付费模型',FISH_RATE_LIMITED:'Fish Audio 请求受限（429），请稍后重试',FISH_REQUEST_FAILED:'Fish Audio 请求失败，请检查声音模型 ID 与服务状态'}
-  const CODES = {SERVICE_IN_USE:'还有人物在用这个服务',REVISION_CONFLICT:'内容已在别处修改，请重新打开',CREDENTIALS_READ_ONLY:'这个 API Key 由环境变量提供，不能在这里修改',INVALID_PARAMS:'参数超出范围（INVALID_PARAMS）'}
+  const CODES = {ENDPOINT_NOT_FOUND:'这条记录已经不在了，请重新打开',SERVICE_IN_USE:'还有人物在用这个服务',REVISION_CONFLICT:'内容已在别处修改，请重新打开',CREDENTIALS_READ_ONLY:'这个 API Key 由环境变量提供，不能在这里修改',INVALID_PARAMS:'参数超出范围（INVALID_PARAMS）'}
   const failText = e => FISH_ERRORS[e.code || e.message] || CODES[e.code || e.message] || (e instanceof SyntaxError ? 'JSON 格式有误' : /^[A-Z_]+$/.test(e.message) ? '操作失败（' + e.message + '）' : e.message)
   const sizeText = bytes => bytes < 1024 ? bytes + ' B' : bytes < 1024 ** 2 ? (bytes / 1024).toFixed(1) + ' KB' : bytes < 1024 ** 3 ? (bytes / 1024 ** 2).toFixed(1) + ' MB' : (bytes / 1024 ** 3).toFixed(2) + ' GB'
   // Line icons (16 px, currentColor).
   const PATHS = {plus:['M8 3.5v9M3.5 8h9'],trash:['M3 4.5h10','M6.5 4.5V3h3v1.5','M4.5 4.5l.6 8.5h5.8l.6-8.5','M6.8 7v4','M9.2 7v4'],
-    warn:['M8 2.5l6 10.5H2z','M8 6.5v3','M8 11.4v.1'],refresh:['M12.8 7.2A4.9 4.9 0 1 0 12 10.6','M13 3.2v3.6H9.4'],check:['M3.5 8.5l3 3 6-6.5'],chevron:['M6 4l4 4-4 4'],close:['M4.5 4.5l7 7','M11.5 4.5l-7 7'],back:['M10 3.5 5.5 8l4.5 4.5']}
+    warn:['M8 2.5l6 10.5H2z','M8 6.5v3','M8 11.4v.1'],refresh:['M12.8 7.2A4.9 4.9 0 1 0 12 10.6','M13 3.2v3.6H9.4'],check:['M3.5 8.5l3 3 6-6.5'],chevron:['M6 4l4 4-4 4'],history:['M8 2.5a5.5 5.5 0 1 1-5.2 3.7','M2.6 2.8v3.4H6','M8 5.2V8l2 1.4'],close:['M4.5 4.5l7 7','M11.5 4.5l-7 7'],back:['M10 3.5 5.5 8l4.5 4.5']}
   const Icon = ({name,size = 16}) => h('svg',{className:'dtts-icon',width:size,height:size,viewBox:'0 0 16 16',fill:'none','aria-hidden':true},
     name === 'more' ? [3.5,8,12.5].map(x => h('circle',{key:x,cx:x,cy:8,r:1.25,fill:'currentColor'})) :
       PATHS[name].map((d,i) => h('path',{key:i,d,stroke:'currentColor',strokeWidth:1.3,strokeLinecap:'round',strokeLinejoin:'round'})))
@@ -204,6 +230,63 @@ exports.apply = function(ctx) {
     return h('div',{className:'dtts-confirm',role:'alertdialog','aria-label':text,onKeyDown:e => { if (e.key === 'Escape') onNo() }},h('span',null,text),
       h('span',{className:'dtts-confirm-actions'},h(Button,{onClick:onNo},'取消'),h('button',{ref,type:'button',className:'dtts-button is-danger',onClick:onYes},yes)))
   }
+  // 最近用过的网址 (settings.js useEndpoint): a ⌄ at the end of a saved service's Base URL lists the pairs of 网址 + API Key it
+  // worked with, the latest first (owner 11-19 review: A's drop-down, the triangle alone, no names). Picking a row switches both
+  // at once; ✕ forgets one; 清空记录… forgets them all after one confirmation. Keys show as their last 4 characters only.
+  // `act(op, args)` runs one op on the owner's own service ('use' {entry} · 'forget' {entry} · 'clear'): the owner
+  // (ServicesSection recentAct, ModelEndpoints) maps them onto its own control methods.
+  function RecentEndpoints({service,act,disabled,onDone}) {
+    const [open,setOpen] = React.useState(false), [confirm,setConfirm] = React.useState(false), [busy,setBusy] = React.useState(false), [error,setError] = React.useState('')
+    const root = React.useRef(null), toggle = React.useRef(null), entries = service.recent || []
+    const close = () => { setOpen(false); setConfirm(false); setError(''); toggle.current?.focus?.() }
+    React.useEffect(() => {
+      if (!open || !root.current) return
+      const out = e => { if (!root.current.contains(e.target)) { setOpen(false); setConfirm(false) } }
+      const doc = root.current.ownerDocument; doc.addEventListener('pointerdown',out,true)
+      root.current.querySelector('.dtts-recent-pick')?.focus?.()
+      return () => doc.removeEventListener('pointerdown',out,true)
+    },[open])
+    const run = (method,args,done) => async () => {
+      setBusy(true); setError('')
+      try { const result = await act(method,args); onDone(done,method === 'use' ? result : null); return true } catch(e) { setError(failText(e)) } finally { setBusy(false) }
+    }
+    // ↑↓ move between the rows' pick buttons
+    const keys = e => {
+      if (e.key === 'Escape' && open) { e.stopPropagation(); if (confirm) setConfirm(false); else close(); return }
+      if (!open || !['ArrowDown','ArrowUp'].includes(e.key)) return
+      const picks = [...root.current.querySelectorAll('.dtts-recent-pick')], at = picks.indexOf(e.target.ownerDocument.activeElement)
+      picks[(at + (e.key === 'ArrowDown' ? 1 : picks.length - 1)) % picks.length]?.focus(); e.preventDefault()
+    }
+    if (!entries.length) return null
+    const pick = e => e.current ? close : () => run('use',{entry:e.id},'已切换到 ' + e.url)().then(ok => { if (ok) close() })
+    return h('span',{className:'dtts-recent',ref:root,onKeyDown:keys},
+      h('button',{ref:toggle,type:'button',className:'dtts-recent-toggle','aria-label':'最近用过的网址',title:'最近用过的网址','aria-haspopup':'listbox','aria-expanded':open,disabled,onClick:e => { e.stopPropagation(); setOpen(!open); setConfirm(false) }},h(Icon,{name:'chevron',size:12})),
+      open && h('div',{className:'dtts-recent-pop',role:'dialog','aria-label':'最近用过的网址','aria-busy':busy || undefined},
+        h('ul',{className:'dtts-recent-list'},entries.map(e => h('li',{key:e.id,className:'dtts-recent-row','data-current':e.current || undefined},
+          h('button',{type:'button',className:'dtts-recent-pick','aria-current':e.current || undefined,disabled:busy || disabled,title:e.url,onClick:pick(e)},
+            h('span',{className:'dtts-recent-check'},e.current && h(Icon,{name:'check',size:14})),
+            h('span',{className:'dtts-recent-url'},e.url),
+            h('span',{className:'dtts-recent-key'},e.keyed ? '…' + (e.keyTail || '') : '无 Key')),
+          h('button',{type:'button',className:'dtts-key-clear','aria-label':'删除记录 ' + e.url,title:'删除这条记录',disabled:busy,onClick:run('forget',{entry:e.id},'')},h(Icon,{name:'close',size:14}))))),
+        error && h('p',{className:'dtts-recent-error',role:'alert'},h(Icon,{name:'warn',size:13}),error),
+        confirm ? h(Confirm,{text:'清空「' + service.label + '」的 ' + entries.length + ' 条记录？',yes:'清空',onYes:() => { setConfirm(false); run('clear',{},'记录已清空')().then(ok => { if (ok) close() }) },onNo:() => setConfirm(false)})
+          : h('div',{className:'dtts-recent-foot'},h(Button,{link:true,danger:true,disabled:busy,onClick:() => setConfirm(true)},'清空记录…'))))
+  }
+  // 设置 › 模型 (the host's provider card, patched by bin/settings-models-endpoints-patch.mjs): the same ⌄ after its API
+  // 地址, over the model provider's own pairs (model-endpoints.js). Opening the card records its saved pair; 使用 writes
+  // the provider's address and key and reloads the card (onSwitched).
+  function ModelEndpoints({provider,label,ns,path,keyRef,url,disabled,onSwitched}) {
+    const [recent,setRecent] = React.useState(null), target = {provider,ns,path,keyRef}
+    React.useEffect(() => { let on = true; call('modelEndpoints',{op:'list',...target,url}).then(r => { if (on) setRecent(r.recent) },() => {}); return () => { on = false } },[provider,ns,keyRef,url,path.join('/')])
+    if (!recent?.length) return null
+    const act = (op,args) => call('modelEndpoints',{op,...target,...args}).then(r => { setRecent(r.recent); return r })
+    return h('span',{className:'dtts-endpoints'},h(RecentEndpoints,{service:{id:provider,label,recent},act,disabled,onDone:(_done,switched) => { if (switched) onSwitched() }}))
+  }
+  ctx.effect(() => {
+    const key = Symbol.for('dsh.endpointHistory'), published = Object.freeze({ModelEndpoints})
+    globalThis[key] = published
+    return () => { if (globalThis[key] === published) delete globalThis[key] }
+  })
   // A clickable row: the name opens the editor in place; the ⚠ chip and actions stay beside it.
   function Line({title,code,open,onOpen,warn,children,current}) {
     return h('div',{className:'dtts-line','data-open':open || undefined},
@@ -239,6 +322,7 @@ exports.apply = function(ctx) {
     if (p.check?.status === 'invalid-key') return ['warn','API Key 无效',p.check.message]
     if (p.check?.status === 'rejected') return ['warn','访问被拒绝',p.check.message]
     if (p.check?.status === 'offline' && p.selfHosted) return ['warn','未启动',p.check.message]
+    if (p.check?.status === 'not-ready') return ['warn','暂不可用',p.check.message]
     if (['offline','error'].includes(p.check?.status)) return ['warn','连不上',p.check.message]
     if (live?.status?.state === 'checking') return ['busy','正在检查…']
     if (live && ['offline','error'].includes(live.status?.state)) return ['warn','连不上',live.status.error]
@@ -373,6 +457,13 @@ exports.apply = function(ctx) {
         for (const fn of managementListeners) fn()
       })()
     }
+    const RECENT_METHODS = {use:'useEndpoint',forget:'forgetEndpoint',clear:'clearEndpoints'}
+    const recentAct = p => (op,args) => call(RECENT_METHODS[op],{id:p.id,...(op === 'use' ? {expectedRevision:p.revision} : {}),...args})
+    // a pair picked from 最近用过的网址 was saved by the server: the open form takes the saved row as it is now.
+    const recentDone = (done, saved) => {
+      if (saved) setEditor(e => e?.mode === 'edit' && e.id === saved.id ? {...e,label:saved.label,config:{...defaults(saved.kind),...saved.config},originalUrl:saved.config.url,secrets:{},stored:saved.secrets || {},expectedRevision:saved.revision,probe:null,custom:saved.kind === 'fish-audio' ? !cloudFish(saved.config) : e.custom} : e)
+      setMessage(done)
+    }
     // The state word of a saved service is its 测试: pressing it checks the connection again.
     const [retesting,setRetesting] = React.useState('')
     const retest = p => async () => {
@@ -392,6 +483,11 @@ exports.apply = function(ctx) {
       if (f.type === 'preset') { const presets = descriptor(editor.kind).presets
         return h(Field,{key:f.key,label:f.label},menu({label:f.label,value,options:f.options,onChange:v => commit({config:{...presets[v],url:presets[v].url || editor.config.url || ''}})})) }
       if (f.type === 'select') return h(Field,{key:f.key,label:f.label,help:f.help},menu({label:f.label,value,options:f.options,onChange:set}))
+      // a saved service's Base URL carries its 最近用过的网址 (⌄) inside the field's end.
+      const saved = f.key === 'url' && editor.mode === 'edit' && configured.find(c => c.id === editor.id)
+      if (saved?.recent?.length) return h(Field,{key:f.key,label:f.label,help:f.help},h('span',{className:'dtts-recent-field'},
+        textField({label:f.label,value:String(value),placeholder:f.placeholder || '',onCommit:set}),
+        h(RecentEndpoints,{service:saved,act:recentAct(saved),disabled:busy,onDone:recentDone})))
       return h(Field,{key:f.key,label:f.label,help:f.help,top:f.type === 'lines'},textField({label:f.label,value:String(value),placeholder:f.placeholder || (f.required ? '' : '选填'),lines:f.type === 'lines',onCommit:set}))
     }
     // The API Key field: a stored key shows as dots; × at the field's end clears it (owner 11-08). A new service tests
@@ -404,6 +500,16 @@ exports.apply = function(ctx) {
           // × sits beside the box, not inside it: the box's own end holds the shared edit ✎ (ui-design R23).
           stored && h('button',{type:'button',className:'dtts-key-clear','aria-label':'清除 ' + f.label,title:'清除已保存的 ' + f.label,disabled:busy,onClick:() => commit({secrets:{...editor.secrets,[f.key]:''}})},h(Icon,{name:'close',size:14})),
           last && editor.mode !== 'edit' && h(Button,{link:true,disabled:testing || busy,title:costly ? '会真的合成一个字来验证 API Key，可能产生极少费用' : undefined,onClick:probe},'测试'))) }
+    // 默认模型: what a figure's voice that picks no model of its own speaks with. A service with one model just names it.
+    const modelField = () => {
+      const saved = editor.mode === 'edit' && configured.find(c => c.id === editor.id), models = saved?.models || []
+      if (!models.length) return null
+      const help = '人物的声音没有单独选模型时用它。', label = id => models.find(m => m.id === id)?.label || id
+      const warning = saved.defaultModelMissing && h(Warn,{title:'这个服务里没有「' + editor.config.defaultModel + '」，现在用 ' + label(saved.defaultModel)})
+      if (models.length === 1) return h(Field,{label:'默认模型',help,warning},h('span',{className:'dtts-value'},models[0].label))
+      return h(Field,{label:'默认模型',help,warning},menu({label:'默认模型',value:saved.defaultModelMissing ? editor.config.defaultModel : saved.defaultModel,
+        options:[...(saved.defaultModelMissing ? [[editor.config.defaultModel,editor.config.defaultModel]] : []),...models.map(m => [m.id,m.label])],onChange:id => commit({config:{...editor.config,defaultModel:id}})}))
+    }
     function Form() {
       const kind = descriptor(editor.kind)
       if (!kind) return null
@@ -412,6 +518,7 @@ exports.apply = function(ctx) {
         h(Field,{label:'显示名称'},textField({label:'显示名称',value:editor.label,onCommit:label => commit({label})})),
         kind.fields.filter(f => !f.secret && !f.more).map(fieldView),
         kind.fields.filter(f => f.secret).map((f,i,all) => secretField(f,i === all.length - 1)),
+        modelField(),
         // 自定义语音服务: the preset fills the request and response; they sit under 高级.
         kind.fields.some(f => f.more) && h('details',{className:'dtts-details'},h('summary',null,'高级：请求与返回格式'),kind.fields.filter(f => f.more).map(fieldView)),
         // a new service with no key field (a local server) tests from its own row before it is added.
@@ -443,6 +550,9 @@ exports.apply = function(ctx) {
       },50)
     },[!!state,kinds.length,focusAsked])
     const count = state ? configured.length + external.length + unset.length + (browserSpeech ? 1 : 0) : undefined
+    const fishOptions = [['','官方 Fish（默认）'], ...configured.filter(p => p.kind === 'fish-audio').map(p => [p.id,p.label])]
+    const fishDefault = state?.fishVoiceIdService || ''
+    if (!fishOptions.some(([id]) => id === fishDefault)) fishOptions.push([fishDefault,'所选服务已移除'])
     return h(Section,{title:'语音合成',meta:count,help:'合成声音的服务，这台电脑设一次，所有卡通用。人物用哪一个，在素材编辑器的人物「声音」里选。'},
       !state ? h('p',{className:'dtts-muted dtts-loading',role:loadError ? 'alert' : undefined},loadError ? h(Warn,null,loadError) : h('span',{className:'dtts-spinner','aria-label':'正在载入'})) :
       h('ul',{className:'dtts-list',ref:root},
@@ -571,8 +681,7 @@ exports.apply = function(ctx) {
   ctx.slots.inject('settings.section',() => ctx.slots.register({name:'settings.section',id:'tts',order:70,label:() => '语音后端'},VoicePanel))
   ctx.inject(['betterSidebar'], child => child.effect(() => {
     sidebar = child.get('betterSidebar')
-    const dispose = sidebar.registerTab({id:'dsh-tts:voice',title:'语音后端',order:10,single:true,icon,component:VoicePanel})
+    const dispose = sidebar.registerTab({id:'dsh-tts:voice',title:'语音后端',order:10,hidden:true,single:true,keepMounted:false,icon,component:VoicePanel})
     return () => { dispose(); sidebar = null }
   }))
-  ctx.inject(['tavernUi'], child => { child.get('tavernUi').registerStartGroup({title:'舞台装置',tabs:['dsh-tts:voice']}) })
 }

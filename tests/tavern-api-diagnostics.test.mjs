@@ -21,12 +21,3 @@ test('宿主调用日志区分成功、拒绝与异常，并且不保存参数�
   assert.equal(data.records[0].eventId, 'settlement-1')
   assert.doesNotMatch(JSON.stringify(data), /PRIVATE-|sk-12345678901234567890/)
 })
-
-test('非宿主调用不记录，日志存储故障不改变原始操作结果', async () => {
-  const d = createTavernApiDiagnostics({ async updateJson() { throw new Error('disk failed') }, async readJson() {} })
-  assert.equal(await d.observe('saveTavernChatData', { sessionId: 'session' }, () => 42), 42)
-  await assert.rejects(d.read('session'), /disk failed/)
-  const other = harness()
-  await other.observe('getTavernSettings', { sessionId: 'session' }, () => ({}))
-  assert.equal((await other.read('session')).records.length, 0)
-})

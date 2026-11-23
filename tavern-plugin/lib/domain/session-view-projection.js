@@ -31,7 +31,8 @@ export const sessionViewMessageFields = Object.freeze([
   'sourceText', 'projectionText', 'text', 'displayText', 'displayMode', 'projectionVersion', 'projectionWarnings',
   // Sidebar origin uses frame receipts, not the external DOM/console capture.
   'displayRuntime.frames',
-  'stagePageVersion', 'openingChoiceId', 'openingSelectionRevision', 'swipeId', 'swipes', 'variables', 'tavernPluginData', 'mvu', 'narrativeDamper', 'damperState',
+  'stagePageVersion', 'openingChoiceId', 'openingSelectionRevision', 'voiceBackfill', 'swipeId', 'swipes', 'variables', 'tavernPluginData', 'mvu', 'narrativeDamper', 'damperState',
+  'polished', 'polishedFrom',
   'native', 'nativeAnchor', 'placeholder', 'bodyEdit', 'bodyRegenerationProcessed', 'bodyHostRegexApplied', 'bodyPluginProjection', 'importSource', 'templateHistoryEdit', 'templateInputSource'
 ])
 
@@ -45,11 +46,21 @@ export function createSessionViewProjection({
   sessionDebugEvidence, cardViewOf, projectLedgerTask, projectCharacterDesignTask, projectPhoneChat,
   readPromptTemplateGlobalVariables, sessionStore, readChatCard, workspaceViewOf, helperHistoryAccess,
   readLiveCardStage = async () => null, stageReadScope = () => false, readStageChat,
-  readCardStageMode = async () => NO_STAGE
+  readCardStageMode = async () => NO_STAGE, readCardResourceVersions = async () => null,
+  readSettingsVersion = async () => '', readGlobalVariablesVersion = async () => ''
 }) {
   const inputFieldsProjection = createInputFieldsProjection()
   const incrementalReplyView = createIncrementalReplyView({ readChanges })
   const mvuVisibilityByCardPath = new Map()
+  // These files supply the story view's settings, regex, Helper config and
+  // global variables. Their versions can be read without materializing floors.
+  async function storyVersion(chat) {
+    const stageMode = chat.cardPath && chat.mode !== 'card' ? readCardStageMode(chat.cardPath) : NO_STAGE
+    return JSON.stringify(await Promise.all([
+      readCardResourceVersions(chat), readSettingsVersion(), tavernExtensionSettings.version?.(),
+      readGlobalVariablesVersion(), stageMode
+    ]))
+  }
   function rememberCardMvuVisibility(cardPath, visibility) {
     const key = str(cardPath)
     if (!key) return
@@ -125,6 +136,9 @@ export function createSessionViewProjection({
     const deferResources = options.deferResources === true && chat.mode !== 'card'
       && Number.isSafeInteger(resourceRevision) && !!chat.cardDefinitionSnapshot
       && chat.openingWorldbookSnapshot?.version === 1
+    // Decide presentation before starting work that may use the card's stage services.
+    const stageMode = ['story', 'script'].includes(chat.mode || 'story') && str(chat.cardPath) !== ''
+      ? await requestPerformance.stage('cardStageMode', () => readCardStageMode(chat.cardPath)) : NO_STAGE
 
     if (!options.openingWindow) scheduleTemplateSync(chat)
     else void warmCandidates(chat.sessionId)
@@ -149,17 +163,13 @@ export function createSessionViewProjection({
       replyDisplay = await replyDisplayForChat(chat,card,persistedProjection,cardExtensions,{storyTranscript:storyTranscriptRead})
     }
     const activity = activityOf(chat)
-    const { debugTurns, latestAssistantTurn: latestStoryTurn, latestAssistantMessageId, displayRoundOrder } = latestTurnFields(chat, !storyTranscriptRead)
+    const { debugTurns, latestAssistantTurn: latestStoryTurn, latestAssistantMessageId, displayRoundOrder, polishedTurns, autoPolishedTurns } = latestTurnFields(chat, !storyTranscriptRead)
     const forkTurnsByMessageId = storyTranscriptRead ? {} : forkTurnsForChat(chat)
     const {inputSources,inputTemplateDisplays}=inputFieldsProjection.project(persistedProjection ? chat : {...chat,_storageRevision:undefined}, options.inputChanges)
     const cardUpdate = ['story', 'script'].includes(chat.mode || 'story') && chat.requestMode !== 'sillytavern'
       ? await cardUpdateStatus(chat, { card, fresh: options.freshSnapshot === true, busy: activity.busy || ['pending', 'running', 'waiting-runtime'].includes(chat.settleStatus)
         || (!storyTranscriptRead && agentRegistry.get(chat.sessionId)?.phase?.kind === 'running'), settings: runtimeSettings })
       : { available: false }
-    // Dialogue bubbles / stage mode in effect for this card (card-stage-settings.js effectiveCardStage, decided by the host):
-    // the client loads and asks the stage only when one is on, and never recomputes it.
-    const stageMode = ['story', 'script'].includes(chat.mode || 'story') && str(chat.cardPath) !== ''
-      ? await requestPerformance.stage('cardStageMode', () => readCardStageMode(chat.cardPath)) : NO_STAGE
     // A disabled stage has no stage HTML to project. In particular, do not reread and
     // parse the whole card merely to discover markup that cannot be displayed.
     const cardStage = (stageMode.dialogue === true || stageMode.stage === true) && str(chat.cardPath) !== ''
@@ -257,13 +267,13 @@ export function createSessionViewProjection({
       // tavernStatusView duplicated tavernStatusViews[0] in every read; clients use the list.
       tavernStatusViews: replyDisplay.statusViews || [],
       cardStage,
-      stage: {dialogue: stageMode.dialogue === true, stage: stageMode.stage === true},
+      stage: {dialogue: stageMode.dialogue === true, stage: stageMode.stage === true, isStageCard: stageMode.isStageCard === true},
       mvuVisibility: cardExtensions.mvuVisibility || null,
       mvuReceipts: mvuReceiptsOf(chat),
       // Replies whose text is a 精修 (manual or automatic), by turn, for the small mark under them;
       // automatic ones (body.polish, they keep polishedFrom) are told apart in its title.
-      polishedTurns: (Array.isArray(chat.messages) ? chat.messages : []).filter(message => message?.role === 'assistant' && (message.polished || message.polishedFrom)).map(message => Number(message.turn) || 0),
-      autoPolishedTurns: (Array.isArray(chat.messages) ? chat.messages : []).filter(message => message?.role === 'assistant' && message.polishedFrom).map(message => Number(message.turn) || 0),
+      polishedTurns,
+      autoPolishedTurns,
       tavernHelper: helperContext ? { ...helperContext, mvuVisibility: cardExtensions.mvuVisibility || null, frameStorageScope: { cardPath: chat.cardPath, sessionId: chat.sessionId }, playerName: str(chat.macroState?.userName).trim() || '你', characterName: str(card?.name || chat.cardName), character: {name:str(card?.name || chat.cardName), path:str(chat.cardPath)}, openingHost, worldbook: helperWorldbook, globalVariables: await readPromptTemplateGlobalVariables(), characterVariables: cardExtensions.variables || {}, compatibilityCapabilities: TAVERN_COMPATIBILITY_CAPABILITIES, extensionSettings, regexScripts: { global: cardExtensions.globalRegexScripts || [], preset: applyRegexOverrides(activePresetSnapshot?.regexScripts || [], chat.regexOverrides && chat.regexOverrides.preset, 'preset'), character: cardExtensions.characterRegexScripts || [] } } : null,
       tavernMvuRuntime: chat.mvu && chat.mvu.enabled === true ? {
         owner: chat.mvu.owner === 'official' ? 'official' : 'legacy',
@@ -297,9 +307,11 @@ export function createSessionViewProjection({
   // so plugin actions never target a turn from an earlier view.
   function latestTurnFields(chat, includeNative = true) {
     const messages = Array.isArray(chat.messages) ? chat.messages : []
-    const displayRoundOrder = []
+    const displayRoundOrder = [], polishedTurns = [], autoPolishedTurns = []
     for (const message of messages) {
       if (!message || message.role !== 'assistant') continue
+      if (message.polished || message.polishedFrom) polishedTurns.push(Number(message.turn) || 0)
+      if (message.polishedFrom) autoPolishedTurns.push(Number(message.turn) || 0)
       const turn = Math.max(0, Number(message.turn) || (message.greeting === true ? 1 : 0))
       if (turn > 0) displayRoundOrder.push(turn)
     }
@@ -315,7 +327,7 @@ export function createSessionViewProjection({
     const latestAssistantTurn = Number(debugTurns[0]?.turn) || 0
     const liveSession = includeNative ? sessionStore.get(str(chat.sessionId)) || agentRegistry.get(str(chat.sessionId))?.session : null
     const latestAssistant = includeNative && latestAssistantTurn > 0 ? assistantResultForTurn(liveSession, latestAssistantTurn) : null
-    return { debugTurns, latestAssistantTurn, latestAssistantMessageId: str(latestAssistant?.event?.data?.message?.id), displayRoundOrder }
+    return { debugTurns, latestAssistantTurn, latestAssistantMessageId: str(latestAssistant?.event?.data?.message?.id), displayRoundOrder, polishedTurns, autoPolishedTurns }
   }
   function replyProjectionsOf(chat) {
     const messages = Array.isArray(chat && chat.messages) ? chat.messages : []
@@ -515,6 +527,8 @@ export function createSessionViewProjection({
       characterDesignTask: projectCharacterDesignTask(chat),
       ...latestTurnFields(chat)
     })
+    // The banner lasts until the next turn: recompute it from the new latest turn.
+    next.cardAutoReload = chat.cardAutoReload && Number(chat.cardAutoReload.turn) === next.latestAssistantTurn ? { at: chat.cardAutoReload.at } : null
     if (mode === 'script') next.scriptProgress = await scriptProgressOf(chat)
     Object.assign(next,inputFieldsProjection.project(chat,{baseRevision:changes.baseRevision,indices:dirtyMessageIndices,changedHeaderFields,runtimeInputChanges}))
     if (previous.tavernHelper) {
@@ -606,5 +620,5 @@ export function createSessionViewProjection({
 
   return Object.freeze({ view, replyDisplay: replyDisplayForChat, status: chat => sessionStateView.status(chat), stats: () => incrementalReplyView.stats(),
     project: Object.freeze({ full: projectFullSessionView, cached: projectCachedSessionView, dirty: projectDirtySessionView, opening: projectOpeningWindow,
-      story: (window, options = {}) => projectOpeningWindow(window, { ...options, storyTranscript: true }) }) })
+      story: (window, options = {}) => projectOpeningWindow(window, { ...options, storyTranscript: true }), storyVersion }) })
 }

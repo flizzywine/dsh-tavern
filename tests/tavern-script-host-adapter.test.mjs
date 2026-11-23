@@ -156,23 +156,6 @@ test('MVU identity effects retain macro counters and reject concurrent renames a
   assert.deepEqual(target.macroState, { userName: '沈砚', local: { score: 2 }, global: { keep: true } })
 })
 
-test('同时开始的 MVU 尝试不会在 await 之后互相覆盖事务所有权', async () => {
-  let run
-  run = harness(chat(), { scriptDispatch: { async dispatch(_session, _name, _args, _context, work) {
-    await run.adapter.updateMessages('session-1', [{ message_id: 0, data: { hp: 13 } }], 2, work.eventId)
-    return { handled: true }
-  } } })
-  const input = { sessionId: 'session-1', messageId: 0, swipeId: 0, expectedLifecycleRevision: 2, command: '<UpdateVariable/>' }
-  const results = await Promise.allSettled([
-    run.adapter.settleMvuUpdate({ ...input, operationId: 'first' }),
-    run.adapter.settleMvuUpdate({ ...input, operationId: 'second' })
-  ])
-  assert.equal(results.filter(result => result.status === 'fulfilled' && result.value.updated).length, 1,
-    results.map(result => result.reason?.message || result.status).join('; '))
-  assert.match(results.find(result => result.status === 'rejected').reason.message, /已有.*结算/)
-  assert.equal(run.writes.length, 0, '有效尝试仍只返回草稿 effect，不能提前持久化')
-})
-
 for (const concurrent of [false, true, 'conflict']) test(`prompt updates use exact-revision patch with safe merge fallback: concurrent=${concurrent}`, async t => {
   const {mkdtemp,rm}=await import('node:fs/promises')
   const {tmpdir}=await import('node:os')

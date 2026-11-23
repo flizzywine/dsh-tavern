@@ -173,6 +173,20 @@ function spineMeasure(spine, frame, identity, renderer, PIXI) {
         finally { if (texture) texture.destroy(true); }
     });
 }
+// The rig's own head at rest - the slot named head (else face), as a Live2D model's head hit area - as frame fractions
+// {top, chin} and its centre x in frame px, for the head-normalised stage size (packFigureAnatomy): a model drawn only to
+// the knees or the waist stands as tall as its head says, not as tall as its drawn bounds. null without such a slot, or
+// when its box is no plausible head (the Live2D hit area's bounds: 4%-60% of the frame).
+function spineHead(spine, frame) {
+    const slots = spine.skeleton.slots, index = ["head", "face"].map(name => slots.findIndex(slot => slot.data.name.toLowerCase() === name)).find(i => i >= 0);
+    const container = index == null ? null : spine.slotContainers[index];
+    if (!container || !container.renderable || !slots[index].attachment) return null;
+    const box = container.getBounds(), inverse = spine.worldTransform;
+    const a = inverse.applyInverse({ x: box.x, y: box.y }), b = inverse.applyInverse({ x: box.x + box.width, y: box.y + box.height });
+    const top = Math.min(a.y, b.y), chin = Math.max(a.y, b.y), span = chin - top;
+    if (!(span > frame[3] * 0.04 && span < frame[3] * 0.6)) return null;
+    return { top: (top - frame[1]) / frame[3], chin: (chin - frame[1]) / frame[3], x: (a.x + b.x) / 2 - frame[0] };
+}
 // The sprite-like body: texture = frame size, anchor in frame fractions (same meaning as a PIXI.Sprite anchor).
 function spineBody(PIXI, spine, frame) {
     const body = new PIXI.Container();
@@ -183,6 +197,6 @@ function spineBody(PIXI, spine, frame) {
     return body;
 }
 
-return {loadSpineRuntime,spineSources,forkSpineLocalSource,spineLoadData,spineFigure,spineBottomFade,spineFrame,spineMeasure,spineBody};
+return {loadSpineRuntime,spineSources,forkSpineLocalSource,spineLoadData,spineFigure,spineBottomFade,spineFrame,spineMeasure,spineHead,spineBody};
 }
 if(typeof module!=='undefined'&&typeof window==='undefined')module.exports={createSpineRig};

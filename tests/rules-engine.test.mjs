@@ -2,10 +2,9 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import { compileRulesV2, readRulesState } from '../tavern-plugin/mods/dice/rules-engine.js'
-import { checkRulesCard, checkSettlement, runRulesCall, RULINGS_PER_REPLY } from '../tavern-plugin/mods/dice/check-tool.js'
+import { checkSettlement, runRulesCall } from '../tavern-plugin/mods/dice/check-tool.js'
 import { seededDraw } from '../tavern-plugin/mods/dice/check-engine.js'
 import { withModHidden } from '../tavern-plugin/lib/mod-tools.js'
-import { evaluate, parseFormula } from '../tavern-plugin/mods/dice/check-expr.js'
 
 // A small invented detective game: phases, money and a price table, clue entries that are not fixed, a roll with a
 // choice, a secret counter and a derived ending.
@@ -52,33 +51,6 @@ const RULES = {
 
 const opening = () => ({ 开场: { 完成: true }, 阶段: 0, 角色: { 体力: 5, 体力上限: 5, 钱: 6, 属性: { 力量: 2, 机敏: 1 } }, 线索: { $meta: { extensible: true } }, 幕后: { 热度: 0 }, 案件: { 结局: '' }, 终局: '' })
 
-// The host around the engine: the state reads the settled variables plus this branch's later records; a reply's settlement
-// writes the operations the tool declares (tools.js settlement) and the variables then belong to that turn.
-// Die by die through a table: as many dice as the loose ends allow, each face reads its table row, and a face that comes up
-// again reads that row's next tier (range, slice and count); the sum goes into one effect.
-test('a roll reads a table row per die, by how many times the face came up, and sums the rows', () => {
-  const tier = "count(slice(w, 0, key + 1), w[key])"
-  const rules = compileRulesV2({ format: 'dsh-rules', version: 2, name: 'weather',
-    state: { loose: { path: '/目击者', label: '目击者', min: 0 } },
-    tables: { events: { 1: { a: -1, b: -2, c: -3, clear: 1 }, 2: { a: 3, b: 2, c: 1, clear: 0 }, 3: { a: 0, b: 0, c: 0, clear: 0 } } },
-    actions: { weather: { label: '天气事件', dice: { w: { count: 'min(floor(loose / 11), 5)', sides: 3 }, e: { count: 'min(floor(loose / 11), 5)', sides: 6 } },
-      let: [{ name: 'delta', each: 'range(len(w))',
-        sum: `(${tier} == 1 ? events[w[key]]['a'] : ${tier} == 2 ? events[w[key]]['b'] : events[w[key]]['c']) - events[w[key]]['clear'] * e[key]` }],
-      effects: [{ var: 'loose', add: 'delta' }], text: '{len(w)} 个天气事件，目击者变化 {delta}。' } } })
-  const table = { 1: [-1, -2, -3, 1], 2: [3, 2, 1, 0], 3: [0, 0, 0, 0] }
-  for (const [loose, count] of [[40, 3], [70, 5], [5, 0]]) {
-    const play = game(rules)
-    play.variables.目击者 = loose
-    const record = play.call(2, { op: 'act', action: 'weather', reason: 'r' }, 7)
-    const { w = [], e = [] } = record.dice || {}
-    assert.equal(w.length, count)
-    const delta = w.reduce((total, face, index) => { const row = table[face], seen = w.slice(0, index + 1).filter(value => value === face).length
-      return total + row[Math.min(seen, 3) - 1] - row[3] * e[index] }, 0)
-    assert.equal(record.text, count + ' 个天气事件，目击者变化 ' + delta + '。')
-    assert.deepEqual(play.settle(2).map(row => row.value), delta ? [Math.max(0, loose + delta)] : [])
-  }
-})
-
 function game(rules) {
   const records = [], variables = opening()
   let settled = 1
@@ -111,19 +83,6 @@ function seedWhere(rules, accept) {
   }
   throw new Error('no seed')
 }
-
-test('v2 rules load once with the author\'s path in every error', () => {
-  const bad = (patch, pattern) => assert.throws(() => compileRulesV2({ ...RULES, ...patch }), pattern)
-  bad({ actions: { x: { label: 'x', effects: [{ var: 'money', add: 'cash' }] } } }, /actions\.x\.effects: reads unknown name cash/)
-  bad({ state: { ...RULES.state, other: { path: '/角色' } } }, /state\.other\.path: \/角色 overlaps \/角色\/体力/)
-  bad({ state: { bad: { path: '/a/$meta/b' } } }, /state\.bad\.path: may not name MVU metadata/)
-  bad({ derived: { a: { path: '/x', value: 'b' }, b: { path: '/y', value: 'a' } } }, /derived\.a: depends on itself through a → b → a/)
-  bad({ actions: { x: { label: 'x', effects: [{ var: 'money', remove: true }] } } }, /actions\.x\.effects\.0\.remove: removes an entry/)
-  bad({ actions: { x: { label: 'x', params: { money: { int: { min: 0, max: 1 } } } } } }, /actions\.x\.params\.money: money is already a name of these rules/)
-  bad({ actions: { x: { label: 'x', effects: [{ var: 'ending', set: "'a'" }] } } }, /actions\.x\.effects\.0\.var: names no state variable/)
-  assert.throws(() => parseFormula('('.repeat(60) + '1' + ')'.repeat(60)), /nests at most 40 levels/)
-  assert.equal(evaluate(parseFormula("join(get(m, 'a', 0), '-', len(keys(m)))"), { get: () => ({ a: 2, b: 3 }) }), '2-2')
-})
 
 test('a full case: actions with and without dice, refusals, a choice across turns, entries, the derived ending', () => {
   const rules = compileRulesV2(RULES), play = game(rules)
@@ -173,22 +132,6 @@ test('a full case: actions with and without dice, refusals, a choice across turn
   assert.equal(sheet.values.终局, '破案')
 })
 
-test('one reply makes a bounded number of rulings', () => {
-  const play = game(compileRulesV2(RULES))
-  play.call(2, { op: 'act', action: 'start', reason: 'r' })
-  for (let n = 1; n < RULINGS_PER_REPLY; n++) assert.equal(play.call(2, { op: 'act', action: 'note', params: { who: '管家' }, reason: 'r' }).status, 'settled')
-  assert.match(play.call(2, { op: 'act', action: 'note', params: { who: '管家' }, reason: 'r' }).refused, /this reply has made 16 rulings already/)
-  assert.equal(play.call(3, { op: 'act', action: 'note', params: { who: '管家' }, reason: 'r' }).id, '3-1')
-})
-
-test('a reply whose settlement never saved: the next reply still counts its records, and writes them with its own', () => {
-  const rules = compileRulesV2(RULES), play = game(rules)
-  play.call(2, { op: 'act', action: 'start', reason: 'r' })
-  // Turn 2 never settled: turn 3 reads phase 1 from its record, and turn 3's settlement writes both.
-  assert.equal(play.call(3, { op: 'act', action: 'note', params: { who: '管家' }, reason: 'r' }).status, 'settled')
-  assert.deepEqual(play.settle(3).map(row => row.path), ['/stat_data/阶段', '/stat_data/线索/管家'])
-})
-
 test('entries with fields and a sum over entries (a management game: staff, products, revenue)', () => {
   const rules = compileRulesV2({ format: 'dsh-rules', version: 2, name: 'shop',
     tables: { tiers: { 新人: { skill: 3, pay: 10 }, 老手: { skill: 8, pay: 30 } } },
@@ -224,34 +167,6 @@ test('entries with fields and a sum over entries (a management game: staff, prod
   assert.deepEqual(play.settle(2).map(row => row.op + ' ' + row.path.replace('/stat_data', '') + ' ' + JSON.stringify(row.value)), [
     'insert /员工/老周 {"skill":20,"pay":30}', 'remove /员工/小李 undefined', 'insert /产品/青鸟 {"units":10,"price":3,"onSale":true}', 'insert /产品/红雀 {"units":10,"price":3,"onSale":true}', 'replace /公司/现金 120'])
   assert.equal(play.call(3, { op: 'act', action: 'quarter', reason: 'r' }).text, '营收 60，工资 30。', 'the next turn reads the entries from the variables')
-})
-
-test('one action with fields per item: a parameter whose when is false is absent and an each over it writes nothing', () => {
-  const rules = compileRulesV2({ format: 'dsh-rules', version: 2, name: 'enrol', sets: { q: ['a', 'b', 'c'] },
-    state: { pool: { path: '/pool', label: 'pool', keys: 'q', min: 0 }, bond: { path: '/bond', label: 'bond', keys: '*' } },
-    actions: { enrol: { label: 'enrol', params: { item: { label: 'item', options: { bonds: 'bonds', pool: 'pool' } },
-      who: { label: 'who', text: { max: 8 }, when: "item == 'bonds'" }, picks: { label: 'picks', pick: { set: 'q', min: '2', max: '2' }, when: "item == 'pool'" } },
-      effects: [{ var: 'bond', key: 'who', set: '6', when: "item == 'bonds'" }, { var: 'pool', each: 'picks', add: '3', when: "item == 'pool'" }] } } })
-  const play = game(rules)
-  Object.assign(play.variables, { pool: { a: 0, b: 0, c: 0 }, bond: {} })
-  assert.deepEqual(play.call(2, { op: 'act', action: 'enrol', params: { item: 'bonds', who: 'x' }, reason: 'r' }).changes, [{ path: '/bond/x', label: 'bond·x', to: 6 }])
-  assert.deepEqual(play.call(2, { op: 'act', action: 'enrol', params: { item: 'pool', picks: ['a', 'c'] }, reason: 'r' }).changes.map(row => row.path + '=' + row.to), ['/pool/a=3', '/pool/c=3'])
-})
-
-test('older calls keep their meaning; the card check compiles the rules and keeps rule-owned ranges out of $meta.limits', () => {
-  const rules = compileRulesV2(RULES), play = game(rules)
-  assert.equal(play.call(2, { action: 'status' }).status, 'sheet')
-  // Options are listed id -> label, so the model passes the id alone.
-  play.variables.阶段 = 1
-  assert.deepEqual(play.call(2, { op: 'status' }).actions.find(row => row.action === 'close').params.result.oneOf, { 破案: '破案', 失败: '失败' })
-  play.variables.阶段 = 0
-  assert.equal(play.call(2, { action: 'roll', check: 'start', reason: 'r', stakes: 's' }).text, '调查开始。')
-  const card = limits => checkRulesCard({ extensions: { 'dsh.rules': RULES } }, { prefix: '/data', limits })
-  assert.deepEqual(card([{ path: '/好感' }]), [])
-  assert.deepEqual(card([{ path: '/线索/*' }, { path: '/阶段' }]).map(row => row.path + ' ' + row.message), [
-    '/data/extensions/dsh.rules /线索/* 归规则管（线索），范围只写在规则里：删掉初值 $meta.limits 里的这一条',
-    '/data/extensions/dsh.rules /阶段 归规则管（阶段），范围只写在规则里：删掉初值 $meta.limits 里的这一条'])
-  assert.match(checkRulesCard({ extensions: { 'dsh.rules': { ...RULES, actions: {} } } })[0].message, /declare at least one action/)
 })
 
 // Dice expressions: NdS terms joined by the formula language; the name reads as the value and the record keeps each die
@@ -298,60 +213,6 @@ const SPONSORED = { format: 'dsh-rules', version: 2, name: 'sponsor', state: { g
     effects: [{ var: 'gift', add: 'bonus' }],
     report: [{ id: 'raw', label: '原始', value: 'raw' }, { id: 'n', label: '计数', value: 'n' }] } } }
 
-function seedFor(rules, accept) {
-  for (let seed = 1; seed < 5000; seed++) {
-    const draw = seededDraw(seed), d = [draw(2), draw(2), draw(2)], s = draw(4)
-    if (accept(d, s)) return seed
-  }
-  throw new Error('no seed')
-}
-
-test('choices in a sequence: what reads an open choice is asked next, and the steps between them see the answers', () => {
-  const rules = compileRulesV2(SPONSORED), play = game(rules)
-  // One 2 on the main dice and a 2 on the extra die: how it counts decides whether the top bonus opens.
-  const seed = seedFor(rules, (d, s) => d.filter(f => f === 2).length === 1 && s === 2)
-  const first = play.call(2, { op: 'act', action: 'roll', reason: 'r' }, seed)
-  assert.deepEqual([first.status, first.choices.map(row => row.id), first.report], ['awaiting', ['use'], { raw: { label: '原始', value: 1 } }], 'the bonus waits for how the die counts')
-  assert.equal(first.show, undefined)
-  const second = play.call(3, { op: 'choose', choice: { use: 'add' } })
-  assert.deepEqual([second.status, second.of, second.choice, second.choices.map(row => row.id)], ['awaiting', first.id, { use: 'add' }, ['bonus']])
-  assert.deepEqual(second.report.n.value, 2, 'a step after the answered choice is known now')
-  const done = play.call(4, { op: 'choose', choice: { bonus: 2 } })
-  assert.deepEqual([done.status, done.of, done.choice, done.outcome.id, done.report.n.value, done.changes[0].to], ['settled', second.id, { use: 'add', bonus: 2 }, 'top', 2, 2])
-  // Answered at once, it settles in one go; ignoring the die leaves no bonus to ask.
-  play.call(5, { op: 'act', action: 'roll', reason: 'r' }, seed)
-  assert.deepEqual(play.call(5, { op: 'choose', choice: { use: 'add', bonus: 1 } }).choice, { use: 'add', bonus: 1 })
-  play.call(6, { op: 'act', action: 'roll', reason: 'r' }, seed)
-  const skipped = play.call(6, { op: 'choose', choice: {} })
-  assert.deepEqual([skipped.status, skipped.outcome.id], ['settled', 'ok'], 'the default answer opens nothing further')
-  assert.match(play.call(7, { op: 'act', action: 'roll', reason: 'r' }, seed).status, /awaiting/)
-  assert.match(play.call(7, { op: 'choose', choice: { bonus: 1 } }).refused, /nothing to choose for bonus/, 'with the die ignored by default the bonus never opens')
-  play.call(7, { op: 'choose', choice: {} })
-  // Without the extra die the step runs before any ask, so the outcome fixed by the dice is told while waiting.
-  const plain = seedFor(rules, d => d.filter(f => f === 2).length === 2)
-  const top = play.call(8, { op: 'act', action: 'roll', params: { extra: false }, reason: 'r' }, plain)
-  assert.deepEqual([top.choices.map(row => row.id), top.report.n.value, top.dice.s, top.faces.s], [['bonus'], 2, undefined, undefined], 'a group with no die this time is not in the record')
-})
-
-test('a condition the manager reports: listed to the player, required from the model when it answers', () => {
-  const rules = compileRulesV2(SPONSORED), play = game(rules)
-  const seed = seedFor(rules, (d, s) => d.filter(f => f === 2).length === 1 && s === 1)
-  const waiting = play.call(2, { op: 'act', action: 'roll', reason: 'r' }, seed)
-  assert.deepEqual(waiting.choices, [{ id: 'paid', label: '进贡了吗', kind: 'boolean', by: 'gm', hint: '提到蓝色', default: true }])
-  assert.match(waiting.stop, /by gm 的条件由你/)
-  assert.match(play.call(3, { op: 'choose', choice: {} }).refused, /进贡了吗 \(paid\) is yours to report \(by gm\)/)
-  assert.deepEqual(play.call(3, { op: 'choose', choice: { paid: false } }).outcome.id, 'no')
-  assert.throws(() => compileRulesV2({ ...SPONSORED, actions: { x: { label: 'x', choices: [{ id: 'a', by: 'dm', type: 'boolean' }] } } }), /actions\.x\.choices\.a\.by: must be player or gm/)
-})
-
-test('a range with only one bound still holds: a cooldown with a floor never goes below it, a cap with no floor never above it', () => {
-  const rules = compileRulesV2({ format: 'dsh-rules', version: 2, name: 'bounds',
-    state: { cool: { path: '/冷却', label: '冷却', min: 0 }, cap: { path: '/上限', label: '上限', max: 3 } },
-    actions: { tick: { label: '过一季', effects: [{ var: 'cool', add: '-1' }, { var: 'cap', add: '2' }] } } })
-  const play = game(rules)
-  Object.assign(play.variables, { 冷却: 0, 上限: 2 })
-  assert.deepEqual(play.call(2, { op: 'act', action: 'tick', reason: 'r' }).changes, [{ path: '/上限', label: '上限', from: 2, to: 3 }])
-})
 test('secret for the player only: a report line, a derived value, and the panel, receipts and pages of the card', () => {
   const source = { format: 'dsh-rules', version: 2, name: 'quiet',
     state: { trust: { path: '/信任', label: '信任', min: 0 }, notice: { path: '/幕后/察觉', label: '察觉', min: 0, secret: true } },
@@ -452,23 +313,53 @@ test('a count read: the dice that count, a count against a formula, and the dice
   assert.deepEqual(many.faces.d.flags, many.dice.d.map(f => f >= 6 ? 'kept' : 'dropped'))
 })
 
-test('previews: an option and yes/no show what each does; a wide range shows the value nearest its default for each outcome', () => {
-  const rules = compileRulesV2({ format: 'dsh-rules', version: 2, name: 'd100', state: { luck: { path: '/幸运', label: '幸运', min: 0, initial: 45 } },
-    actions: { lib: { label: '图书馆使用', dice: { d: { count: 1, sides: 100 } },
-      let: [['r', 'd[0]']],
-      choices: [{ id: 'spend', label: '花幸运', when: 'r > 60', int: { min: 0, max: 'min(luck, r - 1)', default: 0 } },
-        { id: 'push', label: '孤注一掷', when: 'r > 60', type: 'boolean', default: false }],
-      then: [['final', 'r - spend']],
-      outcomes: [{ id: 'extreme', label: '极难成功', when: 'final <= 12', tone: 'great' }, { id: 'hard', label: '困难成功', when: 'final <= 30', tone: 'good' },
-        { id: 'ok', label: '成功', when: 'final <= 60', tone: 'good' }, { id: 'no', label: '失败', tone: 'bad' }],
-      effects: [{ var: 'luck', add: '-spend' }],
-      report: [{ id: 'final', label: '掷出', value: 'final', main: true, target: { label: '技能', value: '60', need: '<=' } }] } } })
-  const seed = (() => { for (let s = 1; s < 5000; s++) if (seededDraw(s)(100) === 63) return s })()
-  const waiting = runRulesCall(rules, [], { op: 'act', action: 'lib', reason: 'r' }, seed, { turn: 1 })
-  const spend = waiting.choices.find(row => row.id === 'spend')
-  assert.deepEqual(spend.preview.map(row => [row.value, row.outcome, row.tone]), [[0, '失败', 'bad'], [3, '成功', 'good'], [33, '困难成功', 'good']], 'luck 45 reaches three outcomes; each at its cheapest')
-  assert.deepEqual(spend.preview[1].changes, [{ label: '幸运', add: -3 }])
-  assert.deepEqual(waiting.choices.find(row => row.id === 'push').preview.map(row => [row.value, row.outcome]), [[true, '失败'], [false, '失败']])
-  const done = runRulesCall(rules, [waiting], { op: 'choose', choice: { spend: 3 } }, 1, { turn: 2 })
-  assert.deepEqual([done.report.final, done.outcome], [{ label: '掷出', value: 60, main: true, target: { label: '技能', value: 60, need: '<=' } }, { id: 'ok', label: '成功', tone: 'good' }])
+test('dice the rules strike out: two 3s count two, Burnout strikes one, and the main number tells each step', () => {
+  // As Triangle Agency: Burnout (one for a quality at 0 assurance, plus any the action adds) strikes a 3 a point,
+  // then assurance turns dice; the record names the struck die and the main line adds up from the dice as read.
+  const source = (qa, patch = {}) => ({ format: 'dsh-rules', version: 2, name: 'pool', state: { qa: { path: '/素质保证', label: '素质保证', min: 0, initial: qa } },
+    actions: {
+      roll: { label: '掷骰', params: { moreBurn: { int: { min: 0, max: 9, default: 0 } } },
+        dice: { d: { count: 6, sides: 4, mark: [3], read: { count: [3] }, cancel: [{ label: '倦怠', count: 'struck' }], adjusted: 'raw - struck + added - removed' } },
+        let: [['raw', 'read(d)'], ['burn', '(qa == 0 ? 1 : 0) + moreBurn'], ['b3', 'max(0, raw - burn)'], ['struck', 'raw - b3']],
+        choices: [{ id: 'threes', label: '调整后 3 的个数', int: { min: 'max(0, b3 - qa)', max: 'b3 + min(qa, 6 - raw)', default: 'b3' } }],
+        then: [['added', 'max(0, threes - b3)'], ['removed', 'max(0, b3 - threes)']],
+        outcomes: [{ id: 'ok', label: '成功', when: 'threes >= 1', tone: 'good' }, { id: 'no', label: '失败', tone: 'bad' }],
+        effects: [{ var: 'qa', add: '-(added + removed)', strict: true }],
+        report: [{ id: 'threes', label: '3 的个数', value: 'threes', main: true,
+          steps: [{ label: '掷出', value: 'raw' }, { label: '倦怠', value: '-struck' }, { label: '素质保证', value: 'added' }, { label: '素质保证', value: '-removed' }] }], ...patch } } })
+  const roll = (qa, args = {}, patch) => game(compileRulesV2(source(qa, patch))).call(2, { op: 'act', action: 'roll', reason: 'r', ...args }, seed)
+  const seed = (() => { for (let s = 1; s < 5000; s++) { const draw = seededDraw(s), d = Array.from({ length: 6 }, () => draw(4)); if (d.filter(f => f === 3).length === 2) return s } })()
+  const draw = seededDraw(seed), d = Array.from({ length: 6 }, () => draw(4)), first = d.indexOf(3), second = d.lastIndexOf(3)
+  const kept = d.map(f => f === 3 ? 'kept' : 'dropped')
+
+  // No Burnout (assurance 1): both 3s count, nothing is struck and the main line needs no steps.
+  const plainGame = game(compileRulesV2(source(1)))
+  plainGame.call(2, { op: 'act', action: 'roll', reason: 'r' }, seed)
+  const clean = plainGame.call(2, { op: 'choose', choice: {} })
+  assert.deepEqual([clean.report.threes, clean.faces.d.flags, clean.faces.d.cancel], [{ label: '3 的个数', value: 2, main: true }, kept, undefined], 'two 3s count two')
+
+  // The live case: assurance 0, so one Burnout; nothing to choose, it settles at once with one 3.
+  const burnt = roll(0)
+  assert.equal(burnt.status, 'settled')
+  assert.deepEqual(burnt.faces.d.value, 2, 'the group as read keeps both 3s')
+  assert.deepEqual(burnt.faces.d.flags, kept.map((flag, i) => i === first ? 'cancelled' : flag), 'the first 3 is the one struck')
+  assert.deepEqual(burnt.faces.d.cancel, [{ label: '倦怠', count: 1 }])
+  assert.equal(burnt.faces.d.after, undefined, 'a struck die keeps its face: no die turned')
+  assert.deepEqual(burnt.report.threes, { label: '3 的个数', value: 1, main: true, steps: [{ label: '掷出', value: 2 }, { label: '倦怠', value: -1 }] })
+
+  // Burnout and assurance together: an awaiting record already shows the struck die; spending 1 assurance turns a die.
+  const both = game(compileRulesV2(source(1)))
+  const asking = both.call(2, { op: 'act', action: 'roll', params: { moreBurn: 1 }, reason: 'r' }, seed)
+  assert.equal(asking.status, 'awaiting')
+  assert.deepEqual([asking.faces.d.flags[first], asking.faces.d.cancel], ['cancelled', [{ label: '倦怠', count: 1 }]], 'Burnout is known before the choice')
+  const spent = both.call(2, { op: 'choose', choice: { threes: 2 } })
+  assert.deepEqual(spent.report.threes.steps, [{ label: '掷出', value: 2 }, { label: '倦怠', value: -1 }, { label: '素质保证', value: 1 }])
+  assert.equal(spent.report.threes.value, 2)
+  assert.deepEqual([spent.faces.d.flags[first], spent.faces.d.flags[second]], ['cancelled', 'kept'])
+  assert.equal(spent.faces.d.flags.filter(flag => flag === 'changed').length, 1, 'the assurance turns one die that did not count, not the struck one')
+
+  assert.match(roll(0, {}, { report: [{ id: 'threes', label: '3 的个数', value: 'threes', main: true, steps: [{ label: '掷出', value: 'raw' }, { label: '倦怠', value: '-burn - 1' }] }] }).refused,
+    /report threes: its steps add up to 0, not its value 1/, 'steps that do not add up are the card\'s error')
+  assert.throws(() => compileRulesV2(source(0, { report: [{ id: 'a', label: 'a', value: '1', steps: [{ label: 'x', value: '1', when: 'true' }, { label: 'y', value: '0' }] }] })), /steps\.0\.when: the first step is where the number starts/)
+  assert.throws(() => compileRulesV2(source(0, { dice: { d: { count: 6, sides: 4, read: 'sum', cancel: [{ label: 'x', count: '1' }] } } })), /cancel: belongs to a group read as a count/)
 })

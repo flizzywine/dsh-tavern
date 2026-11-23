@@ -74,13 +74,13 @@ const PENDING_MEDIA_KINDS = ['backgrounds', 'cg', 'props', 'music', 'sfx', 'ambi
 const contentFields = kind => PENDING_MEDIA_KINDS.includes(kind) && !ASSET_CONTENT_FIELDS[kind].includes('pendingMedia') ? [...ASSET_CONTENT_FIELDS[kind], 'pendingMedia'] : ASSET_CONTENT_FIELDS[kind]
 export function validateAsset(value, path = '$') {
   assertJson(value)
-  // a standalone skin entry is only an imported theme — no 启用 / 关闭 state.
+  // a standalone skin entry's 启用 / 关闭 (enabled) is optional: skins imported before it existed carry none and stay on.
   const common = value?.kind === 'skins' ? ['kind', 'id', 'name', 'recall', 'directorNote'] : ['kind', 'id', 'name', 'enabled', 'recall', 'directorNote']
   check(value && ASSET_KINDS.includes(value.kind), path + '.kind')
-  shape(value, [...common, ...(value.kind === 'skins' ? [] : ['skin']), 'remark', ...(value.kind === 'props' ? ['inventoryId'] : []), ...metadata.filter(field=>!value.variants || !ASSET_CONTENT_FIELDS[value.kind].includes(field)), ...(value.variants ? ['variants'] : contentFields(value.kind))], common, path)
+  shape(value, [...common, ...(value.kind === 'skins' ? ['enabled'] : ['skin']), 'remark', ...(value.kind === 'props' ? ['inventoryId'] : []), ...metadata.filter(field=>!value.variants || !ASSET_CONTENT_FIELDS[value.kind].includes(field)), ...(value.variants ? ['variants'] : contentFields(value.kind))], common, path)
   if (value.skin !== undefined) validateShortId(value.skin, path + '.skin')
   if (value.inventoryId !== undefined) text(value.inventoryId, path + '.inventoryId', 256)
-  validateShortId(value.id, path + '.id'); text(value.name, path + '.name'); if (value.kind !== 'skins') bool(value.enabled, path + '.enabled')
+  validateShortId(value.id, path + '.id'); text(value.name, path + '.name'); if (value.kind !== 'skins' || value.enabled !== undefined) bool(value.enabled, path + '.enabled')
   if (value.remark !== undefined) check(typeof value.remark === 'string', path + '.remark')
   validateCopiedFrom(value.extensions,value.kind,path + '.extensions')
   validateRecall(value.recall, path + '.recall', 2, {when: !UNRECALLED_KINDS.includes(value.kind)}); text(value.directorNote, path + '.directorNote', 300, 0); validateMetadata(value, path)
@@ -147,8 +147,10 @@ export function validateAssetContent(kind, content, path = '$') {
   // authored gain never relaxes playback true-peak protection.
   if (value.gainDb !== undefined) check(Number.isFinite(value.gainDb) && value.gainDb >= -18 && value.gainDb <= 8, path + '.gainDb')
   if (value.loudness !== undefined) {
-    shape(value.loudness, ['v', 'lufs', 'peak'], ['v', 'lufs', 'peak'], path + '.loudness')
+    shape(value.loudness, ['v', 'lufs', 'peak', 'brightnessDb', 'durationMs'], ['v', 'lufs', 'peak'], path + '.loudness')
     check(value.loudness.v === 1, path + '.loudness.v')
+    for (const [key, max] of [['brightnessDb', 5], ['durationMs', Infinity]]) if (value.loudness[key] !== undefined)
+      check(Number.isFinite(value.loudness[key]) && value.loudness[key] >= 0 && value.loudness[key] <= max, path + '.loudness.' + key)
     for (const [key, max] of [['lufs', 10], ['peak', 20]]) check(Number.isFinite(value.loudness[key]) && value.loudness[key] >= -100 && value.loudness[key] <= max, path + '.loudness.' + key)
   }
   if (value.gainDb > 0) check(value.loudness !== undefined, path + '.loudness', 'Positive SFX gain requires a measured loudness and true peak')
@@ -194,6 +196,23 @@ export function validatePackManifest(value, path = '$') {
   validateUuid(value.id, path + '.id'); text(value.name, path + '.name'); validateHash(value.contentHash, path + '.contentHash'); validateMetadata(value, path)
   array(value.assets, path + '.assets'); value.assets.forEach((asset, i) => validateAsset(asset, `${path}.assets[${i}]`))
   unique(value.assets.map(a => `${a.kind}/${a.id}`), path + '.assets')
+  const order = value.extensions?.['dsh.entry-order']
+  if (order !== undefined) {
+    const at = path + '.extensions.dsh.entry-order'
+    shape(order, ['groups', 'entries'], ['groups', 'entries'], at)
+    array(order.groups, at + '.groups')
+    order.groups.forEach(group => validateShortId(group, at + '.groups'))
+    unique(order.groups, at + '.groups')
+    const groups = new Set(order.groups)
+    record(order.entries, at + '.entries', (rank, p, key) => {
+      const [kind, id, extra] = key.split('/')
+      check(extra === undefined && (kind === 'figures' || ASSET_KINDS.includes(kind)), p, 'Expected kind/id')
+      if (kind === 'figures') validateUuid(id, p)
+      else validateShortId(id, p)
+      check(Array.isArray(rank) && rank.length === 2 && groups.has(rank[0]), p, 'Expected [group, position] using a declared group')
+      integer(rank[1], p, 1)
+    })
+  }
   array(value.figures, path + '.figures'); value.figures.forEach(id => validateUuid(id, path + '.figures')); unique([value.id, ...value.figures], path + '.figures')
   record(value.sprites, path + '.sprites', (file, p, key) => { validateShortId(key, p); check(file === `sprites/${key}/manifest.json`, p) })
   record(value.bundles, path + '.bundles', (bundle, p, key) => {

@@ -37,7 +37,8 @@ test('selected DSH dependency routing reaches native imports and nested fixture 
   const host = createRequire(process.env.DSH_BOOT_MODULE)
   const local = createRequire(import.meta.url)
   assert.equal(local.resolve('@deepseek-ai/dsh-session'), host.resolve('@deepseek-ai/dsh-session'))
-  const result = spawnSync(process.execPath, ['-e', 'console.log(require.resolve("@deepseek-ai/dsh-session"))'], {
+  const preload = new URL('./fixtures/host-runtime-preload.mjs', import.meta.url).href
+  const result = spawnSync(process.execPath, ['--import', preload, '-e', 'console.log(require.resolve("@deepseek-ai/dsh-session"))'], {
     env: process.env, encoding: 'utf8', windowsHide: true,
   })
   assert.equal(result.status, 0, result.stderr)

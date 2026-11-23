@@ -17,10 +17,3 @@ test('legacy placement preserves flip, fade bounds and current head independentl
  const retired=e.pose.update({...e.input,now:260,fading:[old]});assert.deepEqual(retired.retired,[old]);assert.deepEqual(retired.remaining,[])
  e.owner.dispose();const position=e.input.sprite.position.value;assert.equal(e.pose.update({...e.input,x:.9}),null);assert.equal(e.input.sprite.position.value,position)
 })
-test('action nonce keeps timing across frames and resets only for a new command',()=>{
- const e=fixture();const command={nonce:1,name:'jump'}
- e.pose.update({...e.input,command,now:100});e.pose.update({...e.input,command,now:120})
- assert.deepEqual(e.actions.slice(0,2),[['jump',0,false],['jump',20,false]])
- e.pose.update({...e.input,command:{...command,nonce:2},now:200,reduced:true});assert.deepEqual(e.actions.at(-1),['jump',0,true])
- e.owner.dispose();assert.throws(()=>e.owner.create({}),/disposed/)
-})

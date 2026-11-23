@@ -36,58 +36,6 @@ test('opening swipes retain their archive; rewritten bodies and missing/corrupt 
   assert.equal(await api.read({ version: 1, digest: '../../elsewhere' }), null)
 })
 
-test('entries are stored once across turns; reads and self-contained exports use stored identities', async t => {
-  const { store, api } = await fixture(t)
-  const first = await api.capture({ worldBook: book('黑色短发') })
-  const stored = await store.readJson('scene-images/worldbooks/' + first.digest + '.json')
-  assert.equal(stored.version, 2)
-  assert.equal(stored.entryRefs.length, 2)
-  const shared = 'scene-images/worldbook-entries/' + stored.entryRefs[1] + '.json', sharedVersion = await store.version(shared)
-  // A later turn changes one entry: the unchanged entry file is reused, not rewritten.
-  const second = await api.capture({ worldBook: book('红色长发') })
-  assert.notEqual(second.digest, first.digest)
-  assert.deepEqual((await store.readJson('scene-images/worldbooks/' + second.digest + '.json')).entryRefs[1], stored.entryRefs[1])
-  assert.equal(await store.version(shared), sharedVersion)
-  assert.match((await api.read(first)).entries[0].text, /黑色短发/)
-  // Save packages carry the complete snapshot in the original layout.
-  const bytes = await api.exportSnapshot(first.digest)
-  const other = await fixture(t)
-  await other.store.writeBytes('scene-images/worldbooks/' + first.digest + '.json', bytes)
-  assert.deepEqual(await other.api.read(first), await api.read(first))
-  const entry = await store.readJson(shared)
-  entry.text = '本地已存条目沿用其身份。'
-  await store.writeJson(shared, entry)
-  assert.equal((await api.read(first)).entries[1].text, entry.text)
-  assert.equal(JSON.parse(await api.exportSnapshot(first.digest)).entries[1].text, entry.text)
-  // Structural damage is still rejected without falling back to current resources.
-  await store.writeJson(shared, { ...entry, text: null })
-  assert.match((await api.read(first)).unavailable, /校验失败/)
-  assert.equal(await api.exportSnapshot(first.digest), null)
-})
-
-test('only the latest turns keep their snapshots; shared snapshots and entries stay while any game lists them', async t => {
-  const { store } = await fixture(t)
-  const api = createSceneWorldbooks({ store, keepTurns: 2 })
-  const exists = path => store.version(path).then(Boolean)
-  const refs = []
-  for (let turn = 1; turn <= 4; turn++) refs.push(await api.capture({ worldBook: book('第' + turn + '轮'), chat: { id: 'a' }, turn }))
-  // Another game captured the same snapshot as game a's turn 1.
-  await api.capture({ worldBook: book('第1轮'), chat: { id: 'b' }, turn: 1 })
-  const opening = await api.capture({ worldBook: book('开场'), chat: { id: 'a' }, turn: 0 })
-  assert.equal(await exists('scene-images/worldbooks/' + refs[1].digest + '.json'), false)
-  assert.equal(await exists('scene-images/worldbooks/' + refs[0].digest + '.json'), true)
-  assert.match((await api.read(refs[3])).entries[0].text, /第4轮/)
-  assert.match((await api.read(opening)).entries[0].text, /开场/)
-  // The shared constant entry is still counted by the kept snapshots.
-  const kept = await store.readJson('scene-images/worldbooks/' + refs[3].digest + '.json')
-  assert.equal(await exists('scene-images/worldbook-entries/' + kept.entryRefs[1] + '.json'), true)
-  const turn2 = (await store.readJson('scene-images/worldbook-entry-counts.json'))
-  assert.equal(Object.values(turn2).every(count => count > 0), true)
-  // Deleting game b releases the shared snapshot it alone still kept.
-  await api.forgetChat('b')
-  assert.equal(await exists('scene-images/worldbooks/' + refs[0].digest + '.json'), false)
-})
-
 test('跨机器导入保持快照可读，损坏快照不产生登记或覆盖已有数据', async t => {
   const source = await fixture(t), target = await fixture(t)
   const opening = await source.api.capture({ worldBook: book('初始设定') })

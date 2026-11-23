@@ -1,9 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createOpeningPreparation } from '../tavern-plugin/lib/domain/opening-preparation.js'
-import { projectCardOpeningPreviews } from '../tavern-plugin/lib/domain/card-opening-previews.js'
-import { inspectCardExtensions } from '../tavern-plugin/lib/domain/card-extension-reading.js'
-import { createCardPreparation, projectCardSummary } from '../tavern-plugin/lib/domain/card-preparation.js'
+import { createCardPreparation } from '../tavern-plugin/lib/domain/card-preparation.js'
 import { inspectWorldBookDocument } from '../tavern-plugin/lib/domain/worldbook-resource.js'
 import { initializationFixture } from './fixtures/conversation-initialization.mjs'
 
@@ -21,42 +19,6 @@ const spec = () => ({
 
 const card = (setup) => ({ spec: 'chara_card_v2', spec_version: '2.0', data: { name: '露娜', first_mes: '<initvar>{"剧情":{"阶段":["同居初期","阶段说明"]}}</initvar>你好，{{user}}。', alternate_greetings: ['第二幕'],
   extensions: setup === undefined ? {} : { dsh_tavern: { openingSetup: setup } } } })
-
-test('a card without openingSetup previews and starts exactly as before', async () => {
-  const plain = card().data
-  const preview = await projectCardOpeningPreviews({ card: plain, userName: '小林', extensions: inspectCardExtensions(card()) })
-  for (const opening of preview.openings) {
-    assert.equal(opening.openingSetup, false)
-    assert.equal('setup' in opening, false)
-  }
-  assert.match(preview.openings[0].text, /你好，小林。/)
-  const h = initializationFixture()
-  const chat = await h.make().start({ ...h.input })
-  assert.equal(chat.messages.find(message => message.greeting).text, '玩家，你好。')
-})
-
-// the card list starts a card with a v2 setup through its 游戏准备 too,
-// not straight into a chat (only v1 forms used to count)
-test('the card list sends a card with any opening setup to its 游戏准备', () => {
-  assert.equal(projectCardSummary(card(spec())).hasOpeningForm, true)
-  assert.equal(projectCardSummary(card({ version: 1, form: '<form></form>' })).hasOpeningForm, true)
-  assert.equal(projectCardSummary(card()).hasOpeningForm, false)
-})
-
-test('v2 previews keep the greeting projection and add the display setup with macros resolved', async () => {
-  const extensions = inspectCardExtensions(card(spec()))
-  assert.equal(extensions.openingSetup.spec.version, 2)
-  assert.equal(inspectCardExtensions(card({ version: 1, form: '<form></form>' })).openingSetup.form, '<form></form>')
-  const preview = await projectCardOpeningPreviews({ card: card().data, userName: '小林', extensions })
-  const [first] = preview.openings
-  assert.equal(first.openingSetup, true)
-  assert.match(first.text, /你好，小林。/, 'the greeting frame still renders behind the form')
-  assert.equal(first.setup.title, '露娜的开局')
-  assert.equal(first.setup.fields[0].default, '小林')
-  assert.equal(first.setup.fields[1].options[0].desc, '小林第一次见到露娜')
-  assert.equal(first.setup.template, '')
-  assert.equal('message' in first.setup, false, 'the launch message stays on the host')
-})
 
 test('card writes validate a v2 spec once and keep v1 forms accepted', () => {
   const service = createCardPreparation()

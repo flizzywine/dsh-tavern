@@ -65,7 +65,12 @@ export function createMaintenanceHandlers(deps) {
       // A forked game has a parentSession too, but its requests are filed under its own chat.
       const own = background ? undefined : await sessionStateForSession(sessionId)
       const chat = own || await sessionStateForSession(background?.parentSessionId || session?.header?.parentSession || sessionId)
-      return { record: await modelRequestLog.latestForSession(sessionId, str(args?.knownId), chat?.id) }
+      const knownStatus = str(args?.knownStatus)
+      const latestOptions = {
+        ...(knownStatus ? { knownStatus } : {}),
+        ...(own ? { scope: 'foreground' } : {})
+      }
+      return { record: await modelRequestLog.latestForSession(sessionId, str(args?.knownId), chat?.id, Object.keys(latestOptions).length ? latestOptions : undefined) }
     },
     async exportTavernLogs(args) {
       return await exportTavernLogs(args && args.sessionId)

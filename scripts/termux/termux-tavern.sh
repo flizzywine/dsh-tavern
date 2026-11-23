@@ -148,8 +148,12 @@ if(!b.includes("dsh-web-mobile")) b.push("dsh-web-mobile");
 prof.bundles=b; fs.writeFileSync(f, JSON.stringify(p,null,2)+"\n");
 '
       [ -f patches/dsh-web-mobile@3.1.0.patch ] || cp "$HOME/.dsh-tavern/apps/dsh-tavern/patches/dsh-web-mobile@3.1.0.patch" patches/ 2>/dev/null || true
-      grep -q "dsh-web-mobile@3.1.0" pnpm-workspace.yaml \
-        || sed -i '/^patchedDependencies:/a\  dsh-web-mobile@3.1.0: patches/dsh-web-mobile@3.1.0.patch' pnpm-workspace.yaml
+      if ! grep -q "dsh-web-mobile@3.1.0" pnpm-workspace.yaml; then
+        sed -i.tavern-mobile '/^patchedDependencies:/a\
+  dsh-web-mobile@3.1.0: patches/dsh-web-mobile@3.1.0.patch
+' pnpm-workspace.yaml
+        rm pnpm-workspace.yaml.tavern-mobile
+      fi
       PNPM=$HOME/.dsh-tavern/tools/bin/pnpm
       [ -x "$PNPM" ] || PNPM=$(command -v pnpm)
       "$PNPM" install --reporter=append-only
@@ -267,8 +271,12 @@ prof.bundles=b; fs.writeFileSync(f, JSON.stringify(p,null,2)+"\n");
 '
     [ -f patches/dsh-web-mobile@3.1.0.patch ] \
       || cp "$APP/patches/dsh-web-mobile@3.1.0.patch" patches/ 2>/dev/null || true
-    grep -q "dsh-web-mobile@3.1.0" pnpm-workspace.yaml \
-      || sed -i '/^patchedDependencies:/a\  dsh-web-mobile@3.1.0: patches/dsh-web-mobile@3.1.0.patch' pnpm-workspace.yaml
+    if ! grep -q "dsh-web-mobile@3.1.0" pnpm-workspace.yaml; then
+      sed -i.tavern-mobile '/^patchedDependencies:/a\
+  dsh-web-mobile@3.1.0: patches/dsh-web-mobile@3.1.0.patch
+' pnpm-workspace.yaml
+      rm pnpm-workspace.yaml.tavern-mobile
+    fi
     "$PNPM" install --reporter=append-only
   )
 }
@@ -331,7 +339,7 @@ do_switch_full() {
 # 切分支后的日常「更新到分支最新」走这条路。
 do_update_in_place() {
   local before after target
-  say "[更新] 已在 $BRANCH，走增量更新（不新建备份）"
+  say "[更新] 已在 ${BRANCH}，走增量更新（不新建备份）"
   stop_tavern
   if ! git -C "$APP" fetch -q origin "+refs/heads/$BRANCH:refs/remotes/origin/$BRANCH"; then
     say '   拉取失败，退回整包切换'
@@ -461,7 +469,7 @@ url_ok() {
 new_url() { tail -n +"$((BASE + 1))" "$LOG" 2>/dev/null | grep -o "$PAT" | tail -n 1; }
 latest_url() {
   local u
-  for u in $(grep -o "$PAT" "$LOG" 2>/dev/null | tail -n 20 | tac); do
+  for u in $(grep -o "$PAT" "$LOG" 2>/dev/null | tail -n 20 | awk '{url[NR]=$0} END {for (i=NR; i>0; i--) print url[i]}'); do
     url_ok "$u" && { printf '%s\n' "$u"; return 0; }
   done
   return 1

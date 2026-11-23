@@ -155,11 +155,20 @@ function normalizeLegacyVariableExpressions(text) {
  * Unknown macros remain unchanged; callers receive updated variable snapshots.
  */
 export function renderTavernMacros(text, context = {}) {
+  const source = str(text)
+  if (!source.includes('{{') && !/<(?:user|char)>/i.test(source)) {
+    return {
+      text: source,
+      localVariables: Object.assign({}, context.localVariables && typeof context.localVariables === 'object' ? context.localVariables : {}),
+      globalVariables: Object.assign({}, context.globalVariables && typeof context.globalVariables === 'object' ? context.globalVariables : {}),
+      diagnostics: []
+    }
+  }
   registerMacros()
   const local = variableStore(context.localVariables)
   const global = variableStore(context.globalVariables)
   const env = {
-    content: str(text),
+    content: source,
     names: { user: str(context.userName) || '你', char: str(context.charName) },
     character: {},
     system: { model: '' },
@@ -169,7 +178,7 @@ export function renderTavernMacros(text, context = {}) {
     extra: {}
   }
   // Legacy identity tokens are macros too, not HTML elements.
-  let rendered = normalizeLegacyVariableExpressions(str(text).replace(/<(user|char)>/gi, (_, name) => '{{' + name.toLowerCase() + '}}'))
+  let rendered = normalizeLegacyVariableExpressions(source.replace(/<(user|char)>/gi, (_, name) => '{{' + name.toLowerCase() + '}}'))
   const diagnostics = []
   // Some ecosystem cards deliberately escape a macro once so that an outer
   // macro pass exposes it for the next pass. Resolve those delayed macros, but

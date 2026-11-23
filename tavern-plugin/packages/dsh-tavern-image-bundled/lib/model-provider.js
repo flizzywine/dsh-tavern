@@ -74,7 +74,7 @@ export function createImageGenerator(getConfig, generate, defaultUsage = 'plugin
       const channel = activeChannel({ ...config, imageBackend: selected.provider, activeImageChannel: selected.id })
       const promptUsage = normalizePromptUsage(usage, defaultUsage)
       const maxImageBytes = config.maxImageBytes
-      const records = definitions || library.definitions?.() || {}
+      const records = definitions || await library.definitions?.() || {}
       const prepared = await composePluginImagePromptAsync(config, { channel, prompt, negative, usage: promptUsage, inputs, subjects, definitions: records, signal, chooseScenario })
       if (prepared.workflowValues?.length) throw new Error('当前模板的节点参数需要 ComfyUI 工作流')
       const template = effectivePromptPreset(promptConfigForTarget(config, null, channel))
@@ -99,7 +99,7 @@ export function createImageGenerator(getConfig, generate, defaultUsage = 'plugin
       const draw = generate || (await import('./image-providers.js')).generateImage
       const result = await draw(channel, { ...prepared.parameters, ...prepared, references, width: width ?? prepared.parameters?.width, height: height ?? prepared.parameters?.height, exactSize: true, background, quality },
         { signal, maxImageBytes })
-      return { data: result.bytes, mediaType: result.mediaType, ...(result.seed !== undefined ? { seed: result.seed } : {}), ...(result.usage ? { usage: result.usage } : {}) }
+      return { data: result.bytes, mediaType: result.mediaType, provider: channel.provider, model: channel.model, ...(result.seed !== undefined ? { seed: result.seed } : {}), ...(result.usage ? { usage: result.usage } : {}) }
     },
   }
 }

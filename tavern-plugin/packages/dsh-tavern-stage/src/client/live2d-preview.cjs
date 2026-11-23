@@ -25,14 +25,13 @@ function live2dDrawableBounds(model) {
 }
 // Stage-card framing: a tall figure is shown knee-up (top 64% of its bounds), anything squarer whole;
 // centred, standing on the card's floor line.
-// `fit` (optional, the figure editor's FIGURE_FIT rule) = { share: the
-// figure's height on the card, spill(aspect): how wide the drawn figure may be against the card }. Without it the card
+// `fit` (optional, the figure editor's FIGURE_FIT rule) = { spill(aspect): how wide the drawn figure may be against the
+// card }; the figure always fills the card's height (a declared height never shrinks the preview). Without it the card
 // keeps its plain contain framing.
 function live2dCardPlace(model, bounds, width, height, fit) {
     const tall = bounds.h / bounds.w > 1.7, shownH = tall ? bounds.h * 0.64 : bounds.h;
-    const pad = Math.round(height * 0.05), spill = fit && typeof fit.spill === "function" ? fit.spill(bounds.w / shownH) : 1, share = fit && fit.share > 0 ? fit.share : 1;
-    // A knee-up crop already frames the upper body; the height share applies to whole figures.
-    const scale = Math.min((width * spill - pad * 2) / bounds.w, (height - pad * (tall ? 1 : 2)) * (tall ? 1 : share) / shownH);
+    const pad = Math.round(height * 0.05), spill = fit && typeof fit.spill === "function" ? fit.spill(bounds.w / shownH) : 1;
+    const scale = Math.min((width * spill - pad * 2) / bounds.w, (height - pad * (tall ? 1 : 2)) / shownH);
     model.scale.set(scale, scale);
     model.x = width / 2 - (bounds.x + bounds.w / 2) * scale;
     model.y = tall ? pad - bounds.y * scale : height - pad - (bounds.y + bounds.h) * scale;

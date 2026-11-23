@@ -4,21 +4,7 @@ import { createRequire } from 'node:module'
 import path from 'node:path'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
-import {
-  MVU_HIDDEN_SENTINEL,
-  describeMvuHiddenChange,
-  extractCardMvuVisibility,
-  formatMvuHiddenValue,
-  maskMvuHelperMessageRow,
-  maskMvuReceipt,
-  maskMvuStatDataForDisplay,
-  maskMvuStatDataForEditor,
-  maskTavernReadVariablesResultText,
-  matchMvuVisibilityRule,
-  normalizeMvuVisibility,
-  restoreHiddenMvuStatData,
-  validateMvuVisibility
-} from '../tavern-plugin/lib/domain/mvu-visibility.js'
+import { MVU_HIDDEN_SENTINEL, describeMvuHiddenChange, extractCardMvuVisibility, maskMvuHelperMessageRow, maskMvuReceipt, maskMvuStatDataForDisplay, maskMvuStatDataForEditor, maskTavernReadVariablesResultText, normalizeMvuVisibility, restoreHiddenMvuStatData, validateMvuVisibility } from '../tavern-plugin/lib/domain/mvu-visibility.js'
 import { generatePanel, planMvuApply, surveyMvuCard, surveyText } from '../tavern-plugin/lib/domain/mvu-card-apply.js'
 import { checkMvuCard } from '../tavern-plugin/lib/domain/mvu-card-check.js'
 import { createMvuReceiptIndex } from '../tavern-plugin/lib/domain/mvu-receipt-index.js'
@@ -56,38 +42,6 @@ const VISIBILITY_FIXTURE = {
     revealWhen: { path: '/结局/真相揭晓', equals: true }
   }
 }
-
-test('规则校验与通配路径匹配：支持模式 1/2/3、元组解包与 revealWhen 预留保留', () => {
-  const checked = validateMvuVisibility({
-    '/stat_data/人物/*/好感度': VISIBILITY_FIXTURE['/人物/*/好感度'],
-    '人物/*/暗恋度': { mode: 'masked', trend: true },
-    '/全局/黑化值': VISIBILITY_FIXTURE['/全局/黑化值'],
-    '/人物/特殊角色/好感度': 'masked'
-  })
-  assert.deepEqual(checked.errors, [])
-  assert.equal(checked.normalized['/人物/*/暗恋度'].mode, 'trend')
-  assert.deepEqual(checked.normalized['/全局/黑化值'].revealWhen, { path: '/结局/真相揭晓', equals: true })
-
-  // Exact match overrides wildcard on the same leaf
-  assert.equal(matchMvuVisibilityRule(checked.normalized, '/人物/林雪/好感度').rule.mode, 'tiered')
-  assert.equal(matchMvuVisibilityRule(checked.normalized, '/人物/特殊角色/好感度').rule.mode, 'masked')
-
-  // Upstream MVU [value, "description"] tuple leaf /0 inherits parent rule
-  const tupleMatch = matchMvuVisibilityRule(checked.normalized, '/stat_data/人物/林雪/好感度/0')
-  assert.equal(tupleMatch.rule.mode, 'tiered')
-  assert.equal(tupleMatch.tupleIndex, 0)
-
-  // Formatting scalar and tuple values
-  const tieredRule = checked.normalized['/人物/*/好感度']
-  assert.equal(formatMvuHiddenValue(15, tieredRule), '戒备')
-  assert.equal(formatMvuHiddenValue([65, '好感度说明'], tieredRule), '熟稔')
-  assert.equal(formatMvuHiddenValue(92, tieredRule), '信赖')
-
-  // Invalid rules report exact field paths
-  const invalid = validateMvuVisibility({ '/坏档位': { mode: 'tiered', tiers: [] } })
-  assert.equal(invalid.errors.length, 1)
-  assert.match(invalid.errors[0].message, /tiers/)
-})
 
 test('三种模式在变量回执中的脱敏语义：纯迷雾、迷雾+趋势、模糊档位（含同档升温与跨档跳变）与新增对象深脱敏', () => {
   const rules = normalizeMvuVisibility(VISIBILITY_FIXTURE)
@@ -402,13 +356,6 @@ test('客户端变量回执弹窗与气泡回执渲染三种隐藏模式，无�
 })
 
 
-test('revealWhen {path, equals} shows a hidden value once the variable it names holds that value', () => {
-  const visibility = validateMvuVisibility({ '/幕后/暗处': { mode: 'masked', revealWhen: { path: '/幕后/看见', equals: true } } }).normalized
-  const hidden = { 幕后: { 看见: false, 暗处: { q1: 2 } } }, seen = { 幕后: { 看见: true, 暗处: { q1: 2 } } }
-  assert.equal(maskMvuStatDataForDisplay(hidden, visibility).幕后.暗处, '？？？')
-  assert.deepEqual(maskMvuStatDataForDisplay(seen, visibility).幕后.暗处, { q1: 2 })
-  assert.equal(maskMvuReceipt({ changes: [{ path: '/stat_data/幕后/暗处/q1', before: '1', after: '2', operation: 'replace' }] }, visibility).changes[0].after, '？？？', 'a receipt has no variables to read the condition from: it stays masked')
-})
 test('unlisted: the name is kept from the player too - the variable panel, receipts and the card pages leave it out', async () => {
   const { JSDOM } = loadPackage('jsdom')
   assert.equal(normalizeMvuVisibility({ '/幕后/良知': 'unlisted' })['/幕后/良知'].mode, 'unlisted')

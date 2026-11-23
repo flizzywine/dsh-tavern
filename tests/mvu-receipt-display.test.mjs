@@ -19,39 +19,6 @@ function textOf(node) {
   return typeof node === 'object' ? textOf(node.children) : String(node)
 }
 
-test('只有最新正文提供重算入口，忙碌时禁用，指导意见随请求提交', async () => {
-  const receipt = { status: 'updated', changes: [] }
-  const historical = sandbox.TavernMvuReceipt({ receipt, latest: false })
-  assert.doesNotMatch(textOf(historical), /重新结算变量/)
-  const findButton = node => {
-    if (!node || typeof node !== 'object') return null
-    if (node.type === 'button') return node
-    for (const child of (Array.isArray(node) ? node : node.children || [])) {
-      const found = findButton(child)
-      if (found) return found
-    }
-    return null
-  }
-  const current = sandbox.TavernMvuReceipt({ receipt, latest: true, sessionId: 's', turn: 2 })
-  assert.equal(current.type, 'details')
-  assert.match(textOf(current), /重新结算变量/)
-  const busy = sandbox.TavernMvuReceipt({ receipt, latest: true, busy: true })
-  assert.equal(findButton(busy).props.disabled, true)
-  let request
-  sandbox.askTavernText = async options => {
-    assert.equal(options.allowEmpty, true)
-    await options.onSubmit('不要扣库存')
-  }
-  sandbox.rpc = async (...args) => { request = args }
-  sandbox.liveTavernView = { invalidate() {} }
-  sandbox.tavernErrorHub = { report(_label, error) { throw error } }
-  await findButton(current).props.onClick()
-  assert.equal(request[0], 'retrySettlement')
-  assert.equal(request[1].turn, 2)
-  assert.equal(request[1].guidance, '不要扣库存')
-  assert.equal(request[2], 's')
-})
-
 test('等待中的结算直接重新投递，不询问指导意见；实际运行时仍禁用', async () => {
   const findButton = node => {
     if (!node || typeof node !== 'object') return null

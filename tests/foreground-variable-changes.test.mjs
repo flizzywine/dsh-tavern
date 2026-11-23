@@ -1,3 +1,4 @@
+// tagged English defaults; retain protocol, payload, cache and budget assertions.
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { lastRoundVariableChanges } from '../tavern-plugin/lib/domain/foreground-variable-changes.js'
@@ -9,7 +10,7 @@ test('只列出上一轮结算后变化的变量及最新值；列表整体给�
   const before = { 基本: { 时间: '14:00', 地点: '律所' }, 待办: ['买猫粮'], 体力: 70, $meta: { strictSet: true } }
   const after = { 基本: { 时间: '15:25', 地点: '律所' }, 待办: ['买猫粮', '健身'], 体力: 70, $meta: { strictSet: false } }
   const text = lastRoundVariableChanges(chat([message(before), { role: 'user', text: '继续' }, message(after)]))
-  assert.match(text, /^【上一轮变量变化】/)
+  assert.match(text, /^<variable_changes>/)
   assert.match(text, /\/基本\/时间 = "15:25"/)
   assert.match(text, /\/待办 = \["买猫粮","健身"\]/)
   assert.doesNotMatch(text, /地点|体力|\$meta/)

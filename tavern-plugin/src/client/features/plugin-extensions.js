@@ -17,10 +17,16 @@
 			const illustrators = [];
 			const replyPresenters = [];
 			const composerSlots = [];
+			// Compact composer tools (apiVersion 10): icon-sized entries in the host's
+			// trailing control row (conversation.input.right), where the model seat and the
+			// submit action already live. Unlike composerSlots these never claim a dock row
+			// above the input card, so they cannot push the transcript up or sit on top of it.
+			const composerTools = [];
 			const headerTools = [];
 			// Latest reply per session, fed by the observer in the composer dock (reply-observer.js):
 			// the card workbench has no transcript in Tavern's session view, so DSH's own Chat
 			// snapshot (running step blocks + finalized nodes) is the source for every mode.
+			const MAX_IDLE_REPLY_STATES = 16;
 			const replyStates = new Map();
 			const replySubscribers = new Map();
 			const replyPresenterFailures = new Map();
@@ -120,7 +126,20 @@
 				const text = JSON.stringify(state);
 				const previous = replyStates.get(sessionId);
 				if (previous && previous.text === text) return;
+				replyStates.delete(sessionId);
 				replyStates.set(sessionId, { state: state, text: text });
+				if (replyStates.size > MAX_IDLE_REPLY_STATES) {
+					let idleCount = 0;
+					for (const id of replyStates.keys()) {
+						if (!replySubscribers.has(id) && !workStatusRecords.has(id)) idleCount += 1;
+					}
+					for (const id of Array.from(replyStates.keys())) {
+						if (idleCount <= MAX_IDLE_REPLY_STATES) break;
+						if (id === sessionId || replySubscribers.has(id) || workStatusRecords.has(id)) continue;
+						replyStates.delete(id);
+						idleCount -= 1;
+					}
+				}
 				const record = workStatusRecords.get(sessionId);
 				if (record) refreshWorkStatus(record, { settle: true, notify: true });
 				const entries = replySubscribers.get(sessionId);
@@ -421,7 +440,7 @@
 
 			const service = {
 				ctx: undefined,
-				apiVersion: 9,
+				apiVersion: 10,
 				// Tavern's own controls (apiVersion 9), so a plugin's UI looks and behaves like Tavern's: Slider, Segmented,
 				// Switch, SearchBox, Icon (Tavern's icon names), Spinner, EmptyState. Same props as Tavern uses (inline-field.js).
 				get components() { return Object.freeze({ Slider: Slider, Segmented: Segmented, Switch: Switch, SearchBox: SearchBox, Icon: Icon, Spinner: Spinner, EmptyState: EmptyState }); },
@@ -530,28 +549,34 @@
 					if (data === undefined) return Promise.reject(new TypeError("savePluginData 需要 data；要清除请传 null"));
 					return rpc("pluginData", { plugin: owner, op: "save", data: data }).then(function () {});
 				},
-				// A sidebar page of the plugin's own, for the game open beside it (apiVersion 2).
+				// A plugin page for the game open beside it (apiVersion 2).
 				registerPanel(input) {
 					if (!input || typeof input.id !== "string" || !/^[a-z0-9][a-z0-9._-]{0,63}$/.test(input.id)) throw new TypeError("registerPanel 的 id 只能用小写字母、数字、点、下划线和连字符");
 					if (typeof input.title !== "string" || !input.title.trim() || input.title.length > 40) throw new TypeError("registerPanel 需要 1–40 字的 title");
 					if (typeof input.render !== "function") throw new TypeError("registerPanel 需要 render 函数");
+					const stage = input.stage === true;
+					if (input.stageSize !== undefined && input.stageSize !== "window" && input.stageSize !== "full") throw new TypeError("registerPanel 的 stageSize 只能是 window 或 full");
+					if (input.stageOnly !== undefined && typeof input.stageOnly !== "boolean") throw new TypeError("registerPanel 的 stageOnly 必须是布尔值");
+					if (!stage && (input.stageOnly !== undefined || input.stageSize !== undefined)) throw new TypeError("registerPanel 的 stageOnly 和 stageSize 需要 stage: true");
 					const owner = ownerOf(this);
 					const tabId = "tavern-plugin:" + owner + ":" + input.id;
 					const render = input.render, title = input.title.trim();
+					const sidebar = input.stageOnly !== true;
+					const stageSize = input.stageSize ?? "window";
 					return owned(this, function () {
 						if (panels.has(tabId)) throw new Error("面板 " + input.id + " 已注册");
-						if (!host || !host.betterSidebar || typeof host.betterSidebar.registerTab !== "function") throw new Error("当前界面没有侧栏，无法注册插件面板");
+						if (sidebar && typeof host?.betterSidebar?.registerTab !== "function") throw new Error("当前界面没有侧栏，无法注册插件面板");
 						// a plugin panel's tab carries the host plugin glyph like every other tab.
 						const PluginIcon = DshUi && DshUi.IconCordisPluginOutline14;
-						const dispose = host.betterSidebar.registerTab({ id: tabId, title: title, order: 60, single: true,
+						const dispose = sidebar ? host.betterSidebar.registerTab({ id: tabId, title: title, order: 60, single: true, keepMounted: input.keepMounted === true,
 							...(PluginIcon ? { icon: function (size) { return React.createElement(PluginIcon, { size: size || 16, width: size || 16, height: size || 16 }); } } : {}),
 							component: function (props) {
 								const gameId = props.scope && props.scope.sessionId || "";
 								if (gameId && !tavernPluginAllowed(owner, gameId)) return React.createElement("p", { className: "dsh-tavern-plugin-panel-empty" }, "这是另一张人物卡的插件面板。");
 								return React.createElement(tavernPluginBoundary(), { owner: owner, fallback: React.createElement("p", { className: "dsh-tavern-plugin-panel-error" }, "插件 " + owner + " 的面板出错了") },
 									gameId ? React.createElement(render, { gameId: gameId, visible: props.visible !== false }) : React.createElement("p", { className: "dsh-tavern-plugin-panel-empty" }, "请先打开一局游戏。"));
-							} });
-						panels.set(tabId, owner);
+							} }) : null;
+						panels.set(tabId, { owner, title, render, stage, stageSize });
 						changed();
 						return function () { if (typeof dispose === "function") dispose(); panels.delete(tabId); changed(); };
 					}, "tavernUi.registerPanel()");
@@ -745,6 +770,20 @@
 						if (composerSlots.some(function (slot) { return slot.key === entry.key; })) throw new Error("输入框停靠区 " + input.id + " 已注册");
 						return addTo(composerSlots, entry);
 					}, "tavernUi.registerComposerSlot()");
+				},
+				// An icon-sized tool in the composer's trailing control row (apiVersion 10), next
+				// to the model seat and the submit action: render({ sessionId, busy, gameId }) returns
+				// React. Keep it to a glyph — the host row is one compact line and hides itself while
+				// the activity panel is expanded — and put the words in title/aria-label.
+				registerComposerTool(input) {
+					if (!input || typeof input.id !== "string" || !/^[a-z0-9][a-z0-9._-]{0,63}$/.test(input.id)) throw new TypeError("registerComposerTool 的 id 只能用小写字母、数字、点、下划线和连字符");
+					if (typeof input.render !== "function") throw new TypeError("registerComposerTool 需要 render 函数");
+					const owner = ownerOf(this);
+					const entry = { key: owner + ":" + input.id, owner: owner, modes: modesOf(input.modes, "registerComposerTool"), render: input.render };
+					return owned(this, function () {
+						if (composerTools.some(function (tool) { return tool.key === entry.key; })) throw new Error("输入栏工具 " + input.id + " 已注册");
+						return addTo(composerTools, entry);
+					}, "tavernUi.registerComposerTool()");
 				},
 				// What the stage shows (apiVersion 2): the latest turns with their dialogue annotations, and the card's characters.
 				getStage(gameId, options) {
@@ -993,6 +1032,12 @@
 				service: service,
 				attachHost: function (ctx) { host = ctx; },
 				attachPanelOpener: function (fn) { panelOpener = typeof fn === "function" ? fn : null; },
+				stagePanel: function (sessionId, plugin, id) {
+					const panel = panels.get("tavern-plugin:" + plugin + ":" + id);
+					const scopes = tavernCardPluginScopes.get();
+					return panel?.stage && panel.owner === plugin && scopes && Object.hasOwn(scopes, plugin) &&
+						Array.isArray(scopes[plugin]) && tavernPluginAllowed(plugin, sessionId) ? panel : null;
+				},
 				attachCandidateRunner: function (fn) {
 					candidateRunner = typeof fn === "function" ? fn : null;
 					return function () { if (candidateRunner === fn) candidateRunner = null; };
@@ -1018,6 +1063,7 @@
 				composerSlotFor: function (mode) { for (const slot of composerSlots) if (slot.modes.indexOf(mode) >= 0 || (mode === "story" || mode === "script") && slot.modes.indexOf("play") >= 0) return slot; return null; },
 				gameModeView: function (key) { return gameModeViews.get(key); },
 				composerSlots: function () { return composerSlots.slice(); },
+				composerTools: function () { return composerTools.slice(); },
 				headerTools: function () { return headerTools.slice(); }
 			};
 		}
@@ -1093,7 +1139,15 @@
 				React.createElement(TavernTurnPluginView, { view: view, input: Object.assign({}, input, { children: fallback }), fallback: fallback }));
 		}
 
-		function TavernPluginStatusSection(props) { return props.section.render({ gameId: props.sessionId }) || null; }
+		function tavernPluginStatusSection(title, body) {
+			const h = React.createElement;
+			return h("section", { className: "dsh-tavern-status-section dsh-tavern-plugin-status-section" },
+				h("div", { className: "dsh-tavern-status-label" }, title), body);
+		}
+		function TavernPluginStatusSection(props) {
+			const body = props.section.render({ gameId: props.sessionId });
+			return body ? tavernPluginStatusSection(props.section.title, body) : null;
+		}
 		/** Plugins' own sections of 酒馆状态, and the switch for how turn text is shown when a plugin offers one. */
 		function TavernPluginStatusSections(props) {
 			const h = React.createElement;
@@ -1105,10 +1159,9 @@
 					h("div", { className: "dsh-tavern-status-label" }, "正文样式"),
 					h(TavernPluginViewSwitch, { choice: turnView, label: "正文样式", className: "dsh-tavern-turn-view-switch" })) : null,
 				sections.map(function (section) {
-					return h("section", { key: section.key, className: "dsh-tavern-status-section dsh-tavern-plugin-status-section" },
-						h("div", { className: "dsh-tavern-status-label" }, section.title),
-						h(tavernPluginBoundary(), { owner: section.owner, fallback: h("div", { className: "dsh-tavern-plugin-error" }, "插件 " + section.owner + " 的内容出错了") },
-							h(TavernPluginStatusSection, { section: section, sessionId: props.sessionId })));
+					const error = h("div", { className: "dsh-tavern-plugin-error" }, "插件 " + section.owner + " 的内容出错了");
+					return h(tavernPluginBoundary(), { key: section.key + ":" + props.sessionId, owner: section.owner, fallback: tavernPluginStatusSection(section.title, error) },
+						h(TavernPluginStatusSection, { section: section, sessionId: props.sessionId }));
 				}));
 		}
 		/** Plugins' header tools of a game (registerHeaderTool): in the header, or as rows of the phone's ⋯ menu (menu). */
@@ -1124,6 +1177,21 @@
 			// Which plugins a game shows waits on the card plugin scopes (tavernPluginAllowed).
 			useTavernCardPluginScopes();
 			return React.useSyncExternalStore(tavernUiExtensions.subscribe, tavernUiExtensions.getSnapshot, tavernUiExtensions.getSnapshot);
+		}
+
+		function TavernStagePluginPanel({ sessionId, plugin, id, stagePageId }) {
+			useTavernUiExtensions();
+			useTavernCardPluginScopes();
+			const panel = tavernUiExtensions.stagePanel(sessionId, plugin, id), h = React.createElement;
+			if (!panel) return h("p", { role: "status" }, "这局游戏的插件面板已不可用。");
+			return h(tavernPluginBoundary(), {
+				owner: panel.owner, fallback: h("p", { role: "alert" }, "插件面板加载失败。")
+			}, h(panel.render, { gameId: sessionId, visible: true, stagePageId }));
+		}
+		async function findTavernStagePluginPanel(sessionId, plugin, id) {
+			await tavernCardPluginScopes.load();
+			const panel = tavernUiExtensions.stagePanel(sessionId, plugin, id);
+			return panel ? {title: panel.title, size: panel.stageSize} : null;
 		}
 
 		// Created on first use: React is the host's, not available at bundle load.
@@ -1350,7 +1418,7 @@
 				finally { setBusy(false); }
 			}
 			async function removeVersion() {
-				if (busy || !await askConfirm(count > 1 ? "删除这一张？其他版本保留。" : "删除这张插图？")) return;
+				if (busy || !await askConfirm(count > 1 ? "其他版本保留。" : "插图会从这一轮移除。", { title: count > 1 ? "删除这一张？" : "删除这张插图？", confirmText: "删除", danger: true, hide: "illustration" })) return;
 				setBusy(true); setError("");
 				try { await rpc("removePluginMediaVersion", { sessionId: props.sessionId, itemId: item.id, version: current ? null : index }, props.sessionId); }
 				catch (e) { setError(String(e && e.message || e)); }

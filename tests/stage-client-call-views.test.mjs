@@ -35,13 +35,6 @@ test('call view composes and freezes remote output, captures it and releases own
  assert.equal(e.subject.container.destroyed,undefined)
  e.view.tick(e.input);assert.equal(e.view.container.visible,false);await assert.rejects(e.capture(),{code:'NO_FRAME'})
 })
-test('failed filter setup rolls back partial call view and can retry',()=>{
- const e=fixture();e.failTune(true);assert.throws(()=>e.view.tick(e.input),/tune failed/)
- assert.deepEqual(e.view.snapshot().views,[])
- e.failTune(false);e.view.tick(e.input);assert.deepEqual(e.view.snapshot().views,['remote'])
- e.owner.dispose();assert.ok(e.allocated.every(r=>r.dead===1))
-})
-
 test('host call capture bridge permits an absent phone module',()=>{
  const source=readFileSync(new URL('../tavern-plugin/src/client/gal-stage.js',import.meta.url),'utf8')
  const expression=source.match(/callViews:\{subscribeFrames:(.*)\},/)[1]

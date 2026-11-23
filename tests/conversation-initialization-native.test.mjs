@@ -2,6 +2,7 @@ import { sessionEvents } from '../tavern-plugin/lib/domain/session-events.js'
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { pathToFileURL } from 'node:url'
+import vm from 'node:vm'
 import { createInitializationNative } from './fixtures/conversation-initialization-native.mjs'
 import { KNOWN_SESSION_EVENT_TYPES } from './fixtures/dsh-session-host.mjs'
 import { registerTurnLifecycleHooks } from '../tavern-plugin/lib/hooks/turn-lifecycle.js'
@@ -85,6 +86,27 @@ test('修改玩家称呼更新已经生成的开场和后续模型请求，保�
     .map(message => message.content.map(part => part.text || '').join(''))
   assert.equal(replies.filter(text => text === renamed).length, 1)
   assert.ok(!replies.includes(firstText))
+})
+
+test('a rich opening starts and renames safely in a native session', native, async t => {
+  const source = '<div>{{ panelLabel }}</div><script>globalThis.player = "{{user}}";</script>'
+  const description = '示例 {{ example }} 与 if (true) {{ let x = 1; }}'
+  const h = await createInitializationNative(process.env.DSH_BOOT_MODULE, { cardOverrides: { first_mes: source, description } })
+  t.after(() => h.dispose())
+  const initialization = h.open()
+  const original = await initialization.start(h.input)
+  const playerName = 'Alex "Ace"'
+  await initialization.setPlayerName(original.sessionId, playerName)
+  await h.continueWithAgent()
+  const saved = (await h.persistence.read(original.id)).messages[0]
+  const nativeReply = h.requests[0].messages.find(message => message.role === 'assistant' && message.content.some(part => part.text === saved.text))
+  assert.equal(saved.sourceText, source)
+  assert.ok(nativeReply, 'the host request uses the saved opening')
+  assert.ok(h.requests[0].system.includes(description), 'the host receives literal braces in prompt sections')
+  assert.match(saved.displayText, /\{\{ panelLabel \}\}/)
+  const sandbox = {}
+  vm.runInNewContext(saved.displayText.match(/<script>([\s\S]*?)<\/script>/)[1], sandbox)
+  assert.equal(sandbox.player, playerName)
 })
 
 test('first native reply uses the prepared static worldbook in the actual system prompt', native, async t => {

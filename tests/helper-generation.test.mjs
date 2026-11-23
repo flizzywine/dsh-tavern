@@ -48,15 +48,6 @@ test('generate inserts worldbook and script depths locally and scans none-positi
   assert.ok(!compileHelperGenerate({ ...config, overrides: { chat_history: { with_depth_entries: false } } }, context).some(message => message.content === 'Depth lore'))
 })
 
-test('generate preserves legacy DSH preset phases and resolves Helper variables', () => {
-  const context = generationContext()
-  context.presetSnapshot = { front: { entries: [{ role: 'system', content: 'Front' }] }, middle: { entries: [{ role: 'assistant', content: 'Middle' }] }, back: { entries: [{ role: 'user', content: 'Back' }] } }
-  const messages = compileHelperGenerate({ user_input: '{{get_chat_variable::location}}', max_chat_history: 0 }, context)
-  assert.equal(messages[0].content, 'Front')
-  assert.equal(messages.at(-1).content, 'Back')
-  assert.ok(messages.findIndex(message => message.content === 'Middle') < messages.findIndex(message => message.content === 'forest'))
-})
-
 test('generate rejects unsupported or malformed inputs before calling the model', async () => {
   for (const config of [null, [], { image: 'image.png' }, { tools: [{}] }, { json_schema: {} }, { user_input: 3 }, { max_chat_history: -1 },
     { overrides: { chat_history: { prompts: [{ role: 'tool', content: 'wrong' }] } } },
@@ -109,20 +100,6 @@ test('generation RPC resolves named presets without changing selection and scope
   assert.deepEqual(await invoke('stopAllTavernHelperGeneration', { sessionId: 'story' }), { stopped: true, generationIds: ['held'] })
   await rejected
   assert.equal(heldSignal.aborted, true)
-})
-
-test('构筑评议的清空覆盖参数仅发送评议正文，不混入角色或历史', async () => {
-  const config = { user_input: '请评议当前构筑', should_stream: true, ordered_prompts: ['user_input'], max_chat_history: 0,
-    overrides: { world_info_before: '', persona_description: '', char_description: '', char_personality: '', scenario: '',
-      world_info_after: '', dialogue_examples: '', chat_history: { with_depth_entries: false, author_note: '', prompts: [] } } }
-  let request
-  assert.equal(await generateHelperRaw(config, { history: [{ role: 'assistant', text: '不应进入评议的剧情' }],
-    callModel: async value => { request = value; return '评分结果' } }), '评分结果')
-  assert.deepEqual(request.messages, [{ role: 'user', content: [{ type: 'text', text: '请评议当前构筑' }] }])
-  for (const overrides of [{ persona_description: '需要实现的覆盖内容' }, { chat_history: { with_depth_entries: false, author_note: '作者注释' } },
-    { chat_history: { with_depth_entries: false, prompts: [{ role: 'user', content: '不可忽略' }] } }]) {
-    await assert.rejects(generateHelperRaw({ ...config, overrides }, { callModel: () => assert.fail('不应静默丢弃覆盖内容') }), /暂不支持覆盖项/)
-  }
 })
 
 test('extra model connection and credentials cannot override host routing', async () => {

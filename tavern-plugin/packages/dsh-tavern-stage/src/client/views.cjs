@@ -1,5 +1,5 @@
 'use strict';
-function createStageViews({React, ReactDOM, window, document, navigation, useBubbles, useGalEntryLoader, GalStage, Icon, usePages}) {
+function createStageViews({React, ReactDOM, window, document, navigation, useBubbles, useGalEntryLoader, GalStage, Icon, usePages, portable = () => false}) {
 const cleanups = new Set();
 let disposed = false;
 function own(cleanup) {
@@ -80,7 +80,7 @@ function StagePortal(props) {
         });
         try {
             document.body.appendChild(mount);
-            galCoverChat();
+            galCoverChat({wholeApp: portable()});
             document.addEventListener("fullscreenchange", onFullscreen);
             window.addEventListener("resize", onResize);
             // The stage is shown in full screen on the Windows Desktop whenever it stands, also when it comes back without a click (a
@@ -112,8 +112,9 @@ let StageBoundary;
 function boundaryType() {
     if (StageBoundary) return StageBoundary;
     StageBoundary = class extends React.Component {
-        state = {failed:false};
-        static getDerivedStateFromError() { return {failed:true}; }
+        state = {failed:false,reason:''};
+        // The reason rides in the notice so a player's screenshot carries it; the console keeps the stack.
+        static getDerivedStateFromError(error) { return {failed:true,reason:String(error?.message || error || '')}; }
         recover(exit = false) {
             const actions = [() => galUncover?.(), () => galEscapeLock(false)];
             if (exit) actions.push(() => (navigation.galLeaveNow || galLeave)());
@@ -121,14 +122,18 @@ function boundaryType() {
                 try { action(); } catch (error) { window.console?.error('Stage recovery failed',error); }
             }
         }
-        componentDidCatch() { this.recover(); }
+        componentDidCatch(error,info) {
+            window.console?.error('[dsh-tavern-stage] 舞台渲染失败',error,info?.componentStack || '');
+            this.recover();
+        }
         render() {
             if (!this.state.failed) return this.props.children;
             return React.createElement('div',{role:'alert','data-stage-failure':true},
                 React.createElement('p',null,'舞台显示出错，普通聊天仍可使用。'),
+                this.state.reason ? React.createElement('p',{'data-stage-failure-reason':true},'原因：'+this.state.reason) : null,
                 React.createElement('button',{type:'button',onClick:()=>{
                     this.recover(true);
-                    if (!galActive.get()) this.setState({failed:false});
+                    if (!galActive.get()) this.setState({failed:false,reason:''});
                 }},'返回普通聊天'));
         }
     };

@@ -12,7 +12,7 @@ function messageFrame(state) {
   scope.window = scope
   vm.createContext(scope)
   const html = helperClient.buildTavernFrameDocument({content: '<div>card</div>', token: 'message-token', helperContext: state, turn: 1})
-  for (const script of html.matchAll(/<script data-dsh-tavern-(?:helper|interactive-helper|frame-variable-aliases)>([\s\S]*?)<\/script>/g)) {
+  for (const script of html.matchAll(/<script data-dsh-tavern-(?:helper|interactive-helper|frame-chat-context|frame-variable-aliases)>([\s\S]*?)<\/script>/g)) {
     vm.runInContext(stubFrameDependencyImports(script[1]), scope)
   }
   return { window: scope, sent, receive(data) { for (const listener of listeners) listener({source: parent, data: {token: 'message-token', ...data}}) } }
@@ -23,6 +23,66 @@ const messages = [
   {message_id: 1, role: 'user', message: 'hidden', is_hidden: true, variables: {}},
   {message_id: 2, role: 'assistant', message: 'last', variables: {last: 1}}
 ]
+
+for (const kind of ['script', 'message']) {
+  const make = state => kind === 'script' ? helperHostHarness(state) : messageFrame(state)
+
+  test(kind + ' exposes the same SillyTavern context names, chat and events', async () => {
+    const run = make({chatId: 'game', playerName: '玩家', characterName: '角色', turnMessageIds: {1: 0}, messages})
+    const w = run.window, context = w.getContext()
+    assert.equal(context, w.SillyTavern.getContext())
+    assert.equal(context.chatId, 'game')
+    assert.equal(context.getCurrentChatId(), 'game')
+    assert.equal(context.name1, '玩家')
+    assert.equal(context.name2, '角色')
+    assert.equal(context.TavernHelper, w.TavernHelper)
+    assert.equal(context.eventTypes, w.tavern_events)
+    assert.ok(Array.isArray(context.chat))
+    assert.equal(context.chat.length, 3)
+    assert.equal(context.chat[0].mes, 'one')
+    assert.equal(context.chat[1].is_user, true)
+    let emitted
+    context.eventSource.on('local-context-test', value => { emitted = value })
+    await context.eventSource.emit('local-context-test', 'heard')
+    assert.equal(emitted, 'heard')
+  })
+
+  test(kind + ' publishes message edits only after a successful host receipt', async () => {
+    const state = {chatId: 'game', lifecycleRevision: 1, stateRevision: 1, messages}
+    const run = make(state), w = run.window
+    function write(text) {
+      const pending = w.TavernHelper.setChatMessages([{message_id: 0, message: text}])
+      const call = run.sent.filter(row => row.method === 'updateTavernHelperMessages').at(-1)
+      assert.equal(call.args.messages[0].message, text)
+      return { pending, reply(result, ok = true) {
+        if (run.reply) run.reply(call, result, ok)
+        else run.receive({type: 'dsh-tavern-helper-response', requestId: call.requestId, ok, result: ok ? result : undefined, error: ok ? undefined : result})
+      } }
+    }
+    const stale = write('stale')
+    assert.equal(w.getChatMessages(0)[0].message, 'one')
+    stale.reply({updated: false, stale: true, context: {...state, stateRevision: 2}})
+    await assert.rejects(stale.pending, {code: 'TAVERN_HELPER_STALE'})
+    const failure = write('failed')
+    failure.reply('store rejected the edit', false)
+    await assert.rejects(failure.pending, /store rejected the edit/)
+    assert.equal(w.getChatMessages(0)[0].message, 'one')
+    const unconfirmed = write('unconfirmed')
+    unconfirmed.reply({updated: false})
+    await assert.rejects(unconfirmed.pending, /未保存/)
+    const old = write('older'), latest = write('saved')
+    function saved(message, stateRevision) {
+      return {updated: true, context: {...state, stateRevision, messages: [{...messages[0], message}, ...messages.slice(1)]}}
+    }
+    latest.reply(saved('saved', 4))
+    assert.equal((await latest.pending).updated, true)
+    old.reply(saved('older', 3))
+    await old.pending
+    assert.equal(w.getChatMessages(0)[0].message, 'saved')
+    assert.equal(w.getContext().chat[0].mes, 'saved')
+  })
+}
+
 for (const kind of ['script', 'message']) test(kind + ' getChatMessages supports negative ranges, visibility and upstream data fields', () => {
   const state = {messages, turnMessageIds: {1: 0}, characterName: '角色', playerName: '玩家'}
   const api = (kind === 'script' ? helperHostHarness(state) : messageFrame(state)).window.TavernHelper

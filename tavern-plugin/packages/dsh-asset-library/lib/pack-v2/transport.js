@@ -1,8 +1,9 @@
 import { randomBytes } from 'node:crypto'
-import { createReadStream } from 'node:fs'
+import { createReadStream, createWriteStream } from 'node:fs'
 import { mkdir, mkdtemp, rename, stat, unlink, rmdir } from 'node:fs/promises'
 import path from 'node:path'
-import { Readable } from 'node:stream'
+import { Readable, Transform } from 'node:stream'
+import { pipeline } from 'node:stream/promises'
 import { checkedPath } from './storage.js'
 import { createAssetPackService } from './service.js'
 import { createThumbnailCache } from './thumbnails.js'
@@ -25,17 +26,19 @@ const fields = Object.freeze({
   startPackDownload:['selection','url','useMirrorPrefix'], getPackDownload:['jobId'], controlPackDownload:['jobId','action'],
   getStageSetupStatus:['path','autoOpened'], mergeStageSetupPack:['path','expectedCardRevision','expectedLibraryRevision','selections','name','figure'],
   listPackSummaries:[], getPackSnapshot:['packId'],
-  listAutomaticWrites:['packId','cursor','limit'], reviewAutomaticWrite:['packId','expectedRevision','writeId'], undoAutomaticWrite:['packId','expectedRevision','writeId'],
+  listAutomaticWrites:['packId','cursor','limit'], reviewAutomaticWrite:['packId','expectedRevision','writeId'], undoAutomaticWrite:['packId','expectedRevision','writeId'], adoptAutomaticPack:['path','packId','expectedRevision'],
   savePackVoice:['figureId','packId','expectedRevision','voiceId','voiceSpec','confirmShared'], saveFigureVoiceBinding:['packId','figureId','expectedRevision','binding'], createAndAssignPackVoice:['packId','figureId','expectedRevision','voiceSpec'],
   savePackVoiceVariant:['figureId','packId','expectedRevision','voiceId','variantId','variant','confirmShared'],
   deletePackVoiceVariant:['figureId','packId','expectedRevision','voiceId','variantId','confirmShared'],
   listVoiceCatalogue:[], listVoiceTemplates:[], saveVoiceTemplate:['templateId','expectedRevision','packId','packRevision','voiceId','binding'],
   deleteVoiceTemplate:['templateId','expectedRevision'], assignVoiceTemplate:['templateId','templateRevision','packId','figureId','expectedRevision'],
   assignPackVoiceCopy:['sourcePackId','voiceId','packId','figureId','expectedRevision'], deletePackVoice:['packId','expectedRevision','voiceId'],
-  createPack:['name','description','expectedRevision'], patchPack:['packId','expectedRevision','patch','fileUpdates'], removePack:['packId','expectedRevision'],
+  createPack:['name','description','expectedRevision'], patchPack:['packId','expectedRevision','patch','fileUpdates','dryRun'], removePack:['packId','expectedRevision'],
   putBlob:['packId','expectedRevision','bytes','descriptor'], removeBlob:['packId','expectedRevision','hash'],
   putBundle:['packId','expectedRevision','bundleKey','descriptor','files'], removeBundle:['packId','expectedRevision','bundleKey'],
   copyFigure:['source','target'], copyItems:['sourcePackId','itemRefs','target'],
+  publishSkins:['packId','expectedRevision','sources','dryRun'],
+  consolidatePacks:['packId','expectedRevision','sources','name','card','assetNames','dryRun','approvedContentHash'],
   createSimpleSprite:['packId','expectedRevision','spriteKey','images','name'],
   setFigureAvatarCrop:['packId','expectedRevision','figureId','outfitKey','scope','stateId','crop'],
   createFigure:['packId','expectedRevision','figure'], patchFigure:['packId','expectedRevision','figureId','patch'], removeFigure:['packId','expectedRevision','figureId'],
@@ -43,16 +46,19 @@ const fields = Object.freeze({
   removeFigureEmotion:['packId','expectedRevision','figureId','emotionId'],
   migrateFigureVariants:['packId','expectedRevision','dryRun'],
   resolveAssets:['refs'], resolveFigures:['refs'], inspectImport:['bytes','copy'],
-  applyImport:['inspectionId','expectedRevision','decision','acceptScriptRisk','adoptLooks'], exportPack:['packId','expectedRevision'], exportPacks:['packs'],
+  applyImport:['inspectionId','expectedRevision','decision','acceptScriptRisk','adoptLooks'], exportPack:['packId','expectedRevision','progressId'], exportPacks:['packs','progressId'], exportProgress:['progressId'],
   exportCardBundle:['path','expectedRevision','packIds'], inspectCardBundle:['path','bytes'], inspectCardBundleUrl:['path','url'], previewCardBundleDecisions:['inspectionId','decisions'],
   applyCardBundle:['inspectionId','expectedRevision','cancel','decisions','acceptScriptRisk','disableWidgets'],
   leaseMedia:['packId','hash'], leaseBundle:['packId','bundleKey'], releaseLease:['ticket'], discardUpload:['ticket']
 })
-const status = {FORBIDDEN:403, NOT_AUTHORIZED_WRITER:403, AUTOMATIC_WRITE_CHANGED:409, INVALID_INPUT:400, LIMIT_EXCEEDED:413, REVISION_CONFLICT:409, ASSET_UNAVAILABLE:503, SETTINGS_UNAVAILABLE:503, RECOVERY_REQUIRED:503}
+// The methods that read an uploaded archive: it goes to disk as it arrives (`?archive=1`), never into memory.
+const ARCHIVE_INPUTS = Object.freeze({inspectImport:'inspectImportFile', inspectCardBundle:'inspectCardBundleFile'})
+const status = {DISK_FULL:507, FORBIDDEN:403, NOT_AUTHORIZED_WRITER:403, AUTOMATIC_WRITE_CHANGED:409, INVALID_INPUT:400, LIMIT_EXCEEDED:413, REVISION_CONFLICT:409, ASSET_UNAVAILABLE:503, SETTINGS_UNAVAILABLE:503, RECOVERY_REQUIRED:503}
 const plain = value => value !== null && typeof value === 'object' && !Array.isArray(value)
 const json = (value, code = 200) => Response.json(value, {status:code, headers:{'Cache-Control':'private, no-store','X-Content-Type-Options':'nosniff'}})
 function errorResponse(error) {
-  const code = /^[A-Z_]+$/.test(error?.code || '') ? error.code : 'INVALID_INPUT'
+  // a write that ran out of disk space was rolled back; the player frees space and tries again
+  const code = error?.code === 'ENOSPC' ? 'DISK_FULL' : /^[A-Z_]+$/.test(error?.code || '') ? error.code : 'INVALID_INPUT'
   return json({error:code, ...(['DOWNLOAD_FAILED','INTEGRITY_MISMATCH','SCRIPT_CONFIRMATION_REQUIRED'].includes(code) ? {message:error.message?.replace(/https?:\/\/\S+/g,'[URL]')} : {}), ...(code === 'REVISION_CONFLICT' && typeof error.revision === 'string' ? {revision:error.revision} : {})}, status[code] || 400)
 }
 // Connection authenticates the single browser administrator before invoking us.
@@ -94,8 +100,7 @@ async function readBytes(request, maximum, reserve = () => {}, unreserve = () =>
 /** Owns one v2 service and its exact authenticated routes. No v1 adapter or disk reader. */
 export function createAssetPackTransport({settings, ...options}) {
   const now = options.now || Date.now, limits = {...PACK_LIMITS, ...options.limits}
-  const uploads = new Map(), downloads = new Map(), leases = new Map(), changes = [], outbox = new Set(), cleanup = new Set()
-  const outboxBytes = () => [...outbox].reduce((sum,item) => sum + item.size,0)
+  const uploads = new Map(), downloads = new Map(), exportJobs = new Map(), leases = new Map(), changes = [], outbox = new Set(), cleanup = new Set()
   function removeArchive(item) {
     for (const owned of outbox) if (owned.file === item.file) outbox.delete(owned)
     const task = item.dispose().catch(() => {}).finally(() => cleanup.delete(task))
@@ -103,6 +108,7 @@ export function createAssetPackTransport({settings, ...options}) {
   }
   async function exportArchive(source) {
     alive(); sweep()
+    check(outbox.size < limits.previews, '$', 'Too many export archives waiting to be saved', 'LIMIT_EXCEEDED')
     const epoch = generation, folder = await checkedPath(options.assetRoot, 'export-outbox')
     await mkdir(folder, {recursive:true})
     const directory = await mkdtemp(path.join(folder, 'archive-')), file = path.join(directory, 'archive.zip')
@@ -111,15 +117,24 @@ export function createAssetPackTransport({settings, ...options}) {
       await rename(source, file)
       item.size = (await stat(file)).size
       alive(); check(epoch === generation, '$', 'Transport detached', 'ASSET_UNAVAILABLE')
-      check(item.size <= limits.totalSize && pendingBytes + storedBytes + outboxBytes() + core.spoolUsage() + item.size <= limits.spoolBytes, '$', 'Export archive spool budget exceeded', 'LIMIT_EXCEEDED')
       outbox.add(item)
+      return item
+    } catch (error) { await item.dispose(); throw error }
+  }
+  // An archive upload streamed into an import spool; the uploads pool owns it until it is read or expires.
+  async function receiveArchive(request) {
+    check(request.body, '$.body')
+    const spool = await core.openUploadSpool(), file = path.join(spool.dir, 'archive.zip')
+    const item = {file, size:0, expiresAt:now() + limits.previewTtlMs, dispose:spool.dispose}
+    try {
+      await pipeline(Readable.fromWeb(request.body), new Transform({transform(chunk, encoding, callback) { item.size += chunk.length; callback(null, chunk) }}), createWriteStream(file, {flags:'wx'}), {signal:request.signal})
       return item
     } catch (error) { await item.dispose(); throw error }
   }
   let active = true, connection = null, pendingBytes = 0, storedBytes = 0, sequence = 0, generation = 0, routeStops = [], carrierLife = null
   const alive = () => check(active, '$', 'Transport disposed', 'ASSET_UNAVAILABLE')
   // card export may embed globally enabled packs; the service reads them from these settings.
-  const core = createAssetPackService({...options, settings, exportArchive, globalEnabledPackIds:() => settings ? settings.read().values.globalEnabledPackIds : [], externalSpoolUsage:() => pendingBytes + storedBytes + outboxBytes(), authorizeLease:async input => {
+  const core = createAssetPackService({...options, settings, exportArchive, globalEnabledPackIds:() => settings ? settings.read().values.globalEnabledPackIds : [], externalSpoolUsage:() => pendingBytes + storedBytes, authorizeLease:async input => {
     if (!active || !connection || input.scope !== PRINCIPAL) return false
     return options.authorizeLease ? await options.authorizeLease(input) === true : true
   }})
@@ -144,17 +159,24 @@ export function createAssetPackTransport({settings, ...options}) {
   }
   function reserve(size) {
     alive(); sweep()
-    check(pendingBytes + storedBytes + outboxBytes() + core.spoolUsage() + size <= limits.spoolBytes, '$.body', 'Transport spool limit', 'LIMIT_EXCEEDED')
+    check(pendingBytes + storedBytes + core.spoolUsage() + size <= limits.spoolBytes, '$.body', 'Transport spool limit', 'LIMIT_EXCEEDED')
     pendingBytes += size
   }
   function store(pool, bytes, extra = {}) {
     alive(); sweep()
     // A single atomic multipart registration can exceed the import-preview count.
     const countLimit=pool===uploads?Math.min(limits.uploads,limits.entries):limits.previews
-    check(pool.size < countLimit && pendingBytes + storedBytes + outboxBytes() + core.spoolUsage() + bytes.length <= limits.spoolBytes, '$.body', 'Transport spool limit', 'LIMIT_EXCEEDED')
+    check(pool.size < countLimit && pendingBytes + storedBytes + core.spoolUsage() + bytes.length <= limits.spoolBytes, '$.body', 'Transport spool limit', 'LIMIT_EXCEEDED')
     const ticket = randomBytes(24).toString('base64url'), expiresAt = now() + limits.previewTtlMs
     pool.set(ticket,{bytes,expiresAt,...extra}); storedBytes += bytes.length
     return {ticket,expiresAt}
+  }
+  function storeArchive(item) {
+    alive(); sweep()
+    check(uploads.size < Math.min(limits.uploads,limits.entries), '$.body', 'Transport spool limit', 'LIMIT_EXCEEDED')
+    const ticket = randomBytes(24).toString('base64url')
+    uploads.set(ticket,item)
+    return {ticket,expiresAt:item.expiresAt}
   }
   const changeStreams = new Set()
   function changed(event) {
@@ -195,10 +217,13 @@ export function createAssetPackTransport({settings, ...options}) {
     try { alive(); sweep(); packRequestOrigin(request,expected,widget); return await action() }
     catch (error) { await request.body?.cancel().catch(() => {}); return errorResponse(error) }
   }
-  function uploadBytes(ticket, consumed) {
+  function upload(ticket, consumed, archive) {
     check(typeof ticket === 'string' && uploads.has(ticket), '$.upload', 'Upload missing or expired', 'ASSET_UNAVAILABLE')
-    consumed.add(ticket); return uploads.get(ticket).bytes
+    const item = uploads.get(ticket)
+    check(!!item.file === archive, '$.upload', archive ? 'Upload this archive with ?archive=1' : 'An archive upload is read by an archive import only')
+    consumed.add(ticket); return archive ? item.file : item.bytes
   }
+  const uploadBytes = (ticket, consumed) => upload(ticket, consumed, false)
   function fileMap(value, consumed, deletes) {
     check(Array.isArray(value) && value.length <= limits.entries, '$.files')
     const result = new Map()
@@ -228,7 +253,9 @@ export function createAssetPackTransport({settings, ...options}) {
       for (const key of Object.keys(args)) check(fields[input.method].includes(key), '$.args.' + key, 'Unknown field', 'UNKNOWN_FIELD')
       const consumed = new Set()
       try {
-        if (Object.hasOwn(args,'bytes')) args.bytes = uploadBytes(args.bytes,consumed)
+        const archive = Object.hasOwn(ARCHIVE_INPUTS,input.method) ? upload(args.bytes,consumed,true) : null
+        if (archive) delete args.bytes
+        else if (Object.hasOwn(args,'bytes')) args.bytes = uploadBytes(args.bytes,consumed)
         if (Object.hasOwn(args,'fileUpdates')) args.fileUpdates = fileMap(args.fileUpdates,consumed,true)
         if (Object.hasOwn(args,'files')) args.files = fileMap(args.files,consumed,false)
         let result
@@ -250,6 +277,16 @@ export function createAssetPackTransport({settings, ...options}) {
         } else if (input.method === 'discardUpload') result = {released:drop(uploads,args.ticket)}
         else if (input.method === 'releaseLease') result = {released:release(args.ticket)}
         else if (input.method === 'leaseMedia' || input.method === 'leaseBundle') result = await issue(input.method,{...args,scope:PRINCIPAL,origin:packRequestOrigin(request)})
+        else if (input.method === 'exportProgress') result = exportJobs.get(args.progressId) || null
+        else if (input.method === 'exportPack' || input.method === 'exportPacks') {
+          // progressId: the browser's own name for this export; it polls exportProgress with it while this call runs.
+          const {progressId, ...rest} = args, tracked = progressId !== undefined
+          check(!tracked || typeof progressId === 'string' && /^[\w-]{8,64}$/.test(progressId) && !exportJobs.has(progressId), '$.args.progressId')
+          if (tracked) exportJobs.set(progressId, {done:0, total:0})
+          try { result = await core[input.method](rest, tracked ? {onProgress:progress => exportJobs.set(progressId, progress)} : {}) }
+          finally { if (tracked) exportJobs.delete(progressId) }
+        }
+        else if (archive) result = await core[ARCHIVE_INPUTS[input.method]]({...args, file:archive})
         else result = await core[input.method](args)
         alive()
         function transfer(result) {
@@ -269,7 +306,12 @@ export function createAssetPackTransport({settings, ...options}) {
     {path:PACK_UPLOAD_PATH,methods:['POST'],requestBody:'streaming',fetch:request => guarded(request,async () => {
       check(request.method === 'POST' && request.headers.get('content-type') === 'application/octet-stream', '$.request')
       const epoch = generation
-      const bytes = await readBytes(request,limits.totalSize,reserve,size => {pendingBytes -= size})
+      if (new URL(request.url).searchParams.get('archive') === '1') {
+        const item = await receiveArchive(request)
+        if (!active || epoch !== generation) { await item.dispose(); check(false, '$', 'Transport detached', 'ASSET_UNAVAILABLE') }
+        return json(storeArchive(item))
+      }
+      const bytes = await readBytes(request,limits.entrySize,reserve,size => {pendingBytes -= size})
       alive(); check(epoch === generation, '$', 'Transport detached', 'ASSET_UNAVAILABLE')
       return json(store(uploads,bytes))
     })},
@@ -318,8 +360,20 @@ export function createAssetPackTransport({settings, ...options}) {
     leaseMedia:input => issue('leaseMedia',input), leaseBundle:input => issue('leaseBundle',input), leaseWidget:input => issue('leaseWidget',input), releaseLease:release,
     async dispose() { if (!active) return; active = false; detach(); stopChanges(); stopSettings?.(); clearInterval(timer); await thumbnails.dispose(); await core.dispose(); await Promise.all(cleanup) }
   })
+  const feed = Object.freeze({
+    capabilities: () => ({apiVersion:core.apiVersion, capabilities:[...core.capabilities]}),
+    read(since = 0) {
+      const from = Number.isSafeInteger(since) && since >= 0 ? since : 0
+      return {sequence, reset:from > sequence || from < (changes[0]?.sequence || 1) - 1, changes:changes.filter(event => event.sequence > from)}
+    },
+    subscribe(fn) {
+      const stream = {send: () => fn()}
+      changeStreams.add(stream)
+      return () => { changeStreams.delete(stream) }
+    }
+  })
   const timer = setInterval(sweep,30000); timer.unref?.()
-  return Object.freeze({service,
+  return Object.freeze({service, feed,
     attach(carrier) {
       alive(); check(!connection && carrier?.fetch?.register, '$.connection', 'Transport already attached or invalid')
       connection = carrier

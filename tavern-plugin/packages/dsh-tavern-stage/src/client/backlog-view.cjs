@@ -97,10 +97,11 @@ function GalBacklog(props) {
     // A row's words with its marks drawn; shown: the words as the row writes them (a quoted line), which contain the row's text.
     function markedText(index, text, shown = text) {
         const row = textMarkRows?.get(index), shift = row?.ranges.length ? shown.indexOf(text) : -1;
-        if (shift < 0) return shown;
-        const marks = row.ranges.map(range => ({start:range.start + shift, end:range.end + shift,
+        if (shift < 0 && !looks.highlight) return shown;
+        const own = shift < 0 ? [] : row.ranges.map(range => ({start:range.start + shift, end:range.end + shift,
             render:(words, key) => h(range.mark.kind.Mark, {key, mark:range.mark, text:words, place:row.place, still:false})}));
-        return stageTextMarks.textMarkNodes(shown, 0, shown.length, marks);
+        const marks = stageTextMarks.textMarksHighlighted(shown, looks.highlight, own, h);
+        return marks.length ? stageTextMarks.textMarkNodes(shown, 0, shown.length, marks) : shown;
     }
     // art.backlog.plates (C1): each entry's place among its role's entries, which picks its plate image and pose.
     const places = React.useMemo(() => {
@@ -162,7 +163,7 @@ function GalBacklog(props) {
     const heights = React.useRef(new Map());
     const nodes = React.useRef(new Map());
     const pendingFocus = React.useRef(null);
-    const pendingScroll = React.useRef(null);
+    const pendingEnd = React.useRef(false);
     const anchorRow = React.useRef(null);
     const [viewport, setViewport] = React.useState({ top: Infinity, height: 800 });
     // 回到最新 at the sheet's bottom edge once the reader scrolls up (jump-latest.js).
@@ -171,7 +172,11 @@ function GalBacklog(props) {
     const listRef = React.useCallback(node => { scroller.current = node; setListBox(node); }, []);
     const offsets = [0];
     entries.forEach(entry => offsets.push(offsets[offsets.length - 1] + (heights.current.get(entry.key) || (entry.type === "turn" ? 54 : 100))));
-    const range = stageViews.backlogRows.galBacklogWindow(offsets, viewport.top, viewport.height, 20);
+    // Rows inserted above the reader (earlier rounds paging in, a title row) move the row being read down the list: the window
+    // is drawn round where that row now is, so the row stays drawn and the browser's anchoring keeps it in place.
+    const moved = anchorRow.current && anchorRow.current.entries !== entries && viewport.top !== Infinity
+        ? entries.findIndex(entry => entry.key === anchorRow.current.key) : -1;
+    const range = stageViews.backlogRows.galBacklogWindow(offsets, moved >= 0 ? viewport.top + offsets[moved] - anchorRow.current.offset : viewport.top, viewport.height, 20);
     // names in an image colour too dark/light for this panel get the nearest readable lightness.
     useFigureTextContrast(React, scroller, true, range.start, range.end, entries.length, props.page);
     const visibleTurns=JSON.stringify([...new Set(entries.slice(range.start,range.end).map(row=>row.turn))].filter(turn=>turn!==props.turn));
@@ -207,31 +212,35 @@ function GalBacklog(props) {
         // Layout corrections, scroll events and ResizeObserver can report the same viewport.
         setViewport(previous => previous.top === top && previous.height === height ? previous : { top, height });
     }
-    // rows inserted above the first visible row (an earlier turn's text arriving) keep that row
-    // where the reader sees it, instead of pushing the page down (anchorRow).
+    // The list follows new rows only while the reader is at the end: where the last scroll left the list (the list opens
+    // there), not where content that grew since puts it.
+    const following = React.useRef(true);
+    function keepPlace(box) { following.current = box.scrollTop + box.clientHeight >= box.scrollHeight - 2; }
+    // Away from the end, the browser's scroll anchoring keeps what the reader sees in place when anything above it changes
+    // size: a row drawn over its estimate in the spacer, a row measured, an earlier turn's rows arriving, a late face or voice
+    // control. It moves the list by exactly how far the visible row moved and, unlike a script setting scrollTop, carries a
+    // wheel's or touchpad's glide on instead of stopping it, so nothing here writes scrollTop while the reader reads above.
+    //
+    // The row at the top of the view (anchorRow), for the drawn window when rows are inserted above it, is read after the
+    // browser has anchored, and the viewport with it, so the next drawing (a measuring pass, before any scroll event) keeps
+    // the window there. The browser does not anchor a list scrolled to its very top: there the list keeps the row itself.
     React.useLayoutEffect(function () {
         const box = scroller.current, previous = anchorRow.current;
         if (!box) return;
-        if (previous && previous.entries !== entries && viewport.top !== Infinity && pendingScroll.current == null) {
-            const index = entries.findIndex(entry => entry.key === previous.key);
-            const shift = index >= 0 ? offsets[index] - previous.offset : 0;
-            if (Math.abs(shift) > 0.5) { box.scrollTop += shift; readViewport(); }
+        if (previous?.top != null && previous.entries !== entries && box.scrollTop === 0 && !following.current) {
+            const node = nodes.current.get(entries.findIndex(entry => entry.key === previous.key));
+            if (node) box.scrollTop = node.offsetTop - previous.top;
         }
         const first = stageViews.backlogRows.galBacklogWindow(offsets, box.scrollTop, box.clientHeight, 0).start;
-        anchorRow.current = { entries, key: entries[first]?.key, offset: offsets[first] || 0 };
+        anchorRow.current = { entries, key: entries[first]?.key, offset: offsets[first] || 0, top: nodes.current.get(first)?.offsetTop };
+        readViewport();
     });
     React.useLayoutEffect(function () {
         const box = scroller.current;
         if (!box) return;
-        if (pendingScroll.current != null) {
-            const target = pendingScroll.current;
-            pendingScroll.current = null;
-            box.scrollTop = target === Infinity ? box.scrollHeight : target;
-            readViewport();
-        }
-        const atEnd = viewport.top === Infinity || box.scrollTop + box.clientHeight >= box.scrollHeight - 2;
-        const anchor = stageViews.backlogRows.galBacklogWindow(offsets, viewport.top, viewport.height, 0).start;
-        let changed = false, shift = 0;
+        if (pendingEnd.current) { pendingEnd.current = false; box.scrollTop = box.scrollHeight; keepPlace(box); readViewport(); }
+        const atEnd = following.current;
+        let changed = false;
         for (let i = range.start; i < range.end; i++) {
             const node = nodes.current.get(i), next = nodes.current.get(i + 1);
             if (!node) continue;
@@ -240,17 +249,17 @@ function GalBacklog(props) {
             const last = next ? null : node.getBoundingClientRect(), k = last && last.width > 0 && Math.abs(last.width - node.offsetWidth) >= 1 ? node.offsetWidth / last.width : 1;
             const height = next ? next.offsetTop - node.offsetTop : last.height * k + parseFloat(style.marginBottom);
             const previous = heights.current.get(entries[i].key) || (entries[i].type === "turn" ? 54 : 100);
-            // offsetTop rounds each edge separately: a spacer shift can change their difference
-            // by one pixel without resizing the row. Do not feed that jitter back into anchoring.
-            if (height > 0 && Math.abs(height - previous) > 1) {
-                heights.current.set(entries[i].key, height); changed = true;
-                if (i < anchor) shift += height - previous;
-            }
+            // offsetTop rounds each edge separately: a spacer shift can change their difference by one pixel without resizing
+            // the row. Do not feed that jitter back into the window (it would redraw it back and forth).
+            if (height > 0 && Math.abs(height - previous) > 1) { heights.current.set(entries[i].key, height); changed = true; }
         }
         if (changed) {
-            // Apply the anchor correction after React replaces the two spacer heights.
-            pendingScroll.current = atEnd ? Infinity : box.scrollTop + shift;
+            // The spacers take the measured heights; at the end the list then lands on the end again.
+            if (atEnd) pendingEnd.current = true;
             redraw(n => n + 1);
+        } else if (atEnd && box.scrollTop + box.clientHeight < box.scrollHeight - 1) {
+            // a new row (or one grown) at the end, read where the reader follows it
+            box.scrollTop = box.scrollHeight; keepPlace(box); readViewport();
         } else if (pendingFocus.current != null) {
             const node = nodes.current.get(pendingFocus.current.index);
             if (node) {
@@ -285,7 +294,9 @@ function GalBacklog(props) {
             frame = requestAnimationFrame(function () {
                 if(!active||disposed)return;
                 if (width !== box.clientWidth) { width = box.clientWidth; heights.current.clear(); }
-                readViewport();
+                // a drawn row that changed size (a face or a late voice control) is measured again, so the rows above the
+                // reader keep their place and the end stays followed
+                readViewport(); redraw(n => n + 1);
             });
         });
         observer.observe(box);
@@ -312,6 +323,7 @@ function GalBacklog(props) {
         if (!box) return;
         // The current page is the last row; pin to the end (the measuring pass keeps the end pinned).
         box.scrollTop = box.scrollHeight;
+        keepPlace(box);
         box.focus({ preventScroll: true });
         readViewport();
     }, []);
@@ -355,7 +367,7 @@ function GalBacklog(props) {
     }
     function row(entry, index) {
         const ref = node => { if (node) nodes.current.set(index, node); else nodes.current.delete(index); };
-        if (entry.type === "turn") return h("div", { key: entry.key, ref, className: "fork-gal-backlog-turn" + (entry.current ? " is-current" : "") + bandClass(index), role: "separator", ...plated(entry, index, lookOf(entry), index === 0 ? { marginTop: 4 } : undefined) },
+        if (entry.type === "turn") return h("div", { key: entry.key, ref, className: "fork-gal-backlog-turn" + (entry.current ? " is-current" : "") + bandClass(index), role: "separator", ...plated(entry, index, lookOf(entry)) },
             plateArt(entry, lookOf(entry)), h("span", null, lettered("第 " + entry.turn + " 轮" + (entry.current ? " · 本轮" : ""), looks.letter?.divider && looks.plates?.divider)));
         // The player's own words; as a bubble they stand on the player's side, the right (no figure layout places the player).
         if (entry.type === "input" && lookOf(entry) === "bubble") return h("div", { key: entry.key, ref, className: "fork-gal-backlog-input is-look-bubble" + bandClass(index), "data-bl-role": "player", "data-bl-side": "right" },
@@ -463,14 +475,13 @@ function GalBacklog(props) {
             older === "failed" ? h("div", { className: "fork-gal-backlog-older" },
                 h("span", null, "⚠ 更早的轮次没有读取到"),
                 h("button", { type: "button", className: "fork-gal-backlog-older-retry", onClick: event => { event.stopPropagation(); loadOlder(); } }, "重试")) : null),
-        // The measuring pass owns anchoring; native anchoring can undo it as spacer margins change.
-        h("div", { className: "fork-gal-backlog-list", ref: listRef, style: { overflowAnchor: "none" }, tabIndex: 0, "aria-label": "已读内容",
-            onKeyDown: onListKey, onScroll: () => { movedAt.current = Date.now(); readViewport(); } },
+        h("div", { className: "fork-gal-backlog-list", ref: listRef, tabIndex: 0, "aria-label": "已读内容",
+            onKeyDown: onListKey, onScroll: () => { movedAt.current = Date.now(); keepPlace(scroller.current); readViewport(); } },
             h("div", { className: "fork-gal-backlog-col" },
                 h("div", { ref: bandRef, className: "fork-clip-band", "aria-hidden": true, hidden: true }),
-                h("div", { "aria-hidden": true, style: { height: offsets[range.start] } }),
+                h("div", { className: "fork-gal-backlog-spacer", "aria-hidden": true, style: { height: offsets[range.start], overflowAnchor: "none" } }),
                 entries.length ? entries.slice(range.start, range.end).map((entry, index) => row(entry, range.start + index)) : h("p", { className: "fork-gal-backlog-empty" }, "还没有可以回看的内容"),
-                h("div", { "aria-hidden": true, style: { height: offsets[entries.length] - offsets[range.end] } }))),
+                h("div", { className: "fork-gal-backlog-spacer", "aria-hidden": true, style: { height: offsets[entries.length] - offsets[range.end], overflowAnchor: "none" } }))),
         h("i", { ref: barRef, className: "fork-gal-backlog-bar", "aria-hidden": true }, h("b")),
         h("div", { className: "fork-gal-backlog-latest" },
             h(JumpLatest, { skin: "stage", away: latest.away, onJump: latest.jump, focusAfter: () => scroller.current && scroller.current.focus({ preventScroll: true }) })),

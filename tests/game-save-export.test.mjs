@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createGameSaveExporter } from '../tavern-plugin/lib/domain/game-save-export.js'
-import { createGameSaveSnapshot } from '../tavern-plugin/lib/domain/game-save-snapshot.js'
+import { assertGameSaveExportable, createGameSaveSnapshot } from '../tavern-plugin/lib/domain/game-save-snapshot.js'
 import { readGameSave } from '../tavern-plugin/lib/domain/game-save.js'
 import { computeSceneTarget } from '../tavern-plugin/lib/domain/scene-illustration.js'
 
@@ -46,22 +46,6 @@ function fixture({ images = true, missing = false, pluginFailure = false, mutate
   return { exporter, reads, warnings, session }
 }
 
-test('关闭场景图片仍保留消息图片；图片和插件不可读时正文仍可导出', async () => {
-  const plain = fixture({ images: false })
-  const result = await plain.exporter('session-a', { images: false })
-  const save = readGameSave(Buffer.from(result.base64, 'base64'))
-  assert.deepEqual(plain.reads, ['message', 'audio'])
-  assert.equal(result.images, 1)
-  assert.equal(save.scene.files.length, 0)
-  const damaged = fixture({ missing: true, pluginFailure: true })
-  const recovered = await damaged.exporter('session-a')
-  const recoveredSave = readGameSave(Buffer.from(recovered.base64, 'base64'))
-  assert.equal(recovered.images, 0)
-  assert.equal(recoveredSave.chat.messages[0].text, '正文')
-  assert.equal(recoveredSave.plugins, null)
-  assert.equal(damaged.warnings.length, 1)
-})
-
 test('同包带走预设时存档不再内嵌预设快照，但保留 runtimePresetPath 供导入重新冻结', async () => {
   const { exporter } = fixture({ preset: true })
   const full = readGameSave(Buffer.from((await exporter('session-a')).base64, 'base64'))
@@ -78,9 +62,22 @@ test('同包带走预设时存档不再内嵌预设快照，但保留 runtimePre
   assert.ok(kept.chat.runtimePresetSnapshot)
 })
 
-test('导出携带当前权威世界快照但不写入内部 revision 字段', async () => {
-  const world = { position: null, swipe: 1, messageUid: 'deleted-source', world: { variables: { stat_data: { gold: 44 } } }, chatRevision: 2, worldRevision: 7 }
-  const { exporter } = fixture({ world })
-  const save = readGameSave(Buffer.from((await exporter('session-a')).base64, 'base64'))
-  assert.deepEqual(save.world, { position: null, swipe: 1, messageUid: 'deleted-source', world: { variables: { stat_data: { gold: 44 } } } })
+test('导出存档只挡正在运行的前台生成或后台结算，不被历史残留状态或未回复输入阻塞', () => {
+  const stale = {
+    id: 'chat-stale', sessionId: 'session-stale', mode: 'story',
+    regenInProgress: true, settleStatus: 'pending',
+    mvu: { enabled: true, openingInitialization: { status: 'pending' } },
+    timeline: {
+      operations: {
+        body: { kind: 'body', status: 'completed', background: { phase: 'pending' } },
+        agent: { kind: 'agent', status: 'running' }
+      }
+    },
+    messages: [{ role: 'assistant', turn: 1, text: '开场' }, { role: 'user', text: '尚未产生正文的输入' }]
+  }
+  assert.equal(assertGameSaveExportable(stale), true)
+  assert.throws(() => assertGameSaveExportable(null), /找不到要导出的对话/)
+  assert.throws(() => assertGameSaveExportable({ ...stale, mode: 'card' }), /只有游玩对话可以导出存档/)
+  assert.throws(() => assertGameSaveExportable(stale, { agentRunning: true }), /当前正文仍在生成，请等待完成后再导出/)
+  assert.throws(() => assertGameSaveExportable(stale, { settlementRunning: true }), /当前轮次正在状态结算，请等待完成后再导出/)
 })

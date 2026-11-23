@@ -48,7 +48,7 @@ const LEDGER_ITEM = createLedgerItem({ rules: LEDGER_RULES })
  * a consolidation the next story turn reads it once (see ledgerFrameInputs), so the
  * story sees fresh facts without carrying the ledger in every request.
  */
-export function createManualLedger({ store, runAgent, selection, beginTask, ensureSession = async () => {}, replaceLedger = async () => null,
+export function createManualLedger({ store, runAgent, selection, beginTask, withForegroundAgent = (_id, work) => work(), replaceLedger = async () => null,
   onStatus = () => {}, onError = error => console.error('台账整理保存状态失败', error) }) {
   const jobs = new Map()
   function project(chat) {
@@ -118,8 +118,7 @@ export function createManualLedger({ store, runAgent, selection, beginTask, ensu
         apply: delta => applyLedgerDelta(chat.ledger, delta, backlog.through) })
       if (replaced) submission.execute({ arguments: replaced.delta })
       else {
-        await ensureSession(sessionId)
-        result = await runAgent({
+        result = await withForegroundAgent(sessionId, () => runAgent({
           task: 'ledger', persistent: true,
           persistentSessionId: taskRun.participantRequest.sessionId,
           rewindTo: taskRun.participantRequest.rewindTo,
@@ -136,7 +135,7 @@ export function createManualLedger({ store, runAgent, selection, beginTask, ensu
           onToolCall: async call => call?.name === LEDGER_SUBMIT_TOOL.name
             ? submission.execute(call)
             : JSON.stringify({ ok: false, retryable: true, error: '本任务只允许调用 ledger_submit' })
-        })
+        }))
       }
       if (submission.result === null) throw new Error('模型未调用 ledger_submit 提交台账，本次未保存。请重试；若持续出现，请检查后台模型是否支持工具调用。')
       const completed = await taskRun.commit({ participant: taskRun.participant(result), stateChanged: true, apply: current => {
@@ -152,6 +151,8 @@ export function createManualLedger({ store, runAgent, selection, beginTask, ensu
     } catch (error) {
       await taskRun.fail(result)
       await store.updateChat(chat.id, current => {
+        // A cancelled old-branch worker must not resurrect its task marker after rollback.
+        if (current.timeline?.branchId !== taskRun.basedOn?.branchId || current.ledgerTask?.status !== 'running' || current.ledgerTask?.through !== backlog.through) return current
         current.ledgerTask = { status: 'failed', from: backlog.from, through: backlog.through, error: String(error.message || error) }
         return current
       })

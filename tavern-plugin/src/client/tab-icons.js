@@ -3,6 +3,7 @@
 const TAB_ICONS = {
     "dsh-tavern:status": "IconGaugeOutline16",
     "dsh-tavern:conversation-settings": "IconSettingsOutline16",
+    "dsh-tavern:stage-config": "IconSettingsOutline16",
     "dsh-tavern:user-profile": "IconPersonalizationOutline16",
     "dsh-tavern:cards": "IconUserOutline16",
     "dsh-tavern:presets": "IconAgentPresetOutline16",
@@ -24,6 +25,10 @@ function tabPathIcon(path, size) {
         React.createElement("path", { d: path }));
 }
 function registerTab(service, descriptor) {
+    // 非编辑型侧栏标签页跨对话切换时不驻留隐藏 DOM，释放旧对话的 SidebarSessionView 与 Session retain。
+    if (descriptor && descriptor.keepMounted === undefined) {
+        descriptor = Object.assign({ keepMounted: false }, descriptor);
+    }
     // the 人物卡库 tab's 「导入人物卡」 also takes card ZIPs, plus 「从网址导入卡」 (card-zip-entry.js).
     if (descriptor && descriptor.id === "dsh-tavern:cards" && typeof descriptor.component === "function" && typeof CardLibraryWithZip === "function") {
         const host = descriptor.component;

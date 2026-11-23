@@ -11,6 +11,7 @@ const {createStageConfigScreen}=factory('config-screen')
 const {createStageConfigText}=factory('config-text')
 const {createStageConfigAppearance}=factory('config-appearance')
 const {createStageMixer}=factory('mixer')
+const {createStageDevice}=factory('device')
 // entry.js wires the scene's frame-rate rule (read before the test installs a window, which hides Node exports).
 const {galFrameRate}=factory('scene-math').createStageSceneMath({colorMath:require('../tavern-plugin/shared/color-math.cjs'),figureScale:require('../tavern-plugin/packages/dsh-presentation-protocol/src/figure-scale.cjs')})
 function store(value){
@@ -22,16 +23,19 @@ test('real React config switches tabs, edits shared preferences and unmounts wit
   const oldWindow=globalThis.window,oldDocument=globalThis.document,oldAct=globalThis.IS_REACT_ACT_ENVIRONMENT
   globalThis.window=dom.window;globalThis.document=dom.window.document;globalThis.IS_REACT_ACT_ENVIRONMENT=true
   const document=dom.window.document,h=React.createElement
-  const reading=store({voiceRate:1,textSpeed:28,autoWait:700,autoSpeed:1.3,textScale:{},frameCap:60,reducedMotion:false,photosensitive:true})
+  const reading=store({textSpeed:28,autoWait:700,autoSpeed:1.3,textScale:{},frameCap:60,reducedMotion:false,photosensitive:true})
   const audio=store({master:1,voice:1,music:1,sfx:1,ambience:1,ui:1,muted:{},duck:true})
   audio.getSnapshot=audio.get
   audio.setDucking=value=>audio.set({duck:value});audio.toggleMute=layer=>audio.set({muted:{...audio.get().muted,[layer]:!audio.get().muted[layer]}})
   audio.setVolume=(layer,value)=>audio.set({[layer]:value})
-  const quality=store('high'),sounds={play(){}},Icon=()=>null,ResetButton=props=>h('button',{onClick:props.onClick},props.label)
+  // The 画质 setting store resolved by the device module, as entry.js wires it: a desktop (no coarse pointer) is high.
+  const mediaLists=new Set(),matchMedia=query=>{const list={matches:false,addEventListener(){mediaLists.add(list)},removeEventListener(){mediaLists.delete(list)}};return list}
+  const device=createStageDevice({React,matchMedia,window:{navigator:{maxTouchPoints:0,userAgent:'test'}}})
+  const qualityStore=store('auto'),quality=device.quality(qualityStore),sounds={play(){}},Icon=()=>null,ResetButton=props=>h('button',{onClick:props.onClick},props.label)
   const Slider=props=>h('input',{type:'range','aria-label':props.label,value:props.value,min:props.min,max:props.max,onChange:event=>props.onChange?.(Number(event.target.value))})
   const Segmented=props=>h('div',null,props.options.map(([value,label])=>h('button',{key:value,onClick:()=>props.onChange(value)},label)))
   const fields=createStageConfigFields({React,Slider,Segmented,ResetButton,HelpTip:()=>null,sounds})
-  const mixer=createStageMixer({React,fields,reading,voiceRateLimits:[.8,2,.1],audio,Slider,Icon,sounds})
+  const mixer=createStageMixer({React,fields,audio,Slider,Icon,sounds})
   const text=createStageConfigText({React,fields,reading,limits:{textSpeed:[0,80,2],autoWait:[0,3000,100]},defaults:{textSpeed:28},scale:[70,130,5],scaleOf:(r,id)=>r.textScale[id]||100,themes:[['classic','经典']],Typewriter:()=>null})
   const appearance=createStageConfigAppearance({React,fields,reading,quality,themes:[['classic','经典']],window:dom.window,document,Icon,ResetButton,sounds,frameRate:galFrameRate,handheld:()=>false})
   const screen=createStageConfigScreen({React,window:dom.window,document,sections:{},rpc:async()=>({mods:[]}),useSounds(){},sounds,Icon,Sound:mixer.Sound,Text:text.Text,Appearance:appearance.Appearance,Looks:fields.Looks})
@@ -44,6 +48,9 @@ test('real React config switches tabs, edits shared preferences and unmounts wit
     await click('文字');assert.ok(document.querySelector('[aria-label="文字速度"]'))
     assert.equal(document.querySelector('[aria-label="各层音量"]'),null)
     await click('画面');await click('减少动态');assert.equal(reading.get().reducedMotion,true)
+    assert.equal(quality.get(),'high')
+    await click('中');assert.equal(qualityStore.get(),'medium');assert.equal(quality.get(),'medium')
+    await click('自动');assert.equal(qualityStore.get(),'auto');assert.equal(quality.get(),'high')
     appearance.dispose();mixer.dispose();text.dispose();screen.dispose();fields.dispose()
     await click('减少动态');assert.equal(reading.get().reducedMotion,true)
   } finally {
@@ -51,5 +58,5 @@ test('real React config switches tabs, edits shared preferences and unmounts wit
     appearance.dispose();mixer.dispose();text.dispose();screen.dispose();fields.dispose()
     dom.window.close();globalThis.window=oldWindow;globalThis.document=oldDocument;globalThis.IS_REACT_ACT_ENVIRONMENT=oldAct
   }
-  assert.equal(reading.listeners.size,0);assert.equal(audio.listeners.size,0);assert.equal(quality.listeners.size,0)
+  assert.equal(reading.listeners.size,0);assert.equal(audio.listeners.size,0);assert.equal(qualityStore.listeners.size,0);assert.equal(mediaLists.size,0)
 })

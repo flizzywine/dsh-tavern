@@ -18,7 +18,7 @@ const deferred = () => { let resolve; const promise = new Promise(done => { reso
 
 test('原子 JSON 写入短暂遇到 Windows rename 锁会有界重试，最终失败只清理临时文件', async () => {
   const source = await readFile(new URL('lib/index.js', SOURCE), 'utf8')
-  const start = source.indexOf('async function writeJsonAtomic(path, value) {')
+  const start = source.indexOf('async function writeJsonAtomic(')
   const next = source.indexOf('function cacheRoot(', start)
   const end = source.lastIndexOf('}', next)
   assert.ok(start >= 0 && end > start)
@@ -263,6 +263,8 @@ test('Atlas 恢复在转码或写盘期间取消/删除，不覆盖取消状态�
         resumableChannelForJob: item => item?.channelId === channel.id && supportsImageTaskResume(channel) ? channel : null,
         channelEndpointOf: item => item.baseUrl,
         imageOutputConfig: () => ({}), cacheRoot: () => 'virtual-cache', persistJobs: async () => {},
+        // 成品路径由 outputFileFor 决定、写盘前会 mkdir(dirname(file))，切片上下文要给出这三个名字。
+        outputFileFor: item => join('virtual-cache', item.id + '.img'), dirname: () => 'virtual-cache', mkdir: async () => {},
         generateImage: async () => ({ bytes: PNG, mediaType: 'image/png' }),
         transcodeImageOutputAsync: async (_bytes, _type, _config, options) => {
           assert.equal(options.signal, job.controller.signal)

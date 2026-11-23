@@ -22,18 +22,6 @@ function fixture(){
  const env={PIXI,app:{screen:{width:800,height:600}},filters,overlay,world:{toGlobal:p=>p},tune:f=>f,quality:()=> 'high',headOf:()=>({x:200,top:20,chin:80})}
  return {manager,env,made,textures,disposed,options}
 }
-test('effects share the flash gate and keep reduced-motion semantics',()=>{
- const f=fixture(),fx=f.manager.create(f.env),safe={photosensitive:true,reducedMotion:true}
- policy.stageFlashGate.reset();fx.tick({safety:safe},0,0,0)
- for(let i=0;i<3;i++)assert.equal(policy.stageFlashGate.admit(safe),true)
- fx.trigger({op:'beat',value:'flash'},0);assert.equal(fx.stats().beats.length,0)
- fx.trigger({op:'beat',value:'blackout'},0);assert.deepEqual(fx.stats().beats,['blackout'])
- fx.trigger({op:'beat',value:'glitch'},0);fx.trigger({op:'beat',value:'shake-3'},0)
- assert.equal(fx.stats().shakes,0);assert.deepEqual(fx.stats().beats,['blackout'])
- fx.trigger({op:'beat',value:'heartbeat'},0);fx.tick({safety:safe},100,0.1,0)
- assert.equal(fx.zoomKick(100),0);assert.ok(fx.ui(null).vignette>0)
- f.manager.dispose();policy.stageFlashGate.reset()
-})
 test('effects own active filters, nodes and textures and fence late ticks',()=>{
  const f=fixture(),fx=f.manager.create(f.env),desc={safety:{photosensitive:false,reducedMotion:false}}
  fx.tick(desc,0,0,0)

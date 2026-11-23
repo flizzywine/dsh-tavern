@@ -23,14 +23,19 @@ function slim(log) {
 export function createWorldbookRecallLog({ store, now = Date.now }) {
   const base = chatId => 'worldbook-recalls/' + segment(chatId) + '/'
   // Drops index rows (and files) of turns older than the window.
+  function pruneRecords(records) {
+    const latest = records.reduce((max, record) => Math.max(max, Number(record.turn) || 0), 0)
+    const cutoff = latest - WORLDBOOK_RECALL_KEEP_TURNS
+    const dropped = records.filter(record => (Number(record.turn) || 0) <= cutoff)
+    return { dropped, kept: dropped.length ? records.filter(record => !dropped.includes(record)) : records }
+  }
   async function retain(chatId) {
     let dropped = []
     await store.updateJson(base(chatId) + 'index.json', previous => {
       const records = previous?.records || []
-      const latest = records.reduce((max, record) => Math.max(max, Number(record.turn) || 0), 0)
-      const cutoff = latest - WORLDBOOK_RECALL_KEEP_TURNS
-      dropped = records.filter(record => (Number(record.turn) || 0) <= cutoff)
-      return dropped.length ? { version: 1, records: records.filter(record => !dropped.includes(record)) } : previous
+      const result = pruneRecords(records)
+      dropped = result.dropped
+      return dropped.length ? { version: 1, records: result.kept } : undefined
     })
     for (const record of dropped) await store.remove(record.path)
     return { pruned: dropped.length }
@@ -40,11 +45,15 @@ export function createWorldbookRecallLog({ store, now = Date.now }) {
     const value = { version: 1, status: 'prepared', createdAt: now(), chatId: chat.id, sessionId: chat.sessionId,
       turn: frame.turn, operationId: frame.operationId, frameId: frame.frameId, branchId: frame.branchId, basedOnRevision: frame.basedOnRevision, ...slim(log) }
     await store.writeJson(path, value)
+    let dropped = []
     await store.updateJson(base(chat.id) + 'index.json', previous => {
       const records = (previous?.records || []).filter(record => record.operationId !== frame.operationId)
-      return { version: 1, records: [...records, { path, turn: frame.turn, operationId: frame.operationId, branchId: frame.branchId, createdAt: value.createdAt }] }
+      const next = [...records, { path, turn: frame.turn, operationId: frame.operationId, branchId: frame.branchId, createdAt: value.createdAt }]
+      const result = pruneRecords(next)
+      dropped = result.dropped
+      return { version: 1, records: result.kept }
     })
-    await retain(chat.id)
+    for (const item of dropped) await store.remove(item.path)
     return path
   }
   async function read(chat, turn) {

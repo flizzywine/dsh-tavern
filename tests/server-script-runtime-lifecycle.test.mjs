@@ -1,7 +1,9 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import {fork} from 'node:child_process'
 import {EventEmitter} from 'node:events'
 import {createServerScriptExecutor} from '../tavern-plugin/lib/domain/server-script-executor.js'
+import {registerTavernHttpRoutes} from '../tavern-plugin/lib/http/routes.js'
 
 class FakeChild extends EventEmitter {
   constructor(){ super(); this.connected = true; this.sent = []; this.killed = false; this.stderr = { setEncoding(){}, on(){} } }
@@ -91,4 +93,77 @@ test('the sandbox may reach its own allow-list and nothing else', async () => {
   await delay(5)
   assert.equal(child.sent.find(message => message.type === 'fetch-result' && message.id === 3).status, 200)
   h.executor.dispose()
+})
+
+test('a worker reads the pinned session and streamed vendor assets without browser credentials', async t => {
+  let internal, external, seen
+  const webServer = { register(route) { if (route.path === '/api/dsh-tavern') external = route.handler; return () => {} } }
+  const connection = { requestRejection: () => 403 }
+  registerTavernHttpRoutes({
+    ctx: { get: name => ({ webServer, connection })[name], effect: fn => fn() }, str: String,
+    runtimeReadiness: { ok: true }, exposeHandler: fn => { internal = fn },
+    dispatch: async (method, args, authority) => { seen = { method, args, authority }; return { view: {} } },
+  })
+  const h = harness({ handle: internal })
+  t.after(() => h.executor.dispose())
+  h.executor.demand('s1')
+  const child = h.children[0]
+  async function request(id, path, method = 'GET', body) {
+    child.emit('message', { type: 'fetch', id, path, method, body })
+    for (let tries = 0; tries < 100; tries++) {
+      const reply = child.sent.find(row => row.type === 'fetch-result' && row.id === id)
+      if (reply) return reply
+      await delay(5)
+    }
+    throw new Error('No reply from service')
+  }
+
+  const publicStatus = await new Promise(resolve => external({
+    url: '/api/dsh-tavern/getSession', method: 'POST', headers: { host: 'tavern.invalid' },
+  }, { writeHead(code) { this.status = code }, end() { resolve(this.status) } }))
+  assert.equal(publicStatus, 403)
+  assert.equal(seen, undefined)
+  assert.equal((await request(1, '/api/dsh-tavern/getSession', 'POST', '{"sessionId":"different"}')).status, 200)
+  assert.deepEqual(seen, { method: 'getSession', args: { sessionId: 's1' }, authority: { origin: undefined } })
+  const asset = await request(2, '/api/dsh-tavern/vendor/runtime-assets/zod/index.mjs')
+  assert.equal(asset.status, 200)
+  assert.equal(Number(asset.headers['content-length']), Buffer.from(asset.body, 'base64').length)
+  assert.ok(Buffer.from(asset.body, 'base64').length > 0)
+  assert.equal((await request(3, '/api/dsh-tavern/getSessionOther', 'POST')).status, 403)
+})
+
+test('an unhandled card promise rejection is reported and leaves the worker responsive', { timeout: 15_000 }, async t => {
+  let handle, worker, ready = false, reported = false, written = false
+  registerTavernHttpRoutes({
+    ctx: { get: () => undefined }, str: String, runtimeReadiness: { ok: true }, exposeHandler: fn => { handle = fn },
+    async dispatch(method, args) {
+      if (method === 'getSession') return { view: { chatId: 'fixture',
+        tavernHelper: { chatId: 'fixture', messages: [] }, tavernHelperScripts: [{ id: 'fixture', content: `
+          void replaceVariables({fixture:'rejected'}, {type:'chat'});
+          setTimeout(() => { void replaceVariables({fixture:'after'}, {type:'chat'}); }, 200);
+        ` }] } }
+      if (method === 'updateTavernHelperVariables') {
+        if (JSON.stringify(args).includes('"rejected"')) throw new Error('fixture rejected write')
+        written = true
+      }
+      if (method === 'recordMvuRuntimeDiagnostic' && args.diagnostic?.message === 'fixture rejected write') reported = true
+      if (method === 'claimTavernScriptWork') {
+        ready ||= args.ready === true
+        return { active: true, ready: args.ready, event: null }
+      }
+      return {}
+    },
+  })
+  const executor = createServerScriptExecutor({ handle, subscribeSignals: () => () => {}, logger: { log(){}, warn(){}, error(){} },
+    spawn(file, args, options) {
+      // Resolve dependencies from the test checkout even when its package store is symlinked.
+      worker = fork(file, args, { ...options, execArgv: ['--experimental-vm-modules'], env: { ...options.env, NODE_OPTIONS: process.env.NODE_OPTIONS } })
+      return worker
+    },
+  })
+  t.after(() => executor.dispose())
+  executor.demand('fixture-session')
+  for (let attempt = 0; attempt < 100 && worker.exitCode === null && !(ready && reported && written); attempt++) await delay(100)
+  assert.equal(worker.exitCode, null, 'the card error must not exit the worker')
+  assert.deepEqual({ ready, reported, written }, { ready: true, reported: true, written: true })
 })

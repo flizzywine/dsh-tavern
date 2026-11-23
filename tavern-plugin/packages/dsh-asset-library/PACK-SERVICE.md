@@ -87,8 +87,12 @@ so export cannot combine one manifest with another generation's bytes.
    documents let a UI show exact recall/figure changes rather than only counts.
    Affected cards is explicitly `{status:'unknown'}`; Tavern owns that index.
 2. `applyImport({inspectionId,expectedRevision,decision})` requires one of the
-   preview choices: install/update/keep-both/noop/cancel. Update is never selected
-   by default. Apply revalidates bytes, global identities and frozen local CAS.
+   preview choices: install/update/merge/keep-both/noop/cancel. Update is never selected
+   by default. Update replaces the installed pack; merge (增量更新) installs the new
+   version plus the entries only the installed one has (the preview's `removed`,
+   `{kind,id,name}` in installed order) under their own ids / UUIDs with their media,
+   bundles, sprites, voices and credits, the new version winning on shared ids, and
+   keeps local enabled / recall / aliases by the catalogue's `mergeMetadata` rule. Apply revalidates bytes, global identities and frozen local CAS.
    Editing after inspection invalidates even a keep-both operation. Keep-both
    assigns a new pack UUID and every figure UUID, preserving short keys and
    remapping typed complete refs in author JSON; existing packs/cards/history
@@ -96,6 +100,11 @@ so export cannot combine one manifest with another generation's bytes.
 3. `exportPack({...write})` returns `{bytes,filename,contentHash,revision}`. It
    includes disabled and unused author files and no local files. Transport should
    send those bytes as an authenticated attachment, not a control JSON payload.
+   Export progress: the browser may add `progressId` (its own 8–64 character
+   name) to `exportPack` / `exportPacks`; while that call runs,
+   `exportProgress({progressId})` returns `{done,total}` in input bytes written
+   into the archive (null once it ended). The transport strips the id and gives
+   the service a local `{onProgress}` option; the service never sees RPC input for it.
 4. Library export: `exportPacks({packs:[write,...]})` (two or more)
    returns one pack-set ZIP — `dsh-tavern-pack-set.json` (packs + path/size
    closure) and `packs/<packId>/manifest.json` plus each pack's files. Given such a

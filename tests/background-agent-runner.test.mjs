@@ -85,7 +85,8 @@ test('后台固定背景只保存一次，连续候选、结算和恢复均进�
     return runner.run({ sessionId: 'parent', persistent: true, persistentSessionId, task: 'candidate', selection: { provider: 'test', model: 'fake' },
       system: context.taskText, backgroundContext: context.stableText, turnContext: context.dynamicText,
       systemPromptText: context.systemPromptText, postHistoryText: context.postHistoryText,
-      messages: [{ role: 'assistant', content: [{ type: 'text', text: '最新正文' }] }, { role: 'user', content: [{ type: 'text', text: '本轮候选意见' }] }]
+      candidateRequest: { text: '从正篇续上', guideText: context.guideText, guidance: '本轮候选意见' },
+      messages: [{ role: 'assistant', content: [{ type: 'text', text: '最新正文' }] }]
     })
   }
   await candidate()
@@ -115,10 +116,10 @@ test('后台固定背景只保存一次，连续候选、结算和恢复均进�
     assert.doesNotMatch(packet.text, /固定背景|固定性格|固定场景|固定示例|固定世界设定/)
     assert.doesNotMatch(packet.text, /每轮系统要求/)
     assert.match(packet.text, /最新正文/)
-    assert.match(packet.text, /最新Guide/)
+    assert.match(packet.text, /<candidate_directions>[\s\S]*最新Guide/)
     assert.match(packet.text, /最新姿势/)
-    assert.match(packet.text, /本轮候选意见/)
-    assert.ok(packet.text.endsWith((index < 2 ? '每轮末尾要求' : '修改后的末尾要求') + '\n</post_history>'))
+    assert.match(packet.text, /<regeneration_guidance>\n本轮候选意见\n<\/regeneration_guidance>/)
+    assert.ok(packet.text.includes((index < 2 ? '每轮末尾要求' : '修改后的末尾要求') + '\n</post_history>\n\n<candidate_directions>'))
   }
   await runner.run({ sessionId: 'parent', persistent: true, persistentSessionId: 'background', task: 'settlement', selection: { provider: 'test', model: 'fake' }, system: '结算规则', messages: [], backgroundContext: '不应带入的候选背景', systemPromptText: '不应带入的系统要求', postHistoryText: '不应带入的末尾要求' })
   assert.equal(packets.at(-1).system, stableSystem, '结算与候选切换不得改写 system 前缀')
@@ -411,7 +412,7 @@ test('stage-director isolates native tools/persona and preserves correction hist
         assert.match(system, /GLOBAL APPEND/)
         assert.notEqual(system, 'DIRECTOR COMPLETE PERSONA')
         assert.deepEqual(modes, [])
-        assert.deepEqual(restrictions, [['skill', 'read', 'worldbook_list', 'worldbook_grep', 'tavern_read_skill_reference', 'web_search']])
+        assert.deepEqual(restrictions, [['skill', 'read', 'list_lorebook', 'grep_lorebook', 'read_lorebook', 'tavern_read_skill_reference', 'web_search']])
         assert.match(followed[0].content[0].text, /DIRECTOR COMPLETE PERSONA/)
       }
     } finally { await runner.dispose() }
@@ -462,8 +463,8 @@ test('插件结算工具：随后台会话固定注册，只在结算任务里�
     assert.ok(registered.has('anchor_submit'), 'plugin tools sit in the fixed tool list')
     assert.deepEqual(pluginCalls, [[{ gameId: 'parent', turn: 4 }, 'anchor_submit', { text: '门' }]])
     assert.match(results[2], /提交结算之前/, 'after the final submission a plugin tool is refused')
-    assert.match(texts[0], /【插件附加的结算任务】[\s\S]*本轮可用插件工具：anchor_submit。以本轮列出的为准[\s\S]*parent 第 4 轮记录锚点/)
-    assert.match(texts[0], /本轮不可用的插件工具（玩家在本局关闭了对应插件）：old_tool。本轮不要调用/)
+    assert.match(texts[0], /<plugin_settlement>[\s\S]*Plugin tools available this turn: anchor_submit\. This list is current[\s\S]*parent 第 4 轮记录锚点/)
+    assert.doesNotMatch(texts[0], /old_tool/)
 
     script = async () => { results.push(await registered.get('anchor_submit').execute({ text: '候选里' })) }
     await runner.run({ sessionId: 'parent', persistent: true, task: 'candidate', selection: { provider: 'test', model: 'test' },

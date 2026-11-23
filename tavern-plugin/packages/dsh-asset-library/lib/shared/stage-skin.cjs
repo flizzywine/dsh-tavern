@@ -9,6 +9,10 @@ const skinEnum = values => value => values.includes(value);
 const STAGE_SKIN_SOURCE_KINDS = ['official-asset','ai-generated','original'];
 const skinArray = (item,min,max) => value => Array.isArray(value) && value.length >= min && value.length <= max && value.every(item);
 const skinObject = (fields,required = []) => value => value !== null && typeof value === 'object' && !Array.isArray(value) && required.every(key => Object.hasOwn(value,key)) && Object.keys(value).every(key => Object.hasOwn(fields,key) && fields[key](value[key]));
+// textStyle.highlight: words of the story text drawn in an ink (display only; text-marks.cjs finds them). One word: its text (1-16 chars),
+// caseless (any letter case), whole (not inside a longer number or word) and except (longer phrases whose occurrences keep it plain).
+const skinTextHighlightWord = skinObject({text:value => typeof value === 'string' && value.length >= 1 && value.length <= 16,caseless:value => typeof value === 'boolean',whole:value => typeof value === 'boolean',except:skinArray(value => typeof value === 'string' && value.length >= 1 && value.length <= 16,1,16)},['text']);
+const skinTextHighlight = skinObject({ink:skinColor,words:skinArray(skinTextHighlightWord,1,16)},['ink','words']);
 const skinText = value => typeof value === 'string' && value.length > 0 && value.length <= 4096;
 const skinPaint = skinObject({bg:skinColor,fg:skinColor,fgMuted:skinColor,accent:skinColor,onAccent:skinColor,border:skinColor},['bg','fg']);
 const skinRings = (count,width) => skinArray(skinObject({width:skinNumber(1,width),color:skinColor},['width','color']),0,count);
@@ -391,11 +395,13 @@ const skinMenuSignal = skinObject({image:skinImage,alert:skinImage,x:skinPx,y:sk
 // the wide sheet); rows = the bars stacked full width from x (left inset) and y, gap apart, slant px right per bar (each bar
 // that much shorter), at least 44 CSS px tall; title = the title strip centred x px right of the screen's middle at y, scale x
 // its wide size; signal = the lamp at x, y from the title's top-left (none on phones without it). The info and key strips are
-// not drawn (touch has no focus line or keys); the motion is the wide menu's.
+// not drawn (touch has no focus line or keys); the motion is the wide menu's. anchor middle: the title and the bars stand as one
+// block centred in the screen's height under the top bar (phones of every height), rows.y the space from the title to the first
+// bar; title.y is then unused.
 // rows.poses (§18 N32): each label's own offset (x design px) and turn (rot degrees), cycled by its place - a hand-pasted, staggered
 // column; the bar and hit area stay.
 const skinMenuPoses = skinArray(skinObject({x:skinNumber(-256,256),rot:skinNumber(-12,12)}),1,12);
-const skinMenuNarrow = skinObject({unit:skinNumber(0.05,0.5),sheet:skinImage,
+const skinMenuNarrow = skinObject({unit:skinNumber(0.05,0.5),sheet:skinImage,anchor:skinEnum(['middle']),
     rows:skinObject({images:skinObject({plain:skinImage,focus:skinImage,off:skinImage},['plain','focus']),slice:skinSlice,text:skinArray(skinNumber(0,4096),3,3),font:skinNumber(8,256),x:skinNumber(0,4096),y:skinPx,gap:skinNumber(0,512),slant:skinNumber(-256,256),poses:skinMenuPoses}),
     title:skinObject({x:skinPx,y:skinPx,scale:skinNumber(.25,4)}),signal:skinObject({x:skinPx,y:skinPx},['x','y'])},['unit']);
 const skinMenu = value => skinObject({sheet:skinImage,frame:skinMenuFrame,tiles:skinMenuTiles,dim:skinNumber(0,1),blur:skinNumber(0,64),grey:skinNumber(0,1),signal:skinMenuSignal,narrow:skinMenuNarrow,
@@ -411,12 +417,14 @@ const skinMenu = value => skinObject({sheet:skinImage,frame:skinMenuFrame,tiles:
     // come from the glyph and its place in the word (labels.cjs galRansomGlyphs), so a word always reads the same.
     glyphTiles:skinObject(skinGlyphTileFields,['shape','tiles']),
     // rows.slant (§18 N27): each bar this many design px right of the one above (a list along a leaning axis drawn on the sheet).
+    // rows.stroke: a hard outline round the labels under the ink (an original's white words with a darker rim), wide and phone.
     // rows.letter (§18 N31): the labels as ransom glyph blocks (skinMenuTitle); rows.focusScale: the focused label drawn this much
     // larger (its bar and hit area unchanged), on phones too.
     rows:skinObject({images:skinObject({plain:skinImage,focus:skinImage,off:skinImage},['plain','focus']),slice:skinSlice,text:skinArray(skinNumber(0,4096),3,3),slant:skinNumber(-256,256),
         font:skinNumber(8,256),x:skinPx,y:skinPx,gap:skinNumber(0,512),ink:skinColor,focusInk:skinColor,weight:skinEnum([400,500,700]),spacing:skinNumber(0,0.5),align:skinEnum(['start','center','end']),cursor:skinObject({image:skinImage,x:skinPx,y:skinPx},['image','x','y']),
         // fit: the bars' most height (the menu's capacity) - past it they scroll inside it.
-        letter:skinEnum(STAGE_SKIN_MENU_LETTERS),focusScale:skinNumber(1,1.6),poses:skinMenuPoses,fit:skinNumber(16,4096)},
+        letter:skinEnum(STAGE_SKIN_MENU_LETTERS),focusScale:skinNumber(1,1.6),poses:skinMenuPoses,fit:skinNumber(16,4096),
+        stroke:skinObject({color:skinColor,width:skinNumber(0,16)},['color','width'])},
         ['images','slice','text','font','x','y','gap']),
     title:skinMenuTitle,info:skinMenuStrip,keys:skinMenuStrip})(value) && Object.hasOwn(value,'rows') !== Object.hasOwn(value,'tiles')
     && (!value.tiles?.plainFocus || Boolean(value.tiles.plain)) && (value.tiles?.minScale === undefined || value.tiles.fit !== undefined)
@@ -497,7 +505,9 @@ const skinBacklogAvatarProblem = value => skinFieldsProblem(value,STAGE_BACKLOG_
 const skinBacklogRollProblem = value => skinFieldsProblem(value,STAGE_BACKLOG_ROLL_FIELDS,['image','size'],'a roll');
 const skinBacklogAvatar = value => skinBacklogAvatarProblem(value) === null;
 const skinBacklogRoll = value => skinBacklogRollProblem(value) === null;
-const skinBacklog = skinObject({...skinArtScreen,list:skinRect,pitch:skinNumber(8,512),text:skinArray(skinNumber(0,8192),2,2),top:skinNumber(0,512),gap:skinNumber(0,512),
+// title false: the original's log screen has no title - no words or image at its top (the overlay keeps its accessible name);
+// omitted = the shared title centred at the top of the game area.
+const skinBacklog = skinObject({...skinArtScreen,title:value => value === false || skinArtPlaced(value),list:skinRect,pitch:skinNumber(8,512),text:skinArray(skinNumber(0,8192),2,2),top:skinNumber(0,512),gap:skinNumber(0,512),
     // name.letter ransom (C2): the name as glyph tiles (glyphTiles below); name.align end: the name's right edge on the text
     // column's left edge, a long name growing to the left.
     voice:skinBacklogVoice,name:skinObject({x:skinPx,y:skinPx,h:skinNumber(1,1024),font:skinNumber(8,512),head:skinNumber(0,1024),frame:skinArtPlaced,rule:skinArtPlaced,
@@ -935,7 +945,7 @@ const stageSkinShape = skinObject({
     // faces: the skin's own font files (skinFontFaces above); an id in body / name / ui / film may name one of them.
     font:skinObject({body:skinId,name:skinId,ui:skinId,film:skinId,menu:skinId,faces:skinFontFaces}),
     // textStyle.narration (§18 N9): the ink of narration pages (no speaker) in the box and the backlog, >= 7:1 on the box.
-    textStyle:skinObject({weight:skinEnum([400,500,700]),sizeScale:skinNumber(0.85,1.2),lineHeight:skinNumber(1.4,1.9),letterSpacing:skinNumber(0,0.12),emphasis:skinColor,wrap:skinEnum(['phrase']),narration:skinColor}),
+    textStyle:skinObject({weight:skinEnum([400,500,700]),sizeScale:skinNumber(0.85,1.2),lineHeight:skinNumber(1.4,1.9),letterSpacing:skinNumber(0,0.12),emphasis:skinColor,wrap:skinEnum(['phrase']),narration:skinColor,highlight:skinTextHighlight}),
     // (§18 E1): the stepped reveals' glyph track on the fixed 12/s clock. poses = the glyph's own entrance poses
     // (step 0, 1, ...; then at rest), replacing the reveal's two; stepFps = how long each pose holds, in whole steps
     // (round(12 / stepFps)); emphasis = the entrance ink (none: the body ink; ink: the flash) or jitter: the flash plus a
@@ -1015,7 +1025,7 @@ function validateStageSkin(value, at = 'art') {
         : !spinner.image || !skinSpinnerTiming(spinner))) throw Object.assign(new Error('Invalid skin loading animation'),{code:'INVALID_SKIN'});
     const paint=value.textbox.paint, name=value.nameplate.paint;
     const ui={...paint,...value.ui};
-    const pairs=[...(value.ui ? [[ui.fg,ui.bg,4.5],[ui.fgMuted,ui.bg,3],[ui.accent,ui.bg,4.5],[ui.onAccent,ui.accent,4.5]] : []),[paint.fg,paint.bg,4.5],[paint.fgMuted,paint.bg,3],[value.textStyle?.emphasis || paint.accent || paint.fg,paint.bg,4.5],...(value.textStyle?.narration ? [[value.textStyle.narration,paint.bg,7]] : []),[paint.onAccent,paint.accent,4.5],
+    const pairs=[...(value.ui ? [[ui.fg,ui.bg,4.5],[ui.fgMuted,ui.bg,3],[ui.accent,ui.bg,4.5],[ui.onAccent,ui.accent,4.5]] : []),[paint.fg,paint.bg,4.5],[paint.fgMuted,paint.bg,3],[value.textStyle?.emphasis || paint.accent || paint.fg,paint.bg,4.5],...(value.textStyle?.narration ? [[value.textStyle.narration,paint.bg,7]] : []),...(value.textStyle?.highlight ? [[value.textStyle.highlight.ink,paint.bg,4.5]] : []),[paint.onAccent,paint.accent,4.5],
         // The outlined names  take their contrast from the outline.
         [name.fg,['outline','chamfer'].includes(value.nameplate.shape) ? name.border : name.bg,4.5],[value.quickMenu?.fg,value.quickMenu?.bg,4.5],
         // the ransom plate also sets the name ink on its third block, paint.border.

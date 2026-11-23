@@ -142,7 +142,7 @@
 					} catch (err) { setError(String(err && err.message || err)); } finally { setBusy(false); }
 				}
 				async function remove(item) {
-					if (!await askConfirm("删除酒馆预设“" + item.title + "”吗？\n工作版和原版都会删除；已有对话保留。")) return;
+					if (!await askConfirm("工作版和原版都会删除；已有对话保留。", { title: "删除酒馆预设“" + item.title + "”？", confirmText: "删除", danger: true, hide: "preset" })) return;
 					setBusy(true); setError("");
 					try {
 						if (item.path === catalog.activePresetPath) await rpc("selectPreset", { path: "" }, props.scope.sessionId);

@@ -29,7 +29,7 @@ export async function cardMemoryChecks({ page, step, data, output, report, saved
     const chats = await Promise.all((await readdir(join(data, 'chats'))).map(id => store.read(id)))
     card = chats.find(chat => chat.mode === 'card')
     assert.ok(card)
-    const composer = page.getByRole('textbox', { name: /发消息|Message/ })
+    const composer = page.getByRole('textbox', { name: /下一步行动|Next action|发消息|Message/ })
     await composer.fill('E2E_MEMORY_SAVE 以后改卡保留原卡结构，不重写开场白。')
     await composer.press('Enter')
     await page.getByText('改卡偏好已保存。', { exact: true }).filter({ visible: true }).first().waitFor()
@@ -38,7 +38,7 @@ export async function cardMemoryChecks({ page, step, data, output, report, saved
   await step('刷新后检索偏好，真实请求保持历史前缀和工具不变', async () => {
     const prior = (await readFile(join(output, 'memory-requests.jsonl'), 'utf8')).trim().split('\n').map(JSON.parse).at(-1)
     await page.reload({ waitUntil: 'domcontentloaded' })
-    const composer = page.getByRole('textbox', { name: /发消息|Message/ })
+    const composer = page.getByRole('textbox', { name: /下一步行动|Next action|发消息|Message/ })
     await composer.fill('E2E_MEMORY_NEXT 按我的习惯继续改卡')
     await composer.press('Enter')
     await page.getByText('已读取改卡偏好。', { exact: true }).filter({ visible: true }).first().waitFor()

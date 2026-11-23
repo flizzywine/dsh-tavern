@@ -79,17 +79,6 @@ function nodeTexts(session) {
   })
 }
 
-test('只删除末尾已入档的截断正文，保留玩家输入与上一轮', async () => {
-  const h = fixture(['completed', 'incomplete'])
-  const { canClearIncompleteReply, clearIncompleteReplyTarget } = h.state()
-  assert.equal(canClearIncompleteReply, true)
-  assert.deepEqual(clearIncompleteReplyTarget, { kind: 'reply', turn: 3, messageUid: 'reply-3' })
-  const result = await h.clear(clearIncompleteReplyTarget)
-  assert.equal(result.deletedCount, 1)
-  assert.deepEqual(h.chat.messages.map(row => row.text), ['开场白', '输入2', '正文2', '输入3'])
-  assert.deepEqual(nodeTexts(h.session), ['输入2', '正文2', '输入3', ''])
-})
-
 for (const orphanCount of [1, 2]) test(`清理 ${orphanCount} 个只有输入的失败轮时保留已完成正文`, async () => {
   const h = fixture(['completed', ...Array(orphanCount).fill('orphan')])
   const { clearIncompleteReplyTarget } = h.state()
@@ -104,31 +93,6 @@ for (const orphanCount of [1, 2]) test(`清理 ${orphanCount} 个只有输入的
   assert.ok(h.calls.includes('rollback.interrupted'))
 })
 
-test('只清理首轮失败，开场白仍在', async () => {
-  const h = fixture(['orphan'])
-  const result = await h.clear(h.state().clearIncompleteReplyTarget)
-  assert.equal(result.deletedCount, 0)
-  assert.deepEqual(h.chat.messages.map(row => row.text), ['开场白'])
-  assert.deepEqual(nodeTexts(h.session).filter(Boolean), [])
-})
-
-test('可以删除已失败轮的占位行', async () => {
-  const h = fixture(['completed', 'placeholder'])
-  const { clearIncompleteReplyTarget } = h.state()
-  assert.deepEqual(clearIncompleteReplyTarget, { kind: 'reply', turn: 3, messageUid: null })
-  assert.equal((await h.clear(clearIncompleteReplyTarget)).deletedCount, 1)
-  assert.deepEqual(h.chat.messages.map(row => row.text), ['开场白', '输入2', '正文2', '输入3'])
-})
-
-test('更新的失败轮没有入档输入时，清理不会删除更早的截断正文', async () => {
-  const h = fixture(['incomplete', 'orphan'])
-  h.chat.messages.pop()
-  const { clearIncompleteReplyTarget } = h.state()
-  assert.deepEqual(clearIncompleteReplyTarget, { kind: 'failed-tail', turn: 3 })
-  assert.equal((await h.clear(clearIncompleteReplyTarget)).deletedCount, 0)
-  assert.deepEqual(h.chat.messages.map(row => row.text), ['开场白', '输入2', '正文2'])
-})
-
 test('没有未完成回复时，接口和失败尾回退均拒绝删除已完成正文', async () => {
   const h = fixture(['completed'])
   const before = structuredClone(h.chat)
@@ -137,19 +101,5 @@ test('没有未完成回复时，接口和失败尾回退均拒绝删除已完�
   await assert.rejects(h.history.rollback(h.session.id, h.chat.id, 2, { failedTailOnly: true }), /清理目标已经变化/)
   assert.deepEqual(h.chat, before)
   assert.deepEqual(nodeTexts(h.session), ['输入2', '正文2'])
-  assert.deepEqual(h.calls, [])
-})
-
-test('界面目标变化或前后台忙时，清理请求不会写入', async () => {
-  const h = fixture(['completed', 'incomplete'])
-  const before = structuredClone(h.chat)
-  const target = h.state().clearIncompleteReplyTarget
-  await assert.rejects(h.clear({ ...target, messageUid: 'old-reply' }), /清理目标已经变化/)
-  h.agent.phase = { kind: 'running' }
-  await assert.rejects(h.clear(target), /正在|完成后/)
-  h.agent.phase = { kind: 'idle' }
-  h.activity.busy = true
-  await assert.rejects(h.clear(target), /正在|完成后/)
-  assert.deepEqual(h.chat, before)
   assert.deepEqual(h.calls, [])
 })

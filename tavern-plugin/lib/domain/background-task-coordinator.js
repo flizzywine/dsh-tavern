@@ -1,3 +1,4 @@
+import { assertWidgetSettlementAdmission } from './widget-variable-transaction.js'
 import { taskStateFields } from './task-state-reader.js'
 import { createScopedMessages } from './scoped-messages.js'
 import { diffMvuChanges } from './mvu-settlement-effect.js'
@@ -70,10 +71,14 @@ export function createBackgroundTaskCoordinator(options = {}) {
     })
   }
 
-  function serialize(chatId, work) {
+  function serialize(chatId, work, trace) {
     const id = str(chatId)
+    trace?.('serialize-queued')
     const previous = mutationTails.get(id) || Promise.resolve()
-    const current = previous.catch(function () {}).then(work)
+    const current = previous.catch(function () {}).then(() => {
+      trace?.('serialize-acquired')
+      return work()
+    })
     mutationTails.set(id, current)
     return current.finally(function () {
       if (mutationTails.get(id) === current) mutationTails.delete(id)
@@ -246,6 +251,8 @@ export function createBackgroundTaskCoordinator(options = {}) {
         // agent.begin only changes timeline metadata. Omit historic checkpoints
         // from cloning/diffing; retain them in the returned full snapshot.
         const projected = fast ? { ...(input.prepareCommit ? {taskMailbox:source.taskMailbox} : {}), timeline: { ...source.timeline, checkpoints: [] }, ...(Object.hasOwn(source, 'candidateAgent') ? { candidateAgent: source.candidateAgent } : {}) } : source
+        // the selected head's non-evictable edit fact also gates the fast admission path.
+        if (role === 'settlement') assertWidgetSettlementAdmission(source)
         const next = timeline.apply({ chat: projected, intent: { kind: 'agent.begin', role, requestId } })
         if (input.bindExistingSession && next.value.participant?.sessionId) {
           next.chat = timeline.apply({chat:next.chat,intent:{kind:'agent.bind',operationId:next.value.operationId,sessionId:next.value.participant.sessionId}}).chat
@@ -281,6 +288,7 @@ export function createBackgroundTaskCoordinator(options = {}) {
     // One agent operation at a time holds a game's background slot, from here to its commit.
     const gameId = str(chat?.sessionId || begun.chat?.sessionId)
     if (begun.value.created !== false) options.lockEvent?.({ kind: 'held', sessionId: gameId, slot: slotOf(role), role: str(role), operationId: begun.value.operationId })
+    const settlementSignal = role === 'settlement' ? input.signal : undefined
     const task = {
       chat: begun.chat,
       operationId: begun.value.operationId,
@@ -339,40 +347,46 @@ export function createBackgroundTaskCoordinator(options = {}) {
         if (!saved) throw new Error('后台任务对话已不存在，保存点未写入')
         return saved
       },
-      async checkpointMessage(messageId, apply) {
-        return serialize(chatId, async () => {
-          const mutate = (chat, index) => {
-            const state = timeline.inspect({ chat })
-            const operation = state.operations[begun.value.operationId]
-            if (operation?.status !== 'running' || state.branchId !== begun.value.basedOn.branchId
-              || state.revision !== begun.value.basedOn.revision) throw new Error('后台任务保存点已过期')
-            apply(chat, chat.messages[index])
-            return chat
-          }
-          const metadata = { source: 'background.' + str(role) + '.checkpoint', operationId: begun.value.operationId }
-          if (store.readSlice && store.patchChat) {
-            const selected = await store.readSettlementCheckpoint?.(chatId, messageId, begun.value.operationId)
-              || await store.readSlice(chatId, [messageId])
-            const legacy = Object.values(selected?.chat.timeline?.operations || {}).some(op => op?.kind === 'body' && op.status === 'foreground-completed')
-            if (selected?.chat.timeline?.schemaVersion === 1 && !legacy) {
-              const before = selected.chat, after = structuredClone(before)
-              mutate(after, 0)
-              const changes = diffJson(before, after)
-              if (changes.every(c => c.path[0] === 'messages' && c.path[1] === 0 && c.path.length > 2)) {
-                const saved = await store.patchChat(chatId, before._storageRevision,
-                  changes.map(c => ({ ...c, path: ['messages', messageId, ...c.path.slice(2)] })), metadata)
-                if (saved) return
-              }
+      async checkpointMessage(messageId, apply, { trace, assertCurrent } = {}) {
+        const mutate = (chat, index) => {
+          const state = timeline.inspect({ chat })
+          const operation = state.operations[begun.value.operationId]
+          if (operation?.status !== 'running' || state.branchId !== begun.value.basedOn.branchId
+            || state.revision !== begun.value.basedOn.revision) throw new Error('后台任务保存点已过期')
+          apply(chat, chat.messages[index])
+          return chat
+        }
+        const metadata = { source: 'background.' + str(role) + '.checkpoint', operationId: begun.value.operationId, ...(assertCurrent ? {assertCurrent} : {}) }
+        // Snapshot preparation is outside the queue; patchChat checks the exact
+        // storage revision (and assertCurrent) inside its durable CAS write.
+        if (store.readSlice && store.patchChat) {
+          const selected = await store.readSettlementCheckpoint?.(chatId, messageId, begun.value.operationId)
+            || await store.readSlice(chatId, [messageId])
+          const legacy = Object.values(selected?.chat.timeline?.operations || {}).some(op => op?.kind === 'body' && op.status === 'foreground-completed')
+          if (selected?.chat.timeline?.schemaVersion === 1 && !legacy) {
+            const before = selected.chat, after = structuredClone(before)
+            mutate(after, 0)
+            const changes = diffJson(before, after)
+            if (changes.every(c => c.path[0] === 'messages' && c.path[1] === 0 && c.path.length > 2)) {
+              const saved = await serialize(chatId, () => store.patchChat(chatId, before._storageRevision,
+                changes.map(c => ({ ...c, path: ['messages', messageId, ...c.path.slice(2)] })), metadata), trace)
+              if (saved) return
             }
           }
+        }
+        return serialize(chatId, async () => {
           const saved = await store.updateChat(chatId, chat => mutate(chat, messageId), metadata)
           if (!saved) throw new Error('后台任务对话已不存在，保存点未写入')
-        })
+        }, trace)
       },
       async commit(input = {}) {
-        const outcome = await serialize(begun.chat.id, async function () {
-          const metadata = { source: 'background.' + str(role) + '.commit', operationId: begun.value.operationId }
+        // Preparation stays outside the chat queue (only writes are serialized); the slot frees once the outcome is known.
+        const outcome = await (async () => {
+          settlementSignal?.throwIfAborted()
+          const metadata = { source: 'background.' + str(role) + '.commit', operationId: begun.value.operationId,
+            ...(settlementSignal ? { assertCurrent: () => settlementSignal.throwIfAborted() } : {}) }
           // This opt-in seam declares every floor the settlement callback can read/write.
+          // Prepare without monopolizing the chat queue; retry on revision conflict.
           // Keep variable effects, delivery cleanup, receipt and timeline in one CAS frame.
           if (role === 'settlement' && Array.isArray(input.messageIndices) && store.readSlice && store.patchChat) {
             const indices = [...new Set(input.messageIndices)]
@@ -388,7 +402,7 @@ export function createBackgroundTaskCoordinator(options = {}) {
                 || Object.keys(completed.chat.messages).some(key => !indices.includes(Number(key)))) break
               const changes = diffMvuChanges(before,completed.chat,indices)
               if (changes.some(c => c.path[0] === 'messages' && (!indices.includes(c.path[1]) || c.path.length < 2))) break
-              const saved = await store.patchChat(begun.chat.id,before._storageRevision,changes,{...metadata,returnProjection:'settlement'})
+              const saved = await serialize(chatId, () => store.patchChat(begun.chat.id,before._storageRevision,changes,{...metadata,returnProjection:'settlement'}))
               if (saved) return {chat:{...completed.chat,...saved,messages:completed.chat.messages},status:completed.value.status}
             }
           }
@@ -407,29 +421,31 @@ export function createBackgroundTaskCoordinator(options = {}) {
                 outcome:{status:input.status||'success',stateChanged:input.stateChanged===true,participant:input.participant||null},apply:input.apply})
               const changes = diffJson(before, completed.chat)
               if (changes.some(change => !writable.has(change.path[0]))) break
-              const saved = await store.patchChat(begun.chat.id,before._storageRevision,changes,{...metadata,returnProjection:fields})
+              const saved = await serialize(chatId, () => store.patchChat(begun.chat.id,before._storageRevision,changes,{...metadata,returnProjection:fields}))
               if (saved) return {chat:saved,status:completed.value.status}
             }
           }
-          let status = 'missing'
-          const saved = await store.updateChat(begun.chat.id, function (latest) {
-            const completed = timeline.complete({
-              chat: latest,
-              operationId: begun.value.operationId,
-              basedOn: begun.value.basedOn,
-              outcome: {
-                status: input.status || 'success',
-                stateChanged: input.stateChanged === true,
-                participant: input.participant || null
-              },
-              apply: input.apply
-            })
-            status = completed.value.status
-            if (status === 'committed' && input.beforePersist) return Promise.resolve(input.beforePersist(completed.chat)).then(() => completed.chat)
-            return completed.chat
-          }, metadata)
-          return saved === undefined ? { chat: null, status: 'missing' } : { chat: saved, status }
-        })
+          return serialize(chatId, async () => {
+            let status = 'missing'
+            const saved = await store.updateChat(begun.chat.id, function (latest) {
+              const completed = timeline.complete({
+                chat: latest,
+                operationId: begun.value.operationId,
+                basedOn: begun.value.basedOn,
+                outcome: {
+                  status: input.status || 'success',
+                  stateChanged: input.stateChanged === true,
+                  participant: input.participant || null
+                },
+                apply: input.apply
+              })
+              status = completed.value.status
+              if (status === 'committed' && input.beforePersist) return Promise.resolve(input.beforePersist(completed.chat)).then(() => completed.chat)
+              return completed.chat
+            }, metadata)
+            return saved === undefined ? { chat: null, status: 'missing' } : { chat: saved, status }
+          })
+        })()
         options.lockEvent?.({ kind: 'released', sessionId: gameId, slot: slotOf(role), role: str(role), operationId: begun.value.operationId, status: str(outcome.status) })
         slotReleased(chatId)
         // The story moved on while the agent ran: its result was dropped, not saved.
@@ -475,14 +491,16 @@ export function createBackgroundTaskCoordinator(options = {}) {
         || activity(source).phase !== expected.phase)) {
         return { chat: source, status: 'stale', activity: activity(source) }
       }
-      if (options.operationId && activity(source).operationId !== options.operationId) {
+      const target = options.operationId ? operation(source, options.operationId) : null
+      if (options.operationId && (target ? !target.busy && target.status !== 'deferred' : activity(source).operationId !== options.operationId)) {
         return { chat: source, status: 'stale', activity: activity(source) }
       }
-      const next = timeline.apply({ chat: source, intent: { kind: 'background.recover', cancelDelivery: Boolean(options.operationId), ...(options.startedBefore ? { startedBefore: options.startedBefore } : {}) } })
+      const next = timeline.apply({ chat: source, intent: { kind: 'background.recover', cancelDelivery: Boolean(options.operationId),
+        ...(options.operationId ? { operationId: options.operationId } : {}), ...(options.startedBefore ? { startedBefore: options.startedBefore } : {}) } })
       if (next.value.status !== 'unchanged') { await store.writeChat(next.chat, { source: 'background.recover' }); slotReleased(chatId) }
       return { chat: next.chat, status: next.value.status, activity: activity(next.chat) }
     })
   }
 
-  return Object.freeze({ activity, operation, begin, recover, exclusive: serialize })
+  return Object.freeze({ activity, operation, begin, recover, exclusive: serialize, pendingCount: () => mutationTails.size })
 }

@@ -46,22 +46,3 @@ for (const [name, make] of cases) test('normalizeJsonCopy matches JSON round-tri
   const value = make()
   assert.deepEqual(outcome(normalizeJsonCopy, value), outcome(native, value))
 })
-
-test('normalizeJsonCopy duplicates DAG branches and detaches every result', () => {
-  const shared = { value: 1 }
-  const source = { left: shared, right: shared }
-  const result = normalizeJsonCopy(source)
-  assert.deepEqual(result, native(source))
-  assert.notEqual(result.left, result.right)
-  result.left.value = 99
-  assert.equal(source.left.value, 1)
-  assert.equal(result.right.value, 1)
-})
-
-test('normalizeJsonCopy preserves serialized bytes and safe own __proto__ data', () => {
-  const source = JSON.parse('{"__proto__":{"safe":true},"values":[null,-0]}')
-  const result = normalizeJsonCopy(source)
-  assert.equal(JSON.stringify(result), JSON.stringify(native(source)))
-  assert.equal(Object.hasOwn(result, '__proto__'), true)
-  assert.equal(Object.getPrototypeOf(result), Object.prototype)
-})

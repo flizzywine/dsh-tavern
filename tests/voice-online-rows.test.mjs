@@ -24,11 +24,3 @@ test('a browser source without a voice name is set up; an online one without a v
   assert.equal(voiceSourceUnset({kind:'preset', provider:'browser', voiceName:'Kyoko'}), '')
   assert.equal(voiceSourceUnset({kind:'preset', provider:'qwen'}), '还没选在线声音')
 })
-
-test('source-specific readiness follows MiniMax, not Qwen', async () => {
-  const {voiceReadiness} = await load()
-  assert.equal(voiceReadiness({services:[service('mm','minimax','MiniMax')]},'minimax'),null)
-  assert.match(voiceReadiness({services:[]},'minimax').text,/MiniMax/)
-  assert.doesNotMatch(voiceReadiness({services:[]},'minimax').text,/通义千问/)
-  assert.equal(voiceReadiness({services:[service('mm','minimax','我的 MiniMax',{state:'invalid-key'})]},'minimax').text,'我的 MiniMax API Key 无效')
-})

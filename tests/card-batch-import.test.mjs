@@ -55,40 +55,88 @@ test('mixed selection imports cards and opens one interactive ZIP sheet', async 
   assert.match(state.status, /其余 1 个请单独选择/)
 })
 
-test('导入文件分流：PNG、JSON 在页面里解析；CHARX、DSH 人物卡和其他扩展名（插件导入器）整份上传', async () => {
-  const { readFile } = await import('node:fs/promises')
-  const source = await readFile(new URL('../tavern-plugin/lib/client.js', import.meta.url), 'utf8')
+// importTavernCardFile and the helpers after it, run with the page's globals given.
+function importer(globals) {
   const start = source.indexOf('async function importTavernCardFile(')
   const body = source.slice(start, source.indexOf('/** What a card file brought', start))
+  const names = Object.keys(globals)
+  return new Function(...names, body + '; return importTavernCardFile;')(...names.map(name => globals[name]))
+}
+const page = (extra = {}) => ({
+  fetch: async () => ({ ok: true, status: 200, json: async () => ({ ok: true, uploadId: 'u' }) }), parseCardFile: async file => ({ parsed: file.name }),
+  importTavernPasswordCard: run => run(undefined), beginTavernCardImportProgress: () => ({ update() {}, close() {} }), askTavernCardPassword: async () => null,
+  askTavernCardPackWay: async () => assert.fail('no pack to decide about'), tavernCardPackDecisions: (packs, way) => Object.fromEntries(packs.map(pack => [pack.packId, way])), ...extra,
+})
+
+test('导入文件分流：PNG、JSON 在页面里解析；CHARX、DSH 人物卡先读素材包再导入；其他扩展名（插件导入器）整份上传', async () => {
   const uploads = []
-  const fetch = async (_url, { body: file }) => { uploads.push(file.name); return { ok: true, status: 200, json: async () => ({ ok: true, uploadId: 'u' }) } }
-  const importFile = new Function('fetch', 'parseCardFile', 'importTavernPasswordCard', 'beginTavernCardImportProgress', body + '; return importTavernCardFile;')(fetch, async file => ({ parsed: file.name }), run => run(undefined), () => ({ update() {}, close() {} }))
+  const importFile = importer(page({ fetch: async (_url, { body: file }) => { uploads.push(file.name); return { ok: true, status: 200, json: async () => ({ ok: true, uploadId: 'u' }) } } }))
   const calls = []
-  const call = async (method, args) => { calls.push([method, args.name || args.payload?.parsed]); return {} }
-  // Ordinary PNG and JSON are parsed; native packages upload whole.
-  const file = (name, bytes = new Uint8Array(64)) => ({ name, size: bytes.length, slice: start => ({ arrayBuffer: async () => bytes.slice(start).buffer }) })
-  await assert.rejects(importFile(file('unsupported.dshcard' + '.png'), call), /卡包请使用/);
+  const call = async (method, args) => { calls.push([method, args.name || args.payload?.parsed]); return method === 'previewCardUpload' ? { card: { name: 'x', version: '' }, packs: [] } : {} }
+  await assert.rejects(importFile({ name: 'unsupported.dshcard' + '.png' }, call), /卡包请使用/);
   const stages = []
-  for (const item of [file('a.png'), file('b.JSON'), file('c.charx'), file('d.dshcard'), file('e.vnpack'), file('noext')]) await importFile(item, call, phase => stages.push([item.name, phase]))
-  assert.deepEqual(calls, [['importCard', 'a.png'], ['importCard', 'b.JSON'], ['importCardUpload', 'c.charx'], ['importCardUpload', 'd.dshcard'], ['importCardUpload', 'e.vnpack'], ['importCard', 'noext']])
+  for (const item of ['a.png', 'b.JSON', 'c.charx', 'd.dshcard', 'e.vnpack', 'noext'].map(name => ({ name }))) await importFile(item, call, phase => stages.push([item.name, phase]))
+  assert.deepEqual(calls, [['importCard', 'a.png'], ['importCard', 'b.JSON'], ['previewCardUpload', 'c.charx'], ['importCardUpload', 'c.charx'], ['previewCardUpload', 'd.dshcard'], ['importCardUpload', 'd.dshcard'], ['importCardUpload', 'e.vnpack'], ['importCard', 'noext']])
   assert.deepEqual(uploads, ['c.charx', 'd.dshcard', 'e.vnpack'])
-  assert.deepEqual(stages.filter(([name]) => name === 'd.dshcard').map(([, phase]) => phase), ['正在上传卡包…', '正在读取卡包并导入素材…'])
+  assert.deepEqual(stages.filter(([name]) => name === 'd.dshcard').map(([, phase]) => phase), ['正在上传卡包…', '正在读取卡包…', '正在导入素材…'])
+})
+
+test('浏览器分段发送超过 1 GiB 的卡包并把同一上传 ID 交给导入', async () => {
+  const requests = [], calls = [], progress = []
+  const file = { name: 'large.dshcard', size: 1024 ** 3 + 9, slice: (start, end) => ({ start, end }) }
+  const importFile = importer(page({ fetch: async (endpoint, { body }) => {
+    const { searchParams } = new URL(endpoint, 'http://tavern.test')
+    assert.equal(searchParams.get('purpose'), 'card-archive')
+    assert.equal(Number(searchParams.get('size')), file.size)
+    assert.equal(Number(searchParams.get('offset')), body.start)
+    assert.equal(searchParams.get('uploadId'), requests.length ? 'archive' : null)
+    requests.push(body)
+    return { status: 200, json: async () => ({ ok: true, uploadId: 'archive', size: body.end }) }
+  } }))
+  await importFile(file, async (method, { uploadId }) => {
+    calls.push([method, uploadId])
+    return { card: {}, packs: [] }
+  }, phase => progress.push(phase))
+  assert.equal(requests.length, 65)
+  assert.deepEqual(requests.at(-1), { start: 1024 ** 3, end: file.size })
+  assert.deepEqual(calls, [['previewCardUpload', 'archive'], ['importCardUpload', 'archive']])
+  assert.ok(progress.includes('正在上传卡包… 100%'))
+})
+
+test('卡包分段上传失败时丢弃部分文件', async () => {
+  const calls = []
+  const file = { name: 'large.charx', size: 1024 ** 3 + 1, slice: (start, end) => ({ start, end }) }
+  const importFile = importer(page({ fetch: async (_url, { body }) => {
+    if (body.start) throw new Error('connection dropped')
+    return { status: 200, json: async () => ({ ok: true, uploadId: 'archive', size: body.end }) }
+  } }))
+  await assert.rejects(importFile(file, async (method, args) => { calls.push([method, args.uploadId]) }), /connection dropped/)
+  assert.deepEqual(calls, [['discardCardUpload', 'archive']])
+})
+
+test('a card carrying another version of an installed pack asks 完全替换 / 增量更新 first; 取消 discards the upload', async () => {
+  const packs = [{ packId: 'p', title: '通用SE', choices: ['update', 'merge'], removed: [] }]
+  let answer = 'merge'
+  const importFile = importer(page({ askTavernCardPackWay: async (_file, staged) => { assert.deepEqual(staged.packs, packs); return answer } }))
+  const calls = []
+  const call = async (method, args) => { calls.push([method, args.packDecisions]); return method === 'previewCardUpload' ? { card: { name: 'k', version: '11-17' }, packs } : {} }
+  await importFile({ name: 'k.dshcard' }, call)
+  assert.deepEqual(calls, [['previewCardUpload', undefined], ['importCardUpload', { p: 'merge' }]])
+  calls.length = 0; answer = null
+  await assert.rejects(importFile({ name: 'k.dshcard' }, call), error => error.code === 'TAVERN_CARD_IMPORT_CANCELLED')
+  assert.deepEqual(calls, [['previewCardUpload', undefined], ['discardCardUpload', undefined]])
 })
 
 test('shared importer keeps its loading dialog open until the host finishes, including callers with no progress callback', async () => {
-  const start = source.indexOf('async function importTavernCardFile(')
-  const body = source.slice(start, source.indexOf('/** What a card file brought', start))
   let opened = 0, closed = 0, finish
   const host = new Promise(resolve => { finish = resolve })
-  const importFile = new Function('fetch', 'importTavernPasswordCard', 'beginTavernCardImportProgress', body + '; return importTavernCardFile;')(
-    async () => ({ json: async () => ({ ok: true, uploadId: 'u' }) }), run => run(undefined),
-    () => { opened++; return { update() {}, close() { closed++ } } })
-  const pending = importFile({ name: 'large.dshcard' }, () => host)
+  const importFile = importer(page({ beginTavernCardImportProgress: () => { opened++; return { update() {}, close() { closed++ } } } }))
+  const pending = importFile({ name: 'large.dshcard' }, method => method === 'previewCardUpload' ? { card: {}, packs: [] } : host)
   await new Promise(resolve => setImmediate(resolve))
   assert.equal(opened, 1); assert.equal(closed, 0)
   finish({ card: { path: 'cards/large.json' } })
   await pending
   assert.equal(closed, 1)
-  await assert.rejects(importFile({ name: 'broken.dshcard' }, async () => { throw new Error('invalid archive') }), /invalid archive/)
+  await assert.rejects(importFile({ name: 'broken.dshcard' }, async method => { if (method === 'previewCardUpload') throw new Error('invalid archive') }), /invalid archive/)
   assert.equal(opened, 2); assert.equal(closed, 2)
 })

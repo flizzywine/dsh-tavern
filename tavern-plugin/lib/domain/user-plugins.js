@@ -375,8 +375,10 @@ export function watchUserPlugins({ dataRoot, dshHome, logger = console, delay = 
         .catch(error => logger.warn?.('[Tavern 插件] 同步插件目录失败：' + (error?.message || error)))
     }, delay)
   }
+  // 移动端 Android/Termux 下递归 watch 会对所有子目录（含 node_modules）挂载大量 inotify watcher，仅监听顶层目录。
+  const isMobile = process.platform === 'android' || Boolean(process.env.TERMUX_VERSION || process.env.ANDROID_ROOT || process.env.DSH_ANDROID_HOST)
   // Recursive, so a folder copied in before its package.json is complete still syncs once it is.
-  try { watcher = watch(plugins, { recursive: true }, schedule); watcher.on('error', () => {}) }
+  try { watcher = watch(plugins, { recursive: !isMobile }, schedule); watcher.on('error', () => {}) }
   catch (error) { logger.warn?.('[Tavern 插件] 无法监听插件目录，新增插件需重启 DSH：' + (error?.message || error)) }
   return () => { clearTimeout(timer); watcher?.close() }
 }

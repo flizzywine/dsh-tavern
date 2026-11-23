@@ -38,8 +38,8 @@ export function validateOutfitRef(value, path = '$') {
   assertJson(value); shape(value, ['packId', 'figureId', 'outfitKey'], ['packId', 'figureId', 'outfitKey'], path)
   validateFigureRef({ packId: value.packId, figureId: value.figureId }, path); validateShortId(value.outfitKey, path + '.outfitKey'); return value
 }
-// standalone skin entries carry no enabled flag; every imported skin is usable.
-export function assetEntryEnabled(asset) { return Boolean(asset) && (asset.kind === 'skins' || asset.enabled === true) }
+// a standalone skin entry's enabled flag is optional: skins imported before it existed carry none and stay on.
+export function assetEntryEnabled(asset) { return Boolean(asset) && (asset.kind === 'skins' ? asset.enabled !== false : asset.enabled === true) }
 // Both the authorized service and its snapshot consumer use this exact resolution contract.
 export function resolveAssetSnapshot(pack, ref) {
   const asset = pack?.manifest.assets.find(asset => asset.kind === ref.kind && asset.id === ref.assetId)

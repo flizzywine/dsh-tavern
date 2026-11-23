@@ -1,3 +1,5 @@
+import {registerStageWorkbench} from './workbench/index.js'
+
 export const name = 'dsh-tavern-stage'
 export const inject = ['tavernStageControl', 'llm']
 
@@ -6,6 +8,7 @@ export const inject = ['tavernStageControl', 'llm']
 export async function apply(ctx) {
   const control = ctx.get('tavernStageControl')
   ctx.effect(() => () => control.uninstall(), 'dsh-tavern-stage: disable runtime')
+  if (control.workbench) ctx.effect(() => registerStageWorkbench({ctx,...control.workbench}), 'dsh-tavern: stage workbench tools')
   await control.install(async () => {
     const {createStageRuntime} = await import('./runtime.js')
     // The host's bindings carry the host's context; every runtime phase runs on this plugin's own fiber instead, so the

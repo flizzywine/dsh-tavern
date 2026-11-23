@@ -10,15 +10,32 @@ function createTavernRegexEngine() {
     return value === null || value === undefined || value === '' || !Number.isFinite(number) ? null : number
   }
 
+  const regexCache = new Map()
+
   // Mirrors SillyTavern's slash-delimited regex parsing while still accepting a
   // plain pattern such as "校园".
-  function regexFromString(value) {
-    const source = str(value)
+  function compileRegex(source) {
     const match = source.match(/(\/?)(.+)\1([a-z]*)/i)
     if (match === null) return new RegExp(source)
     try { return new RegExp(match[2], match[3]) } catch (error) {
       return new RegExp(source)
     }
+  }
+
+  function regexFromString(value) {
+    return compileRegex(str(value))
+  }
+
+  function cachedRegexFromString(value) {
+    const source = str(value)
+    let regex = regexCache.get(source)
+    if (regex === undefined) {
+      regex = compileRegex(source)
+      if (regexCache.size >= 256) regexCache.delete(regexCache.keys().next().value)
+      regexCache.set(source, regex)
+    }
+    regex.lastIndex = 0
+    return regex
   }
 
   function enabledFor(script, options) {
@@ -80,7 +97,7 @@ function createTavernRegexEngine() {
       if (!enabledFor(script, options)) continue
       const label = str(script.name || script.id) || '正则 ' + (index + 1)
       try {
-        const replaced = replaceAndCount(text, regexFromString(script.findRegex), replacementFor(script))
+        const replaced = replaceAndCount(text, cachedRegexFromString(script.findRegex), replacementFor(script))
         if (replaced.count === 0) continue
         text = replaced.text
         applied.push({ index, id: str(script.id), name: label, matches: replaced.count })

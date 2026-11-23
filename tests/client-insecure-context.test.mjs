@@ -17,3 +17,12 @@ for (const [name, crypto] of [['HTTP', {}], ['no crypto', undefined], ['HTTPS', 
     assert.equal(JSON.parse(JSON.stringify(attempt)).operationId, attempt.operationId)
   })
 }
+
+test('the main page installs the SHA-256 fallback when http on a LAN address has no crypto.subtle', async () => {
+  assert.match(mainSource, /^\s*if \(typeof window !== "undefined"\) installTavernCryptoSubtlePolyfill\(window\);$/m)
+  const polyfill = await readFile(new URL('../tavern-plugin/src/client/crypto-digest.js', import.meta.url), 'utf8')
+  const page = { crypto: { getRandomValues: bytes => bytes } }
+  vm.runInNewContext(polyfill + ';installTavernCryptoSubtlePolyfill(page)', { page, Uint8Array, DataView, ArrayBuffer, Promise })
+  const digest = Buffer.from(await page.crypto.subtle.digest('SHA-256', new TextEncoder().encode('abc'))).toString('hex')
+  assert.equal(digest, 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad')
+})

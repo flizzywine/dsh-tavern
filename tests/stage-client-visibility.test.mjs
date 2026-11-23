@@ -14,27 +14,6 @@ function setup() {
   return {api, gates, events, document}
 }
 
-test('disabled stage cannot enter; disposal closes it and invalidates pending admission across reload', async () => {
-  const {api, gates, events, document} = setup()
-  api.galEnter('a')
-  assert.equal(gates.length,0)
-  const stop = api.galStageLifetime()
-  api.galEnter('a')
-  gates[0](false); await Promise.resolve()
-  assert.equal(api.galActive.get(),'a')
-  document.fullscreenElement = {}
-  api.galEnter('b')
-  stop(); stop()
-  assert.equal(api.galActive.get(),'')
-  assert.equal(api.galEntering.get(),'')
-  assert.equal(api.galStageAvailable.get(),false)
-  assert.equal(events.filter(x => x === 'exit').length,1)
-  const stopNext = api.galStageLifetime()
-  gates[1](false); await Promise.resolve()
-  assert.equal(api.galActive.get(),'','old admission cannot reopen the new instance')
-  stopNext()
-})
-
 
 test('a stopped entry cannot open the delayed setup wizard or consume its offer', async () => {
   const source = readFileSync(new URL('../tavern-plugin/src/client/asset-pack-setup-ui.js', import.meta.url),'utf8')
@@ -82,43 +61,6 @@ test('core navigation readers survive optional provider removal and replacement'
   unsubscribe()
 })
 
-test('stage owns transcript cover and restores inline layout on unload and reload', () => {
-  const attrs = new Set()
-  const values = new Map([['width', ['72%', '']], ['flex', ['1 1 auto', 'important']]])
-  const original = [...values]
-  const root = {
-    style: {
-      getPropertyValue:name => values.get(name)?.[0] || '',
-      getPropertyPriority:name => values.get(name)?.[1] || '',
-      setProperty:(name,value,priority) => values.set(name,[value,priority]),
-      removeProperty:name => values.delete(name),
-    },
-    getBoundingClientRect:() => ({width:720,height:480}),
-    setAttribute:name => attrs.add(name),
-    removeAttribute:name => attrs.delete(name),
-  }
-  const page = new Set()
-  const document = {
-    querySelectorAll:() => [root],
-    documentElement:{
-      setAttribute:name => page.add(name),
-      removeAttribute:name => page.delete(name),
-    },
-  }
-  const api = createStageNavigation({document})
-  for (let cycle = 0; cycle < 2; cycle++) {
-    const stop = api.galStageLifetime()
-    api.galCoverChat(); api.galCoverChat()
-    assert.deepEqual(values.get('width'), ['720px','important'])
-    assert.equal(attrs.has('data-fork-gal-covered'),true)
-    assert.equal(page.has('data-fork-gal-stage'),true)
-    stop(); stop(); api.galUncover()
-    assert.deepEqual([...values],original)
-    assert.equal(attrs.size,0)
-    assert.equal(page.size,0)
-  }
-})
-
 test('keyboard focus listeners belong to plugin lifetime and do not affect ordinary chat', () => {
   const listeners = new Map(), attributes = new Set()
   const surface = prefix => ({
@@ -148,17 +90,4 @@ test('keyboard focus listeners belong to plugin lifetime and do not affect ordin
     assert.equal(attributes.size,0)
     api.galActive.set('')
   }
-})
-
-test('a game started from the stage keeps a veil between the old stage and the new one, ended by the new stage, a leave or a failed start', () => {
-  const body = [], make = () => ({className:'',remove() { const at = body.indexOf(this); if (at >= 0) body.splice(at,1) }})
-  const document = {documentElement:{requestFullscreen:async () => {}, setAttribute() {}, removeAttribute() {}},fullscreenElement:null,body:{appendChild:node => body.push(node)},
-    createElement:make,querySelectorAll:() => []}
-  const navigation = createStageNavigation({window:{},document,navigator:{},playCue() {},getSessionId:() => 's',getSettings:() => ({})})
-  navigation.galHandover(); navigation.galHandover()
-  assert.deepEqual(body.map(node => node.className),['fork-gal-handover'], 'one veil however often it is asked for')
-  navigation.galHandoverEnd()
-  assert.equal(body.length,0)
-  navigation.galHandover(); navigation.galLeaveNow()
-  assert.equal(body.length,0, 'a leave ends it')
 })

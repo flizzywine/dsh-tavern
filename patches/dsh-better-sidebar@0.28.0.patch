@@ -1,8 +1,586 @@
 diff --git a/lib/client-registry.js b/lib/client-registry.js
-index f38251fe3fb92e5609901c6e3fdb82c9f1f490dd..73faaf32aa5d057af8471451868c76b48c138467 100644
+index f38251f..b41391d 100755
 --- a/lib/client-registry.js
 +++ b/lib/client-registry.js
-@@ -29879,8 +29879,9 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
+@@ -25599,16 +25599,16 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
+ 		/** One row renderer (React keys ride the source event seq). `rewrite` is the
+ 		*  surface's markdown link pass — the rows are model prose, so a relative link
+ 		*  resolves against the session cwd (see use-markdown-surface). */
++		function renderChatMessage(role, id, text, labels) {
++			return (0, react_jsx_runtime.jsx)("div", {
++				className: role === "user" ? SideChatView_module_css_default.sidechatUser : SideChatView_module_css_default.sidechatAssistant,
++				children: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.MarkdownText, { ...markdownTextProps(text, labels) })
++			}, id);
++		}
+ 		function renderRow(row, labels, rewrite) {
+ 			switch (row.kind) {
+-				case "user": return /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+-					className: SideChatView_module_css_default.sidechatUser,
+-					children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.MarkdownText, { ...markdownTextProps(rewrite(row.text), labels) })
+-				}, `${row.kind}:${row.seq}`);
+-				case "assistant": return /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+-					className: SideChatView_module_css_default.sidechatAssistant,
+-					children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.MarkdownText, { ...markdownTextProps(rewrite(row.text), labels) })
+-				}, `${row.kind}:${row.seq}`);
++				case "user":
++				case "assistant": return renderChatMessage(row.kind, `${row.kind}:${row.seq}`, rewrite(row.text), labels);
+ 				case "reasoning": return /* @__PURE__ */ (0, react_jsx_runtime.jsx)(CollapsibleRow, {
+ 					label: labels.thinkLabel,
+ 					streaming: !row.settled,
+@@ -25661,10 +25661,132 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
+ 				}
+ 			}
+ 		}
+-		/** One side conversation tab (one thread per tab, Codex-style). */
+-		function SideChatView(props) {
+-			const { ctx, scope, tab, visible } = props;
+-			const rowLabels = (0, react.useMemo)(() => {
++		function SideChatFrame(props) {
++			const { composerRef, value } = props;
++			react.useLayoutEffect(() => {
++				const field = composerRef.current;
++				if (field === null) return;
++				field.style.height = value === "" ? "" : "0px";
++				if (value !== "") field.style.height = `${Math.min(field.scrollHeight, COMPOSER_MAX_HEIGHT)}px`;
++			}, [composerRef, value]);
++			const stopping = props.onCancel !== void 0;
++			const actionLabel = t(stopping ? "sideChatCancelTitle" : "sideChatSend");
++			return react_jsx_runtime.jsxs("div", { className: SideChatView_module_css_default.sidechat, role: props.label ? "region" : void 0, "aria-label": props.label, children: [
++				props.header,
++				react_jsx_runtime.jsx("div", { ref: props.transcriptRef, className: SideChatView_module_css_default.sidechatScroll, children: props.transcript }),
++				props.feedback,
++				react_jsx_runtime.jsxs("div", { className: SideChatView_module_css_default.sidechatComposer, children: [
++					react_jsx_runtime.jsx(
++						"textarea",
++						{
++							ref: composerRef,
++							className: SideChatView_module_css_default.sidechatComposerInput,
++							value,
++							rows: 1,
++							placeholder: props.placeholder,
++							"aria-label": props.inputLabel,
++							disabled: props.inputDisabled,
++							maxLength: props.maxLength,
++							onChange: (event) => props.onChange(event.currentTarget.value),
++							onKeyDown: (event) => {
++								if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing || event.keyCode === 229) return;
++								event.preventDefault();
++								if (!props.busy && !props.inputDisabled && value.trim() !== "") props.onSend();
++							}
++						}
++					),
++					react_jsx_runtime.jsxs("div", { className: SideChatView_module_css_default.sidechatComposerBar, children: [
++						react_jsx_runtime.jsx("div", { className: SideChatView_module_css_default.sidechatComposerTools, children: props.tools }),
++						react_jsx_runtime.jsx("span", { className: SideChatView_module_css_default.sidechatComposerSpacer }),
++						props.model,
++						react_jsx_runtime.jsx(ComposerTip, { label: actionLabel, children: react_jsx_runtime.jsx(
++							"button",
++							{
++								type: "button",
++								className: SideChatView_module_css_default.sidechatSendBtn,
++								onClick: props.onCancel ?? props.onSend,
++								disabled: props.busy || !stopping && (props.inputDisabled || value.trim() === ""),
++								"aria-label": actionLabel,
++								children: stopping ? react_jsx_runtime.jsx(_deepseek_ai_dsh_client_ui_primitives.IconStopFillRegular, {}) : react_jsx_runtime.jsx(_deepseek_ai_dsh_client_ui_primitives.IconSendOutlineRegular, { size: 16 })
++							},
++							stopping ? "stop" : "send"
++						) })
++					] })
++				] })
++			] });
++		}
++		function SideChatModelPicker(props) {
++			const [open, setOpen] = react.useState(false);
++			return react_jsx_runtime.jsx(ComposerTip, { label: props.title ?? t("sideChatModel"), className: SideChatView_module_css_default.sidechatTipShrink, children: react_jsx_runtime.jsx(
++				_deepseek_ai_dsh_client_ui_primitives.Menu,
++				{
++					open: open && !props.disabled,
++					anchor: react_jsx_runtime.jsx(
++						"button",
++						{
++							type: "button",
++							className: SideChatView_module_css_default.sidechatModelBtn,
++							disabled: props.disabled,
++							onClick: () => setOpen((value) => !value),
++							"aria-label": t("sideChatModel"),
++							children: react_jsx_runtime.jsx("span", { className: SideChatView_module_css_default.sidechatModelName, children: props.label })
++						}
++					),
++					items: props.items,
++					selectedIds: props.selectedIds,
++					onSelect: (id) => {
++						setOpen(false);
++						props.onSelect(id);
++					},
++					onClose: () => setOpen(false),
++					align: "end",
++					portal: true,
++					dense: true
++				}
++			) });
++		}
++		function SideChatStatus({ text }) {
++			return react_jsx_runtime.jsxs("div", { className: SideChatView_module_css_default.sidechatStatus, role: "status", children: [
++				react_jsx_runtime.jsx(_deepseek_ai_dsh_client_ui_primitives.StateDot, { state: "ongoing", size: 8 }),
++				react_jsx_runtime.jsx("span", { className: SideChatView_module_css_default.sidechatStatusText, children: text })
++			] });
++		}
++		function renderSideChat(options) {
++			return react_jsx_runtime.jsx(PluginSideChat, { ...options });
++		}
++		function PluginSideChat({ messages, status, error, onRetry, visible, feedback, model, ...composer }) {
++			const composerRef = react.useRef(null);
++			const transcriptRef = react.useRef(null);
++			const lastMessage = messages.at(-1);
++			react.useLayoutEffect(() => {
++				const element = transcriptRef.current;
++				if (element !== null) element.scrollTop = element.scrollHeight;
++			}, [lastMessage?.id, lastMessage?.text, visible]);
++			const labels = useSideChatRowLabels();
++			return react_jsx_runtime.jsx(
++				SideChatFrame,
++				{
++					...composer,
++					model: model && react_jsx_runtime.jsx(SideChatModelPicker, { ...model }),
++					composerRef,
++					transcriptRef,
++					transcript: messages.map((message) => react_jsx_runtime.jsxs(react_jsx_runtime.Fragment, { children: [
++						renderChatMessage(message.role, message.id, message.text, labels),
++						message.detail && react_jsx_runtime.jsx("div", { className: SideChatView_module_css_default.sidechatTurnSummary, children: message.detail })
++					] }, message.id)),
++					feedback: react_jsx_runtime.jsxs(react_jsx_runtime.Fragment, { children: [
++						status && react_jsx_runtime.jsx(SideChatStatus, { text: status }),
++						error && react_jsx_runtime.jsxs("div", { className: SideChatView_module_css_default.sidechatError, role: "alert", children: [
++							t("sideChatError", { message: error }),
++							onRetry && react_jsx_runtime.jsx("button", { type: "button", className: SideChatView_module_css_default.sidechatPrimaryBtn, onClick: onRetry, children: t("sideChatRetry") })
++						] }),
++						feedback
++					] })
++				}
++			);
++		}
++		function useSideChatRowLabels() {
++			return (0, react.useMemo)(() => {
+ 				const shared = {
+ 					copy: t("copy"),
+ 					copied: t("copied"),
+@@ -25709,6 +25831,11 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
+ 					}
+ 				};
+ 			}, []);
++		}
++		/** One side conversation tab (one thread per tab, Codex-style). */
++		function SideChatView(props) {
++			const { ctx, scope, tab, visible } = props;
++			const rowLabels = useSideChatRowLabels();
+ 			const list = (0, react.useSyncExternalStore)((0, react.useMemo)(() => (callback) => ctx.sessions.list.subscribe(callback), [ctx]), (0, react.useCallback)(() => ctx.sessions.list.getSnapshot(), [ctx]));
+ 			const archivedIds = useArchivedSessionIds(ctx);
+ 			const threads = (0, react.useMemo)(() => {
+@@ -25741,7 +25868,6 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
+ 			const [revision, setRevision] = (0, react.useState)(0);
+ 			const [info, setInfo] = (0, react.useState)(null);
+ 			const [menuOpen, setMenuOpen] = (0, react.useState)(false);
+-			const [modelMenuOpen, setModelMenuOpen] = (0, react.useState)(false);
+ 			const [catalog, setCatalog] = (0, react.useState)(null);
+ 			/** Local echo of the message just sent: shown until the host reports it
+ 			*  pending or logs it durably (see the drop effect below). `seq` is the
+@@ -26126,7 +26252,6 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
+ 			/** Pin one model route (or one reasoning effort of the current route) on the
+ 			*  bound thread, then re-read the composer-bar identity. */
+ 			const handleModelSelect = async (id) => {
+-				setModelMenuOpen(false);
+ 				if (threadId === void 0) return;
+ 				let provider;
+ 				let model;
+@@ -26152,12 +26277,6 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
+ 					setError(cause instanceof Error ? cause.message : String(cause));
+ 				}
+ 			};
+-			const growComposer = () => {
+-				const field = composerRef.current;
+-				if (field === null) return;
+-				field.style.height = "0px";
+-				field.style.height = `${Math.min(field.scrollHeight, COMPOSER_MAX_HEIGHT)}px`;
+-			};
+ 			const handleSend = async () => {
+ 				const text = composer.trim();
+ 				if (text === "" || threadId === void 0 || busy !== null) return;
+@@ -26170,8 +26289,6 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
+ 				try {
+ 					await api.sidechatPrompt(threadId, text);
+ 					setComposer("");
+-					const field = composerRef.current;
+-					if (field !== null) field.style.height = "";
+ 					fetchThread(threadId);
+ 					fetchInfo(threadId);
+ 				} catch (cause) {
+@@ -26279,235 +26396,140 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
+ 					]
+ 				})
+ 			});
+-			return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+-				className: SideChatView_module_css_default.sidechat,
+-				children: [
+-					connectionState !== void 0 && connectionState !== "connected" && /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.ConnectionIndicator, {
+-						state: connectionState,
+-						disconnectedLabel: t("sideChatConnDisconnected"),
+-						connectingLabel: t("sideChatConnConnecting"),
+-						recoveredLabel: t("sideChatConnRecovered"),
+-						reconnectActionLabel: t("sideChatConnReconnectAction"),
+-						restartActionLabel: t("sideChatConnRestartAction"),
+-						onReconnect: () => {
+-							ctx.connection?.reconnect();
+-						}
+-					}),
+-					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+-						ref: transcriptRef,
+-						className: SideChatView_module_css_default.sidechatScroll,
+-						children: /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(_deepseek_ai_dsh_client_ui_primitives.MarkdownDelegateProvider, {
+-							openFile: openChatFile,
+-							children: [
+-								rows.map((row) => renderRow(row, rowLabels, rewriteChatText)),
+-								pendingRows.map((item) => /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+-									className: SideChatView_module_css_default.sidechatPending,
+-									children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+-										className: SideChatView_module_css_default.sidechatPendingText,
+-										children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.MarkdownText, { ...markdownTextProps(rewriteChatText(item.text), rowLabels) })
+-									}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+-										className: SideChatView_module_css_default.sidechatPendingMeta,
+-										children: [
+-											/* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.StateDot, {
+-												state: "ongoing",
+-												size: 8
+-											}),
+-											/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: t("sideChatQueued") }),
+-											/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+-												type: "button",
+-												className: SideChatView_module_css_default.sidechatDequeueBtn,
+-												onClick: () => void handleDequeue(item.id),
+-												title: t("sideChatDequeue"),
+-												"aria-label": t("sideChatDequeue"),
+-												children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconCloseFillRegular, { size: 12 })
+-											})
+-										]
+-									})]
+-								}, `pending:${item.id}`)),
+-								showEcho && echo !== null && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+-									className: SideChatView_module_css_default.sidechatPending,
+-									children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+-										className: SideChatView_module_css_default.sidechatPendingText,
+-										children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.MarkdownText, { ...markdownTextProps(rewriteChatText(echo.text), rowLabels) })
+-									}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+-										className: SideChatView_module_css_default.sidechatPendingMeta,
+-										children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.StateDot, {
+-											state: "ongoing",
+-											size: 8
+-										}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: busy === "sending" ? t("sideChatSending") : t("sideChatQueued") })]
+-									})]
+-								})
+-							]
+-						})
+-					}),
+-					showThinking && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+-						className: SideChatView_module_css_default.sidechatStatus,
+-						children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.StateDot, {
+-							state: "ongoing",
+-							size: 8
+-						}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+-							className: SideChatView_module_css_default.sidechatStatusText,
+-							children: t("sideChatThinking")
+-						})]
+-					}),
+-					!canSave && !freshThread && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+-						className: SideChatView_module_css_default.sidechatHint,
+-						children: t("sideChatNoTurn")
+-					}),
+-					canSave && trailingPending && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+-						className: SideChatView_module_css_default.sidechatHint,
+-						children: t("sideChatPendingDrop")
+-					}),
+-					saved && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+-						className: SideChatView_module_css_default.sidechatHint,
+-						children: t("sideChatSaved")
+-					}),
+-					error !== null && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+-						className: SideChatView_module_css_default.sidechatError,
+-						children: t("sideChatError", { message: error })
+-					}),
+-					/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+-						className: SideChatView_module_css_default.sidechatComposer,
+-						children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("textarea", {
+-							ref: composerRef,
+-							className: SideChatView_module_css_default.sidechatComposerInput,
+-							value: composer,
+-							placeholder: freshThread ? t("sideChatFirstPlaceholder") : t("sideChatComposerPlaceholder"),
+-							rows: 1,
+-							onChange: (event) => {
+-								setComposer(event.target.value);
+-								growComposer();
+-							},
+-							onKeyDown: (event) => {
+-								if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) return;
+-								event.preventDefault();
+-								handleSend();
++			return react_jsx_runtime.jsx(
++				SideChatFrame,
++				{
++					header: connectionState !== void 0 && connectionState !== "connected" && react_jsx_runtime.jsx(
++						_deepseek_ai_dsh_client_ui_primitives.ConnectionIndicator,
++						{
++							state: connectionState,
++							disconnectedLabel: t("sideChatConnDisconnected"),
++							connectingLabel: t("sideChatConnConnecting"),
++							recoveredLabel: t("sideChatConnRecovered"),
++							reconnectActionLabel: t("sideChatConnReconnectAction"),
++							restartActionLabel: t("sideChatConnRestartAction"),
++							onReconnect: () => {
++								ctx.connection?.reconnect();
+ 							}
+-						}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+-							className: SideChatView_module_css_default.sidechatComposerBar,
+-							children: [
+-								/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+-									className: SideChatView_module_css_default.sidechatComposerTools,
+-									children: [
+-										/* @__PURE__ */ (0, react_jsx_runtime.jsx)(ComposerTip, {
+-											label: t("sideChatNew"),
+-											children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+-												type: "button",
+-												className: SideChatView_module_css_default.sidechatIconBtn,
+-												onClick: () => void openNewThread(),
+-												disabled: busy !== null,
+-												"aria-label": t("sideChatNew"),
+-												children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconPlusOutlineRegular, { size: 16 })
+-											})
+-										}),
+-										/* @__PURE__ */ (0, react_jsx_runtime.jsx)(ComposerTip, {
+-											label: t("sideChatThreads"),
+-											children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Menu, {
+-												open: menuOpen,
+-												anchor: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+-													type: "button",
+-													className: SideChatView_module_css_default.sidechatIconBtn,
+-													onClick: () => {
+-														setMenuOpen((value) => !value);
+-													},
+-													"aria-label": t("sideChatThreads"),
+-													children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(IconHistoryOutline16, {})
+-												}),
+-												items: menuItems,
+-												selectedId: threadId,
+-												onSelect: (id) => {
+-													if (id === "$new") openNewThread();
+-													else openExistingThread(id);
+-												},
+-												onClose: () => {
+-													setMenuOpen(false);
+-												},
+-												align: "end",
+-												portal: true,
+-												dense: true
+-											})
+-										}),
+-										/* @__PURE__ */ (0, react_jsx_runtime.jsx)(ComposerTip, {
+-											label: `${t("sideChatSave")} — ${t("sideChatSaveTitle")}`,
+-											children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+-												type: "button",
+-												className: SideChatView_module_css_default.sidechatIconBtn,
+-												onClick: () => void handleSave(),
+-												disabled: !canSave || busy !== null,
+-												"aria-label": t("sideChatSave"),
+-												children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(IconSaveOutline16, {})
+-											})
+-										}),
+-										/* @__PURE__ */ (0, react_jsx_runtime.jsx)(ComposerTip, {
+-											label: running ? t("sideChatArchiveRunning") : t("sideChatArchive"),
+-											children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+-												type: "button",
+-												className: SideChatView_module_css_default.sidechatIconBtn,
+-												onClick: () => void handleArchive(),
+-												disabled: running || busy !== null,
+-												"aria-label": t("sideChatArchive"),
+-												children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconArchiveOutlineRegular, { size: 16 })
+-											})
+-										})
+-									]
+-								}),
+-								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { className: SideChatView_module_css_default.sidechatComposerSpacer }),
+-								/* @__PURE__ */ (0, react_jsx_runtime.jsx)(ComposerTip, {
+-									label: agentBadge === "" ? t("sideChatModel") : `${t("sideChatModel")} — ${agentBadge}`,
+-									className: SideChatView_module_css_default.sidechatTipShrink,
+-									children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Menu, {
+-										open: modelMenuOpen,
+-										anchor: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+-											type: "button",
+-											className: SideChatView_module_css_default.sidechatModelBtn,
+-											onClick: () => {
+-												setModelMenuOpen((value) => !value);
+-											},
+-											"aria-label": t("sideChatModel"),
+-											children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+-												className: SideChatView_module_css_default.sidechatModelName,
+-												children: info?.model ?? info?.provider ?? t("sideChatModel")
+-											})
+-										}),
+-										items: modelItems,
+-										selectedIds: [selectedModelId, selectedEffortId].filter((id) => id !== void 0),
+-										onSelect: (id) => {
+-											handleModelSelect(id);
+-										},
+-										onClose: () => {
+-											setModelMenuOpen(false);
+-										},
+-										align: "end",
+-										portal: true,
+-										dense: true
+-									})
+-								}),
+-								running ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)(ComposerTip, {
+-									label: t("sideChatCancelTitle"),
+-									children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
++						}
++					),
++					transcriptRef,
++					transcript: react_jsx_runtime.jsxs(_deepseek_ai_dsh_client_ui_primitives.MarkdownDelegateProvider, { openFile: openChatFile, children: [
++						rows.map((row) => renderRow(row, rowLabels, rewriteChatText)),
++						pendingRows.map((item) => react_jsx_runtime.jsxs("div", { className: SideChatView_module_css_default.sidechatPending, children: [
++							react_jsx_runtime.jsx("div", { className: SideChatView_module_css_default.sidechatPendingText, children: react_jsx_runtime.jsx(_deepseek_ai_dsh_client_ui_primitives.MarkdownText, { ...markdownTextProps(rewriteChatText(item.text), rowLabels) }) }),
++							react_jsx_runtime.jsxs("div", { className: SideChatView_module_css_default.sidechatPendingMeta, children: [
++								react_jsx_runtime.jsx(_deepseek_ai_dsh_client_ui_primitives.StateDot, { state: "ongoing", size: 8 }),
++								react_jsx_runtime.jsx("span", { children: t("sideChatQueued") }),
++								react_jsx_runtime.jsx(
++									"button",
++									{
+ 										type: "button",
+-										className: SideChatView_module_css_default.sidechatSendBtn,
+-										onClick: () => void handleCancel(),
+-										disabled: busy !== null,
+-										"aria-label": t("sideChatCancelTitle"),
+-										children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconStopFillRegular, {})
+-									}, "stop")
+-								}) : /* @__PURE__ */ (0, react_jsx_runtime.jsx)(ComposerTip, {
+-									label: t("sideChatSend"),
+-									children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
++										className: SideChatView_module_css_default.sidechatDequeueBtn,
++										onClick: () => void handleDequeue(item.id),
++										title: t("sideChatDequeue"),
++										"aria-label": t("sideChatDequeue"),
++										children: react_jsx_runtime.jsx(_deepseek_ai_dsh_client_ui_primitives.IconCloseFillRegular, { size: 12 })
++									}
++								)
++							] })
++						] }, `pending:${item.id}`)),
++						showEcho && echo !== null && react_jsx_runtime.jsxs("div", { className: SideChatView_module_css_default.sidechatPending, children: [
++							react_jsx_runtime.jsx("div", { className: SideChatView_module_css_default.sidechatPendingText, children: react_jsx_runtime.jsx(_deepseek_ai_dsh_client_ui_primitives.MarkdownText, { ...markdownTextProps(rewriteChatText(echo.text), rowLabels) }) }),
++							react_jsx_runtime.jsxs("div", { className: SideChatView_module_css_default.sidechatPendingMeta, children: [
++								react_jsx_runtime.jsx(_deepseek_ai_dsh_client_ui_primitives.StateDot, { state: "ongoing", size: 8 }),
++								react_jsx_runtime.jsx("span", { children: busy === "sending" ? t("sideChatSending") : t("sideChatQueued") })
++							] })
++						] })
++					] }),
++					feedback: react_jsx_runtime.jsxs(react_jsx_runtime.Fragment, { children: [
++						showThinking && react_jsx_runtime.jsx(SideChatStatus, { text: t("sideChatThinking") }),
++						!canSave && !freshThread && react_jsx_runtime.jsx("div", { className: SideChatView_module_css_default.sidechatHint, children: t("sideChatNoTurn") }),
++						canSave && trailingPending && react_jsx_runtime.jsx("div", { className: SideChatView_module_css_default.sidechatHint, children: t("sideChatPendingDrop") }),
++						saved && react_jsx_runtime.jsx("div", { className: SideChatView_module_css_default.sidechatHint, children: t("sideChatSaved") }),
++						error !== null && react_jsx_runtime.jsx("div", { className: SideChatView_module_css_default.sidechatError, children: t("sideChatError", { message: error }) })
++					] }),
++					value: composer,
++					composerRef,
++					placeholder: freshThread ? t("sideChatFirstPlaceholder") : t("sideChatComposerPlaceholder"),
++					onChange: setComposer,
++					onSend: handleSend,
++					onCancel: running ? handleCancel : void 0,
++					busy: busy !== null,
++					tools: react_jsx_runtime.jsxs(react_jsx_runtime.Fragment, { children: [
++						react_jsx_runtime.jsx(ComposerTip, { label: t("sideChatNew"), children: react_jsx_runtime.jsx(
++							"button",
++							{
++								type: "button",
++								className: SideChatView_module_css_default.sidechatIconBtn,
++								onClick: () => void openNewThread(),
++								disabled: busy !== null,
++								"aria-label": t("sideChatNew"),
++								children: react_jsx_runtime.jsx(_deepseek_ai_dsh_client_ui_primitives.IconPlusOutlineRegular, { size: 16 })
++							}
++						) }),
++						react_jsx_runtime.jsx(ComposerTip, { label: t("sideChatThreads"), children: react_jsx_runtime.jsx(
++							_deepseek_ai_dsh_client_ui_primitives.Menu,
++							{
++								open: menuOpen,
++								anchor: react_jsx_runtime.jsx(
++									"button",
++									{
+ 										type: "button",
+-										className: SideChatView_module_css_default.sidechatSendBtn,
+-										onClick: () => void handleSend(),
+-										disabled: composer.trim() === "" || busy !== null,
+-										"aria-label": t("sideChatSend"),
+-										children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconSendOutlineRegular, { size: 16 })
+-									}, "send")
+-								})
+-							]
+-						})]
++										className: SideChatView_module_css_default.sidechatIconBtn,
++										onClick: () => {
++											setMenuOpen((value) => !value);
++										},
++										"aria-label": t("sideChatThreads"),
++										children: react_jsx_runtime.jsx(IconHistoryOutline16, {})
++									}
++								),
++								items: menuItems,
++								selectedId: threadId,
++								onSelect: (id) => {
++									if (id === "$new") void openNewThread();
++									else openExistingThread(id);
++								},
++								onClose: () => {
++									setMenuOpen(false);
++								},
++								align: "end",
++								portal: true,
++								dense: true
++							}
++						) }),
++						react_jsx_runtime.jsx(ComposerTip, { label: `${t("sideChatSave")} \u2014 ${t("sideChatSaveTitle")}`, children: react_jsx_runtime.jsx(
++							"button",
++							{
++								type: "button",
++								className: SideChatView_module_css_default.sidechatIconBtn,
++								onClick: () => void handleSave(),
++								disabled: !canSave || busy !== null,
++								"aria-label": t("sideChatSave"),
++								children: react_jsx_runtime.jsx(IconSaveOutline16, {})
++							}
++						) }),
++						react_jsx_runtime.jsx(ComposerTip, { label: running ? t("sideChatArchiveRunning") : t("sideChatArchive"), children: react_jsx_runtime.jsx(
++							"button",
++							{
++								type: "button",
++								className: SideChatView_module_css_default.sidechatIconBtn,
++								onClick: () => void handleArchive(),
++								disabled: running || busy !== null,
++								"aria-label": t("sideChatArchive"),
++								children: react_jsx_runtime.jsx(_deepseek_ai_dsh_client_ui_primitives.IconArchiveOutlineRegular, { size: 16 })
++							}
++						) })
++					] }),
++					model: react_jsx_runtime.jsx(SideChatModelPicker, {
++						title: agentBadge === "" ? t("sideChatModel") : `${t("sideChatModel")} — ${agentBadge}`,
++						label: info?.model ?? info?.provider ?? t("sideChatModel"),
++						items: modelItems,
++						selectedIds: [selectedModelId, selectedEffortId].filter((id) => id !== void 0),
++						onSelect: handleModelSelect
+ 					})
+-				]
+-			});
++				}
++			);
+ 		}
+ 		//#endregion
+ 		//#region src/client/terminal-lazy.tsx
+@@ -29879,8 +29901,9 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
  			const nativeTab = info.tab;
  			(0, react.useSyncExternalStore)((listener) => records.subscribe(listener), () => records.versionOf(sessionId, nativeTab.id));
  			const record = records.get(sessionId, nativeTab.id);
@@ -13,11 +591,615 @@ index f38251fe3fb92e5609901c6e3fdb82c9f1f490dd..73faaf32aa5d057af8471451868c76b4
  			const path = record?.tab.path ?? paramsOf?.(info)?.path;
  			const glyph = (path !== void 0 && descriptorId === EDITOR_KIND$1 ? service.fileIcon(path, CHIP_ICON_SIZE) : void 0) ?? (typeof descriptor?.icon === "function" ? descriptor.icon(CHIP_ICON_SIZE) : descriptor?.icon);
  			const unread = (0, react.useSyncExternalStore)((listener) => service.subscribeState(listener), () => isUnread(service.getSnapshot().state, record?.tab.type ?? descriptorId));
+@@ -30176,7 +30199,7 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
+ 					const disposeType = tabs.register({
+ 						id,
+ 						kind: descriptor.id,
+-						keepMounted: true,
++						keepMounted: descriptor.keepMounted !== false,
+ 						...isEditor ? {
+ 							patterns: ["dsh-resource://file/**"],
+ 							canOpen: (address) => {
+@@ -30221,7 +30244,7 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
+ 					const disposeType = tabs.register({
+ 						id,
+ 						kind: FILES_KIND,
+-						keepMounted: true,
++						keepMounted: false,
+ 						priority: "extension",
+ 						title: () => t("files"),
+ 						guide: [{
+@@ -31958,6 +31981,7 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
+ 			};
+ 			const sidebarStore = createSidebarStore();
+ 			const service = createBetterSidebarService(sidebarStore);
++			service.renderSideChat = renderSideChat;
+ 			ctx.provide("betterSidebar", service);
+ 			const nativeRecords = createNativeTabRecords();
+ 			const nativeSurface = createNativeSurface(ctx, nativeRecords);
 diff --git a/lib/client.js b/lib/client.js
-index 00ee3b118e13dcdb66374638960812850931c6ca..93468a2eccd2ada54c623af7dc197a04e027c97c 100644
+index 00ee3b1..d2fb167 100755
 --- a/lib/client.js
 +++ b/lib/client.js
-@@ -29879,8 +29879,9 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
+@@ -25599,16 +25599,16 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
+ 		/** One row renderer (React keys ride the source event seq). `rewrite` is the
+ 		*  surface's markdown link pass — the rows are model prose, so a relative link
+ 		*  resolves against the session cwd (see use-markdown-surface). */
++		function renderChatMessage(role, id, text, labels) {
++			return (0, react_jsx_runtime.jsx)("div", {
++				className: role === "user" ? SideChatView_module_css_default.sidechatUser : SideChatView_module_css_default.sidechatAssistant,
++				children: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.MarkdownText, { ...markdownTextProps(text, labels) })
++			}, id);
++		}
+ 		function renderRow(row, labels, rewrite) {
+ 			switch (row.kind) {
+-				case "user": return /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+-					className: SideChatView_module_css_default.sidechatUser,
+-					children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.MarkdownText, { ...markdownTextProps(rewrite(row.text), labels) })
+-				}, `${row.kind}:${row.seq}`);
+-				case "assistant": return /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+-					className: SideChatView_module_css_default.sidechatAssistant,
+-					children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.MarkdownText, { ...markdownTextProps(rewrite(row.text), labels) })
+-				}, `${row.kind}:${row.seq}`);
++				case "user":
++				case "assistant": return renderChatMessage(row.kind, `${row.kind}:${row.seq}`, rewrite(row.text), labels);
+ 				case "reasoning": return /* @__PURE__ */ (0, react_jsx_runtime.jsx)(CollapsibleRow, {
+ 					label: labels.thinkLabel,
+ 					streaming: !row.settled,
+@@ -25661,10 +25661,132 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
+ 				}
+ 			}
+ 		}
+-		/** One side conversation tab (one thread per tab, Codex-style). */
+-		function SideChatView(props) {
+-			const { ctx, scope, tab, visible } = props;
+-			const rowLabels = (0, react.useMemo)(() => {
++		function SideChatFrame(props) {
++			const { composerRef, value } = props;
++			react.useLayoutEffect(() => {
++				const field = composerRef.current;
++				if (field === null) return;
++				field.style.height = value === "" ? "" : "0px";
++				if (value !== "") field.style.height = `${Math.min(field.scrollHeight, COMPOSER_MAX_HEIGHT)}px`;
++			}, [composerRef, value]);
++			const stopping = props.onCancel !== void 0;
++			const actionLabel = t(stopping ? "sideChatCancelTitle" : "sideChatSend");
++			return react_jsx_runtime.jsxs("div", { className: SideChatView_module_css_default.sidechat, role: props.label ? "region" : void 0, "aria-label": props.label, children: [
++				props.header,
++				react_jsx_runtime.jsx("div", { ref: props.transcriptRef, className: SideChatView_module_css_default.sidechatScroll, children: props.transcript }),
++				props.feedback,
++				react_jsx_runtime.jsxs("div", { className: SideChatView_module_css_default.sidechatComposer, children: [
++					react_jsx_runtime.jsx(
++						"textarea",
++						{
++							ref: composerRef,
++							className: SideChatView_module_css_default.sidechatComposerInput,
++							value,
++							rows: 1,
++							placeholder: props.placeholder,
++							"aria-label": props.inputLabel,
++							disabled: props.inputDisabled,
++							maxLength: props.maxLength,
++							onChange: (event) => props.onChange(event.currentTarget.value),
++							onKeyDown: (event) => {
++								if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing || event.keyCode === 229) return;
++								event.preventDefault();
++								if (!props.busy && !props.inputDisabled && value.trim() !== "") props.onSend();
++							}
++						}
++					),
++					react_jsx_runtime.jsxs("div", { className: SideChatView_module_css_default.sidechatComposerBar, children: [
++						react_jsx_runtime.jsx("div", { className: SideChatView_module_css_default.sidechatComposerTools, children: props.tools }),
++						react_jsx_runtime.jsx("span", { className: SideChatView_module_css_default.sidechatComposerSpacer }),
++						props.model,
++						react_jsx_runtime.jsx(ComposerTip, { label: actionLabel, children: react_jsx_runtime.jsx(
++							"button",
++							{
++								type: "button",
++								className: SideChatView_module_css_default.sidechatSendBtn,
++								onClick: props.onCancel ?? props.onSend,
++								disabled: props.busy || !stopping && (props.inputDisabled || value.trim() === ""),
++								"aria-label": actionLabel,
++								children: stopping ? react_jsx_runtime.jsx(_deepseek_ai_dsh_client_ui_primitives.IconStopFillRegular, {}) : react_jsx_runtime.jsx(_deepseek_ai_dsh_client_ui_primitives.IconSendOutlineRegular, { size: 16 })
++							},
++							stopping ? "stop" : "send"
++						) })
++					] })
++				] })
++			] });
++		}
++		function SideChatModelPicker(props) {
++			const [open, setOpen] = react.useState(false);
++			return react_jsx_runtime.jsx(ComposerTip, { label: props.title ?? t("sideChatModel"), className: SideChatView_module_css_default.sidechatTipShrink, children: react_jsx_runtime.jsx(
++				_deepseek_ai_dsh_client_ui_primitives.Menu,
++				{
++					open: open && !props.disabled,
++					anchor: react_jsx_runtime.jsx(
++						"button",
++						{
++							type: "button",
++							className: SideChatView_module_css_default.sidechatModelBtn,
++							disabled: props.disabled,
++							onClick: () => setOpen((value) => !value),
++							"aria-label": t("sideChatModel"),
++							children: react_jsx_runtime.jsx("span", { className: SideChatView_module_css_default.sidechatModelName, children: props.label })
++						}
++					),
++					items: props.items,
++					selectedIds: props.selectedIds,
++					onSelect: (id) => {
++						setOpen(false);
++						props.onSelect(id);
++					},
++					onClose: () => setOpen(false),
++					align: "end",
++					portal: true,
++					dense: true
++				}
++			) });
++		}
++		function SideChatStatus({ text }) {
++			return react_jsx_runtime.jsxs("div", { className: SideChatView_module_css_default.sidechatStatus, role: "status", children: [
++				react_jsx_runtime.jsx(_deepseek_ai_dsh_client_ui_primitives.StateDot, { state: "ongoing", size: 8 }),
++				react_jsx_runtime.jsx("span", { className: SideChatView_module_css_default.sidechatStatusText, children: text })
++			] });
++		}
++		function renderSideChat(options) {
++			return react_jsx_runtime.jsx(PluginSideChat, { ...options });
++		}
++		function PluginSideChat({ messages, status, error, onRetry, visible, feedback, model, ...composer }) {
++			const composerRef = react.useRef(null);
++			const transcriptRef = react.useRef(null);
++			const lastMessage = messages.at(-1);
++			react.useLayoutEffect(() => {
++				const element = transcriptRef.current;
++				if (element !== null) element.scrollTop = element.scrollHeight;
++			}, [lastMessage?.id, lastMessage?.text, visible]);
++			const labels = useSideChatRowLabels();
++			return react_jsx_runtime.jsx(
++				SideChatFrame,
++				{
++					...composer,
++					model: model && react_jsx_runtime.jsx(SideChatModelPicker, { ...model }),
++					composerRef,
++					transcriptRef,
++					transcript: messages.map((message) => react_jsx_runtime.jsxs(react_jsx_runtime.Fragment, { children: [
++						renderChatMessage(message.role, message.id, message.text, labels),
++						message.detail && react_jsx_runtime.jsx("div", { className: SideChatView_module_css_default.sidechatTurnSummary, children: message.detail })
++					] }, message.id)),
++					feedback: react_jsx_runtime.jsxs(react_jsx_runtime.Fragment, { children: [
++						status && react_jsx_runtime.jsx(SideChatStatus, { text: status }),
++						error && react_jsx_runtime.jsxs("div", { className: SideChatView_module_css_default.sidechatError, role: "alert", children: [
++							t("sideChatError", { message: error }),
++							onRetry && react_jsx_runtime.jsx("button", { type: "button", className: SideChatView_module_css_default.sidechatPrimaryBtn, onClick: onRetry, children: t("sideChatRetry") })
++						] }),
++						feedback
++					] })
++				}
++			);
++		}
++		function useSideChatRowLabels() {
++			return (0, react.useMemo)(() => {
+ 				const shared = {
+ 					copy: t("copy"),
+ 					copied: t("copied"),
+@@ -25709,6 +25831,11 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
+ 					}
+ 				};
+ 			}, []);
++		}
++		/** One side conversation tab (one thread per tab, Codex-style). */
++		function SideChatView(props) {
++			const { ctx, scope, tab, visible } = props;
++			const rowLabels = useSideChatRowLabels();
+ 			const list = (0, react.useSyncExternalStore)((0, react.useMemo)(() => (callback) => ctx.sessions.list.subscribe(callback), [ctx]), (0, react.useCallback)(() => ctx.sessions.list.getSnapshot(), [ctx]));
+ 			const archivedIds = useArchivedSessionIds(ctx);
+ 			const threads = (0, react.useMemo)(() => {
+@@ -25741,7 +25868,6 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
+ 			const [revision, setRevision] = (0, react.useState)(0);
+ 			const [info, setInfo] = (0, react.useState)(null);
+ 			const [menuOpen, setMenuOpen] = (0, react.useState)(false);
+-			const [modelMenuOpen, setModelMenuOpen] = (0, react.useState)(false);
+ 			const [catalog, setCatalog] = (0, react.useState)(null);
+ 			/** Local echo of the message just sent: shown until the host reports it
+ 			*  pending or logs it durably (see the drop effect below). `seq` is the
+@@ -26126,7 +26252,6 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
+ 			/** Pin one model route (or one reasoning effort of the current route) on the
+ 			*  bound thread, then re-read the composer-bar identity. */
+ 			const handleModelSelect = async (id) => {
+-				setModelMenuOpen(false);
+ 				if (threadId === void 0) return;
+ 				let provider;
+ 				let model;
+@@ -26152,12 +26277,6 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
+ 					setError(cause instanceof Error ? cause.message : String(cause));
+ 				}
+ 			};
+-			const growComposer = () => {
+-				const field = composerRef.current;
+-				if (field === null) return;
+-				field.style.height = "0px";
+-				field.style.height = `${Math.min(field.scrollHeight, COMPOSER_MAX_HEIGHT)}px`;
+-			};
+ 			const handleSend = async () => {
+ 				const text = composer.trim();
+ 				if (text === "" || threadId === void 0 || busy !== null) return;
+@@ -26170,8 +26289,6 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
+ 				try {
+ 					await api.sidechatPrompt(threadId, text);
+ 					setComposer("");
+-					const field = composerRef.current;
+-					if (field !== null) field.style.height = "";
+ 					fetchThread(threadId);
+ 					fetchInfo(threadId);
+ 				} catch (cause) {
+@@ -26279,235 +26396,140 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
+ 					]
+ 				})
+ 			});
+-			return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+-				className: SideChatView_module_css_default.sidechat,
+-				children: [
+-					connectionState !== void 0 && connectionState !== "connected" && /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.ConnectionIndicator, {
+-						state: connectionState,
+-						disconnectedLabel: t("sideChatConnDisconnected"),
+-						connectingLabel: t("sideChatConnConnecting"),
+-						recoveredLabel: t("sideChatConnRecovered"),
+-						reconnectActionLabel: t("sideChatConnReconnectAction"),
+-						restartActionLabel: t("sideChatConnRestartAction"),
+-						onReconnect: () => {
+-							ctx.connection?.reconnect();
+-						}
+-					}),
+-					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+-						ref: transcriptRef,
+-						className: SideChatView_module_css_default.sidechatScroll,
+-						children: /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(_deepseek_ai_dsh_client_ui_primitives.MarkdownDelegateProvider, {
+-							openFile: openChatFile,
+-							children: [
+-								rows.map((row) => renderRow(row, rowLabels, rewriteChatText)),
+-								pendingRows.map((item) => /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+-									className: SideChatView_module_css_default.sidechatPending,
+-									children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+-										className: SideChatView_module_css_default.sidechatPendingText,
+-										children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.MarkdownText, { ...markdownTextProps(rewriteChatText(item.text), rowLabels) })
+-									}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+-										className: SideChatView_module_css_default.sidechatPendingMeta,
+-										children: [
+-											/* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.StateDot, {
+-												state: "ongoing",
+-												size: 8
+-											}),
+-											/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: t("sideChatQueued") }),
+-											/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+-												type: "button",
+-												className: SideChatView_module_css_default.sidechatDequeueBtn,
+-												onClick: () => void handleDequeue(item.id),
+-												title: t("sideChatDequeue"),
+-												"aria-label": t("sideChatDequeue"),
+-												children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconCloseFillRegular, { size: 12 })
+-											})
+-										]
+-									})]
+-								}, `pending:${item.id}`)),
+-								showEcho && echo !== null && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+-									className: SideChatView_module_css_default.sidechatPending,
+-									children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+-										className: SideChatView_module_css_default.sidechatPendingText,
+-										children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.MarkdownText, { ...markdownTextProps(rewriteChatText(echo.text), rowLabels) })
+-									}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+-										className: SideChatView_module_css_default.sidechatPendingMeta,
+-										children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.StateDot, {
+-											state: "ongoing",
+-											size: 8
+-										}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: busy === "sending" ? t("sideChatSending") : t("sideChatQueued") })]
+-									})]
+-								})
+-							]
+-						})
+-					}),
+-					showThinking && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+-						className: SideChatView_module_css_default.sidechatStatus,
+-						children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.StateDot, {
+-							state: "ongoing",
+-							size: 8
+-						}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+-							className: SideChatView_module_css_default.sidechatStatusText,
+-							children: t("sideChatThinking")
+-						})]
+-					}),
+-					!canSave && !freshThread && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+-						className: SideChatView_module_css_default.sidechatHint,
+-						children: t("sideChatNoTurn")
+-					}),
+-					canSave && trailingPending && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+-						className: SideChatView_module_css_default.sidechatHint,
+-						children: t("sideChatPendingDrop")
+-					}),
+-					saved && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+-						className: SideChatView_module_css_default.sidechatHint,
+-						children: t("sideChatSaved")
+-					}),
+-					error !== null && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+-						className: SideChatView_module_css_default.sidechatError,
+-						children: t("sideChatError", { message: error })
+-					}),
+-					/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+-						className: SideChatView_module_css_default.sidechatComposer,
+-						children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("textarea", {
+-							ref: composerRef,
+-							className: SideChatView_module_css_default.sidechatComposerInput,
+-							value: composer,
+-							placeholder: freshThread ? t("sideChatFirstPlaceholder") : t("sideChatComposerPlaceholder"),
+-							rows: 1,
+-							onChange: (event) => {
+-								setComposer(event.target.value);
+-								growComposer();
+-							},
+-							onKeyDown: (event) => {
+-								if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) return;
+-								event.preventDefault();
+-								handleSend();
++			return react_jsx_runtime.jsx(
++				SideChatFrame,
++				{
++					header: connectionState !== void 0 && connectionState !== "connected" && react_jsx_runtime.jsx(
++						_deepseek_ai_dsh_client_ui_primitives.ConnectionIndicator,
++						{
++							state: connectionState,
++							disconnectedLabel: t("sideChatConnDisconnected"),
++							connectingLabel: t("sideChatConnConnecting"),
++							recoveredLabel: t("sideChatConnRecovered"),
++							reconnectActionLabel: t("sideChatConnReconnectAction"),
++							restartActionLabel: t("sideChatConnRestartAction"),
++							onReconnect: () => {
++								ctx.connection?.reconnect();
+ 							}
+-						}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+-							className: SideChatView_module_css_default.sidechatComposerBar,
+-							children: [
+-								/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+-									className: SideChatView_module_css_default.sidechatComposerTools,
+-									children: [
+-										/* @__PURE__ */ (0, react_jsx_runtime.jsx)(ComposerTip, {
+-											label: t("sideChatNew"),
+-											children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+-												type: "button",
+-												className: SideChatView_module_css_default.sidechatIconBtn,
+-												onClick: () => void openNewThread(),
+-												disabled: busy !== null,
+-												"aria-label": t("sideChatNew"),
+-												children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconPlusOutlineRegular, { size: 16 })
+-											})
+-										}),
+-										/* @__PURE__ */ (0, react_jsx_runtime.jsx)(ComposerTip, {
+-											label: t("sideChatThreads"),
+-											children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Menu, {
+-												open: menuOpen,
+-												anchor: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+-													type: "button",
+-													className: SideChatView_module_css_default.sidechatIconBtn,
+-													onClick: () => {
+-														setMenuOpen((value) => !value);
+-													},
+-													"aria-label": t("sideChatThreads"),
+-													children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(IconHistoryOutline16, {})
+-												}),
+-												items: menuItems,
+-												selectedId: threadId,
+-												onSelect: (id) => {
+-													if (id === "$new") openNewThread();
+-													else openExistingThread(id);
+-												},
+-												onClose: () => {
+-													setMenuOpen(false);
+-												},
+-												align: "end",
+-												portal: true,
+-												dense: true
+-											})
+-										}),
+-										/* @__PURE__ */ (0, react_jsx_runtime.jsx)(ComposerTip, {
+-											label: `${t("sideChatSave")} — ${t("sideChatSaveTitle")}`,
+-											children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+-												type: "button",
+-												className: SideChatView_module_css_default.sidechatIconBtn,
+-												onClick: () => void handleSave(),
+-												disabled: !canSave || busy !== null,
+-												"aria-label": t("sideChatSave"),
+-												children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(IconSaveOutline16, {})
+-											})
+-										}),
+-										/* @__PURE__ */ (0, react_jsx_runtime.jsx)(ComposerTip, {
+-											label: running ? t("sideChatArchiveRunning") : t("sideChatArchive"),
+-											children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+-												type: "button",
+-												className: SideChatView_module_css_default.sidechatIconBtn,
+-												onClick: () => void handleArchive(),
+-												disabled: running || busy !== null,
+-												"aria-label": t("sideChatArchive"),
+-												children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconArchiveOutlineRegular, { size: 16 })
+-											})
+-										})
+-									]
+-								}),
+-								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { className: SideChatView_module_css_default.sidechatComposerSpacer }),
+-								/* @__PURE__ */ (0, react_jsx_runtime.jsx)(ComposerTip, {
+-									label: agentBadge === "" ? t("sideChatModel") : `${t("sideChatModel")} — ${agentBadge}`,
+-									className: SideChatView_module_css_default.sidechatTipShrink,
+-									children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Menu, {
+-										open: modelMenuOpen,
+-										anchor: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+-											type: "button",
+-											className: SideChatView_module_css_default.sidechatModelBtn,
+-											onClick: () => {
+-												setModelMenuOpen((value) => !value);
+-											},
+-											"aria-label": t("sideChatModel"),
+-											children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+-												className: SideChatView_module_css_default.sidechatModelName,
+-												children: info?.model ?? info?.provider ?? t("sideChatModel")
+-											})
+-										}),
+-										items: modelItems,
+-										selectedIds: [selectedModelId, selectedEffortId].filter((id) => id !== void 0),
+-										onSelect: (id) => {
+-											handleModelSelect(id);
+-										},
+-										onClose: () => {
+-											setModelMenuOpen(false);
+-										},
+-										align: "end",
+-										portal: true,
+-										dense: true
+-									})
+-								}),
+-								running ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)(ComposerTip, {
+-									label: t("sideChatCancelTitle"),
+-									children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
++						}
++					),
++					transcriptRef,
++					transcript: react_jsx_runtime.jsxs(_deepseek_ai_dsh_client_ui_primitives.MarkdownDelegateProvider, { openFile: openChatFile, children: [
++						rows.map((row) => renderRow(row, rowLabels, rewriteChatText)),
++						pendingRows.map((item) => react_jsx_runtime.jsxs("div", { className: SideChatView_module_css_default.sidechatPending, children: [
++							react_jsx_runtime.jsx("div", { className: SideChatView_module_css_default.sidechatPendingText, children: react_jsx_runtime.jsx(_deepseek_ai_dsh_client_ui_primitives.MarkdownText, { ...markdownTextProps(rewriteChatText(item.text), rowLabels) }) }),
++							react_jsx_runtime.jsxs("div", { className: SideChatView_module_css_default.sidechatPendingMeta, children: [
++								react_jsx_runtime.jsx(_deepseek_ai_dsh_client_ui_primitives.StateDot, { state: "ongoing", size: 8 }),
++								react_jsx_runtime.jsx("span", { children: t("sideChatQueued") }),
++								react_jsx_runtime.jsx(
++									"button",
++									{
+ 										type: "button",
+-										className: SideChatView_module_css_default.sidechatSendBtn,
+-										onClick: () => void handleCancel(),
+-										disabled: busy !== null,
+-										"aria-label": t("sideChatCancelTitle"),
+-										children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconStopFillRegular, {})
+-									}, "stop")
+-								}) : /* @__PURE__ */ (0, react_jsx_runtime.jsx)(ComposerTip, {
+-									label: t("sideChatSend"),
+-									children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
++										className: SideChatView_module_css_default.sidechatDequeueBtn,
++										onClick: () => void handleDequeue(item.id),
++										title: t("sideChatDequeue"),
++										"aria-label": t("sideChatDequeue"),
++										children: react_jsx_runtime.jsx(_deepseek_ai_dsh_client_ui_primitives.IconCloseFillRegular, { size: 12 })
++									}
++								)
++							] })
++						] }, `pending:${item.id}`)),
++						showEcho && echo !== null && react_jsx_runtime.jsxs("div", { className: SideChatView_module_css_default.sidechatPending, children: [
++							react_jsx_runtime.jsx("div", { className: SideChatView_module_css_default.sidechatPendingText, children: react_jsx_runtime.jsx(_deepseek_ai_dsh_client_ui_primitives.MarkdownText, { ...markdownTextProps(rewriteChatText(echo.text), rowLabels) }) }),
++							react_jsx_runtime.jsxs("div", { className: SideChatView_module_css_default.sidechatPendingMeta, children: [
++								react_jsx_runtime.jsx(_deepseek_ai_dsh_client_ui_primitives.StateDot, { state: "ongoing", size: 8 }),
++								react_jsx_runtime.jsx("span", { children: busy === "sending" ? t("sideChatSending") : t("sideChatQueued") })
++							] })
++						] })
++					] }),
++					feedback: react_jsx_runtime.jsxs(react_jsx_runtime.Fragment, { children: [
++						showThinking && react_jsx_runtime.jsx(SideChatStatus, { text: t("sideChatThinking") }),
++						!canSave && !freshThread && react_jsx_runtime.jsx("div", { className: SideChatView_module_css_default.sidechatHint, children: t("sideChatNoTurn") }),
++						canSave && trailingPending && react_jsx_runtime.jsx("div", { className: SideChatView_module_css_default.sidechatHint, children: t("sideChatPendingDrop") }),
++						saved && react_jsx_runtime.jsx("div", { className: SideChatView_module_css_default.sidechatHint, children: t("sideChatSaved") }),
++						error !== null && react_jsx_runtime.jsx("div", { className: SideChatView_module_css_default.sidechatError, children: t("sideChatError", { message: error }) })
++					] }),
++					value: composer,
++					composerRef,
++					placeholder: freshThread ? t("sideChatFirstPlaceholder") : t("sideChatComposerPlaceholder"),
++					onChange: setComposer,
++					onSend: handleSend,
++					onCancel: running ? handleCancel : void 0,
++					busy: busy !== null,
++					tools: react_jsx_runtime.jsxs(react_jsx_runtime.Fragment, { children: [
++						react_jsx_runtime.jsx(ComposerTip, { label: t("sideChatNew"), children: react_jsx_runtime.jsx(
++							"button",
++							{
++								type: "button",
++								className: SideChatView_module_css_default.sidechatIconBtn,
++								onClick: () => void openNewThread(),
++								disabled: busy !== null,
++								"aria-label": t("sideChatNew"),
++								children: react_jsx_runtime.jsx(_deepseek_ai_dsh_client_ui_primitives.IconPlusOutlineRegular, { size: 16 })
++							}
++						) }),
++						react_jsx_runtime.jsx(ComposerTip, { label: t("sideChatThreads"), children: react_jsx_runtime.jsx(
++							_deepseek_ai_dsh_client_ui_primitives.Menu,
++							{
++								open: menuOpen,
++								anchor: react_jsx_runtime.jsx(
++									"button",
++									{
+ 										type: "button",
+-										className: SideChatView_module_css_default.sidechatSendBtn,
+-										onClick: () => void handleSend(),
+-										disabled: composer.trim() === "" || busy !== null,
+-										"aria-label": t("sideChatSend"),
+-										children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconSendOutlineRegular, { size: 16 })
+-									}, "send")
+-								})
+-							]
+-						})]
++										className: SideChatView_module_css_default.sidechatIconBtn,
++										onClick: () => {
++											setMenuOpen((value) => !value);
++										},
++										"aria-label": t("sideChatThreads"),
++										children: react_jsx_runtime.jsx(IconHistoryOutline16, {})
++									}
++								),
++								items: menuItems,
++								selectedId: threadId,
++								onSelect: (id) => {
++									if (id === "$new") void openNewThread();
++									else openExistingThread(id);
++								},
++								onClose: () => {
++									setMenuOpen(false);
++								},
++								align: "end",
++								portal: true,
++								dense: true
++							}
++						) }),
++						react_jsx_runtime.jsx(ComposerTip, { label: `${t("sideChatSave")} \u2014 ${t("sideChatSaveTitle")}`, children: react_jsx_runtime.jsx(
++							"button",
++							{
++								type: "button",
++								className: SideChatView_module_css_default.sidechatIconBtn,
++								onClick: () => void handleSave(),
++								disabled: !canSave || busy !== null,
++								"aria-label": t("sideChatSave"),
++								children: react_jsx_runtime.jsx(IconSaveOutline16, {})
++							}
++						) }),
++						react_jsx_runtime.jsx(ComposerTip, { label: running ? t("sideChatArchiveRunning") : t("sideChatArchive"), children: react_jsx_runtime.jsx(
++							"button",
++							{
++								type: "button",
++								className: SideChatView_module_css_default.sidechatIconBtn,
++								onClick: () => void handleArchive(),
++								disabled: running || busy !== null,
++								"aria-label": t("sideChatArchive"),
++								children: react_jsx_runtime.jsx(_deepseek_ai_dsh_client_ui_primitives.IconArchiveOutlineRegular, { size: 16 })
++							}
++						) })
++					] }),
++					model: react_jsx_runtime.jsx(SideChatModelPicker, {
++						title: agentBadge === "" ? t("sideChatModel") : `${t("sideChatModel")} — ${agentBadge}`,
++						label: info?.model ?? info?.provider ?? t("sideChatModel"),
++						items: modelItems,
++						selectedIds: [selectedModelId, selectedEffortId].filter((id) => id !== void 0),
++						onSelect: handleModelSelect
+ 					})
+-				]
+-			});
++				}
++			);
+ 		}
+ 		//#endregion
+ 		//#region src/client/terminal-lazy.tsx
+@@ -29879,8 +29901,9 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
  			const nativeTab = info.tab;
  			(0, react.useSyncExternalStore)((listener) => records.subscribe(listener), () => records.versionOf(sessionId, nativeTab.id));
  			const record = records.get(sessionId, nativeTab.id);
@@ -28,8 +1210,34 @@ index 00ee3b118e13dcdb66374638960812850931c6ca..93468a2eccd2ada54c623af7dc197a04
  			const path = record?.tab.path ?? paramsOf?.(info)?.path;
  			const glyph = (path !== void 0 && descriptorId === EDITOR_KIND$1 ? service.fileIcon(path, CHIP_ICON_SIZE) : void 0) ?? (typeof descriptor?.icon === "function" ? descriptor.icon(CHIP_ICON_SIZE) : descriptor?.icon);
  			const unread = (0, react.useSyncExternalStore)((listener) => service.subscribeState(listener), () => isUnread(service.getSnapshot().state, record?.tab.type ?? descriptorId));
+@@ -30176,7 +30199,7 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
+ 					const disposeType = tabs.register({
+ 						id,
+ 						kind: descriptor.id,
+-						keepMounted: true,
++						keepMounted: descriptor.keepMounted !== false,
+ 						...isEditor ? {
+ 							patterns: ["dsh-resource://file/**"],
+ 							canOpen: (address) => {
+@@ -30221,7 +30244,7 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
+ 					const disposeType = tabs.register({
+ 						id,
+ 						kind: FILES_KIND,
+-						keepMounted: true,
++						keepMounted: false,
+ 						priority: "extension",
+ 						title: () => t("files"),
+ 						guide: [{
+@@ -31958,6 +31981,7 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
+ 			};
+ 			const sidebarStore = createSidebarStore();
+ 			const service = createBetterSidebarService(sidebarStore);
++			service.renderSideChat = renderSideChat;
+ 			ctx.provide("betterSidebar", service);
+ 			const nativeRecords = createNativeTabRecords();
+ 			const nativeSurface = createNativeSurface(ctx, nativeRecords);
 diff --git a/lib/index.js b/lib/index.js
-index a87bddbdde55c23260324611e99d855f161e3491..82d5b1cd2dea6a4fbb64a353d2e3c6981c38f91c 100644
+index a87bddb..82d5b1c 100755
 --- a/lib/index.js
 +++ b/lib/index.js
 @@ -5921,10 +5921,14 @@ function inheritedPendingIds(events, inheritedEventCount) {
@@ -50,3 +1258,673 @@ index a87bddbdde55c23260324611e99d855f161e3491..82d5b1cd2dea6a4fbb64a353d2e3c698
  	for (let index = events.length - 1; index >= 0; index--) if (events[index]?.type === "session/end-seed") return events.slice(index + 1);
  	return [...events];
  }
+diff --git a/lib/types/client/service.d.ts b/lib/types/client/service.d.ts
+index b50e98a..9c075ea 100755
+--- a/lib/types/client/service.d.ts
++++ b/lib/types/client/service.d.ts
+@@ -20,6 +20,7 @@
+  *   then `exts`; `exts: []` is a catch-all that matches any path.
+  */
+ import type { ReactNode } from 'react';
++import type { MenuEntry } from '@deepseek-ai/dsh-client-ui-primitives';
+ import type { Context } from '../context-types.ts';
+ import { type SidebarSnapshot, type SidebarState, type SidebarStore, type SidebarTab, type TabType } from './state.ts';
+ import type { SessionScope } from './api.ts';
+@@ -191,6 +192,8 @@ export interface TabDescriptor {
+      * are given. Builtins: explorer/git/subagent use `single: true`.
+      */
+     single?: boolean;
++    /** Whether DSH's native right Sidebar keeps this tab's body mounted across tab and session switches (defaults to true). */
++    keepMounted?: boolean;
+     /**
+      * If provided, opening a tab whose `dedupeKey(tab)` matches an existing
+      * tab's key focuses the existing one instead of creating a new one.
+@@ -596,10 +599,41 @@ export interface SidebarSurface {
+     /** Whether a tab id belongs to the native surface (same `sessionId` rule as `update`). */
+     has(tabId: string, sessionId?: string): boolean;
+ }
++export interface SideChatModelOptions {
++    title?: string;
++    label: string;
++    disabled?: boolean;
++    items: MenuEntry[];
++    selectedIds: string[];
++    onSelect: (id: string) => void;
++}
++
++/** A controlled side conversation. Its consumer owns the transport and state. */
++export interface SideChatSurfaceOptions {
++    label?: string;
++    visible?: boolean;
++    messages: readonly { id: string; role: 'user' | 'assistant'; text: string; detail?: string }[];
++    status?: string;
++    error?: string;
++    onRetry?: () => void;
++    feedback?: ReactNode;
++    tools?: ReactNode;
++    model?: SideChatModelOptions;
++    value: string;
++    onChange: (value: string) => void;
++    onSend: () => void;
++    placeholder: string;
++    inputLabel?: string;
++    inputDisabled?: boolean;
++    maxLength?: number;
++    busy: boolean;
++}
++
+ /**
+  * The registry service published as `ctx.betterSidebar`.
+  */
+ export interface BetterSidebarService {
++    renderSideChat?(options: SideChatSurfaceOptions): ReactNode;
+     registerTab(descriptor: TabDescriptor): () => void;
+     registerFileViewer(descriptor: FileViewerDescriptor): () => void;
+     registerFileIcon(descriptor: FileIconDescriptor): () => void;
+diff --git a/src/client/SideChatView.tsx b/src/client/SideChatView.tsx
+index 42ff238..985f718 100644
+--- a/src/client/SideChatView.tsx
++++ b/src/client/SideChatView.tsx
+@@ -31,7 +31,7 @@
+  * session, archive) lives in the COMPOSER BAR, not a top header — the reader's
+  * attention is on the input, and a header's actions went unnoticed.
+  */
+-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
++import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+ import { useSyncExternalStore } from 'react'
+ import clsx from 'clsx'
+ import {
+@@ -92,6 +92,7 @@ import { useSidechatPush } from './use-sidechat-push.ts'
+ import { t } from './locales.ts'
+ import type { SessionScope } from './api.ts'
+ import type { SidebarTab } from './state.ts'
++import type { SideChatModelOptions, SideChatSurfaceOptions } from './service.ts'
+ import css from './SideChatView.module.css'
+ 
+ /**
+@@ -472,20 +473,19 @@ function toolLeading(name: string, failed: boolean): React.ReactNode {
+ /** One row renderer (React keys ride the source event seq). `rewrite` is the
+  *  surface's markdown link pass — the rows are model prose, so a relative link
+  *  resolves against the session cwd (see use-markdown-surface). */
++function renderChatMessage(role: 'user' | 'assistant', id: string, text: string, labels: RowLabels): React.ReactNode {
++  return (
++    <div key={id} className={role === 'user' ? css.sidechatUser : css.sidechatAssistant}>
++      <MarkdownText {...markdownTextProps(text, labels)} />
++    </div>
++  )
++}
++
+ function renderRow(row: SidechatTranscriptRow, labels: RowLabels, rewrite: (text: string) => string): React.ReactNode {
+   switch (row.kind) {
+     case 'user':
+-      return (
+-        <div key={`${row.kind}:${row.seq}`} className={css.sidechatUser}>
+-          <MarkdownText {...markdownTextProps(rewrite(row.text), labels)} />
+-        </div>
+-      )
+     case 'assistant':
+-      return (
+-        <div key={`${row.kind}:${row.seq}`} className={css.sidechatAssistant}>
+-          <MarkdownText {...markdownTextProps(rewrite(row.text), labels)} />
+-        </div>
+-      )
++      return renderChatMessage(row.kind, `${row.kind}:${row.seq}`, rewrite(row.text), labels)
+     case 'reasoning':
+       return (
+         <CollapsibleRow
+@@ -550,15 +550,159 @@ function renderRow(row: SidechatTranscriptRow, labels: RowLabels, rewrite: (text
+   }
+ }
+ 
+-/** One side conversation tab (one thread per tab, Codex-style). */
+-export function SideChatView(props: {
+-  ctx: Context
+-  scope: SessionScope
+-  tab: SidebarTab
+-  visible: boolean
+-}): React.ReactNode {
+-  const { ctx, scope, tab, visible } = props
+-  const rowLabels = useMemo<RowLabels>(() => {
++type SideChatFrameProps = {
++  label?: string
++  header?: React.ReactNode
++  transcript: React.ReactNode
++  transcriptRef: React.Ref<HTMLDivElement>
++  feedback?: React.ReactNode
++  tools?: React.ReactNode
++  model?: React.ReactNode
++  value: string
++  onChange: (value: string) => void
++  onSend: () => void
++  onCancel?: () => void
++  placeholder: string
++  inputLabel?: string
++  inputDisabled?: boolean
++  maxLength?: number
++  busy: boolean
++  composerRef: React.RefObject<HTMLTextAreaElement>
++}
++
++function SideChatFrame(props: SideChatFrameProps): React.ReactNode {
++  const { composerRef, value } = props
++  useLayoutEffect(() => {
++    const field = composerRef.current
++    if (field === null) return
++    field.style.height = value === '' ? '' : '0px'
++    if (value !== '') field.style.height = `${Math.min(field.scrollHeight, COMPOSER_MAX_HEIGHT)}px`
++  }, [composerRef, value])
++
++  const stopping = props.onCancel !== undefined
++  const actionLabel = t(stopping ? 'sideChatCancelTitle' : 'sideChatSend')
++  return (
++    <div className={css.sidechat} role={props.label ? 'region' : undefined} aria-label={props.label}>
++      {props.header}
++      <div ref={props.transcriptRef} className={css.sidechatScroll}>
++        {props.transcript}
++      </div>
++      {props.feedback}
++      <div className={css.sidechatComposer}>
++        <textarea
++          ref={composerRef}
++          className={css.sidechatComposerInput}
++          value={value}
++          rows={1}
++          placeholder={props.placeholder}
++          aria-label={props.inputLabel}
++          disabled={props.inputDisabled}
++          maxLength={props.maxLength}
++          onChange={event => props.onChange(event.currentTarget.value)}
++          onKeyDown={event => {
++            if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing || event.keyCode === 229) return
++            event.preventDefault()
++            if (!props.busy && !props.inputDisabled && value.trim() !== '') props.onSend()
++          }}
++        />
++        <div className={css.sidechatComposerBar}>
++          <div className={css.sidechatComposerTools}>{props.tools}</div>
++          <span className={css.sidechatComposerSpacer} />
++          {props.model}
++          <ComposerTip label={actionLabel}>
++            <button
++              key={stopping ? 'stop' : 'send'}
++              type="button"
++              className={css.sidechatSendBtn}
++              onClick={props.onCancel ?? props.onSend}
++              disabled={props.busy || (!stopping && (props.inputDisabled || value.trim() === ''))}
++              aria-label={actionLabel}
++            >
++              {stopping ? <IconStopFillRegular /> : <IconSendOutlineRegular size={16} />}
++            </button>
++          </ComposerTip>
++        </div>
++      </div>
++    </div>
++  )
++}
++
++function SideChatModelPicker(props: SideChatModelOptions): React.ReactNode {
++  const [open, setOpen] = useState(false)
++  return (
++    <ComposerTip label={props.title ?? t('sideChatModel')} className={css.sidechatTipShrink}>
++      <Menu
++        open={open && !props.disabled}
++        anchor={(
++          <button type="button" className={css.sidechatModelBtn} disabled={props.disabled}
++            onClick={() => setOpen(value => !value)} aria-label={t('sideChatModel')}>
++            <span className={css.sidechatModelName}>{props.label}</span>
++          </button>
++        )}
++        items={props.items}
++        selectedIds={props.selectedIds}
++        onSelect={id => { setOpen(false); props.onSelect(id) }}
++        onClose={() => setOpen(false)}
++        align="end"
++        portal
++        dense
++      />
++    </ComposerTip>
++  )
++}
++
++function SideChatStatus({ text }: { text: string }): React.ReactNode {
++  return (
++    <div className={css.sidechatStatus} role="status">
++      <StateDot state="ongoing" size={8} />
++      <span className={css.sidechatStatusText}>{text}</span>
++    </div>
++  )
++}
++
++export function renderSideChat(options: SideChatSurfaceOptions): React.ReactNode {
++  return <PluginSideChat {...options} />
++}
++
++function PluginSideChat({ messages, status, error, onRetry, visible, feedback, model, ...composer }: SideChatSurfaceOptions): React.ReactNode {
++  const composerRef = useRef<HTMLTextAreaElement>(null)
++  const transcriptRef = useRef<HTMLDivElement>(null)
++  const lastMessage = messages.at(-1)
++  useLayoutEffect(() => {
++    const element = transcriptRef.current
++    if (element !== null) element.scrollTop = element.scrollHeight
++  }, [lastMessage?.id, lastMessage?.text, visible])
++  const labels = useSideChatRowLabels()
++  return (
++    <SideChatFrame
++      {...composer}
++      model={model && <SideChatModelPicker {...model} />}
++      composerRef={composerRef}
++      transcriptRef={transcriptRef}
++      transcript={messages.map(message => (
++        <Fragment key={message.id}>
++          {renderChatMessage(message.role, message.id, message.text, labels)}
++          {message.detail && <div className={css.sidechatTurnSummary}>{message.detail}</div>}
++        </Fragment>
++      ))}
++      feedback={(
++        <>
++          {status && <SideChatStatus text={status} />}
++          {error && (
++            <div className={css.sidechatError} role="alert">
++              {t('sideChatError', { message: error })}
++              {onRetry && <button type="button" className={css.sidechatPrimaryBtn} onClick={onRetry}>{t('sideChatRetry')}</button>}
++            </div>
++          )}
++          {feedback}
++        </>
++      )}
++    />
++  )
++}
++
++function useSideChatRowLabels(): RowLabels {
++  return useMemo<RowLabels>(() => {
+     // Shared Block chrome: copy buttons reuse the sidebar's copy pair, the
+     // collapse/expand family is common to every Block kind.
+     const shared = {
+@@ -600,6 +744,17 @@ export function SideChatView(props: {
+       read: { ...shared, ...codeCard, window: (shown: number, total: number) => t('sideChatBlockWindow', { shown, total }) },
+     }
+   }, [])
++}
++
++/** One side conversation tab (one thread per tab, Codex-style). */
++export function SideChatView(props: {
++  ctx: Context
++  scope: SessionScope
++  tab: SidebarTab
++  visible: boolean
++}): React.ReactNode {
++  const { ctx, scope, tab, visible } = props
++  const rowLabels = useSideChatRowLabels()
+ 
+   // The session list feed: thread rows (the composer-bar thread menu) + running states.
+   const list = useSyncExternalStore(
+@@ -640,7 +795,6 @@ export function SideChatView(props: {
+   const [revision, setRevision] = useState(0)
+   const [info, setInfo] = useState<SidechatThreadInfo | null>(null)
+   const [menuOpen, setMenuOpen] = useState(false)
+-  const [modelMenuOpen, setModelMenuOpen] = useState(false)
+   const [catalog, setCatalog] = useState<SidechatModelCatalog | null>(null)
+   /** Local echo of the message just sent: shown until the host reports it
+    *  pending or logs it durably (see the drop effect below). `seq` is the
+@@ -1058,7 +1212,6 @@ export function SideChatView(props: {
+   /** Pin one model route (or one reasoning effort of the current route) on the
+    *  bound thread, then re-read the composer-bar identity. */
+   const handleModelSelect = async (id: string): Promise<void> => {
+-    setModelMenuOpen(false)
+     if (threadId === undefined) return
+     let provider: string
+     let model: string
+@@ -1089,13 +1242,6 @@ export function SideChatView(props: {
+     }
+   }
+ 
+-  const growComposer = (): void => {
+-    const field = composerRef.current
+-    if (field === null) return
+-    field.style.height = '0px'
+-    field.style.height = `${Math.min(field.scrollHeight, COMPOSER_MAX_HEIGHT)}px`
+-  }
+-
+   const handleSend = async (): Promise<void> => {
+     const text = composer.trim()
+     if (text === '' || threadId === undefined || busy !== null) return
+@@ -1109,8 +1255,6 @@ export function SideChatView(props: {
+     try {
+       await api.sidechatPrompt(threadId, text)
+       setComposer('')
+-      const field = composerRef.current
+-      if (field !== null) field.style.height = ''
+       void fetchThread(threadId)
+       void fetchInfo(threadId)
+     } catch (cause) {
+@@ -1235,8 +1379,8 @@ export function SideChatView(props: {
+   }
+ 
+   return (
+-    <div className={css.sidechat}>
+-      {connectionState !== undefined && connectionState !== 'connected' && (
++    <SideChatFrame
++      header={connectionState !== undefined && connectionState !== 'connected' && (
+         <ConnectionIndicator
+           state={connectionState}
+           disconnectedLabel={t('sideChatConnDisconnected')}
+@@ -1247,10 +1391,8 @@ export function SideChatView(props: {
+           onReconnect={() => { ctx.connection?.reconnect() }}
+         />
+       )}
+-      <div ref={transcriptRef} className={css.sidechatScroll}>
+-        {/* The host delegate is what makes a local markdown link in a row
+-            clickable at all (see use-markdown-surface), scoped to this
+-            transcript so nothing outside it is claimed. */}
++      transcriptRef={transcriptRef}
++      transcript={
+         <MarkdownDelegateProvider openFile={openChatFile}>
+           {rows.map(row => renderRow(row, rowLabels, rewriteChatText))}
+           {/* The unclaimed inbox: accepted messages whose claim has not logged
+@@ -1289,157 +1431,92 @@ export function SideChatView(props: {
+             </div>
+           )}
+         </MarkdownDelegateProvider>
+-      </div>
+-      {showThinking && (
+-        <div className={css.sidechatStatus}>
+-          <StateDot state="ongoing" size={8} />
+-          <span className={css.sidechatStatusText}>{t('sideChatThinking')}</span>
+-        </div>
++      }
++      feedback={(
++        <>
++          {showThinking && <SideChatStatus text={t('sideChatThinking')} />}
++          {!canSave && !freshThread && <div className={css.sidechatHint}>{t('sideChatNoTurn')}</div>}
++          {canSave && trailingPending
++            && <div className={css.sidechatHint}>{t('sideChatPendingDrop')}</div>}
++          {saved && <div className={css.sidechatHint}>{t('sideChatSaved')}</div>}
++          {error !== null && <div className={css.sidechatError}>{t('sideChatError', { message: error })}</div>}
++        </>
+       )}
+-      {/* Thread feedback sits directly above the composer: the reader's eye is
+-          on the input, so the save hint, the queue warning and the failure
+-          banner all have to be readable from there (the functions they
+-          describe live in the composer bar below). */}
+-      {!canSave && !freshThread && <div className={css.sidechatHint}>{t('sideChatNoTurn')}</div>}
+-      {canSave && trailingPending
+-        && <div className={css.sidechatHint}>{t('sideChatPendingDrop')}</div>}
+-      {saved && <div className={css.sidechatHint}>{t('sideChatSaved')}</div>}
+-      {error !== null && <div className={css.sidechatError}>{t('sideChatError', { message: error })}</div>}
+-      <div className={css.sidechatComposer}>
+-        <textarea
+-          ref={composerRef}
+-          className={css.sidechatComposerInput}
+-          value={composer}
+-          placeholder={freshThread ? t('sideChatFirstPlaceholder') : t('sideChatComposerPlaceholder')}
+-          rows={1}
+-          onChange={event => {
+-            setComposer(event.target.value)
+-            growComposer()
+-          }}
+-          onKeyDown={event => {
+-            if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) return
+-            event.preventDefault()
+-            void handleSend()
+-          }}
+-        />
+-        <div className={css.sidechatComposerBar}>
+-          {/* Mirrors the MAIN composer's bottom bar: the thread actions sit
+-              left (new thread · thread menu · save-as-new-session · archive),
+-              the model selector sits right, next to send. Every control opens
+-              a hover bubble (ComposerTip) so its meaning is readable without
+-              leaving the input. */}
+-          <div className={css.sidechatComposerTools}>
+-            <ComposerTip label={t('sideChatNew')}>
+-              <button
+-                type="button"
+-                className={css.sidechatIconBtn}
+-                onClick={() => void openNewThread()}
+-                disabled={busy !== null}
+-                aria-label={t('sideChatNew')}
+-              >
+-                <IconPlusOutlineRegular size={16} />
+-              </button>
+-            </ComposerTip>
+-            <ComposerTip label={t('sideChatThreads')}>
+-              <Menu
+-                open={menuOpen}
+-                anchor={(
+-                  <button
+-                    type="button"
+-                    className={css.sidechatIconBtn}
+-                    onClick={() => { setMenuOpen(value => !value) }}
+-                    aria-label={t('sideChatThreads')}
+-                  >
+-                    <IconHistoryOutline16 />
+-                  </button>
+-                )}
+-                items={menuItems}
+-                selectedId={threadId}
+-                onSelect={(id) => { if (id === '$new') void openNewThread(); else openExistingThread(id) }}
+-                onClose={() => { setMenuOpen(false) }}
+-                align="end"
+-                portal
+-                dense
+-              />
+-            </ComposerTip>
+-            <ComposerTip label={`${t('sideChatSave')} — ${t('sideChatSaveTitle')}`}>
+-              <button
+-                type="button"
+-                className={css.sidechatIconBtn}
+-                onClick={() => void handleSave()}
+-                disabled={!canSave || busy !== null}
+-                aria-label={t('sideChatSave')}
+-              >
+-                <IconSaveOutline16 />
+-              </button>
+-            </ComposerTip>
+-            <ComposerTip label={running ? t('sideChatArchiveRunning') : t('sideChatArchive')}>
+-              <button
+-                type="button"
+-                className={css.sidechatIconBtn}
+-                onClick={() => void handleArchive()}
+-                disabled={running || busy !== null}
+-                aria-label={t('sideChatArchive')}
+-              >
+-                <IconArchiveOutlineRegular size={16} />
+-              </button>
+-            </ComposerTip>
+-          </div>
+-          <span className={css.sidechatComposerSpacer} />
+-          <ComposerTip
+-            label={agentBadge === '' ? t('sideChatModel') : `${t('sideChatModel')} — ${agentBadge}`}
+-            className={css.sidechatTipShrink}
+-          >
++      value={composer}
++      composerRef={composerRef}
++      placeholder={freshThread ? t('sideChatFirstPlaceholder') : t('sideChatComposerPlaceholder')}
++      onChange={setComposer}
++      onSend={handleSend}
++      onCancel={running ? handleCancel : undefined}
++      busy={busy !== null}
++      tools={(
++        <>
++          <ComposerTip label={t('sideChatNew')}>
++            <button
++              type="button"
++              className={css.sidechatIconBtn}
++              onClick={() => void openNewThread()}
++              disabled={busy !== null}
++              aria-label={t('sideChatNew')}
++            >
++              <IconPlusOutlineRegular size={16} />
++            </button>
++          </ComposerTip>
++          <ComposerTip label={t('sideChatThreads')}>
+             <Menu
+-              open={modelMenuOpen}
++              open={menuOpen}
+               anchor={(
+                 <button
+                   type="button"
+-                  className={css.sidechatModelBtn}
+-                  onClick={() => { setModelMenuOpen(value => !value) }}
+-                  aria-label={t('sideChatModel')}
++                  className={css.sidechatIconBtn}
++                  onClick={() => { setMenuOpen(value => !value) }}
++                  aria-label={t('sideChatThreads')}
+                 >
+-                  <span className={css.sidechatModelName}>{info?.model ?? info?.provider ?? t('sideChatModel')}</span>
++                  <IconHistoryOutline16 />
+                 </button>
+               )}
+-              items={modelItems}
+-              selectedIds={[selectedModelId, selectedEffortId].filter((id): id is string => id !== undefined)}
+-              onSelect={(id) => { void handleModelSelect(id) }}
+-              onClose={() => { setModelMenuOpen(false) }}
++              items={menuItems}
++              selectedId={threadId}
++              onSelect={(id) => { if (id === '$new') void openNewThread(); else openExistingThread(id) }}
++              onClose={() => { setMenuOpen(false) }}
+               align="end"
+               portal
+               dense
+             />
+           </ComposerTip>
+-          {running ? (
+-            <ComposerTip label={t('sideChatCancelTitle')}>
+-              <button
+-                key="stop"
+-                type="button"
+-                className={css.sidechatSendBtn}
+-                onClick={() => void handleCancel()}
+-                disabled={busy !== null}
+-                aria-label={t('sideChatCancelTitle')}
+-              >
+-                <IconStopFillRegular />
+-              </button>
+-            </ComposerTip>
+-          ) : (
+-            <ComposerTip label={t('sideChatSend')}>
+-              <button
+-                key="send"
+-                type="button"
+-                className={css.sidechatSendBtn}
+-                onClick={() => void handleSend()}
+-                disabled={composer.trim() === '' || busy !== null}
+-                aria-label={t('sideChatSend')}
+-              >
+-                <IconSendOutlineRegular size={16} />
+-              </button>
+-            </ComposerTip>
+-          )}
+-        </div>
+-      </div>
+-    </div>
++          <ComposerTip label={`${t('sideChatSave')} — ${t('sideChatSaveTitle')}`}>
++            <button
++              type="button"
++              className={css.sidechatIconBtn}
++              onClick={() => void handleSave()}
++              disabled={!canSave || busy !== null}
++              aria-label={t('sideChatSave')}
++            >
++              <IconSaveOutline16 />
++            </button>
++          </ComposerTip>
++          <ComposerTip label={running ? t('sideChatArchiveRunning') : t('sideChatArchive')}>
++            <button
++              type="button"
++              className={css.sidechatIconBtn}
++              onClick={() => void handleArchive()}
++              disabled={running || busy !== null}
++              aria-label={t('sideChatArchive')}
++            >
++              <IconArchiveOutlineRegular size={16} />
++            </button>
++          </ComposerTip>
++        </>
++      )}
++      model={(
++        <SideChatModelPicker
++          title={agentBadge === '' ? t('sideChatModel') : `${t('sideChatModel')} — ${agentBadge}`}
++          label={info?.model ?? info?.provider ?? t('sideChatModel')}
++          items={modelItems}
++          selectedIds={[selectedModelId, selectedEffortId].filter((id): id is string => id !== undefined)}
++          onSelect={handleModelSelect}
++        />
++      )}
++    />
+   )
+ }
+diff --git a/src/client/index.tsx b/src/client/index.tsx
+index ce6d3d3..c2d057b 100644
+--- a/src/client/index.tsx
++++ b/src/client/index.tsx
+@@ -12,6 +12,7 @@ import { createElement } from 'react'
+ import { createRoot, type Root } from 'react-dom/client'
+ import type { Context } from '../context-types.ts'
+ import { createSidebarStore } from './state.ts'
++import { renderSideChat } from './SideChatView.tsx'
+ import { createBetterSidebarService, matchUrlTarget } from './service.ts'
+ import { revalidateChunksOnReactivate, setChunkModuleSystem } from './chunk-loader.ts'
+ import { registerBuiltins } from './builtins/index.ts'
+@@ -169,6 +170,7 @@ export function apply(ctx: Context): void {
+   // Published before the panel mounts so consumers injecting 'betterSidebar'
+   // are ready by the time the sidebar renders.
+   const service = createBetterSidebarService(sidebarStore)
++  service.renderSideChat = renderSideChat
+   ctx.provide('betterSidebar', service)
+   // The native right-Sidebar surface: the plugin's content is registered as
+   // DSH tab types (one per descriptor) and every open routes there, so the
+diff --git a/src/client/service.ts b/src/client/service.ts
+index 3ed3312..7b5a018 100644
+--- a/src/client/service.ts
++++ b/src/client/service.ts
+@@ -20,6 +20,7 @@
+  *   then `exts`; `exts: []` is a catch-all that matches any path.
+  */
+ import type { ReactNode } from 'react'
++import type { MenuEntry } from '@deepseek-ai/dsh-client-ui-primitives'
+ import type { Context } from '../context-types.ts'
+ import {
+   activateTab as activateTabReducer, allLeaves, closeTab as closeTabReducer,
+@@ -610,10 +611,41 @@ export interface SidebarSurface {
+   has(tabId: string, sessionId?: string): boolean
+ }
+ 
++export interface SideChatModelOptions {
++  title?: string
++  label: string
++  disabled?: boolean
++  items: MenuEntry[]
++  selectedIds: string[]
++  onSelect: (id: string) => void
++}
++
++/** A controlled side conversation. Its consumer owns the transport and state. */
++export interface SideChatSurfaceOptions {
++  label?: string
++  visible?: boolean
++  messages: readonly { id: string; role: 'user' | 'assistant'; text: string; detail?: string }[]
++  status?: string
++  error?: string
++  onRetry?: () => void
++  feedback?: ReactNode
++  tools?: ReactNode
++  model?: SideChatModelOptions
++  value: string
++  onChange: (value: string) => void
++  onSend: () => void
++  placeholder: string
++  inputLabel?: string
++  inputDisabled?: boolean
++  maxLength?: number
++  busy: boolean
++}
++
+ /**
+  * The registry service published as `ctx.betterSidebar`.
+  */
+ export interface BetterSidebarService {
++  renderSideChat?(options: SideChatSurfaceOptions): ReactNode
+   registerTab(descriptor: TabDescriptor): () => void
+   registerFileViewer(descriptor: FileViewerDescriptor): () => void
+   registerFileIcon(descriptor: FileIconDescriptor): () => void

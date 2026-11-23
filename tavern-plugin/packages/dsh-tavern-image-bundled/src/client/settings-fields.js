@@ -504,14 +504,18 @@
     }
 
     /** One local reference per library object; binding is saved with the existing draft.
-     *  field='characterOutfitImage' edits a character's own outfit sheet (角色×服装设定图), sharing the outfit's 一致性补充. */
-    function ReferenceImageEditor({ value = {}, label, onChange, field = 'referenceImage', noun = '参考图', heading = '（每个对象一张）', consistency = true, compact = false }) {
+     *  field='characterOutfitImage' edits a character's own outfit sheet (角色×服装设定图), sharing the outfit's 一致性补充.
+     *  lent {picture, borrowed}: the picture Tavern's asset library lends a linked figure here (state.figurePictures). A 设定图
+     *  is what pictures use, changed in the asset library; a borrowed 立绘 stands in until a picture is uploaded here. */
+    function ReferenceImageEditor({ value = {}, label, onChange, field = 'referenceImage', noun = '参考图', heading = '（每个对象一张）', consistency = true, compact = false, lent = null }) {
       const [busy, setBusy] = React.useState(false)
       const [note, setNote] = React.useState('')
       const epoch = React.useRef(0)
       React.useEffect(() => () => { epoch.current += 1 }, [])
       const image = value[field]
       const imageId = /^[a-f0-9]{64}$/i.test(String(image?.id || '')) ? image.id : ''
+      const shown = lent?.picture && (!lent.borrowed || !imageId) ? lent.picture : null
+      const settei = Boolean(shown && !lent.borrowed)
       const inputStyle = { width: '100%', boxSizing: 'border-box', padding: '7px 9px', borderRadius: '7px', background: 'var(--dsw-specific-input-major)', color: 'var(--dsw-alias-label-primary)', border: '1px solid var(--dsw-alias-border-l2)', fontFamily: 'inherit', fontSize: '12px' }
       async function upload(event) {
         const file = event.target.files?.[0]
@@ -543,13 +547,15 @@
           if (request === epoch.current) setNote('上传失败：' + (error?.message || error))
         } finally { if (request === epoch.current) setBusy(false) }
       }
-      const preview = imageId ? h('img', { src: BASE + '/reference-image?id=' + encodeURIComponent(imageId), alt: label + noun,
+      const previewId = shown ? shown.id : imageId
+      const preview = previewId ? h('img', { src: BASE + '/reference-image?id=' + encodeURIComponent(previewId), alt: label + noun,
         style: compact ? undefined : { display: 'block', maxWidth: '180px', maxHeight: '160px', objectFit: 'contain', borderRadius: '7px', marginBottom: '7px' } }) : null
+      const caption = shown ? (settei ? '素材库设定图，在素材库人物页更换' : '借用素材库立绘，上传后改用上传的图') : imageId ? image.name || '已上传参考图' : ''
       const controls = h('div', null,
         h('div', { style: { fontSize: '12px', fontWeight: 600, marginBottom: '4px' } }, compact ? noun : label + noun + heading),
         compact ? null : preview,
-        imageId ? h('div', { style: { fontSize: '11px', overflowWrap: 'anywhere', marginBottom: '4px' } }, image.name || '已上传参考图') : null,
-        h('label', { style: { display: 'inline-flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center', fontSize: '12px' } },
+        caption ? h('div', { style: { fontSize: '11px', overflowWrap: 'anywhere', marginBottom: '4px' } }, caption) : null,
+        settei ? null : h('label', { style: { display: 'inline-flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center', fontSize: '12px' } },
           compact && !busy ? null : busy ? '上传中…' : imageId ? '替换' + noun : '上传' + noun,
           h('input', { type: 'file', accept: 'image/png,image/jpeg,image/webp', 'aria-label': label + '上传' + noun,
             disabled: busy, onChange: upload, style: { maxWidth: '100%', fontSize: 12 } })),
@@ -572,25 +578,28 @@
 
     }
 
+    const OUTFIT_PROMPT_PARTS = [['upper', '上衣'], ['lower', '下装'], ['shoes', '鞋袜'], ['accessory', '配饰'], ['full', '整套'], ['back', '背面']]
     const LIBRARY_PROMPT_PARTS = {
       '角色': [['face', '外貌正面'], ['faceBack', '外貌背面'], ['bodySFW', '穿衣上身正面'], ['bodySFWBack', '穿衣上身背面'],
         ['lowerSFW', '穿衣下身正面'], ['lowerSFWBack', '穿衣下身背面'], ['bodyNSFW', '裸露上身正面'], ['bodyNSFWBack', '裸露上身背面'],
         ['lowerNSFW', '裸露下身正面'], ['lowerNSFWBack', '裸露下身背面'], ['feature', '性格（规划用）']],
-      '服装': [['upper', '上衣'], ['lower', '下装'], ['shoes', '鞋袜'], ['accessory', '配饰'], ['full', '整套'], ['back', '背面']],
-      '通用服装': [['body', '正面上身'], ['full', '正面整套'], ['bodyBack', '背面上身'], ['fullBack', '背面整套']],
+      // 两套服装库字段已统一，编辑面板共用同一份字段表。
+      '服装': OUTFIT_PROMPT_PARTS,
+      '通用服装': OUTFIT_PROMPT_PARTS,
     }
 
     function LibraryPromptEditor({ record, kind, mode, traitMode, editable, detailsEditable, onChange }) {
       const custom = libraryPromptOverride(record) !== null
       const character = kind === '角色'
-      const parts = character ? record.traits || {} : record
+      // 通用服装与角色服装同字段；旧 body/fullBack 数据在这里先归一，编辑面板不会显示成空。
+      const parts = character ? record.traits || {} : normalizeOutfitParts(record)
       const fields = LIBRARY_PROMPT_PARTS[kind]
       const filled = fields.filter(([key]) => String(parts[key] || '').trim())
       const [view, setView] = React.useState(() => !custom && filled.length > 1 ? 'all' : 'prompt')
       const [selected, select] = React.useState('')
       const updatePart = (key, value) => onChange(character ? { traits: { ...parts, [key]: value } } : { [key]: value })
       const fallback = character ? characterLibraryPrompt(record, { mode, traitMode })
-        : outfitLibraryPrompt(record, { mode, shared: kind === '通用服装' })
+        : outfitLibraryPrompt(record, { mode })
       const imageDetails = libraryImageDetails(record)
       const editor = (label, value, onEdit, rows, readOnly = false) => h('label', { style: { display: 'grid', gap: 4, margin: '8px 0', minWidth: 0 } },
         h('span', { style: { fontSize: 12, fontWeight: 600 } }, label),

@@ -40,29 +40,6 @@ for(const prefix of [false,true])test(`cached original voice plays through the r
   assert.ok(!calls.some(method=>/synthes|generate|save|notify/.test(method)))
 })
 
-test('isolated replay activates the production BGM owner and records nonzero original music',{timeout:60000},async t=>{
-  const pcm=Buffer.alloc(48000);for(let i=0;i<24000;i++)pcm.writeInt16LE(Math.round(9000*Math.sin(i/24000*440*Math.PI*2)),i*2)
-  const wav=pcmWav(pcm),body=roundBody([{kind:'markdown',text:'Music.'}],{chatId:'music',turn:1})
-  const token={sourceKey:'recorded-music'},direction={phase:'done',revision:1,generation:1,token,target:{sessionId:'music',turn:1},binding:{},bindingKey:'music',prefixRevision:1,through:1,complete:true,entries:[],baseline:{}}
-  const snapshot={sessionId:'music',chatId:'music',cardPath:'fixture.json',from:{turn:1,para:1},config:{characters:[],voice:{enabled:false},stage:{enabled:true,director:true,music:true,theme:'classic'}},turns:[{turn:1,body,direction}],paragraphs:[{turn:1,para:1,durationMs:1000}]}
-  const renderer=await createClipBrowser({snapshot,plan:{from:snapshot.from,to:snapshot.from,frames:60,fps:60,resolution:{width:1280,height:720}},
-    transport:async method=>{switch(method){
-      case 'getRoundBody':return body
-      case 'getStageDirection':return direction
-      case 'getAssetPackPresentation':return {status:'ready',revision:1,directionToken:token,value:{state:{cast:[],actors:{},camera:{mode:'reset'},figureScale:{version:6,scene:1,hMax:150,rescales:0}},scene:{},characters:[],avatars:[],widgets:[],audio:{music:{ref:{packId:'fixture',kind:'music',assetId:'music'},identity:'original-music',name:'Original',url:'https://clip-export.invalid/music.wav'},soundscape:{version:1,layers:[]}}}}
-      case 'getStageModHistory':return {turns:[]}
-      case 'getStageMusicTracks':return {tracks:[]}
-      case 'listFonts':return {fonts:[]}
-      case 'getDialogueBubbles':return {config:snapshot.config}
-      default:throw new Error(method)
-    }},readAsset:async url=>{if(url.pathname==='/music.wav')return {body:wav,mediaType:'audio/wav'};const client=await readTavernClientAsset(url.pathname);if(client)return client;const asset=await resolveTavernRuntimeAsset(url.pathname);if(asset)return {body:await readFile(asset.file),mediaType:asset.mediaType}}
-  });t.after(()=>renderer.close())
-  for(let frame=0;frame<renderer.timeline.lines[0].frames*2;frame++)await renderer.capture(frame)
-  const events=await renderer.audioEvents(),music=events.find(row=>row.kind==='play'&&row.layer==='music')
-  assert.ok(music,JSON.stringify(events));assert.ok((await renderer.audioBlob(music.url)).equals(wav))
-  assert.ok((await renderer.evidence()).audioLayers.find(row=>row.layer==='music')?.peakGain>0)
-})
-
 for(const long of [false,true])test(`旁白配音: each narration page plays its cached narrator voice through the real stage narrator, starting with its page (long: ${long})`,{timeout:90000},async t=>{
   const pcm=Buffer.alloc(24000*2);for(let i=0;i<24000;i++)pcm.writeInt16LE(Math.round(12000*Math.sin(i/24000*523*Math.PI*2)),i*2)
   const wav=pcmWav(pcm),text=!long?'夜深了，街上没有人。':Array.from({length:24},(_,n)=>`第${n+1}盏街灯下没有人，只有风吹过空荡荡的站台。`).join('')

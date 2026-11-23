@@ -3,24 +3,16 @@ import {copyJsonTree} from './copy-json-tree.js'
 // Candidate commands do not change the template environment. Everything else
 // invalidates conservatively; an unobserved storage revision always misses.
 const commandOnly = source => /^candidate\.mailbox\.|^background\.candidate\.(begin|bind|commit)$/.test(source || '')
-export function createCandidateWorldbookPreparation({version,prepare,ready,onError,capacity=8,maxBytes=16*1024*1024}) {
+export function createCandidateWorldbookPreparation({version,prepare,onError,capacity=8,maxBytes=16*1024*1024}) {
   const entries=new Map()
   let disposed=false,bytes=0
   function remove(id){const entry=entries.get(id);if(entry){bytes-=entry.bytes||0;entries.delete(id)}}
   async function load(id,warming=false){
     if(disposed)throw Error('候选上下文准备已停止')
-    let current=await version(id)
+    const current=await version(id)
     // Legacy/live-resource chats retain their existing fresh evaluation path.
     if(!current)return warming?undefined:prepare(id)
     let entry=entries.get(id)
-    if(ready && (!entry || entry.revision!==current.revision || entry.resources!==current.resources)){
-      // Worker initialization may persist normalized extension defaults. Pin
-      // dependencies after that initialization, before evaluating any template.
-      await ready(id)
-      current=await version(id)
-      if(!current)return warming?undefined:prepare(id)
-      entry=entries.get(id)
-    }
     if(entry && (entry.revision!==current.revision || entry.resources!==current.resources)){remove(id);entry=null}
     if(!entry){
       entry={revision:current.revision,resources:current.resources,bytes:0}

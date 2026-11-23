@@ -112,8 +112,7 @@ test('registerComposerSlot：先注册者优先，卸载后让位；id 与 modes
   assert.throws(() => second.registerComposerSlot({ id: 'x', modes: ['card'], render: 1 }), /render/)
 })
 
-test('tavernReplyState：流式取 partial，结束后取最后一条终稿，工具名与轮次跟着走', () => {
-  const start = source.indexOf('function tavernReplyText(blocks)')
+test('tavernReplyState：流式取 partial，结束后取最后一条终稿，工具名与轮次跟着走', () => {  const start = source.indexOf('function tavernReplyText(blocks)')
   const end = source.indexOf('// Always mounted with the composer', start)
   const state = vm.runInNewContext(source.slice(start, end) + '; tavernReplyState', {})
   const nodes = [

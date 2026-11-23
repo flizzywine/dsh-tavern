@@ -5,8 +5,7 @@ import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
 
-import { createTavernShortcut, macLauncherScript, windowsLauncherScript } from '../tavern-plugin/packages/dsh-tavern/lib/shortcut.mjs'
-import { appWindowBrowser, desktopUsesTavern } from '../bin/tavern-window.mjs'
+import { createTavernShortcut } from '../tavern-plugin/packages/dsh-tavern/lib/shortcut.mjs'
 
 async function setup(t) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'tavern-shortcut-'))
@@ -34,26 +33,4 @@ test('macOS：桌面生成 DSH 酒馆.app，指向本机酒馆脚本；已存在
   if (process.platform !== 'win32') assert.ok((await stat(path.join(created.path, 'Contents', 'MacOS', 'launcher'))).mode & 0o100, '可执行')
   assert.match(await readFile(path.join(created.path, 'Contents', 'Info.plist'), 'utf8'), /<string>launcher<\/string>/)
   assert.equal(createTavernShortcut({ paths, platform: 'darwin', runner: '/App/Electron', home: root }).existed, true)
-})
-
-test('启动脚本：路径里的引号与中文都安全', () => {
-  assert.match(macLauncherScript({ runner: "/A'pp/E", script: '/s.mjs', logFile: '/l.log' }), /'\/A'\\''pp\/E'/)
-  const vbs = windowsLauncherScript({ runner: 'C:\\P\\DeepSeek Harness.exe', script: 'C:\\Users\\张\\bin\\dsh-tavern.mjs', logFile: 'C:\\Users\\张\\w.log' })
-  assert.match(vbs, /shell\.Run\("cmd \/d \/s \/c """"C:\\P\\DeepSeek Harness\.exe"" --expose-internals ""C:\\Users\\张\\bin\\dsh-tavern\.mjs"" window --host desktop >> ""C:\\Users\\张\\w\.log"" 2>&1""", 0, True\)/)
-  assert.match(vbs, /Charset = "utf-8"/)
-})
-
-test('独立窗口：桌面版链接到酒馆时不另起一份；按平台挑应用窗口浏览器', async t => {
-  const { dsh } = await setup(t)
-  await mkdir(path.join(dsh, 'profiles', 'desktop'))
-  assert.equal(desktopUsesTavern(dsh), false)
-  await rm(path.join(dsh, 'profiles', 'desktop'), { recursive: true })
-  await symlink(path.join(dsh, 'profiles', 'tavern'), path.join(dsh, 'profiles', 'desktop'), 'junction')
-  assert.equal(desktopUsesTavern(dsh), true)
-
-  const mac = appWindowBrowser('darwin', {}, file => file === path.join('/Applications', 'Microsoft Edge.app'), '/Users/me')
-  assert.deepEqual(mac.args('http://x/'), ['-na', path.join('/Applications', 'Microsoft Edge.app'), '--args', '--app=http://x/'])
-  const windows = appWindowBrowser('win32', { PROGRAMFILES: 'C:\\PF' }, file => file === path.join('C:\\PF', 'Google\\Chrome\\Application\\chrome.exe'))
-  assert.deepEqual(windows.args('http://x/'), ['--app=http://x/'])
-  assert.equal(appWindowBrowser('darwin', {}, () => false, '/Users/me'), null)
 })

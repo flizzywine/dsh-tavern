@@ -1,10 +1,11 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { bounded, untilAborted } from './plugin-callback.js'
 import { pluginMember, pluginMemberId, pluginMemberPrefix } from './background-members.js'
+import { assertToolParameterKeys } from './tool-schema-keys.js'
 
 const TOOL_NAME = /^[a-z][a-z0-9_]{2,47}$/
 const MAX_TOOL_RESULT = 20000
-const MAX_TASK_PROMPT = 20000
+const MAX_TASK_PROMPT = 100000
 const MAX_TASK_TOOLS = 8
 const MAX_TOOL_CALLS_PER_TASK = 16
 const TASK_TIMEOUT_MS = 600000
@@ -55,6 +56,7 @@ export function createPluginTaskExecution({ runTask, currentKey, readLatestSettl
       if (reservedToolNames.has(tool.name) || byName.has(tool.name)) throw new Error('工具名 ' + tool.name + ' 已被占用')
       if (typeof tool.description !== 'string' || !tool.description.trim()) throw new Error('工具 ' + tool.name + ' 需要 description')
       if (!tool.parameters || typeof tool.parameters !== 'object' || tool.parameters.type !== 'object') throw new Error('工具 ' + tool.name + ' 的 parameters 必须是 type 为 object 的 JSON Schema')
+      assertToolParameterKeys(tool.name, tool.parameters)
       if (typeof tool.execute !== 'function') throw new TypeError('工具 ' + tool.name + ' 需要 execute 函数')
       byName.set(tool.name, tool)
     }
@@ -68,7 +70,7 @@ export function createPluginTaskExecution({ runTask, currentKey, readLatestSettl
     if (member !== undefined && !pluginMember(memberId)) throw new Error('插件 ' + owner + ' 没有注册成员 ' + member)
     if ((await choicesFor(game.sessionId)).disabled.has(owner)) throw new Error('玩家在本局关闭了插件 ' + owner)
     if (typeof prompt !== 'string' || !prompt.trim()) throw new TypeError('prompt 必须是非空字符串')
-    if (prompt.length > MAX_TASK_PROMPT) throw new Error('prompt 不能超过 20000 字')
+    if (prompt.length > MAX_TASK_PROMPT) throw new Error('prompt 不能超过 ' + MAX_TASK_PROMPT + ' 字')
     if (system !== undefined && typeof system !== 'string') throw new TypeError('system 必须是字符串')
     // A member with a prefix of its own answers with its own tools: they sit in that prefix, so
     // a task brings none (the prefix stays the same for every task, and cached).

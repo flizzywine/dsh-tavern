@@ -113,7 +113,7 @@ function enterCast(cast, alias, position = 'right') {
 }
 export function initialAssetPackStage(actors) {
   return { format: ASSET_PACK_FORMAT, scene: null, music: null, lighting: { time: { mode: 'auto', ref: null }, mood: null }, soundscape: {}, widgets: {}, cast: [], weather: 'none', sound: [], camera: { mode: 'reset', actor: null }, dof: null, widgetTime: 0,
-    actors: Object.fromEntries(Object.entries(actors).map(([id, actor]) => [id, { figure: clone(actor.figure), outfitKey: actor.outfits[0]?.key ?? null, ruler: clone(actor.ruler || null), ...presentation() }])) }
+    actors: Object.fromEntries(Object.entries(actors).map(([id, actor]) => [id, { figure: clone(actor.figure), outfitKey: actor.outfits[0]?.key ?? null, ruler: clone(actor.ruler || null), ...presentation(), ...(actor.standIn ? {standIn:actor.standIn} : {}) }])) }
 }
 function shapeSkin(value) {
   validateAssetPackToolValue(value, shape({ref:{},level:int(1,3)},['ref']), '$.skin')
@@ -196,8 +196,11 @@ export function validateAssetPackStage(state) {
     shapeSkin(state.skin)
   }
   if (state.performance !== undefined && state.performance !== null) {
-    validateAssetPackToolValue(state.performance,shape({ref:{},level:int(1,3),topic:{type:'string',minLength:1,maxLength:160},startedAt:shape({turn:int(1,Number.MAX_SAFE_INTEGER),page:int(0,Number.MAX_SAFE_INTEGER)}),phase:en(['entry','idle','turn','exit'])},['ref','level','startedAt','phase']),'$.performance')
+    const startedAt=shape({turn:int(1,Number.MAX_SAFE_INTEGER),page:int(0,Number.MAX_SAFE_INTEGER)})
+    validateAssetPackToolValue(state.performance,shape({ref:{},level:int(1,3),topic:{type:'string',minLength:1,maxLength:160},startedAt,phase:en(['entry','idle','turn','exit']),
+      cutIn:shape({ref:{},level:int(1,3),startedAt},['ref','level','startedAt'])},['ref','level','startedAt','phase']),'$.performance')
     validateAssetRef(state.performance.ref,'$.performance.ref','performances')
+    if (state.performance.cutIn) validateAssetRef(state.performance.cutIn.ref,'$.performance.cutIn.ref','performances')
   }
   const { format, scene, music, lighting, soundscape } = state
   validateAssetPackState({ format, scene, music, lighting, soundscape,
@@ -210,7 +213,9 @@ export function validateAssetPackStage(state) {
   check(state.dof === null || Object.hasOwn(state.actors, state.dof), '$.dof')
   for (const [alias, actor] of Object.entries(state.actors)) {
     const fields = ['figure', 'outfitKey', 'gaze', 'figureLight', 'ruler']
-    check(Object.keys(actor).every(key => fields.includes(key) || STATE_IMAGE_FIELDS.includes(key)) && fields.every(key => Object.hasOwn(actor, key)), '$.actors.' + alias)
+    check(Object.keys(actor).every(key => fields.includes(key) || key === 'standIn' || STATE_IMAGE_FIELDS.includes(key)) && fields.every(key => Object.hasOwn(actor, key)), '$.actors.' + alias)
+    // a stand-in (借用形象) keeps the name of the person it stands for (stage-stand-in.js)
+    check(actor.standIn === undefined || typeof actor.standIn === 'string' && actor.standIn.length >= 1 && actor.standIn.length <= 80, '$.actors.' + alias + '.standIn')
     if (STATE_IMAGE_FIELDS.some(key => Object.hasOwn(actor,key))) validateStateImageSelection(actor, '$.actors.' + alias)
     if (actor.ruler !== null) validateAssetPackToolValue(actor.ruler, rulerSchema, '$.actors.' + alias + '.ruler')
     check(['lit', 'glow', 'shadow'].includes(actor.figureLight), '$.actors.' + alias)
@@ -304,7 +309,8 @@ export function reduceAssetPackOperation(state, op, context, metadata = {}) {
   }
   if (definition.toggle === 'performance') {
     const {op:ignored,...params}=op, document=params.ref && context.performanceDocuments[assetRefKey(params.ref)]
-    const next=reducePerformanceCommand(clone(state),op.op,params,metadata,document,context.catalogue.candidates.performances,performanceBoundary,check)
+    const boundary=(previous,value,at,next)=>performanceBoundary(previous,value,at,next,previous && context.performanceDocuments[assetRefKey(previous.ref)])
+    const next=reducePerformanceCommand(clone(state),op.op,params,metadata,document,context.catalogue.candidates.performances,boundary,check)
     const linked=applyPerformanceInterop(state,next,{id:op.op.split('.')[1]},params,document,context,metadata)
     validateAssetPackStage(linked)
     return {state:linked,diagnostics:[],transitionMs:0,locationChanged:false}

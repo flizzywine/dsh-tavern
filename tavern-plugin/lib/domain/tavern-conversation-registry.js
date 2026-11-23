@@ -1,6 +1,7 @@
 import { projectSceneImageState, projectChatBackgroundConfig } from './chat-session-state.js'
 import { currentBackgroundSessionId, referencedBackgroundSessionIds } from './background-identity.js'
 import { isScopedMessages } from './scoped-messages.js'
+import { isStoryFloor } from './story-transcript.js'
 function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
 }
@@ -20,6 +21,12 @@ function createdAtFromId(id) {
   const value = match ? parseInt(match[1], 36) : 0
   return value > Date.UTC(2020, 0, 1) && value < Date.UTC(2100, 0, 1) ? value : 0
 }
+
+// Timeline participants/checkpoints also preserve historical background-session aliases.
+export const conversationSummaryFields = Object.freeze([
+  'id','sessionId','cardPath','cardName','title','mode','requestMode','createdAt','updatedAt','lastOpenedAt',
+  'backgroundHistoryIds','candidateAgent','timeline'
+])
 
 function cleanPreviewText(raw, maxLines = 5, maxChars = 240) {
   let text = str(raw)
@@ -59,6 +66,9 @@ function messageRawText(msg) {
 function normalizePreview(preview) {
   if (!preview || typeof preview !== 'object' || Array.isArray(preview)) return undefined
   return {
+    ...(preview.latest === true ? { latest: true } : {}),
+    ...(Number.isSafeInteger(preview.floorNo) ? { floorNo: preview.floorNo } : {}),
+    ...(Number.isSafeInteger(preview.storageRevision) ? { storageRevision: preview.storageRevision } : {}),
     turnCount: Math.max(0, Number(preview.turnCount) || 0),
     messageCount: Math.max(0, Number(preview.messageCount) || 0),
     userText: str(preview.userText),
@@ -67,62 +77,59 @@ function normalizePreview(preview) {
   }
 }
 
-export function extractChatPreview(chat, preservedPreview = undefined, options = {}) {
-  const existing = normalizePreview(chat?.preview) ?? normalizePreview(preservedPreview)
-  if (options?.metadataOnly === true || !Array.isArray(chat?.messages)) return existing
-  const messages = chat.messages
-  const totalMessages = Number.isSafeInteger(options.messageCount) && options.messageCount >= 0 ? options.messageCount : messages.length
-  // A projected header or sparse scoped window without floor 0 keeps the previously extracted opening/first-turn lines.
-  if (totalMessages === 0 && existing && existing.messageCount > 0 && !options.allowEmptyReset) return existing
-  if (isScopedMessages(messages) && messages.length > 0 && messages[0] === undefined && existing) {
-    let maxTurn = existing.turnCount
-    const last = messages[messages.length - 1]
-    if (last && typeof last === 'object' && Number(last.turn) > 0) {
-      maxTurn = Math.max(maxTurn, Number(last.turn))
-    }
-    return { ...existing, messageCount: totalMessages, turnCount: Math.max(existing.turnCount, maxTurn, totalMessages > 1 ? 1 : 0) }
-  }
-  let openingText = '', userText = '', replyText = ''
-  let userCount = 0, replyCount = 0, maxTurn = 0, firstIsGreeting = false
-  const limit = Math.min(messages.length, 2000)
-  for (let i = 0; i < limit; i++) {
-    const msg = messages[i]
-    if (!msg) continue
-    if (typeof msg === 'string') {
-      if (!openingText) openingText = cleanPreviewText(msg, 4, 200)
-      continue
-    }
-    const turn = Number(msg.turn) || 0
-    if (turn > maxTurn) maxTurn = turn
-    const isGreeting = msg.greeting === true || (i === 0 && msg.role === 'assistant')
-    if (i === 0 && isGreeting) firstIsGreeting = true
-    if (isGreeting) {
-      if (!openingText) openingText = cleanPreviewText(messageRawText(msg), 4, 200)
-    } else if (msg.role === 'user') {
+// Use the same assistant ordinals as the transcript, including the opening.
+// A live placeholder has an ordinal, but is not yet a body worth previewing.
+function previewFloors(history) {
+  let assistantIndex = -1, floorNo = 0, assistantCount = 0, userIndex = -1, userCount = 0, maxTurn = 0
+  const first = history[0]
+  const hasOpening = first?.placeholder !== true && (typeof first === 'string' || first?.greeting === true || isStoryFloor(first))
+  for (let index = 0; index < history.length; index++) {
+    const row = history[index]
+    if (isStoryFloor(row)) {
+      assistantCount++
+      if (row.placeholder !== true) {
+        assistantIndex = index
+        floorNo = assistantCount
+      }
+    } else if (row?.role === 'user') {
+      userIndex = index
       userCount++
-      if (!userText) userText = cleanPreviewText(messageRawText(msg), 3, 140)
-    } else if (msg.role === 'assistant') {
-      replyCount++
-      if (!replyText) replyText = cleanPreviewText(messageRawText(msg), 5, 240)
     }
+    if (row && row.greeting !== true && !(hasOpening && index === 0)) maxTurn = Math.max(maxTurn, Number(row.turn) || 0)
   }
-  let turnCount = 0
-  // 开场白自带 turn 1，真正算「聊了几轮」时把它扣掉；开场后没有交互的存档就是「仅开场」。
-  const greetingSlots = firstIsGreeting ? 1 : 0
+  return { assistantIndex, floorNo, assistantCount, userIndex, userCount, hasOpening, maxTurn }
+}
+
+export function extractChatPreview(chat, preservedPreview = undefined, options = {}) {
+  const existing = normalizePreview(preservedPreview) ?? normalizePreview(chat?.preview)
+  if (options.metadataOnly === true || !Array.isArray(chat?.messages)) return existing
+  const messages = chat.messages
+  const totalMessages = options.messageCount ?? messages.length
+  if (totalMessages === 0 && existing?.messageCount > 0 && !options.allowEmptyReset) return existing
+  if (isScopedMessages(messages) && messages.length && (!messages[0] || !messages[messages.length - 1])) return existing
+
+  const { assistantIndex, floorNo, assistantCount, userIndex, userCount, hasOpening, maxTurn } = options.floors ?? previewFloors(messages)
+  const read = index => messages[options.indices ? options.indices.indexOf(index) : index]
+  const assistant = read(assistantIndex)
+  const opening = assistant?.greeting === true || (assistantIndex === 0 && hasOpening)
+  const greetingSlots = hasOpening ? 1 : 0
   const exchangeMessages = Math.max(0, totalMessages - greetingSlots)
-  if (userCount > 0 || replyCount > 0 || exchangeMessages > 0) {
-    if (maxTurn > 0 && totalMessages <= messages.length) turnCount = Math.max(1, maxTurn - greetingSlots)
-    // 只扫了前 2000 条的长存档：按总消息数估一代，别把 200 轮说成 1 轮。
-    else if (maxTurn > 0) turnCount = Math.max(1, Math.ceil(exchangeMessages / 2), maxTurn - greetingSlots)
-    else turnCount = Math.max(1, userCount, replyCount, Math.ceil(exchangeMessages / 2))
-  }
+  const turnCount = exchangeMessages === 0 ? 0
+    : maxTurn > 0 ? Math.max(1, maxTurn - greetingSlots)
+    : Math.max(userCount, assistantCount - greetingSlots, Math.ceil(exchangeMessages / 2))
   return {
+    latest: true, floorNo,
+    ...(Number.isSafeInteger(chat._storageRevision) ? { storageRevision: chat._storageRevision } : {}),
     turnCount,
     messageCount: totalMessages,
-    userText,
-    replyText,
-    openingText: (userText || replyText) ? '' : openingText
+    userText: cleanPreviewText(messageRawText(read(userIndex)), 3, 140),
+    replyText: opening ? '' : cleanPreviewText(messageRawText(assistant), 5, 240),
+    openingText: opening || (assistantIndex < 0 && hasOpening) ? cleanPreviewText(messageRawText(assistant ?? read(0)), 4, 200) : ''
   }
+}
+
+function samePreviewContent(left, right) {
+  return Boolean(left && right && ['floorNo', 'turnCount', 'messageCount', 'userText', 'replyText', 'openingText'].every(key => left[key] === right[key]))
 }
 
 function chatSummary(chat, preservedLastOpenedAt = 0, preservedPreview = undefined, options = {}) {
@@ -169,6 +176,8 @@ function sameSummary(left, right) {
  */
 export function createTavernConversationRegistry(options = {}) {
   const store = options.store || {}
+  const isDeleted = options.isDeleted || (() => false)
+  const onPreviewChange = options.onPreviewChange
   const stage = (name, operation) => typeof options.trace?.stage === 'function' ? options.trace.stage(name, operation) : operation()
   for (const method of ['readLinks', 'updateLinks', 'readIndex', 'updateIndex', 'readChat', 'writeChat', 'removeChat']) {
     if (typeof store[method] !== 'function') throw new Error('Tavern Conversation Registry 缺少 store.' + method)
@@ -299,16 +308,21 @@ export function createTavernConversationRegistry(options = {}) {
 
   async function sync(chat, options = {}) {
     if (!chat || str(chat.id) === '') throw new Error('不能同步没有 id 的 Tavern Chat 摘要')
-    let summary
+    const projected = options.refreshPreview ? await readLatestPreview(chat.id) : undefined
+    let summary, previewChanged = false
     await store.updateIndex(index => {
+      if (isDeleted(chat.id)) return undefined
       const rows = chatRows(index)
       const current = rows.find(item => item && item.id === str(chat.id))
-      summary = chatSummary(chat, current && current.lastOpenedAt, current && current.preview, options)
+      summary = chatSummary(chat, current?.lastOpenedAt, projected ?? current?.preview, options)
+      if ((current?.preview?.storageRevision ?? -1) > (summary.preview?.storageRevision ?? -1)) summary.preview = current.preview
+      previewChanged = summary.preview?.latest === true && !samePreviewContent(current?.preview, summary.preview)
       const previousIds = [...(current?.backgroundHistoryIds || []), current?.backgroundSessionId, ...referencedBackgroundSessionIds(chat)].filter(id => typeof id === 'string' && id && id !== summary.backgroundSessionId)
       if (previousIds.length) summary.backgroundHistoryIds = [...new Set(previousIds)].slice(-200)
       if (sameSummary(current, summary)) return undefined
       return { ...index, chats: rows.filter(item => !item || item.id !== summary.id).concat([summary]) }
     })
+    if (previewChanged) onPreviewChange?.(summary)
     return summary
   }
 
@@ -316,7 +330,7 @@ export function createTavernConversationRegistry(options = {}) {
     const currentLinks = await links()
     const index = await store.readIndex()
     const summaries = new Map(chatRows(index).map(function (item) { return [str(item && item.id), item] }))
-    const rows = []
+    const rows = [], cardPaths = new Set()
     for (const sessionId of Object.keys(currentLinks)) {
       // API test identities are not ordinary sessions in the browser controller.
       // Check ownership rather than hiding arbitrary user IDs with a test prefix.
@@ -328,33 +342,46 @@ export function createTavernConversationRegistry(options = {}) {
       const summary = summaries.get(chatId)
       if (!summary) continue
       const normalized = chatSummary(summary)
+      if (normalized.cardPath) cardPaths.add(normalized.cardPath)
       rows.push({ sessionId, chatId, ...(normalized.backgroundHistoryIds ? { backgroundHistoryIds: normalized.backgroundHistoryIds } : {}), ...(typeof normalized.backgroundSessionId === 'string' ? { backgroundSessionId: normalized.backgroundSessionId } : {}), ...(normalized.preview !== undefined ? { preview: normalized.preview } : {}), cardPath: normalized.cardPath, cardName: normalized.cardName, title: normalized.title, mode: normalized.mode, requestMode: normalized.requestMode, createdAt: normalized.createdAt, updatedAt: normalized.updatedAt, lastOpenedAt: normalized.lastOpenedAt })
+    }
+    // A game is listed under its card's current name: the card is the one source (renamed or updated in
+    // place, the history follows at once). The name saved with the game only stands in for a card that
+    // is gone or unreadable, so its history stays recognisable.
+    if (typeof options.cardName === 'function' && cardPaths.size) {
+      const names = new Map(await Promise.all([...cardPaths].map(async function (cardPath) {
+        return [cardPath, str(await options.cardName(cardPath).catch(function () { return '' }))]
+      })))
+      for (const row of rows) if (names.get(row.cardPath)) row.cardName = names.get(row.cardPath)
     }
     // Conversations keep a fixed place: opening or continuing one must not move it.
     rows.sort(function (left, right) { return right.createdAt - left.createdAt || right.lastOpenedAt - left.lastOpenedAt })
     return rows
   }
 
-  async function readPreviewForBackfill(chatId) {
-    if (typeof store.readChatSlice === 'function') {
-      const meta = await store.readChatSlice(chatId, [], ['id'])
-      if (meta && Number.isSafeInteger(meta.messageCount) && meta.messageCount >= 0) {
-        if (meta.messageCount === 0) {
-          return extractChatPreview({ id: chatId, messages: [] }, undefined, { messageCount: 0, allowEmptyReset: true })
-        }
-        const indices = []
-        const headCount = Math.min(6, meta.messageCount)
-        for (let i = 0; i < headCount; i++) indices.push(i)
-        if (meta.messageCount > headCount) indices.push(meta.messageCount - 1)
-        const sliced = await store.readChatSlice(chatId, indices, ['id'])
-        if (sliced?.chat) {
-          return extractChatPreview(sliced.chat, undefined, { messageCount: sliced.messageCount })
+  async function readLatestPreview(chatId, previous) {
+    if (typeof store.readChatSlice === 'function' && typeof store.readRecentSummaries === 'function') {
+      const fields = ['id', '_storageRevision']
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const meta = await store.readChatSlice(chatId, [], fields)
+        const count = meta?.messageCount, revision = meta?.chat?._storageRevision
+        if (!Number.isSafeInteger(count) || count < 0) break
+        if (count === 0) return extractChatPreview(meta.chat, previous, { allowEmptyReset: true })
+        // The same metadata projection as the story view supplies exact floor
+        // ordinals. Read text only from the latest reply and input.
+        const page = await store.readRecentSummaries(chatId, count, { revision })
+        if (!page) break
+        if (page.from !== 0 || page.revision !== revision || page.messageCount !== count || page.messages?.length !== count) continue
+        const floors = previewFloors(page.messages)
+        const indices = [...new Set([0, floors.assistantIndex, floors.userIndex])].filter(index => index >= 0).sort((a, b) => a - b)
+        const sliced = await store.readChatSlice(chatId, indices, fields)
+        if (sliced?.chat && sliced.messageCount === count && sliced.chat._storageRevision === revision) {
+          return extractChatPreview(sliced.chat, previous, { messageCount: count, floors, indices, allowEmptyReset: true })
         }
       }
     }
     const chat = await store.readChat(chatId)
-    if (!chat) return undefined
-    return extractChatPreview(chat, undefined, { allowEmptyReset: true })
+    return chat ? extractChatPreview(chat, previous, { allowEmptyReset: true }) : undefined
   }
 
   async function backfillPreviews(chatIds = [], { limit = 60 } = {}) {
@@ -366,14 +393,14 @@ export function createTavernConversationRegistry(options = {}) {
     const candidates = (requested.length ? requested : rows.map(item => str(item && item.id)))
       .filter(id => {
         const row = byId.get(id)
-        return row && normalizePreview(row.preview) === undefined
+        return row && !Number.isSafeInteger(row.preview?.floorNo)
       })
     const batch = [...new Set(candidates)].slice(0, maxBatch)
     if (!batch.length) return { previews: {}, remaining: 0 }
     const extracted = new Map()
     for (const id of batch) {
       try {
-        const preview = await readPreviewForBackfill(id)
+        const preview = await readLatestPreview(id, byId.get(id).preview)
         if (preview) extracted.set(id, preview)
       } catch (error) {
         console.warn('dsh-tavern: 提取会话预览失败', id, error?.message || error)
@@ -385,7 +412,11 @@ export function createTavernConversationRegistry(options = {}) {
         let changed = false
         const nextRows = currentRows.map(item => {
           const id = str(item && item.id)
-          if (!extracted.has(id) || normalizePreview(item?.preview) !== undefined) return item
+          if (!extracted.has(id) || isDeleted(id)) return item
+          if (Number.isSafeInteger(item.preview?.floorNo)) {
+            extracted.set(id, item.preview)
+            return item
+          }
           changed = true
           return { ...item, preview: extracted.get(id) }
         })
@@ -429,7 +460,7 @@ export function createTavernConversationRegistry(options = {}) {
     const listed = new Set(chatRows(await store.readIndex()).map(item => str(item && item.id)))
     const recovered = []
     for (const id of chatIds) {
-      if (listed.has(str(id))) continue
+      if (isDeleted(id) || listed.has(str(id))) continue
       let chat
       try { chat = await store.readChat(id) } catch (error) { console.warn('dsh-tavern: 无法读取未登记的存档', id, error?.message || error); continue }
       if (!chat || str(chat.id) !== str(id)) continue

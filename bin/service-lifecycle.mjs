@@ -2,16 +2,19 @@ import { DEFAULT_BIND_HOST, resolveBindHost, serviceOrigin, isLoopbackHost } fro
 import { inspectRecordedProcess as inspectProcess, processStartToken } from './service-process-identity.mjs'
 import { startupTimeoutMs, waitForServiceStartup, stopStartupChild } from './service-startup.mjs'
 import { spawn, spawnSync } from 'node:child_process'
-import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, realpathSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
+import { appendFileSync, closeSync, createReadStream, existsSync, mkdirSync, openSync, readFileSync, realpathSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
 import net from 'node:net'
 import { isAsarPath } from './desktop-host-paths.mjs'
 import { discoverVertexProject, patchPiAiVertexStream, repairVertexRouteBaseUrl, resolveVertexProject, vertexApiKeyFrom } from './pi-ai-vertex-stream-patch.mjs'
-import { patchPiAiNonStream } from './pi-ai-nonstream-patch.mjs'
+import { patchPiAiGoogleStopReason, patchPiAiGoogleToolMode, patchPiAiNonStream, patchPiAiOpenAIStore } from './pi-ai-nonstream-patch.mjs'
 import { patchChatAnswerStep } from './chat-answer-step-patch.mjs'
 import { patchChatReasoningFold } from './chat-reasoning-fold-patch.mjs'
+import { patchSettingsModelsEndpoints, SETTINGS_MODELS_PATCHED_VERSION } from './settings-models-endpoints-patch.mjs'
 import { patchChatToolReplyStream } from './chat-tool-reply-stream-patch.mjs'
 import { resolveDesktopAsarCommand, resolveDshCliEntry, resolveHostDependencies } from './plugin-dependencies.mjs'
 import path from 'node:path'
+import { installBundledTavernPlugins } from './bundled-tavern-plugins.mjs'
+import { resolveTavernDataRoot } from '../tavern-plugin/lib/domain/tavern-data.js'
 import { migrateSessionPrefixEvents } from './session-prefix-migration.mjs'
 import { ensureSidebarDefaults } from './launcher-settings.mjs'
 import { PROFILE_DIR, PID_FILE, PROFILE, SOURCE_ROOT, CLI_PORT, CLI_HOST, LOG_DIR, LOG_FILE, DSH_ROOT, BACKUP_ROOT, FRONTEND_BOOTSTRAP_FILE, FRONTEND_BOOTSTRAP_VERSION, commandExists, runtimeEnvironment, RUNTIME_HOST, findDshCommand, resolveDshInvocation, sleep } from './launcher-environment.mjs'
@@ -22,12 +25,16 @@ export function webUrlFromLogChunk(source) {
   return matches.length > 0 ? matches[matches.length - 1][1] : ''
 }
 
+function serviceLogOffset(record) {
+  // New PID records delimit this process's output; old installations use the latest URL.
+  const offset = record?.logOffset
+  return Number.isSafeInteger(offset) && offset >= 0 ? offset : 0
+}
+
 export async function resolveServiceWebUrl({ port, bindHost = DEFAULT_BIND_HOST, record = {}, log = Buffer.alloc(0), request = fetch }) {
   const origin = serviceOrigin(record.bindHost ?? bindHost, port)
   const bytes = Buffer.isBuffer(log) ? log : Buffer.from(log)
-  // New PID records delimit this process's output; old installations use the latest URL.
-  const offset = Number.isSafeInteger(record.logOffset) && record.logOffset >= 0 ? record.logOffset : 0
-  const candidate = webUrlFromLogChunk(bytes.subarray(offset).toString('utf8'))
+  const candidate = webUrlFromLogChunk(bytes.subarray(serviceLogOffset(record)).toString('utf8'))
   const candidates = []
   try {
     const url = new URL(candidate)
@@ -225,10 +232,14 @@ export async function statusService() {
   throw new Error(`DSH Tavern 未运行（端口 ${state.port}）。`)
 }
 
-async function currentServiceWebUrl(state) {
-  let log = Buffer.alloc(0)
-  try { log = readFileSync(LOG_FILE) } catch {}
-  return resolveServiceWebUrl({ port: state.port, bindHost: state.bindHost, record: state.record || {}, log })
+async function currentServiceWebUrl({ port, bindHost, record }) {
+  const chunks = []
+  try {
+    for await (const chunk of createReadStream(LOG_FILE, { start: serviceLogOffset(record) })) chunks.push(chunk)
+  } catch {
+    chunks.length = 0
+  }
+  return resolveServiceWebUrl({ port, bindHost: record?.bindHost ?? bindHost, log: Buffer.concat(chunks) })
 }
 
 function printServiceWebUrl(url) {
@@ -396,6 +407,15 @@ async function ensureRuntimePatches(dsh, host) {
         if (existsSync(path.join(adapterDirectory, 'package.json')) && patchPiAiNonStream({ adapterDirectory, sdkDirectory })) {
           console.log('已为 pi-ai 适配器打开流式开关与 toolChoice 透传。')
         }
+        if (patchPiAiOpenAIStore({ sdkDirectory })) {
+          console.log('已让 pi-ai 的 OpenAI 兼容渠道只在声明支持时发送 store 字段。')
+        }
+        if (patchPiAiGoogleStopReason({ sdkDirectory })) {
+          console.log('已让 pi-ai 把 Gemini 新增的结束原因当作普通报错。')
+        }
+        if (patchPiAiGoogleToolMode({ sdkDirectory })) {
+          console.log('已让 pi-ai 对 Gemini 3 以上的工具调用默认按定义约束生成。')
+        }
       }
     }
   } catch {}
@@ -409,6 +429,35 @@ async function ensureRuntimePatches(dsh, host) {
     ].filter(([, changed]) => changed === true).map(([label]) => label)
     if (applied.length > 0) console.log(`已补齐 DSH 对话界面补丁：${applied.join('、')}。`)
   } catch {}
+  try {
+    const [models] = resolveHostDependencies({ dsh, host, requiredExports: { '@deepseek-ai/dsh-client-ui-settings-models': null } })
+    if (!models || isAsarPath(models.directory)) return
+    const patched = patchSettingsModelsEndpoints(models.directory)
+    // A host whose 设置 › 模型 card changed shape is reported on every start, never dropped silently.
+    if (patched === null) console.log(`当前 DSH 的「设置 › 模型」与最近网址补丁不符（补丁按 ${SETTINGS_MODELS_PATCHED_VERSION} 写），已跳过；模型提供商暂时没有「最近用过的网址」。`)
+    else if (patched) console.log('已为 DSH「设置 › 模型」的 API 地址加上「最近用过的网址」。')
+  } catch (error) { console.log(`「设置 › 模型」最近网址补丁没有打上：${error?.message ?? error}`) }
+}
+
+export function syncBundledTavernPlugins({
+  sourceRoot = SOURCE_ROOT,
+  dshHome = DSH_ROOT,
+  profileDir = PROFILE_DIR,
+  dataRoot = resolveTavernDataRoot({ dshHome }),
+  logger = console,
+} = {}) {
+  const results = installBundledTavernPlugins({ sourceRoot, dataRoot, profileDir, logger })
+  for (const bundled of results) {
+    if (bundled.action === 'installed') {
+      logger.log?.(`已内置插件 ${bundled.packageName} ${bundled.version}：${bundled.target}`)
+    } else if (bundled.action === 'upgraded') {
+      const detail = bundled.installedVersion && bundled.installedVersion !== bundled.version
+        ? `从 ${bundled.installedVersion} 更新到 ${bundled.version}`
+        : `已同步最新副本（${bundled.version}）`
+      logger.log?.(`已同步内置插件 ${bundled.packageName}：${detail}`)
+    }
+  }
+  return results
 }
 
 export function serviceDshArgs(bindHost, port) {
@@ -425,25 +474,28 @@ export async function startService() {
   ensureSidebarDefaults()
   const timeoutMs = startupTimeoutMs(RUNTIME_HOST)
   const state = await serviceState()
-  if (state.record && !state.ready) {
-    console.log(`正在等待已有 DSH Tavern 进程就绪：PID ${state.record.pid}。`)
+  if (state.record) {
+    let waiting = false
     // Join an existing start without taking ownership of its process or PID record.
     // Only the original starter may terminate it when startup fails.
-    await waitForServiceStartup({
+    const webUrl = await waitForServiceStartup({
       timeoutMs,
       alive: () => inspectRecordedProcess(state.record) === 'owned',
-      ready: async () => await isPortOpen(state.port, state.bindHost) && await isServiceReady(state.port, fetch, RUNTIME_HOST, state.bindHost),
+      ready: async () => {
+        if (!state.ready) state.ready = await isPortOpen(state.port, state.bindHost) && await isServiceReady(state.port, fetch, RUNTIME_HOST, state.bindHost)
+        const url = state.ready ? await currentServiceWebUrl(state) : ''
+        if (!url && !waiting) {
+          console.log(`正在等待已有 DSH Tavern 进程就绪：PID ${state.record.pid}。`)
+          waiting = true
+        }
+        return url
+      },
       stop: async () => {},
     })
     if (inspectRecordedProcess(state.record) !== 'owned') throw new Error('等待中的 DSH Tavern 进程已被替换，请重试。')
-    state.ready = true
-    state.portOpen = true
-  }
-  if (state.record && state.ready) {
     console.log(`DSH Tavern 已经在运行：PID ${state.record.pid}。`)
-    const webUrl = await currentServiceWebUrl(state)
     printServiceWebUrl(webUrl)
-    return { ...state, webUrl, runtimeGeneration: state.record.pid }
+    return { ...state, portOpen: true, webUrl, runtimeGeneration: state.record.pid }
   }
   if (state.portOpen) {
     // The default port is often taken by another app (the DeepSeek Harness desktop app serves
@@ -457,11 +509,15 @@ export async function startService() {
     state.portOpen = false
   }
 
+  const prefixScanStarted = performance.now()
   const prefixRepairs = await migrateSessionPrefixEvents({
     sessionsRoot: path.join(DSH_ROOT, 'profile-data', PROFILE, 'sessions'),
     backupRoot: path.join(BACKUP_ROOT, 'tavern-stable-prefix-v1'),
   })
+  const prefixScanMs = Math.round(performance.now() - prefixScanStarted)
   if (prefixRepairs.length) console.log(`已兼容修复 ${prefixRepairs.length} 份旧会话的固定背景事件，原文件已备份。`)
+
+  syncBundledTavernPlugins()
 
   if (!isLoopbackHost(state.bindHost)) {
     console.warn(`安全提示：正在监听 ${state.bindHost}；此端口可执行远程代码，token 是访问凭证，请仅用于可信内网或 VPN，勿暴露到公网或分享完整链接。`)
@@ -496,7 +552,7 @@ export async function startService() {
   mkdirSync(LOG_DIR, { recursive: true })
   const logOffset = existsSync(LOG_FILE) ? statSync(LOG_FILE).size : 0
   const startupLog = (event, details = {}) => appendFileSync(LOG_FILE, JSON.stringify({ at: new Date().toISOString(), event, ...details }) + '\n')
-  startupLog('service.starting', { node: process.version, executable: invocation.command, entry: invocation.args[0].startsWith('--') ? invocation.args[1] : invocation.args[0], cwd: SOURCE_ROOT, home: DSH_ROOT, bindHost: state.bindHost, port: state.port, timeoutMs })
+  startupLog('service.starting', { node: process.version, executable: invocation.command, entry: invocation.args[0].startsWith('--') ? invocation.args[1] : invocation.args[0], cwd: SOURCE_ROOT, home: DSH_ROOT, bindHost: state.bindHost, port: state.port, timeoutMs, prefixScanMs })
   const logDescriptor = openSync(LOG_FILE, 'a')
   let child
   try {
@@ -529,15 +585,16 @@ export async function startService() {
 
   let portOpen = false
   let serviceReady = false
+  let webUrl
   try {
-    await waitForServiceStartup({
+    webUrl = await waitForServiceStartup({
       timeoutMs,
       alive: () => isProcessAlive(child.pid),
       onSlow: () => console.log(`DSH Tavern 仍在初始化（首次启动较慢），最多等待 ${timeoutMs / 1000} 秒……`),
       ready: async () => {
         portOpen = await isPortOpen(state.port, state.bindHost)
         serviceReady = portOpen && await isServiceReady(state.port, fetch, RUNTIME_HOST, state.bindHost)
-        return serviceReady
+        return serviceReady && currentServiceWebUrl({ ...state, record: { logOffset } })
       },
       stop: async () => {
         await stopStartupChild(child)
@@ -549,13 +606,6 @@ export async function startService() {
     throw new Error(`${error.message}，日志：${LOG_FILE}`, { cause: error })
   }
   startupLog('service.ready', { pid: child.pid, port: state.port })
-  let webUrl = ''
-  for (let logAttempt = 0; logAttempt < 50 && webUrl === ''; logAttempt += 1) {
-    const logChunk = readFileSync(LOG_FILE).subarray(logOffset).toString('utf8')
-    webUrl = webUrlFromLogChunk(logChunk)
-    if (webUrl === '') await sleep(100)
-  }
-  webUrl = await currentServiceWebUrl({ port: state.port, bindHost: state.bindHost, record: { logOffset } })
   console.log(`DSH Tavern 已启动：PID ${child.pid}`)
   printServiceWebUrl(webUrl)
   console.log(`日志：${LOG_FILE}`)

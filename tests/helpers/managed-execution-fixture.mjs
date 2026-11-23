@@ -17,7 +17,7 @@ export function executionFixture(t,{builtins,enabled=[],cardId='card-a',performa
     return {manifest,digest:id+'-release',active:true,installed:true,authorized:true}
   })
   t.after(()=>modHost.dispose())
-  const settings={read:()=>({revision:String(revision),value:structuredClone(value)}),subscribe:fn=>{listeners.add(fn);return()=>listeners.delete(fn)},
+  const settings={read:()=>({revision:String(revision),value:structuredClone(value)}),value:()=>structuredClone(value),subscribe:fn=>{listeners.add(fn);return()=>listeners.delete(fn)},
     async compareAndSwap(input){assert.equal(input.expectedRevision,String(revision));assert.deepEqual(input.expectedValue,value);value=structuredClone(input.value);revision++;for(const fn of listeners)fn();return settings.read()}}
   const management={ready:Promise.resolve(),modHost,settings,installations:{read:async()=>({revision:'installed',value:{releases:structuredClone(releases)}})},cards:{list:async()=>[{cardId,revision:'card-1',value:emptyCardMods()}]}}
   const setEnabled=async(id,on)=>{const current=settings.read(),next=structuredClone(current.value);next.mods[id]=on;await settings.compareAndSwap({expectedRevision:current.revision,expectedValue:current.value,value:next})}

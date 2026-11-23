@@ -23,8 +23,10 @@ import { inputKind } from './session-turn-input.js'
 import { isProducerSource, isSystemPromptSource } from './message-source.js'
 import { virtualWorldbookPromptText } from './worldbook-virtual-surface.js'
 import { frameUserInput } from './agent-input-frame.js'
+import { hasProviderContent } from './provider-message-content.js'
 
 const CARD_REFERENCE_SECTIONS = new Set(['tavern:character-card', 'tavern:card-system-prompt', 'tavern:constant-worldbook'])
+const CARD_PERSONA_SCOPE = '起始任务和 Skill 规定任务步骤、交付物与必要格式。人物卡的设定与提示词用于理解和编辑目标。向用户提问、介绍选项和汇报时，始终沿用以下身份、称呼和语气。回复语言优先遵循用户明确要求，其次沿用以下性格的语言约定。'
 // The card Agent resends its system prompt on every tool step and reads live
 // files anyway; a large card's reference material would dominate each request.
 export const CARD_REFERENCE_WORLDBOOK_LIMIT = 8000
@@ -40,7 +42,7 @@ function cardReferenceSection(section) {
   if (section.name === 'tavern:constant-worldbook') {
     const chars = Array.from((stableSectionBody(section.name, text) ?? text).trim()).length
     if (chars <= CARD_REFERENCE_WORLDBOOK_LIMIT) return section
-    return { name: section.name, text: promptSection('lorebook_constant', 'About ' + chars + ' characters exceed the preload limit. Read relevant entries with tavern_read_worldbook by keyword or number when needed.') }
+    return { name: section.name, text: promptSection('lorebook_constant', 'About ' + chars + ' characters exceed the preload limit. Read relevant entries with tavern_read_lorebook by keyword or number when needed.') }
   }
   const chars = Array.from(text).length
   if (chars <= CARD_REFERENCE_SECTION_LIMIT) return section
@@ -125,7 +127,15 @@ export function projectRegenerationRequestMessages(messages) {
   const projectedPlayer = Object.assign({}, source[playerIndex], {
     content: Array.isArray(source[regenerationIndex].content) ? structuredClone(source[regenerationIndex].content) : []
   })
-  return source.slice(0, playerIndex).concat([projectedPlayer], source.slice(regenerationIndex + 1))
+  const tail = source.slice(regenerationIndex + 1)
+  const isWritingRulesUpdate = message => message?.role === 'user' &&
+    isProducerSource(message.source, 'dsh-tavern') && message.source.trace?.writingRulesSnapshot?.schemaVersion === 1
+  // The frame adapter skips unchanged rules because their snapshot is still in
+  // the session. If that snapshot was emitted during the replaced turn, carry it
+  // into the request unless the new frame already updated or withdrew the rules.
+  const retainedRules = tail.some(isWritingRulesUpdate) ? undefined
+    : source.slice(playerIndex + 1, regenerationIndex).findLast(isWritingRulesUpdate)
+  return source.slice(0, playerIndex).concat(projectedPlayer, retainedRules ? [retainedRules] : [], tail)
 }
 
 function snapshotMessage(text) {
@@ -138,11 +148,6 @@ function snapshotMessage(text) {
       sections: [{ name: 'tavern:turn', text: str(text) }]
     }
   }
-}
-
-function hasProviderContent(message) {
-  if (!message || !['user', 'assistant'].includes(message.role) || !Array.isArray(message.content)) return true
-  return message.content.some(block => block && (block.type !== 'text' || /\S/.test(str(block.text))))
 }
 
 function isNativeStablePrefix(message) {
@@ -512,8 +517,11 @@ export function createNativePlayOrchestrationStrategy(options) {
         signaturesByCallId,
         resolveToolSchema(toolName, ctx) {
           if (toolName !== STORY_SUBMIT_TOOL_NAME) return null
-          const includeThink = staged.storyToolThinking === true || ctx?.anthropicThinkingStripped === true
-          return buildStorySubmitWireSchema({ includeThink })
+          // 已开启原生思考（且未被强制工具剥离）时不再叠加工具内思考槽，避免双倍思考；
+          // Gemini 原生接口按字段名字母序解码，思考字段使用 'analysis' 确保严格排在 'content' 之前。
+          const includeThink = ctx?.anthropicThinkingStripped === true || (staged.storyToolThinking === true && ctx?.hasNativeThinking !== true)
+          const thinkField = ctx?.protocol === 'gemini-native' ? 'analysis' : 'think'
+          return buildStorySubmitWireSchema({ includeThink, thinkField })
         }
       })
       request = Object.assign({}, request, {
@@ -546,9 +554,11 @@ export function createNativePlayOrchestrationStrategy(options) {
     const cardEdit = mode === 'card' && input.chat?.cardEditContext?.version === 1
     const fixed = input.fixedSystemSections || []
     const sections = mode === 'card' && !cardEdit ? fixed.filter(section => section.name === 'tavern:user-preference') : fixed.slice()
+    if (mode === 'card') {
+      const text = typeof options.cardPersonaText === 'function' ? options.cardPersonaText().trim() : ''
+      if (text) sections.push({ name: 'tavern:card-system', text: promptSection('card_agent_persona', CARD_PERSONA_SCOPE + '\n\n' + text) })
+    }
     if (mode === 'card' && !cardEdit) {
-      const text = typeof options.cardSystemPrompt === 'function' ? options.cardSystemPrompt().trim() : ''
-      if (text) sections.push({ name: 'tavern:card-system', text: promptSection('card_agent_persona', text) })
       // Card material is reference data for the card Agent, not its persona.
       const reference = fixed.filter(section => CARD_REFERENCE_SECTIONS.has(section.name))
       if (reference.length) {
@@ -561,7 +571,7 @@ export function createNativePlayOrchestrationStrategy(options) {
     }
     if (playMode) {
       const raw = await options.resolvePreset(input.chat)
-      const front = presetFrontSections(resolveRuntimePresetMacros(raw, { charName: input.chat?.cardName, macroState: input.chat?.macroState }).snapshot)
+      const front = presetFrontSections(resolveRuntimePresetMacros(raw, { charName: input.chat?.cardName, macroState: input.chat?.macroState, phases: ['front'] }).snapshot)
       sections.unshift(...front)
       frontTexts.set(input.sessionId, front.map(section => section.text))
       renderedFronts.set(input.sessionId, createHash('sha256').update(JSON.stringify(front.map(section => section.text))).digest('hex'))
@@ -595,6 +605,12 @@ export function createNativePlayOrchestrationStrategy(options) {
     if (knownTools) {
       assembly.tools = finalTools
     }
+    const mountedResources = input.chat?.workspace?.mountedResources
+    if (mode === 'card' && finalTools.some(tool => tool.name === 'tavern_read_play_chat') &&
+      Array.isArray(mountedResources) && mountedResources.some(resource => resource?.kind === 'play-chat')) {
+      sections.push({ name: 'tavern:play-chat-diagnostics',
+        text: '排查已关联的游玩记录时，先调用 tavern_read_play_chat，参数 layer 填 overview。存在多个引用时填对应的 ref。' })
+    }
     // The submission contract follows the tools that actually survived the
     // per-game switches and the plugin scopes. When only input replay is on, the
     // tool is declared for the history but the model must write prose directly.
@@ -626,7 +642,7 @@ export function createNativePlayOrchestrationStrategy(options) {
       if (text) sections.push({ name: 'tavern:foreground-style-reference', text })
     }
     if (mode === 'story' && options.foregroundCandidatePrompt) {
-      const text = options.foregroundCandidatePrompt(input.chat)
+      const text = await options.foregroundCandidatePrompt(input.chat)
       if (text) sections.push({ name: 'tavern:foreground-candidates', text })
     }
     assembly.sections = sections

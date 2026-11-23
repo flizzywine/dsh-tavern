@@ -14,7 +14,9 @@ export function initializationFixture(options = {}) {
   async function write(chat, metadata) {
     trace.push(metadata.source)
     await fail('write', chat, metadata)
-    saved.set(chat.id, structuredClone(chat)); writes.push({ chat: structuredClone(chat), metadata })
+    const committed = options.persistence ? await options.persistence.write(chat, metadata) : chat
+    saved.set(chat.id, structuredClone(committed)); writes.push({ chat: structuredClone(committed), metadata })
+    return committed
   }
   const registry = createTavernConversationRegistry({ store: {
     readLinks: async () => structuredClone(state.links),
@@ -22,7 +24,7 @@ export function initializationFixture(options = {}) {
     readIndex: async () => structuredClone(state.index),
     async updateIndex(updater) { const next = await updater(await this.readIndex()); if (next !== undefined) await this.writeIndex(next); return next },
     writeIndex: async value => { await fail('index', value); state.index = structuredClone(value) },
-    readChat: async id => saved.has(id) ? structuredClone(saved.get(id)) : undefined,
+    readChat: async id => options.persistence ? options.persistence.read(id) : saved.has(id) ? structuredClone(saved.get(id)) : undefined,
     writeChat: write, removeChat: async id => saved.delete(id)
   } })
   function session(id = 'session') {
@@ -58,7 +60,7 @@ export function initializationFixture(options = {}) {
         async ensurePrefix(target, text) { trace.push('prefix'); await fail('prefix'); target.prefix ||= text },
         async flush(target) { trace.push('flush'); await fail('flush', target); target.durable = structuredClone(target.events) },
         async ensureCardWorkspace(target) { trace.push('workspace'); ensureCardWorkspaceMessage(target, '工作区说明') },
-        async selectModel(target, selection) { target.session.selectedModel = structuredClone(selection); trace.push('model.select') },
+        async selectModel(target, selection) { await fail('selectModel', selection); target.session.selectedModel = structuredClone(selection); trace.push('model.select') },
         selection: () => ({ provider: 'fixture', model: 'text' })
       },
       present: async chat => { await fail('present'); return structuredClone(chat) }, logger: { warn() {} }

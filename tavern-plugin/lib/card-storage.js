@@ -1,6 +1,7 @@
 import path from 'node:path'
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { lstat } from 'node:fs/promises'
+import { freezeJson } from './domain/freeze-json.js'
 
 export const CARD_ID = /^[a-z0-9][a-z0-9_-]{0,63}$/
 const SEGMENT = /^[A-Za-z0-9_@.-]{1,160}$/
@@ -23,18 +24,34 @@ export async function checkedAssetPath(root, relative, inspect = lstat) {
 }
 
 // Shared card-write queue used by Card Preparation and pack/card transactions.
-export function createCardStorage({dataRoot, profileData}) {
-  const held = new AsyncLocalStorage(), queues = new Map()
+// readWorkspace: a card file is read and parsed once per file version (profileData.version, the durable promotion stamp)
+// and that one frozen copy is shared by every reader; a hit costs the version check. A writer edits a copy of its own.
+export function createCardStorage({dataRoot, profileData, sharedCards = 8}) {
+  const held = new AsyncLocalStorage(), queues = new Map(), shared = new Map()
   async function readWorkspace(cardPath) {
     if (typeof cardPath !== 'string' || !cardPath.startsWith('cards/') || cardPath.includes('\\') || cardPath.split('/').some(s => !s || s === '.' || s === '..' || /[:\x00-\x1f]/.test(s))) throw new Error('Invalid card path')
-    return profileData.readJson('resources/' + cardPath)
+    const relative = 'resources/' + cardPath, version = await profileData.version(relative)
+    let entry = shared.get(cardPath)
+    shared.delete(cardPath)
+    if (entry?.version !== version) {
+      entry = {version, workspace:profileData.readJson(relative).then(freezeJson)}
+      entry.workspace.catch(() => { if (shared.get(cardPath) === entry) shared.delete(cardPath) })
+    }
+    // Least recently read goes first; a missing file ('' version) is not kept.
+    if (version) shared.set(cardPath, entry)
+    while (shared.size > sharedCards) shared.delete(shared.keys().next().value)
+    return entry.workspace
+  }
+  async function findId(cardPath) {
+    const id = (await readWorkspace(cardPath))?.meta?.id
+    return typeof id === 'string' && CARD_ID.test(id) ? id : undefined
   }
   async function resolve(cardPath) {
-    const id = (await readWorkspace(cardPath))?.meta?.id
-    if (!CARD_ID.test(id || '')) throw new Error('Card has no identity')
+    const id = await findId(cardPath)
+    if (id === undefined) throw new Error('Card has no identity')
     return id
   }
-  return {dataRoot:path.resolve(dataRoot), readWorkspace, resolve, withCardLock(cardId, task) {
+  return {dataRoot:path.resolve(dataRoot), readWorkspace, findId, resolve, withCardLock(cardId, task) {
     if (!CARD_ID.test(cardId)) throw new Error('Invalid cardId')
     const outer = held.getStore() || new Set()
     if (outer.has(cardId)) throw Object.assign(new Error('Card lock reentry'), {code:'LOCK_REENTRY'})

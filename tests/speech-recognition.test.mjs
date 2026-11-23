@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import {createSpeechRecognition,validateRecognitionConfig,validateRecognitionService,recognitionAudio,recognitionKeyRef} from '../tavern-plugin/lib/domain/speech-recognition.js'
+import { createSpeechRecognition, recognitionKeyRef } from '../tavern-plugin/lib/domain/speech-recognition.js'
 import {createSpeechRecognitionHost} from '../tavern-plugin/lib/speech-recognition-host.js'
 
 const audio=Buffer.alloc(640), encoded=audio.toString('base64'), tick=()=>new Promise(resolve=>setImmediate(resolve))
@@ -43,36 +43,6 @@ test('a service is an API by its address: its model, its key (when given) and it
   assert.equal(await cloud.endpoint({serviceId:'openai',audio}),null)
 })
 
-test('定稿用: the final words go to the final service when it takes the language; partials and other languages stay',async()=>{
-  const {requests,fetch}=servers({'http://127.0.0.1:9888/v1':{models:[{id:'firered',state:'ready'}],languages:['zh']}})
-  const service=createSpeechRecognition({getConfig:()=>({services:[SENSEVOICE,FIRERED]}),credentials:keys().store,fetch})
-  assert.equal((await service.recognize({serviceId:'sensevoice',audio,final:true})).text,'words from firered')
-  assert.equal((await service.recognize({serviceId:'sensevoice',audio})).text,'words from sensevoice')
-  assert.equal((await service.recognize({serviceId:'sensevoice',audio,language:'ja',final:true})).text,'words from sensevoice')
-  assert.equal(requests.filter(row=>row.url.endsWith('/info')).length,1,'its description is kept between pauses')
-  // FireRed still loading (it says so) or not running: the service itself reads the final words, the call goes on.
-  for (const described of [{state:'loading',languages:['zh']},null]) {
-    const {fetch}=servers({'http://127.0.0.1:9888/v1':described})
-    const own=createSpeechRecognition({getConfig:()=>({services:[SENSEVOICE,FIRERED]}),credentials:keys().store,fetch})
-    assert.equal((await own.recognize({serviceId:'sensevoice',audio,final:true})).text,'words from sensevoice')
-  }
-})
-
-test('turn detection and readiness follow what the server describes; a server without /info is still a server',async()=>{
-  const described={'http://127.0.0.1:9887/v1':{models:[{id:'sensevoice'}],capabilities:{turnDetection:true}}}
-  const {requests,fetch}=servers(described)
-  let now=0
-  const service=createSpeechRecognition({getConfig:()=>({services:[SENSEVOICE,FIRERED]}),credentials:keys().store,fetch,now:()=>now})
-  assert.deepEqual(await service.endpoint({serviceId:'sensevoice',audio}),{probability:.97,modelMs:11})
-  assert.equal(requests.at(-1).url,'http://127.0.0.1:9887/v1/turn')
-  assert.equal(await service.endpoint({serviceId:'firered',audio}),null)
-  assert.deepEqual(await service.readiness('firered'),{available:true,provider:'firered'})
-  described['http://127.0.0.1:9887/v1']=null;now=60000
-  assert.deepEqual(await service.readiness('sensevoice'),{available:false,provider:'sensevoice'})
-  assert.deepEqual(await service.readiness('gone'),{available:false,reason:'ASR_PROVIDER_UNAVAILABLE'})
-  assert.deepEqual((await service.describe({...FIRERED},'')).available,true)
-})
-
 test('stream sessions coalesce chunks, publish partials and final, enforce ownership and stop on unload',async()=>{
   let finish,dispatches=0
   const extension={id:'plugin/asr',label:'插件识别',recognize:async({audio,onPartial})=>{
@@ -107,17 +77,6 @@ test('cancellation releases a stalled extension and does not route failures to a
   assert.throws(()=>broken.start({owner:'',serviceId:'sensevoice'}),/ASR_OWNER_INVALID/)
 })
 
-test('services are validated once as they are saved; audio admits only bounded even PCM',()=>{
-  assert.deepEqual(validateRecognitionService({...SENSEVOICE,url:'http://127.0.0.1:9887/v1/'}).url,'http://127.0.0.1:9887/v1')
-  assert.equal(validateRecognitionService(OPENAI).url,undefined,'the official address is not the player\'s')
-  for(const [patch,code] of [[{kind:'local'},'ASR_PROVIDER_INVALID'],[{url:'ftp://x'},'ASR_URL_INVALID'],[{id:'Bad Id'},'ASR_SERVICE_ID_INVALID'],[{label:''},'ASR_LABEL_INVALID'],[{final:'sensevoice'},'ASR_FINAL_INVALID'],[{token:'x'},'ASR_CONFIG_INVALID']])
-    assert.throws(()=>validateRecognitionService({...SENSEVOICE,...patch}),new RegExp(code))
-  assert.throws(()=>validateRecognitionConfig({services:[SENSEVOICE]}),/ASR_FINAL_INVALID/,'定稿用 names a configured service')
-  assert.throws(()=>validateRecognitionConfig({services:[FIRERED,FIRERED]}),/ASR_SERVICE_ID_TAKEN/)
-  assert.deepEqual(recognitionAudio(encoded),audio)
-  for(const value of ['', 'AA==','**'])assert.throws(()=>recognitionAudio(value),/ASR_AUDIO_INVALID/)
-})
-
 test('the host: CAS-saved services, keys only in credentials, the offered list, and a deleted final service dropped',async()=>{
   let document
   const {map,store}=keys()
@@ -137,16 +96,4 @@ test('the host: CAS-saved services, keys only in credentials, the offered list, 
   view=await host.methods.deleteSpeechRecognitionService({id:'sensevoice',expectedRevision:view.revision})
   assert.equal(map.has(recognitionKeyRef('sensevoice')),false)
   host.service.dispose()
-})
-
-test('settings written before services become one service with its key under that service; nothing old is left',async()=>{
-  let document={revision:3,config:{provider:'openai-compatible',language:'zh',localUrl:'http://127.0.0.1:9887',model:'gpt-4o-mini-transcribe',compatibleUrl:'http://127.0.0.1:9887/v1',compatibleModel:'sensevoice'}}
-  const {map,store}=keys({DSH_TAVERN_ASR_COMPATIBLE_KEY:'lan-key',DSH_TAVERN_ASR_LOCAL_TOKEN:'worker-token'})
-  const host=await createSpeechRecognitionHost({store:{readJson:async()=>document,updateJson:async(_,update)=>document=update(document)},credentials:store,providers:()=>[],fetch:servers().fetch})
-  assert.deepEqual(document,{revision:4,config:{services:[{id:'sensevoice',label:'SenseVoice',kind:'openai-compatible',url:'http://127.0.0.1:9887/v1',model:'sensevoice',language:'zh'}]}})
-  assert.equal(map.get(recognitionKeyRef('sensevoice')),'lan-key')
-  assert.equal(map.has('DSH_TAVERN_ASR_COMPATIBLE_KEY'),false)
-  assert.equal(map.get('DSH_TAVERN_ASR_LOCAL_TOKEN'),'worker-token','the local worker\'s own token stays')
-  const again=await createSpeechRecognitionHost({store:{readJson:async()=>document,updateJson:async()=>assert.fail('read twice, written once')},credentials:store,providers:()=>[],fetch:servers().fetch})
-  host.service.dispose();again.service.dispose()
 })

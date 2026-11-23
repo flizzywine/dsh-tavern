@@ -104,7 +104,7 @@
 					if (actionLocks.has(sessionId) && input.op !== 'stop') return false;
 					if (input.op !== 'stop') actionLocks.add(sessionId);
 					setPending(true); setError('');
-					try { const result = await rpc('gameMode', Object.assign({ revision: snapshot && snapshot.revision, actionId: crypto.randomUUID() }, input), sessionId); if (result.mode) setSnapshot(result.mode); return true; }
+					try { const result = await rpc('gameMode', Object.assign({ revision: snapshot && snapshot.revision, actionId: randomId() }, input), sessionId); if (result.mode) setSnapshot(result.mode); return true; }
 					catch (e) { setError(e.message); setPaused(true); return false; }
 					finally { if (input.op !== 'stop') actionLocks.delete(sessionId); setPending(false); }
 				}
@@ -153,7 +153,7 @@
 				const surface = h('section', { className: 'dsh-tavern-game-mode', 'aria-label': '自定义玩法', 'data-revision': snapshot && snapshot.revision },
 					error || sceneError ? h('p', { role: 'alert' }, error || sceneError) : null,
 					!snapshot && props.pageHost && pageRenderer?.lobby ? h(tavernPluginBoundary(), { owner: pageRenderer.owner }, h(pageRenderer.lobby, { busy: pending, start: function () { const mode = modes.find(mode => tavernUiExtensions.gameModeView(mode.key) === pageRenderer); if (mode) return act({ op: 'create', key: mode.key }); } })) : !snapshot ? h('div', { ref: launchRef }, launchRoot && ReactDOM.createPortal(h(React.Fragment, null,
-						h('style', null, ':host{display:block;margin:24px 0}*{box-sizing:border-box}.launch{display:flex;align-items:center;justify-content:space-between;gap:20px;padding:24px;border:1px solid #bda16c66;border-radius:16px;background:linear-gradient(120deg,#101a2c,#1e2940);color:#f2eadb;font:14px/1.6 system-ui;box-shadow:0 12px 32px #07102018}.title{font-size:20px;font-weight:650}.hint{color:#b9c5d7;margin-top:4px;font-size:12px}button{flex-shrink:0;border:1px solid #eddbb6;border-radius:10px;padding:13px 24px;background:linear-gradient(120deg,#efdcaf,#c4a36c);color:#1b2230;font:650 15px/1.5 system-ui;cursor:pointer;box-shadow:0 4px 18px #0003}button:hover{filter:brightness(1.1)}button:focus-visible{outline:3px solid #fff;outline-offset:4px}button:disabled{opacity:.6;cursor:wait}@media(max-width:600px){.launch{flex-wrap:wrap;padding:20px}button{width:100%}}'),
+						h('style', null, ':host{display:block;margin:24px 0}*{box-sizing:border-box}.launch{display:flex;align-items:center;justify-content:space-between;gap:20px;padding:24px;border:1px solid var(--fork-hairline);border-radius:16px;background:var(--fork-surface-2);color:var(--fork-ink);font-family:inherit;font-size:var(--fork-fs-body);line-height:1.6;box-shadow:none}.title{font-size:var(--fork-fs-title);font-weight:650}.hint{color:var(--fork-ink-2);margin-top:4px;font-size:var(--fork-fs-meta)}button{flex-shrink:0;border:1px solid var(--fork-hairline);border-radius:10px;padding:13px 24px;background:var(--fk-current-fill);color:var(--fk-current-onAccent);font-family:inherit;font-weight:650;font-size:var(--fork-fs-body);line-height:1.5;cursor:pointer;box-shadow:none}button:hover{filter:brightness(1.1)}button:focus-visible{outline:var(--fork-focus);outline-offset:4px}button:disabled{filter:var(--fk-current-dim);cursor:wait}@media(max-width:600px){.launch{flex-wrap:wrap;padding:20px}button{width:100%}}'),
 						modes.map(function (mode) { return h('div', { key: mode.key, className: 'launch' }, h('div', null, h('div', { className: 'title' }, mode.title), h('div', { className: 'hint' }, '准备就绪，开启你的游戏')), h('button', { type: 'button', disabled: pending, onClick: function () { act({ op: 'create', key: mode.key }); } }, pending ? '正在开启…' : '开始 ' + mode.title)); })), launchRoot)) : null,
 					snapshot ? h('div', null,
 						h(GameControls),
@@ -161,8 +161,8 @@
 							h(renderer.render, renderProps)) : h('p', null, '请加载对应的玩法界面插件')) : null);
                 if (!props.pageHost) return surface;
                 if (!pageOpen) return h('button', { className: 'dsh-tavern-btn', onClick: function () { setPageOpen(true); } }, '返回游戏页面');
-                return ReactDOM.createPortal(h('div', { className: 'dsh-tavern-game-page', role: 'dialog', 'aria-modal': 'true', 'aria-label': '专属游玩页面', style: { position: 'fixed', inset: '36px 0 0', zIndex: 10000, background: '#080e19', color: '#edf2fa', overflow: 'auto' } },
-                    h('style', null, '.dsh-tavern-game-page>.page-nav{display:flex;align-items:center;justify-content:space-between;padding:12px 24px;border-bottom:1px solid #ffffff20;font:14px system-ui}.dsh-tavern-game-page button{cursor:pointer}.dsh-tavern-game-page>.dsh-tavern-game-mode{max-width:1600px;margin:auto;padding:12px 24px}.dsh-tavern-game-page>.dsh-tavern-game-mode>div>button{background:#1b293d;border:1px solid #53647d;color:#edf2fa;border-radius:6px;padding:7px 14px;margin:0 8px 10px 0}'),
+                return ReactDOM.createPortal(h('div', { className: 'dsh-tavern-game-page', role: 'dialog', 'aria-modal': 'true', 'aria-label': '专属游玩页面', style: { position: 'fixed', inset: '36px 0 0', zIndex: 10000, background: 'var(--fork-surface)', color: 'var(--fork-ink)', overflow: 'auto' } },
+                    h('style', null, '.dsh-tavern-game-page>.page-nav{display:flex;align-items:center;justify-content:space-between;padding:12px 24px;border-bottom:1px solid var(--fork-hairline);font-family:inherit;font-size:var(--fork-fs-body)}.dsh-tavern-game-page button{cursor:pointer}.dsh-tavern-game-page>.dsh-tavern-game-mode{max-width:1600px;margin:auto;padding:12px 24px}.dsh-tavern-game-page>.dsh-tavern-game-mode>div>button{background:var(--fork-raised);border:1px solid var(--fork-hairline);color:var(--fork-ink);border-radius:6px;padding:7px 14px;margin:0 8px 10px 0}'),
                     h('nav', { className: 'page-nav' }, h('strong', null, 'DSH Tavern · 游戏'), h('button', { className: 'dsh-tavern-btn', onClick: function () { setPageOpen(false); } }, '返回酒馆')), surface), document.body);
 
 			}
@@ -196,6 +196,31 @@
 				}));
 			}
 
+			// Compact composer tools (tavernUi.registerComposerTool, apiVersion 10): rendered into
+			// the host's trailing control row instead of the dock above the input card, so an
+			// icon like the plot compass never claims a row of its own.
+			function TavernComposerTools(props) {
+				useTavernUiExtensions();
+				const sessionId = String(props.sessionId || "");
+				const live = useLiveTavernView(sessionId, "composer-slot", [["mode"]]);
+				const mode = live && live.view && typeof live.view.mode === "string" ? live.view.mode : "";
+				const matchingTools = mode === ""
+					? []
+					: tavernUiExtensions.composerTools().filter(function (tool) {
+						return (tool.modes.indexOf(mode) >= 0 || (mode === "story" || mode === "script") && tool.modes.indexOf("play") >= 0) &&
+							tavernPluginAllowed(tool.owner, sessionId);
+					});
+				const busy = props.useSession(function (snapshot) { return snapshot.running === true; });
+
+				if (sessionId === "" || matchingTools.length === 0) return null;
+				const h = React.createElement;
+				return h(React.Fragment, null, matchingTools.map(function (tool) {
+					return h("div", { key: tool.key || tool.owner, className: "dsh-tavern-composer-tool", "data-plugin": tool.owner },
+						h(tavernPluginBoundary(), { owner: tool.owner, fallback: null },
+							h(tool.render, { sessionId: sessionId, busy: busy === true })));
+				}));
+			}
+
 			function register(input) {
 				const slots = input.slots;
 
@@ -209,6 +234,13 @@
 						return slots.register({ name: "conversation.input.dock", id: "dsh-tavern-plugin-slot", order: -290, label: "插件停靠区" }, TavernComposerSlot);
 					});
 				}, "dsh-tavern: plugin composer slot");
+				// The compact tool row lives inside the input card (before submit), so plugins that
+				// only need an icon there never occupy a dock row.
+				input.ctx.effect(function () {
+					return slots.inject("conversation.input.right", function () {
+						return slots.register({ name: "conversation.input.right", id: "dsh-tavern-plugin-tool", order: -290, label: "插件工具" }, TavernComposerTools);
+					});
+				}, "dsh-tavern: plugin composer tools");
 				return function () {};
 			}
 

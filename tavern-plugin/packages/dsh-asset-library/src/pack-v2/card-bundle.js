@@ -4,7 +4,9 @@ import { assertPublicPackChain } from './public-export.js'
 import { writeZip } from '../zip.js'
 import { check, validateUuid, validateHash } from '../asset-packs/common.js'
 import { validatePackIdentities } from '../asset-packs/index.js'
-import { jsonBytes, readDocument, budget, sealPack, inspectPackScripts, packDiff } from './validation.js'
+import { jsonBytes, readDocument, heldBytes, sealPack, inspectPackScripts, packDiff } from './validation.js'
+import { mergeMetadata } from '../pack-catalogue/merge.js'
+import { removedEntries, withRemovedEntries } from './incremental-update.js'
 
 const ROOT = 'dsh-tavern-card-bundle.json'
 const copy = value => structuredClone(value)
@@ -13,10 +15,11 @@ export function createCardBundleMethods(host) {
   const {storage, run, readRun, privateExportFile, load, metadata, all, verify, cas, keys, remapPack, remapValue, readZipFiles, readZipFile, exportArchive, archiveKey, limits, now, nextLocal, emit, cards, globalPackIds = () => [], withFigureImageExtras} = host
   const previews = new Map()
   function adapter() { check(cards && ['snapshot','inspectRaw','remapRaw','bindRaw','withPrepared','recover'].every(k => typeof cards[k] === 'function'), '$.card', 'Card Preparation adapter unavailable', 'ASSET_UNAVAILABLE'); return cards }
-  function sweep() { for (const [id, value] of previews) if (value.preview.expiresAt <= now()) previews.delete(id) }
+  // a preview's going releases the spooled media its packs read from
+  function forget(id) { const spool = previews.get(id).data.spool; previews.delete(id); return spool.release() }
+  function sweep() { for (const [id, value] of previews) if (value.preview.expiresAt <= now()) forget(id) }
   const used = () => [...previews.values()].reduce((sum, value) => sum + value.size, 0)
   async function zip(files) {
-    check(budget(files, limits) * 2 <= limits.spoolBytes, '$', 'Bundle export exceeds spool budget', 'LIMIT_EXCEEDED')
     return storage.temporary(async file => { await writeZip(file, [...files].map(([path,data]) => ({path,data,file:data.file}))); return exportArchive(file) })
   }
   function document(files, name, prefix='') {
@@ -29,7 +32,11 @@ export function createCardBundleMethods(host) {
     }
   }
   async function read(bytes, archive) {
-    const files = archive ? await readZipFile(archive.file, archive.size, used()) : await readZipFiles(bytes, used()), manifest = document(files, ROOT)
+    const {files, spool} = archive ? await readZipFile(archive.file, 0, used()) : await readZipFiles(bytes, used())
+    try { return {...await readBundle(files), spool} } catch (error) { spool.release(); throw error }
+  }
+  async function readBundle(files) {
+    const manifest = document(files, ROOT)
     for(const key of ['format','schemaVersion','files','dependencies'])check(manifest && Object.hasOwn(manifest,key),ROOT+':$.'+key,'Missing field '+key+' in '+ROOT,'INVALID_JSON')
     check(manifest.format === 'dsh-tavern-card-bundle' && manifest.schemaVersion === 1, ROOT+':$.format/schemaVersion', 'Unsupported card bundle')
     check(Object.keys(manifest).every(k => ['format','schemaVersion','files','dependencies','cover'].includes(k)), ROOT+':$', 'Unknown bundle field')
@@ -89,12 +96,16 @@ export function createCardBundleMethods(host) {
         for (const [name, bytes] of pack.files) if (name.endsWith('.json')) pack.files.set(name, jsonBytes(remapValue(readDocument(bytes), other.from, other.packId, other.figures)))
       }
       await sealPack(pack.manifest, pack.files, incoming)
-      packs.push(await verify(pack.manifest, pack.files, incoming, true))
+      const verified = await verify(pack.manifest, pack.files, incoming, true)
+      if (decisions[incoming.manifest.id] !== 'merge') { packs.push(verified); continue }
+      // 增量更新: as applyImport's 'merge'.
+      const before = await metadata(incoming.manifest.id), merged = (await mergeMetadata(verified, before, before.local.distribution?.baseMetadata)).pack
+      packs.push(await withRemovedEntries(merged, before, {verify, read:(name, size) => storage.read(`packs/${before.manifest.id}/${name}`, size)}))
     }
     return {packs, mappings, raw:adapter().remapRaw(entry.data.raw, mappings)}
   }
   return {
-    disposeCardBundles() { previews.clear() },
+    disposeCardBundles() { for (const id of [...previews.keys()]) forget(id) },
     cardBundleUsage() { sweep(); return {count:previews.size,bytes:used()} },
     // Host-only callback (the DSH card export, core card-files.js); no file paths or executable payloads cross the remote
     // method table.
@@ -175,24 +186,29 @@ export function createCardBundleMethods(host) {
       const bytes = archive ? null : Buffer.from(input.bytes)
       return run([], async () => {
         sweep(); check(previews.size + host.packPreviewUsage().count < limits.previews, '$', 'Preview limit exceeded', 'LIMIT_EXCEEDED')
-        const data = await read(bytes, archive), target = await adapter().snapshot({path:input.path}), installed = await all(), packs = []
+        const data = await read(bytes, archive)
+        try { return await inspectRead(data) } finally { await data.spool.release() }
+      })
+      async function inspectRead(data) {
+        const target = await adapter().snapshot({path:input.path}), installed = await all(), packs = []
         for (const pack of data.packs) {
           const before = installed.find(p => p.manifest.id === pack.manifest.id)
           const conflicts = [...installed, ...data.packs].filter(p => p.manifest.id !== pack.manifest.id && (pack.manifest.figures.some(id => p.manifest.figures.includes(id) || p.manifest.id === id) || p.manifest.figures.includes(pack.manifest.id)))
           const same = before?.manifest.contentHash === pack.manifest.contentHash
           const mapping = {packId:randomUUID(), figures:Object.fromEntries(pack.manifest.figures.map(id => [id, randomUUID()]))}
           packs.push({packId:pack.manifest.id, expectedRevision:before?.local.revision ?? (await storage.local(pack.manifest.id))?.revision ?? null,
-            choices:conflicts.length ? ['keep-both','cancel'] : same ? ['noop','cancel'] : before ? ['update','keep-both','cancel'] : ['install','keep-both','cancel'],
+            choices:conflicts.length ? ['keep-both','cancel'] : same ? ['noop','cancel'] : before ? ['update','merge','keep-both','cancel'] : ['install','keep-both','cancel'],
+            removed:!conflicts.length && !same && before ? removedEntries(before, pack) : [],
             incoming:{manifest:pack.manifest, figures:pack.figures, sprites:pack.sprites}, current:before ? {manifest:before.manifest, figures:before.figures} : null,
             diff:packDiff(before?.manifest, pack.manifest), affectedCards:{available:false,count:null}, mapping,
             scriptRisk:inspectPackScripts(pack)})
         }
         const preview = {inspectionId:randomUUID(), path:input.path, expectedRevision:target.revision, expiresAt:now() + limits.previewTtlMs, packs, dependencies:data.manifest.dependencies, raw:data.raw, currentRaw:target.raw}
-        const size = (bytes?.length || 0) + (data.cover?.length || 0) + data.packs.reduce((sum,p) => sum + budget(p.files,limits) + jsonBytes(p.manifest).length, jsonBytes(data.raw).length + jsonBytes(target.raw).length)
+        const size = (bytes?.length || 0) + (data.cover?.length || 0) + data.packs.reduce((sum,p) => sum + heldBytes(p.files) + jsonBytes(p.manifest).length, jsonBytes(data.raw).length + jsonBytes(target.raw).length)
         check(used() + host.packPreviewUsage().bytes + size <= limits.spoolBytes, '$', 'Preview spool budget exceeded', 'LIMIT_EXCEEDED')
-        previews.set(preview.inspectionId, {preview, data, bytes, size})
+        data.spool.retain(); previews.set(preview.inspectionId, {preview, data, bytes, size})
         return copy(preview)
-      })
+      }
     },
     previewCardBundleDecisions(input) {
       return run([], async () => {
@@ -214,11 +230,11 @@ export function createCardBundleMethods(host) {
       return run(lockIds, async () => {
         sweep(); const entry = previews.get(input.inspectionId)
         check(entry, '$.inspectionId', 'Preview expired', 'ASSET_UNAVAILABLE')
-        if (input.cancel === true) { previews.delete(input.inspectionId); return {status:'cancelled'} }
+        if (input.cancel === true) { await forget(input.inspectionId); return {status:'cancelled'} }
         check(input.expectedRevision === entry.preview.expectedRevision, '$.expectedRevision', 'Card preview changed', 'REVISION_CONFLICT')
         check(input.decisions && Object.keys(input.decisions).length === entry.preview.packs.length, '$.decisions', 'Explicit decision for every pack required')
         for (const p of entry.preview.packs) {
-          check(p.choices.includes(input.decisions[p.packId]) && input.decisions[p.packId] !== 'cancel', '$.decisions', 'Explicit install/update/keep-both decision required')
+          check(p.choices.includes(input.decisions[p.packId]) && input.decisions[p.packId] !== 'cancel', '$.decisions', 'Explicit install/update/merge/keep-both decision required')
           cas(await metadata(p.packId) || {local:await storage.local(p.packId)}, p.expectedRevision, p.incoming.manifest)
         }
         const {packs, mappings, raw} = await candidates(entry, input.decisions), installed = await all()
@@ -252,7 +268,7 @@ export function createCardBundleMethods(host) {
           return storage.publishMany(changes.sort((a,b) => a.pack.manifest.id.localeCompare(b.pack.manifest.id)), card)
         })
         for (const change of changes) emit({...change.pack,local:change.local}, change.before)
-        previews.delete(input.inspectionId)
+        await forget(input.inspectionId)
         // Presets are additive, optional TTS data, not part of the pack/card transaction.
         return {status:'committed', mappings, widgetRisks:risks, path:entry.preview.path}
       })

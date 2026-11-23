@@ -13,12 +13,12 @@ import { randomUUID } from 'node:crypto'
 export function createPlayHandlers(deps) {
   const { agentCompaction, agentRegistry, autoChoices, backgroundAgentRunner, backgroundCatalog, storyEvents, workflow, pluginApi, bodyEditor, branchOrigin, polishPrereview, polishRecords, polishReviewer, cardUpdates,
     candidateGenerator, candidateTasks, chatForSession, compactionAbort, conversationBackgroundSettings, conversationGuides, ctx,
-    ledgerEditor, manualCharacterDesign, manualLedger, messageDeletion, notifyPluginTimeline, phoneChat,
+    ledgerEditor, manualCharacterDesign, manualLedger, messageDeletion, notifyPluginTimeline,
     pluginSettlementProgress, readBackgroundSuppression, readTavernSettings,
     reconcileStory, reconcileWhenIdle, regenBody, requestPerformance, retrySettlement,
     retryStyleReference, rollbackTurn, rollbackToTurn, runtimeGeneration, sessionActivity, sessionOperation, sessionSignals,
     sessionStateForSession, sessionStore, sessionView, sessionViews, setPlayerName, stopBackground, str,
-    templateHistoryFrom, turnOrchestrator, undoRollbackTurn, updateChat, view, withCompactionSession } = deps
+    templateHistoryFrom, turnOrchestrator, undoRollbackTurn, updateChat, view, withCompactionSession, withForegroundTaskAgent } = deps
   // 发送键只认宿主的运行状态。重新生成要先把存档读出来、挑出要替换的正文、拼好这一轮的
   // 提示词，模型请求才开始；那段准备时间里按键还是「发送」，看着像没点上，而面板上的
   // 「正在重新生成正文…」早就出现了。请求一进门就把会话报成运行中（页面照宿主自己的
@@ -33,6 +33,7 @@ export function createPlayHandlers(deps) {
     if (after === 0) regeneratingRuns.delete(sessionId)
     else regeneratingRuns.set(sessionId, after)
     if (before !== 0 && after !== 0) return
+    if (after === 0 && agentRegistry?.get?.(sessionId)?.phase?.kind === 'running') return
     try { ctx.emit('api-session/status', sessionId, after > 0) }
     catch (error) { console.warn('dsh-tavern: 重新生成的运行状态没有送到页面', str(error?.message || error)) }
   }
@@ -78,15 +79,19 @@ export function createPlayHandlers(deps) {
       return { view: await cardUpdates.applyManual(sessionId, args && args.digest) }
     },
     async getSession(args) {
-      // A save opened for the first time in this process is checked once, while nothing runs.
-      await reconcileWhenIdle(args && args.sessionId, { once: true })
+      const sessionId = str(args?.sessionId)
+      const windowed = args?.viewSync === 1 && args.openingWindow === 1 && args.fullView !== true && args.historyFrom !== 0
+      if (!windowed) await reconcileWhenIdle(sessionId, { once: true })
       // A branch forked by an older Tavern is a conversation, not a subagent: without the
       // repair the page's history read fails and the composer stays read-only.
-      await branchOrigin?.ensure?.(str(args && args.sessionId))
-      void backgroundCatalog(str(args && args.sessionId))
+      await branchOrigin?.ensure?.(sessionId)
+      void backgroundCatalog(sessionId)
       if(args?.fullView === true)templateHistoryFrom.set(args.sessionId,0)
       else if(Number.isSafeInteger(args?.historyFrom) && args.historyFrom >= 0)templateHistoryFrom.set(args.sessionId,args.historyFrom)
       const response = await sessionViews.response(args || {})
+      if (windowed) void reconcileWhenIdle(sessionId, { once: true, background: true }).catch(error => {
+        console.warn('dsh-tavern: 后台核对存档失败：' + str(error?.message || error))
+      })
       // 空视图以前是无声的：页面以为读完了，玩家看到的是「没有可重新生成的正文」。
       if (response && response.view == null) console.warn('[dsh-tavern.view] 空视图 sessionId=' + str(args && args.sessionId) + ' reason=' + (response.emptyReason || 'unknown'))
       return response
@@ -103,9 +108,6 @@ export function createPlayHandlers(deps) {
     },
     async consolidateLedger(args) {
       return await manualLedger.start(args || {})
-    },
-    async sendPhoneMessage(args) {
-      return { phoneChat: await phoneChat.send(args || {}) }
     },
     async runCompaction(args) {
       const id = str(args && args.sessionId), chat = await chatForSession(id)
@@ -217,35 +219,38 @@ export function createPlayHandlers(deps) {
     // text, a review now otherwise); with guidance, a second edit then follows only the guidance.
     // Both land as one body edit; the record keeps the original for the comparison and its undo.
     async polishBody(args) {
+      if (!(await readTavernSettings()).polishEnabled) throw new Error('请先在酒馆设置的「开局默认 → 功能」中开启精修')
       const sessionId = str(args?.sessionId), guidance = str(args?.guidance).trim(), started = Date.now()
-      await reconcileStory(sessionId)
-      const edit = await bodyEditor.read(sessionId)
-      const texts = edit.parts.filter(part => part.kind === 'text').map(part => part.text)
-      polishPrereview.settle(sessionId, texts)
-      const review = await polishPrereview.take(sessionId, texts) || await polishReviewer.review(sessionId, texts)
-      const chosen = review.edits.filter(item => item.status === 'ok')
-      if (review.fallback) return { edits: review.edits, guidance: review.fallback, view: null }
-      const reviewed = chosen.length ? applyPolishEdits(texts, chosen) : texts
-      let guided = [], polished = reviewed, edits = review.edits
-      if (guidance) {
-        const followed = await polishReviewer.guide(sessionId, reviewed, guidance)
-        if (followed.fallback && !chosen.length) return { edits: [], guidance: followed.fallback, view: null }
-        guided = followed.edits.filter(item => item.status === 'ok')
-        if (guided.length) polished = applyPolishEdits(reviewed, guided)
-        edits = [...review.edits, ...followed.edits]
-      }
-      if (!chosen.length && !guided.length) return { edits, guidance: '', view: null }
-      const recorded = guided.length ? composePolishEdits(texts.join('\n\n'), chosen, guided) : chosen
-      const view = await bodyEditor.save(sessionId, { token: edit.token, texts: polished }, { polished: true, async onSaved() {
-        // This also runs after a queued edit finally applies.
-        polishPrereview.settle(sessionId, polished)
-        notifyPluginTimeline(sessionId, 'edit', { settled: true })
-        await polishRecords.save(sessionId, edit.turn, { original: texts, edits: recorded,
-          seconds: Math.round((Date.now() - started) / 1000), requestId: str(args?.requestId).slice(0, 128) })
-          .catch(error => console.warn('dsh-tavern: 精修记录保存失败', error))
-      } })
-      if (view?.queued) return { edits, view: null, queued: true }
-      return { edits, view }
+      return withForegroundTaskAgent(sessionId, async () => {
+        await reconcileStory(sessionId)
+        const edit = await bodyEditor.read(sessionId)
+        const texts = edit.parts.filter(part => part.kind === 'text').map(part => part.text)
+        polishPrereview.settle(sessionId, texts)
+        const review = await polishPrereview.take(sessionId, texts) || await polishReviewer.review(sessionId, texts)
+        const chosen = review.edits.filter(item => item.status === 'ok')
+        if (review.fallback) return { edits: review.edits, guidance: review.fallback, view: null }
+        const reviewed = chosen.length ? applyPolishEdits(texts, chosen) : texts
+        let guided = [], polished = reviewed, edits = review.edits
+        if (guidance) {
+          const followed = await polishReviewer.guide(sessionId, reviewed, guidance)
+          if (followed.fallback && !chosen.length) return { edits: [], guidance: followed.fallback, view: null }
+          guided = followed.edits.filter(item => item.status === 'ok')
+          if (guided.length) polished = applyPolishEdits(reviewed, guided)
+          edits = [...review.edits, ...followed.edits]
+        }
+        if (!chosen.length && !guided.length) return { edits, guidance: '', view: null }
+        const recorded = guided.length ? composePolishEdits(texts.join('\n\n'), chosen, guided) : chosen
+        const view = await bodyEditor.save(sessionId, { token: edit.token, texts: polished }, { polished: true, async onSaved() {
+          // This also runs after a queued edit finally applies.
+          polishPrereview.settle(sessionId, polished)
+          notifyPluginTimeline(sessionId, 'edit', { settled: true })
+          await polishRecords.save(sessionId, edit.turn, { original: texts, edits: recorded,
+            seconds: Math.round((Date.now() - started) / 1000), requestId: str(args?.requestId).slice(0, 128) })
+            .catch(error => console.warn('dsh-tavern: 精修记录保存失败', error))
+        } })
+        if (view?.queued) return { edits, view: null, queued: true }
+        return { edits, view }
+      })
     },
     async polishProgress(args) {
       return { progress: polishReviewer.progress(str(args?.sessionId)) }
@@ -268,9 +273,9 @@ export function createPlayHandlers(deps) {
     },
     async regenBody(args) {
       const sessionId = str(args?.sessionId)
-      if (await pluginApi?.gameModes?.active(args?.sessionId)) throw new Error('请使用玩法面板回退后重新行动')
       announceRegenerating(sessionId, true)
       try {
+        if (await pluginApi?.gameModes?.active(args?.sessionId)) throw new Error('请使用玩法面板回退后重新行动')
         autoChoices.cancel(sessionId)
         if (args?.restyle === true) await retryStyleReference(sessionId, { target: 'regenerate', guidance: args.styleGuidance })
         await requestPerformance.stage('regen.reconcile', () => reconcileStory(sessionId))
@@ -282,7 +287,7 @@ export function createPlayHandlers(deps) {
           notifyPluginTimeline(sessionId, 'regenerate')
           void polishPrereview.start(sessionId).catch(() => {})
         }
-        return { view }
+        return agentRegistry?.get?.(sessionId)?.phase?.kind === 'running' ? { view, sessionRunning: true } : { view }
       } finally {
         announceRegenerating(sessionId, false)
       }

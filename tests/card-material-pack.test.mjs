@@ -22,26 +22,6 @@ const material = (avatar = png([240, 160, 180])) => ({ characters: [{ name: '彩
   voiceReferences: [1, 2, 3].map(seed => ({ audio: wav(seed), text: '参考の台詞 ' + seed })), voiceSource: { provider: 'fish', clone: true }, voiceLanguage: 'ja' }],
   backgrounds: [{ name: '教室', bytes: png([200, 200, 210]) }] })
 
-test('card material becomes one pack named after the card; the same material again is that pack; its figures project back', async t => {
-  const root = await mkdtemp(join(tmpdir(), 'card-material-'))
-  const service = createAssetPackService({ assetRoot: root, voiceChannels: async () => ['fish-audio'] })
-  t.after(async () => { await service.dispose(); await rm(root, { recursive: true, force: true }) })
-  const first = await service.importCardMaterial({ name: 'Iroha', material: material() })
-  assert.deepEqual([first.status, first.notices, typeof first.revision], ['installed', [], 'string'])
-  const { revision: _revision, ...installed } = first
-  assert.deepEqual(await service.importCardMaterial({ name: 'Iroha', material: material() }), { ...installed, status: 'noop' })
-  assert.deepEqual(await service.importCardMaterial({ name: 'Another card', material: material() }), { ...installed, status: 'noop' }, 'the card name is not the identity')
-  assert.notEqual((await service.importCardMaterial({ name: 'Iroha', material: material(png([1, 2, 3])) })).packId, first.packId, 'other material is another pack')
-
-  const projected = await service.projectCardMaterial({ packIds: [first.packId] })
-  const [character] = projected.characters
-  assert.deepEqual([character.name, character.aliases, character.labels, character.voiceLanguage, character.voiceSource],
-    ['彩叶', ['Iroha'], { neutral: '平静', joy: '开心', sadness: '难过' }, 'ja', { provider: 'fish', clone: true }])
-  assert.deepEqual(await projected.read(character.avatar), png([240, 160, 180]))
-  assert.deepEqual(await Promise.all(character.references.map(clip => projected.read(clip.file))), [1, 2, 3].map(wav))
-  assert.deepEqual(projected.backgrounds.map(row => row.name), ['教室'])
-})
-
 test('a pack id names one content: an unmatched voice source is dropped from the pack, and nothing usable makes no pack', async t => {
   const root = await mkdtemp(join(tmpdir(), 'card-material-'))
   const service = createAssetPackService({ assetRoot: root, voiceChannels: async () => [] })

@@ -4,7 +4,7 @@
 // animation, text (glyphs are drawn as paths), embedded or external resources (every reference is a same-document #id),
 // DTD, entity declarations or CDATA. The root <svg> carries the SVG namespace, a viewBox and a px width and height: its
 // natural size, as a PNG's pixels, so `scale` and every size rule apply unchanged.
-import {decodeSvg} from './skin-svg-native.js'
+import {decodeSvgs} from './skin-svg-native.js'
 
 const ELEMENTS = new Set(['svg', 'g', 'defs', 'title', 'desc', 'path', 'rect', 'circle', 'ellipse', 'line', 'polyline', 'polygon',
   'use', 'symbol', 'clipPath', 'mask', 'linearGradient', 'radialGradient', 'stop', 'pattern', 'filter', 'feGaussianBlur', 'feOffset',
@@ -17,12 +17,18 @@ const ENTITY = /&(?!(?:amp|lt|gt|quot|apos|#\d{1,7}|#x[\da-f]{1,6});)/i
 const px = value => /^\d+(?:\.\d+)?(?:px)?$/.test(value || '') ? Number.parseFloat(value) : NaN
 
 export async function decodeSkinSvg(bytes) {
-  const size = validateSkinSvg(bytes)
+  return (await decodeSkinSvgs([['', bytes]]))[0]
+}
+
+// [file, bytes] drawings, decoded together; a rejection names its drawing in `file`.
+export async function decodeSkinSvgs(drawings) {
+  const rejected = (file, check) => { try { return check() } catch (error) { throw Object.assign(error, {file}) } }
+  const sizes = drawings.map(([file, bytes]) => rejected(file, () => validateSkinSvg(bytes)))
   // The inert-markup allowlist is not an XML parser or an image decoder.
-  try {
-    await decodeSvg(bytes)
-  } catch (error) { fail('image decode failed: ' + error.message) }
-  return size
+  let failed
+  try { failed = await decodeSvgs(drawings.map(([, bytes]) => bytes)) } catch (error) { failed = {index: 0, message: error.message} }
+  if (failed) rejected(drawings[failed.index][0], () => fail('image decode failed: ' + failed.message))
+  return sizes
 }
 
 export function validateSkinSvg(bytes) {

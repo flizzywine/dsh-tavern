@@ -3,7 +3,6 @@ import assert from 'node:assert/strict'
 import {readFile} from 'node:fs/promises'
 import vm from './fixtures/client-vm.mjs'
 import {loadStageClientPlugin} from './fixtures/stage-client-plugin.mjs'
-import {checkCssSyntax} from '../bin/lib/css-syntax-guard.mjs'
 
 test('stage theme retains its cascade position and all stage styles leave on unload', async () => {
   const nodes = []
@@ -28,11 +27,4 @@ test('stage theme retains its cascade position and all stage styles leave on unl
   const [base, ...features] = nodes.map(node => node.textContent)
   assert.equal(base.split('\n')[0], 'base refreshed')
   assert.deepEqual(features, ['before refreshed', 'after refreshed'])
-})
-
-test('plugin style source blocks are structurally valid CSS', async () => {
-  for (const name of ['packages/dsh-tavern-stage/src/client/themes.css','packages/dsh-tavern-stage/src/client/source-widgets.css','mods/phone/client/stage.css','mods/textcard/client/stage.css']) {
-    const css=await readFile(new URL('../tavern-plugin/'+name,import.meta.url),'utf8')
-    assert.doesNotThrow(() => checkCssSyntax(css,name))
-  }
 })

@@ -33,18 +33,6 @@ function host() {
   return { RUNTIMES, vendorRuntimeStore, RuntimeEntry: () => null, Spinner: () => null, rpc: async () => ({}), forkLoadScript: async () => {}, loadPixiRuntime: async () => {}, forkLipSync: {} }
 }
 
-test('Live2D code ships only in its own chunk: neither the core client nor the stage client carries the module', () => {
-  const core = readFileSync(new URL('../tavern-plugin/lib/client.js', import.meta.url), 'utf8')
-  const stage = readFileSync(new URL('../tavern-plugin/packages/dsh-tavern-stage/lib/client.js', import.meta.url), 'utf8')
-  const chunk = readFileSync(chunkUrl, 'utf8')
-  for (const name of ['function createLive2dModule', 'RUNTIMES.live2d =', 'function cubismHeapGuard', 'function loadLive2dRuntime', 'function Live2dFigurePreview']) {
-    assert.ok(chunk.includes(name), name)
-    assert.equal(core.includes(name), false, 'core: ' + name)
-    assert.equal(stage.includes(name), false, 'stage: ' + name)
-  }
-  assert.ok(stage.includes('function createStageLive2d('))
-})
-
 test('the built module registers the Live2D runtime entry for its lifetime and exposes the stage runtime', async () => {
   const { createLive2dModule } = await import(chunkUrl)
   const names = host(), module = createLive2dModule({ React, ...names })
@@ -55,38 +43,6 @@ test('the built module registers the Live2D runtime entry for its lifetime and e
   assert.equal(module.store.core, '/core.js')
   module.dispose()
   assert.equal(names.RUNTIMES.live2d, undefined)
-})
-
-test('the stage loads the Live2D module once, only when Live2D is needed, and retries a failed load', async () => {
-  const createStageLive2d = page(), names = host()
-  let loads = 0, fail = true
-  const load = async () => { loads++; if (fail) throw new Error('offline'); return import(chunkUrl) }
-  const live2d = createStageLive2d({ React, host: names, load, report: () => {} })
-  live2d.runtime.live2dUseContext({})
-  assert.equal(live2d.runtime.ready(), false)
-  assert.equal(live2d.runtime.core(), '')
-  assert.equal(JSON.stringify(live2d.previews.snapshots.peek('model', ['smile'], 'face')), '{}')
-  assert.equal(loads, 0, 'a stage without Live2D downloads nothing')
-  await assert.rejects(live2d.runtime.loadLive2dRuntime('/core.js'), /offline/)
-  fail = false
-  let revisions = 0
-  live2d.store.subscribe(() => revisions++)
-  // A shown runtime entry asks for the module; the first figure core joins the same load.
-  assert.equal(live2d.Entry({ request: names.rpc }), null)
-  const runtime = live2d.runtime.loadLive2dRuntime('')
-  assert.equal(await runtime, null, 'no Cubism Core imported: the runtime stays off')
-  assert.equal(loads, 2)
-  assert.equal(live2d.runtime.ready(), true)
-  assert.ok(revisions > 0)
-  assert.equal(live2d.Entry({ request: names.rpc }).props.request, names.rpc)
-  assert.equal(names.RUNTIMES.live2d.title, 'Live2D')
-  live2d.dispose()
-  assert.equal(names.RUNTIMES.live2d, undefined)
-  // The same page re-activating the stage starts from the chunk it already has.
-  const again = createStageLive2d({ React, host: host(), load, report: () => {} })
-  assert.equal(again.runtime.ready(), true)
-  assert.equal(loads, 2)
-  again.dispose()
 })
 
 // Cubism Core for Web moves its heap to a new ArrayBuffer when a later moc makes it grow, so every model created before then

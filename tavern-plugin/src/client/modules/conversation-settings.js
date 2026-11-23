@@ -1,24 +1,38 @@
-// Session settings own their loading/saving UI; host services and sibling
-// settings panels are supplied explicitly rather than read from play-controls.
+// 本局设置 — the per-game page of the right panel, drawn in the panel language of 舞台设置 (the tab beside it): caption
+// sections on a hairline, one row per setting with its name on the left and its value or switch on the right edge,
+// explanations only in the 「?」. The stage keeps its own options: here it is one row that opens 舞台设置. Host services and
+// sibling pieces are supplied explicitly rather than read from play-controls.
 function createConversationSettingsModule({
     React, rpc, useLiveTavernView, useTavernSessionMode, isPlayMode,
-    invalidateView, notifyTavernDataChanged,
-    UserPreferenceProfileTab, TavernConversationWritingSkills, backgroundModelLabel
+    invalidateView, notifyTavernDataChanged, openTab, packUi,
+    UserPreferenceProfileTab, backgroundModelLabel
 }) {
+    const h = React.createElement;
+    const errorText = err => String(err && err.message || err);
+    const FOLD = title => "本局设置 › " + title;
+    const help = (label, text) => h(HelpTip, { label: label + "说明" }, text);
+
+    // Every write of this page goes through here: the page head says 「正在保存… / 已保存」 for the session, and the template
+    // actions wait for writes still in flight (a name typed and the menu clicked at once).
     const tavernSettingsSessionReads = new Map();
     const tavernSettingsPendingWrites = new Map();
+    const saveListeners = new Map();
+    function emitSaveState(sessionId, state) { for (const listener of [...(saveListeners.get(sessionId) || [])]) listener(state); }
     function trackTavernSettingsWrite(sessionId, promise) {
         let pending = tavernSettingsPendingWrites.get(sessionId);
         if (!pending) {
             pending = new Set();
             tavernSettingsPendingWrites.set(sessionId, pending);
         }
-        const cleanup = () => {
+        const settle = ok => {
             pending.delete(promise);
-            if (!pending.size && tavernSettingsPendingWrites.get(sessionId) === pending) tavernSettingsPendingWrites.delete(sessionId);
+            if (pending.size) return;
+            if (tavernSettingsPendingWrites.get(sessionId) === pending) tavernSettingsPendingWrites.delete(sessionId);
+            emitSaveState(sessionId, ok ? "saved" : "idle");
         };
         pending.add(promise);
-        promise.then(cleanup, cleanup);
+        emitSaveState(sessionId, "saving");
+        promise.then(() => settle(true), () => settle(false));
         return promise;
     }
     async function flushTavernSettingsWrites(sessionId) {
@@ -26,187 +40,366 @@ function createConversationSettingsModule({
         const pending = tavernSettingsPendingWrites.get(sessionId);
         if (pending && pending.size) await Promise.allSettled([...pending]);
     }
+    function useSaveState(sessionId) {
+        const [state, setState] = React.useState("idle");
+        React.useEffect(() => {
+            let timer = 0;
+            const listener = next => { clearTimeout(timer); setState(next); if (next === "saved") timer = setTimeout(() => setState("idle"), 1800); };
+            if (!saveListeners.has(sessionId)) saveListeners.set(sessionId, new Set());
+            saveListeners.get(sessionId).add(listener);
+            return () => { clearTimeout(timer); saveListeners.get(sessionId)?.delete(listener); };
+        }, [sessionId]);
+        return state;
+    }
     function readTavernSettingsSession(sessionId) {
-            const pending = tavernSettingsSessionReads.get(sessionId);
-            if (pending) return pending;
-            const read = rpc("getSession", {}, sessionId).finally(() => { if (tavernSettingsSessionReads.get(sessionId) === read) tavernSettingsSessionReads.delete(sessionId); });
-            tavernSettingsSessionReads.set(sessionId, read);
-            return read;
-        }
-    function TavernConversationPreset(props) {
-        const h = React.createElement;
-        const [data, setData] = React.useState(null);
-        const [error, setError] = React.useState("");
-        const [busy, setBusy] = React.useState(false);
-        const [notice, setNotice] = React.useState("");
-        async function refresh(mount) {
-            const [catalog, session] = await Promise.all([rpc("listPresets", {}, props.sessionId), mount ? readTavernSettingsSession(props.sessionId) : rpc("getSession", {}, props.sessionId)]);
-            setData({ presets: catalog.presets || [], current: session.view?.runtimePreset });
-        }
-        React.useEffect(() => { refresh(true).catch(err => setError(String(err.message || err))); }, []);
-        async function change(path) {
-            setBusy(true); setError(""); setNotice("");
-            try { await trackTavernSettingsWrite(props.sessionId, rpc("applyConversationPreset", { sessionId: props.sessionId, path }, props.sessionId)); await refresh(); setNotice("已保存"); invalidateView(props.sessionId); notifyTavernDataChanged(["presets", "sessions"], "presets"); }
-            catch (err) { setError(String(err.message || err)); }
-            finally { setBusy(false); }
-        }
-        return h("div", { className: "dsh-local-field" }, h(InlineField, { kind: "menu", label: "本局预设", value: data?.current?.id || "", disabled: busy || !data, onCommit: change,
-                    options: [{ value: "", label: "不使用酒馆预设" },
-                        ...(data?.current?.id && !data.presets.some(p => p.path === data.current.id) ? [{ value: data.current.id, label: data.current.name + "（源文件已移除）" }] : []),
-                        ...(data?.presets || []).filter(p => p.valid && p.recognized).map(p => ({ value: p.path, label: p.title }))] }),
-            h("p", { className: "dsh-tavern-settings-desc" }, "用于后续正文，选择后自动保存。"), error ? h("p", { role: "alert" }, "保存失败：" + error) : h("span", { role: "status", className: "dsh-local-feedback" }, busy ? "保存中…" : notice));
+        const pending = tavernSettingsSessionReads.get(sessionId);
+        if (pending) return pending;
+        const read = rpc("getSession", {}, sessionId).finally(() => { if (tavernSettingsSessionReads.get(sessionId) === read) tavernSettingsSessionReads.delete(sessionId); });
+        tavernSettingsSessionReads.set(sessionId, read);
+        return read;
     }
+    // A section's rows: one hairline between rows, nothing around them.
+    const rows = (...children) => h("div", { className: "dsh-session-rows" }, ...children);
+    // ⚠ + one sentence (+ 重试 for a failed read), announced where it happened.
+    const problemLine = (text, retry) => text ? h("div", { role: "alert", className: "dsh-session-problem" }, h(packUi.HintLine, { text, action: retry ? "重试" : undefined, onAction: retry })) : null;
 
-    function TavernLocalPlayerName(props) {
-        const [name, setName] = React.useState(null), [busy, setBusy] = React.useState(false), [status, setStatus] = React.useState("");
-        React.useEffect(() => { let active = true; readTavernSettingsSession(props.sessionId).then(result => { if (active) setName(result.view?.playerName || "你"); }, err => { if (active) setStatus("读取失败：" + err.message); }); return () => { active = false; }; }, []);
-        async function save(value) {
-            if (busy || value === name) return;
-            setBusy(true); setStatus("保存中…");
-            try { const result = await trackTavernSettingsWrite(props.sessionId, rpc("setPlayerName", { userName: value }, props.sessionId)); setName(result.playerName || "你"); setStatus("已保存"); invalidateView(props.sessionId); notifyTavernDataChanged(["sessions"], "play-controls"); }
-            catch (err) { setStatus("保存失败：" + err.message); }
-            finally { setBusy(false); }
-        }
-        return React.createElement("div", { className: "dsh-local-field" },
-            React.createElement(InlineField, { label: "玩家称呼", value: name || "", placeholder: "你", maxLength: 80, disabled: name === null || busy, onCommit: save }),
-            React.createElement("p", { className: "dsh-local-help" }, "离开输入框后保存，仅用于后续内容。"), React.createElement("span", { role: "status", className: "dsh-local-feedback" }, status));
-    }
-
-
-    function TavernBodyGenerationSettings(props) {
-        const h = React.createElement;
-        const [data, setData] = React.useState(null), [error, setError] = React.useState(""), [busy, setBusy] = React.useState(false);
+    // ---------- 玩法 ----------
+    function SessionPlayerName({ sessionId }) {
+        const [name, setName] = React.useState(null), [error, setError] = React.useState("");
         React.useEffect(() => {
             let active = true;
-            rpc("getBodyGenerationSettings", { sessionId: props.sessionId }, props.sessionId).then(value => { if (active) setData(value); }, err => { if (active) setError(err.message); });
+            readTavernSettingsSession(sessionId).then(result => { if (active) setName(result.view?.playerName || "你"); }, err => { if (active) setError("读取失败：" + errorText(err)); });
             return () => { active = false; };
-        }, [props.sessionId]);
-        async function save(patch) {
+        }, [sessionId]);
+        async function save(value) {
+            if (value === name) return;
+            setError("");
+            try {
+                const result = await trackTavernSettingsWrite(sessionId, rpc("setPlayerName", { userName: value }, sessionId));
+                setName(result.playerName || "你");
+                invalidateView(sessionId);
+                notifyTavernDataChanged(["sessions"], "play-controls");
+            } catch (err) { setError("保存失败：" + errorText(err)); }
+        }
+        return h(InlineField, { kind: "text", label: "玩家称呼", value: name || "", placeholder: name === null ? "正在读取…" : "你", maxLength: 80,
+            help: help("玩家称呼", "设置本局故事中使用的玩家称呼。留空时使用「你」。"),
+            disabled: name === null, error, onCommit: save });
+    }
+    function SessionPreset({ sessionId }) {
+        const [data, setData] = React.useState(null), [error, setError] = React.useState(""), [busy, setBusy] = React.useState(false);
+        async function refresh(mount) {
+            const [catalog, session] = await Promise.all([rpc("listPresets", {}, sessionId), mount ? readTavernSettingsSession(sessionId) : rpc("getSession", {}, sessionId)]);
+            setData({ presets: catalog.presets || [], current: session.view?.runtimePreset });
+        }
+        React.useEffect(() => { refresh(true).catch(err => setError("读取失败：" + errorText(err))); }, []);
+        async function change(path) {
             setBusy(true); setError("");
-            const selection = Object.hasOwn(patch, "hostRegex") ? {} : { mode: data.mode, provider: data.provider };
-            try { setData(await trackTavernSettingsWrite(props.sessionId, rpc("setBodyGenerationSettings", { sessionId: props.sessionId, ...selection, ...patch }, props.sessionId))); }
-            catch (err) { setError(String(err.message || err)); }
+            try {
+                await trackTavernSettingsWrite(sessionId, rpc("applyConversationPreset", { sessionId, path }, sessionId));
+                await refresh();
+                invalidateView(sessionId);
+                notifyTavernDataChanged(["presets", "sessions"], "presets");
+            } catch (err) { setError("保存失败：" + errorText(err)); }
             finally { setBusy(false); }
         }
-        return h("section", { className: "dsh-local-section", "aria-label": "本局正文生成" },
-            h("h3", null, "正文生成"),
-            h(InlineField, { kind: "menu", label: "本局正文生成方式", value: data?.inherited ? "inherit" : data?.mode || "host", disabled: busy || !data,
-                options: [{ value: "inherit", label: "跟随全局设置" }, { value: "host", label: "宿主生成" }, { value: "plugin-direct", label: "插件直接生成" }, { value: "plugin-tool-call", label: "前台检索后由插件生成" }],
-                onCommit: value => save(value === "inherit" ? { inherit: true } : { mode: value }) }),
-            h(InlineField, { kind: "menu", label: "本局正文生成插件", value: data?.provider || "", disabled: busy || !data,
-                options: [{ value: "", label: "未选择" }, ...(data?.provider && !data.providers.some(item => item.id === data.provider) ? [{ value: data.provider, label: "已选插件不可用" }] : []), ...(data?.providers || []).map(item => ({ value: item.id, label: item.title }))],
-                onCommit: provider => save({ provider }) }),
-            h(InlineField, { kind: "menu", label: "插件生成正文后仍应用宿主正则", value: data?.hostRegexInherited ? "inherit" : data?.hostRegex ? "on" : "off", disabled: busy || !data,
-                options: [{ value: "inherit", label: "跟随全局设置" }, { value: "on", label: "开启" }, { value: "off", label: "关闭" }],
-                onCommit: value => save({ hostRegex: value === "inherit" ? null : value === "on" }) }),
-            h("p", { className: "dsh-local-help" }, "先选生成插件，再切换方式。修改对下一次操作生效。"),
-            error ? h("p", { role: "alert" }, error) : null);
+        const current = data?.current;
+        return h(InlineField, { kind: "menu", label: "预设", controlLabel: "本局预设", value: current?.id || "", disabled: busy || !data, error, onCommit: change,
+            help: help("预设", "为本局选择一套酒馆预设，应用其中的提示词和正则。"),
+            placeholder: data ? undefined : "正在读取…",
+            options: [{ value: "", label: "不使用酒馆预设" },
+                ...(current?.id && !data.presets.some(p => p.path === current.id) ? [{ value: current.id, label: current.name + "（源文件已移除）" }] : []),
+                ...(data?.presets || []).filter(p => p.valid && p.recognized).map(p => ({ value: p.path, label: p.title }))] });
     }
 
-    function TavernConversationPluginSettings(props) {
-        const h = React.createElement;
-        const [data, setData] = React.useState(null);
-        const [busy, setBusy] = React.useState(false);
-        const [error, setError] = React.useState("");
-        const load = React.useCallback(async function () {
-                try { setData((await rpc("listGamePlugins", {}, props.sessionId)).plugins); setError(""); }
-                catch (err) { setError(String(err.message || err)); }
-            }, [props.sessionId]);
-        React.useEffect(function () { void load(); }, [load]);
-        async function change(payload) {
-            setBusy(true); setError("");
-            try { setData((await trackTavernSettingsWrite(props.sessionId, rpc("setGamePlugin", payload, props.sessionId))).plugins); }
-            catch (err) { setError(String(err.message || err)); }
-            finally { setBusy(false); }
+    // ---------- 后台配置 (模型 · 功能 · 前台工具 · the stage row's leftovers): one read, one writer ----------
+    // `preview` is shown at once and put back if the write fails (a switch that flips back); the write's result is merged.
+    // One read of a settings record, read again when a Tavern module (the stage, a plugin) turns on or off so its rows come
+    // and go; a write holds those re-reads until it settles, then reconciles with one more read.
+    const settingsEvents = ["dsh-tavern-mods-changed", "dsh-tavern-settings-changed"];
+    function useSessionSettings(sessionId, { readMethod, writeMethod, signalId, signalKinds }) {
+        const [data, setData] = React.useState(null), [error, setError] = React.useState(""), [busy, setBusy] = React.useState(false);
+        const active = React.useRef(null);
+        React.useEffect(() => {
+            const reader = createSessionRefreshController({
+                load: ({ signal }) => rpc(readMethod, { sessionId }, sessionId, { signal }),
+                loadTimeoutMs: 10000,
+                onResult: result => { setData(result); setError(""); },
+                onError: err => setError(errorText(err))
+            });
+            const state = { reader, writing: false };
+            active.current = state;
+            const refresh = () => { if (!state.writing) reader.request(); };
+            reader.start();
+            const stops = signalKinds.map(kind => tavernSessionSignals?.subscribe(signalId, kind, refresh));
+            for (const event of settingsEvents) window.addEventListener(event, refresh);
+            refresh();
+            return () => {
+                active.current = null;
+                reader.stop();
+                for (const stop of stops) stop?.();
+                for (const event of settingsEvents) window.removeEventListener(event, refresh);
+            };
+        }, [sessionId, readMethod, signalId]);
+        // `preview` is shown at once and put back if the write fails (a switch that flips back); the write's result is merged.
+        async function save(patch, preview) {
+            const state = active.current;
+            if (!state || state.writing || !data) return "";
+            const before = data;
+            if (preview) setData({ ...data, ...preview });
+            state.writing = true;
+            setBusy(true);
+            state.reader.replace();
+            try {
+                const result = await trackTavernSettingsWrite(sessionId, rpc(writeMethod, { sessionId, ...patch }, sessionId));
+                if (active.current === state) { setData(current => ({ ...current, ...result })); setError(""); }
+                invalidateView(sessionId);
+                return "";
+            } catch (err) { if (active.current === state) setData(before); return "保存失败：" + errorText(err); }
+            finally {
+                if (active.current === state) { state.writing = false; setBusy(false); state.reader.request(); }
+            }
         }
-        const pluginSettings = data && data.settings || [];
-        const settingsBlock = pluginSettings.map(entry => h("section", { key: entry.plugin, className: "dsh-local-section dsh-tavern-plugin-settings", "aria-label": entry.title },
-            h("h3", null, entry.title),
-            entry.fields.map(field => h(TavernPluginSettingField, { key: field.key, field: field, value: entry.values[field.key], busy: busy,
-                onChange: value => change({ setting: { plugin: entry.plugin, key: field.key, value: value } }) }))));
-        if (!pluginSettings.length) return null;
-        return h(React.Fragment, null, settingsBlock, error ? h("p", { role: "alert" }, "保存失败：" + error) : null);
+        const load = () => { const state = active.current; if (state && !state.writing) state.reader.request(); };
+        return { data, error, busy, load, save };
+    }
+    const useSessionConfig = sessionId => useSessionSettings(sessionId, { readMethod: "getConversationBackgroundConfig", writeMethod: "setConversationBackgroundConfig",
+        signalId: "plugin:dsh-tavern-stage", signalKinds: ["plugin-lifecycle", "stage-settings"] });
+    function useSectionWriter(config) {
+        const [problem, setProblem] = React.useState("");
+        return [problem, async (patch, preview) => { setProblem(""); const failed = await config.save(patch, preview); setProblem(failed); return !failed; }];
     }
 
-    // One option a plugin added to this game's settings (tavern.gameSettings), drawn like Tavern's own.
-    function TavernPluginSettingField(props) {
-        const h = React.createElement;
-        const field = props.field;
-        // the shared switch / inline field; a plugin's description is the 「?」.
-        const help = field.description && typeof HelpTip === "function" ? h(HelpTip, { label: field.label + "说明" }, field.description) : null;
-        if (field.type === "boolean") return h(InlineRow, { label: field.label, help },
-            h(Switch, { label: field.label, checked: props.value === true, disabled: props.busy, onChange: value => props.onChange(value) }));
-        if (field.type === "select") return h(InlineField, { kind: "menu", label: field.label, help, value: props.value, disabled: props.busy,
-                options: field.options.map(option => ({ value: option.value, label: option.label })), onCommit: value => props.onChange(value) });
+    // One model row: name (?) …… model ⌄ · effort ⌄. The provider is the menu's group heading; the effort the menu offers
+    // for the chosen model, 推荐 beside High. `scoring` (a probability interface) has no effort.
+    function SessionModelRow({ sessionId, label, helpText, controlLabel, effortLabel, selection, catalog, fallback, disabled, scoring, onModel, onEffort, onProblem }) {
+        const key = selection ? JSON.stringify({ provider: selection.provider, model: selection.model }) : "";
+        const [reasoning, setReasoning] = React.useState({ key: "", efforts: [] });
+        React.useEffect(() => {
+            let active = true;
+            if (key && !scoring) rpc("getBackgroundModelReasoning", JSON.parse(key), sessionId).then(result => {
+                if (active) { setReasoning({ key, efforts: result.reasoning?.efforts || [] }); onProblem(""); }
+            }, err => { if (active) { setReasoning({ key, efforts: [] }); onProblem("读取推理强度失败：" + errorText(err)); } });
+            return () => { active = false; };
+        }, [key]);
+        const efforts = reasoning.key === key ? reasoning.efforts : [];
+        const known = !selection || catalog.some(group => group.provider === selection.provider && group.models.some(model => model.id === selection.model));
+        const models = [{ value: "", label: fallback },
+            ...(!known ? [{ value: key, label: backgroundModelLabel(selection, catalog) + "（当前不可用）" }] : []),
+            ...catalog.flatMap(group => group.models.map(model => ({ value: JSON.stringify({ provider: group.provider, model: model.id }), label: model.name || model.id, group: group.providerName || group.provider })))];
+        const effort = selection?.reasoningEffort || "";
+        return h(InlineRow, { label, help: helpText ? help(label, helpText) : null, className: "dsh-session-model" },
+            h("span", { className: "dsh-session-model-picks" },
+                h(InlineField, { kind: "menu", label: controlLabel, hideLabel: true, value: key, disabled, options: models, onCommit: value => onModel(value ? JSON.parse(value) : null) }),
+                scoring ? null : h(InlineField, { kind: "menu", label: effortLabel, hideLabel: true, value: effort, disabled: disabled || !key || !efforts.length,
+                    options: [{ value: "", label: key ? "模型默认" : fallback },
+                        ...(effort && !efforts.some(item => item.id === effort) ? [{ value: effort, label: effort }] : []),
+                        ...efforts.map(item => ({ value: item.id, label: item.name || item.id, note: item.id === "high" ? "推荐" : undefined }))],
+                    onCommit: onEffort })));
+    }
+    function SessionModelSection({ sessionId, config }) {
+        const [problem, write] = useSectionWriter(config);
+        const [reasonProblem, setReasonProblem] = React.useState("");
+        const data = config.data, disabled = !data || config.busy, catalog = data?.modelCatalog || [];
+        const selection = data?.backgroundModel || null;
+        // the core's own slots stay per game here; stage and mod slots live in 舞台配置 › 舞台模型.
+        const slots = (data?.modModelSlots || []).filter(slot => slot.owner === "core");
+        const slotCatalog = slot => slot.kind === "scoring" ? (data.scoringCatalog || []).map(row => ({ provider: row.provider, models: [{ id: row.model }] })) : catalog;
+        return h(packUi.StageSection, { title: "模型", foldKey: FOLD("模型"),
+                help: "只影响这一局，下一次后台任务生效；正在运行的任务不变。建议 High 推理强度，Max 容易过度思考、增加等待。切换会让缓存失效，下一次请求更慢、费用更高。" },
+            !data && !config.error ? h(PanelLoading, { shape: "fields", count: 1 }) : null,
+            data ? rows(
+                h(SessionModelRow, { sessionId, label: "后台模型", helpText: "结算、候选、精修、导演等幕后任务用的模型。",
+                    controlLabel: "本局后台模型", effortLabel: "本局后台推理强度", selection, catalog, fallback: "跟随前台", disabled, onProblem: setReasonProblem,
+                    onModel: value => write({ backgroundModel: value }),
+                    onEffort: value => { const next = { ...selection }; if (value) next.reasoningEffort = value; else delete next.reasoningEffort; return write({ backgroundModel: next }); } }),
+                ...slots.map(slot => {
+                    const current = data.modModels?.[slot.modId]?.[slot.id] || null;
+                    const put = value => write({ modModelSelection: { modId: slot.modId, slotId: slot.id, selection: value } });
+                    return h(SessionModelRow, { key: slot.modId + "/" + slot.id, sessionId, label: slot.label, helpText: slot.purpose, controlLabel: slot.label, effortLabel: slot.label + "推理强度",
+                        selection: current, catalog: slotCatalog(slot), fallback: "跟随全局", scoring: slot.kind === "scoring", disabled, onProblem: setReasonProblem,
+                        onModel: put, onEffort: value => put({ ...current, reasoningEffort: value || null }) });
+                })) : null,
+            problemLine(config.error ? "读取失败：" + config.error : "", config.error ? config.load : null),
+            problemLine(problem || reasonProblem));
+    }
+
+    // ---------- 舞台: one row into 舞台设置 ----------
+    // Opening 舞台设置 holds the stage client until this page closes, including first-time setup for ordinary cards.
+    function waitStageClient() {
+        if (galStageAvailable.get()) return Promise.resolve();
+        return new Promise((resolve, reject) => {
+            const off = galStageAvailable.subscribe(() => { if (galStageAvailable.get()) { clearTimeout(timer); off(); resolve(); } });
+            const timer = setTimeout(() => { off(); reject(new Error("舞台暂时无法加载，请稍后重试")); }, 15000);
+        });
+    }
+    function SessionStageSection({ sessionId, config, stage }) {
+        const [opening, setOpening] = React.useState(false), [problem, setProblem] = React.useState("");
+        const [writeProblem, write] = useSectionWriter(config);
+        const hold = React.useRef(null);
+        React.useEffect(() => () => { if (hold.current) hold.current(); }, []);
+        async function open() {
+            if (opening) return;
+            setOpening(true); setProblem("");
+            try {
+                if (!hold.current) hold.current = galStageHold();
+                await waitStageClient();
+                await openTab("dsh-tavern:bubbles", sessionId);
+            } catch (err) { setProblem(errorText(err)); }
+            finally { setOpening(false); }
+        }
+        const word = stage.stage ? "舞台模式已开启" : stage.dialogue ? "仅对话气泡" : "未开启";
+        // A model this game chose for a stage slot before the stage kept them: still used, so it is named here, with the way back.
+        const data = config.data;
+        const chosen = (data?.modModelSlots || []).filter(slot => slot.owner !== "core" && data.modModels?.[slot.modId]?.[slot.id]);
+        async function followGlobal() {
+            for (const slot of chosen) if (!await write({ modModelSelection: { modId: slot.modId, slotId: slot.id, selection: null } })) return;
+        }
+        return h(packUi.StageSection, { title: "舞台", foldKey: FOLD("舞台"),
+                help: "可在「舞台设置」为这张卡启用舞台，或调整对话气泡、配音等功能。舞台模型在侧栏首页的「舞台装置 → 舞台配置」里。" },
+            rows(h(packUi.SwitchRow, { label: "舞台设置", icon: "stage", onOpen: () => void open(),
+                tag: h("span", { className: "dsh-session-stage-state" }, opening ? h(Spinner, { label: "正在打开舞台设置" }) : word),
+                status: h("button", { type: "button", className: "ap-kind-jump", "aria-label": "打开舞台设置", title: "打开舞台设置", onClick: () => void open() }, h(packUi.Glyph, { name: "chevRight" })) })),
+            chosen.length ? h(packUi.HintLine, { text: "这一局另选了" + chosen.map(slot => slot.label).join("、"), action: "改为跟随全局", onAction: () => void followGlobal() }) : null,
+            problemLine(problem || writeProblem));
+    }
+
+    // How many choices a round offers (a script card brings its own).
+    function SessionCandidateCount({ sessionId, config }) {
+        const mode = useTavernSessionMode(sessionId);
+        const [problem, write] = useSectionWriter(config);
+        if (mode === "script") return null;
+        const data = config.data;
+        return h(InlineField, { kind: "menu", label: "候选项数量", value: data?.candidateTabs === true ? "expanded" : "compact", disabled: !data || config.busy, error: problem,
+            help: help("候选项数量", "少量候选提供 4 条行动和 1 条场景切换。大量候选按角色和全局事件分组，并提供精选。"),
+            placeholder: data ? undefined : "正在读取…",
+            options: [{ value: "compact", label: "少量候选" }, { value: "expanded", label: "大量候选" }],
+            onCommit: value => write({ candidateTabs: value === "expanded" }, { candidateTabs: value === "expanded" }) });
+    }
+
+    // ---------- 功能 ----------
+    const FEATURES = [
+        ["posture", "人物姿势", "每轮总结人物的位置、动作和姿势，供前台保持一致。"],
+        ["styleReference", "文风联想", "仅自由模式。前台写正文前，结合本轮场景联想一段笔调参考；与写作共享上下文，不另开后台任务。"],
+        ["foregroundCandidates", "前台生成候选项", "仅自由模式。让主模型在正文结尾后直接生成本轮候选项，写完即显示，不等待后台任务。"],
+        ["preset", "后台任务附加预设", "开启后，全部后台 Agent 任务（结算、候选、精修、导演等）生成时也附加本局的三段预设提示词，不执行预设正则。"]
+    ];
+    function SessionFeatureSection({ config }) {
+        const [problem, write] = useSectionWriter(config);
+        const data = config.data, tasks = data?.backgroundTasks || {}, disabled = !data || config.busy;
+        const task = (key, checked) => write({ backgroundTasks: { [key]: checked } }, { backgroundTasks: { ...tasks, [key]: checked } });
+        return h(packUi.StageSection, { title: "功能", foldKey: FOLD("功能") },
+            !data && !config.error ? h(PanelLoading, { shape: "fields", count: 5 }) : null,
+            data ? rows(
+                ...FEATURES.map(([key, label, text]) => h(packUi.SwitchRow, { key, label, help: text, disabled,
+                    checked: tasks[key] === true, onChange: checked => void task(key, checked) })),
+                h(packUi.SwitchRow, { key: "webSearch", label: "联网搜索", help: "前台和后台可按需搜索。", disabled, checked: data.webSearchEnabled === true,
+                    onChange: checked => void write({ webSearchEnabled: checked }, { webSearchEnabled: checked }) })) : null,
+            problemLine(problem));
+    }
+
+    // ---------- the options plugins add to this game (tavern.gameSettings), one section per plugin ----------
+    // Plugins themselves are switched on and off globally, on the 酒馆插件 page.
+    function SessionPluginSettings({ sessionId }) {
+        const settings = useSessionSettings(sessionId, { readMethod: "listGamePlugins", writeMethod: "setGamePlugin", signalId: sessionId, signalKinds: ["plugin-settings"] });
+        const [problem, write] = useSectionWriter(settings);
+        const entries = settings.data?.plugins?.settings || [];
+        return h(React.Fragment, null,
+            entries.map(entry => h(packUi.StageSection, { key: entry.plugin, title: entry.title, foldKey: FOLD("插件 " + entry.plugin), className: "dsh-tavern-plugin-settings" },
+                rows(...entry.fields.map(field => h(SessionPluginField, { key: field.key, field, value: entry.values[field.key], busy: settings.busy,
+                    onChange: value => void write({ setting: { plugin: entry.plugin, key: field.key, value } }) }))))),
+            problemLine(problem || (settings.error ? "读取插件配置失败：" + settings.error : ""), settings.error ? settings.load : null));
+    }
+    // One option a plugin added, drawn like Tavern's own; a plugin's description is the 「?」.
+    function SessionPluginField({ field, value, busy, onChange }) {
+        if (field.type === "boolean") return h(packUi.SwitchRow, { label: field.label, help: field.description || undefined, checked: value === true, disabled: busy, onChange });
+        const tip = field.description ? help(field.label, field.description) : null;
+        if (field.type === "select") return h(InlineField, { kind: "menu", label: field.label, help: tip, value, disabled: busy,
+            options: field.options.map(option => ({ value: option.value, label: option.label })), onCommit: onChange });
         // Numbers and text are saved when the field loses focus or on Enter; an empty number keeps the saved value.
         const number = field.type === "number";
-        return h(InlineField, { kind: number ? "number" : "text", label: field.label, help, value: props.value ?? "", disabled: props.busy,
-                min: field.min, max: field.max, step: field.step, maxLength: field.maxLength, validate: number ? value => value === null ? "请输入数字" : "" : undefined,
-                onCommit: value => { if (value !== props.value) props.onChange(value); } });
+        return h(InlineField, { kind: number ? "number" : "text", label: field.label, help: tip, value: value ?? "", disabled: busy,
+            min: field.min, max: field.max, step: field.step, maxLength: field.maxLength, validate: number ? next => next === null ? "请输入数字" : "" : undefined,
+            onCommit: next => { if (next !== value) onChange(next); } });
     }
 
-    // Per-game foreground tools: one switch per tool, stored as the disabled
-    // names so a newly added tool starts enabled. Background settlement keeps
-    // its own tools and is not part of this list.
-    function TavernConversationTools(props) {
-        const h = React.createElement;
-        const [catalog, setCatalog] = React.useState([]);
-        const [disabled, setDisabled] = React.useState([]);
-        const [loaded, setLoaded] = React.useState(false);
-        const [busy, setBusy] = React.useState(false);
-        const [error, setError] = React.useState("");
-        const [notice, setNotice] = React.useState("");
-        const mounted = React.useRef(true);
-        async function load() {
-            try {
-                const result = await rpc("getConversationBackgroundConfig", { sessionId: props.sessionId }, props.sessionId);
-                if (!mounted.current) return;
-                setCatalog(Array.isArray(result.foregroundTools) ? result.foregroundTools : []);
-                setDisabled(Array.isArray(result.disabledForegroundTools) ? result.disabledForegroundTools : []);
-                setLoaded(true); setError("");
-            } catch (err) { if (mounted.current) setError(String(err.message || err)); }
-        }
-        React.useEffect(() => {
-            mounted.current = true;
-            void load();
-            return () => { mounted.current = false; };
-        }, [props.sessionId]);
+    // ---------- 前台工具: one switch per tool, stored as the disabled names so a newly added tool starts enabled ----------
+    // Background settlement keeps its own tools and is not part of this list.
+    function SessionToolsSection({ config }) {
+        const [problem, write] = useSectionWriter(config);
+        const data = config.data, catalog = data?.foregroundTools || [], disabled = data?.disabledForegroundTools || [];
+        const off = !data || config.busy, names = catalog.map(tool => tool.name);
         async function save(next) {
-            if (busy || !loaded) return;
-            const previous = disabled;
-            setDisabled(next); setBusy(true); setError(""); setNotice("");
+            if (await write({ disabledForegroundTools: next }, { disabledForegroundTools: next })) notifyTavernDataChanged(["sessions"], "play-controls");
+        }
+        const toggle = (name, enabled) => void save(enabled ? disabled.filter(value => value !== name) : [...new Set([...disabled, name])]);
+        const on = names.filter(name => !disabled.includes(name)).length;
+        const menu = h(packUi.Popover, { label: "前台工具", trigger: ({ open, toggle: flip }) => h(packUi.IconButton, { icon: "more", label: "前台工具操作", "aria-haspopup": "menu", "aria-expanded": open, onClick: flip }),
+            content: close => [
+                h(packUi.MenuItem, { key: "on", disabled: off || disabled.length === 0, onClick: () => { close(); void save([]); } }, "全部开启"),
+                h(packUi.MenuItem, { key: "off", disabled: off || on === 0, onClick: () => { close(); void save(names); } }, "全部关闭"),
+                h(packUi.MenuItem, { key: "reload", disabled: config.busy, onClick: () => { close(); void config.load(); } }, "刷新")] });
+        return h(packUi.StageSection, { title: "前台工具", meta: data ? on + " / " + names.length : undefined, foldKey: FOLD("前台工具"), defaultFolded: true, action: menu,
+                help: "逐项决定正文能用哪些工具，关闭后下一轮生效；后台结算的工具不在这里。标「插件」的来自宿主工具目录，本局生成一次后会按实际请求校正。" },
+            !data && !config.error ? h(PanelLoading, { shape: "fields", count: 4 }) : null,
+            data && !catalog.length ? h(EmptyState, { compact: true, noun: "前台工具" }) : null,
+            catalog.length ? rows(...catalog.map(tool => h(packUi.SwitchRow, { key: tool.name, label: tool.label, help: tool.description || undefined, disabled: off,
+                status: tool.source === "plugin" ? h("span", { className: "ap-section-meta dsh-session-tool-source" }, "插件") : null,
+                checked: !disabled.includes(tool.name), onChange: checked => toggle(tool.name, checked) }))) : null,
+            problemLine(problem));
+    }
+
+    // ---------- 写作 Skill ----------
+    function SessionWritingSkills({ sessionId }) {
+        const [skills, setSkills] = React.useState(null), [busy, setBusy] = React.useState(false), [error, setError] = React.useState("");
+        const load = React.useCallback(async () => {
+            try { setSkills((await rpc("getConversationWritingSkills", { sessionId }, sessionId)).skills); setError(""); }
+            catch (err) { setError("读取失败：" + errorText(err)); }
+        }, [sessionId]);
+        React.useEffect(() => { void load(); }, [load]);
+        async function change(name, enabled) {
+            if (busy) return;
+            setBusy(true); setError("");
             try {
-                const result = await trackTavernSettingsWrite(props.sessionId, rpc("setConversationBackgroundConfig", { sessionId: props.sessionId, disabledForegroundTools: next }, props.sessionId));
-                setDisabled(Array.isArray(result.disabledForegroundTools) ? result.disabledForegroundTools : next);
-                setNotice("已保存，下一轮生效");
-                invalidateView(props.sessionId);
-                notifyTavernDataChanged(["sessions"], "play-controls");
-            } catch (err) { setDisabled(previous); setError(String(err.message || err)); }
+                await trackTavernSettingsWrite(sessionId, rpc("setConversationWritingSkill", { sessionId, name, enabled }, sessionId));
+                setSkills(current => current.map(skill => skill.name === name ? { ...skill, enabled } : skill));
+            } catch (err) { setError("保存失败：" + errorText(err)); }
             finally { setBusy(false); }
         }
-        function toggle(name, enabled) {
-            void save(enabled ? disabled.filter(value => value !== name) : [...new Set([...disabled, name])]);
-        }
-        const allNames = catalog.map(tool => tool.name);
-        return h("section", { className: "dsh-local-section", "aria-label": "前台工具" },
-            h("h3", null, "前台工具"),
-            h("p", { className: "dsh-local-help" }, "逐项控制本轮正文能看到的工具；关闭后下一轮生效。后台结算的工具不在此列表。"),
-            h("p", { className: "dsh-local-help" }, "插件/扩展工具来自宿主工具目录，本局生成一次后会按实际请求校正；列表里的「插件/扩展」就是这类工具。"),
-            h("div", { style: { display: "flex", gap: "8px", margin: "4px 0 8px" } },
-                h("button", { type: "button", className: "dsh-tavern-btn", disabled: !loaded || busy || disabled.length === 0, onClick: () => void save([]) }, "全部开启"),
-                h("button", { type: "button", className: "dsh-tavern-btn", disabled: !loaded || busy || disabled.length === allNames.length, onClick: () => void save(allNames) }, "全部关闭"),
-                h("button", { type: "button", className: "dsh-tavern-btn", disabled: busy, onClick: () => void load() }, "刷新")),
-            catalog.map(tool => h("label", { key: tool.name, className: "dsh-tavern-background-task" },
-                h("span", null, (tool.source === "plugin" ? "插件/扩展 · " : "") + tool.label, h("span", { className: "dsh-tavern-settings-desc" }, tool.description)),
-                h("input", { type: "checkbox", role: "switch", "aria-label": tool.label, checked: !disabled.includes(tool.name), disabled: !loaded || busy, onChange: event => toggle(tool.name, event.target.checked) }))),
-            error ? h("p", { role: "alert" }, "保存失败：" + error) : h("span", { role: "status", className: "dsh-local-feedback" }, busy ? "保存中…" : (loaded ? notice : "正在读取…")));
+        const meta = skills && skills.length ? skills.filter(skill => skill.enabled).length + " / " + skills.length : undefined;
+        return h(packUi.StageSection, { title: "写作 Skill", meta, foldKey: FOLD("写作 Skill"), defaultFolded: true,
+                help: "开局沿用全局默认，可以逐项调整这一局，前台按场景选用。开关从后续请求生效，已发出的请求不受影响；关闭后历史内容保留。" },
+            !skills && !error ? h(PanelLoading, { shape: "fields", count: 3 }) : null,
+            skills && !skills.length ? h(EmptyState, { compact: true, noun: "写作 Skill" }) : null,
+            skills && skills.length ? rows(...skills.map(skill => h(packUi.SwitchRow, { key: skill.name, label: skill.name, help: skill.description || undefined,
+                checked: skill.enabled, disabled: busy, onChange: enabled => void change(skill.name, enabled) }))) : null,
+            problemLine(error, error.startsWith("读取") ? load : null));
+    }
+
+    // The sections that share the background config: keyed by the page so 恢复默认模板 reads them again.
+    function SessionConfigSections({ sessionId }) {
+        const config = useSessionConfig(sessionId);
+        const stage = useLiveTavernView(sessionId, undefined, [["stage"]])?.view?.stage;
+        return h(React.Fragment, null,
+            h(packUi.StageSection, { title: "玩法", foldKey: FOLD("玩法") },
+                rows(
+                    h(SessionPlayerName, { sessionId }),
+                    h(SessionPreset, { sessionId }),
+                    h(UserPreferenceProfileTab, { scope: { sessionId }, conversationOnly: true, Field: InlineField,
+                        track: promise => trackTavernSettingsWrite(sessionId, promise) }),
+                    h(SessionCandidateCount, { sessionId, config }))),
+            stage ? h(SessionStageSection, { sessionId, config, stage }) : null,
+            h(SessionModelSection, { sessionId, config }),
+            h(SessionFeatureSection, { config }),
+            h(SessionPluginSettings, { sessionId }),
+            h(SessionToolsSection, { config }),
+            h(SessionWritingSkills, { sessionId }));
     }
 
     function TavernConversationSettingsTab(props) {
-        const h = React.createElement;
         const owner = props.sessions.subagentAddress(props.sessionId)?.parentSessionId || props.sessionId;
         const mode = useTavernSessionMode(owner);
         const playable = isPlayMode(mode);
+        const saveState = useSaveState(owner);
         const [templateAction, setTemplateAction] = React.useState("");
         const [templateNotice, setTemplateNotice] = React.useState("");
         const [templateError, setTemplateError] = React.useState("");
@@ -216,29 +409,22 @@ function createConversationSettingsModule({
             setTemplateNotice("");
             setTemplateError("");
         }, [owner]);
+        const warningsOf = result => Array.isArray(result?.warnings) && result.warnings.length ? "（" + result.warnings.join("；") + "）" : "";
         async function saveAsDefaultTemplate() {
             if (templateAction || !playable) return;
-            setTemplateAction("save");
-            setTemplateNotice("");
-            setTemplateError("");
+            setTemplateAction("save"); setTemplateNotice(""); setTemplateError("");
             try {
                 await flushTavernSettingsWrites(owner);
                 const result = await rpc("saveConversationSettingsAsDefaultTemplate", { sessionId: owner }, owner);
-                const warnings = Array.isArray(result?.warnings) && result.warnings.length ? "（" + result.warnings.join("；") + "）" : "";
-                setTemplateNotice("已保存目前设置为默认模板" + warnings);
+                setTemplateNotice("已保存目前设置为默认模板" + warningsOf(result));
                 if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent("dsh-tavern-settings-changed"));
                 notifyTavernDataChanged(["presets", "user-profile", "sessions"], "conversation-settings");
-            } catch (err) {
-                setTemplateError(String(err?.message || err));
-            } finally {
-                setTemplateAction("");
-            }
+            } catch (err) { setTemplateError(errorText(err)); }
+            finally { setTemplateAction(""); }
         }
         async function restoreDefaultTemplate() {
             if (templateAction || !playable) return;
-            setTemplateAction("restore");
-            setTemplateNotice("");
-            setTemplateError("");
+            setTemplateAction("restore"); setTemplateNotice(""); setTemplateError("");
             try {
                 await flushTavernSettingsWrites(owner);
                 const result = await rpc("restoreConversationSettingsFromDefaultTemplate", { sessionId: owner }, owner);
@@ -246,119 +432,39 @@ function createConversationSettingsModule({
                 setReloadKey(value => value + 1);
                 invalidateView(owner);
                 notifyTavernDataChanged(["presets", "user-profile", "sessions"], "conversation-settings");
-                const warnings = Array.isArray(result?.warnings) && result.warnings.length ? "（" + result.warnings.join("；") + "）" : "";
-                setTemplateNotice("已恢复默认模板" + warnings);
-            } catch (err) {
-                setTemplateError(String(err?.message || err));
-            } finally {
-                setTemplateAction("");
-            }
+                setTemplateNotice("已恢复默认模板" + warningsOf(result));
+            } catch (err) { setTemplateError(errorText(err)); }
+            finally { setTemplateAction(""); }
         }
+        const page = children => h("div", { className: "fork-tab-scroll" }, h("div", { className: "ap-ui ap-stage dsh-session-settings", role: "region", "aria-label": "本局设置" }, children));
+        if (!playable) return page(h(EmptyState, { text: "请选择一个游玩对话" }));
         const scopeKey = owner + (reloadKey ? ":r" + reloadKey : "");
-        return h("aside", { className: "dsh-tavern-status dsh-local-settings", "aria-label": "本局设置" },
-            h("div", { className: "dsh-tavern-status-head" },
-                h("strong", null, "本局设置"),
-                playable ? h("div", { className: "dsh-tavern-library-head-actions dsh-local-settings-head-actions" },
-                    h("button", { type: "button", className: "dsh-tavern-btn", "aria-label": "保存目前设置为默认模板", disabled: Boolean(templateAction), onClick: () => void saveAsDefaultTemplate() }, templateAction === "save" ? "保存中…" : "保存目前设置为默认模板"),
-                    h("button", { type: "button", className: "dsh-tavern-btn", "aria-label": "恢复默认模板", disabled: Boolean(templateAction), onClick: () => void restoreDefaultTemplate() }, templateAction === "restore" ? "恢复中…" : "恢复默认模板")) : null),
-            h("div", { className: "dsh-tavern-status-body" }, playable ? h(React.Fragment, null,
-                templateError ? h("p", { role: "alert", className: "dsh-local-template-status is-error" }, "操作失败：" + templateError)
-                    : templateNotice ? h("p", { role: "status", className: "dsh-local-template-status" }, templateNotice) : null,
-                h("p", { className: "dsh-local-intro" }, "仅影响本局，修改后自动保存，已有对话和变量会保留。"),
-                h("p", { className: "dsh-local-warning dsh-local-intro" }, "切换预设、长期偏好、模型、结算或联网搜索后，下一次请求要重建缓存，耗时和费用会增加。"),
-                h("section", { className: "dsh-local-section" }, h("h3", null, "游玩"),
-                    h(TavernLocalPlayerName, { key: scopeKey + ":name", sessionId: owner }),
-                    h(TavernConversationPreset, { key: scopeKey + ":preset", sessionId: owner }),
-                    h(UserPreferenceProfileTab, { key: scopeKey + ":profile", scope: { sessionId: owner }, conversationOnly: true })),
-                h(TavernConversationBackgroundModel, { key: scopeKey, sessionId: owner }),
-                h(TavernBodyGenerationSettings, { key: scopeKey + ":body-generation", sessionId: owner }),
-                h(TavernConversationPluginSettings, { key: scopeKey + ":plugin-settings", sessionId: owner }),
-                h("details", { className: "dsh-local-advanced" }, h("summary", null, "高级"),
-                    h(TavernConversationTools, { key: scopeKey + ":tools", sessionId: owner }),
-                    h(TavernConversationWritingSkills, { key: scopeKey + ":skills", sessionId: owner }))) : h("p", null, "请选择一个游玩对话。")));
+        const template = h(packUi.Popover, { label: "模板", className: "dsh-session-template",
+            trigger: ({ open, toggle }) => h(packUi.Button, { className: "dsh-session-template-trigger", "aria-haspopup": "menu", "aria-expanded": open, disabled: Boolean(templateAction), onClick: toggle },
+                templateAction === "save" ? "保存中…" : templateAction === "restore" ? "恢复中…" : "模板", h(packUi.Glyph, { name: "chevDown" })),
+            content: close => [
+                h(packUi.MenuItem, { key: "save", onClick: () => { close(); void saveAsDefaultTemplate(); } }, "保存目前设置为默认模板"),
+                h(packUi.MenuItem, { key: "restore", onClick: () => { close(); void restoreDefaultTemplate(); } }, "恢复默认模板")] });
+        return page(h(React.Fragment, null,
+            h("div", { className: "dsh-session-bar" },
+                h("span", { className: "dsh-session-scope" }, "只影响这一局，改动自动保存",
+                    help("本局设置", "已有对话和变量都会保留。切换预设、长期偏好、模型、结算或联网搜索后，下一次请求要重建缓存，耗时和费用会增加。")),
+                h("span", { className: "ap-save-state", role: "status", "data-state": saveState }, saveState === "saving" ? "正在保存…" : saveState === "saved" ? "已保存" : ""),
+                template),
+            templateError ? problemLine("操作失败：" + templateError)
+                : templateNotice ? h("p", { role: "status", className: "ap-notice dsh-session-notice" }, templateNotice) : null,
+            h(SessionConfigSections, { key: scopeKey, sessionId: owner })));
     }
 
     function TavernConversationSettingsAction(props) {
         const owner = props.sessions.subagentAddress(props.sessionId)?.parentSessionId || props.sessionId;
         const mode = useTavernSessionMode(owner);
         if (!isPlayMode(mode)) return null;
-        return React.createElement("button", { type: "button", className: "dsh-tavern-btn dsh-tavern-header-settings", "aria-label": "酒馆状态", title: "查看本局酒馆状态", onClick: () => props.open(owner) },
-            React.createElement("svg", { width: 18, height: 18, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 1.7, strokeLinecap: "round", "aria-hidden": "true" },
-                React.createElement("path", { d: "M4 7h3m4 0h9M4 17h9m4 0h3" }),
-                React.createElement("circle", { cx: 9, cy: 7, r: 2 }), React.createElement("circle", { cx: 15, cy: 17, r: 2 })),
-            React.createElement("span", { className: "dsh-tavern-header-action-label" }, "酒馆状态"));
-    }
-
-    function TavernConversationBackgroundModel(props) {
-        const h = React.createElement;
-        const [catalog, setCatalog] = React.useState([]);
-        const [selection, setSelection] = React.useState(null);
-        const [tasks, setTasks] = React.useState({ variables: true, posture: true });
-        const [features, setFeatures] = React.useState({ webSearchEnabled: false, mvuCard: false });
-        const [loaded, setLoaded] = React.useState(false);
-        const [busy, setBusy] = React.useState(false);
-        const [error, setError] = React.useState("");
-        const [notice, setNotice] = React.useState("");
-        const [reasoning, setReasoning] = React.useState({ key: "", value: null, error: "" });
-        const [slotState, setSlotState] = React.useState({slots:[],values:{},scoringCatalog:[]});
-        const key = selection ? JSON.stringify({ provider: selection.provider, model: selection.model }) : "";
-        async function load() {
-            setError("");
-            try {
-                const result = await rpc("getConversationBackgroundConfig", { sessionId: props.sessionId }, props.sessionId);
-                setSlotState({slots:result.modModelSlots || [],values:result.modModels || {},scoringCatalog:result.scoringCatalog || []});
-                setCatalog(result.modelCatalog || []); setSelection(result.backgroundModel);
-                setTasks(result.backgroundTasks); setFeatures({ webSearchEnabled: result.webSearchEnabled === true, mvuCard: result.mvuCard === true }); setLoaded(true);
-            } catch (err) { setError(String(err.message || err)); }
-        }
-        React.useEffect(() => { void load(); }, []);
-        React.useEffect(() => {
-            let active = true;
-            if (key) rpc("getBackgroundModelReasoning", JSON.parse(key), props.sessionId).then(result => {
-                if (active) setReasoning({ key, value: result.reasoning, error: "" });
-            }, err => { if (active) setReasoning({ key, value: null, error: String(err.message || err) }); });
-            return () => { active = false; };
-        }, [key]);
-        async function save(patch) {
-            if (busy || !loaded) return;
-            setBusy(true); setError(""); setNotice("");
-            try {
-                const result = await trackTavernSettingsWrite(props.sessionId, rpc("setConversationBackgroundConfig", Object.assign({ sessionId: props.sessionId, backgroundModel: selection }, patch), props.sessionId));
-                setSlotState(current=>({...current,values:result.modModels || {}}));
-                setSelection(result.backgroundModel); setTasks(result.backgroundTasks); setFeatures({ ...features, webSearchEnabled: result.webSearchEnabled });
-                setNotice("已保存");
-                invalidateView(props.sessionId);
-            } catch (err) { setError(String(err.message || err)); }
-            finally { setBusy(false); }
-        }
-        const efforts = reasoning.key === key ? reasoning.value?.efforts || [] : [];
-        const modelOptions = () => catalog.flatMap(group => group.models.map(model => ({ value: JSON.stringify({ provider: group.provider, model: model.id }), label: (group.providerName || group.provider) + " · " + (model.name || model.id) })));
-        const known = !selection || catalog.some(group => group.provider === selection.provider && group.models.some(model => model.id === selection.model));
-        const toggle = (name, title, description, checked, patch, disabled = false) => h("label", { key: name, className: "dsh-tavern-background-task" },
-            h("span", null, title, h("span", { className: "dsh-tavern-settings-desc" }, description)),
-            h(Switch, { label: title, checked, disabled: !loaded || busy || disabled, onChange: value => save(patch(value)) }));
-        return h("div", { className: "dsh-local-runtime" },
-            h(TavernModelSlotGroups,{slots:slotState.slots,values:slotState.values,catalog,scoringCatalog:slotState.scoringCatalog,local:true,disabled:!loaded || busy,onChange:modModelSelection=>save({modModelSelection})}),
-            h("section", { className: "dsh-local-section" }, h("h3", null, "后台模型"),
-                h("p", { className: "dsh-tavern-settings-desc" }, "仅影响本局，下一次后台任务生效。正在运行的任务不变，保留原后台 Agent 和历史。"),
-                h("p", { className: "dsh-tavern-settings-desc" }, "建议前台和后台使用 High 推理强度，优先保证正文输出和后台任务的质量。不推荐 Max，以免过度思考、增加等待。若更在意响应速度，可按需降低。"),
-                h("p", { className: "dsh-local-warning" }, "切换模型或推理强度会使缓存失效，首次请求会增加耗时和费用。"),
-                h(InlineField, { kind: "menu", label: "本局后台模型", value: key, disabled: !loaded || busy,
-                        onCommit: value => save({ backgroundModel: value ? JSON.parse(value) : null }),
-                        options: [{ value: "", label: "跟随前台" }, ...(!known ? [{ value: key, label: backgroundModelLabel(selection, catalog) + "（当前不可用）" }] : []), ...modelOptions()] }),
-                h(InlineField, { kind: "menu", label: "本局后台推理强度", value: selection?.reasoningEffort || "", disabled: !key || !efforts.length || busy,
-                        onCommit: value => { const next = { ...selection }; if (value) next.reasoningEffort = value; else delete next.reasoningEffort; return save({ backgroundModel: next }); },
-                        options: [{ value: "", label: key ? "模型默认" : "跟随前台" }, ...efforts.map(item => ({ value: item.id, label: item.name || item.id }))] })),
-            h("section", { className: "dsh-local-section" }, h("h3", null, "功能"),
-                toggle("posture", "人物姿势", "每轮总结人物的位置、动作和姿势，供前台保持一致。", tasks.posture, checked => ({ backgroundTasks: { posture: checked } })),
-                toggle("styleReference", "文风联想", "仅自由模式。前台写正文前，结合本轮场景联想一段笔调参考；与写作共享上下文，不另开后台任务。", tasks.styleReference === true, checked => ({ backgroundTasks: { styleReference: checked } })),
-                toggle("foregroundCandidates", "前台生成候选项", "仅自由模式。让主模型在正文结尾后直接生成本轮候选项，写完即显示，不等待后台任务。", tasks.foregroundCandidates === true, checked => ({ backgroundTasks: { foregroundCandidates: checked } })),
-                toggle("preset", "后台任务附加预设", "默认关闭。开启后，全部后台 Agent 任务（结算、候选、精修、导演等）在生成时也会附加当前对局的三段预设提示词，不执行预设正则。", tasks.preset === true, checked => ({ backgroundTasks: { preset: checked } })),
-                toggle("webSearchEnabled", "联网搜索", "前台和后台可按需搜索。", features.webSearchEnabled, checked => ({ webSearchEnabled: checked }))),
-            error || (key && reasoning.key === key && reasoning.error) ? h("p", { role: "alert", className: "dsh-tavern-prompt-error" }, error || reasoning.error) : null,
-            notice ? h("p", { role: "status" }, notice) : null,
-            !loaded && error ? h("button", { className: "dsh-tavern-btn", onClick: load }, "重试") : null,
-            h("div", { role: "status", className: "dsh-local-feedback" }, busy ? "保存中…" : ""));
+        return h("button", { type: "button", className: "dsh-tavern-btn dsh-tavern-header-settings", "aria-label": "酒馆状态", title: "查看本局酒馆状态", onClick: () => props.open(owner) },
+            h("svg", { width: 18, height: 18, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 1.7, strokeLinecap: "round", "aria-hidden": "true" },
+                h("path", { d: "M4 7h3m4 0h9M4 17h9m4 0h3" }),
+                h("circle", { cx: 9, cy: 7, r: 2 }), h("circle", { cx: 15, cy: 17, r: 2 })),
+            h("span", { className: "dsh-tavern-header-action-label" }, "酒馆状态"));
     }
 
     return { TavernConversationSettingsTab, TavernConversationSettingsAction };

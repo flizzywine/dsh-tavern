@@ -79,7 +79,7 @@ function askTavernScriptCardUpdate(request) {
                 catch (cause) { setError(String(cause?.message || cause)); }
                 finally { setBusy(false); }
             }
-            return React.createElement(TavernCardUpdateDialog, { request, name: request.current.name, busy, error, result, close, replace });
+            return React.createElement(TavernCardUpdateDialog, { request, current: request.current, incoming: request.incoming, packs: [], way: 'update', ready: true, name: request.current.name, busy, error, result, close, replace });
         }
         root.render(React.createElement(Dialog));
     });

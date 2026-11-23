@@ -5,6 +5,7 @@ import { createImportContextPreparation, needsImportContextPreparation } from '.
 import { createStoryCompactionRequest, nativelyRetainedRounds, retainRecentStoryRounds, storyVolumeMerge, storyVolumePlan, usesStoryCompaction } from '../domain/story-compaction.js'
 import { installCompactionRequestProjection } from '../domain/compaction-request.js'
 import { installPrefixBoundReasoningProjection } from '../domain/prefix-bound-reasoning.js'
+import { omitEmptyProviderContent } from '../domain/provider-message-content.js'
 import { installWorkspaceInstructionPresentation } from '../domain/workspace-instruction-presentation.js'
 import { presentModelError } from '../domain/model-error-presentation.js'
 import { markRequestHandled, requestHandledBy } from '../domain/request-lineage.js'
@@ -20,12 +21,21 @@ export const PROMPT_PROSE = Object.freeze({
 })
 
 
+export function applyCompactionModel(request, selection) {
+  if (!selection?.provider || !selection?.model) return request
+  const next = { ...request, provider: selection.provider, model: selection.model }
+  if (typeof selection.reasoningEffort === 'string' && selection.reasoningEffort) next.reasoningEffort = selection.reasoningEffort
+  else delete next.reasoningEffort
+  return next
+}
+
 export function registerModelStreamHooks({
   agentRegistry,
   pluginBodyGeneration,
   backgroundAgentRunner,
   chatForSession,
   chatHeaderForSession,
+  compactionModel,
   ctx,
   foregroundStrategies,
   fullTemplateRuntime,
@@ -72,15 +82,21 @@ export function registerModelStreamHooks({
     return isGame(sessionId)
   })
   installCompactionRequestProjection(ctx, ownsSession, async request => {
+    // 前台对话压缩优先使用全局设置的专用压缩模型；后台 Agent 保持各自任务模型。
+    const foreground = !backgroundAgentRunner.owns(request.sessionId)
+    const routed = foreground && typeof compactionModel === 'function'
+      ? applyCompactionModel(request, await compactionModel())
+      : request
     // Story/script chats summarize with the story prompt and keep the latest rounds
     // verbatim after the summary; other sessions keep DSH's prompt.
     const head = await chatHeaderForSession(str(request.sessionId), ['backgroundTasks'])
-    if (!usesStoryCompaction(head)) return { request }
+    if (!usesStoryCompaction(head)) return { request: routed }
     // An imported game compacts right away: an oversized history is summarized in segments
     // (bounded-compaction.js), so the first-play capacity check is not a precondition.
     // Seam to the plugin layer: plugins may add what the summary must keep.
     const notes = pluginCompactionNotes ? await pluginCompactionNotes({ gameId: str(request.sessionId) }).catch(() => []) : []
     const session = sessionStore.get(request.sessionId) || agentRegistry.get(request.sessionId)?.session
+    // 保留轮数与前情卷预算仍按前台会话自身模型窗口计算，实际摘要与合并请求走 routed（压缩专用模型）。
     const retention = await storyRetention(request)
     const natively = nativelyRetainedRounds(session, request)
     // Which story turns this compaction folds: everything but the rounds kept verbatim.
@@ -94,25 +110,23 @@ export function registerModelStreamHooks({
       : ((await chatForSession(str(request.sessionId)))?.messages || []).filter(message => message?.role === 'assistant' && Number(message.turn) > 0).map(message => Number(message.turn))
     const volumes = storyVolumePlan(request, { through: turns[turns.length - 1 - kept - natively], budget: retention.volumeBudget, estimate: retention.estimate })
     const instruction = [runtimePrompt('story-compaction'), volumes.instruction, ...(notes.length ? [promptSection('plugin_compaction', [PROMPT_PROSE.p001, ...notes.map(note => note.text)].join('\n\n'))] : [])].join('\n\n')
-    const story = createStoryCompactionRequest(request, instruction)
+    const story = createStoryCompactionRequest(routed, instruction)
     let prefix = volumes.prefix
     if (volumes.merge) {
       // Only the oldest volumes are rewritten, in their own call; a failed merge keeps them all.
-      try { prefix = [prefix[0], await mergeStoryVolumes(volumes.merge, request), ...prefix.slice(1)] }
+      try { prefix = [prefix[0], await mergeStoryVolumes(volumes.merge, routed), ...prefix.slice(1)] }
       catch (error) {
         console.warn('dsh-tavern: 合并旧卷失败，本次原样保留全部旧卷：', error?.message || error)
         prefix = [prefix[0], ...volumes.merge.volumes.map(volume => volume.text), ...prefix.slice(1)]
       }
     }
     return { ...retainRecentStoryRounds(story, retention.rounds - natively, retention), prefix }
-  }, {
-    // Foreground summaries use the body's model; background Agents keep their task route.
-    route: sessionId => backgroundAgentRunner.owns(sessionId) ? null : modelSelection(str(sessionId))
   })
   async function mergeStoryVolumes(merge, request) {
     const { header, prompt } = storyVolumeMerge(merge)
     let text = ''
     for await (const event of ctx.llm.stream({ provider: request.provider, model: request.model, purpose: 'compaction', signal: request.signal,
+      ...(request.reasoningEffort ? { reasoningEffort: request.reasoningEffort } : {}),
       ...(request.maxTokens ? { maxTokens: request.maxTokens } : {}),
       messages: [{ id: 'tavern-story-volume-merge', role: 'user', content: [{ type: 'text', text: prompt }] }] })) {
       if (event?.type === 'block-end' && event.block?.type === 'text') text += event.block.text
@@ -152,6 +166,28 @@ export function registerModelStreamHooks({
         const direct = await pluginBodyGeneration.direct(session, options.signal)
         if (direct) { yield * direct; return }
       }
+      // a director already owns frozen, projected sources.
+      const director = backgroundContext?.task === 'stage-director'
+      if (director) assertFrozenStageRequest(backgroundContext, options)
+      const prepared = director ? options : await importContextPreparation.prepare(options)
+      if (prepared !== options) { yield * ctx.llm.stream(prepared); return }
+      const chat = ownerSessionId === '' ? undefined : await chatHeaderForSession(ownerSessionId, [
+        'requestMode', 'compatibilityTraces', 'bypassPlanId', 'runtimePresetSnapshot', 'foregroundFrames'
+      ])
+      if (!director && chat && ['story', 'script'].includes(chat.mode) && options.purpose === undefined && chat.requestMode !== 'sillytavern' && !requestHandledBy(options, 'full-template')) {
+        const projected = await fullTemplateRuntime.forSession(ownerSessionId).projectRequestProjection({ messages: options.messages, system: options.system, model: options.model })
+        yield * ctx.llm.stream(markRequestHandled({ ...options, ...projected }, 'full-template'))
+        return
+      }
+      // Agents a plugin creates under a game are not Tavern's own sessions; log them
+      // as that game's background requests so 完整上下文 can show them.
+      const child = options.purpose === undefined && !backgroundContext && !chat ? await gameChildSession(sessionId) : null
+      // Templates can erase text after the history projection. Check the final
+      // Tavern request before recording it or starting the downstream stream.
+      if (chat || backgroundContext || child || requestHandledBy(options, 'compaction-projection')) {
+        const cleaned = omitEmptyProviderContent(options)
+        if (cleaned !== options) { yield * ctx.llm.stream(cleaned); return }
+      }
       const baseDirective = options.purpose === undefined ? toolProtocolDirectiveOf(options) : null
       const activeModel = str(options.model || baseDirective?.model)
       const activeDirective = baseDirective
@@ -170,23 +206,7 @@ export function registerModelStreamHooks({
           })
         : null
       const stream = runWithToolProtocolDirective(activeDirective, () => next())
-      // a director already owns frozen, projected sources.
-      const director = backgroundContext?.task === 'stage-director'
-      if (director) assertFrozenStageRequest(backgroundContext, options)
-      const prepared = director ? options : await importContextPreparation.prepare(options)
-      if (prepared !== options) { yield * ctx.llm.stream(prepared); return }
-      const chat = ownerSessionId === '' ? undefined : await chatHeaderForSession(ownerSessionId, [
-        'requestMode', 'compatibilityTraces', 'bypassPlanId', 'runtimePresetSnapshot', 'foregroundFrames'
-      ])
-      if (!director && chat && ['story', 'script'].includes(chat.mode) && options.purpose === undefined && chat.requestMode !== 'sillytavern' && !requestHandledBy(options, 'full-template')) {
-        const projected = await fullTemplateRuntime.forSession(ownerSessionId).projectRequestProjection({ messages: options.messages, system: options.system, model: options.model })
-        yield * ctx.llm.stream(markRequestHandled({ ...options, ...projected }, 'full-template'))
-        return
-      }
       let requestRecord = null
-      // Agents a plugin creates under a game are not Tavern's own sessions; log them
-      // as that game's background requests so 完整上下文 can show them.
-      const child = options.purpose === undefined && !backgroundContext && !chat ? await gameChildSession(sessionId) : null
       if (child) requestRecord = await modelRequestLog.record({ chat: child.chat, context: child.context, coordinates: {}, options })
       // Dev diagnostics: the summary request actually sent (after routing and story projection).
       else if (options.purpose === 'compaction' && requestHandledBy(options, 'compaction-projection') && chat !== undefined && ['story', 'script', 'card'].includes(chat.mode)) {
@@ -328,13 +348,15 @@ export function registerModelStreamHooks({
         if (!exhausted && iterator?.return) void Promise.resolve().then(() => iterator.return()).catch(() => {})
         progress('end')
         const completed = !failure && !options.signal?.aborted && finish && finish.kind !== 'error' && finish.kind !== 'aborted'
-        replyObserver?.finish(completed)
+        replyObserver?.finish(completed, completed && finish.kind === 'stop')
         foregroundStrategies.completeRequest(options, completed)
         const owner = child ? child.chat : chat
         if (owner && requestRecord) {
-          try { await modelRequestLog.complete({ chatId: owner.id, id: requestRecord.id, text: responseText || toolStreamedText, finish, usage, error: failure,
-            interrupted: interrupted || (!failure && !finish) || finish?.kind === 'aborted' || options.signal?.aborted || Boolean(timing.interruption), timing }) }
-          catch (error) { console.error('dsh-tavern: 模型结果日志写入失败', str(error && error.message || error)) }
+          // complete() 内部同步进入 chatId 写盘队列，evidence()/settled() 会自动等待落盘，
+          // 无需在流结束 finally 阻塞主回合提交。
+          void Promise.resolve(modelRequestLog.complete({ chatId: owner.id, id: requestRecord.id, text: responseText || toolStreamedText, finish, usage, error: failure,
+            interrupted: interrupted || (!failure && !finish) || finish?.kind === 'aborted' || options.signal?.aborted || Boolean(timing.interruption), timing }))
+            .catch(error => { console.error('dsh-tavern: 模型结果日志写入失败', str(error && error.message || error)) })
         }
       }
     })()

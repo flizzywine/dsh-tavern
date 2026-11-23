@@ -17,10 +17,14 @@ const executablePath = [process.env.DSH_BROWSER_EXECUTABLE, 'C:\\Program Files\\
 const screenshotPath = join(tmpdir(), 'dsh-tavern-pr421-image-settings.png')
 const clientSource = await readFile(new URL('../../tavern-plugin/packages/dsh-tavern-image-bundled/client.js', import.meta.url), 'utf8')
 const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAEElEQVR4nGP8zwACTGCSAQANHQEDgslx/wAAAABJRU5ErkJggg==', 'base64')
+const gif = Buffer.from('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7', 'base64')
 const clone = value => JSON.parse(JSON.stringify(value))
 const calls = [], errors = []
 let uploads = 0, libraryRevision = 1, promptRevision = 1, cardEnabled = false
+let releaseSampleUpload
 let playDeleted = false, failGalleryDelete = false
+let extraGalleryJobs = [], failGalleryExport = false
+const exportRequests = []
 let cardBook = { version: 3, revision: 'card-1', buckets: ['rules', 'examples'].map(id => ({ id, label: id, entries: [{ id: 'shared-entry', title: id + ' title', content: id + ' original', enabled: true, mode: 'always' }] })) }
 let cardRevision = 1
 let failCardWrites = 0
@@ -74,7 +78,15 @@ try {
     const url = new URL(route.request().url()), path = url.pathname.replace('/plugins/dsh-tavern-image', ''), method = route.request().method()
     if (url.pathname === '/') return route.fulfill({ contentType: 'text/html', body: '<!doctype html><div id="root"></div>' })
     if (path === '/reference-image' && method === 'GET') return route.fulfill({ contentType: 'image/png', body: png })
-    if (path === '/jobs' && url.searchParams.has('image') || url.pathname.startsWith('/dsh-tavern-gen/img/')) return route.fulfill({ contentType: 'image/png', body: png })
+    if (path === '/jobs' && url.searchParams.has('image')) {
+      const id = url.searchParams.get('id')
+      if (extraGalleryJobs.length && route.request().resourceType() === 'fetch') {
+        exportRequests.push(id)
+        if (id === 'export-gif' && failGalleryExport) return route.fulfill({ status: 404 })
+      }
+      return id === 'export-gif' ? route.fulfill({ contentType: 'image/gif', body: gif }) : route.fulfill({ contentType: 'image/png', body: png })
+    }
+    if (url.pathname.startsWith('/dsh-tavern-gen/img/')) return route.fulfill({ contentType: 'image/png', body: png })
     const body = method === 'POST' ? route.request().postDataJSON() : null
     calls.push({ path, method, query: Object.fromEntries(url.searchParams), body })
     let response = { ok: true }
@@ -156,7 +168,11 @@ try {
     else if (path === '/image-edit') response = { ok: true, jobId: 'edited-image', job: { id: 'edited-image', state: 'done' } }
     else if (path === '/image-channel-test') response = { ok: true, status: 'reachable', message: 'mock connection' }
     else if (path === '/comfy-test') response = { ok: true, version: 'mock' }
-    else if (path === '/reference-image') { uploads++; response.referenceImage = { id: uploads.toString(16).repeat(64), name: body.name, mediaType: body.mediaType, byteLength: png.length } }
+    else if (path === '/reference-image') {
+      if (body.name === 'slow-style-sample.png') await new Promise(resolve => { releaseSampleUpload = resolve })
+      uploads++
+      response.referenceImage = { id: uploads.toString(16).repeat(64), name: body.name, mediaType: body.mediaType, byteLength: png.length }
+    }
     else if (path === '/definitions') {
       if (body.definitions.revision !== state.definitions.revision) return route.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ ok: false, code: 'REVISION_CONFLICT', error: '人物库已在别处修改，请重新载入；当前草稿仍保留' }) })
       state.definitions = { ...clone(body.definitions), revision: String(++libraryRevision) }
@@ -192,7 +208,7 @@ try {
     else if (path === '/loras-available') response = { ok: true, loras: [] }
     else if (path === '/history') {
       const mode = url.searchParams.get('gallery')
-      response = { ok: true, jobs: (playDeleted ? [] : [playGalleryJob]).filter(job => mode === 'trash' ? job.trashedAt : !job.trashedAt && (mode !== 'favorite' || job.favorite)) }
+      response = { ok: true, jobs: (playDeleted ? [] : [playGalleryJob, ...extraGalleryJobs]).filter(job => mode === 'trash' ? job.trashedAt : !job.trashedAt && (mode !== 'favorite' || job.favorite)) }
     }
     else if (path === '/gallery-item') {
       if (body.operation === 'favorite' || body.operation === 'unfavorite') playGalleryJob.favorite = body.operation === 'favorite'
@@ -321,6 +337,21 @@ try {
     buffer: Buffer.from(JSON.stringify(oldBackup)) })
   await page.getByText('已导入 1 套画风', { exact: true }).waitFor()
   assert.deepEqual(state.config.stylePresets.map(item => item.id), ['preset-fold', 'backup-style'])
+  const styleCard = page.locator('[data-preset-card="preset-fold"]')
+  await styleCard.locator('summary').filter({ hasText: /^这套的画风示例图/ }).click()
+  const uploadStarted = page.waitForRequest(request => request.method() === 'POST' && request.url().endsWith('/reference-image'))
+  await styleCard.getByLabel(/上传示例图$/).setInputFiles({ name: 'slow-style-sample.png', mimeType: 'image/png', buffer: png })
+  await uploadStarted
+  const styleName = styleCard.getByLabel('这套画风的名字', { exact: true })
+  await styleName.fill('上传期间改名')
+  const styleMoved = page.waitForResponse(response => response.url().endsWith('/config') && response.request().postDataJSON()?.config?.stylePresets?.[0]?.id === 'backup-style')
+  await styleCard.getByRole('button', { name: /^下移 / }).click()
+  await styleMoved
+  releaseSampleUpload()
+  await styleCard.getByRole('button', { name: '查看示例图 slow-style-sample.png', exact: true }).waitFor()
+  assert.deepEqual(state.config.stylePresets.map(item => item.id), ['backup-style', 'preset-fold'])
+  assert.equal(state.config.stylePresets[1].name, '上传期间改名')
+  assert.equal(state.config.stylePresets[1].samples[0].name, 'slow-style-sample.png')
   await styleLibrary.click()
 
   await ensureDisclosure('生图词条库')
@@ -1088,7 +1119,7 @@ try {
   await page.getByRole('img', { name: '剧情配图', exact: true }).waitFor({ state: 'hidden' })
   await page.getByRole('button', { name: '回收站', exact: true }).click()
   await page.getByLabel('恢复 剧情配图', { exact: true }).click()
-  await page.getByRole('button', { name: '全部图片', exact: true }).click()
+  await page.getByRole('button', { name: '游玩画廊', exact: true }).click()
   await page.getByRole('img', { name: '剧情配图', exact: true }).waitFor()
 
   await page.getByRole('img', { name: '剧情配图', exact: true }).waitFor()
@@ -1099,6 +1130,69 @@ try {
   await viewer.waitFor()
   await page.keyboard.press('Escape')
   await viewer.waitFor({ state: 'hidden' })
+
+  extraGalleryJobs = [
+    { ...playGalleryJob, id: 'export-twin' },
+    { ...playGalleryJob, id: 'export-gif', label: '动画/原图' },
+    { ...playGalleryJob, id: 'export-unselected', label: '未选中的图' },
+  ]
+  await page.getByRole('button', { name: '刷新', exact: true }).click()
+  await page.getByRole('img', { name: '未选中的图', exact: true }).waitFor()
+  await page.getByRole('button', { name: '批量选择', exact: true }).click()
+  assert.equal(await page.getByRole('button', { name: '导出选中图片（0）', exact: true }).isDisabled(), true)
+  for (const id of ['play-only', 'export-twin', 'export-gif']) await page.locator(`[data-play-job-id="${id}"] img`).click()
+  const exportSelected = page.getByRole('button', { name: '导出选中图片（3）', exact: true })
+  await page.evaluate(() => {
+    const files = new Map([['配图-剧情配图.PNG', [1]]])
+    window.galleryExportFiles = files
+    window.showDirectoryPicker = async ({ mode }) => {
+      if (mode !== 'readwrite') throw new Error('expected write access')
+      return {
+        keys: () => files.keys(),
+        async getFileHandle(name, { create }) {
+          if (!create || [...files.keys()].some(key => key.toLowerCase() === name.toLowerCase())) throw new Error('name collision')
+          return { async createWritable() {
+            let bytes
+            return {
+              async write(blob) { bytes = Array.from(new Uint8Array(await blob.arrayBuffer())) },
+              async close() { files.set(name, bytes) },
+            }
+          } }
+        },
+      }
+    }
+  })
+  failGalleryExport = true
+  await exportSelected.click()
+  await page.getByText('已保存 2 张图片，1 张失败', { exact: true }).waitFor()
+  await page.getByText('动画/原图：读取原图失败（HTTP 404）', { exact: true }).waitFor()
+  assert.deepEqual(exportRequests, ['play-only', 'export-twin', 'export-gif'])
+  failGalleryExport = false
+  await page.getByRole('button', { name: '重试失败项', exact: true }).click()
+  await page.getByText('已保存 1 张图片', { exact: true }).waitFor()
+  assert.deepEqual(exportRequests.slice(3), ['export-gif'])
+  assert.deepEqual(await page.evaluate(() => [...window.galleryExportFiles]), [
+    ['配图-剧情配图.PNG', [1]], ['配图-剧情配图 (2).png', [...png]],
+    ['配图-剧情配图 (3).png', [...png]], ['配图-动画_原图.gif', [...gif]],
+  ])
+  await page.evaluate(() => { window.showDirectoryPicker = async () => { throw new DOMException('Cancelled', 'AbortError') } })
+  await exportSelected.click()
+  await page.getByText('已取消导出', { exact: true }).waitFor()
+  assert.equal(exportRequests.length, 4)
+  await page.evaluate(() => { window.showDirectoryPicker = undefined })
+  const names = ['配图-剧情配图.png', '配图-剧情配图 (2).png', '配图-动画_原图.gif']
+  const [downloads] = await Promise.all([
+    Promise.all(names.map(name => page.waitForEvent('download', { predicate: download => download.suggestedFilename() === name }))),
+    exportSelected.click(),
+  ])
+  await page.getByText(/已发起 3 张图片的下载/).waitFor()
+  assert.deepEqual(await Promise.all(downloads.map(async download => readFile(await download.path()))), [png, png, gif])
+  assert.deepEqual(exportRequests.slice(4), ['play-only', 'export-twin', 'export-gif'])
+  extraGalleryJobs = []
+  await page.getByRole('button', { name: '退出批量', exact: true }).click()
+  await page.getByRole('button', { name: '刷新', exact: true }).click()
+  await page.getByRole('img', { name: '未选中的图', exact: true }).waitFor({ state: 'hidden' })
+
   // Permanent deletion works even when the host disables native confirmation dialogs.
   await page.evaluate(() => { window.confirm = () => false })
   await page.getByLabel('回收 剧情配图', { exact: true }).click()
@@ -1114,7 +1208,7 @@ try {
   await page.getByText('已彻底删除 0 张图，1 张删除失败：测试文件被占用', { exact: true }).waitFor()
   await page.getByLabel('恢复 剧情配图', { exact: true }).waitFor()
   failGalleryDelete = false
-  await page.getByRole('button', { name: '☑ 批量选择', exact: true }).click()
+  await page.getByRole('button', { name: '批量选择', exact: true }).click()
   await page.getByRole('button', { name: '全选', exact: true }).click()
   await page.getByRole('button', { name: '彻底删除（1）', exact: true }).click()
   await galleryDeletion.getByRole('button', { name: '确认彻底删除', exact: true }).click()
@@ -1123,16 +1217,16 @@ try {
   // Refill only the stubbed gallery to exercise single delete and clearing all.
   for (const clearAll of [false, true]) {
     playDeleted = false
-    await page.getByRole('button', { name: '🔄 刷新', exact: true }).click()
+    await page.getByRole('button', { name: '刷新', exact: true }).click()
     await page.getByRole('img', { name: '剧情配图', exact: true }).waitFor()
-    if (await page.getByRole('button', { name: '✖ 退出批量', exact: true }).count()) await page.getByRole('button', { name: '✖ 退出批量', exact: true }).click()
+    if (await page.getByRole('button', { name: '退出批量', exact: true }).count()) await page.getByRole('button', { name: '退出批量', exact: true }).click()
     if (clearAll) await page.getByRole('button', { name: '清空回收站', exact: true }).click()
     else await page.getByLabel('彻底删除 剧情配图', { exact: true }).click()
     await galleryDeletion.getByRole('button', { name: '确认彻底删除', exact: true }).click()
     await page.getByText('回收站是空的', { exact: true }).waitFor()
     assert.equal(calls.filter(call => call.path === '/gallery-delete').at(-1).body.all, clearAll)
   }
-  await page.getByRole('button', { name: '🔄 刷新', exact: true }).click()
+  await page.getByRole('button', { name: '刷新', exact: true }).click()
   await page.getByText('回收站是空的', { exact: true }).waitFor()
   await page.getByRole('button', { name: '卡片画廊', exact: true }).click()
   await page.getByRole('img', { name: '卡片专用图片', exact: true }).waitFor()
@@ -1140,9 +1234,12 @@ try {
   await page.setViewportSize({ width: 375, height: 700 })
   const firstThumb = page.getByRole('img', { name: '卡片专用图片', exact: true })
   const nextThumb = page.getByRole('img', { name: '下一张卡片图', exact: true })
-  const firstBox = await firstThumb.boundingBox()
-  const nextBox = await nextThumb.boundingBox()
-  assert.equal(firstBox.y, nextBox.y, 'card thumbnails share a row on a narrow screen')
+  // A resize can reflow the header and adjust scroll anchoring between separate
+  // boundingBox calls. Compare both thumbnails in one layout snapshot.
+  const thumbTops = await firstThumb.or(nextThumb).evaluateAll(images =>
+    images.map(image => image.getBoundingClientRect().top))
+  assert.equal(thumbTops.length, 2)
+  assert.equal(thumbTops[0], thumbTops[1], 'card thumbnails share a row on a narrow screen')
   await firstThumb.click()
   await viewer.getByRole('img', { name: '卡片专用图片' }).waitFor()
   await viewer.getByTitle('放大', { exact: true }).click()

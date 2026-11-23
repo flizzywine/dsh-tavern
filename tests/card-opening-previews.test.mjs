@@ -1,13 +1,28 @@
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
+import vm from 'node:vm'
 import { chromium } from 'playwright'
 
 import { projectCardOpeningPreviews } from '../tavern-plugin/lib/domain/card-opening-previews.js'
-import { projectOpeningCommit, projectRuntimeReply } from '../tavern-plugin/lib/domain/runtime-content-projection.js'
+import { projectAgentContent, projectOpeningCommit, projectOpeningPreview, projectRuntimeReply } from '../tavern-plugin/lib/domain/runtime-content-projection.js'
 import { browserReactScript } from './fixtures/browser-react.mjs'
 
 const rule = (findRegex, replaceString) => ({ findRegex, replaceString, placement: [2], markdownOnly: true })
+
+test('the picker preserves explicit blank alternates without promoting missing or whitespace entries', async () => {
+  const { cardOpeningChoices, cardOpeningSwipes, resolveCardOpening } = await import('../tavern-plugin/lib/domain/card-openings.js')
+  const card = { first_mes: 'Existing opening', alternate_greetings: ['Another opening', '', null, '  '] }
+  assert.deepEqual(cardOpeningChoices(card).map(row => row.id), ['primary', 'alternate:0', 'alternate:1'])
+  assert.equal(resolveCardOpening(card, 'alternate:1'), '')
+  assert.throws(() => resolveCardOpening(card, 'alternate:2'))
+  assert.equal(cardOpeningSwipes(card).openingIds[2], 'alternate:1')
+  const preview = await projectCardOpeningPreviews({ card })
+  assert.equal(preview.openings.length, 3)
+  assert.equal(preview.openings[2].id, 'alternate:1')
+  assert.equal(preview.openings[2].text, '')
+  assert.deepEqual(preview.openings[2].projection.parts, [])
+})
 
 test('native swipe chooser receives opening bridge metadata without treating prose as a chooser', async () => {
   const card = { name: '选择台', first_mes: '<script>const ctx=SillyTavern.getContext();ctx.swipe.to(null,"right",{forceMesId:0,forceSwipeId:1});</script>', alternate_greetings: ['目标开场'] }
@@ -16,6 +31,19 @@ test('native swipe chooser receives opening bridge metadata without treating pro
   assert.equal(result.openings[0].openingPreview.openingIds[1], 'alternate:0')
   const prose = await projectCardOpeningPreviews({ card: { first_mes: 'He swiped his card. The character_menu appeared and he decided to jump.' } })
   assert.equal(prose.openings[0].openingPreview, null)
+})
+
+test('legacy angle-bracket names agree in preview, committed opening and display refresh without changing card source', async () => {
+  const {projectReplyLayers} = await import('../tavern-plugin/lib/domain/reply-presentation.js')
+  const source = '```start\n<user> visits <char>.\n```'
+  const card = {name:'Host',first_mes:source}
+  const options = {charName:card.name,macroState:{userName:'Guest'}}
+  const preview = await projectCardOpeningPreviews({card,userName:'Guest'})
+  assert.match(preview.openings[0].text,/Guest visits Host/)
+  assert.equal(projectOpeningCommit(source,options).bodyText,preview.openings[0].text)
+  assert.equal(projectReplyLayers(source,options).displayText,preview.openings[0].text)
+  assert.equal(card.first_mes,source)
+  assert.equal(projectReplyLayers('<user-card>unchanged</user-card>',options).displayText,'<user-card>unchanged</user-card>')
 })
 
 test('whole-message HTML replacements keep chained rules in previews, committed openings, and later replies', async () => {
@@ -52,6 +80,50 @@ test('chained rules render the same button beside story text in previews, commit
   assert.deepEqual(preview.openings[0].projection.parts, expected)
   assert.deepEqual(opening.displayParts, expected)
   assert.deepEqual(reply.displayParts, expected)
+})
+
+test('committing an HTML opening preserves nested JavaScript state and resolves Tavern macros', () => {
+  const script = '<script>const state = {"player":{"name":"{{user}}"}};</script>\n'
+  const source = '{{unsupported}}\n```html\n' + script + '```'
+  const result = projectOpeningCommit(source, { macroState: { userName: '玩家' } })
+  assert.equal(result.sessionText, source.replace('{{user}}', '玩家'))
+  assert.deepEqual(result.displayParts, [
+    { kind: 'markdown', text: '{{unsupported}}\n' },
+    { kind: 'html', content: script.replace('{{user}}', '玩家') }
+  ])
+})
+
+test('opening preview, save and history preserve code blocks and template braces', () => {
+  const script = 'if (true) {{ const value = 1; globalThis.result = value; }}'
+  const html = '<div v-if="ready">{{ count }}</div><script>' + script + '</script>'
+  const card = '<section>' + html + '</section>'
+  for (const render of [projectOpeningPreview, projectOpeningCommit]) {
+    const result = render(card)
+    assert.equal(result.sessionText, card)
+    assert.equal(result.displayParts[0].content, card)
+    const source = result.displayParts[0].content.match(/<script>([\s\S]*?)<\/script>/)[1]
+    const sandbox = {}
+    vm.runInNewContext(source, sandbox)
+    assert.equal(sandbox.result, 1)
+    assert.deepEqual(projectRuntimeReply(result.renderedText).displayParts, result.displayParts)
+  }
+  const worldbookExample = '```js\n' + script + '\n```'
+  assert.equal(projectAgentContent(worldbookExample).agentText, worldbookExample)
+})
+
+test('opening names are encoded for HTML and inline JavaScript literals in both paths', () => {
+  const source = '<section><p title="{{user}}">{{user}}</p>'
+    + '<script>globalThis.names = ["{{user}}", \'<user>\', `{{user}}`, {{user}}];</script></section>'
+  const userName = 'Alex "Ace" & O\'Neil `name`'
+  for (const render of [projectOpeningPreview, projectOpeningCommit]) {
+    const result = render(source, { macroState: { userName } })
+    const html = result.displayParts[0].content
+    assert.match(html, /<p title="Alex &quot;Ace&quot; &amp; O&#39;Neil `name`">Alex &quot;Ace&quot; &amp; O&#39;Neil `name`<\/p>/)
+    const sandbox = {}
+    vm.runInNewContext(html.match(/<script>([\s\S]*?)<\/script>/)[1], sandbox)
+    assert.deepEqual(Array.from(sandbox.names), Array(4).fill(userName))
+    assert.equal(result.macroState.userName, userName)
+  }
 })
 
 test('a fenced status panel keeps its own frame beside an HTML opening', async () => {

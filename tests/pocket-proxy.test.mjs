@@ -1,11 +1,13 @@
 import assert from 'node:assert/strict'
 import { once } from 'node:events'
 import { createServer } from 'node:http'
+import { createRequire } from 'node:module'
+import { pathToFileURL } from 'node:url'
 import test from 'node:test'
 import { WebSocket, WebSocketServer } from 'ws'
 
 // Exercise the installed dependency, including its HTTP/WS forwarding and cookie exchange.
-const { createPocketProxy } = await import(new URL('../node_modules/dsh-pocket/lib/proxy.mjs', import.meta.url))
+const { createPocketProxy } = await import(pathToFileURL(createRequire(import.meta.url).resolve('dsh-pocket/package.json').replace(/package\.json$/, 'lib/proxy.mjs')).href)
 
 async function fixture(t, password = false) {
   const requests = []

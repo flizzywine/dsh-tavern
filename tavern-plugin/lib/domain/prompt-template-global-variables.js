@@ -10,6 +10,7 @@ function validate(value) {
 /** Shared Profile store; expected values merge changes atomically per variable. */
 export function createPromptTemplateGlobalVariables(profileData) {
   return {
+    version: () => profileData.version(path),
     async read() { return globals(await profileData.readJson(path)) },
     async save(variables, expected) {
       validate(variables)

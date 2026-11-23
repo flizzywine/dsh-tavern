@@ -2,6 +2,8 @@ import {assetContents,assetDocument} from '../shared/asset-variant-content.js'
 import performanceContract from '../shared/stage-performance.cjs'
 // Sharing/export is not an internal backup. Never silently strip a referenced dependency.
 export function assertPublicPack(pack) {
+  const privateAsset = pack.manifest.assets.find(asset => asset.extensions?.['dsh.private-use'] === true)
+  if (privateAsset) throw Object.assign(new Error('This pack contains private-use assets and cannot be publicly exported'), {code:'PRIVATE_ASSET_NOT_EXPORTABLE',packId:pack.manifest.id,assetId:privateAsset.id})
   for (const [path,bytes] of pack.files || []) if (path.endsWith('.json')) {
     let document
     try {document=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(bytes))} catch {continue}

@@ -36,6 +36,8 @@ test('后台任务页在 Chromium 中按轮显示流程：时刻、它启动的�
  const wait=await readFile(new URL('../tavern-plugin/src/client/modules/background-wait.js',import.meta.url),'utf8')
  script+=`const React=modules.react;const t=Date.now();
  function TavernStopBackgroundAction(){return React.createElement('button',null,'停止后台')}
+ // the shared empty line (inline-field.js EmptyState) stands in with its line only.
+ function EmptyState(p){return React.createElement('div',{className:'fork-empty',role:'status'},p.text||'还没有'+(p.noun||'条目'))}
  const settle={key:'run:run-1',name:'变量结算',task:'settlement',status:'running',at:t-8000,agents:[{id:'run-1',status:'running',member:'background',lane:'resident',queuedAt:t-8000,startedAt:t-8000,model:'m'}],then:[
    {key:'job:locate',name:'插件「地图」定位',task:'plugin:地图:locate',status:'failed',at:t-4000,endedAt:t-3000,error:'信号读取失败',agents:[],then:[]}]}
  async function rpc(method){return {runs:[
