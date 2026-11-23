@@ -1243,10 +1243,10 @@ function archiveUrls(rootUrl, archive) {
 
 // Download the runtime files listed by a jsDelivr manifest into `destination`.
 // Files whose bytes already match in `installed` are reused instead of downloaded.
-async function downloadRuntime({ metadataUrl, rootUrl, destination, installed, concurrency = 16, stallMs = 30000,
+async function downloadRuntime({ manifest: preloadedManifest, metadataUrl, rootUrl, destination, installed, concurrency = 16, stallMs = 30000,
   budgetMs = 300000, attempts = 2, status = () => {}, fetch: request, targetCommit = '', minVersion = '', exactManifest = false } = {}) {
   const source = hostOf(rootUrl)
-  const metadata = await readManifest({ metadataUrl, exact: exactManifest, minVersion, stallMs, attempts, fetch: request, status })
+  const metadata = preloadedManifest || await readManifest({ metadataUrl, exact: exactManifest, minVersion, stallMs, attempts, fetch: request, status })
   const files = runtimeFiles(metadata)
   // The @main manifest can lag (CDN cache, or CI not yet published). When the app
   // asked for a specific commit, refuse a different one rather than silently
