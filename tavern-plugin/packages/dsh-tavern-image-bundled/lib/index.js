@@ -1518,6 +1518,9 @@ function createRuntime(ctx, overrides, logger, deps) {
           const ordered = [...jobs.entries()]
             .filter(([, job]) => !job.fromCache)
             .sort((a, b) => (a[1].createdAt || 0) - (b[1].createdAt || 0))
+          for (const [, job] of ordered) {
+            if (['done', 'failed', 'cancelled'].includes(job.state)) diag.finishJob(job.id)
+          }
           const needsTracking = job => ['pending', 'running', 'uncertain'].includes(job.state) || job.requestMayHaveSucceeded === true || job.cancelMayHaveContinued === true || (job.state === 'cancelled' && job.requestStarted === true)
           // Never evict a live/uncertain paid request in favor of newer history.
           const archived = job => job.favorite || job.trashedAt
@@ -2581,6 +2584,7 @@ function createRuntime(ctx, overrides, logger, deps) {
       if (keepComfySource && source.workflowId && !workflow) {
         throw Object.assign(new Error('原 ComfyUI 工作流已不存在；请在控制台选择其他渠道后重绘'), { submissionNotStarted: true })
       }
+      const redrawTrace = diag.begin({ kind: 'singleRedraw', turn: Number(turn) || null, manual: true })
       let fresh
       try {
         fresh = await startJob({
@@ -2604,11 +2608,11 @@ function createRuntime(ctx, overrides, logger, deps) {
           textVersion,
           sessionId: session, turn,
           key: 'media-replacement:' + randomUUID(),
-        }, { label: '单图重绘', jobConfig, forceWorkflow: workflow || null, referenceSnapshot: frozenReferences, cardRequest: jobSource(source) === 'card' })
+        }, { label: '单图重绘', jobConfig, forceWorkflow: workflow || null, referenceSnapshot: frozenReferences, cardRequest: jobSource(source) === 'card', diagTrace: redrawTrace ? { traceId: redrawTrace, imageIndex: 1 } : null })
       } catch (error) {
         if (error.requestMayHaveSucceeded !== true) error.submissionNotStarted = true
         throw error
-      }
+      } finally { diag.end(redrawTrace) }
       return { jobId: fresh.id }
     }
 
@@ -3407,13 +3411,17 @@ function createRuntime(ctx, overrides, logger, deps) {
       if (task.controller.signal.aborted) {
         const error = task.controller.signal.reason || new Error('规划被取消')
         finishTask(task, error)
+        diag.end(traceId)
         throw error
       }
       if (imageGeneration && !skipped && !plans.length && missingMounts.size) failure ||= new Error('规划给的挂载句在正文里都找不到（例如「' + [...missingMounts][0] + '」），没有画图；可以重新配图')
       if (imageGeneration && !skipped && !plans.length) failure ||= new Error('模型没有返回可用的 <image> 块')
       if (smart && parsed.decision === 'draw' && !plans.length) failure ||= new Error('选择配图后没有返回可用的 <image> 块')
       finishTask(task, failure)
-      if (traceId) diag.record(traceId, 'planner-finished', { plans: plans.map(p => ({ jobId: p.jobId, status: p.status })), skipped, error: failure ? String(failure?.message ?? failure) : null })
+      if (traceId) {
+        diag.record(traceId, 'planner-finished', { plans: plans.map(p => ({ jobId: p.jobId, status: p.status })), skipped, error: failure ? String(failure?.message ?? failure) : null })
+        diag.end(traceId)
+      }
       logger.info?.('dsh-tavern-image: 规划用了 ' + ((Date.now() - started) / 1000).toFixed(1) + 's，已提交 ' + plans.length + ' 张'
         + (result.usage ? '（token ' + result.usage.inputTokens + '+' + result.usage.outputTokens + '）' : ''))
 
