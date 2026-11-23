@@ -14128,7 +14128,7 @@ window.__ModuleLoader__.load({
 				if (!isTavernCardPackArchive(file)) { const uploadId = await uploadTavernCardFile(file, report, call); report('正在导入…'); return await commitTavernCardFile(file, { uploadId }, call); }
 				const staged = await previewTavernCardArchive(file, call, report);
 				let packDecisions = {};
-				if (staged.packs.length) {
+				if (staged.packs.length || staged.packNotices?.length) {
 					progress.close(); progress = null;
 					const way = await askTavernCardPackWay(file, staged);
 					if (!way) {
@@ -14191,12 +14191,12 @@ window.__ModuleLoader__.load({
 					report('等待输入密码…');
 					return askTavernCardPassword(options);
 				});
-				return { uploadId, ...(password === undefined ? {} : { password }), card: preview.card, packs: preview.packs };
+				return { uploadId, ...(password === undefined ? {} : { password }), card: preview.card, packs: preview.packs, packNotices: preview.packNotices };
 			} catch (error) { await call("discardCardUpload", { uploadId }).catch(() => {}); throw error; }
 		}
 		/** The card file into the library, or in place of replacePath: staged is the upload (and preview) of an archive, null for PNG / JSON. */
 		async function commitTavernCardFile(file, staged, call, { replacePath, packDecisions } = {}) {
-			if (staged) return await call("importCardUpload", { uploadId: staged.uploadId, name: file.name, ...(replacePath ? { replacePath } : {}), ...(staged.password === undefined ? {} : { password: staged.password }), packDecisions: packDecisions || {} });
+			if (staged) return await call("importCardUpload", { uploadId: staged.uploadId, name: file.name, ...(replacePath ? { replacePath } : {}), ...(staged.password === undefined ? {} : { password: staged.password }), packDecisions: packDecisions || {}, previewed: Boolean(staged.card), acceptMissingPacks: Boolean(staged.packNotices?.length) });
 			return await call("importCard", { payload: await parseCardFile(file), ...(replacePath ? { replacePath } : {}) });
 		}
 		/** What a card file brought into its character material, for the import notice. */
@@ -14231,13 +14231,16 @@ window.__ModuleLoader__.load({
 			for (const file of misplaced) failures.push({ name: file.name, plain: true, message: misplacedFileHint(file, false) });
 			picked = picked.filter(function (file) { return misplaced.indexOf(file) < 0; });
 			const { cards, zips } = cardZip ? await splitCardFiles(picked) : { cards: picked, zips: [] };
-			let imported = 0, existing = 0, lastPath = "";
+			let imported = 0, existing = 0, incomplete = 0, lastPath = "";
 			for (const [index, file] of cards.entries()) {
 				onProgress?.("正在导入 " + (index + 1) + "/" + cards.length + "：" + file.name);
 				try {
 					const { card } = await importTavernCardFile(file, call, onTransfer);
 					lastPath = card.path;
-					if (card.duplicate) {
+					if (card.status === "partial") {
+						incomplete++;
+						notices.push(file.name + "：素材未完整导入\n" + card.libraryNotices.join("\n"));
+					} else if (card.duplicate) {
 						existing++;
 						notices.push(file.name + "：已在卡库中（「" + card.name + "」）");
 					} else {
@@ -14258,6 +14261,7 @@ window.__ModuleLoader__.load({
 			}
 			const summary = cards.length || failures.length ? "已导入 " + imported + " 张"
 				+ (existing ? "，" + existing + " 张已在卡库中" : "")
+				+ (incomplete ? "，" + incomplete + " 张素材未完整导入" : "")
 				+ (failures.length ? "，" + failures.length + " 个文件失败" : "") : "";
 			if (failures.length) notices.unshift("失败文件：" + failures.map(file => file.name).join("、"));
 			return { lastPath, failures: failures.map(file => file.plain ? file.message : file.name + "：" + file.message), summary: [summary, ...notices].filter(Boolean).join("\n") };
@@ -14404,12 +14408,12 @@ window.__ModuleLoader__.load({
 			useWindowFullscreen(open); // the import sheet covers the window (inline-field.js)
 			const [busy, setBusy] = React.useState(false);
 			const [error, setError] = React.useState("");
+			const [notice, setNotice] = React.useState("");
 			const [filter, setFilter] = React.useState("");
 			const [sort, setSort] = React.useState(readMobileImportSort);
 			const [selecting, setSelecting] = React.useState(false);
 			const [selected, setSelected] = React.useState(function () { return new Set(); });
 			const [progress, setProgress] = React.useState(null);
-			const [notice, setNotice] = React.useState("");
 			function load() {
 				return rpcWithTimeout("listMobileCardImports", {}).then(function (result) { setCatalog(result); return result; }, function () { setCatalog({ available: false, files: [] }); return { available: false, files: [] }; });
 			}
@@ -14436,7 +14440,26 @@ window.__ModuleLoader__.load({
 				let last = null;
 				for (let index = 0; index < queue.length; index += 1) {
 					setProgress({ done: index + 1, total: queue.length });
-					try { const result = await importTavernPasswordCard(password => rpc("importMobileCard", { id: queue[index].id, ...(password === undefined ? {} : { password }) }), mobileImportNameOf(queue[index])); if (result.card) last = result.card; else notes.push(mobileImportPackNote(mobileImportNameOf(queue[index]), result)); }
+					try {
+						const id = queue[index].id, name = mobileImportNameOf(queue[index]);
+						const result = await importTavernPasswordCard(async password => {
+							const args = { id, ...(password === undefined ? {} : { password }) };
+							const reply = await rpc("importMobileCard", { ...args, preview: true });
+							const stage = reply.preview;
+							if (!stage) return reply;
+							const needsChoice = stage.packs.length || stage.packNotices?.length;
+							const way = needsChoice ? await askTavernCardPackWay(null, stage) : 'update';
+							if (!way) {
+								await rpc("importMobileCard", { id, discard: true });
+								throw Object.assign(new Error('已取消人物卡导入'), { code: 'TAVERN_CARD_IMPORT_CANCELLED' });
+							}
+							return rpc("importMobileCard", { ...args, previewed: true, acceptMissingPacks: Boolean(stage.packNotices?.length), packDecisions: tavernCardPackDecisions(stage.packs, way) });
+						}, name);
+						if (result.card) {
+							last = result.card;
+							if (last.status === "partial") notes.push(name + "：素材未完整导入\n" + last.libraryNotices.join("\n"));
+						} else notes.push(mobileImportPackNote(name, result));
+					}
 					catch (err) { if (err?.code !== 'TAVERN_CARD_IMPORT_CANCELLED') failures.push(mobileImportNameOf(queue[index]) + "：" + String(err && err.message || err)); }
 				}
 				setBusy(false); setProgress(null);
@@ -47812,23 +47835,24 @@ function TavernCardUpdateDialog(props) {
                 p.result.updateId && p.revert ? h(ui.Button, { className: 'fork-card-update-quiet', disabled: p.busy, onClick: p.revert }, p.busy ? '正在撤回…' : '撤回') : null,
                 h(ui.Button, { primary: true, disabled: p.busy, onClick: p.close }, '完成')) },
             h('div', { className: 'fork-card-update-done', role: 'status' },
-                h('span', { className: 'fork-card-update-check', 'aria-hidden': true }, '✓'),
-                h('strong', null, name + (version ? ' 已更新到 ' + version : ' 已更新')),
+                p.result.status === 'partial' ? null : h('span', { className: 'fork-card-update-check', 'aria-hidden': true }, '✓'),
+                h('strong', null, name + (p.result.status === 'partial' ? ' 已更新，素材未完整导入' : version ? ' 已更新到 ' + version : ' 已更新')),
                 notes.length ? h('ul', null, notes.map((note, index) => h('li', { key: index }, note))) : null),
             error);
     }
     const request = p.request, incoming = request ? request.incoming : p.incoming, loading = Boolean(p.file) && !incoming && !p.error;
-    const packs = p.packs || [];
+    const packs = p.packs || [], packNotices = p.packNotices || [];
     return h(ui.Modal, { title, head, busy: p.busy, onClose: p.close, className: 'fork-card-update',
         foot: h('div', { className: 'ap-actions fork-card-update-foot' },
             h(ui.Button, { disabled: p.busy, onClick: p.close }, '取消'),
-            h(ui.Button, { primary: true, disabled: p.busy || !p.ready, onClick: p.replace }, p.busy ? (importing ? '正在导入…' : '正在更新…') : importing ? '导入' : '更新')) },
+            h(ui.Button, { primary: true, disabled: p.busy || !p.ready, onClick: p.replace }, p.busy ? (importing ? '正在导入…' : '正在更新…') : packNotices.length ? (importing ? '仍然导入' : '仍然更新') : importing ? '导入' : '更新')) },
         h(TavernCardUpdateCard, { cover: incoming?.cover || p.current?.cover, name: incoming?.name || p.current?.name || p.name || '',
             from: importing ? '' : p.current?.version, to: incoming?.version, file: p.file, pick: importing ? null : p.pick, busy: p.busy }),
         request ? h('div', { className: 'fork-card-update-request' }, h('span', null, '来源'), h('code', null, request.source || '这张卡的脚本'), h('span', null, '会改动'),
             h('ul', null, request.changes.map((change, index) => h('li', { key: index }, change)))) : null,
         loading ? h('p', { className: 'fork-card-update-loading', role: 'status' }, h(Spinner), '正在读取…') : null,
         packs.length ? h(TavernCardPacks, { packs, way: p.way, onWay: p.onWay, busy: p.busy }) : null,
+        packNotices.length ? h('ul', { className: 'fork-card-update-error', role: 'alert' }, packNotices.map((note, index) => h('li', { key: index }, note))) : null,
         error);
 }
 
@@ -47891,7 +47915,7 @@ function useTavernCardUpdate({ call, onChanged }) {
             const file = event.target.files?.[0]; event.target.value = '';
             if (file && latest.current) void choose(file);
         } }),
-        element: open ? h(TavernCardUpdateDialog, { current: state.current || { name: state.name, version: '' }, incoming: state.stage?.card || null, packs: state.stage?.packs || [],
+        element: open ? h(TavernCardUpdateDialog, { current: state.current || { name: state.name, version: '' }, incoming: state.stage?.card || null, packs: state.stage?.packs || [], packNotices: state.stage?.packNotices,
             way: state.way, onWay: way => patch({ way }), file: state.file, pick: () => picker.current?.click(), error: state.error, result: state.result, busy: state.busy,
             ready: Boolean(state.stage && state.current), close, replace, revert }) : null
     };
@@ -47906,7 +47930,7 @@ function askTavernCardPackWay(file, staged) {
         function Dialog() {
             const [way, setWay] = React.useState('update');
             function settle(value) { root.unmount(); container.remove(); resolve(value); }
-            return React.createElement(TavernCardUpdateDialog, { mode: 'import', file, incoming: staged.card, packs: staged.packs, way, onWay: setWay, ready: true,
+            return React.createElement(TavernCardUpdateDialog, { mode: 'import', file, incoming: staged.card, packs: staged.packs, packNotices: staged.packNotices, way, onWay: setWay, ready: true,
                 close: () => settle(null), replace: () => settle(way) });
         }
         root.render(React.createElement(Dialog));

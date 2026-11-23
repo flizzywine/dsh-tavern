@@ -30,6 +30,7 @@ const previewDecision = (preview, onConflict) => preview.choices.includes('noop'
     : preview.choices.includes('install') ? 'install'
       : packConflict(preview) ? onConflict : ''
 
+
 // Card files in and out of the card library. pluginApi is a getter: it is built after the library.
 // backupPack(file, {packId, expectedRevision}) writes an installed pack, unchanged, to a private file (the asset
 // library's assetLibraryPackBackup): an update keeps the versions it replaces so 撤回 can put them back.
@@ -56,64 +57,82 @@ export function createCardFiles({ cardPreparation, fileResources, castAssets, as
       return await use(await library.inspectImportFile({ file: archive }))
     } finally { await rm(dir, { recursive: true, force: true }) }
   }
-  // A CHARX, DSH card or card bundle read from disk: its packs first, so a failure leaves no card behind.
-  // The stage reads packs from the asset library (dsh-asset-library), so a card's packs install there too:
-  // a new pack is installed, an identical one is left as it is, a different installed version takes the player's
-  // decision (packDecisions: pack id → update | merge; 完全替换 when there is none). A pack whose identity clashes or
-  // one that carries scripts is not touched; it is reported, and the player decides in the asset library.
-  // packBackups {dir, list}: each installed version an update or merge replaces is first written to dir and listed.
-  async function installPacksInLibrary(zip, packs, { packDecisions = {}, packBackups } = {}) {
-    if (!packs.length) return []
-    const library = packLibrary()
-    if (!library) return ['素材库不可用：这张卡的素材包没有装进素材库，舞台用不到它们']
-    const notices = []
+  const preparedPacks = new Map()
+  const cancelPack = (library, preview) => library.applyImport({ inspectionId: preview.inspectionId, decision: 'cancel' }).catch(() => {})
+  async function discardCardArchivePreview(file) {
+    const stage = preparedPacks.get(file)
+    if (!stage) return
+    preparedPacks.delete(file)
+    clearTimeout(stage.timer)
+    await Promise.all(stage.ready.map(({ preview }) => cancelPack(stage.library, preview)))
+  }
+  const packFailure = (label, reason) => `素材包「${label}」未装入：${reason}`
+  function packError(error) {
+    if (error?.code === 'ENOSPC') return '磁盘空间不够，请腾出空间后重新导入'
+    if (error?.code === 'REVISION_CONFLICT') return '素材包在导入期间变更，请重新导入'
+    const file = error?.path?.startsWith('$.files.') ? `「${error.path.slice('$.files.'.length)}」` : ''
+    const reason = error?.code === 'FILE_CLOSURE_MISMATCH' ? file + '文件缺失、多余或大小与清单不符'
+      : error?.code === 'CONTENT_HASH_MISMATCH' && file ? file + '文件内容与清单不符' : str(error?.message || error)
+    return reason + '。请重新获取卡包，或请作者检查素材包后重新导出'
+  }
+  async function inspectCardPacks(zip, packs) {
+    const library = packLibrary(), ready = [], notices = []
     for (const pack of packs) {
       const label = pack.title || pack.id
+      if (!library) { notices.push(packFailure(label, '素材库不可用，请启用素材库后重新导入')); continue }
       try {
         await inspectCardPack(library, zip, pack, async preview => {
-          const decision = previewDecision(preview, packDecisions[pack.id] || 'update')
-          if (!decision) {
-            await library.applyImport({ inspectionId: preview.inspectionId, decision: 'cancel' }).catch(() => {})
-            notices.push('素材包「' + label + '」' + ((preview.scriptRisk || []).length ? '带脚本' : '和素材库里已有的包冲突') + '，没有自动装入，请在素材库里处理')
-            return
+          if (previewDecision(preview, 'update')) ready.push({ pack, label, preview })
+          else {
+            await cancelPack(library, preview)
+            notices.push(packFailure(label, (preview.scriptRisk || []).length ? '带脚本，请到素材库单独导入并确认脚本' : '与已有素材包冲突，请到素材库单独处理'))
           }
-          const kept = packBackups && packConflict(preview) ? { packId: pack.id, title: label, file: pack.id + '.zip' } : null
-          if (kept) {
-            await mkdir(packBackups.dir, { recursive: true })
-            await backupPack(path.join(packBackups.dir, kept.file), { packId: pack.id, expectedRevision: preview.expectedRevision })
-          }
-          await library.applyImport({ inspectionId: preview.inspectionId, decision, expectedRevision: preview.expectedRevision })
-          if (kept) packBackups.list.push(kept)
         })
+      } catch (error) { notices.push(packFailure(label, packError(error))) }
+    }
+    return { library, ready, notices }
+  }
+  async function installPacksInLibrary(zip, packs, { packDecisions = {}, packBackups, stage } = {}) {
+    const { library, ready, notices } = stage || await inspectCardPacks(zip, packs)
+    for (const { pack, label, preview } of ready) {
+      try {
+        const decision = previewDecision(preview, packDecisions[pack.id] || 'update')
+        const kept = packBackups && packConflict(preview) ? { packId: pack.id, title: label, file: pack.id + '.zip' } : null
+        if (kept) {
+          await mkdir(packBackups.dir, { recursive: true })
+          await backupPack(path.join(packBackups.dir, kept.file), { packId: pack.id, expectedRevision: preview.expectedRevision })
+        }
+        await library.applyImport({ inspectionId: preview.inspectionId, decision, expectedRevision: preview.expectedRevision })
+        if (kept) packBackups.list.push(kept)
       } catch (error) {
-        notices.push('素材包「' + label + '」装进素材库失败：' + str(error?.message || error))
+        await cancelPack(library, preview)
+        notices.push(packFailure(label, packError(error)))
       }
     }
     return notices
   }
-  // Before an archive is imported or a card updated from it: the card's name, version and cover, and the packs the
-  // player decides about (packConflict) with the asset library's choices and what a 完全替换 would remove from them.
   async function previewCardArchiveFile(file, name, { password } = {}) {
     if (/\.(dshcard|charx)\.png$/i.test(name)) throw new Error('卡包请使用 .dshcard 文件')
+    await discardCardArchivePreview(file)
+    const hash = await cardImportIdentity.fileSha256(file)
     const zip = await openCardZip(file, { label: archiveLabel(name), password })
     try {
       const archive = await readCardArchive(zip)
       const data = archive.card.data || archive.card
       const icon = (Array.isArray(data.assets) ? data.assets : []).find(asset => asset?.type === 'icon' && asset.name === 'main')
       const coverType = icon && COVER_TYPES[str(icon.ext).toLowerCase()], coverBytes = coverType && archive.resolve(icon.uri)
-      const packs = [], library = packLibrary()
-      for (const pack of library ? archive.packs : []) {
-        // Only an installed pack with other content can need a decision; the others are not unpacked twice.
-        const installed = await library.getPackSnapshot({ packId: pack.id, readOnly: true })
-        if (!installed || pack.contentHash && installed.manifest.contentHash === pack.contentHash) continue
-        await inspectCardPack(library, zip, pack, async preview => {
-          if (packConflict(preview)) packs.push({ packId: pack.id, title: pack.title || pack.id, choices: preview.choices, removed: preview.removed || [] })
-          await library.applyImport({ inspectionId: preview.inspectionId, decision: 'cancel' })
-        })
-      }
-      return { card: { name: str(data.name), version: str(data.character_version).trim(), ...(coverBytes ? { cover: 'data:' + coverType + ';base64,' + coverBytes.toString('base64') } : {}) }, packs }
+      const stage = await inspectCardPacks(zip, archive.packs)
+      const packs = stage.ready.filter(({ preview }) => packConflict(preview)).map(({ pack, label, preview }) => ({ packId: pack.id, title: label, choices: preview.choices, removed: preview.removed || [] }))
+      const timer = setTimeout(() => { void discardCardArchivePreview(file) }, 15 * 60000).unref()
+      preparedPacks.set(file, { ...stage, hash, timer })
+      return { card: { name: str(data.name), version: str(data.character_version).trim(), ...(coverBytes ? { cover: 'data:' + coverType + ';base64,' + coverBytes.toString('base64') } : {}) }, packs,
+        ...(stage.notices.length ? { packNotices: stage.notices } : {}) }
     } finally { await zip.close() }
   }
+  function cardLibraryResult(notices) {
+    return notices.length ? { status: 'partial', libraryNotices: notices } : {}
+  }
+
   // A pack ZIP (or 素材包合集) read from disk where it is, as the asset library's import does it (inspectImportFile: the media
   // stream to disk and a full disk undoes the whole pack). A new pack is installed and an identical one left as it is; a pack
   // with scripts, or that clashes with an installed version, is not applied: the player decides in the asset library.
@@ -161,7 +180,7 @@ export function createCardFiles({ cardPreparation, fileResources, castAssets, as
     }
     return notices
   }
-  async function importCardArchiveFile(file, name, { password, replacePath, pluginChoices, packDecisions, packBackups } = {}) {
+  async function importCardArchiveFile(file, name, { password, replacePath, pluginChoices, packDecisions, packBackups, acceptMissingPacks, previewed } = {}) {
     if (/\.(dshcard|charx)\.png$/i.test(name)) throw new Error('卡包请使用 .dshcard 文件')
     const label = archiveLabel(name)
     // The very same file again: open the card already imported from it (if still unchanged), and make sure
@@ -169,20 +188,19 @@ export function createCardFiles({ cardPreparation, fileResources, castAssets, as
     const archiveSha256 = await cardImportIdentity.fileSha256(file)
     const existing = await cardImportIdentity.find(archiveSha256)
     const authenticated = await openCardZip(file, { label, password })
-    if (existing && !replacePath) {
-      const zip = authenticated
-      let libraryNotices = []
-      try {
-        const archive = await readCardArchive(zip)
-        libraryNotices = [...await installPacksInLibrary(zip, archive.packs, { packDecisions }), ...await dependencyNotices(archive.dependencies)]
-      } finally { await zip.close() }
-      return { path: existing, name: (await cardSummaries.read(existing).catch(() => null))?.name || existing.split('/').pop(), duplicate: true,
-        ...(libraryNotices.length ? { libraryNotices } : {}) }
-    }
     const zip = authenticated
     try {
       const archive = await readCardArchive(zip)
-      const libraryNotices = [...await installPacksInLibrary(zip, archive.packs, { packDecisions, packBackups }), ...await dependencyNotices(archive.dependencies)]
+      const stage = preparedPacks.get(file)
+      if (previewed && !stage) throw new Error('卡包预览已过期，请重新选择文件')
+      if (stage && stage.hash !== archiveSha256) {
+        await discardCardArchivePreview(file)
+        throw new Error('卡包在预览后变更，请重新选择文件')
+      }
+      if (stage?.notices.length && !acceptMissingPacks) throw new Error(stage.notices.join('；'))
+      if (stage) { preparedPacks.delete(file); clearTimeout(stage.timer) }
+      const libraryNotices = [...await installPacksInLibrary(zip, archive.packs, { packDecisions, packBackups, stage })]
+      if (existing && !replacePath) return { path: existing, name: (await cardSummaries.read(existing).catch(() => null))?.name || existing.split('/').pop(), duplicate: true, ...cardLibraryResult(libraryNotices) }
       const packs = []
       for (const pack of archive.packs) {
         const { pack: stored, reused } = await assetPacks.importFromZip(zip, pack)
@@ -208,7 +226,7 @@ export function createCardFiles({ cardPreparation, fileResources, castAssets, as
         ...(packs.length ? { packs: packs.map(({ id, contentHash, title, format, files, reused }) => ({ id, contentHash, title, format, files, reused })) } : {}),
         ...(plugins.length ? { plugins: plugins.map(({ name, purpose, files, bytes }) => ({ name, purpose, files, bytes, enabled: !pluginError && pluginChoices?.get(name) !== false })) } : {}),
         ...(pluginError ? { pluginError } : {}),
-        ...(libraryNotices.length ? { libraryNotices } : {}),
+        ...cardLibraryResult(libraryNotices),
         ...(defaults ? { startDefaults: { preset: defaults.presetPath ? defaults.presetPath.split('/').pop() : '', settings: defaults.settings || null } } : {}) }
     } finally { await zip.close() }
   }
@@ -460,7 +478,7 @@ export function createCardFiles({ cardPreparation, fileResources, castAssets, as
         await cardPlugins.disable({ cardPath: target, plugins })
         await castAssets.replaceManifest(target, null)
         const card = input.file
-          ? await importCardArchiveFile(input.file, input.name, { password: input.password, replacePath: target, pluginChoices: choices, packDecisions: input.packDecisions, packBackups: { dir: path.join(dir, 'packs'), list: record.packs } })
+          ? await importCardArchiveFile(input.file, input.name, { password: input.password, replacePath: target, pluginChoices: choices, packDecisions: input.packDecisions, acceptMissingPacks: input.acceptMissingPacks, previewed: input.previewed, packBackups: { dir: path.join(dir, 'packs'), list: record.packs } })
           : await importCard(input.payload, { replacePath: target })
         // The card's own bubble settings maintain an entry of its world book (the archive import syncs it too).
         if (!input.file) await syncBubbles(target)
@@ -488,5 +506,5 @@ export function createCardFiles({ cardPreparation, fileResources, castAssets, as
       return { path: record.cardPath, reverted: true }
     })
   }
-  return { replaceCard, revertCardUpdate, importCard, importCardArchiveFile, importPackArchiveFile, previewCardArchiveFile, importPluginCardFile, presentCardText, exportCardPng, exportCardFile }
+  return { discardCardArchivePreview, replaceCard, revertCardUpdate, importCard, importCardArchiveFile, importPackArchiveFile, previewCardArchiveFile, importPluginCardFile, presentCardText, exportCardPng, exportCardFile }
 }

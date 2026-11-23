@@ -74,7 +74,7 @@ test('upload survives missing/wrong password retries, is removed after success, 
   await encryptCardArchiveFile(f.plain, f.encrypted, PASSWORD)
   const uploads = createUploads({ root: f.dir })
   let imported = 0
-  const handlers = createCardHandlers({ uploads, str: String, async importCardArchiveFile(file, name, options) {
+  const handlers = createCardHandlers({ uploads, str: String, async discardCardArchivePreview() {}, async importCardArchiveFile(file, name, options) {
     const zip = await openCardZip(file, options)
     try { const result = await readCardArchive(zip); imported++; return { name: result.card.data.name } } finally { await zip.close() }
   } })

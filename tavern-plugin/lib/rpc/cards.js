@@ -11,7 +11,7 @@ import { createScriptCardUpdate } from '../domain/script-card-update.js'
 export function createCardHandlers(deps) {
   const { agentRegistry, cardMemory, cardOrganization, cardPacksOf, cardPlugins, cardPreparation,
     cardTaskPrompts, castAssets, chatForSession, deleteCard, ensureNativeCardWorkspace, fileResources,
-    importCard, importCardArchiveFile, importPackArchiveFile, importPluginCardFile, previewCardArchiveFile, replaceCard, revertCardUpdate, listCards, mobileCardImport, pluginApi,
+    importCard, importCardArchiveFile, importPackArchiveFile, importPluginCardFile, previewCardArchiveFile, discardCardArchivePreview, replaceCard, revertCardUpdate, listCards, mobileCardImport, pluginApi,
     readCardWorkspace, runtimePrompt, sessionStore, setCardPlugins, sleep, str, updateCard, uploads,
     worldBooks } = deps
   const scriptCard = createScriptCardUpdate({ presentCardText: path => deps.presentCardText(path), readCardWorkspace,
@@ -97,8 +97,11 @@ export function createCardHandlers(deps) {
     },
     async importMobileCard(args) {
       const archive = await mobileCardImport.archive(args && args.id)
-      if (archive && /\.zip$/i.test(archive.name)) return await importPackArchiveFile(archive.file)
-      return { card: archive ? await importCardArchiveFile(archive.file, archive.name, { password: args?.password }) : await importCard(await mobileCardImport.read(args && args.id)) }
+      if (!archive) return { card: await importCard(await mobileCardImport.read(args && args.id)) }
+      if (/\.zip$/i.test(archive.name)) return await importPackArchiveFile(archive.file)
+      if (args?.discard) { await discardCardArchivePreview(archive.file); return {} }
+      if (args?.preview) return { preview: await previewCardArchiveFile(archive.file, archive.name, { password: args.password }) }
+      return { card: await importCardArchiveFile(archive.file, archive.name, { password: args?.password, packDecisions: args?.packDecisions, acceptMissingPacks: args?.acceptMissingPacks === true, previewed: args?.previewed === true }) }
     },
     async importCard(args) {
       return { card: args?.replacePath ? await replaceCard(args.replacePath, { payload: args.payload }) : await importCard(args && args.payload) }
@@ -119,25 +122,29 @@ export function createCardHandlers(deps) {
       let keepForPasswordRetry = false
       try {
         if (args?.replacePath) {
-          if (/\.(charx|dshcard)$/i.test(name)) return { card: await replaceCard(args.replacePath, { file: upload.file, name, password: args.password, packDecisions }) }
+          if (/\.(charx|dshcard)$/i.test(name)) return { card: await replaceCard(args.replacePath, { file: upload.file, name, password: args.password, packDecisions, acceptMissingPacks: args.acceptMissingPacks === true, previewed: args.previewed === true }) }
           if (/\.png$/i.test(name)) return { card: await replaceCard(args.replacePath, { payload: pngPayload(await readFile(upload.file), name) }) }
           throw new Error('更新支持 PNG、JSON、CHARX 和 DSHCARD 人物卡')
         }
-        if (/\.(charx|dshcard)$/i.test(name)) return { card: await importCardArchiveFile(upload.file, name, { password: args?.password, packDecisions }) }
+        if (/\.(charx|dshcard)$/i.test(name)) return { card: await importCardArchiveFile(upload.file, name, { password: args?.password, packDecisions, acceptMissingPacks: args?.acceptMissingPacks === true, previewed: args?.previewed === true }) }
         if (/\.(dshcard|charx)\.png$/i.test(name)) throw new Error('卡包请使用 .dshcard 文件')
         if (/\.png$/i.test(name)) return { card: await importCard(pngPayload(await readFile(upload.file), name)) }
         if (await pluginApi.cardImporterFor(name)) return { card: await importPluginCardFile(upload.file, name) }
         throw new Error('无法识别的人物卡文件（需要 PNG、JSON、CHARX、DSH 人物卡 .dshcard，或装上能导入这种文件的插件）')
       }
       catch (error) { keepForPasswordRetry = isCardPasswordError(error); throw error }
-      finally { if (!keepForPasswordRetry) await upload.remove() }
+      finally { if (!keepForPasswordRetry) { await discardCardArchivePreview(upload.file); await upload.remove() } }
     },
     async revertCardUpdate(args) {
       return await revertCardUpdate(args?.updateId)
     },
     async discardCardUpload(args) {
       if (isCardArchiveUpload(args?.uploadId)) await deps.cardArchiveUploads.discard(args.uploadId)
-      else await (await uploads.take(args?.uploadId)).remove()
+      else {
+        const upload = await uploads.take(args?.uploadId)
+        await discardCardArchivePreview(upload.file)
+        await upload.remove()
+      }
       return { removed: true }
     },
     async encryptCardUpload(args) {
