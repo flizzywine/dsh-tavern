@@ -7,6 +7,7 @@ import {importFigureVariants} from './import-figure-variants.js'
 import {createVoiceAuthoring,retainVoiceEmotionPointers} from './voice-authoring.js'
 import figureResolution from '../shared/figure-resolution.cjs'
 import {migrateCgFigures} from '../asset-packs/cg-figures.js'
+import {normalizeVoiceServices} from '../shared/voice-schema.js'
 import {normalizePackImport} from './normalize-import.js'
 import {migrateFigureNames, migrateFigureNameBaselines, normalizeFigureAliases} from '../asset-packs/figure-names.js'
 import {normalizePackTags,normalizeEntryTags} from '../asset-packs/item-migration.js'
@@ -423,6 +424,7 @@ export function createAssetPackService(options) {
         if (!before.diagnostics?.length) {
           const manifest = copy(before.manifest), files = new Map(before.files), figures = {...before.figures}
           const extra = await mutate(manifest, files, before)
+          normalizeVoiceServices(manifest.voiceLibrary)
           Object.assign(manifest,normalizePackTags(manifest))
           for(const id of manifest.figures) {
             const name='figures/'+id+'.json',bytes=files.get(name)
@@ -461,6 +463,7 @@ export function createAssetPackService(options) {
       // `hashed` carries CAS names this edit just computed, so sealing does not hash those bytes again.
       const manifest = copy(before.manifest), files = new Map(before.files), hashed = new Map()
       const extra = await mutate(manifest, files, before, hashed)
+      normalizeVoiceServices(manifest.voiceLibrary)
       Object.assign(manifest,normalizePackTags(manifest))
           for(const id of manifest.figures) {
             const name='figures/'+id+'.json',bytes=files.get(name)
