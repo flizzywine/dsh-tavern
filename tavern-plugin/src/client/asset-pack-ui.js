@@ -595,8 +595,7 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
     async function saveTo(job,result){
       setExporting({...job.state,phase:'save',loaded:0,total:0});
       const saved=await binding.download(result,{target:job.target,name:job.many?undefined:job.name,onProgress:p=>setExporting({...job.state,phase:'save',...p})});
-      const names=(saved?.names||[]).map(n=>'「'+n+'」').join('');
-      setExported({text:saved?.picked?'已导出到 '+names:'已开始下载 '+names});
+      setExported({text:saved.said});
     }
     const runExport=(job,start)=>work.task(async()=>{
       setExported(null);

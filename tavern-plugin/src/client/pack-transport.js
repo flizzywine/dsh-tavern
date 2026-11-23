@@ -2,19 +2,22 @@
 // pickExportTarget runs first, inside the click: the native save-as dialog (one file, suggested `name`) or a folder
 // picker (`many`: a batch may come back as several volumes), so the player chooses where before any packing starts.
 // It resolves null where the browser has no picker (phones, remote browsers): the file then goes through an ordinary
-// download. It rejects with an AbortError when the dialog is closed.
+// download. It rejects with an AbortError when the dialog is closed. The dialog opens in Downloads the first time and
+// then where the last export was saved (the browser remembers the folder per `id`).
+// `type` is the file's media type for the dialog's filter (default ZIP; a JSON or PNG card export names its own).
 const PACK_ROOT = '/api/dsh-asset-library/v2/';
 function exportFileName(name) { return String(name || '').replace(/[\\/:*?"<>|\r\n]/g, '_').trim() || '导出'; }
-async function pickExportTarget({name, many = false, description = 'ZIP 压缩包', extension = '.zip'}) {
+async function pickExportTarget({name, many = false, description = 'ZIP 压缩包', extension = '.zip', type = 'application/zip'}) {
     if (many ? typeof window.showDirectoryPicker !== 'function' : typeof window.showSaveFilePicker !== 'function') return null;
-    if (many) return {folder:await window.showDirectoryPicker({id:'dsh-export', mode:'readwrite'})};
-    const file = await window.showSaveFilePicker({id:'dsh-export', suggestedName:exportFileName(name) + extension, types:[{description, accept:{'application/zip':[extension]}}]});
+    if (many) return {folder:await window.showDirectoryPicker({id:'dsh-export', mode:'readwrite', startIn:'downloads'})};
+    const file = await window.showSaveFilePicker({id:'dsh-export', startIn:'downloads', suggestedName:exportFileName(name) + extension, types:[{description, accept:{[type]:[extension]}}]});
     return {file};
 }
 // saveExportFile(result, {target, name, onProgress, signal}) writes each archive of an export result ({download:{ticket}},
 // {url} of a GET that streams the file, or {bytes}) to the picked target, streamed to disk with onProgress({loaded,
 // total}) per file; without a target it hands the file to an ordinary download. `name` (no extension; the archive's
-// own is kept) overrides the file name of a single archive. Resolves {names:[saved file names], picked:boolean}. A failed write removes the half-written file.
+// own is kept) overrides the file name of a single archive. Resolves {names:[saved file names], picked:boolean, said}: `said`
+// is the one sentence every export shows when done, where the file is. A failed write removes the half-written file.
 async function saveExportFile(result, {target = null, name, onProgress, signal} = {}) {
     const archives = result.archives || [result], names = [];
     const fileName = archive => archives.length === 1 && name ? exportFileName(name) + (/\.[^.]+$/.exec(archive.filename || '')?.[0] || '.zip') : archive.filename || 'asset-pack.zip';
@@ -49,7 +52,9 @@ async function saveExportFile(result, {target = null, name, onProgress, signal} 
         if (blob) setTimeout(() => URL.revokeObjectURL(url), 1000);
         names.push(filename);
     }
-    return {names, picked:!!target};
+    const files = names.map(n => '「' + n + '」').join('');
+    // the page never learns the folder the dialog chose (a file handle has no path), so it names the choice instead.
+    return {names, picked:!!target, said:target ? '已导出 ' + files + '，在刚才保存框里选的文件夹里。' : '已开始下载 ' + files + '，在浏览器的下载列表里。'};
 }
 // browser port for the authenticated v2 package transport.
 function createPackTransport({fetch: request = fetch, interval = 2000, subscribeChanges} = {}) {
