@@ -435,9 +435,11 @@ ctx.tavernUi.registerStatusSection({ id: 'scene', title: '当前场景', render:
 - `render` 返回 `null` 时隐藏整节。`render` 可以是使用 React hooks 的组件函数，直接返回 `null` 或该节的内容。
 - 出错时这一节只显示一行错误，状态页其余部分照常。卡内插件的分节只出现在它那张卡的局里。插件卸载时自动移除。
 
-## `registerTurnView({ id, label, render })`（第 3 版）
+## `registerTurnView({ id, label, render, placement? })`（第 3 版）
 
 换一种方式显示**整轮正文**，例如对话气泡、剧本排版。`render` 收到 Tavern 自己渲染好的这一轮正文作 `children`，插件可以在外面包一层、在前后加东西，或者自己重画；正文本身（存档里的内容）不变。
+
+只需给每轮加一段内容时设 `placement:'after'`。内容会显示在当前正文样式的下方，`render` 收到的 `children` 为 `null`。可用 `greeting` 等字段挑选对应楼层。
 
 ```js
 ctx.tavernUi.registerTurnView({

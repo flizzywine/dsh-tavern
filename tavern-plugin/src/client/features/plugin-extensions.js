@@ -982,8 +982,9 @@
 					if (!input || typeof input.id !== "string" || !/^[a-z0-9][a-z0-9._-]{0,63}$/.test(input.id)) throw new TypeError("registerTurnView 的 id 只能用小写字母、数字、点、下划线和连字符");
 					if (typeof input.label !== "string" || !input.label.trim() || input.label.trim().length > 20) throw new TypeError("registerTurnView 需要 1–20 字的 label");
 					if (typeof input.render !== "function") throw new TypeError("registerTurnView 需要 render 函数");
+					if (input.placement !== undefined && input.placement !== "after") throw new TypeError("registerTurnView 的 placement 只支持 after");
 					const owner = ownerOf(this);
-					const entry = { key: owner + ":" + input.id, owner: owner, label: input.label.trim(), render: input.render };
+					const entry = { key: owner + ":" + input.id, owner: owner, label: input.label.trim(), render: input.render, after: input.placement === "after" };
 					return owned(this, function () {
 						if (turnViews.some(function (view) { return view.key === entry.key; })) throw new Error("正文视图 " + input.id + " 已注册");
 						return addTo(turnViews, entry);
@@ -1128,18 +1129,22 @@
 		}
 
 		function useTavernTurnView(sessionId) {
-			return useTavernPluginViewChoice(tavernUiExtensions.turnViews(), "dsh-tavern-turn-view", sessionId);
+			const views = tavernUiExtensions.turnViews();
+			const choice = useTavernPluginViewChoice(views.filter(entry => !entry.after), "dsh-tavern-turn-view", sessionId);
+			return {...choice, after: views.filter(entry => entry.after && tavernPluginAllowed(entry.owner, sessionId))};
 		}
 		function TavernTurnPluginView(props) {
 			const rendered = props.view.render(props.input);
 			return rendered === null || rendered === undefined ? props.fallback : rendered;
 		}
 		/** A turn's story in the chosen plugin look; Tavern's own rendering when there is none or it fails. */
-		function tavernTurnViewElement(view, input, body) {
-			if (!view) return body;
-			const fallback = React.createElement(React.Fragment, null, body);
-			return React.createElement(tavernPluginBoundary(), { key: view.key, owner: view.owner, fallback: fallback },
-				React.createElement(TavernTurnPluginView, { view: view, input: Object.assign({}, input, { children: fallback }), fallback: fallback }));
+		function tavernTurnViewElement(choice, input, body) {
+			if (!choice) return body;
+			const h = React.createElement;
+			const render = (view, fallback) => h(tavernPluginBoundary(), { key: view.key, owner: view.owner, fallback },
+				h(TavernTurnPluginView, { view, input: {...input, children: fallback}, fallback }));
+			const main = choice.view ? render(choice.view, h(React.Fragment, null, body)) : body;
+			return choice.after.length ? h(React.Fragment, null, main, ...choice.after.map(view => render(view, null))) : main;
 		}
 
 		function tavernPluginStatusSection(title, body) {

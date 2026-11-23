@@ -454,6 +454,7 @@ function createTavernStoryTranscriptFeature(deps) {
 		// pluginMediaForTurn 按当前正文版本读取，不把附件复制进 transcript 快照。
 		// Hook 在 user/assistant 分支前调用；用户行传空会话，不建立媒体订阅。
 		const mediaSessionId = row.role === 'assistant' ? String(props.sessionId || '') : ''
+		const turnView = typeof useTavernTurnView === 'function' ? useTavernTurnView(mediaSessionId) : null
 		const pluginMedia = typeof useTavernPluginMedia === 'function'
 			? useTavernPluginMedia(mediaSessionId, projectionTurn, playView && !row.streaming)
 			: { key: null, items: [] }
@@ -515,6 +516,10 @@ function createTavernStoryTranscriptFeature(deps) {
 		const bodyNode = legacyGreeting
 			? h(StoryLegacyGreeting, { key: String(props.sessionId || '') + ':greeting', source: greetingSource }, rawBody)
 			: rawBody
+		const turnBody = playView && (turnView?.view || turnView?.after.length) ? tavernTurnViewElement(turnView, {
+			gameId: mediaSessionId, turn: projectionTurn, settled: !row.streaming, streaming: row.streaming === true,
+			greeting: row.greeting === true, text: row.text, lines: bubbleCastLines(projection?.body)
+		}, bodyNode) : bodyNode
 		// 与原生渲染一致：正文渲染会登记已落位的 anchor；其余媒体只追加一次。
 		const trailingMedia = pluginMedia.items.filter(function (item) { return !(pluginText && pluginText.placed.has(item.id)) })
 		const pluginMediaNode = trailingMedia.length && typeof TavernPluginMediaItem === 'function'
@@ -590,7 +595,7 @@ function createTavernStoryTranscriptFeature(deps) {
 					})
 					: null
 			})() : null,
-			h('div', { className: 'dsh-tavern-story-body' }, bodyNode),
+			h('div', { className: 'dsh-tavern-story-body' }, turnBody),
 			row.greeting && !props.running && props.helperView?.tavernHelper?.openingHost
 				? h(TavernOpeningNav, { sessionId: props.sessionId, opening: props.helperView.tavernHelper.openingHost,
 					lifecycleRevision: Number(props.helperView.tavernHelper.lifecycleRevision) || 0 }) : null,

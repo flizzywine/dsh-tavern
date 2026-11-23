@@ -39374,8 +39374,9 @@ function tavernFloorHeightRecall(key, width) {
 					if (!input || typeof input.id !== "string" || !/^[a-z0-9][a-z0-9._-]{0,63}$/.test(input.id)) throw new TypeError("registerTurnView 的 id 只能用小写字母、数字、点、下划线和连字符");
 					if (typeof input.label !== "string" || !input.label.trim() || input.label.trim().length > 20) throw new TypeError("registerTurnView 需要 1–20 字的 label");
 					if (typeof input.render !== "function") throw new TypeError("registerTurnView 需要 render 函数");
+					if (input.placement !== undefined && input.placement !== "after") throw new TypeError("registerTurnView 的 placement 只支持 after");
 					const owner = ownerOf(this);
-					const entry = { key: owner + ":" + input.id, owner: owner, label: input.label.trim(), render: input.render };
+					const entry = { key: owner + ":" + input.id, owner: owner, label: input.label.trim(), render: input.render, after: input.placement === "after" };
 					return owned(this, function () {
 						if (turnViews.some(function (view) { return view.key === entry.key; })) throw new Error("正文视图 " + input.id + " 已注册");
 						return addTo(turnViews, entry);
@@ -39520,18 +39521,22 @@ function tavernFloorHeightRecall(key, width) {
 		}
 
 		function useTavernTurnView(sessionId) {
-			return useTavernPluginViewChoice(tavernUiExtensions.turnViews(), "dsh-tavern-turn-view", sessionId);
+			const views = tavernUiExtensions.turnViews();
+			const choice = useTavernPluginViewChoice(views.filter(entry => !entry.after), "dsh-tavern-turn-view", sessionId);
+			return {...choice, after: views.filter(entry => entry.after && tavernPluginAllowed(entry.owner, sessionId))};
 		}
 		function TavernTurnPluginView(props) {
 			const rendered = props.view.render(props.input);
 			return rendered === null || rendered === undefined ? props.fallback : rendered;
 		}
 		/** A turn's story in the chosen plugin look; Tavern's own rendering when there is none or it fails. */
-		function tavernTurnViewElement(view, input, body) {
-			if (!view) return body;
-			const fallback = React.createElement(React.Fragment, null, body);
-			return React.createElement(tavernPluginBoundary(), { key: view.key, owner: view.owner, fallback: fallback },
-				React.createElement(TavernTurnPluginView, { view: view, input: Object.assign({}, input, { children: fallback }), fallback: fallback }));
+		function tavernTurnViewElement(choice, input, body) {
+			if (!choice) return body;
+			const h = React.createElement;
+			const render = (view, fallback) => h(tavernPluginBoundary(), { key: view.key, owner: view.owner, fallback },
+				h(TavernTurnPluginView, { view, input: {...input, children: fallback}, fallback }));
+			const main = choice.view ? render(choice.view, h(React.Fragment, null, body)) : body;
+			return choice.after.length ? h(React.Fragment, null, main, ...choice.after.map(view => render(view, null))) : main;
 		}
 
 		function tavernPluginStatusSection(title, body) {
@@ -43017,7 +43022,7 @@ function tavernFloorHeightRecall(key, width) {
                     ? React.createElement(TavernPreparedScriptMessage, {key:props.sessionId+":"+prepared.lifecycleRevision, sessionId:props.sessionId, preparedText:prepared.text, executeSlash:props.executeSlash}) : null;
                 const tavernBody = legacyGreeting ? React.createElement(TavernLegacyGreeting, {key:props.sessionId+":greeting", source:greetingSource, sessionId:props.sessionId, executeSlash:props.executeSlash}, rendered) : rendered;
                 // A plugin's look for the whole turn (registerTurnView) wraps Tavern's own rendering.
-                const body = playView && !waitingForHistory ? tavernTurnViewElement(turnView.view, { gameId: props.sessionId, turn: storyTurn, settled: settled, streaming: data.status === "running",
+                const body = playView && !waitingForHistory ? tavernTurnViewElement(turnView, { gameId: props.sessionId, turn: storyTurn, settled: settled, streaming: data.status === "running",
                     greeting: greetingId === 0, text: (data.blocks || []).filter(block => block && block.kind === "text").map(block => String(block.text || "")).join("\n"),
                     lines: bubbleCastLines(projection && projection.body) }, tavernBody) : tavernBody;
                 const refusalNotice = settled && !sessionTransitioning ? tavernModelRefusalNotice((data.blocks || []).filter(block => block && block.kind === "text").map(block => String(block.text || "")).join("\n")) : "";
@@ -46044,6 +46049,7 @@ function createTavernStoryTranscriptFeature(deps) {
 		// pluginMediaForTurn 按当前正文版本读取，不把附件复制进 transcript 快照。
 		// Hook 在 user/assistant 分支前调用；用户行传空会话，不建立媒体订阅。
 		const mediaSessionId = row.role === 'assistant' ? String(props.sessionId || '') : ''
+		const turnView = typeof useTavernTurnView === 'function' ? useTavernTurnView(mediaSessionId) : null
 		const pluginMedia = typeof useTavernPluginMedia === 'function'
 			? useTavernPluginMedia(mediaSessionId, projectionTurn, playView && !row.streaming)
 			: { key: null, items: [] }
@@ -46105,6 +46111,10 @@ function createTavernStoryTranscriptFeature(deps) {
 		const bodyNode = legacyGreeting
 			? h(StoryLegacyGreeting, { key: String(props.sessionId || '') + ':greeting', source: greetingSource }, rawBody)
 			: rawBody
+		const turnBody = playView && (turnView?.view || turnView?.after.length) ? tavernTurnViewElement(turnView, {
+			gameId: mediaSessionId, turn: projectionTurn, settled: !row.streaming, streaming: row.streaming === true,
+			greeting: row.greeting === true, text: row.text, lines: bubbleCastLines(projection?.body)
+		}, bodyNode) : bodyNode
 		// 与原生渲染一致：正文渲染会登记已落位的 anchor；其余媒体只追加一次。
 		const trailingMedia = pluginMedia.items.filter(function (item) { return !(pluginText && pluginText.placed.has(item.id)) })
 		const pluginMediaNode = trailingMedia.length && typeof TavernPluginMediaItem === 'function'
@@ -46180,7 +46190,7 @@ function createTavernStoryTranscriptFeature(deps) {
 					})
 					: null
 			})() : null,
-			h('div', { className: 'dsh-tavern-story-body' }, bodyNode),
+			h('div', { className: 'dsh-tavern-story-body' }, turnBody),
 			row.greeting && !props.running && props.helperView?.tavernHelper?.openingHost
 				? h(TavernOpeningNav, { sessionId: props.sessionId, opening: props.helperView.tavernHelper.openingHost,
 					lifecycleRevision: Number(props.helperView.tavernHelper.lifecycleRevision) || 0 }) : null,
