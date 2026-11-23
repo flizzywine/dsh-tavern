@@ -399,32 +399,6 @@ function BubbleRow(props) {
                 props.enter || null)));
 }
 
-function TavernPluginDialogueBubbles({sessionId, owner, lines}) {
-    const h = React.createElement;
-    const segments = React.useMemo(() => lines.map(line => ({...line, kind: line.name ? 'bubble' : 'markdown'})), [lines]);
-    const select = React.useMemo(() => bubbleMessageSelector(segments), [segments]);
-    const config = useBubbles(sessionId, true, select)?.config;
-    const held = React.useSyncExternalStore(voiceChannel.subscribe, voiceChannel.held);
-    const activeStage = React.useSyncExternalStore(galActive.subscribe, galActive.get);
-    const stageAvailable = React.useSyncExternalStore(galStageAvailable.subscribe, galStageAvailable.get);
-    const canReplay = !held && activeStage !== sessionId && config?.voice?.enabled !== false;
-    React.useSyncExternalStore(voicePlayer.subscribe, () => {
-        const playing = voicePlayer.get();
-        return playing?.owner === owner ? JSON.stringify([playing.id, playing.loading, playing.error, playing.audio?.paused]) : '';
-    });
-    React.useEffect(() => () => { if (voicePlayer.get()?.owner === owner) voicePlayer.stopPlayback(); }, [owner, canReplay]);
-    return h('div', {className:'fork-bubbles'}, segments.map(segment => {
-        const {id, recording, text} = segment;
-        if (segment.kind !== 'bubble') return h('p', {key:id, className:'dsh-tavern-colored-markdown'}, text);
-        const voice = recording && canReplay ? {id, owner, sessionId, recorded:true, player:voicePlayer.get(),
-            click() { forkLipSync.wake(); void voicePlayer.playRecording(recording, {id, owner, cacheKey:JSON.stringify([owner, id, recording])}); }} : null;
-        const enter = stageAvailable && segment.stageTarget
-            ? h(StageEnterHere, {sessionId, target:segment.stageTarget}) : null;
-        const row = h(BubbleRow, {key:id, sessionId, segment, config, voice, enter});
-        return enter ? h(StageParagraph, {key:id}, row) : row;
-    }));
-}
-
 // Drop-in for TavernColoredMarkdown on assistant prose.
 // freeze the entire consumer, including Markdown and voice hooks.
 function BubblePublication(props) {
