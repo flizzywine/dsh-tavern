@@ -1,8 +1,11 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { crc32 } from 'node:zlib'
 import { decodeMedia, STAGE_IMAGE_MAX_BYTES } from '../src/pack-v2/media.js'
-import { inspectMedia } from '../src/pack-v2/validation.js'
+import { inspectMedia, SpooledFile } from '../src/pack-v2/validation.js'
 import { BLOB_MIME_TYPES } from '../src/asset-packs/index.js'
 
 // Header fixtures intentionally do not claim codec playability.
@@ -48,4 +51,21 @@ test('MP3 tag without frames and malformed audio lengths never attest audio', as
   await assert.rejects(decodeMedia(wav, {ext:'wav', size:wav.length}))
   const m4a = fixtures().m4a; m4a.writeUInt32BE(0xffffffff)
   await assert.rejects(decodeMedia(m4a, {ext:'m4a', size:m4a.length}))
+})
+
+test('spooled WAV validation finds chunks beyond the sample payload and checks their lengths', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'pack-wav-'))
+  t.after(() => rm(root, {recursive:true, force:true}))
+  const file = join(root, 'audio.wav'), wav = fixtures().wav, samples = Buffer.alloc(128 * 1024)
+  const data = Buffer.from(wav.subarray(36, 44))
+  data.writeUInt32LE(samples.length, 4)
+  // The fmt chunk is valid after data and lies beyond the first read window.
+  const bytes = Buffer.concat([wav.subarray(0, 12), data, samples, wav.subarray(12, 36)])
+  bytes.writeUInt32LE(bytes.length - 8, 4)
+  const descriptor = {ext:'wav', mime:'audio/wav', size:bytes.length}, spooled = new SpooledFile(bytes.length, file)
+  await writeFile(file, bytes)
+  assert.deepEqual(await inspectMedia(spooled, descriptor), await inspectMedia(bytes, descriptor))
+  bytes.writeUInt32LE(17, bytes.length - 20)
+  await writeFile(file, bytes)
+  await assert.rejects(inspectMedia(spooled, descriptor), /Truncated WAV/)
 })

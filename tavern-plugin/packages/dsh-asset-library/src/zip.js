@@ -3,7 +3,7 @@
 import { createReadStream, createWriteStream } from 'node:fs'
 import { open, stat, unlink } from 'node:fs/promises'
 import { randomUUID } from 'node:crypto'
-import { Readable, Transform } from 'node:stream'
+import { Readable, Transform, Writable } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
 import { createDeflateRaw, createInflateRaw, crc32 } from 'node:zlib'
 
@@ -49,6 +49,7 @@ export async function writeZip(filename, entries, { onProgress } = {}) {
     let n = 0
     while (n < bytes.length) { const result = await out.write(bytes, n, bytes.length - n, position); n += result.bytesWritten; position += result.bytesWritten }
   }
+  const archiveSink = () => new Writable({ write(bytes, _encoding, done) { put(bytes).then(() => done(), done) } })
   try {
     for (const entry of entries) {
       const name = Buffer.from(zipPath(entry.path), 'utf8'), key = entry.path.toLowerCase()
@@ -70,7 +71,7 @@ export async function writeZip(filename, entries, { onProgress } = {}) {
         if (!method) {
           // header first with sizes unknown, the bytes straight after it, then the finished header over the first one
           await put(header); await put(name)
-          for await (const chunk of (await source()).compose(meter)) await put(chunk)
+          await pipeline(await source(), meter, archiveSink())
           compressedSize = size; writeHeader()
           let n = 0
           while (n < header.length) n += (await out.write(header, n, header.length - n, offset + n)).bytesWritten
@@ -80,8 +81,11 @@ export async function writeZip(filename, entries, { onProgress } = {}) {
           // Do not produce archives that our anti-bomb limits would reject.
           if (compressedSize >= size || size > Math.max(1, compressedSize) * ZIP_LIMITS.ratio) { method = 0; compressedSize = size }
           writeHeader(); await put(header); await put(name)
-          const content = method === 0 ? createReadStream(spool).compose(createInflateRaw()) : createReadStream(spool)
-          for await (const chunk of content) await put(chunk)
+          if (method === 0) {
+            // A very compressible entry can expand by orders of magnitude in one
+            // inflater write. Feed it smaller input blocks and stream the output.
+            await pipeline(createReadStream(spool, { highWaterMark: 4 * 1024 }), createInflateRaw(), archiveSink())
+          } else await pipeline(createReadStream(spool), archiveSink())
         }
         // an entry starting at or past 4 GiB keeps its offset in a ZIP64 extra field
         const zip64 = offset >= U32, cd = Buffer.alloc(46), extra = Buffer.alloc(zip64 ? 12 : 0)

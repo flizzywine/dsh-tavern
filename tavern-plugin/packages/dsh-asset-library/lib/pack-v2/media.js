@@ -1,5 +1,6 @@
 // Bounded structural validation, not full compressed-media decoding.
 import { inflateSync, crc32 } from 'node:zlib'
+import { open } from 'node:fs/promises'
 import { check } from '../asset-packs/common.js'
 export const MEDIA_PURPOSE_LIMITS = Object.freeze({icon:512*1024,image:12*1024**2,background:8*1024**2,audio:96*1024**2})
 export const STAGE_IMAGE_MAX_BYTES = MEDIA_PURPOSE_LIMITS.image
@@ -45,25 +46,56 @@ export function pngSize(bytes, structural = false) {
   for (let i = 0; i < length; i += stride + 1) check(decoded[i] <= 4, '$.media', 'Invalid PNG filter')
   return {width:size[0], height:size[1]}
 }
-export function wavInfo(bytes) {
-  check(bytes.readUInt32LE(4) + 8 === bytes.length, '$.media', 'Invalid WAV size')
+async function readWavInfo(length, read) {
+  check(length >= 12, '$.media', 'Truncated WAV')
+  const header = await read(0, 12)
+  check(audioKind(header) === 'wav', '$.media', 'Invalid WAV signature')
+  check(header.readUInt32LE(4) + 8 === length, '$.media', 'Invalid WAV size')
   let format, data = 0, p = 12
-  for (; p + 8 <= bytes.length;) {
-    const size = bytes.readUInt32LE(p + 4), start = p + 8, end = start + size
-    check(end <= bytes.length, '$.media', 'Truncated WAV')
-    const kind = bytes.toString('ascii', p, p + 4)
+  for (; p + 8 <= length;) {
+    const chunk = await read(p, 8)
+    const size = chunk.readUInt32LE(4), start = p + 8, end = start + size
+    check(end <= length, '$.media', 'Truncated WAV')
+    const kind = chunk.toString('ascii', 0, 4)
     if (kind === 'fmt ') {
       check(!format && size >= 16, '$.media', 'Invalid WAV format')
-      const codec = bytes.readUInt16LE(start), channels = bytes.readUInt16LE(start + 2), rate = bytes.readUInt32LE(start + 4), align = bytes.readUInt16LE(start + 12), bits = bytes.readUInt16LE(start + 14)
-      check([1,3].includes(codec) && channels >= 1 && channels <= 8 && rate >= 8000 && rate <= 192000 && (codec === 1 ? [8,16,24,32].includes(bits) : [32,64].includes(bits)) && align === channels * bits / 8 && bytes.readUInt32LE(start + 8) === rate * align, '$.media', 'Invalid PCM WAV format')
+      const fields = await read(start, 16)
+      const codec = fields.readUInt16LE(0), channels = fields.readUInt16LE(2), rate = fields.readUInt32LE(4), align = fields.readUInt16LE(12), bits = fields.readUInt16LE(14)
+      check([1,3].includes(codec) && channels >= 1 && channels <= 8 && rate >= 8000 && rate <= 192000 && (codec === 1 ? [8,16,24,32].includes(bits) : [32,64].includes(bits)) && align === channels * bits / 8 && fields.readUInt32LE(8) === rate * align, '$.media', 'Invalid PCM WAV format')
       format = {align, rate}
     }
     if (kind === 'data') { check(!data, '$.media'); data = size }
     p = end + (size % 2)
-    check(p <= bytes.length, '$.media', 'Truncated WAV padding')
+    check(p <= length, '$.media', 'Truncated WAV padding')
   }
-  check(p === bytes.length && format && data > 0 && data % format.align === 0, '$.media', 'Missing WAV samples or trailing bytes')
+  check(p === length && format && data > 0 && data % format.align === 0, '$.media', 'Missing WAV samples or trailing bytes')
   return {durationMs:data / format.align / format.rate * 1000}
+}
+export function wavInfo(bytes) {
+  return readWavInfo(bytes.length, (offset, size) => bytes.subarray(offset, offset + size))
+}
+// WAV structure is described by its chunk headers. Skip sample payloads and reuse a small
+// window for neighboring headers, including files with many short ancillary chunks.
+export async function wavFileInfo(file, length) {
+  const handle = await open(file, 'r')
+  try {
+    check((await handle.stat()).size === length, file, 'Spooled file size changed', 'FILE_CLOSURE_MISMATCH')
+    const buffer = Buffer.allocUnsafe(64 * 1024)
+    let start = 0, available = 0
+    return await readWavInfo(length, async (offset, size) => {
+      if (offset + size > start + available) {
+        start = offset
+        available = 0
+        const requested = Math.min(buffer.length, length - start)
+        while (available < size) {
+          const {bytesRead} = await handle.read(buffer, available, requested - available, start + available)
+          check(bytesRead > 0, '$.media', 'Truncated WAV')
+          available += bytesRead
+        }
+      }
+      return buffer.subarray(offset - start, offset - start + size)
+    })
+  } finally { await handle.close() }
 }
 export function imageDimensions(bytes, ext) {
   if (ext === 'webp') return portraitWebpSize(bytes)

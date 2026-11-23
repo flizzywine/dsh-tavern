@@ -14,7 +14,7 @@ import {normalizePackTags,normalizeEntryTags} from '../asset-packs/item-migratio
 import {migrateRecallPriorityManifest, migrateRecallPriorityFigure, migrateRecallPriorityBaselines} from '../asset-packs/recall-priority.js'
 import {BLOB_MIME_TYPES,verifyPackFiles,verifyPackHashes} from '../asset-packs/index.js'
 import { randomUUID, createHash } from 'node:crypto'
-import { createReadStream, createWriteStream } from 'node:fs'
+import { createWriteStream } from 'node:fs'
 import { compose, Transform } from 'node:stream'
 import { publicNetwork, downloadBounded } from '../pack-catalogue/network.js'
 import { httpsUrl } from '../pack-catalogue/catalogue.js'
@@ -37,7 +37,7 @@ import { mergePackContents } from './merge-packs.js'
 import { moveFigureContents } from './move-figures.js'
 import {createStageSetupMethods} from './stage-setup.js'
 import {createAutomaticWriteMethods, patchFigureDocument} from './automatic-writes.js'
-import { mkdir, stat, unlink, writeFile } from 'node:fs/promises'
+import { mkdir, open, stat, unlink, writeFile } from 'node:fs/promises'
 import { createPackStorage } from './storage.js'
 import {createModPrivateMethods,isModConfigPack} from './mod-private.js'
 import { isMetadataEdit } from './metadata-edit.js'
@@ -186,7 +186,19 @@ export function createAssetPackService(options) {
   // A pack/set import keys its uploadHash on the whole archive (one hash per transfer); a card bundle reads none.
   async function archiveFile(file) {
     const archive = await localArchive(file), hash = createHash('sha256')
-    for await (const chunk of createReadStream(file)) hash.update(chunk)
+    const handle = await open(file, 'r')
+    try {
+      const buffer = Buffer.allocUnsafe(256 * 1024)
+      let size = 0
+      for (;;) {
+        const {bytesRead} = await handle.read(buffer)
+        if (!bytesRead) break
+        size += bytesRead
+        check(size <= archive.size, '$.file', 'Archive size changed', 'INTEGRITY_MISMATCH')
+        hash.update(buffer.subarray(0, bytesRead))
+      }
+      check(size === archive.size, '$.file', 'Archive size changed', 'INTEGRITY_MISMATCH')
+    } finally { await handle.close() }
     return {...archive, archiveSha256:hash.digest('hex')}
   }
   const blankManifest=(id,name,description)=>({format:'dsh-asset-pack',schemaVersion:1,id,name,...(description===undefined?{}:{description}),contentHash:'0'.repeat(64),assets:[],figures:[],sprites:{},bundles:{},blobs:{},files:[]})
