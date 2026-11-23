@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "36316a7da3e63eee7cfbfcd1e0e9c5d22541e23c",
-  "releaseSequence": 1980,
+  "revision": "1ec3141e4a0062edf9898c7989f5b5e6f35a7b35",
+  "releaseSequence": 1981,
   "version": "3.4.0",
   "files": [
     {
@@ -7526,8 +7526,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-adventure-medal/lib/index.js",
-      "sha256": "4d0c8f4d7928bb9f1191365e3cd2071120133d4657baaa79f140e7d22233844d",
-      "size": 27040
+      "sha256": "aa82d47e21208604e11e266fe5028b235d4df3800cf4ec9f25c3f86975459830",
+      "size": 29011
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-adventure-medal/LICENSE",
@@ -7541,8 +7541,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-adventure-medal/README.md",
-      "sha256": "8ed4f92c8e84a01b18142a0c470be10fdde8014bb5e5a4baca4ee9b15d817366",
-      "size": 1376
+      "sha256": "5c9dd7f1c74372355b9448de0124c02a0d8fbf334d2e8a41e7a649fce20bf553",
+      "size": 1582
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-audiobook/build.mjs",
@@ -9626,8 +9626,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern/client.js",
-      "sha256": "409ccf01302a2793a6b34afd82d8facdfe16eaeb489eec38c4a37596403741d8",
-      "size": 53294
+      "sha256": "31500338c4fc4391dd20ac827725fa91dd273e4fde6270c4557e95dc64795254",
+      "size": 56091
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern/cordis.patch.yml",
@@ -10126,9 +10126,9 @@
     }
   ],
   "archive": {
-    "commit": "ab012f53c54555acffc3faa87154d9b7184f9d77",
+    "commit": "7d06f3228ed25522cbd8d9dfbf90a0309392744a",
     "path": "runtime.zip",
-    "sha256": "7158a87b07fd3c943923e1c34ef60520bce6da2dc74d4c4642be7693195f9d4e",
-    "size": 17804014
+    "sha256": "09ad996ab760d50e2692282dceb65d3cff982a7b06c1d1ae1a0cd8c27c98276f",
+    "size": 17805165
   }
 }
