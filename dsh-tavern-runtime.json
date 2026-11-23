@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "5cecb341cce25d8526746643e997bfa10db7513d",
-  "releaseSequence": 1988,
+  "revision": "22f82104ca24b46d9183041db1ad0009fae5524f",
+  "releaseSequence": 1989,
   "version": "3.4.0",
   "files": [
     {
@@ -111,8 +111,8 @@
     },
     {
       "path": "android/native/app/src/io/github/flizzywine/dshtavern/bionic/MainActivity.java",
-      "sha256": "0eaeb14ca2463d9d40ce70e1d1072cfcfac19ea973bcc06abfc6d6bf183c168c",
-      "size": 35444
+      "sha256": "eba7cca79281b26a5dc9a80af5af295fa0e2575de3fa9a531da8d0a89f287c1f",
+      "size": 35872
     },
     {
       "path": "android/native/app/src/io/github/flizzywine/dshtavern/bionic/TarExtractor.java",
@@ -121,8 +121,8 @@
     },
     {
       "path": "android/native/app/src/io/github/flizzywine/dshtavern/bionic/TavernService.java",
-      "sha256": "48bb71c45b2abd87f6bd9bead9e92f15aa119a679f81a8cf6d3317a493a2107e",
-      "size": 34695
+      "sha256": "307cad3a8fbd536d77ab1d32d5bde3b4a0fb6a3d35d929d46608147228d63535",
+      "size": 34825
     },
     {
       "path": "android/native/app/src/io/github/flizzywine/dshtavern/bionic/UpdatedReceiver.java",
@@ -186,8 +186,8 @@
     },
     {
       "path": "android/native/shims/android-preload.cjs",
-      "sha256": "69988d265edb8ad62546427625e0aa26b6aed395a1ca43c1d9394f53dd0d772c",
-      "size": 7508
+      "sha256": "e64185bd9ff3513d38375e7399496a0e4e8a11eae6046fb3059631794a547e91",
+      "size": 8047
     },
     {
       "path": "android/native/shims/node-addon-require-builtin/lib/index.js",
@@ -201,8 +201,8 @@
     },
     {
       "path": "android/native/shims/source-update.mjs",
-      "sha256": "328a1d2b997dc2f7b4b9511f919a634fef9cd7fc7839f68ef4a4abde0c92a5f0",
-      "size": 20287
+      "sha256": "b1de5ee6e114d02b0dc5cdde1e3d3870ff0d391fb85336f71b1b877fc756cbd3",
+      "size": 22796
     },
     {
       "path": "android/native/stage-payload.sh",
@@ -356,8 +356,8 @@
     },
     {
       "path": "bin/download.cjs",
-      "sha256": "38449a2f0914c419f502a2389cf8dc31956cb996edb4fab4bddee40ef47a889a",
-      "size": 26633
+      "sha256": "04f6cd3e454f22809dfa36ddc815e2214d3cddc14462f9f4ca89af23b82b5945",
+      "size": 26683
     },
     {
       "path": "bin/dsh-compatibility.mjs",
@@ -2201,8 +2201,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/game-save-import-content.js",
-      "sha256": "977de312120e49b52cfd9a35d24e44e13c4bb6fb435e61cf504b0e548f38161c",
-      "size": 4962
+      "sha256": "7a61f7338696aff51e013fe88ce70d11582768851ba0e0ed256a703457fea882",
+      "size": 5068
     },
     {
       "path": "tavern-plugin/lib/domain/game-save-import.js",
@@ -2216,8 +2216,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/game-save-snapshot.js",
-      "sha256": "98f1e3330503936b11e3137f34c96440f45ece72d8474599b1bbae8d633e6f6d",
-      "size": 1682
+      "sha256": "f38805a006482dc3207e7ed78df049ccd1434f199f2d8eb68d03356171ce2217",
+      "size": 2549
     },
     {
       "path": "tavern-plugin/lib/domain/game-save.js",
@@ -3536,8 +3536,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/sillytavern-migration-helper.js",
-      "sha256": "c46307c614188302795709bfee9de56d9449bee76def1c8f3fc900c9b3c1193b",
-      "size": 65057
+      "sha256": "1834b80011ec5b91c46b1d1989abe0cf8f23cc4b41ce2b989cbb9166e5350d0b",
+      "size": 68913
     },
     {
       "path": "tavern-plugin/lib/domain/skill-catalog-session-scope.js",
@@ -3966,8 +3966,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/transfer-catalog.js",
-      "sha256": "07e463785d8f71c4ab6aca90f21401c0292f284b6197948b2b0d6d7be1541479",
-      "size": 23909
+      "sha256": "d5a146d4e37ee79beea1157697bcd0c9723f82624e7b055dfd7783f85002188a",
+      "size": 24487
     },
     {
       "path": "tavern-plugin/lib/domain/transfer-chats.js",
@@ -3986,8 +3986,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/transfer-import.js",
-      "sha256": "6b4ee9c0435f7521fdca3419974d8de2a0e919f2d40b68be5e2544a3e9bd84b9",
-      "size": 35680
+      "sha256": "ea666b100f0e71623069f1a13bec30f2d55808a17dae452e93e864d5cfad6dba",
+      "size": 36892
     },
     {
       "path": "tavern-plugin/lib/domain/transfer-logs.js",
@@ -4376,8 +4376,8 @@
     },
     {
       "path": "tavern-plugin/lib/index.js",
-      "sha256": "b16ce622a56642f0618af0cab1c9fd497bbba29b9ca3b4dc380c01dc52bb1902",
-      "size": 335946
+      "sha256": "4570efd96c8effb3ced996511959d33ecb2ee194241b3defb1149eb88464f935",
+      "size": 335968
     },
     {
       "path": "tavern-plugin/lib/metadata-backup.js",
@@ -10126,9 +10126,9 @@
     }
   ],
   "archive": {
-    "commit": "aeab056233de30b9e6d9c3ffe9bd6b940579245a",
+    "commit": "75b9d9c47dd805a740e3b158d7b304508d751521",
     "path": "runtime.zip",
-    "sha256": "d2b85705ef6a4ebdf7efb3196c5fa0fa3826b78903c395a04a4212247c95c65a",
-    "size": 17808333
+    "sha256": "ae346ebacd352d3895cc94a2e2c6649c5b128de0ade504cdb882c99e7e8dc0a6",
+    "size": 17811761
   }
 }
