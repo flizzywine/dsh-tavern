@@ -2384,7 +2384,9 @@ export function createTavernPluginApi(deps) {
         const entry = settlementTools.get(name)
         if (!entry) return JSON.stringify({ ok: false, retryable: false, error: '插件工具 ' + name + ' 已不可用' })
         try {
-          if (!await settlementToolEnabled(entry, { gameId, turn }, (await choicesFor(gameId)).disabled) || settlementTools.get(name) !== entry) {
+          const { disabled } = await choicesFor(gameId)
+          if (disabled.has(entry.owner)) return JSON.stringify({ ok: false, retryable: false, error: '插件 ' + entry.owner + ' 不在本局生效，不要调用它的工具；以结算任务里列出的可用插件工具为准' })
+          if (!await settlementToolEnabled(entry, { gameId, turn }, disabled) || settlementTools.get(name) !== entry) {
             return JSON.stringify({ ok: false, retryable: false, error: '插件工具 ' + name + ' 当前未启用' })
           }
           if (++count > MAX_TOOL_CALLS_PER_SETTLEMENT) return JSON.stringify({ ok: false, retryable: false, error: '本轮插件工具调用次数已达上限，请继续完成结算' })
