@@ -6,7 +6,7 @@ import { appendFileSync, closeSync, createReadStream, existsSync, mkdirSync, ope
 import net from 'node:net'
 import { isAsarPath } from './desktop-host-paths.mjs'
 import { discoverVertexProject, patchPiAiVertexStream, repairVertexRouteBaseUrl, resolveVertexProject, vertexApiKeyFrom } from './pi-ai-vertex-stream-patch.mjs'
-import { patchPiAiNonStream } from './pi-ai-nonstream-patch.mjs'
+import { patchPiAiGoogleStopReason, patchPiAiGoogleToolMode, patchPiAiNonStream, patchPiAiOpenAIStore } from './pi-ai-nonstream-patch.mjs'
 import { patchChatAnswerStep } from './chat-answer-step-patch.mjs'
 import { patchChatReasoningFold } from './chat-reasoning-fold-patch.mjs'
 import { patchSettingsModelsEndpoints, SETTINGS_MODELS_PATCHED_VERSION } from './settings-models-endpoints-patch.mjs'
@@ -406,6 +406,15 @@ async function ensureRuntimePatches(dsh, host) {
         // object instead of a streamed argument list.
         if (existsSync(path.join(adapterDirectory, 'package.json')) && patchPiAiNonStream({ adapterDirectory, sdkDirectory })) {
           console.log('已为 pi-ai 适配器打开流式开关与 toolChoice 透传。')
+        }
+        if (patchPiAiOpenAIStore({ sdkDirectory })) {
+          console.log('已让 pi-ai 的 OpenAI 兼容渠道只在声明支持时发送 store 字段。')
+        }
+        if (patchPiAiGoogleStopReason({ sdkDirectory })) {
+          console.log('已让 pi-ai 把 Gemini 新增的结束原因当作普通报错。')
+        }
+        if (patchPiAiGoogleToolMode({ sdkDirectory })) {
+          console.log('已让 pi-ai 对 Gemini 3 以上的工具调用默认按定义约束生成。')
         }
       }
     }
