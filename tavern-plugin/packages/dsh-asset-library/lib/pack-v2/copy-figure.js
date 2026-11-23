@@ -3,9 +3,13 @@ import { randomUUID } from 'node:crypto'
 import { check, canonicalJson } from '../asset-packs/common.js'
 import { jsonBytes } from './validation.js'
 
-export function copyFigureAssets(source, figureId, manifest, files, {credits = true, voices = new Map(), extensions = {}} = {}) {
+export function copyFigureAssets(source, figureId, manifest, files, {credits = true, voices = new Map(), extensions = {}, copyVoice = true} = {}) {
   check(source?.figures?.[figureId], '$.source', 'Figure missing', 'ASSET_UNAVAILABLE')
   const figure = structuredClone(source.figures[figureId])
+  if (!copyVoice) {
+    delete figure.voice
+    for (const emotion of figure.emotions ?? []) delete emotion.voiceEmotion
+  }
   figure.extensions = {...figure.extensions,...extensions,dsh_tavern:{...figure.extensions?.dsh_tavern,copiedFrom:figure.extensions?.dsh_tavern?.copiedFrom || {packId:source.manifest.id,figureId}}}
   figure.id = randomUUID()
   const prefix = 'c' + figure.id.replaceAll('-', ''), sprites = new Map(), bundles = new Map()

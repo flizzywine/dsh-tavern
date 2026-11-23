@@ -8,6 +8,10 @@ const skinEnum = values => value => values.includes(value);
 const STAGE_SKIN_SOURCE_KINDS = ['official-asset','ai-generated','original'];
 const skinArray = (item,min,max) => value => Array.isArray(value) && value.length >= min && value.length <= max && value.every(item);
 const skinObject = (fields,required = []) => value => value !== null && typeof value === 'object' && !Array.isArray(value) && required.every(key => Object.hasOwn(value,key)) && Object.keys(value).every(key => Object.hasOwn(fields,key) && fields[key](value[key]));
+// textStyle.highlight: words of the story text drawn in an ink (display only; text-marks.cjs finds them). One word: its text (1-16 chars),
+// caseless (any letter case), whole (not inside a longer number or word) and except (longer phrases whose occurrences keep it plain).
+const skinTextHighlightWord = skinObject({text:value => typeof value === 'string' && value.length >= 1 && value.length <= 16,caseless:value => typeof value === 'boolean',whole:value => typeof value === 'boolean',except:skinArray(value => typeof value === 'string' && value.length >= 1 && value.length <= 16,1,16)},['text']);
+const skinTextHighlight = skinObject({ink:skinColor,words:skinArray(skinTextHighlightWord,1,16)},['ink','words']);
 const skinText = value => typeof value === 'string' && value.length > 0 && value.length <= 4096;
 const skinPaint = skinObject({bg:skinColor,fg:skinColor,fgMuted:skinColor,accent:skinColor,onAccent:skinColor,border:skinColor},['bg','fg']);
 const skinRings = (count,width) => skinArray(skinObject({width:skinNumber(1,width),color:skinColor},['width','color']),0,count);
@@ -938,7 +942,7 @@ const stageSkinShape = skinObject({
     // faces: the skin's own font files (skinFontFaces above); an id in body / name / ui / film may name one of them.
     font:skinObject({body:skinId,name:skinId,ui:skinId,film:skinId,menu:skinId,faces:skinFontFaces}),
     // textStyle.narration (§18 N9): the ink of narration pages (no speaker) in the box and the backlog, >= 7:1 on the box.
-    textStyle:skinObject({weight:skinEnum([400,500,700]),sizeScale:skinNumber(0.85,1.2),lineHeight:skinNumber(1.4,1.9),letterSpacing:skinNumber(0,0.12),emphasis:skinColor,wrap:skinEnum(['phrase']),narration:skinColor}),
+    textStyle:skinObject({weight:skinEnum([400,500,700]),sizeScale:skinNumber(0.85,1.2),lineHeight:skinNumber(1.4,1.9),letterSpacing:skinNumber(0,0.12),emphasis:skinColor,wrap:skinEnum(['phrase']),narration:skinColor,highlight:skinTextHighlight}),
     // (§18 E1): the stepped reveals' glyph track on the fixed 12/s clock. poses = the glyph's own entrance poses
     // (step 0, 1, ...; then at rest), replacing the reveal's two; stepFps = how long each pose holds, in whole steps
     // (round(12 / stepFps)); emphasis = the entrance ink (none: the body ink; ink: the flash) or jitter: the flash plus a
@@ -1018,7 +1022,7 @@ function validateStageSkin(value, at = 'art') {
         : !spinner.image || !skinSpinnerTiming(spinner))) throw Object.assign(new Error('Invalid skin loading animation'),{code:'INVALID_SKIN'});
     const paint=value.textbox.paint, name=value.nameplate.paint;
     const ui={...paint,...value.ui};
-    const pairs=[...(value.ui ? [[ui.fg,ui.bg,4.5],[ui.fgMuted,ui.bg,3],[ui.accent,ui.bg,4.5],[ui.onAccent,ui.accent,4.5]] : []),[paint.fg,paint.bg,4.5],[paint.fgMuted,paint.bg,3],[value.textStyle?.emphasis || paint.accent || paint.fg,paint.bg,4.5],...(value.textStyle?.narration ? [[value.textStyle.narration,paint.bg,7]] : []),[paint.onAccent,paint.accent,4.5],
+    const pairs=[...(value.ui ? [[ui.fg,ui.bg,4.5],[ui.fgMuted,ui.bg,3],[ui.accent,ui.bg,4.5],[ui.onAccent,ui.accent,4.5]] : []),[paint.fg,paint.bg,4.5],[paint.fgMuted,paint.bg,3],[value.textStyle?.emphasis || paint.accent || paint.fg,paint.bg,4.5],...(value.textStyle?.narration ? [[value.textStyle.narration,paint.bg,7]] : []),...(value.textStyle?.highlight ? [[value.textStyle.highlight.ink,paint.bg,4.5]] : []),[paint.onAccent,paint.accent,4.5],
         // The outlined names  take their contrast from the outline.
         [name.fg,['outline','chamfer'].includes(value.nameplate.shape) ? name.border : name.bg,4.5],[value.quickMenu?.fg,value.quickMenu?.bg,4.5],
         // the ransom plate also sets the name ink on its third block, paint.border.

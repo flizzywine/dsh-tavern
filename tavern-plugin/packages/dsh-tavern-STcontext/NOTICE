@@ -1,0 +1,5 @@
+DSH Tavern 随包分发授权
+
+STcontext 的项目权利人授权 DSH Tavern 项目（flizzywine/dsh-tavern）在其官方发行包中附带、复制和分发 dsh-tavern-STcontext v0.8.2 的官方发行文件，并在安装时将这些文件释放到用户的 Tavern 插件目录。
+
+授权版本对应 https://github.com/koabop/dsh-tavern-STcontext/releases/tag/v0.8.2 。随包分发时应保持插件运行文件原样，并保留包名、本声明和 lib/vendor/LICENSES.txt。第三方组件按该文件所列的各自许可证分发。

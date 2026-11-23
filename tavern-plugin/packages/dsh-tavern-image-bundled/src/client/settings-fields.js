@@ -504,14 +504,18 @@
     }
 
     /** One local reference per library object; binding is saved with the existing draft.
-     *  field='characterOutfitImage' edits a character's own outfit sheet (角色×服装设定图), sharing the outfit's 一致性补充. */
-    function ReferenceImageEditor({ value = {}, label, onChange, field = 'referenceImage', noun = '参考图', heading = '（每个对象一张）', consistency = true, compact = false }) {
+     *  field='characterOutfitImage' edits a character's own outfit sheet (角色×服装设定图), sharing the outfit's 一致性补充.
+     *  lent {picture, borrowed}: the picture Tavern's asset library lends a linked figure here (state.figurePictures). A 设定图
+     *  is what pictures use, changed in the asset library; a borrowed 立绘 stands in until a picture is uploaded here. */
+    function ReferenceImageEditor({ value = {}, label, onChange, field = 'referenceImage', noun = '参考图', heading = '（每个对象一张）', consistency = true, compact = false, lent = null }) {
       const [busy, setBusy] = React.useState(false)
       const [note, setNote] = React.useState('')
       const epoch = React.useRef(0)
       React.useEffect(() => () => { epoch.current += 1 }, [])
       const image = value[field]
       const imageId = /^[a-f0-9]{64}$/i.test(String(image?.id || '')) ? image.id : ''
+      const shown = lent?.picture && (!lent.borrowed || !imageId) ? lent.picture : null
+      const settei = Boolean(shown && !lent.borrowed)
       const inputStyle = { width: '100%', boxSizing: 'border-box', padding: '7px 9px', borderRadius: '7px', background: 'var(--dsw-specific-input-major)', color: 'var(--dsw-alias-label-primary)', border: '1px solid var(--dsw-alias-border-l2)', fontFamily: 'inherit', fontSize: '12px' }
       async function upload(event) {
         const file = event.target.files?.[0]
@@ -543,13 +547,15 @@
           if (request === epoch.current) setNote('上传失败：' + (error?.message || error))
         } finally { if (request === epoch.current) setBusy(false) }
       }
-      const preview = imageId ? h('img', { src: BASE + '/reference-image?id=' + encodeURIComponent(imageId), alt: label + noun,
+      const previewId = shown ? shown.id : imageId
+      const preview = previewId ? h('img', { src: BASE + '/reference-image?id=' + encodeURIComponent(previewId), alt: label + noun,
         style: compact ? undefined : { display: 'block', maxWidth: '180px', maxHeight: '160px', objectFit: 'contain', borderRadius: '7px', marginBottom: '7px' } }) : null
+      const caption = shown ? (settei ? '素材库设定图，在素材库人物页更换' : '借用素材库立绘，上传后改用上传的图') : imageId ? image.name || '已上传参考图' : ''
       const controls = h('div', null,
         h('div', { style: { fontSize: '12px', fontWeight: 600, marginBottom: '4px' } }, compact ? noun : label + noun + heading),
         compact ? null : preview,
-        imageId ? h('div', { style: { fontSize: '11px', overflowWrap: 'anywhere', marginBottom: '4px' } }, image.name || '已上传参考图') : null,
-        h('label', { style: { display: 'inline-flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center', fontSize: '12px' } },
+        caption ? h('div', { style: { fontSize: '11px', overflowWrap: 'anywhere', marginBottom: '4px' } }, caption) : null,
+        settei ? null : h('label', { style: { display: 'inline-flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center', fontSize: '12px' } },
           compact && !busy ? null : busy ? '上传中…' : imageId ? '替换' + noun : '上传' + noun,
           h('input', { type: 'file', accept: 'image/png,image/jpeg,image/webp', 'aria-label': label + '上传' + noun,
             disabled: busy, onChange: upload, style: { maxWidth: '100%', fontSize: 12 } })),
