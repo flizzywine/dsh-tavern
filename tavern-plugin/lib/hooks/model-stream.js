@@ -266,6 +266,9 @@ export function registerModelStreamHooks({
       let finish = null, usage = null
       // 改写补出来的 text-delta 要沿用同一段正文的 index，assembler 靠它把 token 并进同一个正文块。
       let rewriteIndex = null
+      // 这一块正文改写后实际写出的字。块写完时模型会把整块原文再发一遍（block-end），
+      // 存档认的是那一份（round-history 的 plainStreamText 也是），所以要换成这些字。
+      let rewrittenBlock = ''
       let failure = null, interrupted = false
       const liveness = createModelStreamProgress({signal:options.signal})
       let iterator, exhausted = false
@@ -284,12 +287,26 @@ export function registerModelStreamHooks({
               const rewritten = rewriteStream.push(delta)
               if (!rewritten) { progress('output'); continue }
               responseText += rewritten
+              rewrittenBlock += rewritten
               if (!activeDirective?.storyOutputToolCall) replyObserver?.append(rewritten)
               chunk = { ...chunk, text: rewritten }
             } else {
               responseText += delta
               if (!activeDirective?.storyOutputToolCall) replyObserver?.append(delta)
             }
+          }
+          if (chunk && chunk.type === 'block-end' && chunk.block?.type === 'text' && rewriteStream) {
+            // 正文块写完了：缓冲里剩下的先改写完、赶在块收尾前补发出去，再让 block-end 带上改写后的整块。
+            // 原样放过去的话，存档和页面拿到的还是模型的原文，改写就白做了。
+            const rest = await rewriteStream.drain()
+            if (rest) {
+              responseText += rest
+              if (!activeDirective?.storyOutputToolCall) replyObserver?.append(rest)
+              const index = Number.isInteger(chunk.index) ? chunk.index : rewriteIndex
+              yield { type: 'text-delta', ...(index === null ? {} : { index }), text: rest }
+            }
+            chunk = { ...chunk, block: { ...chunk.block, text: rewrittenBlock + rest } }
+            rewrittenBlock = ''
           }
           if (chunk && chunk.type === 'finish' && rewriteStream) {
             // 收尾段也要改写后才能发 finish，否则前端会把最后一段当新消息接在后面。
