@@ -92,6 +92,13 @@ test('挂载句只差 Markdown 记号或换行时照样出图（以前逐字比�
   assert.equal(r.body.characterWarnings, undefined)
 })
 
+test('归一化后重复的挂载句不提交作业', async t => {
+  const f = await runtime(t, { text: '阿梅和他共撑一把伞。稍后，**阿梅**和他共撑一把伞。' })
+  const r = await f.plan()
+  assert.equal(f.bodies.length, 0)
+  assert.match(r.body.error, /挂载句/)
+})
+
 test('诊断容量按多个追踪的 UTF-8 字节计量，作业终止后释放追踪', async t => {
   const f = await runtime(t, { diagnostics: { enabled: true, nextTraceOnly: false, maxTotalBytes: 900 } })
   const diag = createDiagnostics({ root: f.root })
