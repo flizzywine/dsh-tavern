@@ -417,7 +417,7 @@ function GalStage(props) {
     function replayOffer(row) {
         const lines=offerHistory.current.rows.filter(line=>line.offerId===row.offerId);
         setStageOffer({sessionId,turn:latestTurn,id:row.offerId,offer:{title:row.title,options:[]},
-            lines,index:lines.indexOf(row),done:true,replay:true});
+            lines,index:lines.indexOf(row),done:true,replay:true,returnTo:offered?.replay ? offered.returnTo : offered});
         offerVoicePlayed.current=null;
         closeBacklog();
     }
@@ -1005,10 +1005,10 @@ function GalStage(props) {
         if (hidden) { setHidden(false); return; }
         if (controlsInput.consumeInterrupted()) return;
         if (offered) {
-            if (delta < 0) setStageOffer(offered.index > 0 ? {...offered,index:offered.index-1,done:true} : null);
+            if (delta < 0) setStageOffer(offered.index > 0 ? {...offered,index:offered.index-1,done:true} : offered.returnTo ?? null);
             else if (!offered.done && offerLine) setStageOffer({...offered,done:true});
             else if (!offerReady) setStageOffer({...offered,index:offered.index+1,done:false});
-            else if (offered.replay) setStageOffer(null);
+            else if (offered.replay) setStageOffer(offered.returnTo ?? null);
             return;
         }
         if (takeover.skip()) return; // input during a takeover (a 文字演出 card) ends it
@@ -1690,7 +1690,7 @@ function GalStage(props) {
         // panel offers 生成选项 and 自由输入 (no 重新生成); leaving is the existing 返回主页面 (R13).
         !leasing && (offered || atEnd && (typed || openingOnly)) && !hidden && props.Choices ? h(props.Choices, Object.assign({}, props.choiceProps, { key: sessionId + ":" + turn, sessionId, atEnd, hidden: awaiting || pageOpen || Boolean(sourceWidget.openKey), waitSlot: choiceWaitSlot, waitLines,
             stageOffer:offered?.replay ? {...offered.offer,onSelect:()=>null} : offered?.offer, stageOfferReady:offerReady,
-            replaceStageOffer:offer=>setStageOffer(current=>current===offered ? makeStageOffer(offer) : current),
+            replaceStageOffer:offer=>setStageOffer(current=>current===offered ? (offer ? makeStageOffer(offer) : current?.returnTo ?? null) : current),
             // 重新生成 — the same busy rule as the system menu's 重新生成 item.
             onRegenerate: props.Regenerate && !openingOnly ? openRegenerate : undefined, regenerateDisabled: regenerateBlocked,
             withdrawnText: withdrawal && withdrawal.landed ? withdrawal.text : "",
