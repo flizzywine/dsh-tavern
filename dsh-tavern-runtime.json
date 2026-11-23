@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "750a3a1a100c4136ee01d1fb3fb65be7b998b88f",
-  "releaseSequence": 2034,
+  "revision": "1a0a24ebd2dd579ebee946d4af38573edcefb93e",
+  "releaseSequence": 2035,
   "version": "3.4.0",
   "files": [
     {
@@ -1321,8 +1321,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/asset-generation.js",
-      "sha256": "9851a78c226b8ccb791b10dbcf6381543c262f843e86c23c5e55e53c4b21f7a7",
-      "size": 57550
+      "sha256": "c2044e2bf8f1c36212f60d3411a39de0d7a294e669733cd5a24ad3606b781c9e",
+      "size": 57951
     },
     {
       "path": "tavern-plugin/lib/domain/asset-image-processing.js",
@@ -1346,8 +1346,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/asset-production-contract.js",
-      "sha256": "226aa02b31123252b965227ee5645fbd9caf8af36fe47d33bcbdf39b9f479f5b",
-      "size": 7998
+      "sha256": "b16a6c9acfc98a2f215db7192567486529f8262d09ed572f6001162696643eb5",
+      "size": 8773
     },
     {
       "path": "tavern-plugin/lib/domain/asset-production-graph.js",
@@ -9801,8 +9801,8 @@
     },
     {
       "path": "tavern-plugin/presets/asset-gen/templates/avatar.md",
-      "sha256": "54d29704df323afef0049141318f09928c9ac78fd1f34d479e2540ade5317313",
-      "size": 2885
+      "sha256": "3e853401ba50e0d37b87a51010f7fee9c00b53444e98050e75d517db1b80f26f",
+      "size": 3064
     },
     {
       "path": "tavern-plugin/presets/asset-gen/templates/background.md",
@@ -9846,8 +9846,8 @@
     },
     {
       "path": "tavern-plugin/presets/asset-gen/templates/settei.md",
-      "sha256": "ad101b59441a90ffd6b38d456d41e877dbaeda0ac4639261b27a276432f4bfa2",
-      "size": 1766
+      "sha256": "bd9b749ff39f834d10bd91440d8ccd1140de2aa6979b00311c329f70ee0966c3",
+      "size": 2025
     },
     {
       "path": "tavern-plugin/presets/asset-gen/templates/skin-art.md",
@@ -9856,8 +9856,8 @@
     },
     {
       "path": "tavern-plugin/presets/asset-gen/templates/sprite.md",
-      "sha256": "27289ffee3cf61b24e4b76aa6bdec4090cca4d9f11bb1a0dec2c660ede5d38ec",
-      "size": 3093
+      "sha256": "c4be64105bb1eb696f5195b40293b47c1d58a87ba6d7294fb2d74e07e814eb88",
+      "size": 3261
     },
     {
       "path": "tavern-plugin/presets/auto-cast/assistant.md",
@@ -10176,9 +10176,9 @@
     }
   ],
   "archive": {
-    "commit": "1a9458b110803ed2f3235e6d8ca2b8138b10f584",
+    "commit": "f53c8e15d7f8238b737468c24f954c04310a68c3",
     "path": "runtime.zip",
-    "sha256": "d21862daa4a8c5581f62df21412a2d56f7f19f6e88f34d3473ae536903282e7b",
-    "size": 17881326
+    "sha256": "efe2f58ac81f1d00e78292d41c66b3b82da2593f61105f2afd6b4d59d24ad4a4",
+    "size": 17881935
   }
 }
