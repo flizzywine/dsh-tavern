@@ -15,45 +15,121 @@
 			// Retired modes (A-Z, Z-A, recently updated) fall back to the default.
 			return value === "oldest" ? "oldest" : "newest";
 		}
-		function orderWorldBookCatalogItems(items, mode) {
+		const WORLD_BOOK_SORTS = [["newest", "最新导入"], ["oldest", "最早导入"]];
+		const WORLD_BOOK_BANDS = { global: 0, card: 1, off: 2 };
+		function worldBookSameSource(left, right) {
+			if (!left || !right || left.kind !== right.kind) return false;
+			return left.kind === "card" ? left.cardPath === right.cardPath : left.path === right.path;
+		}
+		// The library's rows from listWorldBooks (+ the open chat's card binding): every book once, with its state seen from
+		// that card — 全局 (standalone, globally on) · 本卡 (bound to the card; a card's own book counts when nothing else is
+		// bound) · 关闭. Without a card there is no 本卡 and a card's book has no state to switch. The first bound book is 主书;
+		// a bound book that is gone stays as a row so it can be switched off.
+		function worldBookLibraryRows(catalog) {
+			const cardPath = catalog && catalog.sessionCardPath || "";
+			const binding = cardPath ? catalog.sessionBinding : null;
+			const bound = !binding ? [] : binding.kind === "multiple" ? binding.books || [] : binding.source ? [binding] : [];
+			function boundIndex(source) { return bound.findIndex(function (book) { return worldBookSameSource(book.source, source); }); }
+			function row(item, kind) {
+				const source = kind === "card" ? { kind: "card", cardPath: item.cardPath } : { kind: "standalone", path: item.path };
+				const index = boundIndex(source), global = kind === "standalone" && item.globalEnabled === true;
+				const state = global ? "global" : index >= 0 ? "card" : "off";
+				const options = kind === "standalone" ? (cardPath ? ["global", "card", "off"] : ["global", "off"]) : cardPath ? ["card", "off"] : [];
+				return { id: (kind === "card" ? "card:" + item.cardPath : "book:" + item.path), kind: kind, source: source, resourcePath: kind === "card" ? item.cardPath : item.path,
+					name: item.name, cardName: kind === "card" ? item.cardName || "" : "", own: kind === "card" && item.cardPath === cardPath, available: true,
+					entryCount: Number(item.entryCount) || 0, enabledCount: Number(item.enabledCount) || 0, diagnostics: Number(item.diagnostics) || 0,
+					importedAt: Number(item.importedAt) || 0, bound: index >= 0, boundIndex: index, primary: index === 0, state: state, rank: WORLD_BOOK_BANDS[state], options: options };
+			}
+			const rows = (catalog && catalog.standalone || []).map(function (item) { return row(item, "standalone"); })
+				.concat((catalog && catalog.embedded || []).map(function (item) { return row(item, "card"); }));
+			bound.forEach(function (book, index) {
+				if (rows.some(function (item) { return worldBookSameSource(item.source, book.source); })) return;
+				const kind = book.source.kind === "card" ? "card" : "standalone";
+				rows.push({ id: (kind === "card" ? "card:" + book.source.cardPath : "book:" + book.source.path), kind: kind, source: book.source, resourcePath: book.source.cardPath || book.source.path,
+					name: book.name || "", cardName: "", own: false, available: false, entryCount: 0, enabledCount: 0, diagnostics: 0, importedAt: 0,
+					bound: true, boundIndex: index, primary: index === 0, state: "card", rank: WORLD_BOOK_BANDS.card, options: ["card", "off"] });
+			});
+			return rows;
+		}
+		function worldBookRowMatches(row, query) {
+			const needle = String(query || "").trim().toLocaleLowerCase();
+			return !needle || [row.name, row.cardName].some(function (value) { return String(value || "").toLocaleLowerCase().includes(needle); });
+		}
+		// Bands in a fixed order (`rank`: the band each row had when the list was read); 本卡 keeps the card's own order (主书
+		// first), 关闭 lists independent books before cards' books, and the chosen sort orders the rest.
+		function orderWorldBookLibraryRows(rows, mode, rank) {
 			const direction = normalizeWorldBookSort(mode) === "oldest" ? 1 : -1;
-			return (items || []).slice().sort(function (left, right) {
-				const byTime = ((Number(left && left.importedAt) || 0) - (Number(right && right.importedAt) || 0)) * direction;
+			const band = function (row) { return rank && rank.has(row.id) ? rank.get(row.id) : row.rank; };
+			return (rows || []).slice().sort(function (left, right) {
+				const byBand = band(left) - band(right);
+				if (byBand !== 0) return byBand;
+				if (left.bound && right.bound && band(left) === WORLD_BOOK_BANDS.card) return left.boundIndex - right.boundIndex;
+				const byKind = (left.kind === "card" ? 1 : 0) - (right.kind === "card" ? 1 : 0);
+				if (byKind !== 0) return byKind;
+				const byTime = (left.importedAt - right.importedAt) * direction;
 				if (byTime !== 0) return byTime;
-				const byName = String(left && left.name || "").localeCompare(String(right && right.name || ""), "zh-CN");
+				const byName = String(left.name || "").localeCompare(String(right.name || ""), "zh-CN");
 				if (byName !== 0) return byName;
-				return String(left && (left.path || left.cardPath) || "").localeCompare(String(right && (right.path || right.cardPath) || ""), "zh-CN");
+				return String(left.resourcePath).localeCompare(String(right.resourcePath), "zh-CN");
 			});
 		}
-		function filterWorldBookCatalogItems(items, query) {
-			const needle = String(query || "").trim().toLocaleLowerCase();
-			if (!needle) return items || [];
-			return (items || []).filter(function (item) {
-				return [item && item.name, item && item.cardName].some(function (value) { return String(value || "").toLocaleLowerCase().includes(needle); });
-			});
+		function worldBookStateTitles(cardName) {
+			return { global: "全局：所有人物卡都使用", card: "本卡：只在" + (cardName ? "「" + cardName + "」" : "这张人物卡") + "使用", off: "关闭：不使用" };
 		}
 
 		const WORLD_BOOK_RECALL_STEPS = [
-			{ icon: "📌", title: "常驻条目直接加入上下文", body: "启用的静态常驻条目每轮都生效，正文放在上下文的稳定前缀，无需匹配关键词。" },
-			{ icon: "🔑", title: "非常驻条目按关键词提示名称", body: "系统用本轮输入和近期对话匹配条目配置的关键词，把命中的静态非常驻条目名称放进上下文，供 Agent 参考。" },
-			{ icon: "🔍", title: "Agent 按需检索正文", body: "Agent 自行决定要查哪些资料，可以用提示的条目名称，也可以用剧情里的其他线索搜索本局世界书。搜索返回文件路径和匹配片段，Agent 按路径读取需要的正文。" }
+			{ title: "常驻条目直接加入上下文", body: "启用的静态常驻条目每轮都生效，正文放在上下文的稳定前缀，无需匹配关键词。" },
+			{ title: "非常驻条目按关键词提示名称", body: "系统用本轮输入和近期对话匹配条目配置的关键词，把命中的静态非常驻条目名称放进上下文，供 Agent 参考。" },
+			{ title: "Agent 按需检索正文", body: "Agent 自行决定要查哪些资料，可以用提示的条目名称，也可以用剧情里的其他线索搜索本局世界书。搜索返回文件路径和匹配片段，Agent 按路径读取需要的正文。" }
 		];
 		const WORLD_BOOK_RECALL_NOTES = [
 			"人物卡绑定的世界书与全局世界书合并使用，同一本书只加载一次。",
 			"含模板或脚本的条目按运行时规则处理。可检索的动态条目使用最近一次渲染的快照。"
 		];
+		// The 「?」 right after the 世界书库 heading text, inside the h2 like the stage pages' section heads (owner 11-24).
 		function WorldBookRecallGuide() {
 			const h = React.createElement;
-			return h("details", { className: "dsh-tavern-help dsh-tavern-recall-guide" },
-				h("summary", null,
-					h("span", { className: "dsh-tavern-recall-guide-icon", "aria-hidden": "true" }, "📖"),
-					h("span", { className: "dsh-tavern-recall-guide-heading" }, h("strong", null, "世界书如何召回"), h("span", null, "常驻正文自动加入，其他资料由 Agent 按需检索"))),
-				h("ol", { className: "dsh-tavern-recall-steps" }, WORLD_BOOK_RECALL_STEPS.map(function (step, index) {
-					return h("li", { key: step.title },
-						h("span", { className: "dsh-tavern-recall-step-mark", "aria-hidden": "true" }, step.icon),
-						h("div", null, h("b", null, (index + 1) + ". " + step.title), h("p", null, step.body)));
-				})),
-				h("div", { className: "dsh-tavern-recall-notes" }, h("b", null, "补充说明"), h("ul", null, WORLD_BOOK_RECALL_NOTES.map(function (note) { return h("li", { key: note }, note); }))));
+			return h(HelpTip, { label: "世界书如何召回" },
+				h("span", { className: "dsh-tavern-recall-tip" },
+					h("b", { className: "dsh-tavern-recall-title" }, "世界书如何召回"),
+					h("ol", { className: "dsh-tavern-recall-steps" }, WORLD_BOOK_RECALL_STEPS.map(function (step) {
+						return h("li", { key: step.title }, h("b", null, step.title), h("span", null, step.body));
+					})),
+					h("ul", { className: "dsh-tavern-recall-notes" }, WORLD_BOOK_RECALL_NOTES.map(function (note) { return h("li", { key: note }, note); }))));
+		}
+		// One book in the library list: the name opens it (as does the row), 主书 and where a card's book lives follow the
+		// name, then the entry count and the state tag. Right click, Shift+F10 / the menu key or a long press: 打开 · 在对话中引用 ·
+		// 复制 · 导出 · 删除… (复制 makes a standalone copy, also of a card's own book).
+		function WorldBookLibraryRow(props) {
+			const h = React.createElement, row = props.row;
+			const rowMenu = packUi.useContextMenu({ label: (row.name || "世界书") + " 操作", content: row.available ? function (close) {
+				const run = function (fn) { return function () { close(); fn(); }; };
+				return h(React.Fragment, null,
+					h(packUi.MenuItem, { onClick: run(props.onOpen) }, "打开"),
+					props.mention ? h(packUi.MenuItem, { onClick: run(props.onMention) }, "在对话中引用") : null,
+					h(packUi.MenuItem, { disabled: props.busy, onClick: run(props.onCopy) }, "复制"),
+					h(packUi.MenuItem, { onClick: run(props.onExport) }, "导出"),
+					h("div", { className: "ap-menu-sep", role: "separator" }),
+					h(packUi.MenuItem, { danger: true, disabled: props.busy, onClick: run(props.onDelete) }, "删除…"));
+			} : null });
+			const open = function (event) {
+				const target = event.target;
+				if (!event.currentTarget.contains(target) || (target.closest && target.closest("button,a,input,label,[role=menu],[role=dialog]"))) return;
+				props.onOpen();
+			};
+			const where = row.kind !== "card" ? "" : row.own ? "本卡自带" : "内置于 " + (row.cardName || row.resourcePath);
+			const count = row.enabledCount === row.entryCount ? row.entryCount + " 条" : row.enabledCount + " / " + row.entryCount + " 条";
+			return h("li", Object.assign({ className: "ap-pack-row dsh-tavern-wblib-row" + (row.available ? " is-openable" : " is-missing"), "data-state": row.state, onClick: row.available ? open : undefined }, rowMenu.target),
+				rowMenu.layer,
+				h("span", { className: "ap-pack-title" },
+					row.available
+						? h("button", { type: "button", className: "ap-pack-name", title: row.name, "aria-label": "打开 " + row.name, "aria-keyshortcuts": rowMenu.trigger["aria-keyshortcuts"], onClick: function (event) { event.stopPropagation(); props.onOpen(); } }, row.name)
+						: h("span", { className: "ap-pack-name is-missing", title: "这本世界书已被删除或移走" }, h(InlineGlyph, { name: "warning" }), "找不到这本世界书"),
+					row.primary ? h(HelpTip, { label: "主书", face: "主书", faceClassName: "dsh-tavern-worldbook-primary" }, "主书：游戏里新建的人物写进这本。在人物卡库的世界书列表里拖动排序可以换主书。") : null,
+					where ? h("span", { className: "dsh-tavern-wblib-where", title: where }, where) : null,
+					row.diagnostics ? h("span", { className: "ap-hint-mark", role: "img", "aria-label": row.diagnostics + " 个诊断", title: row.diagnostics + " 个诊断" }, h(InlineGlyph, { name: "warning" })) : null),
+				row.available ? h("span", { className: "dsh-tavern-wblib-count", title: "启用 " + row.enabledCount + " 条，共 " + row.entryCount + " 条" }, count) : null,
+				row.options.length ? h(packUi.PackStateTag, { scope: props.scope, id: row.id, name: row.name || "这本世界书" }) : null);
 		}
 
 		function createWorldBookLibraryFeatureModule() {
@@ -237,11 +313,14 @@
 		}
 		function WorldBookLibraryTab(props) {
             const askConfirm = useTavernConfirm(props.sessionId || props.scope?.sessionId);
-			// 世界书库列表与会话无关（库文件 + 全局生效标记）。把上一次结果放在 window 上跨面板实例复用：
-			// 重开面板或切换会话先直接渲染，再后台刷新，不必再等一次空加载。
+			// 世界书库列表（库文件 + 全局生效标记）与会话无关，只有「本卡」跟着本局的人物卡。把上一次结果放在 window 上跨面板实例复用：
+			// 重开面板或切换会话先直接渲染（别的会话留下的先不带本卡），再后台刷新，不必再等一次空加载。
 			const initialCatalog = (function () {
-				try { const cached = window.__dshTavernWorldBookCatalog; return cached && typeof cached === "object" ? cached : null; }
-				catch (_) { return null; }
+				try {
+					const cached = window.__dshTavernWorldBookCatalog;
+					if (!cached || typeof cached !== "object") return null;
+					return cached.forSession === props.scope.sessionId ? cached : Object.assign({}, cached, { sessionCardPath: "", sessionCardName: "", sessionBinding: null });
+				} catch (_) { return null; }
 			})();
 			const [catalog, setCatalog] = React.useState(initialCatalog);
 			const [catalogWarning, setCatalogWarning] = React.useState("");
@@ -258,6 +337,10 @@
 				catch (_) { return "newest"; }
 			});
 			const [error, setError] = usePersistentError("世界书库");
+			const [bookPending, setBookPending] = React.useState({});
+			const frozenBands = React.useRef({ key: null, rank: null });
+			const sessionRef = React.useRef(null);
+			sessionRef.current = props.scope.sessionId;
 			const importInput = React.useRef(null);
 			const bindingDisclosure = React.useRef(null);
 			// The book and its card associations arrive separately now; late answers from a
@@ -270,8 +353,16 @@
 			const sessionMode = useTavernSessionMode(props.scope.sessionId);
 			const h = React.createElement;
 			if (!refreshModule.current) refreshModule.current = createWorldBookLibraryRefreshModule({
-				load: function () { return rpcWithTimeout("listWorldBooks", {}, props.scope.sessionId); },
-				onValue: function (result) { const next = result || { standalone: [], embedded: [] }; try { window.__dshTavernWorldBookCatalog = next; } catch (_) {} setCatalog(next); setCatalogWarning(worldBookCatalogDiagnostic(result)); },
+				// 本卡 is the open chat's card: its binding (in order, 主书 first) comes with the list. A card that can no longer be
+				// read has no 本卡.
+				load: async function () {
+					const sessionId = sessionRef.current;
+					const result = Object.assign({ standalone: [], embedded: [] }, await rpcWithTimeout("listWorldBooks", {}, sessionId), { forSession: sessionId });
+					if (!result.sessionCardPath) return result;
+					const binding = await rpcWithTimeout("getWorldBookBinding", { cardPath: result.sessionCardPath }, sessionId).then(function (answer) { return answer.binding; }, function () { return null; });
+					return binding ? Object.assign(result, { sessionBinding: binding }) : Object.assign(result, { sessionCardPath: "", sessionCardName: "" });
+				},
+				onValue: function (result) { try { window.__dshTavernWorldBookCatalog = result; } catch (_) {} setCatalog(result); setCatalogWarning(worldBookCatalogDiagnostic(result)); },
 				onError: function (err) { setError(String(err && err.message || err)); },
 				onBusyChange: setLoading
 			});
@@ -330,7 +421,7 @@
 					setRecord(function (current) { return current && JSON.stringify(current.source) === JSON.stringify(source) && !draftDirty.current ? result : current; });
 				}, function () {})]);
 			}
-			useVisibleDataRefresh(props.visible, function (event) { return tavernDataChangeAffects(event, ["worldbooks", "cards"], "worldbooks"); }, refreshAll);
+			useVisibleDataRefresh(props.visible, function (event) { return tavernDataChangeAffects(event, ["worldbooks", "cards"], "worldbooks"); }, refreshAll, props.scope.sessionId);
 			React.useEffect(function () { return function () { refreshModule.current.dispose(); }; }, []);
 			React.useEffect(function () { if (requestedSource) load(requestedSource); }, [JSON.stringify(requestedSource)]);
 			function clear() { setRecord(null); setAssociations(null); setSelectedCardPath(""); if (props.ctx && props.tab) props.ctx.betterSidebar.updateTab(props.tab.id, { meta: null }); }
@@ -419,24 +510,61 @@
                             h("span", { className: "dsh-tavern-settings-track", "aria-hidden": "true" }))) : null,
                     bindingPanel()), onSaved: function (result) { setRecord(result); refresh(); } });
 			}
-			function row(item) { const source = item.kind === "card" ? { kind: "card", cardPath: item.cardPath } : { kind: "standalone", path: item.path }; const resourcePath = item.kind === "card" ? item.cardPath : item.path; return h("div", { key: resourcePath, className: "dsh-tavern-card-pick-wrap" }, h("button", { className: "dsh-tavern-library-card", disabled: busy, onClick: function () { load(source); } }, h("b", null, item.name), h("span", null, (item.globalEnabled ? "全局生效 · " : "") + item.entryCount + " 条 · " + item.enabledCount + " 条启用" + (item.diagnostics ? " · " + item.diagnostics + " 个诊断" : "")), item.cardName ? h("span", null, "来自人物卡：" + item.cardName) : null), sessionMode === "card" ? h("button", { className: "dsh-tavern-resource-at", title: "在对话中引用", onClick: function () { props.appendMention("worldbook", resourcePath, item.name); } }, "在对话中引用") : null); }
-			function group(title, items) { return h("section", { className: "dsh-tavern-resource-group" }, h("div", { className: "dsh-tavern-resource-group-title" }, h("span", null, title + " · " + items.length)), items.length ? items.map(row) : h(EmptyState, { compact: true, query: searchQuery, text: searchQuery.trim() ? "" : "暂无", onClear: function () { setSearchQuery(""); } })); }
-			return h("div", { className: "dsh-tavern-library" }, h("div", { className: "dsh-tavern-status-head" }, h("div", { className: "dsh-tavern-status-title" }, "世界书库"), h("div", { className: "dsh-tavern-question-sub" }, "独立世界书与人物卡内置世界书共用编辑界面"), h("button", { className: "dsh-tavern-btn primary", disabled: busy, onClick: function () { importInput.current && importInput.current.click(); } }, "导入世界书"), h("input", { ref: importInput, type: "file", accept: ".json,application/json", style: { display: "none" }, onChange: function (event) { const file = event.target.files && event.target.files[0]; importFile(file); event.target.value = ""; } })), h("div", { className: "dsh-tavern-resource-body" },
-				h(WorldBookRecallGuide),
-				h("div", { className: "dsh-tavern-worldbook-toolbar" },
-					h("input", { className: "dsh-tavern-library-search", type: "search", value: searchQuery, placeholder: "搜索世界书或人物卡", "aria-label": "搜索世界书", onChange: function (event) { setSearchQuery(event.target.value); } }),
-					h("label", { className: "dsh-tavern-worldbook-sort" },
-						h("span", { className: "dsh-tavern-worldbook-sort-label" }, "排序"),
-						h("span", { className: "dsh-tavern-worldbook-sort-control" },
-							h("select", { value: sortMode, "aria-label": "世界书排序方式", onChange: function (event) { changeSortMode(event.target.value); } },
-								h("option", { value: "newest" }, "最新"),
-								h("option", { value: "oldest" }, "最旧")),
-							h("span", { className: "dsh-tavern-worldbook-sort-chevron", "aria-hidden": "true" }, "⌄")))),
-				loading && !catalog ? h(PanelLoading, { label: "正在读取世界书…" }) : null,
-				error ? h("div", { className: "dsh-tavern-dock-error" }, error, h("button", { className: "dsh-tavern-btn", onClick: refresh }, "重新读取")) : null,
-				catalogWarning ? h("div", { className: "dsh-tavern-dock-error" }, catalogWarning) : null,
-				catalog ? group("独立世界书", orderWorldBookCatalogItems(filterWorldBookCatalogItems(catalog.standalone, searchQuery), sortMode)) : null,
-				catalog ? group("人物卡内置世界书", orderWorldBookCatalogItems(filterWorldBookCatalogItems(catalog.embedded, searchQuery), sortMode)) : null));
+			// One flat list like 舞台素材: 全局 → 本卡 → 关闭 bands, each row with the shared 全局 / 本卡 / 关闭 state tag.
+			async function setBookState(row, next) {
+				const cardPath = catalog && catalog.sessionCardPath;
+				const was = row.state;
+				if (was === next || bookPending[row.id]) return;
+				setBookPending(function (current) { return Object.assign({}, current, { [row.id]: true }); }); setError("");
+				try {
+					if (was === "global") await rpc("setGlobalWorldBook", { source: row.source, enabled: false, lean: true }, props.scope.sessionId);
+					if (next === "global") await rpc("setGlobalWorldBook", { source: row.source, enabled: true, lean: true }, props.scope.sessionId);
+					if (next === "card" && !row.bound) await rpc("bindWorldBook", { cardPath: cardPath, source: row.source }, props.scope.sessionId);
+					if (next === "off" && row.bound) await rpc("unbindWorldBook", { cardPath: cardPath, source: row.source }, props.scope.sessionId);
+					await refresh(); notifyTavernDataChanged(["worldbooks", "cards"], "worldbooks");
+				} catch (err) { setError(String(err && err.message || err)); }
+				finally { setBookPending(function (current) { const rest = Object.assign({}, current); delete rest[row.id]; return rest; }); }
+			}
+			async function exportBook(row) { try { const result = await rpc("exportWorldBook", { source: row.source }, props.scope.sessionId); const item = result.worldBook; downloadTavernBlob(new Blob([JSON.stringify(item.document, null, 2)], { type: "application/json" }), (item.name || "世界书") + ".json"); } catch (err) { setError(String(err && err.message || err)); } }
+			// 复制 = the export imported again as a standalone book named 「… 副本」.
+			async function copyBook(row) {
+				setBusy(true); setError("");
+				try {
+					const item = (await rpc("exportWorldBook", { source: row.source }, props.scope.sessionId)).worldBook;
+					const name = (item.name || row.name || "世界书") + " 副本";
+					await rpc("importWorldBook", { payload: { name: name + ".json", type: "application/json", text: JSON.stringify(Object.assign({}, item.document, { name: name })) } }, props.scope.sessionId);
+					await refresh(); notifyTavernDataChanged(["worldbooks"], "worldbooks");
+				} catch (err) { setError(String(err && err.message || err)); }
+				finally { setBusy(false); }
+			}
+			const rows = catalog ? worldBookLibraryRows(catalog) : [];
+			// Bands are fixed while the same books are listed, so a row never jumps away from its tag after a change.
+			const bandKey = rows.map(function (row) { return row.id; }).join("\n") + "\n" + (catalog && catalog.sessionCardPath || "");
+			if (frozenBands.current.key !== bandKey) frozenBands.current = { key: bandKey, rank: new Map(rows.map(function (row) { return [row.id, row.rank]; })) };
+			const shown = orderWorldBookLibraryRows(rows.filter(function (row) { return worldBookRowMatches(row, searchQuery); }), sortMode, frozenBands.current.rank);
+			const scope = {
+				pending: bookPending,
+				stateOf: function (id) { const row = rows.find(function (item) { return item.id === id; }); return row ? row.state : "off"; },
+				options: function (id) { const row = rows.find(function (item) { return item.id === id; }); return row ? row.options : []; },
+				set: function (id, next) { const row = rows.find(function (item) { return item.id === id; }); if (row) setBookState(row, next); },
+				titles: worldBookStateTitles(catalog && catalog.sessionCardName)
+			};
+			const list = !catalog ? (loading ? h(PanelLoading, { shape: "rows", label: "正在读取世界书…" }) : null)
+				: !rows.length ? h(EmptyState, { noun: "世界书" })
+				: !shown.length ? h(EmptyState, { query: searchQuery, onClear: function () { setSearchQuery(""); } })
+				: h("ul", { className: "ap-pack-list dsh-tavern-wblib-list", "aria-label": "世界书" }, shown.map(function (row) {
+					return h(WorldBookLibraryRow, { key: row.id, row: row, scope: scope, busy: busy, mention: sessionMode === "card", onOpen: function () { load(row.source); }, onMention: function () { props.appendMention("worldbook", row.resourcePath, row.name); }, onCopy: function () { copyBook(row); }, onExport: function () { exportBook(row); }, onDelete: function () { remove(row.source, row.name); } });
+				}));
+			return h("div", { className: "fork-tab-scroll dsh-tavern-wblib" }, h("div", { className: "ap-ui ap-library" },
+				h("header", { className: "ap-head" }, h("h2", null, "世界书库", h(WorldBookRecallGuide))),
+				h("input", { ref: importInput, type: "file", accept: ".json,application/json", style: { display: "none" }, onChange: function (event) { const file = event.target.files && event.target.files[0]; importFile(file); event.target.value = ""; } }),
+				h("div", { className: "ap-pack-toolbar" },
+					h(packUi.PackSearchBox, { label: "搜索世界书", placeholder: "搜索世界书或人物卡", value: searchQuery, onChange: setSearchQuery }),
+					h(packUi.SortMenu, { sort: sortMode, onSort: changeSortMode, sorts: WORLD_BOOK_SORTS }),
+					h(packUi.IconButton, { icon: "download", label: "导入世界书", disabled: busy, onClick: function () { importInput.current && importInput.current.click(); } })),
+				error ? h(packUi.HintLine, { text: error, action: "重新读取", onAction: refresh }) : null,
+				catalogWarning ? h(packUi.HintLine, { text: catalogWarning }) : null,
+				list));
 		}
 		function register(input) {
 			const ctx = input.ctx;
