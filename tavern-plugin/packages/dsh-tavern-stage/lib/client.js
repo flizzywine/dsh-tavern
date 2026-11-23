@@ -30095,9 +30095,7 @@ function StagePointedChoice({ctx,row,onChanged}) {
     preview.dialog);
 }
 function StageVoicePage({ctx,onBack}) {
-  const root=React.useRef(null),pointed=useStagePointed(ctx),[library,setLibrary]=React.useState(false);
-  const targets=(pointed.rows||[]).filter(row=>row.figure?.voice?.voice).map(row=>({packId:row.ref.packId,figureId:row.ref.figureId,voiceId:row.figure.voice.voice}));
-  const openSettings=ctx.nav?.openTab?(provider,options)=>openVoiceSettings(ctx.nav,provider,options):null;
+  const root=React.useRef(null),pointed=useStagePointed(ctx);
   React.useEffect(()=>{root.current?.querySelector('button')?.focus();},[]);
   const narrator=narratorLayers(ctx.ext,ctx.writer.reading),bubble=ctx.active.dialogue;
   const narratorTag=h(StageSwitchTag,{name:'旁白配音',global:narrator.global.enabled===true,card:narratorCardSwitch(narrator.card),disabled:!bubble,
@@ -30105,15 +30103,14 @@ function StageVoicePage({ctx,onBack}) {
   return h('article',{ref:root,className:'ap-mod-detail ap-voice-page',onKeyDown:subpageKeys(onBack)},
     h(SubpageHead,{parent:'舞台设置',title:'配音',help:h(Help,{text:VOICE_HELP.page,label:'配音 说明'}),onBack}),
     h(StageVoiceProblems,{ctx}),
-    // 通用声音 · 旁白声音 · 角色声音: three sections side by side, each row a figure and its voice.
-    h(StageSection,{title:'通用声音',foldKey:'voice/general',help:VOICE_HELP.general,action:h(React.Fragment,null,
-      h(Button,{className:'ap-link',onClick:()=>setLibrary(true)},'声音库 ›'),stageVoiceBackendLink(ctx))},
+    // 通用声音 · 旁白声音 · 角色声音: three sections side by side, each row a figure and its voice. A voice is edited where it is
+    // used (its row ›, the figure's 声音 page) and deleted from its row's ⋯; there is no separate 声音库.
+    h(StageSection,{title:'通用声音',foldKey:'voice/general',help:VOICE_HELP.general,action:stageVoiceBackendLink(ctx)},
       h(StagePointedVoice,{ctx,row:pointed.rows?.[0],onChanged:pointed.reload})),
     // 旁白's four-state switch sits in its section head; its figure under it while it speaks.
     h(StageSection,{title:'旁白声音',foldKey:'voice/narrator',help:bubble?VOICE_HELP.narr:VOICE_HELP.needBubble,action:narratorTag},
       narrator.effective.enabled?h(StagePointedVoice,{ctx,row:pointed.rows?.[1],onChanged:pointed.reload}):null),
-    h(StageCastVoices,{ctx}),
-    library&&h(VoiceAddDialog,{catalogue:true,binding:ctx.binding,targets,openSettings,onClose:()=>{setLibrary(false);pointed.reload();}}));
+    h(StageCastVoices,{ctx}));
 }
 // 「语音后端 ›」 at the right of a section head (the TTS plugin's tab), like the 素材库 voice page's.
 const stageVoiceBackendLink=ctx=>ctx.nav?.openTab?h(Button,{className:'ap-link ap-voice-backend',onClick:()=>ctx.nav.openTab('dsh-tts:voice')},'语音后端 ›'):null;
