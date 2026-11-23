@@ -7585,3 +7585,8 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
   &::-webkit-scrollbar-track, &::-webkit-scrollbar-corner { background: var(--fk-sb-track); }
 }
 /* ==== end stage scrollbars ==== */
+
+.fork-gal-round-cue {position:absolute;z-index:7;inset-inline-start:clamp(12px,3vw,44px);bottom:max(27%,158px);
+    padding:.55rem .9rem;border:1px solid var(--gal-ui-line,#a29780);border-radius:6px;
+    background:var(--gal-ui-surface,#1c2933);color:var(--gal-ui-ink,#fff0cc);font:inherit;cursor:pointer}
+.fork-gal-round-cue:is(:hover,:focus-visible) {background:var(--gal-ui-hover,#293a43);outline-offset:3px}

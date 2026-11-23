@@ -1049,7 +1049,7 @@
 							const id = answer.panelId ?? panel.id;
 							if (typeof id !== "string" || !this.stagePanel(sessionId, panel.owner, id)) continue;
 							return {plugin: panel.owner, id, page: answer.page.slice(0,32), label: answer.label.slice(0,96),
-								section: typeof answer.section === "string" ? answer.section.slice(0,96) : ""};
+								section: typeof answer.section === "string" ? answer.section.slice(0,96) : "", ...(answer.passive === true ? {passive:true} : {})};
 						} catch (error) { tavernErrorHub.report("插件 " + panel.owner, error); }
 					}
 					return null;
