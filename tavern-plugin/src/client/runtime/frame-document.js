@@ -364,6 +364,9 @@
                 if (sizing.mode !== "content") reporter = "";
                 else reporter = reporter.replace("48,viewportFloor()", "48");
             }
+            // A frame its host sizes (a stage card page fills its sheet) needs no height: no reporter walking the whole
+            // document after every layout-changing mutation.
+            if (input && input.hostSized === true) reporter = "";
             const sizingRuntime = '<script data-dsh-tavern-sizing>(' + sources.frameSizing + ')(' + token + ',' + JSON.stringify(sizing) + ');<\/script>';
             const sizingStyle = !sizing ? "" : '<style data-dsh-tavern-sizing>html[data-dsh-tavern-sizing-scroll]{overflow-y:auto!important}html[data-dsh-tavern-sizing-scroll] body{overflow-y:visible!important}' + (sizing.mode === "content" ? '' : 'html:root,html:root body{height:100%!important;min-height:0!important}html:root body{white-space:normal}') + '</style>';
 			// Card module scripts wait for the helper globals (z, YAML) as the script sandbox does;
