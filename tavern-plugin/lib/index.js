@@ -243,7 +243,7 @@ import { createAssetPacks } from './domain/asset-packs.js'
 import { createMediaStore } from '../packages/dsh-asset-library/lib/pack-v2/media-store.js'
 import { readCardArchive } from './domain/card-archive.js'
 import { openZipFile } from './domain/zip-file.js'
-import { createUploads } from './domain/uploads.js'
+import { createCardArchiveUploads, createUploads } from './domain/uploads.js'
 import { createCardPlugins, createCardPluginUpdates } from './domain/card-plugins.js'
 import { tmpdir } from 'node:os'
 import { createCardFiles } from './domain/card-files.js'
@@ -1545,6 +1545,14 @@ export async function apply(ctx) {
   ctx.provide('tavernMediaStore', mediaStore)
   const assetPacks = createAssetPacks({ store: profileData, mediaStore })
   const uploads = createUploads({ root: dataRoot })
+  const cardArchiveUploads = createCardArchiveUploads({ root: dataRoot })
+  ctx.effect(() => {
+    const sweep = () => { void cardArchiveUploads.sweep().catch(() => {}) }
+    sweep()
+    const timer = setInterval(sweep, 60 * 1000)
+    timer.unref?.()
+    return () => clearInterval(timer)
+  }, 'dsh-tavern: card archive upload cleanup')
   const pluginDataStore = createPluginDataStore({ dataRoot })
   const userPluginInstaller = createUserPluginInstaller({
     dataRoot, cardPaths: () => fileResources.list('card'),
@@ -4618,7 +4626,7 @@ export async function apply(ctx) {
   const rpcDeps = { readCardAssetExtension, frameStorage, worldbookSkillProvider, sessionDebugEvidence, TAVERN_PACKAGE_VERSION, agentCompaction, agentRegistry, appendStoryRounds, paragraphSpeech,
     applicationUpdater, autoChoices, attachPlayChatDebug, backgroundAgentRunner, backgroundCatalog, storyEvents, workflow,
     backgroundConfigForSession, bindScript, bodyEditor, branchOrigin, callModel, candidateGenerator, candidateTasks, polishPrereview, polishRecords, polishReviewer, chatHeaderWithLatestFloors, cardUpdates, messageDeletion,
-    cardMemory, cardOrganization, cardPacksOf, cardPlugins, cardPluginUpdates, cardPluginUploads, cardPreparation, cardSummaries, cardTaskPrompts, castAssets,
+    cardArchiveUploads, cardMemory, cardOrganization, cardPacksOf, cardPlugins, cardPluginUpdates, cardPluginUploads, cardPreparation, cardSummaries, cardTaskPrompts, castAssets,
     castCardOf, castEdit, castStage, castView, chatForSession, chatHeaderForSession,
     chatHistoryImporter, chatPersistence, commands, compactionAbort, compatibilityDiagnostics,
     conversationBackgroundSettings, conversationGuides, ctx, dataRoot, deleteCard, deleteChat, deleteChats,
@@ -4830,7 +4838,12 @@ export async function apply(ctx) {
     castAssets,
     exportCardFile,
     assetPacks,
-    uploads: { receive: req => new URL(req.url, 'http://localhost').searchParams.get('purpose') === 'card-plugin-update' ? cardPluginUploads.receive(req) : uploads.receive(req) },
+    uploads: { receive(req) {
+      const params = new URL(req.url, 'http://localhost').searchParams
+      if (params.get('purpose') === 'card-plugin-update') return cardPluginUploads.receive(req)
+      if (params.get('purpose') === 'card-archive') return cardArchiveUploads.receive(req, params)
+      return uploads.receive(req)
+    } },
     transferExports,
     exposeHandler: handle => { tavernHttpHandle = handle },
     pluginAssets: createPluginAssets({ pluginsDir: userPluginPaths(dataRoot).plugins }),
