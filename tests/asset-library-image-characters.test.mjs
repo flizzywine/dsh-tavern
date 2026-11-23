@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import { createTavernPluginApi } from '../tavern-plugin/lib/plugin-api.js'
 import { createImageCharacterHandlers } from '../tavern-plugin/lib/rpc/image-characters.js'
 import { createFigurePictures } from '../tavern-plugin/lib/image-character-pictures.js'
-import { appearanceFromImageCharacter, imageCharacterFromFigure } from '../tavern-plugin/lib/domain/image-character-appearance.js'
+import { appearanceFromImageCharacter, imageCharacterFromFigure, imageCharacterExtension } from '../tavern-plugin/lib/domain/image-character-appearance.js'
 import { createAssetPackService } from '../tavern-plugin/packages/dsh-asset-library/src/pack-v2/service.js'
 
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAEElEQVR4nGP8zwACTGCSAQANHQEDgslx/wAAAABJRU5ErkJggg==', 'base64')
@@ -105,19 +105,11 @@ test('a figure\'s 设定图 are lent from the pack; a 设定图 the pack drops i
   assert.deepEqual(library.reads, ['b'.repeat(64)])
 })
 
-test('a 设定图 the pack no longer registers leaves the record; other pictures stay', async () => {
-  const { api, service } = host(), images = imageLibrary()
+test('figure export excludes identified legacy copies and keeps a separately uploaded picture', () => {
   const picture = name => ({ id: 'a'.repeat(64), mediaType: 'image/png', name, byteLength: 9 })
-  const figure = { id: 'figure', name: '总经理', outfits: [{ key: 'k', label: '西装' }, { key: 'm', label: '大衣' }] }
-  const character = { ...images.store.characters[0], figureId: 'figure', figurePackId: 'pack', referenceImage: picture('入职主管 设定图'),
+  const character = { name: '总经理', figureId: 'figure', figurePackId: 'pack', referenceImage: picture('自选图片 设定图'),
     outfits: [{ id: 'k', name: '西装', characterOutfitImage: picture('总经理／西装 立绘参考') }, { id: 'm', name: '大衣', characterOutfitImage: picture('总经理／大衣 设定图') }] }
-  images.store.characters = [character]
-  service.registerImageLibrary(images.registration)
-  const library = { getPackSnapshot: async () => ({ revision: 'r1', figures: { figure } }), readMedia: async () => assert.fail('nothing to copy') }
-  const handlers = createImageCharacterHandlers({ ctx: { get: () => library }, pluginApi: api })
-  const synced = await handlers.syncFigureSetteiToImageCharacter({ packId: 'pack', figureId: 'figure', providerId: 'dsh-tavern-image/definitions', characterId: character.id, expected: structuredClone(character) })
-  assert.equal(synced.character.referenceImage, null, 'the retired 人设图 copy goes')
-  assert.equal(synced.character.outfits.find(o => o.id === 'k').characterOutfitImage.name, '总经理／西装 立绘参考', 'a sprite fallback stays')
-  assert.equal(synced.character.outfits.find(o => o.id === 'm').characterOutfitImage, null, 'a retired 服装设定图 copy goes')
-  assert.deepEqual(images.store.images, [])
+  const exported = imageCharacterExtension(character)
+  assert.equal(exported.referenceImage.name, '自选图片 设定图')
+  assert.equal(exported.outfits, undefined)
 })

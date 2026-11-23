@@ -10163,6 +10163,10 @@ window.__ModuleLoader__.load({
 		  // The old per-voice `autoCast` switch is not read. The one rule and the one order: the casting assistant picks only from
 		  // these (library-search.js), 舞台设置 › 自动素材's 「可选声音」 lists them, and every 选择声音 list shows them first.
 		  const voiceAutoCast = (voice, packId, systemPacks = []) => Boolean(voice.guidance) || systemPacks.includes(packId)
+		  // The language a voice speaks, as its primary subtag ('zh', 'ja', 'en'): the voice spec's own `language`, unset = 中文. The
+		  // one reading of a voice's language for 自动素材 (a speaker is cast only with voices of the language it speaks) and for
+		  // every 选择声音 list. Also normalizes a speaker's language tag the same way.
+		  const castLanguage = language => String(language || '').trim().split('-')[0].toLowerCase() || 'zh'
 		  // The packs 通用声音 / 旁白 point at, from tts.reading() ({general, narrator}: {figure: {packId, figureId} | null}).
 		  const readingPackIds = reading => [...new Set([reading?.general?.figure?.packId, reading?.narrator?.figure?.packId].filter(Boolean))]
 		  // Their order: by name, then by pack name (rows {name, packName}), in code points so server and client agree.
@@ -10174,7 +10178,7 @@ window.__ModuleLoader__.load({
 		    }
 		    return 0
 		  }
-		  if (typeof module !== 'undefined' && typeof window === 'undefined') module.exports = {voiceAutoCast, readingPackIds, castVoiceOrder};
+		  if (typeof module !== 'undefined' && typeof window === 'undefined') module.exports = {voiceAutoCast, castLanguage, readingPackIds, castVoiceOrder};
 		  const VOICE_PROVIDERS={'fish-audio':'Fish Audio',qwen:'通义千问',azure:'Azure',volcengine:'火山引擎',minimax:'MiniMax','openai-compatible':'自定义语音服务',browser:'浏览器朗读'};
 		  const FIGURE_VOICE_LANGUAGES=[['ja','日语'],['zh','中文'],['en','英语'],['ko','韩语'],['yue','粤语']];
 		  const VOICE_SAMPLES={ja:'こんにちは。今日もよろしくお願いします。',zh:'你好，今天也请多关照。',en:'Hello. It is good to see you today.',ko:'안녕하세요. 오늘도 잘 부탁해요.',yue:'你好，今日都請多多指教。'};
@@ -10252,7 +10256,8 @@ window.__ModuleLoader__.load({
 		  const useSystemVoicePacks=binding=>readingPackIds(useReadingPointers(binding).value);
 		  // 选择声音's groups, the one grouping every voice picker shows (人物声音页, 舞台设置 › 配音): 通用声音 (defaultCastVoices,
 		  // whichever pack holds them — the same voices the casting assistant picks from), then 本包's other voices, then the other
-		  // packs' by pack. A voice is listed once, in its first group; a 通用声音 of this pack is still picked as its own.
+		  // packs' by pack. A voice is listed once, in its first group; a 通用声音 of this pack is still picked as its own. Each row
+		  // shows the voice's language as 自动素材 reads it (castLanguage: unset = 中文), which casts a speaker only with voices of its own.
 		  // This pack's voices come from `pack` (current), the others' from the catalogue (null while it loads). Rows: this pack's
 		  // {id, spec, users}, another's the catalogue entry.
 		  function voicePickerGroups(catalogue,pack,systemPacks){
@@ -10764,11 +10769,11 @@ window.__ModuleLoader__.load({
 		    const served=spec=>{const src=services&&spec?.sources?.[spec.defaultSource];return src?voiceServiceName(services,src):'';};
 		    // a 通用声音 row also names its pack (`from`): the group mixes packs.
 		    const meta=(spec,from)=>[served(spec),from].filter(Boolean).join(' · ');
-		    const ownRow=(close,from)=>({id,spec,users})=>h(VoiceListRow,{key:'p:'+id,name:spec.name,query:q,lang:spec.language,meta:meta(spec,from),current:id===current,
+		    const ownRow=(close,from)=>({id,spec,users})=>h(VoiceListRow,{key:'p:'+id,name:spec.name,query:q,lang:castLanguage(spec.language),meta:meta(spec,from),current:id===current,
 		      end:h(VoiceFaces,{binding,pack,figures:users}),play:rowPlay(spec,'pick:'+packId+':'+id,candidate(spec),spec.name),
 		      onPick:()=>id===current?close():pick(close,{kind:'own',id,name:spec.name}),
 		      menu:onDelete&&(closeMenu=>h(MenuItem,{danger:true,onClick:()=>{closeMenu();close();onDelete(id);}},'删除声音…'))});
-		    const otherRow=(close,from)=>v=>h(VoiceListRow,{key:v.ref.packId+'/'+v.ref.voiceId,name:v.name,query:q,lang:v.voiceSpec.language,meta:meta(v.voiceSpec,from&&v.packName),end:h(VoiceFaces,{users:v.users}),
+		    const otherRow=(close,from)=>v=>h(VoiceListRow,{key:v.ref.packId+'/'+v.ref.voiceId,name:v.name,query:q,lang:castLanguage(v.voiceSpec.language),meta:meta(v.voiceSpec,from&&v.packName),end:h(VoiceFaces,{users:v.users}),
 		      play:rowPlay(v.voiceSpec,'pick:'+v.ref.packId+':'+v.ref.voiceId,v.previewFigureId&&{packId:v.ref.packId,figureId:v.previewFigureId,expectedRevision:v.revision,voiceSpec:v.voiceSpec},v.name),
 		      onPick:()=>pick(close,{kind:'other',ref:v.ref,name:v.name})});
 		    const generalRow=close=>{

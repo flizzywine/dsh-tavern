@@ -6,6 +6,7 @@ import { join, basename, resolve } from 'node:path'
 import { pathToFileURL, fileURLToPath } from 'node:url'
 import { Readable } from 'node:stream'
 import { setTimeout as delay } from 'node:timers/promises'
+import { createDiagnostics } from '../tavern-plugin/packages/dsh-tavern-image-bundled/lib/diagnostics.js'
 
 const source = fileURLToPath(new URL('../tavern-plugin/packages/dsh-tavern-image-bundled/', import.meta.url))
 const SECRET = 'sk-SUPERSECRET-123456'
@@ -89,4 +90,22 @@ test('挂载句只差 Markdown 记号或换行时照样出图（以前逐字比�
   assert.equal(r.status, 200)
   assert.equal(f.bodies.length, 1)
   assert.equal(r.body.characterWarnings, undefined)
+})
+
+test('诊断容量按多个追踪的 UTF-8 字节计量，作业终止后释放追踪', async t => {
+  const f = await runtime(t, { diagnostics: { enabled: true, nextTraceOnly: false, maxTotalBytes: 900 } })
+  const diag = createDiagnostics({ root: f.root })
+  const first = diag.begin()
+  const second = diag.begin()
+  diag.bindJob('job', first, 0)
+  diag.end(first)
+  diag.recordJob('job', 'job-done', { note: '图'.repeat(100) })
+  diag.finishJob('job')
+  assert.equal(diag.status().active, 1)
+  diag.record(second, 'too-large', { note: '图'.repeat(100) })
+  diag.end(second)
+  assert.equal(diag.status().active, 0)
+  const events = await f.events()
+  assert.ok(events.some(event => event.stage === 'job-done'))
+  assert.ok(!events.some(event => event.stage === 'too-large'))
 })
