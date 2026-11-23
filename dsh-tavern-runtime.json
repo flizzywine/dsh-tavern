@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "380aff8e5907c02148849e1eb239e0ab1d17c677",
-  "releaseSequence": 1983,
+  "revision": "8b48ff7613bc7244ae0e6fd9a486ad3214a18272",
+  "releaseSequence": 1984,
   "version": "3.4.0",
   "files": [
     {
@@ -271,8 +271,8 @@
     },
     {
       "path": "bin/bundled-tavern-plugins.mjs",
-      "sha256": "64e9a5d10e85cb6e69a6bd54e0fefcbf1207638065f710f444a600113138fdd6",
-      "size": 14689
+      "sha256": "0ba8746166ea99dc49384b85ba48af0bbb16793b17a48c4cba6daf22779b1a45",
+      "size": 14774
     },
     {
       "path": "bin/chat-answer-step-patch.mjs",
@@ -351,8 +351,8 @@
     },
     {
       "path": "bin/dev-sync-desktop.mjs",
-      "sha256": "29d09f3da61bccdf353cd3e19721b27cfb9b221a2429202dae10b3bafffa79f8",
-      "size": 3549
+      "sha256": "4528e188e5a0f674195aa38c4603c1e4cc0a63bf58bfd0e39aeee51c07c1b018",
+      "size": 5456
     },
     {
       "path": "bin/download.cjs",
@@ -10126,9 +10126,9 @@
     }
   ],
   "archive": {
-    "commit": "73e75f3844045c49197a8ebea35806a11081f675",
+    "commit": "4f45a7a685d230c5ab59e4d837bdd7a640600201",
     "path": "runtime.zip",
-    "sha256": "c95afbe9faa28361260bb1a783e94249dd74d4489479adb7aa113a2395f9baef",
-    "size": 17806243
+    "sha256": "c32f234a9c43dbe3792c233ae19ef78cdeac37bd61e6799ff21075534b0d9b1a",
+    "size": 17806893
   }
 }
