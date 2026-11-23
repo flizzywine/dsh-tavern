@@ -213,7 +213,18 @@ function bindStageViews(createViews) {
             // one start path, dsh-tavern-stage-opening); it settles once the game stands and the stage has entered it.
             startOpening:(sessionId,choice)=>new Promise((resolve,reject)=>{const detail={sessionId,choice,respond:resolve,fail:reject};window.dispatchEvent(new CustomEvent('dsh-tavern-stage-opening',{detail}));if(!detail.handled)reject(new Error('开始游戏不可用'));}),
             useLiveView:useLiveTavernView, packService:()=>packTransport?.service,
-            findPluginPanel:findTavernStagePluginPanel, PluginPanel:TavernStagePluginPanel,
+            findPluginPanel:findTavernStagePluginPanel, findStageCue:findTavernStageDialogueCue, PluginPanel:TavernStagePluginPanel,
+            async applyCardScene(sessionId,background,music) {
+                const key = bgKey(background);
+                if (bgManual.get().sessionId !== sessionId) return {applied:false};
+                if (!bgManual.get().rows.some(row=>row.key===key)) await bgManual.invalidate();
+                const current = bgManual.get();
+                if (current.sessionId !== sessionId || !current.rows.some(row=>row.key===key)) return {applied:false};
+                bgManual.pick(key);
+                const audio = bgmPlayer.get();
+                if (music && audio.sessionId === sessionId && audio.tracks.some(track=>track.key===bgmKey(music))) bgmPlayer.pick(bgmKey(music));
+                return {applied:true};
+            },
             createCardFrame:props=>createTavernMessageFrameLifecycle(props,{executeSlash:stageCardPageSlash()})},
         device:{matchMedia},
         mixer:{reading:stageReading, voiceRateLimits:STAGE_READING_LIMITS.voiceRate, Icon, Slider, audio:forkStageAudio, sounds:forkUiSfx, entries:stageEntries, report:useStageEntryState, icons:ICON_PATHS},

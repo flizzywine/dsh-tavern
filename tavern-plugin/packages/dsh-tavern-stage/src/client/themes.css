@@ -449,6 +449,28 @@
 /* Long options wrap to balanced centred lines. A scene jump (time skip / change of place) is drawn exactly like any
    other choice (no tag). */
 .fork-gal-choice-text { min-width: 0; text-wrap: balance; }
+.fork-gal-stage > .fork-gal-stage-offer {
+    position:absolute;z-index:7;display:grid;gap:6px;box-sizing:border-box;
+    inset:auto max(5%,env(safe-area-inset-right)) max(23%,120px) auto;
+    inline-size:min(22rem,calc(100% - 24px));max-block-size:38%;overflow:auto;overscroll-behavior:contain;
+    padding:4px;font-family:var(--gal-ui-font,system-ui);
+}
+.fork-gal-offer-action,.fork-gal-offer-dismiss {
+    display:flex;align-items:center;gap:.65em;padding:8px 12px;min-block-size:44px;
+    color:var(--gal-ui-ink);background:var(--gal-ui-veil);border:1px solid var(--gal-ui-accent);border-radius:6px;
+    font:500 var(--gal-ui-choice-size)/1.35 var(--gal-ui-font,system-ui);text-align:start;cursor:pointer;
+}
+.fork-gal-offer-action svg {flex:none;color:var(--gal-ui-accent)}
+.fork-gal-offer-action:is(:hover,:focus-visible),.fork-gal-offer-dismiss:is(:hover,:focus-visible) {
+    background:linear-gradient(var(--gal-ui-hover),var(--gal-ui-hover)),var(--gal-ui-veil);
+    outline:var(--gal-ui-focus);outline-offset:-3px
+}
+.fork-gal-offer-action:disabled {opacity:.65;cursor:wait}
+.fork-gal-offer-dismiss {justify-self:end;font-size:.85em}
+.fork-gal-stage-offer[hidden],.fork-gal-stage:is(.is-backlog,.is-config,.is-menu) > .fork-gal-stage-offer {display:none!important}
+@media (max-width:640px) {
+    .fork-gal-stage > .fork-gal-stage-offer {inset-inline:12px;inline-size:auto;bottom:max(29%,164px);max-block-size:37%}
+}
 .fork-gal-choice-badge { margin-right: .22em; color: var(--gal-ui-accent); font-weight: 600; }
 .fork-gal-choice-badge.is-route { color: #34a882; font-weight: 700; }
 /* The ✎ of a story choice: a round quiet icon at the ribbon's right, inside the solid part. With a mouse it shows while

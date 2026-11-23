@@ -85,6 +85,7 @@ function fakeReact(stateOverride, pluginPanel = null) {
   const cleanups = []
   return {cleanups, React: {createElement: (type, props, ...children) => ({type, props: props || {}, children: children.flat()}),
     useRef: value => ({current: value ?? null}), useState: initial => [initial === null ? pluginPanel : stateOverride ?? initial, () => {}],
+    useMemo: fn => fn(),
     useEffect: fn => { const cleanup = fn(); if (typeof cleanup === 'function') cleanups.push(cleanup) }}}
 }
 const find = (node, test) => !node || typeof node !== 'object' ? null : test(node) ? node : node.children.reduce((hit, child) => hit || find(child, test), null)
@@ -96,8 +97,14 @@ test('a shared plugin panel receives the host page ID for each card page', () =>
   const h = harness({options: {React, PluginPanel}})
   for (const stagePageId of ['quests', 'inventory']) {
     const tree = h.panels.Overlay({sessionId: 's1', pageId: stagePageId, onClose() {}})
-    assert.deepEqual(find(tree, node => node.type === PluginPanel).props,
-      {sessionId: 's1', plugin: 'travel', id: 'journal', stagePageId})
+    const {stage, ...props} = find(tree, node => node.type === PluginPanel).props
+    assert.deepEqual(props, {sessionId: 's1', plugin: 'travel', id: 'journal', stagePageId})
+    assert.equal(stage.page, stagePageId)
+    const offer = {title:'再问一句',lines:[{speaker:'旅伴',text:'要出发了吗？'}],options:[],onSelect() {}}
+    const actions = []
+    const another = h.panels.Overlay({sessionId:'s1',pageId:stagePageId,onAction:(...args)=>actions.push(args)})
+    find(another,node=>node.type===PluginPanel).props.stage.offerChoices(offer)
+    assert.deepEqual(actions,[['offerChoices',offer]])
   }
   h.panels.dispose()
 })

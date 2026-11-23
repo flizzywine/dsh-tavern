@@ -62,6 +62,26 @@ function galFlatChoices(choices) {
 function galChoiceBadges(choice, tabKind, hasTabs) {
     return stageCandidateTabs.candidateChoiceBadges(choice, { tabKind, hasTabs });
 }
+function StageOffer({ offer, replace, muted }) {
+    const h=React.createElement;
+    const pending=React.useRef(false);
+    const [active,setActive]=React.useState("");
+    const [error,setError]=React.useState("");
+    async function select(id) {
+        if (pending.current) return;
+        pending.current=true; setActive(id); setError("");
+        try { replace(await offer.onSelect(id)); }
+        catch (cause) { setError(cause?.message || "暂时无法保存这次选择。"); }
+        finally { pending.current=false; setActive(""); }
+    }
+    return h("section",{className:"fork-gal-stage-offer",'data-scene-offer':'',
+        "data-state":"ready",hidden:muted,"aria-label":offer.title,onClick:event=>event.stopPropagation(),onWheel:event=>event.stopPropagation()},
+        ...offer.options.map(option=>h("button",{key:option.id,type:"button",className:"fork-gal-offer-action",disabled:Boolean(active),onClick:()=>select(option.id)},
+            h(Icon,{name:offer.icon || "chat",size:17}),h("span",null,option.label))),
+        error ? h("p",{role:"alert",className:"fork-gal-choice-error"},error) : null,
+        h("button",{type:"button",className:"fork-gal-offer-dismiss",disabled:Boolean(active),onClick:()=>replace(null)},
+            offer.options.length ? (offer.dismiss || "收起选项") : "收起"));
+}
 function GalChoices(props) {
     const h = React.createElement;
     const sessionId = props.sessionId;
@@ -236,6 +256,10 @@ function GalChoices(props) {
     const toolSend = Boolean(String(drafts[GAL_FREE] || "").trim()) || !canRegenerate;
     const swapRef = React.useRef({ send: toolSend, count: 0 });
     if (swapRef.current.send !== toolSend) swapRef.current = { send: toolSend, count: swapRef.current.count + 1 };
+    if (props.stageOffer && !running) {
+        if (props.fallbackRef) props.fallbackRef.current = null;
+        return props.stageOfferReady ? h(StageOffer,{offer:props.stageOffer,replace:props.replaceStageOffer,muted:props.hidden}) : null;
+    }
     if (state === "hidden") { if (props.fallbackRef) props.fallbackRef.current = null; return null; }
     // the wait chip stops this reply's choices (host stopChoices:
     // only the candidate task; the director, settlement and the body keep going). The panel then offers 生成选项,

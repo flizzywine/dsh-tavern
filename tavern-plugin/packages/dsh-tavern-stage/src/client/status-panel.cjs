@@ -24,7 +24,7 @@
 //   runs can enable them again. An element with data-dsh-sound sounds move on hover / focus and confirm on click.
 // The data is the page's ledger sections (readCardPage), the declared figures' faces as data: URLs (useFaces) and the
 // stage skin tokens (--gal-ui-*). It is read once on open and again, coalesced, after each session state signal.
-function createStageStatusPanel({React, window, document, rpc, signals, themeTokens, sounds, confirm, newGame, startOpening, useFaces, useLiveView, createCardFrame, packService, fillInput, findPluginPanel, PluginPanel}) {
+function createStageStatusPanel({React, window, document, rpc, signals, themeTokens, sounds, confirm, newGame, startOpening, useFaces, useLiveView, createCardFrame, packService, fillInput, findPluginPanel, findStageCue, PluginPanel, applyCardScene}) {
 const FACE_PX = 96;
 let disposed = false;
 const open = new Set(), faceData = new Map(), readers = new Map();
@@ -394,7 +394,7 @@ function usePages(sessionId) {
 // closeControl 'page' (a full page that closes itself): once its document shows, the sheet draws no ×, and Esc, the page's
 // shortcut, the backdrop and right-click ask the page (requestClose → its onCloseRequest) instead of closing; covered
 // (CONFIG, 回想 or 履历 opened over the page) keeps them closing that one first. Loading, empty and failed pages keep the ×.
-function Overlay({sessionId, pageId, label: declaredLabel, shortcut, size, closeControl, covered, saved, entry, openingPage, opening, config, source, onClose, onAction}) {
+function Overlay({sessionId, pageId, label: declaredLabel, shortcut, size, closeControl, covered, saved, entry, openingPage, opening, config, source, native, onClose, onAction}) {
     const h = React.createElement, root = React.useRef(null), body = React.useRef(null), panel = React.useRef(null);
     const close = React.useRef(onClose), act = React.useRef(onAction), coveredNow = React.useRef(covered);
     close.current = onClose; act.current = onAction; coveredNow.current = covered === true;
@@ -402,6 +402,7 @@ function Overlay({sessionId, pageId, label: declaredLabel, shortcut, size, close
     const [pluginPanel, setPluginPanel] = React.useState(null);
     const pluginNow = React.useRef(null);
     const request = () => {
+        if (native) { close.current?.(); return; }
         if (pluginNow.current && !coveredNow.current) {
             pluginNow.current = null;
             setPluginPanel(null);
@@ -416,7 +417,18 @@ function Overlay({sessionId, pageId, label: declaredLabel, shortcut, size, close
     const [state, setState] = React.useState({phase: 'loading', label: declaredLabel || '', size: size || 'window', figures: [], shown: false});
     const facesNow = React.useRef(null);
     React.useEffect(() => {
-        if (disposed || !ready) return;
+        if (!native || !ready || !PluginPanel) return;
+        let active = true;
+        findPluginPanel(sessionId,native.plugin,native.id).then(spec=>{
+            if (!active) return;
+            if (!spec) {setState(old=>({...old,phase:'empty'})); return;}
+            pluginNow.current = {...native,title:spec.title,size:spec.size};
+            setPluginPanel(pluginNow.current);
+        }).catch(()=>{if (active) setState(old=>({...old,phase:'error'}));});
+        return ()=>{active=false;};
+    }, [sessionId,native,ready]);
+    React.useEffect(() => {
+        if (disposed || !ready || native) return;
         const current = openCardPage({sessionId, page: pageId, label: declaredLabel, size, shortcut, closeControl, saved: saved === true, openingPage, opening: opening === true, trustedCardMode: trusted, helperContext: helperNow.current, host: () => body.current,
             onClose: () => close.current?.(), onEscape: request, onState: setState, onAction: (kind, arg) => act.current?.(kind, arg),
             pluginPanelShowing: () => Boolean(pluginNow.current),
@@ -427,7 +439,28 @@ function Overlay({sessionId, pageId, label: declaredLabel, shortcut, size, close
         panel.current = current;
         if (facesNow.current) current.setFaces(facesNow.current);
         return () => { if (panel.current === current) panel.current = null; current.dispose(); };
-    }, [sessionId, pageId, declaredLabel, size, shortcut, closeControl, saved, openingPage, opening, ready, trusted]);
+    }, [sessionId, pageId, declaredLabel, size, closeControl, shortcut, saved, openingPage, opening, ready, trusted, native]);
+    const stage = React.useMemo(()=>{
+        if (!pluginPanel) return undefined;
+        const read = assetReader(sessionId,pageId);
+        return {
+            page:pageId, section:pluginPanel.section || '', asset:read,
+            close:()=>close.current?.(),
+            openPage:(id,section)=>act.current?.('openPanelPage',{id,section}),
+            offerChoices:offer=>act.current?.('offerChoices',offer),
+            fillInput:text=>{fillInput(sessionId,String(text ?? '')); act.current?.('fill');},
+            async applyTravelScene({background,music,actors}) {
+                if (!applyCardScene || pluginNow.current!==pluginPanel) return {applied:false};
+                const [image,sound] = await Promise.all([read.locate({kind:'backgrounds',id:background}),
+                    music && read.locate({kind:'music',id:music}).catch(()=>null)]);
+                if (pluginNow.current!==pluginPanel) return {applied:false};
+                const result = await applyCardScene(sessionId,{packId:image.packId,assetId:background},sound && {packId:sound.packId,assetId:music});
+                if (result?.applied && Array.isArray(actors) && pluginNow.current===pluginPanel) act.current?.('travelCast',actors);
+                return result;
+            }
+        };
+    },[sessionId,pageId,pluginPanel]);
+    React.useEffect(()=>()=>{pluginNow.current=null;},[]);
     React.useEffect(() => { panel.current?.setHelper(helper); }, [helper]);
     const names = state.figures.map(figure => figure.name);
     const faces = useFaces ? useFaces({config, sessionId, source, names, px: FACE_PX}) : new Map();
@@ -467,7 +500,7 @@ function Overlay({sessionId, pageId, label: declaredLabel, shortcut, size, close
                 h('button', {type: 'button', className: 'fork-gal-status-close', title: closeLabel, 'aria-label': closeLabel, onClick: request},
                     h('svg', {viewBox: '0 0 24 24', width: 18, height: 18, fill: 'none', stroke: 'currentColor', strokeWidth: 1.6, strokeLinecap: 'round', 'aria-hidden': true, focusable: 'false'}, h('path', {d: 'M7 7l10 10M17 7L7 17'})))),
             pluginPanel ? h('div', {className: 'fork-gal-status-plugin', onContextMenu: event => event.stopPropagation()},
-                h(PluginPanel, {sessionId, plugin:pluginPanel.plugin, id:pluginPanel.id, stagePageId:pageId})) : null,
+                h(PluginPanel, {sessionId, plugin:pluginPanel.plugin, id:pluginPanel.id, stagePageId:pageId, stage})) : null,
             h('div', {ref: body, className: 'fork-gal-status-body', style:pluginPanel ? {display:'none'} : undefined},
                 state.phase === 'loading' && !entry ? h('p', {className: 'fork-gal-status-note', role: 'status'}, '正在读取' + label + '…') : null,
                 state.phase === 'empty' ? h('p', {className: 'fork-gal-status-note'}, '本卡没有这个页面') : null,
@@ -475,7 +508,7 @@ function Overlay({sessionId, pageId, label: declaredLabel, shortcut, size, close
                     h('button', {type: 'button', onClick: () => panel.current?.retry()}, '重试')) : null)));
 }
 
-return {usePages, Overlay, open: openCardPage, dispose() {
+return {usePages, Overlay, open: openCardPage, findStageCue, dispose() {
     if (disposed) return;
     disposed = true;
     const errors = [];

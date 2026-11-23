@@ -558,6 +558,7 @@
 					if (input.stageSize !== undefined && input.stageSize !== "window" && input.stageSize !== "full") throw new TypeError("registerPanel 的 stageSize 只能是 window 或 full");
 					if (input.stageOnly !== undefined && typeof input.stageOnly !== "boolean") throw new TypeError("registerPanel 的 stageOnly 必须是布尔值");
 					if (!stage && (input.stageOnly !== undefined || input.stageSize !== undefined)) throw new TypeError("registerPanel 的 stageOnly 和 stageSize 需要 stage: true");
+					if (input.stageDialogue !== undefined && (!stage || typeof input.stageDialogue !== "function")) throw new TypeError("registerPanel 的 stageDialogue 需要 stage: true 和一个函数");
 					const owner = ownerOf(this);
 					const tabId = "tavern-plugin:" + owner + ":" + input.id;
 					const render = input.render, title = input.title.trim();
@@ -576,7 +577,7 @@
 								return React.createElement(tavernPluginBoundary(), { owner: owner, fallback: React.createElement("p", { className: "dsh-tavern-plugin-panel-error" }, "插件 " + owner + " 的面板出错了") },
 									gameId ? React.createElement(render, { gameId: gameId, visible: props.visible !== false }) : React.createElement("p", { className: "dsh-tavern-plugin-panel-empty" }, "请先打开一局游戏。"));
 							} }) : null;
-						panels.set(tabId, { owner, title, render, stage, stageSize });
+						panels.set(tabId, { id: input.id, owner, title, render, stage, stageSize, stageDialogue: input.stageDialogue });
 						changed();
 						return function () { if (typeof dispose === "function") dispose(); panels.delete(tabId); changed(); };
 					}, "tavernUi.registerPanel()");
@@ -1038,6 +1039,20 @@
 					return panel?.stage && panel.owner === plugin && scopes && Object.hasOwn(scopes, plugin) &&
 						Array.isArray(scopes[plugin]) && tavernPluginAllowed(plugin, sessionId) ? panel : null;
 				},
+				stageDialogue: function (sessionId, lines) {
+					for (const panel of panels.values()) {
+						if (!panel.stageDialogue || !this.stagePanel(sessionId, panel.owner, panel.id)) continue;
+						try {
+							const answer = panel.stageDialogue(lines);
+							if (!answer || typeof answer.page !== "string" || typeof answer.label !== "string" || !answer.label.trim()) continue;
+							const id = answer.panelId ?? panel.id;
+							if (typeof id !== "string" || !this.stagePanel(sessionId, panel.owner, id)) continue;
+							return {plugin: panel.owner, id, page: answer.page.slice(0,32), label: answer.label.slice(0,96),
+								section: typeof answer.section === "string" ? answer.section.slice(0,96) : ""};
+						} catch (error) { tavernErrorHub.report("插件 " + panel.owner, error); }
+					}
+					return null;
+				},
 				attachCandidateRunner: function (fn) {
 					candidateRunner = typeof fn === "function" ? fn : null;
 					return function () { if (candidateRunner === fn) candidateRunner = null; };
@@ -1179,19 +1194,23 @@
 			return React.useSyncExternalStore(tavernUiExtensions.subscribe, tavernUiExtensions.getSnapshot, tavernUiExtensions.getSnapshot);
 		}
 
-		function TavernStagePluginPanel({ sessionId, plugin, id, stagePageId }) {
+		function TavernStagePluginPanel({ sessionId, plugin, id, stagePageId, stage }) {
 			useTavernUiExtensions();
 			useTavernCardPluginScopes();
 			const panel = tavernUiExtensions.stagePanel(sessionId, plugin, id), h = React.createElement;
 			if (!panel) return h("p", { role: "status" }, "这局游戏的插件面板已不可用。");
 			return h(tavernPluginBoundary(), {
 				owner: panel.owner, fallback: h("p", { role: "alert" }, "插件面板加载失败。")
-			}, h(panel.render, { gameId: sessionId, visible: true, stagePageId }));
+			}, h(panel.render, { gameId: sessionId, visible: true, stagePageId, stage }));
 		}
 		async function findTavernStagePluginPanel(sessionId, plugin, id) {
 			await tavernCardPluginScopes.load();
 			const panel = tavernUiExtensions.stagePanel(sessionId, plugin, id);
 			return panel ? {title: panel.title, size: panel.stageSize} : null;
+		}
+		async function findTavernStageDialogueCue(sessionId, lines) {
+			await tavernCardPluginScopes.load();
+			return tavernUiExtensions.stageDialogue(sessionId, lines);
 		}
 
 		// Created on first use: React is the host's, not available at bundle load.
