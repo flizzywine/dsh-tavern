@@ -497,7 +497,7 @@ window.__ModuleLoader__.load({
 				h("button", { type: "button", className: "dsh-tavern-btn primary", disabled: props.disabled || busy, onClick: activate }, props.batch ? "批量导入" : "导入人物卡"),
 				open ? h("div", { className: "dsh-tavern-mobile-import", role: "dialog", "aria-modal": "true", "aria-label": "从手机下载目录导入人物卡" }, h("div", { className: "dsh-tavern-mobile-import-shell" }, h("div", { className: "dsh-tavern-mobile-import-panel" },
 					h("div", { className: "dsh-tavern-mobile-import-title" }, "从手机下载目录导入"),
-					h("div", { className: "dsh-tavern-question-sub" }, "把人物卡（PNG、JSON、卡包）或素材包 ZIP 放进手机 Download，回到这里点选；大文件也能直接导入。"),
+					h("div", { className: "dsh-tavern-question-sub" }, "把人物卡（PNG、JSON、卡包）或素材包 ZIP 放进手机 Download，回到这里点选；.dshcard 和 .charx 卡包文件读取上限为 8 GiB。"),
 					h("div", { className: "dsh-tavern-mobile-import-count", role: 'status', 'aria-busy': !!progress }, progress ? h(Spinner) : null, countText),
 					error ? h("div", { className: "dsh-tavern-dock-error", role: "alert" }, error) : null,
 					notice ? h("div", { className: "dsh-tavern-question-sub dsh-tavern-mobile-import-notice", role: "status" }, notice) : null,
