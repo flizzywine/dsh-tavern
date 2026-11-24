@@ -7317,12 +7317,6 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
 
 
 
-/* .fork-roll's own tier mapping is the core theme's (a stage-less card's chat floor). */
-.fork-gal-backlog-roll[data-tier="critical"] { --roll-tier: var(--roll-critical); }
-.fork-gal-backlog-roll[data-tier="success"] { --roll-tier: var(--roll-success); }
-.fork-gal-backlog-roll[data-tier="costly"] { --roll-tier: var(--roll-costly); }
-.fork-gal-backlog-roll[data-tier="failure"] { --roll-tier: var(--roll-failure); }
-.fork-gal-backlog-roll[data-tier="fumble"] { --roll-tier: var(--roll-fumble); }
 /* Stage: on the text box's top edge, out of its flow (the box never moves or re-wraps); details open upward. */
 .fork-gal-stage .fork-gal-box > .fork-roll-list { position: absolute; right: var(--box-pad, 16px); bottom: calc(100% + 8px); z-index: 4; align-items: flex-end; width: max-content; max-width: min(72%, 460px); margin: 0; }
 /* The list's own box takes no clicks: a card hidden while its roll plays must not cover the result page beneath it. */
