@@ -3805,6 +3805,29 @@ window.__ModuleLoader__.load({
 		    // the page never learns the folder the dialog chose (a file handle has no path), so it names the choice instead.
 		    return {names, picked:!!target, said:target ? '已导出 ' + files + '，在刚才保存框里选的文件夹里。' : '已开始下载 ' + files + '，在浏览器的下载列表里。'};
 		}
+		// 导出 DSH 人物卡 on the host (rpc exportLibraryCard, card-export-jobs.js): the host answers at once and the export runs as
+		// a job polled here (cardExportProgress), since one request may not stay open the minutes a large card takes (the Desktop
+		// ends a request whose answer has not begun after five minutes). onProgress({stage}) hears the step running; resolves
+		// {filename, bytes, downloadUrl}, or rejects with the host's sentence for the failed step (error.step, error.code).
+		// Aborting `signal` cancels the job.
+		async function runCardExport(rpc, args, {onProgress, signal} = {}) {
+		    const progressId = 'card-export-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
+		    await rpc('exportLibraryCard', {...args, progressId});
+		    try {
+		        for (;;) {
+		            await new Promise(resolve => setTimeout(resolve, 500));
+		            signal?.throwIfAborted();
+		            const {progress} = await rpc('cardExportProgress', {progressId});
+		            if (!progress) throw new Error('这次导出已经结束或过期，请重新导出。');
+		            if (progress.stage === 'done') return progress.result;
+		            if (progress.stage === 'failed') throw Object.assign(new Error(progress.error.message), {step:progress.error.step, ...(progress.error.code ? {code:progress.error.code} : {})});
+		            onProgress?.(progress);
+		        }
+		    } catch (error) {
+		        if (signal?.aborted) void rpc('cancelCardExport', {progressId}).catch(() => {});
+		        throw error;
+		    }
+		}
 		// browser port for the authenticated v2 package transport.
 		function createPackTransport({fetch: request = fetch, interval = 2000, subscribeChanges} = {}) {
 		    const root = PACK_ROOT, listeners = new Set(), unavailable = new Set(), jobs = new Set();
@@ -3998,7 +4021,8 @@ window.__ModuleLoader__.load({
 		  const alive=()=>{if(!active)throw new Error('素材插件已卸载');};
 		  // 全局启用 is one cross-card flag shown by 素材库 and 舞台设置 at once; both re-render on any change.
 		  const notifySettings=()=>{for(const fn of [...settingsListeners])fn();};
-		  const binding={service,rpc,engineRpc,settings,download,pickSave,readExport,seedUpdates,tts,
+		  // exportCard(args, {onProgress, signal}): 导出 DSH 人物卡 on the host (runCardExport, pack-transport.js).
+		  const binding={service,rpc,engineRpc,settings,download,pickSave,readExport,seedUpdates,tts,exportCard:(args,options)=>runCardExport(rpc,args,options),
 		    get globalEnabledPackIds(){return settingsSnapshot?.values.globalEnabledPackIds||[];},
 		    async loadSettings(){alive();if(settings){const snapshot=await settings.read();alive();settingsSnapshot=snapshot;notifySettings();}return settingsSnapshot;},
 		    async setGlobalEnabled(packId,enabled){alive();if(!settingsSnapshot)await binding.loadSettings();const ids=settingsSnapshot.values.globalEnabledPackIds;const result=await settings.save({expectedRevision:settingsSnapshot.revision,globalEnabledPackIds:enabled?[...new Set([...ids,packId])]:ids.filter(id=>id!==packId)});alive();settingsSnapshot=result;notifySettings();return result;},
@@ -56736,20 +56760,19 @@ function WorldBookAddMenu({ choices, loading, disabled, onOpen, onPick }) {
 			}
 			// Native exports keep the card, cover and material together in one DSH container. A card with packs to choose
 			// encrypts through the export sheet (the packs and figures to take, then the password); the host packs and encrypts
-			// (rpc encryptLibraryCard) and the file is saved like any export.
+			// (rpc exportLibraryCard, polled by runCardExport) and the file is saved like any export.
 			async function encryptCurrentCard() {
 				if (!card || busy) return;
 				const path = card.path;
-				const run = function (args) { return rpc('encryptLibraryCard', Object.assign({ path }, args)); };
 				if (dshExport.open && card.extensions?.hasSelectableAssetPacks !== false) {
-					dshExport.open(card, { encrypt: { askPassword: function () { return askTavernCardPassword({ name: card.name, confirm: true }); }, run } });
+					dshExport.open(card, { encrypt: { askPassword: function () { return askTavernCardPassword({ name: card.name, confirm: true }); } } });
 					return;
 				}
 				const password = await askTavernCardPassword({ name: card.name, confirm: true });
 				if (password === null) return;
 				await saveCardExport({ extension: '.dshcard', type: 'application/zip', description: 'DSH 人物卡', suffix: '-加密', title: '正在加密导出人物卡',
 					packing: '正在整理当前卡片、封面、插件和素材并加密…',
-					source: async function () { const result = await run({ password }); return { url: result.downloadUrl, filename: result.filename }; } });
+					source: async function () { const result = await runCardExport(rpc, { path, password }); return { url: result.downloadUrl, filename: result.filename }; } });
 			}
 			const CARD_EXPORT_FILES = { dshcard: { extension: '.dshcard', type: 'application/zip', description: 'DSH 人物卡' }, json: { extension: '.json', type: 'application/json', description: 'JSON 人物卡' }, png: { extension: '.png', type: 'image/png', description: 'PNG 人物卡' } };
 			function exportCardFile(format) {

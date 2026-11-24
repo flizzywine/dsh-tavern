@@ -115,8 +115,18 @@ test('encrypting the current library card again creates one new password layer a
     assert.equal(cardPath, 'cards/current.json'); calls++
     return { name: 'Current card', file: f.plain, dispose: async () => {} }
   } })
-  const first = await handlers.encryptLibraryCard({ path: 'cards/current.json', password: 'first-test-password' })
-  const second = await handlers.encryptLibraryCard({ path: 'cards/current.json', password: 'second-test-password' })
+  // the export answers its progressId at once and runs as a job; the finished job's view carries the file.
+  const exportCard = async (password, progressId) => {
+    assert.deepEqual(await handlers.exportLibraryCard({ path: 'cards/current.json', password, progressId }), { progressId })
+    for (;;) {
+      const { progress } = handlers.cardExportProgress({ progressId })
+      if (progress.stage === 'done') return progress.result
+      assert.notEqual(progress.stage, 'failed', progress.error?.message)
+      await new Promise(resolve => setTimeout(resolve, 5))
+    }
+  }
+  const first = await exportCard('first-test-password', 'export-first-1')
+  const second = await exportCard('second-test-password', 'export-second-1')
   assert.equal(calls, 2)
   for (const [result, password] of [[first, 'first-test-password'], [second, 'second-test-password']]) {
     const stored = await exports.take(new URL(result.downloadUrl, 'http://localhost').searchParams.get('token'))
@@ -223,4 +233,28 @@ test('JPEG and WebP covers retain their exact original bytes inside encrypted DS
       assert.equal(card.data.extensions.original, uri)
     } finally { await zip.close() }
   }
+})
+
+test('a card export answers at once, reports its failure as a sentence and can be cancelled', async t => {
+  const f = await fixture(t), exports = createTransferExportStore({ root: path.join(f.dir, 'exports') })
+  t.after(() => exports.close())
+  let release, disposed = 0
+  const gate = new Promise(resolve => { release = resolve })
+  const handlers = createCardHandlers({ uploads: createUploads({ root: f.dir }), transferExports: exports, str: String, async exportCardFile(cardPath) {
+    if (cardPath === 'cards/broken.json') throw Object.assign(new Error('no space'), { code: 'ENOSPC' })
+    await gate
+    return { name: 'Slow card', file: f.plain, dispose: async () => { disposed++ } }
+  } })
+  await assert.rejects(handlers.exportLibraryCard({ path: 'cards/slow.json', progressId: 'short' }), { code: 'TAVERN_EXPORT_INVALID' })
+  assert.deepEqual(await handlers.exportLibraryCard({ path: 'cards/slow.json', progressId: 'export-slow-1' }), { progressId: 'export-slow-1' })
+  assert.deepEqual(handlers.cardExportProgress({ progressId: 'export-slow-1' }).progress, { stage: 'pack' })
+  assert.deepEqual(handlers.cancelCardExport({ progressId: 'export-slow-1' }), { cancelled: true })
+  release()
+  await new Promise(resolve => setTimeout(resolve, 20))
+  assert.equal(handlers.cardExportProgress({ progressId: 'export-slow-1' }).progress, null)
+  await handlers.exportLibraryCard({ path: 'cards/broken.json', progressId: 'export-broken-1' })
+  await new Promise(resolve => setTimeout(resolve, 20))
+  const { progress } = handlers.cardExportProgress({ progressId: 'export-broken-1' })
+  assert.equal(progress.stage, 'failed')
+  assert.match(progress.error.message, /^打包时出错：磁盘空间不够/)
 })
