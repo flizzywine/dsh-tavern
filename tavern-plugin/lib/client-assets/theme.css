@@ -2389,7 +2389,7 @@ body[data-ds-dark-theme] .fork-popover { color-scheme: dark; }
 .ap-hint-line.is-compact { display: inline-flex; flex-wrap: nowrap; margin: 0; font-weight: 400; }
 .ap-hint-line.is-link { display: inline-flex; flex-wrap: nowrap; margin: 0; min-height: 30px; padding: 0 8px; border: 0; border-radius: 8px; background: none; color: var(--fork-warn); font: inherit; font-size: var(--fork-fs-meta); cursor: pointer; }
 .ap-hint-line.is-link:hover, .ap-hint-line.is-link:focus-visible { background: var(--fork-hover); }
-/* 自动素材 › 自动立绘 / 自动配音: the switch, its reset, then the way to its service (› or ⚠ 未配置) */
+/* 自动素材 › 自动立绘 / 自动配音 / 自动 BGM: the switch, its reset, then the way to its service (› or ⚠ 未配置) */
 .ap-auto-cast-part > .fork-inline-value { display: inline-flex; align-items: center; gap: 10px; }
 /* 「智能判断 未设置」's ⚠ sits right after the heading, wrapping under it when narrow. */
 .ap-engine-judge > .ap-section-head { flex-wrap: wrap; row-gap: 4px; }
