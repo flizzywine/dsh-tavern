@@ -105,6 +105,9 @@ async function sourceCard(input, { name = '', password } = {}) {
   } catch (error) { await zip.close(); throw error }
 }
 
+// Media is already compressed: deflating it again only costs time (the AES itself runs at about 50 MB/s).
+export const STORED_MEDIA = /\.(png|webp|jpe?g|gif|webm|mp4|m4a|ogg|oga|opus|mp3|aac|flac|woff2?)$/i
+
 /** A standard ZIP container: the card, cover, plugins and assets all stay inside it. */
 export async function encryptCardArchiveFile(input, output, password, options = {}) {
   if (!options.decrypt && (typeof password !== 'string' || !password.length)) throw new Error('请设置人物卡密码')
@@ -129,7 +132,7 @@ export async function encryptCardArchiveFile(input, output, password, options = 
         source.once('error', error => meter.destroy(error))
         source = source.pipe(meter)
       }
-      await writer.add(entry.path, Readable.toWeb(source))
+      await writer.add(entry.path, Readable.toWeb(source), { level: STORED_MEDIA.test(entry.path) ? 0 : 5 })
     }
     await writer.close()
     return { entries: zip.entries.size }

@@ -18,31 +18,57 @@ async function pickExportTarget({name, many = false, description = 'ZIP 压缩�
 // total}) per file; without a target it hands the file to an ordinary download. `name` (no extension; the archive's
 // own is kept) overrides the file name of a single archive. Resolves {names:[saved file names], picked:boolean, said}: `said`
 // is the one sentence every export shows when done, where the file is. A failed write removes the half-written file.
+// A download that stops sending (the connection hangs without closing) would otherwise hold the save open forever with a
+// half-written .crswap beside the target; after SAVE_STALL_MS without a byte it fails with that reason and the write is
+// discarded. A target is reported saved only once its committed file has every byte of the response.
+const SAVE_STALL_MS = 120000;
 async function saveExportFile(result, {target = null, name, onProgress, signal} = {}) {
     const archives = result.archives || [result], names = [];
+    const mb = n => (n / 1048576).toFixed(1) + ' MB';
+    // the byte count the last opened response promised (open), which the committed file must have.
+    let lastTotal = 0;
     const fileName = archive => archives.length === 1 && name ? exportFileName(name) + (/\.[^.]+$/.exec(archive.filename || '')?.[0] || '.zip') : archive.filename || 'asset-pack.zip';
     const source = archive => archive.download ? PACK_ROOT + 'download?ticket=' + encodeURIComponent(archive.download.ticket) : archive.url;
-    async function open(archive) {
-        const response = await fetch(source(archive), {credentials:'same-origin', signal});
+    async function open(archive, stall) {
+        stall?.arm(() => 0, archive.size || 0);
+        const response = await fetch(source(archive), {credentials:'same-origin', signal:stall?.signal || signal});
         if (!response.ok) { const text = await response.text().catch(() => ''); const code = response.headers.get('x-dsh-error-code'); throw Object.assign(new Error(text || 'HTTP ' + response.status), {status:response.status, ...(code ? {code} : {})}); }
         // `size`: the host's own count of the file's bytes, for a response that lost its length on the way.
-        const total = Number(response.headers.get('content-length')) || archive.size || 0;
+        const total = lastTotal = Number(response.headers.get('content-length')) || archive.size || 0;
         // at most ~8 progress reports a second: one per chunk re-renders the page thousands of times for a large file.
         let loaded = 0, shown = 0;
         onProgress?.({loaded, total});
+        stall?.arm(() => loaded, total);
         return response.body.pipeThrough(new TransformStream({
-            transform(chunk, out) { loaded += chunk.byteLength; const now = performance.now(); if (now - shown > 120) { shown = now; onProgress?.({loaded, total}); } out.enqueue(chunk); },
-            flush() { onProgress?.({loaded, total}); }}));
+            transform(chunk, out) { loaded += chunk.byteLength; stall?.arm(() => loaded, total); const now = performance.now(); if (now - shown > 120) { shown = now; onProgress?.({loaded, total}); } out.enqueue(chunk); },
+            flush() { stall?.done(); onProgress?.({loaded, total}); }}));
+    }
+    // the save's own abort: the caller's signal, or the stall timer with its reason.
+    function stallGuard() {
+        const controller = new AbortController();
+        let timer = 0;
+        const follow = () => controller.abort(signal.reason);
+        signal?.addEventListener('abort', follow, {once:true});
+        if (signal?.aborted) follow();
+        return {signal:controller.signal,
+            arm(loaded, total) { clearTimeout(timer); timer = setTimeout(() => controller.abort(Object.assign(new Error('下载在 ' + mb(loaded()) + (total ? ' / ' + mb(total) : '') + ' 处停住，' + SAVE_STALL_MS / 60000 + ' 分钟没有收到新数据'), {name:'Error'})), SAVE_STALL_MS); },
+            done() { clearTimeout(timer); signal?.removeEventListener('abort', follow); }};
     }
     for (const archive of archives) {
         const filename = fileName(archive);
         if (target) {
             const handle = target.file || await target.folder.getFileHandle(filename, {create:true});
+            const stall = archive.bytes ? null : stallGuard();
             try {
-                const body = archive.bytes ? new Blob([archive.bytes]).stream() : await open(archive);
-                // pipeTo commits the file when the body ends and discards the write on failure.
-                await body.pipeTo(await handle.createWritable(), {signal});
-            } catch (error) { await handle.remove?.().catch(() => {}); throw error; }
+                const body = archive.bytes ? new Blob([archive.bytes]).stream() : await open(archive, stall);
+                // pipeTo commits the file (the .crswap is renamed) when the body ends and discards the write on failure.
+                await body.pipeTo(await handle.createWritable(), {signal:stall?.signal || signal});
+                const total = archive.bytes ? archive.bytes.length : lastTotal, written = (await handle.getFile()).size;
+                if (total && written !== total) throw new Error('保存的文件只有 ' + mb(written) + '，应为 ' + mb(total));
+            } catch (error) {
+                await handle.remove?.().catch(() => {});
+                throw stall?.signal.aborted && !signal?.aborted ? stall.signal.reason : error;
+            } finally { stall?.done(); }
             names.push(handle.name);
             continue;
         }

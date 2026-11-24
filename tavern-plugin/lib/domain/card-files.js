@@ -345,8 +345,11 @@ export function createCardFiles({ cardPreparation, fileResources, castAssets, as
   // use. Private migration sets preserveBindings: unembedded packs stay external references at the destination.
   // Packs can be large, so the archive is written to a spool file under exportRoot and streamed; `onProgress` hears it
   // being written (dsh-card-export.js writeDshCard). `books` chooses the bound world books, in every format.
-  async function exportCardFile(input, { format = 'dshcard', packIds, dependencyPackIds, excludeFigures = [], preserveBindings = false, books, onProgress } = {}) {
-    if (format === 'dshcard') return writeCardFile(input, { packIds, dependencyPackIds, excludeFigures, preserveBindings, books, onProgress })
+  // `compress` (.dshcard only): 压缩素材 — the packs go out with smaller media (dsh-card-export.js); the result's `compressed`
+  // says the packs' bytes before and after.
+  async function exportCardFile(input, { format = 'dshcard', packIds, dependencyPackIds, excludeFigures = [], preserveBindings = false, books, compress = false, onProgress } = {}) {
+    if (typeof compress !== 'boolean' || compress && format !== 'dshcard') throw Object.assign(new Error('压缩素材只用于导出 .dshcard'), { code: 'TAVERN_EXPORT_INVALID' })
+    if (format === 'dshcard') return writeCardFile(input, { packIds, dependencyPackIds, excludeFigures, preserveBindings, books, compress, onProgress })
     if (format !== 'json' && format !== 'png') throw Object.assign(new Error('不支持的人物卡导出格式'), { code: 'TAVERN_EXPORT_INVALID' })
     if (packIds !== undefined || dependencyPackIds !== undefined || !Array.isArray(excludeFigures) || excludeFigures.length) throw Object.assign(new Error('素材包与人物选择仅用于导出 .dshcard'), { code: 'TAVERN_EXPORT_INVALID' })
 
@@ -354,7 +357,7 @@ export function createCardFiles({ cardPreparation, fileResources, castAssets, as
     const { document, text } = await presentCardText(normalizeResourcePath(input, 'card'), books)
     return { name: str(document.data.name) || '人物卡', extension: format, contentType: 'application/json; charset=utf-8', bytes: Buffer.from(text) }
   }
-  async function writeCardFile(input, { excludeFigures = [], packIds, dependencyPackIds, preserveBindings = false, books, onProgress } = {}, backup = false) {
+  async function writeCardFile(input, { excludeFigures = [], packIds, dependencyPackIds, preserveBindings = false, books, compress = false, onProgress } = {}, backup = false) {
     if (!Array.isArray(excludeFigures) || excludeFigures.some(id => typeof id !== 'string')
       || [packIds, dependencyPackIds].some(ids => ids !== undefined && (!Array.isArray(ids) || ids.some(id => typeof id !== 'string')))) throw Object.assign(new Error('导出参数无效'), { code: 'TAVERN_EXPORT_INVALID' })
     let cardPath
@@ -413,7 +416,7 @@ export function createCardFiles({ cardPreparation, fileResources, castAssets, as
           raw = contents.card
           extraEntries.push(...contents.files.map(({ path, content }) => ({ path, data: content })))
         }
-        return exportDshCardSnapshot({ file, card: raw, packs, dependencies: snapshot?.dependencies, cover, excludeFigures, onProgress, entries: extraEntries, plugins: pluginFiles.plugins, defaults: Object.keys(defaults).length ? defaults : undefined })
+        return exportDshCardSnapshot({ file, card: raw, packs, dependencies: snapshot?.dependencies, cover, excludeFigures, onProgress, ...(compress ? { compress: { directory: path.join(directory, 'compressed') } } : {}), entries: extraEntries, plugins: pluginFiles.plugins, defaults: Object.keys(defaults).length ? defaults : undefined })
       }
       const imported = importedPacks.map(pack => pack.manifest.id)
       const ids = boundIds.filter(id => !imported.includes(id) && (!chosen || chosen.has(id)))
@@ -428,7 +431,7 @@ export function createCardFiles({ cardPreparation, fileResources, castAssets, as
       const result = library ? await (backup
         ? withCardBackup(file, selection, write)
         : library.withCardExport(selection, write)) : await write()
-      return { name: result.card.data.name || '人物卡', extension: 'dshcard', contentType: 'application/zip', file, size: result.size,
+      return { name: result.card.data.name || '人物卡', extension: 'dshcard', contentType: 'application/zip', file, size: result.size, ...(result.compressed ? { compressed: result.compressed } : {}),
         stream: () => createReadStream(file), dispose: () => rm(directory, { recursive: true, force: true }) }
     } catch (error) { await rm(directory, { recursive: true, force: true }); throw error }
   }

@@ -175,8 +175,10 @@ export function createCardHandlers(deps) {
       return cardExportJobs.run(args?.progressId, async report => {
         let card, output
         try {
-          card = await deps.exportCardFile(cardPath, { packIds: args?.packIds, excludeFigures: args?.excludeFigures, books: args?.worldBooks,
-            onProgress: progress => report({ stage: 'pack', done: encrypt ? progress.done / 2 : progress.done, total: progress.total, pack: progress.pack }) })
+          // 压缩素材 (`compress`) reports its own stage first, its bar from 0 to 100; packing (and encrypting) follows.
+          card = await deps.exportCardFile(cardPath, { packIds: args?.packIds, excludeFigures: args?.excludeFigures, books: args?.worldBooks, compress: args?.compress ?? false,
+            onProgress: progress => report(progress.stage === 'compress' ? { stage: 'compress', done: progress.done, total: progress.total, pack: progress.pack }
+              : { stage: 'pack', done: encrypt ? progress.done / 2 : progress.done, total: progress.total, pack: progress.pack }) })
           let file = card.file, filename = card.name.replace(/[\\/:*?"<>|\r\n]/g, '_') + '.dshcard'
           if (encrypt) {
             // packing and encrypting each read every byte once: the bar gives each half.
@@ -186,14 +188,22 @@ export function createCardHandlers(deps) {
               onProgress: progress => report({ stage: 'encrypt', done: (progress.total + progress.done) / 2, total: progress.total, pack: '' }) })
           }
           const stored = await deps.transferExports.putFile(file, filename)
-          return { filename, bytes: stored.bytes, downloadUrl: '/api/dsh-tavern/transfer-export/' + encodeURIComponent(filename) + '?token=' + stored.token }
+          return { filename, bytes: stored.bytes, downloadUrl: '/api/dsh-tavern/transfer-export/' + encodeURIComponent(filename) + '?token=' + stored.token, ...(card.compressed ? { compressed: card.compressed } : {}) }
         } finally {
           await card?.dispose(); if (output) await rm(output, { force: true }).catch(() => {})
         }
       })
     },
     cardExportProgress(args) { return { progress: cardExportJobs.view(args?.progressId) } },
-    cancelCardExport(args) { return cardExportJobs.cancel(args?.progressId) },    async decryptCardUpload(args) {
+    cancelCardExport(args) { return cardExportJobs.cancel(args?.progressId) },
+    // the page's word on how saving the file ended (saved / failed / cancelled, bytes written of the total, the reason):
+    // one line in the host log, the only record of a save once the page is gone.
+    cardExportSaved(args) {
+      const text = value => String(value ?? '').replace(/\s+/g, ' ').slice(0, 300)
+      console.log('[card-export] save ' + text(args?.outcome) + ' ' + text(args?.filename) + ' ' + Number(args?.loaded) + '/' + Number(args?.total) + ' bytes' + (args?.reason ? ': ' + text(args.reason) : ''))
+      return { ok: true }
+    },
+    async decryptCardUpload(args) {
       const upload = await uploads.take(args?.uploadId), output = upload.file + '.decrypted'
       let retry = false
       try {
