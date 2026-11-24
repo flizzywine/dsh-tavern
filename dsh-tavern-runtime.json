@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "d8d3572f94c94484f7fa47563ffcb49a79dc0348",
-  "releaseSequence": 2058,
+  "revision": "cfb4a630314c701c1c2a4d6ae98a6a3b85102968",
+  "releaseSequence": 2059,
   "version": "3.4.0",
   "files": [
     {
@@ -1226,8 +1226,8 @@
     },
     {
       "path": "tavern-plugin/lib/client-assets/tavern.css",
-      "sha256": "c3a74d2552ef24eb53eef63dbe9def967929737b23307f8306a5b7449def662a",
-      "size": 467677
+      "sha256": "4752c06791e0cb350d5209313a761daf9897758d57a55173f78dd9b5fbb61a16",
+      "size": 467610
     },
     {
       "path": "tavern-plugin/lib/client-assets/theme.css",
@@ -1276,8 +1276,8 @@
     },
     {
       "path": "tavern-plugin/lib/client.js",
-      "sha256": "cf8cd836982f0e3124c7aa34b9893839e71fffccfb370c0dfbf06e6b9656a15f",
-      "size": 6578305
+      "sha256": "c7b326d1e6265e65126ae200d05dc5ef2843533c10d92d5b7c2fcf2be91af91b",
+      "size": 6580337
     },
     {
       "path": "tavern-plugin/lib/cordis-inspect.js",
@@ -1941,8 +1941,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/conversation-fork.js",
-      "sha256": "3410b1c14b42acd9db7855396cffece49c20f2aba7d569231140541709dff2d6",
-      "size": 6978
+      "sha256": "624f9093f6d799ea8e70b064a06c86b82ac543ba1c11e45c3b39abb1a1f4b06a",
+      "size": 8304
     },
     {
       "path": "tavern-plugin/lib/domain/conversation-guides.js",
@@ -4466,8 +4466,8 @@
     },
     {
       "path": "tavern-plugin/lib/index.js",
-      "sha256": "a41663e7aca4ae2a3f6b93ef352b91cf2e92795360e106b423e395c7fb78f3d0",
-      "size": 342209
+      "sha256": "8d2c7a49dfb9a0225367ec016a3c35bdcf3ff63eb1edde86d27806964c5f8809",
+      "size": 344045
     },
     {
       "path": "tavern-plugin/lib/metadata-backup.js",
@@ -4561,8 +4561,8 @@
     },
     {
       "path": "tavern-plugin/lib/rpc/conversations.js",
-      "sha256": "a54331a087b5e2c4568bb24e8d1050218789efd937fb03b833d187aebf8abe60",
-      "size": 4279
+      "sha256": "cbddcba456662020851ef4ca88d53f85b639e17f42dff7e9649cd54a588160f3",
+      "size": 4422
     },
     {
       "path": "tavern-plugin/lib/rpc/generation-stream-mode.js",
@@ -10241,9 +10241,9 @@
     }
   ],
   "archive": {
-    "commit": "789c51325ed2a7ca5a5e603b21647bc2d446071a",
+    "commit": "80ea2e8d6700a35edc5667ae2b46c0b20ca49a18",
     "path": "runtime.zip",
-    "sha256": "a1dc03d077091fdfb57468df9a5bd89c0d21ad2adcdecf03411e3d611ba23551",
-    "size": 17941346
+    "sha256": "1e46b409079c790e8b86373ae55edac590149a0177ea129070b71a357f16d7ce",
+    "size": 17942793
   }
 }
