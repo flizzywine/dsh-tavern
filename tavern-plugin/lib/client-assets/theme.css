@@ -3252,6 +3252,16 @@ body[data-ds-dark-theme] .fork-popover { color-scheme: dark; }
 }
 /* Accent fills everywhere in chat: the table's fill (the accent deepened just enough for white glyphs) and its glyph. */
 body { --fork-accent-fill: var(--fk-s-base-fill, var(--fork-accent)); --fork-on-accent: var(--fk-s-base-onAccent, #fff); }
+/* Device classes and their reading minimums: a skin's 13px narration was unreadable on a phone, so the engine, not each
+   skin, adapts phone and desktop. The classes are the stage's (device.cjs sets data-fk-device on the stage root), keyed
+   here on the same queries: phones (portrait <= 640px, landscape a short touch screen) and tablets (<= 1024px) read
+   words at >= 17px and names at >= 14px, the desktop as the skin draws them. Every stage size a skin declares is
+   max(that size, this minimum), then the player's text size, so the desktop stays the design. Free narration has no box
+   around it and at 17px still read smaller than the boxed lines on 375-430px phones: in these classes it reads at
+   >= 19px and never below the skin's dialogue size (--fk-nar-floor, resolved on the stage where the art unit lives). */
+:root { --fk-min-text: 0px; --fk-min-name: 0px; --fk-min-narration: 0px; --fk-nar-match: 0; }
+@media (max-width: 1024px) { :root { --fk-min-text: 17px; --fk-min-name: 14px; --fk-min-narration: 19px; --fk-nar-match: 1; } }
+@media (max-height: 520px) and (pointer: coarse) { :root { --fk-min-text: 17px; --fk-min-name: 14px; --fk-min-narration: 19px; --fk-nar-match: 1; } }
 /* Image-preserving narration. The stage supplies the mode; skins supply only design-space paint and geometry.
    Opt-in: the stage writes data-narration-layout only for a skin that declares art.narration; every other skin keeps
    its own narration box (no centre dim, no band). The :is(..., .fork-gal-stage) only lifts specificity over skin layouts. */
