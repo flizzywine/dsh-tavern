@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "cfb4a630314c701c1c2a4d6ae98a6a3b85102968",
-  "releaseSequence": 2059,
+  "revision": "2f784f52c6b207cae9f90a1e4d31f82b2a581fcd",
+  "releaseSequence": 2060,
   "version": "3.4.0",
   "files": [
     {
@@ -2401,8 +2401,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/incremental-reply-view.js",
-      "sha256": "3d64b671893cfe45185fa6f6fea6b926031621c81b2fa673c3125f2e25224e1f",
-      "size": 11400
+      "sha256": "56e45fcd31ebbb9fdbb2ef1b21e47c6b91e0c24b9f31630ea2a84431e2f0ab09",
+      "size": 11107
     },
     {
       "path": "tavern-plugin/lib/domain/indexed-array.js",
@@ -2511,8 +2511,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/live-card-update.js",
-      "sha256": "a3a835a2fa5a8342d2cdda94011f2eb49bf9db86b1bea4bde85215c554d8d903",
-      "size": 20032
+      "sha256": "a7f1c6c217500ba56784fd371d3e8914af148ad7d974328767fd9f2782d1b952",
+      "size": 20122
     },
     {
       "path": "tavern-plugin/lib/domain/manual-character-design.js",
@@ -2901,8 +2901,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/persistent-status-view.js",
-      "sha256": "b1a0dfff747c67bb047786f5b877d1576bfa2f482621e770bd92962d35204c7a",
-      "size": 13781
+      "sha256": "aa5ae75c17f82afb0342a74a2b5e930d227958d4a48e05d1c4864f83cc772d5f",
+      "size": 13863
     },
     {
       "path": "tavern-plugin/lib/domain/pi-ai-google-stop-reason.js",
@@ -3716,8 +3716,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/status-view-declaration.js",
-      "sha256": "155313772c8f844b1f96dc6a586f2e1ceb901be0291f159ed8e9344aeca8b549",
-      "size": 600
+      "sha256": "3dec67075de2cc7dd7319e69bbec98b1705f06e7ca2785e80bca5097724a6d57",
+      "size": 1866
     },
     {
       "path": "tavern-plugin/lib/domain/story-alignment.js",
@@ -10241,9 +10241,9 @@
     }
   ],
   "archive": {
-    "commit": "80ea2e8d6700a35edc5667ae2b46c0b20ca49a18",
+    "commit": "450fc1f196718a61055454c7478cec355ec114aa",
     "path": "runtime.zip",
-    "sha256": "1e46b409079c790e8b86373ae55edac590149a0177ea129070b71a357f16d7ce",
-    "size": 17942793
+    "sha256": "b627e791cc911a5c3c68010369ea056b660243cb04ed95faacbddf8cb6f6cf36",
+    "size": 17943236
   }
 }
