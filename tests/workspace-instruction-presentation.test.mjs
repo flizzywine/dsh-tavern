@@ -6,6 +6,7 @@ const message = (source, text = 'AGENTS.md instruction') => ({ role: 'user', sou
 import { installWorkspaceInstructionPresentation, presentWorkspaceInstructions } from '../tavern-plugin/lib/domain/workspace-instruction-presentation.js'
 
 import { markRequestHandled, requestHandledBy } from '../tavern-plugin/lib/domain/request-lineage.js'
+import { isTavernAgentSession } from '../tavern-plugin/lib/domain/tavern-agent-scope.js'
 
 // A minimal llm/stream middleware chain: stream() always enters at the first hook.
 function middleware() {
@@ -172,4 +173,33 @@ test('returns the original request object when nothing needs filtering', () => {
     ],
   }
   assert.equal(presentWorkspaceInstructions(req), req)
+})
+
+test('default Tavern frontend and background remove host reminders while the Skill catalog stays', async () => {
+  const { ctx, sent } = middleware()
+  const headers = new Map([
+    ['native-child', { origin: 'subagent', parentSession: 'background' }],
+    ['saved-worker', { origin: 'subagent', parentSession: 'game' }],
+    ['workspace-child', { origin: 'subagent', parentSession: 'workspace' }]
+  ])
+  installWorkspaceInstructionPresentation(ctx, id => isTavernAgentSession(id, {
+    isGame: async id => id === 'game',
+    isBackground: id => id === 'background',
+    readHeader: id => headers.get(id)
+  }))
+  const reminder = '<system-reminder>Current working directory</system-reminder>'
+  const player = message({ kind: 'user' }, reminder)
+  const skill = message({ kind: 'skill-catalog' }, '<system-reminder><available_skills>短句</available_skills></system-reminder>')
+  const legacySkill = message({ kind: 'plugin', plugin: '@deepseek-ai/dsh-tool-skill' }, '<system-reminder>短句 Skill</system-reminder>')
+  const context = message({ kind: 'plugin:example' }, '人物已经到场。' + reminder)
+  const messages = [
+    message({ kind: 'runtime-context', sections: [{ name: 'future:notice', text: reminder }] }, reminder),
+    message({ kind: 'another-host-notice' }, reminder), context, player, skill, legacySkill
+  ]
+  for (const sessionId of ['game', 'background', 'saved-worker', 'native-child', 'workspace-child', 'workspace']) {
+    for await (const _ of ctx.llm.stream({ sessionId, messages })) { /* drain */ }
+  }
+  const expected = [message(context.source, '人物已经到场。'), player, skill, legacySkill]
+  for (const request of sent.slice(0, 4)) assert.deepEqual(request.messages, expected)
+  for (const request of sent.slice(4)) assert.equal(request.messages, messages)
 })

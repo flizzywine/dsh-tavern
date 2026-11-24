@@ -2,15 +2,16 @@ import { redactMvuLoadError, sanitizeModuleFailure, sanitizeMvuLoadDiagnostic } 
 import { saveSessionIds } from '../domain/save-upgrade.js'
 import { exportSessionDiagnostics } from '../domain/session-diagnostics.js'
 import { resolveTavernDataRoot } from '../domain/tavern-data.js'
+import { isTavernAgentSession } from '../domain/tavern-agent-scope.js'
 import path from 'node:path'
 
 // Save upgrade, host patch, app update and diagnostics requests.
 // `deps` carries the services ../index.js builds; dispatchMethod routes by method name.
 export function createMaintenanceHandlers(deps) {
   const { TAVERN_PACKAGE_VERSION, agentRegistry, applicationUpdater, attachPlayChatDebug,
-    backgroundAgentRunner, chatForSession, chatHeaderForSession, compatibilityDiagnostics,
+    backgroundAgentRunner, chatForSession, chatHeaderForSession, compatibilityDiagnostics, ctx,
     displayRuntimeCaptures, exportTavernLogs, hostCompatibility, modelRequestLog, mvuDiagnostics,
-    preparedSaveSessions, readChat, readChatCard, readSessionMap, saveUpgrade, sessionPatch,
+    pluginApi, preparedSaveSessions, readChat, readChatCard, readSessionMap, saveUpgrade, sessionPatch,
     sessionStateForSession, sessionStore, str, worldbookRecallLog } = deps
   const handlers = {
     async getSaveUpgrade(args, method) {
@@ -57,6 +58,27 @@ export function createMaintenanceHandlers(deps) {
     },
     async cancelUpdate(args) {
       return { status: await applicationUpdater.cancel() }
+    },
+    async getTavernTrajectoryPolicy(args) {
+      const sessionId = str(args?.sessionId)
+      const game = sessionId ? await chatHeaderForSession(sessionId, []) : null
+      const hideSystemReminders = Boolean(game) || await isTavernAgentSession(sessionId, {
+        isGame: async id => id !== sessionId && Boolean(await chatHeaderForSession(id, [])),
+        isBackground: id => backgroundAgentRunner.owns(id),
+        readHeader: async id => {
+          const live = sessionStore.get(id) || agentRegistry.get(id)?.session
+          if (live) return live.header
+          const query = ctx.get('sessionQuery')
+          if (typeof query?.inspectSession === 'function') {
+            return query.inspectSession(id, session => session.header).catch(() => null)
+          }
+          const snapshot = await query?.readSession(id).catch(() => null)
+          return snapshot?.session
+        }
+      })
+      const hideSkillContext = ['story', 'script'].includes(game?.mode)
+        && Boolean(await pluginApi?.writingPreparation?.forGame(sessionId))
+      return { hideSystemReminders, ...(hideSkillContext ? { hideSkillContext } : {}) }
     },
     async getLatestRequestContext(args) {
       const sessionId = str(args?.sessionId)

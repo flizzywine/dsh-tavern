@@ -5,6 +5,7 @@ import vm from 'node:vm'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { computeRequestCacheDiff, extractPrefixSlots } from '../tavern-plugin/lib/domain/request-cache-diff.js'
+import { omitUnusedToolHistory } from '../tavern-plugin/lib/domain/tool-history-presentation.js'
 
 
 // The panel is a client fragment concatenated into the built bundle, so exercise
@@ -22,6 +23,50 @@ const preset = (phase, text) => ({
   source: { kind: 'plugin:dsh-tavern', form: 'snapshot', sections: [{ name: 'tavern:runtime-preset-' + phase, text }] }
 })
 
+test('完整上下文按已记录的前台请求区分普通前台和白手套模式', () => {
+  const reply = { scope: 'foreground', task: 'reply', turn: 2, request: { messages: [] } }
+  assert.equal(client.foregroundRequestMode(reply), 'standard')
+  const noInjection = { ...reply, frame: { append: { reason: 'pure-writing', appended: false } } }
+  assert.equal(client.foregroundRequestMode(noInjection), 'white-glove')
+  const marker = { source: { kind: 'plugin:dsh-tavern-pure-writer', form: 'write' } }
+  assert.equal(client.foregroundRequestMode({ ...reply, request: { messages: [marker] } }), 'white-glove')
+  const legacyInjection = { source: { ...marker.source, form: 'inject' } }
+  assert.equal(client.foregroundRequestMode({ ...reply, request: { messages: [legacyInjection] } }), 'white-glove')
+  const earlierInjection = { source: { ...legacyInjection.source, trace: { turn: 1 } } }
+  assert.equal(client.foregroundRequestMode({ ...reply, request: { messages: [earlierInjection] } }), 'standard')
+  assert.equal(client.foregroundRequestMode({ ...reply, scope: 'background' }), '')
+  assert.equal(client.foregroundRequestMode({ ...reply, task: 'compaction' }), '')
+})
+
+test('白手套的世界书标题提示归入世界书筛选', () => {
+  const [row] = sections({ messages: [{
+    role: 'user', source: { kind: 'plugin:dsh-tavern-pure-writer', form: 'worldbook-title-hints' },
+    content: [{ type: 'text', text: '<lorebook_title_hints>\n可能用到的世界书条目：钟楼\n</lorebook_title_hints>' }]
+  }] })
+  assert.deepEqual(row.sources, [{ category: 'worldbook', label: '世界书标题提示' }])
+})
+
+test('白手套注入保留实际回执和缓存位置，并按资料类型可筛选', () => {
+  const text = '【世界书 · 钟楼】\n钟声整点响。\n\n【写作指引】\n采用第三人称。\n\n【剧情记忆 · 第 1 轮】\n找到钥匙。\n\n【世界书 · 钟楼】\n钟声整点响。'
+  const content = [{ type: 'text', text }]
+  const request = { messages: [
+    { role: 'user', content, source: { kind: 'user' } },
+    { role: 'user', content, source: { kind: 'plugin:dsh-tavern-pure-writer', form: 'inject', trace: { turn: 1 } } }
+  ] }
+  const [player, injection] = sections(request)
+  assert.deepEqual(player.sources, [{ category: 'story', label: '玩家输入' }])
+  assert.deepEqual(injection.sources, [
+    { category: 'injection', label: '白手套注入' },
+    { category: 'worldbook', label: '世界书' },
+    { category: 'skill', label: '写作 Skill' },
+    { category: 'story', label: '剧情记忆' }
+  ])
+  assert.deepEqual(injection.body, [text])
+  assert.equal(injection.title, 'messages[1] · user · 第 1 轮注入')
+  assert.deepEqual(injection.value, request.messages[1])
+  assert.equal(injection.cacheKey, extractPrefixSlots(request)[1].key)
+})
+
 test('工具定义夹在前置系统消息与普通消息之间，消息下标保持原样', () => {
   const request = {
     tools: [{ type: 'function', function: { name: 'tavern_read_play_chat' } }],
@@ -29,6 +74,29 @@ test('工具定义夹在前置系统消息与普通消息之间，消息下标�
   }
   // 工具是请求字段，不是最后一条消息；挪到末尾会让人以为它跟着对话走。
   assert.deepEqual(titles(request), ['messages[0] · system · 预设前段', 'messages[1] · system', 'tools · 工具定义', 'messages[2] · user', 'messages[3] · assistant'])
+})
+
+test('旧请求的调用参数不展开工具历史，实际工具定义照常显示', () => {
+  const tools = [{ name: 'submit_story' }]
+  const request = { model: 'deepseek-flash', toolHistory: { tools: [{ name: 'bash' }], updates: [] }, tools, messages: [] }
+  const rows = sections(request)
+  assert.deepEqual(rows.find(row => row.cacheKey === 'field:metadata').value, { model: 'deepseek-flash' })
+  assert.deepEqual(rows.find(row => row.cacheKey === 'field:tools').value, tools)
+  assert.equal(request.toolHistory.tools[0].name, 'bash')
+})
+
+test('工具历史只在工具声明一致且回放更新仍在时保留', () => {
+  const tools = [{ name: 'skill' }, { name: 'submit_story' }]
+  const messages = [{ role: 'developer', id: 'change', content: [{ type: 'tool-addition', toolName: 'submit_story' }] }]
+  const toolHistory = { tools: [tools[0]], updates: [{ messageId: 'change', additions: [tools[1]] }] }
+  const valid = { tools, messages, toolHistory }
+  assert.equal(omitUnusedToolHistory(valid), valid)
+  const stale = { ...valid, toolHistory: { ...toolHistory, tools: [{ name: 'bash' }, tools[0]] } }
+  assert.deepEqual(omitUnusedToolHistory(stale), { tools, messages })
+  assert.deepEqual(omitUnusedToolHistory({ ...valid, messages: [] }), { tools, messages: [] })
+  assert.deepEqual(omitUnusedToolHistory({ ...valid, toolHistory: { tools, updates: [] } }), { tools, messages })
+  const compaction = { ...stale, purpose: 'compaction' }
+  assert.equal(omitUnusedToolHistory(compaction), compaction)
 })
 
 test('预设前段、后段会从消息正文里切出来，仍归属同一条消息', () => {

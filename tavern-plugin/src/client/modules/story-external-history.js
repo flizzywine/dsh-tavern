@@ -2,6 +2,9 @@
 // materialize expensive Chat nodes for already-closed older turns. The logical
 // story transcript owns those rows. The latest and open native turns stay live
 // for partial/runningCalls/composer, and legacy mode rebuilds the full projection.
+// @include-domain system-reminders.cjs
+// @include-domain writing-material-receipts.cjs
+
 function tavernStoryNativeTurnOfLocation(location) {
 	if (!location || (location.kind !== 'turn' && location.kind !== 'step')) return null
 	const turn = Number(location.turn && location.turn.turn)
@@ -18,6 +21,7 @@ function installTavernStoryExternalHistory(options) {
 		const existing = proto.__dshTavernStoryExternalHistory
 		existing.uiConversation = options.uiConversation
 		existing.isEnabled = options.isEnabled
+		existing.trajectoryPolicy = options.trajectoryPolicy
 		return existing.attach()
 	}
 
@@ -26,6 +30,7 @@ function installTavernStoryExternalHistory(options) {
 	const controller = {
 		uiConversation: options.uiConversation,
 		isEnabled: options.isEnabled,
+		trajectoryPolicy: options.trajectoryPolicy,
 		alive: true,
 		owners: 0,
 		attach: null,
@@ -39,8 +44,18 @@ function installTavernStoryExternalHistory(options) {
 		const originalBuild = assembler.buildNode
 		const originalDispose = typeof binding.dispose === 'function' ? binding.dispose : null
 		const record = { binding: binding, assembler: assembler, sessionId: sessionId, originalBuild: originalBuild,
-			originalDispose: originalDispose, lastEnabled: assembler.activeTargets && assembler.activeTargets.has('chat') ? undefined : controller.isEnabled(sessionId) }
+			originalDispose: originalDispose, lastEnabled: assembler.activeTargets && assembler.activeTargets.has('chat') ? undefined : controller.isEnabled(sessionId),
+			hideSystemReminders: false, hideSkillContext: false }
 		function filteredBuild(context, target) {
+			if (controller.alive && target === 'trajectory' && context.state?.kind === 'context') {
+				if (record.hideSystemReminders && tavernIsHostSystemReminder(context.state)) return null
+				if (record.hideSkillContext) {
+					if (tavernIsSkillReminder(context.state.source)) return null
+					const state = tavernWithoutInjectedSkills(context.state)
+					if (!state) return null
+					if (state !== context.state) return originalBuild.call(this, { ...context, state }, target)
+				}
+			}
 			if (controller.alive && target === 'chat' && controller.isEnabled(record.sessionId)
 				&& (context.current == null || context.current.get(target) == null)) {
 				const turn = tavernStoryNativeTurnOfLocation(context.start && context.start.location)
@@ -67,6 +82,14 @@ function installTavernStoryExternalHistory(options) {
 		}
 		records.set(assembler, record)
 		active.add(record)
+		if (controller.trajectoryPolicy) {
+			Promise.resolve().then(function () { return controller.trajectoryPolicy(record.sessionId) }).then(function (policy) {
+				if (!controller.alive || !active.has(record) || policy?.hideSystemReminders !== true) return
+				record.hideSystemReminders = true
+				record.hideSkillContext = policy.hideSkillContext === true
+				if (assembler.activeTargets?.has('trajectory')) binding.rebuild()
+			}).catch(function () {})
+		}
 		return record
 	}
 
@@ -116,7 +139,7 @@ function installTavernStoryExternalHistory(options) {
 		}
 		for (const record of active) {
 			const assembler = record.assembler
-			if (assembler.activeTargets && assembler.activeTargets.has('chat')) {
+			if (assembler.activeTargets && (assembler.activeTargets.has('chat') || record.hideSystemReminders && assembler.activeTargets.has('trajectory'))) {
 				try { record.binding.rebuild() }
 				catch (_) {}
 			}
