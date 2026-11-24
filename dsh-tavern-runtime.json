@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "c3c29dc495f9f4f1fc422a2c25f0db9fdba7358c",
-  "releaseSequence": 2065,
+  "revision": "d9d2fb56c17690f384d501b2e38a799848938e56",
+  "releaseSequence": 2066,
   "version": "3.4.0",
   "files": [
     {
@@ -7606,8 +7606,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-presentation-protocol/src/types/tts.d.ts",
-      "sha256": "e40e35e90e37d9b786af241e5fadce4c61c0d47edf94379f7ea8e7153dadf7aa",
-      "size": 14571
+      "sha256": "baf5f14777fe5a022d29a4c5575e2ada74e28e2e2d3031f97a58db09495dd2aa",
+      "size": 14586
     },
     {
       "path": "tavern-plugin/packages/dsh-presentation-protocol/src/voice-auto-cast.cjs",
@@ -10241,9 +10241,9 @@
     }
   ],
   "archive": {
-    "commit": "ae83ef1a137970affa44bbf4d640ac9ec50a284b",
+    "commit": "aed0e29a27c9e31e47ca1a0c3d65a557065f7ce9",
     "path": "runtime.zip",
-    "sha256": "3f7bba97c2cf61a2485d8e9d43c1ee638cdb8b730af635eecadeeb60673e9616",
-    "size": 17950721
+    "sha256": "197a5a12a670c62c2ef0270bd598183e7d7b430d76068310676cbaa94f7d47ff",
+    "size": 17950728
   }
 }
