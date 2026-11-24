@@ -1344,10 +1344,10 @@ textarea.fork-status-guide-input:focus { outline: none; border-color: color-mix(
    behind them. Paint the menu tint over an opaque base (Canvas follows the colour scheme)
    and blur whatever is behind. The stage's own menus (choices, the system menu, the widget menus) are opaque in the stage tokens.
    In-page lists that are listboxes (voice slots, a card's world books) sit on their panel and are not floating layers. */
-:is([role="menu"]:not(.fork-gal-choices, .fork-gal-menu-panel, .fork-widget-context, .fork-widget-menu-list), [role="listbox"]:not(.fork-voice-slots, .dsh-tavern-worldbook-list), [role="tooltip"], [data-radix-popper-content-wrapper] > *, .dsh-tavern-more-menu, .dsh-tavern-prompt-panel, .dsh-tavern-group-menu) {
+:is([role="menu"]:not(.fork-gal-choices, .fork-gal-menu-panel, .fork-widget-context, .fork-widget-menu-list), [role="listbox"]:not(.fork-voice-slots, .dsh-tavern-worldbook-list), [role="tooltip"], [data-radix-popper-content-wrapper] > *, .dsh-tavern-more-menu, .dsh-tavern-prompt-panel) {
   background-image: linear-gradient(var(--dsw-specific-menu, transparent), var(--dsw-specific-menu, transparent)), linear-gradient(Canvas, Canvas);
 }
-body[data-ds-dark-theme] :is([role="menu"]:not(.fork-gal-choices, .fork-gal-menu-panel, .fork-widget-context, .fork-widget-menu-list), [role="listbox"]:not(.fork-voice-slots, .dsh-tavern-worldbook-list), [role="tooltip"], [data-radix-popper-content-wrapper] > *, .dsh-tavern-more-menu, .dsh-tavern-prompt-panel, .dsh-tavern-group-menu) { color-scheme: dark; }
+body[data-ds-dark-theme] :is([role="menu"]:not(.fork-gal-choices, .fork-gal-menu-panel, .fork-widget-context, .fork-widget-menu-list), [role="listbox"]:not(.fork-voice-slots, .dsh-tavern-worldbook-list), [role="tooltip"], [data-radix-popper-content-wrapper] > *, .dsh-tavern-more-menu, .dsh-tavern-prompt-panel) { color-scheme: dark; }
 /* Folding: section chevrons, folded roster cards, portrait groups */
 .fork-bubble-settings .fork-section-fold, .fork-bubble-settings .fork-card-fold { display: inline-grid; place-items: center; width: 22px; height: 22px; margin: 0 -2px 0 -4px; padding: 0; border: 0; border-radius: 6px; background: transparent; color: var(--fork-ink-3); cursor: pointer; }
 .fork-bubble-settings .fork-card-fold { width: 28px; height: 28px; margin: 0; }

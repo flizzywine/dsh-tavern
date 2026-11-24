@@ -493,8 +493,10 @@ window.__ModuleLoader__.load({
 				+ (needle ? "，匹配 " + files.length + " 个" : "")
 				+ (selected.size ? "，已选 " + selected.size + " 个" : "")
 				+ (progress ? "，正在导入 " + progress.done + "/" + progress.total : "");
+			// activateRef: a caller with its own entry (人物卡库's 「导入」 menu) starts it there and the button is not drawn.
+			if (props.activateRef) props.activateRef.current = activate;
 			return h(React.Fragment, null,
-				h("button", { type: "button", className: "dsh-tavern-btn primary", disabled: props.disabled || busy, onClick: activate }, props.batch ? "批量导入" : "导入人物卡"),
+				props.activateRef ? null : h("button", { type: "button", className: "dsh-tavern-btn primary", disabled: props.disabled || busy, onClick: activate }, props.batch ? "批量导入" : "导入人物卡"),
 				open ? h("div", { className: "dsh-tavern-mobile-import", role: "dialog", "aria-modal": "true", "aria-label": "从手机下载目录导入人物卡" }, h("div", { className: "dsh-tavern-mobile-import-shell" }, h("div", { className: "dsh-tavern-mobile-import-panel" },
 					h("div", { className: "dsh-tavern-mobile-import-title" }, "从手机下载目录导入"),
 					h("div", { className: "dsh-tavern-question-sub" }, "把人物卡（PNG、JSON、卡包）或素材包 ZIP 放进手机 Download，回到这里点选；大文件也能直接导入。"),
