@@ -11598,7 +11598,7 @@ function subscribeAudio(listener){
 function useEffect(setup,deps){React.useEffect(()=>disposed?undefined:setup(),deps);}
 function usePlayback(frame,{advance,finishSkip,finishTyping}){
     const {sessionId,runtime,reading,auto,skipping,hidden,overlay,typed,current,atEnd,awaiting,sceneHolding,line,performance}=frame;
-    const {turn,page,card,inputCard,transitioning,subtitles,inputSubtitles,lastCard,voice,audioBusy,heldMs,film,pageCount}=line;
+    const {turn,page,card,inputCard,transitioning,subtitles,inputSubtitles,lastCard,voice,audioBusy,heldMs,film,pageCount,rollPlace}=line;
     const dialogueHeld=performance.dialogueHeld,presentationBusy=performance.busy;
     const pages={length:pageCount};
     // a history page the reader settles on plays its own
@@ -11622,9 +11622,11 @@ function usePlayback(frame,{advance,finishSkip,finishTyping}){
         const delay = Math.max(0, turned.at + (turned.rapid ? STAGE_HISTORY_SETTLE_MS : 250) - now());
         return timeout(() => runtime.store.dispatch({type: 'HISTORY_DWELL', visitId, anchor, kinds: replayableKinds}), delay);
     }, [dwellPageKey, dwellBlocked, runtime.store, replayableKinds]);
-    // The round's checks are thrown again when its first page is the settled history page (core.dice.roll replays).
+    // The round's rolls are thrown again when the settled history page is where they show (core.dice.roll replays): its
+    // first page, or a page where a roll called for partway through a reply may be (rollPlace: a paragraph's first page or the
+    // round's last; the mod throws the rolls whose place is there).
     const historyRolls = runtime.cursor.dwell?.kinds.includes('core.dice.roll') && runtime.text.pages[0] && runtime.cursor.anchor &&
-        runtime.text.pages[0].anchor.paragraphId === runtime.cursor.anchor.paragraphId && runtime.cursor.anchor.offset === 0 ? 'history:' + dwellPageKey : null;
+        (rollPlace || runtime.text.pages[0].anchor.paragraphId === runtime.cursor.anchor.paragraphId && runtime.cursor.anchor.offset === 0) ? 'history:' + dwellPageKey : null;
     // auto and skip wait for this paragraph's director prefix and say so; manual paging stays immediate.
     const awaitingDirection = runtime.indicators.awaitingDirection;
     // Intermediate voiced cards follow the paragraph audio clock, not a new playback lease.
@@ -14819,6 +14821,14 @@ function GalStage(props) {
     // show a "writing" state so the stage never looks stuck.
     const useSession = props.choiceProps && props.choiceProps.useSession;
     const running = useSession ? useSession(snapshot => snapshot.running === true) : false;
+    // Where the reader stands in the round, for the mods' parts: a tool result called for partway through the reply shows
+    // where the text goes on after the call (its `at`; a check's dice fall on that page, mods/dice place.js). para: this
+    // page's paragraph (0 while a page turns); first: its first page; end: the complete round's last page; start: the round's
+    // first page; units: its paragraphs so far; `running`: a reply is being written. null while a lease reads.
+    const placePara = transitioning ? 0 : pages[page]?.para || 0, placeEnd = !streaming && !(running && turn === latestTurn) && page >= pages.length - 1;
+    const readerPlace = React.useMemo(() => leasing ? null : {turn: runtime.textIndex.get(turn)?.nativeTurn || 0, para: placePara,
+        first: pages.findIndex(row => row.para === placePara) === page, end: placeEnd, start: page === 0, units: runtime.text.units?.length || 0, streaming, running},
+        [leasing, runtime.text.units, runtime.textIndex, turn, streaming, running, placeEnd, placePara, page, pages]);
     // the system-menu action shares upstream settlement activity.
     const regenerationActivity = useTavernCoordination(sessionId, String(running) + ":" + latestTurn);
     // the worldbook prefilter yields to any other task and never blocks the player (as in
@@ -15763,7 +15773,7 @@ function GalStage(props) {
     const handoff = useGalFaceHandoff(sessionId + ":" + boxPageKey, { facing, shown: Boolean(face && (face.src || face.glyph)), moves: faceMode !== "off", snap: faceSnap || !!accepted.cg || cg.visible, calm: calmMotion, typed });
     const historyRolls=stageViews.playback.usePlayback({sessionId,runtime,reading,auto,skipping,hidden,
         overlay:backlog||configOpen||galleryOpen||pageOpen||menuOpen||!!insert,typed,current,atEnd,awaiting,sceneHolding,
-        line:{turn,page,card,inputCard,transitioning,subtitles,inputSubtitles,lastCard,voice,audioBusy,heldMs:handoff.heldMs,film,pageCount:pages.length},
+        line:{turn,page,card,inputCard,transitioning,subtitles,inputSubtitles,lastCard,voice,audioBusy,heldMs:handoff.heldMs,film,pageCount:pages.length,rollPlace:Boolean(readerPlace && (readerPlace.first || readerPlace.end))},
         performance:{replayable:performanceKinds.replayable,holds:[...modPerformances.holds,{remainingMs:cg.holdMs()}],holdKey:cg.holdTick,blocking:takeover.busy||!!title,dialogueHeld,busy:presentationBusy}},
         {advance:()=>go(1,true),finishSkip:()=>{turnPastEnd();stopSkip();},finishTyping:()=>setTyped(true)});
     // An insert page holds the playback clock (overlay above): AUTO turns it a wordless page's wait (the CONFIG auto wait,
@@ -15998,7 +16008,7 @@ function GalStage(props) {
             // the reply wait's look (StageWaitStop + StageWaitLines, portalled by gal-choices.js); empty, it takes no room.
             h("div", { ref: setChoiceWaitSlot, className: "fork-gal-box-wait" }),
             // the mods' page parts sit on the box's top edge, out of its flow (mod-clients.js; e.g. a live roll's one-shot strip).
-            props.choiceProps && props.choiceProps.useChat ? modClients.slot('page').map(part => h(part.value, { key: part.modId, useChat: props.choiceProps.useChat, nativeTurn: runtime.textIndex.get(turn)?.nativeTurn || 0, pageKey, sessionId, input: modClients.input(props.choiceProps.executeSlash, sessionId) })) : null,
+            props.choiceProps && props.choiceProps.useChat ? modClients.slot('page').map(part => h(part.value, { key: part.modId, useChat: props.choiceProps.useChat, nativeTurn: runtime.textIndex.get(turn)?.nativeTurn || 0, pageKey, sessionId, place: readerPlace, input: modClients.input(props.choiceProps.executeSlash, sessionId) })) : null,
             // film mode shows the page count briefly on each page turn
             // (the keyed node restarts its CSS fade); hover still shows it in full.
             h("div", { key: film ? "flash:" + pageKey : "meta", className: "fork-gal-meta" + (film ? " is-flash" : "") },
@@ -16022,8 +16032,9 @@ function GalStage(props) {
         entrance.element,
         // the mods' overlay parts (mod-clients.js; e.g. a live roll thrown above the box). live: the reader follows the
         // arrival with nothing over the stage and no skip; calm: only the CONFIG 减少动态 setting, not the OS one (ui-design
-        // R20); veiled: under the first-entry veil; replay: a clip replay's visit or the settled history page's replay.
-        props.choiceProps && props.choiceProps.useChat ? modClients.slot('overlay').map(part => h(part.value, { key: part.modId, sessionId, useChat: props.choiceProps.useChat, running, following: presenting === 'live', device, rootRef, calm: reading.reducedMotion === true, safety: effectSafety,
+        // R20); veiled: under the first-entry veil; replay: a clip replay's visit or the settled history page's replay;
+        // place: where the reader stands in the round (above).
+        props.choiceProps && props.choiceProps.useChat ? modClients.slot('overlay').map(part => h(part.value, { key: part.modId, sessionId, useChat: props.choiceProps.useChat, running, place: readerPlace, following: presenting === 'live', device, rootRef, calm: reading.reducedMotion === true, safety: effectSafety,
             veiled: !entryGate.visible, input: modClients.input(props.choiceProps.executeSlash, sessionId), screen: playModBeat,
             replay: replaying && runtime.replay?.phase === 'play' ? runtime.cursor.visitId : historyRolls, nativeTurn: runtime.textIndex.get(turn)?.nativeTurn || 0,
             live: (presenting === 'live' || !!historyRolls) && !skipping && !film && !hidden && !backlog && !configOpen && !galleryOpen && !pageOpen && !menuOpen })) : null,
