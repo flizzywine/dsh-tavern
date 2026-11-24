@@ -1,5 +1,5 @@
 import {stat} from 'node:fs/promises'
-import {writePackZip as writeZip} from '../../packages/dsh-asset-library/lib/pack-v2/service.js'
+import {writePackZip as writeZip, compressExportPacks} from '../../packages/dsh-asset-library/lib/pack-v2/service.js'
 import {stripPngTextChunks} from './file-resources.js'
 import {coverImageAsPng} from './card-cover-image.js'
 import {withoutPlayerChoices} from './card-export-settings.js'
@@ -8,17 +8,26 @@ import {exportStageDeclaration} from '../../packages/dsh-presentation-protocol/s
 import {MAX_CARD_JSON_BYTES} from './card-assets.js'
 
 // dependencies: bound packs the archive does not carry (withCardExport); the card keeps those bindings.
-export async function exportDshCardSnapshot({card, packs = [], excludeFigures = [], dependencies = [], ...options}) {
-  const projected = await projectDshCard(card, packs, excludeFigures)
+// compress ({directory}): 压缩素材 — the packs go out with smaller media (compressExportPacks, written under directory),
+// reported to onProgress as {stage: 'compress', done, total, pack} before the archive is written; the result carries
+// `compressed` (before and after bytes of the packs).
+export async function exportDshCardSnapshot({card, packs = [], excludeFigures = [], dependencies = [], compress, ...options}) {
+  let projected = await projectDshCard(card, packs, excludeFigures), compressed
+  if (compress) {
+    const result = await compressExportPacks(projected.packs, {directory:compress.directory, onProgress:options.onProgress && (progress => options.onProgress({stage:'compress', ...progress}))})
+    projected = {card:result.rewrite(projected.card), packs:result.packs}
+    compressed = result.summary
+  }
   const embedded = new Set(projected.packs.map(({manifest}) => manifest.id))
   const referenced = new Set()
   const visit = value => { if (typeof value === 'string' && value.startsWith('embeded://')) referenced.add(value.slice(10)); else if (value && typeof value === 'object') Object.values(value).forEach(visit) }
   visit(projected.card)
   const entries = (options.entries || []).filter(entry => !entry.path.startsWith('assets/') || referenced.has(entry.path))
-  return writeDshCard({...options, card:projected.card,
+  const written = await writeDshCard({...options, card:projected.card,
     packs:projected.packs.map(({manifest}) => ({id:manifest.id, path:'assets/' + manifest.id + '/', format:manifest.format, contentHash:manifest.contentHash, title:manifest.name || manifest.title || '', credits:(manifest.credits || []).map(file => 'assets/' + manifest.id + '/' + file)})),
     dependencies:dependencies.filter(dependency => !embedded.has(dependency.id)),
     entries:[...entries, ...projected.packs.flatMap(packArchiveEntries)]})
+  return compressed ? {...written, compressed} : written
 }
 
 // writeZip's running byte count as {done, total, pack}: the entry the count is in names its pack (assets/<pack id>/).
