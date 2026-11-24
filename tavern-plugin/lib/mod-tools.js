@@ -1,10 +1,14 @@
 import {access,readFile} from 'node:fs/promises'
 import {firstPartyModDirectory,firstPartyModIds} from './mod-system-distributions.js'
 import {normalizeMvuVisibility} from './domain/mvu-visibility.js'
+import {assistantResultForTurn} from './domain/session-turn-result.js'
+import {stageParagraphs} from './domain/stage-paragraphs.js'
 // The foreground tools the installed first-party mods declare, each from its folder's optional tools.js
 // (docs/mod-authoring.md). Its default export lists {name, create(core), settlement?}; create returns the tool definition, given
 // the core's turn readers and two mod-scoped callbacks: authorize(chat) (the mod is on for this card) and
-// markUsed(chat) (this game's history now calls the tool, so it stays declared). Core code offers, registers and
+// markUsed(chat) (this game's history now calls the tool, so it stays declared), plus storyUnitsBefore(exec): how many stage
+// paragraphs the running reply has written before this call (0 before any text), the place in the story text where its
+// result is met. Core code offers, registers and
 // controls these tools by this list and never names one. settlement(results), if given, turns the results of the tool a
 // reply's variables do not hold yet into the operations its settlement writes (domain/tool-settlement-context.js);
 // checkCard(data, {prefix, limits}), if given, adds the tool's errors to the card check (domain/card-validation.js).
@@ -21,8 +25,15 @@ export const modTools = Object.freeze((await Promise.all(firstPartyModIds.map(as
   const directory=firstPartyModDirectory(folder)
   if (!await access(new URL('tools.js',directory)).then(()=>true,()=>false)) return []
   const modId=JSON.parse(await readFile(new URL('mod.json',directory),'utf8')).id
-  return (await import(new URL('tools.js',directory))).default.map(tool=>Object.freeze({modId,name:tool.name,create:tool.create,...(tool.settlement?{settlement:tool.settlement}:{}),...(tool.checkCard?{checkCard:tool.checkCard}:{}),...(tool.backfill?{backfill:Object.freeze(tool.backfill)}:{}),...(tool.cardExtension?{cardExtension:tool.cardExtension}:{}),...(tool.hidden?{hidden:tool.hidden}:{})}))
+  return (await import(new URL('tools.js',directory))).default.map(tool=>Object.freeze({modId,name:tool.name,create:core=>tool.create({...core,storyUnitsBefore:exec=>storyUnitsBefore(exec,core.activeTurnOf(exec))}),...(tool.settlement?{settlement:tool.settlement}:{}),...(tool.checkCard?{checkCard:tool.checkCard}:{}),...(tool.backfill?{backfill:Object.freeze(tool.backfill)}:{}),...(tool.cardExtension?{cardExtension:tool.cardExtension}:{}),...(tool.hidden?{hidden:tool.hidden}:{})}))
 }))).flat())
+
+// The stage paragraphs (domain/stage-paragraphs.js, the units the stage pages and the director anchors) of the text the
+// running reply `turn` has written so far: the steps before this call and the text ahead of the call in its own step.
+function storyUnitsBefore(exec, turn) {
+  const text = turn ? assistantResultForTurn(exec?.agent?.session, turn)?.text : ''
+  return text ? stageParagraphs(text).length : 0
+}
 
 /** Whether the card a game plays with offers the tool by itself (its cardExtension key is in the card's extensions). */
 export const cardOffers = (tool, card) => Boolean(tool.cardExtension) && card?.extensions?.[tool.cardExtension] !== undefined

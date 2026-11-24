@@ -15,6 +15,7 @@ import path from 'node:path'
 import { publicPluginMedia, pluginMediaSession } from './domain/plugin-media.js'
 import { normalizeGameSettings, coerceSetting, settingValues } from './domain/plugin-game-settings.js'
 import { TAVERN_PLUGIN_API_VERSION } from './domain/plugin-manifest.js'
+import { createWritingPreparation } from './domain/writing-preparation.js'
 
 // The public `tavern` service for third-party DSH plugins (docs/plugin-api.md).
 // Only additive changes are allowed here: published plugins depend on every
@@ -219,6 +220,7 @@ export function createTavernPluginApi(deps) {
     return name
   }
   const capabilities = Object.freeze({ gameMode: 1, hostBehavior: 1, controlInput: 1, mvuSettlementProvider: 1, worldbookStrategy: 1, galleryProvider: 1, pricingProvider: 1, imageModels: 1, imageLibrary: 1, bodyGeneration: 1, bodyProjection: 1, stContractService: 1, guideSource: 1,
+    ...(deps.writingSources ? { writingPreparation: 6 } : {}),
     ...(deps.readTavernSettings && deps.updateTavernSettings ? { bodyGenerationDefaults: 1 } : {}),
     ...(deps.generationPresets ? { generationPresets: 1 } : {}),
     ...(deps.regenerateLatest ? { regenerateTurn: 1 } : {}),
@@ -571,7 +573,24 @@ export function createTavernPluginApi(deps) {
     await guardScope(owner, { gameId })
     return !(await choicesFor(gameId)).disabled.has(owner)
   } })
+  const writingPreparation = createWritingPreparation({
+    allowed: async (owner, gameId) => {
+      const folder = runtimeIdentity(owner)?.folder
+      if (folder && deps.writingPluginEnabled?.(folder) === false) return false
+      const { game, disabled } = await choicesFor(gameId)
+      if (!game || disabled.has(owner)) return false
+      const scope = await accessScope(owner)
+      return !scope || scope.cards.includes(await deps.cardPathOf?.(gameId))
+    },
+    runAgent: (owner, input, writingPreparation, onToolResult) => taskExecution.runAgent(owner, input, { writingPreparation, onToolResult }),
+    readSources: deps.writingSources
+  })
   const service = {
+    writingPreparation(input) {
+      if (!capabilities.writingPreparation) throw new Error('当前宿主没有白手套 Agent 接口')
+      const owner = ownerOf(this)
+      return owned(this, () => writingPreparation.register(owner, input), 'tavern.writingPreparation()')
+    },
     readCapability({ name, ...definition } = {}) {
       const owner = ownerOf(this)
       sectionName(name)
@@ -2596,7 +2615,7 @@ export function createTavernPluginApi(deps) {
     return results.sort((a, b) => (order.get(a.versionId) ?? 0) - (order.get(b.versionId) ?? 0))
   }
 
-  return Object.freeze({ resolveReadCapability, hostBehavior, gameModes, bodyGenerators, taskCatalog, service, mvuProvider, mvuProviderActive, mvuProviderRegistered, capabilities, toolModesFor, toolSkillsFor, toolNetworkFor: name => toolNetworks.get(name)?.capability, callHandler, turnState, exportGame, importGame, turnSettled, castAnnotated, castAssetSources, gameRemoved, mediaRemoved, onPictureReady, imageGates, collectDamperQuestions,
+  return Object.freeze({ resolveReadCapability, hostBehavior, writingPreparation, gameModes, bodyGenerators, taskCatalog, service, mvuProvider, mvuProviderActive, mvuProviderRegistered, capabilities, toolModesFor, toolSkillsFor, toolNetworkFor: name => toolNetworks.get(name)?.capability, callHandler, turnState, exportGame, importGame, turnSettled, castAnnotated, castAssetSources, gameRemoved, mediaRemoved, onPictureReady, imageGates, collectDamperQuestions,
     listGalleryProviderItems, readGalleryProviderImage, removeGalleryProviderItems,
     // The asset library's access to the 配图 人物库 records (registerImageLibrary schema 4); outside any card.
     imageCharacters: (op, input) => imageCatalog.record(op, {}, input),

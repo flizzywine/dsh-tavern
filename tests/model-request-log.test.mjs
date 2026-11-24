@@ -33,6 +33,19 @@ function storageFixture() {
   return { files, operations, adapters, advance: () => { stamp += 250 } }
 }
 
+test('请求记录和完成状态落盘后通知对应会话', async () => {
+  const fixture = storageFixture()
+  const changes = []
+  const log = createModelRequestLog({ ...fixture.adapters, onChange: (sessionId, version) => changes.push([sessionId, version]) })
+  const request = await log.record({ chat: { id: 'chat' }, options: { sessionId: 'session', messages: [] } })
+  await log.list('chat')
+  assert.equal((await log.latestForSession('session')).status, 'running')
+  assert.deepEqual(changes, [['session', request.id + ':running']])
+  await log.complete({ chatId: 'chat', id: request.id, sessionId: 'session', text: '正文', finish: { kind: 'stop' } })
+  assert.equal((await log.latestForSession('session')).status, 'completed')
+  assert.deepEqual(changes, [['session', request.id + ':running'], ['session', request.id + ':completed']])
+})
+
 test('并发请求的完成结果互不串写，缺少状态文件仍可查看正文', async () => {
   const fixture = storageFixture()
   let sequence = 0

@@ -12,6 +12,9 @@ export declare function openPackZip(filename: string): Promise<{entries: PackZip
 export declare function writePackZip(filename: string, entries: Array<{path: string; data?: Uint8Array; file?: string; stream?: () => import('node:stream').Readable | Promise<import('node:stream').Readable>}>): Promise<{size: number; entries: number; uncompressedSize: number}>
 /** Detached export projection; no storage writes. */
 export declare function projectPackFigures<T extends PackExportSnapshot>(packs: T[], excludeFigures: string[]): Promise<{packs: T[]; figures: Array<Figure & {ref: FigureRef}>}>
+export declare const EXPORT_AUDIO_KBPS: Readonly<{music: number; ambience: number}>
+export interface ExportCompressSummary { beforeBytes: number; afterBytes: number; images: number; audio: number; ffmpeg: boolean }
+export declare function compressExportPacks<T extends PackExportSnapshot>(packs: T[], options: {directory: string; onProgress?: (progress: {done: number; total: number; pack: string}) => void}): Promise<{packs: T[]; rewrite: <V>(value: V) => V; summary: ExportCompressSummary}>
 type ReadonlyPackValue<T> = T extends object ? {readonly [K in keyof T]: ReadonlyPackValue<T[K]>} : T;
 /** Shared immutable host view. Copy only the fields needed for authoring. */
 export type PackSnapshot = ReadonlyPackValue<{ automatic?: true; privateConfig?: true; manifest: PackManifest; figures: Record<string, Figure>; sprites: Record<string, SpriteManifest>; widgets: Record<string,WidgetDocument>; variantDocuments?: Record<string,Record<string,Record<string,unknown>>>; diagnostics?: Array<{ref: AssetRef<'widgets'>; name: string; code: 'WIDGET_UNAVAILABLE'; message: string}>; skins?: Record<string, Record<string, unknown>>; performances?: Record<string, Record<string, unknown>>; revision: string; installedAt: number; updatedAt: number; distribution?: Distribution }>;

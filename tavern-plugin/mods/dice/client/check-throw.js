@@ -82,8 +82,9 @@ function checkDelays(list) {
 }
 
 // The beats of one record, timed: [{at, point, detail}] and the moments the pictures change. `resolving`: a settled
-// record whose dice are already down (its awaiting record was thrown); `list`: the thrown dice.
-function checkTimeline(record, list, resolving, at, delays) {
+// record whose dice are already down (its awaiting record was thrown); `list`: the thrown dice; `later`: a record that
+// asks the player whose page opens later (CheckThrow): it shows what it is now and files like a settled one.
+function checkTimeline(record, list, resolving, at, delays, later) {
     const T = CHECK_THROW_T, n = list.length, points = [];
     if (record.hidden) {
         // Under the cup: thrown, covered, filed; nothing read.
@@ -110,16 +111,20 @@ function checkTimeline(record, list, resolving, at, delays) {
     });
     const headlineAt = readEnd, tierAt = readEnd + (headline ? T.headline : 0);
     if (headline) points.push({ at: headlineAt, point: "headline", detail: { record, headline } });
-    const times = { landed, flips, readAt, step, headlineAt, tierAt, headline, outcome, tone };
-    if (checkAsks(record)) {
+    const pending = checkAsks(record);
+    const times = { landed, flips, readAt, step, headlineAt, tierAt, headline, outcome, tone, pending };
+    if (pending) {
         const now = checkOutcomeNow(record);
         if (now) points.push({ at: tierAt, point: "tier", detail: { record, outcome: now, tone: now.tone || null } });
-        times.ask = tierAt + (now ? T.ask : T.ask / 2);
-        times.end = times.ask;
-        return { points: points.sort((a, b) => a.at - b.at), times };
+        if (!later) {
+            times.ask = tierAt + (now ? T.ask : T.ask / 2);
+            times.end = times.ask;
+            return { points: points.sort((a, b) => a.at - b.at), times };
+        }
     }
-    const changes = record.hidden ? [] : checkShown(record, record.changes || []);
-    if (outcome && !record.hidden) {
+    const changes = record.hidden || pending ? [] : checkShown(record, record.changes || []);
+    if (pending) times.end = tierAt + T.ask + T.hold;
+    else if (outcome && !record.hidden) {
         points.push({ at: tierAt, point: "tier", detail: { record, outcome, tone } });
         points.push({ at: tierAt + T.seal, point: "resolve", detail: { record, outcome, tone } });
         changes.forEach((change, k) => points.push({ at: tierAt + T.seal + (k + 1) * T.change, point: "change", detail: { record, change } }));
@@ -135,7 +140,7 @@ function checkTimeline(record, list, resolving, at, delays) {
 function createCheckThrower(tray, rootRef, device, paused, options, ask) {
     const parts = Object.fromEntries([...tray.querySelectorAll("[data-part]")].map(node => [node.dataset.part, node]));
     const scratch = {}, sounds = createDiceSounds();
-    let gl = null, queue = [], current = null, frame = 0, idle = 0, loading = false, alive = true, listening = false;
+    let gl = null, queue = [], current = null, frame = 0, idle = 0, loading = false, alive = true, listening = false, waitingAsk = null;
     const onClick = event => { event.stopPropagation(); event.preventDefault(); skip(); };
     const onKey = event => { if (event.key !== "Escape") return; event.stopPropagation(); event.preventDefault(); skip(); };
     function listen(on) {
@@ -185,7 +190,7 @@ function createCheckThrower(tray, rootRef, device, paused, options, ask) {
         if (!alive || queue[0] !== item || paused()) { if (alive && queue.length && !paused()) void next(); return; }
         start(queue.shift());
     }
-    function start({ record, resolving }) {
+    function start({ record, resolving, later }) {
         clearTimeout(idle);
         const { THREE } = gl;
         const { w, h, left, bottom, top } = band();
@@ -246,7 +251,7 @@ function createCheckThrower(tray, rootRef, device, paused, options, ask) {
         }
         // A turned die hops in place onto its face after the change (a low hop, a short spin).
         const flips = list.map((die, i) => die.after === undefined ? null : diePlan(THREE, meshes[i].userData.model, die.after, rest[i].clone(), rest[i].clone(), diceRandom(record.callId + ":turn:" + i), 0));
-        const timeline = checkTimeline(record, list, resolving, i => [left + spots[i][0], top + spots[i][1]], delays), T = timeline.times;
+        const timeline = checkTimeline(record, list, resolving, i => [left + spots[i][0], top + spots[i][1]], delays, later), T = timeline.times;
         if (hidden) {
             // The dust ring at the cup's lip on the floor, sized from the projected lip.
             const project = v => { const p = v.clone().project(gl.camera); return [(p.x + 1) / 2 * w, (1 - p.y) / 2 * h]; };
@@ -262,7 +267,7 @@ function createCheckThrower(tray, rootRef, device, paused, options, ask) {
         const cues = resolving ? [] : hidden ? diceCues({ hidden: true }, contacts, {}) : [...new Set(delays.map(delay => delay - delay % CHECK_THROW_T.group))].map(at => ({ at, beat: "throw", db: 0 })).concat(contacts.floor.map(c => ({ at: c.at, beat: "hit", db: c.db - 10 * Math.log10(Math.max(1, n / 2)) })), [{ at: contacts.skid, beat: "roll", db: 0 }], contacts.clacks.map(at => ({ at, beat: "clack", db: 0 }))).sort((a, b) => a.at - b.at);
         tray.dataset.cues = JSON.stringify(cues.map(cue => [Math.round(cue.at), cue.beat, Math.round(cue.db * 10) / 10]));
         tray.dataset.dice = list.map(die => die.kind).join(" ");
-        current = { record, list, meshes, plans, flips, scale, w, h, T, hidden, points: timeline.points.slice(), offset: resolving ? T.landed : 0, t0: null, released: false, cues: [] };
+        current = { record, later, list, meshes, plans, flips, scale, w, h, T, hidden, points: timeline.points.slice(), offset: resolving ? T.landed : 0, t0: null, released: false, cues: [] };
         const c = current, values = options()?.values || {}, custom = values.rollSound && options()?.media?.[values.rollSound];
         const token = "check:" + record.callId;
         if (values.sound === false || resolving) current.sound = { play() {}, stop() {} };
@@ -347,10 +352,21 @@ function createCheckThrower(tray, rootRef, device, paused, options, ask) {
         sounds.reset();
         if (gl) idle = setTimeout(() => { gl?.dispose(); gl = null; }, DICE_IDLE_MS);
     }
+    // A result page that opens once the throws before it are done (askAfter): at once when nothing plays.
+    function askAfter(record) {
+        if (current || loading || queue.length) waitingAsk = record;
+        else askNow(record);
+    }
+    function askWaiting() {
+        const record = waitingAsk;
+        waitingAsk = null;
+        if (record) askNow(record);
+    }
     // The next record, or rest.
     function after() {
         if (queue.length && !paused()) { void next(); return; }
         rest();
+        askWaiting();
     }
     function finish() {
         current.sound.stop(false);
@@ -361,24 +377,27 @@ function createCheckThrower(tray, rootRef, device, paused, options, ask) {
     // The end state at once: every queued and playing throw becomes its card, its sound is cut - except a record that
     // asks the player, which opens its result page (the page itself is never skipped).
     function skip() {
-        const items = [...queue, ...(current ? [{ record: current.record }] : [])];
+        const items = [...queue, ...(current ? [{ record: current.record, later: current.later }] : [])];
         queue = [];
-        const asking = items.filter(item => checkAsks(item.record)).map(item => item.record);
+        const asking = items.filter(item => checkAsks(item.record) && !item.later).map(item => item.record);
         const ids = items.map(item => item.record.callId).filter(id => !asking.some(record => record.callId === id));
         if (ids.length) checkPerforming.release(ids);
         if (current) { current.sound.stop(true); hide(); rest(); }
         // One page at a time: the newest asking record (an earlier one was answered by the later ones or is moot).
         if (asking.length) { if (asking.length > 1) checkPerforming.release(asking.slice(0, -1).map(record => record.callId)); askNow(asking.at(-1)); }
+        else askWaiting();
     }
     function dispose() {
         alive = false;
         const ids = [...queue, ...(current ? [{ record: current.record }] : [])].map(item => item.record.callId);
         queue = [];
+        if (waitingAsk) ids.push(waitingAsk.callId);
+        waitingAsk = null;
         if (ids.length) checkPerforming.release(ids);
         if (current) { current.sound.stop(true); hide(); }
         rest(); clearTimeout(idle); gl?.dispose(); gl = null;
     }
-    return { enqueue, ask: askNow, resume() { if (!current && !loading) void next(); }, skip, dispose };
+    return { enqueue, ask: askNow, askAfter, resume() { if (!current && !loading) void next(); }, skip, dispose };
 }
 
 // A turned die (k 0 → 1): a low hop in place while it rolls from its face as rolled onto its face after the turn.
@@ -398,8 +417,8 @@ function fillCheckRead(parts, record, T) {
     parts.label.textContent = headline ? headline.label : "";
     parts.number.textContent = headline ? String(headline.value) : "";
     parts.target.textContent = headline && headline.target ? checkTargetText(headline.target) : "";
-    parts.seal.textContent = T.ask === undefined && T.outcome && !record.hidden ? T.outcome.label : "";
-    const now = T.ask !== undefined ? checkOutcomeNow(record) : null;
+    parts.seal.textContent = !T.pending && T.outcome && !record.hidden ? T.outcome.label : "";
+    const now = T.pending ? checkOutcomeNow(record) : null;
     parts.now.textContent = now ? "现在 · " + now.label : "";
     parts.now.dataset.tone = now && now.tone || "";
     parts.changes.textContent = (T.changes || []).map(checkChangeText).join("，");
@@ -427,9 +446,9 @@ function drawCheckRead(parts, tray, c, t) {
         node.style.transform = "scale(" + (t < at ? from : from + (1 - from) * diceOut(k)).toFixed(3) + ")";
     };
     pop(parts.headline, T.headline ? T.headlineAt : Infinity, 0.7);
-    pop(parts.now, T.ask !== undefined ? T.tierAt : Infinity, 0.9);
+    pop(parts.now, T.pending ? T.tierAt : Infinity, 0.9);
     // The seal falls from large and tilted onto the row, like the d100 throw's stamp.
-    const sealAt = T.ask === undefined && T.outcome ? T.tierAt : Infinity, f = diceClamp((t - sealAt) / CHECK_THROW_T.seal);
+    const sealAt = !T.pending && T.outcome ? T.tierAt : Infinity, f = diceClamp((t - sealAt) / CHECK_THROW_T.seal);
     diceFade(parts.seal, t < sealAt ? 0 : Math.min(1, f * 1.6));
     parts.seal.style.transform = "rotate(" + (-6 - 6 * (1 - f * f)).toFixed(1) + "deg) scale(" + (t < sealAt ? 1.5 : 1.5 - 0.5 * f * f).toFixed(3) + ")";
     const changesAt = sealAt + CHECK_THROW_T.seal;
@@ -463,22 +482,39 @@ function CheckThrow(props) {
         player.current = p;
         return () => { p.dispose(); player.current = null; };
     }, []);
-    // Before the paint, so the card never shows its result first.
+    // Before the paint, so the card never shows its result first. A live record waits for its place in the text (place.js):
+    // where the reply goes on after its call. One placed so that asks the player is thrown there showing what it is now
+    // (later); its result page opens on the round's last page, where the story asks.
+    const placeKey = dicePlaceKey(props.place);
     React.useLayoutEffect(() => {
-        if (!seen.current || seen.current.session !== props.sessionId) seen.current = { session: props.sessionId, ids: null, thrown: new Set() };
+        if (!seen.current || seen.current.session !== props.sessionId) seen.current = { session: props.sessionId, ids: null, thrown: new Set(), queue: dicePlaceQueue(item => item.record), asks: [] };
         if (!key) return;
         const records = showKeyRecords(key), s = seen.current, first = !s.ids;
         if (first) s.ids = new Set();
         const fresh = records.filter(record => !s.ids.has(record.callId));
-        const due = fresh.filter(record => record.dice && !record.show && checkDiceFaces(record).some(die => diceForSides(die.sides, die.face).length))
+        const arrived = fresh.filter(record => record.dice && checkDiceFaces(record).some(die => diceForSides(die.sides, die.face).length))
             .map(record => ({ record, resolving: Boolean(record.of && s.thrown.has(record.of)) }));
         for (const record of records) { s.ids.add(record.callId); if (record.dice && record.id) s.thrown.add(record.id); }
         const now = latest.current;
-        if (first || !due.length || !now.running || !now.live) return;
-        // 减少动态: nothing moves; a record that asks the player still opens its page.
-        if (now.calm) { const asking = due.filter(item => checkAsks(item.record)).at(-1); if (asking) { checkPerforming.hold([asking.record.callId]); player.current.ask(asking.record); } return; }
-        player.current.enqueue(due);
-    }, [key, props.sessionId]);
+        if (!first && arrived.length && now.running) s.queue.add(arrived, latestTurn);
+        const due = s.queue.take(now.place).map(item => Object.assign({}, item, { later: checkAsks(item.record) && dicePlaced(item.record, now.place, latestTurn) }));
+        s.asks = s.asks.filter(ask => ask.turn === latestTurn).concat(due.filter(item => item.later).map(item => ({ record: item.record, turn: latestTurn })));
+        // A record with a stage show has its dice in the show (show.js); only its later page is opened here.
+        const thrown = due.filter(item => !item.record.show);
+        if (thrown.length && now.live) {
+            // 减少动态: nothing moves; a record that asks the player still opens its page.
+            if (now.calm) { const asking = thrown.filter(item => checkAsks(item.record) && !item.later).at(-1); if (asking) { checkPerforming.hold([asking.record.callId]); player.current.ask(asking.record); } }
+            else player.current.enqueue(thrown);
+        }
+        // The round's last page: the newest later record opens its page (an earlier one was answered by it or is moot).
+        const place = now.place;
+        if (s.asks.length && place && place.end && place.turn === latestTurn && now.live) {
+            const record = s.asks.at(-1).record;
+            s.asks = [];
+            checkPerforming.hold([record.callId]);
+            player.current.askAfter(record);
+        }
+    }, [key, props.sessionId, placeKey, props.live]);
     React.useEffect(() => { if (!props.live || props.calm) player.current?.skip(); }, [props.live, props.calm]);
     React.useEffect(() => { if (!props.veiled) player.current?.resume(); }, [props.veiled]);
     // The page is done with once a newer round begins (the player answered or wrote something else).

@@ -36,11 +36,7 @@ function changedPaths(before, after, path = '', out = []) {
   return out
 }
 
-/**
- * The foreground writes without the variable state; settlement updates it afterwards.
- * Before the next reply, hand back only what the last round changed, latest values.
- */
-export function lastRoundVariableChanges(chat) {
+function lastRoundChanges(chat) {
   const messages = chat?.messages
   if (!messages || !['story', 'script'].includes(chat.mode || 'story') || chat.mvu?.enabled !== true) return null
   let latest = -1, previous = -1
@@ -77,7 +73,20 @@ export function lastRoundVariableChanges(chat) {
     for (const key of parts) value = value && typeof value === 'object' && Object.hasOwn(value, key) ? value[key] : undefined
     changes.push([path, value, true])
   }
-  if (!changes.length) return null
+  return { changes, edited: editedPaths.length > 0 }
+}
+
+export function lastRoundVariableValues(chat) {
+  return (lastRoundChanges(chat)?.changes ?? []).map(([path, value]) => ({ names: pathParts(path), value }))
+}
+
+/**
+ * The foreground writes without the variable state; settlement updates it afterwards.
+ * Before the next reply, hand back only what the last round changed, latest values.
+ */
+export function lastRoundVariableChanges(chat) {
+  const { changes, edited } = lastRoundChanges(chat) ?? {}
+  if (!changes?.length) return null
   const lines = []
   let size = 0, omitted = 0
   for (const [path, value, edited] of changes) {
@@ -88,6 +97,6 @@ export function lastRoundVariableChanges(chat) {
     size += line.length
     lines.push(line)
   }
-  return promptSection('variable_changes', [editedPaths.length ? PROMPT_PROSE.p001 : PROMPT_PROSE.p002,
+  return promptSection('variable_changes', [edited ? PROMPT_PROSE.p001 : PROMPT_PROSE.p002,
     ...lines, ...(omitted ? [PROMPT_PROSE.p003 + omitted + PROMPT_PROSE.p004] : [])].join('\n'))
 }

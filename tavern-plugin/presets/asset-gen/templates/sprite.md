@@ -7,7 +7,7 @@ Outfit: """{{outfitAppearance}}"""
 User notes: """{{userPrompt}}"""
 
 Reference images, in order: {{referenceRoles}}
-- Settei: borrow the face, eye shape and highlights, hair, body proportions, every outfit detail and accessory, the swatch colours, line weight and shading. Do not borrow its layout, labels, swatches or extra views.
+- Settei: borrow the face, eye shape and highlights, hair, body proportions, every outfit detail and accessory, the swatch colours, line weight and shading. Do not borrow its layout, labels, swatches or extra views. An identity settei whose role says its clothes are a sample outfit gives only the person: the clothes come from the outfit settei, else from the Outfit text and notes.
 - Base or calm sprite, if attached: it is the canonical identity anchor when no settei is supplied. Preserve its face contour, eye shape and spacing, iris colour, brows and fringe geometry; expression changes act within that same face, not a redesigned face. Keep its body orientation, weight distribution, leg and foot placement, arm positions and overall silhouette. It is also the pose anchor for an expression variant, not just an appearance reference.
 - Original close-up or calm avatar, if attached: use it to resolve small facial details, subordinate to the canonical base sprite's anatomy. A generated expression candidate is an expression reference, not a replacement identity anchor.
 - Same-emotion avatar, if attached: borrow only the facial expression, not its framing or body pose.

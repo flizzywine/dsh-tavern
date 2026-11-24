@@ -1,7 +1,7 @@
 import { syntheticPack } from './fixtures/asset-packs/pack.mjs'
 import { createAssetPackService } from '../tavern-plugin/packages/dsh-asset-library/lib/pack-v2/service.js'
 import assert from 'node:assert/strict'
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import test from 'node:test'
@@ -127,11 +127,45 @@ test('v1 card, bound pack and plugin round trip; PNG imports and exclusion only 
       assert.equal(target.packs.length,1)
     } finally { await exported.dispose() }
   }
+  {
+    // the byte progress the 导出 sheet shows: every input byte counted once, the pack named while its files are written.
+    const seen = []
+    const exported = await files.exportCardFile(imported.path,{onProgress:progress => seen.push(progress)})
+    try {
+      const last = seen.at(-1)
+      assert.ok(last.total > 0 && last.done === last.total, 'ends at the total')
+      assert.ok(seen.every((p, i) => p.total === last.total && (i === 0 || p.done >= seen[i - 1].done)), 'one total, never going back')
+      assert.ok(seen.some(p => p.pack === 'Fixture pack'), 'names the pack being written')
+    } finally { await exported.dispose() }
+    // a throw from the listener (the sheet's 取消) stops the export and leaves no spool behind.
+    await assert.rejects(files.exportCardFile(imported.path,{onProgress:progress => { if (progress.done > 0) throw Object.assign(new Error('cancelled'), { code: 'TAVERN_EXPORT_CANCELLED' }) }}), { code: 'TAVERN_EXPORT_CANCELLED' })
+    assert.deepEqual(await readdir(join(root, 'exports')), [])
+  }
   await assert.rejects(files.exportCardFile(imported.path,{packIds:['44444444-4444-4444-8444-444444444444']}), error => error.code === 'TAVERN_EXPORT_INVALID')
   await assert.rejects(files.exportCardFile(imported.path,{packIds:'all'}), error => error.code === 'TAVERN_EXPORT_INVALID')
   assert.equal(await fileResources.readText(imported.path),before)
 })
 
+
+// The 世界书 ticks: the chosen bound books reach the world book library; none chosen leaves the exported card without its book.
+test('an export carries only the chosen world books, in every format', async t => {
+  const asked = []
+  const { root, files } = await library(t, { worldBooks: { characterBookForCard: async (cardPath, books) => { asked.push(books); return books?.length ? { entries: [{ keys: ['k'], content: 'chosen', enabled: true }] } : null } } })
+  const source = join(root, 'book.dshcard')
+  await writeFile(source, writeZipEntries([{ path: 'dsh.json', content: JSON.stringify({ format: 'dshcard', formatVersion: 1 }) },
+    { path: 'card.json', content: JSON.stringify({ spec: 'chara_card_v3', data: { name: 'Book card', description: 'd', character_book: { entries: [{ keys: ['own'], content: 'own book', enabled: true }] } } }) }]))
+  const card = await files.importCardArchiveFile(source, 'book.dshcard')
+  asked.length = 0
+  const book = { kind: 'standalone', path: 'worldbooks/a.json' }
+  const chosen = JSON.parse((await exportedEntries(await files.exportCardFile(card.path, { books: [book] }))).get('card.json'))
+  assert.equal(chosen.data.character_book.entries[0].content, 'chosen')
+  const none = JSON.parse((await exportedEntries(await files.exportCardFile(card.path, { books: [] }))).get('card.json'))
+  assert.equal(none.data.character_book, undefined, 'no book chosen: the card\'s own book stays home too')
+  const json = await files.exportCardFile(card.path, { format: 'json', books: [book] })
+  assert.equal(JSON.parse(json.bytes).data.character_book.entries[0].content, 'chosen')
+  assert.deepEqual(asked, [[book], [], [book]])
+  await assert.rejects(files.exportCardFile(card.path, { books: 'all' }), { code: 'TAVERN_EXPORT_INVALID' })
+})
 
 // A fake asset library: installed pack id → {hash, data}; a pack with a different hash previews `conflict` choices.
 // backupPack writes the installed data to the file, so a restore can be checked.

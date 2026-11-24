@@ -5,6 +5,7 @@ import { readFile, rm } from 'node:fs/promises'
 import { isCardArchiveUpload } from '../domain/uploads.js'
 import { encryptCardArchiveFile, isCardPasswordError } from '../domain/card-encryption.js'
 import { createScriptCardUpdate } from '../domain/script-card-update.js'
+import { createCardExportJobs } from '../domain/card-export-jobs.js'
 
 // Card library, card workspace and card import requests.
 // `deps` carries the services ../index.js builds; dispatchMethod routes by method name.
@@ -22,6 +23,8 @@ export function createCardHandlers(deps) {
     return chat.cardPath
   }
 
+  // the running card exports the 导出 sheet polls (exportLibraryCard / cardExportProgress / cancelCardExport).
+  const cardExportJobs = createCardExportJobs({ warn: (...args) => deps.ctx?.logger?.warn(...args) })
   const cardUploadFor = id => isCardArchiveUpload(id) ? deps.cardArchiveUploads : uploads
 
   async function readSessionScripts(sessionId) {
@@ -42,10 +45,10 @@ export function createCardHandlers(deps) {
       return { card }
     },
     async getCardOrganization(args) {
-      return { groups: (await cardOrganization.read()).groups }
+      return { tags: (await cardOrganization.read()).tags }
     },
     async organizeCards(args) {
-      return { groups: (await cardOrganization.update(args || {}, await fileResources.list('card'))).groups }
+      return { tags: (await cardOrganization.update(args || {}, await fileResources.list('card'))).tags }
     },
     async listCards(args) {
       return { cards: await listCards() }
@@ -160,18 +163,45 @@ export function createCardHandlers(deps) {
         return { filename, bytes: stored.bytes, downloadUrl: '/api/dsh-tavern/transfer-export/' + encodeURIComponent(filename) + '?token=' + stored.token }
       } finally { await upload.remove(); await rm(output, { force: true }).catch(() => {}) }
     },
-    // The current card as an encrypted DSH card: the same export (packIds / excludeFigures as the card-export route),
-    // encrypted straight from its spool file.
-    async encryptLibraryCard(args) {
-      if (typeof args?.password !== 'string' || !args.password.length) throw new Error('请设置人物卡密码')
-      const card = await deps.exportCardFile(normalizeResourcePath(args?.path, 'card'), { packIds: args?.packIds, excludeFigures: args?.excludeFigures })
-      const output = card.file + '.encrypted'
-      try {
-        await encryptCardArchiveFile(card.file, output, args.password, { name: card.name + '.dshcard' })
-        const filename = card.name.replace(/[\\/:*?"<>|\r\n]/g, '_') + '-加密.dshcard'
-        const stored = await deps.transferExports.putFile(output, filename)
-        return { filename, bytes: stored.bytes, downloadUrl: '/api/dsh-tavern/transfer-export/' + encodeURIComponent(filename) + '?token=' + stored.token }
-      } finally { await card.dispose(); await rm(output, { force: true }).catch(() => {}) }
+    // The current card as a DSH card for the 导出人物卡 sheet: the same export as the card-export route (packIds,
+    // excludeFigures, worldBooks = the bound books it carries), encrypted from its spool file when a `password` is given,
+    // then handed over as a transfer download of `bytes`. `progressId` (the sheet's name for this export) lets it poll
+    // cardExportProgress and cancelCardExport; it answers at once and the export runs on as that job (card-export-jobs.js),
+    // whose last view is the file ({stage: 'done', result: {filename, bytes, downloadUrl}}) or the failure.
+    async exportLibraryCard(args) {
+      const encrypt = args?.password !== undefined
+      if (encrypt && (typeof args.password !== 'string' || !args.password.length)) throw new Error('请设置人物卡密码')
+      const cardPath = normalizeResourcePath(args?.path, 'card')
+      return cardExportJobs.run(args?.progressId, async report => {
+        let card, output
+        try {
+          // 压缩素材 (`compress`) reports its own stage first, its bar from 0 to 100; packing (and encrypting) follows.
+          card = await deps.exportCardFile(cardPath, { packIds: args?.packIds, excludeFigures: args?.excludeFigures, books: args?.worldBooks, compress: args?.compress ?? false,
+            onProgress: progress => report(progress.stage === 'compress' ? { stage: 'compress', done: progress.done, total: progress.total, pack: progress.pack }
+              : { stage: 'pack', done: encrypt ? progress.done / 2 : progress.done, total: progress.total, pack: progress.pack }) })
+          let file = card.file, filename = card.name.replace(/[\\/:*?"<>|\r\n]/g, '_') + '.dshcard'
+          if (encrypt) {
+            // packing and encrypting each read every byte once: the bar gives each half.
+            report({ stage: 'encrypt', pack: '' })
+            output = file = card.file + '.encrypted'; filename = filename.replace(/\.dshcard$/, '-加密.dshcard')
+            await encryptCardArchiveFile(card.file, output, args.password, { name: card.name + '.dshcard',
+              onProgress: progress => report({ stage: 'encrypt', done: (progress.total + progress.done) / 2, total: progress.total, pack: '' }) })
+          }
+          const stored = await deps.transferExports.putFile(file, filename)
+          return { filename, bytes: stored.bytes, downloadUrl: '/api/dsh-tavern/transfer-export/' + encodeURIComponent(filename) + '?token=' + stored.token, ...(card.compressed ? { compressed: card.compressed } : {}) }
+        } finally {
+          await card?.dispose(); if (output) await rm(output, { force: true }).catch(() => {})
+        }
+      })
+    },
+    cardExportProgress(args) { return { progress: cardExportJobs.view(args?.progressId) } },
+    cancelCardExport(args) { return cardExportJobs.cancel(args?.progressId) },
+    // the page's word on how saving the file ended (saved / failed / cancelled, bytes written of the total, the reason):
+    // one line in the host log, the only record of a save once the page is gone.
+    cardExportSaved(args) {
+      const text = value => String(value ?? '').replace(/\s+/g, ' ').slice(0, 300)
+      console.log('[card-export] save ' + text(args?.outcome) + ' ' + text(args?.filename) + ' ' + Number(args?.loaded) + '/' + Number(args?.total) + ' bytes' + (args?.reason ? ': ' + text(args.reason) : ''))
+      return { ok: true }
     },
     async decryptCardUpload(args) {
       const upload = await uploads.take(args?.uploadId), output = upload.file + '.decrypted'

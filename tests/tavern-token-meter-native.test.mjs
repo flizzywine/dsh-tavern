@@ -37,7 +37,13 @@ test('原生 Token Meter 可统计既有无 step 的 Tavern 种子消息，且�
   // opening turn. The meter patch must still measure them without rewriting.
   appendSessionEvent(session, 'system/message', { turn: 1, step: 1, message: {
     id: 'tavern-system-head:' + session.id, role: 'system', content: [], source: { kind: 'system-prompt' } } }, { surfaceOp: 'append' })
-  for (const stage of sessionSeedTrajectoryMessages(session.id)) appendSessionEvent(session, stage.type, stage.data, stage.intent)
+  const [first, last] = sessionSeedTrajectoryMessages(session.id)
+  appendSessionEvent(session, first.type, first.data, first.intent)
+  appendSessionEvent(session, 'assistant/message', { turn: 1, step: 1, message: {
+    id: 'tavern-seed-trajectory:v1:' + session.id + ':2', role: 'assistant', content: [{ type: 'text', text: '旧版开局确认。' }],
+    source: { kind: 'model', provider: 'dsh-tavern', model: 'synthetic-trajectory' }
+  } }, { surfaceOp: 'append' })
+  appendSessionEvent(session, last.type, last.data, last.intent)
   const before = JSON.stringify(session.snapshotEvents())
   assert.throws(() => ctx.tokenMeter.measure(session), /assistant\/message.*no matching step\/start/)
   const eventAt = session.eventAt

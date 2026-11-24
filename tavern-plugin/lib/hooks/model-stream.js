@@ -6,7 +6,10 @@ import { createStoryCompactionRequest, nativelyRetainedRounds, retainRecentStory
 import { installCompactionRequestProjection } from '../domain/compaction-request.js'
 import { installPrefixBoundReasoningProjection } from '../domain/prefix-bound-reasoning.js'
 import { omitEmptyProviderContent } from '../domain/provider-message-content.js'
+import { omitUnusedToolHistory } from '../domain/tool-history-presentation.js'
+import { isLegacySeedAcknowledgement } from '../domain/session-seed-trajectory.js'
 import { installWorkspaceInstructionPresentation } from '../domain/workspace-instruction-presentation.js'
+import { isTavernAgentSession } from '../domain/tavern-agent-scope.js'
 import { presentModelError } from '../domain/model-error-presentation.js'
 import { markRequestHandled, requestHandledBy } from '../domain/request-lineage.js'
 import { bodyGenerationFailure } from '../domain/body-generation-failure.js'
@@ -14,6 +17,7 @@ import { toolProtocolDirectiveOf } from '../domain/foreground-orchestration-stra
 import { STORY_CONTEXT_TOOL_NAME, STORY_SUBMIT_TOOL_NAME } from '../domain/story-tool-submission.js'
 import { isAutoToolOnlyModel, runWithToolProtocolDirective } from '../domain/tool-protocol-enforcement.js'
 import { createToolReplyStreamTracker } from '../domain/tool-reply-stream-parser.js'
+import { projectWritingPreparationRequest, PURE_WRITING_REQUEST, WRITING_PREPARATION_REQUEST } from '../domain/pure-writing-request.js'
 
 // Prompt prose source. Keys are stable; interpolation arguments are data.
 export const PROMPT_PROSE = Object.freeze({
@@ -27,6 +31,23 @@ export function applyCompactionModel(request, selection) {
   if (typeof selection.reasoningEffort === 'string' && selection.reasoningEffort) next.reasoningEffort = selection.reasoningEffort
   else delete next.reasoningEffort
   return next
+}
+
+function writingPreparationStreamFilter() {
+  const textByIndex = new Map()
+  return chunk => {
+    const isText = chunk.type === 'text-delta' || (chunk.type === 'block-start' && chunk.blockType === 'text')
+      || (chunk.type === 'block-end' && chunk.block?.type === 'text')
+    if (Number.isInteger(chunk.index) && !textByIndex.has(chunk.index)) textByIndex.set(chunk.index, isText)
+    if (isText) return null
+    if (chunk.type !== 'finish' || !Array.isArray(chunk.replayState?.blocks)) return chunk
+    const textBlocks = [...textByIndex.values()]
+    if (!textBlocks.some(Boolean)) return chunk
+    // Replay entries are positional in the original response, including the removed text.
+    const { replayState, ...finish } = chunk
+    if (replayState.blocks.length !== textBlocks.length) return finish
+    return { ...finish, replayState: { ...replayState, blocks: replayState.blocks.filter((_, index) => !textBlocks[index]) } }
+  }
 }
 
 export function registerModelStreamHooks({
@@ -75,12 +96,18 @@ export function registerModelStreamHooks({
   // Whether a session is a Tavern game: its header answers that, not its history.
   const isGame = async sessionId => Boolean(await chatHeaderForSession(str(sessionId), []))
   const ownsSession = async sessionId => backgroundAgentRunner.owns(sessionId) || await isGame(sessionId)
+  // Old saves still carry the scripted acknowledgement. Drop it before
+  // history projection and compaction can incorporate it into another message.
+  ctx.on('llm/stream', (request, next) => {
+    if (!request?.messages?.some(isLegacySeedAcknowledgement)) return next()
+    return ctx.llm.stream({ ...request, messages: request.messages.filter(message => !isLegacySeedAcknowledgement(message)) })
+  }, { prepend: true })
   // Compaction keeps its newest replies after the summary, behind a prefix they were not signed against.
   installPrefixBoundReasoningProjection(ctx, { ownsSession, session: id => sessionStore.get(id) || agentRegistry.get(id)?.session || backgroundAgentRunner.requestSession(id) })
-  installWorkspaceInstructionPresentation(ctx, async sessionId => {
-    if (backgroundAgentRunner.owns(sessionId)) return true
-    return isGame(sessionId)
-  })
+  installWorkspaceInstructionPresentation(ctx, sessionId => isTavernAgentSession(sessionId, {
+    isGame, isBackground: id => backgroundAgentRunner.owns(id),
+    readHeader: id => (sessionStore.get(id) || agentRegistry.get(id)?.session)?.header
+  }))
   installCompactionRequestProjection(ctx, ownsSession, async request => {
     // 前台对话压缩优先使用全局设置的专用压缩模型；后台 Agent 保持各自任务模型。
     const foreground = !backgroundAgentRunner.owns(request.sessionId)
@@ -156,12 +183,24 @@ export function registerModelStreamHooks({
         source: { kind: 'model', provider: str(options.provider), model: str(options.model) }
       }))
     }
-    const projectedRequest = (requestHandledBy(options, 'full-template') || importContextPreparation.isPrepared(options)) ? null : foregroundStrategies.projectRequest(options, coordinates)
-    if (projectedRequest !== null) return ctx.llm.stream(projectedRequest)
     const backgroundContext = backgroundAgentRunner.requestContext(sessionId)
+    const writingContext = backgroundContext?.writingPreparation
+    if (options.purpose === undefined && writingContext && !requestHandledBy(options, WRITING_PREPARATION_REQUEST)) {
+      return ctx.llm.stream(markRequestHandled(projectWritingPreparationRequest(options, writingContext), WRITING_PREPARATION_REQUEST))
+    }
+    if (options.purpose === undefined && !requestHandledBy(options, PURE_WRITING_REQUEST) && foregroundStrategies.pureWritingTurn?.(sessionId)) {
+      return (async function * () {
+        yield * ctx.llm.stream(await foregroundStrategies.prepareWritingRequest(options))
+      })()
+    }
+    const projectedRequest = (!writingContext && !requestHandledBy(options, 'full-template') && !importContextPreparation.isPrepared(options))
+      ? foregroundStrategies.projectRequest(options, coordinates) : null
+    if (projectedRequest !== null) return ctx.llm.stream(projectedRequest)
     const ownerSessionId = backgroundContext ? backgroundContext.parentSessionId : sessionId
     return (async function * () {
-      if (!backgroundContext && options.purpose === undefined && pluginBodyGeneration) {
+      const writingPreparation = requestHandledBy(options, WRITING_PREPARATION_REQUEST)
+      const pureWriting = requestHandledBy(options, PURE_WRITING_REQUEST) || writingPreparation
+      if (!pureWriting && !backgroundContext && options.purpose === undefined && pluginBodyGeneration) {
         const session = sessionStore.get(sessionId) || agentRegistry.get(sessionId)?.session
         const direct = await pluginBodyGeneration.direct(session, options.signal)
         if (direct) { yield * direct; return }
@@ -169,12 +208,12 @@ export function registerModelStreamHooks({
       // a director already owns frozen, projected sources.
       const director = backgroundContext?.task === 'stage-director'
       if (director) assertFrozenStageRequest(backgroundContext, options)
-      const prepared = director ? options : await importContextPreparation.prepare(options)
+      const prepared = director || pureWriting ? options : await importContextPreparation.prepare(options)
       if (prepared !== options) { yield * ctx.llm.stream(prepared); return }
       const chat = ownerSessionId === '' ? undefined : await chatHeaderForSession(ownerSessionId, [
         'requestMode', 'compatibilityTraces', 'bypassPlanId', 'runtimePresetSnapshot', 'foregroundFrames'
       ])
-      if (!director && chat && ['story', 'script'].includes(chat.mode) && options.purpose === undefined && chat.requestMode !== 'sillytavern' && !requestHandledBy(options, 'full-template')) {
+      if (!pureWriting && !director && chat && ['story', 'script'].includes(chat.mode) && options.purpose === undefined && chat.requestMode !== 'sillytavern' && !requestHandledBy(options, 'full-template')) {
         const projected = await fullTemplateRuntime.forSession(ownerSessionId).projectRequestProjection({ messages: options.messages, system: options.system, model: options.model })
         yield * ctx.llm.stream(markRequestHandled({ ...options, ...projected }, 'full-template'))
         return
@@ -185,7 +224,7 @@ export function registerModelStreamHooks({
       // Templates can erase text after the history projection. Check the final
       // Tavern request before recording it or starting the downstream stream.
       if (chat || backgroundContext || child || requestHandledBy(options, 'compaction-projection')) {
-        const cleaned = omitEmptyProviderContent(options)
+        const cleaned = omitUnusedToolHistory(omitEmptyProviderContent(options))
         if (cleaned !== options) { yield * ctx.llm.stream(cleaned); return }
       }
       const baseDirective = options.purpose === undefined ? toolProtocolDirectiveOf(options) : null
@@ -264,6 +303,7 @@ export function registerModelStreamHooks({
           })
         : null
       let finish = null, usage = null
+      const filterPreparation = writingPreparation ? writingPreparationStreamFilter() : null
       // 改写补出来的 text-delta 要沿用同一段正文的 index，assembler 靠它把 token 并进同一个正文块。
       let rewriteIndex = null
       let failure = null, interrupted = false
@@ -277,6 +317,10 @@ export function registerModelStreamHooks({
           if (item.done) {exhausted = true; break}
           let chunk = item.value
           liveness.chunk(chunk)
+          if (filterPreparation && chunk) {
+            chunk = filterPreparation(chunk)
+            if (chunk === null) continue
+          }
           if (chunk && chunk.type === 'text-delta') {
             const delta = str(chunk.text)
             if (rewriteStream) {
@@ -354,7 +398,7 @@ export function registerModelStreamHooks({
         if (owner && requestRecord) {
           // complete() 内部同步进入 chatId 写盘队列，evidence()/settled() 会自动等待落盘，
           // 无需在流结束 finally 阻塞主回合提交。
-          void Promise.resolve(modelRequestLog.complete({ chatId: owner.id, id: requestRecord.id, text: responseText || toolStreamedText, finish, usage, error: failure,
+          void Promise.resolve(modelRequestLog.complete({ chatId: owner.id, id: requestRecord.id, sessionId, text: responseText || toolStreamedText, finish, usage, error: failure,
             interrupted: interrupted || (!failure && !finish) || finish?.kind === 'aborted' || options.signal?.aborted || Boolean(timing.interruption), timing }))
             .catch(error => { console.error('dsh-tavern: 模型结果日志写入失败', str(error && error.message || error)) })
         }

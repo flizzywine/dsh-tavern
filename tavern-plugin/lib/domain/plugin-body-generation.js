@@ -31,10 +31,11 @@ export function bodyGenerationRoute(chat, settings, turn, control) {
 }
 
 export function createPluginBodyGeneration({ chatForSession, routeChatForSession = chatForSession, readRevision, updateChat, settings, providers,
-  isBackground = () => false, isWorldbookPath = () => false, regenerateWithProvider }) {
+  isBackground = () => false, isWorldbookPath = () => false, regenerateWithProvider, writingPreparationFor }) {
   const tasks = new Map(), regenerations = new Map()
   async function route(sessionId, turn) {
     const chat = await routeChatForSession(sessionId)
+    if (chat && ['story', 'script'].includes(chat.mode || 'story') && await writingPreparationFor?.(sessionId)) return { mode: 'host', provider: '' }
     const control = chat && ['story', 'script'].includes(chat.mode || 'story') ? await providers.controlRoute?.(sessionId) : null
     return bodyGenerationRoute(chat, await settings(), turn, control)
   }
@@ -190,6 +191,7 @@ export function createPluginBodyGeneration({ chatForSession, routeChatForSession
       }
     },
     async regenerate(gameId, guidance = '') {
+      if (await writingPreparationFor?.(gameId)) return null
       const configured = configuredBodyGeneration(await settings())
       const selected = { ...configured, ...await providers.controlRoute?.(gameId) }
       if (!selected.mode?.startsWith('plugin-')) return null

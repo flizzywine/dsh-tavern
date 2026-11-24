@@ -90,6 +90,7 @@ export function registerTurnLifecycleHooks({
   runtimePrompt,
   sessionStore,
   storyOutputToolCall,
+  writingPreparation,
   turnOrchestrator,
   turnStarted,
   userMessageForTurn,
@@ -238,6 +239,12 @@ export function registerTurnLifecycleHooks({
     const mode = chat && chat.requestMode !== 'sillytavern' ? await turnOrchestrator.modeFor(agent.session.id) : ''
     if (chat && chat.requestMode !== 'sillytavern' && ['story', 'script', 'card'].includes(mode)) {
       await timed('prefix', () => ensureNativeSystemPrefix(agent.session, chat))
+    }
+    if (['story', 'script'].includes(mode) && await writingPreparation?.forGame(agent.session.id)) {
+      return hostTools.assemble(assembly, context, (value, tools) => foregroundStrategies.assembleSystemPrompt(value, {
+        sessionId: agent.session.id, toolDefinitions: tools, chat, pureWriter: true,
+        fixedSystemSections: sessionStablePrefixSections(agent.session)
+      }))
     }
     const needWorldbook = Boolean(chat && ['story', 'script'].includes(chat.mode || 'story'))
     const nativeWorldbook = needWorldbook && chat.worldbookStrategy === 'native-skills'

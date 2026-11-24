@@ -2,54 +2,141 @@
 // pickExportTarget runs first, inside the click: the native save-as dialog (one file, suggested `name`) or a folder
 // picker (`many`: a batch may come back as several volumes), so the player chooses where before any packing starts.
 // It resolves null where the browser has no picker (phones, remote browsers): the file then goes through an ordinary
-// download. It rejects with an AbortError when the dialog is closed.
+// download. It rejects with an AbortError when the dialog is closed. The dialog opens in Downloads the first time and
+// then where the last export was saved (the browser remembers the folder per `id`).
+// `type` is the file's media type for the dialog's filter (default ZIP; a JSON or PNG card export names its own).
 const PACK_ROOT = '/api/dsh-asset-library/v2/';
 function exportFileName(name) { return String(name || '').replace(/[\\/:*?"<>|\r\n]/g, '_').trim() || '导出'; }
-async function pickExportTarget({name, many = false, description = 'ZIP 压缩包', extension = '.zip'}) {
+async function pickExportTarget({name, many = false, description = 'ZIP 压缩包', extension = '.zip', type = 'application/zip'}) {
     if (many ? typeof window.showDirectoryPicker !== 'function' : typeof window.showSaveFilePicker !== 'function') return null;
-    if (many) return {folder:await window.showDirectoryPicker({id:'dsh-export', mode:'readwrite'})};
-    const file = await window.showSaveFilePicker({id:'dsh-export', suggestedName:exportFileName(name) + extension, types:[{description, accept:{'application/zip':[extension]}}]});
+    if (many) return {folder:await window.showDirectoryPicker({id:'dsh-export', mode:'readwrite', startIn:'downloads'})};
+    const file = await window.showSaveFilePicker({id:'dsh-export', startIn:'downloads', suggestedName:exportFileName(name) + extension, types:[{description, accept:{[type]:[extension]}}]});
     return {file};
 }
 // saveExportFile(result, {target, name, onProgress, signal}) writes each archive of an export result ({download:{ticket}},
-// {url} of a GET that streams the file, or {bytes}) to the picked target, streamed to disk with onProgress({loaded,
-// total}) per file; without a target it hands the file to an ordinary download. `name` (no extension; the archive's
-// own is kept) overrides the file name of a single archive. Resolves {names:[saved file names], picked:boolean}. A failed write removes the half-written file.
+// {url[, size]} of a GET that streams the file, or {bytes}) to the picked target, streamed to disk with onProgress({loaded,
+// total}) per file. It starts a browser download when there's no target or the browser rejects opening a single picked
+// file for writing. `name` (no extension; the archive's
+// own is kept) overrides the file name of a single archive. Resolves {names:[saved file names], picked:boolean, said}: `said`
+// is the one sentence every export shows when done, where the file is. A failed write removes the half-written file.
+// A download that stops sending (the connection hangs without closing) would otherwise hold the save open forever with a
+// half-written .crswap beside the target; after SAVE_STALL_MS without a byte it fails with that reason and the write is
+// discarded. A target is reported saved only once its committed file has every byte of the response.
+// The browser opens and closes the file for every write, and a virus scanner (Microsoft Defender scans files written in
+// Downloads, measured 11-24) holds a file it is scanning without letting others write: a write that meets it fails
+// with NoModificationAllowedError and ends that write for good. So the bytes go in SAVE_WRITE_BYTES writes (each one
+// open and one scan, not one per 64 KB network chunk), and a save the scanner broke starts over, up to SAVE_TRIES
+// times in all (error.tries says how many were made).
+const SAVE_STALL_MS = 120000, SAVE_WRITE_BYTES = 64 * 1048576, SAVE_TRIES = 4;
+function batchWrites(size) {
+    let parts = [], held = 0;
+    const take = out => { if (!held) return; const data = new Uint8Array(held); let at = 0; for (const part of parts) { data.set(part, at); at += part.byteLength; } parts = []; held = 0; out.enqueue(data); };
+    return new TransformStream({transform(chunk, out) { parts.push(chunk); held += chunk.byteLength; if (held >= size) take(out); }, flush: take});
+}
 async function saveExportFile(result, {target = null, name, onProgress, signal} = {}) {
     const archives = result.archives || [result], names = [];
+    const mb = n => (n / 1048576).toFixed(1) + ' MB';
+    // the byte count the last opened response promised (open), which the committed file must have.
+    let lastTotal = 0;
     const fileName = archive => archives.length === 1 && name ? exportFileName(name) + (/\.[^.]+$/.exec(archive.filename || '')?.[0] || '.zip') : archive.filename || 'asset-pack.zip';
     const source = archive => archive.download ? PACK_ROOT + 'download?ticket=' + encodeURIComponent(archive.download.ticket) : archive.url;
-    async function open(archive) {
-        const response = await fetch(source(archive), {credentials:'same-origin', signal});
-        if (!response.ok) { const text = await response.text().catch(() => ''); throw Object.assign(new Error(text || 'HTTP ' + response.status), {status:response.status}); }
-        const total = Number(response.headers.get('content-length')) || 0;
+    async function open(archive, stall) {
+        stall?.arm(() => 0, archive.size || 0);
+        const response = await fetch(source(archive), {credentials:'same-origin', signal:stall?.signal || signal});
+        if (!response.ok) { const text = await response.text().catch(() => ''); const code = response.headers.get('x-dsh-error-code'); throw Object.assign(new Error(text || 'HTTP ' + response.status), {status:response.status, ...(code ? {code} : {})}); }
+        // `size`: the host's own count of the file's bytes, for a response that lost its length on the way.
+        const total = lastTotal = Number(response.headers.get('content-length')) || archive.size || 0;
         // at most ~8 progress reports a second: one per chunk re-renders the page thousands of times for a large file.
         let loaded = 0, shown = 0;
         onProgress?.({loaded, total});
+        stall?.arm(() => loaded, total);
         return response.body.pipeThrough(new TransformStream({
-            transform(chunk, out) { loaded += chunk.byteLength; const now = performance.now(); if (now - shown > 120) { shown = now; onProgress?.({loaded, total}); } out.enqueue(chunk); },
-            flush() { onProgress?.({loaded, total}); }}));
+            transform(chunk, out) { loaded += chunk.byteLength; stall?.arm(() => loaded, total); const now = performance.now(); if (now - shown > 120) { shown = now; onProgress?.({loaded, total}); } out.enqueue(chunk); },
+            flush() { stall?.done(); onProgress?.({loaded, total}); }}));
+    }
+    // the save's own abort: the caller's signal, or the stall timer with its reason.
+    function stallGuard() {
+        const controller = new AbortController();
+        let timer = 0;
+        const follow = () => controller.abort(signal.reason);
+        signal?.addEventListener('abort', follow, {once:true});
+        if (signal?.aborted) follow();
+        return {signal:controller.signal,
+            arm(loaded, total) { clearTimeout(timer); timer = setTimeout(() => controller.abort(Object.assign(new Error('下载在 ' + mb(loaded()) + (total ? ' / ' + mb(total) : '') + ' 处停住，' + SAVE_STALL_MS / 60000 + ' 分钟没有收到新数据'), {name:'Error'})), SAVE_STALL_MS); },
+            done() { clearTimeout(timer); signal?.removeEventListener('abort', follow); }};
     }
     for (const archive of archives) {
         const filename = fileName(archive);
         if (target) {
             const handle = target.file || await target.folder.getFileHandle(filename, {create:true});
+            const stall = archive.bytes ? null : stallGuard();
             try {
-                const body = archive.bytes ? new Blob([archive.bytes]).stream() : await open(archive);
-                // pipeTo commits the file when the body ends and discards the write on failure.
-                await body.pipeTo(await handle.createWritable(), {signal});
-            } catch (error) { await handle.remove?.().catch(() => {}); throw error; }
-            names.push(handle.name);
-            continue;
+                for (let tries = 1; ; tries++) {
+                    let writable;
+                    try {
+                        signal?.throwIfAborted();
+                        writable = await handle.createWritable();
+                        const body = archive.bytes ? new Blob([archive.bytes]).stream() : (await open(archive, stall)).pipeThrough(batchWrites(SAVE_WRITE_BYTES));
+                        // pipeTo commits the file (the .crswap is renamed) when the body ends and discards the write on failure.
+                        await body.pipeTo(writable, {signal:stall?.signal || signal});
+                        break;
+                    } catch (error) {
+                        if (!writable && target.file && archives.length === 1 &&
+                            (error?.name === 'NotAllowedError' || error?.name === 'SecurityError')) {
+                            target = null;
+                            break;
+                        }
+                        await writable?.abort().catch(() => {});
+                        if (error?.name !== 'NoModificationAllowedError' || signal?.aborted || stall?.signal.aborted) throw error;
+                        if (tries >= SAVE_TRIES) throw Object.assign(error, {tries});
+                    }
+                }
+                if (target) {
+                    const total = archive.bytes ? archive.bytes.length : lastTotal, written = (await handle.getFile()).size;
+                    if (total && written !== total) throw new Error('保存的文件只有 ' + mb(written) + '，应为 ' + mb(total));
+                    names.push(handle.name);
+                    continue;
+                }
+            } catch (error) {
+                await handle.remove?.().catch(() => {});
+                throw stall?.signal.aborted && !signal?.aborted ? stall.signal.reason : error;
+            } finally { stall?.done(); }
         }
-        // no picker: a ticket or url goes to the browser's download manager as is (it streams); bytes go as a Blob.
+        // Tickets stream through the browser's download manager. Fetch other URLs to surface HTTP errors first.
+        signal?.throwIfAborted();
         const blob = archive.bytes ? new Blob([archive.bytes]) : archive.download ? null : await new Response(await open(archive)).blob();
+        signal?.throwIfAborted();
         const url = blob ? URL.createObjectURL(blob) : source(archive);
         const anchor = document.createElement('a'); anchor.href = url; anchor.download = filename; anchor.click();
         if (blob) setTimeout(() => URL.revokeObjectURL(url), 1000);
         names.push(filename);
     }
-    return {names, picked:!!target};
+    const files = names.map(n => '「' + n + '」').join('');
+    // the page never learns the folder the dialog chose (a file handle has no path), so it names the choice instead.
+    return {names, picked:!!target, said:target ? '已导出 ' + files + '，在刚才保存框里选的文件夹里。' : '已开始下载 ' + files + '，在浏览器的下载列表里。'};
+}
+// 导出 DSH 人物卡 on the host (rpc exportLibraryCard, card-export-jobs.js): the host answers at once and the export runs as
+// a job polled here (cardExportProgress), since one request may not stay open the minutes a large card takes (the Desktop
+// ends a request whose answer has not begun after five minutes). onProgress(progress) hears {stage, done, total, pack,
+// startedAt} while it packs and encrypts; resolves {filename, bytes, downloadUrl}, or rejects with the host's sentence for
+// the failed step (error.step, error.code). Aborting `signal` cancels the job.
+async function runCardExport(rpc, args, {onProgress, signal} = {}) {
+    const progressId = 'card-export-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
+    await rpc('exportLibraryCard', {...args, progressId});
+    try {
+        for (;;) {
+            await new Promise(resolve => setTimeout(resolve, 500));
+            signal?.throwIfAborted();
+            const {progress} = await rpc('cardExportProgress', {progressId});
+            if (!progress) throw new Error('这次导出已经结束或过期，请重新导出。');
+            if (progress.stage === 'done') return progress.result;
+            if (progress.stage === 'failed') throw Object.assign(new Error(progress.error.message), {step:progress.error.step, ...(progress.error.code ? {code:progress.error.code} : {})});
+            onProgress?.(progress);
+        }
+    } catch (error) {
+        if (signal?.aborted) void rpc('cancelCardExport', {progressId}).catch(() => {});
+        throw error;
+    }
 }
 // browser port for the authenticated v2 package transport.
 function createPackTransport({fetch: request = fetch, interval = 2000, subscribeChanges} = {}) {

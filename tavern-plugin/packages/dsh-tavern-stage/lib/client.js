@@ -11598,7 +11598,7 @@ function subscribeAudio(listener){
 function useEffect(setup,deps){React.useEffect(()=>disposed?undefined:setup(),deps);}
 function usePlayback(frame,{advance,finishSkip,finishTyping}){
     const {sessionId,runtime,reading,auto,skipping,hidden,overlay,typed,current,atEnd,awaiting,sceneHolding,line,performance}=frame;
-    const {turn,page,card,inputCard,transitioning,subtitles,inputSubtitles,lastCard,voice,audioBusy,heldMs,film,pageCount}=line;
+    const {turn,page,card,inputCard,transitioning,subtitles,inputSubtitles,lastCard,voice,audioBusy,heldMs,film,pageCount,rollPlace}=line;
     const dialogueHeld=performance.dialogueHeld,presentationBusy=performance.busy;
     const pages={length:pageCount};
     // a history page the reader settles on plays its own
@@ -11622,9 +11622,11 @@ function usePlayback(frame,{advance,finishSkip,finishTyping}){
         const delay = Math.max(0, turned.at + (turned.rapid ? STAGE_HISTORY_SETTLE_MS : 250) - now());
         return timeout(() => runtime.store.dispatch({type: 'HISTORY_DWELL', visitId, anchor, kinds: replayableKinds}), delay);
     }, [dwellPageKey, dwellBlocked, runtime.store, replayableKinds]);
-    // The round's checks are thrown again when its first page is the settled history page (core.dice.roll replays).
+    // The round's rolls are thrown again when the settled history page is where they show (core.dice.roll replays): its
+    // first page, or a page where a roll called for partway through a reply may be (rollPlace: a paragraph's first page or the
+    // round's last; the mod throws the rolls whose place is there).
     const historyRolls = runtime.cursor.dwell?.kinds.includes('core.dice.roll') && runtime.text.pages[0] && runtime.cursor.anchor &&
-        runtime.text.pages[0].anchor.paragraphId === runtime.cursor.anchor.paragraphId && runtime.cursor.anchor.offset === 0 ? 'history:' + dwellPageKey : null;
+        (rollPlace || runtime.text.pages[0].anchor.paragraphId === runtime.cursor.anchor.paragraphId && runtime.cursor.anchor.offset === 0) ? 'history:' + dwellPageKey : null;
     // auto and skip wait for this paragraph's director prefix and say so; manual paging stays immediate.
     const awaitingDirection = runtime.indicators.awaitingDirection;
     // Intermediate voiced cards follow the paragraph audio clock, not a new playback lease.
@@ -14819,6 +14821,14 @@ function GalStage(props) {
     // show a "writing" state so the stage never looks stuck.
     const useSession = props.choiceProps && props.choiceProps.useSession;
     const running = useSession ? useSession(snapshot => snapshot.running === true) : false;
+    // Where the reader stands in the round, for the mods' parts: a tool result called for partway through the reply shows
+    // where the text goes on after the call (its `at`; a check's dice fall on that page, mods/dice place.js). para: this
+    // page's paragraph (0 while a page turns); first: its first page; end: the complete round's last page; start: the round's
+    // first page; units: its paragraphs so far; `running`: a reply is being written. null while a lease reads.
+    const placePara = transitioning ? 0 : pages[page]?.para || 0, placeEnd = !streaming && !(running && turn === latestTurn) && page >= pages.length - 1;
+    const readerPlace = React.useMemo(() => leasing ? null : {turn: runtime.textIndex.get(turn)?.nativeTurn || 0, para: placePara,
+        first: pages.findIndex(row => row.para === placePara) === page, end: placeEnd, start: page === 0, units: runtime.text.units?.length || 0, streaming, running},
+        [leasing, runtime.text.units, runtime.textIndex, turn, streaming, running, placeEnd, placePara, page, pages]);
     // the system-menu action shares upstream settlement activity.
     const regenerationActivity = useTavernCoordination(sessionId, String(running) + ":" + latestTurn);
     // the worldbook prefilter yields to any other task and never blocks the player (as in
@@ -15763,7 +15773,7 @@ function GalStage(props) {
     const handoff = useGalFaceHandoff(sessionId + ":" + boxPageKey, { facing, shown: Boolean(face && (face.src || face.glyph)), moves: faceMode !== "off", snap: faceSnap || !!accepted.cg || cg.visible, calm: calmMotion, typed });
     const historyRolls=stageViews.playback.usePlayback({sessionId,runtime,reading,auto,skipping,hidden,
         overlay:backlog||configOpen||galleryOpen||pageOpen||menuOpen||!!insert,typed,current,atEnd,awaiting,sceneHolding,
-        line:{turn,page,card,inputCard,transitioning,subtitles,inputSubtitles,lastCard,voice,audioBusy,heldMs:handoff.heldMs,film,pageCount:pages.length},
+        line:{turn,page,card,inputCard,transitioning,subtitles,inputSubtitles,lastCard,voice,audioBusy,heldMs:handoff.heldMs,film,pageCount:pages.length,rollPlace:Boolean(readerPlace && (readerPlace.first || readerPlace.end))},
         performance:{replayable:performanceKinds.replayable,holds:[...modPerformances.holds,{remainingMs:cg.holdMs()}],holdKey:cg.holdTick,blocking:takeover.busy||!!title,dialogueHeld,busy:presentationBusy}},
         {advance:()=>go(1,true),finishSkip:()=>{turnPastEnd();stopSkip();},finishTyping:()=>setTyped(true)});
     // An insert page holds the playback clock (overlay above): AUTO turns it a wordless page's wait (the CONFIG auto wait,
@@ -15998,7 +16008,7 @@ function GalStage(props) {
             // the reply wait's look (StageWaitStop + StageWaitLines, portalled by gal-choices.js); empty, it takes no room.
             h("div", { ref: setChoiceWaitSlot, className: "fork-gal-box-wait" }),
             // the mods' page parts sit on the box's top edge, out of its flow (mod-clients.js; e.g. a live roll's one-shot strip).
-            props.choiceProps && props.choiceProps.useChat ? modClients.slot('page').map(part => h(part.value, { key: part.modId, useChat: props.choiceProps.useChat, nativeTurn: runtime.textIndex.get(turn)?.nativeTurn || 0, pageKey, sessionId, input: modClients.input(props.choiceProps.executeSlash, sessionId) })) : null,
+            props.choiceProps && props.choiceProps.useChat ? modClients.slot('page').map(part => h(part.value, { key: part.modId, useChat: props.choiceProps.useChat, nativeTurn: runtime.textIndex.get(turn)?.nativeTurn || 0, pageKey, sessionId, place: readerPlace, input: modClients.input(props.choiceProps.executeSlash, sessionId) })) : null,
             // film mode shows the page count briefly on each page turn
             // (the keyed node restarts its CSS fade); hover still shows it in full.
             h("div", { key: film ? "flash:" + pageKey : "meta", className: "fork-gal-meta" + (film ? " is-flash" : "") },
@@ -16022,8 +16032,9 @@ function GalStage(props) {
         entrance.element,
         // the mods' overlay parts (mod-clients.js; e.g. a live roll thrown above the box). live: the reader follows the
         // arrival with nothing over the stage and no skip; calm: only the CONFIG 减少动态 setting, not the OS one (ui-design
-        // R20); veiled: under the first-entry veil; replay: a clip replay's visit or the settled history page's replay.
-        props.choiceProps && props.choiceProps.useChat ? modClients.slot('overlay').map(part => h(part.value, { key: part.modId, sessionId, useChat: props.choiceProps.useChat, running, following: presenting === 'live', device, rootRef, calm: reading.reducedMotion === true, safety: effectSafety,
+        // R20); veiled: under the first-entry veil; replay: a clip replay's visit or the settled history page's replay;
+        // place: where the reader stands in the round (above).
+        props.choiceProps && props.choiceProps.useChat ? modClients.slot('overlay').map(part => h(part.value, { key: part.modId, sessionId, useChat: props.choiceProps.useChat, running, place: readerPlace, following: presenting === 'live', device, rootRef, calm: reading.reducedMotion === true, safety: effectSafety,
             veiled: !entryGate.visible, input: modClients.input(props.choiceProps.executeSlash, sessionId), screen: playModBeat,
             replay: replaying && runtime.replay?.phase === 'play' ? runtime.cursor.visitId : historyRolls, nativeTurn: runtime.textIndex.get(turn)?.nativeTurn || 0,
             live: (presenting === 'live' || !!historyRolls) && !skipping && !film && !hidden && !backlog && !configOpen && !galleryOpen && !pageOpen && !menuOpen })) : null,
@@ -29325,7 +29336,7 @@ if (typeof window === 'undefined' && typeof module !== 'undefined') module.expor
   // adopted (the job's followUp), as 添加服装 sends its first 差分 after the 服装设定图. Ctrl+Enter sends, Esc closes; the
   // request then runs in its tile and the dialog closes as soon as it is sent.
   const GEN_HELP={figure:'这个人物的标准样貌图。之后的立绘、头像和服装设定图都以它为参考图。',outfit:'这套服装的标准样貌图。这套服装之后的立绘和头像都以它为参考图。',
-    first:label=>'两项都勾时先生成服装设定图；采用后再以它为参考图生成「'+label+'」的立绘和头像。',style:'画风来自配图插件。只用于这一次；「设为本包默认」后，这个素材包的生图都默认用它。「不加画风」不附任何画风要求。'};
+    first:label=>'两项都勾时先生成服装设定图；采用后再以它为参考图生成「'+label+'」的立绘和头像。',style:'画风来自配图插件。只用于这一次；「设为本包默认」后，这个素材包的生图都默认用它。垃圾桶清除画风，变成「无画风」：不附任何画风要求。'};
   const genWhere=(...parts)=>parts.filter(Boolean).join(' · ');
   const genFileInput=(ref,label,onFile)=>h('input',{ref,type:'file',hidden:true,tabIndex:-1,accept:'image/png,image/webp,image/jpeg','aria-label':label,onChange:e=>{const f=e.target.files?.[0];e.target.value='';if(f)onFile(f);}});
   // `bare`: no caption under the picture (the 新人物 page's 设定图 row names them in its label).
@@ -29476,10 +29487,13 @@ if (typeof window === 'undefined' && typeof module !== 'undefined') module.expor
     const extra=textField('prompt',mode==='edit'?'想改哪里':'额外要求',prompt,setPrompt,mode==='edit'?'例：领巾换成红色，其余不变':cellMode?'例：双手叉腰，气鼓鼓地瞪着前方':'角度、细节…',{className:'is-prompt',trail:promptTrail});
     // 画风: the image plugin's presets (实验 marked); a pack default the plugin no longer has is named as gone, never replaced.
     const packStyle=styles?.current,styleOptions=(styles?.styles||[]).map(s=>({value:s.id,label:s.name+(s.status==='experimental'?'（实验）':'')}));
-    if(style&&styles&&!styleOptions.some(o=>o.value===style))styleOptions.push({value:style,label:'这个画风不在了，请另选'});
+    // 无画风 is 'no-style' (the prompt as written): not a menu item but the field's empty state, reached with 清除画风.
+    const plain=style==='no-style';
+    if(style&&styles&&!plain&&!styleOptions.some(o=>o.value===style))styleOptions.push({value:style,label:'这个画风不在了，请另选'});
     const styleRow=mode!=='edit'&&anyGen&&style&&h(InlineField,{key:'style',kind:'menu',label:'画风',help:h(Help,{text:GEN_HELP.style,label:'画风 说明'}),className:'ap-gen-row ap-gd-row is-style',value:style,
-      options:styleOptions,onCommit:setStyle,
-      trail:style!==packStyle&&saveStyle?h('button',{type:'button',className:'ap-inline-link ap-gd-style-save',onClick:()=>saveStyle(style).catch(e=>setError(errorText(e)))},'设为本包默认'):null});
+      options:styleOptions,onCommit:setStyle,placeholder:'无画风',
+      trail:h(React.Fragment,null,!plain&&h(IconButton,{icon:'remove',label:'清除画风',className:'ap-icon-button is-danger ap-gd-style-clear',onClick:()=>setStyle('no-style')}),
+        style!==packStyle&&saveStyle?h('button',{type:'button',className:'ap-inline-link ap-gd-style-save',onClick:()=>saveStyle(style).catch(e=>setError(errorText(e)))},'设为本包默认'):null)});
     let fields;
     if(adding)fields=[
       h(InlineField,{key:'name',kind:'text',label:'服装名',className:'ap-gen-row ap-gd-row',value:name,placeholder:'例：冬装',maxLength:24,onCommit:v=>setName(v.trim())}),
@@ -29626,7 +29640,10 @@ if (typeof window === 'undefined' && typeof module !== 'undefined') module.expor
   const GenDecide=({label,onNo,onYes,id})=>h('span',{className:'ap-gw-decide',role:'group','aria-label':label},
     h(IconButton,{icon:'close',label:'不要',className:'ap-icon-button ap-gw-no','data-gen-decide':'no-'+id,onClick:onNo}),
     h(IconButton,{icon:'check',label:'采用',className:'ap-icon-button ap-gw-yes','data-gen-decide':'yes-'+id,onClick:onYes}));
-  const genFlag=cell=>(cell.state==='failed'||cell.error||cell.warnings?.length>0)&&h('span',{className:'ap-gen-flag',title:cell.state==='failed'?genFailTitle(cell):[cell.error&&'采用失败：'+cell.error,...(cell.warnings||[]).map(w=>w.message)].filter(Boolean).join('\n')},h(Glyph,{name:'warning'}));
+  const genFlagText=cell=>cell.state==='failed'?genFailTitle(cell):[cell.error&&'采用失败：'+cell.error,...(cell.warnings||[]).map(w=>w.message)].filter(Boolean).join('\n');
+  const genFlag=cell=>(cell.state==='failed'||cell.error||cell.warnings?.length>0)&&h('span',{className:'ap-gen-flag',title:genFlagText(cell)},h(Glyph,{name:'warning'}));
+  // A waiting picture's ⚠ sits beside it, not on it: hovering or tapping it says what the check found (or why 采用 failed).
+  const GenWarn=({cell})=>cell.error||cell.warnings?.length>0?h(Help,{label:'检查结果',face:h(Glyph,{name:'warning'}),faceClassName:'ap-gw-warn',text:h('span',{className:'ap-gw-warn-text'},genFlagText(cell))}):null;
   const genItem=(icon,text,onClick,extra={})=>h(MenuItem,{key:text,danger:extra.danger,onClick},h(Glyph,{name:icon}),h('span',null,text));
   // ---------- One generation flow for 编辑 and 生图 ----------
   // A 差分 tile's waiting pictures (`cells`: its 立绘 / 头像 cells on show) are decided by the one ✕｜✓ pill; an eight-face
@@ -29660,16 +29677,19 @@ if (typeof window === 'undefined' && typeof module !== 'undefined') module.expor
       plan.waitingCells>1?badge('check','全部采用（'+plan.waitingCells+'）',plan.waitingCells,()=>onAcceptAll(plan.waiting),'accept-all'):
       plan.todo.length&&!hideFill?badge('spark','生成缺少的 '+plan.todo.length+' 个差分',plan.todo.length,fill,'fill'):null;
   }
-  // 设定块 slot: 人物设定图 or 服装设定图, a small 3:2 picture. Empty: dashed, ⤒ 上传 and ✦ 生成 (raised on hover / focus, always
-  // on touch); filled: its menu (查看大图 / 下载 / 重画… / 上传图片 / 删除); a request: the ring, or the ✕｜✓ pill beside it.
+  // 设定块 slot: 人物设定图 or 服装设定图, a 3:2 picture. Empty: dashed, ⤒ 上传 and ✦ 生成 (raised on hover / focus, always on
+  // touch); filled: a click opens the large view, a right click / tap its menu (查看大图 / 下载 / 重画… / 上传图片 / 删除); a
+  // request: the ring, or the new picture (a click opens it large) with its ⚠ and the ✕｜✓ pill beside it.
   function GenSetteiSlot({c,level}) {
     const {gen,binding,packId,figure,outfit}=c,fig=level==='figure',name=fig?'人物设定图':'服装设定图';
     const target=fig?{packId,figureId:figure.id,kind:'identity-settei'}:{packId,figureId:figure.id,outfitKey:outfit.key,kind:'settei'},cell=genCell(gen,target);
-    const hash=fig?figure.identitySettei?.board||null:outfit.settei||null,file=React.useRef(null),[view,setView]=React.useState(false);
+    const hash=fig?figure.identitySettei?.board||null:outfit.settei||null,file=React.useRef(null),look=()=>c.view('settei',level);
     const upload=f=>c.run(()=>fig?c.identityBoard.upload(figure.id,f):c.settei.upload(figure.id,outfit.key,f));
     const input=genFileInput(file,'上传'+name,upload),base={className:'ap-gw-slot','data-gen-slot':target.kind};
     if(cell.state==='candidate')return h('div',{...base,'data-state':'candidate'},
-      h('span',{className:'ap-gw-slot-art','data-checker':true},h(CandidateArt,{gen,jobId:cell.job.jobId}),genFlag(cell)),
+      h('button',{type:'button',className:'ap-gw-slot-hit','data-view':true,'aria-label':'查看新'+name,title:'查看新'+name,onClick:look},
+        h('span',{className:'ap-gw-slot-art','data-checker':true},h(CandidateArt,{gen,jobId:cell.job.jobId}))),
+      h(GenWarn,{cell}),
       h(GenDecide,{label:'新'+name,id:level,onNo:()=>c.run(()=>gen.reject(cell.job)),onYes:()=>c.accept(cell.job)}));
     if(cell.state==='running'||cell.state==='queued')return h('div',{...base,'data-state':'running'},
       h('span',{className:'ap-gw-slot-art'},hash&&h('span',{className:'ap-gw-dim'},h(Thumb,{binding,packId,hash,label:name})),h(GenFaceMarks,{cell})));
@@ -29681,18 +29701,14 @@ if (typeof window === 'undefined' && typeof module !== 'undefined') module.expor
       ()=>fig?c.identityBoard.remove(figure.id):c.settei.remove(figure.id,outfit.key),c.onError);
     return h('div',{...base,'data-state':'filled'},
       h(Popover,{label:name+' 操作',className:'ap-face-menu-anchor',float:true,fit:true,limit:420,
-        trigger:({toggle,open})=>h('button',{type:'button',className:'ap-gw-slot-hit','aria-label':name,title:name,...cellMenuTrigger({open,toggle})},
+        trigger:({toggle,open})=>h('button',{type:'button',className:'ap-gw-slot-hit','data-view':true,'aria-label':name,title:name,...cellMenuTrigger({open,toggle,onPrimary:look})},
           h('span',{className:'ap-gw-slot-art','data-checker':true},h(Thumb,{key:hash,binding,packId,hash,label:name}),genFlag(cell))),
         content:close=>{const go=fn=>()=>{close();fn();};return h('div',{className:'ap-cell-menu',onKeyDown:genMenuKeys},
-          genItem('eye','查看大图',go(()=>setView(true))),
+          genItem('eye','查看大图',go(look)),
           genItem('export','下载',go(()=>c.run(()=>downloadPackMedia(binding,c.pack,hash,figure.name+'-'+(fig?'':outfit.label+'-')+name)))),
           genItem('reset','重画…',go(()=>c.open(target,{mode:'redraw'}))),
           genItem('upload','上传图片',go(()=>file.current?.click?.())),(fig?c.identityBoard.remove:c.settei.remove)&&genItem('remove','删除',go(remove),{danger:true}));}}),
-      // 查看大图: the shared viewer; the old sheet's actions are its corner buttons (上传替换; a 服装设定图 also 改图… / 重画…).
-      input,view&&h(PackImageView,{binding,packId,hash,label:name,onClose:()=>setView(false),actions:[
-        {icon:'upload',label:'上传替换',onClick:()=>file.current?.click?.()},
-        !fig&&{icon:'edit',label:'改图…',onClick:()=>{setView(false);c.open(target,{mode:'edit'});}},
-        !fig&&{icon:'reset',label:'重画…',onClick:()=>{setView(false);c.open(target,{mode:'redraw'});}}]}));
+      input);
   }
   // 人物 / 「服装」: the slot beside one inline line (R23: reads as text, ✎ on hover, Enter / leaving saves).
   function GenSettei({c,level}) {
@@ -29721,11 +29737,14 @@ if (typeof window === 'undefined' && typeof module !== 'undefined') module.expor
     const sCell=genCell(gen,c.at('sprite',id)),aCell=genCell(gen,c.at('avatar',id)),busyState=s=>['running','queued','candidate'].includes(s.state);
     const live=busyState(sCell)?sCell:busyState(aCell)?aCell:null,failed=sCell.state==='failed'?sCell:aCell.state==='failed'?aCell:null;
     const spriteHash=c.sprite(id),avatarHash=c.avatar(id),hasSprite=c.hasSprite(id);
-    const nameRow=h('span',{className:'ap-gw-name'},isDefault&&h('span',{className:'ap-gw-star',title:'默认差分'},h(Glyph,{name:'star'})),h('span',null,row.label));
-    const base={role:'listitem',className:'ap-gw-card','data-emotion':id};
+    const named=tail=>h('span',{className:'ap-gw-name'},isDefault&&h('span',{className:'ap-gw-star',title:'默认差分'},h(Glyph,{name:'star'})),h('span',{className:'ap-gw-label'},row.label),tail),nameRow=named(null);
+    const base={role:'listitem',className:'ap-gw-card','data-emotion':id},look=()=>c.view('wall',id);
+    // A new picture: a click opens it large (to compare and decide there); its ⚠ and the ✕｜✓ pill sit under it, off the picture.
     if(live?.state==='candidate')return h('div',{...base,'data-state':'candidate'},
-        h('span',{className:'ap-gw-art','data-checker':true},h('span',{className:'ap-gw-face-art'},h(CandidateArt,{gen,jobId:live.job.jobId,emotionId:live.sheet?id:null})),genFlag(live),
-          h(GenTileDecide,{gen,cells:[sCell,aCell],label:'「'+row.label+'」新图',id,run:c.run,acceptAll:c.acceptAll})),nameRow);
+        h('button',{type:'button',className:'ap-gw-hit','data-view':true,'aria-label':'查看「'+row.label+'」新图',title:'查看「'+row.label+'」新图',onClick:look},
+          h('span',{className:'ap-gw-art','data-checker':true},h('span',{className:'ap-gw-face-art'},h(CandidateArt,{gen,jobId:live.job.jobId,emotionId:live.sheet?id:null})))),
+        named(h(GenWarn,{cell:live})),
+        h(GenTileDecide,{gen,cells:[sCell,aCell],label:'「'+row.label+'」新图',id,run:c.run,acceptAll:c.acceptAll}));
     if(live)return h('div',{...base,'data-state':live.state,title:live.after?'采用前一张图后开始':undefined},
       h('span',{className:'ap-gw-art'+(hasSprite||avatarHash?'':' ap-gw-missing')},spriteHash||avatarHash?h('span',{className:'ap-gw-face-art ap-gw-dim'},h(Thumb,{binding,packId,hash:spriteHash||avatarHash,label:row.label})):null,h(GenFaceMarks,{cell:live})),nameRow);
     if(!hasSprite&&!avatarHash){
@@ -29740,21 +29759,89 @@ if (typeof window === 'undefined' && typeof module !== 'undefined') module.expor
     const fileHash=spriteHash||(!hasSprite&&avatarHash),fileName=c.figure.name+'-'+outfit.label+'-'+row.label+(spriteHash?'立绘':'头像');
     const remove=()=>askDelete(c.ask,'asset-figure-image',{title:'删除「'+row.label+'」？',body:'「'+outfit.label+'」里「'+row.label+'」的立绘和头像会被删除；差分本身和其他服装不受影响。',confirmLabel:'删除',danger:true},
       async()=>{if(hasSprite)await c.removeFigureImage(c.figure.id,outfit.key,id,'sprite');if(avatarHash)await c.removeFigureImage(c.figure.id,outfit.key,id,'avatar');},c.onError);
+    // A click opens the picture large; a right click / tap opens the menu (a model 立绘 with no 头像 has no picture: menu only).
+    const viewable=!!(spriteHash||avatarHash);
     return h('div',{...base,'data-state':'filled'},
       h(Popover,{label:row.label+' 操作',className:'ap-face-menu-anchor',float:true,fit:true,limit:460,
-        trigger:({toggle,open})=>h('button',{type:'button',className:'ap-gw-hit','aria-label':row.label,title:failed?genFailTitle(failed):undefined,...cellMenuTrigger({open,toggle,onMenu:()=>c.onPick?.(id)})},
+        trigger:({toggle,open})=>h('button',{type:'button',className:'ap-gw-hit','data-view':viewable||undefined,'aria-label':row.label,title:failed?genFailTitle(failed):undefined,...cellMenuTrigger({open,toggle,onMenu:()=>c.onPick?.(id),onPrimary:viewable?()=>{c.onPick?.(id);look();}:null})},
           h('span',{className:'ap-gw-art'},h('span',{className:'ap-gw-face-art','data-kind':spriteHash||hasSprite?'sprite':'avatar'},art),
             hasSprite&&h('span',{className:'ap-gw-face','data-empty':!avatarHash||undefined,title:avatarHash?undefined:'没有头像'},avatarHash?h(Thumb,{binding,packId,hash:avatarHash,label:row.label+'头像'}):h(Glyph,{name:'plus'})),
             failed&&genFlag(failed)),nameRow),
         content:close=>{const go=fn=>()=>{close();fn();};return h('div',{className:'ap-cell-menu',onKeyDown:genMenuKeys},
+          viewable&&genItem('eye','查看大图',go(look)),
           fileHash&&genItem('export','下载',go(()=>c.run(()=>downloadPackMedia(binding,c.pack,fileHash,fileName)))),
           genItem('reset','重画…',go(()=>c.open(c.at(hasSprite&&c.takes(id)?'sprite':'avatar',id),{mode:'redraw',out:hasSprite&&c.takes(id)?'sprite':'avatar'}))),
           !isDefault&&genItem('star','设为默认',go(()=>c.writeOutfit(o=>({...o,defaultEmotion:id})))),
           c.uploadSprite&&c.takes(id)&&genItem('upload','上传图片',go(()=>c.uploadSprite(id))),
           c.removeFigureImage&&genItem('remove','删除',go(remove),{danger:true}));}}));
   }
+  // 查看大图 on the 生图 page (UI standard §三.37): every picture on it opens the one viewer, in three groups that ←→ (‹ ›,
+  // a swipe on touch) step through — the two 设定图, the outfit tiles, the 差分 wall. A waiting picture is decided there
+  // (不要 / 采用, the same as its tile's pill) and compared with the picture it would replace (the toggle keeps the zoom).
+  // An item: {key, label, hash} for a picture of the pack; a waiting one has {job, slice?, current?, jobs, accept} instead
+  // (slice: the 差分 of an eight-face sheet, decided in the sheet's own view); `level`: a 设定图 (上传替换, 改图…, 重画…).
+  function genOutfitPicture(pack,figure,outfit) {
+    const o=figureOutfitView(figure,outfit),manifest=o?.sprite&&pack.sprites?.[o.sprite.manifestKey],id=genDefaultId(figure,o);
+    return o&&(genOwnSprite(o,manifest,id)||o.avatars?.[outfitImageId(o,id)]||o.settei)||null;
+  }
+  function genViewGroups(c) {
+    const {gen,packId,figure,outfit,pack}=c;
+    const settei=level=>{
+      const fig=level==='figure',name=fig?'人物设定图':'服装设定图',hash=fig?figure.identitySettei?.board||null:outfit.settei||null;
+      const cell=genCell(gen,fig?{packId,figureId:figure.id,kind:'identity-settei'}:{packId,figureId:figure.id,outfitKey:outfit.key,kind:'settei'});
+      if(cell.state==='candidate')return {key:level,level,label:'新'+name,job:cell.job,current:hash,jobs:[cell.job],accept:()=>c.accept(cell.job)};
+      return hash?{key:level,level,label:name,hash}:null;
+    };
+    const wall=row=>{
+      const s=genCell(gen,c.at('sprite',row.id)),a=genCell(gen,c.at('avatar',row.id)),live=s.state==='candidate'?s:a.state==='candidate'?a:null;
+      if(live){const jobs=[s,a].filter(x=>x.state==='candidate'&&!x.sheet&&x.job).map(x=>x.job);
+        return {key:row.id,label:'「'+row.label+'」新图',job:live.job,slice:live.sheet?row.id:null,sheet:live.sheet,current:(live===s?c.sprite(row.id):c.avatar(row.id))||null,jobs,accept:()=>c.acceptAll(jobs)};}
+      const hash=c.sprite(row.id)||c.avatar(row.id);
+      return hash?{key:row.id,label:row.label,hash}:null;
+    };
+    return {settei:[settei('figure'),outfit&&settei('outfit')].filter(Boolean),
+      outfits:figure.outfits.map(o=>{const hash=genOutfitPicture(pack,figure,o);return hash?{key:o.key,label:o.label,hash,outfit:true}:null;}).filter(Boolean),
+      wall:outfit?c.rows.map(wall).filter(Boolean):[]};
+  }
+  function GenViewer({c,viewing,setViewing}) {
+    const {gen,binding,packId,figure,outfit}=c,items=genViewGroups(c)[viewing.group]||[],found=items.findIndex(x=>x.key===viewing.key);
+    const [busy,setBusy]=React.useState(false),file=React.useRef(null),lastAt=React.useRef(0);
+    if(found>=0)lastAt.current=found;
+    // A picture that left its group (不要 on a slot with nothing behind it): its neighbour takes its place; none left closes.
+    const at=found>=0?found:Math.min(lastAt.current,items.length-1),item=items[at]||null;
+    const url=useCandidateUrl(gen,item?.job?.jobId,item?.slice);
+    React.useEffect(()=>{
+      if(!item||gen.sheet||gen.dialog)setViewing(null);
+      else if(found<0)setViewing(v=>v&&{...v,key:item.key,compare:false});
+    },[item?.key,found,!!gen.sheet,!!gen.dialog]);
+    if(!item||gen.sheet||gen.dialog)return null;
+    const close=()=>setViewing(null),step=d=>{const next=items[at+d];if(next)setViewing({group:viewing.group,key:next.key,compare:false});};
+    const comparing=!!(viewing.compare&&item.job&&item.current),decided=item.jobs?.length>0;
+    const decide=fn=>()=>{if(busy)return;setBusy(true);Promise.resolve().then(fn).finally(()=>setBusy(false));};
+    const fig=item.level==='figure',name=fig?'人物设定图':'服装设定图';
+    const target=item.level&&(fig?{packId,figureId:figure.id,kind:'identity-settei'}:{packId,figureId:figure.id,outfitKey:outfit.key,kind:'settei'});
+    const again=mode=>()=>{close();c.open(target,{mode});};
+    const actions=[
+      items.length>1&&{key:'prev',icon:'back',label:'上一张',disabled:at===0,onClick:()=>step(-1)},
+      items.length>1&&{key:'next',icon:'chevRight',label:'下一张',disabled:at===items.length-1,onClick:()=>step(1)},
+      item.job&&item.current&&{key:'compare',icon:'swap',label:'对比现在这张',pressed:comparing,onClick:()=>setViewing(v=>({...v,compare:!v.compare}))},
+      item.sheet&&{key:'sheet',icon:'eye',label:'查看八个头像',onClick:()=>{close();gen.openSheet(item.sheet);}},
+      decided&&{key:'no',icon:'remove',label:'不要',disabled:busy,onClick:decide(()=>c.run(()=>Promise.all(item.jobs.map(j=>gen.reject(j)))))},
+      decided&&{key:'yes',icon:'check',label:'采用',busy,onClick:decide(item.accept)},
+      item.level&&item.hash&&{key:'upload',icon:'upload',label:'上传替换',onClick:()=>file.current?.click?.()},
+      item.level==='outfit'&&item.hash&&{key:'edit',icon:'edit',label:'改图…',onClick:again('edit')},
+      item.level==='outfit'&&item.hash&&{key:'redraw',icon:'reset',label:'重画…',onClick:again('redraw')}];
+    const onKeyDown=e=>{if(e.altKey||e.ctrlKey||e.metaKey||!['ArrowLeft','ArrowRight'].includes(e.key))return;e.preventDefault();step(e.key==='ArrowLeft'?-1:1);};
+    const label=[figure.name,viewing.group!=='outfits'&&!fig&&outfit?.label,item.label,comparing&&'现在这张'].filter(Boolean).join(' · ');
+    const upload=f=>c.run(()=>fig?c.identityBoard.upload(figure.id,f):c.settei.upload(figure.id,outfit.key,f));
+    return h(React.Fragment,null,
+      h(PackImageView,{binding,packId,hash:comparing?item.current:item.job?null:item.hash,src:comparing||!item.job?undefined:url,label,actions,onClose:close,onKeyDown,
+        viewKey:viewing.group+'/'+item.key,onSwipe:step}),
+      item.level&&genFileInput(file,'上传'+name,upload));
+  }
   function FigureGenTab({binding,pack,figure,outfit,onOutfit,onPick,write,writeOutfit,gen,settei,identityBoard,uploadSprite,removeFigureImage,setFallback}) {
     const packId=pack.manifest.id,[confirm,setConfirm]=React.useState(null),[error,setError]=React.useState(''),[accepting,setAccepting]=React.useState(false),[coach,setCoach]=React.useState(()=>!genCoachSeen()),[note,setNote]=useGenNote();
+    const [viewing,setViewing]=React.useState(null);
     React.useEffect(()=>{gen.open();},[]);
     React.useEffect(()=>{setNote('');},[outfit?.key]);
     const run=fn=>{setError('');return Promise.resolve().then(fn).catch(e=>setError(errorText(e)));};
@@ -29763,7 +29850,8 @@ if (typeof window === 'undefined' && typeof module !== 'undefined') module.expor
     const endCoach=()=>{if(coach){genCoachDone();setCoach(false);}};
     const open=(target,extra={})=>{endCoach();gen.openDialog(target,{...extra,onOutfit});};
     const manifest=outfit?.sprite&&pack.sprites?.[outfit.sprite.manifestKey],rows=outfit?outfitEmotionRows(figure,outfit,manifest):[],look=useFigureLook(binding,packId,figure.id);
-    const c={gen,binding,pack,packId,figure,outfit,rows,look,write,writeOutfit,settei,identityBoard,uploadSprite,removeFigureImage,setFallback,onPick,run,accept,open,ask:setConfirm,onError:setError,
+    const view=(group,key)=>{endCoach();setViewing({group,key,compare:false});};
+    const c={gen,binding,pack,packId,figure,outfit,rows,look,write,writeOutfit,settei,identityBoard,uploadSprite,removeFigureImage,setFallback,onPick,run,accept,open,view,ask:setConfirm,onError:setError,
       acceptAll:list=>{setAccepting(true);return gen.acceptAll(list).finally(()=>setAccepting(false));},
       at:(kind,emotionId)=>({packId,figureId:figure.id,outfitKey:outfit.key,kind,emotionId}),
       sprite:id=>genOwnSprite(outfit,manifest,id),avatar:id=>outfit?.avatars?.[outfitImageId(outfit,id)]||null,hasSprite:id=>!!outfit&&emotionMapped('sprite',outfit,manifest,id),
@@ -29773,10 +29861,12 @@ if (typeof window === 'undefined' && typeof module !== 'undefined') module.expor
     const problem=gen.problem&&!gen.sheet&&!gen.dialog&&h('p',{className:'ap-gen-problem',role:'alert'},h(Glyph,{name:'warning'}),h('span',null,gen.problem));
     const person=h('section',{className:'ap-gw-sec','aria-label':'人物'},head('人物'),h(GenSettei,{c,level:'figure'}));
     const dialogs=confirm&&h(ConfirmDialog,{...confirm,onClose:()=>setConfirm(null)});
-    if(!outfit)return h('div',{className:'ap-gen-tab ap-gw'},problem,h(ErrorBox,{error}),person,h(EmptyState,{noun:'服装'}),dialogs);
+    const viewer=viewing&&h(GenViewer,{c,viewing,setViewing});
+    if(!outfit)return h('div',{className:'ap-gen-tab ap-gw'},problem,h(ErrorBox,{error}),person,h(EmptyState,{noun:'服装'}),dialogs,viewer);
     const outfits=h('section',{className:'ap-gw-sec','aria-label':'服装'},head('服装',figure.outfits.length),
       h('div',{className:'ap-gw-outfits',role:'list'},figure.outfits.map(o=>h('div',{key:o.key,role:'listitem'},
-          h('button',{type:'button',className:'ap-gw-outfit','aria-pressed':o.key===outfit.key,title:o.label,onClick:()=>{if(o.key!==outfit.key)onOutfit(o.key);}},
+          // A click picks the outfit; a click on the picked one opens its picture large.
+          h('button',{type:'button',className:'ap-gw-outfit','aria-pressed':o.key===outfit.key,'data-view':o.key===outfit.key&&!!genOutfitPicture(pack,figure,o)||undefined,title:o.label,onClick:()=>{if(o.key!==outfit.key)onOutfit(o.key);else if(genOutfitPicture(pack,figure,o))view('outfits',o.key);}},
             h('span',{className:'ap-gen-outfit-art','data-kind':genOutfitKind(pack,o)},genOutfitArt(binding,pack,figure,o)),h('span',{className:'ap-gw-outfit-name'},o.label)))),
         h('div',{role:'listitem',className:'ap-gw-outfit-addcell'},h(CatAddTile,{label:'添加服装',className:'ap-gw-outfit-add',onClick:()=>open({packId,figureId:figure.id,outfitKey:outfit.key,kind:'settei'},{mode:'outfit'})}))));
     // The heading's one tool, the same as 编辑's (GenOutfitTool). A blank outfit starts from one tile instead (the coach points there).
@@ -29790,7 +29880,7 @@ if (typeof window === 'undefined' && typeof module !== 'undefined') module.expor
       head('差分',rows.length),
       h('div',{className:'ap-gw-wall',role:'list','aria-label':'差分',onClickCapture:endCoach},rows.map(r=>h(GenWallCard,{key:r.id,c,row:r,
         coach:r.id===start?h(GenCoach,{text:c.blank?'从这一格开始':'虚线格 = 缺图，点击生成',onClose:endCoach}):null}))));
-    return h('div',{className:'ap-gen-tab ap-gw'},problem,h(ErrorBox,{error}),person,outfits,wall,dialogs);
+    return h('div',{className:'ap-gen-tab ap-gw'},problem,h(ErrorBox,{error}),person,outfits,wall,dialogs,viewer);
   }
 
             // 舞台设置 — the per-card page of the 「Tavern 舞台」 tab.
@@ -30600,79 +30690,174 @@ function StagePackSection({ctx,ready,state}) {
     effective.length?h('ul',{className:'ap-pack-list is-current','aria-label':'当前素材包'},effective.map(row('static'))):h(EmptyState,{compact:true,text:'未使用素材包'}),
     h(ErrorBox,{error:scope.error}));
 }
-// 导出 DSH 人物卡 — the one card export with its packs. The host streams GET /api/dsh-tavern/card-export (core
-// card-files.js exportCardFile): the card's bound packs are listed with sizes and the checked total; the card's own packs
-// (they hold its figures or carry its name) start checked, shared ones such as 通用背景 stay home unless checked, and an
-// unchecked pack also leaves the exported card's bindings (packIds). Figures of the checked packs can be left out (e.g. the one the player plays). The cover shows at the top.
-// 导出 first asks where to save (binding.pickSave, the native save-as dialog; none on phones), then packing (an indeterminate
-// bar: the route sends nothing until the archive is built) and the bytes as they stream to the file; closing the sheet stops it.
-// The file is saved through binding.download like every other export; the sheet then says where it went.
-const DSHCARD_FAILURE={404:'找不到这张人物卡。',409:'人物卡刚刚改过，请再导出一次。'};
-function dshCardExportUrl(path,excludeFigures,packIds) {
-  return '/api/dsh-tavern/card-export?path='+encodeURIComponent(path)+(excludeFigures.length?'&excludeFigures='+encodeURIComponent(JSON.stringify(excludeFigures)):'')
-    +'&packIds='+encodeURIComponent(JSON.stringify(packIds));
+// 导出 DSH 人物卡 — the one card export with its packs and world books (core rpc exportLibraryCard → card-files.js
+// exportCardFile). Two groups of ticks, each folding under its heading (StageSection, folded by default when long; a long
+// list scrolls inside the group): 素材包 — the card's bound packs with sizes, all checked; an unchecked pack stays home and also leaves
+// the exported card's bindings (packIds); figures go with their pack. 世界书 — the books bound to the card (主书 first),
+// all checked; only the checked ones are merged into the exported card (worldBooks). No cover or card name on top: the
+// sheet is the settings and the lists, compact (主人 11-24).
+// 导出 first asks where to save (binding.pickSave, the native save-as dialog; none on phones), then the host packs (and
+// encrypts) the card into a transfer file as a job (binding.exportCard: its progress is bytes done of the total and the
+// pack being written; the host is the one place it is counted), then the file is saved through binding.download with
+// its bytes. The progress sits above the buttons, never under the lists: percent, what is being done, time used and left.
+// 取消 (or closing the sheet) stops the host job or the save and removes the half-written file. When done the sheet says
+// where the file went; a failure says the step, the file and the system's reason (the host's sentence for packing and
+// encrypting, the browser's for saving), never a bare 「请重试」.
+// The one 导出 for every format: 导出格式 is a menu (DSH 人物卡 by default; what each carries is in its 「?」); a DSH
+// card has 设置密码: typed, the export is encrypted (the button says 加密导出); empty, a plain one; and, with packs ticked,
+// 压缩素材 (off by default; ⚠ when the ticked packs are over the import limit): the host converts their media as it exports
+// (export-compress.js), the bar says 正在压缩 first, and when done the sheet says the packs' size before and after.
+// 素材包 go with a DSH card only; 世界书 with every format (JSON / PNG go through the card-export route with the chosen books,
+// saved with their bytes counted). `hasImage` false: the card has no cover, so no PNG.
+const DSHCARD_FORMATS={dshcard:{label:'DSH 人物卡',note:'带素材包、插件和世界书，可以加密、压缩素材',extension:'.dshcard',description:'DSH 人物卡'},
+  json:{label:'JSON',note:'只有卡片数据和世界书',extension:'.json',description:'JSON 人物卡'},
+  png:{label:'PNG',note:'封面图里带卡片数据和世界书',extension:'.png',description:'PNG 人物卡'}};
+// the asset library's import budget (budget.js PACK_BUDGET.spoolBytes; tests/export-compress.test.mjs keeps them equal).
+const DSHCARD_IMPORT_LIMIT=8*1024**3;
+// the rates are export-compress.js EXPORT_AUDIO_KBPS (the same test keeps them equal).
+const DSHCARD_COMPRESS_HELP='导出时把随卡素材包里的素材压小，本机的原文件不变。图片转成 WebP（质量 80），音乐转成 Opus 96 kbps、环境音 80 kbps；口型和眨眼贴片保持无损，音效和配音参考不压。';
+const DSHCARD_FAILURE={TAVERN_NOT_FOUND:'找不到这张人物卡。',REVISION_CONFLICT:'人物卡刚刚改过，请再导出一次。'};
+// a failed save says its own cause and what helps with that cause (pack-transport.js saveExportFile). The browser may
+// leave its 「….crswap」 working file beside the target; the page cannot reach it, so the sentence names it.
+const DSHCARD_SAVE_FAILURE={
+  QuotaExceededError:()=>'保存位置空间不够。清出空间或换个保存位置后再导出一次。',
+  NoModificationAllowedError:error=>'文件写到一半被别的程序占住了（常见是杀毒软件在扫描刚写入的文件，「下载」文件夹里最容易碰到）'+(error.tries?'，自动重试 '+error.tries+' 次都没写完':'')+'。换一个不在「下载」里的文件夹再导出一次。'};
+const dshCardFailure=(error,saving)=>DSHCARD_FAILURE[error?.code]||(error?.step?error.message:saving
+  ?'保存文件时出错：'+(DSHCARD_SAVE_FAILURE[error?.name]?.(error)||(error?.name&&error.name!=='Error'?error.name+' ':'')+String(error?.message||error)+'。请再导出一次。')
+    +'没写完的文件已删除；如果文件夹里留下了同名的 .crswap 文件，可以直接删掉。'
+  :playerErrorText(error,{fallback:'导出时出错：'+String(error?.message||error)}));
+const dshCardClock=ms=>{const s=Math.max(0,Math.round(ms/1000));return Math.floor(s/60)+':'+String(s%60).padStart(2,'0');};
+const DSHCARD_LONG=8;
+function dshCardBooks(binding) {
+  const bound=binding?.binding;
+  return (!bound||bound.kind==='none'?[]:bound.kind==='multiple'?bound.books:[bound]).filter(book=>book.available);
 }
-function DshCardExportSheet({binding,path,cardName,onClose}) {
+// An export outlives its sheet: closing the sheet, switching the side tab or the view being rebuilt never stops it (a
+// silently cancelled save left a half-written .crswap and no word, 11-24); only 取消导出 does. Each card's last export is
+// kept here ({work, problem, saved}) so the sheet opened again shows where it is or how it ended; closing a finished one
+// forgets it.
+const DSHCARD_IDLE={work:null,problem:'',saved:null},dshCardJobs=new Map(),dshCardListeners=new Set();
+function dshCardPut(path,job,patch){
+  if(dshCardJobs.get(path)!==job)return;
+  job.view={...job.view,...(typeof patch==='function'?patch(job.view):patch)};
+  dshCardListeners.forEach(fn=>fn());
+}
+function dshCardStart(path,job){dshCardJobs.set(path,job);dshCardListeners.forEach(fn=>fn());return job;}
+function useDshCardJob(path){
+  const read=()=>dshCardJobs.get(path)?.view||DSHCARD_IDLE;
+  const [view,setView]=React.useState(read);
+  React.useEffect(()=>{const listen=()=>setView(read());dshCardListeners.add(listen);listen();return()=>{dshCardListeners.delete(listen);};},[path]);
+  return view;
+}
+function DshCardExportSheet({binding,path,cardName,hasImage,onClose}) {
   const state=useLoad(binding,async()=>{
-    const [card,rows]=await Promise.all([binding.rpc('getCardAssetBindings',{path,metadataOnly:true}),loadPackRows(binding)]);
+    const [card,rows,books]=await Promise.all([binding.rpc('getCardAssetBindings',{path,metadataOnly:true}),loadPackRows(binding),binding.rpc('getWorldBookBinding',{cardPath:path})]);
     const byId=new Map(rows.filter(p=>!p.error).map(p=>[p.manifest.id,p]));
     const packs=(card.extension?.assetBindings?.boundPackIds||[]).map(id=>byId.get(id)).filter(Boolean);
-    // only packs that hold figures are read in full, for the figure names.
-    const details=await Promise.all(packs.map(p=>p.summary&&!(p.counts?.figures>0)?null:loadPackDetail(binding,p)));
-    const figures=details.flatMap((d,index)=>d?(d.manifest.figures||[]).map(id=>({id,packId:packs[index].manifest.id,name:d.figures?.[id]?.name||''})).filter(f=>f.name):[]);
-    // a widget-only pack is chosen in the 模组 section: it goes along, checked, without a switch here.
-    const own=packs.filter((p,index)=>stageWidgetOnlyPack(p)||(details[index]?.manifest.figures||[]).length>0||!!cardName&&String(p.manifest.name||'').includes(cardName)).map(p=>p.manifest.id);
-    return {packs,figures,own};
+    return {packs,books:dshCardBooks(books).map(book=>({...book,key:JSON.stringify(book.source)}))};
   },[path]);
-  const [chosen,setChosen]=React.useState(null),[left,setLeft]=React.useState(()=>new Set()),[work,setWork]=React.useState(null),[problem,setProblem]=React.useState('');
-  const abort=React.useRef(null),mounted=React.useRef(true);
-  React.useEffect(()=>{mounted.current=true;return()=>{mounted.current=false;abort.current?.abort();};},[]);
-  const value=state.value,packs=value?.packs||[];
-  const picked=chosen||new Set(value?.own||[]),packIds=packs.map(p=>p.manifest.id).filter(id=>picked.has(id));
-  const figures=(value?.figures||[]).filter(f=>picked.has(f.packId));
+  const [chosen,setChosen]=React.useState(null),[leftBooks,setLeftBooks]=React.useState(()=>new Set());
+  const {work,problem,saved}=useDshCardJob(path);
+  const say=view=>dshCardStart(path,{view:{...DSHCARD_IDLE,...view}});
+  const [format,setFormat]=React.useState('dshcard'),[password,setPassword]=React.useState(''),[compress,setCompress]=React.useState(false);
+  // a password typed is the encryption (主人 11-24): none, no encryption.
+  const dsh=format==='dshcard',encrypt=dsh&&password.length>0,file=DSHCARD_FORMATS[format];
+  // closing a finished export forgets it; one still running goes on (the top of DshCardExportSheet).
+  const close=()=>{const current=dshCardJobs.get(path);if(current&&!current.view.work)dshCardJobs.delete(path);onClose();};
+  const value=state.value,packs=value?.packs||[],books=value?.books||[];
+  // every pack the card binds goes along unless unticked (主人 11-24); a widget-only one is chosen in the 模组 section and goes, without a switch.
+  const picked=chosen||new Set(packs.map(p=>p.manifest.id)),packIds=packs.map(p=>p.manifest.id).filter(id=>picked.has(id));
+  const switchable=packs.filter(p=>!stageWidgetOnlyPack(p)).map(p=>p.manifest.id);
   const sizes=packs.map(stagePackBytes),total=sizes.reduce((sum,n,index)=>sum+(picked.has(packs[index].manifest.id)&&n||0),0);
+  const compressing=dsh&&compress&&packIds.length>0;
   const toggle=(current,id)=>{const next=new Set(current);if(next.has(id))next.delete(id);else next.add(id);return next;};
-  const flip=id=>setLeft(current=>toggle(current,id)),flipPack=id=>setChosen(toggle(picked,id));
+  const flipPack=id=>setChosen(toggle(picked,id)),flipBook=key=>setLeftBooks(current=>toggle(current,key));
+  const allPacks=switchable.every(id=>picked.has(id)),allBooks=leftBooks.size===0;
   // `saved`: where the file went ({names, picked}), shown in place of the progress until the sheet is closed.
-  const [saved,setSaved]=React.useState(null),picking=React.useRef(false);
+  const picking=React.useRef(false);
+  function stop(){const current=dshCardJobs.get(path);if(!current?.controller||!current.view.work)return;current.cancelled=true;current.controller.abort();}
   async function run(){
     if(work||picking.current||!value)return;
-    setProblem('');setSaved(null);
+    say({});
     // the save-as dialog needs the click's activation, so it opens before anything is fetched; closing it is no error.
+    // Saving over an existing file empties it as the dialog closes (the browser's rule for a save dialog).
     let target=null;picking.current=true;
-    try{target=binding.pickSave?await binding.pickSave({name:cardName||'人物卡',description:'DSH 人物卡',extension:'.dshcard'}):null;}
-    catch(error){if(error?.name!=='AbortError'&&mounted.current)setProblem('没能打开保存位置，请重试。');return;}
+    const name=(cardName||'人物卡')+(encrypt?'-加密':'');
+    try{target=binding.pickSave?await binding.pickSave({name,description:file.description,extension:file.extension}):null;}
+    catch(error){if(error?.name!=='AbortError')say({problem:'没能打开保存位置，请重试。'});return;}
     finally{picking.current=false;}
-    if(!mounted.current)return;
-    const controller=new AbortController();abort.current=controller;setWork({loaded:0,total:0});
+    const startedAt=Date.now();
+    const current=dshCardStart(path,{controller:new AbortController(),cancelled:false,view:{...DSHCARD_IDLE,work:{stage:'pack',done:0,total:0,pack:'',startedAt,stageAt:startedAt}}});
+    const put=patch=>dshCardPut(path,current,patch),setWork=next=>put(view=>({work:typeof next==='function'?next(view.work):next}));
+    let saving=false,loaded=0,filename='';
+    // how the save ended goes to the host log too: the one record left once the page is gone.
+    const tell=(outcome,total,reason)=>{if(saving)void binding.rpc?.('cardExportSaved',{outcome,filename,loaded,total,...(reason?{reason}:{})}).catch(()=>{});};
     try{
-      const url=dshCardExportUrl(path,figures.filter(f=>left.has(f.id)).map(f=>f.id),packIds);
-      const result=await binding.download({url,filename:'人物卡.dshcard'},{target,name:cardName,signal:controller.signal,onProgress:next=>{if(mounted.current)setWork(next);}});
-      if(mounted.current)setSaved(result);
-    }catch(error){if(mounted.current&&!controller.signal.aborted)setProblem(error.status===400&&error.message||DSHCARD_FAILURE[error.status]||'没能导出，请重试。');}
-    finally{abort.current=null;if(mounted.current)setWork(null);}
+      const worldBooks=books.filter(book=>!leftBooks.has(book.key)).map(book=>book.source);
+      // the host's own count while a DSH card packs (and encrypts); polled, never guessed. JSON / PNG are small: the route
+      // builds them as the file is fetched, so the save step is all there is.
+      // 压缩素材 has its own bar; packing starts its clock again when it ends (packing and encrypting share one bar).
+      const result=dsh?await binding.exportCard({path,packIds,worldBooks,...(encrypt?{password}:{}),...(compressing?{compress:true}:{})},{signal:current.controller.signal,
+        onProgress:progress=>setWork(w=>w&&w.stage!=='save'?{...w,...progress,startedAt:w.startedAt,stageAt:w.stage==='compress'&&progress.stage!=='compress'?Date.now():w.stageAt}:w)})
+        :{downloadUrl:'/api/dsh-tavern/card-export?'+new URLSearchParams({path,format,worldBooks:JSON.stringify(worldBooks)}),filename:'人物卡'+file.extension,bytes:0};
+      if(current.cancelled)throw Object.assign(new Error('cancelled'),{name:'AbortError'});
+      saving=true;filename=result.filename;const at=Date.now();
+      setWork({stage:'save',done:0,total:result.bytes,pack:'',startedAt,stageAt:at});
+      const done=await binding.download({url:result.downloadUrl,filename:result.filename,size:result.bytes},{target,name,signal:current.controller.signal,
+        onProgress:next=>{loaded=next.loaded;setWork(w=>w&&{...w,done:next.loaded,total:next.total||result.bytes});}});
+      tell('saved',result.bytes);
+      const shrunk=result.compressed;
+      put({saved:shrunk?{...done,said:done.said+' 素材从 '+stageBytesText(shrunk.beforeBytes)+' 压到 '+stageBytesText(shrunk.afterBytes)+'。'+(shrunk.ffmpeg?'':'没找到 ffmpeg，音频没有压缩。')}:done});
+    }catch(error){
+      tell(current.cancelled?'cancelled':'failed',current.view.work?.total,current.cancelled?'':(error?.name?error.name+' ':'')+String(error?.message||error));
+      // the save itself takes back a half-written file; a failure before it leaves the empty file the dialog made.
+      if(!saving&&target?.file)await target.file.remove?.().catch(()=>{});
+      put(current.cancelled?{saved:{said:'已取消导出，没有留下文件。',cancelled:true}}:{problem:dshCardFailure(error,saving)});
+    }
+    finally{put({work:null});}
   }
-  const head=(title,meta,extra,help)=>h('header',{className:'ap-section-head'},h('h3',null,title,meta!==undefined&&h('span',{className:'ap-section-meta'},meta),help&&h(Help,{label:title+' 说明',text:help})),extra);
   const check=(on,label,onClick)=>h('button',{type:'button',role:'checkbox',className:'ap-pack-check','aria-checked':on,'aria-label':label,disabled:!onClick||!!work,onClick},
     h('span',{className:'ap-check-mark','aria-hidden':true},on&&h(Glyph,{name:'check'})));
-  const packing=work&&!work.total,pct=work?.total?Math.min(100,work.loaded/work.total*100):0;
+  const allButton=(all,label,onClick)=>h(Button,{className:'ap-manage',disabled:!!work,onClick,'aria-label':(all?'全不选':'全选')+label},all?'全不选':'全选');
+  const group=(key,title,count,meta,help,action,list)=>h(StageSection,{key,title,meta,help,action,level:2,foldKey:'dshcard-export:'+key,defaultFolded:count>DSHCARD_LONG,className:'ap-dshcard-group'},list);
+  const formats=Object.entries(DSHCARD_FORMATS).map(([key,f])=>({value:key,label:f.label,...(key==='png'&&hasImage===false?{disabled:true,title:'这张卡没有封面'}:{})}));
+  const options=h('div',{className:'ap-dshcard-options'},
+    h(InlineField,{kind:'menu',label:'导出格式',help:h(Help,{text:Object.values(DSHCARD_FORMATS).map(f=>h('span',{key:f.label},f.label+'：'+f.note+'。')),label:'导出格式 说明'}),value:format,options:formats,disabled:!!work,onCommit:setFormat,className:'ap-dshcard-field'}),
+    dsh&&h(InlineField,{kind:'text',secret:true,label:'设置密码',help:h(Help,{text:'填写密码时会加密角色卡后导出，导入时要输这个密码，忘了就打不开。留空时放弃加密。',label:'设置密码 说明'}),value:password,placeholder:'留空时放弃加密',disabled:!!work,live:true,trim:false,onCommit:setPassword,className:'ap-dshcard-field ap-dshcard-password'}),
+    dsh&&packIds.length>0&&h(SwitchRow,{label:'压缩素材',help:DSHCARD_COMPRESS_HELP,checked:compress,disabled:!!work,onChange:setCompress,
+      status:!compress&&total>DSHCARD_IMPORT_LIMIT?h('span',{className:'ap-dshcard-warn',title:'所选素材超过导入上限 '+stageBytesText(DSHCARD_IMPORT_LIMIT)+'，对方可能导不进来'},'⚠ 超过导入上限，建议开启'):null}));
   const body=state.error?h(ErrorBox,{error:state.error,reload:state.reload}):!value?h(Loading,{shape:'rows',count:3,label:'正在读取素材包…'}):h(React.Fragment,null,
-    h('section',{className:'ap-section ap-cat-section ap-dshcard-packs'},head('素材包',packs.length,total>0&&h('span',{className:'ap-dshcard-total'},'共 '+stageBytesText(total)),'勾选的素材包随卡导出；没勾的留在本机，导出的卡也不再使用它。本卡自己的包默认勾选，通用包默认不勾。'),
-      packs.length?h('ul',{className:'ap-dshcard-list','aria-label':'随卡素材包'},packs.map((pack,index)=>h('li',{key:pack.manifest.id,className:'ap-pack-row ap-dshcard-row'},
-        check(picked.has(pack.manifest.id),pack.manifest.name,stageWidgetOnlyPack(pack)?null:()=>flipPack(pack.manifest.id)),h('span',{className:'ap-dshcard-name',title:pack.manifest.name},pack.manifest.name),sizes[index]&&h('span',{className:'ap-pack-size'},stageBytesText(sizes[index]))))):
-        h(EmptyState,{compact:true,text:'这张卡没有素材包'})),
-    figures.length>0&&h('section',{className:'ap-section ap-cat-section ap-dshcard-figures'},head('人物',figures.length,null,'取消勾选的人物不会随卡导出，例如你自己扮演的角色。'),
-      h('ul',{className:'ap-dshcard-list','aria-label':'随卡人物'},figures.map(figure=>h('li',{key:figure.id,className:'ap-pack-row ap-dshcard-row'},
-        check(!left.has(figure.id),figure.name,()=>flip(figure.id)),h('span',{className:'ap-dshcard-name',title:figure.name},figure.name))))),
-    work&&h('div',{className:'ap-dshcard-progress'},
-      h('div',{className:'ap-cat-progress','data-indeterminate':packing||undefined,role:'progressbar','aria-label':'导出进度','aria-valuemin':0,'aria-valuemax':100,'aria-valuenow':packing?undefined:Math.round(pct)},h('span',{style:packing?undefined:{width:pct+'%'}})),
-      h('p',{className:'ap-cat-job-meta',role:'status'},packing?'正在打包…':stageBytesText(work.loaded)+' / '+stageBytesText(work.total))),
-    saved&&h('p',{className:'ap-notice ap-dshcard-saved',role:'status'},h('span',null,(saved.picked?'已导出到 ':'已开始下载 ')+saved.names.map(n=>'「'+n+'」').join(''))),
+    dsh&&packs.length>0&&group('packs','素材包',packs.length,'已选 '+packIds.length+'/'+packs.length+(total>0?' · '+stageBytesText(total):''),
+      '勾选的素材包随卡导出，人物跟着所在的素材包走；没勾的留在本机，导出的卡也不再使用它。',
+      switchable.length>0&&allButton(allPacks,'素材包',()=>setChosen(new Set([...picked].filter(id=>!switchable.includes(id)).concat(allPacks?[]:switchable)))),
+      h('ul',{className:'ap-dshcard-list','aria-label':'随卡素材包'},packs.map((pack,index)=>h('li',{key:pack.manifest.id,className:'ap-pack-row ap-dshcard-row'},
+        check(picked.has(pack.manifest.id),pack.manifest.name,stageWidgetOnlyPack(pack)?null:()=>flipPack(pack.manifest.id)),h('span',{className:'ap-dshcard-name',title:pack.manifest.name},pack.manifest.name),sizes[index]&&h('span',{className:'ap-pack-size'},stageBytesText(sizes[index])))))),
+    books.length>0&&group('books','世界书',books.length,'已选 '+(books.length-leftBooks.size)+'/'+books.length,'勾选的世界书合并进导出的卡；没勾的不带走。',
+      allButton(allBooks,'世界书',()=>setLeftBooks(allBooks?new Set(books.map(book=>book.key)):new Set())),
+      h('ul',{className:'ap-dshcard-list','aria-label':'随卡世界书'},books.map((book,index)=>h('li',{key:book.key,className:'ap-pack-row ap-dshcard-row'},
+        check(!leftBooks.has(book.key),book.name,()=>flipBook(book.key)),h('span',{className:'ap-dshcard-name',title:book.name},book.name),
+        index===0&&books.length>1&&h('span',{className:'ap-pack-size'},'主书'))))),
+    (!dsh||!packs.length)&&!books.length&&h(EmptyState,{compact:true,text:dsh?'这张卡没有素材包和世界书':'这张卡没有世界书'}),
     problem&&h(CatBand,{role:'alert'},problem));
-  return h(CatSheet,{title:'导出 DSH 人物卡',className:'ap-dshcard-sheet',onClose,initialFocus:'dialog',
-      foot:saved?h(Button,{primary:true,onClick:onClose},'完成'):h(React.Fragment,null,h(Button,{onClick:onClose},'取消'),h(Button,{primary:true,disabled:!!work||!value,onClick:run},catBusyLabel(!!work,work?'正在导出…':'导出')))},
-    h('div',{className:'ap-cat-hero'},h(CardCover,{name:cardName||'',path}),h('div',{className:'ap-cat-hero-text'},h('h3',{className:'ap-cat-hero-name'},cardName||'人物卡'),h(CatSub,null,'.dshcard 文件'))),
-    body);
+  const verb=encrypt?'加密导出':'导出';
+  // what the bar says: percent, the step (the pack being written), time used and, once it can be told, time left.
+  const progress=work&&(()=>{
+    const fraction=work.total>0?Math.min(1,work.done/work.total):0,now=Date.now(),spent=now-work.startedAt,inStage=now-work.stageAt;
+    const left=fraction>0.02&&fraction<1?inStage/fraction*(1-fraction):null;
+    const step=work.stage==='compress'?(work.pack?'正在压缩「'+work.pack+'」':'正在压缩素材'):work.stage==='save'?'正在保存 '+stageBytesText(work.done)+' / '+stageBytesText(work.total):work.stage==='encrypt'?'正在加密':!work.total?'正在准备…':work.pack?'正在打包「'+work.pack+'」':'正在打包卡片';
+    return h('div',{className:'ap-dshcard-progress'},
+      h('div',{className:'ap-cat-progress',role:'progressbar','aria-label':'导出进度','aria-valuemin':0,'aria-valuemax':100,'aria-valuenow':Math.round(fraction*100)},h('span',{style:{width:fraction*100+'%'}})),
+      h('p',{className:'ap-cat-job-meta',role:'status'},h('span',{className:'ap-dshcard-pct'},Math.floor(fraction*100)+'%'),h('span',{className:'ap-dshcard-step'},step),
+        h('span',null,'已用 '+dshCardClock(spent)),left!==null&&h('span',null,'约剩 '+dshCardClock(left))));
+  })();
+  // re-render each second while working, so the clock moves between progress reports.
+  const [,tick]=React.useState(0);
+  React.useEffect(()=>{if(!work)return;const timer=setInterval(()=>tick(n=>n+1),1000);return()=>clearInterval(timer);},[!!work]);
+  return h(CatSheet,{title:'导出人物卡',className:'ap-dshcard-sheet',onClose:close,initialFocus:'dialog',
+      foot:h(React.Fragment,null,progress,saved&&h('p',{className:'ap-notice ap-dshcard-saved',role:'status'},h('span',null,saved.said)),
+        saved&&!saved.cancelled?h(Button,{primary:true,onClick:close},'完成'):work?h(Button,{onClick:stop},'取消导出'):h(React.Fragment,null,h(Button,{onClick:close},'取消'),
+          h(Button,{primary:true,disabled:!value||encrypt&&!password,onClick:run},verb)))},
+    options,body);
 }
 // Legacy widget entries remain asset/export data, not registry mod switches.
 function stageWidgetOnlyPack(pack) {

@@ -161,7 +161,7 @@ function resolveDesktopHostPackagesViaElectron({ host, env = process.env, execPa
   let probe
   let report = ''
   try {
-    probe = spawnSync(electron, ['--expose-internals', scriptFile], {
+    probe = spawnSync(electron, ['--expose-internals', scriptFile], { windowsHide: true,
       stdio: ['ignore', outFd, errFd], timeout: 60000, env: { ...env, ELECTRON_RUN_AS_NODE: '1' },
     })
   } finally {
@@ -232,7 +232,7 @@ export function resolveHostDependencies({ dsh, host = 'cli', env = process.env, 
     // Probe in a fresh process so module caching cannot hide a changed host.
     // Absolute import keeps the host package's own transitive dependencies.
     const script = `const m = await import(${JSON.stringify(pathToFileURL(dependency.entry).href)});` + (exportName ? ` if (typeof m[${JSON.stringify(exportName)}] !== 'function') throw new Error(${JSON.stringify(`缺少接口 ${exportName}`)});` : '')
-    const probe = spawnSync(execPath, ['--expose-internals', '--input-type=module', '-e', script], {
+    const probe = spawnSync(execPath, ['--expose-internals', '--input-type=module', '-e', script], { windowsHide: true,
       encoding: 'utf8', timeout: 15000, env: { ...env, ELECTRON_RUN_AS_NODE: '1' },
     })
     if (probe.error || probe.status !== 0) {

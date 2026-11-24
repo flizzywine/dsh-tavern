@@ -242,6 +242,18 @@ export function createBackgroundAgentTask(options) {
         }
         if (decision.kind !== 'enter') return decision
         const input = state.input || {}
+        if (input.writingPreparation) {
+          const hints = input.writingPreparation.worldbookTitleHints
+          if (!hints || step !== 1) return decision
+          const taskIndex = decision.messages.findIndex(message => message.source?.kind === 'plugin:dsh-tavern'
+            && message.source.form === 'writing-preparation-task')
+          if (taskIndex < 0) return decision
+          // Keep the native trace in request order. The model projection reuses
+          // these hints after shared history, before the current task.
+          const messages = decision.messages.slice()
+          messages.splice(taskIndex, 0, hints)
+          return { ...decision, messages }
+        }
         const snapshot = typeof options.resolveRuntimePresetSnapshot === 'function'
           ? await options.resolveRuntimePresetSnapshot({
             sessionId: input.sessionId,
@@ -596,7 +608,8 @@ export function createBackgroundAgentTask(options) {
         id: randomUUID(),
         role: 'user',
         content: [{ type: 'text', text: taskText }],
-        source: { kind: 'plugin:dsh-tavern', ...(systemUpdate ? { trace: cardSystemPromptSource(systemUpdate) } : {}), ...(snapshot ? { worldbookSnapshot: snapshot } : {}), ...(scriptContext?.body ? {
+        source: { kind: 'plugin:dsh-tavern', ...(input.writingPreparation ? { form: 'writing-preparation-task' } : {}),
+          ...(systemUpdate ? { trace: cardSystemPromptSource(systemUpdate) } : {}), ...(snapshot ? { worldbookSnapshot: snapshot } : {}), ...(scriptContext?.body ? {
           candidateScriptWindow: { version: 1, start: taskText.indexOf(scriptContext.body), length: scriptContext.body.length, digest: scriptContext.digest }
         } : {}) }
       })
