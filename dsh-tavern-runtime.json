@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "c5bf39296a615d8360164db5cad191c90bbb647d",
-  "releaseSequence": 2047,
+  "revision": "70048a9b42e12e4705e6ea2f6f1cba06e18be11b",
+  "releaseSequence": 2048,
   "version": "3.4.0",
   "files": [
     {
@@ -156,8 +156,8 @@
     },
     {
       "path": "android/native/latest.json",
-      "sha256": "d758284b2e4459a217a6748f869a3ef6d4d43817bc2655750b1af70ae888206a",
-      "size": 456
+      "sha256": "cbe5a885402562d26f0c6dc590ddcb7bc17087e14768579b7cf21b309a13ef03",
+      "size": 592
     },
     {
       "path": "android/native/make-icons.py",
@@ -191,8 +191,8 @@
     },
     {
       "path": "android/native/release.sh",
-      "sha256": "1ee833c62bedba92cf41cfb225acc7a4f75fb89a70c2d458daf2a0b145d7dcd0",
-      "size": 9707
+      "sha256": "ac8d85daf9b3c950c66bba7082c8516d556f78183ffea1dd4abe3b82e3cbf5eb",
+      "size": 10252
     },
     {
       "path": "android/native/seed-static-cache.mjs",
@@ -10191,9 +10191,9 @@
     }
   ],
   "archive": {
-    "commit": "a999bbbdf9c6572485f3ac31905e121d9ac5c1d8",
+    "commit": "8bbeab34234b79394c2e304e96a5d8d26dedc31d",
     "path": "runtime.zip",
-    "sha256": "4cf4e2ccbe2f254646ffa4ba1852fadc2e372a1f0a32301a7320da606038ad98",
-    "size": 17909785
+    "sha256": "87af18bbc265251ea93ca165cffb7a05445b71c184f0e20081b29701197b4d73",
+    "size": 17910093
   }
 }
