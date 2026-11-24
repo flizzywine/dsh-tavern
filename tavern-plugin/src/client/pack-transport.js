@@ -14,7 +14,7 @@ async function pickExportTarget({name, many = false, description = 'ZIP 压缩�
     return {file};
 }
 // saveExportFile(result, {target, name, onProgress, signal}) writes each archive of an export result ({download:{ticket}},
-// {url} of a GET that streams the file, or {bytes}) to the picked target, streamed to disk with onProgress({loaded,
+// {url[, size]} of a GET that streams the file, or {bytes}) to the picked target, streamed to disk with onProgress({loaded,
 // total}) per file; without a target it hands the file to an ordinary download. `name` (no extension; the archive's
 // own is kept) overrides the file name of a single archive. Resolves {names:[saved file names], picked:boolean, said}: `said`
 // is the one sentence every export shows when done, where the file is. A failed write removes the half-written file.
@@ -24,8 +24,9 @@ async function saveExportFile(result, {target = null, name, onProgress, signal} 
     const source = archive => archive.download ? PACK_ROOT + 'download?ticket=' + encodeURIComponent(archive.download.ticket) : archive.url;
     async function open(archive) {
         const response = await fetch(source(archive), {credentials:'same-origin', signal});
-        if (!response.ok) { const text = await response.text().catch(() => ''); throw Object.assign(new Error(text || 'HTTP ' + response.status), {status:response.status}); }
-        const total = Number(response.headers.get('content-length')) || 0;
+        if (!response.ok) { const text = await response.text().catch(() => ''); const code = response.headers.get('x-dsh-error-code'); throw Object.assign(new Error(text || 'HTTP ' + response.status), {status:response.status, ...(code ? {code} : {})}); }
+        // `size`: the host's own count of the file's bytes, for a response that lost its length on the way.
+        const total = Number(response.headers.get('content-length')) || archive.size || 0;
         // at most ~8 progress reports a second: one per chunk re-renders the page thousands of times for a large file.
         let loaded = 0, shown = 0;
         onProgress?.({loaded, total});
@@ -58,9 +59,9 @@ async function saveExportFile(result, {target = null, name, onProgress, signal} 
 }
 // 导出 DSH 人物卡 on the host (rpc exportLibraryCard, card-export-jobs.js): the host answers at once and the export runs as
 // a job polled here (cardExportProgress), since one request may not stay open the minutes a large card takes (the Desktop
-// ends a request whose answer has not begun after five minutes). onProgress({stage}) hears the step running; resolves
-// {filename, bytes, downloadUrl}, or rejects with the host's sentence for the failed step (error.step, error.code).
-// Aborting `signal` cancels the job.
+// ends a request whose answer has not begun after five minutes). onProgress(progress) hears {stage, done, total, pack,
+// startedAt} while it packs and encrypts; resolves {filename, bytes, downloadUrl}, or rejects with the host's sentence for
+// the failed step (error.step, error.code). Aborting `signal` cancels the job.
 async function runCardExport(rpc, args, {onProgress, signal} = {}) {
     const progressId = 'card-export-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
     await rpc('exportLibraryCard', {...args, progressId});

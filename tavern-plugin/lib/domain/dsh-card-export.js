@@ -21,11 +21,32 @@ export async function exportDshCardSnapshot({card, packs = [], excludeFigures = 
     entries:[...entries, ...projected.packs.flatMap(packArchiveEntries)]})
 }
 
+// writeZip's running byte count as {done, total, pack}: the entry the count is in names its pack (assets/<pack id>/).
+async function archiveProgress(entries, packs, onProgress) {
+  const titles = new Map(packs.map(pack => [pack.path, pack.title]))
+  const ends = [], names = []
+  let total = 0
+  for (const entry of entries) {
+    total += entry.data ? entry.data.length : entry.size ?? (await stat(entry.file)).size
+    ends.push(total)
+    const prefix = entry.path.startsWith('assets/') ? entry.path.slice(0, entry.path.indexOf('/', 7) + 1) : ''
+    names.push(titles.get(prefix) || '')
+  }
+  let at = 0
+  onProgress({done:0, total, pack:names[0] || ''})
+  return {onProgress:done => {
+    while (at < ends.length - 1 && done >= ends[at]) at++
+    onProgress({done, total, pack:names[at]})
+  }}
+}
+
 export const cardArchiveJson = value => Buffer.from(JSON.stringify(value, null, 2) + '\n')
 
 // The only dsh.json writer. Managed locks are optional v1 extensions, not a second format.
 // dependencies: [{id, title, contentHash}] packs the card binds but does not carry; the importer needs them installed.
-export async function writeDshCard({file, card, packs = [], dependencies = [], plugins = [], entries = [], defaults, extensions = {}, cover}) {
+// onProgress({done, total, pack}) (optional): input bytes written into the archive out of all of them, and the title of
+// the pack whose files are being written ('' for the card's own files); a throw from it stops the write.
+export async function writeDshCard({file, card, packs = [], dependencies = [], plugins = [], entries = [], defaults, extensions = {}, cover, onProgress}) {
   const document = withoutPlayerChoices(structuredClone(card.data ? card : {data:card}))
   document.spec = 'chara_card_v3'
   document.spec_version = '3.0'
@@ -42,6 +63,7 @@ export async function writeDshCard({file, card, packs = [], dependencies = [], p
   }
   const cardJson = cardArchiveJson(document)
   if (cardJson.length > MAX_CARD_JSON_BYTES) throw new Error('人物卡 card.json 超过 ' + MAX_CARD_JSON_BYTES / 1024 ** 2 + ' MiB')
-  const result = await writeZip(file, [{path:'card.json', data:cardJson}, {path:'dsh.json', data:cardArchiveJson(manifest)}, ...files])
+  const all = [{path:'card.json', data:cardJson}, {path:'dsh.json', data:cardArchiveJson(manifest)}, ...files]
+  const result = await writeZip(file, all, onProgress ? await archiveProgress(all, packs, onProgress) : {})
   return {...result, size:(await stat(file)).size, file, card:document, manifest}
 }

@@ -48,5 +48,5 @@ export async function projectDshCard(card, packs, excludeFigures = []) {
 
 export function packArchiveEntries(pack) {
   const prefix = 'assets/' + pack.manifest.id + '/'
-  return [{path:prefix + 'manifest.json', data:Buffer.from(JSON.stringify(pack.manifest))}, ...[...pack.files].map(([path, data]) => ({path:prefix + path, ...(data.file ? {file:data.file} : {data})}))]
+  return [{path:prefix + 'manifest.json', data:Buffer.from(JSON.stringify(pack.manifest))}, ...[...pack.files].map(([path, data]) => ({path:prefix + path, ...(data.file ? {file:data.file, size:data.length} : {data})}))]
 }

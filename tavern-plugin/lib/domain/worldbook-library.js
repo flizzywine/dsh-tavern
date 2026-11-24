@@ -557,12 +557,24 @@ export function createWorldBookLibrary(options = {}) {
     return { name: record.view.displayName, document: exportSillyTavernWorldBook(record.document) }
   }
 
-  async function characterBookForCard(cardPath) {
+  // The card's bound books merged into one character book (what an exported card carries). `chosen` (the export's
+  // 世界书 ticks) is a list of bound book sources: only those go, in binding order; none chosen means no book.
+  async function characterBookForCard(cardPath, chosen) {
     const current = await binding(cardPath)
-    if (current.kind === 'none') return null
-    if (current.available !== true) throw new Error('绑定的世界书不存在，请重新绑定或解绑')
-    const record = await resolveBound(cardPath, undefined, undefined, false, false)
-    return exportCharacterBook(record.document || record.view.raw)
+    if (chosen === undefined) {
+      if (current.kind === 'none') return null
+      if (current.available !== true) throw new Error('绑定的世界书不存在，请重新绑定或解绑')
+      const record = await resolveBound(cardPath, undefined, undefined, false, false)
+      return exportCharacterBook(record.document || record.view.raw)
+    }
+    const key = source => JSON.stringify(sourceOf(source))
+    const wanted = new Set(chosen.map(key))
+    const books = (current.kind === 'multiple' ? current.books : current.kind === 'none' ? [] : [current]).filter(book => wanted.has(key(book.source)))
+    if (books.length !== wanted.size) throw new Error('只能选择这张卡绑定的世界书')
+    if (books.some(book => book.available !== true)) throw new Error('绑定的世界书不存在，请重新绑定或解绑')
+    if (!books.length) return null
+    const records = await Promise.all(books.map(book => readRecord(book.source)))
+    return exportCharacterBook(records.length === 1 ? records[0].document : mergeWorldBooks(records).document)
   }
 
   async function remove(locator) {

@@ -163,10 +163,11 @@ export function createCardHandlers(deps) {
         return { filename, bytes: stored.bytes, downloadUrl: '/api/dsh-tavern/transfer-export/' + encodeURIComponent(filename) + '?token=' + stored.token }
       } finally { await upload.remove(); await rm(output, { force: true }).catch(() => {}) }
     },
-    // The current card as a DSH card for the 导出 sheet: the same export as the card-export route (packIds, excludeFigures),
-    // encrypted from its spool file when a `password` is given, then handed over as a transfer download. It answers
-    // {progressId} at once and the export runs on as a job (card-export-jobs.js): the sheet polls cardExportProgress, whose
-    // last view is the file ({stage: 'done', result: {filename, bytes, downloadUrl}}) or the failure; cancelCardExport stops it.
+    // The current card as a DSH card for the 导出人物卡 sheet: the same export as the card-export route (packIds,
+    // excludeFigures, worldBooks = the bound books it carries), encrypted from its spool file when a `password` is given,
+    // then handed over as a transfer download of `bytes`. `progressId` (the sheet's name for this export) lets it poll
+    // cardExportProgress and cancelCardExport; it answers at once and the export runs on as that job (card-export-jobs.js),
+    // whose last view is the file ({stage: 'done', result: {filename, bytes, downloadUrl}}) or the failure.
     async exportLibraryCard(args) {
       const encrypt = args?.password !== undefined
       if (encrypt && (typeof args.password !== 'string' || !args.password.length)) throw new Error('请设置人物卡密码')
@@ -174,12 +175,15 @@ export function createCardHandlers(deps) {
       return cardExportJobs.run(args?.progressId, async report => {
         let card, output
         try {
-          card = await deps.exportCardFile(cardPath, { packIds: args?.packIds, excludeFigures: args?.excludeFigures })
+          card = await deps.exportCardFile(cardPath, { packIds: args?.packIds, excludeFigures: args?.excludeFigures, books: args?.worldBooks,
+            onProgress: progress => report({ stage: 'pack', done: encrypt ? progress.done / 2 : progress.done, total: progress.total, pack: progress.pack }) })
           let file = card.file, filename = card.name.replace(/[\\/:*?"<>|\r\n]/g, '_') + '.dshcard'
           if (encrypt) {
-            report('encrypt')
+            // packing and encrypting each read every byte once: the bar gives each half.
+            report({ stage: 'encrypt', pack: '' })
             output = file = card.file + '.encrypted'; filename = filename.replace(/\.dshcard$/, '-加密.dshcard')
-            await encryptCardArchiveFile(card.file, output, args.password, { name: card.name + '.dshcard' })
+            await encryptCardArchiveFile(card.file, output, args.password, { name: card.name + '.dshcard',
+              onProgress: progress => report({ stage: 'encrypt', done: (progress.total + progress.done) / 2, total: progress.total, pack: '' }) })
           }
           const stored = await deps.transferExports.putFile(file, filename)
           return { filename, bytes: stored.bytes, downloadUrl: '/api/dsh-tavern/transfer-export/' + encodeURIComponent(filename) + '?token=' + stored.token }

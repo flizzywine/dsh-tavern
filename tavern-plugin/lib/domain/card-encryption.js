@@ -1,5 +1,5 @@
 import { open, readFile, rm } from 'node:fs/promises'
-import { PassThrough, Readable, Writable } from 'node:stream'
+import { PassThrough, Readable, Transform, Writable } from 'node:stream'
 import { openZipFile, zipEntryPath } from './zip-file.js'
 import { cardAssetSource, isPng, pngWithTextChunks } from './card-assets.js'
 import { readCardArchive } from './card-archive.js'
@@ -115,8 +115,21 @@ export async function encryptCardArchiveFile(input, output, password, options = 
     outputHandle = await open(output, 'wx', 0o600)
     destination = outputHandle.createWriteStream()
     writer = new ZipWriter(Writable.toWeb(destination), { ...(options.decrypt ? {} : { password, encryptionStrength: 3 }), useWebWorkers: false })
+    // options.onProgress({done, total}): bytes read through the encryption out of all of them; a throw from it stops it.
+    const total = [...zip.entries.values()].reduce((sum, entry) => sum + (entry.size ?? entry.bytes?.length ?? 0), 0)
+    let done = 0
+    options.onProgress?.({ done, total })
     for (const entry of zip.entries.values()) {
-      await writer.add(entry.path, Readable.toWeb(await zip.stream(entry)))
+      let source = await zip.stream(entry)
+      if (options.onProgress) {
+        const meter = new Transform({ transform(chunk, _encoding, callback) {
+          done += chunk.length
+          try { options.onProgress({ done, total }); callback(null, chunk) } catch (error) { callback(error) }
+        } })
+        source.once('error', error => meter.destroy(error))
+        source = source.pipe(meter)
+      }
+      await writer.add(entry.path, Readable.toWeb(source))
     }
     await writer.close()
     return { entries: zip.entries.size }
