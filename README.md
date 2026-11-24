@@ -134,8 +134,6 @@
 
 ## 快速开始
 
-已安装桌面酒馆的用户可以继续使用现有启动器。切换到 npm 版时，在原版 `desktop` Profile 的插件页移除旧启动器，再添加 npm 包。同一 `DSH_HOME` 下，酒馆继续使用已有的 `tavern` Profile 和 `$DSH_HOME/profile-data/tavern/data` 数据目录。
-
 ### 桌面版（Windows / macOS）
 
 先安装官方 [DeepSeek Harness](https://deepseek.com/harness/)，打开并完成初始设置。推荐使用 **0.2.2-rc.1 或更新的 0.2.x** DSH 内核。然后在下方 **任选一种** 安装方式。
