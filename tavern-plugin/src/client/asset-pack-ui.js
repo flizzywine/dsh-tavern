@@ -1021,6 +1021,18 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
   // no state tag in the header — the pack's 全局 / 本卡 / 关闭 is set in the library list, not inside the pack). ctx: card context or null.
   // onClose(changed): `changed` tells the caller its cached pack snapshots are stale.
   // nav: the host's tab navigation (openTab) — the library's own, or the card context's (舞台设置).
+  // The pack window's title: the pack's name as plain text that edits in place (the shared inline edit look); Enter or
+  // leaving it saves, Esc reverts. `shown` is what reads while it is not being edited (「素材包」 when the one figure
+  // beside it already says the name); editing always starts from the real name.
+  function PackTitle({name,shown,onRename}) {
+    // `sent` holds the new name while it is being written, so the old one does not flash back in between.
+    const [editing,setEditing]=React.useState(false),[sent,setSent]=React.useState(null);
+    React.useEffect(()=>setSent(null),[name]);
+    const commit=v=>{const next=v.trim();if(next===name)return;setSent(next);Promise.resolve(onRename(next)).then(done=>{if(!done)setSent(null);});};
+    return h('div',{className:'ap-pack-title-edit',onFocus:()=>setEditing(true),onBlur:()=>setEditing(false)},
+      h(CommitInput,{className:'ap-pack-title-input','aria-label':'素材包名称',value:sent??(editing?name:shown),
+        validate:v=>!v.trim()?'名称不能为空':chars(v)>256?'名称最多 256 字':'',onCommit:commit}));
+  }
   function PackModal({binding,packId,initial,scope,packs,ctx,nav=ctx?.nav,onPacksChanged,onOpenPack,onClose}) {
     const state=useLoad(binding,()=>binding.service.getPackSnapshot({packId}),[packId]),pack=state.value,audio=useAudioPreview(binding,packId),narrow=useNarrow(),work=useTask(binding);
     // a list lamp choice is a quiet write of its own — no 正在处理…, only an error in the foot.
@@ -1357,7 +1369,14 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
     // a pack opened from a 基础设置 「›」 (BGM / 音效 / 环境音 / 模组) carries
     // `initial.back` ({label, open}); its head starts with the sub-page ‹ that closes the pack and returns there.
     const back=initial?.back&&typeof initial.back.open==='function'?initial.back:null;
-    const head=h('header',{className:'ap-pack-head'+(back?' has-back':'')},back&&h(SubpageBack,{parent:back.label,onBack:()=>{close();back.open();}}),h('h2',{title:title===name?undefined:name},title),
+    // the pack's name is its head, renamed in place like an entry's name. Only the display name changes: cards, chats,
+    // exports and updates know the pack by its id. One CAS patchPack of manifest.name on the newest revision.
+    const rename=value=>work.task(async()=>{
+      const attempt=snapshot=>binding.service.patchPack({packId,expectedRevision:snapshot.revision,patch:{name:value}});
+      await enqueue(async c=>{try{return await attempt(c);}catch(error){if(error?.code!=='REVISION_CONFLICT')throw error;const fresh=await binding.service.getPackSnapshot({packId});latest.current=fresh;return attempt(fresh);}});
+      onPacksChanged?.();return true;});
+    const head=h('header',{className:'ap-pack-head'+(back?' has-back':'')},back&&h(SubpageBack,{parent:back.label,onBack:()=>{close();back.open();}}),
+      pack?h(PackTitle,{name,shown:title,onRename:rename}):h('h2',null,title),
       h('span',{className:'ap-pack-head-tools'},menu,h(IconButton,{icon:'close',label:'关闭',onClick:close})));
     // in 多选 a click toggles the row; Shift+click sets the rows between the
     // last clicked one and this one (in the shown order) to that row's state.
