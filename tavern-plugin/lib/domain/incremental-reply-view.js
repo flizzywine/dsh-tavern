@@ -3,7 +3,6 @@ import { createHash } from 'node:crypto'
 import { replyBody } from './round-body.js'
 import { createIndexedArrayApi } from './indexed-array.js'
 import { freezeJson, createImmutableOrderedJsonIndex } from './freeze-json.js'
-import { statusViewDeclaration } from './status-view-declaration.js'
 import { projectReplyHistory } from './reply-presentation.js'
 import { projectPersistentStatusView } from './persistent-status-view.js'
 
@@ -142,15 +141,14 @@ export function createIncrementalReplyView({ readChanges, maxBytes = 96 * 1024 *
     before = metadataIndex.update(before,[...beforeEdits],messages.length)
     const projections = compatible ? projectionIndex.update(previous.projections,projectionEdits) : projectionIndex.from(projectionEdits)
     const targets = targetIndex.update(compatible ? previous.targets : [],targetEdits,messages.length)
-    const hasStatusRules = (statusOptions.regexScripts || []).some(rule => rule && rule.disabled !== true && rule.enabled !== false && statusViewDeclaration(rule))
     const statusSummary={latestTurn:Math.max(1,targetIndex.maximum(targets)),previous:compatible?previous.statusState:undefined,onMatch:onStatusMatch,onFilter:onStatusFilter,onFallback:onStatusFallback,messageIndices:compatible?indices:undefined}
-    const status = hasStatusRules ? projectPersistentStatusView(messages, projections, statusOptions, statusSummary) : {projections,statusView:null,statusViews:[]}
+    const status = projectPersistentStatusView(messages, projections, statusOptions, statusSummary)
     const latest = rowIndex.previous(rows,rows.length)
     const result = freezeJson({ ...status, presentation: null, latestSourceBacked: rows[latest]?.latestSourceBacked || false })
     const sources = compatible
       ? sourceIndex.update(previous.sources,indices.map(id=>[id,sourceKey(messages[id])]),messages.length)
       : sourceIndex.from(messages.map(sourceKey))
-    const resultSize = hasStatusRules ? statusSummary.filteredBytes + JSON.stringify(result.statusViews).length*2 : projectionIndex.info(projections).bytes + 256
+    const resultSize = statusSummary.next ? statusSummary.filteredBytes + JSON.stringify(result.statusViews).length*2 : projectionIndex.info(projections).bytes + 256
     const size = targetIndex.info(targets).bytes + rowIndex.info(rows).bytes + metadataIndex.info(roles).bytes + metadataIndex.info(before).bytes + resultSize + 512 + sourceIndex.info(sources).bytes
     if (Number.isSafeInteger(revision) && size <= maxBytes && maxEntries > 0 && !(cache.get(entry)?.revision > revision)) {
       if (cache.has(entry)) { bytes -= cache.get(entry).size; cache.delete(entry) }
