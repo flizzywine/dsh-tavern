@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "f55cd751b90661700a7b5dcfe19e6f47f7ff1f64",
-  "releaseSequence": 2040,
+  "revision": "9c42c2997ecb1240ef5596972b4e326c3c71d04d",
+  "releaseSequence": 2041,
   "version": "3.4.0",
   "files": [
     {
@@ -1271,8 +1271,8 @@
     },
     {
       "path": "tavern-plugin/lib/client.js",
-      "sha256": "979d6edbab0e45839fa424c6f6effbdb7f5905608cec81431323d94a8a9c7cb2",
-      "size": 6549473
+      "sha256": "0cf6285ef7fd0778bf6e00d79ec08bc6a6b1eaf8f20fd9379136a5428fb89b0f",
+      "size": 6551087
     },
     {
       "path": "tavern-plugin/lib/cordis-inspect.js",
@@ -2181,8 +2181,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/frame-storage.js",
-      "sha256": "3ff524650ac4ff6ae40b286d10371e507f82bf072dbe0efda4ed1688778ade3f",
-      "size": 2424
+      "sha256": "298110e59227910659ca7233b137cf80de4680970eb3dd078b63af26524c6f35",
+      "size": 2593
     },
     {
       "path": "tavern-plugin/lib/domain/freeze-json.js",
@@ -3916,8 +3916,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/tavern-static-resource-cache.js",
-      "sha256": "f68e06de4cf31965e060f3551c382aa29a371146dcee968b76cf8f3c8790b160",
-      "size": 13130
+      "sha256": "e7f87d6a92fea83257ff6d6b9b99fc7049406683aed88dff46386b0c26103555",
+      "size": 14278
     },
     {
       "path": "tavern-plugin/lib/domain/tavern-token-meter.js",
@@ -10181,9 +10181,9 @@
     }
   ],
   "archive": {
-    "commit": "a43f29a1a4fddf3017aa9c1bd00e84cb511d4d2b",
+    "commit": "24de094c3d632a7d48d0a50ae3257da475c01e1c",
     "path": "runtime.zip",
-    "sha256": "9acb672b251e86e6b77ec18998f57c0c9faec265b1437192cea8f360094ff712",
-    "size": 17889044
+    "sha256": "233a080aea4882459778843ab8a46a2c2c7d7817a0f67afa05977bc2510b164d",
+    "size": 17890067
   }
 }
