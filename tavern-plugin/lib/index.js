@@ -2650,7 +2650,10 @@ export async function apply(ctx) {
     return damperSettingsService
   }
   const projectBuiltinWorldbook = createForegroundWorldbook({
-    bound: (cardPath, card, chat) => playWorldBook(chat, card),
+    bound: async (cardPath, card, chat, {purpose,userText}) => {
+      const book=await playWorldBook(chat, card)
+      return purpose==='generation' ? foregroundCapabilities.project(chat, book, {userText}) : book
+    },
     runtime: promptTemplateRuntime,
     globalVariables: readPromptTemplateGlobalVariables,
     scanText: async chat => {
@@ -3908,10 +3911,11 @@ export async function apply(ctx) {
     return next()
   }, { prepend: true })
   ctx.on('agent/status', ({ agent, status }) => { if (status === 'idle') queueAutoCompaction(agent.session.id) })
-  async function nativeWorldBookTemplateContext(chat, card, options = {}) {
+  async function nativeWorldBookTemplateContext(chat, card, {foreground = false, ...options} = {}) {
     let worldBook
     try {
       worldBook = await playWorldBook(chat, card)
+      if (foreground) worldBook = await foregroundCapabilities.project(chat, worldBook)
     } catch (error) {
       console.warn('dsh-tavern: 动态世界书读取失败，已跳过:', str(error && error.message || error))
       return { context: '', refs: [], diagnostics: [{ kind: 'worldbook-template', code: 'worldbook-read-failed' }] }
