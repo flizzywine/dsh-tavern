@@ -142,3 +142,41 @@ test('没有改写器时 block-end 原样放过', async () => {
   const chunks = await send(oneTextBlock(['原文。']))
   assert.equal(chunks.find(chunk => chunk.type === 'block-end').block.text, '原文。')
 })
+
+test('正文块交错收尾时各自改写，并保留正文顺序', async () => {
+  const host = createReplyStreamRewriters()
+  host.register('whole', { plan: () => null, async rewrite(text) { return text.toUpperCase() } })
+  const { send, log } = storyStream(host)
+  const chunks = await send(async function * () {
+    yield { type: 'block-start', index: 0, blockType: 'text' }
+    yield { type: 'text-delta', index: 0, text: 'first' }
+    yield { type: 'block-start', index: 1, blockType: 'text' }
+    yield { type: 'text-delta', index: 1, text: 'second' }
+    yield { type: 'block-end', index: 1, block: { type: 'text', text: 'second' } }
+    yield { type: 'block-end', index: 0, block: { type: 'text', text: 'first' } }
+    yield { type: 'block-start', index: 2, blockType: 'text' }
+    yield { type: 'text-delta', index: 2, text: 'last' }
+    yield { type: 'finish', reason: { kind: 'stop' } }
+  })
+  assert.deepEqual(chunks.filter(chunk => chunk.type === 'text-delta').map(({ index, text }) => [index, text]),
+    [[1, 'SECOND'], [0, 'FIRST'], [2, 'LAST']])
+  assert.deepEqual(chunks.filter(chunk => chunk.type === 'block-end').map(({ index, block }) => [index, block.text]),
+    [[1, 'SECOND'], [0, 'FIRST']])
+  assert.equal((await log.evidence('chat-game')).requests[0].response.text, 'FIRSTSECONDLAST')
+})
+
+test('只随 block-end 到达的正文也经过改写', async () => {
+  const host = createReplyStreamRewriters()
+  host.register('whole', { plan: () => null, async rewrite(text) { return '[' + text + ']' } })
+  const { send } = storyStream(host)
+  const chunks = await send(async function * () {
+    yield { type: 'block-start', index: 0, blockType: 'text' }
+    yield { type: 'block-end', index: 0, block: { type: 'text', text: '整块正文' } }
+    yield { type: 'block-start', index: 1, blockType: 'text' }
+    yield { type: 'text-delta', index: 1, text: '开头' }
+    yield { type: 'block-end', index: 1, block: { type: 'text', text: '开头和结尾' } }
+    yield { type: 'finish', reason: { kind: 'stop' } }
+  })
+  assert.deepEqual(chunks.filter(chunk => chunk.type === 'block-end').map(chunk => chunk.block.text),
+    ['[整块正文]', '[开头和结尾]'])
+})
