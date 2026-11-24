@@ -3,7 +3,7 @@ import test from 'node:test'
 import { createTavernPluginApi } from '../tavern-plugin/lib/plugin-api.js'
 
 // Game 'game' at its latest turn 3; regenerateLatest stands in for the 重新生成 button (rpc/play.js regenBody).
-function harness({ owner = 'rewriter', origin = 'global', regenerate = true } = {}) {
+function harness({ owner = 'rewriter', origin = 'global', regenerate = true, afterCommit } = {}) {
   const state = { turn: 3, key: 'version-1', greeting: false, activity: null, result: { aborted: false }, calls: [] }
   const material = () => ({ chatId: 'chat', sessionId: 'game', turn: state.turn, index: 1, key: state.key, greeting: state.greeting,
     text: state.key, source: state.key, card: { path: 'cards/a.json', name: 'A' } })
@@ -16,11 +16,14 @@ function harness({ owner = 'rewriter', origin = 'global', regenerate = true } = 
     readTurn: async () => material(), readLatestSettledTurn: async () => material(), readPendingTurn: async () => material(),
     readActivity: async () => state.activity, publish() {},
     ...(regenerate ? {
-      regenerateLatest: async (sessionId, guidance) => {
-        state.calls.push({ sessionId, guidance })
+      regenerateLatest: async (sessionId, guidance, target) => {
+        state.calls.push({ sessionId, guidance, target })
         if (state.result instanceof Error) throw state.result
-        if (!state.result.aborted) state.key = 'version-' + (state.calls.length + 1)
-        return state.result
+        if (state.result.aborted) return state.result
+        state.key = 'version-' + (state.calls.length + 1)
+        const receipt = { turn: state.turn, textVersion: state.key }
+        afterCommit?.(state)
+        return receipt
       }
     } : {})
   })
@@ -35,7 +38,8 @@ test('regenerateTurn：按修改意见重新生成最新一轮，回来时带着
   assert.deepEqual(await service.regenerateTurn({ gameId: 'game', turn: 3, textVersion: 'version-1', guidance: '  台词再收一点\n' }), { turn: 3, textVersion: 'version-2' })
   // 不写意见就是普通的重新生成
   assert.deepEqual(await service.regenerateTurn({ gameId: 'game', turn: 3, textVersion: 'version-2' }), { turn: 3, textVersion: 'version-3' })
-  assert.deepEqual(state.calls, [{ sessionId: 'game', guidance: '台词再收一点' }, { sessionId: 'game', guidance: '' }])
+  assert.deepEqual(state.calls, [{ sessionId: 'game', guidance: '台词再收一点', target: { turn: 3, textVersion: 'version-1' } },
+    { sessionId: 'game', guidance: '', target: { turn: 3, textVersion: 'version-2' } }])
 })
 
 test('regenerateTurn：只认最新一轮当前显示的那一版；前台在写、开场白、写错轮次都不动', async () => {
@@ -71,4 +75,10 @@ test('regenerateTurn：宿主没接上时没有这项能力；卡内插件只能
   const card = harness({ owner: 'card-rewriter', origin: 'card' })
   await assert.rejects(card.service.regenerateTurn({ gameId: 'game', turn: 3, textVersion: 'version-1' }), { code: 'TAVERN_PLUGIN_SCOPE' })
   assert.deepEqual(card.state.calls, [])
+})
+
+test('regenerateTurn 返回本次提交的版本，即使宿主返回前已有更新一轮', async () => {
+  const { service } = harness({ afterCommit(state) { state.turn = 4; state.key = 'later-reply' } })
+  assert.deepEqual(await service.regenerateTurn({ gameId: 'game', turn: 3, textVersion: 'version-1' }),
+    { turn: 3, textVersion: 'version-2' })
 })

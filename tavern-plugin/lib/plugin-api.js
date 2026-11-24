@@ -1447,10 +1447,9 @@ export function createTavernPluginApi(deps) {
       if (before.turn !== wanted || before.greeting) throw Object.assign(new Error('regenerateTurn 只能用于最新一轮正文'), { code: 'TAVERN_PLUGIN_TURN_UNAVAILABLE' })
       if (typeof textVersion !== 'string' || textVersion !== before.textVersion) throw Object.assign(new Error('regenerateTurn 的 textVersion 不是这一轮当前显示的正文版本'), { code: 'TAVERN_PLUGIN_STALE_VERSION' })
       if (before.generating) throw Object.assign(new Error('前台正在写正文，写完再重新生成'), { code: 'TAVERN_PLUGIN_BUSY' })
-      const { aborted } = await deps.regenerateLatest(game.sessionId, text)
-      if (aborted) throw Object.assign(new Error('重新生成被停下了，这一轮没有写出新正文'), { code: 'TAVERN_PLUGIN_ABORTED' })
-      const after = await turnState(game.sessionId)
-      return { turn: after.turn, textVersion: after.textVersion }
+      const result = await deps.regenerateLatest(game.sessionId, text, { turn: wanted, textVersion })
+      if (result.aborted) throw Object.assign(new Error('重新生成已停止'), { code: 'TAVERN_PLUGIN_ABORTED' })
+      return { turn: result.turn, textVersion: result.textVersion }
     },
 
     // A task of this game in a background session: a fresh one-off by default; with `member`, the

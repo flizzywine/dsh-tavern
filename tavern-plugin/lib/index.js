@@ -260,7 +260,7 @@ import { createServerScriptExecutor } from './domain/server-script-executor.js'
 import { createDisplayRuntimeStore, displayRuntimeReceipt } from './domain/display-runtime-store.js'
 import { createPresetLibrary } from './domain/preset-library.js'
 import { createForegroundOrchestrationStrategies } from './domain/foreground-orchestration-strategies.js'
-import { clearFailedTurnSurface, rollbackAvailability, reshadowRolledBackRounds, interruptedSurfaceTurns, supersededTailPlayerInputIndices, pruneSupersededTailPlayerInputs, unansweredTailIndex } from './domain/rollback-surface.js'
+import { clearFailedTurnSurface, rollbackAvailability, reshadowRolledBackRounds, interruptedSurfaceTurns, supersededTailPlayerInputIndices, pruneSupersededTailPlayerInputs } from './domain/rollback-surface.js'
 import { replyBody, voiceBackfillLines, voiceBackfillKept } from './domain/round-body.js'
 import { paragraphSpeech } from './domain/paragraph-speech.js'
 import { createDisplayRuntimeCapture } from './domain/display-runtime-capture.js'
@@ -360,7 +360,7 @@ import { createSettingsHandlers } from './rpc/settings.js'
 import { createGenerationStreamModeHandlers } from './rpc/generation-stream-mode.js'
 import { createPluginHandlers } from './rpc/plugins.js'
 import { createConversationHandlers } from './rpc/conversations.js'
-import { createPlayHandlers } from './rpc/play.js'
+import { createPlayHandlers, PLUGIN_REGENERATION_TARGET } from './rpc/play.js'
 import { createTransferHandlers } from './rpc/transfer.js'
 import { createImageCharacterHandlers } from './rpc/image-characters.js'
 import { createFigureRecords } from './image-character-records.js'
@@ -3693,14 +3693,9 @@ export async function apply(ctx) {
       await bodyEditor.replaceText(material.sessionId, text, { polish: options?.polish === true })
       notifyPluginTimeline(material.sessionId, 'edit', { settled: true })
     },
-    // tavern.regenerateTurn: the 重新生成 button's own request (rpc/play.js regenBody), the guidance as its 修改意见.
-    // On a save ending in an input that never got its reply the button answers that input; a plugin names a reply, so no.
-    regenerateLatest: async (sessionId, guidance) => {
-      if (unansweredTailIndex(await chatHeaderWithLatestFloors(sessionId, 1)) >= 0) {
-        throw Object.assign(new Error('最新一轮的输入还没有写出正文，不能重新生成上一轮'), { code: 'TAVERN_PLUGIN_TURN_UNAVAILABLE' })
-      }
-      const result = await dispatchMethod('regenBody', { sessionId, guidance })
-      return { aborted: result?.view?.aborted === true }
+    regenerateLatest: async (sessionId, guidance, target) => {
+      const { view } = await dispatchMethod('regenBody', { sessionId, guidance, [PLUGIN_REGENERATION_TARGET]: target })
+      return view?.aborted ? { aborted: true } : view.pluginRegeneration
     },
     runTask: runPluginTask,
     startManualTask: ({ gameId, key, input }) => startPluginTask(gameId, key, input),
@@ -4586,12 +4581,14 @@ export async function apply(ctx) {
     // revision of the body the player is looking at. The plugin provider builds its
     // prompt from guidance only (the old body is never in its materials), so the
     // flag only has to reach the native path.
-    const fresh = options?.fresh === true
-    const generated = await requestPerformance.stage('regen.plugin-generate', () => pluginBodyGeneration.regenerate(id, str(guidance)))
+    const { expectedReply } = options
+    const generated = await requestPerformance.stage('regen.plugin-generate', () => pluginBodyGeneration.regenerate(id, str(guidance), expectedReply))
     if (generated !== null) {
+      if (generated.aborted) return { aborted: true }
+      if (expectedReply) return { pluginRegeneration: { turn: generated.turn, textVersion: generated.textVersion } }
       return requestPerformance.stage('regen.plugin-present', async () => presentStory(await chatForSession(id)))
     }
-    try { return await nativeRegenBody(chatId, guidance, sessionId, { fresh }) }
+    try { return await nativeRegenBody(chatId, guidance, sessionId, options) }
     finally { clearLiveDamperState(id) }
   }
   const bodyEditor = createBodyEditor({

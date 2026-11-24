@@ -190,7 +190,7 @@ export function createPluginBodyGeneration({ chatForSession, routeChatForSession
         }
       }
     },
-    async regenerate(gameId, guidance = '') {
+    async regenerate(gameId, guidance = '', expectedReply) {
       if (await writingPreparationFor?.(gameId)) return null
       const configured = configuredBodyGeneration(await settings())
       const selected = { ...configured, ...await providers.controlRoute?.(gameId) }
@@ -202,7 +202,7 @@ export function createPluginBodyGeneration({ chatForSession, routeChatForSession
       const provider = await providers.require(selected.provider, gameId)
       if (regenerations.has(gameId)) throw error('正文正在重新生成')
       const controller = new AbortController(), task = { controller, pending: null, committed: false }
-      const pending = Promise.resolve().then(() => regenerateWithProvider({ gameId, signal: controller.signal,
+      const pending = Promise.resolve().then(() => regenerateWithProvider({ gameId, signal: controller.signal, ...(expectedReply ? { expectedReply } : {}),
         onPhase: phase => { if (phase === 'committed') task.committed = true },
         providerId: selected.provider, hostRegex: selected.hostRegex,
         prepare: input => providers.prepare(selected.provider, input),
@@ -216,7 +216,17 @@ export function createPluginBodyGeneration({ chatForSession, routeChatForSession
         } }))
       task.pending = pending
       regenerations.set(gameId, task)
-      try { return await pending } catch (cause) { throw bodyGenerationError(cause, 'regenerate') } finally { if (regenerations.get(gameId) === task) regenerations.delete(gameId) }
+      try {
+        return await pending
+      } catch (cause) {
+        if (expectedReply) {
+          if (!task.committed && controller.signal.aborted && cause === controller.signal.reason) return { aborted: true }
+          if (['TAVERN_PLUGIN_STALE_VERSION', 'TAVERN_PLUGIN_TURN_UNAVAILABLE', 'TAVERN_PLUGIN_BUSY'].includes(cause?.code)) throw cause
+        }
+        throw bodyGenerationError(cause, 'regenerate')
+      } finally {
+        if (regenerations.get(gameId) === task) regenerations.delete(gameId)
+      }
     },
     async cancelRegeneration(gameId) {
       const task = regenerations.get(gameId)
