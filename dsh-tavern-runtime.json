@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "70048a9b42e12e4705e6ea2f6f1cba06e18be11b",
-  "releaseSequence": 2048,
+  "revision": "a2d2259640c3e8a7106d37f6d79e16eff470678e",
+  "releaseSequence": 2049,
   "version": "3.4.0",
   "files": [
     {
@@ -1276,8 +1276,8 @@
     },
     {
       "path": "tavern-plugin/lib/client.js",
-      "sha256": "27834e570d2edc6cef3b5c919e6b687eea14f8830d7b4ec39469bc2fd591e3ba",
-      "size": 6569035
+      "sha256": "a7355852b3bca8a1c271e8bec3f6e99cc0285c693e3ab49f2b7bac33cc31bc55",
+      "size": 6569477
     },
     {
       "path": "tavern-plugin/lib/cordis-inspect.js",
@@ -1906,8 +1906,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/context-planner.js",
-      "sha256": "042c6bdf79aa7bc889972cc4ef8629e1696bc5f531370d82c39c06aa6a0a7399",
-      "size": 13664
+      "sha256": "6589011ead8dbecfc47ed30dfe46d9b978ffb2ff84d32e603f5c032c6e41696e",
+      "size": 13843
     },
     {
       "path": "tavern-plugin/lib/domain/context-turns.js",
@@ -2011,8 +2011,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/dialogue-bubbles.js",
-      "sha256": "730b923c002f5d628eb5849c87fa512e85c094499de119b15d9ed3511e5c7b71",
-      "size": 36651
+      "sha256": "375e02f389fc74acb8dcbb3b159246d7651b6c6153b9c3f11434973392fc6ec7",
+      "size": 36850
     },
     {
       "path": "tavern-plugin/lib/domain/direction-styles.js",
@@ -2136,8 +2136,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/foreground-capabilities.js",
-      "sha256": "0b57f414f6011eb37c66599e4df69f5c8d756c7a13ae7d704621fbd5b5d95819",
-      "size": 18492
+      "sha256": "b77c9c2898dccfa49ab314fb25a1afb2dca1d628162543e2f2a6a2a63bda55e5",
+      "size": 18516
     },
     {
       "path": "tavern-plugin/lib/domain/foreground-compaction.js",
@@ -2156,8 +2156,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/foreground-frame-session-adapter.js",
-      "sha256": "5229ec659f08b70870434a5c66089e1d6e71f77a16f06f8c404f98ec4b41401a",
-      "size": 6647
+      "sha256": "18c51e5041bac77035d34474ef4b869c1676d819becb27bd80b8b726262f2858",
+      "size": 7418
     },
     {
       "path": "tavern-plugin/lib/domain/foreground-handoff.js",
@@ -2166,8 +2166,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/foreground-orchestration-strategies.js",
-      "sha256": "5c500e5bf28709d79d218c9539025ea3469a6dc59a5d31cbc857d707bfb1228f",
-      "size": 39060
+      "sha256": "45d33c3b5447d5f152b09b6cd58e2b40af03faed8db7332fbd1c337784d72f0a",
+      "size": 38978
     },
     {
       "path": "tavern-plugin/lib/domain/foreground-tools.js",
@@ -4076,8 +4076,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/turn-orchestration.js",
-      "sha256": "ee24d9fd1426102c02f6815bee5a56920c507216a90a3fea49aa6d956015341b",
-      "size": 90383
+      "sha256": "3875c3133a491d0f4da4ca78ddbf0b37eed6fc5b849a1cd44d8d7221303ae81a",
+      "size": 90452
     },
     {
       "path": "tavern-plugin/lib/domain/uncommitted-rounds.js",
@@ -10191,9 +10191,9 @@
     }
   ],
   "archive": {
-    "commit": "8bbeab34234b79394c2e304e96a5d8d26dedc31d",
+    "commit": "f2496f81729c9b89e08b04f948b85e678f4a9e04",
     "path": "runtime.zip",
-    "sha256": "87af18bbc265251ea93ca165cffb7a05445b71c184f0e20081b29701197b4d73",
-    "size": 17910093
+    "sha256": "dce2c041f6c5afe2f1f352072719c67e28b80e1838a7a2d1db200887556296aa",
+    "size": 17910487
   }
 }
