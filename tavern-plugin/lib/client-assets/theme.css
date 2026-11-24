@@ -5880,9 +5880,10 @@ body.dsh-tavern-shell-active [data-sidebar-right-panel="fullscreen"][data-sideba
 .fork-inline-edit { display: inline-grid; min-width: 2.5em; max-width: 100%; }
 .fork-inline-edit::after { content: attr(data-value); grid-area: 1 / 1; visibility: hidden; overflow: hidden; padding: 0 6px; white-space: pre; font: inherit; font-variant-numeric: tabular-nums; }
 /* The touch shell sets inputs to 16px (no zoom on focus, tavern.css); the mirror that sizes a one-line value follows, or
-   the value is cut short (「美树沙耶…」 on a phone). */
+   the value is cut short (「美树沙耶…」 on a phone); a multi-line value's text area is bumped too, so its mirror follows or the
+   box ends lines early and cuts the last ones off. */
 @media (max-width: 1023px), (pointer: coarse) {
-  body.dsh-tavern-shell-active :is([data-sidebar-right-panel], .dsh-tavern-picker-overlay, .dsh-tavern-prompt, .dsh-tavern-group-manager, .dsh-ejs-editor, .dsh-tavern-settings-section, [role="dialog"]:has(> nav[class*="_nav"])) .fork-inline-edit:not(.is-multiline)::after { font-size: var(--fork-fs-touch-input); }
+  body.dsh-tavern-shell-active :is([data-sidebar-right-panel], .dsh-tavern-picker-overlay, .dsh-tavern-prompt, .dsh-tavern-group-manager, .dsh-ejs-editor, .dsh-tavern-settings-section, [role="dialog"]:has(> nav[class*="_nav"])) .fork-inline-edit::after { font-size: var(--fork-fs-touch-input); }
 }
 .fork-inline-field input.fork-inline-input:not([data-fi-a]):not([data-fi-b]):not([data-fi-c]):not([data-fi-d]) { grid-area: 1 / 1; box-sizing: border-box; width: 100%; min-width: 0; min-height: 0; height: 28px; margin: 0; padding: 0 6px; border: 0; border-radius: 6px; background: transparent; box-shadow: none; outline: none; color: inherit; font: inherit; font-variant-numeric: tabular-nums; text-overflow: ellipsis; cursor: text; }
 .fork-inline-field input.fork-inline-input::placeholder { color: var(--fork-ink-3, GrayText); }
