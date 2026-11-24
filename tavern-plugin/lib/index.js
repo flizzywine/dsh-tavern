@@ -4004,9 +4004,11 @@ export async function apply(ctx) {
     enabled: async chat => !!chat && (await pluginApi.hostBehavior.forGame(chat.sessionId)).backgroundAgents && (await readTavernSettings()).candidateAutoGenerate === true,
     async read(sessionId) {
       const chat = await chatForSession(sessionId)
-      const session = sessionStore.get(sessionId) || agentRegistry.get(sessionId)?.session
+      const agent = agentRegistry.get(sessionId)
+      const session = sessionStore.get(sessionId) || agent?.session
       const turn = chat?.messages?.findLast(message => message?.role === 'assistant')?.turn
-      return { chat, messageId: str(assistantResultForTurn(session, turn)?.event?.data?.message?.id) }
+      return { chat, running: agent?.phase?.kind === 'running',
+        messageId: str(assistantResultForTurn(session, turn)?.event?.data?.message?.id) }
     },
     activity: chat => backgroundTasks.activity(chat),
     submit: args => candidateTasks.submit(args)
