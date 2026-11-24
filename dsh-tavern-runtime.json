@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "59dd5de736d8c79c82c66b8aa4ed3b91b2bcc20c",
-  "releaseSequence": 2064,
+  "revision": "c3c29dc495f9f4f1fc422a2c25f0db9fdba7358c",
+  "releaseSequence": 2065,
   "version": "3.4.0",
   "files": [
     {
@@ -1276,8 +1276,8 @@
     },
     {
       "path": "tavern-plugin/lib/client.js",
-      "sha256": "cf86c1b197efc46f05fe3c5dc7c5e6edca612f8a7b3fb814785090091675ee24",
-      "size": 6597296
+      "sha256": "45dc13fc6b0d2767ae73f3bac3ad7718a100f22d171c849e2cec54eabf06d3a8",
+      "size": 6597622
     },
     {
       "path": "tavern-plugin/lib/cordis-inspect.js",
@@ -4356,8 +4356,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/zip-file.js",
-      "sha256": "9d4559dd6044f8b3e5071871b6fed9260d1c92b9cd40236fbb7ad33d342712ab",
-      "size": 9398
+      "sha256": "1929d443ce650658c2b03fe5661d7a8a1428c61358e190e91f40672a7f660019",
+      "size": 9621
     },
     {
       "path": "tavern-plugin/lib/durable-file-promotion.js",
@@ -7156,8 +7156,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-asset-library/lib/zip.js",
-      "sha256": "0a2ef5e25eeb23c96acee353ff723b62c3aa08e198acc7a9324c70932441f7c0",
-      "size": 15215
+      "sha256": "bfd9b75cf7c6eecff951a68076329ade38f90b374118807424d834be22ded38e",
+      "size": 15472
     },
     {
       "path": "tavern-plugin/packages/dsh-asset-library/LICENSE",
@@ -9866,8 +9866,8 @@
     },
     {
       "path": "tavern-plugin/presets/asset-gen/templates/avatar.md",
-      "sha256": "3e853401ba50e0d37b87a51010f7fee9c00b53444e98050e75d517db1b80f26f",
-      "size": 3064
+      "sha256": "07bf1ddd8a99b6d8cb79d71fdedbd8d0db5002e3cc26fb264944e352daebfbc5",
+      "size": 3190
     },
     {
       "path": "tavern-plugin/presets/asset-gen/templates/background.md",
@@ -9911,8 +9911,8 @@
     },
     {
       "path": "tavern-plugin/presets/asset-gen/templates/settei.md",
-      "sha256": "bd9b749ff39f834d10bd91440d8ccd1140de2aa6979b00311c329f70ee0966c3",
-      "size": 2025
+      "sha256": "be2385877686366ec9d78352227c186d185248db6d1502fceac011fb7e080d60",
+      "size": 2150
     },
     {
       "path": "tavern-plugin/presets/asset-gen/templates/skin-art.md",
@@ -9921,8 +9921,8 @@
     },
     {
       "path": "tavern-plugin/presets/asset-gen/templates/sprite.md",
-      "sha256": "c4be64105bb1eb696f5195b40293b47c1d58a87ba6d7294fb2d74e07e814eb88",
-      "size": 3261
+      "sha256": "39a55833eef41eeafe2e768cde870b55ac7dfea9a90cc50de446bd0f7a438fe8",
+      "size": 3387
     },
     {
       "path": "tavern-plugin/presets/auto-cast/assistant.md",
@@ -10241,9 +10241,9 @@
     }
   ],
   "archive": {
-    "commit": "0917c34a241c1b31160e8e2750c2f31becc2d9b9",
+    "commit": "ae83ef1a137970affa44bbf4d640ac9ec50a284b",
     "path": "runtime.zip",
-    "sha256": "c4000b15988a0aac3bedf7f7dc6ad83e315f375fd18d0d6a10ba719f43a855a9",
-    "size": 17950247
+    "sha256": "3f7bba97c2cf61a2485d8e9d43c1ee638cdb8b730af635eecadeeb60673e9616",
+    "size": 17950721
   }
 }
