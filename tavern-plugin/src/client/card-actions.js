@@ -64,14 +64,12 @@ function TavernCardMenu({ card, actions, organization, close }) {
   const item = (label, onClick, props) => h(ui.MenuItem, Object.assign({ disabled: organization.disabled, onClick: () => { close(); onClick(); } }, props), label);
   if (page === 'tags') return h('div', { className: 'dsh-tavern-card-menu-tags' },
     organization.tagChecklist(card, { title: '标签', onBack: () => setPage('main') }));
-  const tags = card.tags || [];
   return h(React.Fragment, null,
     item('导出', () => actions.exportCard(card)),
     item('另存副本', () => actions.duplicate(card)),
     item('重命名', () => actions.rename(card)),
     h(ui.MenuItem, { disabled: organization.disabled, onClick: () => setPage('tags') },
-      h('span', { className: 'dsh-tavern-card-menu-label' }, '标签'),
-      h('span', { className: 'dsh-tavern-card-menu-note' }, tags.join('、')), h('span', { 'aria-hidden': true, className: 'dsh-tavern-card-menu-more' }, '›')),
+      h('span', { className: 'dsh-tavern-card-menu-label' }, '标签'), h('span', { 'aria-hidden': true, className: 'dsh-tavern-card-menu-more' }, '›')),
     item(card.starred ? '取消收藏' : '收藏', () => organization.toggleStar(card)),
     actions.select ? item('选择', () => actions.select(card.path)) : null,
     actions.update ? item('更新', () => actions.update(card)) : null,

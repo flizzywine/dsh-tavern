@@ -27,9 +27,11 @@ function CardExportMenu({ disabled, hasImage, onExport }) {
 function CardImportMenu({ disabled, pickFile, openAddress }) {
     const h = React.createElement, popup = useInlinePopup({ focusSelector: "input" }), [address, setAddress] = React.useState("");
     function read() { const url = address.trim(); if (!url) return; popup.close(false); setAddress(""); openAddress(url); }
-    if (!openAddress) return h("button", { type: "button", className: "dsh-tavern-btn", disabled, onClick: pickFile }, "导入");
+    // A quiet icon on the toolbar, as 舞台素材's 获取素材包.
+    const icon = h(packUi.Glyph, { name: "download" });
+    if (!openAddress) return h("button", { type: "button", className: "ap-icon-button", "aria-label": "导入人物卡", title: "导入人物卡", disabled, onClick: pickFile }, icon);
     return h("span", { className: "fork-inline-anchor", ref: popup.root, onKeyDown: popup.keys },
-        h("button", { ref: popup.trigger, type: "button", className: "dsh-tavern-btn", disabled, "aria-haspopup": "menu", "aria-expanded": popup.open, onClick: () => popup.setOpen(!popup.open) }, "导入"),
+        h("button", { ref: popup.trigger, type: "button", className: "ap-icon-button", "aria-label": "导入人物卡", title: "导入人物卡", disabled, "aria-haspopup": "menu", "aria-expanded": popup.open, onClick: () => popup.setOpen(!popup.open) }, icon),
         popup.open ? popup.layer({ className: "fork-inline-pop dsh-tavern-card-import-pop", role: "menu", "aria-label": "导入人物卡" },
             h("button", { type: "button", role: "menuitem", className: "fork-inline-option", onClick: () => { popup.close(false); pickFile(); } }, "选择本地文件"),
             h("div", { className: "dsh-tavern-card-import-url" },
@@ -231,15 +233,14 @@ function WorldBookAddMenu({ choices, loading, disabled, onOpen, onPick }) {
 			return h("div", { className: "dsh-tavern-library dsh-tavern-card-library", 'aria-busy': !!transferStatus },
 				h("div", { className: "dsh-tavern-status-head" }, h("div", { className: "dsh-tavern-status-title" }, "人物卡库"),
 					h("div", { className: "dsh-tavern-library-head-actions" },
-						h(CardImportMenu, { disabled: busy || Boolean(forkCardZip && forkCardZip.busy), pickFile: function () { if (mobileImport.current) mobileImport.current(); },
-							openAddress: forkCardZip && forkCardZip.openAddress ? forkCardZip.openAddress : null }),
 						h(MobileCardImportButton, { inputRef: importInput, activateRef: mobileImport, batch: false, disabled: busy, onImported: async function (imported) { await refreshCards(); await loadCard(imported.path); notifyTavernDataChanged(["cards"], "cards"); } }),
 						h("input", { ref: importInput, type: "file", multiple: true, accept: TAVERN_CARD_FILE_ACCEPT, style: { display: "none" }, onChange: function (event) { const files = Array.from(event.target.files || []); event.target.value = ""; void importCardFiles(files); } }))),
 				// Only while importing, or to say how the last import went.
 				transferStatus || importStatus ? h("div", { className: "dsh-tavern-question-sub dsh-tavern-card-import-hint", role: "status", 'aria-live': 'polite', style: { display: 'flex', alignItems: 'center', gap: 10 } },
 					transferStatus ? h('span', { style: { flexShrink: 0 }, 'aria-hidden': true }, h(Spinner)) : null,
 					h('span', { style: { whiteSpace: 'pre-line', overflowWrap: 'anywhere', minWidth: 0 } }, transferStatus ? transferStatus + '\n' + importStatus + '\n大卡包可能需要一会儿，请保持页面打开。' : importStatus)) : null,
-				organization.toolbar(),
+				organization.toolbar(h(CardImportMenu, { disabled: busy || Boolean(forkCardZip && forkCardZip.busy), pickFile: function () { if (mobileImport.current) mobileImport.current(); },
+					openAddress: forkCardZip && forkCardZip.openAddress ? forkCardZip.openAddress : null })),
 				h("div", { className: "dsh-tavern-resource-body" }, error ? h("div", { className: "dsh-tavern-dock-error" }, error) : null, visible.length ? h(TavernCardList, { place: "library", cards: visible, columns: organization.columns, displayName: cardLibraryDisplayName, batch: cardBatch, busy: busy, open: function (item) { loadCard(item.path); }, menu: cardMenu, mention: mentionButton }) : h(EmptyState, cards.length ? { text: "没有匹配的人物卡", icon: "search" } : { noun: "人物卡" }), organization.batchBar()),
 				dshExport.element, cardUpdate.input, cardUpdate.element
 			);

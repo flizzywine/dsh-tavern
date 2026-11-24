@@ -1697,19 +1697,21 @@
 			const mention = input.mention(card.path);
 			const script = card.script && card.script.title ? card.script.title : "";
 			const placeholder = !card.imageUrl;
-			return h("div", Object.assign({ className: "dsh-tavern-card-grid-item" + (selected ? " selected" : "") + (card.starred ? " starred" : "") + (card.error ? " broken" : "") }, menu && menu.target),
+			return h("div", Object.assign({ className: "dsh-tavern-card-grid-item" + (mention || (menu && content) ? " has-corner" : "") + (input.selecting ? " picking" : "") + (selected ? " selected" : "") + (card.starred ? " starred" : "") + (card.error ? " broken" : "") }, menu && menu.target),
 				h("button", Object.assign({ type: "button", className: "dsh-tavern-card-grid-open", title: card.error || [card.name, card.fileName ? "文件：" + card.fileName : "", script ? "剧本：" + script : "自由故事", card.tags.length ? "标签：" + card.tags.join("、") : "", card.starred ? "已收藏" : ""].filter(Boolean).join("\n"), "aria-label": card.name, "aria-pressed": input.selecting ? selected : undefined,
 					disabled: input.busy || (!input.selecting && input.place === "play" && Boolean(card.error)), onClick: function (event) { input.open(card.path, event); } }, menu && menu.trigger),
 					h(TavernCardGridCover, { key: card.imageUrl, card: card }),
 					placeholder ? null : h("span", { className: "dsh-tavern-card-grid-copy" },
 						h("span", { className: "dsh-tavern-card-grid-name" }, card.name))),
 				h("div", { className: "dsh-tavern-card-grid-band" },
-					input.selecting ? h(Switch, { className: "dsh-tavern-card-grid-check", checked: selected, disabled: input.busy,
-						label: "选择人物卡：" + card.name, onChange: function () { input.toggle(card.path); } }) : null,
-					h("span", { className: "dsh-tavern-card-grid-tags", "aria-hidden": "true" }, card.tags.map(function (tag) { return h("span", { key: tag, className: "dsh-tavern-card-grid-tag" }, tag); })),
-					mention || (menu && content) ? h("span", { className: "dsh-tavern-card-grid-corner" }, mention,
-						menu && content ? h("button", { type: "button", className: "dsh-tavern-card-grid-more", "aria-label": card.name + " 操作", title: "操作", "aria-haspopup": "menu",
-							onClick: function (event) { event.stopPropagation(); menu.show(event.currentTarget); } }, "⋯") : null) : null),
+					h("span", { className: "dsh-tavern-card-grid-tags", "aria-hidden": "true" }, card.tags.map(function (tag) { return h("span", { key: tag, className: "dsh-tavern-card-grid-tag" }, tag); }))),
+				// Selecting: the whole tile toggles (aria-pressed); the stage library's round tick in the bottom-right corner only
+				// shows it (ui-design §三.15), and the tiles not picked turn grey (owner 11-24: no switch, tick bottom right).
+				input.selecting ? h("span", { className: "ap-check-mark dsh-tavern-card-grid-check", "aria-hidden": "true" }, selected ? h(packUi.Glyph, { name: "check" }) : null) : null,
+				// @ and ⋯ sit in the bottom-right corner, faint until the card is hovered or focused (owner 11-24).
+				mention || (menu && content) ? h("span", { className: "dsh-tavern-card-grid-corner" }, mention,
+					menu && content ? h("button", { type: "button", className: "dsh-tavern-card-grid-more", "aria-label": card.name + " 操作", title: "操作", "aria-haspopup": "menu",
+						onClick: function (event) { event.stopPropagation(); menu.show(event.currentTarget); } }, "⋯") : null) : null,
 				menu && menu.layer);
 		}
 		function TavernCardGrid(props) {

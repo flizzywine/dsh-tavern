@@ -1,7 +1,6 @@
 // The card list's own organization (人物卡库 and the 游玩 card picker): tags, 收藏, filter, search, sort, columns and the
 // selection bar's tag / star actions. Tags and stars are local (rpc organizeCards, domain/card-organization.js); a card
-// can carry several tags. The filter is a multi-pick: every picked condition must hold (收藏 and the picked tags);
-// 未打标签 stands alone beside 收藏.
+// can carry several tags. The filter is one pick at a time (owner 11-24): 全部, 收藏, 未打标签 or one tag.
 const TAVERN_CARD_SORTS = [
   { value: 'auto', label: '自动' }, { value: 'played', label: '最近游玩' },
   { value: 'name', label: '名字' }, { value: 'imported', label: '导入时间' }
@@ -10,28 +9,19 @@ const TAVERN_CARD_FAVORITES = 'fav', TAVERN_CARD_UNTAGGED = 'untagged';
 
 function tavernCardSortName(card) { return String(card.displayName || card.name || card.path || ''); }
 
-// The visible cards: search, then every filter condition, then the order. 自动 keeps the host's order
-// (收藏 first, then recent imports and the most played, orderCardsForLibrary).
-// The picked tags hold all together (`tagMode` 'all') or any one of them ('any'); 收藏 and 未打标签 always must hold.
-function filterOrganizedCards(cards, filter, query, sort = 'auto', tagMode = 'all') {
+// The visible cards: search, then the filter ('' 全部, 'fav', 'untagged' or 'tag:NAME'), then the order. 自动 keeps the
+// host's order (收藏 first, then recent imports and the most played, orderCardsForLibrary).
+function filterOrganizedCards(cards, filter, query, sort = 'auto') {
   const needle = query.trim().toLocaleLowerCase();
-  const picked = filter.filter(condition => condition.startsWith('tag:')).map(condition => condition.slice(4));
   const list = cards.filter(card => {
     const tags = card.tags || [];
     return (!needle || [card.displayName, card.name, card.path].join(' ').toLocaleLowerCase().includes(needle))
-      && (!filter.includes(TAVERN_CARD_FAVORITES) || card.starred)
-      && (!filter.includes(TAVERN_CARD_UNTAGGED) || !tags.length)
-      && (!picked.length || (tagMode === 'any' ? picked.some(tag => tags.includes(tag)) : picked.every(tag => tags.includes(tag))));
+      && (!filter || (filter === TAVERN_CARD_FAVORITES ? card.starred : filter === TAVERN_CARD_UNTAGGED ? !tags.length : tags.includes(filter.slice(4))));
   });
   if (sort === 'played') return list.slice().sort((a, b) => (Number(b.lastPlayedAt) || 0) - (Number(a.lastPlayedAt) || 0));
   if (sort === 'name') return list.slice().sort((a, b) => tavernCardSortName(a).localeCompare(tavernCardSortName(b), 'zh-CN'));
   if (sort === 'imported') return list.slice().sort((a, b) => (Number(b.importedAt) || 0) - (Number(a.importedAt) || 0));
   return list;
-}
-
-function readTavernCardTagMode(place) {
-  try { return window.localStorage.getItem('dsh-tavern-card-tag-mode-' + place) === 'any' ? 'any' : 'all'; }
-  catch (_) { return 'all'; }
 }
 
 function readTavernCardSort(place) {
@@ -68,13 +58,8 @@ function useCardOrganization(cards, busy, refresh, onError, batch = {}, place = 
   const [query, setQuery] = React.useState('');
   // Filtering hundreds of rows must not block typing in the search box.
   const deferredQuery = React.useDeferredValue(query);
-  const [filter, setFilter] = React.useState([]);
+  const [filter, setFilter] = React.useState('');
   const [sort, setSortState] = React.useState(() => readTavernCardSort(place));
-  const [tagMode, setTagModeState] = React.useState(() => readTavernCardTagMode(place));
-  function setTagMode(value) {
-    setTagModeState(value);
-    try { window.localStorage.setItem('dsh-tavern-card-tag-mode-' + place, value); } catch (_) {}
-  }
   const [wanted, setColumns] = useTavernCardGridColumns(place);
   // A narrow panel fits fewer columns than the one asked for: the stepper shows and steps the count the grid draws.
   const [width, setWidth] = React.useState(0);
@@ -86,7 +71,9 @@ function useCardOrganization(cards, busy, refresh, onError, batch = {}, place = 
     watched.current = new ResizeObserver(entries => setWidth(Math.round(entries[0].contentRect.width)));
     watched.current.observe(element);
   }
-  const fit = !width ? 6 : width <= 400 ? 2 : width <= 640 ? 3 : 6;
+  // A phone keeps two; wider, as many as leave each card about 100px (10px gaps), at most 6 (owner 11-24: more than 3
+  // in a ~620px panel).
+  const fit = !width ? 6 : width <= 400 ? 2 : Math.max(3, Math.min(6, Math.floor((width + 10) / 110)));
   const columns = Math.min(wanted, fit);
   const [managing, setManaging] = React.useState(false);
   const filterPop = useInlinePopup(), sortPop = useInlinePopup({ alignEnd: true }), batchTagPop = useInlinePopup();
@@ -98,7 +85,7 @@ function useCardOrganization(cards, busy, refresh, onError, batch = {}, place = 
       if (!active) return;
       const next = result.tags || [];
       setTags(next);
-      setFilter(previous => previous.filter(condition => !condition.startsWith('tag:') || next.includes(condition.slice(4))));
+      setFilter(previous => previous.startsWith('tag:') && !next.includes(previous.slice(4)) ? '' : previous);
     }, error => { if (active) onError(String(error.message || error)); });
     return () => { active = false; };
   }, [cards]);
@@ -121,7 +108,7 @@ function useCardOrganization(cards, busy, refresh, onError, batch = {}, place = 
     await askTavernText({ title: tag !== undefined ? '重命名标签' : '新建标签', maxLength: 40, initialValue: tag || '',
       onSubmit: async name => {
         await change({ action: tag !== undefined ? 'rename' : 'create', tag, name });
-        if (tag !== undefined) setFilter(previous => previous.map(condition => condition === 'tag:' + tag ? 'tag:' + name : condition));
+        if (tag !== undefined) setFilter(previous => previous === 'tag:' + tag ? 'tag:' + name : previous);
       }
     });
   }
@@ -133,22 +120,12 @@ function useCardOrganization(cards, busy, refresh, onError, batch = {}, place = 
     })().catch(error => onError(String(error.message || error)));
   }
   const disabled = busy || saving;
-  const visible = filterOrganizedCards(cards, filter, deferredQuery, sort, tagMode);
-  function toggleFilter(condition) {
-    setFilter(previous => {
-      if (previous.includes(condition)) return previous.filter(item => item !== condition);
-      // 未打标签 and a tag cannot both hold: picking one drops the other.
-      const kept = condition === TAVERN_CARD_UNTAGGED ? previous.filter(item => !item.startsWith('tag:'))
-        : condition.startsWith('tag:') ? previous.filter(item => item !== TAVERN_CARD_UNTAGGED) : previous;
-      return kept.concat(condition);
-    });
-  }
-  const pickedTags = filter.filter(condition => condition.startsWith('tag:')).map(condition => condition.slice(4));
-  const filterLabel = filter.length ? [filter.includes(TAVERN_CARD_FAVORITES) ? '收藏' : '', filter.includes(TAVERN_CARD_UNTAGGED) ? '未打标签' : '',
-    pickedTags.join(tagMode === 'any' ? ' 或 ' : ' 且 ')].filter(Boolean).join(' · ') : '全部';
+  const visible = filterOrganizedCards(cards, filter, deferredQuery, sort);
+  const filterLabel = !filter ? '全部' : filter === TAVERN_CARD_FAVORITES ? '收藏' : filter === TAVERN_CARD_UNTAGGED ? '未打标签' : filter.slice(4);
   function option(condition, label) {
-    const on = filter.includes(condition);
-    return h('button', { key: condition, type: 'button', role: 'menuitemcheckbox', className: 'fork-inline-option', 'aria-checked': on, onClick: () => toggleFilter(condition) },
+    const on = filter === condition;
+    return h('button', { key: condition || 'all', type: 'button', role: 'menuitemradio', className: 'fork-inline-option', 'aria-checked': on,
+      onClick: () => { setFilter(condition); filterPop.close(true); } },
       h('span', { className: 'dsh-tavern-card-tag-mark', 'aria-hidden': true }, on ? '✓' : ''), h('span', null, label));
   }
   function popupButton(popup, props, ...children) {
@@ -156,24 +133,20 @@ function useCardOrganization(cards, busy, refresh, onError, batch = {}, place = 
       onClick: () => popup.setOpen(!popup.open),
       onKeyDown: event => { if (event.key === 'ArrowDown' && !popup.open) { event.preventDefault(); popup.setOpen(true); } } }, props), ...children);
   }
-  // The row above the grid: tag filter, search, sort, − columns ＋ and 多选.
-  function toolbar() {
+  // The row above the grid, the stage library's toolbar (舞台素材): search · tag filter · sort · − columns ＋ · 多选,
+  // then the caller's tools (人物卡库's 导入). Quiet icon buttons; only the search keeps a box.
+  function toolbar(extra) {
     const sortLabel = TAVERN_CARD_SORTS.find(item => item.value === sort).label;
+    const glyph = name => h(packUi.Glyph, { name });
     return h(React.Fragment, null,
-      h('div', { className: 'dsh-tavern-card-organization', ref: measure },
+      h('div', { className: 'ap-ui ap-pack-toolbar dsh-tavern-card-organization', ref: measure },
+        h(packUi.PackSearchBox, { label: '搜索人物卡', placeholder: '搜索', value: query, onChange: setQuery }),
         h('span', { className: 'fork-inline-anchor dsh-tavern-card-filter', ref: filterPop.root, onKeyDown: filterPop.keys },
-          popupButton(filterPop, { className: 'dsh-tavern-group-picker-button', 'aria-label': '按标签筛选：' + filterLabel },
-            h('span', { className: 'dsh-tavern-card-filter-label' }, filterLabel), h('span', { 'aria-hidden': true }, '⌄')),
+          popupButton(filterPop, { className: 'ap-kind-menu', 'data-on': filter ? true : undefined, 'aria-label': '按标签筛选：' + filterLabel, title: '按标签筛选：' + filterLabel },
+            glyph('filter'), filter ? h('span', { className: 'dsh-tavern-card-filter-label' }, filterLabel) : null),
           filterPop.open ? filterPop.layer({ className: 'fork-inline-pop dsh-tavern-card-filter-pop', role: 'menu', 'aria-label': '按标签筛选', onKeyDown: inlineMenuKeys },
-            h('button', { type: 'button', role: 'menuitemradio', className: 'fork-inline-option', 'aria-checked': !filter.length, onClick: () => setFilter([]) },
-              h('span', { className: 'dsh-tavern-card-tag-mark', 'aria-hidden': true }, filter.length ? '' : '✓'), h('span', null, '全部')),
-            option(TAVERN_CARD_FAVORITES, '收藏'), option(TAVERN_CARD_UNTAGGED, '未打标签'),
+            option('', '全部'), option(TAVERN_CARD_FAVORITES, '收藏'), option(TAVERN_CARD_UNTAGGED, '未打标签'),
             tags.length ? h('div', { className: 'dsh-tavern-card-menu-divider', role: 'separator' }) : null,
-            // Several picked tags: the cards that have them all (同时有) or any one (任一).
-            tags.length > 1 ? h('div', { className: 'ap-ui dsh-tavern-card-filter-mode' },
-              h(Segmented, { label: '多个标签时', value: tagMode, onChange: setTagMode,
-                // ↑↓ keep walking the menu rows; ←→ switch.
-                onKeyDown: event => { if (event.key === 'ArrowUp' || event.key === 'ArrowDown') event.preventDefault(); }, options: [['all', '标签全都有', false, '只显示选中标签全都有的卡'], ['any', '有任一个', false, '显示有任一选中标签的卡']] })) : null,
             tags.map(tag => option('tag:' + tag, tag)),
             h('div', { className: 'dsh-tavern-card-menu-divider', role: 'separator' }),
             // The two tag actions are quieter rows under the conditions, their names in the same column as the tags.
@@ -181,20 +154,19 @@ function useCardOrganization(cards, busy, refresh, onError, batch = {}, place = 
               h('span', { className: 'dsh-tavern-card-tag-mark', 'aria-hidden': true }, '＋'), h('span', null, '新建标签')),
             tags.length ? h('button', { type: 'button', role: 'menuitem', className: 'fork-inline-option dsh-tavern-card-filter-action', onClick: () => { filterPop.close(false); setManaging(true); } },
               h('span', { className: 'dsh-tavern-card-tag-mark', 'aria-hidden': true }), h('span', null, '管理标签')) : null) : null),
-        h('input', { className: 'dsh-tavern-library-search', value: query, placeholder: '搜索人物卡', 'aria-label': '搜索人物卡', onChange: event => setQuery(event.target.value) }),
-        h('span', { className: 'dsh-tavern-card-organization-tools' },
           h('span', { className: 'fork-inline-anchor', ref: sortPop.root, onKeyDown: sortPop.keys },
-            popupButton(sortPop, { className: 'dsh-tavern-card-tool', 'aria-label': '排序：' + sortLabel, title: '排序：' + sortLabel }, '⇅'),
+            popupButton(sortPop, { className: 'ap-icon-button', 'data-on': sort !== 'auto' ? true : undefined, 'aria-label': '排序：' + sortLabel, title: '排序：' + sortLabel }, glyph('sort')),
             sortPop.open ? sortPop.layer({ className: 'fork-inline-pop', role: 'menu', 'aria-label': '排序', onKeyDown: inlineMenuKeys },
               TAVERN_CARD_SORTS.map(item => h('button', { key: item.value, type: 'button', role: 'menuitemradio', className: 'fork-inline-option', 'aria-checked': sort === item.value,
                 onClick: () => { setSort(item.value); sortPop.close(true); } },
                 h('span', { className: 'dsh-tavern-card-tag-mark', 'aria-hidden': true }, sort === item.value ? '✓' : ''), h('span', null, item.label)))) : null),
           fit > 2 ? h('span', { className: 'dsh-tavern-card-columns', role: 'group', 'aria-label': '每行张数' },
-            h('button', { type: 'button', 'aria-label': '每行少一张', disabled: columns <= 2, onClick: () => setColumns(columns - 1) }, '−'),
+            h('button', { type: 'button', className: 'ap-icon-button', 'aria-label': '每行少一张', title: '每行少一张', disabled: columns <= 2, onClick: () => setColumns(columns - 1) }, glyph('minus')),
             h('output', { 'aria-live': 'polite', title: '每行 ' + columns + ' 张' }, String(columns)),
-            h('button', { type: 'button', 'aria-label': '每行多一张', disabled: columns >= fit, onClick: () => setColumns(columns + 1) }, '＋')) : null,
-          typeof batch.begin === 'function' ? h('button', { type: 'button', className: 'dsh-tavern-card-tool', 'aria-pressed': Boolean(batch.managing), disabled: busy,
-            'aria-label': '多选', title: '多选（也可以 Ctrl+点卡片）', onClick: () => batch.managing ? batch.reset() : batch.begin() }, '☑') : null)),
+            h('button', { type: 'button', className: 'ap-icon-button', 'aria-label': '每行多一张', title: '每行多一张', disabled: columns >= fit, onClick: () => setColumns(columns + 1) }, glyph('plus'))) : null,
+          typeof batch.begin === 'function' ? h('button', { type: 'button', className: 'ap-icon-button', 'aria-pressed': Boolean(batch.managing), disabled: busy,
+            'aria-label': '多选', title: '多选（也可以 Ctrl+点卡片）', onClick: () => batch.managing ? batch.reset() : batch.begin() }, glyph('select')) : null,
+        extra || null),
       managing ? h('dialog', { className: 'dsh-tavern-group-manager', 'aria-label': '管理标签',
         ref: element => { if (element && !element.open) element.showModal(); },
         onCancel: () => setManaging(false), onClick: event => { if (event.target === event.currentTarget && !disabled) setManaging(false); }
