@@ -16,7 +16,7 @@ const MEDAL_PACKAGE = 'tavern-plugin/packages/' + MEDAL_PLUGIN
 const ACHIEVEMENT_FILES = ['tavern-plugin/packages/dsh-tavern/client.js',
   ...['package.json', 'lib/index.js', 'client.js', 'LICENSE', 'README.md'].map(file => MEDAL_PACKAGE + '/' + file)]
 function run(command, args, options) {
-  const result = spawnSync(command, args, { encoding: 'utf8', ...options })
+  const result = spawnSync(command, args, { windowsHide: true, encoding: 'utf8', ...options })
   if (result.error || result.status !== 0) throw new Error(result.error?.message || result.stderr || `${command} 退出码 ${result.status}`)
   return result.stdout || ''
 }

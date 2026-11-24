@@ -64,10 +64,10 @@ function macIcon(png, target) {
       for (const [scale, suffix] of [[1, ''], [2, '@2x']]) {
         const pixels = size * scale
         if (pixels > 512) continue
-        if (spawnSync('sips', ['-z', String(pixels), String(pixels), png, '--out', join(set, `icon_${size}x${size}${suffix}.png`)], { stdio: 'ignore' }).status !== 0) return
+        if (spawnSync('sips', ['-z', String(pixels), String(pixels), png, '--out', join(set, `icon_${size}x${size}${suffix}.png`)], { windowsHide: true, stdio: 'ignore' }).status !== 0) return
       }
     }
-    spawnSync('iconutil', ['-c', 'icns', set, '-o', target], { stdio: 'ignore' })
+    spawnSync('iconutil', ['-c', 'icns', set, '-o', target], { windowsHide: true, stdio: 'ignore' })
   } finally { rmSync(work, { recursive: true, force: true }) }
 }
 
