@@ -127,7 +127,7 @@ export function createMaintenanceHandlers(deps) {
           }))
         }
         work.push(deploymentActivity({
-          // Each game's background work is checked above, from its own save; speech keeps no running count.
+          // Each game's background work is checked above, from its own save; voice and the coordinator report through deploymentWork.
           foreground: agentRegistry.list().some(agent => agent.phase.kind !== 'idle')
         }))
         // Work other modules registered (the stage director): each reports what deploymentActivity reads.
