@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "d4c6a7e386e80a2054b8e5cae650fc202930ea4b",
-  "releaseSequence": 2045,
+  "revision": "4adfaf715ddcb882fc709628fccce544d5a15846",
+  "releaseSequence": 2046,
   "version": "3.4.0",
   "files": [
     {
@@ -86,23 +86,23 @@
     },
     {
       "path": "android/native/apk-deps-update-smoke.mjs",
-      "sha256": "8ef2d40117df87c57295c953aea512e06c9b10490a526db83c0292666256317e",
-      "size": 12483
+      "sha256": "0517da7f9d0dc7fc74dff80908e1cf7ff8ad38180db799f7d8ad2c5fbb132b94",
+      "size": 12559
     },
     {
       "path": "android/native/apk-launcher-smoke.mjs",
-      "sha256": "5031ff939a46195ceda073424b03fca1131b31a283ed53d217afe8e8979e3052",
-      "size": 15179
+      "sha256": "bd932403245a328fdb96cd44da88dae739f0730df03b08ba78167a85b2e5e3a2",
+      "size": 15274
     },
     {
       "path": "android/native/apk-smoke.mjs",
-      "sha256": "828c4e9592e2906cde4de1d9d2f9a5d29687afa1ce0aa06ec0f7445559629d42",
-      "size": 11979
+      "sha256": "743de2089a818d91d041e1249608d457ab6949492319bcfcc3606b88c99c3402",
+      "size": 12017
     },
     {
       "path": "android/native/apk-upgrade-smoke.mjs",
-      "sha256": "168d9fcef19ec75cc5834ffe4cfde4df759fccd9d056fa029f033222f645a374",
-      "size": 12416
+      "sha256": "4c0ec7616537bfd52f1eb2f4dcf3a4697ec78e3d0b2e50ad95d3f067937c8d8f",
+      "size": 12492
     },
     {
       "path": "android/native/app/AndroidManifest.xml",
@@ -136,8 +136,8 @@
     },
     {
       "path": "android/native/device-smoke.mjs",
-      "sha256": "2ad4510e0abdfa36b21ec923697af7855f7b22ecc289f18baaf59769fbd198d8",
-      "size": 10266
+      "sha256": "6f6e5cc8987645068d71b3b1a207b98df880569d5d185b287e68352447ecc031",
+      "size": 10304
     },
     {
       "path": "android/native/fetch-npm-packages.py",
@@ -181,8 +181,8 @@
     },
     {
       "path": "android/native/release-smoke.mjs",
-      "sha256": "dee32e06e70398a406c4d3f8ee2c1b3e087b417bde17ec45931b898831e69b89",
-      "size": 5349
+      "sha256": "d5988ff3e9f64483d6c36bd091be066513e9073efa2578f1886f4cedbcd203c9",
+      "size": 5414
     },
     {
       "path": "android/native/release.sh",
@@ -211,8 +211,8 @@
     },
     {
       "path": "android/native/shims/source-update.mjs",
-      "sha256": "b1de5ee6e114d02b0dc5cdde1e3d3870ff0d391fb85336f71b1b877fc756cbd3",
-      "size": 22796
+      "sha256": "111f732eab97d6b175901edc3c0f53d960d2f4e9e0900cd00b871e25e696e965",
+      "size": 22834
     },
     {
       "path": "android/native/shims/termux-preload.cjs",
@@ -326,8 +326,8 @@
     },
     {
       "path": "bin/cli-runtime.mjs",
-      "sha256": "3110459d9586496a5ea166d53d09dc528219a22472377d70076efcd412896d19",
-      "size": 6615
+      "sha256": "cfb6dcec34c5f75d0eb4e3ed5ee67a08973edb308074f53cd5e82c2e701a051a",
+      "size": 6634
     },
     {
       "path": "bin/deepseek-stream-option-patch.mjs",
@@ -366,8 +366,8 @@
     },
     {
       "path": "bin/dev-sync-desktop.mjs",
-      "sha256": "4528e188e5a0f674195aa38c4603c1e4cc0a63bf58bfd0e39aeee51c07c1b018",
-      "size": 5456
+      "sha256": "8c3f50c4051790c354cfcf083b47e194ecb9bc0a39fcf1a99cc6d982e43a55f0",
+      "size": 5475
     },
     {
       "path": "bin/download.cjs",
@@ -391,13 +391,13 @@
     },
     {
       "path": "bin/dsh-tavern-update-helper.mjs",
-      "sha256": "71cc396cc36a3c9b0cb571c075b467e4031068b8db6663ef24a7277bf6240948",
-      "size": 888
+      "sha256": "a892e2fccd9607deee60e84447e87a798c05d6a7406b22cd94b7bcb6a00af01a",
+      "size": 907
     },
     {
       "path": "bin/dsh-tavern.mjs",
-      "sha256": "6d01266ccfcf6d7e79e65f6ff64a1d3a6cfa39001f52c23a3d257a485c312573",
-      "size": 7268
+      "sha256": "6a8571b1d9ab4a22e4a2772a651195766b9fa56ab1005a1cfc6dee5a09a243fa",
+      "size": 7306
     },
     {
       "path": "bin/eval-compaction-memory.mjs",
@@ -406,8 +406,8 @@
     },
     {
       "path": "bin/import-user-home.mjs",
-      "sha256": "4a3253bd4d7c81816c4d9bde4753a33726fa41a9606096bee21e346f69a4b99f",
-      "size": 15779
+      "sha256": "1ded94005d1c8eba4f5121c5eed96b6a3300c0564c7c0409eedc449a33325463",
+      "size": 15798
     },
     {
       "path": "bin/install-next-plugin.ps1",
@@ -436,8 +436,8 @@
     },
     {
       "path": "bin/launcher-environment.mjs",
-      "sha256": "51490653396ebaafc13847d9a487992b9f8ec4103fe3e3d3bbbc4e69dcbdfbe2",
-      "size": 13607
+      "sha256": "ea5000de556b28998204b9a7881d750520453a0e50f74c7e3140688210c63e00",
+      "size": 13664
     },
     {
       "path": "bin/launcher-package-name.mjs",
@@ -491,8 +491,8 @@
     },
     {
       "path": "bin/plugin-dependencies.mjs",
-      "sha256": "4196a0a263fa465314a1cf5e34ec0bee1fa65566da061958e412caf6faf3c948",
-      "size": 21612
+      "sha256": "6e388e22e93bda7ea67edaca33ed729a7ef50b3fcd7dfb1d0335f4851e1d53a7",
+      "size": 21650
     },
     {
       "path": "bin/portable-fs.mjs",
@@ -561,8 +561,8 @@
     },
     {
       "path": "bin/service-lifecycle.mjs",
-      "sha256": "1b77369fa70a52326b7517475ffa45aa9e53e9c645f935fe9b005ec454c062a2",
-      "size": 30272
+      "sha256": "9c918d641ec26b1c203c9e9dc683bbb9726c37921da2c4dbcdaec41a6c429686",
+      "size": 30310
     },
     {
       "path": "bin/service-process-identity.mjs",
@@ -7716,8 +7716,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-dshgo/scripts/install-on-dshgo.mjs",
-      "sha256": "f21110d5c967ea4ede345e01b77bb7aef907710d5bffbfb10598ea3ec08265e2",
-      "size": 11967
+      "sha256": "3a5aa0e2e2c4e2cb931456a28366f4f03de21032fb8a7c3739058a11be2a9d91",
+      "size": 11986
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-dshgo/scripts/verify-on-dshgo.mjs",
@@ -9706,8 +9706,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern/lib/helper.mjs",
-      "sha256": "293dc5244f7a6926cbac51b58b8402d8642db6634fc9b6b580d960f0cf08a306",
-      "size": 24174
+      "sha256": "2e85171556fd388b07117820e69bd82088803aa987a97d075ce44915893e7051",
+      "size": 24212
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern/lib/installation-processes.mjs",
@@ -9741,8 +9741,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern/lib/shortcut.mjs",
-      "sha256": "647c378a73cba59a7e4a7cf2b032511051f3187a4ffbcb0d4b32a9ee075cfbf9",
-      "size": 10043
+      "sha256": "18875024a3ef8368fc399268f1cc8fb35b49720d62ec104d2c5b761d87a780ff",
+      "size": 10081
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern/lib/startup-profile.mjs",
@@ -10186,9 +10186,9 @@
     }
   ],
   "archive": {
-    "commit": "3b81a72a14b98f8d4634cc638fe4ca59ba468a6b",
+    "commit": "578f298c9293617d326c7650edcc6960f868669d",
     "path": "runtime.zip",
-    "sha256": "d41d3103bb9127964b0a983075dd35f860063f136b8c2ede0dfd3dc96943230d",
-    "size": 17903689
+    "sha256": "d249eedf18dc76ddfb76269612fb856aa00099825f291c5066d981c6be310ada",
+    "size": 17903868
   }
 }
