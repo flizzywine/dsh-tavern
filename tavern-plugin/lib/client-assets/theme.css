@@ -5726,9 +5726,25 @@ body.dsh-tavern-shell-active [data-sidebar-right-panel="fullscreen"][data-sideba
 .ap-card-cover > svg { position: relative; z-index: 1; width: 46px; height: 46px; margin: 0; color: inherit; }
 .ap-card-cover > svg path { stroke-width: .9; }
 .ap-card-cover > img { position: absolute; inset: 0; z-index: 2; width: 100%; height: 100%; border-radius: 12px; object-fit: cover; object-position: center top; box-shadow: 0 0 0 1px var(--ap-border), 0 10px 22px -12px var(--fork-ink); }
-/* 导出 DSH 人物卡 (DshCardExportSheet): the card on top, then hairline pack rows (✓ · name · size, the total in the head)
-   and figure rows (✓ · name; an unticked one stays home, its name dimmed); the progress bar is the download sheet's. */
-.ap-dshcard-list { margin: 0; padding: 0; list-style: none; }
+/* 导出 DSH 人物卡 (DshCardExportSheet): the card on top, then two folding groups — pack rows (✓ · name · size, the
+   chosen total in the head) and world book rows (✓ · name · 主书); an unticked one stays home, its name dimmed. A long
+   group scrolls inside itself. The progress (the download sheet's bar) and the result line sit in the foot above the
+   buttons, so they never scroll away under the lists. */
+.ap-dshcard-options { display: grid; gap: 4px; margin-top: 16px; }
+/* 导出格式: the shared Segmented (role=radiogroup, ← → ↑ ↓) in a list skin, a round mark and the format's note. */
+.ap-dshcard-formats { display: grid; margin: 0; }
+.ap-dshcard-formats > button { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 36px; padding: 0; border: 0; border-radius: 6px; background: none; color: var(--fork-ink); font: inherit; font-size: var(--fork-fs-body); text-align: left; cursor: pointer; }
+.ap-dshcard-formats > button:focus-visible { outline: 2px solid var(--fork-accent); outline-offset: 2px; }
+.ap-dshcard-formats > button:disabled { color: var(--fork-ink-3); cursor: default; }
+.ap-dshcard-formats > button .ap-check-mark { color: transparent; }
+.ap-dshcard-formats > button[aria-checked=true] .ap-check-mark { background: var(--fork-accent-fill, var(--fork-accent)); box-shadow: none; color: var(--fork-on-accent); }
+.ap-dshcard-formats > button:disabled .ap-check-mark { box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--fork-ink) 16%, transparent); }
+.ap-dshcard-formats .ap-pack-size { margin-left: auto; min-width: 0; color: var(--fork-ink-2); font-size: var(--fork-fs-meta); text-align: right; }
+.ap-dshcard-list { max-height: min(320px, 40vh); margin: 0; padding: 0; overflow-y: auto; list-style: none; }
+.ap-dshcard-sheet .ap-cat-foot > .ap-dshcard-progress, .ap-dshcard-sheet .ap-cat-foot > .ap-dshcard-saved { flex: 1 0 100%; margin: 0; }
+.ap-dshcard-progress .ap-cat-job-meta { margin: 8px 0 2px; }
+.ap-dshcard-pct { color: var(--fork-ink); font-weight: 600; }
+.ap-dshcard-step { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* no lines between the rows: a row is one tick and a name, it opens
    nothing; only the section line between 素材包 and 人物 stays, and the foot has no line above 完成 / 导出. */
 .ap-dshcard-list > .ap-dshcard-row { min-height: 36px; border-bottom: 0; }
@@ -5737,7 +5753,6 @@ body.dsh-tavern-shell-active [data-sidebar-right-panel="fullscreen"][data-sideba
 .ap-dshcard-row > .ap-pack-size { min-width: 0; text-align: right; }
 .ap-dshcard-row:has(.ap-pack-check[aria-checked=false]) .ap-dshcard-name { color: var(--fork-ink-3); }
 .ap-dshcard-total { color: var(--fork-ink-2); font-size: var(--fork-fs-meta); font-variant-numeric: tabular-nums; }
-.ap-dshcard-progress { margin-top: 14px; }
 .ap-ui p.ap-card-import-status { display: inline-flex; align-items: center; gap: 7px; min-height: 22px; }
 .ap-card-import-status > .fork-spinner { --fork-spinner-size: 14px; }
 /* MB sent while a big card ZIP uploads. */

@@ -131,6 +131,20 @@ async function publishFixture(run, cardPath) {
   applyCharacterDesignWorldbook(chat, designedCharacter)
   return { chat, publish: createCharacterDesignPublisher({ worldBooks: run.library, readCard: async path => clone(run.cards.get(path)) }) }
 }
+// 导出人物卡的「世界书」勾选：只合并勾上的绑定书，一本不勾就没有书；不是本卡绑定的书拒绝。
+test('characterBookForCard 按导出勾选只合并选中的绑定书', async () => {
+  const run = harness(), path = 'cards/命运.json', standalone = { kind: 'standalone', path: 'worldbooks/王都.json' }, own = { kind: 'card', cardPath: path }
+  await run.library.setBindings(path, [standalone, own])
+  const all = await run.library.characterBookForCard(path)
+  const one = await run.library.characterBookForCard(path, [standalone])
+  assert.deepEqual(await run.library.characterBookForCard(path, [standalone, own]), all, '全勾等于默认')
+  assert.equal(await run.library.characterBookForCard(path, []), null)
+  await assert.rejects(run.library.characterBookForCard(path, [{ kind: 'standalone', path: 'worldbooks/别的.json' }]), /只能选择这张卡绑定的世界书/)
+  await run.library.setBindings(path, [standalone])
+  assert.deepEqual(one, await run.library.characterBookForCard(path), '只勾一本就是只绑那一本时的书')
+  assert.notDeepEqual(one, all)
+})
+
 for (const kind of ['embedded', 'standalone', 'none', 'multiple', 'global-only']) test('人物设计写入库并自动同步：' + kind, async () => {
   const run = harness(), path = ['none', 'global-only'].includes(kind) ? 'cards/空白.json' : 'cards/命运.json'
   if (kind === 'global-only') await run.library.setGlobal({ kind: 'standalone', path: 'worldbooks/王都.json' }, true)
