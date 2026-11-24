@@ -6582,11 +6582,12 @@ textarea:is(input.fork-edit, textarea.fork-edit, .ap-ui input:not([type=checkbox
 .fork-roll-line { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fork-roll-value { font-weight: 600; font-variant-numeric: tabular-nums; }
 .fork-roll-tier { color: var(--roll-tier, var(--fork-ink)); font-weight: 600; }
-:is(.fork-roll, .fork-gal-backlog-roll)[data-tier="critical"] { --roll-tier: var(--roll-critical); }
-:is(.fork-roll, .fork-gal-backlog-roll)[data-tier="success"] { --roll-tier: var(--roll-success); }
-:is(.fork-roll, .fork-gal-backlog-roll)[data-tier="costly"] { --roll-tier: var(--roll-costly); }
-:is(.fork-roll, .fork-gal-backlog-roll)[data-tier="failure"] { --roll-tier: var(--roll-failure); }
-:is(.fork-roll, .fork-gal-backlog-roll)[data-tier="fumble"] { --roll-tier: var(--roll-fumble); }
+/* The chat floor's tier colours are the core's: a card without the stage never loads the stage stylesheet. */
+.fork-roll[data-tier="critical"] { --roll-tier: var(--roll-critical); }
+.fork-roll[data-tier="success"] { --roll-tier: var(--roll-success); }
+.fork-roll[data-tier="costly"] { --roll-tier: var(--roll-costly); }
+.fork-roll[data-tier="failure"] { --roll-tier: var(--roll-failure); }
+.fork-roll[data-tier="fumble"] { --roll-tier: var(--roll-fumble); }
 .fork-roll-details { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 2px 10px; margin: 0; padding: 0 12px 8px 34px; }
 .fork-roll-details dt { font-size: var(--fork-fs-meta); font-weight: 600; line-height: inherit; }
 .fork-roll-details dd { margin: 0; overflow-wrap: anywhere; }
