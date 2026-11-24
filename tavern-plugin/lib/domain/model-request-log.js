@@ -225,6 +225,7 @@ export function createModelRequestLog(options = {}) {
       })
       for (const prunedId of pruned) await remove(base + prunedId + '.json')
       await ensureSessionOwner(record.sessionId, chat.id)
+      if (record.sessionId) options.onChange?.(record.sessionId, requestId + ':running')
     })
     return evidenceRecord({ ...draft, request: record.request, compatibility: record.compatibility, frame: record.frame })
   }
@@ -262,6 +263,7 @@ export function createModelRequestLog(options = {}) {
       }
     }
     await writeJson(resultPath, result)
+    if (input.sessionId) options.onChange?.(input.sessionId, id + ':' + result.status)
     // Callers needing the full request use evidence(); completion returns only state.
     return result
   }

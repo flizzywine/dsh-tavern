@@ -277,7 +277,7 @@ function presetMiddleInstructions(snapshot) {
   })
 }
 
-export function foregroundFrameInputs(plan, sourceText, projectedText, presetSnapshot, chat, pluginSections = [], rosterAddendum = '') {
+export function foregroundFrameInputs(plan, sourceText, projectedText, presetSnapshot, chat, pluginSections = []) {
   const inputs = [{
     kind: 'foreground.user-input',
     sourceText,
@@ -307,8 +307,6 @@ export function foregroundFrameInputs(plan, sourceText, projectedText, presetSna
       source: { stage: 'context-plan', sectionKind, index }
     })
   }
-  // A speaker recalled after the frozen roster: this turn's tail only.
-  if (rosterAddendum) inputs.push({ kind: 'foreground.current-state', text: rosterAddendum, required: true, source: { stage: 'speaker-roster-addendum' } })
   for (const section of plugins.filter(item => item.position !== 'before' && item.position !== 'last')) inputs.push(pluginInput(section))
   if (usesOfficialMvu(chat)) {
     inputs.push({
@@ -841,9 +839,11 @@ export function createTurnOrchestrator(options) {
       ? clone(input.pluginSections)
       : typeof options.pluginTurnContext === 'function'
         ? await options.pluginTurnContext({ gameId: input.sessionId, turn, input: userText }).catch(() => []) : []
-    const rosterAddendum = foregroundWorldBook && typeof options.foregroundRosterAddendum === 'function'
-      ? await options.foregroundRosterAddendum({ chat, userText: runtimeUserText }) : ''
+    // What changed in the foreground capabilities since the live context told the model; the session adapter appends it.
+    const capabilityUpdate = foregroundWorldBook && typeof options.foregroundCapabilityUpdate === 'function'
+      ? await options.foregroundCapabilityUpdate({ chat, userText: runtimeUserText }) : null
     const source = frameSource(chat, card, foregroundOperation)
+    if (capabilityUpdate?.record) source.foregroundCapabilityUpdate = capabilityUpdate.record
     if (typeof options.bodyGeneration === 'function') source.bodyGeneration = await (options.prepareBodyGeneration || options.bodyGeneration)(input.sessionId)
     if (typeof options.activeDamperRuling === 'function') {
       const activeDamper = options.activeDamperRuling(chat.id, turn)
@@ -874,8 +874,9 @@ export function createTurnOrchestrator(options) {
       turn,
       inputs: foregroundFrameInputs(contextPlan, userText, runtimeUserText,
         Object.hasOwn(input, 'runtimePresetSnapshot') ? input.runtimePresetSnapshot
-          : resolveRuntimePresetMacros(state.runtimePresetSnapshot, { charName: card.name, macroState: state.macroState }).snapshot, state, pluginSections, rosterAddendum),
-      source: { ...source, card: { ...source.card, systemPromptText: contextPlan.systemPromptText }, ...regenerationState }
+          : resolveRuntimePresetMacros(state.runtimePresetSnapshot, { charName: card.name, macroState: state.macroState }).snapshot, state, pluginSections),
+      source: { ...source, card: { ...source.card, systemPromptText: contextPlan.systemPromptText },
+        playerName: str(state.macroState?.userName).trim() || '你', ...regenerationState }
     })
     let frame = buildFrame(chat, plan, preparedState)
     if (!preview && foregroundWorldBook?.log && typeof options.recordWorldbookRecall === 'function') {
@@ -1487,11 +1488,13 @@ export function createTurnOrchestrator(options) {
     return changed
   }
 
-  async function visibleTools(sessionId) {
+  // visible: the tools every model call declares. callable: those the model may use; a mod tool declared only because this
+  // game's history calls it refuses its calls (the mod's own authorize), so it is not callable.
+  async function foregroundTools(sessionId) {
     // Every model call asks: mode, the web-search switch and the disabled tools live in the header.
     const chat = store.headerForSession ? await store.headerForSession(sessionId, ['mode', 'cardPath', 'usedModTools', 'webSearchEnabled', 'disabledForegroundTools', 'worldbookStrategy', 'backgroundTasks'])
       : await (store.stateForSession || store.chatForSession)(sessionId)
-    if (chat === undefined || chat === null) return []
+    if (chat === undefined || chat === null) return { visible: [], callable: [] }
     const mode = chat.mode || 'story'
     const webTools = chat.webSearchEnabled === true ? ['web_search', 'web_fetch'] : []
     // Input replay names the submission tool in history, so either direction
@@ -1505,15 +1508,17 @@ export function createTurnOrchestrator(options) {
     }
     if (pluginGeneration && ['story', 'script'].includes(mode)) storyTools.push(STORY_GENERATE_TOOL_NAME)
     // Card workbenches keep their fixed editing tools; the per-game switches are play-only.
-    if (mode === 'card') return [...CARD_MEMORY_TOOLS, 'web_search', 'web_fetch', shellToolName, ...dshFileToolNames, 'skill', 'tavern_read_skill_reference', 'tavern_read_skill', 'tavern_save_skill', ...cordisToolNames, 'tavern_user_profile_read', 'tavern_user_profile_save', 'tavern_read_card', 'tavern_read_card_raw', 'tavern_search_card', 'tavern_replace_card_text', 'tavern_mvu_overview', 'tavern_apply_mvu', 'tavern_read_play_chat', 'tavern_read_runtime_health', WORKBENCH_READ_LOREBOOK_TOOL, WORKBENCH_UPDATE_LOREBOOK_TOOL, 'tavern_read_preset', 'tavern_update_preset', 'tavern_read_regex_library', 'tavern_copy_card', 'tavern_set_card_cover', 'tavern_export_card_png', 'tavern_update_card', 'tavern_restore_card', 'tavern_validate_card', 'tavern_test_response']
+    if (mode === 'card') return both([...CARD_MEMORY_TOOLS, 'web_search', 'web_fetch', shellToolName, ...dshFileToolNames, 'skill', 'tavern_read_skill_reference', 'tavern_read_skill', 'tavern_save_skill', ...cordisToolNames, 'tavern_user_profile_read', 'tavern_user_profile_save', 'tavern_read_card', 'tavern_read_card_raw', 'tavern_search_card', 'tavern_replace_card_text', 'tavern_mvu_overview', 'tavern_apply_mvu', 'tavern_read_play_chat', 'tavern_read_runtime_health', WORKBENCH_READ_LOREBOOK_TOOL, WORKBENCH_UPDATE_LOREBOOK_TOOL, 'tavern_read_preset', 'tavern_update_preset', 'tavern_read_regex_library', 'tavern_copy_card', 'tavern_set_card_cover', 'tavern_export_card_png', 'tavern_update_card', 'tavern_restore_card', 'tavern_validate_card', 'tavern_test_response'])
     // A mod's foreground tool (options.modTools: [{modId, name}]) is offered where this game's history already calls it (a
     // replayed call needs its tool declared), where the card offers it (cardOffer, lib/mod-tools.js: 'card'), or where the card
     // leaves it to the mod switch (null) and the card has the mod on.
-    const modTools = []
+    const modTools = [], replayOnly = new Set()
     const cardOffer = await options.cardOffer?.(chat)
     for (const tool of options.modTools || []) {
       const from = cardOffer?.(tool) ?? null
-      if ((chat.usedModTools || []).includes(tool.name) || from === 'card' || (from === null && await options.modEnabled?.(tool.modId, chat.cardPath) === true)) modTools.push(tool.name)
+      const offered = from === 'card' || (from === null && await options.modEnabled?.(tool.modId, chat.cardPath) === true)
+      if (offered || (chat.usedModTools || []).includes(tool.name)) modTools.push(tool.name)
+      if (!offered) replayOnly.add(tool.name)
     }
     const names = mode === 'script'
       ? [...modTools, 'tavern_read_variables', 'skill', 'tavern_read_skill_reference', 'tavern_read_script', 'tavern_recall_history', ...WORLDBOOK_ACCESS_TOOLS, ...webTools, ...storyTools]
@@ -1521,8 +1526,12 @@ export function createTurnOrchestrator(options) {
     if (mode === 'story' && chat.backgroundTasks?.styleReference === true) names.push('style_reference_submit')
     const disabled = new Set(normalizeDisabledForegroundTools(chat.disabledForegroundTools))
     if (pluginGeneration && disabled.has(STORY_GENERATE_TOOL_NAME)) throw new Error('已选择插件生成正文，但本局禁用了正文生成工具')
-    return names.filter(name => !disabled.has(name))
+    const visible = names.filter(name => !disabled.has(name))
+    return { visible, callable: visible.filter(name => !replayOnly.has(name)) }
   }
+  function both(names) { return { visible: names, callable: names } }
+  async function visibleTools(sessionId) { return (await foregroundTools(sessionId)).visible }
+  async function callableTools(sessionId) { return (await foregroundTools(sessionId)).callable }
 
   // Asked by request hooks on every model call: the header answers it, not the history.
   async function modeFor(sessionId) {
@@ -1535,5 +1544,5 @@ export function createTurnOrchestrator(options) {
     return await prepare({ ...(input || {}), preview: true })
   }
 
-  return Object.freeze({ appendUser, prepare, preview, saveChanges, stageChanges, finalize, recordFailure, discard, visibleTools, modeFor })
+  return Object.freeze({ appendUser, prepare, preview, saveChanges, stageChanges, finalize, recordFailure, discard, visibleTools, callableTools, modeFor })
 }

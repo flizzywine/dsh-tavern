@@ -41,7 +41,7 @@ import { registerRequestHooks } from './hooks/request.js'
 import { createWholeReadGuard, scopeTurnHooks } from './domain/whole-read-guard.js'
 import { createChatReads } from './domain/chat-reads.js'
 import { diffJson } from './domain/json-mutation.js'
-import { runningUserPlugins, loaderOrigin, reconcileUserPluginsAtStartup, reloadUpdatedCardPlugins, loaderReload, readPatchedUserPlugins, syncUserPlugins, watchUserPlugins, userPluginPaths } from './domain/user-plugins.js'
+import { DISABLED_FILE, runningUserPlugins, loaderOrigin, reconcileUserPluginsAtStartup, reloadUpdatedCardPlugins, loaderReload, readPatchedUserPlugins, syncUserPlugins, watchUserPlugins, userPluginPaths } from './domain/user-plugins.js'
 import { createUserPluginInstaller } from './domain/user-plugin-install.js'
 import { createPluginDataStore } from './domain/plugin-data-store.js'
 import { createPluginAssets } from './domain/plugin-assets.js'
@@ -176,12 +176,13 @@ import { createPluginData } from './domain/plugin-data.js'
 import { createPluginTurnReader, RECENT_FLOORS } from './domain/plugin-turns.js'
 import { createPluginVariableWriter } from './domain/plugin-variables.js'
 import { createTavernPluginApi } from './plugin-api.js'
+import { createWritingPreparationSources } from './domain/writing-preparation-sources.js'
 import { createSceneWorldbooks } from './domain/scene-worldbook.js'
 import { createSessionStablePrefixStorage, ensureSessionStablePrefix, readSessionStablePrefix } from './domain/session-stable-prefix.js'
 import { waitForWritableSession } from './domain/agent-readiness.js'
 import { createCardDeletion } from './domain/card-deletion.js'
 import { createCardOrganization } from './domain/card-organization.js'
-import { countGamesByCard, orderCardsForLibrary } from './domain/card-list-order.js'
+import { countGamesByCard, lastPlayedByCard, orderCardsForLibrary } from './domain/card-list-order.js'
 import { createCardPreparation,rawData } from './domain/card-preparation.js'
 import { cardAssetWorkspaceRevision, hasCardAssetBindings } from './card-asset-bindings.js'
 import { withoutPlayerChoices } from './domain/card-export-settings.js'
@@ -737,6 +738,7 @@ export async function apply(ctx) {
   const cardMemory = createCardMemory({ dataRoot })
   const stablePrefixStorage = createSessionStablePrefixStorage(dataRoot + '/session-prefixes')
   const profileData = createProfileDataStore({ dataRoot })
+  const writingPreparationBindingPath = sessionId => 'writing-preparation-sessions/' + encodeURIComponent(sessionId) + '.json'
   const generationStreamModes = createGenerationStreamModeStore(profileData)
   ctx.effect(() => installGenerationStreamModeHook(ctx, () => generationStreamModes.get()))
   const frameStorage = createFrameStorage(profileData)
@@ -874,7 +876,8 @@ export async function apply(ctx) {
     updateJson: async function (path, updater) { return await profileData.updateJson(path, updater) },
     writeText: async function (path, text) { return await profileData.writeBytes(path, Buffer.from(text, 'utf8')) },
     remove: async function (path) { return await profileData.remove(path) },
-    size: path => profileData.size(path)
+    size: path => profileData.size(path),
+    onChange: (sessionId, version) => sessionSignals.publish(sessionId, { kind: 'model-request', version })
   })
   // A single SKILL.md arrives as text; a skill folder arrives as a ZIP. Only UTF-8 Markdown is read.
   function skillImportFiles(args) {
@@ -1720,8 +1723,10 @@ export async function apply(ctx) {
         }
       }
     }))
-    const gameCounts = countGamesByCard(await conversationRegistry.list().catch(() => []))
-    return await cardOrganization.project(orderCardsForLibrary(cards, { gameCounts }))
+    const conversations = await conversationRegistry.list().catch(() => [])
+    const gameCounts = countGamesByCard(conversations), lastPlayed = lastPlayedByCard(conversations)
+    return await cardOrganization.project(orderCardsForLibrary(cards, { gameCounts })
+      .map(card => lastPlayed.has(card.path) ? { ...card, lastPlayedAt: lastPlayed.get(card.path) } : card))
   }
   async function resourceBindingProjection() {
     const cards = await listCards()
@@ -1936,8 +1941,8 @@ export async function apply(ctx) {
     else if (binding.kind === 'standalone' && binding.available) await fileResources.bindWorldBook(copy.path, binding.path)
     else if (binding.kind === 'embedded' && binding.available) await fileResources.bindWorldBook(copy.path, { kind: 'embedded', cardPath: own(binding) })
     else if (binding.kind === 'none') await fileResources.unbindWorldBook(copy.path)
-    const group = (await cardOrganization.read()).cards[source]?.group
-    if (group) await cardOrganization.update({ action: 'cards', paths: [copy.path], group }, [copy.path])
+    const tags = (await cardOrganization.read()).cards[source]?.tags
+    if (tags?.length) await cardOrganization.update({ action: 'cards', paths: [copy.path], tags }, [copy.path])
     return { path: copy.path, sourcePath: source, imageCopied: copy.imageCopied }
   }
   async function deleteCard(cardPath) {
@@ -2057,6 +2062,7 @@ export async function apply(ctx) {
       if (sessionId) {
         await apiDiagnostics.forget(sessionId)
         await backgroundAgentRunner.releaseFor(sessionId)
+        await profileData.remove(writingPreparationBindingPath(sessionId))
       }
       // A session DSH still holds loaded would be written back; delete it on the next start.
       const live = footprint.items.filter(item => item.category === 'subsession' && agentRegistry.get(item.sessionId))
@@ -2570,6 +2576,8 @@ export async function apply(ctx) {
     // A card that declares one of a mod's tools stands for that mod: the stage leaves out that mod's prompts.
     cardGoverns,
     readConfig: cardPath => dialogueBubbles.read(cardPath, {requireAvailable:true}),
+    // The tools the model may call in this game, one of the foreground capabilities a turn's update reports.
+    tools: chat => turnOrchestrator.callableTools(chat.sessionId),
     render: async (chat, worldBook) => {
       if (stageReadScope(chat) && worldBook.view.entries.some(isWorldBookTemplateEntry)) chat = await readStageChat(chat.sessionId)
       return projectWorldBookTemplates({worldBook,includeConstants:true,
@@ -3373,19 +3381,32 @@ export async function apply(ctx) {
   // A plugin's one-off task: a fresh background Session, never the resident one settlement uses.
   // A member with a prefix of its own (`system`): that prefix, and the prompt as the task's one
   // message; the plugin hands it whatever story it needs.
-  async function runPluginTask({ gameId, owner, prompt, tools, call, signal, member = '', system, selection: customSelection, temperature, maxToolCalls, stopToolsWhen, acceptWithoutText, id = '', rewindTo, rewindFormatVersion, resolvePersistentSessionId, onPersistentSessionReady }) {
-    const selection = customSelection || backgroundModelSelection(await backgroundConfigForSession(gameId))
-    if (!selection) throw new Error('这局没有可用的后台模型')
+  async function runPluginTask({ gameId, owner, prompt, tools, call, signal, member = '', system, selection: customSelection, temperature, maxToolCalls, stopToolsWhen, acceptWithoutText, id = '', rewindTo, rewindFormatVersion, resolvePersistentSessionId, onPersistentSessionReady, writingPreparation }) {
+    const selection = customSelection || (writingPreparation ? modelSelection(gameId) : backgroundModelSelection(await backgroundConfigForSession(gameId)))
+    if (!selection) throw new Error(writingPreparation ? '这局没有可用的前台模型' : '这局没有可用的后台模型')
     const chat = await storyContext({ sessionId: gameId })
     const recent = (chat?.messages || []).filter(message => message && !message.greeting && ['user', 'assistant'].includes(message.role)).slice(-2)
       .map(message => ({ role: message.role, content: [{ type: 'text', text: pluginSource(message).slice(-2400) }] }))
     // With a plugin member, its resident Session (one per game) instead of a fresh one.
-    const own = system !== undefined ? { ownPrefix: true, system, taskText: prompt, messages: [] } : { system: prompt, messages: recent }
+    const ownSystem = writingPreparation?.system ?? system
+    const own = ownSystem !== undefined ? { ownPrefix: true, system: ownSystem, taskText: prompt, messages: [] } : { system: prompt, messages: recent }
+    if (writingPreparation) {
+      const file = writingPreparationBindingPath(gameId)
+      let boundId = ''
+      resolvePersistentSessionId = async () => {
+        boundId = str((await profileData.readJson(file))?.sessionId)
+        return boundId
+      }
+      onPersistentSessionReady = async sessionId => {
+        if (boundId !== sessionId) await profileData.writeJson(file, { sessionId })
+      }
+    }
     return await backgroundAgentRunner.run({
       task: 'plugin',
       pluginName: id ? owner + '/' + id : owner,
+      writingPreparation,
       member,
-      persistent: Boolean(member),
+      persistent: Boolean(member || writingPreparation),
       sessionId: gameId,
       selection,
       signal,
@@ -3414,6 +3435,13 @@ export async function apply(ctx) {
   const figurePictures = createFigurePictures(() => ctx.get('assetLibrary'))
   pluginApi = createTavernPluginApi({
     ctx,get modHost() {return ctx.get('tavernManagedModules')},
+    // A new turn sees the plugin manager's switch as soon as it is written,
+    // even when the host has not disposed the old plugin fiber yet.
+    writingPluginEnabled: folder => !existsSync(path.join(dataRoot, 'plugins', folder, DISABLED_FILE)),
+    writingSources: createWritingPreparationSources({
+      tavernSkills, chatForSession, historyRecall,
+      worldbookForChat: async chat => playWorldBook(chat, await readChatCard(chat))
+    }),
     replyStreamRewriters,
     logger: console,
     // The asset packs a card plays with: its own and the ones every card uses.
@@ -3671,6 +3699,7 @@ export async function apply(ctx) {
   })
   const pluginBodyGeneration = createPluginBodyGeneration({ chatForSession, routeChatForSession: sessionId => chatHeaderForSession(sessionId, ['mode', 'foregroundFrames', 'timeline']), readRevision: readChatRevision,
     updateChat, settings: readTavernSettings, providers: pluginApi.bodyGenerators,
+    writingPreparationFor: pluginApi.writingPreparation.forGame,
     isWorldbookPath: filePath => worldbookSkillProvider.ownsPath(filePath),
     isBackground: sessionId => backgroundAgentRunner.owns(sessionId),
     regenerateWithProvider: input => regenerateWithProvider(input) })
@@ -4336,7 +4365,7 @@ export async function apply(ctx) {
     projectReply: projectRuntimeReply,
     projectWorldBookTemplates: input => nativeWorldBookTemplateContext(input.chat, input.card),
     projectForegroundWorldbook,
-    foregroundRosterAddendum: ({chat,userText}) => foregroundCapabilities.rosterAddendum(chat,{userText}),
+    foregroundCapabilityUpdate: ({chat,userText}) => foregroundCapabilities.update(chat,{userText}),
     recordWorldbookRecall: worldbookRecallLog.record,
     resolvePresetRegexScripts: async chat => presetRegexScripts(chat),
     now: Date.now,
@@ -4507,7 +4536,7 @@ export async function apply(ctx) {
     prepareRegenerationFrameCache: async ({ chat, card, turn, userText, target, targetAssistantIndex }) => {
       if (!chat || !card || !['story', 'script'].includes(chat.mode || 'story')) return null
       const settings = await readTavernSettings()
-      if (str(configuredBodyGeneration(settings).mode).startsWith('plugin-')) return null
+      if (str(configuredBodyGeneration(settings).mode).startsWith('plugin-') && !await pluginApi.writingPreparation.forGame(chat.sessionId)) return null
       const preset = await resolveChatRuntimePreset({ ...chat }, { preview: true })
       const worldBook = await playWorldBook(chat, card)
       const targetRow = targetAssistantIndex >= 0 ? chat.messages?.[targetAssistantIndex] : null
@@ -4689,6 +4718,8 @@ export async function apply(ctx) {
   const speechRecognition = await createSpeechRecognitionHost({store:profileData,credentials:() => ctx.get('credentials'),providers:() => pluginApi.speechProviders('recognize')})
   ctx.provide('asr', speechRecognition.service)
   ctx.effect(() => () => speechRecognition.service.dispose())
+  // Voiced lines still being synthesized and background work any game still holds keep a deployment waiting.
+  deploymentWork.push(() => ({voice: speech.pendingCount() + (voiceService()?.pendingCount() || 0), background: {busy: backgroundTasks.pendingCount() > 0}}))
 
   // Request handlers by area live in rpc/; bindings assigned later are read through getters.
   // paragraphSpeech: a paragraph's spoken line, the core's voice selection (the stage's clip export reads it).
@@ -5067,6 +5098,7 @@ export async function apply(ctx) {
   const controlledToolNames = new Set([...modTools.map(tool => tool.name), 'style_reference_submit', STORY_SUBMIT_TOOL_NAME, STORY_CONTEXT_TOOL_NAME, STORY_GENERATE_TOOL_NAME, 'tavern_read_variables', ...WORLDBOOK_ACCESS_TOOLS, ...CARD_MEMORY_TOOLS, 'bash', 'pwsh', ...dshFileToolNames, 'skill', 'tavern_read_skill_reference', 'tavern_read_skill', 'web_search', 'web_fetch', 'tavern_save_skill', ...cordisToolNames, 'tavern_user_profile_read', 'tavern_user_profile_save', 'tavern_user_profile_confirm', 'tavern_read_card', 'tavern_read_card_raw', 'tavern_search_card', 'tavern_replace_card_text', 'tavern_mvu_overview', 'tavern_apply_mvu', 'tavern_read_play_chat', 'tavern_read_script', 'tavern_recall_history', 'worldbook_search', WORKBENCH_READ_LOREBOOK_TOOL, WORKBENCH_UPDATE_LOREBOOK_TOOL, 'tavern_read_preset', 'tavern_update_preset', 'tavern_read_regex_library', 'tavern_copy_card', 'tavern_set_card_cover', 'tavern_export_card_png', 'tavern_update_card', 'tavern_restore_card', 'tavern_validate_card', 'tavern_test_response'])
   const foregroundStrategies = createForegroundOrchestrationStrategies({
     nativePlay: {
+      writingPreparation: pluginApi.writingPreparation,
       // Input side: replay past bodies as calls of the submission tool.
       styleReferencePrompt: chat => foregroundStyleReferencePrompt(chat, runtimePrompt('style-reference-recall'), runtimePrompt('style-reference')),
       foregroundCandidatePrompt: async chat => chat?.backgroundTasks?.foregroundCandidates === true
@@ -5205,6 +5237,7 @@ export async function apply(ctx) {
     runtimePrompt,
     sessionStore,
     storyOutputToolCall: async () => (await readTavernSettings()).storyOutputToolCall,
+    writingPreparation: pluginApi.writingPreparation,
     turnOrchestrator,
     userMessageForTurn,
   })
@@ -5218,7 +5251,8 @@ export async function apply(ctx) {
       pluginGeneration: async sessionId => (await pluginBodyGeneration.route(sessionId)).mode?.startsWith('plugin-'),
       // Input-only requests still declare the tool for their replayed history;
       // accepting a real submission there is harmless.
-      enabled: async () => {
+      enabled: async sessionId => {
+        if (foregroundStrategies.pureWritingTurn(sessionId)) return true
         const settings = await readTavernSettings()
         return settings.storyInputToolCall === true || settings.storyOutputToolCall === true
       },

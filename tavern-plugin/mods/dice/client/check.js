@@ -385,7 +385,9 @@ function CheckCard(props) {
         report && !(ledger && !record.dice) ? h("div", { className: "fork-check-line" }, report) : null,
         changes.length ? h("div", { className: "fork-check-line" }, changes.map(checkChangeText).join("，")) : null,
         awaiting && props.answerable ? h(CheckButtons, { record, input: props.input, ledger: Boolean(props.look && props.look.result && props.look.result.card === "ledger"), onPick: setPicked, foldable: props.onStage }) : null,
-        awaiting && !props.answerable ? h("div", { className: "fork-check-choices" },
+
+        // A record whose choices the story asks for at the round's end (later) waits for that page.
+        awaiting && !props.answerable && !props.later ? h("div", { className: "fork-check-choices" },
             h(CheckConditions, { record }),
             checkPlayerChoices(record).map(choice => h("div", { key: choice.id, className: "fork-check-choice" },
                 h("span", { className: "fork-check-choice-label" }, choice.label), " ", checkChoiceText(choice, record),
@@ -398,17 +400,24 @@ function CheckCard(props) {
             record.seed !== undefined ? [h("dt", { key: "et" }, "种子"), h("dd", { key: "ed" }, String(record.seed))] : null) : null);
 }
 
-// props: { useChat, nativeTurn, nodeKey? (chat floor), pageKey? (the stage), input? ({submit(text)}, from the host) }. Nothing for a
-// round without checks. The round's awaiting record gets its buttons only on the chat's newest round while nothing is being written.
+// props: { useChat, nativeTurn, nodeKey? (chat floor), pageKey? (the stage), place? (the stage: where the reader stands in
+// the round), input? ({submit(text)}, from the host) }. Nothing for a round without checks. The round's awaiting record
+// gets its buttons only on the chat's newest round while nothing is being written. On the stage a record called for
+// partway through the reply shows from its place in the text on, and one that asks the player has its buttons on the
+// round's last page, where the story asks (place.js); a record still waiting for the reply's text is not shown yet.
 function CheckRecords(props) {
-    const records = useChecks(props.useChat, props.nativeTurn, props.nodeKey);
+    const all = useChecks(props.useChat, props.nativeTurn, props.nodeKey), place = props.place;
+    const records = place ? all.filter(record => dicePlaceState(record, place, props.nativeTurn) === "now") : all;
     const answerable = useCheckAnswerable(props.useChat, props.nativeTurn) && Boolean(props.input);
     // The skin's look of the record cards (the stage passes its session; a chat floor keeps the plain card).
     const options = useModOptions(props.sessionId, "dsh.dice", { enabled: Boolean(props.sessionId) && records.length > 0 });
     if (!records.length) return null;
     const look = options && options.values || null;
     return React.createElement("div", { className: "fork-roll-list fork-check-list", role: "group", "aria-label": "规则检定" },
-        records.map(record => React.createElement(CheckRecord, { key: record.callId, record, look, onStage: Boolean(props.sessionId), input: props.input, answerable: answerable && record === records[records.length - 1] })));
+        records.map(record => {
+            const later = Boolean(place) && dicePlaced(record, place, props.nativeTurn) && !place.end;
+            return React.createElement(CheckRecord, { key: record.callId, record, look, onStage: Boolean(props.sessionId), input: props.input, later, answerable: answerable && record === all[all.length - 1] && !later });
+        }));
 }
 
 // The skin's tone colours (the dsh.dice option tones) over the stage's, as on the throw's band.

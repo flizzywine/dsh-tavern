@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 const source = readFileSync(new URL('../tavern-plugin/lib/client.js', import.meta.url), 'utf8')
 const start = source.indexOf('async function importCardFiles(')
-const body = source.slice(start, source.indexOf('async function renameCard()', start))
+const body = source.slice(start, source.indexOf('async function saveCardExport(', start))
 const selectionStart = source.indexOf('async function importTavernCardSelection(')
 const selection = source.slice(selectionStart, source.indexOf('// No file filter on card import', selectionStart))
 function setup(cardZip = null) {

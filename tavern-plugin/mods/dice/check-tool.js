@@ -9,10 +9,14 @@ export const RULES_KEY = 'dsh.rules'
 export const CHECK_RULES_KEY = 'dsh.dice'
 // The rulings one reply may make: more is a model going in circles, not a story.
 export const RULINGS_PER_REPLY = 16
+// Where the reader meets a result: where the call stands in the reply's text. Every record with an id carries `at`, the
+// stage paragraphs the reply wrote before the call (lib/mod-tools.js storyUnitsBefore; none before any text), and the stage
+// plays it where the text goes on (client/place.js).
+export const CALL_HINT = "The player watches each result: when you call, the stage plays it on screen (the dice, a stamp) at that point of your story text. So call it mid-reply, at the moment the story needs the ruling: first write the lead-up in this reply as story text the player reads, never a note to yourself (the scene, the attempt, the dice leaving the hand), then call, then go on with the story's next sentence from the result - do not restart the scene or retell the lead-up. The text before the call cannot know the result, so it must not hint at it. An awaiting result's choices open at the end of the reply by themselves."
 
 export const CHECK_TOOL = {
   name: 'tavern_check',
-  description: "The rules of a card that declares them: its actions and the variables they own. The engine checks, rolls with a recorded seed and does every sum; never roll, count or do arithmetic yourself, and never restate these numbers for the variables: the host writes them when the reply settles. op=status: the actions available now with their parameters, and the current values. op=act: when the story reaches what an action describes (a roll the player's character attempts, something the rules count happening, the game moving on), submit it with its parameters and one sentence of reason; several acts may go in one step, each sees the ones before it. Write on from the short result: its text and changes, and end the reply where its stop says. A refusal says why and what the story can do instead: write that, do not resubmit the same act. If the result is awaiting, tell the player its choices in plain words and stop; when they answer, op=choose with their choice ({} keeps the defaults) plus your own judgment of any choice marked by gm, never choose for them; an answer can open a further choice, told the same way. Regenerating a reply rewrites only its text: the rulings of the version it replaces stand and new acts are refused; to redo the rulings the player rolls the round back.",
+  description: "The rules of a card that declares them: its actions and the variables they own. The engine checks, rolls with a recorded seed and does every sum; never roll, count or do arithmetic yourself, and never restate these numbers for the variables: the host writes them when the reply settles. op=status: the actions available now with their parameters, and the current values; it shows the player nothing, so it may come before any text. op=act: when the story reaches what an action describes (a roll the player's character attempts, something the rules count happening, the game moving on), submit it with its parameters and one sentence of reason; several acts may go in one step, each sees the ones before it. Write on from the short result: its text and changes, and end the reply where its stop says. A refusal says why and what the story can do instead: write that, do not resubmit the same act. If the result is awaiting, tell the player its choices in plain words and stop; when they answer, op=choose with their choice ({} keeps the defaults) plus your own judgment of any choice marked by gm, never choose for them; an answer can open a further choice, told the same way. Regenerating a reply rewrites only its text: the rulings of the version it replaces stand and new acts are refused; to redo the rulings the player rolls the round back. " + CALL_HINT,
   parameters: {
     op: { type: 'string', enum: ['status', 'act', 'choose'] },
     action: { type: 'string', description: 'act: the action id from status, e.g. chaos' },
@@ -213,7 +217,7 @@ export function backfillRulesCall(args, { card, results, variables, turn }) {
 
 export const REGENERATING = '这一轮是重写正文：上一版的裁定照旧有效（见上面的工具结果），照它们写。上一版没有的检定或花费，这一轮不要写成已经发生，可以留到下一轮。'
 
-export function createCheckTool({ activeTurnOf, chatForSession, isBackground, authorize = async () => true, markUsed = async () => {}, readCard, results, variables = () => undefined }) {
+export function createCheckTool({ activeTurnOf, chatForSession, isBackground, authorize = async () => true, markUsed = async () => {}, readCard, results, variables = () => undefined, storyUnitsBefore = () => 0 }) {
   return {
     ...CHECK_TOOL,
     output: {
@@ -238,9 +242,11 @@ export function createCheckTool({ activeTurnOf, chatForSession, isBackground, au
       if (chat.regenInProgress === true && requestOf(args).op !== 'status') throw new Error(REGENERATING)
       const records = (await results(exec)).map(text => { try { return JSON.parse(text) } catch { return null } })
       const context = { variables: variables(chat), turn }
-      if (rules.format === RULES_FORMAT) return runRulesCall(rules, records, args, randomInt(0, 2 ** 32), context)
       const request = requestOf(args)
-      return runCheckAction(rules, records, { ...request, action: { status: 'status', act: 'roll', choose: 'settle' }[request.op] ?? request.action, check: request.op === 'act' ? request.action : request.check }, randomInt(0, 2 ** 32), context)
+      const record = rules.format === RULES_FORMAT ? runRulesCall(rules, records, args, randomInt(0, 2 ** 32), context)
+        : runCheckAction(rules, records, { ...request, action: { status: 'status', act: 'roll', choose: 'settle' }[request.op] ?? request.action, check: request.op === 'act' ? request.action : request.check }, randomInt(0, 2 ** 32), context)
+      const at = record.id && record.status !== 'sheet' ? storyUnitsBefore(exec) : 0
+      return at ? { ...record, at } : record
     }
   }
 }

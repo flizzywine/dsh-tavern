@@ -4,9 +4,13 @@ import { readFile } from 'node:fs/promises'
 import vm from 'node:vm'
 
 const source = await readFile(new URL('../tavern-plugin/src/client/modules/story-external-history.js', import.meta.url), 'utf8')
+const reminders = await readFile(new URL('../tavern-plugin/lib/domain/system-reminders.cjs', import.meta.url), 'utf8')
+const receipts = await readFile(new URL('../tavern-plugin/lib/domain/writing-material-receipts.cjs', import.meta.url), 'utf8')
 
 function load() {
-	const context = vm.createContext({ console })
+	const context = vm.createContext({ console, window: {} })
+	vm.runInContext(reminders, context)
+	vm.runInContext(receipts, context)
 	vm.runInContext(source, context)
 	return context
 }
@@ -27,12 +31,14 @@ function harness(options = {}) {
 	const rebuiltNodes = []
 	const disposed = []
 	const enabledCalls = []
+	const builtStates = []
 	const state = { enabled: options.enabled !== false, turnOrder: options.turnOrder || [1, 2, 3], openTurn: options.openTurn }
 	const assembler = {
 		activeTargets: options.activeTargets || new Set(['chat']),
 		locationIndex: { snapshot: () => ({ turnOrder: state.turnOrder }) },
 		openTurn: () => state.openTurn,
 		buildNode(buildContext, target) {
+			builtStates.push(buildContext?.state)
 			const turn = buildContext && buildContext.start && buildContext.start.location && buildContext.start.location.turn
 			calls.push({ turn: turn && turn.turn, target })
 			return { native: true, target, turn: turn ? turn.turn : null }
@@ -59,11 +65,51 @@ function harness(options = {}) {
 	const handle = context.installTavernStoryExternalHistory({
 		require: () => ({ UiConversation }),
 		uiConversation: instance,
+		trajectoryPolicy: options.trajectoryPolicy,
 		isEnabled: session => { enabledCalls.push(session); return state.enabled }
 	})
 	return { context, handle, instance, proto, originalProtoBinding, assembler, binding, originalBuild, originalDispose,
-		calls, rebuilds, rebuiltNodes, disposed, enabledCalls, state }
+		calls, rebuilds, rebuiltNodes, disposed, enabledCalls, builtStates, state }
 }
+
+test('酒馆轨迹隐藏宿主提醒，保留 Skill 和玩家内容', async () => {
+	const h = harness({ activeTargets: new Set(['trajectory']), trajectoryPolicy: async id => ({ hideSystemReminders: id === 's1' }) })
+	h.instance.binding('s1')
+	await new Promise(resolve => setImmediate(resolve))
+	assert.equal(h.rebuilds.length, 1)
+	const reminder = at(3, { state: { kind: 'context', source: { kind: 'runtime-context' } } })
+	assert.equal(h.assembler.buildNode(reminder, 'trajectory'), null)
+	const skill = at(3, { state: { kind: 'context', source: { kind: 'skill-catalog' } } })
+	assert.equal(h.assembler.buildNode(skill, 'trajectory').native, true)
+	const unknown = at(3, { state: { kind: 'context', source: { kind: 'plugin:host' },
+		content: [{ type: 'text', text: '<system-reminder>宿主信息</system-reminder>' }] } })
+	assert.equal(h.assembler.buildNode(unknown, 'trajectory'), null)
+	const player = at(3, { state: { kind: 'user', content: [{ type: 'text', text: '<system-reminder>书里的字样' }] } })
+	assert.equal(h.assembler.buildNode(player, 'trajectory').native, true)
+	assert.equal(h.assembler.buildNode(at(3, { state: { kind: 'assistant' } }), 'trajectory').native, true)
+	assert.equal(h.assembler.buildNode(reminder, 'preview').native, true)
+	h.handle.dispose()
+	assert.equal(h.assembler.buildNode(reminder, 'trajectory').native, true)
+})
+
+test('白手套模式的前台轨迹隐藏 Skill 目录和旧回执里的 Skill，保留其他资料', async () => {
+	const h = harness({ activeTargets: new Set(['trajectory']),
+		trajectoryPolicy: async () => ({ hideSystemReminders: true, hideSkillContext: true }) })
+	h.instance.binding('s1')
+	await new Promise(resolve => setImmediate(resolve))
+	const skill = at(3, { state: { kind: 'context', source: { kind: 'skill-catalog' } } })
+	assert.equal(h.assembler.buildNode(skill, 'trajectory'), null)
+	const skillText = '【写作指引】\n写作规则。'
+	const lore = '【世界书 · 钟楼】\n塔钟在整点响。'
+	const injection = text => at(3, { state: { kind: 'context', source: { kind: 'plugin:dsh-tavern-pure-writer', form: 'inject' },
+		content: [{ type: 'text', text }] } })
+	assert.equal(h.assembler.buildNode(injection(skillText), 'trajectory'), null)
+	const mixed = injection(skillText + '\n\n' + lore)
+	assert.equal(h.assembler.buildNode(mixed, 'trajectory').native, true)
+	assert.equal(h.builtStates.at(-1).content[0].text, lore)
+	assert.equal(mixed.state.content[0].text, skillText + '\n\n' + lore)
+	h.handle.dispose()
+})
 
 test('故事模式下未物化的旧回合不构建 chat 节点，返回 null 且不调用原生 buildNode', () => {
 	const h = harness()

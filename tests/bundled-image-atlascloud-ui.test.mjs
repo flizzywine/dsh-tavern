@@ -112,7 +112,7 @@ function harness({ providers = IMAGE_PROVIDERS, config = {}, worldbookBooks = []
     update => { state[key] = typeof update === 'function' ? update(state[key]) : update },
   ]))
   const context = vm.createContext({
-    BASE, ...refs, ...setters, WorldbookUpgradePanel: () => null,
+    BASE, MAX_IMAGE_CONCURRENCY: 100, DEFAULT_IMAGE_CONCURRENCY: 2, ...refs, ...setters, WorldbookUpgradePanel: () => null,
     h(type, props, ...children) { return { type, props: props || {}, children } },
     S: { card: {}, input: {}, row: {}, tab: () => ({}) }, buttonStyle: {},
     window: { dispatchEvent() {} }, CustomEvent: function (type, init) { return { type, ...init } },

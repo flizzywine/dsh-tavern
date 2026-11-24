@@ -95,12 +95,13 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
   // 「?」 button whose tooltip shows on hover / keyboard focus and toggles on click or tap; Esc or an outside tap closes.
   // In the client the shared HelpTip is injected (viewport-placed popover, same look as the settings pages);
   // LocalHelp is the self-contained fallback (tests, standalone harnesses).
-  const Help=HelpTip?({text,label='说明'})=>h(HelpTip,{label},text):LocalHelp;
-  function LocalHelp({text,label='说明'}) {
+  // `face` replaces the 「?」 (a ⚠ whose hover / tap says what the check found).
+  const Help=HelpTip?({text,label='说明',face,faceClassName})=>h(HelpTip,{label,face,faceClassName},text):LocalHelp;
+  function LocalHelp({text,label='说明',face,faceClassName}) {
     const [open,setOpen]=React.useState(false),root=React.useRef(null),id=React.useId();
     React.useEffect(()=>{if(!open||typeof document==='undefined')return;const out=e=>{if(root.current&&!root.current.contains(e.target))setOpen(false);};document.addEventListener('pointerdown',out,true);return()=>document.removeEventListener('pointerdown',out,true);},[open]);
     return h('span',{className:'ap-help-anchor',ref:root,'data-open':open||undefined,onKeyDown:e=>{if(e.key==='Escape'&&open){e.stopPropagation();setOpen(false);}}},
-      h('button',{type:'button',className:'ap-help','aria-label':label,'aria-describedby':id,'aria-expanded':open,onClick:e=>{e.preventDefault();e.stopPropagation();setOpen(!open);}},'?'),
+      h('button',{type:'button',className:'ap-help'+(faceClassName?' '+faceClassName:''),'aria-label':label,'aria-describedby':id,'aria-expanded':open,onClick:e=>{e.preventDefault();e.stopPropagation();setOpen(!open);}},face||'?'),
       h('span',{role:'tooltip',id,className:'ap-help-tip'},text));
   }
   function Actions({children}) { return h('div',{className:'ap-actions'},children); }
@@ -500,9 +501,9 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
   // 查看大图 of a pack picture — the shared ImageViewer on the full picture,
   // leased while it shows. `src` instead: a picture not in the pack (a candidate, a
   // draft upload). `actions`: the corner icon buttons ({icon: glyph name, label, onClick, disabled, busy, pressed}).
-  function PackImageView({binding,packId,hash,src,label,actions=[],onClose,onKeyDown}) {
+  function PackImageView({binding,packId,hash,src,label,actions=[],onClose,onKeyDown,viewKey,onSwipe}) {
     const full=useStillPicture(binding,packId,src?null:hash);
-    return h(ImageViewer,{src:src||full.url||null,failed:!src&&(full.failed||src===undefined&&!hash),alt:label,onClose,onKeyDown,
+    return h(ImageViewer,{src:src||full.url||null,failed:!src&&(full.failed||src===undefined&&!hash),alt:label,onClose,onKeyDown,viewKey,onSwipe,
       actions:actions.filter(Boolean).map(a=>({...a,icon:typeof a.icon==='string'?h(Glyph,{name:a.icon}):a.icon}))});
   }
   // line glyphs for the library's icon buttons (16px, currentColor stroke).
@@ -594,8 +595,7 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
     async function saveTo(job,result){
       setExporting({...job.state,phase:'save',loaded:0,total:0});
       const saved=await binding.download(result,{target:job.target,name:job.many?undefined:job.name,onProgress:p=>setExporting({...job.state,phase:'save',...p})});
-      const names=(saved?.names||[]).map(n=>'「'+n+'」').join('');
-      setExported({text:saved?.picked?'已导出到 '+names:'已开始下载 '+names});
+      setExported({text:saved.said});
     }
     const runExport=(job,start)=>work.task(async()=>{
       setExported(null);
@@ -709,11 +709,12 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
   // 「本卡」「关闭」, 24px, no lamp and no chevron (the larger lamp pill is gone); it still opens the same menu, whose
   // items keep their lamps (全局 blue dot, 本卡 green dot, 关闭 grey hollow dot).
   const StateLamp=({state})=>h('i',{className:'ap-state-lamp','data-state':state,'aria-hidden':true});
+  // `scope.titles` (optional) words the tooltips for what the scope switches (the 世界书库 says 世界书, not 演出).
   function PackStateTag({scope,id,name}) {
-    const state=scope.stateOf(id),busy=!!scope.pending[id],label=s=>stateLabel(scope,s);
-    return h(Popover,{label:name+' 使用状态',className:'ap-state-anchor',stopClicks:true,trigger:({toggle,open})=>h('button',{type:'button',className:'ap-state-tag','data-state':state,'aria-haspopup':'menu','aria-expanded':open,'aria-busy':busy||undefined,'aria-label':name+'：'+label(state)+'，更改',title:STATE_TITLES[state],onClick:busy?undefined:toggle},
+    const state=scope.stateOf(id),busy=!!scope.pending[id],label=s=>stateLabel(scope,s),titles=scope.titles||STATE_TITLES;
+    return h(Popover,{label:name+' 使用状态',className:'ap-state-anchor',stopClicks:true,trigger:({toggle,open})=>h('button',{type:'button',className:'ap-state-tag','data-state':state,'aria-haspopup':'menu','aria-expanded':open,'aria-busy':busy||undefined,'aria-label':name+'：'+label(state)+'，更改',title:titles[state],onClick:busy?undefined:toggle},
         busy&&h(Spinner,{key:'busy'}),h('span',null,label(state))),
-      content:close=>scope.options(id).map(s=>h('button',{key:s,type:'button',role:'menuitemradio','aria-checked':state===s,className:'ap-state-opt','data-state':s,title:STATE_TITLES[s],
+      content:close=>scope.options(id).map(s=>h('button',{key:s,type:'button',role:'menuitemradio','aria-checked':state===s,className:'ap-state-opt','data-state':s,title:titles[s],
             'aria-label':label(s),onClick:()=>{close();scope.set(id,s);}},
           h('span',{className:'ap-state-dot'},h(StateLamp,{state:s})),h('span',{className:'ap-state-label'},label(s)),
           state===s&&h('span',{className:'ap-state-check'},h(Glyph,{name:'check'}))))});
@@ -820,10 +821,11 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
     if(!ids.length)return empty;
     return h('ul',{className:'ap-pack-list','aria-label':label},ids.map(render));
   }
-  function SortMenu({sort,onSort}) {
-    const current=PACK_SORTS.find(([k])=>k===sort)?.[1]||'名称';
-    return h(Popover,{label:'排序',className:'ap-sort-anchor',trigger:({toggle,open})=>h(IconButton,{icon:'sort',label:'排序：'+current,'aria-expanded':open,'data-on':sort!=='name'||undefined,onClick:toggle}),
-      content:close=>PACK_SORTS.map(([value,text])=>h('button',{key:value,type:'button',role:'menuitemradio','aria-checked':sort===value,className:'ap-menu-item',onClick:()=>{close();if(sort!==value)onSort(value);}},h('span',null,'按'+text),sort===value&&h('span',{className:'ap-state-check'},h(Glyph,{name:'check'}))))});
+  // `sorts` [[value, text]…], the first one the default (the 世界书库 passes its own two).
+  function SortMenu({sort,onSort,sorts=PACK_SORTS}) {
+    const current=sorts.find(([k])=>k===sort)?.[1]||sorts[0][1];
+    return h(Popover,{label:'排序',className:'ap-sort-anchor',trigger:({toggle,open})=>h(IconButton,{icon:'sort',label:'排序：'+current,'aria-expanded':open,'data-on':sort!==sorts[0][0]||undefined,onClick:toggle}),
+      content:close=>sorts.map(([value,text])=>h('button',{key:value,type:'button',role:'menuitemradio','aria-checked':sort===value,className:'ap-menu-item',onClick:()=>{close();if(sort!==value)onSort(value);}},h('span',null,'按'+text),sort===value&&h('span',{className:'ap-state-check'},h(Glyph,{name:'check'}))))});
   }
   // The kind filter and the sort icon, placed on the search row (no line of their own).
   function KindSortTools({packs,kind,setKind,sort,onSort}) {
@@ -1583,7 +1585,7 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
   }
   // Modal, Button, IconButton: the house dialog for the host's own dialogs too (人物卡更新, card-update-dialog.js).
   // SwitchRow, Popover, MenuItem, HintLine, Glyph: the panel rows and menus 本局设置 shares (conversation-settings.js).
-  const api=stageExposed({App,Home,StageSection,Modal,Button,IconButton,SwitchRow,Popover,MenuItem,useContextMenu,HintLine,Glyph,PackPreviewList,KIND_ORDER,kinds,ModDetail,StageModSection,StageModPage,PackModal,PackRow,PackStateTag,EntryDetail,FigureDetail,applyEntryFields,splitKeywords,ConflictDialog,CardImportSheet,CardUrlSheet,
+  const api=stageExposed({App,Home,StageSection,Modal,Button,IconButton,SwitchRow,Popover,MenuItem,useContextMenu,HintLine,Glyph,PackPreviewList,KIND_ORDER,kinds,ModDetail,StageModSection,StageModPage,PackModal,PackRow,PackStateTag,SortMenu,PackSearchBox,EntryDetail,FigureDetail,applyEntryFields,splitKeywords,ConflictDialog,CardImportSheet,CardUrlSheet,
     // the stage pages' seam: names in (stageScope.names), bind / use (gal-stage.js, asset-launcher.js, settings.js).
     stageScope,
     // the manager and the card's mod section, for tests and the offline screenshot harness.

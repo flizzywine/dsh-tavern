@@ -66,7 +66,10 @@ export function createContextPlanner(options = {}) {
     const instructionSections = []
     if (input.includeName !== false) cardInfoSections.push({ kind: 'card', required: true, text: promptSection('character_card_name', str(input.card.name)) })
     if (input.includeDetails === true) {
-      if (input.includeDescription !== false) cardInfoSections.push({ kind: 'card', required: false, text: promptSection('character_description', projectText([str(input.card.description), PROMPT_PROSE.p006].filter(Boolean).join('\n'))) })
+      if (input.includeDescription !== false) {
+        const description = [str(input.card.description), input.includePlayerIdentity === false ? '' : PROMPT_PROSE.p006].filter(Boolean).join('\n')
+        if (description) cardInfoSections.push({ kind: 'card', required: false, text: promptSection('character_description', projectText(description)) })
+      }
       if (input.includePersonality !== false && str(input.card.personality) !== '') cardInfoSections.push({ kind: 'card', required: false, text: promptSection('character_personality', projectText(input.card.personality)) })
       if (input.includeScenario !== false && str(input.card.scenario) !== '') cardInfoSections.push({ kind: 'card', required: false, text: promptSection('opening_scenario', projectText(input.card.scenario)) })
       if (input.includeStyleExample !== false && str(input.card.mes_example) !== '') cardInfoSections.push({ kind: 'card', required: false, text: promptSection('style_examples', projectText(input.card.mes_example)) })
@@ -118,6 +121,7 @@ export function createContextPlanner(options = {}) {
         includeName: true,
         includeDetails: true,
         includeDescription: true,
+        includePlayerIdentity: input.chat.mode === 'card',
         includePersonality: true,
         includeScenario: true,
         includeStyleExample: true,

@@ -7,6 +7,8 @@ import { createInitializationNative } from './fixtures/conversation-initializati
 import { KNOWN_SESSION_EVENT_TYPES } from './fixtures/dsh-session-host.mjs'
 import { registerTurnLifecycleHooks } from '../tavern-plugin/lib/hooks/turn-lifecycle.js'
 import { registerRequestHooks } from '../tavern-plugin/lib/hooks/request.js'
+import { createForegroundFrameBuilder } from '../tavern-plugin/lib/domain/agent-input-frame.js'
+import { createForegroundFrameSessionAdapter } from '../tavern-plugin/lib/domain/foreground-frame-session-adapter.js'
 import { createForegroundOrchestrationStrategies } from '../tavern-plugin/lib/domain/foreground-orchestration-strategies.js'
 import { createForegroundWorldbook } from '../tavern-plugin/lib/domain/foreground-worldbook.js'
 import { projectVirtualWorldbookPrefix } from '../tavern-plugin/lib/domain/worldbook-virtual-state.js'
@@ -59,13 +61,41 @@ test('原地切换开场可从保存中恢复，第一条模型请求只看到�
 
 test('修改玩家称呼更新已经生成的开场和后续模型请求，保留骰点与存档变量', native, async t => {
   const source = '{{setvar::gold::30}}玩家站在门外。{{user}}，你好。骰点 {{roll::1d6}}。'
-  const h = await createInitializationNative(process.env.DSH_BOOT_MODULE, { cardOverrides: { first_mes: source } })
+  const h = await createInitializationNative(process.env.DSH_BOOT_MODULE, {
+    cardOverrides: { first_mes: source, description: '玩家 is the player.' }
+  })
   t.after(() => h.dispose())
   const initialization = h.open()
   const original = await initialization.start(h.input)
   const firstText = original.messages[0].text
   assert.match(firstText, /^玩家站在门外。玩家，你好。骰点 [1-6]。$/)
+  const frames = createForegroundFrameBuilder()
+  const adapter = createForegroundFrameSessionAdapter()
+  const chatForSession = () => h.persistence.read(original.id)
+  const foregroundStrategies = createForegroundOrchestrationStrategies({ nativePlay: {
+    modeFor: async () => 'story', filterMessages: messages => messages, resolvePreset: async () => null,
+    visibleTools: async () => [], controlledToolNames: new Set(),
+    async prepareTurn({ turn, userText }) {
+      const chat = await chatForSession()
+      return { frame: frames.build({
+        chatId: chat.id, branchId: 'native', operationId: 'turn-' + turn, turn, basedOnRevision: 0,
+        inputs: [{ kind: 'foreground.user-input', sourceText: userText, projectedText: userText }],
+        source: { playerName: chat.macroState.userName }
+      }) }
+    },
+    appendFrame: adapter.append, recordFrame() {}
+  } })
+  registerRequestHooks({
+    ctx: h.ctx, openingRequest: initialization.openingRequest, chatForSession, foregroundStrategies,
+    backgroundAgentRunner: { owns: () => false }, sessionStore: h.ctx.sessions,
+    cardMemory: { appendRecall: ({ decision }) => decision }, requestCoordinates: new Map(),
+    requestIdForMessages: () => '', tavernRetryLimiter: { handle() {} }
+  })
+  const playerNames = request => request.messages.filter(message => message.source?.form === 'player-identity')
+    .map(message => message.source.trace.playerIdentity.name)
   await h.continueWithAgent()
+  assert.deepEqual(playerNames(h.requests[0]), ['玩家'])
+  assert.match(h.requests[0].system, /玩家 is the player\./)
   await h.persistence.update(original.id, chat => {
     chat.macroState.local.gold = '50'
     return chat
@@ -86,6 +116,10 @@ test('修改玩家称呼更新已经生成的开场和后续模型请求，保�
     .map(message => message.content.map(part => part.text || '').join(''))
   assert.equal(replies.filter(text => text === renamed).length, 1)
   assert.ok(!replies.includes(firstText))
+  assert.equal(h.requests[1].system, h.requests[0].system)
+  assert.deepEqual(playerNames(h.requests[1]), ['玩家', '旅人'])
+  await h.continueInPlace()
+  assert.deepEqual(playerNames(h.requests[2]), ['玩家', '旅人'])
 })
 
 test('a rich opening starts and renames safely in a native session', native, async t => {

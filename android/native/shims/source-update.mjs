@@ -240,7 +240,7 @@ async function stage(root) {
 async function copyTree(from, to) {
   await rm(to, { recursive: true, force: true })
   await mkdir(path.dirname(to), { recursive: true })
-  const r = spawnSync('cp', ['-a', from, to], { stdio: 'ignore' })
+  const r = spawnSync('cp', ['-a', from, to], { windowsHide: true, stdio: 'ignore' })
   if (r.status === 0) return
   await rm(to, { recursive: true, force: true })
   await cp(from, to, { recursive: true, verbatimSymlinks: true })
@@ -293,7 +293,7 @@ async function backup(root, opts) {
 function runLogged(label, command, args, { cwd, env, log }) {
   return new Promise((resolve, reject) => {
     log.write(`\n$ ${label}: ${command} ${args.join(' ')}\n`)
-    const child = spawn(command, args, { cwd, env, stdio: ['ignore', 'pipe', 'pipe'] })
+    const child = spawn(command, args, { windowsHide: true, cwd, env, stdio: ['ignore', 'pipe', 'pipe'] })
     const tail = []
     const onData = chunk => {
       log.write(chunk)

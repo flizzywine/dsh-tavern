@@ -7,7 +7,7 @@ Outfit: """{{outfitAppearance}}"""
 User notes: """{{userPrompt}}"""
 
 Reference images, in order (none if empty): {{referenceRoles}}
-User artwork is the authority. Borrow its face shape, eye shape and highlights, hair, proportions, outfit design, line weight, shading and palette. Do not restyle it into a generic anime look. Where text and images disagree, follow the images; use the text for what they do not show.
+User artwork is the authority for what its role above covers. Borrow its face shape, eye shape and highlights, hair, proportions, line weight, shading and palette, and its outfit design unless its role says its clothes are a sample outfit. Over a sample outfit, draw the clothes from the Outfit text and notes on that same body, whether they cover more or less of it. Do not restyle it into a generic anime look. Where text and images disagree, follow the images, except for clothes on a sample outfit; use the text for what they do not show.
 
 Layout on a plain light grey-white background, no scenery:
 1. Turnaround: the same character four times at identical scale on one baseline: front, three-quarter front, side, back. Full body from hair top and ornaments to soles, nothing cropped. Neutral standing pose, arms relaxed slightly away from the body, neutral face, eyes open.

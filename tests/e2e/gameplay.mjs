@@ -401,7 +401,7 @@ try {
     await page.getByRole('button', { name: 'Continue', exact: true }).click()
   })
   if (batchImportScenario) {
-    await step('普通入口和批量管理都能多选，单份失败不影响后续导入', async () => {
+    await step('普通入口和多选栏都能多选文件，单份失败不影响后续导入', async () => {
       const cardFile = name => ({ name: name + '.json', mimeType: 'application/json',
         buffer: Buffer.from(JSON.stringify({ spec: 'chara_card_v2', spec_version: '2.0',
           data: { name, description: '批量导入验收', first_mes: '你好。' } })) })
@@ -421,7 +421,7 @@ try {
       await summary.filter({ hasText: '失败文件：损坏.json' }).waitFor()
       await picker.getByText('批量验收甲', { exact: true }).waitFor()
       await picker.getByText('批量验收乙', { exact: true }).waitFor()
-      await picker.getByRole('button', { name: '批量管理', exact: true }).click()
+      await picker.getByRole('button', { name: '多选', exact: true }).click()
       await choose('批量导入', [second, third])
       await picker.getByRole('status').filter({ hasText: '已导入 1 张，1 个文件失败' })
         .filter({ hasText: '失败文件：批量验收乙.json' }).waitFor()
