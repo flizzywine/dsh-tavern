@@ -60,7 +60,7 @@ test('重命名人物卡修改详情和列表里的展示名，保留文件路�
     render()
   }, cardPath)
   const rename = page.getByRole('button', { name: '重命名', exact: true })
-  const title = page.locator('.dsh-tavern-card-detail .dsh-tavern-status-title')
+  const title = page.locator('.dsh-card-detail .dsh-card-name')
   const input = page.getByRole('dialog', { name: '重命名人物卡', exact: true }).getByRole('textbox')
   const expectTitle = text => title.filter({ hasText: text }).waitFor()
   await rename.click()
@@ -74,9 +74,8 @@ test('重命名人物卡修改详情和列表里的展示名，保留文件路�
   await expectTitle(newName)
   // the file name is no line under the card name (主人 11-24): the name's tooltip says it.
   assert.equal(await title.getAttribute('title'), fileName)
-  const characterField = page.locator('.dsh-tavern-card-field').filter({ has: page.getByText('角色名称', { exact: true }) })
-  assert.equal(await characterField.locator('input').inputValue(), characterName)
-  await page.getByRole('button', { name: '← 返回', exact: true }).click()
+  // the card's own 角色名称 is untouched: renaming writes only the library's display name (no updateCard, checked below).
+  await page.getByRole('button', { name: '返回人物卡库', exact: true }).click()
   await page.getByRole('searchbox', { name: '搜索人物卡' }).fill(newName)
   await page.getByRole('button', { name: newName, exact: true }).click()
   await rename.click()

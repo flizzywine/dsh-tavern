@@ -1549,6 +1549,17 @@
 					return openPlayCard(card);
 				}).catch(function (err) { setError(String(err && err.message || err)); });
 			}
+			// 人物卡库's card page reaches two entries of this list by window events (detail.path): its cover ▶ is 新建游戏
+			// (dsh-tavern-play-card) and its ⋯ › 管理存档… is the 存档管理 filtered to the card (dsh-tavern-manage-saves).
+			const cardEntryRef = React.useRef(null);
+			cardEntryRef.current = { play: newPlayFromGroup, manage: function (path) { openHistoryManager(); setManagerCardFilter(tavernHistoryCardKey({ cardPath: path })); } };
+			React.useEffect(function () {
+				function onPlayCard(event) { const path = event.detail && event.detail.path; if (path) cardEntryRef.current.play({ path: path }); }
+				function onManageSaves(event) { const path = event.detail && event.detail.path; if (path) cardEntryRef.current.manage(path); }
+				window.addEventListener("dsh-tavern-play-card", onPlayCard);
+				window.addEventListener("dsh-tavern-manage-saves", onManageSaves);
+				return function () { window.removeEventListener("dsh-tavern-play-card", onPlayCard); window.removeEventListener("dsh-tavern-manage-saves", onManageSaves); };
+			}, []);
 			function renderHistoryGroup(group, expanded, toggle) {
 				return h("section", { key: group.key, className: "dsh-tavern-history-group" },
 					h(HistoryGroupHead, { group: group, expanded: expanded, busy: busy,

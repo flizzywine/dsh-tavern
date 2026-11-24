@@ -216,17 +216,17 @@ function useCardOrganization(cards, busy, refresh, onError, batch = {}, place = 
   return { visible, columns, tags, toolbar, batchBar, tagChecklist, toggleStar, untag, disabled };
 }
 
-// The detail page's tags: one chip per tag (✕ takes it off) and a dashed ＋ opening the same checklist.
+// The detail page's tags: one quiet line (# 同人 · 长篇世界观 · 待玩, or 「添加标签」) that wraps at any count; a click opens
+// the same checklist as the card's menu, where tags are ticked on and off.
 function TavernCardDetailTags({ card, organization }) {
   const h = React.createElement, popup = useInlinePopup({ focusSelector: 'input' });
   if (!card) return null;
   const tags = card.tags || [];
-  return h('div', { className: 'dsh-tavern-card-detail-tags' },
-    tags.map(tag => h('span', { key: tag, className: 'dsh-tavern-card-detail-tag' }, h('span', null, tag),
-      h('button', { type: 'button', disabled: organization.disabled, 'aria-label': '去掉标签：' + tag, title: '去掉标签',
-        onClick: () => organization.untag(card, tag) }, '×'))),
-    h('span', { className: 'fork-inline-anchor', ref: popup.root, onKeyDown: popup.keys },
-      h('button', { ref: popup.trigger, type: 'button', className: 'dsh-tavern-card-tag-add', 'aria-label': '添加标签', title: '添加标签', 'aria-haspopup': 'menu', 'aria-expanded': popup.open,
-        onClick: () => popup.setOpen(!popup.open) }, '＋'),
-      popup.open ? popup.layer({ className: 'fork-inline-pop dsh-tavern-card-tag-pop', role: 'menu', 'aria-label': '标签', onKeyDown: inlineMenuKeys }, organization.tagChecklist(card)) : null));
+  return h('span', { className: 'fork-inline-anchor dsh-tavern-card-detail-tags', ref: popup.root, onKeyDown: popup.keys },
+    h('button', { ref: popup.trigger, type: 'button', className: 'dsh-tavern-card-tagline' + (tags.length ? '' : ' is-empty'), disabled: organization.disabled,
+      'aria-label': tags.length ? '标签：' + tags.join('、') + '，修改标签' : '添加标签', title: tags.length ? '修改标签' : '添加标签', 'aria-haspopup': 'menu', 'aria-expanded': popup.open,
+      onClick: () => popup.setOpen(!popup.open) },
+      h(packUi.Glyph, { name: 'hash' }),
+      tags.length ? tags.map(tag => h('span', { key: tag, className: 'dsh-tavern-card-tagline-tag' }, tag)) : h('span', null, '添加标签')),
+    popup.open ? popup.layer({ className: 'fork-inline-pop dsh-tavern-card-tag-pop', role: 'menu', 'aria-label': '标签', onKeyDown: inlineMenuKeys }, organization.tagChecklist(card)) : null);
 }
