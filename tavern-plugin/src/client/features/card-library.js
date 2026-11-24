@@ -568,7 +568,7 @@ function WorldBookAddMenu({ choices, loading, disabled, onOpen, onPick }) {
 					if (!value) return deleteScript();
 					return bindScript(value);
 				},
-				trail: h("input", { ref: scriptFileRef, type: "file", accept: ".txt,.md,.epub,text/plain,text/markdown,application/epub+zip", hidden: true, onChange: function (e) { const f = e.target.files && e.target.files[0]; if (f) importScriptFile(f); e.target.value = ""; } }) });
+				trail: h("input", { ref: scriptFileRef, type: "file", hidden: true, onChange: function (e) { const f = e.target.files && e.target.files[0]; if (f) importScriptFile(f); e.target.value = ""; } }) });
 			const boundWorldBooks = worldBookBinding && worldBookBinding.kind === "multiple" ? worldBookBinding.books : worldBookBinding && worldBookBinding.source ? [worldBookBinding] : [];
 			const hasWorldBookBinding = boundWorldBooks.length > 0;
 			const ownWorldBook = props.view.card.character_book;

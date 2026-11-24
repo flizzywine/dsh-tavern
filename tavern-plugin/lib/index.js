@@ -158,6 +158,7 @@ import { sessionOpeningDescriptor } from './domain/session-opening.js'
 import { scriptPromptScanText } from './domain/tavern-script-prompts.js'
 import { createOpeningPreparation } from './domain/opening-preparation.js'
 import { createChatHistoryImportService } from './domain/chat-history-import-service.js'
+import { chatHistoryScriptText } from './domain/chat-history-import.js'
 import { appendSessionEvent, sessionEvents } from './domain/session-events.js'
 import { setAgentResolver } from './domain/agent-lookup.js'
 import { defineTool } from '@deepseek-ai/dsh-tools'
@@ -1238,8 +1239,15 @@ export async function apply(ctx) {
     if (text === '') throw new Error(emptyMessage)
     return Object.assign({}, source, { name, text, ...(originalText === undefined ? {} : { originalText }) })
   }
-  async function importScript(cardPath, payload) {
+  function prepareScriptImport(payload) {
     const prepared = prepareTextImport(payload, '剧本文件为空')
+    if (/\.jsonl$/i.test(prepared.name)) {
+      return { ...prepared, text: chatHistoryScriptText(prepared.originalText ?? prepared.text) }
+    }
+    return prepared
+  }
+  async function importScript(cardPath, payload) {
+    const prepared = prepareScriptImport(payload)
     await fileResources.importBoundScript(cardPath, prepared)
     const script = await readScript(cardPath)
     return { path: script.path, title: script.title, sourceChars: script.sourceChars, chunkSize: 500, chunkCount: script.chunks.length, importedAt: Date.now() }
@@ -1264,7 +1272,7 @@ export async function apply(ctx) {
     }))
   }
   async function importSource(payload) {
-    const prepared = prepareTextImport(payload, '剧本文件为空')
+    const prepared = prepareScriptImport(payload)
     const sourcePath = await fileResources.importText('source', prepared)
     const record = await readSource(sourcePath)
     return { path: sourcePath, title: record.title, sourceChars: record.sourceChars, chunkCount: record.chunks.length, importedAt: Date.now() }

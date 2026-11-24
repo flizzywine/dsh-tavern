@@ -55,7 +55,7 @@ export function resourceKind(value) {
 function extensionForText(name, fallback = '.txt') {
   const safe = safeResourceName(name)
   const ext = path.extname(safe).toLowerCase()
-  return ext === '.txt' || ext === '.md' || ext === '.json' || ext === '.epub' ? safe : safe + fallback
+  return ['.txt', '.md', '.json', '.jsonl', '.epub'].includes(ext) ? safe : safe + fallback
 }
 
 function rawText(record) {
@@ -115,8 +115,11 @@ export function createFileResourceStore(options = {}) {
 
   async function writeNew(target, data) {
     await mkdir(path.dirname(target), { recursive: true })
-    if (await exists(target)) throw new Error('文件已存在: ' + path.relative(dataRoot, target))
-    await writeFile(target, data)
+    try { await writeFile(target, data, { flag: 'wx' }) }
+    catch (error) {
+      if (error?.code === 'EEXIST') throw new Error('文件已存在: ' + path.relative(dataRoot, target), { cause: error })
+      throw error
+    }
   }
 
   async function writeWorking(relative, data) {
