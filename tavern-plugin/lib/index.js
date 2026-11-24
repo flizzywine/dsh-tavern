@@ -4689,6 +4689,8 @@ export async function apply(ctx) {
   const speechRecognition = await createSpeechRecognitionHost({store:profileData,credentials:() => ctx.get('credentials'),providers:() => pluginApi.speechProviders('recognize')})
   ctx.provide('asr', speechRecognition.service)
   ctx.effect(() => () => speechRecognition.service.dispose())
+  // Voiced lines still being synthesized and background work any game still holds keep a deployment waiting.
+  deploymentWork.push(() => ({voice: speech.pendingCount() + (voiceService()?.pendingCount() || 0), background: {busy: backgroundTasks.pendingCount() > 0}}))
 
   // Request handlers by area live in rpc/; bindings assigned later are read through getters.
   // paragraphSpeech: a paragraph's spoken line, the core's voice selection (the stage's clip export reads it).
