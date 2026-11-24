@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "4adfaf715ddcb882fc709628fccce544d5a15846",
-  "releaseSequence": 2046,
+  "revision": "c5bf39296a615d8360164db5cad191c90bbb647d",
+  "releaseSequence": 2047,
   "version": "3.4.0",
   "files": [
     {
@@ -106,13 +106,18 @@
     },
     {
       "path": "android/native/app/AndroidManifest.xml",
-      "sha256": "12d130ebd84ceffc945ce7ee07b4dc8d2bd4e427177a718bc858e8169803ba03",
-      "size": 2475
+      "sha256": "de7b9c8085c1ee6bade31157e67790648bd76943bc0751b69fc7360bccacdd52",
+      "size": 2471
+    },
+    {
+      "path": "android/native/app/src/io/github/flizzywine/dshtavern/bionic/LanProxy.java",
+      "sha256": "a66917f7bfab1291de5988f31abe7a9414f1b928bfb54e378c74d2248c448969",
+      "size": 12150
     },
     {
       "path": "android/native/app/src/io/github/flizzywine/dshtavern/bionic/MainActivity.java",
-      "sha256": "9ebdcb4345900e31603408d4f1bcc6b5ec885905912a0b278a9fbba5918a46c5",
-      "size": 38450
+      "sha256": "9f22e2ffbf17cdee22441a51cbad10947561ea0a3e1e3c742f6609600ac99533",
+      "size": 43048
     },
     {
       "path": "android/native/app/src/io/github/flizzywine/dshtavern/bionic/TarExtractor.java",
@@ -121,8 +126,8 @@
     },
     {
       "path": "android/native/app/src/io/github/flizzywine/dshtavern/bionic/TavernService.java",
-      "sha256": "a10ad25b401867cae58070ddd0f7cea7605d2793fc2c0f44f38cff090c906d88",
-      "size": 44741
+      "sha256": "b3b535e8bfcaf2c7da235376d8b130985d9a4d334ac5fa79ebbc0a79d3df1e7a",
+      "size": 49304
     },
     {
       "path": "android/native/app/src/io/github/flizzywine/dshtavern/bionic/UpdatedReceiver.java",
@@ -176,8 +181,8 @@
     },
     {
       "path": "android/native/README.md",
-      "sha256": "7c7d6da819c7d974d882e21be0898cc130d4ff3bdb09c8c94a3225d399a391e2",
-      "size": 19275
+      "sha256": "d83fa2ac72fb1f50be4881d806e8e9781901ce84a03036d728abb7a0094a3f55",
+      "size": 19582
     },
     {
       "path": "android/native/release-smoke.mjs",
@@ -10186,9 +10191,9 @@
     }
   ],
   "archive": {
-    "commit": "578f298c9293617d326c7650edcc6960f868669d",
+    "commit": "a999bbbdf9c6572485f3ac31905e121d9ac5c1d8",
     "path": "runtime.zip",
-    "sha256": "d249eedf18dc76ddfb76269612fb856aa00099825f291c5066d981c6be310ada",
-    "size": 17903868
+    "sha256": "4cf4e2ccbe2f254646ffa4ba1852fadc2e372a1f0a32301a7320da606038ad98",
+    "size": 17909785
   }
 }
