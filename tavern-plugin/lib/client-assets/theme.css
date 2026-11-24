@@ -5749,6 +5749,13 @@ body.dsh-tavern-shell-active [data-sidebar-right-panel="fullscreen"][data-sideba
 .ap-ui .ap-card-pack .ap-cat-segment button { height: 28px; padding: 0 12px; font-size: var(--fork-fs-body); }
 .ap-ui p.ap-card-pack-line { margin: 6px 0 0; color: var(--fork-ink); font-size: var(--fork-fs-body); line-height: 1.7; }
 .ap-card-pack .ap-cat-band { margin: 10px 0 0; }
+/* an update's figure whose imported 外貌 differs: the text that will not be used is quieter. */
+.ap-cat-looks { margin: 0 0 14px; }
+.ap-ui .ap-cat-looks p.ap-cat-lead { margin-bottom: 2px; }
+.ap-cat-look { margin: 6px 0 10px; }
+.ap-ui .ap-cat-look p.ap-card-pack-line { margin-top: 2px; overflow-wrap: anywhere; }
+.ap-ui .ap-cat-looks p.ap-cat-switch { margin: 0; }
+.ap-ui .ap-cat-look p.ap-card-pack-line:not([data-chosen]) { color: var(--fork-ink-3); }
 .ap-ui p.ap-card-import-ask { display: flex; flex: 1 0 100%; align-items: flex-start; gap: 8px; margin: 0 0 4px; color: var(--fork-ink); font-size: var(--fork-fs-body); line-height: 1.7; }
 /* the import facts sit open under the lead line (no 「详情」 disclosure). */
 .ap-card-import-facts { margin: 8px 0 0; }
