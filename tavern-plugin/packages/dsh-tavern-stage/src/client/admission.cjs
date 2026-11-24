@@ -2,18 +2,18 @@
 function createStageAdmission({React, window, document, performance, setTimeout, clearTimeout, Spinner, StageLoadLine, loader}) {
 let disposed = false;
 const cleanups = new Set();
-// The stage's one readiness state: pending / loading / slow cover the
-// stage with the veil (slow only says 「仍在载入…」 after 10 s), revealing cross-fades a ready scene in, ready shows it with no
-// loader. Nothing shows the scene and the loader together: a load that never settles keeps the veil (the Esc menu stays
-// reachable over it), never a half-restored scene under a loading notice. Every consumer reads `visible` (ready only).
+const ENTRY_TIMEOUT_MS = 30000;
+// The veil covers pending / loading / slow / failed, and revealing cross-fades only a ready scene.
+// A failed entry neither exposes a half-restored scene nor keeps a spinner running. Late readiness can still reveal it.
 // held: the stage's configured skin is still on its way (useStageConfigSkin loading): the veil stays up rather than show
 // the unskinned stage (the engine's quick menu and box) until the bundle lands.
 // veilFading: the veil's own fade (its CSS transition or a skin's loading-leave) has not finished. Ready follows that fade,
 // never a parallel timer: a loaded page starts the 250 ms fade late, and a timed ready left the veil at 6-10 % over the scene.
-function galEntryPhase(elapsed, ready, revealedAt, shown, held = false, veilFading = false) {
+function galEntryPhase(elapsed, ready, revealedAt, shown, held = false, veilFading = false, failed = false) {
     if (revealedAt !== null) return elapsed - revealedAt >= 250 && !veilFading ? 'ready' : 'revealing';
+    if (!held && ready) return shown ? 'revealing' : 'ready';
+    if (failed || elapsed >= ENTRY_TIMEOUT_MS) return 'failed';
     if (held) return elapsed >= 300 ? 'loading' : 'pending';
-    if (ready) return shown ? 'revealing' : 'ready';
     return elapsed >= 10000 ? 'slow' : elapsed >= 300 ? 'loading' : 'pending';
 }
 
@@ -73,13 +73,13 @@ function galEntryBackdropAccepted(state) {
 // One entry gate, not a new persistent stage state. Later turns keep the existing
 // incremental group presentation and one-shot ledger; only the first reveal waits.
 function useGalEntry(store, rootRef, heldRef = null) {
-    const [phase, setPhase] = React.useState('pending');
+    const [gate, setGate] = React.useState({phase:'pending', failure:null});
     const presented = React.useRef(-1), backdrop = React.useRef(-1);
     React.useEffect(() => {
         if (disposed) return;
         const start = performance.now();
         window.__dshRoundLoadTrace?.mark('stage.mount');
-        let timer, shown = false, revealedAt = null, stopped = false;
+        let timer, shown = false, revealedAt = null, stopped = false, previous, failure = null;
         function poll() {
             if (stopped) return;
             const state = store.getSnapshot(), root = rootRef.current, elapsed = performance.now() - start;
@@ -87,19 +87,28 @@ function useGalEntry(store, rootRef, heldRef = null) {
             const revision = state.accepted.presentationRevision;
             // Audio may wait indefinitely for an autoplay gesture; only visual resources gate entry.
             const drawn = !!root?.querySelector('.fork-gal-box') && document.fonts.status !== 'loading' && images.every(image => image.complete && image.naturalWidth > 0);
-            const base = !!state.source && galEntryBackdropAccepted(state) && galEntryBackdropSettled(state) && drawn;
+            const accepted = !!state.source && galEntryBackdropAccepted(state);
+            const base = accepted && galEntryBackdropSettled(state) && drawn;
             const ready = base && (presented.current === revision || backdrop.current === revision) || galEntryNothingToShow(state) && drawn;
+            // A reported error is terminal for this read only when no core work remains and no backdrop could be accepted.
+            // An undirected round with usable text and an optional asset warning can still reveal normally.
+            const pending = state.pending;
+            const readFailed = !accepted && pending?.error && !pending.text && !pending.director && !pending.projection && !pending.resources;
             // The revealing veil counts as faded once it is committed (data-entry) and has no running animation or transition
             // (getAnimations flushes style, so a fade that has not started yet is still seen).
             const veil = revealedAt === null ? null : root?.querySelector(':scope > .fork-gal-entry-overlay');
             const veilFading = !!veil && (root.dataset.entry !== 'revealing' || veil.getAnimations().some(animation => animation.playState !== 'finished'));
-            const next = galEntryPhase(elapsed, ready, revealedAt, shown, heldRef?.current === true, veilFading);
+            const next = galEntryPhase(elapsed, ready, revealedAt, shown, heldRef?.current === true, veilFading, readFailed || failure);
             if (next === 'revealing' && revealedAt === null) revealedAt = elapsed;
-            shown ||= next === 'loading' || next === 'slow';
-            setPhase(next);
-            if (next === 'ready' || next === 'slow') galEntryShown.set(store);
+            shown ||= next === 'loading' || next === 'slow' || next === 'failed';
+            if (next !== previous) {
+                previous = next;
+                if (next === 'failed') failure = readFailed ? 'read' : 'timeout';
+                setGate({phase:next, failure});
+            }
+            if (next === 'ready' || next === 'slow' || next === 'failed') galEntryShown.set(store);
             if (next === 'ready') window.__dshRoundLoadTrace?.mark('stage.render-ready', {durationMs:Math.round(elapsed)});
-            if (next !== 'ready') timer = setTimeout(poll, 32);
+            if (next !== 'ready') timer = setTimeout(poll, next === 'failed' ? 250 : 32);
         }
         const stop = () => { stopped = true; clearTimeout(timer); cleanups.delete(stop); galEntryShown.release(store); };
         cleanups.add(stop);
@@ -108,7 +117,7 @@ function useGalEntry(store, rootRef, heldRef = null) {
     }, [store]);
     const onPresented = React.useCallback(revision => { presented.current = revision; }, []);
     const onBackdrop = React.useCallback(revision => { backdrop.current = revision; }, []);
-    return {phase, onPresented, onBackdrop, visible:phase === 'ready'};
+    return {...gate, onPresented, onBackdrop, visible:gate.phase === 'ready'};
 }
 
 // the active skin's loader art (art.spinner) is part of the veil. The stage config carries the
@@ -136,6 +145,15 @@ function useGalEntryLoader(skin) {
 // shows while the real load runs (loadPhase) and brightens for a moment when the player clicks before it is done.
 function GalEntryOverlay(props) {
     const h = React.createElement, text = props.phase === 'slow' ? '\u4ecd\u5728\u8f7d\u5165\u2026' : '\u6b63\u5728\u8f7d\u5165\u2026';
+    if (props.failure) {
+        const restoring = props.progress?.view?.phase === 'read';
+        const message = props.failure === 'read' ? '舞台分镜读取失败' : restoring ? '等待导演分镜超时' : '舞台载入超时';
+        return h('div', {className:'fork-gal-entry-overlay', 'data-load-error':'',
+            onClick:event => event.stopPropagation(), onWheel:event => event.stopPropagation(),
+            onKeyDown:event => { if ([' ', 'Enter'].includes(event.key) && event.target.closest('button')) event.stopPropagation(); }},
+            h('span', {role:'alert'}, h('span', {'aria-hidden':true}, '⚠ '), message),
+            h('button', {type:'button', onClick:props.onExit}, '返回聊天'));
+    }
     const entrance = props.entrance, loader = entrance ? null : props.loader, art = loader && loader !== 'pending' ? loader : null;
     return h('div', {className:'fork-gal-entry-overlay', role:props.phase === 'loading' || props.phase === 'slow' ? 'status' : undefined,
         'aria-hidden':props.phase === 'pending' || props.phase === 'ready' || undefined, 'data-fk-loader':loader === 'pending' ? 'pending' : undefined,
