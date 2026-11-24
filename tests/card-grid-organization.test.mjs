@@ -32,7 +32,7 @@ function harness(cards, { batch = {} } = {}) {
     useTavernCardGridColumns: () => [4, () => {}],
     useInlinePopup: popup, inlineMenuKeys() {},
     askTavernText: async () => null,
-    EmptyState: 'EmptyState', Segmented: 'Segmented',
+    EmptyState: 'EmptyState', packUi: { Glyph: 'Glyph', PackSearchBox: 'PackSearchBox' },
     notifyTavernDataChanged() {},
     rpc: async (method, input) => { calls.push({ method, input }); return { tags: ['同人', '待玩'] } }
   }
@@ -48,38 +48,25 @@ const cards = [
 ]
 const pick = (ui, label) => nodes(ui.toolbar()).find(node => node.type === 'button' && node.props.role && text(node).endsWith(label))
 
-test('筛选可多选：收藏和标签要同时满足，未打标签和标签互斥，全部清空', async () => {
+test('筛选一次只选一项：全部、收藏、未打标签或一个标签', async () => {
   const { render, flush } = harness(cards)
   await flush()
   let ui = render()
   pick(ui, '同人').props.onClick(); ui = render()
   assert.deepEqual(ui.visible.map(card => card.path), ['a.json', 'b.png'])
   pick(ui, '待玩').props.onClick(); ui = render()
-  assert.deepEqual(ui.visible.map(card => card.path), ['b.png'])
+  assert.deepEqual(ui.visible.map(card => card.path), ['b.png'], '换一个标签就只按这个筛')
+  assert.equal(text(nodes(ui.toolbar()).find(node => node.props?.className === 'dsh-tavern-card-filter-label')), '待玩')
   pick(ui, '收藏').props.onClick(); ui = render()
-  assert.deepEqual(ui.visible.map(card => card.path), [])
+  assert.deepEqual(ui.visible.map(card => card.path), ['a.json'])
   pick(ui, '未打标签').props.onClick(); ui = render()
-  assert.deepEqual(ui.visible.map(card => card.path), [], '收藏 + 未打标签：丙没有收藏')
-  pick(ui, '收藏').props.onClick(); ui = render()
-  assert.deepEqual(ui.visible.map(card => card.path), ['c.json'], '选未打标签时去掉了已选的标签')
+  assert.deepEqual(ui.visible.map(card => card.path), ['c.json'])
+  assert.deepEqual(nodes(ui.toolbar()).filter(node => node.props?.role === 'menuitemradio' && node.props['aria-checked']).map(text).filter(label => label.endsWith('未打标签')).length, 1)
   pick(ui, '全部').props.onClick(); ui = render()
   assert.equal(ui.visible.length, 3)
-  assert.match(text(nodes(ui.toolbar()).find(node => node.props?.className === 'dsh-tavern-card-filter-label')), /^全部$/)
-})
-
-test('多个标签可以切换「标签全都有」和「有任一个」，并记住选择', async () => {
-  const { render, stored, flush } = harness(cards)
-  await flush()
-  let ui = render()
-  pick(ui, '同人').props.onClick(); ui = render()
-  pick(ui, '待玩').props.onClick(); ui = render()
-  assert.deepEqual(ui.visible.map(card => card.path), ['b.png'])
-  const mode = nodes(ui.toolbar()).find(node => node.type === 'Segmented')
-  assert.equal(mode.props.value, 'all')
-  mode.props.onChange('any'); ui = render()
-  assert.deepEqual(ui.visible.map(card => card.path), ['a.json', 'b.png'])
-  assert.match(text(nodes(ui.toolbar()).find(node => node.props?.className === 'dsh-tavern-card-filter-label')), /^同人 或 待玩$/)
-  assert.equal(stored.get('dsh-tavern-card-tag-mode-library'), 'any')
+  // Nothing picked: the filter is only its icon, named 「全部」.
+  assert.equal(nodes(ui.toolbar()).find(node => node.props?.className === 'dsh-tavern-card-filter-label'), undefined)
+  assert.ok(nodes(ui.toolbar()).some(node => node.props?.['aria-label'] === '按标签筛选：全部'))
 })
 
 test('排序：自动保持宿主顺序，最近游玩、名字、导入时间各自排，并记住选择', async () => {
