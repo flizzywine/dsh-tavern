@@ -189,7 +189,7 @@ import { withoutPlayerChoices } from './domain/card-export-settings.js'
 import { withGlobalRegexScripts, composeTavernRegexScripts } from './domain/card-extension-reading.js'
 import { projectCardOpeningPreviews } from './domain/card-opening-previews.js'
 import { createConversationInitialization } from './domain/conversation-initialization.js'
-import { assertConversationExportable, assertConversationForkable, conversationForkReceipt, forkConversationChat } from './domain/conversation-fork.js'
+import { assertConversationExportable, assertConversationForkable, cardWorkbenchForkPoint, conversationForkReceipt, forkConversationChat } from './domain/conversation-fork.js'
 import { readBackgroundModelReasoning } from './domain/background-model-selection.js'
 import { createModelCalls } from './domain/model-calls.js'
 import { createPlayCardSnapshots } from './domain/play-card-snapshots.js'
@@ -2869,6 +2869,34 @@ export async function apply(ctx) {
     } catch (error) { console.warn('dsh-tavern: 分叉时处理插件数据失败:', str(error?.message || error)) }
   }
 
+  async function forkCardWorkbench(sessionId, messageId) {
+    const source = await chatForSession(str(sessionId))
+    if (source?.mode !== 'card' || source.requestMode === 'sillytavern') throw new Error('找不到当前卡片工作台对话')
+    if (typeof messageId !== 'string' || !messageId) throw new Error('请选择一条已完成的回复')
+    const controller = ctx.get('sessionController')
+    if (typeof controller?.fork !== 'function') throw new Error('当前 DSH 版本不支持对话分支')
+    const { atSeq, turn, messages } = cardWorkbenchForkPoint(await readNativeEvents(source.sessionId), messageId)
+    const { sessionId: targetId } = await controller.fork({ sessionId: source.sessionId, atSeq })
+    const fork = forkConversationChat({ ...source, messages }, { chatId: uid('chat'), sessionId: targetId, id: uid, lastNativeTurn: turn })
+    Object.assign(fork.forkedFrom, { turn, atSeq })
+    fork.title = (source.title || source.cardName || '卡片工作台') + ' · 分支'
+    fork.pendingCardChanges = {}
+    if (fork.workspace) fork.workspace.prepared = null
+    if (Number(fork.lastCardSave?.turn) > turn) delete fork.lastCardSave
+    delete fork.lastOpenedAt
+    delete fork.contextCompaction
+    try {
+      await conversationRegistry.publish(fork)
+    } catch (error) {
+      try { await ctx.get('workspaceRegistry')?.archiveSession(targetId) }
+      catch (archiveError) { ctx.logger.warn('dsh-tavern: 清理工作台分支失败', archiveError) }
+      throw error
+    }
+    try { await controller.rename?.({ sessionId: targetId, title: fork.title }) }
+    catch (error) { ctx.logger.warn('dsh-tavern: 工作台分支已创建，但自动命名失败', error) }
+    return conversationForkReceipt(fork, { lastTurn: turn, messageCount: messages.length })
+  }
+
   async function forkChat(sourceChatId, sourceSessionId, targetSessionId, requestedTurn, expectedRevision, expectedAtSeq, requestedMessageIndex, requestedMessageUid) {
     const { source, state, turn, atSeq, messageIndex, storyDirect, messageUid } = await prepareConversationFork(sourceChatId, sourceSessionId, requestedTurn, requestedMessageIndex, expectedRevision, requestedMessageUid)
     // Stable story identity covers unrelated writes between prepare and execute.
@@ -4738,7 +4766,7 @@ export async function apply(ctx) {
     conversationBackgroundSettings, conversationGuides, ctx, dataRoot, deleteCard, deleteChat, deleteChats,
     deletePreset, deleteResource, deleteScript, displayRuntimeCaptures, ensureNativeCardWorkspace,
     ensureNativeOpening, exportConversation, exportGameSave, exportSettingsBundle, exportTavernLogs,
-    fileResources, forkChat, fullTemplateRuntime, generationStreamModes, getCardOpenings, groupOfMode, guideLibrary,
+    fileResources, forkCardWorkbench, forkChat, fullTemplateRuntime, generationStreamModes, getCardOpenings, groupOfMode, guideLibrary,
     helperGenerationPreset, helperGenerationTasks, helperHistoryAccess, hostCompatibility, importCard, exportCardFile,
     replaceCard, presentCardText, revertCardUpdate, importCardArchiveFile, importPackArchiveFile, previewCardArchiveFile, discardCardArchivePreview, importChatHistoryText, importGameSave, importPluginCardFile, importPreset,
     importScript, importSettingsBundle, importSource, ledgerEditor, listCards, listTavernResources,

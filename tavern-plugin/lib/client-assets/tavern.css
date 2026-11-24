@@ -272,10 +272,10 @@ button.dsh-tavern-message-select:disabled { cursor: wait; }
 /* 手机上侧栏铺满整屏，宿主的抽屉把手会被酒馆内容盖住：右上角放自己的收回按钮。 */
 .dsh-tavern-side-collapse { display: none; }
 body.dsh-tavern-shell-active button[aria-label="新建会话"], body.dsh-tavern-shell-active button[aria-label="New session"] { display: none !important; }
-/* 只藏宿主的原生「在新对话中分支」：它绕开酒馆的游戏状态，点了会得到一个没有存档分支的 Session。
-   正文的「复制」是宿主自己的按钮，不能一起藏掉；它紧挨在 assistant-actions 插槽前面。 */
+/* 酒馆在自己的分支入口登记新会话，宿主的「复制」留在插槽前面。 */
 body.dsh-tavern-shell-active [data-turn-tail] > [data-slot="conversation.chat.turnTail"] + div > [data-slot="conversation.chat.assistant-actions"] + button { display: none !important; }
-body.dsh-tavern-shell-active [data-turn-tail] [data-slot="conversation.chat.assistant-actions"] > :not(.dsh-tavern-message-fork):not(.dsh-tavern-illustration-instructions) { display: none !important; }
+body.dsh-tavern-shell-active [data-turn-tail]:not([data-dsh-tavern-workbench-actions]) [data-slot="conversation.chat.assistant-actions"] > :not(.dsh-tavern-message-fork):not(.dsh-tavern-illustration-instructions) { display: none !important; }
+.dsh-tavern-workbench-turn-actions { display: contents; }
 body.dsh-tavern-shell-active [data-turn-tail] [data-slot="conversation.chat.assistant-actions"]:has(> .dsh-tavern-illustration-instructions) { display: flex !important; flex: 0 0 100% !important; flex-wrap: wrap !important; width: 100% !important; }
 body.dsh-tavern-shell-active [data-turn-tail] [class*="_actions"]:has([data-slot="conversation.chat.assistant-actions"] > .dsh-tavern-illustration-instructions) { height: auto !important; min-height: calc(28px + var(--dsh-content-font-delta, 0px)) !important; }
 body.dsh-tavern-shell-active [data-turn-tail] > div:has(.dsh-tavern-illustration-instructions) { flex-wrap: wrap !important; }

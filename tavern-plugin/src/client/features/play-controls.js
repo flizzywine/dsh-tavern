@@ -1634,9 +1634,11 @@
                 name: "conversation.chat.node", key: "compaction", priority: -1
             }, CompactionNodeView)), "dsh-tavern: player compaction checkpoint");
 			ctx.effect(() => slots.inject("conversation.chat.assistant-actions", () => slots.register(
-				{ name: "conversation.chat.assistant-actions", id: "dsh-fork-turn-actions", order: 10, inject: function (sessionId) { return { sessionId: sessionId }; } },
+				{ name: "conversation.chat.assistant-actions", id: "dsh-fork-turn-actions", order: 10, inject: function (sessionId) {
+					return { sessionId, openSession: target => createSessionCompat(ctx.sessions, ctx.get("uiWorkspace")).open(target) };
+				} },
 				TurnActions
-			)), "dsh-tavern: latest round actions under the reply");
+			)), "dsh-tavern: turn actions under the reply");
 			ctx.effect(() => slots.inject("conversation.input.overlay", () => slots.register(
 				{ name: "conversation.input.overlay", id: "dsh-fork-jump-latest", order: 10, label: "回到最新" },
 				function (props) { return React.createElement(ChatJumpLatest, { key: props.sessionId }); }
