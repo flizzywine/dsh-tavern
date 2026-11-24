@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "36387b11b7cc03534eb8d0d0f3fa27302c956a04",
-  "releaseSequence": 2053,
+  "revision": "536898dd19688d3794e7ea3aec4b84b8721f4f3d",
+  "releaseSequence": 2054,
   "version": "3.4.0",
   "files": [
     {
@@ -716,13 +716,13 @@
     },
     {
       "path": "install.ps1",
-      "sha256": "8b30463b92ec621923e0c33e94bf6654a14bc08ee24c79cfad8f0eec8df04956",
-      "size": 122271
+      "sha256": "e87503b5f725f03ef35c429722cabb7bd2055bc8c7837125cefc55a7b0d0d4f3",
+      "size": 122321
     },
     {
       "path": "install.sh",
-      "sha256": "e37c5f52627c2171016bd57808b103bd0bec25e0cd65436effcba5b7296a0733",
-      "size": 91716
+      "sha256": "a532c4be826c24381c256e6083ce4eaf045a98a4c7316ba4b630cc61e76be000",
+      "size": 91766
     },
     {
       "path": "package.json",
@@ -976,8 +976,8 @@
     },
     {
       "path": "presets/tavern/skills/stage-mods/references/card-declared.md",
-      "sha256": "b37aefbeb704a100535795ee1650e6c3d59f0c0671dc060694fc25967caa412c",
-      "size": 4215
+      "sha256": "414e85fa7bed864cdbbb2665baa6bd4cacbb0b6a2d937c87b5cc8e362f199ee3",
+      "size": 4120
     },
     {
       "path": "presets/tavern/skills/stage-mods/references/dice.md",
@@ -10241,9 +10241,9 @@
     }
   ],
   "archive": {
-    "commit": "14baebc02f559883521a7926530b13d4b6ec313a",
+    "commit": "23aca443f06efe365c8091f8a874fe62e16216fe",
     "path": "runtime.zip",
-    "sha256": "bfd22bfb70b90c751cf947b3e33a82cf564e676b528d1918337fef065f1385c5",
-    "size": 17938650
+    "sha256": "36619846c4b488db3cb51137d63e195d74979fcec2ea88d7bd7edddb7bc94c57",
+    "size": 17938662
   }
 }
