@@ -63,6 +63,15 @@ export function createForegroundFrameSessionAdapter(options = {}) {
           trace: { frameId: frame.frameId, turn: frame.turn, operationId: frame.operationId, ...cardSystemPromptSource(update) } }
       })
     }
+    // What changed in the foreground capabilities since the live context told the model (foreground-capabilities.js):
+    // its own message, whose trace record the next turns read back to send only newer changes.
+    const capabilityUpdate = frame.source?.foregroundCapabilityUpdate
+    if (capabilityUpdate?.rendered) snapshots.push({
+      id: makeId() + ':foreground-capability-update', role: 'user',
+      content: [{ type: 'text', text: capabilityUpdate.rendered }],
+      source: { kind: 'plugin:dsh-tavern', form: 'foreground-capability-update',
+        trace: { frameId: frame.frameId, turn: frame.turn, operationId: frame.operationId, foregroundCapabilityUpdate: capabilityUpdate } }
+    })
     const text = foregroundFrameText({ contributions })
     if (text === '') return { messages: messages.concat(snapshots), receipt: { appended: snapshots.length > 0, reason: snapshots.length ? 'appended' : 'empty', frameId: frame.frameId } }
     const sections = contributions.map(function (item, index) {
