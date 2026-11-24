@@ -1623,6 +1623,8 @@ button.dsh-tavern-worldbook-add-row:disabled { cursor: default; }
 .dsh-tavern-card-import-url { display: flex; gap: 6px; padding: 6px 2px 2px; border-top: 1px solid var(--dsw-alias-border-l2); margin-top: 4px; }
 .dsh-tavern-card-import-url > input { flex: 1; min-width: 0; height: 32px; padding: 0 10px; border: 0; border-radius: 6px; background: var(--dsw-specific-input-major); color: inherit; font: inherit; font-size: var(--fork-fs-body); }
 .dsh-tavern-card-import-url > input:focus { outline: 1px solid var(--dsh-tavern-accent); }
+.dsh-tavern-card-import-pop .fork-inline-option > .ap-glyph { flex: none; color: var(--fork-ink-3); }
+.dsh-tavern-card-import-pop .dsh-tavern-card-import-file > .ap-glyph { color: var(--fork-accent); }
 @media (prefers-reduced-motion: reduce) {
   .dsh-tavern-btn { transition: background 160ms cubic-bezier(0.23, 1, 0.32, 1); }
   .dsh-tavern-side-row-menu,

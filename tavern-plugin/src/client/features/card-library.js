@@ -52,22 +52,24 @@ function openCardStagePack(packId, sessionId) {
     openSidebarTab("dsh-asset-library:library", sessionId).catch(error => navFailed("打开舞台素材", error));
 }
 
-// 人物卡库's one 「导入」: 选择本地文件 (the system file picker, several at once; on a phone with a download folder the
-// 从手机下载目录导入 sheet) and, with the card ZIP entry, a box for a card's address (pasted or typed; Enter reads it).
+// 人物卡库's one 「导入」 (the ⤓ of 舞台素材's 获取素材包): 选择本地文件… first, with a folder (the system file picker, several at
+// once; on a phone with a download folder the 从手机下载目录导入 sheet); with the card ZIP entry, 从网址导入… a quieter row
+// that opens a box for a card's address in its place (pasted or typed; Enter reads it). Opening the menu focuses the first row.
 function CardImportMenu({ disabled, pickFile, openAddress }) {
-    const h = React.createElement, popup = useInlinePopup({ focusSelector: "input" }), [address, setAddress] = React.useState("");
-    function read() { const url = address.trim(); if (!url) return; popup.close(false); setAddress(""); openAddress(url); }
-    // A quiet icon on the toolbar, as 舞台素材's 获取素材包.
-    const icon = h(packUi.Glyph, { name: "download" });
-    if (!openAddress) return h("button", { type: "button", className: "ap-icon-button", "aria-label": "导入人物卡", title: "导入人物卡", disabled, onClick: pickFile }, icon);
+    const h = React.createElement, popup = useInlinePopup(), [address, setAddress] = React.useState(""), [typing, setTyping] = React.useState(false);
+    const glyph = name => h(packUi.Glyph, { name });
+    function read() { const url = address.trim(); if (!url) return; popup.close(false); setAddress(""); setTyping(false); openAddress(url); }
+    if (!openAddress) return h("button", { type: "button", className: "ap-icon-button", "aria-label": "导入人物卡", title: "导入人物卡", disabled, onClick: pickFile }, glyph("download"));
+    const toggle = () => { if (!popup.open) setTyping(false); popup.setOpen(!popup.open); };
     return h("span", { className: "fork-inline-anchor", ref: popup.root, onKeyDown: popup.keys },
-        h("button", { ref: popup.trigger, type: "button", className: "ap-icon-button", "aria-label": "导入人物卡", title: "导入人物卡", disabled, "aria-haspopup": "menu", "aria-expanded": popup.open, onClick: () => popup.setOpen(!popup.open) }, icon),
-        popup.open ? popup.layer({ className: "fork-inline-pop dsh-tavern-card-import-pop", role: "menu", "aria-label": "导入人物卡" },
-            h("button", { type: "button", role: "menuitem", className: "fork-inline-option", onClick: () => { popup.close(false); pickFile(); } }, "选择本地文件"),
-            h("div", { className: "dsh-tavern-card-import-url" },
-                h(SearchBox, { bare: true, label: "卡片网址", placeholder: "粘贴卡片网址", value: address, onChange: setAddress, spellCheck: false,
+        h("button", { ref: popup.trigger, type: "button", className: "ap-icon-button", "aria-label": "导入人物卡", title: "导入人物卡", disabled, "aria-haspopup": "menu", "aria-expanded": popup.open, onClick: toggle }, glyph("download")),
+        popup.open ? popup.layer({ className: "fork-inline-pop dsh-tavern-card-import-pop", role: "menu", "aria-label": "导入人物卡", onKeyDown: typing ? undefined : inlineMenuKeys },
+            h("button", { type: "button", role: "menuitem", className: "fork-inline-option dsh-tavern-card-import-file", onClick: () => { popup.close(false); pickFile(); } }, glyph("folder"), "选择本地文件…"),
+            typing ? h("div", { className: "dsh-tavern-card-import-url" },
+                h(SearchBox, { bare: true, label: "卡片网址", placeholder: "粘贴卡片网址", value: address, onChange: setAddress, spellCheck: false, autoFocus: true,
                     onKeyDown: event => { if (event.key === "Enter") { event.preventDefault(); read(); } } }),
-                h("button", { type: "button", className: "dsh-tavern-btn", disabled: !address.trim(), onClick: read }, "导入"))) : null);
+                h("button", { type: "button", className: "dsh-tavern-btn", disabled: !address.trim(), onClick: read }, "导入"))
+                : h("button", { type: "button", role: "menuitem", className: "fork-inline-option", onClick: () => setTyping(true) }, glyph("link"), "从网址导入…")) : null);
 }
 
 // The world book list's dashed ＋: a menu of the books that can still be bound (a search above 8); picking one binds it.
