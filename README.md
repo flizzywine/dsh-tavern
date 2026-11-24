@@ -257,13 +257,6 @@ curl -fsSL 'https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@runtime-archive-ma
 
 装好后用 `dsh-tavern start` 启动，按显示的地址在浏览器打开；`dsh-tavern stop` / `status` / `update` 停止、查看、更新。用 `dsh-tavern --help` 查看全部命令，`dsh-tavern help install` 查看安装宿主说明。
 
-需要 shell 补全时运行 `dsh-tavern completion bash`（zsh/fish/powershell 同理），按输出注释启用；`dsh-tavern man` 输出 man 手册，可用 `dsh-tavern man > dsh-tavern.1` 保存，再用 `man ./dsh-tavern.1` 查看。
-
-局域网 / VPN 绑定与安全要求见[命令行远程访问文档](https://github.com/flizzywine/dsh-tavern/wiki/命令行版：局域网与VPN访问)。
-
-如果本机启用了 TUN Fake-IP，且人物卡的静态资源被拦截，可在 DSH 服务的环境中设置 `DSH_TAVERN_ALLOW_CDN_FAKE_IP=1` 后重启。收到 Fake-IP 时，酒馆通过 Cloudflare 的公共 DNS 查询 HTTPS 资源域名，再连接验证过的公网地址。
-也可在酒馆数据目录的 `tavern-settings.json` 中保存 `"allowCdnFakeIp": true`。显式保存的布尔值优先于环境变量。
-
 ### 手机远程访问
 
 酒馆跑在电脑或服务器上，用手机浏览器也能玩。[详细说明 →](https://github.com/flizzywine/dsh-tavern/wiki/%E5%AE%89%E8%A3%85%E4%B8%8E%E5%90%AF%E5%8A%A8#user-content-a02--section-2)
