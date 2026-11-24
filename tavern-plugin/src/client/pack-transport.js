@@ -21,7 +21,17 @@ async function pickExportTarget({name, many = false, description = 'ZIP 压缩�
 // A download that stops sending (the connection hangs without closing) would otherwise hold the save open forever with a
 // half-written .crswap beside the target; after SAVE_STALL_MS without a byte it fails with that reason and the write is
 // discarded. A target is reported saved only once its committed file has every byte of the response.
-const SAVE_STALL_MS = 120000;
+// The browser opens and closes the file for every write, and a virus scanner (Microsoft Defender scans files written in
+// Downloads, measured 11-24) holds a file it is scanning without letting others write: a write that meets it fails
+// with NoModificationAllowedError and ends that write for good. So the bytes go in SAVE_WRITE_BYTES writes (each one
+// open and one scan, not one per 64 KB network chunk), and a save the scanner broke starts over, up to SAVE_TRIES
+// times in all (error.tries says how many were made).
+const SAVE_STALL_MS = 120000, SAVE_WRITE_BYTES = 64 * 1048576, SAVE_TRIES = 4;
+function batchWrites(size) {
+    let parts = [], held = 0;
+    const take = out => { if (!held) return; const data = new Uint8Array(held); let at = 0; for (const part of parts) { data.set(part, at); at += part.byteLength; } parts = []; held = 0; out.enqueue(data); };
+    return new TransformStream({transform(chunk, out) { parts.push(chunk); held += chunk.byteLength; if (held >= size) take(out); }, flush: take});
+}
 async function saveExportFile(result, {target = null, name, onProgress, signal} = {}) {
     const archives = result.archives || [result], names = [];
     const mb = n => (n / 1048576).toFixed(1) + ' MB';
@@ -60,9 +70,17 @@ async function saveExportFile(result, {target = null, name, onProgress, signal} 
             const handle = target.file || await target.folder.getFileHandle(filename, {create:true});
             const stall = archive.bytes ? null : stallGuard();
             try {
-                const body = archive.bytes ? new Blob([archive.bytes]).stream() : await open(archive, stall);
-                // pipeTo commits the file (the .crswap is renamed) when the body ends and discards the write on failure.
-                await body.pipeTo(await handle.createWritable(), {signal:stall?.signal || signal});
+                for (let tries = 1; ; tries++) {
+                    try {
+                        const body = archive.bytes ? new Blob([archive.bytes]).stream() : (await open(archive, stall)).pipeThrough(batchWrites(SAVE_WRITE_BYTES));
+                        // pipeTo commits the file (the .crswap is renamed) when the body ends and discards the write on failure.
+                        await body.pipeTo(await handle.createWritable(), {signal:stall?.signal || signal});
+                        break;
+                    } catch (error) {
+                        if (error?.name !== 'NoModificationAllowedError' || signal?.aborted || stall?.signal.aborted) throw error;
+                        if (tries >= SAVE_TRIES) throw Object.assign(error, {tries});
+                    }
+                }
                 const total = archive.bytes ? archive.bytes.length : lastTotal, written = (await handle.getFile()).size;
                 if (total && written !== total) throw new Error('保存的文件只有 ' + mb(written) + '，应为 ' + mb(total));
             } catch (error) {
