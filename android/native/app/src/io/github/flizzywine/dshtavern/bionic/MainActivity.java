@@ -3,6 +3,8 @@ package io.github.flizzywine.dshtavern.bionic;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.BroadcastReceiver;
+import android.content.ClipData;
+import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
@@ -52,6 +54,7 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.RandomAccessFile;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 
 /** 启动页（状态、启停、更新、后台运行、维护）+ 全屏 WebView。服务就绪后默认直接进酒馆，返回键回到启动页。 */
 public final class MainActivity extends Activity {
@@ -65,7 +68,10 @@ public final class MainActivity extends Activity {
     private ProgressBar bar;
     private Button enter, restart, startStop, check, updateAction;
     private TextView logsToggle;
-    private Switch autoOpen, wakeLock;
+    private Switch autoOpen, wakeLock, lanAccess;
+    private TextView lanStatusText, lanUrlText, lanHintText;
+    private LinearLayout lanActionsRow;
+    private Button lanCopy, lanShare, lanRefresh;
     private String loadedUrl;
     private boolean showLauncher;
     private boolean logsVisible;
@@ -344,6 +350,27 @@ public final class MainActivity extends Activity {
         check = secondary(ur, "检查更新", false, v -> send(TavernService.ACTION_CHECK));
         updateAction = secondary(ur, "立即更新", true, v -> onUpdateAction());
 
+        heading(c, "局域网访问");
+        LinearLayout lan = card(c, 0);
+        lan.setPadding(dp(16), dp(2), dp(16), dp(14));
+        lanAccess = toggle(lan, "允许同局域网设备访问", "lanAccess", false, () -> send(TavernService.ACTION_LAN_SYNC));
+        lanStatusText = label(lan, 13, MUTED, false);
+        lanStatusText.setPadding(0, dp(4), 0, 0);
+        lanUrlText = label(lan, 12, INK, false);
+        lanUrlText.setTypeface(Typeface.MONOSPACE);
+        lanUrlText.setTextIsSelectable(true);
+        lanUrlText.setBackground(shape(TRACK, 0, 10));
+        lanUrlText.setPadding(dp(12), dp(10), dp(12), dp(10));
+        ((LinearLayout.LayoutParams) lanUrlText.getLayoutParams()).topMargin = dp(8);
+        lanHintText = label(lan, 12, MUTED, false);
+        lanHintText.setText("仅在可信 Wi-Fi / 局域网内使用；链接含登录令牌，请勿发给他人。切换网络后点「刷新地址」。");
+        lanHintText.setPadding(0, dp(8), 0, 0);
+        lanActionsRow = row(lan, 10);
+        lanCopy = secondary(lanActionsRow, "复制链接", true, v -> copyLanUrl());
+        lanShare = secondary(lanActionsRow, "分享", false, v -> shareLanUrl());
+        lanRefresh = secondary(lanActionsRow, "刷新地址", false, v -> send(TavernService.ACTION_LAN_SYNC));
+        for (Button b : new Button[]{lanCopy, lanShare, lanRefresh}) b.setPadding(dp(12), 0, dp(12), 0);
+
         heading(c, "后台运行");
         LinearLayout bg = card(c, 0);
         bg.setPadding(dp(16), dp(2), dp(16), dp(12));
@@ -578,6 +605,50 @@ public final class MainActivity extends Activity {
         show(updateAction, "source".equals(us) || "apk".equals(us) || "ready".equals(us));
         set(updateAction, "source".equals(us) ? "更新源码" : "apk".equals(us) ? "下载安装包" : "安装");
 
+        boolean lanOn = prefs().getBoolean("lanAccess", false);
+        List<String> urls = TavernService.lanUrls();
+        String lanErr = TavernService.lanError;
+        if (!lanOn) {
+            set(lanStatusText, "关闭时仅本机可访问。开启后可在同一 Wi-Fi 的电脑或平板浏览器里打开酒馆。");
+            lanStatusText.setTextColor(MUTED);
+            show(lanStatusText, true);
+            show(lanUrlText, false);
+            show(lanHintText, false);
+            show(lanActionsRow, false);
+        } else if ("running".equals(phase) && !urls.isEmpty()) {
+            set(lanStatusText, "✓ 已开启，在同局域网设备的浏览器打开以下链接：");
+            lanStatusText.setTextColor(OK);
+            show(lanStatusText, true);
+            set(lanUrlText, String.join("\n", urls));
+            show(lanUrlText, true);
+            show(lanHintText, true);
+            show(lanActionsRow, true);
+            show(lanCopy, true);
+            show(lanShare, true);
+            show(lanRefresh, true);
+            lanRefresh.setEnabled(true);
+        } else {
+            show(lanUrlText, false);
+            show(lanHintText, false);
+            show(lanActionsRow, true);
+            show(lanCopy, false);
+            show(lanShare, false);
+            show(lanRefresh, true);
+            boolean transitioning = "preparing".equals(phase) || "starting".equals(phase) || "stopping".equals(phase);
+            lanRefresh.setEnabled(!transitioning);
+            if (lanErr != null && "running".equals(phase)) {
+                set(lanStatusText, "⚠ " + lanErr);
+                lanStatusText.setTextColor(WARN);
+            } else if (transitioning) {
+                set(lanStatusText, "正在应用局域网设置，服务就绪后显示访问链接…");
+                lanStatusText.setTextColor(MUTED);
+            } else {
+                set(lanStatusText, "已开启，启动酒馆后生效。");
+                lanStatusText.setTextColor(MUTED);
+            }
+            show(lanStatusText, true);
+        }
+
         PowerManager pm = getSystemService(PowerManager.class);
         boolean exempt = pm.isIgnoringBatteryOptimizations(getPackageName());
         set(keepAliveText, (exempt ? "✓ 已允许后台运行（不受电池优化限制）" : "⚠ 受电池优化限制：锁屏后可能被系统停掉，建议允许后台运行")
@@ -644,6 +715,25 @@ public final class MainActivity extends Activity {
         Intent send = new Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, text.toString())
                 .putExtra(Intent.EXTRA_SUBJECT, "DSH Tavern Beta 日志");
         startActivity(Intent.createChooser(send, "分享日志"));
+    }
+
+    private void copyLanUrl() {
+        List<String> urls = TavernService.lanUrls();
+        if (urls.isEmpty()) return;
+        ClipboardManager cm = getSystemService(ClipboardManager.class);
+        if (cm != null) {
+            cm.setPrimaryClip(ClipData.newPlainText("DSH Tavern 局域网链接", urls.get(0)));
+            Toast.makeText(this, "已复制局域网访问链接", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private void shareLanUrl() {
+        List<String> urls = TavernService.lanUrls();
+        if (urls.isEmpty()) return;
+        Intent send = new Intent(Intent.ACTION_SEND).setType("text/plain")
+                .putExtra(Intent.EXTRA_TEXT, String.join("\n", urls))
+                .putExtra(Intent.EXTRA_SUBJECT, "DSH Tavern 局域网访问链接");
+        startActivity(Intent.createChooser(send, "分享局域网访问链接"));
     }
 
     private static String lastBytes(File f, int max) {
