@@ -56,6 +56,29 @@ async function saveExportFile(result, {target = null, name, onProgress, signal} 
     // the page never learns the folder the dialog chose (a file handle has no path), so it names the choice instead.
     return {names, picked:!!target, said:target ? '已导出 ' + files + '，在刚才保存框里选的文件夹里。' : '已开始下载 ' + files + '，在浏览器的下载列表里。'};
 }
+// 导出 DSH 人物卡 on the host (rpc exportLibraryCard, card-export-jobs.js): the host answers at once and the export runs as
+// a job polled here (cardExportProgress), since one request may not stay open the minutes a large card takes (the Desktop
+// ends a request whose answer has not begun after five minutes). onProgress({stage}) hears the step running; resolves
+// {filename, bytes, downloadUrl}, or rejects with the host's sentence for the failed step (error.step, error.code).
+// Aborting `signal` cancels the job.
+async function runCardExport(rpc, args, {onProgress, signal} = {}) {
+    const progressId = 'card-export-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
+    await rpc('exportLibraryCard', {...args, progressId});
+    try {
+        for (;;) {
+            await new Promise(resolve => setTimeout(resolve, 500));
+            signal?.throwIfAborted();
+            const {progress} = await rpc('cardExportProgress', {progressId});
+            if (!progress) throw new Error('这次导出已经结束或过期，请重新导出。');
+            if (progress.stage === 'done') return progress.result;
+            if (progress.stage === 'failed') throw Object.assign(new Error(progress.error.message), {step:progress.error.step, ...(progress.error.code ? {code:progress.error.code} : {})});
+            onProgress?.(progress);
+        }
+    } catch (error) {
+        if (signal?.aborted) void rpc('cancelCardExport', {progressId}).catch(() => {});
+        throw error;
+    }
+}
 // browser port for the authenticated v2 package transport.
 function createPackTransport({fetch: request = fetch, interval = 2000, subscribeChanges} = {}) {
     const root = PACK_ROOT, listeners = new Set(), unavailable = new Set(), jobs = new Set();

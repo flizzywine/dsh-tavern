@@ -810,17 +810,12 @@ function StagePackSection({ctx,ready,state}) {
 // (they hold its figures or carry its name) start checked, shared ones such as 通用背景 stay home unless checked, and an
 // unchecked pack also leaves the exported card's bindings (packIds). Figures of the checked packs can be left out (e.g. the one the player plays). The cover shows at the top.
 // 导出 first asks where to save (binding.pickSave, the native save-as dialog; none on phones), then packing (an indeterminate
-// bar: the route sends nothing until the archive is built) and the bytes as they stream to the file; closing the sheet stops it.
+// bar: the host packs, and encrypts, the card as a job (binding.exportCard) whose stage the sheet polls, since one request may not stay open the minutes a large card takes) and the bytes as they stream to the file; closing the sheet stops it.
 // The file is saved through binding.download like every other export; the sheet then says where it went, and a refusal
 // says the host's reason (e.g. which pack holds entries only for this machine), never a bare 「请重试」.
-// `encrypt` (加密导出, card-library.js): {askPassword() → password|null, run({password,packIds,excludeFigures}) →
-// {downloadUrl,filename}}: the password comes first (its 确定 click lets the save-as dialog open), then the same save.
+// `encrypt` (加密导出, card-library.js): {askPassword() → password|null}: the password comes first (its 确定 click lets the save-as dialog open), then the same save.
 const DSHCARD_FAILURE={404:'找不到这张人物卡。',409:'人物卡刚刚改过，请再导出一次。'};
-const dshCardFailure=error=>DSHCARD_FAILURE[error?.status]||playerErrorText(error,{fallback:'没能导出，请重试。'});
-function dshCardExportUrl(path,excludeFigures,packIds) {
-  return '/api/dsh-tavern/card-export?path='+encodeURIComponent(path)+(excludeFigures.length?'&excludeFigures='+encodeURIComponent(JSON.stringify(excludeFigures)):'')
-    +'&packIds='+encodeURIComponent(JSON.stringify(packIds));
-}
+const dshCardFailure=error=>DSHCARD_FAILURE[error?.status]||(error?.step?error.message:playerErrorText(error,{fallback:'没能导出，请重试。'}));
 function DshCardExportSheet({binding,path,cardName,encrypt,onClose}) {
   const state=useLoad(binding,async()=>{
     const [card,rows]=await Promise.all([binding.rpc('getCardAssetBindings',{path,metadataOnly:true}),loadPackRows(binding)]);
@@ -861,11 +856,12 @@ function DshCardExportSheet({binding,path,cardName,encrypt,onClose}) {
     let saving=false;
     try{
       const excludeFigures=figures.filter(f=>left.has(f.id)).map(f=>f.id);
-      // 加密导出 packs and encrypts on the host first (no bytes until it is done), then the file streams like a plain one.
-      const source=encrypt?await encrypt.run({password,packIds,excludeFigures}):{url:dshCardExportUrl(path,excludeFigures,packIds),filename:'人物卡.dshcard'};
+      // the host packs (and encrypts) the card as a job and answers its file when done; then the file streams to the target.
+      const source=await binding.exportCard({path,packIds,excludeFigures,...(encrypt?{password}:{})},{signal:controller.signal,
+        onProgress:progress=>{if(mounted.current)setWork(w=>w&&!w.total?{...w,stage:progress.stage}:w);}});
       controller.signal.throwIfAborted();
       saving=true;
-      const result=await binding.download(encrypt?{url:source.downloadUrl,filename:source.filename}:source,{target,name,signal:controller.signal,onProgress:next=>{if(mounted.current)setWork(next);}});
+      const result=await binding.download({url:source.downloadUrl,filename:source.filename},{target,name,signal:controller.signal,onProgress:next=>{if(mounted.current)setWork(next);}});
       if(mounted.current)setSaved(result);
     }catch(error){
       // the save itself takes back a half-written file; a failure before it leaves the empty file the dialog made.
@@ -888,7 +884,7 @@ function DshCardExportSheet({binding,path,cardName,encrypt,onClose}) {
         check(!left.has(figure.id),figure.name,()=>flip(figure.id)),h('span',{className:'ap-dshcard-name',title:figure.name},figure.name))))),
     work&&h('div',{className:'ap-dshcard-progress'},
       h('div',{className:'ap-cat-progress','data-indeterminate':packing||undefined,role:'progressbar','aria-label':'导出进度','aria-valuemin':0,'aria-valuemax':100,'aria-valuenow':packing?undefined:Math.round(pct)},h('span',{style:packing?undefined:{width:pct+'%'}})),
-      h('p',{className:'ap-cat-job-meta',role:'status'},packing?(encrypt?'正在打包并加密…':'正在打包…'):stageBytesText(work.loaded)+' / '+stageBytesText(work.total))),
+      h('p',{className:'ap-cat-job-meta',role:'status'},packing?(work.stage==='encrypt'?'正在加密…':'正在打包…'):stageBytesText(work.loaded)+' / '+stageBytesText(work.total))),
     saved&&h('p',{className:'ap-notice ap-dshcard-saved',role:'status'},h('span',null,saved.said)),
     problem&&h(CatBand,{role:'alert'},problem));
   const verb=encrypt?'加密导出':'导出';

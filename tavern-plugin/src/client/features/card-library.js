@@ -214,20 +214,19 @@ function WorldBookAddMenu({ choices, loading, disabled, onOpen, onPick }) {
 			}
 			// Native exports keep the card, cover and material together in one DSH container. A card with packs to choose
 			// encrypts through the export sheet (the packs and figures to take, then the password); the host packs and encrypts
-			// (rpc encryptLibraryCard) and the file is saved like any export.
+			// (rpc exportLibraryCard, polled by runCardExport) and the file is saved like any export.
 			async function encryptCurrentCard() {
 				if (!card || busy) return;
 				const path = card.path;
-				const run = function (args) { return rpc('encryptLibraryCard', Object.assign({ path }, args)); };
 				if (dshExport.open && card.extensions?.hasSelectableAssetPacks !== false) {
-					dshExport.open(card, { encrypt: { askPassword: function () { return askTavernCardPassword({ name: card.name, confirm: true }); }, run } });
+					dshExport.open(card, { encrypt: { askPassword: function () { return askTavernCardPassword({ name: card.name, confirm: true }); } } });
 					return;
 				}
 				const password = await askTavernCardPassword({ name: card.name, confirm: true });
 				if (password === null) return;
 				await saveCardExport({ extension: '.dshcard', type: 'application/zip', description: 'DSH 人物卡', suffix: '-加密', title: '正在加密导出人物卡',
 					packing: '正在整理当前卡片、封面、插件和素材并加密…',
-					source: async function () { const result = await run({ password }); return { url: result.downloadUrl, filename: result.filename }; } });
+					source: async function () { const result = await runCardExport(rpc, { path, password }); return { url: result.downloadUrl, filename: result.filename }; } });
 			}
 			const CARD_EXPORT_FILES = { dshcard: { extension: '.dshcard', type: 'application/zip', description: 'DSH 人物卡' }, json: { extension: '.json', type: 'application/json', description: 'JSON 人物卡' }, png: { extension: '.png', type: 'image/png', description: 'PNG 人物卡' } };
 			function exportCardFile(format) {
