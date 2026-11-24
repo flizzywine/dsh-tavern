@@ -2570,6 +2570,8 @@ export async function apply(ctx) {
     // A card that declares one of a mod's tools stands for that mod: the stage leaves out that mod's prompts.
     cardGoverns,
     readConfig: cardPath => dialogueBubbles.read(cardPath, {requireAvailable:true}),
+    // The tools the model may call in this game, one of the foreground capabilities a turn's update reports.
+    tools: chat => turnOrchestrator.callableTools(chat.sessionId),
     render: async (chat, worldBook) => {
       if (stageReadScope(chat) && worldBook.view.entries.some(isWorldBookTemplateEntry)) chat = await readStageChat(chat.sessionId)
       return projectWorldBookTemplates({worldBook,includeConstants:true,
@@ -4336,7 +4338,7 @@ export async function apply(ctx) {
     projectReply: projectRuntimeReply,
     projectWorldBookTemplates: input => nativeWorldBookTemplateContext(input.chat, input.card),
     projectForegroundWorldbook,
-    foregroundRosterAddendum: ({chat,userText}) => foregroundCapabilities.rosterAddendum(chat,{userText}),
+    foregroundCapabilityUpdate: ({chat,userText}) => foregroundCapabilities.update(chat,{userText}),
     recordWorldbookRecall: worldbookRecallLog.record,
     resolvePresetRegexScripts: async chat => presetRegexScripts(chat),
     now: Date.now,

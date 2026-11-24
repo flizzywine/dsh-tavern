@@ -149,7 +149,7 @@ function harness(mode, options = {}) {
     projectWorldBookTemplates: options.projectWorldBookTemplates,
     projectForegroundWorldbook: options.projectForegroundWorldbook,
     resolvePreset: options.resolvePreset,
-    foregroundRosterAddendum: options.foregroundRosterAddendum,
+    foregroundCapabilityUpdate: options.foregroundCapabilityUpdate,
     recordWorldbookRecall: options.recordWorldbookRecall,
     projectScriptPromptWorldbook: options.projectScriptPromptWorldbook,
     shellToolName: options.shellToolName,

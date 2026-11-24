@@ -1,11 +1,13 @@
 import {createHash} from 'node:crypto'
-import {bubbleInjection,bubbleRosterAddendum} from './dialogue-bubbles.js'
+import {bubbleInjection,bubbleInstructionPreview,bubbleRosterAddendum,bubbleRosterLines} from './dialogue-bubbles.js'
 import {judgeEnabled} from './engine-judge.js'
 import {recallFigures} from './figure-recall.js'
 import {figureJudgeId,selectJudgeRecall} from '../../packages/dsh-tavern-stage/lib/domain/stage-judge-recall.js'
 import {sessionEvents} from './session-events.js'
 import {estimateDirectorTokens} from './stage-director-tokens.js'
-import {managedForegroundEntries} from './mod-system-prompt-adapter.js'
+import {managedForegroundEntries,managedPromptSections} from './mod-system-prompt-adapter.js'
+import {promptSection} from './prompt-section.js'
+import {liveContextUpdate} from './card-system-prompt.js'
 
 const managed = entry => !!entry.rawEntry?.extensions?.dsh_tavern_helper_extra?.forkDialogueBubbles || entry.foregroundCapability === true
 const replace = (book, entries) => ({...book,view:{...book?.view,entries:[...(book?.view?.entries || []).filter(entry=>!managed(entry)),...structuredClone(entries)]}})
@@ -46,41 +48,99 @@ export function foregroundCapabilityInjection(snapshot) {
   return snapshot.entries.map(entry=>({...entry.capabilityPart,text:entry.content,tokens:estimateDirectorTokens(entry.content)}))
 }
 
-// Authored voice/availability changes invalidate the roster, not provider health or visual media.
-// figures: the roster's frozen aliases. A figure that joins later (automatic figures, a pack added mid-game) is not part of the
-// key: it reaches the per-turn tail (rosterAddendum), so the session's system prompt stays byte-identical between rounds.
-const rosterRow=row=>({alias:row.alias,ref:row.ref,name:row.name,aliases:row.aliases,recall:row.recall,voice:row.voice,language:row.voiceLang,voiceDirection:row.voiceDirection})
-const digest=value=>createHash('sha256').update(JSON.stringify(value)).digest('hex')
-export function foregroundVoiceConfigurationKey(config,figures) {
-  const frozen=figures && new Set(figures)
-  return digest({enabled:config.enabled,voice:config.voice,characters:config.characters.filter(row=>!frozen || frozen.has(row.alias)).map(rosterRow)})
+const digest=value=>createHash('sha256').update(typeof value==='string' ? value : JSON.stringify(value)).digest('hex').slice(0,16)
+// The trace field of the session message that carries a turn's update (foreground-frame-session-adapter.js).
+export const FOREGROUND_CAPABILITY_UPDATE='foregroundCapabilityUpdate'
+// What the model was told after a prefix: the latest update record to that prefix the live context still holds (a rewound
+// or compacted update is told again), or, with live false, the latest one in the whole session.
+function toldRecord(native,prefix,live) {
+  const record=live ? liveContextUpdate(native,FOREGROUND_CAPABILITY_UPDATE)
+    : sessionEvents(native).filter(event=>event.type==='user/message').map(event=>event.data?.source?.trace?.[FOREGROUND_CAPABILITY_UPDATE]).findLast(row=>row?.prefix===prefix)
+  return record?.schemaVersion===1 && record.prefix===prefix ? record : undefined
 }
-// Each frozen figure as authored ({alias: digest}): an edit to one renews the roster; one that leaves the card does not (owner
-// 11-12: figures that come and go mid-session are treated alike, whatever added or removed them): it stays in this session's
-// roster until the next recompute (compaction, a new session) drops it, and the system prompt keeps its bytes.
-const rosterFigureKeys=(config,figures)=>Object.fromEntries(config.characters.filter(row=>figures.includes(row.alias)).map(row=>[row.alias,digest(rosterRow(row))]))
-const rosterGlobalKey=config=>digest({enabled:config.enabled,voice:config.voice})
-// a snapshot from before figureKeys compares the whole frozen roster, once
-const rosterUnchanged=(old,config)=>!old.figureKeys ? old.configurationKey===foregroundVoiceConfigurationKey(config,old.figures)
-  : old.configurationKey===rosterGlobalKey(config) && config.characters.every(row=>!Object.hasOwn(old.figureKeys,row.alias) || old.figureKeys[row.alias]===digest(rosterRow(row)))
+
+// What the foreground prompt offers, unit by unit: each dialogue-format part, each roster speaker, each mod rule and each
+// tool the model may call. The frozen prefix and every turn's update are read from these same units, so a change of any
+// kind (a speaker joins, the format is edited, a mod or tool is switched) is one difference between two unit lists.
+export function foregroundCapabilityUnits({config,chat,aliases,contributions,tools=[]}) {
+  const units=new Map()
+  if(config.enabled) {
+    const current={...config,characters:config.characters.filter(row=>aliases.has(row.alias))}
+    const options={userName:chat.macroState?.userName,speakerRows:config.characters}
+    for(const segment of bubbleInstructionPreview(current,{...options,table:false}).segments)
+      units.set('format:'+segment.key,{kind:'format',name:segment.title,text:segment.text})
+    for(const line of bubbleRosterLines(current,options))units.set('figure:'+line.alias,{kind:'figure',name:line.name,text:line.text})
+  }
+  for(const section of contributions ? managedPromptSections(contributions,'foreground') : [])
+    units.set('mod:'+section.modId+'.'+section.fragmentId,{kind:'mod',name:section.name,text:section.text})
+  for(const name of tools)units.set('tool:'+name,{kind:'tool',name,text:name})
+  return units
+}
+// The persisted form of a unit list: what each unit is and a digest of its text.
+const unitState=units=>Object.fromEntries([...units].map(([key,unit])=>[key,{kind:unit.kind,name:unit.name,digest:digest(unit.text)}]))
+const stateFigures=state=>Object.keys(state).filter(key=>key.startsWith('figure:')).map(key=>key.slice('figure:'.length))
+
+const REMOVED={
+  format:unit=>`- the dialogue format part "${unit.name}"`,
+  figure:unit=>`- the speaker ${unit.name}`,
+  mod:unit=>`- the mod rules "${unit.name}"`,
+  tool:unit=>`- the tool \`${unit.name}\`; calls to it are refused`,
+}
+// The update a turn appends: only what differs from what the model was told (base), stated as removed, changed or added.
+// Its template part renders like the prefix's built-in entries; mod rules stay literal, as in the prefix.
+function capabilityUpdate({base,units,config}) {
+  const removed=Object.entries(base).filter(([key])=>!units.has(key)).map(([,unit])=>unit)
+  const fresh=[...units].filter(([key,unit])=>base[key]?.digest!==digest(unit.text))
+  if(!removed.length && !fresh.length)return null
+  const of=kind=>fresh.filter(([,unit])=>unit.kind===kind)
+  const figures=new Set(of('figure').map(([key])=>key.slice('figure:'.length)))
+  const kept=new Set(stateFigures(base).filter(alias=>units.has('figure:'+alias) && !figures.has(alias)))
+  const tools=of('tool').map(([,unit])=>'`'+unit.name+'`')
+  const template=[
+    'The foreground capabilities described in the system prompt changed. Where this update and the system prompt differ, follow this update.',
+    removed.length ? 'No longer in effect:\n'+[...new Set(removed.map(unit=>REMOVED[unit.kind](unit)))].join('\n') : '',
+    of('format').length ? promptSection('dialogue_format_update','These dialogue format parts are new or replace the earlier part of the same name.\n'+of('format').map(([,unit])=>unit.text).join('\n')) : '',
+    figures.size ? bubbleRosterAddendum(config,{speakerRows:config.characters,aliases:figures,frozenAliases:kept}) : '',
+    tools.length ? 'Tools now available: '+tools.join(', ')+'.' : '',
+  ].filter(Boolean).join('\n')
+  const mods=of('mod').map(([,unit])=>unit.text)
+  return {template,literal:mods.length ? promptSection('mod_rules_update','These mod rules are new or replace the earlier rules of the same name.\n'+mods.join('\n')) : ''}
+}
 
 // Persist only capability text and its authored configuration identity; never rewrite history.
-export function createForegroundCapabilities({session,readConfig,render,save,modPrompts,judge=()=>undefined}) {
+// The prefix (snapshot) is captured at session start and after each completed compaction and keeps its bytes in between.
+// Every change in between reaches the turn tail as an update (update()); the next capture takes in everything the model was told.
+export function createForegroundCapabilities({session,readConfig,render,save,modPrompts,tools=async()=>[],judge=()=>undefined}) {
   let active=true
   const assertCurrent=()=>{if(!active)throw Object.assign(new Error('Stage presentation unavailable'),{code:'STAGE_UNAVAILABLE'})}
   const pending=new Map(),accepted=new Map()
   const roundKey = (chat,epoch,native) => JSON.stringify([chat.id,chat.sessionId,epoch,
     sessionEvents(native).findLast(event=>event.type==='turn/start')?.data?.turn ?? chat.messages?.at(-1)?.turn ?? 0])
-  async function capture(chat,epoch,userText,config) {
+  // Speakers a recompute keeps: every speaker this session's model was told about that the card still has.
+  const carried=(chat,old,config)=>{
+    if(old?.sessionId!==chat.sessionId)return []
+    const told=old.state && toldRecord(session(chat.sessionId),digest(old.state),false)
+    const aliases=told ? stateFigures(told.state) : old.state ? stateFigures(old.state) : old.figures || []
+    return aliases.filter(alias=>config.characters.some(row=>row.alias===alias))
+  }
+  async function renderText(chat,text) {
+    const entry={ref:'foreground-capabilities:update',enabled:true,constant:true,primaryKeys:[],secondaryKeys:[],position:0,order:100,content:text}
+    const rendered=await render(chat,replace(null,[entry]))
+    assertCurrent()
+    if(rendered.diagnostics?.length)throw new Error('Foreground capability template projection failed')
+    return rendered.renderedEntries.find(row=>row.ref===entry.ref)?.text ?? ''
+  }
+  async function capture(chat,epoch,userText,config,carry=[]) {
     assertCurrent()
     config ||= await readConfig(chat.cardPath)
     assertCurrent()
-    const aliases=foregroundRecalledFigures(config,chat,{userText,judge:judge()})
+    const aliases=new Set([...foregroundRecalledFigures(config,chat,{userText,judge:judge()}),...carry])
     const builtin=foregroundCapabilityEntries(config,chat,{aliases})
     const previous=chat.foregroundCapabilities?.modPrompts
-    // Core voice corrections may refresh the roster, never the managed text in the same native epoch.
+    // An explicit correction refreshes the roster, never the managed text in the same native epoch.
     const contributions=modPrompts ? previous?.sessionId===chat.sessionId && previous.epoch===epoch ? previous :
       await modPrompts(chat,{previous,nativeSession:session(chat.sessionId),sessionId:chat.sessionId}) : undefined
+    const toolNames=await tools(chat)
     assertCurrent()
     const parts=contributions ? managedForegroundEntries(contributions) : []
     const extras=parts.map((entry,index)=>({...entry,
@@ -92,21 +152,40 @@ export function createForegroundCapabilities({session,readConfig,render,save,mod
     assertCurrent()
     if(rendered.diagnostics?.length)throw new Error('Foreground capability template projection failed')
     const figures=config.enabled ? [...aliases] : []
-    return {version:1,sessionId:chat.sessionId,epoch,configurationKey:rosterGlobalKey(config),figureKeys:rosterFigureKeys(config,figures),
-      figures,...(contributions?{modPrompts:structuredClone(contributions)}:{}),entries:entries.flatMap(entry=>{
+    return {version:2,sessionId:chat.sessionId,epoch,figures,
+      state:unitState(foregroundCapabilityUnits({config,chat,aliases,contributions,tools:toolNames})),
+      ...(contributions?{modPrompts:structuredClone(contributions)}:{}),entries:entries.flatMap(entry=>{
       const output=rendered.renderedEntries.find(row=>row.ref===entry.ref)
       return output?[{...entry,content:output.text}]:[]
     })}
   }
-  async function preview(chat,{userText='',nextRound=false,readConfig:previewConfig=readConfig}={}) {
+  // This turn's update against what the live context already tells the model (the prefix and the updates since). record
+  // rides the turn's frame; the session adapter writes it as its own message, which later turns read back.
+  async function updateFor(chat,{userText='',snapshot=chat.foregroundCapabilities,read=readConfig}={}) {
+    if(!active || !snapshot?.state || snapshot.sessionId!==chat.sessionId)return {text:''}
+    const prefix=digest(snapshot.state)
+    const base=toldRecord(session(chat.sessionId),prefix,true)?.state ?? snapshot.state
+    const config=await read(chat.cardPath)
+    assertCurrent()
+    const aliases=new Set([...stateFigures(base).filter(alias=>config.characters.some(row=>row.alias===alias)),
+      ...foregroundRecalledFigures(config,chat,{userText,judge:judge()})])
+    const contributions=modPrompts ? await modPrompts(chat,{nativeSession:session(chat.sessionId),sessionId:chat.sessionId}) : undefined
+    const units=foregroundCapabilityUnits({config,chat,aliases,contributions,tools:await tools(chat)})
+    assertCurrent()
+    const update=capabilityUpdate({base,units,config})
+    if(!update)return {text:''}
+    const text=promptSection('foreground_capability_update',[await renderText(chat,update.template),update.literal].filter(Boolean).join('\n'))
+    return {text,record:{schemaVersion:1,prefix,state:unitState(units),rendered:text}}
+  }
+  async function preview(chat,{userText='',readConfig:previewConfig=readConfig}={}) {
     if(!active || !chat.sessionId || !['story','script'].includes(chat.mode || 'story'))return []
     const native=session(chat.sessionId),old=chat.foregroundCapabilities
     const epoch=native ? foregroundCapabilityEpoch(native) : old?.epoch || ''
     const key=roundKey(chat,epoch,native)
-    const config=nextRound ? await previewConfig(chat.cardPath) : null
-    const matches=old?.sessionId===chat.sessionId && old.epoch===epoch && !!old.figures && (!nextRound || rosterUnchanged(old,config))
-    const saved=matches ? old : nextRound ? undefined : accepted.get(key) || (pending.has(key) ? await pending.get(key) : undefined)
-    const snapshot=saved ?? await capture(chat,epoch,userText,config ?? await previewConfig(chat.cardPath))
+    const matches=old?.sessionId===chat.sessionId && old.epoch===epoch && !!old.state
+    const saved=matches ? old : accepted.get(key) || (pending.has(key) ? await pending.get(key) : undefined)
+    let snapshot=saved
+    if(!snapshot) {const config=await previewConfig(chat.cardPath);snapshot=await capture(chat,epoch,userText,config,carried(chat,old,config))}
     // Preview never accepts/persists a new epoch. Frozen entries render in the actual body order.
     const rendered=await render(chat,replace(null,snapshot.entries))
     assertCurrent()
@@ -115,10 +194,10 @@ export function createForegroundCapabilities({session,readConfig,render,save,mod
     const parts=rendered.renderedEntries.filter(row=>entries.has(row.ref)).map(row=>({
       ...entries.get(row.ref).capabilityPart,text:row.text,tokens:estimateDirectorTokens(row.text),
     }))
-    // A freshly captured roster already holds every figure recalled for this text, so only a saved snapshot can lag.
-    const late=saved ? await rosterAddendum(chat,{userText,snapshot,read:previewConfig}) : ''
+    // A freshly captured prefix already holds everything current, so only a saved one can have an update pending.
+    const {text}=saved ? await updateFor(chat,{userText,snapshot,read:previewConfig}) : {text:''}
     assertCurrent()
-    return late ? [...parts,{key:'roster-addendum',name:'说话人名单补录',owners:'全局',text:late,tokens:estimateDirectorTokens(late)}] : parts
+    return text ? [...parts,{key:'capability-update',name:'前台能力追加说明',owners:'全局',text,tokens:estimateDirectorTokens(text)}] : parts
   }
   async function projectActive(chat,book,{persist=true,userText=''}={}) {
     if(!chat.sessionId || !['story','script'].includes(chat.mode || 'story'))return book
@@ -127,10 +206,10 @@ export function createForegroundCapabilities({session,readConfig,render,save,mod
     const key=roundKey(chat,epoch,native)
     if(accepted.has(key)) {chat.foregroundCapabilities=structuredClone(accepted.get(key));return replace(book,accepted.get(key).entries)}
     if(!pending.has(key))pending.set(key,(async()=>{
-      const config=await readConfig(chat.cardPath)
-      assertCurrent()
-      const unchanged=old?.sessionId===chat.sessionId && old.epoch===epoch && !!old.figures && rosterUnchanged(old,config)
-      const snapshot=unchanged ? old : await capture(chat,epoch,userText,config)
+      // A snapshot from before the unit state (version 1) is captured again once, without rewriting old rounds.
+      const unchanged=old?.sessionId===chat.sessionId && old.epoch===epoch && !!old.state
+      let snapshot=old
+      if(!unchanged) {const config=await readConfig(chat.cardPath);assertCurrent();snapshot=await capture(chat,epoch,userText,config,carried(chat,old,config))}
       assertCurrent()
       if(persist && !unchanged)await save(chat,snapshot,{assertCurrent})
       assertCurrent()
@@ -155,24 +234,23 @@ export function createForegroundCapabilities({session,readConfig,render,save,mod
     if(!before || JSON.stringify(await preview(chat))!==JSON.stringify(expectedInjection))
       throw Object.assign(new Error('Foreground prompt changed; read it again before refreshing'),{code:'REVISION_CONFLICT'})
     const native=session(chat.sessionId),epoch=native ? foregroundCapabilityEpoch(native) : before.epoch
-    const snapshot=await capture(chat,epoch,'')
+    const config=await readConfig(chat.cardPath)
+    const snapshot=await capture(chat,epoch,'',config,carried(chat,before,config))
     if(JSON.stringify(snapshot)===JSON.stringify(before))return preview(chat)
-    // Explicit author correction only: ordinary turns still retain their frozen prefix.
+    // Explicit author correction only: ordinary turns keep their frozen prefix and take changes as updates.
     await save(chat,snapshot,{expected:before,assertCurrent})
     assertCurrent()
     chat.foregroundCapabilities=structuredClone(snapshot)
     accepted.set(roundKey(chat,epoch,native),snapshot)
     return preview(chat)
   }
-  // A figure recalled after the roster froze goes to this turn's tail instead of rewriting the cached prefix;
-  // the next recompute (session start, compaction, configuration change, or a snapshot saved without figures) moves it into the roster.
-  async function rosterAddendum(chat,{userText='',snapshot=chat.foregroundCapabilities,read=readConfig}={}) {
-    if(!active || !snapshot?.figures || snapshot.sessionId!==chat.sessionId)return ''
-    const config=await read(chat.cardPath)
-    if(!active || !rosterUnchanged(snapshot,config))return ''
-    const frozenAliases=new Set(snapshot.figures)
-    const aliases=new Set([...foregroundRecalledFigures(config,chat,{userText,judge:judge()})].filter(alias=>!frozenAliases.has(alias)))
-    return aliases.size ? bubbleRosterAddendum(config,{speakerRows:config.characters,aliases,frozenAliases}) : ''
-  }
-  return {project,preview:async(...args)=>{try{return await preview(...args)}catch(error){if(!active)return [];throw error}},refresh,rosterAddendum,dispose(){active=false;accepted.clear()}}
+  return {project,preview:async(...args)=>{try{return await preview(...args)}catch(error){if(!active)return [];throw error}},refresh,
+    update:(chat,options)=>updateFor(chat,options),dispose(){active=false;accepted.clear()}}
+}
+
+// Authored voice/availability identity of a configuration (the roster figures as written); tools compare installs by it.
+const rosterRow=row=>({alias:row.alias,ref:row.ref,name:row.name,aliases:row.aliases,recall:row.recall,voice:row.voice,language:row.voiceLang,voiceDirection:row.voiceDirection})
+export function foregroundVoiceConfigurationKey(config,figures) {
+  const frozen=figures && new Set(figures)
+  return digest({enabled:config.enabled,voice:config.voice,characters:config.characters.filter(row=>!frozen || frozen.has(row.alias)).map(rosterRow)})
 }

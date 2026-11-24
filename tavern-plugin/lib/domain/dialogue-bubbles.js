@@ -54,7 +54,7 @@ export const PROMPT_PROSE = Object.freeze({
   p027: "The player is {{user}}; the player's own lines use the name {{user}}, never another roster entry.\n",
   p024: "Variants: ",
   p025: "none",
-  p026: "These speakers joined after the speaker roster above was written; treat them as roster entries.\n",
+  p026: "These speaker entries were added or changed after the speaker roster above was written; treat them as roster entries, each replacing any earlier entry for the same speaker.\n",
   p023: "- Fields: handle identifies the speaker; name is their displayed name; variant selects the expression, mood or pose shown on stage; text is their words.",
 })
 
@@ -228,21 +228,24 @@ function figureEmotionEntries(current, speakerRows = current.characters, charact
   return [{figure:'common-roster', packIds:roster.packIds, name:'说话人名单', comment:'说话人名单',
     content:promptSection('speaker_roster', PROMPT_PROSE.p001 + PROMPT_PROSE.p027.replaceAll('{{user}}', () => userName) + (roster.hasTranslation ? PROMPT_PROSE.p019 : '') + roster.lines.join('\n')), constant:true, primaryKeys:[]}]
 }
-// a figure recalled after the roster froze reaches the per-turn tail in the
-// roster's own line format; voice rules come along only when the frozen prefix carries none.
+// One roster entry per speaker, in the roster's own line format (its `Variants:` line, then the speaker line):
+// what a speaker means to the prompt, so an edit to it is a change of this text.
+export function bubbleRosterLines(config, {speakerRows} = {}) {
+  const current = normalizeBubbleConfig(config)
+  return current.characters.map(character => ({alias:character.alias, name:character.name || character.alias,
+    text:rosterGroups(current, speakerRows || current.characters, [character]).lines[0]}))
+}
+// speakers added or changed after the roster froze reach the turn tail in the roster's own line format;
+// explanations the frozen roster already carries are not repeated. Voice rules are a dialogue-format part of their own.
 export function bubbleRosterAddendum(config, {speakerRows, aliases, frozenAliases}) {
   const current = normalizeBubbleConfig(config)
   const characters = current.characters.filter(row => aliases.has(row.alias))
   const frozenCharacters = current.characters.filter(row => frozenAliases.has(row.alias))
   const roster = rosterGroups(current, speakerRows, characters)
   if (!current.enabled || !roster.lines.length) return ''
-  // Explanations the frozen roster already carries are not repeated.
   const frozen = rosterGroups(current, speakerRows, frozenCharacters)
-  const voiced = frozenCharacters.some(character => Object.values(bubbleVoiceSwitches(current, character)).some(Boolean))
-  return promptSection('speaker_roster_addendum', [
-    PROMPT_PROSE.p026 + (frozen.lines.length ? '' : PROMPT_PROSE.p001) + (roster.hasTranslation && !frozen.hasTranslation ? PROMPT_PROSE.p019 : '') + roster.lines.join('\n'),
-    voiced ? '' : voicedBubblesSection(current, characters)
-  ].filter(Boolean).join('\n'))
+  return promptSection('speaker_roster_addendum',
+    PROMPT_PROSE.p026 + (frozen.lines.length ? '' : PROMPT_PROSE.p001) + (roster.hasTranslation && !frozen.hasTranslation ? PROMPT_PROSE.p019 : '') + roster.lines.join('\n'))
 }
 function voicedBubblesSection(current, characters) {
   const translated = characters.some(character => bubbleVoiceSwitches(current, character).voiceTranslates)
