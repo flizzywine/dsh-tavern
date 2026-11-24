@@ -3764,7 +3764,8 @@ window.__ModuleLoader__.load({
 		}
 		// saveExportFile(result, {target, name, onProgress, signal}) writes each archive of an export result ({download:{ticket}},
 		// {url[, size]} of a GET that streams the file, or {bytes}) to the picked target, streamed to disk with onProgress({loaded,
-		// total}) per file; without a target it hands the file to an ordinary download. `name` (no extension; the archive's
+		// total}) per file. It starts a browser download when there's no target or the browser rejects opening a single picked
+		// file for writing. `name` (no extension; the archive's
 		// own is kept) overrides the file name of a single archive. Resolves {names:[saved file names], picked:boolean, said}: `said`
 		// is the one sentence every export shows when done, where the file is. A failed write removes the half-written file.
 		// A download that stops sending (the connection hangs without closing) would otherwise hold the save open forever with a
@@ -3820,27 +3821,40 @@ window.__ModuleLoader__.load({
 		            const stall = archive.bytes ? null : stallGuard();
 		            try {
 		                for (let tries = 1; ; tries++) {
+		                    let writable;
 		                    try {
+		                        signal?.throwIfAborted();
+		                        writable = await handle.createWritable();
 		                        const body = archive.bytes ? new Blob([archive.bytes]).stream() : (await open(archive, stall)).pipeThrough(batchWrites(SAVE_WRITE_BYTES));
 		                        // pipeTo commits the file (the .crswap is renamed) when the body ends and discards the write on failure.
-		                        await body.pipeTo(await handle.createWritable(), {signal:stall?.signal || signal});
+		                        await body.pipeTo(writable, {signal:stall?.signal || signal});
 		                        break;
 		                    } catch (error) {
+		                        if (!writable && target.file && archives.length === 1 &&
+		                            (error?.name === 'NotAllowedError' || error?.name === 'SecurityError')) {
+		                            target = null;
+		                            break;
+		                        }
+		                        await writable?.abort().catch(() => {});
 		                        if (error?.name !== 'NoModificationAllowedError' || signal?.aborted || stall?.signal.aborted) throw error;
 		                        if (tries >= SAVE_TRIES) throw Object.assign(error, {tries});
 		                    }
 		                }
-		                const total = archive.bytes ? archive.bytes.length : lastTotal, written = (await handle.getFile()).size;
-		                if (total && written !== total) throw new Error('保存的文件只有 ' + mb(written) + '，应为 ' + mb(total));
+		                if (target) {
+		                    const total = archive.bytes ? archive.bytes.length : lastTotal, written = (await handle.getFile()).size;
+		                    if (total && written !== total) throw new Error('保存的文件只有 ' + mb(written) + '，应为 ' + mb(total));
+		                    names.push(handle.name);
+		                    continue;
+		                }
 		            } catch (error) {
 		                await handle.remove?.().catch(() => {});
 		                throw stall?.signal.aborted && !signal?.aborted ? stall.signal.reason : error;
 		            } finally { stall?.done(); }
-		            names.push(handle.name);
-		            continue;
 		        }
-		        // no picker: a ticket or url goes to the browser's download manager as is (it streams); bytes go as a Blob.
+		        // Tickets stream through the browser's download manager. Fetch other URLs to surface HTTP errors first.
+		        signal?.throwIfAborted();
 		        const blob = archive.bytes ? new Blob([archive.bytes]) : archive.download ? null : await new Response(await open(archive)).blob();
+		        signal?.throwIfAborted();
 		        const url = blob ? URL.createObjectURL(blob) : source(archive);
 		        const anchor = document.createElement('a'); anchor.href = url; anchor.download = filename; anchor.click();
 		        if (blob) setTimeout(() => URL.revokeObjectURL(url), 1000);
