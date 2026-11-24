@@ -1,5 +1,5 @@
 import { syntheticPack } from './fixtures/asset-packs/pack.mjs'
-import { createAssetPackService } from '../tavern-plugin/packages/dsh-asset-library/lib/pack-v2/service.js'
+import { createAssetPackService, openPackZip } from '../tavern-plugin/packages/dsh-asset-library/lib/pack-v2/service.js'
 import assert from 'node:assert/strict'
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -72,9 +72,26 @@ test('encrypted DSH imports authenticate before saving cards/plugins, and duplic
   assert.equal((await castAssets.read(card.path)).plugins[0].enabled, true)
   await assert.rejects(files.importCardArchiveFile(encrypted, 'locked.dshcard'), { code: 'TAVERN_CARD_PASSWORD_REQUIRED' })
   assert.equal((await files.importCardArchiveFile(encrypted, 'locked.dshcard', { password: 'test-only-password' })).duplicate, true)
-  const entries = await exportedEntries(await files.exportCardFile(card.path))
+  const exported = await files.exportCardFile(card.path)
+  const roundTrip = join(root, 'round-trip.dshcard')
+  await encryptCardArchiveFile(exported.file, roundTrip, 'test-only-password')
+  const fresh = await library(t)
+  await assert.rejects(fresh.files.previewCardArchiveFile(roundTrip, 'round-trip.dshcard'), { code: 'TAVERN_CARD_PASSWORD_REQUIRED' })
+  const preview = await fresh.files.previewCardArchiveFile(roundTrip, 'round-trip.dshcard', { password: 'test-only-password' })
+  assert.equal(preview.card.name, card.name)
+  const restored = await fresh.files.importCardArchiveFile(roundTrip, 'round-trip.dshcard', { password: 'test-only-password', previewed: true })
+  assert.equal(restored.name, card.name)
+  assert.equal((await fresh.castAssets.read(restored.path)).plugins[0].enabled, true)
+  const entries = await exportedEntries(exported)
   assert.equal(JSON.parse(entries.get('dsh.json')).plugins[0].name, 'encrypted-game')
   assert.equal(entries.get('plugins/game/assets/data.bin').toString(), 'fixture bytes')
+
+  const truncated = join(root, 'truncated.dshcard')
+  await writeFile(truncated, (await readFile(roundTrip)).subarray(0, -22))
+  await assert.rejects(fresh.files.previewCardArchiveFile(truncated, 'truncated.dshcard'), { code: 'TAVERN_ZIP_INCOMPLETE' })
+  await assert.rejects(openPackZip(truncated), { code: 'TAVERN_ZIP_INCOMPLETE' })
+  await assert.rejects(openPackZip(roundTrip), { code: 'TAVERN_ZIP_ENCRYPTED' })
+  assert.equal((await fresh.fileResources.list('card')).length, 1)
 })
 
 

@@ -202,9 +202,10 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
   const cardPackAction=(row,decision)=>({noop:'已装过相同的',install:'新安装',update:'替换原来的','keep-both':cardPackAsks(row)?'另存一份':'和已安装的重复，另存一份'})[decision]||'';
   const CARD_IMPORT_FILE='这个文件不是卡片 ZIP，或者已经损坏。';
   const CARD_IMPORT_ERRORS={INVALID_INPUT:CARD_IMPORT_FILE,INVALID_PATH:CARD_IMPORT_FILE,FILE_CLOSURE_MISMATCH:CARD_IMPORT_FILE,LIMIT_EXCEEDED:'文件太大，或者磁盘空间不够。',DISK_FULL:'磁盘空间不够，没有导入，也没有留下半个文件。腾出空间后再试一次。',
+    TAVERN_ZIP_INCOMPLETE:'卡包文件不完整，请重新下载或导出后再试。',TAVERN_ZIP_ENCRYPTED:'这个卡包已加密。请选择原始的 .dshcard 文件，或把改过的文件后缀改回 .dshcard。',
     DUPLICATE_ID:'里面的素材和已安装的冲突，不能导入。',REVISION_CONFLICT:'卡片或素材刚刚被改过，请重试。',ASSET_UNAVAILABLE:'暂时无法导入，请重试。',
     NOT_FOUND:'找不到这张卡，请重新打开后再试。',RECOVERY_REQUIRED:'舞台素材需要恢复，请重启后再试。'};
-  const CARD_IMPORT_PICK=new Set(['INVALID_INPUT','INVALID_PATH','FILE_CLOSURE_MISMATCH','LIMIT_EXCEEDED','DUPLICATE_ID']);
+  const CARD_IMPORT_PICK=new Set(['INVALID_INPUT','INVALID_PATH','FILE_CLOSURE_MISMATCH','TAVERN_ZIP_INCOMPLETE','TAVERN_ZIP_ENCRYPTED','LIMIT_EXCEEDED','DUPLICATE_ID']);
   // reading a card from an address says what failed and what to do — the HTTP
   // status the host passes in `detail` (pack-transport.js), no network, not a card ZIP, too large. `file` here means
   // 「换一个网址」 (the address sheet again, address kept); `again` means 「重试」.
@@ -352,8 +353,8 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
           sent&&h('span',{className:'ap-card-import-progress'},cardUploadMb(sent.loaded,sent.total)+' / '+cardUploadMb(sent.total,sent.total)+' MB')))));
       foot=h(Button,{onClick:onClose},'取消');
     } else if(read.phase==='error'){
-      const failure=read.failure;
-      body=h(React.Fragment,null,h('div',{className:'ap-cat-hero'},h(CardCover,{name:fileStem(sourceName)}),h('div',{className:'ap-cat-hero-text'},h('h3',{className:'ap-cat-hero-name'},fileStem(sourceName)))),
+      const failure=read.failure,fileName=file?.name||fileStem(sourceName);
+      body=h(React.Fragment,null,h('div',{className:'ap-cat-hero'},h(CardCover,{name:fileName}),h('div',{className:'ap-cat-hero-text'},h('h3',{className:'ap-cat-hero-name',title:fileName},fileName))),
         h(CatBand,{role:'alert'},failure.text));
       foot=h(React.Fragment,null,h(Button,{onClick:onClose},'关闭'),
         failure.file&&onPick?h(Button,{primary:true,onClick:onPick},url?'换一个网址':'换一个文件'):h(Button,{primary:true,onClick:()=>setAttempt(n=>n+1)},'重试'));

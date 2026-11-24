@@ -43,12 +43,17 @@ export async function openZipFile(file, { label = 'ZIP', allowEncrypted = false,
   try {
     const { size: fileSize } = await handle.stat()
     if (fileSize > maxArchiveBytes) fail(label, '文件超过 ' + maxArchiveBytes / 1024 ** 2 + ' MiB')
-    if (fileSize < 22) fail(label, '文件太小')
     const tailLength = Math.min(fileSize, 65557 + 20)
     const tail = await read(handle, fileSize - tailLength, tailLength)
     let eocd = -1
     for (let offset = tail.length - 22; offset >= 0; offset--) if (tail.readUInt32LE(offset) === 0x06054b50) { eocd = offset; break }
-    if (eocd < 0) fail(label, '不是有效的 ZIP')
+    if (eocd < 0) {
+      const head = await read(handle, 0, 4)
+      if (head.length === 4 && head.readUInt32LE(0) === 0x04034b50) {
+        throw Object.assign(new Error('卡包文件不完整，请重新下载或导出后再试。'), { code: 'TAVERN_ZIP_INCOMPLETE' })
+      }
+      fail(label, '不是有效的 ZIP')
+    }
     let count = tail.readUInt16LE(eocd + 10), directorySize = tail.readUInt32LE(eocd + 12), directoryOffset = tail.readUInt32LE(eocd + 16)
     // Generic ZIP readers also support prepended bytes, including self-extracting archives.
     const eocdAt = fileSize - tail.length + eocd

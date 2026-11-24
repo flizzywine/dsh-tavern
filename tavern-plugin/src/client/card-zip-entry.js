@@ -22,7 +22,7 @@ async function isCardZip(file) {
     const name = String(file && file.name || "");
     if (!file) return false;
     if (/\.zip$/i.test(name)) return true;
-    // Native archive formats belong to the upstream importer, not the fork bundle sheet.
+    // The picker routes native card formats by extension so encrypted .dshcard files can ask for their password.
     if (/\.(png|json|charx|dshcard)$/i.test(name) || typeof file.slice !== "function") return false;
     try { const head = new Uint8Array(await file.slice(0, 4).arrayBuffer()); return head[0] === 0x50 && head[1] === 0x4b && head[2] === 3 && head[3] === 4; }
     catch (_) { return false; }
