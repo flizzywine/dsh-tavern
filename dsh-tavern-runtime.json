@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "8e3a6c4fe8e0e2e21289e4654ba660b4a946ecf6",
-  "releaseSequence": 2038,
+  "revision": "01e5d11e4189866a1cbe15b512172955bc15805d",
+  "releaseSequence": 2039,
   "version": "3.4.0",
   "files": [
     {
@@ -4411,8 +4411,8 @@
     },
     {
       "path": "tavern-plugin/lib/index.js",
-      "sha256": "7104174ca404bca873de83eefcb47f670ee8c2adca030dfde932da2dc2870394",
-      "size": 339243
+      "sha256": "813d5d570c6544d1947fccf250a5e2aae03ae88458eb212c3b82f656528bb1f2",
+      "size": 339511
     },
     {
       "path": "tavern-plugin/lib/metadata-backup.js",
@@ -4521,8 +4521,8 @@
     },
     {
       "path": "tavern-plugin/lib/rpc/maintenance.js",
-      "sha256": "8e32983f8a358c3ce67e71d6f171e1f9d13f5ab48691d6922023cf648185e188",
-      "size": 8073
+      "sha256": "46f1bb2c2c7c8ff2f4aef351d7afdeac936ed63df320d9ef70a6fa3c64d82a72",
+      "size": 8099
     },
     {
       "path": "tavern-plugin/lib/rpc/media.js",
@@ -10181,9 +10181,9 @@
     }
   ],
   "archive": {
-    "commit": "4c99ffe1ad63eafccb7c533a51dcaec9dd74be83",
+    "commit": "7bcec0f79267f1185810a8a295a84dc8eb0f8ae2",
     "path": "runtime.zip",
-    "sha256": "47b6a911b07a153ec77748b7c5bab1108b446f199b0b3e190bc06ad4f453fc43",
-    "size": 17888791
+    "sha256": "8a588c0f5dface4f06d5834e2af0ca2913dc963faf3e5fdee24720e4be12958d",
+    "size": 17888911
   }
 }
