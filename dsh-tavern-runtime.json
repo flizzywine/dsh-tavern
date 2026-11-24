@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "2958f23ce57ba8867a9a8d909fb757fe3d891491",
-  "releaseSequence": 2063,
+  "revision": "59dd5de736d8c79c82c66b8aa4ed3b91b2bcc20c",
+  "releaseSequence": 2064,
   "version": "3.4.0",
   "files": [
     {
@@ -7851,7 +7851,7 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-image-bundled/BUNDLED-VERSION.json",
-      "sha256": "725424b460c64d8d6d77bc8348c732eab78e0d9ee6736dc297d473dcbe4289f2",
+      "sha256": "4afaefc4e54dcd62ef5dcdc4842fe9780419750553ca9f5ede6fdea8e123921b",
       "size": 261
     },
     {
@@ -8071,8 +8071,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-image-bundled/lib/index.js",
-      "sha256": "235f699d3e66410f486faeedb7eff2f2b41ea690b1868c7eb5b768d0b62f4372",
-      "size": 498467
+      "sha256": "dcda3bafaf46e8cac6162e5b2e8e45d7918cd1017865898f6cb58ae8e5c0f3c5",
+      "size": 498646
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-image-bundled/lib/job-limits.js",
@@ -8116,8 +8116,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-image-bundled/lib/planner.js",
-      "sha256": "09a17aba9db04d3ddadfbc89dc827539f4a8f943828403b0043c041aa6b1971b",
-      "size": 53437
+      "sha256": "7a6139d23e0975ac02ebc6eb3ba24cbc5e2829e8bbf96cb8120e32f4474dd034",
+      "size": 53887
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-image-bundled/lib/plugin-compatibility.js",
@@ -8171,8 +8171,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-image-bundled/lib/reference-images.js",
-      "sha256": "6e8a8cdcac1d7b8749a3f8a92c2f467491b31a4d8f070988c249849e98372b43",
-      "size": 49887
+      "sha256": "f0c865495bd1e06abb71597dfac4f023b01b18ccc0a949eec957cb9271e15c5a",
+      "size": 50847
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-image-bundled/lib/release-updater.js",
@@ -8366,7 +8366,7 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-image-bundled/package.json",
-      "sha256": "4b9bae9d4d17a02f9cf199e5855567d6e75b8722b0e43b15857409a66fe1a059",
+      "sha256": "a19025fc4c63ada993853d39f2825cabbc1278fe2748245a8675707b5ec6ccc5",
       "size": 2423
     },
     {
@@ -10241,9 +10241,9 @@
     }
   ],
   "archive": {
-    "commit": "652df44f4f8f66552812e5af42646ef56cd02240",
+    "commit": "0917c34a241c1b31160e8e2750c2f31becc2d9b9",
     "path": "runtime.zip",
-    "sha256": "e81f07b804eda3394cc2b60a5301947b0b5c5e6a7f60cb068d38ca7b1175be13",
-    "size": 17949732
+    "sha256": "c4000b15988a0aac3bedf7f7dc6ad83e315f375fd18d0d6a10ba719f43a855a9",
+    "size": 17950247
   }
 }
