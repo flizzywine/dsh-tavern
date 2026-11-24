@@ -30717,8 +30717,14 @@ const DSHCARD_IMPORT_LIMIT=8*1024**3;
 // the rates are export-compress.js EXPORT_AUDIO_KBPS (the same test keeps them equal).
 const DSHCARD_COMPRESS_HELP='导出时把随卡素材包里的素材压小，本机的原文件不变。图片转成 WebP（质量 80），音乐转成 Opus 96 kbps、环境音 80 kbps；口型和眨眼贴片保持无损，音效和配音参考不压。';
 const DSHCARD_FAILURE={TAVERN_NOT_FOUND:'找不到这张人物卡。',REVISION_CONFLICT:'人物卡刚刚改过，请再导出一次。'};
+// a failed save says its own cause and what helps with that cause (pack-transport.js saveExportFile). The browser may
+// leave its 「….crswap」 working file beside the target; the page cannot reach it, so the sentence names it.
+const DSHCARD_SAVE_FAILURE={
+  QuotaExceededError:()=>'保存位置空间不够。清出空间或换个保存位置后再导出一次。',
+  NoModificationAllowedError:error=>'文件写到一半被别的程序占住了（常见是杀毒软件在扫描刚写入的文件，「下载」文件夹里最容易碰到）'+(error.tries?'，自动重试 '+error.tries+' 次都没写完':'')+'。换一个不在「下载」里的文件夹再导出一次。'};
 const dshCardFailure=(error,saving)=>DSHCARD_FAILURE[error?.code]||(error?.step?error.message:saving
-  ?'保存文件时出错：'+(error?.name==='QuotaExceededError'?'保存位置空间不够':(error?.name&&error.name!=='Error'?error.name+' ':'')+String(error?.message||error))+'。没写完的文件已删除；换个保存位置或清出空间后再导出一次。'
+  ?'保存文件时出错：'+(DSHCARD_SAVE_FAILURE[error?.name]?.(error)||(error?.name&&error.name!=='Error'?error.name+' ':'')+String(error?.message||error)+'。请再导出一次。')
+    +'没写完的文件已删除；如果文件夹里留下了同名的 .crswap 文件，可以直接删掉。'
   :playerErrorText(error,{fallback:'导出时出错：'+String(error?.message||error)}));
 const dshCardClock=ms=>{const s=Math.max(0,Math.round(ms/1000));return Math.floor(s/60)+':'+String(s%60).padStart(2,'0');};
 const DSHCARD_LONG=8;
