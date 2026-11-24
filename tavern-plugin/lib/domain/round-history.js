@@ -13,13 +13,14 @@ import { rollbackAvailability, clearFailedTurnSurface, locateRegenerationSurface
 
 // Both regeneration paths (native and plugin) read the same tail rule.
 export { unansweredTailIndex }
-import { assertRegenerationSourceCurrent, replaceLastRound } from './last-round-replacement.js'
+import { assertPluginRegenerationTarget, assertRegenerationSourceCurrent, replaceLastRound } from './last-round-replacement.js'
 import { diagnosticIdentity, regenerationTargetDiagnostic } from './regeneration-diagnostics.js'
 import { extractForegroundStoryChoices } from './candidate-generation.js'
 import { assistantResultForTurn } from './session-turn-result.js'
 import { STORY_SUBMIT_TOOL_NAME } from './story-tool-submission.js'
 import { extractStreamedToolReplyContent, parsePartialToolReplyJson } from './tool-reply-stream-parser.js'
 import { plainReplyProse, replyProse } from './reply-prose.js'
+import { computeSceneTarget } from './scene-illustration.js'
 import { createPluginBodyRegeneration } from './plugin-body-regeneration.js'
 import { lastTavernHelperVariables } from './tavern-helper-context.js'
 import { consumeScriptPrompts } from './tavern-script-prompts.js'
@@ -563,6 +564,8 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
     // body to replace there, so regenerating it must produce the missing body.
     // Selecting the previous reply instead replays an older input and leaves the
     // newest one unanswered — the reply the player asked to redo never happens.
+    const expectedReply = options.expectedReply
+    assertPluginRegenerationTarget(chat, expectedReply)
     const unansweredIndex = unansweredTailIndex(chat)
     let selection, evidence
     try {
@@ -583,6 +586,9 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
       }
     }
     const { eventStart, msgs0, oldAssistantIndex, inputIndex, oldSeq, oldTurn, oldSource, failedTail = false, saveOnly = false } = selection
+    if (expectedReply && (failedTail || Number(oldTurn) !== expectedReply.turn)) {
+      throw Object.assign(new Error('当前没有可重新生成的最新正文'), { code: 'TAVERN_PLUGIN_TURN_UNAVAILABLE' })
+    }
     // 面上没有这一轮的正文：没有可替换的位置，这一轮按「补写」处理，和失败尾一样是普通 append。
     const appending = failedTail || saveOnly
     // Only a replacement needs the host's replace primitive; producing the body
@@ -618,6 +624,7 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
     chat = restoreDiscardedRegeneration(chat)
     if (chat === undefined) throw new Error('聊天不存在: ' + chatId)
     chat.sessionId = effectiveSessionId
+    assertPluginRegenerationTarget(chat, expectedReply)
     if (agent.phase?.kind === 'running' || chat.regenInProgress) throw new Error('前台正在生成，请完成或停止后再重新生成')
     // An unanswered tail is a round whose reply is missing, not a save that must
     // be frozen: background settlement, candidates and world bookkeeping keep
@@ -710,10 +717,11 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
     const { targetMessageUid } = attempt
     let committed = false
     await stage('regen.begin', () => attempt.begin(current => {
+      assertPluginRegenerationTarget(current, expectedReply)
       if (agent.phase?.kind === 'running' || current.regenInProgress) throw new Error('前台正在生成，请完成或停止后再重新生成')
     }, { candidateTurn, candidateFrame, ...(failedTail ? { unansweredTail: true, storyTurn } : {}) }))
 
-    let committedChat, body = '', syntheticTurn = candidateTurn, keptStreamed = false
+    let committedChat, body = '', syntheticTurn = candidateTurn, keptStreamed = false, stopped = false
     try {
       releaseOpeningTurn(agent.session, agent)
       const ready = await stage('regen.ready', () => readRegenerationTail(chat.id))
@@ -737,17 +745,20 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
         event?.type === 'turn/end' && (!syntheticTurn || Number(event.data?.turn) === Number(syntheticTurn)))
         || eventsAfter.slice(eventStart).findLast(event => event?.type === 'turn/end')
       const endReason = turnEnd?.data?.reason
+      stopped = endReason?.kind === 'aborted'
       const directResult = Number.isSafeInteger(syntheticTurn) && syntheticTurn > 0 ? assistantResultForTurn(session, syntheticTurn) : null
       const hasDirectBody = directResult !== null && str(directResult.text).trim() !== '' && Number(directResult.event?.seq) >= Number(eventStart)
       body = (hasDirectBody ? directResult.text : streamedAttemptText(session, syntheticTurn, eventStart)).trim()
       const finishSilentAbort = async () => {
         const abortedChat = await attempt.abandon() || await readChat(chat.id)
         committed = true
+        if (expectedReply) return { aborted: true }
         const abortedResult = await stage('regen.present', () => view(abortedChat, card))
         abortedResult.aborted = true
         return abortedResult
       }
       if (body === '') {
+        if (expectedReply && stopped) return await finishSilentAbort()
         if (generationError !== null) throw generationError
         if (endReason?.kind === 'aborted') return await finishSilentAbort()
         throw attemptEmptyBodyError(eventsAfter, eventStart, syntheticTurn, endReason, directResult)
@@ -944,6 +955,8 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
       if (!committed) await attempt.abandon()
       throw error
     }
+    const pluginRegeneration = expectedReply && (stopped ? { aborted: true }
+      : { turn: storyTurn, textVersion: computeSceneTarget(committedChat, storyTurn).key })
     committedChat = await attempt.project() || committedChat
     replyCommitted?.(committedChat.sessionId, committedChat._storageRevision)
     // The body is already the save's truth; settlement is a background task. Waiting
@@ -976,6 +989,7 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
     } catch (error) {
       settledChat = await saveSettlementFailure(error)
     }
+    if (pluginRegeneration) return { pluginRegeneration }
     const result = await stage('regen.present', () => view(settledChat, card))
     result.adopted = { text: body, guidance: guide, hiddenTurn: failedTail ? storyTurn : oldTurn, syntheticTurn }
     return result

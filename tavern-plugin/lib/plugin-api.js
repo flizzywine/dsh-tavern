@@ -46,6 +46,8 @@ const MAX_DAMPER_QUESTIONS_PER_PLUGIN = 6
 const MAX_DAMPER_QUESTIONS_TOTAL = 10
 const MAX_VARIABLES = 1024 * 1024
 const MAX_EDIT_TEXT = 200000
+// A regeneration's guidance (the 修改意见 of the 重新生成 panel), sent along with the turn's request.
+const MAX_GUIDANCE = 20000
 const MAX_HISTORY_TURNS = 50
 const MAX_TASK_TITLE = 40
 const MAX_TASK_DESCRIPTION = 500
@@ -221,6 +223,7 @@ export function createTavernPluginApi(deps) {
     ...(deps.writingSources ? { writingPreparation: 6 } : {}),
     ...(deps.readTavernSettings && deps.updateTavernSettings ? { bodyGenerationDefaults: 1 } : {}),
     ...(deps.generationPresets ? { generationPresets: 1 } : {}),
+    ...(deps.regenerateLatest ? { regenerateTurn: 1 } : {}),
     ...(deps.decisionJudge ? { decisionJudge: 1 } : {}),
     ...(deps.damperSettings ? { damperSettings: 1 } : {}),
     ...(deps.narrativeDamper ? { narrativeDamper: 1 } : {}) })
@@ -1425,6 +1428,28 @@ export function createTavernPluginApi(deps) {
       if (text.length > MAX_EDIT_TEXT) throw new Error('text 太长')
       await (polish === true ? deps.editText(material, text, { polish: true }) : deps.editText(material, text))
       return await snapshotOf(await requireTurn(material.sessionId, material.turn))
+    },
+
+    // The player's 重新生成 of the latest turn, asked for by a plugin. Tavern runs the button's own regeneration and builds
+    // the request from this game's preset, world book, card and history; the plugin only gives the guidance (the 修改意见
+    // of the 重新生成 panel). Resolves once the new body is committed. Settlement need not have finished: like the
+    // button, the regeneration stops it.
+    async regenerateTurn({ gameId, turn, textVersion, guidance = '' } = {}) {
+      const owner = ownerOf(this)
+      if (!deps.regenerateLatest) throw Object.assign(new Error('当前版本不支持插件重新生成正文'), { code: 'TAVERN_PLUGIN_NOT_FOUND' })
+      const game = await requireGame(gameId)
+      if ((await choicesFor(game.sessionId)).disabled.has(owner)) throw new Error('玩家在本局关闭了插件 ' + owner)
+      const wanted = positiveTurn(turn)
+      if (typeof guidance !== 'string') throw new TypeError('guidance 必须是字符串')
+      const text = guidance.trim()
+      if (text.length > MAX_GUIDANCE) throw new Error('guidance 不能超过 ' + MAX_GUIDANCE + ' 字')
+      const before = await turnState(game.sessionId)
+      if (before.turn !== wanted || before.greeting) throw Object.assign(new Error('regenerateTurn 只能用于最新一轮正文'), { code: 'TAVERN_PLUGIN_TURN_UNAVAILABLE' })
+      if (typeof textVersion !== 'string' || textVersion !== before.textVersion) throw Object.assign(new Error('regenerateTurn 的 textVersion 不是这一轮当前显示的正文版本'), { code: 'TAVERN_PLUGIN_STALE_VERSION' })
+      if (before.generating) throw Object.assign(new Error('前台正在写正文，写完再重新生成'), { code: 'TAVERN_PLUGIN_BUSY' })
+      const result = await deps.regenerateLatest(game.sessionId, text, { turn: wanted, textVersion })
+      if (result.aborted) throw Object.assign(new Error('重新生成已停止'), { code: 'TAVERN_PLUGIN_ABORTED' })
+      return { turn: result.turn, textVersion: result.textVersion }
     },
 
     // A task of this game in a background session: a fresh one-off by default; with `member`, the
