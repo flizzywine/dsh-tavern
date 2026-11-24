@@ -147,8 +147,9 @@ function cellMenuTrigger({open,toggle,onPrimary=null,onMenu=null}) {
 // outfit tile, the model preview, a voice row): its click (and a tap) keeps doing that; the menu opens on right click
 // anywhere on it, Shift+F10 / the menu key, or a long press on touch (the click that ends the press is swallowed and the
 // system's text selection does not start: [data-hold-menu] in theme.css). The browser's own menu is replaced there only.
-// useContextMenu({label, content(close), onMenu, hold, disabled}) → {target, trigger, layer}: spread `target` on that
-// element, `trigger` on its focusable button, render `layer` anywhere (it is portalled; events in it stay inside). The
+// useContextMenu({label, content(close), onMenu, hold, disabled}) → {target, trigger, layer, show}: spread `target` on that
+// element, `trigger` on its focusable button, render `layer` anywhere (it is portalled; events in it stay inside);
+// show(element) opens the same menu under that element (a ⋯ button beside the right click). The
 // menu opens at the pointer (keyboard: under the element's left edge), floats in the top layer, ↑↓ move between its items,
 // and it closes like every popup (useOverlay: outside press; Esc returns focus) or on a scroll outside it.
 // `hold:false`: the caller owns the long press — a reorderable row turns a hold that did not drag into a contextmenu event.
@@ -199,7 +200,7 @@ function useContextMenu({label,content,onMenu=null,hold=true,disabled=false,limi
   const layer=at&&!off&&h(TopLayer,null,h('div',{className:'ap-popover-anchor is-floating',onClick:stop,onPointerDown:stop,onContextMenu:event=>{event.preventDefault();stop(event);},onKeyDown:keys},
     h('div',{ref:menu,className:'ap-popover is-floating ap-context-menu',role:'menu','aria-label':label,'data-placement':place?.up?'top':'bottom',
       style:place?{top:place.top+'px',left:place.left+'px',maxHeight:Math.min(limit,place.maxHeight)+'px'}:{top:'0px',left:'0px',visibility:'hidden'}},content(close))));
-  return {target,trigger,layer};
+  return {target,trigger,layer,show:el=>{if(!off)open(el);}};
 }
 // Props of one element from several sources (a row's reorder and its menu): handlers of the same event run in turn.
 function mergeProps(...list) {

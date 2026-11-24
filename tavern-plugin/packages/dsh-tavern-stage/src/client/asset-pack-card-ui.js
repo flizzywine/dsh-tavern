@@ -903,7 +903,7 @@ function DshCardExportSheet({binding,path,cardName,hasImage,onClose}) {
     // the format list: the shared Segmented in a list skin, each format with its one-line note.
     h(StageSection,{title:'导出格式',meta:file.label,level:2,foldKey:'dshcard-export:format',className:'ap-dshcard-group'},
       h(Segmented,{base:'ap-dshcard-formats',label:'导出格式',value:format,onChange:setFormat,options:formats})),
-    dsh&&h(InlineField,{kind:'text',secret:true,label:'密码',help:h(Help,{text:'填了就加密导出：导入这张卡时要输这个密码，忘了就打不开。不填就不加密。',label:'密码 说明'}),value:password,placeholder:'不填就不加密',disabled:!!work,live:true,trim:false,onCommit:setPassword,className:'ap-dshcard-password'}));
+    dsh&&h(InlineField,{kind:'text',secret:true,label:'密码',help:h(Help,{text:'填写密码时会加密角色卡后导出。留空时放弃加密',label:'密码 说明'}),value:password,placeholder:'留空时放弃加密',disabled:!!work,live:true,trim:false,onCommit:setPassword,className:'ap-dshcard-password'}));
   const body=state.error?h(ErrorBox,{error:state.error,reload:state.reload}):!value?h(Loading,{shape:'rows',count:3,label:'正在读取素材包…'}):h(React.Fragment,null,
     dsh&&packs.length>0&&group('packs','素材包',packs.length,'已选 '+packIds.length+'/'+packs.length+(total>0?' · '+stageBytesText(total):''),
       '勾选的素材包随卡导出，人物跟着所在的素材包走；没勾的留在本机，导出的卡也不再使用它。',

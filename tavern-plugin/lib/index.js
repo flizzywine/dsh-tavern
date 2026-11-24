@@ -181,7 +181,7 @@ import { createSessionStablePrefixStorage, ensureSessionStablePrefix, readSessio
 import { waitForWritableSession } from './domain/agent-readiness.js'
 import { createCardDeletion } from './domain/card-deletion.js'
 import { createCardOrganization } from './domain/card-organization.js'
-import { countGamesByCard, orderCardsForLibrary } from './domain/card-list-order.js'
+import { countGamesByCard, lastPlayedByCard, orderCardsForLibrary } from './domain/card-list-order.js'
 import { createCardPreparation,rawData } from './domain/card-preparation.js'
 import { cardAssetWorkspaceRevision, hasCardAssetBindings } from './card-asset-bindings.js'
 import { withoutPlayerChoices } from './domain/card-export-settings.js'
@@ -1720,8 +1720,10 @@ export async function apply(ctx) {
         }
       }
     }))
-    const gameCounts = countGamesByCard(await conversationRegistry.list().catch(() => []))
-    return await cardOrganization.project(orderCardsForLibrary(cards, { gameCounts }))
+    const conversations = await conversationRegistry.list().catch(() => [])
+    const gameCounts = countGamesByCard(conversations), lastPlayed = lastPlayedByCard(conversations)
+    return await cardOrganization.project(orderCardsForLibrary(cards, { gameCounts })
+      .map(card => lastPlayed.has(card.path) ? { ...card, lastPlayedAt: lastPlayed.get(card.path) } : card))
   }
   async function resourceBindingProjection() {
     const cards = await listCards()
@@ -1936,8 +1938,8 @@ export async function apply(ctx) {
     else if (binding.kind === 'standalone' && binding.available) await fileResources.bindWorldBook(copy.path, binding.path)
     else if (binding.kind === 'embedded' && binding.available) await fileResources.bindWorldBook(copy.path, { kind: 'embedded', cardPath: own(binding) })
     else if (binding.kind === 'none') await fileResources.unbindWorldBook(copy.path)
-    const group = (await cardOrganization.read()).cards[source]?.group
-    if (group) await cardOrganization.update({ action: 'cards', paths: [copy.path], group }, [copy.path])
+    const tags = (await cardOrganization.read()).cards[source]?.tags
+    if (tags?.length) await cardOrganization.update({ action: 'cards', paths: [copy.path], tags }, [copy.path])
     return { path: copy.path, sourcePath: source, imageCopied: copy.imageCopied }
   }
   async function deleteCard(cardPath) {

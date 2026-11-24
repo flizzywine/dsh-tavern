@@ -45,10 +45,10 @@ export function createCardHandlers(deps) {
       return { card }
     },
     async getCardOrganization(args) {
-      return { groups: (await cardOrganization.read()).groups }
+      return { tags: (await cardOrganization.read()).tags }
     },
     async organizeCards(args) {
-      return { groups: (await cardOrganization.update(args || {}, await fileResources.list('card'))).groups }
+      return { tags: (await cardOrganization.update(args || {}, await fileResources.list('card'))).tags }
     },
     async listCards(args) {
       return { cards: await listCards() }

@@ -6,7 +6,7 @@
 //
 // useCardZipImport(options) owns the reservation, the pack binding and both sheets; the 人物卡库 tab (through the
 // registerTab wrapper below, tab-icons.js) and the 游玩 card picker (sidebar.js) each use it. The host components
-// get `forkCardZip` = {openFile(file), openUrl(), busy, available}; `openFile` rejects with a plain sentence.
+// get `forkCardZip` = {openFile(file), openUrl(), openAddress(url), busy, available}; `openFile` rejects with a plain sentence.
 // `openExample` is 「导入示例卡：大肥鱼」: the 从网址导入卡 sheet with the example's address, read at once (as if pasted and
 // 读取 pressed), so progress, failures and 「换一个网址」/「重试」 are the pasted-address ones.
 //
@@ -84,6 +84,8 @@ function useCardZipImport(options) {
         available, busy,
         openFile: function (file) { return begin(file, null); },
         openUrl: function () { if (!busy) setAsking(true); },
+        // An address typed into 人物卡库's 「导入」 menu: the 从网址导入卡 sheet with it, read at once.
+        openAddress: function (url) { if (!busy) { lastUrl.current = url; setAsking("read"); } }
     };
     const ui = typeof packUi === "object" && packUi ? packUi : opts.views;
     const h = React.createElement;
