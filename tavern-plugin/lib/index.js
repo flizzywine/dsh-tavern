@@ -9,7 +9,6 @@ import {createModelSlotRegistry} from './domain/model-slot-registry.js'
 import {mvuConditionHolds} from './domain/mvu-visibility.js'
 import {createPresentationObservers} from './domain/presentation-observers.js'
 import {createReplyStreamRewriters} from './domain/reply-stream-rewrite.js'
-import {createSpeechRecognitionHost} from './speech-recognition-host.js'
 import { installPluginSettingsMigration } from './settings-config.js'
 export { Config } from './settings-config.js'
 import { CORE_MODEL_MANIFESTS, modelSlotRows, resolveModelSlotOffered } from './domain/model-slots.js'
@@ -3304,8 +3303,10 @@ export async function apply(ctx) {
   async function speakLine(sessionId, { speaker, text, emotion, narration } = {}, origin) {
     const card = await castCardOf(str(sessionId)).catch(() => null)
     const figures = card && origin ? await stageRuntime.assets.cardSpeech({ sessionId: str(sessionId), cardPath: card.path }, origin) : null
-    const extension = card && !figures && narration === true ? await cardStageExtension(card.path).catch(() => null) : null
-    return speech.speak({ text, speaker: str(speaker), emotion: str(emotion) || 'neutral', narration: narration === true, figures, extension: extension || undefined })
+    // without the stage, narration reads the card's narrator layer and its own 旁白 voice (narrator:<card id>) directly.
+    const workspace = card && !figures && narration === true ? await readCardWorkspace(card.path).catch(() => null) : null
+    const extension = workspace?.raw && hasCardAssetBindings(workspace.raw) ? readCardAssetExtension(workspace.raw) : undefined
+    return speech.speak({ text, speaker: str(speaker), emotion: str(emotion) || 'neutral', narration: narration === true, figures, extension })
   }
   // The asset packs this game's card carries, with the base address of their files.
   async function cardPacksOf(sessionId) {
@@ -4689,6 +4690,8 @@ export async function apply(ctx) {
   const speechRecognition = await createSpeechRecognitionHost({store:profileData,credentials:() => ctx.get('credentials'),providers:() => pluginApi.speechProviders('recognize')})
   ctx.provide('asr', speechRecognition.service)
   ctx.effect(() => () => speechRecognition.service.dispose())
+  // Voiced lines still being synthesized and background work any game still holds keep a deployment waiting.
+  deploymentWork.push(() => ({voice: speech.pendingCount() + (voiceService()?.pendingCount() || 0), background: {busy: backgroundTasks.pendingCount() > 0}}))
 
   // Request handlers by area live in rpc/; bindings assigned later are read through getters.
   // paragraphSpeech: a paragraph's spoken line, the core's voice selection (the stage's clip export reads it).
