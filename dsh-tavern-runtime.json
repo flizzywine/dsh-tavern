@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "9c42c2997ecb1240ef5596972b4e326c3c71d04d",
-  "releaseSequence": 2041,
+  "revision": "a1333a7beb4821eb8f143b690af9a21c57e400db",
+  "releaseSequence": 2042,
   "version": "3.4.0",
   "files": [
     {
@@ -1271,8 +1271,8 @@
     },
     {
       "path": "tavern-plugin/lib/client.js",
-      "sha256": "0cf6285ef7fd0778bf6e00d79ec08bc6a6b1eaf8f20fd9379136a5428fb89b0f",
-      "size": 6551087
+      "sha256": "bdd2ac226b7f20052fb6755b3244feb30a28a8ebe1f102faf01a9430e6cfd653",
+      "size": 6552765
     },
     {
       "path": "tavern-plugin/lib/cordis-inspect.js",
@@ -1628,6 +1628,11 @@
       "path": "tavern-plugin/lib/domain/card-encryption.js",
       "sha256": "57cb48a4419e3bced4377874c805e5487f3aea846ab27efa1cddee66ee024d0c",
       "size": 7577
+    },
+    {
+      "path": "tavern-plugin/lib/domain/card-export-jobs.js",
+      "sha256": "fed8413c6d7b0baaef3a7f37618a55186cec61c454f282ba6007566f89af5db9",
+      "size": 3767
     },
     {
       "path": "tavern-plugin/lib/domain/card-export-settings.js",
@@ -4501,8 +4506,8 @@
     },
     {
       "path": "tavern-plugin/lib/rpc/cards.js",
-      "sha256": "4c3274b64d659bb589e959386b1213dd2956e0e5f9f42ca8b60782525ae1832d",
-      "size": 15743
+      "sha256": "6f774cb031cdebd451ebb1b157b46781d25d2272344ae9e689a90faa7e6e2f1e",
+      "size": 16915
     },
     {
       "path": "tavern-plugin/lib/rpc/conversations.js",
@@ -8686,8 +8691,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/client.js",
-      "sha256": "c4412b702aed530a9fcdf71b61d2984b4e18ea4ccc53aafdf01b3a79a91ccded",
-      "size": 3592602
+      "sha256": "bb6dcb5d1746f85e0e229005edf22691662476d54c29bbaed2d1d25242bceff1",
+      "size": 3592449
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/client/director-source.cjs",
@@ -10181,9 +10186,9 @@
     }
   ],
   "archive": {
-    "commit": "24de094c3d632a7d48d0a50ae3257da475c01e1c",
+    "commit": "0fdb6cba0f3f52478bcae23788bc159e2f31a47c",
     "path": "runtime.zip",
-    "sha256": "233a080aea4882459778843ab8a46a2c2c7d7817a0f67afa05977bc2510b164d",
-    "size": 17890067
+    "sha256": "898f9b4f6a184ad2feaaaa0378bb40188bfd56d3ec08a439373414e9663799a7",
+    "size": 17892871
   }
 }
