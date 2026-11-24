@@ -1179,6 +1179,21 @@ test('正文生成器通过 Cordis 注册、按卡隔离，卸载后停止可用
 })
 
 
+test('加载器来源：真实子插件沿父 fiber 找到宿主或卡片条目', { skip: !cordis }, async () => {
+  const require = createRequire(pathToFileURL(process.env.DSH_BOOT_MODULE))
+  const { Loader } = await import(pathToFileURL(require.resolve('@deepseek-ai/cordis-plugin-loader')).href)
+  const loader = Object.create(Loader.prototype)
+  const root = new cordis.Context()
+  let child
+  const host = root.plugin({ name: 'host', apply(ctx) { child = ctx.plugin({ name: 'dsh-tavern-stage', apply() {} }) } })
+  await host.await(); await child.await()
+  assert.equal(loaderOrigin(loader, child), undefined)
+  host.ctx.fiber.entry = { id: 'host:1' }
+  assert.equal(loaderOrigin(loader, child), 'host')
+  host.ctx.fiber.entry = { id: 'tavern-user-plugin-x:1' }
+  assert.equal(loaderOrigin(loader, child), 'tavern')
+  await root.fiber.dispose()
+})
 test('owner-bound read declarations revoke snapshots on update, unregister and fiber unload', { skip: !cordis }, async t => {
   const h = await harness(t)
   const seen = []
