@@ -3502,6 +3502,10 @@ body { --fork-accent-fill: var(--fk-s-base-fill, var(--fork-accent)); --fork-on-
 .ap-pack-head { display: flex; align-items: center; gap: 10px; flex: none; padding: 14px 16px 12px 20px; border-bottom: 1px solid var(--ap-border); }
 .ap-pack-head h2 { flex: 1; min-width: 0; margin: 0; overflow: hidden; font-size: 17px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
 .ap-pack-head-tools { display: inline-flex; align-items: center; gap: 4px; }
+/* the pack's name is the head, renamed in place (the shared inline edit look); its text lines up where the plain title sat. */
+.ap-pack-title-edit { display: flex; flex: 1; align-items: center; gap: 8px; min-width: 0; margin-left: -6px; }
+.ap-ui .ap-pack-title-edit input.ap-pack-title-input:not([data-ap-a]):not([data-ap-b]):not([data-ap-c]) { flex: 1; min-width: 0; height: 34px; font-size: var(--fork-fs-title); font-weight: 700; text-overflow: ellipsis; }
+.ap-pack-title-edit > .ap-field-error { flex: none; margin: 0; }
 .ap-pack-cols { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(300px, 360px) minmax(0, 1fr); }
 .ap-pack-left { position: relative; display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--ap-border); }
 /* one underline tab strip, never wrapping; what does not fit goes into 「更多」. Overflowed
