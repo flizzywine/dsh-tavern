@@ -218,15 +218,19 @@ export function bubbleInstruction(config, options = {}) {
 // The worldbook sync and prompt view consume the same rendering.
 export function bubbleFigureEntries(config, options = {}) {
   const current = options.voices ? resolveBubbleVoiceConfig(config, options.voices) : normalizeBubbleConfig(config)
-  return figureEmotionEntries(current, options.speakerRows, undefined, str(options.userName, 80) || '你')
+  const playerName = options.includePlayerName === false ? null : str(options.userName, 80) || '你'
+  return figureEmotionEntries(current, options.speakerRows, undefined, playerName)
 }
 // userName: this chat's player name, or the {{user}} macro for a shared worldbook (the sync passes it).
 function figureEmotionEntries(current, speakerRows = current.characters, characters = current.characters, userName) {
   if (!current.enabled) return []
   const roster = rosterGroups(current, speakerRows, characters)
   if (!roster.lines.length) return []
+  const playerRule = userName === null
+    ? "Use the current player name for the player's own lines.\n"
+    : PROMPT_PROSE.p027.replaceAll('{{user}}', () => userName)
   return [{figure:'common-roster', packIds:roster.packIds, name:'说话人名单', comment:'说话人名单',
-    content:promptSection('speaker_roster', PROMPT_PROSE.p001 + PROMPT_PROSE.p027.replaceAll('{{user}}', () => userName) + (roster.hasTranslation ? PROMPT_PROSE.p019 : '') + roster.lines.join('\n')), constant:true, primaryKeys:[]}]
+    content:promptSection('speaker_roster', PROMPT_PROSE.p001 + playerRule + (roster.hasTranslation ? PROMPT_PROSE.p019 : '') + roster.lines.join('\n')), constant:true, primaryKeys:[]}]
 }
 // One roster entry per speaker, in the roster's own line format (its `Variants:` line, then the speaker line):
 // what a speaker means to the prompt, so an edit to it is a change of this text.

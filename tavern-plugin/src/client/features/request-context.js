@@ -75,6 +75,7 @@
             if (form === "writing-skill-state") return { category: "plugin", label: "写作技能" };
             if (form === "variable-changes") return { category: "state", label: "变量变更" };
             if (form === "card-system-prompt-update") return { category: "card", label: "人物卡系统提示" };
+            if (form === "player-identity") return { category: "state", label: "玩家称呼" };
             if (form === "foreground-capability-update") return { category: "plugin", label: "前台能力追加说明" };
             if (form === "foreground-frame") return { category: "plugin", label: "前台上下文" };
             if (form === "mvu-final-story") return { category: "plugin", label: "MVU 正文" };

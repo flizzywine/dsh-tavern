@@ -875,7 +875,8 @@ export function createTurnOrchestrator(options) {
       inputs: foregroundFrameInputs(contextPlan, userText, runtimeUserText,
         Object.hasOwn(input, 'runtimePresetSnapshot') ? input.runtimePresetSnapshot
           : resolveRuntimePresetMacros(state.runtimePresetSnapshot, { charName: card.name, macroState: state.macroState }).snapshot, state, pluginSections),
-      source: { ...source, card: { ...source.card, systemPromptText: contextPlan.systemPromptText }, ...regenerationState }
+      source: { ...source, card: { ...source.card, systemPromptText: contextPlan.systemPromptText },
+        playerName: str(state.macroState?.userName).trim() || '你', ...regenerationState }
     })
     let frame = buildFrame(chat, plan, preparedState)
     if (!preview && foregroundWorldBook?.log && typeof options.recordWorldbookRecall === 'function') {

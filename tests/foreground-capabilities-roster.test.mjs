@@ -48,6 +48,8 @@ test('the prefix keeps its bytes across rounds while each kind of change reaches
   const first = await g.turn(1, 'Aki 推门进来。')
   assert.match(first.prefix, /\|Aki/)
   assert.match(first.prefix, /dice_rules/)
+  assert.match(first.prefix, /Use the current player name/)
+  assert.doesNotMatch(first.prefix, /玩家/)
   assert.equal(first.tail, '')
   // a speaker joins the card and the story
   g.live.characters.push(figure('actor_ben', 'Ben'))

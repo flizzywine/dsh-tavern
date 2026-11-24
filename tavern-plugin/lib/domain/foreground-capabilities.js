@@ -35,7 +35,7 @@ export function foregroundRecalledFigures(config,chat,{userText='',judge}={}) {
 export function foregroundCapabilityEntries(config,chat,{userText='',judge,aliases=foregroundRecalledFigures(config,chat,{userText,judge})}={}) {
   // The built-in dialogue grammar needs no recalled material; only the figure roster does.
   const current={...config,characters:config.characters.filter(row=>aliases.has(row.alias))}
-  return bubbleInjection(current,{userName:chat.macroState?.userName,speakerRows:config.characters}).map(part=>({
+  return bubbleInjection(current,{userName:chat.macroState?.userName,includePlayerName:false,speakerRows:config.characters}).map(part=>({
     ref:'foreground-capabilities:'+part.key,enabled:true,constant:true,
     primaryKeys:[],secondaryKeys:[],position:0,...config.injection?.placement,
     order:Number(config.injection?.placement?.order ?? 100),

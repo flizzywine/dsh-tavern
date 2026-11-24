@@ -1,7 +1,7 @@
 import { worldbookContextDelta } from './worldbook-context-delta.js'
 import { foregroundFrameText } from './agent-input-frame.js'
 import { worldbookSnapshot } from './worldbook-snapshot.js'
-import { promptSectionBody } from './prompt-section.js'
+import { promptSection, promptSectionBody } from './prompt-section.js'
 import { liveContextUpdate, cardSystemPromptSnapshot, cardSystemPromptSource } from './card-system-prompt.js'
 import playFeatures from '../../shared/play-features.cjs'
 
@@ -72,6 +72,15 @@ export function createForegroundFrameSessionAdapter(options = {}) {
       source: { kind: 'plugin:dsh-tavern', form: 'foreground-capability-update',
         trace: { frameId: frame.frameId, turn: frame.turn, operationId: frame.operationId, foregroundCapabilityUpdate: capabilityUpdate } }
     })
+    const playerName = frame.source?.playerName
+    if (playerName && playerName !== liveContextUpdate(input.session, 'playerIdentity', input.historyMessages || messages)?.name) {
+      const rendered = promptSection('player_identity', 'The current player is ' + JSON.stringify(playerName) + '. Use this name for the player’s actions and dialogue from this turn onward. This updates all earlier statements of the player’s name.')
+      snapshots.push({
+        id: makeId() + ':player-identity', role: 'user', content: [{ type: 'text', text: rendered }],
+        source: { kind: 'plugin:dsh-tavern', form: 'player-identity', trace: { frameId: frame.frameId,
+          playerIdentity: { schemaVersion: 1, name: playerName, rendered } } }
+      })
+    }
     const text = foregroundFrameText({ contributions })
     if (text === '') return { messages: messages.concat(snapshots), receipt: { appended: snapshots.length > 0, reason: snapshots.length ? 'appended' : 'empty', frameId: frame.frameId } }
     const sections = contributions.map(function (item, index) {
