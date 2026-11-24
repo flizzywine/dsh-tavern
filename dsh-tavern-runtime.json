@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "afda8fdba26832ae488d94a921f0d48565723430",
-  "releaseSequence": 2062,
+  "revision": "2958f23ce57ba8867a9a8d909fb757fe3d891491",
+  "releaseSequence": 2063,
   "version": "3.4.0",
   "files": [
     {
@@ -1276,8 +1276,8 @@
     },
     {
       "path": "tavern-plugin/lib/client.js",
-      "sha256": "0cdd270d9526828ba90cbce6e46d5310a01f2a214b6da18a3b32f3431452e31c",
-      "size": 6597549
+      "sha256": "cf86c1b197efc46f05fe3c5dc7c5e6edca612f8a7b3fb814785090091675ee24",
+      "size": 6597296
     },
     {
       "path": "tavern-plugin/lib/cordis-inspect.js",
@@ -1816,8 +1816,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/chat-history-import.js",
-      "sha256": "f1e47ad4abcfc10f70446be0474cf7fcb04133d9afbadb96fdf372a1bd819ff9",
-      "size": 4669
+      "sha256": "7a43ca67d87be8a81ad621b1bdf69cf96c6887d988c45704fd74e754a49d4947",
+      "size": 5987
     },
     {
       "path": "tavern-plugin/lib/domain/chat-history-rescue.js",
@@ -2131,8 +2131,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/file-resources.js",
-      "sha256": "1b44d1b8807266a3007dd0a256acbe16d4ae4f28811a22aece96cf06547481a6",
-      "size": 43606
+      "sha256": "55608ebd19617168be6b7a2f03006658fa2aadccc388dda538b6ffbd507e71f7",
+      "size": 43686
     },
     {
       "path": "tavern-plugin/lib/domain/foreground-capabilities.js",
@@ -4466,8 +4466,8 @@
     },
     {
       "path": "tavern-plugin/lib/index.js",
-      "sha256": "8d2c7a49dfb9a0225367ec016a3c35bdcf3ff63eb1edde86d27806964c5f8809",
-      "size": 344045
+      "sha256": "f9b0857bc0f2d007ba1b7f5885e70b77a55fd553eee31be68be85234a9201f1f",
+      "size": 344360
     },
     {
       "path": "tavern-plugin/lib/metadata-backup.js",
@@ -9846,8 +9846,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern/README.md",
-      "sha256": "568d45d1cfa92f96e0103b20b19659512b0b5cbfd5f43df0cc816f50622ff480",
-      "size": 24218
+      "sha256": "8b2c0e513e9382eada20aa30374a2742823758e2809d885c5abd45f2fcc567c7",
+      "size": 23102
     },
     {
       "path": "tavern-plugin/pnpm-lock.yaml",
@@ -10241,9 +10241,9 @@
     }
   ],
   "archive": {
-    "commit": "bc4315f79208b0cbd493c8eb90c425b5745310f2",
+    "commit": "652df44f4f8f66552812e5af42646ef56cd02240",
     "path": "runtime.zip",
-    "sha256": "913ed3bf9127936b4441d04cad209c79f0d78dff2af99a294929c71ee8602e25",
-    "size": 17949837
+    "sha256": "e81f07b804eda3394cc2b60a5301947b0b5c5e6a7f60cb068d38ca7b1175be13",
+    "size": 17949732
   }
 }
