@@ -97,6 +97,7 @@ export function createCardHandlers(deps) {
     },
     async importMobileCard(args) {
       const archive = await mobileCardImport.archive(args && args.id)
+      if (archive && /\.zip$/i.test(archive.name)) return await importPackArchiveFile(archive.file)
       if (!archive) return { card: await importCard(await mobileCardImport.read(args && args.id)) }
       if (/\.zip$/i.test(archive.name)) return await importPackArchiveFile(archive.file)
       if (args?.discard) { await discardCardArchivePreview(archive.file); return {} }
