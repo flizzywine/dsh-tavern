@@ -290,22 +290,47 @@ export function registerModelStreamHooks({
         enabled:!backgroundContext && !child && options.purpose === undefined && ['story','script'].includes(chat?.mode)})
       // 正文流式润色：插件注册了改写器时，text-delta 先攒成安全段落、改写后再往前端吐。
       // 工具提交的正文（submit_story 的 JSON 参数）不经过这里，那种模式仍走结算后替换。
-      const rewriteStream = replyStreamRewriters?.active
-        && !backgroundContext && !child && options.purpose === undefined
-        && chat && ['story', 'script'].includes(chat.mode)
-        && !activeDirective?.storyOutputToolCall
-        ? replyStreamRewriters.open({
-            sessionId: ownerSessionId,
-            chatId: chat.id,
-            turn: requestCoordinates.get(sessionId)?.turn,
-            mode: chat.mode,
-            signal: options.signal
-          })
+      const rewriter = !backgroundContext && !child && options.purpose === undefined
+        && chat && ['story', 'script'].includes(chat.mode) && !activeDirective?.storyOutputToolCall
+        ? replyStreamRewriters?.pick()
         : null
+      const rewriteContext = {
+        sessionId: ownerSessionId,
+        chatId: chat?.id,
+        turn: requestCoordinates.get(sessionId)?.turn,
+        mode: chat?.mode,
+        signal: options.signal
+      }
+      const openRewrite = () => replyStreamRewriters.open(rewriteContext, rewriter)
+      const openBlocks = new Map()
+      const replyBlocks = []
+      function rewriteBlock(index) {
+        const key = index ?? 0
+        if (!openBlocks.has(key)) {
+          const block = { index, stream: openRewrite(), source: '', text: '' }
+          openBlocks.set(key, block)
+          replyBlocks.push(block)
+        }
+        return openBlocks.get(key)
+      }
+      function appendRewritten(block, text) {
+        block.text += text
+        responseText += text
+        if (text) replyObserver?.append(text)
+      }
+      function rewriteDelta(block, text) {
+        return { type: 'text-delta', ...(block.index == null ? {} : { index: block.index }), text }
+      }
+      async function* flushRewriteBlocks() {
+        for (const block of openBlocks.values()) {
+          const rest = await block.stream.drain()
+          appendRewritten(block, rest)
+          if (rest) yield rewriteDelta(block, rest)
+        }
+        openBlocks.clear()
+      }
       let finish = null, usage = null
       const filterPreparation = writingPreparation ? writingPreparationStreamFilter() : null
-      // 改写补出来的 text-delta 要沿用同一段正文的 index，assembler 靠它把 token 并进同一个正文块。
-      let rewriteIndex = null
       let failure = null, interrupted = false
       const liveness = createModelStreamProgress({signal:options.signal})
       let iterator, exhausted = false
@@ -321,29 +346,40 @@ export function registerModelStreamHooks({
             chunk = filterPreparation(chunk)
             if (chunk === null) continue
           }
-          if (chunk && chunk.type === 'text-delta') {
+          if (rewriter && chunk?.type === 'block-start' && chunk.blockType === 'text') rewriteBlock(chunk.index)
+          if (chunk?.type === 'text-delta') {
             const delta = str(chunk.text)
-            if (rewriteStream) {
-              if (Number.isInteger(chunk.index)) rewriteIndex = chunk.index
-              const rewritten = rewriteStream.push(delta)
+            if (rewriter) {
+              const block = rewriteBlock(chunk.index)
+              block.source += delta
+              const rewritten = block.stream.push(delta)
               if (!rewritten) { progress('output'); continue }
-              responseText += rewritten
-              if (!activeDirective?.storyOutputToolCall) replyObserver?.append(rewritten)
+              appendRewritten(block, rewritten)
               chunk = { ...chunk, text: rewritten }
             } else {
               responseText += delta
               if (!activeDirective?.storyOutputToolCall) replyObserver?.append(delta)
             }
           }
-          if (chunk && chunk.type === 'finish' && rewriteStream) {
-            // 收尾段也要改写后才能发 finish，否则前端会把最后一段当新消息接在后面。
-            const rest = await rewriteStream.drain()
-            if (rest) {
-              responseText += rest
-              if (!activeDirective?.storyOutputToolCall) replyObserver?.append(rest)
-              yield { type: 'text-delta', ...(rewriteIndex === null ? {} : { index: rewriteIndex }), text: rest }
+          if (rewriter && chunk?.type === 'block-end' && chunk.block?.type === 'text') {
+            const block = rewriteBlock(chunk.index)
+            const complete = str(chunk.block.text)
+            // block-end can carry text that was never sent as deltas.
+            if (complete.startsWith(block.source)) {
+              const rest = block.stream.push(complete.slice(block.source.length)) + await block.stream.drain()
+              appendRewritten(block, rest)
+              if (rest) yield rewriteDelta(block, rest)
+            } else {
+              // The final block supersedes divergent deltas. Do not append the
+              // replacement to deltas the consumer has already received.
+              block.stream.abort()
+              const replacement = openRewrite()
+              block.text = replacement.push(complete) + await replacement.drain()
             }
+            chunk = { ...chunk, block: { ...chunk.block, text: block.text } }
+            openBlocks.delete(chunk.index ?? 0)
           }
+          if (chunk?.type === 'finish') yield* flushRewriteBlocks()
           if (chunk && chunk.type === 'tool-call-delta') {
             const extracted = toolReplyTracker.pushToolDelta(chunk)
             if (extracted.matched && extracted.contentDelta !== '') {
@@ -364,15 +400,7 @@ export function registerModelStreamHooks({
           if (chunk && ['text-delta', 'reasoning-delta', 'tool-call-delta'].includes(chunk.type)) progress('output')
           yield chunk
         }
-        if (rewriteStream) {
-          // 没有 finish（中断/空流）时把缓冲里的正文放出来；已 drain 过就是空串。
-          const rest = await rewriteStream.drain()
-          if (rest) {
-            responseText += rest
-            if (!activeDirective?.storyOutputToolCall) replyObserver?.append(rest)
-            yield { type: 'text-delta', ...(rewriteIndex === null ? {} : { index: rewriteIndex }), text: rest }
-          }
-        }
+        yield* flushRewriteBlocks()
         if (!finish || finish.kind === 'aborted') {
           const recovered = !finish ? recoveredFinish(null) : null
           if (recovered) {
@@ -398,7 +426,7 @@ export function registerModelStreamHooks({
         if (owner && requestRecord) {
           // complete() 内部同步进入 chatId 写盘队列，evidence()/settled() 会自动等待落盘，
           // 无需在流结束 finally 阻塞主回合提交。
-          void Promise.resolve(modelRequestLog.complete({ chatId: owner.id, id: requestRecord.id, sessionId, text: responseText || toolStreamedText, finish, usage, error: failure,
+          void Promise.resolve(modelRequestLog.complete({ chatId: owner.id, id: requestRecord.id, sessionId, text: (rewriter ? replyBlocks.map(block => block.text).join('') : responseText) || toolStreamedText, finish, usage, error: failure,
             interrupted: interrupted || (!failure && !finish) || finish?.kind === 'aborted' || options.signal?.aborted || Boolean(timing.interruption), timing }))
             .catch(error => { console.error('dsh-tavern: 模型结果日志写入失败', str(error && error.message || error)) })
         }
