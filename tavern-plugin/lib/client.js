@@ -53257,7 +53257,9 @@ const tavernTextLayoutFeature = createTavernTextLayoutFeature();
 			const profiles = record && record.profiles || [];
 			const active = currentConversation && currentConversation.enabled ? profiles.find(function (item) { return item.id === (currentConversation.profileId || "default"); }) : null;
 			const outdated = active && active.confirmedRevision > currentConversation.revision;
-			const header = h("div", { className: "dsh-tavern-status-head" }, h("div", { className: "dsh-tavern-status-title" }, "长期偏好"));
+			const header = h("div", { className: "dsh-tavern-status-head" },
+				h("div", { className: "dsh-tavern-status-title" }, "长期偏好"),
+				h("div", { className: "dsh-tavern-question-sub" }, tavernUserProfileRemovalNotice));
 			// 本局设置 › 玩法: one row of the page (props.Field is its InlineField) — the menu, 「查看」 the content this game
 			// uses below it, and the way to take a newer saved version.
 			if (props.conversationOnly) {
@@ -53267,7 +53269,7 @@ const tavernTextLayoutFeature = createTavernTextLayoutFeature();
 					.concat(profiles.filter(function (item) { return item.hasConfirmed; }).map(function (item) { return { value: item.id, label: item.name }; }));
 				return h(React.Fragment, null,
 					h(props.Field, { kind: "menu", label: "长期偏好", controlLabel: "本局长期偏好", value: chosen, options: options, placeholder: current ? undefined : "正在读取…",
-						help: h(HelpTip, { label: "长期偏好说明" }, "选择已确认的游玩和写作偏好，作为本局生成时的参考。"),
+						help: h(HelpTip, { label: "长期偏好说明" }, "选择已确认的游玩和写作偏好，作为本局生成时的参考。" + tavernUserProfileRemovalNotice),
 						disabled: !current || busy || editing, error: error, onCommit: function (value) { return toggleCurrent(Boolean(value), value); },
 						trail: on ? h("button", { type: "button", className: "ap-link dsh-session-reveal", "aria-expanded": reveal, onClick: function () { setReveal(!reveal); } }, reveal ? "收起" : "查看") : null }),
 					on && reveal ? h("div", { className: "dsh-session-profile-text" }, current.content || "暂无长期偏好内容") : null,
@@ -53308,6 +53310,8 @@ const tavernTextLayoutFeature = createTavernTextLayoutFeature();
 					)
 			));
 		}
+
+		const tavernUserProfileRemovalNotice = "长期偏好将在未来版本中移除。请提前把需要保留的内容整理到全局世界书。";
 
         function GuideLibraryTab(props) {
             const h = React.createElement;
@@ -55250,7 +55254,7 @@ function TavernWorldbookInspector(props) {
 					row("systemPrompts", "系统提示词", "对所有游戏生效",
 						h(InlineField, { kind: "menu", label: "系统提示词方案", hideLabel: true, value: s.promptSets.activeId, disabled: busy, onCommit: function (value) { void selectPromptSet(value); },
 							options: s.promptSets.sets.map(function (item) { return { value: item.id, label: item.name }; }) })),
-					row("userProfile", "长期偏好", "新游戏默认使用；每局可在本局设置中单独切换",
+					row("userProfile", "长期偏好", tavernUserProfileRemovalNotice,
 						h(InlineField, { kind: "menu", label: "新游戏默认长期偏好", hideLabel: true, value: s.defaultProfileId, disabled: busy, onCommit: function (value) { void selectProfile(value); },
 							options: [{ value: "", label: "不启用" }].concat(s.profiles.map(function (item) { return { value: item.id, label: item.name }; })) })),
 					row("cardPersonas", "卡片工作台性格", "卡片 Agent 使用；对所有卡片会话生效",
