@@ -38,6 +38,7 @@ function harness(scripts, onAppend, ready = Promise.resolve()) {
     }
   }
   const document = {
+    baseURI: 'http://127.0.0.1:3081/',
     // Composer controls are preinstalled; this harness exercises module loading.
     getElementById(id) { return ['send_textarea', 'send_but'].includes(id) ? {} : null },
     createElement(tag) {
@@ -102,6 +103,46 @@ test('动态 import 网络错误保留行动提示，原始地址查询参数不
  assert.equal(failure[3].phase,'module-load');
  assert.match(failure[2],/查看详情/);
  assert.doesNotMatch(JSON.stringify(failure),/PRIVATE/);
+});
+
+test('传递依赖返回 HTTP 403 且浏览器误报离线时，仍归类为 HTTP 错误而非离线', async () => {
+ const run=harness([{id:'schema',content:"import '/api/dsh-tavern/remote-assets/abc/mvu_zod.js?host=2';"}],({element})=>element.onerror({}));
+ run.window.navigator={onLine:false};
+ run.window.performance={now:()=>10,getEntriesByType:()=>[
+  {name:'http://127.0.0.1:3081/api/dsh-tavern/static-assets?url=https%3A%2F%2Ftestingcf.jsdelivr.net%2Fnpm%2Fjsonrepair%403.15.0%2F%2Besm',startTime:12,initiatorType:'script',responseStatus:403}
+ ]};
+ await run.run();
+ const failure=run.events.find(e=>e[0]==='failed');
+ assert.equal(failure[3].reason,'http');
+ assert.equal(failure[3].resources[0].status,403);
+ assert.doesNotMatch(failure[2],/浏览器当前离线/);
+ assert.match(failure[2],/HTTP 状态/);
+});
+
+test('全本地同源引用遇到 navigator.onLine=false 时不误报浏览器离线，且可从错误文本提取状态码', async () => {
+ const run=harness([{id:'schema',content:"import '/api/dsh-tavern/remote-assets/abc/mvu_zod.js?host=2';"}],({listeners})=>{
+  for(const fn of listeners) fn({error:new TypeError('Failed to fetch dynamically imported module: http://127.0.0.1:3081/api/dsh-tavern/static-assets?url=secret (403)')});
+ });
+ run.window.navigator={onLine:false};
+ await run.run();
+ const failure=run.events.find(e=>e[0]==='failed');
+ assert.equal(failure[3].reason,'http');
+ assert.equal(failure[3].resources.length,1);
+ assert.equal(failure[3].resources[0].url,'http://127.0.0.1:3081/api/dsh-tavern/static-assets');
+ assert.equal(failure[3].resources[0].status,403);
+ assert.doesNotMatch(JSON.stringify(failure),/secret/);
+
+ const opaque=harness([{id:'schema',content:"import '/api/dsh-tavern/remote-assets/abc/mvu_zod.js?host=2';"}],({element})=>element.onerror({}));
+ opaque.window.navigator={onLine:false};
+ await opaque.run();
+ const opaqueFailure=opaque.events.find(e=>e[0]==='failed');
+ assert.equal(opaqueFailure[3].reason,'unknown');
+ assert.doesNotMatch(opaqueFailure[2],/浏览器当前离线/);
+
+ const externalOffline=harness([{id:'schema',content:"import 'https://cdn.example/a.js';"}],({element})=>element.onerror({}));
+ externalOffline.window.navigator={onLine:false};
+ await externalOffline.run();
+ assert.equal(externalOffline.events.find(e=>e[0]==='failed')[3].reason,'offline');
 });
 
 test('large Unicode script loading stays within a bounded heap and preserves source', async () => {
