@@ -131,6 +131,39 @@ test('the original opening API sequence reaches message creation and trigger wit
   }
 })
 
+test('a Helper-created user floor runs and saves Official MVU before createChatMessages resolves', async () => {
+  const opening = context()
+  const run = helperHostHarness(opening, { scripts: [{ id: '__dsh_official_mvu__', system: 'official-mvu', content: '' }] })
+  const w = run.window
+  const submission = { role: 'user', message: 'Begin the story', data: { setup: 'start' } }
+  const playerFloor = { message_id: 1, ...submission, variables: submission.data }
+  w.eventOn(w.tavern_events.MESSAGE_SENT, async (...args) => {
+    assert.deepEqual(args, [1])
+    const [id] = args
+    assert.equal(w.getChatMessages(id)[0].message, submission.message)
+    const option = { type: 'message', message_id: id }
+    await w.replaceVariables({ ...w.getVariables(option), stat_data: { ready: true } }, option)
+  })
+
+  let completed = false
+  const pending = w.createChatMessages([submission, { role: 'assistant', message: 'Note' }]).then(() => { completed = true })
+  const create = run.calls().at(-1)
+  assert.equal(create.method, 'createTavernHelperMessages')
+  const created = { ...opening, stateRevision: 1, messages: [...opening.messages, playerFloor, { message_id: 2, role: 'assistant', message: 'Note' }] }
+  run.reply(create, { updated: true, targets: [{ messageId: 1 }, { messageId: 2 }], context: created })
+  await new Promise(resolve => setImmediate(resolve))
+
+  const write = run.calls().at(-1)
+  assert.equal(write.method, 'updateTavernHelperVariables')
+  assert.equal(completed, false)
+  assert.deepEqual(plain(write.args.variables), { setup: 'start', stat_data: { ready: true } })
+  run.reply(write, { updated: true, context: { ...created, stateRevision: 2, messages: created.messages.map(
+    row => row.message_id === 1 ? { ...row, variables: write.args.variables } : row
+  ) } })
+  await pending
+  assert.equal(w.getVariables({ type: 'message', message_id: 1 }).stat_data.ready, true)
+})
+
 test('native worldbook edits retain their host version checks and report stale writes', async () => {
   const run = frame(), w = run.window
   const pending = w.createWorldbookEntries('Bound', [{ name: 'Native', content: 'entry' }])

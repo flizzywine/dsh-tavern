@@ -34352,11 +34352,19 @@ function bindTavernFontZoom(node, win) {
 				});
 			};
 			window.createChatMessages = async function (messages, option) {
+				const { chatId, lifecycleRevision } = state;
 				const result = await call("createTavernHelperMessages", {
 					messages: copy(Array.isArray(messages) ? messages : []),
 					option: copy(option && typeof option === "object" ? option : {})
 				});
 				if (result && result.stale) throw new Error("聊天已变化，消息未创建");
+				if (!officialMvuEnabled) return;
+				// These user floors bypass native turn settlement. Finish the Official MVU
+				// MESSAGE_SENT handlers before the card reads the floor back or triggers generation.
+				for (const { messageId } of result?.targets || []) {
+					if (state.chatId !== chatId || state.lifecycleRevision !== lifecycleRevision) throw new Error("聊天已变化，消息事件未处理");
+					if (state.messages[messageId]?.role === "user") await events.emit("MESSAGE_SENT", messageId);
+				}
 			};
 			window.getWorldbookNames = function () { return state.worldbook && state.worldbook.name ? [state.worldbook.name] : []; };
 			window.getCharWorldbookNames = function () { return { primary: state.worldbook && state.worldbook.name || null, additional: [] }; };
