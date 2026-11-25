@@ -63,7 +63,7 @@ export function createPluginTaskExecution({ runTask, currentKey, readLatestSettl
     return byName
   }
 
-  async function runTaskAs(owner, { gameId, prompt, tools = [], signal, member, selection, system, temperature, maxToolCalls, stopToolsWhen, acceptWithoutText } = {}) {
+  async function runTaskAs(owner, { gameId, prompt, tools = [], signal, member, selection, system, temperature, maxToolCalls, stopToolsWhen, acceptWithoutText } = {}, { writingPreparation, onToolResult } = {}) {
     const game = await requireGame(gameId)
     // A member of this plugin only (tavern.member): its resident Session, its queue.
     const memberId = member === undefined ? '' : pluginMemberId(owner, String(member))
@@ -80,17 +80,22 @@ export function createPluginTaskExecution({ runTask, currentKey, readLatestSettl
     const byName = prefix ? prefix.tools : checkTools(tools)
     const callLimit = Number.isSafeInteger(Number(maxToolCalls)) ? Math.max(1, Math.min(32, Number(maxToolCalls))) : MAX_TOOL_CALLS_PER_TASK
     let calls = 0
-    const call = async (name, args) => {
+    const executeTool = async (name, args) => {
       const tool = byName.get(name)
-      if (!tool) return JSON.stringify({ ok: false, error: '没有这个工具：' + name })
-      if (++calls > callLimit) return JSON.stringify({ ok: false, error: '工具调用次数已达上限，请直接给出结果' })
+      if (!tool) return { text: JSON.stringify({ ok: false, error: '没有这个工具：' + name }) }
+      if (++calls > callLimit) return { text: JSON.stringify({ ok: false, error: '工具调用次数已达上限，请直接给出结果' }) }
       try {
         const value = await bounded(tool.execute(structuredClone(args ?? {})), '插件工具 ' + name)
-        return (typeof value === 'string' ? value : JSON.stringify(value ?? { ok: true })).slice(0, MAX_TOOL_RESULT)
+        return { ok: true, text: (typeof value === 'string' ? value : JSON.stringify(value ?? { ok: true })).slice(0, MAX_TOOL_RESULT) }
       } catch (error) {
         recordError(game.sessionId, owner, '后台任务工具 ' + name, error)
-        return JSON.stringify({ ok: false, error: String(error?.message || error).slice(0, 500) })
+        return { text: JSON.stringify({ ok: false, error: String(error?.message || error).slice(0, 500) }) }
       }
+    }
+    const call = (name, args) => {
+      const result = executeTool(name, args)
+      onToolResult?.(name, result)
+      return result.then(({ text }) => text)
     }
     try {
       const systemPrompt = prefix ? prefix.system : system
@@ -109,6 +114,7 @@ export function createPluginTaskExecution({ runTask, currentKey, readLatestSettl
         call,
         signal,
         member: memberId,
+        ...(writingPreparation ? { writingPreparation } : {}),
         ...(systemPrompt !== undefined ? { system: systemPrompt } : {}),
         ...(modelOverride ? { selection: modelOverride } : {}),
         ...(typeof temperature === 'number' && Number.isFinite(temperature) ? { temperature } : {}),

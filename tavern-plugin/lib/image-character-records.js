@@ -153,5 +153,15 @@ export function createFigureRecords({ api, recordFile, log = () => {} }) {
         }
       })
     },
+    // 移动到…: figures moving to another pack keep their id and their record, which now names the new pack. Runs before
+    // the target is written, so the moved figure reads its identity there and the source's removal releases nothing.
+    async move({ from, to, figureIds }) {
+      await own.run(true, async () => {
+        for (const figureId of figureIds) {
+          const state = await findFigureImageCharacter(api, { packId: from, figureId })
+          if (state.status === 'linked') await patch(state, { figureId, figurePackId: to })
+        }
+      })
+    },
   }
 }

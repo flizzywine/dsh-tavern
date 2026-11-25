@@ -90,6 +90,7 @@ export function registerTurnLifecycleHooks({
   runtimePrompt,
   sessionStore,
   storyOutputToolCall,
+  writingPreparation,
   turnOrchestrator,
   turnStarted,
   userMessageForTurn,
@@ -239,6 +240,12 @@ export function registerTurnLifecycleHooks({
     if (chat && chat.requestMode !== 'sillytavern' && ['story', 'script', 'card'].includes(mode)) {
       await timed('prefix', () => ensureNativeSystemPrefix(agent.session, chat))
     }
+    if (['story', 'script'].includes(mode) && await writingPreparation?.forGame(agent.session.id)) {
+      return hostTools.assemble(assembly, context, (value, tools) => foregroundStrategies.assembleSystemPrompt(value, {
+        sessionId: agent.session.id, toolDefinitions: tools, chat, pureWriter: true,
+        fixedSystemSections: sessionStablePrefixSections(agent.session)
+      }))
+    }
     const needWorldbook = Boolean(chat && ['story', 'script'].includes(chat.mode || 'story'))
     const nativeWorldbook = needWorldbook && chat.worldbookStrategy === 'native-skills'
     const needPlugins = Boolean(pluginPromptSections && chat && chat.requestMode !== 'sillytavern' && ['story', 'script'].includes(mode))
@@ -282,6 +289,7 @@ export function registerTurnLifecycleHooks({
     const outputToolCall = hasSubmission && typeof storyOutputToolCall === 'function' ? (await storyOutputToolCall()) === true : false
     const result = markTavernSectionsLiteral(prependSystemInstruction(appendStorySubmissionReminder(assembled, outputToolCall), chat ? runtimePrompt('system-append') : ''))
     if (deferWorldbook) foregroundStrategies.stageWorldbookSection(context, result.sections.find(section => section.name === VIRTUAL_WORLDBOOK_SECTION))
+    foregroundStrategies.recordSystemSections?.(agent.session.id, result.sections)
     const totalMs = Date.now() - startedAt
     if (totalMs >= 3000) {
       const breakdown = Object.entries(timings).filter(([, ms]) => ms >= 100).map(([k, ms]) => `${k}=${ms}ms`).join(' ')

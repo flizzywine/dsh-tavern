@@ -21,10 +21,10 @@ const T = `/data/user/0/${PKG}/files/t`
 const H = `${T}/home/.dsh-tavern`
 const DATA = `${H}/profile-data/tavern/data`
 mkdirSync(OUT, { recursive: true })
-const adb = (...a) => execFileSync('adb', a, { encoding: 'utf8', maxBuffer: 64 << 20 })
+const adb = (...a) => execFileSync('adb', a, { windowsHide: true, encoding: 'utf8', maxBuffer: 64 << 20 })
 const runAs = cmd => adb('shell', `run-as ${PKG} sh -c '${cmd.replace(/'/g, `'\\''`)}'`)
 const pushAs = (local, remote) => {
-  const r = spawnSync('adb', ['exec-in', 'run-as', PKG, 'sh', '-c', `mkdir -p '${dirname(remote)}' && cat > '${remote}'`], { input: readFileSync(local) })
+  const r = spawnSync('adb', ['exec-in', 'run-as', PKG, 'sh', '-c', `mkdir -p '${dirname(remote)}' && cat > '${remote}'`], { windowsHide: true, input: readFileSync(local) })
   if (r.status !== 0) throw new Error(`写入 ${remote} 失败：${r.stderr}`)
 }
 const sleep = ms => new Promise(r => setTimeout(r, ms))
@@ -107,7 +107,7 @@ async function waitServer(timeoutMs = 180000, notPid = 0) {
 let server
 try {
   if (!process.argv.includes('--skip-install')) await step('安装并玩一局（apk-smoke）', () => {
-    const r = spawnSync('node', [join(repo, 'android/native/apk-smoke.mjs'), '--apk', APK, '--out', join(OUT, 'smoke')], { encoding: 'utf8', timeout: 900000 })
+    const r = spawnSync('node', [join(repo, 'android/native/apk-smoke.mjs'), '--apk', APK, '--out', join(OUT, 'smoke')], { windowsHide: true, encoding: 'utf8', timeout: 900000 })
     if (r.status !== 0) throw new Error('apk-smoke 失败\n' + (r.stdout + r.stderr).slice(-3000))
   })
 
@@ -159,10 +159,10 @@ const svg = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="1600" he
     // 更换 DSH 运行时（config/cli-runtime）才需要新安装包；其余依赖变化在手机上补装（见 apk-deps-update-smoke.mjs）。
     const runtimeManifest = join(tree2, 'config/cli-runtime/package.json')
     writeFileSync(runtimeManifest, JSON.stringify({ ...JSON.parse(readFileSync(runtimeManifest, 'utf8')), description: 'runtime-changed' }, null, 2) + '\n')
-    const make = (tree, seq, dir, extra = []) => execFileSync('bash', [join(repo, 'android/native/make-test-release.sh'), tree, String(seq), join(fixtures, dir), ...extra], { encoding: 'utf8' })
+    const make = (tree, seq, dir, extra = []) => execFileSync('bash', [join(repo, 'android/native/make-test-release.sh'), tree, String(seq), join(fixtures, dir), ...extra], { windowsHide: true, encoding: 'utf8' })
     make(tree1, 3001, 'release-src')
     make(tree2, 3002, 'release-deps', NEXT_APK ? [NEXT_APK, NEXT_CODE, 'next-test'] : [])
-    server = spawn('python3', ['-m', 'http.server', String(PORT), '--bind', '127.0.0.1'], { cwd: fixtures, stdio: 'ignore' })
+    server = spawn('python3', ['-m', 'http.server', String(PORT), '--bind', '127.0.0.1'], { windowsHide: true, cwd: fixtures, stdio: 'ignore' })
     adb('reverse', `tcp:${PORT}`, `tcp:${PORT}`)
   })
   const useRelease = async name => {

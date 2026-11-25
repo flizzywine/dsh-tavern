@@ -1,11 +1,11 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { createPlayHandlers } from '../tavern-plugin/lib/rpc/play.js'
+import { createPlayHandlers, PLUGIN_REGENERATION_TARGET } from '../tavern-plugin/lib/rpc/play.js'
 
 // 发送键只看宿主的运行状态。重新生成要读完存档、选好目标、拼好提示词才轮到模型，
 // 这段时间里按键还是「发送」；请求一进门就先报运行中，结束再交还。
 function harness(options = {}) {
-  const emitted = [], releases = []
+  const emitted = [], releases = [], invocations = []
   let attempts = 0, phaseKind = options.phaseKind || 'idle'
   const handlers = createPlayHandlers({
     str: String,
@@ -20,7 +20,8 @@ function harness(options = {}) {
       if (options.holdMode === true) await new Promise(resolve => releases.push(resolve))
       return options.blocked === true
     } } },
-    regenBody: async () => {
+    regenBody: async (...args) => {
+      invocations.push(args)
       attempts += 1
       if (attempts > 1) throw new Error('正文正在重新生成，请等待完成')
       if (options.fail === true) throw new Error('重新生成失败')
@@ -28,7 +29,7 @@ function harness(options = {}) {
       return { view: { mode: 'story' } }
     }
   })
-  return { emitted, handlers, attempts: () => attempts, setPhase: kind => { phaseKind = kind },
+  return { emitted, handlers, invocations, attempts: () => attempts, setPhase: kind => { phaseKind = kind },
     release: () => releases.splice(0).forEach(resolve => resolve()) }
 }
 
@@ -43,4 +44,15 @@ test('同时到达的重新生成只报一次运行中、一次空闲', async ()
   h.release()
   await first
   assert.deepEqual(h.emitted, [['api-session/status', 'game', true], ['api-session/status', 'game', false]])
+})
+
+test('重新生成 RPC 将校验目标传给宿主，网页参数不能设置插件目标', async () => {
+  const expectedReply = { turn: 2, textVersion: 'version-1' }
+  const plugin = harness()
+  await plugin.handlers.regenBody({ sessionId: 'game', guidance: '修改意见', [PLUGIN_REGENERATION_TARGET]: expectedReply })
+  assert.deepEqual(plugin.invocations[0], [undefined, '修改意见', 'game', { fresh: false, expectedReply }])
+
+  const page = harness()
+  await page.handlers.regenBody({ sessionId: 'game', fresh: true, expectedReply })
+  assert.deepEqual(page.invocations[0], [undefined, undefined, 'game', { fresh: true }])
 })

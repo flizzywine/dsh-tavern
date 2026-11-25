@@ -169,6 +169,7 @@ function createGlobalSettingsModule({ React, rpc, notifySettingsChanged, TavernD
             // one card per group; each entry (incl. the UI plugin's 界面大小 slot) is a row of it.
             group("显示与交互", "",
                 card(sw("autoOpenStatusPanel", "进入游戏时打开酒馆状态", "进入或切换到一局游戏时，右侧面板自动展开并显示本局设置和酒馆状态。关闭后右侧面板保持你上次的样子。", true),
+                    sw("showCharacterDesignPanel", "显示人物设计", "在酒馆状态中显示人物档案和手动设计入口，适用于所有对局。", false),
                     h(DisplayPreferencesSettings),
                     renderSlot("settings.tavern.appearance", {}),
                     DebugSetting ? h(DebugSetting) : null,

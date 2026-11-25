@@ -21,6 +21,17 @@ export function countGamesByCard(conversations) {
   return counts
 }
 
+/** The last time each card's games were played (the newest updatedAt of its games); card-workbench conversations are not games. */
+export function lastPlayedByCard(conversations) {
+  const latest = new Map()
+  for (const item of Array.isArray(conversations) ? conversations : []) {
+    if (!item || item.mode === 'card' || !item.cardPath) continue
+    const at = Number(item.updatedAt) || 0
+    if (at > (latest.get(item.cardPath) || 0)) latest.set(item.cardPath, at)
+  }
+  return latest
+}
+
 /** Cards imported in the last three days come first, newest first; the rest follow by games played. */
 export function orderCardsForLibrary(cards, { gameCounts = new Map(), now = Date.now() } = {}) {
   const recent = card => importedAt(card) > now - RECENT_IMPORT_WINDOW

@@ -207,6 +207,8 @@ function bindStageViews(createViews) {
         // newGame(id, {fresh:true}) (a never-played chat) resolves true when the sidebar opened a 游戏准备 that replaces it,
         // false when there is nothing to prepare (no listener answers: false).
         statusPanel:{rpc, signals:{subscribe:(id,refresh)=>tavernSessionSignals.subscribe(id,'tavern-state',refresh,()=>{},refresh)}, themeTokens:stageWidgetThemeTokens, sounds:forkUiSfx,
+            // the card frames' document scheme (frame-document.js: the host's light or dark): the frame element takes the same, else the browser paints an opaque canvas behind a transparent page
+            colorScheme:()=>currentTavernHostTheme(window).colorScheme,
             confirm:askTavernConfirm, newGame:(sessionId,options)=>new Promise(resolve=>{const detail={sessionId,fresh:options?.fresh===true,respond:resolve};window.dispatchEvent(new CustomEvent('dsh-tavern-new-game',{detail}));if(!detail.handled)resolve(false);}),
             // startOpening(id, {openingId, values, withoutGreeting}): a card's opening page starts the game (the sidebar's
             // one start path, dsh-tavern-stage-opening); it settles once the game stands and the stage has entered it.

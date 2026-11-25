@@ -25,6 +25,8 @@ try {
   const stageRuntime = await host.rpc('getStageRuntimeStatus')
   assert.equal(stageRuntime.installed, true)
   assert.equal(stageRuntime.status, 'disabled', 'the installed stage is idle before a game needs it')
+  // Every registered deployment reporter (voice, background tasks) answers without throwing; nothing is in flight yet.
+  assert.deepEqual((await host.rpc('getDeploymentActivity')).work, { version: 1, busy: false, reasons: [] })
   const imported = await host.rpc('importCard', { payload: { name: 'stage-test.json', text: JSON.stringify({ spec: 'chara_card_v2', spec_version: '2.0', data: card }) } })
   await createChatJournalStore({ dataRoot: root }).update('stage-chat', chat => ({ ...chat, _storageRevision: 2, cardPath: imported.card.path }))
   assert.equal(typeof host.services.get('tavernSessionSignals')?.control, 'function')

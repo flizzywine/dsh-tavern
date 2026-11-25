@@ -1,4 +1,5 @@
 // Selection priority and prompt order are different in SillyTavern.
+import { worldBookChannel } from './worldbook-channel.js'
 
 const str = value => value == null ? '' : String(value)
 export const DEFAULT_WORLD_BOOK_TOKEN_BUDGET = 8192
@@ -218,8 +219,10 @@ export function activateWorldBook(input) {
   const currentUserLower = currentUserText ? currentUserText.toLocaleLowerCase() : ''
   const injectedSource = injected ? { text: injected, lowerText: injected.toLocaleLowerCase(), source: 'script' } : null
   for (const message of messages) message.lowerText = message.text.toLocaleLowerCase()
-  const alwaysOn = entry => entry.constant === true
-  const chargesBudget = entry => !alwaysOn(entry)
+  // 固定注入通道关闭触发词、冷却与语义筛选；其中 tail 仍计入 Token 预算，prefix 进稳定前缀不占每轮预算。
+  const channelOf = entry => worldBookChannel(entry)
+  const alwaysOn = entry => entry.constant === true || channelOf(entry) !== 'auto'
+  const chargesBudget = entry => channelOf(entry) === 'tail' || (entry.constant !== true && channelOf(entry) === 'auto')
   const reject = (entry, reason, extra = {}) => diagnostics.set(entry.ref, { ...diagnostics.get(entry.ref), ref: entry.ref, title: str(entry.title || entry.comment), constant: entry.constant === true,
     order: entry.order ?? 100, displayIndex: entry.displayIndex, placement: placementKey(entry), priorityRank: entryRank.get(entry) || 0,
     scanDepth: integer(entry.scanDepth, settings.scanDepth), caseSensitive: entry.caseSensitive, matchWholeWords: entry.matchWholeWords, reason, ...extra })

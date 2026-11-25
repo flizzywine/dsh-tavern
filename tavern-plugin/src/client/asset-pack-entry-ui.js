@@ -338,8 +338,9 @@ const LAMP_HELP='同 SillyTavern 世界书：蓝灯始终可选，绿灯在名�
   // 「● 绿灯 ⌄」 like a menu field. Clicks and Enter / Space stay inside the anchor, so choosing a lamp never also selects (or,
   // in 多选, ticks) the row. `onChange` may return a promise (one CAS write per choice); the dot is busy until it settles.
   const ENTRY_LAMPS={constant:'蓝灯',keyword:'绿灯',on:'启用',off:'关闭'};
-  function LampMenu({mode,onOff=false,choices,label,onChange,named=false,anchorClassName='',className='',disabled=false}) {
-    const pop=useInlinePopup(),[busy,setBusy]=React.useState(false),name=ENTRY_LAMPS[mode];
+  // `words` renames the states where the lamp is the page's own vocabulary (世界书条目: 常驻 / 普通 / 禁用).
+  function LampMenu({mode,onOff=false,choices,label,onChange,named=false,anchorClassName='',className='',disabled=false,words=ENTRY_LAMPS}) {
+    const pop=useInlinePopup(),[busy,setBusy]=React.useState(false),name=words[mode];
     const pick=value=>{pop.close(true);if(value===mode)return;setBusy(true);Promise.resolve(onChange(value)).finally(()=>setBusy(false));};
     return h('span',{className:anchorClassName||'ap-lamp-anchor',ref:pop.root,onKeyDown:e=>{if(pop.open||e.key!=='Escape')e.stopPropagation();pop.keys(e);},onClick:e=>e.stopPropagation()},
       h('button',{ref:pop.trigger,type:'button',className:named?'fork-inline-trigger ap-lamp-trigger':className||'ap-lamp-button','data-mode':mode,'aria-haspopup':'menu','aria-expanded':pop.open,'aria-busy':busy||undefined,
@@ -348,7 +349,7 @@ const LAMP_HELP='同 SillyTavern 世界书：蓝灯始终可选，绿灯在名�
         h('span',{className:'ap-lamp-dot'}),named&&h('span',{className:'fork-inline-text'},name),named&&h(InlineGlyph,{name:'chevDown'})),
       pop.open?pop.layer({className:'fork-inline-pop ap-lamp-pop',role:'menu','aria-label':label,onKeyDown:inlineMenuKeys},
         (choices||(onOff?['on','off']:['constant','keyword','off'])).map(value=>h('button',{key:value,type:'button',role:'menuitemradio','aria-checked':mode===value,className:'fork-inline-option ap-lamp-opt','data-mode':value,onClick:()=>pick(value)},
-          h('span',{className:'ap-lamp-dot'}),h('span',{className:'ap-lamp-opt-name'},ENTRY_LAMPS[value]),mode===value?h(Glyph,{name:'check'}):null))):null);
+          h('span',{className:'ap-lamp-dot'}),h('span',{className:'ap-lamp-opt-name'},words[value]),mode===value?h(Glyph,{name:'check'}):null))):null);
   }
   // the segmented LampSwitch is gone — every lamp is the LampMenu above.
   // Trigger words as removable chips plus an add field (Enter, comma or blur adds).
