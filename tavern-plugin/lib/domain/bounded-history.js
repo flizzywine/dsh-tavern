@@ -1,11 +1,10 @@
 import { createScopedMessages } from './scoped-messages.js'
 import { lastTavernHelperVariables } from './tavern-helper-context.js'
 
-// Story preparation, worldbook prefilter and plugin task context only. Template
-// executors and request hooks retain their own complete-message readers.
 export const storyContextMessageFields = Object.freeze([
   'role', 'turn', 'greeting', 'text', 'sourceText', 'projectionText', 'source',
   'swipeId', 'swipes', 'variables',
+  'ts', 'native', 'placeholder', 'tavernHidden', 'damperState',
   // A new foreground capability epoch reuses the last director's judge result.
   'stageDirectionAssetPacks.stats.judge.probabilities'
 ])
