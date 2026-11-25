@@ -29583,11 +29583,11 @@ function tavernModelRefusalNotice(text) {
 		}
 		function BubbleAvatar(props) {
 		    const h = React.createElement;
-		    const moodLabel = bubbleMoodBadge(props.mood, props.moods, props.config, props.alias)?.label;
 		    const src = props.media?.src;
 		    const image = src ? h(PackImage, {identity:props.media.identity,src,crop:props.media.crop,avatar:props.media.avatar,originalSrc:props.media.originalSrc,alt:"",draggable:false}) : null;
 		    if (src && props.zoomable) return h("button", { type: "button", className: "fork-bubble-avatar fork-bubble-avatar-zoom", title: "查看大图",
 		        onClick: function (event) {
+		            const {moodLabel} = props;
 		            const anchor = event.nativeEvent?.tavernVisibleControl || event.currentTarget;
 		            showPortrait(props.media, (props.name || "") + (moodLabel ? " · " + moodLabel : ""), portraitPreview(props.media, anchor));
 		        } },
@@ -29607,7 +29607,6 @@ function tavernModelRefusalNotice(text) {
 		    const name = bubbleDisplayName(segment, config);
 		    const chars = Array.from(name);
 		    const moods = bubbleMoodList(config, character?.alias);
-		    const mood = bubbleMood(segment.mood, moods);
 		    const badge = bubbleMoodBadge(segment.mood, moods, config, character?.alias);
 		    const row = React.useRef(null), [visible, setVisible] = React.useState(false);
 		    React.useEffect(() => bubbleViewport.watch(row.current, setVisible), []);
@@ -29620,7 +29619,7 @@ function tavernModelRefusalNotice(text) {
 		    const media = useBubbleMedia(props.sessionId, character, segment.mood, moods, visible, outfitKey);
 		    return h("div", { ref:row, className: "fork-bubble" + (segment.thought ? " fork-bubble-thought" : ""), style: { "--bubble-color": color, "--bubble-name-ink": figureName ? color : undefined }, "data-alias": segment.alias },
 		        h("div", { className: "fork-bubble-portrait" },
-		            h(BubbleAvatar, { media: media, config: config, mood: segment.mood, moods: moods, color: color, name: name, alias: character?.alias, zoomable: true,
+		            h(BubbleAvatar, { media, mood: segment.mood, moodLabel: badge?.label, name, alias: character?.alias, zoomable: true,
 		                initial: character && !character.avatarMedia?.default ? chars[0] : "" }),
 		            props.voice ? h(VoiceButton, { voice: props.voice }) : null),
 		        h("div", { className: "fork-bubble-body" },
