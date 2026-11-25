@@ -1,4 +1,5 @@
 import { exportSillyTavernWorldBook } from './worldbook-resource.js'
+import { worldBookDefaultChannel } from './worldbook-channel.js'
 
 /** An isolated playable copy: primary metadata/IDs win; content is never deduplicated. */
 export function mergeWorldBooks(records) {
@@ -10,6 +11,11 @@ export function mergeWorldBooks(records) {
   const merged = structuredClone(documents[0])
   merged.name = records[0].view?.displayName || merged.name || '世界书'
   delete merged.originalData
+  // 各本书的有效默认通道先下沉到各自条目，再清掉合并根上的通道键，避免不同书互相覆盖。
+  if (Object.hasOwn(merged, 'channel')) delete merged.channel
+  if (merged.extensions && typeof merged.extensions === 'object' && Object.hasOwn(merged.extensions, 'tavern_channel')) {
+    delete merged.extensions.tavern_channel
+  }
   merged.entries = {}
   const used = new Set()
   // Reserve every original ID before assigning replacements, including later books.
@@ -18,6 +24,7 @@ export function mergeWorldBooks(records) {
   let displayIndex = 0
   const sources = []
   documents.forEach((document, bookIndex) => {
+    const bookChannel = worldBookDefaultChannel(document)
     const mapping = []
     // Keep each book's display order, then place supplementary books after it.
     const ordered = Object.values(document.entries).map((entry, index) => ({ entry, index }))
@@ -30,7 +37,12 @@ export function mergeWorldBooks(records) {
         uid = next++
       }
       used.add(uid)
-      merged.entries[uid] = { ...structuredClone(original), uid, displayIndex: displayIndex++ }
+      const cloned = structuredClone(original)
+      const hasOwnChannel = cloned.extensions && typeof cloned.extensions === 'object' && Object.hasOwn(cloned.extensions, 'tavern_channel')
+      if (!hasOwnChannel && bookChannel !== 'auto') {
+        cloned.extensions = { ...(cloned.extensions && typeof cloned.extensions === 'object' ? cloned.extensions : {}), tavern_channel: bookChannel }
+      }
+      merged.entries[uid] = { ...cloned, uid, displayIndex: displayIndex++ }
       mapping.push({ originalUid: original.uid, uid })
     }
     sources.push({ source: structuredClone(records[bookIndex].source), name: document.name || records[bookIndex].view?.displayName || '', entries: mapping })

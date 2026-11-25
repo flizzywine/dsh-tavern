@@ -282,14 +282,49 @@ function operationNeedsMutation(operation, before) {
   return !target.exists || !sameValue(target.value, operation.value)
 }
 
+function shenghaoEventCommits(before, after, operation, target) {
+  if (!['add', 'replace'].includes(operation.op) || variablesPointer(operation.path) !== '/stat_data/shenghao/pendingEvents'
+    || !Array.isArray(operation.value) || operation.value.length === 0) return []
+  const previous = before?.stat_data?.shenghao
+  const state = after?.stat_data?.shenghao
+  const anchor = state?.meta?.sourceAnchor
+  const revision = state?.meta?.revision
+  if (previous?.schemaVersion !== 3 || state?.schemaVersion !== 3 || !anchor
+    || anchor.messageId !== target.messageId || anchor.swipeId !== target.swipeId
+    || typeof anchor.fingerprint !== 'string' || !anchor.fingerprint
+    || typeof anchor.branchKey !== 'string' || !anchor.branchKey
+    || !Number.isSafeInteger(previous.meta?.revision) || !Number.isSafeInteger(revision) || revision <= previous.meta.revision
+    || !Array.isArray(state.pendingEvents) || state.pendingEvents.length !== 0) return []
+  // The terminal consumes pendingEvents and writes a commit per event. Only a
+  // commit for the operation's ordinal, type and source proves it was accepted.
+  const commits = []
+  for (const [ordinal, event] of operation.value.entries()) {
+    if (typeof event?.type !== 'string' || !event.type) return []
+    const types = event.type === 'BEHAVIOR' ? ['SIGNIFICANT_BEHAVIOR_SCORE']
+      : ['ASSET', 'PURCHASE', 'ASSET_PURCHASE', 'PROPERTY_PURCHASE', 'VEHICLE_PURCHASE', 'CASH_TRANSACTION'].includes(event.type)
+        ? ['CASH_TRANSACTION', 'ASSET_GRANT']
+        : ['ASSET_REGISTER', 'FREE_ASSET', 'ASSET_RECEIVE'].includes(event.type) ? ['ASSET_GRANT'] : [event.type]
+    const key = types.map(type =>
+      JSON.stringify([anchor.branchKey, anchor.messageId, anchor.swipeId, anchor.fingerprint, ordinal, type, event.personRef || ''])
+    ).find(key => {
+      const entry = state.operationHistory?.[key]
+      return !Object.hasOwn(previous.operationHistory || {}, key) && entry?.status === 'COMMITTED' && entry.revision === revision
+    })
+    if (!key) return []
+    commits.push('/stat_data/shenghao/operationHistory/' + pointerSegment(key))
+  }
+  return commits
+}
+
 /** Attribute final state changes to submitted operations and expose silent runtime rejection
  * and values outside the card's declared limits. */
-function auditMvuSettlement(before, after, operations, limits) {
+function auditMvuSettlement(before, after, operations, limits, target) {
   const allChanges = diffValues(before, after)
   const claimed = new Set()
   const failures = []
   for (const operation of operations) {
-    const pointers = operationPointers(operation)
+    const eventCommits = shenghaoEventCommits(before, after, operation, target)
+    const pointers = [...operationPointers(operation), ...eventCommits]
     const matches = []
     for (let index = 0; index < allChanges.length; index++) {
       if (pointers.some(function (pointer) { return pathsOverlap(allChanges[index].path, pointer) })) {
@@ -297,7 +332,7 @@ function auditMvuSettlement(before, after, operations, limits) {
         claimed.add(index)
       }
     }
-    if (matches.length === 0 && operationNeedsMutation(operation, before)) {
+    if (matches.length === 0 && eventCommits.length === 0 && operationNeedsMutation(operation, before)) {
       failures.push({
         operation: operation.op,
         path: operation.path,
@@ -327,14 +362,17 @@ function stripTaggedBlock(value, name) {
   return value.replace(new RegExp('<' + name + '\\b[^>]*>[\\s\\S]*?<\\/' + name + '\\s*>', 'gi'), '')
 }
 
+function stripMvuRuntimeBlocks(value) {
+  return str(value).replace(/<(UpdateVariable|initvar|JSONPatch)\b[^>]*?(?:\/\s*>|>[\s\S]*?<\/\1\s*>)/gi, '')
+}
+
 function stripHtmlFences(value) {
   return value.replace(/^[ \t]{0,3}(`{3,}|~{3,})[ \t]*(?:html?|xhtml)(?:[ \t][^\r\n]*)?\r?\n[\s\S]*?^[ \t]{0,3}\1[ \t]*$/gim, '')
 }
 
 /** Extract only confirmed story prose from one final foreground response. */
 export function extractMvuStoryText(value) {
-  let text = str(value)
-  text = stripTaggedBlock(text, 'UpdateVariable')
+  let text = stripMvuRuntimeBlocks(value)
   text = stripTaggedBlock(text, 'visual_cards')
   text = stripHtmlFences(text)
   text = text.replace(/<StatusPlaceHolderImpl\s*\/?>/gi, '')
@@ -566,7 +604,10 @@ export function createMvuBackgroundTaskFrame(input = {}) {
     taskRules: {
       updateRules: Array.isArray(input.updateRules) ? input.updateRules.map(str).filter(Boolean) : [],
       backgroundTasks: normalizeBackgroundTasks(input.backgroundTasks),
-      helperContext: Array.isArray(input.helperContext) ? input.helperContext.map(str).filter(Boolean) : [],
+      // The runtime already owns initialization. Both the model and the next
+      // runtime transaction receive the setup prose without replaying its commands.
+      helperContext: Array.isArray(input.helperContext)
+        ? input.helperContext.map(text => stripMvuRuntimeBlocks(text).trim()).filter(Boolean) : [],
       // What this reply's tools settled (tool-settlement-context.js): the host writes these operations ahead of the
       // background's, and the background is told so.
       toolResults: normalizeToolResults(input.toolResults),
@@ -682,12 +723,12 @@ export function createMvuSettlementModule(options = {}) {
       // Card constraints must see the same setup/Helper facts as the model, including durable retries.
       storyText: [...frame.taskRules.helperContext, frame.foregroundOutput.storyText].filter(Boolean).join('\n\n'),
       command: formatMvuUpdateCommand(submission),
-      validate: ({ before, after }) => auditMvuSettlement(before, after, submission.operations, frame.authoritativeState.variableLimits)
+      validate: ({ before, after }) => auditMvuSettlement(before, after, submission.operations, frame.authoritativeState.variableLimits, input)
     })
     if (applied.deferred === true || applied.stale === true) return { applied, damper }
     const projected = applied.context?.messages?.[input.messageId]
     const after = clone(applied.variables || projected?.variables || {})
-    const audit = applied.validation || auditMvuSettlement(input.currentVariables, after, submission.operations, frame.authoritativeState.variableLimits)
+    const audit = applied.validation || auditMvuSettlement(input.currentVariables, after, submission.operations, frame.authoritativeState.variableLimits, input)
     const rolledBack = applied.rejected === true
     const changes = rolledBack ? [] : audit.changes
     const sideEffects = rolledBack ? [] : audit.sideEffects

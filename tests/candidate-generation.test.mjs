@@ -194,7 +194,7 @@ test('初次与重复候选请求使用当时生效的 Guide；重生成意见�
   assert.match(regenerated, /<candidate_directions>[\s\S]*缩短对白，加快节奏[\s\S]*让访客先留下一封信[\s\S]*<regeneration_guidance>\n弟弟已进来/)
   assert.match(regenerated, /offer it as something that can happen next/)
   assert.doesNotMatch(regenerated, /对白克制|先敲三次/)
-  assert.match(regenerated, /<authoritative_state>[\s\S]*门仍关着[\s\S]*<\/authoritative_state>/)
+  assert.doesNotMatch(regenerated, /门仍关着/, '暂停姿势总结后，重生成候选应忽略存档中的旧姿势')
   assert.match(regenerated, /<recent_task>\nTask type: choice generation\n\[Story\]\n午夜，旅人在钟楼里听见风声。\n<\/recent_task>/)
   assert.match(cleared, /There is no active Guide for this request/)
   assert.doesNotMatch(cleared, /regeneration_guidance|弟弟已进来|让访客|缩短对白/)

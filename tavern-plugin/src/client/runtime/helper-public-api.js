@@ -82,6 +82,48 @@ function createTavernHelperMessageWriter({context, copy, request}) {
     };
 }
 
+function createTavernHelperMessageCreator({context, copy, request, emitSent, scope = () => ""}) {
+    const retries = new Map();
+    return async function (messages, options) {
+        const {chatId, lifecycleRevision} = context();
+        const args = {messages: copy(Array.isArray(messages) ? messages : []),
+            option: copy(options && typeof options === "object" ? options : {})};
+        const key = JSON.stringify([chatId, lifecycleRevision, scope(), args]);
+        const attempt = retries.get(key) || {id: Date.now().toString(36) + "-" + Math.random().toString(36).slice(2), sent: 0};
+        retries.delete(key);
+        const current = () => chatId === context().chatId && lifecycleRevision === context().lifecycleRevision;
+        try {
+            // Once the executor has its receipt, resume its remaining callbacks
+            // locally. The host independently resumes publishing/dispatching.
+            const result = attempt.receipt || await request("createTavernHelperMessages", {...args, operationId: attempt.id});
+            if (result?.stale || !current()) {
+                throw Object.assign(new Error("聊天已变化，请重新读取消息"), {code: "TAVERN_HELPER_STALE"});
+            }
+            if (result?.completionError) {
+                throw Object.assign(new Error(result.completionError), {code: "TAVERN_HELPER_MESSAGES_SAVED",
+                    messageIds: result.targets.map(target => target.messageId)});
+            }
+            if (!emitSent || !result?.targets?.length) return;
+            const ids = result.targets.map(target => target.messageId);
+            attempt.receipt = {targets: result.targets, userMessageIds: result.userMessageIds ||
+                ids.filter(id => context().messages[id]?.role === "user")};
+            const sent = attempt.receipt.userMessageIds;
+            while (attempt.sent < sent.length) {
+                if (!current()) throw Object.assign(new Error("聊天已变化，请重新读取消息"), {code: "TAVERN_HELPER_STALE"});
+                await emitSent(sent[attempt.sent]);
+                attempt.sent++;
+            }
+        } catch (error) {
+            if (!current() || error?.code === "TAVERN_HELPER_STALE") throw error;
+            retries.set(key, attempt);
+            if (retries.size > 16) retries.delete(retries.keys().next().value);
+            if (!attempt.receipt) throw error;
+            throw Object.assign(new Error("消息已保存，发送事件未完成：" + String(error?.message || error), {cause: error}),
+                {code: "TAVERN_HELPER_MESSAGES_SAVED", messageIds: attempt.receipt.targets.map(target => target.messageId)});
+        }
+    };
+}
+
 function createTavernHelperMessageReader(options) {
     return function (target, settings) {
         const state = options.context(), count = (state.messages || []).length;

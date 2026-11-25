@@ -19,10 +19,10 @@ const H = `${T}/home/.dsh-tavern`
 const DATA = `${H}/profile-data/tavern/data`
 mkdirSync(OUT, { recursive: true })
 const pre = SERIAL ? ['-s', SERIAL] : []
-const adb = (...a) => execFileSync('adb', [...pre, ...a], { encoding: 'utf8', maxBuffer: 64 << 20 })
+const adb = (...a) => execFileSync('adb', [...pre, ...a], { windowsHide: true, encoding: 'utf8', maxBuffer: 64 << 20 })
 const runAs = cmd => adb('shell', `run-as ${PKG} sh -c '${cmd.replace(/'/g, `'\\''`)}'`)
 const pushAs = (local, remote) => {
-  const r = spawnSync('adb', [...pre, 'exec-in', 'run-as', PKG, 'sh', '-c', `mkdir -p '${dirname(remote)}' && cat > '${remote}'`], { input: readFileSync(local) })
+  const r = spawnSync('adb', [...pre, 'exec-in', 'run-as', PKG, 'sh', '-c', `mkdir -p '${dirname(remote)}' && cat > '${remote}'`], { windowsHide: true, input: readFileSync(local) })
   if (r.status !== 0) throw new Error(`写入 ${remote} 失败：${r.stderr}`)
 }
 const report = { apk: APK, steps: [] }

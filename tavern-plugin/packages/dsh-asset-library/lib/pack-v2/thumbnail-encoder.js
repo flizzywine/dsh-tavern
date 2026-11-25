@@ -7,7 +7,36 @@ try {
   const chunks = []
   for await (const chunk of process.stdin) chunks.push(chunk)
   const source=Buffer.concat(chunks)
-  if(process.argv[2]==='decode') {
+  if(process.argv[2]==='compress') {
+    // An export's 压缩素材 (export-compress.js): stdin is {jobs:[{input, output, lossless}], workers}. Each image is read
+    // from its file and, when the WebP is smaller, written to `output`; one JSON line per job on stdout as it finishes:
+    // {i, bytes, sha256} for a written file, {i} for one kept as it is (lossy or animated WebP, APNG, not smaller).
+    const {jobs,workers}=JSON.parse(source.toString('utf8'))
+    const {readFile,writeFile}=await import('node:fs/promises'),{createHash}=await import('node:crypto')
+    sharp.concurrency(1)
+    const kept=data=>{
+      if(data.toString('ascii',0,4)==='RIFF'){
+        // walk the RIFF chunks: only a still lossless (VP8L) WebP is re-encoded; a lossy one is never compressed twice.
+        for(let at=12;at+8<=data.length;){const chunk=data.toString('ascii',at,at+4);if(chunk==='VP8L')return false;if(chunk==='VP8 '||chunk==='ANIM')return true;const n=data.readUInt32LE(at+4);at+=8+n+(n%2)}
+        return true
+      }
+      // an animated PNG keeps its frames only as it is.
+      for(let at=8;at+8<=data.length;){const n=data.readUInt32BE(at),chunk=data.toString('ascii',at+4,at+8);if(chunk==='acTL')return true;if(chunk==='IDAT')return false;at+=12+n}
+      return false
+    }
+    let next=0
+    await Promise.all(Array.from({length:Math.max(1,Math.min(workers,jobs.length))},async()=>{
+      while(next<jobs.length){
+        const i=next++,job=jobs[i],data=await readFile(job.input)
+        let output=null
+        if(!kept(data))output=await sharp(data,{limitInputPixels:false}).webp(job.lossless?{lossless:true,exact:true,effort:5}:{quality:80,alphaQuality:100,effort:5}).toBuffer()
+        if(output&&output.length<data.length){
+          await writeFile(job.output,output)
+          process.stdout.write(JSON.stringify({i,bytes:output.length,sha256:createHash('sha256').update(output).digest('hex')})+'\n')
+        } else process.stdout.write(JSON.stringify({i})+'\n')
+      }
+    }))
+  } else if(process.argv[2]==='decode') {
     // A batch of uint32 LE length-framed images, decoded on sharp's worker pool; answers null or the first that does not decode.
     // One libvips thread per image: the pool already decodes several at once.
     sharp.concurrency(1)

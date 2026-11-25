@@ -598,7 +598,8 @@ function createDiceThrower(tray, rootRef, device, safety = () => null, paused = 
 // arrival shows its strip), live (the reader follows the latest turn or
 // replays a round and nothing covers the stage: not history, film, an overlay or the box hidden), calm (减少动态),
 // replay (a key per clip-export replay of the round shown, else null), nativeTurn (that round), device, rootRef, safety (the stage policy),
-// veiled (the first-entry veil covers the scene: a live arrival waits for the reveal) }.
+// veiled (the first-entry veil covers the scene: a live arrival waits for the reveal), place (where the reader stands in the
+// round: a live roll called for partway through the reply waits for that place in the text, place.js) }.
 function DiceThrow(props) {
     const h = React.createElement;
     const tray = React.useRef(null), thrower = React.useRef(null), seen = React.useRef(null), latest = React.useRef(props);
@@ -609,29 +610,37 @@ function DiceThrow(props) {
         thrower.current = player;
         return () => { player.dispose(); thrower.current = null; diceStrip.reset(); };
     }, []);
+    const placeKey = dicePlaceKey(props.place);
     React.useEffect(() => {
-        if (!seen.current || seen.current.session !== props.sessionId) { seen.current = { session: props.sessionId, ids: null }; diceStrip.reset(); }
+        if (!seen.current || seen.current.session !== props.sessionId) { seen.current = { session: props.sessionId, ids: null, queue: dicePlaceQueue() }; diceStrip.reset(); }
         if (!key) return;
-        const rolls = diceKeyRolls(key), ids = seen.current.ids;
+        const rolls = diceKeyRolls(key), s = seen.current, ids = s.ids;
         // The first snapshot this stage sees is history: its rolls never play or show.
-        if (!ids) { seen.current.ids = new Set(rolls.map(roll => roll.callId)); return; }
+        if (!ids) { s.ids = new Set(rolls.map(roll => roll.callId)); return; }
         const fresh = rolls.filter(roll => !ids.has(roll.callId));
         fresh.forEach(roll => ids.add(roll.callId));
         const now = latest.current;
-        if (!fresh.length || !now.running) return;
+        // A live arrival waits for its place in the text (place.js): where the reply goes on after its call.
+        if (fresh.length && now.running) s.queue.add(fresh, Number(key.slice(0, key.indexOf("|"))));
+        const due = s.queue.take(now.place);
+        if (!due.length) return;
         // A live arrival the reader follows shows its strip (dice-roll.js) even when it is not thrown (skip, 减少动态, an
         // overlay); one that lands while the reader is in history is only its 履历 line.
-        if (now.following) diceStrip.arrive(fresh.map(roll => roll.callId));
-        if (now.live && !now.calm) thrower.current.enqueue(fresh);
-    }, [key, props.sessionId]);
-    // A clip export's replay: the replayed round's rolls are thrown (and shown) again, once per replay.
-    const replayRolls = useDiceRolls(props.useChat, props.replay ? props.nativeTurn : 0), replayed = React.useRef(null);
+        if (now.following) diceStrip.arrive(due.map(roll => roll.callId));
+        if (now.live && !now.calm) thrower.current.enqueue(due);
+    }, [key, props.sessionId, placeKey]);
+    // The settled history page's or a clip export's replay: the round's rolls whose place is the page shown are thrown (and
+    // shown) again, once per replay (diceReplayHere: a roll called for partway through on its place's page, the others on the first page).
+    const replayRolls = useDiceRolls(props.useChat, props.replay ? props.nativeTurn : 0), replayed = React.useRef({ key: null, ids: new Set() });
     React.useEffect(() => {
-        if (!props.replay || replayed.current === props.replay || !replayRolls.length) return;
-        replayed.current = props.replay;
-        diceStrip.arrive(replayRolls.map(roll => roll.callId));
-        if (latest.current.live && !latest.current.calm) thrower.current.enqueue(replayRolls);
-    }, [props.replay, replayRolls]);
+        if (!props.replay || !replayRolls.length) return;
+        if (replayed.current.key !== props.replay) replayed.current = { key: props.replay, ids: new Set() };
+        const done = replayed.current.ids, due = diceReplayHere(replayRolls, latest.current.place, props.nativeTurn).filter(roll => !done.has(roll.callId));
+        if (!due.length) return;
+        due.forEach(roll => done.add(roll.callId));
+        diceStrip.arrive(due.map(roll => roll.callId));
+        if (latest.current.live && !latest.current.calm) thrower.current.enqueue(due);
+    }, [props.replay, replayRolls, placeKey]);
     React.useEffect(() => { if (!props.live || props.calm) thrower.current?.skip(); }, [props.live, props.calm]);
     React.useEffect(() => { if (!props.veiled) thrower.current?.resume(); }, [props.veiled]);
     const svg = (className, paths) => h("svg", { className, viewBox: "0 0 100 100", preserveAspectRatio: "none" }, paths.map(d => h("path", { key: d, d })));

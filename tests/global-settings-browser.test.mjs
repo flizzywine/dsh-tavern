@@ -40,6 +40,32 @@ test('状态栏位置是全局显示偏好，保存后通知现有对局刷新',
   assert.equal(await page.evaluate(() => window.__statusSettingsChanged), 1)
 })
 
+test('显示人物设计默认关闭，可全局开关并通知现有对局刷新', async t => {
+  let settingsDocument = {}
+  const respond = (method, args) => {
+    if (method === 'updateTavernSettings') settingsDocument = applyTavernSettingsPatch(settingsDocument, args.patch)
+    if (method === 'getTavernSettings' || method === 'updateTavernSettings') return { settings: presentTavernSettings(settingsDocument, {}) }
+  }
+  const { page, calls } = await openTavernSettings(t, { respond })
+  const toggle = (targetPage, checked) => targetPage.getByRole('region', { name: '显示与交互', exact: true })
+    .getByRole('switch', { name: '显示人物设计', exact: true, checked })
+  await toggle(page, false).waitFor()
+  await page.evaluate(() => {
+    window.__characterDesignRefreshes = 0
+    window.addEventListener('dsh-tavern-data-changed', event => {
+      if (event.detail.kinds.includes('sessions')) window.__characterDesignRefreshes++
+    })
+  })
+  await toggle(page, false).press('Space')
+  await toggle(page, true).waitFor()
+  assert.deepEqual(calls.find(call => call.method === 'updateTavernSettings').args.patch, { showCharacterDesignPanel: true })
+  assert.equal(await page.evaluate(() => window.__characterDesignRefreshes), 1)
+  const { page: reopened } = await openTavernSettings(t, { respond })
+  await toggle(reopened, true).press('Space')
+  await toggle(reopened, false).waitFor()
+  assert.deepEqual(settingsDocument, { showCharacterDesignPanel: false })
+})
+
 test('候选项点击方式由全局设置保存，重新打开仍然生效', async t => {
   let document = { candidateDismissMode: 'after-fill' }
   const respond = (method, args) => {

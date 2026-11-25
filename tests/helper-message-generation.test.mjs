@@ -5,7 +5,7 @@ import { helperClient as client } from './fixtures/helper-host-harness.mjs'
 
 const tick = () => new Promise(resolve => setImmediate(resolve))
 
-function harness(t) {
+function harness(t, rpc = async () => ({})) {
   let nextTimer = 0
   const timers = new Map(), listeners = new Set(), submissions = [], mounted = []
   const host = {
@@ -24,7 +24,7 @@ function harness(t) {
   const execute = client.createTavernFrameSlashExecutor(ctx, host)
   function mount(turn = 2) {
     const props = { sessionId: 'game', content: '<div>floor</div>', turn, helperContext: { messages: [] } }
-    const lifecycle = client.createTavernMessageFrameLifecycle(props, { window: host, async rpc() { return {} } })
+    const lifecycle = client.createTavernMessageFrameLifecycle(props, { window: host, rpc, invalidate() {} })
     const document = lifecycle.snapshot().visibleDocument, received = []
     const source = { postMessage(data) { received.push(data) } }
     document.ref({ contentWindow: source })
@@ -51,6 +51,25 @@ function harness(t) {
     },
   }
 }
+
+test('a live message iframe waits for the host to finish creating and initializing the floor', async t => {
+  let finish
+  const hostWork = new Promise(resolve => { finish = resolve })
+  const floor = harness(t, (method, args, sessionId) => {
+    assert.equal(method, 'createTavernHelperMessages')
+    assert.equal(args.dispatchCreatedMessages, true)
+    assert.equal(args.operationId, 'create-id')
+    assert.equal(sessionId, 'game')
+    return hostWork
+  }).mount()
+  floor.dispatch({ type: 'dsh-tavern-helper-call', method: 'createTavernHelperMessages',
+    requestId: 'create', args: { operationId: 'create-id', messages: [{ role: 'user', message: '开始' }] } })
+  await tick()
+  assert.equal(floor.received.find(message => message.requestId === 'create'), undefined)
+  finish({ updated: true, targets: [{ messageId: 1 }] })
+  await tick()
+  assert.equal(floor.received.find(message => message.requestId === 'create').ok, true)
+})
 
 test('host flush timeout rejects and never submits a generation', async t => {
   const h = harness(t), floor = h.mount()
