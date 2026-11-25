@@ -3760,7 +3760,7 @@ window.__ModuleLoader__.load({
 		    if (many ? typeof window.showDirectoryPicker !== 'function' : typeof window.showSaveFilePicker !== 'function') return null;
 		    if (many) return {folder:await window.showDirectoryPicker({id:'dsh-export', mode:'readwrite', startIn:'downloads'})};
 		    const file = await window.showSaveFilePicker({id:'dsh-export', startIn:'downloads', suggestedName:exportFileName(name) + extension, types:[{description, accept:{[type]:[extension]}}]});
-		    return {file};
+		    return {file, empty:(await file.getFile()).size === 0};
 		}
 		// saveExportFile(result, {target, name, onProgress, signal}) writes each archive of an export result ({download:{ticket}},
 		// {url[, size]} of a GET that streams the file, or {bytes}) to the picked target, streamed to disk with onProgress({loaded,
@@ -3793,15 +3793,17 @@ window.__ModuleLoader__.load({
 		        stall?.arm(() => 0, archive.size || 0);
 		        const response = await fetch(source(archive), {credentials:'same-origin', signal:stall?.signal || signal});
 		        if (!response.ok) { const text = await response.text().catch(() => ''); const code = response.headers.get('x-dsh-error-code'); throw Object.assign(new Error(text || 'HTTP ' + response.status), {status:response.status, ...(code ? {code} : {})}); }
-		        // `size`: the host's own count of the file's bytes, for a response that lost its length on the way.
-		        const total = lastTotal = Number(response.headers.get('content-length')) || archive.size || 0;
-		        // at most ~8 progress reports a second: one per chunk re-renders the page thousands of times for a large file.
+		        const declared = Number(response.headers.get('content-length')) || 0;
+		        const total = lastTotal = archive.size || declared;
+		        const wrongSize = size => new Error('下载的文件为 ' + size + ' 字节，应为 ' + total + ' 字节，未保存');
+		        if (archive.size && declared && declared !== total) { await response.body.cancel(); throw wrongSize(declared); }
+		        // Check the length before pipeTo can close (commit) the browser's temporary file.
 		        let loaded = 0, shown = 0;
 		        onProgress?.({loaded, total});
 		        stall?.arm(() => loaded, total);
 		        return response.body.pipeThrough(new TransformStream({
-		            transform(chunk, out) { loaded += chunk.byteLength; stall?.arm(() => loaded, total); const now = performance.now(); if (now - shown > 120) { shown = now; onProgress?.({loaded, total}); } out.enqueue(chunk); },
-		            flush() { stall?.done(); onProgress?.({loaded, total}); }}));
+		            transform(chunk, out) { loaded += chunk.byteLength; if (total && loaded > total) throw wrongSize(loaded); stall?.arm(() => loaded, total); const now = performance.now(); if (now - shown > 120) { shown = now; onProgress?.({loaded, total}); } out.enqueue(chunk); },
+		            flush() { stall?.done(); onProgress?.({loaded, total}); if (total && loaded !== total) throw wrongSize(loaded); }}));
 		    }
 		    // the save's own abort: the caller's signal, or the stall timer with its reason.
 		    function stallGuard() {
@@ -3819,6 +3821,8 @@ window.__ModuleLoader__.load({
 		        if (target) {
 		            const handle = target.file || await target.folder.getFileHandle(filename, {create:true});
 		            const stall = archive.bytes ? null : stallGuard();
+		            const empty = target.file ? target.empty : (await handle.getFile()).size === 0;
+		            let committed = false;
 		            try {
 		                for (let tries = 1; ; tries++) {
 		                    let writable;
@@ -3828,6 +3832,7 @@ window.__ModuleLoader__.load({
 		                        const body = archive.bytes ? new Blob([archive.bytes]).stream() : (await open(archive, stall)).pipeThrough(batchWrites(SAVE_WRITE_BYTES));
 		                        // pipeTo commits the file (the .crswap is renamed) when the body ends and discards the write on failure.
 		                        await body.pipeTo(writable, {signal:stall?.signal || signal});
+		                        committed = true;
 		                        break;
 		                    } catch (error) {
 		                        if (!writable && target.file && archives.length === 1 &&
@@ -3847,7 +3852,7 @@ window.__ModuleLoader__.load({
 		                    continue;
 		                }
 		            } catch (error) {
-		                await handle.remove?.().catch(() => {});
+		                if (empty || committed) await handle.remove?.().catch(() => {});
 		                throw stall?.signal.aborted && !signal?.aborted ? stall.signal.reason : error;
 		            } finally { stall?.done(); }
 		        }
@@ -14361,6 +14366,23 @@ window.__ModuleLoader__.load({
 			return notes.join("；");
 		}
 
+		// Drop and the file input enter the same preview, password and import flow.
+		function tavernCardDropHandlers(importFiles) {
+			return {
+				onDragOver(event) { if (event.dataTransfer.types.includes('Files')) event.preventDefault(); },
+				onDrop(event) {
+					if (!event.dataTransfer.types.includes('Files')) return;
+					event.preventDefault();
+					void importFiles(Array.from(event.dataTransfer.files));
+				}
+			};
+		}
+		function tavernCardImportError(error) {
+			const message = String(error?.message || error);
+			if (error?.code === 'TAVERN_ZIP_INVALID' || /\p{Script=Han}/u.test(message)) return message;
+			return playerErrorText(error, {codes:{ENOSPC:'磁盘空间不够，未能导入；请腾出空间后再试', EACCES:'无法读取或写入卡片文件，请检查文件和酒馆目录的权限'}, fallback:'无法读取人物卡，请确认文件类型正确，或重新获取完整文件后再试。'});
+		}
+
 		async function importTavernCardSelection(picked, call, { cardZip, onProgress, onTransfer } = {}) {
 			const failures = [], notices = [];
 			const misplaced = picked.filter(function (file) { return misplacedFileHint(file, false); });
@@ -14386,7 +14408,7 @@ window.__ModuleLoader__.load({
 					}
 				} catch (error) {
 					if (error?.code === 'TAVERN_CARD_IMPORT_CANCELLED') notices.push(file.name + "：已取消");
-					else failures.push({ name: file.name, message: String(error?.message || error) });
+					else failures.push({ name: file.name, message: tavernCardImportError(error) });
 				}
 			}
 			if (zips.length) {
@@ -50677,7 +50699,7 @@ function installTavernScriptCardUpdate({ window: w, rpc, ask = askTavernScriptCa
 				}))) : null,
 				h("div", { className: "dsh-tavern-picker-foot", style: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: "24px", flexWrap: "wrap" } }, h("input", { ref: chatImportFile, type: "file", accept: TAVERN_CARD_FILE_ACCEPT, multiple: true, style: { display: "none" }, onChange: function (event) { const files = Array.prototype.slice.call(event.target.files || []); event.target.value = ""; void previewChatImport(files); } }), h("div", { style: { display: "flex", flexDirection: "column", alignItems: "flex-start", gap: "6px" } }, h("button", { className: "dsh-tavern-btn", disabled: busy, onClick: function () { chatImportFile.current.click(); } }, busy && importProgress ? importProgress : "导入 SillyTavern 聊天记录"), h("small", null, "（可多选，必须都和这张人物卡匹配）")), h("button", { className: selectedOpening && selectedOpening.openingSetup ? "dsh-tavern-btn" : "dsh-tavern-question-primary", disabled: busy || openingPicker.preparing || openingPreviewPending || (openingPicker.openings.length > 0 && !selectedOpening), onClick: function () { newConversation(openingPicker.card, null, selectedOpening ? selectedOpening.id : "", openingPicker.userName); } }, selectedOpening && selectedOpening.openingSetup ? "跳过设定，直接开始" : "开始新游戏"))
 			) : null;
-			const playPicker = h("div", { ref: openingLayoutRef, className: "dsh-tavern-card-picker", role: "dialog", "aria-modal": "true", "aria-label": openingPicker && !openingPicker.importOnly ? "游戏准备" : "选择人物卡开始游玩" }, pickerError, (openingChoice || importChoice) ? h(React.Fragment, null, importChoice, h("div", { style: { display: importChoice ? "none" : "contents" } }, openingChoice)) : h(React.Fragment, null,
+			const playPicker = h("div", { ref: openingLayoutRef, className: "dsh-tavern-card-picker", role: "dialog", "aria-modal": "true", "aria-label": openingPicker && !openingPicker.importOnly ? "游戏准备" : "选择人物卡开始游玩", ...(!openingChoice && !importChoice ? tavernCardDropHandlers(importPickedCards) : {}) }, pickerError, (openingChoice || importChoice) ? h(React.Fragment, null, importChoice, h("div", { style: { display: importChoice ? "none" : "contents" } }, openingChoice)) : h(React.Fragment, null,
 				h("div", { className: "dsh-tavern-card-picker-head" }, h("span", null, "选择人物卡 · 开始游玩"), h("span", { className: "dsh-tavern-spacer" }), h(MobileCardImportButton, { inputRef: fileRef, batch: cardBatch.managing, disabled: busy, onImported: refreshImportedCards }),
 					// No accept list: Android's storage framework filters by MIME type, and
 					// `.dshsave`/`.jsonl` have no registered type, so a list would hide the very
@@ -57170,8 +57192,7 @@ function WorldBookAddMenu({ choices, loading, disabled, onOpen, onPick }) {
 					} });
 					setImportStatus(saved.said);
 				} catch (error) {
-					// the save takes back a half-written file; a failure before it leaves the empty file the dialog made.
-					if (!saving && target?.file) await target.file.remove?.().catch(function () {});
+					if (!saving && target?.empty) await target.file.remove?.().catch(function () {});
 					setError(error);
 				}
 				finally { progress.close(); setBusy(false); }
@@ -57211,7 +57232,7 @@ function WorldBookAddMenu({ choices, loading, disabled, onOpen, onPick }) {
 			const visible = organization.visible;
 			// "@" quotes a card into the card workspace conversation; only there does it mean anything.
 			const mentionButton = sessionMode === "card" ? function (item) { return h("button", { type: "button", className: "dsh-tavern-card-mention", title: "在对话中引用", "aria-label": "在对话中引用：" + item.name, onClick: function (event) { event.stopPropagation(); props.appendMention(item.path, item.name); } }, "@"); } : null;
-			return h("div", { className: "dsh-tavern-library dsh-tavern-card-library", 'aria-busy': !!transferStatus },
+			return h("div", { className: "dsh-tavern-library dsh-tavern-card-library", 'aria-busy': !!transferStatus, ...tavernCardDropHandlers(importCardFiles) },
 				h("div", { className: "dsh-tavern-status-head" }, h("div", { className: "dsh-tavern-status-title" }, "人物卡库"),
 					h("div", { className: "dsh-tavern-library-head-actions" },
 						h(MobileCardImportButton, { inputRef: importInput, activateRef: mobileImport, batch: false, disabled: busy, onImported: async function (imported) { await refreshCards(); await loadCard(imported.path); notifyTavernDataChanged(["cards"], "cards"); } }),

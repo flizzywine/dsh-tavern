@@ -206,6 +206,23 @@ window.__ModuleLoader__.load({
 			return notes.join("；");
 		}
 
+		// Drop and the file input enter the same preview, password and import flow.
+		function tavernCardDropHandlers(importFiles) {
+			return {
+				onDragOver(event) { if (event.dataTransfer.types.includes('Files')) event.preventDefault(); },
+				onDrop(event) {
+					if (!event.dataTransfer.types.includes('Files')) return;
+					event.preventDefault();
+					void importFiles(Array.from(event.dataTransfer.files));
+				}
+			};
+		}
+		function tavernCardImportError(error) {
+			const message = String(error?.message || error);
+			if (error?.code === 'TAVERN_ZIP_INVALID' || /\p{Script=Han}/u.test(message)) return message;
+			return playerErrorText(error, {codes:{ENOSPC:'磁盘空间不够，未能导入；请腾出空间后再试', EACCES:'无法读取或写入卡片文件，请检查文件和酒馆目录的权限'}, fallback:'无法读取人物卡，请确认文件类型正确，或重新获取完整文件后再试。'});
+		}
+
 		async function importTavernCardSelection(picked, call, { cardZip, onProgress, onTransfer } = {}) {
 			const failures = [], notices = [];
 			const misplaced = picked.filter(function (file) { return misplacedFileHint(file, false); });
@@ -231,7 +248,7 @@ window.__ModuleLoader__.load({
 					}
 				} catch (error) {
 					if (error?.code === 'TAVERN_CARD_IMPORT_CANCELLED') notices.push(file.name + "：已取消");
-					else failures.push({ name: file.name, message: String(error?.message || error) });
+					else failures.push({ name: file.name, message: tavernCardImportError(error) });
 				}
 			}
 			if (zips.length) {

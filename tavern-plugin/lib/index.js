@@ -1678,7 +1678,7 @@ export async function apply(ctx) {
     }
   })
   // Card files in and out: imports (JSON, PNG, CHARX, DSH card, plugin formats) and exports.
-  const { replaceCard: replaceCardFiles, revertCardUpdate: revertCardFiles, importCard, importCardArchiveFile, importPackArchiveFile, previewCardArchiveFile, discardCardArchivePreview, importPluginCardFile, presentCardText, exportCardPng, exportCardFile } = createCardFiles({
+  const { replaceCard: replaceCardFiles, revertCardUpdate: revertCardFiles, importCard, importCardArchiveFile, importPackArchiveFile, previewCardArchiveFile, discardCardArchivePreview, importPluginCardFile, presentCardText, exportCardPng, exportCardFile, listCardExportPacks } = createCardFiles({
     cardPreparation, fileResources, castAssets, assetPacks, cardPlugins, cardSummaries, presetLibrary, importPreset,
     readCardWorkspace, worldBooks, pluginApi: () => pluginApi, assetLibrary: () => ctx.get('assetLibrary'), prepareCardAssets: () => stageSwitch.ensure(),
     withCardBackup: (...args) => ctx.get('assetLibraryCardBackup')(...args), backupPack: (...args) => ctx.get('assetLibraryPackBackup')(...args), exportRoot: path.join(dataRoot, 'exports'),
@@ -4775,7 +4775,7 @@ export async function apply(ctx) {
     deletePreset, deleteResource, deleteScript, displayRuntimeCaptures, ensureNativeCardWorkspace,
     ensureNativeOpening, exportConversation, exportGameSave, exportSettingsBundle, exportTavernLogs,
     fileResources, forkCardWorkbench, forkChat, fullTemplateRuntime, generationStreamModes, getCardOpenings, groupOfMode, guideLibrary,
-    helperGenerationPreset, helperGenerationTasks, helperHistoryAccess, hostCompatibility, importCard, exportCardFile,
+    helperGenerationPreset, helperGenerationTasks, helperHistoryAccess, hostCompatibility, importCard, exportCardFile, listCardExportPacks,
     replaceCard, presentCardText, revertCardUpdate, importCardArchiveFile, importPackArchiveFile, previewCardArchiveFile, discardCardArchivePreview, importChatHistoryText, importGameSave, importPluginCardFile, importPreset,
     importScript, importSettingsBundle, importSource, ledgerEditor, listCards, listTavernResources,
     listTavernSessions, liveCardUpdate, llm, manualCharacterDesign, manualLedger, mobileCardImport,

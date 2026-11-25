@@ -59,7 +59,8 @@ export async function writeZip(filename, entries, { onProgress } = {}) {
       const spool = method ? filename + '.' + randomUUID() + '.tmp' : null
       const source = entry.stream ?? (() => entry.file ? createReadStream(entry.file) : Readable.from([Buffer.from(entry.data)]))
       const meter = new Transform({ transform(chunk, encoding, callback) {
-        size += chunk.length; crc = crc32(chunk, crc); consumed += chunk.length; onProgress?.(consumed)
+        size += chunk.length; crc = crc32(chunk, crc); consumed += chunk.length
+        try { onProgress?.(consumed) } catch (error) { callback(error); return }
         callback(size >= U32 ? new Error('ZIP entry exceeds 4 GiB') : null, chunk)
       } })
       const offset = position, header = Buffer.alloc(30)

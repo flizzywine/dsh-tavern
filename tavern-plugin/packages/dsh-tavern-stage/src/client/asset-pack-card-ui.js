@@ -815,7 +815,7 @@ function StagePackSection({ctx,ready,state}) {
 // encrypts) the card into a transfer file as a job (binding.exportCard: its progress is bytes done of the total and the
 // pack being written; the host is the one place it is counted), then the file is saved through binding.download with
 // its bytes. The progress sits above the buttons, never under the lists: percent, what is being done, time used and left.
-// 取消 (or closing the sheet) stops the host job or the save and removes the half-written file. When done the sheet says
+// 取消导出 stops the host job or the save and discards the unfinished write. When done the sheet says
 // where the file went; a failure says the step, the file and the system's reason (the host's sentence for packing and
 // encrypting, the browser's for saving), never a bare 「请重试」.
 // The one 导出 for every format: 导出格式 is a menu (DSH 人物卡 by default; what each carries is in its 「?」); a DSH
@@ -866,12 +866,15 @@ function useDshCardJob(path){
 }
 function DshCardExportSheet({binding,path,cardName,hasImage,onClose}) {
   const state=useLoad(binding,async()=>{
-    const [card,rows,books]=await Promise.all([binding.rpc('getCardAssetBindings',{path,metadataOnly:true}),loadPackRows(binding),binding.rpc('getWorldBookBinding',{cardPath:path})]);
+    const [scope,rows,books]=await Promise.all([binding.rpc('listCardExportPacks',{path}),loadPackRows(binding),binding.rpc('getWorldBookBinding',{cardPath:path})]);
     const byId=new Map(rows.filter(p=>!p.error).map(p=>[p.manifest.id,p]));
-    const packs=(card.extension?.assetBindings?.boundPackIds||[]).map(id=>byId.get(id)).filter(Boolean);
+    const packs=scope.packs.map(({id,title,required})=>{
+      const row=byId.get(id);
+      return {...row,manifest:row?.manifest||{id,name:title||'无法读取的素材包'},required};
+    });
     return {packs,books:dshCardBooks(books).map(book=>({...book,key:JSON.stringify(book.source)}))};
   },[path]);
-  const [chosen,setChosen]=React.useState(null),[leftBooks,setLeftBooks]=React.useState(()=>new Set());
+  const [leftPacks,setLeftPacks]=React.useState(()=>new Set()),[leftBooks,setLeftBooks]=React.useState(()=>new Set());
   const {work,problem,saved}=useDshCardJob(path);
   const say=view=>dshCardStart(path,{view:{...DSHCARD_IDLE,...view}});
   const [format,setFormat]=React.useState('dshcard'),[password,setPassword]=React.useState(''),[compress,setCompress]=React.useState(false);
@@ -881,13 +884,13 @@ function DshCardExportSheet({binding,path,cardName,hasImage,onClose}) {
   const close=()=>{const current=dshCardJobs.get(path);if(current&&!current.view.work)dshCardJobs.delete(path);onClose();};
   const value=state.value,packs=value?.packs||[],books=value?.books||[];
   // every pack the card binds goes along unless unticked (主人 11-24); a widget-only one is chosen in the 模组 section and goes, without a switch.
-  const picked=chosen||new Set(packs.map(p=>p.manifest.id)),packIds=packs.map(p=>p.manifest.id).filter(id=>picked.has(id));
-  const switchable=packs.filter(p=>!stageWidgetOnlyPack(p)).map(p=>p.manifest.id);
-  const sizes=packs.map(stagePackBytes),total=sizes.reduce((sum,n,index)=>sum+(picked.has(packs[index].manifest.id)&&n||0),0);
-  const compressing=dsh&&compress&&packIds.length>0;
+  const picked=packs.filter(p=>!leftPacks.has(p.manifest.id));
+  const switchable=packs.filter(p=>!p.required&&!stageWidgetOnlyPack(p)).map(p=>p.manifest.id);
+  const sizes=packs.map(stagePackBytes),total=picked.reduce((sum,pack)=>sum+(stagePackBytes(pack)||0),0);
+  const compressing=dsh&&compress&&picked.length>0;
   const toggle=(current,id)=>{const next=new Set(current);if(next.has(id))next.delete(id);else next.add(id);return next;};
-  const flipPack=id=>setChosen(toggle(picked,id)),flipBook=key=>setLeftBooks(current=>toggle(current,key));
-  const allPacks=switchable.every(id=>picked.has(id)),allBooks=leftBooks.size===0;
+  const flipPack=id=>setLeftPacks(current=>toggle(current,id)),flipBook=key=>setLeftBooks(current=>toggle(current,key));
+  const allPacks=leftPacks.size===0,allBooks=leftBooks.size===0;
   // `saved`: where the file went ({names, picked}), shown in place of the progress until the sheet is closed.
   const picking=React.useRef(false);
   function stop(){const current=dshCardJobs.get(path);if(!current?.controller||!current.view.work)return;current.cancelled=true;current.controller.abort();}
@@ -895,7 +898,6 @@ function DshCardExportSheet({binding,path,cardName,hasImage,onClose}) {
     if(work||picking.current||!value)return;
     say({});
     // the save-as dialog needs the click's activation, so it opens before anything is fetched; closing it is no error.
-    // Saving over an existing file empties it as the dialog closes (the browser's rule for a save dialog).
     let target=null;picking.current=true;
     const name=(cardName||'人物卡')+(encrypt?'-加密':'');
     try{target=binding.pickSave?await binding.pickSave({name,description:file.description,extension:file.extension}):null;}
@@ -908,26 +910,27 @@ function DshCardExportSheet({binding,path,cardName,hasImage,onClose}) {
     // how the save ended goes to the host log too: the one record left once the page is gone.
     const tell=(outcome,total,reason)=>{if(saving)void binding.rpc?.('cardExportSaved',{outcome,filename,loaded,total,...(reason?{reason}:{})}).catch(()=>{});};
     try{
-      const worldBooks=books.filter(book=>!leftBooks.has(book.key)).map(book=>book.source);
+      const worldBooks=leftBooks.size?books.filter(book=>!leftBooks.has(book.key)).map(book=>book.source):undefined;
       // the host's own count while a DSH card packs (and encrypts); polled, never guessed. JSON / PNG are small: the route
       // builds them as the file is fetched, so the save step is all there is.
       // 压缩素材 has its own bar; packing starts its clock again when it ends (packing and encrypting share one bar).
-      const result=dsh?await binding.exportCard({path,packIds,worldBooks,...(encrypt?{password}:{}),...(compressing?{compress:true}:{})},{signal:current.controller.signal,
+      const result=dsh?await binding.exportCard({path,...(leftPacks.size?{omitPackIds:[...leftPacks]}:{}),...(worldBooks?{worldBooks}:{}),...(encrypt?{password}:{}),...(compressing?{compress:true}:{})},{signal:current.controller.signal,
         onProgress:progress=>setWork(w=>w&&w.stage!=='save'?{...w,...progress,startedAt:w.startedAt,stageAt:w.stage==='compress'&&progress.stage!=='compress'?Date.now():w.stageAt}:w)})
-        :{downloadUrl:'/api/dsh-tavern/card-export?'+new URLSearchParams({path,format,worldBooks:JSON.stringify(worldBooks)}),filename:'人物卡'+file.extension,bytes:0};
+        :{downloadUrl:'/api/dsh-tavern/card-export?'+new URLSearchParams({path,format,...(worldBooks?{worldBooks:JSON.stringify(worldBooks)}:{})}),filename:'人物卡'+file.extension,bytes:0};
       if(current.cancelled)throw Object.assign(new Error('cancelled'),{name:'AbortError'});
       saving=true;filename=result.filename;const at=Date.now();
       setWork({stage:'save',done:0,total:result.bytes,pack:'',startedAt,stageAt:at});
       const done=await binding.download({url:result.downloadUrl,filename:result.filename,size:result.bytes},{target,name,signal:current.controller.signal,
         onProgress:next=>{loaded=next.loaded;setWork(w=>w&&{...w,done:next.loaded,total:next.total||result.bytes});}});
-      tell('saved',result.bytes);
+      tell(done.picked?'saved':'download-started',result.bytes);
       const shrunk=result.compressed;
-      put({saved:shrunk?{...done,said:done.said+' 素材从 '+stageBytesText(shrunk.beforeBytes)+' 压到 '+stageBytesText(shrunk.afterBytes)+'。'+(shrunk.ffmpeg?'':'没找到 ffmpeg，音频没有压缩。')}:done});
+      const detail=!dsh?'':' 文件 '+stageBytesText(result.bytes)+'。'+(shrunk?'素材从 '+stageBytesText(shrunk.beforeBytes)+' 压到 '+stageBytesText(shrunk.afterBytes)+'。'+(shrunk.ffmpeg?'':'没找到 ffmpeg，音频没有压缩。'):'素材未压缩。');
+      put({saved:{...done,said:done.said+detail}});
     }catch(error){
       tell(current.cancelled?'cancelled':'failed',current.view.work?.total,current.cancelled?'':(error?.name?error.name+' ':'')+String(error?.message||error));
-      // the save itself takes back a half-written file; a failure before it leaves the empty file the dialog made.
-      if(!saving&&target?.file)await target.file.remove?.().catch(()=>{});
-      put(current.cancelled?{saved:{said:'已取消导出，没有留下文件。',cancelled:true}}:{problem:dshCardFailure(error,saving)});
+      // Never remove an existing export when the new one was not committed.
+      if(!saving&&target?.empty)await target.file.remove?.().catch(()=>{});
+      put(current.cancelled?{saved:{said:'已取消导出，没有保存新文件。',cancelled:true}}:{problem:dshCardFailure(error,saving)});
     }
     finally{put({work:null});}
   }
@@ -939,14 +942,14 @@ function DshCardExportSheet({binding,path,cardName,hasImage,onClose}) {
   const options=h('div',{className:'ap-dshcard-options'},
     h(InlineField,{kind:'menu',label:'导出格式',help:h(Help,{text:Object.values(DSHCARD_FORMATS).map(f=>h('span',{key:f.label},f.label+'：'+f.note+'。')),label:'导出格式 说明'}),value:format,options:formats,disabled:!!work,onCommit:setFormat,className:'ap-dshcard-field'}),
     dsh&&h(InlineField,{kind:'text',secret:true,label:'设置密码',help:h(Help,{text:'填写密码时会加密角色卡后导出，导入时要输这个密码，忘了就打不开。留空时放弃加密。',label:'设置密码 说明'}),value:password,placeholder:'留空时放弃加密',disabled:!!work,live:true,trim:false,onCommit:setPassword,className:'ap-dshcard-field ap-dshcard-password'}),
-    dsh&&packIds.length>0&&h(SwitchRow,{label:'压缩素材',help:DSHCARD_COMPRESS_HELP,checked:compress,disabled:!!work,onChange:setCompress,
+    dsh&&picked.length>0&&h(SwitchRow,{label:'压缩素材',help:DSHCARD_COMPRESS_HELP,checked:compress,disabled:!!work,onChange:setCompress,
       status:!compress&&total>DSHCARD_IMPORT_LIMIT?h('span',{className:'ap-dshcard-warn',title:'所选素材超过导入上限 '+stageBytesText(DSHCARD_IMPORT_LIMIT)+'，对方可能导不进来'},'⚠ 超过导入上限，建议开启'):null}));
   const body=state.error?h(ErrorBox,{error:state.error,reload:state.reload}):!value?h(Loading,{shape:'rows',count:3,label:'正在读取素材包…'}):h(React.Fragment,null,
-    dsh&&packs.length>0&&group('packs','素材包',packs.length,'已选 '+packIds.length+'/'+packs.length+(total>0?' · '+stageBytesText(total):''),
+    dsh&&packs.length>0&&group('packs','素材包',packs.length,'已选 '+picked.length+'/'+packs.length+(total>0?' · '+stageBytesText(total):''),
       '勾选的素材包随卡导出，人物跟着所在的素材包走；没勾的留在本机，导出的卡也不再使用它。',
-      switchable.length>0&&allButton(allPacks,'素材包',()=>setChosen(new Set([...picked].filter(id=>!switchable.includes(id)).concat(allPacks?[]:switchable)))),
+      switchable.length>0&&allButton(allPacks,'素材包',()=>setLeftPacks(new Set(allPacks?switchable:[]))),
       h('ul',{className:'ap-dshcard-list','aria-label':'随卡素材包'},packs.map((pack,index)=>h('li',{key:pack.manifest.id,className:'ap-pack-row ap-dshcard-row'},
-        check(picked.has(pack.manifest.id),pack.manifest.name,stageWidgetOnlyPack(pack)?null:()=>flipPack(pack.manifest.id)),h('span',{className:'ap-dshcard-name',title:pack.manifest.name},pack.manifest.name),sizes[index]&&h('span',{className:'ap-pack-size'},stageBytesText(sizes[index])))))),
+        check(!leftPacks.has(pack.manifest.id),pack.manifest.name,switchable.includes(pack.manifest.id)?()=>flipPack(pack.manifest.id):null),h('span',{className:'ap-dshcard-name',title:pack.manifest.name},pack.manifest.name),sizes[index]&&h('span',{className:'ap-pack-size'},stageBytesText(sizes[index])))))),
     books.length>0&&group('books','世界书',books.length,'已选 '+(books.length-leftBooks.size)+'/'+books.length,'勾选的世界书合并进导出的卡；没勾的不带走。',
       allButton(allBooks,'世界书',()=>setLeftBooks(allBooks?new Set(books.map(book=>book.key)):new Set())),
       h('ul',{className:'ap-dshcard-list','aria-label':'随卡世界书'},books.map((book,index)=>h('li',{key:book.key,className:'ap-pack-row ap-dshcard-row'},

@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs'
 const source = readFileSync(new URL('../tavern-plugin/lib/client.js', import.meta.url), 'utf8')
 const start = source.indexOf('async function importCardFiles(')
 const body = source.slice(start, source.indexOf('async function saveCardExport(', start))
-const selectionStart = source.indexOf('async function importTavernCardSelection(')
+const selectionStart = source.indexOf('function tavernCardDropHandlers(')
 const selection = source.slice(selectionStart, source.indexOf('// No file filter on card import', selectionStart))
 function setup(cardZip = null) {
   const state = { status: '', error: '', calls: [], loads: [], refreshes: 0 }
@@ -16,13 +16,14 @@ function setup(cardZip = null) {
     return { card: { path: payload.name, name: payload.name, duplicate: payload.name === 'existing.json' } }
   }
   const run = new Function('busy', 'importing', 'setBusy', 'setError', 'setImportStatus', 'rpc', 'notifyTavernDataChanged', 'refreshCards', 'loadCard',
-    'importTavernCardFile', 'tavernCardAssetNotice', 'forkCardZip', 'setTransferStatus', 'splitCardFiles', selection + body + '; return importCardFiles;')(
+    'importTavernCardFile', 'tavernCardAssetNotice', 'forkCardZip', 'setTransferStatus', 'splitCardFiles', 'playerErrorText', selection + body + '; return {run:importCardFiles, drop:tavernCardDropHandlers(importCardFiles)};')(
     false, importing, value => { state.busy = value }, value => { state.error = value }, value => { state.status = value },
     rpc, () => {}, async () => { state.refreshes++; state.error = '' }, async path => { state.loads.push(path) },
     async (file, call) => call('importCard', { payload: file }), () => '',
     cardZip, value => { state.transferStatus = value },
-    async files => ({ cards: files.filter(file => !file.name.endsWith('.zip')), zips: files.filter(file => file.name.endsWith('.zip')) }))
-  return { state, run, importing }
+    async files => ({ cards: files.filter(file => !file.name.endsWith('.zip')), zips: files.filter(file => file.name.endsWith('.zip')) }),
+    (_error, {fallback}) => fallback)
+  return { state, ...run, importing }
 }
 
 test('single import still opens the imported card; cancelling picker does nothing', async () => {
@@ -41,7 +42,7 @@ test('batch continues after failure and cancelled password, then refreshes once 
   assert.deepEqual(state.calls, names)
   assert.equal(state.refreshes, 1)
   assert.deepEqual(state.loads, [])
-  assert.equal(state.error, 'bad.json：invalid card')
+  assert.equal(state.error, 'bad.json：无法读取人物卡，请确认文件类型正确，或重新获取完整文件后再试。')
   assert.match(state.status, /已导入 1 张，1 张已在卡库中，1 个文件失败/)
   assert.match(state.status, /cancel\.dshcard：已取消/)
 })
@@ -53,6 +54,18 @@ test('mixed selection imports cards and opens one interactive ZIP sheet', async 
   assert.deepEqual(state.calls, ['card.json'])
   assert.deepEqual(opened, ['one.zip'])
   assert.match(state.status, /其余 1 个请单独选择/)
+})
+
+test('drop enters the same native card and ZIP flow as the picker, with the same named error', async () => {
+  const opened = []
+  const {state, drop} = setup({openFile: async file => { opened.push(file.name) }})
+  let prevented = false
+  drop.onDrop({preventDefault() { prevented = true }, dataTransfer:{types:['Files'], files:[{name:'bad.json'},{name:'card.dshcard'},{name:'one.zip'}]}})
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(prevented, true)
+  assert.deepEqual(state.calls, ['bad.json','card.dshcard'])
+  assert.deepEqual(opened, ['one.zip'])
+  assert.match(state.error, /^bad\.json：无法读取人物卡/)
 })
 
 // importTavernCardFile and the helpers after it, run with the page's globals given.
