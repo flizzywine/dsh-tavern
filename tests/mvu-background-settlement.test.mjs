@@ -3,6 +3,39 @@ import test from 'node:test'
 
 import { createMvuSettlementModule } from "../tavern-plugin/lib/domain/mvu-background-settlement.js"
 
+test('神豪终端清空待办事件后按本轮的终端提交记录核验', async () => {
+  const anchor = { branchKey: 'branch', messageId: 3, swipeId: 1, fingerprint: 'source' }
+  const event = { type: 'BEHAVIOR', personRef: 'character', score: 50 }
+  const key = JSON.stringify(['branch', 3, 1, 'source', 0, 'SIGNIFICANT_BEHAVIOR_SCORE', 'character'])
+  const committed = { type: 'SIGNIFICANT_BEHAVIOR_SCORE', status: 'COMMITTED', revision: 2 }
+  const baseline = { schemaVersion: 3, meta: { revision: 1 }, pendingEvents: [], operationHistory: {} }
+  const input = { operationId: 'event', chatId: 'chat', branchId: 'branch', basedOnRevision: 1, sessionId: 'game',
+    messageId: 3, swipeId: 1, storyText: '她点头应允。', currentVariables: { stat_data: { shenghao: baseline } } }
+  let after
+  const module = createMvuSettlementModule({ model: { async run() { assert.fail('replay must not call a model') } }, runtime: {
+    async settleMvuUpdate(request) {
+      const variables = { stat_data: { shenghao: after } }
+      const validation = await request.validate({ before: request.baselineVariables, after: variables })
+      return { variables, validation, rejected: validation.failures.length > 0 }
+    }
+  } })
+  const settle = (events = [event]) => module.resumeProviderVariables({
+    ...input, submission: { operations: [{ op: 'replace', path: '/stat_data/shenghao/pendingEvents', value: events }] }
+  })
+  after = { ...baseline, meta: { revision: 2, sourceAnchor: anchor }, operationHistory: { [key]: committed } }
+  const accepted = await settle()
+  assert.equal(accepted.receipt.status, 'updated')
+  assert.match(accepted.receipt.changes[0].path, /operationHistory/)
+  for (const result of [
+    await settle([event, { ...event, personRef: 'different' }]),
+    await settle([{ ...event, personRef: 'different' }])
+  ]) assert.equal(result.receipt.status, 'error')
+  after = { ...after, operationHistory: { [key]: { ...committed, revision: 1 } } }
+  assert.equal((await settle()).receipt.status, 'error')
+  after = { ...after, meta: { revision: 2, sourceAnchor: { ...anchor, swipeId: 0 } }, operationHistory: { [key]: committed } }
+  assert.equal((await settle()).receipt.status, 'error')
+})
+
 test('本地 provider 复用 durable submission、官方事务和效果审计；无变化提交为 error', async () => {
   const submissions = [], prepared = [], calls = []
   let nextVariables = { stat_data: { hp: 4 }, schema: {} }

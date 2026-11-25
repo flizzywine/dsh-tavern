@@ -35335,14 +35335,25 @@ function bindTavernFontZoom(node, win) {
 		// `cardScriptPatches`; it applies only when every marker is present and each `from` occurs exactly once, otherwise the
 		// script loads as shipped (an updated card needs its patch rechecked). A patched script no longer contains `from`, so
 		// patching is idempotent.
-		const cardScriptPatches = [];
+		const cardScriptPatches = [{
+		    markers: ["// CJ_SHENGHAO_STABLE_LOADER", 'projectId:"cj-shenghao-terminal-v2"', 'mark:"CJ_SHENGHAO_TERMINAL_CORE"'],
+		    // The detached loader registers the card's MVU validation hooks after its
+		    // download. Include that promise in module readiness.
+		    requiredForMvu: true,
+		    replace: [
+		        [";(async()=>{", ";await (async()=>{"],
+		        ['!loaded&&!k&&F("error",', "if(!loaded&&!k)throw Error("],
+		        ['})().catch(e=>{console.log("[神豪终端 加载器] "+e.message);try{toastr.error("终端加载器未能启动，请检查配置与网络。","神豪终端");}catch{}});', "})();"]
+		    ]
+		}];
+		function findCardScriptPatch(source) {
+		    return cardScriptPatches.find(patch => patch.markers.every(marker => source.includes(marker))
+		        && patch.replace.every(([from]) => source.split(from).length === 2));
+		}
 		function patchCardScript(script) {
 		    let source = String(script && script.content || "");
-		    for (const patch of cardScriptPatches) {
-		        if (!patch.markers.every(marker => source.includes(marker))) continue;
-		        if (!patch.replace.every(([from]) => source.split(from).length === 2)) continue;
-		        for (const [from, to] of patch.replace) source = source.replace(from, () => to);
-		    }
+		    const patch = findCardScriptPatch(source);
+		    if (patch) for (const [from, to] of patch.replace) source = source.replace(from, () => to);
 		    return source;
 		}
         // The parent sends the latest complete context after iframe load. Keep
@@ -35781,7 +35792,12 @@ function bindTavernFontZoom(node, win) {
 				const core = record && record.scripts.get("__dsh_official_mvu__");
 				return core && core.initializationFailed ? "MVU 模块加载失败：" + (core.initializationError || "初始化未完成") + "\n请刷新页面或重启酒馆后重试。" : record && record.mvuDataError || "";
 			}
+			function failedMvuCompanion(record) {
+				if (!record.scripts.has("__dsh_official_mvu__")) return undefined;
+				return Array.from(record.scripts.values()).find(script => script.requiredForMvu && script.initializationFailed);
+			}
             function mvuDataReady(record) {
+                if (failedMvuCompanion(record)) return false;
                 // A blank opening has no floor yet; MVU initializes it in the chat scope.
                 const initial = record.context?.chatVariables;
                 if (!record.context?.messages?.length) return initial?.stat_data !== undefined && initial?.schema !== undefined;
@@ -35944,7 +35960,11 @@ function bindTavernFontZoom(node, win) {
 					initializationFailed: false,
 					initializationTimer: null,
 					lastRuntimeError: "",
-					scripts: new Map(scripts.map(function (script) { return [String(script.id), { id: String(script.id), name: String(script.name || script.id), loaded: false, subscriptionsReady: false, initializationFailed: false }]; }))
+					scripts: new Map(scripts.map(function (script) { return [String(script.id), {
+						id: String(script.id), name: String(script.name || script.id), loaded: false,
+						subscriptionsReady: false, initializationFailed: false,
+						requiredForMvu: !viewer && findCardScriptPatch(String(script.content || ""))?.requiredForMvu === true
+					}]; }))
 				};
 				frame.__dshTavernSessionId = sessionId;
                 frame.__dshTavernHostArtifacts = record.hostArtifacts;
@@ -36238,8 +36258,15 @@ function bindTavernFontZoom(node, win) {
 					syncCompanionDeadline(record);
 					if (data.ready === true) {
 						record.initializationFailed = Boolean(record.scripts.get("__dsh_official_mvu__")?.initializationFailed);
-						record.subscriptionsReady = !record.initializationFailed;
-						if (!record.initializationFailed) resolveError("人物卡共享脚本沙箱", record.startedAt);
+						const failedCompanion = !record.initializationFailed && failedMvuCompanion(record);
+						record.subscriptionsReady = !record.initializationFailed && !failedCompanion;
+						if (failedCompanion && record.mvuLoadState?.phase !== "companion-failed") {
+							const error = failedCompanion.name + "：" + (failedCompanion.initializationError || "初始化失败");
+							record.mvuLoadState = { phase: "companion-failed", canRetry: true, error: error };
+							recordMvuLoadDiagnostic(record, { phase: "companion-failed", failureStep: "companion-module", scriptId: failedCompanion.id, message: error });
+							onMvuLoadState(record.mvuLoadState);
+						}
+						if (record.subscriptionsReady) resolveError("人物卡共享脚本沙箱", record.startedAt);
 						settleInitialization(record);
 					}
 					syncMvuDataReadiness(record);
@@ -36532,7 +36559,7 @@ function bindTavernFontZoom(node, win) {
 				retryMvuLoad: function () {
 					const record = records.get("shared");
 					if (!record || !record.mvuLoadState || !record.mvuLoadState.canRetry) return false;
-						if (record.mvuLoadState.phase === "companion-timeout") {
+						if (["companion-timeout", "companion-failed"].includes(record.mvuLoadState.phase)) {
 							removeRecord(record.id);
 							const next = createRecord(record.sessionId, record.scriptInputs, record.context, record.trustedCardMode, false);
 							next.sourceHelper = record.sourceHelper;
@@ -37323,10 +37350,10 @@ function bindTavernFontZoom(node, win) {
 		function TavernMvuLoadRecovery(props) {
 			const state = props.state;
 			if (!state || state.phase === "ready") return null;
-			const companionTimeout = state.phase === "companion-timeout";
-			const failed = state.phase === "failed" || state.phase === "error" || companionTimeout;
+			const companionFailed = state.phase === "companion-failed" || state.phase === "companion-timeout";
+			const failed = state.phase === "failed" || state.phase === "error" || companionFailed;
 			let message;
-			if (companionTimeout) message = "配套脚本初始化超时，变量结算已暂停。可以重新加载人物卡脚本后继续。";
+			if (companionFailed) message = (state.phase === "companion-timeout" ? "配套脚本初始化超时" : "配套脚本初始化失败") + "，变量结算已暂停。可以重新加载人物卡脚本后继续。";
 			else if (state.phase === "failed") message = "MVU 下载失败，已自动重试两次。变量结算已暂停，重新加载成功后会自动继续。";
 			else if (state.phase === "error") message = "MVU 初始化失败，请刷新页面或重启酒馆。为避免重复修改变量，不自动重跑初始化。";
 			else if (state.phase === "evaluating") message = "正在初始化 MVU…";
@@ -37334,7 +37361,7 @@ function bindTavernFontZoom(node, win) {
 			return React.createElement("div", { role: failed ? "alert" : "status", style: { padding: "8px 12px", fontSize: "13px", maxWidth: "min(420px, 80vw)" } },
 				React.createElement("div", null, message),
 				failed && state.error ? React.createElement("div", { style: { color: "var(--fork-ink-2, inherit)", overflowWrap: "anywhere" } }, state.error) : null,
-				state.canRetry ? React.createElement("button", { type: "button", className: "dsh-tavern-btn", onClick: props.retry }, companionTimeout ? "重新加载人物卡脚本" : "重新加载 MVU") : null);
+				state.canRetry ? React.createElement("button", { type: "button", className: "dsh-tavern-btn", onClick: props.retry }, companionFailed ? "重新加载人物卡脚本" : "重新加载 MVU") : null);
 		}
 
 		// Guard pathological card resize loops without constraining normal long content.
