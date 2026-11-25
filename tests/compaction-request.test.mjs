@@ -245,7 +245,8 @@ test('前台对话压缩使用专用压缩模型设置，后台压缩保持各�
   const drain = async req => { for await (const _ of dispatch(req)) { /* drain */ } }
   const instruction = { role: 'user', content: [{ type: 'text', text: 'Summarize' }], source: { kind: 'plugin', plugin: 'dsh-compaction-basic' } }
 
-  await drain({ purpose: 'compaction', sessionId: 'fg-story', provider: 'google-vertex', model: 'gemini-4-hydrogen', reasoningEffort: 'high', messages: [instruction] })
+  const oldStyle = { role: 'system', content: [{ type: 'text', text: '人物卡\n\n<foreground_style_reference>先联想范文</foreground_style_reference>' }] }
+  await drain({ purpose: 'compaction', sessionId: 'fg-story', provider: 'google-vertex', model: 'gemini-4-hydrogen', reasoningEffort: 'high', messages: [oldStyle, instruction] })
   await drain({ purpose: 'compaction', sessionId: 'fg-card', provider: 'google-vertex', model: 'gemini-4-hydrogen', reasoningEffort: 'high', messages: [instruction] })
   await drain({ purpose: 'compaction', sessionId: 'bg-1', provider: 'anthropic', model: 'claude-haiku', reasoningEffort: 'medium', messages: [instruction] })
 
@@ -255,6 +256,8 @@ test('前台对话压缩使用专用压缩模型设置，后台压缩保持各�
     ['bg-1', 'anthropic', 'claude-haiku', 'medium']
   ])
   assert.deepEqual(retentionModels, ['google-vertex/gemini-4-hydrogen'], 'storyRetention 仍按前台原模型窗口计算')
+  assert.doesNotMatch(JSON.stringify(sent[0].messages), /foreground_style_reference|先联想范文/)
+  assert.match(JSON.stringify(sent[0].messages), /人物卡/)
 
   activeCompactionModel = null
   await drain({ purpose: 'compaction', sessionId: 'fg-story', provider: 'google-vertex', model: 'gemini-4-hydrogen', reasoningEffort: 'high', messages: [instruction] })

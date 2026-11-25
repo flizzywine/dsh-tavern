@@ -1,3 +1,17 @@
+import { unansweredTailIndex } from './rollback-surface.js'
+import { computeSceneTarget } from './scene-illustration.js'
+
+export function assertPluginRegenerationTarget(chat, target) {
+  if (!target) return
+  const latest = chat?.messages?.findLast(row => row?.role === 'assistant')
+  if (unansweredTailIndex(chat) >= 0 || !latest || latest.greeting === true) {
+    throw Object.assign(new Error('当前没有可重新生成的最新正文'), { code: 'TAVERN_PLUGIN_TURN_UNAVAILABLE' })
+  }
+  if (Number(latest.turn) !== target.turn || computeSceneTarget(chat, target.turn).key !== target.textVersion) {
+    throw Object.assign(new Error('最新一轮正文版本已经变化'), { code: 'TAVERN_PLUGIN_STALE_VERSION' })
+  }
+}
+
 function clone(value) {
   return value === undefined ? undefined : structuredClone(value)
 }

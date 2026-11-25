@@ -1,12 +1,12 @@
 function createStagePhoneLayout({React, storage:localStorage, width, group:galConfigGroup, row:galConfigRow, slider:galConfigSlider, Switch:GalConfigSwitch, ResetButton, sections:STAGE_CONFIG_SECTIONS}) {
 let disposed = false;
 const viewportWidth=()=>width?.() ?? 1024;
-const PHONE_SIZE = Object.freeze({ min: 50, narrowMin: 70, max: 150, step: 5, default: 100 });
+const PHONE_SIZE = Object.freeze({ min: 50, narrowMin: 70, sliderMax: 150, step: 5, default: 100 });
 // The smallest size percent of a layout ("wide" / "narrow").
 function phoneModSizeMin(name) { return name === "narrow" ? PHONE_SIZE.narrowMin : PHONE_SIZE.min; }
 const phoneModPrefs = (function () {
     const KEY = "fork-phone-layout", listeners = new Set(); let cached = null;
-    const layout = (saved, name) => ({ size: Number.isFinite(saved?.size) ? Math.min(PHONE_SIZE.max, Math.max(phoneModSizeMin(name), Math.round(saved.size))) : PHONE_SIZE.default,
+    const layout = (saved, name) => ({ size: Number.isFinite(saved?.size) ? Math.max(phoneModSizeMin(name), Math.round(saved.size)) : PHONE_SIZE.default,
         place: Array.isArray(saved?.place) && saved.place.length === 2 && saved.place.every(n => Number.isFinite(n) && n >= 0 && n <= 1) ? saved.place : null });
     const normalize = saved => ({ unlocked: saved?.unlocked === true, wide: layout(saved?.wide, "wide"), narrow: layout(saved?.narrow, "narrow") });
     function get() {
@@ -36,7 +36,7 @@ function PhoneStageConfig() {
                 h(GalConfigSwitch, { label: "解锁手机位置", checked: prefs.unlocked, onChange: value => phoneModPrefs.set({ unlocked: value }) }),
                 layout.place ? h(ResetButton, { label: "恢复默认位置", onClick: () => phoneModPrefs.update(name, { place: null }) }) : null),
             "打开后在舞台上拖动手机移动，拖右下角、滚轮或双指缩放；也可以直接长按手机边框或顶部状态栏。松手几秒后或点手机外面即锁定；双击手机回到默认位置。", null, "toggle"),
-        galConfigRow("手机大小", galConfigSlider(["小", "大"], { min: phoneModSizeMin(name), max: PHONE_SIZE.max, step: PHONE_SIZE.step, value: size, label: "手机大小",
+        galConfigRow("手机大小", galConfigSlider(["小", "大"], { min: phoneModSizeMin(name), max: Math.max(PHONE_SIZE.sliderMax, size), step: PHONE_SIZE.step, value: size, label: "手机大小",
                 valueText: size + "%", output: size + "%", onChange: value => setDraft(value), onCommit: value => { setDraft(null); phoneModPrefs.update(name, { size: value }); } },
                 size === PHONE_SIZE.default ? null : { label: "恢复为 100%", onClick: () => { setDraft(null); phoneModPrefs.update(name, { size: PHONE_SIZE.default }); } }),
             "100% 是手机自动填满文本框上方空间的大小；缩小后可以一边读故事一边看手机。电脑和手机各自记住。"));

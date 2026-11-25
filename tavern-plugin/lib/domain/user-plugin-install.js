@@ -535,8 +535,9 @@ export function createUserPluginInstaller({ dataRoot, fetchImpl = fetch, now = (
         const replacedBefore = !isDisabled && !problem && source.replaced === undefined && !status && !restart && (source.kind === 'github' || source.kind === 'zip')
           ? await replacedLoadedPlugin(folder)
           : false
+        const displayName = typeof pkg.displayName === 'string' ? pkg.displayName.trim() : ''
         return {
-          folder, name: String(pkg.name || folder), version: String(pkg.version || ''), description: String(pkg.description || ''),
+          folder, name: displayName || String(pkg.name || folder), version: String(pkg.version || ''), description: String(pkg.description || ''),
           source,
           enabled: !isDisabled,
           // An update replaces the folder while DSH keeps the old module; only a restart loads the new files.

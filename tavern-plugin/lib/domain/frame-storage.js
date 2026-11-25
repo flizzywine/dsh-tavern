@@ -1,8 +1,9 @@
 // origin-independent card storage with atomic, acknowledged batches.
 const storagePath = 'frame-storage.json'
 const MAX_KEY = 4096 // Includes the encoded card/session namespace (logical keys: 512 bytes).
-const MAX_VALUE = 256 * 1024
-const MAX_TOTAL = 2 * 1024 * 1024
+// Card frames store uploaded images as data URLs; a phone photo alone exceeds a 256 KB item cap.
+const MAX_VALUE = 16 * 1024 * 1024
+const MAX_TOTAL = 64 * 1024 * 1024
 const bytes = value => Buffer.byteLength(value, 'utf8')
 
 function project(value) {
@@ -27,17 +28,18 @@ export function createFrameStorage(profileData) {
         if (op.op === 'set' && (typeof op.value !== 'string' || bytes(op.value) > MAX_VALUE)) throw new Error('Invalid frame storage value')
       }
     }
-    const saved = await profileData.updateJson(storagePath, current => {
+    await profileData.updateJson(storagePath, current => {
       const next = project(current)
       for (const op of ops) {
         if (op.op === 'clear') { for (const key of Object.keys(next)) if (key.startsWith(op.namespace)) delete next[key] }
         else if (op.op === 'set') Object.defineProperty(next, op.key, { value: op.value, enumerable: true, writable: true, configurable: true })
         else delete next[op.key]
       }
-      if (bytes(JSON.stringify(next)) > MAX_TOTAL) throw new Error('卡片存储超过 2 MB 上限')
+      if (bytes(JSON.stringify(next)) > MAX_TOTAL) throw new Error('卡片存储超过 64 MB 上限')
       return next
     })
-    return { ok: true, applied: ops.length, values: project(saved) }
+    // The client checks ok/applied only; echoing the store back would resend up to 64 MB per write.
+    return { ok: true, applied: ops.length }
   }
   return Object.freeze({ read, update })
 }

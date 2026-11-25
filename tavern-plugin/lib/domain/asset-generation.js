@@ -353,9 +353,12 @@ export function createAssetGeneration({store, imageProvider = () => null, getLib
       const omit = new Set(Array.isArray(input.omit) ? input.omit : [])
       if (!['background','identity-settei'].includes(target.kind) && !omit.has('identity')) {
         const identity = ctx.figure.identitySettei, stale = !!identity && target.kind !== 'settei' && ctx.outfit.setteiParentVersion !== undefined && ctx.outfit.setteiParentVersion !== identity.version
-        if (identity && !stale) await packImage(identity.board, roles.identity, 'identity-settei')
+        // The identity board wears a sample outfit, unless it is also this outfit's own settei (a character settei
+        // registered on both): then it is this outfit's clothing authority too.
+        const worn = !!identity && identity.board === ctx.outfit?.settei
+        if (identity && !stale) await packImage(identity.board, worn ? roles.identityOutfit : roles.identity, 'identity-settei')
         // An outfit settei is drawn from both sheets of the identity settei; a 差分 takes the outfit's own two sheets below.
-        if (identity?.parts && target.kind === 'settei') await packImage(identity.parts, roles.identityParts, 'identity-settei')
+        if (identity?.parts && target.kind === 'settei') await packImage(identity.parts, worn ? roles.setteiParts : roles.identityParts, 'identity-settei')
       }
       let anchor
       if (['sprite','avatar','avatar-sheet'].includes(target.kind)) {
@@ -398,7 +401,7 @@ export function createAssetGeneration({store, imageProvider = () => null, getLib
       // the outfit 设定图, then the 立绘. What the user added stays. A settei of two sheets loses its second sheet (eye and
       // accessories) before its four views, so a channel of one picture gets the four views; the outfit's own two sheets
       // outlast the identity board, as its first sheet always did.
-      if (status?.ready && ['settei','sprite','avatar'].includes(target.kind) && !input.redrawOf) for (const role of [roles.identity, roles.settei, roles.emotionSprite]) {
+      if (status?.ready && ['settei','sprite','avatar'].includes(target.kind) && !input.redrawOf) for (const role of [roles.identity, roles.identityOutfit, roles.settei, roles.emotionSprite]) {
         const at = refs.findIndex(ref => ref.role === role)
         if (images.length > status.maxReferences && at >= 0) { images.splice(at, 1); refs.splice(at, 1) }
       }
@@ -536,13 +539,15 @@ export function createAssetGeneration({store, imageProvider = () => null, getLib
       const linked = await linkedAppearance({packId:figure.ref.packId, figureId:figure.ref.figureId})
       const emotion = emotionId === undefined ? undefined : matchBubbleMood(emotionId, figure.emotions || []) || figure.emotions?.find(row => row.id === emotionId)
       const values = assetPromptValues({kind, figure:{name:figure.name, emotions:figure.emotions, identityAppearance:linked?.identityAppearance || appearance}, outfit:{},
-        emotion, userPrompt, references:fromSettei ? [{role:roles.identity}] : []})
+        emotion, userPrompt, references:fromSettei ? [{role:kind === 'identity-settei' ? roles.identity : roles.identityOutfit}] : []})
       return {prompt:composeAssetPrompt(await readTemplate(kind), values), output:assetOutput(kind), promptPreset:packGenStyle(style), usage:assetStyleUse(kind)}
     },
     // 自动选角's cheap checks of one picture (decode, size, transparency, edge contact): the same as a drawn candidate's.
     autoCheck: (data, kind) => pictureChecks(data, kind),
     // The image plugin's style presets for the 画风 menu (id, name, stable/experimental, the uses with their own text).
-    styles: ({genStyle} = {}) => ({current:packGenStyle(genStyle), styles:imageProvider()?.presets?.() ?? []}),
+    // The 画风 menu lists the image plugin's presets that add a painting style (its addsStyle): not 'no-style' (the menu's
+    // 清除画风 is that) nor the structured scene templates.
+    styles: ({genStyle} = {}) => ({current:packGenStyle(genStyle), styles:(imageProvider()?.presets?.() ?? []).filter(s => s.addsStyle)}),
     get: ({jobId}) => serial(() => publicJob(find(jobId))),
     list: ({packId}) => serial(() => { validateUuid(packId); return Object.values(jobs).filter(j => j.target.packId === packId).map(publicJob) }),
     read: ({jobId,emotionId,forImport = false}) => serial(async () => {

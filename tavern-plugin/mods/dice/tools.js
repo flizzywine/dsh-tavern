@@ -1,9 +1,9 @@
 import { rollDice } from './dice.js'
-import { CHECK_BACKFILL, CHECK_TOOL, backfillOffered, backfillRulesCall, checkRulesCard, checkSettlement, createCheckTool, RULES_KEY, rulesPaths, secretVariables } from './check-tool.js'
+import { CHECK_BACKFILL, CHECK_TOOL, CALL_HINT, backfillOffered, backfillRulesCall, checkRulesCard, checkSettlement, createCheckTool, RULES_KEY, rulesPaths, secretVariables } from './check-tool.js'
 
 export const DICE_TOOL = {
   name: 'tavern_roll',
-  description: "Roll 1d100; returns roll and tier. Only for real uncertainty that splits the story. hidden=true: only the GM sees the result; the player sees a covered die.",
+  description: "Roll 1d100; returns roll and tier. Only for real uncertainty that splits the story. hidden=true: only the GM sees the result; the player sees a covered die. " + CALL_HINT,
   parameters: {
     check: { description: "Ability or skill tested, 2–4 characters, shown as <check>检定. E.g. 魔力, 观察, 说服, 潜行, 意志", type: 'string', required: true },
     attempt: { description: "What the character tries, in one sentence. E.g. climb in the bedroom window during the guard change", type: 'string', required: true },
@@ -14,7 +14,7 @@ export const DICE_TOOL = {
   }
 }
 
-export function createDiceTool({ activeTurnOf, chatForSession, isBackground, authorize = async () => true, markUsed = async () => {} }) {
+export function createDiceTool({ activeTurnOf, chatForSession, isBackground, authorize = async () => true, markUsed = async () => {}, storyUnitsBefore = () => 0 }) {
   return {
     ...DICE_TOOL,
     output: {
@@ -22,7 +22,8 @@ export function createDiceTool({ activeTurnOf, chatForSession, isBackground, aut
         ...Object.fromEntries(Object.entries(DICE_TOOL.parameters).map(([key, value]) => [key, { ...value, required: true }])),
         target: { type: 'integer', required: true },
         roll: { type: 'integer', required: true },
-        tier: { type: 'string', enum: ['critical', 'success', 'costly', 'failure', 'fumble'], required: true }
+        tier: { type: 'string', enum: ['critical', 'success', 'costly', 'failure', 'fumble'], required: true },
+        at: { type: 'integer' }
       } },
       render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }]
     },
@@ -38,7 +39,9 @@ export function createDiceTool({ activeTurnOf, chatForSession, isBackground, aut
       if (!await authorize(chat)) throw new Error('Dice mod is disabled for this card')
       // Its calls now sit in this game's history: keep the tool declared even if the mod goes off later.
       if (!(chat.usedModTools || []).includes(DICE_TOOL.name)) await markUsed(chat)
-      return rollDice(args)
+      // at: the stage paragraphs written before the call, where the stage throws it (none: a call before any text).
+      const at = storyUnitsBefore(exec)
+      return { ...rollDice(args), ...(at ? { at } : {}) }
     }
   }
 }

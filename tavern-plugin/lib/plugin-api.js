@@ -15,6 +15,8 @@ import path from 'node:path'
 import { publicPluginMedia, pluginMediaSession } from './domain/plugin-media.js'
 import { normalizeGameSettings, coerceSetting, settingValues } from './domain/plugin-game-settings.js'
 import { TAVERN_PLUGIN_API_VERSION } from './domain/plugin-manifest.js'
+import { createWritingPreparation } from './domain/writing-preparation.js'
+import { assertToolParameterKeys } from './domain/tool-schema-keys.js'
 
 // The public `tavern` service for third-party DSH plugins (docs/plugin-api.md).
 // Only additive changes are allowed here: published plugins depend on every
@@ -45,6 +47,8 @@ const MAX_DAMPER_QUESTIONS_PER_PLUGIN = 6
 const MAX_DAMPER_QUESTIONS_TOTAL = 10
 const MAX_VARIABLES = 1024 * 1024
 const MAX_EDIT_TEXT = 200000
+// A regeneration's guidance (the 修改意见 of the 重新生成 panel), sent along with the turn's request.
+const MAX_GUIDANCE = 20000
 const MAX_HISTORY_TURNS = 50
 const MAX_TASK_TITLE = 40
 const MAX_TASK_DESCRIPTION = 500
@@ -217,8 +221,10 @@ export function createTavernPluginApi(deps) {
     return name
   }
   const capabilities = Object.freeze({ gameMode: 1, hostBehavior: 1, controlInput: 1, mvuSettlementProvider: 1, worldbookStrategy: 1, galleryProvider: 1, pricingProvider: 1, imageModels: 1, imageLibrary: 1, bodyGeneration: 1, bodyProjection: 1, stContractService: 1, guideSource: 1,
+    ...(deps.writingSources ? { writingPreparation: 8 } : {}),
     ...(deps.readTavernSettings && deps.updateTavernSettings ? { bodyGenerationDefaults: 1 } : {}),
     ...(deps.generationPresets ? { generationPresets: 1 } : {}),
+    ...(deps.regenerateLatest ? { regenerateTurn: 1 } : {}),
     ...(deps.decisionJudge ? { decisionJudge: 1 } : {}),
     ...(deps.damperSettings ? { damperSettings: 1 } : {}),
     ...(deps.narrativeDamper ? { narrativeDamper: 1 } : {}) })
@@ -568,7 +574,24 @@ export function createTavernPluginApi(deps) {
     await guardScope(owner, { gameId })
     return !(await choicesFor(gameId)).disabled.has(owner)
   } })
+  const writingPreparation = createWritingPreparation({
+    allowed: async (owner, gameId) => {
+      const folder = runtimeIdentity(owner)?.folder
+      if (folder && deps.writingPluginEnabled?.(folder) === false) return false
+      const { game, disabled } = await choicesFor(gameId)
+      if (!game || disabled.has(owner)) return false
+      const scope = await accessScope(owner)
+      return !scope || scope.cards.includes(await deps.cardPathOf?.(gameId))
+    },
+    runAgent: (owner, input, writingPreparation, onToolResult) => taskExecution.runAgent(owner, input, { writingPreparation, onToolResult }),
+    readSources: deps.writingSources
+  })
   const service = {
+    writingPreparation(input) {
+      if (!capabilities.writingPreparation) throw new Error('当前宿主没有白手套 Agent 接口')
+      const owner = ownerOf(this)
+      return owned(this, () => writingPreparation.register(owner, input), 'tavern.writingPreparation()')
+    },
     readCapability({ name, ...definition } = {}) {
       const owner = ownerOf(this)
       sectionName(name)
@@ -1408,6 +1431,28 @@ export function createTavernPluginApi(deps) {
       return await snapshotOf(await requireTurn(material.sessionId, material.turn))
     },
 
+    // The player's 重新生成 of the latest turn, asked for by a plugin. Tavern runs the button's own regeneration and builds
+    // the request from this game's preset, world book, card and history; the plugin only gives the guidance (the 修改意见
+    // of the 重新生成 panel). Resolves once the new body is committed. Settlement need not have finished: like the
+    // button, the regeneration stops it.
+    async regenerateTurn({ gameId, turn, textVersion, guidance = '' } = {}) {
+      const owner = ownerOf(this)
+      if (!deps.regenerateLatest) throw Object.assign(new Error('当前版本不支持插件重新生成正文'), { code: 'TAVERN_PLUGIN_NOT_FOUND' })
+      const game = await requireGame(gameId)
+      if ((await choicesFor(game.sessionId)).disabled.has(owner)) throw new Error('玩家在本局关闭了插件 ' + owner)
+      const wanted = positiveTurn(turn)
+      if (typeof guidance !== 'string') throw new TypeError('guidance 必须是字符串')
+      const text = guidance.trim()
+      if (text.length > MAX_GUIDANCE) throw new Error('guidance 不能超过 ' + MAX_GUIDANCE + ' 字')
+      const before = await turnState(game.sessionId)
+      if (before.turn !== wanted || before.greeting) throw Object.assign(new Error('regenerateTurn 只能用于最新一轮正文'), { code: 'TAVERN_PLUGIN_TURN_UNAVAILABLE' })
+      if (typeof textVersion !== 'string' || textVersion !== before.textVersion) throw Object.assign(new Error('regenerateTurn 的 textVersion 不是这一轮当前显示的正文版本'), { code: 'TAVERN_PLUGIN_STALE_VERSION' })
+      if (before.generating) throw Object.assign(new Error('前台正在写正文，写完再重新生成'), { code: 'TAVERN_PLUGIN_BUSY' })
+      const result = await deps.regenerateLatest(game.sessionId, text, { turn: wanted, textVersion })
+      if (result.aborted) throw Object.assign(new Error('重新生成已停止'), { code: 'TAVERN_PLUGIN_ABORTED' })
+      return { turn: result.turn, textVersion: result.textVersion }
+    },
+
     // A task of this game in a background session: a fresh one-off by default; with `member`, the
     // resident session of that member of this plugin (tavern.member), queued behind its other tasks.
     async runTask(input = {}) {
@@ -1772,6 +1817,7 @@ export function createTavernPluginApi(deps) {
       if (reservedToolNames.has(name)) throw new Error('工具名 ' + name + ' 是 Tavern 自己的工具，请换一个名字')
       if (typeof description !== 'string' || !description.trim() || description.length > 2000) throw new Error('description 必须是 1–2000 字的说明')
       if (!parameters || typeof parameters !== 'object' || Array.isArray(parameters) || parameters.type !== 'object') throw new Error('parameters 必须是 type 为 object 的 JSON Schema')
+      assertToolParameterKeys(name, parameters)
       if (enabledFor !== undefined && typeof enabledFor !== 'function') throw new TypeError('enabledFor 必须是函数')
       if (typeof execute !== 'function') throw new TypeError('execute 必须是函数')
       const entry = { owner, name, enabledFor, tool: Object.freeze({ name, description: description.trim(), parameters: structuredClone(parameters), countsTowardLimit: false }), execute }
@@ -2570,7 +2616,7 @@ export function createTavernPluginApi(deps) {
     return results.sort((a, b) => (order.get(a.versionId) ?? 0) - (order.get(b.versionId) ?? 0))
   }
 
-  return Object.freeze({ resolveReadCapability, hostBehavior, gameModes, bodyGenerators, taskCatalog, service, mvuProvider, mvuProviderActive, mvuProviderRegistered, capabilities, toolModesFor, toolSkillsFor, toolNetworkFor: name => toolNetworks.get(name)?.capability, callHandler, turnState, exportGame, importGame, turnSettled, castAnnotated, castAssetSources, gameRemoved, mediaRemoved, onPictureReady, imageGates, collectDamperQuestions,
+  return Object.freeze({ resolveReadCapability, hostBehavior, writingPreparation, gameModes, bodyGenerators, taskCatalog, service, mvuProvider, mvuProviderActive, mvuProviderRegistered, capabilities, toolModesFor, toolSkillsFor, toolNetworkFor: name => toolNetworks.get(name)?.capability, callHandler, turnState, exportGame, importGame, turnSettled, castAnnotated, castAssetSources, gameRemoved, mediaRemoved, onPictureReady, imageGates, collectDamperQuestions,
     listGalleryProviderItems, readGalleryProviderImage, removeGalleryProviderItems,
     // The asset library's access to the 配图 人物库 records (registerImageLibrary schema 4); outside any card.
     imageCharacters: (op, input) => imageCatalog.record(op, {}, input),
