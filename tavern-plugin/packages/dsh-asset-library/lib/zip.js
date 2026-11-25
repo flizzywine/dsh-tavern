@@ -59,7 +59,8 @@ export async function writeZip(filename, entries, { onProgress } = {}) {
       const spool = method ? filename + '.' + randomUUID() + '.tmp' : null
       const source = entry.stream ?? (() => entry.file ? createReadStream(entry.file) : Readable.from([Buffer.from(entry.data)]))
       const meter = new Transform({ transform(chunk, encoding, callback) {
-        size += chunk.length; crc = crc32(chunk, crc); consumed += chunk.length; onProgress?.(consumed)
+        size += chunk.length; crc = crc32(chunk, crc); consumed += chunk.length
+        try { onProgress?.(consumed) } catch (error) { callback(error); return }
         callback(size >= U32 ? new Error('ZIP entry exceeds 4 GiB') : null, chunk)
       } })
       const offset = position, header = Buffer.alloc(30)
@@ -122,7 +123,12 @@ export async function openZip(filename, limits = ZIP_LIMITS) {
     const tail = await bytesAt(handle, Math.min(length, 65557), Math.max(0, length - 65557))
     let end = -1
     for (let p = tail.length - 22; p >= 0; p--) if (tail.readUInt32LE(p) === 0x06054b50 && p + 22 + tail.readUInt16LE(p + 20) === tail.length) { end = p; break }
-    if (end < 0) throw new Error('ZIP end record is missing')
+    if (end < 0) {
+      if (length >= 4 && (await bytesAt(handle, 4, 0)).readUInt32LE(0) === 0x04034b50) {
+        throw Object.assign(new Error('ZIP end record is missing'), {code:'TAVERN_ZIP_INCOMPLETE'})
+      }
+      throw new Error('ZIP end record is missing')
+    }
     const endAt = length - tail.length + end
     let count = tail.readUInt16LE(end + 10), cdSize = tail.readUInt32LE(end + 12), declaredStart = tail.readUInt32LE(end + 16), cdEnd = endAt
     if (tail.readUInt16LE(end + 8) !== count) throw new Error('Multi-disk ZIP is not supported')
@@ -149,7 +155,7 @@ export async function openZip(filename, limits = ZIP_LIMITS) {
       const cd = await bytesAt(handle, 46, cursor)
       if (cd.readUInt32LE(0) !== 0x02014b50) throw new Error('Invalid ZIP central entry')
       const flags = cd.readUInt16LE(8), method = cd.readUInt16LE(10), crc = cd.readUInt32LE(16), nameSize = cd.readUInt16LE(28), extraSize = cd.readUInt16LE(30), commentSize = cd.readUInt16LE(32)
-      if (flags & (1 | 64 | 8192)) throw new Error('Encrypted ZIP entries are not supported')
+      if (flags & (1 | 64 | 8192)) throw Object.assign(new Error('Encrypted ZIP entries are not supported'), {code:'TAVERN_ZIP_ENCRYPTED'})
       if (flags & ~(0x800 | 8 | 6)) throw new Error('Unsupported ZIP flags')
       if (![0, 8].includes(method)) throw new Error('Unsupported ZIP method')
       const { size, compressedSize, offset: declaredOffset, disk } = zip64Fields(await bytesAt(handle, extraSize, cursor + 46 + nameSize), { size: cd.readUInt32LE(24), compressedSize: cd.readUInt32LE(20), offset: cd.readUInt32LE(42), disk: cd.readUInt16LE(34) })

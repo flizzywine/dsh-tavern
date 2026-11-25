@@ -5,6 +5,12 @@ import test from 'node:test'
 
 // main is the current release (DSH 0.2.1); the DSH 0.1.5 release lives on the stable branch.
 const root = new URL('../', import.meta.url)
+function runPowerShell(script) {
+  const command = process.platform === 'win32' ? 'powershell.exe' : 'pwsh'
+  const encoded = Buffer.from(script, 'utf16le').toString('base64')
+  return spawnSync(command, ['-NoProfile', '-NonInteractive', '-EncodedCommand', encoded], { encoding: 'utf8' })
+}
+
 test('安装脚本与更新检查在所有下载方式上都跟随 main 分支', () => {
   for (const file of ['install.sh', 'install.ps1', 'tavern-plugin/lib/application-updater.js', 'bin/launcher-environment.mjs']) {
     const source = readFileSync(new URL(file, root), 'utf8')
@@ -53,7 +59,7 @@ test('Windows 桌面探测：环境变量里的 node.exe 不算桌面程序；�
 
 test('Windows 桌面探测接受带引号的安装目录并跳过无效的卸载路径（#1294）', { skip: process.platform !== 'win32' }, () => {
   const source = readFileSync(new URL('install.ps1', root), 'utf8')
-  const registryScan = source.match(/^      \$DesktopCandidates \+= @\(Get-ItemProperty[\s\S]*?^        }\)/m)?.[0]
+  const registryScan = source.match(/^      \$DesktopCandidates \+= @\(\$DesktopUninstallEntries[\s\S]*?^        }\)/m)?.[0]
   assert.ok(registryScan, 'the installer’s uninstall registry scan must be exercised')
   const script = String.raw`
 $ErrorActionPreference = 'Stop'
@@ -62,19 +68,71 @@ $DesktopCandidates = @()
 $QuotedFolder = "$env:SystemDrive\Quoted Harness"
 $PartialQuoteFolder = "$env:SystemDrive\Partial Quote Harness"
 $FallbackFolder = "$env:SystemDrive\Fallback Harness"
-function Get-ItemProperty {
+$DesktopUninstallEntries = @(
   [pscustomobject]@{ DisplayName = $DesktopName; InstallLocation = 'MissingHarnessDrive:\Missing'; DisplayIcon = '"MissingHarnessDrive:\Missing\shell.exe"' }
   [pscustomobject]@{ DisplayName = $DesktopName; InstallLocation = ' "' + $QuotedFolder + '" '; UninstallString = '"MissingHarnessDrive:\Missing\uninstall.exe" /S' }
   [pscustomobject]@{ DisplayName = $DesktopName; InstallLocation = '"' + $PartialQuoteFolder }
   [pscustomobject]@{ DisplayName = $DesktopName; UninstallString = '"' + $FallbackFolder + '\uninstall.exe" /S' }
-}
+)
 ${registryScan}
 $DesktopCandidates | ConvertTo-Json -Compress
 `
-  const encoded = Buffer.from(script, 'utf16le').toString('base64')
-  const result = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-EncodedCommand', encoded], { encoding: 'utf8' })
+  const result = runPowerShell(script)
   assert.ifError(result.error)
   assert.equal(result.status, 0, result.stderr)
   assert.deepEqual(JSON.parse(result.stdout), ['Quoted Harness', 'Partial Quote Harness', 'Fallback Harness']
     .map(folder => `${process.env.SystemDrive}\\${folder}\\DeepSeek Harness.exe`))
+})
+
+test('Windows 桌面探测跳过无法读取的卸载项，仅访问所需字段（#1381）', t => {
+  const source = readFileSync(new URL('install.ps1', root), 'utf8')
+  const scan = source.match(/^function Get-DesktopUninstallEntries\([\s\S]*?^}/m)?.[0]
+  assert.ok(scan, 'the installer’s uninstall registry reader must be exercised')
+  const result = runPowerShell(String.raw`
+$ErrorActionPreference = 'Stop'
+class RegistryKeyFixture {
+  [hashtable] $SubKeys = @{}
+  [hashtable] $Values = @{}
+  [bool] $Disposed
+
+  [object] OpenSubKey([string]$Name) {
+    if ($Name -eq 'unreadable') { throw [UnauthorizedAccessException]::new('fixture') }
+    return $this.SubKeys[$Name]
+  }
+  [string[]] GetSubKeyNames() { return @('unreadable', 'removed', 'netbeans', 'desktop') }
+  [object] GetValue([string]$Name) {
+    if ($Name -notin @('DisplayName', 'InstallLocation', 'DisplayIcon', 'UninstallString')) {
+      throw [InvalidCastException]::new('unrelated value')
+    }
+    return $this.Values[$Name]
+  }
+  [void] Dispose() { $this.Disposed = $true }
+}
+${scan}
+$Registry = [RegistryKeyFixture]::new()
+$Uninstall = [RegistryKeyFixture]::new()
+$NetBeans = [RegistryKeyFixture]::new()
+$NetBeans.Values = @{ DisplayName = 'Apache NetBeans IDE 11.3' }
+$Desktop = [RegistryKeyFixture]::new()
+$Desktop.Values = @{
+  DisplayName = 'DeepSeek Harness'
+  InstallLocation = 'D:\Apps\Harness'
+  DisplayIcon = 'D:\Apps\Harness\icon.ico'
+  UninstallString = 'D:\Apps\Harness\uninstall.exe'
+}
+$Registry.SubKeys = @{ Uninstall = $Uninstall }
+$Uninstall.SubKeys = @{ netbeans = $NetBeans; desktop = $Desktop }
+$Entries = @(Get-DesktopUninstallEntries $Registry 'Uninstall')
+if (-not ($Uninstall.Disposed -and $NetBeans.Disposed -and $Desktop.Disposed) -or $Registry.Disposed) {
+  throw 'Unexpected registry key lifetime'
+}
+$Entries | ConvertTo-Json -Compress
+`)
+  if (process.platform !== 'win32' && result.error?.code === 'ENOENT') return t.skip('PowerShell is unavailable')
+  assert.ifError(result.error)
+  assert.equal(result.status, 0, result.stderr)
+  assert.deepEqual(JSON.parse(result.stdout), [
+    { DisplayName: 'Apache NetBeans IDE 11.3', InstallLocation: null, DisplayIcon: null, UninstallString: null },
+    { DisplayName: 'DeepSeek Harness', InstallLocation: 'D:\\Apps\\Harness', DisplayIcon: 'D:\\Apps\\Harness\\icon.ico', UninstallString: 'D:\\Apps\\Harness\\uninstall.exe' },
+  ])
 })

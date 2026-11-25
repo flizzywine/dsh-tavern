@@ -31,7 +31,7 @@ function plugin(ui, name = 'dsh-tavern-audiobook') {
 
 test('apiVersion 9：插件拿到酒馆自己的控件', () => {
   const { ui } = load()
-  assert.equal(ui.service.apiVersion, 10)
+  assert.equal(ui.service.apiVersion, 11)
   assert.deepEqual(Object.keys(ui.service.components), ['Slider', 'Segmented', 'Switch', 'SearchBox', 'Icon', 'Spinner', 'EmptyState'])
   assert.equal(ui.service.components.Slider, 'Slider')
 })

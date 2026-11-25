@@ -341,8 +341,14 @@ exports.apply = function(ctx) {
   // 「去设置」 from a figure's voice page: open that provider's row once (asset-pack-voice-ui.js openVoiceSettings);
   // `id` opens that saved service, `add` opens 添加语音服务 with the kind chosen (the 在线 TTS list's dashed ＋).
   const FOCUS_KEY = 'dsh-tts:focus-service'
-  function takeFocus() {
-    try { const v = JSON.parse(window.sessionStorage.getItem(FOCUS_KEY)); window.sessionStorage.removeItem(FOCUS_KEY); return v && typeof v.kind === 'string' && Date.now() - v.at < 60000 ? v : null } catch { return null }
+  // `mine(kind)`: the section the request is for takes it (音乐生成 takes 'music' and the music kinds, 语音合成 the rest); the
+  // other leaves it.
+  function takeFocus(mine) {
+    try {
+      const v = JSON.parse(window.sessionStorage.getItem(FOCUS_KEY))
+      if (v && typeof v.kind === 'string' && !mine(v.kind)) return null
+      window.sessionStorage.removeItem(FOCUS_KEY); return v && typeof v.kind === 'string' && Date.now() - v.at < 60000 ? v : null
+    } catch { return null }
   }
   function resultView(r) {
     const count = r.voices?.length ? ' · ' + r.voices.length + ' 个音色' : ''
@@ -379,8 +385,8 @@ exports.apply = function(ctx) {
         h('span',{className:'dtts-item-actions'},h(Button,{'aria-label':(playing === v.id ? '停止' : '试听') + '「' + v.label + '」','aria-pressed':playing === v.id,onClick:() => listen(v)},playing === v.id ? '停止' : '试听')))))))
   }
   // 浏览器朗读 is the fixed first row — free, nothing to set up, always available; it has no ⋯ (it cannot be removed).
-  function ServicesSection({data}) {
-    const browserSpeech = useBrowserSpeech(), [browserOpen,setBrowserOpen] = React.useState(false)
+  function ServicesSection({data, music = false}) {
+    const speech = useBrowserSpeech(), browserSpeech = music ? null : speech, [browserOpen,setBrowserOpen] = React.useState(false)
     const InlineField = ctx.get('tavernPresentation')?.getInlineField?.()
     const textField = ({label,value,onCommit,secret=false,placeholder='',lines=false}) => InlineField
       ? h(InlineField,{label,hideLabel:true,value,onCommit,secret,placeholder,trim:!secret,...(lines ? {multiline:true,lines:true} : {})})
@@ -391,8 +397,8 @@ exports.apply = function(ctx) {
     const [state,loadError] = data
     const [kinds,setKinds] = React.useState([]), [editor,setEditor] = React.useState(null), [message,setMessage] = React.useState(''), [busy,setBusy] = React.useState(false),
       [testing,setTesting] = React.useState(false), [confirm,setConfirm] = React.useState(null)
-    React.useEffect(() => { let mounted = true; call('providerKinds').then(k => { if (mounted) setKinds(Array.isArray(k) ? k : []) }).catch(() => {}); return () => { mounted = false } },[])
-    const configured = state?.configured || [], external = (state?.running || []).filter(p => !configured.some(c => c.id === p.id))
+    React.useEffect(() => { let mounted = true; call('providerKinds').then(k => { if (mounted) setKinds(Array.isArray(k) ? k.filter(row => (row.category === 'music') === music) : []) }).catch(() => {}); return () => { mounted = false } },[])
+    const configured = (state?.configured || []).filter(p => !!p.music === music), external = music ? [] : (state?.running || []).filter(p => !configured.some(c => c.id === p.id))
     const run = fn => async () => { setBusy(true); setMessage(''); try { await fn() } catch(e) { setMessage(failText(e)) } finally { setBusy(false) } }
     const patch = values => setEditor(e => ({...e,...values}))
     const descriptor = kind => kinds.find(k => k.kind === kind)
@@ -447,9 +453,9 @@ exports.apply = function(ctx) {
     // A saved service saves each field when it is left, like every other setting (owner 11-08: no 取消 / 保存 row); the
     // row's state then checks the new connection by itself (a free check) or says 未测试.
     const commit = values => {
-      const next = {...editor,...values,probe:null}
+      const next = {...editor,...values,probe:music && values.config?.url === editor.config.url && !values.secrets ? editor.probe : null}
       setEditor(next)
-      if (next.mode !== 'edit') return
+      if (next.mode !== 'edit' || music) return
       if (!next.label.trim()) { setMessage('请填写名称'); return }
       const secrets = {...(next.originalUrl !== undefined && next.originalUrl !== next.config.url ? {key:''} : {}),...next.secrets}
       run(async () => {
@@ -484,7 +490,7 @@ exports.apply = function(ctx) {
       // a preset is a starting point: picking one fills the whole connection (the typed address stays when it has none).
       if (f.type === 'preset') { const presets = descriptor(editor.kind).presets
         return h(Field,{key:f.key,label:f.label},menu({label:f.label,value,options:f.options,onChange:v => commit({config:{...presets[v],url:presets[v].url || editor.config.url || ''}})})) }
-      if (f.type === 'select') return h(Field,{key:f.key,label:f.label,help:f.help},menu({label:f.label,value,options:f.options,onChange:set}))
+      if (f.type === 'select') return h(Field,{key:f.key,label:f.label,help:f.help},menu({label:f.label,value,options:f.options,onChange:set,search:f.search,placeholder:f.search ? '选择模型' : undefined}))
       // a saved service's Base URL carries its 最近用过的网址 (⌄) inside the field's end.
       const saved = f.key === 'url' && editor.mode === 'edit' && configured.find(c => c.id === editor.id)
       if (saved?.recent?.length) return h(Field,{key:f.key,label:f.label,help:f.help},h('span',{className:'dtts-recent-field'},
@@ -501,7 +507,7 @@ exports.apply = function(ctx) {
           placeholder:stored ? '•••••••••• 已保存' : editor.custom ? '选填' : '',onCommit:value => commit({secrets:{...editor.secrets,[f.key]:value}})})),
           // × sits beside the box, not inside it: the box's own end holds the shared edit ✎ (ui-design R23).
           stored && h('button',{type:'button',className:'dtts-key-clear','aria-label':'清除 ' + f.label,title:'清除已保存的 ' + f.label,disabled:busy,onClick:() => commit({secrets:{...editor.secrets,[f.key]:''}})},h(Icon,{name:'close',size:14})),
-          last && editor.mode !== 'edit' && h(Button,{link:true,disabled:testing || busy,title:costly ? '会真的合成一个字来验证 API Key，可能产生极少费用' : undefined,onClick:probe},'测试'))) }
+          last && (music || editor.mode !== 'edit') && h(Button,{link:true,disabled:testing || busy,title:costly ? '会真的合成一个字来验证 API Key，可能产生极少费用' : undefined,onClick:probe},music ? '获取模型' : '测试'))) }
     // 默认模型: what a figure's voice that picks no model of its own speaks with. A service with one model just names it.
     const modelField = () => {
       const saved = editor.mode === 'edit' && configured.find(c => c.id === editor.id), models = saved?.models || []
@@ -515,25 +521,27 @@ exports.apply = function(ctx) {
     function Form() {
       const kind = descriptor(editor.kind)
       if (!kind) return null
-      return h('div',{className:'dtts-form',role:'group','aria-label':editor.mode === 'add' ? '添加语音服务' : '编辑 ' + editor.label},
-        h(Field,{label:'协议类型'},editor.custom && editor.kind === 'fish-audio' ? '自定义 Fish 协议' : kind.label),
+      return h('div',{className:'dtts-form',role:'group','aria-label':editor.mode === 'add' ? (music ? '添加音乐生成服务' : '添加语音服务') : '编辑 ' + editor.label},
+        h(Field,{label:'协议类型'},kind.protocolLabel || (editor.custom && editor.kind === 'fish-audio' ? '自定义 Fish 协议' : kind.label)),
         h(Field,{label:'显示名称'},textField({label:'显示名称',value:editor.label,onCommit:label => commit({label})})),
-        kind.fields.filter(f => !f.secret && !f.more).map(fieldView),
+        kind.fields.filter(f => !f.secret && !f.more && (!music || f.key !== 'model')).map(fieldView),
         kind.fields.filter(f => f.secret).map((f,i,all) => secretField(f,i === all.length - 1)),
+        music && (editor.probe?.models?.length > 0 ? fieldView({...kind.fields.find(f => f.key === 'model'), search:'按模型名称或 ID 筛选', options:editor.probe.models.map(m => [m.id,m.label])}) : h(Field,{label:'默认模型'},h('span',{className:'dtts-muted'},testing ? '正在获取模型…' : editor.probe ? '未获取到可选模型，可手填 ID' : '填写 Base URL 和 API Key 后，点击获取模型'))),
+        music && editor.probe && h(Field,{label:'手填模型 ID'},textField({label:'手填模型 ID',value:editor.config.model || '',onCommit:model => commit({config:{...editor.config,model}})})),
         modelField(),
         // 自定义语音服务: the preset fills the request and response; they sit under 高级.
         kind.fields.some(f => f.more) && h('details',{className:'dtts-details'},h('summary',null,'高级：请求与返回格式'),kind.fields.filter(f => f.more).map(fieldView)),
         // a new service with no key field (a local server) tests from its own row before it is added.
         editor.mode !== 'edit' && !kind.fields.some(f => f.secret) && h(Field,{label:'连接'},h('span',{className:'dtts-key-row'},h('span',{className:'dtts-value'}),h(Button,{link:true,disabled:testing || busy,onClick:probe},'测试'))),
-        editor.mode !== 'edit' && h('div',{className:'dtts-actions'},
+        (music || editor.mode !== 'edit') && h('div',{className:'dtts-actions'},
           h('span',{className:'dtts-actions-start'},(testing || editor.probe) && (testing ? h('p',{className:'dtts-result',role:'status','aria-label':'测试结果'},h('span',{className:'dtts-spinner','aria-hidden':true}),'正在连接…') : resultView(editor.probe))),
           h(Button,{onClick:close},'取消'),
-          h(Button,{primary:true,disabled:busy,onClick:save},'添加')))
+          h(Button,{primary:true,disabled:busy || (music && (!editor.probe || !editor.config.model)),onClick:save},music ? '保存' : '添加')))
     }
     const editing = id => editor?.mode === 'edit' && editor.id === id
     // Fish Audio / 通义千问 / Azure are listed before they are set up (the row opens its key form); a registered local engine row opens
     // the engine's own controls in place (no second section).
-    const unset = state ? COMMON_KINDS.filter(k => !configured.some(c => c.kind === k) && kinds.some(d => d.kind === k)) : []
+    const unset = state ? (music ? kinds.map(k => k.kind) : COMMON_KINDS).filter(k => !configured.some(c => c.kind === k) && kinds.some(d => d.kind === k)) : []
     const startKind = kind => { if (editor?.mode === 'add' && editor.fixed && editor.kind === kind) return close(); setMessage(''); setConfirm(null)
       setEditor({mode:'add',kind:'',id:'',label:'',config:{},secrets:{},probe:null,fixed:true}); chooseKind(kind) }
     const root = React.useRef(null)
@@ -542,9 +550,10 @@ exports.apply = function(ctx) {
     React.useEffect(() => { const ask = () => setFocusAsked(n => n + 1); window.addEventListener(FOCUS_KEY,ask); return () => window.removeEventListener(FOCUS_KEY,ask) },[])
     React.useEffect(() => {
       if (!state || !kinds.length) return
-      const focus = takeFocus(); if (!focus) return
-      // kind '' (「语音后端 ›」): the page as it is, with the keyboard focus on its first service.
-      const kind = focus.kind, own = !kind || kind === 'local' ? null : configured.find(c => focus.id ? c.id === focus.id : c.kind === kind)
+      const focus = takeFocus(kind => music ? kind === 'music' || kinds.some(k => k.kind === kind) : kind !== 'music'); if (!focus) return
+      // kind '' (「语音后端 ›」): the page as it is, with the keyboard focus on its first service; 'music' (自动 BGM's
+      // 「去设置」): 音乐生成's first saved service, else the form adding the first music kind.
+      const kind = focus.kind === 'music' ? configured[0]?.kind || kinds[0].kind : focus.kind, own = !kind || kind === 'local' ? null : configured.find(c => focus.id ? c.id === focus.id : c.kind === kind)
       if (!kind) {} else if (focus.add && descriptor(kind)) { startAdd(); chooseKind(kind) } else if (kind === 'local') setLocalOpen(true); else if (own) { if (!editing(own.id)) toggleEdit(own) } else startKind(kind)
       setTimeout(() => {
         const target = kind ? root.current?.querySelector('[data-open] .dtts-line-main, .dtts-adding-fixed') || root.current?.parentElement?.querySelector('.dtts-adding') : root.current?.querySelector('.dtts-line-main')
@@ -555,7 +564,7 @@ exports.apply = function(ctx) {
     const fishOptions = [['','官方 Fish（默认）'], ...configured.filter(p => p.kind === 'fish-audio').map(p => [p.id,p.label])]
     const fishDefault = state?.fishVoiceIdService || ''
     if (!fishOptions.some(([id]) => id === fishDefault)) fishOptions.push([fishDefault,'所选服务已移除'])
-    return h(Section,{title:'语音合成',meta:count,help:'合成声音的服务，这台电脑设一次，所有卡通用。人物用哪一个，在素材编辑器的人物「声音」里选。'},
+    return h(Section,{title:music ? '音乐生成' : '语音合成',meta:count,help:music ? '未配置时只播放曲库里的音乐。' : '合成声音的服务，这台电脑设一次，所有卡通用。人物用哪一个，在素材编辑器的人物「声音」里选。'},
       !state ? h('p',{className:'dtts-muted dtts-loading',role:loadError ? 'alert' : undefined},loadError ? h(Warn,null,loadError) : h('span',{className:'dtts-spinner','aria-label':'正在载入'})) :
       h('ul',{className:'dtts-list',ref:root},
         browserSpeech && h('li',{key:'browser','data-open':browserOpen || undefined},
@@ -575,10 +584,10 @@ exports.apply = function(ctx) {
         external.map(p => h('li',{key:p.id},h(Line,{title:p.label || kindLabel(p.kind),warn:StateWord(runningState(p))})))),
       editor?.mode === 'add' && !editor.fixed ? h('div',{className:'dtts-adding'},
           h('div',{className:'dtts-adding-head'},h('span',{className:'dtts-label'},'选择协议类型'),!editor.kind && h(Button,{link:true,onClick:close},'取消')),
-          h('div',{className:'dtts-kinds',role:'radiogroup','aria-label':'协议类型'},h('button',{type:'button',role:'radio',className:'dtts-kind','aria-checked':!!editor.custom && editor.kind === 'fish-audio',onClick:() => chooseKind('fish-audio',true)},'自定义 Fish 协议'),kinds.map(k => h('button',{key:k.kind,type:'button',role:'radio',className:'dtts-kind','aria-checked':editor.kind === k.kind && !(editor.custom && k.kind === 'fish-audio'),
-            title:KIND_NOTES[k.kind] || undefined,onClick:() => chooseKind(k.kind)},k.label))),
+          h('div',{className:'dtts-kinds',role:'radiogroup','aria-label':'协议类型'},!music && h('button',{type:'button',role:'radio',className:'dtts-kind','aria-checked':!!editor.custom && editor.kind === 'fish-audio',onClick:() => chooseKind('fish-audio',true)},'自定义 Fish 协议'),kinds.map(k => h('button',{key:k.kind,type:'button',role:'radio',className:'dtts-kind','aria-checked':editor.kind === k.kind && !(editor.custom && k.kind === 'fish-audio'),
+            title:KIND_NOTES[k.kind] || undefined,onClick:() => chooseKind(k.kind)},music ? k.label + ' · ' + k.protocolLabel : k.label))),
           editor.kind && Form())
-        : state && h(AddRow,{label:'添加其他语音服务',disabled:busy,onClick:startAdd}),
+        : state && h(AddRow,{label:music ? '添加音乐生成服务' : '添加其他语音服务',disabled:busy,onClick:startAdd}),
       h(Status,{label:'服务状态'},message))
   }
   // 上限 / 保留天数 save when a field is left (R17 即改即存; no 「保存缓存设置」). `loading` is a cold
@@ -676,7 +685,7 @@ exports.apply = function(ctx) {
         }}))),
       h(Status,{label:'配音状态'},message),
       // 语音服务 → 发音字典 → 合成缓存. Who speaks with which voice is chosen in 舞台设置 › 配音 (tts.reading through setReading).
-      h(ServicesSection,{data:services}),h(PluginSections),h(ReadingsSection),h(CacheSection))
+      h(ServicesSection,{data:services}),h(PluginSections),h(ServicesSection,{data:services,music:true}),h(ReadingsSection),h(CacheSection))
   }
   const icon = size => h('svg',{width:size || 16,height:size || 16,viewBox:'0 0 16 16',fill:'none','aria-hidden':true},
     h('path',{d:'M2.5 6.5v3M5.25 4.5v7M8 2.5v11M10.75 5v6M13.5 6.5v3',stroke:'currentColor',strokeWidth:1.2,strokeLinecap:'round'}))

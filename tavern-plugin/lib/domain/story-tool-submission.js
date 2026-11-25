@@ -270,7 +270,7 @@ export function createStorySubmissionTool({ chatForSession, enabled, isBackgroun
       if (!sessionId || isBackground(sessionId)) throw new Error('正文提交只用于前台游玩回合')
       if (await pluginGeneration(sessionId)) throw new Error('本轮正文必须由插件生成，请调用 tavern_generate_body')
       const chat = await chatForSession(sessionId)
-      if (!storyToolCallEnabled(chat, await enabled())) throw new Error('未开启输入或输出走工具调用')
+      if (!storyToolCallEnabled(chat, await enabled(sessionId))) throw new Error('未开启输入或输出走工具调用')
       const turn = activeStoryTurn(session)
       if (turn === null) throw new Error('当前没有正在生成的游玩回合')
       const content = validContent(args?.content)

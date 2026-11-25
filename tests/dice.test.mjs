@@ -47,8 +47,12 @@ test('registered tool returns full hidden record, gates execution and keeps sche
       const orchestrator = createTurnOrchestrator({ store: { chatForSession: async () => ({ mode, cardPath: 'cards/a.json', usedModTools }) },
         modTools, modEnabled: async modId => enabled && modId === 'dsh.dice', frameBuilder: { build() {} } })
       assert.equal((await orchestrator.visibleTools('front')).includes('tavern_roll'), mode !== 'card' && (enabled || Boolean(usedModTools)))
+      // Declared for the replayed history only, it is not callable: the foreground update lists it as removed.
+      assert.equal((await orchestrator.callableTools('front')).includes('tavern_roll'), mode !== 'card' && enabled)
     }
   }
+  mode = 'story'
+  await assert.rejects(createDiceTool({ ...deps, authorize: async () => false }).execute(args, exec), /disabled for this card/, 'a switched-off mod refuses the call it still declares')
   // A card declaring its rules (extensions["dsh.rules"]) gets tavern_check whatever the mod switch says, and no tavern_roll:
   // its games have one ruling tool. Other cards follow the switch; a history that already calls tavern_roll keeps it.
   const cardOffer = async chat => tool => cardOfferOf(tool, chat.card)

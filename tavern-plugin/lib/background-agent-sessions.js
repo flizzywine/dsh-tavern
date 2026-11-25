@@ -1,12 +1,11 @@
 import { appendSessionEvent, matchesEventType, sessionEvents } from './domain/session-events.js'
-import { STAGE_DIRECTOR_DESCRIPTOR, subagentDescriptor } from './domain/background-descriptors.js'
+import { LEGACY_BACKGROUND_PROVIDER, STAGE_DIRECTOR_DESCRIPTOR, WRITING_PREPARATION_DESCRIPTOR, WRITING_PREPARATION_PROVIDER, subagentDescriptor } from './domain/background-descriptors.js'
 import { randomUUID } from 'node:crypto'
 import { maximumBackgroundTokens, traceError } from './background-agent-task.js'
 import { createBackgroundRunLedger } from './background-run-ledger.js'
 import { memberOf, pluginMember } from './domain/background-members.js'
 import { applyAgentModelSelection } from './domain/session-model-selection.js'
 
-const LEGACY_BACKGROUND_PROVIDER = 'dsh-tavern-background'
 const BACKGROUND_PROVIDER = 'dsh-tavern-background-tools-v4'
 const STALE_BACKGROUND_PROVIDERS = new Set([
   LEGACY_BACKGROUND_PROVIDER,
@@ -169,6 +168,7 @@ export function createBackgroundAgentSessions(options, task) {
   // The resident member a persistent task runs on (background-members.js): the plugin member it
   // names, else its built-in one, else 书记.
   function memberFor(input) {
+    if (input.writingPreparation) return 'writing-preparation'
     return (pluginMember(input.member) && input.member) || memberOf(input.task) || 'background'
   }
 
@@ -190,6 +190,7 @@ export function createBackgroundAgentSessions(options, task) {
   }
 
   function descriptorFor(input, persistent) {
+    if (input.writingPreparation) return WRITING_PREPARATION_DESCRIPTOR
     const member = persistent ? pluginMember(input.member) : null
     if (member) return subagentDescriptor({ mode: 'continuable', provider: 'dsh-tavern-plugin-member-v1', label: '插件成员：' + member.name })
     if (input.task === 'polish') return subagentDescriptor({ mode: 'continuable', provider: 'dsh-tavern-polish', label: '正文精修', agentProvider: input.selection.provider, agentModel: input.selection.model, persona: '只审读正文，通过精修工具逐处提交修改。' })
@@ -296,7 +297,9 @@ export function createBackgroundAgentSessions(options, task) {
             const savedDescriptor = sessionEvents(session).find(event => matchesEventType(event, 'subagent/descriptor'))?.data
             const savedParent = session.header?.parentSession
             if (savedParent && savedParent !== parent.id || savedDescriptor &&
-              (savedDescriptor.provider === 'dsh-tavern-image' || (savedDescriptor.provider === 'dsh-tavern-polish') !== (input.task === 'polish'))) {
+              (savedDescriptor.provider === 'dsh-tavern-image'
+                || (savedDescriptor.provider === 'dsh-tavern-polish') !== (input.task === 'polish')
+                || (savedDescriptor.provider === WRITING_PREPARATION_PROVIDER) !== Boolean(input.writingPreparation))) {
               await handle.dispose()
               throw new Error('持久后台 Agent 的父会话或任务类型不匹配，未创建替代会话')
             }
@@ -368,6 +371,7 @@ export function createBackgroundAgentSessions(options, task) {
       maxTokens,
       operationId: str(input.operationId),
       ...(input.contextPolicy ? { contextPolicy: input.contextPolicy } : {}),
+      ...(input.writingPreparation ? { writingPreparation: input.writingPreparation } : {}),
       ...(input.frozenBackground ? { frozenBackground: { policy: input.frozenBackground.policy, historical: input.frozenBackground.historical, binding: input.frozenBackground.binding } } : {}),
       task: str(input.task) || 'background',
       // Dev diagnostics: the streaming director window this request stages (request log).

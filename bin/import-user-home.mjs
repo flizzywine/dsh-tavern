@@ -96,7 +96,7 @@ export function assertDesktopStopped(homes, { requireGuiClosed = false, guiRoot,
   try {
     output = platform === 'win32'
       ? exec('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', "Get-CimInstance Win32_Process | ForEach-Object { '{0} {1} {2}' -f $_.ProcessId, $_.ParentProcessId, $_.CommandLine }"], { encoding: 'utf8', windowsHide: true, timeout: 15000 })
-      : exec('ps', ['-axo', 'pid=,ppid=,command='], { encoding: 'utf8', timeout: 15000 })
+      : exec('ps', ['-axo', 'pid=,ppid=,command='], { windowsHide: true, encoding: 'utf8', timeout: 15000 })
   } catch { throw Error('无法确认桌面宿主已退出，尚未迁移数据。请关闭宿主后重试。') }
   const processes = output.split(/\r?\n/).map(line => line.match(/^\s*(\d+)\s+(\d+)\s?(.*)$/)).filter(Boolean)
     .map(([, id, parent, command]) => ({ id: Number(id), parent: Number(parent), command }))

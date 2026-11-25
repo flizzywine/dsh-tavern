@@ -255,12 +255,15 @@ function InlineText(p) {
 function InlineMenu(p) {
     const h = React.createElement, pop = useInlinePopup(), options = p.options || [], current = options.find(o => o.value === p.value);
     const pick = value => { pop.close(true); if (value !== p.value) p.onCommit(value); };
+    // `chip` ({ props, children }: InlineGrid's 「＋ 名称」 chip of an empty hideEmpty menu) is drawn as the trigger instead.
+    const face = p.chip ? { ...p.chip.props, disabled: p.chip.props.disabled || p.disabled }
+        : { className: "fork-inline-trigger" + (p.controlClassName ? " " + p.controlClassName : ""), disabled: p.disabled, title: p.title,
+            "aria-label": p.name + "：" + (current ? current.label : p.placeholder || "未设置"), "data-empty": current ? undefined : true };
     return h("span", { className: "fork-inline-anchor", ref: pop.root, onKeyDown: pop.keys },
-        h("button", { ref: node => { pop.trigger.current = node; if (p.controlRef) p.controlRef.current = node; }, type: "button", className: "fork-inline-trigger" + (p.controlClassName ? " " + p.controlClassName : ""),
-            disabled: p.disabled, title: p.title, "aria-haspopup": "menu", "aria-expanded": pop.open, "aria-label": p.name + "：" + (current ? current.label : p.placeholder || "未设置"),
-            "data-empty": current ? undefined : true, onClick: () => pop.setOpen(!pop.open),
+        h("button", { ...face, ref: node => { pop.trigger.current = node; if (p.controlRef) p.controlRef.current = node; }, type: "button",
+            "aria-haspopup": "menu", "aria-expanded": pop.open, onClick: () => pop.setOpen(!pop.open),
             onKeyDown: event => { if (event.key === "ArrowDown" && !pop.open) { event.preventDefault(); pop.setOpen(true); } } },
-            h("span", { className: "fork-inline-text" }, current ? current.label : p.placeholder || "—"), h(InlineGlyph, { name: "chevDown" })),
+            ...(p.chip ? p.chip.children : [h("span", { key: "t", className: "fork-inline-text" }, current ? current.label : p.placeholder || "—"), h(InlineGlyph, { key: "g", name: "chevDown" })])),
         pop.open ? pop.layer({ className: "fork-inline-pop", role: "menu", "aria-label": p.name, onKeyDown: inlineMenuKeys },
             options.flatMap((o, i) => [
                 // a group heading (e.g. the provider above its models).
@@ -403,6 +406,9 @@ function InlineField(props) {
         if (p.disabled || !node || !target || !target.closest || !node.contains(target)) return;
         const hit = target.closest("button, input, textarea, select, a, label, [role], [tabindex], .fork-inline-pop, .fork-inline-error");
         if ((hit && node.contains(hit)) || target.closest(".fork-inline-field") !== node) return;
+        // A menu opens from its own control or its label only: the empty part of a wide value cell (beside a short choice,
+        // up to the dialog's buttons) is not a place anyone means to open a list from.
+        if (kind === "menu" && target.closest(".fork-inline-value")) return;
         const control = node.querySelector(kind === "chips" ? ".fork-inline-chip-add input" : ".fork-inline-value input, .fork-inline-value textarea, .fork-inline-value button");
         if (!control || control.disabled) return;
         if (control.tagName === "INPUT" || control.tagName === "TEXTAREA") { control.focus(); const end = control.value.length; try { control.setSelectionRange(end, end); } catch (_) { /* not a text box */ } }
@@ -432,8 +438,8 @@ function InlineRow(props) {
 // a grid shows no empty rows. A field marked
 // `hideEmpty` whose value is empty ('' / null / [] / 0) leaves its row and becomes a small dashed 「＋ 名称」 chip; the chips
 // share one line at the grid's end. A click (Enter / Space) puts the row back in its place and focuses it; leaving it
-// still empty (blur, or Esc) folds it back into its chip (Esc returns the focus to the chip). Rows with a value, menus,
-// switches and InlineRow are never hidden. The one implementation for every 素材库 entry view (ui-design R4).
+// still empty (blur, or Esc) folds it back into its chip (Esc returns the focus to the chip). An empty hideEmpty menu's
+// chip opens that menu's own list in place; a pick fills the row. Rows with a value, switches and InlineRow are never hidden. The one implementation for every 素材库 entry view (ui-design R4).
 // An empty optional *section* (an entry's 变体 without a table) is not shown
 // at all: its owner puts <InlineSectionAdd key label onAdd /> among the grid's children and it becomes one more 「＋ 名称」 chip
 // on the same line; the click is the section's own add (the section then appears with what was added). `render(chip)`
@@ -454,7 +460,7 @@ function InlineGrid(props) {
         if (child.type === InlineSectionAdd) { adds.push({ key, name: q.label, control: q.label, onAdd: q.onAdd, render: q.render }); return; }
         if (!q.hideEmpty) { rows.push(child); return; }
         const empty = inlineEmptyValue(q.value), open = opened.has(key);
-        if (empty && !open) adds.push({ key, name: typeof q.label === "string" ? q.label : q.controlLabel || "", control: q.controlLabel || (typeof q.label === "string" ? q.label : "") });
+        if (empty && !open) adds.push({ key, name: typeof q.label === "string" ? q.label : q.controlLabel || "", control: q.controlLabel || (typeof q.label === "string" ? q.label : ""), menu: q.kind === "menu" ? q : null });
         else rows.push(clone(child, { addKey: key, autoEdit: open && empty }));
     });
     const fold = (key, chip) => { setOpened(s => { const next = new Set(s); next.delete(key); return next; }); if (chip) setRefocus(key); };
@@ -484,6 +490,7 @@ function InlineGrid(props) {
             const chip = { props: { type: "button", className: "fork-inline-add-field", "data-add-chip": add.key, "aria-label": "添加" + add.control, title: "添加" + add.control, disabled: p.disabled || undefined },
                 children: [h(InlineGlyph, { key: "g", name: "plus" }), h("span", { key: "t" }, add.name)] };
             if (add.render) return h(React.Fragment, { key: add.key }, add.render(chip));
+            if (add.menu) return h(React.Fragment, { key: add.key }, h(InlineMenu, { ...add.menu, name: add.control, chip }), add.menu.trail || null);
             return h("button", { key: add.key, ...chip.props, onClick: add.onAdd ? () => add.onAdd() : () => setOpened(s => new Set(s).add(add.key)) }, ...chip.children);
         })) : null);
 }
@@ -660,4 +667,63 @@ function InlineAdd(props) {
         onKeyDown: event => { if (event.key === "Enter") { event.preventDefault(); accept(); } else if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); cancel(); } } });
     if (p.bare) return box;
     return h("div", { className: p.className || "fork-inline-add-row" }, box, p.children);
+}
+// Drag a row with the mouse, long-press then drag on touch, or Alt+↑ / Alt+↓ on a focused row: the one list reorder
+// (the 素材库 figure list, a card's world books). useListReorder({ids, enabled, onMove}) → row(id): props for that row
+// (inside a [role=listbox]), and `dragging` for the list. onMove(id, beforeId) moves `id` in front of `beforeId` (null =
+// to the end) — the caller writes it (one write per drop). A touch hold released without moving is the row's long press:
+// it reaches the row as a contextmenu event, so the row's menu (useContextMenu with hold:false) opens.
+// scrollParent(el): the nearest ancestor that scrolls vertically (or null).
+function scrollParent(el) { for (let node = el; node && node.nodeType === 1; node = node.parentElement) { const y = getComputedStyle(node).overflowY; if (y === "auto" || y === "scroll") return node; } return null; }
+const REORDER_HOLD_MS=400,REORDER_SLOP=6,REORDER_EDGE=36;
+function useListReorder({ids,enabled,onMove}) {
+  const [drag,setDrag]=React.useState(null),live=React.useRef(null);
+  React.useEffect(()=>()=>live.current?.stop(),[]);
+  // The row whose upper half holds y (insert in front of it), or null past the last row. Rows are read from the DOM, so a
+  // windowed list counts only what is mounted — the rows around the pointer always are.
+  const beforeAt=(list,y)=>{for(const row of list.querySelectorAll('[data-reorder-id]')){const r=row.getBoundingClientRect();if(y<r.top+r.height/2)return row.dataset.reorderId;}return null;};
+  // A drop that leaves the order as it is (onto itself or the row right after it) shows no marker and writes nothing.
+  const changes=(id,before)=>{const at=ids.indexOf(id);return before!==id&&before!==(ids[at+1]??null);};
+  function down(e,id) {
+    if(!enabled||live.current||e.button!==0||e.target?.closest?.('[aria-haspopup],input,textarea'))return;
+    const list=e.currentTarget.closest('[role=listbox]');if(!list)return;
+    const touch=e.pointerType!=='mouse',pointer=e.pointerId,x0=e.clientX,y0=e.clientY,scroller=scrollParent(list),doc=list.ownerDocument,win=doc.defaultView,rowEl=e.currentTarget;
+    const s={active:false,moved:false,before:undefined,y:y0,timer:0,frame:0};
+    const begin=()=>{s.active=true;s.timer=0;win.getSelection?.()?.removeAllRanges?.();setDrag({id,before:undefined});
+      // Near the scroll box's top / bottom edge the list scrolls while the row is held there.
+      const tick=()=>{const r=scroller?.getBoundingClientRect();if(r){const d=s.y<r.top+REORDER_EDGE?-1:s.y>r.bottom-REORDER_EDGE?1:0;if(d){scroller.scrollTop+=d*8;aim();}}s.frame=win.requestAnimationFrame(tick);};
+      s.frame=win.requestAnimationFrame(tick);};
+    const aim=()=>{const before=beforeAt(list,s.y),shown=changes(id,before)?before:undefined;if(shown!==s.before){s.before=shown;setDrag({id,before:shown});}};
+    const move=ev=>{if(ev.pointerId!==pointer)return;s.y=ev.clientY;
+      if(!s.active){if(Math.hypot(ev.clientX-x0,ev.clientY-y0)<=REORDER_SLOP)return;if(touch)return stop();begin();}
+      if(Math.hypot(ev.clientX-x0,ev.clientY-y0)>REORDER_SLOP)s.moved=true;
+      ev.preventDefault();aim();};
+    // Once a touch drag runs the page must not scroll under it; before that a swipe scrolls as usual (and cancels the hold).
+    const touchmove=ev=>{if(s.active)ev.preventDefault();};
+    const noMenu=ev=>{if(s.active||s.timer)ev.preventDefault();};
+    const up=ev=>{if(ev.pointerId!==pointer)return;const {active,before,moved}=s;stop();if(!active)return;
+      // The release must not also click the row (select it) or whatever it ends over.
+      const swallow=c=>{c.stopPropagation();c.preventDefault();};win.addEventListener('click',swallow,{capture:true,once:true});win.setTimeout(()=>win.removeEventListener('click',swallow,true),0);
+      if(touch&&!moved)rowEl.dispatchEvent(new win.MouseEvent('contextmenu',{bubbles:true,cancelable:true,clientX:x0,clientY:y0}));
+      else if(before!==undefined)onMove(id,before);};
+    const cancel=ev=>{if(ev.pointerId===pointer)stop();};
+    const stop=()=>{win.clearTimeout(s.timer);win.cancelAnimationFrame(s.frame);live.current=null;setDrag(null);
+      doc.removeEventListener('pointermove',move);doc.removeEventListener('pointerup',up);doc.removeEventListener('pointercancel',cancel);
+      doc.removeEventListener('touchmove',touchmove,{passive:false});doc.removeEventListener('contextmenu',noMenu);};
+    live.current={stop};
+    doc.addEventListener('pointermove',move);doc.addEventListener('pointerup',up);doc.addEventListener('pointercancel',cancel);
+    doc.addEventListener('touchmove',touchmove,{passive:false});doc.addEventListener('contextmenu',noMenu);
+    if(touch)s.timer=win.setTimeout(begin,REORDER_HOLD_MS);
+  }
+  const keys=(e,id)=>{
+    if(!enabled||!e.altKey||(e.key!=='ArrowUp'&&e.key!=='ArrowDown'))return;
+    e.preventDefault();e.stopPropagation();const at=ids.indexOf(id);
+    if(e.key==='ArrowUp'&&at>0)onMove(id,ids[at-1]);
+    if(e.key==='ArrowDown'&&at<ids.length-1)onMove(id,ids[at+2]??null);
+  };
+  const last=ids[ids.length-1];
+  const row=id=>enabled?{'data-reorder-id':id,'aria-keyshortcuts':'Alt+ArrowUp Alt+ArrowDown',onPointerDown:e=>down(e,id),onKeyDown:e=>keys(e,id),
+    'data-dragging':drag?.id===id||undefined,
+    'data-drop':drag&&drag.before!==undefined?(drag.before===id?'before':drag.before===null&&id===last?'after':undefined):undefined}:{};
+  return {row,dragging:!!drag};
 }

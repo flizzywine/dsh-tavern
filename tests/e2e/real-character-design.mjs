@@ -14,7 +14,8 @@ export async function setupRealCharacterDesign({ root, profile, data, runtimeHom
   await copyFile(join(runtimeHome, '.credentials.yaml'), join(root, '.credentials.yaml'))
   await writeFile(join(profile, 'cordis.patch.yml'), stringify([{ id: 'agent-default-model', config: selection }]))
   await writeFile(join(data, 'tavern-settings.json'), JSON.stringify({ defaultForegroundModel: selection, defaultBackgroundModel: selection,
-    backgroundModel: selection, backgroundTasks: { variables: false, posture: false, characterDesign: false, ledger: false } }))
+    backgroundModel: selection, showCharacterDesignPanel: true,
+    backgroundTasks: { variables: false, posture: false, characterDesign: false, ledger: false } }))
   const file = join(data, 'resources/cards/e2e.json'), doc = JSON.parse(await readFile(file, 'utf8'))
   doc.data.description = '中性的虚构城镇故事。按用户要求用简短中文回复；人物设定以本局世界书为准。'
   await writeFile(file, JSON.stringify(doc))
@@ -39,10 +40,11 @@ export async function realCharacterDesignChecks({ page, step, savedChat, root, d
     throw Error(label + '超时')
   }
   async function design(guidance) {
-    if (!await page.getByRole('button', { name: '设计人物', exact: true }).isVisible()) {
+    const button = page.getByRole('button', { name: '＋ 设计', exact: true })
+    if (!await button.isVisible()) {
       await page.getByText('酒馆状态', { exact: true }).filter({ visible: true }).first().click()
     }
-    await page.getByRole('button', { name: '设计人物', exact: true }).click()
+    await button.click()
     await page.locator('dialog input').fill(guidance)
     await page.getByRole('button', { name: '开始设计', exact: true }).click()
     return poll('人物设计保存', async () => {
