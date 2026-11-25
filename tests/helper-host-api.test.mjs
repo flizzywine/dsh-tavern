@@ -1,9 +1,33 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import vm from 'node:vm'
 
 import { helperHostHarness } from './fixtures/helper-host-harness.mjs'
 
 const tick = () => new Promise(resolve => setImmediate(resolve))
+
+test('a detached callback updates and binds only its own visible buttons', async () => {
+  const { window: w, sent } = helperHostHarness({}, { scripts: [
+    { id: 'a', buttons: [{ name: 'Hidden', visible: false }] },
+    { id: 'b', buttons: [{ name: 'Story', visible: true }] },
+    { id: 'off', buttonsEnabled: false, buttons: [{ name: 'Off', visible: true }] }
+  ] })
+  w.__dshTavernHelperSetCurrentScript('a')
+  const bind = vm.runInNewContext(`() => {
+    appendInexistentScriptButtons([{ name: 'Story', visible: true }]);
+    const name = getButtonEvent('Story');
+    eventOn(name, () => { window.pressed = true; });
+    return name;
+  }`, w, { filename: 'dsh-tavern-script:b' })
+  const name = bind()
+  const receipt = sent.at(-1)
+  assert.deepEqual(Object.keys(receipt.buttons), ['b'])
+  assert.equal(receipt.buttons.b[0].button_id, name)
+  assert.equal(receipt.buttons.b.length, 1)
+  assert.equal(receipt.scripts.find(script => script.id === 'b').names[0], name)
+  await w.eventEmit(name)
+  assert.equal(w.pressed, true)
+})
 
 test('变量合并写入等待宿主保存，拒绝及过期结果均向插件报错', async () => {
   for (const method of ['insertVariables', 'insertOrAssignVariables']) {

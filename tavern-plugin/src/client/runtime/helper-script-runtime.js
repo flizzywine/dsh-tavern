@@ -10,6 +10,14 @@
 			const mutationCoalesceMs = Math.max(0, options && options.mutationCoalesceMs !== undefined && options.mutationCoalesceMs !== null ? Number(options.mutationCoalesceMs) : 400);
 			const onReady = options && typeof options.onReady === "function" ? options.onReady : function () {};
 			const onMvuLoadState = options && options.onMvuLoadState || function () {};
+			const onButtons = options && options.onButtons || function () {};
+			let buttonSignature = "[]";
+			function publishButtons(buttons) {
+				const signature = JSON.stringify(buttons);
+				if (signature === buttonSignature) return;
+				buttonSignature = signature;
+				onButtons(buttons);
+			}
 			const initializationTimeoutMs = Math.max(1000, Number(options && options.initializationTimeoutMs) || 15000);
 			const companionTimeoutMs = Math.max(1000, Number(options && options.companionTimeoutMs) || 30000);
 			const eventTimeoutMs = Math.max(10, Number(options && options.eventTimeoutMs) || 15000);
@@ -292,6 +300,7 @@
 				clearCompanionDeadline(record);
 				disposeRecordFrame(record);
 				records.delete(id);
+				publishButtons([]);
 				announcedReadinessKey = "";
 			}
 			function closeRecordUi() {
@@ -735,6 +744,7 @@
 				}
 				if (data.type === "dsh-tavern-helper-reloading") {
 					record.reloading = true;
+					publishButtons([]);
 					clearCompanionDeadline(record);
 					return;
 				}
@@ -768,6 +778,15 @@
 					if (data.ready === true) {
 						record.initializationFailed = Boolean(record.scripts.get("__dsh_official_mvu__")?.initializationFailed);
 						record.subscriptionsReady = !record.initializationFailed;
+						const buttons = [];
+						if (record.subscriptionsReady) for (const script of record.scripts.values()) {
+							const entries = data.buttons?.[script.id];
+							if (!script.subscriptionsReady || script.initializationFailed || !Array.isArray(entries)) continue;
+							for (const entry of entries) if (typeof entry?.button_name === "string" && entry.button_name.trim()) {
+								buttons.push({ scriptId: script.id, name: entry.button_name });
+							}
+						}
+						publishButtons(buttons);
 						if (!record.initializationFailed) resolveError("人物卡共享脚本沙箱", record.startedAt);
 						settleInitialization(record);
 					}

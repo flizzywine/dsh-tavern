@@ -42,7 +42,7 @@
 | `getIframeName` | 新增 | 新增 | 共享沙箱按当前脚本返回虚拟脚本名；消息使用当前真实 iframe 名称 |
 | `errorCatched` | 修正 | 修正 | 保持 `this` 和结果；同步/异步错误报告后重新抛出原错误，报告失败也不覆盖原错误 |
 | `retrieveDisplayedMessage` | 实现有限适配 | 实现有限适配 | 当前或同会话已渲染、同源消息 iframe 的真实 DOM；无权访问/隐藏/未显示时返回空集合 |
-| `getAllEnabledScriptButtons` | 新增 | 未实现 | 保留按钮组启用状态；返回启用脚本中可见按钮及其真实事件 ID |
+| `getAllEnabledScriptButtons` | 新增 | 未实现 | 保留按钮组启用状态；返回启用脚本中可见按钮及其真实事件 ID。游玩界面的「脚本按钮」菜单使用同一份列表 |
 | `initializeGlobal/waitGlobalInitialized` | 已实现（本地模拟） | 已实现（本地模拟） | 实际等待同一运行文档中初始化，保留 MVU bootstrap 等待语义；通过 namespace 与全局函数访问 |
 
 消息读取遵循固定上游实现对超界索引的 clamp 行为，非法格式返回空数组。`include_swipes` 两个重载所需字段均可读取；DSH 为旧卡兼容保留字段超集，不会因切换该选项删除旧字段。`extra/swipes_info` 读取已有插件元数据，缺失值为 `{}`，并不表示已实现这些字段的完整写入语义。
@@ -56,7 +56,7 @@
 `generate`、`generateRaw`、`stopGenerationById`、`stopAllGeneration` 在共享脚本、消息 iframe 和开场预览都提供可用接口。
 
 - `generate` 使用实际角色定义、当前/指定预设、绑定世界书激活结果、选中 swipe 的历史、覆盖项和深度注入，编译成独立请求；提示词正则与变量宏参与，不写入剧情或切换预设设置
-- `generateRaw` 保留显式提示词顺序语义；已有模拟流式属于已实现：收到全文后发出完整/增量 token 兼容事件，脚本能得到文本并结束流式 UI
+- `generateRaw` 保留显式提示词顺序，支持当次请求的 `injects`：`should_scan: true` 的内容可激活世界书条目；`position: 'none'` 不直接发给模型，`position: 'in_chat'` 按深度插入 `chat_history`。收到全文后发出完整/增量 token 兼容事件
 - 两个生成接口均有稳定 generation ID，发送开始/结束通知；失败或取消也结束 UI 生命周期
 - 取消真实传递 AbortSignal 到 DSH 模型查找及 provider stream，并及时 reject Promise；provider 不理会信号时也不会把迟到结果当作成功返回
 - 排队任务可以立即取消，不会被此前卡住的写入堵住；每请求 token 的有界取消记录处理「停止先于生成请求到达」的竞争，避免误取消同 ID 的下一次请求
@@ -80,7 +80,7 @@
 ### 事件与 globals
 
 - 消息 iframe 新增可用的 `eventOnce`、`eventMakeFirst/Last`、`eventRemoveListener`、`eventClearEvent/Listener/All`，支持顺序、去重、一次性、解除监听及重入
-- `eventEmitAndWait` 在两种 iframe 都能等待当前监听器结束；共享脚本保留原有按脚本归属隔离的事件总线
+- `eventEmitAndWait` 在两种 iframe 都能等待当前监听器结束；共享脚本保留原有按脚本归属隔离的事件总线。共享脚本可在定时器等事件外回调里更新持久提示词，写入仍受当前会话生命周期限制
 - 消息 iframe 提供 `injectPrompts` / `uninjectPrompts`（以及 `TavernHelper.injectPrompts` / `TavernHelper.uninjectPrompts`），并在提交生成前触发 `tavern_events.GENERATION_AFTER_COMMANDS`（别名 `generation_after_commands`）并等待挂起的提示词注入回执完成，保证 `once: true` 的 `in_chat` 提示词能在当轮 `prepareTurn` 前写入会话
 - 由宿主选择当前会话最新且注册了生成前事件的消息楼层；旧楼层发起命令不能绕过这个选择。写入失败、等待超时或页面退出会拒绝此次发送；移除事件监听后该楼层不再参与刷新。直接注入后立即调用 `triggerSlash` 也会先等待本帧写入完成。
 - `initializeGlobal` / `waitGlobalInitialized` 在消息帧也真正等待初始化，不再立即返回未定义

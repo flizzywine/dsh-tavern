@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import vm from 'node:vm'
+import { scriptPromptScanText } from '../tavern-plugin/lib/domain/tavern-script-prompts.js'
 
 import { createHelperWorldbookHost } from './fixtures/helper-worldbook-host.mjs'
 import { helperHostHarness } from './fixtures/helper-host-harness.mjs'
@@ -34,6 +36,29 @@ test('确认范围之外的迟到失败不污染已经完成的回调，也不�
   run.window.eventOn('CHECK', () => {})
   await assert.rejects(run.window.eventEmit('CHECK'), /后续保存失败/)
   await run.window.eventEmit('CHECK')
+})
+
+test('MVU 事件结束后的持久提示词不继承事件编号，并归到实际脚本', async t => {
+  const host = await createHelperWorldbookHost()
+  t.after(host.cleanup)
+  const revision = host.chat.tavernHelperLifecycleRevision || 0
+  const run = helperHostHarness({ lifecycleRevision: revision })
+  const source = '() => injectPrompts([{ id: "location", content: "Beacon Harbor", position: "none", role: "system", should_scan: true }])'
+  const detached = vm.runInNewContext(source, run.window, { filename: 'dsh-tavern-script:b' })
+  const eventId = 'mvu-work:finished'
+  run.receive({ type: 'dsh-tavern-helper-event', name: 'MESSAGE_RECEIVED', args: [], eventId })
+  await new Promise(resolve => setImmediate(resolve))
+  assert.ok(run.sent.some(m => m.type === 'dsh-tavern-helper-event-complete' && m.eventId === eventId))
+  detached()
+  const [call] = run.calls()
+  assert.equal(call.scriptId, 'b')
+  assert.equal(call.eventId, '')
+  assert.equal(call.lifecycleRevision, revision)
+  run.reply(call, await host.adapter.updatePrompts('audit', call.args.operation, call.lifecycleRevision, call.eventId))
+  assert.equal(scriptPromptScanText(host.chat), 'Beacon Harbor')
+  const stale = await host.adapter.updatePrompts('audit', { kind: 'remove', ids: ['location'] }, revision + 1, '')
+  assert.equal(stale.stale, true)
+  assert.equal(scriptPromptScanText(host.chat), 'Beacon Harbor')
 })
 
 test('提示词批次原子验证、保留顺序并只保存一次', async t => {

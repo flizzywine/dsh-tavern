@@ -1285,6 +1285,11 @@
 					}, function () { return React.createElement(TavernScriptRuntime, { owner: scriptOwner }); }); });
 				}, "dsh-tavern: conversation script lifecycle");
 				input.ctx.effect(function () {
+					return input.slots.inject("conversation.input.dock", function () { return input.slots.register({
+						name: "conversation.input.dock", id: "dsh-tavern-script-buttons", order: -105, label: "脚本按钮"
+					}, function (props) { return React.createElement(TavernScriptButtonMenu, { key: props.sessionId, owner: scriptOwner, sessionId: props.sessionId }); }); });
+				}, "dsh-tavern: card script buttons");
+				input.ctx.effect(function () {
 					return input.slots.inject("conversation.chat.node", function () { return input.slots.register({
 						name: "conversation.chat.node",
 						key: "assistant-step",

@@ -1592,6 +1592,13 @@ button.dsh-tavern-worldbook-add-row:disabled { cursor: default; }
 
 /* The card lists' toolbar is the stage library's (.ap-pack-toolbar: rounded search, quiet icon buttons). */
 .ap-ui.ap-pack-toolbar.dsh-tavern-card-organization { flex: none; width: auto; max-width: none; min-height: 0; margin: 8px 12px; padding: 0; background: none; }
+.dsh-tavern-script-buttons { display: flex; justify-content: flex-start; }
+.ap-ui.dsh-tavern-script-buttons button { min-height: 30px; }
+.dsh-tavern-script-menu .ap-menu-item { overflow-wrap: anywhere; }
+@media (max-width: 720px) {
+  .ap-ui.dsh-tavern-script-buttons button, .ap-layer .dsh-tavern-script-menu .ap-menu-item { min-height: 36px; }
+}
+
 .ap-ui.dsh-tavern-card-organization button.ap-icon-button { width: 32px; height: 32px; color: var(--fork-ink); }
 .ap-ui.dsh-tavern-card-organization button.ap-icon-button:hover:not(:disabled), .ap-ui.dsh-tavern-card-organization button.ap-icon-button[aria-expanded=true] { background: var(--fork-hover); }
 .ap-ui.dsh-tavern-card-organization button.ap-icon-button:is([data-on], [aria-pressed=true]) { color: var(--fork-accent); }

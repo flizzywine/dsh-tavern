@@ -1,4 +1,6 @@
-import { compileHelperGenerate } from './helper-generation-prompts.js'
+import { compileHelperGenerate, helperCardPromptFields, helperGenerationInjects, helperGenerationWorld, helperWorldDepthPrompt, helperWorldPromptPosition } from './helper-generation-prompts.js'
+import { promptOrder } from './worldbook-activation.js'
+import { resolveRuntimeMacroText } from './runtime-content-projection.js'
 import { randomUUID } from 'node:crypto'
 
 /** DSH Message requires identity and attribution even for independent requests. */
@@ -37,11 +39,19 @@ export function defaultOrderedRawConfig(config) {
   return rest
 }
 
+const rawWorldMarkers = ['world_info_before', 'world_info_after']
+export function rawWorldContextNeeded(config) {
+  return Array.isArray(config?.ordered_prompts) && config.ordered_prompts.some(marker => marker === 'chat_history' || rawWorldMarkers.includes(marker))
+}
+export function rawCardContextNeeded(config) {
+  return rawWorldContextNeeded(config) || Array.isArray(config?.ordered_prompts) && config.ordered_prompts.some(marker => typeof marker === 'string' && Object.hasOwn(helperCardPromptFields, marker))
+}
+
 /** Compile the explicitly ordered, text-only generateRaw contract without Session writes. */
-export async function generateHelperRaw(config, { callModel, sessionId = '', history = [] }) {
+export async function generateHelperRaw(config, { callModel, sessionId = '', history = [], chat = {}, card = {}, worldBook }) {
   if (!config || typeof config !== 'object' || Array.isArray(config)) throw new Error('generateRaw 参数必须是对象')
   // 此处一次性返回全文；客户端根据 should_stream 补发兼容流式事件。
-  const allowed = new Set(['ordered_prompts', 'user_input', 'max_chat_history', 'should_stream', 'should_silence', 'overrides', 'generation_id', 'custom_api'])
+  const allowed = new Set(['ordered_prompts', 'user_input', 'max_chat_history', 'should_stream', 'should_silence', 'overrides', 'generation_id', 'custom_api', 'injects'])
   for (const key of Object.keys(config)) if (!allowed.has(key)) throw new Error('generateRaw 暂不支持参数：' + key)
   if (!Array.isArray(config.ordered_prompts) || !config.ordered_prompts.length) throw new Error('generateRaw 需要显式 ordered_prompts')
   const overrides = config.overrides || {}
@@ -62,19 +72,44 @@ export async function generateHelperRaw(config, { callModel, sessionId = '', his
     if (!['system', 'user', 'assistant'].includes(role) || typeof text !== 'string') throw new Error('generateRaw 仅支持 system/user/assistant 文本消息')
     if (text.trim()) messages.push({ role, content: [{ type: 'text', text }] })
   }
+  const injects = [...(chat.tavernScriptPrompts || []), ...helperGenerationInjects(config.injects)]
   const explicitUser = config.ordered_prompts.includes('user_input')
+  const withHistory = config.ordered_prompts.includes('chat_history')
+  const selected = limit === 'all' ? history : limit === 0 ? [] : history.slice(-limit)
+  const world = worldBook && rawWorldContextNeeded(config) ? helperGenerationWorld({ worldBook, chat, card, history: selected, userInput: config.user_input || '', injects }) : null
+  const worldPrompts = promptOrder(world?.entries || [])
+  const render = value => resolveRuntimeMacroText(value, { charName: card?.name, macroState: chat.macroState }).text
+  const depthPrompts = [...(overrides.chat_history?.with_depth_entries === false ? [] : worldPrompts.filter(entry => helperWorldPromptPosition(entry) === 4).map(helperWorldDepthPrompt)),
+    ...injects.filter(entry => entry.position === 'in_chat')]
   for (const prompt of config.ordered_prompts) {
     if (prompt === 'user_input') append('user', config.user_input || '')
     else if (prompt === 'chat_history') {
-      const selected = limit === 'all' ? history : limit === 0 ? [] : history.slice(-limit)
-      for (const message of selected) append(message.role, message.text)
-      if (!explicitUser) append('user', config.user_input || '')
+      const block = selected.map(message => ({ role: message.role, text: message.text }))
+      if (!explicitUser && config.user_input?.trim()) block.push({ role: 'user', text: config.user_input })
+      const atIndex = new Map()
+      for (const entry of depthPrompts) {
+        const index = Math.max(0, block.length - (entry.depth || 0))
+        if (!atIndex.has(index)) atIndex.set(index, [])
+        atIndex.get(index).push(entry)
+      }
+      for (let i = 0; i <= block.length; i++) {
+        for (const entry of atIndex.get(i) || []) append(entry.role, render(entry.content))
+        if (i < block.length) append(block[i].role, block[i].text)
+      }
+    } else if (rawWorldMarkers.includes(prompt)) {
+      const position = rawWorldMarkers.indexOf(prompt)
+      append('system', overrides[prompt] ?? render(worldPrompts.filter(entry => helperWorldPromptPosition(entry) === position).map(entry => entry.content).join('\n\n')))
+    } else if (typeof prompt === 'string' && Object.hasOwn(helperCardPromptFields, prompt)) {
+      append('system', overrides[prompt] ?? render(card?.[helperCardPromptFields[prompt]] || ''))
+    } else if (prompt === 'persona_description') {
+      // DSH has no separate persona manager.
+      append('system', overrides.persona_description ?? '')
     } else if (prompt && typeof prompt === 'object' && !Array.isArray(prompt)) {
       if (Object.keys(prompt).some(k => !['role', 'content'].includes(k))) throw new Error('generateRaw 不支持此消息参数')
       append(prompt.role, prompt.content)
     } else throw new Error('generateRaw 暂不支持内置提示词：' + String(prompt))
   }
-  if (!explicitUser && !config.ordered_prompts.includes('chat_history')) append('user', config.user_input || '')
+  if (!explicitUser && !withHistory) append('user', config.user_input || '')
   if (!messages.length) throw new Error('generateRaw 提示词不能为空')
   return await callModel({ sessionId, messages, system: '', ...helperSampling(config.custom_api) })
 }

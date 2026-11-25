@@ -15,12 +15,12 @@
 				});
 			}
 			function post(message) { parent.postMessage(Object.assign({}, message, { token: token }), "*"); }
-			function request(method, args) {
+			function request(method, args, requestIdentity) {
 				// A card may replace its document; DOM listeners must be restored before RPC.
 				options.listen(receive);
 				return new Promise(function (resolve, reject) {
 					const requestId = String(nextId++);
-					const owner = identity();
+					const owner = requestIdentity || identity();
 					pending[requestId] = { resolve: resolve, reject: reject, method: method, owner: owner };
 					post(Object.assign({ type: "dsh-tavern-helper-call", requestId: requestId, method: method, args: copy(args || {}) }, owner));
 				});
@@ -76,8 +76,9 @@
 				name = eventName(name);
 				if (typeof handler !== "function") throw new TypeError("事件监听器必须是函数");
 				let items = listeners[name] || (listeners[name] = new Set());
-				let entry = Array.from(items).find(function (item) { return item.scriptId === currentScript().id && item.handler === handler; });
-				if (!entry) entry = { scriptId: currentScript().id, handler: handler, once: once === true };
+				const scriptId = currentScript().id;
+				let entry = Array.from(items).find(function (item) { return item.scriptId === scriptId && item.handler === handler; });
+				if (!entry) entry = { scriptId: scriptId, handler: handler, once: once === true };
 				if (position) items.delete(entry);
 				if (position === "first") listeners[name] = new Set([entry].concat(Array.from(items)));
 				else items.add(entry);
