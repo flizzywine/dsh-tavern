@@ -327,14 +327,17 @@ function stripTaggedBlock(value, name) {
   return value.replace(new RegExp('<' + name + '\\b[^>]*>[\\s\\S]*?<\\/' + name + '\\s*>', 'gi'), '')
 }
 
+function stripMvuRuntimeBlocks(value) {
+  return str(value).replace(/<(UpdateVariable|initvar|JSONPatch)\b[^>]*?(?:\/\s*>|>[\s\S]*?<\/\1\s*>)/gi, '')
+}
+
 function stripHtmlFences(value) {
   return value.replace(/^[ \t]{0,3}(`{3,}|~{3,})[ \t]*(?:html?|xhtml)(?:[ \t][^\r\n]*)?\r?\n[\s\S]*?^[ \t]{0,3}\1[ \t]*$/gim, '')
 }
 
 /** Extract only confirmed story prose from one final foreground response. */
 export function extractMvuStoryText(value) {
-  let text = str(value)
-  text = stripTaggedBlock(text, 'UpdateVariable')
+  let text = stripMvuRuntimeBlocks(value)
   text = stripTaggedBlock(text, 'visual_cards')
   text = stripHtmlFences(text)
   text = text.replace(/<StatusPlaceHolderImpl\s*\/?>/gi, '')
@@ -566,7 +569,10 @@ export function createMvuBackgroundTaskFrame(input = {}) {
     taskRules: {
       updateRules: Array.isArray(input.updateRules) ? input.updateRules.map(str).filter(Boolean) : [],
       backgroundTasks: normalizeBackgroundTasks(input.backgroundTasks),
-      helperContext: Array.isArray(input.helperContext) ? input.helperContext.map(str).filter(Boolean) : [],
+      // The runtime already owns initialization. Both the model and the next
+      // runtime transaction receive the setup prose without replaying its commands.
+      helperContext: Array.isArray(input.helperContext)
+        ? input.helperContext.map(text => stripMvuRuntimeBlocks(text).trim()).filter(Boolean) : [],
       // What this reply's tools settled (tool-settlement-context.js): the host writes these operations ahead of the
       // background's, and the background is told so.
       toolResults: normalizeToolResults(input.toolResults),

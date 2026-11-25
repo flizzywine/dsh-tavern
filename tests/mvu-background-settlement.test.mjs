@@ -13,12 +13,16 @@ test('本地 provider 复用 durable submission、官方事务和效果审计；
     }
   } })
   const base = { operationId: 'provider-op', chatId: 'chat', branchId: 'branch', basedOnRevision: 9, sessionId: 'game', messageId: 1, swipeId: 0,
-    storyText: 'HP提升。', currentVariables: { stat_data: { hp: 3 }, schema: {} }, onSubmission: value => submissions.push(value), onPrepared: value => prepared.push(value) }
+    storyText: 'HP提升。', currentVariables: { stat_data: { hp: 3 }, schema: {} },
+    helperContext: ["刚进入营地。\n<UpdateVariable>_.set('hp', 3);</UpdateVariable>"],
+    onSubmission: value => submissions.push(value), onPrepared: value => prepared.push(value) }
   const applied = await module.resumeProviderVariables({ ...base, submission: { operations: [{ op: 'replace', path: '/stat_data/hp', valueJson: '4' }] } })
   assert.equal(applied.receipt.status, 'updated')
   assert.deepEqual(submissions[0].operations, [{ op: 'replace', path: '/stat_data/hp', value: 4 }])
   assert.equal(prepared.length, 1)
   assert.equal(calls.length, 1)
+  assert.equal(calls[0].storyText, '刚进入营地。\n\nHP提升。')
+  assert.match(calls[0].command, /^<UpdateVariable>\n<JSONPatch>/)
 
   nextVariables = { stat_data: { hp: 3 }, schema: {} }
   const rejected = await module.resumeProviderVariables({ ...base, submission: { operations: [{ op: 'replace', path: '/stat_data/hp', valueJson: '5' }] } })
