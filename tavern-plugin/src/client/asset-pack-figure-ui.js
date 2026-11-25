@@ -907,13 +907,18 @@ function useFigureLook(binding,packId,figureId){
   React.useEffect(()=>{const at=++seq.current;setState(null);if(!figureId)return;
     binding.rpc('getFigureImageCharacter',{packId,figureId}).then(s=>{if(at===seq.current)setState(s);},()=>{if(at===seq.current)setState({status:'unavailable'});});},[binding,packId,figureId]);
   const record=state?.status==='linked'?state.character:null;
-  const write=async patch=>{
-    if(!state||state.status==='unavailable')throw new Error('启用配图后可编辑外貌');
-    const s=state.status==='linked'?state:await binding.rpc('linkFigureImageCharacter',{packId,figureId,...(state.libraries?.length===1?{providerId:state.libraries[0].providerId}:{})});
+  // One write at a time, each carrying the record the previous one returned (the record is CAS-checked on every patch).
+  const current=React.useRef(null),queue=React.useRef(Promise.resolve());current.current=state;
+  const link=async()=>{const s=current.current;if(!s||s.status==='unavailable')throw new Error('启用配图后可编辑外貌');if(s.status==='linked')return s;
+    const linked=await binding.rpc('linkFigureImageCharacter',{packId,figureId,...(s.libraries?.length===1?{providerId:s.libraries[0].providerId}:{})});
+    const next={...linked,status:'linked'};current.current=next;setState(next);return next;};
+  const write=patch=>(queue.current=queue.current.catch(()=>{}).then(async()=>{
+    const s=await link();
     const next=await binding.rpc('patchImageCharacter',{packId,figureId,providerId:s.providerId,characterId:s.character.id,expected:s.character,patch});
-    setState({...s,status:'linked',character:next.character});
-  };
-  return {face:record?.traits?.face||'',upper:key=>record?.outfits?.find(o=>o.id===key)?.upper||'',
+    current.current={...s,status:'linked',character:next.character};setState(current.current);
+  }));
+  return {status:state?.status||null,record,write,link,libraries:state?.libraries||[],
+    face:record?.traits?.face||'',upper:key=>record?.outfits?.find(o=>o.id===key)?.upper||'',
     writeFace:v=>write({traits:{face:v}}),
     writeUpper:(outfit,v)=>write({outfits:[{id:outfit.key,...(record?.outfits?.some(o=>o.id===outfit.key)?{}:{name:outfit.label}),upper:v}]})};
 }
@@ -1280,7 +1285,7 @@ function FigureDetail({binding,pack,figure,commitFigure,assignFigureVoice,commit
         settei:{upload:importSettei,remove:removeFigureImage?(figureId,outfitKey)=>removeFigureImage(figureId,outfitKey,null,'settei'):null},
         onPick:id=>{if(kind!=='sprite'&&kind!=='avatar')setKindChoice('sprite');setFace(id);},
         uploadSprite:importFigureImage&&outfit?id=>pickTile({k:'sprite',id}):null,
-        setFallback:figureActions?.setFallback||null}),h(ImageCharacterSection,{key:pack.manifest.id+'/'+figure.id,binding,pack,figure,outfit})):h(React.Fragment,null,
+        setFallback:figureActions?.setFallback||null})):h(React.Fragment,null,
       // r5: the basic fields get their own small heading, in the 服装 / 差分 heading's style.
       h('section',{className:'ap-fe-section is-basic','aria-label':'基础设定'},
       h('h4',{className:'ap-sub ap-basic-head'},'基础设定',h(Help,{text:BASIC_HELP,label:'基础设定 说明'})),
@@ -1327,4 +1332,43 @@ function FigureDetail({binding,pack,figure,commitFigure,assignFigureVoice,commit
       modelOpen&&outfit&&h(ModelImportSheet,{key:outfit.key,binding,pack,fixed:{figureId:figure.id,outfitKey:outfit.key},onClose:()=>setModelOpen(false),
         onImport:result=>importModel(result).then(r=>{setKindChoice('model');return r;})}),
       confirm&&h(ConfirmDialog,{...confirm,onClose:()=>setConfirm(null)})));
+}
+// The 生图 tab's 设定 text is the figure's 配图 人物库 record itself (registerImageLibrary records, schema 4): the person's
+// fields, shared by every outfit, and the selected outfit's fields. Every edit writes that record, never a copy in the pack;
+// the record a write was read from goes with it (useFigureLook). What 生图 sends is assembled from these same fields.
+// The figure's 设定图 stay in its pack: 配图 reads them from there by the record's link (ADR 0012), the record holds no copy.
+// Labels as the 配图 人物库 names them; each hint says what to write and which pictures use it (lib/index.js characterTags,
+// pushOutfit; asset generation: appearanceFromImageCharacter).
+const IMAGE_TRAIT_FIELDS=[['face','五官外貌'],['bodySFW','上半身SFW'],['lowerSFW','下半身SFW'],['feature','性格气质'],['faceBack','五官外貌背面'],['bodySFWBack','上半身SFW背面'],['lowerSFWBack','下半身SFW背面'],
+  ['bodyNSFW','上半身NSFW'],['bodyNSFWBack','上半身NSFW背面'],['lowerNSFW','下半身NSFW'],['lowerNSFWBack','下半身NSFW背面'],['negative','负面']];
+const IMAGE_OUTFIT_FIELDS=[['upper','上衣'],['lower','下装'],['shoes','鞋袜'],['accessory','配饰'],['full','整体'],['back','背面'],['negative','负面']];
+// Rows always shown (the ones every 设定图 and 立绘 uses); the rest wait as 「＋ 名称」 chips until written.
+// Not offered here: 性格气质 is no appearance; 配饰 and 整体 go into 上衣 / 下装 and show only while
+// an older record still has text in them.
+const GEN_HIDDEN=new Set(['t.feature']),GEN_LEGACY=new Set(['o.accessory','o.full']);
+const IMAGE_TRAIT_SHOWN=['face','bodySFW','lowerSFW'],IMAGE_OUTFIT_SHOWN=['upper','lower','shoes','accessory','full'];
+const IMAGE_TRAIT_HINTS={face:'发色发型、瞳色、脸型、肤色、年龄感。看得到脸的图都用',bodySFW:'穿着衣服时上半身的体型、肩宽、胸部轮廓，不写衣服。上半身入镜时用',
+  lowerSFW:'穿着衣服时的腿型、身高感，不写衣服。全身入镜时用',feature:'冷淡、温柔…只用来挑表情动作，不写进生图提示词',
+  faceBack:'背面看到的发型、后颈，不写眼鼻嘴。背影图代替五官外貌',bodySFWBack:'背面的肩背、腰线，不写衣服。背影图用',lowerSFWBack:'背面的臀腿轮廓。背影全身图用',
+  bodyNSFW:'脱掉衣服才看得到的上半身细节。只用于裸露的画面',bodyNSFWBack:'裸露背面：背部线条、肩胛骨。只用于裸露的背影',lowerNSFW:'脱掉衣服才看得到的下半身细节。只用于裸露的画面',
+  lowerNSFWBack:'裸露背面的下半身。只用于裸露的背影',negative:'这个人身上不该出现的东西，如眼镜、胡子；不写年龄体型'};
+const IMAGE_OUTFIT_HINTS={upper:'腰以上穿戴的，含帽子、发饰、眼镜、项链、工牌；连衣裙写上身部分。近景也用',lower:'裙、裤、腰带；连衣裙写裙摆部分。全身入镜时用',shoes:'鞋和袜。全身入镜时用',
+  accessory:'领带、工牌、眼镜、发饰、包。近景也用',full:'一句话概括，如「西装三件套」「水手服」。按标签写法生图、又写了上衣下装时不用',
+  back:'画背影时补充背后才看得到的：后背开口、系带、背后的蝴蝶结。不要整套重抄',negative:'这套衣服不该出现的东西'};
+const IMAGE_LOOK_HELP='这里的文字就是配图插件人物库里这个人物的记录，两边改的是同一份。生成设定图、立绘和场景配图都从这里组装：人物的字段每套服装共用，服装的字段只属于这一套。';
+function GenLookFields({c}) {
+  const {look,outfit}=c,record=look.record,[error,setError]=React.useState('');
+  const save=(label,patch)=>{setError('');return look.write(patch).catch(e=>setError(label+'：'+(e?.code==='REVISION_CONFLICT'?'配图人物库刚在别处改过，请再改一次':errorText(e))));};
+  if(!look.status)return h(Loading,null);
+  if(look.status==='unavailable')return h(HintLine,{text:'启用配图插件后，可在这里写外貌和服装'});
+  if(!record)return h(HintLine,{text:'这个人物还没有配图人物库记录',action:look.libraries.length===1?'新建记录':undefined,onAction:()=>look.link().catch(e=>setError(errorText(e)))});
+  const own=record.outfits.find(o=>o.id===outfit.key);
+  const field=(group,[key,label],shown,hints,value,write)=>h(InlineField,{key:group+key,kind:'text',multiline:true,wide:true,label,controlLabel:(group==='o'?'服装':'人物')+label,hideEmpty:!shown.includes(key),
+    maxLength:8000,placeholder:hints[key],value:value||'',onCommit:write});
+  return h('div',{className:'ap-gw-look'},h(ErrorBox,{error}),
+    h('h5',{className:'ap-gw-subhead'},'人物',h('span',{className:'ap-gw-subnote'},'每套服装共用'),h(Help,{text:IMAGE_LOOK_HELP,label:'生图文字 说明'})),
+    h(InlineGrid,{label:'人物'},IMAGE_TRAIT_FIELDS.filter(f=>!GEN_HIDDEN.has('t.'+f[0])).map(f=>field('t',f,IMAGE_TRAIT_SHOWN,IMAGE_TRAIT_HINTS,record.traits?.[f[0]],v=>save('保存'+f[1],{traits:{[f[0]]:v}})))),
+    h('h5',{className:'ap-gw-subhead'},'「'+outfit.label+'」的衣服'),
+    h(InlineGrid,{label:'「'+outfit.label+'」的衣服'},IMAGE_OUTFIT_FIELDS.filter(f=>!GEN_LEGACY.has('o.'+f[0])||String(own?.[f[0]]||'').trim()).map(f=>field('o',f,IMAGE_OUTFIT_SHOWN,IMAGE_OUTFIT_HINTS,own?.[f[0]],
+      v=>save('保存'+f[1],{outfits:[{id:outfit.key,[f[0]]:v,...(own?{}:{name:outfit.label})}]})))));
 }
