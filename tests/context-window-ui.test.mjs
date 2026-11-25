@@ -308,11 +308,18 @@ test('移动端通过菜单底栏开启 Bottom Sheet，支持 390px/320px 零溢
   assert.match(solidBgCheck.stickyBgImage, /linear-gradient/, '移动端抽屉底栏同样采用实底叠加层')
   assert.notEqual(solidBgCheck.stickyBgColor, 'rgba(0, 0, 0, 0)', '移动端抽屉底栏底层 Canvas 必须不透明')
 
-  for (const width of [390, 320]) {
+  const filters = sheet.locator('.dsh-ctx-chips')
+  for (const width of [390, 375, 320]) {
     await page.setViewportSize({ width, height: 844 })
     const noOverflow = await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)
     assert.equal(noOverflow, true, `${width}px: 抽屉内无横向溢出`)
+    assert.equal(await filters.evaluate(el => el.scrollWidth <= el.clientWidth), true, `${width}px: context filters fit without sideways scrolling`)
   }
+  const lastFilter = filters.getByRole('button').last()
+  await lastFilter.press('Enter')
+  assert.match(await lastFilter.getAttribute('class'), /\bis-active\b/)
+  await lastFilter.press('Enter')
+  assert.match(await filters.getByRole('button', { name: '全部' }).getAttribute('class'), /\bis-active\b/)
 
   // 点击 Treemap Tile 显示底部 tap 选中 bar，再点「查看原文 ›」切入抽屉内二级明细并可返回
   await sheet.locator('[data-ctx-tile^="msg:0#"]').click()
