@@ -44400,6 +44400,54 @@ function DamperReceiptSummary(props) {
 // floorOffset, messages:[{absoluteIndex, key, legacyTurn, nativeTurn, floorNo, messageUid, message}]}，
 // 由 lib/domain/story-transcript.js 的 projectStoryTranscript 产出。
 
+const STYLE_REFERENCE_TOOL_NAME = 'style_reference_submit'
+const STYLE_REFERENCE_SYSTEM_TAG = 'foreground_style_reference'
+const STYLE_REFERENCE_REMINDER_TAG = 'style_reference_reminder'
+const STYLE_REFERENCE_SECTION = 'tavern:foreground-style-reference'
+
+const STYLE_REFERENCE_TAGS = [
+  STYLE_REFERENCE_TOOL_NAME, STYLE_REFERENCE_SYSTEM_TAG, STYLE_REFERENCE_REMINDER_TAG,
+  'style_reference', 'style_reference_recall', 'style_reference_preference'
+]
+const STYLE_REFERENCE_MARKUP = new RegExp(
+  "<(/?)(" + STYLE_REFERENCE_TAGS.join('|') + ")(?:[ \\t]+[^<>\\r\\n]*|[\"'])?/?>", 'gi'
+)
+
+function stripStyleReferenceMarkup(text) {
+  const tags = [...text.matchAll(STYLE_REFERENCE_MARKUP)]
+  if (tags.length === 0) return text
+
+  // A closing tag belongs to its nearest opener. A stray opener can precede
+  // ordinary prose or a later complete block, so remove only that opener.
+  const open = new Map()
+  const ends = new Map()
+  for (const tag of tags) {
+    const [markup, closing, name] = tag
+    const key = name.toLowerCase()
+    const starts = open.get(key)
+    if (closing) {
+      const start = starts?.pop()
+      if (start !== undefined) ends.set(start, tag.index + markup.length)
+    } else if (!markup.endsWith('/>')) {
+      if (starts) starts.push(tag.index)
+      else open.set(key, [tag.index])
+    }
+  }
+
+  let result = '', cursor = 0
+  for (const tag of tags) {
+    if (tag.index < cursor) continue
+    result += text.slice(cursor, tag.index)
+    cursor = ends.get(tag.index) ?? tag.index + tag[0].length
+  }
+  return result + text.slice(cursor)
+}
+
+if (typeof window === 'undefined' && typeof module !== 'undefined') {
+  module.exports = { STYLE_REFERENCE_TOOL_NAME, STYLE_REFERENCE_SYSTEM_TAG, STYLE_REFERENCE_REMINDER_TAG,
+    STYLE_REFERENCE_SECTION, stripStyleReferenceMarkup }
+}
+
 // 故事行正文：持久消息可能是 {text}（story 存档）、{message}（Helper 旁路）或
 // content 块数组（宿主修复行）。取不到文本时返回空串，不猜测。
 function tavernStoryTranscriptMessageText(message) {
@@ -44445,8 +44493,8 @@ const TAVERN_HIDDEN_PROTOCOL_TAGS = new Set([
 	'ta_hub', 'tw_hub'
 ])
 
-function tavernStripHiddenProtocolBlocks(value, allowUnclosed) {
-	const source = typeof value === 'string' ? value : ''
+function tavernStripHiddenProtocolBlocks(value) {
+	const source = typeof value === 'string' ? stripStyleReferenceMarkup(value) : ''
 	if (!source || source.indexOf('<') < 0) return source
 	let out = ''
 	let cursor = 0
@@ -44509,7 +44557,7 @@ function tavernStoryTranscriptRows(transcript) {
 		const legacyTurn = Number.isInteger(entry.legacyTurn) && entry.legacyTurn > 0 ? entry.legacyTurn : null
 		const rawText = tavernStoryTranscriptMessageText(message)
 		const streaming = role === 'assistant' && message.placeholder === true
-		const text = role === 'assistant' ? tavernStripHiddenProtocolBlocks(rawText, streaming) : rawText
+		const text = role === 'assistant' ? tavernStripHiddenProtocolBlocks(rawText) : rawText
 		const source = message.source && typeof message.source === 'object' ? message.source
 			: entry.source && typeof entry.source === 'object' ? entry.source : null
 		const requestId = source && typeof source.rpcId === 'string' && source.rpcId ? source.rpcId : null
@@ -44754,7 +44802,7 @@ function tavernStoryTranscriptStreamRows(rows, partial, runningCalls, storyTurn,
 	const calls = Array.isArray(runningCalls) ? runningCalls : []
 	const latestCall = calls.length ? calls[calls.length - 1] : null
 	const rawStreamed = tavernStoryTranscriptStreamText(partial)
-	const streamed = rawStreamed !== '' ? tavernStripHiddenProtocolBlocks(rawStreamed, true) : ''
+	const streamed = rawStreamed !== '' ? tavernStripHiddenProtocolBlocks(rawStreamed) : ''
 	const streamedReasoning = reasoningOverride && typeof reasoningOverride === 'object'
 		? { text: typeof reasoningOverride.text === 'string' ? reasoningOverride.text : '', live: reasoningOverride.live === true }
 		: tavernStoryTranscriptReasoningState(partial && partial.blocks, Boolean(partial))

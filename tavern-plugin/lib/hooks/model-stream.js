@@ -7,6 +7,8 @@ import { installCompactionRequestProjection } from '../domain/compaction-request
 import { installPrefixBoundReasoningProjection } from '../domain/prefix-bound-reasoning.js'
 import { omitEmptyProviderContent } from '../domain/provider-message-content.js'
 import { omitUnusedToolHistory } from '../domain/tool-history-presentation.js'
+import { foregroundStyleReferenceEnabled } from '../domain/style-reference.js'
+import { projectWithoutStyleReference } from '../domain/style-reference-request.js'
 import legacySeeds from '../domain/session-seed-trajectory.cjs'
 import { installWorkspaceInstructionPresentation } from '../domain/workspace-instruction-presentation.js'
 import { isTavernAgentSession } from '../domain/tavern-agent-scope.js'
@@ -126,13 +128,14 @@ export function registerModelStreamHooks({
   installCompactionRequestProjection(ctx, ownsSession, async request => {
     // 前台对话压缩优先使用全局设置的专用压缩模型；后台 Agent 保持各自任务模型。
     const foreground = !backgroundAgentRunner.owns(request.sessionId)
-    const routed = foreground && typeof compactionModel === 'function'
+    let routed = foreground && typeof compactionModel === 'function'
       ? applyCompactionModel(request, await compactionModel())
       : request
     // Story/script chats summarize with the story prompt and keep the latest rounds
     // verbatim after the summary; other sessions keep DSH's prompt.
-    const head = await chatHeaderForSession(str(request.sessionId), ['backgroundTasks'])
+    const head = await chatHeaderForSession(str(request.sessionId), ['backgroundTasks', 'disabledForegroundTools'])
     if (!usesStoryCompaction(head)) return { request: routed }
+    if (foreground && !foregroundStyleReferenceEnabled(head)) routed = projectWithoutStyleReference(routed)
     // An imported game compacts right away: an oversized history is summarized in segments
     // (bounded-compaction.js), so the first-play capacity check is not a precondition.
     // Seam to the plugin layer: plugins may add what the summary must keep.

@@ -27,6 +27,9 @@ import { frameUserInput } from './agent-input-frame.js'
 import { hasProviderContent } from './provider-message-content.js'
 import { appendSessionEvent } from './session-events.js'
 import { projectPureWritingRequest, pureWritingContext, pureWritingFixedSections, pureWritingInjection, pureWritingSystemSections, pureWritingTools, PURE_WRITING_REQUEST } from './pure-writing-request.js'
+import { foregroundStyleReferenceEnabled } from './style-reference.js'
+import { projectWithoutStyleReference } from './style-reference-request.js'
+import { STYLE_REFERENCE_SECTION, STYLE_REFERENCE_TOOL_NAME } from './style-reference-protocol.cjs'
 import systemPromptSections from './system-prompt-sections.cjs'
 
 const { buildSystemSectionSpans } = systemPromptSections
@@ -317,9 +320,9 @@ export function createNativePlayOrchestrationStrategy(options) {
   function stageWorldbookSection({ agent, signal }, section) {
     if (section && signal && !signal.aborted) pendingWorldbookSections.set(signal, { agent, section })
   }
-  // Digest of the front rendered by the latest assembly, and of the one last entered into a step.
-  const renderedFronts = new Map()
-  const enteredFronts = new Map()
+  // Digest of system sections that should replace their prior versions when changed.
+  const renderedSeriesPrompts = new Map()
+  const enteredSeriesPrompts = new Map()
   // Front texts of the step being prepared, only to label the request evidence.
   const frontTexts = new Map()
   // Per-session dice seed: drawn on a turn's first step, so every step of one turn rolls
@@ -368,7 +371,7 @@ export function createNativePlayOrchestrationStrategy(options) {
     const prepareTurn = () => options.prepareTurn({ sessionId, turn: payload.turn, requestId: input.requestId,
       userText: userTextOf(payload.messages), userContent: userContentOf(payload.messages), runtimePresetSnapshot: snapshot })
     if (pureWriter) {
-      enteredFronts.delete(sessionId)
+      enteredSeriesPrompts.delete(sessionId)
       const prepared = await prepareTurn()
       if (prepared?.duplicate) throw new Error('该消息已由酒馆处理，请勿重复发送')
       const frame = prepared.frame
@@ -408,6 +411,7 @@ export function createNativePlayOrchestrationStrategy(options) {
         step: Math.max(1, Number(payload.step) || 1),
         scope: 'foreground',
         snapshot: snapshot || null,
+        styleReferenceEnabled: foregroundStyleReferenceEnabled(input.chat),
         // Resolved here because the request projection below is synchronous.
         historyToolCall: submitOffered,
         storyOutputToolCall: outputWanted && submitVisible,
@@ -439,9 +443,9 @@ export function createNativePlayOrchestrationStrategy(options) {
     // new prompt after the old one, leaving a switched-out preset at the head.
     // A new request series makes DSH replace the head instead. Unknown history
     // (first step since startup) starts one too; it is a no-op when nothing changed.
-    const front = renderedFronts.get(sessionId) ?? ''
-    const switched = enteredFronts.get(sessionId) !== front
-    enteredFronts.set(sessionId, front)
+    const seriesPrompt = renderedSeriesPrompts.get(sessionId) ?? ''
+    const switched = enteredSeriesPrompts.get(sessionId) !== seriesPrompt
+    enteredSeriesPrompts.set(sessionId, seriesPrompt)
     return { kind: 'enter', messages: agentMessages, ...(switched ? { startsRequestSeries: true } : {}) }
   }
 
@@ -451,7 +455,7 @@ export function createNativePlayOrchestrationStrategy(options) {
     if (!staged?.pureWriter) throw new Error('本轮写作上下文已失效')
     const { frame } = staged
     const messages = projectLegacyOpeningSources(projectRegenerationRequestMessages(request.messages))
-    const context = pureWritingContext(staged.system, messages)
+    const context = pureWritingContext(staged.system, projectWithoutStyleReference({ messages }).messages)
     if (!staged.preparation) {
       const { provider, model, reasoningEffort } = request
       const foregroundSelection = provider && model ? { provider, model, reasoningEffort } : undefined
@@ -497,8 +501,10 @@ export function createNativePlayOrchestrationStrategy(options) {
     }
     const regeneratedMessages = projectRegenerationRequestMessages(visibleMessages.length === optionsValue.messages?.length ? optionsValue.messages : visibleMessages)
     const nativeMessages = regeneratedMessages.some(isNativeStablePrefix) ? regeneratedMessages.filter(message => !isNativeStablePrefix(message)) : regeneratedMessages
-    const baseRequest = nativeMessages === optionsValue.messages
+    const nativeRequest = nativeMessages === optionsValue.messages
       ? optionsValue : Object.assign({}, optionsValue, { messages: nativeMessages })
+    const baseRequest = staged.scope === 'foreground' && staged.styleReferenceEnabled === false
+      ? projectWithoutStyleReference(nativeRequest) : nativeRequest
     // 前台正文的 front 已由 assembleSystemPrompt 写入原生 system prompt；后台任务不走该钩子，须保留完整前／后段。
     const projectionSnapshot = staged.scope === 'background'
       ? staged.snapshot
@@ -658,7 +664,6 @@ export function createNativePlayOrchestrationStrategy(options) {
       const front = presetFrontSections(resolveRuntimePresetMacros(raw, { charName: input.chat?.cardName, macroState: input.chat?.macroState, phases: ['front'] }).snapshot)
       sections.unshift(...front)
       frontTexts.set(input.sessionId, front.map(section => section.text))
-      renderedFronts.set(input.sessionId, createHash('sha256').update(JSON.stringify(front.map(section => section.text))).digest('hex'))
     }
     if (Array.isArray(assembly.contexts)) assembly.contexts = assembly.contexts.filter(section => section.name !== 'approval:policy')
     // A plugin's own tool shows everywhere unless the plugin scoped it (tavern.toolModes).
@@ -721,9 +726,12 @@ export function createNativePlayOrchestrationStrategy(options) {
         sections.push({ name: 'tavern:no-foreground-tools', text: NO_FOREGROUND_TOOLS_PROMPT })
       }
     }
-    if (playMode && finalTools.some(tool => tool.name === 'style_reference_submit') && options.styleReferencePrompt) {
-      const text = options.styleReferencePrompt(input.chat)
-      if (text) sections.push({ name: 'tavern:foreground-style-reference', text })
+    if (playMode) {
+      const styleReference = finalTools.some(tool => tool.name === STYLE_REFERENCE_TOOL_NAME)
+        ? options.styleReferencePrompt?.(input.chat) : ''
+      if (styleReference) sections.push({ name: STYLE_REFERENCE_SECTION, text: styleReference })
+      const seriesPrompt = JSON.stringify([frontTexts.get(input.sessionId), styleReference || ''])
+      renderedSeriesPrompts.set(input.sessionId, createHash('sha256').update(seriesPrompt).digest('hex'))
     }
     if (mode === 'story' && options.foregroundCandidatePrompt) {
       const text = await options.foregroundCandidatePrompt(input.chat)

@@ -7,6 +7,7 @@ import { createHash } from 'node:crypto'
 import { applyTavernRegexText } from './tavern-regex-display.js'
 import { encodeOpeningIdentity, replaceOpeningIdentities } from './opening-identity.js'
 import { mvuStatusConfirmed } from './status-view-declaration.js'
+import { stripStyleReferenceMarkup } from './style-reference-protocol.cjs'
 
 function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
@@ -32,8 +33,9 @@ function targetOptions(options, isMarkdown) {
 /** A provider already resolved its output. Only split display parts; never run macros or regexes. */
 export function projectProcessedReply(value) {
   const text = str(value)
-  const display = projectDisplayParts(text)
-  return { sourceText: text, projectionText: text, sessionText: text, displayText: text,
+  const displayText = stripStyleReferenceMarkup(text)
+  const display = projectDisplayParts(displayText)
+  return { sourceText: text, projectionText: text, sessionText: text, displayText,
     displayMode: display.parts.some(part => part.kind === 'html') ? 'html' : 'markdown',
     displayParts: display.parts, warnings: display.warnings, applied: { session: [], display: [] } }
 }
@@ -75,6 +77,7 @@ export function projectReplyLayers(value, options = {}) {
     }
   }
   if (options.resolveIdentity !== false) display.text = resolveDisplayIdentityMacros(display.text, options)
+  display.text = stripStyleReferenceMarkup(display.text)
   const displayProjection = projectDisplayParts(display.text)
   const displayMode = displayProjection.parts.some(part => part.kind === 'html') ? 'html' : 'markdown'
 
@@ -205,7 +208,7 @@ export function createReplyHistoryProjector({ maxCacheBytes = 16 * 1024 * 1024, 
         let displayText = frozenHostRegex ? str(message.displayText ?? projectionText) : projectionText
         if (confirmed && !message.bodyPluginProjection) displayText = restoreMvuStatusDisplay(displayText, options)
         const processed = projectProcessedReply(displayText)
-        projections.push({ version: 2, turn, text: displayText,
+        projections.push({ version: 2, turn, text: processed.displayText,
           mode: processed.displayMode,
           parts: ordinaryDisplay ? annotateTemplateStatusParts(processed.displayParts, templateDisplay.html) : processed.displayParts,
           warnings: frozenHostRegex && Array.isArray(message.projectionWarnings) ? [...message.projectionWarnings] : [...processed.warnings] })
