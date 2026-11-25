@@ -1,6 +1,7 @@
 import {FISH_CLOUD_CONCURRENCY, FISH_DEFAULT_MODEL, FISH_MODELS, fishModel, isFishCloud} from './providers/fish-models.js'
 import z from '@deepseek-ai/schemastery'
 import { providerConfig, providerKind, credentialRef, PROVIDER_ID, PROVIDER_KINDS } from './providers/params.js'
+import { MUSIC_ADAPTERS, isMusicKind } from './music.js'
 import { createOpenAICompatibleAdapter } from './providers/openai-compatible.js'
 import { createFishDiscovery } from './providers/fish-discovery.js'
 import recommendedFishVoices from './shared/fish-recommended.json' with {type:'json'}
@@ -113,6 +114,7 @@ export function createServiceSettings({ tts, get, replace, credentials, fetch, w
   const fish = createFishAudioAdapter({fetch}), discovery = createFishDiscovery({fetch})
   fetch = boundedFetch(fetch)
   const adapters = { 'fish-audio':fish, 'openai-compatible':createOpenAICompatibleAdapter({fetch}), qwen:createQwenAdapter({fetch,warn}), azure:createAzureAdapter({fetch}), volcengine:createVolcengineAdapter({fetch}), minimax:createMinimaxAdapter({fetch}) }
+  const musicAdapters = Object.fromEntries(Object.entries(MUSIC_ADAPTERS).map(([kind, create]) => [kind, create({fetch})]))
   const registrations = new Map(), validation = createModelValidation(), credentialEpochs = new Map()
   const modelIdentity = (p, model, voiceName) => ({serviceId:p.id,revision:hash([p,credentialEpochs.get(p.id) || 0]),model:model || (p.kind === 'qwen' ? 'qwen3-tts-flash' : ''),voiceName})
   let chain = Promise.resolve(), voiceSource, voiceRevision
@@ -212,6 +214,15 @@ export function createServiceSettings({ tts, get, replace, credentials, fetch, w
   // one (Azure voices/list, Qwen and Fish model listings, OpenAI-compatible list or /v1/models);
   // Volcengine, and OpenAI-compatible endpoints without any list route, synthesize a single character.
   async function check(p, secret) {
+    // A music service (music.js) checks by listing the models it can generate with.
+    if (isMusicKind(p.kind)) {
+      const listed = {voices:[], models:[], source:'none'}
+      if (!secret?.key) return {status:'credentials-required', ...listed}
+      try {
+        const models = await musicAdapters[p.kind].models(p, secret)
+        return {...listed, status:models.length ? 'connected' : 'rejected', models}
+      } catch (error) { return {...listed, status:error.status === 401 || error.status === 403 ? 'invalid-key' : error.status ? 'rejected' : 'offline'} }
+    }
     const a = adapters[p.kind]
     if (!secret) {
       let listed = { voices:[], models:[], source:'none' }
@@ -514,7 +525,7 @@ export function createServiceSettings({ tts, get, replace, credentials, fetch, w
     // tts.d.ts): the provider is asked (discover) and caches it per service config. `state` is the last connection check.
     async voiceServices() {
       const reported = new Map((await tts.providerVoiceSources()).map(r => [r.id,r]))
-      const services = await Promise.all(get().providers.map(async p => {
+      const services = await Promise.all(get().providers.filter(p => !isMusicKind(p.kind)).map(async p => {
         const kind = providerKind(p.kind), revision = hash(p), check = checkOf(p, revision)
         const fish = p.kind === 'fish-audio', custom = fish && !isFishCloud(p.config) || p.kind === 'openai-compatible'
         const keyless = await missingKey(p)
@@ -528,7 +539,7 @@ export function createServiceSettings({ tts, get, replace, credentials, fetch, w
         state:'configured', billing:r.billing, sources:r.sources, voiceList:r.voiceList || 'provider', voice:[], models:[]}))
       return {services:[...services, ...plugins, structuredClone(BROWSER_VOICE_SERVICE)], kinds:Object.fromEntries([...PROVIDER_KINDS.map(k => [k.kind,k.label]), ['browser',BROWSER_VOICE_SERVICE.label]])}
     },
-    async list() { return Promise.all(get().providers.map(async p => { const revision = hash(p); return { ...structuredClone(p), ...await serviceModels(p), category:selfHosted(p) || p.kind === 'openai-compatible' ? 'custom' : 'builtin', selfHosted:selfHosted(p), revision, ...(checkOf(p, revision) ? {check:{...checkOf(p, revision)}} : {}), secrets:Object.fromEntries(await Promise.all(providerKind(p.kind).fields.filter(f => f.secret).map(async f => [f.key, await describeSecret(p,f)]))),
+    async list() { return Promise.all(get().providers.map(async p => { const revision = hash(p); return { ...structuredClone(p), ...await serviceModels(p), category:selfHosted(p) || p.kind === 'openai-compatible' ? 'custom' : 'builtin', selfHosted:selfHosted(p), ...(isMusicKind(p.kind) ? {music:true} : {}), revision, ...(checkOf(p, revision) ? {check:{...checkOf(p, revision)}} : {}), secrets:Object.fromEntries(await Promise.all(providerKind(p.kind).fields.filter(f => f.secret).map(async f => [f.key, await describeSecret(p,f)]))),
       ...(urlKind(p.kind) ? {recent:await recent(p).list({url:p.config.url, key:(await secrets(p)).key})} : {})} })) },
     // 最近用过的连接: picking a recorded pair saves it as the service's Base URL and API Key together (the one save path), then
     // it is the latest. Every other field stays. Answers the saved row, like save.

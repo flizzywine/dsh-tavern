@@ -133,7 +133,7 @@ const data = await ctx.tavern.readGameData({ gameId })
 | `member({ name, title, system?, tools? })` | 后台成员 | 添加：插件的常驻后台 Agent，每局一个，有自己的会话和缓存；不进存档时间线，不随剧情回退。带 `system` 时它有自己的前缀（这段系统提示词和 `tools`，每个任务都相同），`runTask({ member })` 只送一条工单、不能再带工具；不带时沿用 Tavern 的后台前缀（人物卡、世界书） |
 | `getTurn`、`getTurnState`、`getCardContext`、`backgroundModel` | 上下文 | 观察（按需读取） |
 | `promptSection`、`turnSection`、`worldbookSource` | 上下文 | 添加 |
-| `settlementSection`、`settlementTool` | 结算 | 添加 |
+| `settlementSection`、`settlementTool` | 结算 | 添加；工具（含 `member`、`runTask` 的 `tools`）的参数名只能用英文字母、数字和 `_ . -`（1–64 个字符），中文名写进参数的 `description`，否则注册时就报错（Claude 会拒绝带这种参数名的整轮请求） |
 | `replaceSettlement` | 结算 | 替换 |
 | `settlementTask`、`manualTask`、`startTask` | 结算、手动任务 | 添加；带 `member` 时在该成员的常驻会话里按顺序跑 |
 | `runTask` | 后台任务 | 默认开一次性临时 Agent；带 `member` 时进该成员的常驻会话排队。示例见 examples/tavern-plugin-diarist |

@@ -399,6 +399,14 @@ function GalStage(props) {
     // show a "writing" state so the stage never looks stuck.
     const useSession = props.choiceProps && props.choiceProps.useSession;
     const running = useSession ? useSession(snapshot => snapshot.running === true) : false;
+    // Where the reader stands in the round, for the mods' parts: a tool result called for partway through the reply shows
+    // where the text goes on after the call (its `at`; a check's dice fall on that page, mods/dice place.js). para: this
+    // page's paragraph (0 while a page turns); first: its first page; end: the complete round's last page; start: the round's
+    // first page; units: its paragraphs so far; `running`: a reply is being written. null while a lease reads.
+    const placePara = transitioning ? 0 : pages[page]?.para || 0, placeEnd = !streaming && !(running && turn === latestTurn) && page >= pages.length - 1;
+    const readerPlace = React.useMemo(() => leasing ? null : {turn: runtime.textIndex.get(turn)?.nativeTurn || 0, para: placePara,
+        first: pages.findIndex(row => row.para === placePara) === page, end: placeEnd, start: page === 0, units: runtime.text.units?.length || 0, streaming, running},
+        [leasing, runtime.text.units, runtime.textIndex, turn, streaming, running, placeEnd, placePara, page, pages]);
     // the system-menu action shares upstream settlement activity.
     const regenerationActivity = useTavernCoordination(sessionId, String(running) + ":" + latestTurn);
     // the worldbook prefilter yields to any other task and never blocks the player (as in
@@ -614,6 +622,26 @@ function GalStage(props) {
         forkLipSync.wake(); forkUiSfx.play("open"); setHidden(false); setOpenPage(id);
     }
     function closeCardPage() { forkUiSfx.play("close"); backlogClosedAt.current = Date.now(); setOpenPage(null); }
+    // 卡页面演出 (status-panel.cjs Performance): a mod overlay's cardPage.perform(pageId, cue) plays one of the card's pages
+    // over the scene, above the text box; one at a time. → Promise of {done} / {skipped}; rejected when the card has no such
+    // page, the page cannot be read, or another performance is up (the mod then shows what it shows without one).
+    const [pagePerform, setPagePerform] = React.useState(null);
+    const pagePerformNow = React.useRef(null), pageListNow = React.useRef(pageList);
+    pageListNow.current = pageList;
+    const cardPagePerformer = React.useMemo(() => Object.freeze({ perform(pageId, cue) {
+        if (!pageListNow.current.some(declared => declared.id === pageId)) return Promise.reject(new Error('本卡没有页面「' + String(pageId) + '」'));
+        if (pagePerformNow.current) return Promise.reject(new Error('舞台正在演另一段页面'));
+        return new Promise((resolve, reject) => {
+            const root = rootRef.current, box = root?.querySelector('.fork-gal-box');
+            const bottom = root && box ? Math.max(0, root.getBoundingClientRect().bottom - box.getBoundingClientRect().top) : 0;
+            const item = { key: sessionId + ':' + pageId + ':' + Date.now(), sessionId, pageId, cue, region: { bottom },
+                end: result => { if (pagePerformNow.current !== item) return; pagePerformNow.current = null; setPagePerform(null); if (result.failed) reject(new Error(result.failed)); else resolve(result); } };
+            pagePerformNow.current = item;
+            setPagePerform(item);
+        });
+    } }), [sessionId]);
+    // another session ends what the last one was playing
+    React.useEffect(() => () => { pagePerformNow.current?.end({ skipped: true }); }, [sessionId]);
     // closing an entry page (×, Esc, the backdrop, close()) is not entering: 返回主页面, as the stage menu's row.
     function leaveEntryPage() { forkUiSfx.play("close"); props.onExit(); }
     // A page's DshCardPage actions (status-panel.cjs onAction): open(id) switches to another page; openSettings() opens the
@@ -650,6 +678,9 @@ function GalStage(props) {
     // System menu (gal-menu.js): Esc opens it; auto / skip pause like the backlog. Leaving system full screen
     // (the browser takes that Esc) opens it too, and closing it asks for full screen again.
     const [menuOpen, setMenu] = React.useState(false);
+    // a page performing ends when something covers the stage (as the mods' live overlays stop)
+    const performCovered = hidden || film || backlog || configOpen || galleryOpen || pageOpen || menuOpen;
+    React.useEffect(() => { if (performCovered) pagePerformNow.current?.end({ skipped: true }); }, [performCovered]);
     // the turn-end menu's 「重新生成」 opens the menu straight into its 重新生成 dialog.
     const [menuRegenerate, setMenuRegenerate] = React.useState(false);
     const menuOpener = React.useRef(null);
@@ -1346,7 +1377,7 @@ function GalStage(props) {
     const handoff = useGalFaceHandoff(sessionId + ":" + boxPageKey, { facing, shown: Boolean(face && (face.src || face.glyph)), moves: faceMode !== "off", snap: faceSnap || !!accepted.cg || cg.visible, calm: calmMotion, typed });
     const historyRolls=stageViews.playback.usePlayback({sessionId,runtime,reading,auto,skipping,hidden,
         overlay:backlog||configOpen||galleryOpen||pageOpen||menuOpen||!!insert,typed,current,atEnd,awaiting,sceneHolding,
-        line:{turn,page,card,inputCard,transitioning,subtitles,inputSubtitles,lastCard,voice,audioBusy,heldMs:handoff.heldMs,film,pageCount:pages.length},
+        line:{turn,page,card,inputCard,transitioning,subtitles,inputSubtitles,lastCard,voice,audioBusy,heldMs:handoff.heldMs,film,pageCount:pages.length,rollPlace:Boolean(readerPlace && (readerPlace.first || readerPlace.end))},
         performance:{replayable:performanceKinds.replayable,holds:[...modPerformances.holds,{remainingMs:cg.holdMs()}],holdKey:cg.holdTick,blocking:takeover.busy||!!title,dialogueHeld,busy:presentationBusy}},
         {advance:()=>go(1,true),finishSkip:()=>{turnPastEnd();stopSkip();},finishTyping:()=>setTyped(true)});
     // An insert page holds the playback clock (overlay above): AUTO turns it a wordless page's wait (the CONFIG auto wait,
@@ -1581,7 +1612,7 @@ function GalStage(props) {
             // the reply wait's look (StageWaitStop + StageWaitLines, portalled by gal-choices.js); empty, it takes no room.
             h("div", { ref: setChoiceWaitSlot, className: "fork-gal-box-wait" }),
             // the mods' page parts sit on the box's top edge, out of its flow (mod-clients.js; e.g. a live roll's one-shot strip).
-            props.choiceProps && props.choiceProps.useChat ? modClients.slot('page').map(part => h(part.value, { key: part.modId, useChat: props.choiceProps.useChat, nativeTurn: runtime.textIndex.get(turn)?.nativeTurn || 0, pageKey, sessionId, input: modClients.input(props.choiceProps.executeSlash, sessionId) })) : null,
+            props.choiceProps && props.choiceProps.useChat ? modClients.slot('page').map(part => h(part.value, { key: part.modId, useChat: props.choiceProps.useChat, nativeTurn: runtime.textIndex.get(turn)?.nativeTurn || 0, pageKey, sessionId, place: readerPlace, input: modClients.input(props.choiceProps.executeSlash, sessionId) })) : null,
             // film mode shows the page count briefly on each page turn
             // (the keyed node restarts its CSS fade); hover still shows it in full.
             h("div", { key: film ? "flash:" + pageKey : "meta", className: "fork-gal-meta" + (film ? " is-flash" : "") },
@@ -1605,11 +1636,15 @@ function GalStage(props) {
         entrance.element,
         // the mods' overlay parts (mod-clients.js; e.g. a live roll thrown above the box). live: the reader follows the
         // arrival with nothing over the stage and no skip; calm: only the CONFIG 减少动态 setting, not the OS one (ui-design
-        // R20); veiled: under the first-entry veil; replay: a clip replay's visit or the settled history page's replay.
-        props.choiceProps && props.choiceProps.useChat ? modClients.slot('overlay').map(part => h(part.value, { key: part.modId, sessionId, useChat: props.choiceProps.useChat, running, following: presenting === 'live', device, rootRef, calm: reading.reducedMotion === true, safety: effectSafety,
+        // R20); veiled: under the first-entry veil; replay: a clip replay's visit or the settled history page's replay;
+        // place: where the reader stands in the round (above).
+        props.choiceProps && props.choiceProps.useChat ? modClients.slot('overlay').map(part => h(part.value, { key: part.modId, sessionId, useChat: props.choiceProps.useChat, running, place: readerPlace, following: presenting === 'live', device, rootRef, calm: reading.reducedMotion === true, safety: effectSafety,
             veiled: !entryGate.visible, input: modClients.input(props.choiceProps.executeSlash, sessionId), screen: playModBeat,
             replay: replaying && runtime.replay?.phase === 'play' ? runtime.cursor.visitId : historyRolls, nativeTurn: runtime.textIndex.get(turn)?.nativeTurn || 0,
+            cardPage: stageViews.statusPanel ? cardPagePerformer : undefined,
             live: (presenting === 'live' || !!historyRolls) && !skipping && !film && !hidden && !backlog && !configOpen && !galleryOpen && !pageOpen && !menuOpen })) : null,
+        // a card page performing (cardPage.perform above), over the scene and the mods' layers, clear of the text box
+        pagePerform && pagePerform.sessionId === sessionId ? h(stageViews.statusPanel.Performance, { key: pagePerform.key, sessionId, pageId: pagePerform.pageId, cue: pagePerform.cue, calm: reading.reducedMotion === true, region: pagePerform.region, onEnd: pagePerform.end }) : null,
         // Reading done: the next move sits in the middle of the screen.
         // a latest turn with nothing to read (an HTML introduction / opening chooser) is done too: the
         // panel offers 生成选项 and 自由输入 (no 重新生成); leaving is the existing 返回主页面 (R13).

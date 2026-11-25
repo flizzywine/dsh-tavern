@@ -92,7 +92,7 @@ export function migrateCliHome({ source, target }) {
   if (existsSync(path.join(source, 'logs/tavern.pid.json'))) {
     const launcher = path.join(manifest.dshTavern.source || '', 'bin/dsh-tavern.mjs')
     if (!existsSync(launcher)) throw new Error('请先停止旧 CLI 酒馆，再迁移数据；找不到旧启动器。')
-    const stopped = spawnSync(process.execPath, [launcher, 'stop'], {
+    const stopped = spawnSync(process.execPath, [launcher, 'stop'], { windowsHide: true,
       stdio: 'inherit', env: { ...process.env, DSH_HOME: source, DSH_TAVERN_CLI_HOME: source, DSH_TAVERN_RUNTIME_HOST: 'cli' },
     })
     if (stopped.error || stopped.status !== 0) throw new Error('停止旧 CLI 失败，尚未复制数据。请先停止旧酒馆后重试。')

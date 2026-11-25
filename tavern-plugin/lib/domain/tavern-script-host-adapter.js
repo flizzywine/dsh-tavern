@@ -129,6 +129,7 @@ export function createTavernScriptHostAdapter(options = {}) {
   const syncTemplateState = createFullPromptTemplateSync()
   const templateCharacters = createJsonValueProjectionCache({ capacity: 8, maxBytes: 64 * 1024 * 1024 })
   const mutationTails = new Map()
+  const messageCreations = new Map()
   // A library book reaches the game's view of it a little after a write. Until the game's
   // save moves past the revision the write started from, reads and writes start from what was written.
   const writtenWorldbooks = new Map()
@@ -374,23 +375,71 @@ export function createTavernScriptHostAdapter(options = {}) {
     return { updated: true, targets: updated, context: await fullContext(chat) }
   }
 
-  async function createMessages(sessionId, messages, option, expectedLifecycleRevision, eventId) {
+  async function createMessages(sessionId, messages, option, expectedLifecycleRevision, eventId, completion = {}) {
     settlement.assertEvent(sessionId, eventId)
     if (settlement.has(sessionId)) throw new Error('MVU 结算事务不能创建额外聊天楼层')
     const chat = await resolveChat(sessionId)
     await assertScriptEnabled(chat)
     if (!mutationIsCurrent(chat, expectedLifecycleRevision)) return staleMutation(chat)
-    const created = appendTavernHelperMessages(chat, messages, option)
-    try { await options.writeChat(chat, { source: 'tavern-helper.messages.create' }) }
-    catch (error) {
-      if (error && error.code === 'DSH_TAVERN_CHAT_CONFLICT') {
-        const latest = await options.resolveChat(str(sessionId))
-        if (latest !== undefined && !mutationIsCurrent(latest, expectedLifecycleRevision)) return staleMutation(latest)
+    const operationId = str(completion.operationId)
+    const key = operationId && operationId.length <= 128
+      ? JSON.stringify([sessionId, chat.id, chat.tavernHelperLifecycleRevision ?? 0, operationId]) : ''
+    const attempt = (key && messageCreations.get(key)) || { nextEvent: 0 }
+    if (attempt.pending) return await attempt.pending
+    if (key) messageCreations.set(key, attempt)
+    attempt.pending = (async () => {
+      let saved = chat
+      if (!attempt.targets) {
+        const next = { ...chat, messages: [...(chat.messages || [])] }
+        const targets = appendTavernHelperMessages(next, messages, option)
+        if (targets.length) {
+          try { saved = await options.writeChat(next, { source: 'tavern-helper.messages.create' }) || next }
+          catch (error) {
+            if (error?.code === 'DSH_TAVERN_CHAT_CONFLICT') {
+              const latest = await options.resolveChat(str(sessionId))
+              if (latest !== undefined && !mutationIsCurrent(latest, expectedLifecycleRevision)) return staleMutation(latest)
+            }
+            throw error
+          }
+        }
+        attempt.targets = targets
+        attempt.userMessageIds = targets.map(target => target.messageId)
+          .filter(id => saved.messages[id]?.tavernRole === 'user')
       }
-      throw error
+      const result = { updated: attempt.targets.length > 0, targets: attempt.targets, userMessageIds: attempt.userMessageIds }
+      try {
+        if (!attempt.published && result.updated) {
+          await options.publishCreatedMessages?.(saved, result.targets)
+          attempt.published = true
+        }
+        if (completion.dispatch === true && saved.mvu?.enabled === true && saved.mvu.owner === 'official') {
+          while (attempt.nextEvent < result.userMessageIds.length) {
+            saved = await resolveChat(sessionId)
+            if (saved.id !== chat.id || !mutationIsCurrent(saved, expectedLifecycleRevision)) return staleMutation(saved)
+            const messageId = result.userMessageIds[attempt.nextEvent]
+            const event = await dispatchEvent({ sessionId, name: 'MESSAGE_SENT', args: [messageId], chat: saved })
+            if (!event.handled) throw new Error(event.error || '人物卡运行时暂时无法处理发送事件')
+            attempt.nextEvent++
+          }
+          if (result.userMessageIds.length) saved = await resolveChat(sessionId)
+        }
+      } catch (error) {
+        return { ...result, completionError: '消息已保存，发送事件未完成：' + str(error?.message || error) }
+      }
+      return { ...result, context: await fullContext(saved) }
+    })()
+    try { return await attempt.pending }
+    finally {
+      attempt.pending = null
+      if (key && !attempt.targets) messageCreations.delete(key)
+      // Keep bounded receipts so retrying an interrupted call resumes after the append.
+      if (messageCreations.size > 256) {
+        for (const [id, receipt] of messageCreations) {
+          if (!receipt.pending) messageCreations.delete(id)
+          if (messageCreations.size <= 256) break
+        }
+      }
     }
-    if (typeof options.publishCreatedMessages === 'function') await options.publishCreatedMessages(chat, created)
-    return { updated: true, targets: created, context: await fullContext(chat) }
   }
 
   async function worldbookRecord(sessionId, requestedName, template = false, suppliedChat, readOnly = false) {

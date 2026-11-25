@@ -33,6 +33,19 @@ function storageFixture() {
   return { files, operations, adapters, advance: () => { stamp += 250 } }
 }
 
+test('请求记录和完成状态落盘后通知对应会话', async () => {
+  const fixture = storageFixture()
+  const changes = []
+  const log = createModelRequestLog({ ...fixture.adapters, onChange: (sessionId, version) => changes.push([sessionId, version]) })
+  const request = await log.record({ chat: { id: 'chat' }, options: { sessionId: 'session', messages: [] } })
+  await log.list('chat')
+  assert.equal((await log.latestForSession('session')).status, 'running')
+  assert.deepEqual(changes, [['session', request.id + ':running']])
+  await log.complete({ chatId: 'chat', id: request.id, sessionId: 'session', text: '正文', finish: { kind: 'stop' } })
+  assert.equal((await log.latestForSession('session')).status, 'completed')
+  assert.deepEqual(changes, [['session', request.id + ':running'], ['session', request.id + ':completed']])
+})
+
 test('并发请求的完成结果互不串写，缺少状态文件仍可查看正文', async () => {
   const fixture = storageFixture()
   let sequence = 0
@@ -220,4 +233,103 @@ test('runPlanner 对游戏 sessionId 加命名空间，不与前台会话串用�
   await runPlanner(fakeLlm, { provider: 'p', model: 'bg-model', system: 's', text: 't', sessionId: 'game-session-1' })
   await runPlanner(fakeLlm, { provider: 'p', model: 'bg-model', system: 's', text: 't', sessionId: 'dsh-image-workbench' })
   assert.deepEqual(seen, ['dsh-image-planner:game-session-1', 'dsh-image-workbench'])
+})
+
+test('recentSeries 仅读 .result.json 统计近期轮次趋势，过滤 compaction 并支持后台 scope 跨子会话查询', async () => {
+  const fixture = storageFixture()
+  let sequence = 0
+  const log = createModelRequestLog({ ...fixture.adapters, id: () => String(++sequence) })
+
+  const r1 = await log.record({
+    chat: { id: 'chat-series' },
+    context: { scope: 'foreground', task: 'reply', turn: 1 },
+    coordinates: { turn: 1, step: 1 },
+    options: { sessionId: 'fg-1', model: 'claude-sonnet', system: 's', messages: [{ role: 'user', content: 'hi' }] }
+  })
+  await log.complete({
+    chatId: 'chat-series',
+    id: r1.id,
+    text: 'a1',
+    finish: { kind: 'stop' },
+    usage: { inputTokens: 120, cacheReadTokens: 800, cacheWriteTokens: 80, outputTokens: 20 }
+  })
+
+  const compact = await log.record({
+    chat: { id: 'chat-series' },
+    context: { scope: 'foreground', task: 'compaction', turn: 1 },
+    options: { sessionId: 'fg-1', model: 'claude-sonnet', messages: [{ role: 'user', content: 'compact' }] }
+  })
+  await log.complete({
+    chatId: 'chat-series',
+    id: compact.id,
+    text: 'sum',
+    finish: { kind: 'stop' },
+    usage: { inputTokens: 5000 }
+  })
+
+  const bg1 = await log.record({
+    chat: { id: 'chat-series' },
+    context: { scope: 'background', task: 'stage-director', turn: 1 },
+    coordinates: { turn: 1, step: 1 },
+    options: { sessionId: 'bg-worker-1', model: 'haiku', system: 'dir', messages: [{ role: 'user', content: 'plan' }] }
+  })
+  await log.complete({
+    chatId: 'chat-series',
+    id: bg1.id,
+    text: 'ok',
+    finish: { kind: 'stop' },
+    usage: { inputTokens: 300, cacheReadTokens: 200, cacheWriteTokens: 0 }
+  })
+
+  const r2 = await log.record({
+    chat: { id: 'chat-series' },
+    context: { scope: 'foreground', task: 'reply', turn: 2 },
+    coordinates: { turn: 2, step: 1 },
+    options: { sessionId: 'fg-1', model: 'claude-sonnet', system: 's', messages: [{ role: 'user', content: 'next' }] }
+  })
+  await log.complete({
+    chatId: 'chat-series',
+    id: r2.id,
+    text: 'a2',
+    finish: { kind: 'stop' },
+    usage: { inputTokens: 400, cacheReadTokens: 900, cacheWriteTokens: 100 }
+  })
+
+  // 验证只读取 .result.json，不读取 .json 正文大文件：手动清理正文文件仍可返回序列
+  fixture.files.delete('model-requests/chat-series/' + r1.id + '.json')
+  const fgSeries = await log.recentSeries('chat-series', { scope: 'foreground', sessionId: 'fg-1', limit: 10 })
+  assert.equal(fgSeries.length, 2)
+  assert.deepEqual(fgSeries.map(item => ({ id: item.id, turn: item.turn, tokens: item.tokens, cacheReadTokens: item.cacheReadTokens })), [
+    { id: r1.id, turn: 1, tokens: 1000, cacheReadTokens: 800 },
+    { id: r2.id, turn: 2, tokens: 1400, cacheReadTokens: 900 }
+  ])
+
+  const bgSeries = await log.recentSeries('chat-series', { scope: 'background', sessionId: 'fg-1', limit: 10 })
+  assert.equal(bgSeries.length, 1)
+  assert.equal(bgSeries[0].id, bg1.id)
+  assert.equal(bgSeries[0].tokens, 500)
+})
+
+test('record 轻量保存合法 systemSections 偏移，不改动 request 正文并随记录返回', async () => {
+  const fixture = storageFixture()
+  const log = createModelRequestLog({ ...fixture.adapters, id: () => 'sys-1' })
+  const system = '前段预设\n\n<lorebook_constant>\n常驻世界书\n</lorebook_constant>'
+  const systemSections = [
+    { name: 'tavern:runtime-preset-front', start: 0, end: 4 },
+    { name: 'tavern:constant-worldbook', start: 6, end: system.length },
+    { name: 'invalid', start: -1, end: 5 },
+    { name: 'empty', start: 5, end: 5 }
+  ]
+  const options = { sessionId: 's-sys', model: 'gemini-4-neon', system, messages: [{ role: 'user', content: 'hi' }] }
+  const created = await log.record({ chat: { id: 'chat-sys' }, coordinates: { turn: 1, step: 1 }, options, systemSections })
+  assert.equal(created.request.system, system)
+  assert.equal('systemSections' in created.request, false)
+  assert.deepEqual(created.systemSections, [
+    { name: 'tavern:runtime-preset-front', start: 0, end: 4 },
+    { name: 'tavern:constant-worldbook', start: 6, end: system.length }
+  ])
+  await log.list('chat-sys')
+  const latest = await log.latestForSession('s-sys')
+  assert.deepEqual(latest.systemSections, created.systemSections)
+  assert.equal(latest.request.system, system)
 })

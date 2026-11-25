@@ -1,4 +1,6 @@
 import { join } from 'node:path'
+import { credentialRef } from './providers/params.js'
+import { createMusicGeneration } from './music.js'
 import { installSettingsSection, settingsSectionProvider } from './shared/native-settings.js'
 import { installTtsSettingsMigration } from './settings-config.js'
 export { Config } from './settings-config.js'
@@ -34,6 +36,9 @@ export function apply(ctx, config = {}) {
   const services = createServiceSettings({ tts, samples, pilotBudgetRoot:config.dataDir, get:() => source(), changed:() => tts.servicesChanged(), credentials:() => ctx.get('credentials'), warn:message => ctx.logger.warn(message),
     replace: async value => { const settings = settingsSectionProvider(ctx, 'tts'); if (!settings) fail('SETTINGS_UNAVAILABLE'); await settings.replace('tts',validateSettings(value),settings.describe().find(row => row.ns === 'tts')?.revision) },
   })
+  // 音乐生成 (music.js): the saved music services, their keys from the host's credentials.
+  ctx.provide('musicGeneration', createMusicGeneration({providers:() => source().providers,
+    key:async p => (await ctx.get('credentials')?.resolve(credentialRef(p.id, 'key')))?.value}))
   // The one write of tts.reading (the 配音 page through ttsControl, the stage's one-time migration on the host).
   tts.setReading = async patch => {
     const next = patchReading(source().reading, patch)

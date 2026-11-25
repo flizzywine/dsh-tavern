@@ -44,7 +44,7 @@ function harness(rows) {
       agent.input = agent.input || { content: [{ type: 'text', text: '' }] }
       session.append('turn/start', { turn })
       session.append('user/message', { ...agent.input, turn }, { surfaceOp: 'append' })
-      session.append('assistant/message', { turn, step: 1, message: { role: 'assistant', source: model, content: [{ type: 'text', text: '新正文' }] } }, { surfaceOp: 'append' })
+      session.append('assistant/message', { turn, step: 1, message: { role: 'assistant', source: model, content: [{ type: 'text', text: '<style_reference_submit">新正文' }] } }, { surfaceOp: 'append' })
       session.append('turn/end', { turn, reason: { kind: 'completed' } })
     }
   }
@@ -76,7 +76,8 @@ function rows(assistant) {
 }
 
 test('写了意见才改写：正文（含编辑标记）随请求送出并带改写说明', async () => {
-  const h = harness(rows({ sourceText: '她轻声笑了。', projectionText: '她轻声笑了。', text: '她轻声笑了。', swipes: ['她轻声笑了。'], swipeId: 0,
+  const oldBody = '<style_reference_submit">她轻声笑了。'
+  const h = harness(rows({ sourceText: oldBody, projectionText: oldBody, text: oldBody, swipes: [oldBody], swipeId: 0,
     bodyEdit: { formatVersion: 4, id: 'tavern-body-edit:fixture', seq: 2, turn: 2 } }))
   await h.create().regenerate('', '写得更克制一点', 'session')
   assert.equal(h.prepared.length, 1)

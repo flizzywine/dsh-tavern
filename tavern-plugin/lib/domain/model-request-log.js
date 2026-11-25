@@ -170,6 +170,11 @@ export function createModelRequestLog(options = {}) {
     const requestId = stamp.toString(36) + '-' + id()
     const scope = context && context.scope === 'background' ? 'background' : 'foreground'
     const turn = scope === 'background' ? Math.max(0, Number(context.turn) || 0) : Math.max(0, Number(coordinates && coordinates.turn) || 0)
+    const systemSections = Array.isArray(input.systemSections)
+      ? input.systemSections
+          .filter(item => item && typeof item === 'object' && typeof item.name === 'string' && Number.isInteger(item.start) && Number.isInteger(item.end) && item.start >= 0 && item.end > item.start)
+          .map(item => ({ name: item.name, start: item.start, end: item.end }))
+      : []
     const draft = {
       version: 2,
       id: requestId,
@@ -188,6 +193,7 @@ export function createModelRequestLog(options = {}) {
         : null,
       frame: coordinates && coordinates.frame ? JSON.parse(JSON.stringify(coordinates.frame)) : null,
       ...(context && context.window ? { window: { first: context.window.first, through: context.window.through } } : {}),
+      ...(systemSections.length ? { systemSections } : {}),
       bypassPlan: {
         id: str(chat.bypassPlanId || chat.runtimePresetSnapshot && chat.runtimePresetSnapshot.planId),
         name: str(chat.runtimePresetSnapshot && chat.runtimePresetSnapshot.planName),
@@ -225,6 +231,7 @@ export function createModelRequestLog(options = {}) {
       })
       for (const prunedId of pruned) await remove(base + prunedId + '.json')
       await ensureSessionOwner(record.sessionId, chat.id)
+      if (record.sessionId) options.onChange?.(record.sessionId, requestId + ':running')
     })
     return evidenceRecord({ ...draft, request: record.request, compatibility: record.compatibility, frame: record.frame })
   }
@@ -262,6 +269,7 @@ export function createModelRequestLog(options = {}) {
       }
     }
     await writeJson(resultPath, result)
+    if (input.sessionId) options.onChange?.(input.sessionId, id + ':' + result.status)
     // Callers needing the full request use evidence(); completion returns only state.
     return result
   }
@@ -303,11 +311,11 @@ export function createModelRequestLog(options = {}) {
   function isForegroundTurnEntry(item) {
     return (Number(item?.turn) || 0) > 0 || (Number(item?.agentTurn) || 0) > 0
   }
-  async function latest(chatId, knownId, sessionId, options = {}) {
-    const entries = await list(chatId)
+  function filterEntriesForScope(entries, sessionId, options = {}) {
     const requestedScope = options && (options.scope === 'foreground' || options.scope === 'background') ? options.scope : ''
-    let matched = entries.filter(item => {
-      if (sessionId && item.sessionId !== sessionId) return false
+    let matched = (Array.isArray(entries) ? entries : []).filter(item => {
+      // 前台切换查看本局后台上下文时，后台条目的 sessionId 属于后台子代理而非前台会话
+      if (sessionId && item.sessionId && item.sessionId !== sessionId && requestedScope !== 'background') return false
       if (requestedScope) return item.scope === requestedScope
       return sessionId ? true : item.scope === 'foreground'
     })
@@ -317,6 +325,11 @@ export function createModelRequestLog(options = {}) {
       const foregroundTurns = matched.filter(item => item.scope !== 'foreground' || isForegroundTurnEntry(item))
       if (foregroundTurns.length > 0) matched = foregroundTurns
     }
+    return matched
+  }
+  async function latest(chatId, knownId, sessionId, options = {}) {
+    const entries = await list(chatId)
+    const matched = filterEntriesForScope(entries, sessionId, options)
     const entry = matched.at(-1)
     if (!entry) return null
     const base = 'model-requests/' + chatId + '/'
@@ -339,11 +352,41 @@ export function createModelRequestLog(options = {}) {
     const previousRecord = previousEntry && !previousEntry.pruned ? await readJson(base + previousEntry.id + '.json') : null
     return { ...full, cacheDiff: computeRequestCacheDiff(full, previousRecord, previousEntry) }
   }
+  async function recentSeries(chatId, options = {}) {
+    if (!chatId) return []
+    const entries = await list(chatId)
+    let matched = filterEntriesForScope(entries, options.sessionId, {
+      scope: options.scope === 'background' ? 'background' : 'foreground'
+    })
+    matched = matched.filter(item => item.task !== 'compaction')
+    const rawLimit = Number(options.limit)
+    const limit = Math.max(1, Math.min(24, Number.isFinite(rawLimit) && rawLimit > 0 ? Math.floor(rawLimit) : 12))
+    const slice = matched.slice(-limit)
+    const base = 'model-requests/' + chatId + '/'
+    const results = await Promise.all(slice.map(entry => readJson(base + entry.id + '.result.json')))
+    return slice.map((entry, index) => {
+      const result = results[index] || null
+      const usage = result && typeof result.usage === 'object' ? result.usage : null
+      const inputTokens = Number(usage?.inputTokens) || 0
+      const cacheReadTokens = Number(usage?.cacheReadTokens) || 0
+      const cacheWriteTokens = Number(usage?.cacheWriteTokens) || 0
+      const totalInput = inputTokens + cacheReadTokens + cacheWriteTokens
+      return {
+        id: entry.id,
+        turn: Number(entry.turn) || 0,
+        step: Number(entry.step) || 0,
+        createdAt: result?.createdAt || entry.createdAt || 0,
+        status: result?.status || 'running',
+        tokens: totalInput > 0 ? totalInput : null,
+        cacheReadTokens: usage ? cacheReadTokens : null
+      }
+    })
+  }
   async function latestForSession(sessionId, knownId, fallbackChatId, options = {}) {
     if (!sessionId) return null;
     const owner = await readJson('model-request-sessions/' + encodeURIComponent(sessionId) + '.json');
     const chatId = owner?.chatId || fallbackChatId;
     return chatId ? latest(chatId, knownId, sessionId, options) : null;
   }
-  return Object.freeze({ record, complete, evidence, list, detail, latest, latestForSession, prune })
+  return Object.freeze({ record, complete, evidence, list, detail, latest, recentSeries, latestForSession, prune })
 }

@@ -6,6 +6,7 @@ import test from 'node:test'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { computeSceneTarget } from '../tavern-plugin/lib/domain/scene-illustration.js'
 import { createRoundHistory } from '../tavern-plugin/lib/domain/round-history.js'
 import { createScopedMessages } from '../tavern-plugin/lib/domain/scoped-messages.js'
 import { createStoryTimeline } from '../tavern-plugin/lib/domain/story-timeline.js'
@@ -1098,4 +1099,49 @@ test('rollback and undo retain the shared writer while a cold-session reader is 
     assert.equal(resumes, 1)
   } finally { finish(); await reader }
   assert.equal(disposed, 1)
+})
+
+test('插件目标在重生成事务内复查，已编辑正文不被撤下', async () => {
+  const h = harness({ checkpoint: true, journal: true })
+  const expectedReply = { turn: 2, textVersion: computeSceneTarget(h.chat, 2).key }
+  const update = h.options.chats.update
+  h.options.chats.update = (id, change, metadata) => {
+    if (metadata.source === 'foreground.regen-begin') {
+      Object.assign(h.chat.messages.at(-1), { text: '并发编辑', sourceText: '并发编辑', swipes: ['并发编辑'] })
+    }
+    return update(id, change, metadata)
+  }
+  await assert.rejects(h.create().regenerate('chat', '', 'session', { expectedReply }), { code: 'TAVERN_PLUGIN_STALE_VERSION' })
+  assert.equal(h.chat.messages.at(-1).text, '并发编辑')
+  assert.ok(!h.calls.includes('followup'))
+})
+
+test('插件重生成返回本次提交的版本，结算期间的编辑不改变回执', async () => {
+  const h = harness({ checkpoint: true, journal: true })
+  const expectedReply = { turn: 2, textVersion: computeSceneTarget(h.chat, 2).key }
+  let committedVersion
+  h.options.replyCommitted = () => { committedVersion = computeSceneTarget(h.chat, 2).key }
+  h.options.queueSettlement = async () => {
+    Object.assign(h.chat.messages.at(-1), { text: '后来编辑', sourceText: '后来编辑', swipes: ['后来编辑'] })
+  }
+  const view = await h.create().regenerate('chat', '更简短', 'session', { expectedReply })
+  assert.notEqual(computeSceneTarget(h.chat, 2).key, committedVersion)
+  assert.deepEqual(view.pluginRegeneration, { turn: 2, textVersion: committedVersion })
+})
+
+test('插件重生成中途停止会报告取消，仍保留已生成的片段', async () => {
+  const h = harness({ checkpoint: true, journal: true })
+  const expectedReply = { turn: 2, textVersion: computeSceneTarget(h.chat, 2).key }
+  h.setGeneration('missing')
+  h.beforeGenerate(() => {
+    const turn = h.agent.phase.lastTurn + 1
+    h.session.append('turn/start', { turn })
+    h.session.append('user/message', { ...h.agent.input, turn }, { surfaceOp: 'append' })
+    h.session.append('assistant/attempt', { turn, stream: [{ type: 'text-chunks', index: 0, texts: ['已写片段'] }] })
+    h.session.append('turn/end', { turn, reason: { kind: 'aborted', reason: { kind: 'user' } } })
+  })
+  const view = await h.create().regenerate('chat', '', 'session', { expectedReply })
+  assert.deepEqual(view.pluginRegeneration, { aborted: true })
+  assert.equal(h.chat.messages.at(-1).text, '已写片段')
+  assert.equal(h.chat.messages.at(-1).incomplete, true)
 })
