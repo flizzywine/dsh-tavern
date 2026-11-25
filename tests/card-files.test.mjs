@@ -134,6 +134,20 @@ test('a 280 MiB card takes the same files through direct, plain GUI and encrypte
   } finally { transfer.close() }
 })
 
+test('a world book mislabeled as card.json is rejected before attached packs are written', async t => {
+  const {root, files, fileResources} = await library(t, {
+    assetLibrary: () => ({ inspectImportFile: () => assert.fail('invalid card must not inspect packs') }),
+    assetPacks: { importFromZip: () => assert.fail('invalid card must not publish packs') }
+  })
+  const file = join(root, 'bad-card.dshcard')
+  await writeFile(file, writeZipEntries([
+    {path:'card.json', content:'{"entries":{}}'},
+    {path:'dsh.json', content:JSON.stringify({format:'dshcard', formatVersion:1, packs:[{id:randomUUID(), path:'assets/test/'}]})}
+  ]))
+  await assert.rejects(files.importCardArchiveFile(file, 'bad-card.dshcard'), /检测到世界书/)
+  assert.deepEqual(await fileResources.list('card'), [])
+})
+
 test('encrypted DSH imports authenticate before saving cards/plugins, and duplicates still require the password', async t => {
   const { root, files, fileResources, castAssets } = await library(t)
   const plain = join(root, 'plain.dshcard'), encrypted = join(root, 'locked.dshcard')
