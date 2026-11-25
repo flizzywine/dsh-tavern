@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "f8368b80203ca5e835a96aedb9650c15a94f07da",
-  "releaseSequence": 2084,
+  "revision": "23ce6527045d4b35dd44d32b05234eba75dcfa9b",
+  "releaseSequence": 2085,
   "version": "3.4.0",
   "files": [
     {
@@ -1056,8 +1056,8 @@
     },
     {
       "path": "presets/tavern/skills/stage-status-panel/references/panel-contract.md",
-      "sha256": "c7a422a28fb7de8b301e77c4a1ee2e446c54002442b44d5aab06533d2ab99095",
-      "size": 22142
+      "sha256": "0ea749978f94e57b53187322b03e1361ce991b415fbdcc9f8bac90021484f0bc",
+      "size": 22784
     },
     {
       "path": "presets/tavern/skills/stage-status-panel/SKILL.md",
@@ -1276,8 +1276,8 @@
     },
     {
       "path": "tavern-plugin/lib/client.js",
-      "sha256": "0c66046d8d5e2092ba1a60b5321b57b607060147c6fda54ddd43da31bd0d8258",
-      "size": 6632340
+      "sha256": "79cf08c74881d8e47ac8623f96fd6bdc6ab64126d3d8a0f0d65b2b540515c0a5",
+      "size": 6632746
     },
     {
       "path": "tavern-plugin/lib/cordis-inspect.js",
@@ -1706,8 +1706,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/card-preparation.js",
-      "sha256": "84661b125108ab3faafe4b14321ede8dd499a53b73375c432c527f6a78a719bf",
-      "size": 29824
+      "sha256": "c5a99df2304c5ac1bd9cf58fdcc222632d1feae8047bdf1f2f9f2eeca922ad98",
+      "size": 30336
     },
     {
       "path": "tavern-plugin/lib/domain/card-reading.js",
@@ -1731,8 +1731,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/card-status-panel.js",
-      "sha256": "8dc38f212b4177eac26f578431c91d07bdc53f5dbc29e08f094184ca75f2b1d9",
-      "size": 6215
+      "sha256": "93dad565173743d33cb6601dc8c166944100091669c8c3dd42c5bcdd108ba9fa",
+      "size": 6515
     },
     {
       "path": "tavern-plugin/lib/domain/card-summary-cache.js",
@@ -4466,8 +4466,8 @@
     },
     {
       "path": "tavern-plugin/lib/index.js",
-      "sha256": "f4e3bc77518e22c5045433f3484ddb953a60d49f4c6d94874d797c0853e243dc",
-      "size": 344444
+      "sha256": "7ae25d340e4b2e99ffd8785e262d9852d278825e78cff3e442f1fc1b61d1e28b",
+      "size": 344504
     },
     {
       "path": "tavern-plugin/lib/metadata-backup.js",
@@ -10266,9 +10266,9 @@
     }
   ],
   "archive": {
-    "commit": "73c8b6c6fbc7974e34e0ab1cfb1c801a060accd5",
+    "commit": "bdcff882810c14c3e0d136aea40045a3ee1c615c",
     "path": "runtime.zip",
-    "sha256": "a6c77cb0907b0900543ece759150353568d2469eb7a2fdbd5c4d3422afc7cb37",
-    "size": 17987876
+    "sha256": "75992586e7fffc6b1e93a1cb0b77ccb5fe94b0e1228d34a0855d0f3d232ddb6d",
+    "size": 17988528
   }
 }
