@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "5d82eb39ad3831195f0b457283b8df28829390df",
-  "releaseSequence": 2068,
+  "revision": "17600fa25ac767cb1abba8a22756828567a59c61",
+  "releaseSequence": 2069,
   "version": "3.4.0",
   "files": [
     {
@@ -1056,8 +1056,8 @@
     },
     {
       "path": "presets/tavern/skills/stage-status-panel/references/panel-contract.md",
-      "sha256": "619a07e883374fd9100a17eac4fde8501e4947913e11e6c2bbef0612bce9d09a",
-      "size": 20604
+      "sha256": "c7a422a28fb7de8b301e77c4a1ee2e446c54002442b44d5aab06533d2ab99095",
+      "size": 22142
     },
     {
       "path": "presets/tavern/skills/stage-status-panel/SKILL.md",
@@ -1276,8 +1276,8 @@
     },
     {
       "path": "tavern-plugin/lib/client.js",
-      "sha256": "3904d26fe1ec55c7819c8b49ecc465cc26bce66db6ab94f92555d51b7bf76082",
-      "size": 6598497
+      "sha256": "3b30418ba8ba2e1a524e85e0aead0fdc3ece1b6213f10216a6c08c230f3e5eef",
+      "size": 6605012
     },
     {
       "path": "tavern-plugin/lib/cordis-inspect.js",
@@ -5986,18 +5986,23 @@
     },
     {
       "path": "tavern-plugin/mods/dice/client/check.js",
-      "sha256": "a7670c39fd7aae409fcc0c67f44031509f755ea5152d5579ec16014f93f5ff45",
-      "size": 39880
+      "sha256": "23503004fb1ad9d435539dd255a9565b198674d62725093d7687b604389925b9",
+      "size": 41031
     },
     {
       "path": "tavern-plugin/mods/dice/client/core.js",
-      "sha256": "7ecf506fde1e03eddf8e6603159e098569f13dbbb6ec226688bd863882271177",
-      "size": 1819
+      "sha256": "9780fe9898fb5ba631f3d6e95a2ef570f4a7d26c18327429f445281bcdd699bf",
+      "size": 2019
     },
     {
       "path": "tavern-plugin/mods/dice/client/dice3d.js",
       "sha256": "10191adca76db267d11c9169a9e958a916db0a677ba2884bdcc743f749e23a64",
       "size": 26900
+    },
+    {
+      "path": "tavern-plugin/mods/dice/client/page.js",
+      "sha256": "92401f04a2658ddb226699699d4faaf1f121f9b9d3835488c773d55015c15599",
+      "size": 4524
     },
     {
       "path": "tavern-plugin/mods/dice/client/place.js",
@@ -6051,13 +6056,13 @@
     },
     {
       "path": "tavern-plugin/mods/dice/README.md",
-      "sha256": "7e7c45e8d7680846c71f1a20b3e73bb7f147cf5d91d82052f041dba33dc30980",
-      "size": 32520
+      "sha256": "aa65da38163ddbcf288ecd81d33dd29dc45e37c5d2e9934a0b7fe32142f339d2",
+      "size": 33774
     },
     {
       "path": "tavern-plugin/mods/dice/rules-engine.js",
-      "sha256": "18ed3e5c6591ebc32d72a7f719c66407cc5afb342269cb07f356688b80274bcf",
-      "size": 67522
+      "sha256": "b08e2b5593b58de29ec0cd378ab431664569828afaef034905daa64daf9786ef",
+      "size": 69594
     },
     {
       "path": "tavern-plugin/mods/dice/runtime.js",
@@ -8746,8 +8751,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/client.js",
-      "sha256": "4e2e9d44474b7d224d77520f5e243fef7f7c58bcb8c942054914ec2e4ad4dcfa",
-      "size": 3601304
+      "sha256": "49fa1a324bbd77d67d1a7594af3a59cbc1d2c3065461c0b389021bcf269909f8",
+      "size": 3608609
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/client/director-source.cjs",
@@ -10241,9 +10246,9 @@
     }
   ],
   "archive": {
-    "commit": "2079d9e0a90a489bf36382e3d2c84bc3d28f285a",
+    "commit": "f370a5388c1357851bc31c1658ea55628ded985d",
     "path": "runtime.zip",
-    "sha256": "a0c3a7b9df41d242c6f5c57cf082dbeb1def394ef204d1ccb131c610db00b4ad",
-    "size": 17951033
+    "sha256": "9bdd383dd3577fc1268df0b3bf43ab32414ad892d53c87f7e16431a807a69c06",
+    "size": 17959180
   }
 }
