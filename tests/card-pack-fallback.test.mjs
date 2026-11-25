@@ -1,8 +1,8 @@
 // An external card without packs: its loose material becomes one library pack the card binds (本卡开启), its voice
 // fields the figure's voice; the card's export carries that pack. A .dshcard keeps its own packs.
 import assert from 'node:assert/strict'
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
+import { readFile, writeFile } from 'node:fs/promises'
+import { syntheticFixture } from './helpers/synthetic-link-fixture.mjs'
 import { join } from 'node:path'
 import test from 'node:test'
 import { createAssetPacks } from '../tavern-plugin/lib/domain/asset-packs.js'
@@ -29,7 +29,9 @@ function wav(seed) {
 }
 
 async function setup(t, channels = []) {
-  const root = await mkdtemp(join(tmpdir(), 'card-pack-fallback-'))
+  let service
+  t.after(() => service?.dispose())
+  const root = syntheticFixture(t, 'card-pack-fallback-')
   const profileData = createProfileDataStore({ dataRoot: root })
   const store = createFileResourceStore({ dataRoot: root }), failWrites = { on: false }
   const fileResources = ({ ...store, importCard: (...args) => failWrites.on ? Promise.reject(new Error('disk full')) : store.importCard(...args) })
@@ -43,10 +45,9 @@ async function setup(t, channels = []) {
   // the card owner the library's card export reads through (the stage's card-bundle.js adapter); an export writes no card.
   const cards = createCardBundleAdapter({ cardPreparation, authorizeTarget: async path => ({ cardId: path }), readWorkspace: path => readCardWorkspace(path),
     writeWorkspace: async () => assert.fail('an export writes no card'), withCardLock: async (_, task) => task() })
-  const service = createAssetPackService({ assetRoot: join(root, 'library'), voiceChannels: async () => channels, cardTransactions: cards })
-  t.after(async () => { await service.dispose(); await rm(root, { recursive: true, force: true }) })
+  service = createAssetPackService({ assetRoot: join(root, 'library'), voiceChannels: async () => channels, cardTransactions: cards })
   const files = createCardFiles({
-    cardPreparation, fileResources, castAssets: createCastAssets({ store: profileData }), readCardWorkspace,
+    exportRoot: join(root, 'exports'), cardPreparation, fileResources, castAssets: createCastAssets({ store: profileData }), readCardWorkspace,
     assetPacks: createAssetPacks({ store: profileData, mediaStore: createMediaStore({ root: join(root, 'asset-packs') }) }),
     cardSummaries: createCardSummaryCache({ absolute: cardPath => fileResources.absolute(cardPath), read: async cardPath => projectCardSummary(await readCardWorkspace(cardPath)) }),
     worldBooks: { characterBookForCard: async () => undefined }, cardPlugins: createCardPlugins({ dataRoot: root, pluginsDir: join(root, 'plugins') }),

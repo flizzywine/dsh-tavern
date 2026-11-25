@@ -34,8 +34,7 @@ export function createReplyStreamRewriters({ warn = () => {} } = {}) {
       for (const entry of entries.values()) return entry
       return null
     },
-    open({ sessionId = '', turn = 0, chatId = '', mode = '', signal } = {}) {
-      const entry = this.pick()
+    open({ sessionId = '', turn = 0, chatId = '', mode = '', signal } = {}, entry = this.pick()) {
       if (!entry) return null
       return createReplyRewriteStream({
         rewriter: entry.rewriter,

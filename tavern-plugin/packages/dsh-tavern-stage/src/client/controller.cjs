@@ -622,6 +622,26 @@ function GalStage(props) {
         forkLipSync.wake(); forkUiSfx.play("open"); setHidden(false); setOpenPage(id);
     }
     function closeCardPage() { forkUiSfx.play("close"); backlogClosedAt.current = Date.now(); setOpenPage(null); }
+    // 卡页面演出 (status-panel.cjs Performance): a mod overlay's cardPage.perform(pageId, cue) plays one of the card's pages
+    // over the scene, above the text box; one at a time. → Promise of {done} / {skipped}; rejected when the card has no such
+    // page, the page cannot be read, or another performance is up (the mod then shows what it shows without one).
+    const [pagePerform, setPagePerform] = React.useState(null);
+    const pagePerformNow = React.useRef(null), pageListNow = React.useRef(pageList);
+    pageListNow.current = pageList;
+    const cardPagePerformer = React.useMemo(() => Object.freeze({ perform(pageId, cue) {
+        if (!pageListNow.current.some(declared => declared.id === pageId)) return Promise.reject(new Error('本卡没有页面「' + String(pageId) + '」'));
+        if (pagePerformNow.current) return Promise.reject(new Error('舞台正在演另一段页面'));
+        return new Promise((resolve, reject) => {
+            const root = rootRef.current, box = root?.querySelector('.fork-gal-box');
+            const bottom = root && box ? Math.max(0, root.getBoundingClientRect().bottom - box.getBoundingClientRect().top) : 0;
+            const item = { key: sessionId + ':' + pageId + ':' + Date.now(), sessionId, pageId, cue, region: { bottom },
+                end: result => { if (pagePerformNow.current !== item) return; pagePerformNow.current = null; setPagePerform(null); if (result.failed) reject(new Error(result.failed)); else resolve(result); } };
+            pagePerformNow.current = item;
+            setPagePerform(item);
+        });
+    } }), [sessionId]);
+    // another session ends what the last one was playing
+    React.useEffect(() => () => { pagePerformNow.current?.end({ skipped: true }); }, [sessionId]);
     // closing an entry page (×, Esc, the backdrop, close()) is not entering: 返回主页面, as the stage menu's row.
     function leaveEntryPage() { forkUiSfx.play("close"); props.onExit(); }
     // A page's DshCardPage actions (status-panel.cjs onAction): open(id) switches to another page; openSettings() opens the
@@ -658,6 +678,9 @@ function GalStage(props) {
     // System menu (gal-menu.js): Esc opens it; auto / skip pause like the backlog. Leaving system full screen
     // (the browser takes that Esc) opens it too, and closing it asks for full screen again.
     const [menuOpen, setMenu] = React.useState(false);
+    // a page performing ends when something covers the stage (as the mods' live overlays stop)
+    const performCovered = hidden || film || backlog || configOpen || galleryOpen || pageOpen || menuOpen;
+    React.useEffect(() => { if (performCovered) pagePerformNow.current?.end({ skipped: true }); }, [performCovered]);
     // the turn-end menu's 「重新生成」 opens the menu straight into its 重新生成 dialog.
     const [menuRegenerate, setMenuRegenerate] = React.useState(false);
     const menuOpener = React.useRef(null);
@@ -1616,7 +1639,10 @@ function GalStage(props) {
         props.choiceProps && props.choiceProps.useChat ? modClients.slot('overlay').map(part => h(part.value, { key: part.modId, sessionId, useChat: props.choiceProps.useChat, running, place: readerPlace, following: presenting === 'live', device, rootRef, calm: reading.reducedMotion === true, safety: effectSafety,
             veiled: !entryGate.visible, input: modClients.input(props.choiceProps.executeSlash, sessionId), screen: playModBeat,
             replay: replaying && runtime.replay?.phase === 'play' ? runtime.cursor.visitId : historyRolls, nativeTurn: runtime.textIndex.get(turn)?.nativeTurn || 0,
+            cardPage: stageViews.statusPanel ? cardPagePerformer : undefined,
             live: (presenting === 'live' || !!historyRolls) && !skipping && !film && !hidden && !backlog && !configOpen && !galleryOpen && !pageOpen && !menuOpen })) : null,
+        // a card page performing (cardPage.perform above), over the scene and the mods' layers, clear of the text box
+        pagePerform && pagePerform.sessionId === sessionId ? h(stageViews.statusPanel.Performance, { key: pagePerform.key, sessionId, pageId: pagePerform.pageId, cue: pagePerform.cue, calm: reading.reducedMotion === true, region: pagePerform.region, onEnd: pagePerform.end }) : null,
         // Reading done: the next move sits in the middle of the screen.
         // a latest turn with nothing to read (an HTML introduction / opening chooser) is done too: the
         // panel offers 生成选项 and 自由输入 (no 重新生成); leaving is the existing 返回主页面 (R13).

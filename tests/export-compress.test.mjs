@@ -103,6 +103,25 @@ test('压缩素材 shrinks backgrounds and music, keeps patches pixel-exact, and
   assert.equal(installed.snapshot.manifest.contentHash, out.manifest.contentHash)
 })
 
+test('压缩素材 gives the same bytes again, and an update package reuses an earlier export\'s conversions without encoding', async t => {
+  const root = await mkdtemp(path.join(tmpdir(), 'export-compress-again-'))
+  t.after(() => rm(root, {recursive:true, force:true}))
+  const {pack} = await fixture(root)
+  const first = await compressExportPacks([pack], {directory:path.join(root, 'one')})
+  const second = await compressExportPacks([pack], {directory:path.join(root, 'two')})
+  assert.equal(second.packs[0].manifest.contentHash, first.packs[0].manifest.contentHash, 'images and music encode to the same bytes')
+  assert.deepEqual(second.converted, first.converted)
+  assert.ok(Object.values(first.converted).some(next => next.mime === 'audio/ogg'))
+  const progress = []
+  const reused = await compressExportPacks([pack], {directory:path.join(root, 'three'), reuse:first.converted, onProgress:p => progress.push(p)})
+  assert.equal(reused.packs[0].manifest.contentHash, first.packs[0].manifest.contentHash)
+  assert.equal(reused.summary.images + reused.summary.audio, 0, 'nothing is encoded again')
+  for (const hash of Object.values(first.converted).map(next => next.sha256)) {
+    const ref = [...reused.packs[0].files].find(([name]) => name.startsWith('media/' + hash))[1]
+    assert.equal(ref.file, undefined, 'a reused conversion carries no bytes: the update package leaves it out')
+  }
+})
+
 test('the export sheet names the same import limit and audio rates as the library', async () => {
   const {PACK_BUDGET} = await import('../tavern-plugin/packages/dsh-asset-library/src/pack-v2/budget.js')
   const {EXPORT_AUDIO_KBPS} = await import('../tavern-plugin/packages/dsh-asset-library/src/pack-v2/service.js')

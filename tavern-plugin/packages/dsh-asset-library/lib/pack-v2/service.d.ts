@@ -117,6 +117,8 @@ export interface CardBundleAdapter {
   bindRaw(raw: unknown, packIds: string[]): unknown;
   /** The card as an export carries it (its stage declaration only, card-stage-export.js). */
   exportRaw(raw: unknown): unknown;
+  /** Keep only the selected pack bindings in an exported card. */
+  retainRaw(raw: unknown, packIds: string[]): unknown;
   withPrepared(input: {path: string; expectedRevision: string | null; raw: unknown; cover?: Uint8Array; packSnapshots?: Array<Omit<PackSnapshot, 'revision' | 'installedAt' | 'updatedAt'>>; disableWidgets?: boolean}, publish: (card: {record: unknown; commit(): Promise<void>; status(): Promise<'before' | 'after' | 'unknown'>}) => Promise<void>): Promise<void>;
   recover(record: unknown): Promise<'before' | 'after' | 'unknown'>;
 }
@@ -240,6 +242,7 @@ export interface AssetPackService extends CatalogueService {
   /** Items of any kind (figures: kind 'figures', id = figure UUID) plus their same-pack closure, copied in one publication. Refs into the source pack are rewritten to the copies; ids are fresh only on collision. Internal copies inherit item availability and do not need import consent. */
   getStageSetupStatus(input: {path: string; autoOpened?: boolean}): Promise<StageSetupStatus>;
   mergeStageSetupPack(input: {path: string; expectedCardRevision: string; expectedLibraryRevision: string; selections: Array<{packId: string; itemRefs: Array<{kind: string; id: string}>}>; name?: string; figure?: Omit<Figure, 'id'>}): Promise<StageSetupStatus & {figureId?: string; copied: Array<{sourcePackId: string; kind: string; fromId: string; toId: string}>}>;
+  moveItems(input: {sourcePackId: string; sourceExpectedRevision: string; itemRefs: Array<{kind: string; id: string}>; target: PackWrite}): Promise<{packId: string; revision: string; sourceRevision: string; moved: Array<{kind: string; id: string}>}>;
   copyItems(input: {sourcePackId: string; itemRefs: Array<{kind: string; id: string}>; target: PackWrite | {newPackName: string}}): Promise<{packId: string; revision: string; copied: Array<{kind: string; fromId: string; toId: string}>}>;
   publishSkins(input: PackWrite & {sources: Array<PackWrite & {skinIds: string[]; replace?: string[]}>; dryRun?: boolean}): Promise<{status: 'noop' | 'updated' | 'dry-run'; snapshot: PackSnapshot; published: Array<{id: string; contentHash: string; source: {packId: string; kind: 'skins'; assetId: string}}>; replacedFiles: string[]}>;
   /** Manual avatar crop for a static outfit, in the pack the figure lives in (outfit scope clears per-state manual crops; null resets). */
@@ -268,7 +271,8 @@ export interface AssetPackService extends CatalogueService {
   inspectImportEntries(input: {entries: {path: string; size: number; stream(): AsyncIterable<Uint8Array> | Promise<AsyncIterable<Uint8Array>>}[]; uploadHash: string}): Promise<PackInspection & {sourceMedia: Record<string, {sha256: string; size: number}>}>;
   inspectCardBundleFile(input: {file: string; path: string}): Promise<CardBundleInspection>;
   inspectImport(input: {bytes: Uint8Array; copy?: boolean}): Promise<PackInspection | PackSetInspection>;
-  applyImport(input: {inspectionId: string; expectedRevision: string | null; decision: ImportDecision; acceptScriptRisk?: boolean; adoptLooks?: string[]}): Promise<(PackMutation & {mapping?: PackMapping}) | PackRemoval | {status: 'cancelled'}>;
+  /** restore (host only, not in the transport): with 'update', the archive is this pack's backup from before a card update being undone; the identities it had are no longer retired. */
+  applyImport(input: {inspectionId: string; expectedRevision: string | null; decision: ImportDecision; acceptScriptRisk?: boolean; adoptLooks?: string[]; restore?: true}): Promise<(PackMutation & {mapping?: PackMapping}) | PackRemoval | {status: 'cancelled'}>;
   /** Host-local option (never RPC input): input bytes written so far while the archive is built. */
   exportPack(input: PackWrite, progress?: ExportProgress): Promise<PackArchive & {contentHash: string; revision: string; warnings: WidgetDefaultExportWarning[]}>;
   exportPacks(input: {packs: PackWrite[]}, progress?: ExportProgress): Promise<(PackArchive | {archives: PackArchive[]}) & {packs: Array<{packId: string; contentHash: string; revision: string}>; warnings: WidgetDefaultExportWarning[]}>;

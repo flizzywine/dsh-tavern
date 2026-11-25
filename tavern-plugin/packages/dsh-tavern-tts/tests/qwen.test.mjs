@@ -267,5 +267,5 @@ test('Qwen base voices are the documented system list; draft probe never synthes
   assert.deepEqual([(await service.list())[0].check.status, (await service.list())[0].check.message], ['error', '通义千问配音访问被拒绝，请检查模型权限与账户状态'])
   assert.equal(calls.every(c => c.options.method === 'GET'), true)
   assert.equal(service.kinds().some(k => k.kind === 'reference'), false)
-  assert.deepEqual(service.kinds().filter(k => k.paid).map(k => k.kind).sort(), ['azure', 'fish-audio', 'minimax', 'openai-compatible', 'qwen', 'volcengine'])
+  assert.deepEqual(service.kinds().filter(k => k.paid).map(k => k.kind).sort(), ['azure', 'fish-audio', 'lyria', 'minimax', 'openai-compatible', 'qwen', 'volcengine'])
 })

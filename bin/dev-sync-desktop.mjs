@@ -11,10 +11,11 @@ import { resolveTavernDataRoot } from '../tavern-plugin/lib/domain/tavern-data.j
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const PATHS = ['bin', 'config', 'presets', 'patches', 'tavern-plugin', 'package.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', 'cordis.patch.yml', 'install.ps1', 'install.sh']
-const MEDAL_PLUGIN = 'dsh-tavern-adventure-medal'
-const MEDAL_PACKAGE = 'tavern-plugin/packages/' + MEDAL_PLUGIN
+const ACHIEVEMENT_PLUGIN = 'dsh-tavern-achievements'
+const ACHIEVEMENT_PACKAGE = 'tavern-plugin/packages/' + ACHIEVEMENT_PLUGIN
 const ACHIEVEMENT_FILES = ['tavern-plugin/packages/dsh-tavern/client.js',
-  ...['package.json', 'lib/index.js', 'client.js', 'LICENSE', 'README.md'].map(file => MEDAL_PACKAGE + '/' + file)]
+  'tavern-plugin/packages/dsh-tavern/lib/achievements.mjs',
+  ...['package.json', 'lib/index.js', 'client.js', 'LICENSE', 'README.md'].map(file => ACHIEVEMENT_PACKAGE + '/' + file)]
 function run(command, args, options) {
   const result = spawnSync(command, args, { windowsHide: true, encoding: 'utf8', ...options })
   if (result.error || result.status !== 0) throw new Error(result.error?.message || result.stderr || `${command} 退出码 ${result.status}`)
@@ -65,11 +66,11 @@ export function syncDesktop({ sourceRoot = ROOT, home = process.env.DSH_HOME || 
   }
   if (achievementsOnly) {
     const dataRoot = resolveTavernDataRoot({ dshHome: home })
-    const [plugin] = installBundledTavernPlugins({ sourceRoot: target, dataRoot, profileDir, packageName: MEDAL_PLUGIN })
+    const [plugin] = installBundledTavernPlugins({ sourceRoot: target, dataRoot, profileDir, packageName: ACHIEVEMENT_PLUGIN })
     const entry = path.join('lib', 'index.js')
-    const activeEntry = path.join(dataRoot, 'plugins', MEDAL_PLUGIN, entry)
+    const activeEntry = path.join(dataRoot, 'plugins', ACHIEVEMENT_PLUGIN, entry)
     if (!['installed', 'upgraded', 'skipped'].includes(plugin.action)
-      || !existsSync(activeEntry) || !readFileSync(activeEntry).equals(readFileSync(path.join(target, MEDAL_PACKAGE, entry)))) {
+      || !existsSync(activeEntry) || !readFileSync(activeEntry).equals(readFileSync(path.join(target, ACHIEVEMENT_PACKAGE, entry)))) {
       throw new Error('成就插件同步失败：' + plugin.reason)
     }
     return { target, copied, medalPlugin: plugin.target }

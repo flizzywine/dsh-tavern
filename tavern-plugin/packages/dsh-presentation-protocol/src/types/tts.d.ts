@@ -126,9 +126,9 @@ export interface Tts {
   listServiceVoices(): Promise<ServiceVoice[]>
   /** The configured voice services catalog; subscribe for {type:'servicesChanged'}. */
   listVoiceServices(): Promise<VoiceServiceCatalog>
-  /** Synchronous choice among already-listed services, with the same rule as resolveVoiceService (no network, no binding):
-   *  the source's own installed serviceId, else the sole service of its provider, else undefined. */
-  chooseService(source: {kind: string; provider: string; serviceId?: string}, services: ServiceVoice[]): ServiceVoice | undefined
+  /** Synchronous choice among already-listed services, with the same rule as resolveVoiceService (no network, no binding).
+   *  For Fish, capabilities reflect the source's explicit model or the chosen service's default. */
+  chooseService(source: {kind: string; provider: string; serviceId?: string; model?: string}, services: ServiceVoice[]): ServiceVoice | undefined
   exportVoicePresets(ids: string[]): Promise<VoicePreset[]>
   /** A saved or builtin online preset as portable synthesis data (no provider configuration). */
   exportPortableVoice(input: {voiceId: string}): Promise<{voice: PortableVoice}>

@@ -13,6 +13,7 @@ const forkFrameStorage = (function () {
         else target[op.key] = op.value;
     }
     function load() {
+        if (typeof window !== "undefined" && window.__dshTavernHeadless === true) return Promise.resolve();
         if (loaded || loading || typeof rpc !== "function") return loading;
         loading = Promise.resolve().then(() => rpc("getFrameStorage")).then(function (result) {
             const stored = result && result.values && typeof result.values === "object" ? result.values : {};

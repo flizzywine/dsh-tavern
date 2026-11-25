@@ -21,6 +21,8 @@ import {sealPack, StoredFile} from './validation.js'
 // stays as it is (`audio: 'no-ffmpeg'`).
 // Every conversion is kept only when it is smaller. References (blobs, file rows, figure and sprite documents, the card's
 // embeded:// URIs) move to the new content hashes.
+// The same source gives the same bytes on the same encoders (images always; audio is muxed bitexact, without the random
+// Ogg stream serial), so an update package can leave out what an earlier export already sent.
 export const EXPORT_AUDIO_KBPS = Object.freeze({music:96, ambience:80})
 const LOSSLESS_AUDIO = new Set(['flac', 'alac', 'wavpack', 'ape', 'tta'])
 const MEDIA = /^media\/([0-9a-f]{64})\.(\w+)$/
@@ -71,7 +73,7 @@ const samples = async (ffmpeg, file, signal) => (await run(ffmpeg, ['-v', 'error
 async function encodeAudio(ffmpeg, input, output, kbps, signal) {
   const before = await audioInfo(ffmpeg, input, signal)
   if (!before.codec || !LOSSLESS_AUDIO.has(before.codec) && !before.codec.startsWith('pcm_') && !(before.kbps > kbps + 8)) return null
-  const {code} = await run(ffmpeg, ['-v', 'error', '-nostdin', '-y', '-i', input, '-map', '0:a:0', '-map_metadata', '-1', '-c:a', 'libopus', '-b:a', kbps + 'k', '-vbr', 'on', '-f', 'ogg', output], {signal})
+  const {code} = await run(ffmpeg, ['-v', 'error', '-nostdin', '-y', '-i', input, '-map', '0:a:0', '-map_metadata', '-1', '-c:a', 'libopus', '-b:a', kbps + 'k', '-vbr', 'on', '-fflags', '+bitexact', '-flags:a', '+bitexact', '-f', 'ogg', output], {signal})
   if (code !== 0) return null
   const [a, b] = await Promise.all([samples(ffmpeg, input, signal), samples(ffmpeg, output, signal)])
   if (a !== b || !a) return null
@@ -83,12 +85,14 @@ const fileSize = async ref => ref.file ? (await stat(ref.file)).size : ref.lengt
 
 // packs: [{manifest, files}] as projectPackFigures gives them. onProgress({done, total, pack}) hears input bytes handled out
 // of those to convert, with the title of the pack; a throw from it stops the work (the encoders are killed).
-// Resolves {packs, rewrite(card), summary:{beforeBytes, afterBytes, images, audio, ffmpeg}}.
-export async function compressExportPacks(packs, {directory, onProgress = () => {}} = {}) {
+// reuse ({source sha256: {sha256, ext, mime, size}}, optional): media an earlier export already converted, taken as that
+// result without encoding again (an update package leaves those files out, so they carry no bytes here).
+// Resolves {packs, rewrite(card), converted: the same map for this export, summary:{beforeBytes, afterBytes, images, audio, ffmpeg}}.
+export async function compressExportPacks(packs, {directory, onProgress = () => {}, reuse = {}} = {}) {
   await mkdir(directory, {recursive:true})
   const controller = new AbortController(), signal = controller.signal
   const renames = new Map()
-  const plans = []
+  const plans = [], reused = []
   let total = 0
   for (const [index, pack] of packs.entries()) {
     const {manifest, files} = pack
@@ -110,17 +114,18 @@ export async function compressExportPacks(packs, {directory, onProgress = () => 
       if (asset.kind === 'looks') for (const content of assetContents(asset)) hashesUnder(content.params, untouched)
       if (EXPORT_AUDIO_KBPS[asset.kind]) for (const content of assetContents(asset)) if (content.media) audio.set(content.media, EXPORT_AUDIO_KBPS[asset.kind])
     }
-    const jobs = []
+    const jobs = [], taken = new Map()
     for (const [hash, blob] of Object.entries(manifest.blobs)) {
       const ref = files.get('media/' + hash + '.' + blob.ext)
       if (!ref || untouched.has(hash)) continue
       const image = blob.ext === 'png' || blob.ext === 'webp'
       if (!image && !audio.has(hash)) continue
+      if (Object.hasOwn(reuse, hash)) { const next = reuse[hash]; taken.set(hash, {sha256:next.sha256, ext:next.ext, mime:next.mime, bytes:next.size}); continue }
       const size = await fileSize(ref)
       jobs.push({hash, blob, ref, size, image, lossless:lossless.has(hash), kbps:audio.get(hash)})
       total += size
     }
-    plans[index] = jobs
+    plans[index] = jobs; reused[index] = taken
   }
   let done = 0
   const report = title => onProgress({done, total, pack:title})
@@ -129,8 +134,8 @@ export async function compressExportPacks(packs, {directory, onProgress = () => 
   const out = []
   try {
     for (const [index, pack] of packs.entries()) {
-      const jobs = plans[index]
-      if (!jobs?.length) { out.push(pack); continue }
+      const jobs = plans[index], taken = reused[index]
+      if (!jobs?.length && !taken?.size) { out.push(pack); continue }
       const title = pack.manifest.name || pack.manifest.title || ''
       report(title)
       const folder = path.join(directory, String(index))
@@ -141,7 +146,7 @@ export async function compressExportPacks(packs, {directory, onProgress = () => 
         await writeFile(file, job.ref)
         return file
       }
-      const converted = new Map()
+      const converted = new Map(taken)
       const finish = (job, result, ext, file) => {
         done += job.size
         if (result && result.bytes < job.size) { converted.set(job.hash, {...result, ext, mime:ext === 'webp' ? 'image/webp' : 'audio/ogg', file}); counts[job.image ? 'images' : 'audio']++ }
@@ -176,6 +181,7 @@ export async function compressExportPacks(packs, {directory, onProgress = () => 
   const beforeBytes = (await Promise.all(packs.map(packBytes))).reduce((a, b) => a + b, 0)
   const afterBytes = (await Promise.all(out.map(packBytes))).reduce((a, b) => a + b, 0)
   return {packs:out, rewrite:value => renameHashes(value, renames),
+    converted:Object.fromEntries([...renames].map(([hash, next]) => [hash, {sha256:next.sha256, ext:next.ext, mime:next.mime, size:next.bytes}])),
     summary:{beforeBytes, afterBytes, images:counts.images, audio:counts.audio, ffmpeg:!!ffmpeg || !plans.some(jobs => jobs?.some(job => !job.image))}}
 }
 

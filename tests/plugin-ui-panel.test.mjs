@@ -29,7 +29,7 @@ test('插件面板：注册为当前游戏的侧栏页，卸载时移除；没�
   const disposeKeep = plugin.registerPanel({ id: 'sticky', title: '常驻', keepMounted: true, render: () => 'sticky' })
   assert.equal(tabs.get('tavern-plugin:memory-plugin:sticky').keepMounted, true, '显式声明 keepMounted: true 时透传保留')
   disposeKeep()
-  assert.equal(ui.service.apiVersion, 10)
+  assert.equal(ui.service.apiVersion, 11)
   const rendered = tab.component({ scope: { sessionId: 'game-1' } })
   assert.equal(rendered.type, 'Boundary')
   assert.equal(seen.length, 0, '渲染回调由边界内的子组件执行')
@@ -111,7 +111,7 @@ function loadCardGrid() {
   const loaded = vm.runInNewContext(source.slice(start, end) + '; ({ TavernCardList, useTavernCardGridColumns })', {
     React: { createElement: h, Fragment: 'Fragment', useState: init => [typeof init === 'function' ? init() : init, () => {}] },
     Switch: 'Switch', EmptyState: 'EmptyState',
-    packUi: { useContextMenu: ({ content }) => ({ target: content ? { 'data-hold-menu': true } : {}, trigger: {}, layer: content ? 'layer' : null, show: el => shown.push(el) }) },
+    packUi: { Glyph: 'Glyph', useContextMenu: ({ content }) => ({ target: content ? { 'data-hold-menu': true } : {}, trigger: {}, layer: content ? 'layer' : null, show: el => shown.push(el) }) },
     window: { localStorage: { getItem: key => stored.get(key) ?? null, setItem: (key, value) => stored.set(key, value) } }
   })
   return { List: loaded.TavernCardList, useColumns: loaded.useTavernCardGridColumns, stored, shown }
@@ -182,17 +182,20 @@ test('人物卡宫格保留列数、封面、名称、标签、收藏、菜单�
   assert.equal(grid.props.className, 'dsh-tavern-card-grid')
   assert.equal(grid.props.style['--dsh-tavern-card-grid-cols'], '4')
   const [first, second] = tiles(viewOf('library'))
-  assert.equal(first.props.className, 'dsh-tavern-card-grid-item starred')
+  assert.equal(first.props.className, 'dsh-tavern-card-grid-item has-corner starred')
   assert.equal(first.props['data-hold-menu'], true, '右键和长按在整张卡上打开菜单')
   assert.equal(first.children[0].props.title, '甲\n文件：甲.png\n剧本：剧本一\n标签：同人、待玩\n已收藏')
   assert.equal(second.children[0].props.title, '坏了')
   const band = first.children[1]
-  assert.deepEqual(band.children[1].children.map(tag => tag.children[0]), ['同人', '待玩'])
-  const corner = band.children[2]
+  assert.deepEqual(band.children[0].children.map(tag => tag.children[0]), ['同人', '待玩'])
+  // @ and ⋯: the bottom-right corner, not the top band
+  assert.equal(band.children.length, 1)
+  assert.equal(first.children[2], null, '不在多选时没有勾')
+  const corner = first.children[3]
   assert.equal(corner.children[0], '@甲')
   corner.children[1].props.onClick({ stopPropagation() {}, currentTarget: 'more-button' })
   assert.deepEqual(shown, ['more-button'])
-  assert.equal(first.children[2], 'layer')
+  assert.equal(first.children[4], 'layer')
   assert.equal(viewOf('play', { columns: 5 }).children[0].props.className, 'dsh-tavern-card-grid dense')
   assert.equal(tiles(viewOf('play'))[1].children[0].props.disabled, true)
   assert.equal(tiles(viewOf('workbench'))[1].children[0].props.disabled, false, '坏卡仍可进入工作台修复')
@@ -401,13 +404,13 @@ test('状态分节与正文视图：注册校验；正文视图拿到 Tavern 自
   })
   const choice = view.useTavernTurnView('game-1')
   assert.equal(choice.view.label, '气泡')
-  const tree = view.tavernTurnViewElement(choice.view, { gameId: 'game-1', turn: 3, settled: true, streaming: false, text: 't', lines: [] }, 'tavern-body')
+  const tree = view.tavernTurnViewElement(choice, { gameId: 'game-1', turn: 3, settled: true, streaming: false, text: 't', lines: [] }, 'tavern-body')
   assert.equal(tree.type, 'Boundary')
   const inner = tree.children[0]
   const result = inner.type(inner.props)
   assert.equal(result[0], 'wrapped')
   assert.equal(input.children.children[0], 'tavern-body', 'children 是 Tavern 自己的渲染')
-  const streaming = view.tavernTurnViewElement(choice.view, { settled: false }, 'tavern-body')
+  const streaming = view.tavernTurnViewElement(choice, { settled: false }, 'tavern-body')
   assert.equal(streaming.children[0].type(streaming.children[0].props).children[0], 'tavern-body', '返回 null 时用内置')
   assert.equal(view.tavernTurnViewElement(null, {}, 'tavern-body'), 'tavern-body')
 
@@ -419,6 +422,20 @@ test('状态分节与正文视图：注册校验；正文视图拿到 Tavern 自
   assert.equal(section.children[0].children[0], '当前场景')
   assert.equal(section.children[1], 'scene:game-1')
   assert.equal(hiddenBoundary.children[0].type(hiddenBoundary.children[0].props), null)
+
+  plugin.registerTurnView({ id: 'after', label: '附加内容', placement: 'after', render: value => {
+    assert.equal(value.children, null)
+    return '附加正文'
+  } })
+  choice.choose('dsh-tavern:builtin')
+  const builtin = view.useTavernTurnView('game-1')
+  assert.equal(builtin.view, null)
+  assert.deepEqual(Array.from(builtin.views, entry => entry.label), ['气泡'])
+  const appended = view.tavernTurnViewElement(builtin, { gameId: 'game-1', turn: 3, settled: true }, 'tavern-body')
+  const [body, after] = appended.children
+  assert.equal(body, 'tavern-body')
+  assert.equal(after.type, 'Boundary')
+  assert.equal(after.children[0].type(after.children[0].props), '附加正文')
 })
 
 test('消息按钮：when 拿得到这条消息的正文，可以只在合适的消息下显示', () => {

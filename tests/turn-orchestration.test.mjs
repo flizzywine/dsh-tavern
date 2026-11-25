@@ -199,7 +199,10 @@ test('连续正文回合的实际 Frame 消息不重复基本信息和常驻世�
       const session = { events: [{ type: 'user/message', data: { id: 'tavern-session-prefix:test', role: 'user', content: [],
         source: { kind: 'plugin', plugin: 'dsh-tavern', form: 'snapshot', sections: [{ name: 'tavern:session-context', text: prefix.text }] } } }] }
       messages = adapter.append({ session, messages, frame: prepared.frame, step: 1 }).messages
-      await run.orchestrator.finalize({ ...input, assistantText: '雨水敲着窗。' })
+      const assistantText = mode === 'story' ? '<style_reference_submit">雨水敲着窗。' : '雨水敲着窗。'
+      const saved = await run.orchestrator.finalize({ ...input, assistantText })
+      assert.equal(saved.reply.sessionText, '雨水敲着窗。')
+      assert.equal(run.chat().messages.at(-1).sourceText, '雨水敲着窗。')
     }
     const historyText = messages.map(message => message.content[0].text).join('\n')
     const requestText = prefix.text + '\n' + historyText

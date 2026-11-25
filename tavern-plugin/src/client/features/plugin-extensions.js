@@ -447,7 +447,7 @@
 
 			const service = {
 				ctx: undefined,
-				apiVersion: 10,
+				apiVersion: 11,
 				// Tavern's own controls (apiVersion 9), so a plugin's UI looks and behaves like Tavern's: Slider, Segmented,
 				// Switch, SearchBox, Icon (Tavern's icon names), Spinner, EmptyState. Same props as Tavern uses (inline-field.js).
 				get components() { return Object.freeze({ Slider: Slider, Segmented: Segmented, Switch: Switch, SearchBox: SearchBox, Icon: Icon, Spinner: Spinner, EmptyState: EmptyState }); },
@@ -962,6 +962,33 @@
 						root.render(h(tavernPluginBoundary(), { owner: owner, fallback: fallback }, h(Screen)));
 						return function () { cleanup(); };
 					}, "tavernUi.openOverlay()");
+					return handle;
+				},
+				// Tavern's own large-picture view (apiVersion 11, image-viewer.js): fitted to the window, wheel / pinch zoom,
+				// drag to pan, double tap toggles fit ↔ 100 %, Esc / ✕ / backdrop closes. A plugin's picture in the story opens
+				// the same view as Tavern's own illustrations instead of a new window (on the Android app that showed native
+				// pixels and could not zoom). Returns { close }; the view closes when the plugin unloads.
+				openImage(input) {
+					const options = typeof input === "string" ? { src: input } : input;
+					if (!options || typeof options.src !== "string" || !options.src || options.src.length > 8192) throw new TypeError("openImage 需要图片地址 src");
+					if (options.alt !== undefined && typeof options.alt !== "string") throw new TypeError("openImage 的 alt 必须是字符串");
+					if (options.onClose !== undefined && typeof options.onClose !== "function") throw new TypeError("openImage 的 onClose 必须是函数");
+					if (typeof document === "undefined") throw new Error("当前环境没有页面，无法打开大图");
+					const owner = ownerOf(this);
+					let viewer = null, closed = false;
+					const handle = { close: function () { if (typeof dispose === "function") dispose(); else finish(); } };
+					function finish() { if (viewer) viewer.close(); }
+					const dispose = owned(this, function () {
+						viewer = openImageViewer({
+							src: options.src, alt: options.alt || "插图",
+							onClose: function () {
+								if (closed) return;
+								closed = true;
+								if (options.onClose) try { options.onClose(); } catch (error) { try { tavernErrorHub.report("插件 " + owner, error); } catch (_) {} }
+							}
+						});
+						return finish;
+					}, "tavernUi.openImage()");
 					return handle;
 				},
 				// A group of the plugin's own on the sidebar start page; tabs not in any group stay under 「插件」 or 「其他」.
@@ -1697,19 +1724,21 @@
 			const mention = input.mention(card.path);
 			const script = card.script && card.script.title ? card.script.title : "";
 			const placeholder = !card.imageUrl;
-			return h("div", Object.assign({ className: "dsh-tavern-card-grid-item" + (selected ? " selected" : "") + (card.starred ? " starred" : "") + (card.error ? " broken" : "") }, menu && menu.target),
+			return h("div", Object.assign({ className: "dsh-tavern-card-grid-item" + (mention || (menu && content) ? " has-corner" : "") + (input.selecting ? " picking" : "") + (selected ? " selected" : "") + (card.starred ? " starred" : "") + (card.error ? " broken" : "") }, menu && menu.target),
 				h("button", Object.assign({ type: "button", className: "dsh-tavern-card-grid-open", title: card.error || [card.name, card.fileName ? "文件：" + card.fileName : "", script ? "剧本：" + script : "自由故事", card.tags.length ? "标签：" + card.tags.join("、") : "", card.starred ? "已收藏" : ""].filter(Boolean).join("\n"), "aria-label": card.name, "aria-pressed": input.selecting ? selected : undefined,
 					disabled: input.busy || (!input.selecting && input.place === "play" && Boolean(card.error)), onClick: function (event) { input.open(card.path, event); } }, menu && menu.trigger),
 					h(TavernCardGridCover, { key: card.imageUrl, card: card }),
 					placeholder ? null : h("span", { className: "dsh-tavern-card-grid-copy" },
 						h("span", { className: "dsh-tavern-card-grid-name" }, card.name))),
 				h("div", { className: "dsh-tavern-card-grid-band" },
-					input.selecting ? h(Switch, { className: "dsh-tavern-card-grid-check", checked: selected, disabled: input.busy,
-						label: "选择人物卡：" + card.name, onChange: function () { input.toggle(card.path); } }) : null,
-					h("span", { className: "dsh-tavern-card-grid-tags", "aria-hidden": "true" }, card.tags.map(function (tag) { return h("span", { key: tag, className: "dsh-tavern-card-grid-tag" }, tag); })),
-					mention || (menu && content) ? h("span", { className: "dsh-tavern-card-grid-corner" }, mention,
-						menu && content ? h("button", { type: "button", className: "dsh-tavern-card-grid-more", "aria-label": card.name + " 操作", title: "操作", "aria-haspopup": "menu",
-							onClick: function (event) { event.stopPropagation(); menu.show(event.currentTarget); } }, "⋯") : null) : null),
+					h("span", { className: "dsh-tavern-card-grid-tags", "aria-hidden": "true" }, card.tags.map(function (tag) { return h("span", { key: tag, className: "dsh-tavern-card-grid-tag" }, tag); }))),
+				// Selecting: the whole tile toggles (aria-pressed); the stage library's round tick in the bottom-right corner only
+				// shows it (ui-design §三.15), and the tiles not picked turn grey (owner 11-24: no switch, tick bottom right).
+				input.selecting ? h("span", { className: "ap-check-mark dsh-tavern-card-grid-check", "aria-hidden": "true" }, selected ? h(packUi.Glyph, { name: "check" }) : null) : null,
+				// @ and ⋯ sit in the bottom-right corner, faint until the card is hovered or focused (owner 11-24).
+				mention || (menu && content) ? h("span", { className: "dsh-tavern-card-grid-corner" }, mention,
+					menu && content ? h("button", { type: "button", className: "dsh-tavern-card-grid-more", "aria-label": card.name + " 操作", title: "操作", "aria-haspopup": "menu",
+						onClick: function (event) { event.stopPropagation(); menu.show(event.currentTarget); } }, "⋯") : null) : null,
 				menu && menu.layer);
 		}
 		function TavernCardGrid(props) {

@@ -163,6 +163,34 @@ export function createCardHandlers(deps) {
         return { filename, bytes: stored.bytes, downloadUrl: '/api/dsh-tavern/transfer-export/' + encodeURIComponent(filename) + '?token=' + stored.token }
       } finally { await upload.remove(); await rm(output, { force: true }).catch(() => {}) }
     },
+    async listCardExportPacks(args) {
+      return { packs: await deps.listCardExportPacks(args?.path) }
+    },
+    // The export sheet's 更新包: the card's version and its earlier releases (card-files.js listCardReleases).
+    async listCardReleases(args) {
+      return await deps.listCardReleases(args?.path)
+    },
+    // A file sent before releases were recorded, uploaded (card-upload) to become one: only its pack file lists are read.
+    async addCardReleaseUpload(args) {
+      const upload = await cardUploadFor(args?.uploadId).take(args?.uploadId)
+      let retry = false
+      try { return { release: await deps.addCardReleaseFromFile(args?.path, upload.file, str(args?.name), { password: args?.password }) } }
+      catch (error) { retry = isCardPasswordError(error); throw error }
+      finally { if (!retry) await upload.remove() }
+    },
+    // The card's 版本 (character_version), set from the export sheet: the same edit path as updateCard.
+    async setCardVersion(args) {
+      const version = str(args?.version).trim()
+      if (version.length > 40) throw new Error('版本号太长了，请写短一点，例如 1.1')
+      const workspace = await readCardWorkspace(args?.path)
+      if (workspace === undefined) throw new Error('人物卡不存在')
+      const pointer = workspace.raw && typeof workspace.raw.data === 'object' ? '/data/character_version' : '/character_version'
+      const change = await updateCard(args.path, undefined, undefined, [{ op: 'set', path: pointer, value: version }])
+      return { version, changed: change.changed }
+    },
+    async estimateCardUpdate(args) {
+      return await deps.estimateCardUpdate(args?.path, args?.releaseId, args?.packIds)
+    },
     // The current card as a DSH card for the 导出人物卡 sheet: the same export as the card-export route (packIds,
     // excludeFigures, worldBooks = the bound books it carries), encrypted from its spool file when a `password` is given,
     // then handed over as a transfer download of `bytes`. `progressId` (the sheet's name for this export) lets it poll
@@ -176,7 +204,7 @@ export function createCardHandlers(deps) {
         let card, output
         try {
           // 压缩素材 (`compress`) reports its own stage first, its bar from 0 to 100; packing (and encrypting) follows.
-          card = await deps.exportCardFile(cardPath, { packIds: args?.packIds, excludeFigures: args?.excludeFigures, books: args?.worldBooks, compress: args?.compress ?? false,
+          card = await deps.exportCardFile(cardPath, { packIds: args?.packIds, omitPackIds: args?.omitPackIds, excludeFigures: args?.excludeFigures, books: args?.worldBooks, compress: args?.compress ?? false, baseRelease: args?.baseRelease,
             onProgress: progress => report(progress.stage === 'compress' ? { stage: 'compress', done: progress.done, total: progress.total, pack: progress.pack }
               : { stage: 'pack', done: encrypt ? progress.done / 2 : progress.done, total: progress.total, pack: progress.pack }) })
           let file = card.file, filename = card.name.replace(/[\\/:*?"<>|\r\n]/g, '_') + '.dshcard'
@@ -188,7 +216,7 @@ export function createCardHandlers(deps) {
               onProgress: progress => report({ stage: 'encrypt', done: (progress.total + progress.done) / 2, total: progress.total, pack: '' }) })
           }
           const stored = await deps.transferExports.putFile(file, filename)
-          return { filename, bytes: stored.bytes, downloadUrl: '/api/dsh-tavern/transfer-export/' + encodeURIComponent(filename) + '?token=' + stored.token, ...(card.compressed ? { compressed: card.compressed } : {}) }
+          return { filename, bytes: stored.bytes, downloadUrl: '/api/dsh-tavern/transfer-export/' + encodeURIComponent(filename) + '?token=' + stored.token, ...(card.compressed ? { compressed: card.compressed } : {}), ...(card.update ? { update: card.update } : {}) }
         } finally {
           await card?.dispose(); if (output) await rm(output, { force: true }).catch(() => {})
         }

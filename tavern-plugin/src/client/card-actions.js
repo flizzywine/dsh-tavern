@@ -59,19 +59,34 @@ function useTavernCardActions(opts) {
 }
 
 // The menu of one card (content of a useContextMenu layer): the items, or the 标签 page (‹ back) of the same menu.
-function TavernCardMenu({ card, actions, organization, close }) {
+// `detail`: the card's own page, which shows the name's ✎ and the tags itself; its ⋯ holds the page's low-frequency
+// actions instead: { exportCard() (the one export sheet) or exportFormats [{ label, note, disabled, run }] (without the pack
+// service: a 导出 › page of the formats, 加密导出 last), manageSaves(), attach() }.
+function TavernCardMenu({ card, actions, organization, close, detail }) {
   const h = React.createElement, ui = packUi, [page, setPage] = React.useState('main');
   const item = (label, onClick, props) => h(ui.MenuItem, Object.assign({ disabled: organization.disabled, onClick: () => { close(); onClick(); } }, props), label);
+  const sub = (label, to) => h(ui.MenuItem, { disabled: organization.disabled, onClick: () => setPage(to) },
+    h('span', { className: 'dsh-tavern-card-menu-label' }, label), h('span', { 'aria-hidden': true, className: 'dsh-tavern-card-menu-more' }, '›'));
   if (page === 'tags') return h('div', { className: 'dsh-tavern-card-menu-tags' },
     organization.tagChecklist(card, { title: '标签', onBack: () => setPage('main') }));
-  const tags = card.tags || [];
+  if (page === 'export') return h(React.Fragment, null,
+    h(ui.MenuItem, { onClick: () => setPage('main') }, '‹ 导出'),
+    detail.exportFormats.map(format => h(ui.MenuItem, { key: format.label, disabled: organization.disabled || format.disabled, onClick: () => { close(); format.run(); } },
+      h('span', { className: 'dsh-tavern-card-menu-label' }, format.label), h('span', { className: 'dsh-tavern-card-menu-more' }, format.note))));
+  if (detail) return h(React.Fragment, null,
+    detail.exportFormats ? sub('导出', 'export') : item('导出…', detail.exportCard),
+    detail.manageSaves ? item('管理存档…', detail.manageSaves) : null,
+    detail.attach ? item('引用到对话', detail.attach) : null,
+    item('另存副本', () => actions.duplicate(card)),
+    item(card.starred ? '取消收藏' : '收藏', () => organization.toggleStar(card)),
+    actions.update ? item('更新', () => actions.update(card)) : null,
+    h('div', { className: 'dsh-tavern-card-menu-divider', role: 'separator' }),
+    item('删除', () => actions.remove(card), { danger: true }));
   return h(React.Fragment, null,
     item('导出', () => actions.exportCard(card)),
     item('另存副本', () => actions.duplicate(card)),
     item('重命名', () => actions.rename(card)),
-    h(ui.MenuItem, { disabled: organization.disabled, onClick: () => setPage('tags') },
-      h('span', { className: 'dsh-tavern-card-menu-label' }, '标签'),
-      h('span', { className: 'dsh-tavern-card-menu-note' }, tags.join('、')), h('span', { 'aria-hidden': true, className: 'dsh-tavern-card-menu-more' }, '›')),
+    sub('标签', 'tags'),
     item(card.starred ? '取消收藏' : '收藏', () => organization.toggleStar(card)),
     actions.select ? item('选择', () => actions.select(card.path)) : null,
     actions.update ? item('更新', () => actions.update(card)) : null,

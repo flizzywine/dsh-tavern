@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { createReadStream } from 'node:fs'
-import { copyFile, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
+import { copyFile, mkdir, mkdtemp, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { StoredFile, writePackZip } from '../../packages/dsh-asset-library/lib/pack-v2/service.js'
@@ -18,6 +18,8 @@ import { MAX_SHARED_PRESET_BYTES } from './preset-reading.js'
 function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
 }
+// The releases kept per card (发布记录): an update package is made on top of one of the latest.
+const MAX_RELEASES = 20
 const archiveLabel = name => /\.dshcard$/i.test(name) ? 'DSH 人物卡' : 'CHARX'
 const COVER_TYPES = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', gif: 'image/gif' }
 // An installed pack the card carries another version of: the player chooses 完全替换 (update) or, where the asset
@@ -34,7 +36,8 @@ const previewDecision = (preview, onConflict) => preview.choices.includes('noop'
 // Card files in and out of the card library. pluginApi is a getter: it is built after the library.
 // backupPack(file, {packId, expectedRevision}) writes an installed pack, unchanged, to a private file (the asset
 // library's assetLibraryPackBackup): an update keeps the versions it replaces so 撤回 can put them back.
-export function createCardFiles({ cardPreparation, fileResources, castAssets, assetPacks, cardPlugins, cardSummaries, presetLibrary, importPreset, readCardWorkspace, worldBooks, pluginApi, assetLibrary = () => null, prepareCardAssets, withCardBackup, backupPack, exportRoot = os.tmpdir(), syncBubbles = async () => {} }) {
+// mediaStore: the shared store of pack files by content (media-store.js); an update package's left-out files come from it.
+export function createCardFiles({ cardPreparation, fileResources, castAssets, assetPacks, cardPlugins, cardSummaries, presetLibrary, importPreset, readCardWorkspace, worldBooks, pluginApi, assetLibrary = () => null, prepareCardAssets, withCardBackup, backupPack, mediaStore, exportRoot = os.tmpdir(), syncBubbles = async () => {} }) {
   const cardImportIdentity = createCardImportIdentity({ cardPaths: () => fileResources.list('card'), castAssets, readCardText: cardPath => fileResources.readText(cardPath) })
   async function importCard(input, options = {}) {
     // A CHARX is stored as PNG or JSON; the material any card file carries goes to its character material.
@@ -59,6 +62,40 @@ export function createCardFiles({ cardPreparation, fileResources, castAssets, as
       await writePackZip(archive, entries)
       return await library.inspectImportFile({ file: archive })
     } finally { await rm(dir, { recursive: true, force: true }) }
+  }
+  // An update package (dsh.json `base`) leaves out the pack files an earlier release already brought. Each pack's manifest
+  // still lists every file by content, so the ones the archive lacks are read from the shared media store; the pack is
+  // then checked file by file exactly like a complete one when it is read. A file found nowhere stops the import before
+  // anything is written, saying which release it needs.
+  async function completeUpdateArchive(zip, archive) {
+    if (!archive.base) return zip
+    const added = new Map(), missing = []
+    for (const pack of archive.packs) {
+      const entry = zip.entries.get(pack.prefix + 'manifest.json')
+      if (!entry) throw new Error('更新包里的素材包「' + (pack.title || pack.id) + '」缺少 manifest.json，请向作者要完整包')
+      let manifest
+      try { manifest = JSON.parse((await zip.readBuffer(entry, 64 * 1024 ** 2)).toString('utf8')) }
+      catch { throw new Error('更新包里的素材包「' + (pack.title || pack.id) + '」的 manifest.json 无法读取，请向作者要完整包') }
+      let lacking = 0
+      for (const file of Array.isArray(manifest?.files) ? manifest.files : []) {
+        const name = pack.prefix + file?.path
+        if (zip.entries.has(name) || added.has(name)) continue
+        const found = mediaStore && await mediaStore.resolve({ sha256: file.sha256, size: file.size }).catch(() => undefined)
+        if (found) added.set(name, { path: name, size: file.size, local: found.absolutePath })
+        else lacking++
+      }
+      if (lacking) missing.push('「' + (pack.title || pack.id) + '」里的 ' + lacking + ' 个文件')
+    }
+    if (missing.length) {
+      const base = archive.base.version ? ' ' + archive.base.version + ' ' : '上一版'
+      throw Object.assign(new Error('这是相对' + base + '的更新包，你这里缺少它需要的素材：' + missing.join('、') + '。请先导入' + base + '的完整包，或向作者要完整包。这次什么都没有改。'), { code: 'TAVERN_CARD_UPDATE_BASE_MISSING' })
+    }
+    return Object.assign(Object.create(zip), {
+      entries: new Map([...zip.entries, ...added]),
+      stream: async entry => entry.local ? createReadStream(entry.local) : await zip.stream(entry),
+      readBuffer: async (entry, limit) => entry.local ? await readFile(entry.local) : await zip.readBuffer(entry, limit),
+      close: () => zip.close()
+    })
   }
   const preparedPacks = new Map()
   const cancelPack = (library, preview) => library.applyImport({ inspectionId: preview.inspectionId, decision: 'cancel' }).catch(() => {})
@@ -102,9 +139,10 @@ export function createCardFiles({ cardPreparation, fileResources, castAssets, as
         if (kept) {
           await mkdir(packBackups.dir, { recursive: true })
           await backupPack(path.join(packBackups.dir, kept.file), { packId: pack.id, expectedRevision: preview.expectedRevision })
+          // listed before it is replaced: putting back a version that was never replaced leaves it as it is.
+          packBackups.list.push(kept)
         }
         await library.applyImport({ inspectionId: preview.inspectionId, decision, expectedRevision: preview.expectedRevision })
-        if (kept) packBackups.list.push(kept)
       } catch (error) {
         await cancelPack(library, preview)
         notices.push(packFailure(label, packError(error)))
@@ -116,9 +154,10 @@ export function createCardFiles({ cardPreparation, fileResources, castAssets, as
     if (/\.(dshcard|charx)\.png$/i.test(name)) throw new Error('卡包请使用 .dshcard 文件')
     await discardCardArchivePreview(file)
     const hash = await cardImportIdentity.fileSha256(file)
-    const zip = await openCardZip(file, { label: archiveLabel(name), password })
+    let zip = await openCardZip(file, { label: archiveLabel(name), password })
     try {
       const archive = await readCardArchive(zip, { assets: 'cover' })
+      zip = await completeUpdateArchive(zip, archive)
       const data = archive.card.data || archive.card
       const icon = (Array.isArray(data.assets) ? data.assets : []).find(asset => asset?.type === 'icon' && asset.name === 'main')
       const coverType = icon && COVER_TYPES[str(icon.ext).toLowerCase()], coverBytes = coverType && archive.resolve(icon.uri)
@@ -127,6 +166,7 @@ export function createCardFiles({ cardPreparation, fileResources, castAssets, as
       const timer = setTimeout(() => { void discardCardArchivePreview(file) }, 15 * 60000).unref()
       preparedPacks.set(file, { ...stage, hash, timer })
       return { card: { name: str(data.name), version: str(data.character_version).trim(), ...(coverBytes ? { cover: 'data:' + coverType + ';base64,' + coverBytes.toString('base64') } : {}) }, packs,
+        ...(archive.base ? { base: archive.base } : {}),
         ...(stage.notices.length ? { packNotices: stage.notices } : {}) }
     } finally { await zip.close() }
   }
@@ -176,8 +216,10 @@ export function createCardFiles({ cardPreparation, fileResources, castAssets, as
   async function dependencyNotices(dependencies) {
     const library = assetLibrary(), notices = []
     for (const dependency of dependencies) {
-      if (library && await library.getPackSnapshot({ packId: dependency.id, readOnly: true })) continue
-      notices.push('这张卡还需要素材包「' + (dependency.title || dependency.id) + '」：请先导入该包（素材库 → 导入），装好后绑定自动生效')
+      const installed = library && await library.getPackSnapshot({ packId: dependency.id, readOnly: true })
+      const label = '「' + (dependency.title || dependency.id) + '」'
+      if (!installed) notices.push('这张卡还需要素材包' + label + '：请先导入该包（素材库 → 导入），装好后绑定自动生效')
+      else if (dependency.contentHash && installed.manifest?.contentHash !== dependency.contentHash) notices.push('素材库里的素材包' + label + '和作者导出这张卡时用的不是同一版，有些素材可能对不上；需要时向作者要这个包的新版')
     }
     return notices
   }
@@ -188,10 +230,10 @@ export function createCardFiles({ cardPreparation, fileResources, castAssets, as
     // its packs are in the asset library (cards imported before the library came carry none there).
     const archiveSha256 = await cardImportIdentity.fileSha256(file)
     const existing = await cardImportIdentity.find(archiveSha256)
-    const authenticated = await openCardZip(file, { label, password })
-    const zip = authenticated
+    let zip = await openCardZip(file, { label, password })
     try {
       const archive = await readCardArchive(zip)
+      zip = await completeUpdateArchive(zip, archive)
       const stage = preparedPacks.get(file)
       if (previewed && !stage) throw new Error('卡包预览已过期，请重新选择文件')
       if (stage && stage.hash !== archiveSha256) {
@@ -199,17 +241,20 @@ export function createCardFiles({ cardPreparation, fileResources, castAssets, as
         throw new Error('卡包在预览后变更，请重新选择文件')
       }
       if (stage?.notices.length && !acceptMissingPacks) throw new Error(stage.notices.join('；'))
+      const duplicate = existing && !replacePath
+      // Validate the card before publishing any of its packs.
+      const prepared = duplicate ? null : prepareImportedCard(cardImportFromCard({ card: archive.card, resolve: archive.resolve, name }))
       if (stage) { preparedPacks.delete(file); clearTimeout(stage.timer) }
       const staged = stage || await inspectCardPacks(zip, archive.packs, archiveSha256)
-      const libraryNotices = [...await installPacksInLibrary(staged, { packDecisions, packBackups })]
-      if (existing && !replacePath) return { path: existing, name: (await cardSummaries.read(existing).catch(() => null))?.name || existing.split('/').pop(), duplicate: true, ...cardLibraryResult(libraryNotices) }
+      const libraryNotices = [...await installPacksInLibrary(staged, { packDecisions, packBackups }), ...await dependencyNotices(archive.dependencies)]
+      if (duplicate) return { path: existing, name: (await cardSummaries.read(existing).catch(() => null))?.name || existing.split('/').pop(), duplicate: true, ...cardLibraryResult(libraryNotices) }
       const packs = []
       const sourceMedia = new Map(staged.ready.map(({ pack, preview }) => [pack.prefix, preview.sourceMedia]))
       for (const pack of archive.packs) {
         const { pack: stored, reused } = await assetPacks.importFromZip(zip, { ...pack, sourceMedia: sourceMedia.get(pack.prefix) })
         packs.push({ id: stored.id, contentHash: stored.contentHash, format: stored.format, title: stored.title, name: pack.prefix.split('/')[1], files: Object.keys(stored.files).length, reused })
       }
-      const imported = await storeImportedCard(cardImportFromCard({ card: archive.card, resolve: archive.resolve, name }), { unique: true, library: !archive.packs.length, replacePath })
+      const imported = await storePreparedCard(prepared, { unique: true, library: !archive.packs.length, replacePath })
       if (packs.length) await castAssets.bindPacks(imported.path, packs)
       libraryNotices.push(...(imported.libraryNotices || []))
       // the 对话气泡 format entry is derived here, from this install's packs (an export never carries one).
@@ -291,9 +336,14 @@ export function createCardFiles({ cardPreparation, fileResources, castAssets, as
   }
   // options.library: a card without packs of its own. With the asset library, the material it brings becomes one pack
   // of the library that the card binds; what the library has no place for stays the card's character material.
-  async function storeImportedCard({ payload, collected }, options = {}) {
-    let workspace = cardPreparation.create({ kind: 'import', payload: payload })
-    const { library: toLibrary = true, ...importOptions } = options
+  function prepareImportedCard({ payload, collected }) {
+    const workspace = cardPreparation.create({ kind: 'import', payload })
+    return { payload, collected, workspace }
+  }
+  async function storeImportedCard(input, options = {}) {
+    return await storePreparedCard(prepareImportedCard(input), options)
+  }
+  async function storePreparedCard({ payload, collected, workspace }, { library: toLibrary = true, ...importOptions } = {}) {
     const library = assetLibrary()
     let material = collected, libraryPack = null, libraryNotices = [], installed
     if (collected && toLibrary && typeof library?.importCardMaterial === 'function') {
@@ -315,15 +365,91 @@ export function createCardFiles({ cardPreparation, fileResources, castAssets, as
     let assets = null
     if (material && (material.emotions.length || material.backgrounds.length || material.cover || material.extras.length || material.cast.length || material.skipped)) {
       try { assets = { ...await castAssets.importCardAssets({ cardPath, name: card.name || '主角', collected: material }), skipped: material.skipped } }
-      catch (error) { if (options.replacePath) throw error; assets = { error: str(error?.message || error) } }
+      catch (error) { if (importOptions.replacePath) throw error; assets = { error: str(error?.message || error) } }
     }
     return { path: cardPath, name: card.name, description: card.description, tags: card.tags, ...(assets ? { assets } : {}),
       ...(libraryPack ? { libraryPack } : {}), ...(libraryNotices.length ? { libraryNotices } : {}) }
   }
-  // `books` (an export's 世界书 ticks): the bound books the card carries; by default all of them.
-  async function presentCardText(cardPath, books) {
+  async function exportWorkspace(cardPath) {
     const workspace = await readCardWorkspace(cardPath)
     if (workspace === undefined) throw Object.assign(new Error('人物卡不存在: ' + cardPath), { code: 'TAVERN_NOT_FOUND' })
+    return workspace
+  }
+  // One list for the export sheet and every DSH card writer. A catalogue failure must not turn into an unticked pack.
+  function cardExportPacks(workspace, material) {
+    const ext = rawData(workspace.raw).extensions?.dsh_tavern
+    const boundIds = ext?.assetBindings?.boundPackIds || [], required = ext?.modConfigPackId
+    const carried = new Map((material.packs || []).map(ref => [ref.id, ref]))
+    const packs = [...new Set([...boundIds, ...carried.keys(), ...(required ? [required] : [])])].map(id => ({
+      id, title: carried.get(id)?.title || '', required: id === required
+    }))
+    return { packs, boundIds, required, carried }
+  }
+  async function listCardExportPacks(input) {
+    const cardPath = normalizeResourcePath(input, 'card')
+    return cardExportPacks(await exportWorkspace(cardPath), await castAssets.read(cardPath)).packs
+  }
+  // 发布记录: what each DSH card export of a card held, kept on this machine only (never in an archive), so a later
+  // export can be an update package on top of it. A release is {id, version, exportedAt, compressed, size, source
+  // ('export' | 'file'), packs: [{id, title, contentHash, files: [sha256]}], converted: {source sha256: compressed media}}.
+  const releasesFile = cardPath => path.join(path.dirname(exportRoot), 'card-releases', castAssets.keyOf(cardPath) + '.json')
+  async function readReleases(cardPath) {
+    const text = await readFile(releasesFile(cardPath), 'utf8').catch(error => error?.code === 'ENOENT' ? null : Promise.reject(error))
+    return text === null ? [] : JSON.parse(text).releases
+  }
+  async function addRelease(cardPath, release) {
+    const file = releasesFile(cardPath), temporary = file + '.' + randomUUID() + '.tmp'
+    await mkdir(path.dirname(file), { recursive: true })
+    await writeFile(temporary, JSON.stringify({ releases: [...await readReleases(cardPath), release].slice(-MAX_RELEASES) }))
+    await rename(temporary, file)
+    return release
+  }
+  const releaseView = ({ id, version, exportedAt, compressed, size, source }) => ({ id, version, exportedAt, compressed, size, source })
+  // The export sheet's 更新包 choices: the card's current version and its releases, newest first.
+  async function listCardReleases(input) {
+    const cardPath = normalizeResourcePath(input, 'card')
+    const workspace = await exportWorkspace(cardPath)
+    return { version: str(rawData(workspace.raw).character_version).trim(), releases: (await readReleases(cardPath)).reverse().map(releaseView) }
+  }
+  // A release sent before releases were recorded: read (not imported) from the archive that was sent, its packs' file lists.
+  async function addCardReleaseFromFile(input, file, name, { password } = {}) {
+    const cardPath = normalizeResourcePath(input, 'card')
+    await exportWorkspace(cardPath)
+    if (!/\.dshcard$/i.test(str(name))) throw Object.assign(new Error('请选择以前导出的 .dshcard 文件'), { code: 'TAVERN_EXPORT_INVALID' })
+    const zip = await openCardZip(file, { label: 'DSH 人物卡', password })
+    try {
+      const archive = await readCardArchive(zip, { assets: 'none' })
+      if (!archive.packs.length) throw Object.assign(new Error('这个文件没有带素材包，不用作更新包的基础'), { code: 'TAVERN_EXPORT_INVALID' })
+      const packs = []
+      for (const pack of archive.packs) {
+        const entry = zip.entries.get(pack.prefix + 'manifest.json')
+        const manifest = entry ? JSON.parse((await zip.readBuffer(entry, 64 * 1024 ** 2)).toString('utf8')) : null
+        if (!Array.isArray(manifest?.files)) throw Object.assign(new Error('素材包「' + (pack.title || pack.id) + '」没有文件清单，不能用作基础'), { code: 'TAVERN_EXPORT_INVALID' })
+        packs.push({ id: pack.id, title: pack.title, contentHash: pack.contentHash || null, files: manifest.files.map(row => str(row?.sha256)) })
+      }
+      return releaseView(await addRelease(cardPath, { id: randomUUID(), version: archive.info?.version || '', exportedAt: Date.now(), compressed: null, size: zip.size ?? null, source: 'file', packs, converted: {} }))
+    } finally { await zip.close() }
+  }
+  // About how many bytes an update package on top of `releaseId` carries for these packs: the files the release did not
+  // have, at their installed size (压缩素材 makes media smaller still); the card itself (a few MB at most) comes on top.
+  async function estimateCardUpdate(input, releaseId, packIds) {
+    const cardPath = normalizeResourcePath(input, 'card')
+    const base = (await readReleases(cardPath)).find(release => release.id === releaseId)
+    if (!base) throw Object.assign(new Error('找不到作为基础的版本，请重新打开导出窗口'), { code: 'TAVERN_EXPORT_INVALID' })
+    const had = new Set(base.packs.flatMap(pack => pack.files)), library = assetLibrary()
+    let bytes = 0, files = 0
+    for (const packId of Array.isArray(packIds) ? packIds : []) {
+      const pack = library && await library.getPackSnapshot({ packId, readOnly: true })
+      for (const file of pack?.manifest.files || []) {
+        const sent = had.has(file.sha256) || had.has(base.converted?.[file.sha256]?.sha256)
+        if (!sent || /^figures\/[^/]+\.json$/.test(file.path)) { bytes += file.size; files++ }
+      }
+    }
+    return { bytes, files }
+  }
+  // `books` (an export's 世界书 ticks): the bound books the card carries; by default all of them.
+  async function presentCardText(cardPath, books, workspace = undefined) {
+    workspace ??= await exportWorkspace(cardPath)
     if (books !== undefined && (!Array.isArray(books) || books.some(book => !book || typeof book !== 'object'))) throw Object.assign(new Error('世界书选择无效'), { code: 'TAVERN_EXPORT_INVALID' })
     const document = withoutPlayerChoices(cardPreparation.present({ card: workspace, as: 'sillytavern-v3', characterBook: await worldBooks.characterBookForCard(cardPath, books) }))
     return { document, text: JSON.stringify(document) }
@@ -340,40 +466,50 @@ export function createCardFiles({ cardPreparation, fileResources, castAssets, as
   }
   // The card as a DSH card (.dshcard, Wiki「设计：dsh-card-format」): card.json and dsh.json, the cover, the card's own
   // material, its plugins and start defaults, and the packs that go with it under assets/<pack id>/ — by default every pack
-  // the card binds (and the packs it came with); `packIds` chooses. A bound pack left out stays bound and is listed in
-  // dsh.json `dependencies`, so it works wherever that pack is installed. `excludeFigures` leaves figures of the packs out (e.g. the one the player plays) with the media only they
-  // use. Private migration sets preserveBindings: unembedded packs stay external references at the destination.
+  // the card binds (and the packs it came with); `packIds` chooses, or `omitPackIds` unchecks packs in the sheet.
+  // A pack omitted by the sheet loses its binding; an explicit packIds selection retains dependencies unless scoped.
+  // `excludeFigures` leaves out figures and the media only they use.
   // Packs can be large, so the archive is written to a spool file under exportRoot and streamed; `onProgress` hears it
   // being written (dsh-card-export.js writeDshCard). `books` chooses the bound world books, in every format.
   // `compress` (.dshcard only): 压缩素材 — the packs go out with smaller media (dsh-card-export.js); the result's `compressed`
   // says the packs' bytes before and after.
-  async function exportCardFile(input, { format = 'dshcard', packIds, dependencyPackIds, excludeFigures = [], preserveBindings = false, books, compress = false, onProgress } = {}) {
+  // `baseRelease` (.dshcard only): the id of an earlier release (listCardReleases): an update package on top of it, without
+  // the pack files that release already brought; the result's `update` says {base: its version, omitted: files left out}.
+  async function exportCardFile(input, { format = 'dshcard', packIds, omitPackIds, dependencyPackIds, excludeFigures = [], preserveBindings = false, books, compress = false, baseRelease, onProgress } = {}) {
     if (typeof compress !== 'boolean' || compress && format !== 'dshcard') throw Object.assign(new Error('压缩素材只用于导出 .dshcard'), { code: 'TAVERN_EXPORT_INVALID' })
-    if (format === 'dshcard') return writeCardFile(input, { packIds, dependencyPackIds, excludeFigures, preserveBindings, books, compress, onProgress })
+    if (baseRelease !== undefined && (format !== 'dshcard' || typeof baseRelease !== 'string')) throw Object.assign(new Error('更新包只用于导出 .dshcard'), { code: 'TAVERN_EXPORT_INVALID' })
+    if (format === 'dshcard') return writeCardFile(input, { packIds, omitPackIds, dependencyPackIds, excludeFigures, preserveBindings, books, compress, baseRelease, onProgress })
     if (format !== 'json' && format !== 'png') throw Object.assign(new Error('不支持的人物卡导出格式'), { code: 'TAVERN_EXPORT_INVALID' })
-    if (packIds !== undefined || dependencyPackIds !== undefined || !Array.isArray(excludeFigures) || excludeFigures.length) throw Object.assign(new Error('素材包与人物选择仅用于导出 .dshcard'), { code: 'TAVERN_EXPORT_INVALID' })
+    if (packIds !== undefined || omitPackIds !== undefined || dependencyPackIds !== undefined || !Array.isArray(excludeFigures) || excludeFigures.length) throw Object.assign(new Error('素材包与人物选择仅用于导出 .dshcard'), { code: 'TAVERN_EXPORT_INVALID' })
 
     if (format === 'png') return { ...await exportCardPng(input, books), extension: format, contentType: 'image/png' }
     const { document, text } = await presentCardText(normalizeResourcePath(input, 'card'), books)
     return { name: str(document.data.name) || '人物卡', extension: format, contentType: 'application/json; charset=utf-8', bytes: Buffer.from(text) }
   }
-  async function writeCardFile(input, { excludeFigures = [], packIds, dependencyPackIds, preserveBindings = false, books, compress = false, onProgress } = {}, backup = false) {
-    if (!Array.isArray(excludeFigures) || excludeFigures.some(id => typeof id !== 'string')
-      || [packIds, dependencyPackIds].some(ids => ids !== undefined && (!Array.isArray(ids) || ids.some(id => typeof id !== 'string')))) throw Object.assign(new Error('导出参数无效'), { code: 'TAVERN_EXPORT_INVALID' })
+  async function writeCardFile(input, { excludeFigures = [], packIds, omitPackIds, dependencyPackIds, preserveBindings = false, books, compress = false, baseRelease, onProgress } = {}, backup = false) {
+    if (!Array.isArray(excludeFigures) || excludeFigures.some(id => typeof id !== 'string') || packIds !== undefined && omitPackIds !== undefined
+      || [packIds, omitPackIds, dependencyPackIds].some(ids => ids !== undefined && (!Array.isArray(ids) || ids.some(id => typeof id !== 'string')))) throw Object.assign(new Error('导出参数无效'), { code: 'TAVERN_EXPORT_INVALID' })
     let cardPath
     try { cardPath = normalizeResourcePath(input, 'card') }
     catch (error) { throw Object.assign(error, { code: 'TAVERN_EXPORT_INVALID' }) }
-    const { document } = await presentCardText(cardPath, books)
+    const workspace = await exportWorkspace(cardPath)
+    let update
+    if (baseRelease !== undefined) {
+      const base = (await readReleases(cardPath)).find(release => release.id === baseRelease)
+      if (!base) throw Object.assign(new Error('找不到作为基础的版本，请重新打开导出窗口'), { code: 'TAVERN_EXPORT_INVALID' })
+      update = { version: base.version, files: new Set(base.packs.flatMap(pack => pack.files)), converted: base.converted || {} }
+    }
+    const { document } = await presentCardText(cardPath, books, workspace)
     const material = await castAssets.read(cardPath)
-    const pluginFiles = await cardPlugins.exportEntries({ cardKey: castAssets.keyOf(cardPath), plugins: material.plugins || [] })
-    const boundIds = document.data?.extensions?.dsh_tavern?.assetBindings?.boundPackIds || []
-    const chosen = packIds && new Set(packIds)
-    if (chosen && packIds.some(id => !boundIds.includes(id) && !(material.packs || []).some(ref => ref.id === id))) throw Object.assign(new Error('只能选择这张卡用到的素材包'), { code: 'TAVERN_EXPORT_INVALID' })
+    const { packs: candidates, boundIds, required, carried } = cardExportPacks(workspace, material)
+    if ([...(packIds || []), ...(omitPackIds || [])].some(id => !candidates.some(pack => pack.id === id))) throw Object.assign(new Error('素材包选择已失效，请重新打开导出窗口'), { code: 'TAVERN_EXPORT_INVALID' })
+    const chosen = backup ? [] : candidates.filter(({ id }) => (id === required && !preserveBindings) || (packIds ? packIds.includes(id) : !omitPackIds?.includes(id))).map(pack => pack.id)
     // The packs the card was imported with (card-assets packs) come from their store; the bound library packs from the library.
     const importedPacks = []
-    for (const ref of (material.packs || []).filter(ref => !backup && (!chosen || chosen.has(ref.id)))) {
+    for (const id of chosen.filter(id => carried.has(id))) {
+      const ref = carried.get(id)
       const stored = await assetPacks.readPack(ref.id, ref.contentHash)
-      if (!stored) throw Object.assign(new Error('绑定素材包不存在'), { code: 'TAVERN_NOT_FOUND' })
+      if (!stored) throw Object.assign(new Error('找不到随卡素材包「' + (ref.title || id) + '」，请重新导入原卡后再试'), { code: 'TAVERN_EXPORT_MISSING_PACK' })
       const files = new Map()
       for (const [name, row] of Object.entries(stored.files)) files.set(name, new StoredFile(row.size, (await assetPacks.file(ref.id, ref.contentHash, name)).path))
       const member = files.get('manifest.json')
@@ -381,6 +517,7 @@ export function createCardFiles({ cardPreparation, fileResources, castAssets, as
       files.delete('manifest.json')
       importedPacks.push({ manifest, files, sourceName: ref.name })
     }
+    const pluginFiles = await cardPlugins.exportEntries({ cardKey: castAssets.keyOf(cardPath), plugins: material.plugins || [] })
     // defaults.stage comes from the card's own stage declaration (dsh-card-export.js).
     const defaults = {}, entries = [...pluginFiles.entries]
     if (material.startDefaults?.settings) {
@@ -403,7 +540,7 @@ export function createCardFiles({ cardPreparation, fileResources, castAssets, as
         const data = raw.data || raw
         if (document.data?.character_book) data.character_book = document.data.character_book
         else if (books !== undefined) delete data.character_book
-        const packs = [...(snapshot?.packs || []), ...importedPacks].filter(pack => !preserveBindings || !chosen || chosen.has(pack.manifest.id)), extraEntries = [...entries]
+        const packs = [...(snapshot?.packs || []), ...importedPacks], extraEntries = [...entries]
         // The card's own material in its CCv3 places; a file a pack already holds is pointed at there, not copied.
         if ((material.characters || []).length || (material.backgrounds || []).length || (material.extras || []).length) {
           const reused = new Map()
@@ -416,29 +553,34 @@ export function createCardFiles({ cardPreparation, fileResources, castAssets, as
           raw = contents.card
           extraEntries.push(...contents.files.map(({ path, content }) => ({ path, data: content })))
         }
-        return exportDshCardSnapshot({ file, card: raw, packs, dependencies: snapshot?.dependencies, cover, excludeFigures, onProgress, ...(compress ? { compress: { directory: path.join(directory, 'compressed') } } : {}), entries: extraEntries, plugins: pluginFiles.plugins, defaults: Object.keys(defaults).length ? defaults : undefined })
+        return exportDshCardSnapshot({ file, card: raw, packs, dependencies: snapshot?.dependencies, cover, excludeFigures, onProgress, update, ...(compress ? { compress: { directory: path.join(directory, 'compressed') } } : {}), entries: extraEntries, plugins: pluginFiles.plugins, defaults: Object.keys(defaults).length ? defaults : undefined })
       }
       const imported = importedPacks.map(pack => pack.manifest.id)
-      const ids = boundIds.filter(id => !imported.includes(id) && (!chosen || chosen.has(id)))
+      const ids = chosen.filter(id => !carried.has(id))
       // Only bound library packs need the card adapter supplied by the optional stage runtime.
-      const library = backup || boundIds.length ? assetLibrary() : undefined
-      if (!backup && (ids.length || chosen && boundIds.length) && !library) throw Object.assign(new Error('素材库尚未就绪'), { code: 'TAVERN_EXPORT_UNAVAILABLE' })
+      const library = backup || boundIds.length || ids.length ? assetLibrary() : undefined
+      if (!backup && (ids.length || boundIds.some(id => !carried.has(id))) && !library) throw Object.assign(new Error('素材库尚未就绪，暂时无法导出素材包'), { code: 'TAVERN_EXPORT_UNAVAILABLE' })
       if (library) await prepareCardAssets?.()
       // Replacement owns the card, not its installed packs: retain references without copying media.
       const selection = backup
-        ? { path: cardPath, packIds: [], keepPackIds: [...boundIds, ...(material.packs || []).map(ref => ref.id), ...(document.data?.extensions?.dsh_tavern?.modConfigPackId ? [document.data.extensions.dsh_tavern.modConfigPackId] : [])] }
-        : { path: cardPath, packIds: ids, keepPackIds: preserveBindings ? [...boundIds, ...imported] : imported, ...(dependencyPackIds ? { dependencyPackIds } : {}) }
+        ? { path: cardPath, packIds: [], keepPackIds: candidates.map(pack => pack.id) }
+        : { path: cardPath, packIds: ids, keepPackIds: preserveBindings && required ? [...imported, required] : imported,
+          ...(!preserveBindings && (omitPackIds || dependencyPackIds) ? { dependencyPackIds: dependencyPackIds || [] } : {}) }
       const result = library ? await (backup
         ? withCardBackup(file, selection, write)
         : library.withCardExport(selection, write)) : await write()
+      if (!backup && result.release.packs.length) await addRelease(cardPath, { id: randomUUID(), version: str(result.card.data.character_version).trim(), exportedAt: Date.now(), compressed: compress, size: result.size, source: 'export', packs: result.release.packs, converted: result.release.converted })
       return { name: result.card.data.name || '人物卡', extension: 'dshcard', contentType: 'application/zip', file, size: result.size, ...(result.compressed ? { compressed: result.compressed } : {}),
+        ...(update ? { update: { base: update.version, omitted: result.omitted } } : {}),
         stream: () => createReadStream(file), dispose: () => rm(directory, { recursive: true, force: true }) }
     } catch (error) { await rm(directory, { recursive: true, force: true }); throw error }
   }
   // Card updates run one at a time. Each keeps its own folder under recovery/card-updates:
   // card.dshcard (the card before, without media), packs/<id>.zip (installed pack versions it replaced) and update.json
   // (what else 撤回 restores). Only the latest update can be taken back: a new one drops the packs and update.json of the
-  // earlier ones and leaves their card backups.
+  // earlier ones and leaves their card backups. update.json is written with `state: 'running'` before anything changes;
+  // one still running when the program stopped mid-update (killed, power lost) is put back as it was before
+  // (recoverCardUpdates, at start and before the next update or 撤回).
   let replacementTail = Promise.resolve()
   function serialized(work) {
     const operation = replacementTail.catch(() => {}).then(work)
@@ -451,7 +593,8 @@ export function createCardFiles({ cardPreparation, fileResources, castAssets, as
     const library = record.packs.length ? assetLibrary() : null
     for (const pack of record.packs) {
       const preview = await library.inspectImportFile({ file: path.join(dir, 'packs', pack.file) })
-      await library.applyImport({ inspectionId: preview.inspectionId, decision: preview.choices.includes('noop') ? 'noop' : 'update', expectedRevision: preview.expectedRevision, acceptScriptRisk: true })
+      const decision = preview.choices.includes('noop') ? 'noop' : 'update'
+      await library.applyImport({ inspectionId: preview.inspectionId, decision, expectedRevision: preview.expectedRevision, acceptScriptRisk: true, ...(decision === 'update' ? { restore: true } : {}) })
     }
     const target = record.cardPath, current = await castAssets.read(target)
     await cardPlugins.disable({ cardPath: target, plugins: current.plugins || [] })
@@ -460,16 +603,36 @@ export function createCardFiles({ cardPreparation, fileResources, castAssets, as
     else await fileResources.writeWorking(target, JSON.stringify(record.workspace, null, 2))
     await castAssets.replaceManifest(target, record.material)
   }
+  // Every pack the interrupted update may have replaced has its backup in packs/ (taken before it was replaced).
+  async function recoverPending() {
+    const root = updatesRoot(), restored = []
+    for (const entry of await readdir(root, { withFileTypes: true }).catch(() => [])) {
+      if (!entry.isDirectory()) continue
+      const dir = path.join(root, entry.name), text = await readFile(path.join(dir, 'update.json'), 'utf8').catch(() => null)
+      const record = text === null ? null : JSON.parse(text)
+      if (record?.state !== 'running') continue
+      record.packs = (await readdir(path.join(dir, 'packs')).catch(() => [])).filter(file => file.endsWith('.zip')).map(file => ({ packId: file.slice(0, -4), title: '', file }))
+      if (record.packs.length) await prepareCardAssets?.()
+      await restoreUpdate(record, dir)
+      await rm(path.join(dir, 'update.json'), { force: true })
+      await rm(path.join(dir, 'packs'), { recursive: true, force: true })
+      restored.push(record.cardPath)
+    }
+    return restored
+  }
+  // The cards whose interrupted update was undone.
+  const recoverCardUpdates = () => serialized(recoverPending)
   // input: {file, name, password, packDecisions} (an archive) or {payload}.
   function replaceCard(cardPath, input) {
     return serialized(async () => {
+      await recoverPending()
       const target = normalizeResourcePath(cardPath, 'card')
       const workspace = await readCardWorkspace(target)
       if (!workspace) throw new Error('要更新的人物卡不存在')
       // Validate and authenticate before disabling anything or taking a backup.
       if (input.file) {
         const zip = await openCardZip(input.file, { label: '人物卡更新', password: input.password })
-        try { await readCardArchive(zip, { assets: 'none' }) } finally { await zip.close() }
+        try { await completeUpdateArchive(zip, await readCardArchive(zip, { assets: 'none' })) } finally { await zip.close() }
       } else cardPreparation.create({ kind: 'import', payload: cardImport(input.payload).payload })
       const material = await castAssets.read(target)
       const plugins = material.plugins || []
@@ -484,6 +647,7 @@ export function createCardFiles({ cardPreparation, fileResources, castAssets, as
       await mkdir(dir, { recursive: true })
       const backupPath = path.join(dir, 'card.dshcard'), backup = await writeCardFile(target, {}, true)
       try { await copyFile(backup.file, backupPath) } finally { await backup.dispose() }
+      await writeFile(path.join(dir, 'update.json'), JSON.stringify({ ...record, state: 'running' }))
       try {
         await cardPlugins.disable({ cardPath: target, plugins })
         await castAssets.replaceManifest(target, null)
@@ -497,8 +661,9 @@ export function createCardFiles({ cardPreparation, fileResources, castAssets, as
       } catch (error) {
         try { await restoreUpdate(record, dir) }
         catch (restoreError) {
-          throw new Error('更新失败且自动恢复未完成。备份：' + dir + '；' + restoreError.message, { cause: error })
+          throw new Error('更新失败且自动恢复未完成，下次启动时会再恢复一次。备份：' + dir + '；' + restoreError.message, { cause: error })
         }
+        await rm(path.join(dir, 'update.json'), { force: true })
         throw new Error('更新失败，已恢复原卡：' + error.message, { cause: error })
       }
     })
@@ -506,6 +671,7 @@ export function createCardFiles({ cardPreparation, fileResources, castAssets, as
   // 撤回: the card and the packs of the latest update back as they were before it.
   function revertCardUpdate(updateId) {
     return serialized(async () => {
+      await recoverPending()
       const id = str(updateId), dir = path.join(updatesRoot(), id)
       const text = /^[^\\/.][^\\/]*$/.test(id) ? await readFile(path.join(dir, 'update.json'), 'utf8').catch(() => null) : null
       if (text === null) throw Object.assign(new Error('这次更新已经不能撤回'), { code: 'TAVERN_NOT_FOUND' })
@@ -516,5 +682,5 @@ export function createCardFiles({ cardPreparation, fileResources, castAssets, as
       return { path: record.cardPath, reverted: true }
     })
   }
-  return { discardCardArchivePreview, replaceCard, revertCardUpdate, importCard, importCardArchiveFile, importPackArchiveFile, previewCardArchiveFile, importPluginCardFile, presentCardText, exportCardPng, exportCardFile }
+  return { discardCardArchivePreview, replaceCard, revertCardUpdate, recoverCardUpdates, importCard, importCardArchiveFile, importPackArchiveFile, previewCardArchiveFile, importPluginCardFile, presentCardText, exportCardPng, exportCardFile, listCardExportPacks, listCardReleases, addCardReleaseFromFile, estimateCardUpdate }
 }
