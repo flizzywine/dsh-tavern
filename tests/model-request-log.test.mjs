@@ -309,3 +309,27 @@ test('recentSeries 仅读 .result.json 统计近期轮次趋势，过滤 compact
   assert.equal(bgSeries[0].id, bg1.id)
   assert.equal(bgSeries[0].tokens, 500)
 })
+
+test('record 轻量保存合法 systemSections 偏移，不改动 request 正文并随记录返回', async () => {
+  const fixture = storageFixture()
+  const log = createModelRequestLog({ ...fixture.adapters, id: () => 'sys-1' })
+  const system = '前段预设\n\n<lorebook_constant>\n常驻世界书\n</lorebook_constant>'
+  const systemSections = [
+    { name: 'tavern:runtime-preset-front', start: 0, end: 4 },
+    { name: 'tavern:constant-worldbook', start: 6, end: system.length },
+    { name: 'invalid', start: -1, end: 5 },
+    { name: 'empty', start: 5, end: 5 }
+  ]
+  const options = { sessionId: 's-sys', model: 'gemini-4-neon', system, messages: [{ role: 'user', content: 'hi' }] }
+  const created = await log.record({ chat: { id: 'chat-sys' }, coordinates: { turn: 1, step: 1 }, options, systemSections })
+  assert.equal(created.request.system, system)
+  assert.equal('systemSections' in created.request, false)
+  assert.deepEqual(created.systemSections, [
+    { name: 'tavern:runtime-preset-front', start: 0, end: 4 },
+    { name: 'tavern:constant-worldbook', start: 6, end: system.length }
+  ])
+  await log.list('chat-sys')
+  const latest = await log.latestForSession('s-sys')
+  assert.deepEqual(latest.systemSections, created.systemSections)
+  assert.equal(latest.request.system, system)
+})

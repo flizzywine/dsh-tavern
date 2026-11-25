@@ -68460,6 +68460,453 @@ function createPlayInteractionPanels({ interactions, useCandidatePanel, useCandi
 		const playControlsFeature = createPlayControlsFeatureModule();
 		const assistantRendererFeature = createTavernAssistantRendererFeatureModule();
 
+// 共享的系统提示词区块识别与拆分工具（供服务端日志对比与前端上下文窗口共同使用）。
+// 通过 `// @include-domain system-prompt-sections.cjs` 编入前端脚本，并与请求上下文 UI 共享作用域。
+
+const TAVERN_KNOWN_SYSTEM_TAGS = Object.freeze({
+    lorebook_constant: { sourceCategory: "worldbook", label: "常驻世界书", groupKey: "worldbook:constant", sectionName: "tavern:constant-worldbook" },
+    constant_worldbook: { sourceCategory: "worldbook", label: "常驻世界书", groupKey: "worldbook:constant", sectionName: "tavern:constant-worldbook" },
+    lorebook_files: { sourceCategory: "worldbook", label: "世界书 Skill", groupKey: "worldbook:skills", sectionName: "tavern:worldbook-skills" },
+    lorebook_activated: { sourceCategory: "worldbook", label: "本轮世界书", groupKey: "worldbook:active" },
+
+    character_card_name: { sourceCategory: "card", label: "人物卡", groupKey: "card:profile", sectionName: "tavern:character-card" },
+    character_card: { sourceCategory: "card", label: "人物卡", groupKey: "card:profile", sectionName: "tavern:character-card" },
+    character_description: { sourceCategory: "card", label: "人物卡", groupKey: "card:profile", sectionName: "tavern:character-card" },
+    character_personality: { sourceCategory: "card", label: "人物卡", groupKey: "card:profile", sectionName: "tavern:character-card" },
+    opening_scenario: { sourceCategory: "card", label: "人物卡", groupKey: "card:profile", sectionName: "tavern:character-card" },
+    style_examples: { sourceCategory: "card", label: "人物卡", groupKey: "card:profile", sectionName: "tavern:character-card" },
+    card_system: { sourceCategory: "card", label: "人物卡系统提示", groupKey: "card:system", sectionName: "tavern:card-system-prompt" },
+    card_system_scope: { sourceCategory: "card", label: "人物卡系统提示", groupKey: "card:system", sectionName: "tavern:card-system-prompt" },
+    post_history: { sourceCategory: "card", label: "人物卡后置指令", groupKey: "card:post-history", sectionName: "tavern:card-post-history" },
+
+    user_preferences: { sourceCategory: "preset", label: "长期偏好", groupKey: "preset:preference", sectionName: "tavern:user-preference" },
+    card_agent_persona: { sourceCategory: "preset", label: "卡片工作台性格", groupKey: "preset:card-persona", sectionName: "tavern:card-system" },
+
+    variable_directory: { sourceCategory: "state", label: "变量目录", groupKey: "state:variable-directory", sectionName: "tavern:variable-directory" },
+    character_state: { sourceCategory: "state", label: "当前状态", groupKey: "state:current" },
+    user_guide: { sourceCategory: "state", label: "创作指引", groupKey: "state:guide" },
+
+    script_reference: { sourceCategory: "story", label: "剧本参考", groupKey: "story:script" },
+    script_window: { sourceCategory: "story", label: "剧本参考", groupKey: "story:script" },
+
+    system_append: { sourceCategory: "system", label: "系统追加", groupKey: "system", sectionName: "tavern:system-append" },
+    output_method: { sourceCategory: "plugin", label: "工具提交规范", groupKey: "system", sectionName: "tavern:story-tool-submission" },
+    output_method_reminder: { sourceCategory: "plugin", label: "工具提交规范", groupKey: "system", sectionName: "tavern:story-tool-submission-reminder" },
+    foreground_style_reference: { sourceCategory: "plugin", label: "文风参考", groupKey: "system", sectionName: "tavern:foreground-style-reference" },
+    foreground_story_candidates: { sourceCategory: "plugin", label: "候选参考", groupKey: "system", sectionName: "tavern:foreground-candidates" },
+    stage_assets: { sourceCategory: "plugin", label: "舞台素材", groupKey: "system" }
+});
+
+const TAVERN_LEGACY_SYSTEM_HEADINGS = Object.freeze([
+    { heading: "【常驻世界书】", sourceCategory: "worldbook", label: "常驻世界书", groupKey: "worldbook:constant", sectionName: "tavern:constant-worldbook" },
+    { heading: "【故事设定 · 人物卡】", sourceCategory: "card", label: "人物卡", groupKey: "card:profile", sectionName: "tavern:character-card" },
+    { heading: "【人物卡系统提示】", sourceCategory: "card", label: "人物卡系统提示", groupKey: "card:system", sectionName: "tavern:card-system-prompt" },
+    { heading: "【用户已确认的长期偏好】", sourceCategory: "preset", label: "长期偏好", groupKey: "preset:preference", sectionName: "tavern:user-preference" }
+]);
+
+function fallbackGroupKeyForCategory(category) {
+    if (category === "worldbook") return "worldbook";
+    if (category === "card") return "card";
+    if (category === "state" || category === "injection") return "state";
+    if (category === "story") return "story";
+    if (category === "tool") return "tool";
+    return "system";
+}
+
+/** 将内部 section 名称统一映射为来源分类、中文标签与语境摘要分组键。 */
+function describeTavernSystemSection(name, rest) {
+    const key = typeof name === "string" ? name : "";
+    if (!key) return { category: "plugin", label: "附加上下文", groupKey: "system" };
+    if (key === "tavern:runtime-preset-front") return { category: "preset", label: "前段预设", groupKey: "preset:front" };
+    if (key === "tavern:runtime-preset-middle") return { category: "preset", label: "中段预设", groupKey: "preset:middle" };
+    if (key === "tavern:runtime-preset-back") return { category: "preset", label: "末尾预设投影", groupKey: "preset:back" };
+    if (key === "tavern:constant-worldbook") return { category: "worldbook", label: "常驻世界书", groupKey: "worldbook:constant" };
+    if (key === "tavern:worldbook-skills") return { category: "worldbook", label: "世界书 Skill", groupKey: "worldbook:skills" };
+    if (key.includes(":activeWorldbook:")) return { category: "worldbook", label: "本轮世界书", groupKey: "worldbook:active" };
+    if (key === "tavern:character-card") return { category: "card", label: "人物卡", groupKey: "card:profile" };
+    if (key === "tavern:card-system-prompt") return { category: "card", label: "人物卡系统提示", groupKey: "card:system" };
+    if (key === "tavern:card-post-history") return { category: "card", label: "人物卡后置指令", groupKey: "card:post-history" };
+    if (key === "tavern:card-system") return { category: "preset", label: "卡片工作台性格", groupKey: "preset:card-persona" };
+    if (key === "tavern:card-reference") return { category: "card", label: "人物卡参考", groupKey: "card:reference" };
+    if (key === "tavern:user-preference") return { category: "preset", label: "长期偏好", groupKey: "preset:preference" };
+    if (key === "tavern:variable-directory") return { category: "state", label: "变量目录", groupKey: "state:variable-directory" };
+    if (key.includes(":currentStateProjection:")) return { category: "state", label: "当前状态", groupKey: "state:current" };
+    if (key === "tavern:user-guide") return { category: "state", label: "创作指引", groupKey: "state:guide" };
+    if (key === "tavern:script-reference") return { category: "story", label: "剧本参考", groupKey: "story:script" };
+    if (key === "tavern:turn") return { category: "story", label: "玩家输入", groupKey: "story:turn" };
+    if (key === "tavern:story-base") return { category: "system", label: "正文基础规则", groupKey: "system" };
+    if (key.includes(":writingRules:")) return { category: "plugin", label: "写作规则", groupKey: "system" };
+    if (key === "tavern:resource-workspace") return { category: "plugin", label: "工作区资源", groupKey: "system" };
+    if (key === "tavern:play-chat-diagnostics") return { category: "plugin", label: "游玩记录排查指引", groupKey: "system" };
+    if (key === "tavern:plugin-body-generation" || key === "tavern:plugin-body-generation-reminder") return { category: "plugin", label: "正文生成规范", groupKey: "system" };
+    if (key === "tavern:story-tool-submission" || key === "tavern:story-tool-submission-reminder") return { category: "plugin", label: "工具提交规范", groupKey: "system" };
+    if (key === "tavern:no-foreground-tools") return { category: "plugin", label: "工具禁用说明", groupKey: "system" };
+    if (key === "tavern:foreground-style-reference") return { category: "plugin", label: "文风参考", groupKey: "system" };
+    if (key === "tavern:foreground-candidates") return { category: "plugin", label: "候选参考", groupKey: "system" };
+    if (key === "tavern:system-append") return { category: "system", label: "系统追加", groupKey: "system" };
+    if (key === "tavern:session-context") return { category: "system", label: "会话上下文", groupKey: "system" };
+    if (key === "tavern:dsh-system") return { category: "system", label: rest || "系统提示词", groupKey: "system" };
+    if (key.startsWith("deployment:")) return { category: "plugin", label: "后台任务 · " + key.slice("deployment:".length), groupKey: "system" };
+    if (key.startsWith("tavern:foreground:")) return { category: "plugin", label: "前台注入", groupKey: "system" };
+    return { category: "plugin", label: key, groupKey: "system" };
+}
+
+function isLineStart(text, index) {
+    return index === 0 || text.charCodeAt(index - 1) === 10;
+}
+
+function isLineEndOrCr(text, index) {
+    if (index >= text.length) return true;
+    const code = text.charCodeAt(index);
+    return code === 10 || code === 13;
+}
+
+/** 按顺序将装配时的系统分段列表对齐到最终 systemText 中的行边界区间。 */
+function buildSystemSectionSpans(systemText, sections) {
+    if (typeof systemText !== "string" || !systemText || !Array.isArray(sections) || !sections.length) {
+        return [];
+    }
+    const spans = [];
+    let cursor = 0;
+
+    function findAligned(needle, fromIndex) {
+        let pos = systemText.indexOf(needle, fromIndex);
+        while (pos >= 0) {
+            const end = pos + needle.length;
+            if (isLineStart(systemText, pos) && isLineEndOrCr(systemText, end)) {
+                return { start: pos, end };
+            }
+            pos = systemText.indexOf(needle, pos + 1);
+        }
+        return null;
+    }
+
+    for (const section of sections) {
+        if (!section || typeof section !== "object") continue;
+        const name = typeof section.name === "string" ? section.name : "";
+        const raw = typeof section.text === "string" ? section.text : "";
+        if (!raw.trim()) continue;
+        const trimmed = raw.trim();
+        let hit = findAligned(raw, cursor);
+        if (!hit && trimmed !== raw) {
+            hit = findAligned(trimmed, cursor);
+        }
+        if (!hit) continue;
+        cursor = hit.end;
+        spans.push({ name, start: hit.start, end: hit.end });
+    }
+
+    spans.sort(function (a, b) {
+        if (a.start !== b.start) return a.start - b.start;
+        return a.end - b.end;
+    });
+
+    const normalized = [];
+    let lastEnd = 0;
+    for (const span of spans) {
+        if (span.start < lastEnd) continue;
+        normalized.push(span);
+        lastEnd = span.end;
+    }
+    return normalized;
+}
+
+function findNextLineStart(text, fromIndex) {
+    const nl = text.indexOf("\n", fromIndex);
+    return nl >= 0 ? nl + 1 : text.length;
+}
+
+function findMatchingMultilineBlockEnd(text, tag, bodyStart) {
+    const openLine = "<" + tag + ">";
+    const closeLine = "</" + tag + ">";
+    let depth = 1;
+    let pos = bodyStart;
+    while (pos < text.length) {
+        let lineEnd = text.indexOf("\n", pos);
+        const hasNl = lineEnd >= 0;
+        if (!hasNl) lineEnd = text.length;
+        const rawEnd = lineEnd > pos && text.charCodeAt(lineEnd - 1) === 13 ? lineEnd - 1 : lineEnd;
+        const line = text.slice(pos, rawEnd);
+        if (line === openLine) {
+            depth += 1;
+        } else if (line === closeLine) {
+            depth -= 1;
+            if (depth === 0) return rawEnd;
+        }
+        if (!hasNl) break;
+        pos = lineEnd + 1;
+    }
+    return -1;
+}
+
+function mergeAdjacentKnownMatches(text, matches) {
+    if (matches.length <= 1) return matches;
+    const merged = [matches[0]];
+    for (let i = 1; i < matches.length; i++) {
+        const prev = merged[merged.length - 1];
+        const cur = matches[i];
+        const sameMergeGroup = prev.meta.groupKey === cur.meta.groupKey &&
+            (prev.meta.groupKey === "card:profile" || prev.meta.groupKey === "card:system");
+        if (sameMergeGroup && !text.slice(prev.end, cur.start).trim()) {
+            prev.end = cur.end;
+            continue;
+        }
+        merged.push(cur);
+    }
+    return merged;
+}
+
+function assemblePartsFromMatches(text, matches, fallbackLabel, fallbackCategory) {
+    const merged = mergeAdjacentKnownMatches(text, matches);
+    const fallbackGroupKey = fallbackGroupKeyForCategory(fallbackCategory);
+    const parts = [];
+    let cursor = 0;
+    for (const item of merged) {
+        if (item.start > cursor) {
+            const gap = text.slice(cursor, item.start).trim();
+            if (gap) {
+                parts.push({
+                    text: gap,
+                    label: fallbackLabel,
+                    sourceCategory: fallbackCategory,
+                    groupKey: fallbackGroupKey
+                });
+            }
+        }
+        const slice = text.slice(item.start, item.end);
+        if (slice.trim()) {
+            parts.push({
+                text: slice,
+                label: item.meta.label,
+                sourceCategory: item.meta.sourceCategory,
+                groupKey: item.meta.groupKey,
+                ...(item.meta.sectionName ? { sectionName: item.meta.sectionName } : {}),
+                explicitLabel: true
+            });
+        }
+        cursor = item.end;
+    }
+    if (cursor < text.length) {
+        const tail = text.slice(cursor).trim();
+        if (tail) {
+            parts.push({
+                text: tail,
+                label: fallbackLabel,
+                sourceCategory: fallbackCategory,
+                groupKey: fallbackGroupKey
+            });
+        }
+    }
+    return parts;
+}
+
+function splitByLegacyHeadings(text, fallbackLabel, fallbackCategory) {
+    const starts = [];
+    let pos = 0;
+    while (pos < text.length) {
+        let lineEnd = text.indexOf("\n", pos);
+        const hasNl = lineEnd >= 0;
+        if (!hasNl) lineEnd = text.length;
+        const rawEnd = lineEnd > pos && text.charCodeAt(lineEnd - 1) === 13 ? lineEnd - 1 : lineEnd;
+        const line = text.slice(pos, rawEnd);
+        for (const def of TAVERN_LEGACY_SYSTEM_HEADINGS) {
+            if (line === def.heading) {
+                starts.push({ index: pos, meta: def });
+                break;
+            }
+        }
+        if (!hasNl) break;
+        pos = lineEnd + 1;
+    }
+    if (!starts.length) return null;
+    const matches = starts.map(function (entry, idx) {
+        const rawEnd = idx + 1 < starts.length ? starts[idx + 1].index : text.length;
+        let trimmedEnd = rawEnd;
+        while (trimmedEnd > entry.index && /\s/.test(text[trimmedEnd - 1])) trimmedEnd -= 1;
+        return { start: entry.index, end: trimmedEnd, meta: entry.meta };
+    });
+    return assemblePartsFromMatches(text, matches, fallbackLabel, fallbackCategory);
+}
+
+/** 扫描顶层已知 XML 区块标签（及旧版中文标题）切分文本，不递归拆解标签内部内容。 */
+function splitSystemTextByKnownTags(text, fallbackLabel = "系统提示词", fallbackCategory = "system") {
+    if (typeof text !== "string" || !text.trim()) return null;
+    const matches = [];
+    let pos = 0;
+    while (pos < text.length) {
+        let lineEnd = text.indexOf("\n", pos);
+        const hasNl = lineEnd >= 0;
+        if (!hasNl) lineEnd = text.length;
+        const rawEnd = lineEnd > pos && text.charCodeAt(lineEnd - 1) === 13 ? lineEnd - 1 : lineEnd;
+        if (text.charCodeAt(pos) === 60 /* '<' */) {
+            const line = text.slice(pos, rawEnd);
+            const openMatch = /^<([a-z][a-z0-9_]*)>$/.exec(line);
+            if (openMatch && Object.hasOwn(TAVERN_KNOWN_SYSTEM_TAGS, openMatch[1])) {
+                const tag = openMatch[1];
+                const blockEnd = hasNl ? findMatchingMultilineBlockEnd(text, tag, lineEnd + 1) : -1;
+                if (blockEnd > pos) {
+                    matches.push({ start: pos, end: blockEnd, meta: TAVERN_KNOWN_SYSTEM_TAGS[tag] });
+                    pos = findNextLineStart(text, blockEnd);
+                    continue;
+                }
+            } else if (line.startsWith("<output_method>") && line.endsWith("</output_method>")) {
+                matches.push({ start: pos, end: rawEnd, meta: TAVERN_KNOWN_SYSTEM_TAGS.output_method });
+                if (!hasNl) break;
+                pos = lineEnd + 1;
+                continue;
+            }
+        }
+        if (!hasNl) break;
+        pos = lineEnd + 1;
+    }
+
+    if (matches.length > 0) {
+        return assemblePartsFromMatches(text, matches, fallbackLabel, fallbackCategory);
+    }
+    return splitByLegacyHeadings(text, fallbackLabel, fallbackCategory);
+}
+
+function canExpandContainerSection(name) {
+    if (!name) return true;
+    if (name === "tavern:dsh-system" || name === "tavern:session-context") return true;
+    if (name.startsWith("deployment:")) return true;
+    return false;
+}
+
+/** 将顶层 system 文本优先按后端记录的区间 span 拆分，缺失或容器块再用标签扫描补全。 */
+function splitSystemPromptParts(systemText, systemSpans) {
+    if (typeof systemText !== "string" || !systemText) return [];
+
+    const validSpans = [];
+    if (Array.isArray(systemSpans) && systemSpans.length > 0) {
+        const sorted = systemSpans
+            .filter(function (item) {
+                return item && typeof item === "object" &&
+                    Number.isInteger(item.start) && Number.isInteger(item.end) &&
+                    item.start >= 0 && item.end > item.start && item.end <= systemText.length;
+            })
+            .slice()
+            .sort(function (a, b) {
+                if (a.start !== b.start) return a.start - b.start;
+                return a.end - b.end;
+            });
+        let lastEnd = 0;
+        for (const item of sorted) {
+            if (item.start < lastEnd) continue;
+            validSpans.push({
+                name: typeof item.name === "string" ? item.name : "",
+                start: item.start,
+                end: item.end
+            });
+            lastEnd = item.end;
+        }
+    }
+
+    let rawParts = [];
+    if (validSpans.length > 0) {
+        let cursor = 0;
+        for (const span of validSpans) {
+            if (span.start > cursor) {
+                const gap = systemText.slice(cursor, span.start).trim();
+                if (gap) {
+                    const gapSplit = splitSystemTextByKnownTags(gap, "系统提示词", "system");
+                    if (gapSplit && gapSplit.length > 0) {
+                        rawParts.push(...gapSplit);
+                    } else {
+                        rawParts.push({
+                            text: gap,
+                            label: "系统提示词",
+                            sourceCategory: "system",
+                            groupKey: "system"
+                        });
+                    }
+                }
+            }
+            const slice = systemText.slice(span.start, span.end);
+            if (slice.trim()) {
+                const desc = describeTavernSystemSection(span.name, "系统提示词");
+                const nested = canExpandContainerSection(span.name)
+                    ? splitSystemTextByKnownTags(slice, desc.label, desc.category)
+                    : null;
+                if (nested && nested.length > 0) {
+                    rawParts.push(...nested);
+                } else {
+                    rawParts.push({
+                        text: slice,
+                        label: desc.label || "系统提示词",
+                        sourceCategory: desc.category || "system",
+                        groupKey: desc.groupKey || fallbackGroupKeyForCategory(desc.category),
+                        ...(span.name ? { sectionName: span.name } : {}),
+                        explicitLabel: true
+                    });
+                }
+            }
+            cursor = span.end;
+        }
+        if (cursor < systemText.length) {
+            const tail = systemText.slice(cursor).trim();
+            if (tail) {
+                const tailSplit = splitSystemTextByKnownTags(tail, "系统提示词", "system");
+                if (tailSplit && tailSplit.length > 0) {
+                    rawParts.push(...tailSplit);
+                } else {
+                    rawParts.push({
+                        text: tail,
+                        label: "系统提示词",
+                        sourceCategory: "system",
+                        groupKey: "system"
+                    });
+                }
+            }
+        }
+    } else {
+        const tagParts = splitSystemTextByKnownTags(systemText, "系统提示词", "system");
+        if (tagParts && tagParts.length > 0) {
+            rawParts = tagParts;
+        }
+    }
+
+    const nonEmpty = rawParts.filter(function (part) {
+        return part && typeof part.text === "string" && part.text.trim().length > 0;
+    });
+
+    if (nonEmpty.length === 0) {
+        return [{
+            text: systemText,
+            label: undefined,
+            sourceCategory: "system",
+            groupKey: "system",
+            isPlainSystem: true
+        }];
+    }
+
+    if (nonEmpty.length === 1) {
+        const sole = nonEmpty[0];
+        if (sole.sourceCategory === "system" && sole.groupKey === "system" && !sole.sectionName && !sole.explicitLabel) {
+            return [{
+                text: systemText,
+                label: undefined,
+                sourceCategory: "system",
+                groupKey: "system",
+                isPlainSystem: true
+            }];
+        }
+    }
+
+    return nonEmpty.map(function (part) {
+        const { explicitLabel: _ignored, ...clean } = part;
+        return clean;
+    });
+}
+
+if (typeof window === "undefined") {
+    module.exports = {
+        describeTavernSystemSection,
+        buildSystemSectionSpans,
+        splitSystemTextByKnownTags,
+        splitSystemPromptParts
+    };
+}
 // 酒馆上下文窗口共享纯函数数据模型：
 // 负责 6 个酒馆语境桶归类、最大余数法整数归一化、方案 C 触发器状态、
 // 非线性 Squarified Treemap 与 400 格 Waffle 计算。
@@ -68625,34 +69072,167 @@ function readMeasuredUsage(record) {
     };
 }
 
+function resolvePartGroup(part, fallbackCategory) {
+    const cat = part.catalog ? "plugin" : (part.sourceCategory || fallbackCategory || "");
+    const bucket = mapSourceCategoryToContextBucket(cat);
+    const label = part.label || "";
+    if (part.groupKey) {
+        return {
+            groupKey: part.groupKey,
+            bucket,
+            label: label || (TAVERN_CONTEXT_BUCKET_MAP[bucket] ? TAVERN_CONTEXT_BUCKET_MAP[bucket].label : "系统提示词")
+        };
+    }
+    let groupKey = "system";
+    if (cat === "preset") groupKey = "preset:" + (label || "预设");
+    else if (bucket === "worldbook") groupKey = "worldbook:" + (label || "世界书");
+    else if (bucket === "card") groupKey = "card:" + (label || "人物卡");
+    else if (bucket === "state") groupKey = "state:" + (label || "状态");
+    else if (bucket === "story") groupKey = "story";
+    else if (bucket === "tool") groupKey = "tool";
+    return {
+        groupKey,
+        bucket,
+        label: label || (TAVERN_CONTEXT_BUCKET_MAP[bucket] ? TAVERN_CONTEXT_BUCKET_MAP[bucket].label : "系统提示词")
+    };
+}
+
+function expandSectionForSummary(section, index, sectionStatusMap, breakPoint) {
+    if (!section || typeof section !== "object") return [];
+    const baseKey = section.cacheKey || ("section:" + index);
+    const baseTitle = section.title || baseKey;
+    const cacheStatus = section.cacheKey ? (sectionStatusMap[section.cacheKey] || "") : "";
+    const firstBreakKey = (breakPoint && breakPoint.key) || "";
+    const isSectionBreak = Boolean(firstBreakKey && section.cacheKey === firstBreakKey);
+    const fallbackCategory = (section.sources && section.sources[0] && section.sources[0].category) || "";
+    const partList = Array.isArray(section.parts) && section.parts.length > 0
+        ? section.parts
+        : (Array.isArray(section.displayParts) ? section.displayParts : null);
+
+    const groups = [];
+    const groupByKey = Object.create(null);
+    let nonEmptyPartIndex = 0;
+
+    if (partList && partList.length > 0) {
+        for (const part of partList) {
+            if (!part) continue;
+            const text = String(part.text ?? "");
+            if (!text.trim()) continue;
+            const partIdx = nonEmptyPartIndex;
+            nonEmptyPartIndex += 1;
+            const est = Math.max(0, estimateContextTokenFallback(text));
+            const resolved = resolvePartGroup(part, fallbackCategory);
+            let group = groupByKey[resolved.groupKey];
+            if (!group) {
+                group = {
+                    groupKey: resolved.groupKey,
+                    bucket: resolved.bucket,
+                    rawTokens: 0,
+                    labels: [],
+                    partIndices: []
+                };
+                groupByKey[resolved.groupKey] = group;
+                groups.push(group);
+            }
+            group.rawTokens += est;
+            if (resolved.label && !group.labels.includes(resolved.label)) {
+                group.labels.push(resolved.label);
+            }
+            group.partIndices.push(partIdx);
+        }
+    }
+
+    if (groups.length > 1) {
+        const breakPartIdx = isSectionBreak && Number.isInteger(breakPoint && breakPoint.partIndex)
+            ? breakPoint.partIndex
+            : null;
+        const breakPartLabel = isSectionBreak && breakPoint && breakPoint.partLabel
+            ? String(breakPoint.partLabel)
+            : "";
+        let matchedGroupIdx = -1;
+        if (breakPartIdx !== null) {
+            matchedGroupIdx = groups.findIndex(function (g) { return g.partIndices.includes(breakPartIdx); });
+        }
+        if (matchedGroupIdx < 0 && breakPartLabel) {
+            matchedGroupIdx = groups.findIndex(function (g) { return g.labels.includes(breakPartLabel); });
+        }
+        if (isSectionBreak && matchedGroupIdx < 0) matchedGroupIdx = 0;
+
+        return groups.map(function (group, gIdx) {
+            const groupTitle = group.groupKey === "system" && group.labels.length > 1
+                ? "系统提示词"
+                : (group.labels[0] || (TAVERN_CONTEXT_BUCKET_MAP[group.bucket] ? TAVERN_CONTEXT_BUCKET_MAP[group.bucket].label : "系统提示词"));
+            const displayTitle = baseKey === "field:system"
+                ? ("system · " + groupTitle)
+                : (baseTitle + " · " + groupTitle);
+            const subtitle = group.labels.length > 1 ? group.labels.slice(0, 3).join(" · ") : "";
+            let itemBreak = false;
+            let itemCacheStatus = cacheStatus;
+            if (isSectionBreak) {
+                if (gIdx === matchedGroupIdx) {
+                    itemBreak = true;
+                    itemCacheStatus = "break";
+                } else if (breakPartIdx !== null) {
+                    const maxPartIdx = group.partIndices[group.partIndices.length - 1];
+                    itemCacheStatus = maxPartIdx < breakPartIdx ? "hit" : "cascade";
+                } else {
+                    itemCacheStatus = gIdx < matchedGroupIdx ? "hit" : "cascade";
+                }
+            }
+            return {
+                id: baseKey + "#" + index + ":" + group.groupKey,
+                index,
+                partOrder: gIdx,
+                firstPartIndex: group.partIndices[0],
+                cacheKey: section.cacheKey || "",
+                title: displayTitle,
+                label: displayTitle,
+                subtitle,
+                bucket: group.bucket,
+                rawTokens: group.rawTokens,
+                cacheStatus: itemCacheStatus,
+                isFirstBreak: itemBreak,
+                sources: Array.isArray(section.sources) ? section.sources : []
+            };
+        });
+    }
+
+    const info = estimateSectionRawData(section);
+    const singleGroup = groups.length === 1 ? groups[0] : null;
+    const singleSubtitle = singleGroup && baseKey === "field:system" && singleGroup.bucket !== "system" && singleGroup.labels.length === 1
+        ? singleGroup.labels[0]
+        : info.subtitle;
+    return [{
+        id: baseKey + "#" + index,
+        index,
+        partOrder: 0,
+        firstPartIndex: singleGroup ? singleGroup.partIndices[0] : undefined,
+        cacheKey: section.cacheKey || "",
+        title: baseTitle,
+        label: baseTitle,
+        subtitle: singleSubtitle,
+        bucket: singleGroup ? singleGroup.bucket : info.bucket,
+        rawTokens: singleGroup ? singleGroup.rawTokens : info.rawTokens,
+        cacheStatus,
+        isFirstBreak: isSectionBreak,
+        sources: Array.isArray(section.sources) ? section.sources : []
+    }];
+}
+
 /** 构造完整上下文窗口摘要模型，同时服务桌面 Popover、完整页与移动 Bottom Sheet。 */
 function buildContextWindowSummary(record, meta, sectionsInput) {
     const sections = Array.isArray(sectionsInput)
         ? sectionsInput
-        : (record && record.request && typeof requestContextSections === "function" ? requestContextSections(record.request) : []);
+        : (record && record.request && typeof requestContextSections === "function"
+            ? requestContextSections(record.request, { systemSections: record.systemSections })
+            : []);
     const sectionStatusMap = (record && record.cacheDiff && record.cacheDiff.sectionStatus) || {};
     const breakPoint = (record && record.cacheDiff && record.cacheDiff.breakPoint) || null;
     const firstBreakKey = (breakPoint && breakPoint.key) || "";
     const measuredUsage = readMeasuredUsage(record);
 
-    const parsed = sections.map(function (section, index) {
-        const info = estimateSectionRawData(section);
-        const key = section.cacheKey || ("section:" + index);
-        const title = section.title || key;
-        const cacheStatus = section.cacheKey ? (sectionStatusMap[section.cacheKey] || "") : "";
-        return {
-            id: key + "#" + index,
-            index,
-            cacheKey: section.cacheKey || "",
-            title,
-            label: title,
-            subtitle: info.subtitle,
-            bucket: info.bucket,
-            rawTokens: info.rawTokens,
-            cacheStatus,
-            isFirstBreak: Boolean(firstBreakKey && section.cacheKey === firstBreakKey),
-            sources: Array.isArray(section.sources) ? section.sources : []
-        };
+    const parsed = sections.flatMap(function (section, index) {
+        return expandSectionForSummary(section, index, sectionStatusMap, breakPoint);
     });
 
     const rawSum = parsed.reduce(function (sum, item) { return sum + item.rawTokens; }, 0);
@@ -68954,6 +69534,7 @@ function computeContextMapTiles(summary, options) {
                 cacheStatus: item.cacheStatus,
                 isFirstBreak: item.isFirstBreak,
                 cacheKey: item.cacheKey,
+                firstPartIndex: item.firstPartIndex,
                 count: 1,
                 weight: Math.pow(Math.max(share, 0.0005), 0.35)
             });
@@ -68979,6 +69560,7 @@ function computeContextMapTiles(summary, options) {
                 cacheStatus: sole.cacheStatus,
                 isFirstBreak: sole.isFirstBreak,
                 cacheKey: sole.cacheKey,
+                firstPartIndex: sole.firstPartIndex,
                 count: 1,
                 weight: Math.pow(Math.max(sole.tokens / usedTokens, 0.0005), 0.35)
             });
@@ -69069,6 +69651,7 @@ function computeContextMapTiles(summary, options) {
             cacheStatus: tile.cacheStatus || "",
             isFirstBreak: Boolean(tile.isFirstBreak),
             cacheKey: tile.cacheKey || "",
+            firstPartIndex: tile.firstPartIndex,
             count: tile.count || 1,
             memberIds: Array.isArray(tile.memberIds) ? tile.memberIds : undefined,
             members: Array.isArray(tile.members) ? tile.members : undefined,
@@ -69226,6 +69809,10 @@ function computeContextWaffleCells(summary, totalCells) {
                 .map(({ category, label }) => ({ category, label }));
         }
         function describeSectionSource(name, rest) {
+            if (typeof describeTavernSystemSection === "function") {
+                const desc = describeTavernSystemSection(name, rest);
+                return { category: desc.category, label: desc.label };
+            }
             if (!name) return { category: "plugin", label: "附加上下文" };
             if (name === "tavern:runtime-preset-front") return { category: "preset", label: "前段预设" };
             if (name === "tavern:runtime-preset-middle") return { category: "preset", label: "中段预设" };
@@ -69311,7 +69898,7 @@ function computeContextWaffleCells(summary, totalCells) {
             if (!list.length && fallback) push(fallback);
             return list;
         }
-        function requestContextSections(request) {
+        function requestContextSections(request, options) {
             if (!request) return [];
             const sections = [];
             // System and tool declarations are independent request fields, not trailing messages.
@@ -69325,6 +69912,22 @@ function computeContextWaffleCells(summary, totalCells) {
                     tools: [{ category: "tool", label: "工具定义" }],
                     messages: [{ category: "story", label: "消息" }]
                 };
+                if (key === "system" && typeof request.system === "string" && typeof splitSystemPromptParts === "function") {
+                    const splitParts = splitSystemPromptParts(request.system, options && options.systemSections);
+                    if (splitParts.length > 0 && !(splitParts.length === 1 && splitParts[0].isPlainSystem)) {
+                        const fallback = { category: "system", label: "系统提示" };
+                        sections.push({
+                            title: key + " · " + labels[key],
+                            value: request.system,
+                            cacheKey: "field:" + key,
+                            fallbackSource: fallback,
+                            sources: collectSectionSources(splitParts, fallback),
+                            displayParts: splitParts,
+                            body: splitParts.map(part => part.text)
+                        });
+                        return;
+                    }
+                }
                 sections.push({ title: key + " · " + labels[key], value: request[key], cacheKey: "field:" + key, sources: sourceByField[key] || [] });
             }
             function addMessage(message, index) {
@@ -69403,7 +70006,7 @@ function computeContextWaffleCells(summary, totalCells) {
                 for (let index = firstOrdinary; index < messages.length; index++) addMessage(messages[index], index);
             } else addField("messages");
             return sections.flatMap(section => {
-                if (!section.displayParts?.some(part => part.presetPhase)) return [section];
+                if (section.cacheKey === "field:system" || !section.displayParts?.some(part => part.presetPhase)) return [section];
                 const groups = [];
                 for (const part of section.displayParts) {
                     const previous = groups[groups.length - 1];
@@ -69529,8 +70132,8 @@ function computeContextWaffleCells(summary, totalCells) {
             const pure = record.request.messages?.some(message => isWhiteGloveMessage(message, "write") || isCurrentWhiteGloveInjection(message, record.turn));
             return pure ? "white-glove" : "standard";
         }
-        function buildEnrichedSections(request) {
-            return requestContextSections(request).map(section => {
+        function buildEnrichedSections(request, options) {
+            return requestContextSections(request, options).map(section => {
                 const sourceTags = (section.sources || []).map(src => (CONTEXT_SOURCE_CATEGORIES[src.category] || "") + " " + src.label).join(" ");
                 return { ...section, tokens: estimateTavernTokens(section.text), searchText: (section.title + " " + sourceTags + " " + section.text).toLowerCase() };
             });
@@ -69588,10 +70191,10 @@ function computeContextWaffleCells(summary, totalCells) {
                                 : null;
                     const partCat = part.sourceCategory && CONTEXT_SOURCE_CATEGORIES[part.sourceCategory];
                     return part.catalog
-                        ? h("details", { key: (keyPrefix || "") + "part-" + index, className: "dsh-context-source" + partCacheCls },
+                        ? h("details", { key: (keyPrefix || "") + "part-" + index, "data-part-index": index, className: "dsh-context-source" + partCacheCls },
                             h("summary", null, h("span", { className: "dsh-context-chevron", "aria-hidden": true }, "›"), part.label, partCacheTag),
                             h("pre", null, part.text))
-                        : h("div", { key: (keyPrefix || "") + "part-" + index, className: partCacheCls ? "dsh-context-part" + partCacheCls : undefined },
+                        : h("div", { key: (keyPrefix || "") + "part-" + index, "data-part-index": index, className: partCacheCls ? "dsh-context-part" + partCacheCls : undefined },
                             part.label ? h("div", { className: "dsh-context-part-label" },
                                 partCat ? h("span", { className: "dsh-context-source-pill is-src-" + part.sourceCategory }, partCat) : null,
                                 part.label,
@@ -70261,7 +70864,7 @@ function computeContextWaffleCells(summary, totalCells) {
             const [query, setQuery] = React.useState("");
             const [sourceFilter, setSourceFilter] = React.useState("all");
             const [refresh, setRefresh] = React.useState(0);
-            const [jumpTarget, setJumpTarget] = React.useState({ key: "", tick: 0 });
+            const [jumpTarget, setJumpTarget] = React.useState({ key: "", partIndex: null, tick: 0 });
             const [compacting, setCompacting] = React.useState(false);
             const [compactionNotice, setCompactionNotice] = React.useState("");
             const loaded = React.useRef(null);
@@ -70303,7 +70906,12 @@ function computeContextWaffleCells(summary, totalCells) {
             React.useEffect(() => {
                 if (!jumpTarget.key || !listRef.current || deferredQuery || sourceFilter !== "all") return;
                 const el = listRef.current.querySelector('[data-cache-key="' + jumpTarget.key.replace(/"/g, '\\"') + '"]');
-                if (el && typeof el.scrollIntoView === "function") el.scrollIntoView({ behavior: "smooth", block: "center" });
+                if (!el) return;
+                const partEl = Number.isInteger(jumpTarget.partIndex)
+                    ? el.querySelector('[data-part-index="' + jumpTarget.partIndex + '"]')
+                    : null;
+                const scrollTarget = partEl || el;
+                if (typeof scrollTarget.scrollIntoView === "function") scrollTarget.scrollIntoView({ behavior: "smooth", block: "center" });
             }, [jumpTarget, deferredQuery, sourceFilter]);
             const request = record && record.request;
             const foregroundMode = foregroundRequestMode(record);
@@ -70311,7 +70919,7 @@ function computeContextWaffleCells(summary, totalCells) {
             const sectionStatusMap = (cacheDiff && cacheDiff.sectionStatus) || {};
             const breakPoint = (cacheDiff && cacheDiff.breakPoint) || null;
             const text = React.useMemo(() => request ? JSON.stringify(request, null, 2) : "", [request]);
-            const sections = React.useMemo(() => buildEnrichedSections(request), [request]);
+            const sections = React.useMemo(() => buildEnrichedSections(request, { systemSections: record && record.systemSections }), [request, record && record.systemSections]);
             const summary = React.useMemo(() => {
                 if (!record && !meta) return null;
                 if (typeof buildContextWindowSummary !== "function") return null;
@@ -70333,11 +70941,15 @@ function computeContextWaffleCells(summary, totalCells) {
             function downloadJson() {
                 downloadTavernBlob(new Blob([text], { type: "application/json;charset=utf-8" }), "request-context.json");
             }
-            function jumpToSection(key) {
+            function jumpToSection(key, item) {
                 if (!key) return;
                 if (query) setQuery("");
                 if (sourceFilter !== "all") setSourceFilter("all");
-                setJumpTarget(prev => ({ key, tick: prev.tick + 1 }));
+                setJumpTarget(prev => ({
+                    key,
+                    partIndex: item && Number.isInteger(item.firstPartIndex) ? item.firstPartIndex : null,
+                    tick: prev.tick + 1
+                }));
             }
             async function handleCompact() {
                 if (compacting || compaction.running) return;
@@ -70490,7 +71102,7 @@ function computeContextWaffleCells(summary, totalCells) {
                 return () => { active = false; };
             }, [sessionId, refresh]);
 
-            const sections = React.useMemo(() => buildEnrichedSections(latest.record?.request), [latest.record]);
+            const sections = React.useMemo(() => buildEnrichedSections(latest.record?.request, { systemSections: latest.record?.systemSections }), [latest.record]);
             const summary = React.useMemo(() => {
                 if (!latest.record && !latest.meta) return null;
                 if (typeof buildContextWindowSummary !== "function") return null;

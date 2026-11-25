@@ -26,7 +26,10 @@ import { virtualWorldbookPromptText } from './worldbook-virtual-surface.js'
 import { frameUserInput } from './agent-input-frame.js'
 import { hasProviderContent } from './provider-message-content.js'
 import { appendSessionEvent } from './session-events.js'
-import { projectPureWritingRequest, pureWritingContext, pureWritingFixedSections, pureWritingInjection, pureWritingSystem, pureWritingTools, PURE_WRITING_REQUEST } from './pure-writing-request.js'
+import { projectPureWritingRequest, pureWritingContext, pureWritingFixedSections, pureWritingInjection, pureWritingSystemSections, pureWritingTools, PURE_WRITING_REQUEST } from './pure-writing-request.js'
+import systemPromptSections from './system-prompt-sections.cjs'
+
+const { buildSystemSectionSpans } = systemPromptSections
 
 const CARD_REFERENCE_SECTIONS = new Set(['tavern:character-card', 'tavern:card-system-prompt', 'tavern:constant-worldbook'])
 const CARD_PERSONA_SCOPE = '起始任务和 Skill 规定任务步骤、交付物与必要格式。人物卡的设定与提示词用于理解和编辑目标。向用户提问、介绍选项和汇报时，始终沿用以下身份、称呼和语气。回复语言优先遵循用户明确要求，其次沿用以下性格的语言约定。'
@@ -322,6 +325,19 @@ export function createNativePlayOrchestrationStrategy(options) {
   // Per-session dice seed: drawn on a turn's first step, so every step of one turn rolls
   // the same and a new turn or regeneration rolls again.
   const presetSeeds = new Map()
+  const assembledSystemSections = new Map()
+  function recordSystemSections(sessionId, sections) {
+    const key = str(sessionId)
+    if (!key) return
+    assembledSystemSections.delete(key)
+    assembledSystemSections.set(key, Array.isArray(sections) ? sections.slice() : [])
+    if (assembledSystemSections.size > 128) assembledSystemSections.delete(assembledSystemSections.keys().next().value)
+  }
+  function systemSectionsFor(sessionId, systemText) {
+    const key = str(sessionId)
+    if (!key || typeof systemText !== 'string' || !systemText) return []
+    return buildSystemSectionSpans(systemText, assembledSystemSections.get(key))
+  }
   function presetSeed(sessionId, turn, step) {
     const current = presetSeeds.get(sessionId)
     if (step > 1 && current && current.turn === turn) return current.seed
@@ -361,7 +377,9 @@ export function createNativePlayOrchestrationStrategy(options) {
         ...presetFrontSections(snapshot),
         ...pureWritingFixedSections(sessionStablePrefixSections(payload.agent.session), frame)
       ]
-      const system = pureWritingSystem(fixed, frame, snapshot?.back?.entries)
+      const writingSections = pureWritingSystemSections(fixed, frame, snapshot?.back?.entries)
+      recordSystemSections(sessionId, writingSections)
+      const system = writingSections.map(section => section.text).filter(Boolean).join('\n\n')
       stagedRequests.set(sessionId, { pureWriter, frame, system, chat: input.chat, session: payload.agent.session })
       return { kind: 'enter', messages: agentMessages, startsRequestSeries: true }
     }
@@ -601,6 +619,7 @@ export function createNativePlayOrchestrationStrategy(options) {
   function clearRequestState(sessionId) {
     stagedRequests.delete(str(sessionId))
     frontTexts.delete(str(sessionId))
+    assembledSystemSections.delete(str(sessionId))
   }
 
   async function assembleSystemPrompt(assembly, input) {
@@ -715,7 +734,7 @@ export function createNativePlayOrchestrationStrategy(options) {
   }
 
   const pureWritingTurn = sessionId => Boolean(stagedRequests.get(sessionId)?.pureWriter)
-  return Object.freeze({ kind: 'native-play', prepareStep, prepareWritingRequest, projectRequest, completeRequest, clearRequestState, assembleSystemPrompt, stageWorldbookSection, pureWritingTurn })
+  return Object.freeze({ kind: 'native-play', prepareStep, prepareWritingRequest, projectRequest, completeRequest, clearRequestState, assembleSystemPrompt, stageWorldbookSection, recordSystemSections, systemSectionsFor, pureWritingTurn })
 }
 
 export function createForegroundOrchestrationStrategies(options) {
@@ -750,5 +769,5 @@ export function createForegroundOrchestrationStrategies(options) {
     return await nativePlay.assembleSystemPrompt(assembly, input)
   }
 
-  return Object.freeze({ prepareStep, prepareWritingRequest: nativePlay.prepareWritingRequest, projectRequest, completeRequest, clearRequestState, assembleSystemPrompt, stageWorldbookSection: nativePlay.stageWorldbookSection, pureWritingTurn: nativePlay.pureWritingTurn })
+  return Object.freeze({ prepareStep, prepareWritingRequest: nativePlay.prepareWritingRequest, projectRequest, completeRequest, clearRequestState, assembleSystemPrompt, stageWorldbookSection: nativePlay.stageWorldbookSection, recordSystemSections: nativePlay.recordSystemSections, systemSectionsFor: nativePlay.systemSectionsFor, pureWritingTurn: nativePlay.pureWritingTurn })
 }

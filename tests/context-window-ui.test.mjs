@@ -90,11 +90,12 @@ const sampleRpcPayload = {
 }
 
 async function mountTestPage(page, width, height) {
-  const [reactScript, tavernCss, themeCss, paperCss, modelJs, featureJs] = await Promise.all([
+  const [reactScript, tavernCss, themeCss, paperCss, systemSectionsJs, modelJs, featureJs] = await Promise.all([
     browserReactScript(),
     readRepoFile('lib/client-assets/tavern.css'),
     readRepoFile('lib/client-assets/theme.css'),
     readRepoFile('packages/dsh-dream-skin/lib/skins/paper.css'),
+    readRepoFile('lib/domain/system-prompt-sections.cjs'),
     readRepoFile('src/client/modules/context-window-model.js'),
     readRepoFile('src/client/features/request-context.js')
   ])
@@ -178,6 +179,7 @@ async function mountTestPage(page, width, height) {
         ...(p.attributes || {})
       }, p.summary, open ? p.render() : null);
     };
+    ${systemSectionsJs}
     ${modelJs}
     ${featureJs}
     ReactDOM.createRoot(document.getElementById('overlay-host')).render(React.createElement(TavernContextWindowOverlay, { sessionId: 'sess-ui' }));
@@ -333,6 +335,78 @@ test('移动端通过菜单底栏开启 Bottom Sheet，支持 390px/320px 零溢
   await sheet.getByRole('button', { name: '压缩上下文' }).click()
   const compacted = await page.evaluate(() => window.__calls.some(c => c.method === 'runCompaction'))
   assert.equal(compacted, true, '点击压缩上下文实际调用 runCompaction RPC')
+
+  assert.deepEqual(consoleErrors, [])
+  assert.deepEqual(pageErrors, [])
+})
+
+test('request.system 含常驻世界书/人物卡/前段预设时，Treemap 与图例拆桶展示并支持点击跳转展开 system 子区块', async t => {
+  const browser = await chromium.launch({ headless: true })
+  t.after(() => browser.close())
+  const page = await browser.newPage()
+  const { consoleErrors, pageErrors } = await mountTestPage(page, 1280, 800)
+
+  const frontText = '【前段预设】保持第二人称细腻风格。'
+  const cardText = '<character_card_name>\n顾怀安\n</character_card_name>\n<character_description>\n' + '人物简介内容。'.repeat(60) + '\n</character_description>'
+  const loreText = '<lorebook_constant>\n' + '常驻世界书规则正文。'.repeat(180) + '\n</lorebook_constant>'
+  const systemText = [frontText, cardText, loreText].join('\n\n')
+  const systemSections = [
+    { name: 'tavern:runtime-preset-front', start: 0, end: frontText.length },
+    { name: 'tavern:character-card', start: frontText.length + 2, end: frontText.length + 2 + cardText.length },
+    { name: 'tavern:constant-worldbook', start: systemText.indexOf('<lorebook_constant>'), end: systemText.length }
+  ]
+
+  await page.evaluate(({ systemText, systemSections }) => {
+    window.__payload = {
+      record: {
+        id: 'req-sys-split',
+        turn: 5,
+        step: 1,
+        scope: 'foreground',
+        task: 'reply',
+        createdAt: 1795594000000,
+        systemSections,
+        request: {
+          model: 'gemini-4-neon',
+          system: systemText,
+          messages: [
+            { role: 'user', content: '向前走一步。', source: { kind: 'user' } }
+          ]
+        },
+        cacheDiff: {
+          compareStatus: 'no-previous',
+          usage: { inputTokens: 8000, cacheReadTokens: 0, cacheWriteTokens: 0, totalInputTokens: 8000, hitRate: 0 },
+          sectionStatus: {},
+          breakPoint: null
+        }
+      },
+      meta: {
+        scope: 'foreground',
+        contextWindow: 128000,
+        compactionPolicy: { mode: 'percent', percent: 80 },
+        hasBackground: false,
+        recentSeries: [{ id: 'req-sys-split', turn: 5, tokens: 8000, cacheReadTokens: 0 }]
+      }
+    }
+    window.__mountFullPage()
+  }, { systemText, systemSections })
+
+  const fullHost = page.locator('#full-page-host')
+  await fullHost.locator('.dsh-ctx-card.is-full').waitFor({ state: 'visible' })
+
+  const worldbookLegendVal = await fullHost.locator('.dsh-ctx-legend-item').filter({ hasText: '世界书' }).locator('.dsh-ctx-legend-val').innerText()
+  const cardLegendVal = await fullHost.locator('.dsh-ctx-legend-item').filter({ hasText: '人物卡' }).locator('.dsh-ctx-legend-val').innerText()
+  assert.notEqual(worldbookLegendVal, '0')
+  assert.notEqual(cardLegendVal, '0')
+
+  const loreTile = fullHost.locator('[data-ctx-tile="field:system#1:worldbook:constant"]')
+  await loreTile.waitFor({ state: 'visible' })
+  await loreTile.click()
+
+  const sysDetails = fullHost.locator('details[data-cache-key="field:system"]')
+  assert.equal(await sysDetails.evaluate(el => el.open), true, '点击常驻世界书 Tile 应展开 field:system 详情')
+  const partCount = await sysDetails.locator('[data-part-index]').count()
+  assert.equal(partCount, 3, '详情中按前段预设、人物卡、常驻世界书三段渲染')
 
   assert.deepEqual(consoleErrors, [])
   assert.deepEqual(pageErrors, [])

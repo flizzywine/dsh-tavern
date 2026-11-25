@@ -60,6 +60,10 @@
                 .map(({ category, label }) => ({ category, label }));
         }
         function describeSectionSource(name, rest) {
+            if (typeof describeTavernSystemSection === "function") {
+                const desc = describeTavernSystemSection(name, rest);
+                return { category: desc.category, label: desc.label };
+            }
             if (!name) return { category: "plugin", label: "附加上下文" };
             if (name === "tavern:runtime-preset-front") return { category: "preset", label: "前段预设" };
             if (name === "tavern:runtime-preset-middle") return { category: "preset", label: "中段预设" };
@@ -145,7 +149,7 @@
             if (!list.length && fallback) push(fallback);
             return list;
         }
-        function requestContextSections(request) {
+        function requestContextSections(request, options) {
             if (!request) return [];
             const sections = [];
             // System and tool declarations are independent request fields, not trailing messages.
@@ -159,6 +163,22 @@
                     tools: [{ category: "tool", label: "工具定义" }],
                     messages: [{ category: "story", label: "消息" }]
                 };
+                if (key === "system" && typeof request.system === "string" && typeof splitSystemPromptParts === "function") {
+                    const splitParts = splitSystemPromptParts(request.system, options && options.systemSections);
+                    if (splitParts.length > 0 && !(splitParts.length === 1 && splitParts[0].isPlainSystem)) {
+                        const fallback = { category: "system", label: "系统提示" };
+                        sections.push({
+                            title: key + " · " + labels[key],
+                            value: request.system,
+                            cacheKey: "field:" + key,
+                            fallbackSource: fallback,
+                            sources: collectSectionSources(splitParts, fallback),
+                            displayParts: splitParts,
+                            body: splitParts.map(part => part.text)
+                        });
+                        return;
+                    }
+                }
                 sections.push({ title: key + " · " + labels[key], value: request[key], cacheKey: "field:" + key, sources: sourceByField[key] || [] });
             }
             function addMessage(message, index) {
@@ -237,7 +257,7 @@
                 for (let index = firstOrdinary; index < messages.length; index++) addMessage(messages[index], index);
             } else addField("messages");
             return sections.flatMap(section => {
-                if (!section.displayParts?.some(part => part.presetPhase)) return [section];
+                if (section.cacheKey === "field:system" || !section.displayParts?.some(part => part.presetPhase)) return [section];
                 const groups = [];
                 for (const part of section.displayParts) {
                     const previous = groups[groups.length - 1];
@@ -363,8 +383,8 @@
             const pure = record.request.messages?.some(message => isWhiteGloveMessage(message, "write") || isCurrentWhiteGloveInjection(message, record.turn));
             return pure ? "white-glove" : "standard";
         }
-        function buildEnrichedSections(request) {
-            return requestContextSections(request).map(section => {
+        function buildEnrichedSections(request, options) {
+            return requestContextSections(request, options).map(section => {
                 const sourceTags = (section.sources || []).map(src => (CONTEXT_SOURCE_CATEGORIES[src.category] || "") + " " + src.label).join(" ");
                 return { ...section, tokens: estimateTavernTokens(section.text), searchText: (section.title + " " + sourceTags + " " + section.text).toLowerCase() };
             });
@@ -422,10 +442,10 @@
                                 : null;
                     const partCat = part.sourceCategory && CONTEXT_SOURCE_CATEGORIES[part.sourceCategory];
                     return part.catalog
-                        ? h("details", { key: (keyPrefix || "") + "part-" + index, className: "dsh-context-source" + partCacheCls },
+                        ? h("details", { key: (keyPrefix || "") + "part-" + index, "data-part-index": index, className: "dsh-context-source" + partCacheCls },
                             h("summary", null, h("span", { className: "dsh-context-chevron", "aria-hidden": true }, "›"), part.label, partCacheTag),
                             h("pre", null, part.text))
-                        : h("div", { key: (keyPrefix || "") + "part-" + index, className: partCacheCls ? "dsh-context-part" + partCacheCls : undefined },
+                        : h("div", { key: (keyPrefix || "") + "part-" + index, "data-part-index": index, className: partCacheCls ? "dsh-context-part" + partCacheCls : undefined },
                             part.label ? h("div", { className: "dsh-context-part-label" },
                                 partCat ? h("span", { className: "dsh-context-source-pill is-src-" + part.sourceCategory }, partCat) : null,
                                 part.label,
@@ -1095,7 +1115,7 @@
             const [query, setQuery] = React.useState("");
             const [sourceFilter, setSourceFilter] = React.useState("all");
             const [refresh, setRefresh] = React.useState(0);
-            const [jumpTarget, setJumpTarget] = React.useState({ key: "", tick: 0 });
+            const [jumpTarget, setJumpTarget] = React.useState({ key: "", partIndex: null, tick: 0 });
             const [compacting, setCompacting] = React.useState(false);
             const [compactionNotice, setCompactionNotice] = React.useState("");
             const loaded = React.useRef(null);
@@ -1137,7 +1157,12 @@
             React.useEffect(() => {
                 if (!jumpTarget.key || !listRef.current || deferredQuery || sourceFilter !== "all") return;
                 const el = listRef.current.querySelector('[data-cache-key="' + jumpTarget.key.replace(/"/g, '\\"') + '"]');
-                if (el && typeof el.scrollIntoView === "function") el.scrollIntoView({ behavior: "smooth", block: "center" });
+                if (!el) return;
+                const partEl = Number.isInteger(jumpTarget.partIndex)
+                    ? el.querySelector('[data-part-index="' + jumpTarget.partIndex + '"]')
+                    : null;
+                const scrollTarget = partEl || el;
+                if (typeof scrollTarget.scrollIntoView === "function") scrollTarget.scrollIntoView({ behavior: "smooth", block: "center" });
             }, [jumpTarget, deferredQuery, sourceFilter]);
             const request = record && record.request;
             const foregroundMode = foregroundRequestMode(record);
@@ -1145,7 +1170,7 @@
             const sectionStatusMap = (cacheDiff && cacheDiff.sectionStatus) || {};
             const breakPoint = (cacheDiff && cacheDiff.breakPoint) || null;
             const text = React.useMemo(() => request ? JSON.stringify(request, null, 2) : "", [request]);
-            const sections = React.useMemo(() => buildEnrichedSections(request), [request]);
+            const sections = React.useMemo(() => buildEnrichedSections(request, { systemSections: record && record.systemSections }), [request, record && record.systemSections]);
             const summary = React.useMemo(() => {
                 if (!record && !meta) return null;
                 if (typeof buildContextWindowSummary !== "function") return null;
@@ -1167,11 +1192,15 @@
             function downloadJson() {
                 downloadTavernBlob(new Blob([text], { type: "application/json;charset=utf-8" }), "request-context.json");
             }
-            function jumpToSection(key) {
+            function jumpToSection(key, item) {
                 if (!key) return;
                 if (query) setQuery("");
                 if (sourceFilter !== "all") setSourceFilter("all");
-                setJumpTarget(prev => ({ key, tick: prev.tick + 1 }));
+                setJumpTarget(prev => ({
+                    key,
+                    partIndex: item && Number.isInteger(item.firstPartIndex) ? item.firstPartIndex : null,
+                    tick: prev.tick + 1
+                }));
             }
             async function handleCompact() {
                 if (compacting || compaction.running) return;
@@ -1324,7 +1353,7 @@
                 return () => { active = false; };
             }, [sessionId, refresh]);
 
-            const sections = React.useMemo(() => buildEnrichedSections(latest.record?.request), [latest.record]);
+            const sections = React.useMemo(() => buildEnrichedSections(latest.record?.request, { systemSections: latest.record?.systemSections }), [latest.record]);
             const summary = React.useMemo(() => {
                 if (!latest.record && !latest.meta) return null;
                 if (typeof buildContextWindowSummary !== "function") return null;

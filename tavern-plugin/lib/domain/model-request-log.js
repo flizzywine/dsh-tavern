@@ -170,6 +170,11 @@ export function createModelRequestLog(options = {}) {
     const requestId = stamp.toString(36) + '-' + id()
     const scope = context && context.scope === 'background' ? 'background' : 'foreground'
     const turn = scope === 'background' ? Math.max(0, Number(context.turn) || 0) : Math.max(0, Number(coordinates && coordinates.turn) || 0)
+    const systemSections = Array.isArray(input.systemSections)
+      ? input.systemSections
+          .filter(item => item && typeof item === 'object' && typeof item.name === 'string' && Number.isInteger(item.start) && Number.isInteger(item.end) && item.start >= 0 && item.end > item.start)
+          .map(item => ({ name: item.name, start: item.start, end: item.end }))
+      : []
     const draft = {
       version: 2,
       id: requestId,
@@ -188,6 +193,7 @@ export function createModelRequestLog(options = {}) {
         : null,
       frame: coordinates && coordinates.frame ? JSON.parse(JSON.stringify(coordinates.frame)) : null,
       ...(context && context.window ? { window: { first: context.window.first, through: context.window.through } } : {}),
+      ...(systemSections.length ? { systemSections } : {}),
       bypassPlan: {
         id: str(chat.bypassPlanId || chat.runtimePresetSnapshot && chat.runtimePresetSnapshot.planId),
         name: str(chat.runtimePresetSnapshot && chat.runtimePresetSnapshot.planName),

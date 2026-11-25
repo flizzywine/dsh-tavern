@@ -6,12 +6,16 @@ import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { computeRequestCacheDiff, extractPrefixSlots } from '../tavern-plugin/lib/domain/request-cache-diff.js'
 import { omitUnusedToolHistory } from '../tavern-plugin/lib/domain/tool-history-presentation.js'
+import systemPromptSections from '../tavern-plugin/lib/domain/system-prompt-sections.cjs'
+
+const { buildSystemSectionSpans } = systemPromptSections
 
 
 // The panel is a client fragment concatenated into the built bundle, so exercise
 // the source file the way the other feature tests do.
 const client = vm.createContext({ window: {} })
 vm.runInContext(readFileSync(new URL('../tavern-plugin/lib/domain/writing-material-receipts.cjs', import.meta.url), 'utf8'), client)
+vm.runInContext(readFileSync(new URL('../tavern-plugin/lib/domain/system-prompt-sections.cjs', import.meta.url), 'utf8'), client, { filename: 'system-prompt-sections.cjs' })
 vm.runInContext(readFileSync(new URL('../tavern-plugin/src/client/modules/context-window-model.js', import.meta.url), 'utf8'), client, { filename: 'context-window-model.js' })
 vm.runInContext(readFileSync(new URL('../tavern-plugin/src/client/features/request-context.js', import.meta.url), 'utf8'), client, { filename: 'request-context.js' })
 // vm 里造出来的数组和对象带的是那边的原型，deepEqual 会判成不相等；先搬回本 realm。
@@ -531,4 +535,193 @@ test('maintenance.getLatestRequestContext 返回 meta 元信息、支持 scope �
   const minimalRes = await minimal.getLatestRequestContext({ sessionId: 's-fg' })
   assert.equal(minimalRes.record.id, fg.id)
   assert.equal(minimalRes.meta.contextWindow, null)
+})
+
+test('request.system 无 systemSections 时按顶层 XML 标签拆分常驻世界书、人物卡、变量目录，不误拆世界书内部标签', () => {
+  const loreBody = [
+    '### 第一人称',
+    '*写作视角：第一人称。*',
+    '',
+    '### 一家之主提炼',
+    '<writing_style>',
+    '- 按照如下参考文风进行创作',
+    '<character_description>',
+    '世界书正文中故意出现的示例标签，绝不能被误切为人物卡。',
+    '</character_description>',
+    '</writing_style>',
+    '设'.repeat(600)
+  ].join('\n')
+  const cardDesc = '主角背景设定：'.padEnd(240, '甲')
+  const cardSys = '保持冷峻细腻笔调。'.repeat(20)
+  const systemText = [
+    '<system_append>\n额外系统指令\n</system_append>',
+    '<user_preferences>\n长期偏好：克制对白。\n</user_preferences>',
+    '<character_card_name>\n林婉\n</character_card_name>',
+    '<character_description>\n' + cardDesc + '\n</character_description>',
+    '<character_personality>\n沉稳敏锐。\n</character_personality>',
+    '<card_system>\n' + cardSys + '\n</card_system>',
+    '<lorebook_constant>\n' + loreBody + '\n</lorebook_constant>',
+    '<lorebook_files>\n用 read_lorebook 按关键词读取设定。\n</lorebook_files>',
+    '<variable_directory>\n[{"path":"/hp","type":"number"}]\n</variable_directory>',
+    '<output_method>本轮通过 submit_story 提交正文。</output_method>'
+  ].join('\n\n')
+
+  const record = {
+    id: 'req-sys-xml',
+    turn: 4,
+    step: 1,
+    scope: 'foreground',
+    request: {
+      model: 'gemini-4-neon',
+      system: systemText,
+      messages: [
+        { role: 'user', content: '我推开书房的门。', source: { kind: 'user' } }
+      ]
+    }
+  }
+
+  const parsedSections = structuredClone(client.requestContextSections(record.request))
+  const sysSec = parsedSections.find(s => s.cacheKey === 'field:system')
+  assert.ok(sysSec, '保留唯一 field:system section 以对齐 cacheKey')
+  assert.deepEqual(
+    sysSec.sources.map(s => s.category + ':' + s.label),
+    [
+      'system:系统追加',
+      'preset:长期偏好',
+      'card:人物卡',
+      'card:人物卡系统提示',
+      'worldbook:常驻世界书',
+      'worldbook:世界书 Skill',
+      'state:变量目录',
+      'plugin:工具提交规范'
+    ]
+  )
+  const lorePart = sysSec.displayParts.find(p => p.label === '常驻世界书')
+  assert.ok(lorePart.text.includes('<character_description>'), '常驻世界书内部嵌套标签完整保留，不被误切')
+
+  const summary = structuredClone(client.buildContextWindowSummary(record, { contextWindow: 100000 }))
+  const byBucket = Object.fromEntries(summary.buckets.map(b => [b.key, b.tokens]))
+  assert.ok(byBucket.worldbook > 800, `常驻世界书应统计进 worldbook 桶，实际=${byBucket.worldbook}`)
+  assert.ok(byBucket.card > 300, `人物卡与人物卡系统提示应统计进 card 桶，实际=${byBucket.card}`)
+  assert.ok(byBucket.state > 10, `变量目录应统计进 state 桶，实际=${byBucket.state}`)
+  assert.ok(byBucket.system > 50, `系统追加/长期偏好/工具规范应统计进 system 桶，实际=${byBucket.system}`)
+  assert.equal(summary.buckets.reduce((s, b) => s + b.tokens, 0), summary.usedTokens)
+  assert.equal(summary.items.reduce((s, it) => s + it.tokens, 0), summary.usedTokens)
+
+  const itemTitles = summary.items.map(it => it.title)
+  assert.ok(itemTitles.includes('system · 常驻世界书'))
+  assert.ok(itemTitles.includes('system · 人物卡'))
+  assert.ok(itemTitles.includes('system · 人物卡系统提示'))
+  assert.ok(itemTitles.includes('system · 长期偏好'))
+  assert.ok(itemTitles.includes('system · 变量目录'))
+})
+
+test('复合消息（如含多 source.sections 的 system 消息）按各来源精确拆分到不同语境桶', () => {
+  const w = '常驻条目'.repeat(40)
+  const c = '人物设定'.repeat(20)
+  const p = '长期偏好'.repeat(10)
+  const req = {
+    model: 'claude-sonnet',
+    messages: [
+      {
+        role: 'system',
+        content: [w, c, p].join('\n'),
+        source: {
+          sections: [
+            { name: 'tavern:constant-worldbook', text: w },
+            { name: 'tavern:character-card', text: c },
+            { name: 'tavern:user-preference', text: p }
+          ]
+        }
+      },
+      { role: 'user', content: '继续', source: { kind: 'user' } }
+    ]
+  }
+  const summary = structuredClone(client.buildContextWindowSummary({ id: 'r-mix', request: req }, { contextWindow: 10000 }))
+  const byBucket = Object.fromEntries(summary.buckets.map(b => [b.key, b.tokens]))
+  assert.ok(byBucket.worldbook > 0)
+  assert.ok(byBucket.card > 0, '复合消息里的人物卡部分不被大块世界书吞并')
+  assert.ok(byBucket.system > 0, '复合消息里的长期偏好部分不被大块世界书吞并')
+  assert.ok(byBucket.story > 0)
+  assert.equal(summary.buckets.reduce((s, b) => s + b.tokens, 0), summary.usedTokens)
+})
+
+test('带 systemSections 偏移记录的新请求能拆出无 XML 外壳的前段预设，并在缓存断层时精确定位子区块', () => {
+  const frontText = '【前段预设】全程保持第二人称叙事与克制节奏。'
+  const cardText = '<character_card_name>\n沈清\n</character_card_name>'
+  const makeLore = text => '<lorebook_constant>\n' + text + '\n</lorebook_constant>'
+  const hostText = '你是宿主助手，遵守上述一切设定。'
+
+  const makeRecord = (id, loreContent, turn) => {
+    const assembled = [
+      { name: 'tavern:runtime-preset-front', text: frontText },
+      { name: 'tavern:character-card', text: cardText },
+      { name: 'tavern:constant-worldbook', text: makeLore(loreContent) },
+      { name: 'tavern:dsh-system', text: hostText }
+    ]
+    const system = assembled.map(s => s.text).join('\n\n')
+    const systemSections = buildSystemSectionSpans(system, assembled)
+    return {
+      id,
+      turn,
+      step: 1,
+      createdAt: turn * 1000,
+      systemSections,
+      request: {
+        model: 'gemini-4-neon',
+        system,
+        messages: [{ role: 'user', content: '开场白之后我该怎么走？', source: { kind: 'user' } }]
+      }
+    }
+  }
+
+  const prev = makeRecord('r1', '旧版世界书规则：城门亥时关闭。', 1)
+  const cur = makeRecord('r2', '新版世界书规则：城门子时关闭。', 2)
+  cur.usage = { inputTokens: 1200, cacheReadTokens: 0, cacheWriteTokens: 0 }
+  cur.cacheDiff = computeRequestCacheDiff(cur, prev, prev)
+
+  assert.equal(cur.cacheDiff.breakPoint.key, 'field:system')
+  assert.equal(cur.cacheDiff.breakPoint.partLabel, '常驻世界书')
+  assert.equal(cur.cacheDiff.breakPoint.partIndex, 2)
+
+  const summary = structuredClone(client.buildContextWindowSummary(cur, { contextWindow: 128000 }))
+  const frontItem = summary.items.find(it => it.title === 'system · 前段预设')
+  const cardItem = summary.items.find(it => it.title === 'system · 人物卡')
+  const loreItem = summary.items.find(it => it.title === 'system · 常驻世界书')
+  const sysItem = summary.items.find(it => it.title === 'system · 系统提示词')
+
+  assert.ok(frontItem && frontItem.bucket === 'system')
+  assert.ok(cardItem && cardItem.bucket === 'card')
+  assert.ok(loreItem && loreItem.bucket === 'worldbook')
+  assert.ok(sysItem && sysItem.bucket === 'system')
+
+  assert.equal(frontItem.cacheStatus, 'hit')
+  assert.equal(cardItem.cacheStatus, 'hit')
+  assert.equal(loreItem.isFirstBreak, true)
+  assert.equal(loreItem.cacheStatus, 'break')
+  assert.equal(sysItem.cacheStatus, 'cascade')
+})
+
+test('buildSystemSectionSpans 跳过未匹配或行中短文本，保留有效区间并在容器块内继续识别子标签', () => {
+  const assembled = [
+    { name: 'tavern:runtime-preset-front', text: '好' },
+    { name: 'tavern:missing-section', text: '被上游模板删掉的一段' },
+    { name: 'tavern:dsh-system', text: '提示前文：好心情。\n<lorebook_constant>\n世界书正文\n</lorebook_constant>' }
+  ]
+  // 模拟一个故意构造的行中混淆场景：前面是普通文字里含「好」，真正的前段预设独占一行在后面
+  const systemText = [
+    '大家好，欢迎来到酒馆',
+    '好',
+    '提示前文：好心情。\n<lorebook_constant>\n世界书正文\n</lorebook_constant>'
+  ].join('\n\n')
+
+  const spans = buildSystemSectionSpans(systemText, assembled)
+  assert.equal(spans.length, 2)
+  assert.equal(systemText.slice(spans[0].start, spans[0].end), '好')
+  assert.ok(spans[0].start > systemText.indexOf('大家好'), '绝不误匹配行中子串')
+  assert.equal(spans[1].name, 'tavern:dsh-system')
+
+  const parts = systemPromptSections.splitSystemPromptParts(systemText, spans)
+  assert.equal(parts.find(p => p.label === '前段预设').text, '好')
+  assert.equal(parts.find(p => p.label === '常驻世界书').sourceCategory, 'worldbook')
 })

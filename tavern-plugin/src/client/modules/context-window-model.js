@@ -163,34 +163,167 @@ function readMeasuredUsage(record) {
     };
 }
 
+function resolvePartGroup(part, fallbackCategory) {
+    const cat = part.catalog ? "plugin" : (part.sourceCategory || fallbackCategory || "");
+    const bucket = mapSourceCategoryToContextBucket(cat);
+    const label = part.label || "";
+    if (part.groupKey) {
+        return {
+            groupKey: part.groupKey,
+            bucket,
+            label: label || (TAVERN_CONTEXT_BUCKET_MAP[bucket] ? TAVERN_CONTEXT_BUCKET_MAP[bucket].label : "系统提示词")
+        };
+    }
+    let groupKey = "system";
+    if (cat === "preset") groupKey = "preset:" + (label || "预设");
+    else if (bucket === "worldbook") groupKey = "worldbook:" + (label || "世界书");
+    else if (bucket === "card") groupKey = "card:" + (label || "人物卡");
+    else if (bucket === "state") groupKey = "state:" + (label || "状态");
+    else if (bucket === "story") groupKey = "story";
+    else if (bucket === "tool") groupKey = "tool";
+    return {
+        groupKey,
+        bucket,
+        label: label || (TAVERN_CONTEXT_BUCKET_MAP[bucket] ? TAVERN_CONTEXT_BUCKET_MAP[bucket].label : "系统提示词")
+    };
+}
+
+function expandSectionForSummary(section, index, sectionStatusMap, breakPoint) {
+    if (!section || typeof section !== "object") return [];
+    const baseKey = section.cacheKey || ("section:" + index);
+    const baseTitle = section.title || baseKey;
+    const cacheStatus = section.cacheKey ? (sectionStatusMap[section.cacheKey] || "") : "";
+    const firstBreakKey = (breakPoint && breakPoint.key) || "";
+    const isSectionBreak = Boolean(firstBreakKey && section.cacheKey === firstBreakKey);
+    const fallbackCategory = (section.sources && section.sources[0] && section.sources[0].category) || "";
+    const partList = Array.isArray(section.parts) && section.parts.length > 0
+        ? section.parts
+        : (Array.isArray(section.displayParts) ? section.displayParts : null);
+
+    const groups = [];
+    const groupByKey = Object.create(null);
+    let nonEmptyPartIndex = 0;
+
+    if (partList && partList.length > 0) {
+        for (const part of partList) {
+            if (!part) continue;
+            const text = String(part.text ?? "");
+            if (!text.trim()) continue;
+            const partIdx = nonEmptyPartIndex;
+            nonEmptyPartIndex += 1;
+            const est = Math.max(0, estimateContextTokenFallback(text));
+            const resolved = resolvePartGroup(part, fallbackCategory);
+            let group = groupByKey[resolved.groupKey];
+            if (!group) {
+                group = {
+                    groupKey: resolved.groupKey,
+                    bucket: resolved.bucket,
+                    rawTokens: 0,
+                    labels: [],
+                    partIndices: []
+                };
+                groupByKey[resolved.groupKey] = group;
+                groups.push(group);
+            }
+            group.rawTokens += est;
+            if (resolved.label && !group.labels.includes(resolved.label)) {
+                group.labels.push(resolved.label);
+            }
+            group.partIndices.push(partIdx);
+        }
+    }
+
+    if (groups.length > 1) {
+        const breakPartIdx = isSectionBreak && Number.isInteger(breakPoint && breakPoint.partIndex)
+            ? breakPoint.partIndex
+            : null;
+        const breakPartLabel = isSectionBreak && breakPoint && breakPoint.partLabel
+            ? String(breakPoint.partLabel)
+            : "";
+        let matchedGroupIdx = -1;
+        if (breakPartIdx !== null) {
+            matchedGroupIdx = groups.findIndex(function (g) { return g.partIndices.includes(breakPartIdx); });
+        }
+        if (matchedGroupIdx < 0 && breakPartLabel) {
+            matchedGroupIdx = groups.findIndex(function (g) { return g.labels.includes(breakPartLabel); });
+        }
+        if (isSectionBreak && matchedGroupIdx < 0) matchedGroupIdx = 0;
+
+        return groups.map(function (group, gIdx) {
+            const groupTitle = group.groupKey === "system" && group.labels.length > 1
+                ? "系统提示词"
+                : (group.labels[0] || (TAVERN_CONTEXT_BUCKET_MAP[group.bucket] ? TAVERN_CONTEXT_BUCKET_MAP[group.bucket].label : "系统提示词"));
+            const displayTitle = baseKey === "field:system"
+                ? ("system · " + groupTitle)
+                : (baseTitle + " · " + groupTitle);
+            const subtitle = group.labels.length > 1 ? group.labels.slice(0, 3).join(" · ") : "";
+            let itemBreak = false;
+            let itemCacheStatus = cacheStatus;
+            if (isSectionBreak) {
+                if (gIdx === matchedGroupIdx) {
+                    itemBreak = true;
+                    itemCacheStatus = "break";
+                } else if (breakPartIdx !== null) {
+                    const maxPartIdx = group.partIndices[group.partIndices.length - 1];
+                    itemCacheStatus = maxPartIdx < breakPartIdx ? "hit" : "cascade";
+                } else {
+                    itemCacheStatus = gIdx < matchedGroupIdx ? "hit" : "cascade";
+                }
+            }
+            return {
+                id: baseKey + "#" + index + ":" + group.groupKey,
+                index,
+                partOrder: gIdx,
+                firstPartIndex: group.partIndices[0],
+                cacheKey: section.cacheKey || "",
+                title: displayTitle,
+                label: displayTitle,
+                subtitle,
+                bucket: group.bucket,
+                rawTokens: group.rawTokens,
+                cacheStatus: itemCacheStatus,
+                isFirstBreak: itemBreak,
+                sources: Array.isArray(section.sources) ? section.sources : []
+            };
+        });
+    }
+
+    const info = estimateSectionRawData(section);
+    const singleGroup = groups.length === 1 ? groups[0] : null;
+    const singleSubtitle = singleGroup && baseKey === "field:system" && singleGroup.bucket !== "system" && singleGroup.labels.length === 1
+        ? singleGroup.labels[0]
+        : info.subtitle;
+    return [{
+        id: baseKey + "#" + index,
+        index,
+        partOrder: 0,
+        firstPartIndex: singleGroup ? singleGroup.partIndices[0] : undefined,
+        cacheKey: section.cacheKey || "",
+        title: baseTitle,
+        label: baseTitle,
+        subtitle: singleSubtitle,
+        bucket: singleGroup ? singleGroup.bucket : info.bucket,
+        rawTokens: singleGroup ? singleGroup.rawTokens : info.rawTokens,
+        cacheStatus,
+        isFirstBreak: isSectionBreak,
+        sources: Array.isArray(section.sources) ? section.sources : []
+    }];
+}
+
 /** 构造完整上下文窗口摘要模型，同时服务桌面 Popover、完整页与移动 Bottom Sheet。 */
 function buildContextWindowSummary(record, meta, sectionsInput) {
     const sections = Array.isArray(sectionsInput)
         ? sectionsInput
-        : (record && record.request && typeof requestContextSections === "function" ? requestContextSections(record.request) : []);
+        : (record && record.request && typeof requestContextSections === "function"
+            ? requestContextSections(record.request, { systemSections: record.systemSections })
+            : []);
     const sectionStatusMap = (record && record.cacheDiff && record.cacheDiff.sectionStatus) || {};
     const breakPoint = (record && record.cacheDiff && record.cacheDiff.breakPoint) || null;
     const firstBreakKey = (breakPoint && breakPoint.key) || "";
     const measuredUsage = readMeasuredUsage(record);
 
-    const parsed = sections.map(function (section, index) {
-        const info = estimateSectionRawData(section);
-        const key = section.cacheKey || ("section:" + index);
-        const title = section.title || key;
-        const cacheStatus = section.cacheKey ? (sectionStatusMap[section.cacheKey] || "") : "";
-        return {
-            id: key + "#" + index,
-            index,
-            cacheKey: section.cacheKey || "",
-            title,
-            label: title,
-            subtitle: info.subtitle,
-            bucket: info.bucket,
-            rawTokens: info.rawTokens,
-            cacheStatus,
-            isFirstBreak: Boolean(firstBreakKey && section.cacheKey === firstBreakKey),
-            sources: Array.isArray(section.sources) ? section.sources : []
-        };
+    const parsed = sections.flatMap(function (section, index) {
+        return expandSectionForSummary(section, index, sectionStatusMap, breakPoint);
     });
 
     const rawSum = parsed.reduce(function (sum, item) { return sum + item.rawTokens; }, 0);
@@ -492,6 +625,7 @@ function computeContextMapTiles(summary, options) {
                 cacheStatus: item.cacheStatus,
                 isFirstBreak: item.isFirstBreak,
                 cacheKey: item.cacheKey,
+                firstPartIndex: item.firstPartIndex,
                 count: 1,
                 weight: Math.pow(Math.max(share, 0.0005), 0.35)
             });
@@ -517,6 +651,7 @@ function computeContextMapTiles(summary, options) {
                 cacheStatus: sole.cacheStatus,
                 isFirstBreak: sole.isFirstBreak,
                 cacheKey: sole.cacheKey,
+                firstPartIndex: sole.firstPartIndex,
                 count: 1,
                 weight: Math.pow(Math.max(sole.tokens / usedTokens, 0.0005), 0.35)
             });
@@ -607,6 +742,7 @@ function computeContextMapTiles(summary, options) {
             cacheStatus: tile.cacheStatus || "",
             isFirstBreak: Boolean(tile.isFirstBreak),
             cacheKey: tile.cacheKey || "",
+            firstPartIndex: tile.firstPartIndex,
             count: tile.count || 1,
             memberIds: Array.isArray(tile.memberIds) ? tile.memberIds : undefined,
             members: Array.isArray(tile.members) ? tile.members : undefined,

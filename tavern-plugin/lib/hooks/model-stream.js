@@ -268,7 +268,8 @@ export function registerModelStreamHooks({
         requestRecord = await modelRequestLog.record({ chat, context: { ...backgroundContext, task: 'compaction', turn }, coordinates: { turn }, options })
       } else if (options.purpose === undefined && chat !== undefined && ['story', 'script', 'card'].includes(chat.mode)) {
         const coordinates = requestCoordinates.get(sessionId) || {}
-        requestRecord = await modelRequestLog.record({ chat, context: backgroundContext, coordinates, options })
+        const systemSections = !backgroundContext ? foregroundStrategies.systemSectionsFor?.(sessionId, options.system) : undefined
+        requestRecord = await modelRequestLog.record({ chat, context: backgroundContext, coordinates, options, ...(systemSections?.length ? { systemSections } : {}) })
         if (!backgroundContext && ['story', 'script'].includes(chat.mode)) {
           // Evidence only: scanning a multi-MB request must not delay the first token.
           // Calling an async function directly still runs its synchronous prefix here:
