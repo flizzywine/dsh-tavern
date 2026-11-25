@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "597475bd4e9ed950f749decfa03660dfc5fe40f7",
-  "releaseSequence": 2100,
+  "revision": "6e885027958d2a07d8c469ab7151b89e285d0b81",
+  "releaseSequence": 2101,
   "version": "3.4.0",
   "files": [
     {
@@ -3901,8 +3901,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/tavern-remote-assets.js",
-      "sha256": "07a0cf9972f3b7699968ada00c0a975cab274be52ba2731d4e41f230af5ce6e7",
-      "size": 15793
+      "sha256": "8e37c2e16cd16141f073f7e70d754bd7593804795fedf00d515c8e4ffb0e5647",
+      "size": 15845
     },
     {
       "path": "tavern-plugin/lib/domain/tavern-retry-limiter.js",
@@ -10276,9 +10276,9 @@
     }
   ],
   "archive": {
-    "commit": "52e54601269bee45fe9bc229c5eddb92aac8b8cc",
+    "commit": "3f8039fe3dc00e0518745d6bb92a53b2955dbd8f",
     "path": "runtime.zip",
-    "sha256": "d36458c0e4dba65535cc019e41586d4ba648004269b888e00b62d4466106f479",
-    "size": 18050641
+    "sha256": "5eafae7a8f1b7fbbe327b0c21e8d3d24f78ef45ad464f48793f321b2bbdf7ec4",
+    "size": 18050662
   }
 }
