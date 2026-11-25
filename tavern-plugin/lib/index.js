@@ -871,6 +871,9 @@ export async function apply(ctx) {
     runtimeHost: nativeProfile?.dir && nativeProfile.dir === ctx.get('profileContext')?.dir ? 'next' : desktopHost ? 'desktop' : undefined,
     hostDependencyAnchor: fileURLToPath(import.meta.url),
   })
+  if (process.env.DSH_TAVERN_RUNTIME_HOST === 'cli' && process.env.DSH_TAVERN_UPDATE_CHANNEL !== 'apk') {
+    ctx.provide('tavernApplicationUpdater', applicationUpdater)
+  }
   const modelRequestLog = createModelRequestLog({
     readJson: async function (path) { return await profileData.readJson(path) },
     writeJson: async function (path, value) { return await profileData.writeJson(path, value) },

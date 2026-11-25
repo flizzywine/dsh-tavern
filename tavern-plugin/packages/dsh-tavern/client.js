@@ -75,6 +75,10 @@ window.__ModuleLoader__.load({
       updateBlocked: '正在等待安装进程安全停止。',
       updateFailed: '更新失败，请重试。',
       updateComplete: '酒馆已更新。',
+      cliHost: '命令行版',
+      cliUpdateUnavailable: '酒馆更新服务尚未加载。',
+      cliUpdateHint: '安装完成后会自动重启酒馆服务，页面可能短暂断开。',
+      cliUpdateComplete: '酒馆服务已重启。刷新页面即可加载新版界面。',
       desktopUpdateReady: '新版已准备好。请先保存工作，重启后会应用更新。',
       desktopUpdateQuit: '请从应用菜单或托盘退出 DeepSeek Harness，更新完成后会自动打开。',
       updateRestart: '更新已安装。请退出并重新打开 DeepSeek Harness 以应用更新。',
@@ -193,6 +197,10 @@ window.__ModuleLoader__.load({
       updateBlocked: 'Waiting for the installer to stop safely.',
       updateFailed: 'Update failed. Please try again.',
       updateComplete: 'Tavern was updated.',
+      cliHost: 'Command-line edition',
+      cliUpdateUnavailable: 'The Tavern update service has not loaded.',
+      cliUpdateHint: 'Tavern restarts automatically after installation. This page may briefly disconnect.',
+      cliUpdateComplete: 'The Tavern service restarted. Refresh this page to load the updated interface.',
       desktopUpdateReady: 'The update is ready. Save your work, then restart to apply it.',
       desktopUpdateQuit: 'Quit DeepSeek Harness from the app menu or tray. It will reopen after the update.',
       updateRestart: 'The update is installed. Quit and reopen DeepSeek Harness to apply it.',
@@ -465,6 +473,7 @@ window.__ModuleLoader__.load({
       const installDone = status?.lastResult?.status === 'succeeded' && status.lastResult.mode === 'install'
 
       const next = status?.host === 'next'
+      const cli = status?.host === 'cli'
       const nextUpdatePreparation = pending ? status.nextUpdatePreparation : undefined
       const manualQuitPending = pending && !next && !['install', 'relocate', 'uninstall'].includes(status?.lastResult?.mode) && (applied?.closesApp === false || (applied === null && status?.lastResult?.closesApp === false))
       const current = next ? status.activeName : status?.linkTargetName ?? (inTavern() ? 'tavern' : 'desktop')
@@ -555,14 +564,15 @@ window.__ModuleLoader__.load({
       }
 
       const title = t('section')
-      const isDesktop = status?.appKind === 'desktop' || status?.desktopTavernWindow === true
+      const isDesktop = !cli && (status?.appKind === 'desktop' || status?.desktopTavernWindow === true)
       const installation = status?.installation
-      const showUpdates = isDesktop && (status?.desktopApp === true || status?.desktopTavernWindow === true) && installation?.available && !status?.installAvailable
+      const showUpdates = cli || (isDesktop && (status?.desktopApp === true || status?.desktopTavernWindow === true) && installation?.available && !status?.installAvailable)
+      const updateUnavailable = cli && !status.updateSupported
       const updating = updateInProgress(update?.phase)
       const nextManagementUnavailable = next && !['desktop', 'tavern'].includes(current)
       const managementBlocked = !isDesktop || status?.desktopApp !== true || nextManagementUnavailable || !installation?.available || busy || pending || !!updateAction || updating || Boolean(lastFailure?.recoveryRequired)
       React.useEffect(() => {
-        if (!showUpdates || updateAction) return
+        if (!showUpdates || updateUnavailable || updateAction) return
         let alive = true, timer
         const refresh = async () => {
           try {
@@ -581,15 +591,22 @@ window.__ModuleLoader__.load({
         if (updating) timer = setTimeout(refresh, 1500)
         else void refresh()
         return () => { alive = false; clearTimeout(timer) }
-      }, [call, showUpdates, updating, updateAction])
+      }, [call, showUpdates, updateUnavailable, updating, updateAction])
       async function applyUpdate(endpoint) {
         if (actionInFlight.current || busy || pending || managementAction || lastFailure?.recoveryRequired) return
         actionInFlight.current = true
         setUpdateAction(endpoint)
         setUpdateFailure('')
+        // The CLI can stop serving before the start receipt reaches the browser.
+        // Keep reading status after a lost response without repeating the write.
+        const restartingCli = cli && endpoint === 'start-update'
+        if (restartingCli) setUpdate({ ...update, phase: 'running', cancellable: false })
         try {
           const result = await call(endpoint, {})
-          if (result?.ok !== true) throw new Error(describeFailure(result?.error))
+          if (result?.ok !== true) {
+            if (restartingCli) setUpdate(update)
+            throw new Error(describeFailure(result?.error))
+          }
           setUpdate(result.value)
           if (endpoint === 'restart-desktop-update' && !result.value.closesApp) setUpdateFailure(t('desktopUpdateQuit'))
           if (result.value.scheduled) {
@@ -628,7 +645,7 @@ window.__ModuleLoader__.load({
       const updateButtonLabel = repairRequired ? (next ? 'nextRepair' : 'repairTavern') : (next ? 'nextUpdate' : 'updateTavern')
       const checking = updateAction === 'check-update'
       const updateRestart = update?.phase === 'completed' && update.requiresRestart
-      const updateButtonsBlocked = busy || pending || !!managementAction || !!updateAction || Boolean(lastFailure?.recoveryRequired)
+      const updateButtonsBlocked = updateUnavailable || busy || pending || !!managementAction || !!updateAction || Boolean(lastFailure?.recoveryRequired)
       const updateError = !checking && (updateFailure || update?.error || (['failed', 'check-failed'].includes(update?.phase) ? t('updateFailed') : ''))
       const progressLabel = updateAction === 'cancel-update' || update?.phase === 'cancelling' ? t('cancellingUpdate')
         : update?.phase === 'blocked' ? t('updateBlocked') : update?.stage || t('updating')
@@ -669,7 +686,7 @@ window.__ModuleLoader__.load({
           h('img', { className: 'pb-logo', src: `${CHANNEL}/logo.png`, width: 48, height: 48, alt: '' }),
           h('div', { className: 'pb-brand' },
             h('h2', { className: 'pb-title' }, title),
-            h('p', { className: 'pb-sub' }, status === null ? t('loading') : !isDesktop ? t('cliHint') : standalone ? t('standalone') : t(next ? 'nextExplain' : 'explain')),
+            h('p', { className: 'pb-sub' }, status === null ? t('loading') : cli ? t('cliHost') : !isDesktop ? t('cliHint') : standalone ? t('standalone') : t(next ? 'nextExplain' : 'explain')),
           ),
         ),
         !isDesktop ? null : standalone ? h('div', { className: 'pb-bar' },
@@ -737,6 +754,8 @@ window.__ModuleLoader__.load({
           }, t(updateAvailable ? 'updateAvailable' : 'upToDate')) : null,
           !checking && (updateAvailable || repairRequired) && update?.canUpdate === false && !pending ? h('p', { className: 'pb-sub' }, t(updateHint)) : null,
           next && showUpdateAction && !pending ? h('p', { className: 'pb-sub' }, t('nextUpdateHint')) : null,
+          cli && showUpdateAction ? h('p', { className: 'pb-sub' }, t('cliUpdateHint')) : null,
+          updateUnavailable ? h('p', { className: 'pb-error', role: 'alert' }, t('cliUpdateUnavailable')) : null,
           !checking && update?.checkWarning ? h('p', { className: 'pb-sub' }, update.checkWarning) : null,
           checking ? h('p', { role: 'status' }, t('checkingUpdate')) : null,
           update?.awaitingDesktopExit ? h('p', { role: 'status' }, t('desktopUpdateReady'))
@@ -744,7 +763,7 @@ window.__ModuleLoader__.load({
             h('p', { role: 'status' }, progressLabel),
             update?.phase !== 'blocked' ? h('progress', { 'aria-label': progressLabel }) : null) : null,
           updateError ? h('p', { className: 'pb-error', role: 'alert' }, updateError) : null,
-          update?.phase === 'completed' ? h('p', { className: 'pb-done', role: 'status' }, t(updateRestart ? (standalone ? 'updateRestartWindow' : 'updateRestart') : 'updateComplete')) : null,
+          update?.phase === 'completed' ? h('p', { className: 'pb-done', role: 'status' }, t(cli ? 'cliUpdateComplete' : updateRestart ? (standalone ? 'updateRestartWindow' : 'updateRestart') : 'updateComplete')) : null,
           h('div', { className: 'pb-actions' },
             ['ready', 'restarting'].includes(nextUpdatePreparation) ? h('button', { type: 'button', className: 'pb-btn',
               disabled: Boolean(updateAction), onClick: () => void restartNextUpdate() }, t('nextRestartUpdate')) : null,
@@ -785,7 +804,7 @@ window.__ModuleLoader__.load({
           ) : null,
         ) : null,
         h(AchievementLibrary, { call, refreshAchievements: inTavern() ? props.refreshAchievements : undefined, t }),
-        h('details', { className: 'pb-fold' },
+        cli ? null : h('details', { className: 'pb-fold' },
           h('summary', null, t('more')),
           h('p', null, t(next ? 'nextExplain' : 'why')),
           status?.transcriptPath ? h('p', { className: 'pb-sub' }, t('logLocation') + status.transcriptPath) : null,

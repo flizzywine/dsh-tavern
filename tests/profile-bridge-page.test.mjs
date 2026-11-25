@@ -400,6 +400,35 @@ test('Windows 独立酒馆显示更新检查和原生桌面更新指引', async 
   }
 })
 
+test('CLI 复用启动器更新面板，连接中断后继续跟踪安装结果', async () => {
+  const status = { host: 'cli', updateSupported: true }
+  let update = { phase: 'idle', canUpdate: true, currentVersion: '3.4.0' }
+  const page = await mount(status, [], { rpc: async endpoint => {
+    if (endpoint === 'status') return { ok: true, value: status }
+    if (endpoint === 'achievements') return { ok: true, value: [] }
+    if (endpoint === 'check-update') update = { ...update, phase: 'update-available', latestVersion: '3.4.1' }
+    if (endpoint === 'start-update') throw new Error('连接暂时断开')
+    return { ok: true, value: update }
+  } })
+  try {
+    assert.equal(page.label(), '酒馆启动器')
+    assert.match(page.text(), /命令行版.*酒馆版本与更新/)
+    assert.equal(page.button(), null)
+    assert.doesNotMatch(page.text(), /切换到原版|桌面快捷方式|安装位置/)
+    await page.act(async () => namedButton(page, '检查更新').click())
+    assert.match(page.text(), /最新发布v3\.4\.1/)
+    assert.match(page.text(), /自动重启酒馆服务/)
+    await page.act(async () => namedButton(page, '更新酒馆').click())
+    assert.equal(namedButton(page, '检查更新'), undefined)
+    update = { ...update, phase: 'completed', currentVersion: '3.4.1' }
+    await page.act(async () => { await new Promise(resolve => setTimeout(resolve, 1550)) })
+    assert.match(page.text(), /酒馆服务已重启。刷新页面即可加载新版界面。/)
+    assert.equal(page.calls.filter(([endpoint]) => endpoint === 'start-update').length, 1)
+  } finally {
+    await page.dispose()
+  }
+})
+
 test('官方酒馆启动器按提交检查同版本更新，并跟踪安装到完成', async () => {
   const tavern = { ...managedStatus, activeIsLink: true, linkTargetName: 'tavern', backups: ['desktop.fresh-test'] }
   const build = { canUpdate: true, currentVersion: '3.2.8', currentCommit: '12345678'.padEnd(40, '0') }
