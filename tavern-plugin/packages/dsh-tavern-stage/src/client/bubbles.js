@@ -352,7 +352,10 @@ function BubbleAvatar(props) {
     const src = props.media?.src;
     const image = src ? h(PackImage, {identity:props.media.identity,src,crop:props.media.crop,avatar:props.media.avatar,originalSrc:props.media.originalSrc,alt:"",draggable:false}) : null;
     if (src && props.zoomable) return h("button", { type: "button", className: "fork-bubble-avatar fork-bubble-avatar-zoom", title: "查看大图",
-        onClick: function (event) { showPortrait(props.media, (props.name || "") + (moodLabel ? " · " + moodLabel : ""), portraitPreview(props.media, event.currentTarget)); } },
+        onClick: function (event) {
+            const anchor = event.nativeEvent?.tavernVisibleControl || event.currentTarget;
+            showPortrait(props.media, (props.name || "") + (moodLabel ? " · " + moodLabel : ""), portraitPreview(props.media, anchor));
+        } },
         image);
     if (src) return h("span", { className: "fork-bubble-avatar" }, image);
     // A faceless figure shows its name's first glyph. Loading: the shared spinner after 150 ms, restarted by a new

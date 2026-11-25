@@ -29587,7 +29587,10 @@ function tavernModelRefusalNotice(text) {
 		    const src = props.media?.src;
 		    const image = src ? h(PackImage, {identity:props.media.identity,src,crop:props.media.crop,avatar:props.media.avatar,originalSrc:props.media.originalSrc,alt:"",draggable:false}) : null;
 		    if (src && props.zoomable) return h("button", { type: "button", className: "fork-bubble-avatar fork-bubble-avatar-zoom", title: "查看大图",
-		        onClick: function (event) { showPortrait(props.media, (props.name || "") + (moodLabel ? " · " + moodLabel : ""), portraitPreview(props.media, event.currentTarget)); } },
+		        onClick: function (event) {
+		            const anchor = event.nativeEvent?.tavernVisibleControl || event.currentTarget;
+		            showPortrait(props.media, (props.name || "") + (moodLabel ? " · " + moodLabel : ""), portraitPreview(props.media, anchor));
+		        } },
 		        image);
 		    if (src) return h("span", { className: "fork-bubble-avatar" }, image);
 		    // A faceless figure shows its name's first glyph. Loading: the shared spinner after 150 ms, restarted by a new
@@ -35145,6 +35148,13 @@ function bindTavernFontZoom(node, win) {
             layer.hidden = true;
             native.hidden = false;
             const slots = "[data-dsh-script-media]";
+            const controls = new Map();
+            const controlSelector = "button:is(.fork-voice-button, .fork-bubble-avatar-zoom, .fork-stage-enter-here)";
+            const controlAttribute = "data-dsh-script-control";
+            const controlCopies = "[" + controlAttribute + "]";
+            const voiceStateAttributes = ["aria-label", "aria-busy", "title", "disabled", "data-voice-state"];
+            const controlPrefix = view.crypto?.randomUUID?.() || Math.random().toString(36).slice(2);
+            let controlNumber = 0;
             // The copy gives scripts the prose and the media positions. Move each
             // live portal only after takeover, preserving its React state and handlers.
             function placeMedia() {
@@ -35163,26 +35173,70 @@ function bindTavernFontZoom(node, win) {
                     takenOver = true;
                     layer.hidden = false;
                     native.hidden = true;
+                    syncControls();
                 }
                 placeMedia();
             });
+            function activateControl(event) {
+                const copy = event.target.closest?.(controlCopies);
+                const source = copy && controls.get(copy.getAttribute(controlAttribute));
+                if (!source || !native.contains(source) || source.disabled || event.defaultPrevented) return;
+                // Route through the live renderer so React and the stage's delegated
+                // Markdown controls both receive the click. Keep the visible anchor for zoom.
+                const click = new view.MouseEvent("click", { bubbles: true, cancelable: true });
+                click.tavernVisibleControl = copy;
+                if (!source.dispatchEvent(click)) event.preventDefault();
+                event.stopPropagation();
+            }
+            function syncControls(changed) {
+                for (const copy of layer.querySelectorAll(controlCopies)) {
+                    const source = controls.get(copy.getAttribute(controlAttribute));
+                    if (!source) continue;
+                    if (!native.contains(source)) { copy.remove(); continue; }
+                    if (!source.matches(".fork-voice-button") || changed && !changed.has(source)) continue;
+                    for (const name of voiceStateAttributes) {
+                        const value = source.getAttribute(name);
+                        if (value === copy.getAttribute(name)) continue;
+                        if (value === null) copy.removeAttribute(name); else copy.setAttribute(name, value);
+                    }
+                    if (copy.innerHTML !== source.innerHTML) copy.replaceChildren(...Array.from(source.childNodes, node => node.cloneNode(true)));
+                }
+            }
             function rebuild() {
                 if (disposed) return;
-                if (takenOver) { placeMedia(); return; }
                 layer.replaceChildren.apply(layer, Array.from(native.childNodes).map(function (node) { return node.cloneNode(true); }));
                 for (const slot of layer.querySelectorAll(slots)) slot.replaceChildren();
+                controls.clear();
+                const copies = layer.querySelectorAll(controlSelector);
+                native.querySelectorAll(controlSelector).forEach(function (source, index) {
+                    const id = controlPrefix + ":" + ++controlNumber;
+                    controls.set(id, source);
+                    copies[index].setAttribute(controlAttribute, id);
+                });
                 // Our own copy is not a script edit.
                 layerObserver.takeRecords();
             }
-            const nativeObserver = new Observer(function () { rebuild(); });
+            const nativeObserver = new Observer(function (records) {
+                if (!takenOver) {
+                    if (records.some(record => record.type !== "attributes")) rebuild();
+                    return;
+                }
+                placeMedia();
+                const changed = new Set(records.map(function ({ target }) {
+                    return (target.nodeType === 1 ? target : target.parentElement)?.closest(controlSelector);
+                }));
+                syncControls(changed);
+            });
             rebuild();
+            layer.addEventListener("click", activateControl);
             layerObserver.observe(layer, { childList: true, subtree: true, characterData: true, attributes: true });
-            nativeObserver.observe(native, { childList: true, subtree: true, characterData: true });
+            nativeObserver.observe(native, { childList: true, subtree: true, characterData: true, attributeFilter: voiceStateAttributes });
             announceTavernMessageRendered(view, options.sessionId, options.messageId);
             return function () {
                 disposed = true;
                 layerObserver.disconnect();
                 nativeObserver.disconnect();
+                layer.removeEventListener("click", activateControl);
                 takenOver = false;
                 placeMedia();
                 layer.replaceChildren();
