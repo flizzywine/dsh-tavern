@@ -62,15 +62,19 @@ export function createAssetPacks({ store, mediaStore }) {
    * Import one pack from an open ZIP (zip-file.js): every entry under `prefix`.
    * Packs already stored with the same id and content hash are reused, not read again.
    */
-  async function importFromZip(zip, { prefix, id, contentHash, format = '', title = '', credits = [], maxFileBytes = 512 * 1024 * 1024 } = {}) {
+  async function importFromZip(zip, { prefix, id, contentHash, format = '', title = '', credits = [], maxFileBytes = 512 * 1024 * 1024, sourceMedia = {} } = {}) {
     if (!validPackId(id)) throw Object.assign(new Error('素材包 id 无效：' + id), { code: 'TAVERN_PACK_INVALID' })
     if (contentHash !== undefined && !HASH.test(String(contentHash))) throw Object.assign(new Error('素材包摘要无效：' + id), { code: 'TAVERN_PACK_INVALID' })
     if (contentHash) { const known = await readPack(id, contentHash); if (known) return { pack: known, reused: true } }
     const files = {}
     for (const entry of zip.entries.values()) {
       if (!entry.path.startsWith(prefix)) continue
-      const stored = await putBlob(await zip.stream(entry), { maxBytes: maxFileBytes })
-      files[entry.path.slice(prefix.length)] = stored
+      const relative = entry.path.slice(prefix.length)
+      // The asset library has already authenticated this entry and may have stored it
+      // in the shared blob store. Opaque or unavailable media still streams from ZIP.
+      const ref = Object.hasOwn(sourceMedia, relative) ? sourceMedia[relative] : null
+      files[relative] = ref?.size === entry.size && ref.size <= maxFileBytes && await mediaStore.resolve(ref)
+        ? ref : await putBlob(await zip.stream(entry), { maxBytes: maxFileBytes })
     }
     if (!Object.keys(files).length) throw Object.assign(new Error('素材包是空的：' + id), { code: 'TAVERN_PACK_INVALID' })
     return await publish(id, contentHash || packContentHash(files), { format, title, credits, files })

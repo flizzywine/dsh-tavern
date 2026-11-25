@@ -66,3 +66,36 @@ test('默认下载链路不预先拒绝 DNS 或私网地址，重定向后仍可
   await cache.get('https://192.168.1.2/module.js')
   assert.equal(calls.at(-1), 'https://192.168.1.2/module.js')
 })
+
+test('raw.githubusercontent.com 下载失败时改从 jsDelivr 取同一提交的文件，并按原地址缓存', async t => {
+  const { githubRawMirrorUrl } = await import('../tavern-plugin/lib/domain/tavern-static-resource-cache.js')
+  const raw = 'https://raw.githubusercontent.com/1798547983tt/re0/3a7a36a3e16809e8d53faabb2a453a5d48f30abd/avatars/%E7%88%B1%E8%9C%9C%E8%8E%89%E9%9B%85.png'
+  const mirror = 'https://cdn.jsdelivr.net/gh/1798547983tt/re0@3a7a36a3e16809e8d53faabb2a453a5d48f30abd/avatars/%E7%88%B1%E8%9C%9C%E8%8E%89%E9%9B%85.png'
+  assert.equal(githubRawMirrorUrl(raw), mirror)
+  assert.equal(githubRawMirrorUrl('https://raw.githubusercontent.com/o/r/refs/heads/main/a.png'), '')
+  assert.equal(githubRawMirrorUrl('https://cdn.example.test/a.png'), '')
+
+  const rootDir = await mkdtemp(path.join(os.tmpdir(), 'dsh-tavern-mirror-cache-'))
+  t.after(() => rm(rootDir, {recursive:true, force:true}))
+  const calls = []
+  const cache = createTavernStaticResourceCache({ rootDir, fetch: async url => {
+    calls.push(url)
+    if (url.startsWith('https://raw.githubusercontent.com/')) throw new TypeError('fetch failed')
+    return response('PNG', 'image/png', url)
+  } })
+  const result = await cache.get(raw)
+  assert.equal(result.body.toString(), 'PNG')
+  assert.equal(result.mediaType, 'image/png')
+  assert.deepEqual(calls, [raw, mirror])
+  assert.equal((await cache.get(raw)).cache, 'hit')
+  assert.equal(calls.length, 2)
+})
+
+test('非 GitHub 地址下载失败时照常报错，不尝试镜像', async t => {
+  const rootDir = await mkdtemp(path.join(os.tmpdir(), 'dsh-tavern-mirror-cache-'))
+  t.after(() => rm(rootDir, {recursive:true, force:true}))
+  const calls = []
+  const cache = createTavernStaticResourceCache({ rootDir, fetch: async url => { calls.push(url); throw new TypeError('fetch failed') } })
+  await assert.rejects(cache.get('https://cdn.example.test/a.png'), /fetch failed/)
+  assert.deepEqual(calls, ['https://cdn.example.test/a.png'])
+})

@@ -309,6 +309,36 @@ function Close-DesktopForFirstInstall {
   return $true
 }
 
+function Get-DesktopUninstallEntries($Hive, [string]$Path) {
+  $UninstallKey = $null
+  try {
+    $UninstallKey = $Hive.OpenSubKey($Path)
+    if ($null -eq $UninstallKey) { return }
+    foreach ($KeyName in $UninstallKey.GetSubKeyNames()) {
+      $EntryKey = $null
+      try {
+        $EntryKey = $UninstallKey.OpenSubKey($KeyName)
+        if ($null -eq $EntryKey) { continue }
+        # The PowerShell 5.1 provider can fail while converting an unrelated value.
+        [pscustomobject]@{
+          DisplayName = $EntryKey.GetValue('DisplayName')
+          InstallLocation = $EntryKey.GetValue('InstallLocation')
+          DisplayIcon = $EntryKey.GetValue('DisplayIcon')
+          UninstallString = $EntryKey.GetValue('UninstallString')
+        }
+      } catch {
+        Write-Verbose "Could not read uninstall entry ${KeyName}: $($_.Exception.Message)"
+      } finally {
+        if ($null -ne $EntryKey) { $EntryKey.Dispose() }
+      }
+    }
+  } catch {
+    Write-Verbose "Could not enumerate uninstall entries at ${Path}: $($_.Exception.Message)"
+  } finally {
+    if ($null -ne $UninstallKey) { $UninstallKey.Dispose() }
+  }
+}
+
 function Test-Command([string]$Name) {
   return $null -ne (Get-Command $Name -ErrorAction SilentlyContinue)
 }
@@ -623,10 +653,10 @@ function archiveUrls(rootUrl, archive) {
 
 // Download the runtime files listed by a jsDelivr manifest into `destination`.
 // Files whose bytes already match in `installed` are reused instead of downloaded.
-async function downloadRuntime({ metadataUrl, rootUrl, destination, installed, concurrency = 16, stallMs = 30000,
+async function downloadRuntime({ manifest: preloadedManifest, metadataUrl, rootUrl, destination, installed, concurrency = 16, stallMs = 30000,
   budgetMs = 300000, attempts = 2, status = () => {}, fetch: request, targetCommit = '', minVersion = '', exactManifest = false } = {}) {
   const source = hostOf(rootUrl)
-  const metadata = await readManifest({ metadataUrl, exact: exactManifest, minVersion, stallMs, attempts, fetch: request, status })
+  const metadata = preloadedManifest || await readManifest({ metadataUrl, exact: exactManifest, minVersion, stallMs, attempts, fetch: request, status })
   const files = runtimeFiles(metadata)
   // The @main manifest can lag (CDN cache, or CI not yet published). When the app
   // asked for a specific commit, refuse a different one rather than silently
@@ -1255,6 +1285,12 @@ try {
   if ($InstallHost -in @('desktop', 'next')) {
     # Custom install folders are found through the running app or its uninstall entry.
     $DesktopNames = if ($InstallHost -eq 'next') { @('DSH NEXT') } else { @('DeepSeek Harness') }
+    $UninstallPath = 'Microsoft\Windows\CurrentVersion\Uninstall'
+    $DesktopUninstallEntries = @(
+      Get-DesktopUninstallEntries ([Microsoft.Win32.Registry]::CurrentUser) ('Software\' + $UninstallPath)
+      Get-DesktopUninstallEntries ([Microsoft.Win32.Registry]::LocalMachine) ('Software\' + $UninstallPath)
+      Get-DesktopUninstallEntries ([Microsoft.Win32.Registry]::LocalMachine) ('Software\WOW6432Node\' + $UninstallPath)
+    )
     # Ignore standalone Node executables when discovering the desktop host.
     $DesktopCandidates = @($env:DSH_DESKTOP_APP_EXECUTABLE)
     if ($InstallHost -eq 'next') { $DesktopCandidates = @($env:DSH_TAVERN_NEXT_EXECUTABLE) }
@@ -1263,8 +1299,7 @@ try {
       $DesktopCandidates += (Join-Path $env:LOCALAPPDATA ('Programs\' + $DesktopName + '\' + $DesktopName + '.exe'))
       if ($env:ProgramFiles) { $DesktopCandidates += (Join-Path $env:ProgramFiles ($DesktopName + '\' + $DesktopName + '.exe')) }
       # NSIS entries may omit InstallLocation; the uninstaller and icon paths name the same folder.
-      $DesktopCandidates += @(Get-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*',
-        'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*', 'HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*' -ErrorAction SilentlyContinue |
+      $DesktopCandidates += @($DesktopUninstallEntries |
         Where-Object { $_.DisplayName -like ($DesktopName + '*') } | ForEach-Object {
           $Folders = @()
           if ($_.InstallLocation -is [string]) { $Folders += $_.InstallLocation.Trim().Trim('"').Trim() }
@@ -1288,8 +1323,7 @@ try {
         $Name = $_
         (Test-Path -LiteralPath (Join-Path $env:LOCALAPPDATA ('Programs\' + $Name + '\' + $Name + '.exe'))) -or
         ($env:ProgramFiles -and (Test-Path -LiteralPath (Join-Path $env:ProgramFiles ($Name + '\' + $Name + '.exe')))) -or
-        @(Get-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*', 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*',
-          'HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*' -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -like ($Name + '*') }).Count -gt 0 -or
+        @($DesktopUninstallEntries | Where-Object { $_.DisplayName -like ($Name + '*') }).Count -gt 0 -or
         @(Get-Process -Name $Name -ErrorAction SilentlyContinue).Count -gt 0
       } | Select-Object -First 1
       if ($CommunityDesktop) { throw ('检测到社区版 ' + $CommunityDesktop + '，当前版本只支持官方 DeepSeek Harness（https://deepseek.com/harness/）。继续用社区版请改用稳定版的安装命令：https://github.com/flizzywine/dsh-tavern/blob/stable/README.md') }
@@ -2007,7 +2041,7 @@ catch {
     }
   } catch {}
   if ($UpdateLogRoot) { Write-Host "安装失败，请提供诊断日志：$UpdateLogRoot/update-diagnostics.jsonl" }
-  throw ("安装失败：" + $InstallFailure.Exception.Message)
+  throw
 }
 finally {
   if ($null -ne $InstallationOwner -and $InstallationOwner.created) {

@@ -6,6 +6,7 @@ import { randomUUID } from 'node:crypto'
 import { promptSection } from '../domain/prompt-section.js'
 import { lastRoundVariableChanges } from '../domain/foreground-variable-changes.js'
 import { synchronizeTemplateHistory } from '../domain/template-history.js'
+import { isWritingHostReminder } from '../domain/writing-system-reminders.js'
 
 // Appended once at the start of a reply, so it joins the history after the cached prefix.
 export function appendVariableChanges({ chat, payload, decision }) {
@@ -65,6 +66,14 @@ export function registerRequestHooks({
   // overflow compaction both see the normalized code.
   ctx.on('agent/request-error', normalizeProviderOverflow, { prepend: true })
 
+  // Native Skill hooks can append catalog messages after the Tavern decision.
+  ctx.on('agent/pre-step', async function (payload, next) {
+    const decision = await next()
+    const sessionId = payload.agent?.session?.id
+    if (decision.kind !== 'enter' || !foregroundStrategies.pureWritingTurn?.(sessionId)) return decision
+    return { ...decision, messages: decision.messages.filter(message => !isWritingHostReminder(message)) }
+  }, { prepend: true })
+
   const prepareStep = async function (payload, next) {
     const sessionId = payload.agent && payload.agent.session ? payload.agent.session.id : ''
     // Tavern drives only game sessions; child agents (its own background
@@ -89,11 +98,13 @@ export function registerRequestHooks({
       chat,
       requestId: requestIdForMessages(payload.messages)
     })
-    // prepareStep may render and persist a newer worldbook state. Restoring the
-    // pre-prepare header would append stale content after the fresh delta.
-    const recoveryChat = projectWorldbookRecovery ? await chatForSession(sessionId) : chat
-    const recovered = await appendWorldbookRecovery({ chat: recoveryChat, payload, decision: prepared, project: projectWorldbookRecovery })
-    const withChanges = appendVariableChanges({ chat, payload, decision: recovered })
+    if (foregroundStrategies.pureWritingTurn?.(sessionId)) return prepared
+    // Turn preparation waits for the preceding settlement and may also persist
+    // a new worldbook state. Both projections need the post-preparation snapshot.
+    const firstMvuStep = Number(payload.step) === 1 && chat?.mvu?.enabled === true
+    const currentChat = projectWorldbookRecovery || firstMvuStep ? await chatForSession(sessionId) : chat
+    const recovered = await appendWorldbookRecovery({ chat: currentChat, payload, decision: prepared, project: projectWorldbookRecovery })
+    const withChanges = appendVariableChanges({ chat: currentChat, payload, decision: recovered })
     try { return await cardMemory.appendRecall({ chat, payload, decision: withChanges }) }
     catch (error) { console.warn('[Tavern card memory] recall unavailable:', error.message); return withChanges }
   }

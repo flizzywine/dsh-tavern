@@ -55,7 +55,7 @@ export function resourceKind(value) {
 function extensionForText(name, fallback = '.txt') {
   const safe = safeResourceName(name)
   const ext = path.extname(safe).toLowerCase()
-  return ext === '.txt' || ext === '.md' || ext === '.json' || ext === '.epub' ? safe : safe + fallback
+  return ['.txt', '.md', '.json', '.jsonl', '.epub'].includes(ext) ? safe : safe + fallback
 }
 
 function rawText(record) {
@@ -115,8 +115,11 @@ export function createFileResourceStore(options = {}) {
 
   async function writeNew(target, data) {
     await mkdir(path.dirname(target), { recursive: true })
-    if (await exists(target)) throw new Error('文件已存在: ' + path.relative(dataRoot, target))
-    await writeFile(target, data)
+    try { await writeFile(target, data, { flag: 'wx' }) }
+    catch (error) {
+      if (error?.code === 'EEXIST') throw new Error('文件已存在: ' + path.relative(dataRoot, target), { cause: error })
+      throw error
+    }
   }
 
   async function writeWorking(relative, data) {
@@ -437,8 +440,10 @@ export function createFileResourceStore(options = {}) {
       : (typeof (payload && payload.text) === 'string' ? payload.text : JSON.stringify(card, null, 2))
     const saved = clone(card)
     delete saved.id
-    await writeNew(absolute('cards/' + originalName, true), originalData)
-    try { await writeNew(absolute(relative), JSON.stringify(saved, null, 2)) } catch (error) { await rm(absolute('cards/' + originalName, true), { force: true }); throw error }
+    await mutations.run('import-card:' + relative, async plan => {
+      await plan.writeNew(absolute('cards/' + originalName, true), originalData)
+      await plan.writeNew(absolute(relative), JSON.stringify(saved, null, 2))
+    })
     return relative
   }
 

@@ -2,7 +2,7 @@
 // `deps` carries the services ../index.js builds; dispatchMethod routes by method name.
 export function createConversationHandlers(deps) {
   const { appendStoryRounds, chatForSession, chatHistoryImporter, deleteChat, deleteChats,
-    exportConversation, exportGameSave, forkChat, importChatHistoryText, importGameSave, listTavernSessions,
+    exportConversation, exportGameSave, forkCardWorkbench, forkChat, importChatHistoryText, importGameSave, listTavernSessions,
     prepareConversationFork, readTavernSettings, sessionInventory, str, updateChat } = deps
   return {
     async listSessions(args) {
@@ -52,6 +52,9 @@ export function createConversationHandlers(deps) {
     },
     async forkChat(args) {
       return { fork: await forkChat(args?.chatId, args?.sessionId, args?.targetSessionId, args?.turn, args?.sourceRevision, args?.atSeq, args?.messageIndex, args?.messageUid) }
+    },
+    async forkCardWorkbench(args) {
+      return { fork: await forkCardWorkbench(args?.sessionId, args?.messageId) }
     },
     async getSessionInventory(args) {
       return await sessionInventory.read()

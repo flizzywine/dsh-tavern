@@ -6,7 +6,7 @@ import { projectFullPromptTemplateState } from './full-prompt-template-state.js'
 import { applyTemplateStateChanges } from './template-state-patch.js'
 import { lastTavernHelperVariables } from './tavern-helper-context.js'
 import { inspectWorldBookDocument, exportSillyTavernWorldBook } from './worldbook-resource.js'
-import { statusViewDeclaration } from './status-view-declaration.js'
+import { persistentStatusDeclarations } from './status-view-declaration.js'
 import { projectTavernHelperWorldbook } from './tavern-helper-worldbook.js'
 import { projectPersistentStatusView } from './persistent-status-view.js'
 import { rebindImportedStage } from './stage-import-rebind.js'
@@ -33,9 +33,26 @@ function location(root, path, create = false) {
   if (Array.isArray(parent)) throw Error('数组内字段迁移需要单独的迁移方案：' + path)
   return object(parent) ? { parent, key } : {}
 }
+const MIGRATION_OPS = ['move', 'remove', 'convert', 'map']
+const MIGRATION_OPS_TEXT = '变量迁移仅支持 move、remove、convert、map'
+// A value map renames enumerated values in place: every field the path reaches (a * segment
+// matches each key or element at that level) whose value equals an old value exactly.
+function mapValues(root, path, values) {
+  const parts = pointer(path), last = parts.length - 1
+  function walk(node, index) {
+    if (!node || typeof node !== 'object') return
+    const keys = parts[index] === '*' ? Object.keys(node) : Object.hasOwn(node, parts[index]) ? [parts[index]] : []
+    for (const key of keys) {
+      if (index < last) walk(node[key], index + 1)
+      else if (typeof node[key] === 'string' && Object.hasOwn(values, node[key])) node[key] = values[node[key]]
+    }
+  }
+  walk(root, 0)
+}
 function migrate(data, operations) {
   for (const op of operations) {
-    if (!['move', 'remove', 'convert'].includes(op.op)) throw Error('变量迁移仅支持 move、remove、convert')
+    if (!MIGRATION_OPS.includes(op.op)) throw Error(MIGRATION_OPS_TEXT)
+    if (op.op === 'map') { mapValues(data, op.path, op.values); continue }
     const source = location(data, op.op === 'move' ? op.from : op.path)
     pointer(op.path)
     if (!source.parent || !Object.hasOwn(source.parent, source.key)) continue // field may not exist in an earlier turn
@@ -75,9 +92,16 @@ function validatePlans(plans) {
     if (!object(plan) || !plan.id || typeof plan.id !== 'string' || forbidden.has(plan.id) || ids.has(plan.id) || !Array.isArray(plan.operations)) throw Error('每项变量迁移需要唯一 id 和 operations')
     ids.add(plan.id)
     for (const operation of plan.operations) {
-      if (!object(operation) || !['move','remove','convert'].includes(operation.op)) throw Error('变量迁移仅支持 move、remove、convert')
+      if (!object(operation) || !MIGRATION_OPS.includes(operation.op)) throw Error(MIGRATION_OPS_TEXT)
       pointer(operation.path)
       if (operation.op === 'move') pointer(operation.from)
+      if (operation.op === 'map') {
+        const values = operation.values
+        if (!object(values) || !Object.keys(values).length || Object.values(values).some(value => typeof value !== 'string')) throw Error('取值映射 values 必须是 {"旧值": "新值"} 形式的非空对象：' + operation.path)
+        // A new value that is also an old one would change again on every load.
+        const chained = Object.values(values).find(value => Object.hasOwn(values, value))
+        if (chained !== undefined) throw Error('取值映射的新值不能同时是旧值：' + chained)
+      }
       if (operation.op === 'convert' && !['string','number','boolean'].includes(operation.type)) throw Error('不支持的变量转换类型')
     }
   }
@@ -100,6 +124,7 @@ export function migrateCardSnapshots(chat, defaults, plans = [], removedPaths = 
         // Move/remove schema paths in parallel; conversion replaces the affected schema only.
         const schemaPath = path => '/' + pointer(path).flatMap(key => ['properties', key.replace(/~/g, '~0').replace(/\//g, '~1')]).join('/')
         for (const op of plan.operations) {
+          if (op.op === 'map') continue // values only; the shape stays
           if (op.op === 'convert') {
             const target = location(value.schema, schemaPath(op.path))
             if (target.parent) target.parent[target.key] = { ...target.parent[target.key], type: op.type }
@@ -272,11 +297,13 @@ export function createLiveCardUpdate({readGlobals = async () => ({}), readWorldB
     if ((Object.keys(defaults).length && chat.mvu?.enabled || plans.length || removedPaths.length) && !count) throw Error('当前存档缺少可迁移的 MVU 快照，未应用更新')
     return migrated
   }
-  const liveStatusRule = rule => rule.enabled !== false && !rule.disabled && statusViewDeclaration(rule) && /<%/.test(rule.replaceString)
-  const needsHistory = (chat, options) => !!chat.cardContextRevision && (options.regexScripts || []).some(liveStatusRule)
+  const liveStatusRules = rules => persistentStatusDeclarations(rules).map(({ rule }) => rule).filter(rule => /<%/.test(rule.replaceString))
+  const needsHistory = (chat, options) => !!chat.cardContextRevision && liveStatusRules(options.regexScripts || []).length > 0
   async function project(chat, card, display, options) {
+    if (!chat.cardContextRevision) return display
     const rules = options.regexScripts || []
-    if (!needsHistory(chat, options)) return display
+    const live = new Set(liveStatusRules(rules))
+    if (!live.size) return display
     const vars = lastTavernHelperVariables(chat.messages)
     const globals = await readGlobals()
     const key = hash([globals,chat.id,chat.cardContextRevision,rules,vars,chat.variables,chat.openingWorldbookSnapshot,chat.messages.at(-1)?.turn])
@@ -284,7 +311,7 @@ export function createLiveCardUpdate({readGlobals = async () => ({}), readWorldB
     if (!pending) {
       pending = preview(chat, card, async render => {
         const rendered = []
-        for (const rule of rules) rendered.push(liveStatusRule(rule) ? {...rule,replaceString:await render(rule.replaceString)} : rule)
+        for (const rule of rules) rendered.push(live.has(rule) ? {...rule,replaceString:await render(rule.replaceString)} : rule)
         return rendered
       }, globals)
       cache.set(key,pending)

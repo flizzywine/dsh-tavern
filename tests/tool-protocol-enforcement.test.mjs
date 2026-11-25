@@ -230,6 +230,72 @@ test('魔搭 Chat Completions 兼容 developer 角色，保留提示词和其他
   }
 })
 
+test('自定义 Chat Completions 拒绝 developer 时改用 system，保留消息、工具和请求选项', async t => {
+  const seen = []
+  let error = ''
+  const target = {
+    async fetch(url, init) {
+      const body = JSON.parse(init.body)
+      seen.push({ url, init, body })
+      return error && body.messages[0].role === 'developer'
+        ? new Response(error, { status: 400, headers: { 'x-test': 'original' } })
+        : new Response('ok')
+    }
+  }
+  t.after(installToolProtocolFetchPatch(target, { quirks: createCapabilityQuirkStore() }))
+  const url = new URL('https://inference.example.com/custom/v1/chat/completions?api-version=1')
+  const body = {
+    model: 'reasoning-model',
+    stream: true,
+    messages: [
+      { role: 'developer', content: '指令', name: 'rules' },
+      { role: 'user', content: '开始' },
+      { role: 'assistant', tool_calls: [{ id: 'call', type: 'function', function: { name: 'submit_story', arguments: '{}' } }] },
+      { role: 'tool', tool_call_id: 'call', content: '结果' }
+    ],
+    tools: [{ type: 'function', function: { name: 'submit_story', parameters: {} } }]
+  }
+  const init = { method: 'POST', body: JSON.stringify(body), headers: { 'x-test': 'request' }, signal: new AbortController().signal }
+  const compatible = { ...body, messages: [{ ...body.messages[0], role: 'system' }, ...body.messages.slice(1)] }
+
+  for (const rejection of [
+    JSON.stringify({ error: { message: "Unsupported message role: 'developer'" } }),
+    JSON.stringify({ message: "developer is not one of ['system', 'user', 'assistant', 'tool']" }),
+    'Only system, user, assistant and tool roles are supported!'
+  ]) {
+    error = rejection
+    seen.length = 0
+    assert.equal(await (await target.fetch(url, init)).text(), 'ok')
+    assert.deepEqual(seen.map(call => call.body), [body, compatible])
+    assert.equal(seen[1].url, url)
+    assert.equal(seen[1].init.headers, init.headers)
+    assert.equal(seen[1].init.signal, init.signal)
+  }
+
+  seen.length = 0
+  const directive = { forceToolChoice: true, allowedToolNames: ['submit_story'] }
+  await runWithToolProtocolDirective(directive, () => target.fetch(url, init))
+  const tool_choice = { type: 'function', function: { name: 'submit_story' } }
+  assert.deepEqual(seen.map(call => call.body), [{ ...body, tool_choice }, { ...compatible, tool_choice }])
+
+  for (const [endpoint, rejection] of [
+    [url, ''],
+    [url, 'Context window exceeded'],
+    [url, 'Only user and assistant roles are supported!'],
+    [url, 'Only system, developer, user and assistant roles are supported!'],
+    ['https://inference.example.com/v1/responses', 'Unsupported role: developer'],
+    ['https://inference.example.com/other?next=/chat/completions', 'Unsupported role: developer']
+  ]) {
+    error = rejection
+    seen.length = 0
+    const response = await target.fetch(endpoint, init)
+    assert.equal(response.status, error ? 400 : 200)
+    assert.equal(await response.text(), error || 'ok')
+    assert.equal(seen.length, 1)
+    assert.equal(seen[0].init, init)
+  }
+})
+
 test('installToolCallIdleTimeoutPatch：开启「输出走工具调用」时将 pi-ai 与 DeepSeek 适配器静默超时下限上调到 600s', async (t) => {
   assert.equal(TOOL_CALL_STREAM_IDLE_TIMEOUT_MS, 600_000)
 

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { editableReplyParts, projectReplyLayers } from "../tavern-plugin/lib/domain/reply-presentation.js"
+import { editableReplyParts, projectReplyHistory, projectReplyLayers } from "../tavern-plugin/lib/domain/reply-presentation.js"
 
 function script(name, findRegex, replaceString, flags = {}) {
   return {
@@ -33,6 +33,19 @@ test('损坏规则只产生目标诊断，后续规则继续执行', () => {
   assert.equal(result.displayText, '进入学院')
   assert.match(result.warnings.join('\n'), /Session：损坏规则/)
   assert.match(result.warnings.join('\n'), /展示：损坏规则/)
+})
+
+test('旧文风工具标签从正文投影移除，历史原文仍可编辑', () => {
+  const text = '<style_reference_submit">门开了。<style_reference_submit>范文<style_reference_submit>内层</style_reference_submit></style_reference_submit>'
+  const projected = projectReplyLayers(text)
+  assert.equal(projected.sessionText, text)
+  assert.equal(projected.displayText, '门开了。')
+  assert.deepEqual(projected.displayParts, [{ kind: 'markdown', text: '门开了。' }])
+  assert.equal(editableReplyParts(text).map(part => part.text).join(''), text)
+
+  const { projections } = projectReplyHistory([{ role: 'assistant', turn: 1, text, displayText: text, bodyHostRegexApplied: true }])
+  assert.equal(projections[0].text, '门开了。')
+  assert.deepEqual(projections[0].parts, projected.displayParts)
 })
 
 for (const block of [

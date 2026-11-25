@@ -3,12 +3,31 @@ import test from 'node:test'
 import { initializationFixture } from './fixtures/conversation-initialization.mjs'
 
 import { createUserPreferenceProfile } from '../tavern-plugin/lib/domain/user-preference-profile.js'
+import { legacySeedMessages } from './fixtures/legacy-seed-messages.mjs'
 
 const messages = session => session.events.filter(event => event.type === 'assistant/message' && event.data?.message?.source?.model === 'character-card')
 
 const seedMessages = session => session.events.filter(event => {
   const source = event.type === 'assistant/message' ? event.data?.message?.source : event.data?.source
   return source?.form === 'synthetic-trajectory' || source?.model === 'synthetic-trajectory'
+})
+
+test('新开局写入人物卡开场且不添加占位对话', async () => {
+  const h = initializationFixture()
+  await h.make().start(h.input)
+  const session = h.session()
+  assert.deepEqual(seedMessages(session), [])
+  assert.equal(messages(session).length, 1)
+})
+
+test('恢复带半段旧占位对话的开局时直接接上人物卡开场', async () => {
+  const h = initializationFixture()
+  const session = h.session()
+  const [first] = legacySeedMessages(session.id)
+  session.append('user/message', first, { surfaceOp: 'append' })
+  await h.make().start(h.input)
+  assert.deepEqual(seedMessages(session).map(event => event.data.id), [first.id])
+  assert.equal(messages(session).length, 1)
 })
 
 test('新局默认少量候选，修改开局默认只影响之后创建的对局', async () => {
