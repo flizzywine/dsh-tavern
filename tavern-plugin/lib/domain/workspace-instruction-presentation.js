@@ -1,5 +1,8 @@
 import { markRequestHandled, requestHandledBy } from './request-lineage.js'
 import { isPluginSource, sourceProducerName, isSystemPromptSource } from './message-source.js'
+import reminders from './system-reminders.cjs'
+
+const { tavernIsSkillReminder, tavernIsRuntimeReminder, tavernStripSystemReminders } = reminders
 
 // Request-only filtering: preserve files and durable Session reconciliation state.
 const blockedSections = new Set([
@@ -82,30 +85,38 @@ export function presentWorkspaceInstructions(request) {
       changed ||= catalog !== message
       return catalog ? [catalog] : []
     }
-    if (isBlockedHostMessage(message)) {
+    if (isBlockedHostMessage(message) || (message?.role === 'user' && tavernIsRuntimeReminder(source))) {
       changed = true
       return []
     }
-    const isRuntimeContext = message?.role === 'user' &&
-      (source?.kind === 'runtime-context' || isSystemPromptSource(source))
-    const isSystemPrompt = message?.role === 'system' && isSystemPromptSource(source)
-    if (!isRuntimeContext && !isSystemPrompt) return [message]
-    if (!Array.isArray(source.sections)) {
-      if (isRuntimeContext) {
+    if (message?.role === 'system' && isSystemPromptSource(source) && Array.isArray(source.sections)) {
+      const sections = source.sections.filter(section => !isBlockedSection(section?.name))
+      if (sections.length !== source.sections.length) {
         changed = true
-        return []
+        const body = tavernStripSystemReminders(sections.map(section => section.text).filter(Boolean).join('\n\n'))
+        return body.trim() ? [{ ...message, source: { ...source, sections }, content: [{ type: 'text', text: body }] }] : []
       }
-      return [message]
     }
-    const sections = source.sections.filter(section => !isBlockedSection(section?.name))
-    if (sections.length === source.sections.length) return [message]
-    changed = true
-    const body = sections.map(section => section.text).filter(Boolean).join('\n\n')
-    if (!body) return []
-    const text = message.role === 'user'
-      ? 'Current runtime context. This snapshot supersedes earlier runtime-context snapshots.\n\n' + body : body
-    return [{ ...message, source: { ...source, sections }, content: [{ type: 'text', text }] }]
+    const synthetic = ['system', 'developer'].includes(message?.role) || (message?.role === 'user' && source && source.kind !== 'user')
+    if (synthetic &&
+      !tavernIsSkillReminder(source) && Array.isArray(message.content)) {
+      let stripped = false
+      const content = message.content.flatMap(block => {
+        if (block?.type !== 'text' || typeof block.text !== 'string') return [block]
+        const text = tavernStripSystemReminders(block.text)
+        if (text === block.text) return [block]
+        stripped = true
+        return text.trim() ? [{ ...block, text }] : []
+      })
+      if (stripped) {
+        changed = true
+        return content.length ? [{ ...message, content }] : []
+      }
+    }
+    return [message]
   })
+  const system = typeof request.system === 'string' ? tavernStripSystemReminders(request.system) : request.system
+  if (system !== request.system) return { ...request, system, messages }
   return changed ? { ...request, messages } : request
 }
 

@@ -3,22 +3,18 @@
 
 import { activeStoryTurn } from './story-tool-submission.js'
 import { promptSection } from './prompt-section.js'
-
-export const STYLE_REFERENCE_SUBMIT_TOOL = {
-  name: 'style_reference_submit',
-  description: '提交文风联想：一段笔调贴合当前场景的范文；有对应的书时附上书名、作者。提交后任务完成。',
-  parameters: { type: 'object', properties: {
-    book: { type: 'string', description: '书名，不带书名号；没有可不填' },
-    author: { type: 'string', description: '作者；没有可不填' },
-    quote: { type: 'string', description: '一段范文，约 100～300 字，不超过 400 字' }
-  }, required: ['quote'], additionalProperties: false }
-}
+import { STYLE_REFERENCE_REMINDER_TAG, STYLE_REFERENCE_SYSTEM_TAG, STYLE_REFERENCE_TOOL_NAME } from './style-reference-protocol.cjs'
 
 const KEPT = 8
 const MAX_QUOTE = 400
 
 function str(value) {
   return typeof value === 'string' ? value : ''
+}
+
+export function foregroundStyleReferenceEnabled(chat) {
+  return (chat?.mode || 'story') === 'story' && chat?.backgroundTasks?.styleReference === true
+    && !(Array.isArray(chat.disabledForegroundTools) && chat.disabledForegroundTools.includes(STYLE_REFERENCE_TOOL_NAME))
 }
 
 export function readStyleReference(args) {
@@ -37,7 +33,7 @@ export function styleReferenceSource(reference) {
 }
 
 export function latestStyleReference(chat) {
-  if (chat?.backgroundTasks?.styleReference !== true) return null
+  if (!foregroundStyleReferenceEnabled(chat)) return null
   const list = Array.isArray(chat.styleReferences) ? chat.styleReferences : []
   const item = list.at(-1)
   return item ? { book: item.book, author: item.author, quote: item.quote, afterTurn: item.afterTurn } : null
@@ -48,18 +44,24 @@ export function rememberStyleReference(list, reference, afterTurn) {
   return [...kept, { ...reference, afterTurn }].slice(-KEPT)
 }
 
-
 export function foregroundStyleReferencePrompt(chat, selectionPrompt, writingPrompt) {
-  if ((chat?.mode || 'story') !== 'story' || chat?.backgroundTasks?.styleReference !== true) return ''
-  return promptSection('foreground_style_reference', [promptSection('style_reference_recall', selectionPrompt), promptSection('style_reference', writingPrompt),
-    '本轮由你结合当前玩家输入与前情，在写正文之前完成文风联想。调用 style_reference_submit 记录参考后继续生成本轮正文，不要结束回合，也不要等待后台。选段要求中的“刚写完正文”指当前场景；历史上的旧参考不是本轮必须沿用的参考。',
+  if (!foregroundStyleReferenceEnabled(chat)) return ''
+  return promptSection(STYLE_REFERENCE_SYSTEM_TAG, [promptSection('style_reference_recall', selectionPrompt), promptSection('style_reference', writingPrompt),
+    '本轮由你结合当前玩家输入与前情，在写正文之前完成文风联想。调用 ' + STYLE_REFERENCE_TOOL_NAME + ' 记录参考后继续生成本轮正文，不要结束回合，也不要等待后台。选段要求中的“刚写完正文”指当前场景；历史上的旧参考不是本轮必须沿用的参考。',
     chat.styleReferenceGuidance ? promptSection('style_reference_preference', String(chat.styleReferenceGuidance)) : ''
   ].filter(Boolean).join('\n\n'))
 }
 
+export function foregroundStyleReferenceTurnSection(chat) {
+  if (!foregroundStyleReferenceEnabled(chat)) return null
+  const text = promptSection(STYLE_REFERENCE_REMINDER_TAG, '写正文之前，先按 <' + STYLE_REFERENCE_SYSTEM_TAG +
+    '> 的要求调用 ' + STYLE_REFERENCE_TOOL_NAME + '，记下一段贴合本轮场景的范文；调用成功后再写本轮正文。')
+  return { owner: 'dsh-tavern', name: 'style-reference', position: 'after', text }
+}
+
 export function createForegroundStyleReferenceTool({ chatForSession, save, isBackground = () => false }) {
   return {
-    name: STYLE_REFERENCE_SUBMIT_TOOL.name,
+    name: STYLE_REFERENCE_TOOL_NAME,
     description: '记录本轮前台文风参考。成功后继续写本轮正文，不结束回合、不启动后台。',
     parameters: { book: { type: 'string' }, author: { type: 'string' }, quote: { type: 'string', required: true } },
     output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: value }] },
@@ -69,7 +71,7 @@ export function createForegroundStyleReferenceTool({ chatForSession, save, isBac
       const session = exec.agent?.session, sessionId = session?.id
       if (!sessionId || isBackground(sessionId)) throw Error('文风联想由前台写作回合执行')
       const turn = activeStoryTurn(session), chat = await chatForSession(sessionId)
-      if (!turn || !chat || chat.sessionId !== sessionId || (chat.mode || 'story') !== 'story' || chat.backgroundTasks?.styleReference !== true) throw Error('本局未开启前台文风联想，或当前没有写作回合')
+      if (!turn || chat?.sessionId !== sessionId || !foregroundStyleReferenceEnabled(chat)) throw Error('本局未开启前台文风联想，或当前没有写作回合')
       const reference = readStyleReference(args)
       exec.signal?.throwIfAborted()
       await save(chat, reference, turn)

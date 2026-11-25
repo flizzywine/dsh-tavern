@@ -5,21 +5,55 @@ export const CHAT_IMPORT_MAX_MESSAGES = 5000
 const object = value => value !== null && typeof value === 'object' && !Array.isArray(value)
 const copy = value => structuredClone(value)
 
-/** Parse untrusted ST exports as data; never retain unselected swipes or reasoning. */
-export function parseChatHistory(text) {
-  if (typeof text !== 'string' || Buffer.byteLength(text) > CHAT_IMPORT_MAX_BYTES) throw new Error('聊天文件最大支持 ' + CHAT_IMPORT_MAX_BYTES / 1024 ** 2 + ' MiB')
-  if (text.startsWith('PK\u0003\u0004')) throw new Error('这是压缩包（.dshtransfer / .dshsave），请在侧栏「导出与导入 → 导入」或「导入存档 → DSH Tavern 存档」中导入')
+function* chatJsonlRows(text) {
   const lines = text.replace(/^\uFEFF/, '').split(/\r?\n/)
-  const rows = []
   for (let index = 0; index < lines.length; index++) {
     if (!lines[index].trim()) continue
     let value
     try { value = JSON.parse(lines[index]) } catch { throw new Error(`第 ${index + 1} 行不是有效 JSON`) }
     if (!object(value)) throw new Error(`第 ${index + 1} 行必须是消息对象`)
-    rows.push({ value, line: index + 1 })
+    yield { value, line: index + 1 }
   }
+}
+
+function isChatHeader(row) {
+  return row && ['chat_metadata', 'user_name', 'character_name'].some(key => Object.hasOwn(row, key))
+}
+
+function speakerName(value) {
+  return typeof value === 'string' ? value.replace(/[\r\n]+/g, ' ').trim() : ''
+}
+
+export function chatHistoryScriptText(text) {
+  let header
+  const passages = []
+  for (const { value: row, line } of chatJsonlRows(text)) {
+    if (header === undefined) {
+      header = isChatHeader(row) ? row : null
+      if (header) continue
+    }
+    if (row.is_system === true) continue
+    if (typeof row.name !== 'string' && typeof row.is_user !== 'boolean') throw new Error(`第 ${line} 行不是 SillyTavern 聊天消息`)
+    if (row.mes === undefined) continue
+    if (typeof row.mes !== 'string') throw new Error(`第 ${line} 行的消息正文必须是文本`)
+    const message = row.mes.trim()
+    if (!message) continue
+    const legacyName = speakerName(row.is_user ? header?.user_name : header?.character_name)
+    const fallback = legacyName && legacyName !== 'unused' ? legacyName : row.is_user ? '玩家' : '角色'
+    const name = speakerName(row.name) || (row.extra?.type === 'narrator' ? '旁白' : fallback)
+    passages.push(name + '：' + message)
+  }
+  if (!passages.length) throw new Error('文件中没有可导入的剧本文字')
+  return passages.join('\n\n')
+}
+
+/** Parse untrusted ST exports as data; never retain unselected swipes or reasoning. */
+export function parseChatHistory(text) {
+  if (typeof text !== 'string' || Buffer.byteLength(text) > CHAT_IMPORT_MAX_BYTES) throw new Error('聊天文件最大支持 ' + CHAT_IMPORT_MAX_BYTES / 1024 ** 2 + ' MiB')
+  if (text.startsWith('PK\u0003\u0004')) throw new Error('这是压缩包（.dshtransfer / .dshsave），请在侧栏「导出与导入 → 导入」或「导入存档 → DSH Tavern 存档」中导入')
+  const rows = [...chatJsonlRows(text)]
   const header = rows.shift()?.value
-  if (!header || !['chat_metadata', 'user_name', 'character_name'].some(key => Object.hasOwn(header, key))) throw new Error('缺少 SillyTavern 聊天文件头部')
+  if (!isChatHeader(header)) throw new Error('缺少 SillyTavern 聊天文件头部')
   const warnings = []
   const messages = []
   let previous, previousLine = null, missing = 0, excluded = 0

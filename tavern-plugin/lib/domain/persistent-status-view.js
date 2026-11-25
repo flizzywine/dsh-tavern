@@ -1,6 +1,6 @@
 import { createStatusPartIndex } from './status-part-index.js'
 import { createStatusSourceIndex } from './status-source-index.js'
-import { statusViewDeclaration } from './status-view-declaration.js'
+import { persistentStatusDeclarations, statusViewDeclaration } from './status-view-declaration.js'
 import { createIndexedArrayApi } from './indexed-array.js'
 import { createImmutableJsonIndex, immutableArrayChanges } from './freeze-json.js'
 import { createHash } from 'node:crypto'
@@ -25,6 +25,9 @@ function contentOf(part) {
 function projectStatusView(messages, projections, options, compile, summary) {
   const sourceMessages = Array.isArray(messages) ? messages : []
   const sourceProjections = Array.isArray(projections) ? projections : []
+  const rules = Array.isArray(options.regexScripts) ? options.regexScripts : []
+  const declarations = persistentStatusDeclarations(rules)
+  if (!declarations.length) return { projections: sourceProjections, statusView: null, statusViews: [] }
   let inferredTurn = 1
   let latestTurn = summary?.latestTurn ?? 1
   if (!summary) for (const message of sourceMessages) {
@@ -40,7 +43,6 @@ function projectStatusView(messages, projections, options, compile, summary) {
   if(legacyDirty)for(const turn of sourceIndex.changed(prior.legacySources,legacySources))for(const id of dependencyIndex.values(legacyDependencies,turn))legacyDirty.add(id)
   const matchStates = new Map(), fallbackStates = new Map()
   let legacy = false
-  const rules = Array.isArray(options.regexScripts) ? options.regexScripts : []
   const enabled = rules.filter(rule => rule && rule.disabled !== true && rule.enabled !== false)
   function legacyMatches(part, projection, rule) {
     if (!Number.isInteger(part.statusRule)) return false
@@ -51,10 +53,8 @@ function projectStatusView(messages, projections, options, compile, summary) {
     const candidates = enabled.filter(candidate => statusViewDeclaration(candidate) && applyTavernRegexText(source, [candidate], { placement: 2, isMarkdown: true, depth: 0 }).changed)
     return candidates.length === 1 && candidates[0] === rule
   }
-  for (const rule of rules) {
-    if (!rule || rule.disabled === true || rule.enabled === false) continue
-    const declaration = statusViewDeclaration(rule)
-    if (!declaration) continue
+  for (const declaration of declarations) {
+    const { rule } = declaration
     for (const [templateIndex, { content, revision }] of compile(declaration.marker, rule, options).entries()) {
       if (templates.has(revision)) continue
       let origin = null

@@ -478,9 +478,9 @@ return assetEngineSettings.exportPreset(args || {})
 
         const chat = await chatForSession(args?.sessionId)
         if (!chat) throw new Error('Chat not found')
-        const current = await foregroundCapabilities.preview(chat)
-        const next = await foregroundCapabilities.preview(chat,{nextRound:true})
-        return {dirty:JSON.stringify(current)!==JSON.stringify(next),injection:next}
+        // The frozen prefix plus the update the next turn appends; dirty: a change is waiting for that update.
+        const injection = await foregroundCapabilities.preview(chat)
+        return {dirty:injection.some(row=>row.key==='capability-update'),injection}
 
     },
     async refreshForegroundCapabilities(args, method, serverTemplate, authority) {

@@ -20,7 +20,7 @@ export function apply(ctx, config = {}) {
   const settings = createAssetPackSettings(ctx)
   const catalogueSettings = createCatalogueSettings(ctx, config.officialCatalogueUrl)
   // Every CardBundleAdapter method the service calls (service.d.ts); a missing one fails as an uncoded TypeError.
-  const cards = Object.fromEntries(['snapshot','inspectRaw','remapRaw','bindRaw','exportRaw','withPrepared','withConfigPack','withBoundPack','withExistingBoundPack','requireUnboundPack','unbindPack','recover'].map(method => [method, (...args) => {
+  const cards = Object.fromEntries(['snapshot','inspectRaw','remapRaw','bindRaw','retainRaw','exportRaw','withPrepared','withConfigPack','withBoundPack','withExistingBoundPack','requireUnboundPack','unbindPack','recover'].map(method => [method, (...args) => {
     const adapter = ctx.get('tavernAssetCards')
     check(adapter?.apiVersion === 2 && typeof adapter[method] === 'function', '$.card', 'Card owner unavailable', 'RECOVERY_REQUIRED')
     return adapter[method](...args)
@@ -43,6 +43,7 @@ export function apply(ctx, config = {}) {
       read: async input => (await ctx.get('tavernFigureRecords')?.read(input)) ?? null,
       write: async input => { const owner = ctx.get('tavernFigureRecords'); return owner ? owner.write(input) : input.figure },
       release: async input => { await ctx.get('tavernFigureRecords')?.release(input) },
+      move: async input => { await ctx.get('tavernFigureRecords')?.move(input) },
       report: error => ctx.logger.warn('素材包已保存，人物资料仍保留在包内：' + error.message),
     },
   }

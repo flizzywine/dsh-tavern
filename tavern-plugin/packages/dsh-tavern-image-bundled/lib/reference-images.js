@@ -3,6 +3,7 @@ import { constants } from 'node:fs'
 import { lstat, lutimes, mkdir, open, realpath } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { normalizeOutfitParts } from './outfit-parts.js'
+import { characterLibraryPrompt } from './library-prompts.js'
 
 /** Local-only immutable references. No URLs, caller-selected paths, or network I/O. */
 const DEFAULT_MAX_BYTES = 32 * 1024 * 1024
@@ -601,6 +602,17 @@ function structuredReferenceLabels(items, definitions) {
     ? label + '（对象' + (index + 1) + '）' : label)
 }
 
+// Freeze the selected characters' visible identity with their references, before
+// reference scoping removes traits from the scene-macro definitions.
+export function bindReferenceAppearances(selection, definitions) {
+  const people = new Map(arr(definitions.characters).map(person => [idOf(person), person]))
+  for (const item of selection.references) {
+    if (item.kind === 'outfit') continue
+    const appearance = characterLibraryPrompt(people.get(item.characterId), { mode: 'natural', traitMode: 'sfw' })
+    if (appearance) item.appearance = appearance
+  }
+}
+
 /** Render trusted bindings once; IDs stay in the job metadata, not visual prose. */
 export function buildStructuredReferenceText(references, definitions) {
   const items = checkedReferences(references)
@@ -609,6 +621,7 @@ export function buildStructuredReferenceText(references, definitions) {
   if (items.some(item => item.kind === 'character')) lines.push('人物的面部特征、发型和体型比例依据对应身份参考图及随附说明。')
   if (items.some(item => item.kind === 'outfit')) lines.push('服装图仅约束服饰设计，不继承模特身份、面部、发型、体型、姿势或背景。')
   if (items.some(item => item.kind === 'character-outfit')) lines.push('角色×服装设定图同时约束人物身份与该套服饰，不继承姿势、表情或背景。')
+  if (items.some(item => item.appearance)) lines.push('每位已登记人物的固定身份、性别和外貌以对应参考图和人物库外貌为准。画面描述只决定当下的动作、表情、衣着及明确发生的外观变化。')
   lines.push('')
   const labels = structuredReferenceLabels(items, definitions)
   for (const [index, item] of items.entries()) {
@@ -616,12 +629,13 @@ export function buildStructuredReferenceText(references, definitions) {
     const purpose = item.kind === 'character' ? '身份参考' : item.kind === 'character-outfit' ? '角色×服装参考' : '服装参考'
     const extra = normalizeConsistencyText(item.consistencyText)
     lines.push('参考图' + item.index + ' → ' + label + '（' + purpose + '）' + (extra ? '：' + extra : ''))
+    if (item.appearance) lines.push(label + '的人物库外貌：' + item.appearance)
   }
   return lines.join('\n')
 }
 
 /** Planner gets labels/IDs/availability, never bytes, local paths, or remote URLs. */
-export function referencePlannerGuidance(definitions = {}, { structured = false } = {}) {
+export function referencePlannerGuidance(definitions = {}, { structured = false, prose = structured } = {}) {
   const lib = catalog(definitions)
   const lines = ['【参考图模式规划规则】',
     '只为当前这张 image 中实际出现的人物选择参考图，不得把整个图库或仅在正文被提及但不出镜的人物传入。',
@@ -631,9 +645,11 @@ export function referencePlannerGuidance(definitions = {}, { structured = false 
     '有图对象以图片及其一致性补充约束固定外观，不再完整堆叠它的固定 traits 或服装标签；缺图对象继续使用完整文字描述。角色图不继承服装、姿势或背景，服装图不继承模特身份；动作和场景依据当前剧情。',
     '取图顺序由插件决定，照常填写 characterId 与 outfitId 即可：服装标有 characterOutfitImage（角色×服装设定图）时只用这一张同时约束身份与服装；否则用角色图加服装图；服装没有图时保留服装文字。',
     '后台插件会按实际上传顺序绑定参考图编号，不要自行猜测编号。若整张图没有任何可用参考图，后端会暂停并提示，不自动退回纯文生图。',
-    ...(structured ? [
-      '有身份参考图的人物，结构化画面正文只写人物名称及本张可见状态，不再描述年龄、性别、面部、发型或固有体型等固定身份属性，不用“年轻男性”“青年男子”等概括词重新定义身份，也不从姓名、正文或人物库复述这些固定属性。剧情明确的外观变化与用户明确的一致性补充仍须保留并归属到具体人物；当前表情、衣着、姿态不是固定身份属性，应按本张描述。',
+    ...(prose ? [
+      '有身份参考图的人物，用清单里的名字写清每个动作的主体和对象（例如“小雨拥抱阿青，阿青回望小雨”）。性别、年龄和固定外貌由后端按人物库与参考图绑定；画面只写本张可见的动作、表情、衣着和明确发生的外观变化。正文称谓或代词只用来定位人物，不能用来判断性别；涉及这类人物时不写 1boy、1girl 等性别计数标签。',
       '此限制仅适用于有身份图的人物；只有服装图或没有身份图的人物仍用库内文字与正文描述可见外貌，不把其他人物的参考图套给他们。',
+    ] : []),
+    ...(structured ? [
       '不要重复写“身份以参考图为准”、参考图编号、内部ID或通用参考图约束，不另设人物及参考图对应分节；绑定与用途说明由插件生成一次，人物节只描述本张状态。精确ID放在 subjects 元数据中。同名人物需要区别动作时，使用人物宏 ${"name":"精确角色ID"}$ 绑定各自描述，朝向与动作直接写在句子里。独立成行的人物宏可填写朝向。普通正文使用可读称呼。',
       '多人同框时，写清每个动作及身体接触的双方；按前后景、裁切和遮挡交代可见范围，只描写入镜部位的细节。',
     ] : []),

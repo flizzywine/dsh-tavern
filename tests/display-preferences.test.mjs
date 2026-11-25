@@ -44,7 +44,7 @@ test('工作台始终保留思考、工具历史和执行记录，游玩仍遵�
   }
 })
 
-test('正文底栏保留宿主复制和酒馆分叉，只藏原生分支与酒馆之外的插件动作', () => {
+test('工作台底栏展示宿主动作，游玩底栏保留复制和酒馆分叉', () => {
   const dom = new JSDOM(`<style>${css}</style><body class="dsh-tavern-shell-active">
     <div data-turn-tail="21">
       <div data-slot="conversation.chat.turnTail" style="display:contents"></div>
@@ -64,5 +64,8 @@ test('正文底栏保留宿主复制和酒馆分叉，只藏原生分支与酒�
   assert.notEqual(display('fork'), 'none', '酒馆的分叉按钮应该留在正文底栏')
   assert.equal(display('feedback'), 'none', '酒馆之外的插件动作不进入游玩底栏')
   assert.equal(display('native-branch'), 'none', '宿主的原生分支会绕开游戏状态，仍应藏掉')
+  document.querySelector('[data-turn-tail]').setAttribute('data-dsh-tavern-workbench-actions', '')
+  for (const id of ['copy', 'fork', 'feedback']) assert.notEqual(display(id), 'none', `工作台显示 ${id}`)
+  assert.equal(display('native-branch'), 'none', '工作台使用会登记新会话的分支动作')
   dom.window.close()
 })

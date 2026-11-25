@@ -1,7 +1,8 @@
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
-const RECORD_PATH = ['profile-data', 'tavern', 'data', 'plugin-data', 'dsh-tavern-adventure-medal.json']
+const RECORD_DIR = ['profile-data', 'tavern', 'data', 'plugin-data']
+const RECORD_FILES = ['dsh-tavern-achievements.json', 'dsh-tavern-adventure-medal.json']
 const TIER_TITLES = new Map([
   ['starter', '佳作'],
   ['bronze', '名篇'],
@@ -12,13 +13,16 @@ const TIER_TITLES = new Map([
 
 // The launcher also runs in the original Profile, where the Tavern plugin is absent.
 export async function readAchievementLibrary(home) {
-  const file = join(home, ...RECORD_PATH)
   let raw
-  try { raw = await readFile(file, 'utf8') }
-  catch (error) {
-    if (error.code === 'ENOENT') return []
-    throw error
+  for (const file of RECORD_FILES) {
+    try {
+      raw = await readFile(join(home, ...RECORD_DIR, file), 'utf8')
+      break
+    } catch (error) {
+      if (error.code !== 'ENOENT') throw error
+    }
   }
+  if (raw === undefined) return []
   const saved = JSON.parse(raw)
   if (saved?.version !== 1 || !Array.isArray(saved.achievements) || saved.achievements.length > 100) {
     throw new Error('成就库格式无效')

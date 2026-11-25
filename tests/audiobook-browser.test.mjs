@@ -2,13 +2,14 @@
 // takes the stage's voicing away (tavernUi.holdVoice), 播放 reads the story in order through the one voice player (reading voice for narration, the figure's own voice and cache key for a
 // line), looks ahead, follows the sentence down the screen, and the owner's rule for where 播放 starts (11-16).
 import {withVoiceCues} from './helpers/voice-cues-source.mjs'
+import { withStyleReferenceProtocol } from './helpers/style-reference-source.mjs'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import { chromium } from 'playwright'
 import { browserReactScript } from './fixtures/browser-react.mjs'
 
-const read = path => readFile(new URL('../tavern-plugin/' + path, import.meta.url), 'utf8').then(withVoiceCues)
+const read = path => readFile(new URL('../tavern-plugin/' + path, import.meta.url), 'utf8').then(withVoiceCues).then(withStyleReferenceProtocol)
 const sources = [await read('packages/dsh-presentation-protocol/src/figure-resolution.cjs'),
   ...await Promise.all(['bubble-line.cjs', 'voice-speech.cjs', 'pack-playback.cjs', 'browser-speech.cjs', 'voice.js', 'stage-page-index.cjs', 'gal-stage-helpers.cjs',
     'features/prose-layout.js', 'features/story-transcript-data.js', 'story-reading.js', 'story-reading.cjs'].map(name => read('src/client/' + name)))]

@@ -4,7 +4,7 @@ import { computeSceneTarget } from './scene-illustration.js'
 import { sessionEvents } from './session-events.js'
 import { isNewPlayerInput } from './session-turn-input.js'
 import { regenerationProjection, applyRegenerationProjection, failedTurnReplayAvailability, surfaceTurnOfSeq } from './rollback-surface.js'
-import { replaceLastRound } from './last-round-replacement.js'
+import { assertPluginRegenerationTarget, replaceLastRound } from './last-round-replacement.js'
 import { plainReplyProse, replyProse } from './reply-prose.js'
 import { lastTavernHelperVariables } from './tavern-helper-context.js'
 import { consumeScriptPrompts } from './tavern-script-prompts.js'
@@ -44,7 +44,7 @@ export function createPluginBodyRegeneration(deps) {
     sessionPatch, readRegenerationMaterials, prepareRegenerationReply, notifyRegeneration,
     recovery, acquireAgent, pendingRegenerations, pendingRollbacks, selectTarget } = deps
 
-  return async function regenerateWithProvider({ gameId, sessionId = gameId, turn, textVersion, generate, prepare, providerId, hostRegex = false, validateProvider, guidance = '', signal, onPhase } = {}) {
+  return async function regenerateWithProvider({ gameId, sessionId = gameId, turn, textVersion, expectedReply, generate, prepare, providerId, hostRegex = false, validateProvider, guidance = '', signal, onPhase } = {}) {
     if (typeof generate !== 'function') throw new TypeError('generate 必须是函数')
     if (typeof readRegenerationMaterials !== 'function') throw new Error('当前宿主未提供正文重生成材料接口')
     if (sessionPatch && !sessionPatch.replacementAllowed()) throw new Error(sessionPatch.blockReason())
@@ -66,6 +66,7 @@ export function createPluginBodyRegeneration(deps) {
       if (agent.phase?.kind === 'running') throw error('TAVERN_PLUGIN_BUSY', '前台正在生成，请先停止')
       original = await chats.read(chatId)
       if (!original || original.regenInProgress) throw error('TAVERN_PLUGIN_BUSY', '当前对话正忙')
+      assertPluginRegenerationTarget(original, expectedReply)
       const shouldResumeSettlement = typeof cancelSettlement === 'function' && pendingSettlement(original)
       if (typeof cancelSettlement === 'function') await cancelSettlement(chatId)
       original = restoreDiscardedRegeneration(await chats.read(chatId))
@@ -74,12 +75,16 @@ export function createPluginBodyRegeneration(deps) {
       }
       signal?.throwIfAborted()
       if (!original || original.regenInProgress || agent.phase?.kind === 'running') throw error('TAVERN_PLUGIN_BUSY', '当前对话正忙')
+      assertPluginRegenerationTarget(original, expectedReply)
       const session = agent.session
       const failed = failedTurnReplayAvailability({ events: sessionEvents(session), nodes: session.surface?.nodes || [], cleared: original.suppressedDshTurns || [] }).target
       const failedMode = Boolean(failed && !original.messages?.some(row => row?.role === 'assistant' && Number(row.turn) === failed.turn))
       const target = failedMode ? { oldAssistantIndex: null, oldTurn: failed.turn,
         oldSource: { kind: 'model', provider: 'dsh-tavern', model: 'plugin-regeneration' } } : await selectTarget(original, session)
       const { oldAssistantIndex: index, oldTurn, oldSeq, oldSource, saveOnly = false } = target
+      if (expectedReply && (failedMode || Number(oldTurn) !== expectedReply.turn)) {
+        throw error('TAVERN_PLUGIN_TURN_UNAVAILABLE', '当前没有可重新生成的最新正文')
+      }
       const inputIndex = failedMode ? -1 : Number.isSafeInteger(target.inputIndex) ? target.inputIndex : index - 1
       const inputRow = !failedMode && inputIndex >= 0 ? original.messages[inputIndex] : null
       const targetRow = index === null ? null : original.messages[index]
@@ -142,6 +147,7 @@ export function createPluginBodyRegeneration(deps) {
       })
       const { targetMessageUid: replacedUid } = attempt
       await attempt.begin(current => {
+        assertPluginRegenerationTarget(current, expectedReply)
         if (agent.phase?.kind === 'running' || current.regenInProgress) throw error('TAVERN_PLUGIN_BUSY', '当前对话正忙')
       })
       startedAttempt = attempt
@@ -278,6 +284,7 @@ export function createPluginBodyRegeneration(deps) {
         }
       })
       committed = true
+      const committedVersion = computeSceneTarget(saved, bodyTurn).key
       await phase('committed')
       saved = await attempt.project() || saved
       try { await notifyRegeneration?.(sessionId, { turn: bodyTurn }) } catch { /* The committed story must still reach settlement. */ }
@@ -294,7 +301,7 @@ export function createPluginBodyRegeneration(deps) {
         }, { source: 'settlement.plugin-regen-failed' })
       }
       const latest = await chats.read(chatId) || saved
-      return { gameId: sessionId, turn: bodyTurn, textVersion: computeSceneTarget(latest, bodyTurn).key,
+      return { gameId: sessionId, turn: bodyTurn, textVersion: committedVersion,
         text: prose.text, settlement: latest.settleStatus, ...(latest.settleError ? { settlementError: latest.settleError } : {}) }
     } catch (cause) {
       if (!committed) await startedAttempt?.abandon()

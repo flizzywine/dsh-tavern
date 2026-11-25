@@ -95,7 +95,7 @@ export async function createOptionalStage(core,{enabled=true,load,onStatus=()=>{
         project:(chat,book,...args)=>foreground ? foreground.project(chat,book,...args) : Promise.resolve(ordinaryBook(book)),
         preview:(...args)=>foreground ? foreground.preview(...args) : Promise.resolve([]),
         refresh:(...args)=>foreground ? foreground.refresh(...args) : Promise.reject(Object.assign(new Error('舞台模块未启用'),{code:'STAGE_UNAVAILABLE'})),
-        rosterAddendum:(...args)=>foreground ? foreground.rosterAddendum(...args) : Promise.resolve('')
+        update:(...args)=>foreground ? foreground.update(...args) : Promise.resolve({text:''})
       }
     },
     async start(bindings) {phases.set('start',[bindings]);const installed=runtime;if(installed)try{await installed.start(bindings)}catch(error){failed(error,installed)}},
