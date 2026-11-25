@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { mkdtemp, rm, readFile, lstat, readdir } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { Readable } from 'node:stream'
 import { createAssetPackTransport, PACK_CONTROL_PATH, PACK_UPLOAD_PATH, PACK_DOWNLOAD_PATH, PACK_CHANGES_PATH, PACK_THUMBNAIL_PATH, PACK_THUMBNAILS_PATH } from '../src/pack-v2/transport.js'
 import { writeZip } from '../src/zip.js'
 import { createMediaStore } from '../src/pack-v2/media-store.js'
@@ -57,6 +58,18 @@ test('an archive upload streams to disk; a disk that fills during install rolls 
   room = Infinity
   assert.equal((await apply()).status,200)
   assert.equal((await (await f.control('listPackSummaries',{})).json()).length,1)
+})
+test('media store verifies a streamed reference before publishing', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'pack-media-stream-'))
+  t.after(() => rm(root, {recursive:true, force:true}))
+  const store = createMediaStore({root}), bytes = Buffer.from('media bytes')
+  const ref = {sha256:digest(bytes), size:bytes.length}
+  const put = input => store.put(Readable.from([input]), {ref})
+  await assert.rejects(put(Buffer.alloc(bytes.length)), {code:'CONTENT_HASH_MISMATCH'})
+  await assert.rejects(put(bytes.subarray(1)), {code:'FILE_CLOSURE_MISMATCH'})
+  assert.equal(await store.resolve(ref), undefined)
+  assert.deepEqual(await put(bytes), ref)
+  assert.deepEqual(await readdir(join(root, 'tmp')), [])
 })
 test('v2 control and binary upload install a complete ordinary pack; no v1 dispatch',async t => {
   const f = await fixture(t), {snapshot,bytes} = await f.install()

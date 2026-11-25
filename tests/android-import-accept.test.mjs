@@ -43,3 +43,10 @@ test('存档与聊天记录的导入不按扩展名过滤，交给导入环节�
   })
   assert.deepEqual(restricted, [], '以下文件输入仍按扩展名过滤：\n' + restricted.join('\n\n'))
 })
+
+test('剧本入口允许选择没有注册 MIME 类型的 SillyTavern JSONL', () => {
+  const inputs = fileInputs(client).filter(options => /ref:\s*(?:sourceInput|scriptFileRef|initialImportRef)\b/.test(options))
+  assert.equal(inputs.length, 3)
+  for (const input of inputs) assert.doesNotMatch(input, /\baccept:/)
+  assert.match(client, /input\.accept = kind === "worldbook" \|\| kind === "preset" \? "\.json,application\/json" : ""/)
+})

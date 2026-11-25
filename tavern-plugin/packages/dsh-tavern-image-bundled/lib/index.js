@@ -52,6 +52,7 @@ import { cardImageExtension, createCardGallery } from './card-app/gallery.js'
 import { serialQueue } from './card-app/storage.js'
 export { stageImageProvider } from './image-catalog.js'
 import { IMAGE_API_PROTOCOLS, effectiveImageProvider, supportsImageReferences, imageReferenceLimit, imageTransparency } from './image-provider-capabilities.js'
+import { DEFAULT_IMAGE_CONCURRENCY, normalizeImageConcurrency } from './job-limits.js'
 import { normalizeChannels, publicChannels, activeChannel, channelConfigPatch, migrateLegacyImageConfig } from './image-channels.js'
 import { createCredentialStore } from './credential-store.js'
 import { generationTemplates, selectGenerationConfig, usesWorldbook } from './generation-selection.js'
@@ -75,7 +76,7 @@ import { listDesignGames, resolveDesignSources } from './design-sources.js'
 import { activeArtistText, applyWeights, resolveWeightMode, prepareImagePrompt } from './prompt-assembly.js'
 export { convertWeights, stripWeights, resolveWeightMode } from './prompt-assembly.js'
 import { linkedFigures, withFigurePictures, withoutCopiedFigurePictures, figurePictureSources } from './figure-pictures.js'
-import { normalizeReferenceImage, normalizeConsistencyText, createReferenceImageStore, resolveImageReferences, buildReferenceText, buildStructuredReferenceText, referencePlannerGuidance, referenceScopedDefinitions } from './reference-images.js'
+import { normalizeReferenceImage, normalizeConsistencyText, createReferenceImageStore, resolveImageReferences, buildReferenceText, buildStructuredReferenceText, bindReferenceAppearances, referencePlannerGuidance, referenceScopedDefinitions } from './reference-images.js'
 
 export const name = 'dsh-tavern-image'
 export const inject = ['webServer']
@@ -109,7 +110,7 @@ const DEFAULTS = {
   generationMode: 'text',
   imageChannels: [],
   activeImageChannel: '',
-  imageConcurrency: 2,
+  imageConcurrency: DEFAULT_IMAGE_CONCURRENCY,
   comfyUrl: 'http://127.0.0.1:8188',
   // 服务鉴权：none / bearer / basic
   comfyAuthMode: 'none',
@@ -2261,7 +2262,7 @@ function createRuntime(ctx, overrides, logger, deps) {
       } })
     }
 
-    async function createJob(rawParams, { label = '', forceWorkflow = null, jobConfig = config, diagTrace = null, referenceSnapshot = null, onCreated, cardRequest = false, cardMetadata = null, preview = false, previewToken = '', signal: preparationSignal, jobDefinitions } = {}) {
+    async function createJob(rawParams, { label = '', forceWorkflow = null, jobConfig = config, diagTrace = null, referenceSnapshot = null, onCreated, cardRequest = false, cardMetadata = null, preview = false, previewToken = '', signal: preparationSignal, jobDefinitions, plannedScene = false } = {}) {
       // 浏览器半边只传 tag 和 key，其余（画师串、画幅）由控制台配置兜底。
       let params = {
         tag: String(rawParams?.tag ?? ''),
@@ -2388,6 +2389,7 @@ function createRuntime(ctx, overrides, logger, deps) {
         } else {
           scopedDefs = await lendFigurePictures(scopedDefs)
           const selected = resolveImageReferences({ text: params.rawTag, characters: params.characters, subjects, definitions: scopedDefs })
+          if (plannedScene && prose) bindReferenceAppearances(selected, scopedDefs)
           for (const reference of selected.references) await storeLentPicture(reference.image)
           scopedDefs = referenceScopedDefinitions(scopedDefs, selected.references, { subjects: selected.subjects, markers: !prose })
           referenceState = { version: prose ? 2 : 1, ...selected, definitions: structuredClone(scopedDefs) }
@@ -3247,7 +3249,7 @@ function createRuntime(ctx, overrides, logger, deps) {
         roster, rosterIndex: plannerContext.rosterIndex, count: want, visualEntries: [promptEntryGuidance(entryMatches), plannerMaterials.selected.length
           ? '本次明确选择的主体与服装，只用于这次画面：\n' + JSON.stringify(plannerMaterials.selected.map(({ characterId, characterName, outfitId, outfitName, angle, state }) =>
             ({ characterId, characterName, outfitId, outfitName, angle, state }))) : ''].filter(Boolean).join('\n\n'),
-        extra: [cfg.plannerExtra, guidance, packCharacters.length ? '画到已登记人物时，写出可见的标志物和服装主色；肤色、各件服装的颜色与环境色调分别描述。沿用当前服装时省略 outfitId。' : '', needsIdentityContext ? identityGuidance(characterUpdates) : '', imageGeneration && planningGenerationMode === 'reference' ? referencePlannerGuidance(plannerContext.definitions, { structured: plannerMode === 'structured' }) : '', instruction ? '【本次生图要求的作用范围】\n以下本次生图要求只约束本次的画面规划；它不是正文内容，不得据此改写正文、人物库、角色历史、插件配置或生图设置。' : ''].filter(Boolean).join('\n\n'),
+        extra: [cfg.plannerExtra, guidance, packCharacters.length ? '画到已登记人物时，写出可见的标志物和服装主色；肤色、各件服装的颜色与环境色调分别描述。沿用当前服装时省略 outfitId。' : '', needsIdentityContext ? identityGuidance(characterUpdates) : '', imageGeneration && planningGenerationMode === 'reference' ? referencePlannerGuidance(plannerContext.definitions, { structured: plannerMode === 'structured', prose: identityReferences }) : '', instruction ? '【本次生图要求的作用范围】\n以下本次生图要求只约束本次的画面规划；它不是正文内容，不得据此改写正文、人物库、角色历史、插件配置或生图设置。' : ''].filter(Boolean).join('\n\n'),
         smartSelection: smart, characterUpdates, force: Boolean(force || manual), promptMode: plannerMode, compactWorldbook: true, identityReferences,
         referenceSubjects: imageGeneration && planningGenerationMode === 'reference',
       })
@@ -3449,7 +3451,7 @@ function createRuntime(ctx, overrides, logger, deps) {
             const job = await startJob({
               tag: normalizedTag,
               rawTag: groundedScene, negative: image.negative || '', characters, subjects: pictureSubjects, generationMode: plannedJobMode, size: image.size, key, sessionId, turn, textVersion, characterSnapshot: visualSnapshot,
-            }, { label: 'agent 规划', jobConfig: planningJobConfig, jobDefinitions: selected.length ? pictureScope : undefined, diagTrace: traceId ? { traceId, imageIndex } : null })
+            }, { label: 'agent 规划', jobConfig: planningJobConfig, jobDefinitions: selected.length ? pictureScope : undefined, plannedScene: true, diagTrace: traceId ? { traceId, imageIndex } : null })
             if (traceId) diag.record(traceId, 'image-job', { jobId: job.id, status: job.status }, { imageIndex })
             // startJob 返回的是 publicJob，size 已经是 "896x1152" 这样的文字。
             const item = { ...image, jobId: job.id, status: job.status, sizeText: sizeLabel(job.size) }
@@ -5316,7 +5318,7 @@ function createRuntime(ctx, overrides, logger, deps) {
           if (!GENERATION_MODES.includes(patch.generationMode)) { sendJson(response, 400, { ok: false, error: '生图模式无效' }); return }
           config.generationMode = patch.generationMode
         }
-        if (patch.imageConcurrency !== undefined) config.imageConcurrency = Math.max(1, Math.min(4, Math.trunc(Number(patch.imageConcurrency)) || 2))
+        if (patch.imageConcurrency !== undefined) config.imageConcurrency = normalizeImageConcurrency(patch.imageConcurrency)
         for (const key of ['comfyUrl', 'defaultWorkflow', 'artistPosition', 'weightMode', 'negativeMode', 'styleArtists', 'imageSize', 'plannerProvider', 'plannerModel', 'plannerExtra', 'traitMode', 'visionProvider', 'visionModel', 'plannerEffort', 'visionEffort', 'comfyAuthMode', 'comfyAuthUser', 'promptManualPositive', 'promptManualNegative']) {
           if (typeof patch[key] === 'string') config[key] = key === 'comfyUrl' ? patch[key].replace(/\/+$/, '') : patch[key]
         }
@@ -5397,6 +5399,7 @@ function createRuntime(ctx, overrides, logger, deps) {
         if (patch.injectWeight !== undefined) config.injectWeight = Number(patch.injectWeight) || 0
         if (patch.sizes && typeof patch.sizes === 'object') config.sizes = patch.sizes
         await saveConfig(config)
+        if (patch.imageConcurrency !== undefined) drainImages()
         sendJson(response, 200, { ok: true, state: await consoleState() })
         return
       }
@@ -6687,7 +6690,7 @@ async function loadConfig(overrides) {
   config.injectWeight = Number(config.injectWeight) || 0
   config.imageGenCount = Math.max(1, Math.min(6, Number(config.imageGenCount) || 2))
   Object.assign(config, migrateLegacyImageConfig(config))
-  config.imageConcurrency = Math.max(1, Math.min(4, Math.trunc(Number(config.imageConcurrency)) || 2))
+  config.imageConcurrency = normalizeImageConcurrency(config.imageConcurrency)
   config.imageDisplayWidth = normalizeImageDisplayWidth(config.imageDisplayWidth)
   config.credentialRefs = Array.isArray(config.credentialRefs) ? config.credentialRefs.filter(item => typeof item === 'string') : []
   await credentialStore.load(config)

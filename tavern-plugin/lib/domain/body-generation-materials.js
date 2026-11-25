@@ -1,4 +1,5 @@
 import { sessionStablePrefixSections } from './session-stable-prefix.js'
+import playFeatures from '../../shared/play-features.cjs'
 
 /** Public generation DTO. Revisions, checkpoints and receipts stay with the host. */
 export function publicBodyMaterials(materials) {
@@ -20,7 +21,7 @@ export function publicBodyMaterials(materials) {
     input: { raw: materials.input?.raw || '', text: materials.input?.projected || '' },
     history: structuredClone(materials.history || []), context,
     identities: { characterName: materials.card?.name || '', playerName: materials.persona?.name || '你' },
-    state: { variables: structuredClone(state.variables ?? null), messageVariables: structuredClone(state.messageVariables ?? null), status: state.posture || '' },
+    state: { variables: structuredClone(state.variables ?? null), messageVariables: structuredClone(state.messageVariables ?? null), status: playFeatures.postureSummary ? state.posture || '' : '' },
     guidance: materials.guidance || '',
     ...(typeof materials.outputProcessing?.hostRegex === 'boolean'
       ? { outputProcessing: { hostRegex: materials.outputProcessing.hostRegex } } : {}),

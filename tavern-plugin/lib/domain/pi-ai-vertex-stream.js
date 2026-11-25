@@ -742,8 +742,17 @@ export function patchPiAiGoogleVertexModelsJson(source, options = {}) {
   if (!parsed || typeof parsed !== 'object' || !parsed['google-vertex'] || typeof parsed['google-vertex'] !== 'object') {
     return { status: 'unmatched', text: String(source) }
   }
-  const models = vertexModelsWithGlobalBaseUrl(options.project)
   const existing = parsed['google-vertex']
+  // When project discovery transiently fails on a later startup, keep the project already
+  // recorded in the catalog instead of downgrading working global endpoints back to `{location}`.
+  let effectiveProject = normalizeVertexProject(options.project)
+  if (!effectiveProject) {
+    for (const entry of Object.values(existing)) {
+      const preserved = vertexProjectFromBaseUrl(entry?.baseUrl)
+      if (preserved) { effectiveProject = preserved; break }
+    }
+  }
+  const models = vertexModelsWithGlobalBaseUrl(effectiveProject)
   let changed = false
   const next = { ...existing }
   for (const [key, model] of Object.entries(models)) {

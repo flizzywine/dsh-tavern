@@ -9,6 +9,7 @@ var mod_default = {
   format: "dsh-tavern-mod",
   schemaVersion: 5,
   experimental: true,
+  activation: "card",
   id: "dsh.textcard",
   name: "\u6587\u5B57\u6F14\u51FA",
   packageName: "dsh-tavern-mod-textcard",

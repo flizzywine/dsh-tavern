@@ -408,6 +408,10 @@ export function applyTavernSettingsPatch(current, patch) {
     if (typeof input.autoOpenStatusPanel !== 'boolean') throw new Error('自动打开酒馆状态面板设置必须是布尔值')
     next.autoOpenStatusPanel = input.autoOpenStatusPanel
   }
+  if (Object.hasOwn(input, 'showCharacterDesignPanel')) {
+    if (typeof input.showCharacterDesignPanel !== 'boolean') throw new Error('人物设计面板显示设置必须是布尔值')
+    next.showCharacterDesignPanel = input.showCharacterDesignPanel
+  }
   // 设置 › 高级 › 对话按最新回复排序：默认按创建时间固定排列，打开后最近活动的对话排到最前。
   if (Object.hasOwn(input, 'recentReplyFirst')) {
     if (typeof input.recentReplyFirst !== 'boolean') throw new Error('对话排序设置必须是布尔值')
@@ -536,11 +540,12 @@ export function presentTavernSettings(document, defaults) {
     // A failed model request is resent once by default (tavern-retry-limiter); off means
     // the turn ends right there and the reply is only remade when the player asks.
     retryOnFailure: object(document).retryOnFailure !== false,
-    allowCdnFakeIp: object(document).allowCdnFakeIp === true,
+    allowCdnFakeIp: object(document).allowCdnFakeIp !== false,
     // 长按 1 秒发送键直接重新生成正文；默认关闭。
     longPressSendRegenerate: object(document).longPressSendRegenerate === true,
     // Only the latest floors run a card's HTML interface; 0 renders every floor.
     autoOpenStatusPanel: object(document).autoOpenStatusPanel !== false,
+    showCharacterDesignPanel: document?.showCharacterDesignPanel === true,
     // 设置 › 高级 › 对话按最新回复排序：默认关闭，左侧对话按创建时间固定排列。
     recentReplyFirst: object(document).recentReplyFirst === true,
     // 设置 › 高级 › 只在流式输出时显示思维链：默认打开——思考内容在生成时铺开、写完即收起。

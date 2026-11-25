@@ -471,6 +471,25 @@ test('内置配图默认启用，标注内置来源且拒绝删除', async t => 
   assert.equal(JSON.parse(await readFile(path.join(dir,'package.json'),'utf8')).name,'dsh-tavern-image')
 })
 
+test('导入留下的内置插件副本「名字 (2)」按普通插件列出，可以删除', async t => {
+  const {installer,plugins}=await setup(t)
+  for (const folder of ['dsh-tavern-plot-compass','dsh-tavern-plot-compass (2)','dsh-tavern-image (2)']) {
+    const dir=path.join(plugins,folder)
+    await mkdir(dir,{recursive:true})
+    const name=folder.startsWith('dsh-tavern-image')?'dsh-tavern-image':'dsh-tavern-plot-compass'
+    await writeFile(path.join(dir,'package.json'),JSON.stringify({name,version:'1.0.0'}))
+    if (name!=='dsh-tavern-image') await writeFile(path.join(dir,'.tavern-source.json'),JSON.stringify({kind:'builtin',bundled:true,version:'1.0.0'}))
+  }
+  const rows=await installer.list()
+  assert.equal(rows.find(row=>row.folder==='dsh-tavern-plot-compass').source.kind,'builtin')
+  assert.equal(rows.find(row=>row.folder==='dsh-tavern-plot-compass (2)').source.kind,'folder')
+  assert.equal(rows.find(row=>row.folder==='dsh-tavern-image (2)').source.kind,'folder')
+  await assert.rejects(installer.remove('dsh-tavern-plot-compass'),/内置插件/)
+  await installer.remove('dsh-tavern-plot-compass (2)')
+  await installer.remove('dsh-tavern-image (2)')
+  assert.deepEqual((await readdir(plugins)).filter(name=>!name.startsWith('.')).sort(),['dsh-tavern-plot-compass'])
+})
+
 // 国内网络经常只封 github.com：连不上时换 jsDelivr（它按「文件列表 + 单文件」取代码）。
 const jsdelivrTree = files => ({ files: Object.entries(files).map(([name, content]) => ({ name, size: Buffer.byteLength(content) })) })
 const jsdelivrPlugin = version => ({

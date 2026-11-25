@@ -272,10 +272,10 @@ button.dsh-tavern-message-select:disabled { cursor: wait; }
 /* 手机上侧栏铺满整屏，宿主的抽屉把手会被酒馆内容盖住：右上角放自己的收回按钮。 */
 .dsh-tavern-side-collapse { display: none; }
 body.dsh-tavern-shell-active button[aria-label="新建会话"], body.dsh-tavern-shell-active button[aria-label="New session"] { display: none !important; }
-/* 只藏宿主的原生「在新对话中分支」：它绕开酒馆的游戏状态，点了会得到一个没有存档分支的 Session。
-   正文的「复制」是宿主自己的按钮，不能一起藏掉；它紧挨在 assistant-actions 插槽前面。 */
+/* 酒馆在自己的分支入口登记新会话，宿主的「复制」留在插槽前面。 */
 body.dsh-tavern-shell-active [data-turn-tail] > [data-slot="conversation.chat.turnTail"] + div > [data-slot="conversation.chat.assistant-actions"] + button { display: none !important; }
-body.dsh-tavern-shell-active [data-turn-tail] [data-slot="conversation.chat.assistant-actions"] > :not(.dsh-tavern-message-fork):not(.dsh-tavern-illustration-instructions) { display: none !important; }
+body.dsh-tavern-shell-active [data-turn-tail]:not([data-dsh-tavern-workbench-actions]) [data-slot="conversation.chat.assistant-actions"] > :not(.dsh-tavern-message-fork):not(.dsh-tavern-illustration-instructions) { display: none !important; }
+.dsh-tavern-workbench-turn-actions { display: contents; }
 body.dsh-tavern-shell-active [data-turn-tail] [data-slot="conversation.chat.assistant-actions"]:has(> .dsh-tavern-illustration-instructions) { display: flex !important; flex: 0 0 100% !important; flex-wrap: wrap !important; width: 100% !important; }
 body.dsh-tavern-shell-active [data-turn-tail] [class*="_actions"]:has([data-slot="conversation.chat.assistant-actions"] > .dsh-tavern-illustration-instructions) { height: auto !important; min-height: calc(28px + var(--dsh-content-font-delta, 0px)) !important; }
 body.dsh-tavern-shell-active [data-turn-tail] > div:has(.dsh-tavern-illustration-instructions) { flex-wrap: wrap !important; }
@@ -485,30 +485,50 @@ body.dsh-tavern-shell-active span:has(.dsh-tavern-hero-lockup) + span { display:
 .dsh-tavern-segmented button[aria-pressed="true"] { background: var(--dsw-alias-bg-base, #fff); color: var(--dsh-tavern-accent-active); font-weight: 600; box-shadow: 0 1px 2px rgba(0,0,0,.12); }
 .dsh-tavern-segmented button:focus-visible { outline: 2px solid var(--dsh-tavern-accent-border); outline-offset: 1px; }
 .dsh-tavern-card-grid-container { container-type: inline-size; min-width: 0; }
+/* The column count is the toolbar's (it fits the panel width); a narrow grid only draws closer. */
+@container (max-width: 400px) { .dsh-tavern-card-grid { gap: 8px; } }
 .dsh-tavern-card-grid { display: grid; grid-template-columns: repeat(var(--dsh-tavern-card-grid-cols, 4), minmax(0, 1fr)); gap: 10px; align-items: start; padding: 4px 12px 12px; }
-.dsh-tavern-card-grid-tools { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 2px 12px 8px; font-size: 12px; color: var(--dsw-alias-label-secondary); }
-.dsh-tavern-card-grid-tools .dsh-tavern-segmented button { padding: 0 8px; }
-.dsh-tavern-card-grid-count { margin-left: auto; }
 .dsh-tavern-card-grid-empty { padding: 24px 8px; text-align: center; opacity: .6; }
 /* Keep a two-column grid on older mobile WebViews without container queries too. */
-@media (max-width: 640px) { .dsh-tavern-card-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; } }
-@container (max-width: 600px) { .dsh-tavern-card-grid { grid-template-columns: repeat(min(var(--dsh-tavern-card-grid-cols, 4), 3), minmax(0, 1fr)); } }
-@container (max-width: 400px) { .dsh-tavern-card-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; } }
 .dsh-tavern-card-grid-item { position: relative; min-width: 0; }
 .dsh-tavern-card-grid-open { position: relative; display: flex; flex-direction: column; width: 100%; padding: 0; overflow: hidden; border: 1px solid var(--dsw-alias-border-l2); border-radius: 10px; background: color-mix(in srgb, var(--dsh-tavern-accent) 8%, transparent); color: inherit; font: inherit; text-align: left; cursor: pointer; }
 .dsh-tavern-card-grid-open:hover { border-color: var(--dsh-tavern-accent); }
 .dsh-tavern-card-grid-open:disabled { cursor: default; }
 .dsh-tavern-card-grid-item.selected .dsh-tavern-card-grid-open { border-color: var(--dsh-tavern-accent); box-shadow: 0 0 0 2px var(--dsh-tavern-accent); }
+/* 收藏: a warm glow around the card's edge instead of a star. */
+.dsh-tavern-card-grid-item.starred .dsh-tavern-card-grid-open { border-color: var(--dsw-alias-state-warning-primary); box-shadow: 0 0 0 1px var(--dsw-alias-state-warning-primary), 0 0 12px 1px color-mix(in srgb, var(--dsw-alias-state-warning-primary) 55%, transparent); }
+.dsh-tavern-card-grid-item.starred.selected .dsh-tavern-card-grid-open { border-color: var(--dsh-tavern-accent); box-shadow: 0 0 0 2px var(--dsh-tavern-accent), 0 0 12px 1px color-mix(in srgb, var(--dsw-alias-state-warning-primary) 55%, transparent); }
 .dsh-tavern-card-grid-item.broken .dsh-tavern-card-grid-open { opacity: .55; }
 .dsh-tavern-card-grid-cover { display: block; width: 100%; aspect-ratio: 3 / 4; object-fit: cover; object-position: top center; }
-.dsh-tavern-card-grid-cover.placeholder { display: flex; align-items: center; justify-content: center; font-size: 28px; font-weight: 600; color: var(--dsh-tavern-accent); }
+/* No cover: the whole name, centred, wrapped (the name strip below is left out). */
+.dsh-tavern-card-grid-cover.placeholder { display: flex; align-items: center; justify-content: center; box-sizing: border-box; padding: 34px 12px 12px; overflow: hidden; text-align: center; font-family: var(--dsh-tavern-font-display); font-size: var(--fork-fs-heading); font-weight: 500; line-height: 1.35; overflow-wrap: anywhere; color: var(--dsw-alias-label-primary); background: color-mix(in srgb, var(--dsh-tavern-accent) 12%, var(--dsw-specific-sidebar-fill)); }
+.dsh-tavern-card-grid.dense .dsh-tavern-card-grid-cover.placeholder { font-size: var(--fork-fs-body); padding: 28px 8px 8px; }
 .dsh-tavern-card-grid-copy { position: absolute; left: 0; right: 0; bottom: 0; display: flex; min-width: 0; padding: 28px 10px 8px; background: linear-gradient(transparent, rgba(0,0,0,.72)); color: #fff; }
 .dsh-tavern-card-grid-name { min-width: 0; font-size: 13px; font-weight: 600; line-height: 1.3; text-shadow: 0 1px 2px rgba(0,0,0,.4); display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; }
 .dsh-tavern-card-grid.dense .dsh-tavern-card-grid-copy { padding: 18px 8px 6px; }
 .dsh-tavern-card-grid.dense .dsh-tavern-card-grid-name { font-size: 12px; }
 .dsh-tavern-card-picker:has(.dsh-tavern-card-grid) { width: min(1118px, calc(100vw - 48px)); }
-.dsh-tavern-card-grid-check { position: absolute; top: 6px; left: 6px; z-index: 1; }
-.dsh-tavern-card-grid-corner { position: absolute; top: 4px; right: 4px; z-index: 1; display: flex; gap: 2px; border-radius: 8px; background: color-mix(in srgb, var(--dsw-specific-sidebar-fill) 85%, transparent); }
+/* The band over the cover's top edge: select mark, tags (two lines at most, each cut short), corner buttons. */
+.dsh-tavern-card-grid-band { position: absolute; top: 0; left: 0; right: 0; z-index: 1; display: flex; align-items: flex-start; gap: 4px; padding: 5px 5px 0 6px; pointer-events: none; }
+.dsh-tavern-card-grid-band > * { pointer-events: auto; }
+/* Selecting (owner 11-24): the cards not picked turn grey and faint, the picked ones stay lit with the round tick. */
+.dsh-tavern-card-grid-check { position: absolute; right: 8px; bottom: 8px; z-index: 1; width: 24px; height: 24px; pointer-events: none; background: color-mix(in srgb, var(--dsw-specific-sidebar-fill) 70%, transparent); box-shadow: inset 0 0 0 1.5px var(--dsw-alias-label-primary); }
+.dsh-tavern-card-grid-item.selected .dsh-tavern-card-grid-check { background: var(--dsh-tavern-accent); box-shadow: 0 0 0 2px var(--dsw-specific-sidebar-fill); }
+.dsh-tavern-card-grid-item.picking .dsh-tavern-card-grid-copy { padding-right: 40px; }
+.dsh-tavern-card-grid-item.picking:not(.selected) .dsh-tavern-card-grid-open { filter: grayscale(1); opacity: .5; transition: filter .15s, opacity .15s; }
+.dsh-tavern-card-grid-item.picking:not(.selected) .dsh-tavern-card-grid-open:hover { opacity: .75; }
+.dsh-tavern-card-grid-item.picking:not(.selected) .dsh-tavern-card-grid-tags { opacity: .6; }
+.dsh-tavern-card-grid-tags { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; align-content: flex-start; gap: 3px; max-height: 43px; overflow: hidden; pointer-events: none; }
+.dsh-tavern-card-grid.dense .dsh-tavern-card-grid-tags { max-height: 20px; }
+.dsh-tavern-card-grid-tag { box-sizing: border-box; max-width: 100%; height: 20px; padding: 0 7px; border-radius: 999px; background: color-mix(in srgb, var(--dsw-alias-label-primary) 55%, transparent); color: var(--dsw-specific-sidebar-fill); font-size: var(--fork-fs-meta); line-height: 20px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; -webkit-backdrop-filter: blur(2px); backdrop-filter: blur(2px); }
+/* @ and ⋯ in the bottom-right corner, faint over the cover until the card is hovered or something in it has focus
+   (a touch screen has no hover: they stay faint there and still take a tap). The name strip leaves them room. */
+.dsh-tavern-card-grid-corner { position: absolute; right: 5px; bottom: 5px; z-index: 1; display: flex; gap: 2px; border-radius: 8px; background: color-mix(in srgb, var(--dsw-specific-sidebar-fill) 70%, transparent); opacity: .55; transition: opacity .12s; }
+.dsh-tavern-card-grid-item:hover > .dsh-tavern-card-grid-corner, .dsh-tavern-card-grid-item:focus-within > .dsh-tavern-card-grid-corner, .dsh-tavern-card-grid-item:has(> .dsh-tavern-card-grid-open[aria-expanded="true"]) > .dsh-tavern-card-grid-corner { opacity: 1; background: var(--dsw-specific-sidebar-fill); }
+.dsh-tavern-card-grid-item.has-corner .dsh-tavern-card-grid-copy { padding-right: 42px; }
+.dsh-tavern-card-grid-more { width: 30px; height: 30px; border: 0; border-radius: 8px; background: transparent; color: var(--dsw-alias-label-primary); font: inherit; font-size: var(--fork-fs-heading); line-height: 1; cursor: pointer; }
+.dsh-tavern-card-grid-more:hover { background: var(--dsw-alias-bg-layer-1); }
+@media (pointer: coarse) { .dsh-tavern-card-grid-more { width: 36px; height: 36px; } .dsh-tavern-card-grid-item.has-corner .dsh-tavern-card-grid-copy { padding-right: 48px; } }
 .dsh-tavern-greeting-preview { display: block; width: 100%; height: min(52vh, 560px); overflow: auto; overflow-anchor: none; box-sizing: border-box; margin: 8px 0; border: 1px solid var(--dsw-alias-border-l2); border-radius: 10px; background: var(--dsw-specific-sidebar-fill); }
 /* 卡内脚本（如外置小手机）初始化时会把自己所在的 iframe 设成 pointer-events:none。开场预览的 iframe 就是页面本身，可见帧必须保持可点击；隐藏的待替换帧和准备中的预览仍然不接收点击。 */
 .dsh-tavern-greeting-preview:not([data-dsh-tavern-preview-busy="true"]) .dsh-tavern-message-frame:not([aria-hidden="true"]) { pointer-events: auto !important; }
@@ -1057,15 +1077,6 @@ body.dsh-tavern-picker-open #auto-message-notification-container { visibility: h
 .dsh-tavern-worldbook-trigger { display: block; max-width: 100%; margin: 0 0 6px; padding: 1px 0; overflow: hidden; border: 0; background: transparent; color: var(--dsw-alias-label-secondary); cursor: pointer; font-size: 10px; text-align: left; text-overflow: ellipsis; white-space: nowrap; }
 .dsh-tavern-worldbook-trigger:hover { color: var(--dsh-tavern-accent); }
 .dsh-tavern-worldbook-note { margin: -2px 0 8px; color: var(--dsw-alias-label-secondary); font-size: 10px; line-height: 1.5; }
-.dsh-tavern-worldbook-toolbar { display: flex; align-items: center; gap: 10px; margin: 2px 0 14px; }
-.dsh-tavern-worldbook-toolbar > .dsh-tavern-library-search { flex: 1; width: 0; min-width: 80px; height: 30px; margin: 0; padding: 0 10px; font-size: 13px; }
-.dsh-tavern-worldbook-toolbar > .dsh-tavern-worldbook-sort { flex: none; margin: 0 !important; }
-.dsh-tavern-worldbook-sort { display: flex; align-items: center; gap: 7px; width: fit-content; margin: 2px 0 12px; padding: 4px 5px 4px 8px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 9px; background: var(--dsw-specific-input-major); color: var(--dsw-alias-label-secondary); cursor: pointer; box-shadow: 0 1px 2px rgba(0,0,0,.04); }
-.dsh-tavern-worldbook-sort:focus-within { border-color: color-mix(in srgb, var(--dsh-tavern-accent) 40%, transparent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--dsh-tavern-accent) 12%, transparent); }
-.dsh-tavern-worldbook-sort-label { font-size: 10px; font-weight: 700; white-space: nowrap; }
-.dsh-tavern-worldbook-sort-control { position: relative; display: inline-flex; align-items: center; }
-.dsh-tavern-worldbook-sort select { min-width: 76px; appearance: none; border: 0; border-radius: 6px; outline: 0; padding: 5px 24px 5px 8px; background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-primary); cursor: pointer; font: inherit; font-size: 11px; font-weight: 700; }
-.dsh-tavern-worldbook-sort-chevron { position: absolute; right: 8px; top: 50%; transform: translateY(-58%); color: var(--dsw-alias-label-tertiary); pointer-events: none; font-size: 12px; }
 .dsh-tavern-worldbook-del { border: 0; border-radius: 6px; background: transparent; color: var(--dsw-alias-label-secondary); cursor: pointer; padding: 2px 6px; font-size: 11px; }
 .dsh-tavern-worldbook-del:hover { color: #c45f5f; background: rgba(196,95,95,.12); }
 .dsh-tavern-worldbook-entry .dsh-tavern-card-field { margin-bottom: 6px; }
@@ -1310,13 +1321,18 @@ button.dsh-tavern-history-manager-select-all:disabled { opacity: .5; }
 .dsh-tavern-history-manager-selected { color: var(--dsw-alias-label-secondary); font-size: 12px; }
 .dsh-tavern-history-manager-notice { padding: 0 16px 12px; color: var(--dsw-alias-label-secondary); font-size: 12px; }
 
-.dsh-tavern-card-batch { position: sticky; top: 0; z-index: 2; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 10px; background: var(--dsw-alias-bg-base, var(--dsw-specific-input-major)); }
-.dsh-tavern-card-batch-all { display: inline-flex; align-items: center; gap: 2px; font-size: 13px; color: var(--dsw-alias-label-primary); cursor: pointer; user-select: none; }
-.dsh-tavern-card-batch-count { color: var(--dsw-alias-label-tertiary); font-size: 12px; padding: 0 4px; }
-.dsh-tavern-card-batch .dsh-tavern-btn { min-height: 30px; padding: 0 12px; font-size: 13px; }
-.dsh-tavern-card-batch-move { min-height: 30px; padding: 0 28px 0 10px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 8px; background: transparent; color: var(--dsw-alias-label-primary); font: inherit; font-size: 13px; cursor: pointer; }
-.dsh-tavern-card-batch-move:disabled { opacity: .45; cursor: default; }
-.dsh-tavern-card-batch-notice { flex-basis: 100%; overflow-wrap: anywhere; font-size: 12px; margin-top: 4px; padding: 6px 10px; border-radius: 6px; background: color-mix(in srgb, var(--dsh-tavern-accent) 8%, transparent); color: var(--dsw-alias-label-primary); }
+/* 多选: the selection bar floats at the bottom of the list (sticky after the grid), centred, one line. */
+.dsh-tavern-card-batch-dock { position: sticky; bottom: 12px; z-index: 3; display: flex; flex-direction: column; align-items: center; gap: 6px; margin: 8px 12px 12px; pointer-events: none; }
+.dsh-tavern-card-batch-dock > * { pointer-events: auto; }
+.dsh-tavern-card-batch { display: flex; align-items: center; gap: 6px; max-width: 100%; padding: 6px 6px 6px 4px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 14px; background: var(--dsw-specific-sidebar-fill); box-shadow: 0 12px 32px rgba(0, 0, 0, .18); flex-wrap: wrap; justify-content: center; }
+.dsh-tavern-card-batch-count { padding: 0 4px; font-size: var(--fork-fs-body); font-weight: 500; color: var(--dsw-alias-label-primary); }
+.dsh-tavern-card-batch .dsh-tavern-btn { min-height: 32px; padding: 0 12px; font-size: var(--fork-fs-body); }
+/* A phone keeps the bar on one line: tighter buttons, still 36px tall to touch. */
+@media (max-width: 640px) { .dsh-tavern-card-batch { gap: 2px; padding: 4px; flex-wrap: nowrap; } .dsh-tavern-card-batch-dock .dsh-tavern-card-batch .dsh-tavern-btn { min-height: 36px; padding: 0 8px; } .dsh-tavern-card-batch-count { padding: 0 2px; } }
+.dsh-tavern-card-batch .dsh-tavern-btn.quiet { background: transparent; color: var(--dsw-alias-label-secondary); }
+.dsh-tavern-card-batch .dsh-tavern-btn.quiet:hover:not(:disabled) { background: var(--dsw-specific-input-major); }
+.dsh-tavern-card-batch-notice { max-width: 100%; overflow-wrap: anywhere; font-size: var(--fork-fs-meta); padding: 6px 10px; border-radius: 8px; background: var(--dsw-specific-sidebar-fill); box-shadow: 0 4px 14px rgba(0, 0, 0, .12); color: var(--dsw-alias-label-primary); }
+@media (pointer: coarse) { .dsh-tavern-card-batch .dsh-tavern-btn { min-height: 36px; } }
 /* 自绘复选框：未选为细描边，选中为主色底白勾，半选为一道横线。 */
 .dsh-tavern-card-batch-checkbox { appearance: none; -webkit-appearance: none; flex: 0 0 18px; width: 18px; height: 18px; margin: 0 8px 0 2px; border: 1.5px solid var(--dsw-alias-label-tertiary); border-radius: 5px; background: transparent no-repeat center / 12px 12px; cursor: pointer; vertical-align: middle; transition: background-color .12s, border-color .12s; }
 .dsh-tavern-card-batch-checkbox:hover:not(:disabled) { border-color: var(--dsw-alias-label-secondary); }
@@ -1327,8 +1343,6 @@ button.dsh-tavern-history-manager-select-all:disabled { opacity: .5; }
 .dsh-tavern-library-card.selected { border-color: color-mix(in srgb, var(--dsh-tavern-accent) 40%, transparent); background: color-mix(in srgb, var(--dsh-tavern-accent) 6%, transparent); }
 
 .dsh-tavern-card-import-hint { padding: 6px 12px 0; }
-.dsh-tavern-library > .dsh-tavern-card-batch { flex-shrink: 0; margin: 0 12px; padding: 10px 0 6px; gap: 10px; }
-.dsh-tavern-library > .dsh-tavern-card-batch + .dsh-tavern-library-search { margin-top: 12px; }
 
 /* The dialog never exceeds the viewport: forms and the start button stay whole,
    only a tall opening preview shrinks and scrolls inside itself. */
@@ -1342,9 +1356,52 @@ button.dsh-tavern-history-manager-select-all:disabled { opacity: .5; }
   .dsh-tavern-card-picker:has(.dsh-tavern-greeting-preview) { max-height: calc(100dvh - 24px); }
 }
 
-.dsh-tavern-worldbook-bound { padding: 8px 12px; font-size: 12px; text-align: left; overflow-wrap: anywhere; }
-.dsh-tavern-worldbook-new { margin: 12px 0 8px; padding: 8px 12px; }
-.dsh-tavern-worldbook > .dsh-tavern-script-row:first-child { border-top: 0; margin-top: 0; padding-top: 0; }
+/* A card's bound world books: one row per book (drag grip · name · 主书 badge · source · ✕), then the dashed ＋. */
+.dsh-tavern-worldbook-count { margin-left: 6px; color: var(--fork-ink-3); font-size: var(--fork-fs-meta); font-weight: 400; font-variant-numeric: tabular-nums; }
+.dsh-tavern-worldbook-list { margin: 0; padding: 0; list-style: none; }
+.dsh-tavern-worldbook-row { position: relative; display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 4px 4px 4px 8px; border-radius: var(--fork-radius); outline: 0; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+.dsh-tavern-worldbook-row + .dsh-tavern-worldbook-row::before { content: ""; position: absolute; top: 0; right: 8px; left: 8px; border-top: 1px solid var(--fork-hairline); pointer-events: none; }
+.dsh-tavern-worldbook-row:hover { background: var(--fork-hover); }
+:is(.dsh-tavern-worldbook-row:hover, .dsh-tavern-worldbook-row:hover + .dsh-tavern-worldbook-row, .dsh-tavern-worldbook-row[data-drop])::before { border-top-color: transparent; }
+.dsh-tavern-worldbook-row:focus-visible { outline: var(--fork-focus); outline-offset: -2px; }
+.dsh-tavern-worldbook-row[data-dragging] { background: var(--fork-accent-soft); cursor: grabbing; }
+.dsh-tavern-worldbook-row[data-drop=before] { box-shadow: inset 0 2px 0 var(--fork-accent); }
+.dsh-tavern-worldbook-row[data-drop=after] { box-shadow: inset 0 -2px 0 var(--fork-accent); }
+.dsh-tavern-worldbook-grip { flex: none; display: grid; place-items: center; width: 16px; height: 30px; margin-left: -4px; color: var(--fork-ink-3); cursor: grab; opacity: 0; }
+.dsh-tavern-worldbook-main { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; }
+button.dsh-tavern-worldbook-name { min-width: 0; overflow: hidden; margin: 0; padding: 4px 0; border: 0; background: none; color: var(--fork-ink); font: inherit; font-size: var(--fork-fs-body); font-weight: 500; text-align: left; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+button.dsh-tavern-worldbook-name:hover { color: var(--fork-accent); }
+button.dsh-tavern-worldbook-name:focus-visible { outline: var(--fork-focus); outline-offset: 1px; border-radius: 4px; }
+.dsh-tavern-worldbook-missing { display: inline-flex; align-items: center; gap: 5px; min-width: 0; color: var(--fork-warn); font-size: var(--fork-fs-body); white-space: nowrap; }
+button.fork-help-tip-face.dsh-tavern-worldbook-primary { flex: none; display: inline-flex; align-items: center; height: 20px; margin: 0; padding: 0 7px; border: 0; border-radius: 999px; background: var(--fork-accent-soft); color: var(--fork-accent); font: inherit; font-size: var(--fork-fs-meta); font-weight: 500; line-height: 20px; white-space: nowrap; cursor: help; }
+button.fork-help-tip-face.dsh-tavern-worldbook-primary:focus-visible { outline: var(--fork-focus); outline-offset: 1px; }
+.dsh-tavern-worldbook-main > .fork-help-tip { flex: none; }
+.dsh-tavern-worldbook-source { flex: none; color: var(--fork-ink-3); font-size: var(--fork-fs-meta); white-space: nowrap; }
+button.dsh-tavern-worldbook-unbind { flex: none; display: grid; place-items: center; width: 30px; height: 30px; margin: 0; padding: 0; border: 0; border-radius: var(--fork-radius); background: none; color: var(--fork-ink-3); cursor: pointer; opacity: 0; }
+button.dsh-tavern-worldbook-unbind:hover:not(:disabled) { background: color-mix(in srgb, var(--fork-danger) 12%, transparent); color: var(--fork-danger); }
+button.dsh-tavern-worldbook-unbind:focus-visible { opacity: 1; outline: var(--fork-focus); outline-offset: -2px; }
+button.dsh-tavern-worldbook-unbind:disabled { cursor: default; }
+.dsh-tavern-worldbook-row:is(:hover, :focus-within) :is(.dsh-tavern-worldbook-grip, button.dsh-tavern-worldbook-unbind) { opacity: 1; }
+@media (hover: none) { .dsh-tavern-worldbook-row :is(.dsh-tavern-worldbook-grip, button.dsh-tavern-worldbook-unbind) { opacity: 1; } }
+.fork-inline-anchor.dsh-tavern-worldbook-add-anchor { display: flex; margin-top: 8px; }
+button.dsh-tavern-worldbook-add-row { display: flex; align-items: center; justify-content: center; width: 100%; height: 36px; margin: 0; padding: 0; border: 1px dashed color-mix(in srgb, var(--fork-ink-3) 60%, transparent); border-radius: var(--fork-radius); background: none; color: var(--fork-ink-3); cursor: pointer; }
+button.dsh-tavern-worldbook-add-row:hover:not(:disabled) { border-color: var(--fork-accent); background: var(--fork-accent-soft); color: var(--fork-accent); }
+button.dsh-tavern-worldbook-add-row:focus-visible { outline: var(--fork-focus); outline-offset: 1px; }
+button.dsh-tavern-worldbook-add-row:disabled { cursor: default; }
+.fork-inline-pop.dsh-tavern-worldbook-add-pop { min-width: 240px; max-width: min(360px, calc(100vw - 16px)); }
+.dsh-tavern-worldbook-add-pop .fork-inline-option-note { margin-left: auto; padding-left: 12px; }
+.dsh-tavern-worldbook-add-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.dsh-tavern-worldbook-add-search { margin: 2px 2px 4px; }
+.dsh-tavern-worldbook-add-loading { display: grid; place-items: center; min-height: 48px; }
+@media (max-width: 720px) {
+  .dsh-tavern-worldbook-main button.fork-help-tip-face.dsh-tavern-worldbook-primary { min-height: 0; }
+  .dsh-tavern-worldbook-row { min-height: 52px; padding: 6px 2px 6px 6px; }
+  .dsh-tavern-worldbook-main { flex-wrap: wrap; row-gap: 0; }
+  .dsh-tavern-worldbook-source { flex-basis: 100%; order: 3; line-height: 1.3; }
+  .dsh-tavern-worldbook-grip { width: 24px; height: 36px; }
+  button.dsh-tavern-worldbook-unbind { width: 36px; height: 36px; }
+  button.dsh-tavern-worldbook-add-row { height: 40px; }
+}
 
 /* Worldbook bindings: existing relationships lead; additions stay folded. */
 .dsh-tavern-worldbook-global { display: flex; align-items: center; gap: 14px; margin: 0 0 16px; padding: 14px 16px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 12px; background: var(--dsw-specific-input-major); cursor: pointer; transition: border-color .18s ease, background .18s ease; }
@@ -1533,35 +1590,45 @@ button.dsh-tavern-history-manager-select-all:disabled { opacity: .5; }
 .dsh-skill-editor { box-sizing: border-box; width: 100%; min-height: 55vh; padding: 20px; border: 1px solid color-mix(in srgb, currentColor 22%, transparent); border-radius: 12px; background: var(--background, Canvas); color: inherit; font: 14px/1.7 ui-monospace, monospace; resize: vertical; tab-size: 2; }
 .dsh-skill-editor:focus-visible { outline: 2px solid #a76c36; outline-offset: 2px; }
 
-.dsh-tavern-card-organization { display: flex; gap: 10px; align-items: center; margin: 12px 0; }
-.dsh-tavern-library > .dsh-tavern-card-organization { margin: 6px 12px 8px; }
-.dsh-tavern-library > .dsh-tavern-card-organization > .dsh-tavern-library-search,
-.dsh-tavern-library > .dsh-tavern-card-organization > .dsh-tavern-group-picker > summary { box-sizing: border-box; height: 32px; min-height: 32px; padding: 0 10px; font-size: 13px; line-height: 1.4; }
-.dsh-tavern-card-organization > .dsh-tavern-library-search { flex: 1; width: 0; min-width: 80px; margin: 0; }
-.dsh-tavern-group-picker { position: relative; flex: 0 1 160px; min-width: 105px; }
-.dsh-tavern-group-picker > summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 36px; padding: 0 12px; border: 1px solid color-mix(in srgb, currentColor 16%, transparent); border-radius: 9px; background: var(--dsw-specific-input-major, #ffffff08); cursor: pointer; list-style: none; transition: border-color .15s, background .15s; }
-.dsh-tavern-group-picker > summary::-webkit-details-marker { display: none; }
-.dsh-tavern-group-picker > summary > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.dsh-tavern-group-picker[open] > summary { border-color: color-mix(in srgb, var(--dsh-tavern-accent) 40%, transparent); background: color-mix(in srgb, var(--dsh-tavern-accent) 8%, transparent); }
-.dsh-tavern-group-picker > summary > span:last-child { opacity: .6; transition: transform .15s; }
-.dsh-tavern-group-picker[open] > summary > span:last-child { transform: rotate(180deg); }
-.dsh-tavern-group-picker > summary:focus-visible { outline: 2px solid color-mix(in srgb, var(--dsh-tavern-accent) 40%, transparent); outline-offset: 2px; }
-.dsh-tavern-group-menu { position: absolute; top: calc(100% + 6px); left: 0; width: min(220px, 75vw); z-index: 50; border: 1px solid color-mix(in srgb, currentColor 14%, transparent); border-radius: 12px; padding: 5px; background: var(--dsw-specific-sidebar-fill, #202124); box-shadow: 0 8px 24px #0003; transform-origin: top left; }
-.dsh-tavern-group-menu:popover-open { animation: dsh-tavern-menu-in 150ms cubic-bezier(0.23, 1, 0.32, 1); }
+/* The card lists' toolbar is the stage library's (.ap-pack-toolbar: rounded search, quiet icon buttons). */
+.ap-ui.ap-pack-toolbar.dsh-tavern-card-organization { flex: none; width: auto; max-width: none; min-height: 0; margin: 8px 12px; padding: 0; background: none; }
+.ap-ui.dsh-tavern-card-organization button.ap-icon-button { width: 32px; height: 32px; color: var(--fork-ink); }
+.ap-ui.dsh-tavern-card-organization button.ap-icon-button:hover:not(:disabled), .ap-ui.dsh-tavern-card-organization button.ap-icon-button[aria-expanded=true] { background: var(--fork-hover); }
+.ap-ui.dsh-tavern-card-organization button.ap-icon-button:is([data-on], [aria-pressed=true]) { color: var(--fork-accent); }
+.ap-ui.dsh-tavern-card-organization button.ap-icon-button[aria-pressed=true] { background: var(--fork-accent-soft); }
+.dsh-tavern-card-filter .dsh-tavern-card-filter-label { max-width: 12em; overflow: hidden; text-overflow: ellipsis; }
 @keyframes dsh-tavern-menu-in { from { opacity: 0; transform: scale(0.97); } }
-.dsh-tavern-group-options { max-height: 280px; overflow-y: auto; }
-.dsh-tavern-group-menu button { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 34px; padding: 7px 11px; border: 0; background: transparent; color: inherit; text-align: left; font: inherit; font-size: 13px; line-height: 1.4; cursor: pointer; border-radius: 7px; overflow-wrap: anywhere; transition: background .12s, color .12s; }
-.dsh-tavern-group-menu button:hover, .dsh-tavern-group-menu button:focus-visible { background: var(--dsw-specific-input-major, #ffffff12); }
-.dsh-tavern-group-menu button[aria-pressed="true"] { font-weight: 500; color: var(--dsh-tavern-accent); background: color-mix(in srgb, var(--dsh-tavern-accent) 13%, transparent); }
-.dsh-tavern-group-options button > span { width: 16px; flex-shrink: 0; order: 1; margin-left: auto; text-align: center; }
-.dsh-tavern-group-menu-footer { border-top: 1px solid color-mix(in srgb, currentColor 10%, transparent); margin: 5px 5px 0; padding-top: 5px; }
-.dsh-tavern-group-menu-footer button { font-size: 12px; color: var(--dsw-alias-label-secondary); min-height: 32px; padding-left: 6px; }
+/* The card list's row: tag filter, search, then sort / − n ＋ / 多选 (card-organization.js). */
+.dsh-tavern-card-filter { flex: 0 1 auto; min-width: 0; max-width: 40%; }
+.dsh-tavern-card-filter-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dsh-tavern-card-columns { display: inline-flex; align-items: center; }
+.dsh-tavern-card-columns > output { min-width: 16px; line-height: 32px; font-size: var(--fork-fs-body); text-align: center; color: var(--dsw-alias-label-primary); font-variant-numeric: tabular-nums; }
+.fork-inline-pop.dsh-tavern-card-filter-pop, .fork-inline-pop.dsh-tavern-card-tag-pop { min-width: 220px; max-width: min(280px, calc(100vw - 16px)); }
+.dsh-tavern-card-filter-pop button.fork-inline-option.dsh-tavern-card-filter-action:not(:disabled) { color: var(--dsw-alias-label-secondary); }
+.dsh-tavern-card-filter-pop button.fork-inline-option.dsh-tavern-card-filter-action:not(:disabled):hover { color: var(--dsw-alias-label-primary); }
+.dsh-tavern-card-filter-action > .dsh-tavern-card-tag-mark { color: inherit; }
+.dsh-tavern-card-menu-divider { height: 0; margin: 4px 10px; border-top: 1px solid color-mix(in srgb, currentColor 12%, transparent); }
+.dsh-tavern-card-tag-mark { display: inline-block; width: 16px; flex: none; text-align: center; color: var(--dsh-tavern-accent); }
+.dsh-tavern-card-tag-option { display: flex; align-items: center; gap: 6px; width: 100%; }
+.dsh-tavern-card-tag-option > span:last-child, .fork-inline-option > span:last-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.dsh-tavern-card-tag-title { display: flex; align-items: center; gap: 4px; padding: 2px 6px 6px; color: var(--dsw-alias-label-secondary); font-size: var(--fork-fs-meta); }
+.dsh-tavern-card-tag-title > button { width: 28px; height: 28px; border: 0; border-radius: 6px; background: transparent; color: inherit; font: inherit; font-size: var(--fork-fs-heading); cursor: pointer; }
+.dsh-tavern-card-tag-title > button:hover { background: var(--dsw-alias-bg-layer-1); }
+.dsh-tavern-card-tag-new { box-sizing: border-box; width: 100%; height: 32px; margin: 4px 0 2px; padding: 0 10px; border: 0; border-radius: 6px; background: var(--dsw-specific-input-major); color: inherit; font: inherit; font-size: var(--fork-fs-body); }
+.dsh-tavern-card-tag-new:focus { outline: 1px solid var(--dsh-tavern-accent); }
+.dsh-tavern-card-menu-tags { min-width: 200px; }
+.dsh-tavern-card-menu-label { flex: 1; }
+.dsh-tavern-card-menu-more { margin-left: 16px; color: var(--dsw-alias-label-secondary); }
+.dsh-tavern-card-import-pop { width: 280px; max-width: calc(100vw - 16px); }
+.dsh-tavern-card-import-url { display: flex; gap: 6px; padding: 6px 2px 2px; border-top: 1px solid var(--dsw-alias-border-l2); margin-top: 4px; }
+.dsh-tavern-card-import-url > input { flex: 1; min-width: 0; height: 32px; padding: 0 10px; border: 0; border-radius: 6px; background: var(--dsw-specific-input-major); color: inherit; font: inherit; font-size: var(--fork-fs-body); }
+.dsh-tavern-card-import-url > input:focus { outline: 1px solid var(--dsh-tavern-accent); }
+.dsh-tavern-card-import-pop .fork-inline-option > .ap-glyph { flex: none; color: var(--fork-ink-3); }
+.dsh-tavern-card-import-pop .dsh-tavern-card-import-file > .ap-glyph { color: var(--fork-accent); }
 @media (prefers-reduced-motion: reduce) {
   .dsh-tavern-btn { transition: background 160ms cubic-bezier(0.23, 1, 0.32, 1); }
   .dsh-tavern-side-row-menu,
-  .dsh-tavern-more-menu:not([hidden]),
-  .dsh-tavern-group-menu:popover-open { animation: none; }
-  .dsh-tavern-group-picker > summary > span:last-child,
+  .dsh-tavern-more-menu:not([hidden]) { animation: none; }
   .dsh-tavern-prompt-state.is-toggle::after,
   .dsh-tavern-background-task input[role="switch"]::after, .dsh-tavern-switch-row input[role="switch"]::after { transition: none; }
   .dsh-tavern-settings-track,
@@ -1578,39 +1645,33 @@ button.dsh-tavern-history-manager-select-all:disabled { opacity: .5; }
 .dsh-tavern-group-manager-row { padding: 10px 0; border-bottom: 1px solid var(--dsw-alias-border-l2, #454750); }
 .dsh-tavern-group-manager-row > span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .dsh-tavern-group-manager-footer { margin-top: 18px; flex-wrap: wrap; }
-.dsh-tavern-card-detail-organization { flex: none; display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap; padding: 16px; }
-.dsh-tavern-card-detail-organization label { flex: 1; min-width: 110px; display: flex; flex-direction: column; align-items: stretch; gap: 6px; font-size: 11px; line-height: 1.4; color: var(--dsw-alias-label-secondary); }
-.dsh-tavern-card-detail-organization select { width: 100%; min-width: 0; height: 34px; padding: 0 10px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 7px; background: var(--dsw-specific-input-major, #ffffff08); color: var(--dsw-alias-label-primary); font: inherit; font-size: 13px; }
-.dsh-tavern-card-detail-organization > button { height: 34px; padding: 0 12px; white-space: nowrap; border-radius: 7px; }
+/* The detail page's tags under its header: chips with ×, a dashed ＋. */
+.dsh-tavern-card-detail-tags { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 12px 16px 0; }
+.dsh-tavern-card-detail-tag { display: inline-flex; align-items: center; gap: 2px; max-width: 100%; height: 26px; padding: 0 4px 0 10px; border-radius: 999px; background: var(--dsw-specific-input-major); font-size: var(--fork-fs-body); }
+.dsh-tavern-card-detail-tag > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dsh-tavern-card-detail-tag > button { width: 20px; height: 20px; border: 0; border-radius: 50%; background: transparent; color: var(--dsw-alias-label-secondary); font: inherit; cursor: pointer; }
+.dsh-tavern-card-detail-tag > button:hover { background: var(--dsw-alias-bg-layer-1); color: var(--dsw-alias-label-primary); }
+.dsh-tavern-card-tag-add { min-width: 34px; height: 26px; padding: 0 10px; border: 1px dashed var(--dsw-alias-label-tertiary); border-radius: 999px; background: transparent; color: var(--dsw-alias-label-secondary); font: inherit; cursor: pointer; }
+.dsh-tavern-card-tag-add:hover { border-color: var(--dsh-tavern-accent); color: var(--dsh-tavern-accent); }
+.dsh-tavern-card-detail-title { display: flex; align-items: center; gap: 6px; }
+.dsh-tavern-card-rename { flex: none; width: 28px; height: 28px; border: 0; border-radius: 6px; background: transparent; color: var(--dsw-alias-label-tertiary); font-size: var(--fork-fs-heading); cursor: pointer; }
+.dsh-tavern-card-rename:hover { background: var(--dsw-specific-input-major); color: var(--dsw-alias-label-primary); }
+.dsh-tavern-card-detail .dsh-tavern-btn.dsh-tavern-card-detail-more { padding: 0 12px; font-size: var(--fork-fs-heading); }
 .dsh-tavern-card-detail > .dsh-tavern-status-head { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; padding: 16px; }
 .dsh-tavern-card-detail > .dsh-tavern-status-head > button { margin-bottom: 6px; }
 .dsh-tavern-card-detail .dsh-tavern-library-head-actions { margin-top: 6px; gap: 8px; }
 .dsh-tavern-card-detail > .dsh-tavern-script-hero { margin: 0 16px; }
 .dsh-tavern-card-detail > .dsh-tavern-card-fields { padding: 16px; }
-.dsh-tavern-card-detail-organization button[aria-pressed="true"] { color: var(--dsh-tavern-accent); }
-.dsh-tavern-card-batch-panel { padding: 10px 0 4px; position: sticky; top: 0; z-index: 2; }
 @media (max-width: 600px) {
-  .dsh-tavern-group-picker { flex-basis: 140px; }
+  /* phones: one row as the stage library's, buttons 36px to touch. */
+  .ap-ui.ap-pack-toolbar.dsh-tavern-card-organization { gap: 0; margin: 6px 10px 8px; }
+  .ap-ui.dsh-tavern-card-organization button.ap-icon-button { width: 36px; height: 36px; }
+  .dsh-tavern-card-filter .dsh-tavern-card-filter-label { max-width: 6em; }
 }
-
-.dsh-tavern-card-row-menu { flex: none; }
-.dsh-tavern-card-row-menu > summary { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 5px; list-style: none; cursor: pointer; color: var(--dsw-alias-label-secondary); font-size: 18px; }
-.dsh-tavern-card-row-menu > summary::-webkit-details-marker { display: none; }
-.dsh-tavern-card-row-menu > summary:hover, .dsh-tavern-card-row-menu[open] > summary { background: var(--dsw-specific-input-major, #ffffff12); color: var(--dsw-alias-label-primary); }
-.dsh-tavern-card-row-popup { position: fixed; inset: auto; margin: 0; z-index: 1000; width: 168px; max-width: calc(100vw - 24px); box-sizing: border-box; overflow-y: auto; padding: 4px; border: 1px solid color-mix(in srgb, currentColor 14%, transparent); border-radius: 7px; background: var(--dsw-specific-sidebar-fill, #202124); box-shadow: 0 4px 14px #0003; }
-.dsh-tavern-card-row-menu-title { padding: 5px 8px; color: var(--dsw-alias-label-secondary); font-size: 11px; }
-.dsh-tavern-card-row-popup button { display: flex; gap: 8px; align-items: center; width: 100%; min-height: 30px; border: 0; border-radius: 4px; padding: 5px 8px; background: transparent; color: inherit; text-align: left; font: inherit; font-size: 12px; line-height: 20px; overflow-wrap: anywhere; cursor: pointer; }
-.dsh-tavern-card-row-popup button > span { width: 12px; flex-shrink: 0; order: 1; margin-left: auto; color: var(--dsw-alias-label-secondary); font-size: 11px; }
-.dsh-tavern-card-row-popup button:hover, .dsh-tavern-card-row-popup button:focus-visible { background: var(--dsw-specific-input-major, #ffffff12); }
-
-.dsh-tavern-group-add { display: block; margin: 12px auto; padding: 7px 14px; border: 0; border-radius: 6px; background: transparent; color: var(--dsw-alias-label-secondary); font: inherit; font-size: 12px; cursor: pointer; }
-.dsh-tavern-group-add:hover { background: var(--dsw-specific-input-major, #ffffff12); color: var(--dsw-alias-label-primary); }
-.dsh-tavern-group-add-grid { max-height: min(48vh, 360px); overflow-y: auto; margin-top: 12px; }
 
 .dsh-tavern-character-design-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
 .dsh-tavern-character-design-head .dsh-tavern-status-label { margin: 0; }
 
-.dsh-tavern-group-menu[popover] { position: fixed; inset: auto; margin: 0; overflow-y: auto; color: var(--dsw-alias-label-primary); }
 
 /* Script navigation stays compact inside the resizable status sidebar. */
 .dsh-script-nav { min-width: 0; font-size: 13px; line-height: 1.5; }
@@ -1707,9 +1768,9 @@ ins.dsh-polish-mark.is-lit { background: rgba(76, 175, 125, .34); }
 .dsh-context-header { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin-bottom: 14px; }
 .dsh-context-header h3 { margin: 0; font-size: 18px; line-height: 1.5; font-weight: 600; }
 .dsh-context-header p { margin: 4px 0 0; font-size: 12px; color: var(--dsw-alias-label-tertiary); }
-.dsh-tavern-full-context button { flex: none; padding: 6px 12px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 8px; background: var(--dsw-alias-bg-base); color: var(--dsw-alias-label-secondary); font: inherit; font-size: 12px; cursor: pointer; transition: background .15s; }
-.dsh-tavern-full-context button:hover:not(:disabled) { background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-primary); }
-.dsh-tavern-full-context button:disabled { opacity: .5; cursor: default; }
+.dsh-tavern-full-context button:not([class*="dsh-ctx-"]) { flex: none; padding: 6px 12px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 8px; background: var(--dsw-alias-bg-base); color: var(--dsw-alias-label-secondary); font: inherit; font-size: 12px; cursor: pointer; transition: background .15s; }
+.dsh-tavern-full-context button:not([class*="dsh-ctx-"]):hover:not(:disabled) { background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-primary); }
+.dsh-tavern-full-context button:not([class*="dsh-ctx-"]):disabled { opacity: .5; cursor: default; }
 .dsh-context-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 14px; margin-bottom: 18px; color: var(--dsw-alias-label-secondary); font-size: 12px; }
 .dsh-context-meta time { color: var(--dsw-alias-label-tertiary); }
 .dsh-context-badge { padding: 2px 8px; border-radius: 6px; background: var(--dsw-alias-interactive-bg-hover); }
@@ -1832,6 +1893,1079 @@ ins.dsh-polish-mark.is-lit { background: rgba(76, 175, 125, .34); }
   .dsh-context-part-label { gap: 4px 6px; padding: 8px 12px; }
   .dsh-context-list .dsh-context-source,
   .dsh-context-diff-box { margin: 8px 10px 10px; }
+}
+
+/* --- Magpie 风格上下文窗口总览与浮层 (.dsh-ctx-*) --- */
+:root {
+  --dsh-ctx-wb: #5d8a78;
+  --dsh-ctx-wb-bg: rgba(93, 138, 120, 0.14);
+  --dsh-ctx-wb-bd: rgba(93, 138, 120, 0.36);
+  --dsh-ctx-card: #c46e52;
+  --dsh-ctx-card-bg: rgba(196, 110, 82, 0.14);
+  --dsh-ctx-card-bd: rgba(196, 110, 82, 0.36);
+  --dsh-ctx-sys: #78828d;
+  --dsh-ctx-sys-bg: rgba(120, 130, 141, 0.13);
+  --dsh-ctx-sys-bd: rgba(120, 130, 141, 0.34);
+  --dsh-ctx-state: #c08a34;
+  --dsh-ctx-state-bg: rgba(192, 138, 52, 0.15);
+  --dsh-ctx-state-bd: rgba(192, 138, 52, 0.38);
+  --dsh-ctx-tool: #6e7cb4;
+  --dsh-ctx-tool-bg: rgba(110, 124, 180, 0.14);
+  --dsh-ctx-tool-bd: rgba(110, 124, 180, 0.36);
+  --dsh-ctx-story: #4c78bf;
+  --dsh-ctx-story-bg: rgba(76, 120, 191, 0.14);
+  --dsh-ctx-story-bd: rgba(76, 120, 191, 0.36);
+  --dsh-ctx-danger: #d1493b;
+  --dsh-ctx-warn: #d97706;
+  --dsh-ctx-ok: #3f8f6b;
+}
+
+body[data-ds-dark-theme],
+[data-dsh-card-stage-scheme="dark"] {
+  --dsh-ctx-wb: #7bb49d;
+  --dsh-ctx-wb-bg: rgba(123, 180, 157, 0.2);
+  --dsh-ctx-wb-bd: rgba(123, 180, 157, 0.45);
+  --dsh-ctx-card: #e09076;
+  --dsh-ctx-card-bg: rgba(224, 144, 118, 0.2);
+  --dsh-ctx-card-bd: rgba(224, 144, 118, 0.45);
+  --dsh-ctx-sys: #9ba5b0;
+  --dsh-ctx-sys-bg: rgba(155, 165, 176, 0.18);
+  --dsh-ctx-sys-bd: rgba(155, 165, 176, 0.42);
+  --dsh-ctx-state: #dfb05b;
+  --dsh-ctx-state-bg: rgba(223, 176, 91, 0.2);
+  --dsh-ctx-state-bd: rgba(223, 176, 91, 0.45);
+  --dsh-ctx-tool: #95a4dc;
+  --dsh-ctx-tool-bg: rgba(149, 164, 220, 0.2);
+  --dsh-ctx-tool-bd: rgba(149, 164, 220, 0.45);
+  --dsh-ctx-story: #7aa5eb;
+  --dsh-ctx-story-bg: rgba(122, 165, 235, 0.2);
+  --dsh-ctx-story-bd: rgba(122, 165, 235, 0.45);
+  --dsh-ctx-danger: #f87171;
+  --dsh-ctx-warn: #fbbf24;
+  --dsh-ctx-ok: #5ec498;
+}
+
+.is-bucket-worldbook { --dsh-ctx-tint: var(--dsh-ctx-wb); --dsh-ctx-tile-bg: var(--dsh-ctx-wb-bg); --dsh-ctx-tile-bd: var(--dsh-ctx-wb-bd); }
+.is-bucket-card { --dsh-ctx-tint: var(--dsh-ctx-card); --dsh-ctx-tile-bg: var(--dsh-ctx-card-bg); --dsh-ctx-tile-bd: var(--dsh-ctx-card-bd); }
+.is-bucket-system { --dsh-ctx-tint: var(--dsh-ctx-sys); --dsh-ctx-tile-bg: var(--dsh-ctx-sys-bg); --dsh-ctx-tile-bd: var(--dsh-ctx-sys-bd); }
+.is-bucket-state { --dsh-ctx-tint: var(--dsh-ctx-state); --dsh-ctx-tile-bg: var(--dsh-ctx-state-bg); --dsh-ctx-tile-bd: var(--dsh-ctx-state-bd); }
+.is-bucket-tool { --dsh-ctx-tint: var(--dsh-ctx-tool); --dsh-ctx-tile-bg: var(--dsh-ctx-tool-bg); --dsh-ctx-tile-bd: var(--dsh-ctx-tool-bd); }
+.is-bucket-story { --dsh-ctx-tint: var(--dsh-ctx-story); --dsh-ctx-tile-bg: var(--dsh-ctx-story-bg); --dsh-ctx-tile-bd: var(--dsh-ctx-story-bd); }
+.is-bucket-free { --dsh-ctx-tint: var(--dsw-alias-border-l3, #cfd3d8); --dsh-ctx-tile-bg: transparent; --dsh-ctx-tile-bd: var(--dsw-alias-border-l2, #d4d7dc); }
+
+.dsh-ctx-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 3px;
+  background: var(--dsh-ctx-tint, var(--dsh-ctx-sys));
+}
+.dsh-ctx-dot.is-bucket-free {
+  background: transparent;
+  border: 1px dashed var(--dsw-alias-label-tertiary, #8a8379);
+  box-sizing: border-box;
+}
+
+.dsh-ctx-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  box-sizing: border-box;
+  min-width: 0;
+  color: var(--dsw-alias-label-primary);
+  font-variant-numeric: tabular-nums;
+}
+.dsh-ctx-card.is-full {
+  margin-bottom: 14px;
+  padding: 14px 16px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 14px;
+  background: var(--dsw-specific-sidebar-fill, var(--dsw-alias-bg-base));
+}
+.dsh-ctx-card.is-popover {
+  padding: 14px 14px 12px;
+}
+.dsh-ctx-card.is-sheet {
+  padding: 4px 14px 10px;
+}
+
+.dsh-ctx-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+.dsh-ctx-card-title-row,
+.dsh-ctx-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+.dsh-ctx-card-title {
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+.dsh-ctx-health {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 17px;
+}
+.dsh-ctx-health.is-healthy { background: rgba(63, 143, 107, 0.14); color: var(--dsh-ctx-ok); }
+.dsh-ctx-health.is-warn { background: rgba(217, 119, 6, 0.14); color: var(--dsh-ctx-warn); }
+.dsh-ctx-health.is-danger { background: rgba(209, 73, 59, 0.16); color: var(--dsh-ctx-danger); }
+
+.dsh-ctx-scope-switch {
+  display: inline-flex;
+  padding: 2px;
+  border-radius: 8px;
+  background: var(--dsw-alias-interactive-bg-hover, rgba(127, 127, 127, 0.1));
+}
+.dsh-ctx-scope-btn {
+  border: 0;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 11px;
+  line-height: 18px;
+  padding: 1px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.dsh-ctx-scope-btn.is-active {
+  background: var(--dsw-alias-bg-base);
+  color: var(--dsw-alias-label-primary);
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+}
+
+.dsh-ctx-model-pill {
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 1px 7px;
+  border-radius: 6px;
+  font-size: 11px;
+  color: var(--dsw-alias-label-secondary);
+  background: var(--dsw-alias-interactive-bg-hover, rgba(127, 127, 127, 0.08));
+}
+.dsh-ctx-icon-btn,
+.dsh-ctx-close-btn {
+  border: 1px solid var(--dsw-alias-border-l2);
+  background: var(--dsw-alias-bg-base);
+  color: var(--dsw-alias-label-secondary);
+  border-radius: 7px;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  line-height: 1;
+}
+.dsh-ctx-icon-btn { padding: 5px 10px; }
+.dsh-ctx-close-btn {
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  padding: 0;
+}
+.dsh-ctx-icon-btn:hover,
+.dsh-ctx-close-btn:hover { background: var(--dsw-alias-interactive-bg-hover); }
+
+.dsh-ctx-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.dsh-ctx-kpi {
+  min-width: 0;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--dsw-alias-border-l3, var(--dsw-alias-border-l2));
+  background: var(--dsw-alias-bg-base);
+}
+.dsh-ctx-kpi-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--dsw-alias-label-tertiary);
+}
+.dsh-ctx-measure-tag,
+.dsh-ctx-cache-alert-dot {
+  padding: 0 5px;
+  border-radius: 999px;
+  font-size: 10px;
+  line-height: 15px;
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-secondary);
+}
+.dsh-ctx-cache-alert-dot {
+  background: rgba(217, 119, 6, 0.16);
+  color: var(--dsh-ctx-warn);
+  font-weight: 600;
+}
+.dsh-ctx-kpi-main {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  flex-wrap: wrap;
+  margin-top: 2px;
+}
+.dsh-ctx-kpi-value {
+  font-size: 20px;
+  line-height: 24px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+.dsh-ctx-kpi-value.is-warn { color: var(--dsh-ctx-warn); }
+.dsh-ctx-kpi-cap {
+  font-size: 12px;
+  color: var(--dsw-alias-label-tertiary);
+}
+.dsh-ctx-kpi-sub {
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--dsw-alias-label-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dsh-ctx-break-link {
+  margin-left: auto;
+  border: 0;
+  background: transparent;
+  color: var(--dsh-ctx-warn);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0 2px;
+}
+.dsh-ctx-break-link:hover { text-decoration: underline; }
+
+.dsh-ctx-viz-wrap {
+  position: relative;
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  --dsh-ctx-ease: cubic-bezier(0.32, 0.72, 0, 1);
+}
+.dsh-ctx-viz-stage {
+  position: relative;
+  width: 100%;
+  min-width: 0;
+}
+.dsh-ctx-treemap {
+  position: relative;
+  width: 100%;
+  height: 132px;
+  margin: -1.5px 0;
+  border-radius: 10px;
+  background: transparent;
+}
+.dsh-ctx-treemap.is-full { height: 184px; }
+.dsh-ctx-treemap.is-sheet { height: 164px; }
+
+.dsh-ctx-threshold-line {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 0;
+  border-left: 1.5px dashed rgba(209, 73, 59, 0.55);
+  z-index: 3;
+  pointer-events: none;
+}
+.dsh-ctx-threshold-tag {
+  position: absolute;
+  top: 4px;
+  left: 3px;
+  padding: 0 4px;
+  border-radius: 4px;
+  font-size: 9px;
+  line-height: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  color: var(--dsh-ctx-danger);
+  background: var(--dsw-alias-bg-base);
+  border: 1px solid rgba(209, 73, 59, 0.3);
+}
+
+@keyframes dsh-ctx-tile-enter {
+  from { opacity: 0; transform: scale(0.94); filter: blur(4px); }
+  to { opacity: 1; transform: none; filter: none; }
+}
+@keyframes dsh-ctx-cell-enter {
+  from { opacity: 0; transform: scale(0.4); }
+}
+
+.dsh-ctx-tile {
+  position: absolute;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 7px;
+  background: var(--dsh-ctx-tile-bg);
+  background: color-mix(in srgb, var(--dsh-ctx-tint, var(--dsh-ctx-sys)) 12%, var(--dsw-alias-bg-base));
+  box-shadow: inset 0 0 0 1px var(--dsh-ctx-tile-bd);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--dsh-ctx-tint, var(--dsh-ctx-sys)) 28%, transparent);
+  color: var(--dsw-alias-label-primary);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: flex-start;
+  gap: 1px;
+  overflow: hidden;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+  animation: dsh-ctx-tile-enter 0.38s var(--dsh-ctx-ease) var(--d, 0ms) backwards;
+  transition: left 0.4s var(--dsh-ctx-ease), top 0.4s var(--dsh-ctx-ease),
+    width 0.4s var(--dsh-ctx-ease), height 0.4s var(--dsh-ctx-ease),
+    background-color 0.22s ease, box-shadow 0.22s ease, opacity 0.24s ease;
+}
+body[data-ds-dark-theme] .dsh-ctx-tile,
+[data-dsh-card-stage-scheme="dark"] .dsh-ctx-tile {
+  background: var(--dsh-ctx-tile-bg);
+  background: color-mix(in srgb, var(--dsh-ctx-tint, var(--dsh-ctx-sys)) 18%, var(--dsw-alias-bg-base));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--dsh-ctx-tint, var(--dsh-ctx-sys)) 38%, transparent);
+}
+.dsh-ctx-tile.is-low {
+  padding-top: 4px;
+  padding-bottom: 4px;
+}
+.dsh-ctx-tile.is-bare {
+  padding: 0;
+}
+.dsh-ctx-tile:hover,
+.dsh-ctx-tile.is-on,
+.dsh-ctx-tile.is-selected {
+  z-index: 2;
+  background: var(--dsh-ctx-tile-bg);
+  background: color-mix(in srgb, var(--dsh-ctx-tint, var(--dsh-ctx-sys)) 21%, var(--dsw-alias-bg-base));
+  box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--dsh-ctx-tint, var(--dsh-ctx-sys)) 56%, transparent);
+}
+body[data-ds-dark-theme] .dsh-ctx-tile:hover,
+body[data-ds-dark-theme] .dsh-ctx-tile.is-on,
+body[data-ds-dark-theme] .dsh-ctx-tile.is-selected,
+[data-dsh-card-stage-scheme="dark"] .dsh-ctx-tile:hover,
+[data-dsh-card-stage-scheme="dark"] .dsh-ctx-tile.is-on,
+[data-dsh-card-stage-scheme="dark"] .dsh-ctx-tile.is-selected {
+  background: color-mix(in srgb, var(--dsh-ctx-tint, var(--dsh-ctx-sys)) 28%, var(--dsw-alias-bg-base));
+  box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--dsh-ctx-tint, var(--dsh-ctx-sys)) 64%, transparent);
+}
+.dsh-ctx-treemap[data-focus] > .dsh-ctx-tile {
+  opacity: 0.32;
+}
+.dsh-ctx-treemap[data-focus] > .dsh-ctx-tile.is-on {
+  opacity: 1;
+}
+.dsh-ctx-tile.is-free {
+  cursor: default;
+  background: repeating-linear-gradient(
+    -45deg,
+    color-mix(in srgb, var(--dsw-alias-label-primary, #1f2328) 5.5%, transparent) 0 1px,
+    transparent 1px 6px
+  ), color-mix(in srgb, var(--dsw-alias-label-primary, #1f2328) 1.5%, var(--dsw-alias-bg-base));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--dsw-alias-label-primary, #1f2328) 10%, transparent);
+  color: var(--dsw-alias-label-tertiary);
+}
+.dsh-ctx-tile.is-free:hover,
+.dsh-ctx-tile.is-free.is-on,
+.dsh-ctx-tile.is-free.is-selected {
+  background: repeating-linear-gradient(
+    -45deg,
+    color-mix(in srgb, var(--dsw-alias-label-primary, #1f2328) 8%, transparent) 0 1px,
+    transparent 1px 6px
+  ), color-mix(in srgb, var(--dsw-alias-label-primary, #1f2328) 3%, var(--dsw-alias-bg-base));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--dsw-alias-label-primary, #1f2328) 22%, transparent);
+}
+.dsh-ctx-tile.is-break {
+  box-shadow: inset 0 0 0 1.5px var(--dsh-ctx-warn);
+}
+.dsh-ctx-tile.is-break:hover,
+.dsh-ctx-tile.is-break.is-on {
+  box-shadow: inset 0 0 0 2px var(--dsh-ctx-warn);
+}
+.dsh-ctx-tile-break {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  background: var(--dsh-ctx-warn);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 14px;
+  text-align: center;
+}
+.dsh-ctx-tile-title {
+  max-width: 100%;
+  font-size: 11.5px;
+  font-weight: 600;
+  line-height: 1.25;
+  color: var(--dsh-ctx-tint, var(--dsw-alias-label-primary));
+  color: color-mix(in srgb, var(--dsh-ctx-tint, var(--dsw-alias-label-primary)) 76%, var(--dsw-alias-label-primary));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dsh-ctx-tile.is-free .dsh-ctx-tile-title { color: var(--dsw-alias-label-secondary); font-weight: 500; }
+.dsh-ctx-tile-val {
+  max-width: 100%;
+  font-size: 10.5px;
+  line-height: 1.25;
+  color: var(--dsw-alias-label-secondary);
+  color: color-mix(in srgb, var(--dsh-ctx-tint, var(--dsw-alias-label-secondary)) 44%, var(--dsw-alias-label-secondary));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dsh-ctx-tile.is-free .dsh-ctx-tile-val { color: var(--dsw-alias-label-tertiary); }
+
+.dsh-ctx-waffle {
+  display: grid;
+  grid-template-columns: repeat(40, minmax(0, 1fr));
+  gap: 2px;
+  padding: 8px;
+  border-radius: 10px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  background: var(--dsw-alias-bg-base);
+}
+.dsh-ctx-waffle.is-popover {
+  grid-template-columns: repeat(25, minmax(0, 1fr));
+}
+.dsh-ctx-waffle.is-sheet {
+  grid-template-columns: repeat(25, minmax(0, 1fr));
+  gap: 2.5px;
+}
+.dsh-ctx-waffle-cell {
+  aspect-ratio: 1;
+  min-width: 0;
+  border-radius: 2px;
+  background: var(--dsh-ctx-tint, var(--dsh-ctx-sys));
+  cursor: pointer;
+  animation: dsh-ctx-cell-enter 0.32s var(--dsh-ctx-ease) var(--d, 0ms) backwards;
+  transition: opacity 0.16s ease, transform 0.16s ease;
+}
+.dsh-ctx-waffle-cell.is-free {
+  cursor: default;
+  background: var(--dsw-alias-border-l3, rgba(127, 127, 127, 0.14));
+  background: color-mix(in srgb, var(--dsw-alias-label-primary, #1f2328) 7%, transparent);
+}
+.dsh-ctx-waffle[data-focus] > .dsh-ctx-waffle-cell {
+  opacity: 0.16;
+}
+.dsh-ctx-waffle[data-focus] > .dsh-ctx-waffle-cell.is-on {
+  opacity: 1;
+}
+.dsh-ctx-waffle[data-focus] > .dsh-ctx-waffle-cell.is-item-on {
+  transform: scale(1.16);
+  position: relative;
+  z-index: 2;
+}
+
+.dsh-ctx-tip {
+  position: absolute;
+  z-index: 20;
+  min-width: 184px;
+  max-width: 280px;
+  padding: 8px 11px;
+  border-radius: 10px;
+  background: #17171b;
+  background-image: none;
+  color: #ededf1;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.28);
+  font-size: 11.5px;
+  line-height: 1.45;
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  opacity: 0;
+  transform: translateY(3px);
+  transition: opacity 0.14s ease, transform 0.14s var(--dsh-ctx-ease);
+}
+.dsh-ctx-tip.is-placed {
+  opacity: 1;
+  transform: none;
+}
+.dsh-ctx-tip-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.dsh-ctx-tip-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+  color: #fff;
+}
+.dsh-ctx-tip-meta {
+  flex: none;
+  color: #a1a1aa;
+  font-size: 11px;
+}
+.dsh-ctx-tip-sub {
+  color: #a1a1aa;
+  font-size: 11px;
+}
+.dsh-ctx-tip-break {
+  flex: none;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: rgba(251, 191, 36, 0.2);
+  color: #fbbf24;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 16px;
+}
+.dsh-ctx-tip-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #b9b9c1;
+  font-size: 11px;
+}
+.dsh-ctx-tip-row.is-active {
+  color: #fff;
+  font-weight: 600;
+}
+.dsh-ctx-tip-row-n {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dsh-ctx-tip-row-v {
+  flex: none;
+  color: #a1a1aa;
+}
+.dsh-ctx-tip-row.is-active .dsh-ctx-tip-row-v {
+  color: #ededf1;
+}
+.dsh-ctx-tip-more {
+  color: #85858d;
+  font-size: 10.5px;
+}
+
+.dsh-ctx-selected-bar {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  padding: 6px 9px;
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-base);
+  border: 1px solid var(--dsw-alias-border-l2);
+  font-size: 11.5px;
+}
+.dsh-ctx-selected-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+.dsh-ctx-selected-meta {
+  flex: none;
+  color: var(--dsw-alias-label-secondary);
+}
+.dsh-ctx-selected-action {
+  flex: none;
+  border: 0;
+  background: transparent;
+  color: var(--dsh-tavern-accent, var(--dsw-alias-button-info-fill, #4176e6));
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 2px 4px;
+}
+.dsh-ctx-break-tag {
+  padding: 0 5px;
+  border-radius: 999px;
+  font-size: 10px;
+  line-height: 16px;
+  background: rgba(217, 119, 6, 0.16);
+  color: var(--dsh-ctx-warn);
+  font-weight: 600;
+}
+
+.dsh-ctx-viz-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+.dsh-ctx-legend {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.dsh-ctx-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  font: inherit;
+  font-size: 11.5px;
+  line-height: 16px;
+  padding: 2px 5px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+.dsh-ctx-legend-item.is-readonly { cursor: default; }
+.dsh-ctx-legend-item:not(.is-readonly):hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+.dsh-ctx-legend-item.is-active {
+  background: var(--dsw-alias-bg-base);
+  border-color: var(--dsw-alias-border-l2);
+  color: var(--dsw-alias-label-primary);
+  font-weight: 600;
+}
+.dsh-ctx-legend-item.is-empty { opacity: 0.5; }
+.dsh-ctx-legend-val { color: var(--dsw-alias-label-tertiary); }
+
+.dsh-ctx-mode-switch {
+  display: inline-flex;
+  flex: none;
+  margin-left: auto;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 7px;
+  background: var(--dsw-alias-interactive-bg-hover, rgba(127, 127, 127, 0.1));
+}
+.dsh-ctx-mode-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  width: 26px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--dsw-alias-label-tertiary);
+  cursor: pointer;
+  transition: background-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
+}
+.dsh-ctx-mode-btn svg {
+  display: block;
+  flex: none;
+  width: 14px;
+  height: 14px;
+  fill: currentColor;
+}
+.dsh-ctx-mode-btn:hover {
+  color: var(--dsw-alias-label-secondary);
+}
+.dsh-ctx-mode-btn.is-active {
+  background: var(--dsw-alias-bg-base);
+  color: var(--dsw-alias-label-primary);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12), 0 0 0 0.5px color-mix(in srgb, var(--dsw-alias-label-primary, #000) 10%, transparent);
+}
+
+.dsh-ctx-trend-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 7px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--dsw-alias-border-l3, var(--dsw-alias-border-l2));
+  background: var(--dsw-alias-bg-base);
+}
+.dsh-ctx-sparkline-box {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1 1 200px;
+  min-width: 0;
+}
+.dsh-ctx-sparkline-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  flex: none;
+}
+.dsh-ctx-sparkline-label { font-size: 11px; color: var(--dsw-alias-label-tertiary); }
+.dsh-ctx-sparkline-latest { font-size: 12px; font-weight: 600; }
+.dsh-ctx-sparkline-svg {
+  flex: 1 1 auto;
+  min-width: 90px;
+  max-width: 240px;
+  height: 36px;
+  overflow: visible;
+}
+.dsh-ctx-sparkline-thresh {
+  stroke: rgba(209, 73, 59, 0.45);
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+}
+.dsh-ctx-sparkline-area { fill: rgba(93, 138, 120, 0.14); }
+.dsh-ctx-sparkline-line { fill: none; stroke: var(--dsh-ctx-wb); stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.dsh-ctx-sparkline-dot { fill: var(--dsh-ctx-wb); }
+
+.dsh-ctx-compact-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+}
+.dsh-ctx-compact-note { font-size: 11px; color: var(--dsw-alias-label-secondary); }
+
+.dsh-ctx-ranking {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.dsh-ctx-ranking-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+.dsh-ctx-ranking-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--dsw-alias-label-secondary);
+}
+.dsh-ctx-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  padding-bottom: 1px;
+}
+.dsh-ctx-chip {
+  flex: none;
+  border: 1px solid var(--dsw-alias-border-l2);
+  background: var(--dsw-alias-bg-base);
+  color: var(--dsw-alias-label-secondary);
+  border-radius: 999px;
+  padding: 2px 9px;
+  font-size: 11px;
+  line-height: 17px;
+  cursor: pointer;
+}
+.dsh-ctx-chip.is-active {
+  background: var(--dsw-alias-label-primary);
+  border-color: var(--dsw-alias-label-primary);
+  color: var(--dsw-alias-bg-base);
+  font-weight: 600;
+}
+
+.dsh-ctx-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.dsh-ctx-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  padding: 6px 8px;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  line-height: 17px;
+}
+.dsh-ctx-row:hover { background: var(--dsw-alias-interactive-bg-hover); }
+.dsh-ctx-row.is-break { background: rgba(217, 119, 6, 0.08); }
+.dsh-ctx-card.is-sheet .dsh-ctx-row {
+  min-height: 44px;
+  padding: 8px 6px;
+}
+.dsh-ctx-row-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.dsh-ctx-row-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+}
+.dsh-ctx-row-sub {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10.5px;
+  color: var(--dsw-alias-label-tertiary);
+}
+.dsh-ctx-row-badge {
+  flex: none;
+  padding: 0 5px;
+  border-radius: 999px;
+  font-size: 10px;
+  line-height: 16px;
+}
+.dsh-ctx-row-badge.is-break { background: rgba(217, 119, 6, 0.16); color: var(--dsh-ctx-warn); font-weight: 600; }
+.dsh-ctx-row-badge.is-appended { background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-secondary); }
+.dsh-ctx-row-meter {
+  flex: none;
+  width: 44px;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--dsw-alias-border-l3, rgba(127, 127, 127, 0.14));
+  overflow: hidden;
+}
+.dsh-ctx-row-fill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--dsh-ctx-tint, var(--dsh-ctx-sys));
+}
+.dsh-ctx-row-val {
+  flex: none;
+  min-width: 36px;
+  text-align: right;
+  font-weight: 600;
+  color: var(--dsw-alias-label-secondary);
+}
+.dsh-ctx-show-all {
+  align-self: flex-start;
+  border: 0;
+  background: transparent;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 11.5px;
+  padding: 3px 6px;
+  cursor: pointer;
+}
+.dsh-ctx-show-all:hover { color: var(--dsw-alias-label-primary); }
+
+.dsh-ctx-popover-footer,
+.dsh-ctx-sheet-sticky {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.dsh-ctx-popover-footer {
+  padding-top: 8px;
+  border-top: 1px solid var(--dsw-alias-border-l3, var(--dsw-alias-border-l2));
+}
+.dsh-ctx-footer-hint {
+  font-size: 11px;
+  color: var(--dsw-alias-label-tertiary);
+}
+.dsh-ctx-action-btn {
+  border: 1px solid var(--dsw-alias-border-l2);
+  background: var(--dsw-alias-bg-base);
+  color: var(--dsw-alias-label-primary);
+  border-radius: 8px;
+  padding: 6px 12px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.dsh-ctx-action-btn.is-primary {
+  background: var(--dsh-tavern-accent, var(--dsw-alias-button-info-fill, #4176e6));
+  border-color: transparent;
+  color: #fff;
+}
+.dsh-ctx-action-btn:disabled { opacity: 0.55; cursor: default; }
+
+.dsh-ctx-popover {
+  position: fixed;
+  z-index: 1200;
+  width: min(426px, calc(100vw - 24px));
+  max-width: calc(100vw - 24px);
+  box-sizing: border-box;
+  overflow-y: auto;
+  border-radius: 14px;
+  border: 1px solid var(--dsw-alias-border-l1);
+  background: var(--dsw-specific-menu, var(--dsw-alias-bg-base));
+  color: var(--dsw-alias-label-primary);
+  box-shadow: var(--dsw-elevation-prominent, 0 14px 38px rgba(0, 0, 0, 0.18));
+  backdrop-filter: var(--dsw-menu-backdrop-filter, none);
+}
+
+.dsh-ctx-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1250;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  box-sizing: border-box;
+  background: rgba(15, 17, 21, 0.44);
+  backdrop-filter: blur(2px);
+}
+.dsh-ctx-modal {
+  width: min(920px, 100%);
+  max-height: min(88dvh, 840px);
+  box-sizing: border-box;
+  overflow-y: auto;
+  border-radius: 16px;
+  border: 1px solid var(--dsw-alias-border-l1);
+  background: var(--dsw-alias-bg-base);
+  box-shadow: var(--dsw-elevation-prominent, 0 18px 48px rgba(0, 0, 0, 0.24));
+  padding: 16px;
+}
+
+.dsh-ctx-sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1260;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  background: rgba(15, 17, 21, 0.44);
+  overscroll-behavior: contain;
+}
+.dsh-ctx-sheet {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 560px;
+  max-height: 84dvh;
+  box-sizing: border-box;
+  overflow: hidden;
+  border-radius: 18px 18px 0 0;
+  border-top: 1px solid var(--dsw-alias-border-l1);
+  background: var(--dsw-alias-bg-base);
+  color: var(--dsw-alias-label-primary);
+  box-shadow: 0 -10px 32px rgba(0, 0, 0, 0.18);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+.dsh-ctx-sheet-handle {
+  display: flex;
+  justify-content: center;
+  padding: 8px 0 4px;
+  flex: none;
+}
+.dsh-ctx-sheet-handle span {
+  width: 36px;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--dsw-alias-border-l1, rgba(127, 127, 127, 0.28));
+}
+.dsh-ctx-sheet-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+}
+.dsh-ctx-sheet-body.is-detail {
+  padding: 10px 14px 16px;
+}
+.dsh-ctx-sheet-sticky {
+  flex: none;
+  padding: 10px 14px;
+  border-top: 1px solid var(--dsw-alias-border-l2);
+  background: var(--dsw-alias-bg-base);
+}
+.dsh-ctx-sheet-sticky .dsh-ctx-action-btn {
+  flex: 1 1 0;
+  min-height: 38px;
+}
+.dsh-ctx-sheet-subhead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--dsw-alias-border-l2);
+  flex: none;
+}
+.dsh-ctx-back-btn {
+  border: 0;
+  background: transparent;
+  color: var(--dsh-tavern-accent, var(--dsw-alias-button-info-fill, #4176e6));
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 4px 6px 4px 0;
+  flex: none;
+}
+.dsh-ctx-subhead-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 600;
+}
+.dsh-ctx-sheet-detail-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+.dsh-ctx-sheet-detail-inner pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+  line-height: 1.55;
+  margin: 8px 0;
+}
+.dsh-ctx-sheet-err {
+  margin: 6px 14px;
+  font-size: 12px;
+  color: var(--dsh-ctx-danger);
+}
+
+@media (max-width: 640px) {
+  .dsh-ctx-card.is-full { padding: 12px; }
+  .dsh-ctx-row-meter { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dsh-ctx-tile,
+  .dsh-ctx-waffle-cell { animation: none; transition: background-color 0.2s, box-shadow 0.2s, opacity 0.2s; }
+  .dsh-ctx-tip { transition: none; }
 }
 
 /* Shared by global defaults and conversation writing-skill controls. */
@@ -1999,59 +3133,6 @@ header .nL4_yW_moreButton { display: none !important; }
   background: color-mix(in srgb, #c64545 22%, transparent);
 }
 
-.dsh-tavern-card-library > .dsh-tavern-card-organization {
-  margin: 10px 16px 6px;
-  gap: 10px;
-}
-.dsh-tavern-card-library > .dsh-tavern-card-organization > .dsh-tavern-library-search,
-.dsh-tavern-card-library > .dsh-tavern-card-organization > .dsh-tavern-group-picker > summary {
-  height: 36px;
-  min-height: 36px;
-  padding: 0 12px;
-  border: 1px solid var(--dsw-alias-border-l2);
-  border-radius: var(--dsh-card-radius-md);
-  background: var(--dsw-specific-input-major);
-  font-size: 15px;
-  letter-spacing: -0.24px;
-  line-height: 1.2;
-}
-.dsh-tavern-card-library > .dsh-tavern-card-organization > .dsh-tavern-library-search:focus,
-.dsh-tavern-card-library > .dsh-tavern-card-organization > .dsh-tavern-library-search:focus-visible {
-  outline: none;
-  border-color: var(--dsh-card-action);
-  box-shadow: 0 0 0 3px var(--dsh-card-action-soft);
-}
-.dsh-tavern-card-library .dsh-tavern-group-picker[open] > summary {
-  border-color: var(--dsh-card-action-border);
-  background: var(--dsh-card-action-soft);
-}
-.dsh-tavern-card-library .dsh-tavern-group-picker > summary:focus-visible {
-  outline: 2px solid var(--dsh-card-action);
-  outline-offset: 2px;
-}
-.dsh-tavern-card-library .dsh-tavern-group-menu button[aria-pressed="true"] {
-  color: var(--dsh-card-action);
-  background: var(--dsh-card-action-soft);
-  font-weight: 600;
-}
-
-.dsh-tavern-card-library > .dsh-tavern-card-batch {
-  margin: 0 16px;
-  padding: 8px 0 4px;
-}
-.dsh-tavern-card-library .dsh-tavern-card-batch-count {
-  font-size: 13px;
-  font-weight: 500;
-}
-.dsh-tavern-card-library .dsh-tavern-card-batch-notice {
-  border-radius: var(--dsh-card-radius-sm);
-  background: var(--dsh-card-action-soft);
-  color: var(--dsw-alias-label-primary);
-  font-size: 13px;
-}
-.dsh-tavern-card-library .dsh-tavern-card-batch-checkbox {
-  margin: 0 8px 0 4px;
-}
 
 .dsh-tavern-card-library > .dsh-tavern-resource-body {
   padding: 8px 10px 24px;
@@ -2100,12 +3181,6 @@ header .nL4_yW_moreButton { display: none !important; }
   outline: 2px solid var(--dsh-card-action);
   outline-offset: 2px;
 }
-.dsh-tavern-card-library .dsh-tavern-card-row-menu > summary {
-  width: 32px;
-  height: 32px;
-  border-radius: var(--dsh-card-radius-md);
-  font-size: 18px;
-}
 .dsh-tavern-card-library .dsh-tavern-empty {
   padding: 40px 24px;
   color: var(--dsw-alias-label-secondary);
@@ -2121,7 +3196,7 @@ header .nL4_yW_moreButton { display: none !important; }
   overscroll-behavior: contain;
 }
 .dsh-tavern-card-detail > .dsh-tavern-status-head,
-.dsh-tavern-card-detail > .dsh-tavern-card-detail-organization,
+.dsh-tavern-card-detail > .dsh-tavern-card-detail-tags,
 .dsh-tavern-card-detail > .dsh-tavern-script-hero {
   flex: 0 0 auto;
 }
@@ -2146,26 +3221,9 @@ header .nL4_yW_moreButton { display: none !important; }
   line-height: 1.2;
   color: var(--dsh-card-ink);
 }
-.dsh-tavern-card-detail > .dsh-tavern-card-detail-organization {
+.dsh-tavern-card-detail > .dsh-tavern-card-detail-tags {
   padding: 12px 16px;
   border-bottom: 1px solid var(--dsw-alias-border-l2);
-}
-.dsh-tavern-card-detail > .dsh-tavern-card-detail-organization label {
-  font-size: 13px;
-  font-weight: 400;
-  color: var(--dsw-alias-label-secondary);
-}
-.dsh-tavern-card-detail > .dsh-tavern-card-detail-organization select {
-  height: 36px;
-  border-radius: var(--dsh-card-radius-md);
-  font-size: 15px;
-}
-.dsh-tavern-card-detail > .dsh-tavern-card-detail-organization > button {
-  height: 36px;
-  border-radius: var(--dsh-card-radius-md);
-}
-.dsh-tavern-card-detail-organization button[aria-pressed="true"] {
-  color: var(--dsh-card-action);
 }
 .dsh-tavern-card-detail > .dsh-tavern-script-hero {
   margin: 12px 16px 0;
@@ -2225,7 +3283,7 @@ header .nL4_yW_moreButton { display: none !important; }
 }
 .dsh-tavern-card-detail .dsh-tavern-card-worldbook > .dsh-tavern-worldbook {
   margin: 0;
-  padding: 12px 16px 16px;
+  padding: 6px 8px 10px;
   border: 0;
   border-top: 1px solid var(--dsw-alias-border-l2);
 }
@@ -2281,9 +3339,7 @@ header .nL4_yW_moreButton { display: none !important; }
   min-height: 88px;
   max-height: 120px;
 }
-.dsh-tavern-card-detail .dsh-tavern-worldbook-add,
-.dsh-tavern-card-detail .dsh-tavern-worldbook-add.dsh-tavern-worldbook-bound,
-.dsh-tavern-card-detail .dsh-tavern-worldbook-add.dsh-tavern-worldbook-new {
+.dsh-tavern-card-detail .dsh-tavern-worldbook-add {
   border: 0;
   border-radius: var(--dsh-card-radius-md);
   background: var(--dsh-card-action-soft);
@@ -2527,7 +3583,7 @@ html.dsh-tavern-hide-process [data-dsh-fork-session="play"] [data-chat-flow-kind
 
 /* One card style for every block. */
 .dsh-tavern-global-settings :is(.dsh-tavern-gs-card, .dsh-local-section, .dsh-tavern-settings-group) {
-  display: flex; flex-direction: column; gap: 0; margin: 0; padding: 4px 18px; overflow: visible;
+  display: flex; flex-direction: column; gap: 0; min-width: 0; margin: 0; padding: 4px 18px; overflow: visible;
   border: 1px solid var(--dsw-alias-border-l2); border-radius: 12px; background: var(--dsw-specific-input-major);
 }
 .dsh-tavern-gs-group > :is(.dsh-tavern-settings-group, .dsh-local-section) + :is(.dsh-tavern-settings-group, .dsh-local-section) { margin-top: 0; }
@@ -2800,6 +3856,11 @@ select.dsh-tavern-settings-select:disabled { cursor: default; opacity: .55; }
 :is(.dsh-tavern-library, .dsh-tavern-presets, .dsh-tavern-resources, .dsh-tavern-user-profile, .dsh-tavern-card-memory, .dsh-tavern-status:not(.dsh-tavern-status-dashboard)) :is(.dsh-tavern-btn, .dsh-tavern-resource-import):hover:not(:disabled) {
   border-color: var(--dsh-tavern-accent-border); background: var(--dsh-tavern-accent-soft); color: var(--dsh-tavern-accent);
 }
+/* The card selection bar's quiet text buttons, no frame (owner 11-24「不许大框套小框」); after the outline buttons above. */
+.dsh-tavern-card-batch .dsh-tavern-btn.dsh-tavern-btn { height: auto; min-height: 30px; padding: 0 10px; border: 0; border-radius: 8px; background: transparent; box-shadow: none; color: var(--fork-ink, var(--dsw-alias-label-primary)); font-size: var(--fork-fs-body); font-weight: 500; line-height: 1.2; }
+.dsh-tavern-card-batch .dsh-tavern-btn.dsh-tavern-btn:is(:hover:not(:disabled), [aria-expanded="true"]) { border: 0; background: var(--fork-hover); color: var(--fork-ink, var(--dsw-alias-label-primary)); }
+.dsh-tavern-card-batch .dsh-tavern-btn.dsh-tavern-btn.danger { color: var(--dsw-alias-state-error-primary); }
+.dsh-tavern-card-batch .dsh-tavern-btn.dsh-tavern-btn:disabled { opacity: .45; }
 :is(.dsh-tavern-library, .dsh-tavern-presets, .dsh-tavern-resources, .dsh-tavern-user-profile, .dsh-tavern-card-memory, .dsh-tavern-status:not(.dsh-tavern-status-dashboard)) .dsh-tavern-btn.primary {
   border-color: transparent; background: var(--dsh-tavern-accent); color: var(--dsw-alias-label-primary-foreground, #fff);
 }
@@ -2898,13 +3959,6 @@ details.dsh-tavern-help:not([open]) { padding-bottom: 0; }
   background: color-mix(in srgb, #c4842a 8%, transparent); color: var(--dsw-alias-label-secondary); font-size: 12px; line-height: 1.65;
 }
 .dsh-tavern-system-prompt-warning::before { content: "⚠"; flex: none; color: #c4842a; }
-
-/* Worldbook sort: plain inline select. */
-.dsh-tavern-worldbook-sort { margin: 0 0 14px; padding: 0; border: 0; background: transparent; box-shadow: none; }
-.dsh-tavern-worldbook-sort:focus-within { box-shadow: none; }
-.dsh-tavern-worldbook-sort-chevron { display: none; }
-.dsh-tavern-worldbook-sort-label { font-size: 12px; font-weight: 500; color: var(--dsw-alias-label-tertiary); }
-.dsh-tavern-library .dsh-tavern-worldbook-sort select { height: 30px; min-width: 96px; background-color: var(--dsw-alias-bg-base); }
 
 /* Skills: flat groups; delete revealed on hover (always visible on touch). */
 .dsh-tavern-skills .dsh-tavern-skill-group { margin-bottom: 18px; border: 0; border-radius: 10px; overflow: visible; background: transparent; }
@@ -3440,14 +4494,13 @@ body.dsh-tavern-shell-active [class*="_tabs"] [class*="_viewsMoreAnchor"] [class
   .dsh-template-actions, .dsh-tavern-worldbook-head, .dsh-tavern-character-design-head { flex-wrap: wrap; gap: 8px; }
   .dsh-tavern-full-context { padding: 12px; }
   .dsh-context-header { align-items: flex-start; gap: 8px; flex-wrap: wrap; }
-  .dsh-tavern-card-row-menu > summary, .dsh-tavern-message-fork,
+  .dsh-tavern-message-fork,
   .dsh-tavern-swipe-controls button, .dsh-tavern-side-icon, .dsh-tavern-side-row-more { min-width: 40px; min-height: 40px; display: inline-flex; align-items: center; justify-content: center; }
   /* 触屏没有悬停，历史会话操作不能等 hover 后才出现。 */
   .dsh-tavern-side-row-more, .dsh-tavern-side-row-expand { opacity: 1; }
   .dsh-tavern-side-row-expand { min-width: 34px; min-height: 34px; }
 
-  .dsh-tavern-btn, .dsh-card-primary, .dsh-tavern-script-primary,
-  .dsh-tavern-card-row-popup button, .dsh-tavern-group-picker > summary { min-height: 40px; }
+  .dsh-tavern-btn, .dsh-card-primary, .dsh-tavern-script-primary { min-height: 40px; }
   /* 16px 输入字号防止 iOS 自动放大；正文、标签和代码展示不受影响。 */
   body.dsh-tavern-shell-active :is([data-sidebar-right-panel], .dsh-tavern-picker-overlay, .dsh-tavern-prompt, .dsh-tavern-group-manager, .dsh-ejs-editor, .dsh-tavern-settings-section)
     :is(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]), textarea, select) { font-size: 16px; max-width: 100%; box-sizing: border-box; }
@@ -3505,15 +4558,12 @@ body.dsh-tavern-shell-active [class*="_tabs"] [class*="_viewsMoreAnchor"] [class
   .dsh-tavern-mode-switch button { min-height: 30px; height: 30px; font-size: 13px; border-radius: 7px; }
   .dsh-tavern-history-action { min-height: 28px; height: 28px; padding: 0 8px; display: inline-flex; align-items: center; justify-content: center; }
   .fork-inline-pop.dsh-tavern-side-row-menu > button { min-height: 40px; }
-  .dsh-tavern-group-picker > summary, .dsh-tavern-group-menu button,
-  .dsh-tavern-group-add, .dsh-tavern-library-search { min-height: 40px; }
-  .dsh-tavern-group-menu { box-sizing: border-box; }
-  .dsh-tavern-library > .dsh-tavern-card-organization > .dsh-tavern-group-picker > summary { min-height: 40px; }
+  .dsh-tavern-library-search { min-height: 40px; }
   body.dsh-tavern-shell-active :is(.dsh-tavern-card-detail, .dsh-tavern-worldbook-editor, .dsh-tavern-skills) :is(button, summary) { min-height: 40px; }
   .dsh-tavern-worldbook-entry-head, .dsh-tavern-card-advanced > summary, .dsh-tavern-skill-options > summary { box-sizing: border-box; padding-top: 10px; padding-bottom: 10px; }
   .dsh-tavern-user-copy { width: 40px; height: 40px; }
   .dsh-tavern-prompt-state.is-toggle, .dsh-tavern-preset-drag { min-width: 40px; min-height: 40px; }
-  body.dsh-tavern-shell-active :is(.dsh-tavern-prompt-editor, .dsh-tavern-worldbook-bindings, .dsh-script-nav, .dsh-tavern-full-context, .dsh-ejs-editor) :is(button, summary, select, input:not([type="checkbox"]):not([type="radio"])) { min-height: 40px; }
+  body.dsh-tavern-shell-active :is(.dsh-tavern-prompt-editor, .dsh-tavern-worldbook-bindings, .dsh-script-nav, .dsh-tavern-full-context, .dsh-ejs-editor) :is(button:not([class*="dsh-ctx-"]), summary, select, input:not([type="checkbox"]):not([type="radio"])) { min-height: 40px; }
   body.dsh-tavern-shell-active :is([data-sidebar-right-panel], .dsh-tavern-picker-overlay, .dsh-tavern-group-manager, .dsh-tavern-settings-section) :is(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]), select) { min-height: 40px; }
   .dsh-tavern-prompt-editor-actions { flex-wrap: wrap; }
   .dsh-tavern-worldbook-grid { grid-template-columns: minmax(0, 1fr); }
@@ -3785,21 +4835,27 @@ body.dsh-tavern-shell-active :is([data-sidebar-drawer], :root[data-dsh-app-layou
   html.dsh-tavern-short-viewport .dsh-tavern-candidate-question .dsh-tavern-question-head { position: sticky; top: -6px; z-index: 1; background: var(--dsw-specific-sidebar-fill); }
 }
 
-/* 世界书召回说明 */
-details.dsh-tavern-recall-guide { margin: 0 0 14px; }
-details.dsh-tavern-recall-guide > summary { gap: 12px; padding: 12px 14px; }
-.dsh-tavern-recall-guide-icon { flex: none; display: grid; place-items: center; width: 34px; height: 34px; border-radius: 10px; background: color-mix(in srgb, var(--dsh-tavern-accent) 14%, transparent); font-size: 17px; }
-.dsh-tavern-recall-guide-heading { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
-details.dsh-tavern-recall-guide > summary .dsh-tavern-recall-guide-heading > strong { color: var(--dsw-alias-label-primary); font-size: 14px; font-weight: 650; }
-details.dsh-tavern-recall-guide > summary .dsh-tavern-recall-guide-heading > span { color: var(--dsw-alias-label-tertiary); font-size: 12px; }
-.dsh-tavern-recall-steps { display: grid; gap: 8px; margin: 2px 14px 0; padding: 12px 0 0; border-top: 1px solid var(--dsw-alias-border-l2); list-style: none; }
-.dsh-tavern-recall-steps > li { display: flex; gap: 12px; padding: 10px 12px; border-radius: 10px; background: color-mix(in srgb, var(--dsh-tavern-accent) 5%, transparent); }
-.dsh-tavern-recall-step-mark { flex: none; display: grid; place-items: center; width: 28px; height: 28px; border-radius: 8px; background: var(--dsw-specific-input-major); box-shadow: inset 0 0 0 1px var(--dsw-alias-border-l2); font-size: 14px; }
-.dsh-tavern-recall-steps b { display: block; color: var(--dsw-alias-label-primary); font-size: 13px; font-weight: 650; }
-.dsh-tavern-recall-steps p { margin: 3px 0 0; color: var(--dsw-alias-label-secondary); font-size: 12px; line-height: 1.65; }
-.dsh-tavern-recall-notes { margin: 10px 14px 0; padding: 10px 12px; border: 1px dashed var(--dsw-alias-border-l2); border-radius: 10px; }
-.dsh-tavern-recall-notes > b { color: var(--dsw-alias-label-primary); font-size: 12px; font-weight: 650; }
-.dsh-tavern-recall-notes ul { margin: 6px 0 0; padding-left: 18px; color: var(--dsw-alias-label-secondary); font-size: 12px; line-height: 1.7; }
+/* 世界书库：the 舞台素材 list (ap-pack-row + the 全局 / 本卡 / 关闭 tag); a book's 主书, where a card's book lives and its count. */
+.dsh-tavern-wblib .ap-library { padding-bottom: 24px; }
+.dsh-tavern-wblib .ap-pack-title > .fork-help-tip, .dsh-tavern-wblib .ap-pack-title > .ap-hint-mark { flex: none; }
+.dsh-tavern-wblib .ap-pack-title button.fork-help-tip-face.dsh-tavern-worldbook-primary { min-height: 0; }
+.dsh-tavern-wblib .ap-pack-title button.fork-help-tip-face.dsh-tavern-worldbook-primary:hover:not(:disabled) { background: var(--fork-accent-soft); }
+.dsh-tavern-wblib-where { flex: 0 3 auto; min-width: 0; overflow: hidden; color: var(--fork-ink-3); font-size: var(--fork-fs-meta); text-overflow: ellipsis; white-space: nowrap; }
+.dsh-tavern-wblib-count { flex: none; color: var(--fork-ink-3); font-size: var(--fork-fs-meta); font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+.dsh-tavern-wblib-row.is-missing .ap-pack-name.is-missing { font-weight: 400; }
+@container (max-width: 560px) {
+  .dsh-tavern-wblib-row { align-items: center; min-height: 52px; }
+  .dsh-tavern-wblib-row > .ap-pack-title { flex-wrap: wrap; row-gap: 0; }
+  .dsh-tavern-wblib-row .ap-pack-title > .dsh-tavern-wblib-where { flex-basis: 100%; order: 3; margin-top: -8px; line-height: 1.4; }
+  .dsh-tavern-wblib .ap-pack-title button.fork-help-tip-face.dsh-tavern-worldbook-primary { height: 22px; }
+}
+/* 世界书如何召回: the 「?」 right after the heading text; its tip a little wider than a one-line tip. */
+.fork-help-tip-body:has(.dsh-tavern-recall-tip) { max-width: min(360px, calc(100vw - 16px)); }
+.dsh-tavern-recall-tip { display: block; }
+.dsh-tavern-recall-title { display: block; margin-bottom: 4px; color: var(--fork-ink); font-weight: 600; }
+.dsh-tavern-recall-steps { display: grid; gap: 6px; margin: 0; padding: 0 0 0 1.4em; }
+.dsh-tavern-recall-steps b { display: block; color: var(--fork-ink); font-weight: 600; }
+.dsh-tavern-recall-notes { margin: 8px 0 0; padding: 0 0 0 1.4em; color: var(--fork-ink-3); }
 
 /* Performance surfaces sit above the scene/weather and below the readable textbox. */
 .fork-performance-under, .fork-performance-over, .fork-performance-flash { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
@@ -3971,20 +5027,27 @@ html[data-dsh-tavern-prose-indent] .dsh-tavern-assistant :is(.dsh-tavern-colored
    一起藏掉，只剩右侧一片空白；窄屏也不该再按 156px 预算，因为动作组仍然占位。
    子智能体触发器改由可收缩规则处理（见上面的 headerActions 规则）。 */
 /* 设置 → DSH Tavern → 插件。外层卡片规则把间距清零，这里按插件区自己的节奏排。 */
-.dsh-tavern-global-settings .dsh-tavern-user-plugins { display: grid; gap: 14px; padding: 0; }
+.dsh-tavern-global-settings .dsh-tavern-user-plugins { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; min-width: 0; padding: 0 0 10px; }
+.dsh-tavern-user-plugins > * { min-width: 0; }
 .dsh-tavern-user-plugins > p { margin: 0; }
-.dsh-tavern-user-plugins .dsh-tavern-settings-desc { margin: -4px 0 0; color: var(--dsw-alias-label-tertiary); font-size: 12px; line-height: 1.6; }
-.dsh-tavern-user-plugins-install { display: flex; gap: 8px; align-items: center; }
-.dsh-tavern-user-plugins-install input { flex: 1; min-width: 0; max-width: none; height: 36px; box-sizing: border-box; }
+.dsh-tavern-user-plugins > .dsh-tavern-settings-desc { margin: -4px 0 0; color: var(--dsw-alias-label-tertiary); font-size: 12px; line-height: 1.6; }
+.dsh-tavern-user-plugins-install { display: flex; gap: 8px; align-items: center; min-width: 0; }
+/* InlineField 默认靠 ::after 镜像文案撑宽，长占位符或粘贴的 GitHub 地址会把整张网格卡撑出屏外；这里输入框随行伸缩即可。 */
+.dsh-tavern-user-plugins-install > .fork-inline-field { flex: 1 1 0; min-width: 0; min-height: 0; }
+.dsh-tavern-user-plugins-install > .fork-inline-field > .fork-inline-value { flex-wrap: nowrap; width: 100%; min-width: 0; }
+.dsh-tavern-user-plugins-install .fork-inline-edit { display: block; width: 100%; min-width: 0; }
+.dsh-tavern-user-plugins-install .fork-inline-edit::after { display: none; }
+.dsh-tavern-user-plugins-install .fork-inline-field input.fork-inline-input:not([data-fi-a]):not([data-fi-b]):not([data-fi-c]):not([data-fi-d]) { height: 36px; padding: 0 24px 0 10px; }
+.dsh-tavern-user-plugins-install > input { flex: 1; min-width: 0; max-width: none; height: 36px; box-sizing: border-box; }
 .dsh-tavern-user-plugins-install .dsh-tavern-btn { flex: none; height: 36px; padding: 0 16px; }
-.dsh-tavern-user-plugins-notice { padding: 8px 12px; border-radius: 8px; background: color-mix(in srgb, #2f8a4c 9%, transparent); color: color-mix(in srgb, #2f7a44 42%, var(--dsw-alias-label-primary, CanvasText)); font-size: 12px; }
-.dsh-tavern-user-plugins-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.dsh-tavern-user-plugins-notice { padding: 8px 12px; border-radius: 8px; background: color-mix(in srgb, #2f8a4c 9%, transparent); color: color-mix(in srgb, #2f7a44 42%, var(--dsw-alias-label-primary, CanvasText)); font-size: 12px; overflow-wrap: anywhere; }
+.dsh-tavern-user-plugins-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; min-width: 0; }
 .dsh-tavern-user-plugins-head-title { color: var(--dsw-alias-label-secondary); font-size: 12px; font-weight: 600; }
 .dsh-tavern-user-plugins-head .dsh-tavern-btn { flex: none; height: 30px; padding: 0 12px; }
-.dsh-tavern-user-plugins-list { display: grid; margin: 0; padding: 0; list-style: none; }
-.dsh-tavern-user-plugin { display: flex; gap: 14px; align-items: center; padding: 12px 0; border-top: 1px solid var(--dsw-alias-border-l2); }
-.dsh-tavern-user-plugin-copy { display: grid; flex: 1; min-width: 0; gap: 4px; font-size: 12px; line-height: 1.5; color: var(--dsw-alias-label-secondary); }
-.dsh-tavern-user-plugin-copy strong { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; color: var(--dsw-alias-label-primary); font-size: 14px; font-weight: 600; }
+.dsh-tavern-user-plugins-list { display: grid; grid-template-columns: minmax(0, 1fr); margin: 0; padding: 0; list-style: none; min-width: 0; }
+.dsh-tavern-user-plugin { display: flex; gap: 14px; align-items: center; min-width: 0; padding: 12px 0; border-top: 1px solid var(--dsw-alias-border-l2); }
+.dsh-tavern-user-plugin-copy { display: grid; grid-template-columns: minmax(0, 1fr); flex: 1; min-width: 0; gap: 4px; font-size: 12px; line-height: 1.5; color: var(--dsw-alias-label-secondary); overflow-wrap: anywhere; }
+.dsh-tavern-user-plugin-copy strong { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; color: var(--dsw-alias-label-primary); font-size: 14px; font-weight: 600; }
 .dsh-tavern-user-plugin-copy small { color: var(--dsw-alias-label-tertiary); font-size: 12px; font-weight: 400; }
 .dsh-tavern-user-plugin-state { padding: 1px 8px; border-radius: 999px; background: var(--dsw-alias-bg-layer-1, rgba(127, 127, 127, .1)); color: var(--dsw-alias-label-secondary); font-size: 11px; font-weight: 500; }
 .dsh-tavern-user-plugin.is-loaded .dsh-tavern-user-plugin-state { background: color-mix(in srgb, #2f8a4c 12%, transparent); color: color-mix(in srgb, #2f7a44 42%, var(--dsw-alias-label-primary, CanvasText)); }
@@ -3997,18 +5060,34 @@ html[data-dsh-tavern-prose-indent] .dsh-tavern-assistant :is(.dsh-tavern-colored
 .dsh-tavern-user-plugin-actions .dsh-tavern-btn { height: 30px; padding: 0 12px; }
 .dsh-tavern-user-plugin-update { padding: 1px 8px; border-radius: 999px; background: var(--dsw-alias-bg-layer-1, rgba(127, 127, 127, .1)); color: var(--dsw-alias-label-secondary); font-size: 11px; font-weight: 500; white-space: nowrap; }
 .dsh-tavern-user-plugin-update.is-checking { color: var(--dsw-alias-label-tertiary); }
-.dsh-tavern-user-plugins-folder { display: flex; gap: 12px; align-items: center; justify-content: space-between; padding-top: 14px; border-top: 1px solid var(--dsw-alias-border-l2); }
-.dsh-tavern-user-plugins-folder span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--dsw-alias-label-tertiary); font-size: 12px; }
+.dsh-tavern-user-plugins-folder { display: flex; gap: 12px; align-items: center; justify-content: space-between; min-width: 0; padding-top: 14px; border-top: 1px solid var(--dsw-alias-border-l2); }
+.dsh-tavern-user-plugins .dsh-tavern-user-plugins-folder span { flex: 1 1 0; min-width: 0; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--dsw-alias-label-tertiary); font-size: 12px; }
 .dsh-tavern-user-plugins-folder .dsh-tavern-btn { flex: none; height: 30px; padding: 0 12px; }
 /* 手机上卡片内宽只剩两百多像素，而「启用 / 更新 / 删除」三个按钮自己就要一百五十多像素：
    .dsh-tavern-user-plugin-copy 的 flex-basis 是 0，被按钮压成几十像素的文字列，插件名和说明
    逐字换行成竖条，卡片被撑到几百像素高。正文和动作各占一行，正文先占满整宽。 */
-@media (max-width: 640px) {
-  .dsh-tavern-user-plugins-install, .dsh-tavern-user-plugin { flex-wrap: wrap; }
-  .dsh-tavern-user-plugins-install input { flex-basis: 100%; }
+@container (max-width: 520px) {
+  .dsh-tavern-user-plugins-install, .dsh-tavern-user-plugin, .dsh-tavern-user-plugins-folder { flex-wrap: wrap; }
+  .dsh-tavern-user-plugins-install > .fork-inline-field,
+  .dsh-tavern-user-plugins-install > input { flex: 1 1 100%; }
   .dsh-tavern-user-plugin { gap: 10px; align-items: flex-start; }
   .dsh-tavern-user-plugin-copy { flex: 1 1 100%; }
   .dsh-tavern-user-plugin-actions { flex: 1 1 100%; justify-content: flex-end; flex-wrap: wrap; }
+  .dsh-tavern-user-plugins .dsh-tavern-user-plugins-folder span { flex: 1 1 100%; white-space: normal; overflow-wrap: anywhere; }
+  .dsh-tavern-user-plugins-folder .dsh-tavern-btn { margin-left: auto; }
+}
+@media (max-width: 1023px), (pointer: coarse) {
+  .dsh-tavern-user-plugins-install .fork-inline-field input.fork-inline-input:not([data-fi-a]):not([data-fi-b]):not([data-fi-c]):not([data-fi-d]) { min-height: 40px; }
+}
+@media (max-width: 640px) {
+  .dsh-tavern-user-plugins-install, .dsh-tavern-user-plugin, .dsh-tavern-user-plugins-folder { flex-wrap: wrap; }
+  .dsh-tavern-user-plugins-install > .fork-inline-field,
+  .dsh-tavern-user-plugins-install > input { flex: 1 1 100%; }
+  .dsh-tavern-user-plugin { gap: 10px; align-items: flex-start; }
+  .dsh-tavern-user-plugin-copy { flex: 1 1 100%; }
+  .dsh-tavern-user-plugin-actions { flex: 1 1 100%; justify-content: flex-end; flex-wrap: wrap; }
+  .dsh-tavern-user-plugins .dsh-tavern-user-plugins-folder span { flex: 1 1 100%; white-space: normal; overflow-wrap: anywhere; }
+  .dsh-tavern-user-plugins-folder .dsh-tavern-btn { margin-left: auto; }
 }
 
 /* Card workbench guides: a plugin's folded question, and its block above the input box. */
@@ -4029,12 +5108,14 @@ body :is(
   .dsh-tavern-card-picker, .dsh-tavern-history-manager, .dsh-tavern-mobile-import-panel, .dsh-tavern-header-dialog, .dsh-tavern-prompt, .dsh-ejs-editor,
   .dsh-tavern-plugin-overlay, .dsh-tavern-error-center, .dsh-tavern-wbsw-shell, .dsh-polish-tip,
   .dsh-tavern-side-row-menu, .dsh-tavern-more-menu, .dsh-tavern-more-actions > .dsh-tavern-more-menu,
-  .dsh-tavern-resource-menu-popup, .dsh-tavern-group-menu, .dsh-tavern-card-row-popup,
+  .dsh-tavern-resource-menu-popup,
   .dsh-tavern-picker-foot, .dsh-tavern-prompt-editor-actions, .dsh-tavern-worldbook-editor-actions,
   .dsh-mvu-actions, .dsh-tavern-card-batch,
+  .dsh-ctx-popover, .dsh-ctx-modal, .dsh-ctx-sheet, .dsh-ctx-sheet-sticky,
   html.dsh-tavern-viewport-pinned .dsh-tavern-candidate-question:not(.collapsed),
   html.dsh-tavern-short-viewport .dsh-tavern-candidate-question .dsh-tavern-question-head
 ) { background: var(--dsh-tavern-solid); }
+body[data-ds-dark-theme] :is(.dsh-ctx-popover, .dsh-ctx-modal, .dsh-ctx-sheet, .dsh-ctx-sheet-sticky) { color-scheme: dark; }
 /* 宿主的设置窗口画的是上浮层 token（--dsw-alias-bg-layer-2），玻璃皮肤把它做成半透明且没有模糊，窗口后面的正文会透出来：
    同样叠在 Canvas 上，保留宿主的色调。 */
 body [role="dialog"][aria-modal="true"]:has(> nav[class*="_nav"]) { background: linear-gradient(var(--dsw-alias-bg-layer-2, var(--dsw-alias-bg-base, transparent)) 0 0) Canvas; }
@@ -5063,3 +6144,155 @@ button.dsh-tavern-transfer-check:disabled { cursor: default; }
 }
 
 
+/* ==== card detail (人物卡库 › one card) ====
+   One flat page in the 舞台素材 language (.ap-ui), no box anywhere (R2): a header over the cover's blurred banner (‹ name ✎ ⋯;
+   the cover with ▶ 开始游玩 over it; the library tags as one quiet line; what the card carries), then StageSection headings —
+   基本信息, 世界书 (one row per book; a click opens it in 世界书), 素材包, 开场白 — whose texts are folds: › label · first line, opened to
+   read as prose and ✎ to edit (saved when left, R17). Low-frequency actions (导出, 管理存档, 删除 …) live in ⋯. */
+.dsh-card-detail-scroll { flex: 1 1 auto; }
+.ap-ui.dsh-card-detail { max-width: 1080px; padding: 0 16px 32px; }
+.dsh-card-head { position: relative; display: flex; flex-direction: column; gap: 4px; padding: 8px 0 16px; }
+.dsh-card-banner { position: absolute; top: 0; left: -16px; right: -16px; height: 170px; overflow: hidden; background: color-mix(in srgb, var(--fork-accent) 18%, var(--fork-surface)); pointer-events: none; }
+.dsh-card-banner-bg { position: absolute; inset: -40px; width: calc(100% + 80px); height: calc(100% + 80px); object-fit: cover; object-position: center 20%; filter: blur(28px) saturate(1.2); opacity: .7; }
+.dsh-card-banner::after { content: ""; position: absolute; inset: 0; background: linear-gradient(to bottom, color-mix(in srgb, var(--fork-surface) 10%, transparent), var(--fork-surface)); }
+.dsh-card-title-row { position: relative; display: flex; align-items: center; gap: 2px; min-height: 40px; margin-left: -8px; }
+.ap-ui button.ap-icon-button:is(.dsh-card-back, .dsh-card-rename, .dsh-card-more, .dsh-card-fold-edit, .dsh-card-row-icon) { flex: none; width: 32px; height: 32px; min-height: 0; padding: 0; border: 0; border-radius: var(--fork-radius); background: none; color: var(--fork-ink-2); }
+.ap-ui button.ap-icon-button:is(.dsh-card-back, .dsh-card-rename, .dsh-card-more, .dsh-card-fold-edit, .dsh-card-row-icon):hover:not(:disabled) { background: var(--fork-hover); color: var(--fork-ink); }
+.dsh-card-back .ap-glyph { width: 18px; height: 18px; }
+.ap-ui button.ap-icon-button.dsh-card-rename, .ap-ui button.ap-icon-button:is(.dsh-card-fold-edit, .dsh-card-row-icon) { width: 30px; height: 30px; color: var(--fork-ink-3); }
+.ap-ui button.ap-icon-button.dsh-card-more { margin-left: auto; }
+.ap-ui .dsh-card-name { display: flex; align-items: center; gap: 2px; min-width: 0; margin: 0; font-size: var(--fork-fs-title); font-weight: 600; line-height: 1.35; }
+.dsh-card-name-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dsh-card-hero { position: relative; display: grid; grid-template-columns: clamp(104px, 28%, 168px) minmax(0, 1fr); gap: 16px; align-items: end; margin-top: 12px; }
+.dsh-card-cover-wrap { position: relative; aspect-ratio: 3 / 4; overflow: hidden; border-radius: var(--fork-radius-lg); box-shadow: 0 6px 20px color-mix(in srgb, #000 28%, transparent), 0 0 0 1px var(--fork-hairline); }
+.ap-ui button.dsh-card-cover, .dsh-card-cover { display: block; width: 100%; height: 100%; min-height: 0; padding: 0; border: 0; border-radius: 0; background: color-mix(in srgb, var(--fork-accent) 12%, var(--fork-surface)); cursor: zoom-in; }
+.dsh-card-cover > img { display: block; width: 100%; height: 100%; object-fit: cover; object-position: top center; }
+.dsh-card-cover.is-empty { display: grid; place-items: start center; padding: 14px 10px; color: var(--fork-ink); font-family: var(--dsh-tavern-font-display); font-size: var(--fork-fs-heading); font-weight: 500; line-height: 1.35; text-align: center; overflow-wrap: anywhere; cursor: default; }
+/* ▶ 开始游玩: a round glass button over the cover's centre. */
+body .ap-ui.dsh-card-detail button.dsh-card-play { position: absolute; top: 50%; left: 50%; display: grid; place-items: center; width: 52px; height: 52px; min-height: 0; padding: 0 0 0 3px; border: 0; border-radius: 50%; background: color-mix(in srgb, #000 55%, transparent); color: #fff; corner-shape: round; transform: translate(-50%, -50%); box-shadow: 0 0 0 1px color-mix(in srgb, #fff 35%, transparent); transition: background .15s, transform .15s; cursor: pointer; }
+body .ap-ui.dsh-card-detail button.dsh-card-play .ap-glyph { width: 22px; height: 22px; }
+body .ap-ui.dsh-card-detail button.dsh-card-play .ap-glyph path { fill: currentColor; }
+body .ap-ui.dsh-card-detail button.dsh-card-play:hover:not(:disabled) { background: color-mix(in srgb, var(--fork-accent) 88%, transparent); transform: translate(-50%, -50%) scale(1.06); }
+body .ap-ui.dsh-card-detail button.dsh-card-play:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+.dsh-card-side { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; min-width: 0; padding-bottom: 2px; }
+/* the library's own tags: one quiet line, · between them, that wraps at any count; a click edits them. */
+.dsh-card-detail .dsh-tavern-card-detail-tags { display: block; width: 100%; padding: 0; }
+body .ap-ui.dsh-card-detail button.dsh-tavern-card-tagline { display: inline-block; width: auto; max-width: 100%; min-height: 30px; margin-left: -6px; padding: 3px 6px; border: 0; border-radius: var(--fork-radius); background: none; color: var(--fork-ink-2); font: inherit; font-size: var(--fork-fs-body); line-height: 1.6; text-align: left; cursor: pointer; }
+.ap-ui.dsh-card-detail button.dsh-tavern-card-tagline:hover:not(:disabled) { background: var(--fork-hover); color: var(--fork-ink); }
+.dsh-tavern-card-tagline > .ap-glyph { display: inline-block; width: 14px; height: 14px; margin-right: 6px; vertical-align: -2px; color: var(--fork-ink-3); }
+.dsh-tavern-card-tagline-tag { display: inline-block; white-space: nowrap; }
+.dsh-tavern-card-tagline-tag + .dsh-tavern-card-tagline-tag::before { content: "·"; margin: 0 7px; color: var(--fork-ink-3); }
+.dsh-tavern-card-tagline.is-empty { color: var(--fork-ink-3); }
+.dsh-card-counts { color: var(--fork-ink-3); font-size: var(--fork-fs-meta); }
+.dsh-card-counts:empty { display: none; }
+/* sections */
+.dsh-card-detail > .ap-section { padding-top: 14px; }
+.dsh-card-detail .ap-section-head h3 { font-size: var(--fork-fs-heading); }
+/* a fold: › label · first line; open, the text reads as prose under it. */
+.dsh-card-fold { min-width: 0; }
+.dsh-card-fold-row { display: flex; align-items: center; gap: 2px; min-width: 0; min-height: 36px; }
+.ap-ui.dsh-card-detail button.dsh-card-fold-head { flex: 1 1 auto; display: flex; align-items: center; gap: 8px; min-width: 0; min-height: 36px; margin: 0; padding: 0 8px 0 4px; border: 0; border-radius: var(--fork-radius); background: none; color: inherit; font: inherit; font-size: var(--fork-fs-body); text-align: left; cursor: pointer; }
+.ap-ui.dsh-card-detail button.dsh-card-fold-head:hover:not(:disabled) { background: var(--fork-hover); }
+.ap-ui.dsh-card-detail button.dsh-card-fold-head:disabled { cursor: default; }
+.dsh-card-fold-head > .ap-glyph { flex: none; width: 12px; height: 12px; color: var(--fork-ink-3); transition: transform .15s; }
+.dsh-card-fold[data-open] > .dsh-card-fold-row > .dsh-card-fold-head > .ap-glyph:first-child { transform: rotate(90deg); }
+.dsh-card-fold-label { flex: none; width: 6em; white-space: nowrap; color: var(--fork-ink-2); }
+.dsh-card-fold-preview { flex: 1 1 0; min-width: 0; overflow: hidden; color: var(--fork-ink-3); text-overflow: ellipsis; white-space: nowrap; }
+.dsh-card-fold-body { padding: 0 8px 12px 24px; }
+.dsh-card-fold-text { color: var(--fork-ink); font-size: var(--fork-fs-body); line-height: 1.75; white-space: pre-wrap; overflow-wrap: anywhere; }
+.dsh-card-fold-body > .fork-inline-field { --fork-inline-label-w: 0px; }
+/* the 「＋ 名称」 chips and an opened empty field line up with the folds' labels. */
+.dsh-card-fields > .fork-inline-field { --fork-inline-label-w: 6em; padding-left: 24px; }
+.dsh-card-fields > .fork-inline-adds { padding: 6px 0 0 24px; }
+/* 世界书: each bound book is a fold of its entries. */
+.dsh-card-detail .dsh-tavern-worldbook { display: flex; flex-direction: column; margin: 0; padding: 0; border: 0; border-radius: 0; }
+.dsh-card-detail .dsh-tavern-worldbook-list { margin: 0; padding: 0; list-style: none; }
+.dsh-card-detail .dsh-tavern-worldbook-row { display: block; min-height: 0; padding: 0; border-radius: 0; }
+.dsh-card-detail .dsh-tavern-worldbook-row:hover { background: none; }
+.dsh-card-detail .dsh-tavern-worldbook-row + .dsh-tavern-worldbook-row::before { left: 24px; right: 0; }
+.dsh-card-detail .dsh-tavern-worldbook-grip { margin-left: -16px; }
+.dsh-card-detail .dsh-tavern-worldbook-row:is(:hover, :focus-within) .dsh-tavern-worldbook-grip { opacity: 1; }
+.dsh-card-book-link > .ap-glyph:last-child { flex: none; width: 12px; height: 12px; color: var(--fork-ink-3); }
+.ap-ui.dsh-card-detail button.dsh-card-book-link:hover:not(:disabled) .dsh-card-book-name { color: var(--fork-accent); }
+.dsh-card-book-link > .ap-glyph:first-child { width: 14px; height: 14px; }
+.dsh-card-book-name { flex: 0 1 auto; min-width: 0; overflow: hidden; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.ap-ui.dsh-card-detail button.dsh-tavern-worldbook-add-row { width: 100%; height: 34px; min-height: 0; margin-top: 6px; border: 1px dashed var(--ap-border-strong); border-radius: var(--fork-radius); color: var(--fork-ink-3); }
+.dsh-card-detail .fork-inline-anchor.dsh-tavern-worldbook-add-anchor { margin-top: 0; }
+/* 素材包 */
+.dsh-card-packs { margin: 0; padding: 0; list-style: none; }
+.dsh-card-packs .dsh-card-fold-head > .ap-glyph { width: 14px; height: 14px; }
+.dsh-card-packs .is-missing { opacity: .6; }
+.dsh-card-detail .dsh-tavern-prompt-row { border-radius: var(--fork-radius); }
+@container (min-width: 640px) {
+  .dsh-card-banner { height: 200px; }
+}
+@container (max-width: 560px) {
+  .ap-ui.dsh-card-detail { padding: 0 12px 24px; }
+  .dsh-card-banner { left: -12px; right: -12px; height: 150px; }
+  .dsh-card-hero { grid-template-columns: 104px minmax(0, 1fr); gap: 14px; }
+  .dsh-card-fold-row, .ap-ui.dsh-card-detail button.dsh-card-fold-head { min-height: 40px; }
+}
+
+/* ==== world book detail (世界书库 › one book) ====
+   The card detail page's language (.ap-ui, no boxes, R2): ‹ name ✎ … 正在保存 ⋯ over a quiet 「独立世界书 · N 条」 line, then
+   StageSection headings. 条目: the search row sticks to the top while the list scrolls; rows are lamp · name · hint. */
+.dsh-wbd-detail-scroll { flex: 1 1 auto; }
+.ap-ui.dsh-wbd-detail { max-width: 1080px; padding: 0 16px 32px; outline: none; }
+@container (max-width: 560px) {
+  .dsh-wbd-card, .ap-ui.dsh-wbd-detail button.dsh-wbd-card-link { min-height: 40px; }
+}
+.dsh-wbd-head { display: flex; flex-direction: column; gap: 0; padding: 8px 0 4px; }
+.dsh-wbd-detail .dsh-card-title-row .ap-icon-button.dsh-card-more { margin-left: 0; }
+.dsh-wbd-detail .ap-save-state.dsh-wbd-save { position: static; min-height: 0; margin-left: auto; padding: 0 6px; white-space: nowrap; }
+.dsh-wbd-detail .dsh-card-title-row > .dsh-card-name { flex: 0 1 auto; }
+.dsh-wbd-detail .dsh-card-title-row > .dsh-wbd-more { margin-left: auto; }
+.dsh-wbd-detail .dsh-card-title-row > .ap-save-state + .dsh-wbd-more { margin-left: 0; }
+.dsh-wbd-name-edit { flex: 1 1 auto; min-width: 0; font-size: var(--fork-fs-title); font-weight: 600; }
+.dsh-wbd-name-edit > .fork-inline-field { --fork-inline-label-w: 0px; }
+.dsh-wbd-sub { margin: 0 0 4px 32px; color: var(--fork-ink-3); font-size: var(--fork-fs-meta); }
+.dsh-wbd-detail > .ap-section { padding-top: 14px; }
+.dsh-wbd-detail .ap-section-head h3 { font-size: var(--fork-fs-heading); }
+.dsh-wbd-fields > .fork-inline-field { --fork-inline-label-w: 6em; }
+.dsh-wbd-fields[data-columns="2"] > .fork-inline-field { --fork-inline-label-w: 7em; }
+.dsh-wbd-channel-seg { max-width: 100%; flex-wrap: wrap; }
+/* 人物卡: one row per bound card — the name opens the card's page (like the card page's 世界书 rows), × unbinds;
+   the dashed ＋ under them binds another. */
+.dsh-wbd-cards { margin: 0; padding: 0; list-style: none; }
+.dsh-wbd-card { display: flex; align-items: center; gap: 4px; min-height: 36px; padding: 0; border-radius: var(--fork-radius); }
+.dsh-wbd-card:hover { background: var(--fork-hover); }
+.ap-ui.dsh-wbd-detail button.dsh-wbd-card-link { flex: 1 1 auto; display: flex; align-items: center; justify-content: flex-start; gap: 8px; min-width: 0; min-height: 36px; margin: 0; padding: 0 8px 0 4px; border: 0; border-radius: var(--fork-radius); background: none; color: inherit; font: inherit; font-size: var(--fork-fs-body); text-align: left; cursor: pointer; }
+.ap-ui.dsh-wbd-detail button.dsh-wbd-card-link:hover .dsh-wbd-card-name { color: var(--fork-accent); }
+.dsh-wbd-card-link > .ap-glyph:first-child { flex: none; width: 14px; height: 14px; color: var(--fork-ink-3); }
+.dsh-wbd-card-link > .ap-glyph:last-child { flex: none; width: 12px; height: 12px; color: var(--fork-ink-3); }
+.dsh-wbd-card-name { flex: 0 1 auto; min-width: 0; overflow: hidden; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.ap-ui.dsh-wbd-detail button.dsh-tavern-worldbook-add-row { width: 100%; height: 34px; min-height: 0; margin-top: 6px; border: 1px dashed var(--ap-border-strong); border-radius: var(--fork-radius); color: var(--fork-ink-3); }
+/* 条目: search · filter · ＋ on one row that stays in view. */
+.dsh-wbd-tools { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 2px; margin: 0 0 4px; padding: 6px 0; background: var(--fork-surface); }
+.dsh-wbd-tools > .ap-search { flex: 1 1 auto; min-width: 0; }
+.dsh-wbd-group.ap-section { padding-top: 6px; }
+.dsh-wbd-entries { margin: 0; padding: 0; list-style: none; }
+.dsh-wbd-entry-row { display: flex; align-items: center; gap: 6px; min-height: 36px; padding: 0 4px 0 6px; border-radius: var(--fork-radius); cursor: pointer; }
+.dsh-wbd-entry-row:hover { background: var(--fork-hover); }
+.dsh-wbd-entry[aria-selected=true] > .dsh-wbd-entry-row { background: var(--fork-accent-soft); }
+.dsh-wbd-entry[aria-selected=true] .dsh-wbd-entry-name { color: var(--fork-accent); }
+.dsh-wbd-entry[data-off] .dsh-wbd-entry-main { opacity: .55; }
+.ap-ui button.dsh-wbd-entry-main { display: flex; flex: 1 1 auto; align-items: center; gap: 10px; min-width: 0; min-height: 32px; overflow: hidden; padding: 0 0 0 6px; border: 0; background: none; color: var(--fork-ink); font-size: var(--fork-fs-body); text-align: left; }
+.ap-ui button.dsh-wbd-entry-main:hover:not(:disabled) { background: none; }
+.dsh-wbd-entry-name { flex: 0 1 auto; min-width: 2em; max-width: 75%; overflow: hidden; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.dsh-wbd-entry-hint { flex: 1 1 0; min-width: 0; overflow: hidden; color: var(--fork-ink-3); font-size: var(--fork-fs-meta); text-overflow: ellipsis; white-space: nowrap; }
+.dsh-wbd-entry[data-open] { margin: 2px 0 10px; }
+.dsh-wbd-editor { min-width: 0; }
+.dsh-wbd-entry > .dsh-wbd-editor { padding: 6px 8px 8px 26px; border-left: 2px solid var(--fork-hairline); margin-left: 13px; }
+.dsh-wbd-editor > .ap-section { padding-top: 8px; }
+/* 内容 reads as prose (like the card page's texts); ✎ or a double click turns it into the field. */
+.dsh-wbd-text { min-width: 0; }
+.dsh-wbd-text-head { display: flex; align-items: center; gap: 2px; min-height: 32px; color: var(--fork-ink-2); }
+.dsh-wbd-text-body { padding: 2px 0 8px; color: var(--fork-ink); font-size: var(--fork-fs-body); line-height: 1.75; white-space: pre-wrap; overflow-wrap: anywhere; cursor: text; }
+.dsh-wbd-text-body:empty::before { content: attr(data-empty); color: var(--fork-ink-3); }
+.dsh-wbd-text > .fork-inline-field { --fork-inline-label-w: 0px; }
+@container (max-width: 560px) {
+  .ap-ui.dsh-wbd-detail { padding: 0 12px 24px; }
+  .dsh-wbd-entry-row { min-height: 40px; }
+  .dsh-wbd-entry > .dsh-wbd-editor { padding-left: 14px; margin-left: 8px; }
+  .dsh-wbd-fields > .fork-inline-field, .dsh-wbd-fields[data-columns="2"] > .fork-inline-field { --fork-inline-label-w: 5.5em; }
+}

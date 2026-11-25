@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import {readVariables,registerVariableReadTool} from '../tavern-plugin/lib/domain/read-variables.js'
+import {readVariables,registerVariableReadTool,settledVariables} from '../tavern-plugin/lib/domain/read-variables.js'
+import {captureBodyRegenerationSource} from '../tavern-plugin/lib/domain/body-regeneration-materials.js'
 const chat=state=>({id:'game',mode:'story',_storageRevision:1,messages:[{turn:1,variables:[{stat_data:state}]}]})
 test('默认目录分页且不泄露值，层级读取、null与缺失分开',()=>{
  const c=chat({角色:{体力:73,备注:null},...Object.fromEntries(Array.from({length:80},(_,i)=>['字段'+i,i])),$meta:{secret:true}})
@@ -30,4 +31,15 @@ test('工具只定位调用会话，无快照不退回初值，卡片模式拒�
  registerVariableReadTool({tools:{register:value=>tool=value},defineTool:x=>x,chatForSession:async id=>{session=id;return chat({值:3})}})
  const result=await tool.execute({action:'read',path:'/值'},{agent:{session:{id:'current'}}})
  assert.equal(session,'current');assert.equal(result.report.value,3)
+})
+
+test('当前查询和重生成读取开局楼层，历史结算继续使用已完成的正文',()=>{
+ const c={...chat({ready:false}),messages:[
+  {role:'assistant',turn:1,variables:[{stat_data:{ready:false},schema:{}}]},
+  {role:'tavern-helper',tavernRole:'user',swipeId:1,variables:[{}, {stat_data:{ready:true},schema:{}}]},
+  {role:'tavern-helper',tavernRole:'assistant',variables:[{stat_data:{ready:'private'},schema:{}}]}
+ ]}
+ assert.equal(readVariables(c,{action:'read',path:'/ready'}).value,true)
+ assert.equal(captureBodyRegenerationSource({chat:c,card:{}}).regenerationMaterials.generationState.messageVariables.stat_data.ready,true)
+ assert.deepEqual(settledVariables(c),{snapshot:{ready:false},turn:1})
 })

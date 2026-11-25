@@ -5,12 +5,15 @@ const forkFrameStorage = (function () {
     let timer = null, flight = null, active = false;
     const pending = [], grants = new Map();
     const bytes = value => new TextEncoder().encode(value).length;
+    // Cards keep uploaded images as data URLs (the Re0 avatar map holds up to ~2.1M chars).
+    const MAX_VALUE = 16 * 1024 * 1024, MAX_WINDOW_BYTES = 64 * 1024 * 1024, MAX_BATCH_BYTES = 32 * 1024 * 1024;
     function apply(target, op) {
         if (op.op === "clear") Object.keys(target).forEach(key => { if (key.startsWith(op.namespace)) delete target[key]; });
         else if (op.op === "remove") delete target[op.key];
         else target[op.key] = op.value;
     }
     function load() {
+        if (typeof window !== "undefined" && window.__dshTavernHeadless === true) return Promise.resolve();
         if (loaded || loading || typeof rpc !== "function") return loading;
         loading = Promise.resolve().then(() => rpc("getFrameStorage")).then(function (result) {
             const stored = result && result.values && typeof result.values === "object" ? result.values : {};
@@ -33,7 +36,13 @@ const forkFrameStorage = (function () {
             if (!loaded) throw new Error("Frame storage initial load failed");
             // One request at a time: an older response can never acknowledge newer ops.
             while (pending.length) {
-                const ops = pending.slice(0, 500);
+                let end = 0, size = 0;
+                while (end < pending.length && end < 500) {
+                    const op = pending[end], cost = bytes(op.key || op.namespace || "") + bytes(op.value || "");
+                    if (end && size + cost > MAX_BATCH_BYTES) break;
+                    size += cost; end++;
+                }
+                const ops = pending.slice(0, end);
                 const result = await rpc("updateFrameStorage", { ops: ops });
                 if (!result || result.ok !== true || result.applied !== ops.length) throw new Error("Frame storage batch not acknowledged");
                 pending.splice(0, ops.length);
@@ -106,9 +115,9 @@ const forkFrameStorage = (function () {
         if (!["set", "remove", "clear"].includes(data.op)) return reject();
         if (data.namespace !== grant.namespace) return reject();
         if (data.op !== "clear" && (typeof data.key !== "string" || !data.key.startsWith(grant.namespace) || bytes(data.key.slice(grant.namespace.length)) > 512)) return reject();
-        if (data.op === "set" && (typeof data.value !== "string" || bytes(data.value) > 256 * 1024)) return reject();
+        if (data.op === "set" && (typeof data.value !== "string" || bytes(data.value) > MAX_VALUE)) return reject();
         const size = bytes(data.key || "") + bytes(data.value || "");
-        if (grant.count >= 2048 || grant.size + size > 2 * 1024 * 1024) return reject();
+        if (grant.count >= 2048 || grant.size + size > MAX_WINDOW_BYTES) return reject();
         grant.count++; grant.size += size;
         queue(data.op === "clear" ? { op: "clear", namespace: grant.namespace } : data.op === "set" ? { op: "set", key: data.key, value: data.value } : { op: "remove", key: data.key });
         for (const [source, peer] of grants) {
@@ -151,7 +160,7 @@ function installFrameStorage(capability) {
         getItem: function (key) { key = String(key); return Object.prototype.hasOwnProperty.call(values, key) ? values[key] : null; },
         setItem: function (key, value) {
             key = String(key); value = String(value);
-            if (new TextEncoder().encode(key).length > 512 || new TextEncoder().encode(value).length > 256 * 1024) throw new Error("QuotaExceededError: card storage item too large");
+            if (new TextEncoder().encode(key).length > 512 || new TextEncoder().encode(value).length > 16 * 1024 * 1024) throw new Error("QuotaExceededError: card storage item too large");
             dirty.add(key); values[key] = value; sync("set", key, value);
         },
         removeItem: function (key) { key = String(key); dirty.add(key); delete values[key]; sync("remove", key); },

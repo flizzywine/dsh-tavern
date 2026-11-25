@@ -10,11 +10,11 @@ import { Transform } from 'node:stream'
 
 const ID = /^[0-9a-f-]{36}$/
 const CARD_ARCHIVE_ID = /^card-archive-[0-9a-f-]{36}$/
-const CARD_ARCHIVE_CHUNK_BYTES = 16 * 1024 ** 2
+export const CARD_ARCHIVE_CHUNK_BYTES = 16 * 1024 ** 2
 const UPLOAD_MAX_AGE_MS = 24 * 60 * 60 * 1000
 // The disk space pending card archives may hold. Its own figure: the asset library's spoolBytes bounds what a pack
 // import holds in memory, which says nothing about how large a card archive on disk may be.
-export const MAX_CARD_UPLOAD_BYTES = 8 * 1024 ** 3
+export const MAX_CARD_UPLOAD_BYTES = 32 * 1024 ** 3
 export const isCardArchiveUpload = id => CARD_ARCHIVE_ID.test(String(id))
 
 export function createUploads({ root, maxBytes = 1024 ** 3, maxAgeMs = UPLOAD_MAX_AGE_MS }) {

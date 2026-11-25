@@ -1,6 +1,19 @@
 import path from 'node:path'
 import { existingTransferFolder, folderBytes, folderZipName, importFolderZip, namedFolderBase, packFolderZip, readFolderFiles } from './transfer-folder.js'
 import { PLUGIN_ZIP_LIMITS } from './user-plugin-install.js'
+import { readZipEntries } from './zip-entries.js'
+
+// 内置插件随酒馆安装和更新：不进导出列表，导入包里遇到也跳过，免得每导一次多一份删不掉的「名字 (2)」。
+const BUILTIN_IMAGE_PACKAGE = 'dsh-tavern-image'
+const isBuiltinRow = plugin => plugin?.source?.kind === 'builtin'
+
+function builtinPackageName(content) {
+  let entries
+  try { entries = readZipEntries(content, { label: '插件包', ...PLUGIN_ZIP_LIMITS }) } catch { return '' }
+  const json = name => { try { return JSON.parse(entries.get(name).toString('utf8')) } catch { return null } }
+  const name = str(json('package.json')?.name)
+  return name && (json('.tavern-source.json')?.kind === 'builtin' || name === BUILTIN_IMAGE_PACKAGE) ? name : ''
+}
 
 // 导出/导入里的插件子模块：只负责 zip 与文件读写，manifest 由调用方自己管。
 function str(value) {
@@ -31,7 +44,7 @@ export function createTransferPlugins(deps) {
     const rows = []
     for (const plugin of plugins) {
       const folder = str(plugin && plugin.folder)
-      if (!folder) continue
+      if (!folder || isBuiltinRow(plugin)) continue
       const title = str(plugin && plugin.name) || folder
       const version = str(plugin && plugin.version)
       const enabled = !(plugin && plugin.enabled === false)
@@ -63,6 +76,8 @@ export function createTransferPlugins(deps) {
   }
 
   async function importOne(payload) {
+    const builtin = builtinPackageName(payload && payload.content)
+    if (builtin) return { folder: builtin, reused: true, builtin: true }
     const { name: folder, ...result } = await importFolderZip(pluginsDir, payload, {
       label: '插件包', limits: PLUGIN_ZIP_LIMITS, baseName: (key, title) => namedFolderBase(str(key) || str(title), '插件'), suffixed: (base, index) => base + ' (' + index + ')'
     })

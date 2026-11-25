@@ -248,6 +248,7 @@ test('本局设置功能区包含“后台任务附加预设”开关，默认�
   })
   const presetSwitch = page.getByRole('switch', { name: '后台任务附加预设', exact: true })
   await presetSwitch.waitFor()
+  assert.equal(await page.getByRole('switch', { name: '人物姿势', exact: true }).count(), 0)
   assert.equal(await presetSwitch.isChecked(), false)
   await presetSwitch.press('Space')
   await page.waitForFunction(() => document.querySelector('[role="switch"][aria-label="后台任务附加预设"]')?.checked === true)

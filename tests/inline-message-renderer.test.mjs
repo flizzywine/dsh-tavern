@@ -871,3 +871,35 @@ test('iframe 默认元素样式放入底层 @layer dsh-tavern-base，避免无�
   assert.match(doc, /@layer dsh-tavern-base,theme,base,components,utilities;/)
   assert.match(doc, /@layer dsh-tavern-base\{[\s\S]*?img,video,svg,canvas\{max-width:100%;height:auto\}[\s\S]*?\}<\/style>/)
 })
+
+test('卡片音频从 raw.githubusercontent.com 加载失败时改用 jsDelivr 同一提交的地址', async t => {
+  const { JSDOM } = await import('jsdom')
+  const script = client.buildTavernFrameDocument({ content: '' }).match(/<script data-dsh-tavern-static-cache>([\s\S]*?)<\/script>/)[1]
+  const dom = new JSDOM('<!doctype html><html><body></body></html>', { runScripts: 'outside-only', url: 'https://tavern.example/' })
+  t.after(() => dom.window.close())
+  const { window } = dom, { document } = window
+  window.eval(script)
+  const raw = 'https://raw.githubusercontent.com/1798547983tt/re0/3a7a36a3e16809e8d53faabb2a453a5d48f30abd/music/Memento.mp3'
+  const mirror = 'https://cdn.jsdelivr.net/gh/1798547983tt/re0@3a7a36a3e16809e8d53faabb2a453a5d48f30abd/music/Memento.mp3'
+
+  const audio = new window.Audio()
+  audio.src = raw
+  assert.equal(audio.src, raw, '媒体保持原生地址以便流式播放')
+  audio.dispatchEvent(new window.Event('error'))
+  assert.equal(audio.src, mirror)
+  audio.dispatchEvent(new window.Event('error'))
+  assert.equal(audio.src, mirror, '镜像也失败时不再循环重试')
+
+  const element = document.createElement('audio')
+  element.setAttribute('src', raw)
+  element.dispatchEvent(new window.Event('error'))
+  assert.equal(element.src, mirror)
+
+  document.body.insertAdjacentHTML('beforeend', '<audio src="' + raw + '"></audio><audio src="https://media.example/a.mp3"></audio>')
+  await new Promise(resolve => window.setTimeout(resolve, 0))
+  const [inserted, other] = document.querySelectorAll('body > audio')
+  inserted.dispatchEvent(new window.Event('error'))
+  assert.equal(inserted.src, mirror)
+  other.dispatchEvent(new window.Event('error'))
+  assert.equal(other.src, 'https://media.example/a.mp3')
+})

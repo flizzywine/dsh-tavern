@@ -54,7 +54,7 @@ const {FIGURE_DISPLAY,figureSceneFrame,figureSceneUpdate,figureMixedWarning,reso
 const {stageLighting,stageApplyLight}=lighting;
 const {GAL_LOOKS_EMPTY,galLookRegistry,galLookResolve}=lookMath;
 const {foreground:forkForeground,lipSync:forkLipSync,loadPixi:loadPixiRuntime,resolution:galResolution,subscribeResolution:galResolutionSubscribe}=services;
-const {urls:layeredSpriteUrls}=services.layered || {};
+const {urls:layeredSpriteUrls,voice:layeredSpriteVoice}=services.layered || {};
 const {paint:stagePaintEmpty,palette:stageEmptyPalette}=services.canvas || {};
 const {Image,MessageChannel,MutationObserver,ResizeObserver,performance}=window;
 const getComputedStyle=(...args)=>window.getComputedStyle(...args),setTimeout=(...args)=>window.setTimeout(...args);
@@ -346,7 +346,7 @@ function galCreateScene(host, options, own) {
         if(entry.video){const video=entry.video;entry.video=null;release(()=>video.destroy());}
         release(()=>entry.figureAsset?.destroy());
         entry.figureAsset=null;entry.spineFigure=null;
-        for(const item of entry.fading)release(()=>item.asset?.destroy());
+        for(const item of entry.fading){if(item.video)release(()=>item.video.destroy());release(()=>item.asset?.destroy());}
         entry.fading=[];
         release(()=>entry.container.destroy({children:true}));
         state.lastPrune=0;
@@ -425,22 +425,48 @@ function galCreateScene(host, options, own) {
         entry.blink.update({bundle:entry.figure.blinkBundle,sprite:entry.sprite,baseTexture:entry.baseTexture,
             ready:entry.loadedIdentity===entry.figure.identity,rhythm:entry.idle.jitter.blink});
     }
-    // 动态立绘 (figure-video.cjs): the loaded still's looping video plays over it while the figure stands on a visible stage
-    // with motion allowed, and the still shows otherwise: a tap reaction's still, a skip, reduced motion, or a line spoken
-    // through the still's talking mouths. One video per loaded picture; a new picture releases the old one's.
+    // 动态立绘 (figure-video.cjs): the loaded still's looping videos play over it while the figure stands on a visible stage
+    // with motion allowed - its talking loop while its voice is heard, read through the same mouth gear as the still's mouths -
+    // and the still shows otherwise: a tap reaction's still, a skip,
+    // reduced motion, or a line spoken through the still's mouths because no talking loop can play. One set of videos per
+    // loaded picture. A new picture's videos take over from the old one's, which play on under the old picture's fade-out
+    // and go with it. When the old picture's videos were showing, settled on it (not themselves entering), and name a
+    // transition into the new picture (video.into[image]), the new picture enters through it: the old picture stays whole
+    // while the transition is awaited (the new still does not draw meanwhile), then fades out over it in SWITCH_MS; a
+    // transition that does not come leaves the usual crossfade. Speech meanwhile: the transition plays out with its own
+    // closed mouth (the still's mouths stay shut under it), then the talking loop takes over if the voice is still heard.
+    const ENTER_SWITCH_MS = 150;
     function tickFigureVideo(entry, figure, desc, dt) {
-        const video = entry.loadedIdentity === figure.identity ? figure.video : null;
-        const key = video ? JSON.stringify([video.source.packId, video.source.bundleKey, video.source.hash, video.rect]) : '';
+        // While the next picture loads, the shown one's videos play on with it.
+        const video = entry.loadedIdentity === figure.identity ? figure.video : entry.videoSprite === entry.sprite ? entry.videoMotion : null;
+        const key = video ? JSON.stringify([video.source.packId, video.source.bundleKey, video.source.hash, video.talk?.bundleKey, video.talk?.hash, video.rect]) : '';
         if (entry.videoKey !== key || entry.videoSprite !== entry.sprite) {
-            const old = entry.video; entry.video = null; entry.videoShown = false;
-            old?.destroy();
-            entry.video = key && entry.sprite ? figureVideos.attach(entry.sprite, video) : null;
+            const old = entry.video, shown = entry.videoShown, before = entry.videoMotion;
+            entry.video = null; entry.videoShown = false;
+            const leaving = old && entry.videoSprite !== entry.sprite ? entry.fading.find(item => item.sprite === entry.videoSprite) : null;
+            const into = leaving && shown && video && before?.outfit === video.outfit && !old.entering() ? before.into?.[video.image] : null;
+            if (leaving) leaving.video = old; else old?.destroy();
+            entry.video = key && entry.sprite ? figureVideos.attach(entry.sprite, into ? {...video, enter: into} : video) : null;
+            if (into && entry.video) leaving.held = entry.video;
             entry.videoKey = key; entry.videoSprite = entry.sprite;
+        }
+        entry.videoMotion = video;
+        const speaks = Boolean(figure.speaking && !desc.skipping);
+        const mouth = speaks ? layeredSpriteVoice('video:' + figure.spriteVoiceKey, figure.audio, true) : 'closed';
+        const talking = mouth !== 'initial' && mouth !== 'closed';
+        const moving = !entry.leaving && entry.container.visible && world.visible && !desc.reducedMotion && !desc.skipping;
+        for (const item of entry.fading) {
+            if (item.video) { item.video.update({on: moving, talking}); item.video.tick(dt); }
+            // A held picture stays whole until the transition into the new one covers it, then fades out over it.
+            if (!item.held) continue;
+            const entering = item.held.entering();
+            item.start = state.clock;
+            if (entering !== 'pending') { item.held = null; if (entering === 'on') item.ms = ENTER_SWITCH_MS; }
         }
         if (!entry.video) return;
         const tapped = Boolean(entry.tapTexture && entry.sprite.texture === entry.tapTexture.texture);
-        const talking = Boolean(figure.speaking && !desc.skipping && figure.spriteBundle);
-        entry.video.update({on: !entry.leaving && entry.container.visible && world.visible && !desc.reducedMotion && !desc.skipping && !tapped && !talking});
+        const stillSpeaks = speaks && Boolean(figure.spriteBundle) && !entry.video.talks();
+        entry.video.update({on: moving && !tapped && !stillSpeaks, talking});
         entry.videoShown = entry.video.tick(dt);
     }
     const GAL_NO_FIGURES = [];
@@ -777,7 +803,9 @@ function galCreateScene(host, options, own) {
                 renderer.tick(entry,figure,desc,{now,dt,W,H,framing,reducedHop});
                 if(!renderer.spriteBased)return;
             }else {
-                if (!layeredSpriteTickScene(entry, textures, PIXI, !desc.skipping && figure.speaking)) entry.sprite.texture = entry.baseTexture;
+                // A talking loop on screen speaks with its own mouth: the still under its crossfade keeps its mouth shut.
+                const videoTalks = Boolean(entry.videoShown && entry.video?.talks());
+                if (!layeredSpriteTickScene(entry, textures, PIXI, !desc.skipping && figure.speaking && !videoTalks)) entry.sprite.texture = entry.baseTexture;
                 tickBlink(entry);
                 tapTextureStatic(entry, now);
                 tickFigureVideo(entry, figure, desc, dt * 1000);
@@ -788,7 +816,7 @@ function galCreateScene(host, options, own) {
                 entry.restHead=pose.restHead;entry.restBody=pose.restBody;entry.localHead=pose.localHead;
                 if(pose.resolved)entry.figureResolved=pose.resolved;
                 entry.fading=pose.remaining;
-                for(const item of pose.retired){item.asset.destroy();state.lastPrune=0;}
+                for(const item of pose.retired){item.video?.destroy();item.asset.destroy();state.lastPrune=0;}
             }
             tickContactShadow(entry,H);
         };

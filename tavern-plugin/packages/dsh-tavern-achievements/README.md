@@ -6,7 +6,7 @@
 
 ## 使用
 
-新版酒馆内置并默认启用 `dsh-tavern-adventure-medal`，随酒馆更新。可以在「设置 → 酒馆插件」停用。解锁后可以打开「设置 → 酒馆启动器 → 成就库」查看已获得的成就卡牌、档位和解锁日期。
+新版酒馆内置并默认启用 `dsh-tavern-achievements`，随酒馆更新。可以在「设置 → 酒馆插件」停用。解锁后可以打开「设置 → 酒馆启动器 → 成就库」查看已获得的成就卡牌、档位和解锁日期。
 
 已经达到游玩轮数的旧存档，可在成就库点击「刷新成就」补记缺失的档位。补记时以刷新当天作为解锁日期，同时保留已有成就卡片和它们的解锁日期。
 
@@ -14,4 +14,4 @@
 
 成就保存在酒馆的插件数据目录中，在替换插件或重启后继续保留。首次解锁时保存人物卡名、封面缩略图、游玩轮数、开始日期和对话总字数。总字数沿用原奖牌的统计口径，统计这段对话里玩家和 AI 的正文。卡面采用原奖牌的排版，缺少人物卡封面时使用双色缎带底图。
 
-本插件基于 [SilverLark257 的原版奖牌插件](https://github.com/SilverLark257/dsh-tavern-adventure-medal)，在 [同名 fork](https://github.com/flizzywine/dsh-tavern-adventure-medal) 维护。
+本插件基于 [SilverLark257 的原版奖牌插件](https://github.com/SilverLark257/dsh-tavern-adventure-medal)，在 [DSH Tavern 成就仓库](https://github.com/flizzywine/dsh-tavern-achievements) 维护。

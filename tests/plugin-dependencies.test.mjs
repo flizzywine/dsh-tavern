@@ -5,6 +5,8 @@ import { createRequire } from 'node:module'
 import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
+import { resolveWindowsInstallationInvocation } from '../bin/installation-process.mjs'
+import { syntheticFixture } from './helpers/synthetic-link-fixture.mjs'
 
 import { installPluginDependencies, resolveDshBootModule, resolveHostDependencies } from '../bin/plugin-dependencies.mjs'
 
@@ -12,9 +14,9 @@ import { installPluginDependencies, resolveDshBootModule, resolveHostDependencie
 // executable used by the desktop-backed test runner.
 const probeExecutable = process.env.DSH_TEST_NODE_EXECUTABLE || process.execPath
 
-function fixture(t) {
-  const root = mkdtempSync(path.join(os.tmpdir(), 'tavern-host-deps-'))
-  t.after(() => rmSync(root, { recursive: true, force: true }))
+function fixture(t, { links = false } = {}) {
+  const root = links ? syntheticFixture(t, 'tavern-host-deps-') : mkdtempSync(path.join(os.tmpdir(), 'tavern-host-deps-'))
+  if (!links) t.after(() => rmSync(root, { recursive: true, force: true }))
   const pluginDirectory = path.join(root, 'tavern plugin')
   mkdirSync(pluginDirectory)
   const original = 'packages:\n  - .\nnodeLinker: hoisted\nautoInstallPeers: false\n'
@@ -38,8 +40,42 @@ function fixture(t) {
   return { root, pluginDirectory, original, bootstrap, packages, execPath: probeExecutable }
 }
 
-test('真实 pnpm 离线安装本地链接，并由插件解析到宿主原包及其传递依赖', { skip: process.platform === 'win32' ? 'Requires symlinks, which Windows only allows with extra privileges' : false }, async t => {
+test('pnpm uses the selected host and its peer graph without writing workspace policy', async t => {
   const f = fixture(t)
+  let hook
+  const deps = await installPluginDependencies({ ...f, host: 'desktop', env: { DSH_DESKTOP_DSH_BOOTSTRAP: f.bootstrap },
+    run(command, args, options) {
+      assert.equal(command, 'pnpm')
+      assert.deepEqual(args.slice(0, -1), ['install', '--lockfile=false', '--no-ignore-pnpmfile', '--global-pnpmfile'])
+      assert.equal(options.cwd, f.pluginDirectory)
+      hook = args.at(-1)
+      const require = createRequire(import.meta.url)
+      const config = require(hook).hooks.updateConfig({ autoInstallPeers: false, overrides: { keep: '1.0.0' } })
+      assert.equal(config.overrides['@deepseek-ai/dsh-agent'], `link:${realpathSync(f.packages['@deepseek-ai/dsh-agent']).replaceAll('\\', '/')}`)
+      assert.equal(config.overrides.keep, '1.0.0')
+      assert.equal(config.autoInstallPeers, false)
+      assert.equal(readFileSync(path.join(f.pluginDirectory, 'pnpm-workspace.yaml'), 'utf8'), f.original)
+    },
+  })
+  assert.equal(existsSync(hook), false)
+  assert.equal(deps.find(dep => dep.name === '@deepseek-ai/dsh-agent').directory, realpathSync(f.packages['@deepseek-ai/dsh-agent']))
+  assert.equal(readFileSync(path.join(f.pluginDirectory, 'pnpm-workspace.yaml'), 'utf8'), f.original)
+})
+
+test('pnpm fails once without touching workspace or leaving the hook behind', async t => {
+  const f = fixture(t)
+  const failure = Object.assign(new Error('unrelated pnpm open failed'), { code: 'UNKNOWN', errno: -4094 })
+  let hook, calls = 0
+  await assert.rejects(installPluginDependencies({ ...f, host: 'desktop', env: { DSH_DESKTOP_DSH_BOOTSTRAP: f.bootstrap },
+    run(command, args) { calls++; hook = args.at(-1); throw failure },
+  }), error => error === failure)
+  assert.equal(calls, 1)
+  assert.equal(existsSync(hook), false)
+  assert.equal(readFileSync(path.join(f.pluginDirectory, 'pnpm-workspace.yaml'), 'utf8'), f.original)
+})
+
+test('真实 pnpm 离线安装本地链接，并由插件解析到宿主原包及其传递依赖', async t => {
+  const f = fixture(t, { links: true })
   const staleTools = path.join(f.pluginDirectory, 'node_modules/@deepseek-ai/dsh-tools')
   mkdirSync(staleTools, { recursive: true })
   writeFileSync(path.join(staleTools, 'package.json'), '{"name":"@deepseek-ai/dsh-tools","version":"0.0.0","type":"module","exports":"./index.js"}')
@@ -53,8 +89,13 @@ test('真实 pnpm 离线安装本地链接，并由插件解析到宿主原包�
   await installPluginDependencies({ ...f, host: 'desktop', env: { ...process.env, DSH_DESKTOP_DSH_BOOTSTRAP: f.bootstrap },
     run(command, args, options) {
       // Neither registry access nor a cached alpha.1 package can make this pass.
-      const result = spawnSync(command, [...args, '--offline', '--store-dir', './empty-store'], {
-        ...options, encoding: 'utf8', shell: process.platform === 'win32', timeout: 30000,
+      const installArgs = [...args, '--offline', '--store-dir', './empty-store']
+      const bundled = process.env.DSH_DESKTOP_PNPM_ENTRY
+      const invocation = bundled ? { command: process.execPath, args: [bundled, ...installArgs] }
+        : process.platform === 'win32' ? resolveWindowsInstallationInvocation(`${command}.cmd`, installArgs, { shell: true })
+        : { command, args: installArgs }
+      const result = spawnSync(invocation.command, invocation.args, {
+        ...options, encoding: 'utf8', windowsHide: true, windowsVerbatimArguments: invocation.verbatimArguments, timeout: 30000,
       })
       assert.equal(result.status, 0, result.error?.message || result.stdout + result.stderr)
     },
@@ -123,7 +164,7 @@ test('官方 asar 升级隔离旧插件依赖，空包不再遮住根目录依�
   const f = officialUpgradeFixture(t)
   const probe = () => spawnSync(process.execPath, [path.join(f.pluginDirectory, 'probe.mjs')], { encoding: 'utf8' })
   assert.notEqual(probe().status, 0, '复现升级前酒馆主插件无法导入')
-  const install = () => installPluginDependencies({ pluginDirectory: f.pluginDirectory, host: 'desktop', env: { DSH_DESKTOP_DSH_BOOTSTRAP: f.bootstrap }, run() { assert.fail('asar 宿主不单独安装插件依赖') } })
+  const install = () => installPluginDependencies({ pluginDirectory: f.pluginDirectory, host: 'desktop', env: { DSH_DESKTOP_DSH_BOOTSTRAP: f.bootstrap, DSH_TAVERN_HOST_DEPENDENCY_ANCHOR: f.bootstrap }, run() { assert.fail('asar 宿主不单独安装插件依赖') } })
   await install()
   const result = probe()
   assert.equal(result.status, 0, result.stderr)
@@ -139,6 +180,6 @@ test('官方 asar 升级隔离旧插件依赖，空包不再遮住根目录依�
 test('官方升级根目录依赖未准备好时保留旧依赖并明确失败', async t => {
   const f = officialUpgradeFixture(t, false)
   writeFileSync(path.join(f.pluginDirectory, 'package.json'), JSON.stringify({ dependencies: { 'tavern-missing-parent-dependency': '1.0.0' } }))
-  await assert.rejects(installPluginDependencies({ pluginDirectory: f.pluginDirectory, host: 'desktop', env: { DSH_DESKTOP_DSH_BOOTSTRAP: f.bootstrap }, run() { assert.fail('不调用 pnpm') } }), /根目录依赖.*tavern-missing-parent-dependency/)
+  await assert.rejects(installPluginDependencies({ pluginDirectory: f.pluginDirectory, host: 'desktop', env: { DSH_DESKTOP_DSH_BOOTSTRAP: f.bootstrap, DSH_TAVERN_HOST_DEPENDENCY_ANCHOR: f.bootstrap }, run() { assert.fail('不调用 pnpm') } }), /根目录依赖.*tavern-missing-parent-dependency/)
   assert.equal(readFileSync(path.join(f.pluginDirectory, 'node_modules/keep.txt'), 'utf8'), 'legacy cache')
 })

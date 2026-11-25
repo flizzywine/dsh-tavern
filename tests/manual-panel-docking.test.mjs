@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 import vm from './fixtures/client-vm.mjs'
+import TAVERN_PLAY_FEATURES from '../tavern-plugin/shared/play-features.cjs'
 import { parseExpressionAt } from 'acorn'
 import { JSDOM } from 'jsdom'
 import { browserReactScript } from './fixtures/browser-react.mjs'
@@ -15,9 +16,10 @@ test('酒馆状态父组件在没有 Helper 时仍挂载手动停靠区，两种
   assert.ok(start >= 0)
   const node = parseExpressionAt(source, start, { ecmaVersion: 'latest' })
   for (const placement of ['sidebar', 'body']) {
-    const view = { mode: 'story', tavernHelper: null, statusBarPlacement: placement, card: { name: '仅正则卡', path: '' }, activity: {} }
+    const view = { mode: 'story', tavernHelper: null, statusBarPlacement: placement, card: { name: '仅正则卡', path: '' }, activity: {}, posture: '在窗边等候', ledger: { location: '大厅' } }
     const runtime = () => {}
     const context = {
+      TAVERN_PLAY_FEATURES,
       React: {
         useState: value => [value, () => {}], useRef: value => ({ current: value }), useEffect() {},
         createElement: (type, props, ...children) => ({ type, props, children })
@@ -32,6 +34,8 @@ test('酒馆状态父组件在没有 Helper 时仍挂载手动停靠区，两种
     const found = []
     function walk(value) {
       if (!value || typeof value !== 'object') return
+      assert.notEqual(value.type, context.TavernLedger)
+      assert.notEqual(value.props?.className, 'fork-status-now')
       if (value.type === runtime) found.push(value)
       for (const child of value.children || []) Array.isArray(child) ? child.forEach(walk) : walk(child)
     }

@@ -1,5 +1,5 @@
 import { STRUCTURED_PROMPT_GUIDANCE } from './prompt-presets.js'
-import { libraryImageDetails, libraryPromptOverride } from './library-prompts.js'
+import { characterLibraryPrompt, libraryImageDetails, libraryPromptOverride } from './library-prompts.js'
 
 /**
  * 生图规划：把正文交给"图图"（一个后台模型调用），换回一组 <image> 块。
@@ -361,6 +361,11 @@ export function characterRoster(definitions, { fullTraits = false, text = '', id
       : '  有身份参考图（此处只列出可用性，规划模型未收到图片）')
     if (String(character.consistencyText ?? '').trim()) lines.push('  身份一致性补充：' + clip(character.consistencyText, 700))
     const raw = libraryPromptOverride(character)
+    if (useReference && !fullTraits) {
+      const appearance = characterLibraryPrompt(character, { mode: 'natural', traitMode: 'sfw' })
+        .split('\n').map(line => clip(line, 110)).filter(Boolean).join(' / ')
+      if (appearance) lines.push('  人物库外貌（仅用于辨认人物与性别，不抄进画面；与正文称谓冲突时以此为准）：' + appearance)
+    }
     if (!useReference) {
       if (raw) lines.push('  人物提示词（通过人物名引用）：' + clip(raw, fullTraits ? 700 : 180))
       const details = clip(libraryImageDetails(character).join('\n'), 180)
@@ -375,7 +380,7 @@ export function characterRoster(definitions, { fullTraits = false, text = '', id
       if (useReference && key !== 'feature') historyTraits.push(detail)
       else lines.push(detail)
     }
-    if (historyTraits.length) lines.push('  固定外貌旧值（仅用于 character_updates 核对明确的永久变化，不写进画面正文）：', ...historyTraits)
+    if (historyTraits.length) lines.push('  固定外貌旧值（仅用于 character_updates 核对明确的永久变化，以及按人物库辨认人物与性别；不写进画面正文）：', ...historyTraits)
     const outfits = (character.outfits ?? []).filter(o => o && o.enabled !== false)
     // 同一角色的另一个形态（名字互为前缀）如果服装表完全相同，就不再重复列一遍。
     const signature = outfits.map(o => String(o.name ?? '')).join('|')

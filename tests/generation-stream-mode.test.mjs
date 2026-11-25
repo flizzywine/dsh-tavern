@@ -153,10 +153,44 @@ test('移动端在模型根菜单最后一行显示当前输入栏的运行统�
     dom.window.dispatchEvent(new dom.window.Event('resize'))
     await settle(dom)
     assert.equal(statsRow.hidden, false)
+
+    // 方案 C：触发器纯属性与 CSS 变量同步，绝不向 React 按钮内插入子节点
+    const triggerBtn = dom.window.document.querySelector('[data-composer-card] button[aria-controls="m1-menu"]')
+    const initialChildren = triggerBtn.childNodes.length
+    assert.equal(triggerBtn.getAttribute('data-dsh-tavern-ctx-trigger'), 'scheme-c')
+    assert.equal(triggerBtn.getAttribute('data-ctx-tone'), 'normal')
+    assert.equal(triggerBtn.style.getPropertyValue('--dsh-ctx-level'), '7%')
+    assert.equal(triggerBtn.childNodes.length, initialChildren)
+
+    // 推送精确触发态：cache-break（0% 告警微角标）与危险高占用态
+    dom.window.__dshTavernGenerationStreamMode.setContextVisual({
+      sessionId: 's1',
+      triggerState: { percent: 42, level: 42, tone: 'cache-break', alertPill: '0%', bucketShares: [{ key: 'worldbook', share: 0.25 }, { key: 'story', share: 0.17 }] }
+    })
+    assert.equal(triggerBtn.getAttribute('data-ctx-tone'), 'cache-break')
+    assert.equal(triggerBtn.getAttribute('data-ctx-alert'), '1')
+    assert.equal(triggerBtn.getAttribute('data-ctx-pill'), '0%')
+    assert.equal(triggerBtn.style.getPropertyValue('--dsh-ctx-level'), '42%')
+    assert.ok(statsRow.querySelector('[data-dsh-tavern-stats-more]').textContent.includes('分布'))
+    assert.ok(statsRow.querySelectorAll('[data-dsh-tavern-stats-seg]').length >= 2)
+    assert.equal(triggerBtn.childNodes.length, initialChildren, '按钮子节点数始终保持零侵入')
+
+    // 点击底部运行信息栏派发打开上下文分布浮层事件
+    const openedEvents = []
+    dom.window.addEventListener('dsh-tavern:open-context-window', e => openedEvents.push(e.detail))
+    statsRow.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true, cancelable: true }))
+    assert.equal(openedEvents.length, 1)
+    assert.equal(openedEvents[0].source, 'mobile-menu-stats')
+
     menu.setAttribute('role', 'group')
     for (const button of [...menu.querySelectorAll('[role="menuitem"]')]) button.remove()
     await settle(dom)
     assert.equal(menu.querySelector('[data-dsh-tavern-mobile-stats]'), null, '进入子面板时移除统计行')
+
+    // dispose 完整清理触发器附加属性
+    dom.window.__dshTavernGenerationStreamMode.dispose()
+    assert.equal(triggerBtn.getAttribute('data-dsh-tavern-ctx-trigger'), null)
+    assert.equal(triggerBtn.getAttribute('data-ctx-pill'), null)
   } finally {
     dom.window.__dshTavernGenerationStreamMode?.dispose()
     dom.window.close()

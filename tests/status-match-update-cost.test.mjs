@@ -32,7 +32,7 @@ test('status incremental output matches fresh projection after append, truncatio
  const cache=createIncrementalReplyView({readChanges:async()=>changes})
  async function check(){
   const history=projectReplyHistory(chat.messages,options)
-  for(const projection of history.projections)projection.body=replyBody(projection,chat)
+  for(const projection of history.projections)projection.body=replyBody(projection,chat,chat.messages.find(message=>message.turn===projection.turn))
   assert.deepEqual(await cache.project(chat,options,options),{...projectPersistentStatusView(chat.messages,history.projections,options),presentation:null,latestSourceBacked:history.latestSourceBacked})
  }
  await check()

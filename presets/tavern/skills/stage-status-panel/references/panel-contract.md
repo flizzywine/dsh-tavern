@@ -46,9 +46,15 @@
 
 本卡有开局页（`opening:true`）时还有一条：聊天还没开局（新游戏开出的空档）、上面也没有打开任何页（没有标题页，或「跳过标题页」开着）时，打开开局页。
 
+本卡有 `initial` 页、没有开局设置（`openingSetup`）和开局页、只有一段开场白时，通用的「游戏准备」没有可填的东西，开始游戏就不再打开它：宿主直接用这段开场白开一局，舞台开着时进入舞台（于是先打开 `initial` 页），舞台关着时在文字模式里打开这一局。称呼、入职登记这类开局信息由 `initial` 页自己收集，写进开场楼层的变量（`replaceVariables(…, {type:'message', message_id:0})`），需要时用 `setChatMessages` 换掉开场白正文。
+
 聊天有了玩家消息之后，`initial` 页不会再被自动打开。校验不限制 showOn 页的数量，排在后面的匹配页不会自动出现，但仍可以用快捷键、菜单或 `open(id)` 打开。
 
 页面开着时舞台暂停输入和自动/快进。关闭方式：关闭按钮、Esc、本页快捷键，或脚本调 `close()`（`closeControl:"page"` 的页面由页面自己处理，见上表）。进入舞台时打开的 showOn 页不同：关闭就是不进入，回到文字模式（同「返回主页面」）；进入舞台用 `continueGame()` 或 `fillInput(text)`；它用 `open(id)` 换到的页也还在进入之前。
+
+## 开场白读完后转场
+
+在卡的 `data.extensions.dsh_tavern_opening_end_page` 写入目标页面的 `id`，例如 `"interaction"`。目标须声明在 `data.extensions.dsh_tavern.pages` 中，并使用常规舞台页。玩家翻过当前开场白的最后一句时，舞台打开这一页。手动翻页、自动播放和快进共用这个入口。可以同时给该页设置 `menu:true`，让玩家从舞台菜单再次打开，也方便使用旧版 Tavern 的玩家进入。
 
 ## 写入
 
@@ -87,7 +93,7 @@ tavern_update_card({ rawOperations: [
 | 接口 | 作用 |
 | --- | --- |
 | `page` | 本页 id。 |
-| `data()` | 当前快照（副本）：`{ledger, figures, theme, card: {name}, saved, entry}`。 |
+| `data()` | 当前快照（副本）：`{ledger, figures, theme, card: {name}, saved, entry}`；本页正在舞台上演出时还有 `perform`，见「页面演出」。 |
 | `onData(fn)` | 推送新快照时调用 `fn(snapshot)`，返回取消订阅的函数。 |
 | `onCloseRequest(fn)` | 只用于 `closeControl:"page"` 的页面：玩家按 Esc、本页快捷键或右键时调用 `fn()`，页面先关自己的详情等，已在最上层时调 `close()`；返回取消订阅的函数。本页上面开着 CONFIG、回想或履历时 Esc 先关它们，不调用 `fn`。 |
 | `close()` | 关闭本页；进入舞台时打开的 showOn 页是返回主页面。 |
@@ -100,12 +106,22 @@ tavern_update_card({ rawOperations: [
 | `asset({kind:'figures', id, variant, file})` | `id` 是已启用人物的 ID 或准确名称，`variant` 是服装键；`file` 省略或传 `'avatar'` 取头像，`'sprite'` 取默认差分立绘，传差分 ID 取对应立绘。没有静态立绘时尝试头像，不加载 Live2D/Spine 运行时。 |
 | `opening(userName)` | 只用于开局页：本卡的开局，返回 `Promise<{userName, setup, openings}>`。`userName` 是名字框里的名字（空时用玩家默认名，返回的 `userName` 就是它）；`setup` 是本卡的 v2 开局设置（字段、消息）；`openings` 是每段开场白 `{id, text, state?, scene?}`：`text` 是按这个名字投影好的正文，`state` 是它 `<initvar>` 里的起点变量，`scene` 是作者给它配的画面 `{title?, background?, music?, timeOfDay?}`（素材 id，名称用 `assets(kind)` 查）。 |
 | `startGame(choice)` | 只用于开局页：开局。`choice` 是 `{openingId, values, withoutGreeting?}`：`openingId` 是 `openings` 里的一段，`values` 是开局设置字段的值（键是字段的 `key`，和「游戏准备」表单交的一样），`withoutGreeting:true` 时不用这段开场白，由 AI 按开局消息写第一幕。宿主用和「游戏准备」同一份开局设置结算（字段校验、变量路由、开局消息），开出的一局取代这个没玩过的空档，舞台从第一幕开始；值不合格时 Promise 拒绝，报错写明哪个字段，页面显示给玩家。 |
-| `newGame()` | 本卡有开局页时打开开局页（本局已存档时先确认、另开一局，舞台直接进那一局的开局页）。其余：本局还没存档（`saved` 不为 true，玩家还没说过话）时，这一局就是新游戏，不另开一局：本卡有开局设置（`openingSetup`）时离开舞台、打开「游戏准备」，在那里开始的一局取代这个没玩过的空档；没有开局设置时和 `continueGame()` 一样关闭本页、从开场进入舞台。本局已存档时先弹确认框，确认后离开舞台、打开本卡的「游戏准备」开一局新的（与人物卡列表的开始游戏相同，旧的一局留在游玩记录里）；玩家取消时得到 `{started: false}`，页面保持打开。 |
+| `newGame()` | 本卡有开局页时打开开局页（本局已存档时先确认、另开一局，舞台直接进那一局的开局页）。其余：本局还没存档（`saved` 不为 true，玩家还没说过话）时，这一局就是新游戏，不另开一局：本卡有开局设置（`openingSetup`）时离开舞台、打开「游戏准备」，在那里开始的一局取代这个没玩过的空档；没有开局设置时和 `continueGame()` 一样关闭本页、从开场进入舞台。本局已存档时先弹确认框，确认后与人物卡列表的开始游戏相同地开一局新的（离开舞台、打开本卡的「游戏准备」；没有可填内容的卡见「入口」，直接开局并进入舞台；旧的一局留在游玩记录里）；玩家取消时得到 `{started: false}`，页面保持打开。 |
 | `continueGame()` | 关闭本页，从当前读到的那一句继续（showOn 页由此进入舞台）。 |
 | `openGallery()` | 在本页上面打开「回想」，关掉回想回到本页。 |
 | `openBacklog()` | 在本页上面打开「履历」，关掉履历回到本页；在履历里点某一句就关闭本页，从那一句进入舞台。 |
 | `exit()` | 返回主页面（与舞台菜单的「返回主页面」相同）。 |
 | `sound(name)` | 播放界面音效，`name` 是 `move`（移动、悬停）、`confirm`（确定）、`open`、`close` 之一；皮肤自带这个音效就用皮肤的，没有就用舞台内置的同名音效；跟随界面音量和静音。 |
+
+### 页面演出
+
+卡的规则（AI检定模组的 `dsh.rules`）给一个不掷骰的动作写 `page: "页面 id"` 时，这个动作在正文里提交、读者读到那里，舞台就请这一页在舞台中央把它演一遍，代替文本框上方那张变化卡（例：三角机构「花时间」由档案页演格子被标上、被划掉）。演出时：
+
+- 页面没有窗口、标题和遮罩，铺在对白框上方的那块地方，背景透明，不接收指针；画面自己居中、放不下就缩小。
+- `data().perform` 是 `{cue, calm}`：`cue` 是 `{action, label, steps: [{params, changes}]}`，一起到的几次同一动作是几步（连花两点是两步），`changes` 是玩家能看的每项变化 `{path, label, from?, to?}`（保密和内部变量不在里面）；`calm` 是舞台 CONFIG 的「减少动态」，为 true 时直接显示结果、不做动画。
+- 页面画出相关的那一块，从 `from` 演到 `to`，演完自己淡出并调用 `close()`。玩家点一下舞台或按 Esc 提前结束。演出中只能用 `data`、`onData`、`asset`、`assets`、`sound` 和 `close`，其余方法拒绝。
+- 页面读不出来、本卡没有这一页时，舞台照旧显示那张变化卡。重新载入、翻历史不演，舞台上也不再出那张卡（状态页本身就显示结果）。
+- 同一份 HTML 平时是状态页：脚本开头先看 `DshCardPage.data().perform`，有就只演这一块，不渲染整页。
 
 每个动作都返回 Promise。页面开着时它会兑现或拒绝，点按钮时先禁用按钮、等 Promise 结束后再启用即可；页面被关掉时还没结束的 Promise 可能不再结束，不要靠它做收尾。
 

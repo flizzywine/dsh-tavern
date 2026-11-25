@@ -33,23 +33,23 @@ def replace(file, before, after):
 
 
 def patch_web_upload_limits(java, tests):
-    # Match Tavern's 1 GiB card upload limit and leave room for two full batches in the native cache.
+    # Match Tavern's streamed card archive limit and leave room for two batches in the native cache.
     replace(java / 'util/WebTransferPolicy.java',
             'UPLOAD_LIMIT = 256L * 1024 * 1024;',
-            'UPLOAD_LIMIT = 1024L * 1024 * 1024;')
+            'UPLOAD_LIMIT = 32L * 1024 * 1024 * 1024;')
     replace(java / 'util/WebUploadSessionBudget.java',
             'MAX_SESSION_BYTES = 512L * 1024L * 1024L;',
-            'MAX_SESSION_BYTES = 2L * 1024 * 1024 * 1024;')
+            'MAX_SESSION_BYTES = 64L * 1024 * 1024 * 1024;')
     uploads = java / 'ui/WebUploads.java'
     replace(uploads,
             'com.deepseekharness.app.util.UiText.text("本次上传超过 256 MiB")',
             '''com.deepseekharness.app.util.UiText.choose(
-                      "本次上传超过 1 GiB", "This upload exceeds 1 GiB")''')
+                      "本次上传超过 32 GiB", "This upload exceeds 32 GiB")''')
     replace(uploads,
             'com.deepseekharness.app.util.UiText.text("浏览器会话上传缓存已达 512 MiB 或 40 个文件，请重新打开对话后再试")',
             '''com.deepseekharness.app.util.UiText.choose(
-          "浏览器会话上传缓存已达 2 GiB 或 40 个文件，请重新打开对话后再试",
-          "This browser session reached the 2 GiB or 40-file upload cache limit. Reopen the page and try again.")''')
+          "浏览器会话上传缓存已达 64 GiB 或 40 个文件，请重新打开对话后再试",
+          "This browser session reached the 64 GiB or 40-file upload cache limit. Reopen the page and try again.")''')
     session_test = tests / 'WebUploadSessionBudgetTest.java'
     replace(session_test,
             '''      budget.addBytes(reservation, 256L * 1024L * 1024L);
@@ -60,7 +60,7 @@ def patch_web_upload_limits(java, tests):
             () -> budget.addBytes(reservation, 1));
       budget.finishCopy(reservation);''')
     replace(session_test, 'assertEquals(512L * 1024L * 1024L, budget.committedBytes());',
-            'assertEquals(2L * 1024 * 1024 * 1024, budget.committedBytes());')
+            'assertEquals(64L * 1024 * 1024 * 1024, budget.committedBytes());')
 
 
 def patch_web_fullscreen_ui(web_ui):

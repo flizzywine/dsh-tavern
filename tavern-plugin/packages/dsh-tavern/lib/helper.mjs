@@ -167,7 +167,7 @@ export function relaunchApp(exe, { continueProfile = false, env = process.env } 
   const [command, args] = continueProfile && process.platform === 'darwin' && !exe.endsWith('.app')
     ? [exe, []] : relaunchCommand(exe)
   // The helper itself runs the app binary as node; the reopened app must not.
-  const child = spawn(command, args, { detached: true, stdio: 'ignore', env: relaunchEnvironment(env, continueProfile) })
+  const child = spawn(command, args, { windowsHide: true, detached: true, stdio: 'ignore', env: relaunchEnvironment(env, continueProfile) })
   child.unref()
   return child
 }
@@ -427,7 +427,7 @@ export function scheduleSwitch(request, options = {}) {
     }
     writeFileSync(job, JSON.stringify(request), { flag: 'wx', mode: 0o600 })
     writeFileSync(join(request.stateDir, 'last-result.json'), JSON.stringify({ status: 'pending', mode: request.mode, stamp: request.stamp }), { mode: 0o600 })
-    const child = spawn(process.execPath, [worker, job], { detached: true, stdio: 'ignore', cwd: request.stateDir, env: { ...process.env, ...(process.versions.electron ? { ELECTRON_RUN_AS_NODE: '1' } : {}) } })
+    const child = spawn(process.execPath, [worker, job], { windowsHide: true, detached: true, stdio: 'ignore', cwd: request.stateDir, env: { ...process.env, ...(process.versions.electron ? { ELECTRON_RUN_AS_NODE: '1' } : {}) } })
     if (Number.isInteger(child.pid) && child.pid > 1) {
       try { writeFileSync(join(lock, 'worker.json'), JSON.stringify({ pid: child.pid, startedAt: Date.now() }), { flag: 'wx', mode: 0o600 }) } catch {}
     }

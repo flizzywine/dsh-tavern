@@ -59,6 +59,24 @@ test('HTTPS URL card bundle uses validated inspection and the same atomic new-ca
   assert.equal((await f.resources.readCard(path)).meta.id,'card-new')
   assert.equal(requests,1)
 })
+
+test('card URL downloads above 1 GiB reach the stream while the configured budget still applies', async t => {
+  let declared = 1024 ** 3 + 1, started = false
+  const f = await fixture(t, async () => ({
+    status: 200,
+    headers: { 'content-length': String(declared) },
+    body: Readable.from((async function* () { started = true; throw new Error('fixture download interrupted') })())
+  }))
+  const { path } = await f.targets.reserve()
+  const url = 'https://example.test/card.zip'
+  await assert.rejects(f.service.inspectCardBundleUrl({ path, url }), { code: 'DOWNLOAD_FAILED' })
+  assert.equal(started, true)
+  declared = 3 * 1024 ** 3
+  started = false
+  await assert.rejects(f.service.inspectCardBundleUrl({ path, url }), { code: 'LIMIT_EXCEEDED' })
+  assert.equal(started, false)
+})
+
 // 「导入示例卡：大肥鱼」 reads a GitHub releases/latest URL — a 302 to the objects host, then a
 // ~206 MB body that takes minutes on a slow link. The real pinned-DNS network follows the redirect (resolve/request are
 // injected; loopback stays refused) and the download is not cut at the old 3-minute deadline.

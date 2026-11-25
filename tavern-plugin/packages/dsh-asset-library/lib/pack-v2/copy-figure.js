@@ -3,15 +3,51 @@ import { randomUUID } from 'node:crypto'
 import { check, canonicalJson } from '../asset-packs/common.js'
 import { jsonBytes } from './validation.js'
 
-export function copyFigureAssets(source, figureId, manifest, files, {credits = true, voices = new Map(), extensions = {}, copyVoice = true} = {}) {
+// 动态立绘: the 视频 entries the figure's stills name (outfit sprite.videos) come along as entries of the target with their
+// bundles, under fresh ids where the target has (or once had) the id; videos maps a source id to its copy, shared by the
+// figures of one copy so a loop two figures name is copied once.
+// Every place a figure names a 视频 entry: [holder, key] - an image's idle and talking loops and its transitions (into).
+export function figureVideoSlots(figure) {
+  const slots = []
+  for (const outfit of figure.outfits) for (const motion of Object.values(outfit.sprite?.videos || {})) {
+    slots.push([motion, 'video'], [motion, 'talk'])
+    for (const edge of Object.values(motion.into || {})) slots.push([edge, 'video'])
+  }
+  return slots
+}
+function copyFigureVideos(source, figure, manifest, files, videos, retired) {
+  for (const [motion, key] of figureVideoSlots(figure)) {
+    const old = motion[key]
+    if (old === undefined) continue
+    if (!videos.has(old)) {
+      const entry = structuredClone(source.manifest.assets.find(a => a.kind === 'videos' && a.id === old))
+      check(entry, '$.source', 'Missing video entry: ' + old, 'ASSET_UNAVAILABLE')
+      let id = old
+      for (let n = 2; manifest.assets.some(a => a.kind === 'videos' && a.id === id) || retired.has('asset/videos/' + id); n++) id = old.slice(0, 44) + '-' + n
+      let bundle = entry.bundleKey
+      for (let n = 2; Object.hasOwn(manifest.bundles, bundle) || retired.has('bundle/' + bundle); n++) bundle = entry.bundleKey.slice(0, 56) + '-' + n
+      manifest.bundles[bundle] = structuredClone(source.manifest.bundles[entry.bundleKey])
+      for (const [path, bytes] of source.files) if (path.startsWith(`bundles/${entry.bundleKey}/`)) files.set(`bundles/${bundle}/` + path.slice(`bundles/${entry.bundleKey}/`.length), bytes)
+      entry.id = id; entry.bundleKey = bundle
+      entry.extensions = {...entry.extensions, dsh_tavern:{...entry.extensions?.dsh_tavern, copiedFrom:entry.extensions?.dsh_tavern?.copiedFrom || {packId:source.manifest.id, kind:'videos', assetId:old}}}
+      manifest.assets.push(entry); videos.set(old, id)
+    }
+    motion[key] = videos.get(old)
+  }
+}
+
+// keepId: a move — the figure keeps its id (figure ids are unique in the whole library) and is no copy of anything.
+export function copyFigureAssets(source, figureId, manifest, files, {credits = true, voices = new Map(), extensions = {}, copyVoice = true, videos = new Map(), retired = new Set(), keepId = false} = {}) {
   check(source?.figures?.[figureId], '$.source', 'Figure missing', 'ASSET_UNAVAILABLE')
   const figure = structuredClone(source.figures[figureId])
   if (!copyVoice) {
     delete figure.voice
     for (const emotion of figure.emotions ?? []) delete emotion.voiceEmotion
   }
-  figure.extensions = {...figure.extensions,...extensions,dsh_tavern:{...figure.extensions?.dsh_tavern,copiedFrom:figure.extensions?.dsh_tavern?.copiedFrom || {packId:source.manifest.id,figureId}}}
-  figure.id = randomUUID()
+  figure.extensions = keepId ? {...figure.extensions,...extensions}
+    : {...figure.extensions,...extensions,dsh_tavern:{...figure.extensions?.dsh_tavern,copiedFrom:figure.extensions?.dsh_tavern?.copiedFrom || {packId:source.manifest.id,figureId}}}
+  if (!Object.keys(figure.extensions).length) delete figure.extensions
+  figure.id = keepId ? figureId : randomUUID()
   const prefix = 'c' + figure.id.replaceAll('-', ''), sprites = new Map(), bundles = new Map()
   for (const outfit of figure.outfits) {
     if (outfit.sprite) {
@@ -34,6 +70,7 @@ export function copyFigureAssets(source, figureId, manifest, files, {credits = t
       outfit[form].bundleKey = bundles.get(old)
     }
   }
+  copyFigureVideos(source, figure, manifest, files, videos, retired)
   const media = new Set()
   const visit = value => {
     if (typeof value === 'string' && Object.hasOwn(source.manifest.blobs, value)) media.add(value)

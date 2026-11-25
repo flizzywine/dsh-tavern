@@ -12,6 +12,8 @@ window.__ModuleLoader__.load({
 			// portals the sidebar theme menu into the host logo row.
 			let ReactDOM = (function () { try { return require("react-dom"); } catch (_) { return null; } })();
 
+		// @include-shared play-features.cjs
+
 		// @include crypto-digest.js
 		// http on a LAN address is not a secure context: no crypto.subtle, no crypto.randomUUID.
 		if (typeof window !== "undefined") installTavernCryptoSubtlePolyfill(window);
@@ -96,16 +98,12 @@ window.__ModuleLoader__.load({
 
 		// @include modules/card-password.js
 		// @include modules/task-poll.js
-		/** Import one card file. PNG and JSON go as parsed JSON; archives (CHARX, DSH cards) and other formats (a plugin's
-		 * importer, tavern.cardImporter) go up as raw files. A card carrying another version of an installed pack asks first
-		 * (导入人物卡, card-update-dialog.js). */
+		/** Upload card files as raw bytes. A card carrying another version of an installed pack asks first. */
 		async function importTavernCardFile(file, call, onProgress = () => {}) {
-			if (/\.(dshcard|charx)\.png$/i.test(String(file.name || ''))) throw new Error('卡包请使用 .dshcard 文件');
 			let progress = beginTavernCardImportProgress(file.name);
 			const report = value => { progress?.update(value); onProgress(value); };
 			try {
-				if (!isTavernCardArchive(file)) { report('正在读取人物卡…'); return await commitTavernCardFile(file, null, call); }
-				if (!isTavernCardPackArchive(file)) { const uploadId = await uploadTavernCardFile(file, report, call); report('正在导入…'); return await commitTavernCardFile(file, { uploadId }, call); }
+				if (!isTavernCardPackArchive(file)) return await commitTavernCardFile(file, null, call, { report });
 				const staged = await previewTavernCardArchive(file, call, report);
 				let packDecisions = {};
 				if (staged.packs.length || staged.packNotices?.length) {
@@ -122,14 +120,10 @@ window.__ModuleLoader__.load({
 				return await commitTavernCardFile(file, staged, call, { packDecisions });
 			} finally { progress?.close(); }
 		}
-		function isTavernCardArchive(file) {
-			const name = String(file.name || "");
-			return !/\.(png|json)$/i.test(name) && /\.[^./\\]+$/.test(name);
-		}
 		/** CHARX and DSH cards: archives that can carry packs, read by the server before they are imported. */
 		function isTavernCardPackArchive(file) { return /\.(dshcard|charx)$/i.test(String(file.name || "")); }
 		async function uploadTavernCardFile(file, report, call) {
-			report('正在上传卡包…');
+			report(isTavernCardPackArchive(file) ? '正在上传卡包…' : '正在上传人物卡…');
 			const route = '/api/dsh-tavern/card-upload';
 			async function upload(url, body) {
 				const response = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body });
@@ -174,10 +168,17 @@ window.__ModuleLoader__.load({
 				return { uploadId, ...(password === undefined ? {} : { password }), card: preview.card, packs: preview.packs, packNotices: preview.packNotices };
 			} catch (error) { await call("discardCardUpload", { uploadId }).catch(() => {}); throw error; }
 		}
-		/** The card file into the library, or in place of replacePath: staged is the upload (and preview) of an archive, null for PNG / JSON. */
-		async function commitTavernCardFile(file, staged, call, { replacePath, packDecisions } = {}) {
-			if (staged) return await call("importCardUpload", { uploadId: staged.uploadId, name: file.name, ...(replacePath ? { replacePath } : {}), ...(staged.password === undefined ? {} : { password: staged.password }), packDecisions: packDecisions || {}, previewed: Boolean(staged.card), acceptMissingPacks: Boolean(staged.packNotices?.length) });
-			return await call("importCard", { payload: await parseCardFile(file), ...(replacePath ? { replacePath } : {}) });
+		/** Import a new upload, or commit an archive already uploaded for preview. */
+		async function commitTavernCardFile(file, staged, call, { replacePath, packDecisions, report = () => {} } = {}) {
+			if (/\.(dshcard|charx)\.png$/i.test(String(file.name || ''))) throw new Error('卡包请使用 .dshcard 文件');
+			const uploadId = staged?.uploadId ?? await uploadTavernCardFile(file, report, call);
+			if (!staged) report('正在导入…');
+			try {
+				return await call("importCardUpload", { uploadId, name: file.name, ...(replacePath ? { replacePath } : {}), ...(staged?.password === undefined ? {} : { password: staged.password }), packDecisions: packDecisions || {}, previewed: Boolean(staged?.card), acceptMissingPacks: Boolean(staged?.packNotices?.length) });
+			} catch (error) {
+				if (!staged) await call("discardCardUpload", { uploadId }).catch(() => {});
+				throw error;
+			}
 		}
 		/** What a card file brought into its character material, for the import notice. */
 		function tavernCardAssetNotice(assets, card) {
@@ -205,6 +206,23 @@ window.__ModuleLoader__.load({
 			return notes.join("；");
 		}
 
+		// Drop and the file input enter the same preview, password and import flow.
+		function tavernCardDropHandlers(importFiles) {
+			return {
+				onDragOver(event) { if (event.dataTransfer.types.includes('Files')) event.preventDefault(); },
+				onDrop(event) {
+					if (!event.dataTransfer.types.includes('Files')) return;
+					event.preventDefault();
+					void importFiles(Array.from(event.dataTransfer.files));
+				}
+			};
+		}
+		function tavernCardImportError(error) {
+			const message = String(error?.message || error);
+			if (error?.code === 'TAVERN_ZIP_INVALID' || /\p{Script=Han}/u.test(message)) return message;
+			return playerErrorText(error, {codes:{ENOSPC:'磁盘空间不够，未能导入；请腾出空间后再试', EACCES:'无法读取或写入卡片文件，请检查文件和酒馆目录的权限'}, fallback:'无法读取人物卡，请确认文件类型正确，或重新获取完整文件后再试。'});
+		}
+
 		async function importTavernCardSelection(picked, call, { cardZip, onProgress, onTransfer } = {}) {
 			const failures = [], notices = [];
 			const misplaced = picked.filter(function (file) { return misplacedFileHint(file, false); });
@@ -230,7 +248,7 @@ window.__ModuleLoader__.load({
 					}
 				} catch (error) {
 					if (error?.code === 'TAVERN_CARD_IMPORT_CANCELLED') notices.push(file.name + "：已取消");
-					else failures.push({ name: file.name, message: String(error?.message || error) });
+					else failures.push({ name: file.name, message: tavernCardImportError(error) });
 				}
 			}
 			if (zips.length) {
@@ -262,9 +280,6 @@ window.__ModuleLoader__.load({
 
 		function parseCardFile(file) {
 			const name = String(file.name || "");
-			if (name.toLowerCase().endsWith(".charx")) {
-				return file.arrayBuffer().then(function (buf) { return { kind: "charx", name: name, fileB64: bytesToBase64(new Uint8Array(buf)) }; });
-			}
 			if (name.toLowerCase().endsWith(".json")) {
 				return file.text().then(function (text) { return { kind: "text", name: name, text: text }; });
 			}
@@ -290,7 +305,7 @@ window.__ModuleLoader__.load({
 						if (nul >= 0) {
 							const keyword = ascii(bytes, dataOff, nul);
 							const value = ascii(bytes, dataOff + nul + 1, len - nul - 1);
-							if (keyword === "chara" || keyword === "ccv3") return { kind: "png", name: name, b64: value, fileB64: bytesToBase64(bytes) };
+							if (keyword === "chara" || keyword === "ccv3") return { kind: "png", name: name, b64: value };
 						}
 					}
 					if (type === "IEND") break;
@@ -495,8 +510,10 @@ window.__ModuleLoader__.load({
 				+ (needle ? "，匹配 " + files.length + " 个" : "")
 				+ (selected.size ? "，已选 " + selected.size + " 个" : "")
 				+ (progress ? "，正在导入 " + progress.done + "/" + progress.total : "");
+			// activateRef: a caller with its own entry (人物卡库's 「导入」 menu) starts it there and the button is not drawn.
+			if (props.activateRef) props.activateRef.current = activate;
 			return h(React.Fragment, null,
-				h("button", { type: "button", className: "dsh-tavern-btn primary", disabled: props.disabled || busy, onClick: activate }, props.batch ? "批量导入" : "导入人物卡"),
+				props.activateRef ? null : h("button", { type: "button", className: "dsh-tavern-btn primary", disabled: props.disabled || busy, onClick: activate }, props.batch ? "批量导入" : "导入人物卡"),
 				open ? h("div", { className: "dsh-tavern-mobile-import", role: "dialog", "aria-modal": "true", "aria-label": "从手机下载目录导入人物卡" }, h("div", { className: "dsh-tavern-mobile-import-shell" }, h("div", { className: "dsh-tavern-mobile-import-panel" },
 					h("div", { className: "dsh-tavern-mobile-import-title" }, "从手机下载目录导入"),
 					h("div", { className: "dsh-tavern-question-sub" }, "把人物卡（PNG、JSON、卡包）或素材包 ZIP 放进手机 Download，回到这里点选；大文件也能直接导入。"),
@@ -1289,6 +1306,8 @@ window.__ModuleLoader__.load({
 // @include features/play-interaction-panels.js
 // @include features/play-controls.js
 
+// @include-domain system-prompt-sections.cjs
+// @include modules/context-window-model.js
 // @include features/request-context.js
 // @include features/polish-compare.js
 
@@ -1768,8 +1787,8 @@ cardLibraryFeature.register({ ctx: ctx, appendMention: appendMention });
 		exports.installTavernPlayerInputPersistence = installTavernPlayerInputPersistence;
 		exports.createWorldBookLibraryRefreshModule = createWorldBookLibraryRefreshModule;
 		exports.groupWorldBookEditorEntries = groupWorldBookEditorEntries;
-		exports.orderWorldBookCatalogItems = orderWorldBookCatalogItems;
-		exports.filterWorldBookCatalogItems = filterWorldBookCatalogItems;
+		exports.worldBookLibraryRows = worldBookLibraryRows;
+		exports.orderWorldBookLibraryRows = orderWorldBookLibraryRows;
 		exports.groupPresetEntriesByPhase = groupPresetEntriesByPhase;
 		exports.createCardLibraryRefreshModule = createCardLibraryRefreshModule;
 		exports.tavernDataChangeAffects = tavernDataChangeAffects;

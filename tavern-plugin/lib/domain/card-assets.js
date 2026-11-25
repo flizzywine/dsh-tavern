@@ -1,4 +1,5 @@
 import * as zlib from 'node:zlib'
+import { readFile, stat } from 'node:fs/promises'
 import { CAST_EMOTIONS } from './cast-annotation.js'
 import { readZipEntries, writeZipEntries } from './zip-entries.js'
 import figureResolution from '../../packages/dsh-presentation-protocol/src/figure-resolution.cjs'
@@ -15,8 +16,9 @@ function mainCharacter(characters, mainName) {
 // `data:` URIs in JSON, RisuAI's own `extensions.risuai.emotions`, and Tavern's `extensions.dsh_tavern.cast`.
 
 export const MAX_CARD_ASSETS = 300
-export const MAX_CARD_ASSET_BYTES = 32 * 1024 * 1024
-export const MAX_CARD_JSON_BYTES = 32 * 1024 * 1024
+export const MAX_CARD_ASSET_BYTES = 64 * 1024 * 1024
+export const MAX_CARD_JSON_BYTES = 128 * 1024 * 1024
+export const MAX_CARD_PNG_BYTES = 128 * 1024 * 1024
 
 // Names card authors give expressions, mapped to SillyTavern's 28 emotions.
 const EMOTION_WORDS = {
@@ -80,8 +82,8 @@ function pngTextChunks(buffer) {
     const start = offset + 8, end = start + length
     if (end + 4 > buffer.length) break
     if (type === 'tEXt') {
-      const separator = buffer.indexOf(0, start)
-      if (separator >= start && separator < end) chunks.set(buffer.toString('latin1', start, separator), buffer.toString('latin1', separator + 1, end))
+      const separator = buffer.subarray(start, Math.min(start + 80, end)).indexOf(0)
+      if (separator >= 0) chunks.set(buffer.toString('latin1', start, start + separator), buffer.subarray(start + separator + 1, end))
     }
     if (type === 'IEND') break
     offset = end + 4
@@ -95,7 +97,7 @@ const crc32 = typeof zlib.crc32 === 'function' ? data => zlib.crc32(data) : data
 export function isPng(bytes) { return Buffer.isBuffer(bytes) && bytes.length > 8 && bytes.readUInt32BE(0) === 0x89504e47 && bytes.readUInt32BE(4) === 0x0d0a1a0a }
 
 /** Import payloads take the first card text chunk in file order. */
-export function pngCardPayload(buffer, name, errors = {}) {
+export function pngCardPayload(buffer, name, errors = {}, { rawBytes = false } = {}) {
   if (!isPng(buffer)) throw new Error(errors.invalid ?? '无法识别的角色卡 PNG')
   let offset = 8
   while (offset + 12 <= buffer.length) {
@@ -105,11 +107,12 @@ export function pngCardPayload(buffer, name, errors = {}) {
     const end = start + length
     if (end + 4 > buffer.length) throw new Error(errors.damaged ?? '人物卡 PNG 数据损坏')
     if (type === 'tEXt') {
-      const separator = buffer.indexOf(0, start)
-      if (separator >= start && separator < end) {
-        const keyword = buffer.toString('ascii', start, separator)
+      const separator = buffer.subarray(start, Math.min(start + 80, end)).indexOf(0)
+      if (separator >= 0) {
+        const keyword = buffer.toString('ascii', start, start + separator)
         if (keyword === 'chara' || keyword === 'ccv3') {
-          return { kind: 'png', name, b64: buffer.toString('latin1', separator + 1, end), fileB64: buffer.toString('base64') }
+          const b64 = buffer.toString('latin1', start + separator + 1, end)
+          return { kind: 'png', name, b64, ...(rawBytes ? { fileBytes: buffer } : { fileB64: buffer.toString('base64') }) }
         }
       }
     }
@@ -117,6 +120,22 @@ export function pngCardPayload(buffer, name, errors = {}) {
     offset = end + 4
   }
   throw new Error(errors.missing ?? 'PNG 中未找到角色卡数据（chara/ccv3 文本块）')
+}
+
+export function cardPngBytes(payload) {
+  return Buffer.isBuffer(payload.fileBytes) ? payload.fileBytes : Buffer.from(String(payload.fileB64 || ''), 'base64')
+}
+
+export async function readCardDocument(file, name) {
+  const json = /\.json$/i.test(name)
+  const limit = json ? MAX_CARD_JSON_BYTES : MAX_CARD_PNG_BYTES
+  const tooLarge = () => new Error((json ? 'JSON' : 'PNG') + ' 人物卡超过 ' + limit / 1024 ** 2 + ' MiB')
+  if ((await stat(file)).size > limit) throw tooLarge()
+  const bytes = await readFile(file)
+  if (bytes.length > limit) throw tooLarge()
+  if (json) return { kind: 'text', name, text: bytes.toString('utf8').replace(/^\uFEFF/, '') }
+  if (bytes.length >= 4 && bytes.readUInt32BE(0) === 0x504b0304) throw new Error('这是卡 ZIP，请用「导入卡 ZIP」打开')
+  return pngCardPayload(bytes, name, {}, { rawBytes: true })
 }
 
 const PNG_TEXT_TYPES = ['tEXt', 'zTXt', 'iTXt']
@@ -171,7 +190,7 @@ function decodeCardText(text) {
 
 /**
  * The card JSON and a resolver for its asset URIs, from an import payload
- * ({ kind: 'charx' | 'png' | 'text', fileB64?, b64?, text? }).
+ * ({ kind: 'charx' | 'png' | 'text', fileBytes?, fileB64?, b64?, text? }).
  */
 export function cardAssetSource(payload) {
   const kind = payload && payload.kind
@@ -182,11 +201,11 @@ export function cardAssetSource(payload) {
     return { card: decodeCardText(json.toString('utf8')), resolve: uri => uri.startsWith('embeded://') ? entries.get(uri.slice('embeded://'.length)) : dataUri(uri), entries }
   }
   if (kind === 'png') {
-    const chunks = pngTextChunks(Buffer.from(String(payload.fileB64 || ''), 'base64'))
-    const cardText = chunks.get('ccv3') || chunks.get('chara') || payload.b64 || ''
+    const chunks = pngTextChunks(cardPngBytes(payload))
+    const cardText = chunks.get('ccv3')?.toString('latin1') || chunks.get('chara')?.toString('latin1') || payload.b64 || ''
     const card = cardText ? decodeCardText(Buffer.from(cardText, 'base64').toString('utf8')) : null
     return { card, resolve: uri => {
-      if (uri.startsWith('__asset:')) { const value = chunks.get('chara-ext-asset_:' + uri.slice(8)) ?? chunks.get('chara-ext-asset_' + uri.slice(8)); return value ? Buffer.from(value, 'base64') : undefined }
+      if (uri.startsWith('__asset:')) { const value = chunks.get('chara-ext-asset_:' + uri.slice(8)) ?? chunks.get('chara-ext-asset_' + uri.slice(8)); return value ? Buffer.from(value.toString('latin1'), 'base64') : undefined }
       return dataUri(uri)
     } }
   }

@@ -6,7 +6,7 @@ import { randomUUID } from 'node:crypto'
 import { createDurableFilePromotion } from '../durable-file-promotion.js'
 import { createResourceMutationJournal } from './resource-mutation-journal.js'
 import { inspectPreset } from './preset-reading.js'
-import { isPng, pngCardPayload, pngCardTextChunk, pngRawTextChunks, pngWithTextChunks } from './card-assets.js'
+import { cardPngBytes, isPng, pngCardPayload, pngCardTextChunk, pngRawTextChunks, pngWithTextChunks } from './card-assets.js'
 
 const KIND_DIR = Object.freeze({ card: 'cards', preset: 'presets', source: 'materials', script: 'scripts', worldbook: 'worldbooks' })
 const INTERNAL_FILE_PATTERNS = Object.freeze([/\.write-lock$/i, /\.pending-\d+-[0-9a-f-]+$/i, /\.staging-[0-9a-f-]+$/i])
@@ -55,7 +55,7 @@ export function resourceKind(value) {
 function extensionForText(name, fallback = '.txt') {
   const safe = safeResourceName(name)
   const ext = path.extname(safe).toLowerCase()
-  return ext === '.txt' || ext === '.md' || ext === '.json' || ext === '.epub' ? safe : safe + fallback
+  return ['.txt', '.md', '.json', '.jsonl', '.epub'].includes(ext) ? safe : safe + fallback
 }
 
 function rawText(record) {
@@ -115,8 +115,11 @@ export function createFileResourceStore(options = {}) {
 
   async function writeNew(target, data) {
     await mkdir(path.dirname(target), { recursive: true })
-    if (await exists(target)) throw new Error('文件已存在: ' + path.relative(dataRoot, target))
-    await writeFile(target, data)
+    try { await writeFile(target, data, { flag: 'wx' }) }
+    catch (error) {
+      if (error?.code === 'EEXIST') throw new Error('文件已存在: ' + path.relative(dataRoot, target), { cause: error })
+      throw error
+    }
   }
 
   async function writeWorking(relative, data) {
@@ -412,7 +415,7 @@ export function createFileResourceStore(options = {}) {
       const originalDir = path.dirname(absolute(relative, true))
       const stem = path.basename(relative, '.json')
       const original = path.join(originalDir, stem + (payload.kind === 'png' ? '.png' : '.json'))
-      const bytes = payload.kind === 'png' ? Buffer.from(payload.fileB64, 'base64') : payload.text || JSON.stringify(card)
+      const bytes = payload.kind === 'png' ? cardPngBytes(payload) : payload.text || JSON.stringify(card)
       await mutations.run('replace-card:' + relative, async plan => {
         if (oldName && path.join(originalDir, oldName) !== original) await plan.remove(path.join(originalDir, oldName))
         await plan.write(original, bytes)
@@ -432,13 +435,15 @@ export function createFileResourceStore(options = {}) {
     const workingName = path.parse(rawName).name + '.json'
     const relative = 'cards/' + workingName
     const originalName = payload && payload.kind === 'png' ? path.parse(rawName).name + '.png' : workingName
-    const originalData = payload && payload.kind === 'png' && payload.fileB64
-      ? Buffer.from(payload.fileB64, 'base64')
+    const originalData = payload && payload.kind === 'png' && (Buffer.isBuffer(payload.fileBytes) || payload.fileB64)
+      ? cardPngBytes(payload)
       : (typeof (payload && payload.text) === 'string' ? payload.text : JSON.stringify(card, null, 2))
     const saved = clone(card)
     delete saved.id
-    await writeNew(absolute('cards/' + originalName, true), originalData)
-    try { await writeNew(absolute(relative), JSON.stringify(saved, null, 2)) } catch (error) { await rm(absolute('cards/' + originalName, true), { force: true }); throw error }
+    await mutations.run('import-card:' + relative, async plan => {
+      await plan.writeNew(absolute('cards/' + originalName, true), originalData)
+      await plan.writeNew(absolute(relative), JSON.stringify(saved, null, 2))
+    })
     return relative
   }
 

@@ -48,7 +48,8 @@ function createStageFigurePose({resolve,flatLayout,actionAt,ease}) {
             place(current);
             const localHead=head,remaining=[],retired=[];
             for(const item of fading){
-                const progress=(now-item.start)/260;
+                // item.ms: a picture leaving over a transition into the next one fades quicker (scene tickFigureVideo).
+                const progress=(now-item.start)/(item.ms||260);
                 if(progress>=1){retired.push(item);continue;}
                 item.sprite.alpha=1-ease.inOutSine(progress);place(item.sprite);remaining.push(item);
             }

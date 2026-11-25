@@ -28,7 +28,7 @@ try {
 
 [项目主页及使用说明](https://github.com/flizzywine/dsh-tavern#readme)
 `)
-  execSync('npm pack --ignore-scripts --quiet', { cwd: staging, stdio: 'inherit' })
+  execSync('npm pack --ignore-scripts --quiet', { windowsHide: true, cwd: staging, stdio: 'inherit' })
   const archive = `flizzywine-dsh-tavern-${version}.tgz`
   mkdirSync(destination, { recursive: true })
   copyFileSync(join(staging, archive), join(destination, archive))

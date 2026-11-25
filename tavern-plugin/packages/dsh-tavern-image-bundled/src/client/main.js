@@ -40,6 +40,7 @@ const absoluteBase = (() => {
 })()
 const BASE = absoluteBase
 // @include capabilities.js
+// @include job-limits.js
 function uiSupportsImageReferences(channel, state) {
   if (!channel) return state?.referenceSupported === true
   if (channel.provider === 'comfyui') return state?.referenceSupported === true && state?.config?.imageBackend === 'comfyui'

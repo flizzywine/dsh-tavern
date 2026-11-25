@@ -84,6 +84,13 @@ const BASE = absoluteBase
       try { if (new URL(channel.baseUrl || 'https://api.openai.com/v1').origin !== 'https://api.openai.com') return undefined } catch { return undefined }
       return String(channel.model).startsWith('gpt-image-')
     }
+    const DEFAULT_IMAGE_CONCURRENCY = 2
+    const MAX_IMAGE_CONCURRENCY = 100
+    const MAX_CARD_IMAGE_BATCH = 100
+
+    function normalizeImageConcurrency(value) {
+      return Math.max(1, Math.min(MAX_IMAGE_CONCURRENCY, Math.trunc(Number(value)) || DEFAULT_IMAGE_CONCURRENCY))
+    }
 function uiSupportsImageReferences(channel, state) {
   if (!channel) return state?.referenceSupported === true
   if (channel.provider === 'comfyui') return state?.referenceSupported === true && state?.config?.imageBackend === 'comfyui'
@@ -5697,9 +5704,9 @@ function versionsOf(jobId) {
             h('div', { style: { fontSize: '11px', color: 'var(--dsw-alias-label-tertiary)', marginTop: '8px', lineHeight: 1.55 } },
               protocolBackend === 'novelai' ? (naiChat ? '对话格式用于把 NovelAI 包成 chat/completions 的中转站：地址填中转站根地址，模型选 NovelAI 模型，采样器会自动拼进模型名。' : 'NovelAI 使用 API Key，不需要账户 OAuth 登录；密钥可从官方账户获取。') : protocolBackend === 'openai' ? '支持 OpenAI 图片 API 和兼容中转；建议模型 ID 来自服务端模型列表，兼容中转可修改生成路径。' : protocolBackend === 'grok' ? 'Grok 当前由服务端模型决定尺寸和比例；插件不会发送尺寸覆盖参数。' : protocolBackend === 'qwen' ? '百炼 API 根地址必须匹配账号所在地域和控制台提供的工作空间地址；请从平台控制台复制完整区域端点。' : protocolBackend === 'atlascloud' ? 'atlas cloud 使用原生异步接口，不需要安装 MCP。默认 Flux Schnell；更换文生图模型时请按模型文档选择尺寸参数格式和有效尺寸，或使用模型默认值。负面词以 Avoid 描述合入提示词，不发送原生 negative_prompt。测试只读取任务历史和模型目录，不会生成图片。' : '可填写服务商或自建中转的完整 API 根地址；测试只检查连接与模型信息，不会付费生成图片。复制渠道会复制参数，但需要重新填写密钥。'),
             h('div', { style: { display: 'flex', alignItems: 'center', gap: '10px', marginTop: '10px', flexWrap: 'wrap' } },
-              h('label', { style: { fontSize: '12px', color: 'var(--dsw-alias-label-secondary)' } }, '同时生成', h('input', { 'aria-label': '同时生成', type: 'number', min: 1, max: 4, value: Number(config.imageConcurrency || 2), style: Object.assign({}, S.input, { width: '70px', marginLeft: '8px' }), onChange: e => setCfg({ imageConcurrency: Math.max(1, Math.min(4, Number(e.target.value) || 1)) }) })),
-              h('button', { style: buttonStyle, onClick: () => save({ imageConcurrency: Math.max(1, Math.min(4, Number(config.imageConcurrency || 2))) }) }, '保存并发设置'),
-              h('span', { style: { fontSize: '11px', color: 'var(--dsw-alias-label-tertiary)' } }, '1–4 个任务；并发提高速度，也会增加服务端额度消耗。'),
+              h('label', { style: { fontSize: '12px', color: 'var(--dsw-alias-label-secondary)' } }, '同时生成', h('input', { 'aria-label': '同时生成', type: 'number', min: 1, max: MAX_IMAGE_CONCURRENCY, step: 1, value: config.imageConcurrency ?? DEFAULT_IMAGE_CONCURRENCY, style: Object.assign({}, S.input, { width: '70px', marginLeft: '8px' }), onChange: e => setCfg({ imageConcurrency: e.target.value }) })),
+              h('button', { type: 'button', style: buttonStyle, onClick: () => save({ imageConcurrency: normalizeImageConcurrency(config.imageConcurrency) }) }, '保存并发设置'),
+              h('span', { style: { fontSize: '11px', color: 'var(--dsw-alias-label-tertiary)' } }, `1–${MAX_IMAGE_CONCURRENCY} 个任务，在线渠道共用。实际速度受渠道限流影响。`),
             ),
           ) : h('div', { style: { color: 'var(--dsw-alias-label-tertiary)', fontSize: '12px' } }, '此提供商还没有渠道。'),
         )

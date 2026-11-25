@@ -144,6 +144,7 @@ export function createVoicePilot({fetch = globalThis.fetch, budgetRoot, now = Da
     }
     const key = await resolveKey()
     if (!key) fail('CREDENTIALS_REQUIRED')
+    await mkdir(budgetRoot, {recursive:true})
     const release = await takePilotLock(lock)
     try {
       const budget = await loadBudget()

@@ -9,6 +9,7 @@
 
 - 前台工具：`tools.js` 默认导出两个工具（`lib/mod-tools.js`）。工具的 core 里有 `readCard(chat)`（这局游戏用的卡，开局时冻结）和 `results(exec)`（本工具在这局当前分支上的历史结果文本，`lib/domain/surface-tool-results.js`）。
 - 提示词：`mod.json` 的 `rules`（只讲 `tavern_roll`）。`tavern_check` 不加提示词：用法写在工具说明里，每张卡的规则用 `action: "status"` 读。
+- 掷骰点：工具调用在这一轮正文里的位置。工具说明（`CALL_HINT`）告诉模型玩家会在调用的那一刻看到掷骰演出，所以写到需要判定时再调用：先写铺垫，调用，再从结果接着写。两个工具的每条带编号的记录（`tavern_roll` 每条）带 `at`：这一轮在调用之前已经写出的舞台段落数（宿主 `lib/mod-tools.js` 的 `storyUnitsBefore`，按舞台分页用的同一套段落 `lib/domain/stage-paragraphs.js` 数）；调用前一个字都没写时没有 `at`。舞台把读者所在的位置交给模组部件（`place` 属性：这一页的段落、是否是该段第一页、是否是写完这一轮的最后一页等，舞台 `controller.cjs`），模组按它决定何时演（`client/place.js`）：有 `at` 的记录，读到调用之后那一段（第 `at + 1` 段）的第一页才掷骰、放演出，文本框上沿的卡从那一页起才出现；调用后没有再写段落的，在这一轮最后一页演；等玩家选择的记录在那里掷骰、显示「现在」的结果，结果页和卡上的选择按钮留到这一轮最后一页。没有 `at` 的记录（模型先调工具再写）照旧：记录一到就演，卡排在最前。翻历史时 `tavern_roll` 在调用之后那一段的第一页重掷（没有 `at` 的在第一页）。聊天楼层的卡位置不变。
 - 本体客户端部件：`client/core.js` 把 `roll.js`（`tavern_roll` 的卡片）和 `check.js`（`tavern_check` 的记录卡）放进聊天楼层与舞台文本框上沿；舞台叠层是 `throw.js`（`tavern_roll` 的百分骰掷骰）、`check-throw.js`（`tavern_check` 的掷骰）和 `show.js`（检定结果的演出，见下文 `show`；画面在 `show-art.js`，声音在 `show-sound.js`）。
 
 ## 三维骰子（`client/dice3d.js`）
@@ -77,9 +78,10 @@
 }
 ```
 
-- `state`：归规则管的变量（必须有 `path`，stat_data 下、不含 `$…`、`schema` 和原型名，彼此不重叠）。`keys` 是集合名（固定条目）或 `"*"`（条目不固定：关系、物品）；`fields` 让每个条目是一个带字段的对象（`/员工/老周/能力`），范围按字段写；`values`、`min`/`max`（公式，可读 `key`）、`initial`、`secret`。后台 AI 写这些路径不作数（丢弃并记进诊断）；它们的范围只写在这里，初值的 `$meta.limits` 再写同一路径时卡检查报错。只写 `min` 或只写 `max` 也照样夹住。
+- `state`：归规则管的变量（必须有 `path`，stat_data 下、不含 `$…`、`schema` 和原型名，彼此不重叠）。`keys` 是集合名（固定条目）或 `"*"`（条目不固定：关系、物品）；`fields` 让每个条目是一个带字段的对象（`/员工/老周/能力`），范围按字段写；`values`、`min`/`max`（公式，可读 `key`）、`initial`、`secret`；`changeLabel`（可选）是记录和卡片里这个变量的变化给玩家看的名字，`{key}` 换成条目名（`"{key}条已标格"` 读成「职能条已标格 +1」），不写就是「名称·条目」。`internal: true`（可选，和 `secret` 不同时写）是只给规则自己记账的变量（阶段、任务次数这类推进流程用的数）：它照常出现在卡的页面和变量面板里，但检定记录卡、变化小字、选项预览都不说它的变化，只改了内部变量的裁定在舞台和聊天里什么都不显示；变化行带 `internal: true`。后台 AI 写这些路径不作数（丢弃并记进诊断）；它们的范围只写在这里，初值的 `$meta.limits` 再写同一路径时卡检查报错。只写 `min` 或只写 `max` 也照样夹住。
 - `read`：只读、由别人写的变量（缺了是 `null`）。`derived`：派生量 = 公式，每次动作后自动写，载入时查环；也可以 `secret`。
 - 保密（`state` 或 `derived` 的 `secret`）：模型照常在记录和 status 里读到；玩家哪里都看不到真值——检定记录卡、变化小字、选项预览不写它。`secret: true` 时变量面板、变量回执和卡自己的页面（状态栏、状态页）里它是「？？？」，名字照常显示，玩家知道有东西被藏着；`secret: "unlisted"` 连名字一起藏：这三处都不列出这一项（回执里它的变化整行没有，一轮只改了它们时回执是「本轮没有需要更新的变量」），一组字段全是 unlisted 的对象（`/幕后`）也不列出，玩家不知道它存在（`tools.js` 的 `hidden` 把这些路径并进卡的隐藏属性，`lib/mod-tools.js` `withModHidden`）。要在某个时刻让卡的页面读到它，在卡的隐藏属性（`extensions.dsh_tavern.mvuVisibility`）里给同一路径写一条带 `revealWhen: {"path": "/幕后/看见", "equals": true}` 的规则（`mode` 用 `masked` 或 `unlisted`）：卡自己的规则优先，条件成立后面板和卡的页面显示名字和真值；回执看不到当时的变量，仍按没揭开处理（`masked` 只说「已发生变化」，`unlisted` 不列出）。
+- 动作的 `page`（可选，只用于不掷骰的动作）：本卡一张卡页面的 id。舞台上读到这条裁定时，由这一页在舞台中央把变化演出来，代替文本框上的变化卡（`client/page.js` 定时机，舞台 `status-panel.cjs` 的 `Performance` 放页面，页面怎么接见内置 Skill `stage-status-panel` 的 `references/panel-contract.md`「页面演出」）；记录带 `page`。同一处一起到的同一动作合成一次演出的几步。演不了（没有这一页、读取失败）就照旧出变化卡；聊天楼层照旧是一行小字。三角机构的「花时间」由档案页演格子被标上、被划掉。
 - 动作：`label`、`summary`、`by`（`player`/`gm`，给模型的提示）、`when`（现在能不能用）、`params`、`dice`、`let`、`require`、`choices`、`then`、`ensure`、`outcomes`（可带 `text`、`stop`、`show`）、`effects`、`report`、`text`、`stop`。没有骰子也行。
 - 结算顺序：参数 → 掷骰 → `let` → `require`（不成立就拒绝，不留记录，卡写的话原样回给模型）→ 玩家的选择 → `then` → `ensure`（不成立就退回这次选择，记录继续等）→ 结果档位 → 效果 → 派生量。`text`、`stop`、`report` 读的是效果之前的值（「还剩 {money - item.cost}」）；每条效果读前面效果改过的状态。
 - 参数与选择的种类：v1 的五种，再加 `table`（选表里一行，公式里 `参数.列` 读）、`keyOf`（从某个变量现有的条目里选）、`text {max}`（限长的名字，用来新建条目；不能含 `/`、`~`）。参数可以带 `when`（只在某种情况下要给）。等待中的记录带上已经算定的 `report` 和已定的结果档位（它和排在它前面的档位都不读还没定的名字时）。
@@ -151,6 +153,8 @@
 
 ## 测试
 
+- `tests/dice-place.test.mjs`：记录的 `at` 按调用前已写的舞台段落数（同一步里调用前的文字、更早步骤的文字都算，上一轮不算，没写字就没有）；模组何时演（有 `at`、调用后没有段落、没有 `at`、读者在别的轮）、历史重掷在哪一页。
+- `tests/fork-check-place-live-stage-browser.test.mjs`：真实舞台上，写到一半才调用的检定和 `tavern_roll` 读到调用之后那一页才掷、之前不出卡；先调工具的记录一到就掷；等玩家选择的在调用处掷、最后一页才开结果页。
 - `tests/dice.test.mjs`、`tests/fork-dice-mod.test.mjs`、`tests/fork-dice-roll-browser.test.mjs`、`tests/fork-dice-throw-browser.test.mjs`、`tests/fork-dice-throw-live-stage-browser.test.mjs`：`tavern_roll`。
 - `tests/fork-check-throw-live-stage-browser.test.mjs`：检定记录的三维掷骰在真实舞台上：六颗四面骰、一个表达式里的六面/二十面/百分骰按记录的面落定（从模型读回），卡片等骰子落定才出现；带演出的记录、已掷过的结算记录、回复没在跑、减少动态都不掷；点击结束。
 - `tests/fork-check-show-live-stage-browser.test.mjs`：结果演出在真实舞台上：live 记录播一次、卡片等演出结束才出现、结算记录与无演出记录不播、历史不播、点击结束、减少动态定格；`DSH_CHECK_SHOW_SHOTS=<目录>` 另存逐帧审阅图。

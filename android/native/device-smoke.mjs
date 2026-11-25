@@ -19,7 +19,7 @@ const H = `${ROOT}/home/.dsh-tavern`
 const DATA = `${H}/profile-data/tavern/data`
 mkdirSync(OUT, { recursive: true })
 const adbArgs = a => (SERIAL ? ['-s', SERIAL] : []).concat(a)
-const adb = (...a) => execFileSync('adb', adbArgs(a), { encoding: 'utf8', maxBuffer: 64 << 20 })
+const adb = (...a) => execFileSync('adb', adbArgs(a), { windowsHide: true, encoding: 'utf8', maxBuffer: 64 << 20 })
 const sh = cmd => adb('shell', cmd)
 const kill = (signal = '') => { try { adb('shell', `pkill ${signal} -f "dsh/lib/bi[n].js"`) } catch {} }
 const report = { root: ROOT, steps: [] }
@@ -53,7 +53,7 @@ let server
 function startServer() {
   kill()
   const env = `TAVERN_E2E_LLM_MODULE=${H}/runtime/lib/node_modules/@deepseek-ai/dsh-llm/lib/index.js DSH_TAVERN_SERVER_SCRIPTS=0`
-  server = spawn('adb', adbArgs(['shell', `cd ${ROOT} && ${env} PORT=3081 sh run.sh`]), { stdio: ['ignore', 'pipe', 'pipe'] })
+  server = spawn('adb', adbArgs(['shell', `cd ${ROOT} && ${env} PORT=3081 sh run.sh`]), { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] })
   let log = ''
   server.stdout.on('data', c => { log += c }); server.stderr.on('data', c => { log += c })
   return new Promise((resolve, reject) => {

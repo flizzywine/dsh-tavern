@@ -5,6 +5,8 @@ import performanceKinds from '../../src/client/stage-performance-kinds.cjs'
 import {resolveModOptions} from './mod-system-options.js'
 import {validateModDeclarations} from './mods/declarations.js'
 
+// A mod with activation 'card' is an engine interface a card (or its skin) declares: the global switch never turns it on.
+export const modGlobalOn=(id,manifest,global)=>manifest?.activation!=='card' && global.mods[id]===true
 export function resolveSwitch(globalOn,cardValue,skinEnabled) {
   return cardValue!=='off' && (globalOn===true || cardValue==='on' || (cardValue==null && skinEnabled===true))
 }
@@ -45,7 +47,7 @@ export function modDependencyReason(dep,{installed,active,authorized,blocked}) {
 export function resolveMods({manifests,global=emptyGlobalMods(),card=emptyCardMods(),authorized=manifests.map(m=>m.id),autoEnable=[],skin=null}) {
   validateModSystem('card',card);validateModSystem('global',global)
   const order=validateDependencyGraph(manifests),installed=new Map(manifests.map(m=>[m.id,m])),switches={...card.mods},blocked=new Set(),confirmations=[],seen=new Set()
-  const active=id=>resolveSwitch(global.mods[id],switches[id],skin?.mods?.[id]?.enabled)
+  const active=id=>resolveSwitch(modGlobalOn(id,installed.get(id),global),switches[id],skin?.mods?.[id]?.enabled)
   function enable(id,consumer) {
     const mod=installed.get(id)
     if(!mod)throw modError('MOD_MISSING','Install this mod before enabling it',{id})

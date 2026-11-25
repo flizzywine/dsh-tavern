@@ -54,6 +54,8 @@ export function voiceBackfillKept(paragraphs) {
 }
 
 export function replyBody(projection, chat, message = {}) {
-  return roundBody(projection.parts || [{kind:projection.mode === 'html' ? 'html' : 'markdown',text:projection.text}],
+  const body = roundBody(projection.parts || [{kind:projection.mode === 'html' ? 'html' : 'markdown',text:projection.text}],
     {chatId:chat.id, branchId:chat.timeline?.branchId, turn:projection.turn, pageVersion:message.stagePageVersion || 1, voiceBackfill:message.voiceBackfill || null})
+  if (message.greeting === true) body.greeting = true
+  return body
 }
