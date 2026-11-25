@@ -1678,10 +1678,10 @@ export async function apply(ctx) {
     }
   })
   // Card files in and out: imports (JSON, PNG, CHARX, DSH card, plugin formats) and exports.
-  const { replaceCard: replaceCardFiles, revertCardUpdate: revertCardFiles, importCard, importCardArchiveFile, importPackArchiveFile, previewCardArchiveFile, discardCardArchivePreview, importPluginCardFile, presentCardText, exportCardPng, exportCardFile, listCardExportPacks } = createCardFiles({
+  const { replaceCard: replaceCardFiles, revertCardUpdate: revertCardFiles, importCard, importCardArchiveFile, importPackArchiveFile, previewCardArchiveFile, discardCardArchivePreview, importPluginCardFile, presentCardText, exportCardPng, exportCardFile, listCardExportPacks, listCardReleases, addCardReleaseFromFile, estimateCardUpdate, recoverCardUpdates } = createCardFiles({
     cardPreparation, fileResources, castAssets, assetPacks, cardPlugins, cardSummaries, presetLibrary, importPreset,
     readCardWorkspace, worldBooks, pluginApi: () => pluginApi, assetLibrary: () => ctx.get('assetLibrary'), prepareCardAssets: () => stageSwitch.ensure(),
-    withCardBackup: (...args) => ctx.get('assetLibraryCardBackup')(...args), backupPack: (...args) => ctx.get('assetLibraryPackBackup')(...args), exportRoot: path.join(dataRoot, 'exports'),
+    withCardBackup: (...args) => ctx.get('assetLibraryCardBackup')(...args), backupPack: (...args) => ctx.get('assetLibraryPackBackup')(...args), exportRoot: path.join(dataRoot, 'exports'), mediaStore,
     syncBubbles: path => dialogueBubbles.sync(worldBooks, path)
   })
   const replaceCard = (cardPath, input) => commitCardPluginTransaction(async () => {
@@ -4776,7 +4776,7 @@ export async function apply(ctx) {
     deletePreset, deleteResource, deleteScript, displayRuntimeCaptures, ensureNativeCardWorkspace,
     ensureNativeOpening, exportConversation, exportGameSave, exportSettingsBundle, exportTavernLogs,
     fileResources, forkCardWorkbench, forkChat, fullTemplateRuntime, generationStreamModes, getCardOpenings, groupOfMode, guideLibrary,
-    helperGenerationPreset, helperGenerationTasks, helperHistoryAccess, hostCompatibility, importCard, exportCardFile, listCardExportPacks,
+    helperGenerationPreset, helperGenerationTasks, helperHistoryAccess, hostCompatibility, importCard, exportCardFile, listCardExportPacks, listCardReleases, addCardReleaseFromFile, estimateCardUpdate,
     replaceCard, presentCardText, revertCardUpdate, importCardArchiveFile, importPackArchiveFile, previewCardArchiveFile, discardCardArchivePreview, importChatHistoryText, importGameSave, importPluginCardFile, importPreset,
     importScript, importSettingsBundle, importSource, ledgerEditor, listCards, listTavernResources,
     listTavernSessions, liveCardUpdate, llm, manualCharacterDesign, manualLedger, mobileCardImport,
@@ -4890,6 +4890,15 @@ export async function apply(ctx) {
     createTransferHandlers(rpcDeps),
     createImageCharacterHandlers(rpcDeps))
   const stageSwitch = createStageSwitch(stageRuntime)
+  // A card update the program stopped in the middle of (killed, power lost) is put back as it was before.
+  void commitCardPluginTransaction(() => recoverCardUpdates(), async restored => {
+    for (const cardPath of restored) {
+      const {plugins = []} = await castAssets.read(cardPath)
+      await syncCommittedCardPlugins(plugins.filter(plugin => plugin.enabled === true).map(plugin => plugin.name))
+    }
+    if (restored.length) console.warn('dsh-tavern: 恢复了中断的人物卡更新：' + restored.join('、'))
+    return restored
+  }).catch(error => console.warn('dsh-tavern: 恢复中断的人物卡更新失败', error?.message || error))
   // The reading voice of tavernUi.playReading (story-reading.js): a library figure, or the one 旁白声音 points at when none is given.
   rpcHandlers.openReadingVoice = async args => speech.openReading(args && Object.hasOwn(args, 'figure') ? args.figure : undefined)
   rpcHandlers.getStageRuntimeStatus = async () => stageSwitch.read()
