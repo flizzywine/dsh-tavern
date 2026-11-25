@@ -252,8 +252,21 @@ function createTavernComposerWindow(frame, host = frame.parent) {
         const value = Reflect.get(target, key, target);
         if (typeof value !== 'function') return value;
         return function (...args) {
-          const run = () => value.apply(target, args.map(unwrap));
+          const nodes = args.map(unwrap);
           const artifacts = frame.frameElement?.__dshTavernHostArtifacts;
+          const child = nodes[0];
+          // A card comparing parentElement with this root proxy may append an
+          // iframe already here on every load. Native re-insertion reloads it.
+          if (artifacts && (key === 'append' || key === 'appendChild') && nodes.length === 1
+              && child?.localName === 'iframe' && child.parentNode === target) {
+            const result = key === 'appendChild' ? child : undefined;
+            if (!child.nextSibling) return result;
+            if (typeof target.moveBefore === 'function') {
+              target.moveBefore(child, null);
+              return result;
+            }
+          }
+          const run = () => value.apply(target, nodes);
           return mutations.has(key) && artifacts ? artifacts.mutateRoot(target, run) : run();
         };
       },

@@ -61,3 +61,49 @@ test('隐藏期间卡片把悬浮窗挂回 body 时不再抢回，页面不会�
     assert.equal(document.querySelectorAll('#card-panel').length,1)
   } finally {dom.window.close()}
 })
+
+test('重复把已挂载的卡片 iframe 加到 body 时保留文档和 DOM 顺序', async () => {
+  const { JSDOM } = await import('jsdom')
+  const dom = new JSDOM('<body><main></main><iframe></iframe></body>', { runScripts: 'outside-only' })
+  try {
+    const { window } = dom
+    const { body } = window.document
+    window.eval(scopeSource + ';window.makeScope=createTavernHostArtifactScope')
+    const composer = readFileSync(new URL('../tavern-plugin/src/client/legacy-composer.js', import.meta.url), 'utf8')
+    window.eval(composer + ';window.makeWindow=createTavernComposerWindow')
+    const script = body.querySelector('iframe')
+    const artifacts = window.makeScope({ document: window.document })
+    script.__dshTavernHostArtifacts = artifacts
+    const host = window.makeWindow(script.contentWindow, window).parent.document
+
+    const phone = host.createElement('iframe')
+    host.body.append(phone)
+    const content = phone.contentDocument
+    const observer = new window.MutationObserver(() => {})
+    observer.observe(body, { childList: true })
+    assert.notEqual(phone.parentElement, host.body)
+    for (let i = 0; i < 5; i++) {
+      if (phone.parentElement !== host.body) host.body.append(phone)
+      assert.equal(host.body.appendChild(phone), phone)
+    }
+    assert.equal(observer.takeRecords().length, 0, '现有 iframe 已在末尾，不触发重复挂载')
+    assert.equal(phone.contentDocument, content)
+
+    const unrelated = window.document.createElement('aside')
+    body.append(unrelated)
+    let moved = 0
+    body.moveBefore = (node, before) => {
+      assert.equal(node, phone)
+      assert.equal(before, null)
+      moved++
+    }
+    assert.equal(host.body.appendChild(phone), phone)
+    assert.equal(moved, 1, '需要调整顺序时走保留 iframe 文档的移动入口')
+    observer.disconnect()
+    artifacts.dispose()
+    assert.equal(phone.isConnected, false)
+    assert.equal(unrelated.isConnected, true)
+  } finally {
+    dom.window.close()
+  }
+})
