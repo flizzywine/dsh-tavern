@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "082e2e8a37b4b7d43ca19a019c36a41c10853af6",
-  "releaseSequence": 2075,
+  "revision": "d7dc38b4a9bd0464054ac4f917e81ca144f3ac19",
+  "releaseSequence": 2076,
   "version": "3.4.0",
   "files": [
     {
@@ -1521,8 +1521,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/bounded-history.js",
-      "sha256": "6dd4452eff7ab9a149d1ed1e37e62226084cd123da6d880f395c210205f8c716",
-      "size": 9180
+      "sha256": "c99dfbfd43a6de57c2bd6c70a575b98ecc5b9eb47a674494262d0bc41c8e9482",
+      "size": 9089
     },
     {
       "path": "tavern-plugin/lib/domain/branch-origin-repair.js",
@@ -4466,8 +4466,8 @@
     },
     {
       "path": "tavern-plugin/lib/index.js",
-      "sha256": "2d5bfe1c5a3ed40d8b81429e26da453d0d2ec896e6b663169028e77ea2650fc9",
-      "size": 344402
+      "sha256": "f4e3bc77518e22c5045433f3484ddb953a60d49f4c6d94874d797c0853e243dc",
+      "size": 344444
     },
     {
       "path": "tavern-plugin/lib/metadata-backup.js",
@@ -10261,9 +10261,9 @@
     }
   ],
   "archive": {
-    "commit": "7c3213c8b29d0036feb3c90c34b9ea0d5f66d747",
+    "commit": "249fa6381062a5179559480a0c67a7ab7c8cc438",
     "path": "runtime.zip",
-    "sha256": "3f54c80af9eaf92821ff97f9b673b74b68077a4cee6820df7f4b7ee39903b64e",
-    "size": 17974501
+    "sha256": "16315b77bc19ba6e3c8d58783e46f567e2b705f78439f31b3d64d8b7d3871ee0",
+    "size": 17974470
   }
 }
