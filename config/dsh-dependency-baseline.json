@@ -1,4 +1,7 @@
 {
+  "android/native/shims/termux-preload.cjs": [
+    "@deepseek-ai/node-addon-system/flock"
+  ],
   "bin/chat-answer-step-patch.mjs": [
     "@deepseek-ai/dsh-client-ui-chat"
   ],
@@ -135,6 +138,10 @@
   "tavern-plugin/lib/domain/skill-catalog-session-scope.js": [
     "@deepseek-ai/dsh-scope",
     "@deepseek-ai/dsh-tools"
+  ],
+  "tavern-plugin/lib/domain/system-reminders.cjs": [
+    "@deepseek-ai/dsh-system-prompt",
+    "@deepseek-ai/dsh-tool-skill"
   ],
   "tavern-plugin/lib/domain/workspace-instruction-presentation.js": [
     "@deepseek-ai/dsh-",

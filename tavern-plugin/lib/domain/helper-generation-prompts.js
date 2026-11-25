@@ -150,7 +150,7 @@ export function compileHelperGenerate(config, { chat = {}, card = {}, history = 
       placement: context.placement, isMarkdown: false, isEdit: false, depth: context.depth
     }) })
   const projected = applyTavernHelperVariableMacros(compiled.messages, {
-    message: lastTavernHelperVariables(chat.messages), chat: chat.variables, character: characterVariables,
+    message: lastTavernHelperVariables(chat.messages, chat.variables), chat: chat.variables, character: characterVariables,
     preset: presetSnapshot?.variables, global: chat.macroState?.global
   }).messages
   for (const message of projected) if (/<%[\s\S]*?%>/.test(message.content)) throw new Error('generate 独立生成不执行 EJS 模板；请提供已渲染的覆盖提示词或使用 generateRaw')

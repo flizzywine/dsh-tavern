@@ -1,11 +1,11 @@
 {
-  "versionCode": 7,
-  "versionName": "1.0.0-beta.2",
-  "url": "https://github.com/flizzywine/dsh-tavern/releases/download/v3.4/dsh-tavern-beta-1.0.0-beta.2.apk",
-  "sha256": "102c0033fc3670d2f5f2729fa8eb84ac2abb4d420474f07b576964ea0a7093ab",
-  "size": 465931695,
+  "versionCode": 8,
+  "versionName": "1.0.0-beta.3",
+  "url": "https://github.com/flizzywine/dsh-tavern/releases/download/v3.4/dsh-tavern-beta-1.0.0-beta.3.apk",
+  "sha256": "3a188f3919e8df234351b9864614c058664b8774738e0ffdd32545ba1885343b",
+  "size": 466070959,
   "minVersionCode": 0,
   "signer": "7496a3a33d6e5bdc02127b7b970f8d7fbdfba5fe9c88cd3921dbde78b3a327f7",
-  "notes": "",
+  "notes": "启动页新增局域网访问开关，开启后可在同局域网设备浏览器访问酒馆（含复制/分享链接与刷新地址）",
   "page": "https://github.com/flizzywine/dsh-tavern/releases/tag/v3.4"
 }

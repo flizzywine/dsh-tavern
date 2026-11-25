@@ -1,5 +1,8 @@
 // Prefix-based prompt cache analysis between the latest request and its
 // immediate predecessor in the same session. Pure functions only.
+import systemPromptSections from './system-prompt-sections.cjs'
+
+const { describeTavernSystemSection, splitSystemPromptParts } = systemPromptSections
 
 const CATALOG_PATTERN = /<system-reminder>\n(?:A skill is a reusable set of task-specific instructions\. The following skills are available in this session:|The available skill catalog changed\. This complete catalog replaces every earlier available-skills list in this session:)[\s\S]*?<\/system-reminder>/g
 
@@ -25,30 +28,9 @@ export function estimateRequestTokens(text) {
 }
 
 function sectionLabel(name, rest) {
-  if (name === 'tavern:runtime-preset-front') return '前段预设'
-  if (name === 'tavern:runtime-preset-middle') return '中段预设'
-  if (name === 'tavern:runtime-preset-back') return '末尾预设投影'
-  if (name === 'tavern:constant-worldbook') return '常驻世界书'
-  if (name === 'tavern:worldbook-skills') return '世界书 Skill'
-  if (name === 'tavern:character-card') return '人物卡'
-  if (name === 'tavern:card-system-prompt') return '人物卡系统提示'
-  if (name === 'tavern:card-system') return '卡片工作台性格'
-  if (name === 'tavern:card-reference') return '人物卡参考'
-  if (name === 'tavern:user-preference') return '长期偏好'
-  if (name === 'tavern:variable-directory') return '变量目录'
-  if (name === 'tavern:resource-workspace') return '工作区资源'
-  if (name === 'tavern:system-append') return '系统追加'
-  if (name === 'tavern:plugin-body-generation' || name === 'tavern:plugin-body-generation-reminder') return '正文生成规范'
-  if (name === 'tavern:story-tool-submission' || name === 'tavern:story-tool-submission-reminder') return '工具提交规范'
-  if (name === 'tavern:no-foreground-tools') return '工具禁用说明'
-  if (name === 'tavern:foreground-style-reference') return '文风参考'
-  if (name === 'tavern:foreground-candidates') return '候选参考'
-  if (name === 'tavern:session-context') return '会话上下文'
-  if (name.includes(':writingRules:')) return '写作规则'
-  if (name.includes(':activeWorldbook:')) return '本轮世界书'
-  if (name.includes(':currentStateProjection:')) return '当前状态'
   if (name === 'tavern:dsh-system' || name === 'tavern:turn') return rest
-  return name || '附加上下文'
+  if (!name) return '附加上下文'
+  return describeTavernSystemSection(name, rest).label || '附加上下文'
 }
 
 function extractMessageDisplayParts(message) {
@@ -106,7 +88,7 @@ function extractMessageDisplayParts(message) {
 // Produces the exact ordered prompt prefix units matching FullRequestContextView's
 // section layout (excluding non-prefix metadata): system -> leading system messages
 // -> tools -> remaining messages, with presetPhase splits preserved.
-export function extractPrefixSlots(request) {
+export function extractPrefixSlots(request, options = {}) {
   if (!request || typeof request !== 'object') return []
   const raw = []
 
@@ -114,13 +96,20 @@ export function extractPrefixSlots(request) {
     if (!Object.hasOwn(request, key)) return
     const value = request[key]
     const text = typeof value === 'string' ? value : JSON.stringify(value, null, 2)
+    let parts = [{ text, label }]
+    if (key === 'system' && typeof value === 'string') {
+      const splitParts = splitSystemPromptParts(value, options?.systemSections)
+      if (splitParts.length > 0 && !(splitParts.length === 1 && splitParts[0].isPlainSystem)) {
+        parts = splitParts.map(part => ({ text: part.text, label: part.label || label }))
+      }
+    }
     raw.push({
       key: 'field:' + key,
       kind: key,
       title: key + ' · ' + label,
       canonical: key + '\u0000' + (typeof value === 'string' ? value : JSON.stringify(value)),
       text,
-      parts: [{ text, label }]
+      parts
     })
   }
 
@@ -391,7 +380,7 @@ function summarizeUsage(usage) {
 export function computeRequestCacheDiff(currentRecord, previousRecord, previousEntry) {
   const usage = summarizeUsage(currentRecord?.usage)
   const curRequest = currentRecord?.request
-  const curSlots = extractPrefixSlots(curRequest)
+  const curSlots = extractPrefixSlots(curRequest, { systemSections: currentRecord?.systemSections })
   const estimatedTotalTokens = curSlots.reduce((sum, slot) => sum + slot.tokens, 0)
 
   if (!previousEntry) {
@@ -443,7 +432,7 @@ export function computeRequestCacheDiff(currentRecord, previousRecord, previousE
   }
 
   const prevRequest = previousRecord.request
-  const prevSlots = extractPrefixSlots(prevRequest)
+  const prevSlots = extractPrefixSlots(prevRequest, { systemSections: previousRecord?.systemSections })
   const prevModel = String(prevRequest.model || '')
   const curModel = String(curRequest?.model || '')
   const modelChanged = Boolean(prevModel && curModel && prevModel !== curModel)

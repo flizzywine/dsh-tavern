@@ -386,6 +386,11 @@ test('tavern 服务 v2：本轮上下文、世界书来源、结算说明与结�
   assert.throws(() => tavern.settlementTool({ name: 'posture_submit', description: 'x', parameters: { type: 'object' }, execute() {} }), /Tavern 自己的工具/)
   assert.throws(() => tavern.settlementTool({ name: 'anchor_submit', description: 'x', parameters: { type: 'object' }, execute() {} }), /已被注册/)
   assert.throws(() => tavern.settlementTool({ name: 'Bad-Name', description: 'x', parameters: { type: 'object' }, execute() {} }), /工具名/)
+  // Parameter names a provider would refuse are refused here, naming the tool and the key, not by Claude's 400 for every game.
+  assert.throws(() => tavern.settlementTool({ name: 'trust_submit', description: 'x', parameters: { type: 'object', properties: { 抵达地点: { type: 'string' } } }, execute() {} }), /trust_submit 的参数名「抵达地点」.*description/)
+  assert.throws(() => tavern.settlementTool({ name: 'trust_submit', description: 'x', parameters: { type: 'object', properties: { list: { type: 'array', items: { type: 'object', properties: { 'next step': { type: 'string' } } } } } }, execute() {} }), /「next step」（parameters\.properties\.list\.items\.properties）/)
+  assert.throws(() => tavern.settlementTool({ name: 'trust_submit', description: 'x', parameters: { type: 'object', properties: { ['k'.repeat(65)]: { type: 'string' } } }, execute() {} }), /参数名/)
+  assert.deepEqual(h.api.settlement.tools().map(tool => tool.name), ['anchor_submit'], 'a refused tool is not registered')
 
   const context = await h.api.turnContext({ gameId: 'game-1', turn: 4, input: '推门' })
   assert.deepEqual(context.map(section => [section.name, section.worldbook === true, section.text]), [
@@ -1080,6 +1085,7 @@ test('插件成员可以有自己的前缀：系统提示词和工具固定在�
   assert.throws(() => tavern.member({ name: 'x', tools: [] }), /先给它 system/)
   assert.throws(() => tavern.member({ name: 'y', system: '' }), /system 必须是/)
   assert.throws(() => tavern.member({ name: 'z', system: 's', tools: [{ name: 'Bad', description: 'd', parameters: { type: 'object' }, execute() {} }] }), /工具名/)
+  assert.throws(() => tavern.member({ name: 'z', system: 's', tools: [{ name: 'note_add', description: 'd', parameters: { type: 'object', properties: { 记事: { type: 'string' } } }, execute() {} }] }), /note_add 的参数名「记事」/)
 })
 
 test('地图 → 手机：地图插件发布产出并发出自己的事件，手机插件挂上去、读到产出；内置的任务完成事件也能挂', { skip: !cordis }, async t => {
@@ -1179,6 +1185,21 @@ test('正文生成器通过 Cordis 注册、按卡隔离，卸载后停止可用
 })
 
 
+test('加载器来源：真实子插件沿父 fiber 找到宿主或卡片条目', { skip: !cordis }, async () => {
+  const require = createRequire(process.env.DSH_BOOT_MODULE ? pathToFileURL(process.env.DSH_BOOT_MODULE) : import.meta.url)
+  const { Loader } = await import(pathToFileURL(require.resolve('@deepseek-ai/cordis-plugin-loader')).href)
+  const loader = Object.create(Loader.prototype)
+  const root = new cordis.Context()
+  let child
+  const host = root.plugin({ name: 'host', apply(ctx) { child = ctx.plugin({ name: 'dsh-tavern-stage', apply() {} }) } })
+  await host.await(); await child.await()
+  assert.equal(loaderOrigin(loader, child), undefined)
+  host.ctx.fiber.entry = { id: 'host:1' }
+  assert.equal(loaderOrigin(loader, child), 'host')
+  host.ctx.fiber.entry = { id: 'tavern-user-plugin-x:1' }
+  assert.equal(loaderOrigin(loader, child), 'tavern')
+  await root.fiber.dispose()
+})
 test('owner-bound read declarations revoke snapshots on update, unregister and fiber unload', { skip: !cordis }, async t => {
   const h = await harness(t)
   const seen = []

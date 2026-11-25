@@ -5,7 +5,8 @@ import {stateSourceHints} from '../../../../lib/domain/mods/state-source.js'
 import {judgeEnabled} from '../../../../lib/domain/engine-judge.js'
 import {greenJudgeQuestions} from './stage-judge-recall.js'
 import {directionStyles, directionStyleSections} from '../../../../lib/domain/direction-styles.js'
-import {figureCatalogue, resolution} from '../../../../lib/domain/figure-catalogue.js'
+import {effectiveFigurePackIds, figureActorKey, figureCatalogue, resolution} from '../../../../lib/domain/figure-catalogue.js'
+import {relocateStage, stageLocator} from './stage-relocate.js'
 import {figureEmotionRows,figureDefaultEmotion} from '../../../dsh-asset-library/lib/asset-packs/figure-emotions.js'
 import { initializeStateImages, admitStateImages, hasStateImagePools } from '../../../../lib/domain/state-image-admission.js'
 import {recallFigures} from '../../../../lib/domain/figure-recall.js'
@@ -186,7 +187,7 @@ function recallDirectorCatalogue({extension, snapshots, globalEnabledPackIds, mo
 /** The recalled catalogue of prepareAssetPackDirector for the same input, without the rest of the preparation. */
 export function assetPackDirectorCatalogue({ raw, snapshots = [], globalEnabledPackIds = [], engine, units, recallUnits = units, assetStatus = {}, judgeRecall, mods, record, baseline, opening, activeStageSkin, condition }) {
   const extension = readCardAssetExtension(raw)
-  return extension ? recallDirectorCatalogue({extension, snapshots, globalEnabledPackIds, mods, recallUnits, dimensions:directorDimensions(engine), assetStatus, judgeRecall, engine, activeStageSkin, condition, state:record ? readAssetPackRecord(record).end : baseline || opening}) : null
+  return extension ? recallDirectorCatalogue({extension, snapshots, globalEnabledPackIds, mods, recallUnits, dimensions:directorDimensions(engine), assetStatus, judgeRecall, engine, activeStageSkin, condition, state:relocateStage(record ? readAssetPackRecord(record).end : baseline || opening, stageLocator(effectiveFigurePackIds(extension.assetBindings, globalEnabledPackIds), snapshots, figureActorKey))}) : null
 }
 
 /** Only a new Card Preparation binding extension opts in. An absent extension returns null;
@@ -203,7 +204,8 @@ export function prepareAssetPackDirector({ raw, cardRevision, snapshots = [], gl
   const extension = readCardAssetExtension(raw)
   if (!extension) return null
   const dimensions = directorDimensions(engine)
-  const carried = record ? readAssetPackRecord(record).end : baseline || opening
+  // the carried stage names where its items are now (an item moved to another pack is still the same item)
+  const carried = relocateStage(record ? readAssetPackRecord(record).end : baseline || opening, stageLocator(effectiveFigurePackIds(extension.assetBindings, globalEnabledPackIds), snapshots, figureActorKey))
   const figureRows = figureCatalogue({snapshots,bindings:extension.assetBindings,globalEnabledPackIds,roster:carried?.actors})
   // avatar-only contacts are not stage choices.
   const eligibleActors = dimensions.actors ? frozenActors(extension, snapshots, carried, globalEnabledPackIds, figureRows) : {}

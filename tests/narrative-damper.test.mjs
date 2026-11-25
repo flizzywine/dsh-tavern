@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
+import { withStyleReferenceProtocol } from './helpers/style-reference-source.mjs'
 import test from 'node:test'
 import vm from 'node:vm'
 import React, { act } from 'react'
@@ -612,7 +613,7 @@ test('故事窗口读取保留 narrativeDamper 与 damperState，前端楼层渲
     readFile(new URL('../tavern-plugin/lib/domain/mvu-visibility.js', import.meta.url), 'utf8'),
     readFile(new URL('../tavern-plugin/src/client/features/narrative-damper-status.js', import.meta.url), 'utf8'),
     readFile(new URL('../tavern-plugin/src/client/modules/session-refresh-controller.js', import.meta.url), 'utf8'),
-    readFile(new URL('../tavern-plugin/src/client/features/story-transcript-data.js', import.meta.url), 'utf8'),
+    readFile(new URL('../tavern-plugin/src/client/features/story-transcript-data.js', import.meta.url), 'utf8').then(withStyleReferenceProtocol),
     readFile(new URL('../tavern-plugin/src/client/features/story-transcript-list.js', import.meta.url), 'utf8'),
     readFile(new URL('../tavern-plugin/src/client/variable-receipt.js', import.meta.url), 'utf8')
   ])
@@ -827,7 +828,7 @@ test('决策模型返回后生成中楼层立即显示阻尼胶囊：涵盖新�
     readFile(new URL('../tavern-plugin/lib/domain/mvu-visibility.js', import.meta.url), 'utf8'),
     readFile(new URL('../tavern-plugin/src/client/features/narrative-damper-status.js', import.meta.url), 'utf8'),
     readFile(new URL('../tavern-plugin/src/client/modules/session-refresh-controller.js', import.meta.url), 'utf8'),
-    readFile(new URL('../tavern-plugin/src/client/features/story-transcript-data.js', import.meta.url), 'utf8'),
+    readFile(new URL('../tavern-plugin/src/client/features/story-transcript-data.js', import.meta.url), 'utf8').then(withStyleReferenceProtocol),
     readFile(new URL('../tavern-plugin/src/client/features/story-transcript-list.js', import.meta.url), 'utf8'),
     readFile(new URL('../tavern-plugin/src/client/variable-receipt.js', import.meta.url), 'utf8')
   ])

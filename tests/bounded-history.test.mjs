@@ -1,12 +1,12 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { createChatJournalStore } from '../tavern-plugin/lib/domain/chat-journal-store.js'
 import { createChatPersistence } from '../tavern-plugin/lib/domain/chat-persistence.js'
-import { createBoundedHistory } from '../tavern-plugin/lib/domain/bounded-history.js'
+import { createBoundedHistory, storyContextMessageFields } from '../tavern-plugin/lib/domain/bounded-history.js'
 import { lastTavernHelperVariables } from '../tavern-plugin/lib/domain/tavern-helper-context.js'
 
 function history(turns, variablesAt = () => true) {
@@ -42,4 +42,20 @@ test('无变量、短历史与旧存档的边界', async t => {
   assert.equal(await none.bounded.forSession('s', { storyRows: Infinity }), undefined)
   const capped = createBoundedHistory({ links: async () => ({ s: 'c' }), readWindow: none.p.readWindow, pageSize: 10, maxRows: 40 })
   assert.equal(await capped.forSession('s', { storyRows: 150 }), undefined)
+})
+
+test('story preparation projects the fields it needs without reading unrelated payloads', async t => {
+  const messages = history(5)
+  Object.assign(messages[9], { ts: 123, native: true, placeholder: true, tavernHidden: true, source: { kind: 'user', rpcId: 'r1' } })
+  Object.assign(messages[10], { damperState: [{ intimacy_trust: 80 }], stagePlaybackV1: { archive: 'unused' } })
+  const h = await store(t, { messages })
+  const need = { storyRows: 25, lastAssistant: true, lastVariables: true }
+  const { chat } = await h.bounded.forSession('s', { ...need, messageFields: storyContextMessageFields })
+  const { ts, native, placeholder, tavernHidden } = chat.messages[9]
+  assert.deepEqual({ ts, native, placeholder, tavernHidden }, { ts: 123, native: true, placeholder: true, tavernHidden: true })
+  assert.deepEqual(chat.messages[10].damperState, [{ intimacy_trust: 80 }])
+  assert.equal(chat.messages[10].stagePlaybackV1, undefined)
+  const index = await readFile(new URL('../tavern-plugin/lib/index.js', import.meta.url), 'utf8')
+  const body = index.slice(index.indexOf('async function storyContext('), index.indexOf('async function storyContext(') + 600)
+  assert.match(body, /messageFields: storyContextMessageFields/)
 })

@@ -101,7 +101,8 @@ export function createTemplateHandlers(deps) {
       return await tavernScriptHostAdapter.updateMessages(args && args.sessionId, args && args.messages, args && args.expectedLifecycleRevision, args && args.eventId)
     },
     async createTavernHelperMessages(args) {
-      return await tavernScriptHostAdapter.createMessages(args && args.sessionId, args && args.messages, args && args.option, args && args.expectedLifecycleRevision, args && args.eventId)
+      return await tavernScriptHostAdapter.createMessages(args?.sessionId, args?.messages, args?.option, args?.expectedLifecycleRevision, args?.eventId,
+        { operationId: args?.operationId, dispatch: args?.dispatchCreatedMessages === true })
     },
     // Old pages must not create a second executor or receive server work.
     async releaseFullTemplateRuntime(args) {

@@ -109,14 +109,22 @@ function hostEntry(pkg) {
   return main
 }
 
+const unreadableBindingNotice = cardPath => '[Tavern 插件] 人物卡素材清单无法读取，已跳过这张卡的插件绑定：' + cardPath
+
 // Card storage, not installed-folder markers, defines the binding set.
-export async function readEnabledBindings({ dataRoot, cardPaths }) {
+export async function readEnabledBindings({ dataRoot, cardPaths, onUnreadable = cardPath => console.warn(unreadableBindingNotice(cardPath)) }) {
   const bindings = new Map()
   for (const cardPath of await cardPaths()) {
-    let manifest
-    try { manifest = JSON.parse(await readFile(castManifestPath(dataRoot, cardPath), 'utf8')) }
-    catch (error) { if (error.code === 'ENOENT') continue; throw error }
-    for (const plugin of manifest.plugins || []) {
+    let plugins
+    try {
+      const manifest = JSON.parse(await readFile(castManifestPath(dataRoot, cardPath), 'utf8'))
+      plugins = manifest.plugins === undefined ? [] : manifest.plugins
+      if (!Array.isArray(plugins) || plugins.some(plugin => !plugin || typeof plugin.name !== 'string' || typeof plugin.sha256 !== 'string')) throw new Error('invalid plugin bindings')
+    } catch (error) {
+      if (error.code !== 'ENOENT') onUnreadable(cardPath)
+      continue
+    }
+    for (const plugin of plugins) {
       if (plugin.enabled !== true) continue
       if (!bindings.has(plugin.name)) bindings.set(plugin.name, new Map())
       const versions = bindings.get(plugin.name)
@@ -141,7 +149,7 @@ export function bindingVerdict({ name, sha256 }, bindings) {
  * and, optionally, a browser half (dsh.client + exports "./client").
  * Folders that cannot be loaded are reported, never registered.
  */
-export async function scanUserPlugins(pluginsDir, { installed = () => false, bindings = new Map() } = {}) {
+export async function scanUserPlugins(pluginsDir, { installed = () => false, bindings = new Map(), unreadableCards = new Set() } = {}) {
   let names
   try { names = (await readdir(pluginsDir, { withFileTypes: true })).filter(item => item.isDirectory() && !item.name.startsWith('.')).map(item => item.name).sort() }
   catch (error) { if (error.code === 'ENOENT') names = []; else throw error }
@@ -176,6 +184,7 @@ export async function scanUserPlugins(pluginsDir, { installed = () => false, bin
     const packageName = String(pkg.name || folder)
     const verdict = bindingVerdict({ name: packageName, sha256 }, bindings)
     if (verdict?.reason) { problems.push({ folder, reason: verdict.reason }); continue }
+    if (origin === 'card' && !verdict && cardIds.some(card => unreadableCards.has(card))) continue
     const isImagePlugin = packageName === IMAGE_PLUGIN_NAME || packageName === LEGACY_IMAGE_PLUGIN_NAME
     // A second source for an installed package breaks DSH's browser module composition.
     const installedNames = isImagePlugin ? [IMAGE_PLUGIN_NAME, LEGACY_IMAGE_PLUGIN_NAME] : pkg.name ? [packageName] : []
@@ -286,8 +295,12 @@ export async function syncUserPlugins({ dataRoot, dshHome, logger = console, pen
     return { skipped: true, plugins: [], problems: [], disabled: [] }
   }
   const installed = name => existsSync(path.join(paths.profile, 'node_modules', ...name.split('/'), 'package.json'))
-  const bindings = await readEnabledBindings({ dataRoot, cardPaths })
-  const { plugins, problems, disabled } = await scanUserPlugins(paths.plugins, { installed, bindings })
+  const unreadableCards = new Set()
+  const bindings = await readEnabledBindings({ dataRoot, cardPaths, onUnreadable(cardPath) {
+    unreadableCards.add(cardPath)
+    logger.warn?.(unreadableBindingNotice(cardPath))
+  } })
+  const { plugins, problems, disabled } = await scanUserPlugins(paths.plugins, { installed, bindings, unreadableCards })
   for (const problem of problems) {
     const key = paths.plugins + '\u0000' + problem.folder
     if (reported.get(key) === problem.reason) continue

@@ -5,8 +5,10 @@ import { StaticAssetError } from '../domain/tavern-static-resource-cache.js'
 
 const publicLookups = new Map()
 
-async function publicDnsRecords(hostname, type, family) {
-  const url = new URL('https://1.1.1.1/dns-query')
+const PUBLIC_DNS_ENDPOINTS = ['https://1.1.1.1/dns-query', 'https://223.5.5.5/resolve']
+
+async function queryPublicDnsEndpoint(endpoint, hostname, type, family) {
+  const url = new URL(endpoint)
   url.searchParams.set('name', hostname)
   url.searchParams.set('type', String(type))
   const response = await fetch(url, {
@@ -19,6 +21,15 @@ async function publicDnsRecords(hostname, type, family) {
   if (Status === 3) return []
   if (Status !== 0 || TC) throw new Error('Public DNS did not return a complete answer')
   return (Answer || []).filter(record => record.type === type).map(record => ({ address: record.data, family }))
+}
+
+async function publicDnsRecords(hostname, type, family) {
+  let lastError
+  for (const endpoint of PUBLIC_DNS_ENDPOINTS) {
+    try { return await queryPublicDnsEndpoint(endpoint, hostname, type, family) }
+    catch (error) { lastError = error }
+  }
+  throw lastError
 }
 
 function resolvePublicDns(hostname) {
@@ -48,9 +59,9 @@ function publicAddresses(addresses) {
     .map(({ address }) => ({ address, family: isIP(address) }))
 }
 
-// A local TUN can synthesize DNS answers for any site. The opt-in re-resolves
-// those names independently and pins the connection to the validated public IPs.
-export async function verifyPublicHostname(value, resolve = lookup, allowCdnFakeIp = process.env.DSH_TAVERN_ALLOW_CDN_FAKE_IP === '1', resolvePublic = resolvePublicDns) {
+// 本机 TUN（如手机/桌面代理）常返回 Fake-IP；默认经公共 DNS 独立解析并校验为公网 IP 后固定直连，
+// 保持 SSRF 边界不变。设置 DSH_TAVERN_ALLOW_CDN_FAKE_IP=0 或 allowCdnFakeIp=false 可关闭。
+export async function verifyPublicHostname(value, resolve = lookup, allowCdnFakeIp = process.env.DSH_TAVERN_ALLOW_CDN_FAKE_IP !== '0', resolvePublic = resolvePublicDns) {
   const url = new URL(value)
   const hostname = url.hostname.replace(/^\[|\]$/g, '')
   const family = isIP(hostname)

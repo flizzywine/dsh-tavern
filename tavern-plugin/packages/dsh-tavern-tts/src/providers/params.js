@@ -8,7 +8,13 @@ export const PROVIDER_ID = /^[a-z][a-z0-9-]{0,23}$/
 // voice IDs when the server answers that it serves a voice library (fish-audio.js voiceLibrary).
 // `fields` are the connection (语音后端); `voice` is what a figure picks for its source of this kind (素材库 人物 › 声音),
 // in order: `model` (the service's models list), `voice` (its voice list). How it speaks (the source kind) is `voiceSources`.
+export const isGeminiMusicModel = id => typeof id === 'string' && /^lyria-\d[\w.-]*$/i.test(id) && !/(?:realtime|stream)/i.test(id)
 export const PROVIDER_KINDS = [
+  { kind: 'lyria', label: 'Google', protocolLabel: 'Gemini API', category: 'music', paid: true, voiceSources: [], fields: [
+    { key: 'model', label: '默认模型', type: 'select' },
+    { key: 'key', label: 'API Key', secret: true, required: true },
+    { key: 'url', label: 'Base URL', required: true, default: 'https://generativelanguage.googleapis.com' },
+  ] },
   { kind: 'qwen', label: '通义千问', paid: true, voiceSources: ['preset'], voice: ['model', 'voice'], fields: [{ key: 'region', label: '区域', type: 'select', required: true, options: [['cn', '中国内地'], ['intl', '国际']], default: 'cn' }, { key: 'key', label: 'API Key', secret: true }] },
   { kind: 'azure', label: 'Azure', paid: true, voiceSources: ['preset'], voice: ['voice'], fields: [{ key: 'region', label: '区域', required: true, placeholder: 'eastasia' }, { key: 'key', label: 'API Key', secret: true }] },
   // A service is its connection and its 默认模型 (config.defaultModel); a figure's voice source may name its own `model`.
@@ -60,6 +66,13 @@ function defaultModel(kind, value) {
 }
 export function providerConfig(kind, input = {}) {
   providerKind(kind)
+  if (kind === 'lyria') {
+    const model = input.model ?? 'lyria-3.5'
+    const url = new URL(input.url || providerKind(kind).fields.find(f => f.key === 'url').default)
+    if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.search || url.hash) throw new Error('音乐生成 Base URL 无效')
+    if (!isGeminiMusicModel(model)) throw new Error('音乐生成模型无效')
+    return { model, url: url.href.replace(/\/+$/, '') }
+  }
   if (kind === 'openai-compatible') return httpConfig(input)
   if (kind === 'fish-audio') {
     let url
