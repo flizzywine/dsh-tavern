@@ -166,9 +166,9 @@ test('card script decoration after streaming keeps dialogue and stage controls l
     const React = modules.react, h = React.createElement;
     const native = document.querySelector('#native'), layer = document.querySelector('#script-layer');
     const calls = window.calls = [], tavernPlayEvents = {emit() {}}, Spinner = () => h('span', null, 'loading');
-    const PackImage = () => h('span', null, '头像'), bubbleMoodBadge = () => null;
+    const PackImage = () => h('span', null, '头像');
     const portraitPreview = (_media, anchor) => anchor.getBoundingClientRect().width;
-    const showPortrait = (_media, _name, width) => calls.push(['portrait', width > 0]);
+    const showPortrait = (_media, name, width) => calls.push(['portrait', name, width > 0]);
     ${voice}
     ${avatar}
     ${entry}
@@ -180,7 +180,7 @@ test('card script decoration after streaming keeps dialogue and stage controls l
       const voice = {owner:'row',id:'voice',sessionId:'test',player:loading ? {owner:'row',id:'voice',loading:true} : null,
         click() { calls.push('voice'); setLoading(true); }};
       return h(React.Fragment, null, h(VoiceButton, {voice}),
-        h(BubbleAvatar, {zoomable:true,media:{src:'avatar'},name:'角色'}),
+        h(BubbleAvatar, {zoomable:true,media:{src:'avatar'},name:'角色',moodLabel:'喜悦'}),
         h(stage.EnterHere, {sessionId:'test',turn:1,para:2}),
         h(stage.Markdown, {sessionId:'test',turn:1,base:2,text:'旁白',markdownProps:{}}));
     }
@@ -191,7 +191,8 @@ test('card script decoration after streaming keeps dialogue and stage controls l
     };
   })()` })
   await page.getByTitle('查看大图').click()
-  assert.deepEqual(await page.evaluate(() => window.calls.splice(0)), [['portrait', true]])
+  const portrait = ['portrait', '角色 · 喜悦', true]
+  assert.deepEqual(await page.evaluate(() => window.calls.splice(0)), [portrait])
   await page.evaluate(() => window.finish())
   const script = page.locator('#script-layer .decorated')
   await script.getByRole('button', { name: '合成并播放' }).click()
@@ -199,8 +200,8 @@ test('card script decoration after streaming keeps dialogue and stage controls l
   assert.equal(await script.getByRole('button', { name: '正在准备语音' }).isDisabled(), true)
   await script.getByTitle('查看大图').click()
   for (const button of await script.getByRole('button', { name: '从这里进入舞台' }).all()) await button.click()
-  assert.deepEqual(await page.evaluate(() => window.calls.splice(0)), ['voice', ['portrait', true], ['stage', 2], ['stage', 3]])
+  assert.deepEqual(await page.evaluate(() => window.calls.splice(0)), ['voice', portrait, ['stage', 2], ['stage', 3]])
   await page.evaluate(() => window.releaseLayer())
   await page.getByTitle('查看大图').click()
-  assert.deepEqual(await page.evaluate(() => window.calls), [['portrait', true]])
+  assert.deepEqual(await page.evaluate(() => window.calls), [portrait])
 })
