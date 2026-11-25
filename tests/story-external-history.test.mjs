@@ -2,15 +2,18 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import vm from 'node:vm'
+import { legacySeedMessages } from './fixtures/legacy-seed-messages.mjs'
 
 const source = await readFile(new URL('../tavern-plugin/src/client/modules/story-external-history.js', import.meta.url), 'utf8')
 const reminders = await readFile(new URL('../tavern-plugin/lib/domain/system-reminders.cjs', import.meta.url), 'utf8')
 const receipts = await readFile(new URL('../tavern-plugin/lib/domain/writing-material-receipts.cjs', import.meta.url), 'utf8')
+const legacySeeds = await readFile(new URL('../tavern-plugin/lib/domain/session-seed-trajectory.cjs', import.meta.url), 'utf8')
 
 function load() {
 	const context = vm.createContext({ console, window: {} })
 	vm.runInContext(reminders, context)
 	vm.runInContext(receipts, context)
+	vm.runInContext(legacySeeds, context)
 	vm.runInContext(source, context)
 	return context
 }
@@ -90,6 +93,18 @@ test('酒馆轨迹隐藏宿主提醒，保留 Skill 和玩家内容', async () =
 	assert.equal(h.assembler.buildNode(reminder, 'preview').native, true)
 	h.handle.dispose()
 	assert.equal(h.assembler.buildNode(reminder, 'trajectory').native, true)
+})
+
+test('旧占位对话退出轨迹，用户发送的同样文字仍然显示', () => {
+	const h = harness({ activeTargets: new Set(['trajectory']) })
+	h.instance.binding('s1')
+	const [intro, , start] = legacySeedMessages('s1')
+	for (const message of [intro, start]) {
+		const state = { kind: 'context', source: message.source, content: message.content }
+		assert.equal(h.assembler.buildNode(at(1, { state }), 'trajectory'), null)
+		assert.equal(h.assembler.buildNode(at(1, { state: { ...state, source: { kind: 'user' } } }), 'trajectory').native, true)
+	}
+	h.handle.dispose()
 })
 
 test('白手套的前台轨迹隐藏 Skill 和旧变量回执，保留剧情事实', async () => {

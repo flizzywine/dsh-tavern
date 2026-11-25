@@ -6,7 +6,6 @@ import { sessionEvents } from '../tavern-plugin/lib/domain/session-events.js'
 import { dshFileToolNames } from '../tavern-plugin/lib/domain/turn-orchestration.js'
 import { createForegroundOrchestrationStrategies, createNativePlayOrchestrationStrategy } from "../tavern-plugin/lib/domain/foreground-orchestration-strategies.js"
 import { ensureSessionStablePrefix, sessionStablePrefixSections } from '../tavern-plugin/lib/domain/session-stable-prefix.js'
-import { ensureSessionSeedTrajectory } from '../tavern-plugin/lib/domain/session-seed-trajectory.js'
 import { pureWritingSystem } from '../tavern-plugin/lib/domain/pure-writing-request.js'
 import { createSkillGatedTools } from '../tavern-plugin/lib/domain/skill-gated-tools.js'
 
@@ -50,7 +49,6 @@ test('游玩固定背景来自原生系统装配，预设前后段保持顺序�
   const storage = { async read(id) { return savedPrefixes.get(id) }, async write(id, value) { savedPrefixes.set(id, value) } }
   let cardText = '人物卡固定基本信息\n常驻世界书'
   await ensureSessionStablePrefix(session, cardText, storage)
-  await ensureSessionSeedTrajectory(session)
   const run = strategies({ nativePlay: {
     async modeFor() { return 'story' },
     filterMessages(messages) { return messages },
@@ -84,7 +82,6 @@ test('游玩固定背景来自原生系统装配，预设前后段保持顺序�
     assert.equal(prepared.startsRequestSeries, turn === 2 ? true : undefined, '首次或预设前段变化时才开始新请求序列')
     const request = run.value.projectRequest({ sessionId: 'native', system, messages: modelMessages })
     assert.deepEqual(request.messages.map(message => message.role), ['user'])
-    assert.match(request.messages[0].content.map(block => block.text).join('\n'), /我们正在共同创作[\s\S]*开始。请从人物卡给定的开场继续。/)
     assert.equal(request.system, system, '系统提示原样保留，不再在请求边界拆分')
     assert.equal(request.messages.at(-1).role, 'user', '本轮指令和预设后段保持 user 语义')
     assert.match(request.messages.at(-1).content[0].text, /本轮动态指令\n\n预设后置指令$/)

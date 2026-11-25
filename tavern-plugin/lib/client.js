@@ -45388,6 +45388,16 @@ function tavernWithoutPrivateWritingReceipts(message) {
 if (typeof window === 'undefined') {
     module.exports = { tavernIsWritingInjection, tavernWritingReceiptSections, tavernFormatPlotWorldbookReceipt, tavernWithoutPrivateWritingReceipts }
 }
+function tavernIsLegacySeedTrajectory(message) {
+    const source = message?.source
+    if (source?.form === 'synthetic-trajectory') {
+        return source.kind === 'plugin:dsh-tavern' || (source.kind === 'plugin' && source.plugin === 'dsh-tavern')
+    }
+    return source?.kind === 'model' && source.provider === 'dsh-tavern' && source.model === 'synthetic-trajectory'
+        && /^tavern-seed-trajectory:v1:.+:2$/.test(message.id ?? message.messageId)
+}
+
+if (typeof window === 'undefined') module.exports = { tavernIsLegacySeedTrajectory }
 
 function tavernStoryNativeTurnOfLocation(location) {
 	if (!location || (location.kind !== 'turn' && location.kind !== 'step')) return null
@@ -45432,6 +45442,7 @@ function installTavernStoryExternalHistory(options) {
 			hideSystemReminders: false, hideSkillContext: false }
 		function filteredBuild(context, target) {
 			if (controller.alive && target === 'trajectory' && context.state?.kind === 'context') {
+				if (tavernIsLegacySeedTrajectory(context.state)) return null
 				if (record.hideSystemReminders && tavernIsHostSystemReminder(context.state)) return null
 				if (record.hideSkillContext) {
 					if (tavernIsSkillReminder(context.state.source)) return null

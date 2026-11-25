@@ -6,6 +6,7 @@ import { createModelRequestLog } from '../tavern-plugin/lib/domain/model-request
 import { createForegroundOrchestrationStrategies } from '../tavern-plugin/lib/domain/foreground-orchestration-strategies.js'
 import { registerModelStreamHooks } from '../tavern-plugin/lib/hooks/model-stream.js'
 import { createInitializationNative } from './fixtures/conversation-initialization-native.mjs'
+import { legacySeedMessages } from './fixtures/legacy-seed-messages.mjs'
 
 function memoryLog() {
   const files = new Map()
@@ -50,12 +51,11 @@ test('Tavern sends and logs the same request after a template renders blank prom
   })
   const hidden = { role: 'user', content: [{ type: 'text', text: '<% if (false) { %>旧提示<% } %>' }] }
   const visible = { role: 'user', content: [{ type: 'text', text: '继续故事' }] }
-  const oldSeed = { id: 'tavern-seed-trajectory:v1:' + sessionId + ':2', role: 'assistant',
-    source: { kind: 'model', provider: 'dsh-tavern', model: 'synthetic-trajectory' },
-    content: [{ type: 'text', text: '模拟的开局确认。' }] }
+  const oldSeeds = legacySeedMessages(sessionId)
+  oldSeeds[0].source = { kind: 'plugin', plugin: 'dsh-tavern', form: 'synthetic-trajectory', version: 1 }
   const tools = [{ name: 'submit_story', description: 'Save story', parameters: { type: 'object' } }]
   const toolHistory = { tools: [{ name: 'bash', description: 'Old tool', parameters: { type: 'object' } }], updates: [] }
-  const original = Object.freeze({ sessionId, provider: 'initialization-fixture', model: 'text', system: '模板规则', messages: Object.freeze([oldSeed, hidden, visible]),
+  const original = Object.freeze({ sessionId, provider: 'initialization-fixture', model: 'text', system: '模板规则', messages: Object.freeze([...oldSeeds, hidden, visible]),
     tools, toolHistory })
   const before = structuredClone(original)
   const events = await Array.fromAsync(h.ctx.llm.stream(original))

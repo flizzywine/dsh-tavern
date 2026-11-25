@@ -7,7 +7,7 @@ import { installCompactionRequestProjection } from '../domain/compaction-request
 import { installPrefixBoundReasoningProjection } from '../domain/prefix-bound-reasoning.js'
 import { omitEmptyProviderContent } from '../domain/provider-message-content.js'
 import { omitUnusedToolHistory } from '../domain/tool-history-presentation.js'
-import { isLegacySeedAcknowledgement } from '../domain/session-seed-trajectory.js'
+import legacySeeds from '../domain/session-seed-trajectory.cjs'
 import { installWorkspaceInstructionPresentation } from '../domain/workspace-instruction-presentation.js'
 import { isTavernAgentSession } from '../domain/tavern-agent-scope.js'
 import { presentModelError } from '../domain/model-error-presentation.js'
@@ -24,6 +24,7 @@ export const PROMPT_PROSE = Object.freeze({
   p001: "Plugin summary requirements:"
 })
 
+const { tavernIsLegacySeedTrajectory } = legacySeeds
 
 export function applyCompactionModel(request, selection) {
   if (!selection?.provider || !selection?.model) return request
@@ -96,11 +97,10 @@ export function registerModelStreamHooks({
   // Whether a session is a Tavern game: its header answers that, not its history.
   const isGame = async sessionId => Boolean(await chatHeaderForSession(str(sessionId), []))
   const ownsSession = async sessionId => backgroundAgentRunner.owns(sessionId) || await isGame(sessionId)
-  // Old saves still carry the scripted acknowledgement. Drop it before
-  // history projection and compaction can incorporate it into another message.
+  // Keep scripted openings from old saves out of request and compaction context.
   ctx.on('llm/stream', (request, next) => {
-    if (!request?.messages?.some(isLegacySeedAcknowledgement)) return next()
-    return ctx.llm.stream({ ...request, messages: request.messages.filter(message => !isLegacySeedAcknowledgement(message)) })
+    if (!request?.messages?.some(tavernIsLegacySeedTrajectory)) return next()
+    return ctx.llm.stream({ ...request, messages: request.messages.filter(message => !tavernIsLegacySeedTrajectory(message)) })
   }, { prepend: true })
   // Compaction keeps its newest replies after the summary, behind a prefix they were not signed against.
   installPrefixBoundReasoningProjection(ctx, { ownsSession, session: id => sessionStore.get(id) || agentRegistry.get(id)?.session || backgroundAgentRunner.requestSession(id) })

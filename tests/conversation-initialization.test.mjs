@@ -3,7 +3,7 @@ import test from 'node:test'
 import { initializationFixture } from './fixtures/conversation-initialization.mjs'
 
 import { createUserPreferenceProfile } from '../tavern-plugin/lib/domain/user-preference-profile.js'
-import { ensureSessionSeedTrajectory, sessionSeedTrajectoryMessages } from '../tavern-plugin/lib/domain/session-seed-trajectory.js'
+import { legacySeedMessages } from './fixtures/legacy-seed-messages.mjs'
 
 const messages = session => session.events.filter(event => event.type === 'assistant/message' && event.data?.message?.source?.model === 'character-card')
 
@@ -12,28 +12,22 @@ const seedMessages = session => session.events.filter(event => {
   return source?.form === 'synthetic-trajectory' || source?.model === 'synthetic-trajectory'
 })
 
-test('新开局保留人物卡开场，种子轨迹只写用户消息', async () => {
+test('新开局写入人物卡开场且不添加占位对话', async () => {
   const h = initializationFixture()
   await h.make().start(h.input)
   const session = h.session()
-  assert.deepEqual(seedMessages(session).map(event => event.type), ['user/message', 'user/message'])
+  assert.deepEqual(seedMessages(session), [])
   assert.equal(messages(session).length, 1)
 })
 
-test('半写入的旧种子轨迹可以续接，模拟助手回复不会使恢复重复写入', async () => {
-  const session = initializationFixture().session()
-  await ensureSessionSeedTrajectory(session)
-  const [first, last] = sessionSeedTrajectoryMessages(session.id)
-  session.events.pop()
-  session.append('assistant/message', { message: {
-    id: 'tavern-seed-trajectory:v1:session:2', role: 'assistant',
-    source: { kind: 'model', provider: 'dsh-tavern', model: 'synthetic-trajectory' }
-  } })
-  const recovered = await ensureSessionSeedTrajectory(session)
-  assert.deepEqual(recovered.events.map(event => event.data.id), [first.data.id, last.data.id])
-  const before = structuredClone(session.events)
-  await ensureSessionSeedTrajectory(session)
-  assert.deepEqual(session.events, before)
+test('恢复带半段旧占位对话的开局时直接接上人物卡开场', async () => {
+  const h = initializationFixture()
+  const session = h.session()
+  const [first] = legacySeedMessages(session.id)
+  session.append('user/message', first, { surfaceOp: 'append' })
+  await h.make().start(h.input)
+  assert.deepEqual(seedMessages(session).map(event => event.data.id), [first.id])
+  assert.equal(messages(session).length, 1)
 })
 
 test('新局默认少量候选，修改开局默认只影响之后创建的对局', async () => {

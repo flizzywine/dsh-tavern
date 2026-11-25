@@ -247,8 +247,7 @@ for (const phase of ['front', 'back']) test(`native Agent preserves fixed system
   assert.equal(systems.split('不可丢失的固定背景').length - 1, 1)
   assert.ok(request.messages.some(m => JSON.stringify(m.content).includes('预设验证要求')))
 })
-// The seed exchange shares the reserved opening turn, so the greeting is the
-// turn-one assistant message that is not part of the seed trajectory.
+// Exclude the assistant acknowledgement when reading legacy opening events.
 const openingEvents = session => sessionEvents(session).filter(e => e.type === 'assistant/message' && e.data.turn === 1
   && !String(e.data.message?.id || '').startsWith('tavern-seed-trajectory:'))
 
@@ -287,7 +286,7 @@ test('native Session and disk Chat journal recover a failed marker once, then ac
   const recovered = await h.open().ensureOpening(h.input.sessionId)
   assert.equal(recovered.nativeOpeningAppended, true)
   assert.equal(openingEvents(h.target.session).length, 1)
-  assert.equal(h.target.session.deriveMessages().length, 4)
+  assert.equal(h.target.session.deriveMessages().length, 2)
   assert.equal(h.target.session.deriveMessages()[0].source.form, 'snapshot')
   assert.equal((await h.persistence.read(recovered.id)).nativeOpeningAppended, true)
   await h.continueWithAgent()
@@ -300,6 +299,7 @@ test('native Session and disk Chat journal recover a failed marker once, then ac
   if (h.target.session.header.version < 3) assert.equal(h.target.session.requestHeader().system, systemText)
   else assert.equal(nativeSystem.length, 1)
   assert.equal(messages.filter(m => m.role === 'assistant' && JSON.stringify(m.content).includes('玩家，你好。')).length, 1)
+  assert.ok(messages.every(m => m.source?.form !== 'synthetic-trajectory'))
   assert.deepEqual(sessionEvents(h.target.session).filter(e => e.type === 'turn/start').map(e => e.data.turn), [1, 2])
   assert.equal(sessionEvents(h.target.session).at(-1).type, 'turn/end')
 })
@@ -309,7 +309,7 @@ test('failed native flush restores only durable events and finishes the publishe
   t.after(() => h.dispose())
   h.state.failFlush = true
   await assert.rejects(h.open().start(h.input), /native flush failure/)
-  assert.equal(openingEvents(h.target.session).length, 1, 'the seed holds no assistant reply, so the greeting flush is the one that failed')
+  assert.equal(openingEvents(h.target.session).length, 1, 'the greeting flush is the one that failed')
   await h.restoreDetached()
   assert.equal(openingEvents(h.target.session).length, 0, 'failed flush did not persist the greeting')
   h.state.failFlush = false
