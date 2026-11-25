@@ -1094,6 +1094,9 @@ function createTavernStoryTranscriptFeature(deps) {
 			const external = externalHistoryInstaller({
 				require: typeof require === 'function' ? require : function () { throw new Error('宿主模块加载器不可用') },
 				uiConversation: uiConversation,
+				trajectoryPolicy: function (sessionId) {
+					return rpc('getTavernTrajectoryPolicy', { sessionId: sessionId }, sessionId)
+				},
 				isEnabled: function (sessionId) {
 					return mode.getSnapshot() && mountedStories.has(String(sessionId))
 				}

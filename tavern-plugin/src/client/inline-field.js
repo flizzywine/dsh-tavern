@@ -255,12 +255,15 @@ function InlineText(p) {
 function InlineMenu(p) {
     const h = React.createElement, pop = useInlinePopup(), options = p.options || [], current = options.find(o => o.value === p.value);
     const pick = value => { pop.close(true); if (value !== p.value) p.onCommit(value); };
+    // `chip` ({ props, children }: InlineGrid's 「＋ 名称」 chip of an empty hideEmpty menu) is drawn as the trigger instead.
+    const face = p.chip ? { ...p.chip.props, disabled: p.chip.props.disabled || p.disabled }
+        : { className: "fork-inline-trigger" + (p.controlClassName ? " " + p.controlClassName : ""), disabled: p.disabled, title: p.title,
+            "aria-label": p.name + "：" + (current ? current.label : p.placeholder || "未设置"), "data-empty": current ? undefined : true };
     return h("span", { className: "fork-inline-anchor", ref: pop.root, onKeyDown: pop.keys },
-        h("button", { ref: node => { pop.trigger.current = node; if (p.controlRef) p.controlRef.current = node; }, type: "button", className: "fork-inline-trigger" + (p.controlClassName ? " " + p.controlClassName : ""),
-            disabled: p.disabled, title: p.title, "aria-haspopup": "menu", "aria-expanded": pop.open, "aria-label": p.name + "：" + (current ? current.label : p.placeholder || "未设置"),
-            "data-empty": current ? undefined : true, onClick: () => pop.setOpen(!pop.open),
+        h("button", { ...face, ref: node => { pop.trigger.current = node; if (p.controlRef) p.controlRef.current = node; }, type: "button",
+            "aria-haspopup": "menu", "aria-expanded": pop.open, onClick: () => pop.setOpen(!pop.open),
             onKeyDown: event => { if (event.key === "ArrowDown" && !pop.open) { event.preventDefault(); pop.setOpen(true); } } },
-            h("span", { className: "fork-inline-text" }, current ? current.label : p.placeholder || "—"), h(InlineGlyph, { name: "chevDown" })),
+            ...(p.chip ? p.chip.children : [h("span", { key: "t", className: "fork-inline-text" }, current ? current.label : p.placeholder || "—"), h(InlineGlyph, { key: "g", name: "chevDown" })])),
         pop.open ? pop.layer({ className: "fork-inline-pop", role: "menu", "aria-label": p.name, onKeyDown: inlineMenuKeys },
             options.flatMap((o, i) => [
                 // a group heading (e.g. the provider above its models).
@@ -435,8 +438,8 @@ function InlineRow(props) {
 // a grid shows no empty rows. A field marked
 // `hideEmpty` whose value is empty ('' / null / [] / 0) leaves its row and becomes a small dashed 「＋ 名称」 chip; the chips
 // share one line at the grid's end. A click (Enter / Space) puts the row back in its place and focuses it; leaving it
-// still empty (blur, or Esc) folds it back into its chip (Esc returns the focus to the chip). Rows with a value, menus,
-// switches and InlineRow are never hidden. The one implementation for every 素材库 entry view (ui-design R4).
+// still empty (blur, or Esc) folds it back into its chip (Esc returns the focus to the chip). An empty hideEmpty menu's
+// chip opens that menu's own list in place; a pick fills the row. Rows with a value, switches and InlineRow are never hidden. The one implementation for every 素材库 entry view (ui-design R4).
 // An empty optional *section* (an entry's 变体 without a table) is not shown
 // at all: its owner puts <InlineSectionAdd key label onAdd /> among the grid's children and it becomes one more 「＋ 名称」 chip
 // on the same line; the click is the section's own add (the section then appears with what was added). `render(chip)`
@@ -457,7 +460,7 @@ function InlineGrid(props) {
         if (child.type === InlineSectionAdd) { adds.push({ key, name: q.label, control: q.label, onAdd: q.onAdd, render: q.render }); return; }
         if (!q.hideEmpty) { rows.push(child); return; }
         const empty = inlineEmptyValue(q.value), open = opened.has(key);
-        if (empty && !open) adds.push({ key, name: typeof q.label === "string" ? q.label : q.controlLabel || "", control: q.controlLabel || (typeof q.label === "string" ? q.label : "") });
+        if (empty && !open) adds.push({ key, name: typeof q.label === "string" ? q.label : q.controlLabel || "", control: q.controlLabel || (typeof q.label === "string" ? q.label : ""), menu: q.kind === "menu" ? q : null });
         else rows.push(clone(child, { addKey: key, autoEdit: open && empty }));
     });
     const fold = (key, chip) => { setOpened(s => { const next = new Set(s); next.delete(key); return next; }); if (chip) setRefocus(key); };
@@ -487,6 +490,7 @@ function InlineGrid(props) {
             const chip = { props: { type: "button", className: "fork-inline-add-field", "data-add-chip": add.key, "aria-label": "添加" + add.control, title: "添加" + add.control, disabled: p.disabled || undefined },
                 children: [h(InlineGlyph, { key: "g", name: "plus" }), h("span", { key: "t" }, add.name)] };
             if (add.render) return h(React.Fragment, { key: add.key }, add.render(chip));
+            if (add.menu) return h(React.Fragment, { key: add.key }, h(InlineMenu, { ...add.menu, name: add.control, chip }), add.menu.trail || null);
             return h("button", { key: add.key, ...chip.props, onClick: add.onAdd ? () => add.onAdd() : () => setOpened(s => new Set(s).add(add.key)) }, ...chip.children);
         })) : null);
 }

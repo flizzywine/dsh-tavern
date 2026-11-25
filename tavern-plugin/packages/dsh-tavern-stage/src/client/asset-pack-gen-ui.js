@@ -369,7 +369,8 @@
   // adopted (the job's followUp), as 添加服装 sends its first 差分 after the 服装设定图. Ctrl+Enter sends, Esc closes; the
   // request then runs in its tile and the dialog closes as soon as it is sent.
   const GEN_HELP={figure:'这个人物的标准样貌图。之后的立绘、头像和服装设定图都以它为参考图。',outfit:'这套服装的标准样貌图。这套服装之后的立绘和头像都以它为参考图。',
-    first:label=>'两项都勾时先生成服装设定图；采用后再以它为参考图生成「'+label+'」的立绘和头像。',style:'画风来自配图插件。只用于这一次；「设为本包默认」后，这个素材包的生图都默认用它。垃圾桶清除画风，变成「无画风」：不附任何画风要求。'};
+    first:label=>'两项都勾时先生成服装设定图；采用后再以它为参考图生成「'+label+'」的立绘和头像。',style:'只用于这一次；「设为本包默认」后本包都用它，垃圾桶清除为无画风。',
+    look:'人照默认服装的设定图，衣服照这套的描述。',base:'默认服装：其他服装和场景配图都照这张认人。',wearRef:'上传参考图：只在这次生成时参考'};
   const genWhere=(...parts)=>parts.filter(Boolean).join(' · ');
   const genFileInput=(ref,label,onFile)=>h('input',{ref,type:'file',hidden:true,tabIndex:-1,accept:'image/png,image/webp,image/jpeg','aria-label':label,onChange:e=>{const f=e.target.files?.[0];e.target.value='';if(f)onFile(f);}});
   // `bare`: no caption under the picture (the 新人物 page's 设定图 row names them in its label).
@@ -445,9 +446,11 @@
     if(!figure||!fig&&!outfit)return h(Modal,{title:'生图',className:'ap-gen-dialog',onClose:close},h(EmptyState,{text:'服装已被删除'}));
     // 参考图: the 设定图 the backend attaches by rule (asset-generation.js prepare) — the 人物设定图 (unless the outfit's 设定图
     // no longer descends from it) and, for a 差分, the 服装设定图; a 头像 also its own 立绘 (fixed). Nothing stands in.
-    const identity=figure.identitySettei,stale=!!identity&&cellMode&&outfit.setteiParentVersion!==undefined&&outfit.setteiParentVersion!==identity.version;
+    // the base (figureBaseSettei on the host): the default outfit's 设定图, else an older identity board; not its own outfit's reference
+    const baseOutfit=figure.outfits.find(o=>o.enabled!==false)||figure.outfits[0],identity=baseOutfit?.settei?{board:baseOutfit.settei,outfitKey:baseOutfit.key}:figure.identitySettei?{...figure.identitySettei,outfitKey:null}:null;
+    const stale=!!identity&&(identity.outfitKey===outfit?.key||identity.outfitKey===null&&cellMode&&outfit.setteiParentVersion!==undefined&&outfit.setteiParentVersion!==identity.version);
     const sheetNow=adding&&genSheet&&!sheetFile,anyGen=!adding||sheetNow||genFirst;
-    const defaults=[identity&&!fig&&!stale&&{id:'identity',hash:identity.board,name:'人物设定图'},cellMode&&outfit.settei&&{id:'settei',hash:outfit.settei,name:'服装设定图'}].filter(r=>r&&!removed.includes(r.id));
+    const defaults=[identity&&!fig&&!stale&&{id:'identity',hash:identity.board,name:identity.outfitKey?'默认服装设定图':'人物设定图'},cellMode&&outfit.settei&&{id:'settei',hash:outfit.settei,name:'服装设定图'}].filter(r=>r&&!removed.includes(r.id));
     const fixed=cellMode&&kind==='avatar'&&ownSprite?{hash:ownSprite,name:(row?.label||'')+'立绘'}:null;
     const current=base&&(mode==='edit'||!removed.includes('current'))?base:null;
     const room=GEN_REF_LIMIT-defaults.length-(fixed?1:0)-(current?1:0)-uploads.length;
@@ -527,18 +530,33 @@
       options:styleOptions,onCommit:setStyle,placeholder:'无画风',
       trail:h(React.Fragment,null,!plain&&h(IconButton,{icon:'remove',label:'清除画风',className:'ap-icon-button is-danger ap-gd-style-clear',onClick:()=>setStyle('no-style')}),
         style!==packStyle&&saveStyle?h('button',{type:'button',className:'ap-inline-link ap-gd-style-save',onClick:()=>saveStyle(style).catch(e=>setError(errorText(e)))},'设为本包默认'):null)});
-    let fields;
-    if(adding)fields=[
-      h(InlineField,{key:'name',kind:'text',label:'服装名',className:'ap-gen-row ap-gd-row',value:name,placeholder:'例：冬装',maxLength:24,onCommit:v=>setName(v.trim())}),
-      textField('wear','服装描述',wear,setWear,'款式、颜色、材质…'),
-      row_('sheet','服装设定图',h('span',{className:'ap-gd-sheet'},sheetFile?chip('sheet',{url:sheetFile.url,name:'服装设定图',wide:true},()=>setSheetFile(null)):
-          h('button',{type:'button',className:'ap-cat-add ap-gd-sheet-add','aria-label':'上传服装设定图',title:'上传服装设定图',onClick:()=>sheetInput.current?.click?.()},h(Glyph,{name:'upload'})),
-        genFileInput(sheetInput,'上传服装设定图',f=>setSheetFile({file:f,url:typeof URL!=='undefined'&&URL.createObjectURL?URL.createObjectURL(f):null}))),{help:h(Help,{text:GEN_HELP.outfit,label:'服装设定图 说明'})}),
-      h(InlineField,{key:'words',kind:'chips',label:'触发词',controlLabel:'服装触发词',className:'ap-gen-row ap-gd-row is-words',value:words,split:splitKeywords,validate:keywordProblem,onCommit:setWords}),
-      row_('lamp','触发方式',h(LampMenu,{label:'触发方式',named:true,mode:lamp,onChange:setLamp})),
-      row_('first','生成',h('span',{className:'ap-gd-checks'},!sheetFile&&genCheck(genSheet,setGenSheet,'同时生成服装设定图'),firstLabel&&genCheck(genFirst,setGenFirst,'生成「'+firstLabel+'」立绘＋头像')),
-        {help:!sheetFile&&firstLabel&&h(Help,{text:GEN_HELP.first(firstLabel),label:'生成 说明'})}),
-      anyGen&&refsRow,styleRow];
+    let fields,side=null,footChecks=null;
+    if(adding){
+      // 添加服装: the 服装设定图 slot on the left (将生成, or an uploaded one); the fields on the right; a
+      // reference picture for this one request is an upload icon inside 服装描述, its thumbnails under it; the two steps by the button.
+      const pickSheet=()=>sheetInput.current?.click?.();
+      side=h('div',{className:'ap-gd-side'},
+        h('div',{className:'ap-gd-sheet-slot','data-state':sheetFile?'file':sheetNow?'gen':'empty'},
+          sheetFile?h(React.Fragment,null,sheetFile.url?h('img',{src:sheetFile.url,alt:'',draggable:false}):h(Glyph,{name:'note'}),
+              h(IconButton,{icon:'close',label:'移除服装设定图',className:'ap-icon-button ap-gw-round ap-gd-sheet-x',onClick:()=>setSheetFile(null)})):
+            h(React.Fragment,null,sheetNow&&h('span',{className:'ap-gd-sheet-gen'},h(Glyph,{name:'spark'}),h('span',null,'将生成服装设定图')),
+              h('button',{type:'button',className:'ap-inline-link ap-gd-sheet-up',onClick:pickSheet},h(Glyph,{name:'upload'}),'上传设定图'))),
+        h('span',{className:'ap-gd-side-cap'},'服装设定图',h(Help,{text:GEN_HELP.outfit,label:'服装设定图 说明'})),
+        genFileInput(sheetInput,'上传服装设定图',f=>setSheetFile({file:f,url:typeof URL!=='undefined'&&URL.createObjectURL?URL.createObjectURL(f):null})));
+      const refUp=anyGen&&room>0&&h(IconButton,{icon:'upload',label:GEN_HELP.wearRef,className:'ap-icon-button ap-gd-wear-ref',onClick:()=>refInput.current?.click?.()});
+      const minis=anyGen&&(defaults.length>0||uploads.length>0)&&h('div',{key:'refs',className:'ap-gd-refs is-mini',role:'group','aria-label':'参考图'},
+        defaults.map(r=>h(GenRefChip,{key:r.id,binding,packId,hash:r.hash,name:r.name,wide:true,bare:true,onRemove:()=>setRemoved(x=>[...x,r.id])})),
+        uploads.map(u=>h(GenRefChip,{key:u.id,binding,packId,url:u.url,name:'上传的参考图',bare:true,onRemove:()=>setUploads(x=>x.filter(y=>y!==u))})));
+      fields=[
+        h(InlineField,{key:'name',kind:'text',label:'服装名',className:'ap-gen-row ap-gd-row',value:name,placeholder:'例：冬装',maxLength:24,onCommit:v=>setName(v.trim())}),
+        textField('wear','服装描述',wear,setWear,'款式、颜色、材质…',{className:'is-wear',trail:refUp||null}),
+        minis,genFileInput(refInput,'上传参考图',upload),
+        h(InlineField,{key:'words',kind:'chips',label:'触发词',controlLabel:'服装触发词',className:'ap-gen-row ap-gd-row is-words',value:words,split:splitKeywords,validate:keywordProblem,onCommit:setWords}),
+        row_('lamp','触发方式',h(LampMenu,{label:'触发方式',named:true,mode:lamp,onChange:setLamp})),
+        styleRow];
+      footChecks=h('span',{className:'ap-gd-checks ap-gd-foot-checks',role:'group','aria-label':'生成'},!sheetFile&&genCheck(genSheet,setGenSheet,'服装设定图'),firstLabel&&genCheck(genFirst,setGenFirst,'「'+firstLabel+'」立绘＋头像'),
+        !sheetFile&&firstLabel&&h(Help,{text:GEN_HELP.first(firstLabel),label:'生成 说明'}));
+    }
     else if(settei)fields=[fig?textField('face','外貌',look.face,writeLook,'发色、瞳色、身材…'):textField('wear','服装描述',look.upper(outfit.key),writeWear,'款式、颜色、材质…'),
       refsRow,!fig&&said([lookSaid]),extra,styleRow];
     else fields=[outs.length>1&&row_('out','输出',h(Segmented,{className:'ap-gen-views',label:'输出',value:out,onChange:changeOut,options:outs})),refsRow,said([lookSaid,wearSaid]),extra,styleRow];
@@ -549,11 +567,11 @@
       genWhere(figure.name,outfit.label,row?.label,mode==='redraw'?'重画':mode==='edit'?'改图':'');
     const head=h('header',{className:'ap-gen-sheet-head'},h('h2',null,title),h('span',{className:'ap-gen-sheet-meta'},sub),settei&&h(Help,{text:fig?GEN_HELP.figure:GEN_HELP.outfit,label:(fig?'人物设定图':'服装设定图')+' 说明'}),
       h(IconButton,{icon:'close',label:'关闭',disabled:busy,onClick:close}));
-    const foot=h('footer',{className:'ap-gen-foot ap-gd-foot'},target&&h(GenPeek,{load:()=>inputNow().then(input=>gen.previewPrompt(target,input)),styleName:id=>styles?.styles.find(s=>s.id===id)?.name||id}),busy&&h('span',{className:'ap-busy'},h(Spinner),'正在发送…'),
+    const foot=h('footer',{className:'ap-gen-foot ap-gd-foot'},footChecks,target&&h(GenPeek,{load:()=>inputNow().then(input=>gen.previewPrompt(target,input)),styleName:id=>styles?.styles.find(s=>s.id===id)?.name||id}),busy&&h('span',{className:'ap-busy'},h(Spinner),'正在发送…'),
       h(Button,{disabled:busy,onClick:close},'取消'),h(Button,{primary:true,className:'ap-primary ap-gd-go',disabled:busy||!!reason,title:reason||'Ctrl+Enter',onClick:submit},verb!=='添加'&&h(Glyph,{name:'spark'}),verb));
     return h(Modal,{title:title+' · '+sub,className:'ap-gen-dialog',frame:{'data-mode':mode},onClose:close,busy,head,foot,initialFocus:'dialog'},
       h('div',{className:'ap-gd-body','data-mode':mode,onKeyDown:e=>{if(e.key==='Enter'&&(e.ctrlKey||e.metaKey)){e.preventDefault();e.target?.blur?.();setTimeout(()=>submitRef.current(),0);}}},
-        h('div',{className:'ap-gd-fields'},...fields.filter(Boolean),
+        side,h('div',{className:'ap-gd-fields'},...fields.filter(Boolean),
           gen.problem&&h('p',{className:'ap-gen-problem',role:'alert'},h(Glyph,{name:'warning'}),h('span',null,gen.problem)),
           reason&&reason!==GEN_REASONS.edit&&!(adding&&!name.trim())&&h('p',{className:'ap-gen-reason'},reason),
           startError&&!gen.problem&&h('p',{className:'ap-alert',role:'alert'},startError),
@@ -597,7 +615,7 @@
     const drop=()=>run(async()=>{await gen.reject(job);gen.closeSheet();});
     const references=job?.references||[];
     const first=figure&&genDefaultId(figure,outfit);
-    const refName=r=>r.redraw?'上一张':r.hash===figure?.identitySettei?.board?'人物设定图':r.hash===figure?.identitySettei?.parts?'人物设定图·配件':r.hash===outfit?.settei?'服装设定图':r.hash===outfit?.setteiParts?'服装设定图·配件':r.hash===outfit?.avatars?.[first]?'首个差分头像':r.purpose==='emotion-sprite'?'同差分立绘':'参考图';
+    const refName=r=>r.redraw?'上一张':r.hash===figure?.identitySettei?.board?'人物设定图':r.hash!==outfit?.settei&&figure?.outfits.some(o=>o.settei===r.hash)?'默认服装设定图':r.hash===figure?.identitySettei?.parts?'人物设定图·配件':r.hash===outfit?.settei?'服装设定图':r.hash===outfit?.setteiParts?'服装设定图·配件':r.hash===outfit?.avatars?.[first]?'首个差分头像':r.purpose==='emotion-sprite'?'同差分立绘':'参考图';
     // The stage: progress, the candidate (a sheet as its eight cut cells or whole), the failure, or the current picture.
     const sliceWarnings=sheetSlices?Object.entries(sheetSlices).flatMap(([id,s])=>(s.checks?.warnings||[]).map(w=>({...w,id}))):[];
     const names=figure?Object.fromEntries(figureEditorEmotions(figure).map(r=>[r.id,r.label])):{};
@@ -713,11 +731,14 @@
   // 设定块 slot: 人物设定图 or 服装设定图, a 3:2 picture. Empty: dashed, ⤒ 上传 and ✦ 生成 (raised on hover / focus, always on
   // touch); filled: a click opens the large view, a right click / tap its menu (查看大图 / 下载 / 重画… / 上传图片 / 删除); a
   // request: the ring, or the new picture (a click opens it large) with its ⚠ and the ✕｜✓ pill beside it.
+  // The default outfit's slot shows an older figure's identity board while that outfit has no 设定图 of its own
+  // (figureBaseSettei on the host: it is still the base); uploading or drawing one replaces it.
+  const genOutfitBoard=c=>{const legacy=!c.outfit.settei&&c.outfit.key===c.baseKey&&c.figure.identitySettei?.board||null;return {hash:c.outfit.settei||legacy,legacy:!!legacy};};
   function GenSetteiSlot({c,level}) {
-    const {gen,binding,packId,figure,outfit}=c,fig=level==='figure',name=fig?'人物设定图':'服装设定图';
-    const target=fig?{packId,figureId:figure.id,kind:'identity-settei'}:{packId,figureId:figure.id,outfitKey:outfit.key,kind:'settei'},cell=genCell(gen,target);
-    const hash=fig?figure.identitySettei?.board||null:outfit.settei||null,file=React.useRef(null),look=()=>c.view('settei',level);
-    const upload=f=>c.run(()=>fig?c.identityBoard.upload(figure.id,f):c.settei.upload(figure.id,outfit.key,f));
+    const {gen,binding,packId,figure,outfit}=c,fig=false,name='服装设定图',board=genOutfitBoard(c);
+    const target={packId,figureId:figure.id,outfitKey:outfit.key,kind:'settei'},cell=genCell(gen,target);
+    const hash=board.hash||null,file=React.useRef(null),look=()=>c.view('settei',level);
+    const upload=f=>c.run(()=>c.settei.upload(figure.id,outfit.key,f));
     const input=genFileInput(file,'上传'+name,upload),base={className:'ap-gw-slot','data-gen-slot':target.kind};
     if(cell.state==='candidate')return h('div',{...base,'data-state':'candidate'},
       h('button',{type:'button',className:'ap-gw-slot-hit','data-view':true,'aria-label':'查看新'+name,title:'查看新'+name,onClick:look},
@@ -730,8 +751,8 @@
       h('span',{className:'ap-gw-slot-art ap-gw-slot-empty'},
         h('span',{className:'ap-gw-slot-tools'},h(IconButton,{icon:'upload',label:'上传'+name,className:'ap-icon-button ap-gw-round',onClick:()=>file.current?.click?.()}),
           h(IconButton,{icon:'spark',label:'生成'+name+'…',className:'ap-icon-button ap-gw-round',onClick:()=>c.open(target,{mode:'gen'})})),genFlag(cell)),input);
-    const remove=()=>askDelete(c.ask,'asset-settei',{title:'删除'+name+'？',body:fig?'立绘、头像和服装设定图都不受影响。':'「'+outfit.label+'」的立绘和头像不受影响。',confirmLabel:'删除',danger:true},
-      ()=>fig?c.identityBoard.remove(figure.id):c.settei.remove(figure.id,outfit.key),c.onError);
+    const remove=()=>askDelete(c.ask,'asset-settei',{title:'删除'+name+'？',body:'「'+outfit.label+'」的立绘和头像不受影响。',confirmLabel:'删除',danger:true},
+      ()=>board.legacy?c.identityBoard.remove(figure.id):c.settei.remove(figure.id,outfit.key),c.onError);
     return h('div',{...base,'data-state':'filled'},
       h(Popover,{label:name+' 操作',className:'ap-face-menu-anchor',float:true,fit:true,limit:420,
         trigger:({toggle,open})=>h('button',{type:'button',className:'ap-gw-slot-hit','data-view':true,'aria-label':name,title:name,...cellMenuTrigger({open,toggle,onPrimary:look})},
@@ -739,17 +760,65 @@
         content:close=>{const go=fn=>()=>{close();fn();};return h('div',{className:'ap-cell-menu',onKeyDown:genMenuKeys},
           genItem('eye','查看大图',go(look)),
           genItem('export','下载',go(()=>c.run(()=>downloadPackMedia(binding,c.pack,hash,figure.name+'-'+(fig?'':outfit.label+'-')+name)))),
-          genItem('reset','重画…',go(()=>c.open(target,{mode:'redraw'}))),
-          genItem('upload','上传图片',go(()=>file.current?.click?.())),(fig?c.identityBoard.remove:c.settei.remove)&&genItem('remove','删除',go(remove),{danger:true}));}}),
+          genItem('reset','重画…',go(()=>c.open(target,{mode:board.legacy?'gen':'redraw'}))),
+          genItem('upload','上传图片',go(()=>file.current?.click?.())),(board.legacy?c.identityBoard.remove:c.settei.remove)&&genItem('remove','删除',go(remove),{danger:true}));}}),
       input);
   }
   // 人物 / 「服装」: the slot beside one inline line (R23: reads as text, ✎ on hover, Enter / leaving saves).
-  function GenSettei({c,level}) {
-    const fig=level==='figure';
-    return h('div',{className:'ap-gw-settei',role:'group','aria-label':fig?'人物设定':'服装设定'},h(GenSetteiSlot,{c,level}),
-      fig?h(InlineField,{kind:'text',label:'外貌',hideLabel:true,className:'ap-gw-line',placeholder:'外貌：发色、瞳色、身材…',maxLength:1000,value:c.look.face,onCommit:v=>c.run(()=>c.look.writeFace(v))}):
-        h(InlineField,{key:c.outfit.key,kind:'text',label:'服装描述',hideLabel:true,className:'ap-gw-line',placeholder:'服装描述：款式、颜色、材质…',maxLength:1000,value:c.look.upper(c.outfit.key),
-          onCommit:v=>c.run(()=>c.look.writeUpper(c.outfit,v))}));
+  // The selected outfit's 设定: its 服装设定图 (the default outfit's is the figure's base: other outfits and scene pictures
+  // take the person from it) beside the text it is drawn from — the 配图 人物库 record's fields, nothing stored twice.
+  // Beside the slot, two summary lines — 人物 and 衣服 — of the record; a click on either opens every
+  // field in place (GenLookFields), 「收起」 folds them back. Without a record GenLookFields says why at once.
+  const GEN_LOOK_PERSON=[['face','五官'],['bodySFW','上身'],['lowerSFW','下身']],GEN_LOOK_WEAR=[['upper','上衣'],['lower','下装'],['shoes','鞋袜'],['accessory','配饰'],['full','整体']];
+  function GenSettei({c}) {
+    const [open,setOpen]=React.useState(false),record=c.look.record;
+    const base=c.outfit.key===c.baseKey,said=(record?.outfits||[]).find(o=>o.id===c.outfit.key);
+    const clothed=GEN_LOOK_WEAR.some(([k])=>genSaid(said?.[k]));
+    const sum=(keys,from)=>keys.filter(([k])=>genSaid(from?.[k])).map(([k,label])=>[label,String(from[k]).trim()]);
+    const line=(name,parts,empty)=>h('button',{type:'button',className:'ap-gw-sum-line','aria-label':'编辑'+name,onClick:()=>setOpen(true)},
+      h('span',{className:'ap-gw-sum-key'},name),
+      h('span',{className:'ap-gw-sum-text','data-empty':parts.length?undefined:true},parts.length?parts.map(([k,v],i)=>h(React.Fragment,{key:k},i>0&&h('i',null,'；'),h('i',null,k+' '),v)):empty),
+      h(Glyph,{name:'edit'}));
+    const text=record&&!open?h('div',{className:'ap-gw-sum'},
+        line('人物',sum(GEN_LOOK_PERSON,record.traits),'还没写'),
+        line('衣服',sum(GEN_LOOK_WEAR,said),clothed||c.outfit.settei?'还没写':'还没写：生成时衣服由模型自己想')):
+      h(React.Fragment,null,h(GenLookFields,{c}),record&&h(Button,{className:'ap-inline-link ap-gw-sum-fold',onClick:()=>setOpen(false)},h(Glyph,{name:'chevDown'}),'收起'));
+    return h('div',{className:'ap-gw-settei is-look','data-open':open||!record||undefined,role:'group','aria-label':'服装设定'},
+      h('div',{className:'ap-gw-slot-col'},h(GenSetteiSlot,{c,level:'outfit'}),
+        h('span',{className:'ap-gw-slot-note'},'服装设定图',h(Help,{text:base?GEN_HELP.base:GEN_HELP.look,label:'服装设定图 说明'}))),
+      h('div',{className:'ap-gw-look-col'},text));
+  }
+  // 服装: chips of picture and name; at most three rows until 「展开」 (the picked outfit always stays in
+  // view), the dashed ＋ after them. The rows are counted on the laid-out chips, again whenever the width changes.
+  function GenOutfitChips({c,onOutfit,onAdd}) {
+    const {binding,pack,figure,outfit}=c,[all,setAll]=React.useState(false),box=React.useRef(null),n=figure.outfits.length;
+    const sel=figure.outfits.findIndex(o=>o.key===outfit.key);
+    React.useLayoutEffect(()=>{
+      const el=box.current;if(!el)return undefined;
+      const fit=()=>{
+        const items=[...el.children],chips=items.slice(0,n),tail=items.slice(n),more=tail[tail.length-1];
+        for(const x of items)x.hidden=false;
+        const rows=[...new Set(items.slice(0,-1).map(x=>x.offsetTop))].sort((a,b)=>a-b);
+        if(rows.length<=3){more.hidden=true;return;}
+        if(all)return;
+        const limit=rows[2],over=x=>x.offsetTop>limit;
+        let k=chips.findIndex(over);if(k<0)k=n;
+        for(let i=k;i<n;i++)chips[i].hidden=true;
+        if(sel>=k)chips[sel].hidden=false;
+        while(k>0&&(tail.some(over)||sel>=0&&over(chips[sel]))){k--;if(k!==sel)chips[k].hidden=true;}
+      };
+      fit();
+      const watch=typeof ResizeObserver==='function'?new ResizeObserver(fit):null;watch?.observe(el);
+      return()=>watch?.disconnect();
+    },[n,all,sel,figure.outfits.map(o=>o.label).join('\n')]);
+    return h('div',{className:'ap-gw-outfits',role:'list',ref:box},
+      figure.outfits.map(o=>h('div',{key:o.key,role:'listitem',className:'ap-gw-outfit-cell'},
+        // A click picks the outfit; a click on the picked one opens its picture large.
+        h('button',{type:'button',className:'ap-gw-outfit','aria-pressed':o.key===outfit.key,'data-view':o.key===outfit.key&&!!genOutfitPicture(pack,figure,o)||undefined,title:o.label,onClick:()=>{if(o.key!==outfit.key)onOutfit(o.key);else if(genOutfitPicture(pack,figure,o))c.view('outfits',o.key);}},
+          h('span',{className:'ap-gen-outfit-art','data-kind':genOutfitKind(pack,o)},genOutfitArt(binding,pack,figure,o)),
+          h('span',{className:'ap-gw-outfit-name'},o.key===c.baseKey&&h('span',{className:'ap-gw-star',title:'默认服装'},h(Glyph,{name:'star'})),h('span',null,o.label))))),
+      h('div',{role:'listitem',className:'ap-gw-outfit-addcell'},h(CatAddTile,{label:'添加服装',className:'ap-gw-outfit-add',onClick:onAdd})),
+      h('div',{role:'listitem',className:'ap-gw-outfit-morecell'},h('button',{type:'button',className:'ap-gw-outfit-more','aria-expanded':all,onClick:()=>setAll(v=>!v)},all?'收起':'展开',h(Glyph,{name:'chevDown'}))));
   }
   // ↩ 使用回退 (owner U3) in a missing tile's corner: which 差分 stands in while it has none (setFigureEmotionFallback).
   function GenFallback({c,row,use}) {
@@ -820,8 +889,8 @@
   function genViewGroups(c) {
     const {gen,packId,figure,outfit,pack}=c;
     const settei=level=>{
-      const fig=level==='figure',name=fig?'人物设定图':'服装设定图',hash=fig?figure.identitySettei?.board||null:outfit.settei||null;
-      const cell=genCell(gen,fig?{packId,figureId:figure.id,kind:'identity-settei'}:{packId,figureId:figure.id,outfitKey:outfit.key,kind:'settei'});
+      const name='服装设定图',hash=genOutfitBoard(c).hash||null;
+      const cell=genCell(gen,{packId,figureId:figure.id,outfitKey:outfit.key,kind:'settei'});
       if(cell.state==='candidate')return {key:level,level,label:'新'+name,job:cell.job,current:hash,jobs:[cell.job],accept:()=>c.accept(cell.job)};
       return hash?{key:level,level,label:name,hash}:null;
     };
@@ -832,7 +901,7 @@
       const hash=c.sprite(row.id)||c.avatar(row.id);
       return hash?{key:row.id,label:row.label,hash}:null;
     };
-    return {settei:[settei('figure'),outfit&&settei('outfit')].filter(Boolean),
+    return {settei:[outfit&&settei('outfit')].filter(Boolean),
       outfits:figure.outfits.map(o=>{const hash=genOutfitPicture(pack,figure,o);return hash?{key:o.key,label:o.label,hash,outfit:true}:null;}).filter(Boolean),
       wall:outfit?c.rows.map(wall).filter(Boolean):[]};
   }
@@ -851,8 +920,8 @@
     const close=()=>setViewing(null),step=d=>{const next=items[at+d];if(next)setViewing({group:viewing.group,key:next.key,compare:false});};
     const comparing=!!(viewing.compare&&item.job&&item.current),decided=item.jobs?.length>0;
     const decide=fn=>()=>{if(busy)return;setBusy(true);Promise.resolve().then(fn).finally(()=>setBusy(false));};
-    const fig=item.level==='figure',name=fig?'人物设定图':'服装设定图';
-    const target=item.level&&(fig?{packId,figureId:figure.id,kind:'identity-settei'}:{packId,figureId:figure.id,outfitKey:outfit.key,kind:'settei'});
+    const fig=false,name='服装设定图';
+    const target=item.level&&{packId,figureId:figure.id,outfitKey:outfit.key,kind:'settei'};
     const again=mode=>()=>{close();c.open(target,{mode});};
     const actions=[
       items.length>1&&{key:'prev',icon:'back',label:'上一张',disabled:at===0,onClick:()=>step(-1)},
@@ -866,7 +935,7 @@
       item.level==='outfit'&&item.hash&&{key:'redraw',icon:'reset',label:'重画…',onClick:again('redraw')}];
     const onKeyDown=e=>{if(e.altKey||e.ctrlKey||e.metaKey||!['ArrowLeft','ArrowRight'].includes(e.key))return;e.preventDefault();step(e.key==='ArrowLeft'?-1:1);};
     const label=[figure.name,viewing.group!=='outfits'&&!fig&&outfit?.label,item.label,comparing&&'现在这张'].filter(Boolean).join(' · ');
-    const upload=f=>c.run(()=>fig?c.identityBoard.upload(figure.id,f):c.settei.upload(figure.id,outfit.key,f));
+    const upload=f=>c.run(()=>c.settei.upload(figure.id,outfit.key,f));
     return h(React.Fragment,null,
       h(PackImageView,{binding,packId,hash:comparing?item.current:item.job?null:item.hash,src:comparing||!item.job?undefined:url,label,actions,onClose:close,onKeyDown,
         viewKey:viewing.group+'/'+item.key,onSwipe:step}),
@@ -890,18 +959,16 @@
       sprite:id=>genOwnSprite(outfit,manifest,id),avatar:id=>outfit?.avatars?.[outfitImageId(outfit,id)]||null,hasSprite:id=>!!outfit&&emotionMapped('sprite',outfit,manifest,id),
       takes:id=>spriteSlotTakesStill(outfit,manifest,id),bust:id=>outfit.sprite&&stateBust(outfit,emotionState(outfit,manifest,id))};
     c.blank=!!outfit&&rows.every(r=>!c.hasSprite(r.id)&&!c.avatar(r.id));
+    // The default outfit (the first enabled one, the stage's) is the figure's base.
+    c.baseKey=(figure.outfits.find(o=>o.enabled!==false)||figure.outfits[0])?.key;
     const head=(text,count,tools,className)=>h('h4',{className:'ap-gw-head'+(className?' '+className:'')},h('span',null,text),count!==undefined&&h('span',{className:'ap-gw-count'},count),tools&&h('span',{className:'ap-gw-tools'},tools));
     const problem=gen.problem&&!gen.sheet&&!gen.dialog&&h('p',{className:'ap-gen-problem',role:'alert'},h(Glyph,{name:'warning'}),h('span',null,gen.problem));
-    const person=h('section',{className:'ap-gw-sec','aria-label':'人物'},head('人物'),h(GenSettei,{c,level:'figure'}));
     const dialogs=confirm&&h(ConfirmDialog,{...confirm,onClose:()=>setConfirm(null)});
     const viewer=viewing&&h(GenViewer,{c,viewing,setViewing});
-    if(!outfit)return h('div',{className:'ap-gen-tab ap-gw'},problem,h(ErrorBox,{error}),person,h(EmptyState,{noun:'服装'}),dialogs,viewer);
-    const outfits=h('section',{className:'ap-gw-sec','aria-label':'服装'},head('服装',figure.outfits.length),
-      h('div',{className:'ap-gw-outfits',role:'list'},figure.outfits.map(o=>h('div',{key:o.key,role:'listitem'},
-          // A click picks the outfit; a click on the picked one opens its picture large.
-          h('button',{type:'button',className:'ap-gw-outfit','aria-pressed':o.key===outfit.key,'data-view':o.key===outfit.key&&!!genOutfitPicture(pack,figure,o)||undefined,title:o.label,onClick:()=>{if(o.key!==outfit.key)onOutfit(o.key);else if(genOutfitPicture(pack,figure,o))view('outfits',o.key);}},
-            h('span',{className:'ap-gen-outfit-art','data-kind':genOutfitKind(pack,o)},genOutfitArt(binding,pack,figure,o)),h('span',{className:'ap-gw-outfit-name'},o.label)))),
-        h('div',{role:'listitem',className:'ap-gw-outfit-addcell'},h(CatAddTile,{label:'添加服装',className:'ap-gw-outfit-add',onClick:()=>open({packId,figureId:figure.id,outfitKey:outfit.key,kind:'settei'},{mode:'outfit'})}))));
+    if(!outfit)return h('div',{className:'ap-gen-tab ap-gw'},problem,h(ErrorBox,{error}),h(EmptyState,{noun:'服装'}),dialogs,viewer);
+    // 服装 folds like every section heading (R5; remembered per window, StageSection).
+    const outfits=h(StageSection,{title:'服装',meta:figure.outfits.length,level:2,foldKey:'figure-gen-outfits',className:'ap-gw-sec ap-gw-outfit-sec'},
+      h(GenOutfitChips,{c,onOutfit,onAdd:()=>open({packId,figureId:figure.id,outfitKey:outfit.key,kind:'settei'},{mode:'outfit'})}));
     // The heading's one tool, the same as 编辑's (GenOutfitTool). A blank outfit starts from one tile instead (the coach points there).
     const plan=genOutfitPlan(gen,packId,figure,outfit,manifest,rows),todo=plan.todo;
     const tool=h(GenOutfitTool,{gen,plan,basis:genBasis(figure,outfit,look),accepting,onAcceptAll:c.acceptAll,onGate:setNote,hideFill:c.blank,onStart:batch=>{endCoach();run(()=>batch);}});
@@ -909,9 +976,9 @@
     const first=genDefaultId(figure,outfit),start=coach&&!mine?(c.blank?first:todo.find(r=>!c.hasSprite(r.id))?.id):null;
     const wall=h('section',{className:'ap-gw-sec ap-gw-outfit-block','aria-label':'「'+outfit.label+'」'},
       head('「'+outfit.label+'」',undefined,tool,'is-outfit'),note&&h(GenGateNote,{text:note}),
-      h(GenSettei,{c,level:'outfit'}),
+      h(GenSettei,{c}),
       head('差分',rows.length),
       h('div',{className:'ap-gw-wall',role:'list','aria-label':'差分',onClickCapture:endCoach},rows.map(r=>h(GenWallCard,{key:r.id,c,row:r,
         coach:r.id===start?h(GenCoach,{text:c.blank?'从这一格开始':'虚线格 = 缺图，点击生成',onClose:endCoach}):null}))));
-    return h('div',{className:'ap-gen-tab ap-gw'},problem,h(ErrorBox,{error}),person,outfits,wall,dialogs,viewer);
+    return h('div',{className:'ap-gen-tab ap-gw'},problem,h(ErrorBox,{error}),outfits,wall,dialogs,viewer);
   }

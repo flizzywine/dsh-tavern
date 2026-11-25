@@ -1,7 +1,7 @@
 import {STORY_ROW_FIELDS} from './chat-field-transaction.js'
 import {createHash} from 'node:crypto'
 import {ScenePrefixHash} from './scene-prefix-hash.js'
-import {projectTavernHelperContext,projectTavernHelperMessage} from './tavern-helper-context.js'
+import {latestTavernMessageVariableSnapshot,projectTavernHelperContext,projectTavernHelperMessage,tavernMessageVariableSnapshot} from './tavern-helper-context.js'
 import {projectSessionMessage,projectChatSessionState,projectSceneImageState,projectDisplayRuntimeState} from './chat-session-state.js'
 import {createScopedMessages} from './scoped-messages.js'
 import {createBufferedJsonRecords} from './buffered-json-records.js'
@@ -20,6 +20,7 @@ const header=({messages,...value})=>value
 // the store would read back instead of aborting the whole chat transaction.
 const jsonValue=value=>value===undefined?undefined:JSON.parse(JSON.stringify(value))
 const CHANGE_WINDOW=64
+const WORLD_SOURCE_FIELDS=new Set(['variables','swipeId','role','tavernRole'])
 
 // The page store bounds physical I/O across these independent decoders. Keep
 // logical workers bounded too, and install results in the original order.
@@ -553,11 +554,9 @@ export function createNativeConversationStorage({dataRoot,onIO}){
  function sessionSummary(row){const variables=row.variables?.[Math.max(0,Number(row.swipeId)||0)];return JSON.parse(JSON.stringify({mvuSnapshot:Boolean(variables&&variables.stat_data!==undefined&&variables.schema!==undefined),message:projectSessionMessage(row),pending:row.role==='assistant'&&row.mvu?.pending===true?{
   hasSubmission:Boolean(row.mvu.pendingSubmission),prepared:Boolean(row.mvu.delivery?.prepared)}:null}))}
  function currentWorld(chat){
-  for(let position=(chat.messages?.length??0)-1;position>=0;position--){
-   const row=chat.messages[position],swipe=Math.max(0,Number(row.swipeId)||0)
-   const variables=row.variables?.[swipe]
-   if(variables&&typeof variables==='object'&&!Array.isArray(variables))return {position,swipe,messageUid:legacyMessageUid(row,position),world:{variables,...(chat.posture!==undefined?{posture:chat.posture}:{})}}
-  }
+  const snapshot=latestTavernMessageVariableSnapshot(chat.messages)
+  if(snapshot)return {position:snapshot.index,swipe:snapshot.swipe,messageUid:legacyMessageUid(snapshot.message,snapshot.index),
+    world:{variables:snapshot.variables,...(chat.posture!==undefined?{posture:chat.posture}:{})}}
   return {position:null,swipe:0,messageUid:null,world:{variables:{},...(chat.posture!==undefined?{posture:chat.posture}:{})}}
  }
  async function encode(id,row,previous,changes,t=tree(id)){
@@ -673,13 +672,13 @@ export function createNativeConversationStorage({dataRoot,onIO}){
   const candidates=preserveDetachedWorld?[]:[...rows].filter(([position])=>old.position===null||position>=old.position).sort(([a],[b])=>b-a)
   for(const [position,row] of candidates){
    const snapshotChanged=normalized.some(change=>change.path[0]==='messages'&&change.path[1]===position&&
-    (change.path.length===2||['variables','swipeId'].includes(change.path[2])))
+    (change.path.length===2||WORLD_SOURCE_FIELDS.has(change.path[2])))
    // Body-only edits never choose another swipe for the current source. A
    // detached head likewise moves only for an explicit variable/swipe change.
    if((old.position===null&&validMessageUid(old.messageUid)||position===old.position)&&!snapshotChanged)continue
-   const swipe=Math.max(0,Number(row.swipeId)||0),variables=row.variables?.[swipe]
-   if(variables&&typeof variables==='object'&&!Array.isArray(variables)){
-    selected={position,swipe,messageUid:legacyMessageUid(row,position),world:{variables,...(nextHeader.posture!==undefined?{posture:nextHeader.posture}:{})}}
+   const snapshot=tavernMessageVariableSnapshot(row)
+   if(snapshot){
+    selected={position,swipe:snapshot.swipe,messageUid:legacyMessageUid(row,position),world:{variables:snapshot.variables,...(nextHeader.posture!==undefined?{posture:nextHeader.posture}:{})}}
     break
    }
    if(position===old.position)return null // needs an earlier world lookup
@@ -691,8 +690,22 @@ export function createNativeConversationStorage({dataRoot,onIO}){
  async function readWorldSnapshot(id){
   const view=await head(id)
   if(!view)return null
-  return {position:view.state.worldMessage??null,swipe:view.state.worldSwipe,messageUid:view.state.worldMessageUid??null,
-   world:await tree(id).get(view.state.worldRef),chatRevision:view.state.chatRevision,worldRevision:view.state.worldRevision}
+  const t=tree(id)
+  let source={position:view.state.worldMessage??null,swipe:view.state.worldSwipe,messageUid:view.state.worldMessageUid??null,
+   world:await t.get(view.state.worldRef)}
+  if(source.position!==null){
+   const page=await pages.readHistoryPage(id,{cursor:{snapshotId:view.snapshotCursor.snapshotId,before:source.position+1},limit:1})
+   const row=page.messages[0]?.message
+   if(row?.role==='tavern-helper'){
+    const tavernRole=await t.get(row.runtimeRef,'/tavernRole')
+    // Older heads could point to a decorative Helper row. Recover the valid
+    // source from the same immutable snapshot, including when exporting it.
+    if(!tavernMessageVariableSnapshot({role:row.role,tavernRole,variables:[source.world.variables]})){
+     source=currentWorld((await read(id,Infinity,view.snapshotCursor.snapshotId)).chat)
+    }
+   }
+  }
+  return {...source,chatRevision:view.state.chatRevision,worldRevision:view.state.worldRevision}
  }
  async function create(id,chat,assertCurrent,{migration,verifyBeforePublish,worldSelection}={}){
   const batch=createBufferedJsonRecords({read:ref=>pages.readRecord(id,ref),writeMany:(values,refs)=>pages.writeRecords(id,values,refs)})
@@ -726,14 +739,16 @@ export function createNativeConversationStorage({dataRoot,onIO}){
   const preserveWorld=worldSelection?.preserveWorld===true,detachedHead=view.state.worldMessage===null&&validMessageUid(view.state.worldMessageUid)
   const preserveDetachedWorld=detachedHead&&(worldSelection?.preserveDetachedWorld===true||
    next.regenInProgress===true&&Boolean(next.regenRecovery?.id))
-  const snapshotMutation=change=>!change.path.length||['variables','swipeId'].includes(change.path[0])
+  const snapshotMutation=change=>!change.path.length||WORLD_SOURCE_FIELDS.has(change.path[0])
   const sourceChanged=view.state.worldMessage!==null&&(grouped.get(view.state.worldMessage)??[]).some(snapshotMutation)
   const detachedSnapshotChanged=detachedHead&&[...grouped.values()].some(mutations=>mutations.some(snapshotMutation))
-  const preserveCurrentWorld=!worldSelection&&(detachedHead||view.state.worldMessage!==null)&&!Number.isFinite(from)&&!sourceChanged&&!detachedSnapshotChanged
+  const oldSourceRow=stored.chat.messages?.[view.state.worldMessage]
+  const obsoleteHelperSource=oldSourceRow?.role==='tavern-helper'&&!tavernMessageVariableSnapshot(oldSourceRow)
+  const preserveCurrentWorld=!worldSelection&&!obsoleteHelperSource&&(detachedHead||view.state.worldMessage!==null)&&!Number.isFinite(from)&&!sourceChanged&&!detachedSnapshotChanged
   // Structural deletion is not an MVU rollback. Its Chat-only scan cannot see a
   // detached head, so preserve the authoritative world instead of resurrecting
   // an earlier snapshot (or clearing it) on the next deletion.
-  const old=preserveWorld||preserveDetachedWorld||preserveCurrentWorld||(!worldSelection&&detachedHead)
+  const old=preserveWorld||preserveDetachedWorld||preserveCurrentWorld||(!worldSelection&&(detachedHead||obsoleteHelperSource))
    ?{position:view.state.worldMessage,swipe:view.state.worldSwipe,messageUid:view.state.worldMessageUid??null,world:await t.get(view.state.worldRef)}
    :worldSelection?.old??{...currentWorld(stored.chat),messageUid:view.state.worldMessageUid??null}
   let selected={...(worldSelection?.selected??currentWorld(next))}

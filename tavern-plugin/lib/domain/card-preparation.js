@@ -5,7 +5,8 @@ import { cardOpeningSetup, inspectCardExtensions } from './card-extension-readin
 import { validateCardAssetExtension } from './card-asset-bindings.js'
 import { validateModSystem } from './mod-system-contract.js'
 import { validateOpeningSetupSpec } from './opening-setup.js'
-import { cardOpeningPage, validateCardPages } from './card-status-panel.js'
+import { cardInitialPage, cardOpeningPage, validateCardPages } from './card-status-panel.js'
+import { cardOpeningChoices } from './card-openings.js'
 
 function validateOptInAssets(raw, previousRaw) {
   const extension = rawData(raw).extensions?.dsh_tavern
@@ -246,10 +247,16 @@ function isStandaloneWorldBook(raw) {
 
 export function projectCardSummary(value) {
   const data = rawData(rawOf(value))
+  const pages = data.extensions?.dsh_tavern?.pages
+  const hasOpeningForm = Boolean(cardOpeningSetup(data.extensions))
+  const openingPage = cardOpeningPage(pages)?.id || ''
   return { name: str(data.name).trim() || '未命名角色', importedAt: Number(value?.meta?.importedAt) || 0,
-    hasOpeningForm: Boolean(cardOpeningSetup(data.extensions)),
+    hasOpeningForm,
     // the card's own opening page on the stage (card page opening:true): with the stage on, its new game starts there
-    openingPage: cardOpeningPage(data.extensions?.dsh_tavern?.pages)?.id || '' }
+    openingPage,
+    // nothing for the 游戏准备 to ask: no opening setup or opening page, one greeting, and an initial entry page that opens
+    // each new game on the stage (page-contract「入口」). 开始游戏 starts the game at that greeting at once.
+    entryStart: !hasOpeningForm && !openingPage && cardOpeningChoices(data).length === 1 && cardInitialPage(pages) !== null }
 }
 
 function projectedCard(value) {

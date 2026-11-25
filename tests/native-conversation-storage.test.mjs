@@ -372,6 +372,19 @@ test('a cold native point patch reads only its target and keeps current world an
  assert.equal((await domain.readWorld(chat.id)).variables.stat_data.gold,3,'removing current variables must reselect the earlier world')
 })
 
+test('native snapshots skip decorative Helper rows on append and point writes',async t=>{
+ const {persistence,domain}=await fixture(t)
+ const helper={role:'tavern-helper',tavernRole:'user',text:'opening',variables:[{playerName:'Ada'}]}
+ const decoration={role:'tavern-helper',tavernRole:'assistant',text:'panel',variables:[{stat_data:{gold:99},schema:{}}]}
+ const saved=await persistence.write({id:'helper-world',messages:[row(1),helper,decoration]})
+ assert.equal((await persistence.readWorldSnapshot(saved.id)).position,0)
+ await persistence.patch(saved.id,saved._storageRevision,[{op:'set',path:['messages',1,'variables',0],value:{stat_data:{gold:2},schema:{}}}])
+ assert.equal((await persistence.readWorldSnapshot(saved.id)).position,1)
+ assert.equal((await domain.readWorld(saved.id)).variables.stat_data.gold,2)
+ await persistence.patch(saved.id,saved._storageRevision+1,[{op:'set',path:['messages',2,'variables',0,'stat_data','gold'],value:100}])
+ assert.equal((await domain.readWorld(saved.id)).variables.stat_data.gold,2)
+})
+
 test('cold native patches match warm JSON semantics and reject invalid or cancelled writes',async t=>{
  const {root,persistence}=await fixture(t)
  const initial={messages:[{...row(1),messageUid:'stable-world-source',swipes:['a','b'],swipeId:0,variables:[{gold:1},{gold:2}],tavernPluginData:{old:true}},{role:'user',text:'next',messageUid:'later-world-source'}],variables:{chat:true},tavernHelperScriptVariables:{a:{value:1}}}

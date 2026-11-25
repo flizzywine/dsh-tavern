@@ -9,6 +9,8 @@ import { applyPolishEdits, composePolishEdits } from '../domain/polish-review.js
 import { randomUUID } from 'node:crypto'
 import playFeatures from '../../shared/play-features.cjs'
 
+export const PLUGIN_REGENERATION_TARGET = Symbol('plugin regeneration target')
+
 // In-game play, turn editing, compaction and background settlement requests.
 // `deps` carries the services ../index.js builds; dispatchMethod routes by method name.
 export function createPlayHandlers(deps) {
@@ -285,7 +287,10 @@ export function createPlayHandlers(deps) {
         polishPrereview.cancel(sessionId)
         // fresh：长按发送键 1 秒的直接重生成，跳过「正文被改过就带着它改写」的判断，
         // 这一轮从头重新采样；正文编辑面板与指导面板的重新生成不传这个标记。
-        const view = await regenBody(args && args.chatId, args && args.guidance, sessionId, { fresh: args?.fresh === true })
+        const expectedReply = args?.[PLUGIN_REGENERATION_TARGET]
+        const view = await regenBody(args && args.chatId, args && args.guidance, sessionId, {
+          fresh: args?.fresh === true, ...(expectedReply ? { expectedReply } : {})
+        })
         if (!view?.aborted) {
           notifyPluginTimeline(sessionId, 'regenerate')
           void polishPrereview.start(sessionId).catch(() => {})

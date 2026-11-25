@@ -13,7 +13,10 @@ const file = id => {
 }
 // An entry deleted from its pack (the pack still exists, the entry does not) is gone for good; an entry that is only
 // disabled, unbound or in an uninstalled pack may come back, so its unlock stays.
-const entryDeleted = (pack,ref) => !!pack && !pack.manifest.assets.some(asset => asset.kind === 'cg' && asset.id === ref.assetId)
+const holds = (pack,ref) => !!pack?.manifest.assets.some(asset => asset.kind === 'cg' && asset.id === ref.assetId)
+const entryDeleted = (pack,ref) => !!pack && !holds(pack,ref)
+// an unlock is of the CG wherever it is now: a CG moved to another pack (素材库「移动到…」) keeps its id and its unlock
+const unlockKey = ref => validateAssetRef(ref).assetId
 export function createCgGallery({profileData,cardStorage,resolveCard,chatForSession,assets,readDirection,readSettings,now=Date.now}) {
   // ephemeral display capabilities, never serialized into story/playback.
   const receipts = new Map()
@@ -34,10 +37,11 @@ export function createCgGallery({profileData,cardStorage,resolveCard,chatForSess
   async function prune(service,packId) {
     const pack = await service.getPackSnapshot({packId}).catch(() => null)
     if (!pack) return
+    const library = (await service.listPacks()).filter(row => row.manifest)
     for (const {name,directory} of await profileData.list('stage/cg-gallery')) if (!directory && name.endsWith('.json')) {
       const cardId = name.slice(0,-5)
       await cardStorage.withCardLock(cardId,async () => {
-        const unlocked = await read(cardId), rest = unlocked.filter(ref => ref.packId !== packId || !entryDeleted(pack,ref))
+        const unlocked = await read(cardId), rest = unlocked.filter(ref => ref.packId !== packId || !entryDeleted(pack,ref) || library.some(row => holds(row,ref)))
         if (rest.length !== unlocked.length) await profileData.writeJson(file(cardId),{schemaVersion:1,unlocked:rest})
       })
     }
@@ -60,16 +64,16 @@ export function createCgGallery({profileData,cardStorage,resolveCard,chatForSess
     async list({sessionId,cursor,limit=48},origin) {
       if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) throw new Error('Invalid gallery limit')
       const {chat,cardId} = await session(sessionId), revision = assets.revision
-      const unlocked = await read(cardId), keys = new Set(unlocked.map(assetRefKey))
+      const unlocked = await read(cardId), keys = new Set(unlocked.map(unlockKey))
       const snapshot = await assets.snapshot(chat.cardPath), rows = [], packs = new Map(snapshot?.snapshots.map(pack => [pack.manifest.id,pack]))
       for (const pack of snapshot?.snapshots || []) for (const asset of pack.manifest.assets) {
         if (asset.kind !== 'cg') continue
-        const ref = {packId:pack.manifest.id,kind:'cg',assetId:asset.id}, key = assetRefKey(ref), isUnlocked = keys.has(key)
+        const ref = {packId:pack.manifest.id,kind:'cg',assetId:asset.id}, key = assetRefKey(ref), isUnlocked = keys.has(unlockKey(ref))
         if ((!asset.enabled && !isUnlocked) || snapshot.assetStatus[key]?.available !== true) continue
         rows.push({ref,unlocked:isUnlocked,available:true,asset})
       }
-      const present = new Set(rows.map(row => assetRefKey(row.ref)))
-      for (const ref of unlocked) if (!present.has(assetRefKey(ref)) && !entryDeleted(packs.get(ref.packId),ref)) rows.push({ref,unlocked:true,available:false})
+      const present = new Set(rows.map(row => unlockKey(row.ref)))
+      for (const ref of unlocked) if (!present.has(unlockKey(ref)) && !entryDeleted(packs.get(ref.packId),ref)) rows.push({ref,unlocked:true,available:false})
       const stamp = digest([cardId,snapshot?.cardRevision,snapshot?.snapshots.map(pack => [pack.manifest.id,pack.revision]),unlocked])
       let start = 0
       if (cursor) {
@@ -111,7 +115,7 @@ export function createCgGallery({profileData,cardStorage,resolveCard,chatForSess
         if (!consumer?.presentation.available() || !consumer.allowedPackIds.includes(ref.packId)) conflict()
         const image = await consumer.presentation.cg(requested,{descriptors:true})
         if (!image || image.variant !== variant) conflict()
-        const unlocked = await read(cardId), key = assetRefKey(ref), changed = !unlocked.some(item => assetRefKey(item) === key)
+        const unlocked = await read(cardId), key = unlockKey(ref), changed = !unlocked.some(item => unlockKey(item) === key)
         const latest = await session(sessionId), finalDirection = await readDirection(latest.chat,turn)
         if (permit.expires <= now() || latest.cardId !== cardId || latest.chat.id !== chat.id || assets.revision !== revision || readSettings().revision !== settings.revision || !snapshot.current()) conflict()
         verifyCgPlayedReceipt(finalDirection,receipt,ref,variant)
@@ -125,14 +129,14 @@ export function createCgGallery({profileData,cardStorage,resolveCard,chatForSess
     },
     // A 场景生图 picture is the player's own: unlocked when it is made (scene-cg.js), never by a played receipt.
     unlock:(cardId,ref) => cardStorage.withCardLock(cardId,async () => {
-      const unlocked = await read(cardId), key = assetRefKey(ref)
-      if (unlocked.some(item => assetRefKey(item) === key)) return false
+      const unlocked = await read(cardId), key = unlockKey(ref)
+      if (unlocked.some(item => unlockKey(item) === key)) return false
       unlocked.push(ref); unlocked.sort((a,b) => assetRefKey(a).localeCompare(assetRefKey(b),'en'))
       await profileData.writeJson(file(cardId),{schemaVersion:1,unlocked})
       return true
     }),
     forget:(cardId,ref) => cardStorage.withCardLock(cardId,async () => {
-      const unlocked = await read(cardId), key = assetRefKey(ref), rest = unlocked.filter(item => assetRefKey(item) !== key)
+      const unlocked = await read(cardId), key = unlockKey(ref), rest = unlocked.filter(item => unlockKey(item) !== key)
       if (rest.length !== unlocked.length) await profileData.writeJson(file(cardId),{schemaVersion:1,unlocked:rest})
     }),
     unlocked:read,

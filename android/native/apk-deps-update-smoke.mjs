@@ -20,10 +20,10 @@ const T = `/data/user/0/${PKG}/files/t`
 const H = `${T}/home/.dsh-tavern`
 const DATA = `${H}/profile-data/tavern/data`
 mkdirSync(OUT, { recursive: true })
-const adb = (...a) => execFileSync('adb', a, { encoding: 'utf8', maxBuffer: 64 << 20 })
+const adb = (...a) => execFileSync('adb', a, { windowsHide: true, encoding: 'utf8', maxBuffer: 64 << 20 })
 const runAs = cmd => adb('shell', `run-as ${PKG} sh -c '${cmd.replace(/'/g, `'\\''`)}'`)
 const pushAs = (local, remote) => {
-  const r = spawnSync('adb', ['exec-in', 'run-as', PKG, 'sh', '-c', `mkdir -p '${dirname(remote)}' && cat > '${remote}'`], { input: readFileSync(local) })
+  const r = spawnSync('adb', ['exec-in', 'run-as', PKG, 'sh', '-c', `mkdir -p '${dirname(remote)}' && cat > '${remote}'`], { windowsHide: true, input: readFileSync(local) })
   if (r.status !== 0) throw new Error(`写入 ${remote} 失败：${r.stderr}`)
 }
 const sleep = ms => new Promise(r => setTimeout(r, ms))
@@ -133,7 +133,7 @@ try {
   rmSync(fixtures, { recursive: true, force: true })
   const stageSrc = join(repo, 'output/native-proto/apk/payload/stage/src')
   await step('准备本地更新源（依赖新增 / 依赖装不上）', () => {
-    const make = (tree, seq, dir) => execFileSync('bash', [join(repo, 'android/native/make-test-release.sh'), tree, String(seq), join(fixtures, dir)], { encoding: 'utf8' })
+    const make = (tree, seq, dir) => execFileSync('bash', [join(repo, 'android/native/make-test-release.sh'), tree, String(seq), join(fixtures, dir)], { windowsHide: true, encoding: 'utf8' })
     for (const [dir, seq, dep] of [['release-deps-ok', before.sequence + 10, ['is-odd', '3.0.1']], ['release-deps-bad', before.sequence + 20, ['dsh-tavern-no-such-package-e2e', '9.9.9']]]) {
       const tree = join(OUT, dir)
       rmSync(tree, { recursive: true, force: true })
@@ -145,7 +145,7 @@ try {
       appendFileSync(join(tree, 'tavern-plugin/lib/index.js'), `\n// ${dir}-marker\n`)
       make(tree, seq, dir)
     }
-    server = spawn('python3', ['-m', 'http.server', String(PORT), '--bind', '127.0.0.1'], { cwd: fixtures, stdio: 'ignore' })
+    server = spawn('python3', ['-m', 'http.server', String(PORT), '--bind', '127.0.0.1'], { windowsHide: true, cwd: fixtures, stdio: 'ignore' })
     adb('reverse', `tcp:${PORT}`, `tcp:${PORT}`)
   })
   const useRelease = name => {

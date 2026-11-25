@@ -41,6 +41,15 @@ function secrecy(path, value) {
   if (value === true || value === 'unlisted') return value
   fail(path, 'must be true or "unlisted"')
 }
+// A variable only the rules' bookkeeping reads (a phase, a counter that drives the story): internal: true. The player
+// still sees its value where the card shows it (its pages, the variable panel), but no record card or note tells a change
+// to it; a ruling that changed nothing else shows nothing. secret already keeps a value from the player everywhere.
+function internality(path, value, secret) {
+  if (value === undefined || value === false) return false
+  if (value !== true) fail(path, 'must be true')
+  if (secret) fail(path, 'a secret variable is already kept from the player; drop internal')
+  return true
+}
 function plain(path, value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) fail(path, 'must be an object')
   return value
@@ -126,7 +135,11 @@ export function compileRulesV2(source) {
       if (!Object.keys(fields).length) fail(at + '.fields', 'list at least one field')
     }
     const spec = fields ? { values: null, initial: null, min: null, max: null } : valueSpec(at, row, label, keys && keys !== '*' ? sets[keys] : null)
-    state[id] = { id, path: ownPath(at + '.path', row.path), label, keys, entries: keys && keys !== '*' ? sets[keys] : null, fields, ...spec, secret: secrecy(at + '.secret', row.secret) }
+    // changeLabel: what a change to this variable is called to the player (「职能条已标格」); {key} stands for the entry's name.
+    const changeLabel = text(at + '.changeLabel', row.changeLabel, true)
+    if (changeLabel?.includes('{key}') && !keys) fail(at + '.changeLabel', '{key} needs a variable with entries (keys)')
+    state[id] = { id, path: ownPath(at + '.path', row.path), label, changeLabel, keys, entries: keys && keys !== '*' ? sets[keys] : null, fields, ...spec, secret: secrecy(at + '.secret', row.secret) }
+    state[id].internal = internality(at + '.internal', row.internal, state[id].secret)
   }
   const read = {}
   for (const [id, path] of Object.entries(source.read || {})) { claim('read.' + id, id); read[id] = { id, path: ownPath('read.' + id, path) } }
@@ -136,6 +149,7 @@ export function compileRulesV2(source) {
     claim(at, id)
     plain(at, row)
     derived[id] = { id, path: ownPath(at + '.path', row.path), label: row.label === undefined ? id : text(at + '.label', row.label), value: formula(at + '.value', row.value), secret: secrecy(at + '.secret', row.secret) }
+    derived[id].internal = internality(at + '.internal', row.internal, derived[id].secret)
   }
   const global = new Set([...Object.keys(state), ...Object.keys(read), ...Object.keys(derived), ...Object.keys(sets), ...Object.keys(tables)])
   const check = (at, tree, known) => { for (const name of formulaNames(tree)) if (!known.has(name) && !FORMULA_FUNCTIONS.includes(name)) fail(at, 'reads unknown name ' + name) }
@@ -323,7 +337,11 @@ function compileAction(path, id, row, { sets, tables, state, global, check }) {
   const tags = (row.tags || []).map((tag, index) => template(path + '.tags.' + index, tag))
   const hidden = row.hidden === undefined || row.hidden === false ? null : formula(path + '.hidden', row.hidden)
   if (row.by !== undefined && !['player', 'gm'].includes(row.by)) fail(path + '.by', 'must be player or gm')
-  const action = { id, path, label: text(path + '.label', row.label), title: template(path + '.title', row.title), summary: text(path + '.summary', row.summary, true), by: row.by || 'gm',
+  // page: the card's own page (pages[].id) that performs this ruling on the stage in place of its record card - a ruling
+  // without dice, whose changes the page shows the way it shows them anyway (a sheet's boxes marked and struck).
+  if (row.page !== undefined && (typeof row.page !== 'string' || !/^[a-z][a-z0-9-]{0,31}$/.test(row.page))) fail(path + '.page', 'must be the id of one of the card\'s pages, e.g. "status"')
+  if (row.page !== undefined && Object.keys(dice).length) fail(path + '.page', 'a ruling with dice is thrown on the stage; only a ruling without dice is performed by a page')
+  const action = { ...(row.page !== undefined ? { page: row.page } : {}), id, path, label: text(path + '.label', row.label), title: template(path + '.title', row.title), summary: text(path + '.summary', row.summary, true), by: row.by || 'gm',
     when: optionalFormula(path + '.when', row.when), params, dice, before, require, sequence, choices, after, ensure, outcomes, effects, report, tags, hidden,
     text: template(path + '.text', row.text), stop: template(path + '.stop', row.stop) }
   // Every name a formula reads must be declared; a typo is the author's to fix, found when the card is checked.
@@ -747,7 +765,8 @@ function finish(rules, state, prepared, asked) {
     if (field) to = { ...(from ?? fieldDefaults(row)), [field]: to }
     if (key === null) next[row.id] = to
     else { next[row.id] = { ...next[row.id] }; if (to === undefined) delete next[row.id][key]; else next[row.id][key] = to }
-    changes.push({ path: row.path + (key === null ? '' : '/' + key), label: row.label + (key === null ? '' : '·' + key), ...(from === undefined ? {} : { from }), ...(to === undefined ? {} : { to }), ...(row.secret ? { secret: true } : {}) })
+    const shown = row.changeLabel ? row.changeLabel.replaceAll('{key}', key ?? '') : row.label + (key === null ? '' : '·' + key)
+    changes.push({ path: row.path + (key === null ? '' : '/' + key), label: shown, ...(from === undefined ? {} : { from }), ...(to === undefined ? {} : { to }), ...(row.secret ? { secret: true } : {}), ...(row.internal ? { internal: true } : {}) })
   }
   for (const effect of action.effects) {
     const row = rules.state[effect.var], live = scopeOf(rules, action, next, values)
@@ -767,7 +786,7 @@ function finish(rules, state, prepared, asked) {
   for (const id of rules.order) {
     const row = rules.derived[id], to = evaluate(row.value, scopeOf(rules, null, next, {}))
     if (!primitive(to)) throw new Error(row.label + ': a value is a number, text or true/false, got ' + JSON.stringify(to))
-    if (next[id] !== to) { changes.push({ path: row.path, label: row.label, ...(next[id] === undefined ? {} : { from: next[id] }), to, ...(row.secret ? { secret: true } : {}) }); next[id] = to }
+    if (next[id] !== to) { changes.push({ path: row.path, label: row.label, ...(next[id] === undefined ? {} : { from: next[id] }), to, ...(row.secret ? { secret: true } : {}), ...(row.internal ? { internal: true } : {}) }); next[id] = to }
   }
   return { outcome: outcomeOf(outcome), show: showOf(outcome), ...shown, changes: mergeChanges(changes), faces,
     chosen: Object.fromEntries(asked.map(row => [row.id, values[row.id]])) }
@@ -822,7 +841,7 @@ function decidedOutcome(action, scope, unknown) {
 
 function headOf(prepared, seed) {
   const { action, params, dice, faces, scope, tags, hidden } = prepared
-  return { action: action.id, label: action.label, ...(action.title ? { title: render(action.title, scope) } : {}), ...(tags.length ? { tags } : {}), ...(hidden ? { hidden: true } : {}),
+  return { action: action.id, label: action.label, ...(action.title ? { title: render(action.title, scope) } : {}), ...(tags.length ? { tags } : {}), ...(hidden ? { hidden: true } : {}), ...(action.page ? { page: action.page } : {}),
     ...(Object.keys(params).length ? { params } : {}), ...(Object.keys(dice).length ? { seed, dice, faces } : {}) }
 }
 const compact = record => Object.fromEntries(Object.entries(record).filter(([, value]) => value !== undefined && value !== null && !(typeof value === 'object' && !Array.isArray(value) && !Object.keys(value).length)))
@@ -844,7 +863,7 @@ function previews(rules, state, request, seed, made, choice) {
     try { done = resolve(rules, state, prepare(rules, state, request, seed), { ...made, [choice.id]: value }, () => true).done } catch { continue }
     const main = Object.values(done.report || {}).find(row => row.main)
     rows.push({ value, outcome: done.outcome?.label ?? null, ...(done.outcome?.tone ? { tone: done.outcome.tone } : {}), ...(main ? { main: main.value } : {}), id: done.outcome?.id ?? null,
-      changes: done.changes.map(row => ({ label: row.label, ...(typeof row.from === 'number' && typeof row.to === 'number' ? { add: row.to - row.from } : { to: row.to }), ...(row.secret ? { secret: true } : {}) })) })
+      changes: done.changes.map(row => ({ label: row.label, ...(typeof row.from === 'number' && typeof row.to === 'number' ? { add: row.to - row.from } : { to: row.to }), ...(row.secret ? { secret: true } : {}), ...(row.internal ? { internal: true } : {}) })) })
   }
   if (wide) {
     const best = new Map()

@@ -63,7 +63,8 @@ function useChecks(useChat, nativeTurn, nodeKey) {
 const checkSigned = value => (value > 0 ? "+" : "") + value;
 // What the player's card may show of a record: what the rules keep from the player (a v1 record lists its secret resources
 // in record.secret, a v2 change or report row carries secret) is left out everywhere on it.
-const checkShown = (record, rows) => rows.filter(row => !row.secret && !(record.secret && record.secret.includes(row.resource)));
+// What the player is told: not a secret row, nor an internal one (the rules' own bookkeeping, a phase or a counter).
+const checkShown = (record, rows) => rows.filter(row => !row.secret && !row.internal && !(record.secret && record.secret.includes(row.resource)));
 // One previewed value of a choice: 「2：代价成功（素质保证·主动-1）」; an option reads by its label 「计入：成功」. When every
 // value of the choice leads to the same outcome (bare) the outcome says nothing about the value and is left out:
 // 「本刻之星：获得 3 次嘉奖（嘉奖+3）」, not 「…：三重升华（嘉奖+3）」 on every button.
@@ -337,9 +338,27 @@ const checkPerforming = (function () {
 function useCheckPerforming(callId) {
     return React.useSyncExternalStore(checkPerforming.subscribe, () => checkPerforming.get().has(callId), () => false);
 }
+// A ruling the card's own page performs (page.js) has no card on the stage; a performance the stage could not give
+// (no such page, the page failed to read) gives its card back.
+const checkPaged = record => Boolean(record.page) && record.status === "settled" && !record.dice;
+const checkPageFallback = (function () {
+    let failed = new Set();
+    const listeners = new Set();
+    return {
+        add(ids) { failed = new Set([...failed, ...ids]); listeners.forEach(fn => fn()); },
+        subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn); },
+        get: () => failed
+    };
+})();
+function useCheckPageFallback(callId) {
+    return React.useSyncExternalStore(checkPageFallback.subscribe, () => checkPageFallback.get().has(callId), () => false);
+}
 
 function CheckRecord(props) {
     const h = React.createElement, record = props.record;
+    // A ruling the card's page performs (page.js) has no card on the stage, unless the page could not play it.
+    const fallback = useCheckPageFallback(record.callId);
+    if (props.onStage && checkPaged(record) && !fallback) return null;
     if (record.action && record.status === "settled" && !record.dice) {
         if (props.look && props.look.result && props.look.result.card === "ledger") return h(CheckNoteLedger, props);
         const note = checkNoteText(record);
@@ -464,7 +483,8 @@ function CheckLedger(props) {
 
 }
 // A ruling without dice in the ledger look (a settlement once chosen): the same form - a head of tags, title and id -
-// over one cell per change the player may see, the amount large and what it is small: 「+6 / 嘉奖」.
+// over one cell per change the player may see, the amount large and what it is small: 「+6 / 嘉奖」. A ruling without dice has
+// no number the player answers by, so its head carries no record id.
 function CheckNoteLedger(props) {
     const h = React.createElement, record = props.record, colours = props.look.result.tagColors || {};
     const rows = checkShown(record, record.changes || []);
@@ -475,8 +495,7 @@ function CheckNoteLedger(props) {
     return h("div", { className: "fork-roll fork-check is-ledger is-note", "data-call": record.callId, style: checkToneStyle(props.look) },
         h("div", { className: "fork-check-ledger-head" },
             (record.tags || []).map(tag => h("span", { key: tag, className: "fork-check-ledger-tag", style: colours[tag] ? { "--check-tag": colours[tag] } : undefined }, tag)),
-            h("span", { className: "fork-check-ledger-title" }, record.title || record.label || "结算"),
-            record.id ? h("span", { className: "fork-check-ledger-id" }, record.id) : null),
+            h("span", { className: "fork-check-ledger-title" }, record.title || record.label || "结算")),
         h("div", { className: "fork-check-ledger-changes", role: "img", "aria-label": checkNoteText(record) },
             cells.map((cell, i) => h("div", { key: i, className: "fork-check-ledger-change" + (cell.sign > 0 ? " is-up" : cell.sign < 0 ? " is-down" : "") },
                 h("b", null, cell.value), h("small", null, cell.label)))));

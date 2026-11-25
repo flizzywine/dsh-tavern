@@ -6,6 +6,7 @@ import { cardSystemPromptText } from './card-system-prompt.js'
 import { frameUserInput } from './agent-input-frame.js'
 import { isWithdrawnEntryText } from './worldbook-virtual-state.js'
 import { promptSection } from './prompt-section.js'
+import { lastTavernHelperVariables, tavernPromptMessageVariables } from './tavern-helper-context.js'
 
 const CARD_FIELDS = ['name', 'description', 'personality', 'scenario', 'mes_example', 'system_prompt', 'post_history_instructions']
 const STATE_FIELDS = ['macroState', 'variables', 'tavernHelperScriptVariables', 'tavernScriptPrompts', 'promptTemplateInput',
@@ -53,7 +54,7 @@ export function captureBodyRegenerationSource({ chat, card, worldbookPrefix, sys
       ...(typeof worldbookPrefix === 'string' ? { worldbookPrefix } : {}),
       persona: { name: text(chat.macroState?.userName) || '你', description: text(chat.userProfileContextSnapshot) },
       worldbookEntries: virtualEntries(chat.worldBookVirtualState),
-      generationState: { posture: text(chat.posture), variables: clone(chat.variables ?? null), messageVariables: lastMessageVariables(chat.promptTemplateInput?.message ? { messages: [chat.promptTemplateInput.message] } : chat) }
+      generationState: { posture: text(chat.posture), variables: clone(chat.variables ?? null), messageVariables: tavernPromptMessageVariables(chat) ?? null }
     }
   }
 }
@@ -148,15 +149,6 @@ export function visibleBodyRegenerationHistory(chat, endIndex) {
   return history
 }
 
-function lastMessageVariables(chat) {
-  for (const row of [...chat.messages].reverse()) {
-    if (row?.role === 'tavern-helper' || !Array.isArray(row?.variables)) continue
-    const value = row.variables[Math.max(0, Number(row.swipeId) || 0)]
-    if (object(value)) return clone(value)
-  }
-  return null
-}
-
 function restoredWorldbookEntries(frame, beforeChat) {
   if (Array.isArray(frame.source?.regenerationMaterials?.worldbookEntries)) return clone(frame.source.regenerationMaterials.worldbookEntries)
   const entries = new Map(virtualEntries(beforeChat.worldBookVirtualState).map(entry => [entry.ref, entry]))
@@ -235,7 +227,8 @@ export function buildBodyRegenerationMaterials({ chat, beforeChat, card: _liveCa
     ...(kind === 'generate' && typeof frame.source?.bodyGeneration?.hostRegex === 'boolean'
       ? { outputProcessing: { hostRegex: frame.source.bodyGeneration.hostRegex } } : {}),
     generationState: clone(captured?.generationState),
-    beforeState: { posture: text(beforeChat.posture), variables: clone(beforeChat.variables ?? null), messageVariables: lastMessageVariables(beforeChat) },
+    beforeState: { posture: text(beforeChat.posture), variables: clone(beforeChat.variables ?? null),
+      messageVariables: lastTavernHelperVariables(beforeChat.messages, beforeChat.variables) ?? null },
     completeness: { history: 'all-visible', materials: captured?.version === 1 ? 'captured' : 'checkpoint' }
   }
   if (typeof frameUserInput(frame).sourceText !== 'string') fail('本轮原始输入快照不完整')

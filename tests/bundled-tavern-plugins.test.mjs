@@ -1,7 +1,7 @@
 // 随酒馆发行、但身份是「酒馆插件」的内置插件：装进 <data>/plugins，插件页才列得出来。
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
@@ -14,7 +14,7 @@ import { DISABLED_FILE, RESTART_FILE, syncUserPlugins } from '../tavern-plugin/l
 import { TAVERN_PLUGIN_API_VERSION } from '../tavern-plugin/lib/domain/plugin-manifest.js'
 import { writeZipEntries } from '../tavern-plugin/lib/domain/zip-entries.js'
 import { readAchievementLibrary } from '../tavern-plugin/packages/dsh-tavern/lib/achievements.mjs'
-import { name as achievementPluginName } from '../tavern-plugin/packages/dsh-tavern-adventure-medal/lib/index.js'
+import { name as achievementPluginName } from '../tavern-plugin/packages/dsh-tavern-achievements/lib/index.js'
 
 const FOLDER = 'dsh-tavern-plot-compass'
 const quiet = { warn() {}, log() {} }
@@ -124,7 +124,7 @@ for (const folder of ['dsh-tavern-fate-dice', 'dsh-tavern-plot-compass', 'dsh-ta
   test(`${folder} 默认加载，迁移旧版自动停用标记并保留手动停用`, t => checkBundledLoadDefault(t, folder))
 }
 
-test('发行副本默认启用，同名成就 ZIP 就地升级并保留记录和停用状态', async t => {
+test('发行副本默认启用，旧名成就 ZIP 迁移到新名并保留记录和停用状态', async t => {
   const sourceRoot = new URL('..', import.meta.url)
   const dshHome = mkdtempSync(path.join(tmpdir(), 'tavern-achievement-bundle-'))
   t.after(() => rmSync(dshHome, { recursive: true, force: true }))
@@ -137,26 +137,28 @@ test('发行副本默认启用，同名成就 ZIP 就地升级并保留记录和
   const bundled = () => syncBundledTavernPlugins({ sourceRoot: fileURLToPath(sourceRoot), dshHome, dataRoot, profileDir, logger: quiet })
     .find(item => item.packageName === achievementPluginName)
   const listed = async () => (await installer.list()).find(item => item.name === achievementPluginName)
-  const registered = async () => (await sync()).plugins.filter(plugin => plugin.name === achievementPluginName)
+  const registered = async () => (await sync()).plugins.filter(plugin => [achievementPluginName, previousName].includes(plugin.name))
+  const previousName = 'dsh-tavern-adventure-medal'
   const fresh = bundled()
   assert.equal(fresh.action, 'installed')
   assert.equal((await listed()).source.kind, 'builtin')
   assert.equal((await listed()).enabled, true)
   assert.deepEqual((await registered()).map(plugin => plugin.main), ['./lib/index.js'])
 
-  // Replace the fixture with a previously installed ZIP in the same plugin slot.
+  // Replace the fixture with a ZIP using the previous package identity.
   rmSync(fresh.target, { recursive: true })
-  const manifest = JSON.parse(readFileSync(new URL('tavern-plugin/packages/dsh-tavern-adventure-medal/package.json', sourceRoot), 'utf8'))
+  const manifest = JSON.parse(readFileSync(new URL('tavern-plugin/packages/dsh-tavern-achievements/package.json', sourceRoot), 'utf8'))
   const archive = writeZipEntries([
-    { path: 'package.json', content: JSON.stringify({ ...manifest, version: '2.8.4', exports: { ...manifest.exports, '.': './index.mjs' } }) },
+    { path: 'package.json', content: JSON.stringify({ ...manifest, name: previousName, version: '2.8.4', exports: { ...manifest.exports, '.': './index.mjs' } }) },
     { path: 'index.mjs', content: 'export function apply() {}' },
     { path: 'client.js', content: '// old client' },
   ])
-  assert.equal((await installer.installFromZip(archive, 'older-achievements.zip')).folder, achievementPluginName)
-  assert.equal((await listed()).source.kind, 'zip')
-  await installer.disable(achievementPluginName)
+  assert.equal((await installer.installFromZip(archive, 'older-achievements.zip')).folder, previousName)
+  const legacyTarget = path.join(dataRoot, 'plugins', previousName)
+  assert.equal((await installer.list()).find(item => item.name === previousName).source.kind, 'zip')
+  await installer.disable(previousName)
   const recordDir = path.join(dataRoot, 'plugin-data')
-  const recordFile = path.join(recordDir, achievementPluginName + '.json')
+  const recordFile = path.join(recordDir, previousName + '.json')
   const record = JSON.stringify({ version: 1, achievements: [
     { id: 'gold', rounds: 500, title: '史诗', earned: true, unlockedAt: 1000, contextChars: 1263067 },
   ] })
@@ -167,6 +169,8 @@ test('发行副本默认启用，同名成就 ZIP 就地升级并保留记录和
   assert.equal(migrated.action, 'upgraded')
   assert.equal(migrated.target, fresh.target)
   assert.equal(migrated.installedVersion, '2.8.4')
+  assert.equal(existsSync(legacyTarget), false)
+  assert.equal(existsSync(path.join(dataRoot, 'plugin-backups', previousName + '-renamed', 'index.mjs')), true)
   assert.equal((await listed()).source.kind, 'builtin')
   assert.equal((await listed()).enabled, false)
   assert.deepEqual(await registered(), [])
@@ -174,8 +178,11 @@ test('发行副本默认启用，同名成就 ZIP 就地升级并保留记录和
   assert.equal((await readAchievementLibrary(dshHome))[0].contextChars, 1263067)
   await assert.rejects(installer.remove(achievementPluginName), /内置插件/)
   await installer.enable(achievementPluginName)
-  assert.deepEqual((await registered()).map(plugin => plugin.main), ['./lib/index.js'])
+  assert.deepEqual((await registered()).map(plugin => [plugin.name, plugin.main]), [[achievementPluginName, './lib/index.js']])
+  assert.equal((await installer.installFromZip(archive, 'older-achievements.zip')).folder, previousName)
   assert.equal(bundled().action, 'skipped')
+  assert.equal(existsSync(legacyTarget), false)
+  assert.equal((await listed()).enabled, true)
 })
 
 test('命运之骰只安装校验通过的 Release，酒馆同步保留较新的兼容版本', async t => {

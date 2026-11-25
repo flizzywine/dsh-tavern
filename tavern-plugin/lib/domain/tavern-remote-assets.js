@@ -14,7 +14,8 @@ const execFile = promisify(execFileCallback)
 const JSD_GH_URL = /https:\/\/(?:cdn|testingcf)\.jsdelivr\.net\/gh\/([^/\s"'<>`$]+)\/([^/@\s"'<>`$]+)(?:@([^/\s"'<>`$]+))?(\/(?:[^\s"'<>`$]|\$(?!\{))*)?/g
 const FIXED_COMMIT = /^[0-9a-f]{40}$/i
 const CONTENT_HASH = /^[0-9a-f]{64}$/i
-const MAX_ENTRY_BYTES = 5 * 1024 * 1024
+const MAX_ENTRY_MIB = 16
+const MAX_ENTRY_BYTES = MAX_ENTRY_MIB * 1024 * 1024
 
 function validGitHubPart(value) {
   return /^[A-Za-z0-9_.-]+$/.test(value)
@@ -183,7 +184,7 @@ export function createTavernRemoteAssetPinStore(options = {}) {
     let fetched
     try { fetched = await fetchBody(reference.url, { Accept: 'text/javascript, text/html, text/plain;q=0.9', 'User-Agent': 'dsh-tavern' }, 'text') } catch (error) { throw new Error('固定入口内容缓存不可用（' + str(error.message || error) + '）') }
     const { response, body: content } = fetched
-    if (Buffer.byteLength(content, 'utf8') > MAX_ENTRY_BYTES) throw new Error('固定入口内容超过 5 MiB 上限')
+    if (Buffer.byteLength(content, 'utf8') > MAX_ENTRY_BYTES) throw new Error(`固定入口内容超过 ${MAX_ENTRY_MIB} MiB 上限`)
     const mediaType = str(response.headers && response.headers.get && response.headers.get('content-type')).split(';')[0].trim() || (reference.path.endsWith('.html') ? 'text/html' : 'text/javascript')
     if (!/^(text\/|application\/(javascript|json)$)/i.test(mediaType)) throw new Error('固定入口返回了不支持的内容类型: ' + mediaType)
     const asset = { url: reference.url, hash: contentHash(content), path: reference.path, mediaType, content, cachedAt: Date.now() }

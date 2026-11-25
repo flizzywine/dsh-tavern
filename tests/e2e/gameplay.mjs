@@ -56,6 +56,7 @@ const helperApiScenario = process.argv.includes('--helper-api')
 // Story body submitted through the submit_story tool (global input/output switches, off by default).
 const storyToolScenario = process.argv.includes('--story-tool')
 const storyWriteScenario = process.argv.includes('--story-write-ops')
+const workbenchForkScenario = process.argv.includes('--workbench-fork')
 const inlineOpeningScenario = process.argv.includes('--inline-opening')
 const batchImportScenario = process.argv.includes('--batch-import')
 const routeMenu = '默认路线。\n\n' + [
@@ -306,7 +307,7 @@ try {
           TAVERN_E2E_BACKGROUND_DUMP: process.argv.includes('--edit-candidates') ? join(output, 'background-requests.jsonl') : '',
           TAVERN_E2E_CAST: castScenario ? '1' : '',
           TAVERN_E2E_MEMORY_AUDIT: process.argv.includes('--card-memory') ? join(output, 'memory-requests.jsonl') : '',
-          TAVERN_E2E_CONTEXT_AUDIT: inlineOpeningScenario || process.argv.includes('--native-repair') || process.argv.includes('--failure-resilience') ? join(output, 'context-requests.jsonl') : '',
+          TAVERN_E2E_CONTEXT_AUDIT: workbenchForkScenario || inlineOpeningScenario || process.argv.includes('--native-repair') || process.argv.includes('--failure-resilience') ? join(output, 'context-requests.jsonl') : '',
           TAVERN_E2E_LLM_MODULE: join(modules, '@deepseek-ai/dsh-llm/lib/index.js'),
           // Server card scripts are the default; ordinary scenarios keep exercising the page path.
           DSH_TAVERN_SERVER_SCRIPTS: process.argv.includes('--server-scripts') ? '1' : '0',
@@ -400,8 +401,60 @@ try {
     await page.goto(url, { waitUntil: 'domcontentloaded' })
     await page.getByRole('button', { name: 'Continue', exact: true }).click()
   })
+  if (workbenchForkScenario) {
+    await step('从工作台的历史回复分支，两边分别继续', async () => {
+      await page.getByRole('button', { name: '卡片', exact: true }).click()
+      await page.getByRole('button', { name: /空白开始/ }).click()
+      const chat = page.locator('[data-conversation-content][data-conversation-session]:visible')
+      const branch = chat.getByRole('button', { name: '在新对话中分支', exact: true })
+      const activeTitle = page.locator('.dsh-tavern-side-row.active .dsh-tavern-side-row-title')
+      const sourceId = await chat.getAttribute('data-conversation-session')
+      async function send(text, turn) {
+        const composer = chat.getByRole('textbox', { name: /下一步行动|Next action|发消息|Message/ })
+        await composer.fill(text)
+        await composer.press('Enter')
+        await branch.nth(turn - 1).waitFor()
+      }
+      await send('工作台分支验收：共同设定', 1)
+      await send('工作台分支验收：原线后续', 2)
+      const sourceTitle = await activeTitle.innerText()
+      const firstTail = chat.locator('[data-dsh-tavern-workbench-actions]').first()
+      await firstTail.getByRole('button', { name: /^(Copy|复制)$/ }).waitFor()
+      await firstTail.getByRole('button', { name: 'Good response' }).waitFor()
+      assert.equal(await firstTail.getByRole('button', { name: /Branch into a new conversation|在新对话中分支/ }).count(), 1)
+      await branch.first().click()
+      await page.waitForFunction(id => {
+        const current = document.querySelector('[data-conversation-content]')?.dataset.conversationSession
+        return current && current !== id
+      }, sourceId)
+      await branch.first().waitFor()
+      assert.equal(await branch.count(), 1)
+      assert.equal(await chat.getByText('工作台分支验收：原线后续', { exact: true }).count(), 0)
+      await send('工作台分支验收：分支继续', 2)
+      const forkTitle = await activeTitle.innerText()
+      const historyTitle = title => page.locator('.dsh-tavern-side-row-title').and(page.getByText(title, { exact: true }))
+      await historyTitle(sourceTitle).click()
+      await chat.getByText('工作台分支验收：原线后续', { exact: true }).waitFor()
+      await send('工作台分支验收：原线继续', 3)
+      await historyTitle(forkTitle).click()
+      await chat.getByText('工作台分支验收：分支继续', { exact: true }).waitFor()
+
+      const requests = (await readFile(join(output, 'context-requests.jsonl'), 'utf8')).trim().split('\n').map(line => JSON.parse(line).messages)
+      for (const [current, inherited, excluded] of [['分支继续', '共同设定', '原线后续'], ['原线继续', '原线后续', '分支继续']]) {
+        const prompt = requests.find(messages => messages.some(row => row.role === 'user' && row.text === '工作台分支验收：' + current))
+        const inputs = prompt?.filter(row => row.role === 'user').map(row => row.text)
+        assert.ok(inputs?.includes('工作台分支验收：' + inherited), current)
+        assert.ok(!inputs.includes('工作台分支验收：' + excluded), current)
+        assert.ok(prompt.some(row => row.role === 'assistant' && row.text.includes('你获得了十枚金币。')), current)
+      }
+    })
+    assert.deepEqual(errors, [])
+    report.status = 'passed'
+    delete report.currentStep
+    break scenario
+  }
   if (batchImportScenario) {
-    await step('普通入口和批量管理都能多选，单份失败不影响后续导入', async () => {
+    await step('普通入口和多选栏都能多选文件，单份失败不影响后续导入', async () => {
       const cardFile = name => ({ name: name + '.json', mimeType: 'application/json',
         buffer: Buffer.from(JSON.stringify({ spec: 'chara_card_v2', spec_version: '2.0',
           data: { name, description: '批量导入验收', first_mes: '你好。' } })) })
@@ -421,7 +474,7 @@ try {
       await summary.filter({ hasText: '失败文件：损坏.json' }).waitFor()
       await picker.getByText('批量验收甲', { exact: true }).waitFor()
       await picker.getByText('批量验收乙', { exact: true }).waitFor()
-      await picker.getByRole('button', { name: '批量管理', exact: true }).click()
+      await picker.getByRole('button', { name: '多选', exact: true }).click()
       await choose('批量导入', [second, third])
       await picker.getByRole('status').filter({ hasText: '已导入 1 张，1 个文件失败' })
         .filter({ hasText: '失败文件：批量验收乙.json' }).waitFor()
@@ -1455,7 +1508,7 @@ try {
     if(captured?.profile)await writeFile(join(output,'browser.cpuprofile'),JSON.stringify(captured.profile))
   }
   // Read-only evidence, independent of the status iframe and its UI assertions.
-  const chat = process.argv.includes('--settlement-performance') || storyWriteScenario || batchImportScenario ? null : await savedChat().catch(error => { report.savedStateError = String(error.message || error); return null })
+  const chat = process.argv.includes('--settlement-performance') || storyWriteScenario || workbenchForkScenario || batchImportScenario ? null : await savedChat().catch(error => { report.savedStateError = String(error.message || error); return null })
   if (chat) await writeFile(join(output, 'saved-state.json'), JSON.stringify({ id: chat.id, posture: chat.posture, contextCompaction: chat.contextCompaction, timeline: chat.timeline,
     messages: chat.messages.map(message => ({ role: message.role, text: message.sourceText ?? message.text, turn: message.turn, variables: message.variables, mvu: message.mvu, ...(displayScenario ? {tavernPluginData:message.tavernPluginData} : {}) })) }, null, 2))
   await context?.tracing.stop({ path: join(output, 'trace.zip') }).catch(() => {})

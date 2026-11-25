@@ -14,6 +14,8 @@
 // floorOffset, messages:[{absoluteIndex, key, legacyTurn, nativeTurn, floorNo, messageUid, message}]}，
 // 由 lib/domain/story-transcript.js 的 projectStoryTranscript 产出。
 
+// @include-domain style-reference-protocol.cjs
+
 // 故事行正文：持久消息可能是 {text}（story 存档）、{message}（Helper 旁路）或
 // content 块数组（宿主修复行）。取不到文本时返回空串，不猜测。
 function tavernStoryTranscriptMessageText(message) {
@@ -59,8 +61,8 @@ const TAVERN_HIDDEN_PROTOCOL_TAGS = new Set([
 	'ta_hub', 'tw_hub'
 ])
 
-function tavernStripHiddenProtocolBlocks(value, allowUnclosed) {
-	const source = typeof value === 'string' ? value : ''
+function tavernStripHiddenProtocolBlocks(value) {
+	const source = typeof value === 'string' ? stripStyleReferenceMarkup(value) : ''
 	if (!source || source.indexOf('<') < 0) return source
 	let out = ''
 	let cursor = 0
@@ -123,7 +125,7 @@ function tavernStoryTranscriptRows(transcript) {
 		const legacyTurn = Number.isInteger(entry.legacyTurn) && entry.legacyTurn > 0 ? entry.legacyTurn : null
 		const rawText = tavernStoryTranscriptMessageText(message)
 		const streaming = role === 'assistant' && message.placeholder === true
-		const text = role === 'assistant' ? tavernStripHiddenProtocolBlocks(rawText, streaming) : rawText
+		const text = role === 'assistant' ? tavernStripHiddenProtocolBlocks(rawText) : rawText
 		const source = message.source && typeof message.source === 'object' ? message.source
 			: entry.source && typeof entry.source === 'object' ? entry.source : null
 		const requestId = source && typeof source.rpcId === 'string' && source.rpcId ? source.rpcId : null
@@ -368,7 +370,7 @@ function tavernStoryTranscriptStreamRows(rows, partial, runningCalls, storyTurn,
 	const calls = Array.isArray(runningCalls) ? runningCalls : []
 	const latestCall = calls.length ? calls[calls.length - 1] : null
 	const rawStreamed = tavernStoryTranscriptStreamText(partial)
-	const streamed = rawStreamed !== '' ? tavernStripHiddenProtocolBlocks(rawStreamed, true) : ''
+	const streamed = rawStreamed !== '' ? tavernStripHiddenProtocolBlocks(rawStreamed) : ''
 	const streamedReasoning = reasoningOverride && typeof reasoningOverride === 'object'
 		? { text: typeof reasoningOverride.text === 'string' ? reasoningOverride.text : '', live: reasoningOverride.live === true }
 		: tavernStoryTranscriptReasoningState(partial && partial.blocks, Boolean(partial))

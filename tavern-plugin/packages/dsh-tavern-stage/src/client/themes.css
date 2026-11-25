@@ -7639,6 +7639,13 @@ div.fork-check-ledger-head:hover { background: none; }
 .fork-gal-status-plugin { line-height: 1.5; flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; }
 /* the card frame's root is color-scheme: light dark (frame-document.js); the frame element matches it, or the browser paints an opaque canvas behind the panel */
 .fork-gal-status-frame { display: block; box-sizing: border-box; flex: 1; width: 100%; max-width: 100%; min-width: 0; min-height: 0; border: 0; background: transparent; color-scheme: light dark; }
+/* a card page performing (status-panel.cjs Performance): the page's own frame over the scene, clear of the text box (bottom
+   is set inline), taking no pointer (a click anywhere ends it); it fades in once its document shows and is gone when it ends */
+/* hidden until its page has read: the page draws its own arrival and leaving (the frame is transparent) */
+.fork-gal-page-perform { position: absolute; left: 0; right: 0; top: 0; z-index: 9; display: flex; pointer-events: none; visibility: hidden; }
+.fork-gal-page-perform[data-shown] { visibility: visible; }
+.fork-gal-page-perform-body { position: relative; display: flex; flex: 1; min-width: 0; min-height: 0; }
+.fork-gal-page-perform .fork-gal-status-frame { pointer-events: none; }
 /* size "full" (a card that draws a full-screen scene): the sheet fills the stage at every width, as at phone widths */
 .fork-gal-status[data-size="full"] { padding: 0; place-items: stretch; }
 .fork-gal-status[data-size="full"] > .fork-gal-status-sheet { width: 100%; height: 100%; border: 0; border-radius: 0; box-shadow: none;
