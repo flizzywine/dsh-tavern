@@ -512,6 +512,9 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
     // 导出 in the 素材库 — an arrow up out of an open box (never the ⤓ of 获取素材包).
     share:'M8 9.5V2.5M5.5 5 8 2.5 10.5 5M6 7H4.5a1 1 0 0 0-1 1v4.5a1 1 0 0 0 1 1h7a1 1 0 0 0 1-1V8a1 1 0 0 0-1-1H10',copy:'M5.5 5.5h7v8h-7zM3.5 10.5v-8h7',remove:'M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.7 9h5.6l.7-9M7 7v4M9 7v4',card:'M4.5 2.5h7a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1h-7a1 1 0 0 1-1-1v-9a1 1 0 0 1 1-1zM8 8a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3zM5.8 11.2c.4-1 1.2-1.6 2.2-1.6s1.8.6 2.2 1.6',
     // Character modal tools (panel-ui-design.md §六之二).
+    // 人物卡库's 导入 menu: 选择本地文件… and 从网址导入….
+    folder:'M2 4.5a1 1 0 0 1 1-1h3l1.5 1.5H13a1 1 0 0 1 1 1V12a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1z',
+    link:'M6.8 9.2a2.5 2.5 0 0 0 3.5 0l2.2-2.2A2.5 2.5 0 0 0 9 3.5l-.9.9M9.2 6.8a2.5 2.5 0 0 0-3.5 0L3.5 9A2.5 2.5 0 0 0 7 12.5l.9-.9',
     plus:'M8 3v10M3 8h10',upload:'M8 10.5V3M5 6l3-3 3 3M3 10.5v2.5h10v-2.5',crop:'M4.5 1.5v10h10M1.5 4.5h10v10',ruler:'M2 10.5 10.5 2l3.5 3.5L5.5 14zM5.2 8.3l1.3 1.3M7.2 6.3l1.9 1.9M9.2 4.3l1.3 1.3',
     // 查看大图 and 调整后重试… in the 差分 tile menus and the 生图 records.
     eye:'M1.5 8s2.5-4.5 6.5-4.5S14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8zM8 10a2 2 0 1 0 0-4 2 2 0 0 0 0 4z',sliders:'M2.5 4.5h6M11.5 4.5h2M2.5 11.5h2M7.5 11.5h6M10 3v3M6 10v3',
