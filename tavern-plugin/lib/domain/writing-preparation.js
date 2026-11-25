@@ -17,7 +17,7 @@ const VARIABLES_ALREADY_READ = '命中的变量已在本轮查询结果中。'
 const VARIABLE_QUERY_HEADER = '【变量查询结果】\n'
 const VARIABLE_FACTS_HEADER = '【当前状态】\n'
 const VARIABLE_IDENTIFIER = /\b(?:[\dA-Fa-f]{8}(?:-[\dA-Fa-f]{4}){3}-[\dA-Fa-f]{12}|[a-z][a-z\d]+(?:_[a-z\d]+)+|[a-z][a-z\d]+[A-Z][A-Za-z\d]*)\b/
-const { tavernIsWritingInjection, tavernWritingReceiptSections } = receipts
+const { tavernIsWritingInjection, tavernWritingReceiptSections, tavernFormatPlotWorldbookReceipt } = receipts
 
 function worldbookInContext(messages) {
   const seen = new Set()
@@ -26,7 +26,7 @@ function worldbookInContext(messages) {
     for (const block of message.content || []) {
       if (block?.type !== 'text' || typeof block.text !== 'string') continue
       for (const section of tavernWritingReceiptSections(block.text)) {
-        if (section.kind === '世界书') seen.add(section.text.trimEnd())
+        if (section.kind === '世界书') seen.add(tavernFormatPlotWorldbookReceipt(section.text).trimEnd())
       }
     }
   }
@@ -109,7 +109,7 @@ export function createWritingPreparation({ allowed, runAgent, readSources }) {
         return VARIABLE_QUERY_HEADER + material.join('\n\n')
       }
       if (kind !== 'worldbook') return material.join('\n\n')
-      const fresh = material.filter(entry => {
+      const fresh = material.map(tavernFormatPlotWorldbookReceipt).filter(entry => {
         const key = entry.trimEnd()
         if (worldbookSeen.has(key)) return false
         worldbookSeen.add(key)

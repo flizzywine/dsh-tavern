@@ -46,9 +46,9 @@
             return injectedTurn === undefined || injectedTurn === turn;
         }
         function describeWhiteGloveMaterials(parts) {
-            const text = parts.map(part => part.text).join("\n");
             // The handoff is a single text block. Its receipt headings identify the
             // material for filters without changing the block or its cache position.
+            const kinds = new Set(tavernWritingReceiptSections(parts.map(part => part.text).join("\n")).map(section => section.kind));
             const sources = [
                 { heading: "世界书", category: "worldbook", label: "世界书" },
                 { heading: "写作指引", category: "skill", label: "写作 Skill" },
@@ -56,7 +56,7 @@
                 { heading: "当前状态", category: "state", label: "当前状态" },
                 { heading: "当前变量", category: "state", label: "当前变量" }
             ];
-            return sources.filter(({ heading }) => new RegExp("^【" + heading + "(?: · [^】\\r\\n]+)?】$", "m").test(text))
+            return sources.filter(({ heading }) => kinds.has(heading))
                 .map(({ category, label }) => ({ category, label }));
         }
         function describeSectionSource(name, rest) {

@@ -10,7 +10,8 @@ import { omitUnusedToolHistory } from '../tavern-plugin/lib/domain/tool-history-
 
 // The panel is a client fragment concatenated into the built bundle, so exercise
 // the source file the way the other feature tests do.
-const client = vm.createContext({})
+const client = vm.createContext({ window: {} })
+vm.runInContext(readFileSync(new URL('../tavern-plugin/lib/domain/writing-material-receipts.cjs', import.meta.url), 'utf8'), client)
 vm.runInContext(readFileSync(new URL('../tavern-plugin/src/client/features/request-context.js', import.meta.url), 'utf8'), client, { filename: 'request-context.js' })
 // vm 里造出来的数组和对象带的是那边的原型，deepEqual 会判成不相等；先搬回本 realm。
 const sections = request => structuredClone(client.requestContextSections(request))
@@ -47,7 +48,7 @@ test('白手套的世界书标题提示归入世界书筛选', () => {
 })
 
 test('白手套注入保留实际回执和缓存位置，并按资料类型可筛选', () => {
-  const text = '【世界书 · 钟楼】\n钟声整点响。\n\n【写作指引】\n采用第三人称。\n\n【剧情记忆 · 第 1 轮】\n找到钥匙。\n\n【当前状态】\n林婉还剩三张车票。'
+  const text = '### 钟楼\n钟声整点响。\n\n【写作指引】\n采用第三人称。\n\n【剧情记忆 · 第 1 轮】\n找到钥匙。\n\n【当前状态】\n林婉还剩三张车票。'
   const content = [{ type: 'text', text }]
   const request = { messages: [
     { role: 'user', content, source: { kind: 'user' } },

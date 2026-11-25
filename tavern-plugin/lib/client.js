@@ -45351,12 +45351,17 @@ function tavernIsWritingInjection(message) {
     return message?.source?.kind === 'plugin:dsh-tavern-pure-writer' && message.source.form === 'inject'
 }
 
-// Legacy injections stored several receipts as one block, separated by blank lines.
+function tavernFormatPlotWorldbookReceipt(text) {
+    return text.replace(/^【世界书 · [ \t]*(?:\d+[a-z]?[_ .\t-]*)?\[mvu[_ -]plot\][ \t]*([^】\r\n]+)】(?=\r?\n|$)/i,
+        (heading, title) => title.trim() ? '### ' + title.trim() : heading)
+}
+
+// Injections keep their receipts in one text block, separated by blank lines.
 function tavernWritingReceiptSections(text) {
-    const headings = [...text.matchAll(/(^|\r?\n\r?\n)【(世界书|写作指引|写作 Skill|剧情记忆|当前变量|当前状态)(?: · [^】\r\n]+)?】(?=\r?\n|$)/g)]
+    const headings = [...text.matchAll(/(^|\r?\n\r?\n)(?:【(世界书|写作指引|写作 Skill|剧情记忆|当前变量|当前状态)(?: · [^】\r\n]+)?】|### [^\r\n]+)(?=\r?\n|$)/g)]
     if (!headings.length) return [{ kind: '', text }]
     const sections = headings.map((heading, index) => ({
-        kind: heading[2],
+        kind: heading[2] ?? '世界书',
         text: text.slice(heading.index + heading[1].length, headings[index + 1]?.index)
     }))
     if (headings[0].index > 0) sections.unshift({ kind: '', text: text.slice(0, headings[0].index) })
@@ -45370,9 +45375,10 @@ function tavernWithoutPrivateWritingReceipts(message) {
         if (block?.type !== 'text' || typeof block.text !== 'string') return [block]
         const sections = tavernWritingReceiptSections(block.text)
         const kept = sections.filter(({ kind }) => kind !== '写作指引' && kind !== '写作 Skill' && kind !== '当前变量')
-        if (kept.length === sections.length) return [block]
+        const texts = kept.map(section => section.kind === '世界书' ? tavernFormatPlotWorldbookReceipt(section.text) : section.text)
+        if (kept.length === sections.length && texts.every((text, index) => text === sections[index].text)) return [block]
         changed = true
-        const text = kept.map(section => section.text).join('\n\n')
+        const text = texts.join('\n\n')
         return text.trim() ? [{ ...block, text }] : []
     })
     if (!changed) return message
@@ -45380,7 +45386,7 @@ function tavernWithoutPrivateWritingReceipts(message) {
 }
 
 if (typeof window === 'undefined') {
-    module.exports = { tavernIsWritingInjection, tavernWritingReceiptSections, tavernWithoutPrivateWritingReceipts }
+    module.exports = { tavernIsWritingInjection, tavernWritingReceiptSections, tavernFormatPlotWorldbookReceipt, tavernWithoutPrivateWritingReceipts }
 }
 
 function tavernStoryNativeTurnOfLocation(location) {
@@ -68299,9 +68305,9 @@ function createPlayInteractionPanels({ interactions, useCandidatePanel, useCandi
             return injectedTurn === undefined || injectedTurn === turn;
         }
         function describeWhiteGloveMaterials(parts) {
-            const text = parts.map(part => part.text).join("\n");
             // The handoff is a single text block. Its receipt headings identify the
             // material for filters without changing the block or its cache position.
+            const kinds = new Set(tavernWritingReceiptSections(parts.map(part => part.text).join("\n")).map(section => section.kind));
             const sources = [
                 { heading: "世界书", category: "worldbook", label: "世界书" },
                 { heading: "写作指引", category: "skill", label: "写作 Skill" },
@@ -68309,7 +68315,7 @@ function createPlayInteractionPanels({ interactions, useCandidatePanel, useCandi
                 { heading: "当前状态", category: "state", label: "当前状态" },
                 { heading: "当前变量", category: "state", label: "当前变量" }
             ];
-            return sources.filter(({ heading }) => new RegExp("^【" + heading + "(?: · [^】\\r\\n]+)?】$", "m").test(text))
+            return sources.filter(({ heading }) => kinds.has(heading))
                 .map(({ category, label }) => ({ category, label }));
         }
         function describeSectionSource(name, rest) {
