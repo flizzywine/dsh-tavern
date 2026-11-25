@@ -19,10 +19,10 @@ const H = `${T}/home/.dsh-tavern`
 const DATA = `${H}/profile-data/tavern/data`
 const MARK = '# upgrade-marker-' + Date.now()
 mkdirSync(OUT, { recursive: true })
-const adb = (...a) => execFileSync('adb', a, { encoding: 'utf8', maxBuffer: 64 << 20 })
+const adb = (...a) => execFileSync('adb', a, { windowsHide: true, encoding: 'utf8', maxBuffer: 64 << 20 })
 const runAs = cmd => adb('shell', `run-as ${PKG} sh -c '${cmd.replace(/'/g, `'\\''`)}'`)
 const pushAs = (local, remote) => {
-  const r = spawnSync('adb', ['exec-in', 'run-as', PKG, 'sh', '-c', `mkdir -p '${dirname(remote)}' && cat > '${remote}'`], { input: readFileSync(local) })
+  const r = spawnSync('adb', ['exec-in', 'run-as', PKG, 'sh', '-c', `mkdir -p '${dirname(remote)}' && cat > '${remote}'`], { windowsHide: true, input: readFileSync(local) })
   if (r.status !== 0) throw new Error(`写入 ${remote} 失败：${r.stderr}`)
 }
 const sleep = ms => new Promise(r => setTimeout(r, ms))
@@ -93,7 +93,7 @@ const rpc = (method, args = {}) => page.evaluate(async ({ method, args }) => {
 
 try {
   await step('旧版：安装并玩一局（apk-smoke）', () => {
-    const r = spawnSync('node', [join(repo, 'android/native/apk-smoke.mjs'), '--apk', FROM, '--out', join(OUT, 'v1')], { encoding: 'utf8', timeout: 600000 })
+    const r = spawnSync('node', [join(repo, 'android/native/apk-smoke.mjs'), '--apk', FROM, '--out', join(OUT, 'v1')], { windowsHide: true, encoding: 'utf8', timeout: 600000 })
     if (r.status !== 0) throw new Error('旧版验收失败\n' + (r.stdout + r.stderr).slice(-3000))
   })
   const before = {}
@@ -106,7 +106,7 @@ try {
     before.indexSize = runAs(`wc -c < ${DATA}/index.json`).trim()
     // 新版安装包里有、旧版用户数据里还没有的内置插件：升级后应被播种并注册。
     const oldPlugins = runAs(`ls ${DATA}/plugins`).trim().split(/\s+/)
-    const newPlugins = execFileSync('tar', ['-tzf', join(dirname(TO), 'payload/payload.tar.gz'), '--wildcards', './home/.dsh-tavern/profile-data/tavern/data/plugins/*/package.json'], { encoding: 'utf8' })
+    const newPlugins = execFileSync('tar', ['-tzf', join(dirname(TO), 'payload/payload.tar.gz'), '--wildcards', './home/.dsh-tavern/profile-data/tavern/data/plugins/*/package.json'], { windowsHide: true, encoding: 'utf8' })
       .split('\n').map(l => l.split('/')[7]).filter(Boolean)
     before.newPlugins = [...new Set(newPlugins)].filter(name => !oldPlugins.includes(name))
     // 旧版程序里放一个新版不该保留的文件，用来确认程序目录确实整体替换了。

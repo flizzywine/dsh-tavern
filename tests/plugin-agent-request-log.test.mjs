@@ -6,6 +6,7 @@ import { createModelRequestLog } from '../tavern-plugin/lib/domain/model-request
 import { createForegroundOrchestrationStrategies } from '../tavern-plugin/lib/domain/foreground-orchestration-strategies.js'
 import { registerModelStreamHooks } from '../tavern-plugin/lib/hooks/model-stream.js'
 import { createInitializationNative } from './fixtures/conversation-initialization-native.mjs'
+import { legacySeedMessages } from './fixtures/legacy-seed-messages.mjs'
 
 function memoryLog() {
   const files = new Map()
@@ -28,7 +29,7 @@ test('Tavern sends and logs the same request after a template renders blank prom
       if (input.messages.some(message => message.content.every(block => block.type === 'text' && !block.text.trim()))) {
         throw Error('400: message content cannot be empty')
       }
-      received.push(input.messages)
+      received.push(input)
       yield { type: 'finish', reason: { kind: 'stop' } }
     }
   })
@@ -50,17 +51,26 @@ test('Tavern sends and logs the same request after a template renders blank prom
   })
   const hidden = { role: 'user', content: [{ type: 'text', text: '<% if (false) { %>旧提示<% } %>' }] }
   const visible = { role: 'user', content: [{ type: 'text', text: '继续故事' }] }
-  const original = Object.freeze({ sessionId, provider: 'initialization-fixture', model: 'text', system: '模板规则', messages: Object.freeze([hidden, visible]) })
+  const oldSeeds = legacySeedMessages(sessionId)
+  oldSeeds[0].source = { kind: 'plugin', plugin: 'dsh-tavern', form: 'synthetic-trajectory', version: 1 }
+  const tools = [{ name: 'submit_story', description: 'Save story', parameters: { type: 'object' } }]
+  const toolHistory = { tools: [{ name: 'bash', description: 'Old tool', parameters: { type: 'object' } }], updates: [] }
+  const original = Object.freeze({ sessionId, provider: 'initialization-fixture', model: 'text', system: '模板规则', messages: Object.freeze([...oldSeeds, hidden, visible]),
+    tools, toolHistory })
   const before = structuredClone(original)
   const events = await Array.fromAsync(h.ctx.llm.stream(original))
 
   assert.equal(events.at(-1)?.reason.kind, 'stop', JSON.stringify(events.at(-1)))
   assert.equal(renders, 1)
-  assert.deepEqual(received.map(messages => messages.flatMap(message => message.content.map(block => block.text))), [['继续故事']])
+  assert.deepEqual(received.map(input => input.messages.flatMap(message => message.content.map(block => block.text))), [['继续故事']])
+  assert.equal(received[0].toolHistory, undefined)
+  assert.deepEqual(received[0].tools, tools)
   const { requests } = await log.evidence(chat.id)
   assert.equal(requests.length, 1)
   assert.deepEqual(requests[0].request.messages, [visible])
   assert.equal(requests[0].request.system, undefined)
+  assert.equal(requests[0].request.toolHistory, undefined)
+  assert.deepEqual(requests[0].request.tools, tools)
   assert.deepEqual(original, before)
 })
 

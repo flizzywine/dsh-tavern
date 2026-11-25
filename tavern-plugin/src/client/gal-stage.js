@@ -207,12 +207,16 @@ function bindStageViews(createViews) {
         // newGame(id, {fresh:true}) (a never-played chat) resolves true when the sidebar opened a 游戏准备 that replaces it,
         // false when there is nothing to prepare (no listener answers: false).
         statusPanel:{rpc, signals:{subscribe:(id,refresh)=>tavernSessionSignals.subscribe(id,'tavern-state',refresh,()=>{},refresh)}, themeTokens:stageWidgetThemeTokens, sounds:forkUiSfx,
+            // the card frames' document scheme (frame-document.js: the host's light or dark): the frame element takes the same, else the browser paints an opaque canvas behind a transparent page
+            colorScheme:()=>currentTavernHostTheme(window).colorScheme,
             confirm:askTavernConfirm, newGame:(sessionId,options)=>new Promise(resolve=>{const detail={sessionId,fresh:options?.fresh===true,respond:resolve};window.dispatchEvent(new CustomEvent('dsh-tavern-new-game',{detail}));if(!detail.handled)resolve(false);}),
             // startOpening(id, {openingId, values, withoutGreeting}): a card's opening page starts the game (the sidebar's
             // one start path, dsh-tavern-stage-opening); it settles once the game stands and the stage has entered it.
             startOpening:(sessionId,choice)=>new Promise((resolve,reject)=>{const detail={sessionId,choice,respond:resolve,fail:reject};window.dispatchEvent(new CustomEvent('dsh-tavern-stage-opening',{detail}));if(!detail.handled)reject(new Error('开始游戏不可用'));}),
             useLiveView:useLiveTavernView, packService:()=>packTransport?.service,
             findPluginPanel:findTavernStagePluginPanel, PluginPanel:TavernStagePluginPanel,
+            // the card plugins' round-end buttons (registerPanel roundAction), read when a round has been read
+            roundActions:sessionId=>tavernUiExtensions.stageRoundActions(sessionId),
             createCardFrame:props=>createTavernMessageFrameLifecycle(props,{executeSlash:stageCardPageSlash()})},
         device:{matchMedia},
         mixer:{Icon, Slider, audio:forkStageAudio, sounds:forkUiSfx, entries:stageEntries, report:useStageEntryState, icons:ICON_PATHS},

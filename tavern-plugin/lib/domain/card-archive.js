@@ -10,7 +10,8 @@ import { MAX_SHARED_PRESET_BYTES } from './preset-reading.js'
 // the Galgame fork's card bundle (dsh-tavern-card-bundle.json), or a plain CHARX.
 
 const RESERVED = new Set(['icon', 'emotion', 'background', 'user_icon', 'other'])
-export const DSH_CARD_FORMAT_VERSION = 1
+// 2: an update package (dsh.json `base`), whose packs may leave out files the importer already has (card-files.js).
+export const DSH_CARD_FORMAT_VERSION = 2
 
 function invalid(message) { return Object.assign(new Error(message), { code: 'TAVERN_CARD_ARCHIVE_INVALID' }) }
 
@@ -46,16 +47,21 @@ function referencedPaths(card) {
 
 /**
  * What an archive holds: { kind, card, packs: [{ prefix, id, contentHash, format, title, credits }],
- * dependencies: [{ id, title }] (bound packs the archive does not carry), plugins, info, resolve(uri) }.
+ * dependencies: [{ id, title, contentHash }] (bound packs the archive does not carry), plugins, info, resolve(uri),
+ * base: { version } for an update package (its packs may leave out files the importer already has) }.
  * Previews only need the cover. Callers validating metadata can skip the card's assets entirely.
  */
 export async function readCardArchive(zip, { assets = 'all' } = {}) {
-  let kind, card, packs = [], dependencies = [], plugins = [], info = null, defaults = null, managed = null
+  let kind, card, packs = [], dependencies = [], plugins = [], info = null, defaults = null, managed = null, base = null
   if (zip.entries.has('dsh.json')) {
     kind = 'dshcard'
     const manifest = await readJson(zip, 'dsh.json', 'DSH 人物卡')
     if (manifest.format !== 'dshcard') throw invalid('dsh.json 的 format 不是 dshcard')
     if (!Number.isInteger(manifest.formatVersion) || manifest.formatVersion > DSH_CARD_FORMAT_VERSION) throw invalid('这张 DSH 人物卡的格式版本较新（' + manifest.formatVersion + '），请先更新 Tavern')
+    if (manifest.formatVersion >= 2) {
+      if (!manifest.base || typeof manifest.base !== 'object') throw invalid('dsh.json 缺少更新包的 base')
+      base = { version: String(manifest.base.version || '').slice(0, 40) }
+    }
     if (manifest.lock) managed = await inspectManagedArchive(zip.file)
     card = await readJson(zip, 'card.json', 'DSH 人物卡', MAX_CARD_JSON_BYTES)
     info = { version: String(manifest.card?.version || '').slice(0, 40), title: String(manifest.card?.title || '').slice(0, 120), author: String(manifest.card?.author || '').slice(0, 120),
@@ -68,7 +74,7 @@ export async function readCardArchive(zip, { assets = 'all' } = {}) {
     }
     for (const dependency of Array.isArray(manifest.dependencies) ? manifest.dependencies : []) {
       if (!validPackId(dependency?.id)) throw invalid('依赖的素材包 id 无效：' + dependency?.id)
-      dependencies.push({ id: dependency.id, title: String(dependency.title || '').slice(0, 120) })
+      dependencies.push({ id: dependency.id, title: String(dependency.title || '').slice(0, 120), contentHash: /^[0-9a-f]{64}$/.test(dependency.contentHash) ? dependency.contentHash : null })
     }
     plugins = (Array.isArray(manifest.plugins) ? manifest.plugins : []).map(plugin => ({ name: String(plugin?.name || ''), path: String(plugin?.path || ''), purpose: String(plugin?.purpose || '') }))
     // Preflight before the caller persists cards, packs, or import fingerprints.
@@ -121,7 +127,7 @@ export async function readCardArchive(zip, { assets = 'all' } = {}) {
     const match = /^data:[^,]*;base64,(.*)$/s.exec(uri)
     return match ? Buffer.from(match[1], 'base64') : undefined
   }
-  return { kind, card, packs, dependencies, plugins, info, defaults, resolve, ...(managed ? {managed} : {}) }
+  return { kind, card, packs, dependencies, plugins, info, defaults, resolve, ...(managed ? {managed} : {}), ...(base ? {base} : {}) }
 }
 
 /**
