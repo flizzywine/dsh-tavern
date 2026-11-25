@@ -1306,6 +1306,7 @@ window.__ModuleLoader__.load({
 // @include features/play-interaction-panels.js
 // @include features/play-controls.js
 
+// @include modules/context-window-model.js
 // @include features/request-context.js
 // @include features/polish-compare.js
 

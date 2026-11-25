@@ -1620,6 +1620,15 @@
 					return React.createElement(StoryFloorRailHost, { sessionId: props.sessionId });
 				}
 			)), "dsh-tavern: story floor rail");
+			ctx.effect(() => slots.inject("conversation.session.header.utilities", () => slots.register(
+				{ name: "conversation.session.header.utilities", id: "dsh-tavern-context-window-overlay", order: -103, label: "上下文窗口浮层" },
+				function (props) {
+					if (ctx.sessions && typeof ctx.sessions.subagentAddress === "function" && ctx.sessions.subagentAddress(props.sessionId)) return null;
+					return typeof TavernContextWindowOverlay === "function"
+						? React.createElement(TavernContextWindowOverlay, { sessionId: props.sessionId })
+						: null;
+				}
+			)), "dsh-tavern: context window overlay");
 			ctx.effect(() => slots.inject("conversation.input.dock", () => slots.register(
 				{ name: "conversation.input.dock", id: "dsh-fork-session-shell", order: -200, label: "会话外壳" },
 				function (props) { return React.createElement(React.Fragment, null,

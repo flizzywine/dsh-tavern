@@ -363,17 +363,481 @@
             const pure = record.request.messages?.some(message => isWhiteGloveMessage(message, "write") || isCurrentWhiteGloveInjection(message, record.turn));
             return pure ? "white-glove" : "standard";
         }
+        function buildEnrichedSections(request) {
+            return requestContextSections(request).map(section => {
+                const sourceTags = (section.sources || []).map(src => (CONTEXT_SOURCE_CATEGORIES[src.category] || "") + " " + src.label).join(" ");
+                return { ...section, tokens: estimateTavernTokens(section.text), searchText: (section.title + " " + sourceTags + " " + section.text).toLowerCase() };
+            });
+        }
+        function syncBootTriggerVisual(sessionId, summary) {
+            if (typeof window === "undefined") return;
+            const bridge = window.__dshTavernGenerationStreamMode;
+            if (!bridge || typeof bridge.setContextVisual !== "function") return;
+            bridge.setContextVisual({
+                sessionId: sessionId || "",
+                triggerState: summary ? summary.triggerState : null
+            });
+        }
+        function safeBucketLabel(bucketKey) {
+            if (typeof TAVERN_CONTEXT_BUCKETS !== "undefined") {
+                const hit = TAVERN_CONTEXT_BUCKETS.find(item => item.key === bucketKey);
+                if (hit) return hit.label;
+            }
+            return bucketKey;
+        }
+        function safeFormatTokens(tokens) {
+            if (typeof formatContextTokens === "function") return formatContextTokens(tokens);
+            return typeof tokens === "number" ? tokens.toLocaleString() : "—";
+        }
+        function safeHealthLabel(summary) {
+            if (!summary) return "健康";
+            if (summary.health === "danger") return "需压缩";
+            if (summary.health === "warn") return summary.cache?.hasAlert ? "缓存中断" : "注意容量";
+            return "健康";
+        }
+        function renderSectionDetailContent(h, section, breakPoint, keyPrefix) {
+            if (!section) return null;
+            const isBreakSection = Boolean(breakPoint && section.cacheKey === breakPoint.key);
+            const renderedParts = (section.displayParts || [{ text: section.text }]).filter(part => part.text && part.text.trim());
+            const hasPartBreakdown = isBreakSection && !breakPoint.roleChanged && Number.isInteger(breakPoint.partIndex) && (renderedParts.length > 1 || breakPoint.partIndex >= renderedParts.length);
+            return h(React.Fragment, null,
+                isBreakSection ? renderBreakDiffBox(h, breakPoint) : null,
+                ...renderedParts.map((part, index) => {
+                    const partCacheState = hasPartBreakdown
+                        ? (index < breakPoint.partIndex ? "hit" : index === breakPoint.partIndex ? "break" : "cascade")
+                        : (isBreakSection && breakPoint.partIndex === index ? "break" : "");
+                    const partCacheCls = partCacheState === "hit"
+                        ? " is-part-hit"
+                        : partCacheState === "break"
+                            ? " is-break-part"
+                            : partCacheState === "cascade"
+                                ? " is-part-cascade"
+                                : "";
+                    const partCacheTag = partCacheState === "break"
+                        ? h("span", { className: "dsh-context-part-break-tag" }, "首处差异")
+                        : partCacheState === "hit"
+                            ? h("span", { className: "dsh-context-part-hit-tag" }, "一致前缀")
+                            : partCacheState === "cascade"
+                                ? h("span", { className: "dsh-context-part-cascade-tag" }, "差异之后")
+                                : null;
+                    const partCat = part.sourceCategory && CONTEXT_SOURCE_CATEGORIES[part.sourceCategory];
+                    return part.catalog
+                        ? h("details", { key: (keyPrefix || "") + "part-" + index, className: "dsh-context-source" + partCacheCls },
+                            h("summary", null, h("span", { className: "dsh-context-chevron", "aria-hidden": true }, "›"), part.label, partCacheTag),
+                            h("pre", null, part.text))
+                        : h("div", { key: (keyPrefix || "") + "part-" + index, className: partCacheCls ? "dsh-context-part" + partCacheCls : undefined },
+                            part.label ? h("div", { className: "dsh-context-part-label" },
+                                partCat ? h("span", { className: "dsh-context-source-pill is-src-" + part.sourceCategory }, partCat) : null,
+                                part.label,
+                                partCacheTag) : null,
+                            h("pre", null, part.text));
+                }),
+                section.metadataText && section.metadataText !== "{}" ? h("details", { className: "dsh-context-source" },
+                    h("summary", null, h("span", { className: "dsh-context-chevron", "aria-hidden": true }, "›"), "来源与消息信息"),
+                    h("pre", null, section.metadataText)) : null);
+        }
+        async function executeSessionCompaction(sessionId) {
+            if (!sessionId) throw new Error("当前会话未就绪");
+            if (typeof compactionRuns !== "undefined") compactionRuns.set(sessionId, { phase: "running" });
+            try {
+                const response = await rpc("runCompaction", {}, sessionId);
+                const operation = response && response.result;
+                if (!operation) throw new Error("当前会话不支持剧情压缩");
+                if (operation.status !== "completed") throw new Error("上下文压缩未全部完成");
+                if (typeof compactionRuns !== "undefined") compactionRuns.set(sessionId, null);
+                return operation;
+            } catch (err) {
+                if (typeof compactionRuns !== "undefined") {
+                    compactionRuns.set(sessionId, { phase: "failed", message: String(err && err.message || err) });
+                }
+                throw err;
+            } finally {
+                if (typeof liveTavernView !== "undefined" && typeof liveTavernView.invalidate === "function") {
+                    liveTavernView.invalidate(sessionId);
+                }
+            }
+        }
+        function TavernContextMapViz(props) {
+            const h = React.createElement;
+            const summary = props.summary;
+            const variant = props.variant || "full";
+            const mode = props.mode || "treemap";
+            const activeBucket = props.activeBucket || "";
+            const selectedTile = props.selectedTile || null;
+            const [hoveredTile, setHoveredTile] = React.useState(null);
+            const dims = variant === "popover"
+                ? { width: 394, height: 132, maxTiles: 12 }
+                : variant === "sheet"
+                    ? { width: 342, height: 164, maxTiles: 10 }
+                    : { width: 760, height: 176, maxTiles: 18 };
+            const treemapData = React.useMemo(() => {
+                if (!summary || typeof computeContextMapTiles !== "function") return { tiles: [], thresholdLineX: null };
+                return computeContextMapTiles(summary, dims);
+            }, [summary, dims.width, dims.height, dims.maxTiles]);
+            const waffleCells = React.useMemo(() => {
+                if (!summary || mode !== "waffle" || typeof computeContextWaffleCells !== "function") return [];
+                return computeContextWaffleCells(summary, 400);
+            }, [summary, mode]);
+            if (!summary) return null;
+
+            function handleTileClick(tile) {
+                if (!tile) return;
+                if (tile.kind === "free") {
+                    props.onSelectTile && props.onSelectTile(tile);
+                    return;
+                }
+                if (tile.kind === "group") {
+                    props.onSelectTile && props.onSelectTile(tile);
+                    props.onBucketChange && props.onBucketChange(activeBucket === tile.bucket ? "" : tile.bucket);
+                    return;
+                }
+                if (variant === "sheet") {
+                    if (selectedTile && selectedTile.id === tile.id && tile.cacheKey) {
+                        props.onOpenSection && props.onOpenSection(tile.cacheKey, tile);
+                    } else {
+                        props.onSelectTile && props.onSelectTile(tile);
+                    }
+                    return;
+                }
+                props.onSelectTile && props.onSelectTile(tile);
+                if (tile.cacheKey && props.onOpenSection) props.onOpenSection(tile.cacheKey, tile);
+            }
+
+            const bucketsForLegend = (summary.buckets || []).filter(b => b.tokens > 0);
+            const displayLegend = bucketsForLegend.length ? bucketsForLegend : (summary.buckets || []);
+            const tipTile = hoveredTile || (variant !== "sheet" ? selectedTile : null);
+
+            return h("div", { className: "dsh-ctx-viz-wrap", "data-variant": variant },
+                mode === "treemap"
+                    ? h("div", { className: "dsh-ctx-treemap is-" + variant, role: "region", "aria-label": "上下文空间 Treemap 分布" },
+                        treemapData.thresholdLineX !== null && treemapData.thresholdLineX > 4 && treemapData.thresholdLineX < 98
+                            ? h("div", {
+                                className: "dsh-ctx-threshold-line",
+                                style: { left: treemapData.thresholdLineX.toFixed(2) + "%" },
+                                "aria-hidden": "true"
+                            }, h("span", { className: "dsh-ctx-threshold-tag" }, summary.compactionThresholdPercent + "%"))
+                            : null,
+                        treemapData.tiles.map(tile => {
+                            const dimmed = activeBucket && tile.kind !== "free" && tile.bucket !== activeBucket;
+                            const isSelected = selectedTile && selectedTile.id === tile.id;
+                            const cls = "dsh-ctx-tile is-bucket-" + tile.bucket +
+                                (tile.kind === "free" ? " is-free" : "") +
+                                (tile.kind === "group" ? " is-group" : "") +
+                                (tile.isFirstBreak ? " is-break" : "") +
+                                (dimmed ? " is-dimmed" : "") +
+                                (isSelected ? " is-selected" : "");
+                            const pctStr = Math.round((tile.share || 0) * 1000) / 10;
+                            const ariaLabel = tile.label + " · " + safeFormatTokens(tile.tokens) + " tokens · " + pctStr + "%";
+                            return h("button", {
+                                key: tile.id,
+                                type: "button",
+                                className: cls,
+                                style: {
+                                    left: tile.x.toFixed(3) + "%",
+                                    top: tile.y.toFixed(3) + "%",
+                                    width: tile.w.toFixed(3) + "%",
+                                    height: tile.h.toFixed(3) + "%"
+                                },
+                                "data-ctx-tile": tile.id,
+                                "data-ctx-bucket": tile.bucket,
+                                title: ariaLabel,
+                                "aria-label": ariaLabel,
+                                onMouseEnter: variant === "sheet" ? undefined : () => setHoveredTile(tile),
+                                onMouseLeave: variant === "sheet" ? undefined : () => setHoveredTile(prev => (prev && prev.id === tile.id ? null : prev)),
+                                onClick: () => handleTileClick(tile)
+                            },
+                            tile.isFirstBreak ? h("span", { className: "dsh-ctx-tile-break", title: "首处缓存断层" }, "!") : null,
+                            tile.showLabel ? h("span", { className: "dsh-ctx-tile-title" }, tile.label) : null,
+                            tile.showTokens ? h("span", { className: "dsh-ctx-tile-val" }, safeFormatTokens(tile.tokens) + (tile.kind === "free" ? " · " + pctStr + "%" : "")) : null);
+                        }))
+                    : h("div", { className: "dsh-ctx-waffle is-" + variant, role: "img", "aria-label": "400 格上下文占比网格" },
+                        waffleCells.map(cell => {
+                            const dimmed = activeBucket && !cell.isFree && cell.bucket !== activeBucket;
+                            return h("span", {
+                                key: cell.index,
+                                className: "dsh-ctx-waffle-cell is-bucket-" + cell.bucket + (cell.isFree ? " is-free" : "") + (dimmed ? " is-dimmed" : ""),
+                                title: cell.label
+                            });
+                        })),
+                variant === "sheet" && selectedTile ? h("div", { className: "dsh-ctx-selected-bar" },
+                    h("span", { className: "dsh-ctx-dot is-bucket-" + selectedTile.bucket }),
+                    h("span", { className: "dsh-ctx-selected-name" }, selectedTile.label),
+                    h("span", { className: "dsh-ctx-selected-meta" }, safeFormatTokens(selectedTile.tokens) + " · " + (Math.round((selectedTile.share || 0) * 1000) / 10) + "%"),
+                    selectedTile.cacheKey && selectedTile.kind !== "free"
+                        ? h("button", {
+                            type: "button",
+                            className: "dsh-ctx-selected-action",
+                            onClick: () => props.onOpenSection && props.onOpenSection(selectedTile.cacheKey, selectedTile)
+                        }, "查看原文 ›")
+                        : null) : null,
+                variant !== "sheet" && tipTile ? h("div", { className: "dsh-ctx-tooltip" },
+                    h("span", { className: "dsh-ctx-dot is-bucket-" + tipTile.bucket }),
+                    h("span", { className: "dsh-ctx-tooltip-label" }, tipTile.label),
+                    h("span", { className: "dsh-ctx-tooltip-val" }, safeFormatTokens(tipTile.tokens) + " tokens · " + (Math.round((tipTile.share || 0) * 1000) / 10) + "%"),
+                    tipTile.isFirstBreak ? h("span", { className: "dsh-ctx-break-tag" }, "首处缓存断层") : null) : null,
+                h("div", { className: "dsh-ctx-viz-footer" },
+                    h("div", { className: "dsh-ctx-legend", role: "group", "aria-label": "语境桶图例" },
+                        displayLegend.map(b => h("button", {
+                            key: b.key,
+                            type: "button",
+                            className: "dsh-ctx-legend-item" + (activeBucket === b.key ? " is-active" : "") + (b.tokens <= 0 ? " is-empty" : ""),
+                            onClick: () => props.onBucketChange && props.onBucketChange(activeBucket === b.key ? "" : b.key)
+                        },
+                        h("span", { className: "dsh-ctx-dot is-bucket-" + b.key }),
+                        h("span", { className: "dsh-ctx-legend-name" }, variant === "popover" ? b.shortLabel : b.label),
+                        h("span", { className: "dsh-ctx-legend-val" }, safeFormatTokens(b.tokens)))),
+                        summary.freeTokens > 0 ? h("span", { className: "dsh-ctx-legend-item is-readonly" },
+                            h("span", { className: "dsh-ctx-dot is-bucket-free" }),
+                            h("span", { className: "dsh-ctx-legend-name" }, "剩余"),
+                            h("span", { className: "dsh-ctx-legend-val" }, safeFormatTokens(summary.freeTokens))) : null),
+                    h("div", { className: "dsh-ctx-mode-switch", role: "group", "aria-label": "视图模式切换" },
+                        h("button", {
+                            type: "button",
+                            className: "dsh-ctx-mode-btn" + (mode === "treemap" ? " is-active" : ""),
+                            "aria-label": "Treemap 块状图",
+                            "aria-pressed": mode === "treemap",
+                            title: "Treemap 面积视图",
+                            onClick: () => props.onModeChange && props.onModeChange("treemap")
+                        }, h("svg", { viewBox: "0 0 14 14", width: 13, height: 13, "aria-hidden": true },
+                            h("rect", { x: 1, y: 1, width: 6, height: 7, rx: 1, fill: "currentColor" }),
+                            h("rect", { x: 8.5, y: 1, width: 4.5, height: 12, rx: 1, fill: "currentColor", opacity: 0.45 }),
+                            h("rect", { x: 1, y: 9.5, width: 6, height: 3.5, rx: 1, fill: "currentColor", opacity: 0.72 }))),
+                        h("button", {
+                            type: "button",
+                            className: "dsh-ctx-mode-btn" + (mode === "waffle" ? " is-active" : ""),
+                            "aria-label": "Waffle 网格图",
+                            "aria-pressed": mode === "waffle",
+                            title: "400 格精确网格",
+                            onClick: () => props.onModeChange && props.onModeChange("waffle")
+                        }, h("svg", { viewBox: "0 0 14 14", width: 13, height: 13, "aria-hidden": true },
+                            h("rect", { x: 1, y: 1, width: 3, height: 3, rx: 0.6, fill: "currentColor" }),
+                            h("rect", { x: 5.5, y: 1, width: 3, height: 3, rx: 0.6, fill: "currentColor" }),
+                            h("rect", { x: 10, y: 1, width: 3, height: 3, rx: 0.6, fill: "currentColor", opacity: 0.45 }),
+                            h("rect", { x: 1, y: 5.5, width: 3, height: 3, rx: 0.6, fill: "currentColor" }),
+                            h("rect", { x: 5.5, y: 5.5, width: 3, height: 3, rx: 0.6, fill: "currentColor", opacity: 0.7 }),
+                            h("rect", { x: 10, y: 5.5, width: 3, height: 3, rx: 0.6, fill: "currentColor", opacity: 0.45 }),
+                            h("rect", { x: 1, y: 10, width: 3, height: 3, rx: 0.6, fill: "currentColor", opacity: 0.45 }),
+                            h("rect", { x: 5.5, y: 10, width: 3, height: 3, rx: 0.6, fill: "currentColor", opacity: 0.45 }),
+                            h("rect", { x: 10, y: 10, width: 3, height: 3, rx: 0.6, fill: "currentColor", opacity: 0.3 }))))));
+        }
+        function TavernContextSparkline(props) {
+            const h = React.createElement;
+            const series = (Array.isArray(props.series) ? props.series : []).filter(p => Number(p && p.tokens) > 0);
+            if (!series.length) return null;
+            const contextWindow = Number(props.contextWindow) || 0;
+            const latest = series[series.length - 1];
+            if (series.length < 2) {
+                return h("div", { className: "dsh-ctx-sparkline-box is-single" },
+                    h("span", { className: "dsh-ctx-sparkline-label" }, "第 " + (latest.turn || 1) + " 轮 · 输入 " + safeFormatTokens(latest.tokens)));
+            }
+            const maxVal = Math.max(contextWindow, ...series.map(p => p.tokens), 1);
+            const W = 220;
+            const H = 38;
+            const padY = 4;
+            const usableH = H - padY * 2;
+            const pts = series.map((item, idx) => {
+                const x = (idx / Math.max(1, series.length - 1)) * W;
+                const y = padY + (1 - Math.min(1, item.tokens / maxVal)) * usableH;
+                return { x: Number(x.toFixed(1)), y: Number(y.toFixed(1)), item };
+            });
+            const polyLine = pts.map(p => p.x + "," + p.y).join(" ");
+            const areaPts = "0," + H + " " + polyLine + " " + W + "," + H;
+            const thresholdRatio = contextWindow > 0 && props.thresholdPercent > 0 ? Math.min(1, props.thresholdPercent / 100) : 0;
+            const thresholdY = thresholdRatio > 0 ? Number((padY + (1 - thresholdRatio) * usableH).toFixed(1)) : null;
+            const last = pts[pts.length - 1];
+            return h("div", { className: "dsh-ctx-sparkline-box" },
+                h("div", { className: "dsh-ctx-sparkline-meta" },
+                    h("span", { className: "dsh-ctx-sparkline-label" }, "近 " + series.length + " 轮输入走势"),
+                    h("span", { className: "dsh-ctx-sparkline-latest" }, safeFormatTokens(latest.tokens))),
+                h("svg", { className: "dsh-ctx-sparkline-svg", viewBox: "0 0 " + W + " " + H, preserveAspectRatio: "none", "aria-hidden": true },
+                    thresholdY !== null ? h("line", { className: "dsh-ctx-sparkline-thresh", x1: 0, y1: thresholdY, x2: W, y2: thresholdY }) : null,
+                    h("polygon", { className: "dsh-ctx-sparkline-area", points: areaPts }),
+                    h("polyline", { className: "dsh-ctx-sparkline-line", points: polyLine }),
+                    h("circle", { className: "dsh-ctx-sparkline-dot", cx: last.x, cy: last.y, r: 2.8 })));
+        }
+        function TavernContextOverviewCard(props) {
+            const h = React.createElement;
+            const summary = props.summary;
+            const variant = props.variant || "full";
+            const [mode, setMode] = React.useState("treemap");
+            const [activeBucket, setActiveBucket] = React.useState("");
+            const [selectedTile, setSelectedTile] = React.useState(null);
+            const [showAll, setShowAll] = React.useState(false);
+
+            React.useEffect(() => {
+                setSelectedTile(null);
+            }, [props.record && props.record.id, props.scope]);
+
+            if (!summary) return null;
+
+            const topLimit = variant === "popover" ? 5 : (variant === "sheet" ? 6 : 8);
+            const sortedItems = React.useMemo(() => {
+                const list = (summary.items || []).filter(item => item.tokens > 0 && (!activeBucket || item.bucket === activeBucket));
+                return list.slice().sort((a, b) => {
+                    if (b.tokens !== a.tokens) return b.tokens - a.tokens;
+                    return a.index - b.index;
+                });
+            }, [summary, activeBucket]);
+
+            const shownItems = showAll ? sortedItems : sortedItems.slice(0, topLimit);
+            const maxItemTokens = sortedItems.length ? Math.max(1, sortedItems[0].tokens) : 1;
+            const modelName = props.record?.request?.model || "";
+            const usedPctStr = summary.usedPercent !== null ? (Math.round(summary.usedPercent * 10) / 10) + "%" : "—";
+            const nonZeroBuckets = (summary.buckets || []).filter(b => b.tokens > 0);
+            const canCompact = typeof props.onCompact === "function";
+
+            return h("div", { className: "dsh-ctx-card is-" + variant },
+                h("div", { className: "dsh-ctx-card-top" },
+                    h("div", { className: "dsh-ctx-card-title-row" },
+                        h("span", { className: "dsh-ctx-card-title" }, "上下文窗口"),
+                        h("span", { className: "dsh-ctx-health is-" + summary.health }, safeHealthLabel(summary)),
+                        variant === "full" && summary.hasBackground && props.onScopeChange
+                            ? h("div", { className: "dsh-ctx-scope-switch", role: "group", "aria-label": "作用域切换" },
+                                h("button", { type: "button", className: "dsh-ctx-scope-btn" + (props.scope !== "background" ? " is-active" : ""), onClick: () => props.onScopeChange("foreground") }, "前台"),
+                                h("button", { type: "button", className: "dsh-ctx-scope-btn" + (props.scope === "background" ? " is-active" : ""), onClick: () => props.onScopeChange("background") }, "后台"))
+                            : null),
+                    h("div", { className: "dsh-ctx-card-actions" },
+                        modelName ? h("span", { className: "dsh-ctx-model-pill", title: modelName }, modelName) : null,
+                        variant === "full" && props.onRefresh
+                            ? h("button", { type: "button", className: "dsh-ctx-icon-btn", disabled: props.loading, onClick: props.onRefresh }, props.loading ? "读取中…" : "刷新")
+                            : null,
+                        props.onClose
+                            ? h("button", { type: "button", className: "dsh-ctx-close-btn", "aria-label": "关闭上下文窗口", onClick: props.onClose }, "×")
+                            : null)),
+                h("div", { className: "dsh-ctx-kpi-grid" },
+                    h("div", { className: "dsh-ctx-kpi" },
+                        h("div", { className: "dsh-ctx-kpi-label" },
+                            h("span", null, "已用上下文"),
+                            h("span", { className: "dsh-ctx-measure-tag" }, summary.measured ? "实测" : "估算")),
+                        h("div", { className: "dsh-ctx-kpi-main" },
+                            h("strong", { className: "dsh-ctx-kpi-value" }, safeFormatTokens(summary.usedTokens)),
+                            h("span", { className: "dsh-ctx-kpi-cap" }, summary.contextWindow ? (" / " + safeFormatTokens(summary.contextWindow) + " token") : " token")),
+                        h("div", { className: "dsh-ctx-kpi-sub" },
+                            summary.contextWindow
+                                ? ("已用 " + usedPctStr + " · 剩余 " + safeFormatTokens(summary.freeTokens))
+                                : "模型窗口上限未知")),
+                    h("div", { className: "dsh-ctx-kpi" },
+                        h("div", { className: "dsh-ctx-kpi-label" },
+                            h("span", null, "缓存命中率"),
+                            summary.cache?.hasAlert ? h("span", { className: "dsh-ctx-cache-alert-dot" }, "缓存中断") : null),
+                        h("div", { className: "dsh-ctx-kpi-main" },
+                            h("strong", { className: "dsh-ctx-kpi-value" + (summary.cache?.hasAlert ? " is-warn" : "") },
+                                summary.cache?.measured ? formatCachePercent(summary.cache.hitRate) : "—"),
+                            summary.cache?.hasAlert && summary.firstBreakKey && props.onSelectSection
+                                ? h("button", {
+                                    type: "button",
+                                    className: "dsh-ctx-break-link",
+                                    onClick: () => props.onSelectSection(summary.firstBreakKey)
+                                }, "定位首处断层 ›")
+                                : null),
+                        h("div", { className: "dsh-ctx-kpi-sub" },
+                            summary.cache?.measured
+                                ? ("读 " + safeFormatTokens(summary.cache.readTokens) + " · 写 " + safeFormatTokens(summary.cache.writeTokens) + " · 未命中 " + safeFormatTokens(summary.cache.uncachedTokens))
+                                : "等待供应商缓存统计"))),
+                h(TavernContextMapViz, {
+                    summary,
+                    mode,
+                    onModeChange: setMode,
+                    variant,
+                    activeBucket,
+                    onBucketChange: setActiveBucket,
+                    selectedTile,
+                    onSelectTile: setSelectedTile,
+                    onOpenSection: props.onSelectSection
+                }),
+                variant !== "popover" && (summary.recentSeries?.length > 0 || canCompact)
+                    ? h("div", { className: "dsh-ctx-trend-row" },
+                        h(TavernContextSparkline, {
+                            series: summary.recentSeries,
+                            contextWindow: summary.contextWindow,
+                            thresholdPercent: summary.compactionThresholdPercent
+                        }),
+                        variant === "full" && canCompact
+                            ? h("div", { className: "dsh-ctx-compact-wrap" },
+                                h("button", {
+                                    type: "button",
+                                    className: "dsh-ctx-action-btn is-primary",
+                                    disabled: props.compacting || props.compactDisabled,
+                                    onClick: props.onCompact
+                                }, props.compacting ? "压缩中…" : "手动压缩上下文"),
+                                props.compactionNotice ? h("span", { className: "dsh-ctx-compact-note" }, props.compactionNotice) : null)
+                            : null)
+                    : null,
+                h("div", { className: "dsh-ctx-ranking" },
+                    h("div", { className: "dsh-ctx-ranking-head" },
+                        h("span", { className: "dsh-ctx-ranking-title" }, "内容分布"),
+                        nonZeroBuckets.length > 1
+                            ? h("div", { className: "dsh-ctx-chips", role: "group", "aria-label": "按语境桶筛选内容" },
+                                h("button", { type: "button", className: "dsh-ctx-chip" + (!activeBucket ? " is-active" : ""), onClick: () => setActiveBucket("") }, "全部"),
+                                nonZeroBuckets.map(b => h("button", {
+                                    key: b.key,
+                                    type: "button",
+                                    className: "dsh-ctx-chip" + (activeBucket === b.key ? " is-active" : ""),
+                                    onClick: () => setActiveBucket(prev => prev === b.key ? "" : b.key)
+                                }, variant === "popover" ? b.shortLabel : b.label)))
+                            : null),
+                    h("div", { className: "dsh-ctx-rows" },
+                        shownItems.map(item => {
+                            const barPct = Math.max(3, Math.round((item.tokens / maxItemTokens) * 100));
+                            return h("button", {
+                                key: item.id,
+                                type: "button",
+                                className: "dsh-ctx-row" + (item.isFirstBreak ? " is-break" : ""),
+                                onClick: () => item.cacheKey && props.onSelectSection && props.onSelectSection(item.cacheKey, item)
+                            },
+                            h("span", { className: "dsh-ctx-dot is-bucket-" + item.bucket }),
+                            h("span", { className: "dsh-ctx-row-main" },
+                                h("span", { className: "dsh-ctx-row-title" }, item.title),
+                                item.subtitle ? h("span", { className: "dsh-ctx-row-sub" }, item.subtitle) : null),
+                            item.isFirstBreak
+                                ? h("span", { className: "dsh-ctx-row-badge is-break" }, "首处差异")
+                                : (item.cacheStatus === "appended"
+                                    ? h("span", { className: "dsh-ctx-row-badge is-appended" }, "新增")
+                                    : null),
+                            h("span", { className: "dsh-ctx-row-meter", "aria-hidden": true },
+                                h("span", { className: "dsh-ctx-row-fill is-bucket-" + item.bucket, style: { width: barPct + "%" } })),
+                            h("span", { className: "dsh-ctx-row-val" }, safeFormatTokens(item.tokens)));
+                        })),
+                    sortedItems.length > topLimit
+                        ? h("button", {
+                            type: "button",
+                            className: "dsh-ctx-show-all",
+                            onClick: () => setShowAll(prev => !prev)
+                        }, showAll ? "收起明细" : ("显示全部 " + sortedItems.length + " 项"))
+                        : null),
+                variant === "popover"
+                    ? h("div", { className: "dsh-ctx-popover-footer" },
+                        canCompact
+                            ? h("button", {
+                                type: "button",
+                                className: "dsh-ctx-action-btn",
+                                disabled: props.compacting || props.compactDisabled,
+                                onClick: props.onCompact
+                            }, props.compacting ? "压缩中…" : "压缩上下文")
+                            : h("span", { className: "dsh-ctx-footer-hint" }, props.record ? ("第 " + props.record.turn + " 轮 · 步骤 " + props.record.step) : ""),
+                        props.onOpenFull
+                            ? h("button", { type: "button", className: "dsh-ctx-action-btn is-primary", onClick: props.onOpenFull }, "完整分析 ›")
+                            : null)
+                    : null);
+        }
         function FullRequestContextView(props) {
-			const h = React.createElement;
+            const h = React.createElement;
             const [record, setRecord] = React.useState(null);
+            const [meta, setMeta] = React.useState(null);
+            const [scope, setScope] = React.useState("foreground");
             const [error, setError] = React.useState("");
             const [query, setQuery] = React.useState("");
             const [sourceFilter, setSourceFilter] = React.useState("all");
             const [refresh, setRefresh] = React.useState(0);
             const [jumpTarget, setJumpTarget] = React.useState({ key: "", tick: 0 });
+            const [compacting, setCompacting] = React.useState(false);
+            const [compactionNotice, setCompactionNotice] = React.useState("");
             const loaded = React.useRef(null);
             const listRef = React.useRef(null);
             const [loading, setLoading] = React.useState(true);
+            const compaction = typeof useCompactionState === "function"
+                ? useCompactionState(props.contextSessionId, [["contextCompaction"]])
+                : { running: false };
             // Contexts reach 100k+ characters; filter off the typing path.
             const deferredQuery = React.useDeferredValue(query.toLowerCase());
             React.useEffect(() => {
@@ -383,28 +847,47 @@
             }, [props.contextSessionId]);
             React.useEffect(() => {
                 let active = true; setError(""); setLoading(true);
-                if (loaded.current?.sessionId !== props.contextSessionId) { loaded.current = null; setRecord(null); setSourceFilter("all"); }
-                rpc("getLatestRequestContext", { sessionId: props.contextSessionId, knownId: loaded.current?.id || "", knownStatus: loaded.current?.status || "" }, props.contextSessionId)
-                    .then(value => { if (active && !value.record?.unchanged) { setRecord(value.record); loaded.current = value.record ? { sessionId: props.contextSessionId, id: value.record.id, status: value.record.status || "" } : null; } })
+                const cacheTag = props.contextSessionId + ":" + scope;
+                if (loaded.current?.cacheTag !== cacheTag) { loaded.current = null; setRecord(null); setSourceFilter("all"); }
+                rpc("getLatestRequestContext", {
+                    sessionId: props.contextSessionId,
+                    knownId: loaded.current?.id || "",
+                    knownStatus: loaded.current?.status || "",
+                    scope,
+                    includeMeta: true
+                }, props.contextSessionId)
+                    .then(value => {
+                        if (!active) return;
+                        if (value.meta) setMeta(value.meta);
+                        if (!value.record?.unchanged) {
+                            setRecord(value.record);
+                            loaded.current = value.record ? { cacheTag, sessionId: props.contextSessionId, id: value.record.id, status: value.record.status || "" } : null;
+                        }
+                    })
                     .catch(e => { if (active) setError(String(e.message || e)); })
                     .finally(() => { if (active) setLoading(false); });
                 return () => { active = false; };
-            }, [props.contextSessionId, refresh]);
+            }, [props.contextSessionId, scope, refresh]);
             React.useEffect(() => {
                 if (!jumpTarget.key || !listRef.current || deferredQuery || sourceFilter !== "all") return;
                 const el = listRef.current.querySelector('[data-cache-key="' + jumpTarget.key.replace(/"/g, '\\"') + '"]');
                 if (el && typeof el.scrollIntoView === "function") el.scrollIntoView({ behavior: "smooth", block: "center" });
             }, [jumpTarget, deferredQuery, sourceFilter]);
-			const request = record && record.request;
+            const request = record && record.request;
             const foregroundMode = foregroundRequestMode(record);
             const cacheDiff = record && record.cacheDiff;
             const sectionStatusMap = (cacheDiff && cacheDiff.sectionStatus) || {};
             const breakPoint = (cacheDiff && cacheDiff.breakPoint) || null;
             const text = React.useMemo(() => request ? JSON.stringify(request, null, 2) : "", [request]);
-            const sections = React.useMemo(() => requestContextSections(request).map(section => {
-                const sourceTags = (section.sources || []).map(src => (CONTEXT_SOURCE_CATEGORIES[src.category] || "") + " " + src.label).join(" ");
-                return { ...section, tokens: estimateTavernTokens(section.text), searchText: (section.title + " " + sourceTags + " " + section.text).toLowerCase() };
-            }), [request]);
+            const sections = React.useMemo(() => buildEnrichedSections(request), [request]);
+            const summary = React.useMemo(() => {
+                if (!record && !meta) return null;
+                if (typeof buildContextWindowSummary !== "function") return null;
+                return buildContextWindowSummary(record, meta, sections);
+            }, [record, meta, sections]);
+            React.useEffect(() => {
+                if (scope === "foreground" && summary) syncBootTriggerVisual(props.contextSessionId, summary);
+            }, [props.contextSessionId, scope, summary]);
             const injection = foregroundMode === "white-glove"
                 ? sections.findLast(section => isCurrentWhiteGloveInjection(section.value, record.turn)) : undefined;
             const sourceCounts = React.useMemo(() => {
@@ -419,9 +902,24 @@
                 downloadTavernBlob(new Blob([text], { type: "application/json;charset=utf-8" }), "request-context.json");
             }
             function jumpToSection(key) {
+                if (!key) return;
                 if (query) setQuery("");
                 if (sourceFilter !== "all") setSourceFilter("all");
                 setJumpTarget(prev => ({ key, tick: prev.tick + 1 }));
+            }
+            async function handleCompact() {
+                if (compacting || compaction.running) return;
+                setCompacting(true);
+                setCompactionNotice("");
+                try {
+                    const op = await executeSessionCompaction(props.contextSessionId);
+                    setCompactionNotice(op.backgroundSessionId ? "前后台压缩已启动" : "压缩已完成");
+                    setRefresh(v => v + 1);
+                } catch (err) {
+                    setCompactionNotice(String(err && err.message || err));
+                } finally {
+                    setCompacting(false);
+                }
             }
             const visibleSections = React.useMemo(() => sections.filter(section => {
                 if (sourceFilter !== "all" && !(section.sources || []).some(src => src.category === sourceFilter)) return false;
@@ -429,9 +927,27 @@
                 return true;
             }), [sections, sourceFilter, deferredQuery]);
             return h("section", { className: "dsh-tavern-full-context" },
-                h("header", { className: "dsh-context-header" },
-                    h("div", null, h("h3", null, "完整上下文"), h("p", null, "最近一次请求 · 系统提示、工具与完整消息")),
-                    h("button", { disabled: loading, onClick: () => setRefresh(value => value + 1) }, loading ? "读取中…" : "刷新")),
+                summary
+                    ? h(TavernContextOverviewCard, {
+                        summary,
+                        record,
+                        meta,
+                        variant: "full",
+                        scope,
+                        onScopeChange: setScope,
+                        onSelectSection: jumpToSection,
+                        onCompact: handleCompact,
+                        compacting: compacting || compaction.running,
+                        compactionNotice,
+                        loading,
+                        onRefresh: () => setRefresh(value => value + 1),
+                        onClose: props.onCloseModal
+                    })
+                    : h("header", { className: "dsh-context-header" },
+                        h("div", null, h("h3", null, "完整上下文"), h("p", null, "最近一次请求 · 系统提示、工具与完整消息")),
+                        h("div", { className: "dsh-ctx-card-actions" },
+                            h("button", { disabled: loading, onClick: () => setRefresh(value => value + 1) }, loading ? "读取中…" : "刷新"),
+                            props.onCloseModal ? h("button", { type: "button", className: "dsh-ctx-close-btn", "aria-label": "关闭", onClick: props.onCloseModal }, "×") : null)),
                 record ? h("div", { className: "dsh-context-meta" },
                     h("span", { className: "dsh-context-badge" }, "第 " + record.turn + " 轮 · 步骤 " + record.step),
                     foregroundMode ? h("span", { className: "dsh-context-badge" }, foregroundMode === "white-glove" ? "白手套模式 · 前台" : "普通前台") : null,
@@ -460,10 +976,9 @@
                     visibleSections.map((section, sectionIndex) => {
                         const status = section.cacheKey ? sectionStatusMap[section.cacheKey] : undefined;
                         const statusMeta = cacheStatusMeta(status);
-                        const isBreakSection = Boolean(breakPoint && section.cacheKey === breakPoint.key);
                         const isJumpTarget = Boolean(jumpTarget.key && section.cacheKey === jumpTarget.key);
                         const renderedParts = (section.displayParts || [{ text: section.text }]).filter(part => part.text.trim());
-                        const hasPartBreakdown = isBreakSection && !breakPoint.roleChanged && Number.isInteger(breakPoint.partIndex) && (renderedParts.length > 1 || breakPoint.partIndex >= renderedParts.length);
+                        const hasPartBreakdown = Boolean(breakPoint && section.cacheKey === breakPoint.key) && !breakPoint.roleChanged && Number.isInteger(breakPoint.partIndex) && (renderedParts.length > 1 || breakPoint.partIndex >= renderedParts.length);
                         const sectionSources = section.sources || [];
                         const shownSources = sectionSources.slice(0, 2);
                         const extraSourceCount = sectionSources.length - shownSources.length;
@@ -484,44 +999,307 @@
                                         extraSourceCount > 0 ? h("span", { className: "dsh-context-source-pill is-src-more" }, "+" + extraSourceCount) : null) : null,
                                     statusMeta ? h("span", { className: "dsh-context-cache-pill " + statusMeta.cls }, statusMeta.label) : null,
                                     h("span", { className: "dsh-context-count" }, (section.count ?? section.text.length).toLocaleString() + " 字符 · 约 " + section.tokens.toLocaleString() + " tokens"))),
-                            render: () => h(React.Fragment, null,
-                                isBreakSection ? renderBreakDiffBox(h, breakPoint) : null,
-                                ...renderedParts.map((part, index) => {
-                                    const partCacheState = hasPartBreakdown
-                                        ? (index < breakPoint.partIndex ? "hit" : index === breakPoint.partIndex ? "break" : "cascade")
-                                        : (isBreakSection && breakPoint.partIndex === index ? "break" : "");
-                                    const partCacheCls = partCacheState === "hit"
-                                        ? " is-part-hit"
-                                        : partCacheState === "break"
-                                            ? " is-break-part"
-                                            : partCacheState === "cascade"
-                                                ? " is-part-cascade"
-                                                : "";
-                                    const partCacheTag = partCacheState === "break"
-                                        ? h("span", { className: "dsh-context-part-break-tag" }, "首处差异")
-                                        : partCacheState === "hit"
-                                            ? h("span", { className: "dsh-context-part-hit-tag" }, "一致前缀")
-                                            : partCacheState === "cascade"
-                                                ? h("span", { className: "dsh-context-part-cascade-tag" }, "差异之后")
-                                                : null;
-                                    const partCat = part.sourceCategory && CONTEXT_SOURCE_CATEGORIES[part.sourceCategory];
-                                    return part.catalog
-                                        ? h("details", { key: index, className: "dsh-context-source" + partCacheCls },
-                                            h("summary", null, h("span", { className: "dsh-context-chevron", "aria-hidden": true }, "›"), part.label, partCacheTag),
-                                            h("pre", null, part.text))
-                                        : h("div", { key: index, className: partCacheCls ? "dsh-context-part" + partCacheCls : undefined },
-                                            part.label ? h("div", { className: "dsh-context-part-label" },
-                                                partCat ? h("span", { className: "dsh-context-source-pill is-src-" + part.sourceCategory }, partCat) : null,
-                                                part.label,
-                                                partCacheTag) : null,
-                                            h("pre", null, part.text));
-                                }),
-                                section.metadataText && section.metadataText !== "{}" ? h("details", { className: "dsh-context-source" },
-                                    h("summary", null, h("span", { className: "dsh-context-chevron", "aria-hidden": true }, "›"), "来源与消息信息"),
-                                    h("pre", null, section.metadataText)) : null)
+                            render: () => renderSectionDetailContent(h, section, breakPoint, record.id + ":" + sectionIndex + ":")
                         });
                     }),
                     (deferredQuery || sourceFilter !== "all") && !visibleSections.length ? h(EmptyState, { query: query || (CONTEXT_SOURCE_CATEGORIES[sourceFilter] || ""), onClear: () => { setQuery(""); setSourceFilter("all"); } }) : null) : null,
                 request ? h("p", { className: "dsh-context-footnote" }, "发送时的上下文快照 · 供应商协议转换前 · 前缀标记来自本地请求对比") : null
             );
-		}
+        }
+        function TavernContextWindowOverlay(props) {
+            const h = React.createElement;
+            const sessionId = props.sessionId || "";
+            const [latest, setLatest] = React.useState({ record: null, meta: null });
+            const [refresh, setRefresh] = React.useState(0);
+            const [desktopAnchor, setDesktopAnchor] = React.useState(null);
+            const [fullModalOpen, setFullModalOpen] = React.useState(false);
+            const [sheetState, setSheetState] = React.useState({ open: false, view: "overview", detailKey: "" });
+            const [compacting, setCompacting] = React.useState(false);
+            const [compactError, setCompactError] = React.useState("");
+            const loadedRef = React.useRef(null);
+            const popoverRef = React.useRef(null);
+            const compaction = typeof useCompactionState === "function"
+                ? useCompactionState(sessionId, [["contextCompaction"]])
+                : { running: false };
+
+            React.useEffect(() => {
+                if (!sessionId || typeof tavernSessionSignals === "undefined") return;
+                const reload = () => setRefresh(v => v + 1);
+                return tavernSessionSignals?.subscribe(sessionId, "model-request", reload, undefined, reload);
+            }, [sessionId]);
+
+            React.useEffect(() => {
+                if (!sessionId) {
+                    setLatest({ record: null, meta: null });
+                    syncBootTriggerVisual("", null);
+                    return;
+                }
+                let active = true;
+                if (loadedRef.current?.sessionId !== sessionId) loadedRef.current = null;
+                rpc("getLatestRequestContext", {
+                    sessionId,
+                    knownId: loadedRef.current?.id || "",
+                    knownStatus: loadedRef.current?.status || "",
+                    scope: "foreground",
+                    includeMeta: true
+                }, sessionId)
+                    .then(value => {
+                        if (!active || !value) return;
+                        setLatest(prev => {
+                            const nextRecord = value.record?.unchanged ? prev.record : value.record;
+                            const nextMeta = value.meta !== undefined ? value.meta : prev.meta;
+                            if (nextRecord) {
+                                loadedRef.current = { sessionId, id: nextRecord.id, status: nextRecord.status || "" };
+                            }
+                            return { record: nextRecord || null, meta: nextMeta || null };
+                        });
+                    })
+                    .catch(() => {});
+                return () => { active = false; };
+            }, [sessionId, refresh]);
+
+            const sections = React.useMemo(() => buildEnrichedSections(latest.record?.request), [latest.record]);
+            const summary = React.useMemo(() => {
+                if (!latest.record && !latest.meta) return null;
+                if (typeof buildContextWindowSummary !== "function") return null;
+                return buildContextWindowSummary(latest.record, latest.meta, sections);
+            }, [latest.record, latest.meta, sections]);
+
+            React.useEffect(() => {
+                syncBootTriggerVisual(sessionId, summary);
+            }, [sessionId, summary]);
+
+            // 桌面端捕获点击原生 .JObwrW_trigger，改为弹出 426px Magpie 浮层
+            React.useEffect(() => {
+                if (typeof document === "undefined") return;
+                function onDocClick(event) {
+                    if (window.innerWidth < 1024) return;
+                    const trigger = event.target && typeof event.target.closest === "function"
+                        ? event.target.closest("[data-composer-dock] .JObwrW_trigger")
+                        : null;
+                    if (!trigger) return;
+                    event.preventDefault();
+                    if (typeof event.stopImmediatePropagation === "function") event.stopImmediatePropagation();
+                    event.stopPropagation();
+                    setDesktopAnchor(prev => {
+                        if (prev) return null;
+                        const rect = trigger.getBoundingClientRect();
+                        const popWidth = Math.min(426, window.innerWidth - 24);
+                        const left = Math.max(12, Math.min(window.innerWidth - popWidth - 12, Math.round(rect.right - popWidth)));
+                        return {
+                            bottom: Math.max(12, Math.round(window.innerHeight - rect.top + 8)),
+                            left,
+                            maxHeight: Math.max(260, Math.round(rect.top - 18))
+                        };
+                    });
+                    setRefresh(v => v + 1);
+                }
+                document.addEventListener("click", onDocClick, true);
+                return () => document.removeEventListener("click", onDocClick, true);
+            }, []);
+
+            // 监听移动端菜单底栏派发的开启事件
+            React.useEffect(() => {
+                if (typeof window === "undefined") return;
+                function onOpenMobileSheet() {
+                    setDesktopAnchor(null);
+                    setCompactError("");
+                    setSheetState({ open: true, view: "overview", detailKey: "" });
+                    setRefresh(v => v + 1);
+                }
+                window.addEventListener("dsh-tavern:open-context-window", onOpenMobileSheet);
+                return () => window.removeEventListener("dsh-tavern:open-context-window", onOpenMobileSheet);
+            }, []);
+
+            // 桌面 Popover 外部点击与 Escape 关闭
+            React.useEffect(() => {
+                if (!desktopAnchor && !fullModalOpen && !sheetState.open) return;
+                function onKeyDown(event) {
+                    if (event.key !== "Escape") return;
+                    if (fullModalOpen) setFullModalOpen(false);
+                    else if (desktopAnchor) setDesktopAnchor(null);
+                    else if (sheetState.open) setSheetState({ open: false, view: "overview", detailKey: "" });
+                }
+                function onDocMouseDown(event) {
+                    if (!desktopAnchor || !popoverRef.current) return;
+                    if (popoverRef.current.contains(event.target)) return;
+                    if (event.target && typeof event.target.closest === "function" && event.target.closest("[data-composer-dock] .JObwrW_trigger")) return;
+                    setDesktopAnchor(null);
+                }
+                document.addEventListener("keydown", onKeyDown);
+                document.addEventListener("mousedown", onDocMouseDown, true);
+                return () => {
+                    document.removeEventListener("keydown", onKeyDown);
+                    document.removeEventListener("mousedown", onDocMouseDown, true);
+                };
+            }, [desktopAnchor, fullModalOpen, sheetState.open]);
+
+            function openFullAnalysis(initialKey) {
+                setDesktopAnchor(null);
+                const tab = typeof document !== "undefined"
+                    ? document.querySelector('[data-tavern-view-tab="dsh-tavern:full-context"]')
+                    : null;
+                const tabVisible = tab && (tab.offsetParent !== null || (typeof tab.getClientRects === "function" && tab.getClientRects().length > 0));
+                if (tabVisible && !initialKey) {
+                    tab.click();
+                    return;
+                }
+                if (tabVisible && initialKey) {
+                    tab.click();
+                    return;
+                }
+                setFullModalOpen(true);
+            }
+
+            async function handleCompact() {
+                if (compacting || compaction.running) return;
+                setCompacting(true);
+                setCompactError("");
+                try {
+                    await executeSessionCompaction(sessionId);
+                    setRefresh(v => v + 1);
+                } catch (err) {
+                    setCompactError(String(err && err.message || err));
+                } finally {
+                    setCompacting(false);
+                }
+            }
+
+            function openSheetDetail(cacheKey) {
+                const targetKey = cacheKey || summary?.firstBreakKey || (summary?.items?.[0]?.cacheKey) || (sections[0]?.cacheKey) || "";
+                setSheetState({ open: true, view: "detail", detailKey: targetKey });
+            }
+
+            const renderInPortal = node => {
+                if (typeof ReactDOM !== "undefined" && typeof ReactDOM.createPortal === "function" && typeof document !== "undefined" && document.body) {
+                    return ReactDOM.createPortal(node, document.body);
+                }
+                return node;
+            };
+
+            const breakPoint = latest.record?.cacheDiff?.breakPoint || null;
+            const detailSection = sheetState.open && sheetState.view === "detail"
+                ? (sections.find(s => s.cacheKey === sheetState.detailKey) || sections[0] || null)
+                : null;
+            const focusKey = summary?.firstBreakKey || (summary?.items?.[0]?.cacheKey) || (sections[0]?.cacheKey) || "";
+
+            const popoverNode = desktopAnchor
+                ? renderInPortal(h("div", {
+                    ref: popoverRef,
+                    className: "dsh-ctx-popover",
+                    role: "dialog",
+                    "aria-label": "上下文窗口分布",
+                    style: {
+                        bottom: desktopAnchor.bottom + "px",
+                        left: desktopAnchor.left + "px",
+                        maxHeight: desktopAnchor.maxHeight + "px"
+                    }
+                },
+                summary
+                    ? h(TavernContextOverviewCard, {
+                        summary,
+                        record: latest.record,
+                        meta: latest.meta,
+                        variant: "popover",
+                        onSelectSection: key => openFullAnalysis(key),
+                        onCompact: handleCompact,
+                        compacting: compacting || compaction.running,
+                        onOpenFull: () => openFullAnalysis(""),
+                        onClose: () => setDesktopAnchor(null)
+                    })
+                    : h("div", { className: "dsh-ctx-card is-popover" },
+                        h("div", { className: "dsh-ctx-card-top" },
+                            h("span", { className: "dsh-ctx-card-title" }, "上下文窗口"),
+                            h("button", { type: "button", className: "dsh-ctx-close-btn", "aria-label": "关闭", onClick: () => setDesktopAnchor(null) }, "×")),
+                        h("p", { className: "dsh-context-empty" }, "暂无已记录的请求上下文"),
+                        h("div", { className: "dsh-ctx-popover-footer" },
+                            h("span", null),
+                            h("button", { type: "button", className: "dsh-ctx-action-btn is-primary", onClick: () => openFullAnalysis("") }, "完整分析 ›")))))
+                : null;
+
+            const modalNode = fullModalOpen
+                ? renderInPortal(h("div", {
+                    className: "dsh-ctx-modal-backdrop",
+                    onClick: e => { if (e.target === e.currentTarget) setFullModalOpen(false); }
+                }, h("div", {
+                    className: "dsh-ctx-modal",
+                    role: "dialog",
+                    "aria-modal": "true",
+                    "aria-label": "完整上下文分析"
+                }, h(FullRequestContextView, {
+                    contextSessionId: sessionId,
+                    onCloseModal: () => setFullModalOpen(false)
+                }))))
+                : null;
+
+            const sheetNode = sheetState.open
+                ? renderInPortal(h("div", {
+                    className: "dsh-ctx-sheet-backdrop",
+                    onClick: e => { if (e.target === e.currentTarget) setSheetState({ open: false, view: "overview", detailKey: "" }); }
+                }, h("div", {
+                    className: "dsh-ctx-sheet",
+                    role: "dialog",
+                    "aria-modal": "true",
+                    "aria-label": "移动端上下文分布"
+                },
+                h("div", { className: "dsh-ctx-sheet-handle", "aria-hidden": "true" }, h("span", null)),
+                sheetState.view === "overview"
+                    ? h(React.Fragment, null,
+                        h("div", { className: "dsh-ctx-sheet-body" },
+                            summary
+                                ? h(TavernContextOverviewCard, {
+                                    summary,
+                                    record: latest.record,
+                                    meta: latest.meta,
+                                    variant: "sheet",
+                                    onSelectSection: key => openSheetDetail(key),
+                                    onCompact: handleCompact,
+                                    compacting: compacting || compaction.running,
+                                    onClose: () => setSheetState({ open: false, view: "overview", detailKey: "" })
+                                })
+                                : h("div", { className: "dsh-ctx-card is-sheet" },
+                                    h("div", { className: "dsh-ctx-card-top" },
+                                        h("span", { className: "dsh-ctx-card-title" }, "上下文窗口"),
+                                        h("button", { type: "button", className: "dsh-ctx-close-btn", "aria-label": "关闭", onClick: () => setSheetState({ open: false, view: "overview", detailKey: "" }) }, "×")),
+                                    h("p", { className: "dsh-context-empty" }, "暂无已记录的请求上下文")),
+                            compactError ? h("p", { className: "dsh-ctx-sheet-err", role: "alert" }, compactError) : null),
+                        h("div", { className: "dsh-ctx-sheet-sticky" },
+                            h("button", {
+                                type: "button",
+                                className: "dsh-ctx-action-btn",
+                                disabled: compacting || compaction.running,
+                                onClick: handleCompact
+                            }, compacting || compaction.running ? "压缩中…" : "压缩上下文"),
+                            focusKey
+                                ? h("button", {
+                                    type: "button",
+                                    className: "dsh-ctx-action-btn is-primary",
+                                    onClick: () => openSheetDetail(focusKey)
+                                }, summary?.firstBreakKey ? "查看断层原文 ›" : "查看重点原文 ›")
+                                : null))
+                    : h(React.Fragment, null,
+                        h("div", { className: "dsh-ctx-sheet-subhead" },
+                            h("button", {
+                                type: "button",
+                                className: "dsh-ctx-back-btn",
+                                onClick: () => setSheetState(prev => ({ ...prev, view: "overview" }))
+                            }, "‹ 返回总览"),
+                            h("span", { className: "dsh-ctx-subhead-title" }, detailSection ? detailSection.title : "分段详情"),
+                            h("button", {
+                                type: "button",
+                                className: "dsh-ctx-close-btn",
+                                "aria-label": "关闭",
+                                onClick: () => setSheetState({ open: false, view: "overview", detailKey: "" })
+                            }, "×")),
+                        h("div", { className: "dsh-ctx-sheet-body is-detail" },
+                            detailSection
+                                ? h("div", { className: "dsh-ctx-sheet-detail-inner" },
+                                    h("div", { className: "dsh-ctx-sheet-detail-meta" },
+                                        detailSection.tokens ? h("span", { className: "dsh-context-badge" }, "约 " + detailSection.tokens.toLocaleString() + " tokens") : null,
+                                        (detailSection.sources || []).slice(0, 3).map((src, idx) => h("span", { key: idx, className: "dsh-context-source-pill is-src-" + src.category }, src.label))),
+                                    renderSectionDetailContent(h, detailSection, breakPoint, "sheet-detail:"))
+                                : h("p", { className: "dsh-context-empty" }, "未找到该分段的原文内容"))))))
+                : null;
+
+            return h(React.Fragment, null, popoverNode, modalNode, sheetNode);
+        }

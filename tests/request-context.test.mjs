@@ -12,6 +12,7 @@ import { omitUnusedToolHistory } from '../tavern-plugin/lib/domain/tool-history-
 // the source file the way the other feature tests do.
 const client = vm.createContext({ window: {} })
 vm.runInContext(readFileSync(new URL('../tavern-plugin/lib/domain/writing-material-receipts.cjs', import.meta.url), 'utf8'), client)
+vm.runInContext(readFileSync(new URL('../tavern-plugin/src/client/modules/context-window-model.js', import.meta.url), 'utf8'), client, { filename: 'context-window-model.js' })
 vm.runInContext(readFileSync(new URL('../tavern-plugin/src/client/features/request-context.js', import.meta.url), 'utf8'), client, { filename: 'request-context.js' })
 // vm 里造出来的数组和对象带的是那边的原型，deepEqual 会判成不相等；先搬回本 realm。
 const sections = request => structuredClone(client.requestContextSections(request))
@@ -341,4 +342,193 @@ test('每段消息按世界书、预设、人物卡、正文、状态、插件�
   assert.deepEqual(byKey['msg:4'], [{ category: 'card', label: '人物卡开场白' }])
   assert.deepEqual(byKey['msg:5'], [{ category: 'story', label: '模型回复' }])
   assert.deepEqual(byKey['msg:6'], [{ category: 'tool', label: '工具结果' }])
+})
+
+test('上下文窗口模型：6 桶归类、最大余数法整数归一化及方案 C triggerState 状态判定', () => {
+  const sampleRequest = {
+    system: '系统指令说明',
+    tools: [{ name: 'dice', description: '掷骰' }],
+    messages: [
+      { role: 'system', content: '常驻世界书内容', source: { sections: [{ name: 'tavern:constant-worldbook', text: '常驻世界书内容' }] } },
+      { role: 'system', content: '角色卡设定', source: { sections: [{ name: 'tavern:character-card', text: '角色卡设定' }] } },
+      { role: 'user', content: '主角状态变更', source: { kind: 'mod', form: 'variable-changes' } },
+      { role: 'user', content: '玩家推门而入', source: { kind: 'user' } }
+    ]
+  }
+
+  // 1) 健康状态 + 最大余数归一化求和严格相等
+  const healthyRecord = {
+    id: 'req-healthy',
+    turn: 2,
+    step: 1,
+    scope: 'foreground',
+    request: sampleRequest,
+    cacheDiff: {
+      compareStatus: 'compared',
+      usage: { inputTokens: 1200, cacheReadTokens: 8500, cacheWriteTokens: 300, totalInputTokens: 10000, hitRate: 0.85 },
+      sectionStatus: { 'field:system': 'hit', 'msg:3': 'appended' },
+      breakPoint: null
+    }
+  }
+  const s1 = structuredClone(client.buildContextWindowSummary(healthyRecord, {
+    contextWindow: 100000,
+    compactionPolicy: { mode: 'percent', percent: 80 },
+    recentSeries: [{ id: 'r1', turn: 1, tokens: 8000 }, { id: 'r2', turn: 2, tokens: 10000 }]
+  }))
+  assert.equal(s1.measured, true)
+  assert.equal(s1.usedTokens, 10000)
+  assert.equal(s1.freeTokens, 90000)
+  assert.equal(s1.items.reduce((sum, item) => sum + item.tokens, 0), 10000)
+  assert.equal(s1.buckets.reduce((sum, bucket) => sum + bucket.tokens, 0), 10000)
+  assert.equal(s1.health, 'healthy')
+  assert.equal(s1.triggerState.tone, 'normal')
+  assert.equal(s1.triggerState.percent, 10)
+  assert.equal(s1.triggerState.alertPill, '')
+
+  // 2) 缓存命中归 0 触发 cache-break 状态与 0% 告警微角标
+  const cacheBreakRecord = {
+    ...healthyRecord,
+    cacheDiff: {
+      compareStatus: 'compared',
+      usage: { inputTokens: 9000, cacheReadTokens: 0, cacheWriteTokens: 1000, totalInputTokens: 10000, hitRate: 0 },
+      sectionStatus: { 'msg:0': 'break' },
+      breakPoint: { key: 'msg:0', title: 'Msg 0' },
+      zeroReadReason: 'prefix-broken'
+    }
+  }
+  const s2 = structuredClone(client.buildContextWindowSummary(cacheBreakRecord, {
+    contextWindow: 100000,
+    compactionPolicy: { mode: 'percent', percent: 80 }
+  }))
+  assert.equal(s2.health, 'warn')
+  assert.equal(s2.triggerState.tone, 'cache-break')
+  assert.equal(s2.triggerState.alertPill, '0%')
+  assert.equal(s2.firstBreakKey, 'msg:0')
+
+  // 3) 容量超出自动压缩阈值触发 danger 状态与百分比红角标
+  const dangerRecord = {
+    ...healthyRecord,
+    cacheDiff: {
+      compareStatus: 'compared',
+      usage: { inputTokens: 8600, cacheReadTokens: 78000, cacheWriteTokens: 0, totalInputTokens: 86600, hitRate: 0.9 },
+      sectionStatus: {}
+    }
+  }
+  const s3 = structuredClone(client.buildContextWindowSummary(dangerRecord, {
+    contextWindow: 100000,
+    compactionPolicy: { mode: 'percent', percent: 80 }
+  }))
+  assert.equal(s3.health, 'danger')
+  assert.equal(s3.triggerState.tone, 'danger')
+  assert.equal(s3.triggerState.alertPill, '87%')
+})
+
+test('上下文窗口模型：Treemap 非线性分布与碎项合并及 400 格 Waffle 保底分配', () => {
+  const summary = structuredClone(client.buildContextWindowSummary({
+    id: 'req-map',
+    turn: 5,
+    request: {
+      system: 'S'.repeat(200),
+      tools: Array.from({ length: 10 }, (_, i) => ({ name: 'tool_' + i, desc: 'x' })),
+      messages: Array.from({ length: 16 }, (_, i) => ({
+        role: 'system',
+        content: '世界书条目 #' + i + ' 内容详情',
+        source: { sections: [{ name: 'tavern:constant-worldbook', text: '世界书条目 #' + i + ' 内容详情' }] }
+      }))
+    },
+    cacheDiff: {
+      compareStatus: 'compared',
+      usage: { inputTokens: 10000, cacheReadTokens: 40000, cacheWriteTokens: 0, totalInputTokens: 50000, hitRate: 0.8 },
+      sectionStatus: {}
+    }
+  }, { contextWindow: 100000 }))
+
+  const map = structuredClone(client.computeContextMapTiles(summary, { width: 400, height: 140, maxTiles: 8 }))
+  assert.ok(map.tiles.length >= 2)
+  assert.ok(map.tiles.some(t => t.kind === 'free'), '包含斜纹剩余空间 tile')
+  assert.ok(map.tiles.some(t => t.kind === 'group' && /另外 \d+ 项/.test(t.label)), '过多小项折叠为另外 N 项')
+  for (const tile of map.tiles) {
+    assert.ok(tile.x >= -0.01 && tile.y >= -0.01 && tile.x + tile.w <= 100.05 && tile.y + tile.h <= 100.05, 'Treemap 坐标在 [0,100] 内')
+  }
+
+  const cells = structuredClone(client.computeContextWaffleCells(summary, 400))
+  assert.equal(cells.length, 400, 'Waffle 总格数严格等于 400')
+  assert.ok(cells.some(c => c.bucket === 'tool'), '非零占比工具桶保底至少占 1 格')
+})
+
+test('maintenance.getLatestRequestContext 返回 meta 元信息、支持 scope 切换与精简依赖兜底', async () => {
+  const { createMaintenanceHandlers } = await import('../tavern-plugin/lib/rpc/maintenance.js')
+  const files = new Map()
+  const storage = {
+    readJson: async p => (files.has(p) ? JSON.parse(files.get(p)) : null),
+    writeJson: async (p, v) => { files.set(p, JSON.stringify(v)) },
+    writeBody: async (p, v, raw) => { files.set(p, raw ?? JSON.stringify(v)) },
+    updateJson: async (p, fn) => {
+      const next = fn(files.has(p) ? JSON.parse(files.get(p)) : undefined)
+      files.set(p, JSON.stringify(next))
+      return next
+    }
+  }
+  const { createModelRequestLog } = await import('../tavern-plugin/lib/domain/model-request-log.js')
+  let seq = 0
+  const log = createModelRequestLog({ ...storage, id: () => 'r-' + (++seq) })
+  const fg = await log.record({
+    chat: { id: 'chat-m1' },
+    context: { scope: 'foreground', task: 'reply', turn: 1 },
+    coordinates: { turn: 1, step: 1 },
+    options: { sessionId: 's-fg', provider: 'anthropic', model: 'claude-4-sonnet', system: 'sys', messages: [{ role: 'user', content: 'hi' }] }
+  })
+  await log.complete({ chatId: 'chat-m1', id: fg.id, text: 'hello', finish: { kind: 'stop' }, usage: { inputTokens: 1000, cacheReadTokens: 9000, cacheWriteTokens: 0 } })
+  const bg = await log.record({
+    chat: { id: 'chat-m1' },
+    context: { scope: 'background', task: 'stage-director', turn: 1 },
+    coordinates: { turn: 1, step: 1 },
+    options: { sessionId: 's-bg', provider: 'openai', model: 'gpt-4o-mini', system: 'dir', messages: [{ role: 'user', content: 'dir' }] }
+  })
+  await log.complete({ chatId: 'chat-m1', id: bg.id, text: 'ok', finish: { kind: 'stop' }, usage: { inputTokens: 500, cacheReadTokens: 0, cacheWriteTokens: 0 } })
+
+  const handlers = createMaintenanceHandlers({
+    backgroundAgentRunner: { requestContext: () => null },
+    sessionStore: { get: () => null },
+    agentRegistry: { get: () => null },
+    sessionStateForSession: async () => ({ id: 'chat-m1', sessionId: 's-fg' }),
+    modelRequestLog: log,
+    modelSelection: () => ({ provider: 'anthropic', model: 'claude-4-sonnet' }),
+    readTavernSettings: async () => ({ contextCompaction: { mode: 'percent', percent: 75, rounds: 20, retainRounds: 10 } }),
+    llm: {
+      resolveModelInfo: async (provider, model) => ({
+        context: { contextWindow: model === 'gpt-4o-mini' ? 128000 : 200000 }
+      })
+    },
+    str: v => String(v ?? '')
+  })
+
+  const fgRes = await handlers.getLatestRequestContext({ sessionId: 's-fg', includeMeta: true })
+  assert.equal(fgRes.record.id, fg.id)
+  assert.equal(fgRes.meta.scope, 'foreground')
+  assert.equal(fgRes.meta.contextWindow, 200000)
+  assert.equal(fgRes.meta.compactionPolicy.percent, 75)
+  assert.equal(fgRes.meta.hasBackground, true)
+  assert.equal(fgRes.meta.recentSeries.length, 1)
+  assert.equal(fgRes.meta.recentSeries[0].tokens, 10000)
+
+  const bgRes = await handlers.getLatestRequestContext({ sessionId: 's-fg', scope: 'background', includeMeta: true })
+  assert.equal(bgRes.record.id, bg.id)
+  assert.equal(bgRes.meta.scope, 'background')
+  assert.equal(bgRes.meta.contextWindow, 128000)
+  assert.equal(bgRes.meta.recentSeries.length, 1)
+  assert.equal(bgRes.meta.recentSeries[0].tokens, 500)
+
+  // 缺失 llm / modelSelection / readTavernSettings 时稳健兜底
+  const minimal = createMaintenanceHandlers({
+    backgroundAgentRunner: { requestContext: () => null },
+    sessionStore: { get: () => null },
+    agentRegistry: { get: () => null },
+    sessionStateForSession: async () => ({ id: 'chat-m1' }),
+    modelRequestLog: log,
+    str: v => String(v ?? '')
+  })
+  const minimalRes = await minimal.getLatestRequestContext({ sessionId: 's-fg' })
+  assert.equal(minimalRes.record.id, fg.id)
+  assert.equal(minimalRes.meta.contextWindow, null)
 })
