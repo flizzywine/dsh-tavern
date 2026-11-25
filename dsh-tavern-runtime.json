@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "cea57a60717f4d9e42789b9a909874c96fd0b7e5",
-  "releaseSequence": 2081,
+  "revision": "35042f50098f9939f7c4c857577e528848605cf6",
+  "releaseSequence": 2082,
   "version": "3.4.0",
   "files": [
     {
@@ -6581,8 +6581,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-asset-library/lib/asset-packs/figure.js",
-      "sha256": "b10100f75878e45943817933023669258d066f3db31d600d7ab7275e0c925b79",
-      "size": 21712
+      "sha256": "3091a87d39ef425911938ad965076a3881a52cdd009604225a93ecaf2185fbcb",
+      "size": 22756
     },
     {
       "path": "tavern-plugin/packages/dsh-asset-library/lib/asset-packs/hash.js",
@@ -6736,13 +6736,13 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-asset-library/lib/pack-v2/copy-figure.js",
-      "sha256": "37e5d37113236c0632eddd1ebe27135d230680f5b76e1f0801250d980eef3915",
-      "size": 5429
+      "sha256": "3495d86bb13d187cbd35e2f707a547ab88449782a734febc2e58308ae9c16c4c",
+      "size": 5794
     },
     {
       "path": "tavern-plugin/packages/dsh-asset-library/lib/pack-v2/copy-items.js",
-      "sha256": "8b81e733a16537a9ad824cc98bf5828450b3fc190efc6abde9504aca644e7a9e",
-      "size": 10133
+      "sha256": "b53ed9fb28a1c36ac295573ba7fd6020741c6d693451c466906d634dc3be5862",
+      "size": 10082
     },
     {
       "path": "tavern-plugin/packages/dsh-asset-library/lib/pack-v2/export-compress.js",
@@ -8751,8 +8751,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/client.js",
-      "sha256": "c16ee4119234883e103ec90995b3828609dffa9182a5d0217ca6e13e4607385f",
-      "size": 3615728
+      "sha256": "6816eedc7ae61fc9cbb846170c2ba8a0a7db19dc0adde189a6d6b25b79d808b1",
+      "size": 3622107
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/client/director-source.cjs",
@@ -8861,8 +8861,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/domain/asset-pack-presentation.js",
-      "sha256": "8b3bf6e4cb0b4469263bd6602195ae229e7570694aaaff74d63336e9740ef82e",
-      "size": 52311
+      "sha256": "4b6686f0f2469decb65b7acd82ede914f3f497ecf13049f90713b3fbd8c28fde",
+      "size": 52814
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/domain/auto-cast-priority.js",
@@ -10261,9 +10261,9 @@
     }
   ],
   "archive": {
-    "commit": "c4b1e9ffc564aeed0a40b1b39ab06d6bf615759e",
+    "commit": "f059c03d966b4635ab7fe892bc5b28f064d6a288",
     "path": "runtime.zip",
-    "sha256": "21954238777b623a5e34bf461a3eb5a14e6d3ef1376169c46255d4787ac486e0",
-    "size": 17979450
+    "sha256": "5c3483bce10cc512a6a8686c75169e4e875f44b2aec285ef2a92f3e777370f6f",
+    "size": 17982009
   }
 }
