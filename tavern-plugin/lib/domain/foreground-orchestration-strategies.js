@@ -1,3 +1,4 @@
+import { markTavernSectionsLiteral } from './literal-sections.js'
 import { promptSection } from './prompt-section.js'
 import { sessionStablePrefixSections, stableCardName, stableSectionBody } from './session-stable-prefix.js'
 import { createHash, randomBytes } from 'node:crypto'
@@ -603,12 +604,12 @@ export function createNativePlayOrchestrationStrategy(options) {
   }
 
   async function assembleSystemPrompt(assembly, input) {
-    if (input.pureWriter) return {
+    if (input.pureWriter) return markTavernSectionsLiteral({
       ...assembly,
       sections: pureWritingFixedSections(input.fixedSystemSections || []),
       contexts: [],
       tools: pureWritingTools(input.toolDefinitions ?? assembly.tools)
-    }
+    })
     const mode = await options.modeFor(input.sessionId)
     const visible = new Set(await options.visibleTools(input.sessionId))
     const playMode = mode === 'story' || mode === 'script'

@@ -862,6 +862,9 @@ export function createTurnOrchestrator(options) {
       texts: Object.fromEntries((foregroundWorldBook.changedVirtualRefs || []).map(ref => [ref, foregroundWorldBook.virtualState.entries[ref]?.contextText ?? foregroundWorldBook.virtualState.entries[ref]?.text])),
       entries: Object.fromEntries((foregroundWorldBook.changedVirtualRefs || []).map(ref => [ref, foregroundWorldBook.virtualState.entries[ref]?.renderHash]))
     }
+    if (foregroundWorldBook?.messageVariableConstantRefs?.length) {
+      source.worldBook.messageVariableConstantRefs = foregroundWorldBook.messageVariableConstantRefs
+    }
     source.worldBook.templateDiagnostics = Array.isArray(templateWorldBook && templateWorldBook.diagnostics) ? clone(templateWorldBook.diagnostics) : []
     const regeneration = (state, systemPromptText) => captureBodyRegenerationSource({ chat: state, card,
       worldbookPrefix: foregroundWorldBook?.prefixContext ?? templateWorldBook?.prefixContext, systemPromptText })

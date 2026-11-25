@@ -61,6 +61,10 @@ function macroValue(scopes, type, path) {
   return withoutInternalKeys(valueAt(scopeVariables(scopes, type), path))
 }
 
+export function hasTavernHelperMessageVariableMacro(value) {
+  return /\{\{(?:get|format)_message_variable::[^\r\n]*?\}\}/i.test(value)
+}
+
 const FORMAT_IN_PREFIX = /^(.*)\{\{format_(message|chat|character|preset|global)_variable::(.*?)\}\}/im
 
 function replaceFormatted(scopes, _substring, prefix, type, path) {

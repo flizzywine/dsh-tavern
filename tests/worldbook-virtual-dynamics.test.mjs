@@ -61,3 +61,25 @@ test('runtime controllers keep their injected and restored output while display 
   assert.match(prefix, /CONTROLLER RULE/)
   assert.doesNotMatch(prefix, /PRIVATE DATA/)
 })
+
+test('worldbook resolves Helper message macros from the selected player floor and replaces old raw snapshots', async () => {
+  const macro = '{{get_message_variable::stat_data.game._context}}'
+  const f = fixture([entry('state', '当前状态：' + macro)])
+  f.chat.messages.push(
+    { role: 'assistant', greeting: true, variables: [{ stat_data: { game: null }, schema: {} }] },
+    { role: 'tavern-helper', tavernRole: 'user', swipeId: 1, variables: [{}, { stat_data: { game: { _context: '港口已开放' } }, schema: {} }] },
+    { role: 'user', placeholder: true }
+  )
+  const first = await f.run('opening')
+  assert.match(first.context, /当前状态：港口已开放/)
+  assert.deepEqual(first.messageVariableConstantRefs, ['state'])
+
+  const stale = f.chat.worldBookVirtualState.entries.state
+  stale.text = stale.contextText = stale.projection.text = '当前状态：' + macro
+  stale.renderHash = 'previous-unexpanded-output'
+  const restarted = createForegroundWorldbook({ bound: async () => f.worldBook,
+    runtime: async () => ({ render: async text => ({ ok: true, text, scopes: {} }) }), globalVariables: async () => ({}) })
+  const replayed = await restarted({ chat: f.chat, card: { name: 'hero' }, requestKey: 'opening' })
+  assert.match(replayed.context, /当前状态：港口已开放/)
+  assert.doesNotMatch(replayed.context, /get_message_variable/)
+})

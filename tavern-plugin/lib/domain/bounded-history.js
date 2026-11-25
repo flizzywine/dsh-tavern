@@ -2,7 +2,7 @@ import { createScopedMessages } from './scoped-messages.js'
 import { lastTavernHelperVariables } from './tavern-helper-context.js'
 
 export const storyContextMessageFields = Object.freeze([
-  'role', 'turn', 'greeting', 'text', 'sourceText', 'projectionText', 'source',
+  'role', 'tavernRole', 'turn', 'greeting', 'text', 'sourceText', 'projectionText', 'source',
   'swipeId', 'swipes', 'variables',
   'ts', 'native', 'placeholder', 'tavernHidden', 'damperState',
   // A new foreground capability epoch reuses the last director's judge result.
@@ -72,7 +72,7 @@ export function createBoundedHistory({ links, readWindow, pageSize = 48, maxRows
         if (position >= from) return undefined
         const page = await readPinnedWindow(readWindow, chatId, snapshot, { limit: 1, before: position + 1, fields: ['_storageRevision'], ...projection })
         const row = page?.chat.messages[0]
-        if (!row || row.role === 'tavern-helper' || lastTavernHelperVariables([row]) === undefined) return undefined
+        if (!row || lastTavernHelperVariables([row]) === undefined) return undefined
         entries.unshift([position, row])
       }
     }

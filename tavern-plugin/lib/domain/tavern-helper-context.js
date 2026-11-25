@@ -38,10 +38,12 @@ export function lastTavernHelperVariables(messages, chatVariables) {
   const source = Array.isArray(messages) ? messages : []
   for (let messageId = source.length - 1; messageId >= 0; messageId--) {
     const message = source[messageId]
-    if (message && message.role === 'tavern-helper') continue
     if (!message || !Array.isArray(message.variables) || message.variables.length === 0) continue
     const swipeId = selectedSwipe(message)
     const variables = message.variables[swipeId]
+    // A Helper-created player floor can carry the MVU state written by MESSAGE_SENT.
+    if (message.role === 'tavern-helper' && (message.tavernRole !== 'user'
+      || variables?.stat_data === undefined || variables?.schema === undefined)) continue
     if (variables !== undefined) return clone(variables)
   }
   // A zero-message opening stores its MVU baseline in the existing chat scope.

@@ -7,6 +7,7 @@ import { dshFileToolNames } from '../tavern-plugin/lib/domain/turn-orchestration
 import { createForegroundOrchestrationStrategies, createNativePlayOrchestrationStrategy } from "../tavern-plugin/lib/domain/foreground-orchestration-strategies.js"
 import { ensureSessionStablePrefix, sessionStablePrefixSections } from '../tavern-plugin/lib/domain/session-stable-prefix.js'
 import { ensureSessionSeedTrajectory } from '../tavern-plugin/lib/domain/session-seed-trajectory.js'
+import { pureWritingSystem } from '../tavern-plugin/lib/domain/pure-writing-request.js'
 import { createSkillGatedTools } from '../tavern-plugin/lib/domain/skill-gated-tools.js'
 
 function userMessage(text) {
@@ -421,3 +422,20 @@ test('ensureSessionStablePrefix：revision 递增但前缀正文未变化时不�
 })
 
 
+
+
+test('pure writing protects saved worldbook macros from host interpolation and includes the resolved constants', async () => {
+  const strategy = createNativePlayOrchestrationStrategy({})
+  const macro = '当前状态：{{get_message_variable::stat_data.game._context}}'
+  const assembly = await strategy.assembleSystemPrompt({ sections: [] }, { pureWriter: true,
+    fixedSystemSections: [{ name: 'tavern:constant-worldbook', text: macro }] })
+  assert.deepEqual(assembly.sections, [{ name: 'tavern:constant-worldbook', text: macro, interpolate: false }])
+
+  const frame = { contributions: [], source: {
+    worldBook: { messageVariableConstantRefs: ['current-state'] },
+    regenerationMaterials: { worldbookEntries: [
+      { ref: 'current-state', text: '当前状态：港口已开放' }, { ref: 'optional', text: '支线资料' }
+    ] }
+  } }
+  assert.equal(pureWritingSystem([], frame), '<lorebook_constant>\n当前状态：港口已开放\n</lorebook_constant>')
+})

@@ -2,6 +2,7 @@ import { isScopedMessages } from './scoped-messages.js'
 import { worldbookPlacement } from './worldbook-placement.js'
 import { entryRandom, renderWorldbookRandom } from './worldbook-random.js'
 import { projectAgentContent } from './runtime-content-projection.js'
+import { hasTavernHelperMessageVariableMacro, renderTavernHelperVariableMacros } from './tavern-helper-variable-macros.js'
 import { lastTavernHelperVariables } from './tavern-helper-context.js'
 import { activateWorldBook, promptOrder, worldBookSettings } from './worldbook-activation.js'
 import { isMvuUpdateEntry } from './worldbook-mvu-entry.js'
@@ -183,13 +184,26 @@ export async function projectWorldBookTemplates(input = {}) {
     return (entry.enabled !== false || (input.activationRequests || []).some(request => request.ref === entry.ref && request.force)) && (input.selectedEntries || entry.constant === true) && (input.mvuUpdateOnly === true ? isMvuUpdateEntry(entry) : !isMvuUpdateEntry(entry)) && (input.includeConstants === true || isWorldBookTemplateEntry(entry))
   }))
   const projectedEntries = []
+  const messageVariables = input.messageVariables ?? lastTavernHelperVariables(
+    input.chat?.promptTemplateInput?.message ? [input.chat.promptTemplateInput.message] : input.chat?.messages, input.chat?.variables
+  ) ?? {}
   let scopes = input.worldBook?.templateScopes || {
     global: clone(input.globalVariables || {}),
     initial: clone(input.chat && input.chat.promptTemplateInitialVariables || {}),
     local: clone(input.chat && input.chat.variables || {}),
-    message: input.messageVariables ?? lastTavernHelperVariables(input.chat?.promptTemplateInput?.message ? [input.chat.promptTemplateInput.message] : input.chat && input.chat.messages) ?? {}
+    message: messageVariables
   }
   let macroState = clone(input.chat?.macroState || {})
+  function renderHelperMacros(text) {
+    if (!hasTavernHelperMessageVariableMacro(text)) return text
+    return renderTavernHelperVariableMacros(text, {
+      message: scopes?.message ?? messageVariables,
+      chat: scopes?.local ?? input.chat?.variables,
+      character: input.card?.extensions?.tavern_helper?.variables,
+      preset: input.chat?.runtimePresetSnapshot?.variables,
+      global: input.chat?.macroState?.global
+    }).text.trim()
+  }
   const context = []
   const refs = []
   const diagnostics = []
@@ -234,7 +248,11 @@ export async function projectWorldBookTemplates(input = {}) {
       macroState = replayProjectionDelta(macroState, cached.beforeMacroState, cached.macroState)
       activationRequests.push(...cached.activationRequests)
       if (cached.diagnostic) diagnostics.push(cached.diagnostic)
-      if (cached.text) { context.push(cached.text); projectedEntries.push({ ...entry, content: cached.text }); refs.push(str(entry.ref)) }
+      // Older receipts can carry an unexpanded Helper macro. Repair their text
+      // using the same scopes, without running the worldbook template again.
+      const text = renderHelperMacros(cached.text)
+      if (text !== cached.text) input.renderCache.set(entry.ref, { ...cached, text })
+      if (text) { context.push(text); projectedEntries.push({ ...entry, content: text }); refs.push(str(entry.ref)) }
       continue
     }
     const beforeScopes = input.renderCache ? clone(scopes) : undefined
@@ -257,7 +275,8 @@ export async function projectWorldBookTemplates(input = {}) {
     const projected = input.includeConstants === true && entry.foregroundCapability !== true
       ? projectAgentContent(renderWorldbookRandom(result.text, random), { charName: str(input.card?.name), macroState }) : null
     if (projected) macroState = projected.macroState
-    const text = str(entry.foregroundCapability === true ? entry.content : input.randomOutputs?.[entry.ref] ?? (projected ? projected.agentText : result.text)).trim()
+    const body = str(entry.foregroundCapability === true ? entry.content : input.randomOutputs?.[entry.ref] ?? (projected ? projected.agentText : result.text))
+    const text = (entry.foregroundCapability === true ? body : renderHelperMacros(body)).trim()
     if (entry.foregroundCapability !== true) input.renderCache?.set(entry.ref, { text, beforeScopes, beforeMacroState, scopes: clone(result.scopes || scopes), macroState: clone(macroState), activationRequests: entryActivations, readerState, effectful: !dependencies || /\{\{|<%/.test(JSON.stringify(readerState)) })
     if (text === '') continue
     context.push(text)
