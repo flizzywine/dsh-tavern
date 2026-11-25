@@ -49,6 +49,21 @@ test('design exact Chinese Fish request and redacted receipt; successful request
   assert.equal(JSON.parse(await readFile(join(root,'voice-pilot-budget.json'),'utf8')).reserved,10000000)
 })
 
+test('first local pilot creates host storage only on confirm', async t => {
+  const {base} = await fixture(t), root = join(base,'profile-data','tts')
+  const local = {id:'fish-local',kind:'fish-audio',config:{url:'http://127.0.0.1:9884'}}
+  const plan = {language:'ja',rows:[{id:'line',text:'Test line.',reference:{file:'samples/reference.wav',text:'Reference.',audioBase64:audio.toString('base64')}}]}
+  const run = createVoicePilot({budgetRoot:root,fetch:async url => url.endsWith('/v1/info')
+    ? Response.json({models:[{id:'drama-3'}],capabilities:{}})
+    : new Response(Buffer.alloc(8820))})
+  const request = {action:'pilot',serviceId:local.id,plan}
+  await run({...request,dryRun:true},local,async () => key)
+  await assert.rejects(readdir(root),{code:'ENOENT'})
+  const result = await run({...request,confirm:true},local,async () => key)
+  assert.equal(result.complete,true,result.receipt.stopReason)
+  assert.equal(JSON.parse(await readFile(result.receipt.receiptFile,'utf8')).accounting,'local-free')
+})
+
 test('a pilot leaves a live owner alone and reclaims a lock left by a dead process', async t => {
   const {root} = await fixture(t), lock = join(root,'voice-pilot-budget.lock')
   let calls = 0
