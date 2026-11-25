@@ -2667,14 +2667,12 @@ body[data-ds-dark-theme] .dsh-ctx-tile.is-selected,
 }
 .dsh-ctx-chips {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 4px;
-  overflow-x: auto;
-  scrollbar-width: none;
   max-width: 100%;
   padding-bottom: 1px;
 }
-.dsh-ctx-chips::-webkit-scrollbar { display: none; }
 .dsh-ctx-chip {
   flex: none;
   border: 1px solid var(--dsw-alias-border-l2);

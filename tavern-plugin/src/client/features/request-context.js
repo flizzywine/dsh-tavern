@@ -1477,7 +1477,7 @@
                         h("div", { className: "dsh-ctx-card-top" },
                             h("span", { className: "dsh-ctx-card-title" }, "上下文窗口"),
                             h("button", { type: "button", className: "dsh-ctx-close-btn", "aria-label": "关闭", onClick: () => setDesktopAnchor(null) }, "×")),
-                        h("p", { className: "dsh-context-empty" }, "暂无已记录的请求上下文"),
+                        h(EmptyState, { compact: true, text: "暂无已记录的请求上下文" }),
                         h("div", { className: "dsh-ctx-popover-footer" },
                             h("span", null),
                             h("button", { type: "button", className: "dsh-ctx-action-btn is-primary", onClick: () => openFullAnalysis("") }, "完整分析 ›")))))
@@ -1527,7 +1527,7 @@
                                     h("div", { className: "dsh-ctx-card-top" },
                                         h("span", { className: "dsh-ctx-card-title" }, "上下文窗口"),
                                         h("button", { type: "button", className: "dsh-ctx-close-btn", "aria-label": "关闭", onClick: () => setSheetState({ open: false, view: "overview", detailKey: "" }) }, "×")),
-                                    h("p", { className: "dsh-context-empty" }, "暂无已记录的请求上下文")),
+                                    h(EmptyState, { compact: true, text: "暂无已记录的请求上下文" })),
                             compactError ? h("p", { className: "dsh-ctx-sheet-err", role: "alert" }, compactError) : null),
                         h("div", { className: "dsh-ctx-sheet-sticky" },
                             h("button", {
