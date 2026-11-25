@@ -1,5 +1,5 @@
 import { createReadStream } from 'node:fs'
-import { open } from 'node:fs/promises'
+import { link, lstat, mkdtemp, open, rm } from 'node:fs/promises'
 import path from 'node:path'
 import { compose, Transform } from 'node:stream'
 import * as zlib from 'node:zlib'
@@ -25,6 +25,29 @@ export function zipEntryPath(name) {
   const normalized = path.posix.normalize(value)
   if (normalized === '.' || normalized.startsWith('../') || normalized.split('/').some(part => part === '..' || part === '')) return null
   return normalized
+}
+
+// Stage beside the destination. link is an atomic, no-overwrite publication (rename can replace an existing file).
+export async function publishCardZip(file, write, { entries, bytes, encrypted = false, validate } = {}) {
+  const exists = await lstat(file).catch(error => { if (error.code !== 'ENOENT') throw error })
+  if (exists) throw Object.assign(new Error('目标文件已存在，不会覆盖'), {code:'EEXIST'})
+  const directory = await mkdtemp(path.join(path.dirname(file), '.dshcard-'))
+  const temporary = path.join(directory, 'card.dshcard')
+  try {
+    const result = await write(temporary)
+    const zip = await openZipFile(temporary, { label: '导出的人物卡', allowEncrypted: encrypted })
+    const size = zip.size
+    try {
+      const expected = bytes ?? result?.size
+      if ((expected !== undefined && size !== expected) || (entries && (zip.entries.size !== entries.size
+        || [...entries].some(([name, length]) => !zip.entries.has(name) || (length !== undefined && zip.entries.get(name).size !== length))))) {
+        fail('导出的人物卡', '文件清单或长度不一致，未保存')
+      }
+    } finally { await zip.close() }
+    const checked = await validate?.(temporary)
+    await link(temporary, file)
+    return { ...result, ...checked, size, file }
+  } finally { await rm(directory, { recursive: true, force: true }) }
 }
 
 async function read(handle, position, length) {

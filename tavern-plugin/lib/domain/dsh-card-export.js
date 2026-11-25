@@ -6,6 +6,7 @@ import {withoutPlayerChoices} from './card-export-settings.js'
 import {projectDshCard, packArchiveEntries} from './dsh-card-export-projection.js'
 import {exportStageDeclaration} from '../../packages/dsh-presentation-protocol/src/card-stage-export.js'
 import {MAX_CARD_JSON_BYTES} from './card-assets.js'
+import {publishCardZip} from './zip-file.js'
 
 // dependencies: bound packs the archive does not carry (withCardExport); the card keeps those bindings.
 // compress ({directory}): 压缩素材 — the packs go out with smaller media (compressExportPacks, written under directory),
@@ -73,6 +74,9 @@ export async function writeDshCard({file, card, packs = [], dependencies = [], p
   const cardJson = cardArchiveJson(document)
   if (cardJson.length > MAX_CARD_JSON_BYTES) throw new Error('人物卡 card.json 超过 ' + MAX_CARD_JSON_BYTES / 1024 ** 2 + ' MiB')
   const all = [{path:'card.json', data:cardJson}, {path:'dsh.json', data:cardArchiveJson(manifest)}, ...files]
-  const result = await writeZip(file, all, onProgress ? await archiveProgress(all, packs, onProgress) : {})
-  return {...result, size:(await stat(file)).size, file, card:document, manifest}
+  const progress = onProgress ? await archiveProgress(all, packs, onProgress) : {}
+  const result = await publishCardZip(file, temporary => writeZip(temporary, all, progress), {
+    entries: new Map(all.map(entry => [entry.path, entry.size ?? entry.data?.length]))
+  })
+  return {...result, card:document, manifest}
 }

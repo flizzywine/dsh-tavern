@@ -228,8 +228,7 @@ function WorldBookAddMenu({ choices, loading, disabled, onOpen, onPick, label = 
 					} });
 					setImportStatus(saved.said);
 				} catch (error) {
-					// the save takes back a half-written file; a failure before it leaves the empty file the dialog made.
-					if (!saving && target?.file) await target.file.remove?.().catch(function () {});
+					if (!saving && target?.empty) await target.file.remove?.().catch(function () {});
 					setError(error);
 				}
 				finally { progress.close(); setBusy(false); }
@@ -269,7 +268,7 @@ function WorldBookAddMenu({ choices, loading, disabled, onOpen, onPick, label = 
 			const visible = organization.visible;
 			// "@" quotes a card into the card workspace conversation; only there does it mean anything.
 			const mentionButton = sessionMode === "card" ? function (item) { return h("button", { type: "button", className: "dsh-tavern-card-mention", title: "在对话中引用", "aria-label": "在对话中引用：" + item.name, onClick: function (event) { event.stopPropagation(); props.appendMention(item.path, item.name); } }, "@"); } : null;
-			return h("div", { className: "dsh-tavern-library dsh-tavern-card-library", 'aria-busy': !!transferStatus },
+			return h("div", { className: "dsh-tavern-library dsh-tavern-card-library", 'aria-busy': !!transferStatus, ...tavernCardDropHandlers(importCardFiles) },
 				h("div", { className: "dsh-tavern-status-head" }, h("div", { className: "dsh-tavern-status-title" }, "人物卡库"),
 					h("div", { className: "dsh-tavern-library-head-actions" },
 						h(MobileCardImportButton, { inputRef: importInput, activateRef: mobileImport, batch: false, disabled: busy, onImported: async function (imported) { await refreshCards(); await loadCard(imported.path); notifyTavernDataChanged(["cards"], "cards"); } }),
