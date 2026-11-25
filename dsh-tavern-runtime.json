@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "2726d7e09359f444aadead18324c1eb5f2eb4085",
-  "releaseSequence": 2091,
+  "revision": "d83d1a9a2d144853bca7a13b34af8cd2c0367cdd",
+  "releaseSequence": 2092,
   "version": "3.4.0",
   "files": [
     {
@@ -1651,8 +1651,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/card-files.js",
-      "sha256": "9c8d824109ab2881c249f55e76fad93ebc5822d3d4ae30d17f7e9288ea7060fe",
-      "size": 41798
+      "sha256": "5f812642449968371cf6e12cf513e4d375baaf767509b6971c889e3331e54cfa",
+      "size": 42189
     },
     {
       "path": "tavern-plugin/lib/domain/card-import-identity.js",
@@ -2131,8 +2131,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/file-resources.js",
-      "sha256": "55608ebd19617168be6b7a2f03006658fa2aadccc388dda538b6ffbd507e71f7",
-      "size": 43686
+      "sha256": "707349a509c37a69467393eff8a2765394b43840cd6fb005ede4bc2bc73c6a75",
+      "size": 43668
     },
     {
       "path": "tavern-plugin/lib/domain/foreground-capabilities.js",
@@ -3241,8 +3241,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/resource-mutation-journal.js",
-      "sha256": "0fcdcbe9b076c1181c663ef06acba6670e9ef0ac23247c7f8bd7704b5fa56ec5",
-      "size": 6354
+      "sha256": "8d67ce25ad964261734b0c8f1d7d7b55a26f4b4d8e5b7e915be29287b4a0b758",
+      "size": 6871
     },
     {
       "path": "tavern-plugin/lib/domain/resource-save-summary.js",
@@ -4126,8 +4126,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/user-plugins.js",
-      "sha256": "c69d8c8df7b9773db61ceb82e851cb4f755cbd1e38aa8ab01a69201e9a152b64",
-      "size": 23383
+      "sha256": "8d8ecbcb6a8785392c7813221e04aebb8d168d712ac45d681bdb791a043cb668",
+      "size": 24182
     },
     {
       "path": "tavern-plugin/lib/domain/user-preference-profile.js",
@@ -10266,9 +10266,9 @@
     }
   ],
   "archive": {
-    "commit": "ddb390acb50a55e8689dd20e51f816336b0be4a1",
+    "commit": "db192745a92c22acf85c2625ccc38bdaa55d5cc0",
     "path": "runtime.zip",
-    "sha256": "ec03c1227a7789c93e1283effd5c25e222b3eaede45695500d92084f34d43ea3",
-    "size": 18026011
+    "sha256": "b9a37a258767252377d8c1fcb95b08be7af54f5ec6c3c85c584a0ab3348b0b7f",
+    "size": 18026441
   }
 }
