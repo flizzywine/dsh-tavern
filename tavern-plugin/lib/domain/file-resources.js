@@ -440,8 +440,10 @@ export function createFileResourceStore(options = {}) {
       : (typeof (payload && payload.text) === 'string' ? payload.text : JSON.stringify(card, null, 2))
     const saved = clone(card)
     delete saved.id
-    await writeNew(absolute('cards/' + originalName, true), originalData)
-    try { await writeNew(absolute(relative), JSON.stringify(saved, null, 2)) } catch (error) { await rm(absolute('cards/' + originalName, true), { force: true }); throw error }
+    await mutations.run('import-card:' + relative, async plan => {
+      await plan.writeNew(absolute('cards/' + originalName, true), originalData)
+      await plan.writeNew(absolute(relative), JSON.stringify(saved, null, 2))
+    })
     return relative
   }
 

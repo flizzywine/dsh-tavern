@@ -199,17 +199,20 @@ export function createCardFiles({ cardPreparation, fileResources, castAssets, as
         throw new Error('卡包在预览后变更，请重新选择文件')
       }
       if (stage?.notices.length && !acceptMissingPacks) throw new Error(stage.notices.join('；'))
+      const duplicate = existing && !replacePath
+      // Validate the card before publishing any of its packs.
+      const prepared = duplicate ? null : prepareImportedCard(cardImportFromCard({ card: archive.card, resolve: archive.resolve, name }))
       if (stage) { preparedPacks.delete(file); clearTimeout(stage.timer) }
       const staged = stage || await inspectCardPacks(zip, archive.packs, archiveSha256)
       const libraryNotices = [...await installPacksInLibrary(staged, { packDecisions, packBackups }), ...await dependencyNotices(archive.dependencies)]
-      if (existing && !replacePath) return { path: existing, name: (await cardSummaries.read(existing).catch(() => null))?.name || existing.split('/').pop(), duplicate: true, ...cardLibraryResult(libraryNotices) }
+      if (duplicate) return { path: existing, name: (await cardSummaries.read(existing).catch(() => null))?.name || existing.split('/').pop(), duplicate: true, ...cardLibraryResult(libraryNotices) }
       const packs = []
       const sourceMedia = new Map(staged.ready.map(({ pack, preview }) => [pack.prefix, preview.sourceMedia]))
       for (const pack of archive.packs) {
         const { pack: stored, reused } = await assetPacks.importFromZip(zip, { ...pack, sourceMedia: sourceMedia.get(pack.prefix) })
         packs.push({ id: stored.id, contentHash: stored.contentHash, format: stored.format, title: stored.title, name: pack.prefix.split('/')[1], files: Object.keys(stored.files).length, reused })
       }
-      const imported = await storeImportedCard(cardImportFromCard({ card: archive.card, resolve: archive.resolve, name }), { unique: true, library: !archive.packs.length, replacePath })
+      const imported = await storePreparedCard(prepared, { unique: true, library: !archive.packs.length, replacePath })
       if (packs.length) await castAssets.bindPacks(imported.path, packs)
       libraryNotices.push(...(imported.libraryNotices || []))
       // the 对话气泡 format entry is derived here, from this install's packs (an export never carries one).
@@ -291,9 +294,14 @@ export function createCardFiles({ cardPreparation, fileResources, castAssets, as
   }
   // options.library: a card without packs of its own. With the asset library, the material it brings becomes one pack
   // of the library that the card binds; what the library has no place for stays the card's character material.
-  async function storeImportedCard({ payload, collected }, options = {}) {
-    let workspace = cardPreparation.create({ kind: 'import', payload: payload })
-    const { library: toLibrary = true, ...importOptions } = options
+  function prepareImportedCard({ payload, collected }) {
+    const workspace = cardPreparation.create({ kind: 'import', payload })
+    return { payload, collected, workspace }
+  }
+  async function storeImportedCard(input, options = {}) {
+    return await storePreparedCard(prepareImportedCard(input), options)
+  }
+  async function storePreparedCard({ payload, collected, workspace }, { library: toLibrary = true, ...importOptions } = {}) {
     const library = assetLibrary()
     let material = collected, libraryPack = null, libraryNotices = [], installed
     if (collected && toLibrary && typeof library?.importCardMaterial === 'function') {
@@ -315,7 +323,7 @@ export function createCardFiles({ cardPreparation, fileResources, castAssets, as
     let assets = null
     if (material && (material.emotions.length || material.backgrounds.length || material.cover || material.extras.length || material.cast.length || material.skipped)) {
       try { assets = { ...await castAssets.importCardAssets({ cardPath, name: card.name || '主角', collected: material }), skipped: material.skipped } }
-      catch (error) { if (options.replacePath) throw error; assets = { error: str(error?.message || error) } }
+      catch (error) { if (importOptions.replacePath) throw error; assets = { error: str(error?.message || error) } }
     }
     return { path: cardPath, name: card.name, description: card.description, tags: card.tags, ...(assets ? { assets } : {}),
       ...(libraryPack ? { libraryPack } : {}), ...(libraryNotices.length ? { libraryNotices } : {}) }
