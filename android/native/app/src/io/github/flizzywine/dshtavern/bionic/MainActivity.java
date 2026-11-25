@@ -64,8 +64,10 @@ public final class MainActivity extends Activity {
     private final Handler handler = new Handler(Looper.getMainLooper());
     private WebView web;
     private ScrollView launcher;
-    private TextView versionText, updateText, keepAliveText, logText;
-    private ProgressBar bar;
+    private TextView versionText, updateText, updateStatusTitle, keepAliveText, logText;
+    private ProgressBar bar, updateBar;
+    private LinearLayout updateStatusRow, updateButtonsRow;
+    private View updateStatusDot;
     private Button enter, restart, startStop, check, updateAction;
     private TextView logsToggle;
     private Switch autoOpen, wakeLock, lanAccess;
@@ -345,10 +347,29 @@ public final class MainActivity extends Activity {
 
         heading(c, "更新");
         LinearLayout updates = card(c, 0);
+        updateStatusRow = row(updates, 0);
+        updateStatusDot = new View(this);
+        updateStatusDot.setBackground(shape(ACCENT, 0, 6));
+        LinearLayout.LayoutParams udot = new LinearLayout.LayoutParams(dp(9), dp(9));
+        udot.rightMargin = dp(8);
+        updateStatusRow.addView(updateStatusDot, udot);
+        updateStatusTitle = label(updateStatusRow, 15, INK, true);
+        updateStatusTitle.setLayoutParams(new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
         updateText = label(updates, 14, INK, false);
-        LinearLayout ur = row(updates, 12);
-        check = secondary(ur, "检查更新", false, v -> send(TavernService.ACTION_CHECK));
-        updateAction = secondary(ur, "立即更新", true, v -> onUpdateAction());
+        updateBar = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
+        updateBar.setMax(100);
+        updateBar.setProgressTintList(ColorStateList.valueOf(ACCENT));
+        updateBar.setIndeterminateTintList(ColorStateList.valueOf(ACCENT));
+        updateBar.setProgressBackgroundTintList(ColorStateList.valueOf(TRACK));
+        updates.addView(updateBar, lp(LinearLayout.LayoutParams.MATCH_PARENT, dp(5), 10));
+        updateButtonsRow = row(updates, 12);
+        check = secondary(updateButtonsRow, "检查更新", false, v -> {
+            TavernService.updateState = "checking";
+            TavernService.updateMessage = "正在检查更新";
+            send(TavernService.ACTION_CHECK);
+            render();
+        });
+        updateAction = secondary(updateButtonsRow, "立即更新", true, v -> onUpdateAction());
 
         heading(c, "局域网访问");
         LinearLayout lan = card(c, 0);
@@ -546,6 +567,7 @@ public final class MainActivity extends Activity {
     }
 
     private int dotColor = -1;
+    private int updateDotColor = -1;
 
     private void render() {
         String url = TavernService.url;
@@ -587,11 +609,13 @@ public final class MainActivity extends Activity {
             dotColor = color;
             statusDot.setBackground(shape(color, 0, 6));
         }
+        String us = TavernService.updateState;
+        boolean updateBusy = "checking".equals(us) || "updating".equals(us) || "downloading".equals(us) || "installing".equals(us);
         boolean busy = p >= 0 || "preparing".equals(phase) || "starting".equals(phase) || "stopping".equals(phase)
-                || "downloading".equals(TavernService.updateState) || "checking".equals(TavernService.updateState);
+                || "updating".equals(phase) || updateBusy;
         show(bar, busy);
-        bar.setIndeterminate(p < 0);
-        if (p >= 0) bar.setProgress(p);
+        if (bar.isIndeterminate() != (p < 0)) bar.setIndeterminate(p < 0);
+        if (p >= 0 && bar.getProgress() != p) bar.setProgress(p);
         enter.setEnabled(url != null);
         set(enter, url != null ? "进入酒馆"
                 : "preparing".equals(phase) || "starting".equals(phase) ? "进入酒馆（启动中…）"
@@ -601,14 +625,51 @@ public final class MainActivity extends Activity {
                 : "进入酒馆（未启动）");
         boolean active = "running".equals(phase) || "starting".equals(phase) || "preparing".equals(phase);
         set(startStop, active ? "停止" : "启动");
+        startStop.setEnabled(!"stopping".equals(phase) && !"updating".equals(phase));
         restart.setEnabled("running".equals(phase) || "failed".equals(phase) || "stopped".equals(phase));
 
-        String us = TavernService.updateState;
-        set(updateText, TavernService.updateMessage.isEmpty() ? "点「检查更新」查看是否有新版本" : TavernService.updateMessage);
-        updateText.setTextColor("error".equals(us) ? DANGER : INK);
-        check.setEnabled(!"checking".equals(us) && !"downloading".equals(us));
-        show(updateAction, "source".equals(us) || "apk".equals(us) || "ready".equals(us));
-        set(updateAction, "source".equals(us) ? "更新源码" : "apk".equals(us) ? "下载安装包" : "安装");
+        String msg = TavernService.updateMessage;
+        if (updateBusy) {
+            String busyTitle = "checking".equals(us) ? "正在检查更新"
+                    : "downloading".equals(us) ? "正在下载更新"
+                    : "installing".equals(us) ? "正在安装更新"
+                    : "正在更新";
+            int uColor = "checking".equals(us) ? WARN : ACCENT;
+            if (uColor != updateDotColor) {
+                updateDotColor = uColor;
+                updateStatusDot.setBackground(shape(uColor, 0, 6));
+            }
+            set(updateStatusTitle, busyTitle);
+            show(updateStatusRow, true);
+            String detail = msg.isEmpty() || msg.equals(busyTitle) ? "" : msg;
+            if (detail.isEmpty() && "updating".equals(us)) detail = "请稍候，更新完成后会自动重启酒馆";
+            set(updateText, detail);
+            if (updateText.getCurrentTextColor() != MUTED) updateText.setTextColor(MUTED);
+            int padLeft = dp(17), padTop = dp(6);
+            if (updateText.getPaddingLeft() != padLeft || updateText.getPaddingTop() != padTop) {
+                updateText.setPadding(padLeft, padTop, 0, 0);
+            }
+            show(updateText, !detail.isEmpty());
+            show(updateBar, true);
+            boolean hasDownloadProgress = "downloading".equals(us) && p >= 0;
+            if (updateBar.isIndeterminate() != !hasDownloadProgress) updateBar.setIndeterminate(!hasDownloadProgress);
+            if (hasDownloadProgress && updateBar.getProgress() != p) updateBar.setProgress(p);
+            show(updateButtonsRow, false);
+        } else {
+            show(updateStatusRow, false);
+            set(updateText, msg.isEmpty() ? "点「检查更新」查看是否有新版本" : msg);
+            int textColor = "error".equals(us) ? DANGER : INK;
+            if (updateText.getCurrentTextColor() != textColor) updateText.setTextColor(textColor);
+            if (updateText.getPaddingLeft() != 0 || updateText.getPaddingTop() != 0) {
+                updateText.setPadding(0, 0, 0, 0);
+            }
+            show(updateText, true);
+            show(updateBar, false);
+            show(updateButtonsRow, true);
+            check.setEnabled(true);
+            show(updateAction, "source".equals(us) || "apk".equals(us) || "ready".equals(us));
+            set(updateAction, "source".equals(us) ? "更新源码" : "apk".equals(us) ? "下载安装包" : "安装");
+        }
 
         boolean lanOn = prefs().getBoolean("lanAccess", false);
         List<String> urls = TavernService.lanUrls();
@@ -639,7 +700,7 @@ public final class MainActivity extends Activity {
             show(lanCopy, false);
             show(lanShare, false);
             show(lanRefresh, true);
-            boolean transitioning = "preparing".equals(phase) || "starting".equals(phase) || "stopping".equals(phase);
+            boolean transitioning = "preparing".equals(phase) || "starting".equals(phase) || "stopping".equals(phase) || "updating".equals(phase);
             lanRefresh.setEnabled(!transitioning);
             if (lanErr != null && "running".equals(phase)) {
                 set(lanStatusText, "⚠ " + lanErr);
@@ -758,10 +819,18 @@ public final class MainActivity extends Activity {
         if ("source".equals(us)) {
             new AlertDialog.Builder(this).setTitle("更新源码")
                     .setMessage(TavernService.updateMessage + "\n\n更新时酒馆会重启一次；新版本起不来会自动回退。")
-                    .setPositiveButton("更新", (d, w) -> send(TavernService.ACTION_SOURCE_UPDATE))
+                    .setPositiveButton("更新", (d, w) -> {
+                        TavernService.updateState = "updating";
+                        TavernService.updateMessage = "正在准备更新";
+                        send(TavernService.ACTION_SOURCE_UPDATE);
+                        render();
+                    })
                     .setNegativeButton("取消", null).show();
         } else if ("apk".equals(us)) {
+            TavernService.updateState = "downloading";
+            TavernService.updateMessage = "正在准备下载安装包";
             send(TavernService.ACTION_DOWNLOAD_APK);
+            render();
         } else if ("ready".equals(us) && TavernService.apkFile != null) {
             installApk(new File(TavernService.apkFile));
         }
@@ -789,7 +858,10 @@ public final class MainActivity extends Activity {
                         + "\n覆盖安装后存档和设置保留。")
                 .setPositiveButton("下载安装", (d, w) -> {
                     TavernService.apkRelease = notice;
+                    TavernService.updateState = "downloading";
+                    TavernService.updateMessage = "正在准备下载安装包";
                     send(TavernService.ACTION_DOWNLOAD_APK);
+                    render();
                 })
                 .setNeutralButton("浏览器下载", (d, w) -> {
                     try {
@@ -812,6 +884,9 @@ public final class MainActivity extends Activity {
             startActivity(new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:" + getPackageName())));
             return;
         }
+        TavernService.updateState = "installing";
+        TavernService.updateMessage = "正在安装，安装完成后应用会重新打开";
+        render();
         try {
             PackageInstaller installer = getPackageManager().getPackageInstaller();
             PackageInstaller.SessionParams params = new PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL);
@@ -830,9 +905,10 @@ public final class MainActivity extends Activity {
                 int flags = android.app.PendingIntent.FLAG_UPDATE_CURRENT | (Build.VERSION.SDK_INT >= 31 ? android.app.PendingIntent.FLAG_MUTABLE : 0);
                 session.commit(android.app.PendingIntent.getBroadcast(this, id, callback, flags).getIntentSender());
             }
-            TavernService.updateMessage = "正在安装，安装完成后应用会重新打开";
         } catch (Exception e) {
+            TavernService.updateState = "ready";
             TavernService.updateMessage = "安装失败：" + e.getMessage();
+            render();
         }
     }
 
@@ -844,7 +920,9 @@ public final class MainActivity extends Activity {
                 Intent confirm = intent.getParcelableExtra(Intent.EXTRA_INTENT);
                 if (confirm != null) startActivity(confirm.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
             } else if (status != PackageInstaller.STATUS_SUCCESS) {
+                TavernService.updateState = "ready";
                 TavernService.updateMessage = "安装没有完成：" + intent.getStringExtra(PackageInstaller.EXTRA_STATUS_MESSAGE);
+                render();
             }
         }
     };

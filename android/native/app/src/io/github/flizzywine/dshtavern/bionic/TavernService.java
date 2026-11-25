@@ -89,7 +89,7 @@ public final class TavernService extends Service {
     static volatile List<String> lanIps = Collections.emptyList();
     static volatile String lanError;
     // 更新
-    static volatile String updateState = "idle"; // idle checking up-to-date source apk needs-apk downloading ready error
+    static volatile String updateState = "idle"; // idle checking up-to-date source apk needs-apk updating downloading ready installing error
     static volatile String updateMessage = "";
     static volatile JSONObject apkRelease;
     static volatile String apkFile;
@@ -955,7 +955,7 @@ public final class TavernService extends Service {
     }
 
     private void sourceUpdate() throws Exception {
-        updateState = "downloading";
+        updateState = "updating";
         updateMessage = "正在下载新源码";
         JSONObject staged = tool("stage");
         String kind = staged.optString("kind");
@@ -971,7 +971,9 @@ public final class TavernService extends Service {
         }
         boolean deps = staged.optBoolean("deps");
         wantRunning = true;
+        updateMessage = "正在停止酒馆";
         stopServer();
+        setPhase("updating", "正在更新");
         // 与命令行版更新相同：换源码后跑一遍安装器（补装变化的依赖、刷新内置插件与配置）。
         // 依赖有变化时 node_modules 先整份备份，任何一步失败都能原样换回。
         boolean ok = false;
@@ -1002,7 +1004,9 @@ public final class TavernService extends Service {
         }
         // 新版本装不上或起不来：换回旧的，别让用户卡在打不开的状态。
         log("更新失败，正在回退：" + failure);
+        updateMessage = "更新失败，正在回退到原来的版本";
         stopServer();
+        setPhase("updating", "正在回退更新");
         tool("rollback");
         startServer();
         updateState = "error";
