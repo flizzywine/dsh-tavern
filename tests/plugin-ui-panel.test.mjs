@@ -29,7 +29,7 @@ test('插件面板：注册为当前游戏的侧栏页，卸载时移除；没�
   const disposeKeep = plugin.registerPanel({ id: 'sticky', title: '常驻', keepMounted: true, render: () => 'sticky' })
   assert.equal(tabs.get('tavern-plugin:memory-plugin:sticky').keepMounted, true, '显式声明 keepMounted: true 时透传保留')
   disposeKeep()
-  assert.equal(ui.service.apiVersion, 10)
+  assert.equal(ui.service.apiVersion, 11)
   const rendered = tab.component({ scope: { sessionId: 'game-1' } })
   assert.equal(rendered.type, 'Boundary')
   assert.equal(seen.length, 0, '渲染回调由边界内的子组件执行')
