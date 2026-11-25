@@ -6,6 +6,7 @@ import { visibleTemplateDisplay, annotateTemplateStatusParts } from './template-
 import { createHash } from 'node:crypto'
 import { applyTavernRegexText } from './tavern-regex-display.js'
 import { encodeOpeningIdentity, replaceOpeningIdentities } from './opening-identity.js'
+import { mvuStatusConfirmed } from './status-view-declaration.js'
 
 function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
@@ -56,19 +57,20 @@ export function projectReplyLayers(value, options = {}) {
   const scripts = Array.isArray(options.regexScripts) ? options.regexScripts : []
   const session = applyTavernRegexText(projectionText, scripts, targetOptions(options, false))
   const displayOptions = targetOptions(options, true)
-  let display = applyTavernRegexText(projectionText, scripts, displayOptions)
+  const displayScripts = options.displayRegexScripts || scripts
+  let display = applyTavernRegexText(projectionText, displayScripts, displayOptions)
   // Some cards encode dialogue inside now_plot. Recover an omitted wrapper
   // only when that card's own active renderer recognizes the repaired text.
   // Never persist this display repair into model context or editable source.
   if (projectionText.split('\n').some(line => /^\s*@bubble:/.test(stripBubbleCodeQuote(line))) && !/<\/?now_plot\b/i.test(projectionText)) {
-    const candidates = scripts.filter(script =>
+    const candidates = displayScripts.filter(script =>
       str(script.findRegex).includes('<now_plot>') &&
       str(script.replaceString).includes('@bubble')
     )
     const wrapped = '<now_plot>\n' + projectionText + '\n</now_plot>'
     const probe = applyTavernRegexText(wrapped, candidates, displayOptions)
     if (probe.applied.length > 0) {
-      display = applyTavernRegexText(wrapped, scripts, displayOptions)
+      display = applyTavernRegexText(wrapped, displayScripts, displayOptions)
       display.warnings.push('气泡显示：已为卡片渲染规则补齐缺失的 now_plot 标签（仅显示）')
     }
   }
@@ -117,14 +119,27 @@ function isDegenerateTemplateDisplay(html, sourceText, options = {}) {
   return stripHtmlTags(html) === expected
 }
 
+// Existing formatting may already contain the card's warning. Replace only the
+// exact fragment for this gate, without replaying templates or other rewrites.
+function restoreMvuStatusDisplay(text, options) {
+  const displayOptions = targetOptions(options, true)
+  for (const marker of options.mvuStatusGates.markers) {
+    const warning = applyTavernRegexText(marker, options.regexScripts, displayOptions).text.trim()
+    if (!warning || !text.includes(warning)) continue
+    const panel = applyTavernRegexText(marker, options.mvuStatusGates.rules, displayOptions).text.trim()
+    if (panel !== warning) text = text.replaceAll(warning, () => resolveDisplayIdentityMacros(panel, options))
+  }
+  return text
+}
+
 /** Bound retained projection data as well as entry count; oversized replies bypass caching. */
 export function createReplyHistoryProjector({ maxCacheBytes = 16 * 1024 * 1024, maxCacheEntries = 2048 } = {}) {
   const cache = new Map()
   let bytes = 0, hits = 0, misses = 0, copies = 0
   function digest(value) { return createHash('sha256').update(value).digest('hex') }
-  function projectCached(sourceText, projectionText, options, signature) {
+  function projectCached(sourceText, projectionText, options, signature, confirmed = false) {
     const key = createHash('sha256').update(signature).update(String(sourceText.length) + ':')
-      .update(sourceText).update(String(projectionText.length) + ':').update(projectionText).digest('hex')
+      .update(sourceText).update(String(projectionText.length) + ':').update(projectionText).update(confirmed ? '1' : '0').digest('hex')
     let item = cache.get(key)
     if (item) {
       hits++
@@ -132,7 +147,8 @@ export function createReplyHistoryProjector({ maxCacheBytes = 16 * 1024 * 1024, 
       cache.set(key, item)
     } else {
       misses++
-      const projected = projectReplyLayers(sourceText, Object.assign({}, options, { projectionText }))
+      const projected = projectReplyLayers(sourceText, { ...options, projectionText,
+        displayRegexScripts: confirmed ? options.mvuStatusGates.rules : undefined })
       const value = { displayText: projected.displayText, displayMode: projected.displayMode,
         displayParts: projected.displayParts, warnings: projected.warnings }
       // This is a conservative payload estimate, not a measurement of V8 heap usage.
@@ -174,6 +190,8 @@ export function createReplyHistoryProjector({ maxCacheBytes = 16 * 1024 * 1024, 
       const projectionText = Object.prototype.hasOwnProperty.call(message, 'projectionText')
         ? str(message.projectionText)
         : sourceText
+      const confirmed = options.mvuStatusGates?.markers.some(marker => projectionText.includes(marker)) && mvuStatusConfirmed(message)
+        && !/<\/?UpdateVariable(?:variable)?>/i.test(projectionText)
 
       const templateDisplay = message.tavernPluginData?.template_display
       const validDisplay = templateDisplay && templateDisplay.source === sourceText && templateDisplay.swipe === (message.swipeId || 0)
@@ -184,7 +202,8 @@ export function createReplyHistoryProjector({ maxCacheBytes = 16 * 1024 * 1024, 
       // zero-regex ordinaryDisplay path instead of discarding its HTML conversion.
       const frozenHostRegex = message.bodyHostRegexApplied === true || message.bodyPluginProjection === true
       if (frozenHostRegex || message.bodyRegenerationProcessed === true && !ordinaryDisplay) {
-        const displayText = frozenHostRegex ? str(message.displayText ?? projectionText) : projectionText
+        let displayText = frozenHostRegex ? str(message.displayText ?? projectionText) : projectionText
+        if (confirmed && !message.bodyPluginProjection) displayText = restoreMvuStatusDisplay(displayText, options)
         const processed = projectProcessedReply(displayText)
         projections.push({ version: 2, turn, text: displayText,
           mode: processed.displayMode,
@@ -214,8 +233,9 @@ export function createReplyHistoryProjector({ maxCacheBytes = 16 * 1024 * 1024, 
         continue
       }
       const projected = ordinaryDisplay
-        ? projectCached(sourceText, templateDisplay.formattingText, { ...options, regexScripts: [] }, signatureOf({ ...options, regexScripts: [] }))
-        : projectCached(sourceText, projectionText, options, signature)
+        ? projectCached(sourceText, confirmed ? restoreMvuStatusDisplay(templateDisplay.formattingText, options) : templateDisplay.formattingText,
+          { ...options, regexScripts: [] }, signatureOf({ ...options, regexScripts: [] }))
+        : projectCached(sourceText, projectionText, options, signature, confirmed)
       // Copy emitted projections; callers must never mutate cached parts.
       copies++
       projections.push({

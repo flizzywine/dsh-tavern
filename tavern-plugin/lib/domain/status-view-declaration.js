@@ -21,6 +21,31 @@ function isMvuStatusGate(rule, marker) {
     !applyTavernRegexText(source, [rule], displayOptions).text.includes(marker))
 }
 
+export function confirmedMvuStatusRules(rules = []) {
+  const markers = new Set()
+  const displayRules = rules.map(rule => {
+    const marker = statusViewDeclaration(rule)?.marker
+    if (!marker || !isMvuStatusGate(rule, marker)) return rule
+    // A gate must preserve the update and change only its status placeholder.
+    const replacement = [[mvuUpdate + '\n', ''], ['', '\n' + mvuUpdate]].map(([prefix, suffix]) => {
+      const promoted = applyTavernRegexText(prefix + marker + suffix, [rule], displayOptions).text
+      return promoted.startsWith(prefix) && promoted.endsWith(suffix)
+        ? promoted.slice(prefix.length, promoted.length - suffix.length) : ''
+    }).find(candidate => candidate !== marker && /^<[a-z][\w:-]*\/>$/i.test(candidate))
+    if (!replacement) return rule
+    markers.add(marker)
+    return { ...rule, findRegex: '/' + marker.replace('/', '\\/') + '/g', replaceString: replacement }
+  })
+  return markers.size ? { rules: displayRules, markers: [...markers] } : null
+}
+
+export function mvuStatusConfirmed(message) {
+  const receipt = message?.mvu?.receipt
+  return message?.role === 'assistant' && message.mvu?.pending !== true && receipt?.toolOnly !== true
+    && (receipt?.status === 'updated' || receipt?.status === 'unchanged')
+    && (message.mvuBaseline?.swipeId === undefined || message.mvuBaseline.swipeId === (message.swipeId || 0))
+}
+
 export function persistentStatusDeclarations(rules) {
   const declarations = []
   const gatedMarkers = new Set()

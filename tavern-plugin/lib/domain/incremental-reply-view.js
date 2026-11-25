@@ -5,6 +5,7 @@ import { createIndexedArrayApi } from './indexed-array.js'
 import { freezeJson, createImmutableOrderedJsonIndex } from './freeze-json.js'
 import { projectReplyHistory } from './reply-presentation.js'
 import { projectPersistentStatusView } from './persistent-status-view.js'
+import { confirmedMvuStatusRules, mvuStatusConfirmed } from './status-view-declaration.js'
 
 // Display projection resolves identity macros only. Gameplay variables must not
 // invalidate every historical row on each settlement.
@@ -38,17 +39,20 @@ export function createIncrementalReplyView({ readChanges, maxBytes = 96 * 1024 *
   const metadataIndex = createIndexedArrayApi({visit:onIndexVisit})
   const targetIndex = createIndexedArrayApi({maximum:value=>value ?? -Infinity,visit:onIndexVisit})
   const projectionIndex = createImmutableOrderedJsonIndex({measure:value=>JSON.stringify(value).length*2,visit:onIndexVisit})
-  function sourceKey(message) {
+  function sourceKey(message, mvuStatusGates) {
     if (!message) return JSON.stringify(message)
-    const {variables,mvu,...display} = message
-    return createHash('sha256').update(JSON.stringify(display)).digest('hex')
+    const {variables,mvu,mvuBaseline,...display} = message
+    return createHash('sha256').update(JSON.stringify(display))
+      .update(mvuStatusGates && mvuStatusConfirmed(message) ? '1' : '0').digest('hex')
   }
   function output(result, shared) { return shared ? {...result} : structuredClone({...result,projections:Array.from(result.projections)}) }
   let bytes = 0
   const stats = { rebuilt: 0, incremental: 0, reused: 0, projectedMessages: 0 }
   // polling and director reads of one persisted revision share the in-flight projection.
   async function project(chat, options = {}, statusOptions = options, {shared = false} = {}) {
-    const signature = createHash('sha256').update(JSON.stringify([displayDependencies(options), displayDependencies(statusOptions), chat.timeline?.branchId, stageReadScope(chat)])).digest('hex')
+    const mvuStatusGates = chat.mvu?.enabled && chat.mvu.owner === 'official' ? confirmedMvuStatusRules(options.regexScripts) : null
+    const signature = createHash('sha256').update(JSON.stringify([displayDependencies(options), displayDependencies(statusOptions), chat.timeline?.branchId, stageReadScope(chat), Boolean(mvuStatusGates)])).digest('hex')
+    if (mvuStatusGates) options = {...options, mvuStatusGates}
     if (!Number.isSafeInteger(chat._storageRevision)) return calculate(chat,options,statusOptions,signature,shared)
     const key = JSON.stringify([chat.id,chat._storageRevision,signature])
     let load = pending.get(key)
@@ -77,10 +81,11 @@ export function createIncrementalReplyView({ readChanges, maxBytes = 96 * 1024 *
     const compatible = changes && changes.baseRevision === previous.revision && changes.chat?._storageRevision === revision
       && changes.messageCount === messages.length && changes.denseMessages && Array.isArray(changes.indices)
       && changes.indices.every((index, at) => Number.isSafeInteger(index) && index >= 0 && index < messages.length && (at === 0 || index > changes.indices[at - 1]))
-    // MVU payloads/receipts do not participate in body or static panel projection.
-    // Check only the declared dirty sources, then retain the immutable result.
+    // Only the confirmation bit for gated status displays affects projection.
+    // Check declared dirty floors without scanning variable payloads.
+    const keyOf = message => sourceKey(message, options.mvuStatusGates)
     if (compatible && messages.length === previous.roles.length
-      && changes.indices.every(id => sourceKey(messages[id]) === previous.sources[id])) {
+      && changes.indices.every(id => keyOf(messages[id]) === previous.sources[id])) {
       if (cache.get(entry) === previous) previous.revision = revision
       stats.reused++
       return output(previous.result,shared)
@@ -146,8 +151,8 @@ export function createIncrementalReplyView({ readChanges, maxBytes = 96 * 1024 *
     const latest = rowIndex.previous(rows,rows.length)
     const result = freezeJson({ ...status, presentation: null, latestSourceBacked: rows[latest]?.latestSourceBacked || false })
     const sources = compatible
-      ? sourceIndex.update(previous.sources,indices.map(id=>[id,sourceKey(messages[id])]),messages.length)
-      : sourceIndex.from(messages.map(sourceKey))
+      ? sourceIndex.update(previous.sources,indices.map(id=>[id,keyOf(messages[id])]),messages.length)
+      : sourceIndex.from(messages.map(keyOf))
     const resultSize = statusSummary.next ? statusSummary.filteredBytes + JSON.stringify(result.statusViews).length*2 : projectionIndex.info(projections).bytes + 256
     const size = targetIndex.info(targets).bytes + rowIndex.info(rows).bytes + metadataIndex.info(roles).bytes + metadataIndex.info(before).bytes + resultSize + 512 + sourceIndex.info(sources).bytes
     if (Number.isSafeInteger(revision) && size <= maxBytes && maxEntries > 0 && !(cache.get(entry)?.revision > revision)) {
