@@ -14,6 +14,9 @@ const TIMEOUT_MS = 120000
 const NO_MATERIAL = '没有查到资料。'
 const ALREADY_IN_CONTEXT = '命中的世界书条目已在上下文中，可以直接沿用。'
 const VARIABLES_ALREADY_READ = '命中的变量已在本轮查询结果中。'
+const VARIABLE_QUERY_HEADER = '【变量查询结果】\n'
+const VARIABLE_FACTS_HEADER = '【当前状态】\n'
+const VARIABLE_IDENTIFIER = /\b(?:[\dA-Fa-f]{8}(?:-[\dA-Fa-f]{4}){3}-[\dA-Fa-f]{12}|[a-z][a-z\d]+(?:_[a-z\d]+)+|[a-z][a-z\d]+[A-Z][A-Za-z\d]*)\b/
 const { tavernIsWritingInjection, tavernWritingReceiptSections } = receipts
 
 function worldbookInContext(messages) {
@@ -77,6 +80,8 @@ export function createWritingPreparation({ allowed, runAgent, readSources }) {
       }
     } : context
     let submitted
+    let variableEvidence = false
+    let variableFacts = ''
     const sourceReaders = readSources({ gameId, frame, chat, signal: requestSignal })
 
     async function read(kind, args) {
@@ -99,6 +104,10 @@ export function createWritingPreparation({ allowed, runAgent, readSources }) {
         return text ? ['【' + limits.label + (title ? ' · ' + title : '') + '】\n' + text] : []
       })
       if (!material.length) return variables && rows.length ? VARIABLES_ALREADY_READ : NO_MATERIAL
+      if (variables) {
+        variableEvidence = true
+        return VARIABLE_QUERY_HEADER + material.join('\n\n')
+      }
       if (kind !== 'worldbook') return material.join('\n\n')
       const fresh = material.filter(entry => {
         const key = entry.trimEnd()
@@ -110,9 +119,26 @@ export function createWritingPreparation({ allowed, runAgent, readSources }) {
     }
 
     function collectToolText() {
-      return untilAborted(Promise.all(toolResults), requestSignal).then(results =>
-        results.filter(result => result.ok && result.text !== NO_MATERIAL && result.text !== ALREADY_IN_CONTEXT
-          && result.text !== VARIABLES_ALREADY_READ).map(result => result.text).join('\n\n'))
+      return untilAborted(Promise.all(toolResults), requestSignal).then(results => {
+        const material = results.filter(result => result.ok && result.text !== NO_MATERIAL && result.text !== ALREADY_IN_CONTEXT
+          && result.text !== VARIABLES_ALREADY_READ && !result.text.startsWith(VARIABLE_QUERY_HEADER)).map(result => result.text)
+        if (variableFacts) material.push(variableFacts)
+        return material.join('\n\n')
+      })
+    }
+
+    function submitVariableFacts({ facts } = {}) {
+      requestSignal.throwIfAborted()
+      if (submitted || variableFacts) throw new Error('本轮已交接资料')
+      if (!variableEvidence) throw new Error('请先查询本轮相关的变量')
+      if (!Array.isArray(facts) || !facts.length || facts.length > 4
+        || facts.some(fact => typeof fact !== 'string' || fact.length > 200 || VARIABLE_IDENTIFIER.test(fact) || /[`\n\r]/.test(fact))) {
+        throw new Error('请提交一至四条简短的剧情事实，使用角色名和对局语言')
+      }
+      const sentences = [...new Set(facts.map(writingMaterialText))]
+      if (sentences.some(sentence => !sentence)) throw new Error('剧情事实需要包含自然语言')
+      variableFacts = VARIABLE_FACTS_HEADER + sentences.join('\n')
+      return { accepted: true }
     }
 
     function inject(args = {}) {
@@ -135,13 +161,14 @@ export function createWritingPreparation({ allowed, runAgent, readSources }) {
         findWorldbook: args => read('worldbook', args),
         recallMemory: args => read('memory', args),
         readVariables: args => read('variables', args),
+        submitVariableFacts,
         inject,
         runAgent: task => {
           requestSignal.throwIfAborted()
           const selection = task.selection ?? entry.selection ?? foregroundSelection
           return runAgent(entry.owner, { ...task, gameId, selection, signal: requestSignal }, queryContext, (name, result) => {
             // Keep call order for concurrent tools and reuse the exact model-facing receipt.
-            if (!submitted && name !== 'inject' && name !== 'load_writing_skill') toolResults.push(result)
+            if (!submitted && name !== 'inject' && name !== 'load_writing_skill' && name !== 'submit_variable_facts') toolResults.push(result)
           })
         }
       })), requestSignal)

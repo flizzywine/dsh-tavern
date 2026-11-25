@@ -51,7 +51,7 @@ function installTavernStoryExternalHistory(options) {
 				if (record.hideSystemReminders && tavernIsHostSystemReminder(context.state)) return null
 				if (record.hideSkillContext) {
 					if (tavernIsSkillReminder(context.state.source)) return null
-					const state = tavernWithoutInjectedSkills(context.state)
+					const state = tavernWithoutPrivateWritingReceipts(context.state)
 					if (!state) return null
 					if (state !== context.state) return originalBuild.call(this, { ...context, state }, target)
 				}

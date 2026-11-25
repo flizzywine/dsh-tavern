@@ -11,7 +11,7 @@ export const WRITING_PREPARATION_REQUEST = 'writing-preparation'
 
 const KEEP_FIXED_SECTIONS = new Set(['tavern:user-preference', 'tavern:character-card', 'tavern:constant-worldbook'])
 const STORY_SECTIONS = new Set(['base', 'card', 'card-instruction', 'script', 'guide'])
-const { tavernIsWritingInjection, tavernWithoutInjectedSkills } = receipts
+const { tavernIsWritingInjection, tavernWithoutPrivateWritingReceipts } = receipts
 
 export function pureWritingTools(tools) {
   return (tools || []).filter(tool => tool?.name === STORY_SUBMIT_TOOL_NAME)
@@ -29,7 +29,7 @@ function writingConversation(messages) {
   return (messages || []).flatMap(message => {
     if (message?.role === 'user') {
       if (!inputKind(message) && !isCompactionCheckpointMessage(message) && !tavernIsWritingInjection(message)) return []
-      const visible = tavernWithoutInjectedSkills(message)
+      const visible = tavernWithoutPrivateWritingReceipts(message)
       return visible?.content?.length ? [visible] : []
     }
     if (message?.role !== 'assistant' || !(message.source?.kind === 'model' || !message.source)) return []

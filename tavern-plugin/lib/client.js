@@ -45353,7 +45353,7 @@ function tavernIsWritingInjection(message) {
 
 // Legacy injections stored several receipts as one block, separated by blank lines.
 function tavernWritingReceiptSections(text) {
-    const headings = [...text.matchAll(/(^|\r?\n\r?\n)【(世界书|写作指引|写作 Skill|剧情记忆|当前变量)(?: · [^】\r\n]+)?】(?=\r?\n|$)/g)]
+    const headings = [...text.matchAll(/(^|\r?\n\r?\n)【(世界书|写作指引|写作 Skill|剧情记忆|当前变量|当前状态)(?: · [^】\r\n]+)?】(?=\r?\n|$)/g)]
     if (!headings.length) return [{ kind: '', text }]
     const sections = headings.map((heading, index) => ({
         kind: heading[2],
@@ -45363,13 +45363,13 @@ function tavernWritingReceiptSections(text) {
     return sections
 }
 
-function tavernWithoutInjectedSkills(message) {
+function tavernWithoutPrivateWritingReceipts(message) {
     if (!tavernIsWritingInjection(message) || !Array.isArray(message.content)) return message
     let changed = false
     const content = message.content.flatMap(block => {
         if (block?.type !== 'text' || typeof block.text !== 'string') return [block]
         const sections = tavernWritingReceiptSections(block.text)
-        const kept = sections.filter(({ kind }) => kind !== '写作指引' && kind !== '写作 Skill')
+        const kept = sections.filter(({ kind }) => kind !== '写作指引' && kind !== '写作 Skill' && kind !== '当前变量')
         if (kept.length === sections.length) return [block]
         changed = true
         const text = kept.map(section => section.text).join('\n\n')
@@ -45380,7 +45380,7 @@ function tavernWithoutInjectedSkills(message) {
 }
 
 if (typeof window === 'undefined') {
-    module.exports = { tavernIsWritingInjection, tavernWritingReceiptSections, tavernWithoutInjectedSkills }
+    module.exports = { tavernIsWritingInjection, tavernWritingReceiptSections, tavernWithoutPrivateWritingReceipts }
 }
 
 function tavernStoryNativeTurnOfLocation(location) {
@@ -45429,7 +45429,7 @@ function installTavernStoryExternalHistory(options) {
 				if (record.hideSystemReminders && tavernIsHostSystemReminder(context.state)) return null
 				if (record.hideSkillContext) {
 					if (tavernIsSkillReminder(context.state.source)) return null
-					const state = tavernWithoutInjectedSkills(context.state)
+					const state = tavernWithoutPrivateWritingReceipts(context.state)
 					if (!state) return null
 					if (state !== context.state) return originalBuild.call(this, { ...context, state }, target)
 				}
@@ -68306,6 +68306,7 @@ function createPlayInteractionPanels({ interactions, useCandidatePanel, useCandi
                 { heading: "世界书", category: "worldbook", label: "世界书" },
                 { heading: "写作指引", category: "skill", label: "写作 Skill" },
                 { heading: "剧情记忆", category: "story", label: "剧情记忆" },
+                { heading: "当前状态", category: "state", label: "当前状态" },
                 { heading: "当前变量", category: "state", label: "当前变量" }
             ];
             return sources.filter(({ heading }) => new RegExp("^【" + heading + "(?: · [^】\\r\\n]+)?】$", "m").test(text))

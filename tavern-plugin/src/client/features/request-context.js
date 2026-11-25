@@ -53,6 +53,7 @@
                 { heading: "世界书", category: "worldbook", label: "世界书" },
                 { heading: "写作指引", category: "skill", label: "写作 Skill" },
                 { heading: "剧情记忆", category: "story", label: "剧情记忆" },
+                { heading: "当前状态", category: "state", label: "当前状态" },
                 { heading: "当前变量", category: "state", label: "当前变量" }
             ];
             return sources.filter(({ heading }) => new RegExp("^【" + heading + "(?: · [^】\\r\\n]+)?】$", "m").test(text))

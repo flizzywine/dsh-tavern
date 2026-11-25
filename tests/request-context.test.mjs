@@ -47,7 +47,7 @@ test('白手套的世界书标题提示归入世界书筛选', () => {
 })
 
 test('白手套注入保留实际回执和缓存位置，并按资料类型可筛选', () => {
-  const text = '【世界书 · 钟楼】\n钟声整点响。\n\n【写作指引】\n采用第三人称。\n\n【剧情记忆 · 第 1 轮】\n找到钥匙。\n\n【世界书 · 钟楼】\n钟声整点响。'
+  const text = '【世界书 · 钟楼】\n钟声整点响。\n\n【写作指引】\n采用第三人称。\n\n【剧情记忆 · 第 1 轮】\n找到钥匙。\n\n【当前状态】\n林婉还剩三张车票。'
   const content = [{ type: 'text', text }]
   const request = { messages: [
     { role: 'user', content, source: { kind: 'user' } },
@@ -59,7 +59,8 @@ test('白手套注入保留实际回执和缓存位置，并按资料类型可�
     { category: 'injection', label: '白手套注入' },
     { category: 'worldbook', label: '世界书' },
     { category: 'skill', label: '写作 Skill' },
-    { category: 'story', label: '剧情记忆' }
+    { category: 'story', label: '剧情记忆' },
+    { category: 'state', label: '当前状态' }
   ])
   assert.deepEqual(injection.body, [text])
   assert.equal(injection.title, 'messages[1] · user · 第 1 轮注入')

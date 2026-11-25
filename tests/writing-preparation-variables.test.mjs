@@ -47,27 +47,31 @@ test('white glove requires a query and searches individual variable facts inside
   ])
 })
 
-test('white glove automatically hands off each variable fact only once per round', async () => {
+test('white glove keeps variable lookup receipts private and hands off only submitted prose', async () => {
   const preparation = createWritingPreparation({
     allowed: async () => true,
     readSources,
-    runAgent: async (_owner, { tools: [read] }, _context, onToolResult) => {
+    runAgent: async (_owner, { tools: [read, submit] }, _context, onToolResult) => {
       const call = query => {
         const result = read(query).then(text => ({ ok: true, text }))
         onToolResult('read_variable_summary', result)
         return result.then(({ text }) => text)
       }
       assert.equal(await call({}), '没有查到资料。')
-      assert.match(await call({ query: '林婉 occupation' }), /律师/)
-      assert.match(await call({ query: 'char_001 occupation recentGoal' }), /钥匙/)
+      const occupation = await call({ query: '林婉 occupation' })
+      assert.match(occupation, /char_001的occupation为 律师/)
+      const overlap = await call({ query: 'char_001 occupation recentGoal' })
+      assert.match(overlap, /钥匙/)
+      assert.doesNotMatch(overlap, /occupation/)
       assert.equal(await call({ query: '林婉 occupation' }), '命中的变量已在本轮查询结果中。')
+      assert.throws(() => submit({ facts: ['char_001的职业是律师。'] }), /简短的剧情事实/)
+      assert.deepEqual(submit({ facts: ['林婉是律师，最近在找钥匙。', '林婉是律师，最近在找钥匙。'] }), { accepted: true })
     }
   })
   preparation.register('white-glove', {
-    prepare: ({ readVariables, runAgent }) => runAgent({ tools: [readVariables] })
+    prepare: ({ readVariables, submitVariableFacts, runAgent }) => runAgent({ tools: [readVariables, submitVariableFacts] })
   })
   const entry = await preparation.forGame(args.gameId)
   const material = await preparation.prepare(entry, { ...args, context: { messages: [] } })
-  assert.equal(material, '【当前变量 · game】\ngame的characters的char_001的occupation为 律师。\n\n'
-    + '【当前变量 · game】\ngame的characters的char_001的recentGoal为 找到钥匙。')
+  assert.equal(material, '【当前状态】\n林婉是律师，最近在找钥匙。')
 })
