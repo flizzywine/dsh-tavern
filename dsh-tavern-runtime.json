@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "d7dc38b4a9bd0464054ac4f917e81ca144f3ac19",
-  "releaseSequence": 2076,
+  "revision": "0bc209134556035821a35bb48f3b52de82f41c49",
+  "releaseSequence": 2077,
   "version": "3.4.0",
   "files": [
     {
@@ -1276,8 +1276,8 @@
     },
     {
       "path": "tavern-plugin/lib/client.js",
-      "sha256": "1d1233dcf7a10920b94de8910eb62dd27a174d8c7d65100282601951ceff891b",
-      "size": 6619136
+      "sha256": "e9fe4e28d13a73c7760cdec4d71f22ec8f420115d63e64886111a0be86e2faf2",
+      "size": 6620402
     },
     {
       "path": "tavern-plugin/lib/cordis-inspect.js",
@@ -1521,8 +1521,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/bounded-history.js",
-      "sha256": "c99dfbfd43a6de57c2bd6c70a575b98ecc5b9eb47a674494262d0bc41c8e9482",
-      "size": 9089
+      "sha256": "575fa9343178ca1761118f2762bd514537a8895dc9df8dabde9018862ed2cde8",
+      "size": 9071
     },
     {
       "path": "tavern-plugin/lib/domain/branch-origin-repair.js",
@@ -2166,8 +2166,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/foreground-orchestration-strategies.js",
-      "sha256": "d6e4466793943064eab6406cee675fe6b360ad67c9fb0b960f926c54a72eff76",
-      "size": 42632
+      "sha256": "ce3cadaf04ffaeff539c1c1785b1a1fb4b906a8cdfd6e9cb373f28b59a9afed9",
+      "size": 42725
     },
     {
       "path": "tavern-plugin/lib/domain/foreground-tools.js",
@@ -2181,8 +2181,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/foreground-worldbook.js",
-      "sha256": "c5ed0c10f672373faa4fd801f13cdc05389f47f30278cbe301735dc4bd091c2a",
-      "size": 17278
+      "sha256": "a23acdd1ba934bdf5de42d8feefda8b163a4545a9510caad313526ba178a6703",
+      "size": 17594
     },
     {
       "path": "tavern-plugin/lib/domain/frame-sizing.js",
@@ -3151,8 +3151,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/pure-writing-request.js",
-      "sha256": "7885e8e2efe73a45aab2f42d1b4a387aaab74500b32fabab4cd202bb71434db5",
-      "size": 4793
+      "sha256": "c38f95bb5a3dcb85b80ec7ea0808cce3ecf67be05fbd855680741a56e2feb40b",
+      "size": 5142
     },
     {
       "path": "tavern-plugin/lib/domain/read-variables.js",
@@ -3851,8 +3851,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/tavern-helper-context.js",
-      "sha256": "7c9247b7935a4340d00f757bdf3ed8c6c0cf95f47e478b06299369edceb271b9",
-      "size": 17919
+      "sha256": "965034cd9e7935ec1041a7d2e8127c9b7963bd443fca3443ee9503fe4c387a64",
+      "size": 18108
     },
     {
       "path": "tavern-plugin/lib/domain/tavern-helper-regex-api.js",
@@ -3866,8 +3866,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/tavern-helper-variable-macros.js",
-      "sha256": "0986a9225788f6defa699e98a7dfa6322b41e488bf07955bf086441d7997518b",
-      "size": 3883
+      "sha256": "4a1665630c3aa866f38ba20ba5fa389ff517d14c6d595984091924021881c8b1",
+      "size": 4022
     },
     {
       "path": "tavern-plugin/lib/domain/tavern-helper-worldbook.js",
@@ -4096,8 +4096,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/turn-orchestration.js",
-      "sha256": "3875c3133a491d0f4da4ca78ddbf0b37eed6fc5b849a1cd44d8d7221303ae81a",
-      "size": 90452
+      "sha256": "85b33532e66f588c96087027c93e34453f6e05795b511a4500ebee96bdc47759",
+      "size": 90627
     },
     {
       "path": "tavern-plugin/lib/domain/uncommitted-rounds.js",
@@ -4271,8 +4271,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/worldbook-recall.js",
-      "sha256": "31df01b636e1f6e1d92979e10b832e4b1f7c79e723019ff5318a324e8373ed4d",
-      "size": 17751
+      "sha256": "492e9dce40a69c39c2619c37e0f517cdea11f881a041f23d0008a9e4ee859b61",
+      "size": 18752
     },
     {
       "path": "tavern-plugin/lib/domain/worldbook-resource.js",
@@ -10261,9 +10261,9 @@
     }
   ],
   "archive": {
-    "commit": "249fa6381062a5179559480a0c67a7ab7c8cc438",
+    "commit": "8b18a1c310fe998c1c633f0fddff12e09ae6dbff",
     "path": "runtime.zip",
-    "sha256": "16315b77bc19ba6e3c8d58783e46f567e2b705f78439f31b3d64d8b7d3871ee0",
-    "size": 17974470
+    "sha256": "9807eed21545f47804958b3e7f724ba3f705d4ad230736a3880e60cba8e2c35e",
+    "size": 17975414
   }
 }
