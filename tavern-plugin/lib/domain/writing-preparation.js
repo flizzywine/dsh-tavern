@@ -13,6 +13,7 @@ const SOURCE_LIMITS = {
 const TIMEOUT_MS = 120000
 const NO_MATERIAL = '没有查到资料。'
 const ALREADY_IN_CONTEXT = '命中的世界书条目已在上下文中，可以直接沿用。'
+const VARIABLES_ALREADY_READ = '命中的变量已在本轮查询结果中。'
 const { tavernIsWritingInjection, tavernWritingReceiptSections } = receipts
 
 function worldbookInContext(messages) {
@@ -64,6 +65,7 @@ export function createWritingPreparation({ allowed, runAgent, readSources }) {
     const requestSignal = AbortSignal.any([done.signal, entry.lifetime.signal, AbortSignal.timeout(TIMEOUT_MS), ...(signal ? [signal] : [])])
     const toolResults = []
     const worldbookSeen = worldbookInContext(context.messages)
+    const variablesSeen = new Set()
     const titleHints = stripWritingSystemReminders(frame.context?.worldbookTitleHints || '')
     const queryContext = titleHints.trim() ? {
       ...context,
@@ -83,12 +85,20 @@ export function createWritingPreparation({ allowed, runAgent, readSources }) {
       const limits = SOURCE_LIMITS[kind]
       const rows = await sourceReaders[kind](args ?? {})
       requestSignal.throwIfAborted()
+      const variables = kind === 'variables'
       const material = rows.slice(0, 8).flatMap(row => {
-        const text = writingMaterialText(row.text).slice(0, limits.read)
+        let text = writingMaterialText(row.text).slice(0, limits.read)
+        if (variables) {
+          text = text.split('\n').filter(line => {
+            if (!line || variablesSeen.has(line)) return false
+            variablesSeen.add(line)
+            return true
+          }).join('\n')
+        }
         const title = writingMaterialText(row.title).slice(0, 120)
         return text ? ['【' + limits.label + (title ? ' · ' + title : '') + '】\n' + text] : []
       })
-      if (!material.length) return NO_MATERIAL
+      if (!material.length) return variables && rows.length ? VARIABLES_ALREADY_READ : NO_MATERIAL
       if (kind !== 'worldbook') return material.join('\n\n')
       const fresh = material.filter(entry => {
         const key = entry.trimEnd()
@@ -101,7 +111,8 @@ export function createWritingPreparation({ allowed, runAgent, readSources }) {
 
     function collectToolText() {
       return untilAborted(Promise.all(toolResults), requestSignal).then(results =>
-        results.filter(result => result.ok && result.text !== NO_MATERIAL && result.text !== ALREADY_IN_CONTEXT).map(result => result.text).join('\n\n'))
+        results.filter(result => result.ok && result.text !== NO_MATERIAL && result.text !== ALREADY_IN_CONTEXT
+          && result.text !== VARIABLES_ALREADY_READ).map(result => result.text).join('\n\n'))
     }
 
     function inject(args = {}) {

@@ -5,31 +5,88 @@ import { isMvuUpdateEntry } from './worldbook-recall.js'
 import { writingMaterialText } from './writing-material-text.js'
 
 const BROWSE_LIMIT = 6
+const VARIABLE_VALUE_LIMIT = 400
+const VARIABLE_NAME_FIELDS = ['name', 'displayName', '姓名', '名字', '名称']
 
 const normalize = value => String(value ?? '').toLocaleLowerCase()
 const wordsOf = query => normalize(query).match(/[\p{L}\p{N}_-]+/gu) || []
 
-const publicVariable = name => !/^(?:\$|__|constructor$|prototype$)/.test(name)
+const publicVariable = (name, parent) => !/^(?:\$|__|constructor$|prototype$|schemaVersion$)/.test(name)
+  && !(name === 'meta' && parent && Object.hasOwn(parent, 'schemaVersion'))
+const variableRecordNames = record => VARIABLE_NAME_FIELDS.flatMap(key =>
+  record && Object.hasOwn(record, key) && typeof record[key] === 'string' ? [record[key]] : [])
 
-function describeVariable(names, value) {
-  if (!names.every(publicVariable)) return []
-  const labels = names.map(writingMaterialText)
-  return labels.every(Boolean) ? variableSentences(labels.join('的'), value) : []
+function* variableFacts(names, value, aliases = [], title = names[0], field = names.at(-1)) {
+  if (Array.isArray(value) && value.length) {
+    for (const [index, item] of value.entries()) {
+      yield* variableFacts([...names, '第 ' + (index + 1) + ' 项'], item, aliases, title, field)
+    }
+  } else if (value && typeof value === 'object' && !Array.isArray(value)) {
+    const recordNames = [...aliases, ...variableRecordNames(value)]
+    for (const [key, item] of Object.entries(value)) {
+      if (!publicVariable(key, value)) continue
+      yield* variableFacts([...names, key], item, recordNames, title ?? key)
+    }
+  } else {
+    yield { names, field, value, aliases, title }
+  }
 }
 
-function variableSentences(label, value) {
-  if (value === undefined) return [label + '已移除。']
-  if (value === null) return [label + '暂无记录。']
-  if (Array.isArray(value)) {
-    if (!value.length) return [label + '目前没有内容。']
-    return value.flatMap((item, index) => variableSentences(label + '的第 ' + (index + 1) + ' 项', item))
+function* changedVariableFacts(changes, snapshot) {
+  for (const { names, value } of changes) {
+    let parent = snapshot
+    const aliases = []
+    const visible = names.every(key => {
+      if (!publicVariable(key, parent)) return false
+      aliases.push(...variableRecordNames(parent))
+      parent = parent?.[key]
+      return true
+    })
+    if (visible) yield* variableFacts(names, value, aliases, '上轮变量变化')
   }
-  if (typeof value === 'object') return Object.entries(value).flatMap(([key, item]) => {
-    const name = publicVariable(key) && writingMaterialText(key)
-    return name ? variableSentences(label + '的' + name, item) : []
-  })
-  const text = typeof value === 'boolean' ? (value ? '是' : '否') : writingMaterialText(value)
-  return text ? [label + '为 ' + text + (/[。！？.!?]$/.test(text) ? '' : '。')] : []
+}
+
+function describeVariable({ names, value }) {
+  const labels = names.map(writingMaterialText)
+  if (!labels.length || !labels.every(Boolean)) return ''
+  const label = labels.join('的')
+  if (value === undefined) return label + '已移除。'
+  if (value === null) return label + '暂无记录。'
+  if (Array.isArray(value)) return label + '目前没有内容。'
+  const text = typeof value === 'boolean' ? (value ? '是' : '否') : writingMaterialText(value).replace(/\s*\n\s*/g, ' ')
+  if (text.length > VARIABLE_VALUE_LIMIT) return label + '为 ' + text.slice(0, VARIABLE_VALUE_LIMIT) + '…'
+  return text ? label + '为 ' + text + (/[。！？.!?]$/.test(text) ? '' : '。') : ''
+}
+
+function matchingVariableFacts(facts, words) {
+  let best = Math.min(words.length, 2)
+  let matches = []
+  for (const fact of facts) {
+    const field = normalize(fact.field)
+    const value = normalize(fact.value)
+    // A path or character name can narrow a query, but should not expand a whole record.
+    if (!words.some(word => field.includes(word) || value.includes(word))) continue
+    const scope = [...fact.names.slice(0, -1), ...fact.aliases].map(normalize)
+    const score = words.filter(word => field.includes(word) || value.includes(word) || scope.some(part => part.includes(word))).length
+    if (score < best) continue
+    if (score > best) {
+      best = score
+      matches = []
+    }
+    matches.push(fact)
+  }
+  const rows = new Map()
+  const seen = new Set()
+  for (const fact of matches) {
+    const text = describeVariable(fact)
+    if (!text || seen.has(text)) continue
+    seen.add(text)
+    const lines = rows.get(fact.title) || []
+    lines.push(text)
+    rows.set(fact.title, lines)
+    if (seen.size === BROWSE_LIMIT) break
+  }
+  return [...rows].map(([title, lines]) => ({ title, text: lines.join('\n') }))
 }
 
 function ranked(rows, query, fields) {
@@ -93,19 +150,17 @@ export function createWritingPreparationSources({ tavernSkills, chatForSession, 
         ]
       },
       variables: async ({ query }) => {
+        const words = [...new Set(wordsOf(query))]
+        if (!words.length) return []
         const state = context?.generationState
         const structured = state?.messageVariables?.stat_data || state?.variables?.stat_data || state?.variables
-        const variables = Object.entries(structured || {}).flatMap(([key, value]) => {
-          const lines = describeVariable([key], value)
-          return lines.length ? [{ title: key, text: lines.join('\n') }] : []
-        })
-        const posture = state?.posture
-        if (posture) variables.unshift({ id: 'posture', title: '角色情况', text: posture })
         const current = await readHistory()
-        const changes = current.regenInProgress ? '' : lastRoundVariableValues(current)
-          .flatMap(({ names, value }) => describeVariable(names, value)).join('\n')
-        if (changes) variables.unshift({ id: 'changes', title: '上轮变量变化', text: changes })
-        return ranked(variables, query, row => [row.title, row.text])
+        const changes = current.regenInProgress ? [] : lastRoundVariableValues(current)
+        return matchingVariableFacts([
+          ...changedVariableFacts(changes, structured),
+          ...(state?.posture ? variableFacts(['角色情况'], state.posture) : []),
+          ...variableFacts([], structured || {})
+        ], words)
       }
     }
   }
