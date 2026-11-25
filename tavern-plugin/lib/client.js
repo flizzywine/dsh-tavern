@@ -999,12 +999,15 @@ window.__ModuleLoader__.load({
 		function InlineMenu(p) {
 		    const h = React.createElement, pop = useInlinePopup(), options = p.options || [], current = options.find(o => o.value === p.value);
 		    const pick = value => { pop.close(true); if (value !== p.value) p.onCommit(value); };
+		    // `chip` ({ props, children }: InlineGrid's 「＋ 名称」 chip of an empty hideEmpty menu) is drawn as the trigger instead.
+		    const face = p.chip ? { ...p.chip.props, disabled: p.chip.props.disabled || p.disabled }
+		        : { className: "fork-inline-trigger" + (p.controlClassName ? " " + p.controlClassName : ""), disabled: p.disabled, title: p.title,
+		            "aria-label": p.name + "：" + (current ? current.label : p.placeholder || "未设置"), "data-empty": current ? undefined : true };
 		    return h("span", { className: "fork-inline-anchor", ref: pop.root, onKeyDown: pop.keys },
-		        h("button", { ref: node => { pop.trigger.current = node; if (p.controlRef) p.controlRef.current = node; }, type: "button", className: "fork-inline-trigger" + (p.controlClassName ? " " + p.controlClassName : ""),
-		            disabled: p.disabled, title: p.title, "aria-haspopup": "menu", "aria-expanded": pop.open, "aria-label": p.name + "：" + (current ? current.label : p.placeholder || "未设置"),
-		            "data-empty": current ? undefined : true, onClick: () => pop.setOpen(!pop.open),
+		        h("button", { ...face, ref: node => { pop.trigger.current = node; if (p.controlRef) p.controlRef.current = node; }, type: "button",
+		            "aria-haspopup": "menu", "aria-expanded": pop.open, onClick: () => pop.setOpen(!pop.open),
 		            onKeyDown: event => { if (event.key === "ArrowDown" && !pop.open) { event.preventDefault(); pop.setOpen(true); } } },
-		            h("span", { className: "fork-inline-text" }, current ? current.label : p.placeholder || "—"), h(InlineGlyph, { name: "chevDown" })),
+		            ...(p.chip ? p.chip.children : [h("span", { key: "t", className: "fork-inline-text" }, current ? current.label : p.placeholder || "—"), h(InlineGlyph, { key: "g", name: "chevDown" })])),
 		        pop.open ? pop.layer({ className: "fork-inline-pop", role: "menu", "aria-label": p.name, onKeyDown: inlineMenuKeys },
 		            options.flatMap((o, i) => [
 		                // a group heading (e.g. the provider above its models).
@@ -1179,8 +1182,8 @@ window.__ModuleLoader__.load({
 		// a grid shows no empty rows. A field marked
 		// `hideEmpty` whose value is empty ('' / null / [] / 0) leaves its row and becomes a small dashed 「＋ 名称」 chip; the chips
 		// share one line at the grid's end. A click (Enter / Space) puts the row back in its place and focuses it; leaving it
-		// still empty (blur, or Esc) folds it back into its chip (Esc returns the focus to the chip). Rows with a value, menus,
-		// switches and InlineRow are never hidden. The one implementation for every 素材库 entry view (ui-design R4).
+		// still empty (blur, or Esc) folds it back into its chip (Esc returns the focus to the chip). An empty hideEmpty menu's
+		// chip opens that menu's own list in place; a pick fills the row. Rows with a value, switches and InlineRow are never hidden. The one implementation for every 素材库 entry view (ui-design R4).
 		// An empty optional *section* (an entry's 变体 without a table) is not shown
 		// at all: its owner puts <InlineSectionAdd key label onAdd /> among the grid's children and it becomes one more 「＋ 名称」 chip
 		// on the same line; the click is the section's own add (the section then appears with what was added). `render(chip)`
@@ -1201,7 +1204,7 @@ window.__ModuleLoader__.load({
 		        if (child.type === InlineSectionAdd) { adds.push({ key, name: q.label, control: q.label, onAdd: q.onAdd, render: q.render }); return; }
 		        if (!q.hideEmpty) { rows.push(child); return; }
 		        const empty = inlineEmptyValue(q.value), open = opened.has(key);
-		        if (empty && !open) adds.push({ key, name: typeof q.label === "string" ? q.label : q.controlLabel || "", control: q.controlLabel || (typeof q.label === "string" ? q.label : "") });
+		        if (empty && !open) adds.push({ key, name: typeof q.label === "string" ? q.label : q.controlLabel || "", control: q.controlLabel || (typeof q.label === "string" ? q.label : ""), menu: q.kind === "menu" ? q : null });
 		        else rows.push(clone(child, { addKey: key, autoEdit: open && empty }));
 		    });
 		    const fold = (key, chip) => { setOpened(s => { const next = new Set(s); next.delete(key); return next; }); if (chip) setRefocus(key); };
@@ -1231,6 +1234,7 @@ window.__ModuleLoader__.load({
 		            const chip = { props: { type: "button", className: "fork-inline-add-field", "data-add-chip": add.key, "aria-label": "添加" + add.control, title: "添加" + add.control, disabled: p.disabled || undefined },
 		                children: [h(InlineGlyph, { key: "g", name: "plus" }), h("span", { key: "t" }, add.name)] };
 		            if (add.render) return h(React.Fragment, { key: add.key }, add.render(chip));
+		            if (add.menu) return h(React.Fragment, { key: add.key }, h(InlineMenu, { ...add.menu, name: add.control, chip }), add.menu.trail || null);
 		            return h("button", { key: add.key, ...chip.props, onClick: add.onAdd ? () => add.onAdd() : () => setOpened(s => new Set(s).add(add.key)) }, ...chip.children);
 		        })) : null);
 		}
@@ -58015,13 +58019,14 @@ function WorldBookAddMenu({ choices, loading, disabled, onOpen, onPick, label = 
 				extensionCount === 0 && mvuResources.length === 0 ? h("div", { className: "dsh-tavern-worldbook-empty" }, "这张人物卡没有可展示的扩展内容") : null
 			);
 			const selectableResources = availableResources.filter(function (item) { return !Array.isArray(item.boundCards) || item.boundCards.length === 0 || item.boundCards.some(function (boundCard) { return boundCard.path === cardPath; }); });
-			// 剧本 is one row: the bound script, or 未绑定; the menu binds another, imports one (and binds it) or unbinds.
+			// 剧本 is one row while a script is bound (its menu binds another, imports one and binds it, or 未绑定 unbinds); unbound it
+			// is the first dashed 「＋ 剧本」 chip, which opens the same menu.
 			const SCRIPT_IMPORT = "\u0000import";
-			const scriptOptions = [{ value: "", label: "未绑定" }]
+			const scriptOptions = (script ? [{ value: "", label: "未绑定" }] : [])
 				.concat(selectableResources.map(function (item) { return { value: item.path, label: item.title, note: item.path === (script && script.path) && script.chunkCount ? script.chunkCount + " 段" : undefined }; }))
 				.concat(script && !selectableResources.some(function (item) { return item.path === script.path; }) ? [{ value: script.path, label: script.title }] : [])
 				.concat([{ value: SCRIPT_IMPORT, label: "导入新剧本…" }]);
-			const scriptField = h(InlineField, { key: "script", kind: "menu", label: "剧本", value: script ? script.path : "", options: scriptOptions, disabled: scriptBusy, wide: true,
+			const scriptField = h(InlineField, { key: "script", kind: "menu", label: "剧本", value: script ? script.path : "", options: scriptOptions, disabled: scriptBusy, wide: true, hideEmpty: true,
 				help: h(HelpTip, { label: "剧本说明" }, "绑定后，新开的游玩按剧本分段推进；更换或解绑会影响用这张卡的剧本对话。"),
 				onCommit: function (value) {
 					if (value === SCRIPT_IMPORT) { if (scriptFileRef.current) scriptFileRef.current.click(); return; }
@@ -58088,8 +58093,9 @@ function WorldBookAddMenu({ choices, loading, disabled, onOpen, onPick, label = 
 				h("div", { className: "dsh-card-banner", "data-empty": coverUrl ? undefined : true }, coverUrl ? h("img", { className: "dsh-card-banner-bg", src: coverUrl, alt: "", "aria-hidden": true }) : null),
 				h("div", { className: "dsh-card-title-row" }, back, name, more),
 				h("div", { className: "dsh-card-hero" }, cover, h("div", { className: "dsh-card-side" }, props.organizationSettings, h("div", { className: "dsh-card-counts" }, counts))));
-			const textFields = [F("description", "角色描述"), F("personality", "性格"), F("scenario", "场景设定"), F("mes_example", "对话示例"),
-				F("system_prompt", "系统提示"), F("post_history_instructions", "历史后指令"), F("creator_notes", "创作者备注"), scriptField];
+			const cardTextFields = [F("description", "角色描述"), F("personality", "性格"), F("scenario", "场景设定"), F("mes_example", "对话示例"),
+				F("system_prompt", "系统提示"), F("post_history_instructions", "历史后指令"), F("creator_notes", "创作者备注")];
+			const textFields = script ? cardTextFields.concat([scriptField]) : [scriptField].concat(cardTextFields);
 			const greetings = [fold("first_mes", "开场白", String(card.first_mes || ""), function (v) { return commitField("first_mes", v); })].concat(alternates.map(alternateField),
 				[h(InlineField, { key: "alt-new-" + alternates.length, kind: "text", multiline: true, lines: true, wide: true, hideEmpty: true, label: "备选开场白", value: "",
 					onCommit: function (v) { if (v.trim()) return commitField("alternate_greetings", alternates.concat([v])); } })]);
