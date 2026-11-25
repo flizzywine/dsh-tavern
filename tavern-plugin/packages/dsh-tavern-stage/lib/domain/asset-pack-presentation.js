@@ -94,14 +94,19 @@ export function selectPackFigure(figure, sprites, {outfitKey, emotion, imageSele
 // else the outfit's, else any of its other states' (one outfit's pictures share the canvas and the pose). The stage looks
 // for the head's centre only there, so a hammer head or a scythe blade beside the head at the same height is not taken
 // for it (scene-math galCentredAnatomy). null when nothing in the outfit was framed.
-// 动态立绘: the shown still's looping videos, {source: the idle loop's 视频 projection, talk: the talking loop's or null, rect},
-// or null - the still alone - when the image has none, its idle entry is off or gone, or it is no figure video (alpha
-// 'right'); a talking loop off or gone leaves speech to the still's mouths. Decided once here; the stage only plays them.
+// 动态立绘: the shown still's looping videos, {outfit: its outfit key, image: its image id, source: the idle loop's 视频 projection, talk: the talking
+// loop's or null, rect, into: {image id: {source, rect}} the transitions from it into the outfit's other images}, or null -
+// the still alone - when the image has none, its idle entry is off or gone, or it is no figure video (alpha 'right'); a
+// talking loop or a transition off or gone leaves speech to the still's mouths, the change to a crossfade. Decided once
+// here; the stage only plays them.
 export function packFigureVideo(pack, selection) {
   const authored = selection.form === 'sprite' ? selection.outfit?.sprite?.videos?.[selection.state?.id] : null
   const figureVideo = id => { const source = id ? projectStageVideo(pack, id) : null; return source?.alpha === 'right' ? source : null }
   const source = authored ? figureVideo(authored.video) : null
-  return source ? {source, talk:figureVideo(authored.talk), rect:[...authored.rect]} : null
+  if (!source) return null
+  const into = Object.fromEntries(Object.entries(authored.into || {}).map(([image, edge]) => [image, figureVideo(edge.video)])
+    .filter(([, video]) => video).map(([image, video]) => [image, {source:video, rect:[...authored.into[image].rect]}]))
+  return {outfit:selection.outfit.key, image:selection.state.id, source, talk:figureVideo(authored.talk), rect:[...authored.rect], into}
 }
 function packFaceSpan(outfit, stateId) {
   const crop = packSpriteCrop(outfit, stateId) || Object.values(outfit.sprite?.avatarCrop || {})[0] || Object.values(outfit.sprite?.avatarCropAuto || {})[0]

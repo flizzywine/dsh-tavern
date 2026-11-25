@@ -5,7 +5,7 @@ import {assetContents,assetContentMedia,assetDocument} from '../shared/asset-var
 import contract from '../shared/stage-performance.cjs'
 import { check, canonicalJson, validateUuid, validateShortId, ASSET_KINDS } from '../asset-packs/common.js'
 import { jsonBytes } from './validation.js'
-import { copyFigureAssets } from './copy-figure.js'
+import { copyFigureAssets, figureVideoSlots } from './copy-figure.js'
 const {performanceReferences} = contract
 const EVENT_KINDS = {skin:'skins', sfx:'sfx', bgm:'music', look:'looks', ambience:'ambience', widget:'widgets'}
 
@@ -29,8 +29,8 @@ export function copyPackItems(source, itemRefs, manifest, files, retired, figure
   // Same-pack closure: a background's ambience, everything a performance names in its own pack.
   for (let i = 0; i < queue.length; i++) {
     const {kind, id} = queue[i]
-    // a figure's still loops (outfit sprite.videos) are 视频 entries of its pack: copied with it, named by their copies
-    if (kind === 'figures') { for (const outfit of source.figures[id].outfits) for (const motion of Object.values(outfit.sprite?.videos || {})) for (const video of [motion.video, motion.talk]) if (video !== undefined) add('videos', video); continue }
+    // a figure's still loops and transitions (outfit sprite.videos) are 视频 entries of its pack: copied with it, named by their copies
+    if (kind === 'figures') { for (const [holder, key] of figureVideoSlots(source.figures[id])) if (holder[key] !== undefined) add('videos', holder[key]); continue }
     const item = asset(kind, id)
     if (kind === 'skins') for (const owned of source.manifest.assets) if (owned.skin === id) add(owned.kind, owned.id)
     if (kind === 'widgets') for (const content of assetContents(item)) for (const ref of Object.values(content.settingsDefaults || {})) if (ref?.kind === 'backgrounds' && ref.packId === sourceId) add('backgrounds', ref.assetId)

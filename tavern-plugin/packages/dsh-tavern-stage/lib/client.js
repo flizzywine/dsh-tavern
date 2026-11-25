@@ -7784,7 +7784,7 @@ const {FIGURE_DISPLAY,figureSceneFrame,figureSceneUpdate,figureMixedWarning,reso
 const {stageLighting,stageApplyLight}=lighting;
 const {GAL_LOOKS_EMPTY,galLookRegistry,galLookResolve}=lookMath;
 const {foreground:forkForeground,lipSync:forkLipSync,loadPixi:loadPixiRuntime,resolution:galResolution,subscribeResolution:galResolutionSubscribe}=services;
-const {urls:layeredSpriteUrls}=services.layered || {};
+const {urls:layeredSpriteUrls,voice:layeredSpriteVoice}=services.layered || {};
 const {paint:stagePaintEmpty,palette:stageEmptyPalette}=services.canvas || {};
 const {Image,MessageChannel,MutationObserver,ResizeObserver,performance}=window;
 const getComputedStyle=(...args)=>window.getComputedStyle(...args),setTimeout=(...args)=>window.setTimeout(...args);
@@ -8076,7 +8076,7 @@ function galCreateScene(host, options, own) {
         if(entry.video){const video=entry.video;entry.video=null;release(()=>video.destroy());}
         release(()=>entry.figureAsset?.destroy());
         entry.figureAsset=null;entry.spineFigure=null;
-        for(const item of entry.fading)release(()=>item.asset?.destroy());
+        for(const item of entry.fading){if(item.video)release(()=>item.video.destroy());release(()=>item.asset?.destroy());}
         entry.fading=[];
         release(()=>entry.container.destroy({children:true}));
         state.lastPrune=0;
@@ -8156,23 +8156,47 @@ function galCreateScene(host, options, own) {
             ready:entry.loadedIdentity===entry.figure.identity,rhythm:entry.idle.jitter.blink});
     }
     // 动态立绘 (figure-video.cjs): the loaded still's looping videos play over it while the figure stands on a visible stage
-    // with motion allowed - its talking loop while it speaks - and the still shows otherwise: a tap reaction's still, a skip,
+    // with motion allowed - its talking loop while its voice is heard, read through the same mouth gear as the still's mouths -
+    // and the still shows otherwise: a tap reaction's still, a skip,
     // reduced motion, or a line spoken through the still's mouths because no talking loop can play. One set of videos per
-    // loaded picture; a new picture releases the old one's.
+    // loaded picture. A new picture's videos take over from the old one's, which play on under the old picture's fade-out
+    // and go with it. When the old picture's videos were showing, settled on it (not themselves entering), and name a
+    // transition into the new picture (video.into[image]), the new picture enters through it: the old picture stays whole
+    // while the transition is awaited (the new still does not draw meanwhile), then fades out over it in SWITCH_MS; a
+    // transition that does not come leaves the usual crossfade. Speech meanwhile: the transition plays out with its own
+    // closed mouth (the still's mouths stay shut under it), then the talking loop takes over if the voice is still heard.
+    const ENTER_SWITCH_MS = 150;
     function tickFigureVideo(entry, figure, desc, dt) {
-        const video = entry.loadedIdentity === figure.identity ? figure.video : null;
+        // While the next picture loads, the shown one's videos play on with it.
+        const video = entry.loadedIdentity === figure.identity ? figure.video : entry.videoSprite === entry.sprite ? entry.videoMotion : null;
         const key = video ? JSON.stringify([video.source.packId, video.source.bundleKey, video.source.hash, video.talk?.bundleKey, video.talk?.hash, video.rect]) : '';
         if (entry.videoKey !== key || entry.videoSprite !== entry.sprite) {
-            const old = entry.video; entry.video = null; entry.videoShown = false;
-            old?.destroy();
-            entry.video = key && entry.sprite ? figureVideos.attach(entry.sprite, video) : null;
+            const old = entry.video, shown = entry.videoShown, before = entry.videoMotion;
+            entry.video = null; entry.videoShown = false;
+            const leaving = old && entry.videoSprite !== entry.sprite ? entry.fading.find(item => item.sprite === entry.videoSprite) : null;
+            const into = leaving && shown && video && before?.outfit === video.outfit && !old.entering() ? before.into?.[video.image] : null;
+            if (leaving) leaving.video = old; else old?.destroy();
+            entry.video = key && entry.sprite ? figureVideos.attach(entry.sprite, into ? {...video, enter: into} : video) : null;
+            if (into && entry.video) leaving.held = entry.video;
             entry.videoKey = key; entry.videoSprite = entry.sprite;
+        }
+        entry.videoMotion = video;
+        const speaks = Boolean(figure.speaking && !desc.skipping);
+        const mouth = speaks ? layeredSpriteVoice('video:' + figure.spriteVoiceKey, figure.audio, true) : 'closed';
+        const talking = mouth !== 'initial' && mouth !== 'closed';
+        const moving = !entry.leaving && entry.container.visible && world.visible && !desc.reducedMotion && !desc.skipping;
+        for (const item of entry.fading) {
+            if (item.video) { item.video.update({on: moving, talking}); item.video.tick(dt); }
+            // A held picture stays whole until the transition into the new one covers it, then fades out over it.
+            if (!item.held) continue;
+            const entering = item.held.entering();
+            item.start = state.clock;
+            if (entering !== 'pending') { item.held = null; if (entering === 'on') item.ms = ENTER_SWITCH_MS; }
         }
         if (!entry.video) return;
         const tapped = Boolean(entry.tapTexture && entry.sprite.texture === entry.tapTexture.texture);
-        const talking = Boolean(figure.speaking && !desc.skipping);
-        const stillSpeaks = talking && Boolean(figure.spriteBundle) && !entry.video.talks();
-        entry.video.update({on: !entry.leaving && entry.container.visible && world.visible && !desc.reducedMotion && !desc.skipping && !tapped && !stillSpeaks, talking});
+        const stillSpeaks = speaks && Boolean(figure.spriteBundle) && !entry.video.talks();
+        entry.video.update({on: moving && !tapped && !stillSpeaks, talking});
         entry.videoShown = entry.video.tick(dt);
     }
     const GAL_NO_FIGURES = [];
@@ -8522,7 +8546,7 @@ function galCreateScene(host, options, own) {
                 entry.restHead=pose.restHead;entry.restBody=pose.restBody;entry.localHead=pose.localHead;
                 if(pose.resolved)entry.figureResolved=pose.resolved;
                 entry.fading=pose.remaining;
-                for(const item of pose.retired){item.asset.destroy();state.lastPrune=0;}
+                for(const item of pose.retired){item.video?.destroy();item.asset.destroy();state.lastPrune=0;}
             }
             tickContactShadow(entry,H);
         };
@@ -17812,7 +17836,8 @@ function createStageFigurePose({resolve,flatLayout,actionAt,ease}) {
             place(current);
             const localHead=head,remaining=[],retired=[];
             for(const item of fading){
-                const progress=(now-item.start)/260;
+                // item.ms: a picture leaving over a transition into the next one fades quicker (scene tickFigureVideo).
+                const progress=(now-item.start)/(item.ms||260);
                 if(progress>=1){retired.push(item);continue;}
                 item.sprite.alpha=1-ease.inOutSine(progress);place(item.sprite);remaining.push(item);
             }
@@ -19047,9 +19072,17 @@ if(typeof module!=='undefined'&&typeof window==='undefined')module.exports={crea
 // as a child of the figure sprite over the still's rect, so every transform and filter of the figure applies to it as well.
 // - The still shows until the idle loop can play, whenever the stage says the motion is off (`on: false`), and for good when
 //   the idle loop cannot play (a decode error, no WebGL upload); the change is a short crossfade, never a gap.
-// - Speech: the talking loop starts from its first frame when the figure starts speaking and loops while it speaks; when the
-//   line ends it plays on to its last frame (the still's pose) and the idle loop takes over from its first frame. Without a
-//   playable talking loop the handle says so (`talks()`) and the stage shows the still's own mouths instead.
+// - Speech follows the voice, as the still's mouths do: the talking loop starts from its first frame when the figure's voice
+//   is heard and loops while it goes on (gaps between words shorter than VOICE_HOLD_MS count as speech); once the voice
+//   stops it plays on to its last frame (the still's pose) and the idle loop takes over from its first frame. No heard voice
+//   (voice off, muted, failed), no talking loop. Without a playable talking loop the handle says so (`talks()`) and the stage
+//   shows the still's own mouths instead.
+// - A change of expression may enter through a transition (motion.enter, a 视频 of the same kind that starts on the
+//   previous still's pose and ends on this one's): the handle claims the still at once (it does not draw, so the previous
+//   picture fading out on top is all that shows), waits up to ENTER_WAIT_MS for the clip, shows it whole under the
+//   previous picture's fade (entering() says when), plays it once and hands over to the idle loop - or to the talking loop
+//   when the voice is heard by then - from its first frame. A clip that does not come in time, fails, or a motion turned off
+//   meanwhile drops the transition: the still shows and the pictures crossfade as without one.
 // - Only a figure on stage plays: a video whose motion is off pauses once it has faded out, and the browser's hidden page
 //   pauses it too (forkForeground); a released figure releases its videos (elements, textures and the shared reads).
 // - A texture takes each decoded frame once (requestVideoFrameCallback; PIXI's own updates at 30 fps without it) and
@@ -19059,7 +19092,7 @@ if(typeof module!=='undefined'&&typeof window==='undefined')module.exports={crea
 function createStageFigureVideos({document, acquire, foreground}) {
 let disposed = false;
 const scopes = new Set();
-const FADE_MS = 240, SWITCH_MS = 150;
+const FADE_MS = 240, SWITCH_MS = 150, VOICE_HOLD_MS = 400, ENTER_WAIT_MS = 600;
 const VERTEX = `attribute vec2 aVertexPosition;attribute vec2 aTextureCoord;uniform mat3 projectionMatrix;uniform mat3 translationMatrix;uniform mat3 uTextureMatrix;varying vec2 vTextureCoord;
 void main(){gl_Position=vec4((projectionMatrix*translationMatrix*vec3(aVertexPosition,1.0)).xy,0.0,1.0);vTextureCoord=(uTextureMatrix*vec3(aTextureCoord,1.0)).xy;}`;
 // The colour of a point is the left half, its opacity the red of the right half; clamped half a texel from the seam.
@@ -19137,46 +19170,86 @@ function create({PIXI}) {
     }
     // sprite: the figure's PIXI sprite (its texture the still or the still's composed frame, anchor set);
     // motion: {source: the idle loop's 视频 projection, talk: the talking loop's or null, rect: [x, y, w, h] the still canvas
-    // px both pictures cover}.
+    // px both pictures cover, enter: {source, rect} the transition this picture enters through, or none}.
     function attach(sprite, motion) {
         if (closed) return null;
-        let on = false, talking = false, phase = 'idle', released = false, last = null;
-        const place = mesh => {
-            const [x, y, w, h] = motion.rect, ax = sprite.anchor.x * sprite.texture.width, ay = sprite.anchor.y * sprite.texture.height;
+        let on = false, talking = false, quiet = Infinity, released = false, last = null, waited = 0;
+        const placer = rect => mesh => {
+            const [x, y, w, h] = rect, ax = sprite.anchor.x * sprite.texture.width, ay = sprite.anchor.y * sprite.texture.height;
             mesh.position.set(x - ax, y - ay); mesh.scale.set(w, h);
         };
+        const place = placer(motion.rect);
         const idle = clip(sprite, motion.source, true, place);
         const talk = motion.talk ? clip(sprite, motion.talk, false, place) : null;
-        const clips = talk ? [idle, talk] : [idle];
-        // The still draws itself only while no video covers it fully.
+        const placeEnter = motion.enter ? placer(motion.enter.rect) : null;
+        const enter = motion.enter ? clip(sprite, motion.enter.source, false, placeEnter) : null;
+        const clips = [idle, talk, enter].filter(Boolean);
+        const placeAll = () => { for (const c of clips) if (c.mesh) (c === enter ? placeEnter : place)(c.mesh); };
+        let phase = enter ? 'enter' : 'idle';
+        // The still draws itself only while no video covers it fully, and not while a transition is awaited.
         const drawStill = sprite._render;
-        sprite._render = function (renderer) { if (!clips.some(c => c.mesh && c.mesh.visible && c.mix >= 1)) drawStill.call(this, renderer); };
+        sprite._render = function (renderer) { if (phase !== 'enter' && !clips.some(c => c.mesh && c.mesh.visible && c.mix >= 1)) drawStill.call(this, renderer); };
         const talks = () => talk?.status === 'ready';
+        // Leaves the transition: the clip stops and drops out of sight, the still is back.
+        const dropEnter = () => { phase = 'idle'; enter.stop(); enter.mix = 0; if (enter.mesh) enter.mesh.visible = false; };
         const handle = {
-            // on: the stage wants the motion now (on stage, not reduced motion, no tap still); talking: the figure speaks.
+            // on: the stage wants the motion now (on stage, not reduced motion, no tap still); talking: the figure's voice is
+            // heard this frame (its mouth would be open).
             update({on: nextOn, talking: nextTalking = false}) { on = Boolean(nextOn); talking = Boolean(nextTalking); },
             // Whether a talking loop can show this figure's speech; without one the stage turns the motion off to speak.
             talks,
-            // dt: ms since the last frame. Returns whether a video draws this frame.
+            // The transition this picture enters through: 'pending' while it is awaited (the still does not draw), 'on' once it
+            // covers the picture, null without one or once it is over or dropped.
+            entering: () => phase !== 'enter' ? null : enter.mix >= 1 ? 'on' : 'pending',
+            // dt: ms since the last frame. Returns whether a video draws this frame (or a transition holds the still back).
             tick(dt) {
                 if (released) return false;
-                if (idle.status === 'failed') { if (talk) { talk.stop(); talk.mix = 0; if (talk.mesh) talk.mesh.visible = false; } return false; }
+                quiet = talking ? 0 : quiet + Math.max(0, dt);
+                const speaking = quiet < VOICE_HOLD_MS;
+                if (sprite.texture !== last) { last = sprite.texture; placeAll(); }
+                if (phase === 'enter') {
+                    waited += Math.max(0, dt);
+                    if (!on || enter.status === 'failed' || enter.mix < 1 && waited > ENTER_WAIT_MS) dropEnter();
+                    else if (enter.status === 'ready' && enter.playing && enter.video.ended) {
+                        // Played out on this picture's pose: the loop that fits the voice now takes over from its first frame.
+                        phase = speaking && talks() ? 'talk' : 'idle';
+                        (phase === 'talk' ? talk : idle).start(true);
+                    } else if (enter.status === 'ready') {
+                        enter.start(false);
+                        // Shown whole at once: its first frame is the previous picture, which fades out over it.
+                        if (enter.playing && enter.video.readyState >= 2) { enter.mix = 1; enter.mesh.visible = true; enter.mesh.alpha = 1; }
+                    }
+                    if (phase === 'enter') return true;
+                }
+                if (idle.status === 'failed') {
+                    for (const c of clips) if (c !== idle) { c.stop(); c.mix = 0; if (c.mesh) c.mesh.visible = false; }
+                    return false;
+                }
                 if (phase === 'talk' && !talks()) phase = 'idle';
                 if (on && phase === 'idle' && talking && talks()) { phase = 'talk'; talk.start(true); }
                 if (phase === 'talk' && talk.video.ended) {
-                    if (talking && on) talk.start(true);
+                    if (speaking && on) talk.start(true);
                     else { phase = 'idle'; if (on) idle.start(true); }
                 }
                 if (!on && phase === 'talk' && talk.mix <= 0) phase = 'idle';
                 const active = phase === 'talk' ? talk : idle;
                 if (on) active.start(false);
-                // One clip handing over to the other crossfades quicker than the motion fading in over the still.
-                const ms = clips.some(c => c !== active && c.mix > 0) ? SWITCH_MS : FADE_MS;
-                for (const c of clips) c.fade(on && c === active, dt, ms);
-                if (sprite.texture !== last) { last = sprite.texture; for (const c of clips) if (c.mesh) place(c.mesh); }
+                // A hand-off between the clips fades the incoming one in over the outgoing one, which stays whole underneath
+                // until the incoming one covers it, so the still never shows between them; it is quicker than the motion
+                // fading in over the still.
+                const outgoing = clips.find(c => c !== active && c.mix > 0);
+                if (outgoing && active.mesh && outgoing.mesh) {
+                    const at = sprite.children.indexOf(outgoing.mesh);
+                    if (sprite.children.indexOf(active.mesh) < at) { sprite.removeChild(active.mesh); sprite.addChildAt(active.mesh, at); }
+                }
+                const ms = outgoing ? SWITCH_MS : FADE_MS;
+                for (const c of clips) {
+                    if (c === active) c.fade(on, dt, ms);
+                    else if (!(on && active.status === 'ready' && active.mix < 1 && c.mix > 0)) c.fade(false, dt, ms);
+                }
                 return clips.some(c => c.mix > 0);
             },
-            state: () => ({status: idle.status, talk: talk ? talk.status : null, phase, on, talking, mix: idle.mix, talkMix: talk ? talk.mix : 0,
+            state: () => ({status: idle.status, talk: talk ? talk.status : null, enter: enter ? enter.status : null, phase, on, talking, mix: idle.mix, talkMix: talk ? talk.mix : 0, enterMix: enter ? enter.mix : 0,
                 playing: idle.playing, time: idle.video.currentTime, size: [idle.video.videoWidth, idle.video.videoHeight]}),
             destroy() {
                 if (released) return;

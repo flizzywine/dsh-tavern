@@ -6,8 +6,17 @@ import { jsonBytes } from './validation.js'
 // 动态立绘: the 视频 entries the figure's stills name (outfit sprite.videos) come along as entries of the target with their
 // bundles, under fresh ids where the target has (or once had) the id; videos maps a source id to its copy, shared by the
 // figures of one copy so a loop two figures name is copied once.
+// Every place a figure names a 视频 entry: [holder, key] - an image's idle and talking loops and its transitions (into).
+export function figureVideoSlots(figure) {
+  const slots = []
+  for (const outfit of figure.outfits) for (const motion of Object.values(outfit.sprite?.videos || {})) {
+    slots.push([motion, 'video'], [motion, 'talk'])
+    for (const edge of Object.values(motion.into || {})) slots.push([edge, 'video'])
+  }
+  return slots
+}
 function copyFigureVideos(source, figure, manifest, files, videos, retired) {
-  for (const outfit of figure.outfits) for (const motion of Object.values(outfit.sprite?.videos || {})) for (const key of ['video', 'talk']) {
+  for (const [motion, key] of figureVideoSlots(figure)) {
     const old = motion[key]
     if (old === undefined) continue
     if (!videos.has(old)) {
