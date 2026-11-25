@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "8e32cfb6525783e8a560ac2072d2fc5fcc6f534f",
-  "releaseSequence": 2098,
+  "revision": "09809e782d5c75fcb0b8e96643eb4566bc37b24e",
+  "releaseSequence": 2099,
   "version": "3.4.0",
   "files": [
     {
@@ -1226,8 +1226,8 @@
     },
     {
       "path": "tavern-plugin/lib/client-assets/tavern.css",
-      "sha256": "70f1ac576ea2f45c64c710582f87f5bdc09ae782771cf4a83c1fea84c3a85b3a",
-      "size": 511398
+      "sha256": "9a47e42eebd5a4044d48d17af67b1d034621d18ff1bda2addc6807fc8d2376d6",
+      "size": 511457
     },
     {
       "path": "tavern-plugin/lib/client-assets/theme.css",
@@ -1276,8 +1276,8 @@
     },
     {
       "path": "tavern-plugin/lib/client.js",
-      "sha256": "7361dc5aa893dd77d79673bd41996bfb2699f0f1a51f49a9ef28d9d628c8a654",
-      "size": 6760589
+      "sha256": "cebf49c3833895b70540606c32751bf66ab250923c5eed6a72795c74cc0995ba",
+      "size": 6766054
     },
     {
       "path": "tavern-plugin/lib/cordis-inspect.js",
@@ -2181,8 +2181,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/foreground-worldbook.js",
-      "sha256": "28f1729f08f563b2285ebf7303dd6f182e46235d682e5ef1edbf8cc67490c19b",
-      "size": 18064
+      "sha256": "30da4c0d3c3308ab1e3eccac0a3bcf3199529514f353e42382fa1a06c75fe13c",
+      "size": 19753
     },
     {
       "path": "tavern-plugin/lib/domain/frame-sizing.js",
@@ -4206,8 +4206,13 @@
     },
     {
       "path": "tavern-plugin/lib/domain/worldbook-activation.js",
-      "sha256": "8f258834ae9f0c87cd7f51de30d305fca701ebc0beb648cdc8600e46f7ca3ad8",
-      "size": 17459
+      "sha256": "2885ffbc6455d7f1dbe24720495773b50e7373a3f1b5aed700032d8ed5fb3906",
+      "size": 17818
+    },
+    {
+      "path": "tavern-plugin/lib/domain/worldbook-channel.js",
+      "sha256": "93e9acd90228961a7938e867c0aacef3e9f0080d8acd5695fb7bddea503d59e4",
+      "size": 1928
     },
     {
       "path": "tavern-plugin/lib/domain/worldbook-context-delta.js",
@@ -4216,8 +4221,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/worldbook-entry-classification.js",
-      "sha256": "c3314a28889d1ce9de1e54dca364cb81980ed9c976b81379d7a4db27e50efcab",
-      "size": 3599
+      "sha256": "e1c27e2614bd8c47d842e4fda2ed693e622d3c1e47e06dda7a02a1bce85892f8",
+      "size": 3815
     },
     {
       "path": "tavern-plugin/lib/domain/worldbook-entry-title.js",
@@ -4231,8 +4236,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/worldbook-files.js",
-      "sha256": "6abf08d2bce92711d4c786050baf27ed198b5699674e341fed1ddd6546aedd3e",
-      "size": 11934
+      "sha256": "1bd8ef9b3fa74adf614a0a8552a113a9cdf0e26e219e16516d3c1a475f4a73c8",
+      "size": 11952
     },
     {
       "path": "tavern-plugin/lib/domain/worldbook-library.js",
@@ -4241,8 +4246,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/worldbook-merge.js",
-      "sha256": "e6d0182b9e17263e75b8ed1a2eee38e175edd7f01e977f7dd3ea22e996c077bc",
-      "size": 2039
+      "sha256": "0036b29f7b0e63c1d01ef4c8b372ed5d5f68c7f5159043eccb6d7c862298bf96",
+      "size": 2904
     },
     {
       "path": "tavern-plugin/lib/domain/worldbook-mvu-entry.js",
@@ -4251,8 +4256,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/worldbook-placement.js",
-      "sha256": "44ae6b44498b9dd9de05e4fbcca1d414a7f4397991e1b8a9903bebbedf3104df",
-      "size": 3041
+      "sha256": "3aa7de7f361727da99005fa4352adc7b7ebdbfff0a7e119270e43bd10c1975b9",
+      "size": 3634
     },
     {
       "path": "tavern-plugin/lib/domain/worldbook-random-sequence.js",
@@ -4271,13 +4276,13 @@
     },
     {
       "path": "tavern-plugin/lib/domain/worldbook-recall.js",
-      "sha256": "60547509130a58179de10dacc9c5b6c2a8be335ce0b17756a507e938535abccb",
-      "size": 18918
+      "sha256": "33820814a8598dfb6624384a10085a2775f52d6e85c20f06f7b1bae5b0b87d5f",
+      "size": 19314
     },
     {
       "path": "tavern-plugin/lib/domain/worldbook-resource.js",
-      "sha256": "a70e836dccbc97eea753e99a34ee6339b91d9ccea80bd9e4b91ded10ea3b0899",
-      "size": 26632
+      "sha256": "49afbfd1974870a83d99db6a2e273b5441fe56146e6276b8764d3d7b59b54283",
+      "size": 28668
     },
     {
       "path": "tavern-plugin/lib/domain/worldbook-skill-changes.js",
@@ -8496,8 +8501,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-plot-compass/lib/plot-compass.js",
-      "sha256": "66a7ad29c71409a83d6b6b49dd310a00aee0f4f8d62fef8064fd0c8e3566fcca",
-      "size": 90831
+      "sha256": "17ea8fe6ed4236294bd9eb77646b8a9d47119a5817037ace6ff33ba4c7090201",
+      "size": 90889
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-plot-compass/LICENSE",
@@ -10266,9 +10271,9 @@
     }
   ],
   "archive": {
-    "commit": "96361fbba6395810b68b9830f032d8309138bec9",
+    "commit": "1cb34ec2b30a9b30f2d0b5ca5698d5e51c9789e6",
     "path": "runtime.zip",
-    "sha256": "8bb6b6881bc642b95eb809bcb038275c7bc5f802219c2e95464e00f40ce70731",
-    "size": 18034692
+    "sha256": "942e5fe5b2ea626bdf93f80daf67157155393f17e3f9755b49b216df00a33682",
+    "size": 18039532
   }
 }
