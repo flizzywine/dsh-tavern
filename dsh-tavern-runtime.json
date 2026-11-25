@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "a7ad83a4fde1c4c940ccc4612d76dd25cb5f74e8",
-  "releaseSequence": 2086,
+  "revision": "16787c43670f88a72b8b2529a8af3bcf1027304f",
+  "releaseSequence": 2087,
   "version": "3.4.0",
   "files": [
     {
@@ -496,8 +496,8 @@
     },
     {
       "path": "bin/plugin-dependencies.mjs",
-      "sha256": "6e388e22e93bda7ea67edaca33ed729a7ef50b3fcd7dfb1d0335f4851e1d53a7",
-      "size": 21650
+      "sha256": "c75e8afd2dbb8ece14b38b4b53e08fba83f035180542394c27f9880ea9507571",
+      "size": 21549
     },
     {
       "path": "bin/portable-fs.mjs",
@@ -10266,9 +10266,9 @@
     }
   ],
   "archive": {
-    "commit": "b60571c614de0dee5aec6a805f4c88eba5263bde",
+    "commit": "7fde83e57bda7ac88aebbfa231e71cbeeb1be34f",
     "path": "runtime.zip",
-    "sha256": "f78b5f79a1e5bfc6913f17e080f3cc9b3346a90d2f941745a1cd962a8e25db82",
-    "size": 17992867
+    "sha256": "e001375f771a0c2b888b1c458e5c3eb2b6302852c146624189ff2b6579fbc195",
+    "size": 17992871
   }
 }
