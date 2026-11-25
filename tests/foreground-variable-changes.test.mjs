@@ -2,6 +2,8 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { lastRoundVariableChanges, lastRoundVariableValues } from '../tavern-plugin/lib/domain/foreground-variable-changes.js'
+import { registerRequestHooks } from '../tavern-plugin/lib/hooks/request.js'
+import { createInitializationNative } from './fixtures/conversation-initialization-native.mjs'
 
 const message = (stat_data, extra = {}) => ({ role: 'assistant', swipeId: 0, variables: [{ stat_data }], ...extra })
 const chat = messages => ({ mode: 'story', mvu: { enabled: true }, messages })
@@ -46,4 +48,36 @@ test('由结算回执确定反馈字段，读取保存后的最新值并保留�
     { names: ['游戏', '地点'], value: '车站' }
   ])
   assert.doesNotMatch(lastRoundVariableChanges(run), /操作次数/)
+})
+
+test('普通正文准备时等待上一轮结算，实际模型请求收到刚保存的结果', { skip: !process.env.DSH_BOOT_MODULE }, async t => {
+  const h = await createInitializationNative(process.env.DSH_BOOT_MODULE)
+  t.after(() => h.dispose())
+  await h.open().start(h.input)
+  const baseline = { swipeId: 0, variables: { stat_data: { 金币: 10 } } }
+  let saved = chat([message({ 金币: 10 }, { mvuBaseline: baseline, mvu: { pending: true } })])
+  registerRequestHooks({
+    ctx: h.ctx,
+    backgroundAgentRunner: { owns: () => false },
+    chatForSession: async () => saved,
+    foregroundStrategies: {
+      async prepareStep({ chat: before, decision }) {
+        assert.equal(before.messages[0].mvu.pending, true)
+        saved = chat([message({ 金币: 8 }, { mvuBaseline: baseline,
+          mvu: { pending: false, receipt: { changes: [{ path: '/stat_data/金币' }], sideEffects: [] } }
+        })])
+        return decision
+      }
+    },
+    requestCoordinates: new Map(),
+    requestIdForMessages: () => 'next-turn',
+    cardMemory: { appendRecall: async ({ decision }) => decision },
+    sessionStore: h.ctx.sessions,
+    tavernRetryLimiter: { handle: (_payload, next) => next() }
+  })
+  await h.continueInPlace()
+  assert.equal(h.requests.length, 1)
+  const updates = h.requests[0].messages.filter(message => message.source?.form === 'variable-changes')
+  assert.equal(updates.length, 1)
+  assert.match(updates[0].content[0].text, /\/金币 = 8/)
 })

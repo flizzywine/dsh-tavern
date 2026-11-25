@@ -1,4 +1,4 @@
-import { lastRoundVariableValues } from './foreground-variable-changes.js'
+import { lastRoundVariableChanges, lastRoundVariableValues } from './foreground-variable-changes.js'
 import { canonicalTavernSkillName } from './tavern-skills.js'
 import { classifyWorldbookEntry } from './worldbook-entry-classification.js'
 import { isMvuUpdateEntry } from './worldbook-recall.js'
@@ -148,6 +148,11 @@ export function createWritingPreparationSources({ tavernSkills, chatForSession, 
           ...result.matches.map(row => ({ id: row.turn + ':excerpt', title: '第 ' + row.turn + ' 轮', text: row.excerpt })),
           ...result.rounds.map(row => ({ id: row.turn + ':full', title: '第 ' + row.turn + ' 轮', text: row.messages.map(message => message.text).join('\n') }))
         ]
+      },
+      settledChanges: async () => {
+        if (chat && chat.mvu?.enabled !== true) return null
+        const current = await readHistory()
+        return current.regenInProgress ? null : lastRoundVariableChanges(current)
       },
       variables: async ({ query }) => {
         const words = [...new Set(wordsOf(query))]

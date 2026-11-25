@@ -17,6 +17,7 @@ const VARIABLES_ALREADY_READ = '命中的变量已在本轮查询结果中。'
 const VARIABLE_QUERY_HEADER = '【变量查询结果】\n'
 const VARIABLE_FACTS_HEADER = '【当前状态】\n'
 const VARIABLE_IDENTIFIER = /\b(?:[\dA-Fa-f]{8}(?:-[\dA-Fa-f]{4}){3}-[\dA-Fa-f]{12}|[a-z][a-z\d]+(?:_[a-z\d]+)+|[a-z][a-z\d]+[A-Z][A-Za-z\d]*)\b/
+const SETTLED_CHANGES_INSTRUCTIONS = '以下是宿主已经保存的上轮结果，可以直接作为事实依据。用 submit_variable_facts 交接其中会影响正文的变化，保留最新数值和单位，用对局语言合并成短句。'
 const { tavernIsWritingInjection, tavernWritingReceiptSections, tavernFormatPlotWorldbookReceipt } = receipts
 
 function worldbookInContext(messages) {
@@ -163,10 +164,16 @@ export function createWritingPreparation({ allowed, runAgent, readSources }) {
         readVariables: args => read('variables', args),
         submitVariableFacts,
         inject,
-        runAgent: task => {
+        runAgent: async task => {
           requestSignal.throwIfAborted()
           const selection = task.selection ?? entry.selection ?? foregroundSelection
-          return runAgent(entry.owner, { ...task, gameId, selection, signal: requestSignal }, queryContext, (name, result) => {
+          const changes = typeof task.prompt === 'string' && task.prompt.trim() && Array.isArray(task.tools)
+            && task.tools.some(tool => tool?.name === 'submit_variable_facts')
+            ? await sourceReaders.settledChanges?.() : null
+          requestSignal.throwIfAborted()
+          if (changes) variableEvidence = true
+          const prompt = changes ? task.prompt + '\n\n' + SETTLED_CHANGES_INSTRUCTIONS + '\n' + changes : task.prompt
+          return runAgent(entry.owner, { ...task, prompt, gameId, selection, signal: requestSignal }, queryContext, (name, result) => {
             // Keep call order for concurrent tools and reuse the exact model-facing receipt.
             if (!submitted && name !== 'inject' && name !== 'load_writing_skill' && name !== 'submit_variable_facts') toolResults.push(result)
           })

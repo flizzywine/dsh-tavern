@@ -75,3 +75,24 @@ test('white glove keeps variable lookup receipts private and hands off only subm
   const material = await preparation.prepare(entry, { ...args, context: { messages: [] } })
   assert.equal(material, '【当前状态】\n林婉是律师，最近在找钥匙。')
 })
+
+test('white glove receives the settled delta before tools run and can hand it off without a lookup', async () => {
+  const preparation = createWritingPreparation({
+    allowed: async () => true,
+    readSources,
+    runAgent: async (_owner, task) => {
+      assert.match(task.prompt, /<variable_changes>[\s\S]*\/game\/player\/balance = 42/)
+      assert.doesNotMatch(task.prompt, /secretInventory|branchKey/)
+      assert.deepEqual(task.tools[0].execute({ facts: ['玩家账户里还剩 42 元。'] }), { accepted: true })
+    }
+  })
+  preparation.register('white-glove', {
+    prepare: ({ submitVariableFacts, runAgent }) => runAgent({
+      prompt: '找正文需要的资料。',
+      tools: [{ name: 'submit_variable_facts', execute: submitVariableFacts }]
+    })
+  })
+  const entry = await preparation.forGame(args.gameId)
+  const material = await preparation.prepare(entry, { ...args, context: { messages: [] } })
+  assert.equal(material, '【当前状态】\n玩家账户里还剩 42 元。')
+})
