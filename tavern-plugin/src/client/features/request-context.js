@@ -464,7 +464,18 @@
             const mode = props.mode || "treemap";
             const activeBucket = props.activeBucket || "";
             const selectedTile = props.selectedTile || null;
-            const [hoveredTile, setHoveredTile] = React.useState(null);
+            const externalFocus = props.hoverFocus || null;
+            const [localFocus, setLocalFocus] = React.useState(null);
+            const [tipPayload, setTipPayload] = React.useState(null);
+            const [tipPos, setTipPos] = React.useState(null);
+            const wrapRef = React.useRef(null);
+            const stageRef = React.useRef(null);
+            const tipRef = React.useRef(null);
+            const tipAnchorRef = React.useRef(null);
+            const prevHeightRef = React.useRef(null);
+            const heightAnimRef = React.useRef(null);
+            const didMountRef = React.useRef(false);
+
             const dims = variant === "popover"
                 ? { width: 394, height: 132, maxTiles: 12 }
                 : variant === "sheet"
@@ -478,7 +489,109 @@
                 if (!summary || mode !== "waffle" || typeof computeContextWaffleCells !== "function") return [];
                 return computeContextWaffleCells(summary, 400);
             }, [summary, mode]);
+
+            const bucketItemsMap = React.useMemo(() => {
+                const map = Object.create(null);
+                for (const item of (summary && Array.isArray(summary.items) ? summary.items : [])) {
+                    if (!item || item.tokens <= 0) continue;
+                    if (!map[item.bucket]) map[item.bucket] = [];
+                    map[item.bucket].push(item);
+                }
+                for (const key of Object.keys(map)) {
+                    map[key].sort((a, b) => (b.tokens !== a.tokens ? b.tokens - a.tokens : a.index - b.index));
+                }
+                return map;
+            }, [summary]);
+
+            const bucketMap = React.useMemo(() => {
+                const map = Object.create(null);
+                for (const b of (summary && Array.isArray(summary.buckets) ? summary.buckets : [])) {
+                    map[b.key] = b;
+                }
+                return map;
+            }, [summary]);
+
+            // Treemap <-> Waffle 切换时平滑过渡容器高度（Magpie 风格）
+            React.useLayoutEffect(() => {
+                if (!didMountRef.current) {
+                    didMountRef.current = true;
+                    return;
+                }
+                const stage = stageRef.current;
+                const h0 = prevHeightRef.current;
+                prevHeightRef.current = null;
+                if (!stage || !(h0 > 0) || typeof stage.animate !== "function") return;
+                const reduced = typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+                if (reduced) return;
+                const h1 = stage.offsetHeight;
+                if (!(h1 > 0) || h0 === h1) return;
+                if (heightAnimRef.current) {
+                    try { heightAnimRef.current.cancel(); } catch (_) {}
+                }
+                stage.style.overflow = "hidden";
+                const anim = stage.animate(
+                    [{ height: h0 + "px" }, { height: h1 + "px" }],
+                    { duration: 340, easing: "cubic-bezier(0.32, 0.72, 0, 1)" }
+                );
+                heightAnimRef.current = anim;
+                anim.finished.catch(() => {}).finally(() => {
+                    if (heightAnimRef.current === anim) {
+                        stage.style.overflow = "";
+                        heightAnimRef.current = null;
+                    }
+                });
+            }, [mode]);
+
+            // 动态将深色悬浮气泡定位在悬停色块/格子的正上方（顶部不足时自动翻到下方）
+            React.useLayoutEffect(() => {
+                if (!tipPayload || !tipRef.current || !wrapRef.current || !tipAnchorRef.current) {
+                    setTipPos(null);
+                    return;
+                }
+                const wrap = wrapRef.current;
+                const tipEl = tipRef.current;
+                const anchor = tipAnchorRef.current;
+                if (!anchor.isConnected) {
+                    setTipPos(null);
+                    return;
+                }
+                const wRect = wrap.getBoundingClientRect();
+                const aRect = anchor.getBoundingClientRect();
+                const cardEl = typeof wrap.closest === "function" ? wrap.closest(".dsh-ctx-card") : null;
+                const cRect = cardEl ? cardEl.getBoundingClientRect() : wRect;
+                const tw = tipEl.offsetWidth || 200;
+                const th = tipEl.offsetHeight || 52;
+                let left = aRect.left - wRect.left + aRect.width / 2 - tw / 2;
+                const minLeft = Math.max(0, cRect.left - wRect.left + 6);
+                const maxLeft = Math.max(minLeft, cRect.right - wRect.left - tw - 6);
+                left = Math.max(minLeft, Math.min(maxLeft, left));
+                let top = aRect.top - wRect.top - th - 8;
+                if (aRect.top - th - 8 < cRect.top + 4) {
+                    top = aRect.bottom - wRect.top + 8;
+                }
+                setTipPos({ left: Math.round(left), top: Math.round(top) });
+            }, [tipPayload]);
+
+            React.useEffect(() => {
+                setLocalFocus(null);
+                setTipPayload(null);
+                tipAnchorRef.current = null;
+            }, [mode, summary]);
+
             if (!summary) return null;
+
+            function clearHover() {
+                setLocalFocus(null);
+                setTipPayload(null);
+                tipAnchorRef.current = null;
+            }
+
+            function handleModeSwitch(nextMode) {
+                if (nextMode === mode) return;
+                prevHeightRef.current = stageRef.current ? stageRef.current.offsetHeight : null;
+                clearHover();
+                props.onModeChange && props.onModeChange(nextMode);
+            }
 
             function handleTileClick(tile) {
                 if (!tile) return;
@@ -503,13 +616,125 @@
                 if (tile.cacheKey && props.onOpenSection) props.onOpenSection(tile.cacheKey, tile);
             }
 
+            function handleTileEnter(tile, el) {
+                if (variant === "sheet") return;
+                setLocalFocus({ kind: "tile", tileId: tile.id });
+                tipAnchorRef.current = el;
+                const usedDenom = Math.max(1, summary.usedTokens || 1);
+                const shareUsedPct = Math.round((tile.tokens / usedDenom) * 1000) / 10;
+                const shareWinPct = Math.round((tile.share || 0) * 1000) / 10;
+                if (tile.kind === "free") {
+                    setTipPayload({
+                        key: tile.id,
+                        bucket: "free",
+                        title: "剩余空间",
+                        rightMeta: safeFormatTokens(tile.tokens) + " · " + shareWinPct + "%"
+                    });
+                } else if (tile.kind === "group") {
+                    const members = Array.isArray(tile.members) ? tile.members : (bucketItemsMap[tile.bucket] || []);
+                    setTipPayload({
+                        key: tile.id,
+                        bucket: tile.bucket,
+                        title: safeBucketLabel(tile.bucket) + " · " + tile.label,
+                        rightMeta: safeFormatTokens(tile.tokens) + " · " + shareUsedPct + "%",
+                        rows: members.slice(0, 5).map(m => ({ id: m.id, label: m.label, tokens: m.tokens })),
+                        extraCount: Math.max(0, members.length - 5),
+                        isFirstBreak: tile.isFirstBreak
+                    });
+                } else {
+                    setTipPayload({
+                        key: tile.id,
+                        bucket: tile.bucket,
+                        title: tile.label,
+                        sub: safeBucketLabel(tile.bucket) + " · " + safeFormatTokens(tile.tokens) + " token · " + (summary.contextWindow ? shareWinPct : shareUsedPct) + "%",
+                        isFirstBreak: tile.isFirstBreak
+                    });
+                }
+            }
+
+            function handleWaffleCellEnter(cell, el) {
+                if (variant === "sheet") return;
+                setLocalFocus({ kind: "bucket", bucket: cell.bucket });
+                tipAnchorRef.current = el;
+                if (cell.isFree) {
+                    const pctFree = summary.contextWindow > 0 ? Math.round(((summary.freeTokens || 0) / summary.contextWindow) * 1000) / 10 : 0;
+                    setTipPayload({
+                        key: "waffle-free",
+                        bucket: "free",
+                        title: "剩余空间",
+                        rightMeta: safeFormatTokens(summary.freeTokens) + " · " + pctFree + "%"
+                    });
+                    return;
+                }
+                const bInfo = bucketMap[cell.bucket];
+                const bTokens = bInfo ? bInfo.tokens : 0;
+                const bPct = Math.round((bTokens / Math.max(1, summary.usedTokens || 1)) * 1000) / 10;
+                const items = bucketItemsMap[cell.bucket] || [];
+                const shown = items.slice(0, 4);
+                const hit = cell.itemId ? items.find(it => it.id === cell.itemId) : null;
+                if (hit && !shown.includes(hit)) shown[3] = hit;
+                setTipPayload({
+                    key: "waffle-" + cell.bucket + "-" + (cell.itemId || cell.index),
+                    bucket: cell.bucket,
+                    title: safeBucketLabel(cell.bucket),
+                    rightMeta: safeFormatTokens(bTokens) + " · " + bPct + "%",
+                    rows: shown.map(it => ({ id: it.id, label: it.label, tokens: it.tokens, active: Boolean(hit && it.id === hit.id) })),
+                    extraCount: Math.max(0, items.length - shown.length)
+                });
+            }
+
+            function handleWaffleCellClick(cell) {
+                if (!cell || cell.isFree) return;
+                const items = bucketItemsMap[cell.bucket] || [];
+                const target = (cell.itemId && items.find(it => it.id === cell.itemId)) || items[0];
+                if (target && target.cacheKey && props.onOpenSection) {
+                    clearHover();
+                    props.onOpenSection(target.cacheKey, target);
+                }
+            }
+
+            const effectiveFocus = localFocus
+                || externalFocus
+                || (activeBucket ? { kind: "bucket", bucket: activeBucket } : null)
+                || (variant === "sheet" && selectedTile ? { kind: "tile", tileId: selectedTile.id } : null);
+            const hasFocus = Boolean(effectiveFocus);
+
+            function isTileFocused(tile) {
+                if (!effectiveFocus) return false;
+                if (effectiveFocus.kind === "tile") return tile.id === effectiveFocus.tileId;
+                if (effectiveFocus.kind === "bucket") return tile.bucket === effectiveFocus.bucket;
+                if (effectiveFocus.kind === "item") {
+                    if (tile.id === effectiveFocus.itemId) return true;
+                    if (tile.kind === "group" && Array.isArray(tile.memberIds) && tile.memberIds.includes(effectiveFocus.itemId)) return true;
+                    return false;
+                }
+                return false;
+            }
+
+            function isWaffleCellFocused(cell) {
+                if (!effectiveFocus) return false;
+                if (effectiveFocus.kind === "bucket") return cell.bucket === effectiveFocus.bucket;
+                if (effectiveFocus.kind === "item") {
+                    if (cell.itemId) return cell.itemId === effectiveFocus.itemId;
+                    return !cell.isFree && cell.bucket === effectiveFocus.bucket;
+                }
+                if (effectiveFocus.kind === "tile") return cell.bucket === effectiveFocus.bucket;
+                return false;
+            }
+
             const bucketsForLegend = (summary.buckets || []).filter(b => b.tokens > 0);
             const displayLegend = bucketsForLegend.length ? bucketsForLegend : (summary.buckets || []);
-            const tipTile = hoveredTile || (variant !== "sheet" ? selectedTile : null);
 
-            return h("div", { className: "dsh-ctx-viz-wrap", "data-variant": variant },
-                mode === "treemap"
-                    ? h("div", { className: "dsh-ctx-treemap is-" + variant, role: "region", "aria-label": "上下文空间 Treemap 分布" },
+            return h("div", { className: "dsh-ctx-viz-wrap", "data-variant": variant, ref: wrapRef },
+                h("div", { className: "dsh-ctx-viz-stage", ref: stageRef, "data-mode": mode },
+                    mode === "treemap"
+                        ? h("div", {
+                            className: "dsh-ctx-treemap is-" + variant,
+                            role: "region",
+                            "aria-label": "上下文空间 Treemap 分布",
+                            "data-focus": hasFocus ? effectiveFocus.kind : undefined,
+                            onMouseLeave: variant === "sheet" ? undefined : clearHover
+                        },
                         treemapData.thresholdLineX !== null && treemapData.thresholdLineX > 4 && treemapData.thresholdLineX < 98
                             ? h("div", {
                                 className: "dsh-ctx-threshold-line",
@@ -517,14 +742,18 @@
                                 "aria-hidden": "true"
                             }, h("span", { className: "dsh-ctx-threshold-tag" }, summary.compactionThresholdPercent + "%"))
                             : null,
-                        treemapData.tiles.map(tile => {
-                            const dimmed = activeBucket && tile.kind !== "free" && tile.bucket !== activeBucket;
+                        treemapData.tiles.map((tile, idx) => {
+                            const isOn = isTileFocused(tile);
                             const isSelected = selectedTile && selectedTile.id === tile.id;
+                            const isBare = !tile.showLabel;
+                            const isLow = tile.showLabel && !tile.showTokens;
                             const cls = "dsh-ctx-tile is-bucket-" + tile.bucket +
                                 (tile.kind === "free" ? " is-free" : "") +
                                 (tile.kind === "group" ? " is-group" : "") +
                                 (tile.isFirstBreak ? " is-break" : "") +
-                                (dimmed ? " is-dimmed" : "") +
+                                (isBare ? " is-bare" : "") +
+                                (isLow ? " is-low" : "") +
+                                (isOn ? " is-on" : "") +
                                 (isSelected ? " is-selected" : "");
                             const pctStr = Math.round((tile.share || 0) * 1000) / 10;
                             const ariaLabel = tile.label + " · " + safeFormatTokens(tile.tokens) + " tokens · " + pctStr + "%";
@@ -533,32 +762,63 @@
                                 type: "button",
                                 className: cls,
                                 style: {
-                                    left: tile.x.toFixed(3) + "%",
-                                    top: tile.y.toFixed(3) + "%",
-                                    width: tile.w.toFixed(3) + "%",
-                                    height: tile.h.toFixed(3) + "%"
+                                    left: "calc(" + tile.x.toFixed(3) + "% + 1.5px)",
+                                    top: "calc(" + tile.y.toFixed(3) + "% + 1.5px)",
+                                    width: "max(0px, calc(" + tile.w.toFixed(3) + "% - 3px))",
+                                    height: "max(0px, calc(" + tile.h.toFixed(3) + "% - 3px))",
+                                    "--d": (30 + Math.min(idx, 16) * 20) + "ms"
                                 },
                                 "data-ctx-tile": tile.id,
                                 "data-ctx-bucket": tile.bucket,
-                                title: ariaLabel,
                                 "aria-label": ariaLabel,
-                                onMouseEnter: variant === "sheet" ? undefined : () => setHoveredTile(tile),
-                                onMouseLeave: variant === "sheet" ? undefined : () => setHoveredTile(prev => (prev && prev.id === tile.id ? null : prev)),
+                                onMouseEnter: variant === "sheet" ? undefined : e => handleTileEnter(tile, e.currentTarget),
+                                onFocus: variant === "sheet" ? undefined : e => handleTileEnter(tile, e.currentTarget),
+                                onBlur: variant === "sheet" ? undefined : clearHover,
                                 onClick: () => handleTileClick(tile)
                             },
-                            tile.isFirstBreak ? h("span", { className: "dsh-ctx-tile-break", title: "首处缓存断层" }, "!") : null,
+                            tile.isFirstBreak && !isBare ? h("span", { className: "dsh-ctx-tile-break", title: "首处缓存断层" }, "!") : null,
                             tile.showLabel ? h("span", { className: "dsh-ctx-tile-title" }, tile.label) : null,
-                            tile.showTokens ? h("span", { className: "dsh-ctx-tile-val" }, safeFormatTokens(tile.tokens) + (tile.kind === "free" ? " · " + pctStr + "%" : "")) : null);
+                            tile.showTokens ? h("span", { className: "dsh-ctx-tile-val" }, safeFormatTokens(tile.tokens) + (tile.kind === "free" ? " · " + pctStr + "%" : " · " + safeBucketLabel(tile.bucket))) : null);
                         }))
-                    : h("div", { className: "dsh-ctx-waffle is-" + variant, role: "img", "aria-label": "400 格上下文占比网格" },
+                        : h("div", {
+                            className: "dsh-ctx-waffle is-" + variant,
+                            role: "img",
+                            "aria-label": "400 格上下文占比网格",
+                            "data-focus": hasFocus ? effectiveFocus.kind : undefined,
+                            onMouseLeave: variant === "sheet" ? undefined : clearHover
+                        },
                         waffleCells.map(cell => {
-                            const dimmed = activeBucket && !cell.isFree && cell.bucket !== activeBucket;
+                            const isOn = isWaffleCellFocused(cell);
+                            const isItemLift = isOn && effectiveFocus && effectiveFocus.kind === "item";
                             return h("span", {
                                 key: cell.index,
-                                className: "dsh-ctx-waffle-cell is-bucket-" + cell.bucket + (cell.isFree ? " is-free" : "") + (dimmed ? " is-dimmed" : ""),
-                                title: cell.label
+                                className: "dsh-ctx-waffle-cell is-bucket-" + cell.bucket +
+                                    (cell.isFree ? " is-free" : "") +
+                                    (isOn ? " is-on" : "") +
+                                    (isItemLift ? " is-item-on" : ""),
+                                style: { "--d": Math.round(cell.index * 1.4) + "ms" },
+                                onMouseEnter: variant === "sheet" ? undefined : e => handleWaffleCellEnter(cell, e.currentTarget),
+                                onClick: cell.isFree ? undefined : () => handleWaffleCellClick(cell)
                             });
-                        })),
+                        }))),
+                variant !== "sheet" && tipPayload ? h("div", {
+                    ref: tipRef,
+                    className: "dsh-ctx-tip" + (tipPos ? " is-placed" : ""),
+                    role: "tooltip",
+                    style: tipPos ? { left: tipPos.left + "px", top: tipPos.top + "px" } : { left: "0px", top: "0px", visibility: "hidden" }
+                },
+                h("div", { className: "dsh-ctx-tip-head" },
+                    h("span", { className: "dsh-ctx-dot is-bucket-" + tipPayload.bucket }),
+                    h("b", { className: "dsh-ctx-tip-title" }, tipPayload.title),
+                    tipPayload.isFirstBreak ? h("span", { className: "dsh-ctx-tip-break" }, "断层") : null,
+                    tipPayload.rightMeta ? h("span", { className: "dsh-ctx-tip-meta" }, tipPayload.rightMeta) : null),
+                tipPayload.sub ? h("div", { className: "dsh-ctx-tip-sub" }, tipPayload.sub) : null,
+                Array.isArray(tipPayload.rows) && tipPayload.rows.length
+                    ? tipPayload.rows.map(row => h("div", { key: row.id, className: "dsh-ctx-tip-row" + (row.active ? " is-active" : "") },
+                        h("span", { className: "dsh-ctx-tip-row-n" }, row.label),
+                        h("span", { className: "dsh-ctx-tip-row-v" }, safeFormatTokens(row.tokens))))
+                    : null,
+                tipPayload.extraCount > 0 ? h("div", { className: "dsh-ctx-tip-more" }, "另外 " + tipPayload.extraCount + " 项") : null) : null,
                 variant === "sheet" && selectedTile ? h("div", { className: "dsh-ctx-selected-bar" },
                     h("span", { className: "dsh-ctx-dot is-bucket-" + selectedTile.bucket }),
                     h("span", { className: "dsh-ctx-selected-name" }, selectedTile.label),
@@ -570,26 +830,27 @@
                             onClick: () => props.onOpenSection && props.onOpenSection(selectedTile.cacheKey, selectedTile)
                         }, "查看原文 ›")
                         : null) : null,
-                variant !== "sheet" && tipTile ? h("div", { className: "dsh-ctx-tooltip" },
-                    h("span", { className: "dsh-ctx-dot is-bucket-" + tipTile.bucket }),
-                    h("span", { className: "dsh-ctx-tooltip-label" }, tipTile.label),
-                    h("span", { className: "dsh-ctx-tooltip-val" }, safeFormatTokens(tipTile.tokens) + " tokens · " + (Math.round((tipTile.share || 0) * 1000) / 10) + "%"),
-                    tipTile.isFirstBreak ? h("span", { className: "dsh-ctx-break-tag" }, "首处缓存断层") : null) : null,
                 h("div", { className: "dsh-ctx-viz-footer" },
                     h("div", { className: "dsh-ctx-legend", role: "group", "aria-label": "语境桶图例" },
                         displayLegend.map(b => h("button", {
                             key: b.key,
                             type: "button",
                             className: "dsh-ctx-legend-item" + (activeBucket === b.key ? " is-active" : "") + (b.tokens <= 0 ? " is-empty" : ""),
+                            onMouseEnter: variant === "sheet" ? undefined : () => setLocalFocus({ kind: "bucket", bucket: b.key }),
+                            onMouseLeave: variant === "sheet" ? undefined : clearHover,
                             onClick: () => props.onBucketChange && props.onBucketChange(activeBucket === b.key ? "" : b.key)
                         },
                         h("span", { className: "dsh-ctx-dot is-bucket-" + b.key }),
                         h("span", { className: "dsh-ctx-legend-name" }, variant === "popover" ? b.shortLabel : b.label),
                         h("span", { className: "dsh-ctx-legend-val" }, safeFormatTokens(b.tokens)))),
-                        summary.freeTokens > 0 ? h("span", { className: "dsh-ctx-legend-item is-readonly" },
-                            h("span", { className: "dsh-ctx-dot is-bucket-free" }),
-                            h("span", { className: "dsh-ctx-legend-name" }, "剩余"),
-                            h("span", { className: "dsh-ctx-legend-val" }, safeFormatTokens(summary.freeTokens))) : null),
+                        summary.freeTokens > 0 ? h("span", {
+                            className: "dsh-ctx-legend-item is-readonly",
+                            onMouseEnter: variant === "sheet" ? undefined : () => setLocalFocus({ kind: "bucket", bucket: "free" }),
+                            onMouseLeave: variant === "sheet" ? undefined : clearHover
+                        },
+                        h("span", { className: "dsh-ctx-dot is-bucket-free" }),
+                        h("span", { className: "dsh-ctx-legend-name" }, "剩余"),
+                        h("span", { className: "dsh-ctx-legend-val" }, safeFormatTokens(summary.freeTokens))) : null),
                     h("div", { className: "dsh-ctx-mode-switch", role: "group", "aria-label": "视图模式切换" },
                         h("button", {
                             type: "button",
@@ -597,28 +858,28 @@
                             "aria-label": "Treemap 块状图",
                             "aria-pressed": mode === "treemap",
                             title: "Treemap 面积视图",
-                            onClick: () => props.onModeChange && props.onModeChange("treemap")
-                        }, h("svg", { viewBox: "0 0 14 14", width: 13, height: 13, "aria-hidden": true },
-                            h("rect", { x: 1, y: 1, width: 6, height: 7, rx: 1, fill: "currentColor" }),
-                            h("rect", { x: 8.5, y: 1, width: 4.5, height: 12, rx: 1, fill: "currentColor", opacity: 0.45 }),
-                            h("rect", { x: 1, y: 9.5, width: 6, height: 3.5, rx: 1, fill: "currentColor", opacity: 0.72 }))),
+                            onClick: () => handleModeSwitch("treemap")
+                        }, h("svg", { viewBox: "0 0 16 16", width: 14, height: 14, "aria-hidden": true },
+                            h("rect", { x: 1.5, y: 2, width: 5.5, height: 12, rx: 1.6, fill: "currentColor" }),
+                            h("rect", { x: 8.5, y: 2, width: 6, height: 6.5, rx: 1.6, fill: "currentColor" }),
+                            h("rect", { x: 8.5, y: 10, width: 6, height: 4, rx: 1.4, fill: "currentColor" }))),
                         h("button", {
                             type: "button",
                             className: "dsh-ctx-mode-btn" + (mode === "waffle" ? " is-active" : ""),
                             "aria-label": "Waffle 网格图",
                             "aria-pressed": mode === "waffle",
                             title: "400 格精确网格",
-                            onClick: () => props.onModeChange && props.onModeChange("waffle")
-                        }, h("svg", { viewBox: "0 0 14 14", width: 13, height: 13, "aria-hidden": true },
-                            h("rect", { x: 1, y: 1, width: 3, height: 3, rx: 0.6, fill: "currentColor" }),
-                            h("rect", { x: 5.5, y: 1, width: 3, height: 3, rx: 0.6, fill: "currentColor" }),
-                            h("rect", { x: 10, y: 1, width: 3, height: 3, rx: 0.6, fill: "currentColor", opacity: 0.45 }),
-                            h("rect", { x: 1, y: 5.5, width: 3, height: 3, rx: 0.6, fill: "currentColor" }),
-                            h("rect", { x: 5.5, y: 5.5, width: 3, height: 3, rx: 0.6, fill: "currentColor", opacity: 0.7 }),
-                            h("rect", { x: 10, y: 5.5, width: 3, height: 3, rx: 0.6, fill: "currentColor", opacity: 0.45 }),
-                            h("rect", { x: 1, y: 10, width: 3, height: 3, rx: 0.6, fill: "currentColor", opacity: 0.45 }),
-                            h("rect", { x: 5.5, y: 10, width: 3, height: 3, rx: 0.6, fill: "currentColor", opacity: 0.45 }),
-                            h("rect", { x: 10, y: 10, width: 3, height: 3, rx: 0.6, fill: "currentColor", opacity: 0.3 }))))));
+                            onClick: () => handleModeSwitch("waffle")
+                        }, h("svg", { viewBox: "0 0 16 16", width: 14, height: 14, "aria-hidden": true },
+                            h("rect", { x: 2, y: 2, width: 3, height: 3, rx: 0.8, fill: "currentColor" }),
+                            h("rect", { x: 6.5, y: 2, width: 3, height: 3, rx: 0.8, fill: "currentColor" }),
+                            h("rect", { x: 11, y: 2, width: 3, height: 3, rx: 0.8, fill: "currentColor" }),
+                            h("rect", { x: 2, y: 6.5, width: 3, height: 3, rx: 0.8, fill: "currentColor" }),
+                            h("rect", { x: 6.5, y: 6.5, width: 3, height: 3, rx: 0.8, fill: "currentColor" }),
+                            h("rect", { x: 11, y: 6.5, width: 3, height: 3, rx: 0.8, fill: "currentColor" }),
+                            h("rect", { x: 2, y: 11, width: 3, height: 3, rx: 0.8, fill: "currentColor" }),
+                            h("rect", { x: 6.5, y: 11, width: 3, height: 3, rx: 0.8, fill: "currentColor" }),
+                            h("rect", { x: 11, y: 11, width: 3, height: 3, rx: 0.8, fill: "currentColor" }))))));
         }
         function TavernContextSparkline(props) {
             const h = React.createElement;
@@ -662,10 +923,12 @@
             const [mode, setMode] = React.useState("treemap");
             const [activeBucket, setActiveBucket] = React.useState("");
             const [selectedTile, setSelectedTile] = React.useState(null);
+            const [rowHover, setRowHover] = React.useState(null);
             const [showAll, setShowAll] = React.useState(false);
 
             React.useEffect(() => {
                 setSelectedTile(null);
+                setRowHover(null);
             }, [props.record && props.record.id, props.scope]);
 
             if (!summary) return null;
@@ -743,6 +1006,7 @@
                     onBucketChange: setActiveBucket,
                     selectedTile,
                     onSelectTile: setSelectedTile,
+                    hoverFocus: rowHover,
                     onOpenSection: props.onSelectSection
                 }),
                 variant !== "popover" && (summary.recentSeries?.length > 0 || canCompact)
@@ -783,6 +1047,8 @@
                                 key: item.id,
                                 type: "button",
                                 className: "dsh-ctx-row" + (item.isFirstBreak ? " is-break" : ""),
+                                onMouseEnter: variant === "sheet" ? undefined : () => setRowHover({ kind: "item", itemId: item.id, bucket: item.bucket }),
+                                onMouseLeave: variant === "sheet" ? undefined : () => setRowHover(prev => (prev && prev.itemId === item.id ? null : prev)),
                                 onClick: () => item.cacheKey && props.onSelectSection && props.onSelectSection(item.cacheKey, item)
                             },
                             h("span", { className: "dsh-ctx-dot is-bucket-" + item.bucket }),

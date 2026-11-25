@@ -213,6 +213,59 @@ test('桌面端拦截原生上下文按钮弹出 426px Magpie 浮层、切 Waffl
   const modal = page.locator('.dsh-ctx-modal')
   await modal.waitFor({ state: 'visible' })
   await modal.locator('.dsh-ctx-card.is-full').waitFor({ state: 'visible' })
+
+  // 验证完整页中 .dsh-tavern-full-context button 不再覆盖色块背景与切换按钮图标
+  const fullCheck = await modal.evaluate(el => {
+    const baseBg = getComputedStyle(document.body).backgroundColor
+    const tile = el.querySelector('.dsh-ctx-tile:not(.is-free)')
+    const tileBg = tile ? getComputedStyle(tile).backgroundColor : ''
+    const modeBtns = [...el.querySelectorAll('.dsh-ctx-mode-btn')]
+    const svgWidths = modeBtns.map(b => b.querySelector('svg')?.getBoundingClientRect().width || 0)
+    const legendBtn = el.querySelector('.dsh-ctx-legend-item:not(.is-readonly)')
+    const legendBorder = legendBtn ? getComputedStyle(legendBtn).borderTopColor : ''
+    const tileAnim = tile ? getComputedStyle(tile).animationName : ''
+    return { baseBg, tileBg, svgWidths, legendBorder, tileAnim }
+  })
+  assert.notEqual(fullCheck.tileBg, fullCheck.baseBg, '完整页 Treemap 色块应保留填充底色，不被底色覆盖')
+  assert.notEqual(fullCheck.tileBg, 'rgba(0, 0, 0, 0)', '完整页 Treemap 色块不应为透明')
+  assert.ok(fullCheck.svgWidths.length === 2 && fullCheck.svgWidths.every(w => w >= 12), `切换按钮 SVG 图标应可见，实际宽度 ${JSON.stringify(fullCheck.svgWidths)}`)
+  assert.equal(fullCheck.tileAnim, 'dsh-ctx-tile-enter', 'Treemap 色块具备 Magpie 错峰入场动画')
+
+  // 验证悬停选择高亮：其余色块（含剩余空间）降淡、当前色块高亮、弹出深色悬浮气泡
+  const targetTile = modal.locator('[data-ctx-tile^="msg:0#"]')
+  await targetTile.hover()
+  await modal.locator('.dsh-ctx-tip.is-placed').waitFor({ state: 'visible' })
+  const hoverCheck = await modal.evaluate(el => {
+    const map = el.querySelector('.dsh-ctx-treemap')
+    const active = el.querySelector('[data-ctx-tile^="msg:0#"]')
+    const free = el.querySelector('.dsh-ctx-tile.is-free')
+    const tip = el.querySelector('.dsh-ctx-tip')
+    return {
+      focus: map?.getAttribute('data-focus'),
+      activeOn: active?.classList.contains('is-on'),
+      activeOpacity: active ? Number(getComputedStyle(active).opacity) : 0,
+      freeOpacity: free ? Number(getComputedStyle(free).opacity) : 1,
+      tipBg: tip ? getComputedStyle(tip).backgroundColor : '',
+      tipBgImage: tip ? getComputedStyle(tip).backgroundImage : '',
+      tipVisible: !!tip && getComputedStyle(tip).visibility !== 'hidden'
+    }
+  })
+  assert.equal(hoverCheck.focus, 'tile', '悬停色块时进入 tile 聚焦态')
+  assert.equal(hoverCheck.activeOn, true, '悬停色块标记为 is-on')
+  assert.ok(hoverCheck.freeOpacity < 0.5, `其余色块应明显变淡，实际 opacity=${hoverCheck.freeOpacity}`)
+  assert.equal(hoverCheck.tipVisible, true, '悬停色块弹出悬浮气泡')
+  assert.equal(hoverCheck.tipBg, 'rgb(23, 23, 27)', '悬浮气泡采用深色高对比背景')
+  assert.equal(hoverCheck.tipBgImage, 'none', '悬浮气泡不被 theme.css 的浅色 tooltip 渐变覆盖')
+
+  // 切换到 Waffle 网格检查波浪入场动画与聚焦效果，再切回 Treemap
+  await modal.locator('button[aria-label="Waffle 网格图"]').click()
+  const waffleAnim = await modal.locator('.dsh-ctx-waffle-cell').first().evaluate(el => getComputedStyle(el).animationName)
+  assert.equal(waffleAnim, 'dsh-ctx-cell-enter', 'Waffle 400 格具备波浪入场动画')
+  await modal.locator('.dsh-ctx-row').first().hover()
+  const rowFocus = await modal.locator('.dsh-ctx-waffle').getAttribute('data-focus')
+  assert.equal(rowFocus, 'item', '悬停内容列表行联动高亮 Waffle 对应格子')
+  await modal.locator('button[aria-label="Treemap 块状图"]').click()
+
   // 点击首处缓存断层对应的 Tile（msg:0）应定位并展开该段落 details
   await modal.locator('[data-ctx-tile^="msg:0#"]').click()
   const detailsOpen = await modal.locator('details[data-cache-key="msg:0"]').evaluate(el => el.open)

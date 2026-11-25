@@ -535,6 +535,8 @@ function computeContextMapTiles(summary, options) {
             isFirstBreak: list.some(function (x) { return x.isFirstBreak; }),
             cacheKey: list[0].cacheKey,
             count: list.length,
+            memberIds: list.map(function (x) { return x.id; }),
+            members: list.map(function (x) { return { id: x.id, label: x.label, tokens: x.tokens }; }),
             weight: Math.pow(Math.max(sumTokens / usedTokens, 0.0005), 0.35)
         });
     }
@@ -555,12 +557,16 @@ function computeContextMapTiles(summary, options) {
             const existingGroup = kept.find(function (t) { return t.kind === "group" && t.bucket === def.key; });
             const addedTokens = bucketSmall.reduce(function (s, x) { return s + x.tokens; }, 0);
             const addedCount = bucketSmall.length;
+            const addedMemberIds = bucketSmall.map(function (x) { return x.id; });
+            const addedMembers = bucketSmall.map(function (x) { return { id: x.id, label: x.label, tokens: x.tokens }; });
             if (existingGroup) {
                 existingGroup.tokens += addedTokens;
                 existingGroup.count += addedCount;
                 existingGroup.label = "另外 " + existingGroup.count + " 项";
                 existingGroup.share = summary.contextWindow ? existingGroup.tokens / summary.contextWindow : existingGroup.tokens / usedTokens;
                 existingGroup.weight = Math.pow(Math.max(existingGroup.tokens / usedTokens, 0.0005), 0.35);
+                existingGroup.memberIds = (existingGroup.memberIds || []).concat(addedMemberIds);
+                existingGroup.members = (existingGroup.members || []).concat(addedMembers).sort(function (a, b) { return b.tokens - a.tokens; });
                 if (bucketSmall.some(function (x) { return x.isFirstBreak; })) existingGroup.isFirstBreak = true;
             } else if (bucketSmall.length === 1) {
                 const sole = bucketSmall[0];
@@ -578,6 +584,8 @@ function computeContextMapTiles(summary, options) {
                     isFirstBreak: bucketSmall.some(function (x) { return x.isFirstBreak; }),
                     cacheKey: bucketSmall[0].cacheKey,
                     count: addedCount,
+                    memberIds: addedMemberIds,
+                    members: addedMembers.sort(function (a, b) { return b.tokens - a.tokens; }),
                     weight: Math.pow(Math.max(addedTokens / usedTokens, 0.0005), 0.35)
                 });
             }
@@ -600,12 +608,14 @@ function computeContextMapTiles(summary, options) {
             isFirstBreak: Boolean(tile.isFirstBreak),
             cacheKey: tile.cacheKey || "",
             count: tile.count || 1,
+            memberIds: Array.isArray(tile.memberIds) ? tile.memberIds : undefined,
+            members: Array.isArray(tile.members) ? tile.members : undefined,
             x: tile.x,
             y: tile.y,
             w: tile.w,
             h: tile.h,
-            showLabel: pxW >= 44 && pxH >= 24,
-            showTokens: pxW >= 54 && pxH >= 38
+            showLabel: pxW >= 46 && pxH >= 24,
+            showTokens: pxW >= 56 && pxH >= 40
         };
     });
 
@@ -644,16 +654,46 @@ function computeContextWaffleCells(summary, totalCells) {
         }
     }
 
+    const itemsByBucket = Object.create(null);
+    for (const item of (summary && Array.isArray(summary.items) ? summary.items : [])) {
+        if (!item || item.tokens <= 0) continue;
+        if (!itemsByBucket[item.bucket]) itemsByBucket[item.bucket] = [];
+        itemsByBucket[item.bucket].push(item);
+    }
+    for (const key of Object.keys(itemsByBucket)) {
+        itemsByBucket[key].sort(function (a, b) {
+            if (b.tokens !== a.tokens) return b.tokens - a.tokens;
+            return a.index - b.index;
+        });
+    }
+
     const cells = [];
     for (let i = 0; i < pool.length; i++) {
         const entry = pool[i];
         const len = counts[i] || 0;
+        const bucketItems = entry.isFree ? [] : (itemsByBucket[entry.key] || []);
+        const itemSum = bucketItems.reduce(function (s, it) { return s + it.tokens; }, 0) || 1;
+        let at = 0;
+        let acc = 0;
         for (let k = 0; k < len; k++) {
+            let itemId = "";
+            let itemLabel = "";
+            if (bucketItems.length) {
+                const mid = ((k + 0.5) / len) * itemSum;
+                while (at < bucketItems.length - 1 && acc + bucketItems[at].tokens < mid) {
+                    acc += bucketItems[at].tokens;
+                    at++;
+                }
+                itemId = bucketItems[at].id;
+                itemLabel = bucketItems[at].label;
+            }
             cells.push({
                 index: cells.length,
                 bucket: entry.key,
                 isFree: entry.isFree,
-                label: entry.label
+                label: entry.label,
+                itemId,
+                itemLabel
             });
         }
     }
