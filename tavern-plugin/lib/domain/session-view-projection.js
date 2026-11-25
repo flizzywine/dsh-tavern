@@ -236,6 +236,7 @@ export function createSessionViewProjection({
       // The automatic card reload, shown until the next turn.
       cardAutoReload: chat.cardAutoReload && Number(chat.cardAutoReload.turn) === latestStoryTurn ? { at: chat.cardAutoReload.at } : null,
       statusBarPlacement: runtimeSettings.defaultPlaySettings?.statusBarPlacement === 'body' ? 'body' : 'sidebar',
+      showCharacterDesignPanel: runtimeSettings.showCharacterDesignPanel === true,
       posture: playFeatures.postureSummary ? chat.posture || '' : '',
       postureEnabled: playFeatures.postureSummary && chat.backgroundTasks?.posture !== false,
       styleReference: latestStyleReference(chat),
@@ -479,7 +480,11 @@ export function createSessionViewProjection({
   }
   async function volatileSessionViewFields(chat, activity, changes) {
     const fields = sessionStateView.volatile(chat, activity, changes)
-    return { ...fields, ...streamingRegenerationFields(chat), statusBarPlacement: (await readTavernSettings()).defaultPlaySettings?.statusBarPlacement === 'body' ? 'body' : 'sidebar', forkTurnsByMessageId: forkTurnsForChat(chat), userInputEdits: userInputEditsOf(chat), editableUserInputTurns: editableUserInputTurnsForChat(chat), latestCommittedUserTurn: latestCommittedUserTurnForChat(chat), failedUserInputTurns: failedUserInputTurnsForChat(chat),
+    const settings = await readTavernSettings()
+    return { ...fields, ...streamingRegenerationFields(chat),
+      statusBarPlacement: settings.defaultPlaySettings?.statusBarPlacement === 'body' ? 'body' : 'sidebar',
+      showCharacterDesignPanel: settings.showCharacterDesignPanel === true,
+      forkTurnsByMessageId: forkTurnsForChat(chat), userInputEdits: userInputEditsOf(chat), editableUserInputTurns: editableUserInputTurnsForChat(chat), latestCommittedUserTurn: latestCommittedUserTurnForChat(chat), failedUserInputTurns: failedUserInputTurnsForChat(chat),
       cardSave: cardSaveViewOf(chat),
       ...transcriptPlanFields(chat, sessionDebugEvidence(chat.sessionId), fields.replacingDshTurns, fields.keptInputTurns) }
   }

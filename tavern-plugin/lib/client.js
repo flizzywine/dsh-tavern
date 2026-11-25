@@ -52401,6 +52401,7 @@ function installTavernScriptCardUpdate({ window: w, rpc, ask = askTavernScriptCa
                     // one card per group; each entry (incl. the UI plugin's 界面大小 slot) is a row of it.
                     group("显示与交互", "",
                         card(sw("autoOpenStatusPanel", "进入游戏时打开酒馆状态", "进入或切换到一局游戏时，右侧面板自动展开并显示本局设置和酒馆状态。关闭后右侧面板保持你上次的样子。", true),
+                            sw("showCharacterDesignPanel", "显示人物设计", "在酒馆状态中显示人物档案和手动设计入口，适用于所有对局。", false),
                             h(DisplayPreferencesSettings),
                             renderSlot("settings.tavern.appearance", {}),
                             DebugSetting ? h(DebugSetting) : null,
@@ -65720,7 +65721,7 @@ function createPlayInteractionPanels({ interactions, useCandidatePanel, useCandi
 		                            p.guideBusy ? "添加中…" : "添加")),
 		                    p.guideError ? h("div", { className: "fork-status-alert", "data-kind": "error" }, h("span", null, p.guideError)) : null)),
 
-		            section("people", "人物档案",
+		            view.showCharacterDesignPanel === true ? section("people", "人物档案",
 		                h("button", { type: "button", className: "fork-status-link", disabled: running || ["running", "queued"].includes(designTask.status),
 		                    title: "根据当前剧情设计或补充人物档案，可附加要求",
 		                    onClick: function () { p.designCharacter(designTask.status === "failed" ? designTask.guidance : ""); } },
@@ -65738,7 +65739,7 @@ function createPlayInteractionPanels({ interactions, useCandidatePanel, useCandi
 		                                aliases ? h("p", null, h("em", null, "别名"), aliases) : null,
 		                                (character.sections || []).map(function (s) { return h("p", { key: s.key }, h("em", null, s.label), s.text); }),
 		                                h("button", { type: "button", className: "dsh-tavern-btn danger", disabled: Boolean(p.designRemoving) || running || ["running", "queued"].includes(designTask.status), onClick: function () { void p.removeCharacterDesign(character.name); } }, p.designRemoving === character.name ? "删除中…" : "删除这个人物档案")) });
-		                    })) : h(EmptyState, { compact: true, noun: "人物档案" }))),
+		                    })) : h(EmptyState, { compact: true, noun: "人物档案" }))) : null,
 
 		            h(TavernPluginTasks, { sessionId: p.props.sessionId, activity: view.activity, busy: running || view.activity?.busy || view.activity?.phase === "pending" }),
 		            h(TavernPluginStatusSections, { sessionId: p.props.sessionId }),
