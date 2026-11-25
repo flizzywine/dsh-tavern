@@ -16,6 +16,7 @@ import { publicPluginMedia, pluginMediaSession } from './domain/plugin-media.js'
 import { normalizeGameSettings, coerceSetting, settingValues } from './domain/plugin-game-settings.js'
 import { TAVERN_PLUGIN_API_VERSION } from './domain/plugin-manifest.js'
 import { createWritingPreparation } from './domain/writing-preparation.js'
+import { assertToolParameterKeys } from './domain/tool-schema-keys.js'
 
 // The public `tavern` service for third-party DSH plugins (docs/plugin-api.md).
 // Only additive changes are allowed here: published plugins depend on every
@@ -1816,6 +1817,7 @@ export function createTavernPluginApi(deps) {
       if (reservedToolNames.has(name)) throw new Error('工具名 ' + name + ' 是 Tavern 自己的工具，请换一个名字')
       if (typeof description !== 'string' || !description.trim() || description.length > 2000) throw new Error('description 必须是 1–2000 字的说明')
       if (!parameters || typeof parameters !== 'object' || Array.isArray(parameters) || parameters.type !== 'object') throw new Error('parameters 必须是 type 为 object 的 JSON Schema')
+      assertToolParameterKeys(name, parameters)
       if (enabledFor !== undefined && typeof enabledFor !== 'function') throw new TypeError('enabledFor 必须是函数')
       if (typeof execute !== 'function') throw new TypeError('execute 必须是函数')
       const entry = { owner, name, enabledFor, tool: Object.freeze({ name, description: description.trim(), parameters: structuredClone(parameters), countsTowardLimit: false }), execute }
