@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url'
 import test from 'node:test'
 import { JSDOM } from 'jsdom'
 import { createPluginDataStore } from '../tavern-plugin/lib/domain/plugin-data-store.js'
-import { apply as applyMedals, name as medalPlugin } from '../tavern-plugin/packages/dsh-tavern-adventure-medal/lib/index.js'
+import { apply as applyMedals, name as medalPlugin } from '../tavern-plugin/packages/dsh-tavern-achievements/lib/index.js'
 import { readAchievementLibrary } from '../tavern-plugin/packages/dsh-tavern/lib/achievements.mjs'
 
 const source = await readFile(new URL('../tavern-plugin/packages/dsh-tavern/client.js', import.meta.url), 'utf8')
@@ -144,7 +144,7 @@ test('正式启动器没有成就测试入口，解锁后刷新已经打开的�
     assert.match(win.document.querySelector('.pb-achievement-library [role="alert"]').textContent, /启用成就插件/)
     const contextChars = 9800
     tiers = [{ ...tiers[0], earned: true, cardName: '测试卡乙', cover: coverB, contextChars }, ...tiers.slice(1)]
-    await page.act(async () => win.dispatchEvent(new win.Event('dsh-tavern-adventure-medal:unlocked')))
+    await page.act(async () => win.dispatchEvent(new win.Event('dsh-tavern-achievements:unlocked')))
     const library = win.document.querySelector('.pb-achievement-library')
     assert.doesNotMatch(page.text(), /成就测试|神话/)
     assert.equal(library.querySelector('.pb-achievement-card').dataset.tier, 'starter')
@@ -188,7 +188,7 @@ test('启动器从旧存档补记成就，保留原卡片并继续提示新结�
 
   const store = createPluginDataStore({ dataRoot })
   const existing = { id: 'gold', title: '史诗', rounds: 500, earned: true, unlockedAt: createdAt, cardName: '已解锁档位' }
-  await store.save(medalPlugin, { version: 1, achievements: [
+  await store.save('dsh-tavern-adventure-medal', { version: 1, achievements: [
     { id: 'starter', title: '佳作', rounds: 50, earned: true, unlockedAt: null },
     existing,
   ] })
@@ -236,6 +236,8 @@ test('启动器从旧存档补记成就，保留原卡片并继续提示新结�
     assert.equal(saved[1].contextChars, 202)
     assert.equal(saved[2].turnCount, 300)
     assert.deepEqual(saved[3], existing)
+    assert.deepEqual((await store.read(medalPlugin)).achievements[3], existing)
+    assert.equal((await store.read('dsh-tavern-adventure-medal')).achievements.length, 2)
     assert.deepEqual(notifications, [])
 
     await clickRefresh()

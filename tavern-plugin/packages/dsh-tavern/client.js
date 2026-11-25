@@ -13,7 +13,7 @@ window.__ModuleLoader__.load({
 
     /** Shared RPC channel owned by this plugin's Host half. */
     const CHANNEL = '/profile-bridge'
-    const ACHIEVEMENT_UNLOCK_EVENT = 'dsh-tavern-adventure-medal:unlocked'
+    const ACHIEVEMENT_UNLOCK_EVENT = 'dsh-tavern-achievements:unlocked'
     /** Locale namespace of this page. */
     const NS = 'profileBridge'
 
@@ -818,7 +818,7 @@ window.__ModuleLoader__.load({
         }, 'profile-bridge: achievement refresh'))
         const refreshAchievements = () => {
           if (!tavernUi) throw Object.assign(new Error('Tavern UI is unavailable'), { code: 'TAVERN_PLUGIN_NOT_FOUND' })
-          return tavernUi.callHost('dsh-tavern-adventure-medal/refresh-achievements', {})
+          return tavernUi.callHost('dsh-tavern-achievements/refresh-achievements', {})
         }
         ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'profile-bridge: locale dictionaries')
         ctx.slots.inject('settings.section', () => ctx.slots.register({
