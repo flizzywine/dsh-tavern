@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "6981a94a33d1e4186419f76c63aa750e35bd8bed",
-  "releaseSequence": 2073,
+  "revision": "5671337ba7d2f96e96d254b93645d96136403a88",
+  "releaseSequence": 2074,
   "version": "3.4.0",
   "files": [
     {
@@ -6101,8 +6101,8 @@
     },
     {
       "path": "tavern-plugin/mods/phone/client/adjust.cjs",
-      "sha256": "9f1c3ab8c0ca8d9137cfe9222c9886e9a28413965f1034c9d291ddb82f8aea17",
-      "size": 18284
+      "sha256": "9ca861c3d0a4ce55fb9212130df32f5bec482da3dd7018e99c5ba98dcd7acb6a",
+      "size": 18495
     },
     {
       "path": "tavern-plugin/mods/phone/client/beat.cjs",
@@ -6116,8 +6116,8 @@
     },
     {
       "path": "tavern-plugin/mods/phone/client/layout.cjs",
-      "sha256": "abfad749ff25919bbbc683d4cf4fc7ee1c3188a4ac221733c1c194972794f217",
-      "size": 4591
+      "sha256": "091721a9774385ae0e1568efcdab91db9fbb51f9cec6c10ae20f35dc8fc4b826",
+      "size": 4593
     },
     {
       "path": "tavern-plugin/mods/phone/client/settings.js",
@@ -10261,9 +10261,9 @@
     }
   ],
   "archive": {
-    "commit": "8c1cd8ef84ed2d5f0892abbca3f65094112ba31d",
+    "commit": "e43bcf61139270a3caf82c6af739a71eaa61af17",
     "path": "runtime.zip",
-    "sha256": "a92be8cd0361d127de12b22749c98bafeac131f85f1fb4ac7913ac7f7fd61cae",
-    "size": 17972228
+    "sha256": "061fbb2fdc1c5951b6ae29a7972691ea277599a5da4f1b8272e128b2e1a45d39",
+    "size": 17972297
   }
 }
