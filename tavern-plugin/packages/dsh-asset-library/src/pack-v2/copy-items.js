@@ -9,9 +9,8 @@ import { copyFigureAssets, figureVideoSlots } from './copy-figure.js'
 const {performanceReferences} = contract
 const EVENT_KINDS = {skin:'skins', sfx:'sfx', bgm:'music', look:'looks', ambience:'ambience', widget:'widgets'}
 
-// source: a loaded pack (all files); manifest/files: the target being edited; retired: the target's retired identities.
-// figureExtensions: figure id → extensions the copy carries in addition (its 配图 外貌, dsh.image-character).
-export function copyPackItems(source, itemRefs, manifest, files, retired, figureExtensions = {}) {
+// The chosen items plus everything they name in their own pack, each once: [{kind, id}].
+export function itemClosure(source, itemRefs) {
   check(Array.isArray(itemRefs) && itemRefs.length > 0, '$.itemRefs', 'Choose items to copy')
   const sourceId = source.manifest.id
   const asset = (kind, id) => source.manifest.assets.find(a => a.kind === kind && a.id === id)
@@ -37,10 +36,30 @@ export function copyPackItems(source, itemRefs, manifest, files, retired, figure
     if (kind === 'performances') for (const content of assetContents(item)) if (content.background && asset('backgrounds',content.background)) add('backgrounds',content.background)
     if (kind === 'performances') for (const document of item.variants?Object.values(source.variantDocuments[kind+'/'+id]):[source.performances[id]]) for (const {ref} of performanceReferences(document, sourceId)) if (ref.packId === sourceId) add(ref.kind, ref.assetId)
   }
-  // Fresh ids only where the target already has (or once had) the same kind/id.
+  return queue
+}
+
+// source: a loaded pack (all files); manifest/files: the target being edited; retired: the target's retired identities.
+// figureExtensions: figure id → extensions the copy carries in addition (its 配图 外貌, dsh.image-character).
+// move: the items keep their ids (an item is found by kind and id in whichever pack holds it); an item the target already
+// holds unchanged is not written again, one the target holds differently is refused.
+export function copyPackItems(source, itemRefs, manifest, files, retired, figureExtensions = {}, {move = false} = {}) {
+  const sourceId = source.manifest.id
+  const asset = (kind, id) => source.manifest.assets.find(a => a.kind === kind && a.id === id)
+  const sameEntry = (a, b) => { const bare = ({extensions, ...rest}) => rest; return canonicalJson(bare(a)) === canonicalJson(bare(b)) }
+  const present = new Set()
+  const queue = itemClosure(source, itemRefs).filter(({kind, id}) => {
+    if (!move) return true
+    const held = kind === 'figures' ? manifest.figures.includes(id) : manifest.assets.find(a => a.kind === kind && a.id === id)
+    if (!held) return true
+    check(kind !== 'figures' && sameEntry(held, asset(kind, id)), '$.itemRefs', '目标包里已有编号相同但内容不同的条目：' + (held.name || kind + '/' + id), 'DUPLICATE_ID')
+    present.add(kind + '/' + id)
+    return false
+  })
+  // Fresh ids only where the target already has (or once had) the same kind/id; a move keeps them.
   const ids = new Map(), claimed = new Set()
   for (const {kind, id} of queue) if (kind !== 'figures') {
-    const taken = next => claimed.has(kind + '/' + next) || retired.has(`asset/${kind}/${next}`) || manifest.assets.some(a => a.kind === kind && a.id === next)
+    const taken = next => !move && (claimed.has(kind + '/' + next) || retired.has(`asset/${kind}/${next}`) || manifest.assets.some(a => a.kind === kind && a.id === next))
     let next = id
     for (let n = 2; taken(next); n++) next = id.slice(0, 44) + '-' + n
     claimed.add(kind + '/' + next); ids.set(kind + '/' + id, next)
@@ -75,13 +94,13 @@ export function copyPackItems(source, itemRefs, manifest, files, retired, figure
   const local = (document, alias) => alias === 'self' || document.packs[alias] === sourceId
   // materialize the complete figure mapping before rewriting any CG.
   const voices = new Map()
-  const figureIds = new Map(queue.filter(item => item.kind === 'figures').map(({id}) => [id, copyFigureAssets(source, id, manifest, files, {credits:false,voices,extensions:figureExtensions[id],retired,videos:new Map([...ids].filter(([key]) => key.startsWith('videos/')).map(([key, next]) => [key.slice('videos/'.length), next]))}).figureId]))
+  const figureIds = new Map(queue.filter(item => item.kind === 'figures').map(({id}) => [id, copyFigureAssets(source, id, manifest, files, {credits:false,voices,extensions:figureExtensions[id],retired,keepId:move,videos:new Map([...ids].filter(([key]) => key.startsWith('videos/')).map(([key, next]) => [key.slice('videos/'.length), next]))}).figureId]))
   const rewriteRef = ref => {
     if (ref?.packId === sourceId && ids.has(ref.kind + '/' + ref.assetId)) {
       ref.packId = manifest.id; ref.assetId = ids.get(ref.kind + '/' + ref.assetId)
     }
   }
-  const copied = []
+  const copied = [...present].map(key => ({kind:key.split('/')[0], fromId:key.slice(key.indexOf('/') + 1), toId:key.slice(key.indexOf('/') + 1), present:true}))
   for (const {kind, id} of queue) {
     if (kind === 'figures') {
       copied.push({kind, fromId:id, toId:figureIds.get(id)})
@@ -92,7 +111,7 @@ export function copyPackItems(source, itemRefs, manifest, files, retired, figure
     if (next.skin !== undefined) next.skin = ids.get('skins/' + next.skin) ?? next.skin
     if (kind === 'timers') for (const content of assetContents(next)) rewriteRef(content.onTimeup)
     if (kind === 'performances') for (const content of assetContents(next)) if (content.background && ids.has('backgrounds/' + content.background)) content.background = ids.get('backgrounds/' + content.background)
-    next.extensions = {...next.extensions,dsh_tavern:{...next.extensions?.dsh_tavern,copiedFrom:next.extensions?.dsh_tavern?.copiedFrom || {packId:sourceId,kind,assetId:id}}}
+    if (!move) next.extensions = {...next.extensions,dsh_tavern:{...next.extensions?.dsh_tavern,copiedFrom:next.extensions?.dsh_tavern?.copiedFrom || {packId:sourceId,kind,assetId:id}}}
     if (kind === 'widgets') for (const content of assetContents(next)) for (const ref of Object.values(content.settingsDefaults || {})) if (ref?.kind === 'backgrounds' && ref.packId === sourceId) {
       ref.packId = manifest.id; ref.assetId = ids.get('backgrounds/' + ref.assetId)
     }

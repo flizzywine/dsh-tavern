@@ -1,4 +1,5 @@
-import {figureCatalogue, resolution} from '../../../../lib/domain/figure-catalogue.js'
+import {effectiveFigurePackIds, figureActorKey, figureCatalogue, resolution} from '../../../../lib/domain/figure-catalogue.js'
+import {relocateStage, stageLocator} from './stage-relocate.js'
 import {listEffectiveAssets} from '../../../../lib/domain/effective-assets.js'
 import {triggerEvidence, normalizeCatalogueText} from '../../../../lib/domain/asset-pack-lexical.js'
 // zero-token opening scenes for greeting turns (「开场画面」). Greetings are not AI replies: the director never runs for them. Their scene is the card's
@@ -50,7 +51,9 @@ export function resolveOpeningScene(assets, openingId) {
     || eligible.find(row => triggerEvidence({name:row.name,keywords:row.aliases},[greetingText],{excludeTimeWords:false}).matched)
     || eligible.find(row => row.recall.mode === 'constant')
   const lead = leadRow?.ref || null
-  const stored = storedScene(extension.openings, cardGreetings(assets.raw), openingId)
+  // the opening names where its items were when it was set; they are found where they are now (stage-relocate.js)
+  const stored = relocateStage(storedScene(extension.openings, cardGreetings(assets.raw), openingId),
+    stageLocator(effectiveFigurePackIds(extension.assetBindings, assets.globalEnabledPackIds), assets.snapshots, figureActorKey))
   // a greeting without its own scene opens on the empty theme gradient with nobody on
   // stage — never the 主角 or another greeting's cast/background/outfits; the director stages the first reply.
   const scene = stored ? (({greeting, ...value}) => clone(value))(stored) : {

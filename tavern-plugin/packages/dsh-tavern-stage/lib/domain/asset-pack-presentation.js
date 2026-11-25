@@ -1,10 +1,11 @@
 import figureScale from '../../../dsh-presentation-protocol/src/figure-scale.cjs'
+import {stageLocator} from './stage-relocate.js'
 import {figureHeadReference} from '../../../dsh-asset-library/lib/asset-packs/figure.js'
 import { analyzeVariableSchema } from '../../../../lib/domain/variable-bindings/index.js'
 import { widgetVariableProjection } from '../../../../lib/domain/widget-variable-provider.js'
 import { activeWidgetKeys, widgetIsActive } from '../../../../lib/domain/widget-availability.js'
 // Inactive P4 consumer. P6 supplies authorized services and mounts its projections.
-import {figureCatalogue, figureRefKey, resolution} from '../../../../lib/domain/figure-catalogue.js'
+import {figureActorKey, figureCatalogue, figureRefKey, resolution} from '../../../../lib/domain/figure-catalogue.js'
 import skinContract from '../../../dsh-presentation-protocol/src/stage-skin.cjs'
 import performanceContract from '../../../dsh-presentation-protocol/src/performance-contract.cjs'
 import { effectiveCardStage, activeStageSkin, cardStageSkin, cardStageSkinPackIds } from '../../../../lib/domain/card-stage-settings.js'
@@ -234,6 +235,11 @@ export function createAssetPackPresentation({raw, getEngine, getService, getAllo
         batch ||= service.resolveFigures({refs:unresolved}).then(rows => new Map(rows.map(row => [key(row.ref),row])))
         return (await batch).get(key(ref))
       })))
+    },
+    // where the card's items are now, in the order its packs are used (stage-relocate.js)
+    async locator() {
+      const allowed = getAllowedPackIds?.() || extension.assetBindings.boundPackIds
+      return stageLocator(allowed, await Promise.all(allowed.map(id => snapshot(id).catch(() => null))), figureActorKey)
     },
     async figureRows(roster = {}) {
       const allowed = getAllowedPackIds?.() || extension.assetBindings.boundPackIds
