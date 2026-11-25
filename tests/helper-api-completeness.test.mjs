@@ -164,6 +164,43 @@ test('a Helper-created user floor runs and saves Official MVU before createChatM
   assert.equal(w.getVariables({ type: 'message', message_id: 1 }).stat_data.ready, true)
 })
 
+test('retrying a message iframe call resumes the same host operation', async () => {
+  const run = frame(), w = run.window
+  const input = [{ role: 'user', message: 'Continue' }]
+  const failed = w.createChatMessages(input)
+  const first = run.calls().at(-1)
+  run.reply(first, { updated: true, targets: [{ messageId: 1 }], completionError: '消息已保存，发送事件未完成' })
+  await assert.rejects(failed, { code: 'TAVERN_HELPER_MESSAGES_SAVED' })
+
+  const retried = w.createChatMessages(input)
+  const second = run.calls().at(-1)
+  assert.equal(second.args.operationId, first.args.operationId)
+  run.reply(second, { updated: true, targets: [{ messageId: 1 }] })
+  await retried
+  const additional = w.createChatMessages(input)
+  const third = run.calls().at(-1)
+  assert.notEqual(third.args.operationId, first.args.operationId)
+  run.reply(third, { updated: true, targets: [{ messageId: 2 }] })
+  await additional
+})
+
+test('the shared script resumes a failed send callback without creating another floor', async () => {
+  const opening = context()
+  const run = helperHostHarness(opening, { scripts: [{ id: '__dsh_official_mvu__', system: 'official-mvu', content: '' }] })
+  const w = run.window, input = [{ role: 'user', message: 'Continue' }]
+  let deliveries = 0
+  w.eventOn(w.tavern_events.MESSAGE_SENT, () => {
+    if (++deliveries === 1) throw new Error('temporary error')
+  })
+  const pending = w.createChatMessages(input)
+  run.reply(run.calls().at(-1), { updated: true, targets: [{ messageId: 1 }], userMessageIds: [1],
+    context: { ...opening, stateRevision: 1, messages: [...opening.messages, { message_id: 1, ...input[0] }] } })
+  await assert.rejects(pending, { code: 'TAVERN_HELPER_MESSAGES_SAVED' })
+  await w.createChatMessages(input)
+  assert.equal(deliveries, 2)
+  assert.equal(run.calls().filter(call => call.method === 'createTavernHelperMessages').length, 1)
+})
+
 test('native worldbook edits retain their host version checks and report stale writes', async () => {
   const run = frame(), w = run.window
   const pending = w.createWorldbookEntries('Bound', [{ name: 'Native', content: 'entry' }])

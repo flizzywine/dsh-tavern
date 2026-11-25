@@ -327,6 +327,7 @@
                 + 'applyVariableReceipt:' + applyTavernVariableReceipt.toString() + ','
 				+ 'createMessageReader:' + createTavernHelperMessageReader.toString() + ','
                 + 'createMessageWriter:' + createTavernHelperMessageWriter.toString() + ','
+                + 'createMessageCreator:' + createTavernHelperMessageCreator.toString() + ','
                 + 'installContext:' + installTavernHelperContext.toString() + ','
                 + 'isCurrentContext:' + isCurrentTavernHelperContext.toString() + ','
                 + 'installUtilities:' + installTavernHelperUtilities.toString() + ','

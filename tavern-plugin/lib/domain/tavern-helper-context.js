@@ -232,9 +232,7 @@ export function appendTavernHelperMessages(chat, values, option = {}) {
   if (settings.refresh !== undefined && !['none', 'affected', 'all'].includes(settings.refresh)) {
     throw new Error('createChatMessages refresh 参数无效')
   }
-  if (!Array.isArray(chat.messages)) chat.messages = []
-  const created = []
-  for (const value of Array.isArray(values) ? values : []) {
+  const messages = (Array.isArray(values) ? values : []).map(value => {
     if (!value || typeof value !== 'object') throw new TypeError('createChatMessages 消息必须是对象')
     const role = str(value.role)
     if (!['system', 'assistant', 'user'].includes(role)) throw new TypeError('createChatMessages role 无效: ' + role)
@@ -250,10 +248,12 @@ export function appendTavernHelperMessages(chat, values, option = {}) {
       variables: [clone(value.data && typeof value.data === 'object' && !Array.isArray(value.data) ? value.data : {})]
     }
     if (str(value.name) !== '') message.name = str(value.name)
-    chat.messages.push(message)
-    created.push({ messageId: chat.messages.length - 1 })
-  }
-  return created
+    return message
+  })
+  if (!Array.isArray(chat.messages)) chat.messages = []
+  const start = chat.messages.length
+  for (const message of messages) chat.messages.push(message)
+  return messages.map((_, index) => ({ messageId: start + index }))
 }
 
 /** Apply one explicit Helper variable write without exposing Chat internals. */
