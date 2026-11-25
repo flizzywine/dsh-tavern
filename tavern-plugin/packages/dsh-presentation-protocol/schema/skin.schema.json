@@ -24,7 +24,7 @@
    "additionalProperties": {
     "type": "string",
     "maxLength": 240,
-    "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.?(?:/|$))[a-z0-9/._-]+\\.(?:svg|png|webp|ogg|m4a|mp3|wav)$"
+    "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.?(?:/|$))[a-z0-9/._-]+\\.(?:svg|png|webp|ogg|m4a|mp3|wav|html|css)$"
    }
   },
   "mods": {
