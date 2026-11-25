@@ -117,6 +117,8 @@ export interface CardBundleAdapter {
   bindRaw(raw: unknown, packIds: string[]): unknown;
   /** The card as an export carries it (its stage declaration only, card-stage-export.js). */
   exportRaw(raw: unknown): unknown;
+  /** Keep only the selected pack bindings in an exported card. */
+  retainRaw(raw: unknown, packIds: string[]): unknown;
   withPrepared(input: {path: string; expectedRevision: string | null; raw: unknown; cover?: Uint8Array; packSnapshots?: Array<Omit<PackSnapshot, 'revision' | 'installedAt' | 'updatedAt'>>; disableWidgets?: boolean}, publish: (card: {record: unknown; commit(): Promise<void>; status(): Promise<'before' | 'after' | 'unknown'>}) => Promise<void>): Promise<void>;
   recover(record: unknown): Promise<'before' | 'after' | 'unknown'>;
 }
