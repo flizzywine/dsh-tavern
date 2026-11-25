@@ -7341,6 +7341,22 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
   align-items: center; color: var(--gal-ui-ink); }
 .fork-gal-backlog-roll > .fork-icon { flex: none; width: max(16px, calc(var(--bl-body-fs) * .86)); height: max(16px, calc(var(--bl-body-fs) * .86)); }
 .fork-gal-stage.is-film .fork-gal-box > .fork-roll-list { display: none; }
+/* The stage's notice of what changed (mods/dice/client/check.js CheckNotices; owner 11-25): a classic galgame system notice -
+   one band per change slides in at the top left over the scene, holds and fades, in the skin's own surface, ink and fonts. */
+.fork-gal-stage > .fork-check-notices { position: absolute; left: 0; top: 9%; z-index: 6; display: flex; flex-direction: column; gap: 8px; pointer-events: none; }
+.fork-check-notices:empty { display: none; }
+.fork-check-notice-group { display: contents; }
+.fork-check-notice { display: flex; align-items: baseline; gap: .6em; width: max-content; max-width: min(72vw, 640px); padding: 8px 3.2em 8px 1.4em;
+  color: var(--gal-ui-ink); font-family: var(--gal-ui-font); font-size: var(--gal-ui-choice-size); text-shadow: var(--gal-ui-text-shadow);
+  background: linear-gradient(90deg, var(--gal-ui-surface) 0%, var(--gal-ui-surface) 62%, transparent 100%);
+  animation: fork-check-notice 5.2s ease-out calc(var(--notice-index) * .18s) both; }
+.fork-check-notice-who, .fork-check-notice.is-text .fork-check-notice-value { font-family: var(--gal-ui-title-font, var(--gal-ui-font)); font-size: calc(var(--gal-ui-choice-size) * 1.4); }
+.fork-check-notice-who { color: var(--gal-ui-accent); }
+.fork-check-notice-what { color: var(--gal-ui-ink-2); }
+.fork-check-notice.is-up .fork-check-notice-value { color: var(--gal-ui-accent); font-size: calc(var(--gal-ui-choice-size) * 1.2); }
+.fork-check-notice.is-down .fork-check-notice-value { color: var(--gal-ui-muted); font-size: calc(var(--gal-ui-choice-size) * 1.2); }
+@keyframes fork-check-notice { 0% { opacity: 0; transform: translateX(-24px); } 7% { opacity: 1; transform: none; } 85% { opacity: 1; transform: none; } 100% { opacity: 0; transform: none; } }
+.fork-gal-stage.is-film > .fork-check-notices { display: none; }
 @media (max-width: 720px) { .fork-gal-stage .fork-gal-box > .fork-roll-list { max-width: calc(100% - 2 * var(--box-pad, 16px)); } .fork-gal-stage .fork-gal-box > .fork-roll-list .fork-roll-head { min-height: 36px; } }
 /* The ledger card (dsh.dice option result.card: ledger; mods/dice/client/check.js CheckLedger): a ruled form - a head of
    cells (tags, title, id) over one row read as a sum: the dice that do not count (small, outlined) | the dice that counted
