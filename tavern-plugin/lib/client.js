@@ -22840,7 +22840,9 @@ function tavernModelRefusalNotice(text) {
 		//            the way the stage's own choices do; floor and page parts get it, so a record can hand over an answer by a click
 		//   overlay: component({sessionId, useChat, nativeTurn, running, following, device, rootRef, calm, safety, veiled,
 		//            replay, live, input, screen}) over the stage, after the text box (input as for page parts: a result page answers by a click;
-		//            screen(name) plays a core stage effect by its director name, stage-effects.cjs STAGE_EFFECT_BEATS)
+		//            screen(name) plays a core stage effect by its director name, stage-effects.cjs STAGE_EFFECT_BEATS;
+		//            cardPage.perform(pageId, cue) plays one of the card's pages over the scene with data().perform.cue = cue and
+		//            resolves when it is over, status-panel.cjs Performance; absent without card pages)
 		//   backlog: {kind, use(useChat), entries(rows, value, nativeTurnOf, rowOf), line(h, record)}: 履历 rows of the
 		//            performance kind `kind`, merged into the rows by entries(); line() writes one row's words
 		//   source:  {beat(direction, para), protocol}: a mod whose director mark shows a page on its own surface (source-beat.cjs; the
@@ -22879,8 +22881,8 @@ function tavernModelRefusalNotice(text) {
 		// The dice mod's core client parts (src/client/mod-clients.js): a round's checks lead its chat floor and the stage text
 		// box's top edge (roll.js for tavern_roll, check.js for the card rule checks of tavern_check), a live roll is thrown over
 		// the stage in the shared 3D dice (dice3d.js: the d100 of throw.js, a rule check's timeline in check-throw.js with its
-		// result page and effect points in check-result.js), a check outcome the card's rules stage (outcomes[].show) performs over it (show.js, its picture show-art.js and its sound show-sound.js), and each
-		// round's open rolls lead its 履历. A record the body model called for partway through its reply shows on the stage where
+		// result page and effect points in check-result.js), a check outcome the card's rules stage (outcomes[].show) performs over it (show.js, its picture show-art.js and its sound show-sound.js), a ruling the card's own page performs
+		// (actions[].page) plays that page over the stage in place of its card (page.js), and each round's open rolls lead its 履历. A record the body model called for partway through its reply shows on the stage where
 		// the reader comes to that place in the text (place.js).
 		// When a record shows on the stage: where its call stands in the reply's text. A call the body model makes partway through
 		// its reply records `at` (check-tool.js), the stage paragraphs written before it; its result is met where the text goes on,
@@ -24240,7 +24242,8 @@ function tavernModelRefusalNotice(text) {
 		const checkSigned = value => (value > 0 ? "+" : "") + value;
 		// What the player's card may show of a record: what the rules keep from the player (a v1 record lists its secret resources
 		// in record.secret, a v2 change or report row carries secret) is left out everywhere on it.
-		const checkShown = (record, rows) => rows.filter(row => !row.secret && !(record.secret && record.secret.includes(row.resource)));
+		// What the player is told: not a secret row, nor an internal one (the rules' own bookkeeping, a phase or a counter).
+		const checkShown = (record, rows) => rows.filter(row => !row.secret && !row.internal && !(record.secret && record.secret.includes(row.resource)));
 		// One previewed value of a choice: 「2：代价成功（素质保证·主动-1）」; an option reads by its label 「计入：成功」. When every
 		// value of the choice leads to the same outcome (bare) the outcome says nothing about the value and is left out:
 		// 「本刻之星：获得 3 次嘉奖（嘉奖+3）」, not 「…：三重升华（嘉奖+3）」 on every button.
@@ -24514,9 +24517,27 @@ function tavernModelRefusalNotice(text) {
 		function useCheckPerforming(callId) {
 		    return React.useSyncExternalStore(checkPerforming.subscribe, () => checkPerforming.get().has(callId), () => false);
 		}
+		// A ruling the card's own page performs (page.js) has no card on the stage; a performance the stage could not give
+		// (no such page, the page failed to read) gives its card back.
+		const checkPaged = record => Boolean(record.page) && record.status === "settled" && !record.dice;
+		const checkPageFallback = (function () {
+		    let failed = new Set();
+		    const listeners = new Set();
+		    return {
+		        add(ids) { failed = new Set([...failed, ...ids]); listeners.forEach(fn => fn()); },
+		        subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn); },
+		        get: () => failed
+		    };
+		})();
+		function useCheckPageFallback(callId) {
+		    return React.useSyncExternalStore(checkPageFallback.subscribe, () => checkPageFallback.get().has(callId), () => false);
+		}
 
 		function CheckRecord(props) {
 		    const h = React.createElement, record = props.record;
+		    // A ruling the card's page performs (page.js) has no card on the stage, unless the page could not play it.
+		    const fallback = useCheckPageFallback(record.callId);
+		    if (props.onStage && checkPaged(record) && !fallback) return null;
 		    if (record.action && record.status === "settled" && !record.dice) {
 		        if (props.look && props.look.result && props.look.result.card === "ledger") return h(CheckNoteLedger, props);
 		        const note = checkNoteText(record);
@@ -24641,7 +24662,8 @@ function tavernModelRefusalNotice(text) {
 
 		}
 		// A ruling without dice in the ledger look (a settlement once chosen): the same form - a head of tags, title and id -
-		// over one cell per change the player may see, the amount large and what it is small: 「+6 / 嘉奖」.
+		// over one cell per change the player may see, the amount large and what it is small: 「+6 / 嘉奖」. A ruling without dice has
+		// no number the player answers by, so its head carries no record id.
 		function CheckNoteLedger(props) {
 		    const h = React.createElement, record = props.record, colours = props.look.result.tagColors || {};
 		    const rows = checkShown(record, record.changes || []);
@@ -24652,8 +24674,7 @@ function tavernModelRefusalNotice(text) {
 		    return h("div", { className: "fork-roll fork-check is-ledger is-note", "data-call": record.callId, style: checkToneStyle(props.look) },
 		        h("div", { className: "fork-check-ledger-head" },
 		            (record.tags || []).map(tag => h("span", { key: tag, className: "fork-check-ledger-tag", style: colours[tag] ? { "--check-tag": colours[tag] } : undefined }, tag)),
-		            h("span", { className: "fork-check-ledger-title" }, record.title || record.label || "结算"),
-		            record.id ? h("span", { className: "fork-check-ledger-id" }, record.id) : null),
+		            h("span", { className: "fork-check-ledger-title" }, record.title || record.label || "结算")),
 		        h("div", { className: "fork-check-ledger-changes", role: "img", "aria-label": checkNoteText(record) },
 		            cells.map((cell, i) => h("div", { key: i, className: "fork-check-ledger-change" + (cell.sign > 0 ? " is-up" : cell.sign < 0 ? " is-down" : "") },
 		                h("b", null, cell.value), h("small", null, cell.label)))));
@@ -25748,6 +25769,77 @@ function tavernModelRefusalNotice(text) {
 		    React.useEffect(() => { if (!props.veiled) player.current?.resume(); }, [props.veiled]);
 		    return h("div", { ref: layer, className: "fork-check-show", "aria-hidden": true, hidden: true }, h("canvas", { className: "fork-check-show-field" }));
 		}
+		// A ruling the card's own page performs (the rules' actions[].page, rules-engine.js; the record carries page): on the
+		// stage the page plays it in place of the record's card - a sheet's boxes being marked and struck, not a table of changes.
+		// The stage plays the page (the overlay prop cardPage.perform, status-panel.cjs Performance); this part says when and
+		// with what: the records of the latest round that arrive live while the reply runs, each when the reader comes to its
+		// place in the text (place.js), as a check's show. Records due together are one performance, in order (two points of
+		// time spent in one breath play as two steps of one scene). The cue: {action, steps: [{params, changes}]} - each change
+		// a row the player may see ({path, label, from?, to?}, secret ones left out).
+		//
+		// Once only: a record that was already there when the stage mounted (reload, history) or that arrives while nothing
+		// plays live does not perform, and its card stays away on the stage too (the page itself shows where things stand).
+		// A performance the stage cannot give (no such page, the page failed to read) gives the record's card back
+		// (checkPageFallback in check.js).
+		function checkPageCue(records) {
+		    const first = records[0];
+		    return { action: first.action, label: first.label, steps: records.map(record => ({ params: record.params || {},
+		        changes: checkShown(record, record.changes || []).map(row => Object.assign({ path: row.path, label: row.label }, "from" in row ? { from: row.from } : {}, "to" in row ? { to: row.to } : {})) })) };
+		}
+		// Due records in arrival order, cut into runs of the same page and action (one cue each).
+		function checkPageRuns(records) {
+		    const runs = [];
+		    for (const record of records) {
+		        const last = runs[runs.length - 1];
+		        if (last && last[0].page === record.page && last[0].action === record.action) last.push(record); else runs.push([record]);
+		    }
+		    return runs;
+		}
+		// A record without a place (called before any text) waits for the reader to come to its round (its first page), not
+		// the moment it arrives, and for its first words (units): a page performing over the 'writing' wait would be over
+		// before the story says what it is.
+		const checkPageState = (record, place, turn) => !record.at && place && (place.turn !== turn || !(place.units > 0)) ? "wait" : dicePlaceState(record, place, turn);
+		function checkPageQueue() {
+		    let items = [];
+		    return {
+		        add(list, turn) { items = items.concat(list.map(value => ({ value, turn }))); },
+		        take(place) {
+		            const due = items.filter(item => checkPageState(item.value, place, item.turn) === "now");
+		            items = items.filter(item => !due.includes(item));
+		            return due.map(item => item.value);
+		        }
+		    };
+		}
+		function CheckPagePerform(props) {
+		    const seen = React.useRef(null), latest = React.useRef(props), chain = React.useRef(Promise.resolve());
+		    latest.current = props;
+		    const key = props.useChat(showLatestKey);
+		    const placeKey = dicePlaceKey(props.place);
+		    React.useLayoutEffect(() => {
+		        if (!seen.current || seen.current.session !== props.sessionId) seen.current = { session: props.sessionId, ids: null, queue: checkPageQueue() };
+		        if (!key) return;
+		        const records = showKeyRecords(key), s = seen.current;
+		        const fresh = s.ids ? records.filter(record => !s.ids.has(record.callId)) : [];
+		        // The first snapshot this stage sees is history: nothing in it performs.
+		        if (!s.ids) s.ids = new Set();
+		        for (const record of records) s.ids.add(record.callId);
+		        const now = latest.current, arrived = fresh.filter(checkPaged);
+		        if (arrived.length && now.running) s.queue.add(arrived, Number(key.slice(0, key.indexOf("|"))));
+		        const due = s.queue.take(now.place);
+		        if (!due.length || !now.live) return;
+		        const stage = now.cardPage;
+		        if (!stage) { checkPageFallback.add(due.map(record => record.callId)); return; }
+		        for (const run of checkPageRuns(due)) {
+		            const ids = run.map(record => record.callId);
+		            checkPerforming.hold(ids);
+		            chain.current = chain.current.then(() => stage.perform(run[0].page, checkPageCue(run)).catch(error => {
+		                console.warn("卡页面演出没能播放：" + (error && error.message || error));
+		                checkPageFallback.add(ids);
+		            }).then(() => checkPerforming.release(ids)));
+		        }
+		    }, [key, props.sessionId, placeKey]);
+		    return null;
+		}
 		// The stage timeline of a card's rule check (tavern_check, check-tool.js) on the gal stage, the check design's ①–⑤:
 		//   ① declare  the check's line over the dice: 「专注 · 掷骰」 and the rules' tags (「难度 15」「优势」);
 		//   ② throw    the record's dice in the mod's shared 3D dice (dice3d.js) - each die its real solid (d4 / d6 / d8 / d10 /
@@ -26300,7 +26392,7 @@ function tavernModelRefusalNotice(text) {
 		}
 		// One overlay part per mod: the throws and the check performances, each its own layer.
 		function DiceOverlay(props) {
-		    return React.createElement(React.Fragment, null, React.createElement(DiceThrow, props), React.createElement(CheckThrow, props), React.createElement(CheckShow, props));
+		    return React.createElement(React.Fragment, null, React.createElement(DiceThrow, props), React.createElement(CheckThrow, props), React.createElement(CheckShow, props), React.createElement(CheckPagePerform, props));
 		}
 		tavernModClients.register("dsh.dice", { label: "骰子", floor: DiceRound, page: DiceRound, overlay: DiceOverlay,
 		    backlog: { kind: "core.dice.roll", use: useDiceBacklog, entries: diceBacklogEntries, line: diceLine } });
@@ -61642,6 +61734,8 @@ const {GAL_LOOK_ID, GAL_LOOK_MS, GAL_LEAK_FROM, GAL_MOTE_KINDS, GAL_LUMA, galLoo
 		        // newGame(id, {fresh:true}) (a never-played chat) resolves true when the sidebar opened a 游戏准备 that replaces it,
 		        // false when there is nothing to prepare (no listener answers: false).
 		        statusPanel:{rpc, signals:{subscribe:(id,refresh)=>tavernSessionSignals.subscribe(id,'tavern-state',refresh,()=>{},refresh)}, themeTokens:stageWidgetThemeTokens, sounds:forkUiSfx,
+		            // the card frames' document scheme (frame-document.js: the host's light or dark): the frame element takes the same, else the browser paints an opaque canvas behind a transparent page
+		            colorScheme:()=>currentTavernHostTheme(window).colorScheme,
 		            confirm:askTavernConfirm, newGame:(sessionId,options)=>new Promise(resolve=>{const detail={sessionId,fresh:options?.fresh===true,respond:resolve};window.dispatchEvent(new CustomEvent('dsh-tavern-new-game',{detail}));if(!detail.handled)resolve(false);}),
 		            // startOpening(id, {openingId, values, withoutGreeting}): a card's opening page starts the game (the sidebar's
 		            // one start path, dsh-tavern-stage-opening); it settles once the game stands and the stage has entered it.
