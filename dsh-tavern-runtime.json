@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "ec83d51da2829e61e1020c9234ae3a8872badf17",
-  "releaseSequence": 2097,
+  "revision": "8e32cfb6525783e8a560ac2072d2fc5fcc6f534f",
+  "releaseSequence": 2098,
   "version": "3.4.0",
   "files": [
     {
@@ -116,8 +116,8 @@
     },
     {
       "path": "android/native/app/src/io/github/flizzywine/dshtavern/bionic/MainActivity.java",
-      "sha256": "9e3237dfe01e1d0132f705e02cfd7e02b8749f39b3d0d7cdf7e29ff1238f1230",
-      "size": 43400
+      "sha256": "881ffc418ed10348ba25703766e32ab653500fe9f43ae0501210e01fa4e22412",
+      "size": 47684
     },
     {
       "path": "android/native/app/src/io/github/flizzywine/dshtavern/bionic/TarExtractor.java",
@@ -126,8 +126,8 @@
     },
     {
       "path": "android/native/app/src/io/github/flizzywine/dshtavern/bionic/TavernService.java",
-      "sha256": "b3b535e8bfcaf2c7da235376d8b130985d9a4d334ac5fa79ebbc0a79d3df1e7a",
-      "size": 49304
+      "sha256": "679138cd0fc09979ac73be159a976827cec5ed048221e30ccff6d6b11b012e54",
+      "size": 49538
     },
     {
       "path": "android/native/app/src/io/github/flizzywine/dshtavern/bionic/UpdatedReceiver.java",
@@ -10266,9 +10266,9 @@
     }
   ],
   "archive": {
-    "commit": "710486001dd08d69aa53c121ba9e6480af0db40d",
+    "commit": "96361fbba6395810b68b9830f032d8309138bec9",
     "path": "runtime.zip",
-    "sha256": "994a209288a3591c327b112b4ac2b3b861d2178181826bafc5f1c80e06b83d23",
-    "size": 18033940
+    "sha256": "8bb6b6881bc642b95eb809bcb038275c7bc5f802219c2e95464e00f40ce70731",
+    "size": 18034692
   }
 }
