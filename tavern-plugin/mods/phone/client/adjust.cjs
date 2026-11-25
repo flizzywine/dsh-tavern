@@ -21,7 +21,7 @@ function useEffect(setup,deps) {
 // battery: no controls) enters adjust mode, the one `unlocked` state CONFIG's switch also sets: a short pulse and the outline,
 // a haptic tick on touch, and the same press goes on as a drag. App content (lists, messages, the call button) has no hit
 // area over it, so its own taps, scrolls and long presses are untouched. In adjust mode a cover takes the whole phone (the
-// apps rest): one pointer drags, two fingers pinch, the corner handle or the wheel (+ / - keys) resize within 50–150%, the
+// apps rest): one pointer drags, two fingers pinch, the corner handle or the wheel (+ / - keys) resize from 50% (narrow 70%) up to the stage edge, the
 // phone always clamped on stage. The wheel zooms wherever it lands on the stage (over the phone or the dimmed stage around
 // it, never the phone's content scroll while adjusting); each 5% step glides there. A gesture paints a translate/scale preview and stores once, on release (size, and the spot
 // where it was left). Letting go and doing nothing for idleMs, a press outside the phone or Esc locks it again and the outline
@@ -83,10 +83,10 @@ function usePhoneAdjust(item, owner, panel, menu) {
         const at = { transformOrigin: "0 0", translate: (from.x - to.x) + "px " + (from.y - to.y) + "px", scale: String(from.width / to.width) };
         animate(node,[at, { transformOrigin: "0 0", translate: "0px 0px", scale: "1" }], { duration: PHONE_ADJUST.glideMs, easing: "cubic-bezier(.2,.8,.2,1)" });
     }, [item.bounds?.x, item.bounds?.y, item.bounds?.width, item.bounds?.height]);
-    // A rect `scale` times `origin` about `anchor`, moved by (dx, dy): kept within the layout's min–150% of the band size and on stage.
+    // A rect `scale` times `origin` about `anchor`, moved by (dx, dy): kept at least the layout's minimum percent of the band size and as large as the stage allows (no other cap).
     const shape = (origin, scale, anchor, dx, dy) => {
         const v = live.current.owner.viewport, base = live.current.item.phoneBase, pad = STAGE_WIDGET_PLACE_PAD;
-        const max = Math.min(base.width * PHONE_SIZE.max / 100, v.width - 2 * pad, (v.height - 2 * pad) * origin.width / origin.height);
+        const max = Math.min(v.width - 2 * pad, (v.height - 2 * pad) * origin.width / origin.height);
         const s = Math.max(base.width * base.min / 100, Math.min(max, origin.width * scale)) / origin.width, width = origin.width * s, height = origin.height * s;
         const x = anchor.x - (anchor.x - origin.x) * s + dx, y = anchor.y - (anchor.y - origin.y) * s + dy;
         return { x: Math.min(v.x + v.width - pad - width, Math.max(v.x + pad, x)), y: Math.min(v.y + v.height - pad - height, Math.max(v.y + pad, y)), width, height };
@@ -103,7 +103,7 @@ function usePhoneAdjust(item, owner, panel, menu) {
         owner.resize(item.key, size, rect);
         return true;
     };
-    const sizeOf = rect => Math.min(PHONE_SIZE.max, Math.max(live.current.item.phoneBase.min, Math.round(100 * rect.width / live.current.item.phoneBase.width)));
+    const sizeOf = rect => Math.max(live.current.item.phoneBase.min, Math.round(100 * rect.width / live.current.item.phoneBase.width));
     const enter = g => {
         const { item, owner } = live.current;
         owner.adjust(true);
@@ -186,7 +186,8 @@ function usePhoneAdjust(item, owner, panel, menu) {
     const step = steps => {
         if(!alive())return;
         const { item } = live.current, base = item.phoneBase, b = item.bounds;
-        const size = Math.min(PHONE_SIZE.max, Math.max(base.min, Math.round((base.size + steps * PHONE_SIZE.step) / PHONE_SIZE.step) * PHONE_SIZE.step));
+        const v = live.current.owner.viewport, fit = Math.floor(100 * Math.min(v.width - 2 * STAGE_WIDGET_PLACE_PAD, (v.height - 2 * STAGE_WIDGET_PLACE_PAD) * b.width / b.height) / base.width);
+        const size = Math.min(Math.max(fit, base.size), Math.max(base.min, Math.round((base.size + steps * PHONE_SIZE.step) / PHONE_SIZE.step) * PHONE_SIZE.step));
         if (size !== base.size) glide.current = store(size, shape(b, base.width * size / 100 / b.width, { x: b.x + b.width / 2, y: b.y + b.height / 2 }, 0, 0)) ? { ...b } : null;
         arm();
     };

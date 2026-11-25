@@ -6,7 +6,12 @@ import { createStoryCompactionRequest, nativelyRetainedRounds, retainRecentStory
 import { installCompactionRequestProjection } from '../domain/compaction-request.js'
 import { installPrefixBoundReasoningProjection } from '../domain/prefix-bound-reasoning.js'
 import { omitEmptyProviderContent } from '../domain/provider-message-content.js'
+import { omitUnusedToolHistory } from '../domain/tool-history-presentation.js'
+import { foregroundStyleReferenceEnabled } from '../domain/style-reference.js'
+import { projectWithoutStyleReference } from '../domain/style-reference-request.js'
+import legacySeeds from '../domain/session-seed-trajectory.cjs'
 import { installWorkspaceInstructionPresentation } from '../domain/workspace-instruction-presentation.js'
+import { isTavernAgentSession } from '../domain/tavern-agent-scope.js'
 import { presentModelError } from '../domain/model-error-presentation.js'
 import { markRequestHandled, requestHandledBy } from '../domain/request-lineage.js'
 import { bodyGenerationFailure } from '../domain/body-generation-failure.js'
@@ -14,12 +19,14 @@ import { toolProtocolDirectiveOf } from '../domain/foreground-orchestration-stra
 import { STORY_CONTEXT_TOOL_NAME, STORY_SUBMIT_TOOL_NAME } from '../domain/story-tool-submission.js'
 import { isAutoToolOnlyModel, runWithToolProtocolDirective } from '../domain/tool-protocol-enforcement.js'
 import { createToolReplyStreamTracker } from '../domain/tool-reply-stream-parser.js'
+import { projectWritingPreparationRequest, PURE_WRITING_REQUEST, WRITING_PREPARATION_REQUEST } from '../domain/pure-writing-request.js'
 
 // Prompt prose source. Keys are stable; interpolation arguments are data.
 export const PROMPT_PROSE = Object.freeze({
   p001: "Plugin summary requirements:"
 })
 
+const { tavernIsLegacySeedTrajectory } = legacySeeds
 
 export function applyCompactionModel(request, selection) {
   if (!selection?.provider || !selection?.model) return request
@@ -27,6 +34,38 @@ export function applyCompactionModel(request, selection) {
   if (typeof selection.reasoningEffort === 'string' && selection.reasoningEffort) next.reasoningEffort = selection.reasoningEffort
   else delete next.reasoningEffort
   return next
+}
+
+function writingPreparationStreamFilter(receiveVariableReply) {
+  const textByIndex = new Map()
+  const replyBlocks = new Map()
+  const limit = 2048
+  let toolCall = false
+  return chunk => {
+    const isText = chunk.type === 'text-delta' || (chunk.type === 'block-start' && chunk.blockType === 'text')
+      || (chunk.type === 'block-end' && chunk.block?.type === 'text')
+    if (Number.isInteger(chunk.index) && !textByIndex.has(chunk.index)) textByIndex.set(chunk.index, isText)
+    if (receiveVariableReply) {
+      if (chunk.type === 'tool-call-delta' || chunk.blockType === 'tool-call' || chunk.block?.type === 'tool-call') toolCall = true
+      if (!toolCall && isText && chunk.type !== 'block-start') {
+        const index = chunk.index ?? 0
+        const value = chunk.type === 'block-end' ? chunk.block.text : (replyBlocks.get(index) || '') + chunk.text
+        replyBlocks.set(index, String(value ?? '').slice(0, limit + 1))
+      }
+      if (!toolCall && chunk.type === 'finish' && (chunk.reason ?? chunk).kind === 'stop') {
+        const reply = [...replyBlocks].sort(([a], [b]) => a - b).map(([, value]) => value).join('')
+        if (reply.length <= limit) receiveVariableReply(reply)
+      }
+    }
+    if (isText) return null
+    if (chunk.type !== 'finish' || !Array.isArray(chunk.replayState?.blocks)) return chunk
+    const textBlocks = [...textByIndex.values()]
+    if (!textBlocks.some(Boolean)) return chunk
+    // Replay entries are positional in the original response, including the removed text.
+    const { replayState, ...finish } = chunk
+    if (replayState.blocks.length !== textBlocks.length) return finish
+    return { ...finish, replayState: { ...replayState, blocks: replayState.blocks.filter((_, index) => !textBlocks[index]) } }
+  }
 }
 
 export function registerModelStreamHooks({
@@ -75,22 +114,28 @@ export function registerModelStreamHooks({
   // Whether a session is a Tavern game: its header answers that, not its history.
   const isGame = async sessionId => Boolean(await chatHeaderForSession(str(sessionId), []))
   const ownsSession = async sessionId => backgroundAgentRunner.owns(sessionId) || await isGame(sessionId)
+  // Keep scripted openings from old saves out of request and compaction context.
+  ctx.on('llm/stream', (request, next) => {
+    if (!request?.messages?.some(tavernIsLegacySeedTrajectory)) return next()
+    return ctx.llm.stream({ ...request, messages: request.messages.filter(message => !tavernIsLegacySeedTrajectory(message)) })
+  }, { prepend: true })
   // Compaction keeps its newest replies after the summary, behind a prefix they were not signed against.
   installPrefixBoundReasoningProjection(ctx, { ownsSession, session: id => sessionStore.get(id) || agentRegistry.get(id)?.session || backgroundAgentRunner.requestSession(id) })
-  installWorkspaceInstructionPresentation(ctx, async sessionId => {
-    if (backgroundAgentRunner.owns(sessionId)) return true
-    return isGame(sessionId)
-  })
+  installWorkspaceInstructionPresentation(ctx, sessionId => isTavernAgentSession(sessionId, {
+    isGame, isBackground: id => backgroundAgentRunner.owns(id),
+    readHeader: id => (sessionStore.get(id) || agentRegistry.get(id)?.session)?.header
+  }))
   installCompactionRequestProjection(ctx, ownsSession, async request => {
     // 前台对话压缩优先使用全局设置的专用压缩模型；后台 Agent 保持各自任务模型。
     const foreground = !backgroundAgentRunner.owns(request.sessionId)
-    const routed = foreground && typeof compactionModel === 'function'
+    let routed = foreground && typeof compactionModel === 'function'
       ? applyCompactionModel(request, await compactionModel())
       : request
     // Story/script chats summarize with the story prompt and keep the latest rounds
     // verbatim after the summary; other sessions keep DSH's prompt.
-    const head = await chatHeaderForSession(str(request.sessionId), ['backgroundTasks'])
+    const head = await chatHeaderForSession(str(request.sessionId), ['backgroundTasks', 'disabledForegroundTools'])
     if (!usesStoryCompaction(head)) return { request: routed }
+    if (foreground && !foregroundStyleReferenceEnabled(head)) routed = projectWithoutStyleReference(routed)
     // An imported game compacts right away: an oversized history is summarized in segments
     // (bounded-compaction.js), so the first-play capacity check is not a precondition.
     // Seam to the plugin layer: plugins may add what the summary must keep.
@@ -156,12 +201,24 @@ export function registerModelStreamHooks({
         source: { kind: 'model', provider: str(options.provider), model: str(options.model) }
       }))
     }
-    const projectedRequest = (requestHandledBy(options, 'full-template') || importContextPreparation.isPrepared(options)) ? null : foregroundStrategies.projectRequest(options, coordinates)
-    if (projectedRequest !== null) return ctx.llm.stream(projectedRequest)
     const backgroundContext = backgroundAgentRunner.requestContext(sessionId)
+    const writingContext = backgroundContext?.writingPreparation
+    if (options.purpose === undefined && writingContext && !requestHandledBy(options, WRITING_PREPARATION_REQUEST)) {
+      return ctx.llm.stream(markRequestHandled(projectWritingPreparationRequest(options, writingContext), WRITING_PREPARATION_REQUEST))
+    }
+    if (options.purpose === undefined && !requestHandledBy(options, PURE_WRITING_REQUEST) && foregroundStrategies.pureWritingTurn?.(sessionId)) {
+      return (async function * () {
+        yield * ctx.llm.stream(await foregroundStrategies.prepareWritingRequest(options))
+      })()
+    }
+    const projectedRequest = (!writingContext && !requestHandledBy(options, 'full-template') && !importContextPreparation.isPrepared(options))
+      ? foregroundStrategies.projectRequest(options, coordinates) : null
+    if (projectedRequest !== null) return ctx.llm.stream(projectedRequest)
     const ownerSessionId = backgroundContext ? backgroundContext.parentSessionId : sessionId
     return (async function * () {
-      if (!backgroundContext && options.purpose === undefined && pluginBodyGeneration) {
+      const writingPreparation = requestHandledBy(options, WRITING_PREPARATION_REQUEST)
+      const pureWriting = requestHandledBy(options, PURE_WRITING_REQUEST) || writingPreparation
+      if (!pureWriting && !backgroundContext && options.purpose === undefined && pluginBodyGeneration) {
         const session = sessionStore.get(sessionId) || agentRegistry.get(sessionId)?.session
         const direct = await pluginBodyGeneration.direct(session, options.signal)
         if (direct) { yield * direct; return }
@@ -169,12 +226,12 @@ export function registerModelStreamHooks({
       // a director already owns frozen, projected sources.
       const director = backgroundContext?.task === 'stage-director'
       if (director) assertFrozenStageRequest(backgroundContext, options)
-      const prepared = director ? options : await importContextPreparation.prepare(options)
+      const prepared = director || pureWriting ? options : await importContextPreparation.prepare(options)
       if (prepared !== options) { yield * ctx.llm.stream(prepared); return }
       const chat = ownerSessionId === '' ? undefined : await chatHeaderForSession(ownerSessionId, [
         'requestMode', 'compatibilityTraces', 'bypassPlanId', 'runtimePresetSnapshot', 'foregroundFrames'
       ])
-      if (!director && chat && ['story', 'script'].includes(chat.mode) && options.purpose === undefined && chat.requestMode !== 'sillytavern' && !requestHandledBy(options, 'full-template')) {
+      if (!pureWriting && !director && chat && ['story', 'script'].includes(chat.mode) && options.purpose === undefined && chat.requestMode !== 'sillytavern' && !requestHandledBy(options, 'full-template')) {
         const projected = await fullTemplateRuntime.forSession(ownerSessionId).projectRequestProjection({ messages: options.messages, system: options.system, model: options.model })
         yield * ctx.llm.stream(markRequestHandled({ ...options, ...projected }, 'full-template'))
         return
@@ -185,7 +242,7 @@ export function registerModelStreamHooks({
       // Templates can erase text after the history projection. Check the final
       // Tavern request before recording it or starting the downstream stream.
       if (chat || backgroundContext || child || requestHandledBy(options, 'compaction-projection')) {
-        const cleaned = omitEmptyProviderContent(options)
+        const cleaned = omitUnusedToolHistory(omitEmptyProviderContent(options))
         if (cleaned !== options) { yield * ctx.llm.stream(cleaned); return }
       }
       const baseDirective = options.purpose === undefined ? toolProtocolDirectiveOf(options) : null
@@ -214,7 +271,8 @@ export function registerModelStreamHooks({
         requestRecord = await modelRequestLog.record({ chat, context: { ...backgroundContext, task: 'compaction', turn }, coordinates: { turn }, options })
       } else if (options.purpose === undefined && chat !== undefined && ['story', 'script', 'card'].includes(chat.mode)) {
         const coordinates = requestCoordinates.get(sessionId) || {}
-        requestRecord = await modelRequestLog.record({ chat, context: backgroundContext, coordinates, options })
+        const systemSections = !backgroundContext ? foregroundStrategies.systemSectionsFor?.(sessionId, options.system) : undefined
+        requestRecord = await modelRequestLog.record({ chat, context: backgroundContext, coordinates, options, ...(systemSections?.length ? { systemSections } : {}) })
         if (!backgroundContext && ['story', 'script'].includes(chat.mode)) {
           // Evidence only: scanning a multi-MB request must not delay the first token.
           // Calling an async function directly still runs its synchronous prefix here:
@@ -251,21 +309,47 @@ export function registerModelStreamHooks({
         enabled:!backgroundContext && !child && options.purpose === undefined && ['story','script'].includes(chat?.mode)})
       // 正文流式润色：插件注册了改写器时，text-delta 先攒成安全段落、改写后再往前端吐。
       // 工具提交的正文（submit_story 的 JSON 参数）不经过这里，那种模式仍走结算后替换。
-      const rewriteStream = replyStreamRewriters?.active
-        && !backgroundContext && !child && options.purpose === undefined
-        && chat && ['story', 'script'].includes(chat.mode)
-        && !activeDirective?.storyOutputToolCall
-        ? replyStreamRewriters.open({
-            sessionId: ownerSessionId,
-            chatId: chat.id,
-            turn: requestCoordinates.get(sessionId)?.turn,
-            mode: chat.mode,
-            signal: options.signal
-          })
+      const rewriter = !backgroundContext && !child && options.purpose === undefined
+        && chat && ['story', 'script'].includes(chat.mode) && !activeDirective?.storyOutputToolCall
+        ? replyStreamRewriters?.pick()
         : null
+      const rewriteContext = {
+        sessionId: ownerSessionId,
+        chatId: chat?.id,
+        turn: requestCoordinates.get(sessionId)?.turn,
+        mode: chat?.mode,
+        signal: options.signal
+      }
+      const openRewrite = () => replyStreamRewriters.open(rewriteContext, rewriter)
+      const openBlocks = new Map()
+      const replyBlocks = []
+      function rewriteBlock(index) {
+        const key = index ?? 0
+        if (!openBlocks.has(key)) {
+          const block = { index, stream: openRewrite(), source: '', text: '' }
+          openBlocks.set(key, block)
+          replyBlocks.push(block)
+        }
+        return openBlocks.get(key)
+      }
+      function appendRewritten(block, text) {
+        block.text += text
+        responseText += text
+        if (text) replyObserver?.append(text)
+      }
+      function rewriteDelta(block, text) {
+        return { type: 'text-delta', ...(block.index == null ? {} : { index: block.index }), text }
+      }
+      async function* flushRewriteBlocks() {
+        for (const block of openBlocks.values()) {
+          const rest = await block.stream.drain()
+          appendRewritten(block, rest)
+          if (rest) yield rewriteDelta(block, rest)
+        }
+        openBlocks.clear()
+      }
       let finish = null, usage = null
-      // 改写补出来的 text-delta 要沿用同一段正文的 index，assembler 靠它把 token 并进同一个正文块。
-      let rewriteIndex = null
+      const filterPreparation = writingPreparation ? writingPreparationStreamFilter(writingContext?.receiveVariableReply) : null
       let failure = null, interrupted = false
       const liveness = createModelStreamProgress({signal:options.signal})
       let iterator, exhausted = false
@@ -277,29 +361,44 @@ export function registerModelStreamHooks({
           if (item.done) {exhausted = true; break}
           let chunk = item.value
           liveness.chunk(chunk)
-          if (chunk && chunk.type === 'text-delta') {
+          if (filterPreparation && chunk) {
+            chunk = filterPreparation(chunk)
+            if (chunk === null) continue
+          }
+          if (rewriter && chunk?.type === 'block-start' && chunk.blockType === 'text') rewriteBlock(chunk.index)
+          if (chunk?.type === 'text-delta') {
             const delta = str(chunk.text)
-            if (rewriteStream) {
-              if (Number.isInteger(chunk.index)) rewriteIndex = chunk.index
-              const rewritten = rewriteStream.push(delta)
+            if (rewriter) {
+              const block = rewriteBlock(chunk.index)
+              block.source += delta
+              const rewritten = block.stream.push(delta)
               if (!rewritten) { progress('output'); continue }
-              responseText += rewritten
-              if (!activeDirective?.storyOutputToolCall) replyObserver?.append(rewritten)
+              appendRewritten(block, rewritten)
               chunk = { ...chunk, text: rewritten }
             } else {
               responseText += delta
               if (!activeDirective?.storyOutputToolCall) replyObserver?.append(delta)
             }
           }
-          if (chunk && chunk.type === 'finish' && rewriteStream) {
-            // 收尾段也要改写后才能发 finish，否则前端会把最后一段当新消息接在后面。
-            const rest = await rewriteStream.drain()
-            if (rest) {
-              responseText += rest
-              if (!activeDirective?.storyOutputToolCall) replyObserver?.append(rest)
-              yield { type: 'text-delta', ...(rewriteIndex === null ? {} : { index: rewriteIndex }), text: rest }
+          if (rewriter && chunk?.type === 'block-end' && chunk.block?.type === 'text') {
+            const block = rewriteBlock(chunk.index)
+            const complete = str(chunk.block.text)
+            // block-end can carry text that was never sent as deltas.
+            if (complete.startsWith(block.source)) {
+              const rest = block.stream.push(complete.slice(block.source.length)) + await block.stream.drain()
+              appendRewritten(block, rest)
+              if (rest) yield rewriteDelta(block, rest)
+            } else {
+              // The final block supersedes divergent deltas. Do not append the
+              // replacement to deltas the consumer has already received.
+              block.stream.abort()
+              const replacement = openRewrite()
+              block.text = replacement.push(complete) + await replacement.drain()
             }
+            chunk = { ...chunk, block: { ...chunk.block, text: block.text } }
+            openBlocks.delete(chunk.index ?? 0)
           }
+          if (chunk?.type === 'finish') yield* flushRewriteBlocks()
           if (chunk && chunk.type === 'tool-call-delta') {
             const extracted = toolReplyTracker.pushToolDelta(chunk)
             if (extracted.matched && extracted.contentDelta !== '') {
@@ -320,15 +419,7 @@ export function registerModelStreamHooks({
           if (chunk && ['text-delta', 'reasoning-delta', 'tool-call-delta'].includes(chunk.type)) progress('output')
           yield chunk
         }
-        if (rewriteStream) {
-          // 没有 finish（中断/空流）时把缓冲里的正文放出来；已 drain 过就是空串。
-          const rest = await rewriteStream.drain()
-          if (rest) {
-            responseText += rest
-            if (!activeDirective?.storyOutputToolCall) replyObserver?.append(rest)
-            yield { type: 'text-delta', ...(rewriteIndex === null ? {} : { index: rewriteIndex }), text: rest }
-          }
-        }
+        yield* flushRewriteBlocks()
         if (!finish || finish.kind === 'aborted') {
           const recovered = !finish ? recoveredFinish(null) : null
           if (recovered) {
@@ -354,7 +445,7 @@ export function registerModelStreamHooks({
         if (owner && requestRecord) {
           // complete() 内部同步进入 chatId 写盘队列，evidence()/settled() 会自动等待落盘，
           // 无需在流结束 finally 阻塞主回合提交。
-          void Promise.resolve(modelRequestLog.complete({ chatId: owner.id, id: requestRecord.id, text: responseText || toolStreamedText, finish, usage, error: failure,
+          void Promise.resolve(modelRequestLog.complete({ chatId: owner.id, id: requestRecord.id, sessionId, text: (rewriter ? replyBlocks.map(block => block.text).join('') : responseText) || toolStreamedText, finish, usage, error: failure,
             interrupted: interrupted || (!failure && !finish) || finish?.kind === 'aborted' || options.signal?.aborted || Boolean(timing.interruption), timing }))
             .catch(error => { console.error('dsh-tavern: 模型结果日志写入失败', str(error && error.message || error)) })
         }

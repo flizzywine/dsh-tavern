@@ -48,6 +48,50 @@ test('a direct image may carry a figure video of its own pack; the closure names
   await assert.rejects(async () => { const wide = await packWithVideo({}, [0, 0, 768, 768]); validateFigureClosure(wide.manifest, wide.figures, wide.sprites) }, /aspect ratio/)
 })
 
+test('an image may name transitions into the outfit\'s other images that have their own videos', async () => {
+  const pack = await packWithVideo(), figure = pack.figures[FIGURE_ID], sprite = figure.outfits[0].sprite
+  pack.manifest.assets.push(videoEntry({id: 'calm-to-crying', name: 'Calm to crying', bundleKey: 'video-calm-to-crying', loop: false, size: [800, 1536]}))
+  pack.manifest.bundles['video-calm-to-crying'] = {kind: 'video', entry: 'loop.mp4', contentHash: 'a'.repeat(64)}
+  sprite.videos.crying = {video: 'calm-loop', rect: [100, 40, 320, 768]}
+  sprite.videos.calm.into = {crying: {video: 'calm-to-crying', rect: [0, 40, 400, 768]}}
+  validateFigure(figure); validateFigureClosure(pack.manifest, pack.figures, pack.sprites)
+  for (const edge of [{video: 'calm-to-crying'}, {video: 'calm-to-crying', rect: [0, 0, 1.5, 10]}, {video: 'calm-to-crying', rect: [0, 40, 400, 768], loop: false}]) {
+    sprite.videos.calm.into = {crying: edge}
+    assert.throws(() => validateFigure(figure), error => error.path.includes('.videos.calm.into.crying'))
+  }
+  const closure = (into, pattern) => { sprite.videos.calm.into = into; assert.throws(() => validateFigureClosure(pack.manifest, pack.figures, pack.sprites), pattern) }
+  closure({calm: {video: 'calm-to-crying', rect: [0, 40, 400, 768]}}, /another image of the outfit that has its own videos/)
+  closure({crying: {video: 'nothing', rect: [0, 40, 400, 768]}}, error => /Missing video entry: nothing/.test(error.message) && error.path.endsWith('.calm.into.crying.video'))
+  closure({crying: {video: 'calm-to-crying', rect: [0, 0, 320, 768]}}, /aspect ratio/)
+  delete sprite.videos.crying
+  closure({crying: {video: 'calm-to-crying', rect: [0, 40, 400, 768]}}, /another image of the outfit that has its own videos/)
+  // Projected with the image it leaves and its outfit; a transition entry turned off is no transition.
+  sprite.videos.crying = {video: 'calm-loop', rect: [100, 40, 320, 768]}
+  sprite.videos.calm.into = {crying: {video: 'calm-to-crying', rect: [0, 40, 400, 768]}}
+  const calm = selectPackFigure(figure, pack.sprites, {outfitKey: 'school', emotion: 'calm', appearance: 'sprite'}), snapshot = {manifest: pack.manifest}
+  const projected = packFigureVideo(snapshot, calm)
+  assert.deepEqual([projected.outfit, projected.image, Object.keys(projected.into)], ['school', 'calm', ['crying']])
+  assert.deepEqual([projected.into.crying.source.assetId, projected.into.crying.source.hash, projected.into.crying.rect], ['calm-to-crying', 'a'.repeat(64), [0, 40, 400, 768]])
+  assert.equal(packFigureVideo(snapshot, selectPackFigure(figure, pack.sprites, {outfitKey: 'school', emotion: 'crying', appearance: 'sprite'})).image, 'crying')
+  pack.manifest.assets.find(row => row.id === 'calm-to-crying').enabled = false
+  assert.deepEqual(packFigureVideo(snapshot, calm).into, {})
+  // Copied along with the figure.
+  pack.manifest.assets.find(row => row.id === 'calm-to-crying').enabled = true
+  for (const name of ['video-calm-loop', 'video-calm-talk', 'video-calm-to-crying']) pack.files.set('bundles/' + name + '/loop.mp4', Buffer.from(name))
+  const target = () => ({id: '33333333-3333-4333-8333-333333333333', figures: [], sprites: {}, blobs: {}, files: [], assets: [], bundles: {}})
+  const check = (manifest, files, figureId) => {
+    const copied = JSON.parse(files.get('figures/' + figureId + '.json'))
+    assert.deepEqual(copied.outfits[0].sprite.videos.calm.into, {crying: {video: 'calm-to-crying', rect: [0, 40, 400, 768]}})
+    assert.equal(String(files.get('bundles/video-calm-to-crying/loop.mp4')), 'video-calm-to-crying')
+    assert.equal(manifest.assets.filter(row => row.id === 'calm-to-crying').length, 1)
+  }
+  const one = target(), oneFiles = new Map()
+  check(one, oneFiles, copyFigureAssets(pack, FIGURE_ID, one, oneFiles).figureId)
+  const many = target(), manyFiles = new Map()
+  const copied = copyPackItems(pack, [{kind: 'figures', id: FIGURE_ID}, {kind: 'videos', id: 'calm-to-crying'}], many, manyFiles, new Set())
+  check(many, manyFiles, copied.find(row => row.kind === 'figures').toId)
+})
+
 test('an entrance never plays a figure video: the page player would show its matte', async () => {
   const pack = await syntheticPack()
   const manifest = structuredClone(pack.manifest)
@@ -151,7 +195,7 @@ test('a video that cannot play leaves the still for good', async () => {
   assert.equal(handle.state().status, 'released')
 })
 
-test('speech plays the talking loop from its first frame, loops it, and plays it out to the still before the idle loop', async () => {
+test('a heard voice plays the talking loop from its first frame, loops it across short gaps, and plays it out to the still before the idle loop', async () => {
   const {document, PIXI, sprite, videos} = fakeDom()
   const scope = createStageFigureVideos({document, acquire: source => ({video: Promise.resolve('blob:' + source.id), release() {}}), foreground: null}).create({PIXI})
   const handle = scope.attach(sprite, {source: {id: 'idle'}, talk: {id: 'talk'}, rect: [0, 0, 10, 10]})
@@ -166,17 +210,25 @@ test('speech plays the talking loop from its first frame, loops it, and plays it
   idle.currentTime = 1.7
   handle.update({on: true, talking: true}); handle.tick(16)
   assert.equal(handle.state().phase, 'talk'); assert.equal(talk.plays, 1); assert.equal(talk.currentTime, 0)
-  handle.tick(200); assert.equal(talkMesh.alpha, 1); assert.equal(idleMesh.visible, false); assert.equal(idle.paused, true, 'the idle loop pauses once faded out')
-  // Still speaking at the clip's end: it starts over.
+  // The hand-off: the talking loop fades in on top while the idle loop stays whole underneath, so the still never shows.
+  assert.ok(sprite.children.indexOf(talkMesh) > sprite.children.indexOf(idleMesh), 'the incoming clip draws over the outgoing one')
+  assert.ok(talkMesh.alpha > 0 && talkMesh.alpha < 1); assert.equal(idleMesh.alpha, 1)
+  let draws = sprite.draws; sprite._render(); assert.equal(sprite.draws, draws, 'no still between the clips')
+  handle.tick(200); assert.equal(talkMesh.alpha, 1); assert.equal(idleMesh.alpha, 1, 'the outgoing clip drops only once covered')
+  handle.tick(200); assert.equal(idleMesh.visible, false); assert.equal(idle.paused, true, 'the idle loop pauses once faded out')
+  // A gap between words at the clip's end is still speech: it starts over.
+  handle.update({on: true, talking: false}); handle.tick(200)
   talk.currentTime = 2.9; talk.paused = true; talk.ended = true; handle.tick(16)
   assert.equal(talk.plays, 2); assert.equal(talk.currentTime, 0); assert.equal(talkMesh.alpha, 1)
-  // The line ends mid-clip: it plays on, then the idle loop takes over from its first frame.
-  talk.currentTime = 1.2; handle.update({on: true, talking: false}); handle.tick(16)
+  // The voice stops mid-clip: it plays on, then the idle loop takes over from its first frame.
+  talk.currentTime = 1.2; handle.tick(16); handle.tick(400)
   assert.equal(handle.state().phase, 'talk'); assert.equal(talkMesh.alpha, 1)
   talk.paused = true; talk.ended = true; handle.tick(16)
   assert.equal(handle.state().phase, 'idle'); assert.equal(idle.currentTime, 0); assert.equal(idle.paused, false)
-  sprite._render(); const draws = sprite.draws
-  handle.tick(200); assert.equal(idleMesh.alpha, 1); assert.equal(talkMesh.visible, false, 'the ended clip held its last frame while the idle loop faded in')
+  assert.ok(sprite.children.indexOf(idleMesh) > sprite.children.indexOf(talkMesh), 'back to idle: the idle loop draws on top')
+  draws = sprite.draws; sprite._render(); assert.equal(sprite.draws, draws, 'the ended talking loop holds its last frame under the idle loop')
+  handle.tick(100); assert.ok(idleMesh.alpha > 0 && idleMesh.alpha < 1); assert.equal(talkMesh.alpha, 1)
+  handle.tick(200); assert.equal(talkMesh.visible, false, 'the ended clip held its last frame until the idle loop covered it')
   sprite._render(); assert.equal(sprite.draws, draws, 'a full idle loop hides the still')
   // A talking loop that fails: the stage is told to speak through the still, the idle loop stays.
   const warn = console.warn; console.warn = () => {}
@@ -184,6 +236,62 @@ test('speech plays the talking loop from its first frame, loops it, and plays it
   assert.equal(handle.talks(), false); handle.update({on: true, talking: true}); handle.tick(16); assert.equal(handle.state().phase, 'idle')
   scope.dispose()
   assert.equal(sprite.children.length, 0)
+})
+
+test('a change of picture enters through its transition: the still waits, the transition shows whole, plays once, then the idle loop takes over', async () => {
+  const {document, PIXI, sprite, videos} = fakeDom()
+  const scope = createStageFigureVideos({document, acquire: source => ({video: Promise.resolve('blob:' + source.id), release() {}}), foreground: null}).create({PIXI})
+  const handle = scope.attach(sprite, {source: {id: 'idle'}, talk: {id: 'talk'}, rect: [0, 0, 10, 10], enter: {source: {id: 'enter'}, rect: [0, 0, 20, 10]}})
+  await flush()
+  const [idle, talk, enter] = videos
+  assert.equal(enter.loop, false)
+  handle.update({on: true})
+  // Awaited: the still does not draw (the previous picture on top is what shows) and the handle claims the figure.
+  assert.equal(handle.tick(16), true); assert.equal(handle.entering(), 'pending')
+  sprite._render(); assert.equal(sprite.draws, 0)
+  idle.fire('loadeddata'); talk.fire('loadeddata'); enter.fire('loadeddata')
+  const enterMesh = sprite.children[0], idleMesh = sprite.children.find(c => c !== enterMesh && c.material.texture.baseTexture.resource.source === idle)
+  assert.deepEqual([enterMesh.sx, enterMesh.sy], [20, 10], 'the transition over its own rect')
+  handle.tick(16)
+  assert.equal(enter.plays, 1); assert.equal(enter.currentTime, 0); assert.equal(handle.entering(), 'on'); assert.equal(enterMesh.alpha, 1, 'whole at once, under the previous picture\'s fade')
+  assert.equal(idle.plays, 0)
+  handle.tick(400); assert.equal(enter.plays, 1, 'played once'); sprite._render(); assert.equal(sprite.draws, 0)
+  // Played out: the idle loop takes over from its first frame over the transition's held last frame.
+  enter.paused = true; enter.ended = true; idle.currentTime = 1.3
+  handle.tick(16)
+  assert.equal(handle.entering(), null); assert.equal(handle.state().phase, 'idle'); assert.equal(idle.plays, 1); assert.equal(idle.currentTime, 0)
+  assert.ok(sprite.children.indexOf(idleMesh) > sprite.children.indexOf(enterMesh))
+  handle.tick(100); assert.ok(idleMesh.alpha > 0 && idleMesh.alpha < 1); assert.equal(enterMesh.alpha, 1)
+  handle.tick(200); assert.equal(idleMesh.alpha, 1); handle.tick(200); assert.equal(enterMesh.visible, false)
+  sprite._render(); assert.equal(sprite.draws, 0)
+  scope.dispose()
+})
+
+test('a transition that ends while the voice is heard hands over to the talking loop; one that does not come in time is dropped', async () => {
+  const {document, PIXI, sprite, videos} = fakeDom()
+  const scope = createStageFigureVideos({document, acquire: source => ({video: Promise.resolve('blob:' + source.id), release() {}}), foreground: null}).create({PIXI})
+  const handle = scope.attach(sprite, {source: {id: 'idle'}, talk: {id: 'talk'}, rect: [0, 0, 10, 10], enter: {source: {id: 'enter'}, rect: [0, 0, 10, 10]}})
+  await flush()
+  const [idle, talk, enter] = videos
+  for (const video of videos) video.fire('loadeddata')
+  handle.update({on: true, talking: true}); handle.tick(16)
+  assert.equal(handle.state().phase, 'enter'); assert.equal(talk.plays, 0, 'the transition plays out with its own mouth')
+  enter.paused = true; enter.ended = true; handle.tick(16)
+  assert.equal(handle.state().phase, 'talk'); assert.equal(talk.plays, 1); assert.equal(talk.currentTime, 0); assert.equal(idle.plays, 0)
+  scope.dispose()
+  // Not loaded in time: the still is back and the pictures crossfade as without one.
+  const late = fakeDom()
+  const lateScope = createStageFigureVideos({document: late.document, acquire: source => ({video: Promise.resolve('blob:' + source.id), release() {}}), foreground: null}).create({PIXI: late.PIXI})
+  const waiting = lateScope.attach(late.sprite, {source: {id: 'idle'}, rect: [0, 0, 10, 10], enter: {source: {id: 'enter'}, rect: [0, 0, 10, 10]}})
+  await flush()
+  waiting.update({on: true}); waiting.tick(300); assert.equal(waiting.entering(), 'pending')
+  waiting.tick(400); assert.equal(waiting.entering(), null); assert.equal(waiting.state().phase, 'idle')
+  late.sprite._render(); assert.equal(late.sprite.draws, 1, 'the still draws again')
+  late.videos[1].fire('loadeddata'); waiting.tick(16); assert.equal(late.videos[1].plays, 0, 'a dropped transition never plays')
+  // Motion turned off (a skip) drops it too.
+  const off = lateScope.attach(late.sprite, {source: {id: 'idle'}, rect: [0, 0, 10, 10], enter: {source: {id: 'enter'}, rect: [0, 0, 10, 10]}})
+  off.update({on: false}); off.tick(16); assert.equal(off.entering(), null)
+  lateScope.dispose()
 })
 
 test('copying a figure takes its still loops along as entries of the target, renamed where the target has the id', async () => {

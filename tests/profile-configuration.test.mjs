@@ -1,12 +1,42 @@
 import assert from 'node:assert/strict'
-import { readFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
+import { fileURLToPath } from 'node:url'
 import { parseDocument } from 'yaml'
 
 import { mergeProfileManifest, migrateLegacyProfilePatch, prepareProfileWorkspace } from '../bin/profile-configuration.mjs'
+import { prepareProfileConfiguration } from '../bin/profile-installation.mjs'
 
 const legacyPatch = await readFile(new URL('../config/legacy-profile-patch-v0.6.yml', import.meta.url), 'utf8')
+
+test('CLI 升级加入同一个酒馆启动器，重复安装不产生重复项', async t => {
+  const dshHome = await mkdtemp(path.join(tmpdir(), 'tavern-cli-profile-'))
+  t.after(() => rm(dshHome, { recursive: true, force: true }))
+  const sourceRoot = fileURLToPath(new URL('../', import.meta.url))
+  const profileDir = path.join(dshHome, 'profiles', 'tavern')
+  const profileManifest = path.join(profileDir, 'package.json')
+  const options = { sourceRoot, profileDir, dshHome }
+  await mkdir(profileDir, { recursive: true })
+  await writeFile(profileManifest, JSON.stringify({
+    name: 'dsh-profile-tavern',
+    dsh: { profile: { bundles: ['user-plugin'] } },
+    dependencies: { 'user-plugin': '1.0.0' },
+  }))
+  t.mock.property(process, 'env', { ...process.env, DSH_TAVERN_MOBILE_LAYOUT: '0' })
+  const { manifest } = prepareProfileConfiguration('cli', undefined, options)
+  assert.equal(manifest.dependencies['dsh-tavern'], 'link:' + path.join(sourceRoot, 'tavern-plugin', 'packages', 'dsh-tavern').replaceAll(path.sep, '/'))
+  assert.ok(manifest.dsh.profile.bundles.includes('dsh-tavern'))
+  assert.ok(manifest.dshTavern.managedDependencies.includes('dsh-tavern'))
+  assert.equal(manifest.dependencies['user-plugin'], '1.0.0')
+  await writeFile(profileManifest, JSON.stringify(manifest))
+  assert.deepEqual(prepareProfileConfiguration('cli', undefined, options).manifest, manifest)
+  process.env.DSH_TAVERN_MOBILE_LAYOUT = '1'
+  const mobile = prepareProfileConfiguration('cli', undefined, options).manifest
+  assert.ok(!mobile.dsh.profile.bundles.includes('dsh-tavern'))
+  assert.equal(mobile.dependencies['dsh-tavern'], undefined)
+})
 
 function sourceManifest() {
   return {

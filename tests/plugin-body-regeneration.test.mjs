@@ -263,3 +263,22 @@ test('crash recovery retains plugin rules with the paid candidate', async () => 
   assert.equal(row.displayText, 'display')
   assert.equal(row.bodyPluginProjection, true)
 })
+
+test('插件正文生成器返回本次提交的版本，结算后的正文编辑不改变回执', async () => {
+  let h, committedVersion
+  h = await fixture({
+    async afterWrite(metadata, saved) {
+      if (metadata?.source !== 'foreground.plugin-regen-commit') return
+      committedVersion = computeSceneTarget(saved, 2).key
+      await h.chats.update('chat', chat => {
+        Object.assign(chat.messages.at(-1), { text: '后来编辑', sourceText: '后来编辑', swipes: ['后来编辑'] })
+        return chat
+      })
+    }
+  })
+  const expectedReply = { turn: 2, textVersion: computeSceneTarget(h.original, 2).key }
+  const receipt = await h.run(async () => ({ text: '新正文' }), { expectedReply })
+  assert.ok(committedVersion)
+  assert.equal(receipt.textVersion, committedVersion)
+  assert.notEqual(receipt.textVersion, computeSceneTarget(await h.chats.read(), 2).key)
+})

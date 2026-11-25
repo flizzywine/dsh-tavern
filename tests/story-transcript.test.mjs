@@ -5,6 +5,7 @@ import vm from 'node:vm'
 import React, { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { JSDOM } from 'jsdom'
+import { withStyleReferenceProtocol } from './helpers/style-reference-source.mjs'
 
 import { projectStoryTranscript } from '../tavern-plugin/lib/domain/story-transcript.js'
 
@@ -46,7 +47,7 @@ test('稀疏、缺失、重复、非单调 turn 回退到 index 键', () => {
 test('普通对话在内置开场正文后显示作用于开场的插件补充内容', async t => {
   const source = name => readFile(new URL('../tavern-plugin/src/client/features/' + name, import.meta.url), 'utf8')
   const [data, list, extensions] = await Promise.all([
-    source('story-transcript-data.js'), source('story-transcript-list.js'), source('plugin-extensions.js'),
+    source('story-transcript-data.js').then(withStyleReferenceProtocol), source('story-transcript-list.js'), source('plugin-extensions.js'),
   ])
   const view = {key:'continuation:transcript', owner:'continuation', render: input => input.greeting && input.gameId === 'game'
     ? input.renderBubbles([{id:'line-1', alias:'actor', name:'角色', text:'已读的续段对白', recording:'voices/line 1.mp3', stageAnchor:'ending:2'}],
