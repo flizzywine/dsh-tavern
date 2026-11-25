@@ -593,7 +593,12 @@ public final class MainActivity extends Activity {
         bar.setIndeterminate(p < 0);
         if (p >= 0) bar.setProgress(p);
         enter.setEnabled(url != null);
-        set(enter, url != null ? "进入酒馆" : "进入酒馆（启动中…）");
+        set(enter, url != null ? "进入酒馆"
+                : "preparing".equals(phase) || "starting".equals(phase) ? "进入酒馆（启动中…）"
+                : "stopping".equals(phase) ? "进入酒馆（停止中…）"
+                : "updating".equals(phase) ? "进入酒馆（更新中…）"
+                : "failed".equals(phase) ? "进入酒馆（启动失败）"
+                : "进入酒馆（未启动）");
         boolean active = "running".equals(phase) || "starting".equals(phase) || "preparing".equals(phase);
         set(startStop, active ? "停止" : "启动");
         restart.setEnabled("running".equals(phase) || "failed".equals(phase) || "stopped".equals(phase));
