@@ -29,7 +29,7 @@ CODE=$1; NAME=$2; TAG=$3
 GH_REPO=${GH_REPO:-flizzywine/dsh-tavern}
 P=$REPO/output/native-proto
 OUT=${OUT:-$P/release-$NAME}
-FAKEHOME=${FAKEHOME:-$P/fakehome}
+FAKEHOME=${FAKEHOME:-$OUT/fakehome}
 SIGNING_DIR=${SIGNING_DIR:-$HOME/.config/dsh-tavern-android}
 SDK=${ANDROID_HOME:-$HOME/Android/Sdk}
 BT=${BUILD_TOOLS:-$SDK/build-tools/36.0.0}
@@ -76,9 +76,16 @@ if [ "${SKIP_BUILD:-0}" = 1 ]; then
 else
   HOST_NODE=${HOST_NODE:-$(readlink -f "$(command -v node)")}
   [ -x "$HOST_NODE" ] || die "找不到 node（HOST_NODE）"
-  PNPM_VER=$("$HOST_NODE" -p "require('$REPO/package.json').packageManager.split('@')[1]")
-  PNPM_CJS=${PNPM_CJS:-${COREPACK_HOME:-$HOME/.cache/node/corepack}/v1/pnpm/$PNPM_VER/bin/pnpm.cjs}
-  [ -f "$PNPM_CJS" ] || die "找不到 pnpm $PNPM_VER（$PNPM_CJS）；先 corepack install，或设 PNPM_CJS"
+  if [ -z "${PNPM_CJS:-}" ]; then
+    COREPACK_ROOT=${COREPACK_HOME:-$HOME/.cache/node/corepack}
+    PNPM_VER=$("$HOST_NODE" -p "(require('$REPO/package.json').packageManager || '').split('@')[1] || ''")
+    if [ -n "$PNPM_VER" ]; then
+      PNPM_CJS=$COREPACK_ROOT/v1/pnpm/$PNPM_VER/bin/pnpm.cjs
+    else
+      PNPM_CJS=$(ls -1v "$COREPACK_ROOT"/v1/pnpm/*/bin/pnpm.cjs 2>/dev/null | tail -1 || true)
+    fi
+  fi
+  [ -f "${PNPM_CJS:-}" ] || die "找不到 pnpm（${PNPM_CJS:-未指定}）；先 corepack install，或设 PNPM_CJS"
   SHIM=$OUT/host-bin; mkdir -p "$SHIM"
   printf '#!/bin/sh\nexec "%s" "%s" "$@"\n' "$HOST_NODE" "$PNPM_CJS" > "$SHIM/pnpm"; chmod +x "$SHIM/pnpm"
   ln -sf "$HOST_NODE" "$SHIM/node"
@@ -88,7 +95,11 @@ else
   rm -rf "$SRC"; mkdir -p "$SRC"; git -C "$REPO" archive HEAD | tar -x -C "$SRC"
 
   echo "== 隔离安装（HOME=$FAKEHOME）"
-  mkdir -p "$FAKEHOME"
+  mkdir -p "$FAKEHOME/.dsh-tavern"
+  if [ ! -d "$FAKEHOME/.dsh-tavern/runtime" ] && [ -d "$P/fakehome/.dsh-tavern/runtime" ]; then
+    echo "== 复用已安装的 DSH 运行时 → $FAKEHOME/.dsh-tavern/runtime"
+    cp -a "$P/fakehome/.dsh-tavern/runtime" "$FAKEHOME/.dsh-tavern/runtime"
+  fi
   (
     cd "$SRC"
     export PATH=$SHIM:/usr/bin:/bin HOME=$FAKEHOME DSH_HOME=$FAKEHOME/.dsh-tavern DSH_TAVERN_CLI_HOME=$FAKEHOME/.dsh-tavern \
@@ -103,7 +114,7 @@ else
   rm -f "$APK" "$APK.sha256" "$INFO"
   PATH=$SHIM:$PATH RELEASE=1 RELEASE_KEYSTORE=$SIGNING_DIR/release.jks RELEASE_KEY_ALIAS=dsh-tavern \
     RELEASE_KEY_PASS_FILE=$SIGNING_DIR/release.pass VERSION_CODE=$CODE VERSION_NAME=$NAME \
-    APK_URL=$APK_URL RELEASE_PAGE=$PAGE RELEASE_NOTES=${RELEASE_NOTES:-} MIN_VERSION_CODE=${MIN_VERSION_CODE:-0} \
+    APK_URL="$APK_URL" RELEASE_PAGE="$PAGE" RELEASE_NOTES="${RELEASE_NOTES:-}" MIN_VERSION_CODE="${MIN_VERSION_CODE:-0}" \
     OUT=$OUT bash "$HERE/build-apk.sh" "$SRC" "$FAKEHOME/.dsh-tavern"
 fi
 # build-apk.sh 写的 .sha256 带绝对路径；上传用的只留文件名，下载后才能 sha256sum -c。
@@ -111,13 +122,14 @@ fi
 
 # ---- 核对：包信息、签名、debuggable、发布信息与文件一致
 echo "== 核对"
-BADGING=$("$BT/aapt2" dump badging "$APK" 2>/dev/null | head -1)
+BADGING_OUT=$("$BT/aapt2" dump badging "$APK" 2>/dev/null)
+BADGING=${BADGING_OUT%%$'\n'*}
 [[ $BADGING == *"name='$PKG'"* && $BADGING == *"versionCode='$CODE'"* && $BADGING == *"versionName='$NAME'"* ]] \
   || die "包信息不符：$BADGING"
 if "$BT/aapt2" dump xmltree --file AndroidManifest.xml "$APK" 2>/dev/null | grep -qiE 'debuggable[^=]*=(true|0xffffffff)'; then
   die "正式包仍是 debuggable"
 fi
-ACTUAL_SIGNER=$("$BT/apksigner" verify --print-certs "$APK" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -1 | tr 'A-F' 'a-f')
+ACTUAL_SIGNER=$("$BT/apksigner" verify --print-certs "$APK" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | awk 'NR==1{print}' | tr 'A-F' 'a-f')
 [ -n "$ACTUAL_SIGNER" ] || die "apksigner 校验失败"
 [ -z "$EXPECT_SIGNER" ] || [ "$ACTUAL_SIGNER" = "$EXPECT_SIGNER" ] || die "签名证书与已发布版本不同，已安装的用户无法覆盖升级"
 python3 - "$OUT" "$APK_NAME" "$CODE" "$NAME" "$APK_URL" "$PAGE" "$ACTUAL_SIGNER" "${MIN_VERSION_CODE:-0}" <<'PY'

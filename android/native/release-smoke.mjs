@@ -13,7 +13,7 @@ const EXPECT_UPDATE = new RegExp(arg('--expect-update', '已是最新|还没有�
 const PKG = 'io.github.flizzywine.dshtavern.bionic'
 const OUT = join(repo, 'output/native-proto/release-smoke')
 mkdirSync(OUT, { recursive: true })
-const adb = (...a) => execFileSync('adb', a, { encoding: 'utf8', maxBuffer: 64 << 20 })
+const adb = (...a) => execFileSync('adb', a, { windowsHide: true, encoding: 'utf8', maxBuffer: 64 << 20 })
 const sleep = ms => new Promise(r => setTimeout(r, ms))
 function screen() {
   let xml = ''
@@ -72,13 +72,13 @@ await step('首次启动：解压 → 服务就绪（关掉「直接进入酒馆
     await sleep(2000)
   }
   if (!seen) throw new Error('酒馆没有打开：' + screen().map(n => n.text).filter(Boolean).join(' | ').slice(0, 600))
-  writeFileSync(join(OUT, 'tavern.png'), execFileSync('adb', ['exec-out', 'screencap', '-p']))
+  writeFileSync(join(OUT, 'tavern.png'), execFileSync('adb', ['exec-out', 'screencap', '-p'], { windowsHide: true }))
   return { readyAfterMs: Date.now() - t }
 })
 await step('返回键回到启动页，状态为运行中', async () => {
   for (let i = 0; i < 4 && !screen().some(n => n.text === '进入酒馆'); i++) { adb('shell', 'input', 'keyevent', 'KEYCODE_BACK'); await sleep(1500) }
   const status = await waitFor(/运行中/, 20000)
-  writeFileSync(join(OUT, 'launcher.png'), execFileSync('adb', ['exec-out', 'screencap', '-p']))
+  writeFileSync(join(OUT, 'launcher.png'), execFileSync('adb', ['exec-out', 'screencap', '-p'], { windowsHide: true }))
   return { status: status.text.slice(0, 60) }
 })
 await step('检查更新', async () => {

@@ -310,7 +310,12 @@
 				const core = record && record.scripts.get("__dsh_official_mvu__");
 				return core && core.initializationFailed ? "MVU 模块加载失败：" + (core.initializationError || "初始化未完成") + "\n请刷新页面或重启酒馆后重试。" : record && record.mvuDataError || "";
 			}
+			function failedMvuCompanion(record) {
+				if (!record.scripts.has("__dsh_official_mvu__")) return undefined;
+				return Array.from(record.scripts.values()).find(script => script.requiredForMvu && script.initializationFailed);
+			}
             function mvuDataReady(record) {
+                if (failedMvuCompanion(record)) return false;
                 // A blank opening has no floor yet; MVU initializes it in the chat scope.
                 const initial = record.context?.chatVariables;
                 if (!record.context?.messages?.length) return initial?.stat_data !== undefined && initial?.schema !== undefined;
@@ -473,7 +478,11 @@
 					initializationFailed: false,
 					initializationTimer: null,
 					lastRuntimeError: "",
-					scripts: new Map(scripts.map(function (script) { return [String(script.id), { id: String(script.id), name: String(script.name || script.id), loaded: false, subscriptionsReady: false, initializationFailed: false }]; }))
+					scripts: new Map(scripts.map(function (script) { return [String(script.id), {
+						id: String(script.id), name: String(script.name || script.id), loaded: false,
+						subscriptionsReady: false, initializationFailed: false,
+						requiredForMvu: !viewer && findCardScriptPatch(String(script.content || ""))?.requiredForMvu === true
+					}]; }))
 				};
 				frame.__dshTavernSessionId = sessionId;
                 frame.__dshTavernHostArtifacts = record.hostArtifacts;
@@ -767,8 +776,15 @@
 					syncCompanionDeadline(record);
 					if (data.ready === true) {
 						record.initializationFailed = Boolean(record.scripts.get("__dsh_official_mvu__")?.initializationFailed);
-						record.subscriptionsReady = !record.initializationFailed;
-						if (!record.initializationFailed) resolveError("人物卡共享脚本沙箱", record.startedAt);
+						const failedCompanion = !record.initializationFailed && failedMvuCompanion(record);
+						record.subscriptionsReady = !record.initializationFailed && !failedCompanion;
+						if (failedCompanion && record.mvuLoadState?.phase !== "companion-failed") {
+							const error = failedCompanion.name + "：" + (failedCompanion.initializationError || "初始化失败");
+							record.mvuLoadState = { phase: "companion-failed", canRetry: true, error: error };
+							recordMvuLoadDiagnostic(record, { phase: "companion-failed", failureStep: "companion-module", scriptId: failedCompanion.id, message: error });
+							onMvuLoadState(record.mvuLoadState);
+						}
+						if (record.subscriptionsReady) resolveError("人物卡共享脚本沙箱", record.startedAt);
 						settleInitialization(record);
 					}
 					syncMvuDataReadiness(record);
@@ -958,6 +974,7 @@
 					return;
 				}
 					let mutationArgs = Object.assign({}, data.args || {}, { apiCallOrigin: { scriptId: String(data.scriptId || ""), scriptName: String(record.scripts.get(String(data.scriptId || ""))?.name || ""), eventId: String(data.eventId || ""), requestId: String(data.requestId || "") } });
+					if (data.method === "createTavernHelperMessages") delete mutationArgs.dispatchCreatedMessages;
 					if (data.method === "updateTavernHelperPrompts" || data.method === "updateTavernHelperVariables" || data.method === "updateTavernHelperMessages" || data.method === "createTavernHelperMessages") {
 						mutationArgs = Object.assign({}, mutationArgs, {
 							eventId: String(data.eventId || ""),
@@ -1060,7 +1077,7 @@
 				retryMvuLoad: function () {
 					const record = records.get("shared");
 					if (!record || !record.mvuLoadState || !record.mvuLoadState.canRetry) return false;
-						if (record.mvuLoadState.phase === "companion-timeout") {
+						if (["companion-timeout", "companion-failed"].includes(record.mvuLoadState.phase)) {
 							removeRecord(record.id);
 							const next = createRecord(record.sessionId, record.scriptInputs, record.context, record.trustedCardMode, false);
 							next.sourceHelper = record.sourceHelper;

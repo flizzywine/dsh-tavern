@@ -6,7 +6,7 @@ import { projectFullPromptTemplateState } from './full-prompt-template-state.js'
 import { applyTemplateStateChanges } from './template-state-patch.js'
 import { lastTavernHelperVariables } from './tavern-helper-context.js'
 import { inspectWorldBookDocument, exportSillyTavernWorldBook } from './worldbook-resource.js'
-import { statusViewDeclaration } from './status-view-declaration.js'
+import { persistentStatusDeclarations } from './status-view-declaration.js'
 import { projectTavernHelperWorldbook } from './tavern-helper-worldbook.js'
 import { projectPersistentStatusView } from './persistent-status-view.js'
 import { rebindImportedStage } from './stage-import-rebind.js'
@@ -297,11 +297,13 @@ export function createLiveCardUpdate({readGlobals = async () => ({}), readWorldB
     if ((Object.keys(defaults).length && chat.mvu?.enabled || plans.length || removedPaths.length) && !count) throw Error('当前存档缺少可迁移的 MVU 快照，未应用更新')
     return migrated
   }
-  const liveStatusRule = rule => rule.enabled !== false && !rule.disabled && statusViewDeclaration(rule) && /<%/.test(rule.replaceString)
-  const needsHistory = (chat, options) => !!chat.cardContextRevision && (options.regexScripts || []).some(liveStatusRule)
+  const liveStatusRules = rules => persistentStatusDeclarations(rules).map(({ rule }) => rule).filter(rule => /<%/.test(rule.replaceString))
+  const needsHistory = (chat, options) => !!chat.cardContextRevision && liveStatusRules(options.regexScripts || []).length > 0
   async function project(chat, card, display, options) {
+    if (!chat.cardContextRevision) return display
     const rules = options.regexScripts || []
-    if (!needsHistory(chat, options)) return display
+    const live = new Set(liveStatusRules(rules))
+    if (!live.size) return display
     const vars = lastTavernHelperVariables(chat.messages)
     const globals = await readGlobals()
     const key = hash([globals,chat.id,chat.cardContextRevision,rules,vars,chat.variables,chat.openingWorldbookSnapshot,chat.messages.at(-1)?.turn])
@@ -309,7 +311,7 @@ export function createLiveCardUpdate({readGlobals = async () => ({}), readWorldB
     if (!pending) {
       pending = preview(chat, card, async render => {
         const rendered = []
-        for (const rule of rules) rendered.push(liveStatusRule(rule) ? {...rule,replaceString:await render(rule.replaceString)} : rule)
+        for (const rule of rules) rendered.push(live.has(rule) ? {...rule,replaceString:await render(rule.replaceString)} : rule)
         return rendered
       }, globals)
       cache.set(key,pending)

@@ -1,15 +1,15 @@
-// dsh-tavern-adventure-medal —— 宿主侧（Node）
+// dsh-tavern-achievements —— 宿主侧（Node）
 // ============================================================================
 // 旧版奖牌的只读接口仍可用。游玩结算和手动刷新都会写入全局成就进度。
 //
-//   1. dsh-tavern-adventure-medal/list
+//   1. dsh-tavern-achievements/list
 //      列出角色卡 + 每张卡下的游玩存档（来自酒馆的 index.json），
 //      以及入口 render 拿到的 sessionId 对应的「当前游玩」。
 //
-//   2. dsh-tavern-adventure-medal/stats
+//   2. dsh-tavern-achievements/stats
 //      读取指定存档的游玩轮数（与酒馆列表同口径）、正文码点数、角色卡持久上下文字数。
 //
-//   3. dsh-tavern-adventure-medal/counts
+//   3. dsh-tavern-achievements/counts
 //      按需读出某张卡下每段存档的轮数（同口径），供选择器列表显示。
 //
 // 读取方式：
@@ -29,10 +29,10 @@ import os from 'node:os'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 
-export const name = 'dsh-tavern-adventure-medal'
+export const name = 'dsh-tavern-achievements'
 export const inject = ['tavern']
 
-const NS = 'dsh-tavern-adventure-medal'
+const NS = name
 const CARD_FIELDS = ['description', 'personality', 'scenario', 'first_mes', 'mes_example']
 const ACHIEVEMENTS = [
   { id: 'starter', rounds: 50, title: '佳作' },
@@ -609,10 +609,17 @@ function createAchievementRecorder(tavern, dataRoot, snapshot) {
 
   async function loadLedger({ fresh = false } = {}) {
     if (ledger && !fresh) return ledger
-    const stored = await tavern.readPluginData()
+    let stored = await tavern.readPluginData()
+    let needsSave = stored == null
+    if (needsSave) {
+      try {
+        stored = JSON.parse(await readFile(path.join(dataRoot, 'plugin-data', 'dsh-tavern-adventure-medal.json'), 'utf8'))
+      } catch (error) {
+        if (error.code !== 'ENOENT') throw error
+      }
+    }
     if (stored != null && (stored.version !== 1 || !Array.isArray(stored.achievements))) throw new Error('无法读取该版本的成就库')
     const records = new Map((stored?.achievements || []).filter(tier => tier?.id).map(tier => [tier.id, tier]))
-    let needsSave = false
     const achievements = ACHIEVEMENTS.map(tier => {
       const record = records.get(tier.id)
       records.delete(tier.id)
@@ -702,15 +709,15 @@ export function apply(ctx) {
 
   ctx.effect(
     () => tavern.handle(NS + '/list', async args => await listPayload(tavern, str(args?.sessionId))),
-    'adventure-medal: list handler',
+    'achievements: list handler',
   )
   ctx.effect(
     () => tavern.handle(NS + '/stats', async args => await statsPayload(tavern, args)),
-    'adventure-medal: stats handler',
+    'achievements: stats handler',
   )
   ctx.effect(
     () => tavern.handle(NS + '/counts', async args => await countsPayload(args)),
-    'adventure-medal: counts handler',
+    'achievements: counts handler',
   )
   if (['onTurnSettled', 'readPluginData', 'savePluginData', 'publishState'].some(method => typeof tavern[method] !== 'function')) return
   const dataRoot = resolveDataRoot()
@@ -718,14 +725,14 @@ export function apply(ctx) {
   const achievements = createAchievementRecorder(tavern, dataRoot, snapshot)
   ctx.effect(
     () => tavern.handle(NS + '/refresh-achievements', achievements.refresh),
-    'adventure-medal: refresh achievements from saves',
+    'achievements: refresh achievements from saves',
   )
   ctx.effect(
     () => tavern.handle(NS + '/claim-achievement', achievements.claim),
-    'adventure-medal: claim achievement notification',
+    'achievements: claim achievement notification',
   )
   ctx.effect(() => {
-    void achievements.initialize().catch(error => console.warn('[adventure-medal] 成就库初始化失败:', error.message))
+    void achievements.initialize().catch(error => console.warn('[achievements] 成就库初始化失败:', error.message))
     return tavern.onTurnSettled(achievements.settle)
-  }, 'adventure-medal: unlock achievements')
+  }, 'achievements: unlock achievements')
 }

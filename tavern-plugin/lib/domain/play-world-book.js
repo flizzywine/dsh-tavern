@@ -3,6 +3,7 @@ import { historyScanDepth } from './worldbook-activation.js'
 import { isMvuUpdateEntry, isWorldBookTemplateEntry, projectWorldBookTemplates } from './worldbook-recall.js'
 import { withPluginWorldbookEntries } from './plugin-worldbook.js'
 import { inspectWorldBookDocument } from './worldbook-resource.js'
+import { hasTavernHelperVariableMacro } from './tavern-helper-variable-macros.js'
 
 // The world book a game plays with, as the background and recall read it.
 export function createPlayWorldBook({ worldBooks, readChatCard, pluginApi, runtime, globalVariables = async () => ({}) }) {
@@ -21,7 +22,7 @@ export function createPlayWorldBook({ worldBooks, readChatCard, pluginApi, runti
       seen.add(content)
       return true
     })
-    if (!entries.some(isWorldBookTemplateEntry)) {
+    if (!entries.some(entry => isWorldBookTemplateEntry(entry) || hasTavernHelperVariableMacro(entry.content))) {
       return entries.map(entry => projectAgentContent(entry.content, { charName: card?.name, macroState: chat.macroState }).agentText).filter(Boolean)
     }
     // Render only settlement rules in a read-only projection. Never run ordinary

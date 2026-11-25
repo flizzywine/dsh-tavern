@@ -73,7 +73,7 @@ try {
 
   const agents = host.services.get('agents')
   agents.set(imported.sessionId, { phase: { kind: 'running' } })
-  await assert.rejects(host.rpc('exportGameSave', { sessionId: imported.sessionId }), /正文仍在生成，请等待完成后再导出存档/)
+  await assert.rejects(host.rpc('exportGameSave', { sessionId: imported.sessionId }), /当前正文仍在生成，请等待完成后再导出/)
   agents.delete(imported.sessionId)
 
   let nativeReads = 0

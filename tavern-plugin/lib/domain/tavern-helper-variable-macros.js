@@ -58,10 +58,21 @@ function scopeVariables(scopes, type) {
 }
 
 function macroValue(scopes, type, path) {
-  return withoutInternalKeys(valueAt(scopeVariables(scopes, type), path))
+  return withoutInternalKeys(valueAt(scopeVariables(scopes, type.toLowerCase()), path))
 }
 
-const FORMAT_IN_PREFIX = /^(.*)\{\{format_(message|chat|character|preset|global)_variable::(.*?)\}\}/im
+const variableMacroPattern = method => /\{\{/.source + method +
+  /_(message|chat|character|preset|global)_variable::(.*?)\}\}/.source
+const VARIABLE_MACRO = new RegExp(variableMacroPattern('(?:get|format)'), 'i')
+const GET_MACRO = new RegExp(variableMacroPattern('get'), 'gi')
+const FORMAT_MACRO = new RegExp(variableMacroPattern('format'), 'gi')
+const FORMATTED_LINE = '^(.*)' + FORMAT_MACRO.source
+const FORMAT_IN_PREFIX = new RegExp(FORMATTED_LINE, 'im')
+const FORMAT_LINES = new RegExp(FORMATTED_LINE, 'gim')
+
+export function hasTavernHelperVariableMacro(value) {
+  return VARIABLE_MACRO.test(value)
+}
 
 function replaceFormatted(scopes, _substring, prefix, type, path) {
   const previous = prefix.match(FORMAT_IN_PREFIX)
@@ -82,13 +93,13 @@ function replaceFormatted(scopes, _substring, prefix, type, path) {
 export function renderTavernHelperVariableMacros(value, scopes = {}) {
   let replacements = 0
   let text = typeof value === 'string' ? value : String(value ?? '')
-  text = text.replace(/\{\{get_(message|chat|character|preset|global)_variable::(.*?)\}\}/gi, function (_substring, type, path) {
+  text = text.replace(GET_MACRO, function (_substring, type, path) {
     replacements += 1
     const result = macroValue(scopes, type, path)
     return typeof result === 'string' ? result : JSON.stringify(result)
   })
-  replacements += Array.from(text.matchAll(/\{\{format_(?:message|chat|character|preset|global)_variable::.*?\}\}/gi)).length
-  text = text.replace(/^(.*)\{\{format_(message|chat|character|preset|global)_variable::(.*?)\}\}/gim, function (...args) {
+  replacements += Array.from(text.matchAll(FORMAT_MACRO)).length
+  text = text.replace(FORMAT_LINES, function (...args) {
     return replaceFormatted(scopes, ...args.slice(0, 4))
   })
   return { text, replacements }

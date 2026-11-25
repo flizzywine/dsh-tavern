@@ -162,7 +162,7 @@ function backup(file) {
 }
 
 function run(command, args, cwd) {
-  const result = spawnSync(command, args, { cwd, stdio: 'inherit' })
+  const result = spawnSync(command, args, { windowsHide: true, cwd, stdio: 'inherit' })
   if (result.error) throw result.error
   if (result.status !== 0) throw new Error(`${command} ${args.join(' ')} 退出码 ${result.status}`)
 }

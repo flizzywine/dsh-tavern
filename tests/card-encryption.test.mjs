@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { syntheticFixture } from './helpers/synthetic-link-fixture.mjs'
 import path from 'node:path'
 import { spawnSync } from 'node:child_process'
 import test from 'node:test'
@@ -23,8 +23,7 @@ padding.write('paDd', 4, 'ascii')
 padding.writeUInt32BE(crc32(padding.subarray(4, -4)), padding.length - 4)
 const LARGE_COVER = Buffer.concat([COVER.subarray(0, -12), padding, COVER.subarray(-12)])
 async function fixture(t) {
-  const dir = await mkdtemp(path.join(tmpdir(), 'card-encryption-'))
-  t.after(() => rm(dir, { recursive: true, force: true }))
+  const dir = syntheticFixture(t, 'card-encryption-')
   const entries = [
     { path: 'card.json', content: JSON.stringify({ spec: 'chara_card_v3', data: { name: 'Encrypted fixture', description: 'private card description' } }) },
     { path: 'dsh.json', content: JSON.stringify({ format: 'dshcard', formatVersion: 1, plugins: [{ name: 'game', path: 'plugins/game/' }] }) },
@@ -50,6 +49,16 @@ test('ordinary cards need no password; AES-256 cards require it and stream all o
     assert.equal((await readCardArchive(zip)).plugins[0].name, 'game')
     for (const entry of f.entries) assert.deepEqual(await zip.readBuffer(zip.entries.get(entry.path)), Buffer.from(entry.content))
   } finally { await zip.close() }
+})
+
+test('encryption stores media as is (it is compressed already) and deflates the rest', async t => {
+  const dir = syntheticFixture(t, 'card-encryption-')
+  const MB = 1024 * 1024, plain = path.join(dir, 'plain.dshcard'), encrypted = path.join(dir, 'encrypted.dshcard')
+  // both are zeros: deflated, each would be a few kilobytes.
+  await writeFile(plain, writeZipEntries([{ path: 'card.json', content: '{}' }, { path: 'media/a.webp', content: Buffer.alloc(2 * MB) }, { path: 'plugins/x/state.bin', content: Buffer.alloc(2 * MB) }]))
+  await encryptCardArchiveFile(plain, encrypted, PASSWORD)
+  const bytes = (await readFile(encrypted)).length
+  assert.ok(bytes > 2 * MB && bytes < 2.1 * MB, 'the .webp stored, the .bin deflated: ' + bytes)
 })
 
 test('failed encryption never overwrites an existing output, and a damaged authentication tag never imports', async t => {
@@ -107,6 +116,18 @@ test('native encrypt upload produces a downloadable password-protected card with
   await assert.rejects(uploads.take(id), /不存在/)
 })
 
+// The card export job (exportLibraryCard answers at once): polled like the export sheet polls it, every view kept.
+async function exportJob(handlers, args, progressId = 'export-' + Math.random().toString(36).slice(2, 10)) {
+  assert.deepEqual(await handlers.exportLibraryCard({ ...args, progressId }), { progressId })
+  const seen = []
+  for (;;) {
+    const { progress } = await handlers.cardExportProgress({ progressId })
+    seen.push(progress)
+    if (progress.stage === 'done' || progress.stage === 'failed') return { ...progress, seen }
+    await new Promise(resolve => setTimeout(resolve, 5))
+  }
+}
+
 test('encrypting the current library card again creates one new password layer and leaves the previous export intact', async t => {
   const f = await fixture(t), uploads = createUploads({ root: f.dir }), exports = createTransferExportStore({ root: path.join(f.dir, 'exports') })
   t.after(() => exports.close())
@@ -115,8 +136,8 @@ test('encrypting the current library card again creates one new password layer a
     assert.equal(cardPath, 'cards/current.json'); calls++
     return { name: 'Current card', file: f.plain, dispose: async () => {} }
   } })
-  const first = await handlers.encryptLibraryCard({ path: 'cards/current.json', password: 'first-test-password' })
-  const second = await handlers.encryptLibraryCard({ path: 'cards/current.json', password: 'second-test-password' })
+  const first = (await exportJob(handlers, { path: 'cards/current.json', password: 'first-test-password' })).result
+  const second = (await exportJob(handlers, { path: 'cards/current.json', password: 'second-test-password' })).result
   assert.equal(calls, 2)
   for (const [result, password] of [[first, 'first-test-password'], [second, 'second-test-password']]) {
     const stored = await exports.take(new URL(result.downloadUrl, 'http://localhost').searchParams.get('token'))
@@ -129,6 +150,81 @@ test('encrypting the current library card again creates one new password layer a
   }
   const stored = await exports.take(new URL(second.downloadUrl, 'http://localhost').searchParams.get('token'))
   await assert.rejects(openCardZip(stored.file, { password: 'first-test-password' }), { code: CARD_PASSWORD_INVALID })
+})
+
+test('压缩素材: the export asks for compressed packs, shows its own 压缩素材 stage, then packing; the file says the sizes before and after', async t => {
+  const f = await fixture(t), uploads = createUploads({ root: f.dir }), exports = createTransferExportStore({ root: path.join(f.dir, 'exports') })
+  t.after(() => exports.close())
+  let asked
+  const handlers = createCardHandlers({ uploads, transferExports: exports, str: String, async exportCardFile(cardPath, { compress, onProgress }) {
+    asked = compress
+    onProgress({ stage: 'compress', done: 300, total: 600, pack: '学园角色' })
+    onProgress({ done: 50, total: 100, pack: '学园角色' })
+    const copy = path.join(f.dir, 'compressed.dshcard'); await writeFile(copy, await readFile(f.plain))
+    return { name: 'Current card', file: copy, compressed: { beforeBytes: 600, afterBytes: 200, images: 3, audio: 1, ffmpeg: true }, dispose: async () => {} }
+  } })
+  const job = await exportJob(handlers, { path: 'cards/current.json', compress: true })
+  assert.equal(asked, true)
+  assert.deepEqual(job.result.compressed, { beforeBytes: 600, afterBytes: 200, images: 3, audio: 1, ffmpeg: true })
+  const stages = job.seen.map(view => view.stage)
+  assert.ok(stages.indexOf('done') > 0 && !stages.slice(stages.lastIndexOf('pack') + 1).includes('compress'), 'compressing comes before packing')
+  // without the switch the export is asked for no compression.
+  await exportJob(handlers, { path: 'cards/current.json' })
+  assert.equal(asked, false)
+})
+
+test('an export answers at once and runs on as a job: the host\'s byte progress (packing, then encrypting), then the file once; cancel stops it and leaves no file', async t => {
+  const f = await fixture(t), uploads = createUploads({ root: f.dir }), exports = createTransferExportStore({ root: path.join(f.dir, 'exports') })
+  t.after(() => exports.close())
+  let release, reached
+  const packing = new Promise(resolve => { reached = resolve })
+  const handlers = createCardHandlers({ uploads, transferExports: exports, str: String, async exportCardFile(cardPath, { onProgress, books }) {
+    assert.deepEqual(books, [{ kind: 'standalone', path: 'worldbooks/main.json' }])
+    onProgress({ done: 0, total: 1000, pack: '' })
+    onProgress({ done: 400, total: 1000, pack: '学园角色' })
+    reached()
+    await new Promise(resolve => { release = resolve })
+    onProgress({ done: 1000, total: 1000, pack: '学园角色' })
+    const copy = path.join(f.dir, 'spool.dshcard'); await writeFile(copy, await readFile(f.plain))
+    return { name: 'Current card', file: copy, dispose: async () => {} }
+  } })
+  // the request answers before the export is done: the Desktop ends a request that has not answered in five minutes
+  assert.deepEqual(await handlers.exportLibraryCard({ path: 'cards/current.json', password: PASSWORD, worldBooks: [{ kind: 'standalone', path: 'worldbooks/main.json' }], progressId: 'export-progress-1' }), { progressId: 'export-progress-1' })
+  await packing
+  const view = (await handlers.cardExportProgress({ progressId: 'export-progress-1' })).progress
+  assert.deepEqual(view, { ...view, stage: 'pack', done: 200, total: 1000, pack: '学园角色' }, 'an encrypted export gives packing the first half')
+  release()
+  let done
+  while (!done) { const { progress } = await handlers.cardExportProgress({ progressId: 'export-progress-1' }); if (progress.stage === 'done') done = progress.result; else await new Promise(resolve => setTimeout(resolve, 5)) }
+  assert.match(done.filename, /-加密\.dshcard$/)
+  assert.equal((await handlers.cardExportProgress({ progressId: 'export-progress-1' })).progress, null, 'a finished export is read once, then gone')
+  // cancel: the next report throws, the job ends with nothing stored and no failure to read.
+  let cancelledAt
+  const cancelled = createCardHandlers({ uploads, transferExports: exports, str: String, async exportCardFile(cardPath, { onProgress }) {
+    onProgress({ done: 10, total: 1000, pack: '' })
+    assert.deepEqual(await cancelled.cancelCardExport({ progressId: 'export-progress-2' }), { cancelled: true })
+    try { onProgress({ done: 20, total: 1000, pack: '' }) } catch (error) { cancelledAt = error.code; throw error }
+    throw new Error('not reached')
+  } })
+  await cancelled.exportLibraryCard({ path: 'cards/current.json', progressId: 'export-progress-2' })
+  while (!cancelledAt) await new Promise(resolve => setTimeout(resolve, 5))
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(cancelledAt, 'TAVERN_EXPORT_CANCELLED')
+  assert.equal((await cancelled.cardExportProgress({ progressId: 'export-progress-2' })).progress, null)
+  await assert.rejects(cancelled.exportLibraryCard({ path: 'cards/current.json', progressId: 'bad id' }), { code: 'TAVERN_EXPORT_INVALID' })
+})
+
+test('a failed export step tells the player the step, the file and the system reason', async t => {
+  const f = await fixture(t), uploads = createUploads({ root: f.dir }), exports = createTransferExportStore({ root: path.join(f.dir, 'exports') })
+  t.after(() => exports.close())
+  const missing = path.join(f.dir, 'packs', 'media', 'gone.webp'), warned = []
+  const handlers = createCardHandlers({ uploads, transferExports: exports, str: String, ctx: { logger: { warn: (...args) => warned.push(args) } }, async exportCardFile() {
+    throw Object.assign(new Error('ENOENT: no such file or directory, open ' + missing), { code: 'ENOENT', path: missing })
+  } })
+  const failed = await exportJob(handlers, { path: 'cards/current.json' })
+  assert.deepEqual(failed.error, { step: 'pack', code: 'ENOENT', message: '打包时出错：找不到文件：' + missing + '。这个素材包缺了这个文件，在素材库里修复或重新安装这个包后再导出。' })
+  assert.equal(warned.length, 1, 'the host log keeps the failure with its stack')
+  await assert.rejects(handlers.exportLibraryCard({ path: 'cards/current.json', password: '', progressId: 'export-progress-3' }), /密码/)
 })
 
 test('standard AES ZIP interoperability with 7-Zip in both directions', { skip: !process.env.TAVERN_7ZIP_TEST }, async t => {

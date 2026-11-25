@@ -17,6 +17,9 @@ export function subagentDescriptor(input) {
 }
 
 export const STAGE_DIRECTOR_PROVIDER = 'dsh-tavern-stage-director'
+export const LEGACY_BACKGROUND_PROVIDER = 'dsh-tavern-background'
 
 // One-shot children carry only version, mode, provider and label.
 export const STAGE_DIRECTOR_DESCRIPTOR = subagentDescriptor({ mode: 'one-shot', provider: STAGE_DIRECTOR_PROVIDER, label: '舞台导演' })
+export const WRITING_PREPARATION_PROVIDER = 'dsh-tavern-writing-preparation'
+export const WRITING_PREPARATION_DESCRIPTOR = subagentDescriptor({ mode: 'continuable', provider: WRITING_PREPARATION_PROVIDER, label: '白手套 Agent' })

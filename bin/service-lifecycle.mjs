@@ -199,11 +199,11 @@ export function legacyBindHostMatches(command, bindHost) {
 
 function findLegacyService(port, bindHost) {
   if (process.platform === 'win32' || !commandExists('lsof')) return null
-  const listeners = spawnSync('lsof', ['-tiTCP:' + port, '-sTCP:LISTEN'], { encoding: 'utf8' })
+  const listeners = spawnSync('lsof', ['-tiTCP:' + port, '-sTCP:LISTEN'], { windowsHide: true, encoding: 'utf8' })
   if (listeners.status !== 0) return null
   const pids = listeners.stdout.split(/\s+/).map(Number).filter(Number.isInteger)
   for (const pid of pids) {
-    const processInfo = spawnSync('ps', ['-p', String(pid), '-o', 'command='], { encoding: 'utf8' })
+    const processInfo = spawnSync('ps', ['-p', String(pid), '-o', 'command='], { windowsHide: true, encoding: 'utf8' })
     // Same profile name is not enough: the CLI install (~/.dsh-tavern) and the desktop install (~/.dsh)
     // both serve `tavern`, from different data. Adopt only this install's own runtime.
     if (processInfo.status === 0 && processInfo.stdout.includes(`--profile ${PROFILE}`) && legacyServiceOwnedHere(processInfo.stdout) && legacyBindHostMatches(processInfo.stdout, bindHost)) {
