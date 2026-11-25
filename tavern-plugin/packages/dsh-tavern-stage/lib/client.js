@@ -13168,6 +13168,16 @@ function stageWidgetThread({rows, ref, cursor, characters=[], visibleText='', re
     // The phone reads every turn the stage has loaded for it (it loads earlier turns as the reader scrolls up); other source
     // widgets keep their 20-turn window.
     const wanted=key(ref), turns=[...rows].filter(row=>row.turn<=cursor.turn).sort((a,b)=>b.turn-a.turn).slice(0,phone ? rows.length : 20), playerId=phone && directory?.playerId || null;
+    // A contact is named by the identity the director had when the line was marked: a speaker with no figure yet is only
+    // its source handle, the same person with a figure later is the figure's actor key. One person is one conversation, so a
+    // sealed mark's people are re-resolved against the figures the card has now (the only place a phone identity is derived).
+    const knownRows=phone ? characters.map(row=>({...row,actorKey:row.alias})) : [],canonical=new Map();
+    const canonicalId=id=>{
+        if (typeof id!=='string' || id===PHONE_PLAYER || id===playerId) return id;
+        if (!canonical.has(id)) {const found=figureResolution.resolveFigureName(knownRows,id);canonical.set(id,found.status==='resolved' && found.actorKey ? found.actorKey : id);}
+        return canonical.get(id);
+    };
+    const canonicalMark=mark=>!phone || !mark ? mark : {...mark,...(mark.contact!==undefined ? {contact:canonicalId(mark.contact)} : {}),...(mark.to!==undefined ? {to:canonicalId(mark.to)} : {}),...(mark.sender!==undefined ? {sender:canonicalId(mark.sender)} : {})};
     const candidates=[];
     for (const row of turns) {
         const record=row.record;
@@ -13176,7 +13186,7 @@ function stageWidgetThread({rows, ref, cursor, characters=[], visibleText='', re
         const marks=new Map(record.entries.filter(entry=>entry.at<=record.through).flatMap(entry=>entry.ops.flatMap(op=>{const mark=sourceMark(op,ref);return mark?[[entry.at,mark]]:[]})));
         const messages=new Map();
         for (const [i,line] of pages.entries()) {
-            const para=line.para || line.anchor?.para, mark=marks.get(para);
+            const para=line.para || line.anchor?.para, mark=canonicalMark(marks.get(para));
             if (!mark || !(line.kind === 'line' || phone && line.kind === 'narration')) continue;
             const current=row.turn === cursor.turn && i === cursor.page;
             const text=current ? visibleText : line.text;
@@ -33078,12 +33088,12 @@ module.exports = {sourceDevice:views => views.phoneDevice, views:({options, view
 function createStagePhoneLayout({React, storage:localStorage, width, group:galConfigGroup, row:galConfigRow, slider:galConfigSlider, Switch:GalConfigSwitch, ResetButton, sections:STAGE_CONFIG_SECTIONS}) {
 let disposed = false;
 const viewportWidth=()=>width?.() ?? 1024;
-const PHONE_SIZE = Object.freeze({ min: 50, narrowMin: 70, max: 150, step: 5, default: 100 });
+const PHONE_SIZE = Object.freeze({ min: 50, narrowMin: 70, sliderMax: 150, step: 5, default: 100 });
 // The smallest size percent of a layout ("wide" / "narrow").
 function phoneModSizeMin(name) { return name === "narrow" ? PHONE_SIZE.narrowMin : PHONE_SIZE.min; }
 const phoneModPrefs = (function () {
     const KEY = "fork-phone-layout", listeners = new Set(); let cached = null;
-    const layout = (saved, name) => ({ size: Number.isFinite(saved?.size) ? Math.min(PHONE_SIZE.max, Math.max(phoneModSizeMin(name), Math.round(saved.size))) : PHONE_SIZE.default,
+    const layout = (saved, name) => ({ size: Number.isFinite(saved?.size) ? Math.max(phoneModSizeMin(name), Math.round(saved.size)) : PHONE_SIZE.default,
         place: Array.isArray(saved?.place) && saved.place.length === 2 && saved.place.every(n => Number.isFinite(n) && n >= 0 && n <= 1) ? saved.place : null });
     const normalize = saved => ({ unlocked: saved?.unlocked === true, wide: layout(saved?.wide, "wide"), narrow: layout(saved?.narrow, "narrow") });
     function get() {
@@ -33113,7 +33123,7 @@ function PhoneStageConfig() {
                 h(GalConfigSwitch, { label: "解锁手机位置", checked: prefs.unlocked, onChange: value => phoneModPrefs.set({ unlocked: value }) }),
                 layout.place ? h(ResetButton, { label: "恢复默认位置", onClick: () => phoneModPrefs.update(name, { place: null }) }) : null),
             "打开后在舞台上拖动手机移动，拖右下角、滚轮或双指缩放；也可以直接长按手机边框或顶部状态栏。松手几秒后或点手机外面即锁定；双击手机回到默认位置。", null, "toggle"),
-        galConfigRow("手机大小", galConfigSlider(["小", "大"], { min: phoneModSizeMin(name), max: PHONE_SIZE.max, step: PHONE_SIZE.step, value: size, label: "手机大小",
+        galConfigRow("手机大小", galConfigSlider(["小", "大"], { min: phoneModSizeMin(name), max: Math.max(PHONE_SIZE.sliderMax, size), step: PHONE_SIZE.step, value: size, label: "手机大小",
                 valueText: size + "%", output: size + "%", onChange: value => setDraft(value), onCommit: value => { setDraft(null); phoneModPrefs.update(name, { size: value }); } },
                 size === PHONE_SIZE.default ? null : { label: "恢复为 100%", onClick: () => { setDraft(null); phoneModPrefs.update(name, { size: PHONE_SIZE.default }); } }),
             "100% 是手机自动填满文本框上方空间的大小；缩小后可以一边读故事一边看手机。电脑和手机各自记住。"));
@@ -33156,7 +33166,7 @@ function useEffect(setup,deps) {
 // battery: no controls) enters adjust mode, the one `unlocked` state CONFIG's switch also sets: a short pulse and the outline,
 // a haptic tick on touch, and the same press goes on as a drag. App content (lists, messages, the call button) has no hit
 // area over it, so its own taps, scrolls and long presses are untouched. In adjust mode a cover takes the whole phone (the
-// apps rest): one pointer drags, two fingers pinch, the corner handle or the wheel (+ / - keys) resize within 50–150%, the
+// apps rest): one pointer drags, two fingers pinch, the corner handle or the wheel (+ / - keys) resize from 50% (narrow 70%) up to the stage edge, the
 // phone always clamped on stage. The wheel zooms wherever it lands on the stage (over the phone or the dimmed stage around
 // it, never the phone's content scroll while adjusting); each 5% step glides there. A gesture paints a translate/scale preview and stores once, on release (size, and the spot
 // where it was left). Letting go and doing nothing for idleMs, a press outside the phone or Esc locks it again and the outline
@@ -33218,10 +33228,10 @@ function usePhoneAdjust(item, owner, panel, menu) {
         const at = { transformOrigin: "0 0", translate: (from.x - to.x) + "px " + (from.y - to.y) + "px", scale: String(from.width / to.width) };
         animate(node,[at, { transformOrigin: "0 0", translate: "0px 0px", scale: "1" }], { duration: PHONE_ADJUST.glideMs, easing: "cubic-bezier(.2,.8,.2,1)" });
     }, [item.bounds?.x, item.bounds?.y, item.bounds?.width, item.bounds?.height]);
-    // A rect `scale` times `origin` about `anchor`, moved by (dx, dy): kept within the layout's min–150% of the band size and on stage.
+    // A rect `scale` times `origin` about `anchor`, moved by (dx, dy): kept at least the layout's minimum percent of the band size and as large as the stage allows (no other cap).
     const shape = (origin, scale, anchor, dx, dy) => {
         const v = live.current.owner.viewport, base = live.current.item.phoneBase, pad = STAGE_WIDGET_PLACE_PAD;
-        const max = Math.min(base.width * PHONE_SIZE.max / 100, v.width - 2 * pad, (v.height - 2 * pad) * origin.width / origin.height);
+        const max = Math.min(v.width - 2 * pad, (v.height - 2 * pad) * origin.width / origin.height);
         const s = Math.max(base.width * base.min / 100, Math.min(max, origin.width * scale)) / origin.width, width = origin.width * s, height = origin.height * s;
         const x = anchor.x - (anchor.x - origin.x) * s + dx, y = anchor.y - (anchor.y - origin.y) * s + dy;
         return { x: Math.min(v.x + v.width - pad - width, Math.max(v.x + pad, x)), y: Math.min(v.y + v.height - pad - height, Math.max(v.y + pad, y)), width, height };
@@ -33238,7 +33248,7 @@ function usePhoneAdjust(item, owner, panel, menu) {
         owner.resize(item.key, size, rect);
         return true;
     };
-    const sizeOf = rect => Math.min(PHONE_SIZE.max, Math.max(live.current.item.phoneBase.min, Math.round(100 * rect.width / live.current.item.phoneBase.width)));
+    const sizeOf = rect => Math.max(live.current.item.phoneBase.min, Math.round(100 * rect.width / live.current.item.phoneBase.width));
     const enter = g => {
         const { item, owner } = live.current;
         owner.adjust(true);
@@ -33321,7 +33331,8 @@ function usePhoneAdjust(item, owner, panel, menu) {
     const step = steps => {
         if(!alive())return;
         const { item } = live.current, base = item.phoneBase, b = item.bounds;
-        const size = Math.min(PHONE_SIZE.max, Math.max(base.min, Math.round((base.size + steps * PHONE_SIZE.step) / PHONE_SIZE.step) * PHONE_SIZE.step));
+        const v = live.current.owner.viewport, fit = Math.floor(100 * Math.min(v.width - 2 * STAGE_WIDGET_PLACE_PAD, (v.height - 2 * STAGE_WIDGET_PLACE_PAD) * b.width / b.height) / base.width);
+        const size = Math.min(Math.max(fit, base.size), Math.max(base.min, Math.round((base.size + steps * PHONE_SIZE.step) / PHONE_SIZE.step) * PHONE_SIZE.step));
         if (size !== base.size) glide.current = store(size, shape(b, base.width * size / 100 / b.width, { x: b.x + b.width / 2, y: b.y + b.height / 2 }, 0, 0)) ? { ...b } : null;
         arm();
     };

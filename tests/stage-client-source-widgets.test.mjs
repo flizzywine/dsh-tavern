@@ -157,3 +157,26 @@ test('a page asks for its phone window once: settling re-renders and showing the
  assert.deepEqual(reads,['2:1'])
  }finally{f.close()}
 })
+
+test('a contact first marked by its source handle and later by its figure is one conversation',async()=>{
+ const phoneProtocol=require('../tavern-plugin/mods/phone/stage-phone.cjs')
+ // Round 1 had no figure for her (the mark carries the speaker handle); the figure arrived before round 2 (the mark carries its actor key).
+ const characters=[{alias:'f_gf',name:'Girlfriend',aliases:['gf']}]
+ const find=(rows,id)=>rows.find(value=>value.actorKey===id) || rows.find(value=>value.name.toLowerCase()===id || value.aliases?.includes(id))
+ const f=fixture({phoneProtocol,
+  characters:{character:(config,name)=>config.characters.find(row=>row.alias===(name?.alias ?? name)),face:()=>null},
+  figureResolution:{resolveFigureName:(rows,id)=>{const row=find(rows,id);return row ? {status:'resolved',row,actorKey:row.actorKey} : {status:'unknown'}}},
+  avatarCache:{subscribe:()=>()=>{},get:()=>null,ready:()=>null,prepare(){}},rpc:()=>Promise.resolve(null),
+  sessions:()=>({owner:{getWidgetContext:()=>null}})})
+ const phone={ref:{modId:'dsh.phone'},modSource:true,sourceOnly:true,state:{},definition:{contentIdentity:'phone',document:{presentation:{open:{width:280,anchor:'corner-right'}}}}}
+ const round=(turn,alias,contact)=>({turn,para:1,sourceKey:'k'+turn,pages:[{kind:'line',para:1,alias,name:'Girlfriend',text:'hi '+turn}],
+  record:{phase:'done',through:1,token:{bindingKey:'b',sourceKey:'k'+turn,generation:1},entries:[{at:1,ops:[{op:'mod.command',modId:'dsh.phone',commandId:'mark',params:{contact,side:'in'}}]}]}})
+ let value
+ function View(){value=f.plugin.useStage({sessionId:'s',rootRef:{current:f.mount},config:{characters},widgets:[phone],enabled:true,mode:'live',page:0,...round(2,'f_gf','f_gf'),readHistory:()=>Promise.resolve({rows:[round(1,'girlfriend','girlfriend')]}),phoneThreadsRpc:()=>Promise.resolve(null)});return null}
+ try {
+  await act(async()=>{f.root.render(React.createElement(View));await new Promise(resolve=>setTimeout(resolve,0))})
+  await act(async()=>{await new Promise(resolve=>setTimeout(resolve,0))})
+  const source=value.items.find(item=>item.ref.modId==='dsh.phone').source
+  assert.deepEqual(source.threads.map(thread=>thread.id),['f_gf'])
+ }finally{f.close()}
+})

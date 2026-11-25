@@ -73,19 +73,20 @@ function CardImportMenu({ disabled, pickFile, openAddress }) {
 }
 
 // The world book list's dashed ＋: a menu of the books that can still be bound (a search above 8); picking one binds it.
-function WorldBookAddMenu({ choices, loading, disabled, onOpen, onPick }) {
+// `label` / `noun`: the 世界书 page binds a card with the same menu (绑定人物卡).
+function WorldBookAddMenu({ choices, loading, disabled, onOpen, onPick, label = "绑定世界书", noun = "世界书" }) {
     const h = React.createElement, popup = useInlinePopup({ focusSelector: "input" }), [query, setQuery] = React.useState("");
     const needle = query.trim().toLowerCase();
     const shown = needle ? choices.filter(choice => (choice.name + " " + choice.note).toLowerCase().includes(needle)) : choices;
     const toggle = () => { if (!popup.open) { setQuery(""); onOpen(); } popup.setOpen(!popup.open); };
     return h("div", { className: "fork-inline-anchor dsh-tavern-worldbook-add-anchor", ref: popup.root, onKeyDown: popup.keys },
-        h("button", { ref: popup.trigger, type: "button", className: "dsh-tavern-worldbook-add-row", disabled, "aria-label": "绑定世界书", title: "绑定世界书",
+        h("button", { ref: popup.trigger, type: "button", className: "dsh-tavern-worldbook-add-row", disabled, "aria-label": label, title: label,
             "aria-haspopup": "menu", "aria-expanded": popup.open, onClick: toggle,
             onKeyDown: event => { if (event.key === "ArrowDown" && !popup.open) { event.preventDefault(); toggle(); } } }, h(InlineGlyph, { name: "plus" })),
-        popup.open ? popup.layer({ className: "fork-inline-pop dsh-tavern-worldbook-add-pop", role: "menu", "aria-label": "绑定世界书", onKeyDown: inlineMenuKeys },
-            choices.length > 8 ? h(SearchBox, { label: "搜索世界书", value: query, onChange: setQuery, className: "ap-search dsh-tavern-worldbook-add-search" }) : null,
+        popup.open ? popup.layer({ className: "fork-inline-pop dsh-tavern-worldbook-add-pop", role: "menu", "aria-label": label, onKeyDown: inlineMenuKeys },
+            choices.length > 8 ? h(SearchBox, { label: "搜索" + noun, value: query, onChange: setQuery, className: "ap-search dsh-tavern-worldbook-add-search" }) : null,
             loading && !choices.length ? h("div", { className: "dsh-tavern-worldbook-add-loading" }, h(Spinner)) : null,
-            !loading && !shown.length ? h(EmptyState, { compact: true, plain: !!needle, query: needle ? query : undefined, text: needle ? undefined : "没有可以绑定的世界书" }) : null,
+            !loading && !shown.length ? h(EmptyState, { compact: true, plain: !!needle, query: needle ? query : undefined, text: needle ? undefined : "没有可以绑定的" + noun }) : null,
             shown.map(choice => h("button", { key: choice.value, type: "button", role: "menuitem", className: "fork-inline-option", title: choice.name,
                 onClick: () => { popup.close(true); onPick(choice.value); } },
                 h("span", { className: "dsh-tavern-worldbook-add-name" }, choice.name), h("span", { className: "fork-inline-option-note" }, choice.note)))) : null);

@@ -212,6 +212,16 @@ function stageWidgetThread({rows, ref, cursor, characters=[], visibleText='', re
     // The phone reads every turn the stage has loaded for it (it loads earlier turns as the reader scrolls up); other source
     // widgets keep their 20-turn window.
     const wanted=key(ref), turns=[...rows].filter(row=>row.turn<=cursor.turn).sort((a,b)=>b.turn-a.turn).slice(0,phone ? rows.length : 20), playerId=phone && directory?.playerId || null;
+    // A contact is named by the identity the director had when the line was marked: a speaker with no figure yet is only
+    // its source handle, the same person with a figure later is the figure's actor key. One person is one conversation, so a
+    // sealed mark's people are re-resolved against the figures the card has now (the only place a phone identity is derived).
+    const knownRows=phone ? characters.map(row=>({...row,actorKey:row.alias})) : [],canonical=new Map();
+    const canonicalId=id=>{
+        if (typeof id!=='string' || id===PHONE_PLAYER || id===playerId) return id;
+        if (!canonical.has(id)) {const found=figureResolution.resolveFigureName(knownRows,id);canonical.set(id,found.status==='resolved' && found.actorKey ? found.actorKey : id);}
+        return canonical.get(id);
+    };
+    const canonicalMark=mark=>!phone || !mark ? mark : {...mark,...(mark.contact!==undefined ? {contact:canonicalId(mark.contact)} : {}),...(mark.to!==undefined ? {to:canonicalId(mark.to)} : {}),...(mark.sender!==undefined ? {sender:canonicalId(mark.sender)} : {})};
     const candidates=[];
     for (const row of turns) {
         const record=row.record;
@@ -220,7 +230,7 @@ function stageWidgetThread({rows, ref, cursor, characters=[], visibleText='', re
         const marks=new Map(record.entries.filter(entry=>entry.at<=record.through).flatMap(entry=>entry.ops.flatMap(op=>{const mark=sourceMark(op,ref);return mark?[[entry.at,mark]]:[]})));
         const messages=new Map();
         for (const [i,line] of pages.entries()) {
-            const para=line.para || line.anchor?.para, mark=marks.get(para);
+            const para=line.para || line.anchor?.para, mark=canonicalMark(marks.get(para));
             if (!mark || !(line.kind === 'line' || phone && line.kind === 'narration')) continue;
             const current=row.turn === cursor.turn && i === cursor.page;
             const text=current ? visibleText : line.text;
