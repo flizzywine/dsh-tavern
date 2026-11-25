@@ -751,6 +751,7 @@ async function cardFrameAssetBlob(sessionId, args) {
                         return;
                     }
 					const args = Object.assign({}, data.args || {}, { sessionId: props.sessionId, expectedLifecycleRevision: Math.max(0, Number(helperContext && helperContext.lifecycleRevision) || 0) });
+					if (data.method === "createTavernHelperMessages") args.dispatchCreatedMessages = true;
 					frameCall(sourceDocument, data.method, args, requestProps.sessionId).then(function (result) {
 						if (current()) event.source.postMessage({ type: "dsh-tavern-helper-response", token: data.token, requestId: data.requestId, ok: true, result: result }, "*");
 						// idle sessions do not poll; a swipe/message write must refresh its displayed projection.

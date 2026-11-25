@@ -25,7 +25,7 @@
 //   runs can enable them again. An element with data-dsh-sound sounds move on hover / focus and confirm on click.
 // The data is the page's ledger sections (readCardPage), the declared figures' faces as data: URLs (useFaces) and the
 // stage skin tokens (--gal-ui-*). It is read once on open and again, coalesced, after each session state signal.
-function createStageStatusPanel({React, window, document, rpc, signals, themeTokens, sounds, confirm, newGame, startOpening, useFaces, useLiveView, createCardFrame, packService, fillInput, findPluginPanel, PluginPanel}) {
+function createStageStatusPanel({React, window, document, rpc, signals, themeTokens, colorScheme, sounds, confirm, newGame, startOpening, useFaces, useLiveView, createCardFrame, packService, fillInput, findPluginPanel, PluginPanel}) {
 const FACE_PX = 96;
 let disposed = false;
 const open = new Set(), faceData = new Map(), readers = new Map();
@@ -34,6 +34,8 @@ const copy = value => value === undefined ? undefined : JSON.parse(JSON.stringif
 const pageToken = () => 'card-page:' + Math.random().toString(36).slice(2) + Date.now().toString(36);
 // the UI cues a page may sound (sound(name)): the skin palette's gesture cues
 const PAGE_SOUNDS = new Set(['move', 'confirm', 'open', 'close']);
+// what a performing page may ask (Performance below): read its data and files, sound, say it is done
+const PERFORM_METHODS = new Set(['asset', 'assets', 'sound', 'close']);
 // The frame's turn: the latest assistant turn the Helper context knows (at least 1, as the status views use).
 const latestTurn = helper => Math.max(1, ...Object.keys(helper?.turnMessageIds || {}).map(Number).filter(Number.isFinite));
 
@@ -143,7 +145,8 @@ function createAssetReader(sessionId, page) {
 // saved: the chat has a player message (usePages' fresh is false), so newGame() asks first; unsaved, newGame() is 'exit' into a replacing 游戏准备 or 'continue'.
 // closeControl 'page': the page answers close requests itself; onEscape() is its Esc / shortcut (the Overlay decides
 // whether it closes a page over this one or asks this page by requestClose()).
-function openCardPage({sessionId, page, label, size, shortcut, closeControl, saved, entry, openingPage, opening, trustedCardMode, helperContext, host, onClose, onEscape, onState, onAction, onPluginPanel, pluginPanelShowing}) {
+// perform: the cue of a performance (performCardPage below): the page shows in data().perform and may only read, sound and close.
+function openCardPage({sessionId, page, label, size, shortcut, closeControl, saved, entry, openingPage, opening, perform, trustedCardMode, helperContext, host, onClose, onEscape, onState, onAction, onPluginPanel, pluginPanelShowing}) {
     let closed = false, raw = null, shown = false, avatars = new Map(), theme = {}, helper = helperContext || null, phaseNow = 'loading', title = '';
     let inFlight = false, again = false, faceJob = 0, token = '', content = '', readAsset = null, heldFaces = null;
     let lifecycle = null, stopLifecycle = null, stopSignals = null, stopMessages = null;
@@ -151,7 +154,8 @@ function openCardPage({sessionId, page, label, size, shortcut, closeControl, sav
     const snapshot = () => ({
         ledger: copy(raw?.data?.ledger || {}),
         figures: (raw?.figures || []).map(figure => ({name: figure.name, ...(figure.emotion ? {emotion: figure.emotion} : {}), avatar: avatars.get(figure.name) || null})),
-        theme: copy(theme), card: {name: String(raw?.card?.name || '')}, saved: saved === true, entry: entry === true
+        theme: copy(theme), card: {name: String(raw?.card?.name || '')}, saved: saved === true, entry: entry === true,
+        ...(perform !== undefined ? {perform: copy(perform)} : {})
     });
     const windows = () => [...frames.values()].map(item => item.node.contentWindow).filter(Boolean);
     const post = (target, value) => { try { target.postMessage({type: 'dsh-card-page-data', token, data: value}, '*'); } catch (_) {} };
@@ -165,6 +169,7 @@ function openCardPage({sessionId, page, label, size, shortcut, closeControl, sav
         if (!closed) onState({phase, label: raw?.label || label || '', title, size: raw?.size || size || 'window', figures: raw?.figures || [], shown, ...extra});
     }
     async function answer(method, args) {
+        if (perform !== undefined && !PERFORM_METHODS.has(method)) throw new Error('演出中的页面只能读取、播放声音和结束（close），不能 ' + String(method || ''));
         if (pluginPanelShowing?.() && !['asset', 'assets', 'title', 'sound', 'opening'].includes(method)) throw new Error('请先关闭插件面板');
         if (method === 'title') { title = String(args?.text ?? '').trim().slice(0, 60); state(phaseNow); return {title}; }
         if (method === 'asset') return await readAsset(args);
@@ -251,6 +256,9 @@ function openCardPage({sessionId, page, label, size, shortcut, closeControl, sav
             if (!item) {
                 const node = document.createElement('iframe');
                 node.className = 'fork-gal-status-frame';
+                // the element's scheme is the document's (the host's light or dark), so a transparent page shows what is under it
+                const scheme = colorScheme?.();
+                if (scheme === 'light' || scheme === 'dark') node.style.colorScheme = scheme;
                 node.referrerPolicy = 'no-referrer';
                 if (!descriptor.trustedCardMode) node.setAttribute('sandbox', 'allow-scripts');
                 node.srcdoc = descriptor.html;
@@ -276,7 +284,7 @@ function openCardPage({sessionId, page, label, size, shortcut, closeControl, sav
             if (!hidden) reveal(item);
         }
     }
-    const frameProps = () => ({content, sessionId, turn: latestTurn(helper), partIndex: 0, panelId: 'stage-page-' + page,
+    const frameProps = () => ({content, sessionId, turn: latestTurn(helper), partIndex: 0, panelId: (perform !== undefined ? 'stage-perform-' : 'stage-page-') + page,
         helperContext: helper || undefined, trustedCardMode: trustedCardMode === true, eager: true, persistent: true,
         // the sheet sizes the frame (flex), so the page reports no height (frame-document hostSized)
         observeMvuView: false, runtimeReporting: true, hostSized: true});
@@ -481,7 +489,58 @@ function Overlay({sessionId, pageId, label: declaredLabel, shortcut, size, close
                     h('button', {type: 'button', onClick: () => panel.current?.retry()}, '重试')) : null)));
 }
 
-return {usePages, Overlay, PluginPanel, open: openCardPage, dispose() {
+// A card page performing a moment of the story (卡页面演出): a mod asks the stage (the overlay prop cardPage.perform,
+// controller.cjs) and the card's own page plays it in the middle of the stage, over the scene and above the text box -
+// no sheet, title or backdrop, and it takes no pointer, so the words stay readable. data().perform is {cue, calm}: the
+// cue the mod gave, calm the CONFIG 减少动态 (show the end state, no motion); the page draws the part of itself the cue is about, plays it and calls close() when it is over. A click or Esc
+// anywhere on the stage ends it early (as a check's show). While it performs the page may only read (data, onData,
+// asset, assets), sound and close. region: {bottom} px kept clear at the stage's bottom (the text box).
+// onEnd(result): {done: true} when the page closed, {skipped: true} on a click / Esc, {failed: message} when the page
+// could not be read (the mod shows what it would have shown without it).
+function Performance({sessionId, pageId, cue, calm, region, onEnd}) {
+    const h = React.createElement, body = React.useRef(null), end = React.useRef(onEnd);
+    end.current = onEnd;
+    const live = useLiveView ? useLiveView(sessionId, 'card-page', [['tavernRuntimePolicy'], ['tavernHelper']]) : null;
+    const ready = !useLiveView || Boolean(live?.view);
+    const trusted = useLiveView ? Boolean(live?.view?.tavernRuntimePolicy?.trustedCardMode) : true;
+    const helper = live?.view?.tavernHelper || null, helperNow = React.useRef(helper), panel = React.useRef(null);
+    helperNow.current = helper;
+    const [shown, setShown] = React.useState(false);
+    React.useEffect(() => {
+        if (disposed || !ready) return;
+        let over = false;
+        const finish = result => { if (!over) { over = true; end.current?.(result); } };
+        const current = openCardPage({sessionId, page: pageId, perform: {cue, calm: calm === true}, trustedCardMode: trusted, helperContext: helperNow.current, host: () => body.current,
+            onClose: () => finish({done: true}), onAction: () => {},
+            onState: next => {
+                if (next.phase === 'empty') finish({failed: '本卡没有页面「' + pageId + '」'});
+                else if (next.phase === 'error') finish({failed: next.error || '页面读取失败'});
+                else if (next.shown) setShown(true);
+            }});
+        panel.current = current;
+        const skip = event => {
+            if (event.type === 'keydown' && event.key !== 'Escape') return;
+            event.preventDefault();
+            event.stopImmediatePropagation();
+            finish({skipped: true});
+        };
+        window.addEventListener('click', skip, true);
+        window.addEventListener('keydown', skip, true);
+        return () => {
+            over = true;
+            window.removeEventListener('click', skip, true);
+            window.removeEventListener('keydown', skip, true);
+            if (panel.current === current) panel.current = null;
+            current.dispose();
+        };
+    }, [sessionId, pageId, ready, trusted]);
+    React.useEffect(() => { panel.current?.setHelper(helper); }, [helper]);
+    return h('div', {className: 'fork-gal-page-perform', 'data-page': pageId, 'data-shown': shown ? '' : undefined,
+        style: {bottom: Math.max(0, Math.round(region?.bottom || 0)) + 'px'}},
+        h('div', {ref: body, className: 'fork-gal-page-perform-body'}));
+}
+
+return {usePages, Overlay, Performance, PluginPanel, open: openCardPage, dispose() {
     if (disposed) return;
     disposed = true;
     const errors = [];

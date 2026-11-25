@@ -21,7 +21,7 @@ function subscribeAudio(listener){
 function useEffect(setup,deps){React.useEffect(()=>disposed?undefined:setup(),deps);}
 function usePlayback(frame,{advance,finishSkip,finishTyping}){
     const {sessionId,runtime,reading,auto,skipping,hidden,overlay,typed,current,atEnd,awaiting,sceneHolding,line,performance}=frame;
-    const {turn,page,card,inputCard,transitioning,subtitles,inputSubtitles,lastCard,voice,audioBusy,heldMs,film,pageCount}=line;
+    const {turn,page,card,inputCard,transitioning,subtitles,inputSubtitles,lastCard,voice,audioBusy,heldMs,film,pageCount,rollPlace}=line;
     const dialogueHeld=performance.dialogueHeld,presentationBusy=performance.busy;
     const pages={length:pageCount};
     // a history page the reader settles on plays its own
@@ -45,9 +45,11 @@ function usePlayback(frame,{advance,finishSkip,finishTyping}){
         const delay = Math.max(0, turned.at + (turned.rapid ? STAGE_HISTORY_SETTLE_MS : 250) - now());
         return timeout(() => runtime.store.dispatch({type: 'HISTORY_DWELL', visitId, anchor, kinds: replayableKinds}), delay);
     }, [dwellPageKey, dwellBlocked, runtime.store, replayableKinds]);
-    // The round's checks are thrown again when its first page is the settled history page (core.dice.roll replays).
+    // The round's rolls are thrown again when the settled history page is where they show (core.dice.roll replays): its
+    // first page, or a page where a roll called for partway through a reply may be (rollPlace: a paragraph's first page or the
+    // round's last; the mod throws the rolls whose place is there).
     const historyRolls = runtime.cursor.dwell?.kinds.includes('core.dice.roll') && runtime.text.pages[0] && runtime.cursor.anchor &&
-        runtime.text.pages[0].anchor.paragraphId === runtime.cursor.anchor.paragraphId && runtime.cursor.anchor.offset === 0 ? 'history:' + dwellPageKey : null;
+        (rollPlace || runtime.text.pages[0].anchor.paragraphId === runtime.cursor.anchor.paragraphId && runtime.cursor.anchor.offset === 0) ? 'history:' + dwellPageKey : null;
     // auto and skip wait for this paragraph's director prefix and say so; manual paging stays immediate.
     const awaitingDirection = runtime.indicators.awaitingDirection;
     // Intermediate voiced cards follow the paragraph audio clock, not a new playback lease.

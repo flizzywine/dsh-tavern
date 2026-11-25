@@ -58,6 +58,7 @@ ctx.tavernUi.registerGameModeView({
 - `actors`：按顺序保留前 4 个能解析的人物；认不出、有歧义或重复的名字直接跳过。`focus: true` 的人物（只认第一个）点亮并向前一步，其余人物变暗；说话人仍有原有的高亮。
 - `lines`：每行要有稳定的 `id`，新内容只追加在末尾，不改已有行的 `id`。台词经舞台自己的控制器播放：皮肤的文本框、AUTO、SKIP、LOG、菜单，配音走舞台原有的语音通道，一行在首次未读显示时朗读。
 - 名字只经已有的 `resolveFigureName` 在本卡绑定的素材包里解析（精确名字或别名）。**一个名字对应多个人物即视为认不出**：没有立绘、没有配音，不猜。说话人认不出的行保留文字，但不配音。
+- `background`（可选）：场景和每一句都可以带，写成 `{ background: { packId, kind: 'backgrounds', assetId }, timeOfDay: null }`，只认本卡绑定包里的背景。一句带了就从这一句起换背景，之后的句子保持；都不带时是开场画面的背景。
 - `emotion` 经舞台已有的情绪归一化（本卡情绪表），认不出就不带情绪。
 - 手机上只站一个人物：有 `focus` 时是它，否则是最新一行的说话人。
 
@@ -351,7 +352,20 @@ const overlay = ctx.tavernUi.openOverlay({
 - 按 Esc 关闭；`dismissible: false` 时 Esc 不关闭，只能调用 `close`。
 - 关闭时调用一次 `onClose`。插件卸载时界面自动关闭。界面出错时显示一行错误和关闭按钮。
 
-## `registerPanel({ id, title, render, stage?, stageOnly?, stageSize?, stageReader? })`（第 2 版）
+## `openImage(src | { src, alt?, onClose? })`（第 11 版）
+
+用酒馆自己的大图查看器打开一张图，和点开酒馆插图是同一个界面：按窗口大小显示，滚轮或双指缩放，放大后拖动，双击在适应窗口和 100% 之间切换，Esc、✕ 或点空白处关闭。正文里插件自己画的图点开时用它，别用新窗口打开原图——安卓 App 里新窗口按原图像素显示，不能缩放。返回 `{ close }`。
+
+```js
+const open = url => typeof ctx.tavernUi.openImage === 'function'
+  ? ctx.tavernUi.openImage({ src: url, alt: caption })
+  : window.open(url, '_blank')
+```
+
+- 关闭时调用一次 `onClose`。插件卸载时查看器自动关闭。
+- 旧宿主没有这个方法，先检查 `typeof ctx.tavernUi.openImage === 'function'`（或 `apiVersion >= 11`）。
+
+## `registerPanel({ id, title, render, stage?, stageOnly?, stageSize?, stageReader?, roundAction? })`（第 2 版）
 
 随卡插件可以设置 `stage: true`，让本卡舞台页面调用 `await DshCardPage.openPluginPanel({ plugin: '插件名', panelId: 'memory' })`。其中 `plugin` 填插件浏览器端注册的 `name`。只接受当前游戏所属卡片中已启用且明确开放给舞台的面板。舞台内的 `render({ gameId, visible, stagePageId })` 收到当前游戏 ID、`visible: true` 和宿主确认的来源卡页 ID，可用同一个面板处理多个页面入口。侧栏与旧宿主中 `stagePageId` 为 `undefined`。关闭面板会回到原卡片页面。旧宿主中可检查 `typeof DshCardPage.openPluginPanel === 'function'` 后再显示入口。
 
@@ -364,6 +378,8 @@ const overlay = ctx.tavernUi.openOverlay({
 - `reader.publish({ section, lines, index, canAdvance, voiced, playing, command })` 更新当前一段的阅读内容。`lines` 为 `{id, text, speaker?, alias?}` 数组，`index` 从零开始。段落切换时换 `section`。有后续段落时设置 `canAdvance:true`，需要先完成互动时设为 `false`。
 - `command('select', index)` 请求翻到段内指定一行，`command('next')` 请求翻过本段末尾，`command('replay')` 请求重播当前配音。面板执行后发布实际位置。原配音播放中设 `playing:true`，让 AUTO 等它播完。
 - `reader.paused` 表示舞台打开了菜单、履历等覆盖层。`reader.silent` 表示舞台正在快进。面板内的 iframe 可用 `reader.key(key, released)` 把已识别的舞台按键交回宿主。
+
+舞台里的 `render` 还收到 `stage`：舞台借给插件的对象，`stage.borrow({ scene, onChoice })` 把一段写好的对白和分支放到舞台上演，`stage.setScene({ background, time, music, cast })` 把这局的背景、音乐和在场人物换到别处。`roundAction({ gameId, turn })` 在这一轮读完时被问一次，返回 `{ label, run }`（或它的 Promise）就在舞台普通选项旁边多一个按钮，返回 `null` 没有按钮；`run({ gameId, stage })` 在玩家按下时运行。`roundAction` 需要 `stage: true`，不是函数时抛出 `TypeError`。这三样由舞台实现，字段、报错和示例见舞台 Skill 的「插件用舞台」（`tavern_read_skill_reference`，`name:'stage'`，`references/plugin-stage.md`）；侧栏和旧宿主里 `stage` 为 `undefined`。
 
 全屏时，宿主的关闭按钮悬浮在右上角。面板应为它留出空间。点击关闭按钮或按 Esc 会返回来源卡页。尚未支持这两个选项的旧宿主会忽略它们，面板仍注册到侧栏，支持舞台入口的旧宿主会以窗口尺寸打开它。
 

@@ -7,7 +7,8 @@ function createAssetPackBinding({service,rpc,engineRpc,settings,download,pickSav
   const alive=()=>{if(!active)throw new Error('素材插件已卸载');};
   // 全局启用 is one cross-card flag shown by 素材库 and 舞台设置 at once; both re-render on any change.
   const notifySettings=()=>{for(const fn of [...settingsListeners])fn();};
-  const binding={service,rpc,engineRpc,settings,download,pickSave,readExport,seedUpdates,tts,
+  // exportCard(args, {onProgress, signal}): 导出 DSH 人物卡 on the host (runCardExport, pack-transport.js).
+  const binding={service,rpc,engineRpc,settings,download,pickSave,readExport,seedUpdates,tts,exportCard:(args,options)=>runCardExport(rpc,args,options),
     get globalEnabledPackIds(){return settingsSnapshot?.values.globalEnabledPackIds||[];},
     async loadSettings(){alive();if(settings){const snapshot=await settings.read();alive();settingsSnapshot=snapshot;notifySettings();}return settingsSnapshot;},
     async setGlobalEnabled(packId,enabled){alive();if(!settingsSnapshot)await binding.loadSettings();const ids=settingsSnapshot.values.globalEnabledPackIds;const result=await settings.save({expectedRevision:settingsSnapshot.revision,globalEnabledPackIds:enabled?[...new Set([...ids,packId])]:ids.filter(id=>id!==packId)});alive();settingsSnapshot=result;notifySettings();return result;},

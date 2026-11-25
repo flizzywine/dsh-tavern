@@ -78,7 +78,11 @@ export function projectVirtualWorldbookPrefix(worldBook, chat, { restore = true,
   const state = currentVirtualState(chat, entries)
   const staticPrefix = entries.filter(entry => classifyWorldbookEntry(entry).kind === 'static-constant').map(entry => String(entry.content ?? '')).join('\n\n')
   const allowed = restoreRefs === undefined ? null : new Set(restoreRefs)
-  const snapshots = restore ? entries.filter(entry => classifyWorldbookEntry(entry).dynamic && isWorldbookRuntimeEntry(entry) && (!allowed || allowed.has(entry.ref)) && (state.entries[entry.ref]?.contextText ?? state.entries[entry.ref]?.text)).map(entry => state.entries[entry.ref].contextText ?? state.entries[entry.ref].text).join('\n\n') : ''
+  const snapshots = restore ? entries.flatMap(entry => {
+    if (!classifyWorldbookEntry(entry).dynamic || (allowed && !allowed.has(entry.ref))) return []
+    const snapshot = state.entries[entry.ref], body = snapshot?.contextText ?? snapshot?.text
+    return body && (isWorldbookRuntimeEntry(entry) || snapshot.projection?.helperVariableMacros === true) ? [body] : []
+  }).join('\n\n') : ''
   return { staticPrefix, snapshots, prefixContext: [staticPrefix, snapshots].filter(Boolean).join('\n\n'),
     ...(visible === null ? { visibilityPending: true } : {}) }
 }

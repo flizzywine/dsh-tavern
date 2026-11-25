@@ -7,6 +7,8 @@ import { createInitializationNative } from './fixtures/conversation-initializati
 import { KNOWN_SESSION_EVENT_TYPES } from './fixtures/dsh-session-host.mjs'
 import { registerTurnLifecycleHooks } from '../tavern-plugin/lib/hooks/turn-lifecycle.js'
 import { registerRequestHooks } from '../tavern-plugin/lib/hooks/request.js'
+import { createForegroundFrameBuilder } from '../tavern-plugin/lib/domain/agent-input-frame.js'
+import { createForegroundFrameSessionAdapter } from '../tavern-plugin/lib/domain/foreground-frame-session-adapter.js'
 import { createForegroundOrchestrationStrategies } from '../tavern-plugin/lib/domain/foreground-orchestration-strategies.js'
 import { createForegroundWorldbook } from '../tavern-plugin/lib/domain/foreground-worldbook.js'
 import { projectVirtualWorldbookPrefix } from '../tavern-plugin/lib/domain/worldbook-virtual-state.js'
@@ -59,13 +61,41 @@ test('原地切换开场可从保存中恢复，第一条模型请求只看到�
 
 test('修改玩家称呼更新已经生成的开场和后续模型请求，保留骰点与存档变量', native, async t => {
   const source = '{{setvar::gold::30}}玩家站在门外。{{user}}，你好。骰点 {{roll::1d6}}。'
-  const h = await createInitializationNative(process.env.DSH_BOOT_MODULE, { cardOverrides: { first_mes: source } })
+  const h = await createInitializationNative(process.env.DSH_BOOT_MODULE, {
+    cardOverrides: { first_mes: source, description: '玩家 is the player.' }
+  })
   t.after(() => h.dispose())
   const initialization = h.open()
   const original = await initialization.start(h.input)
   const firstText = original.messages[0].text
   assert.match(firstText, /^玩家站在门外。玩家，你好。骰点 [1-6]。$/)
+  const frames = createForegroundFrameBuilder()
+  const adapter = createForegroundFrameSessionAdapter()
+  const chatForSession = () => h.persistence.read(original.id)
+  const foregroundStrategies = createForegroundOrchestrationStrategies({ nativePlay: {
+    modeFor: async () => 'story', filterMessages: messages => messages, resolvePreset: async () => null,
+    visibleTools: async () => [], controlledToolNames: new Set(),
+    async prepareTurn({ turn, userText }) {
+      const chat = await chatForSession()
+      return { frame: frames.build({
+        chatId: chat.id, branchId: 'native', operationId: 'turn-' + turn, turn, basedOnRevision: 0,
+        inputs: [{ kind: 'foreground.user-input', sourceText: userText, projectedText: userText }],
+        source: { playerName: chat.macroState.userName }
+      }) }
+    },
+    appendFrame: adapter.append, recordFrame() {}
+  } })
+  registerRequestHooks({
+    ctx: h.ctx, openingRequest: initialization.openingRequest, chatForSession, foregroundStrategies,
+    backgroundAgentRunner: { owns: () => false }, sessionStore: h.ctx.sessions,
+    cardMemory: { appendRecall: ({ decision }) => decision }, requestCoordinates: new Map(),
+    requestIdForMessages: () => '', tavernRetryLimiter: { handle() {} }
+  })
+  const playerNames = request => request.messages.filter(message => message.source?.form === 'player-identity')
+    .map(message => message.source.trace.playerIdentity.name)
   await h.continueWithAgent()
+  assert.deepEqual(playerNames(h.requests[0]), ['玩家'])
+  assert.match(h.requests[0].system, /玩家 is the player\./)
   await h.persistence.update(original.id, chat => {
     chat.macroState.local.gold = '50'
     return chat
@@ -86,6 +116,10 @@ test('修改玩家称呼更新已经生成的开场和后续模型请求，保�
     .map(message => message.content.map(part => part.text || '').join(''))
   assert.equal(replies.filter(text => text === renamed).length, 1)
   assert.ok(!replies.includes(firstText))
+  assert.equal(h.requests[1].system, h.requests[0].system)
+  assert.deepEqual(playerNames(h.requests[1]), ['玩家', '旅人'])
+  await h.continueInPlace()
+  assert.deepEqual(playerNames(h.requests[2]), ['玩家', '旅人'])
 })
 
 test('a rich opening starts and renames safely in a native session', native, async t => {
@@ -213,8 +247,7 @@ for (const phase of ['front', 'back']) test(`native Agent preserves fixed system
   assert.equal(systems.split('不可丢失的固定背景').length - 1, 1)
   assert.ok(request.messages.some(m => JSON.stringify(m.content).includes('预设验证要求')))
 })
-// The seed exchange shares the reserved opening turn, so the greeting is the
-// turn-one assistant message that is not part of the seed trajectory.
+// Exclude the assistant acknowledgement when reading legacy opening events.
 const openingEvents = session => sessionEvents(session).filter(e => e.type === 'assistant/message' && e.data.turn === 1
   && !String(e.data.message?.id || '').startsWith('tavern-seed-trajectory:'))
 
@@ -253,7 +286,7 @@ test('native Session and disk Chat journal recover a failed marker once, then ac
   const recovered = await h.open().ensureOpening(h.input.sessionId)
   assert.equal(recovered.nativeOpeningAppended, true)
   assert.equal(openingEvents(h.target.session).length, 1)
-  assert.equal(h.target.session.deriveMessages().length, 5)
+  assert.equal(h.target.session.deriveMessages().length, 2)
   assert.equal(h.target.session.deriveMessages()[0].source.form, 'snapshot')
   assert.equal((await h.persistence.read(recovered.id)).nativeOpeningAppended, true)
   await h.continueWithAgent()
@@ -266,6 +299,7 @@ test('native Session and disk Chat journal recover a failed marker once, then ac
   if (h.target.session.header.version < 3) assert.equal(h.target.session.requestHeader().system, systemText)
   else assert.equal(nativeSystem.length, 1)
   assert.equal(messages.filter(m => m.role === 'assistant' && JSON.stringify(m.content).includes('玩家，你好。')).length, 1)
+  assert.ok(messages.every(m => m.source?.form !== 'synthetic-trajectory'))
   assert.deepEqual(sessionEvents(h.target.session).filter(e => e.type === 'turn/start').map(e => e.data.turn), [1, 2])
   assert.equal(sessionEvents(h.target.session).at(-1).type, 'turn/end')
 })
@@ -275,7 +309,7 @@ test('failed native flush restores only durable events and finishes the publishe
   t.after(() => h.dispose())
   h.state.failFlush = true
   await assert.rejects(h.open().start(h.input), /native flush failure/)
-  assert.equal(openingEvents(h.target.session).length, 0, 'the pre-opening seed flush failed before the greeting was appended')
+  assert.equal(openingEvents(h.target.session).length, 1, 'the greeting flush is the one that failed')
   await h.restoreDetached()
   assert.equal(openingEvents(h.target.session).length, 0, 'failed flush did not persist the greeting')
   h.state.failFlush = false

@@ -40,6 +40,7 @@ import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -59,7 +60,8 @@ public final class TavernService extends Service {
     static final int PORT = 3081;
     static final String ACTION_START = "start", ACTION_STOP = "stop", ACTION_RESTART = "restart", ACTION_EXIT = "exit",
             ACTION_RESET = "reset", ACTION_CHECK = "check", ACTION_SOURCE_UPDATE = "source-update",
-            ACTION_DOWNLOAD_APK = "download-apk", ACTION_PREFS = "prefs", ACTION_APK_CHECK = "apk-check";
+            ACTION_DOWNLOAD_APK = "download-apk", ACTION_PREFS = "prefs", ACTION_APK_CHECK = "apk-check",
+            ACTION_LAN_SYNC = "lan-sync";
     static final String PREFS = "launcher";
     // 新版安装包的发布信息：先读 GitHub raw（不滞后），失败再读 jsDelivr。与酒馆 Release 解耦，发新酒馆版本不影响它。
     static final String[] APK_FEEDS = {
@@ -83,8 +85,11 @@ public final class TavernService extends Service {
     static volatile String lastExit;
     static volatile int autoRestarts;
     static volatile String sourceInfo = "";
+    // 局域网访问
+    static volatile List<String> lanIps = Collections.emptyList();
+    static volatile String lanError;
     // 更新
-    static volatile String updateState = "idle"; // idle checking up-to-date source apk needs-apk downloading ready error
+    static volatile String updateState = "idle"; // idle checking up-to-date source apk needs-apk updating downloading ready installing error
     static volatile String updateMessage = "";
     static volatile JSONObject apkRelease;
     static volatile String apkFile;
@@ -94,6 +99,8 @@ public final class TavernService extends Service {
     private static final ArrayDeque<String> tail = new ArrayDeque<>();
 
     private final ExecutorService ops = Executors.newSingleThreadExecutor();
+    private final LanProxy lanProxy = new LanProxy();
+    private volatile List<String> trustedLanIps = Collections.emptyList();
     private volatile Process process;
     private volatile boolean wantRunning;
     private volatile boolean stopping;
@@ -107,6 +114,17 @@ public final class TavernService extends Service {
         synchronized (tail) {
             return String.join("\n", tail);
         }
+    }
+
+    static List<String> lanUrls() {
+        String current = url;
+        List<String> ips = lanIps;
+        if (current == null || ips.isEmpty()) return Collections.emptyList();
+        int q = current.indexOf('?');
+        String suffix = q >= 0 ? current.substring(q) : "";
+        List<String> out = new ArrayList<>(ips.size());
+        for (String ip : ips) out.add("http://" + ip + ":" + PORT + "/" + suffix);
+        return out;
     }
 
     static void log(String line) {
@@ -154,6 +172,7 @@ public final class TavernService extends Service {
                 .addAction(new Notification.Action.Builder(null, "退出", exit).build())
                 .setOngoing(true);
         if (notice != null) b.setSubText("有新版安装包 " + notice.optString("versionName"));
+        else if (!lanIps.isEmpty()) b.setSubText("局域网：" + lanIps.get(0) + ":" + PORT);
         return b.build();
     }
 
@@ -230,6 +249,9 @@ public final class TavernService extends Service {
                     if (cached != null) updateNotice(new JSONObject(cached));
                     else notify(status);
                     break;
+                case ACTION_LAN_SYNC:
+                    syncLan();
+                    break;
                 default:
                     break;
             }
@@ -244,6 +266,7 @@ public final class TavernService extends Service {
     public void onDestroy() {
         wantRunning = false;
         exited = true;
+        stopLanProxy();
         Process p = process;
         if (p != null) p.destroy();
         if (wakeLock.isHeld()) wakeLock.release();
@@ -490,6 +513,8 @@ public final class TavernService extends Service {
         File credentials = new File(dsh, ".credentials.yaml");
         if (credentials.exists()) Os.chmod(credentials.getPath(), 0600);
         sourceInfo = describeSource();
+        stopLanProxy();
+        trustedLanIps = Collections.emptyList();
 
         List<String> command = new ArrayList<>();
         command.add(node().getPath());
@@ -506,6 +531,18 @@ public final class TavernService extends Service {
         command.add("--port");
         command.add(String.valueOf(PORT));
         command.add("--no-open");
+        if (prefs().getBoolean("lanAccess", false)) {
+            List<String> candidates = LanProxy.discoverLanAddresses(this);
+            if (!candidates.isEmpty()) {
+                for (String ip : candidates) {
+                    command.add("--trusted-host");
+                    command.add(ip + ":" + PORT);
+                }
+                trustedLanIps = candidates;
+            } else {
+                lanError = "未检测到 Wi-Fi 或局域网地址（请连接 Wi-Fi 或开启热点后点「刷新地址」）";
+            }
+        }
 
         ProcessBuilder pb = new ProcessBuilder(command);
         baseEnvironment(pb.environment());
@@ -546,6 +583,7 @@ public final class TavernService extends Service {
                         url = m.group(1);
                         runningSince = System.currentTimeMillis();
                         setPhase("running", "运行中（启动用时 " + (System.currentTimeMillis() - started) + " ms）");
+                        ops.execute(() -> activateLanForProcess(p));
                     }
                 }
             }
@@ -560,6 +598,8 @@ public final class TavernService extends Service {
         if (process != p) return;
         process = null;
         url = null;
+        stopLanProxy();
+        trustedLanIps = Collections.emptyList();
         applyWakeLock();
         lastExit = "退出码 " + code + (code > 128 ? "（信号 " + (code - 128) + "）" : "") + "，"
                 + new java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.ROOT).format(new java.util.Date());
@@ -589,7 +629,81 @@ public final class TavernService extends Service {
         });
     }
 
+    private void stopLanProxy() {
+        lanProxy.stop();
+        lanIps = Collections.emptyList();
+        lanError = null;
+    }
+
+    private void activateLanForProcess(Process p) {
+        if (process != p || url == null) return;
+        if (!prefs().getBoolean("lanAccess", false)) {
+            stopLanProxy();
+            notify(status);
+            return;
+        }
+        List<String> candidates = trustedLanIps;
+        if (candidates.isEmpty()) {
+            if (lanError == null) {
+                lanError = "未检测到 Wi-Fi 或局域网地址（请连接 Wi-Fi 或开启热点后点「刷新地址」）";
+            }
+            notify(status);
+            return;
+        }
+        LanProxy.StartResult res = lanProxy.start(candidates, PORT);
+        lanIps = res.boundIps;
+        lanError = res.boundIps.isEmpty() ? ("局域网监听失败：" + (res.error != null ? res.error : "未知错误")) : null;
+        if (!lanIps.isEmpty()) {
+            log("局域网访问已开启：" + String.join("，", lanIps) + "（端口 " + PORT + "）");
+        } else {
+            log(lanError);
+        }
+        notify(status);
+    }
+
+    private void syncLan() throws Exception {
+        boolean enabled = prefs().getBoolean("lanAccess", false);
+        if (!enabled) {
+            boolean hadProxy = !lanIps.isEmpty() || lanError != null;
+            stopLanProxy();
+            notify(status);
+            if (hadProxy) log("局域网访问已关闭");
+            return;
+        }
+        if (process == null) {
+            lanError = null;
+            notify(status);
+            return;
+        }
+        List<String> candidates = LanProxy.discoverLanAddresses(this);
+        if (candidates.isEmpty()) {
+            lanProxy.stop();
+            lanIps = Collections.emptyList();
+            lanError = "未检测到 Wi-Fi 或局域网地址（请连接 Wi-Fi 或开启热点后点「刷新地址」）";
+            notify(status);
+            return;
+        }
+        if (trustedLanIps.containsAll(candidates)) {
+            if (url != null) {
+                LanProxy.StartResult res = lanProxy.start(candidates, PORT);
+                lanIps = res.boundIps;
+                lanError = res.boundIps.isEmpty() ? ("局域网监听失败：" + (res.error != null ? res.error : "未知错误")) : null;
+                if (!lanIps.isEmpty()) {
+                    log("局域网访问已开启：" + String.join("，", lanIps) + "（端口 " + PORT + "）");
+                }
+                notify(status);
+            }
+            return;
+        }
+        log("局域网地址变化，正在重启服务以应用新地址");
+        wantRunning = true;
+        stopServer();
+        startServer();
+    }
+
     private void stopServer() throws InterruptedException {
+        stopLanProxy();
+        trustedLanIps = Collections.emptyList();
         Process p = process;
         if (p == null) return;
         stopping = true;
@@ -841,7 +955,7 @@ public final class TavernService extends Service {
     }
 
     private void sourceUpdate() throws Exception {
-        updateState = "downloading";
+        updateState = "updating";
         updateMessage = "正在下载新源码";
         JSONObject staged = tool("stage");
         String kind = staged.optString("kind");
@@ -857,7 +971,9 @@ public final class TavernService extends Service {
         }
         boolean deps = staged.optBoolean("deps");
         wantRunning = true;
+        updateMessage = "正在停止酒馆";
         stopServer();
+        setPhase("updating", "正在更新");
         // 与命令行版更新相同：换源码后跑一遍安装器（补装变化的依赖、刷新内置插件与配置）。
         // 依赖有变化时 node_modules 先整份备份，任何一步失败都能原样换回。
         boolean ok = false;
@@ -888,7 +1004,9 @@ public final class TavernService extends Service {
         }
         // 新版本装不上或起不来：换回旧的，别让用户卡在打不开的状态。
         log("更新失败，正在回退：" + failure);
+        updateMessage = "更新失败，正在回退到原来的版本";
         stopServer();
+        setPhase("updating", "正在回退更新");
         tool("rollback");
         startServer();
         updateState = "error";

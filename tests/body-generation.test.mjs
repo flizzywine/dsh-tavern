@@ -132,3 +132,19 @@ for (const [code, category, message] of [
     assert.equal(f.state.messages.at(-1).projectionText, '完整开场');
   }
 });
+
+test('玩家取消插件正文生成时，指定正文版本的请求得到取消结果', async () => {
+  const started = gate()
+  const expectedReply = { turn: 2, textVersion: 'version-1' }
+  const f = fixture(undefined, {
+    async regenerateWithProvider({ signal, expectedReply: target }) {
+      assert.deepEqual(target, expectedReply)
+      started.resolve()
+      await new Promise((_, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }))
+    }
+  })
+  const regeneration = f.controller.regenerate('session', '修改意见', expectedReply)
+  await started.promise
+  assert.equal(await f.controller.cancelRegeneration('session'), true)
+  assert.deepEqual(await regeneration, { aborted: true })
+})

@@ -1,5 +1,6 @@
 import directorCommands from '../../../dsh-presentation-protocol/src/director-commands.cjs'
 import {resolution} from '../../../../lib/domain/figure-catalogue.js'
+import {relocateStage} from './stage-relocate.js'
 import { effectiveBubbleMoods } from '../../../../lib/domain/dialogue-bubbles.js'
 import { matchBubbleMood } from '../../../../src/client/bubble-line.cjs'
 import { stageAssetRefs } from './stage-asset-pack-catalogue.js'
@@ -134,7 +135,9 @@ async function readCurrentProjection({trace, expectedDirectionToken, readDirecti
     if (!direction.token) return {status:'pending', directionToken:null}
     if (!same(direction.token,expectedDirectionToken)) return {status:'stale', directionToken:direction.token}
     // readDirection is the validated host reader; fold does not revalidate the entries.
-    const checked = direction.record || direction.preview
+    // the record names where its items were; they are read where they are now (stage-relocate.js)
+    const locator = await consumer.presentation.locator()
+    const checked = relocateStage(direction.record || direction.preview, locator), predecessors = (direction.predecessor || []).map(record => relocateStage(record, locator))
     const coordinate = stageProjectionPage(direction,at,page)
     if (page && page.para !== at) throw Object.assign(new Error('Stage paragraph and page differ'), {code:'STAGE_PAGE_MISMATCH'})
     at = Math.min(Math.max(1,at),direction.through)
@@ -143,7 +146,7 @@ async function readCurrentProjection({trace, expectedDirectionToken, readDirecti
     const missing = [], unavailable = new Set()
     const refKey = ref => JSON.stringify([ref.packId,ref.figureId || ref.kind,ref.assetId])
     let ops = entry?.at === at ? entry.ops.map(op => directorCommands.recordOperation(op,checked.binding)).filter(Boolean) : []
-    const chain = [...(direction.predecessor || []),checked]
+    const chain = [...predecessors,checked]
     // Sidecar frames contain scene/audio/figures, not performance execution plans.
     const performanceRefs = snapshotOnly || !performanceEnabled ? [] : [...new Map(chain.flatMap(record => [record.baseline.performance?.ref,...record.entries.flatMap(entry => [entry.state.performance?.ref,entry.state.performance?.cutIn?.ref])]).filter(Boolean).map(ref => [JSON.stringify(ref),ref])).values()]
     let metadata = [], performanceFailure = null, performancePlan = null
@@ -164,7 +167,7 @@ async function readCurrentProjection({trace, expectedDirectionToken, readDirecti
     }
     try {
       if (!performanceFailure && performanceRefs.length && coordinate) performancePlan = foldPerformanceAt({checked,page:coordinate,turn:direction.target?.turn ?? checked.binding.target.turn,
-        predecessor:direction.predecessor || [],resolveDocument})
+        predecessor:predecessors,resolveDocument})
     } catch (error) { unavailablePerformance(error) }
     const referenced = [...stageAssetRefs(state).filter(ref => !['performances','skins'].includes(ref.kind)), ...Object.values(state.actors).map(actor => actor.figure).filter(Boolean),
       ...ops.filter(op => op.op === 'event' && op.value.op === 'sfx').map(op => op.value.value)]

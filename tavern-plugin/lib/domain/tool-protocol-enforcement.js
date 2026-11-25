@@ -451,6 +451,31 @@ function classifyHttp400Downgrade(errorText, applied) {
   return null
 }
 
+function withSystemRole(body) {
+  return {
+    ...body,
+    messages: body.messages.map(message => message?.role === 'developer' ? { ...message, role: 'system' } : message)
+  }
+}
+
+async function rejectsDeveloperRole(response) {
+  if (response.status !== 400) return false
+  let errorText
+  try {
+    errorText = await response.clone().text()
+  } catch {
+    return false
+  }
+  if (
+    /\b(?:unsupported|invalid|unknown|unrecognized)\s+(?:message\s+)?role\s*[:=]?\s*["'`\\]*developer\b/i.test(errorText) ||
+    /(?:\brole\s*[:=]?\s*["'`\\]*developer["'`\\]*|\bdeveloper["'`\\]*\s+role)\s+(?:is\s+)?(?:not supported|not allowed|unsupported|invalid)\b/i.test(errorText) ||
+    /\bdeveloper\b["'`\\]*\s+is not one of\s*\[[^\]]*\bsystem\b/i.test(errorText)
+  ) return true
+  const allowedRoles = /\bonly\s+(?:messages?\s+with\s+)?([^.!?\n]{1,100}?)\broles?\s+(?:are\s+)?(?:supported|allowed)\b/i.exec(errorText)?.[1]
+  return Boolean(allowedRoles && /\bsystem\b/i.test(allowedRoles) && /\buser\b/i.test(allowedRoles) &&
+    /\bassistant\b/i.test(allowedRoles) && !/\bdeveloper\b/i.test(allowedRoles))
+}
+
 function inspectOpenAISseStreamForSignatures(response) {
   const contentType = getHeaderValue(response?.headers, 'content-type')
   if (!/text\/event-stream/i.test(contentType) || !response?.body || typeof response.body.tee !== 'function') {
@@ -520,8 +545,8 @@ export function currentToolProtocolDirective() {
 
 /**
  * Install a ref-counted AsyncLocalStorage-scoped global fetch wrapper.
- * Tool directives apply only within `runWithToolProtocolDirective`; ModelScope
- * role compatibility applies to that endpoint on any call.
+ * Tool directives apply only within `runWithToolProtocolDirective`. Role
+ * compatibility also covers Chat Completions calls made without a directive.
  */
 export function installToolProtocolFetchPatch(target = globalThis, { quirks = defaultCapabilityQuirks } = {}) {
   if (!target || typeof target.fetch !== 'function') return () => {}
@@ -534,8 +559,9 @@ export function installToolProtocolFetchPatch(target = globalThis, { quirks = de
         return original.call(this, input, init)
       }
       const url = typeof input === 'string' ? input : input instanceof URL ? input.href : str(input?.url)
-      const modelScope = /^https:\/\/api-inference\.modelscope\.cn(?::443)?\/v1\/chat\/completions(?:\?|$)/i.test(url)
-      if (!directive && !modelScope) return original.call(this, input, init)
+      const chatCompletions = /\/chat\/completions\/?$/i.test(url.split(/[?#]/, 1)[0])
+      const mayUseDeveloperRole = chatCompletions && init.body.includes('"developer"')
+      if (!directive && !mayUseDeveloperRole) return original.call(this, input, init)
       const method = str(init.method || (input && typeof input === 'object' ? input.method : 'GET')).toUpperCase()
       if (method !== 'POST') return original.call(this, input, init)
 
@@ -546,13 +572,21 @@ export function installToolProtocolFetchPatch(target = globalThis, { quirks = de
         return original.call(this, input, init)
       }
 
-      // Older pi-ai sends the system prompt as developer for reasoning models.
-      // ModelScope's OpenAI-compatible endpoint accepts it as system.
-      if (modelScope && Array.isArray(parsedBody?.messages) && parsedBody.messages.some(message => message?.role === 'developer')) {
-        parsedBody.messages = parsedBody.messages.map(message => message?.role === 'developer' ? { ...message, role: 'system' } : message)
-        init = { ...init, body: JSON.stringify(parsedBody) }
+      const hasDeveloperRole = mayUseDeveloperRole && Array.isArray(parsedBody?.messages) &&
+        parsedBody.messages.some(message => message?.role === 'developer')
+      const modelScope = /^https:\/\/api-inference\.modelscope\.cn(?::443)?\/v1\/chat\/completions(?:\?|$)/i.test(url)
+      let useSystemRole = hasDeveloperRole && modelScope
+      const send = async (requestInit, body) => {
+        if (!useSystemRole) {
+          const response = await original.call(this, input, requestInit)
+          if (!hasDeveloperRole || !(await rejectsDeveloperRole(response))) return response
+          useSystemRole = true
+          void response.body?.cancel().catch(() => {})
+        }
+        const systemRoleInit = { ...requestInit, body: JSON.stringify(withSystemRole(body)) }
+        return original.call(this, input, systemRoleInit)
       }
-      if (!directive) return original.call(this, input, init)
+      if (!directive) return send(init, parsedBody)
 
       let currentAttempt = enhanceToolProtocolPayload(parsedBody, {
         url,
@@ -562,7 +596,7 @@ export function installToolProtocolFetchPatch(target = globalThis, { quirks = de
       })
 
       if (!currentAttempt.changed) {
-        const res = await original.call(this, input, init)
+        const res = await send(init, parsedBody)
         return isGeminiModelId(parsedBody?.model || directive.model) ? inspectOpenAISseStreamForSignatures(res) : res
       }
 
@@ -575,7 +609,7 @@ export function installToolProtocolFetchPatch(target = globalThis, { quirks = de
           headers: currentAttempt.headers,
           body: JSON.stringify(currentAttempt.body)
         }
-        const response = await original.call(this, input, nextInit)
+        const response = await send(nextInit, currentAttempt.body)
         if (response.status !== 400 || !currentAttempt.changed || attempt === 2) {
           return isGeminiModelId(modelId) && currentAttempt.applied.protocol === 'openai-completions'
             ? inspectOpenAISseStreamForSignatures(response)

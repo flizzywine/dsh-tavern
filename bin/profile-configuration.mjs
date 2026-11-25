@@ -63,7 +63,7 @@ export function mergeProfileManifest({ source, current = {}, pluginPath, dataRoo
   const excludedHostBundles = selectedLayout
     ? ['dsh-pocket', 'dsh-web-mobile', '@dsh-external/dsh-mobile-nav'].filter(name => name !== selectedLayout)
     : []
-  // Desktop installation re-adds its own launcher from the installed source.
+  // The installer re-adds its bundled launcher from the installed source.
   // Drop previous official and NEXT launchers before the profiles are composed.
   excludedHostBundles.push(...previousLaunchers)
   const sourceBundles = uniqueStrings(sourceProfile.bundles)

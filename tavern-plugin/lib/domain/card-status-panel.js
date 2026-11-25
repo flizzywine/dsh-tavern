@@ -13,6 +13,10 @@ const KEYS = ['id', 'label', 'html', 'shortcut', 'icon', 'menu', 'showOn', 'init
 export function cardOpeningPage(pages) {
   return Array.isArray(pages) ? pages.find(page => page?.opening === true) || null : null
 }
+// The card's opening show (initial: true, page-contract「入口」): each new game's first entry to the stage opens it. Null when none.
+export function cardInitialPage(pages) {
+  return Array.isArray(pages) ? pages.find(page => page?.initial === true && page.showOn !== undefined) || null : null
+}
 const plain = value => value !== null && typeof value === 'object' && !Array.isArray(value)
 function invalid(path, message) {
   throw Object.assign(new Error('卡页面 ' + path + '：' + message), { code: 'CARD_PAGES_INVALID', path })

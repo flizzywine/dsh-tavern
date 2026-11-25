@@ -41,6 +41,9 @@ export function launcherPaths(ctx, env = process.env) {
   if (desktop && profile && desktop.dir === profile.dir) {
     return { ...resolvePaths({ DSH_HOME: profile.home, DSH_PROFILE: profile.name, DSH_PROFILE_DIR: profile.dir }), host: 'next' }
   }
+  if (env.DSH_TAVERN_RUNTIME_HOST === 'cli' && !isDesktopApp()) {
+    return { ...resolvePaths(env), host: 'cli' }
+  }
   if (env.DSH_TAVERN_RUNTIME_HOST === 'desktop' && !isDesktopApp() && profile?.name === 'tavern' &&
       typeof profile.home === 'string' && isAbsolute(profile.home) && typeof profile.dir === 'string' && isAbsolute(profile.dir)) {
     return resolvePaths({ DSH_HOME: profile.home, DSH_PROFILE: profile.name, DSH_PROFILE_DIR: profile.dir })

@@ -1,7 +1,7 @@
 import path from 'node:path'
 import {authorAudioLoudness} from './audio-loudness.js'
 import {migrateCharacterEmotions, matchBubbleMood, figureDefaultEmotion} from '../asset-packs/figure-emotions.js'
-import {assetContent,assetContents,assetDocument} from '../shared/asset-variant-content.js'
+import {assetContent,assetContentMedia,assetContents,assetDocument} from '../shared/asset-variant-content.js'
 import {assetEntryEnabled,resolveAssetSnapshot,resolveFigureSnapshot} from '../shared/asset-pack-refs.js'
 import {importFigureVariants} from './import-figure-variants.js'
 import {createVoiceAuthoring,retainVoiceEmotionPointers} from './voice-authoring.js'
@@ -33,7 +33,7 @@ import {applyResolutionWrites} from './resolution-write.js'
 import { removeFigureEmotion } from './remove-figure-emotion.js'
 import { copyFigureAssets } from './copy-figure.js'
 import {readCopyMouthDebt, copiedMouthDebt, retireLocalMouthDebt} from './copied-mouth-debt.js'
-import { copyPackItems } from './copy-items.js'
+import { copyPackItems, itemClosure } from './copy-items.js'
 import { mergePackContents } from './merge-packs.js'
 import { moveFigureContents } from './move-figures.js'
 import {createStageSetupMethods} from './stage-setup.js'
@@ -51,6 +51,7 @@ import { createPackLeases } from './leases.js'
 export { PACK_LEASE_PATH } from './leases.js'
 export {StoredFile} from './validation.js'
 export {projectPackFigures} from './export-figures.js'
+export {compressExportPacks, EXPORT_AUDIO_KBPS} from './export-compress.js'
 import { exportPrivacyView } from './export-privacy.js'
 import { carryFigureImageMedia, figureImageExtras, figureLookChanges, withFigureImageExtras, FIGURE_IMAGE_EXTENSION } from './figure-image-extras.js'
 export {writeZip as writePackZip, openZip as openPackZip, zipPath as packZipPath} from '../zip.js'
@@ -394,7 +395,11 @@ export function createAssetPackService(options) {
     emit(null, before)
     return {status:'removed', packId}
   }
-  async function install(pack, before, distribution, dryRun = false, resolution, copiedDebt) {
+  // moved: the publication brings items moved in from another pack (moveItems): they may take back identities this pack
+  // once retired (an item moved out and back), and the source pack still holding them is not a collision.
+  // revive: the publication puts back an earlier version of this pack (a card update taken back): the identities that
+  // version had are its own again.
+  async function install(pack, before, distribution, dryRun = false, resolution, copiedDebt, moved = null, revive = false) {
     if(!resolution) {
       const original={manifest:copy(pack.manifest),files:new Map(pack.files)},hashed=new Map()
       resolution=await applyResolutionWrites({manifest:pack.manifest,files:pack.files,previous:before,hashed,read:name => spooledBytes(pack.files.get(name))})
@@ -409,12 +414,13 @@ export function createAssetPackService(options) {
     const previousFigureIds = new Set(before?.manifest.figures || [])
     if (!before || pack.manifest.figures.some(id => !previousFigureIds.has(id))) {
       const installed = await all()
-      validatePackIdentities([...installed.filter(p => p.manifest.id !== pack.manifest.id).map(p => p.manifest), pack.manifest])
+      validatePackIdentities([...installed.filter(p => p.manifest.id !== pack.manifest.id && p.manifest.id !== moved?.from).map(p => p.manifest), pack.manifest])
     }
     let prior = before?.local || await storage.local(pack.manifest.id)
     if (copiedDebt) prior = {...prior,mouthDebt:{...prior?.mouthDebt,...copiedDebt}}
     const retired = new Set(prior?.retired || [])
-    const nextKeys = keys(pack), oldKeys = before ? keys(before) : []
+    const nextKeys = keys(pack), oldKeys = before ? keys(before) : new Set()
+    if (moved || revive) for (const key of nextKeys) if (!oldKeys.has(key)) retired.delete(key)
     for (const key of nextKeys) check(!retired.has(key), '$.identity', 'Retired identity cannot be reused: ' + key, 'DUPLICATE_ID')
     for (const key of oldKeys) if (!nextKeys.has(key)) retired.add(key)
     if (before?.manifest.contentHash === pack.manifest.contentHash && distribution === undefined) return {status:'noop', snapshot:snapshot(before)}
@@ -1228,6 +1234,69 @@ export function createAssetPackService(options) {
         return {packId, revision:result.snapshot.revision, copied}
       })
     },
+    // 移动到…: items and their same-pack closure change packs, keeping their ids. The stage finds an item by kind and id in
+    // the packs a card can use, so nothing that names it (stories, openings, cards) is rewritten. The target is written
+    // first: an interrupted move leaves the items in both packs, and running it again finishes it.
+    moveItems(input) {
+      shape(input, ['sourcePackId','sourceExpectedRevision','itemRefs','target'], ['sourcePackId','sourceExpectedRevision','itemRefs','target'], '$')
+      validateUuid(input.sourcePackId)
+      shape(input.target, ['packId','expectedRevision'], ['packId','expectedRevision'], '$.target')
+      const packId = validateUuid(input.target.packId)
+      check(packId !== input.sourcePackId, '$.target', 'Move into another pack')
+      return run([input.sourcePackId, packId], async () => {
+        const source = await load(input.sourcePackId)
+        check(source, '$.sourcePackId', 'Pack missing', 'ASSET_UNAVAILABLE'); cas(source, input.sourceExpectedRevision)
+        const before = await load(packId)
+        check(before, '$.target.packId', 'Pack missing', 'ASSET_UNAVAILABLE'); cas(before, input.target.expectedRevision)
+        const key = item => item.kind + '/' + item.id, leaving = new Set(itemClosure(source, input.itemRefs).map(key))
+        // what stays in the source may not name what leaves (a performance's background, a widget's default picture)
+        const staying = [...source.manifest.assets.filter(asset => !leaving.has(asset.kind + '/' + asset.id)).map(asset => ({kind:asset.kind, id:asset.id, name:asset.name})),
+          ...source.manifest.figures.filter(id => !leaving.has('figures/' + id)).map(id => ({kind:'figures', id, name:source.figures[id]?.name}))]
+        const holders = staying.filter(item => itemClosure(source, [{kind:item.kind, id:item.id}]).some(other => leaving.has(key(other))))
+        check(!holders.length, '$.itemRefs', '原包里还有别的条目用着它：' + holders.map(item => item.name || item.id).join('、'), 'MOVE_REFERENCED')
+        const manifest = copy(before.manifest), files = new Map(before.files)
+        const moved = copyPackItems(source, input.itemRefs, manifest, files, new Set(before.local.retired || []), {}, {move:true})
+        const hashed = storedCopyHashes(files, [source])
+        await sealPack(manifest, files, before, hashed)
+        const verified = await verify(manifest, files, before, true)
+        const carried = copiedMouthDebt(source, verified, moved, await readCopyMouthDebt(options.assetRoot, source.manifest.id, source.local, options.mouthDebtRoot))
+        // a moved figure keeps its 配图 record, which now names the target (its name and 触发词 live there)
+        const figureIds = moved.filter(item => item.kind === 'figures' && !item.present).map(item => item.fromId)
+        const relink = (from, to) => figureIds.length && options.figureRecords?.move ? options.figureRecords.move({from, to, figureIds}) : null
+        await relink(source.manifest.id, packId)
+        let target
+        try { target = await install(verified, before, undefined, false, undefined, carried, {from:source.manifest.id}) }
+        catch (error) { await relink(packId, source.manifest.id); throw error }
+        // the source without them; media and bundles only they used go with them
+        const left = copy(source.manifest), leftFiles = new Map(source.files)
+        const gone = left.assets.filter(asset => leaving.has(asset.kind + '/' + asset.id))
+        left.assets = left.assets.filter(asset => !leaving.has(asset.kind + '/' + asset.id))
+        const goneFigures = left.figures.filter(id => leaving.has('figures/' + id))
+        left.figures = left.figures.filter(id => !leaving.has('figures/' + id))
+        for (const id of goneFigures) leftFiles.delete(`figures/${id}.json`)
+        const used = new Set(), bundles = new Set()
+        const visit = value => {
+          if (typeof value === 'string' && Object.hasOwn(left.blobs, value)) used.add(value)
+          else if (value && typeof value === 'object') Object.values(value).forEach(visit)
+        }
+        const keptFigures = left.figures.map(id => source.figures[id])
+        visit(left.assets); visit(keptFigures); visit(left.voiceLibrary); visit(left.tagIcons); visit(left.backgroundStyle)
+        for (const asset of left.assets) for (const content of assetContents(asset)) if (content.bundleKey) bundles.add(content.bundleKey)
+        for (const figure of keptFigures) for (const outfit of figure.outfits) for (const form of ['live2d','spine']) if (outfit[form]?.bundleKey) bundles.add(outfit[form].bundleKey)
+        for (const asset of gone) {
+          for (const {hash} of assetContentMedia(asset)) if (!used.has(hash) && left.blobs[hash]) { leftFiles.delete(`media/${hash}.${left.blobs[hash].ext}`); delete left.blobs[hash] }
+          for (const content of assetContents(asset)) if (content.bundleKey && !bundles.has(content.bundleKey) && left.bundles[content.bundleKey]) {
+            delete left.bundles[content.bundleKey]
+            for (const name of [...leftFiles.keys()]) if (name.startsWith(`bundles/${content.bundleKey}/`)) leftFiles.delete(name)
+          }
+        }
+        trimAuthoringImages(left, leftFiles, source.figures)
+        retireFigureBundles(left, leftFiles, goneFigures.map(id => source.figures[id]), keptFigures)
+        await sealPack(left, leftFiles, source, new Map())
+        const rest = await install(await verify(left, leftFiles, source, true), source)
+        return {packId, revision:target.snapshot.revision, sourceRevision:rest.snapshot.revision, moved:moved.map(({kind, fromId}) => ({kind, id:fromId}))}
+      })
+    },
     createSimpleSprite(input) {
       validateShortId(input.spriteKey)
       return edit(input, async (manifest, files) => {
@@ -1606,7 +1675,9 @@ export function createAssetPackService(options) {
         const adopting = updating && options.adoptFigureImageLooks
         if (adopting) await options.adoptFigureImageLooks({packId:entry.pack.manifest.id, figureIds:adopt})
         let result
-        try { result = input.decision === 'noop' ? {status:'noop',snapshot:snapshot(before)} : await install(candidate, input.decision === 'keep-both' ? null : before, input.decision === 'keep-both' ? null : entry.distribution) }
+        // `restore` (host only, not in the transport): the archive is a backup of this pack from before an update that is being undone.
+        check(input.restore === undefined || input.restore === true && input.decision === 'update', '$.restore', 'Only an update restores an earlier version')
+        try { result = input.decision === 'noop' ? {status:'noop',snapshot:snapshot(before)} : await install(candidate, input.decision === 'keep-both' ? null : before, input.decision === 'keep-both' ? null : entry.distribution, false, undefined, undefined, null, input.restore === true) }
         catch (error) { if (adopting && adopt.length) await options.adoptFigureImageLooks({packId:entry.pack.manifest.id, figureIds:[]}); throw error }
         await forget(input.inspectionId)
         return {...result, ...(input.decision === 'keep-both' ? {mapping:copy(entry.preview.mapping)} : {})}
