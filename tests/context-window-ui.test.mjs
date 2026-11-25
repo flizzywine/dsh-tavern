@@ -290,6 +290,24 @@ test('移动端通过菜单底栏开启 Bottom Sheet，支持 390px/320px 零溢
   const sheet = page.locator('.dsh-ctx-sheet[role="dialog"]')
   await sheet.waitFor({ state: 'visible' })
 
+  // 玻璃皮肤将底色 token 设为半透明时，抽屉与底栏必须叠在 Canvas 实底上防止透视正文
+  const solidBgCheck = await page.evaluate(() => {
+    document.body.style.setProperty('--dsw-alias-bg-base', 'rgba(250, 249, 245, 0.35)')
+    document.body.style.setProperty('--dsw-specific-sidebar-fill', 'rgba(250, 249, 245, 0.35)')
+    const sheetEl = document.querySelector('.dsh-ctx-sheet')
+    const stickyEl = document.querySelector('.dsh-ctx-sheet-sticky')
+    return {
+      sheetBgImage: getComputedStyle(sheetEl).backgroundImage,
+      sheetBgColor: getComputedStyle(sheetEl).backgroundColor,
+      stickyBgImage: getComputedStyle(stickyEl).backgroundImage,
+      stickyBgColor: getComputedStyle(stickyEl).backgroundColor
+    }
+  })
+  assert.match(solidBgCheck.sheetBgImage, /linear-gradient/, '移动端抽屉采用 --dsh-tavern-solid 实底叠加层')
+  assert.notEqual(solidBgCheck.sheetBgColor, 'rgba(0, 0, 0, 0)', '移动端抽屉底层 Canvas 必须不透明')
+  assert.match(solidBgCheck.stickyBgImage, /linear-gradient/, '移动端抽屉底栏同样采用实底叠加层')
+  assert.notEqual(solidBgCheck.stickyBgColor, 'rgba(0, 0, 0, 0)', '移动端抽屉底栏底层 Canvas 必须不透明')
+
   for (const width of [390, 320]) {
     await page.setViewportSize({ width, height: 844 })
     const noOverflow = await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)

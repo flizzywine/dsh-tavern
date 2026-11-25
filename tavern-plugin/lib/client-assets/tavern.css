@@ -2559,6 +2559,7 @@ body[data-ds-dark-theme] .dsh-ctx-tile.is-selected,
 .dsh-ctx-mode-switch {
   display: inline-flex;
   flex: none;
+  margin-left: auto;
   gap: 2px;
   padding: 2px;
   border-radius: 7px;
@@ -5112,9 +5113,11 @@ body :is(
   .dsh-tavern-resource-menu-popup,
   .dsh-tavern-picker-foot, .dsh-tavern-prompt-editor-actions, .dsh-tavern-worldbook-editor-actions,
   .dsh-mvu-actions, .dsh-tavern-card-batch,
+  .dsh-ctx-popover, .dsh-ctx-modal, .dsh-ctx-sheet, .dsh-ctx-sheet-sticky,
   html.dsh-tavern-viewport-pinned .dsh-tavern-candidate-question:not(.collapsed),
   html.dsh-tavern-short-viewport .dsh-tavern-candidate-question .dsh-tavern-question-head
 ) { background: var(--dsh-tavern-solid); }
+body[data-ds-dark-theme] :is(.dsh-ctx-popover, .dsh-ctx-modal, .dsh-ctx-sheet, .dsh-ctx-sheet-sticky) { color-scheme: dark; }
 /* 宿主的设置窗口画的是上浮层 token（--dsw-alias-bg-layer-2），玻璃皮肤把它做成半透明且没有模糊，窗口后面的正文会透出来：
    同样叠在 Canvas 上，保留宿主的色调。 */
 body [role="dialog"][aria-modal="true"]:has(> nav[class*="_nav"]) { background: linear-gradient(var(--dsw-alias-bg-layer-2, var(--dsw-alias-bg-base, transparent)) 0 0) Canvas; }
