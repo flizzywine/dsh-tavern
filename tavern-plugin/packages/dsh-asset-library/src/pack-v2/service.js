@@ -1753,7 +1753,7 @@ export function createAssetPackService(options) {
         check(relative,'$.assetKey','Skin asset unavailable','ASSET_UNAVAILABLE')
         const file='bundles/'+content.bundleKey+'/'+path.posix.join(path.posix.dirname(content.entry),relative),descriptor=pack.manifest.files.find(row=>row.path===file)
         check(descriptor,'$.assetKey','Skin asset unavailable','ASSET_UNAVAILABLE')
-        const ext=path.posix.extname(file).slice(1),mime=ext==='svg'?'image/svg+xml':BLOB_MIME_TYPES[ext]
+        const ext=path.posix.extname(file).slice(1),mime=ext==='svg'?'image/svg+xml':ext==='html'?'text/html':BLOB_MIME_TYPES[ext]
         const bytes=await storage.read('packs/'+ref.packId+'/'+file,descriptor.size)
         check(bytes,'$.assetKey','Skin asset unavailable','ASSET_UNAVAILABLE')
         return {bytes,mime}
