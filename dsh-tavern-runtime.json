@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "730723ffeb66f2b7b7e1125d5d630596b2639644",
-  "releaseSequence": 2080,
+  "revision": "cea57a60717f4d9e42789b9a909874c96fd0b7e5",
+  "releaseSequence": 2081,
   "version": "3.4.0",
   "files": [
     {
@@ -291,8 +291,8 @@
     },
     {
       "path": "bin/bundled-tavern-plugins.mjs",
-      "sha256": "0ba8746166ea99dc49384b85ba48af0bbb16793b17a48c4cba6daf22779b1a45",
-      "size": 14774
+      "sha256": "8b7fbee3c4f2b2591e28bfe38524547562fb1543c68793d83c19533e9c5c6833",
+      "size": 16181
     },
     {
       "path": "bin/chat-answer-step-patch.mjs",
@@ -371,8 +371,8 @@
     },
     {
       "path": "bin/dev-sync-desktop.mjs",
-      "sha256": "8c3f50c4051790c354cfcf083b47e194ecb9bc0a39fcf1a99cc6d982e43a55f0",
-      "size": 5475
+      "sha256": "39b5a255c7083fcea27fec049ee981e1cb3fd150a358680b5e191020dc790d34",
+      "size": 5574
     },
     {
       "path": "bin/download.cjs",
@@ -7630,29 +7630,29 @@
       "size": 8672
     },
     {
-      "path": "tavern-plugin/packages/dsh-tavern-adventure-medal/client.js",
-      "sha256": "43a3c899fd2718e4af6ef8db8a86c733cf30bcadbb9676d67ff4ab5024f6cc93",
-      "size": 16494
+      "path": "tavern-plugin/packages/dsh-tavern-achievements/client.js",
+      "sha256": "1d1c0d7ce43c2ffaac3228c10f3f59955cff0a84a005b7cbf867e504011acdae",
+      "size": 16485
     },
     {
-      "path": "tavern-plugin/packages/dsh-tavern-adventure-medal/lib/index.js",
-      "sha256": "aa82d47e21208604e11e266fe5028b235d4df3800cf4ec9f25c3f86975459830",
-      "size": 29011
+      "path": "tavern-plugin/packages/dsh-tavern-achievements/lib/index.js",
+      "sha256": "d7d00f27fbb1877887497bcf7c35602b605412152a08ce0389f5a53c6533dc3f",
+      "size": 29201
     },
     {
-      "path": "tavern-plugin/packages/dsh-tavern-adventure-medal/LICENSE",
+      "path": "tavern-plugin/packages/dsh-tavern-achievements/LICENSE",
       "sha256": "417aa0c3de49c2c8e29932e867061e5028ce6fafba6fd7dcc9e3b16fb2d15549",
       "size": 1096
     },
     {
-      "path": "tavern-plugin/packages/dsh-tavern-adventure-medal/package.json",
-      "sha256": "3c085646449127c1e0b110f4e1bdc3aacb222ab86db21d3624c85d0b9e7e52bd",
-      "size": 713
+      "path": "tavern-plugin/packages/dsh-tavern-achievements/package.json",
+      "sha256": "37930c4eed78059021912f5a36ff9e89a62bcc2b3674e718e9cc91343dbf60f3",
+      "size": 704
     },
     {
-      "path": "tavern-plugin/packages/dsh-tavern-adventure-medal/README.md",
-      "sha256": "5c9dd7f1c74372355b9448de0124c02a0d8fbf334d2e8a41e7a649fce20bf553",
-      "size": 1582
+      "path": "tavern-plugin/packages/dsh-tavern-achievements/README.md",
+      "sha256": "2a294e73fee421170362557fc73b7d83e7891359680f46e05c1ac3bca9500f0e",
+      "size": 1588
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-audiobook/build.mjs",
@@ -9756,8 +9756,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern/client.js",
-      "sha256": "31500338c4fc4391dd20ac827725fa91dd273e4fde6270c4557e95dc64795254",
-      "size": 56091
+      "sha256": "658fdaee92b22658b12c7588d2aa0d3b694d79ce70c6f7ef6d2ab835d08b4768",
+      "size": 56085
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern/cordis.patch.yml",
@@ -9776,8 +9776,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern/lib/achievements.mjs",
-      "sha256": "45475af206891141566d161e256d42eeebd19a2adf399e9abfb5f1ff5187885c",
-      "size": 2014
+      "sha256": "c43313473e066799beadd31325a55d4bd55de84071d3b53282b88fb8cc069f90",
+      "size": 2140
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern/lib/helper.mjs",
@@ -10261,9 +10261,9 @@
     }
   ],
   "archive": {
-    "commit": "a71b5a08f2221111e123f30bcbddec92ef37d8c0",
+    "commit": "c4b1e9ffc564aeed0a40b1b39ab06d6bf615759e",
     "path": "runtime.zip",
-    "sha256": "c7ba60d7ccfb4f8a24ab054aa895383c5121ed9a0cba0aedd06c5ab69a658c3d",
-    "size": 17979047
+    "sha256": "21954238777b623a5e34bf461a3eb5a14e6d3ef1376169c46255d4787ac486e0",
+    "size": 17979450
   }
 }
