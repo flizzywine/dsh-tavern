@@ -457,6 +457,8 @@ export function createBackgroundAgentTask(options) {
         if (state.characterDesignStage === characterDesignStage) state.characterDesignStage = null
       }
     }
+    const stopWhen = typeof input.stopToolsWhen === 'function' ? input.stopToolsWhen : null
+    const closeAtLimit = stopWhen !== null || typeof input.writingPreparation?.receiveVariableReply === 'function'
     async function removeTools() {
       if (removed) return
       removed = true
@@ -494,11 +496,9 @@ export function createBackgroundAgentTask(options) {
             const result = characterDesignStage
               ? str(await characterDesignStage.execute(tool.name, invoke))
               : await invoke()
-            if (typeof input.stopToolsWhen === 'function') {
-              const complete = input.stopToolsWhen()
-              if (complete) execution?.concludeTurn?.()
-              if (input.task !== 'polish' && (complete || toolCallCount >= maxToolCalls)) await removeTools()
-            }
+            const complete = stopWhen?.()
+            if (complete) execution?.concludeTurn?.()
+            if (input.task !== 'polish' && (complete || (closeAtLimit && toolCallCount >= maxToolCalls))) await removeTools()
             // Rejections are native tool errors, not successful submissions. The
             // same session/step budget remains available for the model's repair.
             if (input.task === 'stage-director' && !shared) {

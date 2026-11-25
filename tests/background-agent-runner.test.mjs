@@ -9,6 +9,38 @@ function completeSystem(sections) {
 }
 
 import { createBackgroundAgentRunner } from '../tavern-plugin/lib/background-agent-runner.js'
+
+test('White Glove finishes with an ordinary reply after the last lookup uses the budget', async () => {
+  const registered = new Map()
+  const session = { id: 'white-glove-budget', events: [], append(type, data) { this.events.push({ type, data }) } }
+  let work, lookups = 0, reply
+  const runner = createBackgroundAgentRunner({ id: () => session.id, agents: {
+    get: () => ({ session: { header: {} } }),
+    async create(options) {
+      await options.setup({ systemPrompt: { section() {}, suppressRuntimeContext() {} }, on() {},
+        tools: { restrict() {}, register(tool) { registered.set(tool.name, tool); return () => registered.delete(tool.name) } } })
+      return { agent: { session, followup() { work = (async () => {
+        const lookup = registered.get('find_worldbook')
+        assert.equal(await lookup.execute({}), '查到了')
+        assert.equal(registered.get('find_worldbook'), lookup)
+        assert.equal(await lookup.execute({}), '查到了')
+        assert.equal(registered.size, 0)
+        runner.requestContext(session.id).writingPreparation.receiveVariableReply('{"facts":["塔门开着。"]}')
+        session.append('turn/end', { reason: { kind: 'completed' } })
+      })() }, async whenIdle() { await work } }, async dispose() {} }
+    }
+  } })
+  try {
+    await runner.run({ task: 'plugin', sessionId: 'parent', selection: { provider: 'fixture', model: 'fixture' },
+      ownPrefix: true, system: '写作资料', taskText: '查询场景资料', maxToolCalls: 2,
+      writingPreparation: { receiveVariableReply: text => { reply = text } },
+      tools: [{ name: 'find_worldbook', parameters: { type: 'object' } }],
+      onToolCall: () => { lookups++; return '查到了' }, acceptWithoutText: () => true })
+    assert.equal(lookups, 2)
+    assert.equal(reply, '{"facts":["塔门开着。"]}')
+  } finally { await runner.dispose() }
+})
+
 test('candidate and settlement reject terminal failure even after text and a tool submission', async () => {
   for (const task of ['candidate','settlement']) for (const reason of [{kind:'error',error:{message:'transport failed'}},{kind:'aborted',reason:{kind:'user'}}]) {
     const registered = new Map()

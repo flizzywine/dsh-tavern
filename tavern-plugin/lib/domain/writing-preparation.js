@@ -18,6 +18,7 @@ const VARIABLE_QUERY_HEADER = '【变量查询结果】\n'
 const VARIABLE_FACTS_HEADER = '【当前状态】\n'
 const VARIABLE_IDENTIFIER = /\b(?:[\dA-Fa-f]{8}(?:-[\dA-Fa-f]{4}){3}-[\dA-Fa-f]{12}|[a-z][a-z\d]+(?:_[a-z\d]+)+|[a-z][a-z\d]+[A-Z][A-Za-z\d]*)\b/
 const SETTLED_CHANGES_INSTRUCTIONS = '以下是宿主已经保存的上轮结果，可以直接作为事实依据。用 submit_variable_facts 交接其中会影响正文的变化，保留最新数值和单位，用对局语言合并成短句。'
+const REPLY_CHANGES_INSTRUCTIONS = '以下是已保存的上轮结果，可以直接作为事实依据。在最终回复的 facts 中保留会影响正文的变化、最新数值和单位，用对局语言合并成短句。'
 const { tavernIsWritingInjection, tavernWritingReceiptSections, tavernFormatPlotWorldbookReceipt } = receipts
 
 function worldbookInContext(messages) {
@@ -170,16 +171,28 @@ export function createWritingPreparation({ allowed, runAgent, readSources }) {
         runAgent: async task => {
           requestSignal.throwIfAborted()
           const selection = task.selection ?? entry.selection ?? foregroundSelection
+          const fromReply = task.variableFactsFromReply === true
           const changes = typeof task.prompt === 'string' && task.prompt.trim() && Array.isArray(task.tools)
-            && task.tools.some(tool => tool?.name === 'submit_variable_facts')
+            && (fromReply || task.tools.some(tool => tool?.name === 'submit_variable_facts'))
             ? await sourceReaders.settledChanges?.() : null
           requestSignal.throwIfAborted()
           if (changes) variableEvidence = true
-          const prompt = changes ? task.prompt + '\n\n' + SETTLED_CHANGES_INSTRUCTIONS + '\n' + changes : task.prompt
-          return runAgent(entry.owner, { ...task, prompt, gameId, selection, signal: requestSignal }, queryContext, (name, result) => {
+          const instructions = fromReply ? REPLY_CHANGES_INSTRUCTIONS : SETTLED_CHANGES_INSTRUCTIONS
+          const prompt = changes ? task.prompt + '\n\n' + instructions + '\n' + changes : task.prompt
+          let finalReply = ''
+          const agentContext = fromReply ? { ...queryContext, receiveVariableReply: text => { finalReply = text } } : queryContext
+          const result = await runAgent(entry.owner, { ...task, prompt, gameId, selection, signal: requestSignal }, agentContext, (name, result) => {
             // Keep call order for concurrent tools and reuse the exact model-facing receipt.
             if (!submitted && name !== 'inject' && name !== 'load_writing_skill' && name !== 'submit_variable_facts') toolResults.push(result)
           })
+          requestSignal.throwIfAborted()
+          if (finalReply && variableEvidence && !submitted && !variableFacts) {
+            try {
+              const value = JSON.parse(finalReply)
+              if (value?.facts?.length) submitVariableFacts(value)
+            } catch { /* The final reply is optional; keep the verified lookup receipts. */ }
+          }
+          return result
         }
       })), requestSignal)
       requestSignal.throwIfAborted()

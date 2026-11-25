@@ -34,12 +34,27 @@ export function applyCompactionModel(request, selection) {
   return next
 }
 
-function writingPreparationStreamFilter() {
+function writingPreparationStreamFilter(receiveVariableReply) {
   const textByIndex = new Map()
+  const replyBlocks = new Map()
+  const limit = 2048
+  let toolCall = false
   return chunk => {
     const isText = chunk.type === 'text-delta' || (chunk.type === 'block-start' && chunk.blockType === 'text')
       || (chunk.type === 'block-end' && chunk.block?.type === 'text')
     if (Number.isInteger(chunk.index) && !textByIndex.has(chunk.index)) textByIndex.set(chunk.index, isText)
+    if (receiveVariableReply) {
+      if (chunk.type === 'tool-call-delta' || chunk.blockType === 'tool-call' || chunk.block?.type === 'tool-call') toolCall = true
+      if (!toolCall && isText && chunk.type !== 'block-start') {
+        const index = chunk.index ?? 0
+        const value = chunk.type === 'block-end' ? chunk.block.text : (replyBlocks.get(index) || '') + chunk.text
+        replyBlocks.set(index, String(value ?? '').slice(0, limit + 1))
+      }
+      if (!toolCall && chunk.type === 'finish' && (chunk.reason ?? chunk).kind === 'stop') {
+        const reply = [...replyBlocks].sort(([a], [b]) => a - b).map(([, value]) => value).join('')
+        if (reply.length <= limit) receiveVariableReply(reply)
+      }
+    }
     if (isText) return null
     if (chunk.type !== 'finish' || !Array.isArray(chunk.replayState?.blocks)) return chunk
     const textBlocks = [...textByIndex.values()]
@@ -330,7 +345,7 @@ export function registerModelStreamHooks({
         openBlocks.clear()
       }
       let finish = null, usage = null
-      const filterPreparation = writingPreparation ? writingPreparationStreamFilter() : null
+      const filterPreparation = writingPreparation ? writingPreparationStreamFilter(writingContext?.receiveVariableReply) : null
       let failure = null, interrupted = false
       const liveness = createModelStreamProgress({signal:options.signal})
       let iterator, exhausted = false
