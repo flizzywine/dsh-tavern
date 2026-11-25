@@ -105,6 +105,16 @@ test('更新状态还没回来时，版本行和「检查更新」已经在侧�
   assert.equal(await check.isDisabled(), false)
 })
 
+test('纸感皮肤无需悬停即可看见命令行版的检查更新按钮', async t => {
+  const { page, releaseStatus } = await mountSidebar(t)
+  releaseStatus()
+  const paperSkin = await readFile(new URL('../tavern-plugin/packages/dsh-dream-skin/lib/skins/paper.css', import.meta.url), 'utf8')
+  await page.addStyleTag({ content: paperSkin })
+  const check = page.getByRole('button', { name: '检查更新', exact: true })
+  await check.waitFor({ state: 'visible' })
+  assert.equal(await check.evaluate(button => getComputedStyle(button.parentElement).opacity), '1')
+})
+
 test('刚打开页面时不用等待状态查询，直接点击检查更新', async t => {
   const available = { phase: 'update-available', host: 'cli', currentVersion: '3.2.0', currentCommit: 'a'.repeat(40), latestCommit: 'b'.repeat(40) }
   const { page, releaseStatus, methods } = await mountSidebar(t, undefined, { checkUpdate: { status: available } })

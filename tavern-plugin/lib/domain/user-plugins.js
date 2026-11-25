@@ -51,17 +51,18 @@ export const inject = plugin ? plugin.inject : undefined
 export const Config = plugin ? plugin.Config : undefined
 export async function apply(ctx, config) {
   if (!plugin) return
-  let child
+  let child, release
   try {
     // Cordis owns registrations/effects in this child scope and unwinds them
     // on failure. The guard remains alive so one broken plugin cannot stop DSH.
-    const release = registerRunningUserPlugin(${JSON.stringify(name)}, { folder: ${JSON.stringify(folder)}, sha256: ${JSON.stringify(sha256)}, bound: ${JSON.stringify(bound)}, origin: ${JSON.stringify(origin)}, cardIds: ${JSON.stringify(cardIds)}, runtimeName: name })
+    release = registerRunningUserPlugin(${JSON.stringify(name)}, { folder: ${JSON.stringify(folder)}, sha256: ${JSON.stringify(sha256)}, bound: ${JSON.stringify(bound)}, origin: ${JSON.stringify(origin)}, cardIds: ${JSON.stringify(cardIds)}, runtimeName: name })
     ctx.effect?.(() => release)
     child = ctx.plugin({ name, apply: childContext => plugin.apply(childContext, config) })
     await child.await()
     record({ ok: true })
     clearRestart()
   } catch (error) {
+    release?.()
     if (child) await child.dispose()
     report('启动', error)
   }
@@ -108,14 +109,22 @@ function hostEntry(pkg) {
   return main
 }
 
+const unreadableBindingNotice = cardPath => '[Tavern 插件] 人物卡素材清单无法读取，已跳过这张卡的插件绑定：' + cardPath
+
 // Card storage, not installed-folder markers, defines the binding set.
-export async function readEnabledBindings({ dataRoot, cardPaths }) {
+export async function readEnabledBindings({ dataRoot, cardPaths, onUnreadable = cardPath => console.warn(unreadableBindingNotice(cardPath)) }) {
   const bindings = new Map()
   for (const cardPath of await cardPaths()) {
-    let manifest
-    try { manifest = JSON.parse(await readFile(castManifestPath(dataRoot, cardPath), 'utf8')) }
-    catch (error) { if (error.code === 'ENOENT') continue; throw error }
-    for (const plugin of manifest.plugins || []) {
+    let plugins
+    try {
+      const manifest = JSON.parse(await readFile(castManifestPath(dataRoot, cardPath), 'utf8'))
+      plugins = manifest.plugins === undefined ? [] : manifest.plugins
+      if (!Array.isArray(plugins) || plugins.some(plugin => !plugin || typeof plugin.name !== 'string' || typeof plugin.sha256 !== 'string')) throw new Error('invalid plugin bindings')
+    } catch (error) {
+      if (error.code !== 'ENOENT') onUnreadable(cardPath)
+      continue
+    }
+    for (const plugin of plugins) {
       if (plugin.enabled !== true) continue
       if (!bindings.has(plugin.name)) bindings.set(plugin.name, new Map())
       const versions = bindings.get(plugin.name)
@@ -140,7 +149,7 @@ export function bindingVerdict({ name, sha256 }, bindings) {
  * and, optionally, a browser half (dsh.client + exports "./client").
  * Folders that cannot be loaded are reported, never registered.
  */
-export async function scanUserPlugins(pluginsDir, { installed = () => false, bindings = new Map() } = {}) {
+export async function scanUserPlugins(pluginsDir, { installed = () => false, bindings = new Map(), unreadableCards = new Set() } = {}) {
   let names
   try { names = (await readdir(pluginsDir, { withFileTypes: true })).filter(item => item.isDirectory() && !item.name.startsWith('.')).map(item => item.name).sort() }
   catch (error) { if (error.code === 'ENOENT') names = []; else throw error }
@@ -175,6 +184,7 @@ export async function scanUserPlugins(pluginsDir, { installed = () => false, bin
     const packageName = String(pkg.name || folder)
     const verdict = bindingVerdict({ name: packageName, sha256 }, bindings)
     if (verdict?.reason) { problems.push({ folder, reason: verdict.reason }); continue }
+    if (origin === 'card' && !verdict && cardIds.some(card => unreadableCards.has(card))) continue
     const isImagePlugin = packageName === IMAGE_PLUGIN_NAME || packageName === LEGACY_IMAGE_PLUGIN_NAME
     // A second source for an installed package breaks DSH's browser module composition.
     const installedNames = isImagePlugin ? [IMAGE_PLUGIN_NAME, LEGACY_IMAGE_PLUGIN_NAME] : pkg.name ? [packageName] : []
@@ -274,7 +284,8 @@ async function clearOriginalDesktop(profile) {
   if (next !== null) await replaceFile(file, next)
 }
 
-export async function syncUserPlugins({ dataRoot, dshHome, logger = console, pending = () => false, cardPaths = async () => [] } = {}) {
+export async function syncUserPlugins({ dataRoot, dshHome, logger = console, pending = () => false,
+  cardPaths = async () => [], beforePatch } = {}) {
   const paths = userPluginPaths(dataRoot, dshHome)
   const transactionPending = () => existsSync(path.join(path.resolve(dataRoot), 'card-plugins', '.managed', 'journal.json'))
   if (pending() || transactionPending()) return { pending: true, plugins: [], problems: [] }
@@ -284,8 +295,12 @@ export async function syncUserPlugins({ dataRoot, dshHome, logger = console, pen
     return { skipped: true, plugins: [], problems: [], disabled: [] }
   }
   const installed = name => existsSync(path.join(paths.profile, 'node_modules', ...name.split('/'), 'package.json'))
-  const bindings = await readEnabledBindings({ dataRoot, cardPaths })
-  const { plugins, problems, disabled } = await scanUserPlugins(paths.plugins, { installed, bindings })
+  const unreadableCards = new Set()
+  const bindings = await readEnabledBindings({ dataRoot, cardPaths, onUnreadable(cardPath) {
+    unreadableCards.add(cardPath)
+    logger.warn?.(unreadableBindingNotice(cardPath))
+  } })
+  const { plugins, problems, disabled } = await scanUserPlugins(paths.plugins, { installed, bindings, unreadableCards })
   for (const problem of problems) {
     const key = paths.plugins + '\u0000' + problem.folder
     if (reported.get(key) === problem.reason) continue
@@ -304,6 +319,8 @@ export async function syncUserPlugins({ dataRoot, dshHome, logger = console, pen
   try { text = await readFile(file, 'utf8') } catch (error) { if (error.code !== 'ENOENT') throw error }
   const next = syncPatchText(text, plugins)
   if (pending() || transactionPending()) return { pending: true, plugins: [], problems: [] }
+  // Dispose the active entry while the host still knows its old module path.
+  await beforePatch?.({plugins})
   if (next !== null) await replaceFile(file, next)
   await clearOriginalDesktop(paths.profile)
   return { changed: next !== null, plugins, problems, disabled }
@@ -328,9 +345,40 @@ export function loaderReload(loader, fiber) {
   const located = loader.locate(fiber) || '', prefix = located.slice(0, located.lastIndexOf(':') + 1)
   return async (id, entry) => {
     const row = loader.resolve(prefix + id)
-    await row.update({ name: pathToFileURL(entry).href, disabled: true })
-    await row.update({ disabled: null })
+    // The client bundle registry removes the old source by the name on its disposing entry.
+    await row.update({ disabled: true })
+    await row.update({ name: pathToFileURL(entry).href, disabled: null })
+    return row.fiber
   }
+}
+
+/** Load only committed, enabled card-plugin versions from the validated profile patch. */
+export async function reloadUpdatedCardPlugins({ result, names, loaded, reload, logger = console }) {
+  const requested = new Set(names), reloaded = [], restartRequired = []
+  const candidates = new Map(result.plugins.filter(plugin => plugin.bound).map(plugin => [plugin.name, plugin]))
+  for (const name of requested) {
+    const plugin = candidates.get(name)
+    const matches = () => {
+      const running = runningUserPlugins.get(name)
+      return plugin && running?.origin === 'card' && running.folder === plugin.folder && running.sha256 === plugin.sha256
+        && plugin.cardIds.every(card => running.cardIds.includes(card))
+    }
+    try {
+      if (!matches() && plugin && reload) {
+        const fiber = await reload(plugin.id, plugin.entry)
+        await fiber?.await()
+      }
+      if (matches()) {
+        loaded.set(plugin.id, plugin.entry)
+        reloaded.push(name)
+        continue
+      }
+    } catch (error) {
+      logger.warn?.('[Tavern 插件] 重新加载 ' + name + ' 失败：' + (error?.message || error))
+    }
+    restartRequired.push(name)
+  }
+  return { reloaded, restartRequired }
 }
 
 /**
@@ -356,12 +404,13 @@ export async function reconcileUserPluginsAtStartup({ result, loaded, reload }) 
   }
 }
 
-export function watchUserPlugins({ dataRoot, dshHome, logger = console, delay = 500, loaded = new Map(), reload = null, pending = () => false, cardPaths = async () => [] }) {
+export function watchUserPlugins({ dataRoot, dshHome, logger = console, delay = 500, loaded = new Map(), reload = null,
+  pending = () => false, cardPaths = async () => [], sync = () => syncUserPlugins({ dataRoot, dshHome, logger, pending, cardPaths }) }) {
   const { plugins } = userPluginPaths(dataRoot, dshHome)
   let timer = null, watcher = null, running = Promise.resolve()
   const restartMoved = async result => {
     for (const plugin of reload ? result.plugins : []) {
-      // Card binding changes require a process restart, never a watcher-driven hot swap.
+      // Card updates reconcile after the authorized archive transaction, once binding and bytes agree.
       if (plugin.bound || runningUserPlugins.get(plugin.name)?.bound) continue
       if (!loaded.has(plugin.id) || loaded.get(plugin.id) === plugin.entry) continue
       await reload(plugin.id, plugin.entry)
@@ -371,7 +420,7 @@ export function watchUserPlugins({ dataRoot, dshHome, logger = console, delay = 
   const schedule = () => {
     clearTimeout(timer)
     timer = setTimeout(() => {
-      running = running.then(() => syncUserPlugins({ dataRoot, dshHome, logger, pending, cardPaths })).then(restartMoved)
+      running = running.then(sync).then(restartMoved)
         .catch(error => logger.warn?.('[Tavern 插件] 同步插件目录失败：' + (error?.message || error)))
     }, delay)
   }

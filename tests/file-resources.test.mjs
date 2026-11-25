@@ -43,6 +43,24 @@ test('人物卡或世界书重命名与删除会同步绑定关系', async () =>
   } finally { await rm(root, { recursive: true, force: true }) }
 })
 
+for (const interrupted of [false, true]) {
+  test(`new card publication ${interrupted ? 'recovers after interruption' : 'rolls back on write failure'}`, async t => {
+    const dataRoot = await mkdtemp(path.join(os.tmpdir(), 'dsh-tavern-card-publication-'))
+    t.after(() => rm(dataRoot, { recursive: true, force: true }))
+    const resources = createFileResourceStore({ dataRoot, mutationFault({ side, index }) {
+      if (side === 'after' && index === 1) throw Object.assign(new Error('write stopped'), { code: interrupted ? 'DSH_TAVERN_SIMULATED_CRASH' : 'ENOSPC' })
+    } })
+    const cardPath = 'cards/test.json', text = '{"name":"test"}', card = JSON.parse(text)
+    await assert.rejects(resources.importCard({ name: 'test.json', text }, card), /write stopped/)
+    assert.deepEqual(await resources.list('card'), [])
+    const restarted = createFileResourceStore({ dataRoot })
+    await restarted.ensure()
+    assert.deepEqual(await restarted.list('card'), interrupted ? [cardPath] : [])
+    assert.deepEqual(await restarted.readCard(cardPath), interrupted ? card : undefined)
+    assert.equal((await restarted.originalCardPayload(cardPath))?.text, interrupted ? text : undefined)
+  })
+}
+
 test('人物卡删除可重试，也支持缺少 ID 的旧卡', async t => {
   const dataRoot = await mkdtemp(path.join(os.tmpdir(), 'dsh-tavern-card-deletion-'))
   t.after(() => rm(dataRoot, { recursive: true, force: true }))

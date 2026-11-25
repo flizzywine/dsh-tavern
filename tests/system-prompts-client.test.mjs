@@ -1,6 +1,7 @@
 import test from 'node:test'
 import { readFile } from 'node:fs/promises'
 import vm from './fixtures/client-vm.mjs'
+import TAVERN_PLAY_FEATURES from '../tavern-plugin/shared/play-features.cjs'
 import assert from 'node:assert/strict'
 
 const source = await readFile(new URL('../tavern-plugin/lib/client.js', import.meta.url), 'utf8')
@@ -15,7 +16,8 @@ function find(tree, predicate) {
 for (const action of ['保存此项', '恢复默认']) test(action + '只清除目标项草稿，保留其他项未保存内容', async () => {
   let state, initial = true
   const effects = []
-  const persisted = [{ name: 'a', label: 'A', text: 'old A', customized: true }, { name: 'b', label: 'B', text: 'old B' }]
+  const persisted = [{ name: 'a', label: 'A', text: 'old A', customized: true }, { name: 'b', label: 'B', text: 'old B' },
+    { name: 'posture-settlement', label: '姿势状态结算', text: '自定义姿势提示词', customized: true }]
   const React = {
     createElement: (type, props, ...children) => ({ type, props, children: children.flat() }),
     useState(init) { state ??= init; return [state, value => { state = typeof value === 'function' ? value(state) : value }] },
@@ -23,6 +25,7 @@ for (const action of ['保存此项', '恢复默认']) test(action + '只清除�
     useEffect(fn) { if (initial) effects.push(fn) }
   }
   const Component = vm.runInNewContext(body + '\n; SystemPromptSidebarTab', {
+    TAVERN_PLAY_FEATURES,
     React, InlineField: 'inline-field', PanelLoading: 'panel-loading', useTavernConfirm: () => async () => true,
     rpc: async (method, args) => {
       if (method === 'updateSystemPrompt') persisted.find(row => row.name === args.name).text = args.text ?? 'default A'
@@ -34,6 +37,7 @@ for (const action of ['保存此项', '恢复默认']) test(action + '只清除�
   render()
   await effects[0]()
   await flush()
+  assert.deepEqual(textareas().map(node => node.props['aria-label']), ['A', 'B'])
   textareas()[0].props.onChange({ target: { value: 'NEW A' } })
   textareas()[1].props.onChange({ target: { value: 'NEW B' } })
   find(render(), node => node.type === 'button' && node.children[0] === action)[0].props.onClick()

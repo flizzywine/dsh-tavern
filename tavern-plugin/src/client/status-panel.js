@@ -78,7 +78,7 @@ function StatusPanelView(p) {
                 h(TavernPersistentStatusRuntime, { sessionId: p.props.sessionId, view: view, executeSlash: p.props.executeSlash,
                     panels: view.statusBarPlacement === "body" ? "pinned" : "all", section: true })),
 
-            view.posture ? section("now", "此刻", null, h("p", { className: "fork-status-now" }, view.posture)) : null,
+            TAVERN_PLAY_FEATURES.postureSummary && view.posture ? section("now", "此刻", null, h("p", { className: "fork-status-now" }, view.posture)) : null,
 
             view.mode === "script" && view.scriptProgress ? h(ScriptNavigation, { sessionId: p.props.sessionId, cursor: view.scriptProgress.cursor, total: view.scriptProgress.totalChunks, chunkSize: view.scriptProgress.chunkSize,
                     busy: running || view.activity?.busy || view.regenInProgress }) : null,
@@ -120,7 +120,7 @@ function StatusPanelView(p) {
                             p.guideBusy ? "添加中…" : "添加")),
                     p.guideError ? h("div", { className: "fork-status-alert", "data-kind": "error" }, h("span", null, p.guideError)) : null)),
 
-            section("people", "人物档案",
+            view.showCharacterDesignPanel === true ? section("people", "人物档案",
                 h("button", { type: "button", className: "fork-status-link", disabled: running || ["running", "queued"].includes(designTask.status),
                     title: "根据当前剧情设计或补充人物档案，可附加要求",
                     onClick: function () { p.designCharacter(designTask.status === "failed" ? designTask.guidance : ""); } },
@@ -138,11 +138,11 @@ function StatusPanelView(p) {
                                 aliases ? h("p", null, h("em", null, "别名"), aliases) : null,
                                 (character.sections || []).map(function (s) { return h("p", { key: s.key }, h("em", null, s.label), s.text); }),
                                 h("button", { type: "button", className: "dsh-tavern-btn danger", disabled: Boolean(p.designRemoving) || running || ["running", "queued"].includes(designTask.status), onClick: function () { void p.removeCharacterDesign(character.name); } }, p.designRemoving === character.name ? "删除中…" : "删除这个人物档案")) });
-                    })) : h(EmptyState, { compact: true, noun: "人物档案" }))),
+                    })) : h(EmptyState, { compact: true, noun: "人物档案" }))) : null,
 
             h(TavernPluginTasks, { sessionId: p.props.sessionId, activity: view.activity, busy: running || view.activity?.busy || view.activity?.phase === "pending" }),
             h(TavernPluginStatusSections, { sessionId: p.props.sessionId }),
-            h(TavernLedger, { sessionId: p.props.sessionId, ledger: view.ledger, ledgerTask: view.ledgerTask, busy: running || view.activity?.busy, foregroundRunning: running }),
+            TAVERN_PLAY_FEATURES.storyLedger ? h(TavernLedger, { sessionId: p.props.sessionId, ledger: view.ledger, ledgerTask: view.ledgerTask, busy: running || view.activity?.busy, foregroundRunning: running }) : null,
             h(TavernMvuVariables, { sessionId: p.props.sessionId, view: view }),
 
             h("footer", { className: "fork-status-foot" },

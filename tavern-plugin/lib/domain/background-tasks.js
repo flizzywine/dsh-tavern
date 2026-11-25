@@ -14,13 +14,15 @@
 // `key` is the runner's `task` name (backgroundAgentRunner.run({ task })); entries without an
 // Agent use it as their id only.
 
+import playFeatures from '../../shared/play-features.cjs'
+
 const settingOn = (deps, name) => async () => (await deps.readTavernSettings())[name] === true
 
 function definitions(deps) {
   return [
     { key: 'settlement', name: '变量结算', member: 'background',
-      does: '按本轮正文更新变量（MVU 状态栏）和人物姿势；开启后台人物设计时，顺带为新出场的人物写档案。',
-      reads: '本轮正文、上一轮变量', writes: '本轮回复上的变量（MVU）、人物姿势、结算状态',
+      does: `按本轮正文更新变量（MVU 状态栏）${playFeatures.postureSummary ? '和人物姿势' : ''}；开启后台人物设计时，顺带为新出场的人物写档案。`,
+      reads: '本轮正文、上一轮变量', writes: `本轮回复上的变量（MVU）${playFeatures.postureSummary ? '、人物姿势' : ''}、结算状态`,
       // The reply and regeneration flows queue it themselves, since they wait for its outcome
       // (and skip it while a regeneration's temporary turn is open): declared, not run here.
       on: 'reply-committed', flow: true, condition: '有待结算的回复时',

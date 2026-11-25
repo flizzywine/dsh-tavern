@@ -374,12 +374,15 @@ export function registerTavernHttpRoutes({
             let file
             try {
               const query = new URL(req.url, 'http://x').searchParams
-              let excludeFigures, packIds
+              let excludeFigures, packIds, books
               try { packIds = query.has('packIds') ? JSON.parse(query.get('packIds')) : undefined }
               catch { throw Object.assign(new Error('packIds 不是有效的 JSON 数组'), { code: 'TAVERN_EXPORT_INVALID' }) }
+              // worldBooks: the bound books the exported card carries (every format); by default all of them.
+              try { books = query.has('worldBooks') ? JSON.parse(query.get('worldBooks')) : undefined }
+              catch { throw Object.assign(new Error('worldBooks 不是有效的 JSON 数组'), { code: 'TAVERN_EXPORT_INVALID' }) }
               try { excludeFigures = JSON.parse(query.get('excludeFigures') || '[]') }
               catch { throw Object.assign(new Error('excludeFigures 不是有效的 JSON 数组'), { code: 'TAVERN_EXPORT_INVALID' }) }
-              file = await exportCardFile(query.get('path'), { format: query.get('format') ?? undefined, excludeFigures, packIds })
+              file = await exportCardFile(query.get('path'), { format: query.get('format') ?? undefined, excludeFigures, packIds, ...(books !== undefined ? { books } : {}) })
             } catch (error) {
               const status = error?.code === 'TAVERN_EXPORT_INVALID' ? 400 : error?.code === 'TAVERN_NOT_FOUND' || /路径|不存在/.test(String(error?.message)) ? 404 : error?.code === 'REVISION_CONFLICT' ? 409 : 500
               res.writeHead(status, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' })

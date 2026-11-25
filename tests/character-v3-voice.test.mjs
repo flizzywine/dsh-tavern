@@ -17,6 +17,24 @@ const {createPackVoicePlayer}=require('../tavern-plugin/src/client/pack-playback
 import {onlineSpec as preset,cloneSpec} from './fixtures/asset-packs/voice.mjs'
 import {validateVoiceSpec} from '../tavern-plugin/packages/dsh-presentation-protocol/src/voice-schema.js'
 const audio=pcmWav(Buffer.alloc(100,1))
+
+test('plugin recordings share one player and work without a speech service', async t => {
+  const clips = []
+  const player = createPackVoicePlayer({getClient: () => null, createAudio: url => {
+    const clip = {src:url, paused:true, pause() { this.paused = true }, async play() { this.paused = false }}
+    clips.push(clip)
+    return clip
+  }})
+  t.after(() => player.dispose())
+  assert.equal(await player.playRecording('/voices/first.mp3', {owner:'dialogue', id:'1'}), true)
+  assert.equal(player.get().audio.src, '/voices/first.mp3')
+  assert.equal(await player.playRecording('/voices/second.mp3', {owner:'dialogue', id:'2'}), true)
+  assert.equal(clips[0].paused, true)
+  assert.equal(player.get().audio, clips[1])
+  clips[1].onended()
+  assert.equal(player.get(), null)
+})
+
 function scene(tts, voice, {packId=PACK_ID,figureId=FIGURE_ID,readReference}={}) {
   // speech resolves exact names from effective figures, never card cast.
   const figure={id:figureId,name:'Actor',aliases:['actor'],enabled:true,recall:{mode:'keyword',keywords:[]},appearance:'avatar',outfits:[],voice:{voice:'actor'}}, ref={packId,figureId}

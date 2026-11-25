@@ -1,3 +1,5 @@
+import { worldBookChannelValue, worldBookDefaultChannel } from './worldbook-channel.js'
+
 function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
 }
@@ -45,8 +47,11 @@ function identifyDocument(document) {
   throw new Error('无法识别世界书：需要 entries 对象、character_book，或 entries 数组')
 }
 
-function entryProjection(entry, sourceRef, format, index, summaryOnly = false) {
+function entryProjection(entry, sourceRef, format, index, bookChannel = 'auto', summaryOnly = false) {
   const embedded = format !== 'sillytavern-worldbook'
+  // 整本默认通道会作用到所有未单独覆盖的条目；只有显式设置过通道的条目才算自有通道。
+  const ownChannel = extensionValue(entry, ['tavern_channel'], null)
+  const inherited = ownChannel === null || ownChannel === undefined
   const primaryKeys = array(embedded ? entry.keys : entry.key).map(str)
   const secondaryKeys = array(embedded ? entry.secondary_keys : entry.keysecondary).map(str)
   const enabled = embedded ? entry.enabled !== false : entry.disable !== true
@@ -63,6 +68,8 @@ function entryProjection(entry, sourceRef, format, index, summaryOnly = false) {
     primaryKeys,
     secondaryKeys,
     constant: entry.constant === true,
+    channel: inherited ? worldBookChannelValue(bookChannel) : worldBookChannelValue(ownChannel),
+    channelInherited: inherited,
     selective: entry.selective === true,
     selectiveLogic: numberOr(embedded ? extensionValue(entry, ['selective_logic', 'selectiveLogic'], 0) : entry.selectiveLogic, 0),
     vectorized: embedded ? extensionValue(entry, ['vectorized'], false) === true : entry.vectorized === true,
@@ -122,11 +129,13 @@ export function inspectWorldBookDocument(document, options = {}) {
   const records = identified.format === 'sillytavern-worldbook'
     ? Object.entries(book.entries).map(function ([key, entry], index) { return { ref: 'entry:' + key, entry: object(entry) || {}, index } })
     : array(book.entries).map(function (entry, index) { return { ref: 'entry:' + index, entry: object(entry) || {}, index } })
-  const entries = records.map(function (record) { return entryProjection(record.entry, record.ref, identified.format, record.index, summaryOnly) })
+  const channel = worldBookDefaultChannel(book)
+  const entries = records.map(function (record) { return entryProjection(record.entry, record.ref, identified.format, record.index, channel, summaryOnly) })
   const view = {
     format: identified.format,
     displayName: worldBookDisplayName(document, options),
     description: str(book.description),
+    channel,
     scanDepth: book.scan_depth ?? 2,
     tokenBudget: book.token_budget ?? 8192,
     recursiveScanning: book.recursive_scanning === true,
@@ -258,6 +267,7 @@ function embeddedEntryFromStandalone(value, index, original, replace = false) {
   const entry = object(value) || {}
   const previous = object(original) || {}
   const extensions = Object.assign({}, replace ? {} : object(previous.extensions) || {}, object(entry.extensions) || {})
+  if (!hasOwn(object(entry.extensions) || {}, 'tavern_channel')) delete extensions.tavern_channel
   const uid = numberOr(entry.uid, index)
   const position = numberOr(entry.position, 0)
   const exported = Object.assign({}, clone(replace ? entry : previous), {
@@ -323,6 +333,7 @@ export function exportCharacterBook(document, options = {}) {
     if (hasOwn(book, key)) exported[key] = clone(book[key])
   }
   exported.extensions = Object.assign({}, object(original.extensions) || {}, object(book.extensions) || {})
+  if (!hasOwn(object(book.extensions) || {}, 'tavern_channel') && !hasOwn(book, 'channel')) delete exported.extensions.tavern_channel
   const originals = new Map(array(original.entries).map(function (entry, index) {
     return [numberOr(entry && entry.id, index), entry]
   }))
@@ -338,9 +349,9 @@ function nextId(entries, field) {
 }
 
 // Field vocabulary accepted by entry patches; anything else would be dropped silently.
-export const WORLD_BOOK_PATCH_FIELDS = Object.freeze(['comment', 'content', 'enabled', 'primaryKeys', 'secondaryKeys', 'constant', 'selective', 'order', 'caseSensitive', 'displayIndex', 'selectiveLogic', 'vectorized', 'position', 'depth', 'role', 'probabilityEnabled', 'probability', 'groupOverride', 'groupWeight', 'useGroupScoring', 'scanDepth', 'matchWholeWords', 'excludeRecursion', 'preventRecursion', 'group', 'delayUntilRecursion', 'sticky', 'cooldown', 'delay', 'helperExtra'])
+export const WORLD_BOOK_PATCH_FIELDS = Object.freeze(['comment', 'content', 'enabled', 'primaryKeys', 'secondaryKeys', 'constant', 'channel', 'selective', 'order', 'caseSensitive', 'displayIndex', 'selectiveLogic', 'vectorized', 'position', 'depth', 'role', 'probabilityEnabled', 'probability', 'groupOverride', 'groupWeight', 'useGroupScoring', 'scanDepth', 'matchWholeWords', 'excludeRecursion', 'preventRecursion', 'group', 'delayUntilRecursion', 'sticky', 'cooldown', 'delay', 'helperExtra'])
 
-function assignKnownPatch(entry, patch, format) {
+function assignKnownPatch(entry, patch, format, bookChannel = 'auto') {
   const embedded = format !== 'sillytavern-worldbook'
   const extensions = Object.assign({}, object(entry.extensions) || {})
   function has(name) { return Object.prototype.hasOwnProperty.call(patch, name) }
@@ -373,7 +384,17 @@ function assignKnownPatch(entry, patch, format) {
     if (has(field)) { if (embedded) extensions[embeddedField] = patch[field]; else entry[field] = patch[field] }
   }
   if (has('helperExtra')) extensions.dsh_tavern_helper_extra = clone(object(patch.helperExtra) || {})
-  if (embedded || has('helperExtra')) entry.extensions = extensions
+  // 传 null 或空串时清除条目覆盖以恢复跟随整本；
+  // 设回 auto 时仅当整本默认也是 auto 才移除键，否则显式写入 auto 以覆盖整本默认。
+  if (has('channel')) {
+    if (patch.channel === null || patch.channel === '') delete extensions.tavern_channel
+    else {
+      const channel = worldBookChannelValue(patch.channel)
+      if (channel === 'auto' && worldBookChannelValue(bookChannel) === 'auto') delete extensions.tavern_channel
+      else extensions.tavern_channel = channel
+    }
+  }
+  if (embedded || has('helperExtra') || has('channel')) entry.extensions = extensions
   return entry
 }
 
@@ -417,6 +438,16 @@ export function updateWorldBookDocument(document, request = {}) {
     book.token_budget = budget
   }
   if (Object.hasOwn(request, 'recursiveScanning')) book.recursive_scanning = request.recursiveScanning === true
+  // 整本默认通道保存在文档根，使未单独覆盖的条目统一跟随；设为 auto 时从文件清除该键。
+  if (Object.hasOwn(request, 'channel')) {
+    const channel = worldBookChannelValue(request.channel)
+    const extensions = Object.assign({}, object(book.extensions) || {})
+    delete book.channel
+    if (channel === 'auto') delete extensions.tavern_channel
+    else extensions.tavern_channel = channel
+    if (Object.keys(extensions).length || Object.hasOwn(book, 'extensions')) book.extensions = extensions
+  }
+  const bookChannel = worldBookDefaultChannel(book)
   let operations = Array.isArray(request.operations) ? request.operations : (request.operations ? [request.operations] : [])
   if (identified.format !== 'sillytavern-worldbook') {
     const priority = { update: 0, delete: 1, add: 2 }
@@ -435,26 +466,26 @@ export function updateWorldBookDocument(document, request = {}) {
         const values = Object.values(book.entries).filter(object)
         const uid = operation.uid === undefined ? nextId(values, 'uid') : operation.uid
         if (!Number.isSafeInteger(uid) || uid < 0 || Object.hasOwn(book.entries, String(uid)) || values.some(entry => Number(entry.uid) === uid)) throw new Error('世界书条目编号无效或重复')
-        const entry = assignKnownPatch({ uid, key: [], keysecondary: [], comment: '', content: '', disable: false, constant: false, selective: true, order: 100, position: 0, extensions: {} }, object(operation.entry) || {}, identified.format)
+        const entry = assignKnownPatch({ uid, key: [], keysecondary: [], comment: '', content: '', disable: false, constant: false, selective: true, order: 100, position: 0, extensions: {} }, object(operation.entry) || {}, identified.format, bookChannel)
         book.entries[String(uid)] = entry
         continue
       }
       const key = str(operation.ref).replace(/^entry:/, '')
       if (!Object.prototype.hasOwnProperty.call(book.entries, key)) throw new Error('世界书条目不存在: ' + operation.ref)
       if (op === 'delete') { delete book.entries[key]; continue }
-      if (op === 'update') { book.entries[key] = assignKnownPatch(clone(object(book.entries[key]) || {}), object(operation.patch) || {}, identified.format); continue }
+      if (op === 'update') { book.entries[key] = assignKnownPatch(clone(object(book.entries[key]) || {}), object(operation.patch) || {}, identified.format, bookChannel); continue }
     } else {
       if (op === 'add') {
         const id = operation.uid === undefined ? nextId(book.entries, 'id') : operation.uid
         if (!Number.isSafeInteger(id) || id < 0 || book.entries.some(entry => Number(entry.id) === id)) throw new Error('世界书条目编号无效或重复')
-        const entry = assignKnownPatch({ id, keys: [], secondary_keys: [], comment: '', content: '', enabled: true, constant: false, selective: false, insertion_order: 100, position: 'after_char', extensions: {} }, object(operation.entry) || {}, identified.format)
+        const entry = assignKnownPatch({ id, keys: [], secondary_keys: [], comment: '', content: '', enabled: true, constant: false, selective: false, insertion_order: 100, position: 'after_char', extensions: {} }, object(operation.entry) || {}, identified.format, bookChannel)
         book.entries.push(entry)
         continue
       }
       const index = Number(str(operation.ref).replace(/^entry:/, ''))
       if (!Number.isInteger(index) || index < 0 || index >= book.entries.length) throw new Error('世界书条目不存在: ' + operation.ref)
       if (op === 'delete') { book.entries.splice(index, 1); continue }
-      if (op === 'update') { book.entries[index] = assignKnownPatch(clone(object(book.entries[index]) || {}), object(operation.patch) || {}, identified.format); continue }
+      if (op === 'update') { book.entries[index] = assignKnownPatch(clone(object(book.entries[index]) || {}), object(operation.patch) || {}, identified.format, bookChannel); continue }
     }
     throw new Error('未知世界书操作: ' + op)
   }

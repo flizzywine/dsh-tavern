@@ -85,7 +85,7 @@
 					const next = await rpc("cardPlugins", { path: props.path });
 					setPlugins(next.plugins || []);
 					window.dispatchEvent(new CustomEvent("dsh-tavern-card-plugins-changed"));
-					setMessage("已更新到 " + (result.afterVersion || "新版本") + (result.restartRequired ? "，重启 DSH 后生效" : ""));
+					setMessage("已更新到 " + (result.afterVersion || "新版本") + (result.restartRequired ? "，重启 DSH 后生效" : result.reloaded ? "，插件已重新加载。界面仍显示旧版时可刷新当前页面。" : ""));
 				} catch (error) { setMessage("失败：" + String(error.message || error)); }
 				finally { setBusy(false); }
 			}

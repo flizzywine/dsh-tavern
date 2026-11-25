@@ -47,7 +47,7 @@ test('Android 下载目录人物卡只列出受限目录里的 PNG/JSON，并按
   })
 })
 
-test('Android 下载目录直接读取任意大小的 DSH 卡包、CHARX 和素材包 ZIP，PNG/JSON 限制为 32 MiB', async t => {
+test('Android 下载目录直接读取大卡包并列出超过旧上限的 PNG/JSON', async t => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'dsh-mobile-archive-'))
   t.after(() => rm(root, { recursive: true, force: true }))
   const big = 3 * 1024 ** 3
@@ -56,22 +56,30 @@ test('Android 下载目录直接读取任意大小的 DSH 卡包、CHARX 和素�
     await writeFile(path.join(root, name), '')
     await truncate(path.join(root, name), big)
   }
+  const documents = ['large.json', 'large.png']
+  const documentBytes = 81 * 1024 ** 2
   for (const extension of ['json', 'png']) {
     const legacy = path.join(root, 'large.' + extension)
-    await writeFile(legacy, '')
-    await truncate(legacy, 32 * 1024 ** 2 + 1)
+    await writeFile(legacy, extension === 'json' ? '{"name":"大卡"}' : '')
+    await truncate(legacy, documentBytes)
+    const oversize = path.join(root, 'oversize.' + extension)
+    await writeFile(oversize, '')
+    await truncate(oversize, 128 * 1024 ** 2 + 1)
   }
 
   const imports = createMobileCardImport({ runtimeHost: 'android', roots: [{ id: 'download', label: 'Download', path: root }] })
   const { files } = await imports.list()
-  assert.deepEqual(files.map(item => [item.name, item.size]).sort(), archives.map(name => [name, big]).sort())
-  for (const item of files) {
+  assert.deepEqual(files.map(item => [item.name, item.size]).sort(), [...archives.map(name => [name, big]), ...documents.map(name => [name, documentBytes])].sort())
+  for (const item of files.filter(item => archives.includes(item.name))) {
     assert.deepEqual(await imports.archive(item.id), { file: path.join(root, item.name), name: item.name })
     await assert.rejects(imports.read(item.id), /请通过卡包入口/)
   }
+  const png = files.find(item => item.name === 'large.png')
+  assert.equal(await imports.archive(png.id), null)
+  assert.equal(await imports.thumbnail(png.id), undefined)
 
   await rm(path.join(root, '示例素材包.zip'))
-  assert.deepEqual((await imports.list()).files.map(item => item.name).sort(), ['舞台.CHARX', '示例卡.DSHCARD'].sort())
+  assert.deepEqual((await imports.list()).files.map(item => item.name).sort(), ['舞台.CHARX', '示例卡.DSHCARD', ...documents].sort())
   await assert.rejects(imports.archive(files.find(item => item.name.endsWith('.zip')).id), /不存在|过大/)
 })
 

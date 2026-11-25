@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import vm from 'node:vm'
+import { JSDOM } from 'jsdom'
 
 const source = readFileSync(new URL('../tavern-plugin/src/client/settings-nav-icons.js', import.meta.url), 'utf8')
 const load = () => { const context = {}; vm.runInNewContext(source + '\nthis.css = settingsNavIconCss; this.install = installSettingsNavIcons;', context); return context }
@@ -15,8 +16,24 @@ test('settings navigation: each known section gets its glyph at the row the shel
   // general 1, pocket 2, market 3, tts 4, dsh-tavern 5: the shell's own and unknown ids keep their icon.
   assert.deepEqual(rows.map(row => row[0]), [2, 4, 5])
   assert.match(rows[1][1], /M2\.5 6\.5v3M5\.25 4\.5v7/)
-  assert.match(sheet, /button:nth-child\(2\) > svg:first-child \{ display: none; \}/)
   assert.doesNotMatch(sheet, /nth-child\([13]\)/)
+})
+
+test('settings navigation hides host glyphs in both row layouts while keeping built-in icons', t => {
+  const { css } = load()
+  const sheet = css([entry('profile-bridge', 10), entry('tts', 20), entry('general', 30)])
+  const dom = new JSDOM(`<style>${sheet}</style><div data-shortcut-modal="settings"><nav><div class="host_navList">
+    <button><span class="host_navIcon" aria-hidden="true"><svg></svg></span><span>酒馆启动器</span></button>
+    <button><svg></svg><span>语音后端</span></button>
+    <button><span class="host_navIcon" aria-hidden="true"><svg></svg></span><span>通用设置</span></button>
+  </div></nav></div>`)
+  t.after(() => dom.window.close())
+  const { document, getComputedStyle } = dom.window
+  const [wrappedIcon, directIcon, builtInIcon] = document.querySelectorAll('button > :first-child')
+  assert.equal(getComputedStyle(wrappedIcon).display, 'none')
+  assert.equal(getComputedStyle(directIcon).display, 'none')
+  assert.notEqual(getComputedStyle(builtInIcon).display, 'none')
+  for (const label of document.querySelectorAll('button > :last-child')) assert.notEqual(getComputedStyle(label).display, 'none')
 })
 
 test('settings navigation: the sheet follows the slot and leaves with the plugin', () => {

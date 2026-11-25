@@ -10,6 +10,7 @@ import { createTurnOrchestrator } from '../tavern-plugin/lib/domain/turn-orchest
 import { modTools } from '../tavern-plugin/lib/mod-tools.js'
 import { createForegroundFrameBuilder, foregroundFrameText } from '../tavern-plugin/lib/domain/agent-input-frame.js'
 import { createContextPlanner } from '../tavern-plugin/lib/domain/context-planner.js'
+import { projectRegenerationRequestMessages } from '../tavern-plugin/lib/domain/foreground-orchestration-strategies.js'
 import { createForegroundFrameSessionAdapter } from '../tavern-plugin/lib/domain/foreground-frame-session-adapter.js'
 
 function clone(value) {
@@ -149,7 +150,7 @@ function harness(mode, options = {}) {
     projectWorldBookTemplates: options.projectWorldBookTemplates,
     projectForegroundWorldbook: options.projectForegroundWorldbook,
     resolvePreset: options.resolvePreset,
-    foregroundRosterAddendum: options.foregroundRosterAddendum,
+    foregroundCapabilityUpdate: options.foregroundCapabilityUpdate,
     recordWorldbookRecall: options.recordWorldbookRecall,
     projectScriptPromptWorldbook: options.projectScriptPromptWorldbook,
     shellToolName: options.shellToolName,
@@ -198,7 +199,10 @@ test('连续正文回合的实际 Frame 消息不重复基本信息和常驻世�
       const session = { events: [{ type: 'user/message', data: { id: 'tavern-session-prefix:test', role: 'user', content: [],
         source: { kind: 'plugin', plugin: 'dsh-tavern', form: 'snapshot', sections: [{ name: 'tavern:session-context', text: prefix.text }] } } }] }
       messages = adapter.append({ session, messages, frame: prepared.frame, step: 1 }).messages
-      await run.orchestrator.finalize({ ...input, assistantText: '雨水敲着窗。' })
+      const assistantText = mode === 'story' ? '<style_reference_submit">雨水敲着窗。' : '雨水敲着窗。'
+      const saved = await run.orchestrator.finalize({ ...input, assistantText })
+      assert.equal(saved.reply.sessionText, '雨水敲着窗。')
+      assert.equal(run.chat().messages.at(-1).sourceText, '雨水敲着窗。')
     }
     const historyText = messages.map(message => message.content[0].text).join('\n')
     const requestText = prefix.text + '\n' + historyText
@@ -210,6 +214,36 @@ test('连续正文回合的实际 Frame 消息不重复基本信息和常驻世�
     assert.doesNotMatch(historyText, /逐轮系统指令/)
     assert.equal(historyText.split('逐轮历史后指令').length - 1, 2)
   }
+})
+
+test('玩家称呼随正文帧更新，重新生成同一轮时保留最新称呼', async () => {
+  const planner = createContextPlanner({ prompt: () => '正文写作规则' })
+  const run = harness('story', { planner })
+  const prefix = await planner.plan({ purpose: 'play-card-snapshot', card: run.card(), chat: run.chat() })
+  assert.doesNotMatch(prefix.text, /User is the player/)
+
+  const adapter = createForegroundFrameSessionAdapter()
+  const identity = message => message.source?.trace?.playerIdentity?.name
+  const input = (id, source) => ({ id, source, role: 'user', content: [{ type: 'text', text: '继续' }] })
+  let messages = []
+  for (const [turn, name, expected] of [[1, 'User', 'User'], [2, '旅人', '旅人'], [3, '旅人', undefined], [4, '你', '你']]) {
+    const chat = run.chat()
+    chat.macroState.userName = name
+    run.replaceChat(chat)
+    const request = { sessionId: 'session-1', turn, userText: '继续' }
+    const { frame } = await run.orchestrator.prepare(request)
+    const before = [...messages, input('player-' + turn, { kind: 'user' })]
+    messages = adapter.append({ messages: before, frame, step: 1 }).messages
+    assert.equal(messages.slice(before.length).map(identity).find(Boolean), expected)
+    await run.orchestrator.finalize({ ...request, assistantText: '雨水敲着窗。' })
+  }
+  const regeneration = input('retry', { kind: 'plugin:dsh-tavern-regen' })
+  const retried = projectRegenerationRequestMessages([...messages, regeneration])
+  assert.equal(retried.at(-1).source.form, 'player-identity')
+  assert.equal(identity(retried.at(-1)), '你')
+  const { frame } = await run.orchestrator.prepare({ sessionId: 'session-1', turn: 5, userText: '继续' })
+  const compacted = adapter.append({ frame, step: 1 }).messages
+  assert.equal(compacted.map(identity).find(Boolean), '你', '称呼快照随压缩移出上下文后会重新发送')
 })
 
 test('正文请求里的世界书标题提示独立于激活正文', async () => {
@@ -226,6 +260,26 @@ test('正文请求里的世界书标题提示独立于激活正文', async () =>
     assert.ok(foreground.content[0].text.split('\n\n').includes(titleHints))
     assert.doesNotMatch(foreground.content[0].text, /<lorebook_activated>/)
   }
+})
+
+test('停用姿势和台账后，新请求和旧上下文帧均不会注入这些状态', async () => {
+  const posture = '站在窗边'
+  const ledger = { version: 1, location: '台账中的大厅', items: [], npcs: [], scenes: [], itemLog: [] }
+  const ledgerInjection = { through: 1 }
+  const planner = createContextPlanner({ prompt: () => '正文写作规则' })
+  const run = harness('story', { planner, ledger, chatFields: { posture, ledgerInjection, backgroundTasks: { posture: true } } })
+  const { frame } = await run.orchestrator.prepare({ sessionId: 'session-1', turn: 2, userText: '继续' })
+  assert.doesNotMatch(foregroundFrameText(frame), /站在窗边|台账中的大厅/)
+  assert.deepEqual(run.chat().ledgerInjection, ledgerInjection)
+  assert.deepEqual(run.chat().ledger, ledger)
+  assert.equal(run.chat().posture, posture)
+
+  const legacyFrame = { ...frame, contributions: [...frame.contributions,
+    { slot: 'currentStateProjection', text: posture, source: { stage: 'context-plan', sectionKind: 'posture' } },
+    { slot: 'currentStateProjection', text: ledger.location, source: { stage: 'ledger' } }]
+  }
+  const { messages } = createForegroundFrameSessionAdapter().append({ frame: legacyFrame, step: 1 })
+  assert.doesNotMatch(JSON.stringify(messages), /站在窗边|台账中的大厅/)
 })
 
 test('卡片 raw 扩展修改先暂存，最终回复后才写入工作 raw', async () => {

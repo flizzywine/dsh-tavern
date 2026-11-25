@@ -26,7 +26,7 @@ const promptContribution=object({
 export const MOD_HOST_API = '1.0.0'
 export const modSystemSchemas = {
   manifest: object({
-    format:{const:'dsh-tavern-mod'},schemaVersion:{const:5},id,name:text,summary:text,experimental:{type:'boolean'},packageName:text,version,hostApi:range,
+    format:{const:'dsh-tavern-mod'},schemaVersion:{const:5},id,name:text,summary:text,experimental:{type:'boolean'},activation:{enum:['switch','card']},packageName:text,version,hostApi:range,
     dependencies:list(object({id,range,optional:{type:'boolean',default:false},onMissing:policy,operations:list(text)},['id','range'])),
     api:object({operations:list(text),resource:{const:'instance-exclusive'}}),
     config:object({version:{type:'integer',minimum:1},schema,defaults:map({})}),

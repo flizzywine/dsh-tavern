@@ -6,12 +6,13 @@ import { createScopedMessages } from './scoped-messages.js'
 import { createSessionStateView, settlementTurn } from './chat-session-state.js'
 import { rescueHistoryNotice } from './chat-history-rescue.js'
 import { createIncrementalReplyView } from './incremental-reply-view.js'
-import { latestStyleReference } from './style-reference.js'
+import { foregroundStyleReferenceEnabled, latestStyleReference } from './style-reference.js'
 import { sessionOpeningDescriptor } from './session-opening.js'
 import { composeTavernRegexScripts } from './card-extension-reading.js'
 import { applyRegexOverrides } from './regex-manager.js'
 import { projectCharacterDesignDocument } from './character-design-document.js'
 import { readLedger } from './story-ledger.js'
+import playFeatures from '../../shared/play-features.cjs'
 import { TAVERN_COMPATIBILITY_CAPABILITIES } from './tavern-compatibility-diagnostics.js'
 import { assistantResultForTurn } from './session-turn-result.js'
 import { forkTurnsByMessageId as forkTargetsFromSession } from './conversation-fork-targets.js'
@@ -31,7 +32,7 @@ export const sessionViewMessageFields = Object.freeze([
   'sourceText', 'projectionText', 'text', 'displayText', 'displayMode', 'projectionVersion', 'projectionWarnings',
   // Sidebar origin uses frame receipts, not the external DOM/console capture.
   'displayRuntime.frames',
-  'stagePageVersion', 'openingChoiceId', 'openingSelectionRevision', 'voiceBackfill', 'swipeId', 'swipes', 'variables', 'tavernPluginData', 'mvu', 'narrativeDamper', 'damperState',
+  'stagePageVersion', 'openingChoiceId', 'openingSelectionRevision', 'voiceBackfill', 'swipeId', 'swipes', 'variables', 'tavernPluginData', 'mvu', 'mvuBaseline.swipeId', 'narrativeDamper', 'damperState',
   'polished', 'polishedFrom',
   'native', 'nativeAnchor', 'placeholder', 'bodyEdit', 'bodyRegenerationProcessed', 'bodyHostRegexApplied', 'bodyPluginProjection', 'importSource', 'templateHistoryEdit', 'templateInputSource'
 ])
@@ -235,12 +236,13 @@ export function createSessionViewProjection({
       // The automatic card reload, shown until the next turn.
       cardAutoReload: chat.cardAutoReload && Number(chat.cardAutoReload.turn) === latestStoryTurn ? { at: chat.cardAutoReload.at } : null,
       statusBarPlacement: runtimeSettings.defaultPlaySettings?.statusBarPlacement === 'body' ? 'body' : 'sidebar',
-      posture: chat.posture || '',
-      postureEnabled: chat.backgroundTasks?.posture !== false,
+      showCharacterDesignPanel: runtimeSettings.showCharacterDesignPanel === true,
+      posture: playFeatures.postureSummary ? chat.posture || '' : '',
+      postureEnabled: playFeatures.postureSummary && chat.backgroundTasks?.posture !== false,
       styleReference: latestStyleReference(chat),
-      styleReferenceEnabled: chat.backgroundTasks?.styleReference === true && (chat.mode || 'story') === 'story',
-      ledger: readLedger(chat.ledger),
-      ledgerTask: projectLedgerTask(chat),
+      styleReferenceEnabled: foregroundStyleReferenceEnabled(chat),
+      ledger: playFeatures.storyLedger ? readLedger(chat.ledger) : null,
+      ledgerTask: playFeatures.storyLedger ? projectLedgerTask(chat) : null,
       characterDesigns: projectCharacterDesignDocument(chat.characterDesignDocument),
       characterDesignTask: projectCharacterDesignTask(chat),
       guides: Array.isArray(chat.guides) ? chat.guides : [],
@@ -478,7 +480,11 @@ export function createSessionViewProjection({
   }
   async function volatileSessionViewFields(chat, activity, changes) {
     const fields = sessionStateView.volatile(chat, activity, changes)
-    return { ...fields, ...streamingRegenerationFields(chat), statusBarPlacement: (await readTavernSettings()).defaultPlaySettings?.statusBarPlacement === 'body' ? 'body' : 'sidebar', forkTurnsByMessageId: forkTurnsForChat(chat), userInputEdits: userInputEditsOf(chat), editableUserInputTurns: editableUserInputTurnsForChat(chat), latestCommittedUserTurn: latestCommittedUserTurnForChat(chat), failedUserInputTurns: failedUserInputTurnsForChat(chat),
+    const settings = await readTavernSettings()
+    return { ...fields, ...streamingRegenerationFields(chat),
+      statusBarPlacement: settings.defaultPlaySettings?.statusBarPlacement === 'body' ? 'body' : 'sidebar',
+      showCharacterDesignPanel: settings.showCharacterDesignPanel === true,
+      forkTurnsByMessageId: forkTurnsForChat(chat), userInputEdits: userInputEditsOf(chat), editableUserInputTurns: editableUserInputTurnsForChat(chat), latestCommittedUserTurn: latestCommittedUserTurnForChat(chat), failedUserInputTurns: failedUserInputTurnsForChat(chat),
       cardSave: cardSaveViewOf(chat),
       ...transcriptPlanFields(chat, sessionDebugEvidence(chat.sessionId), fields.replacingDshTurns, fields.keptInputTurns) }
   }
@@ -515,14 +521,14 @@ export function createSessionViewProjection({
     const changes = {baseRevision:baseRevision ?? previous.tavernHelper?.stateRevision,indices:[...dirtyMessageIndices],layoutChanged,changedHeaderFields}
     const next = Object.assign({}, previous, await volatileSessionViewFields(chat, activity, changes), {
       playerName: str(chat.macroState?.userName).trim() || '你',
-      posture: chat.posture || '',
-      postureEnabled: chat.backgroundTasks?.posture !== false,
+      posture: playFeatures.postureSummary ? chat.posture || '' : '',
+      postureEnabled: playFeatures.postureSummary && chat.backgroundTasks?.posture !== false,
       styleReference: latestStyleReference(chat),
-      styleReferenceEnabled: chat.backgroundTasks?.styleReference === true && (chat.mode || 'story') === 'story',
+      styleReferenceEnabled: foregroundStyleReferenceEnabled(chat),
       guides: Array.isArray(chat.guides) ? chat.guides : [],
       // Header state a background task rewrites without touching any message.
-      ledger: readLedger(chat.ledger),
-      ledgerTask: projectLedgerTask(chat),
+      ledger: playFeatures.storyLedger ? readLedger(chat.ledger) : null,
+      ledgerTask: playFeatures.storyLedger ? projectLedgerTask(chat) : null,
       characterDesigns: projectCharacterDesignDocument(chat.characterDesignDocument),
       characterDesignTask: projectCharacterDesignTask(chat),
       ...latestTurnFields(chat)

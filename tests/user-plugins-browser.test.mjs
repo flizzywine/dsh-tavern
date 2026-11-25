@@ -164,3 +164,82 @@ test('手机宽度下插件卡片的正文不被按钮挤成逐字换行', async
   assert.ok(layout.actionsTop >= layout.copyBottom - 1, '动作按钮应换到正文下一行')
   assert.ok(layout.pageWidth <= 390, '不应把页面撑出横向滚动')
 })
+
+// 移动端触控壳（body.dsh-tavern-shell-active + 16px 输入字号）与较长插件目录路径下：
+// InlineField 镜像占位文案和底部目录路径都不能把 .dsh-tavern-user-plugins 网格撑出卡片；
+// 安装输入框单独占满首行，「安装 / 上传 ZIP」「检查更新」和插件操作按钮都在卡片内可见。
+test('手机窄屏与长路径下酒馆插件页不横向溢出且安装栏自动换行', async t => {
+  const plugins = [
+    {
+      folder: 'hub', name: 'dsh-runninghub', version: '0.1.44',
+      description: 'RunningHub 本地网关工作室：在 DSH Tavern 里异步提交图片任务并自动回填',
+      source: { kind: 'github', repo: 'bigmalove/dsh-runninghub', resolved: 'Release v0.1.44' },
+      enabled: true, state: 'restart', reason: '',
+    },
+    {
+      folder: 'st', name: 'dsh-tavern-STcontext', version: '0.8.2',
+      description: '导入 SillyTavern 预设，使用完整可见历史生成或重生成正文',
+      source: { kind: 'builtin', releaseRepo: 'bigmalove/dsh-tavern-STcontext' },
+      enabled: false, state: 'disabled', reason: '',
+    },
+  ]
+  const { page } = await openTavernSettings(t, {
+    section: 'dsh-tavern: plugins settings section',
+    contextOptions: { viewport: { width: 360, height: 800 }, hasTouch: true, isMobile: true },
+    beforeRender: () => {
+      const meta = document.createElement('meta')
+      meta.name = 'viewport'
+      meta.content = 'width=device-width,initial-scale=1'
+      document.head.appendChild(meta)
+      document.body.classList.add('dsh-tavern-shell-active')
+    },
+    respond(method) {
+      if (method === 'listUserPlugins') return { plugins, dir: '/home/administrator/.dsh-tavern/profiles/default/user-plugins/very-long-directory-path' }
+      if (method === 'checkUserPluginUpdates') return { plugins: plugins.map(p => ({ folder: p.folder, status: 'latest' })) }
+    },
+  })
+  const input = page.locator('.dsh-tavern-user-plugins-install input.fork-inline-input')
+  await page.locator('.dsh-tavern-user-plugin').first().waitFor()
+  await input.fill('https://github.com/some-very-long-organization-name/some-very-long-dsh-tavern-plugin-repository')
+  const metrics = await page.evaluate(() => {
+    const card = document.querySelector('.dsh-tavern-gs-card').getBoundingClientRect()
+    const field = document.querySelector('.dsh-tavern-user-plugins-install > .fork-inline-field').getBoundingClientRect()
+    const installBtn = document.querySelector('.dsh-tavern-user-plugins-install .dsh-tavern-btn.primary').getBoundingClientRect()
+    const zipBtn = document.querySelectorAll('.dsh-tavern-user-plugins-install .dsh-tavern-btn')[1].getBoundingClientRect()
+    const checkBtn = document.querySelector('.dsh-tavern-user-plugins-head .dsh-tavern-btn').getBoundingClientRect()
+    const actionBtn = document.querySelector('.dsh-tavern-user-plugin-actions .dsh-tavern-btn').getBoundingClientRect()
+    const folderBtn = document.querySelector('.dsh-tavern-user-plugins-folder .dsh-tavern-btn').getBoundingClientRect()
+    const overflow = [...document.querySelectorAll('.dsh-tavern-user-plugins *')]
+      .filter(el => {
+        const r = el.getBoundingClientRect()
+        return r.width > 0 && r.right > card.right + 1
+      })
+      .map(el => `${el.className || el.tagName}:${Math.round(el.getBoundingClientRect().right)}>${Math.round(card.right)}`)
+    return {
+      vw: window.innerWidth,
+      docScrollW: document.documentElement.scrollWidth,
+      cardRight: card.right,
+      fieldWidth: field.width,
+      fieldBottom: field.bottom,
+      fieldHeight: field.height,
+      installTop: installBtn.top,
+      installRight: installBtn.right,
+      installHeight: installBtn.height,
+      zipTop: zipBtn.top,
+      zipRight: zipBtn.right,
+      checkRight: checkBtn.right,
+      actionRight: actionBtn.right,
+      folderRight: folderBtn.right,
+      overflow,
+    }
+  })
+  assert.deepEqual(metrics.overflow, [], `卡片内不应有子元素向右溢出：${metrics.overflow.join(', ')}`)
+  assert.ok(metrics.docScrollW <= metrics.vw, `页面不应出现横向滚动：${metrics.docScrollW} > ${metrics.vw}`)
+  assert.ok(metrics.installTop >= metrics.fieldBottom - 1, '安装按钮应换到输入框下一行')
+  assert.ok(Math.abs(metrics.zipTop - metrics.installTop) <= 2, '安装与上传 ZIP 按钮应在同一行')
+  assert.ok(metrics.zipRight <= metrics.cardRight + 1, '上传 ZIP 按钮应在卡片内')
+  assert.ok(metrics.checkRight <= metrics.cardRight + 1, '检查更新按钮应在卡片内')
+  assert.ok(metrics.actionRight <= metrics.cardRight + 1, '插件操作按钮应在卡片内')
+  assert.ok(metrics.folderRight <= metrics.cardRight + 1, '打开插件文件夹按钮应在卡片内')
+  assert.ok(Math.abs(metrics.fieldHeight - metrics.installHeight) <= 1, `输入框与按钮高度应对齐：${metrics.fieldHeight} vs ${metrics.installHeight}`)
+})

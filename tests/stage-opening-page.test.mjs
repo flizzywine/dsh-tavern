@@ -130,7 +130,7 @@ test('the first game of a fresh install holds the stage client and enters the ne
   const listeners = new Set(), events = []
   let available = false
   const context = vm.createContext({
-    busy: false, pendingChatImport: null, console, setOpeningCardName() {}, setError() {},
+    busy: false, pendingChatImport: null, console, setOpeningCardName() {}, setBusy() {}, setError() {},
     galStageAvailable: { get: () => available, subscribe: fn => { listeners.add(fn); return () => listeners.delete(fn) } },
     galStageHold: () => { events.push('hold'); return () => events.push('release') },
     galEnter: (id, target) => events.push(['enter', id, target]),

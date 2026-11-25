@@ -66,6 +66,7 @@ function useStageConsumers(sessionId, store, onEvent, performanceAdapter, cgAdap
         };
         const connection=displays.attach(sessionId,consume);
         display.current=connection;
+        const stopVoiceStatus=voice.subscribe(() => store.dispatch({type:'STAGE_VOICE_AVAILABLE', available:voice.available()}));
         let closed=false;
         const close=()=>{
             if(closed)return;closed=true;instances.delete(close);
@@ -73,13 +74,13 @@ function useStageConsumers(sessionId, store, onEvent, performanceAdapter, cgAdap
             if(display.current===connection)display.current=null;
             const errors=[];
             // Leaving the display preserves the scene's page-wide ambience and BGM.
-            for(const cleanup of [()=>store.dispatch({type:'STAGE_OPEN',opened:false}),()=>ambience.performance(null,true),()=>sfx.stop(),()=>voice.stop(sessionId)]){
+            for(const cleanup of [stopVoiceStatus,()=>store.dispatch({type:'STAGE_OPEN',opened:false}),()=>ambience.performance(null,true),()=>sfx.stop(),()=>voice.stop(sessionId)]){
                 try{cleanup();}catch(error){errors.push(error);}
             }
             if(errors.length)throw new AggregateError(errors,'Stage display cleanup failed');
         };
         instances.add(close);
-        try{store.dispatch({type:'STAGE_OPEN', opened:true, revealed:false});}
+        try{store.dispatch({type:'STAGE_OPEN', opened:true, revealed:false, voiceAvailable:voice.available()});}
         catch(error){try{close();}catch(cleanup){throw new AggregateError([error,cleanup],'Stage display startup failed');}throw error;}
         return close;
     }, [sessionId, store]);

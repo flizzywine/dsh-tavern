@@ -1,7 +1,7 @@
 import { createReadStream } from 'node:fs'
-import { open } from 'node:fs/promises'
+import { link, lstat, mkdtemp, open, rm } from 'node:fs/promises'
 import path from 'node:path'
-import { Transform } from 'node:stream'
+import { compose, Transform } from 'node:stream'
 import * as zlib from 'node:zlib'
 
 // A ZIP read from disk without loading it: the central directory up front, each entry streamed
@@ -27,6 +27,29 @@ export function zipEntryPath(name) {
   return normalized
 }
 
+// Stage beside the destination. link is an atomic, no-overwrite publication (rename can replace an existing file).
+export async function publishCardZip(file, write, { entries, bytes, encrypted = false, validate } = {}) {
+  const exists = await lstat(file).catch(error => { if (error.code !== 'ENOENT') throw error })
+  if (exists) throw Object.assign(new Error('目标文件已存在，不会覆盖'), {code:'EEXIST'})
+  const directory = await mkdtemp(path.join(path.dirname(file), '.dshcard-'))
+  const temporary = path.join(directory, 'card.dshcard')
+  try {
+    const result = await write(temporary)
+    const zip = await openZipFile(temporary, { label: '导出的人物卡', allowEncrypted: encrypted })
+    const size = zip.size
+    try {
+      const expected = bytes ?? result?.size
+      if ((expected !== undefined && size !== expected) || (entries && (zip.entries.size !== entries.size
+        || [...entries].some(([name, length]) => !zip.entries.has(name) || (length !== undefined && zip.entries.get(name).size !== length))))) {
+        fail('导出的人物卡', '文件清单或长度不一致，未保存')
+      }
+    } finally { await zip.close() }
+    const checked = await validate?.(temporary)
+    await link(temporary, file)
+    return { ...result, ...checked, size, file }
+  } finally { await rm(directory, { recursive: true, force: true }) }
+}
+
 async function read(handle, position, length) {
   const buffer = Buffer.alloc(length)
   const { bytesRead } = await handle.read(buffer, 0, length, position)
@@ -43,12 +66,17 @@ export async function openZipFile(file, { label = 'ZIP', allowEncrypted = false,
   try {
     const { size: fileSize } = await handle.stat()
     if (fileSize > maxArchiveBytes) fail(label, '文件超过 ' + maxArchiveBytes / 1024 ** 2 + ' MiB')
-    if (fileSize < 22) fail(label, '文件太小')
     const tailLength = Math.min(fileSize, 65557 + 20)
     const tail = await read(handle, fileSize - tailLength, tailLength)
     let eocd = -1
     for (let offset = tail.length - 22; offset >= 0; offset--) if (tail.readUInt32LE(offset) === 0x06054b50) { eocd = offset; break }
-    if (eocd < 0) fail(label, '不是有效的 ZIP')
+    if (eocd < 0) {
+      const head = await read(handle, 0, 4)
+      if (head.length === 4 && head.readUInt32LE(0) === 0x04034b50) {
+        throw Object.assign(new Error('卡包文件不完整，请重新下载或导出后再试。'), { code: 'TAVERN_ZIP_INCOMPLETE' })
+      }
+      fail(label, '不是有效的 ZIP')
+    }
     let count = tail.readUInt16LE(eocd + 10), directorySize = tail.readUInt32LE(eocd + 12), directoryOffset = tail.readUInt32LE(eocd + 16)
     // Generic ZIP readers also support prepended bytes, including self-extracting archives.
     const eocdAt = fileSize - tail.length + eocd
@@ -126,7 +154,9 @@ export async function openZipFile(file, { label = 'ZIP', allowEncrypted = false,
     async function stream(entry) {
       if (entry.encrypted) fail(label, '加密文件需要使用人物卡密码导入入口')
       const { start, end } = await dataRange(entry)
-      const raw = entry.compressedSize === 0 ? null : createReadStream(file, { start, end: end - 1 })
+      // Bound how much an inflater can emit in one write even for highly compressible media.
+      const raw = entry.compressedSize === 0 ? null : createReadStream(file, { start, end: end - 1,
+        ...(entry.method === 8 ? { highWaterMark: 8 * 1024 } : {}) })
       let crc = 0, seen = 0
       const check = new Transform({
         transform(chunk, _encoding, done) {
@@ -142,10 +172,7 @@ export async function openZipFile(file, { label = 'ZIP', allowEncrypted = false,
         }
       })
       if (!raw) { check.end(); return check }
-      const source = entry.method === 8 ? raw.pipe(zlib.createInflateRaw()) : raw
-      source.on('error', error => check.destroy(error))
-      raw.on('error', error => check.destroy(error))
-      return source.pipe(check)
+      return entry.method === 8 ? compose(raw, zlib.createInflateRaw(), check) : compose(raw, check)
     }
 
     // prefix: how many bytes come before the archive (0 for a plain ZIP).

@@ -1,8 +1,10 @@
 #!/usr/bin/env node
 // Update through the running Tavern, using the same backup/rollback path as the UI.
-import { readFile } from 'node:fs/promises'
+import { createReadStream } from 'node:fs'
+import { stat } from 'node:fs/promises'
 import { basename, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
+import { CARD_ARCHIVE_CHUNK_BYTES, MAX_CARD_UPLOAD_BYTES } from '../tavern-plugin/lib/domain/uploads.js'
 
 export async function connectTavern({ url, accessPin, fetchImpl = fetch }) {
   const endpoint = new URL(url)
@@ -38,11 +40,20 @@ export async function connectTavern({ url, accessPin, fetchImpl = fetch }) {
     }
     if (!initialized) throw new Error('桌面会话初始化重定向过多')
   }
-  async function request(route, body, binary = false) {
+  async function request(route, body, { length, query } = {}) {
     const target = new URL(endpoint)
     target.pathname = '/api/dsh-tavern/' + route
     target.hash = ''
-    const response = await fetchImpl(target, { method: 'POST', headers: { 'content-type': binary ? 'application/octet-stream' : 'application/json', ...(cookies.size ? { cookie: cookieHeader() } : {}) }, body: binary ? body : JSON.stringify(body), redirect: 'error' })
+    for (const [key, value] of Object.entries(query || {})) target.searchParams.set(key, value)
+    const upload = length !== undefined
+    const response = await fetchImpl(target, {
+      method: 'POST',
+      headers: { ...(upload ? { 'content-type': 'application/octet-stream', 'content-length': String(length) } : { 'content-type': 'application/json' }),
+        ...(cookies.size ? { cookie: cookieHeader() } : {}) },
+      body: upload ? body : JSON.stringify(body),
+      ...(upload ? { duplex: 'half' } : {}),
+      redirect: 'error'
+    })
     if (response.status === 401 || response.status === 403) throw new Error('桌面服务认证失败，请使用当前桌面版的 Web 访问地址（通过 DSH_TAVERN_URL 环境变量传入）')
     let result
     try { result = await response.json() } catch { throw new Error('服务没有返回 JSON，HTTP ' + response.status) }
@@ -54,21 +65,33 @@ export async function connectTavern({ url, accessPin, fetchImpl = fetch }) {
 
 export async function updateLibraryCard({ url, cardPath, file, password, accessPin, fetchImpl = fetch }) {
   if (!cardPath?.startsWith('cards/')) throw new Error('请指定库中原卡路径，例如 cards/人物卡.json')
-  const bytes = await readFile(file), name = basename(file)
+  const name = basename(file)
   if (!/\.(json|png|charx|dshcard)$/i.test(name)) throw new Error('支持 JSON、PNG、CHARX 和 DSHCARD')
+  const info = await stat(file)
+  if (!info.isFile() || !info.size) throw new Error('请指定非空人物卡文件')
+  if (info.size > MAX_CARD_UPLOAD_BYTES) throw new Error('人物卡超过 ' + MAX_CARD_UPLOAD_BYTES / 1024 ** 3 + ' GiB')
   const request = await connectTavern({ url, accessPin, fetchImpl })
   // Verify the selected target exists before uploading anything.
   const existing = await request('getCard', { path: cardPath })
   if (!existing.card) throw new Error('库中没有这张卡')
   if (existing.replacementSupported !== true) throw new Error('当前服务尚未支持安全原位更新，请先同步并重启本体。未上传或修改任何卡片。')
-  let result
-  if (/\.json$/i.test(name)) {
-    JSON.parse(bytes.toString('utf8'))
-    result = await request('importCard', { replacePath: cardPath, payload: { kind: 'text', name, text: bytes.toString('utf8') } })
-  } else {
-    const upload = await request('card-upload', bytes, true)
-    try { result = await request('importCardUpload', { uploadId: upload.uploadId, replacePath: cardPath, name, ...(password ? { password } : {}) }) }
-    finally { await request('discardCardUpload', { uploadId: upload.uploadId }).catch(() => {}) }
+  const chunked = /\.(charx|dshcard)$/i.test(name) && info.size > 1024 ** 3
+  const chunkSize = chunked ? CARD_ARCHIVE_CHUNK_BYTES : info.size
+  let uploadId, result
+  try {
+    for (let offset = 0; offset < info.size; offset += chunkSize) {
+      const end = Math.min(offset + chunkSize, info.size)
+      const query = chunked ? { purpose: 'card-archive', size: info.size, offset, ...(uploadId ? { uploadId } : {}) } : undefined
+      const stream = createReadStream(file, { start: offset, end: end - 1 })
+      try {
+        const reply = await request('card-upload', stream, { length: end - offset, query })
+        uploadId = reply.uploadId
+        if (reply.size !== end) throw new Error('人物卡上传进度不一致，请重新导入')
+      } finally { stream.destroy() }
+    }
+    result = await request('importCardUpload', { uploadId, replacePath: cardPath, name, ...(password ? { password } : {}) })
+  } finally {
+    if (uploadId) await request('discardCardUpload', { uploadId }).catch(() => {})
   }
   if (!result.card?.updated || result.card.path !== cardPath) throw new Error('运行中的本体未确认原位更新，请先重启已同步的桌面版；检查卡库是否产生了额外副本')
   return result.card

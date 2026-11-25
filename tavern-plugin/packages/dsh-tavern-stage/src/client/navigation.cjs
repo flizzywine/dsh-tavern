@@ -124,7 +124,8 @@ function galOpen(sessionId, target) {
     galEntry = target && Number.isInteger(target.turn) ? { sessionId, turn: target.turn, para: Math.max(1, Number(target.para) || 1), token: Date.now() } : null;
     // target.page: this entry opens that card page in place of the one stageEnterPage picks ('' : none; a new game's
     // opening page, or the first act right after it)
-    galEntryPage = target && typeof target.page === 'string' ? { sessionId, page: target.page, visit: galVisit } : null;
+    galEntryPage = target && typeof target.page === 'string'
+        ? {sessionId, page:target.page, visit:galVisit, ...(target.reader ? {reader:target.reader} : {})} : null;
     galActive.set(sessionId);
     // Called from the click itself, so the browser grants full screen.
     const root = document.documentElement;

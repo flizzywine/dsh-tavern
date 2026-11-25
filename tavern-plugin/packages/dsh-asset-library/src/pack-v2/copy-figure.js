@@ -6,8 +6,17 @@ import { jsonBytes } from './validation.js'
 // 动态立绘: the 视频 entries the figure's stills name (outfit sprite.videos) come along as entries of the target with their
 // bundles, under fresh ids where the target has (or once had) the id; videos maps a source id to its copy, shared by the
 // figures of one copy so a loop two figures name is copied once.
+// Every place a figure names a 视频 entry: [holder, key] - an image's idle and talking loops and its transitions (into).
+export function figureVideoSlots(figure) {
+  const slots = []
+  for (const outfit of figure.outfits) for (const motion of Object.values(outfit.sprite?.videos || {})) {
+    slots.push([motion, 'video'], [motion, 'talk'])
+    for (const edge of Object.values(motion.into || {})) slots.push([edge, 'video'])
+  }
+  return slots
+}
 function copyFigureVideos(source, figure, manifest, files, videos, retired) {
-  for (const outfit of figure.outfits) for (const motion of Object.values(outfit.sprite?.videos || {})) for (const key of ['video', 'talk']) {
+  for (const [motion, key] of figureVideoSlots(figure)) {
     const old = motion[key]
     if (old === undefined) continue
     if (!videos.has(old)) {
@@ -27,15 +36,18 @@ function copyFigureVideos(source, figure, manifest, files, videos, retired) {
   }
 }
 
-export function copyFigureAssets(source, figureId, manifest, files, {credits = true, voices = new Map(), extensions = {}, copyVoice = true, videos = new Map(), retired = new Set()} = {}) {
+// keepId: a move — the figure keeps its id (figure ids are unique in the whole library) and is no copy of anything.
+export function copyFigureAssets(source, figureId, manifest, files, {credits = true, voices = new Map(), extensions = {}, copyVoice = true, videos = new Map(), retired = new Set(), keepId = false} = {}) {
   check(source?.figures?.[figureId], '$.source', 'Figure missing', 'ASSET_UNAVAILABLE')
   const figure = structuredClone(source.figures[figureId])
   if (!copyVoice) {
     delete figure.voice
     for (const emotion of figure.emotions ?? []) delete emotion.voiceEmotion
   }
-  figure.extensions = {...figure.extensions,...extensions,dsh_tavern:{...figure.extensions?.dsh_tavern,copiedFrom:figure.extensions?.dsh_tavern?.copiedFrom || {packId:source.manifest.id,figureId}}}
-  figure.id = randomUUID()
+  figure.extensions = keepId ? {...figure.extensions,...extensions}
+    : {...figure.extensions,...extensions,dsh_tavern:{...figure.extensions?.dsh_tavern,copiedFrom:figure.extensions?.dsh_tavern?.copiedFrom || {packId:source.manifest.id,figureId}}}
+  if (!Object.keys(figure.extensions).length) delete figure.extensions
+  figure.id = keepId ? figureId : randomUUID()
   const prefix = 'c' + figure.id.replaceAll('-', ''), sprites = new Map(), bundles = new Map()
   for (const outfit of figure.outfits) {
     if (outfit.sprite) {

@@ -246,7 +246,8 @@ const checkShowStage = { player: null, play(record, effect, label, calm) {
     return player ? new Promise(done => player.enqueue([Object.assign({}, record, { show: { effect, label } })], calm, done)) : Promise.resolve();
 } };
 
-// Stage overlay props as DiceThrow's (mod-clients.js overlay). Records with show play as they arrive live.
+// Stage overlay props as DiceThrow's (mod-clients.js overlay). Records with show play live: one the
+// reply called for partway through when the reader comes to that place in the text (place.js), any other as it arrives.
 function CheckShow(props) {
     const h = React.createElement;
     const layer = React.useRef(null), player = React.useRef(null), seen = React.useRef(null), latest = React.useRef(props);
@@ -259,20 +260,24 @@ function CheckShow(props) {
         checkShowStage.player = p;
         return () => { p.dispose(); player.current = null; if (checkShowStage.player === p) checkShowStage.player = null; };
     }, []);
-    React.useEffect(() => {
-        if (!seen.current || seen.current.session !== props.sessionId) seen.current = { session: props.sessionId, ids: null, shown: new Set() };
+    const placeKey = dicePlaceKey(props.place);
+    // Before the paint, so the card never shows its result first.
+    React.useLayoutEffect(() => {
+        if (!seen.current || seen.current.session !== props.sessionId) seen.current = { session: props.sessionId, ids: null, shown: new Set(), queue: dicePlaceQueue() };
         if (!key) return;
         const records = showKeyRecords(key), s = seen.current;
         const fresh = s.ids ? records.filter(record => !s.ids.has(record.callId)) : [];
         // The first snapshot this stage sees is history: nothing in it performs, and its performed records stay performed.
         const first = !s.ids;
         if (first) s.ids = new Set();
-        const due = fresh.filter(record => record.show && !(record.of && s.shown.has(record.of)));
+        const arrived = fresh.filter(record => record.show && !(record.of && s.shown.has(record.of)));
         for (const record of records) { s.ids.add(record.callId); if (record.show && record.id) s.shown.add(record.id); }
         const now = latest.current;
-        if (first || !due.length || !now.running || !now.live) return;
+        if (!first && arrived.length && now.running) s.queue.add(arrived, Number(key.slice(0, key.indexOf("|"))));
+        const due = s.queue.take(now.place);
+        if (!due.length || !now.live) return;
         player.current.enqueue(due, now.calm === true);
-    }, [key, props.sessionId]);
+    }, [key, props.sessionId, placeKey]);
     React.useEffect(() => { if (!props.live) player.current?.skip(); }, [props.live]);
     React.useEffect(() => { if (!props.veiled) player.current?.resume(); }, [props.veiled]);
     return h("div", { ref: layer, className: "fork-check-show", "aria-hidden": true, hidden: true }, h("canvas", { className: "fork-check-show-field" }));

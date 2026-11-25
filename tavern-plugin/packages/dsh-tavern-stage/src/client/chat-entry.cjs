@@ -20,7 +20,7 @@ function own(cleanup) {
 // paragraph (copying prose never picks up a label); the tooltip and the accessible name carry the words.
 function StageEnterHere(props) {
     return React.createElement('button', { type: 'button', className: 'fork-stage-enter-here', 'aria-label': '从这里进入舞台', title: '从这里进入舞台',
-        onClick: event => { event.preventDefault(); event.stopPropagation(); galEnter(props.sessionId, { turn: props.turn, para: props.para }); } });
+        onClick: event => { event.preventDefault(); event.stopPropagation(); galEnter(props.sessionId, props.target || { turn: props.turn, para: props.para }); } });
 }
 // The entry sits at the end of the bubble's last line: the row renders it (props.enter) inside its text block.
 // no portal; each portal container installed React's full delegated listener set.
@@ -28,7 +28,7 @@ function StageParagraph(props) {
     const timer = React.useRef(null), root = React.useRef(null);
     const [pressed, setPressed] = React.useState(false);
     React.useLayoutEffect(function () {
-        if (!root.current) return;
+        if (!root.current || !Number.isInteger(props.turn)) return;
         root.current.querySelectorAll('p, .fork-bubble').forEach(node => {
             node.setAttribute('data-fork-stage-turn', props.turn); node.setAttribute('data-fork-stage-para', props.para);
         });

@@ -69,7 +69,7 @@ function createVertexRegionFeature({ React, rpc }) {
 	}
 
 	function formatRegionLabel(id) {
-		if (!id) return "默认（global）";
+		if (!id) return "未指定（跟随 API Key 地区）";
 		const entry = VERTEX_REGIONS.find(function (item) { return item.id === id; });
 		return entry ? entry.id + " (" + entry.label + ")" : id;
 	}
@@ -91,11 +91,17 @@ function createVertexRegionFeature({ React, rpc }) {
 		const rootRef = React.useRef(null);
 		const filterRef = React.useRef(null);
 		const projectRef = React.useRef(null);
+		const pendingRegionRef = React.useRef(pendingRegion);
+		pendingRegionRef.current = pendingRegion;
+		const onChangeBaseUrlRef = React.useRef(props.onChangeBaseURL);
+		onChangeBaseUrlRef.current = props.onChangeBaseURL;
 
 		const activeProject = urlProject || normalizeProject(manualProject) || detectedProject;
 		const activeRegion = urlLocation || pendingRegion;
 
 		// 当前 baseURL 未包含 project 时，尝试从后端（环境变量 / 已存或正在输入的 API Key）自动解析。
+		// 解析成功后：若用户已选过待生效地区则立刻落盘；若当前还没有显式地区端点（空或 {location} 模板）
+		// 则自动写入 global 端点，避免界面看似默认 global 实际却走 Express 回退到 API Key 绑定地区。
 		React.useEffect(function () {
 			if (urlProject) return;
 			let alive = true;
@@ -107,7 +113,18 @@ function createVertexRegionFeature({ React, rpc }) {
 			}).then(function (result) {
 				if (!alive) return;
 				const found = normalizeProject(result && result.project);
-				if (found) setDetectedProject(found);
+				if (!found) return;
+				setDetectedProject(found);
+				const pending = pendingRegionRef.current;
+				const shouldAutoFillGlobal = !effectiveUrl || effectiveUrl.indexOf("{location}") !== -1;
+				const targetRegion = pending || (shouldAutoFillGlobal ? "global" : "");
+				if (targetRegion && typeof onChangeBaseUrlRef.current === "function") {
+					const nextUrl = buildVertexBaseUrl(found, targetRegion);
+					if (nextUrl) {
+						if (pending) setPendingRegion("");
+						onChangeBaseUrlRef.current(nextUrl);
+					}
+				}
 			}, function () {}).finally(function () {
 				if (alive) setProbing(false);
 			});
@@ -201,6 +218,13 @@ function createVertexRegionFeature({ React, rpc }) {
 		}
 
 		const showProjectInput = !urlProject && !detectedProject;
+		const regionHint = pendingRegion && !activeProject
+			? "已选择 " + pendingRegion + "，但尚未识别到 Project ID，当前端点未生效；请填写上方 Project ID。"
+			: !urlLocation
+				? "未显式指定地区端点时，Vertex 会按 API Key 绑定地区路由；Gemini 3/4 仅在 global 可用，请确认已选 global 并保存。"
+				: urlLocation !== "global"
+					? "Gemini 3/4 仅在 global 地区可用；当前已切换到 " + urlLocation + "。"
+					: "";
 
 		return h("div", { className: (props.fieldClassName ? props.fieldClassName + " " : "") + "dsh-vertex-region-field", ref: rootRef },
 			h("span", { className: props.labelClassName || "dsh-vertex-region-label" }, "地区 (Region)"),
@@ -284,9 +308,7 @@ function createVertexRegionFeature({ React, rpc }) {
 					onChange: handleProjectChange
 				})
 			) : null,
-			activeRegion && activeRegion !== "global" ? h("p", { className: "dsh-vertex-region-hint" },
-				"Gemini 3/4 仅在 global 地区可用；当前已切换到 " + activeRegion + "。"
-			) : null
+			regionHint ? h("p", { className: "dsh-vertex-region-hint" }, regionHint) : null
 		);
 	}
 

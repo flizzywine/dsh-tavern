@@ -307,8 +307,22 @@ function GalStage(props) {
     const restoreLoading = React.useRef(null);
     const [storyPage, setStoryPage, savedPosition, markStoryRead] = useStagePosition(sessionId,runtime,parts,storyPages,
         {restored:restored === sessionId, onSelect:() => setRestored(sessionId)});
+    const [openedReader, setOpenedReader] = React.useState(null);
+    const [readerState, setReaderState] = React.useState(null);
+    const readerPanel = openedReader?.sessionId === sessionId ? openedReader : null;
+    const reader = readerPanel && readerState;
+    const readerPages = React.useMemo(() => (reader?.lines || []).map((line, index) => ({
+        kind: line.speaker ? 'line' : 'narration', text: line.text, alias: line.alias, name: line.speaker,
+        lineId: line.id, para: index + 1, anchor: {para: index + 1, paragraphId: line.id, offset: 0},
+    })), [reader?.lines]);
     // While a gameMode view leases the stage its lines are the pages read here (useStageLease); the story keeps its place.
-    const leaseView = useStageLease({sessionId, config, voiceAvailable, story:{pages:storyPages, page:storyPage, setPage:setStoryPage, markRead:markStoryRead}});
+    const gameLease = useStageLease({sessionId, config, voiceAvailable, story:{pages:storyPages, page:storyPage, setPage:setStoryPage, markRead:markStoryRead}});
+    const leaseView = readerPanel ? {
+        leasing: true, scene: {actors: []}, key: readerPanel.pageId + ':' + (reader?.section || ''),
+        pages: readerPages, page: reader?.index || 0, waiting: !reader?.canAdvance,
+        setPage: index => { if (index !== reader?.index) reader?.command('select', index); },
+        markRead() {}, pastEnd: () => { if (reader?.canAdvance) reader.command('next'); }, isRead: () => false,
+    } : gameLease;
     const leasing = leaseView.leasing, pages = leaseView.pages, page = leaseView.page, setPage = leaseView.setPage, markRead = leaseView.markRead;
     // The reading's identity in page keys: the round, or the lease (its pages are not the round's).
     const readTurn = leasing ? 'lease:' + leaseView.key : turn;
@@ -385,6 +399,14 @@ function GalStage(props) {
     // show a "writing" state so the stage never looks stuck.
     const useSession = props.choiceProps && props.choiceProps.useSession;
     const running = useSession ? useSession(snapshot => snapshot.running === true) : false;
+    // Where the reader stands in the round, for the mods' parts: a tool result called for partway through the reply shows
+    // where the text goes on after the call (its `at`; a check's dice fall on that page, mods/dice place.js). para: this
+    // page's paragraph (0 while a page turns); first: its first page; end: the complete round's last page; start: the round's
+    // first page; units: its paragraphs so far; `running`: a reply is being written. null while a lease reads.
+    const placePara = transitioning ? 0 : pages[page]?.para || 0, placeEnd = !streaming && !(running && turn === latestTurn) && page >= pages.length - 1;
+    const readerPlace = React.useMemo(() => leasing ? null : {turn: runtime.textIndex.get(turn)?.nativeTurn || 0, para: placePara,
+        first: pages.findIndex(row => row.para === placePara) === page, end: placeEnd, start: page === 0, units: runtime.text.units?.length || 0, streaming, running},
+        [leasing, runtime.text.units, runtime.textIndex, turn, streaming, running, placeEnd, placePara, page, pages]);
     // the system-menu action shares upstream settlement activity.
     const regenerationActivity = useTavernCoordination(sessionId, String(running) + ":" + latestTurn);
     // the worldbook prefilter yields to any other task and never blocks the player (as in
@@ -405,7 +427,7 @@ function GalStage(props) {
     const accepted = runtime.accepted;
     const interopNotice = useCapabilityNotice(sessionId, runtime.cursor.mode === 'live', accepted.scene?.interopNotices);
     // with 「导演布景」 off the scene shows the manual picture; director state is untouched.
-    const borrowed = useStageLeaseAssets(sessionId, leaseView, runtime.source, runtime.director.assetRevision);
+    const borrowed = useStageLeaseAssets(sessionId, gameLease, runtime.source, runtime.director.assetRevision);
     const pack = {state:accepted.layout?.state || accepted.scene?.state, scene:useBgManualScene(sessionId, leasing ? borrowed?.scene : accepted.scene), characters:leasing ? borrowed?.characters || [] : accepted.figures || [],
         avatars:accepted.avatars || [], widgets:accepted.widgets || [],
         audio:{music:accepted.music,soundscape:accepted.ambience,sfx:[]}, core:leasing ? borrowed?.scene?.core || '' : accepted.layout?.core || accepted.scene?.core || ''};
@@ -506,8 +528,14 @@ function GalStage(props) {
     // passes it at once, in the same frame (no frame of the last line without the panel; skip plays no voice). A round with
     // nothing to read (openingOnly) is at its end.
     // A lease is at its end once the reader turned past its last line (pastEnd) until the game appends more.
-    const atEnd = leasing ? atLastLine && (leaseView.waiting || skipping) : atLastLine && (!readingPage || endedAt === endKey || skipping);
-    const turnPastEnd = () => { if (leasing) leaseView.pastEnd(); else setEndedAt(endKey); };
+    const atEnd = leasing ? atLastLine && (leaseView.waiting || (!readerPanel && skipping)) : atLastLine && (!readingPage || endedAt === endKey || skipping);
+    function turnPastEnd() {
+        if (leasing) { leaseView.pastEnd(); return; }
+        setEndedAt(endKey);
+        if (endedAt === endKey || !atLastLine || !readingPage || pageOpen || !cardPages?.openingEndPage ||
+            runtime.textIndex.get(turn)?.body?.greeting !== true) return;
+        openCardPage(cardPages.openingEndPage);
+    }
     // Backlog (gal-backlog.js): while open, auto and skip pause and the choices are hidden.
     const [backlog, setBacklog] = React.useState(false);
     const backlogClosedAt = React.useRef(0);
@@ -527,8 +555,15 @@ function GalStage(props) {
     const pageList = cardPages ? cardPages.pages : [];
     // openPage: the open page's id (null: none). Every overlay condition below reads pageOpen.
     const [openPage, setOpenPage] = React.useState(null);
+    const openStageReader = React.useCallback((panel, pageId) => {
+        setReaderState(null);
+        setOpenedReader({...panel, pageId, sessionId});
+        setOpenPage(null);
+    }, [sessionId]);
     const openDeclared = openPage === null ? null : pageList.find(declared => declared.id === openPage) || null;
     const pageOpen = openDeclared !== null;
+    // A full card page (size 'full') fills the stage: the scene under it stops drawing once settled, as under the handheld
+    // phone (scene.cjs desc.covered), so the page's own frames do not share the display with figures and effects nobody sees.
     // entryCardPage: the page this visit's showOn entry opened, while it is the open one. It stands in front of a stage not
     // entered yet: its line waits for it (stageRevealed) and closing it is 返回主页面; continueGame() / fillInput enter.
     const [entryCardPage, setEntryCardPage] = React.useState(null);
@@ -581,8 +616,32 @@ function GalStage(props) {
     // opened from the system menu's 回想 item (gal-menu.js), not from the control row.
     function openGallery() { setHidden(false); setGallery(true); }
     function closeGallery() { setGallery(false); backlogClosedAt.current = Date.now(); }
-    function openCardPage(id) { if (!pageList.some(declared => declared.id === id)) return; forkLipSync.wake(); forkUiSfx.play("open"); setHidden(false); setOpenPage(id); }
+    function openCardPage(id) {
+        if (!pageList.some(declared => declared.id === id)) return;
+        if (readerPanel?.pageId === id) { forkUiSfx.play("close"); setOpenedReader(null); setReaderState(null); setAuto(false); return; }
+        forkLipSync.wake(); forkUiSfx.play("open"); setHidden(false); setOpenPage(id);
+    }
     function closeCardPage() { forkUiSfx.play("close"); backlogClosedAt.current = Date.now(); setOpenPage(null); }
+    // 卡页面演出 (status-panel.cjs Performance): a mod overlay's cardPage.perform(pageId, cue) plays one of the card's pages
+    // over the scene, above the text box; one at a time. → Promise of {done} / {skipped}; rejected when the card has no such
+    // page, the page cannot be read, or another performance is up (the mod then shows what it shows without one).
+    const [pagePerform, setPagePerform] = React.useState(null);
+    const pagePerformNow = React.useRef(null), pageListNow = React.useRef(pageList);
+    pageListNow.current = pageList;
+    const cardPagePerformer = React.useMemo(() => Object.freeze({ perform(pageId, cue) {
+        if (!pageListNow.current.some(declared => declared.id === pageId)) return Promise.reject(new Error('本卡没有页面「' + String(pageId) + '」'));
+        if (pagePerformNow.current) return Promise.reject(new Error('舞台正在演另一段页面'));
+        return new Promise((resolve, reject) => {
+            const root = rootRef.current, box = root?.querySelector('.fork-gal-box');
+            const bottom = root && box ? Math.max(0, root.getBoundingClientRect().bottom - box.getBoundingClientRect().top) : 0;
+            const item = { key: sessionId + ':' + pageId + ':' + Date.now(), sessionId, pageId, cue, region: { bottom },
+                end: result => { if (pagePerformNow.current !== item) return; pagePerformNow.current = null; setPagePerform(null); if (result.failed) reject(new Error(result.failed)); else resolve(result); } };
+            pagePerformNow.current = item;
+            setPagePerform(item);
+        });
+    } }), [sessionId]);
+    // another session ends what the last one was playing
+    React.useEffect(() => () => { pagePerformNow.current?.end({ skipped: true }); }, [sessionId]);
     // closing an entry page (×, Esc, the backdrop, close()) is not entering: 返回主页面, as the stage menu's row.
     function leaveEntryPage() { forkUiSfx.play("close"); props.onExit(); }
     // A page's DshCardPage actions (status-panel.cjs onAction): open(id) switches to another page; openSettings() opens the
@@ -619,6 +678,9 @@ function GalStage(props) {
     // System menu (gal-menu.js): Esc opens it; auto / skip pause like the backlog. Leaving system full screen
     // (the browser takes that Esc) opens it too, and closing it asks for full screen again.
     const [menuOpen, setMenu] = React.useState(false);
+    // a page performing ends when something covers the stage (as the mods' live overlays stop)
+    const performCovered = hidden || film || backlog || configOpen || galleryOpen || pageOpen || menuOpen;
+    React.useEffect(() => { if (performCovered) pagePerformNow.current?.end({ skipped: true }); }, [performCovered]);
     // the turn-end menu's 「重新生成」 opens the menu straight into its 重新生成 dialog.
     const [menuRegenerate, setMenuRegenerate] = React.useState(false);
     const menuOpener = React.useRef(null);
@@ -684,7 +746,10 @@ function GalStage(props) {
             if (reading.skipTitlePage === true && cardPages.pages.some(page => page.showOn && !page.initial)) jumpLatest();
             return;
         }
-        setHidden(false); setOpenPage(id); setEntryCardPage(id); entrance.end();
+        setHidden(false);
+        if (named && asked.reader) openStageReader(asked.reader, id);
+        else { setOpenPage(id); setEntryCardPage(id); }
+        entrance.end();
     // a layout effect: the page is open in the same paint its declarations arrive in, never a frame of the stage before it
     }, [cardPages, stageVisit, sessionId, reading.skipTitlePage]);
     const narrow = useGalNarrow(); // the one stage breakpoint, 640px
@@ -964,9 +1029,6 @@ function GalStage(props) {
     // wheel stops it (the Ctrl hold effect below owns that for both), and that input is not also a page turn.
     const skippingRef = React.useRef(false);
     skippingRef.current = skipping;
-    // Leaving the stage silences it; the latest turn's lines still being synthesized finish into the cache, so the
-    // transcript's ▶ plays them at once (the session observation cancels whatever it no longer keeps).
-    React.useEffect(() => () => voicePlayer.stopPlayback(),[sessionId]);
     // Warm a small spoken opening even when its first page is narration; keep the existing two workers.
     const voiceWindow = skipping || backlog || awaiting ? [] : leasing ? pages.slice(page, page + 2).map(row => row.voice).filter(Boolean)
         : stageVoiceWindowFromIndex(sessionId,runtime.textIndex,turn,pages,page,config,entryGate.visible ? Infinity : 1);
@@ -981,6 +1043,7 @@ function GalStage(props) {
     const playingHere = Boolean(voice && player && player.owner === voice.owner && player.id === voice.id);
     function replay() {
         forkLipSync.wake();
+        if (readerPanel) { reader?.command('replay'); return; }
         if (!voice) return;
         playEvents.emit('voice_replay', sessionId, { turn, page });
         const now = voicePlayer.get();
@@ -1003,7 +1066,7 @@ function GalStage(props) {
         at:Math.min(pages[page]?.para || 1, runtime.director.through || 0), offset:runtime.cursor.anchor?.offset || 0, sending:!!waiting, running,
         waiting:!leasing && atEnd && (typed || openingOnly) && !hidden && !awaiting && !running && !sourceWidget.openKey && !!props.Choices});
     const awaitingDirection = runtime.indicators.awaitingDirection;
-    const audioBusy = playingHere && (!player.audio || forkForeground.isPlaying(player.audio)) && !player.error;
+    const audioBusy = readerPanel ? reader?.playing === true : playingHere && (!player.audio || forkForeground.isPlaying(player.audio)) && !player.error;
     const controlsInput=stageViews.input.useInput({sessionId,rootRef,
         modal:configOpen||galleryOpen||menuOpen,backlog,page:pageOpen?openPage:null,pages:pageList,hidden,auto,skipping,atEnd,widgetOpen:!!sourceWidget.openKey},action=>{
         switch(action.type){
@@ -1105,7 +1168,8 @@ function GalStage(props) {
     const phoneVoice = phoneCallKey ? phoneCall.speaking() : null, callAudio = phoneVoice?.audio || null;
     voiceSeen.current = {voice, view:galVoiceView(voicePlayer, voice)};
     const voiceError = (playingHere ? player.error : null) || voicePlayer.getError(voice);
-    const voiceState = voiceError ? "error" : playingHere ? (player.audio ? (player.audio.paused ? "paused" : "playing") : "loading") : voice ? "ready" : "";
+    const voiceState = readerPanel && reader?.voiced ? (reader.playing ? "playing" : "ready")
+        : voiceError ? "error" : playingHere ? (player.audio ? (player.audio.paused ? "paused" : "playing") : "loading") : voice ? "ready" : "";
     // The top-right voice line (notices.cjs useVoiceStatus): her reply on a call, else the line on screen (silent under SKIP).
     const callVoice = React.useSyncExternalStore((phoneCall || GAL_NO_PHONE_CALL).subscribe, () => galCallVoice(phoneCall));
     const voiceStatus = useGalVoiceStatus(callVoice ? JSON.parse(callVoice)
@@ -1200,7 +1264,7 @@ function GalStage(props) {
         lateFade:entryGate.visible && !skipping && entryPage.current === turn + ':' + page,
         // a picture the player switched to (bg-manual.js) takes its own transition (fade, or cut under 「减少动态」).
         background:pack.scene?.backgroundUrl ? {identity:pack.scene.backgroundMedia.identity,url:pack.scene.backgroundUrl,scene:JSON.stringify(pack.scene.background),transition:pack.scene.userTransition || (forwardReading&&!skipping?changeKind:'cut'),timing:!pack.scene.userTransition ? sceneChange : null} : null,
-        hideFigures:!!accepted.cg || cg.visible,figureMode:figuresShown ? 'stage' : 'none',figuresAway:sourceWidget.phoneShade,covered:sourceWidget.covered && !callView,reducedMotion:reading.reducedMotion===true,figures:items,figureLayout:{cast:castIds,priority:figurePriority,slots:skinFigures.slots,max:skinFigures.max,phone:skinFigures.phone,framing:skinFigures.framing},packLayers,grade:packLayers?JSON.stringify([packLayers.time,packLayers.mood]):'',timeFadeMs:pack.scene?.timeTransitionMs || 0,
+        hideFigures:!!accepted.cg || cg.visible,figureMode:figuresShown ? 'stage' : 'none',figuresAway:sourceWidget.phoneShade,covered:(sourceWidget.covered && !callView) || openDeclared?.size === 'full',reducedMotion:reading.reducedMotion===true,figures:items,figureLayout:{cast:castIds,priority:figurePriority,slots:skinFigures.slots,max:skinFigures.max,phone:skinFigures.phone,framing:skinFigures.framing},packLayers,grade:packLayers?JSON.stringify([packLayers.time,packLayers.mood]):'',timeFadeMs:pack.scene?.timeTransitionMs || 0,
         tapGate,tapMedia,weather:state?.weather || 'none',screen:state?.screen || null,camera:leasing ? {shot:'',target:''} : {shot:state?.camera.mode || '',target:state?.camera.actor || ''},dof:leasing ? null : state?.dof,effects:sceneEffects,effectTables,safety:effectSafety,skipping,preload:[],
         // The inner-monologue backdrop (the resolved `thinking` effect) while the line on screen is inner monologue.
         thinking:!awaiting && !transitioning && current?.thought ? stageEffectResolve('thinking',effectTables.skin,effectTables.local) : null,
@@ -1310,7 +1374,7 @@ function GalStage(props) {
     const handoff = useGalFaceHandoff(sessionId + ":" + boxPageKey, { facing, shown: Boolean(face && (face.src || face.glyph)), moves: faceMode !== "off", snap: faceSnap || !!accepted.cg || cg.visible, calm: calmMotion, typed });
     const historyRolls=stageViews.playback.usePlayback({sessionId,runtime,reading,auto,skipping,hidden,
         overlay:backlog||configOpen||galleryOpen||pageOpen||menuOpen||!!insert,typed,current,atEnd,awaiting,sceneHolding,
-        line:{turn,page,card,inputCard,transitioning,subtitles,inputSubtitles,lastCard,voice,audioBusy,heldMs:handoff.heldMs,film,pageCount:pages.length},
+        line:{turn,page,card,inputCard,transitioning,subtitles,inputSubtitles,lastCard,voice,audioBusy,heldMs:handoff.heldMs,film,pageCount:pages.length,rollPlace:Boolean(readerPlace && (readerPlace.first || readerPlace.end))},
         performance:{replayable:performanceKinds.replayable,holds:[...modPerformances.holds,{remainingMs:cg.holdMs()}],holdKey:cg.holdTick,blocking:takeover.busy||!!title,dialogueHeld,busy:presentationBusy}},
         {advance:()=>go(1,true),finishSkip:()=>{turnPastEnd();stopSkip();},finishTyping:()=>setTyped(true)});
     // An insert page holds the playback clock (overlay above): AUTO turns it a wordless page's wait (the CONFIG auto wait,
@@ -1403,7 +1467,7 @@ function GalStage(props) {
     }
     // Mixer and Config: cheap previews (a short built-in one-shot, the current voice line).
     const testSfx = pack.audio?.sfx[0]?.url;
-    const mixTests = { voice: voice ? replay : null, sfx: testSfx ? () => stageSfx.play(testSfx) : null };
+    const mixTests = { voice: voice || reader?.voiced ? replay : null, sfx: testSfx ? () => stageSfx.play(testSfx) : null };
     // Boxless narration (centre dim / image band) is opt-in: only a skin that declares art.narration gets a layout; every
     // other skin keeps its own narration box (a figure under classic must not read as another skin).
     const narrationPresentation=React.useRef(null);
@@ -1425,11 +1489,12 @@ function GalStage(props) {
     // data-reduced-motion mirrors CONFIG 「减少动态」 for CSS-only theme motion (the crt power-on/blink).
     const menuProps = leaving => Object.assign({ leaving, sessionId, useChat: props.choiceProps.useChat, Regenerate: props.Regenerate, waitLines, regenerate: menuRegenerate, historical: turn !== latestTurn, latestTurn,
         busy: regenerateBlocked, controls: homes.menu, auto, skipping: skipLatch, atEnd, touch: firstRun.touch,
-        letter: activeSkin?.art?.menu?.rows?.letter, titleLetter: activeSkin?.art?.menu?.title?.letter, glyphTiles: activeSkin?.art?.menu?.glyphTiles, pages: pageList }, menuActions);
+        letter: activeSkin?.art?.menu?.rows?.letter, titleLetter: activeSkin?.art?.menu?.title?.letter, glyphTiles: activeSkin?.art?.menu?.glyphTiles,
+        pages: readerPanel ? pageList.map(item => item.id === readerPanel.pageId ? {...item, label: '返回序章'} : item) : pageList }, menuActions);
     return h("div", { ref: rootRef, tabIndex: -1, className: "fork-gal-stage" + (film ? " is-film" : "") + (backlog ? " is-backlog" : "") + (configOpen ? " is-config" : "") + (menuOpen ? " is-menu" : "") + (hidden ? " is-ui-hidden" : "") + (takeover.up ? " is-takeover" : "") + (insertPicture ? " is-picture" : ""), "data-theme": theme, "data-card-page-menu": pageList.filter(declared => declared.menu).map(declared => declared.id).join(" ") || undefined, "data-entry": entryGate.phase, "data-entrance": entrance.stageAttr, "data-skin-buttons": homes.declared.join(" ") || undefined, "data-reduced-motion": reading.reducedMotion === true || undefined, "data-cg-visible": !!accepted.cg || cg.visible || undefined, "data-narration-layout": narrationLayout, "data-fk-device": device, "data-fk-quality": quality, "data-phone-open": sourceWidget.phoneOpen || undefined, "data-covered": scene.covered || undefined, "data-fk-context": "stage-" + theme, "data-hud": hud.state || undefined, "data-speaking": speaker ? "true" : "false", "data-fk-portrait-bust": bustAlias ? "" : undefined,
         // a square skin (its --gal-ui-radius, stage-skin-adapter.cjs, is 0): its engine widgets drop their soft shadows (theme.css)
         "data-fk-skin-square": activeSkin && (activeSkin.ui?.radius ?? activeSkin.textbox?.shape?.radius ?? 10) === 0 ? "" : undefined, "data-fork-stage-turn": turn, "data-fork-stage-para": para,
-        "data-stage-lease": leasing ? leaseView.lease.owner : undefined,
+        "data-stage-lease": gameLease.lease?.owner, "data-stage-reader": readerPanel?.id,
         "data-fk-tx-leaving": stageLeaving || undefined, "data-fk-tx-entering": stageEntering || undefined, "data-fk-veil": veilShown.current || undefined,
         // the current skin's text percent; theme.css multiplies the skin's own sizes by it
         // and keeps the text block where the skin puts it (data-fk-text-scale: only set off 100%, so 100% is untouched).
@@ -1442,6 +1507,12 @@ function GalStage(props) {
         onWheel: wheel,
         onContextMenu: event => { event.preventDefault(); if(galleryOpen||pageOpen)return; if (hidden) setHidden(false); else setHidden(true); } },
         h(GalScene, { start:loadGate.visible, onPresented:revision => { loadGate.onPresented(revision); if (entryGate.visible) onPresented(revision); else if (entrance.active) heldPresented.current = revision; }, onBackdrop:loadGate.onBackdrop, scene: displayScene, onDebug: onSceneDebug, onUi, onError: setSceneError, reload: sceneReload, onLayout: setFigureLayout }),
+        readerPanel ? h('div', {className:'fork-gal-reader-scene', style:{position:'absolute',inset:0,zIndex:1}}, h(stageViews.statusPanel.PluginPanel, {
+            key:JSON.stringify([sessionId, readerPanel.pageId, readerPanel.anchor]), sessionId, plugin:readerPanel.plugin, id:readerPanel.id,
+            stagePageId:readerPanel.pageId, entryAnchor:readerPanel.anchor,
+            reader:{publish:setReaderState, paused:backlog || configOpen || galleryOpen || pageOpen || menuOpen, silent:skipping,
+                key:(key, released, shiftKey) => window.dispatchEvent(new window.KeyboardEvent(released ? 'keyup' : 'keydown', {key, shiftKey, cancelable:true}))},
+        })) : null,
         !accepted.cg && !cg.visible && figuresShown && !stageShot && standIns.length ? h(GalStandIns, { members: standIns, portraits, colorOf }) : null,
         cg.node,
         // the item glow takes the speaker's 形象色.
@@ -1475,7 +1546,7 @@ function GalStage(props) {
         h("div", { className: "fork-gal-letterbox", "aria-hidden": true }, h("i"), h("i")),
         // the leasing game's own controls (lease-hud.cjs), between the top bar and the text box in this skin's theme scope.
         // Follow the text box's held line through transitions, not the read high-water mark or game queue.
-        leasing ? h(stageViews.lease.Hud, { lease: leaseView.lease, rows: leaseHudRows(), device, read: leaseView.read,
+        leasing && !readerPanel ? h(stageViews.lease.Hud, { lease: leaseView.lease, rows: leaseHudRows(), device, read: leaseView.read,
             displayed: boxLine ? {lineId:boxLine.lineId, speaker:boxLine.kind === 'line' ? boxLine.name || null : null} : null }) : null,
         h(stageEntryContextType().Provider, { value: entryStore }, h("div", { ref: topbarRef, className: "fork-gal-topbar", onClick: event => event.stopPropagation(), onFocus: hud.onFocus, onBlur: hud.onBlur },
             h("div", { className: "fork-gal-topleft" },
@@ -1538,7 +1609,7 @@ function GalStage(props) {
             // the reply wait's look (StageWaitStop + StageWaitLines, portalled by gal-choices.js); empty, it takes no room.
             h("div", { ref: setChoiceWaitSlot, className: "fork-gal-box-wait" }),
             // the mods' page parts sit on the box's top edge, out of its flow (mod-clients.js; e.g. a live roll's one-shot strip).
-            props.choiceProps && props.choiceProps.useChat ? modClients.slot('page').map(part => h(part.value, { key: part.modId, useChat: props.choiceProps.useChat, nativeTurn: runtime.textIndex.get(turn)?.nativeTurn || 0, pageKey, sessionId, input: modClients.input(props.choiceProps.executeSlash, sessionId) })) : null,
+            props.choiceProps && props.choiceProps.useChat ? modClients.slot('page').map(part => h(part.value, { key: part.modId, useChat: props.choiceProps.useChat, nativeTurn: runtime.textIndex.get(turn)?.nativeTurn || 0, pageKey, sessionId, place: readerPlace, input: modClients.input(props.choiceProps.executeSlash, sessionId) })) : null,
             // film mode shows the page count briefly on each page turn
             // (the keyed node restarts its CSS fade); hover still shows it in full.
             h("div", { key: film ? "flash:" + pageKey : "meta", className: "fork-gal-meta" + (film ? " is-flash" : "") },
@@ -1562,11 +1633,15 @@ function GalStage(props) {
         entrance.element,
         // the mods' overlay parts (mod-clients.js; e.g. a live roll thrown above the box). live: the reader follows the
         // arrival with nothing over the stage and no skip; calm: only the CONFIG 减少动态 setting, not the OS one (ui-design
-        // R20); veiled: under the first-entry veil; replay: a clip replay's visit or the settled history page's replay.
-        props.choiceProps && props.choiceProps.useChat ? modClients.slot('overlay').map(part => h(part.value, { key: part.modId, sessionId, useChat: props.choiceProps.useChat, running, following: presenting === 'live', device, rootRef, calm: reading.reducedMotion === true, safety: effectSafety,
+        // R20); veiled: under the first-entry veil; replay: a clip replay's visit or the settled history page's replay;
+        // place: where the reader stands in the round (above).
+        props.choiceProps && props.choiceProps.useChat ? modClients.slot('overlay').map(part => h(part.value, { key: part.modId, sessionId, useChat: props.choiceProps.useChat, running, place: readerPlace, following: presenting === 'live', device, rootRef, calm: reading.reducedMotion === true, safety: effectSafety,
             veiled: !entryGate.visible, input: modClients.input(props.choiceProps.executeSlash, sessionId), screen: playModBeat,
             replay: replaying && runtime.replay?.phase === 'play' ? runtime.cursor.visitId : historyRolls, nativeTurn: runtime.textIndex.get(turn)?.nativeTurn || 0,
+            cardPage: stageViews.statusPanel ? cardPagePerformer : undefined,
             live: (presenting === 'live' || !!historyRolls) && !skipping && !film && !hidden && !backlog && !configOpen && !galleryOpen && !pageOpen && !menuOpen })) : null,
+        // a card page performing (cardPage.perform above), over the scene and the mods' layers, clear of the text box
+        pagePerform && pagePerform.sessionId === sessionId ? h(stageViews.statusPanel.Performance, { key: pagePerform.key, sessionId, pageId: pagePerform.pageId, cue: pagePerform.cue, calm: reading.reducedMotion === true, region: pagePerform.region, onEnd: pagePerform.end }) : null,
         // Reading done: the next move sits in the middle of the screen.
         // a latest turn with nothing to read (an HTML introduction / opening chooser) is done too: the
         // panel offers 生成选项 and 自由输入 (no 重新生成); leaving is the existing 返回主页面 (R13).
@@ -1582,7 +1657,7 @@ function GalStage(props) {
         // CONFIG, 回想 or 履历 opened from a page (openSettings / openGallery / openBacklog) stands over it: Esc, which the page takes
         // first, closes that then.
         pageOpen ? h(stageViews.statusPanel.Overlay, { key: sessionId + ":" + openPage, sessionId, pageId: openPage, label: openDeclared.label, shortcut: openDeclared.shortcut, config, source: runtime.source, size: openDeclared.size,
-            closeControl: openDeclared.closeControl, covered: configOpen || galleryOpen || backlog, saved: cardPages.fresh !== true, entry: entryOpen, openingPage: pageList.find(declared => declared.opening === true)?.id || '', opening: openDeclared.opening === true, onClose: configOpen ? closeConfig : galleryOpen ? closeGallery : backlog ? closeBacklog : entryOpen ? leaveEntryPage : closeCardPage, onAction: cardPageAction }) : null,
+            closeControl: openDeclared.closeControl, covered: configOpen || galleryOpen || backlog, saved: cardPages.fresh !== true, entry: entryOpen, openingPage: pageList.find(declared => declared.opening === true)?.id || '', opening: openDeclared.opening === true, onClose: configOpen ? closeConfig : galleryOpen ? closeGallery : backlog ? closeBacklog : entryOpen ? leaveEntryPage : closeCardPage, onAction: cardPageAction, onStageReader:openStageReader }) : null,
         configOpen || configLeaving ? h(GalConfigScreen, { sessionId, data: props.data, tests: mixTests, textSkin: shownSkin.current, skinHud: activeSkin?.hud?.reveal || "auto", skinPending: configSkin.pending === true, onClose: closeConfig, leaving: configLeaving }) : null,
         // §18 E3: after closing, a drawn menu with an exit motion stays mounted (inert) while its items leave.
         menuOpen ? h(stageViews.menu.Menu, menuProps(false)) : menuLeaving ? h(stageViews.menu.Menu, menuProps(true)) : null,

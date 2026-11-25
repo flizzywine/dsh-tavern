@@ -195,7 +195,7 @@ export function createPlayCardSnapshots({ worldBooks, planner, readCard, readLat
 
   function cardStatusBase(chat, card) {
     const cardChanged = !chat.cardContentDigest || chat.cardContentDigest !== digestOfCard(card)
-    const migrations = (card?.extensions?.dsh_tavern?.stateMigrations || []).filter(plan => !chat.cardStateMigrationIds?.includes(plan.id)).flatMap(plan => plan.operations || []).map(op => op.op === 'move' ? op.from + ' → ' + op.path : op.op === 'convert' ? op.path + ' → ' + op.type : '删除 ' + op.path)
+    const migrations = (card?.extensions?.dsh_tavern?.stateMigrations || []).filter(plan => !chat.cardStateMigrationIds?.includes(plan.id)).flatMap(plan => plan.operations || []).map(op => op.op === 'move' ? op.from + ' → ' + op.path : op.op === 'map' ? op.path + ' 取值 ' + Object.entries(op.values || {}).map(([from, to]) => from + ' → ' + to).join('、') : op.op === 'convert' ? op.path + ' → ' + op.type : '删除 ' + op.path)
     return { legacy: !chat.cardContentDigest, cardChanged, migrations }
   }
 

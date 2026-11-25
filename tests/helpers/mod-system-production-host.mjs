@@ -54,10 +54,18 @@ export async function installedFixture(t,{enabled=[]}={}) {
     ctx.tavern=Object.assign(Object.create(api.service),{ctx});plugin.apply(ctx)
   }
   t.after(()=>[...disposers.values()].reverse().forEach(dispose=>dispose()))
-  if(enabled.length) {
+  // A switched mod is turned on globally; a card-declared one (activation 'card') is declared by the fixture card.
+  const declared=new Set(f.production.modHost.manifests().filter(row=>row.activation==='card').map(row=>row.id))
+  const switched=enabled.filter(id=>!declared.has(id))
+  if(switched.length) {
     const current=f.production.settings.read(),value=structuredClone(current.value)
-    value.mods=Object.fromEntries(enabled.map(id=>[id,true]))
+    value.mods=Object.fromEntries(switched.map(id=>[id,true]))
     await f.production.settings.compareAndSwap({expectedRevision:current.revision,expectedValue:current.value,value})
+  }
+  for(const id of enabled.filter(id=>declared.has(id))) {
+    const list=await f.rpc('managedModsList',{cardId:'native-card-id'})
+    const plan=await f.rpc('managedModSwitchPlan',{scope:'card',kind:'mod',id,value:'on',cardId:'native-card-id',revision:list.revision})
+    await f.rpc('managedModApply',{token:plan.token,revision:plan.revision,answers:{}})
   }
   return {...f,unload:packageName=>{disposers.get(packageName)();disposers.delete(packageName)}}
 }
