@@ -287,7 +287,7 @@ test('native Session and disk Chat journal recover a failed marker once, then ac
   const recovered = await h.open().ensureOpening(h.input.sessionId)
   assert.equal(recovered.nativeOpeningAppended, true)
   assert.equal(openingEvents(h.target.session).length, 1)
-  assert.equal(h.target.session.deriveMessages().length, 5)
+  assert.equal(h.target.session.deriveMessages().length, 4)
   assert.equal(h.target.session.deriveMessages()[0].source.form, 'snapshot')
   assert.equal((await h.persistence.read(recovered.id)).nativeOpeningAppended, true)
   await h.continueWithAgent()
@@ -309,7 +309,7 @@ test('failed native flush restores only durable events and finishes the publishe
   t.after(() => h.dispose())
   h.state.failFlush = true
   await assert.rejects(h.open().start(h.input), /native flush failure/)
-  assert.equal(openingEvents(h.target.session).length, 0, 'the pre-opening seed flush failed before the greeting was appended')
+  assert.equal(openingEvents(h.target.session).length, 1, 'the seed holds no assistant reply, so the greeting flush is the one that failed')
   await h.restoreDetached()
   assert.equal(openingEvents(h.target.session).length, 0, 'failed flush did not persist the greeting')
   h.state.failFlush = false
