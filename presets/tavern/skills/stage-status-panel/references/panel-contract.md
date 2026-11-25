@@ -91,7 +91,7 @@ tavern_update_card({ rawOperations: [
 | 接口 | 作用 |
 | --- | --- |
 | `page` | 本页 id。 |
-| `data()` | 当前快照（副本）：`{ledger, figures, theme, card: {name}, saved, entry}`。 |
+| `data()` | 当前快照（副本）：`{ledger, figures, theme, card: {name}, saved, entry}`；本页正在舞台上演出时还有 `perform`，见「页面演出」。 |
 | `onData(fn)` | 推送新快照时调用 `fn(snapshot)`，返回取消订阅的函数。 |
 | `onCloseRequest(fn)` | 只用于 `closeControl:"page"` 的页面：玩家按 Esc、本页快捷键或右键时调用 `fn()`，页面先关自己的详情等，已在最上层时调 `close()`；返回取消订阅的函数。本页上面开着 CONFIG、回想或履历时 Esc 先关它们，不调用 `fn`。 |
 | `close()` | 关闭本页；进入舞台时打开的 showOn 页是返回主页面。 |
@@ -110,6 +110,16 @@ tavern_update_card({ rawOperations: [
 | `openBacklog()` | 在本页上面打开「履历」，关掉履历回到本页；在履历里点某一句就关闭本页，从那一句进入舞台。 |
 | `exit()` | 返回主页面（与舞台菜单的「返回主页面」相同）。 |
 | `sound(name)` | 播放界面音效，`name` 是 `move`（移动、悬停）、`confirm`（确定）、`open`、`close` 之一；皮肤自带这个音效就用皮肤的，没有就用舞台内置的同名音效；跟随界面音量和静音。 |
+
+### 页面演出
+
+卡的规则（AI检定模组的 `dsh.rules`）给一个不掷骰的动作写 `page: "页面 id"` 时，这个动作在正文里提交、读者读到那里，舞台就请这一页在舞台中央把它演一遍，代替文本框上方那张变化卡（例：三角机构「花时间」由档案页演格子被标上、被划掉）。演出时：
+
+- 页面没有窗口、标题和遮罩，铺在对白框上方的那块地方，背景透明，不接收指针；画面自己居中、放不下就缩小。
+- `data().perform` 是 `{cue, calm}`：`cue` 是 `{action, label, steps: [{params, changes}]}`，一起到的几次同一动作是几步（连花两点是两步），`changes` 是玩家能看的每项变化 `{path, label, from?, to?}`（保密和内部变量不在里面）；`calm` 是舞台 CONFIG 的「减少动态」，为 true 时直接显示结果、不做动画。
+- 页面画出相关的那一块，从 `from` 演到 `to`，演完自己淡出并调用 `close()`。玩家点一下舞台或按 Esc 提前结束。演出中只能用 `data`、`onData`、`asset`、`assets`、`sound` 和 `close`，其余方法拒绝。
+- 页面读不出来、本卡没有这一页时，舞台照旧显示那张变化卡。重新载入、翻历史不演，舞台上也不再出那张卡（状态页本身就显示结果）。
+- 同一份 HTML 平时是状态页：脚本开头先看 `DshCardPage.data().perform`，有就只演这一块，不渲染整页。
 
 每个动作都返回 Promise。页面开着时它会兑现或拒绝，点按钮时先禁用按钮、等 Promise 结束后再启用即可；页面被关掉时还没结束的 Promise 可能不再结束，不要靠它做收尾。
 
