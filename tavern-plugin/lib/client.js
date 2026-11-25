@@ -50160,6 +50160,8 @@ function installTavernScriptCardUpdate({ window: w, rpc, ask = askTavernScriptCa
 			}
 			// toOpening: the player asked for a new game on the stage (its title page's 新游戏 on a saved chat), so a card with an
 			// opening page enters it at once instead of at its title page.
+			// card.entryStart: the card's own initial entry page opens each new game and the 游戏准备 has nothing to ask (no opening
+			// setup, one greeting): the game starts at that greeting at once, on the stage when it is on, else in text mode.
 			async function openPlayCard(card, toOpening) {
 				if (busy) return;
 				if (pendingChatImport) {
@@ -50172,7 +50174,8 @@ function installTavernScriptCardUpdate({ window: w, rpc, ask = askTavernScriptCa
 				setBusy(true);
 				setError("");
 				try {
-					if (card.hasOpeningForm && await stageOpens(card)) {
+					const startsItself = card.entryStart === true || (card.hasOpeningForm && Boolean(card.openingPage));
+					if (startsItself && await stageOpens(card)) {
 						// the card's own opening page on the stage takes the place of the 游戏准备: the chat made here is the
 						// never-played game the page completes (and replaces). The stage client loads only while an open session
 						// needs it (none may be open yet, e.g. a fresh install): it is held until the new game is entered.
@@ -50181,19 +50184,19 @@ function installTavernScriptCardUpdate({ window: w, rpc, ask = askTavernScriptCa
 						try {
 							return await newConversation(card, null, undefined, undefined, undefined, { onCreated: function (created) {
 								entering = true;
-								whenStageAvailable(function () { release(); galEnter(created.sessionId, toOpening ? { page: card.openingPage } : undefined); });
+								whenStageAvailable(function () { release(); galEnter(created.sessionId, toOpening && card.openingPage ? { page: card.openingPage } : undefined); });
 							} });
 						} finally { if (!entering) release(); }
 					}
+					if (card.entryStart === true) return await newConversation(card, null, undefined, undefined, undefined, {});
 					return await preparePlayConversation(card);
 				} finally { setOpeningCardName(""); setBusy(false); }
 			}
-			// The card declares an opening page, the server stage is ready and the card's 舞台模式 is effective.
+			// The server stage is ready and the card's 舞台模式 is effective.
 			async function stageOpens(card) {
-				if (!card.openingPage) return false;
 				try {
 					return (await call("prepareCardStage", { path: card.path }))?.stage === true;
-				} catch (error) { console.warn("dsh-tavern: 读不到舞台设置，改用游戏准备", error); return false; }
+				} catch (error) { console.warn("dsh-tavern: 读不到舞台设置，按舞台关闭开局", error); return false; }
 			}
 			function whenStageAvailable(run) {
 				if (galStageAvailable.get()) return run();
