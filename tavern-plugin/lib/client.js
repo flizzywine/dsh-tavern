@@ -18673,6 +18673,7 @@ try { installTavernReasoningStream(); } catch (error) { /* 同步失败时按默
                 if (owned.has(node) || owners.has(node) || node.hasAttribute?.("data-tavern-retained-frames")
                     || node.hasAttribute?.("data-dsh-tavern-text-colors")) return;
                 owners.set(node, identity);
+                created.add(node);
                 node.setAttribute?.("data-dsh-tavern-host-artifact", "");
                 if (sessionId && !node.getAttribute?.("data-dsh-tavern-card-app-session")) {
                     node.setAttribute?.("data-dsh-tavern-card-app-session", sessionId);
@@ -18681,18 +18682,63 @@ try { installTavernReasoningStream(); } catch (error) { /* 同步失败时按默
                     root: root, nextSibling: node.nextSibling, parked: false });
             }
             let disposed = false, visible = true;
-            const created = new Set();
+            const created = new WeakSet();
+            function forget(node) {
+                const previous = owned.get(node);
+                if (previous.body) node.hidden = previous.hidden;
+                else if (node.tagName === "STYLE" || node.tagName === "LINK") node.disabled = previous.disabled;
+                owned.delete(node);
+                owners.delete(node);
+                node.removeAttribute?.("data-dsh-tavern-host-artifact");
+            }
             function captureCreated() {
-                for (const node of created) if (roots.includes(node.parentNode)) remember(node, node.parentNode);
+                for (const root of roots) for (const node of root.childNodes) {
+                    if (created.has(node)) remember(node, root);
+                }
+                for (const [node, previous] of owned) {
+                    if (node.parentNode === previous.root || node.parentNode === parkingRoots.get(previous.root)) continue;
+                    if (roots.includes(node.parentNode)) {
+                        previous.root = node.parentNode;
+                        previous.body = node.parentNode === hostDocument.body;
+                        previous.parked = false;
+                    } else forget(node);
+                }
+            }
+            // The root exposed to card scripts is a proxy. Cards may keep
+            // requesting the position an iframe already occupies on each load.
+            function placeFrames(root, nodes, before) {
+                if (disposed || !roots.includes(root) || !nodes.length || new Set(nodes).size !== nodes.length
+                    || nodes.some(node => node?.localName !== "iframe" || node.parentNode !== root)
+                    || (before !== null && before?.parentNode !== root)) return false;
+                if (typeof root.moveBefore !== "function") {
+                    return nodes.every((node, index) => node === before || node.nextSibling === (nodes[index + 1] || before));
+                }
+                // DOM insertion prepends by preserving order and treating an
+                // existing first child in this batch as part of the input.
+                while (before && nodes.includes(before)) before = before.nextSibling;
+                for (let index = nodes.length - 1; index >= 0; index--) {
+                    const node = nodes[index];
+                    if (node.nextSibling !== before) root.moveBefore(node, before);
+                    before = node;
+                }
+                return true;
+            }
+            function mutateRoots(targets, mutate) {
+                const before = targets.map(root => [root, new Set(root.childNodes)]);
+                try { return mutate(); }
+                finally {
+                    for (const [root, existing] of before) for (const node of Array.from(root.childNodes)) {
+                        if (!existing.has(node)) { if (disposed) node.remove(); else remember(node, root); }
+                    }
+                    if (!disposed) { captureCreated(); park(); }
+                }
             }
             if (host && host.MutationObserver) {
-                observer = new host.MutationObserver(function (changes) {
-                    for (const change of changes) for (const node of change.addedNodes) {
-                        if (created.has(node)) remember(node, change.target);
-                    }
+                observer = new host.MutationObserver(function () {
+                    captureCreated();
                     park();
                 });
-                for (const root of roots) observer.observe(root, { childList: true });
+                for (const root of [...roots, ...parkingRoots.values()]) observer.observe(root, { childList: true });
             }
             return Object.freeze({
                 trackNode: function (node) {
@@ -18718,21 +18764,23 @@ try { installTavernReasoningStream(); } catch (error) { /* 同步失败时按默
                     }
                     return null;
                 },
-                mutateRoot: function (root, mutate) {
-                    const before = new Set(root.childNodes);
-                    try { return mutate(); }
-                    finally {
-                        for (const node of Array.from(root.childNodes)) if (!before.has(node)) {
-                            if (disposed) node.remove(); else remember(node, root);
-                        }
-                        park();
-                    }
+                mutateRoot: function (root, method, args, mutate) {
+                    const many = method === "append" || method === "prepend";
+                    const before = method === "prepend" ? root.firstChild
+                        : method === "insertBefore" ? args[1] ?? null : null;
+                    const one = (method === "appendChild" && args.length > 0) || (method === "insertBefore" && args.length > 1);
+                    if ((many || one) && placeFrames(root, many ? args : [args[0]], before)) return one ? args[0] : undefined;
+                    return mutateRoots([root], mutate);
                 },
                 // Scope the mounting operation, not the whole asynchronous import.
                 // Other conversations and the app can render while that import waits.
                 bindJQuery: function (jquery) {
                     const wrappers = new WeakMap();
                     const mutations = new Set(["append", "prepend", "before", "after", "appendTo", "prependTo", "insertBefore", "insertAfter", "replaceWith", "replaceAll", "html"]);
+                    const removals = new Set(["remove", "detach", "empty"]);
+                    const insertions = new Set(["append", "prepend", "before", "after"]);
+                    const transfers = new Set(["appendTo", "prependTo", "insertBefore", "insertAfter"]);
+                    const hostNode = Symbol.for("dsh-tavern.hostNode");
                     function select(selector, context, result) {
                         result = result.filter(function () { const owner = ownerOf(this); return !owner || owner === identity; });
                         if (!parking || disposed) return result;
@@ -18750,22 +18798,28 @@ try { installTavernReasoningStream(); } catch (error) { /* 同步失败时按默
                             const method = target[key];
                             if (typeof method !== "function" || key === "constructor") return method;
                             return function () {
-                                const before = mutations.has(key) ? roots.map(root => ({ root, nodes: new Set(root.childNodes) })) : null;
-                                // Explicit removal must not resurrect a parked panel
-                                // when the conversation becomes visible again.
-                                if (key === "remove") {
-                                    const removed = arguments[0] ? target.filter(arguments[0]) : target;
-                                    for (const node of owned.keys()) if (removed.toArray().some(root => root === node || root.contains?.(node))) {
-                                        owned.delete(node); owners.delete(node);
+                                if (target.length === 1 && insertions.has(key)) {
+                                    const node = target[0];
+                                    const root = key === "append" || key === "prepend" ? node : node.parentNode;
+                                    const before = key === "prepend" ? root.firstChild
+                                        : key === "before" ? node : key === "after" ? node.nextSibling : null;
+                                    const nodes = Array.from(arguments).flatMap(value => value?.jquery ? value.toArray() : value);
+                                    if (placeFrames(root, nodes, before)) return proxy;
+                                }
+                                if (transfers.has(key) && target.length && target[0].localName === "iframe") {
+                                    const destination = jquery(arguments[0]?.[hostNode] || arguments[0]);
+                                    if (destination.length === 1) {
+                                        const node = destination[0];
+                                        const root = key === "appendTo" || key === "prependTo" ? node : node.parentNode;
+                                        const before = key === "prependTo" ? root.firstChild
+                                            : key === "insertBefore" ? node : key === "insertAfter" ? node.nextSibling : null;
+                                        const nodes = target.toArray();
+                                        if (placeFrames(root, nodes, before)) return wrap(target.pushStack(nodes));
                                     }
                                 }
-                                let result;
-                                try { result = method.apply(target, arguments); }
-                                finally {
-                                    if (before) for (const entry of before) for (const node of Array.from(entry.root.childNodes)) {
-                                        if (!entry.nodes.has(node)) { if (disposed) node.remove(); else remember(node, entry.root); }
-                                    }
-                                }
+                                const mutate = () => method.apply(target, arguments);
+                                let result = mutations.has(key) || removals.has(key)
+                                    ? mutateRoots(roots, mutate) : mutate();
                                 if (key === "find" && typeof arguments[0] === "string") result = select(arguments[0], target, result);
                                 return wrap(result);
                             };
@@ -18811,9 +18865,8 @@ try { installTavernReasoningStream(); } catch (error) { /* 同步失败时按默
                     for (const node of owned.keys()) {
                         if (typeof node.remove === "function") node.remove();
                         else if (node.parentNode && typeof node.parentNode.removeChild === "function") node.parentNode.removeChild(node);
+                        forget(node);
                     }
-                    owned.clear();
-                    created.clear();
                 }
             });
         }
@@ -21616,26 +21669,14 @@ function tavernModelRefusalNotice(text) {
 		        return function (...args) {
 		          const nodes = args.map(unwrap);
 		          const artifacts = frame.frameElement?.__dshTavernHostArtifacts;
-		          const child = nodes[0];
-		          // A card comparing parentElement with this root proxy may append an
-		          // iframe already here on every load. Native re-insertion reloads it.
-		          if (artifacts && (key === 'append' || key === 'appendChild') && nodes.length === 1
-		              && child?.localName === 'iframe' && child.parentNode === target) {
-		            const result = key === 'appendChild' ? child : undefined;
-		            if (!child.nextSibling) return result;
-		            if (typeof target.moveBefore === 'function') {
-		              target.moveBefore(child, null);
-		              return result;
-		            }
-		          }
 		          const run = () => value.apply(target, nodes);
-		          return mutations.has(key) && artifacts ? artifacts.mutateRoot(target, run) : run();
+		          return mutations.has(key) && artifacts ? artifacts.mutateRoot(target, key, nodes, run) : run();
 		        };
 		      },
 		      set(target, key, value) {
 		        const run = () => Reflect.set(target, key, value, target);
 		        const artifacts = frame.frameElement?.__dshTavernHostArtifacts;
-		        return key === 'innerHTML' && artifacts ? artifacts.mutateRoot(target, run) : run();
+		        return key === 'innerHTML' && artifacts ? artifacts.mutateRoot(target, key, [], run) : run();
 		      }
 		    });
 		    roots.set(root, proxy); nativeRoots.set(proxy, root);

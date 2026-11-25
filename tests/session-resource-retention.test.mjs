@@ -74,7 +74,9 @@ test('重复把已挂载的卡片 iframe 加到 body 时保留文档和 DOM 顺�
     const script = body.querySelector('iframe')
     const artifacts = window.makeScope({ document: window.document })
     script.__dshTavernHostArtifacts = artifacts
-    const host = window.makeWindow(script.contentWindow, window).parent.document
+    window.eval(readFileSync(new URL('../tavern-plugin/lib/vendor/runtime-assets/jquery/jquery.min.js', import.meta.url), 'utf8'))
+    script.contentWindow.jQuery = artifacts.bindJQuery(window.jQuery)
+    const view = window.makeWindow(script.contentWindow, window).parent, host = view.document
 
     const phone = host.createElement('iframe')
     host.body.append(phone)
@@ -85,6 +87,9 @@ test('重复把已挂载的卡片 iframe 加到 body 时保留文档和 DOM 顺�
     for (let i = 0; i < 5; i++) {
       if (phone.parentElement !== host.body) host.body.append(phone)
       assert.equal(host.body.appendChild(phone), phone)
+      assert.equal(host.body.insertBefore(phone, null), phone)
+      view.$('body').append(phone)
+      view.$(phone).appendTo(host.body)
     }
     assert.equal(observer.takeRecords().length, 0, '现有 iframe 已在末尾，不触发重复挂载')
     assert.equal(phone.contentDocument, content)
@@ -106,4 +111,28 @@ test('重复把已挂载的卡片 iframe 加到 body 时保留文档和 DOM 顺�
   } finally {
     dom.window.close()
   }
+})
+
+test('显式移除停放的悬浮窗后不再恢复，未挂载节点也可稍后登记', async () => {
+  const { JSDOM } = await import('jsdom')
+  const dom = new JSDOM('<body><main></main></body>', { runScripts: 'outside-only' })
+  try {
+    const { window } = dom, { document } = window
+    window.eval(scopeSource + ';window.makeScope=createTavernHostArtifactScope')
+    const scope = window.makeScope({ document })
+    const removed = scope.trackNode(document.createElement('div'))
+    const delayed = scope.trackNode(document.createElement('div'))
+    document.body.append(removed)
+    scope.setVisible(false)
+    removed.remove()
+    document.body.append(delayed)
+    await new Promise(resolve => setImmediate(resolve))
+    assert.equal(removed.hasAttribute('data-dsh-tavern-host-artifact'), false)
+    assert.equal(delayed.isConnected, false)
+    scope.setVisible(true)
+    assert.equal(removed.isConnected, false)
+    assert.equal(delayed.isConnected, true)
+    scope.dispose()
+    assert.equal(delayed.isConnected, false)
+  } finally { dom.window.close() }
 })
