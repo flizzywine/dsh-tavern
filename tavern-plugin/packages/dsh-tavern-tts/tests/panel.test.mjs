@@ -411,6 +411,19 @@ test('focus hand-over: add opens 添加语音服务 with the type chosen; an id 
   }
 })
 
+// 舞台设置 › 自动素材 › 自动 BGM's 「去设置」 asks for the music service: 音乐生成 takes it, 语音合成 leaves it.
+test('focus hand-over for the music service opens it in 音乐生成, not in 语音合成',async () => {
+  const f = fixture({configured:[],external:false,focus:{kind:'music'}})
+  try {
+    await withDom(async root => {
+      await act(async () => root.render(React.createElement(f.tabs.get('dsh-tts:voice').component))); await settle()
+      assert.ok(byLabel('添加音乐生成服务'),'the music form is open')
+      assert.equal(byLabel('添加语音服务'),null)
+      assert.equal(f.session.has('dsh-tts:focus-service'),false,'read once')
+    })
+  } finally { f.dispose() }
+})
+
 // 语音后端 — 语音合成 → (plugin sections: 语音识别) → 发音字典 → 合成缓存; 浏览器朗读 first and fixed. Who speaks with which voice
 // (tts.reading) is chosen in 舞台设置 › 配音, so this page has no 朗读 section and no default engine.
 test('语音后端 page: section order, 浏览器朗读 first and fixed, no 朗读 section or default engine',async () => {
@@ -422,7 +435,7 @@ test('语音后端 page: section order, 浏览器朗读 first and fixed, no 朗�
       assert.equal(document.querySelector('.dtts-head h2').textContent,'语音后端')
       assert.ok(byLabel('语音后端 说明'))
       const headings = [...document.querySelectorAll('section h3')].map(h => h.querySelector('span')?.textContent || h.textContent)
-      assert.deepEqual(headings,['语音合成','发音字典','合成缓存'])
+      assert.deepEqual(headings,['语音合成','音乐生成','发音字典','合成缓存'])
       const first = document.querySelector('.dtts-list > li')
       assert.equal(first.querySelector('.dtts-line-title').textContent,'浏览器朗读')
       assert.equal(first.querySelector('.dtts-state').textContent,'可用')

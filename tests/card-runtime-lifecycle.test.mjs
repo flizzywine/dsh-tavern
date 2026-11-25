@@ -411,6 +411,45 @@ test('MVU 配套脚本各自有初始化期限，超时后可重建沙箱并继�
   h.runtime.dispose()
 })
 
+test('神豪终端启动完成前暂停 MVU，加载失败后可重试', () => {
+  const states = [], h = sandbox({ onMvuLoadState: state => states.push(copy(state)) })
+  const input = mvuView()
+  input.tavernHelperScripts.push({ id: 'terminal', name: '神豪终端', content: [
+    '// CJ_SHENGHAO_STABLE_LOADER',
+    ';(async()=>{',
+    'const config={projectId:"cj-shenghao-terminal-v2",mark:"CJ_SHENGHAO_TERMINAL_CORE"};',
+    'const loaded=await startTerminal(config),k=false;',
+    '!loaded&&!k&&F("error","下载失败")',
+    '})().catch(e=>{console.log("[神豪终端 加载器] "+e.message);try{toastr.error("终端加载器未能启动，请检查配置与网络。","神豪终端");}catch{}});'
+  ].join('\n') })
+  h.runtime.sync('A', input)
+  const first = h.frames[0]
+  assert.match(first.srcdoc, /;await \(async\(\)=>\{/)
+  assert.match(first.srcdoc, /if\(!loaded&&!k\)throw Error/)
+  h.load(first)
+  const coreReady = ['__dsh_official_mvu__', 'script'].map(id => ({ id, ready: true }))
+  function report(frame, terminal = null) {
+    h.message(frame, 'dsh-tavern-helper-subscriptions', {
+      ready: Boolean(terminal), scripts: terminal ? [...coreReady, { id: 'terminal', ...terminal }] : coreReady
+    })
+  }
+  report(first)
+  assert.equal(h.client.tavernScriptRuntimeReady(h.runtime.inspect()), false)
+  h.message(first, 'dsh-tavern-helper-script-runtime', { scriptId: 'terminal', message: '下载失败' })
+  report(first, { failed: true })
+  assert.equal(states.at(-1).phase, 'companion-failed')
+  assert.match(states.at(-1).error, /神豪终端.*下载失败/)
+  assert.equal(h.client.tavernScriptRuntimeReady(h.runtime.inspect()), false)
+  assert.equal(h.runtime.inspect().initializationError, undefined)
+  assert.equal(h.runtime.retryMvuLoad(), true)
+  const next = h.frames[1]
+  h.load(next)
+  report(next, { ready: true })
+  assert.equal(states.at(-1).phase, 'ready')
+  assert.equal(h.client.tavernScriptRuntimeReady(h.runtime.inspect()), true)
+  h.runtime.dispose()
+})
+
 for (const fail of [false, true]) test(`事件收尾等待已接收的排队写入，保存${fail ? '失败不能报成功' : '成功不误判迟到'}`, async () => {
   const h = sandbox(), blocked = deferred()
   h.runtime.sync('A', view())

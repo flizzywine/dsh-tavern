@@ -421,7 +421,7 @@ const server = createServer(async (req, res) => {
           s.result = updated
           return res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ pass: true, calls: s.calls, receipt: updated.receipt }))
         }
-        let input = settlementInput(sessionId), openingBefore
+        let input = settlementInput(sessionId), openingBefore, replayProse
         if (sessionId.startsWith('opening')) {
           assert.equal(s.chat.mvu.openingInitialization?.status, 'complete', 'opening must initialize before settlement')
           assert.ok(s.chat.messages[0].variables.every(v => v.stat_data !== undefined && v.schema !== undefined), 'all opening swipes need initial variables')
@@ -443,7 +443,11 @@ const server = createServer(async (req, res) => {
           const variables = structuredClone(openingBefore.variables[openingBefore.swipeId])
           if (sessionId.includes('replay')) {
             const messageId = replaySubmission.messageId, swipeId = replaySubmission.swipeId
-            input = { ...input, messageId, swipeId, storyText: s.chat.messages[messageId].text, currentVariables: s.chat.messages[messageId].variables[swipeId] }
+            const target = s.chat.messages[messageId]
+            input = { ...input, messageId, swipeId, storyText: target.text, currentVariables: target.variables[swipeId],
+              branchId: s.chat.timeline.branchId, basedOnRevision: s.chat.timeline.revision,
+              expectedLifecycleRevision: s.chat.tavernHelperLifecycleRevision }
+            replayProse = { text: target.text, swipes: structuredClone(target.swipes) }
           } else {
             s.chat.messages.push({ role: 'user', text: '继续', turn: 2, variables: [{}] }, { role: 'assistant', text: '测试正文', turn: 2, swipeId: 0, swipes: ['测试正文'], variables: [variables] })
             if (process.env.MVU_SMOKE_CURRENT_ONLY === '1') {
@@ -466,6 +470,12 @@ const server = createServer(async (req, res) => {
             assert.equal(resultState.receipt.status, 'updated', JSON.stringify(resultState.receipt))
             assert.equal(s.feedback.ok, true)
             assert.equal(s.feedback.failures.length, 0)
+            if (replayProse) {
+              assert.ok(resultState.effect, 'replay must prepare a real settlement effect')
+              applyMvuSettlementEffect(s.chat, resultState.effect)
+              const { text, swipes } = s.chat.messages[input.messageId]
+              assert.deepEqual({ text, swipes }, replayProse, 'replay keeps private commands out of saved prose')
+            }
           }
           assert.deepEqual(s.chat.messages[0], openingBefore, 'settlement must preserve opening history')
           assert.equal(s.calls, 1)
@@ -508,7 +518,7 @@ const server = createServer(async (req, res) => {
       <script>
       const id=${JSON.stringify(id)},output=document.querySelector('#result');
       async function rpc(method,args={},sessionId=id){const r=await fetch('/rpc',{method:'POST',body:JSON.stringify({method,args,sessionId})});const v=await r.json();if(!r.ok)throw Error(v.error);return v;}
-      const view=${JSON.stringify(view)};
+      const view=${JSON.stringify(view).replace(/</g, '\\u003c')};
       // Exercise the actual sidebar start, including the transition gate used by
       // the session owner. Direct execution.sync() bypassed that gate and hid the deadlock.
       function startFlow() {

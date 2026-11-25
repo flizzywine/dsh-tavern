@@ -1,80 +1,155 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import vm from './fixtures/client-vm.mjs'
-import { readFile } from 'node:fs/promises'
+import { spawn } from 'node:child_process'
+import { once } from 'node:events'
+import { chromium } from 'playwright'
+import { mountWorldBookDetail } from './fixtures/worldbook-detail-vm.mjs'
 
-const source = await readFile(new URL('../tavern-plugin/lib/client.js', import.meta.url), 'utf8')
-const groups = source.slice(source.indexOf('function groupWorldBookEditorEntries('), source.indexOf('function createWorldBookLibraryFeatureModule('))
-const editor = source.slice(source.indexOf('function WorldBookEditor('), source.indexOf('function WorldBookLibraryTab('))
+const baseEntries = () => ([
+  { ref: 'a', comment: '固定设定', title: '固定设定', content: '甲设定', enabled: true, constant: true, channel: 'auto', channelInherited: true, primaryKeys: [], secondaryKeys: [] },
+  { ref: 'b', comment: '会切换', title: '会切换', content: '乙设定', enabled: true, constant: false, channel: 'tail', channelInherited: false, primaryKeys: [], secondaryKeys: [] },
+  { ref: 'c', comment: '[mvu_update] 变量更新', title: '[mvu_update] 变量更新', content: '规则', enabled: true, constant: true, channel: 'auto', channelInherited: true, primaryKeys: [], secondaryKeys: [] }
+])
 
-const entries = [
-  { ref: 'a', comment: '固定设定', title: '固定设定', content: '甲设定', enabled: true, constant: true, primaryKeys: [], secondaryKeys: [] },
-  { ref: 'b', comment: '会切换', title: '会切换', content: '乙设定', enabled: true, constant: false, channel: 'tail', primaryKeys: [], secondaryKeys: [] }
-]
-
-// A tiny stateful renderer: the editor re-renders through its own setters, so a
-// click can be observed the same way a browser would see it.
-function mount() {
-  const state = []
-  let index = 0
-  let tree = null
-  const calls = []
-  const React = {
-    createElement: (tag, props, ...children) => ({ tag, props: props || {}, children: children.flat() }),
-    useState(init) {
-      const slot = index++
-      if (!(slot in state)) {
-        const value = typeof init === 'function' ? init() : init
-        // Open every entry so its settings form mounts.
-        state[slot] = value instanceof Set ? new Set(entries.map(entry => entry.ref)) : value
-      }
-      const set = value => { state[slot] = typeof value === 'function' ? value(state[slot]) : value; render() }
-      return [state[slot], set]
-    },
-    useRef: () => ({ current: false }),
-    useEffect() {},
-    useDeferredValue: value => value
-  }
-  const Editor = vm.runInNewContext(groups + '\n' + editor + '\nWorldBookEditor', {
-    React, Set,
-    useTavernConfirm: () => async () => true,
-    usePersistentError: () => ['', () => {}],
-    EmptyState() {},
-    InlineField() {},
-    WorldBookKeyInput() {},
-    notifyTavernDataChanged() {},
-    rpc: async (method, args) => { calls.push([method, args]); return {} }
-  })
-  const props = {
-    record: { source: { kind: 'standalone' }, view: { displayName: '测试书', channel: 'prefix', entries } },
-    sessionId: 's',
-    onSaved() {}
-  }
-  function render() { index = 0; tree = Editor(props) }
-  render()
-  function nodes(node) {
-    return Array.isArray(node) ? node.flatMap(nodes) : !node || typeof node !== 'object' ? [] : [node, ...nodes(node.children)]
-  }
-  const text = node => typeof node === 'string' ? node : !node || typeof node !== 'object' ? '' : node.children.map(text).join('')
-  const find = predicate => nodes(tree).find(predicate)
-  return { text, find, calls, get tree() { return tree } }
+function channelGroup(page) {
+  return page.nodes().find(node => node.tag === 'div' && node.props['aria-label'] === '整本注入通道')
 }
 
-test('编辑旧世界书时没有通道选项，保存时仍能修改条目', async () => {
-  const page = mount()
-  assert.doesNotMatch(page.text(page.tree), /注入通道|每轮尾部/)
-  assert.equal(page.find(node => node.props.label === '注入通道'), undefined)
-  const body = page.find(node => node.tag === 'textarea' && node.props.value === '乙设定')
-  body.props.onChange({ target: { value: '修改后的设定' } })
-  const save = page.find(node => node.tag === 'button' && page.text(node) === '保存世界书')
-  await save.props.onClick()
-  const [method, args] = page.calls.at(-1)
-  assert.equal(method, 'updateWorldBook')
-  assert.equal(args.update.channel, undefined)
-  assert.equal(args.update.operations.length, 1)
-  const [operation] = args.update.operations
-  assert.equal(operation.op, 'update')
-  assert.equal(operation.ref, 'b')
-  assert.equal(operation.patch.content, '修改后的设定')
-  assert.equal(operation.patch.channel, undefined)
+function channelButton(page, label) {
+  const group = channelGroup(page)
+  assert.ok(group, '设置区缺少整本注入通道分组')
+  return group.children.find(node => node.tag === 'button' && page.text(node) === label)
+}
+
+function entryChannelField(page, entryRef) {
+  const editor = page.nodes().find(node => node.tag === page.components.WorldBookEntryEditor && node.props.entry.ref === entryRef)
+  assert.ok(editor, '缺少条目编辑器：' + entryRef)
+  const walk = node => !node || typeof node !== 'object' ? []
+    : (node.tag === page.ui.InlineField && node.props.label === '注入通道' ? [node] : []).concat((node.children || []).flatMap(walk))
+  return walk(editor)[0]
+}
+
+test('整本开关一次改掉全部条目通道并记成整本默认，再切回自动时统一清理', async () => {
+  const page = mountWorldBookDetail({ displayName: '测试书', channel: 'auto', entries: baseEntries() })
+  assert.equal(channelButton(page, '自动').props['aria-pressed'], true)
+  assert.equal(channelButton(page, '稳定前缀').props['aria-pressed'], false)
+  // 后台变量更新条目不展示注入通道下拉。
+  assert.equal(entryChannelField(page, 'c'), undefined)
+
+  await channelButton(page, '稳定前缀').props.onClick()
+  assert.equal(channelButton(page, '稳定前缀').props['aria-pressed'], true)
+  assert.equal(entryChannelField(page, 'a').props.value, 'prefix')
+  assert.equal(entryChannelField(page, 'b').props.value, 'prefix')
+
+  const [method1, args1] = page.calls.at(-1)
+  assert.equal(method1, 'updateWorldBook')
+  assert.equal(args1.lean, true)
+  assert.equal(args1.update.channel, 'prefix')
+  assert.deepEqual(args1.update.operations.map(op => op.ref), ['a', 'b', 'c'])
+  assert.ok(args1.update.operations.every(op => op.patch.channel === 'prefix'))
+
+  // 再切回自动，整本与全部条目一起恢复默认继承。
+  await channelButton(page, '自动').props.onClick()
+  assert.equal(channelButton(page, '自动').props['aria-pressed'], true)
+  assert.equal(entryChannelField(page, 'a').props.value, '')
+  assert.equal(entryChannelField(page, 'b').props.value, '')
+
+  const [, args2] = page.calls.at(-1)
+  assert.equal(args2.update.channel, 'auto')
+  assert.ok(args2.update.operations.every(op => op.patch.channel === 'auto'))
+})
+
+test('条目下拉提供跟随整本与单条覆盖：清除覆盖传 null，整本非 auto 时也可显式设回 auto', async () => {
+  const entries = [
+    { ref: 'a', comment: '继承条目', title: '继承条目', content: '甲', enabled: true, constant: true, channel: 'prefix', channelInherited: true, primaryKeys: [], secondaryKeys: [] },
+    { ref: 'b', comment: '覆盖条目', title: '覆盖条目', content: '乙', enabled: true, constant: false, channel: 'tail', channelInherited: false, primaryKeys: [], secondaryKeys: [] }
+  ]
+  const page = mountWorldBookDetail({ displayName: '测试书', channel: 'prefix', entries })
+
+  const inherited = entryChannelField(page, 'a')
+  assert.equal(inherited.props.value, '')
+  assert.deepEqual(Array.from(inherited.props.options.map(option => option.label)), ['跟随整本（稳定前缀）', '自动', '稳定前缀', '每轮尾部'])
+
+  const explicit = entryChannelField(page, 'b')
+  assert.equal(explicit.props.value, 'tail')
+
+  // 清除覆盖 -> 发送 channel: null，本地恢复跟随整本 prefix。
+  await explicit.props.onCommit('')
+  const [, clearArgs] = page.calls.at(-1)
+  assert.equal(clearArgs.lean, true)
+  assert.equal(clearArgs.update.channel, undefined)
+  assert.deepEqual(JSON.parse(JSON.stringify(clearArgs.update.operations)), [{ op: 'update', ref: 'b', patch: { channel: null } }])
+  assert.equal(entryChannelField(page, 'b').props.value, '')
+
+  // 整本为 prefix 时，将第 a 条显式设为 auto -> 保留显式选择而非跟随整本。
+  await entryChannelField(page, 'a').props.onCommit('auto')
+  const [, autoArgs] = page.calls.at(-1)
+  assert.deepEqual(JSON.parse(JSON.stringify(autoArgs.update.operations)), [{ op: 'update', ref: 'a', patch: { channel: 'auto' } }])
+  assert.equal(entryChannelField(page, 'a').props.value, 'auto')
+
+  // 单条被覆盖后，再次点击当前默认按钮「稳定前缀」仍能一键重新统一全书。
+  await channelButton(page, '稳定前缀').props.onClick()
+  assert.equal(entryChannelField(page, 'a').props.value, 'prefix')
+  assert.equal(page.calls.at(-1)[1].update.channel, 'prefix')
+})
+
+test('真实浏览器中可切换整本注入通道与条目注入通道，并持久化回读', async t => {
+  const host = spawn(process.execPath, ['tests/fixtures/worldbook-editor-ui.mjs'], { stdio: ['ignore', 'pipe', 'pipe'], env: process.env })
+  t.after(() => host.kill())
+  const [chunk] = await once(host.stdout, 'data')
+  const browser = await chromium.launch({ headless: true })
+  t.after(() => browser.close())
+  const page = await browser.newPage({ viewport: { width: 1100, height: 850 } })
+  const pageErrors = []
+  page.on('pageerror', error => pageErrors.push(error))
+  await page.goto(String(chunk).trim())
+
+  const group = page.getByRole('group', { name: '整本注入通道' })
+  await group.waitFor()
+  await group.getByRole('button', { name: '稳定前缀', exact: true }).click()
+  await page.waitForFunction(() => document.querySelector('[aria-label="整本注入通道"] button[aria-pressed="true"]')?.textContent === '稳定前缀')
+
+  await page.locator('button.dsh-wbd-entry-main[title="Alice"]').click()
+  const entry = page.locator('.dsh-wbd-entry[data-open]').filter({ has: page.locator('button[title="Alice"]') })
+  const trigger = entry.locator('button.fork-inline-trigger[aria-label^="注入通道："]')
+  assert.equal(await trigger.locator('.fork-inline-text').innerText(), '稳定前缀')
+
+  await trigger.click()
+  await page.getByRole('menu', { name: '注入通道' }).getByRole('menuitemradio', { name: '每轮尾部' }).click()
+  assert.equal(await trigger.locator('.fork-inline-text').innerText(), '每轮尾部')
+
+  // 刷新页面重新读取真实服务端文档，验证整本默认与单条覆盖均已持久保存。
+  await page.reload()
+  await group.waitFor()
+  assert.equal(await group.getByRole('button', { name: '稳定前缀', exact: true }).getAttribute('aria-pressed'), 'true')
+  await page.locator('button.dsh-wbd-entry-main[title="Alice"]').click()
+  assert.equal(await trigger.locator('.fork-inline-text').innerText(), '每轮尾部')
+
+  // 选回「跟随整本（稳定前缀）」清除条目覆盖。
+  await trigger.click()
+  await page.getByRole('menu', { name: '注入通道' }).getByRole('menuitemradio', { name: '跟随整本（稳定前缀）' }).click()
+  assert.equal(await trigger.locator('.fork-inline-text').innerText(), '跟随整本（稳定前缀）')
+  assert.deepEqual(pageErrors, [])
+})
+
+test('世界书页「人物卡」一节：点卡名打开这张卡，✕ 只解绑', () => {
+  const opened = [], unbound = []
+  const page = mountWorldBookDetail({ displayName: '书', entries: [] }, {
+    open: false,
+    props: {
+      associations: { boundCards: [{ path: 'cards/a.png', name: '甲卡' }], cards: [] },
+      onOpenCard: path => opened.push(path),
+      onUnbindCard: path => unbound.push(path)
+    }
+  })
+  const link = page.nodes().find(node => node.tag === 'button' && node.props.className === 'dsh-wbd-card-link')
+  assert.ok(link, '卡名是一个按钮（Tab 能到、回车能按）')
+  assert.match(page.text(link), /甲卡/)
+  link.props.onClick()
+  assert.deepEqual(opened, ['cards/a.png'])
+  assert.deepEqual(unbound, [])
+  const unbind = page.nodes().find(node => node.tag === 'button' && node.props['aria-label'] === '解绑「甲卡」')
+  unbind.props.onClick()
+  assert.deepEqual(unbound, ['cards/a.png'])
+  assert.deepEqual(opened, ['cards/a.png'])
 })

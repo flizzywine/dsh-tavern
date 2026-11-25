@@ -10,11 +10,11 @@ export const stageReadHeaderFields = [
   'backgroundConfigVersion','conversationFeaturesVersion','requestMode','macroState',
   'timeline.branchId','timeline.revision','timeline.operations','regenInProgress',
   'cardDefinitionSnapshot','runtimePresetSnapshot','openingWorldbookSnapshot','openingText',
-  'presentation','foregroundCapabilities','variables','promptTemplateInitialVariables','ledger','mvu.enabled',
+  'presentation','foregroundCapabilities','variables','promptTemplateInitialVariables','ledger','mvu.enabled','mvu.owner',
   'tavernHelperLifecycleRevision','updatedAt'
 ]
 export const stageReadIdentityFields = ['id','role','turn','greeting','swipeId','swipes','sourceText','text','polishedFrom']
-export const stageReadDisplayFields = ['projectionText','tavernPluginData.template_display']
+export const stageReadDisplayFields = ['projectionText','tavernPluginData.template_display','mvu.pending','mvu.receipt.status','mvu.receipt.toolOnly','mvuBaseline.swipeId']
 export const stageReadRecordFields = ['stageDirectionAssetPacks']
 // Small per-floor stage state (a few KB per archive): every prefix floor carries it, so one turn view also answers the
 // countdown, item and mod history readers of any earlier turn. Mods add the fields they save (stage contribution floorFields).

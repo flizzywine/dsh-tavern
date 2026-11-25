@@ -120,6 +120,7 @@
 		}
 
 		// @include card-organization.js
+		// @include card-actions.js
 
 		function useCardBatchDeletion(cards, busy, setBusy, refresh, archiveSession) {
             const askConfirm = useTavernConfirm();
@@ -152,8 +153,15 @@
 				} catch (error) { setNotice(previous => previous + " 刷新失败：" + String(error && error.message || error)); }
 				finally { running.current = false; setBusy(false); }
 			}
-			// One compact bar: select-all, count, actions, done. `extra` holds the
-			// caller's own actions (e.g. moving to a group).
+			// Esc leaves selecting (after any menu or dialog above it took its own Esc).
+			React.useEffect(function () {
+				if (!managing) return;
+				function onKey(event) { if (event.key === "Escape" && !event.defaultPrevented && !running.current) reset(); }
+				window.addEventListener("keydown", onKey);
+				return function () { window.removeEventListener("keydown", onKey); };
+			}, [managing]);
+			// The selection bar floats at the bottom of the list (render it after the grid): ✕, the count, 全选, the caller's
+			// own actions (`extra`: tags, star) and 删除.
 			function toolbar(visible, extra) {
 				const h = React.createElement;
 				const allSelected = visible.length > 0 && visible.every(card => paths.includes(card.path));
@@ -161,17 +169,14 @@
 					if (allSelected) setPaths(previous => previous.filter(path => !visible.some(card => card.path === path)));
 					else setPaths(previous => Array.from(new Set(previous.concat(visible.map(card => card.path)))));
 				}
-				return h("div", { className: "dsh-tavern-card-batch" },
-					h("label", { className: "dsh-tavern-card-batch-all" },
-						h("input", { type: "checkbox", className: "dsh-tavern-card-batch-checkbox", checked: allSelected, disabled: busy || !visible.length, "aria-label": "全选当前列表",
-							ref: function (element) { if (element) element.indeterminate = !allSelected && selected.length > 0; }, onChange: toggleAll }),
-						"全选"),
-					h("span", { className: "dsh-tavern-card-batch-count" }, selected.length ? "已选 " + selected.length + " 张" : "点击人物卡选择"),
-					h("span", { className: "dsh-tavern-spacer" }),
-					extra || null,
-					h("button", { className: "dsh-tavern-btn danger", disabled: busy || !selected.length, onClick: removeSelected }, running.current ? "正在删除…" : "删除" + (selected.length ? "（" + selected.length + "）" : "")),
-					h("button", { className: "dsh-tavern-btn", disabled: busy, onClick: reset }, "完成"),
-					notice ? h("div", { role: "status", className: "dsh-tavern-card-batch-notice" }, notice) : null);
+				return h("div", { className: "dsh-tavern-card-batch-dock" },
+					notice ? h("div", { role: "status", className: "dsh-tavern-card-batch-notice" }, notice) : null,
+					h("div", { className: "dsh-tavern-card-batch", role: "toolbar", "aria-label": "多选" },
+						h("button", { type: "button", className: "dsh-tavern-btn quiet dsh-tavern-card-batch-exit", disabled: busy, "aria-label": "退出多选", title: "退出多选", onClick: reset }, "✕"),
+						h("span", { className: "dsh-tavern-card-batch-count" }, selected.length ? "已选 " + selected.length + " 张" : "点卡片选择"),
+						h("button", { type: "button", className: "dsh-tavern-btn quiet", disabled: busy || !visible.length, onClick: toggleAll }, allSelected ? "取消全选" : "全选"),
+						extra || null,
+						h("button", { type: "button", className: "dsh-tavern-btn danger", disabled: busy || !selected.length, onClick: removeSelected }, running.current ? "正在删除…" : "删除")));
 			}
 			function checkbox(card) {
 				return managing ? React.createElement("input", {
@@ -184,7 +189,7 @@
 					onChange: function () { toggle(card.path); }
 				}) : null;
 			}
-			return { managing, toggle, toolbar, checkbox, isSelected, reset, paths, begin: function () { setManaging(true); setPaths([]); setNotice(""); } };
+			return { managing, toggle, toolbar, checkbox, isSelected, reset, paths, begin: function (initial) { setManaging(true); setPaths(Array.isArray(initial) ? initial : []); setNotice(""); } };
 		}
 
 		function tavernHistoryCardKey(item) {

@@ -73,13 +73,13 @@ function galgameStyle(id, name, look, background) {
   ] } }
 }
 export const GALGAME_STYLE_PRESETS = [
-  galgameStyle('galgame-clean', 'Galgame · 干净低细节',
+  galgameStyle('galgame-clean', '干净低细节',
     'Clean cel-shaded anime rendering with large simple colour masses, low visual frequency, restrained edge density, clear edge hierarchy, minimal internal contour lines, broad shadow shapes, suppressed micro-texture and micro-contrast, and no unnecessary specular highlights. This finish only reduces noise and texture and never redesigns anything',
     'Keep the composition and colour very clean'),
-  galgameStyle('galgame-anime', 'Galgame · 动画截图',
+  galgameStyle('galgame-anime', '动画截图',
     'Looks like a frame of the original TV anime: reproduce the series\' own drawing style faithfully, including its simplifications, with broadcast line weight, flat cel shading in one or two shadow tones, the show\'s own palette and the plain look of an actual episode screenshot, and no extra rendering, painterly texture, gradients, glow or detail the series itself does not draw. This finish only matches the broadcast look and never redesigns the characters',
     'An empty background plate from an episode, painted in the series\' own background art style'),
-  galgameStyle('galgame-polished', 'Galgame · 精美插画',
+  galgameStyle('galgame-polished', '精美插画',
     'Polished, high-quality commercial anime illustration at key-visual or gacha-card quality: refined lighting with soft rim light and controlled highlights, rich but disciplined colour, crisp clean line art, carefully rendered eyes, hair, fabric folds and materials, and clear form and depth. This finish only raises the rendering quality; designs, proportions and palette stay exactly as designed',
     'Carefully rendered materials and atmospheric depth, lit by the light sources in the scene'),
 ]
@@ -284,11 +284,19 @@ export function validPromptPresetId(config = {}, value = config.activePromptPres
  * Every preset a request can name with `promptPreset`, read-only. `usages` lists the usages that have their own style
  * text (style, positive or negative blocks with a `usage`); text without a usage applies to every request.
  */
+// A preset adds a painting style when it carries style words and is not a structured scene template (those organise a
+// whole scene description; their style block is only an example). 'no-style' and the empty templates add none.
+const STYLE_TEXT_FIELDS = ['positive', 'structuredPositive', 'tagPositive', 'naturalPositive', 'mixedPositive']
+function presetAddsStyle(preset) {
+  if (preset.structure?.format === 'structured') return false
+  return STYLE_TEXT_FIELDS.some(key => String(preset[key] || '').trim()) ||
+    (preset.structure?.blocks || []).some(block => block.kind === 'style' && block.enabled !== false && String(block.text || '').trim())
+}
 export function listPromptPresets(config = {}) {
   const saved = normalizePromptPresets(config.promptPresets).filter(preset => preset.enabled !== false)
   return [...BUILTIN_PROMPT_PRESETS.map(preset => [preset, 'builtin']), ...[...registeredPresets.values()].map(preset => [preset, 'registered']), ...saved.map(preset => [preset, 'saved'])]
     .map(([preset, origin]) => ({ id: preset.id, name: preset.name, origin, ...(origin === 'registered' ? { source: preset.source } : {}),
-      status: preset.status === 'experimental' ? 'experimental' : 'stable',
+      status: preset.status === 'experimental' ? 'experimental' : 'stable', addsStyle: presetAddsStyle(preset),
       usages: [...new Set((preset.structure?.blocks || []).filter(block => block.enabled !== false && ['style', 'positive', 'negative'].includes(block.kind))
         .map(block => block.usage).filter(Boolean))] }))
 }

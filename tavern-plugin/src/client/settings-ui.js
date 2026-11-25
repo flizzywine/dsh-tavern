@@ -156,6 +156,8 @@ function FloatingPanel(props) {
 // A click (or tap) pins it open past the pointer leaving; a click while pinned, Esc or a click outside closes it.
 // `interactive` lets the text hold links (a licence page) — the body takes the
 // pointer and stays while the pointer crosses to it, Tab from「?」enters it and leaves it again, Esc closes it first.
+// `face` replaces the「?」with a visible label of its own (a badge such as「主书」) whose meaning the text explains;
+// `faceClassName` styles it.
 function HelpTip(props) {
     const h = React.createElement;
     const id = React.useId();
@@ -188,10 +190,10 @@ function HelpTip(props) {
     };
     return h("span", { ref: wrap, className: "fork-help-tip" + (open ? " is-open" : ""), onMouseEnter: show, onMouseLeave: hide, onKeyDown: keys,
             onBlur: interactive ? event => { if (!inside(event.relatedTarget)) close(); } : undefined },
-        h("button", { ref: button, type: "button", className: "fork-help-tip-button", "aria-label": props.label || "说明", "aria-describedby": id, "aria-expanded": open,
+        h("button", { ref: button, type: "button", className: props.face ? "fork-help-tip-face" + (props.faceClassName ? " " + props.faceClassName : "") : "fork-help-tip-button", "aria-label": props.label || "说明", "aria-describedby": id, "aria-expanded": open,
             onClick: event => { event.preventDefault(); event.stopPropagation(); if (pinned) close(); else { clearTimeout(timer.current); setPinned(true); setOpen(true); } },
             onFocus: event => { if (!quiet.current && keyboard(event.target)) setOpen(true); },
-            onBlur: interactive ? undefined : close }, "?"),
+            onBlur: interactive ? undefined : close }, props.face || "?"),
         h("span", { id: id, className: "fork-help-tip-text", inert: interactive || undefined }, props.children),
         open ? h(FloatingPanel, { anchor: button, popRef: pop, className: "fork-help-tip-body" + (interactive ? " is-interactive" : ""), gap: 6,
             ...(interactive ? { role: "group", "aria-label": props.label || "说明" } : { role: "tooltip", "aria-hidden": true }) }, props.children) : null);

@@ -9,9 +9,13 @@ import {SPRITE_DEFAULT_FRAMING_SENTENCE,spriteFramingSpec,spriteFramingSentence,
 export const ASSET_PRODUCTION_DEFAULTS = Object.freeze({avatarMode:'individual',quality:'high',blink:true})
 export const ASSET_IMAGE_QUALITIES = Object.freeze(['auto','low','medium','high','xhigh','max'])
 export const ASSET_REFERENCE_ROLES = Object.freeze({
-  identity:'Approved identity settei: authority for cross-outfit face, body proportions, hair structure and inherent skin/eye/hair colours; outfit accessories are not identity traits',
+  // The identity settei is drawn in some outfit, usually not the one being drawn: its clothes are a sample (an outfit
+  // described as a bikini is drawn as one, not as the coat the identity settei wears). identityOutfit is the same board when it
+  // is also this outfit's settei, so it carries the clothes too.
+  identity:'Approved identity settei: authority for the person only: cross-outfit face, body type and proportions, hair structure, inherent skin/eye/hair colours and signature accessories. The clothes it shows are a sample outfit, not this outfit: draw the clothes from the outfit settei or the Outfit text and notes; keep the sample clothes only when none of them describes clothing',
+  identityOutfit:'Approved identity settei, drawn in this outfit: authority for the face, body proportions, hair structure and inherent skin/eye/hair colours, and also for this outfit\'s clothing',
   settei:'Approved outfit settei: authority for clothing, outfit colours and explicit hair/accessory differences against its parent identity version; not sheet layout',
-  identityParts:'Second sheet of the approved identity settei: its eye and accessory close-ups over the colour card; the same authority as the identity settei for those details',
+  identityParts:'Second sheet of the approved identity settei: its eye and accessory close-ups over the colour card; the same authority as the identity settei: the eyes and signature accessories, not the sample outfit\'s pieces or colours',
   setteiParts:'Second sheet of the approved outfit settei: its eye and accessory close-ups over the colour card; the same authority as the outfit settei for those details',
   sprite:'Approved default variant sprite: match size, framing, camera and facing direction',
   emotionSprite:'Approved same-emotion sprite: expression and outfit details',

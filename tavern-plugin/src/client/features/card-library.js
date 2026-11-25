@@ -5,21 +5,91 @@ function cardLibraryDisplayName(card, displayName = card.displayName) {
     return card.name + (suffix ? suffix[1] : '');
 }
 
-function CardExportMenu({ disabled, hasImage, onExport }) {
-    const h = React.createElement, popup = useInlinePopup();
-    const formats = [
-        { value: "dshcard", label: "DSH 人物卡", note: "可打包素材和插件" },
-        { value: "json", label: "JSON", note: "卡片数据" },
-        { value: "png", label: "PNG", note: hasImage === false ? "需要封面" : "封面和卡片数据", disabled: hasImage === false }
-    ];
+// Without the pack service (no stage package) the card page's one 「导出」 (its ⋯ › 导出) lists these formats; 加密导出 is last.
+function cardExportFormats(hasImage, exportFile, encrypt) {
+    return [
+        { label: "DSH 人物卡", note: "可打包素材和插件", run: () => exportFile("dshcard") },
+        { label: "JSON", note: "卡片数据", run: () => exportFile("json") },
+        { label: "PNG", note: hasImage === false ? "需要封面" : "封面和卡片数据", disabled: hasImage === false, run: () => exportFile("png") },
+        { label: "加密导出…", note: "DSH 人物卡，设置密码", run: encrypt }];
+}
+
+// One long text of the card page (角色描述, 开场白 …): a row that reads › label · its first line; open, the whole text reads as
+// plain prose (no box), and ✎ (or a double click) turns it into the field, which saves when it is left.
+function CardTextFold({ label, value, open, onToggle, onCommit, disabled }) {
+    const h = React.createElement, [editing, setEditing] = React.useState(false);
+    const preview = String(value || "").replace(/\s+/g, " ").trim();
+    return h("div", { className: "dsh-card-fold", "data-open": open || undefined },
+        h("div", { className: "dsh-card-fold-row" },
+            h("button", { type: "button", className: "dsh-card-fold-head", "aria-expanded": open, onClick: () => { if (open) setEditing(false); onToggle(); } },
+                h(packUi.Glyph, { name: "chevRight" }), h("span", { className: "dsh-card-fold-label" }, label),
+                h("span", { className: "dsh-card-fold-preview" }, open ? "" : preview)),
+            open && !editing && !disabled ? h("button", { type: "button", className: "ap-icon-button dsh-card-fold-edit", "aria-label": "编辑" + label, title: "编辑", onClick: () => setEditing(true) }, h(packUi.Glyph, { name: "edit" })) : null),
+        open ? h("div", { className: "dsh-card-fold-body", onBlur: event => { if (editing && !event.currentTarget.contains(event.relatedTarget)) setTimeout(() => setEditing(false), 0); } },
+            editing ? h(InlineField, { kind: "text", multiline: true, lines: true, wide: true, hideLabel: true, label, value, autoEdit: true, onCommit })
+                : h("div", { className: "dsh-card-fold-text", onDoubleClick: disabled ? undefined : () => setEditing(true) }, value)) : null);
+}
+
+// 素材包: the stage packs this card binds (its stage settings' boundPackIds), named from the pack list; null without the
+// stage package. A row opens the pack in 舞台素材, whose ‹ comes back here.
+function useCardStagePacks(cardPath) {
+    const service = typeof packClient === "function" ? packClient() : undefined, [packs, setPacks] = React.useState(null);
+    React.useEffect(() => {
+        if (!service || !cardPath) { setPacks(null); return; }
+        let live = true;
+        Promise.all([rpc("getCardAssetBindings", { path: cardPath, metadataOnly: true }), service.listPackSummaries()]).then(([card, rows]) => {
+            const ids = card && card.extension && card.extension.assetBindings && card.extension.assetBindings.boundPackIds || [];
+            const byId = new Map((rows || []).map(row => [row.packId || row.manifest && row.manifest.id, row]));
+            if (live) setPacks(ids.map(id => { const row = byId.get(id), manifest = row && row.manifest || {};
+                return { id, name: row ? row.name || manifest.name || id : id, note: row ? row.description || manifest.description || "" : "本机没有这个素材包", missing: !row }; }));
+        }, () => { if (live) setPacks(null); });
+        return () => { live = false; };
+    }, [cardPath, !!service]);
+    return packs;
+}
+function openCardStagePack(packId, sessionId) {
+    packNav.go({ packId, back: { label: "人物卡库", open: () => openSidebarTab("dsh-tavern:cards", sessionId).catch(error => navFailed("返回人物卡库", error)) } });
+    openSidebarTab("dsh-asset-library:library", sessionId).catch(error => navFailed("打开舞台素材", error));
+}
+
+// 人物卡库's one 「导入」 (the ⤓ of 舞台素材's 获取素材包): 选择本地文件… first, with a folder (the system file picker, several at
+// once; on a phone with a download folder the 从手机下载目录导入 sheet); with the card ZIP entry, 从网址导入… a quieter row
+// that opens a box for a card's address in its place (pasted or typed; Enter reads it). Opening the menu focuses the first row.
+function CardImportMenu({ disabled, pickFile, openAddress }) {
+    const h = React.createElement, popup = useInlinePopup(), [address, setAddress] = React.useState(""), [typing, setTyping] = React.useState(false);
+    const glyph = name => h(packUi.Glyph, { name });
+    function read() { const url = address.trim(); if (!url) return; popup.close(false); setAddress(""); setTyping(false); openAddress(url); }
+    if (!openAddress) return h("button", { type: "button", className: "ap-icon-button", "aria-label": "导入人物卡", title: "导入人物卡", disabled, onClick: pickFile }, glyph("download"));
+    const toggle = () => { if (!popup.open) setTyping(false); popup.setOpen(!popup.open); };
     return h("span", { className: "fork-inline-anchor", ref: popup.root, onKeyDown: popup.keys },
-        h("button", { ref: popup.trigger, className: "dsh-tavern-btn", type: "button", disabled,
-            "aria-haspopup": "menu", "aria-expanded": popup.open, onClick: () => popup.setOpen(!popup.open),
-            onKeyDown: event => { if (event.key === "ArrowDown" && !popup.open) { event.preventDefault(); popup.setOpen(true); } } }, "导出"),
-        popup.open ? popup.layer({ className: "fork-inline-pop", role: "menu", "aria-label": "导出格式", onKeyDown: inlineMenuKeys },
-            formats.map(format => h("button", { key: format.value, className: "fork-inline-option", type: "button", role: "menuitem",
-                disabled: disabled || format.disabled, onClick: () => { popup.close(true); onExport(format.value); } },
-                h("span", null, format.label), h("span", { className: "fork-inline-option-note" }, format.note)))) : null);
+        h("button", { ref: popup.trigger, type: "button", className: "ap-icon-button", "aria-label": "导入人物卡", title: "导入人物卡", disabled, "aria-haspopup": "menu", "aria-expanded": popup.open, onClick: toggle }, glyph("download")),
+        popup.open ? popup.layer({ className: "fork-inline-pop dsh-tavern-card-import-pop", role: "menu", "aria-label": "导入人物卡", onKeyDown: typing ? undefined : inlineMenuKeys },
+            h("button", { type: "button", role: "menuitem", className: "fork-inline-option dsh-tavern-card-import-file", onClick: () => { popup.close(false); pickFile(); } }, glyph("folder"), "选择本地文件…"),
+            typing ? h("div", { className: "dsh-tavern-card-import-url" },
+                h(SearchBox, { bare: true, label: "卡片网址", placeholder: "粘贴卡片网址", value: address, onChange: setAddress, spellCheck: false, autoFocus: true,
+                    onKeyDown: event => { if (event.key === "Enter") { event.preventDefault(); read(); } } }),
+                h("button", { type: "button", className: "dsh-tavern-btn", disabled: !address.trim(), onClick: read }, "导入"))
+                : h("button", { type: "button", role: "menuitem", className: "fork-inline-option", onClick: () => setTyping(true) }, glyph("link"), "从网址导入…")) : null);
+}
+
+// The world book list's dashed ＋: a menu of the books that can still be bound (a search above 8); picking one binds it.
+// `label` / `noun`: the 世界书 page binds a card with the same menu (绑定人物卡).
+function WorldBookAddMenu({ choices, loading, disabled, onOpen, onPick, label = "绑定世界书", noun = "世界书" }) {
+    const h = React.createElement, popup = useInlinePopup({ focusSelector: "input" }), [query, setQuery] = React.useState("");
+    const needle = query.trim().toLowerCase();
+    const shown = needle ? choices.filter(choice => (choice.name + " " + choice.note).toLowerCase().includes(needle)) : choices;
+    const toggle = () => { if (!popup.open) { setQuery(""); onOpen(); } popup.setOpen(!popup.open); };
+    return h("div", { className: "fork-inline-anchor dsh-tavern-worldbook-add-anchor", ref: popup.root, onKeyDown: popup.keys },
+        h("button", { ref: popup.trigger, type: "button", className: "dsh-tavern-worldbook-add-row", disabled, "aria-label": label, title: label,
+            "aria-haspopup": "menu", "aria-expanded": popup.open, onClick: toggle,
+            onKeyDown: event => { if (event.key === "ArrowDown" && !popup.open) { event.preventDefault(); toggle(); } } }, h(InlineGlyph, { name: "plus" })),
+        popup.open ? popup.layer({ className: "fork-inline-pop dsh-tavern-worldbook-add-pop", role: "menu", "aria-label": label, onKeyDown: inlineMenuKeys },
+            choices.length > 8 ? h(SearchBox, { label: "搜索" + noun, value: query, onChange: setQuery, className: "ap-search dsh-tavern-worldbook-add-search" }) : null,
+            loading && !choices.length ? h("div", { className: "dsh-tavern-worldbook-add-loading" }, h(Spinner)) : null,
+            !loading && !shown.length ? h(EmptyState, { compact: true, plain: !!needle, query: needle ? query : undefined, text: needle ? undefined : "没有可以绑定的" + noun }) : null,
+            shown.map(choice => h("button", { key: choice.value, type: "button", role: "menuitem", className: "fork-inline-option", title: choice.name,
+                onClick: () => { popup.close(true); onPick(choice.value); } },
+                h("span", { className: "dsh-tavern-worldbook-add-name" }, choice.name), h("span", { className: "fork-inline-option-note" }, choice.note)))) : null);
 }
 
 		function createCardLibraryFeatureModule() {
@@ -35,8 +105,21 @@ function CardExportMenu({ disabled, hasImage, onExport }) {
 			const organization = useCardOrganization(cards, busy, refreshCards, error => setError(error), cardBatch);
 			const [error, setError] = usePersistentError("人物卡库");
 			const dshExport = useDshCardExport({ sessionId: props.scope && props.scope.sessionId || "" });
-			const importInput = React.useRef(null);
+			// 更新 (card-update-dialog.js): a card replaced or put back is read again.
+			const cardUpdate = useTavernCardUpdate({ call: rpc, onChanged: async function (path) {
+				await refreshCards(); notifyTavernDataChanged(["cards"], "cards");
+				if (path === selectedPath) loadCard(path);
+			} });
+			const importInput = React.useRef(null), mobileImport = React.useRef(null);
 			const [importStatus, setImportStatus] = React.useState("");
+			const actions = useTavernCardActions({ busy, setBusy, refresh: refreshCards, onError: setError, onNotice: setImportStatus, archiveSession: props.archiveSession,
+				displayName: cardLibraryDisplayName, update: cardUpdate,
+				// With the pack service 导出 is the one export sheet; without it the card's page keeps the format menu.
+				exportCard: function (item) { if (dshExport.open) dshExport.open(item, { hasImage: item.hasImage }); else loadCard(item.path); },
+				onDuplicated: function (path) { if (selectedPath) return loadCard(path); },
+				onDeleted: function (path) { if (path === selectedPath) { cardRequest.current += 1; setSelectedPath(""); setCard(null); } },
+				select: function (path) { if (selectedPath) clearCard(); cardBatch.begin([path]); } });
+			const cardMenu = function (item) { return function (close) { return React.createElement(TavernCardMenu, { card: item, actions, organization, close }); }; };
 			const [transferStatus, setTransferStatus] = React.useState("");
 			const importing = React.useRef(false);
 			const cardRequest = React.useRef(0);
@@ -123,97 +206,95 @@ function CardExportMenu({ disabled, hasImage, onExport }) {
 				} catch (err) { setError(failures.concat("刷新人物卡库失败：" + String(err && err.message || err)).join("\n")); }
 				finally { importing.current = false; setBusy(false); setTransferStatus(''); }
 			}
-			async function renameCard() {
-				if (!card || busy) return;
-				const current = cardLibraryDisplayName(card, cards.find(item => item.path === card.path)?.displayName);
-				await askTavernText({ title: "重命名人物卡", initialValue: current, description: "留空恢复默认名称。", allowEmpty: true, maxLength: 120,
-					onSubmit: async function (displayName) {
-						if (displayName === current) return;
-						setBusy(true); setError("");
-						try {
-							await rpc("organizeCards", { action: "cards", paths: [card.path], displayName: displayName });
-							await refreshCards();
-							notifyTavernDataChanged(["cards"], "cards");
-						} finally { setBusy(false); }
-					}
-				});
-			}
-			// a separate card to edit or experiment with; the original file is not touched.
-			async function duplicateCardFile() {
-				if (!card) return;
-                setBusy(true); setError("");
-                try {
-                    const copied = (await rpc("duplicateCard", { path: card.path })).card;
-                    await refreshCards(); await loadCard(copied.path); notifyTavernDataChanged(["cards"], "cards"); setImportStatus("已另存副本，原卡未改动");
-                }
-				catch (err) { setError(String(err && err.message || err)); }
-				finally { setBusy(false); }
-			}
-			async function deleteCardFile() {
-				if (!card || !await askConfirm("人物卡文件会被删除，不能撤销。", { title: "从人物卡库删除“" + card.name + "”？", confirmText: "删除", danger: true, hide: "card" })) return;
-				let chats;
-				try { chats = await askTavernCardChatRemoval([card.path], askConfirm); }
-				catch (err) { setError("读取游玩记录失败，未删除人物卡：" + String(err && err.message || err)); return; }
-				setBusy(true); setError("");
+			// The exports the library saves itself (JSON, PNG, and the .dshcard and 加密导出 without the pack service; with it
+			// they go through the DSH card export sheet): the save-as dialog first, inside the click (Downloads the
+			// first time, then the last export's folder), then the progress dialog while the host packs and the file streams to
+			// it, then the result line saying where it is (saveExportFile `said`), or the host's reason. Without a dialog (phones)
+			// the file goes to an ordinary download. `source()` resolves {url, filename} of the GET that streams the file.
+			async function saveCardExport({ extension, type, description, suffix = '', title, packing, source }) {
+				const name = card.name + suffix;
+				let target = null;
+				try { target = await pickExportTarget({ name, description, extension, type }); }
+				catch (error) { if (error?.name !== 'AbortError') setError(error); return; }
+				setBusy(true); setError(''); setImportStatus('');
+				const progress = beginTavernCardImportProgress(name + extension, { title });
+				progress.update(packing);
+				let saving = false;
 				try {
-					await rpc("deleteCard", { path: card.path });
-					const chatRemoval = await removeTavernCardChats(chats, [{ path: card.path, ok: true }], props.archiveSession);
-					announceTavernSessionsUnavailable(chatRemoval.sessionIds);
-					setSelectedPath(""); setCard(null); await refreshCards(); notifyTavernDataChanged(["cards", "sessions"], "cards");
-					if (chatRemoval.notice.indexOf("失败") >= 0) setError(chatRemoval.notice);
+					const archive = await source();
+					saving = true;
+					const saved = await saveExportFile(archive, { target, name, onProgress: function (p) {
+						progress.update(p.total ? '正在保存 ' + (p.loaded / 1048576).toFixed(1) + ' / ' + (p.total / 1048576).toFixed(1) + ' MB' : packing);
+					} });
+					setImportStatus(saved.said);
+				} catch (error) {
+					if (!saving && target?.empty) await target.file.remove?.().catch(function () {});
+					setError(error);
 				}
-				catch (err) { setError(String(err && err.message || err)); }
-				finally { setBusy(false); }
+				finally { progress.close(); setBusy(false); }
 			}
-			// Native exports keep the card, cover and material together in one DSH container.
+			// With the pack service 导出 is the one export sheet (DshCardExportSheet: format, 加密, packs and world books). Without it
+			// (no stage package) the page's ⋯ › 导出 lists the formats and 加密导出, saving through saveCardExport.
+			function openCardExport() { if (card && !busy) dshExport.open(card, { hasImage: cards.find(item => item.path === card.path)?.hasImage }); }
 			async function encryptCurrentCard() {
-                if (!card || busy) return;
-                const password = await askTavernCardPassword({ name: card.name, confirm: true });
-                if (password === null) return;
-                setBusy(true); setError(''); setImportStatus('');
-                const progress = beginTavernCardImportProgress(card.name, { title: '正在加密导出人物卡' });
-                progress.update('正在整理当前卡片、封面、插件和素材并加密…');
-                try {
-                    const result = await rpc('encryptLibraryCard', { path: card.path, password });
-                    const link = document.createElement('a'); link.href = result.downloadUrl; link.download = result.filename;
-                    document.body.append(link); link.click(); link.remove();
-                    setImportStatus('已生成加密卡包：' + result.filename + '。导入时需要密码。');
-                } catch (error) { setError(String(error?.message || error)); }
-                finally { progress.close(); setBusy(false); }
-            }
+				if (!card || busy) return;
+				const path = card.path;
+				const password = await askTavernCardPassword({ name: card.name, confirm: true });
+				if (password === null) return;
+				await saveCardExport({ extension: '.dshcard', type: 'application/zip', description: 'DSH 人物卡', suffix: '-加密', title: '正在加密导出人物卡',
+					packing: '正在整理当前卡片、封面、插件和素材并加密…',
+					source: async function () { const result = await runCardExport(rpc, { path, password }); return { url: result.downloadUrl, filename: result.filename, size: result.bytes }; } });
+			}
+			const CARD_EXPORT_FILES = { dshcard: { extension: '.dshcard', type: 'application/zip', description: 'DSH 人物卡' }, json: { extension: '.json', type: 'application/json', description: 'JSON 人物卡' }, png: { extension: '.png', type: 'image/png', description: 'PNG 人物卡' } };
 			function exportCardFile(format) {
 				if (!card) return;
-				if (format === "dshcard" && dshExport.open && card.extensions?.hasSelectableAssetPacks !== false) {
-					dshExport.open(card);
-					return;
-				}
-				const link = document.createElement("a");
-				link.href = "/api/dsh-tavern/card-export?" + new URLSearchParams({ path: card.path, format });
-				document.body.appendChild(link); link.click(); link.remove();
+				const url = "/api/dsh-tavern/card-export?" + new URLSearchParams({ path: card.path, format });
+				return saveCardExport(Object.assign({ title: '正在导出人物卡', packing: format === 'dshcard' ? '正在打包卡片、封面和素材…' : '正在准备…',
+					source: function () { return { url, filename: '人物卡' + CARD_EXPORT_FILES[format].extension }; } }, CARD_EXPORT_FILES[format]));
 			}
 			const h = React.createElement;
 			if (selectedPath) {
 				if (!card) return h("div", { className: "dsh-tavern-library dsh-tavern-card-library" }, h("div", { className: "dsh-tavern-status-head" }, h("button", { className: "dsh-tavern-btn", onClick: clearCard }, "← 返回人物卡库")), loading ? h(PanelLoading, { shape: "fields", label: "正在读取人物卡…" }) : error ? h("div", { className: "dsh-tavern-dock-error" }, error, h("button", { className: "dsh-tavern-btn", onClick: function () { loadCard(selectedPath); } }, "重新读取")) : h("div", { className: "dsh-tavern-empty" }, "人物卡读取失败", h("button", { className: "dsh-tavern-btn", onClick: function () { loadCard(selectedPath); } }, "重新读取")));
 				const listedCard = cards.find(item => item.path === selectedPath);
-				return h(React.Fragment, null, h(TavernCardPluginsBox, { path: selectedPath }), error ? h("div", { className: "dsh-tavern-dock-error", role: "alert" }, error) : null, importStatus ? h("div", { role: "status" }, importStatus) : null, h(CardFieldsPanel, { view: { card: card }, library: true, displayName: listedCard?.displayName, organizationSettings: organization.detailSettings(listedCard), hasImage: listedCard?.hasImage, busy: busy, onBack: clearCard, onAttach: sessionMode === "card" ? function () { props.appendMention(card.path, card.name); } : null, onOpenWorldBook: props.openWorldBook, onRename: renameCard, onDuplicate: duplicateCardFile, onExport: exportCardFile, onEncrypt: encryptCurrentCard, onDelete: deleteCardFile, onSaved: function (saved) { setCard(Object.assign({}, saved, { path: selectedPath })); refreshCards(); } }), dshExport.element);
+				// The header: the name with ✎ (重命名), its tags and the card's ⋯ (TavernCardMenu, as on its tile, with the page's
+				// low-frequency actions: 导出, 管理存档, 引用 …); 开始游玩 is the ▶ on the cover.
+				const detailMenu = {
+					exportCard: dshExport.open ? openCardExport : null,
+					exportFormats: dshExport.open ? null : cardExportFormats(listedCard?.hasImage, exportCardFile, encryptCurrentCard),
+					manageSaves: function () { window.dispatchEvent(new CustomEvent("dsh-tavern-manage-saves", { detail: { path: card.path } })); },
+					attach: sessionMode === "card" ? function () { props.appendMention(card.path, card.name); } : null };
+				return h(React.Fragment, null, h(TavernCardPluginsBox, { path: selectedPath }), error ? h("div", { className: "dsh-tavern-dock-error", role: "alert" }, error) : null, importStatus ? h("div", { role: "status" }, importStatus) : null, h(CardFieldsPanel, { view: { card: card }, library: true, displayName: listedCard?.displayName, organizationSettings: listedCard ? h(TavernCardDetailTags, { card: listedCard, organization }) : null, hasImage: listedCard?.hasImage, busy: busy, sessionId: props.scope && props.scope.sessionId || "", onBack: clearCard, onOpenWorldBook: props.openWorldBook, onRename: listedCard ? function () { actions.rename(listedCard); } : null, menu: listedCard ? function (close) { return h(TavernCardMenu, { card: listedCard, actions, organization, close, detail: detailMenu }); } : null, onSaved: function (saved) { setCard(Object.assign({}, saved, { path: selectedPath })); refreshCards(); } }), dshExport.element, cardUpdate.input, cardUpdate.element);
 			}
 			const visible = organization.visible;
 			// "@" quotes a card into the card workspace conversation; only there does it mean anything.
 			const mentionButton = sessionMode === "card" ? function (item) { return h("button", { type: "button", className: "dsh-tavern-card-mention", title: "在对话中引用", "aria-label": "在对话中引用：" + item.name, onClick: function (event) { event.stopPropagation(); props.appendMention(item.path, item.name); } }, "@"); } : null;
-			return h("div", { className: "dsh-tavern-library dsh-tavern-card-library", 'aria-busy': !!transferStatus },
-				h("div", { className: "dsh-tavern-status-head" }, h("div", { className: "dsh-tavern-status-title" }, "人物卡库"), h("div", { className: "dsh-tavern-question-sub" }, cards.length + " 张人物卡"), h("div", { className: "dsh-tavern-library-head-actions" }, h(MobileCardImportButton, { inputRef: importInput, batch: cardBatch.managing, disabled: busy, onImported: async function (imported) { await refreshCards(); await loadCard(imported.path); notifyTavernDataChanged(["cards"], "cards"); } }), forkCardZip ? h("button", { type: "button", className: "dsh-tavern-btn fork-card-url-import", disabled: busy || forkCardZip.busy, onClick: forkCardZip.openUrl }, "从网址导入卡") : null, h("input", { ref: importInput, type: "file", multiple: true, accept: TAVERN_CARD_FILE_ACCEPT, style: { display: "none" }, onChange: function (event) { const files = Array.from(event.target.files || []); event.target.value = ""; void importCardFiles(files); } }))),
-				h("div", { className: "dsh-tavern-question-sub dsh-tavern-card-import-hint", role: "status", 'aria-live': 'polite', style: { display: 'flex', alignItems: 'center', gap: 10 } },
+			return h("div", { className: "dsh-tavern-library dsh-tavern-card-library", 'aria-busy': !!transferStatus, ...tavernCardDropHandlers(importCardFiles) },
+				h("div", { className: "dsh-tavern-status-head" }, h("div", { className: "dsh-tavern-status-title" }, "人物卡库"),
+					h("div", { className: "dsh-tavern-library-head-actions" },
+						h(MobileCardImportButton, { inputRef: importInput, activateRef: mobileImport, batch: false, disabled: busy, onImported: async function (imported) { await refreshCards(); await loadCard(imported.path); notifyTavernDataChanged(["cards"], "cards"); } }),
+						h("input", { ref: importInput, type: "file", multiple: true, accept: TAVERN_CARD_FILE_ACCEPT, style: { display: "none" }, onChange: function (event) { const files = Array.from(event.target.files || []); event.target.value = ""; void importCardFiles(files); } }))),
+				// Only while importing, or to say how the last import went.
+				transferStatus || importStatus ? h("div", { className: "dsh-tavern-question-sub dsh-tavern-card-import-hint", role: "status", 'aria-live': 'polite', style: { display: 'flex', alignItems: 'center', gap: 10 } },
 					transferStatus ? h('span', { style: { flexShrink: 0 }, 'aria-hidden': true }, h(Spinner)) : null,
-					h('span', { style: { whiteSpace: 'pre-line', overflowWrap: 'anywhere', minWidth: 0 } }, transferStatus ? transferStatus + '\n' + importStatus + '\n大卡包可能需要一会儿，请保持页面打开。' : importStatus || "可多选 PNG、JSON、CHARX、DSH 人物卡一起导入" + (forkCardZip ? "，卡片 ZIP 逐个导入" : ""))),
-				organization.toolbar(),
-				h("div", { className: "dsh-tavern-resource-body" }, error ? h("div", { className: "dsh-tavern-dock-error" }, error) : null, visible.length ? h(TavernCardList, { place: "library", cards: visible, displayName: cardLibraryDisplayName, batch: cardBatch, busy: busy, open: function (item) { loadCard(item.path); }, menu: organization.rowMenu, mention: mentionButton }) : h(EmptyState, cards.length ? { text: "没有匹配的人物卡", icon: "search" } : { noun: "人物卡" }), organization.addCardsFooter() )
+					h('span', { style: { whiteSpace: 'pre-line', overflowWrap: 'anywhere', minWidth: 0 } }, transferStatus ? transferStatus + '\n' + importStatus + '\n大卡包可能需要一会儿，请保持页面打开。' : importStatus)) : null,
+				organization.toolbar(h(CardImportMenu, { disabled: busy || Boolean(forkCardZip && forkCardZip.busy), pickFile: function () { if (mobileImport.current) mobileImport.current(); },
+					openAddress: forkCardZip && forkCardZip.openAddress ? forkCardZip.openAddress : null })),
+				h("div", { className: "dsh-tavern-resource-body" }, error ? h("div", { className: "dsh-tavern-dock-error" }, error) : null, visible.length ? h(TavernCardList, { place: "library", cards: visible, columns: organization.columns, displayName: cardLibraryDisplayName, batch: cardBatch, busy: busy, open: function (item) { loadCard(item.path); }, menu: cardMenu, mention: mentionButton }) : h(EmptyState, cards.length ? { text: "没有匹配的人物卡", icon: "search" } : { noun: "人物卡" }), organization.batchBar()),
+				dshExport.element, cardUpdate.input, cardUpdate.element
 			);
+		}
+
+		// The detail header's ⋯: the card's menu (TavernCardMenu, as on its tile), under the button.
+		function CardDetailMenuButton(props) {
+			const menu = packUi.useContextMenu({ label: props.label + " 操作", content: props.menu });
+			return React.createElement(React.Fragment, null,
+				React.createElement("button", { type: "button", className: "ap-icon-button dsh-card-more", disabled: props.disabled, "aria-label": "更多操作", title: "更多操作", "aria-haspopup": "menu",
+					onClick: function (event) { menu.show(event.currentTarget); } }, React.createElement(packUi.Glyph, { name: "more" })),
+				menu.layer);
 		}
 
 		function CardFieldsPanel(props) {
             const askConfirm = useTavernConfirm(props.sessionId || props.scope?.sessionId);
-			const [draft, setDraft] = React.useState({});
-			const [busy, setBusy] = React.useState(false);
 			const [error, setError] = usePersistentError("人物卡详情");
 			const [script, setScript] = React.useState(null);
 			const [availableResources, setAvailableResources] = React.useState([]);
@@ -227,12 +308,13 @@ function CardExportMenu({ disabled, hasImage, onExport }) {
 			const [worldBookCatalogLoaded, setWorldBookCatalogLoaded] = React.useState(false);
 			const [worldBookCatalogLoading, setWorldBookCatalogLoading] = React.useState(false);
 			const [worldBookCatalogWarning, setWorldBookCatalogWarning] = React.useState("");
-			const [selectedWorldBook, setSelectedWorldBook] = React.useState("");
-			const [addingWorldBook, setAddingWorldBook] = React.useState(false);
 			const [worldBookBusy, setWorldBookBusy] = React.useState(false);
 			const [worldBookError, setWorldBookError] = usePersistentError("世界书绑定");
 			const scriptFileRef = React.useRef(null);
 			const worldBookDetailsRef = React.useRef(null);
+			// open folds of this page (texts by field, world books by source); the first bound book starts open.
+			const [openFolds, setOpenFolds] = React.useState({});
+			const stagePacks = useCardStagePacks(props.view.card.path);
 			const worldBookCatalogRequestRef = React.useRef(null);
 			const cardPath = props.view.card.path;
 			function call(method, args) { return rpc(method, args); }
@@ -269,7 +351,6 @@ function CardExportMenu({ disabled, hasImage, onExport }) {
 				call("getWorldBookBinding", { cardPath: cardPath }).then(function (result) {
 					const binding = result.binding || { kind: "none", source: null, name: "" };
 					setWorldBookBinding(binding);
-					setSelectedWorldBook(""); setAddingWorldBook(false);
 					setWorldBookError("");
 				}, function (err) { setWorldBookError(String(err && err.message || err)); });
 			}
@@ -293,48 +374,32 @@ function CardExportMenu({ disabled, hasImage, onExport }) {
 				return request;
 			}
 			React.useEffect(function () {
-				const card = props.view.card;
-				setDraft({
-					name: card.name || "", tags: (card.tags || []).join(", "), description: card.description || "", personality: card.personality || "", scenario: card.scenario || "",
-					first_mes: card.first_mes || "", alternate_greetings: (card.alternate_greetings || []).join("\n---\n"), mes_example: card.mes_example || "", system_prompt: card.system_prompt || "",
-					post_history_instructions: card.post_history_instructions || "", creator_notes: card.creator_notes || ""
-				});
-			}, [props.view.card]);
-			React.useEffect(function () {
 				setAvailableResources([]); setScriptCatalogLoaded(false); setScriptCatalogLoading(false);
 				setAvailableWorldBooks([]); setWorldBookCatalogLoaded(false); setWorldBookCatalogLoading(false);
-				setWorldBookCatalogWarning("");
+				setWorldBookCatalogWarning(""); setOpenFolds({});
 				loadScript();
 				loadWorldBookBinding();
 			}, [cardPath]);
+			// the 剧本 menu lists the library's scripts as soon as the page shows.
+			React.useEffect(function () { if (!scriptCatalogLoaded) loadScriptCatalog(); }, [cardPath, scriptCatalogLoaded]);
 			React.useEffect(function () {
 				function onWorldBookDataChanged(event) {
 					if (!tavernDataChangeAffects(event, ["worldbooks", "cards"])) return;
 					loadWorldBookBinding();
 					setAvailableWorldBooks([]);
 					setWorldBookCatalogLoaded(false);
-					if (worldBookDetailsRef.current && worldBookDetailsRef.current.open) loadWorldBookCatalog(true);
 				}
 				window.addEventListener("dsh-tavern-data-changed", onWorldBookDataChanged);
 				return function () { window.removeEventListener("dsh-tavern-data-changed", onWorldBookDataChanged); };
 			}, [cardPath]);
-			function field(name, value) { setDraft(Object.assign({}, draft, { [name]: value })); }
-			async function save() {
-				setBusy(true); setError("");
+			// every field saves itself when it is left (R17): one key per write, the card read back from the reply.
+			async function commitField(key, value) {
+				setError("");
 				try {
-					const next = Object.assign({}, draft, { tags: draft.tags.split(/[,，]/).map(function (x) { return x.trim(); }).filter(Boolean), alternate_greetings: draft.alternate_greetings.split(/\n---+\n/).map(function (x) { return x.trim(); }).filter(Boolean) });
-					const source = props.view.card || {};
-					const baseline = {
-						name: source.name || "", tags: source.tags || [], description: source.description || "", personality: source.personality || "", scenario: source.scenario || "",
-						first_mes: source.first_mes || "", alternate_greetings: source.alternate_greetings || [], mes_example: source.mes_example || "", system_prompt: source.system_prompt || "",
-						post_history_instructions: source.post_history_instructions || "", creator_notes: source.creator_notes || ""
-					};
-					const patch = {};
-					Object.keys(next).forEach(function (key) { if (JSON.stringify(next[key]) !== JSON.stringify(baseline[key])) patch[key] = next[key]; });
-					const res = await call("updateCard", { path: cardPath, patch: patch });
+					const res = await call("updateCard", { path: cardPath, patch: { [key]: value } });
 					props.onSaved(res.card);
 					notifyTavernDataChanged(["cards", "sessions"], "cards");
-				} catch (err) { setError(String(err && err.message || err)); } finally { setBusy(false); }
+				} catch (err) { setError(String(err && err.message || err)); }
 			}
 			async function importScriptFile(file) {
 				if (!cardPath || !file) return;
@@ -348,11 +413,11 @@ function CardExportMenu({ disabled, hasImage, onExport }) {
 				} catch (err) { setScriptError(String(err && err.message || err)); }
 				finally { setScriptBusy(false); }
 			}
-			async function bindSelectedScript() {
-				if (!cardPath || !selectedScriptPath) return;
+			async function bindScript(path) {
+				if (!cardPath || !path) return;
 				setScriptBusy(true); setScriptError("");
 				try {
-					const res = await call("bindScript", { cardPath: cardPath, path: selectedScriptPath });
+					const res = await call("bindScript", { cardPath: cardPath, path: path });
 					setScript(res.script || null);
 					notifyTavernDataChanged(["scripts", "cards"], "cards");
 				} catch (err) { setScriptError(String(err && err.message || err)); }
@@ -369,50 +434,62 @@ function CardExportMenu({ disabled, hasImage, onExport }) {
 				} catch (err) { setScriptError(String(err && err.message || err)); }
 				finally { setScriptBusy(false); }
 			}
-			async function bindSelectedWorldBook() {
-				if (!cardPath || !selectedWorldBook) return;
+			async function bindWorldBook(value) {
+				const source = worldBookChoiceSource(value);
+				if (!cardPath || !source) return;
 				setWorldBookBusy(true); setWorldBookError("");
 				try {
-					const source = worldBookChoiceSource(selectedWorldBook);
-					if (!source) throw new Error("请选择世界书");
 					const result = await call("bindWorldBook", { cardPath: cardPath, source: source });
-					setWorldBookBinding(result.binding || null); setSelectedWorldBook(""); setAddingWorldBook(false);
+					setWorldBookBinding(result.binding || null);
 					notifyTavernDataChanged(["worldbooks", "cards"], "cards");
 				} catch (err) { setWorldBookError(String(err && err.message || err)); }
 				finally { setWorldBookBusy(false); }
 			}
-			async function unbindWorldBook(source) {
+			async function unbindWorldBook(book) {
 				if (!cardPath) return;
+				const named = book.available && book.name ? "「" + book.name + "」" : "这本世界书";
+				if (!await askConfirm(named + "不再用于这张人物卡，世界书本身不会删除。", { title: "解绑世界书？", confirmText: "解绑", danger: true, hide: "card-worldbook-unbind" })) return;
 				setWorldBookBusy(true); setWorldBookError("");
 				try {
-					const result = await call("unbindWorldBook", { cardPath: cardPath, source: source });
-					setWorldBookBinding(result.binding || null); setSelectedWorldBook(""); setAddingWorldBook(false);
+					const result = await call("unbindWorldBook", { cardPath: cardPath, source: book.source });
+					setWorldBookBinding(result.binding || null);
 					notifyTavernDataChanged(["worldbooks", "cards"], "cards");
 				} catch (err) { setWorldBookError(String(err && err.message || err)); }
 				finally { setWorldBookBusy(false); }
 			}
-			async function moveWorldBook(index, direction) {
-				const sources = boundWorldBooks.map(function (book) { return book.source; });
-				const target = index + direction;
-				if (target < 0 || target >= sources.length) return;
-				[sources[index], sources[target]] = [sources[target], sources[index]];
+			// useListReorder's drop: `id` goes in front of `beforeId` (null = last). The list shows the new order at once.
+			async function moveWorldBook(id, beforeId) {
+				const books = boundWorldBooks.slice();
+				const from = books.findIndex(function (book) { return worldBookChoiceValue(book.source) === id; });
+				if (from < 0) return;
+				const moved = books.splice(from, 1)[0];
+				const at = beforeId === null ? books.length : books.findIndex(function (book) { return worldBookChoiceValue(book.source) === beforeId; });
+				books.splice(at, 0, moved);
+				setWorldBookBinding(Object.assign({}, worldBookBinding, { books: books, source: books[0].source }));
 				setWorldBookBusy(true); setWorldBookError("");
 				try {
-					const result = await call("setWorldBookBindings", { cardPath: cardPath, sources: sources });
+					const result = await call("setWorldBookBindings", { cardPath: cardPath, sources: books.map(function (book) { return book.source; }) });
 					setWorldBookBinding(result.binding);
 					notifyTavernDataChanged(["worldbooks", "cards"], "cards");
-				} catch (err) { setWorldBookError(String(err && err.message || err)); }
+				} catch (err) { setWorldBookError(String(err && err.message || err)); loadWorldBookBinding(); }
 				finally { setWorldBookBusy(false); }
 			}
-			function F(name, label, large) {
-				const value = draft[name] || "";
-				const empty = !String(value).trim();
-				return React.createElement("div", { className: "dsh-tavern-card-field" + (empty ? " is-empty" : "") },
-					React.createElement("label", null, label),
-					name === "name" || name === "tags"
-						? React.createElement("input", { value: value, onChange: function (e) { field(name, e.target.value); } })
-						: React.createElement("textarea", { className: (large ? "large" : "") + (empty ? " is-empty" : ""), value: value, rows: empty ? (large ? 3 : 2) : undefined, onChange: function (e) { field(name, e.target.value); } })
-				);
+			// A card text is one fold (CardTextFold): › label · its first line, opened to read and ✎ to edit; it saves when left.
+			// An empty one is the grid's 「＋ 名称」 chip (R4), whose field becomes the fold once it has text.
+			function fold(key, label, value, onCommit) {
+				return h(CardTextFold, { key: key, label: label, value: value, open: openFolds[key] === true, disabled: props.busy, onCommit: onCommit,
+					onToggle: function () { setOpenFolds(function (current) { return Object.assign({}, current, { [key]: !current[key] }); }); } });
+			}
+			function F(name, label) {
+				const value = String(props.view.card[name] || ""), commit = function (v) { return commitField(name, v); };
+				return value.trim() ? fold(name, label, value, commit)
+					: h(InlineField, { key: name, kind: "text", multiline: true, lines: true, label: label, value: "", hideEmpty: true, wide: true, onCommit: commit });
+			}
+			// 开场白 and each 备选开场白 are one fold each; emptying an alternate removes it.
+			const alternates = props.view.card.alternate_greetings || [];
+			function alternateField(text, index) {
+				return fold("alt-" + index + "-" + alternates.length, "备选 " + (index + 1), text,
+					function (v) { const next = alternates.slice(); if (v.trim()) next[index] = v; else next.splice(index, 1); return commitField("alternate_greetings", next); });
 			}
 			const h = React.createElement;
 			const cardExtensions = props.view.card.extensions || {};
@@ -472,7 +549,6 @@ function CardExportMenu({ disabled, hasImage, onExport }) {
 				});
 			}
 			const extensionPanel = () => h("div", { className: "dsh-tavern-card-extensions" },
-				h("div", { className: "dsh-tavern-extension-note" }, "这里只读取人物卡工作区中的完整扩展数据，不执行任何卡内脚本。MVU 按名称和内容识别，用于帮助定位相关资源，不代表已经完整解析其运行逻辑。"),
 				extensionSectionTitle("正则脚本", cardRegexScripts.length), cardRegexScripts.map(regexExtensionRow),
 				extensionSectionTitle("Tavern Helper 脚本", helperScripts.length), helperScripts.map(helperScriptRow),
 				extensionSectionTitle("MVU 相关资源", mvuResources.length),
@@ -481,68 +557,106 @@ function CardExportMenu({ disabled, hasImage, onExport }) {
 				extensionCount === 0 && mvuResources.length === 0 ? h("div", { className: "dsh-tavern-worldbook-empty" }, "这张人物卡没有可展示的扩展内容") : null
 			);
 			const selectableResources = availableResources.filter(function (item) { return !Array.isArray(item.boundCards) || item.boundCards.length === 0 || item.boundCards.some(function (boundCard) { return boundCard.path === cardPath; }); });
-			const scriptPanel = h("div", { className: "dsh-tavern-script-row" },
-				h("div", { className: "dsh-tavern-script-info" }, script ? h("span", null, h("b", null, "当前剧本："), script.title + " · " + script.chunkCount + " 块 · " + script.sourceChars + " 字") : h("span", null, "未绑定剧本；游玩时按自由故事推进")),
-				h("select", { value: selectedScriptPath, disabled: scriptBusy || scriptCatalogLoading || !scriptCatalogLoaded || !selectableResources.length, onChange: function (event) { setSelectedScriptPath(event.target.value); } }, h("option", { value: "" }, scriptCatalogLoading ? "正在读取剧本库…" : "选择已有剧本"), selectableResources.map(function (item) { return h("option", { key: item.path, value: item.path }, item.title); })),
-				h("button", { className: script ? "dsh-tavern-script-file" : "dsh-tavern-script-primary", disabled: scriptBusy || !selectedScriptPath || !!(script && script.path === selectedScriptPath), onClick: bindSelectedScript }, script ? "更换绑定" : "绑定"),
-				h("input", { ref: scriptFileRef, type: "file", accept: ".txt,.md,.epub,text/plain,text/markdown,application/epub+zip", style: { display: "none" }, onChange: function (e) { const f = e.target.files && e.target.files[0]; if (f) importScriptFile(f); e.target.value = ""; } }),
-				h("button", { className: "dsh-tavern-script-file", disabled: scriptBusy, onClick: function () { scriptFileRef.current && scriptFileRef.current.click(); } }, "导入新剧本并绑定"),
-				script ? h("button", { className: "dsh-tavern-script-file", disabled: scriptBusy, onClick: deleteScript }, "解绑") : null
-			);
-			const scriptHero = h("details", { className: "dsh-tavern-script-hero", onToggle: function (event) { if (event.currentTarget.open) loadScriptCatalog(); } },
-				h("summary", { className: "dsh-tavern-script-hero-title" }, script ? ("剧本模式 · " + script.title) : "剧本模式 · 未绑定"),
-				h("div", { className: "dsh-tavern-script-hero-help" }, "绑定剧本后，新开的游玩对话会自动进入剧本模式。Agent 按剧情进度分段读取当前片段并围绕它续写，每轮完成后推进阅读位置；不会一次载入整本剧本，也不要求玩家照原文行动。更换或解绑会影响所有使用这张人物卡的剧本对话。"),
-				scriptPanel,
-				scriptError ? h("div", { className: "dsh-card-error" }, scriptError) : null
-			);
+			// 剧本 is one row while a script is bound (its menu binds another, imports one and binds it, or 未绑定 unbinds); unbound it
+			// is the first dashed 「＋ 剧本」 chip, which opens the same menu.
+			const SCRIPT_IMPORT = "\u0000import";
+			const scriptOptions = (script ? [{ value: "", label: "未绑定" }] : [])
+				.concat(selectableResources.map(function (item) { return { value: item.path, label: item.title, note: item.path === (script && script.path) && script.chunkCount ? script.chunkCount + " 段" : undefined }; }))
+				.concat(script && !selectableResources.some(function (item) { return item.path === script.path; }) ? [{ value: script.path, label: script.title }] : [])
+				.concat([{ value: SCRIPT_IMPORT, label: "导入新剧本…" }]);
+			const scriptField = h(InlineField, { key: "script", kind: "menu", label: "剧本", value: script ? script.path : "", options: scriptOptions, disabled: scriptBusy, wide: true, hideEmpty: true,
+				help: h(HelpTip, { label: "剧本说明" }, "绑定后，新开的游玩按剧本分段推进；更换或解绑会影响用这张卡的剧本对话。"),
+				onCommit: function (value) {
+					if (value === SCRIPT_IMPORT) { if (scriptFileRef.current) scriptFileRef.current.click(); return; }
+					if (!value) return deleteScript();
+					return bindScript(value);
+				},
+				trail: h("input", { ref: scriptFileRef, type: "file", hidden: true, onChange: function (e) { const f = e.target.files && e.target.files[0]; if (f) importScriptFile(f); e.target.value = ""; } }) });
 			const boundWorldBooks = worldBookBinding && worldBookBinding.kind === "multiple" ? worldBookBinding.books : worldBookBinding && worldBookBinding.source ? [worldBookBinding] : [];
 			const hasWorldBookBinding = boundWorldBooks.length > 0;
 			const ownWorldBook = props.view.card.character_book;
 			const ownWorldBookName = String(ownWorldBook && ownWorldBook.name || "").trim() || String(props.view.card.name || "").trim() || cardPath;
 			const worldBookChoices = availableWorldBooks.filter(function (item) { return !(item.kind === "card" && item.cardPath === cardPath); });
+			const boundWorldBookIds = boundWorldBooks.map(function (book) { return worldBookChoiceValue(book.source); });
+			const worldBookReorder = useListReorder({ ids: boundWorldBookIds, enabled: !worldBookBusy && boundWorldBooks.length > 1, onMove: moveWorldBook });
+			const ownWorldBookValue = worldBookChoiceValue({ kind: "card", cardPath: cardPath });
+			const worldBookAddChoices = (ownWorldBook && typeof ownWorldBook === "object" ? [{ value: ownWorldBookValue, name: ownWorldBookName, note: "本卡自带" }] : [])
+				.concat(worldBookChoices.map(function (item) { return { value: worldBookChoiceValue(item), name: item.name, note: item.kind === "card" ? "人物卡：" + item.cardName : "独立世界书" }; }))
+				.filter(function (choice) { return boundWorldBookIds.indexOf(choice.value) < 0; });
+			function worldBookSourceNote(book) {
+				if (book.source.kind !== "card") return "独立世界书";
+				return book.source.cardPath === cardPath ? "本卡自带" : "人物卡：" + (book.source.cardName || book.source.cardPath);
+			}
+			// 世界书 right after 基本信息: one row per bound book — its name (a click opens the book's page in 世界书 ↗),
+			// where it comes from, 主书, × to unbind; drag the rows to reorder.
+			const ui = packUi, card = props.view.card, title = cardLibraryDisplayName(card, props.displayName);
 			const worldBookPanel = h("div", { className: "dsh-tavern-worldbook" },
-				!hasWorldBookBinding ? h("div", { className: "dsh-tavern-worldbook-note" }, "尚未绑定世界书") : null,
-				boundWorldBooks.map(function (book, index) {
-					return h("div", { key: worldBookChoiceValue(book.source), className: "dsh-tavern-script-row" },
-						h("button", { className: "dsh-tavern-worldbook-add dsh-tavern-worldbook-bound", disabled: worldBookBusy || !book.available, onClick: function () { if (typeof props.onOpenWorldBook === "function") props.onOpenWorldBook(book.source); } }, (index === 0 ? "主书 · " : "") + (book.name || "世界书不可用")),
-						h("button", { className: "dsh-tavern-script-file", disabled: worldBookBusy || index === 0, onClick: function () { moveWorldBook(index, -1); } }, "上移"),
-						h("button", { className: "dsh-tavern-script-file", disabled: worldBookBusy || index === boundWorldBooks.length - 1, onClick: function () { moveWorldBook(index, 1); } }, "下移"),
-						h("button", { className: "dsh-tavern-script-file", disabled: worldBookBusy, onClick: function () { unbindWorldBook(book.source); } }, "解绑")
-					);
-				}),
-				addingWorldBook ? h("div", { className: "dsh-tavern-script-row" },
-					h("select", { value: selectedWorldBook, disabled: worldBookBusy || worldBookCatalogLoading, onChange: function (event) { setSelectedWorldBook(event.target.value); } },
-						h("option", { value: "" }, worldBookCatalogLoading ? "正在读取世界书库…" : "选择世界书"),
-						ownWorldBook && typeof ownWorldBook === "object" ? h("option", { value: worldBookChoiceValue({ kind: "card", cardPath: cardPath }) }, ownWorldBookName + "（当前人物卡）") : null,
-						worldBookChoices.map(function (item) { const value = worldBookChoiceValue(item); return h("option", { key: value, value: value }, item.kind === "card" ? item.name + "（人物卡：" + item.cardName + "）" : item.name + "（独立世界书）"); })
-					),
-					h("button", { className: "dsh-tavern-script-primary", disabled: worldBookBusy || !selectedWorldBook || boundWorldBooks.some(function (book) { return worldBookChoiceValue(book.source) === selectedWorldBook; }), onClick: bindSelectedWorldBook }, worldBookBusy ? "处理中…" : "确认绑定"),
-					h("button", { className: "dsh-tavern-script-file", disabled: worldBookBusy, onClick: function () { setAddingWorldBook(false); setSelectedWorldBook(""); } }, "取消")
-				) : h("button", { className: "dsh-tavern-worldbook-add dsh-tavern-worldbook-new", disabled: worldBookBusy, onClick: function () { setAddingWorldBook(true); loadWorldBookCatalog(); } }, "＋ 新增绑定"),
-				h("div", { className: "dsh-tavern-worldbook-note" }, "多本世界书可能相互冲突，引发异常"),
+				hasWorldBookBinding ? h("ul", { className: "dsh-tavern-worldbook-list", role: "listbox", "aria-label": "已绑定的世界书", "data-dragging": worldBookReorder.dragging || undefined },
+					boundWorldBooks.map(function (book, index) {
+						const id = boundWorldBookIds[index], open = book.available && typeof props.onOpenWorldBook === "function";
+						return h("li", { key: id, className: "dsh-tavern-worldbook-row" + (book.available ? "" : " is-missing"), role: "option", "aria-selected": false, tabIndex: 0, ...worldBookReorder.row(id) },
+							h("div", { className: "dsh-card-fold-row" },
+								boundWorldBooks.length > 1 ? h("span", { className: "dsh-tavern-worldbook-grip", "aria-hidden": true, title: "拖动排序" },
+									h("svg", { width: 10, height: 16, viewBox: "0 0 10 16", fill: "currentColor" }, [4, 8, 12].map(function (y) { return h(React.Fragment, { key: y }, h("circle", { cx: 3, cy: y, r: 1.2 }), h("circle", { cx: 7, cy: y, r: 1.2 })); }))) : null,
+								book.available
+									? h("button", { type: "button", className: "dsh-card-fold-head dsh-card-book-link", disabled: !open, title: "在世界书里打开「" + book.name + "」",
+										onClick: function () { props.onOpenWorldBook(book.source); } },
+										h(ui.Glyph, { name: "globe" }), h("span", { className: "dsh-card-book-name" }, book.name),
+										h("span", { className: "dsh-card-fold-preview" }, worldBookSourceNote(book)), open ? h(ui.Glyph, { name: "openExternal" }) : null)
+									: h("span", { className: "dsh-tavern-worldbook-missing", title: "这本世界书已被删除或移走" }, h(InlineGlyph, { name: "warning" }), "找不到这本世界书"),
+								index === 0 ? h(HelpTip, { label: "主书", face: "主书", faceClassName: "dsh-tavern-worldbook-primary" }, "主书：游戏里新建的人物写进这本。" + (boundWorldBooks.length > 1 ? "拖动别的书到第一位，就换成它当主书。" : "")) : null,
+								h("button", { type: "button", className: "ap-icon-button dsh-card-row-icon", disabled: worldBookBusy, title: "解绑", "aria-label": "解绑" + (book.available ? "「" + book.name + "」" : "这本世界书"), onClick: function () { unbindWorldBook(book); } }, h(ui.Glyph, { name: "close" }))));
+					})) : null,
+				h(WorldBookAddMenu, { choices: worldBookAddChoices, loading: worldBookCatalogLoading, disabled: worldBookBusy, onOpen: function () { loadWorldBookCatalog(); }, onPick: bindWorldBook }),
 				worldBookError ? h("div", { className: "dsh-card-error" },
 					worldBookError,
 					h("button", { className: "dsh-tavern-btn", disabled: worldBookCatalogLoading, onClick: function () { loadWorldBookCatalog(true); } }, worldBookCatalogLoading ? "正在读取…" : "重新读取")
 				) : null,
 				worldBookCatalogWarning ? h("div", { className: "dsh-card-error" }, worldBookCatalogWarning) : null
 			);
-			return h("aside", { className: "dsh-tavern-status" + (props.library ? " dsh-tavern-card-detail" : "") },
-				h("div", { className: "dsh-tavern-status-head" },
-					props.onBack ? h("button", { className: "dsh-tavern-btn", onClick: props.onBack }, "← 返回") : null,
-					h("div", { className: props.library ? "dsh-tavern-status-title" : "dsh-tavern-status-role" }, props.library ? cardLibraryDisplayName(props.view.card, props.displayName) : props.view.card.name),
-					h("div", { className: "dsh-tavern-question-sub" }, props.view.card.path ? props.view.card.path.split("/").pop() : ""),
-					props.library ? h("div", { className: "dsh-tavern-library-head-actions" }, props.onAttach ? h("button", { className: "dsh-tavern-btn", onClick: props.onAttach }, "在对话中引用") : null, props.onDuplicate ? h("button", { className: "dsh-tavern-btn", disabled: props.busy, onClick: props.onDuplicate }, "另存副本") : null, h("button", { className: "dsh-tavern-btn", onClick: props.onRename }, "重命名"), h(CardExportMenu, { onExport: props.onExport, disabled: props.busy, hasImage: props.hasImage }), props.onEncrypt ? h("button", { className: "dsh-tavern-btn", disabled: props.busy, onClick: props.onEncrypt, title: "为当前人物卡设置导出密码" }, "加密导出") : null, h("button", { className: "dsh-tavern-btn danger", onClick: props.onDelete }, "删除")) : null
-				),
-				props.organizationSettings,
-				scriptHero,
-				h("div", { className: "dsh-tavern-card-fields" },
-					h("details", { ref: worldBookDetailsRef, open: true, className: "dsh-tavern-card-advanced dsh-tavern-card-worldbook", onToggle: function (event) { if (event.currentTarget.open) loadWorldBookCatalog(); } }, h("summary", null, "世界书 · " + boundWorldBooks.length + " 本"), worldBookPanel),
-					h("details", { className: "dsh-tavern-card-advanced", open: true }, h("summary", null, "基本信息"), F("name", "角色名称"), F("tags", "标签"), F("description", "角色描述", true), F("personality", "性格"), F("scenario", "场景设定"), F("first_mes", "开场白", true), F("alternate_greetings", "备选开场白（--- 分隔）"), F("system_prompt", "系统提示"), F("post_history_instructions", "历史后指令"), F("mes_example", "对话示例", true), F("creator_notes", "创作者备注")),
-					h(TavernLazyDetails, { className: "dsh-tavern-card-advanced", summary: h("summary", null, "扩展内容 · " + extensionCount + " 项"), render: extensionPanel }),
-					error ? h("div", { className: "dsh-card-error" }, error) : null,
-					h("div", { className: "dsh-tavern-card-save" }, h("button", { className: "dsh-card-primary", disabled: busy, onClick: save }, busy ? "保存中…" : "保存字段"))
-				)
-			);
+			const coverUrl = props.hasImage ? "/api/dsh-tavern/card-image?path=" + encodeURIComponent(cardPath) : "";
+			// The cover: a click shows it large; ▶ over it is 开始游玩 (the same entry as 游玩历史's 新建游戏).
+			const cover = h("div", { className: "dsh-card-cover-wrap" },
+				coverUrl
+					? h("button", { type: "button", className: "dsh-card-cover", "aria-label": "查看封面", title: "查看大图", onClick: function () { openImageViewer({ src: coverUrl, label: title }); } }, h("img", { src: coverUrl, alt: "", decoding: "async" }))
+					: h("span", { className: "dsh-card-cover is-empty", "aria-hidden": true }, h("span", null, title)),
+				h("button", { type: "button", className: "dsh-card-play", disabled: props.busy, "aria-label": "开始游玩", title: "开始游玩",
+					onClick: function () { window.dispatchEvent(new CustomEvent("dsh-tavern-play-card", { detail: { path: cardPath } })); } }, h(ui.Glyph, { name: "play" })));
+			const more = props.menu ? h(CardDetailMenuButton, { menu: props.menu, label: title, disabled: props.busy }) : null;
+			const back = props.onBack ? h("button", { type: "button", className: "ap-icon-button dsh-card-back", "aria-label": "返回人物卡库", title: "返回人物卡库", onClick: props.onBack }, h(ui.Glyph, { name: "back" })) : null;
+			const name = h("h2", { className: "dsh-card-name", title: cardPath.split("/").pop() }, h("span", { className: "dsh-card-name-text" }, title),
+				props.onRename ? h("button", { type: "button", className: "ap-icon-button dsh-card-rename", disabled: props.busy, "aria-label": "重命名", title: "重命名", onClick: props.onRename }, h(ui.Glyph, { name: "edit" })) : null);
+			const counts = [boundWorldBooks.length ? boundWorldBooks.length + " 本世界书" : "", stagePacks && stagePacks.length ? stagePacks.length + " 个素材包" : "", (1 + alternates.length) + " 个开场白"].filter(Boolean).join(" · ");
+			const head = h("header", { className: "dsh-card-head" },
+				h("div", { className: "dsh-card-banner", "data-empty": coverUrl ? undefined : true }, coverUrl ? h("img", { className: "dsh-card-banner-bg", src: coverUrl, alt: "", "aria-hidden": true }) : null),
+				h("div", { className: "dsh-card-title-row" }, back, name, more),
+				h("div", { className: "dsh-card-hero" }, cover, h("div", { className: "dsh-card-side" }, props.organizationSettings, h("div", { className: "dsh-card-counts" }, counts))));
+			const cardTextFields = [F("description", "角色描述"), F("personality", "性格"), F("scenario", "场景设定"), F("mes_example", "对话示例"),
+				F("system_prompt", "系统提示"), F("post_history_instructions", "历史后指令"), F("creator_notes", "创作者备注")];
+			const textFields = script ? cardTextFields.concat([scriptField]) : [scriptField].concat(cardTextFields);
+			const greetings = [fold("first_mes", "开场白", String(card.first_mes || ""), function (v) { return commitField("first_mes", v); })].concat(alternates.map(alternateField),
+				[h(InlineField, { key: "alt-new-" + alternates.length, kind: "text", multiline: true, lines: true, wide: true, hideEmpty: true, label: "备选开场白", value: "",
+					onCommit: function (v) { if (v.trim()) return commitField("alternate_greetings", alternates.concat([v])); } })]);
+			const extensionTotal = extensionCount + mvuResources.length;
+			const packSection = stagePacks && stagePacks.length ? h(ui.StageSection, { title: "素材包", meta: stagePacks.length, foldKey: "card-detail:packs", help: "这张卡在舞台上用的素材包，在舞台设置里增减。" },
+				h("ul", { className: "dsh-card-packs", "aria-label": "素材包" }, stagePacks.map(function (pack) {
+					return h("li", { key: pack.id, className: "dsh-card-fold-row" + (pack.missing ? " is-missing" : "") },
+						h("button", { type: "button", className: "dsh-card-fold-head", disabled: pack.missing, title: pack.missing ? "本机没有这个素材包" : "在舞台素材里打开", onClick: function () { openCardStagePack(pack.id, props.sessionId); } },
+							h(ui.Glyph, { name: "stage" }), h("span", { className: "dsh-card-book-name" }, pack.name), h("span", { className: "dsh-card-fold-preview" }, pack.note)));
+				}))) : null;
+			return h("div", { className: "fork-tab-scroll dsh-card-detail-scroll" },
+				h("section", { className: "ap-ui dsh-card-detail", "aria-label": title, onKeyDown: function (event) { if (event.key === "Escape" && !event.defaultPrevented && props.onBack && event.target === event.currentTarget) props.onBack(); } },
+					head,
+					error ? h(ui.HintLine, { text: error }) : null,
+					h(ui.StageSection, { title: "基本信息", foldKey: "card-detail:basic" },
+						h(InlineGrid, { label: "基本信息", columns: 1, className: "dsh-card-fields" }, textFields),
+						scriptError ? h(ui.HintLine, { text: scriptError }) : null),
+					h(ui.StageSection, { title: "世界书", meta: boundWorldBooks.length, foldKey: "card-detail:worldbooks", help: "绑定多本时，书里设定互相矛盾，AI 可能会混淆。" }, worldBookPanel),
+					packSection,
+					h(ui.StageSection, { title: "开场白", meta: 1 + alternates.length, foldKey: "card-detail:greetings" },
+						h(InlineGrid, { label: "开场白", columns: 1, className: "dsh-card-fields" }, greetings)),
+					extensionTotal ? h(ui.StageSection, { title: "扩展内容", meta: extensionTotal, foldKey: "card-detail:extensions", defaultFolded: true,
+						help: "只读：卡里的正则、脚本和其他扩展，这里不执行。" }, extensionPanel()) : null));
 		}
 		function register(input) {
 			const ctx = input.ctx;

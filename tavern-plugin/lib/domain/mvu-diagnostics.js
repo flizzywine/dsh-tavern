@@ -57,7 +57,8 @@ export function redactMvuLoadError(value, limit = 2000) {
 export function sanitizeMvuLoadDiagnostic(value) {
   const phases = ['download-started', 'download-response', 'download-completed', 'download-failed',
     'retry-scheduled', 'retry-exhausted', 'manual-retry', 'disposed', 'execution-started', 'execution-completed', 'execution-failed',
-    'initialization-timing', 'subscriptions-ready', 'initialization-waiting', 'initialization-ready', 'initialization-failed', 'initialization-timeout']
+    'initialization-timing', 'subscriptions-ready', 'initialization-waiting', 'initialization-ready', 'initialization-failed', 'initialization-timeout',
+    'companion-failed', 'companion-timeout']
   if (!value || !phases.includes(value.phase)) return null
   const result = { phase: value.phase }
   if (value.phase === 'initialization-timing') {
@@ -71,7 +72,7 @@ export function sanitizeMvuLoadDiagnostic(value) {
   }
 
   for (const [key, limit] of Object.entries({ loadId: 100, contentType: 120, bodyKind: 40, errorName: 80,
-    message: 2000, serverError: 2000, browser: 120, platform: 40, runtimeMode: 20, failureStep: 40 })) {
+    message: 2000, serverError: 2000, browser: 120, platform: 40, runtimeMode: 20, failureStep: 40, scriptId: 200 })) {
     if (typeof value[key] === 'string') result[key] = redactMvuLoadError(value[key], limit)
   }
   for (const key of ['cycle', 'attempt', 'at', 'durationMs', 'delayMs', 'httpStatus', 'contentLength', 'receivedChars']) {
