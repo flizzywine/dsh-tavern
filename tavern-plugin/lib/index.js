@@ -1718,6 +1718,7 @@ export async function apply(ctx) {
           importedAt: card.importedAt,
           hasOpeningForm: card.hasOpeningForm,
           ...(card.openingPage ? { openingPage: card.openingPage } : {}),
+          ...(card.entryStart ? { entryStart: true } : {}),
           hasImage,
           script: scriptPath === undefined ? null : { path: scriptPath, title: scriptPath.split('/').pop() }
         }
