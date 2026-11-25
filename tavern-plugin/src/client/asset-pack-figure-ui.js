@@ -890,10 +890,11 @@ function FigureTabs({tab,setTab,waiting,silent,gen=true}) {
 // {packs, packId, copy(target), remove}), when it provides them. no 重命名 —
 // the name is edited in place (R23), like the outfit's 服装名.
 function FigureMoreMenu({figure,actions,onRemove}) {
-  const [copying,setCopying]=React.useState(false);
-  return h(Popover,{label:'人物操作',className:'ap-figure-menu',trigger:({toggle,open})=>h(IconButton,{icon:'more',label:'人物操作 '+figure.name,'aria-expanded':open,onClick:()=>{setCopying(false);toggle();}}),
-    content:close=>copying?h(PackTargetMenu,{packs:actions.packs||[],exclude:actions.packId,close,onPick:target=>actions.copy(target)}):h(React.Fragment,null,
-      actions?.copy&&h(MenuItem,{onClick:()=>setCopying(true)},'复制到…'),
+  const [picking,setPicking]=React.useState(null);
+  return h(Popover,{label:'人物操作',className:'ap-figure-menu',trigger:({toggle,open})=>h(IconButton,{icon:'more',label:'人物操作 '+figure.name,'aria-expanded':open,onClick:()=>{setPicking(null);toggle();}}),
+    content:close=>picking?h(PackTargetMenu,{packs:actions.packs||[],exclude:actions.packId,close,createLabel:picking==='move'?'创建并移动':'创建并复制',onPick:target=>actions[picking](target)}):h(React.Fragment,null,
+      actions?.copy&&h(MenuItem,{onClick:()=>setPicking('copy')},'复制到…'),
+      actions?.move&&h(MenuItem,{onClick:()=>setPicking('move')},'移动到…'),
       actions?.remove&&h(MenuItem,{danger:true,onClick:()=>{close();onRemove();}},'删除人物…'))});
 }
 const BASIC_HELP='人物本身的资料，所有服装共用。';

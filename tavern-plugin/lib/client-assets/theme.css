@@ -5242,6 +5242,11 @@ body.dsh-tavern-shell-active [data-sidebar-right-panel="fullscreen"][data-sideba
 .ap-ui button.ap-check-row.ap-confirm-hide { margin: 0 auto 0 0; padding-left: 4px; background: none; color: var(--fork-ink-2); }
 .ap-ui button.ap-check-row.ap-confirm-hide:hover:not(:disabled) { background: var(--fork-hover); color: var(--fork-ink); }
 .ap-confirm-hide .ap-check-mark { box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--fork-ink) 38%, transparent); }
+/* 移动到… (MoveConfirm): the cards that would lose the moved items, in a warning band with one tick (checked by default). */
+.ap-move-bind { margin: 4px 0 0; padding: 8px 12px; border-radius: 8px; background: color-mix(in srgb, var(--fork-warn) 12%, var(--fork-surface)); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--fork-warn) 35%, var(--fork-hairline)); }
+.ap-move-bind p { margin: 0 0 4px; font-size: var(--fork-fs-body); }
+.ap-ui .ap-move-bind button.ap-check-row { justify-content: flex-start; width: 100%; padding-left: 0; background: none; color: var(--fork-ink); text-align: left; }
+.ap-move-bind .ap-check-row[aria-checked=true] .ap-check-mark { background: var(--fork-accent-fill, var(--fork-accent)); box-shadow: none; }
 
 /* 参考音频 / 本地引擎 clips: № · ▶ · what it says · language · length / size · ⋯; the dashed ＋ row adds clips. */
 .ap-clips { margin: 0; padding: 0; list-style: none; }
