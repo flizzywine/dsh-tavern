@@ -379,3 +379,22 @@ test('a local Drama 3 line keeps its voice directions before the server has been
   assert.equal((await tts.cacheIdentity({voice:{source:'card',id:'v'},text:'{calm}abc',language:'ja'},{grant,scope:'card'})).identity.text,'[calm]abc')
   service.dispose?.(); await tts.dispose()
 })
+
+test('Gemini music discovery follows the configured catalogue and filters by protocol', async t => {
+  const tts = createTts({profileId:'music-catalogue'}), urls = []
+  const model = (id, methods = ['generateContent']) => ({name:'models/' + id, displayName:id.toUpperCase(), supportedGenerationMethods:methods})
+  const service = createServiceSettings({tts,get:() => ({providers:[]}),credentials:() => undefined,fetch:async (url, options) => {
+    urls.push(url)
+    assert.equal(options.headers['x-goog-api-key'],'test-key')
+    assert.equal(options.redirect,'error')
+    return Response.json(url.includes('?') ? {models:[model('lyria-3.5'),model('lyria-4-preview')]} : {
+      nextPageToken:'next+page', models:[model('lyria-3-clip-preview'),model('gemini-3'),model('lyria-3-realtime'),model('lyria-2',['predict'])],
+    })
+  }})
+  t.after(async () => { service.dispose?.(); await tts.dispose() })
+  const result = await service.probe({kind:'lyria',config:{url:'https://gateway.example/gemini'},secrets:{key:'test-key'}})
+  assert.equal(result.status,'connected')
+  assert.deepEqual(result.models.map(m => m.id),['lyria-3-clip-preview','lyria-3.5','lyria-4-preview'])
+  assert.equal(result.models[0].label,'LYRIA-3-CLIP-PREVIEW')
+  assert.deepEqual(urls,['https://gateway.example/gemini/v1beta/models','https://gateway.example/gemini/v1beta/models?pageToken=next%2Bpage'])
+})

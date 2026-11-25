@@ -11,6 +11,15 @@ export type JsonValue = null | boolean | number | string | JsonValue[] | { [key:
 export const name: 'dsh-tavern-tts'
 export function apply(ctx: Context, config?: {profileId?: string; dataDir?: string; settings?: object}): void
 
+// 音乐生成, the ctx service 'musicGeneration' (music.js): the first saved music service (a provider kind with category 'music',
+// e.g. Lyria) with its key generates. generate → null when none is set up or the signal was already aborted; it rejects when
+// the optional spend guard refuses or the service fails (an HTTP refusal carries `status`).
+export interface GeneratedMusic { bytes: Uint8Array; mimeType: string; model: string }
+export interface MusicGeneration {
+  available(): Promise<boolean>
+  generate(request: { prompt: string; signal?: AbortSignal; purpose?: string }): Promise<GeneratedMusic | null>
+}
+
 // global reading presets (control RPC readingPresets / readingPreset / editReading / mergeReadings / …).
 // mergeReadings {id, expectedRevision, dryRun?} → {id, revision, groups, removed, count}: entries with the same reading and
 // language become one entry with all their forms; dryRun only counts.
