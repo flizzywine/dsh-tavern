@@ -43,7 +43,7 @@ function writingConversation(messages) {
 
 export function pureWritingSystem(fixedSections, frame, back = []) {
   const sections = fixedSections.map(section => section.text)
-  const variableConstants = new Set(frame.source?.worldBook?.messageVariableConstantRefs || [])
+  const variableConstants = new Set(frame.source?.worldBook?.variableConstantRefs ?? frame.source?.worldBook?.messageVariableConstantRefs ?? [])
   const worldbook = (frame.source?.regenerationMaterials?.worldbookEntries || [])
     .filter(entry => variableConstants.has(entry.ref)).map(entry => entry.text).join('\n\n')
   if (worldbook) sections.push(promptSection('lorebook_constant', worldbook))

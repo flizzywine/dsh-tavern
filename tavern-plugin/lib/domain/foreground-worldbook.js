@@ -3,7 +3,7 @@ import { classifyWorldbookEntry, hasWorldbookPreprocessingSyntax, isWorldbookRun
 import { currentVirtualState, withdrawnEntryText, virtualEntriesVersion, virtualEntryVersion, virtualDependencyHash, virtualHash, virtualScope, virtualDependencyHasDynamicValue } from './worldbook-virtual-state.js'
 import { promptOrder } from './worldbook-activation.js'
 import { worldbookRandomState, hasWorldbookRandom, entryRandom } from './worldbook-random.js'
-import { hasTavernHelperMessageVariableMacro } from './tavern-helper-variable-macros.js'
+import { hasTavernHelperVariableMacro } from './tavern-helper-variable-macros.js'
 import { fingerprint, isMvuUpdateEntry } from './worldbook-recall.js'
 import { prepareTemplateWorldbook, prepareWorldBookRecall, projectWorldBookTemplates } from './worldbook-recall.js'
 
@@ -189,15 +189,16 @@ async function projectMandatoryWorldbook({ worldBook, sourceEntries, chat, card,
           dependencyHash: virtualDependencyHash(type, chat, card, globals), projection: renderCache.get(entry.ref) }
         if (contextText && previous?.renderHash !== renderHash) changed.push({ ...output, ref: entry.ref, text: contextText, renderHash })
       }
-      const messageVariableConstantRefs = promptOrder(selectedEntries.filter(entry => entry.constant === true
-        && hasTavernHelperMessageVariableMacro(entry.content))).map(entry => entry.ref)
+      const hasProjectedHelperVariables = entry => virtualState.entries[entry.ref]?.projection?.helperVariableMacros === true
+      const variableConstantRefs = promptOrder(selectedEntries.filter(entry => entry.constant === true
+        && (hasTavernHelperVariableMacro(entry.content) || hasProjectedHelperVariables(entry)))).map(entry => entry.ref)
       const refs = changed.filter(output => !original.get(output.ref)?.constant).map(output => output.ref)
       const titleHints = worldbookTitleHints({ worldBook: { ...worldBook, view: { ...worldBook?.view, entries: (worldBook?.view?.entries || []).filter(entry => classify(entry).kind === 'static-skill') } }, chat, turn, userText, userTextInHistory, scanText, recentlyReadRefs, random: entryRandom(virtualHash([executionSeed, requestKey]), 'title-hints') })
-      const runtimeChanged = changed.filter(output => isWorldbookRuntimeEntry(original.get(output.ref) || {}))
+      const runtimeChanged = changed.filter(output => isWorldbookRuntimeEntry(original.get(output.ref) || {}) || hasProjectedHelperVariables(output))
       // File-version notifications are emitted once by the shared pre-step hook,
       // for both foreground and background agents; do not duplicate them here.
       const context = runtimeChanged.map(output => output.text).join('\n\n')
-      return { ...projected, context, foregroundContext: context, titleHints, prefixContext: staticPrefix, staticPrefix, virtualState, messageVariableConstantRefs, changedVirtualRefs: changed.filter(output => classify(original.get(output.ref) || {}).dynamic).map(output => output.ref), renderedEntries: changed, refs, reads: { ...chat.worldBookReads },
+      return { ...projected, context, foregroundContext: context, titleHints, prefixContext: staticPrefix, staticPrefix, virtualState, variableConstantRefs, changedVirtualRefs: changed.filter(output => classify(original.get(output.ref) || {}).dynamic).map(output => output.ref), renderedEntries: changed, refs, reads: { ...chat.worldBookReads },
         randomState: { ...randomState, seed: executionSeed, outputs: { ...randomState.outputs, ...Object.fromEntries(projected.renderedEntries
           .filter(output => hasWorldbookRandom(original.get(output.ref)?.content)).map(output => [output.ref, output.text])) } },
         activation: { schemaVersion: 2, turn, refs, diagnostics: [], mode: 'native-skills' },
