@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "b7d44ed521f56d22165d09b9584c16a32a32a34b",
-  "releaseSequence": 2078,
+  "revision": "42734fbe5bdd33f46edca8d11db2035046081e5b",
+  "releaseSequence": 2079,
   "version": "3.4.0",
   "files": [
     {
@@ -116,8 +116,8 @@
     },
     {
       "path": "android/native/app/src/io/github/flizzywine/dshtavern/bionic/MainActivity.java",
-      "sha256": "9f22e2ffbf17cdee22441a51cbad10947561ea0a3e1e3c742f6609600ac99533",
-      "size": 43048
+      "sha256": "9e3237dfe01e1d0132f705e02cfd7e02b8749f39b3d0d7cdf7e29ff1238f1230",
+      "size": 43400
     },
     {
       "path": "android/native/app/src/io/github/flizzywine/dshtavern/bionic/TarExtractor.java",
@@ -1101,8 +1101,8 @@
     },
     {
       "path": "presets/tavern/skills/tavern-plugin/references/plugin-api-ui.md",
-      "sha256": "73890ec8933b4e4f07ab6a0489e53991920c3fd9583a453e60772cbccf2f0ba3",
-      "size": 40868
+      "sha256": "78f7be80b70598b47c44752941b855eb03e651e6ec6bf66de74b354136f360a7",
+      "size": 41694
     },
     {
       "path": "presets/tavern/skills/tavern-plugin/references/plugin-api.md",
@@ -1276,8 +1276,8 @@
     },
     {
       "path": "tavern-plugin/lib/client.js",
-      "sha256": "e9fe4e28d13a73c7760cdec4d71f22ec8f420115d63e64886111a0be86e2faf2",
-      "size": 6620402
+      "sha256": "7555f976929af639ce58cbb3f568b1fc1db8d19f087d6847f0e0c114aeb5170e",
+      "size": 6622180
     },
     {
       "path": "tavern-plugin/lib/cordis-inspect.js",
@@ -10261,9 +10261,9 @@
     }
   ],
   "archive": {
-    "commit": "17432b44242cdccc96f4e303ccef44eb687a245d",
+    "commit": "0928b5cf5e69dcd4bd02aa5c6c42abbf4fb6182d",
     "path": "runtime.zip",
-    "sha256": "ecaa74285d6e9cc03cb5f11a475f0e55ea577c4d191a94fbf03270a3a63cc5ee",
-    "size": 17975780
+    "sha256": "0b388487c4801c29ffc7724b2c2f24c30e7e0bcc34e4f140cf05fe3554a67ad4",
+    "size": 17976543
   }
 }
