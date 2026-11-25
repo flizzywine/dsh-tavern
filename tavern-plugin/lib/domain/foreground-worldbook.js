@@ -136,7 +136,13 @@ async function projectMandatoryWorldbook({ worldBook, sourceEntries, chat, card,
   virtualState.execution = { requestKey, seed: executionSeed }
   const visibleRefs = new Set((worldBook?.view?.entries || []).filter(entry => entry.enabled !== false).map(entry => entry.ref))
   virtualState.visibility = { version: virtualHash(sourceEntries), refs: [...visibleRefs] }
-  for (const ref of Object.keys(virtualState.entries)) if (!visibleRefs.has(ref)) delete virtualState.entries[ref]
+  const dynamicEntries = (worldBook?.view?.entries || []).filter(entry => classify(entry).dynamic)
+  const dynamicRefs = new Set(dynamicEntries.map(entry => entry.ref))
+  // Old saves can still have a runtime snapshot for an entry now in the fixed
+  // prefix. Remove it before the recovery hook can append it again.
+  for (const ref of Object.keys(virtualState.entries)) {
+    if (!visibleRefs.has(ref) || !dynamicRefs.has(ref)) delete virtualState.entries[ref]
+  }
   const renderCache = new Map()
   // Persisted per-request projections prevent random/side-effect resampling after
   // an executor restart. Versions and the game scope were validated above.
@@ -152,7 +158,7 @@ async function projectMandatoryWorldbook({ worldBook, sourceEntries, chat, card,
   for (let pass = 0; pass < 16; pass++) {
     let randomIndex = 0
     const random = () => { const index = randomIndex++; return selectionRandom[index] ?? (selectionRandom[index] = selectionStream()) }
-    const dynamicBook = { ...worldBook, view: { ...worldBook?.view, entries: (worldBook?.view?.entries || []).filter(entry => classify(entry).dynamic) } }
+    const dynamicBook = { ...worldBook, view: { ...worldBook?.view, entries: dynamicEntries } }
     const recalled = prepareWorldBookRecall({ worldBook: dynamicBook, chat: { ...chat, worldBookReads: {} }, card, turn, userText, userTextInHistory, scanText, activationRequests, random })
     const forced = new Set(activationRequests.filter(request => request.force).map(request => request.ref))
     const activated = new Set((recalled.entries || []).map(entry => entry.ref))

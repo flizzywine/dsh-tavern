@@ -14,12 +14,10 @@ export function hasInitialVariablesEntry(entry) {
   return /@@initial_variables\b/.test(body) || /\[InitialVariables\]/i.test(comment)
 }
 
-// Optional plot entries are knowledge, not programs. Keep existing constant
-// MVU delivery in place so this migration does not move it into the system prefix.
+// Plot entries follow the ordinary placement and rendering rules.
 function hasRuntimeLabel(entry) {
   const name = String(entry.comment || entry.title || '')
-  return /\[(?:initvar|initialvariables|mvu[_ -](?!plot\]))/i.test(name) ||
-    (entry.constant === true && /\[mvu[_ -]plot\]/i.test(name))
+  return /\[(?:initvar|initialvariables|mvu[_ -](?!plot\]))/i.test(name)
 }
 
 /** Conservative, execution-free classification of authoritative worldbook entries.

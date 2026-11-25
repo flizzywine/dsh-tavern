@@ -1,9 +1,9 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createForegroundWorldbook } from '../tavern-plugin/lib/domain/foreground-worldbook.js'
-import { projectVirtualWorldbookPrefix } from '../tavern-plugin/lib/domain/worldbook-virtual-state.js'
+import { projectVirtualWorldbookPrefix, virtualEntryVersion } from '../tavern-plugin/lib/domain/worldbook-virtual-state.js'
 import { constantWorldBookContext } from '../tavern-plugin/lib/domain/worldbook-recall.js'
-import { pureWritingSystem } from '../tavern-plugin/lib/domain/pure-writing-request.js'
+import { pureWritingFixedSections, pureWritingSystem } from '../tavern-plugin/lib/domain/pure-writing-request.js'
 
 const entry = (ref, content, constant = true, extra = {}) => ({ ref, content, constant, enabled: true, ...extra })
 function fixture(entries, render = async text => ({ ok: true, text, scopes: {} })) {
@@ -17,6 +17,29 @@ function fixture(entries, render = async text => ({ ok: true, text, scopes: {} }
   }
   return { worldBook, chat, project, run }
 }
+
+test('静态常驻 mvu_plot 进入稳定前缀，旧运行时快照退出，按需和变量条目保留各自入口', async () => {
+  const fixed = entry('fixed-plot', '港城终年海风。', true, { title: '[mvu_plot] 港城基调' })
+  const optional = entry('optional-plot', '码头晚上关门。', false, { title: '[mvu_plot] 码头', primaryKeys: ['码头'] })
+  const dynamic = entry('dynamic-plot', '当前余额 {{get_message_variable::stat_data.coins}}', true, { title: '[mvu_plot] 账户状态' })
+  const f = fixture([fixed, optional, dynamic])
+  f.chat.messages.push({ role: 'assistant', variables: [{ stat_data: { coins: 10 }, schema: {} }] })
+  await f.run('initial', '去码头')
+  f.chat.worldBookVirtualState.entries[fixed.ref] = {
+    version: virtualEntryVersion(fixed), text: fixed.content, contextText: fixed.content, renderHash: 'old-runtime-snapshot'
+  }
+  const result = await f.run('next', '去码头')
+  assert.equal(result.staticPrefix, fixed.content)
+  assert.match(result.titleHints, /码头/)
+  assert.equal(result.virtualState.entries[fixed.ref], undefined)
+  assert.equal(result.virtualState.entries[optional.ref], undefined)
+  assert.equal(result.virtualState.entries[dynamic.ref].text, '当前余额 10')
+  assert.deepEqual(result.variableConstantRefs, [dynamic.ref])
+  assert.equal(projectVirtualWorldbookPrefix(f.worldBook, f.chat, { restore: false }).staticPrefix, fixed.content)
+  const frame = { source: { regenerationMaterials: { worldbookPrefix: result.staticPrefix } }, contributions: [] }
+  assert.equal(pureWritingSystem(pureWritingFixedSections([], frame), frame), '<lorebook_constant>\n港城终年海风。\n</lorebook_constant>')
+})
+
 test('persisted preprocessing guard survives executor restart in the same explicit request', async () => {
   let preparations = 0
   const worldBook = { view: { entries: [entry('controller', '@@generate\n<% controller %>')] } }
