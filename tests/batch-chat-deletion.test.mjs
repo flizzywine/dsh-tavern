@@ -46,12 +46,13 @@ async function setup(t, { projection = true } = {}) {
     },
     cleanup: (...args) => cleanup(...args)
   })
-  const api = new Function('readChat', 'chatPersistence', 'str', 'storyTimeline', 'agentRegistry', 'cancelSettlement', 'conversationDeletion', 'deletedChatIds', 'gameFootprint', 'backgroundAgentRunner', 'deletedSessionIds', 'apiDiagnostics', 'pluginMedia', 'pluginData', 'pluginApi', 'displayRuntimeStore', 'sceneWorldbookArchive', section + '; return { deleteChats, cleanupDeletedChat };')(
+  const api = new Function('readChat', 'chatPersistence', 'str', 'storyTimeline', 'agentRegistry', 'cancelSettlement', 'conversationDeletion', 'deletedChatIds', 'gameFootprint', 'backgroundAgentRunner', 'deletedSessionIds', 'apiDiagnostics', 'pluginMedia', 'pluginData', 'pluginApi', 'displayRuntimeStore', 'sceneWorldbookArchive', 'profileData', 'writingPreparationBindingPath', section + '; return { deleteChats, cleanupDeletedChat };')(
     async id => { events.push('whole:' + id); return { id, sessionId: id } }, chatPersistence, String,
     { inspect: () => ({ participants: { worker: { sessionId: 'background' } } }) }, workers,
     async id => { events.push('settlement:' + id) },
     conversationDeletion, deletedChatIds, gameFootprint, backgroundAgentRunner, new Set(), { forget: async id => { events.push('forget:' + id) } },
-    { removeChat: async id => { events.push('media:' + id) } }, { removeChat: async () => {} }, { gameRemoved: id => events.push('removed:' + id) }, { remove: async () => {} }, { forgetChat: async () => {} })
+    { removeChat: async id => { events.push('media:' + id) } }, { removeChat: async () => {} }, { gameRemoved: id => events.push('removed:' + id) }, { remove: async () => {} }, { forgetChat: async () => {} },
+    { remove: async path => { events.push('profile-remove:' + path) } }, id => 'writing-preparation/' + id)
   cleanup = api.cleanupDeletedChat
   return { ...api, events, conversationDeletion }
 }
@@ -67,6 +68,7 @@ test('batch deletion stops foreground and background before removing, deduplicat
   assert.ok(api.events.includes('cleanup:log-a,gone-a'))
   assert.ok(api.events.includes('defer:live'), '仍被 DSH 持有的会话下次启动时再删')
   assert.ok(api.events.includes('forget:a'), '已删局的调用诊断不再写回')
+  assert.ok(api.events.includes('profile-remove:writing-preparation/a'), '清理写作准备绑定')
   assert.ok(api.events.includes('media:a') && api.events.includes('removed:a'), '清理插件媒体并通知插件')
   assert.ok(!api.events.includes('removed:bad'), '删除失败的局不通知')
   assert.ok(!api.events.some(event => event.startsWith('cleanup:log-bad')))

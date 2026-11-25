@@ -9,6 +9,38 @@ function completeSystem(sections) {
 }
 
 import { createBackgroundAgentRunner } from '../tavern-plugin/lib/background-agent-runner.js'
+
+test('White Glove finishes with an ordinary reply after the last lookup uses the budget', async () => {
+  const registered = new Map()
+  const session = { id: 'white-glove-budget', events: [], append(type, data) { this.events.push({ type, data }) } }
+  let work, lookups = 0, reply
+  const runner = createBackgroundAgentRunner({ id: () => session.id, agents: {
+    get: () => ({ session: { header: {} } }),
+    async create(options) {
+      await options.setup({ systemPrompt: { section() {}, suppressRuntimeContext() {} }, on() {},
+        tools: { restrict() {}, register(tool) { registered.set(tool.name, tool); return () => registered.delete(tool.name) } } })
+      return { agent: { session, followup() { work = (async () => {
+        const lookup = registered.get('find_worldbook')
+        assert.equal(await lookup.execute({}), '查到了')
+        assert.equal(registered.get('find_worldbook'), lookup)
+        assert.equal(await lookup.execute({}), '查到了')
+        assert.equal(registered.size, 0)
+        runner.requestContext(session.id).writingPreparation.receiveVariableReply('{"facts":["塔门开着。"]}')
+        session.append('turn/end', { reason: { kind: 'completed' } })
+      })() }, async whenIdle() { await work } }, async dispose() {} }
+    }
+  } })
+  try {
+    await runner.run({ task: 'plugin', sessionId: 'parent', selection: { provider: 'fixture', model: 'fixture' },
+      ownPrefix: true, system: '写作资料', taskText: '查询场景资料', maxToolCalls: 2,
+      writingPreparation: { receiveVariableReply: text => { reply = text } },
+      tools: [{ name: 'find_worldbook', parameters: { type: 'object' } }],
+      onToolCall: () => { lookups++; return '查到了' }, acceptWithoutText: () => true })
+    assert.equal(lookups, 2)
+    assert.equal(reply, '{"facts":["塔门开着。"]}')
+  } finally { await runner.dispose() }
+})
+
 test('candidate and settlement reject terminal failure even after text and a tool submission', async () => {
   for (const task of ['candidate','settlement']) for (const reason of [{kind:'error',error:{message:'transport failed'}},{kind:'aborted',reason:{kind:'user'}}]) {
     const registered = new Map()
@@ -117,7 +149,7 @@ test('后台固定背景只保存一次，连续候选、结算和恢复均进�
     assert.doesNotMatch(packet.text, /每轮系统要求/)
     assert.match(packet.text, /最新正文/)
     assert.match(packet.text, /<candidate_directions>[\s\S]*最新Guide/)
-    assert.match(packet.text, /最新姿势/)
+    assert.doesNotMatch(packet.text, /最新姿势/, '暂停姿势总结后，候选请求应忽略存档中的旧姿势')
     assert.match(packet.text, /<regeneration_guidance>\n本轮候选意见\n<\/regeneration_guidance>/)
     assert.ok(packet.text.includes((index < 2 ? '每轮末尾要求' : '修改后的末尾要求') + '\n</post_history>\n\n<candidate_directions>'))
   }

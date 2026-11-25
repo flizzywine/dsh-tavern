@@ -1,5 +1,6 @@
+import { markTavernSectionsLiteral } from './literal-sections.js'
 import { promptSection } from './prompt-section.js'
-import { stableCardName, stableSectionBody } from './session-stable-prefix.js'
+import { sessionStablePrefixSections, stableCardName, stableSectionBody } from './session-stable-prefix.js'
 import { createHash, randomBytes } from 'node:crypto'
 import { projectPlayerContent } from './player-input-content.js'
 import { resolveRuntimePresetMacros } from './runtime-presets.js'
@@ -24,6 +25,14 @@ import { isProducerSource, isSystemPromptSource } from './message-source.js'
 import { virtualWorldbookPromptText } from './worldbook-virtual-surface.js'
 import { frameUserInput } from './agent-input-frame.js'
 import { hasProviderContent } from './provider-message-content.js'
+import { appendSessionEvent } from './session-events.js'
+import { projectPureWritingRequest, pureWritingContext, pureWritingFixedSections, pureWritingInjection, pureWritingSystemSections, pureWritingTools, PURE_WRITING_REQUEST } from './pure-writing-request.js'
+import { foregroundStyleReferenceEnabled } from './style-reference.js'
+import { projectWithoutStyleReference } from './style-reference-request.js'
+import { STYLE_REFERENCE_SECTION, STYLE_REFERENCE_TOOL_NAME } from './style-reference-protocol.cjs'
+import systemPromptSections from './system-prompt-sections.cjs'
+
+const { buildSystemSectionSpans } = systemPromptSections
 
 const CARD_REFERENCE_SECTIONS = new Set(['tavern:character-card', 'tavern:card-system-prompt', 'tavern:constant-worldbook'])
 const CARD_PERSONA_SCOPE = '起始任务和 Skill 规定任务步骤、交付物与必要格式。人物卡的设定与提示词用于理解和编辑目标。向用户提问、介绍选项和汇报时，始终沿用以下身份、称呼和语气。回复语言优先遵循用户明确要求，其次沿用以下性格的语言约定。'
@@ -128,14 +137,15 @@ export function projectRegenerationRequestMessages(messages) {
     content: Array.isArray(source[regenerationIndex].content) ? structuredClone(source[regenerationIndex].content) : []
   })
   const tail = source.slice(regenerationIndex + 1)
-  const isWritingRulesUpdate = message => message?.role === 'user' &&
-    isProducerSource(message.source, 'dsh-tavern') && message.source.trace?.writingRulesSnapshot?.schemaVersion === 1
-  // The frame adapter skips unchanged rules because their snapshot is still in
-  // the session. If that snapshot was emitted during the replaced turn, carry it
-  // into the request unless the new frame already updated or withdrew the rules.
-  const retainedRules = tail.some(isWritingRulesUpdate) ? undefined
-    : source.slice(playerIndex + 1, regenerationIndex).findLast(isWritingRulesUpdate)
-  return source.slice(0, playerIndex).concat(projectedPlayer, retainedRules ? [retainedRules] : [], tail)
+  // Keep updates the frame adapter saw in the replaced turn if the new frame did not supersede them.
+  const replaced = source.slice(playerIndex + 1, regenerationIndex)
+  const retained = ['writingRulesSnapshot', 'playerIdentity'].flatMap(field => {
+    const isUpdate = message => message?.role === 'user' &&
+      isProducerSource(message.source, 'dsh-tavern') && message.source.trace?.[field]?.schemaVersion === 1
+    const last = tail.some(isUpdate) ? undefined : replaced.findLast(isUpdate)
+    return last ? [last] : []
+  })
+  return source.slice(0, playerIndex).concat(projectedPlayer, retained, tail)
 }
 
 function snapshotMessage(text) {
@@ -310,14 +320,27 @@ export function createNativePlayOrchestrationStrategy(options) {
   function stageWorldbookSection({ agent, signal }, section) {
     if (section && signal && !signal.aborted) pendingWorldbookSections.set(signal, { agent, section })
   }
-  // Digest of the front rendered by the latest assembly, and of the one last entered into a step.
-  const renderedFronts = new Map()
-  const enteredFronts = new Map()
+  // Digest of system sections that should replace their prior versions when changed.
+  const renderedSeriesPrompts = new Map()
+  const enteredSeriesPrompts = new Map()
   // Front texts of the step being prepared, only to label the request evidence.
   const frontTexts = new Map()
   // Per-session dice seed: drawn on a turn's first step, so every step of one turn rolls
   // the same and a new turn or regeneration rolls again.
   const presetSeeds = new Map()
+  const assembledSystemSections = new Map()
+  function recordSystemSections(sessionId, sections) {
+    const key = str(sessionId)
+    if (!key) return
+    assembledSystemSections.delete(key)
+    assembledSystemSections.set(key, Array.isArray(sections) ? sections.slice() : [])
+    if (assembledSystemSections.size > 128) assembledSystemSections.delete(assembledSystemSections.keys().next().value)
+  }
+  function systemSectionsFor(sessionId, systemText) {
+    const key = str(sessionId)
+    if (!key || typeof systemText !== 'string' || !systemText) return []
+    return buildSystemSectionSpans(systemText, assembledSystemSections.get(key))
+  }
   function presetSeed(sessionId, turn, step) {
     const current = presetSeeds.get(sessionId)
     if (step > 1 && current && current.turn === turn) return current.seed
@@ -333,16 +356,38 @@ export function createNativePlayOrchestrationStrategy(options) {
     const worldbookSection = pending && pending.agent === payload.agent ? pending.section : undefined
     if (worldbookSection) pendingWorldbookSections.delete(payload.signal)
     const mode = await options.modeFor(sessionId)
-    const visibleMessages = options.filterMessages(input.decision.messages, mode, {
+    const play = mode === 'story' || mode === 'script'
+    const previous = stagedRequests.get(sessionId)
+    const firstStep = Number(payload.step) === 1
+    if (play && !firstStep && previous?.pureWriter) return { kind: 'enter', messages: input.decision.messages }
+    const pureWriter = play && firstStep ? await options.writingPreparation?.forGame(sessionId) : null
+    let agentMessages = pureWriter ? input.decision.messages : options.filterMessages(input.decision.messages, mode, {
       session: payload.agent?.session, disabledWritingSkills: input.chat?.disabledWritingSkills
     })
-    let agentMessages = visibleMessages
-    const rawSnapshot = mode === 'story' || mode === 'script' ? await options.resolvePreset(input.chat) : null
+    const rawSnapshot = play ? await options.resolvePreset(input.chat) : null
     // Render the three phases together; the persisted preset and prior messages stay authoritative.
     const randomSeed = rawSnapshot ? presetSeed(sessionId, Math.max(0, Number(payload.turn) || 0), Math.max(1, Number(payload.step) || 1)) : undefined
     const snapshot = resolveRuntimePresetMacros(rawSnapshot, { charName: input.chat?.cardName, macroState: input.chat?.macroState, randomSeed }).snapshot
-    if (mode === 'story' || mode === 'script') {
-      if (Number(payload.step) === 1 && typeof options.synchronizeTail === 'function') {
+    const prepareTurn = () => options.prepareTurn({ sessionId, turn: payload.turn, requestId: input.requestId,
+      userText: userTextOf(payload.messages), userContent: userContentOf(payload.messages), runtimePresetSnapshot: snapshot })
+    if (pureWriter) {
+      enteredSeriesPrompts.delete(sessionId)
+      const prepared = await prepareTurn()
+      if (prepared?.duplicate) throw new Error('该消息已由酒馆处理，请勿重复发送')
+      const frame = prepared.frame
+      agentMessages = replaceTurnInput(agentMessages, frameUserInput(frame).projectedText)
+      const fixed = [
+        ...presetFrontSections(snapshot),
+        ...pureWritingFixedSections(sessionStablePrefixSections(payload.agent.session), frame)
+      ]
+      const writingSections = pureWritingSystemSections(fixed, frame, snapshot?.back?.entries)
+      recordSystemSections(sessionId, writingSections)
+      const system = writingSections.map(section => section.text).filter(Boolean).join('\n\n')
+      stagedRequests.set(sessionId, { pureWriter, frame, system, chat: input.chat, session: payload.agent.session })
+      return { kind: 'enter', messages: agentMessages, startsRequestSeries: true }
+    }
+    if (play) {
+      if (firstStep && typeof options.synchronizeTail === 'function') {
         await options.synchronizeTail({ sessionId, chat: input.chat, payload })
       }
       // Persist/migrate the fixed system snapshot before native request assembly.
@@ -366,6 +411,7 @@ export function createNativePlayOrchestrationStrategy(options) {
         step: Math.max(1, Number(payload.step) || 1),
         scope: 'foreground',
         snapshot: snapshot || null,
+        styleReferenceEnabled: foregroundStyleReferenceEnabled(input.chat),
         // Resolved here because the request projection below is synchronous.
         historyToolCall: submitOffered,
         storyOutputToolCall: outputWanted && submitVisible,
@@ -375,11 +421,10 @@ export function createNativePlayOrchestrationStrategy(options) {
         historyLayout: typeof options.historyLayout === 'function' ? String(await options.historyLayout() || 'story') : 'story'
       })
     }
-    if (Number(payload.step) === 1) {
-      const prepared = await options.prepareTurn({ sessionId, turn: payload.turn, requestId: input.requestId,
-        userText: userTextOf(payload.messages), userContent: userContentOf(payload.messages), runtimePresetSnapshot: snapshot })
+    if (firstStep) {
+      const prepared = await prepareTurn()
       if (prepared && prepared.duplicate) throw new Error('该消息已由酒馆处理，请勿重复发送')
-      if (mode === 'story' || mode === 'script') {
+      if (play) {
         const source = prepared.frame.source
         const worldbookPrefix = source?.regenerationMaterials?.worldbookPrefix
         if (worldbookSection && !input.chat?.regenInProgress && source?.worldBook?.virtualWorldbook && typeof worldbookPrefix === 'string') {
@@ -393,21 +438,56 @@ export function createNativePlayOrchestrationStrategy(options) {
         agentMessages = agentMessages.concat([snapshotMessage(prepared.text)])
       }
     }
-    if (mode !== 'story' && mode !== 'script') return { kind: 'enter', messages: agentMessages }
+    if (!play) return { kind: 'enter', messages: agentMessages }
     // Models that update the system prompt in history would otherwise append the
     // new prompt after the old one, leaving a switched-out preset at the head.
     // A new request series makes DSH replace the head instead. Unknown history
     // (first step since startup) starts one too; it is a no-op when nothing changed.
-    const front = renderedFronts.get(sessionId) ?? ''
-    const switched = enteredFronts.get(sessionId) !== front
-    enteredFronts.set(sessionId, front)
+    const seriesPrompt = renderedSeriesPrompts.get(sessionId) ?? ''
+    const switched = enteredSeriesPrompts.get(sessionId) !== seriesPrompt
+    enteredSeriesPrompts.set(sessionId, seriesPrompt)
     return { kind: 'enter', messages: agentMessages, ...(switched ? { startsRequestSeries: true } : {}) }
+  }
+
+  async function prepareWritingRequest(request) {
+    const sessionId = str(request.sessionId)
+    const staged = stagedRequests.get(sessionId)
+    if (!staged?.pureWriter) throw new Error('本轮写作上下文已失效')
+    const { frame } = staged
+    const messages = projectLegacyOpeningSources(projectRegenerationRequestMessages(request.messages))
+    const context = pureWritingContext(staged.system, projectWithoutStyleReference({ messages }).messages)
+    if (!staged.preparation) {
+      const { provider, model, reasoningEffort } = request
+      const foregroundSelection = provider && model ? { provider, model, reasoningEffort } : undefined
+      staged.preparation = options.writingPreparation.prepare(staged.pureWriter, {
+        gameId: sessionId, frame, chat: staged.chat, signal: request.signal, context, foregroundSelection
+      }).then(material => {
+        request.signal?.throwIfAborted()
+        const injection = pureWritingInjection(frame, material)
+        // The player input is already on the native surface. Append the
+        // receipt before the reply so later requests and forks keep its place.
+        if (injection) appendSessionEvent(staged.session, 'user/message', injection, { surfaceOp: 'append' })
+        return injection
+      })
+    }
+    const preparation = staged.preparation
+    let injection
+    try {
+      injection = await preparation
+    } catch (error) {
+      if (staged.preparation === preparation) staged.preparation = undefined
+      throw error
+    }
+    options.recordFrame(sessionId, frame, { appended: Boolean(injection), reason: PURE_WRITING_REQUEST, frameId: frame.frameId })
+    const projected = projectPureWritingRequest(request, { context, injection })
+    return markRequestHandled(markRequestHandled(projected, PURE_WRITING_REQUEST), PROJECTED)
   }
 
   function projectRequest(optionsValue) {
     const sessionId = str(optionsValue && optionsValue.sessionId)
     const staged = stagedRequests.get(sessionId)
     if (optionsValue === null || typeof optionsValue !== 'object' || optionsValue.purpose !== undefined || requestHandledBy(optionsValue, PROJECTED)) return null
+    if (staged?.pureWriter) return null
     // Empty surface tombstones preserve append-only history, but are not messages
     // for the provider. Remove them before choosing a regeneration target.
     const visibleMessages = (optionsValue.messages || []).filter(hasProviderContent)
@@ -421,8 +501,10 @@ export function createNativePlayOrchestrationStrategy(options) {
     }
     const regeneratedMessages = projectRegenerationRequestMessages(visibleMessages.length === optionsValue.messages?.length ? optionsValue.messages : visibleMessages)
     const nativeMessages = regeneratedMessages.some(isNativeStablePrefix) ? regeneratedMessages.filter(message => !isNativeStablePrefix(message)) : regeneratedMessages
-    const baseRequest = nativeMessages === optionsValue.messages
+    const nativeRequest = nativeMessages === optionsValue.messages
       ? optionsValue : Object.assign({}, optionsValue, { messages: nativeMessages })
+    const baseRequest = staged.scope === 'foreground' && staged.styleReferenceEnabled === false
+      ? projectWithoutStyleReference(nativeRequest) : nativeRequest
     // 前台正文的 front 已由 assembleSystemPrompt 写入原生 system prompt；后台任务不走该钩子，须保留完整前／后段。
     const projectionSnapshot = staged.scope === 'background'
       ? staged.snapshot
@@ -535,6 +617,7 @@ export function createNativePlayOrchestrationStrategy(options) {
 
   function completeRequest(optionsValue, completed) {
     if (!completed || !requestHandledBy(optionsValue, PROJECTED)) return false
+    if (requestHandledBy(optionsValue, PURE_WRITING_REQUEST)) return false
     stagedRequests.delete(str(optionsValue && optionsValue.sessionId))
     return true
   }
@@ -542,9 +625,16 @@ export function createNativePlayOrchestrationStrategy(options) {
   function clearRequestState(sessionId) {
     stagedRequests.delete(str(sessionId))
     frontTexts.delete(str(sessionId))
+    assembledSystemSections.delete(str(sessionId))
   }
 
   async function assembleSystemPrompt(assembly, input) {
+    if (input.pureWriter) return markTavernSectionsLiteral({
+      ...assembly,
+      sections: pureWritingFixedSections(input.fixedSystemSections || []),
+      contexts: [],
+      tools: pureWritingTools(input.toolDefinitions ?? assembly.tools)
+    })
     const mode = await options.modeFor(input.sessionId)
     const visible = new Set(await options.visibleTools(input.sessionId))
     const playMode = mode === 'story' || mode === 'script'
@@ -574,7 +664,6 @@ export function createNativePlayOrchestrationStrategy(options) {
       const front = presetFrontSections(resolveRuntimePresetMacros(raw, { charName: input.chat?.cardName, macroState: input.chat?.macroState, phases: ['front'] }).snapshot)
       sections.unshift(...front)
       frontTexts.set(input.sessionId, front.map(section => section.text))
-      renderedFronts.set(input.sessionId, createHash('sha256').update(JSON.stringify(front.map(section => section.text))).digest('hex'))
     }
     if (Array.isArray(assembly.contexts)) assembly.contexts = assembly.contexts.filter(section => section.name !== 'approval:policy')
     // A plugin's own tool shows everywhere unless the plugin scoped it (tavern.toolModes).
@@ -637,9 +726,12 @@ export function createNativePlayOrchestrationStrategy(options) {
         sections.push({ name: 'tavern:no-foreground-tools', text: NO_FOREGROUND_TOOLS_PROMPT })
       }
     }
-    if (playMode && finalTools.some(tool => tool.name === 'style_reference_submit') && options.styleReferencePrompt) {
-      const text = options.styleReferencePrompt(input.chat)
-      if (text) sections.push({ name: 'tavern:foreground-style-reference', text })
+    if (playMode) {
+      const styleReference = finalTools.some(tool => tool.name === STYLE_REFERENCE_TOOL_NAME)
+        ? options.styleReferencePrompt?.(input.chat) : ''
+      if (styleReference) sections.push({ name: STYLE_REFERENCE_SECTION, text: styleReference })
+      const seriesPrompt = JSON.stringify([frontTexts.get(input.sessionId), styleReference || ''])
+      renderedSeriesPrompts.set(input.sessionId, createHash('sha256').update(seriesPrompt).digest('hex'))
     }
     if (mode === 'story' && options.foregroundCandidatePrompt) {
       const text = await options.foregroundCandidatePrompt(input.chat)
@@ -649,7 +741,8 @@ export function createNativePlayOrchestrationStrategy(options) {
     return assembly
   }
 
-  return Object.freeze({ kind: 'native-play', prepareStep, projectRequest, completeRequest, clearRequestState, assembleSystemPrompt, stageWorldbookSection })
+  const pureWritingTurn = sessionId => Boolean(stagedRequests.get(sessionId)?.pureWriter)
+  return Object.freeze({ kind: 'native-play', prepareStep, prepareWritingRequest, projectRequest, completeRequest, clearRequestState, assembleSystemPrompt, stageWorldbookSection, recordSystemSections, systemSectionsFor, pureWritingTurn })
 }
 
 export function createForegroundOrchestrationStrategies(options) {
@@ -684,5 +777,5 @@ export function createForegroundOrchestrationStrategies(options) {
     return await nativePlay.assembleSystemPrompt(assembly, input)
   }
 
-  return Object.freeze({ prepareStep, projectRequest, completeRequest, clearRequestState, assembleSystemPrompt, stageWorldbookSection: nativePlay.stageWorldbookSection })
+  return Object.freeze({ prepareStep, prepareWritingRequest: nativePlay.prepareWritingRequest, projectRequest, completeRequest, clearRequestState, assembleSystemPrompt, stageWorldbookSection: nativePlay.stageWorldbookSection, recordSystemSections: nativePlay.recordSystemSections, systemSectionsFor: nativePlay.systemSectionsFor, pureWritingTurn: nativePlay.pureWritingTurn })
 }

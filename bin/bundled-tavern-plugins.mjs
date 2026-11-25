@@ -42,9 +42,10 @@ export const BUNDLED_TAVERN_PLUGINS = Object.freeze([
     source: ['tavern-plugin', 'packages', 'dsh-tavern-story-director'],
   },
   {
-    folder: 'dsh-tavern-adventure-medal',
-    packageName: 'dsh-tavern-adventure-medal',
-    source: ['tavern-plugin', 'packages', 'dsh-tavern-adventure-medal'],
+    folder: 'dsh-tavern-achievements',
+    packageName: 'dsh-tavern-achievements',
+    source: ['tavern-plugin', 'packages', 'dsh-tavern-achievements'],
+    previousPackageName: 'dsh-tavern-adventure-medal',
   },
   {
     folder: 'dsh-tavern-STcontext',
@@ -156,16 +157,28 @@ function installOne({ sourceRoot, dataRoot, profileDir, profileDependencies, def
 
   const pluginsDir = path.join(dataRoot, 'plugins')
   const target = path.join(pluginsDir, definition.folder)
-  const installed = readJson(path.join(target, 'package.json'))
+  const previousName = definition.previousPackageName
+  const legacyPath = previousName && path.join(pluginsDir, previousName)
+  const backupPath = previousName && path.join(dataRoot, 'plugin-backups', previousName + '-renamed')
+  const legacy = legacyPath && lstatSync(legacyPath, { throwIfNoEntry: false })?.isDirectory()
+    && readJson(path.join(legacyPath, 'package.json'))?.name === previousName
+    ? legacyPath : null
+  const replacing = existsNoFollow(target)
+  // A backup also carries the old marker if installation was interrupted after the rename.
+  const prior = replacing ? target : legacy || (backupPath && existsNoFollow(backupPath) ? backupPath : null)
+  const installed = prior && readJson(path.join(prior, 'package.json'))
   const installedVersion = String(installed?.version ?? '').trim() || null
   const release = bundledPluginRelease(definition.folder, definition.packageName)
 
   // profile 侧还登记着同名包：让它做唯一来源，别放一份永远不会加载的副本（同一包两个来源会被跳过）。
   // 优先看这次算出来的 profile 清单；没有清单时才退回磁盘上的 node_modules。
-  const registered = profileDependencies && typeof profileDependencies === 'object'
-    ? Object.prototype.hasOwnProperty.call(profileDependencies, definition.packageName)
-    : Boolean(profileDir && (existsSync(path.join(profileDir, 'node_modules', definition.packageName, 'package.json'))
-      || (definition.preserveExternalInstalls && Object.hasOwn(readJson(path.join(profileDir, 'package.json'))?.dependencies || {}, definition.packageName))))
+  const registered = [definition.packageName, previousName].filter(Boolean).some(name => (
+    profileDependencies && typeof profileDependencies === 'object'
+      ? Object.hasOwn(profileDependencies, name)
+      : Boolean(profileDir && (existsSync(path.join(profileDir, 'node_modules', name, 'package.json'))
+        || ((definition.preserveExternalInstalls || name === previousName)
+          && Object.hasOwn(readJson(path.join(profileDir, 'package.json'))?.dependencies || {}, name))))
+  ))
   if (registered) {
     return { action: 'skipped', reason: 'profile 仍登记着同名插件包，保持单一来源', version: bundled.version, installedVersion, target, packageName: definition.packageName }
   }
@@ -174,7 +187,9 @@ function installOne({ sourceRoot, dataRoot, profileDir, profileDependencies, def
     const other = otherInstallation(pluginsDir, definition)
     if (other) return { action: 'skipped', reason: '保留已有同名插件目录 ' + other, version: bundled.version, installedVersion, target, packageName: definition.packageName }
   }
-  const replacing = existsNoFollow(target)
+  if (legacy && (existsNoFollow(path.join(legacy, '.git')) || existsNoFollow(path.join(legacy, '.dsh-card.json')))) {
+    return { action: 'skipped', reason: '保留旧版插件的 Git 检出或人物卡安装', version: bundled.version, installedVersion, target, packageName: definition.packageName }
+  }
   let recorded
   let installedRuntimeProblem
   if (replacing) {
@@ -199,6 +214,15 @@ function installOne({ sourceRoot, dataRoot, profileDir, profileDependencies, def
   mkdirSync(pluginsDir, { recursive: true })
   const staging = mkdtempSync(path.join(pluginsDir, '.tavern-bundled-'))
   const retired = replacing ? path.join(pluginsDir, '.tavern-bundled-old-' + process.pid) : ''
+  function retireLegacy() {
+    if (!legacy) return null
+    mkdirSync(path.dirname(backupPath), { recursive: true })
+    const backup = existsNoFollow(backupPath)
+      ? path.join(mkdtempSync(backupPath + '-'), previousName)
+      : backupPath
+    renameSync(legacy, backup)
+    return backup
+  }
   try {
     const files = copyTree(bundled.directory, staging)
     const staged = readJson(path.join(staging, 'package.json'))
@@ -215,14 +239,14 @@ function installOne({ sourceRoot, dataRoot, profileDir, profileDependencies, def
       && String(recorded?.digest || '') === digest
       && (!release?.vendorManifest || runtimeFilesMatch(staging, target))
     if (unchanged) {
-      rmSync(staging, { recursive: true, force: true })
+      retireLegacy()
       return { action: 'skipped', reason: '已装的插件与内置副本相同，保留现有内容', version: bundled.version, installedVersion, target, packageName: definition.packageName }
     }
     writeFileSync(path.join(staging, SOURCE_FILE), JSON.stringify({ kind: 'builtin', bundled: true, version: bundled.version, digest, installedAt: new Date().toISOString() }, null, 2) + '\n')
-    const disabledFile = path.join(target, DISABLED_FILE)
-    if (!replacing && release?.defaultDisabled) {
+    const disabledFile = prior && path.join(prior, DISABLED_FILE)
+    if (!prior && release?.defaultDisabled) {
       writeFileSync(path.join(staging, DISABLED_FILE), JSON.stringify({ installedDisabled: true }) + '\n')
-    } else if (replacing && existsNoFollow(disabledFile)) {
+    } else if (disabledFile && existsNoFollow(disabledFile)) {
       const marker = lstatSync(disabledFile)
       if (marker.isFile() && (!restoreLoadDefault || marker.size > 0)) {
         copyFileSync(disabledFile, path.join(staging, DISABLED_FILE))
@@ -231,14 +255,19 @@ function installOne({ sourceRoot, dataRoot, profileDir, profileDependencies, def
     if (replacing) {
       rmSync(retired, { recursive: true, force: true })
       renameSync(target, retired)
-      try { renameSync(staging, target) } catch (error) {
-        renameSync(retired, target)
-        throw error
-      }
-      rmSync(retired, { recursive: true, force: true })
-    } else renameSync(staging, target)
+    }
+    let legacyBackup
+    try {
+      legacyBackup = retireLegacy()
+      renameSync(staging, target)
+    } catch (error) {
+      if (legacyBackup) renameSync(legacyBackup, legacy)
+      if (replacing) renameSync(retired, target)
+      throw error
+    }
+    if (replacing) rmSync(retired, { recursive: true, force: true })
     return {
-      action: replacing ? 'upgraded' : 'installed', reason: replacing ? '已同步发行副本' : '首次安装',
+      action: prior ? 'upgraded' : 'installed', reason: prior ? '已同步发行副本' : '首次安装',
       version: bundled.version, installedVersion, target, packageName: definition.packageName, files,
     }
   } finally {

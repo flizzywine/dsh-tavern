@@ -45,10 +45,10 @@ export function createCardHandlers(deps) {
       return { card }
     },
     async getCardOrganization(args) {
-      return { groups: (await cardOrganization.read()).groups }
+      return { tags: (await cardOrganization.read()).tags }
     },
     async organizeCards(args) {
-      return { groups: (await cardOrganization.update(args || {}, await fileResources.list('card'))).groups }
+      return { tags: (await cardOrganization.update(args || {}, await fileResources.list('card'))).tags }
     },
     async listCards(args) {
       return { cards: await listCards() }
@@ -163,10 +163,39 @@ export function createCardHandlers(deps) {
         return { filename, bytes: stored.bytes, downloadUrl: '/api/dsh-tavern/transfer-export/' + encodeURIComponent(filename) + '?token=' + stored.token }
       } finally { await upload.remove(); await rm(output, { force: true }).catch(() => {}) }
     },
-    // The current card as a DSH card for the 导出 sheet: the same export as the card-export route (packIds, excludeFigures),
-    // encrypted from its spool file when a `password` is given, then handed over as a transfer download. It answers
-    // {progressId} at once and the export runs on as a job (card-export-jobs.js): the sheet polls cardExportProgress, whose
-    // last view is the file ({stage: 'done', result: {filename, bytes, downloadUrl}}) or the failure; cancelCardExport stops it.
+    async listCardExportPacks(args) {
+      return { packs: await deps.listCardExportPacks(args?.path) }
+    },
+    // The export sheet's 更新包: the card's version and its earlier releases (card-files.js listCardReleases).
+    async listCardReleases(args) {
+      return await deps.listCardReleases(args?.path)
+    },
+    // A file sent before releases were recorded, uploaded (card-upload) to become one: only its pack file lists are read.
+    async addCardReleaseUpload(args) {
+      const upload = await cardUploadFor(args?.uploadId).take(args?.uploadId)
+      let retry = false
+      try { return { release: await deps.addCardReleaseFromFile(args?.path, upload.file, str(args?.name), { password: args?.password }) } }
+      catch (error) { retry = isCardPasswordError(error); throw error }
+      finally { if (!retry) await upload.remove() }
+    },
+    // The card's 版本 (character_version), set from the export sheet: the same edit path as updateCard.
+    async setCardVersion(args) {
+      const version = str(args?.version).trim()
+      if (version.length > 40) throw new Error('版本号太长了，请写短一点，例如 1.1')
+      const workspace = await readCardWorkspace(args?.path)
+      if (workspace === undefined) throw new Error('人物卡不存在')
+      const pointer = workspace.raw && typeof workspace.raw.data === 'object' ? '/data/character_version' : '/character_version'
+      const change = await updateCard(args.path, undefined, undefined, [{ op: 'set', path: pointer, value: version }])
+      return { version, changed: change.changed }
+    },
+    async estimateCardUpdate(args) {
+      return await deps.estimateCardUpdate(args?.path, args?.releaseId, args?.packIds)
+    },
+    // The current card as a DSH card for the 导出人物卡 sheet: the same export as the card-export route (packIds,
+    // excludeFigures, worldBooks = the bound books it carries), encrypted from its spool file when a `password` is given,
+    // then handed over as a transfer download of `bytes`. `progressId` (the sheet's name for this export) lets it poll
+    // cardExportProgress and cancelCardExport; it answers at once and the export runs on as that job (card-export-jobs.js),
+    // whose last view is the file ({stage: 'done', result: {filename, bytes, downloadUrl}}) or the failure.
     async exportLibraryCard(args) {
       const encrypt = args?.password !== undefined
       if (encrypt && (typeof args.password !== 'string' || !args.password.length)) throw new Error('请设置人物卡密码')
@@ -174,22 +203,35 @@ export function createCardHandlers(deps) {
       return cardExportJobs.run(args?.progressId, async report => {
         let card, output
         try {
-          card = await deps.exportCardFile(cardPath, { packIds: args?.packIds, excludeFigures: args?.excludeFigures })
+          // 压缩素材 (`compress`) reports its own stage first, its bar from 0 to 100; packing (and encrypting) follows.
+          card = await deps.exportCardFile(cardPath, { packIds: args?.packIds, omitPackIds: args?.omitPackIds, excludeFigures: args?.excludeFigures, books: args?.worldBooks, compress: args?.compress ?? false, baseRelease: args?.baseRelease,
+            onProgress: progress => report(progress.stage === 'compress' ? { stage: 'compress', done: progress.done, total: progress.total, pack: progress.pack }
+              : { stage: 'pack', done: encrypt ? progress.done / 2 : progress.done, total: progress.total, pack: progress.pack }) })
           let file = card.file, filename = card.name.replace(/[\\/:*?"<>|\r\n]/g, '_') + '.dshcard'
           if (encrypt) {
-            report('encrypt')
+            // packing and encrypting each read every byte once: the bar gives each half.
+            report({ stage: 'encrypt', pack: '' })
             output = file = card.file + '.encrypted'; filename = filename.replace(/\.dshcard$/, '-加密.dshcard')
-            await encryptCardArchiveFile(card.file, output, args.password, { name: card.name + '.dshcard' })
+            await encryptCardArchiveFile(card.file, output, args.password, { name: card.name + '.dshcard',
+              onProgress: progress => report({ stage: 'encrypt', done: (progress.total + progress.done) / 2, total: progress.total, pack: '' }) })
           }
           const stored = await deps.transferExports.putFile(file, filename)
-          return { filename, bytes: stored.bytes, downloadUrl: '/api/dsh-tavern/transfer-export/' + encodeURIComponent(filename) + '?token=' + stored.token }
+          return { filename, bytes: stored.bytes, downloadUrl: '/api/dsh-tavern/transfer-export/' + encodeURIComponent(filename) + '?token=' + stored.token, ...(card.compressed ? { compressed: card.compressed } : {}), ...(card.update ? { update: card.update } : {}) }
         } finally {
           await card?.dispose(); if (output) await rm(output, { force: true }).catch(() => {})
         }
       })
     },
     cardExportProgress(args) { return { progress: cardExportJobs.view(args?.progressId) } },
-    cancelCardExport(args) { return cardExportJobs.cancel(args?.progressId) },    async decryptCardUpload(args) {
+    cancelCardExport(args) { return cardExportJobs.cancel(args?.progressId) },
+    // the page's word on how saving the file ended (saved / failed / cancelled, bytes written of the total, the reason):
+    // one line in the host log, the only record of a save once the page is gone.
+    cardExportSaved(args) {
+      const text = value => String(value ?? '').replace(/\s+/g, ' ').slice(0, 300)
+      console.log('[card-export] save ' + text(args?.outcome) + ' ' + text(args?.filename) + ' ' + Number(args?.loaded) + '/' + Number(args?.total) + ' bytes' + (args?.reason ? ': ' + text(args.reason) : ''))
+      return { ok: true }
+    },
+    async decryptCardUpload(args) {
       const upload = await uploads.take(args?.uploadId), output = upload.file + '.decrypted'
       let retry = false
       try {

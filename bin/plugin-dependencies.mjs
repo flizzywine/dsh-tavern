@@ -2,12 +2,11 @@ import { desktopElectronExecutable, desktopHostAnchors, desktopResourcesRoot, is
 import { desktopResourceHostAnchors } from '../tavern-plugin/lib/domain/host-package-resolution.js'
 import { spawnSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { closeSync, existsSync, mkdtempSync, openSync, readFileSync, realpathSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
+import { closeSync, existsSync, mkdtempSync, openSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import os from 'node:os'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { parseDocument } from 'yaml'
 
 const REQUIRED_HOST_EXPORTS = {
   '@deepseek-ai/dsh-agent': 'agentEvents',
@@ -161,7 +160,7 @@ function resolveDesktopHostPackagesViaElectron({ host, env = process.env, execPa
   let probe
   let report = ''
   try {
-    probe = spawnSync(electron, ['--expose-internals', scriptFile], {
+    probe = spawnSync(electron, ['--expose-internals', scriptFile], { windowsHide: true,
       stdio: ['ignore', outFd, errFd], timeout: 60000, env: { ...env, ELECTRON_RUN_AS_NODE: '1' },
     })
   } finally {
@@ -232,7 +231,7 @@ export function resolveHostDependencies({ dsh, host = 'cli', env = process.env, 
     // Probe in a fresh process so module caching cannot hide a changed host.
     // Absolute import keeps the host package's own transitive dependencies.
     const script = `const m = await import(${JSON.stringify(pathToFileURL(dependency.entry).href)});` + (exportName ? ` if (typeof m[${JSON.stringify(exportName)}] !== 'function') throw new Error(${JSON.stringify(`缺少接口 ${exportName}`)});` : '')
-    const probe = spawnSync(execPath, ['--expose-internals', '--input-type=module', '-e', script], {
+    const probe = spawnSync(execPath, ['--expose-internals', '--input-type=module', '-e', script], { windowsHide: true,
       encoding: 'utf8', timeout: 15000, env: { ...env, ELECTRON_RUN_AS_NODE: '1' },
     })
     if (probe.error || probe.status !== 0) {
@@ -349,25 +348,21 @@ export async function installPluginDependencies({ pluginDirectory, run, ...hostO
     console.log('0.2.0 桌面把宿主依赖打进 app.asar，跳过 tavern-plugin 的 link 覆盖安装；运行时由宿主解析器提供这些包。')
     return dependencies
   }
-  const workspacePath = path.join(pluginDirectory, 'pnpm-workspace.yaml')
-  const original = readFileSync(workspacePath, 'utf8')
-  const workspace = parseDocument(original)
-  if (workspace.errors.length > 0) throw new Error(`无法读取插件 workspace：${workspace.errors[0].message}`)
-  for (const dependency of dependencies) {
-    workspace.setIn(['overrides', dependency.name], `link:${dependency.directory.replaceAll('\\', '/')}`)
-  }
-  const temporary = `${workspacePath}.tmp-${process.pid}`
-  let safeToRestore = true
+  // pnpm applies these overrides in memory. Never replace or truncate the workspace file, even during recovery.
+  const overrides = Object.fromEntries(dependencies.map(({ name, directory }) => [name, `link:${directory.replaceAll('\\', '/')}`]))
+  const directory = mkdtempSync(path.join(os.tmpdir(), 'tavern-pnpm-'))
+  const hook = path.join(directory, 'host-overrides.cjs')
+  let childMayBeRunning = false
   try {
-    writeFileSync(temporary, workspace.toString(), 'utf8')
-    renameSync(temporary, workspacePath)
-    await run('pnpm', ['install', '--lockfile=false'], { cwd: pluginDirectory })
+    writeFileSync(hook, `module.exports.hooks = { updateConfig(config) {
+  return { ...config, overrides: { ...config.overrides, ...${JSON.stringify(overrides)} } }
+} }\n`)
+    await run('pnpm', ['install', '--lockfile=false', '--no-ignore-pnpmfile', '--global-pnpmfile', hook], { cwd: pluginDirectory })
   } catch (error) {
-    safeToRestore = !error.unsafeToRetry
+    childMayBeRunning = error.unsafeToRetry
     throw error
   } finally {
-    if (safeToRestore && existsSync(temporary)) unlinkSync(temporary)
-    if (safeToRestore) writeFileSync(workspacePath, original, 'utf8')
+    if (!childMayBeRunning) rmSync(directory, { recursive: true, force: true })
   }
   return dependencies
 }

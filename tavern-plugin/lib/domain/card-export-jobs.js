@@ -1,12 +1,14 @@
-// The running card exports the 导出 sheet waits for. One request may not stay open the minutes a large card takes to pack
-// and encrypt (the Desktop ends a request whose answer has not begun after five minutes), so the export answers its
-// progressId at once and runs as a job: the browser polls `view(id)` until the file or the failure arrives, and
-// `cancel(id)` stops it (the export's own cleanup removes the half-written files).
-// A view is {stage: 'pack' | 'encrypt'} while it runs, then once {stage: 'done', result} (the file to download) or
-// {stage: 'failed', error: {step, code, message}} with the sentence the player reads (cardExportFailureText). A finished
-// job is read once; one nobody reads is dropped after ttlMs.
+// The running card exports the 导出人物卡 sheet watches: the one place their progress and outcome are produced. The
+// browser names an export (progressId) when it asks for it; the export then runs on its own (run), because packing and
+// encrypting a card with large packs takes longer than one request may wait for its answer (the Desktop ends a request
+// whose answer has not begun after five minutes). The browser polls `view(id)` and `cancel(id)` stops it: the next
+// progress report throws, the export's own cleanup removes the half-written files.
+// A view is {stage: 'compress' | 'pack' | 'encrypt', done, total, pack, startedAt} while it runs: bytes read into the archive (and
+// through the encryption) out of `total`, the title of the pack being written ('' outside a pack) and when the export
+// began; then {stage: 'done', result} (the file to download), or {stage: 'failed', error: {step, code, message}} with the
+// sentence the player reads (cardExportFailureText). A finished job is read once; one nobody reads is dropped after ttlMs.
 const PROGRESS_ID = /^[\w-]{8,64}$/
-const STEP_NAMES = { pack: '打包', encrypt: '加密' }
+const STEP_NAMES = { compress: '压缩素材', pack: '打包', encrypt: '加密' }
 
 /** The player's sentence for a failed step: what went wrong, the file, the system's reason and what to do next. */
 export function cardExportFailureText(step, error) {
@@ -22,16 +24,16 @@ export function createCardExportJobs({ now = Date.now, ttlMs = 60 * 60 * 1000, w
   const jobs = new Map()
   const sweep = () => { for (const [id, job] of jobs) if (job.endedAt && now() - job.endedAt > ttlMs) jobs.delete(id) }
   return {
-    // Runs `work(report)` as the export named progressId and answers at once. report(stage) names the step now running and
+    // Runs `work(report)` as the export named progressId and answers at once. report(patch) updates the progress and
     // throws once the export is cancelled; work resolves the file to download. A name in use or of the wrong shape is refused.
     run(progressId, work) {
       sweep()
       if (typeof progressId !== 'string' || !PROGRESS_ID.test(progressId) || jobs.has(progressId)) throw Object.assign(new Error('导出编号无效'), { code: 'TAVERN_EXPORT_INVALID' })
-      const job = { stage: 'pack', cancelled: false, endedAt: 0 }
+      const job = { stage: 'pack', done: 0, total: 0, pack: '', startedAt: now(), cancelled: false, endedAt: 0 }
       jobs.set(progressId, job)
-      const report = stage => {
+      const report = patch => {
         if (job.cancelled) throw Object.assign(new Error('导出已取消'), { name: 'AbortError', code: 'TAVERN_EXPORT_CANCELLED' })
-        job.stage = stage
+        Object.assign(job, patch)
       }
       void (async () => {
         try { job.result = await work(report) }
@@ -50,7 +52,7 @@ export function createCardExportJobs({ now = Date.now, ttlMs = 60 * 60 * 1000, w
       if (!job) return null
       if (job.error) { jobs.delete(progressId); return { stage: 'failed', error: job.error } }
       if (job.result) { jobs.delete(progressId); return { stage: 'done', result: job.result } }
-      return { stage: job.stage }
+      return { stage: job.stage, done: job.done, total: job.total, pack: job.pack, startedAt: job.startedAt }
     },
     cancel(progressId) {
       const job = jobs.get(progressId)

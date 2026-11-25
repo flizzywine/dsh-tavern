@@ -1,11 +1,12 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
+import { withStyleReferenceProtocol } from './helpers/style-reference-source.mjs'
 import vm from 'node:vm'
 
 import { projectStoryTranscript } from '../tavern-plugin/lib/domain/story-transcript.js'
 
-const dataSource = await readFile(new URL('../tavern-plugin/src/client/features/story-transcript-data.js', import.meta.url), 'utf8')
+const dataSource = await readFile(new URL('../tavern-plugin/src/client/features/story-transcript-data.js', import.meta.url), 'utf8').then(withStyleReferenceProtocol)
 
 // 纯投影函数不依赖 React 运行时；@include 片段按脚本语义执行，函数声明落在全局。
 const context = vm.createContext({ console })
@@ -30,6 +31,14 @@ const MESSAGES = [
 const partial = { turn: 0, blocks: [{ kind: 'reasoning', text: '思考' }, { kind: 'text', text: '流式新正文' }] }
 
 const baseRows = () => data.rows(story(MESSAGES))
+
+test('旧存档和流式正文隐藏文风工具标签，保留后续正文', () => {
+	const text = '<style_reference_submit">她推开门。<style_reference_submit>范文</style_reference_submit>'
+	const rows = data.rows(story([{ role: 'assistant', turn: 1, text, messageUid: 'uid' }]))
+	assert.equal(rows[0].text, '她推开门。')
+	const streamed = { ...partial, blocks: [{ kind: 'text', text }] }
+	assert.equal(data.streamRows(rows, streamed, [], 3, true, 'uid')[0].text, '她推开门。')
+})
 
 test('UID 找不到对应行时不回退到 turn 匹配', () => {
 	const rows = baseRows()

@@ -139,8 +139,16 @@ function openOriginal() {
 async function handleCall(ctx, endpoint, payload) {
   try {
     const paths = launcherPaths(ctx)
-    if (endpoint === 'status') return { ok: true, value: statusPayload(paths) }
     if (endpoint === 'achievements') return { ok: true, value: await readAchievementLibrary(paths.home) }
+    if (paths.host === 'cli') {
+      const updater = ctx.get?.('tavernApplicationUpdater')
+      if (endpoint === 'status') return { ok: true, value: { host: 'cli', updateSupported: Boolean(updater) } }
+      const method = updateActions.get(endpoint)
+      if (!method || method === 'restart') fail('unsupported', '此操作仅适用于桌面宿主。')
+      if (!updater) fail('update-unavailable', '酒馆更新服务尚未加载。')
+      return { ok: true, value: { ...await updater[method](), canUpdate: true } }
+    }
+    if (endpoint === 'status') return { ok: true, value: statusPayload(paths) }
     if (endpoint === 'set-default') {
       if (paths.host === 'next' || !isOfficialDesktopApp() || basename(paths.activeDir) !== 'desktop') fail('not-desktop', '请在官方桌面中设置默认配置。')
       if (payload?.profile === 'tavern') validateTarget(paths, 'tavern')

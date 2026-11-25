@@ -513,13 +513,11 @@
 					return result && Object.prototype.hasOwnProperty.call(result, "pipe") ? result.pipe : result;
 				});
 			};
-			window.createChatMessages = async function (messages, option) {
-				const result = await call("createTavernHelperMessages", {
-					messages: copy(Array.isArray(messages) ? messages : []),
-					option: copy(option && typeof option === "object" ? option : {})
-				});
-				if (result && result.stale) throw new Error("聊天已变化，消息未创建");
-			};
+			// The executor can be inside a callback itself, so it finishes its own
+			// MESSAGE_SENT work inline instead of waiting for another host event.
+			window.createChatMessages = modules.createMessageCreator({context: () => state, copy, request: call,
+				scope: () => currentScript().id,
+				emitSent: officialMvuEnabled ? id => events.emit("MESSAGE_SENT", id) : undefined});
 			window.getWorldbookNames = function () { return state.worldbook && state.worldbook.name ? [state.worldbook.name] : []; };
 			window.getCharWorldbookNames = function () { return { primary: state.worldbook && state.worldbook.name || null, additional: [] }; };
 			// Global and extra bound books reach scripts merged into the game's one book; there is no separate chat book.

@@ -82,3 +82,23 @@ test('宿主转发并持久化 2 MB 头像，大写入分批提交', async () =>
   assert.equal(written.length, 4)
   assert.equal(written[0].value, avatarMap)
 })
+
+test('无头脚本运行时不向服务端请求全局 getFrameStorage', async () => {
+  const calls = []
+  const window = {
+    __dshTavernHeadless: true,
+    setTimeout() { return 1 },
+    clearTimeout() {},
+    MutationObserver: undefined,
+    crypto: { getRandomValues: array => array.fill(7) },
+  }
+  const rpc = async method => { calls.push(method); return { values: {} } }
+  const context = vm.createContext({ window, rpc, TextEncoder, console, Promise, Map, Array, Object, Set, Error, String, Number, Date, JSON, Uint8Array })
+  vm.runInContext(await frameStorageSource() + '\nglobalThis.forkFrameStorage = forkFrameStorage;', context)
+  const storage = context.forkFrameStorage
+  const capability = storage.capability({ sessionId: 's1', cardPath: 'cards/re0.png' }, window)
+  const frame = { contentWindow: { postMessage() {} }, addEventListener() {}, removeEventListener() {} }
+  storage.register(frame, capability)
+  await storage.load()
+  assert.deepEqual(calls, [])
+})

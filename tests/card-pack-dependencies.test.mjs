@@ -2,8 +2,8 @@
 // them, the importer keeps the binding, names a missing pack in a Chinese notice, and the binding works as soon as that
 // pack is installed — no re-import.
 import assert from 'node:assert/strict'
-import { copyFile, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
+import { copyFile, readFile, writeFile } from 'node:fs/promises'
+import { syntheticFixture } from './helpers/synthetic-link-fixture.mjs'
 import { join } from 'node:path'
 import test from 'node:test'
 import { createAssetPacks } from '../tavern-plugin/lib/domain/asset-packs.js'
@@ -21,7 +21,9 @@ import { createAssetPackService } from '../tavern-plugin/packages/dsh-asset-libr
 import { createCardBundleAdapter } from '../tavern-plugin/packages/dsh-tavern-stage/lib/card-bundle.js'
 
 async function profile(t, name) {
-  const root = await mkdtemp(join(tmpdir(), 'card-deps-' + name + '-'))
+  let service
+  t.after(() => service?.dispose())
+  const root = syntheticFixture(t, 'card-deps-' + name + '-')
   const profileData = createProfileDataStore({ dataRoot: root }), fileResources = createFileResourceStore({ dataRoot: root })
   let serial = 0
   const cardPreparation = createCardPreparation({ id: () => name + '-card-' + ++serial, now: Date.now })
@@ -33,9 +35,8 @@ async function profile(t, name) {
   const cards = createCardBundleAdapter({ cardPreparation, authorizeTarget: async path => ({ cardId: path }), readWorkspace: path => readCardWorkspace(path),
     writeWorkspace: async () => assert.fail('an export writes no card'), withCardLock: async (_, task) => task() })
   let archiveSerial = 0
-  const service = createAssetPackService({ assetRoot: join(root, 'library'), cardTransactions: cards,
+  service = createAssetPackService({ assetRoot: join(root, 'library'), cardTransactions: cards,
     exportArchive: async file => { const output = join(root, 'pack-' + ++archiveSerial + '.zip'); await copyFile(file, output); return { output } } })
-  t.after(async () => { await service.dispose(); await rm(root, { recursive: true, force: true }) })
   const files = createCardFiles({
     cardPreparation, fileResources, castAssets: createCastAssets({ store: profileData }), readCardWorkspace, exportRoot: join(root, 'exports'),
     assetPacks: createAssetPacks({ store: profileData, mediaStore: createMediaStore({ root: join(root, 'asset-packs') }) }),

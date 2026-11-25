@@ -1,7 +1,7 @@
 window.__ModuleLoader__.load({
-  id: 'dsh-tavern-adventure-medal',
+  id: 'dsh-tavern-achievements',
   factory() {
-    const name = 'dsh-tavern-adventure-medal'
+    const name = 'dsh-tavern-achievements'
     const UNLOCK_EVENT = name + ':unlocked'
     const SETTINGS_BUTTON = '[data-slot="settings.launcher"] button, button[aria-label="设置"], button[aria-label="Settings"]'
     const DISPLAY_MS = 3400
@@ -319,7 +319,7 @@ window.__ModuleLoader__.load({
           clearCelebration()
           style.remove()
         }
-      }, 'adventure-medal: achievement celebration')
+      }, 'achievements: achievement celebration')
     }
 
     return { name, inject: ['tavernUi', 'sessions'], apply }

@@ -186,9 +186,19 @@
 				const references = Array.from(new Set((String(source).match(/(?:https?:\/\/|\/api\/dsh-tavern\/)[^\s"'<>`]+/g) || []).map(safeUrl).filter(Boolean))).slice(0, 8);
 				let resources = [];
 				try { resources = window.performance.getEntriesByType("resource").filter(function (entry) { return entry.startTime >= startedAt && entry.initiatorType === "script" && entry.responseStatus >= 400 && entry.responseStatus <= 599; }).slice(-8).map(function (entry) { return { url: safeUrl(entry.name), status: entry.responseStatus }; }).filter(function (entry) { return entry.url; }); } catch (_) {}
-				const offline = window.navigator && window.navigator.onLine === false;
-				const httpFailure = resources.some(function (entry) { return references.includes(entry.url); });
-				const reason = offline ? "offline" : httpFailure ? "http" : "unknown";
+				// 无头运行时或部分浏览器把 HTTP 状态附在错误消息里（如 `... (403)`），补充到失败资源中。
+				if (resources.length === 0 && event && event.message) {
+					const matched = String(event.message).match(/(https?:\/\/[^\s"'<>]+)\s*\(([45]\d\d)\)/i);
+					const matchedUrl = matched ? safeUrl(matched[1]) : "";
+					if (matchedUrl) resources.push({ url: matchedUrl, status: Number(matched[2]) });
+				}
+				const baseOrigin = (function () { try { return new URL(document.baseURI).origin; } catch (_) { return ""; } })();
+				const hasExternalReference = references.length === 0 || !baseOrigin || references.some(function (entry) { try { return new URL(entry).origin !== baseOrigin; } catch (_) { return true; } });
+				const offline = window.navigator && window.navigator.onLine === false && hasExternalReference;
+				// 传递依赖（如缓存脚本内部 import 的 /api/dsh-tavern/static-assets）不在顶层 references 中，
+				// 但同窗口同期脚本资源的 4xx/5xx 已明确说明收到了 HTTP 响应，优先级必须高于 navigator.onLine。
+				const httpFailure = resources.length > 0;
+				const reason = httpFailure ? "http" : offline ? "offline" : "unknown";
 				const message = offline ? "浏览器当前离线，人物卡脚本依赖加载失败。请检查网络后刷新页面重试。" : httpFailure ? "人物卡脚本依赖请求失败。请查看详情中的 HTTP 状态；资源恢复后刷新页面重试。" : "人物卡模块或依赖加载失败，暂不能确定原因。请查看详情；可检查网络，若持续失败请导出诊断包。";
 				const error = new Error(message + " 该脚本功能可能不可用，变量脚本失败会影响初始化或校验。");
 				error.dshTavernModuleFailure = { phase: "module-load", reason: reason, message: safeMessage(event && event.message), references: references, resources: resources };

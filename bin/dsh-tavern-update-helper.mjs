@@ -15,7 +15,7 @@ try {
     // The updater's own PID lets the caller notice it dying before adopting the reservation.
     process.stdout.write(launchWindowsUpdater(command, args) + '\n')
   } else {
-    const child = spawn(command, args, { detached: true, stdio: 'ignore', env: process.env })
+    const child = spawn(command, args, { windowsHide: true, detached: true, stdio: 'ignore', env: process.env })
     await new Promise((resolve, reject) => { child.once('spawn', resolve); child.once('error', reject) })
     child.unref()
   }

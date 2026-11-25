@@ -129,7 +129,7 @@ export function commandName(name, platform = process.platform) {
 
 export function run(command, args, options = {}) {
   const nativeNpm = process.platform === 'win32' && command === 'npm'
-  const result = spawnSync(nativeNpm ? process.execPath : commandName(command), nativeNpm ? [resolveNpmCliEntry(), ...args] : args, {
+  const result = spawnSync(nativeNpm ? process.execPath : commandName(command), nativeNpm ? [resolveNpmCliEntry(), ...args] : args, { windowsHide: true,
     cwd: options.cwd,
     env: runtimeEnvironment(),
     encoding: 'utf8',
@@ -148,7 +148,7 @@ export function run(command, args, options = {}) {
 
 export function commandExists(command) {
   const probe = process.platform === 'win32' ? ['where', [command]] : ['sh', ['-c', `command -v ${command}`]]
-  return spawnSync(probe[0], probe[1], { stdio: 'ignore' }).status === 0
+  return spawnSync(probe[0], probe[1], { windowsHide: true, stdio: 'ignore' }).status === 0
 }
 
 export function findDshCommand(host = RUNTIME_HOST) {
@@ -222,7 +222,7 @@ export function runDsh(command, args, options = {}) {
     : resolveDshInvocation(command, args, options.host)
   const spawnOptions = { ...options }
   delete spawnOptions.host
-  const result = spawnSync(invocation.command, invocation.args, {
+  const result = spawnSync(invocation.command, invocation.args, { windowsHide: true,
     encoding: 'utf8', shell: process.platform === 'win32' && !nativeCli && !invocation.env, env: { ...runtimeEnvironment(), ...invocation.env }, ...spawnOptions,
   })
   if (result.error) throw new Error(`无法运行 dsh：${result.error.message}`)

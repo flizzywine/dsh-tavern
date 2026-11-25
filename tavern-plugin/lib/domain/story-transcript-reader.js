@@ -3,6 +3,7 @@ import { projectStoryTranscript, storyReplyNativeTurns } from './story-transcrip
 import { storyToolCalls } from './story-tool-calls.js'
 import { sessionViewMessageFields } from './session-view-projection.js'
 import { projectDisplayParts } from './display-source.js'
+import { stripStyleReferenceMarkup } from './style-reference-protocol.cjs'
 
 const summaryOf = message => ({
   role: message?.role,
@@ -37,7 +38,7 @@ function transportMessage(message, includeDisplayParts) {
   }
   if (includeDisplayParts && result.role === 'assistant' && result.placeholder !== true
     && (result.displayMode === 'html' || result.displayMode === 'rich') && typeof result.displayText === 'string') {
-    result.displayParts = projectDisplayParts(result.displayText).parts
+    result.displayParts = projectDisplayParts(stripStyleReferenceMarkup(result.displayText)).parts
   }
   return result
 }
