@@ -61,7 +61,7 @@ public final class TavernService extends Service {
     static final String ACTION_START = "start", ACTION_STOP = "stop", ACTION_RESTART = "restart", ACTION_EXIT = "exit",
             ACTION_RESET = "reset", ACTION_CHECK = "check", ACTION_SOURCE_UPDATE = "source-update",
             ACTION_DOWNLOAD_APK = "download-apk", ACTION_PREFS = "prefs", ACTION_APK_CHECK = "apk-check",
-            ACTION_LAN_SYNC = "lan-sync";
+            ACTION_LAN_SYNC = "lan-sync", ACTION_FACTORY_RESET = "factory-reset";
     static final String PREFS = "launcher";
     // 新版安装包的发布信息：先读 GitHub raw（不滞后），失败再读 jsDelivr。与酒馆 Release 解耦，发新酒馆版本不影响它。
     static final String[] APK_FEEDS = {
@@ -223,6 +223,12 @@ public final class TavernService extends Service {
                     wantRunning = true;
                     stopServer();
                     ensurePayload(true);
+                    startServer();
+                    break;
+                case ACTION_FACTORY_RESET:
+                    wantRunning = true;
+                    stopServer();
+                    factoryReset();
                     startServer();
                     break;
                 case ACTION_CHECK:
@@ -403,6 +409,24 @@ public final class TavernService extends Service {
         log((upgrade ? "程序文件已更新" : "解压完成") + "：写入 " + extractor.written + " 个，保留已有文件 " + extractor.kept
                 + " 个" + (keepSource ? "（保留热更新过的源码）" : "") + "，用时 " + (System.currentTimeMillis() - started) / 1000 + " 秒");
         progress = -1;
+    }
+
+    /**
+     * 完全重置：删掉整个数据目录（程序文件和全部用户数据），之后按首次启动重新解压。
+     * 保留 files/logs（排查用）和启动页设置；WebView 里的数据由界面清掉。
+     */
+    private void factoryReset() throws Exception {
+        setPhase("preparing", "正在完全重置（清除全部数据）");
+        progress = -1;
+        long started = System.currentTimeMillis();
+        deleteTree(root);
+        File[] markers = getFilesDir().listFiles((dir, name) -> name.startsWith("payload-") && name.endsWith(".done"));
+        if (markers != null) for (File f : markers) f.delete();
+        autoRestarts = 0;
+        crashes.clear();
+        lastExit = null;
+        error = null;
+        log("已完全重置：清除数据目录，用时 " + (System.currentTimeMillis() - started) / 1000 + " 秒，接着重新解压");
     }
 
     /** 载荷按打包时的设备路径生成；实际数据目录不同（多用户、工作资料）时改写记录在案的文件。 */

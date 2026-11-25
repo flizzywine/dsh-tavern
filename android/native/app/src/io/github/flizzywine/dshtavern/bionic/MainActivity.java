@@ -31,11 +31,13 @@ import android.view.ViewGroup;
 import android.view.ViewOutlineProvider;
 import android.view.WindowInsetsController;
 import android.view.WindowInsets;
+import android.webkit.CookieManager;
 import android.webkit.RenderProcessGoneDetail;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
+import android.webkit.WebStorage;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.Button;
@@ -75,6 +77,9 @@ public final class MainActivity extends Activity {
     private String loadedUrl;
     private boolean showLauncher;
     private boolean logsVisible;
+    private boolean advancedVisible;
+    private LinearLayout advanced;
+    private TextView advancedToggle, advancedChevron;
     private boolean clearHistoryOnLoad;
     private ValueCallback<Uri[]> fileCallback;
 
@@ -406,6 +411,24 @@ public final class MainActivity extends Activity {
         logText.setBackground(shape(TRACK, 0, 12));
         logText.setPadding(dp(12), dp(10), dp(12), dp(10));
         ((LinearLayout.LayoutParams) logText.getLayoutParams()).topMargin = dp(12);
+
+        // 高级：默认折叠，每次打开启动页都收起（不记状态）
+        advancedToggle = listRow(c, "高级", MUTED, v -> {
+            advancedVisible = !advancedVisible;
+            show(advanced, advancedVisible);
+            advancedChevron.setText(advancedVisible ? "⌄" : "›");
+        });
+        View advancedRow = (View) advancedToggle.getParent();
+        ((LinearLayout.LayoutParams) advancedRow.getLayoutParams()).topMargin = dp(18);
+        advancedRow.setBackground(pressable(BG, 0, 10));
+        advancedChevron = (TextView) ((LinearLayout) advancedRow).getChildAt(1);
+        advanced = card(c, 0);
+        advanced.setPadding(dp(10), dp(4), dp(10), dp(4));
+        listRow(advanced, "完全重置", DANGER, v -> confirmFactoryReset());
+        TextView advancedHint = label(advanced, 12, MUTED, false);
+        advancedHint.setText("酒馆文件损坏、无法进入也无法修复时使用：清除全部数据，恢复到刚安装的状态。");
+        advancedHint.setPadding(dp(4), 0, dp(4), dp(10));
+        show(advanced, false);
 
         versionText = label(c, 12, MUTED, false);
         versionText.setGravity(Gravity.CENTER);
@@ -799,6 +822,66 @@ public final class MainActivity extends Activity {
             send(TavernService.ACTION_PREFS);
         });
         noticeDialog = b.show();
+    }
+
+    // ---------------------------------------------------------------- 高级：完全重置（两次警告）
+
+    private void confirmFactoryReset() {
+        new AlertDialog.Builder(this)
+                .setTitle("完全重置酒馆？")
+                .setMessage("会删除全部存档、人物卡、世界书、预设、API key 和模型设置，恢复到刚安装的状态，无法撤销。\n\n"
+                        + "酒馆还能进入时，建议先在酒馆里「导出」备份。")
+                .setPositiveButton("继续", (d, w) -> confirmFactoryResetAgain())
+                .setNegativeButton("取消", null)
+                .show();
+    }
+
+    /** 第二次警告：确认键先禁用 5 秒，防止连点误触。 */
+    private void confirmFactoryResetAgain() {
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle("最后确认")
+                .setMessage("所有酒馆数据将被永久清除。确定要完全重置吗？")
+                .setPositiveButton("完全重置", (d, w) -> factoryReset())
+                .setNegativeButton("取消", null)
+                .create();
+        dialog.setOnShowListener(d -> {
+            Button ok = dialog.getButton(AlertDialog.BUTTON_POSITIVE);
+            ok.setTextColor(DANGER);
+            ok.setEnabled(false);
+            Runnable[] tick = new Runnable[1];
+            int[] left = {5};
+            tick[0] = () -> {
+                if (!dialog.isShowing()) return;
+                if (left[0] > 0) {
+                    ok.setText("完全重置（" + left[0] + "）");
+                    left[0]--;
+                    handler.postDelayed(tick[0], 1000);
+                } else {
+                    ok.setText("完全重置");
+                    ok.setEnabled(true);
+                }
+            };
+            tick[0].run();
+        });
+        dialog.show();
+    }
+
+    private void factoryReset() {
+        // 酒馆有一部分状态在 WebView 的 localStorage / IndexedDB / Cookie 里，一并清掉。
+        WebStorage.getInstance().deleteAllData();
+        CookieManager.getInstance().removeAllCookies(null);
+        CookieManager.getInstance().flush();
+        web.clearCache(true);
+        web.clearHistory();
+        web.loadUrl("about:blank");
+        loadedUrl = null;
+        showLauncher = true;
+        advancedVisible = false;
+        show(advanced, false);
+        advancedChevron.setText("›");
+        send(TavernService.ACTION_FACTORY_RESET);
+        Toast.makeText(this, "正在完全重置，完成后会重新解压并启动", Toast.LENGTH_LONG).show();
+        render();
     }
 
     private void installApk(File apk) {
