@@ -102,19 +102,22 @@ export function createWritingPreparation({ allowed, runAgent, readSources }) {
           }).join('\n')
         }
         const title = writingMaterialText(row.title).slice(0, 120)
-        return text ? ['【' + limits.label + (title ? ' · ' + title : '') + '】\n' + text] : []
+        return text ? [{ text: '【' + limits.label + (title ? ' · ' + title : '') + '】\n' + text, repeatOnLookup: row.repeatOnLookup }] : []
       })
       if (!material.length) return variables && rows.length ? VARIABLES_ALREADY_READ : NO_MATERIAL
-      if (variables) {
+      if (kind !== 'worldbook') {
+        const text = material.map(row => row.text).join('\n\n')
+        if (!variables) return text
         variableEvidence = true
-        return VARIABLE_QUERY_HEADER + material.join('\n\n')
+        return VARIABLE_QUERY_HEADER + text
       }
-      if (kind !== 'worldbook') return material.join('\n\n')
-      const fresh = material.map(tavernFormatPlotWorldbookReceipt).filter(entry => {
+      const fresh = material.flatMap(({ text, repeatOnLookup }) => {
+        const entry = tavernFormatPlotWorldbookReceipt(text)
+        if (repeatOnLookup) return [entry]
         const key = entry.trimEnd()
-        if (worldbookSeen.has(key)) return false
+        if (worldbookSeen.has(key)) return []
         worldbookSeen.add(key)
-        return true
+        return [entry]
       })
       return fresh.length ? fresh.join('\n\n') : ALREADY_IN_CONTEXT
     }

@@ -7,6 +7,7 @@ import { writingMaterialText } from './writing-material-text.js'
 const BROWSE_LIMIT = 6
 const VARIABLE_VALUE_LIMIT = 400
 const VARIABLE_NAME_FIELDS = ['name', 'displayName', '姓名', '名字', '名称']
+const PLOT_TITLE = /^\s*(?:\d+[a-z]?[_ .\t-]*)?\[mvu[_ -]plot\]/i
 
 const normalize = value => String(value ?? '').toLocaleLowerCase()
 const wordsOf = query => normalize(query).match(/[\p{L}\p{N}_-]+/gu) || []
@@ -134,9 +135,15 @@ export function createWritingPreparationSources({ tavernSkills, chatForSession, 
         const rows = ((await worldbook)?.view?.entries || []).flatMap(entry => {
           if (entry.enabled === false || isMvuUpdateEntry(entry)) return []
           const classification = classifyWorldbookEntry(entry)
-          if (classification.kind === 'static-constant' && context?.worldbookPrefix?.includes(entry.content)) return []
-          const text = rendered.get(entry.ref) ?? (classification.dynamic ? '' : entry.content)
-          return text?.trim() ? [{ id: entry.ref, title: entry.title || entry.comment, keys: [...(entry.keys || []), ...(entry.secondaryKeys || [])], text }] : []
+          const inPrefix = classification.kind === 'static-constant' && context?.worldbookPrefix?.includes(entry.content)
+          const title = entry.title || entry.comment
+          const repeatOnLookup = inPrefix && PLOT_TITLE.test(title)
+          if (inPrefix && !repeatOnLookup) return []
+          const text = repeatOnLookup ? entry.content : (rendered.get(entry.ref) ?? (classification.dynamic ? '' : entry.content))
+          return text?.trim() ? [{
+            id: entry.ref, title, keys: [...(entry.primaryKeys || entry.keys || []), ...(entry.secondaryKeys || [])], text,
+            ...(repeatOnLookup ? { repeatOnLookup: true } : {})
+          }] : []
         })
         return ranked(rows, query, row => [[row.title, ...row.keys].join(' '), row.text]).map(({ keys, ...row }) => row)
       },
