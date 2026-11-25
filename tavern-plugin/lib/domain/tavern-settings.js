@@ -540,7 +540,7 @@ export function presentTavernSettings(document, defaults) {
     // A failed model request is resent once by default (tavern-retry-limiter); off means
     // the turn ends right there and the reply is only remade when the player asks.
     retryOnFailure: object(document).retryOnFailure !== false,
-    allowCdnFakeIp: object(document).allowCdnFakeIp === true,
+    allowCdnFakeIp: object(document).allowCdnFakeIp !== false,
     // 长按 1 秒发送键直接重新生成正文；默认关闭。
     longPressSendRegenerate: object(document).longPressSendRegenerate === true,
     // Only the latest floors run a card's HTML interface; 0 renders every floor.
