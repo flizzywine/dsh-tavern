@@ -5,6 +5,22 @@
 		// state (蓝 常驻, 绿 非常驻, 灰 禁用). Every change saves itself when it is left (R17): one entry update per change, the book
 		// itself only when an entry is added or deleted; the head says 正在保存… / 已保存.
 		const WORLD_BOOK_SELECTIVE_LOGIC = ["至少一个命中", "不全部命中", "全部不命中", "全部命中"];
+		const WORLD_BOOK_CHANNEL_OPTIONS = [
+			{ value: "auto", label: "自动" },
+			{ value: "prefix", label: "稳定前缀" },
+			{ value: "tail", label: "每轮尾部" }
+		];
+		const WORLD_BOOK_CHANNEL_LABELS = { auto: "自动", prefix: "稳定前缀", tail: "每轮尾部" };
+		const WORLD_BOOK_CHANNEL_INHERIT = "";
+		const WORLD_BOOK_CHANNEL_HINTS = {
+			auto: "自动：常驻且内容不变的进稳定前缀；会变、带模板或随机、或非常驻的进每轮尾部。",
+			prefix: "稳定前缀：固定设定放这里最省 token，改一次才重建一次；含模板或随机的条目仍走每轮尾部。",
+			tail: "每轮尾部：每轮都贴着最新消息出现，注意力最高；不看触发词、不吃冷却，但同样计入 Token 预算。"
+		};
+		function worldBookChannelValue(value) {
+			const text = String(value || "auto");
+			return WORLD_BOOK_CHANNEL_LABELS[text] ? text : "auto";
+		}
 		function worldBookEntryTitle(entry) { return entry.comment || entry.title || "未命名条目"; }
 		// The quiet text after an entry's name: its trigger words, else the start of its text.
 		function worldBookEntryHint(entry) {
@@ -51,10 +67,24 @@
 				return h(InlineRow, { key: key, label: label, help: tip ? help(label, tip) : null }, h(Switch, { label: label, checked: checked, onChange: function (value) { return set({ [key]: value }); } }));
 			};
 			const words = !background && entry.constant !== true;
+			const bookChannel = worldBookChannelValue(props.bookChannel);
+			const entryChannel = worldBookChannelValue(entry.channel);
+			const channelInherited = entry.channelInherited !== false;
 			return h("div", { className: "dsh-wbd-editor" },
 				h(InlineGrid, { label: "条目", columns: 1, className: "dsh-wbd-fields" },
 					h(InlineField, { key: "comment", kind: "text", label: "标题", value: entry.comment || "", onCommit: function (value) { return set({ comment: value, title: value }); } }),
 					h(InlineRow, { key: "lamp", label: "状态" }, h(packUi.LampMenu, { named: true, mode: worldBookEntryLamp(entry), onOff: background, words: WORLD_BOOK_LAMP_WORDS, label: "状态", onChange: props.onLamp })),
+					!background ? h(InlineField, {
+						key: "channel", kind: "menu", label: "注入通道",
+						value: channelInherited ? WORLD_BOOK_CHANNEL_INHERIT : entryChannel,
+						options: [{ value: WORLD_BOOK_CHANNEL_INHERIT, label: "跟随整本（" + WORLD_BOOK_CHANNEL_LABELS[bookChannel] + "）" }].concat(WORLD_BOOK_CHANNEL_OPTIONS),
+						help: help("注入通道", (channelInherited ? "跟随整本默认（" + WORLD_BOOK_CHANNEL_LABELS[bookChannel] + "）。" : "") + WORLD_BOOK_CHANNEL_HINTS[entryChannel]),
+						onCommit: function (value) {
+							return value === WORLD_BOOK_CHANNEL_INHERIT
+								? set({ channel: null, channelInherited: true })
+								: set({ channel: value, channelInherited: false });
+						}
+					}) : null,
 					words ? h(InlineField, { key: "primaryKeys", kind: "chips", label: "触发词", value: entry.primaryKeys || [], help: help("触发词", "对话里出现这些词时提示这个条目。也可以写 /正则/。"), onCommit: function (value) { return set({ primaryKeys: value }); } }) : null,
 					words ? h(InlineField, { key: "secondaryKeys", kind: "chips", label: "二级触发词", hideEmpty: true, value: entry.secondaryKeys || [], onCommit: function (value) { return set({ secondaryKeys: value }); } }) : null),
 				h(WorldBookEntryText, { value: entry.content || "", onCommit: function (value) { return set({ content: value }); } }),
@@ -131,11 +161,42 @@
 			}
 			function patchEntry(ref, patch) {
 				const current = draftRef.current;
-				const next = Object.assign({}, current, { entries: current.entries.map(function (entry) { return entry.ref === ref ? Object.assign({}, entry, patch) : entry; }) });
+				const bookChannel = worldBookChannelValue(current.channel);
+				const localPatch = Object.assign({}, patch);
+				if (Object.prototype.hasOwnProperty.call(patch, "channel")) {
+					if (patch.channel === null || patch.channel === "") {
+						localPatch.channel = bookChannel;
+						localPatch.channelInherited = true;
+					} else {
+						const nextChannel = worldBookChannelValue(patch.channel);
+						localPatch.channel = nextChannel;
+						localPatch.channelInherited = nextChannel === "auto" && bookChannel === "auto";
+					}
+				}
+				const next = Object.assign({}, current, { entries: current.entries.map(function (entry) { return entry.ref === ref ? Object.assign({}, entry, localPatch) : entry; }) });
 				draftRef.current = next; setDraft(next);
 				const sent = Object.assign({}, patch);
 				delete sent.title;
+				delete sent.channelInherited;
 				return persist({ operations: [{ op: "update", ref: ref, patch: sent }] }, next);
+			}
+			// 一次点击把整本默认和全部条目同时改掉，之后仍可在条目里单独覆盖或还原为跟随整本。
+			function applyBookChannel(value) {
+				const current = draftRef.current;
+				const nextChannel = worldBookChannelValue(value);
+				const inherited = nextChannel === "auto";
+				const currentEntries = current.entries || [];
+				const next = Object.assign({}, current, {
+					channel: nextChannel,
+					entries: currentEntries.map(function (entry) {
+						return Object.assign({}, entry, { channel: nextChannel, channelInherited: inherited });
+					})
+				});
+				draftRef.current = next; setDraft(next);
+				return persist({
+					channel: nextChannel,
+					operations: currentEntries.map(function (entry) { return { op: "update", ref: entry.ref, patch: { channel: nextChannel } }; })
+				}, next);
 			}
 			function saveMeta(key, value) {
 				const current = draftRef.current, field = key === "name" ? "displayName" : key;
@@ -169,8 +230,9 @@
 					trigger: function (t) { return h(ui.IconButton, { icon: "more", label: "条目操作", "aria-expanded": t.open, className: "ap-icon-button dsh-card-row-icon", onClick: function (event) { event.stopPropagation(); t.toggle(event); } }); },
 					content: function (close) { return h(ui.MenuItem, { danger: true, onClick: function () { close(); removeEntry(entry); } }, "删除条目…"); } });
 			};
+			const currentBookChannel = worldBookChannelValue(draft.channel);
 			const editor = function (entry) {
-				return h(WorldBookEntryEditor, { key: "editor:" + entry.ref, entry: entry, index: entries.indexOf(entry), format: draft.format,
+				return h(WorldBookEntryEditor, { key: "editor:" + entry.ref, entry: entry, index: entries.indexOf(entry), format: draft.format, bookChannel: currentBookChannel,
 					onPatch: function (patch) { return patchEntry(entry.ref, patch); }, onLamp: function (mode) { return patchEntry(entry.ref, worldBookLampPatch(mode)); } });
 			};
 			// ---- head
@@ -205,10 +267,35 @@
 				error ? h(ui.HintLine, { text: error }) : null,
 				(record.view.diagnostics || []).map(function (item, index) { return h(ui.HintLine, { key: "d" + index, text: item.message }); }));
 			// ---- 设置 and 人物卡
+			const channelGroupKeys = function (event) {
+				if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) return;
+				const buttons = event.currentTarget && event.currentTarget.querySelectorAll ? Array.from(event.currentTarget.querySelectorAll("button")) : [];
+				if (!buttons.length) return;
+				const active = typeof document !== "undefined" ? document.activeElement : null;
+				const at = Math.max(0, buttons.indexOf(active));
+				const next = event.key === "Home" ? 0 : event.key === "End" ? buttons.length - 1
+					: (at + (event.key === "ArrowRight" || event.key === "ArrowDown" ? 1 : buttons.length - 1)) % buttons.length;
+				event.preventDefault();
+				const chosen = WORLD_BOOK_CHANNEL_OPTIONS[next];
+				if (chosen && pending === 0) applyBookChannel(chosen.value);
+				if (buttons[next] && buttons[next].focus) buttons[next].focus();
+			};
 			const settings = h(ui.StageSection, { key: "settings", title: "设置", foldKey: "worldbook-detail:settings" },
 				source.kind === "standalone" ? h(ui.SwitchRow, { icon: "globe", label: "全局生效", checked: props.globalEnabled, disabled: props.busy, onChange: props.onToggleGlobal,
 					help: "所有人物卡都使用这本书。新对话直接生效；已有对话要重新载入人物卡和世界书，这会覆盖对话里对世界书的修改。" }) : null,
 				h(InlineGrid, { label: "设置", columns: 1, className: "dsh-wbd-fields" },
+					h(InlineRow, {
+						key: "channel", label: "注入通道",
+						help: h(HelpTip, { label: "整本注入通道 说明" }, "一键把全部 " + entries.length + " 个条目设为该通道，同时作为整本默认（之后新增的条目自动跟随）；设完还能在条目里单独改成别的通道。当前默认：" + WORLD_BOOK_CHANNEL_LABELS[currentBookChannel] + "。固定设定用稳定前缀，随时会切换、需要更高注意力的用每轮尾部。")
+					}, h("div", { className: "ap-segmented dsh-wbd-channel-seg", role: "group", "aria-label": "整本注入通道", onKeyDown: channelGroupKeys },
+						WORLD_BOOK_CHANNEL_OPTIONS.map(function (option) {
+							return h("button", {
+								key: option.value, type: "button", className: "dsh-wbd-channel-opt",
+								"aria-pressed": currentBookChannel === option.value,
+								disabled: pending > 0 || undefined,
+								onClick: function () { applyBookChannel(option.value); }
+							}, option.label);
+						}))),
 					h(InlineField, { key: "description", kind: "text", multiline: true, lines: true, wide: true, hideEmpty: true, label: "说明", value: draft.description || "",
 						onCommit: function (value) { return saveMeta("description", value); } })));
 			const relations = props.associations;

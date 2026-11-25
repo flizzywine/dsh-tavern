@@ -6251,6 +6251,7 @@ body .ap-ui.dsh-card-detail button.dsh-tavern-card-tagline { display: inline-blo
 .dsh-wbd-detail .ap-section-head h3 { font-size: var(--fork-fs-heading); }
 .dsh-wbd-fields > .fork-inline-field { --fork-inline-label-w: 6em; }
 .dsh-wbd-fields[data-columns="2"] > .fork-inline-field { --fork-inline-label-w: 7em; }
+.dsh-wbd-channel-seg { max-width: 100%; flex-wrap: wrap; }
 /* 人物卡: one row per bound card, × unbinds; the dashed ＋ under them binds another. */
 .dsh-wbd-cards { margin: 0; padding: 0; list-style: none; }
 .dsh-wbd-card { display: flex; align-items: center; gap: 8px; min-height: 36px; padding: 0 0 0 4px; border-radius: var(--fork-radius); }

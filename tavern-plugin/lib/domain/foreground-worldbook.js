@@ -137,6 +137,10 @@ async function projectMandatoryWorldbook({ worldBook, sourceEntries, chat, card,
   const visibleRefs = new Set((worldBook?.view?.entries || []).filter(entry => entry.enabled !== false).map(entry => entry.ref))
   virtualState.visibility = { version: virtualHash(sourceEntries), refs: [...visibleRefs] }
   const dynamicEntries = (worldBook?.view?.entries || []).filter(entry => classify(entry).dynamic)
+  const activePoolEntries = (worldBook?.view?.entries || []).filter(entry => {
+    const type = classify(entry)
+    return type.dynamic || type.kind === 'static-tail'
+  })
   const dynamicRefs = new Set(dynamicEntries.map(entry => entry.ref))
   // Old saves can still have a runtime snapshot for an entry now in the fixed
   // prefix. Remove it before the recovery hook can append it again.
@@ -158,7 +162,7 @@ async function projectMandatoryWorldbook({ worldBook, sourceEntries, chat, card,
   for (let pass = 0; pass < 16; pass++) {
     let randomIndex = 0
     const random = () => { const index = randomIndex++; return selectionRandom[index] ?? (selectionRandom[index] = selectionStream()) }
-    const dynamicBook = { ...worldBook, view: { ...worldBook?.view, entries: dynamicEntries } }
+    const dynamicBook = { ...worldBook, view: { ...worldBook?.view, entries: activePoolEntries } }
     const recalled = prepareWorldBookRecall({ worldBook: dynamicBook, chat: { ...chat, worldBookReads: {} }, card, turn, userText, userTextInHistory, scanText, activationRequests, random })
     const forced = new Set(activationRequests.filter(request => request.force).map(request => request.ref))
     const activated = new Set((recalled.entries || []).map(entry => entry.ref))
@@ -196,20 +200,44 @@ async function projectMandatoryWorldbook({ worldBook, sourceEntries, chat, card,
         if (contextText && previous?.renderHash !== renderHash) changed.push({ ...output, ref: entry.ref, text: contextText, renderHash })
       }
       const hasProjectedHelperVariables = entry => virtualState.entries[entry.ref]?.projection?.helperVariableMacros === true
-      const variableConstantRefs = promptOrder(selectedEntries.filter(entry => entry.constant === true
+      const variableConstantRefs = promptOrder(selectedEntries.filter(entry =>
+        (entry.constant === true || classify(entry).channel !== 'auto')
         && (hasTavernHelperVariableMacro(entry.content) || hasProjectedHelperVariables(entry)))).map(entry => entry.ref)
-      const refs = changed.filter(output => !original.get(output.ref)?.constant).map(output => output.ref)
+      const changedByRef = new Map(changed.map(output => [output.ref, output]))
+      const tailOutputs = []
+      const tailRefs = new Set()
+      // 显式钉在 tail 通道的已激活条目每轮都贴近最新消息注入，不因静态或内容未变化而省略。
+      for (const entry of promptOrder(selectedEntries)) {
+        const type = classify(entry)
+        if (type.channel !== 'tail') continue
+        const sourceEntry = original.get(entry.ref) || entry
+        const text = type.dynamic
+          ? (changedByRef.get(entry.ref)?.text ?? virtualState.entries[entry.ref]?.contextText ?? virtualState.entries[entry.ref]?.text ?? '')
+          : String(sourceEntry.content ?? '').trim()
+        if (!text) continue
+        tailRefs.add(entry.ref)
+        const changedEntry = changedByRef.get(entry.ref)
+        tailOutputs.push({ ref: entry.ref, text, location: 'foreground', ...(changedEntry?.renderHash ? { renderHash: changedEntry.renderHash } : {}) })
+      }
+      const refs = [...new Set([
+        ...changed.filter(output => !original.get(output.ref)?.constant).map(output => output.ref),
+        ...tailOutputs.filter(output => !original.get(output.ref)?.constant).map(output => output.ref)
+      ])]
       const titleHints = worldbookTitleHints({ worldBook: { ...worldBook, view: { ...worldBook?.view, entries: (worldBook?.view?.entries || []).filter(entry => classify(entry).kind === 'static-skill') } }, chat, turn, userText, userTextInHistory, scanText, recentlyReadRefs, random: entryRandom(virtualHash([executionSeed, requestKey]), 'title-hints') })
-      const runtimeChanged = changed.filter(output => isWorldbookRuntimeEntry(original.get(output.ref) || {}) || hasProjectedHelperVariables(output))
+      const runtimeChanged = changed.filter(output => !tailRefs.has(output.ref) && (isWorldbookRuntimeEntry(original.get(output.ref) || {}) || hasProjectedHelperVariables(output)))
+      const deliveredOutputs = [...runtimeChanged, ...tailOutputs]
+      const renderedMap = new Map(changed.map(output => [output.ref, output]))
+      for (const output of tailOutputs) if (!renderedMap.has(output.ref)) renderedMap.set(output.ref, output)
+      const renderedEntries = [...renderedMap.values()]
       // File-version notifications are emitted once by the shared pre-step hook,
       // for both foreground and background agents; do not duplicate them here.
-      const context = runtimeChanged.map(output => output.text).join('\n\n')
-      return { ...projected, context, foregroundContext: context, titleHints, prefixContext: staticPrefix, staticPrefix, virtualState, variableConstantRefs, changedVirtualRefs: changed.filter(output => classify(original.get(output.ref) || {}).dynamic).map(output => output.ref), renderedEntries: changed, refs, reads: { ...chat.worldBookReads },
+      const context = deliveredOutputs.map(output => output.text).join('\n\n')
+      return { ...projected, context, foregroundContext: context, titleHints, prefixContext: staticPrefix, staticPrefix, virtualState, variableConstantRefs, changedVirtualRefs: changed.filter(output => classify(original.get(output.ref) || {}).dynamic).map(output => output.ref), renderedEntries, refs, reads: { ...chat.worldBookReads },
         randomState: { ...randomState, seed: executionSeed, outputs: { ...randomState.outputs, ...Object.fromEntries(projected.renderedEntries
           .filter(output => hasWorldbookRandom(original.get(output.ref)?.content)).map(output => [output.ref, output.text])) } },
         activation: { schemaVersion: 2, turn, refs, diagnostics: [], mode: 'native-skills' },
         log: { strategy: 'native-skills', entries: selectedEntries.map(entry => ({ ref: entry.ref, title: entry.title, reason: classify(entry).kind })),
-          outputs: changed, counts: { changed: changed.length, static: staticEntries.length }, activationRequests, templateDiagnostics: projected.diagnostics }, error: null }
+          outputs: deliveredOutputs, counts: { changed: changed.length, static: staticEntries.length }, activationRequests, templateDiagnostics: projected.diagnostics }, error: null }
     }
     activationRequests = next
   }

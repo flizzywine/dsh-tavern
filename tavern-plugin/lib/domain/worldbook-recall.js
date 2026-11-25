@@ -1,6 +1,7 @@
 import { isScopedMessages } from './scoped-messages.js'
-import { worldbookPlacement } from './worldbook-placement.js'
-import { entryRandom, renderWorldbookRandom } from './worldbook-random.js'
+import { worldBookChannel } from './worldbook-channel.js'
+import { hasWorldbookStateReads, worldbookPlacement } from './worldbook-placement.js'
+import { entryRandom, hasWorldbookRandom, renderWorldbookRandom } from './worldbook-random.js'
 import { projectAgentContent } from './runtime-content-projection.js'
 import { hasTavernHelperVariableMacro, renderTavernHelperVariableMacros } from './tavern-helper-variable-macros.js'
 import { tavernPromptMessageVariables } from './tavern-helper-context.js'
@@ -139,10 +140,13 @@ function readRecorder(entries, turn) {
   }
 }
 
-/** Snapshot constant entries for the card context. Request projection places dynamic bodies separately. */
+/** 截取应进入稳定前缀的静态条目正文；含模板、宏或标为 tail 的条目不进稳定前缀。 */
 export function constantWorldBookContext(input = {}) {
   const entries = promptOrder(enabledEntries(input.worldBook).filter(function (entry) {
-    return entry.constant === true && !isMvuUpdateEntry(entry) && !isWorldBookTemplateEntry(entry) && !hasTavernHelperVariableMacro(entry.content)
+    if (isMvuUpdateEntry(entry) || isWorldBookTemplateEntry(entry) || hasTavernHelperVariableMacro(entry.content) || hasWorldbookRandom(entry.content) || hasWorldbookStateReads(entry.content)) return false
+    const channel = worldBookChannel(entry)
+    if (channel === 'tail') return false
+    return channel === 'prefix' || entry.constant === true
   }))
   return {
     context: entries.map(function (entry) { return str(entry.content).trim() }).filter(Boolean).join('\n\n'),
@@ -310,7 +314,7 @@ export function prepareWorldBookRecall(input = {}) {
   }
   const totalChars = all.reduce(function (total, entry) { return total + charCount(entry.content) }, 0)
   const activation = activateWorldBook({ ...input, entries: all, isCoolingDown: entry => isCoolingDown(input.chat, entry, input.turn) })
-  const selected = promptOrder(activation.entries.filter(entry => entry.constant !== true))
+  const selected = promptOrder(activation.entries.filter(entry => worldBookChannel(entry) === 'tail' || (entry.constant !== true && worldBookChannel(entry) !== 'prefix')))
   return {
     kind: 'keywords',
     entries: activation.entries,
