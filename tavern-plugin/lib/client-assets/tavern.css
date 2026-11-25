@@ -5157,3 +5157,59 @@ body .ap-ui.dsh-card-detail button.dsh-tavern-card-tagline { display: inline-blo
   .dsh-card-hero { grid-template-columns: 104px minmax(0, 1fr); gap: 14px; }
   .dsh-card-fold-row, .ap-ui.dsh-card-detail button.dsh-card-fold-head { min-height: 40px; }
 }
+
+/* ==== world book detail (世界书库 › one book) ====
+   The card detail page's language (.ap-ui, no boxes, R2): ‹ name ✎ … 正在保存 ⋯ over a quiet 「独立世界书 · N 条」 line, then
+   StageSection headings. 条目: the search row sticks to the top while the list scrolls; rows are lamp · name · hint. */
+.dsh-wbd-detail-scroll { flex: 1 1 auto; }
+.ap-ui.dsh-wbd-detail { max-width: 1080px; padding: 0 16px 32px; outline: none; }
+.dsh-wbd-head { display: flex; flex-direction: column; gap: 0; padding: 8px 0 4px; }
+.dsh-wbd-detail .dsh-card-title-row .ap-icon-button.dsh-card-more { margin-left: 0; }
+.dsh-wbd-detail .ap-save-state.dsh-wbd-save { position: static; min-height: 0; margin-left: auto; padding: 0 6px; white-space: nowrap; }
+.dsh-wbd-detail .dsh-card-title-row > .dsh-card-name { flex: 0 1 auto; }
+.dsh-wbd-detail .dsh-card-title-row > .dsh-wbd-more { margin-left: auto; }
+.dsh-wbd-detail .dsh-card-title-row > .ap-save-state + .dsh-wbd-more { margin-left: 0; }
+.dsh-wbd-name-edit { flex: 1 1 auto; min-width: 0; font-size: var(--fork-fs-title); font-weight: 600; }
+.dsh-wbd-name-edit > .fork-inline-field { --fork-inline-label-w: 0px; }
+.dsh-wbd-sub { margin: 0 0 4px 32px; color: var(--fork-ink-3); font-size: var(--fork-fs-meta); }
+.dsh-wbd-detail > .ap-section { padding-top: 14px; }
+.dsh-wbd-detail .ap-section-head h3 { font-size: var(--fork-fs-heading); }
+.dsh-wbd-fields > .fork-inline-field { --fork-inline-label-w: 6em; }
+.dsh-wbd-fields[data-columns="2"] > .fork-inline-field { --fork-inline-label-w: 7em; }
+/* 人物卡: one row per bound card, × unbinds; the dashed ＋ under them binds another. */
+.dsh-wbd-cards { margin: 0; padding: 0; list-style: none; }
+.dsh-wbd-card { display: flex; align-items: center; gap: 8px; min-height: 36px; padding: 0 0 0 4px; border-radius: var(--fork-radius); }
+.dsh-wbd-card:hover { background: var(--fork-hover); }
+.dsh-wbd-card > .ap-glyph { flex: none; width: 14px; height: 14px; color: var(--fork-ink-3); }
+.dsh-wbd-card-name { flex: 1 1 auto; min-width: 0; overflow: hidden; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.ap-ui.dsh-wbd-detail button.dsh-tavern-worldbook-add-row { width: 100%; height: 34px; min-height: 0; margin-top: 6px; border: 1px dashed var(--ap-border-strong); border-radius: var(--fork-radius); color: var(--fork-ink-3); }
+/* 条目: search · filter · ＋ on one row that stays in view. */
+.dsh-wbd-tools { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 2px; margin: 0 0 4px; padding: 6px 0; background: var(--fork-surface); }
+.dsh-wbd-tools > .ap-search { flex: 1 1 auto; min-width: 0; }
+.dsh-wbd-group.ap-section { padding-top: 6px; }
+.dsh-wbd-entries { margin: 0; padding: 0; list-style: none; }
+.dsh-wbd-entry-row { display: flex; align-items: center; gap: 6px; min-height: 36px; padding: 0 4px 0 6px; border-radius: var(--fork-radius); cursor: pointer; }
+.dsh-wbd-entry-row:hover { background: var(--fork-hover); }
+.dsh-wbd-entry[aria-selected=true] > .dsh-wbd-entry-row { background: var(--fork-accent-soft); }
+.dsh-wbd-entry[aria-selected=true] .dsh-wbd-entry-name { color: var(--fork-accent); }
+.dsh-wbd-entry[data-off] .dsh-wbd-entry-main { opacity: .55; }
+.ap-ui button.dsh-wbd-entry-main { display: flex; flex: 1 1 auto; align-items: center; gap: 10px; min-width: 0; min-height: 32px; overflow: hidden; padding: 0 0 0 6px; border: 0; background: none; color: var(--fork-ink); font-size: var(--fork-fs-body); text-align: left; }
+.ap-ui button.dsh-wbd-entry-main:hover:not(:disabled) { background: none; }
+.dsh-wbd-entry-name { flex: 0 1 auto; min-width: 2em; max-width: 75%; overflow: hidden; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.dsh-wbd-entry-hint { flex: 1 1 0; min-width: 0; overflow: hidden; color: var(--fork-ink-3); font-size: var(--fork-fs-meta); text-overflow: ellipsis; white-space: nowrap; }
+.dsh-wbd-entry[data-open] { margin: 2px 0 10px; }
+.dsh-wbd-editor { min-width: 0; }
+.dsh-wbd-entry > .dsh-wbd-editor { padding: 6px 8px 8px 26px; border-left: 2px solid var(--fork-hairline); margin-left: 13px; }
+.dsh-wbd-editor > .ap-section { padding-top: 8px; }
+/* 内容 reads as prose (like the card page's texts); ✎ or a double click turns it into the field. */
+.dsh-wbd-text { min-width: 0; }
+.dsh-wbd-text-head { display: flex; align-items: center; gap: 2px; min-height: 32px; color: var(--fork-ink-2); }
+.dsh-wbd-text-body { padding: 2px 0 8px; color: var(--fork-ink); font-size: var(--fork-fs-body); line-height: 1.75; white-space: pre-wrap; overflow-wrap: anywhere; cursor: text; }
+.dsh-wbd-text-body:empty::before { content: attr(data-empty); color: var(--fork-ink-3); }
+.dsh-wbd-text > .fork-inline-field { --fork-inline-label-w: 0px; }
+@container (max-width: 560px) {
+  .ap-ui.dsh-wbd-detail { padding: 0 12px 24px; }
+  .dsh-wbd-entry-row { min-height: 40px; }
+  .dsh-wbd-entry > .dsh-wbd-editor { padding-left: 14px; margin-left: 8px; }
+  .dsh-wbd-fields > .fork-inline-field, .dsh-wbd-fields[data-columns="2"] > .fork-inline-field { --fork-inline-label-w: 5.5em; }
+}
