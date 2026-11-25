@@ -1,10 +1,11 @@
 import figureScale from '../../../dsh-presentation-protocol/src/figure-scale.cjs'
+import {stageLocator} from './stage-relocate.js'
 import {figureHeadReference} from '../../../dsh-asset-library/lib/asset-packs/figure.js'
 import { analyzeVariableSchema } from '../../../../lib/domain/variable-bindings/index.js'
 import { widgetVariableProjection } from '../../../../lib/domain/widget-variable-provider.js'
 import { activeWidgetKeys, widgetIsActive } from '../../../../lib/domain/widget-availability.js'
 // Inactive P4 consumer. P6 supplies authorized services and mounts its projections.
-import {figureCatalogue, figureRefKey, resolution} from '../../../../lib/domain/figure-catalogue.js'
+import {figureActorKey, figureCatalogue, figureRefKey, resolution} from '../../../../lib/domain/figure-catalogue.js'
 import skinContract from '../../../dsh-presentation-protocol/src/stage-skin.cjs'
 import performanceContract from '../../../dsh-presentation-protocol/src/performance-contract.cjs'
 import { effectiveCardStage, activeStageSkin, cardStageSkin, cardStageSkinPackIds } from '../../../../lib/domain/card-stage-settings.js'
@@ -18,6 +19,7 @@ import { assetPackBackgroundVariant } from '../../../dsh-presentation-protocol/s
 import {assetContent} from '../../../dsh-presentation-protocol/src/asset-variant-content.js'
 import {selectAssetVariant} from '../../../dsh-presentation-protocol/src/asset-variants.js'
 import {cgPlaybackAvailable} from '../scene-cg.js'
+import {projectStageVideo} from './stage-video.js'
 import {stageTimeLook} from '../../../dsh-presentation-protocol/src/stage-time.js'
 import { triggerEvidence, normalizeCatalogueText, codepointCompare } from '../../../../lib/domain/asset-pack-lexical.js'
 import spriteEmotions from '../../../../shared/sprite-emotions.cjs'
@@ -93,6 +95,20 @@ export function selectPackFigure(figure, sprites, {outfitKey, emotion, imageSele
 // else the outfit's, else any of its other states' (one outfit's pictures share the canvas and the pose). The stage looks
 // for the head's centre only there, so a hammer head or a scythe blade beside the head at the same height is not taken
 // for it (scene-math galCentredAnatomy). null when nothing in the outfit was framed.
+// 动态立绘: the shown still's looping videos, {outfit: its outfit key, image: its image id, source: the idle loop's 视频 projection, talk: the talking
+// loop's or null, rect, into: {image id: {source, rect}} the transitions from it into the outfit's other images}, or null -
+// the still alone - when the image has none, its idle entry is off or gone, or it is no figure video (alpha 'right'); a
+// talking loop or a transition off or gone leaves speech to the still's mouths, the change to a crossfade. Decided once
+// here; the stage only plays them.
+export function packFigureVideo(pack, selection) {
+  const authored = selection.form === 'sprite' ? selection.outfit?.sprite?.videos?.[selection.state?.id] : null
+  const figureVideo = id => { const source = id ? projectStageVideo(pack, id) : null; return source?.alpha === 'right' ? source : null }
+  const source = authored ? figureVideo(authored.video) : null
+  if (!source) return null
+  const into = Object.fromEntries(Object.entries(authored.into || {}).map(([image, edge]) => [image, figureVideo(edge.video)])
+    .filter(([, video]) => video).map(([image, video]) => [image, {source:video, rect:[...authored.into[image].rect]}]))
+  return {outfit:selection.outfit.key, image:selection.state.id, source, talk:figureVideo(authored.talk), rect:[...authored.rect], into}
+}
 function packFaceSpan(outfit, stateId) {
   const crop = packSpriteCrop(outfit, stateId) || Object.values(outfit.sprite?.avatarCrop || {})[0] || Object.values(outfit.sprite?.avatarCropAuto || {})[0]
   return crop ? [crop.x, crop.x + crop.w] : null
@@ -220,6 +236,11 @@ export function createAssetPackPresentation({raw, getEngine, getService, getAllo
         return (await batch).get(key(ref))
       })))
     },
+    // where the card's items are now, in the order its packs are used (stage-relocate.js)
+    async locator() {
+      const allowed = getAllowedPackIds?.() || extension.assetBindings.boundPackIds
+      return stageLocator(allowed, await Promise.all(allowed.map(id => snapshot(id).catch(() => null))), figureActorKey)
+    },
     async figureRows(roster = {}) {
       const allowed = getAllowedPackIds?.() || extension.assetBindings.boundPackIds
       const packs = await Promise.all(allowed.map(snapshot))
@@ -283,7 +304,7 @@ export function createAssetPackPresentation({raw, getEngine, getService, getAllo
         const signature = JSON.stringify([alias,ref,resolved.revision,actor?.outfitKey,actor?.stateId,actor?.imageSelection,emotion,resolved.value.appearance,historical,live2d,spine])
         if (!projections.has(signature)) {
           const selection = selectPackFigure(resolved.value, pack.sprites, {outfitKey:actor?.outfitKey, emotion:actor?.stateId || emotion, imageSelection:actor?.imageSelection || (historical ? {} : undefined), appearance:resolved.value.appearance, live2d, spine})
-          projections.set(signature, freeze({alias, ref:clone(ref), revision:resolved.revision, ...selection,
+          projections.set(signature, freeze({alias, ref:clone(ref), revision:resolved.revision, ...selection, video:packFigureVideo(pack, selection),
             contentHash:['live2d','spine'].includes(selection.form) ? pack.manifest.bundles[selection.outfit[selection.form].bundleKey].contentHash : null,
             geometry:{stage:packGeometryKey(selection,pack,'stage'), portrait:packGeometryKey(selection,pack,'portrait')}}))
           while (projections.size > 256) projections.delete(projections.keys().next().value)

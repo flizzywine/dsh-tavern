@@ -13,7 +13,7 @@ import widgetContract from '../shared/widget-schema.cjs'
 import {validatePerformancePack, validatePerformanceKeyframeBundle} from './performance-bundle.js'
 import {decodeSkinSvgs} from './skin-svg.js'
 const {validateStageSkin, stageSkinFiles} = skinContract
-import { imageKind, audioKind, imageDimensions, pngSize, wavInfo, MEDIA_PURPOSE_LIMITS, STAGE_IMAGE_MAX_BYTES } from './media.js'
+import { imageKind, audioKind, imageDimensions, pngSize, wavInfo, wavFileInfo, MEDIA_PURPOSE_LIMITS, STAGE_IMAGE_MAX_BYTES } from './media.js'
 import { modelReferences } from './model.js'
 import { BLOB_MIME_TYPES, FIGURE_IMAGE_EXTENSION, figureImageReferenceMedia, validatePackIdentities, validateFigureClosure, verifyPackHashes, verifyPackFiles, computeContentHash, computeBundleHash, canonicalJson, parseJson, sha256 } from '../asset-packs/index.js'
 import { check, relativePath, compareCodePoints, SpooledFile } from '../asset-packs/common.js'
@@ -49,6 +49,14 @@ export function budget(files, limits) {
 }
 // The installed plugin supplies a trusted structural validator for compressed codecs.
 export async function inspectMedia(input, descriptor, decodeMedia, {settei = false} = {}) {
+  if (input instanceof SpooledFile) {
+    if (descriptor.ext === 'wav') {
+      check(descriptor.mime === BLOB_MIME_TYPES.wav && descriptor.size === input.length, '$.blobs', 'Media signature/ext/MIME mismatch')
+      check(input.length <= MEDIA_PURPOSE_LIMITS.audio, '$.media', 'Media byte limit', 'LIMIT_EXCEEDED')
+      return wavFileInfo(input.file, input.length)
+    }
+    input = await spooledBytes(input)
+  }
   const bytes = Buffer.from(input), ext = imageKind(bytes) || audioKind(bytes)
   check(ext && descriptor.ext === ext && descriptor.mime === BLOB_MIME_TYPES[ext] && descriptor.size === bytes.length, '$.blobs', 'Media signature/ext/MIME mismatch')
   const image = descriptor.mime.startsWith('image/')
@@ -57,7 +65,7 @@ export async function inspectMedia(input, descriptor, decodeMedia, {settei = fal
   if (dimensions) check(dimensions.every(n => Number.isInteger(n) && n > 0 && n <= 8192) && dimensions[0] * dimensions[1] <= 32 * 1024 ** 2, '$.media', 'Image dimensions exceed limit', 'LIMIT_EXCEEDED')
   let decoded
   if (ext === 'png' && !(bytes[28] === 1 && decodeMedia)) decoded = pngSize(bytes)
-  else if (ext === 'wav') decoded = wavInfo(bytes)
+  else if (ext === 'wav') decoded = await wavInfo(bytes)
   else {
     check(typeof decodeMedia === 'function', '$.media', 'A trusted media validator is required for ' + ext, 'ASSET_UNAVAILABLE')
     decoded = await decodeMedia(bytes, {...descriptor})
@@ -160,7 +168,8 @@ export async function verifyBytes(manifest, files, {limits = PACK_LIMITS, decode
     const name = `media/${hash}.${descriptor.ext}`, bytes = files.get(name)
     if(stageMedia.has(hash)&&descriptor.mime.startsWith('image/'))check(bytes.length<=STAGE_IMAGE_MAX_BYTES,name,'Stage media byte limit','LIMIT_EXCEEDED')
     if (!unchanged(name) || !previous.manifest.blobs[hash] || canonicalJson(previous.manifest.blobs[hash]) !== canonicalJson(descriptor)) {
-      images.set(hash, await inspectMedia(await materialize(name), descriptor, decodeMedia, {settei:boards.has(hash)&&!stageMedia.has(hash)}))
+      const input = bytes instanceof SpooledFile ? bytes : await materialize(name)
+      images.set(hash, await inspectMedia(input, descriptor, decodeMedia, {settei:boards.has(hash)&&!stageMedia.has(hash)}))
     }
   }
   for (const [name, bytes] of files) if (name.startsWith('credits/')) {

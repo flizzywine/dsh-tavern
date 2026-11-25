@@ -23,6 +23,26 @@ function accept(h, envelope = direction(1, 6), value = groups()) {
 function events(at, ...kinds) {
   return {at, ordinal: at - 1, events: kinds.map((kind, ordinal) => ({kind, ordinal, identity: 'same-media'}))}
 }
+
+test('a cold voice service plays only the currently visible opening line once it becomes available', () => {
+  for (const target of [0, 1]) {
+    const h = createStageRuntimeHarness()
+    const s = source({turn: 1})
+    h.dispatch({type: 'STAGE_OPEN', opened: false})
+    h.dispatch({type: 'TURN_CHANGED', source: s, text: text(1, pages(2).map(p => ({...p, voice: {identity: 'voice:' + p.anchor.para}})))})
+    h.dispatch({type: 'STAGE_OPEN', opened: true, voiceAvailable: false})
+    if (target) h.dispatch({type: 'PAGE', index: target})
+    assert.equal(h.effects('prepare-one-shot').length, 0)
+
+    h.dispatch({type: 'STAGE_VOICE_AVAILABLE', available: true})
+    const voice = h.last('prepare-one-shot')
+    assert.equal(voice.token.anchor.para, target + 1)
+    h.readyOneShot(voice.token)
+    h.dispatch({type: 'STAGE_VOICE_AVAILABLE', available: true})
+    assert.equal(h.effects('play-one-shot').length, 1)
+  }
+})
+
 test('late prefixes fold only to min(cursor, through); cursor, read progress and voice stay put', () => {
   const h = createStageRuntimeHarness(), s = start(h)
   h.dispatch({type: 'TEXT_APPEND', source: s, text: text(2, pages().map(p => ({...p, voice: {identity: 'voice:' + p.anchor.para}})))})

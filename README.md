@@ -134,8 +134,6 @@
 
 ## 快速开始
 
-已安装桌面酒馆的用户可以继续使用现有启动器。切换到 npm 版时，在原版 `desktop` Profile 的插件页移除旧启动器，再添加 npm 包。同一 `DSH_HOME` 下，酒馆继续使用已有的 `tavern` Profile 和 `$DSH_HOME/profile-data/tavern/data` 数据目录。
-
 ### 桌面版（Windows / macOS）
 
 先安装官方 [DeepSeek Harness](https://deepseek.com/harness/)，打开并完成初始设置。推荐使用 **0.2.2-rc.1 或更新的 0.2.x** DSH 内核。然后在下方 **任选一种** 安装方式。
@@ -257,14 +255,9 @@ macOS / Linux：
 curl -fsSL 'https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@runtime-archive-main/install.sh' -o /tmp/dsh-tavern-install.sh && DSH_TAVERN_HOST=cli sh /tmp/dsh-tavern-install.sh
 ```
 
-装好后用 `dsh-tavern start` 启动，按显示的地址在浏览器打开；`dsh-tavern stop` / `status` / `update` 停止、查看、更新。用 `dsh-tavern --help` 查看全部命令，`dsh-tavern help install` 查看安装宿主说明。
+装好后用 `dsh-tavern start` 启动，按显示的地址在浏览器打开。更新时打开 **设置 → 酒馆启动器 → 酒馆版本与更新**，点 **检查更新**，发现新版后点 **更新酒馆**。安装完成后酒馆服务会自动重启，刷新页面即可加载新版。也可以在终端运行 `dsh-tavern update`。
 
-需要 shell 补全时运行 `dsh-tavern completion bash`（zsh/fish/powershell 同理），按输出注释启用；`dsh-tavern man` 输出 man 手册，可用 `dsh-tavern man > dsh-tavern.1` 保存，再用 `man ./dsh-tavern.1` 查看。
-
-局域网 / VPN 绑定与安全要求见[命令行远程访问文档](https://github.com/flizzywine/dsh-tavern/wiki/命令行版：局域网与VPN访问)。
-
-如果本机启用了 TUN Fake-IP，且人物卡的静态资源被拦截，可在 DSH 服务的环境中设置 `DSH_TAVERN_ALLOW_CDN_FAKE_IP=1` 后重启。收到 Fake-IP 时，酒馆通过 Cloudflare 的公共 DNS 查询 HTTPS 资源域名，再连接验证过的公网地址。
-也可在酒馆数据目录的 `tavern-settings.json` 中保存 `"allowCdnFakeIp": true`。显式保存的布尔值优先于环境变量。
+用 `dsh-tavern stop` / `status` 停止服务或查看运行状态。用 `dsh-tavern --help` 查看全部命令，`dsh-tavern help install` 查看安装宿主说明。
 
 ### 手机远程访问
 

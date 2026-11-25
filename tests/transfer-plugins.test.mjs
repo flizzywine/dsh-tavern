@@ -81,3 +81,28 @@ test('importOne 同一个包再来一次：复用已有目录，不再造 (2)', 
   const changed = await transfer.importOne({ key: 'gamma', title: 'Gamma 插件', content: pluginZip([['index.mjs', 'export default 2\n']]) })
   assert.equal(changed.folder, 'gamma (2)')
 })
+
+test('内置插件不进导出列表，导入包里的内置插件跳过、不落副本', async t => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'transfer-plugins-builtin-'))
+  t.after(async () => { await rm(root, { recursive: true, force: true }) })
+  const pluginsDir = path.join(root, 'plugins')
+  await writeTree(path.join(pluginsDir, 'alpha'), ALPHA_FILES)
+  await writeTree(path.join(pluginsDir, 'dsh-tavern-plot-compass'), { 'package.json': JSON.stringify({ name: 'dsh-tavern-plot-compass', version: '1.0.0' }) })
+  const transfer = createTransferPlugins({ pluginsDir, listPlugins: async () => [
+    { folder: 'alpha', name: 'alpha-plugin', version: '1.2.0', source: { kind: 'zip' } },
+    { folder: 'dsh-tavern-plot-compass', name: 'dsh-tavern-plot-compass', version: '1.0.0', source: { kind: 'builtin', bundled: true } }
+  ] })
+  assert.deepEqual((await transfer.list()).map(row => row.key), ['alpha'])
+
+  // 旧版导出的包里带着内置插件（内容和本机已装的不同，以前会落成「名字 (2)」）。
+  const builtinZip = pluginZip([
+    ['package.json', JSON.stringify({ name: 'dsh-tavern-plot-compass', version: '0.9.0' })],
+    ['.tavern-source.json', JSON.stringify({ kind: 'builtin', bundled: true })],
+    ['index.mjs', 'export default {}\n']
+  ])
+  const imported = await transfer.importOne({ key: 'dsh-tavern-plot-compass', title: 'dsh-tavern-plot-compass', content: builtinZip })
+  assert.equal(imported.reused, true)
+  const imageZip = pluginZip([['package.json', JSON.stringify({ name: 'dsh-tavern-image', version: '3.4.0' })]])
+  assert.equal((await transfer.importOne({ key: 'dsh-tavern-image', title: 'dsh-tavern-image', content: imageZip })).reused, true)
+  assert.deepEqual((await readdir(pluginsDir)).sort(), ['alpha', 'dsh-tavern-plot-compass'])
+})

@@ -47,6 +47,7 @@ test("a plugin's own ZIP, as its author publishes it, updates that plugin on the
     { path: 'card-game-plugin-1.1.0/main.js', data: Buffer.from('export const version = 2') }
   ])
   const preview = await f.service.preview({ cardPath, file })
+  const originalFolder = (await fs.readdir(f.pluginsDir)).find(folder => !folder.startsWith('.'))
   assert.equal(preview.pluginName, name)
   assert.deepEqual([preview.before.version, preview.after.version], ['1.0.0', '1.1.0'])
   assert.deepEqual(preview.changes.map(change => change.path + ' ' + change.kind).sort(), ['main.js modified', 'package.json modified'])
@@ -57,5 +58,7 @@ test("a plugin's own ZIP, as its author publishes it, updates that plugin on the
   assert.equal(binding.enabled, true)
   assert.equal(binding.purpose, 'mini game', 'the card keeps what it says the plugin is for')
   const installed = (await fs.readdir(f.pluginsDir)).filter(folder => !folder.startsWith('.'))
+  assert.notEqual(installed[0], originalFolder, 'A new digest gets a fresh module path including relative dependencies')
+  assert.ok(installed[0].endsWith(binding.sha256.slice(0, 12)))
   assert.deepEqual(await Promise.all(installed.map(folder => fs.readFile(path.join(f.pluginsDir, folder, 'main.js'), 'utf8'))), ['export const version = 2'])
 })

@@ -9,7 +9,7 @@ const materials = { gameId: 'game', target: { kind: 'generate', operationId: 'op
 
 test('public materials expose prepared state and separate context, not transaction internals', () => {
   const dto = publicBodyMaterials(materials)
-  assert.deepEqual(dto.state, { variables: { hp: 2 }, messageVariables: { n: 3 }, status: '状态' })
+  assert.deepEqual(dto.state, { variables: { hp: 2 }, messageVariables: { n: 3 }, status: '' })
   assert.equal(dto.reason, 'normal')
   assert.deepEqual(dto.input, { raw: 'input', text: 'processed input' })
   assert.deepEqual(dto.context.map(item => item.kind), ['character', 'worldbook'])

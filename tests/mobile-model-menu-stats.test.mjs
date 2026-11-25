@@ -168,4 +168,87 @@ test('移动端模型菜单末行以缩小字号展示运行统计，隐藏底�
   await page.evaluate(() => document.documentElement.classList.remove('dsh-tavern-viewport-pinned', 'dsh-tavern-coarse-play'))
   assert.equal(await statsRow.isVisible(), false, '桌面视口隐藏菜单末行移动统计')
   assert.equal(await page.locator('[data-composer-dock]').isVisible(), true, '桌面视口保留底部原生状态栏')
+  assert.equal(await page.locator('._7KE1Ra_trigger').getAttribute('data-dsh-tavern-ctx-trigger'), null, '桌面端清除方案 C 触发器属性')
+})
+
+test('移动端模型触发按钮呈现方案 C 液位与告警角标且不增加触发按钮宽度或引起窄屏溢出', async t => {
+  const [tavernCss, themeCss, paperCss] = await Promise.all([
+    cssAsset('tavern.css'),
+    cssAsset('theme.css'),
+    paperSkinCss(),
+  ])
+  const browser = await chromium.launch({ headless: true })
+  t.after(() => browser.close())
+  const page = await browser.newPage({ viewport: { width: 390, height: 844 }, hasTouch: true })
+  await page.route('**/api/dsh-tavern/**', route => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({ ok: true, stream: true }),
+  }))
+  await page.setContent(markup)
+  await page.addStyleTag({ content: hostCss })
+  await page.addStyleTag({ content: tavernCss })
+  await page.addStyleTag({ content: themeCss })
+  await page.addStyleTag({ content: paperCss })
+
+  const baseTriggerWidth = await page.locator('._7KE1Ra_trigger').evaluate(el => el.getBoundingClientRect().width)
+  await page.addScriptTag({ content: generationStreamModeBootScript() })
+
+  // 健康态：有液位无告警角标，且触发器宽度零增量
+  const healthyInfo = await page.evaluate(() => {
+    const btn = document.querySelector('._7KE1Ra_trigger')
+    return {
+      width: btn.getBoundingClientRect().width,
+      mode: btn.getAttribute('data-dsh-tavern-ctx-trigger'),
+      tone: btn.getAttribute('data-ctx-tone'),
+      alert: btn.getAttribute('data-ctx-alert'),
+      level: btn.style.getPropertyValue('--dsh-ctx-level'),
+      afterContent: getComputedStyle(btn, '::after').content,
+      bgImage: getComputedStyle(btn).backgroundImage,
+      overflowX: document.documentElement.scrollWidth > window.innerWidth
+    }
+  })
+  assert.equal(healthyInfo.width, baseTriggerWidth, '触发器宽度与未启用方案 C 前完全一致')
+  assert.equal(healthyInfo.mode, 'scheme-c')
+  assert.equal(healthyInfo.tone, 'normal')
+  assert.equal(healthyInfo.alert, null)
+  assert.equal(healthyInfo.level, '7%')
+  assert.notEqual(healthyInfo.bgImage, 'none', '液位背景生效')
+  assert.equal(healthyInfo.overflowX, false)
+
+  // 危险高占用态：出现 86% 红色微角标与 6 色微条
+  await page.evaluate(() => {
+    window.__dshTavernGenerationStreamMode.setContextVisual({
+      sessionId: 's1',
+      triggerState: {
+        percent: 86,
+        level: 86,
+        tone: 'danger',
+        alertPill: '86%',
+        bucketShares: [{ key: 'worldbook', share: 0.36 }, { key: 'story', share: 0.5 }]
+      }
+    })
+  })
+  for (const width of [390, 320]) {
+    await page.setViewportSize({ width, height: 844 })
+    const alertState = await page.evaluate(() => {
+      const btn = document.querySelector('._7KE1Ra_trigger')
+      const menu = document.getElementById('model-menu')
+      const segs = menu.querySelectorAll('[data-dsh-tavern-stats-seg]')
+      return {
+        tone: btn.getAttribute('data-ctx-tone'),
+        pill: btn.getAttribute('data-ctx-pill'),
+        afterContent: getComputedStyle(btn, '::after').content,
+        segCount: segs.length,
+        overflowX: document.documentElement.scrollWidth > window.innerWidth,
+        menuRightOk: menu.getBoundingClientRect().right <= window.innerWidth
+      }
+    })
+    assert.equal(alertState.tone, 'danger')
+    assert.equal(alertState.pill, '86%')
+    assert.match(alertState.afterContent, /86%/)
+    assert.equal(alertState.segCount, 2)
+    assert.equal(alertState.overflowX, false, `${width}px: 页面无横向溢出`)
+    assert.equal(alertState.menuRightOk, true, `${width}px: 菜单不超右边界`)
+  }
 })

@@ -58,6 +58,7 @@ ctx.tavernUi.registerGameModeView({
 - `actors`：按顺序保留前 4 个能解析的人物；认不出、有歧义或重复的名字直接跳过。`focus: true` 的人物（只认第一个）点亮并向前一步，其余人物变暗；说话人仍有原有的高亮。
 - `lines`：每行要有稳定的 `id`，新内容只追加在末尾，不改已有行的 `id`。台词经舞台自己的控制器播放：皮肤的文本框、AUTO、SKIP、LOG、菜单，配音走舞台原有的语音通道，一行在首次未读显示时朗读。
 - 名字只经已有的 `resolveFigureName` 在本卡绑定的素材包里解析（精确名字或别名）。**一个名字对应多个人物即视为认不出**：没有立绘、没有配音，不猜。说话人认不出的行保留文字，但不配音。
+- `background`（可选）：场景和每一句都可以带，写成 `{ background: { packId, kind: 'backgrounds', assetId }, timeOfDay: null }`，只认本卡绑定包里的背景。一句带了就从这一句起换背景，之后的句子保持；都不带时是开场画面的背景。
 - `emotion` 经舞台已有的情绪归一化（本卡情绪表），认不出就不带情绪。
 - 手机上只站一个人物：有 `focus` 时是它，否则是最新一行的说话人。
 
@@ -351,13 +352,34 @@ const overlay = ctx.tavernUi.openOverlay({
 - 按 Esc 关闭；`dismissible: false` 时 Esc 不关闭，只能调用 `close`。
 - 关闭时调用一次 `onClose`。插件卸载时界面自动关闭。界面出错时显示一行错误和关闭按钮。
 
-## `registerPanel({ id, title, render, stage?, stageOnly?, stageSize? })`（第 2 版）
+## `openImage(src | { src, alt?, onClose? })`（第 11 版）
+
+用酒馆自己的大图查看器打开一张图，和点开酒馆插图是同一个界面：按窗口大小显示，滚轮或双指缩放，放大后拖动，双击在适应窗口和 100% 之间切换，Esc、✕ 或点空白处关闭。正文里插件自己画的图点开时用它，别用新窗口打开原图——安卓 App 里新窗口按原图像素显示，不能缩放。返回 `{ close }`。
+
+```js
+const open = url => typeof ctx.tavernUi.openImage === 'function'
+  ? ctx.tavernUi.openImage({ src: url, alt: caption })
+  : window.open(url, '_blank')
+```
+
+- 关闭时调用一次 `onClose`。插件卸载时查看器自动关闭。
+- 旧宿主没有这个方法，先检查 `typeof ctx.tavernUi.openImage === 'function'`（或 `apiVersion >= 11`）。
+
+## `registerPanel({ id, title, render, stage?, stageOnly?, stageSize?, stageReader?, roundAction? })`（第 2 版）
 
 随卡插件可以设置 `stage: true`，让本卡舞台页面调用 `await DshCardPage.openPluginPanel({ plugin: '插件名', panelId: 'memory' })`。其中 `plugin` 填插件浏览器端注册的 `name`。只接受当前游戏所属卡片中已启用且明确开放给舞台的面板。舞台内的 `render({ gameId, visible, stagePageId })` 收到当前游戏 ID、`visible: true` 和宿主确认的来源卡页 ID，可用同一个面板处理多个页面入口。侧栏与旧宿主中 `stagePageId` 为 `undefined`。关闭面板会回到原卡片页面。旧宿主中可检查 `typeof DshCardPage.openPluginPanel === 'function'` 后再显示入口。
 
 在右侧栏加一页插件自己的面板，比如记忆、锚点或状态一览。玩家从侧栏的「＋」里打开，面板显示在「插件」一组。
 
 设置 `stage: true` 时，可以用 `stageOnly: true` 只注册舞台入口，用 `stageSize: 'full'` 让面板铺满舞台。尺寸只接受 `'window'` 或 `'full'`，默认使用窗口尺寸并注册侧栏入口。传入这两个选项时必须设置 `stage: true`，参数无效会抛出 `TypeError`。
+
+全屏舞台面板可声明 `stageReader:true`。常规卡页面用 `DshCardPage.openPluginPanel` 打开它时，面板位于舞台对白框下方，沿用舞台翻页、履历和自动播放。此时 `render` 额外收到 `reader`。没有收到 `reader` 时，面板需要提供自己的对白界面。
+
+- `reader.publish({ section, lines, index, canAdvance, voiced, playing, command })` 更新当前一段的阅读内容。`lines` 为 `{id, text, speaker?, alias?}` 数组，`index` 从零开始。段落切换时换 `section`。有后续段落时设置 `canAdvance:true`，需要先完成互动时设为 `false`。
+- `command('select', index)` 请求翻到段内指定一行，`command('next')` 请求翻过本段末尾，`command('replay')` 请求重播当前配音。面板执行后发布实际位置。原配音播放中设 `playing:true`，让 AUTO 等它播完。
+- `reader.paused` 表示舞台打开了菜单、履历等覆盖层。`reader.silent` 表示舞台正在快进。面板内的 iframe 可用 `reader.key(key, released)` 把已识别的舞台按键交回宿主。
+
+舞台里的 `render` 还收到 `stage`：舞台借给插件的对象，`stage.borrow({ scene, onChoice })` 把一段写好的对白和分支放到舞台上演，`stage.setScene({ background, time, music, cast })` 把这局的背景、音乐和在场人物换到别处。`roundAction({ gameId, turn })` 在这一轮读完时被问一次，返回 `{ label, run }`（或它的 Promise）就在舞台普通选项旁边多一个按钮，返回 `null` 没有按钮；`run({ gameId, stage })` 在玩家按下时运行。`roundAction` 需要 `stage: true`，不是函数时抛出 `TypeError`。这三样由舞台实现，字段、报错和示例见舞台 Skill 的「插件用舞台」（`tavern_read_skill_reference`，`name:'stage'`，`references/plugin-stage.md`）；侧栏和旧宿主里 `stage` 为 `undefined`。
 
 全屏时，宿主的关闭按钮悬浮在右上角。面板应为它留出空间。点击关闭按钮或按 Esc 会返回来源卡页。尚未支持这两个选项的旧宿主会忽略它们，面板仍注册到侧栏，支持舞台入口的旧宿主会以窗口尺寸打开它。
 
@@ -429,9 +451,11 @@ ctx.tavernUi.registerStatusSection({ id: 'scene', title: '当前场景', render:
 - `render` 返回 `null` 时隐藏整节。`render` 可以是使用 React hooks 的组件函数，直接返回 `null` 或该节的内容。
 - 出错时这一节只显示一行错误，状态页其余部分照常。卡内插件的分节只出现在它那张卡的局里。插件卸载时自动移除。
 
-## `registerTurnView({ id, label, render })`（第 3 版）
+## `registerTurnView({ id, label, render, placement? })`（第 3 版）
 
 换一种方式显示**整轮正文**，例如对话气泡、剧本排版。`render` 收到 Tavern 自己渲染好的这一轮正文作 `children`，插件可以在外面包一层、在前后加东西，或者自己重画；正文本身（存档里的内容）不变。
+
+只需给每轮加一段内容时设 `placement:'after'`。内容会显示在当前正文样式的下方，`render` 收到的 `children` 为 `null`。可用 `greeting` 等字段挑选对应楼层。
 
 ```js
 ctx.tavernUi.registerTurnView({
@@ -450,6 +474,9 @@ ctx.tavernUi.registerTurnView({
 | `text` | 这一轮模型写的原文 |
 | `lines` | 这一轮对话气泡的台词（同宿主侧 `getCast` 的 `lines`），写完前或没有气泡时为空数组 |
 | `children` | Tavern 自己渲染好的这一轮正文（含人物卡的 HTML 界面、正文标记、插件媒体的位置） |
+| `renderBubbles(lines, options?)` | 将插件的台词画成普通对话的原生气泡。每行传 `{ id, alias?, name?, mood?, text, recording?, stageAnchor? }`，`id` 是稳定的行标识，`alias` 和 `mood` 用于解析已绑定的人物与表情。有 `name` 的行显示角色气泡，没有 `name` 的行显示旁白。`recording` 是本插件 `assets/` 内录音的相对路径，显示在角色头像边上，可直接播放录音。 |
+
+指定 `options.stageReader: { pageId, panelId }` 时，带 `stageAnchor` 的角色气泡可从该句进入舞台。`pageId` 是本卡声明的舞台页面，`panelId` 是本插件注册的全屏舞台阅读面板。通过沙漏进入时，面板的 `render` 收到 `entryAnchor` 作为回看的起点。插件自行解析此标识并决定是否写入游玩进度。
 
 - 每一轮只由收尾的那一步显示一次，不会重复。
 - 注册后默认用插件的样式；「酒馆状态」页出现「正文样式」选择，玩家可以选回内置，这台浏览器记住选择（卡内插件带的样式按卡记住）。插件卸载后回到内置。

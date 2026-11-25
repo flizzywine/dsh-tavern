@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url'
 import { IMAGE_PROVIDERS } from '../image-providers.js'
 import { publicChannels } from '../image-channels.js'
 import { imageReferenceLimit, effectiveImageProvider } from '../image-provider-capabilities.js'
+import { MAX_CARD_IMAGE_BATCH } from '../job-limits.js'
 import { resolvePromptMode } from '../prompt-presets.js'
 import { CARD_SIZES, SEED_CONTROLS, TERMINAL_STATES, cardImageResult, cardSelection } from './generation.js'
 import { atomicWrite, readJson, serialQueue } from './storage.js'
@@ -97,7 +98,7 @@ export function apply(ctx, { ready, data, gallery }) {
     preset_positive: { type: 'string', description: '临时覆盖这套预设的正面词（画师串 / 风格词），只对本次生成生效，不写回设置。要改权重或删掉其中某段时，把改好的整串传进来；传空字符串表示本张不用这层词。' },
     preset_negative: { type: 'string', description: '临时覆盖这套预设的负面固定词，只对本次生成生效，不写回设置；传空字符串表示本张不带这层负面词。' },
     size: { type: 'string', description: '竖图、横图、方图或宽x高。自定义宽高建议取 64 的倍数，多数平台按这个对齐，非对齐的值可能被平台改掉。不填沿用渠道或 ComfyUI 工作流尺寸。' },
-    count: { type: 'integer', description: '生成 1–4 张，默认 1。异步提交时各张独立推进。' },
+    count: { type: 'integer', minimum: 1, maximum: MAX_CARD_IMAGE_BATCH, description: `生成 1–${MAX_CARD_IMAGE_BATCH} 张，默认 1。异步提交时各张独立推进。` },
     sampler: { type: 'string', description: '仅支持此参数的 NovelAI、SD WebUI 渠道可临时指定。' },
     seed: { type: 'integer', description: '支持种子的渠道可指定第一张种子。不支持时会在提交前报错。' },
     seed_control: { type: 'string', enum: SEED_CONTROLS },
@@ -114,7 +115,7 @@ export function apply(ctx, { ready, data, gallery }) {
     async execute(args, exec) {
       await assertOpen()
       const count = args.count ?? 1
-      if (!Number.isSafeInteger(count) || count < 1 || count > 4) throw fail('INVALID_ARGUMENT', 'count 必须是 1–4 的整数')
+      if (!Number.isSafeInteger(count) || count < 1 || count > MAX_CARD_IMAGE_BATCH) throw fail('INVALID_ARGUMENT', `count 必须是 1–${MAX_CARD_IMAGE_BATCH} 的整数`)
       if (typeof args.prompt !== 'string' || !args.prompt.trim() || args.prompt.length > 16000) throw fail('INVALID_ARGUMENT', 'prompt 必须是 1–16000 字')
       if (args.negative !== undefined && (typeof args.negative !== 'string' || args.negative.length > 8000)) throw fail('INVALID_ARGUMENT', 'negative 最多 8000 字')
       // Resolve lazily: the service may register before listen(), and its port may change after restart.
@@ -152,7 +153,7 @@ export function apply(ctx, { ready, data, gallery }) {
       await assertOpen()
       exec?.signal?.throwIfAborted()
       const count = args.count ?? 1
-      if (!Number.isSafeInteger(count) || count < 1 || count > 4) throw fail('INVALID_ARGUMENT', 'count 必须是 1–4 的整数')
+      if (!Number.isSafeInteger(count) || count < 1 || count > MAX_CARD_IMAGE_BATCH) throw fail('INVALID_ARGUMENT', `count 必须是 1–${MAX_CARD_IMAGE_BATCH} 的整数`)
       if (typeof args.prompt !== 'string' || !args.prompt.trim() || args.prompt.length > 16000) throw fail('INVALID_ARGUMENT', 'prompt 必须是 1–16000 字')
       if (args.negative !== undefined && (typeof args.negative !== 'string' || args.negative.length > 8000)) throw fail('INVALID_ARGUMENT', 'negative 最多 8000 字')
       // 图片服务地址拿不到就在这里停：提交成功却给不出地址，等于白花一次额度。
@@ -179,7 +180,7 @@ export function apply(ctx, { ready, data, gallery }) {
     name: 'gen_image_status',
     description: '按任务号取回 gen_image_submit 提交的图片，一次可查多个。已完成的直接返回 Markdown 图片地址；还在生成的返回状态，可以稍后再查；失败或结果不确定的返回原因和能否重新提交。',
     parameters: schema({
-      jobIds: { type: 'array', items: { type: 'string' }, description: 'gen_image_submit 返回的任务号，1–20 个。' },
+      jobIds: { type: 'array', items: { type: 'string' }, description: `gen_image_submit 返回的任务号，1–${MAX_CARD_IMAGE_BATCH} 个。` },
       wait: { type: 'integer', description: '最多等待秒数，0–120，默认 30。已有图片或失败结果时立即返回；后续查询只传尚未完成的任务号。' },
     }, ['jobIds']),
     output: output((_args, value) => {
@@ -193,7 +194,7 @@ export function apply(ctx, { ready, data, gallery }) {
     async execute(args, exec) {
       await assertOpen()
       const ids = [...new Set((Array.isArray(args.jobIds) ? args.jobIds : [])
-        .filter(id => typeof id === 'string' && id.trim()).map(id => id.trim().slice(0, 100)))].slice(0, 20)
+        .filter(id => typeof id === 'string' && id.trim()).map(id => id.trim().slice(0, 100)))].slice(0, MAX_CARD_IMAGE_BATCH)
       if (!ids.length) throw fail('INVALID_ARGUMENT', 'jobIds 至少要给一个任务号')
       const engine = await ready(), options = context(exec)
       const seconds = Math.max(0, Math.min(120, Math.trunc(Number(args.wait ?? 30)) || 0))

@@ -127,7 +127,8 @@ function packFigureRenderInputs(figure, {audio = null, speaking = false, skippin
     if (figure.form === 'spine') return {stage:figure.modelUrl ? {key, identity, kind:'spine', url:figure.modelUrl, ...packSpineInputs(figure.outfit.spine, figure.spineEmotion), audio:activeAudio, voiced:Boolean(activeAudio)} : null, face};
     if (figure.form === 'live2d') return {stage:figure.modelUrl ? {key, identity, kind:'live2d', url:figure.modelUrl, ...packLive2dMood(figure.live2dEmotion), ...(figure.live2dBlush === true ? {blush:true} : {}), moodLine:speaking ? voiceKey : null, audio:activeAudio, voiced:Boolean(activeAudio), voiceStarted:Boolean(activeAudio && !activeAudio.paused && !activeAudio.ended), talking:false} : null, face};
     const src = views.stage?.view.src || state?.src;
-    return {stage:src ? {key, identity, kind:'static', src, spriteBundle:views.stage, blinkBundle:packBlinkBundle(views.stage?.view.blink, views.stage?.view), spriteVoiceKey:voiceKey, audio:activeAudio} : null, face};
+    // video: the still's 动态立绘 as the host projected it (asset-pack-presentation packFigureVideo), drawn over the still.
+    return {stage:src ? {key, identity, kind:'static', src, spriteBundle:views.stage, blinkBundle:packBlinkBundle(views.stage?.view.blink, views.stage?.view), spriteVoiceKey:voiceKey, audio:activeAudio, video:figure.video || null} : null, face};
 }
 // what a tap reaction may borrow from the figure's own outfit for a
 // moment, per reaction emotion: the Live2D emotionMap expression/gesture, the Spine emotionMap animation, or a sprite
@@ -286,6 +287,8 @@ function createPackVoicePlayer({ getClient, createAudio = url => new Audio(url),
         if (index > 0) queue.unshift(queue.splice(index, 1)[0]);
     }
     let bytes = 0, current = null, tail = null, client, unsubscribe, enabled = false, disposed = false, generation = 0;
+    const recordingSource = {};
+    const available = service => !disposed && (service === recordingSource || enabled && service?.available());
     // Streamed clips replaced by their complete line while they still play; disposed once they stop.
     const superseded = new Set();
     const keyOf = ({cacheKey, owner, id, text, mood = 'default'}) => cacheKey || JSON.stringify([owner, id, text, mood]);
@@ -354,7 +357,7 @@ function createPackVoicePlayer({ getClient, createAudio = url => new Audio(url),
         if (clips.has(key)) { const clip = clips.get(key); remember(key, clip); return Promise.resolve(clip); }
         if (pending.has(key)) return pending.get(key).promise;
         const abort = new AbortController(), epoch = generation, job = {abort,key};
-        const valid = () => { abort.signal.throwIfAborted(); if (epoch !== generation || !enabled || !service.available()) throw new Error('voice-unavailable'); };
+        const valid = () => { abort.signal.throwIfAborted(); if (epoch !== generation || !available(service)) throw new Error('voice-unavailable'); };
         // Prefetch failures belong to the line even when it never becomes the active player.
         const failed = error => {
             if (!abort.signal.aborted && epoch === generation && error.name !== 'AbortError') {
@@ -432,7 +435,7 @@ function createPackVoicePlayer({ getClient, createAudio = url => new Audio(url),
         }).finally(() => { if (pending.get(key) === job) pending.delete(key); });
         pending.set(key, job); queue.push(job); drain(); return job.promise;
     }
-    return {
+    const player = {
         subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn); },
         get() { return current; },
         blocked() { return blocked; },
@@ -443,9 +446,12 @@ function createPackVoicePlayer({ getClient, createAudio = url => new Audio(url),
         cancelPrefetch(items = []) { const keep = new Set(items.map(keyOf)); if (current) keep.add(current.requestKey); cancelPending(keep); },
         prioritize(items = []) { for (const item of [...items].reverse()) prioritize(keyOf(item)); },
         prefetch(descriptor, input) { const service = activeClient(), key = keyOf(input); return service && canRetry(input) && (pending.size < maxPrefetch || pending.has(key) || clips.has(key)) ? prepare(descriptor,input,service).then(() => true, () => false) : Promise.resolve(false); },
-        async play(descriptor, input) {
-            const service = activeClient();
-            if (!service) return false;
+        playRecording(url, input) {
+            return player.play({available:true,url}, input, recordingSource);
+        },
+        async play(descriptor, input, source) {
+            const service = source === recordingSource ? source : activeClient();
+            if (!available(service)) return false;
             const requestKey = keyOf(input), cached = clips.get(requestKey);
             if (input.automatic) { if (!canRetry(input)) return false; }
             else failures.delete(requestKey);
@@ -459,7 +465,7 @@ function createPackVoicePlayer({ getClient, createAudio = url => new Audio(url),
                 const prepared = cached || await ready;
                 // A streamed clip may already be replaced by its complete line.
                 const clip = clips.get(requestKey) || prepared;
-                if (current !== entry || !enabled || !service.available()) return false;
+                if (current !== entry || !available(service)) return false;
                 entry.audio = clip.audio; entry.loading = false; entry.key = clip.key;
                 remember(requestKey, clip);
                 // input.volume / input.rate: a caller's own level and speed for this line (有声书's panel); the stage leaves both.
@@ -472,7 +478,7 @@ function createPackVoicePlayer({ getClient, createAudio = url => new Audio(url),
                 if (input.masks || clip.covered) { clip.covered = Boolean(input.masks); maskAudio(clip.audio, input.masks?.() || null); }
                 await clip.audio.play();
                 setBlocked(false);
-                if (current !== entry || !enabled || !service.available()) return false;
+                if (current !== entry || !available(service)) return false;
                 emit(); return true;
             } catch (e) {
                 if (e.name === 'NotAllowedError') setBlocked(true);
@@ -482,6 +488,7 @@ function createPackVoicePlayer({ getClient, createAudio = url => new Audio(url),
         },
         dispose() { if (disposed) return; disposed = true; invalidate(); unsubscribe?.(); listeners.clear(); }
     };
+    return player;
 }
 // P6 mounts this only beside a new-path bubble/stage descriptor; settings ownership stays outside it.
 function PackVoiceButton({player, descriptor, text, mood, enabled}) {

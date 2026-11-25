@@ -56,7 +56,7 @@ function createGlobalSettingsModule({ React, rpc, notifySettingsChanged, TavernD
                 menu("默认长期偏好", data?.profile.defaultProfileId || "", [{ value: "", label: "不启用" }].concat((data?.profile.profiles || []).filter(item => item.hasConfirmed).map(item => ({ value: item.id, label: item.name }))),
                     value => save(null, "manageUserPreferenceProfile", { action: "default", profileId: value }))),
             h("section", { className: "dsh-local-section", "aria-label": "功能" }, h("h3", null, "功能"),
-                toggle("posture", "人物姿势", "总结本轮结束时人物的位置、动作和姿势。", true),
+                TAVERN_PLAY_FEATURES.postureSummary ? toggle("posture", "人物姿势", "总结本轮结束时人物的位置、动作和姿势。", true) : null,
                 toggle("styleReference", "文风联想", "仅自由模式。前台写正文前，结合本轮场景联想一段笔调参考；与写作共享上下文，不另开后台任务。", true),
                 children,
                 toggle("preset", "后台任务附加预设", "默认关闭。开启后，新游戏的全部后台 Agent 任务在生成时也会附加当前对局的三段预设提示词，不执行预设正则。", true),
@@ -169,6 +169,7 @@ function createGlobalSettingsModule({ React, rpc, notifySettingsChanged, TavernD
             // one card per group; each entry (incl. the UI plugin's 界面大小 slot) is a row of it.
             group("显示与交互", "",
                 card(sw("autoOpenStatusPanel", "进入游戏时打开酒馆状态", "进入或切换到一局游戏时，右侧面板自动展开并显示本局设置和酒馆状态。关闭后右侧面板保持你上次的样子。", true),
+                    sw("showCharacterDesignPanel", "显示人物设计", "在酒馆状态中显示人物档案和手动设计入口，适用于所有对局。", false),
                     h(DisplayPreferencesSettings),
                     renderSlot("settings.tavern.appearance", {}),
                     DebugSetting ? h(DebugSetting) : null,

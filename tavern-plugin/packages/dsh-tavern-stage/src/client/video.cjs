@@ -16,8 +16,9 @@ let disposed = false;
 // Replay rules stay with the consumer (AGENTS: a page's one-shot plays once when paged back to; skip and refresh never replay).
 
 const stageVideoReads = new Map();
-function stageVideoAcquire(source) {
-    const key = JSON.stringify([source.packId, source.bundleKey, source.hash]);
+// poster false: the caller has its own still (a figure's 动态立绘), so the poster is never read.
+function stageVideoAcquire(source, {poster = true} = {}) {
+    const key = JSON.stringify([source.packId, source.bundleKey, source.hash, poster]);
     let record = stageVideoReads.get(key);
     if (!record) {
         record = {users: 0};
@@ -30,7 +31,7 @@ function stageVideoAcquire(source) {
             if (!response.ok) throw new Error('RESOURCE_READ_FAILED ' + response.status);
             return URL.createObjectURL(await response.blob());
         });
-        record.poster = read(source.poster).catch(() => null);
+        record.poster = poster ? read(source.poster).catch(() => null) : Promise.resolve(null);
         record.video = read(source.entry);
         Promise.allSettled([record.poster, record.video]).then(() => lease.then(({ticket}) => service.releaseLease(ticket), () => {}));
         record.video.catch(() => { if (stageVideoReads.get(key) === record) stageVideoReads.delete(key); });
@@ -63,7 +64,7 @@ function stageVideoPlayer(host, source, options) {
     for (const node of [poster, video]) node.style.objectFit = o.fit;
     layer.append(poster, video);
     host.append(layer);
-    let status = 'loading', bound = false, alone = false, settle, playableNow;
+    let status = 'loading', bound = false, alone = false, wanted = false, settle, playableNow;
     // exclusive: from binding until its single play ends, is paused by the consumer (a skip), fails or goes, its soundtrack is
     // the only stage sound (forkStageAudio.exclusive); the rest returns afterwards.
     const unclaim = () => { if (alone) { alone = false; forkStageAudio.exclusive(video, false); } };
@@ -123,12 +124,12 @@ function stageVideoPlayer(host, source, options) {
             if (video.paused) start();
         },
         // A free-running use (a looping skin background): the element's own clock.
-        play() { if (status === 'ready') { reveal(1); start(); } else ready.then(ok => { if (ok && status === 'ready') { reveal(1); start(); } }); },
-        pause() { if (status !== 'disposed') { video.pause(); unclaim(); } },
+        play() { wanted = true; if (status === 'ready') { reveal(1); start(); } else ready.then(ok => { if (ok && wanted && status === 'ready') { reveal(1); start(); } }); },
+        pause() { wanted = false; if (status !== 'disposed') { video.pause(); unclaim(); } },
         state: () => ({status, time: video.currentTime, paused: video.paused, muted: video.muted, poster: !poster.hidden}),
         dispose() {
             if (status === 'disposed') return;
-            status = 'disposed'; players.delete(player); clearTimeout(timer); settle(false);
+            wanted = false; status = 'disposed'; players.delete(player); clearTimeout(timer); settle(false);
             const errors = [];
             for (const release of [
                 () => video.pause(),
@@ -146,7 +147,8 @@ function stageVideoPlayer(host, source, options) {
     return player;
 }
 
-return {player:stageVideoPlayer, dispose() {
+// acquire: the shared read of an entry's files (a figure's 动态立绘 plays its video on the stage canvas, figure-video.cjs).
+return {player:stageVideoPlayer, acquire:stageVideoAcquire, dispose() {
     if (disposed) return;
     disposed = true;
     const errors = [];

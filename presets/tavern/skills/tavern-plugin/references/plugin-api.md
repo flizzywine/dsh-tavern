@@ -78,6 +78,7 @@ window.__ModuleLoader__.load({
 | 往 `plugins/` 放进一个新插件 | 不用重启：宿主侧几秒内加载，浏览器侧刷新一次页面后出现 |
 | 修改 `client.js` | 不用刷新：几秒内自动换成新代码 |
 | 修改 `index.mjs` | 要重启 DSH |
+| 通过卡库更新已启用的卡内插件 | 新版宿主插件在当前进程重新加载。界面还显示旧版时刷新当前页面 |
 | 删除插件文件夹 | 宿主侧不再加载；刷新页面后浏览器侧消失 |
 
 Tavern 把 `plugins/` 下的插件登记在 DSH 的 Tavern 配置（`~/.dsh/profiles/tavern/cordis.patch.yml`）里，以 `tavern-user-plugin-` 开头的条目由 Tavern 自动维护，不要手改。插件文件夹缺 `package.json`、有效的 `name` / `version` 或宿主入口时会被跳过，原因写在 Tavern 日志里。Tavern 通过插件文件夹里自动生成的 `.tavern-entry.mjs` 加载宿主侧：插件代码有语法错误、导入失败或 `apply` 抛错时，只在日志里记一条「plugins/<文件夹> 加载失败 / 启动失败」，不会让 DSH 起不来。这个文件不要改，也不用提交到插件仓库。
@@ -139,7 +140,7 @@ export function apply(ctx) {
 
 | 页面 | 内容 |
 |---|---|
-| [读取游戏](plugin-api-game.md) | 回合写完、读正文与人物卡、历史、时间线变化、改最新一轮、MVU provider |
+| [读取游戏](plugin-api-game.md) | 回合写完、读正文与人物卡、历史、时间线变化、改最新一轮、按意见重新生成最新一轮、MVU provider |
 | [正文、结算与任务](plugin-api-prompt.md) | 往正文请求、世界书、后台结算、候选、压缩里添加内容；结算任务、手动任务、`runTask`、`handle` |
 | [媒体与数据](plugin-api-data.md) | 挂图片等媒体、按轮与整局数据、插件数据、本局配置项、插件在哪些局生效 |
 | [人物卡、Skill 与演出](plugin-api-cards.md) | 人物卡库、改卡、Skill、台词标注、角色素材 |
@@ -219,7 +220,7 @@ ctx.tavern.replyRewriter({
 
 ## 已知限制
 
-- 修改插件的宿主侧代码（`index.mjs`）后要重启 DSH 才生效。这是 DSH 的机制。
+- 直接编辑已加载插件目录里的宿主代码（`index.mjs`）后要重启 DSH。已启用的卡内插件可用卡库的更新流程重新加载。
 - 开场白不触发 `onTurnSettled`。
 - 正文流式改写只覆盖纯文本正文；`submit_story` 工具提交的正文仍只能用结算后的 `editTurn`。
 

@@ -7,6 +7,9 @@ import { sessionEvents } from '../domain/session-events.js'
 import { rollbackAvailability } from '../domain/rollback-surface.js'
 import { applyPolishEdits, composePolishEdits } from '../domain/polish-review.js'
 import { randomUUID } from 'node:crypto'
+import playFeatures from '../../shared/play-features.cjs'
+
+export const PLUGIN_REGENERATION_TARGET = Symbol('plugin regeneration target')
 
 // In-game play, turn editing, compaction and background settlement requests.
 // `deps` carries the services ../index.js builds; dispatchMethod routes by method name.
@@ -107,6 +110,7 @@ export function createPlayHandlers(deps) {
       return await manualCharacterDesign.remove(args || {})
     },
     async consolidateLedger(args) {
+      if (!playFeatures.storyLedger) throw new Error('游玩台账已停用')
       return await manualLedger.start(args || {})
     },
     async runCompaction(args) {
@@ -154,6 +158,7 @@ export function createPlayHandlers(deps) {
       return await candidateTasks.startLegacy(args)
     },
     async editLedger(args) {
+      if (!playFeatures.storyLedger) throw new Error('游玩台账已停用')
       await ledgerEditor(args || {})
       return { view: await sessionView(args.sessionId) }
     },
@@ -282,7 +287,10 @@ export function createPlayHandlers(deps) {
         polishPrereview.cancel(sessionId)
         // fresh：长按发送键 1 秒的直接重生成，跳过「正文被改过就带着它改写」的判断，
         // 这一轮从头重新采样；正文编辑面板与指导面板的重新生成不传这个标记。
-        const view = await regenBody(args && args.chatId, args && args.guidance, sessionId, { fresh: args?.fresh === true })
+        const expectedReply = args?.[PLUGIN_REGENERATION_TARGET]
+        const view = await regenBody(args && args.chatId, args && args.guidance, sessionId, {
+          fresh: args?.fresh === true, ...(expectedReply ? { expectedReply } : {})
+        })
         if (!view?.aborted) {
           notifyPluginTimeline(sessionId, 'regenerate')
           void polishPrereview.start(sessionId).catch(() => {})
@@ -374,9 +382,12 @@ export function createPlayHandlers(deps) {
       return { progress: backgroundAgentRunner.progress(args && args.sessionId) || pluginSettlementProgress.snapshot(args && args.sessionId) }
     },
     async getBackgroundRuns(args) {
-      const registered = workflow?.catalog?.() || BACKGROUND_TASK_CATALOG
+      const registered = (workflow?.catalog?.() || BACKGROUND_TASK_CATALOG)
+        .filter(item => playFeatures.storyLedger || item.task !== 'ledger')
       const names = Object.fromEntries(registered.map(item => [item.task, item.name]))
-      const runs = backgroundAgentRunner.runs(args && args.sessionId).map(run => ({ ...run, name: names[run.task] || run.task }))
+      const runs = backgroundAgentRunner.runs(args && args.sessionId)
+        .filter(run => playFeatures.storyLedger || run.task !== 'ledger')
+        .map(run => ({ ...run, name: names[run.task] || run.task }))
       const catalog = describeTasks([...registered, ...(pluginApi?.taskCatalog?.() || [])], workflow?.table() || [], event => STORY_EVENTS[event] || event)
       const moments = storyEvents?.history(args && args.sessionId) || []
       const turns = buildRunTree({ moments, jobRuns: workflow?.runs(args && args.sessionId) || [], runs, catalog })

@@ -1,7 +1,9 @@
 // tagged English defaults; retain protocol, payload, cache and budget assertions.
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { lastRoundVariableChanges } from '../tavern-plugin/lib/domain/foreground-variable-changes.js'
+import { lastRoundVariableChanges, lastRoundVariableValues } from '../tavern-plugin/lib/domain/foreground-variable-changes.js'
+import { registerRequestHooks } from '../tavern-plugin/lib/hooks/request.js'
+import { createInitializationNative } from './fixtures/conversation-initialization-native.mjs'
 
 const message = (stat_data, extra = {}) => ({ role: 'assistant', swipeId: 0, variables: [{ stat_data }], ...extra })
 const chat = messages => ({ mode: 'story', mvu: { enabled: true }, messages })
@@ -17,4 +19,65 @@ test('只列出上一轮结算后变化的变量及最新值；列表整体给�
   assert.equal(lastRoundVariableChanges(chat([message(after), message(after)])), null, '无变化不注入')
   assert.equal(lastRoundVariableChanges(chat([message(after)])), null, '开局没有上一轮')
   assert.equal(lastRoundVariableChanges({ ...chat([message(before), message(after)]), mvu: { enabled: false } }), null)
+})
+
+test('用本轮结算前的快照比较，开场初始化不会变成第一轮的变量变化', () => {
+  const baseline = { 游戏: { 玩家: '陈言', 金币: 10, 关卡: '城镇' } }
+  const saved = message({ 游戏: { ...baseline.游戏, 金币: 8 } }, {
+    mvuBaseline: { swipeId: 0, variables: { stat_data: baseline } }
+  })
+  const run = chat([message({ 游戏: null }, { greeting: true }), { role: 'user', text: '买票。' }, saved])
+  assert.deepEqual(lastRoundVariableValues(run), [{ names: ['游戏', '金币'], value: 8 }])
+  assert.match(lastRoundVariableChanges(run), /\/游戏\/金币 = 8/)
+  assert.doesNotMatch(lastRoundVariableChanges(run), /陈言|城镇/)
+  assert.deepEqual(lastRoundVariableValues(chat([saved])), [{ names: ['游戏', '金币'], value: 8 }])
+})
+
+test('由结算回执确定反馈字段，读取保存后的最新值并保留手动修改反馈', () => {
+  const run = chat([message({ 游戏: { 金币: 8, 操作次数: 3, 地点: '车站' } }, {
+    mvuBaseline: { swipeId: 0, variables: { stat_data: { 游戏: { 金币: 10, 操作次数: 2, 道具: '车票', 地点: '城镇' } } } },
+    mvu: { receipt: {
+      changes: [{ path: '/stat_data/游戏/金币', after: 9 }, { path: '/stat_data/游戏/道具' }],
+      sideEffects: [{ path: '/stat_data/游戏/操作次数' }]
+    } },
+    variableEdits: [{ editedAfterSettlement: true, feedbackPaths: ['/游戏/地点'] }]
+  })])
+  assert.deepEqual(lastRoundVariableValues(run), [
+    { names: ['游戏', '金币'], value: 8 },
+    { names: ['游戏', '道具'], value: undefined },
+    { names: ['游戏', '地点'], value: '车站' }
+  ])
+  assert.doesNotMatch(lastRoundVariableChanges(run), /操作次数/)
+})
+
+test('普通正文准备时等待上一轮结算，实际模型请求收到刚保存的结果', { skip: !process.env.DSH_BOOT_MODULE }, async t => {
+  const h = await createInitializationNative(process.env.DSH_BOOT_MODULE)
+  t.after(() => h.dispose())
+  await h.open().start(h.input)
+  const baseline = { swipeId: 0, variables: { stat_data: { 金币: 10 } } }
+  let saved = chat([message({ 金币: 10 }, { mvuBaseline: baseline, mvu: { pending: true } })])
+  registerRequestHooks({
+    ctx: h.ctx,
+    backgroundAgentRunner: { owns: () => false },
+    chatForSession: async () => saved,
+    foregroundStrategies: {
+      async prepareStep({ chat: before, decision }) {
+        assert.equal(before.messages[0].mvu.pending, true)
+        saved = chat([message({ 金币: 8 }, { mvuBaseline: baseline,
+          mvu: { pending: false, receipt: { changes: [{ path: '/stat_data/金币' }], sideEffects: [] } }
+        })])
+        return decision
+      }
+    },
+    requestCoordinates: new Map(),
+    requestIdForMessages: () => 'next-turn',
+    cardMemory: { appendRecall: async ({ decision }) => decision },
+    sessionStore: h.ctx.sessions,
+    tavernRetryLimiter: { handle: (_payload, next) => next() }
+  })
+  await h.continueInPlace()
+  assert.equal(h.requests.length, 1)
+  const updates = h.requests[0].messages.filter(message => message.source?.form === 'variable-changes')
+  assert.equal(updates.length, 1)
+  assert.match(updates[0].content[0].text, /\/金币 = 8/)
 })

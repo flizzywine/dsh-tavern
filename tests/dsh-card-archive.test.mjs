@@ -1,15 +1,20 @@
 import assert from 'node:assert/strict'
-import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, open, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Readable } from 'node:stream'
 import test from 'node:test'
-import { deflateRawSync } from 'node:zlib'
+import { crc32 as updateCrc32, deflateRawSync } from 'node:zlib'
 import { createMediaStore } from '../tavern-plugin/packages/dsh-asset-library/src/pack-v2/media-store.js'
 import { createAssetPacks, packMediaType } from '../tavern-plugin/lib/domain/asset-packs.js'
 import { readCardArchive } from '../tavern-plugin/lib/domain/card-archive.js'
 import { createCardArchiveUploads, createUploads, MAX_CARD_UPLOAD_BYTES } from '../tavern-plugin/lib/domain/uploads.js'
 import { createCardHandlers } from '../tavern-plugin/lib/rpc/cards.js'
+import { registerTavernHttpRoutes } from '../tavern-plugin/lib/http/routes.js'
+import { createCardFiles } from '../tavern-plugin/lib/domain/card-files.js'
+import { createCardPreparation } from '../tavern-plugin/lib/domain/card-preparation.js'
+import { createFileResourceStore } from '../tavern-plugin/lib/domain/file-resources.js'
+import { pngCardTextChunk } from '../tavern-plugin/lib/domain/card-assets.js'
 import { openZipFile, zipEntryPath } from '../tavern-plugin/lib/domain/zip-file.js'
 import { writeZipEntries } from '../tavern-plugin/lib/domain/zip-entries.js'
 
@@ -55,10 +60,10 @@ function memoryStore() {
 }
 
 // A ZIP64 archive by hand: one deflated entry whose sizes and offset live in the ZIP64 extra field.
-function zip64(name, content) {
+function zip64(name, content, offset = 0) {
   const data = Buffer.from(content), packed = deflateRawSync(data), nameBytes = Buffer.from(name)
   const extra = Buffer.alloc(4 + 24); extra.writeUInt16LE(1, 0); extra.writeUInt16LE(24, 2)
-  extra.writeBigUInt64LE(BigInt(data.length), 4); extra.writeBigUInt64LE(BigInt(packed.length), 12); extra.writeBigUInt64LE(0n, 20)
+  extra.writeBigUInt64LE(BigInt(data.length), 4); extra.writeBigUInt64LE(BigInt(packed.length), 12); extra.writeBigUInt64LE(BigInt(offset), 20)
   const local = Buffer.alloc(30); local.writeUInt32LE(0x04034b50, 0); local.writeUInt16LE(45, 4); local.writeUInt16LE(8, 8); local.writeUInt32LE(crc32(data), 14)
   local.writeUInt32LE(0xffffffff, 18); local.writeUInt32LE(0xffffffff, 22); local.writeUInt16LE(nameBytes.length, 26); local.writeUInt16LE(extra.length, 28)
   const head = Buffer.concat([local, nameBytes, extra, packed])
@@ -66,8 +71,8 @@ function zip64(name, content) {
   central.writeUInt32LE(crc32(data), 16); central.writeUInt32LE(0xffffffff, 20); central.writeUInt32LE(0xffffffff, 24); central.writeUInt16LE(nameBytes.length, 28); central.writeUInt16LE(extra.length, 30); central.writeUInt32LE(0xffffffff, 42)
   const directory = Buffer.concat([central, nameBytes, extra])
   const record = Buffer.alloc(56); record.writeUInt32LE(0x06064b50, 0); record.writeBigUInt64LE(44n, 4); record.writeUInt16LE(45, 12); record.writeUInt16LE(45, 14)
-  record.writeBigUInt64LE(1n, 24); record.writeBigUInt64LE(1n, 32); record.writeBigUInt64LE(BigInt(directory.length), 40); record.writeBigUInt64LE(BigInt(head.length), 48)
-  const locator = Buffer.alloc(20); locator.writeUInt32LE(0x07064b50, 0); locator.writeBigUInt64LE(BigInt(head.length + directory.length), 8); locator.writeUInt32LE(1, 16)
+  record.writeBigUInt64LE(1n, 24); record.writeBigUInt64LE(1n, 32); record.writeBigUInt64LE(BigInt(directory.length), 40); record.writeBigUInt64LE(BigInt(offset + head.length), 48)
+  const locator = Buffer.alloc(20); locator.writeUInt32LE(0x07064b50, 0); locator.writeBigUInt64LE(BigInt(offset + head.length + directory.length), 8); locator.writeUInt32LE(1, 16)
   const end = Buffer.alloc(22); end.writeUInt32LE(0x06054b50, 0); end.writeUInt16LE(0xffff, 8); end.writeUInt16LE(0xffff, 10); end.writeUInt32LE(0xffffffff, 12); end.writeUInt32LE(0xffffffff, 16)
   return Buffer.concat([head, directory, record, locator, end])
 }
@@ -95,6 +100,31 @@ test('从磁盘读 ZIP：逐个流式解压并校验，ZIP64 能读，越界路�
   const big = await openZipFile(join(dir, 'z64.zip'))
   assert.equal((await big.readBuffer(big.entries.get('dsh.json'))).toString(), '{"format":"dshcard"}')
   await big.close()
+})
+
+test('ZIP64 can read a card entry with a local header beyond 4 GiB', async t => {
+  const file = join(await temp(t), 'beyond-four-gib.dshcard'), offset = 4 * 1024 ** 3
+  const entry = zip64('card.json', '{"name":"Large card"}', offset)
+  const handle = await open(file, 'wx')
+  try { await handle.write(entry, 0, entry.length, offset) } finally { await handle.close() }
+  const zip = await openZipFile(file)
+  try {
+    assert.equal(zip.entries.get('card.json').localOffset, offset)
+    assert.equal((await zip.readBuffer(zip.entries.get('card.json'))).toString(), '{"name":"Large card"}')
+  } finally { await zip.close() }
+})
+
+test('card preview only reads the cover of a card with embedded assets', async t => {
+  const cover = 'assets/icon/cover.png', background = 'assets/background/room.png'
+  const card = {data:{name:'Preview',assets:[{type:'background',name:'Room',uri:'embeded://' + background},
+    {type:'icon',name:'main',uri:'embeded://' + cover}]}}
+  const file = await zipFile(await temp(t), 'preview.charx', { 'card.json':JSON.stringify(card), [cover]:PNG, [background]:PNG })
+  const zip = await openZipFile(file), reads = []
+  try {
+    const preview = await readCardArchive({ ...zip, async readBuffer(entry, limit) { reads.push(entry.path); return zip.readBuffer(entry, limit) } }, {assets:'cover'})
+    assert.deepEqual(reads, ['card.json', cover])
+    assert.deepEqual(preview.resolve('embeded://' + cover), PNG)
+  } finally { await zip.close() }
 })
 
 test('素材包：每个文件按内容只存一份，同 id 同摘要的包直接复用；只按白名单直接提供', async t => {
@@ -177,7 +207,7 @@ test('上传：原始请求体落盘，超过上限拒绝；取走后可删除�
 
 test('卡包分段上传预留总空间，完成后只交给流式卡包导入', async t => {
   const root = await temp(t)
-  assert.equal(MAX_CARD_UPLOAD_BYTES, 8 * 1024 ** 3)
+  assert.equal(MAX_CARD_UPLOAD_BYTES, 32 * 1024 ** 3)
   const chunkBytes = 16 * 1024 ** 2
   const total = chunkBytes + 3
   const archives = createCardArchiveUploads({ root, maxBytes: total })
@@ -193,6 +223,7 @@ test('卡包分段上传预留总空间，完成后只交给流式卡包导入',
   assert.equal((await upload(Buffer.from('xyz'), chunkBytes, id)).size, total)
   const handlers = createCardHandlers({
     uploads: regular, cardArchiveUploads: archives, str: value => String(value ?? ''),
+    discardCardArchivePreview: async () => {},
     previewCardArchiveFile: async file => ({ size: (await stat(file)).size }),
     importCardArchiveFile: async (file, name) => ({ name, bytes: (await readFile(file)).subarray(-3).toString() })
   })
@@ -207,6 +238,48 @@ test('卡包分段上传预留总空间，完成后只交给流式卡包导入',
   const retry = await upload(Buffer.from('abc'), 0, '', 3)
   await handlers.discardCardUpload({ uploadId: retry.id })
   await assert.rejects(archives.take(retry.id), /不存在/)
+})
+
+test('超过 80 MiB 的 PNG 通过原始上传导入卡库，原版文件保留，上传临时文件删除', async t => {
+  const root = await temp(t), str = value => String(value ?? '')
+  const uploads = createUploads({ root })
+  const fileResources = createFileResourceStore({ dataRoot: root })
+  const { importCard, discardCardArchivePreview } = createCardFiles({ fileResources, cardPreparation: createCardPreparation() })
+  const handlers = createCardHandlers({ uploads, importCard, str, discardCardArchivePreview })
+  let handler
+  registerTavernHttpRoutes({
+    ctx: { get: () => undefined }, uploads, str, runtimeReadiness: { ok: true },
+    dispatch: (method, args) => handlers[method](args),
+    exposeHandler: listener => { handler = listener }
+  })
+  async function post(method, chunks) {
+    let body
+    await handler(Object.assign(Readable.from(chunks), {
+      url: '/api/dsh-tavern/' + method, method: 'POST', headers: { host: 'localhost:3081' }
+    }), { writeHead() {}, end(value) { body = value } })
+    return JSON.parse(body)
+  }
+
+  const megabyte = 1024 ** 2, padding = Buffer.alloc(megabyte, 'x')
+  const header = Buffer.alloc(8)
+  header.writeUInt32BE(81 * megabyte + 4)
+  header.write('tEXt', 4)
+  const keyword = Buffer.from('pad\0')
+  let crc = updateCrc32(keyword, updateCrc32(header.subarray(4)))
+  for (let i = 0; i < 81; i++) crc = updateCrc32(padding, crc)
+  const trailer = Buffer.alloc(4)
+  trailer.writeUInt32BE(crc)
+  const card = pngCardTextChunk('ccv3', '{"name":"大卡"}')
+  const sent = await post('card-upload', [PNG.subarray(0, -12), header, keyword, ...Array(81).fill(padding), trailer, card, PNG.subarray(-12)])
+  assert.equal(sent.ok, true, sent.error)
+  assert.ok(sent.size > 80 * megabyte)
+  const imported = await post('importCardUpload', [Buffer.from(JSON.stringify({ uploadId: sent.uploadId, name: 'large.png' }))])
+  assert.equal(imported.ok, true, imported.error)
+  assert.equal(imported.card.name, '大卡')
+  const original = await fileResources.readCardImage(imported.card.path)
+  assert.equal(original.length, sent.size)
+  assert.deepEqual(original.subarray(-12 - card.length, -12), card)
+  await assert.rejects(uploads.take(sent.uploadId), /不存在/)
 })
 
 test('卡内插件：导入时放在一边不加载；启用后进 plugins/；内容相同的多张卡共用一份，最后一张放手才删；同名不同内容拒绝；改名跟随', async t => {

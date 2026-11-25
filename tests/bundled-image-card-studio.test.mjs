@@ -467,6 +467,39 @@ test('card requests and story images share the configured concurrency limit', as
   assert.equal(calls, 3)
 })
 
+test('the saved concurrency setting and workbench batch both accept 100 images', { timeout: 30000 }, async t => {
+  const f = await studio(t, { config: { imageBackend: 'openai', activeImageChannel: 'openai', imageChannels: [channel('openai')] } })
+  const configured = await f.runtime.request('config', { imageConcurrency: 100 })
+  assert.equal(configured.body.state.config.imageConcurrency, 100)
+  assert.equal((await f.read('config.json')).imageConcurrency, 100)
+
+  let release
+  const gate = new Promise(resolve => { release = resolve })
+  t.after(release)
+  let calls = 0
+  globalThis.fetch = async () => {
+    calls++
+    await gate
+    return json({ data: [{ b64_json: b64 }] })
+  }
+  const submit = f.tools.get('gen_image_submit'), status = f.tools.get('gen_image_status')
+  await assert.rejects(submit.execute({ prompt: 'over the limit', count: 101 }, own), /1–100/)
+  const batch = await submit.execute({ prompt: 'a traveler', count: 100 }, own)
+  assert.equal(batch.jobs.length, 100)
+  const jobIds = batch.jobs.map(job => job.jobId)
+  const ordinary = await f.runtime.request('jobs', { tag: 'queued behind the batch' })
+  try {
+    for (let i = 0; calls < 100 && i < 1200; i++) await new Promise(resolve => setTimeout(resolve, 5))
+    assert.equal(calls, 100, 'all 100 jobs reach the provider while the next stays queued')
+    const pending = await status.execute({ jobIds, wait: 0 }, own)
+    assert.deepEqual(pending.jobs.map(job => job.jobId), jobIds)
+  } finally {
+    release()
+    await Promise.all([...jobIds, ordinary.body.id].map(id => f.runtime.terminal(id)))
+  }
+  assert.equal(calls, 101)
+})
+
 test('async card tools return at once and hand back each picture as it lands', { timeout: 30000 }, async t => {
   const f = await studio(t, { config: { imageBackend: 'openai', activeImageChannel: 'relay-a', imageConcurrency: 2,
     imageChannels: [channel('openai', {}, { id: 'relay-a', name: 'relay a' }), channel('openai', {}, { id: 'relay-b', name: 'relay b' })] } })

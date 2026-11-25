@@ -1,8 +1,9 @@
 import { worldbookContextDelta } from './worldbook-context-delta.js'
 import { foregroundFrameText } from './agent-input-frame.js'
 import { worldbookSnapshot } from './worldbook-snapshot.js'
-import { promptSectionBody } from './prompt-section.js'
+import { promptSection, promptSectionBody } from './prompt-section.js'
 import { liveContextUpdate, cardSystemPromptSnapshot, cardSystemPromptSource } from './card-system-prompt.js'
+import playFeatures from '../../shared/play-features.cjs'
 
 function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
@@ -38,7 +39,9 @@ export function createForegroundFrameSessionAdapter(options = {}) {
     const fixedRules = frame.contributions.filter(isFixedRule).map(item => item.text).join('\n\n')
     const previousRules = liveContextUpdate(input.session, 'writingRulesSnapshot', input.historyMessages || messages)
     const rulesChanged = fixedRules !== (previousRules?.text || '')
-    const contributions = frame.contributions.filter(item => item.slot !== 'activeWorldbook' && !isFixedRule(item))
+    const contributions = frame.contributions.filter(item => item.slot !== 'activeWorldbook' && !isFixedRule(item)
+      && (playFeatures.storyLedger || item.source?.stage !== 'ledger')
+      && (playFeatures.postureSummary || item.source?.stage !== 'context-plan' || item.source?.sectionKind !== 'posture'))
     const snapshots = snapshot ? [{
       id: makeId() + ':worldbook', role: 'user',
       content: [{ type: 'text', text: snapshot.rendered }],
@@ -58,6 +61,24 @@ export function createForegroundFrameSessionAdapter(options = {}) {
         content: [{ type: 'text', text: update.rendered }],
         source: { kind: 'plugin:dsh-tavern', form: 'card-system-prompt-update',
           trace: { frameId: frame.frameId, turn: frame.turn, operationId: frame.operationId, ...cardSystemPromptSource(update) } }
+      })
+    }
+    // What changed in the foreground capabilities since the live context told the model (foreground-capabilities.js):
+    // its own message, whose trace record the next turns read back to send only newer changes.
+    const capabilityUpdate = frame.source?.foregroundCapabilityUpdate
+    if (capabilityUpdate?.rendered) snapshots.push({
+      id: makeId() + ':foreground-capability-update', role: 'user',
+      content: [{ type: 'text', text: capabilityUpdate.rendered }],
+      source: { kind: 'plugin:dsh-tavern', form: 'foreground-capability-update',
+        trace: { frameId: frame.frameId, turn: frame.turn, operationId: frame.operationId, foregroundCapabilityUpdate: capabilityUpdate } }
+    })
+    const playerName = frame.source?.playerName
+    if (playerName && playerName !== liveContextUpdate(input.session, 'playerIdentity', input.historyMessages || messages)?.name) {
+      const rendered = promptSection('player_identity', 'The current player is ' + JSON.stringify(playerName) + '. Use this name for the player’s actions and dialogue from this turn onward. This updates all earlier statements of the player’s name.')
+      snapshots.push({
+        id: makeId() + ':player-identity', role: 'user', content: [{ type: 'text', text: rendered }],
+        source: { kind: 'plugin:dsh-tavern', form: 'player-identity', trace: { frameId: frame.frameId,
+          playerIdentity: { schemaVersion: 1, name: playerName, rendered } } }
       })
     }
     const text = foregroundFrameText({ contributions })

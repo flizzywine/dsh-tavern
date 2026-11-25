@@ -2,6 +2,7 @@
   "format": "dsh-tavern-mod",
   "schemaVersion": 5,
   "experimental": true,
+  "activation": "card",
   "id": "dsh.dice",
   "name": "AI检定",
   "packageName": "dsh-tavern-mod-dice",

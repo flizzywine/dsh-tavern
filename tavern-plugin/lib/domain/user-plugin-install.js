@@ -522,19 +522,22 @@ export function createUserPluginInstaller({ dataRoot, fetchImpl = fetch, now = (
         const card = await readJson(path.join(dir, CARD_MARKER))
         const isDisabled = disabled.includes(folder)
         // Built-in status is preserved when a packaged plugin follows its own release.
+        // Only the folder named after its package is the built-in one; an imported copy such as "x (2)" is an ordinary plugin.
         const recorded = await readJson(path.join(dir, SOURCE_FILE))
-        const release = recorded?.kind === 'builtin' && bundledPluginRelease(folder, pkg.name)
-        const source = recorded?.kind === 'builtin'
+        const own = folder === pkg.name
+        const release = own && recorded?.kind === 'builtin' && bundledPluginRelease(folder, pkg.name)
+        const source = own && recorded?.kind === 'builtin'
           ? { kind: 'builtin', bundled: true, version: String(recorded.version || ''), ...(release ? { releaseRepo: release.owner + '/' + release.repo } : {}) }
-          : pkg.name === 'dsh-tavern-image' ? { kind: 'builtin' }
+          : own && pkg.name === 'dsh-tavern-image' ? { kind: 'builtin' }
             : card ? (card.managed === true ? { kind: 'managed', modId: card.modId, builtin: firstPartyManifestIds.includes(card.modId) } : { kind: 'card' })
-              : recorded || { kind: 'folder' }
+              : recorded?.kind === 'builtin' ? { kind: 'folder' } : recorded || { kind: 'folder' }
         // Install sources from before the replaced flag: infer a past replacement from the backup's load record.
         const replacedBefore = !isDisabled && !problem && source.replaced === undefined && !status && !restart && (source.kind === 'github' || source.kind === 'zip')
           ? await replacedLoadedPlugin(folder)
           : false
+        const displayName = typeof pkg.displayName === 'string' ? pkg.displayName.trim() : ''
         return {
-          folder, name: String(pkg.name || folder), version: String(pkg.version || ''), description: String(pkg.description || ''),
+          folder, name: displayName || String(pkg.name || folder), version: String(pkg.version || ''), description: String(pkg.description || ''),
           source,
           enabled: !isDisabled,
           // An update replaces the folder while DSH keeps the old module; only a restart loads the new files.
@@ -658,8 +661,8 @@ export function createUserPluginInstaller({ dataRoot, fetchImpl = fetch, now = (
         const name = folderOf(folder)
         if (existsSync(path.join(paths.plugins, name, CARD_MARKER))) fail('这是人物卡自带的插件，请在人物卡库里停用')
         const pkg = await readJson(path.join(paths.plugins, name, 'package.json'))
-        if (pkg?.name === 'dsh-tavern-image') fail('这是内置配图插件，随酒馆提供，不可删除')
-        if ((await readJson(path.join(paths.plugins, name, SOURCE_FILE)))?.kind === 'builtin') fail('这是随酒馆提供的内置插件，不可删除；需要关掉时用「停用」')
+        if (pkg?.name === 'dsh-tavern-image' && name === pkg.name) fail('这是内置配图插件，随酒馆提供，不可删除')
+        if (name === pkg?.name && (await readJson(path.join(paths.plugins, name, SOURCE_FILE)))?.kind === 'builtin') fail('这是随酒馆提供的内置插件，不可删除；需要关掉时用「停用」')
         const kept = await backup(name)
         // The plugin's own data goes into the same backup, so reinstalling from there brings it back by hand.
         const data = pluginDataFile(dataRoot, String(pkg?.name || name))

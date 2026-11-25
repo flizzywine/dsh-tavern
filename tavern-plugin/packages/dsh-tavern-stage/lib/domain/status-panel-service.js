@@ -1,6 +1,7 @@
 // Pages are read live from the library card, not the game's frozen snapshot.
 import { rawData } from '../../../../lib/domain/card-preparation.js'
 import { readLedger } from '../../../../lib/domain/story-ledger.js'
+import playFeatures from '../../../../shared/play-features.cjs'
 import { locateCardPageAsset, listCardPageAssets, CARD_PAGE_THUMB_SIZES } from './card-page-assets.js'
 
 const LEDGER_BUDGET = 12288
@@ -34,12 +35,16 @@ export function createCardPagesService({ readWorkspace, chatForSession, index, p
       const value = await context(sessionId)
       if (!value?.pages.length) return { pages: [], fresh: false }
       const indexed = await index(sessionId)
+      // CCv3 extension beside dsh_tavern so older Tavern versions can still import this card and use the page's menu entry.
+      const target = value.card.extensions?.dsh_tavern_opening_end_page
+      const openingEndPage = value.pages.find(page => page.id === target && !page.opening)?.id
       return {
         pages: value.pages.map(({ id, label, shortcut, icon, menu, showOn, initial, opening, size = 'window', closeControl }) => ({
           id, label, size, ...(closeControl !== undefined ? { closeControl } : {}),
           ...(shortcut !== undefined ? { shortcut } : {}), ...(icon !== undefined ? { icon } : {}), ...(menu !== undefined ? { menu } : {}),
           ...(showOn !== undefined ? { showOn } : {}), ...(initial !== undefined ? { initial } : {}), ...(opening !== undefined ? { opening } : {})
         })),
+        ...(openingEndPage ? { openingEndPage } : {}),
         // never played: no player message, and not a game set up before it began (an opening page's kept greeting)
         fresh: value.chat.openingPrepared !== true && !(indexed?.messages || []).some(message => message.role === 'user')
       }
@@ -55,7 +60,7 @@ export function createCardPagesService({ readWorkspace, chatForSession, index, p
         card: { name: value.card.name },
         preload: await Promise.all((definition.preload || []).map(async ref => ({ ref, place: await locateCardPageAsset(packSnapshot, value.packs, ref) }))),
         ...(withHtml === true ? { html: definition.html } : {}),
-        data: { ledger: projectStatusPanelLedger(readLedger(value.chat.ledger), definition.ledger) }
+        data: { ledger: playFeatures.storyLedger ? projectStatusPanelLedger(readLedger(value.chat.ledger), definition.ledger) : {} }
       }
     },
     // The card's opening page (opening: true) reads the card's greetings and the openingSetup it completes.

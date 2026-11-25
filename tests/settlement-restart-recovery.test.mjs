@@ -19,8 +19,9 @@ import { createRoundHistory } from '../tavern-plugin/lib/domain/round-history.js
 import { createMvuSettlementEffect } from '../tavern-plugin/lib/domain/mvu-settlement-effect.js'
 import { POSTURE_SUBMIT_TOOL } from '../tavern-plugin/lib/domain/posture-submission.js'
 import { createPostureItem, plainSettlementPlan, runPipelineStages } from '../tavern-plugin/lib/domain/background-pipeline.js'
+import playFeatures from '../tavern-plugin/shared/play-features.cjs'
 
-async function harness({ beginRunning = true, mvu = true, beforeUpdate } = {}) {
+async function harness({ beginRunning = true, mvu = true, beforeUpdate, postureSummaryEnabled } = {}) {
   let current = { backgroundTasks: { posture: true, characterDesign: true, variables: true }, id: 'chat', sessionId: 'session', mode: 'story', messages: [], mvu: { enabled: mvu, owner: mvu ? 'official' : null } }
   let sequence = 0
   const timeline = createStoryTimeline({ id: prefix => prefix + ++sequence, now: () => 1000 + sequence })
@@ -46,6 +47,7 @@ async function harness({ beginRunning = true, mvu = true, beforeUpdate } = {}) {
   const running = beginRunning ? await tasks.begin(current, 'settlement') : null
   // The settlement's dependencies. The factories read them on every call, so tests swap services here.
   const sandbox = {
+    postureSummaryEnabled,
     storyEvents: createStoryEvents(), chatPersistence: { readWindow: async () => null }, readOpeningWindow: async () => null, serverScripts: null,
     taskStateReader: { forSession: async () => projectChatSessionState(await store.readChat()) },
     backgroundTasks: tasks, storyTimeline: timeline,
@@ -94,6 +96,25 @@ async function harness({ beginRunning = true, mvu = true, beforeUpdate } = {}) {
     sessions: { get: () => undefined }, scripts: {}, timeline, queueSettlement: async () => {}, present() {} })
   return { tasks, timeline, store, running, body, sandbox, history, onReady, reconciler, get: () => structuredClone(current) }
 }
+
+for (const mvu of [false, true]) test(`停用姿势总结后忽略旧开关，MVU=${mvu}`, async () => {
+  const run = await harness({ beginRunning: false, mvu, postureSummaryEnabled: playFeatures.postureSummary })
+  await run.store.writeChat({ ...run.get(), posture: '此前的姿势' })
+  let variableRuns = 0
+  run.sandbox.pluginApi.replaceSettlement = () => assert.fail('不应调用姿势结算插件')
+  run.sandbox.mvuSettlement.settleVariables = async input => {
+    variableRuns++
+    assert.equal(input.backgroundTasks.posture, false)
+    assert.equal(input.system, '')
+    return { receipt: { version: 1, status: 'unchanged', changes: [] }, posture: '副作用' }
+  }
+  await run.sandbox.runSettlement('chat')
+  const saved = run.get()
+  assert.equal(variableRuns, mvu ? 1 : 0)
+  assert.equal(saved.settleStatus, 'done')
+  assert.equal(saved.posture, '此前的姿势')
+  assert.equal(saved.backgroundTasks.posture, true)
+})
 
 test('旧版安全挂起任务离线时保留提交，不丢弃为失败', async () => {
   const run = await harness()

@@ -348,11 +348,14 @@ function useBubbleMedia(sessionId, character, mood, moods, wanted = true, outfit
 }
 function BubbleAvatar(props) {
     const h = React.createElement;
-    const moodLabel = bubbleMoodBadge(props.mood, props.moods, props.config, props.alias)?.label;
     const src = props.media?.src;
     const image = src ? h(PackImage, {identity:props.media.identity,src,crop:props.media.crop,avatar:props.media.avatar,originalSrc:props.media.originalSrc,alt:"",draggable:false}) : null;
     if (src && props.zoomable) return h("button", { type: "button", className: "fork-bubble-avatar fork-bubble-avatar-zoom", title: "查看大图",
-        onClick: function (event) { showPortrait(props.media, (props.name || "") + (moodLabel ? " · " + moodLabel : ""), portraitPreview(props.media, event.currentTarget)); } },
+        onClick: function (event) {
+            const {moodLabel} = props;
+            const anchor = event.nativeEvent?.tavernVisibleControl || event.currentTarget;
+            showPortrait(props.media, (props.name || "") + (moodLabel ? " · " + moodLabel : ""), portraitPreview(props.media, anchor));
+        } },
         image);
     if (src) return h("span", { className: "fork-bubble-avatar" }, image);
     // A faceless figure shows its name's first glyph. Loading: the shared spinner after 150 ms, restarted by a new
@@ -369,7 +372,6 @@ function BubbleRow(props) {
     const name = bubbleDisplayName(segment, config);
     const chars = Array.from(name);
     const moods = bubbleMoodList(config, character?.alias);
-    const mood = bubbleMood(segment.mood, moods);
     const badge = bubbleMoodBadge(segment.mood, moods, config, character?.alias);
     const row = React.useRef(null), [visible, setVisible] = React.useState(false);
     React.useEffect(() => bubbleViewport.watch(row.current, setVisible), []);
@@ -382,7 +384,7 @@ function BubbleRow(props) {
     const media = useBubbleMedia(props.sessionId, character, segment.mood, moods, visible, outfitKey);
     return h("div", { ref:row, className: "fork-bubble" + (segment.thought ? " fork-bubble-thought" : ""), style: { "--bubble-color": color, "--bubble-name-ink": figureName ? color : undefined }, "data-alias": segment.alias },
         h("div", { className: "fork-bubble-portrait" },
-            h(BubbleAvatar, { media: media, config: config, mood: segment.mood, moods: moods, color: color, name: name, alias: character?.alias, zoomable: true,
+            h(BubbleAvatar, { media, mood: segment.mood, moodLabel: badge?.label, name, alias: character?.alias, zoomable: true,
                 initial: character && !character.avatarMedia?.default ? chars[0] : "" }),
             props.voice ? h(VoiceButton, { voice: props.voice }) : null),
         h("div", { className: "fork-bubble-body" },
@@ -397,6 +399,32 @@ function BubbleRow(props) {
                 h("span", { className: "fork-bubble-line" }, segment.thought ? "（" + segment.text.replace(/^[（(]|[）)]$/g, "") + (segment.streaming ? "" : "）") : segment.text),
                 // 「从这里进入舞台」 after the last character of the line (StageParagraph); rendered here, not portalled.
                 props.enter || null)));
+}
+
+function TavernPluginDialogueBubbles({sessionId, owner, lines}) {
+    const h = React.createElement;
+    const segments = React.useMemo(() => lines.map(line => ({...line, kind: line.name ? 'bubble' : 'markdown'})), [lines]);
+    const select = React.useMemo(() => bubbleMessageSelector(segments), [segments]);
+    const config = useBubbles(sessionId, true, select)?.config;
+    const held = React.useSyncExternalStore(voiceChannel.subscribe, voiceChannel.held);
+    const activeStage = React.useSyncExternalStore(galActive.subscribe, galActive.get);
+    const stageAvailable = React.useSyncExternalStore(galStageAvailable.subscribe, galStageAvailable.get);
+    const canReplay = !held && activeStage !== sessionId && config?.voice?.enabled !== false;
+    React.useSyncExternalStore(voicePlayer.subscribe, () => {
+        const playing = voicePlayer.get();
+        return playing?.owner === owner ? JSON.stringify([playing.id, playing.loading, playing.error, playing.audio?.paused]) : '';
+    });
+    React.useEffect(() => () => { if (voicePlayer.get()?.owner === owner) voicePlayer.stopPlayback(); }, [owner, canReplay]);
+    return h('div', {className:'fork-bubbles'}, segments.map(segment => {
+        const {id, recording, text} = segment;
+        if (segment.kind !== 'bubble') return h('p', {key:id, className:'dsh-tavern-colored-markdown'}, text);
+        const voice = recording && canReplay ? {id, owner, sessionId, recorded:true, player:voicePlayer.get(),
+            click() { forkLipSync.wake(); void voicePlayer.playRecording(recording, {id, owner, cacheKey:JSON.stringify([owner, id, recording])}); }} : null;
+        const enter = stageAvailable && segment.stageTarget
+            ? h(StageEnterHere, {sessionId, target:segment.stageTarget}) : null;
+        const row = h(BubbleRow, {key:id, sessionId, segment, config, voice, enter});
+        return enter ? h(StageParagraph, {key:id}, row) : row;
+    }));
 }
 
 // Drop-in for TavernColoredMarkdown on assistant prose.

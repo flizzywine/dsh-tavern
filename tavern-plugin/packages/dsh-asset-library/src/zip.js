@@ -3,7 +3,7 @@
 import { createReadStream, createWriteStream } from 'node:fs'
 import { open, stat, unlink } from 'node:fs/promises'
 import { randomUUID } from 'node:crypto'
-import { Readable, Transform } from 'node:stream'
+import { Readable, Transform, Writable } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
 import { createDeflateRaw, createInflateRaw, crc32 } from 'node:zlib'
 
@@ -49,6 +49,7 @@ export async function writeZip(filename, entries, { onProgress } = {}) {
     let n = 0
     while (n < bytes.length) { const result = await out.write(bytes, n, bytes.length - n, position); n += result.bytesWritten; position += result.bytesWritten }
   }
+  const archiveSink = () => new Writable({ write(bytes, _encoding, done) { put(bytes).then(() => done(), done) } })
   try {
     for (const entry of entries) {
       const name = Buffer.from(zipPath(entry.path), 'utf8'), key = entry.path.toLowerCase()
@@ -58,7 +59,8 @@ export async function writeZip(filename, entries, { onProgress } = {}) {
       const spool = method ? filename + '.' + randomUUID() + '.tmp' : null
       const source = entry.stream ?? (() => entry.file ? createReadStream(entry.file) : Readable.from([Buffer.from(entry.data)]))
       const meter = new Transform({ transform(chunk, encoding, callback) {
-        size += chunk.length; crc = crc32(chunk, crc); consumed += chunk.length; onProgress?.(consumed)
+        size += chunk.length; crc = crc32(chunk, crc); consumed += chunk.length
+        try { onProgress?.(consumed) } catch (error) { callback(error); return }
         callback(size >= U32 ? new Error('ZIP entry exceeds 4 GiB') : null, chunk)
       } })
       const offset = position, header = Buffer.alloc(30)
@@ -70,7 +72,7 @@ export async function writeZip(filename, entries, { onProgress } = {}) {
         if (!method) {
           // header first with sizes unknown, the bytes straight after it, then the finished header over the first one
           await put(header); await put(name)
-          for await (const chunk of (await source()).compose(meter)) await put(chunk)
+          await pipeline(await source(), meter, archiveSink())
           compressedSize = size; writeHeader()
           let n = 0
           while (n < header.length) n += (await out.write(header, n, header.length - n, offset + n)).bytesWritten
@@ -80,8 +82,11 @@ export async function writeZip(filename, entries, { onProgress } = {}) {
           // Do not produce archives that our anti-bomb limits would reject.
           if (compressedSize >= size || size > Math.max(1, compressedSize) * ZIP_LIMITS.ratio) { method = 0; compressedSize = size }
           writeHeader(); await put(header); await put(name)
-          const content = method === 0 ? createReadStream(spool).compose(createInflateRaw()) : createReadStream(spool)
-          for await (const chunk of content) await put(chunk)
+          if (method === 0) {
+            // A very compressible entry can expand by orders of magnitude in one
+            // inflater write. Feed it smaller input blocks and stream the output.
+            await pipeline(createReadStream(spool, { highWaterMark: 4 * 1024 }), createInflateRaw(), archiveSink())
+          } else await pipeline(createReadStream(spool), archiveSink())
         }
         // an entry starting at or past 4 GiB keeps its offset in a ZIP64 extra field
         const zip64 = offset >= U32, cd = Buffer.alloc(46), extra = Buffer.alloc(zip64 ? 12 : 0)
@@ -118,7 +123,12 @@ export async function openZip(filename, limits = ZIP_LIMITS) {
     const tail = await bytesAt(handle, Math.min(length, 65557), Math.max(0, length - 65557))
     let end = -1
     for (let p = tail.length - 22; p >= 0; p--) if (tail.readUInt32LE(p) === 0x06054b50 && p + 22 + tail.readUInt16LE(p + 20) === tail.length) { end = p; break }
-    if (end < 0) throw new Error('ZIP end record is missing')
+    if (end < 0) {
+      if (length >= 4 && (await bytesAt(handle, 4, 0)).readUInt32LE(0) === 0x04034b50) {
+        throw Object.assign(new Error('ZIP end record is missing'), {code:'TAVERN_ZIP_INCOMPLETE'})
+      }
+      throw new Error('ZIP end record is missing')
+    }
     const endAt = length - tail.length + end
     let count = tail.readUInt16LE(end + 10), cdSize = tail.readUInt32LE(end + 12), declaredStart = tail.readUInt32LE(end + 16), cdEnd = endAt
     if (tail.readUInt16LE(end + 8) !== count) throw new Error('Multi-disk ZIP is not supported')
@@ -145,7 +155,7 @@ export async function openZip(filename, limits = ZIP_LIMITS) {
       const cd = await bytesAt(handle, 46, cursor)
       if (cd.readUInt32LE(0) !== 0x02014b50) throw new Error('Invalid ZIP central entry')
       const flags = cd.readUInt16LE(8), method = cd.readUInt16LE(10), crc = cd.readUInt32LE(16), nameSize = cd.readUInt16LE(28), extraSize = cd.readUInt16LE(30), commentSize = cd.readUInt16LE(32)
-      if (flags & (1 | 64 | 8192)) throw new Error('Encrypted ZIP entries are not supported')
+      if (flags & (1 | 64 | 8192)) throw Object.assign(new Error('Encrypted ZIP entries are not supported'), {code:'TAVERN_ZIP_ENCRYPTED'})
       if (flags & ~(0x800 | 8 | 6)) throw new Error('Unsupported ZIP flags')
       if (![0, 8].includes(method)) throw new Error('Unsupported ZIP method')
       const { size, compressedSize, offset: declaredOffset, disk } = zip64Fields(await bytesAt(handle, extraSize, cursor + 46 + nameSize), { size: cd.readUInt32LE(24), compressedSize: cd.readUInt32LE(20), offset: cd.readUInt32LE(42), disk: cd.readUInt16LE(34) })

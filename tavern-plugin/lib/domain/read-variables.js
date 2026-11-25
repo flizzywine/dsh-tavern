@@ -1,5 +1,5 @@
 import {createHash} from 'node:crypto'
-import {lastTavernHelperVariables} from './tavern-helper-context.js'
+import {lastTavernHelperVariables,latestTavernMessageVariableSnapshot} from './tavern-helper-context.js'
 const object=value=>value!==null&&typeof value==='object'
 const type=value=>value===null?'null':Array.isArray(value)?'array':typeof value
 const escape=value=>value.replace(/~/g,'~0').replace(/\//g,'~1')
@@ -8,11 +8,8 @@ const digest=value=>createHash('sha256').update(JSON.stringify(value)).digest('h
 
 // The game's latest saved stat_data (the newest floor that has one, else the chat's) and the turn it belongs to.
 export function currentVariableSnapshot(chat){
-  for(const message of [...(chat?.messages||[])].reverse()){
-    if(message.role==='tavern-helper')continue
-    const value=message.variables?.[message.swipeId||0]
-    if(object(value?.stat_data))return {snapshot:value.stat_data,turn:message.turn}
-  }
+  const selected=latestTavernMessageVariableSnapshot(chat?.messages,{statData:true})
+  if(selected)return {snapshot:selected.variables.stat_data,turn:selected.message.turn}
   return {snapshot:lastTavernHelperVariables([], chat?.variables)?.stat_data,turn:undefined}
 }
 
@@ -20,12 +17,8 @@ export function currentVariableSnapshot(chat){
 // settlement is still pending or did not save still holds the variables of an earlier turn, so it is skipped. A tool whose
 // records follow from the variables counts its records of later turns on top (tool-settlement-context.js).
 export function settledVariables(chat,before=chat?.messages?.length??0){
-  const messages=chat?.messages||[]
-  for(let index=Math.min(before,messages.length)-1;index>=0;index--){
-    const message=messages[index],value=message?.variables?.[message.swipeId||0]
-    if(message?.role!=='assistant'||!object(value?.stat_data)||message.mvu?.pending===true||['error','partial','stale','pending'].includes(message.mvu?.receipt?.status))continue
-    return {snapshot:value.stat_data,turn:Number(message.turn)||0}
-  }
+  const selected=latestTavernMessageVariableSnapshot(chat?.messages,{before,statData:true,settled:true})
+  if(selected)return {snapshot:selected.variables.stat_data,turn:Number(selected.message.turn)||0}
   return {snapshot:lastTavernHelperVariables([], chat?.variables)?.stat_data,turn:0}
 }
 

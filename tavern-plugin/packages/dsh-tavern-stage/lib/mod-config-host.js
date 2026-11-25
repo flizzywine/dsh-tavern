@@ -12,6 +12,7 @@ import {readCardVariableSources} from '../../../lib/domain/card-variable-binding
 import skinContract from '../../dsh-presentation-protocol/src/stage-skin.cjs'
 import {figureCatalogue,effectiveFigurePackIds} from '../../../lib/domain/figure-catalogue.js'
 import {ledgerSource,ledgerConfigExports,resolveStateSource,ledgerInventoryBinding} from '../../../lib/domain/mods/state-source.js'
+import playFeatures from '../../../shared/play-features.cjs'
 import {ASSET_PACK_RECORD_FIELD,readAssetPackRecord} from './domain/stage-asset-pack-director.js'
 const fail=(code,message)=>{throw Object.assign(new Error(message),{code})}
 
@@ -60,7 +61,7 @@ export function createModConfigHost({library,workbenchAuthority,root,store:manag
   const getPacks=async()=>register(getAssetLibrary())
   const cardPacks=createModConfigCardPacks({listCards,readCard,getPacks}),store=typeof managedStore==='function'?managedStore({cardPacks}):managedStore || createModConfigStore({root,cardPacks}),sources=createConfigSourceRegistry()
   for(const id of ['mvu','helper-chat'])sources.register({id,label:id==='mvu'?'MVU':'聊天变量',exports:[],read:ctx=>ctx.sources?.[id] || {available:false}})
-  sources.register({id:'ledger',label:'游玩台账',exports:ledgerConfigExports,read:ctx=>ctx.sources?.ledger || {available:false}})
+  if(playFeatures.storyLedger)sources.register({id:'ledger',label:'游玩台账',exports:ledgerConfigExports,read:ctx=>ctx.sources?.ledger || {available:false}})
   sources.register({id:'stage',label:'舞台',exports:stageConfigExports,read:ctx=>ctx.sources?.stage || {available:false}})
   for(const [id,schema] of Object.entries(schemas))sources.register({id:'mod:'+id,label:(managedManifests || manifests).find(row=>row.id===id).name,exports:schema.fields.map(field=>({path:'/'+field.key,name:field.label || field.key,type:field.valueType,description:field.label || field.key,settingKey:field.key})),read:({settings})=>settings})
   const service=createModConfigService({schemas,store,sources})
@@ -71,7 +72,7 @@ export function createModConfigHost({library,workbenchAuthority,root,store:manag
     if(indexed && !card){const workspace=await readCard(indexed.cardPath);if(!workspace)fail('NOT_FOUND','Session card unavailable');card={path:indexed.cardPath,workspace}}
     if(indexed && indexed.cardPath!==card.path)fail('NOT_FOUND','Session does not belong to card')
     if(!card)return {}
-    const engine=getEngine(),revision=JSON.stringify([cardAssetWorkspaceRevision(card.workspace),indexed?._storageRevision,engine.revision,engine.assetRevision,getGlobalEnabledPackIds(),indexed?.timeline?.branchId,indexed?.ledger])
+    const engine=getEngine(),revision=JSON.stringify([cardAssetWorkspaceRevision(card.workspace),indexed?._storageRevision,engine.revision,engine.assetRevision,getGlobalEnabledPackIds(),indexed?.timeline?.branchId,playFeatures.storyLedger?indexed?.ledger:null])
     const key=JSON.stringify([card.workspace.meta.id,args.sessionId,revision])
     if(cache.has(key))return cache.get(key)
     const source=indexed?await readCardVariableSources({path:card.path,indexed,readWindow,readRevision}):{},ext=rawData(card.workspace.raw).extensions?.dsh_tavern || {},stage={},labels={}
@@ -112,7 +113,7 @@ export function createModConfigHost({library,workbenchAuthority,root,store:manag
     const appearance=skin && skinContract.stageSkinAppearance(skin,state?.skin?.level)
     if(appearance?.ui){stage.skin=Object.fromEntries(Object.entries({surface:appearance.ui.bg,line:appearance.ui.border,accent:appearance.ui.accent}).filter(([,value])=>value!==undefined));labels['/skin/surface']='舞台皮肤';labels['/skin/line']='舞台皮肤'}
     source.stage={available:true,value:stage,labels}
-    source.ledger=ledgerSource(indexed)
+    if(playFeatures.storyLedger)source.ledger=ledgerSource(indexed)
     const stateSource=resolveStateSource({raw:card.workspace.raw,chat:indexed,sources:source})
     const value={cardId:card.workspace.meta.id,sessionId:args.sessionId,raw:card.workspace.raw,revision,sources:source,stateSource}
     cache.set(key,value);if(cache.size>32)cache.delete(cache.keys().next().value)

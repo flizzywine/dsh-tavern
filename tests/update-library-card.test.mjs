@@ -23,11 +23,21 @@ test('updater authenticates desktop cookies and replaces selected JSON path', as
     if (url.pathname === '/') return new Response('ready', { headers: { 'set-cookie': 'session=ready; Path=/' } })
     assert.match(options.headers.cookie, /session=ready/)
     if (url.pathname.endsWith('/getCard')) return json({ card: {}, replacementSupported: true })
+    if (url.pathname.endsWith('/card-upload')) {
+      assert.equal(options.headers['content-type'], 'application/octet-stream')
+      assert.equal(options.headers['content-length'], '2')
+      const parts = []
+      for await (const chunk of options.body) parts.push(chunk)
+      assert.equal(Buffer.concat(parts).toString(), '{}')
+      return json({ uploadId: 'staged', size: 2 })
+    }
     const body = JSON.parse(options.body)
+    assert.equal(body.uploadId, 'staged')
+    if (url.pathname.endsWith('/discardCardUpload')) return json({ removed: true })
     assert.equal(body.replacePath, input.cardPath)
-    assert.equal(body.payload.kind, 'text')
+    assert.equal(body.name, 'new.json')
     return json({ card: { updated: true, path: input.cardPath } })
   } })
   assert.equal(result.updated, true)
-  assert.deepEqual(routes, ['/pocket-login', '/', '/api/dsh-tavern/getCard', '/api/dsh-tavern/importCard'])
+  assert.deepEqual(routes, ['/pocket-login', '/', '/api/dsh-tavern/getCard', '/api/dsh-tavern/card-upload', '/api/dsh-tavern/importCardUpload', '/api/dsh-tavern/discardCardUpload'])
 })

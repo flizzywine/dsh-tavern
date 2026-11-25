@@ -14,7 +14,8 @@ function notifyPackChange(event) {
     // a pack's new revision changes who its names and aliases name: open chats' speakers re-resolve (bubbles.js watch).
     if (event?.packId && event.revision !== undefined) notifyTavernDataChanged(['asset-packs'], 'asset-library');
 }
-function usePackRevision(select) { return React.useSyncExternalStore(fn => { packListeners.add(fn); return () => packListeners.delete(fn); }, select || (() => packRevision)); }
+function subscribePackChanges(fn) { packListeners.add(fn); return () => packListeners.delete(fn); }
+function usePackRevision(select) { return React.useSyncExternalStore(subscribePackChanges, select || (() => packRevision)); }
 function packClient() { return packTransport?.available() ? packTransport.service : undefined; }
 // 舞台设置 ↔ 素材库 deep links. The target waits here until the library tab consumes it.
 let stageSidebar;

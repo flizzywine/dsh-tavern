@@ -1,3 +1,5 @@
+import { STYLE_REFERENCE_TOOL_NAME } from './style-reference-protocol.cjs'
+
 export const READ_LOREBOOK_TOOL = 'read_lorebook'
 export const LIST_LOREBOOK_TOOL = 'list_lorebook'
 export const GREP_LOREBOOK_TOOL = 'grep_lorebook'
@@ -25,7 +27,7 @@ export const FOREGROUND_TOOL_CATALOG = Object.freeze([
   { name: GREP_LOREBOOK_TOOL, label: '搜索世界书', description: '在本局世界书原文里全文搜索设定。', modes: ['story', 'script'] },
   { name: LIST_LOREBOOK_TOOL, label: '浏览世界书', description: '分页列出本局世界书条目标题。', modes: ['story', 'script'] },
   { name: 'read', label: '读取文件', description: '读取世界书、Skill 等资源的文件正文。', modes: ['story', 'script'] },
-  { name: 'style_reference_submit', label: '文风联想', description: '前台记录本轮笔调参考；还需本局开启文风联想。', modes: ['story'] },
+  { name: STYLE_REFERENCE_TOOL_NAME, label: '文风联想', description: '前台记录本轮笔调参考；还需本局开启文风联想。', modes: ['story'] },
   { name: 'tavern_recall_history', label: '召回历史', description: '按关键词或轮次检索已压缩的历史正文。' },
   { name: 'web_search', label: '联网搜索', description: '联网查找资料；还需本局开启「联网搜索」。' },
   { name: 'web_fetch', label: '读取网页', description: '读取网页正文；需全局开启网页读取，且本局开启联网搜索。' },

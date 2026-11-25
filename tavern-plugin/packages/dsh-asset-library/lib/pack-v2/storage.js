@@ -1,4 +1,5 @@
 import path from 'node:path'
+import { createReadStream } from 'node:fs'
 import { channel } from 'node:diagnostics_channel'
 const readTiming = channel('dsh.asset.read')
 import { lstat, readdir, mkdir, readFile, open, rename, rm, rmdir, copyFile } from 'node:fs/promises'
@@ -42,6 +43,13 @@ export function createPackStorage({assetRoot, limits, cardTransactions, mediaSto
     if (readTiming.hasSubscribers) readTiming.publish({name:'pack.read.' + (/^packs\/[^/]+\/manifest\.json$/.test(relative) ? 'manifest' : 'document'), packId:relative.split('/')[1]?.replace(/\.json$/, ''), bytes:bytes.length, durationMs:performance.now() - started})
     const figure = FIGURE_DOCUMENT.exec(relative)
     return figure ? wholeFigure(figure[1], figure[2], bytes) : bytes
+  }
+  async function* readSpooled(ref) {
+    const relative = path.relative(root, ref.file).split(path.sep).join('/')
+    const file = await locate(relative), info = await lstat(file)
+    check(info.isFile() && !info.isSymbolicLink(), relative, 'Reparse/special file rejected', 'INVALID_PATH')
+    check(info.size === ref.length, relative, 'Spooled file size changed', 'FILE_CLOSURE_MISMATCH')
+    yield* createReadStream(file)
   }
   // Bytes of whole figures read back from identity-less documents (their manifest rows are refreshed from these).
   const restored = new WeakSet()
@@ -335,7 +343,8 @@ export function createPackStorage({assetRoot, limits, cardTransactions, mediaSto
     for (const [name, bytes] of pack.files) {
       const descriptor = descriptors.get(name)
       // Lazy export/merge inputs hydrate one file at a time, not the entire source pack.
-      const source = bytes instanceof StoredFile || bytes instanceof SpooledFile ? await read(path.relative(root, bytes.file).split(path.sep).join('/'), bytes.length) : bytes
+      const source = bytes instanceof SpooledFile ? readSpooled(bytes)
+        : bytes instanceof StoredFile ? await read(path.relative(root, bytes.file).split(path.sep).join('/'), bytes.length) : bytes
       const figureId = /^figures\/([0-9a-f-]{36})\.json$/.exec(name)?.[1]
       if (figureId) {
         const figure = readDocument(source)

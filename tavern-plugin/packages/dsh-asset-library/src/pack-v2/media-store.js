@@ -38,26 +38,32 @@ export function createMediaStore({ root, linkFile = link, copyOnly = process.env
     try { await operation } finally { if (pending.get(ref.sha256) === operation) pending.delete(ref.sha256) }
   }
   // ref is host-only: a previously validated descriptor, never an untrusted declared hash.
-  // Byte inputs reuse it without hashing again; new streams derive their identity once.
+  // Byte inputs reuse it without hashing again; streams verify their identity while being written.
   async function put(source, { maxBytes = Infinity, ref } = {}) {
+    const byteInput = source instanceof Uint8Array
     if (ref) {
       validate(ref)
-      check(source instanceof Uint8Array && source.byteLength === ref.size, '$.ref', 'Media byte size mismatch', 'FILE_CLOSURE_MISMATCH')
+      check(!byteInput || source.byteLength === ref.size, '$.ref', 'Media byte size mismatch', 'FILE_CLOSURE_MISMATCH')
       check(ref.size <= maxBytes, '$.ref', 'Media exceeds budget', 'LIMIT_EXCEEDED')
-      if (await resolve(ref)) return { sha256: ref.sha256, size: ref.size }
+      if (byteInput && await resolve(ref)) return { sha256: ref.sha256, size: ref.size }
     }
     const temporary = await locate('tmp/' + randomUUID())
     await mkdir(path.dirname(temporary), { recursive: true })
-    const hash = ref ? null : createHash('sha256')
+    const hash = ref && byteInput ? null : createHash('sha256')
     let size = 0
     const meter = new Transform({ transform(chunk, _encoding, done) {
       size += chunk.length
       if (size > maxBytes) { done(Object.assign(new Error('Media exceeds budget'), { code: 'LIMIT_EXCEEDED' })); return }
+      if (ref && size > ref.size) { done(Object.assign(new Error('Media byte size mismatch'), { code: 'FILE_CLOSURE_MISMATCH' })); return }
       hash?.update(chunk); done(null, chunk)
     } })
     try {
-      await pipeline(source instanceof Uint8Array ? Readable.from([source]) : source, meter, createWriteStream(temporary, { flags: 'wx', flush: true }))
-      const stored = { sha256: ref?.sha256 || hash.digest('hex'), size }
+      await pipeline(byteInput ? Readable.from([source]) : source, meter, createWriteStream(temporary, { flags: 'wx', flush: true }))
+      const stored = { sha256: hash ? hash.digest('hex') : ref.sha256, size }
+      if (ref) {
+        check(size === ref.size, '$.ref', 'Media byte size mismatch', 'FILE_CLOSURE_MISMATCH')
+        check(stored.sha256 === ref.sha256, '$.ref', 'Media content hash mismatch', 'CONTENT_HASH_MISMATCH')
+      }
       await publish(temporary, stored)
       return stored
     } finally {
