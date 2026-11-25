@@ -59,9 +59,9 @@ import java.util.zip.GZIPInputStream;
 public final class TavernService extends Service {
     static final int PORT = 3081;
     static final String ACTION_START = "start", ACTION_STOP = "stop", ACTION_RESTART = "restart", ACTION_EXIT = "exit",
-            ACTION_RESET = "reset", ACTION_CHECK = "check", ACTION_SOURCE_UPDATE = "source-update",
+            ACTION_CHECK = "check", ACTION_SOURCE_UPDATE = "source-update",
             ACTION_DOWNLOAD_APK = "download-apk", ACTION_PREFS = "prefs", ACTION_APK_CHECK = "apk-check",
-            ACTION_LAN_SYNC = "lan-sync", ACTION_FACTORY_RESET = "factory-reset";
+            ACTION_LAN_SYNC = "lan-sync", ACTION_FACTORY_RESET = "factory-reset", ACTION_REPAIR = "repair";
     static final String PREFS = "launcher";
     // 新版安装包的发布信息：先读 GitHub raw（不滞后），失败再读 jsDelivr。与酒馆 Release 解耦，发新酒馆版本不影响它。
     static final String[] APK_FEEDS = {
@@ -96,6 +96,10 @@ public final class TavernService extends Service {
     // 启动页自动检查到的新版安装包：需要弹窗提示时非空（已排除用户跳过的版本）。
     static volatile JSONObject apkNotice;
     static volatile boolean apkForced; // 当前版本低于 minVersionCode：不能跳过
+    // 修复酒馆：完成后给界面弹窗的结果（repairReportAt 变化时弹一次）
+    static volatile String repairReport;
+    static volatile long repairReportAt;
+    static volatile boolean repairOk;
     private static final ArrayDeque<String> tail = new ArrayDeque<>();
 
     private final ExecutorService ops = Executors.newSingleThreadExecutor();
@@ -219,11 +223,10 @@ public final class TavernService extends Service {
                     stopForeground(STOP_FOREGROUND_REMOVE);
                     stopSelf();
                     break;
-                case ACTION_RESET:
+                case ACTION_REPAIR:
                     wantRunning = true;
                     stopServer();
-                    ensurePayload(true);
-                    startServer();
+                    repair();
                     break;
                 case ACTION_FACTORY_RESET:
                     wantRunning = true;
@@ -409,6 +412,81 @@ public final class TavernService extends Service {
         log((upgrade ? "程序文件已更新" : "解压完成") + "：写入 " + extractor.written + " 个，保留已有文件 " + extractor.kept
                 + " 个" + (keepSource ? "（保留热更新过的源码）" : "") + "，用时 " + (System.currentTimeMillis() - started) / 1000 + " 秒");
         progress = -1;
+    }
+
+    /**
+     * 修复酒馆：从轻到重，只移动不删除用户文件。
+     * 1. 清掉更新中途留下的中间产物；2. 数据体检（{@link DataRepair}），坏文件进 files/t/quarantine/&lt;时间&gt;；
+     * 3. 重新解出程序文件（撤销应用内更新），顺带补回缺失的自带文件；4. 启动并等服务就绪。
+     * 结果写进 repairReport 给界面弹窗，完整报告在 files/logs/repair.log。
+     */
+    private void repair() throws Exception {
+        long started = System.currentTimeMillis();
+        List<String> report = new ArrayList<>();
+        setPhase("preparing", "正在修复：清理更新留下的中间产物");
+        progress = -1;
+        for (String leftover : new String[]{"src.next", "update-backup", "pnpm-store"}) {
+            File f = new File(root, leftover);
+            if (f.exists()) {
+                deleteTree(f);
+                report.add("清掉中间产物 " + leftover);
+            }
+        }
+        DataRepair data = null;
+        if (new File(root, "home").isDirectory()) {
+            setPhase("preparing", "正在修复：检查存档和设置文件");
+            String stamp = new java.text.SimpleDateFormat("yyyyMMdd-HHmmss", Locale.ROOT).format(new java.util.Date());
+            data = new DataRepair(root, new File(root, "quarantine/" + stamp));
+            data.run();
+            report.addAll(data.notes);
+        }
+        status = "正在修复：重新解出程序文件";
+        ensurePayload(true);
+        report.add("已重新解出程序文件（应用内更新已撤销，可再检查更新）");
+        autoRestarts = 0;
+        synchronized (crashes) {
+            crashes.clear();
+        }
+        startServer();
+        boolean ok = waitRunning(180_000);
+
+        StringBuilder summary = new StringBuilder();
+        if (data != null) {
+            summary.append("检查了 ").append(data.checked).append(" 个数据文件");
+            if (data.restored + data.quarantined + data.trimmed + data.leftovers == 0) summary.append("，没有发现损坏。");
+            else {
+                summary.append("：");
+                List<String> parts = new ArrayList<>();
+                if (data.restored > 0) parts.add("用备份恢复 " + data.restored + " 个");
+                if (data.trimmed > 0) parts.add("修好 " + data.trimmed + " 个写到一半的记录");
+                if (data.quarantined > 0) parts.add("移走 " + data.quarantined + " 个损坏文件");
+                if (data.leftovers > 0) parts.add("清掉 " + data.leftovers + " 个临时文件");
+                summary.append(String.join("，", parts)).append("。");
+            }
+            if (data.unresolved > 0) summary.append("\n有 ").append(data.unresolved).append(" 处没能自动处理，详见日志。");
+            if (data.changed()) summary.append("\n移走的原文件保存在 ").append(data.quarantineRelative()).append("。");
+            if (data.credentialsReset) summary.append("\n模型与 API key 设置文件已损坏并重置，请重新填写。");
+        }
+        summary.append(summary.length() > 0 ? "\n" : "").append("程序文件已重新解出。");
+        summary.append(ok ? "\n\n酒馆已正常启动。" : "\n\n酒馆仍然无法启动。可以「分享日志」反馈问题；确认无法挽救时再用「完全重置」。");
+        repairOk = ok;
+        repairReport = summary.toString();
+        repairReportAt = System.currentTimeMillis();
+
+        File logs = new File(getFilesDir(), "logs");
+        logs.mkdirs();
+        StringBuilder full = new StringBuilder("修复于 ")
+                .append(new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.ROOT).format(new java.util.Date(started)))
+                .append("，用时 ").append((System.currentTimeMillis() - started) / 1000).append(" 秒，")
+                .append(ok ? "服务已就绪" : "服务未能启动").append('\n');
+        for (String line : report) full.append("- ").append(line).append('\n');
+        Files.write(new File(logs, "repair.log").toPath(), full.toString().getBytes(StandardCharsets.UTF_8));
+        for (String line : report) log("修复：" + line);
+        log("修复完成：" + (ok ? "服务已就绪" : "服务未能启动") + "，报告在 logs/repair.log");
+        if (!ok && process == null && error == null) {
+            error = "修复后酒馆仍无法启动";
+            setPhase("failed", "修复后仍无法启动");
+        }
     }
 
     /**

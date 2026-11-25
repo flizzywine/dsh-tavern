@@ -396,11 +396,6 @@ public final class MainActivity extends Activity {
             render();
         });
         listRow(tools, "分享日志", INK, v -> shareLogs());
-        listRow(tools, "重置程序文件", DANGER, v -> new AlertDialog.Builder(this)
-                .setTitle("重置程序文件")
-                .setMessage("重新解出安装包自带的程序文件（会撤销应用内更新）。存档、人物卡、API key 和模型设置都保留。")
-                .setPositiveButton("重置", (d, w) -> send(TavernService.ACTION_RESET))
-                .setNegativeButton("取消", null).show());
         listRow(tools, "退出", INK, v -> {
             send(TavernService.ACTION_EXIT);
             finishAndRemoveTask();
@@ -424,6 +419,11 @@ public final class MainActivity extends Activity {
         advancedChevron = (TextView) ((LinearLayout) advancedRow).getChildAt(1);
         advanced = card(c, 0);
         advanced.setPadding(dp(10), dp(4), dp(10), dp(4));
+        listRow(advanced, "修复酒馆", INK, v -> confirmRepair());
+        TextView repairHint = label(advanced, 12, MUTED, false);
+        repairHint.setText("进不去酒馆、反复退出或更新出错时先试这个：清理更新残留，检查并修好写坏的存档和设置，重新解出程序文件。存档、人物卡和设置都保留。");
+        repairHint.setPadding(dp(4), 0, dp(4), dp(10));
+        divider(advanced);
         listRow(advanced, "完全重置", DANGER, v -> confirmFactoryReset());
         TextView advancedHint = label(advanced, 12, MUTED, false);
         advancedHint.setText("酒馆文件损坏、无法进入也无法修复时使用：清除全部数据，恢复到刚安装的状态。");
@@ -588,6 +588,7 @@ public final class MainActivity extends Activity {
         }
         applyBarColor(BG);
         maybeShowApkNotice();
+        maybeShowRepairReport();
 
         String err = TavernService.error;
         int p = TavernService.progress;
@@ -822,6 +823,47 @@ public final class MainActivity extends Activity {
             send(TavernService.ACTION_PREFS);
         });
         noticeDialog = b.show();
+    }
+
+    // ---------------------------------------------------------------- 高级：修复酒馆
+
+    private long repairShownAt;
+
+    private void confirmRepair() {
+        new AlertDialog.Builder(this)
+                .setTitle("修复酒馆")
+                .setMessage("会先停止酒馆，然后：\n"
+                        + "· 清理更新中途留下的残留文件\n"
+                        + "· 检查存档、人物卡和设置，修好写到一半的文件；损坏且没有备份的移到隔离目录，不会删除\n"
+                        + "· 重新解出安装包自带的程序文件（会撤销应用内更新）\n\n"
+                        + "通常一分钟内完成，完成后自动启动酒馆。")
+                .setPositiveButton("开始修复", (d, w) -> {
+                    repairShownAt = TavernService.repairReportAt;
+                    showLauncher = true;
+                    send(TavernService.ACTION_REPAIR);
+                    render();
+                })
+                .setNegativeButton("取消", null)
+                .show();
+    }
+
+    /** 修复完成后在启动页弹一次结果。 */
+    private void maybeShowRepairReport() {
+        long at = TavernService.repairReportAt;
+        String report = TavernService.repairReport;
+        if (at == 0 || at == repairShownAt || report == null) return;
+        repairShownAt = at;
+        AlertDialog.Builder b = new AlertDialog.Builder(this)
+                .setTitle(TavernService.repairOk ? "修复完成" : "修复未能解决问题")
+                .setMessage(report)
+                .setPositiveButton(TavernService.repairOk ? "进入酒馆" : "知道了", (d, w) -> {
+                    if (TavernService.repairOk) {
+                        showLauncher = false;
+                        render();
+                    }
+                });
+        if (!TavernService.repairOk) b.setNeutralButton("分享日志", (d, w) -> shareLogs());
+        b.show();
     }
 
     // ---------------------------------------------------------------- 高级：完全重置（两次警告）
