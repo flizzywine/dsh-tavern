@@ -1,4 +1,5 @@
 import { isMvuUpdateEntry } from './worldbook-recall.js'
+import { worldBookChannel } from './worldbook-channel.js'
 
 export function hasWorldbookPreprocessingSyntax(entry = {}) {
   return /^@@/m.test(String(entry.content || '')) || /\[(?:GENERATE:|RENDER:|InitialVariables|Preprocessing)|@INJECT/.test(String(entry.content || '') + '\n' + String(entry.comment || entry.title || ''))
@@ -14,12 +15,10 @@ export function hasInitialVariablesEntry(entry) {
   return /@@initial_variables\b/.test(body) || /\[InitialVariables\]/i.test(comment)
 }
 
-// Optional plot entries are knowledge, not programs. Keep existing constant
-// MVU delivery in place so this migration does not move it into the system prefix.
+// Plot entries follow the ordinary placement and rendering rules.
 function hasRuntimeLabel(entry) {
   const name = String(entry.comment || entry.title || '')
-  return /\[(?:initvar|initialvariables|mvu[_ -](?!plot\]))/i.test(name) ||
-    (entry.constant === true && /\[mvu[_ -]plot\]/i.test(name))
+  return /\[(?:initvar|initialvariables|mvu[_ -](?!plot\]))/i.test(name)
 }
 
 /** Conservative, execution-free classification of authoritative worldbook entries.
@@ -45,9 +44,13 @@ export function classifyWorldbookEntry(entry = {}) {
     })
     if (/\{\{|\}\}/.test(remainder)) nativeFallback = true
   }
+  const channel = worldBookChannel(entry)
   const constant = entry.constant === true
-  return { kind: dynamic ? (constant ? 'dynamic-constant' : 'dynamic-conditional') : (constant ? 'static-constant' : 'static-skill'),
-    dynamic, constant, dependencies, nativeFallback, occasion: nativeFallback ? 'request' : 'dependency' }
+  const kind = dynamic
+    ? (constant || channel !== 'auto' ? 'dynamic-constant' : 'dynamic-conditional')
+    : channel === 'tail' ? 'static-tail'
+      : (channel === 'prefix' || constant) ? 'static-constant' : 'static-skill'
+  return { kind, channel, dynamic, constant, dependencies, nativeFallback, occasion: nativeFallback ? 'request' : 'dependency' }
 }
 
 /** Optional static knowledge is searchable; runtime rules retain native delivery. */

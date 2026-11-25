@@ -96,9 +96,42 @@ function TurnMenu(props) {
             props.latest ? h(TavernRollbackAction, props) : null)) : null);
 }
 
+function CardWorkbenchTurnActions(props) {
+    const h = React.createElement;
+    const allowed = typeof props.useAccess !== "function" || props.useAccess("session/fork");
+    const busy = React.useRef(false);
+    const marker = React.useRef(null);
+    const [forking, setForking] = React.useState(false);
+    React.useLayoutEffect(function () {
+        const tail = marker.current?.closest("[data-turn-tail]");
+        if (!tail) return;
+        tail.setAttribute("data-dsh-tavern-workbench-actions", "");
+        return () => tail.removeAttribute("data-dsh-tavern-workbench-actions");
+    }, []);
+    async function fork() {
+        if (busy.current) return;
+        busy.current = true;
+        setForking(true);
+        try {
+            const result = await rpc("forkCardWorkbench", { sessionId: props.sessionId, messageId: props.messageId }, props.sessionId);
+            const sessionId = result.fork.sessionId;
+            publishSessionMode(sessionId, "card");
+            notifyTavernDataChanged(["sessions"], "conversation.workbench-fork");
+            await props.openSession(sessionId);
+        } catch (error) { tavernErrorHub.report("工作台对话分支", error); }
+        finally { busy.current = false; setForking(false); }
+    }
+    const label = "在新对话中分支";
+    return h("span", { ref: marker, className: "dsh-tavern-workbench-turn-actions" },
+        allowed && props.messageId ? h(DshUi.Tooltip, { label: forking ? "正在创建分支…" : label, side: "bottom" },
+            h("button", { type: "button", className: "dsh-tavern-message-fork", "aria-label": label, disabled: forking, onClick: fork },
+                h(DshUi.IconBranchOutlineRegular))) : null);
+}
+
 function TurnActions(props) {
     const mode = useTavernSessionMode(props.sessionId);
     const latestMessageId = props.useChat(latestTavernAssistantMessageId);
+    if (mode === "card") return React.createElement(CardWorkbenchTurnActions, props);
     if (!isPlayMode(mode) || !props.messageId) return null;
     const latest = props.messageId === latestMessageId;
     const h = React.createElement;

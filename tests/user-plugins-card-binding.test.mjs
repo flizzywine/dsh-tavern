@@ -43,6 +43,21 @@ async function fixture(t) {
 }
 
 
+test('one unreadable card binding does not block startup synchronization for healthy cards', async t => {
+  const f = await fixture(t)
+  await f.bind('a')
+  await f.bind('a', true, otherCardPath)
+  await writeFile(castManifestPath(f.dataRoot, cardPath), '{"plugins":[')
+  const warnings = []
+  const result = await f.sync({ logger: { warn: message => warnings.push(message) } })
+  assert.deepEqual(result.plugins.map(({folder, cardIds}) => ({folder, cardIds})), [{folder: folder('a'), cardIds: [otherCardPath]}])
+  assert.match(warnings[0], /素材清单无法读取.*cards\/card-id-a\.json/)
+  assert.equal(await readFile(castManifestPath(f.dataRoot, cardPath), 'utf8'), '{"plugins":[')
+  await rm(castManifestPath(f.dataRoot, otherCardPath))
+  const isolated = await f.sync()
+  assert.deepEqual(isolated.plugins, [])
+})
+
 test('真实 Cordis 身份：启动纠正旧 patch，绑定切换重启前拒绝，重启后加载新版', async t => {
   const f = await fixture(t)
   await f.bind('a')

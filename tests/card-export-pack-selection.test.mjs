@@ -56,3 +56,18 @@ test('card export embeds exactly the switched-on packs, global ones bound to the
   assert.equal((await f.adapter.snapshot({path:'source'})).revision, snap.revision)
   assert.deepEqual(rawData((await f.adapter.snapshot({path:'source'})).raw).extensions.dsh_tavern.assetBindings.boundPackIds, [a, b])
 })
+
+// The asset library reaches the Tavern card adapter only through its plugin's method list (pack-v2/plugin.js); a method the
+// service calls but the list lacks fails in the running app only (retainRaw did, on the first chosen-pack DSH export).
+test('the asset library plugin forwards every card adapter method the pack service calls', async () => {
+  const {readFile, readdir} = await import('node:fs/promises')
+  const dir = new URL('../tavern-plugin/packages/dsh-asset-library/src/pack-v2/', import.meta.url)
+  const plugin = await readFile(new URL('plugin.js', dir), 'utf8')
+  const forwarded = new Set(JSON.parse(plugin.match(/const cards = Object\.fromEntries\((\[[^\]]+\])/)[1].replaceAll("'", '"')))
+  const called = new Set()
+  for (const name of await readdir(dir)) if (name.endsWith('.js')) for (const match of (await readFile(new URL(name, dir), 'utf8')).matchAll(/adapter\(\)\.(\w+)\(/g)) called.add(match[1])
+  assert.ok(called.has('retainRaw'))
+  assert.deepEqual([...called].filter(method => !forwarded.has(method)), [])
+  const adapter = createCardBundleAdapter({cardPreparation:createCardPreparation()})
+  assert.deepEqual([...forwarded].filter(method => typeof adapter[method] !== 'function'), [])
+})

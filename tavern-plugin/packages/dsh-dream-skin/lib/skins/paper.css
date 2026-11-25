@@ -1047,7 +1047,7 @@ aside.dsh-tavern-status,
   background: rgba(var(--white-rgb),.55) !important;
 }
 
-/* 6.8 左栏底部：一行版本号 + 悬浮才出现的“检查更新” */
+/* 6.8 左栏底部：版本号和检查更新 */
 .dsh-tavern-update {
   margin-top: auto !important;
   padding: 10px 12px 4px !important;
@@ -1064,11 +1064,7 @@ aside.dsh-tavern-status,
 }
 .dsh-tavern-update-actions {
   margin-left: auto;
-  opacity: 0;
-  transition: opacity .15s ease-out;
 }
-.dsh-tavern-update:hover .dsh-tavern-update-actions,
-.dsh-tavern-update:focus-within .dsh-tavern-update-actions { opacity: 1; }
 .dsh-tavern-update-button {
   font-size: 11px !important;
   padding: 2px 6px !important;

@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
+import { withStyleReferenceProtocol } from './helpers/style-reference-source.mjs'
 import vm from 'node:vm'
 
 import { createSessionViewReader } from '../tavern-plugin/lib/domain/session-view-reader.js'
@@ -9,7 +10,7 @@ import { createSessionViewReader } from '../tavern-plugin/lib/domain/session-vie
 // 请求。这里分别锁住：过期判断必须是「版本 + 窗口签名」而不是只看版本；快速连切
 // 必须真的打断上一条读。
 
-const dataSource = await readFile(new URL('../tavern-plugin/src/client/features/story-transcript-data.js', import.meta.url), 'utf8')
+const dataSource = await readFile(new URL('../tavern-plugin/src/client/features/story-transcript-data.js', import.meta.url), 'utf8').then(withStyleReferenceProtocol)
 function loadDataModule() {
 	const sandbox = { console, AbortController, setTimeout, clearTimeout, queueMicrotask, React: {} }
 	vm.createContext(sandbox)

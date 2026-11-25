@@ -137,7 +137,8 @@ test('规划只收文字及清单，结构化subjects到实际图片编号绑定
   assert.match(prompts[0].system, /subjects/)
   // The fixed output template shows <subjects> too; a template without it is copied and the picture loses its references.
   assert.match(prompts[0].system, /<size>\.\.\.<\/size><subjects>\[\{"characterId"/)
-  assert.match(prompts[0].system, /不再描述年龄、性别、面部、发型或固有体型等固定身份属性/)
+  assert.match(prompts[0].system, /性别、年龄和固定外貌由后端按人物库与参考图绑定/)
+  assert.match(prompts[0].system, /正文称谓或代词只用来定位人物，不能用来判断性别/)
   assert.match(prompts[0].system, /一个可同时成立的定格姿态/)
   assert.match(prompts[0].system, /不为解释光线新增窗帘、开口、掀布或光源/)
   assert.match(prompts[0].system, /不擅自改设画风/)

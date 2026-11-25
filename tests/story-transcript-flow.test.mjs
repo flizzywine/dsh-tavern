@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
+import { withStyleReferenceProtocol } from './helpers/style-reference-source.mjs'
 import vm from 'node:vm'
 import React, { act } from 'react'
 import { createRoot } from 'react-dom/client'
@@ -9,7 +10,7 @@ import { createSessionSignalTransport } from '../tavern-plugin/lib/domain/sessio
 import { projectStoryTranscript } from '../tavern-plugin/lib/domain/story-transcript.js'
 import { syncClock } from './fixtures/sync-clock.mjs'
 
-const dataSource = await readFile(new URL('../tavern-plugin/src/client/features/story-transcript-data.js', import.meta.url), 'utf8')
+const dataSource = await readFile(new URL('../tavern-plugin/src/client/features/story-transcript-data.js', import.meta.url), 'utf8').then(withStyleReferenceProtocol)
 const refreshSource = await readFile(new URL('../tavern-plugin/src/client/modules/session-refresh-controller.js', import.meta.url), 'utf8')
 const hostChatFlowSource = await readFile(new URL('../tavern-plugin/src/client/host/chat-flow.js', import.meta.url), 'utf8')
 const listSource = await readFile(new URL('../tavern-plugin/src/client/features/story-transcript-list.js', import.meta.url), 'utf8')

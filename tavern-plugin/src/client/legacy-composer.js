@@ -252,15 +252,16 @@ function createTavernComposerWindow(frame, host = frame.parent) {
         const value = Reflect.get(target, key, target);
         if (typeof value !== 'function') return value;
         return function (...args) {
-          const run = () => value.apply(target, args.map(unwrap));
+          const nodes = args.map(unwrap);
           const artifacts = frame.frameElement?.__dshTavernHostArtifacts;
-          return mutations.has(key) && artifacts ? artifacts.mutateRoot(target, run) : run();
+          const run = () => value.apply(target, nodes);
+          return mutations.has(key) && artifacts ? artifacts.mutateRoot(target, key, nodes, run) : run();
         };
       },
       set(target, key, value) {
         const run = () => Reflect.set(target, key, value, target);
         const artifacts = frame.frameElement?.__dshTavernHostArtifacts;
-        return key === 'innerHTML' && artifacts ? artifacts.mutateRoot(target, run) : run();
+        return key === 'innerHTML' && artifacts ? artifacts.mutateRoot(target, key, [], run) : run();
       }
     });
     roots.set(root, proxy); nativeRoots.set(proxy, root);

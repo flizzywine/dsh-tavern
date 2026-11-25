@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url'
 import test from 'node:test'
 import { JSDOM } from 'jsdom'
 import { createPluginDataStore } from '../tavern-plugin/lib/domain/plugin-data-store.js'
-import { apply as applyMedals, name as medalPlugin } from '../tavern-plugin/packages/dsh-tavern-adventure-medal/lib/index.js'
+import { apply as applyMedals, name as medalPlugin } from '../tavern-plugin/packages/dsh-tavern-achievements/lib/index.js'
 import { readAchievementLibrary } from '../tavern-plugin/packages/dsh-tavern/lib/achievements.mjs'
 
 const source = await readFile(new URL('../tavern-plugin/packages/dsh-tavern/client.js', import.meta.url), 'utf8')
@@ -144,7 +144,7 @@ test('正式启动器没有成就测试入口，解锁后刷新已经打开的�
     assert.match(win.document.querySelector('.pb-achievement-library [role="alert"]').textContent, /启用成就插件/)
     const contextChars = 9800
     tiers = [{ ...tiers[0], earned: true, cardName: '测试卡乙', cover: coverB, contextChars }, ...tiers.slice(1)]
-    await page.act(async () => win.dispatchEvent(new win.Event('dsh-tavern-adventure-medal:unlocked')))
+    await page.act(async () => win.dispatchEvent(new win.Event('dsh-tavern-achievements:unlocked')))
     const library = win.document.querySelector('.pb-achievement-library')
     assert.doesNotMatch(page.text(), /成就测试|神话/)
     assert.equal(library.querySelector('.pb-achievement-card').dataset.tier, 'starter')
@@ -188,7 +188,7 @@ test('启动器从旧存档补记成就，保留原卡片并继续提示新结�
 
   const store = createPluginDataStore({ dataRoot })
   const existing = { id: 'gold', title: '史诗', rounds: 500, earned: true, unlockedAt: createdAt, cardName: '已解锁档位' }
-  await store.save(medalPlugin, { version: 1, achievements: [
+  await store.save('dsh-tavern-adventure-medal', { version: 1, achievements: [
     { id: 'starter', title: '佳作', rounds: 50, earned: true, unlockedAt: null },
     existing,
   ] })
@@ -236,6 +236,8 @@ test('启动器从旧存档补记成就，保留原卡片并继续提示新结�
     assert.equal(saved[1].contextChars, 202)
     assert.equal(saved[2].turnCount, 300)
     assert.deepEqual(saved[3], existing)
+    assert.deepEqual((await store.read(medalPlugin)).achievements[3], existing)
+    assert.equal((await store.read('dsh-tavern-adventure-medal')).achievements.length, 2)
     assert.deepEqual(notifications, [])
 
     await clickRefresh()
@@ -393,6 +395,35 @@ test('Windows 独立酒馆显示更新检查和原生桌面更新指引', async 
     await page.act(async () => namedButton(page, '检查更新').click())
     assert.ok(page.calls.some(([endpoint]) => endpoint === 'check-update'))
     assert.equal(namedButton(page, '更新酒馆'), undefined)
+  } finally {
+    await page.dispose()
+  }
+})
+
+test('CLI 复用启动器更新面板，连接中断后继续跟踪安装结果', async () => {
+  const status = { host: 'cli', updateSupported: true }
+  let update = { phase: 'idle', canUpdate: true, currentVersion: '3.4.0' }
+  const page = await mount(status, [], { rpc: async endpoint => {
+    if (endpoint === 'status') return { ok: true, value: status }
+    if (endpoint === 'achievements') return { ok: true, value: [] }
+    if (endpoint === 'check-update') update = { ...update, phase: 'update-available', latestVersion: '3.4.1' }
+    if (endpoint === 'start-update') throw new Error('连接暂时断开')
+    return { ok: true, value: update }
+  } })
+  try {
+    assert.equal(page.label(), '酒馆启动器')
+    assert.match(page.text(), /命令行版.*酒馆版本与更新/)
+    assert.equal(page.button(), null)
+    assert.doesNotMatch(page.text(), /切换到原版|桌面快捷方式|安装位置/)
+    await page.act(async () => namedButton(page, '检查更新').click())
+    assert.match(page.text(), /最新发布v3\.4\.1/)
+    assert.match(page.text(), /自动重启酒馆服务/)
+    await page.act(async () => namedButton(page, '更新酒馆').click())
+    assert.equal(namedButton(page, '检查更新'), undefined)
+    update = { ...update, phase: 'completed', currentVersion: '3.4.1' }
+    await page.act(async () => { await new Promise(resolve => setTimeout(resolve, 1550)) })
+    assert.match(page.text(), /酒馆服务已重启。刷新页面即可加载新版界面。/)
+    assert.equal(page.calls.filter(([endpoint]) => endpoint === 'start-update').length, 1)
   } finally {
     await page.dispose()
   }

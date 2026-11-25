@@ -202,9 +202,10 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
   const cardPackAction=(row,decision)=>({noop:'已装过相同的',install:'新安装',update:'替换原来的','keep-both':cardPackAsks(row)?'另存一份':'和已安装的重复，另存一份'})[decision]||'';
   const CARD_IMPORT_FILE='这个文件不是卡片 ZIP，或者已经损坏。';
   const CARD_IMPORT_ERRORS={INVALID_INPUT:CARD_IMPORT_FILE,INVALID_PATH:CARD_IMPORT_FILE,FILE_CLOSURE_MISMATCH:CARD_IMPORT_FILE,LIMIT_EXCEEDED:'文件太大，或者磁盘空间不够。',DISK_FULL:'磁盘空间不够，没有导入，也没有留下半个文件。腾出空间后再试一次。',
+    TAVERN_ZIP_INCOMPLETE:'卡包文件不完整，请重新下载或导出后再试。',TAVERN_ZIP_ENCRYPTED:'这个卡包已加密。请选择原始的 .dshcard 文件，或把改过的文件后缀改回 .dshcard。',
     DUPLICATE_ID:'里面的素材和已安装的冲突，不能导入。',REVISION_CONFLICT:'卡片或素材刚刚被改过，请重试。',ASSET_UNAVAILABLE:'暂时无法导入，请重试。',
     NOT_FOUND:'找不到这张卡，请重新打开后再试。',RECOVERY_REQUIRED:'舞台素材需要恢复，请重启后再试。'};
-  const CARD_IMPORT_PICK=new Set(['INVALID_INPUT','INVALID_PATH','FILE_CLOSURE_MISMATCH','LIMIT_EXCEEDED','DUPLICATE_ID']);
+  const CARD_IMPORT_PICK=new Set(['INVALID_INPUT','INVALID_PATH','FILE_CLOSURE_MISMATCH','TAVERN_ZIP_INCOMPLETE','TAVERN_ZIP_ENCRYPTED','LIMIT_EXCEEDED','DUPLICATE_ID']);
   // reading a card from an address says what failed and what to do — the HTTP
   // status the host passes in `detail` (pack-transport.js), no network, not a card ZIP, too large. `file` here means
   // 「换一个网址」 (the address sheet again, address kept); `again` means 「重试」.
@@ -352,8 +353,8 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
           sent&&h('span',{className:'ap-card-import-progress'},cardUploadMb(sent.loaded,sent.total)+' / '+cardUploadMb(sent.total,sent.total)+' MB')))));
       foot=h(Button,{onClick:onClose},'取消');
     } else if(read.phase==='error'){
-      const failure=read.failure;
-      body=h(React.Fragment,null,h('div',{className:'ap-cat-hero'},h(CardCover,{name:fileStem(sourceName)}),h('div',{className:'ap-cat-hero-text'},h('h3',{className:'ap-cat-hero-name'},fileStem(sourceName)))),
+      const failure=read.failure,fileName=file?.name||fileStem(sourceName);
+      body=h(React.Fragment,null,h('div',{className:'ap-cat-hero'},h(CardCover,{name:fileName}),h('div',{className:'ap-cat-hero-text'},h('h3',{className:'ap-cat-hero-name',title:fileName},fileName))),
         h(CatBand,{role:'alert'},failure.text));
       foot=h(React.Fragment,null,h(Button,{onClick:onClose},'关闭'),
         failure.file&&onPick?h(Button,{primary:true,onClick:onPick},url?'换一个网址':'换一个文件'):h(Button,{primary:true,onClick:()=>setAttempt(n=>n+1)},'重试'));
@@ -511,6 +512,9 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
     // 导出 in the 素材库 — an arrow up out of an open box (never the ⤓ of 获取素材包).
     share:'M8 9.5V2.5M5.5 5 8 2.5 10.5 5M6 7H4.5a1 1 0 0 0-1 1v4.5a1 1 0 0 0 1 1h7a1 1 0 0 0 1-1V8a1 1 0 0 0-1-1H10',copy:'M5.5 5.5h7v8h-7zM3.5 10.5v-8h7',remove:'M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.7 9h5.6l.7-9M7 7v4M9 7v4',card:'M4.5 2.5h7a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1h-7a1 1 0 0 1-1-1v-9a1 1 0 0 1 1-1zM8 8a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3zM5.8 11.2c.4-1 1.2-1.6 2.2-1.6s1.8.6 2.2 1.6',
     // Character modal tools (panel-ui-design.md §六之二).
+    // 人物卡库's 导入 menu: 选择本地文件… and 从网址导入….
+    folder:'M2 4.5a1 1 0 0 1 1-1h3l1.5 1.5H13a1 1 0 0 1 1 1V12a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1z',
+    link:'M6.8 9.2a2.5 2.5 0 0 0 3.5 0l2.2-2.2A2.5 2.5 0 0 0 9 3.5l-.9.9M9.2 6.8a2.5 2.5 0 0 0-3.5 0L3.5 9A2.5 2.5 0 0 0 7 12.5l.9-.9',
     plus:'M8 3v10M3 8h10',upload:'M8 10.5V3M5 6l3-3 3 3M3 10.5v2.5h10v-2.5',crop:'M4.5 1.5v10h10M1.5 4.5h10v10',ruler:'M2 10.5 10.5 2l3.5 3.5L5.5 14zM5.2 8.3l1.3 1.3M7.2 6.3l1.9 1.9M9.2 4.3l1.3 1.3',
     // 查看大图 and 调整后重试… in the 差分 tile menus and the 生图 records.
     eye:'M1.5 8s2.5-4.5 6.5-4.5S14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8zM8 10a2 2 0 1 0 0-4 2 2 0 0 0 0 4z',sliders:'M2.5 4.5h6M11.5 4.5h2M2.5 11.5h2M7.5 11.5h6M10 3v3M6 10v3',
@@ -938,13 +942,28 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
       packs.length>8&&h(PackSearchBox,{label:'搜索素材包',value:query,onChange:setQuery,className:'is-compact'}),
       list.length>0&&h('div',{className:'ap-target-list'},list.map(p=>h('button',{key:p.manifest.id,type:'button',role:'menuitem',className:'ap-menu-item',onClick:()=>{close();onPick({packId:p.manifest.id,name:p.manifest.name});}},p.manifest.name))));
   }
-  function EntryActionsMenu({packs,packId,busy,close,onCopy,remove,changeEnabled}) {
-    const [copying,setCopying]=React.useState(false);
-    if(copying)return h(PackTargetMenu,{packs,exclude:packId,close,onPick:onCopy});
+  // 复制到… / 移动到… open the same pack list; 移动 then asks once (MoveConfirm).
+  function EntryActionsMenu({packs,packId,busy,close,onCopy,onMove,remove,changeEnabled}) {
+    const [picking,setPicking]=React.useState(null);
+    if(picking)return h(PackTargetMenu,{packs,exclude:packId,close,onPick:picking==='move'?onMove:onCopy,createLabel:picking==='move'?'创建并移动':'创建并复制'});
     return h(React.Fragment,null,
       changeEnabled&&[true,false].map(enabled=>h(MenuItem,{key:String(enabled),disabled:busy,onClick:()=>{close();changeEnabled(enabled);}},enabled?'开启':'关闭')),
-      onCopy&&h(MenuItem,{disabled:busy,onClick:()=>setCopying(true)},'复制到…'),
-      (changeEnabled||onCopy)&&h('div',{className:'ap-menu-sep',role:'separator'}),remove(close));
+      onCopy&&h(MenuItem,{disabled:busy,onClick:()=>setPicking('copy')},'复制到…'),
+      onMove&&h(MenuItem,{disabled:busy,onClick:()=>setPicking('move')},'移动到…'),
+      (changeEnabled||onCopy||onMove)&&h('div',{className:'ap-menu-sep',role:'separator'}),remove(close));
+  }
+  // 移动到… asks once: what goes where, and — for the cards that use the source pack but not the target — whether to bind
+  // the target to them too (checked by default; unchecked, those cards and their saves no longer find the moved items).
+  function MoveConfirm({move,onClose}) {
+    const [bind,setBind]=React.useState(true);
+    const names=move.cards.map(card=>'「'+(card.name||card.path)+'」').join('、');
+    return h(ConfirmDialog,{title:'移动到「'+move.target.name+'」',confirmLabel:'移动',onClose,
+      body:(move.count>1?'这 '+move.count+' 项':'「'+move.label+'」')+'会从「'+move.source+'」搬到「'+move.target.name+'」，原包里不再有'+(move.count>1?'它们':'它')+'。旧存档照常显示。',
+      onConfirm:()=>{move.run(move.cards.length&&bind?move.cards:[]);}},
+      move.cards.length>0&&h('div',{className:'ap-move-bind'},
+        h('p',null,(move.cards.length>1?'这些卡':'这张卡')+'用着原包，但还没绑「'+move.target.name+'」：'),
+        h('button',{type:'button',role:'checkbox','aria-checked':bind,className:'ap-check-row',onClick:()=>setBind(v=>!v)},
+          h('span',{className:'ap-check-mark','aria-hidden':true},bind&&h(Glyph,{name:'check'})),h('span',null,'同时把「'+move.target.name+'」绑到'+names+(move.cards.length>1?' 这些卡上':' 卡上')))));
   }
   // Every still-image picker: explicit extensions, so the system file dialog lists them all; prepareImage decodes any of
   // them and re-encodes what the pack does not store (PNG / WebP) — a GIF becomes its first frame.
@@ -1021,6 +1040,18 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
   // no state tag in the header — the pack's 全局 / 本卡 / 关闭 is set in the library list, not inside the pack). ctx: card context or null.
   // onClose(changed): `changed` tells the caller its cached pack snapshots are stale.
   // nav: the host's tab navigation (openTab) — the library's own, or the card context's (舞台设置).
+  // The pack window's title: the pack's name as plain text that edits in place (the shared inline edit look); Enter or
+  // leaving it saves, Esc reverts. `shown` is what reads while it is not being edited (「素材包」 when the one figure
+  // beside it already says the name); editing always starts from the real name.
+  function PackTitle({name,shown,onRename}) {
+    // `sent` holds the new name while it is being written, so the old one does not flash back in between.
+    const [editing,setEditing]=React.useState(false),[sent,setSent]=React.useState(null);
+    React.useEffect(()=>setSent(null),[name]);
+    const commit=v=>{const next=v.trim();if(next===name)return;setSent(next);Promise.resolve(onRename(next)).then(done=>{if(!done)setSent(null);});};
+    return h('div',{className:'ap-pack-title-edit',onFocus:()=>setEditing(true),onBlur:()=>setEditing(false)},
+      h(CommitInput,{className:'ap-pack-title-input','aria-label':'素材包名称',value:sent??(editing?name:shown),
+        validate:v=>!v.trim()?'名称不能为空':chars(v)>256?'名称最多 256 字':'',onCommit:commit}));
+  }
   function PackModal({binding,packId,initial,scope,packs,ctx,nav=ctx?.nav,onPacksChanged,onOpenPack,onClose}) {
     const state=useLoad(binding,()=>binding.service.getPackSnapshot({packId}),[packId]),pack=state.value,audio=useAudioPreview(binding,packId),narrow=useNarrow(),work=useTask(binding);
     // a list lamp choice is a quiet write of its own — no 正在处理…, only an error in the foot.
@@ -1230,9 +1261,9 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
       setSel(null);setDetail(false);stopSelect();setNotice({text:ids.length>1?'已删除 '+ids.length+' 项':k==='figures'?'已删除人物':'已删除'});onPacksChanged?.();
     });
     const removeEntry=(k,id)=>removeEntries(k,[id]),removeStyle=id=>removeEntries('directions',[id]);
-    const [confirm,setConfirm]=React.useState(null);
+    const [confirm,setConfirm]=React.useState(null),[moveAsk,setMoveAsk]=React.useState(null);
     // Right click or long press opens the single entry's actions.
-    const rowMenu=item=>close=>h(EntryActionsMenu,{packs:packs||[],packId,busy:work.busy,close,onCopy:target=>copyTo(target,item.id),
+    const rowMenu=item=>close=>h(EntryActionsMenu,{packs:packs||[],packId,busy:work.busy,close,onCopy:target=>copyTo(target,item.id),onMove:target=>moveTo(target,item.id),
       remove:current==='figures'?(done=>h(MenuItem,{danger:true,disabled:work.busy,onClick:()=>{done();
           askDelete(setConfirm,'asset-figure',{title:'删除人物「'+item.name+'」？',body:'从素材包「'+pack.manifest.name+'」中删除，所有使用此人物的卡都会受影响。',confirmLabel:'删除',danger:true},()=>removeEntries('figures',[item.id]));}},'删除人物…')):
         entryRemoveItem({asset:item,pack,remove:removeEntry,ask:setConfirm,onError:text=>setNotice({text})})});
@@ -1320,8 +1351,28 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
       } else result=await binding.service.copyItems({sourcePackId:packId,itemRefs,target:{newPackName:target.name}});
       stopSelect();setNotice({text:'已复制 '+ids.length+' 项到「'+target.name+'」',packId:result?.packId||target.packId});onPacksChanged?.();
     });
+    // 移动到…: moveItems keeps the items' ids (the stage finds them in whichever usable pack holds them). The cards that use
+    // this pack but not the target are offered the target's binding first, so their stories keep finding the items.
+    const moveTo=(target,only)=>work.task(async()=>{
+      const ids=only?[only]:pickedIds(),itemRefs=ids.map(id=>({kind:current,id}));
+      const global=binding.globalEnabledPackIds||[],using=async id=>(await binding.rpc('getAssetPackDependencies',{packId:id})).cards||[];
+      const inTarget=target.packId?new Set((await using(target.packId)).map(card=>card.path)):new Set();
+      const cards=target.packId&&global.includes(target.packId)?[]:(await using(packId)).filter(card=>!inTarget.has(card.path));
+      const first=packItems(pack,current).find(item=>item.id===ids[0]);
+      setMoveAsk({target,count:ids.length,label:first?.name||ids[0],source:pack.manifest.name,cards,run:bindTo=>work.task(async()=>{
+        const targetId=target.packId||(await binding.service.createPack({name:target.name,expectedRevision:null})).snapshot.manifest.id;
+        for(const card of bindTo){
+          const held=await binding.rpc('getCardAssetBindings',{path:card.path,metadataOnly:true}),bindings=held.extension.assetBindings;
+          if(!bindings.boundPackIds.includes(targetId))await binding.rpc('saveCardAssetBindings',{path:card.path,expectedRevision:held.revision,patch:{assetBindings:{...bindings,boundPackIds:[...bindings.boundPackIds,targetId]}}});
+        }
+        const fresh=id=>binding.service.getPackSnapshot({packId:id}).then(snapshot=>snapshot.revision);
+        const result=await binding.service.moveItems({sourcePackId:packId,sourceExpectedRevision:await fresh(packId),itemRefs,target:{packId:targetId,expectedRevision:await fresh(targetId)}});
+        stopSelect();setSel(null);setDetail(false);
+        setNotice({text:'已移动 '+ids.length+' 项到「'+target.name+'」'+(bindTo.length?'，并绑到 '+bindTo.length+' 张卡上':''),packId:result.packId});onPacksChanged?.();
+      })});
+    });
     // the figure page's ⋯ — 复制到… (copyItems) and 删除人物 (removeFigure, on the CAS queue).
-    const figureActions=id=>({packs:packs||[],packId,copy:target=>copyTo(target,id),
+    const figureActions=id=>({packs:packs||[],packId,copy:target=>copyTo(target,id),move:target=>moveTo(target,id),
       removeEmotion:emotionId=>enqueue(c=>binding.service.removeFigureEmotion({packId,expectedRevision:c.revision,figureId:id,emotionId})),
       // mark / unmark one outfit × 差分 as 「不需要（用默认图）」 on the CAS
       // queue. A conflict is not retried (the owner decides on what is current): the snapshot is reloaded and the error shown.
@@ -1357,7 +1408,14 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
     // a pack opened from a 基础设置 「›」 (BGM / 音效 / 环境音 / 模组) carries
     // `initial.back` ({label, open}); its head starts with the sub-page ‹ that closes the pack and returns there.
     const back=initial?.back&&typeof initial.back.open==='function'?initial.back:null;
-    const head=h('header',{className:'ap-pack-head'+(back?' has-back':'')},back&&h(SubpageBack,{parent:back.label,onBack:()=>{close();back.open();}}),h('h2',{title:title===name?undefined:name},title),
+    // the pack's name is its head, renamed in place like an entry's name. Only the display name changes: cards, chats,
+    // exports and updates know the pack by its id. One CAS patchPack of manifest.name on the newest revision.
+    const rename=value=>work.task(async()=>{
+      const attempt=snapshot=>binding.service.patchPack({packId,expectedRevision:snapshot.revision,patch:{name:value}});
+      await enqueue(async c=>{try{return await attempt(c);}catch(error){if(error?.code!=='REVISION_CONFLICT')throw error;const fresh=await binding.service.getPackSnapshot({packId});latest.current=fresh;return attempt(fresh);}});
+      onPacksChanged?.();return true;});
+    const head=h('header',{className:'ap-pack-head'+(back?' has-back':'')},back&&h(SubpageBack,{parent:back.label,onBack:()=>{close();back.open();}}),
+      pack?h(PackTitle,{name,shown:title,onRename:rename}):h('h2',null,title),
       h('span',{className:'ap-pack-head-tools'},menu,h(IconButton,{icon:'close',label:'关闭',onClick:close})));
     // in 多选 a click toggles the row; Shift+click sets the rows between the
     // last clicked one and this one (in the shown order) to that row's state.
@@ -1392,7 +1450,7 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
       (needle||category||activeFilter!=='all')&&h('span',{className:'ap-select-scope'},'当前结果'),
       h(Button,{className:'ap-manage',disabled:work.busy,onClick:stopSelect},'取消'),
       h(Popover,{key:current,label:'批量操作',className:'ap-copy-anchor',float:true,trigger:({toggle:t,open})=>h(Button,{className:'ap-manage is-done','aria-label':'批量操作','aria-haspopup':'menu','aria-expanded':open,disabled:!pickedItems.length||work.busy,onClick:t},'操作',h(Glyph,{name:'chevDown'})),
-        content:closeMenu=>h(EntryActionsMenu,{packs:packs||[],packId,busy:work.busy,close:closeMenu,onCopy:stateless?null:copyTo,changeEnabled:stateless?null:changePickedEnabled,
+        content:closeMenu=>h(EntryActionsMenu,{packs:packs||[],packId,busy:work.busy,close:closeMenu,onCopy:stateless?null:copyTo,onMove:stateless?null:moveTo,changeEnabled:stateless?null:changePickedEnabled,
           remove:close=>h(MenuItem,{danger:true,onClick:()=>{close();askRemovePicked();}},'删除…')})}));
     const left=pack&&h('aside',{ref:leftRef,className:'ap-pack-left','data-selecting':selecting||undefined},
       h(PackKindNav,{manifest:pack.manifest,present,current,onSwitch:switchKind,newMenu:h(NewEntryMenu,{current,disabled:work.busy,onPick:k=>createBlankEntry(k)})}),
@@ -1439,7 +1497,7 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
       pack&&modelImport&&h(ModelImportSheet,{binding,pack,pending:modelImport.pending,fixed:modelImport.fixed,onClose:()=>setModelImport(null),onImport:importModelHere}),
       pack&&automaticReview&&h(AutomaticWriteReview,{binding,packId,onClose:()=>setAutomaticReview(false),onChanged:automaticChanged}),
       pack&&tagSheet&&h(TagIconsSheet,{binding,pack,save:saveTagIcons,upload:uploadTagIcon,onClose:()=>setTagSheet(false)}),
-      confirm&&h(ConfirmDialog,{...confirm,onClose:()=>setConfirm(null)}));
+      confirm&&h(ConfirmDialog,{...confirm,onClose:()=>setConfirm(null)}),moveAsk&&h(MoveConfirm,{move:moveAsk,onClose:()=>setMoveAsk(null)}));
   }
   // 素材包 ⋯ › 标签图标. An 物品 without its own picture shows the icon of its deepest
   // tag from the same pack (assetTags.icon); the icons travel with the pack. The strip is one chip per icon (picture · tag)
@@ -1539,7 +1597,6 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
   // @include asset-pack-entry-ui.js
   // @include asset-pack-cg-ui.js
   // @include asset-pack-figure-ui.js
-  // @include asset-pack-image-character.js
   // @include asset-pack-spine-ui.js
   // @include asset-pack-import-ui.js
   // @include asset-pack-voice-ui.js
@@ -1560,7 +1617,7 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
     const notify=()=>{for(const fn of [...listeners])fn();};
     const take=next=>{({CandidateArt, CandidateImageView, FigureGenTab, GEN_ART_ROLE, GEN_CELL_WORDS, GEN_PROBLEMS, GEN_REASONS, GEN_REF_LIMIT, GenCellStatus, GenDialog, GenFaceCandidate, GenFaceMarks, GenGateNote, GenOutfitTool, GenRefChip, GenSheet, GenStageCandidate, GenStageWait, GenTileDecide, ManagedModSection, PackPreviews, StageAvatar, StageKindJump, genBasis, genCell, genFailText, genKey, genMenuKeys, genOutfitPlan, genOwnSprite, genPromptFor, genReadUpload, stageBytesText, stageFigure, stageFigureRows, stageKindPacks, stagePackBytes, stageSwitchTag, unbindPatch, useAssetGen, useElapsed, useGenNote, useManagedModControls, useStageWriter}=next);};
     // The exact names the stage pages reference from this factory (its declarations and parameters) and from the core client.
-    const names={useFigureLook, CastVoiceList, useReadingPointers, useSystemVoicePacks, VoicePicker, VoiceRowPlay, VoiceAddDialog, VoiceLangChip, VoiceOptionPick, VoiceLoading, VoiceLoadError, defaultCastVoices, voiceErrorText, CommitInput, useVoicePreview, useVoiceReadiness, useVoiceWriter, figureVoiceSpec, voiceSourceId, figureVoiceLanguage, sampleText, voiceServiceName, voiceLanguageName, primaryLanguage, openVoiceSettings, voiceSourceUnset, React, Actions, BustArt, Button, CAST_FACE, CardCover, CardImportSheet, CatAddTile, CatBand, CatSheet, CatSub, ConfirmDialog, askDelete, hiddenConfirms, ErrorBox, FigureCastFace, Glyph, Help, HintLine, IconButton, ImageFramer, KIND_ORDER, KindSortTools, LampMenu, Loading, MOD_GLYPHS, MenuItem, ModEntries, Modal, NewFigurePage, PackImageView, PackList, PackModal, PackRow, PackSearchBox, Popover, RevealImg, STAGE_NAMES, Silhouette, StageItemsPage, StageModPage, StageModSection, StageOpenings, StageSection, StageSetupWizard, SubpageHead, SwitchRow, Thumb, UploadButton, VOICE_PROVIDERS, catBusyLabel, cellMenuTrigger, clone, downloadPackMedia, emotionMapped, emotionState, errorText, figureAvatar, figureEditorEmotions, figureOutfitView, globalFirst, glyphs, h, holdMedia, keywordProblem, kindGlyphs, kinds, loadPackDetail, loadPackRows, newResourceKey, openingMenuFocus, openingMenuKeys, orderPacks, outfitEmotionRows, outfitHead, outfitImageId, packCount, packFilter, packRowClick, splitKeywords, spriteSlotTakesStill, stageMissing, stageSetupCardPack, stageSetupReady, standInValue, stateBust, subpageKeys, switchRowClick, useLoad, usePackScope, usePackSort, useStageFold, useStageSetupAutoOpen, useVoiceLoad, useVoiceRefresh, validDraft, voiceIssueText, voiceNeedle, voiceMatches,
+    const names={useFigureLook, GenLookFields, CastVoiceList, useReadingPointers, useSystemVoicePacks, VoicePicker, VoiceRowPlay, VoiceAddDialog, VoiceLangChip, VoiceOptionPick, VoiceLoading, VoiceLoadError, defaultCastVoices, voiceErrorText, CommitInput, useVoicePreview, useVoiceReadiness, useVoiceWriter, figureVoiceSpec, voiceSourceId, figureVoiceLanguage, sampleText, voiceServiceName, voiceLanguageName, primaryLanguage, openVoiceSettings, voiceSourceUnset, React, Actions, BustArt, Button, CAST_FACE, CardCover, CardImportSheet, CatAddTile, CatBand, CatSheet, CatSub, ConfirmDialog, askDelete, hiddenConfirms, ErrorBox, FigureCastFace, Glyph, Help, HintLine, IconButton, ImageFramer, KIND_ORDER, KindSortTools, LampMenu, Loading, MOD_GLYPHS, MenuItem, ModEntries, Modal, NewFigurePage, PackImageView, PackList, PackModal, PackRow, PackSearchBox, Popover, RevealImg, STAGE_NAMES, Silhouette, StageItemsPage, StageModPage, StageModSection, StageOpenings, StageSection, StageSetupWizard, SubpageHead, SwitchRow, Thumb, UploadButton, VOICE_PROVIDERS, catBusyLabel, cellMenuTrigger, clone, downloadPackMedia, emotionMapped, emotionState, errorText, figureAvatar, figureEditorEmotions, figureOutfitView, globalFirst, glyphs, h, holdMedia, keywordProblem, kindGlyphs, kinds, loadPackDetail, loadPackRows, newResourceKey, openingMenuFocus, openingMenuKeys, orderPacks, outfitEmotionRows, outfitHead, outfitImageId, packCount, packFilter, packRowClick, splitKeywords, spriteSlotTakesStill, stageMissing, stageSetupCardPack, stageSetupReady, standInValue, stateBust, subpageKeys, switchRowClick, useLoad, usePackScope, usePackSort, useStageFold, useStageSetupAutoOpen, useVoiceLoad, useVoiceRefresh, validDraft, voiceIssueText, voiceNeedle, voiceMatches,
       EmptyState, InlineAdd, InlineField, InlineGrid, InlineRow, OverrideDot, ResetButton, ScopeSwitch, Segmented, Spinner, Switch, TextArea, browserSpeechVoiceList, directorCommands, playerErrorText, selectFigureAvatar, selectPackAvatar};
     return {names, get views(){return views;}, bound:()=>views!==null,
       bind(next){views=next;take(next);live2dKit=next.live2dKit||live2dOption;notify();return()=>{if(views!==next)return;views=null;take({});live2dKit=live2dOption;notify();};},
@@ -1585,7 +1642,8 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
   }
   // Modal, Button, IconButton: the house dialog for the host's own dialogs too (人物卡更新, card-update-dialog.js).
   // SwitchRow, Popover, MenuItem, HintLine, Glyph: the panel rows and menus 本局设置 shares (conversation-settings.js).
-  const api=stageExposed({App,Home,StageSection,Modal,Button,IconButton,SwitchRow,Popover,MenuItem,useContextMenu,HintLine,Glyph,PackPreviewList,KIND_ORDER,kinds,ModDetail,StageModSection,StageModPage,PackModal,PackRow,PackStateTag,SortMenu,PackSearchBox,EntryDetail,FigureDetail,applyEntryFields,splitKeywords,ConflictDialog,CardImportSheet,CardUrlSheet,
+  // LampMenu, WindowedItems: the 世界书 page's entry lamps and its long entry lists.
+  const api=stageExposed({App,Home,StageSection,Modal,Button,IconButton,SwitchRow,Popover,MenuItem,useContextMenu,HintLine,Glyph,LampMenu,WindowedItems,PackPreviewList,KIND_ORDER,kinds,ModDetail,StageModSection,StageModPage,PackModal,PackRow,PackStateTag,SortMenu,PackSearchBox,EntryDetail,FigureDetail,applyEntryFields,splitKeywords,ConflictDialog,CardImportSheet,CardUrlSheet,
     // the stage pages' seam: names in (stageScope.names), bind / use (gal-stage.js, asset-launcher.js, settings.js).
     stageScope,
     // the manager and the card's mod section, for tests and the offline screenshot harness.

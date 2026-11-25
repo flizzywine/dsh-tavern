@@ -102,13 +102,15 @@ export function prepareProfileConfiguration(host, dshVersion, { sourceRoot = SOU
     host,
     profileConfigurationVersion: current.dshTavern && current.dshTavern.profileConfigurationVersion,
   })
-  if (desktop) {
-    assertLauncherSlotAvailable(current, profileDir, { replaceNext: true })
-    manifest.dshTavern.officialDesktop = true
+  // Android's native package also installs with --host cli and owns its update UI.
+  if (desktop || (host === 'cli' && process.env.DSH_TAVERN_MOBILE_LAYOUT !== '1')) {
+    assertLauncherSlotAvailable(current, profileDir, { replaceNext: desktop })
+    if (desktop) manifest.dshTavern.officialDesktop = true
     manifest.dshTavern.profileBridge = true
     if (!manifest.dsh.profile.bundles.includes(LAUNCHER_BUNDLE)) manifest.dsh.profile.bundles.push(LAUNCHER_BUNDLE)
     manifest.dependencies[LAUNCHER_BUNDLE] = `link:${path.join(pluginPath, 'packages/dsh-tavern').replaceAll(path.sep, '/')}`
     manifest.dshTavern.managedBundles.push(LAUNCHER_BUNDLE)
+    manifest.dshTavern.managedDependencies.push(LAUNCHER_BUNDLE)
   }
   return { manifest, patchText }
 }
