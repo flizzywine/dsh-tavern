@@ -131,3 +131,25 @@ test('真实浏览器中可切换整本注入通道与条目注入通道，并�
   assert.equal(await trigger.locator('.fork-inline-text').innerText(), '跟随整本（稳定前缀）')
   assert.deepEqual(pageErrors, [])
 })
+
+test('世界书页「人物卡」一节：点卡名打开这张卡，✕ 只解绑', () => {
+  const opened = [], unbound = []
+  const page = mountWorldBookDetail({ displayName: '书', entries: [] }, {
+    open: false,
+    props: {
+      associations: { boundCards: [{ path: 'cards/a.png', name: '甲卡' }], cards: [] },
+      onOpenCard: path => opened.push(path),
+      onUnbindCard: path => unbound.push(path)
+    }
+  })
+  const link = page.nodes().find(node => node.tag === 'button' && node.props.className === 'dsh-wbd-card-link')
+  assert.ok(link, '卡名是一个按钮（Tab 能到、回车能按）')
+  assert.match(page.text(link), /甲卡/)
+  link.props.onClick()
+  assert.deepEqual(opened, ['cards/a.png'])
+  assert.deepEqual(unbound, [])
+  const unbind = page.nodes().find(node => node.tag === 'button' && node.props['aria-label'] === '解绑「甲卡」')
+  unbind.props.onClick()
+  assert.deepEqual(unbound, ['cards/a.png'])
+  assert.deepEqual(opened, ['cards/a.png'])
+})
