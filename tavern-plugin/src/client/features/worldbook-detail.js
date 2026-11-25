@@ -1,6 +1,7 @@
 		// ==== 世界书库 › one book ====
 		// The book's page in the 舞台素材 language, like the card detail page: ‹ name ✎ … ⋯ (导出 · 重命名文件… · 在对话中引用 ·
-		// 删除世界书…), then StageSection headings — 设置 (全局生效, 说明), 人物卡 (the cards bound to it, ＋ binds another), 条目 (search,
+		// 删除世界书…), then StageSection headings — 设置 (全局生效, 说明), 人物卡 (the cards bound to it: a name opens that card's page in
+		// 人物卡库, ✕ unbinds, ＋ binds another), 条目 (search,
 		// the lamp filter and ＋ on one row; groups 常驻 · 非常驻 · 禁用 · 仅后台变量更新, each a windowed list). An entry's lamp is its
 		// state (蓝 常驻, 绿 非常驻, 灰 禁用). Every change saves itself when it is left (R17): one entry update per change, the book
 		// itself only when an entry is added or deleted; the head says 正在保存… / 已保存.
@@ -307,7 +308,8 @@
 					bound.length ? h("ul", { className: "dsh-wbd-cards", "aria-label": "已绑定的人物卡" }, bound.map(function (card) {
 						const label = card.name || card.path;
 						return h("li", { key: card.path, className: "dsh-wbd-card" },
-							h(ui.Glyph, { name: "card" }), h("span", { className: "dsh-wbd-card-name", title: label }, label),
+							h("button", { type: "button", className: "dsh-wbd-card-link", title: "在人物卡库打开「" + label + "」", onClick: function () { props.onOpenCard(card.path); } },
+								h(ui.Glyph, { name: "card" }), h("span", { className: "dsh-wbd-card-name" }, label), h(ui.Glyph, { name: "openExternal" })),
 							h("button", { type: "button", className: "ap-icon-button dsh-card-row-icon", disabled: props.bindingBusy, title: "解绑", "aria-label": "解绑「" + label + "」",
 								onClick: function () { props.onUnbindCard(card.path); } }, h(ui.Glyph, { name: "close" })));
 					})) : null,
