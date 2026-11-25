@@ -234,3 +234,78 @@ test('runPlanner 对游戏 sessionId 加命名空间，不与前台会话串用�
   await runPlanner(fakeLlm, { provider: 'p', model: 'bg-model', system: 's', text: 't', sessionId: 'dsh-image-workbench' })
   assert.deepEqual(seen, ['dsh-image-planner:game-session-1', 'dsh-image-workbench'])
 })
+
+test('recentSeries 仅读 .result.json 统计近期轮次趋势，过滤 compaction 并支持后台 scope 跨子会话查询', async () => {
+  const fixture = storageFixture()
+  let sequence = 0
+  const log = createModelRequestLog({ ...fixture.adapters, id: () => String(++sequence) })
+
+  const r1 = await log.record({
+    chat: { id: 'chat-series' },
+    context: { scope: 'foreground', task: 'reply', turn: 1 },
+    coordinates: { turn: 1, step: 1 },
+    options: { sessionId: 'fg-1', model: 'claude-sonnet', system: 's', messages: [{ role: 'user', content: 'hi' }] }
+  })
+  await log.complete({
+    chatId: 'chat-series',
+    id: r1.id,
+    text: 'a1',
+    finish: { kind: 'stop' },
+    usage: { inputTokens: 120, cacheReadTokens: 800, cacheWriteTokens: 80, outputTokens: 20 }
+  })
+
+  const compact = await log.record({
+    chat: { id: 'chat-series' },
+    context: { scope: 'foreground', task: 'compaction', turn: 1 },
+    options: { sessionId: 'fg-1', model: 'claude-sonnet', messages: [{ role: 'user', content: 'compact' }] }
+  })
+  await log.complete({
+    chatId: 'chat-series',
+    id: compact.id,
+    text: 'sum',
+    finish: { kind: 'stop' },
+    usage: { inputTokens: 5000 }
+  })
+
+  const bg1 = await log.record({
+    chat: { id: 'chat-series' },
+    context: { scope: 'background', task: 'stage-director', turn: 1 },
+    coordinates: { turn: 1, step: 1 },
+    options: { sessionId: 'bg-worker-1', model: 'haiku', system: 'dir', messages: [{ role: 'user', content: 'plan' }] }
+  })
+  await log.complete({
+    chatId: 'chat-series',
+    id: bg1.id,
+    text: 'ok',
+    finish: { kind: 'stop' },
+    usage: { inputTokens: 300, cacheReadTokens: 200, cacheWriteTokens: 0 }
+  })
+
+  const r2 = await log.record({
+    chat: { id: 'chat-series' },
+    context: { scope: 'foreground', task: 'reply', turn: 2 },
+    coordinates: { turn: 2, step: 1 },
+    options: { sessionId: 'fg-1', model: 'claude-sonnet', system: 's', messages: [{ role: 'user', content: 'next' }] }
+  })
+  await log.complete({
+    chatId: 'chat-series',
+    id: r2.id,
+    text: 'a2',
+    finish: { kind: 'stop' },
+    usage: { inputTokens: 400, cacheReadTokens: 900, cacheWriteTokens: 100 }
+  })
+
+  // 验证只读取 .result.json，不读取 .json 正文大文件：手动清理正文文件仍可返回序列
+  fixture.files.delete('model-requests/chat-series/' + r1.id + '.json')
+  const fgSeries = await log.recentSeries('chat-series', { scope: 'foreground', sessionId: 'fg-1', limit: 10 })
+  assert.equal(fgSeries.length, 2)
+  assert.deepEqual(fgSeries.map(item => ({ id: item.id, turn: item.turn, tokens: item.tokens, cacheReadTokens: item.cacheReadTokens })), [
+    { id: r1.id, turn: 1, tokens: 1000, cacheReadTokens: 800 },
+    { id: r2.id, turn: 2, tokens: 1400, cacheReadTokens: 900 }
+  ])
+
+  const bgSeries = await log.recentSeries('chat-series', { scope: 'background', sessionId: 'fg-1', limit: 10 })
+  assert.equal(bgSeries.length, 1)
+  assert.equal(bgSeries[0].id, bg1.id)
+  assert.equal(bgSeries[0].tokens, 500)
+})
