@@ -149,7 +149,7 @@ test('后台固定背景只保存一次，连续候选、结算和恢复均进�
     assert.doesNotMatch(packet.text, /每轮系统要求/)
     assert.match(packet.text, /最新正文/)
     assert.match(packet.text, /<candidate_directions>[\s\S]*最新Guide/)
-    assert.match(packet.text, /最新姿势/)
+    assert.doesNotMatch(packet.text, /最新姿势/, '暂停姿势总结后，候选请求应忽略存档中的旧姿势')
     assert.match(packet.text, /<regeneration_guidance>\n本轮候选意见\n<\/regeneration_guidance>/)
     assert.ok(packet.text.includes((index < 2 ? '每轮末尾要求' : '修改后的末尾要求') + '\n</post_history>\n\n<candidate_directions>'))
   }
