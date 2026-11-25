@@ -8,8 +8,8 @@ import { composeTavernRegexScripts } from './card-extension-reading.js'
 import { applyTavernRegexText } from './tavern-regex-display.js'
 import { nativeRegexScriptsOf } from './preset-reading.js'
 
-const fields = { char_description: 'description', char_personality: 'personality', scenario: 'scenario', dialogue_examples: 'mes_example' }
-const textOverrides = new Set([...Object.keys(fields), 'world_info_before', 'world_info_after', 'persona_description'])
+export const helperCardPromptFields = { char_description: 'description', char_personality: 'personality', scenario: 'scenario', dialogue_examples: 'mes_example' }
+const textOverrides = new Set([...Object.keys(helperCardPromptFields), 'world_info_before', 'world_info_after', 'persona_description'])
 const positions = { before_char: 0, before: 0, after_char: 1, before_an: 2, after_an: 3, at_depth: 4, in_chat: 4, before_example: 5, after_example: 6, outlet: 7 }
 function object(value) { return value !== null && typeof value === 'object' && !Array.isArray(value) }
 function text(value, label) { if (typeof value !== 'string') throw new Error(label + ' 必须是文本'); return value }
@@ -39,15 +39,32 @@ export function validateHelperGenerateConfig(config) {
       }
     } else throw new Error('generate 暂不支持覆盖项：' + key)
   }
-  if (config.injects !== undefined && !Array.isArray(config.injects)) throw new Error('injects 必须是数组')
-  for (const entry of config.injects || []) {
+  helperGenerationInjects(config.injects)
+  return config
+}
+
+export function helperGenerationInjects(injects = []) {
+  if (!Array.isArray(injects)) throw new Error('injects 必须是数组')
+  for (const entry of injects) {
     if (!object(entry) || Object.keys(entry).some(key => !['role', 'content', 'position', 'depth', 'should_scan'].includes(key))) throw new Error('generate 不支持此注入参数')
     prompt({ role: entry.role, content: entry.content })
     if (!['in_chat', 'none'].includes(entry.position)) throw new Error('generate 不支持此注入位置')
     if (entry.depth !== undefined && (!Number.isSafeInteger(entry.depth) || entry.depth < 0)) throw new Error('注入 depth 必须是非负整数')
     if (entry.should_scan !== undefined && typeof entry.should_scan !== 'boolean') throw new Error('should_scan 必须是布尔值')
   }
-  return config
+  return injects
+}
+
+export function helperGenerationWorld({ worldBook, chat, card, history, userInput, injects }) {
+  const scanChat = { ...chat, messages: history.map(item => ({ role: item.role, text: item.content ?? item.text, greeting: item.greeting, turn: item.turn })) }
+  return prepareWorldBookRecall({ worldBook, chat: scanChat, card, userText: userInput,
+    turn: Number([...chat.messages || []].reverse().find(item => item.role === 'assistant')?.turn) || 0,
+    scanText: injects.filter(entry => entry.should_scan !== false).map(entry => entry.content).join('\n') })
+}
+
+export function helperWorldPromptPosition(entry) { return positions[entry.position] ?? Number(entry.position) }
+export function helperWorldDepthPrompt(entry) {
+  return { role: ['system', 'user', 'assistant'][Number(entry.role)] || entry.role || 'system', content: entry.content, depth: Number(entry.depth) || 0, position: 'in_chat' }
 }
 
 function selectedPreset(snapshot) {
@@ -101,21 +118,18 @@ export function compileHelperGenerate(config, { chat = {}, card = {}, history = 
   validateHelperGenerateConfig(config)
   const overrides = config.overrides || {}, historyOverride = overrides.chat_history || {}
   const projectedCard = { ...card }
-  for (const [key, name] of Object.entries(fields)) if (Object.hasOwn(overrides, key)) projectedCard[name] = overrides[key]
+  for (const [key, name] of Object.entries(helperCardPromptFields)) if (Object.hasOwn(overrides, key)) projectedCard[name] = overrides[key]
   const source = historyOverride.prompts === undefined ? history : historyOverride.prompts.map(prompt)
   const limit = config.max_chat_history ?? 'all'
   const selectedHistory = historyOverride.prompts !== undefined || limit === 'all' ? source : limit === 0 ? [] : source.slice(-limit)
   const injects = [...(chat.tavernScriptPrompts || []), ...(config.injects || [])]
-  const scanChat = { ...chat, messages: selectedHistory.map(item => ({ role: item.role, text: item.content ?? item.text, greeting: item.greeting, turn: item.turn })) }
-  const world = prepareWorldBookRecall({ worldBook, chat: scanChat, card: projectedCard, userText: config.user_input || '',
-    turn: Number([...chat.messages || []].reverse().find(item => item.role === 'assistant')?.turn) || 0,
-    scanText: injects.filter(entry => entry.should_scan !== false).map(entry => entry.content).join('\n') })
+  const world = helperGenerationWorld({ worldBook, chat, card: projectedCard, history: selectedHistory, userInput: config.user_input || '', injects })
   const before = [], after = [], depths = [], examplesBefore = [], examplesAfter = [], beforeNote = [], afterNote = []
   for (const entry of promptOrder(world.entries || [])) {
-    const position = positions[entry.position] ?? Number(entry.position)
+    const position = helperWorldPromptPosition(entry)
     if (position === 0) before.push(entry.content)
     else if (position === 4) {
-      if (historyOverride.with_depth_entries !== false) depths.push({ role: ['system', 'user', 'assistant'][Number(entry.role)] || entry.role || 'system', content: entry.content, depth: Number(entry.depth) || 0, position: 'in_chat' })
+      if (historyOverride.with_depth_entries !== false) depths.push(helperWorldDepthPrompt(entry))
     } else if (position === 2) beforeNote.push(entry.content)
     else if (position === 3) afterNote.push(entry.content)
     else if (position === 5) examplesBefore.push(entry.content)

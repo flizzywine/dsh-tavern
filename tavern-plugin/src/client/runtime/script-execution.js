@@ -136,6 +136,7 @@
 				stopVisibility = null;
 				if (runtime) runtime.dispose();
 				runtime = null;
+				options?.onButtons?.([]);
 				if (options && options.onMvuLoadState) options.onMvuLoadState(null);
 				releaseLease(previousLease);
 			}
@@ -145,6 +146,7 @@
 				const currentLease = lease;
 				runtime = createRuntime({
 					window: hostWindow, rpc: invoke, onMutation: invalidate, foreground: foreground, executeSlash: options.executeSlash,
+					onButtons: function (buttons) { if (lease === currentLease) options?.onButtons?.(buttons); },
 					onMvuLoadState: function (state) {
 						if (lease !== currentLease) return;
 						if (options && options.onMvuLoadState) options.onMvuLoadState(state);
@@ -362,11 +364,11 @@
 			const transition = options.transition || tavernSessionTransition;
 			const retention = options.retention || (options.window ? createTavernSessionRetention({ window: hostWindow, now: options.now, durationMs: options.retentionMs }) : tavernSessionRetention);
 			const listeners = new Set(), records = new Map();
-			let snapshot = { sessionId: "", loadState: null };
+			let snapshot = { sessionId: "", loadState: null, buttons: [] };
 			let current = null, stopSessions = null, stopTransition = null;
 			let started = false, observing = false;
 			function publish() {
-				snapshot = { sessionId: current ? current.sessionId : "", loadState: current ? current.loadState : null };
+				snapshot = { sessionId: current ? current.sessionId : "", loadState: current ? current.loadState : null, buttons: current?.buttons || [] };
 				listeners.forEach(function (listener) { listener(); });
 			}
 			function ownerOfSession(sessionId) {
@@ -421,13 +423,17 @@
 				retire(record);
 			}
 			function createRecord(sessionId) {
-				const record = { sessionId: sessionId, viewState: null, loadState: null, fresh: false, foregroundRunning: sessions.list.getSnapshot().byId?.[sessionId]?.running === true, stopView: null };
+				const record = { sessionId: sessionId, viewState: null, loadState: null, buttons: [], fresh: false, foregroundRunning: sessions.list.getSnapshot().byId?.[sessionId]?.running === true, stopView: null };
 				record.templatePanel = createServerTemplatePanel({ window: hostWindow, rpc: options.rpc || rpc, isActive: () => current === record && tavernMainSessionId(sessions) === record.sessionId });
 				record.execution = (options.createExecution || createTavernScriptExecutionModule)({
 					window: hostWindow, rpc: options.rpc || rpc, executeSlash: options.executeSlash,
 					signals: options.signals || tavernSessionSignals,
 					invalidate: function (id) { views.invalidate(id); },
 					onIdle: function () { retire(record); },
+					onButtons: function (buttons) {
+						record.buttons = buttons;
+						if (current === record) publish();
+					},
 					onMvuLoadState: function (state) {
 						record.loadState = state;
 						if (current === record) publish();
@@ -531,6 +537,24 @@
 				retryMvuLoad: function () { return Boolean(current && current.execution.retryMvuLoad()); },
 				triggerButton: triggerButton
 			});
+		}
+
+		function TavernScriptButtonMenu({ owner, sessionId }) {
+			const { sessionId: activeSessionId, buttons } = React.useSyncExternalStore(owner.subscribe, owner.getSnapshot, owner.getSnapshot);
+			const trigger = React.useRef(null);
+			if (sessionId !== activeSessionId || !buttons.length) return null;
+			const h = React.createElement, label = "脚本按钮";
+			return h("div", { className: "ap-ui dsh-tavern-script-buttons", ref: trigger }, h(packUi.Popover, {
+				label, className: "dsh-tavern-script-menu", stopClicks: true,
+				trigger: ({ open, toggle }) => h(packUi.Button, { "aria-haspopup": "menu", "aria-expanded": open, onClick: toggle }, label),
+				content: close => buttons.map(({ scriptId, name }) => h(packUi.MenuItem, {
+					key: JSON.stringify([scriptId, name]), onClick: () => {
+						close();
+						trigger.current?.querySelector("button")?.focus({ preventScroll: true });
+						owner.triggerButton(sessionId, scriptId, name).catch(error => tavernErrorHub.report(name, error));
+					}
+				}, name))
+			}));
 		}
 
 		function TavernScriptRuntime(props) {

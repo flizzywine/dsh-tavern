@@ -222,13 +222,13 @@
 					});
 				}
 			});
-			const call = function (method, args) {
+			const call = function (method, args, requestIdentity) {
                 if (method === "updateTavernHelperVariables") args = Object.assign({}, args, { contextBaseline: {
                     chatId: state.chatId, stateRevision: state.stateRevision, lifecycleRevision: Number(state.lifecycleRevision) || 0
                 } });
                 const stage = { getTavernHelperWorldbook: "worldbook-read", loadTavernWorldInfo: "worldbook-read", updateTavernHelperPrompts: "prompt-write", updateTavernHelperMessages: "message-write", updateTavernHelperVariables: "variable-write" }[method];
-                const pending = transport.request(method, args);
-                return stage ? initializationTiming.wait(stage, pending, currentScript().id) : pending;
+                const pending = transport.request(method, args, requestIdentity);
+                return stage ? initializationTiming.wait(stage, pending, requestIdentity?.scriptId || currentScript().id) : pending;
             };
 			// Persistence receipts belong to the script that issued the write. A
 			// different script's event must not drain this entire shared sandbox.
@@ -238,18 +238,24 @@
 				return promptWritesByScript.get(scriptId);
 			}
 			const pendingPromptOperations = new Map();
-			function writePrompts(operation) {
-				const owner = currentScript();
+			function callingScript() {
+				// Loaded modules carry a source URL even in detached callbacks (timers, DOM listeners).
+				return scriptsById[errorScriptId(new Error())] || currentScript();
+			}
+			function writePrompts(operation, owner = callingScript()) {
+				// Persistent prompts belong to the chat, not the most recent MVU event.
+				// A live callback still participates in its event's persistence fence.
+				const identity = { scriptId: owner.id, eventId: owner.id === currentScriptId ? activeHostEventId : "", lifecycleRevision: Number(state.lifecycleRevision) || 0 };
 				const writes = promptWriteState(owner.id);
 				const ids = operation.kind === "inject" ? operation.prompts.map(function (prompt) { return prompt && prompt.id; }) : operation.ids;
-				const signature = JSON.stringify([owner.id, activeHostEventId, state.lifecycleRevision, operation]);
+				const signature = JSON.stringify([identity, operation]);
 				const previous = ids.length ? pendingPromptOperations.get(ids[0]) : null;
 				// Share only an identical in-flight, non-once operation. Any intervening
 				// operation touching these IDs breaks sharing, so remove/reinsert order survives.
 				if (!operation.once && previous && previous.signature === signature
 					&& ids.every(function (id) { return pendingPromptOperations.get(id) === previous; })) return;
 				for (const id of ids) pendingPromptOperations.delete(id);
-				const task = call("updateTavernHelperPrompts", { operation: operation }).then(function (result) {
+				const task = call("updateTavernHelperPrompts", { operation: operation }, identity).then(function (result) {
 					if (result && result.stale) throw new Error("聊天已变化，提示词未保存");
 				});
 				const entry = { signature: signature };
@@ -277,12 +283,13 @@
 				if (!Array.isArray(prompts)) throw new TypeError("提示词必须是数组");
 				if (prompts.some(function (prompt) { return prompt && prompt.filter !== undefined; })) throw new Error("DSH 暂不支持提示词 filter 回调");
 				const ids = prompts.map(function (prompt) { return prompt.id; });
-				writePrompts({ kind: "inject", prompts: copy(prompts), once: !!(options && options.once) });
-				return { uninject: function () { window.uninjectPrompts(ids); } };
+				const owner = callingScript();
+				writePrompts({ kind: "inject", prompts: copy(prompts), once: !!(options && options.once) }, owner);
+				return { uninject: function () { writePrompts({ kind: "remove", ids: ids }, owner); } };
 			};
 			window.uninjectPrompts = function (ids) { writePrompts({ kind: "remove", ids: copy(ids) }); };
 
-			const events = modules.createEvents({ currentScript: currentScript, withScript: withScript, context: function () { return state; },
+			const events = modules.createEvents({ currentScript: callingScript, withScript: withScript, context: function () { return state; },
 				reportSubscriptions: reportSubscriptions, post: transport.post, document: window.document, initializationTiming: initializationTiming });
 			function copy(value) {
 				try { return structuredClone(value); }
@@ -329,14 +336,15 @@
 				h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
 				return 4294967296 * (2097151 & h2) + (h1 >>> 0);
 			}
-			function buttonEvent(name, scriptId) { return String(scriptId || currentScript().id) + "_" + stringHash(String(name || "")); }
+			function buttonEvent(name, scriptId) { return String(scriptId || callingScript().id) + "_" + stringHash(String(name || "")); }
 			function reportSubscriptions() {
 				postToHost({
 					type: "dsh-tavern-helper-subscriptions",
 					token: token,
 					names: events.names(),
 					ready: scriptList.every(function (script) { return script.ready || script.failed; }),
-					scripts: scriptList.map(function (script) { return { id: script.id, names: events.subscriptionsFor(script.id), ready: script.ready, failed: script.failed }; })
+					scripts: scriptList.map(function (script) { return { id: script.id, names: events.subscriptionsFor(script.id), ready: script.ready, failed: script.failed }; }),
+					buttons: window.getAllEnabledScriptButtons()
 				}, "*");
 			}
 			function lastId() { return Math.max(-1, (state.messages || []).length - 1); }
@@ -417,13 +425,22 @@
 			window.getScriptName = function () { return currentScript().name; };
 			window.getScriptInfo = function () { return currentScript().info; };
 			window.replaceScriptInfo = function (value) { currentScript().info = String(value || ""); };
-			window.getScriptButtons = function () { return copy(currentScript().buttons); };
-			window.replaceScriptButtons = function (buttons) { currentScript().buttons = copy(Array.isArray(buttons) ? buttons : []); };
-			window.updateScriptButtonsWith = async function (updater) { const next = await updater(copy(currentScript().buttons)); window.replaceScriptButtons(next); return copy(currentScript().buttons); };
+			function replaceButtons(script, buttons) {
+				script.buttons = copy(Array.isArray(buttons) ? buttons : []);
+				reportSubscriptions();
+			}
+			window.getScriptButtons = function () { return copy(callingScript().buttons); };
+			window.replaceScriptButtons = function (buttons) { replaceButtons(callingScript(), buttons); };
+			window.updateScriptButtonsWith = async function (updater) {
+				const owner = callingScript();
+				replaceButtons(owner, await updater(copy(owner.buttons)));
+				return copy(owner.buttons);
+			};
 			window.appendInexistentScriptButtons = function (buttons) {
-				const next = copy(currentScript().buttons);
+				const owner = callingScript();
+				const next = copy(owner.buttons);
 				for (const button of Array.isArray(buttons) ? buttons : []) if (!next.some(function (item) { return item && item.name === button.name; })) next.push(copy(button));
-				window.replaceScriptButtons(next);
+				replaceButtons(owner, next);
 				return copy(next);
 			};
             window.getAllEnabledScriptButtons = function () {
@@ -689,7 +706,7 @@
 				const originalReady = window.jQuery.fn.ready;
 				window.jQuery.fn.ready = function (callback) {
 					if (typeof callback !== "function") return originalReady.apply(this, arguments);
-					const owner = currentScript().id;
+					const owner = callingScript().id;
 					return originalReady.call(this, function () {
 						const receiver = this, args = arguments;
 						return withScript(owner, function () { return callback.apply(receiver, args); }).catch(function (error) {

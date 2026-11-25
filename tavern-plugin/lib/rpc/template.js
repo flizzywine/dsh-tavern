@@ -1,5 +1,5 @@
 import { helperGenerationHistory, validateHelperGenerateConfig } from '../domain/helper-generation-prompts.js'
-import { defaultOrderedRawConfig, generateHelper, generateHelperCompletion, generateHelperRaw } from '../domain/helper-generation.js'
+import { defaultOrderedRawConfig, generateHelper, generateHelperCompletion, generateHelperRaw, rawCardContextNeeded, rawWorldContextNeeded } from '../domain/helper-generation.js'
 import { sanitizeRuntimeDiagnostics } from '../domain/mvu-diagnostics.js'
 import { hasMvuVisibilityRules, restoreHiddenMvuStatData } from '../domain/mvu-visibility.js'
 import { hydrateTavernHelperMessages } from '../domain/tavern-helper-context.js'
@@ -25,7 +25,12 @@ export function createTemplateHandlers(deps) {
         const context = { callModel: backgroundCall, sessionId: chat.sessionId, history: helperGenerationHistory(chat) }
         // generateRaw without an order is Tavern Helper's default-order request: build it like generate.
         const defaultOrder = method === 'generateTavernHelperRaw' ? defaultOrderedRawConfig(args.config) : null
-        if (method === 'generateTavernHelperRaw' && !defaultOrder) return { text: await generateHelperRaw(args.config, context) }
+        if (method === 'generateTavernHelperRaw' && !defaultOrder) {
+          const card = rawCardContextNeeded(args.config) ? await readChatCard(chat) : undefined
+          const worldBook = rawWorldContextNeeded(args.config) ? await worldBooks.bound(chat.cardPath, card, chat) : undefined
+          signal.throwIfAborted()
+          return { text: await generateHelperRaw(args.config, { ...context, chat, card, worldBook }) }
+        }
         const config = defaultOrder || args.config
         validateHelperGenerateConfig(config)
         const card = await readChatCard(chat)

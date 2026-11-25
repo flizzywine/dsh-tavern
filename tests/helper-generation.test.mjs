@@ -48,6 +48,34 @@ test('generate inserts worldbook and script depths locally and scans none-positi
   assert.ok(!compileHelperGenerate({ ...config, overrides: { chat_history: { with_depth_entries: false } } }, context).some(message => message.content === 'Depth lore'))
 })
 
+test('generateRaw scans temporary injections without sending scan-only text, and respects explicit order and depth', async () => {
+  const fixture = generationContext(), requests = [], tasks = createHelperGenerationTasks()
+  const chat = { ...fixture.chat, id: 'game', sessionId: 'story', cardPath: 'cards/hero.json',
+    messages: [{ role: 'assistant', text: 'Earlier' }, { role: 'assistant', text: 'Latest' }] }
+  const invoke = generationRpc({ helperGenerationTasks: tasks, chatForSession: async () => chat,
+    readChatCard: async () => fixture.card, worldBooks: { bound: async () => fixture.worldBook },
+    callModel: async options => { requests.push(options.messages.map(m => [m.role, m.content[0].text])); return 'reply' } })
+  const config = { user_input: 'Current', max_chat_history: 1,
+    ordered_prompts: ['char_description', 'world_info_before', 'chat_history', 'world_info_after', 'user_input'],
+    injects: [
+      { role: 'system', position: 'none', should_scan: true, content: 'dragon' },
+      { role: 'system', position: 'none', should_scan: false, content: 'missing-key' },
+      { role: 'assistant', position: 'in_chat', depth: 1, content: 'Before latest' },
+      { role: 'user', position: 'in_chat', depth: 0, content: 'After latest' }
+    ] }
+  const raw = config => invoke('generateTavernHelperRaw', { sessionId: 'story', config })
+  assert.deepEqual(await raw(config), { text: 'reply' })
+  assert.deepEqual(requests[0], [
+    ['system', 'Card description for Player'], ['system', 'Constant lore'], ['assistant', 'Before latest'],
+    ['assistant', 'Latest'], ['user', 'After latest'], ['system', 'Dragon lore'], ['user', 'Current']
+  ])
+  await raw({ ...config, injects: [] })
+  assert.deepEqual(requests[1], [['system', 'Card description for Player'], ['system', 'Constant lore'], ['assistant', 'Latest'], ['user', 'Current']])
+  await assert.rejects(raw({ ...config, injects: [{ role: 'system', position: 'in_chat', depth: -1, content: 'Invalid' }] }), /depth/)
+  assert.equal(requests.length, 2)
+  assert.deepEqual(chat.tavernScriptPrompts, [], 'temporary injections never mutate the chat')
+})
+
 test('generate rejects unsupported or malformed inputs before calling the model', async () => {
   for (const config of [null, [], { image: 'image.png' }, { tools: [{}] }, { json_schema: {} }, { user_input: 3 }, { max_chat_history: -1 },
     { overrides: { chat_history: { prompts: [{ role: 'tool', content: 'wrong' }] } } },
