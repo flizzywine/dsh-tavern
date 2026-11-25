@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "f828ffc630c3cd42a06fcc20a75c7df0b90b699e",
-  "releaseSequence": 2093,
+  "revision": "e2877c6bef65de42bdebfd173d0f73d2ea6a93e6",
+  "releaseSequence": 2094,
   "version": "3.4.0",
   "files": [
     {
@@ -6886,8 +6886,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-asset-library/lib/pack-v2/plugin.js",
-      "sha256": "f56bca0d22d992d0f1e6fb7130204c59acab7960a60165d6cbc7ed9af18fc14f",
-      "size": 5386
+      "sha256": "f6e94efa8aaff5d3dc5ee1ef544b5df5e24890f3a60ae9d9b91089ff8fb4ff27",
+      "size": 5398
     },
     {
       "path": "tavern-plugin/packages/dsh-asset-library/lib/pack-v2/public-export.js",
@@ -6906,8 +6906,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-asset-library/lib/pack-v2/service.d.ts",
-      "sha256": "fd7e78d70499af798b006be5b037a0919a5666586e0691688d75fc303ae1bcc7",
-      "size": 34064
+      "sha256": "bbb040f0e1f2ec3fcd6a4c92d27604279e6e38c6a412275e5c5ad71f3853b188",
+      "size": 34186
     },
     {
       "path": "tavern-plugin/packages/dsh-asset-library/lib/pack-v2/service.js",
@@ -10266,9 +10266,9 @@
     }
   ],
   "archive": {
-    "commit": "e73516913197a93c8946007a8465134efbe28047",
+    "commit": "9642f75f126f5df77acbb43c192d57f0979327b8",
     "path": "runtime.zip",
-    "sha256": "f585ee35f229c916e4014fe8af319d599ef84f08965f9cac567666cdfcfaf5c5",
-    "size": 18026411
+    "sha256": "e9c6d13a1b547c165a1c7bff53653f44b18625f5d16ff6a5506a1c47fbf78135",
+    "size": 18026443
   }
 }
