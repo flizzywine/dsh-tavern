@@ -1,8 +1,8 @@
 import { png as fixturePng, syntheticPack } from './fixtures/asset-packs/pack.mjs'
 import { createAssetPackService, openPackZip, StoredFile } from '../tavern-plugin/packages/dsh-asset-library/lib/pack-v2/service.js'
 import assert from 'node:assert/strict'
-import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
+import { mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises'
+import { syntheticFixture } from './helpers/synthetic-link-fixture.mjs'
 import { dirname, join } from 'node:path'
 import test from 'node:test'
 import { createHash, randomUUID } from 'node:crypto'
@@ -33,9 +33,9 @@ async function exportedEntries(exported) {
 }
 
 async function library(t, extra = {}, { onLegacyBlobWrite, withAssetLibrary = false } = {}) {
-  const root = await mkdtemp(join(tmpdir(), 'card-files-'))
   let service
-  t.after(async () => { await service?.dispose(); await rm(root, { recursive: true, force: true }) })
+  t.after(() => service?.dispose())
+  const root = syntheticFixture(t, 'card-files-')
   const profileData = createProfileDataStore({ dataRoot: root })
   const fileResources = createFileResourceStore({ dataRoot: root })
   let serial = 0

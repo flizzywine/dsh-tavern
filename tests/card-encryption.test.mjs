@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { syntheticFixture } from './helpers/synthetic-link-fixture.mjs'
 import path from 'node:path'
 import { spawnSync } from 'node:child_process'
 import test from 'node:test'
@@ -23,8 +23,7 @@ padding.write('paDd', 4, 'ascii')
 padding.writeUInt32BE(crc32(padding.subarray(4, -4)), padding.length - 4)
 const LARGE_COVER = Buffer.concat([COVER.subarray(0, -12), padding, COVER.subarray(-12)])
 async function fixture(t) {
-  const dir = await mkdtemp(path.join(tmpdir(), 'card-encryption-'))
-  t.after(() => rm(dir, { recursive: true, force: true }))
+  const dir = syntheticFixture(t, 'card-encryption-')
   const entries = [
     { path: 'card.json', content: JSON.stringify({ spec: 'chara_card_v3', data: { name: 'Encrypted fixture', description: 'private card description' } }) },
     { path: 'dsh.json', content: JSON.stringify({ format: 'dshcard', formatVersion: 1, plugins: [{ name: 'game', path: 'plugins/game/' }] }) },
@@ -53,8 +52,7 @@ test('ordinary cards need no password; AES-256 cards require it and stream all o
 })
 
 test('encryption stores media as is (it is compressed already) and deflates the rest', async t => {
-  const dir = await mkdtemp(path.join(tmpdir(), 'card-encryption-'))
-  t.after(() => rm(dir, { recursive: true, force: true }))
+  const dir = syntheticFixture(t, 'card-encryption-')
   const MB = 1024 * 1024, plain = path.join(dir, 'plain.dshcard'), encrypted = path.join(dir, 'encrypted.dshcard')
   // both are zeros: deflated, each would be a few kilobytes.
   await writeFile(plain, writeZipEntries([{ path: 'card.json', content: '{}' }, { path: 'media/a.webp', content: Buffer.alloc(2 * MB) }, { path: 'plugins/x/state.bin', content: Buffer.alloc(2 * MB) }]))

@@ -201,7 +201,7 @@ export function createCardFiles({ cardPreparation, fileResources, castAssets, as
       if (stage?.notices.length && !acceptMissingPacks) throw new Error(stage.notices.join('；'))
       if (stage) { preparedPacks.delete(file); clearTimeout(stage.timer) }
       const staged = stage || await inspectCardPacks(zip, archive.packs, archiveSha256)
-      const libraryNotices = [...await installPacksInLibrary(staged, { packDecisions, packBackups })]
+      const libraryNotices = [...await installPacksInLibrary(staged, { packDecisions, packBackups }), ...await dependencyNotices(archive.dependencies)]
       if (existing && !replacePath) return { path: existing, name: (await cardSummaries.read(existing).catch(() => null))?.name || existing.split('/').pop(), duplicate: true, ...cardLibraryResult(libraryNotices) }
       const packs = []
       const sourceMedia = new Map(staged.ready.map(({ pack, preview }) => [pack.prefix, preview.sourceMedia]))
@@ -359,7 +359,7 @@ export function createCardFiles({ cardPreparation, fileResources, castAssets, as
   // The card as a DSH card (.dshcard, Wiki「设计：dsh-card-format」): card.json and dsh.json, the cover, the card's own
   // material, its plugins and start defaults, and the packs that go with it under assets/<pack id>/ — by default every pack
   // the card binds (and the packs it came with); `packIds` chooses, or `omitPackIds` unchecks packs in the sheet.
-  // `dependencyPackIds` explicitly retains bindings to omitted packs; private migration retains all via preserveBindings.
+  // A pack omitted by the sheet loses its binding; an explicit packIds selection retains dependencies unless scoped.
   // `excludeFigures` leaves out figures and the media only they use.
   // Packs can be large, so the archive is written to a spool file under exportRoot and streamed; `onProgress` hears it
   // being written (dsh-card-export.js writeDshCard). `books` chooses the bound world books, in every format.
@@ -448,7 +448,7 @@ export function createCardFiles({ cardPreparation, fileResources, castAssets, as
       const selection = backup
         ? { path: cardPath, packIds: [], keepPackIds: candidates.map(pack => pack.id) }
         : { path: cardPath, packIds: ids, keepPackIds: preserveBindings && required ? [...imported, required] : imported,
-          ...(!preserveBindings && (packIds || omitPackIds || dependencyPackIds) ? { dependencyPackIds: dependencyPackIds || [] } : {}) }
+          ...(!preserveBindings && (omitPackIds || dependencyPackIds) ? { dependencyPackIds: dependencyPackIds || [] } : {}) }
       const result = library ? await (backup
         ? withCardBackup(file, selection, write)
         : library.withCardExport(selection, write)) : await write()
