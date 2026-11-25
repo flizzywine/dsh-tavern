@@ -40,7 +40,7 @@
             android:foregroundServiceType="specialUse">
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="Runs the local DSH Tavern server that this app's WebView connects to over 127.0.0.1" />
+                android:value="Runs the local DSH Tavern server for this app's WebView and optional LAN access" />
         </service>
         <receiver android:name=".UpdatedReceiver" android:exported="false">
             <intent-filter>

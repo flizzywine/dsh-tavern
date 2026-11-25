@@ -268,11 +268,10 @@ const LAMP_HELP='同 SillyTavern 世界书：蓝灯始终可选，绿灯在名�
   // rooted at that container, so the margin counts inside a scrolling panel too). Pictures inside still load lazily on
   // their own (Thumb). `head`: a first row before the items (「＋ 新建<种类>」); `tail`: a last row after them.
   const WINDOW_MIN=24,WINDOW_ROWS=6;
-  const scrollRoot=el=>{for(let node=el;node&&node.nodeType===1;node=node.parentElement){const y=getComputedStyle(node).overflowY;if(y==='auto'||y==='scroll')return node;}return null;};
   function WindowedItems({items,render,className,blockClassName=className,label,multi,head=null,tail=null}) {
     const big=items.length>WINDOW_MIN&&typeof IntersectionObserver!=='undefined'&&typeof ResizeObserver!=='undefined';
     const box=React.useRef(null),[grid,setGrid]=React.useState(null);
-    const onMeasure=({columns,row})=>setGrid(g=>g&&g.columns===columns&&Math.abs(g.row-row)<0.5?g:{columns,row,root:g?.root??scrollRoot(box.current)});
+    const onMeasure=({columns,row})=>setGrid(g=>g&&g.columns===columns&&Math.abs(g.row-row)<0.5?g:{columns,row,root:g?.root??scrollParent(box.current)});
     const list={role:'listbox','aria-multiselectable':multi||undefined,'aria-label':label};
     if(!big)return h('ul',{className,...list},head,items.map(render),tail);
     // Until a block is measured only the first shows (no zero-height boxes that would all count as near).
@@ -285,69 +284,13 @@ const LAMP_HELP='同 SillyTavern 世界书：蓝灯始终可选，绿灯在名�
   }
   // the pack manifest's order is the one order of a kind's list — the library,
   // 舞台设置, the phone's contacts and every figure picker read it as is (nothing sorts figures by name). The library is the
-  // one place that changes it: drag a row with the mouse, long-press then drag on touch, or Alt+↑ / Alt+↓ on a focused row.
-  // useListReorder({ids, enabled, onMove}) → row(id): props for that row's <li>, and `dragging` for the list. onMove(id,
-  // beforeId) moves `id` in front of `beforeId` (null = to the end) — the caller writes it (one CAS write per drop).
-  // A touch hold released without moving is the row's long press: it reaches the row as a contextmenu event, so the row's
-  // menu (useContextMenu with hold:false) opens.
-  const REORDER_HOLD_MS=400,REORDER_SLOP=6,REORDER_EDGE=36;
-  function useListReorder({ids,enabled,onMove}) {
-    const [drag,setDrag]=React.useState(null),live=React.useRef(null);
-    React.useEffect(()=>()=>live.current?.stop(),[]);
-    // The row whose upper half holds y (insert in front of it), or null past the last row. Rows are read from the DOM, so a
-    // windowed list counts only what is mounted — the rows around the pointer always are.
-    const beforeAt=(list,y)=>{for(const row of list.querySelectorAll('[data-reorder-id]')){const r=row.getBoundingClientRect();if(y<r.top+r.height/2)return row.dataset.reorderId;}return null;};
-    // A drop that leaves the order as it is (onto itself or the row right after it) shows no marker and writes nothing.
-    const changes=(id,before)=>{const at=ids.indexOf(id);return before!==id&&before!==(ids[at+1]??null);};
-    function down(e,id) {
-      if(!enabled||live.current||e.button!==0||e.target?.closest?.('[aria-haspopup],input,textarea'))return;
-      const list=e.currentTarget.closest('[role=listbox]');if(!list)return;
-      const touch=e.pointerType!=='mouse',pointer=e.pointerId,x0=e.clientX,y0=e.clientY,scroller=scrollRoot(list),doc=list.ownerDocument,win=doc.defaultView,rowEl=e.currentTarget;
-      const s={active:false,moved:false,before:undefined,y:y0,timer:0,frame:0};
-      const begin=()=>{s.active=true;s.timer=0;win.getSelection?.()?.removeAllRanges?.();setDrag({id,before:undefined});
-        // Near the scroll box's top / bottom edge the list scrolls while the row is held there.
-        const tick=()=>{const r=scroller?.getBoundingClientRect();if(r){const d=s.y<r.top+REORDER_EDGE?-1:s.y>r.bottom-REORDER_EDGE?1:0;if(d){scroller.scrollTop+=d*8;aim();}}s.frame=win.requestAnimationFrame(tick);};
-        s.frame=win.requestAnimationFrame(tick);};
-      const aim=()=>{const before=beforeAt(list,s.y),shown=changes(id,before)?before:undefined;if(shown!==s.before){s.before=shown;setDrag({id,before:shown});}};
-      const move=ev=>{if(ev.pointerId!==pointer)return;s.y=ev.clientY;
-        if(!s.active){if(Math.hypot(ev.clientX-x0,ev.clientY-y0)<=REORDER_SLOP)return;if(touch)return stop();begin();}
-        if(Math.hypot(ev.clientX-x0,ev.clientY-y0)>REORDER_SLOP)s.moved=true;
-        ev.preventDefault();aim();};
-      // Once a touch drag runs the page must not scroll under it; before that a swipe scrolls as usual (and cancels the hold).
-      const touchmove=ev=>{if(s.active)ev.preventDefault();};
-      const noMenu=ev=>{if(s.active||s.timer)ev.preventDefault();};
-      const up=ev=>{if(ev.pointerId!==pointer)return;const {active,before,moved}=s;stop();if(!active)return;
-        // The release must not also click the row (select it) or whatever it ends over.
-        const swallow=c=>{c.stopPropagation();c.preventDefault();};win.addEventListener('click',swallow,{capture:true,once:true});win.setTimeout(()=>win.removeEventListener('click',swallow,true),0);
-        if(touch&&!moved)rowEl.dispatchEvent(new win.MouseEvent('contextmenu',{bubbles:true,cancelable:true,clientX:x0,clientY:y0}));
-        else if(before!==undefined)onMove(id,before);};
-      const cancel=ev=>{if(ev.pointerId===pointer)stop();};
-      const stop=()=>{win.clearTimeout(s.timer);win.cancelAnimationFrame(s.frame);live.current=null;setDrag(null);
-        doc.removeEventListener('pointermove',move);doc.removeEventListener('pointerup',up);doc.removeEventListener('pointercancel',cancel);
-        doc.removeEventListener('touchmove',touchmove,{passive:false});doc.removeEventListener('contextmenu',noMenu);};
-      live.current={stop};
-      doc.addEventListener('pointermove',move);doc.addEventListener('pointerup',up);doc.addEventListener('pointercancel',cancel);
-      doc.addEventListener('touchmove',touchmove,{passive:false});doc.addEventListener('contextmenu',noMenu);
-      if(touch)s.timer=win.setTimeout(begin,REORDER_HOLD_MS);
-    }
-    const keys=(e,id)=>{
-      if(!enabled||!e.altKey||(e.key!=='ArrowUp'&&e.key!=='ArrowDown'))return;
-      e.preventDefault();e.stopPropagation();const at=ids.indexOf(id);
-      if(e.key==='ArrowUp'&&at>0)onMove(id,ids[at-1]);
-      if(e.key==='ArrowDown'&&at<ids.length-1)onMove(id,ids[at+2]??null);
-    };
-    const last=ids[ids.length-1];
-    const row=id=>enabled?{'data-reorder-id':id,'aria-keyshortcuts':'Alt+ArrowUp Alt+ArrowDown',onPointerDown:e=>down(e,id),onKeyDown:e=>keys(e,id),
-      'data-dragging':drag?.id===id||undefined,
-      'data-drop':drag&&drag.before!==undefined?(drag.before===id?'before':drag.before===null&&id===last?'after':undefined):undefined}:{};
-    return {row,dragging:!!drag};
-  }
+  // one place that changes it, through the shared useListReorder (inline-field.js).
   // Whether an element has come near its scroll container's view (once true, it stays): a costly picture (a cast face cut
   // from a full sprite) starts only then, so a long page of faces loads from the top instead of all at once.
   function useNearView(margin='400px') {
     const ref=React.useRef(null),[near,setNear]=React.useState(typeof IntersectionObserver==='undefined');
     React.useEffect(()=>{if(near||!ref.current)return;
-      const io=new IntersectionObserver(entries=>{if(entries.some(entry=>entry.isIntersecting)){setNear(true);io.disconnect();}},{root:scrollRoot(ref.current),rootMargin:margin});io.observe(ref.current);return()=>io.disconnect();},[near]);
+      const io=new IntersectionObserver(entries=>{if(entries.some(entry=>entry.isIntersecting)){setNear(true);io.disconnect();}},{root:scrollParent(ref.current),rootMargin:margin});io.observe(ref.current);return()=>io.disconnect();},[near]);
     return [ref,near];
   }
   function WindowBlock({className,height,root,ready,start,block,render,onMeasure}) {
@@ -395,8 +338,9 @@ const LAMP_HELP='同 SillyTavern 世界书：蓝灯始终可选，绿灯在名�
   // 「● 绿灯 ⌄」 like a menu field. Clicks and Enter / Space stay inside the anchor, so choosing a lamp never also selects (or,
   // in 多选, ticks) the row. `onChange` may return a promise (one CAS write per choice); the dot is busy until it settles.
   const ENTRY_LAMPS={constant:'蓝灯',keyword:'绿灯',on:'启用',off:'关闭'};
-  function LampMenu({mode,onOff=false,choices,label,onChange,named=false,anchorClassName='',className='',disabled=false}) {
-    const pop=useInlinePopup(),[busy,setBusy]=React.useState(false),name=ENTRY_LAMPS[mode];
+  // `words` renames the states where the lamp is the page's own vocabulary (世界书条目: 常驻 / 普通 / 禁用).
+  function LampMenu({mode,onOff=false,choices,label,onChange,named=false,anchorClassName='',className='',disabled=false,words=ENTRY_LAMPS}) {
+    const pop=useInlinePopup(),[busy,setBusy]=React.useState(false),name=words[mode];
     const pick=value=>{pop.close(true);if(value===mode)return;setBusy(true);Promise.resolve(onChange(value)).finally(()=>setBusy(false));};
     return h('span',{className:anchorClassName||'ap-lamp-anchor',ref:pop.root,onKeyDown:e=>{if(pop.open||e.key!=='Escape')e.stopPropagation();pop.keys(e);},onClick:e=>e.stopPropagation()},
       h('button',{ref:pop.trigger,type:'button',className:named?'fork-inline-trigger ap-lamp-trigger':className||'ap-lamp-button','data-mode':mode,'aria-haspopup':'menu','aria-expanded':pop.open,'aria-busy':busy||undefined,
@@ -405,7 +349,7 @@ const LAMP_HELP='同 SillyTavern 世界书：蓝灯始终可选，绿灯在名�
         h('span',{className:'ap-lamp-dot'}),named&&h('span',{className:'fork-inline-text'},name),named&&h(InlineGlyph,{name:'chevDown'})),
       pop.open?pop.layer({className:'fork-inline-pop ap-lamp-pop',role:'menu','aria-label':label,onKeyDown:inlineMenuKeys},
         (choices||(onOff?['on','off']:['constant','keyword','off'])).map(value=>h('button',{key:value,type:'button',role:'menuitemradio','aria-checked':mode===value,className:'fork-inline-option ap-lamp-opt','data-mode':value,onClick:()=>pick(value)},
-          h('span',{className:'ap-lamp-dot'}),h('span',{className:'ap-lamp-opt-name'},ENTRY_LAMPS[value]),mode===value?h(Glyph,{name:'check'}):null))):null);
+          h('span',{className:'ap-lamp-dot'}),h('span',{className:'ap-lamp-opt-name'},words[value]),mode===value?h(Glyph,{name:'check'}):null))):null);
   }
   // the segmented LampSwitch is gone — every lamp is the LampMenu above.
   // Trigger words as removable chips plus an add field (Enter, comma or blur adds).

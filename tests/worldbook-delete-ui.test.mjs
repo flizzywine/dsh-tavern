@@ -15,13 +15,14 @@ for (const kind of ['standalone', 'card']) test(`世界书详情删除 ${kind}�
     React: { useState: value => [stateIndex++ === 2 ? { source: kind === 'card' ? { kind, cardPath: item.cardPath } : { kind, path: item.path }, view: { displayName: item.name } } : value, () => {}], useRef: () => ({}), useEffect() {}, createElement: (tag, props, ...children) => ({ tag, props, children }) },
     usePersistentError: () => [error, value => { error = value }], useTavernSessionMode: () => 'card',
     createWorldBookLibraryRefreshModule: () => ({ request() { refreshes++ }, whenIdle: async () => {} }),
-    WorldBookEditor() {}, useVisibleDataRefresh() {}, useTavernConfirm: () => async () => confirm, window: {}, rpc: async (...args) => { calls.push(args); if (fail) throw Error('删除失败') },
+    WorldBookDetail() {}, useVisibleDataRefresh() {}, useTavernConfirm: () => async () => confirm, window: {}, rpc: async (...args) => { calls.push(args); if (fail) throw Error('删除失败') },
     notifyTavernDataChanged: (...args) => notifications.push(args)
   })
   const tree = Panel({ scope: { sessionId: 'session' }, tab: { id: 'book' }, ctx: { betterSidebar: { updateTab() {} } }, appendMention() {} })
-  function nodes(node) { return Array.isArray(node) ? node.flatMap(nodes) : !node || typeof node !== 'object' ? [] : [node, ...node.children.flatMap(nodes)] }
-  const button = nodes(tree.props.actions).find(n => n.tag === 'button' && n.children.includes('删除世界书'))
-  assert.ok(button)
+  // 删除世界书… is in the page's ⋯ menu: the page gets it as onDelete.
+  assert.equal(tree.tag.name, 'WorldBookDetail')
+  const button = { props: { onClick: tree.props.onDelete } }
+  assert.equal(typeof button.props.onClick, 'function')
   button.props.onClick()
   await new Promise(resolve => setImmediate(resolve))
   assert.equal(calls.length, 0)

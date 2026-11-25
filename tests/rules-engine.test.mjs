@@ -363,3 +363,39 @@ test('dice the rules strike out: two 3s count two, Burnout strikes one, and the 
   assert.throws(() => compileRulesV2(source(0, { report: [{ id: 'a', label: 'a', value: '1', steps: [{ label: 'x', value: '1', when: 'true' }, { label: 'y', value: '0' }] }] })), /steps\.0\.when: the first step is where the number starts/)
   assert.throws(() => compileRulesV2(source(0, { dice: { d: { count: 6, sides: 4, read: 'sum', cancel: [{ label: 'x', count: '1' }] } } })), /cancel: belongs to a group read as a count/)
 })
+
+// changeLabel: the name a change goes by on the player's card and in the record, {key} the entry's name.
+test('a variable may name its changes for the player (changeLabel, {key} the entry)', () => {
+  const source = { format: 'dsh-rules', version: 2, name: 'track', sets: { tracks: ['职能', '现实'] },
+    state: { marked: { path: '/成长/已标', label: '已标', changeLabel: '{key}条已标', keys: 'tracks', min: 0 }, time: { path: '/成长/时间', label: '时间', changeLabel: '可用时间', min: 0, initial: 2 } },
+    actions: { spend: { label: '花时间', params: { track: { label: '条', set: 'tracks' } }, effects: [{ var: 'time', add: '-1' }, { var: 'marked', key: 'track', add: '1' }] } } }
+  const rules = compileRulesV2(source)
+  const play = game(rules)
+  assert.deepEqual(play.call(2, { op: 'act', action: 'spend', params: { track: '职能' }, reason: 'r' }).changes.map(row => row.label), ['可用时间', '职能条已标'])
+  assert.throws(() => compileRulesV2({ ...source, state: { n: { path: '/n', label: 'n', changeLabel: '{key}条' } }, actions: {} }), /changeLabel: \{key\} needs a variable with entries/)
+})
+
+// internal: a variable only the rules' bookkeeping reads; its change rows say so and the player's card leaves them out.
+test('a variable may be internal (its changes are not told to the player); a secret one need not be', () => {
+  const source = { format: 'dsh-rules', version: 2, name: 'week',
+    state: { phase: { path: '/阶段', label: '阶段', internal: true, initial: 3 }, commend: { path: '/嘉奖', label: '嘉奖', initial: 0 } },
+    derived: { end: { path: '/终局', label: '终局', internal: true, value: "phase == 2 ? '新周' : ''" } },
+    actions: { week: { label: '新的一周', effects: [{ var: 'phase', set: '2' }] }, award: { label: '嘉奖', effects: [{ var: 'commend', add: '1' }] } } }
+  const play = game(compileRulesV2(source))
+  assert.deepEqual(play.call(2, { op: 'act', action: 'week', reason: 'r' }).changes.map(row => [row.label, row.internal]), [['阶段', true], ['终局', true]])
+  assert.deepEqual(play.call(2, { op: 'act', action: 'award', reason: 'r' }).changes.map(row => [row.label, row.internal]), [['嘉奖', undefined]])
+  assert.throws(() => compileRulesV2({ ...source, state: { phase: { path: '/阶段', internal: 'yes' } }, derived: {}, actions: {} }), /state\.phase\.internal: must be true/)
+  assert.throws(() => compileRulesV2({ ...source, state: { phase: { path: '/阶段', secret: true, internal: true } }, derived: {}, actions: {} }), /already kept from the player/)
+})
+
+// page: the card's own page performs a ruling without dice on the stage; the record names it.
+test('a ruling without dice may name the card page that performs it (page)', () => {
+  const source = { format: 'dsh-rules', version: 2, name: 'track',
+    state: { time: { path: '/成长/时间', label: '时间', min: 0, initial: 2 } },
+    actions: { spend: { label: '花时间', page: 'status', effects: [{ var: 'time', add: '-1' }] } } }
+  const record = game(compileRulesV2(source)).call(2, { op: 'act', action: 'spend', reason: 'r' })
+  assert.equal(record.page, 'status')
+  assert.deepEqual(record.changes.map(row => [row.path, row.from, row.to]), [['/成长/时间', 2, 1]])
+  assert.throws(() => compileRulesV2({ ...source, actions: { spend: { label: 'x', page: 'Status!' } } }), /spend\.page: must be the id of one of the card's pages/)
+  assert.throws(() => compileRulesV2({ ...source, actions: { spend: { label: 'x', page: 'status', dice: { d: { count: 1, sides: 6 } } } } }), /only a ruling without dice is performed by a page/)
+})

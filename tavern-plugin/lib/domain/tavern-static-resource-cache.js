@@ -123,6 +123,18 @@ function rewriteHtmlDocumentResources(source, baseUrl) {
   })
 }
 
+// raw.githubusercontent.com is unreachable from many mainland networks (the Android APK serves
+// from the phone itself); jsDelivr serves the same commit's files. Only pinned refs map cleanly.
+export function githubRawMirrorUrl(value) {
+  let parsed
+  try { parsed = new URL(str(value)) } catch { return '' }
+  if (parsed.protocol !== 'https:' || parsed.hostname !== 'raw.githubusercontent.com') return ''
+  const parts = parsed.pathname.split('/').filter(Boolean)
+  if (parts.length < 4 || parts[2] === 'refs') return ''
+  const [owner, repo, ref, ...rest] = parts
+  return 'https://cdn.jsdelivr.net/gh/' + owner + '/' + repo + '@' + ref + '/' + rest.join('/') + parsed.search
+}
+
 export function projectCachedResourceBody(asset) {
   let mediaType = str(asset && asset.mediaType).toLowerCase()
   let extension = ''
@@ -198,7 +210,7 @@ export function createTavernStaticResourceCache(options = {}) {
     }
   }
 
-  async function fetchHop(url) {
+  async function fetchHop(url, timeoutMs = 30000) {
     const pinned = await verifyHostname(url)
     // Cache hits and pages without external styles do not need the download transport.
     const dispatcher = pinned && new (await import('undici')).Agent({ connect: { lookup(_host, options, callback) {
@@ -209,7 +221,7 @@ export function createTavernStaticResourceCache(options = {}) {
       const response = await request(url, {
         headers: { Accept: '*/*', 'User-Agent': 'dsh-tavern-static-cache' },
         redirect: 'manual',
-        signal: typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function' ? AbortSignal.timeout(30000) : undefined,
+        signal: typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function' ? AbortSignal.timeout(timeoutMs) : undefined,
         ...(dispatcher ? { dispatcher } : {})
       })
       if (response && [301, 302, 303, 307, 308].includes(Number(response.status))) {
@@ -232,12 +244,25 @@ export function createTavernStaticResourceCache(options = {}) {
     }
   }
 
-  async function download(url) {
-    if (typeof request !== 'function') throw new Error('当前运行环境不能下载静态资源')
-    let hop = await fetchHop(url)
+  async function fetchFollowing(url, timeoutMs) {
+    let hop = await fetchHop(url, timeoutMs)
     for (let count = 0; hop.redirect; count += 1) {
       if (count === 5) throw new Error('静态资源重定向次数过多')
-      hop = await fetchHop(hop.redirect)
+      hop = await fetchHop(hop.redirect, timeoutMs)
+    }
+    return hop
+  }
+
+  async function download(url) {
+    if (typeof request !== 'function') throw new Error('当前运行环境不能下载静态资源')
+    const mirror = githubRawMirrorUrl(url)
+    let hop
+    try {
+      // A blocked GitHub connection usually hangs; give up early when a mirror exists.
+      hop = await fetchFollowing(url, mirror ? 8000 : 30000)
+    } catch (error) {
+      if (!mirror) throw error
+      try { hop = await fetchFollowing(mirror, 30000) } catch { throw error }
     }
     const { finalUrl, body, mediaType } = hop
     await mkdir(rootDir, { recursive: true })

@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { createReadStream } from 'node:fs'
+import { open } from 'node:fs/promises'
 
 // Importing the very same card file again opens the card already in the library instead of
 // adding "鱼 (1)" next to it (the way asset packs and presets are reused by content). A card
@@ -10,9 +10,15 @@ const sha256 = text => createHash('sha256').update(text).digest('hex')
 
 export function createCardImportIdentity({ cardPaths, castAssets, readCardText }) {
   async function fileSha256(file) {
-    const hash = createHash('sha256')
-    for await (const chunk of createReadStream(file)) hash.update(chunk)
-    return hash.digest('hex')
+    const handle = await open(file, 'r')
+    try {
+      const hash = createHash('sha256'), buffer = Buffer.allocUnsafe(256 * 1024)
+      for (;;) {
+        const { bytesRead } = await handle.read(buffer)
+        if (!bytesRead) return hash.digest('hex')
+        hash.update(buffer.subarray(0, bytesRead))
+      }
+    } finally { await handle.close() }
   }
 
   /** The library card imported from a file with this digest and not changed since, or null. */

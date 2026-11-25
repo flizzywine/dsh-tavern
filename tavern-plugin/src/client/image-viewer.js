@@ -7,8 +7,10 @@
 // because nearest-neighbour at 1.3× makes uneven pixel rows.
 // The actions the caller had in its old sheet (上传替换, 采用 …) are small icon buttons beside the ✕, named by their
 // tooltip only.
-//   <ImageViewer src alt actions onClose failed? onKeyDown? /> — React callers (the caller keeps the picture's lease
-//   alive; `failed`: the picture cannot be had; `onKeyDown` runs first, e.g. ←→ stepping through a list).
+//   <ImageViewer src alt actions onClose failed? onKeyDown? viewKey? onSwipe? /> — React callers (the caller keeps the
+//   picture's lease alive; `failed`: the picture cannot be had; `onKeyDown` runs first, e.g. ←→ stepping through a list;
+//   `viewKey`: a new src under the same key keeps the zoom and the centre, so a before / after toggle compares the same
+//   spot (viewerCarry); `onSwipe(±1)`: a sideways one-finger swipe on the fitted picture, e.g. stepping on a phone).
 //   openImageViewer({src, alt, actions, onClose}) → {close, update(next)} — anything else.
 //   actions: [{key?, icon: node, label, onClick, disabled?, busy?, pressed?}]
 // Pure geometry below is tested in tests/fork-image-viewer.test.mjs; the real gestures in fork-image-viewer-browser.
@@ -47,6 +49,15 @@ function viewerToggle(t, at, image, view) {
     return viewerZoomAt(t, lim.fit < lim.native * 0.999 ? lim.native : lim.fit * 2, at, image, view);
 }
 function viewerCrisp(t, view) { return t.s * (view.dpr || 1) >= VIEWER_CRISP - 1e-6; }
+// The same view on another picture (a before / after toggle): fitted stays fitted; zoomed keeps its scale relative to
+// fit and the picture point at the window's centre (as a fraction of the picture), so the two can differ in size.
+function viewerCarry(t, from, to, view) {
+    if (viewerAtFit(t, from, view)) return viewerFitted(to, view);
+    const s = t.s / viewerLimits(from, view).fit * viewerLimits(to, view).fit, cx = view.width / 2, cy = view.height / 2;
+    const u = (cx - t.x) / (from.width * t.s), v = (cy - t.y) / (from.height * t.s);
+    return viewerZoomAt({ s, x: cx - u * to.width * s, y: cy - v * to.height * s }, s, { x: cx, y: cy }, to, view);
+}
+var VIEWER_SWIPE = 60;
 var VIEWER_GLYPHS = { close: "M4 4l8 8M12 4l-8 8", prev: "M10 3.5 5.5 8l4.5 4.5", next: "M6 3.5 10.5 8 6 12.5",
     edit: "M10.6 2.9a1.4 1.4 0 0 1 2 2L5.5 12 2.8 12.7l.7-2.7zM9.4 4.1l2 2" };
 function viewerGlyph(name) {
@@ -63,7 +74,10 @@ function ImageViewer(props) {
     const [broken, setBroken] = React.useState(null), [glide, setGlide] = React.useState(false), [dragging, setDragging] = React.useState(false);
     const image = loaded && loaded.src === p.src ? loaded : null, t = image && placed && placed.src === p.src ? placed : null, failed = !!p.src && broken === p.src;
     const live = React.useRef({}), gesture = React.useRef({ pointers: new Map() }), latest = React.useRef(null);
-    live.current = { image, view, t, src: p.src, onClose: p.onClose };
+    live.current = { image, view, t, src: p.src, onClose: p.onClose, onSwipe: p.onSwipe };
+    // The picture last on screen and its view: a new src under the same viewKey starts from it (viewerCarry).
+    const shownLast = React.useRef(null);
+    if (image && t) shownLast.current = { key: p.viewKey, src: p.src, image, t };
     // The transform as last applied, before React has rendered it: wheel notches and a press that come faster than the
     // renders build on it instead of on a stale one (a fast wheel lost notches; a press right after it started from there).
     const placedNow = () => { const now = live.current, mine = latest.current; return mine && mine.src === now.src && now.image ? mine : now.t; };
@@ -86,6 +100,12 @@ function ImageViewer(props) {
         if (root.current && root.current.focus) root.current.focus({ preventScroll: true });
         return () => { if (previous && previous.focus) previous.focus({ preventScroll: true }); };
     }, []);
+    // A focused action that went away or turned disabled (‹ at the first picture, 采用 once taken) drops focus to the page:
+    // it comes back to the view, so ←→, + / − and Esc keep working.
+    React.useEffect(function () {
+        const node = root.current, active = typeof document === "undefined" ? null : document.activeElement;
+        if (node && node.focus && (!active || active === document.body)) node.focus({ preventScroll: true });
+    });
     // The window: fitted stays fitted on a resize; a zoomed picture keeps its scale, clamped to the new edges.
     React.useEffect(function () {
         const node = stage.current;
@@ -121,7 +141,11 @@ function ImageViewer(props) {
         setLoaded({ src, width: img.naturalWidth, height: img.naturalHeight });
     };
     // Fitted once both the picture and the window are known.
-    React.useEffect(function () { if (image && view && !t) apply(viewerFitted(image, view), false); }, [image, view, t]);
+    React.useEffect(function () {
+        if (!image || !view || t) return;
+        const was = shownLast.current, carry = was && p.viewKey != null && was.key === p.viewKey && was.src !== p.src;
+        apply(carry ? viewerCarry(was.t, was.image, image, view) : viewerFitted(image, view), false);
+    }, [image, view, t]);
     // Pointers: one drags, two pinch (scale by their distance, about their midpoint, which also pans). A press that never
     // moved is a click: on the backdrop it closes; two on the picture within a moment toggle fit ↔ 100 %.
     // (twice): in the desktop app a real mouse drag never moved the picture while every
@@ -137,9 +161,9 @@ function ImageViewer(props) {
     const onPointerDown = event => {
         if (event.button !== undefined && event.button !== 0 || !placedNow()) return;
         event.preventDefault();
-        if (!g.pointers.size) { g.moved = false; g.onImage = event.target !== stage.current; g.origin = local(event); }
+        if (!g.pointers.size) { g.moved = false; g.pinched = false; g.onImage = event.target !== stage.current; g.origin = local(event); }
         g.pointers.set(event.pointerId, local(event));
-        if (g.pointers.size > 1) g.moved = true;
+        if (g.pointers.size > 1) { g.moved = true; g.pinched = true; }
         begin();
         g.track();
     };
@@ -161,8 +185,14 @@ function ImageViewer(props) {
         if (g.pointers.size) { begin(); return; }
         g.untrack();
         setDragging(false);
-        if (g.moved || event.type === "pointercancel") return;
+        if (event.type === "pointercancel") return;
         const at = local(event), stamp = Date.now();
+        if (g.moved) {
+            // A sideways swipe of one finger on the fitted picture (a fitted drag does not pan): the caller's step.
+            const now = live.current, dx = at.x - g.origin.x, dy = at.y - g.origin.y;
+            if (now.onSwipe && !g.pinched && g.start && now.image && now.view && viewerAtFit(g.start, now.image, now.view) && Math.abs(dx) >= VIEWER_SWIPE && Math.abs(dx) > 2 * Math.abs(dy)) now.onSwipe(dx < 0 ? 1 : -1);
+            return;
+        }
         if (!g.onImage) { close(); return; }
         const last = g.tap;
         if (last && stamp - last.stamp < VIEWER_TAP_MS && Math.hypot(at.x - last.x, at.y - last.y) < 24) {

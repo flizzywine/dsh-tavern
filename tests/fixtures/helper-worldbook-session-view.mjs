@@ -46,9 +46,9 @@ try {
   const blank = await readWorkbench()
   assert.equal(blank.mode, 'card')
   assert.equal(blank.cardReadError, undefined)
-  await journal.update('blank-workbench', chat => ({ ...chat, _storageRevision: 2, posture: '更新后的状态' }))
+  await journal.update('blank-workbench', chat => ({ ...chat, _storageRevision: 2, macroState: { userName: '更新后的名字' } }))
   const updated = await readWorkbench()
-  assert.equal(updated.posture, '更新后的状态')
+  assert.equal(updated.playerName, '更新后的名字')
   assert.equal(updated.cardReadError, undefined)
   console.log('helper worldbook full/deferred/cached RPC projections passed')
 } finally { await host.dispose() }

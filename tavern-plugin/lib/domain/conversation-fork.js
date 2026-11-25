@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { isNewTurnInput } from './session-turn-input.js'
 
 function clone(value) {
   return value === undefined ? undefined : structuredClone(value)
@@ -28,6 +29,26 @@ export function conversationForkReceipt(chat, replayed = {}) {
     lastTurn: Math.max(0, Number(replayed.lastTurn) || 0),
     messageCount: Math.max(0, Number(replayed.messageCount) || 0)
   }
+}
+
+// Workbench replies live in the host log. Rebuild the Tavern preview from the
+// same prefix, including for old workbench saves whose rows have no turn ID.
+export function cardWorkbenchForkPoint(events, messageId) {
+  const messages = []
+  const text = message => (message.content || []).filter(block => block.type === 'text').map(block => block.text).join('\n').trim()
+  let input = null, replies = []
+  for (const event of events) {
+    if (event.type === 'turn/start') { input = null; replies = [] }
+    if (!input && isNewTurnInput(event)) input = event
+    if (event.type === 'assistant/message' && event.data.message?.source?.kind === 'model') replies.push(event)
+    if (event.type !== 'turn/end' || event.data.reason?.kind !== 'completed' || !replies.length) continue
+    const closing = replies.at(-1)
+    if (input) messages.push({ role: 'user', text: text(input.data), ts: input.time, native: true })
+    messages.push({ role: 'assistant', text: replies.map(reply => text(reply.data.message)).filter(Boolean).join('\n\n'),
+      ts: closing.time, native: true })
+    if (closing.data.message.id === messageId) return { atSeq: event.seq, turn: event.data.turn, messages }
+  }
+  throw new Error('找不到可分支的已完成回复，请刷新后重试')
 }
 
 /** Create an independent game aggregate at the source Chat's committed head. */

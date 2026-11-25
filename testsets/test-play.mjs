@@ -36,8 +36,8 @@ async function main() {
   }
   const patterns = refusalPatterns(scenario.refusalPatterns)
   const report = { name: scenario.name || path.basename(scenario.file), status: 'running', startedAt: new Date().toISOString(), model: scenario.model,
-    commit: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: sourceRoot, encoding: 'utf8' }).trim(),
-    dirty: Boolean(execFileSync('git', ['status', '--porcelain'], { cwd: sourceRoot, encoding: 'utf8' }).trim()),
+    commit: execFileSync('git', ['rev-parse', 'HEAD'], { windowsHide: true, cwd: sourceRoot, encoding: 'utf8' }).trim(),
+    dirty: Boolean(execFileSync('git', ['status', '--porcelain'], { windowsHide: true, cwd: sourceRoot, encoding: 'utf8' }).trim()),
     agents: { foreground: 'not-covered', background: 'not-covered', image: 'not-covered', card: 'not-covered' }, steps: [] }
   const controller = new AbortController()
   const interrupt = () => controller.abort(new Error('测试已中断'))

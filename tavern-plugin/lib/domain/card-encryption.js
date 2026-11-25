@@ -1,6 +1,7 @@
-import { open, readFile, rm } from 'node:fs/promises'
-import { PassThrough, Readable, Writable } from 'node:stream'
-import { openZipFile, zipEntryPath } from './zip-file.js'
+import { open, readFile } from 'node:fs/promises'
+import { PassThrough, Readable, Transform, Writable } from 'node:stream'
+import { finished } from 'node:stream/promises'
+import { openZipFile, publishCardZip, zipEntryPath } from './zip-file.js'
 import { cardAssetSource, isPng, pngWithTextChunks } from './card-assets.js'
 import { readCardArchive } from './card-archive.js'
 import { Reader, ZipReader, ZipWriter, ERR_INVALID_PASSWORD, ERR_INVALID_AUTHENTICATION_CODE } from '../vendor/zipjs/zip-native.js'
@@ -100,29 +101,46 @@ async function sourceCard(input, { name = '', password } = {}) {
   }
   const zip = await openCardZip(input, { password })
   try {
-    await readCardArchive(zip)
+    await readCardArchive(zip, { assets: 'none' })
     return zip
   } catch (error) { await zip.close(); throw error }
 }
+
+// Media is already compressed: deflating it again only costs time (the AES itself runs at about 50 MB/s).
+export const STORED_MEDIA = /\.(png|webp|jpe?g|gif|webm|mp4|m4a|ogg|oga|opus|mp3|aac|flac|woff2?)$/i
 
 /** A standard ZIP container: the card, cover, plugins and assets all stay inside it. */
 export async function encryptCardArchiveFile(input, output, password, options = {}) {
   if (!options.decrypt && (typeof password !== 'string' || !password.length)) throw new Error('请设置人物卡密码')
   if (input === output) throw new Error('加密输出不能覆盖输入文件')
   const zip = await sourceCard(input, { name: options.name, password: options.decrypt ? password : options.sourcePassword })
-  let writer, destination, outputHandle
   try {
-    outputHandle = await open(output, 'wx', 0o600)
-    destination = outputHandle.createWriteStream()
-    writer = new ZipWriter(Writable.toWeb(destination), { ...(options.decrypt ? {} : { password, encryptionStrength: 3 }), useWebWorkers: false })
-    for (const entry of zip.entries.values()) {
-      await writer.add(entry.path, Readable.toWeb(await zip.stream(entry)))
-    }
-    await writer.close()
-    return { entries: zip.entries.size }
-  } catch (error) {
-    destination?.destroy()
-    if (outputHandle) { await outputHandle.close().catch(() => {}); await rm(output, { force: true }).catch(() => {}) }
-    throw error
+    const entries = new Map([...zip.entries].map(([name, entry]) => [name, entry.size ?? entry.bytes.length]))
+    const total = [...entries.values()].reduce((sum, size) => sum + size, 0)
+    return await publishCardZip(output, async temporary => {
+      const handle = await open(temporary, 'wx', 0o600), destination = handle.createWriteStream()
+      try {
+        const writer = new ZipWriter(Writable.toWeb(destination), { ...(options.decrypt ? {} : { password, encryptionStrength: 3 }), useWebWorkers: false })
+        let done = 0
+        options.onProgress?.({ done, total })
+        for (const entry of zip.entries.values()) {
+          let source = await zip.stream(entry)
+          if (options.onProgress) {
+            const meter = new Transform({ transform(chunk, _encoding, callback) {
+              done += chunk.length
+              try { options.onProgress({ done, total }); callback(null, chunk) } catch (error) { callback(error) }
+            } })
+            const sourceInput = source
+            sourceInput.once('error', error => meter.destroy(error))
+            meter.once('close', () => sourceInput.destroy())
+            source = source.pipe(meter)
+          }
+          await writer.add(entry.path, Readable.toWeb(source), { level: STORED_MEDIA.test(entry.path) ? 0 : 5 })
+        }
+        await writer.close()
+        await finished(destination)
+        return { entries: zip.entries.size }
+      } finally { destination.destroy(); await handle.close() }
+    }, { entries, encrypted: !options.decrypt })
   } finally { await zip.close() }
 }
