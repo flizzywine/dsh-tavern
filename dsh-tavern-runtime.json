@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "cab5e02befe0266f2576daa6349b5e899cbe8d7f",
-  "releaseSequence": 2133,
+  "revision": "587a9bcc734798aad493ba9c59a1c7016731c9ca",
+  "releaseSequence": 2134,
   "version": "3.4.0",
   "files": [
     {
@@ -3296,8 +3296,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/rollback-surface.js",
-      "sha256": "69e23c5036b2d344600499f58df8fdf5942f466b2b9591abb23fcd937dbd4503",
-      "size": 73007
+      "sha256": "1123bd12a8fcaa9920d9681d951140becd733c51815e05c5a0f67ad2390aa756",
+      "size": 73276
     },
     {
       "path": "tavern-plugin/lib/domain/round-anchor.js",
@@ -3311,8 +3311,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/round-history.js",
-      "sha256": "b024ed91d531719310230e9f972e9a86cc8f1b919cc1fa6239c5d61d77a1ed37",
-      "size": 108821
+      "sha256": "606fbb25e99653d513e28de61427ff919feee7bb0ecaace0241a263ad413e940",
+      "size": 109066
     },
     {
       "path": "tavern-plugin/lib/domain/runtime-content-projection.js",
@@ -10311,9 +10311,9 @@
     }
   ],
   "archive": {
-    "commit": "7483d4439e7cda9b583d9073e4cc46fa1b405814",
+    "commit": "853609dd74807a63956b36c457b7f884d0a9d8d2",
     "path": "runtime.zip",
-    "sha256": "adbf0ed45bf91462653a69bf989d1587266b15d08ec623a2d18bfe9846436fde",
-    "size": 18126167
+    "sha256": "7091b9c43d49506f239d9792f955a55a517559f8c344af847b3765fdf1a35e60",
+    "size": 18126305
   }
 }
