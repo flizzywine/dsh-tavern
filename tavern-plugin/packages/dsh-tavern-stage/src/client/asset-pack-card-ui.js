@@ -379,7 +379,7 @@ const pressRowJump=row=>row.querySelector('.ap-kind-jump')?.click();
 // service list. The voice plugin switched off is the one problem of the whole card ({ref:null}). A synthesis result, a
 // pack/engine or a pointer change re-reads in place — the previous answer stays until the new one arrives, so the ⚠ never
 // blinks between reads.
-const STAGE_VOICE_REASONS={SERVICE_REQUIRED:'音色用的服务还没配置',QWEN_MODEL_NOT_FOUND:'模型无法访问',QWEN_VOICE_UNSUPPORTED:'模型不支持这个音色'};
+const STAGE_VOICE_REASONS={VOICE_UNSET:'还没选声音',MISSING_REFERENCE:'还没有参考音频',SERVICE_REQUIRED:'音色用的服务还没配置',QWEN_MODEL_NOT_FOUND:'模型无法访问',QWEN_VOICE_UNSUPPORTED:'模型不支持这个音色'};
 const STAGE_VOICE_LINES=5;
 const sameRef=(a,b)=>!!a&&!!b&&a.packId===b.packId&&a.figureId===b.figureId;
 function useStageVoiceProblems(ctx) {

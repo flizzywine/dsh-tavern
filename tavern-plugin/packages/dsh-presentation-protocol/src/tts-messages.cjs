@@ -1,6 +1,7 @@
 // The 语音服务 control-error messages: one authority, read by the plugin (copied into src/shared by build.mjs) and by the core route.
-// ttsErrorMessage(code): the player-facing sentence, or null for a code without one (callers then say a generic 配音失败).
-function ttsErrorMessage(code) {
+// ttsErrorMessage(code, {name}): the player-facing sentence, or null for a code without one (callers then say a generic 配音失败).
+// A sentence about one figure says her name where it has {name} (「这个人物」 when the caller has none).
+function ttsErrorMessage(code, {name} = {}) {
   const messages = {
     PROVIDER_AUTH_FAILED:'语音服务要求鉴权，请在语音后端填写或检查 API Key 与访问权限。',
     FISH_AUTH_FAILED:'Fish 服务要求鉴权，请在语音后端填写或检查 API Key 与访问权限。',
@@ -27,6 +28,7 @@ function ttsErrorMessage(code) {
     MINIMAX_INVALID_AUDIO:'MiniMax 没有返回有效音频，请重试；再次失败请检查 MiniMax 服务状态。',
     MINIMAX_REQUEST_FAILED:'MiniMax 拒绝了合成请求，请检查音色、模型和账户状态后重试。',
     SERVICE_REQUIRED:'还没有可用的语音服务，请在语音后端设置所选声音对应的服务。',
+    VOICE_UNSET:'{name}还没选声音：到 素材包 › {name} › 声音 里选一个。',
     CREDENTIALS_REQUIRED:'语音服务缺少 API Key，请在语音后端填写对应服务的 API Key。',
     MISSING_REFERENCE:'当前声音没有可用的参考音频，请在人物声音页补充当前发声方式的参考音频。',
     LANGUAGE_UNSUPPORTED:'当前声音不支持所选语言，请在人物声音页更换配音语言或声音。',
@@ -61,7 +63,7 @@ function ttsErrorMessage(code) {
     PLAY_BLOCKED:'浏览器拦截了自动播放，点任意处开启声音。',
     SAMPLE_TOO_LARGE:'这个声音的官方样例文件过大，没有下载。',
   }
-  return Object.hasOwn(messages, code) ? messages[code] : null
+  return Object.hasOwn(messages, code) ? messages[code].replaceAll('{name}', name || '这个人物') : null
 }
 function describeTtsError(code) {
   return ttsErrorMessage(code) || ('配音请求失败' + (/^[A-Z][A-Z_]{0,79}$/.test(code || '') ? '（' + code + '）' : '') + '，请检查语音后端中的服务状态后重试。')

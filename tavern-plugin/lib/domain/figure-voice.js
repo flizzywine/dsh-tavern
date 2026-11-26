@@ -18,9 +18,13 @@ export function browserSpeechRate(voice, binding) {
   const rate = {...voice.variants?.normal?.tuning?.[sourceId], ...voice.variants?.[binding.variant]?.tuning?.[sourceId]}.rate
   return typeof rate === 'number' ? {rate} : {}
 }
+// The service a figure's voice speaks through; null = no voice plugin. A voice that cannot speak throws the resolver's own
+// reason (VOICE_UNSET: no voice picked yet, SERVICE_REQUIRED: its service not set up, ...), never a guessed one.
 export async function assetVoiceBinding(tts, declaration, options) {
   if (tts?.apiVersion !== 1) return null
-  return (await tts.resolveVoiceService(declaration,options)).effective
+  const {effective, issues} = await tts.resolveVoiceService(declaration,options)
+  if (!effective && issues[0]) throw Object.assign(new Error(issues[0].code), {code:issues[0].code})
+  return effective
 }
 
 // 通用声音 / 旁白 (tts.reading().general / .narrator .figure): a figure of any installed pack, enabled or not, spoken with its own
