@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "a36faa98a67f7e8ddb884cd2fa6c218b35f4e4f7",
-  "releaseSequence": 2125,
+  "revision": "e5c01be76e75fbf6f7d3dbf578872eaf75c7d476",
+  "releaseSequence": 2126,
   "version": "3.4.0",
   "files": [
     {
@@ -2171,8 +2171,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/foreground-orchestration-strategies.js",
-      "sha256": "57982dde6a1936235d2d733cb7a73fccae5afbbdc9ad831dcda66ccc4696a199",
-      "size": 45050
+      "sha256": "e3a2690addd20a13bd50ecb1b20480078241cdc1da4efd49cacd3510102a9fc6",
+      "size": 45091
     },
     {
       "path": "tavern-plugin/lib/domain/foreground-tools.js",
@@ -3041,8 +3041,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/plugin-task-execution.js",
-      "sha256": "da57a2a5c818f99d198c4c23c0d22ce02108073b317f96ea3055c9dfef7b03b6",
-      "size": 15150
+      "sha256": "1b9308d45ec608ab3d4d6578d450f3c66ef413d224dca4313486c5d5fdcf6acb",
+      "size": 15181
     },
     {
       "path": "tavern-plugin/lib/domain/plugin-text-segments.js",
@@ -3161,8 +3161,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/pure-writing-request.js",
-      "sha256": "3dc61f2b50b0328b5fea0ada9c1f5e9146748c551092ba735eb07452515da5a9",
-      "size": 6191
+      "sha256": "1648373b78e3e1884108bf1f9540792330b6b1586235ed5f028f4a978a600821",
+      "size": 7830
     },
     {
       "path": "tavern-plugin/lib/domain/read-variables.js",
@@ -4371,8 +4371,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/writing-preparation.js",
-      "sha256": "085a605702d71ff3a8e768ca97ff8a141908aa70e8dc6066db02abe0460b2824",
-      "size": 10214
+      "sha256": "5b8f9d62685216d4b1f99d7a2029552114ee42594dfbd0da7ebb814c81784b41",
+      "size": 11068
     },
     {
       "path": "tavern-plugin/lib/domain/writing-system-reminders.js",
@@ -10301,9 +10301,9 @@
     }
   ],
   "archive": {
-    "commit": "54579bec49dfb7c5f4fcaf60d6aee92057e3d9ab",
+    "commit": "5286088d7c0d17e231c472b33b6bb2da0baeed2e",
     "path": "runtime.zip",
-    "sha256": "55d4d6d4ec304853c07d1d8566c2721344a5ce79b8160f0fd6187fc986822a02",
-    "size": 18100387
+    "sha256": "a2a223a1e0d0f9959ebce192ff9ee257209b52ac724c94a96b33aa59e485c409",
+    "size": 18101207
   }
 }
