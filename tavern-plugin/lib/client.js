@@ -32449,8 +32449,13 @@ function tavernModelRefusalNotice(text) {
 			var viewport = 600;
 			try { viewport = window.parent.innerHeight || viewport; } catch (_) {}
 			viewport = Math.max(160, Math.min(1200, viewport));
+			var root = document.documentElement, body = document.body;
+			if (root.hasAttribute('data-dsh-tavern-viewport-roots')) return viewport;
 			function viewportHeight(style) {
 				return /(?:^|[^\d.])100(?:d|s|l)?vh\b/i.test((style.height || '') + ' ' + (style.minHeight || ''));
+			}
+			function explicitViewportHeight(style) {
+				return /^100(?:d|s|l)?vh$/i.test(style.height || '');
 			}
 			function visible(node) {
 		        // The embedding adapter resets document roots to content height. An
@@ -32466,19 +32471,37 @@ function tavernModelRefusalNotice(text) {
 				var style = getComputedStyle(node);
 				return rect.width > window.innerWidth / 2 && rect.height > 0 && style.visibility !== 'hidden' && style.display !== 'none';
 			}
-			function matchesRules(rules) {
+			function matchesRules(rules, rootsOnly) {
 				for (var rule of Array.from(rules || [])) {
 					if (rule.media && !matchMedia(rule.media.mediaText).matches) continue;
-					if (rule.selectorText && rule.style && viewportHeight(rule.style)) {
-						try { if (Array.from(document.querySelectorAll(rule.selectorText)).some(visible)) return true; } catch (_) {}
+					if (rule.selectorText && rule.style && (rootsOnly ? explicitViewportHeight(rule.style) : viewportHeight(rule.style))) {
+						try {
+							if (rootsOnly ? root.matches(rule.selectorText) || body.matches(rule.selectorText)
+								: Array.from(document.querySelectorAll(rule.selectorText)).some(visible)) return true;
+						} catch (_) {}
 					}
-					if (rule.cssRules && matchesRules(rule.cssRules)) return true;
+					if (rule.cssRules && matchesRules(rule.cssRules, rootsOnly)) return true;
 				}
 				return false;
 			}
-			for (var sheet of Array.from(document.styleSheets)) {
-				try { if (!sheet.disabled && (!sheet.media.mediaText || matchMedia(sheet.media.mediaText).matches) && matchesRules(sheet.cssRules)) return viewport; } catch (_) {}
+			function viewportStyleSheet(rootsOnly) {
+				for (var sheet of Array.from(document.styleSheets)) {
+					try { if (!sheet.disabled && (!sheet.media.mediaText || matchMedia(sheet.media.mediaText).matches) && matchesRules(sheet.cssRules, rootsOnly)) return true; } catch (_) {}
+				}
+				return false;
 			}
+			// An absolutely centered screen takes its position from a viewport-sized
+			// root. Resetting that root to content height sends the controls above the
+			// clipped frame. A root with only min-height can still shrink with content.
+			var centeredScreen = Array.from(body.children).some(function (node) {
+				var style = getComputedStyle(node);
+				return style.position === 'absolute' && style.transform !== 'none' && visible(node);
+			});
+			if (centeredScreen && (explicitViewportHeight(root.style) || explicitViewportHeight(body.style) || viewportStyleSheet(true))) {
+				root.setAttribute('data-dsh-tavern-viewport-roots', '');
+				return viewport;
+			}
+			if (viewportStyleSheet(false)) return viewport;
 			for (var node of document.body.querySelectorAll('*')) {
 				// Check the cheap conditions first; visible() measures layout.
 				var style = getComputedStyle(node);
@@ -33161,7 +33184,7 @@ function tavernModelRefusalNotice(text) {
 				// A transparent iframe stays transparent only while its color scheme matches the
 				// embedding element's; "light dark" followed the OS and painted a white block
 				// inside a dark DSH theme.
-				+ '<style>@layer dsh-tavern-base,theme,base,components,utilities;html,body,*{scrollbar-width:none!important;scrollbar-gutter:auto!important}*::-webkit-scrollbar{display:none!important;width:0!important;height:0!important}html[data-dsh-tavern-scroll]{overflow-y:auto!important}html[data-dsh-tavern-scroll] body{overflow-y:visible!important}@layer dsh-tavern-base{:root{color-scheme:' + (input && /^(light|dark)$/.test(input.colorScheme) ? input.colorScheme : 'light dark') + '}html,body{box-sizing:border-box;margin:0;min-height:0;background:transparent;color:CanvasText;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-size:16px;line-height:1.75}body{padding:0 1px;overflow-wrap:anywhere;white-space:pre-wrap}body>*{white-space:normal}maintext{display:block;white-space:pre-wrap;overflow-wrap:anywhere}.dsh-tavern-plain-text{white-space:pre-wrap;overflow-wrap:anywhere}*,*:before,*:after{box-sizing:border-box}img,video,svg,canvas{max-width:100%;height:auto}pre{max-width:100%;overflow:auto;white-space:pre-wrap}table{max-width:100%;border-collapse:collapse}a{color:LinkText}}</style>' + (preparationRuntime ? preparationRuntime.head : helperDependencies) + ((!sizing || sizing.mode === "content") ? '<style data-dsh-tavern-content-roots>html:root,html:root body{height:auto!important;min-height:0!important}</style>' : '') + tavernStaticAssetShim() + '<script data-dsh-tavern-remote-document>(' + installTavernRemoteDocumentLoader.toString() + ')();<\/script>' + storageShim + forkStorageShim + helperShim + interactiveHelperShim + mvuViewObservationShim + cleanRuntimeReporter + sizingStyle
+				+ '<style>@layer dsh-tavern-base,theme,base,components,utilities;html,body,*{scrollbar-width:none!important;scrollbar-gutter:auto!important}*::-webkit-scrollbar{display:none!important;width:0!important;height:0!important}html[data-dsh-tavern-scroll]{overflow-y:auto!important}html[data-dsh-tavern-scroll] body{overflow-y:visible!important}@layer dsh-tavern-base{:root{color-scheme:' + (input && /^(light|dark)$/.test(input.colorScheme) ? input.colorScheme : 'light dark') + '}html,body{box-sizing:border-box;margin:0;min-height:0;background:transparent;color:CanvasText;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-size:16px;line-height:1.75}body{padding:0 1px;overflow-wrap:anywhere;white-space:pre-wrap}body>*{white-space:normal}maintext{display:block;white-space:pre-wrap;overflow-wrap:anywhere}.dsh-tavern-plain-text{white-space:pre-wrap;overflow-wrap:anywhere}*,*:before,*:after{box-sizing:border-box}img,video,svg,canvas{max-width:100%;height:auto}pre{max-width:100%;overflow:auto;white-space:pre-wrap}table{max-width:100%;border-collapse:collapse}a{color:LinkText}}</style>' + (preparationRuntime ? preparationRuntime.head : helperDependencies) + ((!sizing || sizing.mode === "content") ? '<style data-dsh-tavern-content-roots>html:root,html:root body{height:auto!important;min-height:0!important}html:root[data-dsh-tavern-viewport-roots],html:root[data-dsh-tavern-viewport-roots] body{height:100%!important}</style>' : '') + tavernStaticAssetShim() + '<script data-dsh-tavern-remote-document>(' + installTavernRemoteDocumentLoader.toString() + ')();<\/script>' + storageShim + forkStorageShim + helperShim + interactiveHelperShim + mvuViewObservationShim + cleanRuntimeReporter + sizingStyle
 				+ (input && input.helperContext && input.helperContext.openingHost ? '<script data-dsh-tavern-session-opening>(' + installSessionOpeningBridge.toString() + ')(' + token + ',' + JSON.stringify(Object.assign({}, input.helperContext.openingHost, { extensionSettings: input.helperContext.extensionSettings || {}, lifecycleRevision: input.helperContext.lifecycleRevision })).replace(/</g, '\\u003c') + ');<\/script>' : '')
 				+ (helperShim ? '<script data-dsh-tavern-frame-chat-context>(' + sources.installHelperContext + ')({window:window,facade:window.SillyTavern,context:window.__dshTavernReadHelperContext});<\/script>' : '')
 				+ (input && input.helperContext ? '<script data-dsh-tavern-frame-variable-aliases>(' + installTavernFrameVariableAliases.toString() + ')();<\/script>' : '')
