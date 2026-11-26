@@ -2979,7 +2979,7 @@ function ttsErrorMessage(code, {name} = {}) {
     MINIMAX_INVALID_AUDIO:'MiniMax 没有返回有效音频，请重试；再次失败请检查 MiniMax 服务状态。',
     MINIMAX_REQUEST_FAILED:'MiniMax 拒绝了合成请求，请检查音色、模型和账户状态后重试。',
     SERVICE_REQUIRED:'还没有可用的语音服务，请在语音后端设置所选声音对应的服务。',
-    VOICE_UNSET:'{name}还没选声音：到 素材包 › {name} › 声音 里选一个。',
+    VOICE_UNSET:'{name}还没选声音，去 素材包 › {name} › 声音 选一个。',
     CREDENTIALS_REQUIRED:'语音服务缺少 API Key，请在语音后端填写对应服务的 API Key。',
     MISSING_REFERENCE:'当前声音没有可用的参考音频，请在人物声音页补充当前发声方式的参考音频。',
     LANGUAGE_UNSUPPORTED:'当前声音不支持所选语言，请在人物声音页更换配音语言或声音。',
@@ -3299,7 +3299,7 @@ function GalNamePlate(props) {
     // button opens her 声音 page.
     const reason = state === "error" ? stageTtsMessages().ttsErrorMessage(props.voiceError, { name: props.name }) : null;
     const unset = state === "error" && GAL_FIGURE_VOICE_CODES.has(props.voiceError), open = unset && props.onOpenVoice;
-    const label = unset ? reason.replace(/。$/, "") + (open ? "；点击前往" : "")
+    const label = unset ? (open ? reason.replace(/。$/, "") + "（点击打开）" : reason)
         : state === "error" ? (reason ? "配音失败：" + reason.replace(/。$/, "") + "；点击重试" : "配音失败，点此重试") : state === "loading" ? "语音准备中" : "重播这一句";
     const voice = state ? h("button", { type: "button", className: "fork-gal-voice", "data-state": state, title: state === "loading" || open ? label : label + "（V）", "aria-label": label, "aria-keyshortcuts": "V",
         onClick: event => { event.stopPropagation(); if (open) props.onOpenVoice(); else props.onReplay(); },
