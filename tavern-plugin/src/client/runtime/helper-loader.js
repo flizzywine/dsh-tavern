@@ -171,7 +171,10 @@
             source = String(source).replace(/(\/api\/dsh-tavern\/remote-assets\/[^\s"'`<>?]+)\?host=1\b/g, "$1?host=2");
 			// Card pages may declare a lexical `$` that shadows window.jQuery.
 			// Bind the managed MVU module to its runtime dependency, not page globals.
-			if (scriptId === "__dsh_official_mvu__") source = "const $ = window.jQuery;\n" + source;
+			if (scriptId === "__dsh_official_mvu__") {
+				// Only the managed core needs the host-settlement settings override.
+				source = "const $ = window.jQuery;\nconst SillyTavern = window.__dshTavernOfficialMvuContext;\n" + source;
+			}
 			if (previewScope && scriptId !== "__dsh_official_mvu__") source = "const window = (" + createTavernPreviewWindow.toString() + ")(globalThis); const parent = window, top = window, self = window;\n" + source;
             if (!previewScope && scriptId !== "__dsh_official_mvu__" && window.__dshTavernComposerWindow) source = "const window = globalThis.__dshTavernComposerWindow; const parent = window.parent, top = window.top, self = window;\n" + source;
 			const sourceUrl = "dsh-tavern-script:" + encodeURIComponent(String(scriptId || "module"));

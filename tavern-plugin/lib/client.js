@@ -17375,9 +17375,11 @@ window.__ModuleLoader__.load({
             // saved connection's preference through serialization and normalization.
             const managedMvu = { 模型来源:'自定义', api地址:base, 密钥:'host-managed', 模型名称:model, 随机头部:false };
             const views = new WeakMap();
-            function projectMvuSettings(value) {
+            const officialViews = new WeakMap();
+            function projectMvuSettings(value, official = false) {
                 if (!value || typeof value !== 'object') return value;
-                if (views.has(value)) return views.get(value);
+                const settingsViews = official ? officialViews : views;
+                if (settingsViews.has(value)) return settingsViews.get(value);
                 const managed = managedMvu;
                 const configViews = new WeakMap();
                 const empty = {};
@@ -17385,7 +17387,7 @@ window.__ModuleLoader__.load({
                     if (key === 'toJSON') return () => ({ ...target });
                     // Tavern's background agent already settles this chat. MVU's own extra-model
                     // parse would request a second update set and append it to the reply.
-                    if (key === '更新方式' && hostSettles()) return '随AI输出';
+                    if (key === '更新方式' && official && hostSettles()) return '随AI输出';
                     if (key !== '额外模型解析配置') return target[key];
                     const config = target[key] && typeof target[key] === 'object' ? target[key] : empty;
                     if (!configViews.has(config)) configViews.set(config, new Proxy(config, {
@@ -17396,15 +17398,15 @@ window.__ModuleLoader__.load({
                     }));
                     return configViews.get(config);
                 } });
-                views.set(value, proxy);
+                settingsViews.set(value, proxy);
                 return proxy;
             }
             function hostSettles() {
                 try { return context?.()?.mvuSettlement === 'host'; } catch (_) { return false; }
             }
-            function normalizeMvuSettings(next, previous) {
+            function normalizeMvuSettings(next, previous, official = false) {
                 if (!next || typeof next !== 'object') return next;
-                if (hostSettles() && next.更新方式 === '随AI输出' && previous && typeof previous === 'object') {
+                if (official && hostSettles() && next.更新方式 === '随AI输出' && previous && typeof previous === 'object') {
                     next = { ...next };
                     if (Object.hasOwn(previous, '更新方式')) next.更新方式 = previous.更新方式; else delete next.更新方式;
                 }
@@ -33886,13 +33888,13 @@ function bindTavernFontZoom(node, win) {
 			const extensionSettings = Object.assign(Object.create(null), copy(context().extensionSettings || {}));
 			// Tavern applies enabled card regexes without ST's per-avatar opt-in.
 			// Project that host-owned permission without persisting a fabricated setting.
-			const visibleExtensionSettings = new Proxy(extensionSettings, {
+			const settingsView = (official = false) => new Proxy(extensionSettings, {
                 set: function (target, key, value) {
-                    target[key] = key === "mvu_settings" && options.normalizeMvuSettings ? options.normalizeMvuSettings(value, target[key]) : value;
+                    target[key] = key === "mvu_settings" && options.normalizeMvuSettings ? options.normalizeMvuSettings(value, target[key], official) : value;
                     return true;
                 },
 				get: function (target, key) {
-                    if (key === "mvu_settings" && options.projectMvuSettings) return options.projectMvuSettings(target[key]);
+                    if (key === "mvu_settings" && options.projectMvuSettings) return options.projectMvuSettings(target[key], official);
                     if (key === "regex" && !Array.isArray(target.regex)) return options.readGlobalRegexes ? options.readGlobalRegexes() : [];
 					if (key !== "character_allowed_regex") return target[key];
 					const allowed = Array.isArray(target[key]) ? target[key].slice() : [];
@@ -33954,7 +33956,7 @@ function bindTavernFontZoom(node, win) {
 				Popup: HelperPopup,
 				POPUP_TYPE: Object.freeze({ DISPLAY: "display", TEXT: "text", CONFIRM: "confirm", INPUT: "input" }),
 				POPUP_RESULT: Object.freeze({ AFFIRMATIVE: 1, NEGATIVE: 0, CANCELLED: null, CUSTOM1: 2 }),
-				extensionSettings: visibleExtensionSettings,
+				extensionSettings: settingsView(),
 				// These ST rewriting/media restrictions are disabled in Tavern rendering.
 				powerUserSettings: Object.freeze({ auto_fix_generated_markdown: false, trim_sentences: false, forbid_external_media: false, encode_tags: false }),
 				get characters() {
@@ -34035,6 +34037,11 @@ function bindTavernFontZoom(node, win) {
 			options.installContext({ window, facade: sillyTavern, context, readChat: chatData.chat });
 			options.installCompatibility({ catalog: context().compatibilityCapabilities, surfaces: { TavernHelper: helper, SillyTavern: sillyTavern }, window: window, currentScript: options.currentScript, post: options.post });
 			window.SillyTavern = Object.freeze(sillyTavern);
+			const officialMvuContext = Object.freeze(Object.create(sillyTavern, {
+				extensionSettings: { value: settingsView(true) },
+				getContext: { value: () => officialMvuContext }
+			}));
+			window.__dshTavernOfficialMvuContext = officialMvuContext;
 			window.errorCatched = function (factory) { return function () { try { return factory.apply(this, arguments); } catch (error) { console.error(error); return {}; } }; };
 			// Trusted card scripts reach the displayed message like in SillyTavern.
 			window.retrieveDisplayedMessage = function (messageId) {
@@ -35076,7 +35083,10 @@ function bindTavernFontZoom(node, win) {
             source = String(source).replace(/(\/api\/dsh-tavern\/remote-assets\/[^\s"'`<>?]+)\?host=1\b/g, "$1?host=2");
 			// Card pages may declare a lexical `$` that shadows window.jQuery.
 			// Bind the managed MVU module to its runtime dependency, not page globals.
-			if (scriptId === "__dsh_official_mvu__") source = "const $ = window.jQuery;\n" + source;
+			if (scriptId === "__dsh_official_mvu__") {
+				// Only the managed core needs the host-settlement settings override.
+				source = "const $ = window.jQuery;\nconst SillyTavern = window.__dshTavernOfficialMvuContext;\n" + source;
+			}
 			if (previewScope && scriptId !== "__dsh_official_mvu__") source = "const window = (" + createTavernPreviewWindow.toString() + ")(globalThis); const parent = window, top = window, self = window;\n" + source;
             if (!previewScope && scriptId !== "__dsh_official_mvu__" && window.__dshTavernComposerWindow) source = "const window = globalThis.__dshTavernComposerWindow; const parent = window.parent, top = window.top, self = window;\n" + source;
 			const sourceUrl = "dsh-tavern-script:" + encodeURIComponent(String(scriptId || "module"));
