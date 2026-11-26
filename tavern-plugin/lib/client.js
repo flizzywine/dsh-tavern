@@ -18726,6 +18726,7 @@ try { installTavernReasoningStream(); } catch (error) { /* 同步失败时按默
 		function createTavernHostArtifactScope(options) {
             const hostDocument = options && options.document;
             const sessionId = String(options && options.sessionId || "");
+            const legacyPhoneScriptIds = new Set(options?.legacyPhoneScriptIds || []);
             const roots = [hostDocument && hostDocument.head, hostDocument && hostDocument.body].filter(Boolean);
             const owned = new Map();
             const owners = hostDocument.__dshTavernArtifactOwners || (hostDocument.__dshTavernArtifactOwners = new WeakMap());
@@ -18757,8 +18758,33 @@ try { installTavernReasoningStream(); } catch (error) { /* 同步失败时按默
                 // Park each node once per hidden period. A card that puts its node
                 // back keeps it there (still hidden): taking it again would feed the
                 // card's own observer, and the two would never let the page idle.
-                for (const [node, previous] of owned) if (!previous.parked && node.parentNode === previous.root) {
+                for (const [node, previous] of owned) if (!previous.parked && parkingRoots.has(previous.root) && node.parentNode === previous.root) {
                     parkNode(node, previous);
+                }
+            }
+            function setArtifactVisible(node, previous, show) {
+                if (show === !previous.visibility) return;
+                const stylesheet = node.tagName === "STYLE" || node.tagName === "LINK";
+                const style = node.style;
+                if (!show) {
+                    previous.visibility = { disabled: node.disabled, hidden: node.hidden,
+                        display: style?.getPropertyValue?.("display") || "", priority: style?.getPropertyPriority?.("display") || "" };
+                    if (stylesheet) node.disabled = true;
+                    else if (previous.body) {
+                        node.hidden = true;
+                        // Docked nodes stay under the dock and can have an explicit CSS display.
+                        style?.setProperty?.("display", "none", "important");
+                    }
+                    return;
+                }
+                const original = previous.visibility;
+                previous.visibility = null;
+                if (stylesheet) node.disabled = original.disabled;
+                else if (previous.body) {
+                    node.hidden = original.hidden;
+                    if (style?.getPropertyValue?.("display") === "none" && style.getPropertyPriority?.("display") === "important") {
+                        style.setProperty("display", original.display, original.priority);
+                    }
                 }
             }
             function remember(node, root) {
@@ -18772,18 +18798,43 @@ try { installTavernReasoningStream(); } catch (error) { /* 同步失败时按默
                 if (sessionId && !node.getAttribute?.("data-dsh-tavern-card-app-session")) {
                     node.setAttribute?.("data-dsh-tavern-card-app-session", sessionId);
                 }
-                owned.set(node, { hidden: node.hidden, disabled: node.disabled, body: root === hostDocument.body,
-                    root: root, nextSibling: node.nextSibling, parked: false });
+                const previous = { body: root !== hostDocument.head,
+                    root: root, nextSibling: node.nextSibling, parked: false, visibility: null };
+                owned.set(node, previous);
+                if (!visible) setArtifactVisible(node, previous, false);
             }
-            let disposed = false, visible = true;
+            let disposed = false, visible = options?.visible !== false;
             const created = new WeakSet();
             function forget(node) {
                 const previous = owned.get(node);
-                if (previous.body) node.hidden = previous.hidden;
-                else if (node.tagName === "STYLE" || node.tagName === "LINK") node.disabled = previous.disabled;
+                setArtifactVisible(node, previous, true);
                 owned.delete(node);
                 owners.delete(node);
                 node.removeAttribute?.("data-dsh-tavern-host-artifact");
+            }
+            function collectLegacyArtifacts() {
+                if (!legacyPhoneScriptIds.size) return;
+                const prefixes = ["improved-phone-shadow-host-", "improved-phone-floating-button-"];
+                const candidates = new Set(hostDocument.querySelectorAll?.(TAVERN_CARD_PHONE_HOST + ", " + TAVERN_CARD_PHONE_BUTTON) || []);
+                for (const id of legacyPhoneScriptIds) for (const prefix of prefixes) {
+                    const node = hostDocument.getElementById?.(prefix + id);
+                    if (node) candidates.add(node);
+                }
+                for (const node of candidates) {
+                    const prefix = prefixes.find(value => node.id.startsWith(value));
+                    if (prefix && legacyPhoneScriptIds.has(node.id.slice(prefix.length))) rememberLegacy(node);
+                }
+                for (const id of ["auto-message-notification-container", "auto-message-notification-styles"]) {
+                    rememberLegacy(hostDocument.getElementById?.(id));
+                }
+            }
+            function rememberLegacy(node) {
+                if (!node?.parentNode) return;
+                const parentOwner = ownerOf(node.parentNode);
+                if (parentOwner && parentOwner !== identity) return;
+                const owner = node.getAttribute?.(TAVERN_CARD_PHONE_SESSION);
+                // An unmarked legacy node can only be claimed by the foreground card.
+                if (owner ? owner === sessionId : visible) remember(node, node.parentNode);
             }
             function captureCreated() {
                 for (const root of roots) for (const node of root.childNodes) {
@@ -18795,7 +18846,8 @@ try { installTavernReasoningStream(); } catch (error) { /* 同步失败时按默
                         previous.root = node.parentNode;
                         previous.body = node.parentNode === hostDocument.body;
                         previous.parked = false;
-                    } else forget(node);
+                    } else if (!node.isConnected || node.ownerDocument !== hostDocument) forget(node);
+                    // A dock can reparent a card node without changing who owns it.
                 }
             }
             // The root exposed to card scripts is a proxy. Cards may keep
@@ -18930,17 +18982,17 @@ try { installTavernReasoningStream(); } catch (error) { /* 同步失败时按默
                 setVisible: function (next) {
                     if (disposed || visible === next) return;
                     captureCreated();
+                    collectLegacyArtifacts();
                     visible = next;
                     for (const [node, previous] of owned) {
                         // Hidden nodes still match the fixed IDs used by card scripts
                         // to detect an existing panel. Remove inactive artifacts from
                         // the shared document so another conversation can initialize.
                         // Use native DOM removal: jQuery.remove() discards handlers.
-                        if (!next && node.parentNode === previous.root) {
+                        if (!next && parkingRoots.has(previous.root) && node.parentNode === previous.root) {
                             parkNode(node, previous);
                         }
-                        if (previous.body) node.hidden = next ? previous.hidden : true;
-                        else if (node.tagName === "STYLE" || node.tagName === "LINK") node.disabled = next ? previous.disabled : true;
+                        setArtifactVisible(node, previous, next);
                     }
                     if (next) for (const [node, previous] of Array.from(owned).reverse()) {
                         if (!previous.parked) continue;
@@ -18954,6 +19006,7 @@ try { installTavernReasoningStream(); } catch (error) { /* 同步失败时按默
                 dispose: function () {
                     if (disposed) return;
                     captureCreated();
+                    collectLegacyArtifacts();
                     disposed = true;
                     if (observer) observer.disconnect();
                     for (const node of owned.keys()) {
@@ -19254,7 +19307,7 @@ try { installTavernReasoningStream(); } catch (error) { /* 同步失败时按默
 				const prevMutating = mutating;
 				mutating = true;
 				try {
-					if (attached) restore();
+					if (attached) detach("restore");
 					attached = host;
 					attachedScriptId = resolvePhoneScriptId(host);
 					if (sessionId && host.setAttribute) host.setAttribute(TAVERN_CARD_PHONE_SESSION, sessionId);
@@ -19263,7 +19316,7 @@ try { installTavernReasoningStream(); } catch (error) { /* 同步失败时按默
 					originalStyle = host.getAttribute && host.getAttribute("style");
 					slot.appendChild(host);
 					ensureTavernCardIconFonts(hostDocument);
-					if (!installShadowDependencies(host)) { restore(); return false; }
+					if (!installShadowDependencies(host)) { detach("restore"); return false; }
 					if (host.hidden === true) host.hidden = false;
 					if (host.style && host.style.display === "none") host.style.display = "";
 					host.style.position = "relative";
@@ -19287,7 +19340,7 @@ try { installTavernReasoningStream(); } catch (error) { /* 同步失败时按默
 				}
 			}
 
-			function restore() {
+			function detach(destination) {
 				if (!attached) return;
 				const prevMutating = mutating;
 				mutating = true;
@@ -19298,35 +19351,21 @@ try { installTavernReasoningStream(); } catch (error) { /* 同步失败时按默
 					attachedScriptId = "";
 					expanded = false;
 					setSlotCollapsed(false);
-					if (originalStyle === null && host.removeAttribute) host.removeAttribute("style");
-					else if (host.setAttribute) host.setAttribute("style", originalStyle || "");
-					if (originalParent) {
-						if (originalNext && originalNext.parentNode === originalParent && typeof originalParent.insertBefore === "function") originalParent.insertBefore(host, originalNext);
-						else if (typeof originalParent.appendChild === "function") originalParent.appendChild(host);
+					// Runtime teardown may remove the host before our observer runs.
+					const placement = host.isConnected === false ? null : destination;
+					if (placement === "restore") {
+						if (originalStyle === null) host.removeAttribute("style");
+						else host.setAttribute("style", originalStyle);
+						if (originalParent) {
+							if (originalNext?.parentNode === originalParent) originalParent.insertBefore(host, originalNext);
+							else originalParent.appendChild(host);
+						}
+					} else if (placement === "park") {
+						const parking = ensureTavernCardAppParking(hostDocument);
+						if (parking) parking.appendChild(host);
+						else host.style.display = "none";
 					}
-					if (floatingButton) floatingButton.style.display = floatingDisplay;
-					originalParent = null; originalNext = null; originalStyle = null; floatingButton = null; floatingDisplay = null;
-					notify(false);
-				} finally {
-					mutating = prevMutating;
-				}
-			}
-
-			function park() {
-				if (!attached) return;
-				const prevMutating = mutating;
-				mutating = true;
-				try {
-					const host = attached;
-					clearShadowObserver();
-					attached = null;
-					attachedScriptId = "";
-					expanded = false;
-					setSlotCollapsed(false);
-					const parking = ensureTavernCardAppParking(hostDocument);
-					if (parking && typeof parking.appendChild === "function") parking.appendChild(host);
-					else host.style.display = "none";
-					if (floatingButton) floatingButton.style.display = "none";
+					if (floatingButton) floatingButton.style.display = placement === "park" ? "none" : floatingDisplay;
 					originalParent = null; originalNext = null; originalStyle = null; floatingButton = null; floatingDisplay = null;
 					notify(false);
 				} finally {
@@ -19359,16 +19398,8 @@ try { installTavernReasoningStream(); } catch (error) { /* 同步失败时按默
 			if (typeof Mutation === "function" && hostDocument.body) {
 				mutationObserver = new Mutation(function (mutations) {
 					if (mutating || disposed) return;
-					let lost = false;
-					if (attached && attached.isConnected === false) {
-						clearShadowObserver();
-						attached = null; attachedScriptId = ""; expanded = false; setSlotCollapsed(false);
-						originalParent = null; originalNext = null; originalStyle = null;
-						if (floatingButton) floatingButton.style.display = floatingDisplay;
-						floatingButton = null; floatingDisplay = null;
-						notify(false);
-						lost = true;
-					}
+					const lost = attached?.isConnected === false;
+					if (lost) detach();
 					if (!attached && (lost || !mutations || added(mutations))) scan();
 				});
 				mutationObserver.observe(hostDocument.body, { childList: true, subtree: true });
@@ -19438,12 +19469,7 @@ try { installTavernReasoningStream(); } catch (error) { /* 同步失败时按默
 				if (!active || disposed) return;
 				if (attached) {
 					if (attached.isConnected === false) {
-						clearShadowObserver();
-						attached = null; attachedScriptId = ""; expanded = false; setSlotCollapsed(false);
-						originalParent = null; originalNext = null; originalStyle = null;
-						if (floatingButton) floatingButton.style.display = floatingDisplay;
-						floatingButton = null; floatingDisplay = null;
-						notify(false);
+						detach();
 						scan();
 						return;
 					}
@@ -19466,7 +19492,7 @@ try { installTavernReasoningStream(); } catch (error) { /* 同步失败时按默
 					if (mutationObserver) mutationObserver.disconnect();
 					if (resizeObserver) resizeObserver.disconnect();
 					Array.from(candidateObservers.keys()).forEach(clearCandidateObserver);
-					park();
+					detach("park");
 					if (slot && slot.removeAttribute) slot.removeAttribute("data-dsh-tavern-card-app-dock-slot");
 				}
 			});
@@ -21745,6 +21771,7 @@ function tavernModelRefusalNotice(text) {
 		// Give each module a view of the host DOM whose standard ST composer controls
 		// belong to that module's sandbox. Never install a shared, focus-routed sender.
 		function createTavernComposerWindow(frame, host = frame.parent) {
+		  const artifacts = frame.frameElement?.__dshTavernHostArtifacts;
 		  const ids = new Set(['send_textarea', 'send_but']);
 		  const HOST_NODE = Symbol.for('dsh-tavern.hostNode');
 		  const documents = new WeakMap(), windows = new WeakMap();
@@ -21762,14 +21789,12 @@ function tavernModelRefusalNotice(text) {
 		        if (typeof value !== 'function') return value;
 		        return function (...args) {
 		          const nodes = args.map(unwrap);
-		          const artifacts = frame.frameElement?.__dshTavernHostArtifacts;
 		          const run = () => value.apply(target, nodes);
 		          return mutations.has(key) && artifacts ? artifacts.mutateRoot(target, key, nodes, run) : run();
 		        };
 		      },
 		      set(target, key, value) {
 		        const run = () => Reflect.set(target, key, value, target);
-		        const artifacts = frame.frameElement?.__dshTavernHostArtifacts;
 		        return key === 'innerHTML' && artifacts ? artifacts.mutateRoot(target, key, [], run) : run();
 		      }
 		    });
@@ -21882,7 +21907,6 @@ function tavernModelRefusalNotice(text) {
 		  const frameIdQuery = id => '#' + String(id).replace(/([^\w-])/g, '\\$1');
 		  function lookup(doc, id) {
 		    if (ids.has(id)) return frame.document.getElementById(id);
-		    const artifacts = frame.frameElement?.__dshTavernHostArtifacts;
 		    const found = artifacts ? artifacts.findElementById(id) : doc.getElementById(id);
 		    if (found) return found;
 		    const [inFrame] = frameQuery(frameIdQuery(id));
@@ -21895,7 +21919,7 @@ function tavernModelRefusalNotice(text) {
 		      if (key === 'body' || key === 'head') return rootView(doc[key]);
 		      if (key === 'createElement' || key === 'createElementNS') return function (...args) {
 		        const node = doc[key](...args);
-		        frame.frameElement?.__dshTavernHostArtifacts?.trackNode(node);
+		        artifacts?.trackNode(node);
 		        return node;
 		      };
 		      if (key === 'getElementById') return id => lookup(doc, id);
@@ -35443,11 +35467,17 @@ function bindTavernFontZoom(node, win) {
 			return release;
 		}
 
-		function releaseTavernHostJQueryHandlers(host, frameWindow) {
-            if (!host || !frameWindow || !frameWindow.Function) return;
+		function tavernHostJQueryScope(frameWindow) {
+            if (!frameWindow?.Function) return null;
+            return { document: frameWindow.document, Function: frameWindow.Function, jquery: frameWindow.jQuery,
+                sessionId: frameWindow.frameElement?.__dshTavernSessionId };
+        }
+
+		function releaseTavernHostJQueryHandlers(host, frameWindow, scope = tavernHostJQueryScope(frameWindow)) {
+            if (!host || !scope) return;
             // A trusted script can use either jQuery instance to bind live message
             // nodes. Each instance owns a separate event cache, so inspect both.
-            const registries = Array.from(new Set([host.jQuery, frameWindow.jQuery])).filter(function (jq) {
+            const registries = Array.from(new Set([host.jQuery, scope.jquery])).filter(function (jq) {
                 return jq && typeof jq.hasData === "function" && typeof jq._data === "function" && typeof jq.event?.remove === "function";
             });
             if (!registries.length) return;
@@ -35459,8 +35489,8 @@ function bindTavernFontZoom(node, win) {
                 for (const node of document.querySelectorAll?.('*') || []) targets.add(node);
             }
             addDocument(host, host.document);
-            addDocument(frameWindow, frameWindow.document);
-            const sessionId = frameWindow.frameElement?.__dshTavernSessionId;
+            addDocument(frameWindow, scope.document);
+            const sessionId = scope.sessionId;
             if (sessionId) for (const frame of host.document?.querySelectorAll?.('iframe.dsh-tavern-message-frame') || []) {
                 if (frame.__dshTavernSessionId !== sessionId) continue;
                 try {
@@ -35477,13 +35507,62 @@ function bindTavernFontZoom(node, win) {
                 const events = jq._data(target, 'events') || {};
                 for (const handlers of Object.values(events)) {
                     for (const entry of Array.from(handlers)) {
-                        if (entry.handler instanceof frameWindow.Function) {
+                        if (entry.handler instanceof scope.Function) {
                             jq.event.remove(target, entry.origType + (entry.namespace ? '.' + entry.namespace : ''), entry.handler, entry.selector);
                         }
                     }
                 }
             }
 		}
+
+        function createTavernCardFrameResources({ hostWindow, hostDocument, frame, sessionId, trustedCardMode, legacyPhoneScriptIds, storage, visible }) {
+            let artifacts, releaseStorage, releaseHostFacade, jqueryScope = null;
+            let disposed = false;
+            function openDocument() {
+                artifacts = trustedCardMode ? createTavernHostArtifactScope({
+                    document: hostDocument, sessionId, legacyPhoneScriptIds, visible
+                }) : null;
+                frame.__dshTavernHostArtifacts = artifacts;
+            }
+            function releaseDocument() {
+                const scope = jqueryScope;
+                const releaseHandlers = scope ? (() => releaseTavernHostJQueryHandlers(hostWindow, frame.contentWindow, scope)) : undefined;
+                const releases = [releaseHandlers, artifacts?.dispose, releaseHostFacade, releaseStorage];
+                artifacts = releaseHostFacade = releaseStorage = undefined;
+                jqueryScope = null;
+                for (const release of releases) {
+                    try { release?.(); }
+                    catch (error) { console.warn("人物卡脚本文档清理失败", error); }
+                }
+            }
+            openDocument();
+            frame.__dshTavernRegisterTrustedHost = function (frameWindow, release) {
+                releaseHostFacade = release;
+                jqueryScope = tavernHostJQueryScope(frameWindow);
+            };
+            return {
+                get disposed() { return disposed; },
+                mount(container) {
+                    container.appendChild(frame);
+                    releaseStorage = forkFrameStorage.register(frame, storage);
+                },
+                reload() {
+                    releaseDocument();
+                    openDocument();
+                    releaseStorage = forkFrameStorage.register(frame, storage);
+                },
+                setVisible(next) {
+                    visible = next;
+                    artifacts?.setVisible(next);
+                },
+                dispose() {
+                    if (disposed) return;
+                    disposed = true;
+                    releaseDocument();
+                    frame.remove();
+                }
+            };
+        }
 
 		// In-memory patches for known card scripts, applied while a Helper module is assembled: the card's own file, saves and
 		// preferences are never changed. Each patch is data ({markers, replace: [[from, to], ...]}) registered in
@@ -35605,7 +35684,7 @@ function bindTavernFontZoom(node, win) {
 				+ 'const scripts=' + JSON.stringify(modules).replace(/</g, "\\u003c") + ';\n'
 				+ 'const token=' + (deferred ? 'window.__dshTavernHelperDocumentToken' : JSON.stringify(metadata.token)) + ';\n'
 				+ 'try{'
-				+ (input && input.trustedCardMode ? 'const frame=window.frameElement;await frame.__dshTavernPrepareTrustedHost();const artifacts=frame.__dshTavernHostArtifacts;window.$=window.jQuery=artifacts?artifacts.bindJQuery(window.parent.jQuery):window.parent.jQuery;const installHostFacade=' + installTavernTrustedHostFacade.toString() + ';const releaseHostFacade=installHostFacade(window.parent,window);window.addEventListener("pagehide",releaseHostFacade,{once:true});window.addEventListener("unload",releaseHostFacade,{once:true});\n' : '')
+				+ (input && input.trustedCardMode ? 'const frame=window.frameElement,artifacts=frame.__dshTavernHostArtifacts;await frame.__dshTavernPrepareTrustedHost();if(window.frameElement!==frame||frame.__dshTavernHostArtifacts!==artifacts)throw new Error("人物卡脚本已关闭");window.$=window.jQuery=artifacts?artifacts.bindJQuery(window.parent.jQuery):window.parent.jQuery;const installHostFacade=' + installTavernTrustedHostFacade.toString() + ';const releaseHostFacade=installHostFacade(window.parent,window);frame.__dshTavernRegisterTrustedHost?.(window,releaseHostFacade);window.addEventListener("pagehide",releaseHostFacade,{once:true});window.addEventListener("unload",releaseHostFacade,{once:true});\n' : '')
 				+ 'const installComposer=' + installLegacyTavernComposer.toString() + ';await installComposer();\n'
                 + (input && input.trustedCardMode ? 'window.__dshTavernComposerWindow=(' + createTavernComposerWindow.toString() + ')(window);if(window.jQuery){window.$=window.jQuery=window.__dshTavernComposerWindow.jQuery;}\n' : '')
                 + 'const installNodeCompatibility=' + installTavernNodeCompatibility.toString() + ';installNodeCompatibility(window);\n'
@@ -35855,32 +35934,6 @@ function bindTavernFontZoom(node, win) {
 				if (after.latestVariables !== before.latestVariables) return [{ name: "mag_variable_update_ended", args: [] }];
 				return [];
 			}
-			function removeExternalCardUiArtifacts(record) {
-				if (!record || !record.trustedCardMode || !hostDocument) return;
-				const candidates = typeof hostDocument.querySelectorAll === "function"
-					? Array.from(hostDocument.querySelectorAll('[id^="improved-phone-shadow-host-"], [id^="improved-phone-floating-button-"]'))
-					: [];
-				for (const scriptId of record.scripts.keys()) {
-					for (const prefix of ["improved-phone-shadow-host-", "improved-phone-floating-button-"]) {
-						const targetId = prefix + scriptId;
-						const matches = candidates.filter(function (item) { return item && item.id === targetId; });
-						const single = !matches.length && typeof hostDocument.getElementById === "function" ? hostDocument.getElementById(targetId) : null;
-						if (single) matches.push(single);
-						for (const node of matches) {
-							const ownerSessionId = node.getAttribute && node.getAttribute(TAVERN_CARD_PHONE_SESSION);
-							if (ownerSessionId && record.sessionId && ownerSessionId !== record.sessionId) continue;
-							if (typeof node.remove === "function") node.remove();
-						}
-					}
-				}
-				for (const id of ["auto-message-notification-container", "auto-message-notification-styles"]) {
-					const node = typeof hostDocument.getElementById === "function" ? hostDocument.getElementById(id) : null;
-					if (!node) continue;
-					const ownerSessionId = node.getAttribute && node.getAttribute(TAVERN_CARD_PHONE_SESSION);
-					if (ownerSessionId && record.sessionId && ownerSessionId !== record.sessionId) continue;
-					if (typeof node.remove === "function") node.remove();
-				}
-			}
 			function flushCompatibility(record) {
 				if (record.compatibilityTimer) hostWindow.clearTimeout(record.compatibilityTimer);
 				record.compatibilityTimer = null;
@@ -35905,16 +35958,6 @@ function bindTavernFontZoom(node, win) {
                 }
                 record.helperGenerations?.clear();
             }
-			function disposeRecordFrame(record) {
-				if (record.frameDisposed) return;
-				record.frameDisposed = true;
-				if (record.trustedCardMode) releaseTavernHostJQueryHandlers(hostWindow, record.frame.contentWindow);
-				if (record.releaseStorage) record.releaseStorage();
-				record.releaseStorage = null;
-				record.frame.remove();
-				if (record.hostArtifacts) record.hostArtifacts.dispose();
-				removeExternalCardUiArtifacts(record);
-			}
 			function removeRecord(id) {
 				const record = records.get(id);
 				if (!record) return;
@@ -35930,7 +35973,7 @@ function bindTavernFontZoom(node, win) {
 				}
 				if (record.initializationTimer) hostWindow.clearTimeout(record.initializationTimer);
 				clearCompanionDeadline(record);
-				disposeRecordFrame(record);
+				record.frameResources.dispose();
 				records.delete(id);
 				announcedReadinessKey = "";
 			}
@@ -36110,7 +36153,6 @@ function bindTavernFontZoom(node, win) {
 					compatibilityPending: new Map(),
 					compatibilityTail: Promise.resolve(),
 					compatibilityTimer: null,
-					hostArtifacts: trustedCardMode ? createTavernHostArtifactScope({ document: hostDocument, sessionId: sessionId }) : null,
 					frame: frame,
 					loaded: false,
 					context: context,
@@ -36126,7 +36168,6 @@ function bindTavernFontZoom(node, win) {
 					}]; }))
 				};
 				frame.__dshTavernSessionId = sessionId;
-                frame.__dshTavernHostArtifacts = record.hostArtifacts;
 				frame.title = "人物卡共享脚本沙箱";
 				if (trustedCardMode) {
 					// Keep the shared load and its callbacks alive when a card iframe is replaced.
@@ -36136,15 +36177,15 @@ function bindTavernFontZoom(node, win) {
 					};
 				} else frame.sandbox = "allow-scripts";
 				frame.referrerPolicy = "no-referrer";
-				record.storage = forkFrameStorage.capability({ sessionId: sessionId, cardPath: context.frameStorageScope && context.frameStorageScope.cardPath }, hostWindow); // owner-only storage grant
-				frame.srcdoc = buildTavernHelperScriptDocument({ frameStorage: record.storage, token: record.bootstrapToken, scripts: scripts, context: context, trustedCardMode: trustedCardMode, deferContext: true });
+				const storage = forkFrameStorage.capability({ sessionId: sessionId, cardPath: context.frameStorageScope && context.frameStorageScope.cardPath }, hostWindow); // owner-only storage grant
+				frame.srcdoc = buildTavernHelperScriptDocument({ frameStorage: storage, token: record.bootstrapToken, scripts: scripts, context: context, trustedCardMode: trustedCardMode, deferContext: true });
 				frame.addEventListener("load", function () {
 					if (records.get(record.id) === record && !record.loaded && !record.initializationTimer) armInitializationDeadline(record);
 				});
-				container.appendChild(frame);
-				record.releaseStorage = forkFrameStorage.register(frame, record.storage); // contentWindow exists only after insertion
+				record.frameResources = createTavernCardFrameResources({ hostWindow, hostDocument, frame, sessionId, trustedCardMode, storage,
+					legacyPhoneScriptIds: Array.from(record.scripts.keys()), visible: foreground });
+				record.frameResources.mount(container);
 				records.set(record.id, record);
-                if (record.hostArtifacts) record.hostArtifacts.setVisible(foreground);
 				return record;
 			}
 			function armInitializationDeadline(record) {
@@ -36153,7 +36194,7 @@ function bindTavernFontZoom(node, win) {
 				}, initializationTimeoutMs);
 			}
 			function activateDocument(record, documentToken) {
-				const frame = record.frame, reloaded = record.loaded;
+				const reloaded = record.loaded;
 				if (record.initializationTimer) hostWindow.clearTimeout(record.initializationTimer);
 				record.initializationTimer = null;
 				clearCompanionDeadline(record);
@@ -36177,13 +36218,7 @@ function bindTavernFontZoom(node, win) {
 						if (eventId.indexOf(mvuWorkEventPrefix) === 0) pending.reject(new Error("人物卡脚本沙箱已重新加载，事件未完成"));
 						else pending.resolve(clone(pending.envelope && pending.envelope.args || []));
 					}
-					if (record.hostArtifacts) {
-						record.hostArtifacts.dispose();
-						record.hostArtifacts = createTavernHostArtifactScope({ document: hostDocument, sessionId: record.sessionId });
-						frame.__dshTavernHostArtifacts = record.hostArtifacts;
-						record.hostArtifacts.setVisible(foreground);
-					}
-					removeExternalCardUiArtifacts(record);
+					record.frameResources.reload();
 					record.subscriptions.clear();
 					record.subscriptionsReady = false;
 					record.initializationFailed = false;
@@ -36203,10 +36238,6 @@ function bindTavernFontZoom(node, win) {
 				}
 				record.loaded = true;
 				for (const script of record.scripts.values()) script.loaded = true;
-				if (reloaded && record.storage) {
-					if (record.releaseStorage) record.releaseStorage();
-					record.releaseStorage = forkFrameStorage.register(frame, record.storage);
-				}
 				post(record, { type: "dsh-tavern-helper-context", context: record.context });
 				if (!record.initializationFailed) armInitializationDeadline(record);
 			}
@@ -36230,7 +36261,7 @@ function bindTavernFontZoom(node, win) {
 					record.reloading = true;
 					record.suppressCompactViewRefresh = false;
 					cancelRecordGenerations(record);
-					disposeRecordFrame(record);
+					record.frameResources.dispose();
 					// Keep settlement paused. A retry starts a fresh document, so the
 					// stalled script can never resume after the timeout.
 					record.mvuLoadState = { phase: "companion-timeout", canRetry: true, error: error };
@@ -36346,7 +36377,7 @@ function bindTavernFontZoom(node, win) {
 				const data = event && event.data;
 				if (!data || !data.token) return;
 				const record = records.get("shared");
-				if (!record || record.frameDisposed || event.source !== record.frame.contentWindow) return;
+				if (!record || record.frameResources.disposed || event.source !== record.frame.contentWindow) return;
 				if (data.type === "dsh-tavern-helper-document") {
 					if (data.token === record.bootstrapToken && typeof data.documentToken === "string" && data.documentToken
 						&& record.token !== data.documentToken) activateDocument(record, data.documentToken);
@@ -36732,7 +36763,7 @@ function bindTavernFontZoom(node, win) {
 			hostWindow.addEventListener("message", receive);
 			return Object.freeze({
 				sync: sync,
-                setForeground: function (value) { foreground = value; for (const record of records.values()) if (record.hostArtifacts) record.hostArtifacts.setVisible(value); },
+                setForeground: function (value) { foreground = value; for (const record of records.values()) record.frameResources.setVisible(value); },
 				emit: emit,
 				retryMvuLoad: function () {
 					const record = records.get("shared");
@@ -36769,7 +36800,7 @@ function bindTavernFontZoom(node, win) {
                         lifecycleRevision:Number(baseline.lifecycleRevision)||0,messageCount:(baseline.messages||[]).length,
                         transaction:baseline.transaction,historyWindowVersion:baseline.historyAccess?1:undefined,complete:!baseline.messagesPending && (applyTavernVariableReceipt.indexApi.info(baseline.messages)?.complete ?? false)} : {workContextVersion:1,full:true};
                     return { contextBaseline:contextBaseline, sessionId: activeSessionId, documentToken: record && !record.reloading ? record.token : undefined,
-                        frameCount: record && !record.frameDisposed ? 1 : 0, scriptIds: scripts.map(function (script) { return script.id; }), scripts: scripts,
+                        frameCount: record && !record.frameResources.disposed ? 1 : 0, scriptIds: scripts.map(function (script) { return script.id; }), scripts: scripts,
                         ...(record && record.scripts.has("__dsh_official_mvu__") ? { mvuDataReady: mvuDataReady(record) } : {}),
                         ...(record && record.mvuLoadState ? { mvuLoadState: record.mvuLoadState } : {}),
                         ...(initializationError ? { initializationError: initializationError } : {}) };

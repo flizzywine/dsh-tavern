@@ -21,7 +21,13 @@ const phoneAsset = 'https://fixture.invalid/cards/phone.js'
 const staticAsset = 'https://fixture.invalid/cards/shared.js'
 const entry = projectTavernHelperScripts([{
   id: 'external-card', name: 'External card modules', type: 'script',
-  content: `import ${JSON.stringify(staticAsset)}; await import(${JSON.stringify(assistantAsset)}); const phoneUrl = ${JSON.stringify(phoneAsset)}; await import(phoneUrl);`
+  content: `import ${JSON.stringify(staticAsset)};
+    await import(${JSON.stringify(assistantAsset)});
+    const phoneUrl = ${JSON.stringify(phoneAsset)};
+    await import(phoneUrl);
+    $('#other-card').on('click', () => { parent.__externalClicks = (parent.__externalClicks || 0) + 1; });
+    parent.__reloadExternalCard = () => window.location.reload();
+    parent.__externalLoads = (parent.__externalLoads || 0) + 1;`
 }]).scripts[0].content
 const external = new Map([
   [staticAsset, 'window.__externalCardSharedLoaded = true;'],
@@ -67,13 +73,27 @@ function view(content){return {card:{name:'Fixture'},tavernRuntimePolicy:{truste
   runtime.setForeground(true);
   runtime.sync('external',view(${JSON.stringify(entry)}));
   const floaters = () => Array.from(document.querySelectorAll('#assistant-floater,#phone-floater'));
-  await waitFor(()=>floaters().length===2);
+  await waitFor(()=>window.__externalLoads===1);
   const original = floaters();
-  check(original.every(node=>node.getAttribute('data-dsh-tavern-card-app-session')==='external'),'the literal and computed imports mount UI for the owning conversation');
+  check(original.length===2 && original.every(node=>node.getAttribute('data-dsh-tavern-card-app-session')==='external'),'the literal and computed imports mount UI for the owning conversation');
+  const dock = document.createElement('aside');
+  document.body.append(dock);
+  const phone = document.querySelector('#phone-floater');
+  phone.style.display='flex';
+  dock.append(phone);
+  // Let the artifact observer see the move before changing visibility.
+  await Promise.resolve();
   runtime.setForeground(false);
-  check(floaters().length===0,'both external floating components disappear when switching away');
+  check(floaters().every(node=>getComputedStyle(node).display==='none'),'both floating components disappear when switching away, including the docked one');
   runtime.setForeground(true);
-  check(floaters().length===2 && floaters().every(node=>original.includes(node)),'return restores both original components');
+  check(floaters().length===2 && floaters().every(node=>original.includes(node)) && phone.parentNode===dock && phone.style.display==='flex','return restores both original components and the dock placement');
+  other.click();
+  check(window.__externalClicks===1,'the card handler works before reload');
+  window.__reloadExternalCard();
+  await waitFor(()=>window.__externalLoads===2);
+  check(floaters().length===2 && original.every(node=>!node.isConnected),'reload releases both original nodes, including the docked one');
+  other.click();
+  check(window.__externalClicks===2,'reload removes the old document handler from the shared page');
   runtime.sync('new',view('void 0'));
   check(floaters().length===0 && other.isConnected,'conversation replacement removes both external components');
   runtime.dispose();

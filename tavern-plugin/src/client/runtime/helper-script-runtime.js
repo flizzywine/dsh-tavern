@@ -218,32 +218,6 @@
 				if (after.latestVariables !== before.latestVariables) return [{ name: "mag_variable_update_ended", args: [] }];
 				return [];
 			}
-			function removeExternalCardUiArtifacts(record) {
-				if (!record || !record.trustedCardMode || !hostDocument) return;
-				const candidates = typeof hostDocument.querySelectorAll === "function"
-					? Array.from(hostDocument.querySelectorAll('[id^="improved-phone-shadow-host-"], [id^="improved-phone-floating-button-"]'))
-					: [];
-				for (const scriptId of record.scripts.keys()) {
-					for (const prefix of ["improved-phone-shadow-host-", "improved-phone-floating-button-"]) {
-						const targetId = prefix + scriptId;
-						const matches = candidates.filter(function (item) { return item && item.id === targetId; });
-						const single = !matches.length && typeof hostDocument.getElementById === "function" ? hostDocument.getElementById(targetId) : null;
-						if (single) matches.push(single);
-						for (const node of matches) {
-							const ownerSessionId = node.getAttribute && node.getAttribute(TAVERN_CARD_PHONE_SESSION);
-							if (ownerSessionId && record.sessionId && ownerSessionId !== record.sessionId) continue;
-							if (typeof node.remove === "function") node.remove();
-						}
-					}
-				}
-				for (const id of ["auto-message-notification-container", "auto-message-notification-styles"]) {
-					const node = typeof hostDocument.getElementById === "function" ? hostDocument.getElementById(id) : null;
-					if (!node) continue;
-					const ownerSessionId = node.getAttribute && node.getAttribute(TAVERN_CARD_PHONE_SESSION);
-					if (ownerSessionId && record.sessionId && ownerSessionId !== record.sessionId) continue;
-					if (typeof node.remove === "function") node.remove();
-				}
-			}
 			function flushCompatibility(record) {
 				if (record.compatibilityTimer) hostWindow.clearTimeout(record.compatibilityTimer);
 				record.compatibilityTimer = null;
@@ -268,16 +242,6 @@
                 }
                 record.helperGenerations?.clear();
             }
-			function disposeRecordFrame(record) {
-				if (record.frameDisposed) return;
-				record.frameDisposed = true;
-				if (record.trustedCardMode) releaseTavernHostJQueryHandlers(hostWindow, record.frame.contentWindow);
-				if (record.releaseStorage) record.releaseStorage();
-				record.releaseStorage = null;
-				record.frame.remove();
-				if (record.hostArtifacts) record.hostArtifacts.dispose();
-				removeExternalCardUiArtifacts(record);
-			}
 			function removeRecord(id) {
 				const record = records.get(id);
 				if (!record) return;
@@ -293,7 +257,7 @@
 				}
 				if (record.initializationTimer) hostWindow.clearTimeout(record.initializationTimer);
 				clearCompanionDeadline(record);
-				disposeRecordFrame(record);
+				record.frameResources.dispose();
 				records.delete(id);
 				announcedReadinessKey = "";
 			}
@@ -473,7 +437,6 @@
 					compatibilityPending: new Map(),
 					compatibilityTail: Promise.resolve(),
 					compatibilityTimer: null,
-					hostArtifacts: trustedCardMode ? createTavernHostArtifactScope({ document: hostDocument, sessionId: sessionId }) : null,
 					frame: frame,
 					loaded: false,
 					context: context,
@@ -489,7 +452,6 @@
 					}]; }))
 				};
 				frame.__dshTavernSessionId = sessionId;
-                frame.__dshTavernHostArtifacts = record.hostArtifacts;
 				frame.title = "人物卡共享脚本沙箱";
 				if (trustedCardMode) {
 					// Keep the shared load and its callbacks alive when a card iframe is replaced.
@@ -499,15 +461,15 @@
 					};
 				} else frame.sandbox = "allow-scripts";
 				frame.referrerPolicy = "no-referrer";
-				record.storage = forkFrameStorage.capability({ sessionId: sessionId, cardPath: context.frameStorageScope && context.frameStorageScope.cardPath }, hostWindow); // owner-only storage grant
-				frame.srcdoc = buildTavernHelperScriptDocument({ frameStorage: record.storage, token: record.bootstrapToken, scripts: scripts, context: context, trustedCardMode: trustedCardMode, deferContext: true });
+				const storage = forkFrameStorage.capability({ sessionId: sessionId, cardPath: context.frameStorageScope && context.frameStorageScope.cardPath }, hostWindow); // owner-only storage grant
+				frame.srcdoc = buildTavernHelperScriptDocument({ frameStorage: storage, token: record.bootstrapToken, scripts: scripts, context: context, trustedCardMode: trustedCardMode, deferContext: true });
 				frame.addEventListener("load", function () {
 					if (records.get(record.id) === record && !record.loaded && !record.initializationTimer) armInitializationDeadline(record);
 				});
-				container.appendChild(frame);
-				record.releaseStorage = forkFrameStorage.register(frame, record.storage); // contentWindow exists only after insertion
+				record.frameResources = createTavernCardFrameResources({ hostWindow, hostDocument, frame, sessionId, trustedCardMode, storage,
+					legacyPhoneScriptIds: Array.from(record.scripts.keys()), visible: foreground });
+				record.frameResources.mount(container);
 				records.set(record.id, record);
-                if (record.hostArtifacts) record.hostArtifacts.setVisible(foreground);
 				return record;
 			}
 			function armInitializationDeadline(record) {
@@ -516,7 +478,7 @@
 				}, initializationTimeoutMs);
 			}
 			function activateDocument(record, documentToken) {
-				const frame = record.frame, reloaded = record.loaded;
+				const reloaded = record.loaded;
 				if (record.initializationTimer) hostWindow.clearTimeout(record.initializationTimer);
 				record.initializationTimer = null;
 				clearCompanionDeadline(record);
@@ -540,13 +502,7 @@
 						if (eventId.indexOf(mvuWorkEventPrefix) === 0) pending.reject(new Error("人物卡脚本沙箱已重新加载，事件未完成"));
 						else pending.resolve(clone(pending.envelope && pending.envelope.args || []));
 					}
-					if (record.hostArtifacts) {
-						record.hostArtifacts.dispose();
-						record.hostArtifacts = createTavernHostArtifactScope({ document: hostDocument, sessionId: record.sessionId });
-						frame.__dshTavernHostArtifacts = record.hostArtifacts;
-						record.hostArtifacts.setVisible(foreground);
-					}
-					removeExternalCardUiArtifacts(record);
+					record.frameResources.reload();
 					record.subscriptions.clear();
 					record.subscriptionsReady = false;
 					record.initializationFailed = false;
@@ -566,10 +522,6 @@
 				}
 				record.loaded = true;
 				for (const script of record.scripts.values()) script.loaded = true;
-				if (reloaded && record.storage) {
-					if (record.releaseStorage) record.releaseStorage();
-					record.releaseStorage = forkFrameStorage.register(frame, record.storage);
-				}
 				post(record, { type: "dsh-tavern-helper-context", context: record.context });
 				if (!record.initializationFailed) armInitializationDeadline(record);
 			}
@@ -593,7 +545,7 @@
 					record.reloading = true;
 					record.suppressCompactViewRefresh = false;
 					cancelRecordGenerations(record);
-					disposeRecordFrame(record);
+					record.frameResources.dispose();
 					// Keep settlement paused. A retry starts a fresh document, so the
 					// stalled script can never resume after the timeout.
 					record.mvuLoadState = { phase: "companion-timeout", canRetry: true, error: error };
@@ -709,7 +661,7 @@
 				const data = event && event.data;
 				if (!data || !data.token) return;
 				const record = records.get("shared");
-				if (!record || record.frameDisposed || event.source !== record.frame.contentWindow) return;
+				if (!record || record.frameResources.disposed || event.source !== record.frame.contentWindow) return;
 				if (data.type === "dsh-tavern-helper-document") {
 					if (data.token === record.bootstrapToken && typeof data.documentToken === "string" && data.documentToken
 						&& record.token !== data.documentToken) activateDocument(record, data.documentToken);
@@ -1095,7 +1047,7 @@
 			hostWindow.addEventListener("message", receive);
 			return Object.freeze({
 				sync: sync,
-                setForeground: function (value) { foreground = value; for (const record of records.values()) if (record.hostArtifacts) record.hostArtifacts.setVisible(value); },
+                setForeground: function (value) { foreground = value; for (const record of records.values()) record.frameResources.setVisible(value); },
 				emit: emit,
 				retryMvuLoad: function () {
 					const record = records.get("shared");
@@ -1132,7 +1084,7 @@
                         lifecycleRevision:Number(baseline.lifecycleRevision)||0,messageCount:(baseline.messages||[]).length,
                         transaction:baseline.transaction,historyWindowVersion:baseline.historyAccess?1:undefined,complete:!baseline.messagesPending && (applyTavernVariableReceipt.indexApi.info(baseline.messages)?.complete ?? false)} : {workContextVersion:1,full:true};
                     return { contextBaseline:contextBaseline, sessionId: activeSessionId, documentToken: record && !record.reloading ? record.token : undefined,
-                        frameCount: record && !record.frameDisposed ? 1 : 0, scriptIds: scripts.map(function (script) { return script.id; }), scripts: scripts,
+                        frameCount: record && !record.frameResources.disposed ? 1 : 0, scriptIds: scripts.map(function (script) { return script.id; }), scripts: scripts,
                         ...(record && record.scripts.has("__dsh_official_mvu__") ? { mvuDataReady: mvuDataReady(record) } : {}),
                         ...(record && record.mvuLoadState ? { mvuLoadState: record.mvuLoadState } : {}),
                         ...(initializationError ? { initializationError: initializationError } : {}) };
