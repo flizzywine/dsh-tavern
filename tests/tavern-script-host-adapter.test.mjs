@@ -90,6 +90,81 @@ test('message frames publish once and resume MVU on the existing floors after a 
   }
 })
 
+for (const concurrent of ['plugin-data', 'same-field', 'next-opening']) {
+  test(`helper opening initialization reconciles concurrent ${concurrent}`, async t => {
+    const host = await createHelperChatDataHost()
+    t.after(host.cleanup)
+    const mvu = gold => ({ stat_data: { gold }, schema: {} })
+    const initial = await host.persistence.update('audit', chat => {
+      chat.mvu = { enabled: true, owner: 'official', openingInitialization: { version: 2, status: 'pending' } }
+      chat.messages[0].variables = [mvu(0)]
+      return chat
+    })
+    const { adapter } = harness(initial, {
+      resolveChat: () => host.persistence.read('audit'),
+      writeChat: (...args) => host.persistence.write(...args),
+      patchChat: (...args) => host.persistence.patch(...args),
+      async replyRegexScripts() {
+        await host.persistence.update('audit', latest => {
+          if (concurrent === 'same-field') latest.messages[0].variables = [mvu(9)]
+          else if (concurrent === 'next-opening') latest.tavernHelperLifecycleRevision += 1
+          else {
+            latest.messages[0].tavernPluginData = { wiki: { visited: true } }
+            latest.messages[0].displayRuntime = { frames: [] }
+            latest.tavernPluginMetadata = { wiki: { ready: true } }
+          }
+          return latest
+        })
+        return []
+      }
+    })
+    const update = adapter.updateMessages('audit', [{ message_id: 0, swipes_data: [mvu(30)] }], 2, 'host-event-3')
+    if (concurrent === 'same-field') {
+      await assert.rejects(update, { code: 'DSH_TAVERN_CHAT_CONFLICT' })
+    } else {
+      const result = await update
+      assert.equal(result.updated, concurrent !== 'next-opening')
+      if (concurrent === 'next-opening') assert.equal(result.stale, true)
+      else assert.equal(result.context.messages[0].variables.stat_data.gold, 30)
+    }
+    const saved = await host.open().read('audit')
+    assert.deepEqual(saved.messages[0].variables, [mvu(concurrent === 'plugin-data' ? 30 : concurrent === 'same-field' ? 9 : 0)])
+    if (concurrent === 'plugin-data') {
+      assert.deepEqual(saved.messages[0].tavernPluginData, { wiki: { visited: true } })
+      assert.deepEqual(saved.messages[0].displayRuntime, { frames: [] })
+      assert.deepEqual(saved.tavernPluginMetadata, { wiki: { ready: true } })
+      assert.equal(saved.mvu.openingInitialization.status, 'complete')
+    }
+  })
+}
+
+test('a helper message rewrite preserves plugin data and invalidates a late display capture', async t => {
+  const host = await createHelperChatDataHost()
+  t.after(host.cleanup)
+  const initial = await host.persistence.update('audit', chat => {
+    chat.mvu.enabled = true
+    return chat
+  })
+  const { adapter } = harness(initial, {
+    resolveChat: () => host.persistence.read('audit'),
+    writeChat: (...args) => host.persistence.write(...args),
+    patchChat: (...args) => host.persistence.patch(...args),
+    async replyRegexScripts() {
+      await host.persistence.update('audit', latest => {
+        latest.messages[0].tavernPluginData = { wiki: 'keep' }
+        latest.messages[0].displayRuntime = { frames: [] }
+        return latest
+      })
+      return []
+    }
+  })
+  await adapter.updateMessages('audit', [{ message_id: 0, message: '新的开场。' }], 2)
+  const saved = await host.open().read('audit')
+  assert.equal(saved.messages[0].text, '新的开场。')
+  assert.deepEqual(saved.messages[0].tavernPluginData, { wiki: 'keep' })
+  assert.equal(saved.messages[0].displayRuntime, undefined)
+})
+
 for (const sliced of [false, true]) test(`chat player identity is persisted atomically with variables: sliced=${sliced}`, async t => {
   const host = await createHelperChatDataHost()
   t.after(host.cleanup)

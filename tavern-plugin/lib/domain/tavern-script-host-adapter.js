@@ -3,7 +3,7 @@ import { applyRegexOverrides } from './regex-manager.js'
 import { templateStateFields } from './template-window-reader.js'
 import { createScopedMessages } from './scoped-messages.js'
 import { diffJson } from './json-mutation.js'
-import { commitChatFields, rebaseChatChanges, sameChatMessageIdentity } from './chat-field-transaction.js'
+import { commitChatFields, rebaseChatChanges, sameChatMessageIdentity, sameChatMessageStory } from './chat-field-transaction.js'
 import { applyOpeningVariables } from './opening-setup.js'
 import { createFullPromptTemplateSync } from './full-prompt-template-sync.js'
 import { createJsonValueProjectionCache } from './immutable-json-projection.js'
@@ -37,6 +37,19 @@ const TEMPLATE_PATCH_CONFLICT = Symbol('template patch conflict')
 
 function variableConflict() {
   return Object.assign(new Error('变量写入目标或字段已变化，请重新读取后重试'), { code: 'DSH_TAVERN_CHAT_CONFLICT' })
+}
+
+function messageConflict() {
+  return Object.assign(new Error('消息写入目标或字段已变化，请重新读取后重试'), { code: 'DSH_TAVERN_CHAT_CONFLICT' })
+}
+
+function helperMessageChanges(before, chat) {
+  const changes = diffJson(before.header, { macroState: chat.macroState, mvu: chat.mvu })
+  for (const [index, { displayRuntime: _beforeCapture, ...original }] of before.rows) {
+    const { displayRuntime: _afterCapture, ...current } = chat.messages[index]
+    for (const change of diffJson(original, current)) changes.push({ ...change, path: ['messages', index, ...change.path] })
+  }
+  return changes
 }
 
 function variableMutationFields(type) {
@@ -352,6 +365,18 @@ export function createTavernScriptHostAdapter(options = {}) {
     await assertScriptEnabled(chat)
     if (!mutationIsCurrent(chat, expectedLifecycleRevision)) return staleMutation(chat)
     const patches = await settlement.prepareMessages(sessionId, messages, eventId)
+    const canPatch = options.patchChat && Number.isSafeInteger(chat._storageRevision) && chat._storageRevision > 0
+      && !settlement.has(str(sessionId))
+    let before
+    if (canPatch) {
+      const rows = new Map()
+      for (const patch of Array.isArray(patches) ? patches : []) {
+        if (!patch || typeof patch !== 'object') continue
+        const index = normalizeMessageId(chat.messages || [], patch.message_id)
+        if (!rows.has(index)) rows.set(index, structuredClone(chat.messages[index]))
+      }
+      before = { rows, header: structuredClone({ macroState: chat.macroState, mvu: chat.mvu }) }
+    }
     const updated = replaceTavernHelperMessages(chat, patches, await replyProjection(chat))
     // (MVU's opening build writes the floor's swipes_data through here)
     for (const { messageId } of updated) if (layOpeningStartValues(chat, { type: 'message', messageId })) break
@@ -364,7 +389,11 @@ export function createTavernScriptHostAdapter(options = {}) {
     }
     const transactional = await transactionResult(sessionId, updated, true, eventId)
     if (transactional !== null) return transactional
-    try { await options.writeChat(chat, { source: 'tavern-helper.messages' }) }
+    let saved
+    try {
+      saved = before ? await saveHelperMessageChanges(sessionId, chat, before, eventId)
+        : await options.writeChat(chat, { source: 'tavern-helper.messages' })
+    }
     catch (error) {
       if (error && error.code === 'DSH_TAVERN_CHAT_CONFLICT') {
         const latest = await options.resolveChat(str(sessionId))
@@ -372,7 +401,45 @@ export function createTavernScriptHostAdapter(options = {}) {
       }
       throw error
     }
-    return { updated: true, targets: updated, context: await fullContext(chat) }
+    return { updated: true, targets: updated, context: await fullContext(saved || chat) }
+  }
+
+  async function saveHelperMessageChanges(sessionId, chat, before, eventId) {
+    const changes = helperMessageChanges(before, chat)
+    const resetCaptures = [...before.rows].filter(([index, original]) => {
+      const next = chat.messages[index]
+      return !sameChatMessageStory(original, next) || (original.displayRuntime !== undefined && next.displayRuntime === undefined)
+    }).map(([index]) => index)
+    const metadata = { source: 'tavern-helper.messages', assertCurrent() {
+      settlement.assertEvent(sessionId, eventId)
+      if (settlement.has(str(sessionId))) throw messageConflict()
+    } }
+    const captureDeletes = rowAt => resetCaptures.filter(index => {
+      const row = rowAt(index)
+      return row.displayRuntime !== undefined && sameChatMessageStory(before.rows.get(index), row)
+    })
+      .map(index => ({ op: 'delete', path: ['messages', index, 'displayRuntime'] }))
+    const receipt = await commitChatFields(options.patchChat, chat.id, metadata, async attempt => {
+      if (attempt === 0) return { revision: chat._storageRevision, changes: changes.concat(captureDeletes(index => before.rows.get(index))) }
+      const latest = await resolveChat(sessionId)
+      metadata.assertCurrent()
+      if (latest.id !== chat.id || latest.sessionId !== chat.sessionId || latest.cardPath !== chat.cardPath
+        || latest.cardContextRevision !== chat.cardContextRevision || latest.mode !== chat.mode
+        || latest.timeline?.branchId !== chat.timeline?.branchId
+        || !mutationIsCurrent(latest, chat.tavernHelperLifecycleRevision ?? 0)) throw messageConflict()
+      for (const [index, original] of before.rows) {
+        const current = latest.messages[index]
+        if (!sameChatMessageIdentity(original, current, index)
+          || (!sameChatMessageStory(original, current) && !sameChatMessageStory(chat.messages[index], current))) throw messageConflict()
+      }
+      const pending = rebaseChatChanges(changes, helperMessageChanges(before, latest))
+      if (!pending) throw messageConflict()
+      return { revision: latest._storageRevision, changes: pending.concat(captureDeletes(index => latest.messages[index])) }
+    })
+    if (!receipt) throw messageConflict()
+    if (receipt.rebased) return resolveChat(sessionId)
+    const { messages: _messages, ...header } = receipt.saved
+    return Object.assign(chat, header)
   }
 
   async function createMessages(sessionId, messages, option, expectedLifecycleRevision, eventId, completion = {}) {
