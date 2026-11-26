@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "bbdc8f7a53397700e598f641503e6e4aec70fcc9",
-  "releaseSequence": 2107,
+  "revision": "ba146390dca5e7defc6b610232ba24696fade3ef",
+  "releaseSequence": 2108,
   "version": "3.4.0",
   "files": [
     {
@@ -786,8 +786,8 @@
     },
     {
       "path": "presets/tavern/skills/card-to-mvu/SKILL.md",
-      "sha256": "b18a84c879034af582c72d185c618f7d8e62c253002884dbc028bfd42047f842",
-      "size": 4154
+      "sha256": "aea445a60366b2226352df54a1eaa33b868747ed612ec9e8f03e4be8f8bce8e5",
+      "size": 4190
     },
     {
       "path": "presets/tavern/skills/create-card/references/worldbook-entries.md",
@@ -801,8 +801,8 @@
     },
     {
       "path": "presets/tavern/skills/create-dsh-card/references/format-and-stage.md",
-      "sha256": "6de8146e4b2bea59c1a6a00d1520af22ab8e5b61d1b43273a2907690c194af83",
-      "size": 6305
+      "sha256": "eb4118b2adb95acc76372522a037a1abf33c07b4b532a586b0ddc6ed85f0bf7c",
+      "size": 6515
     },
     {
       "path": "presets/tavern/skills/create-dsh-card/SKILL.md",
@@ -865,209 +865,209 @@
       "size": 5061
     },
     {
-      "path": "presets/tavern/skills/stage-assets/references/backgrounds-cg.md",
-      "sha256": "464ff5094f2d203bfbb6587926ccc604402b8312b3af389b94602cc1a6a4013b",
-      "size": 3008
+      "path": "presets/tavern/skills/stage/references/asset-backgrounds-cg.md",
+      "sha256": "ca3353838684c8bd1e9bb2966977444a9bb1017d471b3ab2895b412178d7b2f5",
+      "size": 3482
     },
     {
-      "path": "presets/tavern/skills/stage-assets/references/figure-fields.md",
-      "sha256": "44ed1d5dae87edbdb54c877069e34705be0c079dc542c49fdfadf73e2b1ad2fd",
-      "size": 4709
+      "path": "presets/tavern/skills/stage/references/asset-figure-fields.md",
+      "sha256": "0caf1f49425a57ae6d5e3cbe8d122c2455225f728b3934ea0db4893f05869b30",
+      "size": 4760
     },
     {
-      "path": "presets/tavern/skills/stage-assets/references/figure-voice.md",
-      "sha256": "55527735cfc1f17b35a7b7fc081b8ff97b0cb525476078f60c109d2498954dc2",
-      "size": 4609
+      "path": "presets/tavern/skills/stage/references/asset-figures.md",
+      "sha256": "a294901b99e4dd6519babd5d40319e866b79a31d978f00c79e6dad73732369df",
+      "size": 6330
     },
     {
-      "path": "presets/tavern/skills/stage-assets/references/figures.md",
-      "sha256": "a3e06896542dca1630b9a7ff0e49bee4d7de32bde5cfd65399fd69ffc1230d38",
-      "size": 6290
+      "path": "presets/tavern/skills/stage/references/asset-generation-targets.md",
+      "sha256": "eac6e63e569301d9bef563b06e1dc517fe1c884e9d2ffcd4bc00ad321926e80b",
+      "size": 2904
     },
     {
-      "path": "presets/tavern/skills/stage-assets/references/generation-targets.md",
-      "sha256": "0f1d3a4a6cb94df56eacda9a6df6f5bdf23144bb472da47a56c144f843724a83",
-      "size": 2898
+      "path": "presets/tavern/skills/stage/references/asset-generation.md",
+      "sha256": "c1352d8d20a7850bc12ae9a749d9e33c1c7ddc85ba8f2e77743f3686d866f522",
+      "size": 5575
     },
     {
-      "path": "presets/tavern/skills/stage-assets/references/generation.md",
-      "sha256": "6d5ec19884f76bcea0f94fbe7fd6ce165c0fe9275b7ca6b4320c71635f3ce414",
-      "size": 5374
+      "path": "presets/tavern/skills/stage/references/asset-lamps-recall.md",
+      "sha256": "65a4b499517d4fe3c4493a6a5323af7d438caf045134c5d979b872a5c83e296f",
+      "size": 3671
     },
     {
-      "path": "presets/tavern/skills/stage-assets/references/lamps-recall.md",
-      "sha256": "bb96758d073f188e13c29ce73dabf17bcf5774d6abf4e79c92053ab3aaebc280",
-      "size": 3614
+      "path": "presets/tavern/skills/stage/references/asset-live2d-spine.md",
+      "sha256": "23d80c05e084b6a6b4daa368ab50692f84bfe010388091f43761ca42ab0150bb",
+      "size": 2366
     },
     {
-      "path": "presets/tavern/skills/stage-assets/references/live2d-spine.md",
-      "sha256": "88ec24c418aa43b0aa4a0f37752f063d269b3f5f9fb1d0bfb38d9599c7672a6a",
-      "size": 2331
+      "path": "presets/tavern/skills/stage/references/asset-music-sound.md",
+      "sha256": "1f494dc91f9cec3c52fb133aa50216bd3c400636ef534438e50782bcadbfc224",
+      "size": 2649
     },
     {
-      "path": "presets/tavern/skills/stage-assets/references/music-sound.md",
-      "sha256": "28b2d9a178a84cc4986f64a6c42755bd1afcb57e16ab02cb9b55c90a39846603",
-      "size": 2313
-    },
-    {
-      "path": "presets/tavern/skills/stage-assets/references/packs.md",
+      "path": "presets/tavern/skills/stage/references/asset-packs.md",
       "sha256": "619cc9d0a045bc7280626effc73d383ae1842ca9a3272b642d2c544ba80a81b7",
       "size": 3973
     },
     {
-      "path": "presets/tavern/skills/stage-assets/references/skins.md",
-      "sha256": "26f2948a497127a28df49822f189711c9a2d1dd9d270dcdf597d550db903e73e",
-      "size": 2194
+      "path": "presets/tavern/skills/stage/references/asset-skins.md",
+      "sha256": "72f062cd92533897a5b135dc537ba4963e63084c06b669a2656ee5feb30db1cd",
+      "size": 2419
     },
     {
-      "path": "presets/tavern/skills/stage-assets/references/transfer.md",
-      "sha256": "48d99c8b800df1c6bf9df2e4809ff2b4a02a1c973e841f9e66e231ad5194f3b0",
-      "size": 2806
+      "path": "presets/tavern/skills/stage/references/asset-transfer.md",
+      "sha256": "1af686949de83b3b9031d62cc3edd3eb3b4098cf6f40d913631093d5872a73e2",
+      "size": 2821
     },
     {
-      "path": "presets/tavern/skills/stage-assets/references/voice-backend.md",
-      "sha256": "3b992bccca43ad80f902b989edc436b30bbb4389b449d2b7cb8daa21cb32d973",
-      "size": 4045
+      "path": "presets/tavern/skills/stage/references/assets.md",
+      "sha256": "eaecc5e5e9233ee46330b49eac64458e97037293a9a360ebf50c29056a50936a",
+      "size": 3271
     },
     {
-      "path": "presets/tavern/skills/stage-assets/references/voice-clone.md",
-      "sha256": "8a34bb2a1b9d04b39df4256f2bf91ab61cf7d535e467658164f568faaae1447b",
-      "size": 2334
+      "path": "presets/tavern/skills/stage/references/card-convert.md",
+      "sha256": "ae9d6a8e23694242af510820cc24d60e048f17296420f1328e5c1fab6aaaa163",
+      "size": 5725
     },
     {
-      "path": "presets/tavern/skills/stage-assets/references/voice-data.md",
-      "sha256": "9887d07681b9abd89f53fada7c5aa590e03346c6e5cf4b2df0518712f05e69b5",
-      "size": 3607
+      "path": "presets/tavern/skills/stage/references/directing-judge.md",
+      "sha256": "8afc2e1d940315ac4317dc5921c11dec2ad94c536821a900f7cdaf87583909c5",
+      "size": 3424
     },
     {
-      "path": "presets/tavern/skills/stage-assets/references/voice-readings.md",
-      "sha256": "0dc0e1ef45eff36113744ddf8b26d94293e47d7c7935e03d4771f6ac5c383ede",
-      "size": 1451
+      "path": "presets/tavern/skills/stage/references/directing.md",
+      "sha256": "b2f4925e908d3078bfef574475db22449324b9818c1ac5eb88e9e5a90509e22b",
+      "size": 7739
     },
     {
-      "path": "presets/tavern/skills/stage-assets/references/voice-start.md",
-      "sha256": "ee641c1c0b133ad3ec2fb05837e72074be8c398780258afadd8a151b28949f5c",
-      "size": 7821
+      "path": "presets/tavern/skills/stage/references/mod-card-declared.md",
+      "sha256": "135deed4df498fc0b90cb7a90976fa04867551c1a72e8b62da492cee607e43eb",
+      "size": 4124
     },
     {
-      "path": "presets/tavern/skills/stage-assets/references/voice-troubleshooting.md",
-      "sha256": "2d576ab7f8527b8e955c62c2ee7ba112d56bf10656cbcef16fc23d7e13bd5fc0",
-      "size": 4515
+      "path": "presets/tavern/skills/stage/references/mod-config.md",
+      "sha256": "b74ca436d404c0316dbe745605a3726520b2ef359605d8bf83ec3a515668c7f7",
+      "size": 2282
     },
     {
-      "path": "presets/tavern/skills/stage-assets/references/voice-variants.md",
-      "sha256": "7ddb42639054d7f6d17f574bf5d458eb6142438d29ccad8e5bdb46a3b14127a0",
-      "size": 2403
+      "path": "presets/tavern/skills/stage/references/mod-dice.md",
+      "sha256": "bf92a57a0572fd933fdcd297807c089f7bb3faf502452fe792bdf04e86287d28",
+      "size": 3232
     },
     {
-      "path": "presets/tavern/skills/stage-assets/SKILL.md",
-      "sha256": "5acb8333cd6a38430e55caf56f8de1a55b1b4c371f5dce670e717231a52a5a13",
-      "size": 7188
+      "path": "presets/tavern/skills/stage/references/mod-phone.md",
+      "sha256": "4bd0d97e66d68cd86f6eae3067e153e51e3bb84ee5d8ab935f0bbae5c236fb3d",
+      "size": 2503
     },
     {
-      "path": "presets/tavern/skills/stage-directing/references/judge.md",
-      "sha256": "cae4d28531fd85b9c8fc0c7c4ab205119f819e2e2a6497386b157802f6e127c8",
-      "size": 3347
+      "path": "presets/tavern/skills/stage/references/mod-redaction.md",
+      "sha256": "79b8097897a542c83f494dcdce0affa8345afd6f96b18e2af9a200c2152b89b2",
+      "size": 1648
     },
     {
-      "path": "presets/tavern/skills/stage-directing/SKILL.md",
-      "sha256": "58d668b2c328b4ca882e3731ef6144d19db72d2a3e35b7930157fe22deacf294",
-      "size": 8264
+      "path": "presets/tavern/skills/stage/references/mod-textcard.md",
+      "sha256": "82758ad60a141e2b599b63ff2c3c39c71e313e6d24ae2d449544d7d13b60574b",
+      "size": 759
     },
     {
-      "path": "presets/tavern/skills/stage-mods/references/card-declared.md",
-      "sha256": "414e85fa7bed864cdbbb2665baa6bd4cacbb0b6a2d937c87b5cc8e362f199ee3",
-      "size": 4120
+      "path": "presets/tavern/skills/stage/references/mod-timer.md",
+      "sha256": "9c4561e3ce486f7ba65086a35ca788ee2721571b6ea26cc6bade3f1ace183989",
+      "size": 1066
     },
     {
-      "path": "presets/tavern/skills/stage-mods/references/dice.md",
-      "sha256": "e1f972f77eede7e6aab491252f70b1e194e364018aff72e8346f01a073a80774",
-      "size": 2602
+      "path": "presets/tavern/skills/stage/references/mods.md",
+      "sha256": "ed92217caa4f352e271c02dba0403b81304cf87e4be701c6e74b5375159667e6",
+      "size": 6054
     },
     {
-      "path": "presets/tavern/skills/stage-mods/references/mod-config.md",
-      "sha256": "05ce3a11036118cea49d0f6a5fcb222dcf6c82305990edca103784dc69dfa7fe",
-      "size": 2262
-    },
-    {
-      "path": "presets/tavern/skills/stage-mods/references/phone.md",
-      "sha256": "e39037e3b9dcdcc06ac1e29109473f215d3950140d6c76e55b24192949dc8a6f",
-      "size": 2283
-    },
-    {
-      "path": "presets/tavern/skills/stage-mods/references/redaction.md",
-      "sha256": "1184ce61a0f2d5c5f4447b12664a612254f223da647850f077631b1f2ed56687",
-      "size": 1536
-    },
-    {
-      "path": "presets/tavern/skills/stage-mods/references/textcard.md",
-      "sha256": "641d2ed00522c5793878c053127ef9bf0e9a34b230c16f9eeebcad1ce65f0341",
-      "size": 755
-    },
-    {
-      "path": "presets/tavern/skills/stage-mods/references/timer.md",
-      "sha256": "d02268a57d1d844005b7319d468ff3263632a7ab0fd92fe8584debc37698d712",
-      "size": 1031
-    },
-    {
-      "path": "presets/tavern/skills/stage-mods/SKILL.md",
-      "sha256": "40671a166e045b50627352b487f03972450070754a968c0992b668e858734a31",
-      "size": 7135
-    },
-    {
-      "path": "presets/tavern/skills/stage-setup/references/local-ui.md",
-      "sha256": "735f41acb54bc1788045d989c55ae9887bafbe6d146794ebb3196774894b671b",
-      "size": 2208
-    },
-    {
-      "path": "presets/tavern/skills/stage-setup/references/openings.md",
-      "sha256": "99b2d3ce1b32da720105f7f75fb21980df42ced85c56335aeb6dac9047a63bef",
-      "size": 3272
-    },
-    {
-      "path": "presets/tavern/skills/stage-setup/references/quickstart.md",
-      "sha256": "98413db124706c7b321ee8b261259e7bb9a4f2027ffc50f7c582670b706e81d4",
-      "size": 4887
-    },
-    {
-      "path": "presets/tavern/skills/stage-setup/references/settings.md",
-      "sha256": "0061a726ba1e24665f9bd71cfd42082169f88466f4134a4fb34ae602764954c5",
-      "size": 7757
-    },
-    {
-      "path": "presets/tavern/skills/stage-setup/references/tasks.md",
-      "sha256": "b76a0949e6e498ac485e9f374e310eb81a3b00ab909a852c99bedd64607d72a0",
-      "size": 3679
-    },
-    {
-      "path": "presets/tavern/skills/stage-setup/SKILL.md",
-      "sha256": "c78366b05d98d50a01740c2c8dbf0caf716b58bc1d411784615fcc240443350f",
-      "size": 1106
-    },
-    {
-      "path": "presets/tavern/skills/stage-sharing/SKILL.md",
-      "sha256": "89904b9e8780b1793bed6e9e24f387439e6dff3c463cd03ebfbd0a7a78eecde3",
-      "size": 6682
-    },
-    {
-      "path": "presets/tavern/skills/stage-status-panel/references/example.md",
-      "sha256": "c1d40708b6541a26837a147d76722ba2cf9249e781b3dd6e5c15ed3c75719147",
-      "size": 14142
-    },
-    {
-      "path": "presets/tavern/skills/stage-status-panel/references/panel-contract.md",
+      "path": "presets/tavern/skills/stage/references/page-contract.md",
       "sha256": "0ea749978f94e57b53187322b03e1361ce991b415fbdcc9f8bac90021484f0bc",
       "size": 22784
     },
     {
-      "path": "presets/tavern/skills/stage-status-panel/SKILL.md",
-      "sha256": "3c6493a2212647852d13ab8bb01a2284c0ea63c80ea7cca0d30287c2fd6b0d12",
-      "size": 2663
+      "path": "presets/tavern/skills/stage/references/page-example.md",
+      "sha256": "c1d40708b6541a26837a147d76722ba2cf9249e781b3dd6e5c15ed3c75719147",
+      "size": 14142
+    },
+    {
+      "path": "presets/tavern/skills/stage/references/pages.md",
+      "sha256": "bf8cb9329eb188641c12984c8e06384bf3de5babf3fcb35588e6de2ab0634ec5",
+      "size": 2646
+    },
+    {
+      "path": "presets/tavern/skills/stage/references/setup-local-ui.md",
+      "sha256": "735f41acb54bc1788045d989c55ae9887bafbe6d146794ebb3196774894b671b",
+      "size": 2208
+    },
+    {
+      "path": "presets/tavern/skills/stage/references/setup-openings.md",
+      "sha256": "99b2d3ce1b32da720105f7f75fb21980df42ced85c56335aeb6dac9047a63bef",
+      "size": 3272
+    },
+    {
+      "path": "presets/tavern/skills/stage/references/setup-quickstart.md",
+      "sha256": "40f82a44476294fbf908294a86e9ca7a9fc5a0a50829b94c16964dcc7d7900d3",
+      "size": 5126
+    },
+    {
+      "path": "presets/tavern/skills/stage/references/setup-switches.md",
+      "sha256": "111b445754eabbb19069b1734a9668ec1e51108ef7da418e81aebbb896265fe2",
+      "size": 8450
+    },
+    {
+      "path": "presets/tavern/skills/stage/references/setup-tasks.md",
+      "sha256": "ea7d5c717c6f800d4ef6a1f92a9558a2f0c761ae89fe0fe661868fcf1c32c087",
+      "size": 4280
+    },
+    {
+      "path": "presets/tavern/skills/stage/references/sharing.md",
+      "sha256": "2bbc31282400031863e53a258837c98334acb8198aff7cdb421af3f9a7718f70",
+      "size": 5883
+    },
+    {
+      "path": "presets/tavern/skills/stage/references/voice-backend.md",
+      "sha256": "b07c8a1812651002916a235b34c6f93afe822f2bf185b035a2a09e8909b4ed4a",
+      "size": 4045
+    },
+    {
+      "path": "presets/tavern/skills/stage/references/voice-clone.md",
+      "sha256": "4c42bdfbaf01b3879f2f6bfb6282078a1a9bc5093af5d7b60bdbca9230c78b3a",
+      "size": 2334
+    },
+    {
+      "path": "presets/tavern/skills/stage/references/voice-data.md",
+      "sha256": "236ce9d86259c160f2619d9e4a39585f03a9352740b215d63fa624e32c185ec8",
+      "size": 3607
+    },
+    {
+      "path": "presets/tavern/skills/stage/references/voice-figure.md",
+      "sha256": "4f4ed85c3963280208e40ba8cd7531cd642e53c06ee66a043d410e706bbb0343",
+      "size": 4492
+    },
+    {
+      "path": "presets/tavern/skills/stage/references/voice-readings.md",
+      "sha256": "0dc0e1ef45eff36113744ddf8b26d94293e47d7c7935e03d4771f6ac5c383ede",
+      "size": 1451
+    },
+    {
+      "path": "presets/tavern/skills/stage/references/voice-start.md",
+      "sha256": "409215e8df1955615acf6cb6814dcbc0e37d4e87269f935d6bd8660d20a6b1a4",
+      "size": 8701
+    },
+    {
+      "path": "presets/tavern/skills/stage/references/voice-troubleshooting.md",
+      "sha256": "2d576ab7f8527b8e955c62c2ee7ba112d56bf10656cbcef16fc23d7e13bd5fc0",
+      "size": 4515
+    },
+    {
+      "path": "presets/tavern/skills/stage/references/voice-variants.md",
+      "sha256": "cb6fa35e4885433588c9b38266e7eef8712c305ca77f153165f22141744f1114",
+      "size": 2409
     },
     {
       "path": "presets/tavern/skills/stage/SKILL.md",
-      "sha256": "cb903cbc882816329c8408aca4111e1b90ee0849d72495bbb9edbaef8a813042",
-      "size": 7158
+      "sha256": "7c0c0ef0e98fc05ed6d75dfb5ce84fc760b8ec16977660fc5d08d18139df326a",
+      "size": 7386
     },
     {
       "path": "presets/tavern/skills/tavern-plugin/references/example-plugin.md",
@@ -1101,8 +1101,8 @@
     },
     {
       "path": "presets/tavern/skills/tavern-plugin/references/plugin-api-ui.md",
-      "sha256": "78f7be80b70598b47c44752941b855eb03e651e6ec6bf66de74b354136f360a7",
-      "size": 41694
+      "sha256": "d97c5b6e06bda4cb279ffd78b3822bf8e656c3297645c0781f8f75c9257724c4",
+      "size": 41711
     },
     {
       "path": "presets/tavern/skills/tavern-plugin/references/plugin-api.md",
@@ -1276,8 +1276,8 @@
     },
     {
       "path": "tavern-plugin/lib/client.js",
-      "sha256": "4264911ba8ff64e84ab23b5e03f4178f6e5576f97b9f46d785cfcf9f21bbc166",
-      "size": 6800207
+      "sha256": "f55d69988c032bbbf0fa3854ccb03a53f7a9df9223e7656ec6cfaeefcde8eacf",
+      "size": 6800193
     },
     {
       "path": "tavern-plugin/lib/cordis-inspect.js",
@@ -1686,8 +1686,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/card-page-opening.js",
-      "sha256": "249d03673c2b37f7c4cbd47bd0ce574c05e7949fd6160153f9135ca305152d7f",
-      "size": 1690
+      "sha256": "6d48a57555d5aa7e529b67d0234b58b72ee35561b3bae376e2e81103fdf842c4",
+      "size": 1676
     },
     {
       "path": "tavern-plugin/lib/domain/card-personas.js",
@@ -1731,8 +1731,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/card-status-panel.js",
-      "sha256": "93dad565173743d33cb6601dc8c166944100091669c8c3dd42c5bcdd108ba9fa",
-      "size": 6515
+      "sha256": "100130ce319fc83dd0f24d7db5372e1fa6459cd7f722eb7c0eaa2717ffa6d213",
+      "size": 6501
     },
     {
       "path": "tavern-plugin/lib/domain/card-summary-cache.js",
@@ -2866,8 +2866,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/opening-preparation.js",
-      "sha256": "cbeb705f1f91c25cd3ace0055b6982d2af20a61434d3035debbf6865d0123697",
-      "size": 25958
+      "sha256": "9eae8331e43ac895e8281a932e7cf2082b4d1c70bee6d0dd9c63188d4a6d647d",
+      "size": 25944
     },
     {
       "path": "tavern-plugin/lib/domain/opening-setup.js",
@@ -9221,8 +9221,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/workbench/schema.js",
-      "sha256": "235307872de10674ab9fe25dbf180f19a9fdddf76c94714173343d9810d1f1bf",
-      "size": 7769
+      "sha256": "9c2e714e961171a4838574794f0a0a3718c4cff2c8aa1317c62a24a05105cba4",
+      "size": 7706
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/workbench/tools.js",
@@ -10286,9 +10286,9 @@
     }
   ],
   "archive": {
-    "commit": "3ed5c956b325f24d68500b59dce9d3091225b809",
+    "commit": "b6b348906c02a159e029886f0e7f8818393e6718",
     "path": "runtime.zip",
-    "sha256": "072f59a06d4d4934e96d63d0b87f9530ade96241d087af91aa22b3a89713812f",
-    "size": 18054447
+    "sha256": "7f59f770c5c34acd5c6ebc49235c343a4550dc9f58c11569616d209596b0d21f",
+    "size": 18055911
   }
 }
