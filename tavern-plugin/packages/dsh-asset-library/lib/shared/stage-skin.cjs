@@ -931,7 +931,7 @@ const stageSkinShape = skinObject({
     levels:value => value && typeof value === 'object' && !Array.isArray(value) && [1,2,3].includes(value.default) && Object.keys(value).every(key => ['1','2','3','default'].includes(key)),
     overlay:value => value && typeof value === 'object' && !Array.isArray(value),
     devices:skinObject({mobile:skinDevicePatch,pc:skinDevicePatch}),
-    license:skinObject({privateUse:value => typeof value === 'boolean',notes:skinArray(skinText,0,32),derived:skinArray(skinEnum(STAGE_SKIN_SOURCE_KINDS),0,32)},['privateUse']),
+    license:skinObject({privateUse:() => true,notes:skinArray(skinText,0,32),derived:skinArray(skinEnum(STAGE_SKIN_SOURCE_KINDS),0,32)}),
     // layout scrim|card, frame/ui texture, nameplate ribbon|underline + tint,
     // cursors ring|star and quickMenu.layout are closed words; a skin without them renders exactly as before.
     // layout slash, nameplate ransom and cursor arrow join the same set.
