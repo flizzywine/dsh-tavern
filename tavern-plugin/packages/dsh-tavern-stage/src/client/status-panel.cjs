@@ -183,8 +183,21 @@ function createAssetReader(sessionId, page) {
 // closeControl 'page': the page answers close requests itself; onEscape() is its Esc / shortcut (the Overlay decides
 // whether it closes a page over this one or asks this page by requestClose()).
 // perform: the cue of a performance (performCardPage below): the page shows in data().perform and may only read, sound and close.
-function openCardPage({sessionId, page, label, size, shortcut, closeControl, saved, entry, openingPage, opening, perform, trustedCardMode, helperContext, host, onClose, onEscape, onState, onAction, onPluginPanel, pluginPanelShowing}) {
-    let closed = false, raw = null, shown = false, avatars = new Map(), theme = {}, helper = helperContext || null, phaseNow = 'loading', title = '';
+// A skin performance can only read the skin media the caller supplied (name → data URL), never card assets.
+function skinAssetReader(media = {}) {
+    const unavailable = name => new Error('皮肤没有素材「' + name + '」');
+    const read = async ref => {
+        const name = String(ref?.skin ?? '');
+        if (!Object.hasOwn(media, name)) throw unavailable(name);
+        const response = await window.fetch(media[name]);
+        if (!response.ok) throw unavailable(name);
+        return response.blob();
+    };
+    read.list = () => Promise.resolve(Object.keys(media).map(name => ({skin: name})));
+    return read;
+}
+function openCardPage({sessionId, page, label, size, shortcut, closeControl, saved, entry, openingPage, opening, perform, skinPage, trustedCardMode, helperContext, host, onClose, onEscape, onState, onAction, onPluginPanel, pluginPanelShowing}) {
+    let closed = false, raw = null, shown = false, avatars = new Map(), theme = {}, helper = skinPage ? null : helperContext || null, phaseNow = 'loading', title = '';
     let inFlight = false, again = false, faceJob = 0, token = '', content = '', readAsset = null, heldFaces = null;
     let lifecycle = null, stopLifecycle = null, stopSignals = null, stopMessages = null;
     const frames = new Map(); // document token → {node, descriptor}
@@ -342,7 +355,7 @@ function openCardPage({sessionId, page, label, size, shortcut, closeControl, sav
         }
     }
     const frameProps = () => ({content, sessionId, turn: latestTurn(helper), partIndex: 0, panelId: (perform !== undefined ? 'stage-perform-' : 'stage-page-') + page,
-        helperContext: helper || undefined, trustedCardMode: trustedCardMode === true, eager: true, persistent: true,
+        helperContext: helper || undefined, trustedCardMode: trustedCardMode === true && !skinPage, eager: true, persistent: true,
         // the sheet sizes the frame (flex), so the page reports no height (frame-document hostSized)
         observeMvuView: false, runtimeReporting: true, hostSized: true});
     function mount(html) {
@@ -373,6 +386,14 @@ function openCardPage({sessionId, page, label, size, shortcut, closeControl, sav
     async function load() {
         state('loading');
         try {
+            if (skinPage) {
+                if (typeof skinPage.html !== 'string' || !skinPage.html.trim()) { state('empty'); return; }
+                raw = {label: page, size: 'full', figures: [], data: {}, card: {}};
+                readAsset = skinAssetReader(skinPage.media);
+                state('ready');
+                mount(skinPage.html);
+                return;
+            }
             const result = await readPage(sessionId, page, true);
             if (closed) return;
             if (!result) { raw = null; state('empty'); return; }
@@ -392,6 +413,7 @@ function openCardPage({sessionId, page, label, size, shortcut, closeControl, sav
         get frames() { return [...frames.values()].map(item => item.node); },
         // The live view's Helper context moved on: the lifecycle syncs it into the frame (or rebuilds when it appears).
         setHelper(next) {
+            if (skinPage) return;
             helper = next || null;
             if (!closed && lifecycle) lifecycle.update(frameProps());
         },
@@ -556,12 +578,12 @@ function Overlay({sessionId, pageId, label: declaredLabel, shortcut, size, close
 // asset, assets), sound and close. region: {bottom} px kept clear at the stage's bottom (the text box).
 // onEnd(result): {done: true} when the page closed, {skipped: true} on a click / Esc, {failed: message} when the page
 // could not be read (the mod shows what it would have shown without it).
-function Performance({sessionId, pageId, cue, calm, region, onEnd}) {
+function Performance({sessionId, pageId, skinPage, cue, calm, region, onEnd}) {
     const h = React.createElement, body = React.useRef(null), end = React.useRef(onEnd);
     end.current = onEnd;
     const live = useLiveView ? useLiveView(sessionId, 'card-page', [['tavernRuntimePolicy'], ['tavernHelper']]) : null;
-    const ready = !useLiveView || Boolean(live?.view);
-    const trusted = useLiveView ? Boolean(live?.view?.tavernRuntimePolicy?.trustedCardMode) : true;
+    const ready = !!skinPage || !useLiveView || Boolean(live?.view);
+    const trusted = !skinPage && (!useLiveView || Boolean(live?.view?.tavernRuntimePolicy?.trustedCardMode));
     const helper = live?.view?.tavernHelper || null, helperNow = React.useRef(helper), panel = React.useRef(null);
     helperNow.current = helper;
     const [shown, setShown] = React.useState(false);
@@ -569,10 +591,10 @@ function Performance({sessionId, pageId, cue, calm, region, onEnd}) {
         if (disposed || !ready) return;
         let over = false;
         const finish = result => { if (!over) { over = true; end.current?.(result); } };
-        const current = openCardPage({sessionId, page: pageId, perform: {cue, calm: calm === true}, trustedCardMode: trusted, helperContext: helperNow.current, host: () => body.current,
+        const current = openCardPage({sessionId, page: pageId, skinPage, perform: {cue, calm: calm === true}, trustedCardMode: trusted, helperContext: helperNow.current, host: () => body.current,
             onClose: () => finish({done: true}), onAction: () => {},
             onState: next => {
-                if (next.phase === 'empty') finish({failed: '本卡没有页面「' + pageId + '」'});
+                if (next.phase === 'empty') finish({failed: (skinPage ? '皮肤没有演出页面「' : '本卡没有页面「') + pageId + '」'});
                 else if (next.phase === 'error') finish({failed: next.error || '页面读取失败'});
                 else if (next.shown) setShown(true);
             }});
@@ -592,7 +614,7 @@ function Performance({sessionId, pageId, cue, calm, region, onEnd}) {
             if (panel.current === current) panel.current = null;
             current.dispose();
         };
-    }, [sessionId, pageId, ready, trusted]);
+    }, [sessionId, pageId, skinPage, ready, trusted]);
     React.useEffect(() => { panel.current?.setHelper(helper); }, [helper]);
     return h('div', {className: 'fork-gal-page-perform', 'data-page': pageId, 'data-shown': shown ? '' : undefined,
         style: {bottom: Math.max(0, Math.round(region?.bottom || 0)) + 'px'}},

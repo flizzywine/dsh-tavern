@@ -186,6 +186,47 @@ async function openMenu(page) {
   await menu(page).waitFor()
 }
 
+test('skin performances run in an isolated frame and report missing pages to the caller', {timeout: 60000}, async t => {
+  const {page} = await openStage(t, {pages: [STATUS]})
+  await page.evaluate(sessionId => {
+    const {React, ReactDOM, stageViews} = window.cardPagesCore
+    const host = document.createElement('div')
+    document.querySelector('.fork-gal-stage').appendChild(host)
+    const root = ReactDOM.createRoot(host)
+    window.showTestPerformance = (pageId, skinPage) => root.render(React.createElement(stageViews.statusPanel.Performance, {
+      key: pageId, sessionId, pageId, skinPage, cue: {label: 'Report'},
+      onEnd(result) {
+        window.testPerformanceResult = result
+        root.render(result.failed ? React.createElement('p', {id: 'performance-fallback'}, 'Report without performance') : null)
+      },
+    }))
+    window.showTestPerformance('report', {
+      html: '<output>Loading</output><script>(async () => {'
+        + 'const asset = await DshCardPage.asset({skin: "caption"});'
+        + 'const missing = await DshCardPage.asset({skin: "missing"}).then(() => false, () => true);'
+        + 'const readOnly = await DshCardPage.fillInput("blocked").then(() => false, () => true);'
+        + 'document.querySelector("output").value = [DshCardPage.data().perform.cue.label, await (await fetch(asset)).text(), missing, readOnly].join("/");'
+        + '})();</script>',
+      media: {caption: 'data:text/plain,Scene%20caption'},
+    })
+  }, SESSION)
+  const selector = '.fork-gal-page-perform iframe'
+  const output = page.frameLocator(selector).locator('output')
+  await output.getByText('Report/Scene caption/true/true', {exact: true}).waitFor()
+  const frame = page.locator(selector)
+  assert.equal(await frame.getAttribute('sandbox'), 'allow-scripts')
+  assert.equal(await frame.evaluate(node => node.contentDocument), null)
+  await output.evaluate(() => { void DshCardPage.close() })
+  await frame.waitFor({state: 'detached'})
+  assert.deepEqual(await page.evaluate(() => window.testPerformanceResult), {done: true})
+
+  // Deliberately use a matching card page ID: a missing skin page must not read or mount the card page instead.
+  await page.evaluate(() => window.showTestPerformance('status', {media: {}}))
+  await page.getByText('Report without performance', {exact: true}).waitFor()
+  assert.match((await page.evaluate(() => window.testPerformanceResult)).failed, /皮肤没有演出页面/)
+  assert.equal(await frame.count(), 0)
+})
+
 test('entering the stage opens title; triggerSlash reaches the slash executor; M / S toggle, Esc closes; menu rows; CONFIG 跳过标题页', {timeout: 90000}, async t => {
   const {page} = await openStage(t, {viewport: {width: 1920, height: 1080}})
   // (a) the entry opens title, a full sheet over the stage, drawn in its own frame
