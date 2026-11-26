@@ -128,7 +128,7 @@ function harness({replies, transparent, cost, refuse, failDraw, assistant = null
   const state = {figures:[{ref:A, name:'甲', aliases:[], emotions:[{id:'calm', label:'平和'}, {id:'joy', label:'喜悦'}], settei:false, setteiHash:null, sprites:[], identityAppearance:'黑发'}]}
   let held = null
   const library = {writable:() => true,
-    readCast:async () => ({cardId:'card-1', missingPackIds:[], packId:PACK, revision:'r1', raw:{}, rows:[{actorKey:'own', ref:{packId:OWN, figureId:'cccccccc-cccc-4ccc-8ccc-cccccccccccc'}, name:'主角', aliases:[], enabled:true},
+    readCast:async () => ({cardId:'card-1', missingPackIds:[], packId:PACK, revision:'r1', cardPath:'cards/triangle.json', raw:{}, rows:[{actorKey:'own', ref:{packId:OWN, figureId:'cccccccc-cccc-4ccc-8ccc-cccccccccccc'}, name:'主角', aliases:[], enabled:true},
       ...state.figures.map(row => ({actorKey:'auto-' + row.ref.figureId, ref:row.ref, name:row.name, aliases:row.aliases, enabled:true}))], figures:structuredClone(state.figures)}),
     readMedia:async () => settei(),
     write:async input => { if (held) await held; if (refuse && input.changes.some(change => change.op === 'create')) throw Object.assign(new Error('Pack unavailable'), {code:refuse}); writes.push(input)
@@ -181,6 +181,7 @@ test('a new figure: 人设图 then its first 立绘 from it, each landed at once
   assert.deepEqual(h.prompts.map(p => p.kind), ['identity-settei', 'sprite'])
   assert.match(h.prompts[0].userPrompt, /front view.*back view/)
   assert.equal(h.prompts[1].emotionId, 'joy')
+  assert.ok(h.prompts.every(p => p.cardPath === 'cards/triangle.json'), 'each drawing resolves its 画风 from the card (and its pack)')
   assert.equal(h.generated[1].references.length, 1, 'the 立绘 is drawn from the 人设图')
   assert.deepEqual(kinds(h.writes), ['identity-settei', 'sprite'])
   assert.deepEqual(h.writes[0].source, {chatId:'chat-1', branchId:'b1', revision:3, turn:2, messageId:'m2', paragraphIds:['p0']}, 'the write serves the round')

@@ -182,6 +182,27 @@ export function withPromptPreset(config, presetId) {
   return selected
 }
 
+/**
+ * A card's own 画风 for its pictures (Tavern's getCardContext imageStyle): the template the settings select keeps its
+ * structure, scenes and library; only its style blocks become the named preset's (a preset without blocks gives its text as
+ * one style block). Without a structured template the named preset is used as a whole.
+ */
+export function withCardStyle(config, presetId, { workflow = null, channel = null } = {}) {
+  const style = effectivePromptPreset({ ...config, activePromptPreset: String(presetId), resolvedPromptTemplate: undefined })
+  if (!style) throw new Error('本卡的画风「' + presetId + '」在配图插件里找不到；请在人物卡详情里另选一个画风')
+  const target = promptConfigForTarget(config, workflow, channel), base = effectivePromptPreset(target)
+  if (!base?.structure) return withPromptPreset(config, presetId)
+  const text = style.naturalPositive || style.positive || style.structuredPositive
+  const styleBlocks = style.structure ? style.structure.blocks.filter(block => block.kind === 'style')
+    : text ? [{ kind: 'style', title: '画风', text }] : []
+  const at = base.structure.blocks.findIndex(block => block.kind === 'style')
+  const kept = base.structure.blocks.filter(block => block.kind !== 'style')
+  const position = at < 0 ? kept.length : base.structure.blocks.slice(0, at).filter(block => block.kind !== 'style').length
+  const blocks = [...kept.slice(0, position), ...styleBlocks, ...kept.slice(position)]
+  return { ...target, promptSelectionResolved: true, activePromptPreset: base.id === 'fallback' ? '' : base.id,
+    resolvedPromptTemplate: { ...base, structure: { ...base.structure, blocks } }, cardStyle: { id: style.id, name: style.name } }
+}
+
 const TAG_BACKENDS = new Set(['comfyui', 'novelai', 'stable-diffusion', 'sd', 'sdwebui', 'forge', 'automatic1111'])
 const NATURAL_BACKENDS = new Set(['openai', 'gemini', 'gemini-chat', 'grok', 'seedream', 'qwen', 'atlascloud'])
 

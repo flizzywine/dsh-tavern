@@ -38,7 +38,9 @@ function useCardStagePacks(cardPath) {
         if (!service || !cardPath) { setPacks(null); return; }
         let live = true;
         Promise.all([rpc("getCardAssetBindings", { path: cardPath, metadataOnly: true }), service.listPackSummaries()]).then(([card, rows]) => {
-            const ids = card && card.extension && card.extension.assetBindings && card.extension.assetBindings.boundPackIds || [];
+            // a card without the stage extension has no 素材包 section (its 画风 row needs the extension too).
+            if (!(card && card.extension)) { if (live) setPacks(null); return; }
+            const ids = card.extension.assetBindings && card.extension.assetBindings.boundPackIds || [];
             const byId = new Map((rows || []).map(row => [row.packId || row.manifest && row.manifest.id, row]));
             if (live) setPacks(ids.map(id => { const row = byId.get(id), manifest = row && row.manifest || {};
                 return { id, name: row ? row.name || manifest.name || id : id, note: row ? row.description || manifest.description || "" : "本机没有这个素材包", missing: !row }; }));
@@ -638,12 +640,14 @@ function WorldBookAddMenu({ choices, loading, disabled, onOpen, onPick, label = 
 				[h(InlineField, { key: "alt-new-" + alternates.length, kind: "text", multiline: true, lines: true, wide: true, hideEmpty: true, label: "备选开场白", value: "",
 					onCommit: function (v) { if (v.trim()) return commitField("alternate_greetings", alternates.concat([v])); } })]);
 			const extensionTotal = extensionCount + mvuResources.length;
-			const packSection = stagePacks && stagePacks.length ? h(ui.StageSection, { title: "素材包", meta: stagePacks.length, foldKey: "card-detail:packs", help: "这张卡在舞台上用的素材包，在舞台设置里增减。" },
-				h("ul", { className: "dsh-card-packs", "aria-label": "素材包" }, stagePacks.map(function (pack) {
+			// 素材包: the card's 画风 row (asset-pack-style-ui.js CardGenStyleRow), then its packs.
+			const packSection = stagePacks ? h(ui.StageSection, { title: "素材包", meta: stagePacks.length || undefined, foldKey: "card-detail:packs", help: "这张卡在舞台上用的素材包，在舞台设置里增减。" },
+				ui.CardGenStyleRow ? h(ui.CardGenStyleRow, { cardPath: cardPath, rpc: rpc }) : null,
+				stagePacks.length ? h("ul", { className: "dsh-card-packs", "aria-label": "素材包" }, stagePacks.map(function (pack) {
 					return h("li", { key: pack.id, className: "dsh-card-fold-row" + (pack.missing ? " is-missing" : "") },
 						h("button", { type: "button", className: "dsh-card-fold-head", disabled: pack.missing, title: pack.missing ? "本机没有这个素材包" : "在舞台素材里打开", onClick: function () { openCardStagePack(pack.id, props.sessionId); } },
 							h(ui.Glyph, { name: "stage" }), h("span", { className: "dsh-card-book-name" }, pack.name), h("span", { className: "dsh-card-fold-preview" }, pack.note)));
-				}))) : null;
+				})) : null) : null;
 			return h("div", { className: "fork-tab-scroll dsh-card-detail-scroll" },
 				h("section", { className: "ap-ui dsh-card-detail", "aria-label": title, onKeyDown: function (event) { if (event.key === "Escape" && !event.defaultPrevented && props.onBack && event.target === event.currentTarget) props.onBack(); } },
 					head,

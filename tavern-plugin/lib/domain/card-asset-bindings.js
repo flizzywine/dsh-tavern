@@ -5,6 +5,7 @@ import { validateCardStage } from './card-stage-settings.js'
 import { validateCardOpenings } from './card-opening-scenes.js'
 import { assertJson, check, shape, text, version, array, unique, object, cloneJson, canonicalJson } from '../../packages/dsh-presentation-protocol/src/asset-pack-json.js'
 import { validateUuid } from '../../packages/dsh-presentation-protocol/src/asset-packs.js'
+import { validateGenStyleValue, validateCarriedStyles } from '../../packages/dsh-asset-library/lib/asset-packs/gen-style.js'
 export function validateCardAssetExtension(value, path = '$.dsh_tavern') {
   assertJson(value); check(object(value), path); version(value.schemaVersion, path + '.schemaVersion')
   // retired character data is rejected, not preserved as an opaque extension.
@@ -22,6 +23,9 @@ export function validateCardAssetExtension(value, path = '$.dsh_tavern') {
   // falls back when it is drawn (cardStageSkin), never here.
   if (value.stage !== undefined) validateCardStage(value.stage, path + '.stage')
   if (value.openings !== undefined) validateCardOpenings(value.openings, path + '.openings')
+  // 画风: the card's (for its 自动素材 pack and the pictures the image plugin draws for it) and its own style definitions.
+  if (value.genStyle !== undefined) validateGenStyleValue(value.genStyle, path + '.genStyle')
+  if (value.styles !== undefined) validateCarriedStyles(value.styles, path + '.styles')
   return value
 }
 export function cardAssetExtensionPointer(raw) { return (rawData(raw) === raw ? '' : '/data') + '/extensions/dsh_tavern' }
@@ -42,7 +46,7 @@ export function cardAssetExtensionView(raw) {
 }
 export function cardAssetRawOperations(raw, patch) {
   assertJson(raw); assertJson(patch)
-  shape(patch, ['assetBindings', 'stage', 'openings', 'variableBindings','modConfigPackId'], [], '$.patch')
+  shape(patch, ['assetBindings', 'stage', 'openings', 'variableBindings','modConfigPackId','genStyle','styles'], [], '$.patch')
   if (Object.hasOwn(patch, 'stage')) validateCardStage(patch.stage)
   const data = rawData(raw), pointer = cardAssetExtensionPointer(raw)
   if (data.extensions !== undefined) check(object(data.extensions), '$.extensions')
@@ -54,6 +58,8 @@ export function cardAssetRawOperations(raw, patch) {
   if (patch.stage?.dimensions !== undefined) check(canonicalJson(patch.stage.dimensions) === canonicalJson(existing?.stage?.dimensions ?? null),
     '$.patch.stage.dimensions', 'Director commands are a global setting', 'UNKNOWN_FIELD')
   const next = { schemaVersion: 1, ...(existing || {}), ...cloneJson(patch) }
+  // 画风 patched to null goes back to following the image plugin (no value).
+  for (const key of ['genStyle', 'styles']) if (next[key] === null) delete next[key]
   // Asset lamp edits do not unbind the card's private config storage.
   if(existing?.modConfigPackId && patch.assetBindings && !Object.hasOwn(patch,'modConfigPackId'))next.assetBindings.boundPackIds=[...new Set([...next.assetBindings.boundPackIds,existing.modConfigPackId])]
   // New opt-ins have no legacy stage behavior to preserve. Stage patches replace

@@ -3202,6 +3202,20 @@ export async function apply(ctx) {
     linkedAppearance: async ({packId, figureId, outfitKey}) => {
       const linked = await findFigureImageCharacter(pluginApi, {packId, figureId})
       return linked.status === 'linked' ? appearanceFromImageCharacter(linked.character, outfitKey) : null
+    },
+    // 画风: a card's own (extensions.dsh_tavern genStyle, styles), by path, or by id for the card a 自动素材 pack belongs to.
+    readCardStyle: async ({cardPath, cardId}) => {
+      let path = cardPath, workspace
+      if (cardId) {
+        for (const candidate of await fileResources.list('card')) {
+          const shared = await readSharedCardWorkspace(candidate)
+          if (shared?.meta?.id === cardId) { path = candidate; workspace = shared; break }
+        }
+      } else workspace = await readSharedCardWorkspace(cardPath)
+      const raw = workspace && (workspace.raw?.data || workspace.raw)
+      if (!raw) return null
+      const own = raw.extensions?.dsh_tavern
+      return {path, name:String(raw.name || ''), genStyle:own?.genStyle, styles:own?.styles}
     }})
   ctx.effect(() => () => assetGeneration.dispose(), 'dsh-tavern: dispose asset generation')
   // Public extension service for third-party DSH plugins (docs/plugin-api.md).
@@ -3215,7 +3229,8 @@ export async function apply(ctx) {
     slice: (sessionId, indices) => chatSliceForSession(sessionId, indices, []),
     fullChat: chatForSession,
     readChatCard,
-    regexScripts: pluginTurnRegexScripts
+    regexScripts: pluginTurnRegexScripts,
+    cardImageStyle: cardPath => assetGeneration.cardImageStyle(cardPath)
   })
   const pluginSettlementProgress = createPluginSettlementProgress()
   // What each 精修 changed, shown on the 精修对比 page.

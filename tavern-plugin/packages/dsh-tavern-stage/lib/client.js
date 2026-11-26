@@ -29335,7 +29335,7 @@ async function mountClipReplay(snapshot, transport, stagePlugin) {
         // the names it uses from them (stageScope.bind). Both lists are exact.
         function createStageAssetPackViews(core) {
             const {useFigureLook, GenLookFields, CastVoiceList, useReadingPointers, useSystemVoicePacks, VoicePicker, VoiceRowPlay, VoiceAddDialog, VoiceLangChip, VoiceOptionPick, VoiceLoading, VoiceLoadError, defaultCastVoices, voiceErrorText, CommitInput, useVoicePreview, useVoiceReadiness, useVoiceWriter, figureVoiceSpec, voiceSourceId, figureVoiceLanguage, sampleText, voiceServiceName, voiceLanguageName, primaryLanguage, openVoiceSettings, voiceSourceUnset, React, Actions, BustArt, Button, CAST_FACE, CardCover, CardImportSheet, CatAddTile, CatBand, CatSheet, CatSub, ConfirmDialog, askDelete, hiddenConfirms, ErrorBox, FigureCastFace, Glyph, Help, HintLine, IconButton, ImageFramer, KIND_ORDER, KindSortTools, LampMenu, Loading, MOD_GLYPHS, MenuItem, ModEntries, Modal, NewFigurePage, PackImageView, PackList, PackModal, PackRow, PackSearchBox, Popover, RevealImg, STAGE_NAMES, Silhouette, StageItemsPage, StageModPage, StageModSection, StageOpenings, StageSection, StageSetupWizard, SubpageHead, SwitchRow, Thumb, UploadButton, VOICE_PROVIDERS, catBusyLabel, cellMenuTrigger, clone, downloadPackMedia, emotionMapped, emotionState, errorText, figureAvatar, figureEditorEmotions, figureOutfitView, globalFirst, glyphs, h, holdMedia, keywordProblem, kindGlyphs, kinds, loadPackDetail, loadPackRows, newResourceKey, openingMenuFocus, openingMenuKeys, orderPacks, outfitEmotionRows, outfitHead, outfitImageId, packCount, packFilter, packRowClick, splitKeywords, spriteSlotTakesStill, stageMissing, stageSetupCardPack, stageSetupReady, standInValue, stateBust, subpageKeys, switchRowClick, useLoad, usePackScope, usePackSort, useStageFold, useStageSetupAutoOpen, useVoiceLoad, useVoiceRefresh, validDraft, voiceIssueText, voiceNeedle, voiceMatches,
-                EmptyState, InlineAdd, InlineField, InlineGrid, InlineRow, OverrideDot, ResetButton, ScopeSwitch, Segmented, Spinner, Switch, TextArea, browserSpeechVoiceList, directorCommands, playerErrorText, selectFigureAvatar, selectPackAvatar} = core;
+                EmptyState, InlineAdd, InlineField, InlineGrid, InlineRow, OverrideDot, ResetButton, ScopeSwitch, Segmented, Spinner, Switch, TextArea, browserSpeechVoiceList, directorCommands, playerErrorText, selectFigureAvatar, selectPackAvatar, GenStyleLine, genStyleFromText} = core;
             // dsh-presentation-protocol card-stage-mode.cjs, the card page's `// @include-protocol` (the core bundle no longer includes it).
             'use strict';
 // enabled is the author-facing switch (bubbles and stage together); bubbles
@@ -29527,8 +29527,8 @@ if (typeof window === 'undefined' && typeof module !== 'undefined') module.expor
     const candidateData=(job,emotionId)=>call('readAssetCandidate',{jobId:job.jobId,...(emotionId?{emotionId}:{})});
     // 下载: a waiting picture as it arrived, whether or not it can be adopted.
     async function download(job,name){const d=await candidateData(job);savePictureFile(new Blob([genBytes(d.base64)],{type:d.mediaType}),name+'.png');}
-    // The 画风 menu: the image plugin's style presets, and the pack default they resolve (an older pack's id included).
-    const listStyles=genStyle=>call('listAssetGenStyles',{...(genStyle?{genStyle}:{})});
+    // The 画风 menu of this pack (asset-pack-style-ui.js) and, for an asset kind, the style it paints in now and from where.
+    const listStyles=kind=>call('listAssetGenStyles',{packId,kind});
     async function candidateFile(job,emotionId,forImport=false){
       const d=await call('readAssetCandidate',{jobId:job.jobId,...(emotionId?{emotionId}:{}),...(forImport?{forImport:true}:{})});
       return new File([genBytes(d.base64)],(emotionId||job.target.kind)+'.png',{type:d.mediaType});
@@ -29790,7 +29790,9 @@ if (typeof window === 'undefined' && typeof module !== 'undefined') module.expor
     const refInput=React.useRef(null),sheetInput=React.useRef(null),made=React.useRef(null),submitRef=React.useRef(null),look=useFigureLook(binding,packId,figure?.id);
     const setPrompt=v=>{texts.current.prompt=v;setPromptState(v);setSaved(false);};
     const setName=v=>{texts.current.name=v;setNameState(v);},setWear=v=>{texts.current.wear=v;setWearState(v);};
-    React.useEffect(()=>{let live=true;gen.listStyles(pack.manifest.genStyle).then(r=>{if(live){setStyles(r);setStyle(s=>s??r.current);}},()=>{if(live)setStyles({styles:[],current:null});});return()=>{live=false;};},[pack.manifest.genStyle]);
+    // 画风: the pack's chain decides by default (the request then names none); a style picked here is sent for this request only.
+    React.useEffect(()=>{let live=true;gen.listStyles(kind).then(r=>{if(live){setStyles(r);setStyle(s=>s??r.current.id);}},()=>{if(live)setStyles({options:[],current:null});});return()=>{live=false;};},[pack.revision,kind]);
+    const sent=()=>style&&style!==styles?.current?.id?style:undefined;
     const close=()=>{if(!busy)gen.closeDialog();};
     if(!figure||!fig&&!outfit)return h(Modal,{title:'生图',className:'ap-gen-dialog',onClose:close},h(EmptyState,{text:'服装已被删除'}));
     // 参考图: the 设定图 the backend attaches by rule (asset-generation.js prepare) — the 人物设定图 (unless the outfit's 设定图
@@ -29814,7 +29816,7 @@ if (typeof window === 'undefined' && typeof module !== 'undefined') module.expor
         if(current.hash)references.push({hash:current.hash,role});else{const data=await gen.candidateData(current.job,cell.sheet?emotionId:null);references.push({base64:data.base64,mediaType:data.mediaType,role});}}
       for(const u of uploads)references.push({base64:u.base64,mediaType:u.mediaType,role:cellMode?GEN_POSE_ROLE:GEN_ART_ROLE});
       const omit=['identity','settei'].filter(id=>removed.includes(id)),text=texts.current.prompt.trim();
-      return {...(text?{userPrompt:text}:{}),...(references.length?{references}:{}),...(omit.length?{omit}:{}),...(mode!=='edit'&&style?{style}:{})};
+      return {...(text?{userPrompt:text}:{}),...(references.length?{references}:{}),...(omit.length?{omit}:{}),...(mode!=='edit'&&sent()?{style:sent()}:{})};
     };
     // 添加服装: the outfit is written once (a retry after a failed start does not add a second one), its uploaded 服装设定图
     // goes in, the page shows it; then the 服装设定图 is generated (its first 差分 follows its 采用), or that 差分 at once.
@@ -29827,9 +29829,9 @@ if (typeof window === 'undefined' && typeof module !== 'undefined') module.expor
         made.current=key;if(wearText)await look.writeUpper({key,label},wearText);if(sheetFile)await importSettei(figure.id,key,sheetFile.file);d.onOutfit?.(key);
       }
       const key=made.current,at=(k,extra={})=>({packId,figureId:figure.id,outfitKey:key,kind:k,...extra}),input=await inputNow();
-      const firstText=firstRow?genBuiltPrompt(firstRow):'',firstFollow=first?[{kind:'avatar',emotionId:first,...(firstText?{userPrompt:firstText}:{}),...(style?{style}:{})}]:[];
+      const firstText=firstRow?genBuiltPrompt(firstRow):'',firstFollow=first?[{kind:'avatar',emotionId:first,...(firstText?{userPrompt:firstText}:{}),...(sent()?{style:sent()}:{})}]:[];
       let job=true;step.sent=true;
-      if(sheetNow)job=await gen.start(at('settei'),{...input,...(genFirst&&first?{followUp:[{kind:'sprite',emotionId:first,...(firstText?{userPrompt:firstText}:{}),...(style?{style}:{})},...firstFollow]}:{})});
+      if(sheetNow)job=await gen.start(at('settei'),{...input,...(genFirst&&first?{followUp:[{kind:'sprite',emotionId:first,...(firstText?{userPrompt:firstText}:{}),...(sent()?{style:sent()}:{})},...firstFollow]}:{})});
       else if(genFirst&&first)job=await gen.start(at('sprite',{emotionId:first}),{...input,...(firstText?{userPrompt:firstText}:{}),followUp:firstFollow});
       if(job)gen.closeDialog();
     };
@@ -29871,14 +29873,20 @@ if (typeof window === 'undefined' && typeof module !== 'undefined') module.expor
       saved?h('span',{className:'ap-gd-prompt-acts ap-gd-saved',role:'status'},h(Glyph,{name:'check'}),'已存为默认'):null;
     const extra=textField('prompt',mode==='edit'?'想改哪里':'额外要求',prompt,setPrompt,mode==='edit'?'例：领巾换成红色，其余不变':cellMode?'例：双手叉腰，气鼓鼓地瞪着前方':'角度、细节…',{className:'is-prompt',trail:promptTrail});
     // 画风: the image plugin's presets (实验 marked); a pack default the plugin no longer has is named as gone, never replaced.
-    const packStyle=styles?.current,styleOptions=(styles?.styles||[]).map(s=>({value:s.id,label:s.name+(s.status==='experimental'?'（实验）':'')}));
+    const packStyle=styles?.current?.id,styleOptions=[...(styles?.card?.styles||[]).map(s=>({value:s.id,label:s.name+'（随卡）'})),...(styles?.pack?.styles||[]).map(s=>({value:s.id,label:s.name+'（随包）'})),
+      ...(styles?.options||[]).map(s=>({value:s.id,label:s.name+(s.experimental?'（实验）':'')}))].filter((o,i,all)=>all.findIndex(x=>x.value===o.value)===i)
+      .map(o=>o.value===packStyle?{...o,note:genStyleFromText(styles.current.from)}:o);
+    // The pack's own background style is not a preset: it shows as its name and stays the default.
+    if(packStyle&&!styleOptions.some(o=>o.value===packStyle)&&packStyle!=='no-style')styleOptions.unshift({value:packStyle,label:styles.current.name,note:genStyleFromText(styles.current.from)});
     // 无画风 is 'no-style' (the prompt as written): not a menu item but the field's empty state, reached with 清除画风.
     const plain=style==='no-style';
     if(style&&styles&&!plain&&!styleOptions.some(o=>o.value===style))styleOptions.push({value:style,label:'这个画风不在了，请另选'});
+    // The default's source is grey text after its value (来自卡 / 来自素材包 / 来自配图插件).
     const styleRow=mode!=='edit'&&anyGen&&style&&h(InlineField,{key:'style',kind:'menu',label:'画风',help:h(Help,{text:GEN_HELP.style,label:'画风 说明'}),className:'ap-gen-row ap-gd-row is-style',value:style,
       options:styleOptions,onCommit:setStyle,placeholder:'无画风',
-      trail:h(React.Fragment,null,!plain&&h(IconButton,{icon:'remove',label:'清除画风',className:'ap-icon-button is-danger ap-gd-style-clear',onClick:()=>setStyle('no-style')}),
-        style!==packStyle&&saveStyle?h('button',{type:'button',className:'ap-inline-link ap-gd-style-save',onClick:()=>saveStyle(style).catch(e=>setError(errorText(e)))},'设为本包默认'):null)});
+      trail:h(React.Fragment,null,style===packStyle&&styles?.current&&h('span',{className:'ap-gd-style-from'},genStyleFromText(styles.current.from)),
+        !plain&&h(IconButton,{icon:'remove',label:'清除画风',className:'ap-icon-button is-danger ap-gd-style-clear',onClick:()=>setStyle('no-style')}),
+        style!==packStyle&&saveStyle?h('button',{type:'button',className:'ap-inline-link ap-gd-style-save',onClick:()=>saveStyle(style,styles?.current?.use).catch(e=>setError(errorText(e)))},'设为本包默认'):null)});
     let fields,side=null,footChecks=null;
     if(adding){
       // 添加服装: the 服装设定图 slot on the left (将生成, or an uploaded one); the fields on the right; a
@@ -29916,7 +29924,7 @@ if (typeof window === 'undefined' && typeof module !== 'undefined') module.expor
       genWhere(figure.name,outfit.label,row?.label,mode==='redraw'?'重画':mode==='edit'?'改图':'');
     const head=h('header',{className:'ap-gen-sheet-head'},h('h2',null,title),h('span',{className:'ap-gen-sheet-meta'},sub),settei&&h(Help,{text:fig?GEN_HELP.figure:GEN_HELP.outfit,label:(fig?'人物设定图':'服装设定图')+' 说明'}),
       h(IconButton,{icon:'close',label:'关闭',disabled:busy,onClick:close}));
-    const foot=h('footer',{className:'ap-gen-foot ap-gd-foot'},footChecks,target&&h(GenPeek,{load:()=>inputNow().then(input=>gen.previewPrompt(target,input)),styleName:id=>styles?.styles.find(s=>s.id===id)?.name||id}),busy&&h('span',{className:'ap-busy'},h(Spinner),'正在发送…'),
+    const foot=h('footer',{className:'ap-gen-foot ap-gd-foot'},footChecks,target&&h(GenPeek,{load:()=>inputNow().then(input=>gen.previewPrompt(target,input)),styleName:id=>styleOptions.find(o=>o.value===id)?.label||id}),busy&&h('span',{className:'ap-busy'},h(Spinner),'正在发送…'),
       h(Button,{disabled:busy,onClick:close},'取消'),h(Button,{primary:true,className:'ap-primary ap-gd-go',disabled:busy||!!reason,title:reason||'Ctrl+Enter',onClick:submit},verb!=='添加'&&h(Glyph,{name:'spark'}),verb));
     return h(Modal,{title:title+' · '+sub,className:'ap-gen-dialog',frame:{'data-mode':mode},onClose:close,busy,head,foot,initialFocus:'dialog'},
       h('div',{className:'ap-gd-body','data-mode':mode,onKeyDown:e=>{if(e.key==='Enter'&&(e.ctrlKey||e.metaKey)){e.preventDefault();e.target?.blur?.();setTimeout(()=>submitRef.current(),0);}}},
@@ -30329,7 +30337,8 @@ if (typeof window === 'undefined' && typeof module !== 'undefined') module.expor
       head('差分',rows.length),
       h('div',{className:'ap-gw-wall',role:'list','aria-label':'差分',onClickCapture:endCoach},rows.map(r=>h(GenWallCard,{key:r.id,c,row:r,
         coach:r.id===start?h(GenCoach,{text:c.blank?'从这一格开始':'虚线格 = 缺图，点击生成',onClose:endCoach}):null}))));
-    return h('div',{className:'ap-gen-tab ap-gw'},problem,h(ErrorBox,{error}),outfits,wall,dialogs,viewer);
+    // 画风 above 服装: what this figure's pictures paint in, from where (the pack window's menu; asset-pack-style-ui.js).
+    return h('div',{className:'ap-gen-tab ap-gw'},problem,h(ErrorBox,{error}),h(GenStyleLine,{uses:['figure','sheet']}),outfits,wall,dialogs,viewer);
   }
 
             // 舞台设置 — the per-card page of the 「Tavern 舞台」 tab.

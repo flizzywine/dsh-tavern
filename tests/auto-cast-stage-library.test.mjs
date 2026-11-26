@@ -61,6 +61,7 @@ test('the port casts through the library\'s auto-cast writer: a new figure with 
   const written = await port.write({cardPath:'card', changes:plan.changes, sources:plan.sources, source, requestId:'cast-1'})
   assert.equal(written.status, 'committed'); assert.equal(written.refs.length, 2)
   cast = await port.readCast('card')
+  assert.equal(cast.cardPath, 'card', 'the drawings resolve their 画风 from the card (and its 自动素材 pack)')
   const teacher = cast.figures.find(row => row.name === '值班老师'), copy = cast.figures.find(row => row.name === '冰川理沙')
   assert.equal(teacher.emotions.length, 9, 'an automatic figure has the nine standard emotions')
   assert.equal(teacher.defaultEmotion, 'calm', 'a line with no mood asks for this one')

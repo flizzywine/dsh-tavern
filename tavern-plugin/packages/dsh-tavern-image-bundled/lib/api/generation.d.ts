@@ -44,6 +44,10 @@ export interface ComposedImagePrompt {
 export interface PromptPresetSummary {
   id: string; name: string; origin: 'builtin' | 'registered' | 'saved'; source?: string;
   status: 'stable' | 'experimental';
+  /** Whether it paints a style (not 'no-style' nor a structured scene template). */
+  addsStyle: boolean;
+  /** The preset selected in the settings. */
+  active?: true;
   /** Usages with their own style text; text without a usage applies to every request. */
   usages: string[];
 }
@@ -53,6 +57,8 @@ export interface ImageGenerator {
   status(input?: { modelId?: string }): ImageStatus;
   /** Read-only list of the style presets `generate({ promptPreset })` accepts. */
   presets(): PromptPresetSummary[];
+  /** Register a read-only style a host carries (a card's or a pack's own); returns the undo. */
+  registerPreset(definition: import('./modules.js').PromptPresetDefinition): () => void;
   generate(input: GenerateRequest): Promise<ImageResult>;
 }
 export type ImageAdapter = (channel: ImageChannel, request: {

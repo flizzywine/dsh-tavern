@@ -30,7 +30,7 @@ export interface FileEntry { path: string; size: number; sha256: Sha256 }
 export interface BlobDescriptor { ext: 'png' | 'webp' | 'jpeg' | 'mp3' | 'ogg' | 'wav' | 'm4a' | 'flac'; mime: string; size: number }
 export interface PackManifest extends Metadata {
   format: 'dsh-asset-pack'; schemaVersion: 1; id: UUID; name: string; contentHash: Sha256;
-  assets: Asset[]; tagIcons?: {tag:string;media:Sha256}[]; /** Image plugin style preset id (legacy clean|anime|polished|none read as the galgame presets / no-style). */ genStyle?: string; backgroundStyle?: {prompt:string;references?:Sha256[]}; stageSkin?: string; figures: UUID[]; voiceLibrary?: VoiceLibrary;
+  assets: Asset[]; tagIcons?: {tag:string;media:Sha256}[]; /** 画风: an image plugin style preset id for every use, or one per use (gen-style.js; legacy clean|anime|polished|none read as the galgame presets / no-style). */ genStyle?: string | {all?:string;figure?:string;sheet?:string;background?:string;cg?:string}; /** The pack's own style presets (the image plugin's format), registered read-only as 随包. */ styles?: {id:string;name:string;[key:string]:unknown}[]; backgroundStyle?: {prompt:string;references?:Sha256[]}; stageSkin?: string; figures: UUID[]; voiceLibrary?: VoiceLibrary;
   sprites: Record<string, string>; bundles: Record<string, { kind: 'live2d' | 'spine' | 'widget' | 'skin' | 'performance' | 'entrance' | 'video'; entry: string; contentHash: Sha256 }>;
   blobs: Record<Sha256, BlobDescriptor>; files: FileEntry[];
 }
