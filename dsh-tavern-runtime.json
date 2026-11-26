@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "1f828ec80b48248b40b03d31790ba53e87cb4714",
-  "releaseSequence": 2130,
+  "revision": "030f27781b9a9f6f50c72681e7b8ead083a35ff5",
+  "releaseSequence": 2131,
   "version": "3.4.0",
   "files": [
     {
@@ -121,8 +121,8 @@
     },
     {
       "path": "android/native/app/src/io/github/flizzywine/dshtavern/bionic/MainActivity.java",
-      "sha256": "0268070d762157b78034ae76bdfc481b92f8bd5cba39dcca22a007b5ee5fdb0c",
-      "size": 58742
+      "sha256": "6105c4c6ee5c2359f4f69d338f0104299f9bc8f707b5297bb5816c94d36ac14f",
+      "size": 81273
     },
     {
       "path": "android/native/app/src/io/github/flizzywine/dshtavern/bionic/TarExtractor.java",
@@ -131,8 +131,8 @@
     },
     {
       "path": "android/native/app/src/io/github/flizzywine/dshtavern/bionic/TavernService.java",
-      "sha256": "f610b8284e6c5b84d33a9289a95e18e1876b551529a457e88235dd62e9e80229",
-      "size": 69813
+      "sha256": "2366c4408f35b3fb171d2b4f9673e3b3bd8befdeb26106114e240588f3900a9d",
+      "size": 76046
     },
     {
       "path": "android/native/app/src/io/github/flizzywine/dshtavern/bionic/UpdatedReceiver.java",
@@ -191,8 +191,8 @@
     },
     {
       "path": "android/native/README.md",
-      "sha256": "09f1fc4bb932a5c778a53b32f5356210ce178809acb5b5b56384fd0254aeb47a",
-      "size": 21604
+      "sha256": "2e87a83b33bf42eeca989f45ea0b5ab6dd37337b3b5217b1a3e05cfdb6ea26df",
+      "size": 21891
     },
     {
       "path": "android/native/release-smoke.mjs",
@@ -1526,8 +1526,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/bounded-compaction.js",
-      "sha256": "f17c0f1aabd81ce9f45d5c32101c7dd3c6a69f2b26c063b3fa2c6b0779e9c65f",
-      "size": 5801
+      "sha256": "d37779d5b7f6466763af763476d2ba2f40aab72a37a54330ffae5953d9105d77",
+      "size": 5887
     },
     {
       "path": "tavern-plugin/lib/domain/bounded-history.js",
@@ -3736,8 +3736,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/story-compaction.js",
-      "sha256": "a4a6a87a2ed30a61800ae026c58045670701374dbdf61366dc265598ce16f2fa",
-      "size": 13025
+      "sha256": "8d230d50990cc68e88b4da9c1ed2a6e7ba091d09cfbd1353b1bdde372870cb30",
+      "size": 15053
     },
     {
       "path": "tavern-plugin/lib/domain/story-events.js",
@@ -4016,8 +4016,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/tool-protocol-enforcement.js",
-      "sha256": "ea5a7380a57f0fdba53cd533ef0f668f30fe1694b072e52b3149ff1b6a754236",
-      "size": 29851
+      "sha256": "2b141d146ebbb99fe50e38f124d344e59ca92a3578fa798e1bbf98e16e717db5",
+      "size": 29829
     },
     {
       "path": "tavern-plugin/lib/domain/tool-reply-stream-parser.js",
@@ -4051,13 +4051,13 @@
     },
     {
       "path": "tavern-plugin/lib/domain/transfer-bundle.js",
-      "sha256": "35da7668f3ccbbf67f0aa5431e41a97888119e6a75d36c63d3fbcfbe5bcd6571",
-      "size": 8861
+      "sha256": "6f90479bf44cbccf8f0ff5d8af4cf7e29cbc97ba625e81d554834f123ab8c5bd",
+      "size": 14319
     },
     {
       "path": "tavern-plugin/lib/domain/transfer-catalog.js",
-      "sha256": "a6eaed89ad0dd542187f441414a094b97899583011fb07a414f2eb35ba588d06",
-      "size": 24515
+      "sha256": "44fe33afea8d6b8bf2bd34f6d00f46aa617de74fa230e5479f78b99358a98043",
+      "size": 24683
     },
     {
       "path": "tavern-plugin/lib/domain/transfer-chats.js",
@@ -4586,8 +4586,8 @@
     },
     {
       "path": "tavern-plugin/lib/rescue-export.mjs",
-      "sha256": "e88b7621070e7f4e03efc7fff28eec73987f6a79d7c3c08ce035593a875f5774",
-      "size": 25999
+      "sha256": "8a6e8770202516c75f63cfa95038185d1498ce721e23a6db2d60974006476cd4",
+      "size": 30677
     },
     {
       "path": "tavern-plugin/lib/rpc/cards.js",
@@ -10301,9 +10301,9 @@
     }
   ],
   "archive": {
-    "commit": "1556d1186319954ec83ca858cdc5710190b7b1f0",
+    "commit": "f8a29a89c9b89f0a06c1daa58650f4c9c68f7dc3",
     "path": "runtime.zip",
-    "sha256": "dd57336ff8889ae12c0580f4dcc4b752e8e622d8323995a5c120a036ce07f24a",
-    "size": 18103977
+    "sha256": "1ee341eec0471b06bd78fd302865aa3af52837bb00c7b3b864b3ed43c2edd543",
+    "size": 18113721
   }
 }
