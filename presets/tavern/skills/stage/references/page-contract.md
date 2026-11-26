@@ -112,6 +112,9 @@ tavern_update_card({ rawOperations: [
 | `openBacklog()` | 在本页上面打开「履历」，关掉履历回到本页；在履历里点某一句就关闭本页，从那一句进入舞台。 |
 | `exit()` | 返回主页面（与舞台菜单的「返回主页面」相同）。 |
 | `sound(name)` | 播放界面音效，`name` 是 `move`（移动、悬停）、`confirm`（确定）、`open`、`close` 之一；皮肤自带这个音效就用皮肤的，没有就用舞台内置的同名音效；跟随界面音量和静音。 |
+| `sound({kind: 'sfx', id})` | 播放本卡素材包里的一个音效，跟随舞台音效音量与静音。声音不在本卡绑定包里时，Promise 拒绝。 |
+| `toast(text, {type, tag})` | 在舞台上浮起一条短提示，返回 `Promise<{shown: true}>`。见「浮起提示」。 |
+| `store.get(scope, key)` / `store.set(scope, key, value)` | 页面自己的小存储，见「页面小存储」。 |
 
 ### 页面演出
 
@@ -142,6 +145,14 @@ tavern_update_card({ rawOperations: [
   document.getElementById('continue').onclick = event => run(event.currentTarget, page.continueGame)
 </script>
 ```
+
+### 浮起提示
+
+`toast(text, {type, tag})` 在舞台上显示 1–120 字的反馈。`type` 可选 `info`（默认）、`success`、`warning`、`error`；`tag` 最多 40 字，相同的 `tag` 会替换旧提示。舞台最多同时显示 3 条，提示会自动消失，鼠标移上时暂停，也可以点击关闭。位置和样式由舞台皮肤设置，页面关闭后提示仍可读。
+
+### 页面小存储
+
+`store.get(scope, key)` 读取已保存的值，没有时返回 `null`。`store.set(scope, key, value)` 写入 JSON 值，传 `null` 删除。`scope` 是 `'save'`（这一局）或 `'card'`（同一张卡的所有局）；`key` 最多 64 字符，只用字母、数字和 `_ . -`。每个范围最多 32 个键，每个值最多 4 KiB。数据只留本机，不随存档或卡导出。
 
 进入舞台时打开的 showOn 页（标题页、开场页）开着时，舞台的这一句（打字、配音、自动播放）停在原处，进入舞台后才从当前这一句开始。读到一半用快捷键或菜单打开的页面不停：正在播的配音照常播完。BGM 和环境音不受影响。
 
@@ -203,4 +214,4 @@ function applyTheme(t) {
 - **键盘**：页面拿到焦点后，方向键和 Enter 由页面自己处理；按钮用真正的 `<button>`，能用 Tab 走到。
 - **减少动态**：`@media (prefers-reduced-motion: reduce)` 下不播视频、不做位移动画，用封面静图。
 - **视频背景**：先用 `<img>` 放封面（`asset({kind, id, file: 'poster'})`），视频 `muted loop playsinline`，`playing` 之后再淡入；手机用 720p 条目。
-- **声音**：音乐和配音归舞台管，页面里的视频静音、不放 BGM；按钮音效用 `sound()` 或 `data-dsh-sound`。
+- **声音**：音乐和配音归舞台管，页面里的视频静音、不放 BGM；按钮音效用 `sound()` 或 `data-dsh-sound`，盖章等动作音用 `sound({kind: 'sfx', id})`。

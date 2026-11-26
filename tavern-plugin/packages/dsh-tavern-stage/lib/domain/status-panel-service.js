@@ -57,7 +57,8 @@ export function createCardPagesService({ readWorkspace, chatForSession, index, p
         id: definition.id, label: definition.label, size: definition.size || 'window',
         // {{user}} is the player's name in this chat (an agent sheet shows the player's own face from the library)
         figures: (definition.figures || []).map(figure => figure.name === USER ? { ...figure, name: value.chat.macroState?.userName?.trim() || figure.name } : figure),
-        card: { name: value.card.name },
+        // key: the card's library path, the owner of the page's card-wide store (status-panel.cjs pageStore); not in the page's data()
+        card: { name: value.card.name, key: value.chat.cardPath },
         preload: await Promise.all((definition.preload || []).map(async ref => ({ ref, place: await locateCardPageAsset(packSnapshot, value.packs, ref) }))),
         ...(withHtml === true ? { html: definition.html } : {}),
         data: { ledger: playFeatures.storyLedger ? projectStatusPanelLedger(readLedger(value.chat.ledger), definition.ledger) : {} }
