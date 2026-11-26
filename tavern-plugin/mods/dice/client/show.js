@@ -238,12 +238,16 @@ function CheckShow(props) {
         if (first) s.ids = new Set();
         const arrived = fresh.filter(record => record.show && !(record.of && s.shown.has(record.of)));
         for (const record of records) { s.ids.add(record.callId); if (record.show && record.id) s.shown.add(record.id); }
-        const now = latest.current;
-        if (!first && arrived.length && now.running) s.queue.add(arrived, Number(key.slice(0, key.indexOf("|"))));
+        const now = latest.current, turn = Number(key.slice(0, key.indexOf("|")));
+        if (!first && arrived.length && now.running) s.queue.add(arrived, turn);
+        // A show whose place the reader passed while the stage was not live (skipping, the backlog, a menu or page open,
+        // the box hidden) waits until it is live again, within its round: a newer round drops it.
+        s.queue.drop(item => item.turn < turn);
+        if (!now.live) return;
         const due = s.queue.take(now.place);
-        if (!due.length || !now.live) return;
+        if (!due.length) return;
         player.current.enqueue(due, now.calm === true);
-    }, [key, props.sessionId, placeKey]);
+    }, [key, props.sessionId, placeKey, props.live]);
     React.useEffect(() => { if (!props.live) player.current?.skip(); }, [props.live]);
     React.useEffect(() => { if (!props.veiled) player.current?.resume(); }, [props.veiled]);
     return h("div", { ref: layer, className: "fork-check-show", "aria-hidden": true, hidden: true }, h("canvas", { className: "fork-check-show-field" }));
