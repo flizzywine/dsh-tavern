@@ -122,6 +122,43 @@ test('压缩素材 gives the same bytes again, and an update package reuses an e
   }
 })
 
+// 主人 11-26: media already compressed is never compressed again (no generation loss). The export of an export — the
+// compressed pack as the player installs it (content-addressed: the same files) — sends every medium byte for byte.
+test('压缩素材 twice: what the first export compressed goes out byte for byte, counted as skipped', async t => {
+  const root = await mkdtemp(path.join(tmpdir(), 'export-compress-twice-'))
+  t.after(() => rm(root, {recursive:true, force:true}))
+  const {pack} = await fixture(root)
+  const first = await compressExportPacks([pack], {directory:path.join(root, 'one')})
+  assert.equal(first.summary.skipped, 0, 'the PNG, the patch and the WAV are compressed the first time')
+  const again = await compressExportPacks(first.packs, {directory:path.join(root, 'two')})
+  assert.equal(again.summary.images + again.summary.audio, 0, 'nothing is encoded again')
+  assert.equal(again.summary.skipped, 4, 'two backgrounds, the mask and the music are already compressed')
+  assert.equal(again.packs[0].manifest.contentHash, first.packs[0].manifest.contentHash)
+  const bytes = async ref => ref.file ? readFile(ref.file) : Buffer.from(ref)
+  for (const [name, ref] of first.packs[0].files) if (name.startsWith('media/')) assert.deepEqual(await bytes(again.packs[0].files.get(name)), await bytes(ref), name)
+})
+
+// The rule reads the file itself, never its name or a mark in the pack.
+test('alreadyCompressed: lossy WebP and animation stay, lossless WebP stays only as a patch; Opus / Vorbis at the rate stay', async t => {
+  const {alreadyCompressed, imageChunks} = await import('../tavern-plugin/packages/dsh-asset-library/src/pack-v2/export-compress.js')
+  const pixels = await noise(64, 64, 5)
+  const lossy = await sharp(pixels).webp({quality:80}).toBuffer(), lossless = await sharp(pixels).webp({lossless:true}).toBuffer()
+  const alpha = await sharp(pixels).ensureAlpha(0.5).webp({quality:80}).toBuffer()
+  assert.equal(alreadyCompressed.image(await imageChunks(lossy), {lossless:false}), true)
+  assert.equal(alreadyCompressed.image(await imageChunks(alpha), {lossless:false}), true, 'VP8X + ALPH + VP8: still lossy')
+  assert.equal(alreadyCompressed.image(await imageChunks(lossless), {lossless:false}), false, 'a lossless WebP background is compressed')
+  assert.equal(alreadyCompressed.image(await imageChunks(lossless), {lossless:true}), true, 'a lossless WebP patch is already what it becomes')
+  assert.equal(alreadyCompressed.image(await imageChunks(lossy), {lossless:true}), true, 'a lossy patch is never re-encoded')
+  assert.equal(alreadyCompressed.image(await imageChunks(pixels), {lossless:false}), false)
+  assert.equal(alreadyCompressed.audio({codec:'opus', kbps:110}, 96), true, 'VBR runs a little over its rate')
+  assert.equal(alreadyCompressed.audio({codec:'vorbis', kbps:90}, 96), true)
+  assert.equal(alreadyCompressed.audio({codec:'opus', kbps:NaN}, 96), true, 'no rate told: never risk a second loss')
+  assert.equal(alreadyCompressed.audio({codec:'opus', kbps:256}, 96), false)
+  assert.equal(alreadyCompressed.audio({codec:'mp3', kbps:320}, 96), false)
+  assert.equal(alreadyCompressed.audio({codec:'pcm_s16le', kbps:1411}, 96), false)
+  assert.equal(alreadyCompressed.audio({codec:'flac', kbps:90}, 96), false, 'lossless is never "already compressed"')
+})
+
 test('the export sheet names the same import limit and audio rates as the library', async () => {
   const {PACK_BUDGET} = await import('../tavern-plugin/packages/dsh-asset-library/src/pack-v2/budget.js')
   const {EXPORT_AUDIO_KBPS} = await import('../tavern-plugin/packages/dsh-asset-library/src/pack-v2/service.js')

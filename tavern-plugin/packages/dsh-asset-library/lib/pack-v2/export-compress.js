@@ -1,6 +1,6 @@
 import {spawn} from 'node:child_process'
 import {createHash} from 'node:crypto'
-import {mkdir, readFile, stat, writeFile} from 'node:fs/promises'
+import {mkdir, open, readFile, stat, writeFile} from 'node:fs/promises'
 import {availableParallelism} from 'node:os'
 import path from 'node:path'
 import {createInterface} from 'node:readline'
@@ -11,14 +11,15 @@ import {sealPack, StoredFile} from './validation.js'
 
 // 压缩素材 — an export's smaller copy of its packs (the card export's 压缩素材 switch). The installed packs are only read:
 // every new file is written under `directory` and the packs go out re-sealed with the new media.
-// Images: PNG and lossless WebP become lossy WebP q80 with lossless alpha; a lossy or animated WebP and an animated PNG
-// stay as they are. Mouth and blink patches (and mouth occlusion masks) stay lossless (lossless WebP), so they still line
-// up pixel for pixel with the base image; the colour tables of a look (lut / texture) are not touched.
+// Images: PNG and lossless WebP become lossy WebP q80 with lossless alpha. Mouth and blink patches (and mouth occlusion
+// masks) stay lossless (lossless WebP), so they still line up pixel for pixel with the base image; the colour tables of
+// a look (lut / texture) are not touched.
 // Voice references (the voice library) stay as they are, also where a music asset shares the file.
 // Audio: music becomes Ogg Opus 96 kbps and ambience 80 kbps (the rates the owner approved by ear, review page
-// triangle-compress-1122b); a lossy source already at or below the rate stays, sound effects and voices stay. An encode
-// is kept only when its decoded length is the source's to the sample (loop points stay put). Without ffmpeg the audio
-// stays as it is (`audio: 'no-ffmpeg'`).
+// triangle-compress-1122b); sound effects and voices stay. An encode is kept only when its decoded length is the
+// source's to the sample (loop points stay put). Without ffmpeg the audio stays as it is.
+// Media already compressed (alreadyCompressed, read from the file itself) goes out byte for byte and is counted
+// (`skipped`): exporting an export never compresses twice (主人 11-26, no generation loss).
 // Every conversion is kept only when it is smaller. References (blobs, file rows, figure and sprite documents, the card's
 // embeded:// URIs) move to the new content hashes.
 // The same source gives the same bytes on the same encoders (images always; audio is muxed bitexact, without the random
@@ -26,6 +27,61 @@ import {sealPack, StoredFile} from './validation.js'
 export const EXPORT_AUDIO_KBPS = Object.freeze({music:96, ambience:80})
 const LOSSLESS_AUDIO = new Set(['flac', 'alac', 'wavpack', 'ape', 'tta'])
 const MEDIA = /^media\/([0-9a-f]{64})\.(\w+)$/
+
+// 已压缩的素材: the one rule for what is never encoded again, judged from the file's own bytes (container chunks, the
+// decoder's codec and average rate), never from its name or a mark in the pack.
+// image({format, chunks}, {lossless}): an animation (WebP ANIM, APNG acTL) and a lossy WebP (VP8) are kept; a lossless
+// WebP (VP8L) is kept where the export wants lossless (a patch) and compressed elsewhere; PNG is compressed.
+// audio({codec, kbps}, target): any lossy source (Opus, Vorbis, MP3, AAC…) whose average rate is not over the target
+// by more than VBR's swing (an Opus 96 kbps VBR encode of busy music averages up to ~110) is kept; an unknown rate is
+// kept too, a second loss is never risked on a guess. Lossless and PCM sources are compressed.
+const VBR_SWING = 1.25
+export const alreadyCompressed = Object.freeze({
+  image({format, chunks}, {lossless}) {
+    if (chunks.includes('ANIM') || chunks.includes('acTL')) return true
+    if (format !== 'webp') return false
+    return chunks.includes('VP8 ') || lossless && chunks.includes('VP8L')
+  },
+  audio({codec, kbps}, target) {
+    if (!codec || LOSSLESS_AUDIO.has(codec) || codec.startsWith('pcm_')) return false
+    return !(kbps > target * VBR_SWING)
+  },
+})
+
+// The chunk names of a WebP up to its image chunk, or of a PNG up to its first IDAT, read from a Buffer or a {file}
+// (only the chunk headers are read, a large file is never loaded for this).
+export async function imageChunks(source) {
+  const handle = source.file ? await open(source.file) : null
+  const read = async (at, length) => handle
+    ? (({buffer, bytesRead}) => buffer.subarray(0, bytesRead))(await handle.read(Buffer.alloc(length), 0, length, at))
+    : Buffer.from(source).subarray(at, at + length)
+  try {
+    const head = await read(0, 12), chunks = []
+    if (head.toString('ascii', 0, 4) === 'RIFF' && head.toString('ascii', 8, 12) === 'WEBP') {
+      for (let at = 12; ; ) {
+        const chunk = await read(at, 8)
+        if (chunk.length < 8) break
+        const name = chunk.toString('ascii', 0, 4), size = chunk.readUInt32LE(4)
+        chunks.push(name)
+        if (name === 'VP8 ' || name === 'VP8L' || name === 'ANIM') break
+        at += 8 + size + size % 2
+      }
+      return {format:'webp', chunks}
+    }
+    if (head.length >= 8 && head.readUInt32BE(0) === 0x89504e47) {
+      for (let at = 8; ; ) {
+        const chunk = await read(at, 8)
+        if (chunk.length < 8) break
+        const name = chunk.toString('ascii', 4, 8)
+        chunks.push(name)
+        if (name === 'IDAT') break
+        at += 12 + chunk.readUInt32BE(0)
+      }
+      return {format:'png', chunks}
+    }
+    return {format:'other', chunks}
+  } finally { await handle?.close() }
+}
 
 const readJson = async bytes => JSON.parse((bytes.file ? await readFile(bytes.file) : Buffer.from(bytes)).toString('utf8'))
 
@@ -70,9 +126,11 @@ async function audioInfo(ffmpeg, file, signal) {
 }
 const samples = async (ffmpeg, file, signal) => (await run(ffmpeg, ['-v', 'error', '-nostdin', '-i', file, '-map', '0:a:0', '-ac', '1', '-ar', '48000', '-f', 's16le', '-'], {signal})).bytes / 2
 
+// 'compressed' for a source already compressed (alreadyCompressed), null for one kept for another reason.
 async function encodeAudio(ffmpeg, input, output, kbps, signal) {
   const before = await audioInfo(ffmpeg, input, signal)
-  if (!before.codec || !LOSSLESS_AUDIO.has(before.codec) && !before.codec.startsWith('pcm_') && !(before.kbps > kbps + 8)) return null
+  if (!before.codec) return null
+  if (alreadyCompressed.audio(before, kbps)) return 'compressed'
   const {code} = await run(ffmpeg, ['-v', 'error', '-nostdin', '-y', '-i', input, '-map', '0:a:0', '-map_metadata', '-1', '-c:a', 'libopus', '-b:a', kbps + 'k', '-vbr', 'on', '-fflags', '+bitexact', '-flags:a', '+bitexact', '-f', 'ogg', output], {signal})
   if (code !== 0) return null
   const [a, b] = await Promise.all([samples(ffmpeg, input, signal), samples(ffmpeg, output, signal)])
@@ -87,13 +145,14 @@ const fileSize = async ref => ref.file ? (await stat(ref.file)).size : ref.lengt
 // of those to convert, with the title of the pack; a throw from it stops the work (the encoders are killed).
 // reuse ({source sha256: {sha256, ext, mime, size}}, optional): media an earlier export already converted, taken as that
 // result without encoding again (an update package leaves those files out, so they carry no bytes here).
-// Resolves {packs, rewrite(card), converted: the same map for this export, summary:{beforeBytes, afterBytes, images, audio, ffmpeg}}.
+// Resolves {packs, rewrite(card), converted: the same map for this export, summary:{beforeBytes, afterBytes, images, audio,
+// skipped: media already compressed, sent as they are, ffmpeg}}.
 export async function compressExportPacks(packs, {directory, onProgress = () => {}, reuse = {}} = {}) {
   await mkdir(directory, {recursive:true})
   const controller = new AbortController(), signal = controller.signal
   const renames = new Map()
   const plans = [], reused = []
-  let total = 0
+  let total = 0, skipped = 0
   for (const [index, pack] of packs.entries()) {
     const {manifest, files} = pack
     if (manifest.format !== 'dsh-asset-pack' || !manifest.blobs) { plans.push(null); continue }
@@ -121,6 +180,7 @@ export async function compressExportPacks(packs, {directory, onProgress = () => 
       const image = blob.ext === 'png' || blob.ext === 'webp'
       if (!image && !audio.has(hash)) continue
       if (Object.hasOwn(reuse, hash)) { const next = reuse[hash]; taken.set(hash, {sha256:next.sha256, ext:next.ext, mime:next.mime, bytes:next.size}); continue }
+      if (image && alreadyCompressed.image(await imageChunks(ref), {lossless:lossless.has(hash)})) { skipped++; continue }
       const size = await fileSize(ref)
       jobs.push({hash, blob, ref, size, image, lossless:lossless.has(hash), kbps:audio.get(hash)})
       total += size
@@ -130,7 +190,7 @@ export async function compressExportPacks(packs, {directory, onProgress = () => 
   let done = 0
   const report = title => onProgress({done, total, pack:title})
   const ffmpeg = plans.some(jobs => jobs?.some(job => !job.image)) ? await resolveAudioFfmpeg() : null
-  const counts = {images:0, audio:0}
+  const counts = {images:0, audio:0, skipped}
   const out = []
   try {
     for (const [index, pack] of packs.entries()) {
@@ -149,7 +209,8 @@ export async function compressExportPacks(packs, {directory, onProgress = () => 
       const converted = new Map(taken)
       const finish = (job, result, ext, file) => {
         done += job.size
-        if (result && result.bytes < job.size) { converted.set(job.hash, {...result, ext, mime:ext === 'webp' ? 'image/webp' : 'audio/ogg', file}); counts[job.image ? 'images' : 'audio']++ }
+        if (result === 'compressed') counts.skipped++
+        else if (result && result.bytes < job.size) { converted.set(job.hash, {...result, ext, mime:ext === 'webp' ? 'image/webp' : 'audio/ogg', file}); counts[job.image ? 'images' : 'audio']++ }
         report(title)
       }
       const images = jobs.filter(job => job.image), sounds = jobs.filter(job => !job.image)
@@ -182,7 +243,7 @@ export async function compressExportPacks(packs, {directory, onProgress = () => 
   const afterBytes = (await Promise.all(out.map(packBytes))).reduce((a, b) => a + b, 0)
   return {packs:out, rewrite:value => renameHashes(value, renames),
     converted:Object.fromEntries([...renames].map(([hash, next]) => [hash, {sha256:next.sha256, ext:next.ext, mime:next.mime, size:next.bytes}])),
-    summary:{beforeBytes, afterBytes, images:counts.images, audio:counts.audio, ffmpeg:!!ffmpeg || !plans.some(jobs => jobs?.some(job => !job.image))}}
+    summary:{beforeBytes, afterBytes, images:counts.images, audio:counts.audio, skipped:counts.skipped, ffmpeg:!!ffmpeg || !plans.some(jobs => jobs?.some(job => !job.image))}}
 }
 
 async function packBytes(pack) {
