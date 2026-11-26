@@ -37,7 +37,7 @@ test('skin assets accept relative HTML performance paths in both contracts', () 
   skin.assets = { report: 'perform/report.html' }
   assert.match(skin.assets.report, pattern)
   assert.doesNotThrow(() => skinContract.validateStageSkin(skin))
-  for (const path of ['/report.html', '../report.html', 'perform/./report.html', 'perform//report.html', 'perform/report.js']) {
+  for (const path of ['/report.html', '../report.html', 'perform/./report.html', 'perform//report.html', 'perform/report.js', 'perform/report.css']) {
     skin.assets.report = path
     assert.doesNotMatch(path, pattern)
     assert.throws(() => skinContract.validateStageSkin(skin), { code: 'INVALID_SKIN' })
