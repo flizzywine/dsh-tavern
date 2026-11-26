@@ -199,7 +199,6 @@ export function validateFigure(value, path = '$', voiceLibrary) {
     })
   })
   validateHeadRelativeAnatomies(value, path + '.outfits')
-  if (!value.outfits.length) check(value.heightCm === undefined, path + '.heightCm', 'Voice-only figure has no height')
   return value
 }
 // Whole-pack structural closure. P1 additionally verifies actual bytes/decoded sizes/model3 paths.
