@@ -9516,14 +9516,8 @@
   "license": {
    "type": "object",
    "additionalProperties": false,
-   "required": [
-    "privateUse"
-   ],
    "properties": {
-    "privateUse": {
-     "type": "boolean",
-     "description": "true = never export into a public/shared pack."
-    },
+    "privateUse": {},
     "notes": {
      "type": "array",
      "items": {

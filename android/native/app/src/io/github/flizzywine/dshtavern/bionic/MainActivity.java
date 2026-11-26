@@ -31,11 +31,13 @@ import android.view.ViewGroup;
 import android.view.ViewOutlineProvider;
 import android.view.WindowInsetsController;
 import android.view.WindowInsets;
+import android.webkit.CookieManager;
 import android.webkit.RenderProcessGoneDetail;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
+import android.webkit.WebStorage;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.Button;
@@ -60,9 +62,11 @@ import java.util.List;
 public final class MainActivity extends Activity {
     static final String EXTRA_SHOW_UPDATE = "showUpdate";
     private static final int PICK_FILES = 1;
+    private static final int SAVE_RESCUE = 2;
     private static final String INSTALL_ACTION = "io.github.flizzywine.dshtavern.bionic.INSTALL_STATUS";
     private final Handler handler = new Handler(Looper.getMainLooper());
     private WebView web;
+    private WebDownloads downloads;
     private ScrollView launcher;
     private TextView versionText, updateText, updateStatusTitle, keepAliveText, logText;
     private ProgressBar bar, updateBar;
@@ -77,6 +81,9 @@ public final class MainActivity extends Activity {
     private String loadedUrl;
     private boolean showLauncher;
     private boolean logsVisible;
+    private boolean advancedVisible;
+    private LinearLayout advanced;
+    private TextView advancedToggle, advancedChevron;
     private boolean clearHistoryOnLoad;
     private ValueCallback<Uri[]> fileCallback;
 
@@ -412,11 +419,6 @@ public final class MainActivity extends Activity {
             render();
         });
         listRow(tools, "分享日志", INK, v -> shareLogs());
-        listRow(tools, "重置程序文件", DANGER, v -> new AlertDialog.Builder(this)
-                .setTitle("重置程序文件")
-                .setMessage("重新解出安装包自带的程序文件（会撤销应用内更新）。存档、人物卡、API key 和模型设置都保留。")
-                .setPositiveButton("重置", (d, w) -> send(TavernService.ACTION_RESET))
-                .setNegativeButton("取消", null).show());
         listRow(tools, "退出", INK, v -> {
             send(TavernService.ACTION_EXIT);
             finishAndRemoveTask();
@@ -427,6 +429,34 @@ public final class MainActivity extends Activity {
         logText.setBackground(shape(TRACK, 0, 12));
         logText.setPadding(dp(12), dp(10), dp(12), dp(10));
         ((LinearLayout.LayoutParams) logText.getLayoutParams()).topMargin = dp(12);
+
+        // 高级：默认折叠，每次打开启动页都收起（不记状态）
+        advancedToggle = listRow(c, "高级", MUTED, v -> {
+            advancedVisible = !advancedVisible;
+            show(advanced, advancedVisible);
+            advancedChevron.setText(advancedVisible ? "⌄" : "›");
+        });
+        View advancedRow = (View) advancedToggle.getParent();
+        ((LinearLayout.LayoutParams) advancedRow.getLayoutParams()).topMargin = dp(18);
+        advancedRow.setBackground(pressable(BG, 0, 10));
+        advancedChevron = (TextView) ((LinearLayout) advancedRow).getChildAt(1);
+        advanced = card(c, 0);
+        advanced.setPadding(dp(10), dp(4), dp(10), dp(4));
+        listRow(advanced, "救援存档", INK, v -> confirmRescueExport());
+        TextView rescueHint = label(advanced, 12, MUTED, false);
+        rescueHint.setText("不用启动酒馆也能导出存档、人物卡、世界书和设置（.dshtransfer，不含 API key），可直接导入到酒馆；程序损坏时会自动打包原始数据兜底。");
+        rescueHint.setPadding(dp(4), 0, dp(4), dp(10));
+        divider(advanced);
+        listRow(advanced, "修复酒馆", INK, v -> confirmRepair());
+        TextView repairHint = label(advanced, 12, MUTED, false);
+        repairHint.setText("进不去酒馆、反复退出或更新出错时先试这个：清理更新残留，检查并修好写坏的存档和设置，重新解出程序文件。存档、人物卡和设置都保留。");
+        repairHint.setPadding(dp(4), 0, dp(4), dp(10));
+        divider(advanced);
+        listRow(advanced, "完全重置", DANGER, v -> confirmFactoryReset());
+        TextView advancedHint = label(advanced, 12, MUTED, false);
+        advancedHint.setText("酒馆文件损坏、无法进入也无法修复时使用：清除全部数据，恢复到刚安装的状态。");
+        advancedHint.setPadding(dp(4), 0, dp(4), dp(10));
+        show(advanced, false);
 
         versionText = label(c, 12, MUTED, false);
         versionText.setGravity(Gravity.CENTER);
@@ -495,6 +525,8 @@ public final class MainActivity extends Activity {
                 return true;
             }
         });
+        downloads = new WebDownloads(this, web);
+        downloads.attach();
         web.setVisibility(View.GONE);
         return web;
     }
@@ -587,6 +619,8 @@ public final class MainActivity extends Activity {
         }
         applyBarColor(BG);
         maybeShowApkNotice();
+        maybeShowRepairReport();
+        maybeShowRescueReport();
 
         String err = TavernService.error;
         int p = TavernService.progress;
@@ -773,7 +807,7 @@ public final class MainActivity extends Activity {
         StringBuilder text = new StringBuilder(appVersion()).append('\n').append(TavernService.sourceInfo).append("\nAndroid ")
                 .append(Build.VERSION.RELEASE).append(" · ").append(Build.MODEL).append(" · ").append(Build.SUPPORTED_ABIS[0]).append("\n\n");
         File dir = new File(getFilesDir(), "logs");
-        for (String name : new String[]{"update.log", "node.prev.log", "node.log"}) {
+        for (String name : new String[]{"update.log", "repair.log", "rescue.log", "node.prev.log", "node.log"}) {
             File f = new File(dir, name);
             if (!f.exists()) continue;
             text.append("==== ").append(name).append(" ====\n").append(lastBytes(f, 48 * 1024)).append('\n');
@@ -878,6 +912,193 @@ public final class MainActivity extends Activity {
         noticeDialog = b.show();
     }
 
+    // ---------------------------------------------------------------- 高级：修复酒馆
+
+    private long repairShownAt;
+
+    private void confirmRepair() {
+        new AlertDialog.Builder(this)
+                .setTitle("修复酒馆")
+                .setMessage("会先停止酒馆，然后：\n"
+                        + "· 清理更新中途留下的残留文件\n"
+                        + "· 检查存档、人物卡和设置，修好写到一半的文件；损坏且没有备份的移到隔离目录，不会删除\n"
+                        + "· 重新解出安装包自带的程序文件（会撤销应用内更新）\n\n"
+                        + "通常一分钟内完成，完成后自动启动酒馆。")
+                .setPositiveButton("开始修复", (d, w) -> {
+                    repairShownAt = TavernService.repairReportAt;
+                    showLauncher = true;
+                    send(TavernService.ACTION_REPAIR);
+                    render();
+                })
+                .setNegativeButton("取消", null)
+                .show();
+    }
+
+    /** 修复完成后在启动页弹一次结果。 */
+    private void maybeShowRepairReport() {
+        long at = TavernService.repairReportAt;
+        String report = TavernService.repairReport;
+        if (at == 0 || at == repairShownAt || report == null) return;
+        repairShownAt = at;
+        AlertDialog.Builder b = new AlertDialog.Builder(this)
+                .setTitle(TavernService.repairOk ? "修复完成" : "修复未能解决问题")
+                .setMessage(report)
+                .setPositiveButton(TavernService.repairOk ? "进入酒馆" : "知道了", (d, w) -> {
+                    if (TavernService.repairOk) {
+                        showLauncher = false;
+                        render();
+                    }
+                });
+        if (!TavernService.repairOk) {
+            b.setNegativeButton("救援存档", (d, w) -> startRescueExport());
+            b.setNeutralButton("分享日志", (d, w) -> shareLogs());
+        }
+        b.show();
+    }
+
+    // ---------------------------------------------------------------- 高级：救援存档
+
+    private long rescueShownAt;
+
+    private void confirmRescueExport() {
+        new AlertDialog.Builder(this)
+                .setTitle("救援存档")
+                .setMessage("不用启动酒馆，直接把存档、人物卡、世界书、预设和设置导出为 .dshtransfer 备份包（不含 API key）。\n\n"
+                        + "导出期间会先暂停酒馆服务，完成后自动恢复并弹出保存窗口。")
+                .setPositiveButton("开始导出", (d, w) -> startRescueExport())
+                .setNegativeButton("取消", null)
+                .show();
+    }
+
+    private void startRescueExport() {
+        rescueShownAt = TavernService.rescueReportAt;
+        showLauncher = true;
+        send(TavernService.ACTION_RESCUE_EXPORT);
+        render();
+    }
+
+    /** 救援导出完成后在启动页弹一次结果，成功时可直接用系统文档选择器保存到手机存储。 */
+    private void maybeShowRescueReport() {
+        long at = TavernService.rescueReportAt;
+        String report = TavernService.rescueReport;
+        if (at == 0 || at == rescueShownAt || report == null) return;
+        rescueShownAt = at;
+        AlertDialog.Builder b = new AlertDialog.Builder(this)
+                .setTitle(TavernService.rescueOk ? (TavernService.rescueIsRaw ? "已打包原始数据" : "救援存档已就绪") : "救援存档失败")
+                .setMessage(report);
+        if (TavernService.rescueOk && TavernService.rescueFile != null) {
+            b.setPositiveButton("保存到文件", (d, w) -> pickRescueDestination());
+            b.setNegativeButton("关闭", null);
+        } else {
+            b.setPositiveButton("知道了", null);
+            b.setNeutralButton("分享日志", (d, w) -> shareLogs());
+        }
+        b.show();
+    }
+
+    private void pickRescueDestination() {
+        String name = TavernService.rescueFileName;
+        if (name == null || name.isEmpty()) name = TavernService.rescueIsRaw ? "DSH酒馆原始数据包.zip" : "DSH酒馆救援备份.dshtransfer";
+        Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT)
+                .addCategory(Intent.CATEGORY_OPENABLE)
+                .setType(TavernService.rescueIsRaw ? "application/zip" : "application/octet-stream")
+                .putExtra(Intent.EXTRA_TITLE, name);
+        try {
+            startActivityForResult(intent, SAVE_RESCUE);
+        } catch (Exception e) {
+            Toast.makeText(this, "无法打开系统保存窗口：" + e.getMessage(), Toast.LENGTH_LONG).show();
+        }
+    }
+
+    private void copyRescueTo(Uri destination) {
+        String srcPath = TavernService.rescueFile;
+        String name = TavernService.rescueFileName;
+        if (srcPath == null) {
+            Toast.makeText(this, "备份文件已失效，请重新救援导出", Toast.LENGTH_LONG).show();
+            return;
+        }
+        File src = new File(srcPath);
+        if (!src.isFile()) {
+            Toast.makeText(this, "备份文件不存在，请重新救援导出", Toast.LENGTH_LONG).show();
+            return;
+        }
+        Toast.makeText(this, "正在保存备份文件…", Toast.LENGTH_SHORT).show();
+        new Thread(() -> {
+            try (InputStream in = new FileInputStream(src);
+                 OutputStream out = getContentResolver().openOutputStream(destination, "w")) {
+                if (out == null) throw new java.io.IOException("无法写入目标文件");
+                byte[] buf = new byte[1 << 16];
+                int n;
+                while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+                out.flush();
+                handler.post(() -> Toast.makeText(this, "已保存：" + (name != null ? name : src.getName()), Toast.LENGTH_LONG).show());
+            } catch (Exception e) {
+                handler.post(() -> Toast.makeText(this, "保存失败：" + e.getMessage(), Toast.LENGTH_LONG).show());
+            }
+        }, "save-rescue").start();
+    }
+
+    // ---------------------------------------------------------------- 高级：完全重置（两次警告）
+
+    private void confirmFactoryReset() {
+        new AlertDialog.Builder(this)
+                .setTitle("完全重置酒馆？")
+                .setMessage("会删除全部存档、人物卡、世界书、预设、API key 和模型设置，恢复到刚安装的状态，无法撤销。\n\n"
+                        + "建议先点「先救援存档」把存档和人物卡导出来。")
+                .setPositiveButton("继续", (d, w) -> confirmFactoryResetAgain())
+                .setNeutralButton("先救援存档", (d, w) -> startRescueExport())
+                .setNegativeButton("取消", null)
+                .show();
+    }
+
+    /** 第二次警告：确认键先禁用 5 秒，防止连点误触。 */
+    private void confirmFactoryResetAgain() {
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle("最后确认")
+                .setMessage("所有酒馆数据将被永久清除。确定要完全重置吗？")
+                .setPositiveButton("完全重置", (d, w) -> factoryReset())
+                .setNegativeButton("取消", null)
+                .create();
+        dialog.setOnShowListener(d -> {
+            Button ok = dialog.getButton(AlertDialog.BUTTON_POSITIVE);
+            ok.setTextColor(DANGER);
+            ok.setEnabled(false);
+            Runnable[] tick = new Runnable[1];
+            int[] left = {5};
+            tick[0] = () -> {
+                if (!dialog.isShowing()) return;
+                if (left[0] > 0) {
+                    ok.setText("完全重置（" + left[0] + "）");
+                    left[0]--;
+                    handler.postDelayed(tick[0], 1000);
+                } else {
+                    ok.setText("完全重置");
+                    ok.setEnabled(true);
+                }
+            };
+            tick[0].run();
+        });
+        dialog.show();
+    }
+
+    private void factoryReset() {
+        // 酒馆有一部分状态在 WebView 的 localStorage / IndexedDB / Cookie 里，一并清掉。
+        WebStorage.getInstance().deleteAllData();
+        CookieManager.getInstance().removeAllCookies(null);
+        CookieManager.getInstance().flush();
+        web.clearCache(true);
+        web.clearHistory();
+        web.loadUrl("about:blank");
+        loadedUrl = null;
+        showLauncher = true;
+        advancedVisible = false;
+        show(advanced, false);
+        advancedChevron.setText("›");
+        send(TavernService.ACTION_FACTORY_RESET);
+        Toast.makeText(this, "正在完全重置，完成后会重新解压并启动", Toast.LENGTH_LONG).show();
+        render();
+    }
+
     private void installApk(File apk) {
         if (!getPackageManager().canRequestPackageInstalls()) {
             Toast.makeText(this, "请允许本应用安装更新，返回后再点一次「安装」", Toast.LENGTH_LONG).show();
@@ -929,6 +1150,10 @@ public final class MainActivity extends Activity {
 
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        if (requestCode == SAVE_RESCUE) {
+            if (resultCode == RESULT_OK && data != null && data.getData() != null) copyRescueTo(data.getData());
+            return;
+        }
         if (requestCode != PICK_FILES || fileCallback == null) return;
         Uri[] result = null;
         if (resultCode == RESULT_OK && data != null) {
@@ -983,6 +1208,7 @@ public final class MainActivity extends Activity {
     protected void onDestroy() {
         handler.removeCallbacks(poll);
         unregisterReceiver(installReceiver);
+        if (downloads != null) downloads.destroy();
         web.destroy();
         super.onDestroy();
     }

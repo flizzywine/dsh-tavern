@@ -618,6 +618,8 @@ const PC_CSS_TEXT = `
 .pc-step-btn:hover:not(:disabled) { background: var(--pc-fill-strong); }
 .pc-step-list li.is-done .pc-step-text { text-decoration: line-through; opacity: 0.56; }
 .pc-check { flex: none; color: var(--pc-ok); font-weight: 700; width: 14px; }
+.pc-step-body { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.pc-step-note { font-size: 11px; line-height: 1.45; opacity: 0.66; }
 .pc-phase-tag {
   flex: none;
   font-size: 10px;

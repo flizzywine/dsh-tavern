@@ -423,6 +423,9 @@ const server = createServer(async (req, res) => {
         }
         let input = settlementInput(sessionId), openingBefore, replayProse
         if (sessionId.startsWith('opening')) {
+          if (/^opening-(trusted|sandbox)$/.test(sessionId)) {
+            assert.equal(args.configReaderMode, '额外模型解析')
+          }
           assert.equal(s.chat.mvu.openingInitialization?.status, 'complete', 'opening must initialize before settlement')
           assert.ok(s.chat.messages[0].variables.every(v => v.stat_data !== undefined && v.schema !== undefined), 'all opening swipes need initial variables')
           if (sessionId.startsWith('opening-card')) {
@@ -502,6 +505,13 @@ const server = createServer(async (req, res) => {
       tavernRuntimePolicy: { trustedCardMode: !url.searchParams.has('sandbox') }, tavernHelperScripts: [],
       tavernHelperWorldbook: bookFor(id) ? projectTavernHelperWorldbook(bookFor(id).view) : null,
       tavernMvuRuntime: { owner: 'official', assetUrl: '/mvu.js?id=' + id } }
+    if (mode === 'opening') {
+      view.tavernHelper.extensionSettings = { mvu_settings: { 更新方式: '额外模型解析' } }
+      view.tavernHelperScripts.push({ id: 'mvu-config-reader', name: '配置助手探针', enabled: true, data: {}, content: `
+        globalThis.parent.postMessage({ type: 'mvu-smoke-config-mode',
+          mode: SillyTavern.extensionSettings.mvu_settings.更新方式 }, '*');
+      ` })
+    }
     if (id.startsWith('opening')) view.tavernHelperScripts.push({ id: 'opening-companion', name: '开场配套脚本', content: 'await updateVariablesWith(v=>({...v,enabled:true}),{type:"script"});', data: {}, enabled: true })
     if (mode === 'opening-slow') view.tavernHelperScripts.unshift({ id: 'slow-companion', name: '延迟测试', content: 'await new Promise(resolve=>setTimeout(resolve,20000));', data: {}, enabled: true })
     if (id.startsWith('opening-card')) {
@@ -563,10 +573,12 @@ const server = createServer(async (req, res) => {
         execution.sync(id,view);
       }
       window.addEventListener('message',event=>{if(event.data?.type==='mvu-smoke-trace'){document.querySelector('#trace').textContent=JSON.stringify(event.data.trace);void rpc('trace',{trace:event.data.trace});}});
+      let configReaderMode;
+      window.addEventListener('message',event=>{if(event.data?.type==='mvu-smoke-config-mode')configReaderMode=event.data.mode;});
       let ran=false;const timer=setInterval(async()=>{const s=await rpc('status');output.textContent=JSON.stringify(s,null,2);if(!ran&&(s.ready||s.initializationError||s.downloads>=3))document.querySelector('#run').disabled=false;},100);
       document.querySelector('#network').onclick=()=>rpc('recover');
       document.querySelector('#diagnostics').onclick=async()=>{try{document.querySelector('#logs').textContent=JSON.stringify(await rpc('diagnostics'),null,2);}catch(e){document.querySelector('#logs').textContent='FAIL: '+e.message;}};
-      document.querySelector('#run').onclick=async()=>{ran=true;document.querySelector('#run').disabled=true;try{await rpc('run');}catch(e){clearInterval(timer);output.textContent='FAIL: '+e.message;}};
+      document.querySelector('#run').onclick=async()=>{ran=true;document.querySelector('#run').disabled=true;try{await rpc('run',{configReaderMode});}catch(e){clearInterval(timer);output.textContent='FAIL: '+e.message;}};
       </script>`)
   } catch (error) { res.writeHead(500, { 'content-type': 'application/json' }).end(JSON.stringify({ error: error.message })) }
 })

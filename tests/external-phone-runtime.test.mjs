@@ -769,7 +769,7 @@ test('跨人物卡隔离：停放区手机仅归属原会话，切换到无手�
     sessionId: 'S-card-a',
     active: true,
     loadIconCss: () => Promise.resolve('/* icons */'),
-    MutationObserver: FakeMutationObserver,
+    MutationObserver: null,
     onChange: presenceA.change
   })
   assert.equal(dockAReopened.inspect().attached, true)
@@ -777,7 +777,10 @@ test('跨人物卡隔离：停放区手机仅归属原会话，切换到无手�
   assert.equal(phoneHost.style.height, '620px')
 
   dockB.dispose()
+  // Teardown can remove the phone before the dock observes its disconnection.
+  phoneHost.remove()
   dockAReopened.dispose()
+  assert.equal(phoneHost.isConnected, false, '卸载停靠栏时不能把已清理的手机重新放回页面')
   presenceA.dispose()
   presenceB.dispose()
 })

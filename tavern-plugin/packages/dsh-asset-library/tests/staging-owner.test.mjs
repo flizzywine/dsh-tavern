@@ -8,7 +8,8 @@ import { randomUUID } from 'node:crypto'
 import { mkdtemp, lstat, mkdir, writeFile, readdir, utimes, unlink, rmdir } from 'node:fs/promises'
 import { createPackStorage } from '../src/pack-v2/storage.js'
 import { verifyPackFiles } from '../src/asset-packs/index.js'
-import { syntheticPack, PACK_ID } from '../../../../tests/fixtures/asset-packs/pack.mjs'
+import { SpooledFile } from '../src/pack-v2/validation.js'
+import { syntheticPack, PACK_ID, FIGURE_ID } from '../../../../tests/fixtures/asset-packs/pack.mjs'
 
 const storageUrl = new URL('../src/pack-v2/storage.js', import.meta.url).href
 const limits = {entrySize:1e8, totalSize:1e9, entries:10000}
@@ -33,6 +34,15 @@ async function fixture(t) {
   t.after(() => removeTree(root))
   return root
 }
+test('publication reads a spooled figure document before writing it', async t => {
+  const assetRoot = await fixture(t), pack = await syntheticPack()
+  const name = `figures/${FIGURE_ID}.json`, bytes = pack.files.get(name)
+  const file = path.join(assetRoot, 'figure-spool')
+  await writeFile(file, bytes)
+  pack.files.set(name, new SpooledFile(bytes.length, file))
+  const storage = createPackStorage({assetRoot, limits})
+  await storage.run([PACK_ID], () => storage.publish(PACK_ID, pack, {revision:'test', retired:[]}))
+})
 for (const batch of [false, true]) test(`foreign recovery preserves active ${batch ? 'batch' : 'single'} publication before and after journal`, async t => {
   const assetRoot = await fixture(t), pack = await syntheticPack()
   const second = [...pack.files.keys()][1]

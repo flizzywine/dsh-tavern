@@ -22,8 +22,8 @@ export async function preparePilotAudio({source, target, bytes, signal, recordPr
   }
   return {probe,transcoded:!compatible,sampleRate:compatible ? probe.sampleRate : 44100,durationMs:durationMs(bytes)}
 }
-import { isFishCloud } from './fish-models.js'
-import { createFishAudioAdapter } from './fish-audio.js'
+import { isFishCloud, fishPricePerMillionBytes } from './fish-models.js'
+import { createFishAudioAdapter, fishSpend } from './fish-audio.js'
 
 export const maxAudioBytes = 8 * 1024 * 1024
 export function decodePilotAudio(value) {
@@ -34,7 +34,6 @@ export function decodePilotAudio(value) {
 }
 
 const priceSource = 'https://docs.fish.audio/developer-guide/models-pricing/pricing-and-rate-limits'
-const prices = { 's2.1-pro':15, 's2-pro':15, s1:15, 's2.1-pro-free':0, 'drama-3':50 }
 const units = 1000000000, cap = 500000000
 function keys(value, allowed) {
   if (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).some(k => !allowed.includes(k))) fail('INVALID_INPUT')
@@ -68,8 +67,8 @@ export function validatePilot(action, plan, now = Date.now(), enforceBudget = tr
   if (!['design','pilot'].includes(action) || !(plan.language === 'zh' || (local && plan.language === 'ja')) || (!local && (!Number.isFinite(plan.maxCostUsd) || plan.maxCostUsd <= 0 || plan.maxCostUsd > 0.5))) fail('INVALID_INPUT')
   let price = 0
   if (action === 'pilot' && !local) {
-    if (!Object.hasOwn(prices, plan.model)) fail('INVALID_INPUT')
-    price = plan.model === 'drama-3' && now < Date.parse('2026-12-01T08:00:00Z') ? 10 : prices[plan.model]
+    price = fishPricePerMillionBytes(plan.model, now)
+    if (!Number.isFinite(price)) fail('INVALID_INPUT')
   }
   const rows = action === 'design' ? plan.characters : plan.rows
   if (!Array.isArray(rows) || !rows.length || rows.length > 100) fail('INVALID_INPUT')
@@ -121,7 +120,7 @@ async function takePilotLock(lock) {
 }
 
 // Reservations survive crashes and lost replies. Only a known unbilled response releases one.
-export function createVoicePilot({fetch = globalThis.fetch, budgetRoot, now = Date.now} = {}) {
+export function createVoicePilot({fetch = globalThis.fetch, budgetRoot, now = Date.now, loadSpend = fishSpend} = {}) {
   return async function run(args, provider, resolveKey) {
     keys(args, ['action','serviceId','plan','dryRun','confirm'])
     if (typeof args.serviceId !== 'string' || args.serviceId !== provider.id || provider.kind !== 'fish-audio') fail('INVALID_PROVIDER')
@@ -132,6 +131,10 @@ export function createVoicePilot({fetch = globalThis.fetch, budgetRoot, now = Da
     if (!budgetRoot) fail('PILOT_STORAGE_UNAVAILABLE')
     for (const row of prepared.requests) if (row.references) row.referenceBytes = row.references.map(reference => decodePilotAudio(reference.audioBase64))
     const total = prepared.requests.reduce((n,r) => n + r.cost, 0)
+    const spend = total > 0 ? await loadSpend() : null
+    const guardedUsd = cost => Math.ceil(cost / 1000) / 1e6
+    const estimatedUsd = prepared.requests.reduce((sum, row) => sum + Math.ceil(row.cost / 1000), 0) / 1e6
+    const purpose = args.action === 'design' ? 'Fish 云端声音设计' : 'Fish 云端批量试读'
     const budgetFile = join(budgetRoot, 'voice-pilot-budget.json'), lock = join(budgetRoot, 'voice-pilot-budget.lock')
     async function loadBudget() {
       try { if ((await lstat(budgetFile)).isSymbolicLink()) fail('INVALID_OUTPUT_PATH'); const value = JSON.parse(await readFile(budgetFile, 'utf8')); if (!Number.isSafeInteger(value.reserved) || value.reserved < 0) fail('INVALID_BUDGET'); return value }
@@ -140,7 +143,8 @@ export function createVoicePilot({fetch = globalThis.fetch, budgetRoot, now = Da
     if (args.dryRun) {
       const budget = await loadBudget()
       if (budget.reserved + total > cap) fail('BUDGET_EXCEEDED')
-      return {dryRun:true, model:prepared.model, requests:prepared.requests.length, estimatedCostUsd:total / units, cumulativeReservedUsd:budget.reserved / units}
+      const preview = await spend?.check({category:'other', purpose, estimatedUsd, budget:args.plan.maxCostUsd, dryRun:true})
+      return {dryRun:true, model:prepared.model, requests:prepared.requests.length, estimatedCostUsd:total / units, cumulativeReservedUsd:budget.reserved / units, ...(preview ? {spend:preview} : {})}
     }
     const key = await resolveKey()
     if (!key) fail('CREDENTIALS_REQUIRED')
@@ -165,6 +169,12 @@ export function createVoicePilot({fetch = globalThis.fetch, budgetRoot, now = Da
         if (signal.aborted || now() >= deadline) { receipt.stopReason = 'deadline'; break }
         const entry = receipt.requests[position]
         const referenceBytes = row.referenceBytes
+        let reservation
+        try { reservation = await spend?.check({category:'other', purpose, estimatedUsd:guardedUsd(row.cost), batchId:receiptId, budget:args.plan.maxCostUsd}) }
+        catch (error) {
+          if (typeof error?.code !== 'string' || !error.code.startsWith('API_SPEND_')) throw error
+          receipt.stopReason = error.code; receipt.nextAction = error.message; break
+        }
         budget.reserved += row.cost
         Object.assign(entry, {at:new Date(now()).toISOString(), outcome:'unknown', unknownCostUsd:row.cost / units})
         await save()
@@ -190,7 +200,7 @@ export function createVoicePilot({fetch = globalThis.fetch, budgetRoot, now = Da
           } else {
             // a local pilot speaks with its server's default model; a cloud pilot with the planned one.
             const target = local ? {kind:'fish-audio',config:provider.config} : {kind:'fish-audio',config:{url:'https://api.fish.audio'}}
-            const audio = await createFishAudioAdapter({fetch:singleFetch}).synthesize(target, {key}, {text:row.text,textPrepared:true,references:row.references.map((r,i) => ({bytes:referenceBytes[i],promptText:r.text})),...(local ? {} : {params:{model:prepared.model}}), signal})
+            const audio = await createFishAudioAdapter({fetch:singleFetch, loadSpend:async () => null}).synthesize(target, {key}, {text:row.text,textPrepared:true,references:row.references.map((r,i) => ({bytes:referenceBytes[i],promptText:r.text})),...(local ? {} : {params:{model:prepared.model}}), signal})
             candidates = [{bytes:audio,index:0,durationMs:durationMs(audio),sampleRate:44100}]
           }
           for (const c of candidates) {
@@ -202,7 +212,10 @@ export function createVoicePilot({fetch = globalThis.fetch, budgetRoot, now = Da
           entry.outcome = 'success'; entry.estimatedCostUsd = row.cost / units; entry.unknownCostUsd = 0
         } catch (error) {
           if (error.code === 'AUDIO_TOO_LARGE') entry.nextAction = '缩短预览或试读文本；本次保留预算，不自动重试。'
-          if (knownError) { budget.reserved -= row.cost; entry.outcome = 'error'; entry.code = knownError; entry.estimatedCostUsd = 0; entry.unknownCostUsd = 0 }
+          if (knownError) {
+            if (reservation) await spend.release(reservation.id)
+            budget.reserved -= row.cost; entry.outcome = 'error'; entry.code = knownError; entry.estimatedCostUsd = 0; entry.unknownCostUsd = 0
+          }
           else entry.code = error.code === 'AUDIO_TOO_LARGE' ? 'AUDIO_TOO_LARGE' : 'OUTCOME_UNKNOWN'
         }
         await save()

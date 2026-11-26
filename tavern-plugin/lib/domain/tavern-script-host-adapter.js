@@ -3,7 +3,7 @@ import { applyRegexOverrides } from './regex-manager.js'
 import { templateStateFields } from './template-window-reader.js'
 import { createScopedMessages } from './scoped-messages.js'
 import { diffJson } from './json-mutation.js'
-import { commitChatFields, rebaseChatChanges, sameChatMessageIdentity } from './chat-field-transaction.js'
+import { commitChatFields, rebaseChatChanges, sameChatMessageIdentity, sameChatMessageStory } from './chat-field-transaction.js'
 import { applyOpeningVariables } from './opening-setup.js'
 import { createFullPromptTemplateSync } from './full-prompt-template-sync.js'
 import { createJsonValueProjectionCache } from './immutable-json-projection.js'
@@ -37,6 +37,19 @@ const TEMPLATE_PATCH_CONFLICT = Symbol('template patch conflict')
 
 function variableConflict() {
   return Object.assign(new Error('变量写入目标或字段已变化，请重新读取后重试'), { code: 'DSH_TAVERN_CHAT_CONFLICT' })
+}
+
+function messageConflict() {
+  return Object.assign(new Error('消息写入目标或字段已变化，请重新读取后重试'), { code: 'DSH_TAVERN_CHAT_CONFLICT' })
+}
+
+function helperMessageChanges(before, chat) {
+  const changes = diffJson(before.header, { macroState: chat.macroState, mvu: chat.mvu })
+  for (const [index, { displayRuntime: _beforeCapture, ...original }] of before.rows) {
+    const { displayRuntime: _afterCapture, ...current } = chat.messages[index]
+    for (const change of diffJson(original, current)) changes.push({ ...change, path: ['messages', index, ...change.path] })
+  }
+  return changes
 }
 
 function variableMutationFields(type) {
@@ -166,7 +179,7 @@ export function createTavernScriptHostAdapter(options = {}) {
   }
 
   async function updatePrompts(sessionId, operation, expectedLifecycleRevision, eventId) {
-    return serializeWorldbook('script-prompts:' + sessionId, async function () {
+    return serializeMutation('script-prompts:' + sessionId, async function () {
       const chat = await mutationChat(sessionId, eventId)
       await assertScriptEnabled(chat)
       if (!mutationIsCurrent(chat, expectedLifecycleRevision)) return staleMutation(chat)
@@ -196,7 +209,7 @@ export function createTavernScriptHostAdapter(options = {}) {
   }
 
   async function updateVariables(sessionId, option, variables, expectedLifecycleRevision, eventId, contextBaseline) {
-    return serializeWorldbook('variables:' + sessionId, () => updateVariablesNow(sessionId, option, variables, expectedLifecycleRevision, eventId, contextBaseline))
+    return serializeMutation('variables:' + sessionId, () => updateVariablesNow(sessionId, option, variables, expectedLifecycleRevision, eventId, contextBaseline))
   }
 
   async function variableMutationSlice(sessionId, option, expectedLifecycleRevision, eventId, baseline) {
@@ -247,7 +260,7 @@ export function createTavernScriptHostAdapter(options = {}) {
     if (option && option.type === 'character') {
       if (!options.characterVariables || typeof options.characterVariables.save !== 'function') throw new Error('人物卡变量存储未连接')
       if (settlement.has(sessionId)) throw new Error('MVU 结算事务不能修改跨对话的人物卡变量')
-      const saved = await serializeWorldbook('card-variables:' + str(chat.cardPath), function () {
+      const saved = await serializeMutation('card-variables:' + str(chat.cardPath), function () {
         return options.characterVariables.save(chat.cardPath, variables && typeof variables === 'object' && !Array.isArray(variables) ? variables : {}, str(sessionId))
       })
       return { updated: true, target: { type: 'character' }, characterVariables: structuredClone(saved) }
@@ -352,6 +365,18 @@ export function createTavernScriptHostAdapter(options = {}) {
     await assertScriptEnabled(chat)
     if (!mutationIsCurrent(chat, expectedLifecycleRevision)) return staleMutation(chat)
     const patches = await settlement.prepareMessages(sessionId, messages, eventId)
+    const canPatch = options.patchChat && Number.isSafeInteger(chat._storageRevision) && chat._storageRevision > 0
+      && !settlement.has(str(sessionId))
+    let before
+    if (canPatch) {
+      const rows = new Map()
+      for (const patch of Array.isArray(patches) ? patches : []) {
+        if (!patch || typeof patch !== 'object') continue
+        const index = normalizeMessageId(chat.messages || [], patch.message_id)
+        if (!rows.has(index)) rows.set(index, structuredClone(chat.messages[index]))
+      }
+      before = { rows, header: structuredClone({ macroState: chat.macroState, mvu: chat.mvu }) }
+    }
     const updated = replaceTavernHelperMessages(chat, patches, await replyProjection(chat))
     // (MVU's opening build writes the floor's swipes_data through here)
     for (const { messageId } of updated) if (layOpeningStartValues(chat, { type: 'message', messageId })) break
@@ -364,7 +389,11 @@ export function createTavernScriptHostAdapter(options = {}) {
     }
     const transactional = await transactionResult(sessionId, updated, true, eventId)
     if (transactional !== null) return transactional
-    try { await options.writeChat(chat, { source: 'tavern-helper.messages' }) }
+    let saved
+    try {
+      saved = before ? await saveHelperMessageChanges(sessionId, chat, before, eventId)
+        : await options.writeChat(chat, { source: 'tavern-helper.messages' })
+    }
     catch (error) {
       if (error && error.code === 'DSH_TAVERN_CHAT_CONFLICT') {
         const latest = await options.resolveChat(str(sessionId))
@@ -372,12 +401,84 @@ export function createTavernScriptHostAdapter(options = {}) {
       }
       throw error
     }
-    return { updated: true, targets: updated, context: await fullContext(chat) }
+    return { updated: true, targets: updated, context: await fullContext(saved || chat) }
+  }
+
+  async function saveHelperMessageChanges(sessionId, chat, before, eventId) {
+    const changes = helperMessageChanges(before, chat)
+    const resetCaptures = [...before.rows].filter(([index, original]) => {
+      const next = chat.messages[index]
+      return !sameChatMessageStory(original, next) || (original.displayRuntime !== undefined && next.displayRuntime === undefined)
+    }).map(([index]) => index)
+    const metadata = { source: 'tavern-helper.messages', assertCurrent() {
+      settlement.assertEvent(sessionId, eventId)
+      if (settlement.has(str(sessionId))) throw messageConflict()
+    } }
+    const captureDeletes = rowAt => resetCaptures.filter(index => {
+      const row = rowAt(index)
+      return row.displayRuntime !== undefined && sameChatMessageStory(before.rows.get(index), row)
+    })
+      .map(index => ({ op: 'delete', path: ['messages', index, 'displayRuntime'] }))
+    const receipt = await commitChatFields(options.patchChat, chat.id, metadata, async attempt => {
+      if (attempt === 0) return { revision: chat._storageRevision, changes: changes.concat(captureDeletes(index => before.rows.get(index))) }
+      const latest = await resolveChat(sessionId)
+      metadata.assertCurrent()
+      if (latest.id !== chat.id || latest.sessionId !== chat.sessionId || latest.cardPath !== chat.cardPath
+        || latest.cardContextRevision !== chat.cardContextRevision || latest.mode !== chat.mode
+        || latest.timeline?.branchId !== chat.timeline?.branchId
+        || !mutationIsCurrent(latest, chat.tavernHelperLifecycleRevision ?? 0)) throw messageConflict()
+      for (const [index, original] of before.rows) {
+        const current = latest.messages[index]
+        if (!sameChatMessageIdentity(original, current, index)
+          || (!sameChatMessageStory(original, current) && !sameChatMessageStory(chat.messages[index], current))) throw messageConflict()
+      }
+      const pending = rebaseChatChanges(changes, helperMessageChanges(before, latest))
+      if (!pending) throw messageConflict()
+      return { revision: latest._storageRevision, changes: pending.concat(captureDeletes(index => latest.messages[index])) }
+    })
+    if (!receipt) throw messageConflict()
+    if (receipt.rebased) return resolveChat(sessionId)
+    const { messages: _messages, ...header } = receipt.saved
+    return Object.assign(chat, header)
+  }
+
+  function assertCanCreateMessages(sessionId, eventId) {
+    settlement.assertEvent(sessionId, eventId)
+    if (settlement.has(str(sessionId))) throw new Error('MVU 结算事务不能创建额外聊天楼层')
+  }
+
+  async function saveCreatedMessages(chat, sessionId, messages, option, eventId) {
+    const assertCurrent = () => assertCanCreateMessages(sessionId, eventId)
+    const metadata = { source: 'tavern-helper.messages.create', assertCurrent }
+    const lifecycle = chat.tavernHelperLifecycleRevision ?? 0
+    if (options.updateChat) {
+      let targets
+      const saved = await options.updateChat(chat.id, current => {
+        assertCurrent()
+        if (current.sessionId !== chat.sessionId) throw new Error('聊天绑定已变化，消息未保存')
+        if (!mutationIsCurrent(current, lifecycle) || current.timeline?.branchId !== chat.timeline?.branchId) return
+        targets = appendTavernHelperMessages(current, messages, option)
+        return targets.length ? current : undefined
+      }, metadata)
+      if (!saved) throw new Error('聊天已不存在，消息未保存')
+      return targets ? { saved, targets } : staleMutation(saved)
+    }
+    assertCurrent()
+    const next = { ...chat, messages: [...(chat.messages || [])] }
+    const targets = appendTavernHelperMessages(next, messages, option)
+    if (!targets.length) return { saved: chat, targets }
+    try { return { saved: await options.writeChat(next, metadata) || next, targets } }
+    catch (error) {
+      if (error?.code === 'DSH_TAVERN_CHAT_CONFLICT') {
+        const latest = await options.resolveChat(str(sessionId))
+        if (latest && !mutationIsCurrent(latest, lifecycle)) return staleMutation(latest)
+      }
+      throw error
+    }
   }
 
   async function createMessages(sessionId, messages, option, expectedLifecycleRevision, eventId, completion = {}) {
-    settlement.assertEvent(sessionId, eventId)
-    if (settlement.has(sessionId)) throw new Error('MVU 结算事务不能创建额外聊天楼层')
+    assertCanCreateMessages(sessionId, eventId)
     const chat = await resolveChat(sessionId)
     await assertScriptEnabled(chat)
     if (!mutationIsCurrent(chat, expectedLifecycleRevision)) return staleMutation(chat)
@@ -389,29 +490,26 @@ export function createTavernScriptHostAdapter(options = {}) {
     if (key) messageCreations.set(key, attempt)
     attempt.pending = (async () => {
       let saved = chat
-      if (!attempt.targets) {
-        const next = { ...chat, messages: [...(chat.messages || [])] }
-        const targets = appendTavernHelperMessages(next, messages, option)
-        if (targets.length) {
-          try { saved = await options.writeChat(next, { source: 'tavern-helper.messages.create' }) || next }
-          catch (error) {
-            if (error?.code === 'DSH_TAVERN_CHAT_CONFLICT') {
-              const latest = await options.resolveChat(str(sessionId))
-              if (latest !== undefined && !mutationIsCurrent(latest, expectedLifecycleRevision)) return staleMutation(latest)
-            }
-            throw error
-          }
-        }
-        attempt.targets = targets
-        attempt.userMessageIds = targets.map(target => target.messageId)
-          .filter(id => saved.messages[id]?.tavernRole === 'user')
-      }
-      const result = { updated: attempt.targets.length > 0, targets: attempt.targets, userMessageIds: attempt.userMessageIds }
+      let result
       try {
-        if (!attempt.published && result.updated) {
-          await options.publishCreatedMessages?.(saved, result.targets)
-          attempt.published = true
-        }
+        // Keep each append and its publication together. MESSAGE_SENT callbacks
+        // stay outside the queue so they can append another Helper message.
+        await serializeMutation('script-message-create:' + sessionId, async () => {
+          if (!attempt.targets) {
+            const appended = await saveCreatedMessages(chat, sessionId, messages, option, eventId)
+            if (appended.stale) { result = appended; return }
+            saved = appended.saved
+            attempt.targets = appended.targets
+            attempt.userMessageIds = attempt.targets.map(target => target.messageId)
+              .filter(id => saved.messages[id]?.tavernRole === 'user')
+          }
+          result = { updated: attempt.targets.length > 0, targets: attempt.targets, userMessageIds: attempt.userMessageIds }
+          if (!attempt.published && result.updated) {
+            await options.publishCreatedMessages?.(saved, result.targets)
+            attempt.published = true
+          }
+        })
+        if (result.stale) return result
         if (completion.dispatch === true && saved.mvu?.enabled === true && saved.mvu.owner === 'official') {
           while (attempt.nextEvent < result.userMessageIds.length) {
             saved = await resolveChat(sessionId)
@@ -424,6 +522,7 @@ export function createTavernScriptHostAdapter(options = {}) {
           if (result.userMessageIds.length) saved = await resolveChat(sessionId)
         }
       } catch (error) {
+        if (!result) throw error
         return { ...result, completionError: '消息已保存，发送事件未完成：' + str(error?.message || error) }
       }
       return { ...result, context: await fullContext(saved) }
@@ -465,8 +564,8 @@ export function createTavernScriptHostAdapter(options = {}) {
     return { chat, record, transaction, sessionId }
   }
 
-  async function serializeWorldbook(cardPath, work) {
-    const key = str(cardPath)
+  async function serializeMutation(scope, work) {
+    const key = str(scope)
     const previous = mutationTails.get(key) || Promise.resolve()
     const current = previous.catch(function () {}).then(work)
     mutationTails.set(key, current)
@@ -490,7 +589,7 @@ export function createTavernScriptHostAdapter(options = {}) {
 
   async function writeWorldbook(sessionId, name, template, requestedFrom) {
     const initial = await worldbookRecord(sessionId, name, template)
-    return await serializeWorldbook(worldbookKey(initial.record), async function () {
+    return await serializeMutation(worldbookKey(initial.record), async function () {
       const resolved = await worldbookRecord(sessionId, name, template)
       if (worldbookKey(resolved.record) !== worldbookKey(initial.record)) throw new Error('世界书绑定已变化，请重新读取后重试')
       const before = projectTavernHelperWorldbook(resolved.record.view).entries
@@ -598,7 +697,7 @@ export function createTavernScriptHostAdapter(options = {}) {
   async function saveWorldInfo(sessionId, name, worldInfo, expectedWorldInfo) {
     if (!expectedWorldInfo) throw new Error('保存前请先读取世界书')
     const initial = await worldbookRecord(sessionId, name)
-    return await serializeWorldbook(worldbookKey(initial.record), async function () {
+    return await serializeMutation(worldbookKey(initial.record), async function () {
       const resolved = await worldbookRecord(sessionId, name)
       if (worldbookKey(resolved.record) !== worldbookKey(initial.record)) throw new Error('世界书绑定已变化，请重新读取后重试')
       const current = await exportBoundWorldbook(resolved.record)

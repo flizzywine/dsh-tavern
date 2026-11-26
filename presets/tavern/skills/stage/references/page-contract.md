@@ -8,7 +8,7 @@
 [
   { "id": "title", "label": "标题", "showOn": { "event": "stage-enter" }, "size": "full", "html": "…" },
   { "id": "status", "label": "状态", "shortcut": "s", "menu": true,
-    "ledger": ["items"], "figures": [{ "name": "林小雨", "emotion": "平静" }], "html": "…" }
+    "ledger": ["items"], "figures": [{ "name": "辉夜", "emotion": "平静" }], "html": "…" }
 ]
 ```
 
@@ -23,7 +23,7 @@
 | `showOn` | 否 | 只能是 `{"event": "stage-enter"}`：进入舞台时打开，见「入口」。 |
 | `initial` | 否 | 只能是 `true`，且必须同时有 `showOn`：只在新聊天里出现的开场页。 |
 | `opening` | 否 | 只能是 `true`，需要 `size:"full"`、不能有 `showOn`，一张卡最多一页，且本卡要有 v2 开局设置（`openingSetup`）：本卡的**开局页**。玩家开新游戏时舞台直接打开这一页，不再出现通用的「游戏准备」；页面用 `opening()` 读开场白、用 `startGame(choice)` 开局，见「开局页」。 |
-| `size` | 否 | `window`（默认，舞台中央最大 1080×860 的窗口，带标题栏）或 `full`（铺满整个舞台，没有标题栏，只在右上角浮一个关闭按钮；内容自己适配视口；页面开着时舞台停住不再重画，透出来的是它最后一帧）。手机宽度下两者都铺满。 |
+| `size` | 否 | `window`（默认，舞台中央最大 1080×860 的窗口，带标题栏）或 `full`（铺满整个舞台，没有标题栏，只在右上角浮一个关闭按钮；内容自己适配视口）。手机宽度下两者都铺满。 |
 | `closeControl` | 否 | 只能是 `"page"`，且需要 `size:"full"`：页面自己负责关闭和返回。页面显示出来后舞台不画关闭按钮；Esc、本页快捷键、右键交给页面的 `onCloseRequest`，页面决定是先返回自己的上一层（比如从详情回到地图）还是 `close()`。没有登记 `onCloseRequest` 时照常关闭；页面读取中、读取失败时舞台仍画关闭按钮。页面要自己画一个关闭按钮。 |
 | `ledger` | 否 | 要读的台账分区名，最多 8 个、不重复：`location`、`locationPath`、`items`、`npcs`、`scenes`、`itemLog`、`updatedTurn`。 |
 | `figures` | 否 | 要显示头像的人物，最多 8 个、名字不重复：`name` 是本卡人物名（最多 40 字）；写 `{{user}}` 就是这个聊天里玩家的名字，用来显示玩家自己的头像；`emotion` 是可选的表情名（最多 24 字）。 |
@@ -46,11 +46,15 @@
 
 本卡有开局页（`opening:true`）时还有一条：聊天还没开局（新游戏开出的空档）、上面也没有打开任何页（没有标题页，或「跳过标题页」开着）时，打开开局页。
 
-所以 `initial` 页就是新游戏的开场演出：每开一局新游戏（从人物卡开始游戏、标题页的 `newGame()` 另开一局），第一次进入舞台先打开它，玩家在里面看完（看片、签收、读手册），页面调 `continueGame()` 进入第一幕。它也能同时 `menu:true`，游戏中从 Esc 菜单再打开；这时 `saved` 为 true，页面据此显示「重看」的样子。
+本卡有 `initial` 页、没有开局设置（`openingSetup`）和开局页、只有一段开场白时，通用的「游戏准备」没有可填的东西，开始游戏就不再打开它：宿主直接用这段开场白开一局，舞台开着时进入舞台（于是先打开 `initial` 页），舞台关着时在文字模式里打开这一局。称呼、入职登记这类开局信息由 `initial` 页自己收集，写进开场楼层的变量（`replaceVariables(…, {type:'message', message_id:0})`），需要时用 `setChatMessages` 换掉开场白正文。
 
 聊天有了玩家消息之后，`initial` 页不会再被自动打开。校验不限制 showOn 页的数量，排在后面的匹配页不会自动出现，但仍可以用快捷键、菜单或 `open(id)` 打开。
 
 页面开着时舞台暂停输入和自动/快进。关闭方式：关闭按钮、Esc、本页快捷键，或脚本调 `close()`（`closeControl:"page"` 的页面由页面自己处理，见上表）。进入舞台时打开的 showOn 页不同：关闭就是不进入，回到文字模式（同「返回主页面」）；进入舞台用 `continueGame()` 或 `fillInput(text)`；它用 `open(id)` 换到的页也还在进入之前。
+
+## 开场白读完后转场
+
+在卡的 `data.extensions.dsh_tavern_opening_end_page` 写入目标页面的 `id`，例如 `"interaction"`。目标须声明在 `data.extensions.dsh_tavern.pages` 中，并使用常规舞台页。玩家翻过当前开场白的最后一句时，舞台打开这一页。手动翻页、自动播放和快进共用这个入口。可以同时给该页设置 `menu:true`，让玩家从舞台菜单再次打开，也方便使用旧版 Tavern 的玩家进入。
 
 ## 写入
 
@@ -89,7 +93,7 @@ tavern_update_card({ rawOperations: [
 | 接口 | 作用 |
 | --- | --- |
 | `page` | 本页 id。 |
-| `data()` | 当前快照（副本）：`{ledger, figures, theme, card: {name}, saved, entry}`。 |
+| `data()` | 当前快照（副本）：`{ledger, figures, theme, card: {name}, saved, entry}`；本页正在舞台上演出时还有 `perform`，见「页面演出」。 |
 | `onData(fn)` | 推送新快照时调用 `fn(snapshot)`，返回取消订阅的函数。 |
 | `onCloseRequest(fn)` | 只用于 `closeControl:"page"` 的页面：玩家按 Esc、本页快捷键或右键时调用 `fn()`，页面先关自己的详情等，已在最上层时调 `close()`；返回取消订阅的函数。本页上面开着 CONFIG、回想或履历时 Esc 先关它们，不调用 `fn`。 |
 | `close()` | 关闭本页；进入舞台时打开的 showOn 页是返回主页面。 |
@@ -102,15 +106,25 @@ tavern_update_card({ rawOperations: [
 | `asset({kind:'figures', id, variant, file})` | `id` 是已启用人物的 ID 或准确名称，`variant` 是服装键；`file` 省略或传 `'avatar'` 取头像，`'sprite'` 取默认差分立绘，传差分 ID 取对应立绘。没有静态立绘时尝试头像，不加载 Live2D/Spine 运行时。 |
 | `opening(userName)` | 只用于开局页：本卡的开局，返回 `Promise<{userName, setup, openings}>`。`userName` 是名字框里的名字（空时用玩家默认名，返回的 `userName` 就是它）；`setup` 是本卡的 v2 开局设置（字段、消息）；`openings` 是每段开场白 `{id, text, state?, scene?}`：`text` 是按这个名字投影好的正文，`state` 是它 `<initvar>` 里的起点变量，`scene` 是作者给它配的画面 `{title?, background?, music?, timeOfDay?}`（素材 id，名称用 `assets(kind)` 查）。 |
 | `startGame(choice)` | 只用于开局页：开局。`choice` 是 `{openingId, values, withoutGreeting?}`：`openingId` 是 `openings` 里的一段，`values` 是开局设置字段的值（键是字段的 `key`，和「游戏准备」表单交的一样），`withoutGreeting:true` 时不用这段开场白，由 AI 按开局消息写第一幕。宿主用和「游戏准备」同一份开局设置结算（字段校验、变量路由、开局消息），开出的一局取代这个没玩过的空档，舞台从第一幕开始；值不合格时 Promise 拒绝，报错写明哪个字段，页面显示给玩家。 |
-| `newGame()` | 本卡有开局页时打开开局页（本局已存档时先确认、另开一局，舞台直接进那一局的开局页）。其余：本局还没存档（`saved` 不为 true，玩家还没说过话）时，这一局就是新游戏，不另开一局：本卡有开局设置（`openingSetup`）时离开舞台、打开「游戏准备」，在那里开始的一局取代这个没玩过的空档；没有开局设置时和 `continueGame()` 一样关闭本页、从开场进入舞台。本局已存档时先弹确认框，确认后离开舞台、打开本卡的「游戏准备」开一局新的（与人物卡列表的开始游戏相同，旧的一局留在游玩记录里）；玩家取消时得到 `{started: false}`，页面保持打开。 |
+| `newGame()` | 本卡有开局页时打开开局页（本局已存档时先确认、另开一局，舞台直接进那一局的开局页）。其余：本局还没存档（`saved` 不为 true，玩家还没说过话）时，这一局就是新游戏，不另开一局：本卡有开局设置（`openingSetup`）时离开舞台、打开「游戏准备」，在那里开始的一局取代这个没玩过的空档；没有开局设置时和 `continueGame()` 一样关闭本页、从开场进入舞台。本局已存档时先弹确认框，确认后与人物卡列表的开始游戏相同地开一局新的（离开舞台、打开本卡的「游戏准备」；没有可填内容的卡见「入口」，直接开局并进入舞台；旧的一局留在游玩记录里）；玩家取消时得到 `{started: false}`，页面保持打开。 |
 | `continueGame()` | 关闭本页，从当前读到的那一句继续（showOn 页由此进入舞台）。 |
 | `openGallery()` | 在本页上面打开「回想」，关掉回想回到本页。 |
 | `openBacklog()` | 在本页上面打开「履历」，关掉履历回到本页；在履历里点某一句就关闭本页，从那一句进入舞台。 |
 | `exit()` | 返回主页面（与舞台菜单的「返回主页面」相同）。 |
 | `sound(name)` | 播放界面音效，`name` 是 `move`（移动、悬停）、`confirm`（确定）、`open`、`close` 之一；皮肤自带这个音效就用皮肤的，没有就用舞台内置的同名音效；跟随界面音量和静音。 |
-| `sound({kind: 'sfx', id})` | 播放本卡素材包里的一个音效（`assets('sfx')` 列出的 id，比如签收时的盖章声），返回 `Promise<{played: true}>`。由舞台的音效播放器放：跟随音效音量和静音，DSH Tavern 不在前台时不放。不在本卡绑定包里时 Promise 拒绝。卡要用的音效放进卡自己的素材包。 |
-| `toast(text, {type, tag})` | 在舞台上浮起一条短提示，返回 `Promise<{shown: true}>`，见「浮起提示」。 |
-| `store.get(scope, key)` / `store.set(scope, key, value)` | 页面自己的小存储，`scope` 是 `'save'`（这一局）或 `'card'`（这张卡），见「页面小存储」。 |
+| `sound({kind: 'sfx', id})` | 播放本卡素材包里的一个音效，跟随舞台音效音量与静音。声音不在本卡绑定包里时，Promise 拒绝。 |
+| `toast(text, {type, tag})` | 在舞台上浮起一条短提示，返回 `Promise<{shown: true}>`。见「浮起提示」。 |
+| `store.get(scope, key)` / `store.set(scope, key, value)` | 页面自己的小存储，见「页面小存储」。 |
+
+### 页面演出
+
+卡的规则（AI检定模组的 `dsh.rules`）给一个不掷骰的动作写 `page: "页面 id"` 时，这个动作在正文里提交、读者读到那里，舞台就请这一页在舞台中央把它演一遍，代替文本框上方那张变化卡（例：三角机构「花时间」由档案页演格子被标上、被划掉）。演出时：
+
+- 页面没有窗口、标题和遮罩，铺在对白框上方的那块地方，背景透明，不接收指针；画面自己居中、放不下就缩小。
+- `data().perform` 是 `{cue, calm}`：`cue` 是 `{action, label, steps: [{params, changes}]}`，一起到的几次同一动作是几步（连花两点是两步），`changes` 是玩家能看的每项变化 `{path, label, from?, to?}`（保密和内部变量不在里面）；`calm` 是舞台 CONFIG 的「减少动态」，为 true 时直接显示结果、不做动画。
+- 页面画出相关的那一块，从 `from` 演到 `to`，演完自己淡出并调用 `close()`。玩家点一下舞台或按 Esc 提前结束。演出中只能用 `data`、`onData`、`asset`、`assets`、`sound` 和 `close`，其余方法拒绝。
+- 页面读不出来、本卡没有这一页时，舞台照旧显示那张变化卡。重新载入、翻历史不演，舞台上也不再出那张卡（状态页本身就显示结果）。
+- 同一份 HTML 平时是状态页：脚本开头先看 `DshCardPage.data().perform`，有就只演这一块，不渲染整页。
 
 每个动作都返回 Promise。页面开着时它会兑现或拒绝，点按钮时先禁用按钮、等 Promise 结束后再启用即可；页面被关掉时还没结束的 Promise 可能不再结束，不要靠它做收尾。
 
@@ -134,38 +148,11 @@ tavern_update_card({ rawOperations: [
 
 ### 浮起提示
 
-`toast(text, options)` 给玩家一句短的反馈（「申领单已填入输入框」「嘉奖不足：还差 2 次」），几秒后自己消失。它画在舞台上、不在页面里：盖在页面之上，页面关掉后也还在，所以和 `fillInput(text)` 一起用时先后都行。
-
-- `text`：1–120 字。
-- `options.type`：`info`（默认）、`success`（带 ✓）、`warning`、`error`（带 ⚠，读屏立即朗读）。
-- `options.tag`：最多 40 字。同一个 `tag` 的新提示原地替换旧的，不叠一串（连点同一类按钮时用同一个 `tag`）。没有 `tag` 时，文字和类型都相同的提示也只显示一条。
-- 同时最多 3 条，再来一条就挤走最早的。显示时长按字数自动定（3–8 秒，警告和错误多 1 秒），鼠标移上去时暂停，点一下关掉。
-- 位置和样式跟当前舞台皮肤走（皮肤的 `toast` 字段），默认从画面中央略偏上浮起；页面不管样式。
-- 参数不对时 Promise 拒绝，报错写明哪里不对。文字模式的卡片 HTML 和旧宿主没有这个方法：先判断 `typeof window.DshCardPage?.toast === 'function'`，没有就在页面里写一行提示。
-
-```js
-const page = window.DshCardPage
-function tell(text, type) {
-  if (typeof page?.toast === 'function') return page.toast(text, { type, tag: 'requisition' })
-  document.getElementById('notice').textContent = text
-}
-```
+`toast(text, {type, tag})` 在舞台上显示 1–120 字的反馈。`type` 可选 `info`（默认）、`success`、`warning`、`error`；`tag` 最多 40 字，相同的 `tag` 会替换旧提示。舞台最多同时显示 3 条，提示会自动消失，鼠标移上时暂停，也可以点击关闭。位置和样式由舞台皮肤设置，页面关闭后提示仍可读。
 
 ### 页面小存储
 
-`store` 给页面记几个自己的小值（玩家填的名字、上次选的标签页），下次打开还在。只存在这台机器上（和舞台记每局 BGM 选择一样），不进存档文件、不跟卡导出。
-
-- `store.get(scope, key)` 返回 `Promise<值>`，没有时是 `null`；`store.set(scope, key, value)` 返回 `Promise<{saved: true}>`，`value` 为 `null` 时删掉这个键。
-- `scope`：`'save'` 跟着这一局（每局各一份，新游戏是新的一份）；`'card'` 跟着这张卡，它的所有游戏和所有页面共用。
-- `key`：字母、数字、`_ . -`，最多 64 个字符。`value`：能写成 JSON，最多 4 KiB。每个范围最多 32 个键。
-- 不合格时 Promise 拒绝，报错写明哪里不对。旧宿主没有这个方法：先判断 `typeof window.DshCardPage?.store?.get === 'function'`。
-
-```js
-// 登录框的 ID：这一局记过就用它，否则用这张卡上次亲手改过的，再没有就随机
-const store = window.DshCardPage.store
-const id = await store.get('save', 'agentId') || await store.get('card', 'agentId') || String(1000000 + Math.floor(Math.random() * 9000000))
-await store.set('save', 'agentId', id)
-```
+`store.get(scope, key)` 读取已保存的值，没有时返回 `null`。`store.set(scope, key, value)` 写入 JSON 值，传 `null` 删除。`scope` 是 `'save'`（这一局）或 `'card'`（同一张卡的所有局）；`key` 最多 64 字符，只用字母、数字和 `_ . -`。每个范围最多 32 个键，每个值最多 4 KiB。数据只留本机，不随存档或卡导出。
 
 进入舞台时打开的 showOn 页（标题页、开场页）开着时，舞台的这一句（打字、配音、自动播放）停在原处，进入舞台后才从当前这一句开始。读到一半用快捷键或菜单打开的页面不停：正在播的配音照常播完。BGM 和环境音不受影响。
 
@@ -174,12 +161,12 @@ await store.set('save', 'agentId', id)
 ```js
 {
   ledger: { items: [{ name: '钥匙', qty: 1, carried: true }] },
-  figures: [{ name: '林小雨', emotion: '平静', avatar: 'data:image/webp;base64,…' }],
+  figures: [{ name: '辉夜', emotion: '平静', avatar: 'data:image/webp;base64,…' }],
   theme: { accent: '#c79060', accentText: '#171717', surface: '#242321', surfaceText: '#faf7f2',
            muted: '#c6c0b8', border: '#70685f', radius: 12, fontFamily: '…', headingFont: '…' },
   saved: true,
   entry: false,
-  card: { name: '雨巷咖啡馆' }
+  card: { name: '辉夜大小姐' }
 }
 ```
 
@@ -227,4 +214,4 @@ function applyTheme(t) {
 - **键盘**：页面拿到焦点后，方向键和 Enter 由页面自己处理；按钮用真正的 `<button>`，能用 Tab 走到。
 - **减少动态**：`@media (prefers-reduced-motion: reduce)` 下不播视频、不做位移动画，用封面静图。
 - **视频背景**：先用 `<img>` 放封面（`asset({kind, id, file: 'poster'})`），视频 `muted loop playsinline`，`playing` 之后再淡入；手机用 720p 条目。
-- **声音**：音乐和配音归舞台管，页面里的视频静音、不放 BGM；按钮音效用 `sound()` 或 `data-dsh-sound`；页面里的动作音（盖章、翻页之外的一下）用 `sound({kind: 'sfx', id})` 放本卡的音效，不自己 `new Audio()`（那样不跟随玩家的音量和静音）。
+- **声音**：音乐和配音归舞台管，页面里的视频静音、不放 BGM；按钮音效用 `sound()` 或 `data-dsh-sound`，盖章等动作音用 `sound({kind: 'sfx', id})`。

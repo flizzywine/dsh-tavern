@@ -19,12 +19,15 @@ import android.os.IBinder;
 import android.os.PowerManager;
 import android.system.Os;
 
+import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.io.BufferedInputStream;
+import java.io.BufferedOutputStream;
 import java.io.BufferedReader;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.FilterInputStream;
 import java.io.IOException;
@@ -50,6 +53,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.zip.GZIPInputStream;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipOutputStream;
 
 /**
  * 前台服务：首次运行把 assets/payload.bin 解到 files/t，用 nativeLibraryDir 里的 libnode.so（Termux 编译的
@@ -59,9 +64,10 @@ import java.util.zip.GZIPInputStream;
 public final class TavernService extends Service {
     static final int PORT = 3081;
     static final String ACTION_START = "start", ACTION_STOP = "stop", ACTION_RESTART = "restart", ACTION_EXIT = "exit",
-            ACTION_RESET = "reset", ACTION_CHECK = "check", ACTION_SOURCE_UPDATE = "source-update",
+            ACTION_CHECK = "check", ACTION_SOURCE_UPDATE = "source-update",
             ACTION_DOWNLOAD_APK = "download-apk", ACTION_PREFS = "prefs", ACTION_APK_CHECK = "apk-check",
-            ACTION_LAN_SYNC = "lan-sync";
+            ACTION_LAN_SYNC = "lan-sync", ACTION_FACTORY_RESET = "factory-reset", ACTION_REPAIR = "repair",
+            ACTION_RESCUE_EXPORT = "rescue-export";
     static final String PREFS = "launcher";
     // 新版安装包的发布信息：先读 GitHub raw（不滞后），失败再读 jsDelivr。与酒馆 Release 解耦，发新酒馆版本不影响它。
     static final String[] APK_FEEDS = {
@@ -74,6 +80,7 @@ public final class TavernService extends Service {
     // 参数名拆开写：避免被日志脱敏误伤。
     private static final Pattern URL = Pattern.compile("dsh web: (http://127\\.0\\.0\\.1:\\d+/\\?" + "tok" + "en=\\S+)");
     private static final Pattern TOOL_STATUS = Pattern.compile("^DSH_STATUS (.*)$");
+    private static final Pattern TOOL_PROGRESS = Pattern.compile("^DSH_PROGRESS (\\d+)$");
 
     // ---- 给界面看的状态 ----
     static volatile String phase = "idle"; // idle preparing starting running stopping stopped updating failed
@@ -96,6 +103,17 @@ public final class TavernService extends Service {
     // 启动页自动检查到的新版安装包：需要弹窗提示时非空（已排除用户跳过的版本）。
     static volatile JSONObject apkNotice;
     static volatile boolean apkForced; // 当前版本低于 minVersionCode：不能跳过
+    // 修复酒馆：完成后给界面弹窗的结果（repairReportAt 变化时弹一次）
+    static volatile String repairReport;
+    static volatile long repairReportAt;
+    static volatile boolean repairOk;
+    // 救援存档：同上，rescueReportAt 变化时弹一次；产物路径见 rescueFile / rescueFileName
+    static volatile String rescueReport;
+    static volatile long rescueReportAt;
+    static volatile boolean rescueOk;
+    static volatile String rescueFile;
+    static volatile String rescueFileName;
+    static volatile boolean rescueIsRaw;
     private static final ArrayDeque<String> tail = new ArrayDeque<>();
 
     private final ExecutorService ops = Executors.newSingleThreadExecutor();
@@ -219,12 +237,35 @@ public final class TavernService extends Service {
                     stopForeground(STOP_FOREGROUND_REMOVE);
                     stopSelf();
                     break;
-                case ACTION_RESET:
+                case ACTION_REPAIR:
                     wantRunning = true;
                     stopServer();
-                    ensurePayload(true);
+                    repair();
+                    break;
+                case ACTION_FACTORY_RESET:
+                    wantRunning = true;
+                    stopServer();
+                    factoryReset();
                     startServer();
                     break;
+                case ACTION_RESCUE_EXPORT: {
+                    // 导出时不能有人在写存档：先停掉酒馆，导完恢复原来的状态（在运行就重新启动）。
+                    boolean resume = process != null;
+                    String prevPhase = phase, prevStatus = status, prevError = error;
+                    stopServer();
+                    error = null;
+                    rescueExport();
+                    if (resume) {
+                        wantRunning = true;
+                        startServer();
+                    } else {
+                        wantRunning = false;
+                        error = prevError;
+                        if ("failed".equals(prevPhase)) setPhase("failed", prevStatus);
+                        else setPhase("stopped", "已停止");
+                    }
+                    break;
+                }
                 case ACTION_CHECK:
                     checkUpdates();
                     break;
@@ -403,6 +444,328 @@ public final class TavernService extends Service {
         log((upgrade ? "程序文件已更新" : "解压完成") + "：写入 " + extractor.written + " 个，保留已有文件 " + extractor.kept
                 + " 个" + (keepSource ? "（保留热更新过的源码）" : "") + "，用时 " + (System.currentTimeMillis() - started) / 1000 + " 秒");
         progress = -1;
+    }
+
+    /**
+     * 修复酒馆：从轻到重，只移动不删除用户文件。
+     * 1. 清掉更新中途留下的中间产物；2. 数据体检（{@link DataRepair}），坏文件进 files/t/quarantine/&lt;时间&gt;；
+     * 3. 重新解出程序文件（撤销应用内更新），顺带补回缺失的自带文件；4. 启动并等服务就绪。
+     * 结果写进 repairReport 给界面弹窗，完整报告在 files/logs/repair.log。
+     */
+    private void repair() throws Exception {
+        long started = System.currentTimeMillis();
+        List<String> report = new ArrayList<>();
+        setPhase("preparing", "正在修复：清理更新留下的中间产物");
+        progress = -1;
+        for (String leftover : new String[]{"src.next", "update-backup", "pnpm-store"}) {
+            File f = new File(root, leftover);
+            if (f.exists()) {
+                deleteTree(f);
+                report.add("清掉中间产物 " + leftover);
+            }
+        }
+        DataRepair data = null;
+        if (new File(root, "home").isDirectory()) {
+            setPhase("preparing", "正在修复：检查存档和设置文件");
+            String stamp = new java.text.SimpleDateFormat("yyyyMMdd-HHmmss", Locale.ROOT).format(new java.util.Date());
+            data = new DataRepair(root, new File(root, "quarantine/" + stamp));
+            data.run();
+            report.addAll(data.notes);
+        }
+        status = "正在修复：重新解出程序文件";
+        ensurePayload(true);
+        report.add("已重新解出程序文件（应用内更新已撤销，可再检查更新）");
+        autoRestarts = 0;
+        synchronized (crashes) {
+            crashes.clear();
+        }
+        startServer();
+        boolean ok = waitRunning(180_000);
+
+        StringBuilder summary = new StringBuilder();
+        if (data != null) {
+            summary.append("检查了 ").append(data.checked).append(" 个数据文件");
+            if (data.restored + data.quarantined + data.trimmed + data.leftovers == 0) summary.append("，没有发现损坏。");
+            else {
+                summary.append("：");
+                List<String> parts = new ArrayList<>();
+                if (data.restored > 0) parts.add("用备份恢复 " + data.restored + " 个");
+                if (data.trimmed > 0) parts.add("修好 " + data.trimmed + " 个写到一半的记录");
+                if (data.quarantined > 0) parts.add("移走 " + data.quarantined + " 个损坏文件");
+                if (data.leftovers > 0) parts.add("清掉 " + data.leftovers + " 个临时文件");
+                summary.append(String.join("，", parts)).append("。");
+            }
+            if (data.unresolved > 0) summary.append("\n有 ").append(data.unresolved).append(" 处没能自动处理，详见日志。");
+            if (data.changed()) summary.append("\n移走的原文件保存在 ").append(data.quarantineRelative()).append("。");
+            if (data.credentialsReset) summary.append("\n模型与 API key 设置文件已损坏并重置，请重新填写。");
+        }
+        summary.append(summary.length() > 0 ? "\n" : "").append("程序文件已重新解出。");
+        summary.append(ok ? "\n\n酒馆已正常启动。" : "\n\n酒馆仍然无法启动。可以先「救援存档」把存档导出来，再「分享日志」反馈问题；确认无法挽救时再用「完全重置」。");
+        repairOk = ok;
+        repairReport = summary.toString();
+        repairReportAt = System.currentTimeMillis();
+
+        File logs = new File(getFilesDir(), "logs");
+        logs.mkdirs();
+        StringBuilder full = new StringBuilder("修复于 ")
+                .append(new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.ROOT).format(new java.util.Date(started)))
+                .append("，用时 ").append((System.currentTimeMillis() - started) / 1000).append(" 秒，")
+                .append(ok ? "服务已就绪" : "服务未能启动").append('\n');
+        for (String line : report) full.append("- ").append(line).append('\n');
+        Files.write(new File(logs, "repair.log").toPath(), full.toString().getBytes(StandardCharsets.UTF_8));
+        for (String line : report) log("修复：" + line);
+        log("修复完成：" + (ok ? "服务已就绪" : "服务未能启动") + "，报告在 logs/repair.log");
+        if (!ok && process == null && error == null) {
+            error = "修复后酒馆仍无法启动";
+            setPhase("failed", "修复后仍无法启动");
+        }
+    }
+
+    /**
+     * 完全重置：删掉整个数据目录（程序文件和全部用户数据），之后按首次启动重新解压。
+     * 保留 files/logs（排查用）和启动页设置；WebView 里的数据由界面清掉。
+     */
+    private void factoryReset() throws Exception {
+        setPhase("preparing", "正在完全重置（清除全部数据）");
+        progress = -1;
+        long started = System.currentTimeMillis();
+        deleteTree(root);
+        File[] markers = getFilesDir().listFiles((dir, name) -> name.startsWith("payload-") && name.endsWith(".done"));
+        if (markers != null) for (File f : markers) f.delete();
+        autoRestarts = 0;
+        crashes.clear();
+        lastExit = null;
+        error = null;
+        log("已完全重置：清除数据目录，用时 " + (System.currentTimeMillis() - started) / 1000 + " 秒，接着重新解压");
+    }
+
+    /**
+     * 救援存档：不启动酒馆，直接调用 tavern-plugin/lib/rescue-export.mjs 导出标准 .dshtransfer 包。
+     * Node 或源码损坏导致脚本跑不起来时，自动兜底用 Java 把全部非程序文件（!isProgram）打成原始数据 zip。
+     * 产物写入 cache/rescue/，随后由界面用 ACTION_CREATE_DOCUMENT 让用户选位置保存。
+     */
+    private void rescueExport() {
+        long started = System.currentTimeMillis();
+        String stamp = new java.text.SimpleDateFormat("yyyyMMdd-HHmmss", Locale.ROOT).format(new java.util.Date(started));
+        List<String> notes = new ArrayList<>();
+        rescueFile = null;
+        rescueFileName = null;
+        rescueIsRaw = false;
+        setPhase("preparing", "正在救援存档：准备导出环境");
+        progress = -1;
+        try {
+            File dshHome = new File(root, "home/.dsh-tavern");
+            if (!dshHome.isDirectory()) {
+                finishRescue(false, false, null, null, "没有找到酒馆数据目录，可能尚未初始化或已被清空。", notes, started);
+                return;
+            }
+            File dir = new File(getCacheDir(), "rescue");
+            deleteTree(dir);
+            dir.mkdirs();
+
+            String primaryError = null;
+            File out = new File(dir, "DSH酒馆救援备份-" + stamp + ".dshtransfer");
+            File script = new File(root, "src/tavern-plugin/lib/rescue-export.mjs");
+            if (!node().canExecute()) {
+                primaryError = "找不到可执行的 libnode.so";
+            } else if (!script.isFile()) {
+                primaryError = "找不到救援导出脚本（程序文件可能已损坏）";
+            } else {
+                try {
+                    JSONObject res = runRescueScript(script, out);
+                    if (out.isFile() && out.length() > 0) {
+                        String filename = res.optString("filename", out.getName());
+                        if (filename.isEmpty()) filename = out.getName();
+                        StringBuilder summary = new StringBuilder();
+                        JSONObject totals = res.optJSONObject("totals");
+                        int items = totals != null ? totals.optInt("items", 0) : 0;
+                        summary.append("已导出标准酒馆备份包（.dshtransfer，共 ").append(items).append(" 项，")
+                                .append(formatBytes(out.length())).append("）。");
+                        JSONArray parts = res.optJSONArray("parts");
+                        if (parts != null && parts.length() > 0) {
+                            List<String> partTexts = new ArrayList<>();
+                            for (int i = 0; i < parts.length(); i++) {
+                                JSONObject p = parts.optJSONObject(i);
+                                if (p != null) partTexts.add(p.optString("label") + " " + p.optInt("items"));
+                            }
+                            if (!partTexts.isEmpty()) summary.append("\n包含：").append(String.join("、", partTexts)).append("。");
+                        }
+                        summary.append("\n不含 API key 与账号；可直接用酒馆里的「导入」恢复。");
+                        JSONArray warnings = res.optJSONArray("warnings");
+                        if (warnings != null && warnings.length() > 0) {
+                            summary.append("\n\n有 ").append(warnings.length()).append(" 项未能导出（已跳过，详见日志 rescue.log）。");
+                            for (int i = 0; i < warnings.length(); i++) notes.add("跳过：" + warnings.optString(i));
+                        }
+                        notes.add("标准导出成功：" + filename + "（" + formatBytes(out.length()) + "）");
+                        finishRescue(true, false, out, filename, summary.toString(), notes, started);
+                        return;
+                    }
+                    primaryError = "导出脚本未生成备份文件";
+                } catch (Throwable t) {
+                    primaryError = t.getMessage() != null ? t.getMessage() : String.valueOf(t);
+                    notes.add("标准导出失败：" + primaryError);
+                    log("救援存档标准导出失败，将尝试原始数据包兜底：" + primaryError);
+                }
+            }
+
+            // 兜底：脚本跑不起来时，Java 直接把所有非程序用户文件打成原始 zip，确保数据能带走。
+            setPhase("preparing", "标准导出不可用，正在打包原始数据包（兜底）");
+            progress = 0;
+            File rawZip = new File(dir, "DSH酒馆原始数据包-" + stamp + ".zip");
+            int packed = packRawUserDataZip(rawZip);
+            progress = -1;
+            if (packed == 0 || !rawZip.isFile() || rawZip.length() == 0) {
+                finishRescue(false, false, null, null,
+                        "救援存档失败。\n标准导出失败：" + primaryError + "\n兜底打包也未找到可保存的用户文件。", notes, started);
+                return;
+            }
+            notes.add("兜底原始打包成功：" + rawZip.getName() + "（" + packed + " 个文件，" + formatBytes(rawZip.length()) + "）");
+            String summary = "酒馆程序或数据损坏导致标准导出失败（" + primaryError + "），已自动改用兜底模式把 "
+                    + packed + " 个用户原始文件打成 ZIP（" + formatBytes(rawZip.length()) + "）。\n\n"
+                    + "· 该文件不能直接从酒馆「导入」页导入，可用于手动恢复或排查。\n"
+                    + "· 包含本机配置（含 cordis.patch.yml 等），可能含 API key，请妥善保管，不要发给他人。";
+            finishRescue(true, true, rawZip, rawZip.getName(), summary, notes, started);
+        } catch (Throwable t) {
+            progress = -1;
+            String msg = t.getMessage() != null ? t.getMessage() : String.valueOf(t);
+            notes.add("异常：" + msg);
+            log(android.util.Log.getStackTraceString(t));
+            finishRescue(false, false, null, null, "救援存档失败：" + msg, notes, started);
+        } finally {
+            progress = -1;
+        }
+    }
+
+    private JSONObject runRescueScript(File script, File outFile) throws Exception {
+        List<String> command = new ArrayList<>();
+        command.add(node().getPath());
+        command.add("--max-old-space-size=1024");
+        command.add("--use-bundled-ca");
+        File preload = new File(root, "usr/lib/dsh-android/preload.cjs");
+        if (preload.isFile()) {
+            command.add("--require");
+            command.add(preload.getPath());
+        }
+        command.add(script.getPath());
+        command.add("--out");
+        command.add(outFile.getPath());
+        command.add("--dsh-home");
+        command.add(new File(root, "home/.dsh-tavern").getPath());
+        command.add("--source-root");
+        command.add(new File(root, "src").getPath());
+
+        ProcessBuilder pb = new ProcessBuilder(command);
+        baseEnvironment(pb.environment());
+        File srcDir = new File(root, "src");
+        pb.directory(srcDir.isDirectory() ? srcDir : root);
+        pb.redirectErrorStream(true);
+        Process p = pb.start();
+        JSONObject result = null;
+        StringBuilder other = new StringBuilder();
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(p.getInputStream(), StandardCharsets.UTF_8))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                Matcher sm = TOOL_STATUS.matcher(line);
+                if (sm.find()) {
+                    setPhase("preparing", sm.group(1));
+                    continue;
+                }
+                Matcher pm = TOOL_PROGRESS.matcher(line);
+                if (pm.find()) {
+                    progress = Math.max(0, Math.min(100, Integer.parseInt(pm.group(1))));
+                    continue;
+                }
+                if (line.startsWith("RESULT ")) {
+                    result = new JSONObject(line.substring(7));
+                } else if (other.length() < 4000) {
+                    other.append(line).append('\n');
+                }
+            }
+        }
+        p.waitFor();
+        if (result == null) throw new IOException("救援脚本没有返回结果：" + other.toString().trim());
+        if ("error".equals(result.optString("kind"))) throw new IOException(result.optString("error", "未知错误"));
+        return result;
+    }
+
+    /** 兜底打包：把 files/t 下所有非程序常规文件（跳过 quarantine、tmp、静态资源缓存与软链接）流式写进 zip。 */
+    private int packRawUserDataZip(File zipFile) throws IOException {
+        Path base = root.toPath();
+        List<Path> files = new ArrayList<>();
+        Files.walkFileTree(base, new SimpleFileVisitor<Path>() {
+            @Override
+            public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) {
+                if (dir.equals(base)) return FileVisitResult.CONTINUE;
+                String rel = base.relativize(dir).toString().replace(File.separatorChar, '/') + "/";
+                if (isProgram(rel) || rel.startsWith("quarantine/") || rel.startsWith("tmp/")
+                        || rel.startsWith("src.next/") || rel.startsWith("src.prev/")
+                        || rel.startsWith("update-backup/") || rel.startsWith("pnpm-store/")
+                        || rel.endsWith("/cache/static-assets/") || rel.endsWith("/tmp-exports/")) {
+                    return FileVisitResult.SKIP_SUBTREE;
+                }
+                return FileVisitResult.CONTINUE;
+            }
+
+            @Override
+            public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
+                if (!attrs.isRegularFile() || attrs.isSymbolicLink()) return FileVisitResult.CONTINUE;
+                String rel = base.relativize(file).toString().replace(File.separatorChar, '/');
+                if (!isProgram(rel)) files.add(file);
+                return FileVisitResult.CONTINUE;
+            }
+
+            @Override
+            public FileVisitResult visitFileFailed(Path file, IOException exc) {
+                return FileVisitResult.CONTINUE;
+            }
+        });
+        int total = files.size();
+        if (total == 0) return 0;
+        byte[] buf = new byte[1 << 16];
+        int written = 0;
+        try (ZipOutputStream zos = new ZipOutputStream(new BufferedOutputStream(new FileOutputStream(zipFile), 1 << 16))) {
+            for (int i = 0; i < total; i++) {
+                Path file = files.get(i);
+                String rel = base.relativize(file).toString().replace(File.separatorChar, '/');
+                try (InputStream in = new FileInputStream(file.toFile())) {
+                    zos.putNextEntry(new ZipEntry(rel));
+                    int n;
+                    while ((n = in.read(buf)) > 0) zos.write(buf, 0, n);
+                    zos.closeEntry();
+                    written++;
+                } catch (IOException ignored) {
+                }
+                progress = Math.min(99, (i + 1) * 100 / total);
+            }
+        }
+        return written;
+    }
+
+    private void finishRescue(boolean ok, boolean raw, File file, String filename, String summary, List<String> notes, long started) {
+        rescueOk = ok;
+        rescueIsRaw = raw;
+        rescueFile = ok && file != null ? file.getPath() : null;
+        rescueFileName = ok ? filename : null;
+        rescueReport = summary;
+        rescueReportAt = System.currentTimeMillis();
+        try {
+            File logs = new File(getFilesDir(), "logs");
+            logs.mkdirs();
+            StringBuilder full = new StringBuilder("救援导出于 ")
+                    .append(new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.ROOT).format(new java.util.Date(started)))
+                    .append("，用时 ").append((System.currentTimeMillis() - started) / 1000).append(" 秒，")
+                    .append(ok ? (raw ? "兜底打包成功" : "标准导出成功") : "失败").append('\n');
+            for (String line : notes) full.append("- ").append(line).append('\n');
+            Files.write(new File(logs, "rescue.log").toPath(), full.toString().getBytes(StandardCharsets.UTF_8));
+        } catch (IOException ignored) {
+        }
+        log("救援存档：" + (ok ? (raw ? "已打包原始数据 " : "已导出 ") + filename : "失败"));
+    }
+
+    private static String formatBytes(long bytes) {
+        if (bytes < 1024) return bytes + " B";
+        if (bytes < 1024 * 1024) return String.format(Locale.ROOT, "%.1f KB", bytes / 1024.0);
+        return String.format(Locale.ROOT, "%.1f MB", bytes / (1024.0 * 1024.0));
     }
 
     /** 载荷按打包时的设备路径生成；实际数据目录不同（多用户、工作资料）时改写记录在案的文件。 */

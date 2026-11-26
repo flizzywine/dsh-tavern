@@ -21,7 +21,7 @@ const PC_HORIZON_META = Object.freeze([
     key: 'shortTerm',
     label: '今期',
     span: '2–5 轮',
-    subtitle: '当前幕破局方向与小高潮节拍（联动下一步候选项角标）'
+    subtitle: '当前幕破局方向与多轮推进节拍（联动下一步候选项角标）'
   },
   {
     key: 'midTerm',
@@ -40,13 +40,13 @@ const PC_HORIZON_META = Object.freeze([
 const PC_STRENGTH_OPTIONS = Object.freeze([
   { key: 'soft', label: '软铺垫', title: '仅作氛围与风声软引导（常规位置注入），不主动打断当前自由对话' },
   { key: 'guided', label: '强牵引', title: '置底导演级引导（默认）：回应玩家的同时借在场角色或环境契机实质性推进目标节拍' },
-  { key: 'strict', label: '硬性兑现', title: '置底必达裁定：除主角物理受困或明确反向掀桌外，本轮必须正面促成或引爆当前目标节拍' }
+  { key: 'strict', label: '硬性兑现', title: '置底必达裁定：除主角物理受困或明确反向掀桌外，每轮都必须正面推进当前目标节拍，到预计轮数时兑现' }
 ])
 
 const PC_PACE_OPTIONS = Object.freeze([
   { key: 'foreshadow', label: '只铺垫', title: '侧重前兆感官、试探交锋与悬念蓄势，本轮把局面推至临界点而留白最终摊牌' },
-  { key: 'natural', label: '自然推进', title: '顺应角色性格与现场因果把当前目标节拍扎实演透（默认）' },
-  { key: 'climax', label: '尽快引爆', title: '拉满戏剧张力，推动当前节拍或潜藏冲突在本轮正面对撞' }
+  { key: 'natural', label: '自然推进', title: '顺应角色性格与现场因果，按预计轮数把当前目标节拍逐轮演透（默认）' },
+  { key: 'climax', label: '尽快引爆', title: '拉满戏剧张力，推动当前节拍或潜藏冲突在本轮正面对撞（多轮节拍可压缩到一轮）' }
 ])
 
 const PC_MODEL_OPTIONS = Object.freeze([
@@ -115,12 +115,12 @@ const PC_HELP = Object.freeze({
 
   funnel: [
     '这里汇总本局所有正在生效的剧情导向（目标导向 + 今期 / 中期 / 长期已点亮路线），点击任意胶囊可快速切到对应跨度查看卡片详情。',
-    '若点亮的今期节拍连续 2 轮以上未达成（且约束力度不是「软铺垫」），系统会自动亮起「⚡ 停滞加压中」标记，在下轮适当加强破局推力，防止剧情原地打转。',
+    '每个今期节拍都标有预计轮数，这里会显示当前节拍已演到第几轮；若点亮的节拍超出预计轮数仍未达成（未标轮数的旧节拍按连续 2 轮计，且约束力度不是「软铺垫」），系统会自动亮起「⚡ 停滞加压中」标记，在下轮适当加强破局推力，防止剧情原地打转。',
     '点「✏️ 微调引导」可在不重推路线的前提下，临时补充一句导演侧重点（例如「本段多给对话交锋与误会，先别点破真相」），下轮正文立即生效；点「生成联动候选项」可立即刷新带路线角标的下一步行动建议。'
   ].join('\n'),
 
   horizons: [
-    '今期（2–5 轮）：聚焦眼前这一幕的破局动作与小高潮节拍，点亮后直接联动下一步候选项角标，每步节拍会随新回合自动打勾，也可手动点选调整进度。',
+    '今期（2–5 轮）：聚焦眼前这一幕的破局方向，每条路线拆成 2–3 个多轮推进节拍，各自标注预计轮数、阻力与达成标志；点亮后直接联动下一步候选项角标，正文出现达成标志时自动打勾，也可手动点选调整进度。',
     '中期（5–20 轮）：规划篇章级转折、隐藏支线与阶段里程碑（入线 → 升级 → 抉择 → 高潮），可点「拆解今期 ↘」把选中的中期篇章细化成眼前的今期路线。',
     '长期（终局蓝图）：给出多结局命运假想与达成前置拐点；点亮长期路线时，前台正文只会收到无剧透的「防剧透暗流指引」，营造宿命氛围而不抢跑结局。可点「拆解中期 ↘」逐层落地。'
   ].join('\n'),
@@ -146,14 +146,14 @@ const PC_HELP = Object.freeze({
     '决定已点亮路线（或目标导向）对前台主写作模型的影响强度：',
     '软铺垫：仅在常规位置注入氛围与风声提示，不主动打断当前自由对话，适合随缘推进、偶尔借灵感的轻度引导。',
     '强牵引（默认）：置底导演级引导，在充分回应你当前行动的同时，借在场角色或环境契机实质性推进目标节拍，兼顾自由度与推进效率。',
-    '硬性兑现：置底必达裁定，除主角物理受困或明确反向掀桌外，本轮必须正面促成或引爆当前目标节拍，适合想快速兑现关键剧情的场合。'
+    '硬性兑现：置底必达裁定，除主角物理受困或明确反向掀桌外，每轮都必须正面推进当前目标节拍，到预计轮数时必须兑现达成标志，适合想快速兑现关键剧情的场合。'
   ].join('\n'),
 
   pace: [
     '控制当前目标节拍在正文里的展开速度与张力释放方式：',
     '只铺垫：侧重感官前兆、试探交锋与悬念蓄势，把局面推至临界点而留白最终摊牌，适合慢热拉扯与悬疑铺陈。',
-    '自然推进（默认）：顺应角色性格与现场因果把当前目标节拍扎实演透，不急不拖。',
-    '尽快引爆：拉满戏剧张力，推动当前节拍或潜藏冲突在本轮正面对撞，适合高燃高潮或快速破冰。'
+    '自然推进（默认）：顺应角色性格与现场因果，按预计轮数把当前目标节拍逐轮演透，每轮让阻力真实发作，不急不拖。',
+    '尽快引爆：拉满戏剧张力，推动当前节拍或潜藏冲突在本轮正面对撞（多轮节拍可压缩到一轮完成），适合高燃高潮或快速破冰。'
   ].join('\n'),
 
   blindBox: [
@@ -408,6 +408,12 @@ function pcActiveGoal(compass) {
     span: opt.span,
     text: String(goal.text).trim()
   }
+}
+
+// 今期节拍的预计轮数（1–3），旧版节拍没有这个字段时为 0。
+function pcStageTurns(step) {
+  const n = Math.trunc(Number(step && step.turns))
+  return Number.isFinite(n) && n >= 1 ? Math.min(3, n) : 0
 }
 
 function pcMidPhaseLabel(index, total) {
@@ -733,6 +739,12 @@ function PlotCompassPanel({ ui, gameId }) {
   const currentPace = compass.pace || 'natural'
   const currentPaceOption = PC_PACE_OPTIONS.find(opt => opt.key === currentPace) || PC_PACE_OPTIONS[1]
   const stalledTurns = Math.max(0, Number(compass.stalledTurns) || 0)
+  const activeStage = active.shortTerm && Array.isArray(active.shortTerm.beats)
+    ? active.shortTerm.beats.find(step => step && !step.done) || null
+    : null
+  const activeStageTurns = pcStageTurns(activeStage)
+  // 与正文注入一致：超出预计轮数才加压，旧版节拍按连续 2 轮。
+  const stallThreshold = Math.max(2, activeStageTurns)
   const blindBox = compass.blindBox === true
   const customDirective = String(compass.customDirective || '')
   const autoUpdateInterval = Number.isInteger(Number(compass.autoUpdateInterval)) && Number(compass.autoUpdateInterval) >= 0
@@ -1402,6 +1414,10 @@ function PlotCompassPanel({ ui, gameId }) {
               h('ul', { className: 'pc-step-list' }, steps.map((step, idx) => {
                 const checked = Boolean(step && step.done)
                 const roleLabel = horizon === 'midTerm' ? pcMidPhaseLabel(idx, steps.length) : ''
+                const stageTurns = horizon === 'shortTerm' ? pcStageTurns(step) : 0
+                const stageNote = horizon === 'shortTerm' && !checked
+                  ? [step.friction ? '阻力：' + step.friction : '', step.doneWhen ? '达成：' + step.doneWhen : ''].filter(Boolean).join(' ｜ ')
+                  : ''
                 return h('li', { key: idx, className: checked ? 'is-done' : '' },
                   h('button', {
                     type: 'button',
@@ -1413,7 +1429,10 @@ function PlotCompassPanel({ ui, gameId }) {
                   },
                     h('span', { className: 'pc-check', 'aria-hidden': true }, checked ? '✓' : '○'),
                     roleLabel ? h('span', { className: 'pc-phase-tag' }, roleLabel) : null,
-                    h('span', { className: 'pc-step-text' }, step.text)))
+                    stageTurns ? h('span', { className: 'pc-phase-tag' }, '约' + stageTurns + '轮') : null,
+                    h('span', { className: 'pc-step-body' },
+                      h('span', { className: 'pc-step-text' }, step.text),
+                      stageNote ? h('span', { className: 'pc-step-note' }, stageNote) : null)))
               }))) : null,
             horizon === 'midTerm' && route.stakes ? h('p', { className: 'pc-meta-line' },
               h('strong', null, '收益与风险：'), route.stakes) : null,
@@ -1611,8 +1630,11 @@ function PlotCompassPanel({ ui, gameId }) {
         (active.count > 0 || activeGoal) ? h('div', { className: 'pc-badge-row' },
           h(PcBadge, { tone: currentStrength === 'strict' ? 'bad' : 'ok' }, '力度：' + currentStrengthOption.label),
           h(PcBadge, null, '节奏：' + currentPaceOption.label),
-          active.shortTerm && currentStrength !== 'soft' && stalledTurns >= 2
-            ? h(PcBadge, { tone: 'warn', title: '当前点亮的今期节拍已连续 ' + stalledTurns + ' 轮未达成，下轮将自动加强破局推力' }, '⚡ 停滞 ' + stalledTurns + ' 轮·加压中')
+          activeStage && activeStageTurns > 0
+            ? h(PcBadge, { title: '当前点亮的今期节拍预计 ' + activeStageTurns + ' 轮达成，正文出现达成标志后自动打勾' }, '节拍进度：第 ' + (stalledTurns + 1) + ' 轮 / 约 ' + activeStageTurns + ' 轮')
+            : null,
+          activeStage && currentStrength !== 'soft' && stalledTurns >= stallThreshold
+            ? h(PcBadge, { tone: 'warn', title: '当前点亮的今期节拍已连续 ' + stalledTurns + ' 轮未达成' + (activeStageTurns > 0 ? '（预计 ' + activeStageTurns + ' 轮）' : '') + '，下轮将自动加强破局推力' }, '⚡ 停滞 ' + stalledTurns + ' 轮·加压中')
             : null) : null,
         (active.count > 0 || activeGoal) ? h('div', { className: 'pc-chip-group' },
           activeGoal ? h(PcChip, { tone: 'goal', title: '点击查看对应跨度路线', onClick: () => setActiveHorizon(activeGoal.horizon) }, '🎯 ' + activeGoal.horizonLabel + '目标：' + activeGoal.text) : null,

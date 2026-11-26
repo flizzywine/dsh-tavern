@@ -74,7 +74,7 @@ test('脚本的固定备用入口允许缓存 16 MiB，超过上限仍报告错�
   const atLimit = await pin('')
   assert.deepEqual(atLimit.diagnostics, [])
   assert.equal(atLimit.helperScripts[0].enabled, true)
-  assert.match(atLimit.helperScripts[0].content, /import\('\/api\/dsh-tavern\/remote-assets\/[a-f0-9]{64}\/runtime\.js\?host=2'\)/)
+  assert.match(atLimit.helperScripts[0].content, /import\('\/api\/dsh-tavern\/remote-assets\/[a-f0-9]{64}\/runtime\.js\?host=3'\)/)
 
   const overLimit = await pin(' ')
   assert.equal(overLimit.helperScripts[0].enabled, false)

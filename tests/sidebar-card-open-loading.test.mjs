@@ -39,10 +39,11 @@ test('点开带开局表单的人物卡：立刻显示「正在打开」并在�
     assert.deepEqual(h.busy, [true, false], '读卡期间锁住面板，结束后放开')
 })
 
-test('普通人物卡也进入游戏准备，玩家可在创建对话前选择开场和称呼', async () => {
+test('普通人物卡直接开局，保留创建对话期间的加载提示', async () => {
     const h = fixture()
-    assert.equal(await h.open({ name: '鲍勃', hasOpeningForm: false }), 'prepared')
+    assert.equal(await h.open({ name: '鲍勃', hasOpeningForm: false }), 'created')
     assert.deepEqual(h.names, ['鲍勃', ''])
+    assert.deepEqual(h.busy, [true, false])
 })
 
 test('卡自带舞台开局页时也保留加载提示', async () => {
