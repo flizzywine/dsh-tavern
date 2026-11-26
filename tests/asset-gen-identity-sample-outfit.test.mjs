@@ -1,7 +1,7 @@
-// The identity settei (人物设定图) is drawn in some outfit, usually not the one being drawn: its clothes are a sample. An outfit
-// settei or a 立绘 takes only the person from it and the clothes from the outfit's own settei or text, so an outfit
-// described as a bikini is not drawn as the coat the identity settei wears. When the identity board is also this outfit's
-// settei (a character settei registered on both) it stays this outfit's clothing authority.
+// The base settei (the default outfit's 设定图, or an older identity board while it has none) is
+// drawn in some outfit, usually not the one being drawn: its clothes are a sample. An outfit settei or a 立绘 takes only the
+// person from it and the clothes from the outfit's own settei or text, so an outfit described as a bikini is not drawn as the
+// coat the base wears. The default outfit is not its own reference: its 差分 take it as their outfit settei.
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {mkdir, mkdtemp} from 'node:fs/promises'
@@ -13,7 +13,7 @@ import {createProfileDataStore} from '../tavern-plugin/lib/profile-data-store.js
 import {encodeAssetRgba} from '../tavern-plugin/lib/domain/asset-image-processing.js'
 import publication from '../tavern-plugin/shared/asset-image-publication.cjs'
 
-async function fixture(t) {
+async function fixture(t, {coatSettei = true} = {}) {
   const base = fileURLToPath(new URL('../.preview/asset-gen-identity-tests/', import.meta.url)); await mkdir(base, {recursive:true})
   const root = await mkdtemp(base + 'case-'), store = createProfileDataStore({dataRoot:root + '/data'}), library = createAssetPackService({assetRoot:root + '/packs'})
   const provider = {label:'配图', status:async () => ({ready:true, model:'gpt-image', maxReferences:4}), generate:async () => { throw new Error('not drawn') }}
@@ -29,30 +29,39 @@ async function fixture(t) {
   const snapshot = await library.getPackSnapshot({packId:pack.manifest.id}), figure = snapshot.figures[created.figureId]
   const identitySettei = {board:board.hash, version:'a'.repeat(64), palette:[]}
   await library.patchPack(publication.publish(snapshot, {blobs:{...board.blobs}, files:new Map([...board.files,
-    ['figures/' + created.figureId + '.json', publication.jsonBytes({...figure, identitySettei, outfits:figure.outfits.map(o => o.key === 'coat' ? {...o, settei:board.hash, setteiParentVersion:identitySettei.version} : o)})]])}))
+    ['figures/' + created.figureId + '.json', publication.jsonBytes({...figure, identitySettei, outfits:figure.outfits.map(o => o.key === 'coat' && coatSettei ? {...o, settei:board.hash, setteiParentVersion:identitySettei.version} : o)})]])}))
   const prepare = async (outfitKey, kind, extra = {}) => service.prepare({target:{packId:pack.manifest.id, figureId:created.figureId, outfitKey, kind, ...(kind === 'sprite' ? {emotionId:'calm'} : {})},
     expectedRevision:(await library.getPackSnapshot({packId:pack.manifest.id})).revision, preview:true, ...extra})
   return {prepare, board:board.hash}
 }
 
-test('another outfit takes only the person from the identity settei; its clothes come from the outfit text', async t => {
+test('another outfit takes only the person from the default outfit settei; its clothes come from the outfit text', async t => {
   const f = await fixture(t)
   for (const kind of ['settei', 'sprite']) {
     const plan = await f.prepare('beach', kind, {userPrompt:'black bikini briefs, barefoot'})
-    assert.deepEqual(plan.references.map(r => [r.hash, r.role]), [[f.board, roles.identity]], kind)
-    assert.match(plan.prompt, /The clothes it shows are a sample outfit, not this outfit/, kind)
+    assert.deepEqual(plan.references.map(r => [r.hash, r.role]), [[f.board, roles.defaultOutfit]], kind)
+    assert.match(plan.prompt, /Its clothes are the default outfit, not this one/, kind)
     assert.match(plan.prompt, /black bikini briefs/, kind)
   }
   const settei = (await f.prepare('beach', 'settei', {userPrompt:'black bikini briefs, barefoot'})).prompt
   assert.match(settei, /Over a sample outfit, draw the clothes from the Outfit text and notes/)
-  assert.doesNotMatch(settei, /Where text and images disagree, follow the images;/)
+  assert.doesNotMatch(settei, /This is the default outfit/)
 })
 
-test('the outfit the identity settei is drawn in keeps its clothes from it', async t => {
+test('the default outfit is the base: its settei is drawn without itself and says so; its 差分 take it as their settei', async t => {
   const f = await fixture(t)
-  for (const kind of ['settei', 'sprite']) {
-    const plan = await f.prepare('coat', kind, {userPrompt:'navy wool overcoat'})
-    assert.deepEqual(plan.references.map(r => [r.hash, r.role]), [[f.board, roles.identityOutfit]], kind)
-    assert.doesNotMatch(plan.prompt, /The clothes it shows are a sample outfit/, kind)
+  const settei = await f.prepare('coat', 'settei', {userPrompt:'navy wool overcoat'})
+  assert.deepEqual(settei.references, [])
+  assert.match(settei.prompt, /This is the default outfit\. The sheet is also the identity reference for every other outfit/)
+  const sprite = await f.prepare('coat', 'sprite', {userPrompt:'navy wool overcoat'})
+  assert.deepEqual(sprite.references.map(r => [r.hash, r.role]), [[f.board, roles.settei]])
+})
+
+test('an older identity board stands in for the base while the default outfit has no settei', async t => {
+  const f = await fixture(t, {coatSettei:false})
+  for (const outfit of ['coat', 'beach']) {
+    const plan = await f.prepare(outfit, 'settei', {userPrompt:'navy wool overcoat'})
+    assert.deepEqual(plan.references.map(r => [r.hash, r.role]), [[f.board, roles.identity]], outfit)
+    assert.match(plan.prompt, /The clothes it shows are a sample outfit, not this outfit/, outfit)
   }
 })

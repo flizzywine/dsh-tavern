@@ -29,6 +29,18 @@ export function figureOutfitReference(pack, figure, outfit) {
   return avatar ? {hash:avatar.hash, kind:'avatar'} : null
 }
 
+/** A figure's default outfit: its first enabled one (the outfit list shows it first, with a star). */
+export const figureDefaultOutfit = figure => (figure.outfits || []).find(outfit => outfit.enabled !== false) || figure.outfits?.[0] || null
+
+/** Other outfits, avatars and scene pictures use the default outfit's settei as the identity reference.
+ *  An older figure with no default outfit settei keeps its identity board (`outfitKey` null). */
+export function figureBaseSettei(figure) {
+  const outfit = figureDefaultOutfit(figure)
+  if (outfit?.settei) return {board:outfit.settei, ...(outfit.setteiParts ? {parts:outfit.setteiParts} : {}), version:outfit.settei, outfitKey:outfit.key}
+  const identity = figure.identitySettei
+  return identity?.board ? {board:identity.board, ...(identity.parts ? {parts:identity.parts} : {}), version:identity.version, outfitKey:null} : null
+}
+
 export function figureSpriteReference(pack, figure, outfit) {
   return figureOutfitReference(pack, figure, outfit)?.hash || null
 }
