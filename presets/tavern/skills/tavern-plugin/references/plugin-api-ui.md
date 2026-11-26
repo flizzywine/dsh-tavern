@@ -373,9 +373,11 @@ const open = url => typeof ctx.tavernUi.openImage === 'function'
 
 设置 `stage: true` 时，可以用 `stageOnly: true` 只注册舞台入口，用 `stageSize: 'full'` 让面板铺满舞台。尺寸只接受 `'window'` 或 `'full'`，默认使用窗口尺寸并注册侧栏入口。传入这两个选项时必须设置 `stage: true`，参数无效会抛出 `TypeError`。
 
-全屏舞台面板可声明 `stageReader:true`。常规卡页面用 `DshCardPage.openPluginPanel` 打开它时，面板位于舞台对白框下方，沿用舞台翻页、履历和自动播放。此时 `render` 额外收到 `reader`。没有收到 `reader` 时，面板需要提供自己的对白界面。
+全屏舞台面板可声明 `stageReader:true`。常规卡页面或标题页用 `DshCardPage.openPluginPanel` 打开它时，面板位于舞台对白框下方，沿用舞台翻页、履历和自动播放。专用的开场设定页继续在页内打开面板。舞台阅读面板的 `render` 额外收到 `reader`。没有收到 `reader` 时，面板需要提供自己的对白界面。
 
 - `reader.publish({ section, lines, index, canAdvance, voiced, playing, command })` 更新当前一段的阅读内容。`lines` 为 `{id, text, speaker?, alias?}` 数组，`index` 从零开始。段落切换时换 `section`。有后续段落时设置 `canAdvance:true`，需要先完成互动时设为 `false`。
+- 发布时可传 `scene: { background?, actors? }`，为该段使用本卡所绑定素材的背景和立绘。`background` 接受舞台的 `SceneSelection`，例如 `{background:{packId,kind:'backgrounds',assetId},timeOfDay:null}`。省略该字段会用当前开场所选背景。`actors` 为至多四个 `{name, emotion?}`，所列人物按声明顺序站位。省略 `actors` 时随当前说话人切换。布景仅在阅读面板内生效。
+- `reader.close()` 关闭阅读面板，继续显示原来的聊天对白。比如玩家在阅读面板提交自由行动之后，可关闭面板让玩家查看新回复。
 - `command('select', index)` 请求翻到段内指定一行，`command('next')` 请求翻过本段末尾，`command('replay')` 请求重播当前配音。面板执行后发布实际位置。原配音播放中设 `playing:true`，让 AUTO 等它播完。
 - `reader.paused` 表示舞台打开了菜单、履历等覆盖层。`reader.silent` 表示舞台正在快进。面板内的 iframe 可用 `reader.key(key, released)` 把已识别的舞台按键交回宿主。
 

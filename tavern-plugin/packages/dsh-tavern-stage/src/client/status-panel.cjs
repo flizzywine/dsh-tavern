@@ -435,7 +435,7 @@ function Overlay({sessionId, pageId, label: declaredLabel, shortcut, size, close
             pluginPanelShowing: () => Boolean(pluginNow.current),
             onPluginPanel: PluginPanel ? selected => {
                 if (coveredNow.current || pluginNow.current) throw new Error('请先关闭当前舞台窗口');
-                if (selected.stageReader && onStageReader && !entry) { onStageReader(selected, pageId); return; }
+                if (selected.stageReader && onStageReader && !(entry && opening)) { onStageReader(selected, pageId); return; }
                 pluginNow.current = selected; setPluginPanel(selected); root.current?.focus();
             } : null});
         panel.current = current;
