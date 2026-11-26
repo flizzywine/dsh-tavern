@@ -35,7 +35,7 @@ export function createFigurePictures(library) {
           const picture = descriptor(pack, hash, figure.name + '／' + label + (borrowed ? ' 立绘' : ' 设定图'))
           if (picture) outfits[key] = { picture, borrowed }
         }
-        return { packId, figureId, identity: pictures.identity ? descriptor(pack, pictures.identity, figure.name + ' 人物设定图') : null, outfits }
+        return { packId, figureId, identity: pictures.identity ? descriptor(pack, pictures.identity, figure.name + ' 默认服装设定图') : null, outfits }
       }))
       return rows.filter(Boolean)
     },

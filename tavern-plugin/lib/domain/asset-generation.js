@@ -13,6 +13,7 @@ import {validGenStyle} from '../../packages/dsh-asset-library/lib/asset-packs/ma
 import {createAssetGenStyle, genStyleUse, NO_STYLE, PACK_BACKGROUND_STYLE} from './asset-generation-style.js'
 import {imageKind, imageDimensions, pngSize} from '../../packages/dsh-asset-library/lib/pack-v2/media.js'
 import {coverImageType, coverImageAsPng} from './card-cover-image.js'
+import {figureBaseSettei, figureDefaultOutfit} from './figure-sprite-reference.js'
 
 const ROOT = 'asset-generation/', INDEX = ROOT + 'jobs.json', COSTS = ROOT + 'costs.json', CHANNELS = ROOT + 'channels.json'
 const hash = bytes => createHash('sha256').update(bytes).digest('hex')
@@ -157,7 +158,8 @@ export function composeAssetPrompt(template, values) {
 const canonical = value => Array.isArray(value) ? value.map(canonical) : value && typeof value === 'object' ? Object.fromEntries(Object.keys(value).sort().map(k => [k, canonical(value[k])])) : value
 function authority(ctx, kind) {
   if (['background','identity-settei'].includes(kind)) return null
-  return JSON.stringify(canonical({identity:ctx.figure.identitySettei ?? null,...(kind !== 'settei' ? {settei:ctx.outfit.settei ?? null,...(ctx.outfit.setteiParts ? {setteiParts:ctx.outfit.setteiParts} : {}),parentVersion:ctx.outfit.setteiParentVersion ?? null} : {})}))
+  const base = figureBaseSettei(ctx.figure)
+  return JSON.stringify(canonical({identity:base && base.outfitKey !== ctx.outfit?.key ? base : null,...(kind !== 'settei' ? {settei:ctx.outfit.settei ?? null,...(ctx.outfit.setteiParts ? {setteiParts:ctx.outfit.setteiParts} : {}),parentVersion:ctx.outfit.setteiParentVersion ?? null} : {})}))
 }
 function inspectImage(bytes, mediaType, max) {
   assert(bytes.length > 0 && bytes.length <= max, 'LIMIT_EXCEEDED', '图片为空或过大')
@@ -314,8 +316,8 @@ export function createAssetGeneration({store, imageProvider = () => null, getLib
       if (target.kind === 'avatar-sheet') target.emotionIds = ctx.emotions.map(emotion => emotion.id)
       // 方案甲: a figure's 外貌 lives only in its 配图 人物库 record; without one the prompt has no 外貌 text.
       const linked = ctx.figure && await linkedAppearance({packId:target.packId, figureId:target.figureId, outfitKey:target.outfitKey})
-      if (ctx.figure) ctx.figure = {...ctx.figure, identityAppearance:linked?.identityAppearance || ''}
-      if (ctx.outfit) ctx.outfit = {...ctx.outfit, outfitAppearance:linked?.outfitAppearance || ''}
+      if (ctx.figure) ctx.figure = {...ctx.figure, identityAppearance:linked?.identityAppearance || '', identityBack:linked?.identityBack || ''}
+      if (ctx.outfit) ctx.outfit = {...ctx.outfit, outfitAppearance:linked?.outfitAppearance || '', outfitBack:linked?.outfitBack || '', base:figureDefaultOutfit(ctx.figure)?.key === ctx.outfit.key}
       if(target.imageId)assert(ctx.outfit.sprite?.imagePools?.[target.emotionId]?.imageIds.includes(target.imageId),'TARGET_CHANGED','Selected image is no longer an active candidate')
       // `preview` builds the exact prompt and reference list without a plan, a channel
       // or a request (free; works before the channel is set up), so the panel can show what ✦ will send.
@@ -353,14 +355,18 @@ export function createAssetGeneration({store, imageProvider = () => null, getLib
       // descends from is left out (the 设定图 is the outfit's authority) instead of blocking the request.
       // `omit` leaves out a default reference the user switched off in the dialog.
       const omit = new Set(Array.isArray(input.omit) ? input.omit : [])
-      if (!['background','identity-settei'].includes(target.kind) && !omit.has('identity')) {
-        const identity = ctx.figure.identitySettei, stale = !!identity && target.kind !== 'settei' && ctx.outfit.setteiParentVersion !== undefined && ctx.outfit.setteiParentVersion !== identity.version
-        // The identity board wears a sample outfit, unless it is also this outfit's own settei (a character settei
-        // registered on both): then it is this outfit's clothing authority too.
-        const worn = !!identity && identity.board === ctx.outfit?.settei
-        if (identity && !stale) await packImage(identity.board, worn ? roles.identityOutfit : roles.identity, 'identity-settei')
-        // An outfit settei is drawn from both sheets of the identity settei; a 差分 takes the outfit's own two sheets below.
-        if (identity?.parts && target.kind === 'settei') await packImage(identity.parts, worn ? roles.setteiParts : roles.identityParts, 'identity-settei')
+      // The person comes from the base settei (figureBaseSettei: the default outfit's, else an older identity board). The
+      // default outfit's own settei is not its own reference; its 差分 take it below as this outfit's settei.
+      const base = ctx.figure && figureBaseSettei(ctx.figure)
+      if (base && !['background','identity-settei'].includes(target.kind) && !omit.has('identity') && base.outfitKey !== ctx.outfit?.key) {
+        // an identity board an outfit settei no longer descends from is left out (the settei is the outfit's authority)
+        const stale = base.outfitKey === null && target.kind !== 'settei' && ctx.outfit.setteiParentVersion !== undefined && ctx.outfit.setteiParentVersion !== base.version
+        // The base wears another outfit (a sample), unless it is also this outfit's own settei (a board registered on both).
+        const worn = base.board === ctx.outfit?.settei
+        const role = worn ? roles.identityOutfit : base.outfitKey === null ? roles.identity : roles.defaultOutfit
+        if (!stale) await packImage(base.board, role, 'identity-settei')
+        // An outfit settei is drawn from both sheets of the base; a 差分 takes the outfit's own two sheets below.
+        if (base.parts && target.kind === 'settei') await packImage(base.parts, worn ? roles.setteiParts : roles.identityParts, 'identity-settei')
       }
       let anchor
       if (['sprite','avatar','avatar-sheet'].includes(target.kind)) {
@@ -536,17 +542,21 @@ export function createAssetGeneration({store, imageProvider = () => null, getLib
       } finally { controllers.delete(key) }
     },
     // 自动选角 (auto cast): the prompt and output of one automatic picture, from the same templates as the asset pictures. figure {ref, name, emotions}: its 外貌 is its 配图 人物库 record's (方案甲), else `appearance`
-    // (the text the 选角助理 wrote, before the record has it). fromSettei: the one image sent is the figure's 人设图.
-    // 画风: the chain of the card (cardPath) and its 自动素材 pack.
+    // Before the record exists, appearance comes from the assistant. 画风 follows the card and its 自动素材 pack.
     async autoPrompt({kind, figure, emotionId, userPrompt = '', fromSettei = false, appearance = '', cardPath}) {
       assert(['identity-settei','sprite'].includes(kind), 'INVALID_ARGUMENT', '未知素材类型')
       const chain = await genStyle.links({cardPath})
-      const styled = use => { const value = genStyle.resolve(chain, genStyleUse(use)); return value.id === PACK_BACKGROUND_STYLE ? NO_STYLE : value.id }
-      const linked = await linkedAppearance({packId:figure.ref.packId, figureId:figure.ref.figureId})
+      const drawn = kind === 'identity-settei' ? 'settei' : kind
+      const use = assetStyleUse(drawn), style = genStyle.resolve(chain, genStyleUse(use)).id
+      // A figure with no enabled outfit uses the character record's default.
+      const stored = (await getLibrary()?.getPackSnapshot({packId:figure.ref.packId}))?.figures?.[figure.ref.figureId]
+      const enabled = stored?.outfits.find(row => row.enabled)
+      const linked = await linkedAppearance({packId:figure.ref.packId, figureId:figure.ref.figureId, outfitKey:enabled?.key ?? null})
       const emotion = emotionId === undefined ? undefined : matchBubbleMood(emotionId, figure.emotions || []) || figure.emotions?.find(row => row.id === emotionId)
-      const values = assetPromptValues({kind, figure:{name:figure.name, emotions:figure.emotions, identityAppearance:linked?.identityAppearance || appearance}, outfit:{},
-        emotion, userPrompt, references:fromSettei ? [{role:kind === 'identity-settei' ? roles.identity : roles.identityOutfit}] : []})
-      return {prompt:composeAssetPrompt(await readTemplate(kind), values), output:assetOutput(kind), promptPreset:styled(assetStyleUse(kind)), usage:assetStyleUse(kind)}
+      const values = assetPromptValues({kind:drawn, figure:{name:figure.name, emotions:figure.emotions, identityAppearance:linked?.identityAppearance || appearance, identityBack:linked?.identityBack || ''},
+        outfit:{label:enabled?.label || linked?.outfitName, outfitAppearance:linked?.outfitAppearance || '', outfitBack:linked?.outfitBack || '', base:true},
+        emotion, userPrompt, references:fromSettei ? [{role:roles.identityOutfit}] : []})
+      return {prompt:composeAssetPrompt(await readTemplate(drawn), values), output:assetOutput(drawn), promptPreset:style === PACK_BACKGROUND_STYLE ? NO_STYLE : style, usage:use}
     },
     // 自动选角's cheap checks of one picture (decode, size, transparency, edge contact): the same as a drawn candidate's.
     autoCheck: (data, kind) => pictureChecks(data, kind),

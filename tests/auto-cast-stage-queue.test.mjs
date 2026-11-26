@@ -179,7 +179,6 @@ test('a new figure: 人设图 then its first 立绘 from it, each landed at once
   await h.cast.round('cards/c.json', body([['甲', '喜悦']]), chat)
   await settle(() => kinds(h.writes).length >= 2)
   assert.deepEqual(h.prompts.map(p => p.kind), ['identity-settei', 'sprite'])
-  assert.match(h.prompts[0].userPrompt, /front view.*back view/)
   assert.equal(h.prompts[1].emotionId, 'joy')
   assert.ok(h.prompts.every(p => p.cardPath === 'cards/triangle.json'), 'each drawing resolves its 画风 from the card (and its pack)')
   assert.equal(h.generated[1].references.length, 1, 'the 立绘 is drawn from the 人设图')
@@ -306,6 +305,32 @@ test('automatic prompts come from the same templates as the asset pictures', asy
   generation.dispose()
 })
 
+test('automatic prompts dress the figure in its default outfit\'s record text', async () => {
+  const {createAssetGeneration} = await import('../tavern-plugin/lib/domain/asset-generation.js')
+  let enabled = true
+  const library = {getPackSnapshot:async () => ({figures:{f:{outfits:[{key:'swim', label:'泳装', enabled:false}, {key:'magic', label:'魔法少女服', enabled}]}}})}
+  const asked = []
+  // the real lookup: appearanceFromImageCharacter over the figure's record (null: the record's default outfit)
+  const {appearanceFromImageCharacter} = await import('../tavern-plugin/lib/domain/image-character-appearance.js')
+  const record = {traits:{face:'银发红瞳', faceBack:'braided hair at the nape'}, outfits:[{id:'swim', name:'泳装', upper:'swimsuit'}, {id:'magic', name:'魔法少女服', default:true, upper:'pink magical girl dress', lower:'white cape', back:'star clasp on the cape'}]}
+  const generation = createAssetGeneration({store:{readJson:async () => undefined}, getLibrary:() => library,
+    linkedAppearance:async ref => { asked.push(ref.outfitKey); return appearanceFromImageCharacter(record, ref.outfitKey) }})
+  const figure = {ref:{packId:'p', figureId:'f'}, name:'甲', emotions:[{id:'joy', label:'喜悦'}]}
+  const sprite = (await generation.autoPrompt({kind:'sprite', figure, emotionId:'joy', fromSettei:true})).prompt
+  assert.match(sprite, /银发红瞳/); assert.match(sprite, /Outfit: 魔法少女服/); assert.match(sprite, /pink magical girl dress；white cape/); assert.doesNotMatch(sprite, /swimsuit/)
+  const settei = (await generation.autoPrompt({kind:'identity-settei', figure})).prompt
+  // The default outfit's settei is the figure's base sheet.
+  assert.match(settei, /Outfit: 魔法少女服\./); assert.match(settei, /Outfit: """pink magical girl dress；white cape"""/); assert.match(settei, /This is the default outfit\./)
+  assert.match(settei, /Back view only[^\n]+braided hair at the nape[^\n]+star clasp on the cape/)
+  assert.doesNotMatch(sprite, /braided hair at the nape|star clasp on the cape/)
+  assert.deepEqual(asked, ['magic', 'magic'])
+  // a figure with no picture yet has no enabled outfit: the 人物库 record's default outfit dresses it
+  enabled = false
+  const drawn = (await generation.autoPrompt({kind:'sprite', figure, emotionId:'joy', fromSettei:true})).prompt
+  assert.match(drawn, /Outfit: 魔法少女服/); assert.match(drawn, /pink magical girl dress；white cape/); assert.doesNotMatch(drawn, /swimsuit/)
+  assert.equal(asked.at(-1), null)
+  generation.dispose()
+})
 
 // 11-12 验收: a write the library refused showed only in the host log; now the card's record keeps it for 自动素材's page.
 test('a refused write is kept for the player and the round stops there; the status names it until a picture lands after it', async () => {

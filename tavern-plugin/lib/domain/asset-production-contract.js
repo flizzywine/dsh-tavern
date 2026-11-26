@@ -14,6 +14,7 @@ export const ASSET_REFERENCE_ROLES = Object.freeze({
   // is also this outfit's settei, so it carries the clothes too.
   identity:'Approved identity settei: authority for the person only: cross-outfit face, body type and proportions, hair structure, inherent skin/eye/hair colours and signature accessories. The clothes it shows are a sample outfit, not this outfit: draw the clothes from the outfit settei or the Outfit text and notes; keep the sample clothes only when none of them describes clothing',
   identityOutfit:'Approved identity settei, drawn in this outfit: authority for the face, body proportions, hair structure and inherent skin/eye/hair colours, and also for this outfit\'s clothing',
+  defaultOutfit:'The default outfit\'s approved settei: authority for the person only: face, body type and proportions, hair structure, inherent skin/eye/hair colours and signature accessories. Its clothes are the default outfit, not this one: draw the clothes from the outfit settei or the Outfit text and notes',
   settei:'Approved outfit settei: authority for clothing, outfit colours and explicit hair/accessory differences against its parent identity version; not sheet layout',
   identityParts:'Second sheet of the approved identity settei: its eye and accessory close-ups over the colour card; the same authority as the identity settei: the eyes and signature accessories, not the sample outfit\'s pieces or colours',
   setteiParts:'Second sheet of the approved outfit settei: its eye and accessory close-ups over the colour card; the same authority as the outfit settei for those details',
@@ -22,11 +23,13 @@ export const ASSET_REFERENCE_ROLES = Object.freeze({
   avatar:'Default variant avatar: match face scale, eye height and framing',
   base:'Source sprite: preserve every pixel except the requested local edit'
 })
+// The default outfit's settei is every other outfit's, avatar's and scene picture's person (figureBaseSettei).
+const BASE_OUTFIT_LINE = 'This is the default outfit. The sheet is also the identity reference for every other outfit and for scene pictures: draw the face, eye construction, hair structure, body proportions and signature accessories with full care.'
 // 画风 is a style preset of the image plugin (its text and name live there): the template describes the picture, and the
 // plugin adds the preset's text for this kind's use — 'figure' (one character on a transparent background, and local
 // edits of one), 'sheet' (a settei), 'background' (an empty place) or 'scene' (a CG, a prop, UI art). 'style' and
 // 'styleScope' are the former in-template finish; an older 设置 → 生图 override may still carry them, and their lines are left out.
-const variables = new Set(['figureName','outfitName','identityAppearance','outfitAppearance','emotion','emotionGuidance','userPrompt','referenceRoles','style','styleScope','backgroundStyle','sheetLayout'])
+const variables = new Set(['figureName','outfitName','identityAppearance','outfitAppearance','identityBack','outfitBack','baseOutfit','emotion','emotionGuidance','userPrompt','referenceRoles','style','styleScope','backgroundStyle','sheetLayout'])
 const STYLE_USES = {sprite:'figure', avatar:'figure', 'avatar-sheet':'figure', mouth:'figure', blink:'figure', settei:'sheet', 'identity-settei':'sheet', background:'background'}
 export const assetStyleUse = kind => STYLE_USES[kind] || 'scene'
 export const BACKGROUND_STYLE_REFERENCE_ROLE = 'Background style only: match rendering and colour language, never copy composition or objects; the redraw source remains the composition authority'
@@ -50,7 +53,8 @@ export function assetPrerequisites(kind, emotionId, {settei,defaultEmotion,defau
   return null
 }
 export function assetPromptValues({kind,backgroundStyle,figure = {},outfit = {},emotions,emotion,userPrompt = '',references = [],sheet}) {
-  return {sheetLayout:skinSheetLayoutText(sheet),backgroundStyle:['background','edit'].includes(kind) ? backgroundStyle?.prompt : undefined,figureName:figure.name,outfitName:outfit.label,identityAppearance:figure.identityAppearance,outfitAppearance:outfit.outfitAppearance,
+  return {sheetLayout:skinSheetLayoutText(sheet),backgroundStyle:['background','edit'].includes(kind) ? backgroundStyle?.prompt : undefined,figureName:figure.name,outfitName:outfit.label,identityAppearance:figure.identityAppearance,outfitAppearance:outfit.outfitAppearance,identityBack:figure.identityBack,outfitBack:outfit.outfitBack,
+    baseOutfit:kind === 'settei' && outfit.base ? BASE_OUTFIT_LINE : '',
     emotion:emotions ? emotions.map((e,index)=>`${index+1}. ${e.label}`).join('; ') : emotion?.label,
     emotionGuidance:emotions ? emotions.map(e=>`${e.label}: ${assetEmotionGuidance(e,figure)}`).join('\n') : emotion ? assetEmotionGuidance(emotion,figure) : '',
     userPrompt:kind === 'background' && backgroundStyle ? [userPrompt, references.length ? 'Reference images (style only, not layouts):\n' + references.map((r,i)=>`Image ${i+1}: ${r.role}`).join('\n') : ''].filter(Boolean).join('\n\n') : userPrompt,referenceRoles:references.map((r,i)=>`Image ${i+1}: ${r.role}`).join('\n')}
