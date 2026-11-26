@@ -14,7 +14,7 @@ test('SVG skin decoding does not load native image libraries into the calling pr
     const size = await decodeSkinSvg(svg)
     const loaded = process.report.getReport().sharedObjects.filter(name => /sharp|libvips/i.test(name))
     console.log(JSON.stringify({size, loaded}))`
-  const {stdout} = await exec(process.execPath, ['--input-type=module', '--eval', source], {env: process.env})
+  const {stdout} = await exec(process.execPath, ['--input-type=module', '--eval', source], { windowsHide: true,env: process.env})
   const result = JSON.parse(stdout)
   assert.deepEqual(result.loaded, [])
   assert.ok(result.size)
