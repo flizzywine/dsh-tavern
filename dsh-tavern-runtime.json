@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "3e3fd8229695e386fd32341cb8510389db0333b4",
-  "releaseSequence": 2121,
+  "revision": "3eed4ab72a0352bf26262c92c387f3673323c7bf",
+  "releaseSequence": 2122,
   "version": "3.4.0",
   "files": [
     {
@@ -796,8 +796,8 @@
     },
     {
       "path": "presets/tavern/skills/card-to-mvu/SKILL.md",
-      "sha256": "aea445a60366b2226352df54a1eaa33b868747ed612ec9e8f03e4be8f8bce8e5",
-      "size": 4190
+      "sha256": "7a5e7d91ba8b59600ed0211423ee4dc8caf684a779cf7377130be8d56add709f",
+      "size": 4196
     },
     {
       "path": "presets/tavern/skills/create-card/references/worldbook-entries.md",
@@ -806,18 +806,18 @@
     },
     {
       "path": "presets/tavern/skills/create-card/SKILL.md",
-      "sha256": "a6ac6fd5d0c1fd3044a3c7dd71d18638ebeb4cb5851d8a8109b605dfb127da35",
-      "size": 3661
+      "sha256": "9e8fcf8e37d86ef29d41b0f0dc671ecac4236bc4bae62322a53ded728948fa06",
+      "size": 3595
     },
     {
       "path": "presets/tavern/skills/create-dsh-card/references/format-and-stage.md",
-      "sha256": "eb4118b2adb95acc76372522a037a1abf33c07b4b532a586b0ddc6ed85f0bf7c",
+      "sha256": "44742ddb17f965153cd66fec387aac778ba057af29e21c89f82e0dd4b3cb8a4f",
       "size": 6515
     },
     {
       "path": "presets/tavern/skills/create-dsh-card/SKILL.md",
-      "sha256": "0054b5675be65cd6ffd559daf17308c38755921019bac39545b1c1ec3008a186",
-      "size": 5211
+      "sha256": "3b0fcfcf6e53397caa69452642aee4be02468c19a4a736f6107bd45e6a1cd293",
+      "size": 5064
     },
     {
       "path": "presets/tavern/skills/create-skill/SKILL.md",
@@ -1723,11 +1723,6 @@
       "path": "tavern-plugin/lib/domain/card-reading.js",
       "sha256": "d70ff3d26cf228f5d7d314829dde8116235a0cf6e50264cc1befb3e29f11fb41",
       "size": 3920
-    },
-    {
-      "path": "tavern-plugin/lib/domain/card-response-test.js",
-      "sha256": "77d743c7042f0ef8b90b74408930fce4b8baeb9b169b77538f9f6f4abb8bb00f",
-      "size": 11648
     },
     {
       "path": "tavern-plugin/lib/domain/card-stage-settings.js",
@@ -4121,8 +4116,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/turn-orchestration.js",
-      "sha256": "fa60e1220d9eaf57ad61b1862d56abfc17062044a51401be24f13a4edee3591a",
-      "size": 90779
+      "sha256": "b13a4fb6a3e871e1851ea770eb4e80fd1c749ac1112d1b989936152e5802099c",
+      "size": 90755
     },
     {
       "path": "tavern-plugin/lib/domain/uncommitted-rounds.js",
@@ -4496,8 +4491,8 @@
     },
     {
       "path": "tavern-plugin/lib/index.js",
-      "sha256": "d461aa2d8bcd72e4bddc547fe4c30a6e9d7e53eb74e3974229a295be73f15810",
-      "size": 345074
+      "sha256": "babb910b659ab0d179108e2c86c6a179b1ef816225a02495aa6985e2275c8e19",
+      "size": 344792
     },
     {
       "path": "tavern-plugin/lib/metadata-backup.js",
@@ -4721,8 +4716,8 @@
     },
     {
       "path": "tavern-plugin/lib/tools/gameplay.js",
-      "sha256": "b857d0742dc8a34969b0318c8892f82eb19ff822a496df62bc735be3c262450e",
-      "size": 4694
+      "sha256": "ffbdaaf51b458b68aa1e529e614645d27608a5f1463de2d12767e03c7037b527",
+      "size": 2513
     },
     {
       "path": "tavern-plugin/lib/tools/play-chat.js",
@@ -10301,9 +10296,9 @@
     }
   ],
   "archive": {
-    "commit": "3baefad2c50a1d71203b769eb9ca1d9f57f2e613",
+    "commit": "f6c3d5fe733749676da67b0368dba25c4734e272",
     "path": "runtime.zip",
-    "sha256": "69fd87e50bedc66dce8d7182624bd15467a06742164c82538cf1320cf3f69243",
-    "size": 18096696
+    "sha256": "a5303ec233f242e529c22fcbf08b1b094fcdc3c5ad1dc0b8dc1c218e9c3fd1f1",
+    "size": 18091926
   }
 }
