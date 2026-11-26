@@ -140,7 +140,7 @@ function GalNamePlate(props) {
     // button opens her 声音 page.
     const reason = state === "error" ? stageTtsMessages().ttsErrorMessage(props.voiceError, { name: props.name }) : null;
     const unset = state === "error" && GAL_FIGURE_VOICE_CODES.has(props.voiceError), open = unset && props.onOpenVoice;
-    const label = unset ? reason.replace(/。$/, "") + (open ? "；点击前往" : "")
+    const label = unset ? (open ? reason.replace(/。$/, "") + "（点击打开）" : reason)
         : state === "error" ? (reason ? "配音失败：" + reason.replace(/。$/, "") + "；点击重试" : "配音失败，点此重试") : state === "loading" ? "语音准备中" : "重播这一句";
     const voice = state ? h("button", { type: "button", className: "fork-gal-voice", "data-state": state, title: state === "loading" || open ? label : label + "（V）", "aria-label": label, "aria-keyshortcuts": "V",
         onClick: event => { event.stopPropagation(); if (open) props.onOpenVoice(); else props.onReplay(); },

@@ -10381,7 +10381,7 @@ window.__ModuleLoader__.load({
 		      MINIMAX_INVALID_AUDIO:'MiniMax 没有返回有效音频，请重试；再次失败请检查 MiniMax 服务状态。',
 		      MINIMAX_REQUEST_FAILED:'MiniMax 拒绝了合成请求，请检查音色、模型和账户状态后重试。',
 		      SERVICE_REQUIRED:'还没有可用的语音服务，请在语音后端设置所选声音对应的服务。',
-		      VOICE_UNSET:'{name}还没选声音：到 素材包 › {name} › 声音 里选一个。',
+		      VOICE_UNSET:'{name}还没选声音，去 素材包 › {name} › 声音 选一个。',
 		      CREDENTIALS_REQUIRED:'语音服务缺少 API Key，请在语音后端填写对应服务的 API Key。',
 		      MISSING_REFERENCE:'当前声音没有可用的参考音频，请在人物声音页补充当前发声方式的参考音频。',
 		      LANGUAGE_UNSUPPORTED:'当前声音不支持所选语言，请在人物声音页更换配音语言或声音。',
