@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "15b67681fac78be82ce47c949e529fa9fd78fd7b",
-  "releaseSequence": 2129,
+  "revision": "1f828ec80b48248b40b03d31790ba53e87cb4714",
+  "releaseSequence": 2130,
   "version": "3.4.0",
   "files": [
     {
@@ -3161,8 +3161,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/pure-writing-request.js",
-      "sha256": "1648373b78e3e1884108bf1f9540792330b6b1586235ed5f028f4a978a600821",
-      "size": 7830
+      "sha256": "023ca41ba28df0c3a243d53398d417c4dc11b036907c24942c795cd2965fed87",
+      "size": 8781
     },
     {
       "path": "tavern-plugin/lib/domain/read-variables.js",
@@ -4406,8 +4406,8 @@
     },
     {
       "path": "tavern-plugin/lib/hooks/model-stream.js",
-      "sha256": "ccc607dd37db987fcb3e20932a1b49df922545df78afb430381b28d95b8d0d94",
-      "size": 28883
+      "sha256": "40cb0f1e646fb256ec92697a5e0c5ef312f81556017420fe6077589c6f38afce",
+      "size": 28992
     },
     {
       "path": "tavern-plugin/lib/hooks/request.js",
@@ -10301,9 +10301,9 @@
     }
   ],
   "archive": {
-    "commit": "0895fbff05a5bfff00b8ae6ef8d82bc7c73bd383",
+    "commit": "1556d1186319954ec83ca858cdc5710190b7b1f0",
     "path": "runtime.zip",
-    "sha256": "dd58bf7ddf3ecbad93915b1a7c895930b300b45c7f16f91ee4f6f44a4d55a301",
-    "size": 18103751
+    "sha256": "dd57336ff8889ae12c0580f4dcc4b752e8e622d8323995a5c120a036ce07f24a",
+    "size": 18103977
   }
 }
