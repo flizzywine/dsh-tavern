@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "822f06f4cc3058edcb8a50add6e61e00098045ee",
-  "releaseSequence": 2109,
+  "revision": "555f7cf56bcabe8e64e3100d4898c2dad06e8354",
+  "releaseSequence": 2110,
   "version": "3.4.0",
   "files": [
     {
@@ -110,14 +110,19 @@
       "size": 2471
     },
     {
+      "path": "android/native/app/src/io/github/flizzywine/dshtavern/bionic/DataRepair.java",
+      "sha256": "3edc8fb077eb2baeceaea6db296eb436069fd4f19dfa73567f19a43f3c81cbdf",
+      "size": 9372
+    },
+    {
       "path": "android/native/app/src/io/github/flizzywine/dshtavern/bionic/LanProxy.java",
       "sha256": "a66917f7bfab1291de5988f31abe7a9414f1b928bfb54e378c74d2248c448969",
       "size": 12150
     },
     {
       "path": "android/native/app/src/io/github/flizzywine/dshtavern/bionic/MainActivity.java",
-      "sha256": "3a4102a4517ccba1f15ba3af93a599dd7fccdcab47e77f8324d9cca7abcd3709",
-      "size": 47849
+      "sha256": "0268070d762157b78034ae76bdfc481b92f8bd5cba39dcca22a007b5ee5fdb0c",
+      "size": 58742
     },
     {
       "path": "android/native/app/src/io/github/flizzywine/dshtavern/bionic/TarExtractor.java",
@@ -126,8 +131,8 @@
     },
     {
       "path": "android/native/app/src/io/github/flizzywine/dshtavern/bionic/TavernService.java",
-      "sha256": "679138cd0fc09979ac73be159a976827cec5ed048221e30ccff6d6b11b012e54",
-      "size": 49538
+      "sha256": "f610b8284e6c5b84d33a9289a95e18e1876b551529a457e88235dd62e9e80229",
+      "size": 69813
     },
     {
       "path": "android/native/app/src/io/github/flizzywine/dshtavern/bionic/UpdatedReceiver.java",
@@ -186,8 +191,8 @@
     },
     {
       "path": "android/native/README.md",
-      "sha256": "d83fa2ac72fb1f50be4881d806e8e9781901ce84a03036d728abb7a0094a3f55",
-      "size": 19582
+      "sha256": "09f1fc4bb932a5c778a53b32f5356210ce178809acb5b5b56384fd0254aeb47a",
+      "size": 21604
     },
     {
       "path": "android/native/release-smoke.mjs",
@@ -4578,6 +4583,11 @@
       "path": "tavern-plugin/lib/README.md",
       "sha256": "9ea1a52aca5c742bf70fd9d186401f95f3d4865a4d60d27870a740a386dbfda7",
       "size": 2140
+    },
+    {
+      "path": "tavern-plugin/lib/rescue-export.mjs",
+      "sha256": "e88b7621070e7f4e03efc7fff28eec73987f6a79d7c3c08ce035593a875f5774",
+      "size": 25999
     },
     {
       "path": "tavern-plugin/lib/rpc/cards.js",
@@ -10291,9 +10301,9 @@
     }
   ],
   "archive": {
-    "commit": "c1cfb2771d540a829f7f71d9cb8fb21656f9d25e",
+    "commit": "b188b493038b221c45456ecb1599f5c08328bee0",
     "path": "runtime.zip",
-    "sha256": "f68a0545df8d56990f9c9daa96677ec57f4d2eb5286fb95aa4b0a0e62ba6268c",
-    "size": 18062413
+    "sha256": "fa0082ab9bd2fe764f7fef3212564861f642ba689f87a5e6ebd7e4941272c734",
+    "size": 18082404
   }
 }
