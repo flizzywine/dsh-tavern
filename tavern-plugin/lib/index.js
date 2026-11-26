@@ -131,7 +131,6 @@ import { adoptConversationFeatures, adoptConversationBackground } from './domain
 import { clearLegacyTavernDefault } from './domain/legacy-agent-default.js'
 import { conversationStateAtMessage, conversationStateAtTurn, conversationForkBoundary, FORK_BOUNDARY_MISSING, FORK_BOUNDARY_UNSAFE } from './domain/conversation-fork-point.js'
 import { legacyMessageUid } from './domain/message-uid.js'
-import { createCardResponseTest } from './domain/card-response-test.js'
 import { createGameplayApi } from './gameplay-api.js'
 import { cardOpeningChoices } from './domain/card-openings.js'
 import { projectCardPageOpening } from './domain/card-page-opening.js'
@@ -4689,9 +4688,6 @@ export async function apply(ctx) {
     requiresBrowser: async chat => hasTavernScriptRuntime(chat, (await readCardExtensions(chat.cardPath, chat))?.helperScripts)
   })
 
-  const cardResponseTest = createCardResponseTest({ api: gameplayApi, store: profileData, chatForSession })
-  ctx.effect(() => () => cardResponseTest.dispose())
-
   const preparedSaveSessions = new Map((saveUpgradePreparation?.sessions || []).map(session => [session.id, session]))
   const saveUpgrade = createSaveUpgrade({
     store: chatJournalStore,
@@ -5146,7 +5142,7 @@ export async function apply(ctx) {
   }
 
   const skillGatedTools = createSkillGatedTools({ pluginSkills: name => pluginApi.toolSkillsFor(name) })
-  const controlledToolNames = new Set([...modTools.map(tool => tool.name), STYLE_REFERENCE_TOOL_NAME, STORY_SUBMIT_TOOL_NAME, STORY_CONTEXT_TOOL_NAME, STORY_GENERATE_TOOL_NAME, 'tavern_read_variables', ...WORLDBOOK_ACCESS_TOOLS, ...CARD_MEMORY_TOOLS, 'bash', 'pwsh', ...dshFileToolNames, 'skill', 'tavern_read_skill_reference', 'tavern_read_skill', 'web_search', 'web_fetch', 'tavern_save_skill', ...cordisToolNames, 'tavern_user_profile_read', 'tavern_user_profile_save', 'tavern_user_profile_confirm', 'tavern_read_card', 'tavern_read_card_raw', 'tavern_search_card', 'tavern_replace_card_text', 'tavern_mvu_overview', 'tavern_apply_mvu', 'tavern_read_play_chat', 'tavern_read_script', 'tavern_recall_history', 'worldbook_search', WORKBENCH_READ_LOREBOOK_TOOL, WORKBENCH_UPDATE_LOREBOOK_TOOL, 'tavern_read_preset', 'tavern_update_preset', 'tavern_read_regex_library', 'tavern_copy_card', 'tavern_set_card_cover', 'tavern_export_card_png', 'tavern_update_card', 'tavern_restore_card', 'tavern_validate_card', 'tavern_test_response'])
+  const controlledToolNames = new Set([...modTools.map(tool => tool.name), STYLE_REFERENCE_TOOL_NAME, STORY_SUBMIT_TOOL_NAME, STORY_CONTEXT_TOOL_NAME, STORY_GENERATE_TOOL_NAME, 'tavern_read_variables', ...WORLDBOOK_ACCESS_TOOLS, ...CARD_MEMORY_TOOLS, 'bash', 'pwsh', ...dshFileToolNames, 'skill', 'tavern_read_skill_reference', 'tavern_read_skill', 'web_search', 'web_fetch', 'tavern_save_skill', ...cordisToolNames, 'tavern_user_profile_read', 'tavern_user_profile_save', 'tavern_user_profile_confirm', 'tavern_read_card', 'tavern_read_card_raw', 'tavern_search_card', 'tavern_replace_card_text', 'tavern_mvu_overview', 'tavern_apply_mvu', 'tavern_read_play_chat', 'tavern_read_script', 'tavern_recall_history', 'worldbook_search', WORKBENCH_READ_LOREBOOK_TOOL, WORKBENCH_UPDATE_LOREBOOK_TOOL, 'tavern_read_preset', 'tavern_update_preset', 'tavern_read_regex_library', 'tavern_copy_card', 'tavern_set_card_cover', 'tavern_export_card_png', 'tavern_update_card', 'tavern_restore_card', 'tavern_validate_card'])
   const foregroundStrategies = createForegroundOrchestrationStrategies({
     nativePlay: {
       writingPreparation: pluginApi.writingPreparation,
@@ -5323,7 +5319,6 @@ export async function apply(ctx) {
       chatForSession,
       isBackground: sessionId => backgroundAgentRunner.owns(sessionId),
       readChatCard,
-      cardResponseTest,
       foregroundRecallScopes,
       recallHistoryForSession,
       tools,

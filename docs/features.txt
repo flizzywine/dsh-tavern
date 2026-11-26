@@ -197,7 +197,6 @@ DSH Tavern 功能清单（纯文本审阅版）
    正则库：tavern_read_regex_library，读取本局全局、预设快照和人物卡自带的正则及开关状态；全局规则立即生效，预设/人物卡只在本局覆盖，不改写来源文件。
 7. 用户画像：tavern_user_profile_read、tavern_user_profile_save_draft、tavern_user_profile_confirm，分别读取、保存草案和确认画像。
 8. Skill 保存与资料读取：tavern_save_skill、tavern_read_skill_reference，保存可复用的方法，按需加载配套资料。
-9. 调试验证：tavern_test_response，供 Agent 在调试流程中测试响应；不能仅凭一次测试保证所有场景正确。
 
 十四、内置 Skill 与自定义 Skill
 

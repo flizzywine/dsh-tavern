@@ -32,7 +32,7 @@ try {
   assert.equal(typeof host.services.get('tavernSessionSignals')?.control, 'function')
   assert.ok(host.events.has('system-prompt/assemble'), 'apply must reach final registrations')
   assert.equal(host.registeredTools.has('worldbook_search'), false, 'upstream native worldbook skills do not restore the retired search tool')
-  for (const name of ['tavern_test_response', 'tavern_recall_history', 'tavern_user_profile_read',
+  for (const name of ['tavern_recall_history', 'tavern_user_profile_read',
     'tavern_read_skill', 'tavern_read_skill_reference', 'tavern_read_variables',
     'tavern_copy_card', 'tavern_set_card_cover', 'tavern_export_card_png', 'tavern_memory_search', 'tavern_validate_card', 'tavern_read_play_chat',
     'tavern_read_script', 'tavern_read_lorebook', 'tavern_update_preset', 'tavern_read_regex_library', 'tavern_restore_card',
