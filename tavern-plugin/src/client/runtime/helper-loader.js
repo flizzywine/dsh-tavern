@@ -168,7 +168,10 @@
 		function loadTavernHelperModule(source, scriptId, previewScope, beforeMount) {
             // Saved card snapshots can retain the previous projected asset URL.
             // Change only the projection version, not the pinned source hash.
-            source = String(source).replace(/(\/api\/dsh-tavern\/remote-assets\/[^\s"'`<>?]+)\?host=1\b/g, "$1?host=2");
+            source = String(source).replace(/(\/api\/dsh-tavern\/remote-assets\/[^\s"'`<>?]+)\?host=[12]\b/g, "$1?host=3");
+			// WebKit can give srcdoc modules an about:srcdoc resolution base.
+			source = source.replace(/(\b(?:from|import)\s*)(["'])(\/api\/dsh-tavern\/(?:remote-assets\/|static-assets\?)[^"'\r\n]+)\2/g,
+				(match, prefix, quote, url) => document.baseURI ? prefix + quote + new URL(url, document.baseURI).href + quote : match);
 			// Card pages may declare a lexical `$` that shadows window.jQuery.
 			// Bind the managed MVU module to its runtime dependency, not page globals.
 			if (scriptId === "__dsh_official_mvu__") {
@@ -234,8 +237,7 @@
 					finish(loadFailure(event));
 				};
 				element.type = "module";
-				// Inline modules inherit srcdoc's document base. Native imports retain
-				// bindings/re-exports and dynamic imports can resolve local cache URLs.
+				// Native modules keep their bindings and re-exports.
 				// A completion footer waits for top-level await (a load event does not).
 				element.textContent = String(source) + "\n;window[" + JSON.stringify(completionKey) + "]?.();\n//# sourceURL=" + sourceUrl + "\n";
                 cancelMount = createTavernFrameLifecycle(window, document).mount(function () {

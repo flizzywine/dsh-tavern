@@ -506,12 +506,15 @@ export function registerTavernHttpRoutes({
           }
           if (readsStaticAsset) {
             const target = new URL(req.url ?? '/', 'http://x')
-            const asset = await tavernStaticResources.get(target.searchParams.get('url'))
+            // A card can import an unversioned CDN entry such as /latest/.
+            const moduleMaxAge = target.searchParams.get('host') === '3' ? 300 : null
+            const asset = await tavernStaticResources.get(target.searchParams.get('url'),
+              moduleMaxAge === null ? undefined : { maxAgeMs: moduleMaxAge * 1000 })
             const body = projectCachedResourceBody(asset)
             res.writeHead(200, {
               'Content-Type': str(asset.mediaType),
               'Content-Length': body.length,
-              'Cache-Control': 'public, max-age=31536000, immutable',
+              'Cache-Control': moduleMaxAge === null ? 'public, max-age=31536000, immutable' : 'public, max-age=' + moduleMaxAge,
               'Access-Control-Allow-Origin': '*',
               'Cross-Origin-Resource-Policy': 'cross-origin',
               'X-Content-Type-Options': 'nosniff',

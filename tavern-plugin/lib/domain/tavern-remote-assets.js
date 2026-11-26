@@ -66,7 +66,7 @@ function contentHash(content) {
 function cachedPath(asset) {
   const rawName = str(asset.path).split('/').filter(Boolean).at(-1) || 'asset.txt'
   const name = rawName.replace(/[^A-Za-z0-9._-]/g, '_') || 'asset.txt'
-  return '/api/dsh-tavern/remote-assets/' + asset.hash + '/' + name + '?host=2'
+  return '/api/dsh-tavern/remote-assets/' + asset.hash + '/' + name + '?host=3'
 }
 
 /** Resolve mutable jsDelivr GitHub references once and persist the commit pin. */

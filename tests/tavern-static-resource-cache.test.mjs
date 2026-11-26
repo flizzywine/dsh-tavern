@@ -99,3 +99,20 @@ test('非 GitHub 地址下载失败时照常报错，不尝试镜像', async t =
   await assert.rejects(cache.get('https://cdn.example.test/a.png'), /fetch failed/)
   assert.deepEqual(calls, ['https://cdn.example.test/a.png'])
 })
+
+test('有时效的模块缓存会重新下载可变版本，下载失败时使用上次版本', async t => {
+  const rootDir = await mkdtemp(path.join(os.tmpdir(), 'dsh-tavern-module-cache-'))
+  t.after(() => rm(rootDir, { recursive: true, force: true }))
+  let source = 'export const version = 1'
+  const cache = createTavernStaticResourceCache({ rootDir, fetch: async url => {
+    if (!source) throw new TypeError('offline')
+    return response(source, 'text/javascript', url)
+  } })
+  const url = 'https://cdn.example.test/latest/card.js'
+  assert.match((await cache.get(url)).body.toString(), /version = 1/)
+  source = 'export const version = 2'
+  assert.match((await cache.get(url)).body.toString(), /version = 1/)
+  assert.match((await cache.get(url, { maxAgeMs: 0 })).body.toString(), /version = 2/)
+  source = ''
+  assert.match((await cache.get(url, { maxAgeMs: 0 })).body.toString(), /version = 2/)
+})
