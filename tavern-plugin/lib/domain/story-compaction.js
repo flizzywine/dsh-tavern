@@ -1,9 +1,40 @@
 import { promptSection } from './prompt-section.js'
 import { sessionEvents } from './session-events.js'
 import { isPluginSource, isProducerSource } from './message-source.js'
+import { isCompactionCheckpointMessage } from './compaction-checkpoint.js'
 
 export function usesStoryCompaction(chat) {
   return chat !== null && typeof chat === 'object' && (chat.mode === 'story' || chat.mode === 'script')
+}
+
+function isStoryCheckpoint(message) {
+  if (message?.role !== 'user') return false
+  if (isCompactionCheckpointMessage(message)) return true
+  const source = message.source
+  return source !== null && typeof source === 'object' && ('compactionId' in source || source.plugin === 'compaction')
+}
+
+// 前台剧情压缩只总结剧情正文、玩家输入与旧摘要卷，不携带系统提示词、世界书、预设、插件指令帧和工具调用。
+function projectStoryCompactionMessage(message) {
+  if (!message || typeof message !== 'object') return null
+  if (message.role === 'system' || message.role === 'tool' || message.role === 'developer') return null
+  const content = Array.isArray(message.content) ? message.content : []
+  if (message.role === 'user') {
+    if (isStoryCheckpoint(message)) return content.length > 0 ? message : null
+    if (isPluginSource(message.source)) return null
+    const blocks = content.filter(block => block && (block.type !== 'text' || (typeof block.text === 'string' && block.text.trim() !== '')))
+    if (blocks.length === 0) return null
+    return blocks.length === content.length ? message : Object.freeze({ ...message, content: Object.freeze(blocks) })
+  }
+  if (message.role === 'assistant') {
+    const blocks = content.filter(block => block?.type === 'text' && typeof block.text === 'string' && block.text.trim() !== '')
+    if (blocks.length === 0) return null
+    if (blocks.length === content.length) return message
+    const source = message.source && typeof message.source === 'object' ? { ...message.source } : undefined
+    if (source) delete source.replayState
+    return Object.freeze({ ...message, content: Object.freeze(blocks), ...(source ? { source: Object.freeze(source) } : {}) })
+  }
+  return null
 }
 
 export function createStoryCompactionRequest(options, instruction) {
@@ -20,11 +51,16 @@ export function createStoryCompactionRequest(options, instruction) {
   if (message === null || typeof message !== 'object' || message.role !== 'user' ||
     (source !== undefined && source !== null && !isProducerSource(source, 'dsh-compaction-basic'))) return options
 
-  const messages = options.messages.slice()
-  messages[lastIndex] = Object.freeze(Object.assign({}, message, {
+  const history = options.messages.slice(0, lastIndex).map(projectStoryCompactionMessage).filter(Boolean)
+  const directive = Object.freeze(Object.assign({}, message, {
     content: Object.freeze([Object.freeze({ type: 'text', text: instruction })])
   }))
-  return Object.freeze(Object.assign({}, options, { messages: Object.freeze(messages) }))
+  const next = Object.assign({}, options, { messages: Object.freeze([...history, directive]) })
+  delete next.system
+  delete next.tools
+  delete next.toolHistory
+  delete next.toolChoice
+  return Object.freeze(next)
 }
 
 // Story compaction keeps the latest rounds verbatim. DSH's idle (manual) compaction

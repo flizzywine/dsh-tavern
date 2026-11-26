@@ -535,8 +535,7 @@ function inspectOpenAISseStreamForSignatures(response) {
 }
 
 export function runWithToolProtocolDirective(directive, fn) {
-  if (!directive) return fn()
-  return directiveStorage.run(directive, fn)
+  return directiveStorage.run(directive || null, fn)
 }
 
 export function currentToolProtocolDirective() {
