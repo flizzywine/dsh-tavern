@@ -8,7 +8,7 @@
 [
   { "id": "title", "label": "标题", "showOn": { "event": "stage-enter" }, "size": "full", "html": "…" },
   { "id": "status", "label": "状态", "shortcut": "s", "menu": true,
-    "ledger": ["items"], "figures": [{ "name": "辉夜", "emotion": "平静" }], "html": "…" }
+    "ledger": ["items"], "figures": [{ "name": "林小雨", "emotion": "平静" }], "html": "…" }
 ]
 ```
 
@@ -161,12 +161,12 @@ tavern_update_card({ rawOperations: [
 ```js
 {
   ledger: { items: [{ name: '钥匙', qty: 1, carried: true }] },
-  figures: [{ name: '辉夜', emotion: '平静', avatar: 'data:image/webp;base64,…' }],
+  figures: [{ name: '林小雨', emotion: '平静', avatar: 'data:image/webp;base64,…' }],
   theme: { accent: '#c79060', accentText: '#171717', surface: '#242321', surfaceText: '#faf7f2',
            muted: '#c6c0b8', border: '#70685f', radius: 12, fontFamily: '…', headingFont: '…' },
   saved: true,
   entry: false,
-  card: { name: '辉夜大小姐' }
+  card: { name: '雨巷咖啡馆' }
 }
 ```
 
