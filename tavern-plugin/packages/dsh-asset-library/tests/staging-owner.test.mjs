@@ -14,7 +14,7 @@ import { syntheticPack, PACK_ID, FIGURE_ID } from '../../../../tests/fixtures/as
 const storageUrl = new URL('../src/pack-v2/storage.js', import.meta.url).href
 const limits = {entrySize:1e8, totalSize:1e9, entries:10000}
 function child(code) {
-  const result = spawnSync(process.execPath, ['--input-type=module', '-e', code], {encoding:'utf8', timeout:30000})
+  const result = spawnSync(process.execPath, ['--input-type=module', '-e', code], { windowsHide: true,encoding:'utf8', timeout:30000})
   assert.equal(result.status, 0, result.stderr || String(result.error))
   return result.stdout
 }
