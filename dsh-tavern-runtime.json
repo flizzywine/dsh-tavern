@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "3eed4ab72a0352bf26262c92c387f3673323c7bf",
-  "releaseSequence": 2122,
+  "revision": "0633cffe544d0e6edd404937b2e4aef576d7f666",
+  "releaseSequence": 2123,
   "version": "3.4.0",
   "files": [
     {
@@ -1286,8 +1286,8 @@
     },
     {
       "path": "tavern-plugin/lib/client.js",
-      "sha256": "a2d63637269e552e8fab687be7365f8a00be0db0459973a3e4bd217545e4b7dd",
-      "size": 6806379
+      "sha256": "09b8f1ee60a0768756faa4b1ff8314cd1f16a6ac04e7a8cee8d6bbaec4493406",
+      "size": 6806832
     },
     {
       "path": "tavern-plugin/lib/cordis-inspect.js",
@@ -6941,8 +6941,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-asset-library/lib/pack-v2/service.js",
-      "sha256": "46ccadcf13c744abe5603bed83402d0067a4ff7a51fda0bc91dae28deb0d3f63",
-      "size": 136293
+      "sha256": "02f2c2867ed362b8045b4d4b8e95b51cc161e4027f13584cb8666f029dc92bca",
+      "size": 136318
     },
     {
       "path": "tavern-plugin/packages/dsh-asset-library/lib/pack-v2/settings-config.js",
@@ -7011,8 +7011,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-asset-library/lib/pack-v2/validation.js",
-      "sha256": "1c2f177c08c117a8f2fee27545790cf3a6fcfae1898ae0ce188d9b2e6d34d45e",
-      "size": 29303
+      "sha256": "33bea43a1d63e3327f51d2c5932388e0835b2caa973e4e365f4cf88d62d07bc3",
+      "size": 29857
     },
     {
       "path": "tavern-plugin/packages/dsh-asset-library/lib/pack-v2/voice-authoring.js",
@@ -7036,8 +7036,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-asset-library/lib/schema/skin.schema.json",
-      "sha256": "512dd913c9289c1e1d48c4764980ad6c30165d4128ffe55c9836be68f55e51b9",
-      "size": 326158
+      "sha256": "d6ed1715d40c07043b3b6eafc80a44bda45f6709b825ad97f6dacf9c07891993",
+      "size": 326171
     },
     {
       "path": "tavern-plugin/packages/dsh-asset-library/lib/shared/ambience-brightness.cjs",
@@ -7161,8 +7161,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-asset-library/lib/shared/stage-skin.cjs",
-      "sha256": "d808569fe876151f9b5770fa2ce27b55c87a581455630629c3473e63041976e4",
-      "size": 141944
+      "sha256": "32fdb24d9763ea63af099452f5e0b087f132e36301dae9a94f1182ce3c3c07d1",
+      "size": 142397
     },
     {
       "path": "tavern-plugin/packages/dsh-asset-library/lib/shared/stage-video.cjs",
@@ -7396,8 +7396,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-presentation-protocol/schema/skin.schema.json",
-      "sha256": "512dd913c9289c1e1d48c4764980ad6c30165d4128ffe55c9836be68f55e51b9",
-      "size": 326158
+      "sha256": "d6ed1715d40c07043b3b6eafc80a44bda45f6709b825ad97f6dacf9c07891993",
+      "size": 326171
     },
     {
       "path": "tavern-plugin/packages/dsh-presentation-protocol/src/asset-pack-digest.js",
@@ -7571,8 +7571,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-presentation-protocol/src/stage-skin.cjs",
-      "sha256": "664fbf51dde7b7bdfcc03195ad2a4bc9f44cfe3ef55267acf9370110e126d102",
-      "size": 141873
+      "sha256": "12c382e16ee8cf9b20db3042d27e0c9a85bbc20e251b5872fde48a21b385501c",
+      "size": 142326
     },
     {
       "path": "tavern-plugin/packages/dsh-presentation-protocol/src/stage-soundscape.cjs",
@@ -8706,8 +8706,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/build.mjs",
-      "sha256": "030bb92679133319551e9cbdbc126fac33875fcd6868d34f58e576e8797ef553",
-      "size": 27306
+      "sha256": "174ab5b27f5c1b7783f1b26dd7ff2f038804d19d49c87f7c7321bb5432e4e885",
+      "size": 27359
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/cordis.patch.yml",
@@ -8781,8 +8781,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/client.js",
-      "sha256": "59475803fed0887a1389443c9391fa04a285c2270e5011968d0934120384e5e8",
-      "size": 3632917
+      "sha256": "05a7fc2363731ad58e6c62a3fa69be23105e4265ca59216a064c0f655aa79e1c",
+      "size": 3650141
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/client/director-source.cjs",
@@ -10296,9 +10296,9 @@
     }
   ],
   "archive": {
-    "commit": "f6c3d5fe733749676da67b0368dba25c4734e272",
+    "commit": "98b48097c6fc57441c38ae44da220969664b85b6",
     "path": "runtime.zip",
-    "sha256": "a5303ec233f242e529c22fcbf08b1b094fcdc3c5ad1dc0b8dc1c218e9c3fd1f1",
-    "size": 18091926
+    "sha256": "b709a5ce29029c8b313b535c3e99d18ecf3a1e9ef854b6581f65df0fac78c0d3",
+    "size": 18097885
   }
 }
