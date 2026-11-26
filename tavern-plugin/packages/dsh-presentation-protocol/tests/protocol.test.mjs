@@ -31,6 +31,19 @@ test('inertness check distinguishes schema document parameters from the browser 
 import skinContract from '../src/stage-skin.cjs'
 import skinSchema from '../schema/skin.schema.json' with { type: 'json' }
 
+test('skin assets accept relative HTML performance paths in both contracts', () => {
+  const pattern = new RegExp(skinSchema.properties.assets.additionalProperties.pattern)
+  const skin = structuredClone(skinContract.BUILTIN_STAGE_SKINS.classic)
+  skin.assets = { report: 'perform/report.html' }
+  assert.match(skin.assets.report, pattern)
+  assert.doesNotThrow(() => skinContract.validateStageSkin(skin))
+  for (const path of ['/report.html', '../report.html', 'perform/./report.html', 'perform//report.html', 'perform/report.js']) {
+    skin.assets.report = path
+    assert.doesNotMatch(path, pattern)
+    assert.throws(() => skinContract.validateStageSkin(skin), { code: 'INVALID_SKIN' })
+  }
+})
+
 test('skin source kinds describe provenance, with specific attribution in notes', () => {
   assert.deepEqual(skinContract.STAGE_SKIN_SOURCE_KINDS, ['official-asset', 'ai-generated', 'original'])
   assert.deepEqual(skinSchema.$defs.license.properties.derived.items.enum, skinContract.STAGE_SKIN_SOURCE_KINDS)
