@@ -17,6 +17,7 @@ export const PLOT_COMPASS_DEFAULT_MAX_ROUTES = 4
 export const PLOT_COMPASS_MAX_MAX_ROUTES = 10
 
 const MAX_STEPS_PER_ROUTE = 4
+const MAX_STAGE_TURNS = 3
 const MAX_ARCHETYPES = 5
 const MAX_ARCHIVED = 8
 const MAX_CUSTOM_DIRECTIVE_LENGTH = 240
@@ -85,16 +86,38 @@ function cleanText(value, { card, chat, playerName, maxLength = 240 } = {}) {
   return maxLength > 0 && decoded.length > maxLength ? decoded.slice(0, maxLength).trim() : decoded
 }
 
-function cleanSteps(rawSteps, options = {}) {
+// 今期阶段的预计回合数（1–3）；旧版节拍没有这个字段时返回 0。
+function stageTurns(step) {
+  const n = Math.trunc(Number(object(step)?.turns))
+  return Number.isFinite(n) && n >= 1 ? Math.min(MAX_STAGE_TURNS, n) : 0
+}
+
+function cleanSteps(rawSteps, options = {}, { stages = false } = {}) {
   const items = Array.isArray(rawSteps) ? rawSteps : []
   const result = []
   const seen = new Set()
   for (const raw of items) {
     if (result.length >= MAX_STEPS_PER_ROUTE) break
-    const text = cleanText(typeof raw === 'string' ? raw : raw?.text, { ...options, maxLength: 90 })
+    const item = object(raw)
+    const text = cleanText(typeof raw === 'string' ? raw : item?.text, { ...options, maxLength: 90 })
     if (!text || seen.has(text)) continue
     seen.add(text)
-    result.push({ text, done: Boolean(typeof raw === 'object' && raw?.done === true) })
+    const done = item?.done === true
+    if (!stages) {
+      result.push({ text, done })
+      continue
+    }
+    // 今期节拍是多回合阶段，带预计轮数、阻力/变数与达成标志；旧数据只有 text 和 done。
+    const turns = stageTurns(item)
+    const friction = cleanText(item?.friction, { ...options, maxLength: 100 })
+    const doneWhen = cleanText(item?.doneWhen, { ...options, maxLength: 90 })
+    result.push({
+      text,
+      ...(turns ? { turns } : {}),
+      ...(friction ? { friction } : {}),
+      ...(doneWhen ? { doneWhen } : {}),
+      done
+    })
   }
   return result
 }
@@ -119,7 +142,7 @@ function normalizeShortRoute(raw, index, options = {}) {
   if (!item) return null
   const title = cleanText(item.title || item.name, { ...options, maxLength: 40 })
   const summary = cleanText(item.summary || item.description || item.premise, { ...options, maxLength: 180 })
-  const beats = cleanSteps(item.beats || item.steps, options)
+  const beats = cleanSteps(item.beats || item.steps, options, { stages: true })
   if (!title && !summary && beats.length === 0) return null
   const finalTitle = title || (beats[0]?.text ? beats[0].text.slice(0, 18) : `近期方向 ${index + 1}`)
   const id = cleanText(item.id, { maxLength: 40 }) || `st-${index + 1}-${randomUUID().slice(0, 6)}`
@@ -367,6 +390,7 @@ function parseJsonLenient(raw) {
   return {}
 }
 
+// 中期里程碑：一句篇章级转折。
 const STEP_ITEM_SCHEMA = Object.freeze({
   type: 'object',
   additionalProperties: false,
@@ -374,11 +398,42 @@ const STEP_ITEM_SCHEMA = Object.freeze({
     text: {
       type: 'string',
       minLength: 1,
-      description: '10-22字的态势/关系变化或待揭悬念短语（只锁定戏剧意图与结果，严禁写死琐碎肢体动作、固定台词或单一手段，把具体演法留给每轮候选项临场发挥）'
+      description: '12-26字的篇章转折短语（只锁定局势/关系转折与结果，严禁写死琐碎肢体动作、固定台词或单一手段）'
     },
     done: { type: 'boolean' }
   },
   required: ['text']
+})
+
+// 今期节拍：一轮演不完的推进阶段，带预计轮数、阻力变数与达成标志。
+const SHORT_STAGE_SCHEMA = Object.freeze({
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    text: {
+      type: 'string',
+      minLength: 1,
+      description: '12-30字的阶段目标：本阶段要达成的态势/关系转折或要揭开的悬念（锁定结果，严禁写成单个动作、固定台词或唯一手段）'
+    },
+    turns: {
+      type: 'integer',
+      minimum: 1,
+      maximum: MAX_STAGE_TURNS,
+      description: '本阶段预计占用的正文轮数（1-3），同一路线各阶段相加约 2-5 轮。只有一击即中的揭示或反转才用 1；追逐、谈判、试探、说服、交锋或付出代价的阶段用 2-3'
+    },
+    friction: {
+      type: 'string',
+      minLength: 1,
+      description: '15-45字的阻力或变数：让本阶段无法一轮完成的现场因素（对方按自身盘算的反制、对立势力自己的行动与倒计时、信息缺口、必须付出的代价），须出自已知因果，禁止凭空设障'
+    },
+    doneWhen: {
+      type: 'string',
+      minLength: 1,
+      description: '12-35字的达成标志：正文出现什么可验证的结果才算本阶段完成（用于自动打勾；阶段开始、尝试或口头承诺都不算）'
+    },
+    done: { type: 'boolean' }
+  },
+  required: ['text', 'turns', 'friction', 'doneWhen']
 })
 
 export function buildPlotCompassSubmitTool(maxRoutes = PLOT_COMPASS_DEFAULT_MAX_ROUTES) {
@@ -408,7 +463,7 @@ export function buildPlotCompassSubmitTool(maxRoutes = PLOT_COMPASS_DEFAULT_MAX_
           type: 'array',
           minItems,
           maxItems: limit,
-          description: `今期规划（未来 2-5 轮）：${countDesc}戏剧切口与走向截然不同的近期路线（锁定态势跃迁，开放具体执行手段）`,
+          description: `今期规划（未来 2-5 轮）：${countDesc}戏剧切口与走向截然不同的近期路线（锁定态势跃迁，开放具体执行手段；每条由 2-3 个多轮推进阶段组成，阶段轮数相加约 2-5 轮）`,
           items: {
             type: 'object',
             additionalProperties: false,
@@ -420,7 +475,7 @@ export function buildPlotCompassSubmitTool(maxRoutes = PLOT_COMPASS_DEFAULT_MAX_
               summary: { type: 'string', minLength: 1, description: '路线核心冲突焦点与态势变化（避免写成死板的逐动作剧本）' },
               causalBasis: { type: 'string', description: '因果出发点与物理/动机依据（说明为何此刻合理可达，禁止无铺垫的机械降神巧遇）' },
               sceneTrigger: { type: 'string', description: '备选破冰参考（12-35字）：仅当玩家连续被动空转时可供参考的一种现场引子示例，不限制正常临场发挥' },
-              beats: { type: 'array', minItems: 1, maxItems: 4, items: STEP_ITEM_SCHEMA },
+              beats: { type: 'array', minItems: 1, maxItems: 3, description: '2-3 个多轮推进阶段：每个阶段是一轮演不完的交锋周期，不是单个动作', items: SHORT_STAGE_SCHEMA },
               sourceHook: { type: 'string', description: '灵感来源标签（如：伏笔回收、世界书暗线、数值临界、原著主线、IF偏离）' }
             },
             required: ['tag', 'title', 'summary', 'beats']
@@ -836,8 +891,9 @@ export function plotCompassWorldbookScanText(source) {
     if (shortTerm.title) snippets.push(shortTerm.title)
     if (shortTerm.summary) snippets.push(shortTerm.summary)
     if (shortTerm.sceneTrigger) snippets.push(shortTerm.sceneTrigger)
-    const nextBeat = (shortTerm.beats || []).find(step => !step.done)?.text
-    if (nextBeat) snippets.push(nextBeat)
+    const stage = (shortTerm.beats || []).find(step => !step.done)
+    if (stage?.text) snippets.push(stage.text)
+    if (stage?.friction) snippets.push(stage.friction)
   }
   if (compass.customDirective) snippets.push(compass.customDirective)
   return snippets.join('\n')
@@ -897,15 +953,27 @@ export function extractDormantWorldbookHooks(entries = [], context = {}, { limit
 
 const STRENGTH_HEADERS = Object.freeze({
   soft: '【剧情罗盘 · 软铺垫模式】以下为玩家选定的剧情潜流方向。仅通过环境感官、人物潜台词与自然风声埋下伏笔，严禁跨越因果抢跑后续节点；若玩家本轮转向其他话题，完全顺应玩家输入：',
-  guided: '【剧情罗盘 · 强牵引导演指令】以下为玩家明确锚定的主推剧情方向，优先级高于常规闲聊惯性。只要玩家本轮输入未与该路线正面违背，你必须在完整回应玩家行动的同时，主动调动在场角色动机、突发互动或环境契机，将【本轮推进目标】实质性向前推进至少半步至一步，并在段尾落向该节拍的张力钩子，禁止原地寒暄空转：',
-  strict: '【剧情罗盘 · 硬性兑现裁定（本轮必达）】以下为玩家锁定的强制剧情推进目标。除非主角处于无法行动的物理受限绝境或玩家本轮明确反向掀桌，本轮正文必须正面触发并兑现【本轮推进目标】的核心戏剧事件或冲突转折，严禁仅做模糊铺垫或拖延至下一轮：'
+  guided: '【剧情罗盘 · 强牵引导演指令】以下为玩家明确锚定的主推剧情方向，优先级高于常规闲聊惯性。只要玩家本轮输入未与该路线正面违背，你必须在完整回应玩家行动的同时，主动调动在场角色动机、突发互动或环境契机，让【本轮推进目标】在本轮取得可感知的实质进展（多轮阶段按下方阶段节奏推进，不要一轮连跳多个阶段），并在段尾落向该阶段的张力钩子，禁止原地寒暄空转：',
+  strict: '【剧情罗盘 · 硬性兑现裁定】以下为玩家锁定的强制剧情推进目标。除非主角处于无法行动的物理受限绝境或玩家本轮明确反向掀桌，本轮正文必须正面触发当前目标的核心戏剧冲突并落下实质结果，严禁仅做模糊铺垫或拖延至下一轮；多轮阶段每轮都要硬推一步，到预计轮数时必须兑现达成标志：'
 })
 
 const PACE_GUIDANCE = Object.freeze({
   foreshadow: '推进节奏〔只铺垫〕：本轮聚焦触发前兆、感官细节、试探交锋与悬念蓄势，把局面推至临界点，留白最终摊牌。',
-  natural: '推进节奏〔自然推进〕：顺应人物性格与现场因果把当前目标节拍扎实演透，自然衔接后续走向，不跳步也不拖沓。',
-  climax: '推进节奏〔尽快引爆〕：拉满戏剧张力，推动潜藏矛盾、关键人物或突发变故在本轮正面对撞，打出鲜明转折！'
+  natural: '推进节奏〔自然推进〕：顺应人物性格与现场因果把当前目标扎实演透（多轮阶段按预计轮数逐轮推进，每轮一个回合的交锋与反应），自然衔接后续走向，不跳步也不拖沓。',
+  climax: '推进节奏〔尽快引爆〕：拉满戏剧张力，推动潜藏矛盾、关键人物或突发变故在本轮正面对撞，打出鲜明转折（多轮阶段可以压缩，但阻力与代价照样要演出来）！'
 })
+
+// 多轮阶段在正文里的逐轮节奏，跟随推进节奏设置。
+const STAGE_RHYTHM = Object.freeze({
+  foreshadow: '本轮只在当前阶段内蓄势与试探，让阻力浮出水面，不急于触达达成标志，更不要碰后续阶段。',
+  natural: '本轮只演当前阶段内的一个回合：让阻力真实发作（对方按自身盘算反应、讨价还价或反制，行动可能受阻并付出代价），推进到下一个小转折即止；达成标志出现前不要收束本阶段，更不要在一轮内连跳后续阶段。',
+  climax: '可以把当前阶段压缩到本轮内引爆完成，但阻力与代价必须在正文里真实发作，不要连跳后续阶段。'
+})
+
+// 久拖加压门槛：阶段超出预计轮数才加压，旧版单句节拍沿用连续 2 轮。
+function stallThreshold(step) {
+  return Math.max(2, stageTurns(step))
+}
 
 function arcPhaseRoleLabel(index, total) {
   if (total <= 1 || index < 0) return ''
@@ -922,9 +990,10 @@ function formatCompassStepChain(steps, { activeLabel = '本轮推进目标', pha
   return list.map((step, idx) => {
     const phase = phaseLabels ? arcPhaseRoleLabel(idx, list.length) : ''
     const prefix = phase ? `${phase}·` : ''
+    const span = stageTurns(step) ? `〔约${stageTurns(step)}轮〕` : ''
     if (step.done) return `[✓ ${idx + 1}.${prefix}${step.text}]`
-    if (idx === nextIdx) return `【▶ ${idx + 1}.${prefix}${step.text}（${activeLabel}）】`
-    return `[○ ${idx + 1}.${prefix}${step.text}（后续留白）]`
+    if (idx === nextIdx) return `【▶ ${idx + 1}.${prefix}${step.text}${span}（${activeLabel}）】`
+    return `[○ ${idx + 1}.${prefix}${step.text}${span}（后续留白）]`
   }).join(' → ')
 }
 
@@ -962,16 +1031,39 @@ export function plotCompassBodyText(compassRaw) {
   if (shortTerm) {
     const beats = Array.isArray(shortTerm.beats) ? shortTerm.beats : []
     const nextIdx = beats.findIndex(step => !step.done)
-    const nextBeat = nextIdx >= 0 ? beats[nextIdx].text : shortTerm.summary
-    const targetLabel = strength === 'strict' ? '本轮必达目标' : '本轮推进目标'
+    const stage = nextIdx >= 0 ? beats[nextIdx] : null
+    const nextBeat = stage ? stage.text : shortTerm.summary
+    // stalledTurns 自上一阶段达成后累计，正好是当前阶段已经演过的轮数。
+    const stalled = compass.stalledTurns || 0
+    const plannedTurns = stageTurns(stage)
+    const stageTurn = stalled + 1
+    const stageDue = plannedTurns > 0 && stageTurn >= plannedTurns
+    const targetLabel = strength === 'strict'
+      ? (plannedTurns > 0 && !stageDue ? '本轮必推阶段' : '本轮必达目标')
+      : '本轮推进目标'
     const chain = formatCompassStepChain(beats, { activeLabel: targetLabel })
     const causalHint = shortTerm.causalBasis ? ` ｜ 因果锚点：${shortTerm.causalBasis}` : ''
     lines.push(`- 今期锚定路线「${shortTerm.title}」(routeTag="${shortTerm.tag}")：${chain || nextBeat}${causalHint}`)
+    if (plannedTurns > 0) {
+      const stageLine = [`  · 当前阶段「${stage.text}」：预计 ${plannedTurns} 轮，本轮为第 ${stageTurn} 轮`]
+      if (stage.friction) stageLine.push(`阻力/变数：${stage.friction}`)
+      if (stage.doneWhen) stageLine.push(`达成标志：${stage.doneWhen}`)
+      lines.push(stageLine.join(' ｜ '))
+      if (strength !== 'soft') {
+        lines.push(`  · 阶段节奏：${STAGE_RHYTHM[compass.pace] || STAGE_RHYTHM.natural}`)
+        if (stageDue && stalled < stallThreshold(stage) && compass.pace !== 'foreshadow') {
+          const tail = nextIdx < beats.length - 1 ? '段尾停在下一阶段的入口' : '段尾留下这条路线收束后的新悬念'
+          const due = stageTurn > plannedTurns ? '本轮已超出该阶段的预计轮数' : '本轮已到该阶段的预计轮数'
+          lines.push(`  · ${due}：在完整回应玩家的同时让正文出现达成标志（可以付出代价，也可以用出人意料的方式达成），${tail}。`)
+        }
+      }
+    }
     if (shortTerm.sceneTrigger && nextIdx >= 0) {
       lines.push(`  · 备选破冰参考（仅在玩家被动空转时参考，若当下现场有更贴切的自然切口直接顺势发挥）：${shortTerm.sceneTrigger}`)
     }
-    if (strength !== 'soft' && nextIdx >= 0 && (compass.stalledTurns || 0) >= 2) {
-      lines.push(`  · ⚠ 久拖破局加压：节拍「${nextBeat}」已连续 ${compass.stalledTurns} 轮未达成！本轮严禁继续原地试探或重复气氛铺陈，必须由在场角色主动出招、外部声响/来人介入或局势变化直接促成该节拍的核心转折！`)
+    if (strength !== 'soft' && nextIdx >= 0 && stalled >= stallThreshold(stage)) {
+      const overdue = plannedTurns > 0 ? `已超出预计的 ${plannedTurns} 轮，连续 ${stalled} 轮未达成` : `已连续 ${stalled} 轮未达成`
+      lines.push(`  · ⚠ 久拖破局加压：节拍「${nextBeat}」${overdue}！本轮严禁继续原地试探或重复气氛铺陈，必须由在场角色主动出招、外部声响/来人介入或局势变化直接促成该节拍的核心转折（玩家正沉浸于战斗、亲密或情感交流时改由场内角色主动出招，不要用外部打断强行切场）！`)
     }
   }
 
@@ -1000,6 +1092,9 @@ export function plotCompassBodyText(compassRaw) {
   if (midTerm || shortTerm || activeGoal) {
     lines.push('- 目标锁定与手段开放：罗盘锁定的是「戏剧意图与关系/局势转折（What）」，而非死板的动作剧本（How）。具体采用何种肢体互动、对白锋芒或现场道具达成该推进，完全服从本轮玩家选定的演出方式与在场人物的即时反应，切勿无视当前站位生搬硬套字面表述。')
     lines.push('- 场外涟漪演绎许可：当玩家既往抉择或既定事件已在场外牵动上述路线因果时，可通过简短视角切镜、信使书信、不速之客或耳闻风声直接呈现场外局势推进，但不得越权替玩家做出尚未发生的主观抉择。')
+    if (strength !== 'soft') {
+      lines.push('- 沉浸场景例外：玩家正沉浸于战斗交锋、亲密互动或深度情感交流时，推进让位于场景本身——只在场景内部推进或暂缓当前阶段，不为赶进度强行切场、插入外部打断或替玩家收束场景。')
+    }
   }
 
   if (compass.customDirective) {
@@ -1007,7 +1102,7 @@ export function plotCompassBodyText(compassRaw) {
   }
 
   if (strength !== 'soft' && (shortTerm || midTerm || compass.customDirective || activeGoal)) {
-    lines.push('- 落笔前构思检核：在构思阶段（含思维链或 submit_story 的 think 参数）必须先敲定「玩家本轮输入 × 上述推进目标」的具体衔接点（由谁、借什么现场自然契机切入推进，段尾停在何处悬念钩子），再动笔输出正文。')
+    lines.push('- 落笔前构思检核：在构思阶段（含思维链或 submit_story 的 think 参数）必须先敲定「玩家本轮输入 × 上述推进目标」的具体衔接点（由谁、借什么现场自然契机切入推进；对照玩家的能力与现场阻力判断本轮行动是顺利、受阻还是要付出代价——玩家输入已写定结果或已有检定、骰点结果时以其为准；当前阶段本轮推进到哪一步；段尾停在何处悬念钩子），再动笔输出正文。')
   }
 
   return promptSection('plot_compass', lines.join('\n'))
@@ -1040,11 +1135,14 @@ export function plotCompassCandidateText(compassRaw) {
     lines.push(`- [PLAYER GOAL ORIENTATION · ${activeGoal.horizon}]: Target outcome → "${activeGoal.text}". ${scaleNote}`)
   }
   if (pinnedShort) {
-    const nextBeat = (pinnedShort.beats || []).find(step => !step.done)?.text || pinnedShort.summary
+    const stage = (pinnedShort.beats || []).find(step => !step.done)
+    const nextBeat = stage?.text || pinnedShort.summary
+    const friction = stage?.friction ? ` | live friction in this stage: ${stage.friction}` : ''
     const mandate = strength === 'strict'
       ? 'Ensure the top 2 featured/actor choices directly trigger or confront this beat via contrasting live tactics (e.g. direct pressure vs. subtle baiting / NPC initiative)!'
       : 'Offer 1–2 distinct, creatively varied tactics that advance toward this intent (spanning different emotional or physical angles rather than repeating one literal action)!'
-    lines.push(`- [PRIMARY PINNED INTENT] tag="${pinnedShort.tag}" (${pinnedShort.title}): target shift → ${nextBeat}. ${mandate}`)
+    const frictionNote = stage?.friction ? ' Let at least one of them work against or around that friction instead of skipping past it.' : ''
+    lines.push(`- [PRIMARY PINNED INTENT] tag="${pinnedShort.tag}" (${pinnedShort.title}): target shift → ${nextBeat}${friction}. ${mandate}${frictionNote}`)
     const alternatives = compass.shortTerm.filter(item => item.id !== pinnedShort.id).slice(0, 2)
     for (const alt of alternatives) {
       const angle = alt.direction ? ` [${alt.direction}]` : ''
@@ -1421,7 +1519,7 @@ export const PLOT_COMPASS_BRAINSTORM_SYSTEM = [
   'Interaction Rules (Mode A - Safe Discussion First):',
   '1) DEFAULT TO DISCUSSION: By default, do NOT overwrite existing routes on the compass board. Reply directly in concise, vivid Simplified Chinese (or the story\'s language) with 2–3 concrete, causally plausible dramatic angles, key risks/hooks, and a short prompt inviting the player to refine or apply the idea.',
   '2) ONLY CALL `plot_compass_submit` WHEN EXPLICITLY REQUESTED: Call `plot_compass_submit` ONLY if the player clearly asks you in this turn to generate, rewrite, replace, or update compass routes (e.g. "按第2条生成今期路线" / "帮我重新生成中期方向" / "把这套思路落盘成新路线").',
-  '3) SCOPED UPDATES & OPEN-INTENT BEATS: When calling `plot_compass_submit`, set `targetScope` accurately (`shortTerm`, `midTerm`, `longTerm`, or `all`) so unmentioned horizons stay untouched, and respect the configured per-horizon route count limit (default up to 4). Write `beats` / `milestones` as concise 10–22 char dramatic state shifts rather than rigid micro-actions so per-turn choices retain creative freedom. Never fabricate deus ex machina teleportation or break passive constraints.',
+  '3) SCOPED UPDATES & OPEN-INTENT BEATS: When calling `plot_compass_submit`, set `targetScope` accurately (`shortTerm`, `midTerm`, `longTerm`, or `all`) so unmentioned horizons stay untouched, and respect the configured per-horizon route count limit (default up to 4). Write each `shortTerm` beat as a multi-turn stage (`text` = the state shift it reaches, `turns` 1–3, `friction` = the live resistance that keeps it from resolving in one turn, `doneWhen` = the verifiable sign it is complete) and `milestones` as concise chapter turns, never as rigid micro-actions, so per-turn choices retain creative freedom. Never fabricate deus ex machina teleportation or break passive constraints.',
   '4) GOAL-ORIENTED CONVERGENCE: Whenever `<player_goal>` is active, both your brainstorming angles and any routes submitted via `plot_compass_submit` MUST steer toward and achieve the player\'s locked target outcome (differentiating by tactics and paths rather than opposing endings), unless the player explicitly asks to change the goal.',
   '5) AFTER TOOL CALL: After `plot_compass_submit` succeeds, still reply with a brief natural-language confirmation summarizing what changed so the player can review it right in the chat.'
 ].join('\n')
@@ -1460,6 +1558,7 @@ export const PLOT_COMPASS_PROGRESS_SYSTEM = [
   '2) Identify ONLY routes whose core premise or causal foundation has been IRREVERSIBLY INVALIDATED / bypassed by the player\'s actual actions or settled events (`lapsed`), e.g. the player left the city or openly attacked the ally that an infiltration route depended on.',
   'Rules:',
   '- DRAMATIC EQUIVALENCE: Beats and milestones describe dramatic outcomes or state shifts rather than rigid choreography. If the characters achieved the SAME core narrative shift, revelation, or relationship turn through a different creative tactic or phrasing in the assistant prose, mark it `completed` and quote the verbatim prose `evidence` proving that outcome occurred.',
+  '- STAGE COMPLETION: Short-term beats are multi-turn stages. When a pending step lists a completion signal (达成标志), mark it `completed` only once the prose shows that signal or a dramatically equivalent result; a stage that has merely begun, been attempted, or is still being contested is NOT completed.',
   '- Player intentions, thoughts, OOC planning, or unfulfilled promises that have NOT actually played out in the assistant story prose do NOT count as `completed`.',
   '- Every item in `completed` MUST have concrete verbatim `evidence` copied directly from `<recent_story_turns>` assistant prose (NOT from `<thinking>`, variable updates, or user wishes). If you cannot find verbatim prose evidence, do NOT mark it completed.',
   '- Do NOT mark a route as `lapsed` merely because it has not happened yet or progresses slowly; mark `lapsed` ONLY when its core premise is now contradictory or impossible.',
@@ -1528,7 +1627,8 @@ export function collectPendingCompassSteps(compassRaw) {
           routeTitle: route.title,
           pinned: route.id === pinnedId,
           stepIndex: idx,
-          text: steps[idx].text
+          text: steps[idx].text,
+          ...(steps[idx].doneWhen ? { doneWhen: steps[idx].doneWhen } : {})
         })
       }
     }
@@ -1573,7 +1673,7 @@ export function buildPlotCompassProgressPrompt(messagesOrChat, pendingSteps, { f
     turnBlocks.unshift(`[${msg.role === 'user' ? '玩家' : '正文'} · 第${turn || '?'}轮]\n${clipped}`)
   }
   const stepLines = pendingSteps.map(item =>
-    `- key="${item.key}" (${item.horizon === 'shortTerm' ? '今期节拍' : '中期里程碑'} · 路线「${item.routeTitle}」${item.pinned ? ' [玩家当前点亮]' : ''}): ${item.text}`
+    `- key="${item.key}" (${item.horizon === 'shortTerm' ? '今期节拍' : '中期里程碑'} · 路线「${item.routeTitle}」${item.pinned ? ' [玩家当前点亮]' : ''}): ${item.text}${item.doneWhen ? ` ｜ 达成标志：${item.doneWhen}` : ''}`
   ).join('\n')
 
   const trackableRoutes = compass

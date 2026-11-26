@@ -302,6 +302,123 @@ test('剧情罗盘节拍进度链、sceneTrigger、久拖自动加压、未点�
   assert.doesNotMatch(plotCompassBodyText(compass), /久拖破局加压/)
 })
 
+test('剧情罗盘今期节拍按多轮阶段解析、注入正文、核对完成与超时加压', async () => {
+  const {
+    applyPlotCompassAutoProgress,
+    buildPlotCompassProgressPrompt,
+    buildPlotCompassSubmitTool,
+    collectPendingCompassSteps,
+    parsePlotCompassSubmission,
+    plotCompassBodyText,
+    plotCompassCandidateText,
+    readPlotCompass
+  } = await import('../tavern-plugin/packages/dsh-tavern-plot-compass/lib/plot-compass.js')
+
+  // 工具 schema：今期节拍必须给出预计轮数、阻力与达成标志；中期里程碑仍是一句转折
+  const tool = buildPlotCompassSubmitTool(4)
+  const beatsSchema = tool.parameters.properties.shortTerm.items.properties.beats
+  assert.equal(beatsSchema.maxItems, 3)
+  assert.deepEqual(beatsSchema.items.required, ['text', 'turns', 'friction', 'doneWhen'])
+  assert.equal(beatsSchema.items.properties.turns.minimum, 1)
+  assert.equal(beatsSchema.items.properties.turns.maximum, 3)
+  assert.deepEqual(tool.parameters.properties.midTerm.items.properties.milestones.items.required, ['text'])
+
+  // 解析：保留阶段字段并把轮数截到 1–3；旧式字符串节拍与中期里程碑不带阶段字段
+  const parsed = parsePlotCompassSubmission({
+    playArchetypes: ['奇幻冒险'],
+    situationDigest: '雨夜破庙，追兵将至。',
+    shortTerm: [
+      {
+        id: 's1', tag: '套话', title: '撬开苏晚的口风', summary: '以情报换情报，拿到残图下落。',
+        beats: [
+          { text: '撬开苏晚对残图去向的口风', turns: 2, friction: '苏晚只肯以情报换情报', doneWhen: '苏晚承认残图在她手里' },
+          { text: '抢在追兵前进入密道', turns: 7, friction: '追兵已在庙外林中搜索', doneWhen: '两人进入密道并封住入口', done: false }
+        ]
+      },
+      { id: 's2', tag: '守庙门', title: '熄火伏击追兵', summary: '借夜雨设伏。', beats: ['泼灭篝火'] }
+    ],
+    midTerm: [
+      { id: 'm1', tag: '北岭', title: '北岭寻踪', summary: '直抵旧寨。', milestones: [{ text: '走出密道', turns: 2, friction: '甲', doneWhen: '乙' }] },
+      { id: 'm2', tag: '反查', title: '反查幕后', summary: '逼问买凶之人。', milestones: ['生擒头目'] }
+    ],
+    longTerm: [
+      { id: 'l1', tag: '重振', title: '重开山门', vision: '重振山门。' },
+      { id: 'l2', tag: '隐退', title: '远走天涯', vision: '浪迹天涯。' }
+    ]
+  })
+  const stages = [
+    { text: '撬开苏晚对残图去向的口风', turns: 2, friction: '苏晚只肯以情报换情报', doneWhen: '苏晚承认残图在她手里', done: false },
+    { text: '抢在追兵前进入密道', turns: 3, friction: '追兵已在庙外林中搜索', doneWhen: '两人进入密道并封住入口', done: false }
+  ]
+  assert.deepEqual(parsed.shortTerm[0].beats, stages)
+  assert.deepEqual(parsed.shortTerm[1].beats, [{ text: '泼灭篝火', done: false }])
+  assert.deepEqual(parsed.midTerm[0].milestones, [{ text: '走出密道', done: false }])
+
+  let compass = readPlotCompass({
+    version: 1,
+    basedOnTurn: 10,
+    lastCheckedTurn: 10,
+    strength: 'guided',
+    shortTerm: parsed.shortTerm,
+    pinned: { shortTerm: 's1', midTerm: null, longTerm: null }
+  })
+  assert.deepEqual(compass.shortTerm[0].beats, stages)
+
+  // 第 1 轮：链路标注预计轮数，并单列当前阶段的阻力、达成标志与逐轮节奏
+  let body = plotCompassBodyText(compass)
+  assert.match(body, /【▶ 1\.撬开苏晚对残图去向的口风〔约2轮〕（本轮推进目标）】 → \[○ 2\.抢在追兵前进入密道〔约3轮〕（后续留白）\]/)
+  assert.match(body, /当前阶段「撬开苏晚对残图去向的口风」：预计 2 轮，本轮为第 1 轮 ｜ 阻力\/变数：苏晚只肯以情报换情报 ｜ 达成标志：苏晚承认残图在她手里/)
+  assert.match(body, /阶段节奏：本轮只演当前阶段内的一个回合/)
+  assert.match(body, /沉浸场景例外/)
+  assert.doesNotMatch(body, /本轮已到该阶段的预计轮数|久拖破局加压/)
+  assert.match(plotCompassCandidateText(compass), /target shift → 撬开苏晚对残图去向的口风 \| live friction in this stage: 苏晚只肯以情报换情报\./)
+
+  // 硬性兑现：没到预计轮数时每轮必推，到点才要求必达
+  assert.match(plotCompassBodyText(readPlotCompass({ ...compass, strength: 'strict' })), /（本轮必推阶段）/)
+  assert.match(plotCompassBodyText(readPlotCompass({ ...compass, strength: 'strict', stalledTurns: 1 })), /（本轮必达目标）/)
+
+  // 软铺垫只给阶段信息，不催进度；只铺垫节奏到点也不催兑现
+  const softBody = plotCompassBodyText(readPlotCompass({ ...compass, strength: 'soft', stalledTurns: 5 }))
+  assert.match(softBody, /当前阶段「撬开苏晚对残图去向的口风」/)
+  assert.doesNotMatch(softBody, /阶段节奏|久拖破局加压|沉浸场景例外/)
+  const foreshadowBody = plotCompassBodyText(readPlotCompass({ ...compass, pace: 'foreshadow', stalledTurns: 1 }))
+  assert.match(foreshadowBody, /阶段节奏：本轮只在当前阶段内蓄势与试探/)
+  assert.doesNotMatch(foreshadowBody, /本轮已到该阶段的预计轮数/)
+
+  // 第 2 轮仍未达成：到预计轮数，提示本轮兑现，但还不加压
+  compass = applyPlotCompassAutoProgress(compass, { completed: [], lapsed: [] }, { turn: 11 }).compass
+  body = plotCompassBodyText(compass)
+  assert.match(body, /预计 2 轮，本轮为第 2 轮/)
+  assert.match(body, /本轮已到该阶段的预计轮数.*段尾停在下一阶段的入口/)
+  assert.doesNotMatch(body, /久拖破局加压/)
+
+  // 超出预计轮数才加压
+  compass = applyPlotCompassAutoProgress(compass, { completed: [], lapsed: [] }, { turn: 12 }).compass
+  body = plotCompassBodyText(compass)
+  assert.match(body, /⚠ 久拖破局加压：节拍「撬开苏晚对残图去向的口风」已超出预计的 2 轮，连续 2 轮未达成/)
+  assert.doesNotMatch(body, /本轮已到该阶段的预计轮数/)
+
+  // 核对器拿到达成标志
+  const pending = collectPendingCompassSteps(compass)
+  assert.equal(pending[0].key, 'shortTerm:s1:0')
+  assert.equal(pending[0].doneWhen, '苏晚承认残图在她手里')
+  const progressPrompt = buildPlotCompassProgressPrompt([{ role: 'assistant', turn: 12, text: '苏晚沉默良久，仍不肯松口。' }], pending, { compass })
+  assert.match(progressPrompt, /key="shortTerm:s1:0".*撬开苏晚对残图去向的口风 ｜ 达成标志：苏晚承认残图在她手里/)
+
+  // 阶段达成后计数清零，下一阶段从第 1 轮算起；3 轮阶段演到第 3 轮也不加压
+  compass = applyPlotCompassAutoProgress(compass, { completed: ['shortTerm:s1:0'], lapsed: [] }, { turn: 13 }).compass
+  assert.equal(compass.stalledTurns, 0)
+  body = plotCompassBodyText(compass)
+  assert.match(body, /\[✓ 1\.撬开苏晚对残图去向的口风\] → 【▶ 2\.抢在追兵前进入密道〔约3轮〕（本轮推进目标）】/)
+  assert.match(body, /当前阶段「抢在追兵前进入密道」：预计 3 轮，本轮为第 1 轮/)
+  compass = applyPlotCompassAutoProgress(compass, { completed: [], lapsed: [] }, { turn: 14 }).compass
+  compass = applyPlotCompassAutoProgress(compass, { completed: [], lapsed: [] }, { turn: 15 }).compass
+  body = plotCompassBodyText(compass)
+  assert.match(body, /预计 3 轮，本轮为第 3 轮/)
+  assert.match(body, /本轮已到该阶段的预计轮数.*段尾留下这条路线收束后的新悬念/)
+  assert.doesNotMatch(body, /久拖破局加压/)
+})
+
 test('推演模型设置全局一致：跨对话共享、不写入单局存档、广播同步与旧存档平滑迁移', async () => {
   const storyEvents = createStoryEvents()
   const gameDataMap = new Map()
@@ -922,7 +1039,7 @@ test('剧情罗盘面板：命运之骰同款工作台双页签与 ? / × 详细
       customArchetypes: [],
       situationDigest: '雨夜暂歇破庙，神龛后似有异响。',
       shortTerm: [
-        { id: 'st-1', tag: '探神龛', title: '挪开神龛查探密道', summary: '顺风声挪动神龛，发现北岭密道。', beats: [{ text: '试探底座', done: false }] }
+        { id: 'st-1', tag: '探神龛', title: '挪开神龛查探密道', summary: '顺风声挪动神龛，发现北岭密道。', beats: [{ text: '试探底座', turns: 2, friction: '底座下压着半截断符', doneWhen: '神龛挪开露出暗道入口', done: false }] }
       ],
       midTerm: [],
       longTerm: [],
@@ -952,6 +1069,10 @@ test('剧情罗盘面板：命运之骰同款工作台双页签与 ? / × 详细
   await act(async () => { root.render(React.createElement(mod.PlotCompassPanel, { ui, gameId: 'g-ui' })) })
   assert.ok(host.querySelector('.pc-root.pc-workbench'), '应当使用命运之骰同款工作台根节点')
   assert.match(host.textContent, /挪开神龛查探密道/)
+  // 今期节拍显示预计轮数、阻力与达成标志，漏斗区显示当前节拍演到第几轮
+  assert.match(host.textContent, /约2轮/)
+  assert.match(host.textContent, /阻力：底座下压着半截断符 ｜ 达成：神龛挪开露出暗道入口/)
+  assert.match(host.textContent, /节拍进度：第 1 轮 \/ 约 2 轮/)
 
   // 顶栏 ? 点开变 × 并展示多段说明，点「收起」还原
   const topHelp = host.querySelector('button.pc-help-btn')
