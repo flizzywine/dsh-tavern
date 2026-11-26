@@ -52,6 +52,22 @@ function harness({page = PAGE, pages = {pages: [], fresh: false}, failRead = fal
 const openPage = (h, extra = {}) => h.panels.open({sessionId: 's1', page: 'status', trustedCardMode: true, host: () => h.host, onClose() {}, onState() {}, onAction() {}, ...extra})
 const responses = frame => frame.contentWindow.posted.filter(message => message.type === 'dsh-card-page-response')
 
+test('a card page shows a toast only in its own game', async t => {
+  const shown = []
+  const h = harness({options: {toast: (sessionId, args) => {
+    shown.push([sessionId, args])
+    return {shown: true}
+  }}})
+  const page = openPage(h)
+  t.after(() => page.dispose())
+  await settle()
+  const frame = h.frames[0]
+  h.send(frame.contentWindow, 'toast', {text: 'Saved', type: 'success', tag: 'save', sessionId: 'other'})
+  await settle()
+  assert.deepEqual(shown, [['s1', {text: 'Saved', type: 'success', tag: 'save'}]])
+  assert.deepEqual(responses(frame).at(-1).result, {shown: true})
+})
+
 test('a shown card page opens its available plugin panel in the current game', async () => {
   const requests = [], selections = []
   const h = harness({options:{findPluginPanel:async (...ref) => {

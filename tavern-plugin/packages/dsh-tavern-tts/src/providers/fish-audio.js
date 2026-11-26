@@ -15,7 +15,9 @@ export function fishSpeechText(text, params, voiceDirections, spoken) {
 
 export const FISH_MOODS = Object.freeze({}) // styles belong to voice declarations.
 export {FISH_MODELS} from './fish-models.js'
-import {FISH_DEFAULT_MODEL, FISH_MODELS, fishModel, isFishCloud} from './fish-models.js'
+import {FISH_DEFAULT_MODEL, FISH_MODELS, fishModel, isFishCloud, fishPricePerMillionBytes} from './fish-models.js'
+import { loadSpend as fishSpend } from './spend.js'
+export { fishSpend }
 export function fishRetryDelay(value, attempt, now = Date.now()) {
   const seconds = value === null ? NaN : Number(value)
   const requested = Number.isFinite(seconds) ? seconds * 1000 : Date.parse(value) - now
@@ -28,7 +30,7 @@ function failure(status) {
   throw error
 }
 const HOLD_TTL_MS = 120000
-export function createFishAudioAdapter({fetch = globalThis.fetch, sleep = (ms, signal) => delay(ms, undefined, {signal}), networkTimeoutMs = 120000} = {}) {
+export function createFishAudioAdapter({fetch = globalThis.fetch, sleep = (ms, signal) => delay(ms, undefined, {signal}), networkTimeoutMs = 120000, loadSpend = fishSpend} = {}) {
   const lanes = new Map(), infos = new Map(), libraries = new Map(), discovery = createFishDiscovery({fetch})
   // a server's own /v1/info, cached per URL and key until a refresh; a failed ask is not kept.
   function served(p, secret, refresh = false) {
@@ -139,12 +141,18 @@ export function createFishAudioAdapter({fetch = globalThis.fetch, sleep = (ms, s
         // Fish streams /v1/tts as it speaks; spec.onPcm receives the 16-bit mono 44.1 kHz PCM as it arrives.
         const init = {method:'POST',headers:{'Content-Type':references ? 'application/msgpack' : 'application/json',model:model.id},body:references ? fishMessagePack(body) : JSON.stringify(body)}
         const run = snapshot ? work => snapshot.run(work) : work => work(null)
-        const pcm = await run(activity => {
+        const pcm = await run(async activity => {
           if (activity) signal = AbortSignal.any([AbortSignal.timeout(networkTimeoutMs),activity.signal])
+          if (cloud && model.billing !== 'free') {
+            const spend = await loadSpend()
+            const price = fishPricePerMillionBytes(model.id)
+            signal.throwIfAborted()
+            await spend?.check({category:'other', purpose:'Fish 云端朗读', estimatedUsd:Math.ceil(Buffer.byteLength(text) * price) / 1e6})
+          }
           return request(p,secret.key,'/v1/tts',init,signal,spec.onPcm,model,activity)
         })
         return wav(pcmWav(pcm,44100))
-      }).catch(error => { if (error instanceof TtsError) throw error; fail(signal?.aborted ? signal.reason?.name === 'TimeoutError' ? 'TIMEOUT' : 'ABORTED' : error?.name === 'AbortError' ? 'ABORTED' : 'SERVICE_OFFLINE') }).finally(() => snapshot?.dispose())
+      }).catch(error => { if (error instanceof TtsError || (typeof error?.code === 'string' && error.code.startsWith('API_SPEND_'))) throw error; fail(signal?.aborted ? signal.reason?.name === 'TimeoutError' ? 'TIMEOUT' : 'ABORTED' : error?.name === 'AbortError' ? 'ABORTED' : 'SERVICE_OFFLINE') }).finally(() => snapshot?.dispose())
       if (cloud) return work
       lanes.set(p.config.url,work)
       void work.finally(() => { if (lanes.get(p.config.url) === work) lanes.delete(p.config.url) }).catch(() => {})

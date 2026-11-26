@@ -49,6 +49,23 @@ test('design exact Chinese Fish request and redacted receipt; successful request
   assert.equal(JSON.parse(await readFile(join(root,'voice-pilot-budget.json'),'utf8')).reserved,10000000)
 })
 
+test('a pilot asks the optional spend guard per request: a refusal stops before any request, a service refusal gives the hold back', async t => {
+  const calls = []
+  const guard = refuse => async () => ({
+    async check(request) { calls.push(['check', request]); if (refuse) throw Object.assign(new Error('over the limit'), {code:'API_SPEND_DAILY_LIMIT'}); return {id:'hold-1'} },
+    async release(id) { calls.push(['release', id]) }
+  })
+  let requests = 0
+  const refused = createVoicePilot({budgetRoot:(await fixture(t)).root,loadSpend:guard(true),fetch:async () => { requests++; return success() }})
+  const stopped = await refused(args('design'),provider,async () => key)
+  assert.equal(requests,0); assert.equal(stopped.complete,false); assert.equal(stopped.receipt.stopReason,'API_SPEND_DAILY_LIMIT')
+  assert.deepEqual(calls.map(c => c[0]),['check']); assert.equal(calls[0][1].category,'other'); assert.equal(calls[0][1].budget,0.5)
+  calls.length = 0
+  const rejected = createVoicePilot({budgetRoot:(await fixture(t)).root,loadSpend:guard(false),fetch:async () => Response.json({},{status:400})})
+  await rejected(args('design'),provider,async () => key)
+  assert.deepEqual(calls.map(c => c[0]),['check','release']); assert.equal(calls[1][1],'hold-1')
+})
+
 test('first local pilot creates host storage only on confirm', async t => {
   const {base} = await fixture(t), root = join(base,'profile-data','tts')
   const local = {id:'fish-local',kind:'fish-audio',config:{url:'http://127.0.0.1:9884'}}
@@ -75,7 +92,7 @@ test('a pilot leaves a live owner alone and reclaims a lock left by a dead proce
   assert.equal(calls,0)
   assert.deepEqual(await readdir(lock),[live])
 
-  const {stdout} = await promisify(execFile)(process.execPath,['-p','process.pid'])
+  const {stdout} = await promisify(execFile)(process.execPath,['-p','process.pid'],{windowsHide:true})
   await rm(join(lock,live))
   await writeFile(join(lock,`owner-${Number(stdout)}-${Date.now()}-b`),'')
   assert.equal((await run(args('design'),provider,async () => key)).complete,true)

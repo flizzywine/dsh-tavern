@@ -99,7 +99,7 @@ test('reader accepts PowerShell Compress-Archive output (independent fixture fal
   const root = await fixture(t), file = path.join(root, 'external.zip'), source = path.join(root, 'hello.txt')
   await writeFile(source, 'hello external zip')
   const command = `Compress-Archive -LiteralPath '${source.replaceAll("'", "''")}' -DestinationPath '${file.replaceAll("'", "''")}'`
-  const result = spawnSync(process.platform === 'win32' ? 'powershell.exe' : 'pwsh', ['-NoProfile', '-NonInteractive', '-Command', command], { encoding: 'utf8' })
+  const result = spawnSync(process.platform === 'win32' ? 'powershell.exe' : 'pwsh', ['-NoProfile', '-NonInteractive', '-Command', command], { windowsHide: true, encoding: 'utf8' })
   if (result.error?.code === 'ENOENT') await writeFile(file, descriptorZip('hello.txt', Buffer.from('hello external zip')))
   else assert.equal(result.status, 0, result.stderr)
   const archive = await openZip(file); assert.equal((await archive.read(archive.entries[0])).toString(), 'hello external zip')

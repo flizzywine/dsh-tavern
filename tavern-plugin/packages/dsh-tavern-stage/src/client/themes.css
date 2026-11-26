@@ -7728,3 +7728,67 @@ div.fork-check-ledger-head:hover { background: none; }
   &::-webkit-scrollbar-track, &::-webkit-scrollbar-corner { background: var(--fk-sb-track); }
 }
 /* ==== end stage scrollbars ==== */
+/* ==== stage toasts ====
+   The card pages' 浮起提示 (toasts.cjs, DshCardPage.toast): at most three short lines over everything the stage draws (a card
+   page, its CONFIG and 履历 included), never taking a click meant for the stage. The skin's toast field picks where they stand
+   (data-fk-toast-place: center by default, a little above the middle so the text box stays clear; top, top-left, top-right
+   under the top bar), how one arrives (data-fk-toast-enter: rise by default), its colours and shape (--fk-toast-*: the panel's
+   by default), its shadow (data-fk-toast-shadow) and an info toast's mark (data-fk-toast-mark). The newest stands nearest its
+   anchor: under the others in the middle, over them at the top. Phones centre every place. */
+.fork-gal-stage > .fork-stage-toasts { position: absolute; inset: 0; z-index: 12; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px;
+  box-sizing: border-box; padding: calc(env(safe-area-inset-top, 0px) + 64px) max(20px, env(safe-area-inset-right, 0px)) 16vh max(20px, env(safe-area-inset-left, 0px)); pointer-events: none; }
+.fork-gal-stage:is([data-fk-toast-place="top"], [data-fk-toast-place="top-left"], [data-fk-toast-place="top-right"]) > .fork-stage-toasts { flex-direction: column-reverse; justify-content: flex-end; padding-bottom: 20px; }
+.fork-gal-stage[data-fk-toast-place="top-left"] > .fork-stage-toasts { align-items: flex-start; }
+.fork-gal-stage[data-fk-toast-place="top-right"] > .fork-stage-toasts { align-items: flex-end; }
+.fork-stage-toast { --fk-toast-from: translateY(18px);
+  display: flex; align-items: baseline; gap: .6em; box-sizing: border-box; max-width: min(560px, 100%); padding: .62em 1.15em; pointer-events: auto; cursor: pointer;
+  border: var(--fk-toast-edge, 1px) solid var(--fk-toast-line, var(--gal-ui-line)); border-radius: var(--fk-toast-radius, var(--gal-ui-radius, 10px));
+  background: var(--fk-toast-bg, var(--gal-ui-surface)); color: var(--fk-toast-fg, var(--gal-ui-ink)); box-shadow: var(--gal-ui-shadow, 0 10px 28px rgb(0 0 0 / .28));
+  font-family: var(--gal-ui-font, inherit); font-size: var(--fk-toast-size, clamp(14px, .9vw, 18px)); font-weight: var(--fk-toast-weight, 400); line-height: 1.5; overflow-wrap: anywhere; user-select: none;
+  animation: fork-stage-toast-in .34s cubic-bezier(.2, .8, .2, 1) both; }
+.fork-stage-toast[data-leaving] { animation: fork-stage-toast-out .24s ease-in forwards; pointer-events: none; }
+.fork-gal-stage[data-fk-toast-enter="drop"] .fork-stage-toast { --fk-toast-from: translateY(-18px); }
+.fork-gal-stage[data-fk-toast-enter="fade"] .fork-stage-toast { --fk-toast-from: none; }
+.fork-gal-stage[data-fk-toast-enter="pop"] .fork-stage-toast { --fk-toast-from: scale(.86); }
+.fork-gal-stage[data-fk-toast-enter="slide"][data-fk-toast-place="top-left"] .fork-stage-toast { --fk-toast-from: translateX(-28px); }
+.fork-gal-stage[data-fk-toast-enter="slide"][data-fk-toast-place="top-right"] .fork-stage-toast { --fk-toast-from: translateX(28px); }
+.fork-gal-stage[data-fk-toast-enter="slide"]:not([data-fk-toast-place="top-left"], [data-fk-toast-place="top-right"]) .fork-stage-toast { --fk-toast-from: translateX(-28px); }
+@keyframes fork-stage-toast-in { from { opacity: 0; transform: var(--fk-toast-from); } }
+.fork-gal-stage[data-fk-toast-enter="stamp"] .fork-stage-toast:not([data-leaving]) { animation: fork-stage-toast-stamp .42s cubic-bezier(.3, 1.4, .5, 1) both; }
+@keyframes fork-stage-toast-stamp { 0% { opacity: 0; transform: scale(1.32) rotate(-5deg); } 45% { opacity: 1; transform: scale(.97) rotate(.8deg); } 100% { transform: none; } }
+@keyframes fork-stage-toast-out { to { opacity: 0; transform: translateY(-8px); } }
+.fork-gal-stage[data-reduced-motion] .fork-stage-toast { --fk-toast-from: none; }
+.fork-gal-stage[data-reduced-motion][data-fk-toast-enter="stamp"] .fork-stage-toast:not([data-leaving]) { animation-name: fork-stage-toast-in; }
+.fork-gal-stage[data-reduced-motion] .fork-stage-toast[data-leaving] { animation-name: fork-stage-toast-fade; }
+@keyframes fork-stage-toast-fade { to { opacity: 0; } }
+.fork-gal-stage[data-fk-toast-shadow="hard"] .fork-stage-toast { box-shadow: 5px 5px 0 var(--fk-toast-line, var(--gal-ui-line)); }
+.fork-gal-stage[data-fk-toast-shadow="none"] .fork-stage-toast { box-shadow: none; }
+.fork-stage-toast-mark { flex: none; font-style: normal; font-weight: 700; line-height: 1; }
+.fork-stage-toast[data-type="success"] .fork-stage-toast-mark { color: var(--fk-toast-accent, var(--gal-ui-accent)); }
+.fork-stage-toast[data-type="warning"] .fork-stage-toast-mark { color: color-mix(in srgb, var(--fk-toast-fg, var(--gal-ui-ink)) 50%, darkorange); }
+.fork-stage-toast[data-type="error"] .fork-stage-toast-mark { color: color-mix(in srgb, var(--fk-toast-fg, var(--gal-ui-ink)) 40%, #e0182d); }
+.fork-stage-toast[data-type="info"] .fork-stage-toast-mark { display: none; width: .62em; height: .62em; background: var(--fk-toast-accent, var(--gal-ui-accent)); transform: translateY(-.06em); }
+.fork-gal-stage:is([data-fk-toast-mark="dot"], [data-fk-toast-mark="triangle"], [data-fk-toast-mark="diamond"]) .fork-stage-toast[data-type="info"] .fork-stage-toast-mark { display: block; }
+.fork-gal-stage[data-fk-toast-mark="dot"] .fork-stage-toast[data-type="info"] .fork-stage-toast-mark { border-radius: 50%; }
+.fork-gal-stage[data-fk-toast-mark="triangle"] .fork-stage-toast[data-type="info"] .fork-stage-toast-mark { width: .72em; clip-path: polygon(50% 0, 100% 100%, 0 100%); }
+.fork-gal-stage[data-fk-toast-mark="diamond"] .fork-stage-toast[data-type="info"] .fork-stage-toast-mark { transform: translateY(-.06em) rotate(45deg) scale(.8); }
+/* art.toast: the skin's own plates (9-sliced, one CSS px per image px; each type's falling back to info) replace the ground,
+   edge and shadow; with marks each type's mark image stands at its x on the plate (the tab the left slice draws). */
+.fork-gal-stage[data-fk-toast-art] .fork-stage-toast { position: relative; padding: .18em .45em; border-radius: 0; background: none; box-shadow: none;
+  border-style: solid; border-color: transparent; border-width: calc(var(--fk-toast-st) * 1px) calc(var(--fk-toast-sr) * 1px) calc(var(--fk-toast-sb) * 1px) calc(var(--fk-toast-sl) * 1px);
+  border-image: var(--fk-toast-plate-info) var(--fk-toast-st) var(--fk-toast-sr) var(--fk-toast-sb) var(--fk-toast-sl) fill / calc(var(--fk-toast-st) * 1px) calc(var(--fk-toast-sr) * 1px) calc(var(--fk-toast-sb) * 1px) calc(var(--fk-toast-sl) * 1px) stretch; }
+.fork-gal-stage[data-fk-toast-art] .fork-stage-toast[data-type="success"] { border-image-source: var(--fk-toast-plate-success); }
+.fork-gal-stage[data-fk-toast-art] .fork-stage-toast[data-type="warning"] { border-image-source: var(--fk-toast-plate-warning); }
+.fork-gal-stage[data-fk-toast-art] .fork-stage-toast[data-type="error"] { border-image-source: var(--fk-toast-plate-error); }
+.fork-gal-stage[data-fk-toast-art="marks"] .fork-stage-toast[data-type] .fork-stage-toast-mark { display: block; position: absolute; top: calc(50% + (var(--fk-toast-sb) - var(--fk-toast-st)) * .5px); left: calc(var(--fk-toast-mark-x) - var(--fk-toast-sl) * 1px - var(--fk-toast-mark-h) / 2);
+  width: var(--fk-toast-mark-h); height: var(--fk-toast-mark-h); transform: translateY(-50%); clip-path: none; border-radius: 0; font-size: 0; color: transparent;
+  background: var(--fk-toast-mark-info) center / contain no-repeat; }
+.fork-gal-stage[data-fk-toast-art="marks"] .fork-stage-toast[data-type="success"] .fork-stage-toast-mark { background-image: var(--fk-toast-mark-success); }
+.fork-gal-stage[data-fk-toast-art="marks"] .fork-stage-toast[data-type="warning"] .fork-stage-toast-mark { background-image: var(--fk-toast-mark-warning); }
+.fork-gal-stage[data-fk-toast-art="marks"] .fork-stage-toast[data-type="error"] .fork-stage-toast-mark { background-image: var(--fk-toast-mark-error); }
+@media (max-width: 640px) {
+  .fork-gal-stage > .fork-stage-toasts { padding-left: max(14px, env(safe-area-inset-left, 0px)); padding-right: max(14px, env(safe-area-inset-right, 0px)); }
+  .fork-gal-stage:is([data-fk-toast-place="top-left"], [data-fk-toast-place="top-right"]) > .fork-stage-toasts { align-items: center; }
+  .fork-stage-toast { max-width: 100%; font-size: min(var(--fk-toast-size, 14px), 16px); }
+}
+/* ==== end stage toasts ==== */

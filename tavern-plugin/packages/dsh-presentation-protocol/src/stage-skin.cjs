@@ -303,6 +303,15 @@ const skinItemToast = value => skinObject({image:skinImage,box:skinArray(skinPx,
 const skinItem = value => skinObject({frame:skinImage,box:skinArray(skinPx,4,4),media:skinArray(skinNumber(1,4096),2,2),enter:skinObject({ms:skinNumber(0,1000),rise:skinNumber(0,1024)}),
     narrow:skinObject({width:skinNumber(.2,1),y:skinNumber(.05,.95)},['width','y']),gain:skinObject({hideText:item => typeof item === 'boolean',toast:skinItemToast})},['frame','box','media'])(value)
     && value.box[2] > 0 && value.box[3] > 0;
+// how the card pages' toasts (top-level toast, toasts.cjs) are drawn as the skin's own art. plates = one image per toast type
+// (info required; success, warning, error fall back to it), 9-sliced by slice [top, right, bottom, left] image px at one CSS
+// px per image px: the edges (a coloured tab, a printed shadow) stay as drawn and the words sit inside them. marks = each
+// type's mark image, all four or none, drawn mark [centre x, height] CSS px from the plate's left edge, vertically centred
+// (on the tab the left slice draws); without marks the engine's inline marks stay.
+const TOAST_TYPES = ['info','success','warning','error'];
+const skinToastArt = value => skinObject({plates:skinObject({info:skinImage,success:skinImage,warning:skinImage,error:skinImage},['info']),slice:skinSliceEdges,
+    marks:skinObject(Object.fromEntries(TOAST_TYPES.map(type => [type,skinImage])),TOAST_TYPES),mark:skinArray(skinNumber(1,512),2,2)},['plates','slice'])(value)
+    && !value.marks === !value.mark;
 // a text's soft halo in design px - offset, blur, colour and
 // its opacity (the original's TMP underlay: offset, dilate + softness, colour); a blurred underlay, not an outline.
 const skinHalo = skinObject({x:skinNumber(-64,64),y:skinNumber(-64,64),blur:skinNumber(0,64),color:skinColor,alpha:skinNumber(0,1)},['blur','color']);
@@ -707,6 +716,8 @@ const skinArtShape = skinObject({
     shape:skinShape,
     // The items mod's card drawn as the original's own frame (skinItem above).
     item:skinItem,
+    // The card pages' toasts drawn as the skin's own plates and marks (skinToastArt above).
+    toast:skinToastArt,
     // A static image or equal-cell sheet replaces the entry wheel once the skin bundle arrives.
     // Frame timing and placement are declarative; bundled SVG remains inert.
     // `parts`: 2-4 marks drawn as one unit, each with its own image and motion,
@@ -924,6 +935,19 @@ function stageSkinConfigFiles(config) {
 }
 // a devices side's patch: the keys it may override, each an object (merged) or null (removed); the merged skin is checked whole.
 // config (§18 N24): a phone may draw the CONFIG screen as the original's handheld layout does.
+// toast: the card pages' 浮起提示 (DshCardPage.toast, the stage's toasts.cjs). place = where the stack stands (center: the
+// middle of the stage, the default; top / top-left / top-right: under the top bar); enter = how one arrives (rise from below,
+// the default; drop from above; fade; pop: grows into place; slide: in from its side); paint = its ground, words, mark and
+// edge (default: the skin's panel colours, ui); shape = corner radius, edge width and shadow (soft, the default; hard: an
+// offset block in the edge colour, like print; none); mark = what stands before an info toast's words (none, the default,
+// dot, triangle, diamond) in paint.accent. A success toast shows ✓ there, a warning or an error ⚠ in the engine's warning ink.
+// stamp = lands like a rubber stamp: from a little larger and turned, a short bounce. text = the words' CSS px size on wide
+// stages (12-28; phones cap it at 16) and weight. Drawn plates and marks: art.toast (skinToastArt).
+const skinToast = skinObject({place:skinEnum(['center','top','top-left','top-right']),enter:skinEnum(['rise','drop','fade','pop','slide','stamp']),
+    paint:skinObject({bg:skinColor,fg:skinColor,accent:skinColor,border:skinColor},['bg','fg']),
+    shape:skinObject({radius:skinNumber(0,40),borderWidth:skinNumber(0,8),shadow:skinEnum(['soft','hard','none'])}),
+    mark:skinEnum(['none','dot','triangle','diamond']),
+    text:skinObject({size:skinNumber(12,28),weight:skinEnum([400,500,600,700,800,900])})});
 const STAGE_SKIN_DEVICE_KEYS = ['textbox','nameplate','font','textStyle','textFx','cursor','quickMenu','ui','art','config'];
 const skinDevicePatch = skinObject(Object.fromEntries(STAGE_SKIN_DEVICE_KEYS.map(key => [key,value => value === null || typeof value === 'object' && !Array.isArray(value)])));
 const stageSkinShape = skinObject({
@@ -993,7 +1017,9 @@ const stageSkinShape = skinObject({
     // which surfaces show a styled scrollbar (skinScrollbars above); the rest show none.
     scrollbars:skinScrollbars,
     // the stage CONFIG screen's own look (skinConfigSurface above).
-    config:skinConfigSurface
+    config:skinConfigSurface,
+    // the card pages' toasts (skinToast above).
+    toast:skinToast
 },['schema','id','label','textbox','nameplate','font','textFx']);
 function skinLuminance(color) {
     const rgb = [1,3,5].map(i => parseInt(color.slice(i,i+2),16)/255).map(v => v <= 0.04045 ? v/12.92 : ((v+0.055)/1.055)**2.4);
@@ -1044,6 +1070,8 @@ function validateStageSkin(value, at = 'art') {
         ...(value.config?.hints ? [[value.config.hints.paint.fg,value.config.hints.paint.bg,4.5]] : []),
         ...(value.config?.nav?.platePaint ? (pp => [[pp.fg,pp.bg,4.5],[pp.onFg,pp.onBg,4.5]])(value.config.nav.platePaint) : []),
         ...(value.hud?.plate ? [[value.hud.plate.fg,value.hud.plate.bg,4.5]] : []),
+        // toast.paint: the words on the toast's ground; the mark (non-text) at 3:1.
+        ...(value.toast?.paint ? [[value.toast.paint.fg,value.toast.paint.bg,4.5],[value.toast.paint.accent,value.toast.paint.bg,3]] : []),
         // art.menu.glyphTiles: each tile's glyph on its own ground.
         ...(value.art?.menu?.glyphTiles?.tiles || []).map(tile => [tile.ink,tile.ground,4.5])];
     if (pairs.some(([a,b,min]) => a && (!b || skinContrast(a,b)+1e-6 < min))) throw Object.assign(new Error('Skin text contrast is unsafe'),{code:'SKIN_CONTRAST'});
@@ -1131,7 +1159,8 @@ function stageSkinAppearance(value, level = value.levels?.default) {
 }
 function stageSkinArtFiles(art) {return [...(art?.spinner ? art.spinner.parts ? art.spinner.parts.map(part => part.image) : [art.spinner.image] : []),...Object.values(art?.textbox?.images || {}),...Object.values(art?.textbox?.tint?.masks || {}),...Object.values(art?.choices?.images || {}),...[art?.choices?.tint,art?.choices?.tool?.image,art?.choices?.tool?.tint,art?.choices?.tool?.send,art?.choices?.focus?.image,art?.choices?.focus?.alt,art?.choices?.hover?.image,art?.choices?.hover?.alt].filter(Boolean),...stageSkinButtonFiles(art?.choices?.tool?.button),...(art?.textbox?.lamp ? [art.textbox.lamp.image] : []),...[stageSkinImageOf(art?.textbox?.next),art?.nameplate?.image].filter(Boolean),...Object.values(art?.buttons || {}).flatMap(button => [button.image,button.on,button.disabled,button.tint,button.narrow?.image,button.narrow?.on].filter(Boolean)),
     ...(art?.nameplate?.band ? [art.nameplate.band.image] : []),...Object.values(art?.cast || {}).flatMap(entry => [entry.box,entry.plate,entry.band?.image].filter(Boolean)),...(art?.decor || []).map(item => item.image),
-    ...stageSkinScreenFiles(art),...(art?.portrait?.frame ? [art.portrait.frame.image,art.portrait.frame.glass,art.portrait.frame.back,art.portrait.frame.speaking,art.portrait.frame.tint].filter(Boolean) : []),...(art?.portrait?.placeholder?.image ? [art.portrait.placeholder.image] : []),...(art?.item ? [art.item.frame,art.item.gain?.toast?.image].filter(Boolean) : [])];}
+    ...stageSkinScreenFiles(art),...(art?.portrait?.frame ? [art.portrait.frame.image,art.portrait.frame.glass,art.portrait.frame.back,art.portrait.frame.speaking,art.portrait.frame.tint].filter(Boolean) : []),...(art?.portrait?.placeholder?.image ? [art.portrait.placeholder.image] : []),...(art?.item ? [art.item.frame,art.item.gain?.toast?.image].filter(Boolean) : []),
+    ...(art?.toast ? [...Object.values(art.toast.plates),...Object.values(art.toast.marks || {})] : [])];}
 // The images of the drawn overlays (art.menu / art.backlog / art.config / art.confirm) and of the voice controls (art.voice).
 function stageSkinScreenFiles(art) {
     const placed=item => item ? [item.image,item.focus] : [], b=art?.backlog, c=art?.config, m=art?.menu, k=art?.confirm;
