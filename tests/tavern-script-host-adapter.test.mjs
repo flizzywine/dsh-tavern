@@ -90,6 +90,67 @@ test('message frames publish once and resume MVU on the existing floors after a 
   }
 })
 
+for (const concurrent of ['plugin-data', 'new-opening']) {
+  test(`helper append reads the current chat after a concurrent ${concurrent} write`, async t => {
+    const host = await createHelperChatDataHost()
+    t.after(host.cleanup)
+    const initial = await host.persistence.read('audit')
+    async function saveConcurrentChange() {
+      await host.persistence.update('audit', chat => {
+        if (concurrent === 'plugin-data') chat.messages[0].tavernPluginData = { wiki: 'keep' }
+        else chat.tavernHelperLifecycleRevision += 1
+        return chat
+      })
+    }
+    const { adapter } = harness(initial, {
+      resolveChat: () => host.persistence.read('audit'), hasScripts: async () => true,
+      async updateChat(...args) { await saveConcurrentChange(); return host.persistence.update(...args) },
+      async writeChat(...args) { await saveConcurrentChange(); return host.persistence.write(...args) }
+    })
+    const result = await adapter.createMessages('audit', [{ role: 'assistant', message: '脚本补充' }], {}, 2)
+    const saved = await host.open().read('audit')
+    if (concurrent === 'plugin-data') {
+      assert.deepEqual(result.targets, [{ messageId: 1 }])
+      assert.equal(saved.messages[1].text, '脚本补充')
+      assert.deepEqual(saved.messages[0].tavernPluginData, { wiki: 'keep' })
+    } else {
+      assert.equal(result.stale, true)
+      assert.equal(result.context.lifecycleRevision, 3)
+      assert.equal(saved.messages.length, 1)
+    }
+  })
+}
+
+test('independent Helper appends get distinct floor IDs and publish each native message once', async t => {
+  const host = await createHelperChatDataHost()
+  t.after(host.cleanup)
+  const initial = await host.persistence.read('audit')
+  const published = []
+  let reads = 0, releaseReads
+  const bothRead = new Promise(resolve => { releaseReads = resolve })
+  const { adapter } = harness(initial, {
+    async resolveChat() {
+      const current = await host.persistence.read('audit')
+      if (++reads === 2) releaseReads()
+      await bothRead
+      return current
+    },
+    hasScripts: async () => true,
+    writeChat: (...args) => host.persistence.write(...args),
+    updateChat: (...args) => host.persistence.update(...args),
+    async publishCreatedMessages(saved, [{ messageId }]) { published.push({ messageId, text: saved.messages[messageId].text }) }
+  })
+  const append = text => adapter.createMessages('audit', [{ role: 'user', message: text }], {}, 2, '', { operationId: text })
+  const [a, b] = await Promise.all([append('第一条'), append('第二条')])
+  const saved = await host.open().read('audit')
+  assert.equal(saved.messages.length, 3)
+  assert.equal(saved.messages[a.targets[0].messageId].text, '第一条')
+  assert.equal(saved.messages[b.targets[0].messageId].text, '第二条')
+  assert.deepEqual((await append('第一条')).targets, a.targets)
+  assert.deepEqual(published, saved.messages.slice(1).map(({ text }, index) => ({ messageId: index + 1, text })))
+  assert.equal((await host.open().read('audit')).messages.length, 3)
+})
+
 for (const concurrent of ['plugin-data', 'same-field', 'next-opening']) {
   test(`helper opening initialization reconciles concurrent ${concurrent}`, async t => {
     const host = await createHelperChatDataHost()
