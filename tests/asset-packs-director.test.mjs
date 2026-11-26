@@ -9,7 +9,8 @@ import { syntheticPack, distinctMedia, cardExtension, PACK_ID, OTHER_PACK_ID, FI
 import { assetRefKey } from '../tavern-plugin/packages/dsh-presentation-protocol/src/asset-packs.js'
 import { recallAssetPacks } from '../tavern-plugin/packages/dsh-tavern-stage/lib/domain/stage-asset-pack-catalogue.js'
 import { initialAssetPackStage } from '../tavern-plugin/packages/dsh-tavern-stage/lib/domain/stage-asset-pack-tools.js'
-import { prepareAssetPackDirector, buildAssetPackRequest, nameModSections, nameModCommands, createAssetPackTransaction, runAssetPackDirector, validateAssetPackRecord, readAssetPackRecord, assetPackStateAt } from '../tavern-plugin/packages/dsh-tavern-stage/lib/domain/stage-asset-pack-director.js'
+import { prepareAssetPackDirector, buildAssetPackRequest, nameModSections, nameModCommands, createAssetPackTransaction, runAssetPackDirector, validateAssetPackRecord, readAssetPackRecord, assetPackStateAt, stageOutfitKey } from '../tavern-plugin/packages/dsh-tavern-stage/lib/domain/stage-asset-pack-director.js'
+import { standInShown } from '../tavern-plugin/packages/dsh-tavern-stage/lib/domain/stage-stand-in.js'
 import {figureActorKey} from '../tavern-plugin/lib/domain/figure-catalogue.js'
 
 const ACTOR = figureActorKey({packId:PACK_ID,figureId:FIGURE_ID})
@@ -40,6 +41,24 @@ async function fixture() {
 const batch = (ops, options = {}) => ({ sequence: 1, through: 3, done: true, beats: [{ at: 1, ops }], ...options })
 const scene = (timeOfDay = null, background = ref('backgrounds', 'classroom'), timeLook) => ({op:"scene.set",background,time:timeOfDay,...(timeLook ? {timeLook} : {})})
 const transact = (prepared, extra = {}) => createAssetPackTransaction({ prepared, getCurrentBinding: () => prepared.binding, ...extra })
+
+test('the director freezes the adult default only for figures with no recorded height', async () => {
+  const { input, prepare } = await fixture()
+  delete input.snapshots[0].figures[FIGURE_ID].heightCm
+  const { actors } = prepare().context
+  assert.equal(actors[ACTOR].ruler.heightCm, 168)
+  assert.equal(actors[FRIEND].ruler.heightCm, 158)
+})
+
+test('a stand-in switching to its own figure uses the adult default only when height is absent', async () => {
+  const { input } = await fixture()
+  const figure = input.snapshots[0].figures[FIGURE_ID]
+  const actor = {figure:{packId:OTHER_PACK_ID, figureId:OTHER_FIGURE_ID}, standIn:figure.name}
+  const row = {name:figure.name, aliases:[], enabled:true, ref:{packId:PACK_ID, figureId:FIGURE_ID}, figure}
+  assert.equal(standInShown(actor, [row], stageOutfitKey).ruler.heightCm, 158)
+  delete figure.heightCm
+  assert.equal(standInShown(actor, [row], stageOutfitKey).ruler.heightCm, 168)
+})
 
 for (const incremental of [false, true]) test(`${incremental ? 'stage_update' : 'submit_direction'} validates complete refs and rejects all scene creation with zero asset writes`, async () => {
   const f = await fixture(), p = f.prepare(); let saves = 0
