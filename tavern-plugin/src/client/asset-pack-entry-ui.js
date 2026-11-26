@@ -553,6 +553,8 @@ const LAMP_HELP='同 SillyTavern 世界书：蓝灯始终可选，绿灯在名�
         !UNDIRECTED_KINDS.includes(kind)&&h(InlineField,{kind:'text',multiline:true,label:NOTE_LABEL,className:'ap-note-field',help:entryHelp(NOTE_LABEL,NOTE_HELP[kind]),placeholder:NOTE_PLACEHOLDER,value:note,
           validate:v=>chars(v)>300?NOTE_LABEL+'最多 300 字':'',onCommit:v=>write(c=>({...c,directorNote:v}))}),
         remarkField({value:asset.remark,onCommit:v=>write(c=>withRemark(c,v))}),
+        // 画风: what a background drawn here paints in, from where (the pack's menu; asset-pack-style-ui.js).
+        kind==='backgrounds'&&gen&&h(GenStyleLine,{uses:['background'],row:true}),
         kind==='performances'&&h(InlineField,{kind:'menu',label:'背景',value:content.background||'',
           help:entryHelp('背景','演出期间覆盖场景背景，结束后恢复；没有图片的背景不生效。'),
           options:[{value:'',label:'不覆盖'},...pack.manifest.assets.filter(a=>a.kind==='backgrounds').map(a=>({value:a.id,label:a.name}))],

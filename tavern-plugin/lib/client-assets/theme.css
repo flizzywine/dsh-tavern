@@ -3502,6 +3502,20 @@ body { --fork-accent-fill: var(--fk-s-base-fill, var(--fork-accent)); --fork-on-
 .ap-pack-head { display: flex; align-items: center; gap: 10px; flex: none; padding: 14px 16px 12px 20px; border-bottom: 1px solid var(--ap-border); }
 .ap-pack-head h2 { flex: 1; min-width: 0; margin: 0; overflow: hidden; font-size: 17px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
 .ap-pack-head-tools { display: inline-flex; align-items: center; gap: 4px; }
+/* 画风 (asset-pack-style-ui.js): the head's quiet tag (a menu), one line in the 生图 tab, a background or a CG, the card's row. */
+.ap-pack-head > .fork-inline-anchor { flex: 0 1 auto; min-width: 0; max-width: 45%; }
+.ap-ui .ap-style-tag { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; min-height: 30px; padding: 2px 10px; border: 0; border-radius: 999px; background: var(--fork-hover); color: var(--fork-ink-2); font: inherit; font-size: var(--fork-fs-meta); cursor: pointer; }
+.ap-ui .ap-style-tag:hover { color: var(--fork-ink); }
+.ap-ui .ap-style-tag:focus-visible, .ap-ui .ap-style-line-value:focus-visible { outline: 2px solid var(--fork-accent); outline-offset: 1px; }
+.ap-style-tag-key { flex: none; color: var(--fork-ink-3); }
+.ap-style-tag-value { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ap-style-line { display: flex; align-items: center; gap: 12px; min-height: 36px; color: var(--fork-ink-3); font-size: var(--fork-fs-meta); }
+.ap-ui .ap-style-line-value { display: inline-flex; align-items: center; gap: 4px; min-width: 0; min-height: 30px; padding: 0; border: 0; background: none; color: var(--fork-ink-2); font: inherit; text-align: left; cursor: pointer; }
+.ap-ui .ap-style-line-value:hover { color: var(--fork-ink); }
+.ap-style-said, .ap-gd-style-from { color: var(--fork-ink-3); font-size: var(--fork-fs-meta); white-space: nowrap; }
+.ap-card-style-value { display: flex; flex: 1; align-items: center; gap: 12px; min-width: 0; }
+.ap-ui .ap-card-style-uses { display: inline-flex; align-items: center; gap: 2px; min-height: 30px; margin-left: auto; color: var(--fork-ink-3); }
+@media (max-width: 600px) { .ap-pack-head > .fork-inline-anchor { max-width: 40%; } .ap-style-tag-key { display: none; } .ap-ui .ap-style-tag, .ap-ui .ap-style-line-value, .ap-ui .ap-card-style-uses { min-height: 36px; } }
 /* the pack's name is the head, renamed in place (the shared inline edit look); its text lines up where the plain title sat. */
 .ap-pack-title-edit { display: flex; flex: 1; align-items: center; gap: 8px; min-width: 0; margin-left: -6px; }
 .ap-ui .ap-pack-title-edit input.ap-pack-title-input:not([data-ap-a]):not([data-ap-b]):not([data-ap-c]) { flex: 1; min-width: 0; height: 34px; font-size: var(--fork-fs-title); font-weight: 700; text-overflow: ellipsis; }

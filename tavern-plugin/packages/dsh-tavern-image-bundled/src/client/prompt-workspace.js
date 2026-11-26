@@ -571,5 +571,9 @@
           h('option', { value: '' }, config.promptDefault?.name || '模块化模板'),
           templates.map(item => h('option', { key: item.id, value: item.id }, (item.name || '未命名模板') + (item.registered ? ' · ' + item.source : '') + (item.status === 'experimental' ? ' · 实验' : ''))),
           h('option', { value: '__random__' }, '随机模板'))),
-          h('button', { type: 'button', style: buttonStyle, onClick: () => onEdit(selected) }, '编辑模板')))
+          h('button', { type: 'button', style: buttonStyle, onClick: () => onEdit(selected) }, '编辑模板')),
+        // The current card paints its pictures in its own 画风 (set on the card or its 自动素材 pack): only the style part of
+        // the template above changes for it; 「跟随配图插件」 on the card gives this choice back.
+        config.cardImageStyle ? h('div', { role: 'note', style: STRUCTURE_MUTED, title: '这张卡配的插图用它自己的画风，只替换模板里的画风段；在人物卡详情里把画风改成「跟随配图插件」就用这里的选择。' },
+          '本卡：' + config.cardImageStyle.name + '（来自' + (config.cardImageStyle.from === 'pack' ? '素材包' : '卡') + '）') : null)
     }

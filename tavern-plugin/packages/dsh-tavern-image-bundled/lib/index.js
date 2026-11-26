@@ -65,7 +65,7 @@ import { createDownloadPackage, PLUGIN_DOWNLOADS } from './download-package.js'
 import { createMediaActions } from './media-actions.js'
 import { applyCharacterSnapshot, boundCharacterSnapshot, emptyCharacterSnapshot, mergeCharacterUpdates } from './character-history.js'
 import { getPromptGuidance, acceptsChinese } from './prompt-presets.js'
-import { BASIC_IMAGE_WORLDBOOK, STRUCTURED_PROMPT_SECTIONS, PROMPT_FORMATS, MAX_PROMPT_PRESETS, DEFAULT_MODULAR_TEMPLATE, STRUCTURED_PROMPT_TEMPLATE, BUILTIN_PROMPT_PRESETS, GALGAME_STYLE_PRESETS, normalizePromptPresets, normalizeDefaultPromptTemplate, resolvePromptMode, composePresetText, promptPresetNegative, effectivePromptPreset, validPromptPresetId, promptBackendContext, promptConfigForTarget, listRegisteredPromptPresets, withPromptPreset } from './prompt-presets.js'
+import { BASIC_IMAGE_WORLDBOOK, STRUCTURED_PROMPT_SECTIONS, PROMPT_FORMATS, MAX_PROMPT_PRESETS, DEFAULT_MODULAR_TEMPLATE, STRUCTURED_PROMPT_TEMPLATE, BUILTIN_PROMPT_PRESETS, GALGAME_STYLE_PRESETS, normalizePromptPresets, normalizeDefaultPromptTemplate, resolvePromptMode, composePresetText, promptPresetNegative, effectivePromptPreset, validPromptPresetId, promptBackendContext, promptConfigForTarget, listRegisteredPromptPresets, withPromptPreset, withCardStyle } from './prompt-presets.js'
 import { transcodeImageOutputAsync, isBlankImage } from './image-output.js'
 import { compactComfySchema, comfyWorkflowFields, comfyPromptMarkers, applyComfyPromptMarkers, withComfyPromptMarkers, validateComfyTextBindings } from './comfy-inputs.js'
 import { comfyLoadImageBindings, applyComfyReferenceImages, validateComfyImageBindings } from './comfy-reference-images.js'
@@ -3131,6 +3131,9 @@ function createRuntime(ctx, overrides, logger, deps) {
           if (selected) cfg = selected.config
           else imageGeneration = false
         }
+        // A card (or its 自动素材 pack) with its own CG 画风: this card's pictures paint in it; only the style part changes.
+        const cardStyle = imageGeneration ? (await cardContextRaw(sessionId, turn))?.imageStyle : null
+        if (cardStyle?.id) cfg = withCardStyle(cfg, cardStyle.id, { workflow: cfg.imageBackend === 'comfyui' ? styleWorkflow(cfg) : null })
       }
       signal?.throwIfAborted()
       if (typeof instruction !== 'string') throw new Error('instruction 必须是字符串')
@@ -4145,6 +4148,8 @@ function createRuntime(ctx, overrides, logger, deps) {
           libraryDetailsEditing: true,
           promptEffectivePreset: promptConfig.activePromptPreset,
           promptEffectiveName: promptPreset?.name ?? '',
+          // The current game's card 画风 for its pictures ({id, name, from: card | pack}); null when the choice above applies.
+          cardImageStyle: lastSessionId ? (await cardContextRaw(lastSessionId))?.imageStyle ?? null : null,
           promptPreviewPositive: composePresetText(promptPreset?.independent ? '' : String(config.promptManualPositive ?? ''), promptConfig, promptBackend),
           promptPreviewNegative: [promptPreset?.independent ? '' : activeArtistText(config).negative, promptPresetNegative(promptConfig, promptBackend), promptPreset?.independent ? '' : String(config.promptManualNegative ?? '')].filter(Boolean).join(', '),
           promptManualPositive: String(config.promptManualPositive ?? ''),

@@ -121,9 +121,9 @@ export function createAutoCast({store, settings, library, images, cast:castAssis
     }
     // 外貌: the figure's 人物库 record's; the 选角助理's text stands in while the record has none.
     const pending = record.appearance?.[figureKey(job.ref)]
-    // 画风: the default preset for the kind's use (images.prompt), added by the image plugin.
+    // 画风: resolved by the host from the target pack, then the card (images.prompt), added by the image plugin.
     const {prompt, output, promptPreset, usage} = await images.prompt({kind:job.kind, figure:{ref:job.ref, name:figure.name, emotions:figure.emotions}, appearance:pending ? joinTraits(pending) : '',
-      emotionId:job.emotionId, userPrompt:job.kind === 'identity-settei' ? SETTEI_VIEWS : '', fromSettei:job.kind === 'sprite'})
+      emotionId:job.emotionId, userPrompt:job.kind === 'identity-settei' ? SETTEI_VIEWS : '', fromSettei:job.kind === 'sprite', cardPath:cast.cardPath})
     const [width, height] = output.size.split('x').map(Number), controller = new AbortController()
     // Every call is kept (drawn): what, how long, and its cost when the image entry returns one.
     const generate = async input => {

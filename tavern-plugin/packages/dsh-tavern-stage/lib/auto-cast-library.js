@@ -41,7 +41,7 @@ export function createAutoCastLibrary({getLibrary, getReading = () => null}) {
       const rows = cardFigureRows({raw:context.card.raw, snapshots:context.packs, globalEnabledPackIds:context.globalEnabledPackIds})
       const byPack = new Map(context.packs.map(snapshot => [snapshot.manifest.id, snapshot.manifest.voiceLibrary?.voices]))
       const voiceKeys = new Set(rows.map(({ref, figure}) => castingVoiceKey(byPack.get(ref.packId)?.[figure.voice?.voice], figure.voice)).filter(Boolean))
-      return {cardId:context.card.cardId, missingPackIds:context.missingPackIds, packId:pack?.manifest.id ?? null, revision:pack?.revision ?? null, raw:context.card.raw, rows, voiceKeys, figures:figuresOf(pack)}
+      return {cardId:context.card.cardId, missingPackIds:context.missingPackIds, packId:pack?.manifest.id ?? null, revision:pack?.revision ?? null, cardPath, raw:context.card.raw, rows, voiceKeys, figures:figuresOf(pack)}
     },
     search:query => port().writer.searchLibrary({query, limit:8, systemPacks:systemPacks()}),
     // The library's 通用人物原型, a new person's 借用形象 is lent from: an enabled figure with a stage form whose own voice is a

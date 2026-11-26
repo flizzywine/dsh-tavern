@@ -71,7 +71,8 @@ async function fixture(t) {
 test('a text-only channel draws the 设定图 from text, and a JPEG answer is stored as PNG', async t => {
   const f = await fixture(t)
   // 画风 goes to the image plugin as its preset id and this kind's use; a preset the plugin no longer has is refused before sending.
-  f.provider.presets = () => [{id:'galgame-clean', name:'干净低细节'}, {id:'no-style', name:'不加画风'}]
+  // (no pack style: the plugin's current choice)
+  f.provider.presets = () => [{id:'galgame-clean', name:'干净低细节', addsStyle:true, active:true}, {id:'no-style', name:'不加画风'}]
   await assert.rejects(f.prepare('identity-settei', {userPrompt:'silver hair', style:'galgame-anime'}), e => e.code === 'INVALID_ARGUMENT' && /galgame-anime/.test(e.message))
   const figure = await f.draw('identity-settei', {userPrompt:'silver hair'})
   assert.equal(f.channel.sent[0].promptPreset, 'galgame-clean'); assert.equal(f.channel.sent[0].usage, 'sheet')

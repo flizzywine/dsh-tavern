@@ -320,7 +320,9 @@ function CgEntryEditor({binding,pack,asset,save,remove,back=null,fresh=false}) {
       // 使用情景 (directorNote; always shown, like 触发词), then the owner's 备注 (`remark`, never sent) in the same draft.
       h(InlineField,{kind:'text',multiline:true,label:NOTE_LABEL,className:'ap-note-field',help:help(NOTE_LABEL,'会和名称一起发给导演，用来判断什么时候展示这张 CG。写什么情景下用它，最多 300 字。'),placeholder:NOTE_PLACEHOLDER,value:draft.directorNote||'',
         validate:v=>chars(v)>300?NOTE_LABEL+'最多 300 字':'',onCommit:directorNote=>set({directorNote})}),
-      remarkField({value:draft.remark,onCommit:v=>setDraft(current=>withRemark(current,v))})),
+      remarkField({value:draft.remark,onCommit:v=>setDraft(current=>withRemark(current,v))}),
+      // 画风: what a CG painted for this pack (a card's 自动素材 pack: the pictures the image plugin draws in play) gets.
+      h(GenStyleLine,{uses:['cg'],row:true})),
       // no 优先级 — nothing ordered by it; removed with the field itself.
     !blank&&h(CgVariants,{binding,pack,packId:pack.manifest.id,draft,variant,files,blobs,busy,onSelect:setSelected,set,update,upload,onError:setError}),
     !blank&&h(CgFocusHints,{draft:{...draft,editingVariant:variant.id},open:focusOpen,setOpen:setFocusOpen,set}),

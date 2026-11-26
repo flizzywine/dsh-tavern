@@ -904,8 +904,9 @@ export function createTavernPluginApi(deps) {
     // status() → { ready, reason?, model?, maxReferences } describes the plugin's current channel;
     // generate({ prompt, references: [{ data, mediaType }], width, height, background, quality, signal })
     // → { data, mediaType }. A thrown error with requestMayHaveSucceeded === false says nothing was billed.
-    // presets(): optional read-only list of the style presets generate({ promptPreset }) accepts.
-    imageProvider({ id, label, status, generate, models, presets } = {}) {
+    // presets(): optional read-only list of the style presets generate({ promptPreset }) accepts (the selected one `active`).
+    // registerPreset(definition) → undo: optional; Tavern registers the styles a card or a pack carries (随卡 / 随包) with it.
+    imageProvider({ id, label, status, generate, models, presets, registerPreset } = {}) {
       const owner = ownerOf(this)
       sectionName(id)
       if (typeof label !== 'string' || !label.trim() || label.trim().length > 30) throw new Error('label 必须是 1–30 字')
@@ -913,8 +914,9 @@ export function createTavernPluginApi(deps) {
       if (typeof generate !== 'function') throw new TypeError('imageProvider 需要 generate 函数')
       if (models !== undefined && typeof models !== 'function') throw new TypeError('models 必须是函数')
       if (presets !== undefined && typeof presets !== 'function') throw new TypeError('presets 必须是函数')
+      if (registerPreset !== undefined && typeof registerPreset !== 'function') throw new TypeError('registerPreset 必须是函数')
       const key = owner + '/' + id
-      const entry = { id: key, owner, label: label.trim(), models, presets,
+      const entry = { id: key, owner, label: label.trim(), models, presets, registerPreset,
         status: async (input = {}) => {
           const value = await bounded(Promise.resolve().then(() => status({ ...input })), '生图渠道 ' + key, POOL_TIMEOUT_MS)
           const maxReferences = Number.isSafeInteger(value?.maxReferences) && value.maxReferences > 0 ? value.maxReferences : 0

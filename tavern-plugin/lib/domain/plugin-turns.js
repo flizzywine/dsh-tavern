@@ -102,7 +102,10 @@ export function createPluginTurnReader(deps) {
     const lore = Array.isArray(book?.entries) ? book.entries.map(entry => ({
       title: entry.title, keys: [...(entry.keys || [])], constant: entry.constant === true, content: entry.text
     })) : []
-    return { description: project(card?.description), personality: project(card?.personality), scenario: project(card?.scenario), lore }
+    // imageStyle: the CG 画风 this card's pictures use, set by the card or its 自动素材 pack ({id, name, from}); null leaves the
+    // image plugin's own choice.
+    const imageStyle = header?.cardPath && deps.cardImageStyle ? await deps.cardImageStyle(header.cardPath).catch(() => null) : null
+    return { description: project(card?.description), personality: project(card?.personality), scenario: project(card?.scenario), lore, imageStyle }
   }
 
   async function readTurnState(sessionId) {
