@@ -63,6 +63,7 @@ public final class MainActivity extends Activity {
     private static final String INSTALL_ACTION = "io.github.flizzywine.dshtavern.bionic.INSTALL_STATUS";
     private final Handler handler = new Handler(Looper.getMainLooper());
     private WebView web;
+    private WebDownloads downloads;
     private ScrollView launcher;
     private TextView versionText, updateText, updateStatusTitle, keepAliveText, logText;
     private ProgressBar bar, updateBar;
@@ -495,6 +496,8 @@ public final class MainActivity extends Activity {
                 return true;
             }
         });
+        downloads = new WebDownloads(this, web);
+        downloads.attach();
         web.setVisibility(View.GONE);
         return web;
     }
@@ -983,6 +986,7 @@ public final class MainActivity extends Activity {
     protected void onDestroy() {
         handler.removeCallbacks(poll);
         unregisterReceiver(installReceiver);
+        if (downloads != null) downloads.destroy();
         web.destroy();
         super.onDestroy();
     }
