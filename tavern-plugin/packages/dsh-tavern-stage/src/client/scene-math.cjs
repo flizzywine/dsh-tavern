@@ -63,8 +63,9 @@ function sceneFigureScale() {
 // anything else at 60.
 // quality is the 画质 tier in force (device.cjs galDeviceQuality: high | medium | saver; the old "low" is saver): below
 // high the default cap is 30, saver never goes over 30, and a settled scene (nothing moving but the figures' idle
-// breathing and sway, scene.cjs frameRate) drops to GAL_SETTLED_FPS of its tier. High keeps its rates.
-const GAL_SETTLED_FPS = Object.freeze({ medium: 15, saver: 10 });
+// breathing and sway, scene.cjs frameRate) drops to GAL_SETTLED_FPS of its tier: high to 30 too (the GPU work is per
+// drawn frame, so a still scene costs half; 动态立绘 keep playing, their 24 fps paced by the 30 fps ticks).
+const GAL_SETTLED_FPS = Object.freeze({ high: 30, medium: 15, saver: 10 });
 function galFrameRate(quality, animated, refreshRate, frameCap = null, handheld = false, settled = false) {
     const display = Number.isFinite(refreshRate) && refreshRate > 0 ? refreshRate : Infinity;
     const tier = quality === "low" ? "saver" : quality;

@@ -182,10 +182,13 @@ function galCreateScene(host, options, own) {
     const call=stageViews.callViews.create({PIXI,renderer:app.renderer,screen:app.screen,canvas:app.view,tune});
     own(call,value=>value.dispose());
     app.stage.addChild(world, bust.sprite, overlay, call.container);
-    // Filter attachment points (render order within each chain).
+    // Filter attachment points (render order within each chain). Everything under the world (backgrounds, figures,
+    // particles) takes its edges from texture alpha, so those chains draw single-sampled: MSAA there changed no pixel but
+    // made every full-screen pass four times the memory plus a resolve. Only the overlay draws polygons (blink lids, slash
+    // bars) and keeps MSAA on high.
     const filters = {
-        world: stageViews.sceneGraphics.filters(world, app.screen, ["timeGrade", "grade", "soften", "screen", "film", "beatBlur", "glitch", "shock"]), backdrop: stageViews.sceneGraphics.filters(backdrop, app.screen, ["blur", "bloom"]),
-        backFx: stageViews.sceneGraphics.filters(backFx), figures: stageViews.sceneGraphics.filters(figuresBox), frontFx: stageViews.sceneGraphics.filters(frontFx), overlay: stageViews.sceneGraphics.filters(overlay, app.screen)
+        world: stageViews.sceneGraphics.filters(world, app.screen, ["timeGrade", "grade", "soften", "screen", "film", "beatBlur", "glitch", "shock"], true), backdrop: stageViews.sceneGraphics.filters(backdrop, app.screen, ["blur", "bloom"], true),
+        backFx: stageViews.sceneGraphics.filters(backFx, null, null, true), figures: stageViews.sceneGraphics.filters(figuresBox, null, null, true), frontFx: stageViews.sceneGraphics.filters(frontFx, null, null, true), overlay: stageViews.sceneGraphics.filters(overlay, app.screen)
     };
     function tune(filter) {
         filter.resolution = filter.forkLowRes ? 1 : app.renderer.resolution;
@@ -620,7 +623,8 @@ function galCreateScene(host, options, own) {
     function staticIdle(entry, desc, dt, now) {
         const reduced = galBlinkCalm(), tap = stageViews.figureTap.galTapFrame(entry.tapReaction, now, reduced);
         const out = { on: false, scaleY: 1, scaleX: tap.scaleX, rotation: tap.tilt * 0.5 * Math.PI / 180, dx: tap.dx, tapY: tap.scaleY };
-        const warp = !reduced && entry.kind === "static" && stageViews.figureGeometry.galStaticWarps(entry.figure);
+        // A playing 动态立绘 moves its own body, so the warp (a full-figure pass every frame) waits for the still.
+        const warp = !reduced && entry.kind === "static" && !entry.videoShown && stageViews.figureGeometry.galStaticWarps(entry.figure);
         const active = figureLifeOn(desc) && !reduced && entry.kind === "static" && entry.sprite && entry.container.visible && figuresBox.visible;
         if (active) {
             const frame = stageViews.figureIdle.galStaticIdleStep(entry.idle, dt, warp);
@@ -1151,11 +1155,11 @@ function galCreateScene(host, options, own) {
         const desc = describe(), plan = effects.looks.plan();
         const neutral = plan && !plan.grade && !plan.soften && !plan.frame && !plan.bloom && !plan.screen && !plan.film && !plan.backBlur && !plan.motes.length && !plan.vignette && !plan.haze && !plan.leaks.length && !plan.flare;
         const idle = !state.figures.size && !(desc.figures || []).length && !desc.animatedUi && !desc.thinking && !(thinking.alpha > 0) && !galWeathering(desc) && !(desc.effects || []).length && !state.debugEffects.length && !state.override && !state.preview && neutral && backgrounds.layers.length <= 1 && !backgrounds.pending && performance.now() - state.changedAt > 4000 && state.clock >= state.camera.start + state.camera.ms;
-        state.unsettled = tier === "high" ? "tier" : idle ? "" : unsettled(desc, plan);
+        state.unsettled = idle ? "" : unsettled(desc, plan);
         state.settled = !state.unsettled;
         return galFrameRate(tier, !idle, refreshRate, stageReading.get().frameCap, handheld, state.settled);
     }
-    // Below high, a scene where nothing moves but the figures' idle breathing and sway draws at its tier's settled rate
+    // A scene where nothing moves but the figures' idle breathing and sway draws at its tier's settled rate
     // (scene-math.cjs GAL_SETTLED_FPS): 4 s after the last change, the camera at rest, no effect, weather, moving look
     // part (grain, wobble, pulse, motes), transition or override, and no figure arriving, leaving, changing, reacting to a
     // tap, blinking or speaking a voice (the mouth follows it).
@@ -1202,7 +1206,7 @@ function galCreateScene(host, options, own) {
     const renderUncovered = app.renderer.render;
     app.renderer.render = function (...args) { if (!state.coverOn) return renderUncovered.apply(this, args); };
     function restart() { app.ticker.lastTime = performance.now(); app.start(); }
-    // Settled below high (frameRate), the scene leaves the display's frame loop for a plain timer at the settled rate:
+    // Settled (frameRate), the scene leaves the display's frame loop for a plain timer at the settled rate:
     // no wake-up every vsync for frames it would skip. A change (set, a tap) puts it straight back on the frame loop.
     function setSettled(on, fps) {
         if (on && state.settledTimer && state.settledFps === fps) return;
