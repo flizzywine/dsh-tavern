@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "a1011cf938d56c65764705830e6e19da5495a8eb",
-  "releaseSequence": 2106,
+  "revision": "bbdc8f7a53397700e598f641503e6e4aec70fcc9",
+  "releaseSequence": 2107,
   "version": "3.4.0",
   "files": [
     {
@@ -2011,8 +2011,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/dialogue-bubbles.js",
-      "sha256": "375e02f389fc74acb8dcbb3b159246d7651b6c6153b9c3f11434973392fc6ec7",
-      "size": 36850
+      "sha256": "66c5d9db9fb37fe12937c5bd1b10f80762e1b9c901d5f245dc907a9d8fdfb61c",
+      "size": 37159
     },
     {
       "path": "tavern-plugin/lib/domain/direction-styles.js",
@@ -2136,8 +2136,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/foreground-capabilities.js",
-      "sha256": "b77c9c2898dccfa49ab314fb25a1afb2dca1d628162543e2f2a6a2a63bda55e5",
-      "size": 18516
+      "sha256": "ca17ffb821068fd5cd94579a11af1a38a09b9bc81777be0f3d0933ed13af245c",
+      "size": 19364
     },
     {
       "path": "tavern-plugin/lib/domain/foreground-compaction.js",
@@ -10286,9 +10286,9 @@
     }
   ],
   "archive": {
-    "commit": "60d05638e4ebea9000147510ea7bbff12aef0ad6",
+    "commit": "3ed5c956b325f24d68500b59dce9d3091225b809",
     "path": "runtime.zip",
-    "sha256": "6a1bb9bad2b9962cb46fd8771ed02bd7bdd3dc395520406e8e7e10f3b054e46f",
-    "size": 18054178
+    "sha256": "072f59a06d4d4934e96d63d0b87f9530ade96241d087af91aa22b3a89713812f",
+    "size": 18054447
   }
 }
