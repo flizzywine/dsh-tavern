@@ -21,15 +21,23 @@ try {
   // First read runs the full production projector and enables dirty history reuse.
   const first = await read()
   assert.equal(first.statusBarPlacement, 'sidebar', 'full projection default')
+  assert.equal(first.showCharacterDesignPanel, false, 'existing games default to hiding character design')
   assert.equal(first.tavernHelper.messages.length, 1)
   for (const placement of ['body', 'sidebar', 'body']) {
-    await host.rpc('updateTavernSettings', { patch: { defaultPlaySettings: { statusBarPlacement: placement } } })
-    assert.equal((await read()).statusBarPlacement, placement, 'dirty projection preserves saved placement')
-    assert.equal((await read()).statusBarPlacement, placement, 'cached projection preserves saved placement')
+    const showCharacterDesignPanel = placement === 'body'
+    await host.rpc('updateTavernSettings', { patch: { defaultPlaySettings: { statusBarPlacement: placement }, showCharacterDesignPanel } })
+    for (const projection of ['dirty', 'cached']) {
+      const view = await read()
+      assert.equal(view.statusBarPlacement, placement, projection + ' projection preserves saved placement')
+      assert.equal(view.showCharacterDesignPanel, showCharacterDesignPanel, projection + ' projection uses current character design setting')
+    }
   }
   await host.dispose()
   host = await createPluginHost({ withTools: true })
-  assert.equal((await read()).statusBarPlacement, 'body', 'cold full projection restores persisted placement')
-  assert.equal((await read()).statusBarPlacement, 'body', 'cold cache preserves persisted placement')
+  for (const projection of ['full', 'cached']) {
+    const view = await read()
+    assert.equal(view.statusBarPlacement, 'body', 'cold ' + projection + ' projection restores persisted placement')
+    assert.equal(view.showCharacterDesignPanel, true, 'cold ' + projection + ' projection restores persisted character design setting')
+  }
   console.log('status bar full/dirty/cached RPC projections passed')
 } finally { await host.dispose() }

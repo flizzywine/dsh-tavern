@@ -3,7 +3,7 @@ import { cardOpeningSetup } from './card-extension-reading.js'
 import { cardOpeningChoices, openingInitialState } from './card-openings.js'
 import { projectOpeningPreview } from './runtime-content-projection.js'
 
-// What a card's opening page (card page opening: true, presets/tavern/skills/stage-status-panel/references/panel-contract.md「开局页」) draws its choices from:
+// What a card's opening page (card page opening: true, presets/tavern/skills/stage/references/page-contract.md「开局页」) draws its choices from:
 // the card's greetings (text projected for userName by the host's own macro authority, the state its <initvar> starts
 // in, its opening scene) and the openingSetup it completes. null when page is not the card's opening page. The stage
 // reads it through its core contract (DshCardPage.opening); the start itself is opening-preparation.js.

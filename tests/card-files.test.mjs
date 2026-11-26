@@ -134,6 +134,20 @@ test('a 280 MiB card takes the same files through direct, plain GUI and encrypte
   } finally { transfer.close() }
 })
 
+test('a world book mislabeled as card.json is rejected before attached packs are written', async t => {
+  const {root, files, fileResources} = await library(t, {
+    assetLibrary: () => ({ inspectImportFile: () => assert.fail('invalid card must not inspect packs') }),
+    assetPacks: { importFromZip: () => assert.fail('invalid card must not publish packs') }
+  })
+  const file = join(root, 'bad-card.dshcard')
+  await writeFile(file, writeZipEntries([
+    {path:'card.json', content:'{"entries":{}}'},
+    {path:'dsh.json', content:JSON.stringify({format:'dshcard', formatVersion:1, packs:[{id:randomUUID(), path:'assets/test/'}]})}
+  ]))
+  await assert.rejects(files.importCardArchiveFile(file, 'bad-card.dshcard'), /检测到世界书/)
+  assert.deepEqual(await fileResources.list('card'), [])
+})
+
 test('encrypted DSH imports authenticate before saving cards/plugins, and duplicates still require the password', async t => {
   const { root, files, fileResources, castAssets } = await library(t)
   const plain = join(root, 'plain.dshcard'), encrypted = join(root, 'locked.dshcard')
@@ -446,7 +460,7 @@ test('撤回 puts the card and the packs it replaced back; only the latest updat
 
 
 
-test('private installed card replacement uses an internal backup while public export stays denied', async t => {
+test('card replacement backs up bindings without embedding packs, even with legacy metadata', async t => {
   const {createAssetPackService} = await import('../tavern-plugin/packages/dsh-asset-library/src/pack-v2/service.js')
   const {createCardBundleAdapter} = await import('../tavern-plugin/packages/dsh-tavern-stage/lib/card-bundle.js')
   const {syntheticPack, PACK_ID} = await import('./fixtures/asset-packs/pack.mjs')
@@ -477,7 +491,7 @@ test('private installed card replacement uses an internal backup while public ex
   options = {assetRoot,cardTransactions:createCardBundleAdapter({cardPreparation:createCardPreparation(),authorizeTarget:async () => ({cardId:'fixture'}),readWorkspace:fileResources.readCard,withCardLock:async (_, task) => task()})}
   normal = createAssetPackService(options)
   t.after(() => normal.dispose())
-  await assert.rejects(files.exportCardFile(original.path), {code:'PRIVATE_ASSET_NOT_EXPORTABLE'})
+  assert.ok(await files.exportCardFile(original.path))
   const updated = await files.replaceCard(original.path, {payload:{kind:'text',name:'updated.json',text:JSON.stringify({...card,name:'Private updated'})}})
   assert.equal(updated.path, original.path)
   assert.equal((await fileResources.readCard(original.path)).raw.name, 'Private updated')
@@ -488,5 +502,5 @@ test('private installed card replacement uses an internal backup while public ex
     assert.deepEqual(backup.card.data.extensions.dsh_tavern.assetBindings.boundPackIds, [PACK_ID])
     assert.equal(backup.packs.length, 0)
   } finally { await zip.close() }
-  await assert.rejects(files.exportCardFile(original.path), {code:'PRIVATE_ASSET_NOT_EXPORTABLE'})
+  assert.ok(await files.exportCardFile(original.path))
 })

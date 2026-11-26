@@ -6,7 +6,7 @@ import { createScopedMessages } from './scoped-messages.js'
 import { createSessionStateView, settlementTurn } from './chat-session-state.js'
 import { rescueHistoryNotice } from './chat-history-rescue.js'
 import { createIncrementalReplyView } from './incremental-reply-view.js'
-import { latestStyleReference } from './style-reference.js'
+import { foregroundStyleReferenceEnabled, latestStyleReference } from './style-reference.js'
 import { sessionOpeningDescriptor } from './session-opening.js'
 import { composeTavernRegexScripts } from './card-extension-reading.js'
 import { applyRegexOverrides } from './regex-manager.js'
@@ -236,10 +236,11 @@ export function createSessionViewProjection({
       // The automatic card reload, shown until the next turn.
       cardAutoReload: chat.cardAutoReload && Number(chat.cardAutoReload.turn) === latestStoryTurn ? { at: chat.cardAutoReload.at } : null,
       statusBarPlacement: runtimeSettings.defaultPlaySettings?.statusBarPlacement === 'body' ? 'body' : 'sidebar',
+      showCharacterDesignPanel: runtimeSettings.showCharacterDesignPanel === true,
       posture: playFeatures.postureSummary ? chat.posture || '' : '',
       postureEnabled: playFeatures.postureSummary && chat.backgroundTasks?.posture !== false,
       styleReference: latestStyleReference(chat),
-      styleReferenceEnabled: chat.backgroundTasks?.styleReference === true && (chat.mode || 'story') === 'story',
+      styleReferenceEnabled: foregroundStyleReferenceEnabled(chat),
       ledger: playFeatures.storyLedger ? readLedger(chat.ledger) : null,
       ledgerTask: playFeatures.storyLedger ? projectLedgerTask(chat) : null,
       characterDesigns: projectCharacterDesignDocument(chat.characterDesignDocument),
@@ -479,7 +480,11 @@ export function createSessionViewProjection({
   }
   async function volatileSessionViewFields(chat, activity, changes) {
     const fields = sessionStateView.volatile(chat, activity, changes)
-    return { ...fields, ...streamingRegenerationFields(chat), statusBarPlacement: (await readTavernSettings()).defaultPlaySettings?.statusBarPlacement === 'body' ? 'body' : 'sidebar', forkTurnsByMessageId: forkTurnsForChat(chat), userInputEdits: userInputEditsOf(chat), editableUserInputTurns: editableUserInputTurnsForChat(chat), latestCommittedUserTurn: latestCommittedUserTurnForChat(chat), failedUserInputTurns: failedUserInputTurnsForChat(chat),
+    const settings = await readTavernSettings()
+    return { ...fields, ...streamingRegenerationFields(chat),
+      statusBarPlacement: settings.defaultPlaySettings?.statusBarPlacement === 'body' ? 'body' : 'sidebar',
+      showCharacterDesignPanel: settings.showCharacterDesignPanel === true,
+      forkTurnsByMessageId: forkTurnsForChat(chat), userInputEdits: userInputEditsOf(chat), editableUserInputTurns: editableUserInputTurnsForChat(chat), latestCommittedUserTurn: latestCommittedUserTurnForChat(chat), failedUserInputTurns: failedUserInputTurnsForChat(chat),
       cardSave: cardSaveViewOf(chat),
       ...transcriptPlanFields(chat, sessionDebugEvidence(chat.sessionId), fields.replacingDshTurns, fields.keptInputTurns) }
   }
@@ -519,7 +524,7 @@ export function createSessionViewProjection({
       posture: playFeatures.postureSummary ? chat.posture || '' : '',
       postureEnabled: playFeatures.postureSummary && chat.backgroundTasks?.posture !== false,
       styleReference: latestStyleReference(chat),
-      styleReferenceEnabled: chat.backgroundTasks?.styleReference === true && (chat.mode || 'story') === 'story',
+      styleReferenceEnabled: foregroundStyleReferenceEnabled(chat),
       guides: Array.isArray(chat.guides) ? chat.guides : [],
       // Header state a background task rewrites without touching any message.
       ledger: playFeatures.storyLedger ? readLedger(chat.ledger) : null,

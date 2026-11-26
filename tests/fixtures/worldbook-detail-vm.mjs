@@ -10,7 +10,7 @@ const code = slice('function worldBookEntryLamp(', 'function createWorldBookLibr
   slice('const WORLD_BOOK_SELECTIVE_LOGIC', 'function WorldBookLibraryTab(') +
   '\n({ WorldBookDetail, WorldBookEntryRow, WorldBookEntryEditor, WorldBookEntryText })'
 
-export function mountWorldBookDetail(view, { open = true } = {}) {
+export function mountWorldBookDetail(view, { open = true, props: extra = {} } = {}) {
   const state = [], calls = []
   let index = 0, tree = null
   const named = new Proxy({}, { get: (cache, name) => cache[name] ||= Object.defineProperty(function () {}, 'name', { value: String(name) }) })
@@ -45,7 +45,7 @@ export function mountWorldBookDetail(view, { open = true } = {}) {
     if (node.tag === named.WindowedItems) return { ...node, children: node.props.items.map(item => expand(node.props.render(item))) }
     return { ...node, children: node.children.map(expand) }
   }
-  const props = { record: { source: { kind: 'standalone', path: 'books/test.json' }, view }, sessionId: 's', onSaved() {}, onBack() {} }
+  const props = { record: { source: { kind: 'standalone', path: 'books/test.json' }, view }, sessionId: 's', onSaved() {}, onBack() {}, ...extra }
   function render() { index = 0; tree = expand(page.WorldBookDetail(props)) }
   render()
   const nodes = node => Array.isArray(node) ? node.flatMap(nodes) : !node || typeof node !== 'object' ? [] : [node, ...nodes(node.children)]

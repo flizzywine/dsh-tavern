@@ -314,7 +314,7 @@
 					onReload: function () { draftDirty.current = false; return load(record.source); }, onDirty: function (value) { draftDirty.current = value; if (!value) setRecordStale(false); },
 					onSaved: function (result) { setRecord(result); refresh(); },
 					globalEnabled: record.globalEnabled === true, onToggleGlobal: toggleGlobal,
-					associations: associations, bindingBusy: bindingBusy, onBindCard: bindCard, onUnbindCard: unbindCard,
+					associations: associations, bindingBusy: bindingBusy, onBindCard: bindCard, onUnbindCard: unbindCard, onOpenCard: props.openCard,
 					onExport: exportFile, onRename: record.source.kind === "standalone" ? rename : null, onDelete: function () { remove(record.source, record.view.displayName); },
 					onMention: sessionMode === "card" ? function () { props.appendMention("worldbook", bookPath, record.view.displayName); } : null });
 			}
@@ -382,7 +382,14 @@
 				title: "世界书库",
 				order: 6,
 				single: true,
-				component: function (props) { return React.createElement(WorldBookLibraryTab, Object.assign({}, props, { appendMention: function (kind, path, label) { appendMention(props.scope.sessionId, kind, path, label); } })); }
+				component: function (props) {
+					return React.createElement(WorldBookLibraryTab, Object.assign({}, props, {
+						appendMention: function (kind, path, label) { appendMention(props.scope.sessionId, kind, path, label); },
+						openCard: function (cardPath) {
+							openTavernSidebarTab(ctx, { type: "dsh-tavern:cards", meta: { cardPath: cardPath } }, { sessionId: props.scope.sessionId });
+						}
+					}));
+				}
 			}), "dsh-tavern: Better Sidebar worldbook library tab");
 		}
 		return Object.freeze({ register: register });

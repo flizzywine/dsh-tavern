@@ -1,20 +1,26 @@
 import { placementKey, promptOrder } from './worldbook-activation.js'
+import { worldBookChannel } from './worldbook-channel.js'
 import { hasWorldbookRandom } from './worldbook-random.js'
+import { hasTavernHelperVariableMacro } from './tavern-helper-variable-macros.js'
 
 // Every EJS body is executable and may change, even without a known state-read helper.
 export function hasWorldbookStateReads(content) {
   const text = String(content || '')
   if (/\{\{\s*(?:lastmessage|lastusermessage|lastcharmessage|lastmessageid)\b/i.test(text)) return true
+  if (hasTavernHelperVariableMacro(text)) return true
   return /<%[\s\S]*?%>/.test(text)
 }
 
-// Keep static, ungrouped constants in the prefix and resolve the rest per turn.
-// Preserve wrappers that span entries in both projections.
+// 分离静态前缀条目与每轮尾部条目，并在两种投影中保留跨条目的包裹标签。
+// 显式注入通道优先于常驻标记：'tail' 每轮进尾部，'prefix' 进稳定前缀（除非正文会每轮重算）。
 export function worldbookPlacement(entries, renderedEntries = []) {
   const rendered = new Map(renderedEntries.map(entry => [entry.ref, entry.content]))
   const ordered = promptOrder(entries.filter(entry => entry.enabled !== false))
   const refs = new Set(ordered.filter(entry => {
     const changing = hasWorldbookRandom(entry.content) || hasWorldbookStateReads(entry.content)
+    const channel = worldBookChannel(entry)
+    if (channel === 'tail') return true
+    if (channel === 'prefix') return changing
     return !entry.constant || entry.group || changing
   }).map(entry => entry.ref))
   const buckets = new Map()
@@ -40,9 +46,13 @@ export function worldbookPlacement(entries, renderedEntries = []) {
     })
     // Only split standalone tag entries; prose or executable boundary templates
     // remain intact with their span rather than losing their original scope.
+    const isPrefixStatic = entry => {
+      const channel = worldBookChannel(entry)
+      return channel === 'prefix' || (channel === 'auto' && entry.constant)
+    }
     for (const [start, end] of spans) if (bucket.slice(start, end + 1).some(entry => refs.has(entry.ref))) {
       const boundary = [bucket[start], bucket[end]]
-      const tagsOnly = boundary.every(entry => entry.constant && !entry.group && !(hasWorldbookRandom(entry.content) || hasWorldbookStateReads(entry.content)) && !String(entry.content).replace(/<\/?[\p{L}_][\p{L}\p{N}_:.-]*\s*>/gu, '').trim())
+      const tagsOnly = boundary.every(entry => isPrefixStatic(entry) && !entry.group && !(hasWorldbookRandom(entry.content) || hasWorldbookStateReads(entry.content)) && !String(entry.content).replace(/<\/?[\p{L}_][\p{L}\p{N}_:.-]*\s*>/gu, '').trim())
       if (tagsOnly) {
         boundary.forEach(entry => refs.add(entry.ref))
         wrapperSpans.push(bucket.slice(start, end + 1))

@@ -117,6 +117,8 @@ export interface CardBundleAdapter {
   bindRaw(raw: unknown, packIds: string[]): unknown;
   /** The card as an export carries it (its stage declaration only, card-stage-export.js). */
   exportRaw(raw: unknown): unknown;
+  /** Keep only the selected pack bindings in an exported card. */
+  retainRaw(raw: unknown, packIds: string[]): unknown;
   withPrepared(input: {path: string; expectedRevision: string | null; raw: unknown; cover?: Uint8Array; packSnapshots?: Array<Omit<PackSnapshot, 'revision' | 'installedAt' | 'updatedAt'>>; disableWidgets?: boolean}, publish: (card: {record: unknown; commit(): Promise<void>; status(): Promise<'before' | 'after' | 'unknown'>}) => Promise<void>): Promise<void>;
   recover(record: unknown): Promise<'before' | 'after' | 'unknown'>;
 }
@@ -269,7 +271,8 @@ export interface AssetPackService extends CatalogueService {
   inspectImportEntries(input: {entries: {path: string; size: number; stream(): AsyncIterable<Uint8Array> | Promise<AsyncIterable<Uint8Array>>}[]; uploadHash: string}): Promise<PackInspection & {sourceMedia: Record<string, {sha256: string; size: number}>}>;
   inspectCardBundleFile(input: {file: string; path: string}): Promise<CardBundleInspection>;
   inspectImport(input: {bytes: Uint8Array; copy?: boolean}): Promise<PackInspection | PackSetInspection>;
-  applyImport(input: {inspectionId: string; expectedRevision: string | null; decision: ImportDecision; acceptScriptRisk?: boolean; adoptLooks?: string[]}): Promise<(PackMutation & {mapping?: PackMapping}) | PackRemoval | {status: 'cancelled'}>;
+  /** restore (host only, not in the transport): with 'update', the archive is this pack's backup from before a card update being undone; the identities it had are no longer retired. */
+  applyImport(input: {inspectionId: string; expectedRevision: string | null; decision: ImportDecision; acceptScriptRisk?: boolean; adoptLooks?: string[]; restore?: true}): Promise<(PackMutation & {mapping?: PackMapping}) | PackRemoval | {status: 'cancelled'}>;
   /** Host-local option (never RPC input): input bytes written so far while the archive is built. */
   exportPack(input: PackWrite, progress?: ExportProgress): Promise<PackArchive & {contentHash: string; revision: string; warnings: WidgetDefaultExportWarning[]}>;
   exportPacks(input: {packs: PackWrite[]}, progress?: ExportProgress): Promise<(PackArchive | {archives: PackArchive[]}) & {packs: Array<{packId: string; contentHash: string; revision: string}>; warnings: WidgetDefaultExportWarning[]}>;

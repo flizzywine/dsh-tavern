@@ -397,7 +397,9 @@ export function createAssetPackService(options) {
   }
   // moved: the publication brings items moved in from another pack (moveItems): they may take back identities this pack
   // once retired (an item moved out and back), and the source pack still holding them is not a collision.
-  async function install(pack, before, distribution, dryRun = false, resolution, copiedDebt, moved = null) {
+  // revive: the publication puts back an earlier version of this pack (a card update taken back): the identities that
+  // version had are its own again.
+  async function install(pack, before, distribution, dryRun = false, resolution, copiedDebt, moved = null, revive = false) {
     if(!resolution) {
       const original={manifest:copy(pack.manifest),files:new Map(pack.files)},hashed=new Map()
       resolution=await applyResolutionWrites({manifest:pack.manifest,files:pack.files,previous:before,hashed,read:name => spooledBytes(pack.files.get(name))})
@@ -418,7 +420,7 @@ export function createAssetPackService(options) {
     if (copiedDebt) prior = {...prior,mouthDebt:{...prior?.mouthDebt,...copiedDebt}}
     const retired = new Set(prior?.retired || [])
     const nextKeys = keys(pack), oldKeys = before ? keys(before) : new Set()
-    if (moved) for (const key of nextKeys) if (!oldKeys.has(key)) retired.delete(key)
+    if (moved || revive) for (const key of nextKeys) if (!oldKeys.has(key)) retired.delete(key)
     for (const key of nextKeys) check(!retired.has(key), '$.identity', 'Retired identity cannot be reused: ' + key, 'DUPLICATE_ID')
     for (const key of oldKeys) if (!nextKeys.has(key)) retired.add(key)
     if (before?.manifest.contentHash === pack.manifest.contentHash && distribution === undefined) return {status:'noop', snapshot:snapshot(before)}
@@ -1676,7 +1678,9 @@ export function createAssetPackService(options) {
         const adopting = updating && options.adoptFigureImageLooks
         if (adopting) await options.adoptFigureImageLooks({packId:entry.pack.manifest.id, figureIds:adopt})
         let result
-        try { result = input.decision === 'noop' ? {status:'noop',snapshot:snapshot(before)} : await install(candidate, input.decision === 'keep-both' ? null : before, input.decision === 'keep-both' ? null : entry.distribution) }
+        // `restore` (host only, not in the transport): the archive is a backup of this pack from before an update that is being undone.
+        check(input.restore === undefined || input.restore === true && input.decision === 'update', '$.restore', 'Only an update restores an earlier version')
+        try { result = input.decision === 'noop' ? {status:'noop',snapshot:snapshot(before)} : await install(candidate, input.decision === 'keep-both' ? null : before, input.decision === 'keep-both' ? null : entry.distribution, false, undefined, undefined, null, input.restore === true) }
         catch (error) { if (adopting && adopt.length) await options.adoptFigureImageLooks({packId:entry.pack.manifest.id, figureIds:[]}); throw error }
         await forget(input.inspectionId)
         return {...result, ...(input.decision === 'keep-both' ? {mapping:copy(entry.preview.mapping)} : {})}

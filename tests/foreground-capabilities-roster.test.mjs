@@ -7,6 +7,9 @@ import assert from 'node:assert/strict'
 import {createForegroundCapabilities,foregroundCapabilityInjection} from '../tavern-plugin/lib/domain/foreground-capabilities.js'
 import {normalizeBubbleConfig} from '../tavern-plugin/lib/domain/dialogue-bubbles.js'
 import {projectWorldBookTemplates} from '../tavern-plugin/lib/domain/worldbook-recall.js'
+import {createForegroundWorldbook} from '../tavern-plugin/lib/domain/foreground-worldbook.js'
+import {projectVirtualWorldbookPrefix} from '../tavern-plugin/lib/domain/worldbook-virtual-state.js'
+import {inspectWorldBookDocument} from '../tavern-plugin/lib/domain/worldbook-resource.js'
 
 const figure = (alias, name, recall = {mode:'keyword'}) => ({alias, name, ref:{packId:'pack_demo', figureId:alias}, recall, emotions:[{id:'calm', label:'平静'}]})
 const book = () => ({view:{displayName:'Book', entries:[{ref:'normal', enabled:true, constant:true, content:'World', primaryKeys:[], secondaryKeys:[]}]}})
@@ -42,6 +45,26 @@ function game(characters) {
   }
   return g
 }
+
+test('an imported constant bubble format survives without the source card settings', async () => {
+  const source = {content:'<dialogue_format>Imported format for {{user}}</dialogue_format>\n<speaker_roster>Imported cast</speaker_roster>',constant:true,
+    extensions:{dsh_tavern_helper_extra:{forkDialogueBubbles:{version:1,cardKey:'source-card'}}}}
+  const worldBook = {view:inspectWorldBookDocument({entries:{0:{...source,uid:0},1:{...source,uid:1,disable:true},2:{...source,uid:2,constant:false}}})}
+  const chat = {id:'import',sessionId:'import',cardPath:'cards/import.json',macroState:{userName:'Alice'},messages:[]}
+  const owner = createForegroundCapabilities({session:()=>({events:[start(1)]}),readConfig:async()=>normalizeBubbleConfig({enabled:false}),render:project,save:async()=>{}})
+  const prefix = source.content.replace('{{user}}','Alice')
+  assert.equal(projectVirtualWorldbookPrefix(await owner.project(chat,worldBook),chat).prefixContext,prefix)
+  const native = createForegroundWorldbook({bound:()=>owner.project(chat,worldBook),runtime:async()=>runtime,globalVariables:async()=>({})})
+  const prepared = await native({chat,card:{name:'Card'},userText:'Continue'})
+  assert.equal(prepared.prefixContext,prefix)
+  assert.equal(prepared.foregroundContext,'')
+  const enabled = createForegroundCapabilities({session:()=>({events:[start(1)]}),readConfig:async()=>normalizeBubbleConfig({enabled:true,characters:[figure('aki','Aki',{mode:'constant'})],stage:{enabled:false}}),render:project,save:async()=>{}})
+  const fresh = {...chat,id:'enabled',sessionId:'enabled'}
+  const active = projectVirtualWorldbookPrefix(await enabled.project(fresh,worldBook),fresh).prefixContext
+  assert.match(active,/<dialogue_format>/)
+  assert.match(active,/<speaker_roster>[\s\S]*Aki/)
+  assert.doesNotMatch(active,/Imported format/)
+})
 
 test('the prefix keeps its bytes across rounds while each kind of change reaches that turn tail once', async () => {
   const g = game([figure('actor_aki', 'Aki')])

@@ -31,7 +31,13 @@ export function createResourceMutationJournal(options = {}) {
   const files = options.files || createDurableFilePromotion(options.filePromotion)
   const journalPath = path.join(dataRoot, '.resource-mutation-journal.json')
   const fault = typeof options.fault === 'function' ? options.fault : async function () {}
-  let recovery = null
+  let recovery = null, tail = Promise.resolve()
+
+  function serialize(operation) {
+    const result = tail.then(operation)
+    tail = result.catch(() => {})
+    return result
+  }
 
   function relative(target) {
     const absolute = path.resolve(target)
@@ -74,12 +80,12 @@ export function createResourceMutationJournal(options = {}) {
   }
 
   async function recover() {
-    if (recovery === null) recovery = recoverNow().finally(function () { recovery = null })
+    if (recovery === null) recovery = serialize(recoverNow).finally(function () { recovery = null })
     return await recovery
   }
 
-  async function run(label, build) {
-    await recover()
+  async function runMutation(label, build) {
+    await recoverNow()
     const desired = new Map()
 
     async function remember(target) {
@@ -95,6 +101,11 @@ export function createResourceMutationJournal(options = {}) {
 
     const plan = Object.freeze({
       async write(target, value) { const state = await remember(target); state.after = Buffer.isBuffer(value) ? value : Buffer.from(String(value), 'utf8'); state.afterTimes = null },
+      async writeNew(target, value) {
+        const state = await remember(target)
+        if (state.before !== undefined) throw new Error('文件已存在: ' + relative(target))
+        state.after = Buffer.isBuffer(value) ? value : Buffer.from(String(value), 'utf8')
+      },
       async remove(target) {
         const paths = await filePaths(path.resolve(target))
         if (paths.length === 0) { const current = await remember(target); current.after = null; return }
@@ -147,5 +158,5 @@ export function createResourceMutationJournal(options = {}) {
     }
   }
 
-  return Object.freeze({ recover, run })
+  return Object.freeze({ recover, run: (label, build) => serialize(() => runMutation(label, build)) })
 }

@@ -5,15 +5,15 @@
  "description": "A declarative stage performance the director starts with `perform <id> [level]` and ends with `perform off`. It orchestrates skins (apply / level switch / off), SFX synced to the skin overlay's moments, BGM override + lock, looks, ambience, flashes, shakes and widgets over entry / idle / turn / exit timelines. No code. Refs are <alias>:<assetId> with aliases declared in `packs`.",
  "type": "object",
  "additionalProperties": false,
- "required": ["schema", "id", "label", "license", "packs", "timeline"],
+ "required": ["schema", "id", "label", "packs", "timeline"],
  "properties": {
   "schema": { "const": "dsh.performance/1" },
   "id": { "$ref": "#/$defs/id" },
   "label": { "type": "string", "minLength": 1 },
   "directorNote": { "type": "string", "maxLength": 120 },
   "license": {
-   "type": "object", "additionalProperties": false, "required": ["privateUse"],
-   "properties": { "privateUse": { "type": "boolean" }, "notes": { "type": "array", "items": { "type": "string" } } }
+   "type": "object", "additionalProperties": false,
+   "properties": { "privateUse": {}, "notes": { "type": "array", "items": { "type": "string" } } }
   },
   "theme": { "$ref": "dsh.skin/1", "description": "Embedded skin-format theme/overlay, including performance levels. Relative resources belong to this performance bundle; skin events use self:<theme.id>." },
   "legacySkinId": { "$ref": "#/$defs/id", "description": "Migration-only historical skin alias, equal to theme.id. Never a director catalogue asset." },

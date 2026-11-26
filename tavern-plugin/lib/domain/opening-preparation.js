@@ -219,7 +219,7 @@ export function createOpeningPreparation({ readCard, worldBooks, generate, gener
         draft.openingSetupVariables = variables
         return resolved
       }
-      // A card's own opening page on the stage (card page `opening: true`, presets/tavern/skills/stage-status-panel/references/panel-contract.md「开局页」)
+      // A card's own opening page on the stage (card page `opening: true`, presets/tavern/skills/stage/references/page-contract.md「开局页」)
       // completes the same openingSetup with its values in one call. The chosen greeting stays the game's first floor and
       // the resolved message is the setup note to the model (sent once with the next request, no floor of its own); or,
       // withoutGreeting, the game starts as the 游戏准备 form's does: the greeting floor only owns the opening variables

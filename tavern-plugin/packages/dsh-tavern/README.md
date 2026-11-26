@@ -257,7 +257,9 @@ macOS / Linux：
 curl -fsSL 'https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@runtime-archive-main/install.sh' -o /tmp/dsh-tavern-install.sh && DSH_TAVERN_HOST=cli sh /tmp/dsh-tavern-install.sh
 ```
 
-装好后用 `dsh-tavern start` 启动，按显示的地址在浏览器打开；`dsh-tavern stop` / `status` / `update` 停止、查看、更新。用 `dsh-tavern --help` 查看全部命令，`dsh-tavern help install` 查看安装宿主说明。
+装好后用 `dsh-tavern start` 启动，按显示的地址在浏览器打开。更新时打开 **设置 → 酒馆启动器 → 酒馆版本与更新**，点 **检查更新**，发现新版后点 **更新酒馆**。安装完成后酒馆服务会自动重启，刷新页面即可加载新版。也可以在终端运行 `dsh-tavern update`。
+
+用 `dsh-tavern stop` / `status` 停止服务或查看运行状态。用 `dsh-tavern --help` 查看全部命令，`dsh-tavern help install` 查看安装宿主说明。
 
 ### 手机远程访问
 
