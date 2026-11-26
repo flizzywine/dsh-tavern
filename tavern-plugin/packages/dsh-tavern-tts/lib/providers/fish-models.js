@@ -11,6 +11,8 @@ export const FISH_MODELS = Object.freeze([
 export const FISH_CLOUD_CONCURRENCY = 3
 export const isFishCloud = config => (config?.url || 'https://api.fish.audio').replace(/\/+$/, '') === 'https://api.fish.audio'
 export const fishModel = id => FISH_MODELS.find(model => model.id === id) || {id,label:id,billing:'unknown'}
+const pricesPerMillionBytes = { 's2.1-pro':15, 's2-pro':15, s1:15, 's2.1-pro-free':0, 'drama-3':50 }
+export const fishPricePerMillionBytes = (id, now = Date.now()) => id === 'drama-3' && now < Date.parse('2026-12-01T08:00:00Z') ? 10 : pricesPerMillionBytes[id]
 export function fishModelId(value = FISH_DEFAULT_MODEL) {
   if (typeof value !== 'string' || !/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,79}$/.test(value)) throw new Error('Invalid Fish model identifier')
   return value

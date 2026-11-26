@@ -23,6 +23,7 @@ const moodResolvers = { qwen: qwenMood, azure: azureMood, volcengine: volcengine
 const loadWait = p => p?.capabilities?.loadTimeoutMs ?? 0
 // A self-hosted service's voice list changes with the service, so it is read afresh, not kept for a day.
 const selfHosted = p => p?.capabilities?.loadTimeoutMs !== undefined
+const modelFor = (provider, model) => model ?? provider.defaultModel?.()
 
 export function createTts({ profileId = '', dataDir, cache = createCache({ dataDir }), voiceLoudness = createVoiceLoudness({ dataDir }), globalReadings = () => [], reading = () => ({narrator:{enabled:false}}), now = Date.now } = {}) {
   const providers = new Map(), sources = new Map(), grants = new Map(), tickets = new Map(), flights = new Map(), lanes = new Map(), catalogs = new Map(), listeners = new Set(), usage = new Map()
@@ -118,7 +119,8 @@ export function createTts({ profileId = '', dataDir, cache = createCache({ dataD
       const ref = voice.references?.[0]
       const params = structuredClone(voice.params)
       // a voice that names no model speaks with the service's default (Provider.defaultModel), part of the line's identity.
-      if (params.model === undefined) { const model = p.defaultModel?.(); if (model) params.model = model }
+      const model = modelFor(p, params.model)
+      if (model !== undefined) params.model = model
       const resolveMood = Object.hasOwn(moodResolvers, p.kind) ? moodResolvers[p.kind] : undefined
       const spoken = text => normalizeDashes(readings.apply(text, input.language))
       const text = p.kind === 'fish-audio' ? fishSpeechText(input.text, params, p.speaking ? p.speaking(params.model).voiceDirections : p.capabilities?.voiceDirections, spoken) : voiceCues.projectVoiceCues(input.text, {spoken})
@@ -153,8 +155,12 @@ export function createTts({ profileId = '', dataDir, cache = createCache({ dataD
     apiVersion: 1,
     resolveVoiceSpec,
     describeVoiceCapabilities,
-    // the stage's sync choice among listed services (card voice-direction flag); the same rule resolveVoiceService uses.
-    chooseService(source,services) { return chooseService(source,services) },
+    // The foreground reads the selected model's capabilities, not the Fish service's connection capabilities.
+    chooseService(source,services) {
+      const selected = chooseService(source,services)
+      const provider = selected && providers.get(selected.id)?.provider
+      return provider?.speaking ? {...selected,capabilities:{...selected.capabilities,...provider.speaking(modelFor(provider, source.model))}} : selected
+    },
     async resolveVoiceService({voice,binding}, {readOnly = false} = {}) {
       if (binding.source === null) return {effective:null,issues:[]}
       const source = voice.sources[binding.source ?? voice.defaultSource]
@@ -162,14 +168,15 @@ export function createTts({ profileId = '', dataDir, cache = createCache({ dataD
       const unset = sourceUnsetIssue(source)
       if (unset) return unset
       // A source whose service is not set up stays silent and says so (SERVICE_REQUIRED); nothing switches to the browser.
-      const selected = api.chooseService(source,await api.listServices())
+      const services = await api.listServices()
+      const selected = readOnly ? api.chooseService(source,services) : chooseService(source,services)
       if (!selected) return {effective:null,issues:[{code:'SERVICE_REQUIRED'}]}
+      if (readOnly) return {effective:{serviceId:selected.id,serviceRevision:selected.revision,capabilities:selected.capabilities},issues:[]}
       const provider = providers.get(selected.id).provider
-      if (!readOnly) await provider.discover?.()
+      await provider.discover?.()
       // what this source's own model costs and can do (a Fish figure's model choice), over the service's capabilities.
-      const model = source.model ?? provider.defaultModel?.()
+      const model = modelFor(provider, source.model)
       const capabilities = () => ({...structuredClone(provider.capabilities),...provider.speaking?.(model)})
-      if (readOnly) return {effective:{serviceId:selected.id,serviceRevision:provider.revision,capabilities:{...selected.capabilities,...provider.speaking?.(model)}},issues:[]}
       const health = provider.health ? await provider.health({}) : {state:'ready'}
       if (health.state === 'credentials-required') return {effective:null,issues:[{code:'CREDENTIALS_REQUIRED'}]}
       const validation = provider.validateModel ? await provider.validateModel(model, source.voiceName) : {issues:[]}
