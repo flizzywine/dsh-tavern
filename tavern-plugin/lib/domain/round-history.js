@@ -916,7 +916,7 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
             }
           }
         : appending
-          ? { kind: 'append-round', storyTurn, native: appendAnchor }
+          ? { kind: 'append-round', storyTurn, native: appendAnchor, operationId }
           : placeRegeneration(session, oldSeq, eventStart, { turn: storyTurn, step: 1,
             message: { id: 'tavern-regen:' + operationId, role: 'assistant', content: [{ type: 'text', text: prose.text }],
               source: { ...oldSource, tavernStoryTurn: storyTurn } } }, operationId)
