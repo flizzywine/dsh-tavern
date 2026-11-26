@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "edcef93600e1b01d1b7ae9e83efc7f7b22e2f874",
-  "releaseSequence": 2128,
+  "revision": "15b67681fac78be82ce47c949e529fa9fd78fd7b",
+  "releaseSequence": 2129,
   "version": "3.4.0",
   "files": [
     {
@@ -1066,8 +1066,8 @@
     },
     {
       "path": "presets/tavern/skills/stage/references/voice-troubleshooting.md",
-      "sha256": "a9abf5d70c2c6c4c12fc096fba5093ef22f058f43971a5e794ea08a701c5caa6",
-      "size": 4883
+      "sha256": "d166e4f045331bb84f7fb829c6e4f46954c014a9b97142b0a492e9f410ced00e",
+      "size": 4898
     },
     {
       "path": "presets/tavern/skills/stage/references/voice-variants.md",
@@ -1286,8 +1286,8 @@
     },
     {
       "path": "tavern-plugin/lib/client.js",
-      "sha256": "a00367d2c83260a07156e756212909cb3edfc75c4e56668ef5a1febf5804cb5b",
-      "size": 6807038
+      "sha256": "72d8903cf086c67c52396f4be9d2a71f137b4369324f13f6c58fb11435b8362d",
+      "size": 6807035
     },
     {
       "path": "tavern-plugin/lib/cordis-inspect.js",
@@ -7606,8 +7606,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-presentation-protocol/src/tts-messages.cjs",
-      "sha256": "f56ace9f6c6bcdc59d5342a36754b79d1a7543ba5c87285f5222239d0d9041c2",
-      "size": 7427
+      "sha256": "e48975277746048c801e75635325c15c2aaea94104348c89161f13a9e7ca0ee0",
+      "size": 7424
     },
     {
       "path": "tavern-plugin/packages/dsh-presentation-protocol/src/types/asset-pack-stage.d.ts",
@@ -8786,8 +8786,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/client.js",
-      "sha256": "d75d70e0a91ac2fc7a441f35bf8bd35a75489453e9f2e446552735179d4c53e8",
-      "size": 3652819
+      "sha256": "c5723a9a4fb51c0c7703e54fe3e9072c8699ed64246cd5eb2118484ac898cce6",
+      "size": 3652823
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/client/director-source.cjs",
@@ -9701,8 +9701,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-tts/lib/shared/tts-messages.cjs",
-      "sha256": "767e84484fdfcf1e462a8848efefa367dcf864258a6e01aeea52c6e3e89a0a89",
-      "size": 7498
+      "sha256": "129a0dc003d431f2c926643ea7e8bc01db1a5caefc5852963116e24a19aa383a",
+      "size": 7495
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-tts/lib/shared/voice-cues.cjs",
@@ -10301,9 +10301,9 @@
     }
   ],
   "archive": {
-    "commit": "ce80519399ee7f3b92c5453587f8c7c6d7aaaed0",
+    "commit": "0895fbff05a5bfff00b8ae6ef8d82bc7c73bd383",
     "path": "runtime.zip",
-    "sha256": "47d7819a099f162ab6d2b79a90923d46284b9faf629d4ba4142647cee00540d5",
-    "size": 18103749
+    "sha256": "dd58bf7ddf3ecbad93915b1a7c895930b300b45c7f16f91ee4f6f44a4d55a301",
+    "size": 18103751
   }
 }
