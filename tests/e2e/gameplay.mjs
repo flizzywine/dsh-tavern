@@ -563,6 +563,9 @@ try {
       await previous.click()
       await nav.getByText('2 / 3').waitFor()
       await waitForVisibleStoryText('第二条路线。')
+      await openStatus()
+      await page.frameLocator('.dsh-tavern-status-runtime iframe:not([aria-hidden="true"])')
+        .locator('#e2e-gold').filter({ hasText: /^金币：30$/ }).waitFor()
       assert.equal((await savedChat()).id, original.id)
     })
     await step('本局设置改名后立即刷新开场，重载和模型请求继续使用新称呼', async () => {

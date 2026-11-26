@@ -32,6 +32,7 @@
 			let eventSequence = 0;
 			let readinessKey = "";
 			let announcedReadinessKey = "";
+			let supersededOpening = null;
 			let suppressedCompactMutations = 0;
 			function clone(value) { return value === undefined ? undefined : JSON.parse(JSON.stringify(value)); }
 			function token() { return hostWindow.crypto && typeof hostWindow.crypto.randomUUID === "function" ? hostWindow.crypto.randomUUID() : String(Date.now()) + ":" + String(Math.random()); }
@@ -104,12 +105,14 @@
 				if (Array.from(records.values()).some(function (record) { return !record.loaded || record.reloading || (!record.subscriptionsReady && !record.initializationFailed); })) return;
 				announcedReadinessKey = readinessKey;
 				const readySessionId = activeSessionId;
+				const readyRecord = records.get("shared"), readyDocument = readyRecord.token;
+				const stillReady = () => records.get("shared") === readyRecord && readyRecord.token === readyDocument;
 				const refreshAfterSuppress = suppressedCompactMutations > 0;
 				suppressedCompactMutations = 0;
 				for (const record of records.values()) record.suppressCompactViewRefresh = false;
 				Promise.resolve(onReady(readySessionId))
-					.then(function () { announceMountedScriptLayers(readySessionId); })
-					.catch(function (error) { reportError("人物卡脚本初始化", error); });
+					.then(function () { if (stillReady()) announceMountedScriptLayers(readySessionId); })
+					.catch(function (error) { if (stillReady()) reportError("人物卡脚本初始化", error); });
 				if (readySessionId && refreshAfterSuppress) {
 					clearPendingMutation(readySessionId);
 					notifyMutation(readySessionId, "initialization-ready", null);
@@ -432,6 +435,7 @@
 				previous = null;
 				readinessKey = "";
 				announcedReadinessKey = "";
+				supersededOpening = null;
 				closedEventIds.clear();
 				closedEventOrder.length = 0;
 				onMvuLoadState(null);
@@ -633,13 +637,15 @@
 				const nextSessionId = String(sessionId || "");
 				if (activeSessionId && activeSessionId !== nextSessionId) clear();
 				activeSessionId = nextSessionId;
+				const source = view?.tavernHelper;
+				if (supersededOpening && (!source || (view.chatId === supersededOpening.chatId && source.lifecycleRevision < supersededOpening.lifecycleRevision))) return;
+				supersededOpening = null;
 				const scripts = scriptsForView(view);
 				const viewer = Boolean(view && view.tavernScriptRuntimeMode === "viewer");
 				const trustedCardMode = Boolean(view && view.tavernRuntimePolicy && view.tavernRuntimePolicy.trustedCardMode);
 				readinessKey = scripts.length === 0 ? "" : nextSessionId + "\n" + scripts.map(function (script) { return script.id + "\n" + script.content; }).join("\n---\n") + "\ntrusted=" + String(trustedCardMode) + "\nviewer=" + String(viewer);
 				if (scripts.length === 0) { clear(); activeSessionId = nextSessionId; return; }
                 let record = records.get("shared");
-                const source = view?.tavernHelper;
                 const sourceIndex = createSessionViewReader.indexApi;
                 const sourceChanges = record && source && record.sourceHelper
                     && view.chatId === record.context.chatId
@@ -669,7 +675,13 @@
 					? detectedEvents.filter(function (event) { return event.name === "GENERATION_STARTED" || event.name === "GENERATION_ENDED"; })
 					: detectedEvents;
 				const fingerprint = scripts.map(function (script) { return script.id + "\n" + script.content; }).join("\n---\n") + "\ntrusted=" + String(trustedCardMode) + "\nviewer=" + String(viewer) + "\ncard=" + String(context.frameStorageScope && context.frameStorageScope.cardPath || "");
-				if (record && record.fingerprint !== fingerprint) { removeRecord("shared"); record = null; }
+				const previousOpening = record?.sourceHelper?.openingHost;
+				const changedOpening = previousOpening && source?.openingHost && previousOpening.version !== source.openingHost.version
+					&& source.lifecycleRevision > record.sourceHelper.lifecycleRevision;
+				if (record && (record.fingerprint !== fingerprint || (changedOpening && officialOwner))) {
+					removeRecord("shared");
+					record = null;
+				}
 				if (!record) record = createRecord(nextSessionId, scripts, context, trustedCardMode, viewer);
 				else {
                     if (record.context.transaction && pendingEvents.has(record.context.transaction.eventId)
@@ -1049,6 +1061,17 @@
 				}
 
 				rpcTask.then(function (result) {
+					const openingMvuWrite = data.scriptId === "__dsh_official_mvu__" && record.scripts.has(data.scriptId)
+						&& record.sourceHelper?.openingHost && (!data.eventId || writeOwner?.envelope.name === "CHAT_CHANGED");
+					if (data.method === "updateTavernHelperVariables" && openingMvuWrite && result?.stale && currentDocument()
+						&& result.context?.chatId === record.context.chatId && result.context.lifecycleRevision > mutationArgs.expectedLifecycleRevision) {
+						// The new opening has replaced the initialization's target. End the
+						// old sandbox and wait for the committed opening before running scripts again.
+						supersededOpening = { chatId: result.context.chatId, lifecycleRevision: result.context.lifecycleRevision };
+						removeRecord(record.id);
+						notifyMutation(record.sessionId, data.method, result);
+						return;
+					}
 					if (currentDocument() && result && !result.stale) {
 						const pending = pendingEvents.get(String(data.eventId || ""));
 						if (pending && pending.record === record) {
