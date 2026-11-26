@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "6f59a031f047f0bc6fc272bc95006ce85619e280",
-  "releaseSequence": 2112,
+  "revision": "8cb7f77bdfd3c7dda232e5e1904294f48b866ecd",
+  "releaseSequence": 2113,
   "version": "3.4.0",
   "files": [
     {
@@ -6991,8 +6991,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-asset-library/lib/pack-v2/storage.js",
-      "sha256": "94360bbfe22ad0cb7c9b52e58a4d6257514b52aca85a3340ef41ed3aad556368",
-      "size": 36964
+      "sha256": "fbe98c7f18f198b004c30d966f233642add9cb29a07e525899eae2b4d8a50432",
+      "size": 37053
     },
     {
       "path": "tavern-plugin/packages/dsh-asset-library/lib/pack-v2/thumbnail-encoder.js",
@@ -10301,9 +10301,9 @@
     }
   ],
   "archive": {
-    "commit": "8e73190d222243cc2adcf60a0ed891e79e6314ae",
+    "commit": "4e298dd0faca0099a9fc286493854e4cabaefb94",
     "path": "runtime.zip",
-    "sha256": "85523ceb0e03b938049e1d7c8dda470e92c28050c54ab2357323974ea3e2a7b1",
-    "size": 18082980
+    "sha256": "218b627a68c14bb418754195df5ed57565a75c51ed49a46f18dc4be5d0677ad9",
+    "size": 18082995
   }
 }
