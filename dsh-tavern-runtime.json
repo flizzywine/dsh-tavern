@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "5546f7b15336c7851b6d0125a73d56296657cb34",
-  "releaseSequence": 2124,
+  "revision": "a36faa98a67f7e8ddb884cd2fa6c218b35f4e4f7",
+  "releaseSequence": 2125,
   "version": "3.4.0",
   "files": [
     {
@@ -2751,8 +2751,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/mvu-background-settlement.js",
-      "sha256": "68cd44f1aa3252531ba71b31655c756fdb14c2f5bf1cef916a0e4a32accf62bc",
-      "size": 57769
+      "sha256": "84f9bfe27a44e6933e942dc220cd02ad0c386b1e774754d44f783dfc47cee742",
+      "size": 57807
     },
     {
       "path": "tavern-plugin/lib/domain/mvu-card-apply.js",
@@ -2773,6 +2773,11 @@
       "path": "tavern-plugin/lib/domain/mvu-limits.js",
       "sha256": "d299acfcf176dba63ca89769dfee7480dd94870115d137be11b0f1b828dd2bc8",
       "size": 7247
+    },
+    {
+      "path": "tavern-plugin/lib/domain/mvu-npc-registration.js",
+      "sha256": "93d0e3b513ae3083780cc359f9e8684f84c9b8b129c902a52df5ce44fe719825",
+      "size": 3928
     },
     {
       "path": "tavern-plugin/lib/domain/mvu-receipt-index.js",
@@ -2956,8 +2961,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/play-world-book.js",
-      "sha256": "6646149ecfcb2594a98f5e380c06a8a7e7ccd856334e8a36556641519cf27ea8",
-      "size": 3372
+      "sha256": "32a549830298609eb586621096676f144caea2445db88e082823d2c16185a153",
+      "size": 3574
     },
     {
       "path": "tavern-plugin/lib/domain/player-input-content.js",
@@ -4226,8 +4231,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/worldbook-activation.js",
-      "sha256": "2885ffbc6455d7f1dbe24720495773b50e7373a3f1b5aed700032d8ed5fb3906",
-      "size": 17818
+      "sha256": "47e3d7682f3f9e28ba55781b58e9374fdd8fc69e72fef9be539c9799176c4efb",
+      "size": 17929
     },
     {
       "path": "tavern-plugin/lib/domain/worldbook-channel.js",
@@ -10296,9 +10301,9 @@
     }
   ],
   "archive": {
-    "commit": "ac0f9bfd180dac19d34233ff6c0de7f00d4df019",
+    "commit": "54579bec49dfb7c5f4fcaf60d6aee92057e3d9ab",
     "path": "runtime.zip",
-    "sha256": "c5c243f3523f6cf654d44fd391d6c2e055d114e0e50e1a2cc743358fec3e1aad",
-    "size": 18098250
+    "sha256": "55d4d6d4ec304853c07d1d8566c2721344a5ce79b8160f0fd6187fc986822a02",
+    "size": 18100387
   }
 }
