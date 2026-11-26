@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "ba146390dca5e7defc6b610232ba24696fade3ef",
-  "releaseSequence": 2108,
+  "revision": "822f06f4cc3058edcb8a50add6e61e00098045ee",
+  "releaseSequence": 2109,
   "version": "3.4.0",
   "files": [
     {
@@ -116,8 +116,8 @@
     },
     {
       "path": "android/native/app/src/io/github/flizzywine/dshtavern/bionic/MainActivity.java",
-      "sha256": "881ffc418ed10348ba25703766e32ab653500fe9f43ae0501210e01fa4e22412",
-      "size": 47684
+      "sha256": "3a4102a4517ccba1f15ba3af93a599dd7fccdcab47e77f8324d9cca7abcd3709",
+      "size": 47849
     },
     {
       "path": "android/native/app/src/io/github/flizzywine/dshtavern/bionic/TarExtractor.java",
@@ -133,6 +133,11 @@
       "path": "android/native/app/src/io/github/flizzywine/dshtavern/bionic/UpdatedReceiver.java",
       "sha256": "49dfc8d32854e0efd118c5a9d7e2e0c557c00ea5d181d422962092d2726e4b2b",
       "size": 817
+    },
+    {
+      "path": "android/native/app/src/io/github/flizzywine/dshtavern/bionic/WebDownloads.java",
+      "sha256": "bbb04615452017154992a8521eebaa5ecf3aaf12789fdd314f74d7300ee5a5b0",
+      "size": 15951
     },
     {
       "path": "android/native/build-apk.sh",
@@ -1276,8 +1281,8 @@
     },
     {
       "path": "tavern-plugin/lib/client.js",
-      "sha256": "f55d69988c032bbbf0fa3854ccb03a53f7a9df9223e7656ec6cfaeefcde8eacf",
-      "size": 6800193
+      "sha256": "452efd02b89afc42b7c628f908001fe602ffbf2f8221a5588ea42cbd20292962",
+      "size": 6802462
     },
     {
       "path": "tavern-plugin/lib/cordis-inspect.js",
@@ -2166,8 +2171,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/foreground-orchestration-strategies.js",
-      "sha256": "81635b2536156039b99c2f5756a7867a4d7b476c26f905b3d8425533a1e4453b",
-      "size": 44519
+      "sha256": "57982dde6a1936235d2d733cb7a73fccae5afbbdc9ad831dcda66ccc4696a199",
+      "size": 45050
     },
     {
       "path": "tavern-plugin/lib/domain/foreground-tools.js",
@@ -3281,8 +3286,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/rollback-surface.js",
-      "sha256": "dac89a305daa26379c4f47490b207b85b974b0f406d95307ada64114bbcb2cbb",
-      "size": 68998
+      "sha256": "69e23c5036b2d344600499f58df8fdf5942f466b2b9591abb23fcd937dbd4503",
+      "size": 73007
     },
     {
       "path": "tavern-plugin/lib/domain/round-anchor.js",
@@ -3296,8 +3301,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/round-history.js",
-      "sha256": "fae4a1f821b5b3f943418de1707cd5c825743485fc56ab3388d96ad1ca354102",
-      "size": 108808
+      "sha256": "b024ed91d531719310230e9f972e9a86cc8f1b919cc1fa6239c5d61d77a1ed37",
+      "size": 108821
     },
     {
       "path": "tavern-plugin/lib/domain/runtime-content-projection.js",
@@ -10286,9 +10291,9 @@
     }
   ],
   "archive": {
-    "commit": "b6b348906c02a159e029886f0e7f8818393e6718",
+    "commit": "c1cfb2771d540a829f7f71d9cb8fb21656f9d25e",
     "path": "runtime.zip",
-    "sha256": "7f59f770c5c34acd5c6ebc49235c343a4550dc9f58c11569616d209596b0d21f",
-    "size": 18055911
+    "sha256": "f68a0545df8d56990f9c9daa96677ec57f4d2eb5286fb95aa4b0a0e62ba6268c",
+    "size": 18062413
   }
 }
