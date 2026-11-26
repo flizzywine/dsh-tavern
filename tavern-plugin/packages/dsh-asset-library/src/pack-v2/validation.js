@@ -276,6 +276,10 @@ export async function verifyBytes(manifest, files, {limits = PACK_LIMITS, decode
         // a skin's performance page (an asset the dsh.dice option performances names) is UTF-8 HTML within 1 MiB; the stage
         // only ever runs it in a sandboxed frame that may read its data and the skin's own assets, play a sound and close.
         if (name !== entry && /\.html$/.test(name)) {check(bytes.length <= 1024 ** 2 && utf8(bytes), name, 'Skin performance page is not UTF-8 HTML within 1 MiB'); continue}
+        // a skin's look sheet (the dsh.phone option look) is UTF-8 CSS within 256 KiB that loads nothing: the mod's page lays it
+        // over its own sheet in its sandboxed frame; pictures are named skin assets the page gives it as custom properties. The
+        // one escape it keeps is \A (a line break in decorative content), so no escape can spell url( or @import.
+        if (name !== entry && /\.css$/.test(name)) {const text = utf8(bytes) && new TextDecoder().decode(bytes); check(bytes.length <= 256 * 1024 && text !== false && !/@import|url\s*\(|\\(?![aA](?![0-9a-fA-F]))/i.test(text), name, 'Skin look sheet must be UTF-8 CSS within 256 KiB without @import, url() or escapes other than the line break \\A (name its pictures in lookImages)'); continue}
         if (name !== entry && /\.woff2$/.test(name)) {check(bytes.length >= 48 && bytes.length <= 16 * 1024 ** 2 && Buffer.from(bytes.subarray(0,4)).toString('latin1') === 'wOF2', name, 'Skin font face is not a WOFF2 file within 16 MiB'); continue}
         if (name !== entry && !overlayFiles.has(name) && !keyframeFiles.has(name)) {const ext = path.posix.extname(name).slice(1); const info = await inspect(bytes,{ext,mime:BLOB_MIME_TYPES[ext],size:bytes.length},decodeMedia); if (!/^(png|webp)$/.test(ext)) check(info.durationMs <= 3000,name,'Skin sound exceeds three seconds')}
       }
