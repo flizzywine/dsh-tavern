@@ -8,7 +8,7 @@ import { absent, checkedPath } from './storage-path.js'
 import { createMediaStore } from './media-store.js'
 export { checkedPath } from './storage-path.js'
 import { check, relativePath, validateUuid } from '../asset-packs/common.js'
-import { readDocument, jsonBytes, budget, StoredFile, SpooledFile } from './validation.js'
+import { readDocument, jsonBytes, budget, StoredFile, SpooledFile, spooledBytes } from './validation.js'
 import { FIGURE_DOCUMENT, FIGURE_RECORD_UNAVAILABLE, figureWithIdentity, freshenFigureRows, isStoredWithoutIdentity } from './figure-records.js'
 import { FIGURE_IMAGE_EXTENSION } from '../asset-packs/figure.js'
 
@@ -343,9 +343,10 @@ export function createPackStorage({assetRoot, limits, cardTransactions, mediaSto
     for (const [name, bytes] of pack.files) {
       const descriptor = descriptors.get(name)
       // Lazy export/merge inputs hydrate one file at a time, not the entire source pack.
-      const source = bytes instanceof SpooledFile ? readSpooled(bytes)
-        : bytes instanceof StoredFile ? await read(path.relative(root, bytes.file).split(path.sep).join('/'), bytes.length) : bytes
+      // Figure documents are read whole (their identity is checked and folded); other files stream (bounded memory).
       const figureId = /^figures\/([0-9a-f-]{36})\.json$/.exec(name)?.[1]
+      const source = bytes instanceof SpooledFile ? figureId ? await spooledBytes(bytes) : readSpooled(bytes)
+        : bytes instanceof StoredFile ? await read(path.relative(root, bytes.file).split(path.sep).join('/'), bytes.length) : bytes
       if (figureId) {
         const figure = readDocument(source)
         check(!figure.extensions?.[FIGURE_RECORD_UNAVAILABLE], name, '人物的名字和触发词存在配图人物库的记录里，现在读不到（配图插件没启用，或这个人物的记录不见了），所以不能修改这个人物。先启用配图插件再改；插件已启用还是读不到，就是记录被删了，请从备份恢复配图人物库', 'ASSET_UNAVAILABLE')
@@ -605,8 +606,7 @@ export function createPackStorage({assetRoot, limits, cardTransactions, mediaSto
       await rename(source, file)
       return {file, size:(await lstat(file)).size, dispose:() => erase(relative)}
     },
-    // An import's spool: archive entries kept on disk until its previews go. A spool left by a process that is gone
-    // is removed when the next one opens.
+    // Keep archive entries on disk until their import previews are released.
     async spool() {
       for (const name of await readdir(await locate('ingress')).catch(error => error.code === 'ENOENT' ? [] : Promise.reject(error))) {
         const pid = Number(name.split('.')[0])
