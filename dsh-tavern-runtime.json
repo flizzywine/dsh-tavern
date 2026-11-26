@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "0633cffe544d0e6edd404937b2e4aef576d7f666",
-  "releaseSequence": 2123,
+  "revision": "5546f7b15336c7851b6d0125a73d56296657cb34",
+  "releaseSequence": 2124,
   "version": "3.4.0",
   "files": [
     {
@@ -1176,8 +1176,8 @@
     },
     {
       "path": "tavern-plugin/lib/background-agent-task.js",
-      "sha256": "62d5424cf8d1dd74501c43c1e302f7c8729fd70a899c8bf56380411d9ab4bcfc",
-      "size": 45760
+      "sha256": "f1f3570641d5b56e4d94c29f38448ee9096ca26f59003af6ee5da053178d0f18",
+      "size": 46009
     },
     {
       "path": "tavern-plugin/lib/background-run-ledger.js",
@@ -1486,8 +1486,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/background-task-prompt.js",
-      "sha256": "21e5e84a92b46d9200d11677bbc4153df31fafe4c14783dcf823a09faed7456f",
-      "size": 7432
+      "sha256": "19318839650c114c02494b5f6e97029f68cefe6879b463f9ef45246744641f07",
+      "size": 8402
     },
     {
       "path": "tavern-plugin/lib/domain/background-tasks.js",
@@ -10296,9 +10296,9 @@
     }
   ],
   "archive": {
-    "commit": "98b48097c6fc57441c38ae44da220969664b85b6",
+    "commit": "ac0f9bfd180dac19d34233ff6c0de7f00d4df019",
     "path": "runtime.zip",
-    "sha256": "b709a5ce29029c8b313b535c3e99d18ecf3a1e9ef854b6581f65df0fac78c0d3",
-    "size": 18097885
+    "sha256": "c5c243f3523f6cf654d44fd391d6c2e055d114e0e50e1a2cc743358fec3e1aad",
+    "size": 18098250
   }
 }
