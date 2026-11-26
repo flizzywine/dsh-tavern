@@ -2,6 +2,7 @@ import { isCompactionCheckpointMessage } from './compaction-checkpoint.js'
 import { inputKind } from './session-turn-input.js'
 import { promptSection } from './prompt-section.js'
 import { withCurrentWorldbook } from './session-stable-prefix.js'
+import { runtimePresetPhaseMessages } from './runtime-preset-lifecycle.js'
 import { STORY_SUBMIT_TOOL_NAME } from './story-tool-submission.js'
 import { stripWritingSystemReminders, writingRequestMessages } from './writing-system-reminders.js'
 import receipts from './writing-material-receipts.cjs'
@@ -83,9 +84,21 @@ export function pureWritingContext(system, messages, sections) {
   if (inputAt < 0) throw new Error('纯净写作找不到本轮玩家输入')
   const context = { system: stripWritingSystemReminders(system), messages: structuredClone(conversation.slice(0, inputAt + 1)) }
   if (sections) {
-    const arrangement = tail => stripWritingSystemReminders(sections.filter(section => Boolean(section.writingPreparationTail) === tail)
-      .map(section => section.text).filter(Boolean).join('\n\n'))
-    context.preparation = { system: arrangement(false), snapshot: arrangement(true) }
+    const join = entries => stripWritingSystemReminders(entries.map(section => section.text).filter(Boolean).join('\n\n'))
+    context.preparation = {
+      system: join(sections.filter(section => !section.writingPreparationTail)),
+      snapshot: join(sections.filter(section => section.writingPreparationTail))
+    }
+    const middle = sections.filter(section => section.name === 'tavern:runtime-preset-middle')
+    const back = sections.filter(section => section.name === 'tavern:runtime-preset-back')
+    if (middle.length || back.length) {
+      const presetPhase = entries => ({ entries: entries.map(({ text }) => ({ role: 'user', content: stripWritingSystemReminders(text) })) })
+      context.foregroundPreset = {
+        middle: presetPhase(middle),
+        back: presetPhase(back),
+        system: join(sections.filter(section => section.name !== 'tavern:runtime-preset-middle' && section.name !== 'tavern:runtime-preset-back'))
+      }
+    }
   }
   return context
 }
@@ -137,8 +150,11 @@ export function pureWritingInjection(frame, material) {
 
 export function projectPureWritingRequest(request, { context, injection }) {
   const messages = structuredClone(context.messages)
+  const preset = context.foregroundPreset
+  if (preset) messages.push(...runtimePresetPhaseMessages(preset, 'middle'))
   if (injection) messages.push(injection)
+  if (preset) messages.push(...runtimePresetPhaseMessages(preset, 'back'))
   // Existing host protocol choices refer to the tool list that was replaced.
   const { toolChoice, ...base } = request
-  return { ...base, system: context.system, messages, tools: pureWritingTools(request.tools) }
+  return { ...base, system: preset?.system ?? context.system, messages, tools: pureWritingTools(request.tools) }
 }
