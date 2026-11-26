@@ -150,6 +150,8 @@ uniform vec2 uNormalSize;
 const vec3 W = vec3(0.2126, 0.7152, 0.0722);
 void main(void) {
     vec4 src = texture2D(uSampler, vTextureCoord);
+    // Outside the figure (often half its box) the matrix below gives alpha m[19] at most: nothing to light or draw.
+    if (src.a <= 0.0 && m[19] <= 0.0) { gl_FragColor = vec4(0.0); return; }
     vec4 c = src;
     if (c.a > 0.0) c.rgb /= c.a;
     if (uLight.z > 0.0) {
