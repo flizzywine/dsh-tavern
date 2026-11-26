@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "555f7cf56bcabe8e64e3100d4898c2dad06e8354",
-  "releaseSequence": 2110,
+  "revision": "67d11d7b8ed71b7901551b3edac1dbdc0581eb5c",
+  "releaseSequence": 2111,
   "version": "3.4.0",
   "files": [
     {
@@ -166,8 +166,8 @@
     },
     {
       "path": "android/native/latest.json",
-      "sha256": "cbe5a885402562d26f0c6dc590ddcb7bc17087e14768579b7cf21b309a13ef03",
-      "size": 592
+      "sha256": "6b431618140a8bba5424bd222f5954ec43f4498165daa0449ef9fde5fc1caf5d",
+      "size": 636
     },
     {
       "path": "android/native/make-icons.py",
@@ -1236,8 +1236,8 @@
     },
     {
       "path": "tavern-plugin/lib/client-assets/tavern.css",
-      "sha256": "3143704ea45c656b4aaad28a3ee3982e6131d5dc9c0d871744c5d3d704fa9e11",
-      "size": 512245
+      "sha256": "754df178a16bc96f2704a9dc2ac7bf30fc65bd2ebc17eb2829d30212e4186aa8",
+      "size": 511496
     },
     {
       "path": "tavern-plugin/lib/client-assets/theme.css",
@@ -1286,8 +1286,8 @@
     },
     {
       "path": "tavern-plugin/lib/client.js",
-      "sha256": "452efd02b89afc42b7c628f908001fe602ffbf2f8221a5588ea42cbd20292962",
-      "size": 6802462
+      "sha256": "928b4c1539633525ebfa8c7ced5999588178f2c4afb3a3a4983ee950da649eb9",
+      "size": 6799018
     },
     {
       "path": "tavern-plugin/lib/cordis-inspect.js",
@@ -10301,9 +10301,9 @@
     }
   ],
   "archive": {
-    "commit": "b188b493038b221c45456ecb1599f5c08328bee0",
+    "commit": "7d4344753ebf3825bcdc574961c2380f558f1d41",
     "path": "runtime.zip",
-    "sha256": "fa0082ab9bd2fe764f7fef3212564861f642ba689f87a5e6ebd7e4941272c734",
-    "size": 18082404
+    "sha256": "e054b50167e9e2d2a9b2757dbe037461bd7822ad8e4ba56adda2eea5cc06740b",
+    "size": 18081584
   }
 }
