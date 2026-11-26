@@ -65,7 +65,7 @@ function galChoiceBadges(choice, tabKind, hasTabs) {
 function GalChoices(props) {
     const h = React.createElement;
     const sessionId = props.sessionId;
-    const {panel,taskForMessage,running,messageId,commands}=props;
+    const {panel,taskForMessage,running,messageId,commands,submitReaderInput,readerAction}=props;
     const lifetime=React.useRef({active:false,epoch:0}),pickTimer=React.useRef(0);
     React.useEffect(()=>{lifetime.current.active=true;lifetime.current.epoch++;return()=>{lifetime.current.active=false;clearTimeout(pickTimer.current);};},[]);
     const alive=()=>!disposed&&lifetime.current.active;
@@ -82,6 +82,7 @@ function GalChoices(props) {
     const editorRef = React.useRef(null);
     const requestRef = React.useRef(false);
     React.useEffect(() => {
+        if (submitReaderInput) return;
         const take = () => {
             if (!galFills.has(String(sessionId))) return;
             const text = galFills.get(String(sessionId));
@@ -92,9 +93,9 @@ function GalChoices(props) {
         take();
         galFillListeners.add(take);
         return () => { galFillListeners.delete(take); };
-    }, [sessionId]);
+    }, [sessionId, Boolean(submitReaderInput)]);
     // a task the player stopped reads as never started - 生成选项 again, not an error.
-    const status = panel ? panel.phase : taskForMessage ? taskForMessage.busy ? "loading" : taskForMessage.status === "succeeded" ? "ready" : taskForMessage.status === "cancelled" ? "idle" : "error" : "idle";
+    const status = submitReaderInput ? "ready" : panel ? panel.phase : taskForMessage ? taskForMessage.busy ? "loading" : taskForMessage.status === "succeeded" ? "ready" : taskForMessage.status === "cancelled" ? "idle" : "error" : "idle";
     const state = galEndPanelState({ status, atEnd: props.atEnd !== false && !running });
     const panelKey = String(sessionId) + ":" + String(messageId || "");
     if (state === "generating") galChoiceWait = stageWaitLinesEpisode(galChoiceWait, panelKey, (props.waitLines || STAGE_WAIT_LINES).length);
@@ -271,19 +272,20 @@ function GalChoices(props) {
         if (!alive() || !value || sending) return;
         const epoch=lifetime.current.epoch;
         const current=()=>alive()&&epoch===lifetime.current.epoch;
-        if (typeof props.executeSlash !== "function") { setError("当前界面无法发送，请回到聊天视图输入"); setPicked(null); return; }
+        if (!submitReaderInput && typeof props.executeSlash !== "function") { setError("当前界面无法发送，请回到聊天视图输入"); setPicked(null); return; }
         if (!cued) forkUiSfx.play("confirm");
         setSending(true); setError("");
         // offered: a suggestion sent exactly as offered (withdrawing it needs no draft; see withdrawnText).
         props.onSending?.(value, { offered: choices.some(choice => textOf(choice) === value) });
         try {
+            if (submitReaderInput) await submitReaderInput(value);
             // A pipe would split the slash command; the full-width bar reads the same.
-            await props.executeSlash("/send " + value.replace(/\|/g, "｜") + "|/trigger", sessionId);
+            else await props.executeSlash("/send " + value.replace(/\|/g, "｜") + "|/trigger", sessionId);
             const choiceIndex = choices.findIndex(choice => textOf(choice) === value);
             if (choiceIndex >= 0) playEvents.emit('choice', sessionId, { choiceIndex });
             if (withdrawn && withdrawn !== value) playEvents.emit('input_rewrite', sessionId, { editChars: playEvents.editChars(withdrawn, value) });
             if(!current())return;
-            commands.clear(); setEditingAt(null); setDrafts({});
+            commands?.clear(); setEditingAt(null); setDrafts({});
             props.onSent && props.onSent(value);
         } catch (err) {
             if(!current())return;
@@ -366,7 +368,14 @@ function GalChoices(props) {
     // while the choices generate neither shows (an open field stays).
     const freeShown = !(state === "generating" && editingAt !== GAL_FREE);
     const toolShown = canRegenerate || (freeShown && (editingAt === GAL_FREE || Boolean(freeDraft)));
-    const rows = visibleChoices.length + (statusRow ? 1 : 0) + (freeShown || toolShown ? 1 : 0);
+    async function runReaderAction() {
+        if (!alive() || sending || !readerAction) return;
+        setSending(true); setError("");
+        try { await readerAction.run(); }
+        catch (err) { if (alive()) setError(String(err?.message || err)); }
+        finally { if (alive()) setSending(false); }
+    }
+    const rows = visibleChoices.length + (statusRow ? 1 : 0) + (freeShown || toolShown ? 1 : 0) + (readerAction ? 1 : 0);
     // 重新生成 opens the stage's own regenerate dialog (gal-regenerate.js: 正文 / MVU / 舞台指导 / 选项, 正文 preselected,
     // optional guidance + 确定; 正文 is the same regenBody RPC as the chat view's 「重新生成正文」); the stage passes onRegenerate,
     // its busy rule and the G key (gal-stage.js presses this control). After 自由输入 in the DOM, so in focus order too.
@@ -404,6 +413,9 @@ function GalChoices(props) {
         : h("div", { key: "free", className: "fork-gal-choice is-free", "data-edited": freeDraft ? "" : undefined },
             h("button", { type: "button", role: "menuitem", "data-action": "free", className: "fork-gal-choice-main", "data-ui-sfx": "toggle", disabled: sending, onClick: () => open(GAL_FREE) },
                 h(Icon, { name: "pencil", size: 15 }), h("span", { className: "fork-gal-choice-text" }, freeDraft || "自由输入")), tool, layout.galChoiceArt()),
+        readerAction ? h("div", {key:"reader-action",className:"fork-gal-choice"},
+            h("button", {type:"button",role:"menuitem",className:"fork-gal-choice-main",disabled:sending || inputStarted,
+                onClick:runReaderAction}, h("span", {className:"fork-gal-choice-text"},readerAction.label)),layout.galChoiceArt()) : null,
         error ? h("p", { className: "fork-gal-choice-error", role: "alert" }, error) : null);
 }
 return {Choices:GalChoices,fill:galFill,pendingFill:sessionId=>galFills.get(String(sessionId)),dispose(){if(disposed)return;disposed=true;galFills.clear();galFillListeners.clear();const errors=[];for(const fn of [...cleanups]){try{fn();}catch(error){errors.push(error);}}for(const [map,cancel] of [[timers,hostClearTimeout],[frames,hostCancelFrame]]){for(const id of map.keys()){try{cancel(id);}catch(error){errors.push(error);}}map.clear();}if(errors.length)throw new AggregateError(errors,'Choices cleanup failed');}};

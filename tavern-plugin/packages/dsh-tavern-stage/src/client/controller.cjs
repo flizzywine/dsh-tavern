@@ -311,6 +311,7 @@ function GalStage(props) {
     const [readerState, setReaderState] = React.useState(null);
     const readerPanel = openedReader?.sessionId === sessionId ? openedReader : null;
     const reader = readerPanel && readerState;
+    const readerInput = typeof reader?.input?.submit === "function" ? reader.input : null;
     const readerPages = React.useMemo(() => (reader?.lines || []).map((line, index) => ({
         kind: line.speaker ? 'line' : 'narration', text: line.text, alias: line.alias, name: line.speaker,
         lineId: line.id, para: index + 1, anchor: {para: index + 1, paragraphId: line.id, offset: 0},
@@ -1516,7 +1517,7 @@ function GalStage(props) {
         readerPanel ? h('div', {className:'fork-gal-reader-scene', style:{position:'absolute',inset:0,zIndex:1}}, h(stageViews.statusPanel.PluginPanel, {
             key:JSON.stringify([sessionId, readerPanel.pageId, readerPanel.anchor]), sessionId, plugin:readerPanel.plugin, id:readerPanel.id,
             stagePageId:readerPanel.pageId, entryAnchor:readerPanel.anchor,
-            reader:{publish:setReaderState, paused:backlog || configOpen || galleryOpen || pageOpen || menuOpen, silent:skipping,
+            reader:{publish:setReaderState, supportsInput:true, paused:backlog || configOpen || galleryOpen || pageOpen || menuOpen, silent:skipping,
                 key:(key, released, shiftKey) => window.dispatchEvent(new window.KeyboardEvent(released ? 'keyup' : 'keydown', {key, shiftKey, cancelable:true}))},
         })) : null,
         !accepted.cg && !cg.visible && figuresShown && !stageShot && standIns.length ? h(GalStandIns, { members: standIns, portraits, colorOf }) : null,
@@ -1651,7 +1652,12 @@ function GalStage(props) {
         // Reading done: the next move sits in the middle of the screen.
         // a latest turn with nothing to read (an HTML introduction / opening chooser) is done too: the
         // panel offers 生成选项 and 自由输入 (no 重新生成); leaving is the existing 返回主页面 (R13).
-        !leasing && atEnd && (typed || openingOnly) && !hidden && props.Choices ? h(props.Choices, Object.assign({}, props.choiceProps, { key: sessionId + ":" + turn, sessionId, atEnd, hidden: awaiting || Boolean(sourceWidget.openKey), waitSlot: choiceWaitSlot, waitLines,
+        readerInput ? h(stageViews.choices.Choices, {
+            key: JSON.stringify([sessionId, readerPanel.pageId, readerInput.key]), sessionId, messageId: readerInput.key,
+            running: running || readerInput.pending === true, submitReaderInput: readerInput.submit,
+            readerAction: atEnd && typed ? readerInput.action : undefined,
+            hidden: hidden || backlog || configOpen || galleryOpen || pageOpen || menuOpen || !entryGate.visible,
+        }) : !leasing && atEnd && (typed || openingOnly) && !hidden && props.Choices ? h(props.Choices, Object.assign({}, props.choiceProps, { key: sessionId + ":" + turn, sessionId, atEnd, hidden: awaiting || Boolean(sourceWidget.openKey), waitSlot: choiceWaitSlot, waitLines,
             // 重新生成 — the same busy rule as the system menu's 重新生成 item.
             onRegenerate: props.Regenerate && !openingOnly ? openRegenerate : undefined, regenerateDisabled: regenerateBlocked,
             withdrawnText: withdrawal && withdrawal.landed ? withdrawal.text : "",

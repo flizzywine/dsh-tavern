@@ -11,15 +11,32 @@ test('choices send through host and cancel delayed picks when unloaded',async()=
  const dom=new JSDOM('<div id="root"></div>',{url:'http://localhost'})
  const previous=[globalThis.window,globalThis.document,globalThis.IS_REACT_ACT_ENVIRONMENT]
  globalThis.window=dom.window;globalThis.document=dom.window.document;globalThis.IS_REACT_ACT_ENVIRONMENT=true
- const h=React.createElement,document=dom.window.document,sends=[],timers=new Map();let id=0,delay=0
+ const h=React.createElement,document=dom.window.document,sends=[],timers=new Map();let id=0,delay=0,changeInput
  const getComputedStyle=()=>({getPropertyValue:()=>String(delay)})
- const view=createStageChoices({React,window:dom.window,document,layout:createStageChoiceLayout({React,getComputedStyle}),playEvents:{emit(){},editChars:()=>0},sounds:{play(){}},useSounds(){},episode:()=>({first:0,start:0}),waitLines:['wait'],TextArea:()=>h('textarea'),Icon:()=>null,StageWaitStop:()=>null,StageWaitLines:()=>null,getComputedStyle,setTimeout(fn){timers.set(++id,fn);return id},clearTimeout(id){timers.delete(id)},requestAnimationFrame:()=>0,cancelAnimationFrame(){}})
+ const view=createStageChoices({React,window:dom.window,document,layout:createStageChoiceLayout({React,getComputedStyle}),playEvents:{emit(){},editChars:()=>0},sounds:{play(){}},useSounds(){},episode:()=>({first:0,start:0}),waitLines:['wait'],TextArea:({onChange})=>{changeInput=onChange;return h('textarea')},Icon:()=>null,StageWaitStop:()=>null,StageWaitLines:()=>null,getComputedStyle,setTimeout(fn){timers.set(++id,fn);return id},clearTimeout(id){timers.delete(id)},requestAnimationFrame:()=>0,cancelAnimationFrame(){}})
  const root=createRoot(document.getElementById('root')),fallbackRef={current:null}
  const props={sessionId:'s',messageId:'m',panel:{phase:'ready',choices:[{text:'hello|world'}]},running:false,decode:String,commands:{clear(){},generate(){},stop(){}},executeSlash:async(...args)=>sends.push(args),fallbackRef}
  try{
   await act(async()=>root.render(h(React.StrictMode,null,h(view.Choices,props))))
   await act(async()=>document.querySelector('[data-index="0"] .fork-gal-choice-main').click())
   assert.deepEqual(sends,[['/send hello｜world|/trigger','s']])
+  let advanced=0
+  const readerSends=[]
+  await act(async()=>root.render(h(view.Choices,{sessionId:'s',messageId:'scene-1',
+    submitReaderInput:async text=>readerSends.push(text),
+    readerAction:{label:'Continue scene',run:()=>advanced++}})))
+  assert.ok(document.querySelector('[data-action="free"]'))
+  assert.equal(document.querySelector('[data-action="generate"]'),null)
+  assert.equal(document.querySelector('[data-index]'),null)
+  const next=()=>Array.from(document.querySelectorAll('button')).find(button=>button.textContent==='Continue scene')
+  await act(async()=>document.querySelector('[data-action="free"]').click())
+  await act(async()=>changeInput('检查左边|右边'))
+  assert.equal(next().disabled,true)
+  await act(async()=>document.querySelector('[data-action="send"]').click())
+  assert.deepEqual(readerSends,['检查左边|右边'])
+  await act(async()=>next().click())
+  assert.equal(advanced,1)
+  await act(async()=>root.render(h(React.StrictMode,null,h(view.Choices,props))))
   delay=250
   await act(async()=>document.querySelector('[data-index="0"] .fork-gal-choice-main').click())
   assert.equal(timers.size,1);const late=[...timers.values()][0],fallback=fallbackRef.current

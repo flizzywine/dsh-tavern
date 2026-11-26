@@ -378,6 +378,8 @@ const open = url => typeof ctx.tavernUi.openImage === 'function'
 - `reader.publish({ section, lines, index, canAdvance, voiced, playing, command })` 更新当前一段的阅读内容。`lines` 为 `{id, text, speaker?, alias?}` 数组，`index` 从零开始。段落切换时换 `section`。有后续段落时设置 `canAdvance:true`，需要先完成互动时设为 `false`。
 - `command('select', index)` 请求翻到段内指定一行，`command('next')` 请求翻过本段末尾，`command('replay')` 请求重播当前配音。面板执行后发布实际位置。原配音播放中设 `playing:true`，让 AUTO 等它播完。
 - `reader.paused` 表示舞台打开了菜单、履历等覆盖层。`reader.silent` 表示舞台正在快进。面板内的 iframe 可用 `reader.key(key, released)` 把已识别的舞台按键交回宿主。
+- 宿主提供 `reader.supportsInput === true` 时，面板可在 `reader.publish` 中附加 `input: { key, submit(text), pending? }`。舞台显示原生「自由输入」，沿用皮肤、键盘和手机布局。`key` 用场景 ID，同场翻页时保留草稿，换场时重置。`submit(text)` 由面板处理，可用 `tavernUi.submitInput` 发起生成并用 `watchTurnState` 等待正文。Promise 拒绝时舞台保留草稿并显示错误。`pending:true` 用于面板等待同一次行动的结算。输入不会关闭阅读面板，也不会触发自动候选选项。
+- `input.action: {label, run()}` 可选。在读完这段对白后加一个舞台操作，适合确认换景；自由输入仍可用。有未发送的草稿时暂禁用这个操作。
 
 舞台里的 `render` 还收到 `stage`：舞台借给插件的对象，`stage.borrow({ scene, onChoice })` 把一段写好的对白和分支放到舞台上演，`stage.setScene({ background, time, music, cast })` 把这局的背景、音乐和在场人物换到别处。`roundAction({ gameId, turn })` 在这一轮读完时被问一次，返回 `{ label, run }`（或它的 Promise）就在舞台普通选项旁边多一个按钮，返回 `null` 没有按钮；`run({ gameId, stage })` 在玩家按下时运行。`roundAction` 需要 `stage: true`，不是函数时抛出 `TypeError`。这三样由舞台实现，字段、报错和示例见舞台 Skill 的「插件用舞台」（`tavern_read_skill_reference`，`name:'stage'`，`references/plugin-stage.md`）；侧栏和旧宿主里 `stage` 为 `undefined`。
 
