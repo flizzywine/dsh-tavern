@@ -99,11 +99,12 @@ export function registerRequestHooks({
       requestId: requestIdForMessages(payload.messages)
     })
     if (foregroundStrategies.pureWritingTurn?.(sessionId)) return prepared
-    // prepareStep may render and persist a newer worldbook state. Restoring the
-    // pre-prepare header would append stale content after the fresh delta.
-    const recoveryChat = projectWorldbookRecovery ? await chatForSession(sessionId) : chat
-    const recovered = await appendWorldbookRecovery({ chat: recoveryChat, payload, decision: prepared, project: projectWorldbookRecovery })
-    const withChanges = appendVariableChanges({ chat, payload, decision: recovered })
+    // Turn preparation waits for the preceding settlement and may also persist
+    // a new worldbook state. Both projections need the post-preparation snapshot.
+    const firstMvuStep = Number(payload.step) === 1 && chat?.mvu?.enabled === true
+    const currentChat = projectWorldbookRecovery || firstMvuStep ? await chatForSession(sessionId) : chat
+    const recovered = await appendWorldbookRecovery({ chat: currentChat, payload, decision: prepared, project: projectWorldbookRecovery })
+    const withChanges = appendVariableChanges({ chat: currentChat, payload, decision: recovered })
     try { return await cardMemory.appendRecall({ chat, payload, decision: withChanges }) }
     catch (error) { console.warn('[Tavern card memory] recall unavailable:', error.message); return withChanges }
   }

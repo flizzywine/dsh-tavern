@@ -11,7 +11,7 @@ export const WRITING_PREPARATION_REQUEST = 'writing-preparation'
 
 const KEEP_FIXED_SECTIONS = new Set(['tavern:user-preference', 'tavern:character-card', 'tavern:constant-worldbook'])
 const STORY_SECTIONS = new Set(['base', 'card', 'card-instruction', 'script', 'guide'])
-const { tavernIsWritingInjection, tavernWithoutInjectedSkills } = receipts
+const { tavernIsWritingInjection, tavernWithoutPrivateWritingReceipts } = receipts
 
 export function pureWritingTools(tools) {
   return (tools || []).filter(tool => tool?.name === STORY_SUBMIT_TOOL_NAME)
@@ -29,7 +29,7 @@ function writingConversation(messages) {
   return (messages || []).flatMap(message => {
     if (message?.role === 'user') {
       if (!inputKind(message) && !isCompactionCheckpointMessage(message) && !tavernIsWritingInjection(message)) return []
-      const visible = tavernWithoutInjectedSkills(message)
+      const visible = tavernWithoutPrivateWritingReceipts(message)
       return visible?.content?.length ? [visible] : []
     }
     if (message?.role !== 'assistant' || !(message.source?.kind === 'model' || !message.source)) return []
@@ -41,15 +41,40 @@ function writingConversation(messages) {
   })
 }
 
-export function pureWritingSystem(fixedSections, frame, back = []) {
-  const sections = fixedSections.map(section => section.text)
+const PURE_WRITING_SECTION_NAMES = Object.freeze({
+  base: 'tavern:story-base',
+  card: 'tavern:character-card',
+  'card-instruction': 'tavern:card-post-history',
+  script: 'tavern:script-reference',
+  guide: 'tavern:user-guide'
+})
+
+export function pureWritingSystemSections(fixedSections, frame, back = []) {
+  const sections = fixedSections
+    .filter(section => section && typeof section.text === 'string' && section.text !== '')
+    .map(section => ({ name: section.name || '', text: section.text }))
+  const variableConstants = new Set(frame.source?.worldBook?.variableConstantRefs ?? frame.source?.worldBook?.messageVariableConstantRefs ?? [])
+  const worldbook = (frame.source?.regenerationMaterials?.worldbookEntries || [])
+    .filter(entry => variableConstants.has(entry.ref)).map(entry => entry.text).join('\n\n')
+  if (worldbook) sections.push({ name: 'tavern:constant-worldbook', text: promptSection('lorebook_constant', worldbook) })
   const cardSystem = frame.source?.card?.systemPromptText
-  if (cardSystem) sections.push(promptSection('card_system', cardSystem))
+  if (cardSystem) sections.push({ name: 'tavern:card-system-prompt', text: promptSection('card_system', cardSystem) })
   for (const item of frame.contributions) {
     const source = item.source
-    if ((source.stage === 'context-plan' && STORY_SECTIONS.has(source.sectionKind)) || source.stage === 'runtime-preset') sections.push(item.text)
+    if (source.stage === 'runtime-preset') {
+      if (item.text) sections.push({ name: 'tavern:runtime-preset-middle', text: item.text })
+    } else if (source.stage === 'context-plan' && STORY_SECTIONS.has(source.sectionKind)) {
+      if (item.text) sections.push({ name: PURE_WRITING_SECTION_NAMES[source.sectionKind] || 'tavern:dsh-system', text: item.text })
+    }
   }
-  return [...sections, ...back.map(entry => entry.content)].filter(Boolean).join('\n\n')
+  for (const entry of back) {
+    if (entry?.content) sections.push({ name: 'tavern:runtime-preset-back', text: entry.content })
+  }
+  return sections.filter(section => Boolean(section.text))
+}
+
+export function pureWritingSystem(fixedSections, frame, back = []) {
+  return pureWritingSystemSections(fixedSections, frame, back).map(section => section.text).filter(Boolean).join('\n\n')
 }
 
 export function pureWritingContext(system, messages) {

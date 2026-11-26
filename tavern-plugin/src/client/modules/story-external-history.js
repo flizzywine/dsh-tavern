@@ -4,6 +4,7 @@
 // for partial/runningCalls/composer, and legacy mode rebuilds the full projection.
 // @include-domain system-reminders.cjs
 // @include-domain writing-material-receipts.cjs
+// @include-domain session-seed-trajectory.cjs
 
 function tavernStoryNativeTurnOfLocation(location) {
 	if (!location || (location.kind !== 'turn' && location.kind !== 'step')) return null
@@ -48,10 +49,11 @@ function installTavernStoryExternalHistory(options) {
 			hideSystemReminders: false, hideSkillContext: false }
 		function filteredBuild(context, target) {
 			if (controller.alive && target === 'trajectory' && context.state?.kind === 'context') {
+				if (tavernIsLegacySeedTrajectory(context.state)) return null
 				if (record.hideSystemReminders && tavernIsHostSystemReminder(context.state)) return null
 				if (record.hideSkillContext) {
 					if (tavernIsSkillReminder(context.state.source)) return null
-					const state = tavernWithoutInjectedSkills(context.state)
+					const state = tavernWithoutPrivateWritingReceipts(context.state)
 					if (!state) return null
 					if (state !== context.state) return originalBuild.call(this, { ...context, state }, target)
 				}

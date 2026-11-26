@@ -33,20 +33,46 @@ export function normalizeMessageId(messages, value) {
   return messageId
 }
 
-/** Read the selected variable snapshot from the latest message that has one. */
-export function lastTavernHelperVariables(messages, chatVariables) {
-  const source = Array.isArray(messages) ? messages : []
-  for (let messageId = source.length - 1; messageId >= 0; messageId--) {
-    const message = source[messageId]
-    if (message && message.role === 'tavern-helper') continue
-    if (!message || !Array.isArray(message.variables) || message.variables.length === 0) continue
-    const swipeId = selectedSwipe(message)
-    const variables = message.variables[swipeId]
-    if (variables !== undefined) return clone(variables)
+function hasMvuSnapshot(value) {
+  return value?.stat_data !== undefined && value?.schema !== undefined
+}
+
+export function tavernMessageVariableSnapshot(message) {
+  if (!Array.isArray(message?.variables)) return undefined
+  const swipe = selectedSwipe(message)
+  const variables = message.variables[swipe]
+  if (!variables || typeof variables !== 'object' || Array.isArray(variables)) return undefined
+  // A Helper-created player floor can hold MVU state. Other Helper floors
+  // often carry private UI data unrelated to the game's variable snapshot.
+  if (message.role === 'tavern-helper' && (message.tavernRole !== 'user' || !hasMvuSnapshot(variables))) return undefined
+  return { swipe, variables }
+}
+
+export function latestTavernMessageVariableSnapshot(messages, { before, statData = false, settled = false } = {}) {
+  const end = Math.min(before ?? Infinity, messages?.length ?? 0)
+  for (let index = end - 1; index >= 0; index--) {
+    const message = messages[index]
+    if (settled && (message?.role !== 'assistant' || message.mvu?.pending === true ||
+      ['error', 'partial', 'stale', 'pending'].includes(message.mvu?.receipt?.status))) continue
+    const snapshot = tavernMessageVariableSnapshot(message)
+    if (snapshot && (!statData || (snapshot.variables.stat_data && typeof snapshot.variables.stat_data === 'object'))) {
+      return { ...snapshot, index, message }
+    }
   }
-  // A zero-message opening stores its MVU baseline in the existing chat scope.
-  if (chatVariables?.stat_data !== undefined && chatVariables?.schema !== undefined) return clone(chatVariables)
   return undefined
+}
+
+/** Detached variables for Helper/script callers. */
+export function lastTavernHelperVariables(messages, chatVariables) {
+  const snapshot = latestTavernMessageVariableSnapshot(messages)
+  if (snapshot) return clone(snapshot.variables)
+  // A zero-message opening stores its MVU baseline in the existing chat scope.
+  if (hasMvuSnapshot(chatVariables)) return clone(chatVariables)
+  return undefined
+}
+
+export function tavernPromptMessageVariables(chat) {
+  return lastTavernHelperVariables(chat?.promptTemplateInput?.message ? [chat.promptTemplateInput.message] : chat?.messages, chat?.variables)
 }
 
 /** How many trailing Helper floors keep full bodies on a cold getSession. */
@@ -230,9 +256,7 @@ export function appendTavernHelperMessages(chat, values, option = {}) {
   if (settings.refresh !== undefined && !['none', 'affected', 'all'].includes(settings.refresh)) {
     throw new Error('createChatMessages refresh 参数无效')
   }
-  if (!Array.isArray(chat.messages)) chat.messages = []
-  const created = []
-  for (const value of Array.isArray(values) ? values : []) {
+  const messages = (Array.isArray(values) ? values : []).map(value => {
     if (!value || typeof value !== 'object') throw new TypeError('createChatMessages 消息必须是对象')
     const role = str(value.role)
     if (!['system', 'assistant', 'user'].includes(role)) throw new TypeError('createChatMessages role 无效: ' + role)
@@ -248,10 +272,12 @@ export function appendTavernHelperMessages(chat, values, option = {}) {
       variables: [clone(value.data && typeof value.data === 'object' && !Array.isArray(value.data) ? value.data : {})]
     }
     if (str(value.name) !== '') message.name = str(value.name)
-    chat.messages.push(message)
-    created.push({ messageId: chat.messages.length - 1 })
-  }
-  return created
+    return message
+  })
+  if (!Array.isArray(chat.messages)) chat.messages = []
+  const start = chat.messages.length
+  for (const message of messages) chat.messages.push(message)
+  return messages.map((_, index) => ({ messageId: start + index }))
 }
 
 /** Apply one explicit Helper variable write without exposing Chat internals. */

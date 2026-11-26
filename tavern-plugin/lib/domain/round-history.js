@@ -16,6 +16,7 @@ export { unansweredTailIndex }
 import { assertPluginRegenerationTarget, assertRegenerationSourceCurrent, replaceLastRound } from './last-round-replacement.js'
 import { diagnosticIdentity, regenerationTargetDiagnostic } from './regeneration-diagnostics.js'
 import { extractForegroundStoryChoices } from './candidate-generation.js'
+import { stripStyleReferenceMarkup } from './style-reference-protocol.cjs'
 import { assistantResultForTurn } from './session-turn-result.js'
 import { STORY_SUBMIT_TOOL_NAME } from './story-tool-submission.js'
 import { extractStreamedToolReplyContent, parsePartialToolReplyJson } from './tool-reply-stream-parser.js'
@@ -78,7 +79,7 @@ function cloneChat(value) {
 // which made an earlier "was this edited?" check fire on every reroll; the player
 // then got their discarded version rewritten instead of a fresh sample.)
 export function regenerationInputText(userText, guidance, rewriteBody) {
-  const input = str(userText).trim(), guide = str(guidance).trim(), draft = str(rewriteBody).trim()
+  const input = str(userText).trim(), guide = str(guidance).trim(), draft = stripStyleReferenceMarkup(str(rewriteBody)).trim()
   if (draft !== '' && guide !== '') return input + '\n\n' + promptSection('current_body', draft) + '\n\n' + promptSection('rewrite_request', '在当前正文基础上改写本轮正文：' + guide)
   return input + (guide !== '' ? '\n\n' + promptSection('turn_extra_request', guide) : '')
 }
@@ -786,7 +787,7 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
         delete draft.ledgerInjection
       }
       const extractedForegroundChoices = (draft.mode || 'story') === 'story'
-        ? await extractForegroundChoices(body, { card, chat: draft })
+        ? await extractForegroundChoices(stripStyleReferenceMarkup(body), { card, chat: draft })
         : { proseText: body, choices: null, hadTag: false }
       body = str(extractedForegroundChoices.proseText).trim()
       const projectedReply = typeof prepareRegenerationReply === 'function'
@@ -915,7 +916,7 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
             }
           }
         : appending
-          ? { kind: 'append-round', storyTurn, native: appendAnchor }
+          ? { kind: 'append-round', storyTurn, native: appendAnchor, operationId }
           : placeRegeneration(session, oldSeq, eventStart, { turn: storyTurn, step: 1,
             message: { id: 'tavern-regen:' + operationId, role: 'assistant', content: [{ type: 'text', text: prose.text }],
               source: { ...oldSource, tavernStoryTurn: storyTurn } } }, operationId)

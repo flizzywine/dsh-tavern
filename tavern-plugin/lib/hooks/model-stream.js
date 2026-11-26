@@ -7,7 +7,9 @@ import { installCompactionRequestProjection } from '../domain/compaction-request
 import { installPrefixBoundReasoningProjection } from '../domain/prefix-bound-reasoning.js'
 import { omitEmptyProviderContent } from '../domain/provider-message-content.js'
 import { omitUnusedToolHistory } from '../domain/tool-history-presentation.js'
-import { isLegacySeedAcknowledgement } from '../domain/session-seed-trajectory.js'
+import { foregroundStyleReferenceEnabled } from '../domain/style-reference.js'
+import { projectWithoutStyleReference } from '../domain/style-reference-request.js'
+import legacySeeds from '../domain/session-seed-trajectory.cjs'
 import { installWorkspaceInstructionPresentation } from '../domain/workspace-instruction-presentation.js'
 import { isTavernAgentSession } from '../domain/tavern-agent-scope.js'
 import { presentModelError } from '../domain/model-error-presentation.js'
@@ -24,6 +26,7 @@ export const PROMPT_PROSE = Object.freeze({
   p001: "Plugin summary requirements:"
 })
 
+const { tavernIsLegacySeedTrajectory } = legacySeeds
 
 export function applyCompactionModel(request, selection) {
   if (!selection?.provider || !selection?.model) return request
@@ -33,12 +36,27 @@ export function applyCompactionModel(request, selection) {
   return next
 }
 
-function writingPreparationStreamFilter() {
+function writingPreparationStreamFilter(receiveVariableReply) {
   const textByIndex = new Map()
+  const replyBlocks = new Map()
+  const limit = 2048
+  let toolCall = false
   return chunk => {
     const isText = chunk.type === 'text-delta' || (chunk.type === 'block-start' && chunk.blockType === 'text')
       || (chunk.type === 'block-end' && chunk.block?.type === 'text')
     if (Number.isInteger(chunk.index) && !textByIndex.has(chunk.index)) textByIndex.set(chunk.index, isText)
+    if (receiveVariableReply) {
+      if (chunk.type === 'tool-call-delta' || chunk.blockType === 'tool-call' || chunk.block?.type === 'tool-call') toolCall = true
+      if (!toolCall && isText && chunk.type !== 'block-start') {
+        const index = chunk.index ?? 0
+        const value = chunk.type === 'block-end' ? chunk.block.text : (replyBlocks.get(index) || '') + chunk.text
+        replyBlocks.set(index, String(value ?? '').slice(0, limit + 1))
+      }
+      if (!toolCall && chunk.type === 'finish' && (chunk.reason ?? chunk).kind === 'stop') {
+        const reply = [...replyBlocks].sort(([a], [b]) => a - b).map(([, value]) => value).join('')
+        if (reply.length <= limit) receiveVariableReply(reply)
+      }
+    }
     if (isText) return null
     if (chunk.type !== 'finish' || !Array.isArray(chunk.replayState?.blocks)) return chunk
     const textBlocks = [...textByIndex.values()]
@@ -96,11 +114,10 @@ export function registerModelStreamHooks({
   // Whether a session is a Tavern game: its header answers that, not its history.
   const isGame = async sessionId => Boolean(await chatHeaderForSession(str(sessionId), []))
   const ownsSession = async sessionId => backgroundAgentRunner.owns(sessionId) || await isGame(sessionId)
-  // Old saves still carry the scripted acknowledgement. Drop it before
-  // history projection and compaction can incorporate it into another message.
+  // Keep scripted openings from old saves out of request and compaction context.
   ctx.on('llm/stream', (request, next) => {
-    if (!request?.messages?.some(isLegacySeedAcknowledgement)) return next()
-    return ctx.llm.stream({ ...request, messages: request.messages.filter(message => !isLegacySeedAcknowledgement(message)) })
+    if (!request?.messages?.some(tavernIsLegacySeedTrajectory)) return next()
+    return ctx.llm.stream({ ...request, messages: request.messages.filter(message => !tavernIsLegacySeedTrajectory(message)) })
   }, { prepend: true })
   // Compaction keeps its newest replies after the summary, behind a prefix they were not signed against.
   installPrefixBoundReasoningProjection(ctx, { ownsSession, session: id => sessionStore.get(id) || agentRegistry.get(id)?.session || backgroundAgentRunner.requestSession(id) })
@@ -111,13 +128,14 @@ export function registerModelStreamHooks({
   installCompactionRequestProjection(ctx, ownsSession, async request => {
     // 前台对话压缩优先使用全局设置的专用压缩模型；后台 Agent 保持各自任务模型。
     const foreground = !backgroundAgentRunner.owns(request.sessionId)
-    const routed = foreground && typeof compactionModel === 'function'
+    let routed = foreground && typeof compactionModel === 'function'
       ? applyCompactionModel(request, await compactionModel())
       : request
     // Story/script chats summarize with the story prompt and keep the latest rounds
     // verbatim after the summary; other sessions keep DSH's prompt.
-    const head = await chatHeaderForSession(str(request.sessionId), ['backgroundTasks'])
+    const head = await chatHeaderForSession(str(request.sessionId), ['backgroundTasks', 'disabledForegroundTools'])
     if (!usesStoryCompaction(head)) return { request: routed }
+    if (foreground && !foregroundStyleReferenceEnabled(head)) routed = projectWithoutStyleReference(routed)
     // An imported game compacts right away: an oversized history is summarized in segments
     // (bounded-compaction.js), so the first-play capacity check is not a precondition.
     // Seam to the plugin layer: plugins may add what the summary must keep.
@@ -253,7 +271,8 @@ export function registerModelStreamHooks({
         requestRecord = await modelRequestLog.record({ chat, context: { ...backgroundContext, task: 'compaction', turn }, coordinates: { turn }, options })
       } else if (options.purpose === undefined && chat !== undefined && ['story', 'script', 'card'].includes(chat.mode)) {
         const coordinates = requestCoordinates.get(sessionId) || {}
-        requestRecord = await modelRequestLog.record({ chat, context: backgroundContext, coordinates, options })
+        const systemSections = !backgroundContext ? foregroundStrategies.systemSectionsFor?.(sessionId, options.system) : undefined
+        requestRecord = await modelRequestLog.record({ chat, context: backgroundContext, coordinates, options, ...(systemSections?.length ? { systemSections } : {}) })
         if (!backgroundContext && ['story', 'script'].includes(chat.mode)) {
           // Evidence only: scanning a multi-MB request must not delay the first token.
           // Calling an async function directly still runs its synchronous prefix here:
@@ -330,7 +349,7 @@ export function registerModelStreamHooks({
         openBlocks.clear()
       }
       let finish = null, usage = null
-      const filterPreparation = writingPreparation ? writingPreparationStreamFilter() : null
+      const filterPreparation = writingPreparation ? writingPreparationStreamFilter(writingContext?.receiveVariableReply) : null
       let failure = null, interrupted = false
       const liveness = createModelStreamProgress({signal:options.signal})
       let iterator, exhausted = false

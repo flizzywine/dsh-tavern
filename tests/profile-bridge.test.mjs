@@ -31,6 +31,37 @@ test('桥接安装更新始终写 tavern，不取决于 desktop 当前是否是�
  assert.equal(installedProfile('cli',home),'tavern')
 })
 
+test('CLI 启动器复用酒馆更新服务并拒绝桌面操作', async t => {
+ const { apply } = await import('../tavern-plugin/packages/dsh-tavern/index.js')
+ t.mock.property(process, 'env', { ...process.env, DSH_TAVERN_RUNTIME_HOST: 'cli' })
+ // The test runner may be Electron, but this fixture represents plain Node.
+ if (typeof process.send === 'function') t.mock.property(process, 'send', undefined)
+ let handle, updater
+ apply({
+   get: key => key === 'tavernApplicationUpdater' ? updater : undefined,
+   connection: { rpc: { handle: (_channel, handler) => { handle = handler } } },
+   effect() {},
+ })
+ assert.deepEqual((await handle('status')).value, { host: 'cli', updateSupported: false })
+ assert.equal((await handle('check-update')).error.code, 'update-unavailable')
+ updater = {
+   status: async () => ({ phase: 'idle' }),
+   check: async () => ({ phase: 'update-available' }),
+   start: async () => ({ phase: 'running' }),
+   cancel: async () => ({ phase: 'cancelling' }),
+ }
+ assert.deepEqual((await handle('status')).value, { host: 'cli', updateSupported: true })
+ for (const [action, phase] of [
+   ['update-status', 'idle'], ['check-update', 'update-available'],
+   ['start-update', 'running'], ['cancel-update', 'cancelling'],
+ ]) {
+   assert.deepEqual(await handle(action), { ok: true, value: { phase, canUpdate: true } })
+ }
+ for (const action of ['restart-desktop-update', 'restart-update', 'link', 'uninstall', 'shortcut', 'openOriginal']) {
+   assert.equal((await handle(action)).error.code, 'unsupported', action)
+ }
+})
+
 test('统一启动器从 NEXT 宿主读取活动 Profile，拒绝目录链接切换', async t => {
  const { apply } = await import('../tavern-plugin/packages/dsh-tavern/index.js')
  const r = fixture(t)

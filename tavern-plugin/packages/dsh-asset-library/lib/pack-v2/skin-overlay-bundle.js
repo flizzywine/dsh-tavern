@@ -25,10 +25,8 @@ export async function validateSkinOverlayBundle(skin,{prefix,bundlePrefix=prefix
       check(item.sourceSize.w>0&&item.sourceSize.h>0,name,'Invalid source frame size')
       frames.add(id.split('@')[0])
     }
-    check(!atlas.meta.dsh.privateUse || skin.license?.privateUse===true,name,'Private atlas cannot be relabelled public')
   }
   const glyphs=validateSkinSchema(glyphSchema,json('glyphs/'+skin.overlay.glyphs+'.json',1024**2))
-  check(!glyphs.meta.privateUse || skin.license?.privateUse===true,'$.overlay.glyphs','Private glyphs cannot be relabelled public')
   for(const glyph of Object.values(glyphs.glyphs)) check(glyph.d.length<=131072,'$.glyphs','Glyph path limit','LIMIT_EXCEEDED')
   const frame=id=>check(id.startsWith('label:') ? Object.hasOwn(skin.overlay.labels||{},id.slice(6)) : id.startsWith('decal:') ? Object.hasOwn(skin.overlay.decals||{},id.slice(6)) : frames.has(id),'$.overlay','Unknown overlay frame '+id)
   function references(value) {

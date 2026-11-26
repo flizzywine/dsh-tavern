@@ -35,7 +35,7 @@
           "properties": {
             "variants": { "type": "object", "additionalProperties": { "type": "integer", "minimum": 0, "maximum": 3 }, "description": "boil re-cut count per base frame (0 = runtime micro-jitter only)" },
             "refScale": { "type": "object", "additionalProperties": { "type": "number" }, "description": "source px per reference px for each base frame" },
-            "privateUse": { "type": "boolean" }
+            "privateUse": {}
           }
         }
       }

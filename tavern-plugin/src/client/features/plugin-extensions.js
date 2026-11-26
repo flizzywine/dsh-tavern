@@ -447,7 +447,7 @@
 
 			const service = {
 				ctx: undefined,
-				apiVersion: 10,
+				apiVersion: 11,
 				// Tavern's own controls (apiVersion 9), so a plugin's UI looks and behaves like Tavern's: Slider, Segmented,
 				// Switch, SearchBox, Icon (Tavern's icon names), Spinner, EmptyState. Same props as Tavern uses (inline-field.js).
 				get components() { return Object.freeze({ Slider: Slider, Segmented: Segmented, Switch: Switch, SearchBox: SearchBox, Icon: Icon, Spinner: Spinner, EmptyState: EmptyState }); },
@@ -962,6 +962,33 @@
 						root.render(h(tavernPluginBoundary(), { owner: owner, fallback: fallback }, h(Screen)));
 						return function () { cleanup(); };
 					}, "tavernUi.openOverlay()");
+					return handle;
+				},
+				// Tavern's own large-picture view (apiVersion 11, image-viewer.js): fitted to the window, wheel / pinch zoom,
+				// drag to pan, double tap toggles fit ↔ 100 %, Esc / ✕ / backdrop closes. A plugin's picture in the story opens
+				// the same view as Tavern's own illustrations instead of a new window (on the Android app that showed native
+				// pixels and could not zoom). Returns { close }; the view closes when the plugin unloads.
+				openImage(input) {
+					const options = typeof input === "string" ? { src: input } : input;
+					if (!options || typeof options.src !== "string" || !options.src || options.src.length > 8192) throw new TypeError("openImage 需要图片地址 src");
+					if (options.alt !== undefined && typeof options.alt !== "string") throw new TypeError("openImage 的 alt 必须是字符串");
+					if (options.onClose !== undefined && typeof options.onClose !== "function") throw new TypeError("openImage 的 onClose 必须是函数");
+					if (typeof document === "undefined") throw new Error("当前环境没有页面，无法打开大图");
+					const owner = ownerOf(this);
+					let viewer = null, closed = false;
+					const handle = { close: function () { if (typeof dispose === "function") dispose(); else finish(); } };
+					function finish() { if (viewer) viewer.close(); }
+					const dispose = owned(this, function () {
+						viewer = openImageViewer({
+							src: options.src, alt: options.alt || "插图",
+							onClose: function () {
+								if (closed) return;
+								closed = true;
+								if (options.onClose) try { options.onClose(); } catch (error) { try { tavernErrorHub.report("插件 " + owner, error); } catch (_) {} }
+							}
+						});
+						return finish;
+					}, "tavernUi.openImage()");
 					return handle;
 				},
 				// A group of the plugin's own on the sidebar start page; tabs not in any group stay under 「插件」 or 「其他」.

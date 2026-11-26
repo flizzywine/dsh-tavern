@@ -54,7 +54,7 @@ export function createWorldbookFiles({ directory, load, resourcesAvailable = () 
       const type = classifyWorldbookEntry(entry)
       const content = type.dynamic ? snapshots.entries[entry.ref]?.text : entry.content
       return String(content || '').trim() ? [{ ...entry, content,
-        category: type.dynamic ? '动态快照' : type.constant ? '常驻资料' : '静态资料' }] : []
+        category: type.dynamic ? '动态快照' : type.kind === 'static-constant' ? '常驻资料' : '静态资料' }] : []
     }).sort((a, b) => String(a.ref).localeCompare(String(b.ref)))
     const used = new Set()
     const rows = entries.map(entry => {

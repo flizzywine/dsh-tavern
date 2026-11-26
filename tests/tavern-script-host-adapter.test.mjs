@@ -57,6 +57,39 @@ function harness(chatValue = chat(), overrides = {}) {
   return { adapter, chat: chatValue, writes, events, worldbook }
 }
 
+test('message frames publish once and resume MVU on the existing floors after a failed send event', async () => {
+  let saved = chat(), appends = 0, publishes = 0, fail = true
+  saved.mvu.owner = 'official'
+  const events = []
+  const { adapter } = harness(saved, {
+    resolveChat: async () => structuredClone(saved),
+    writeChat: async value => { appends++; saved = value; return saved },
+    publishCreatedMessages: async () => { publishes++ },
+    scriptDispatch: { async dispatch(_sessionId, name, [id], context) {
+      assert.equal(name, 'MESSAGE_SENT')
+      assert.equal(context.messages[id].role, 'user')
+      events.push(id)
+      if (id === 3 && fail) return { handled: false, error: '试运行失败' }
+      await adapter.updateVariables('session-1', { type: 'message', message_id: id }, { stat_data: { ready: true } }, 2)
+      return { handled: true }
+    } }
+  })
+  const messages = [{ role: 'user', message: 'first' }, { role: 'assistant', message: 'note' }, { role: 'user', message: 'second' }]
+  const send = () => adapter.createMessages('session-1', messages, {}, 2, '', { operationId: 'create-id', dispatch: true })
+  const failed = await send()
+  assert.match(failed.completionError, /已保存.*试运行失败/)
+  fail = false
+  const receipts = await Promise.all([send(), send()])
+  assert.deepEqual(events, [1, 3, 3])
+  assert.equal(publishes, 1)
+  assert.equal(saved.messages.length, 4)
+  assert.equal(appends, 3, 'one message append and two MVU variable saves')
+  for (const receipt of receipts) {
+    assert.equal(receipt.completionError, undefined)
+    assert.equal(receipt.context.messages[3].variables.stat_data.ready, true)
+  }
+})
+
 for (const sliced of [false, true]) test(`chat player identity is persisted atomically with variables: sliced=${sliced}`, async t => {
   const host = await createHelperChatDataHost()
   t.after(host.cleanup)

@@ -8,7 +8,6 @@ import { createScriptContinuity } from './script-continuity.js'
 import { normalizeBackgroundModel } from './background-model-selection.js'
 import { normalizeDisabledForegroundTools } from './foreground-tools.js'
 import { normalizeConfiguredBackgroundTasks, normalizeDefaultPluginGameSettings, normalizePlayDefaults } from './tavern-settings.js'
-import { ensureSessionSeedTrajectory } from './session-seed-trajectory.js'
 import { defaultUserPreferenceProfile } from './user-preference-profile.js'
 import { replyProse } from './reply-prose.js'
 import { createSessionOpeningChanges } from './session-opening.js'
@@ -410,7 +409,6 @@ export function createConversationInitialization(options) {
     if (groupOfMode(chat.mode) === 'play' && chat.requestMode !== 'sillytavern') {
       const prefix = await trace.stage('nativeSnapshot', () => snapshots.ensure(chat, card))
       await trace.stage('nativePrefix', () => native.ensurePrefix(target.session, prefix))
-      await trace.stage('nativeSeed', () => ensureSessionSeedTrajectory(target.session))
       await trace.stage('nativeFlush', () => native.flush(target.session))
     }
     if (groupOfMode(chat.mode) === 'card') {
@@ -418,7 +416,6 @@ export function createConversationInitialization(options) {
       await trace.stage('nativePrefix', () => native.ensurePrefix(target.session, prefix))
       // A card-edit session mirrors the play session's prefix (prompt cache); the plain
       // workbench needs no scripted exchange: its role comes from the system prompt.
-      if (chat.cardEditContext?.version === 1) await trace.stage('nativeSeed', () => ensureSessionSeedTrajectory(target.session))
       if (chat.cardEditContext?.version === 1) await trace.stage('nativeCardWorkspace', () => native.ensureCardWorkspace(target.session, chat))
       await trace.stage('nativeFlush', () => native.flush(target.session))
     }
