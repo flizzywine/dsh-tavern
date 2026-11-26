@@ -7535,7 +7535,7 @@ window.__ModuleLoader__.load({
 		      const value=menu.card?.value||{};
 		      return h('div',{className:'ap-card-style'},
 		        h(InlineGrid,{label:'画风',columns:1,className:'ap-card-style-grid'},
-		          h(InlineRow,{label:'画风',help:h(Help,{label:'画风 说明',text:'这张卡的自动素材包新画的图、游戏里配的插图都用它；素材包自己设了画风的，以素材包为准。'})},
+		          h(InlineRow,{label:'画风',help:h(Help,{label:'画风 说明',text:'这张卡的自动素材包新画的图、游戏里配的插图都用它；素材包自己设了画风的，以素材包为准。其他素材包不跟这张卡，没设画风时跟随配图插件。'})},
 		            h('span',{className:'ap-card-style-value'},
 		              h(GenStylePicker,{menu,place:'card',value:value.all,onPick:pick,disabled:busy}),
 		              h('button',{type:'button',className:'ap-inline-link ap-card-style-uses','aria-expanded':open,onClick:()=>setOpen(!open)},'按用途',h(Glyph,{name:open?'chevDown':'chevRight'}))))),
