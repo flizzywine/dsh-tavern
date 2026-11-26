@@ -50126,7 +50126,7 @@ function installTavernScriptCardUpdate({ window: w, rpc, ask = askTavernScriptCa
 				window.addEventListener("dsh-tavern-new-game", listener);
 				return function () { window.removeEventListener("dsh-tavern-new-game", listener); };
 			}, []);
-			// A card's opening page on the stage (card page opening:true, presets/tavern/skills/stage-status-panel/references/panel-contract.md「开局页」) starts the game
+			// A card's opening page on the stage (card page opening:true, presets/tavern/skills/stage/references/page-contract.md「开局页」) starts the game
 			// with its choice: the card's openingSetup resolved by the host (prepareOpeningPage, the 游戏准备 form's own authority),
 			// then the same start as every game. The game replaces the never-played chat the page stood on, and the stage enters
 			// it at its first act (no entry page).

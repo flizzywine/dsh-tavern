@@ -9,7 +9,7 @@ export const CARD_PAGE_ICONS = Object.freeze(['monitor', 'card', 'folder', 'mess
 const KEYS = ['id', 'label', 'html', 'shortcut', 'icon', 'menu', 'showOn', 'initial', 'opening', 'size', 'closeControl', 'ledger', 'preload', 'figures']
 
 // The card's opening page (opening: true): its stage completes the card's openingSetup there, in place of the generic
-// 游戏准备 (presets/tavern/skills/stage-status-panel/references/panel-contract.md「开局页」). The one reading of the declaration; null when the card has none.
+// 游戏准备 (presets/tavern/skills/stage/references/page-contract.md「开局页」). The one reading of the declaration; null when the card has none.
 export function cardOpeningPage(pages) {
   return Array.isArray(pages) ? pages.find(page => page?.opening === true) || null : null
 }

@@ -48,7 +48,7 @@
 
 `.dshcard` 导入器仍接受 `dsh.json.defaults.stage: true` 快捷声明，将其转换为 enabled:true。新增卡优先显式填写卡片字段。不能只看发行版本号就保证旧版酒馆认识这个字段；遇到旧运行时应要求更新，或按用户明确要求另做旧格式兼容副本。
 
-stage.defaultSkin 是这张卡唯一的皮肤值「使用皮肤」：随卡导出导入，玩家在舞台 CONFIG › 画面「本卡皮肤」里改的也是它。没有填写或皮肤不可用时依次用全局「默认皮肤」和「经典」；素材包不再声明默认皮肤，旧的 stage.skinChoice 不再读取。stage.defaultEntrance 是本卡的「入场演出」（`{packId, kind:'entrances', assetId}`，缺省即不播放），只在玩家进入舞台时代替「载入中」播放，不替代舞台声明。模组的本卡设置由模组工具管理（stage-mods），不手写进卡。玩家密钥、静音和权限不能由卡包覆盖。
+stage.defaultSkin 是这张卡唯一的皮肤值「使用皮肤」：随卡导出导入，玩家在舞台 CONFIG › 画面「本卡皮肤」里改的也是它。没有填写或皮肤不可用时依次用全局「默认皮肤」和「经典」；素材包不再声明默认皮肤，旧的 stage.skinChoice 不再读取。stage.defaultEntrance 是本卡的「入场演出」（`{packId, kind:'entrances', assetId}`，缺省即不播放），只在玩家进入舞台时代替「载入中」播放，不替代舞台声明。检定、数据删除、文字演出、计时器这类引擎接口由卡声明在 `extensions.dsh_tavern.modSystem.mods` 里（`stage` Skill 的 references/mod-card-declared.md）；模组的本卡设置值由模组工具管理（`stage` Skill 的 references/mods.md）。玩家密钥、静音和权限不能由卡包覆盖。
 
 ## 素材与迁移
 
@@ -56,7 +56,7 @@ stage.defaultSkin 是这张卡唯一的皮肤值「使用皮肤」：随卡导�
 
 内容文件、manifest.files 与 contentHash 必须由同一份最终内容生成。修改人物、清单或媒体后重新经素材库导出。哈希失败时保留原包并报告，不跳过检查或手改指纹来宣称兼容。
 
-旧插件的 registerStageView 已停用。将展示数据迁入卡片声明、开场配置与素材包；旧插件里的整页界面（状态、地图等）改写成卡页面（`stage-status-panel`）；独立剧情逻辑再按公开插件接口处理。只删除旧调用、重命名插件或降低格式版本都不构成完整迁移。
+旧插件的 registerStageView 已停用。将展示数据迁入卡片声明、开场配置与素材包；旧插件里的整页界面（状态、地图等）改写成卡页面（`stage` Skill 的 references/pages.md）；独立剧情逻辑再按公开插件接口处理。只删除旧调用、重命名插件或降低格式版本都不构成完整迁移。
 
 ## 封面与交付格式
 
