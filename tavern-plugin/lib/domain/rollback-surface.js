@@ -579,7 +579,11 @@ export function unansweredTailIndex(chat) {
   // follows it. An imported row is history the save keeps loose on purpose, so
   // it must not turn into a round; a native flag is not required, because a turn
   // that failed before landing its body may never have been stamped.
-  if (message.role !== 'user' || message.placeholder === true || message.greeting === true) return -1
+  // appendUser also persists a placeholder before Session acceptance; a prepared
+  // running turn already appends an assistant placeholder after it, so a tail
+  // user row with placeholder=true is an unanswered input that failed before
+  // prepare/discard and must not be skipped by regeneration.
+  if (message.role !== 'user' || message.greeting === true) return -1
   if (typeof message.source?.kind === 'string' && message.source.kind === 'import') return -1
   return index
 }
