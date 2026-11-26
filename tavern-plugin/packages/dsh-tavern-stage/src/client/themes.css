@@ -2482,6 +2482,11 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
 /* Items: a label in the title face (one ladder step over the body); the highlight (pointer or keyboard) is the active surface,
    the gem and an accent bar; keyboard focus adds the theme's focus ring. */
 .fork-gal-menu-list { display: grid; gap: calc(var(--gal-cfg-gap) / 4); }
+/* a short window or many card pages: the list scrolls inside the panel instead of being clipped (drawn menus set their own fit) */
+.fork-gal-menu { grid-template-rows: minmax(0, 100%); }
+.fork-gal-menu-panel:not(.fork-gal-confirm) { grid-template-rows: auto minmax(0, 1fr); }
+.fork-gal-menu-list { min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: none; }
+.fork-gal-menu-list::-webkit-scrollbar { display: none; }
 /* a drawn menu's scroll indicators (art.menu capacity), shown only by those menus */
 .fork-gal-menu-more { display: none; }
 .fork-gal-stage .fork-gal-menu-item { position: relative; display: grid; grid-template-columns: var(--gal-cfg-t0) auto minmax(0, 1fr) auto; align-items: center; column-gap: var(--gal-cfg-gap); box-sizing: border-box; width: 100%; min-height: var(--gal-cfg-hit); margin: 0; padding: calc(var(--gal-cfg-gap) / 2) calc(var(--gal-cfg-gap) * 1.5) calc(var(--gal-cfg-gap) / 2) var(--gal-cfg-gap);
