@@ -559,9 +559,6 @@ exports.apply = function(ctx) {
       },50)
     },[!!state,kinds.length,focusAsked])
     const count = state ? configured.length + external.length + unset.length + (browserSpeech ? 1 : 0) : undefined
-    const fishOptions = [['','官方 Fish（默认）'], ...configured.filter(p => p.kind === 'fish-audio').map(p => [p.id,p.label])]
-    const fishDefault = state?.fishVoiceIdService || ''
-    if (!fishOptions.some(([id]) => id === fishDefault)) fishOptions.push([fishDefault,'所选服务已移除'])
     return h(Section,{title:music ? '音乐生成' : '语音合成',meta:count,help:music ? '未配置时只播放曲库里的音乐。' : '合成声音的服务，这台电脑设一次，所有卡通用。人物用哪一个，在素材编辑器的人物「声音」里选。'},
       !state ? h('p',{className:'dtts-muted dtts-loading',role:loadError ? 'alert' : undefined},loadError ? h(Warn,null,loadError) : h('span',{className:'dtts-spinner','aria-label':'正在载入'})) :
       h('ul',{className:'dtts-list',ref:root},
