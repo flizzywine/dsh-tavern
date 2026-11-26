@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "5af59f2bfa0b81a319f5111e2b2e4ec5a305ace6",
-  "releaseSequence": 2115,
+  "revision": "7ed09fa12020246b0913c729d548dd0259965f43",
+  "releaseSequence": 2116,
   "version": "3.4.0",
   "files": [
     {
@@ -8511,8 +8511,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-plot-compass/client.js",
-      "sha256": "799b4c249f1f7bc0038ef4ac3600401b3cf8a57f9d5152c86164715b4a9bfdd7",
-      "size": 127868
+      "sha256": "6e35beea1e9b4b778a334c67412b6ea042cbaefc5a81660919cf10d9e78a1ca4",
+      "size": 130016
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-plot-compass/cordis.patch.yml",
@@ -8531,8 +8531,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-plot-compass/lib/plot-compass.js",
-      "sha256": "17ea8fe6ed4236294bd9eb77646b8a9d47119a5817037ace6ff33ba4c7090201",
-      "size": 90889
+      "sha256": "aedff7046176776e0fee8a9eadb19a3ae57068f7ab564a6c2cd785f5b8a0eccd",
+      "size": 97767
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-plot-compass/LICENSE",
@@ -8541,18 +8541,18 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-plot-compass/package.json",
-      "sha256": "284ec790eef17f845d4fb29f0e1c92884d0a2db134dc240949cb39438557a263",
+      "sha256": "1602891b757b1837ab32aa40feb5960b0f1063e83d0e6c46588be1bbdd2f1079",
       "size": 1244
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-plot-compass/prompts/plot-compass.md",
-      "sha256": "74ced37b418f0d4e4da5ad4c0d0bb07d2c8dd1c87b78f6491bb22d772f452482",
-      "size": 13539
+      "sha256": "28ca1ac751cdfaf03ed75a82708b569d30d3ecb42ad5660c452057a9a79bc785",
+      "size": 15794
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-plot-compass/README.md",
-      "sha256": "8a67595ad1d844417ea6bd5f4265a5ad48292694710eb2be5445b4f9128654ef",
-      "size": 2919
+      "sha256": "c56ad4d778c4cbe4032c8ac8008f02a4d05408edeafd791c3eb9496b9698db6c",
+      "size": 3307
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-remote/.gitignore",
@@ -10301,9 +10301,9 @@
     }
   ],
   "archive": {
-    "commit": "9781f77193aa2d501d32d048169cacffac1d7ba5",
+    "commit": "3185e1219adba75bdbe752badfea99bf9b5f3b86",
     "path": "runtime.zip",
-    "sha256": "25e32b354187e6345bedda3d797dd60e96bd012f43a61940d13aae975e97caf5",
-    "size": 18084757
+    "sha256": "3b21282dc40baea72ebea45dac4c91f84ff58fb703ce419974babc2c26146a4f",
+    "size": 18089229
   }
 }
