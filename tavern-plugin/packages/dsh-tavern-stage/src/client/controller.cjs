@@ -1511,7 +1511,7 @@ function GalStage(props) {
         // conventional galgame wheel: up opens the log, down advances.
         // A gesture that just closed the backlog does not also turn pages.
         onWheel: wheel,
-        onContextMenu: event => { event.preventDefault(); if(galleryOpen||pageOpen)return; if (hidden) setHidden(false); else setHidden(true); } },
+        onContextMenu: event => { if (event.target.closest?.("input, textarea, select, [contenteditable=\"true\"]")) return; event.preventDefault(); if (galleryOpen || pageOpen || awaiting || insertPicture || !entryGate.visible) return; if (hidden) setHidden(false); else setHidden(true); } },
         h(GalScene, { start:loadGate.visible, onPresented:revision => { loadGate.onPresented(revision); if (entryGate.visible) onPresented(revision); else if (entrance.active) heldPresented.current = revision; }, onBackdrop:loadGate.onBackdrop, scene: displayScene, onDebug: onSceneDebug, onUi, onError: setSceneError, reload: sceneReload, onLayout: setFigureLayout }),
         readerPanel ? h('div', {className:'fork-gal-reader-scene', style:{position:'absolute',inset:0,zIndex:1}}, h(stageViews.statusPanel.PluginPanel, {
             key:JSON.stringify([sessionId, readerPanel.pageId, readerPanel.anchor]), sessionId, plugin:readerPanel.plugin, id:readerPanel.id,
