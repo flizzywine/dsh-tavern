@@ -4734,7 +4734,12 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
      under the row; the tag keeps its paint, no longer straddling the top edge, and a long name stops short of the four
      44px controls (ellipsis) */
   .fork-gal-stage[data-theme][data-fk-skin][data-fk-skin-art][data-fk-skin-art-name][data-fk-skin-art-name-narrow="level"][data-fk-skin-controls-place][data-fk-skin-controls-narrow="top"]:not(.is-film) :is(.fork-gal-box.fork-gal-box, .fork-gal-box.fork-gal-box[data-speaker-side][data-speaker-side]) .fork-gal-name {
-    top: 22px; max-width: calc(100% - 4 * 44px - 1.6em); }
+    top: 22px; }
+  /* the plate stops short of the control row on the box's top edge (quickMenu.narrow top / edge): the row is n controls of 44 px (+ 4 px padding) at the phone bodies' aspect (--art-qc-n, --art-qc-aspect); a plate the skin does not set as a level tag keeps to the left of it too */
+  .fork-gal-stage[data-theme][data-fk-skin][data-fk-skin-art][data-fk-skin-art-name][data-fk-skin-controls-place]:is([data-fk-skin-controls-narrow="edge"], [data-fk-skin-controls-narrow="top"]):not([data-fk-skin-art-name-narrow="under"]):not(.is-film) :is(.fork-gal-box.fork-gal-box, .fork-gal-box.fork-gal-box[data-speaker-side][data-speaker-side]) .fork-gal-name {
+    min-width: 0; max-width: calc(100% - var(--art-qc-n, 4) * (44px * var(--art-qc-aspect, 1) + 4px) - 12px - 1.6em); }
+  .fork-gal-stage[data-theme][data-fk-skin][data-fk-skin-art][data-fk-skin-art-name][data-fk-skin-controls-place]:is([data-fk-skin-controls-narrow="edge"], [data-fk-skin-controls-narrow="top"]):not([data-fk-skin-art-name-narrow]):not(.is-film) :is(.fork-gal-box.fork-gal-box, .fork-gal-box.fork-gal-box[data-speaker-side][data-speaker-side]) .fork-gal-name {
+    left: .8em; right: auto; }
   .fork-gal-stage[data-theme][data-fk-skin][data-fk-skin-art][data-fk-skin-art-name][data-fk-skin-art-name-narrow="level"][data-fk-skin-controls-place][data-fk-skin-controls-narrow="top"]:not(.is-film) .fork-gal-box.fork-gal-box .fork-gal-name b {
     display: inline-block; vertical-align: bottom; max-width: 100%; overflow: hidden; white-space: nowrap; }
 }
