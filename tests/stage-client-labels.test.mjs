@@ -25,3 +25,22 @@ test('name plate fitting cancels pending frames and ignores late font readiness'
   ready(); await Promise.resolve()
   assert.equal(reads,before)
 })
+// A figure with no voice picked yet (an author's pack with only a voice description) is no service
+// failure: the plate names her and where to pick one, and its button opens her 声音 page instead of retrying.
+test('name plate: a figure with no voice picked says who and where, and opens her voice page', () => {
+  const labels = createStageLabels({
+    React:{useRef:() => ({current:null}),useLayoutEffect:()=>{},createElement:(type,props,...children) => ({type,props,children})},
+  })
+  const calls = []
+  const plate = (voiceError, onOpenVoice) => labels.NamePlate({name:'林夏',voiceState:'error',voiceError,onReplay:() => calls.push('replay'),onOpenVoice}).children.find(child => child?.props?.className === 'fork-gal-voice')
+  const open = plate('VOICE_UNSET', () => calls.push('open'))
+  assert.equal(open.props['aria-label'],'林夏还没选声音：到 素材包 › 林夏 › 声音 里选一个；点击前往')
+  open.props.onClick({stopPropagation() {}})
+  assert.deepEqual(calls,['open'])
+  assert.equal(plate('VOICE_UNSET').props['aria-label'],'林夏还没选声音：到 素材包 › 林夏 › 声音 里选一个','no way to open it: the sentence alone')
+  // her voice chosen but its service not set up keeps the 语音后端 sentence and retries
+  const service = plate('SERVICE_REQUIRED', () => calls.push('open'))
+  assert.match(service.props['aria-label'],/^配音失败：还没有可用的语音服务.*点击重试$/)
+  service.props.onClick({stopPropagation() {}})
+  assert.deepEqual(calls,['open','replay'])
+})

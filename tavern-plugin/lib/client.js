@@ -10352,8 +10352,9 @@ window.__ModuleLoader__.load({
 		  // Opening, choosing or saving never synthesizes; ▶ does, and a paid or unknown-cost preview asks first (billing confirm).
 		  // Missing service / key / voice → ⚠ and why, with the way to 语音后端; nothing silently switches service.
 		  // The 语音服务 control-error messages: one authority, read by the plugin (copied into src/shared by build.mjs) and by the core route.
-		  // ttsErrorMessage(code): the player-facing sentence, or null for a code without one (callers then say a generic 配音失败).
-		  function ttsErrorMessage(code) {
+		  // ttsErrorMessage(code, {name}): the player-facing sentence, or null for a code without one (callers then say a generic 配音失败).
+		  // A sentence about one figure says her name where it has {name} (「这个人物」 when the caller has none).
+		  function ttsErrorMessage(code, {name} = {}) {
 		    const messages = {
 		      PROVIDER_AUTH_FAILED:'语音服务要求鉴权，请在语音后端填写或检查 API Key 与访问权限。',
 		      FISH_AUTH_FAILED:'Fish 服务要求鉴权，请在语音后端填写或检查 API Key 与访问权限。',
@@ -10380,6 +10381,7 @@ window.__ModuleLoader__.load({
 		      MINIMAX_INVALID_AUDIO:'MiniMax 没有返回有效音频，请重试；再次失败请检查 MiniMax 服务状态。',
 		      MINIMAX_REQUEST_FAILED:'MiniMax 拒绝了合成请求，请检查音色、模型和账户状态后重试。',
 		      SERVICE_REQUIRED:'还没有可用的语音服务，请在语音后端设置所选声音对应的服务。',
+		      VOICE_UNSET:'{name}还没选声音：到 素材包 › {name} › 声音 里选一个。',
 		      CREDENTIALS_REQUIRED:'语音服务缺少 API Key，请在语音后端填写对应服务的 API Key。',
 		      MISSING_REFERENCE:'当前声音没有可用的参考音频，请在人物声音页补充当前发声方式的参考音频。',
 		      LANGUAGE_UNSUPPORTED:'当前声音不支持所选语言，请在人物声音页更换配音语言或声音。',
@@ -10414,7 +10416,7 @@ window.__ModuleLoader__.load({
 		      PLAY_BLOCKED:'浏览器拦截了自动播放，点任意处开启声音。',
 		      SAMPLE_TOO_LARGE:'这个声音的官方样例文件过大，没有下载。',
 		    }
-		    return Object.hasOwn(messages, code) ? messages[code] : null
+		    return Object.hasOwn(messages, code) ? messages[code].replaceAll('{name}', name || '这个人物') : null
 		  }
 		  function describeTtsError(code) {
 		    return ttsErrorMessage(code) || ('配音请求失败' + (/^[A-Z][A-Z_]{0,79}$/.test(code || '') ? '（' + code + '）' : '') + '，请检查语音后端中的服务状态后重试。')
@@ -10462,7 +10464,7 @@ window.__ModuleLoader__.load({
 		    QWEN_MODEL_NOT_FOUND:'当前服务上次合成无法访问此模型（404），请核对模型开通状态与区域',QWEN_VOICE_UNSUPPORTED:'上次合成返回此模型不支持该音色，请重新选择音色',
 		    MISSING_REFERENCE:'这个差分没有参考录音，「默认」里也没有',PREVIEW_CONFIRMATION_REQUIRED:'付费确认已过期，请重新试听',PAID_PREVIEW_DISABLED:'这个服务不能免费试听',
 		    FISH_AUTH_FAILED:'Fish Audio API Key 无效',FISH_BILLING_REQUIRED:'Fish Audio 额度不足：去充值，或换回免费模型',FISH_RATE_LIMITED:'Fish Audio 请求太频繁，请稍后再试',FISH_REQUEST_FAILED:'Fish Audio 请求失败，请稍后再试',
-		    VOICE_NOT_FOUND:'找不到这个声音',VOICE_VARIANT_IN_USE:'还有别的人物在用这个预设，先给他们换一个预设',SHARED_VOICE_CONFIRMATION_REQUIRED:'这个声音还有别的人物在用，请重新确认',
+		    VOICE_NOT_FOUND:'找不到这个声音',VOICE_UNSET:'还没选声音',VOICE_VARIANT_IN_USE:'还有别的人物在用这个预设，先给他们换一个预设',SHARED_VOICE_CONFIRMATION_REQUIRED:'这个声音还有别的人物在用，请重新确认',
 		    REFERENCE_LIMIT_EXCEEDED:'参考音频超过了服务的限制',LIMIT_EXCEEDED:'素材包空间不够了',QUEUE_FULL:'试听太多，请稍后再试',TIMEOUT:'试听超时，请稍后再试',AUDIO_GONE:'试听音频已失效，请重新试听',
 		    ABORTED:'试听请求已中断，请重新试听；若反复发生，请重新载入声音页。',REQUEST_TIMEOUT:'声音页面请求超时，请重新载入页面；若仍失败，请检查语音服务连接。',
 		    REVISION_CONFLICT:'内容已被修改，请重新载入',INVALID_INPUT:'内容不符合格式，没有保存',REQUEST_FAILED:'请求失败，请稍后再试',FORBIDDEN:'没有权限'};
@@ -10475,11 +10477,11 @@ window.__ModuleLoader__.load({
 		  const VOICE_SERVICE_CODES=new Set(['SERVICE_REQUIRED','CREDENTIALS_REQUIRED','FISH_AUTH_FAILED','FISH_BILLING_REQUIRED','SERVICE_OFFLINE','INVALID_PATH','INVALID_CONFIG','PORT_OCCUPIED','PROCESS_EXITED','SERVICE_START_FAILED','TTS_DISABLED','QWEN_MODEL_NOT_FOUND']);
 		  // every 配音来源 can be chosen before it is set up; what a chosen source still
 		  // lacks, in plain words for screen readers only (R25: on screen the page shows it — an amber radio, the
-		  // empty field highlighted, 试听 off; the host answers MISSING_REFERENCE / VOICE_NOT_FOUND for it).
+		  // empty field highlighted, 试听 off; the host answers MISSING_REFERENCE / VOICE_UNSET for it).
 		  const VOICE_UNSET_TEXT={'reference-list':'还没有参考音频','voice-id':'还没选声音',preset:'还没选在线声音'};
 		  // 浏览器朗读 without a voiceName is the system default voice: set up, never unset.
 		  const voiceSourceUnset=s=>s&&(s.kind==='reference-list'?!s.references.length:s.kind==='voice-id'?!s.voiceId:s.provider!=='browser'&&!s.voiceName)?VOICE_UNSET_TEXT[s.kind]:'';
-		  const VOICE_EDIT_CODES=new Set(['MISSING_REFERENCE','LANGUAGE_UNSUPPORTED','QWEN_VOICE_UNSUPPORTED','VOICE_NOT_FOUND']);
+		  const VOICE_EDIT_CODES=new Set(['MISSING_REFERENCE','LANGUAGE_UNSUPPORTED','QWEN_VOICE_UNSUPPORTED','VOICE_NOT_FOUND','VOICE_UNSET']);
 		  const providerName=kind=>VOICE_PROVIDERS[kind]||'语音服务';
 		  // The one line that says why a voice is silent (⚠ chips, the 声音 property's tooltip).
 		  // A Latin service name gets spaces around it inside a Chinese sentence (缺少 Fish Audio API Key / 我的 MiniMax API Key 无效).

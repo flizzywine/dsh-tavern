@@ -2950,8 +2950,9 @@ if (typeof module !== "undefined" && typeof window === "undefined") module.expor
 
         // dsh-presentation-protocol tts-messages.cjs: the 语音服务 failure sentences the name plate shows.
         // The 语音服务 control-error messages: one authority, read by the plugin (copied into src/shared by build.mjs) and by the core route.
-// ttsErrorMessage(code): the player-facing sentence, or null for a code without one (callers then say a generic 配音失败).
-function ttsErrorMessage(code) {
+// ttsErrorMessage(code, {name}): the player-facing sentence, or null for a code without one (callers then say a generic 配音失败).
+// A sentence about one figure says her name where it has {name} (「这个人物」 when the caller has none).
+function ttsErrorMessage(code, {name} = {}) {
   const messages = {
     PROVIDER_AUTH_FAILED:'语音服务要求鉴权，请在语音后端填写或检查 API Key 与访问权限。',
     FISH_AUTH_FAILED:'Fish 服务要求鉴权，请在语音后端填写或检查 API Key 与访问权限。',
@@ -2978,6 +2979,7 @@ function ttsErrorMessage(code) {
     MINIMAX_INVALID_AUDIO:'MiniMax 没有返回有效音频，请重试；再次失败请检查 MiniMax 服务状态。',
     MINIMAX_REQUEST_FAILED:'MiniMax 拒绝了合成请求，请检查音色、模型和账户状态后重试。',
     SERVICE_REQUIRED:'还没有可用的语音服务，请在语音后端设置所选声音对应的服务。',
+    VOICE_UNSET:'{name}还没选声音：到 素材包 › {name} › 声音 里选一个。',
     CREDENTIALS_REQUIRED:'语音服务缺少 API Key，请在语音后端填写对应服务的 API Key。',
     MISSING_REFERENCE:'当前声音没有可用的参考音频，请在人物声音页补充当前发声方式的参考音频。',
     LANGUAGE_UNSUPPORTED:'当前声音不支持所选语言，请在人物声音页更换配音语言或声音。',
@@ -3012,7 +3014,7 @@ function ttsErrorMessage(code) {
     PLAY_BLOCKED:'浏览器拦截了自动播放，点任意处开启声音。',
     SAMPLE_TOO_LARGE:'这个声音的官方样例文件过大，没有下载。',
   }
-  return Object.hasOwn(messages, code) ? messages[code] : null
+  return Object.hasOwn(messages, code) ? messages[code].replaceAll('{name}', name || '这个人物') : null
 }
 function describeTtsError(code) {
   return ttsErrorMessage(code) || ('配音请求失败' + (/^[A-Z][A-Z_]{0,79}$/.test(code || '') ? '（' + code + '）' : '') + '，请检查语音后端中的服务状态后重试。')
@@ -3160,6 +3162,8 @@ if (typeof module !== 'undefined' && typeof window === 'undefined') module.expor
 function stageTtsMessages() {
     return typeof ttsErrorMessage === 'function' ? {ttsErrorMessage} : require('../../../dsh-presentation-protocol/src/tts-messages.cjs');
 }
+// The resolver's answers for a voice the figure has not finished (dsh-tts sourceUnsetIssue): fixed on her 声音 page.
+const GAL_FIGURE_VOICE_CODES = new Set(["VOICE_UNSET", "MISSING_REFERENCE"]);
 function createStageLabels({React, Icon, document, getComputedStyle, ResizeObserver, requestAnimationFrame, cancelAnimationFrame}) {
 // HUD change moments. One step per render for a top-left label
 // (place or track): the first value, a cleared label, a new session or a change outside live playback (history,
@@ -3205,7 +3209,8 @@ function GalHudLabels(props) {
 
 // Name plate of the text box: the name (classic: 【名字】 unless in film mode), the mood tag (other themes) and,
 // only when the line is voiced, a small replay button right after the name (V does the same).
-// props: { name, mood, classic, film, voiceState ("" | ready | loading | playing | paused | error), voiceError, onReplay() }.
+// props: { name, mood, classic, film, voiceState ("" | ready | loading | playing | paused | error), voiceError, onReplay(),
+// onOpenVoice() (opens this figure's 声音 page; absent when the stage cannot) }.
 // a name as [family lead, family rest, given lead, given rest] - the
 // given name is the longest of the figure's other names (aliases) that ends the name; without one the name is all family.
 function galNameParts(name, character) {
@@ -3290,10 +3295,14 @@ function GalNamePlate(props) {
         return () => { live = false; if (frame !== null) cancelAnimationFrame(frame); observer?.disconnect(); };
     }, [props.name, state]);
     // The player-facing sentence for the failure code (the 语音服务 message authority); a code without one stays generic.
-    const reason = state === "error" ? stageTtsMessages().ttsErrorMessage(props.voiceError) : null;
-    const label = state === "error" ? (reason ? "配音失败：" + reason.replace(/。$/, "") + "；点击重试" : "配音失败，点此重试") : state === "loading" ? "语音准备中" : "重播这一句";
-    const voice = state ? h("button", { type: "button", className: "fork-gal-voice", "data-state": state, title: state === "loading" ? label : label + "（V）", "aria-label": label, "aria-keyshortcuts": "V",
-        onClick: event => { event.stopPropagation(); props.onReplay(); },
+    // A voice not set up on the figure itself (GAL_FIGURE_VOICE_CODES) is no failure to retry: it says what to pick and the
+    // button opens her 声音 page.
+    const reason = state === "error" ? stageTtsMessages().ttsErrorMessage(props.voiceError, { name: props.name }) : null;
+    const unset = state === "error" && GAL_FIGURE_VOICE_CODES.has(props.voiceError), open = unset && props.onOpenVoice;
+    const label = unset ? reason.replace(/。$/, "") + (open ? "；点击前往" : "")
+        : state === "error" ? (reason ? "配音失败：" + reason.replace(/。$/, "") + "；点击重试" : "配音失败，点此重试") : state === "loading" ? "语音准备中" : "重播这一句";
+    const voice = state ? h("button", { type: "button", className: "fork-gal-voice", "data-state": state, title: state === "loading" || open ? label : label + "（V）", "aria-label": label, "aria-keyshortcuts": "V",
+        onClick: event => { event.stopPropagation(); if (open) props.onOpenVoice(); else props.onReplay(); },
         // Enter / Space activate the focused button instead of turning the page (the stage listens on window).
         onKeyDown: event => { if (event.key === "Enter" || event.key === " ") event.stopPropagation(); } }, state === "error" ? "⚠ 配音" : h("b", { className: "fork-gal-voice-glyph", "data-figure-ink": "4.5", "aria-hidden": true }, "\uE900")) : null;
     // The glyph stands right after the name, measured: centred on the name's ink and GAL_VOICE_GAP name em from it (galVoiceAlign).
@@ -15764,6 +15773,10 @@ function GalStage(props) {
     // with its pack revision. A figure in the notice leaves the stage for its page in 素材库 (as 回想's 编辑).
     const nameConflicts = useGalNameConflicts(sessionId, JSON.stringify((accepted.avatars || []).map(figure => [figure.ref?.packId || '', figure.ref?.figureId || figure.alias, figure.revision || ''])));
     const openConflictFigure = figure => { const open = stageViews.notices.openLibrary; props.onExit(); if (open) void open(sessionId, {packId:figure.packId, kind:'figures', figureId:figure.figureId}); };
+    // the speaker's own 声音 page, for a voice she has not finished (the name plate's ⚠ opens it; labels.cjs).
+    const speakerRef = characterOf(speaker)?.ref;
+    const openLibrary = stageViews.notices.openLibrary;
+    const openSpeakerVoice = openLibrary && speakerRef?.packId ? () => { props.onExit(); void openLibrary(sessionId, {packId:speakerRef.packId, kind:'figures', figureId:speakerRef.figureId, tab:'voice'}); } : null;
     const live2dMissing = pack.characters.some(figure => figure.diagnostics?.includes('live2d-core-missing') && castMembers.some(member => member.id === figure.alias));
     const live2dRequest = React.useCallback((method, args) => rpc(method, args, sessionId), [sessionId]);
     // Who the stage draws (a figure or its stand-in): the box anchors to them, and a skin's off-stage face rule reads it.
@@ -16051,7 +16064,7 @@ function GalStage(props) {
                 name: boxName, nameArc: activeSkin?.resolvedArt?.faceName || null, tint: activeSkin?.resolvedArt?.marks['data-fk-skin-portrait-tint'] === '',
                 moodOf: activeSkin?.resolvedArt?.marks['data-fk-skin-portrait-mood'] === '' ? stateId => bubbleMoodBadge(stateId, boxMoodList, config, boxSpeaker)?.label : null }) : null,
             phoneLine ? (boxName ? h(GalNamePlate, { key: boxName, name: boxName, mood: bubbleMoodBadge(boxLine.mood, boxMoodList, config, boxSpeaker)?.label, classic, film, ransom, voiceState: "", voiceError: null, onReplay: replay }) : null) :
-            name ? h(GalNamePlate, { key: name, name, parts: nameInitials && !film ? galNameParts(name, bubbleCharacter(config, current)) : null, latin: nameLatin && !film ? figureLatin(bubbleCharacter(config, current)) : null, mood: bubbleMoodBadge(current.mood, moodList, config, speaker)?.label, classic, film, ransom, voiceState: voiceBox === "control" || voiceBox === "notice" && voiceState === "error" ? voiceState : "", voiceError, onReplay: replay }) : null,
+            name ? h(GalNamePlate, { key: name, name, parts: nameInitials && !film ? galNameParts(name, bubbleCharacter(config, current)) : null, latin: nameLatin && !film ? figureLatin(bubbleCharacter(config, current)) : null, mood: bubbleMoodBadge(current.mood, moodList, config, speaker)?.label, classic, film, ransom, voiceState: voiceBox === "control" || voiceBox === "notice" && voiceState === "error" ? voiceState : "", voiceError, onReplay: replay, onOpenVoice: openSpeakerVoice }) : null,
             transitioning ? h("div", { className: "fork-gal-transition-label" }, "你 · 第 " + turns[turnIndex + 1] + " 轮") : null,
             h("div", { ref: textRef, className: "fork-gal-text", "aria-live": phoneLine ? "off" : "polite", 'data-fk-open': openBlock ? "" : undefined, style: openBlock ? { "--fk-page-block": openBlock + "px" } : undefined },
                 phoneLine && boxLine ? h(GalTypewriter, { key: "held:" + boxPageKey, text: heldText, speed: reading.textSpeed, skin: activeSkin, instant: true, reducedMotion:reading.reducedMotion,photosensitive:reading.photosensitive }) : null,
@@ -30700,7 +30713,7 @@ const pressRowJump=row=>row.querySelector('.ap-kind-jump')?.click();
 // service list. The voice plugin switched off is the one problem of the whole card ({ref:null}). A synthesis result, a
 // pack/engine or a pointer change re-reads in place — the previous answer stays until the new one arrives, so the ⚠ never
 // blinks between reads.
-const STAGE_VOICE_REASONS={SERVICE_REQUIRED:'音色用的服务还没配置',QWEN_MODEL_NOT_FOUND:'模型无法访问',QWEN_VOICE_UNSUPPORTED:'模型不支持这个音色'};
+const STAGE_VOICE_REASONS={VOICE_UNSET:'还没选声音',MISSING_REFERENCE:'还没有参考音频',SERVICE_REQUIRED:'音色用的服务还没配置',QWEN_MODEL_NOT_FOUND:'模型无法访问',QWEN_VOICE_UNSUPPORTED:'模型不支持这个音色'};
 const STAGE_VOICE_LINES=5;
 const sameRef=(a,b)=>!!a&&!!b&&a.packId===b.packId&&a.figureId===b.figureId;
 function useStageVoiceProblems(ctx) {

@@ -22,7 +22,7 @@ test('a source with no service set up for it is silent with SERVICE_REQUIRED, li
   tts.registerProvider('test',fish('cloud',{endpoint:'https://api.fish.audio'}))
   assert.equal((await tts.resolveVoiceService({voice,binding})).effective.serviceId,'cloud')
   // A source not set up yet still says what it lacks.
-  assert.deepEqual(await tts.resolveVoiceService({voice:{defaultSource:'cloud',sources:{cloud:{provider:'fish-audio',kind:'voice-id'}}},binding}),{effective:null,issues:[{code:'VOICE_NOT_FOUND'}]})
+  assert.deepEqual(await tts.resolveVoiceService({voice:{defaultSource:'cloud',sources:{cloud:{provider:'fish-audio',kind:'voice-id'}}},binding}),{effective:null,issues:[{code:'VOICE_UNSET'}]})
 })
 
 // A source names its own service instance; ids differ from labels on purpose.
