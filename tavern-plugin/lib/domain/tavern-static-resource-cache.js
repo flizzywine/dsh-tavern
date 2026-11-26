@@ -47,7 +47,7 @@ function fallbackMediaType(url) {
 }
 
 function localResourceUrl(url) {
-  return '/api/dsh-tavern/static-assets?url=' + encodeURIComponent(url) + (/\.[cm]?js(?:[?#]|$)/i.test(url) ? '&host=2' : '')
+  return '/api/dsh-tavern/static-assets?url=' + encodeURIComponent(url) + (/\.[cm]?js(?:[?#]|$)/i.test(url) ? '&host=3' : '')
 }
 
 function absoluteCacheUrl(specifier, baseUrl) {
@@ -55,14 +55,7 @@ function absoluteCacheUrl(specifier, baseUrl) {
 }
 
 export function rewriteCachedModuleImports(source, baseUrl) {
-  const rewrite = function (_match, prefix, quote, specifier) {
-    if (!specifier.startsWith('/') && !/^https:\/\//i.test(specifier)) return _match
-    const absolute = new URL(specifier, baseUrl).href
-    return prefix + quote + localResourceUrl(absolute) + quote
-  }
-  return projectTavernHostScript(str(source))
-    .replace(/(\bfrom\s*|\bimport\s*)(["'])(\/[^"']+|https:\/\/[^"']+)\2/g, rewrite)
-    .replace(/(\bimport\s*\(\s*)(["'])(\/[^"']+|https:\/\/[^"']+)\2/g, rewrite)
+  return projectTavernHostScript(str(source), { imports: true, moduleUrl: baseUrl })
 }
 
 function rewriteStylesheetUrls(source, baseUrl) {
@@ -284,12 +277,15 @@ export function createTavernStaticResourceCache(options = {}) {
     return { url, finalUrl, body, mediaType, bytes: body.length, cachedAt: metadata.cachedAt, cache: 'miss' }
   }
 
-  async function get(value) {
+  async function get(value, { maxAgeMs = Infinity } = {}) {
     const url = normalizeCacheableResourceUrl(value)
     const cached = await read(url)
-    if (cached) return cached
+    if (cached && (maxAgeMs === Infinity || Date.now() - cached.cachedAt < maxAgeMs)) return cached
     if (inflight.has(url)) return await inflight.get(url)
-    const pending = download(url).finally(function () { inflight.delete(url) })
+    const pending = download(url).catch(error => {
+      if (cached) return cached
+      throw error
+    }).finally(function () { inflight.delete(url) })
     inflight.set(url, pending)
     return await pending
   }

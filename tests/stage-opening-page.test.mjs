@@ -1,4 +1,4 @@
-// A card's opening page on the stage (card page opening:true, presets/tavern/skills/stage-status-panel/references/panel-contract.md「开局页」): it completes the
+// A card's opening page on the stage (card page opening:true, presets/tavern/skills/stage/references/page-contract.md「开局页」): it completes the
 // card's openingSetup through the same host authority as the 游戏准备 form, keeps the chosen greeting as the first act,
 // and its values reach the greeting floor once official MVU has built it in the game.
 import test from 'node:test'

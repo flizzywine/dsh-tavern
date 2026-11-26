@@ -58,7 +58,12 @@ export function createTransferExportStore({ root, now = Date.now, ttlMs = 60 * 6
     try { await rename(source, file) }
     catch (error) {
       if (error.code !== 'EXDEV') throw error
-      await copyFile(source, file)
+      const temporary = file + '.tmp'
+      try {
+        await copyFile(source, temporary)
+        if ((await stat(temporary)).size !== bytes) throw new Error('导出文件复制不完整，未发布下载')
+        await rename(temporary, file)
+      } finally { await rm(temporary, { force: true }) }
       await rm(source)
     }
     const name = String(filename || '')

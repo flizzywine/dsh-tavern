@@ -2,9 +2,11 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import test from 'node:test'
+import { parse } from 'acorn'
 import { chromium } from 'playwright'
 import { createTavernScriptDispatch } from '../tavern-plugin/lib/domain/tavern-script-dispatch.js'
 import { readTavernRuntimeAsset } from '../tavern-plugin/lib/domain/tavern-runtime-assets.js'
+import { browserReactScript } from './fixtures/browser-react.mjs'
 
 // Like cards with an external equipment/quest panel, the status iframe calls
 // a companion script that mounts its UI in the host document.
@@ -135,4 +137,71 @@ test('second HTTP touch browser opens local panels, mirrors variables and leaves
   assert.equal(await phone.locator('#card-panel').getAttribute('data-tab'), 'quests')
   await phone.evaluate(() => owner.dispose())
   assert.equal(await phone.locator('#card-panel').count(), 0)
+})
+
+test('card script decoration after streaming keeps dialogue and stage controls live', { timeout: 15000 }, async t => {
+  const clientRoot = new URL('../tavern-plugin/', import.meta.url)
+  const stageRoot = new URL('packages/dsh-tavern-stage/src/client/', clientRoot)
+  async function declaration(url, name) {
+    const source = await readFile(url, 'utf8')
+    const node = parse(source, { ecmaVersion: 'latest' }).body.find(item => item.id?.name === name)
+    assert.ok(node, name)
+    return source.slice(node.start, node.end)
+  }
+  const [react, client, voice, avatar, entry] = await Promise.all([
+    browserReactScript(),
+    readFile(new URL('lib/client.js', clientRoot), 'utf8'),
+    declaration(new URL('src/client/voice.js', clientRoot), 'VoiceButton'),
+    declaration(new URL('bubbles.js', stageRoot), 'BubbleAvatar'),
+    readFile(new URL('chat-entry.cjs', stageRoot), 'utf8')
+  ])
+  const browser = await chromium.launch()
+  t.after(() => browser.close())
+  const page = await browser.newPage()
+  page.setDefaultTimeout(3000)
+  await page.setContent('<main><div id="native"></div><div id="script-layer"></div></main>')
+  await page.addScriptTag({ content: react })
+  await page.addScriptTag({ content: 'window.__ModuleLoader__ = {load(spec) {window.client = spec.factory(name => modules[name] || {})}};\n' + client })
+  await page.addScriptTag({ content: `(() => {
+    const React = modules.react, h = React.createElement;
+    const native = document.querySelector('#native'), layer = document.querySelector('#script-layer');
+    const calls = window.calls = [], tavernPlayEvents = {emit() {}}, Spinner = () => h('span', null, 'loading');
+    const PackImage = () => h('span', null, '头像');
+    const portraitPreview = (_media, anchor) => anchor.getBoundingClientRect().width;
+    const showPortrait = (_media, name, width) => calls.push(['portrait', name, width > 0]);
+    ${voice}
+    ${avatar}
+    ${entry}
+    const stage = createStageChatEntry({React, MutationObserver, markdown: () => h('p', null, '旁白'),
+      enter: (_session, target) => calls.push(['stage', target.para]), plain: text => text, blocks: text => [text],
+      schedule: window.setTimeout.bind(window), cancel: window.clearTimeout.bind(window)});
+    function View() {
+      const [loading, setLoading] = React.useState(false);
+      const voice = {owner:'row',id:'voice',sessionId:'test',player:loading ? {owner:'row',id:'voice',loading:true} : null,
+        click() { calls.push('voice'); setLoading(true); }};
+      return h(React.Fragment, null, h(VoiceButton, {voice}),
+        h(BubbleAvatar, {zoomable:true,media:{src:'avatar'},name:'角色',moodLabel:'喜悦'}),
+        h(stage.EnterHere, {sessionId:'test',turn:1,para:2}),
+        h(stage.Markdown, {sessionId:'test',turn:1,base:2,text:'旁白',markdownProps:{}}));
+    }
+    modules['react-dom/client'].createRoot(native).render(h(View));
+    window.finish = () => {
+      window.releaseLayer = client.mountTavernScriptLayer({native,layer,sessionId:'test',messageId:1});
+      layer.innerHTML = '<section class="decorated">' + layer.innerHTML + '</section>';
+    };
+  })()` })
+  await page.getByTitle('查看大图').click()
+  const portrait = ['portrait', '角色 · 喜悦', true]
+  assert.deepEqual(await page.evaluate(() => window.calls.splice(0)), [portrait])
+  await page.evaluate(() => window.finish())
+  const script = page.locator('#script-layer .decorated')
+  await script.getByRole('button', { name: '合成并播放' }).click()
+  await script.getByRole('button', { name: '正在准备语音' }).waitFor()
+  assert.equal(await script.getByRole('button', { name: '正在准备语音' }).isDisabled(), true)
+  await script.getByTitle('查看大图').click()
+  for (const button of await script.getByRole('button', { name: '从这里进入舞台' }).all()) await button.click()
+  assert.deepEqual(await page.evaluate(() => window.calls.splice(0)), ['voice', portrait, ['stage', 2], ['stage', 3]])
+  await page.evaluate(() => window.releaseLayer())
+  await page.getByTitle('查看大图').click()
+  assert.deepEqual(await page.evaluate(() => window.calls), [portrait])
 })

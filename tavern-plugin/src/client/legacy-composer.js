@@ -236,6 +236,7 @@ function installTavernNodeCompatibility(window) {
 // Give each module a view of the host DOM whose standard ST composer controls
 // belong to that module's sandbox. Never install a shared, focus-routed sender.
 function createTavernComposerWindow(frame, host = frame.parent) {
+  const artifacts = frame.frameElement?.__dshTavernHostArtifacts;
   const ids = new Set(['send_textarea', 'send_but']);
   const HOST_NODE = Symbol.for('dsh-tavern.hostNode');
   const documents = new WeakMap(), windows = new WeakMap();
@@ -252,15 +253,14 @@ function createTavernComposerWindow(frame, host = frame.parent) {
         const value = Reflect.get(target, key, target);
         if (typeof value !== 'function') return value;
         return function (...args) {
-          const run = () => value.apply(target, args.map(unwrap));
-          const artifacts = frame.frameElement?.__dshTavernHostArtifacts;
-          return mutations.has(key) && artifacts ? artifacts.mutateRoot(target, run) : run();
+          const nodes = args.map(unwrap);
+          const run = () => value.apply(target, nodes);
+          return mutations.has(key) && artifacts ? artifacts.mutateRoot(target, key, nodes, run) : run();
         };
       },
       set(target, key, value) {
         const run = () => Reflect.set(target, key, value, target);
-        const artifacts = frame.frameElement?.__dshTavernHostArtifacts;
-        return key === 'innerHTML' && artifacts ? artifacts.mutateRoot(target, run) : run();
+        return key === 'innerHTML' && artifacts ? artifacts.mutateRoot(target, key, [], run) : run();
       }
     });
     roots.set(root, proxy); nativeRoots.set(proxy, root);
@@ -372,7 +372,6 @@ function createTavernComposerWindow(frame, host = frame.parent) {
   const frameIdQuery = id => '#' + String(id).replace(/([^\w-])/g, '\\$1');
   function lookup(doc, id) {
     if (ids.has(id)) return frame.document.getElementById(id);
-    const artifacts = frame.frameElement?.__dshTavernHostArtifacts;
     const found = artifacts ? artifacts.findElementById(id) : doc.getElementById(id);
     if (found) return found;
     const [inFrame] = frameQuery(frameIdQuery(id));
@@ -385,7 +384,7 @@ function createTavernComposerWindow(frame, host = frame.parent) {
       if (key === 'body' || key === 'head') return rootView(doc[key]);
       if (key === 'createElement' || key === 'createElementNS') return function (...args) {
         const node = doc[key](...args);
-        frame.frameElement?.__dshTavernHostArtifacts?.trackNode(node);
+        artifacts?.trackNode(node);
         return node;
       };
       if (key === 'getElementById') return id => lookup(doc, id);

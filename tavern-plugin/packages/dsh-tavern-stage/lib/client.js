@@ -7784,7 +7784,7 @@ const {FIGURE_DISPLAY,figureSceneFrame,figureSceneUpdate,figureMixedWarning,reso
 const {stageLighting,stageApplyLight}=lighting;
 const {GAL_LOOKS_EMPTY,galLookRegistry,galLookResolve}=lookMath;
 const {foreground:forkForeground,lipSync:forkLipSync,loadPixi:loadPixiRuntime,resolution:galResolution,subscribeResolution:galResolutionSubscribe}=services;
-const {urls:layeredSpriteUrls}=services.layered || {};
+const {urls:layeredSpriteUrls,voice:layeredSpriteVoice}=services.layered || {};
 const {paint:stagePaintEmpty,palette:stageEmptyPalette}=services.canvas || {};
 const {Image,MessageChannel,MutationObserver,ResizeObserver,performance}=window;
 const getComputedStyle=(...args)=>window.getComputedStyle(...args),setTimeout=(...args)=>window.setTimeout(...args);
@@ -8076,7 +8076,7 @@ function galCreateScene(host, options, own) {
         if(entry.video){const video=entry.video;entry.video=null;release(()=>video.destroy());}
         release(()=>entry.figureAsset?.destroy());
         entry.figureAsset=null;entry.spineFigure=null;
-        for(const item of entry.fading)release(()=>item.asset?.destroy());
+        for(const item of entry.fading){if(item.video)release(()=>item.video.destroy());release(()=>item.asset?.destroy());}
         entry.fading=[];
         release(()=>entry.container.destroy({children:true}));
         state.lastPrune=0;
@@ -8156,23 +8156,47 @@ function galCreateScene(host, options, own) {
             ready:entry.loadedIdentity===entry.figure.identity,rhythm:entry.idle.jitter.blink});
     }
     // 动态立绘 (figure-video.cjs): the loaded still's looping videos play over it while the figure stands on a visible stage
-    // with motion allowed - its talking loop while it speaks - and the still shows otherwise: a tap reaction's still, a skip,
+    // with motion allowed - its talking loop while its voice is heard, read through the same mouth gear as the still's mouths -
+    // and the still shows otherwise: a tap reaction's still, a skip,
     // reduced motion, or a line spoken through the still's mouths because no talking loop can play. One set of videos per
-    // loaded picture; a new picture releases the old one's.
+    // loaded picture. A new picture's videos take over from the old one's, which play on under the old picture's fade-out
+    // and go with it. When the old picture's videos were showing, settled on it (not themselves entering), and name a
+    // transition into the new picture (video.into[image]), the new picture enters through it: the old picture stays whole
+    // while the transition is awaited (the new still does not draw meanwhile), then fades out over it in SWITCH_MS; a
+    // transition that does not come leaves the usual crossfade. Speech meanwhile: the transition plays out with its own
+    // closed mouth (the still's mouths stay shut under it), then the talking loop takes over if the voice is still heard.
+    const ENTER_SWITCH_MS = 150;
     function tickFigureVideo(entry, figure, desc, dt) {
-        const video = entry.loadedIdentity === figure.identity ? figure.video : null;
+        // While the next picture loads, the shown one's videos play on with it.
+        const video = entry.loadedIdentity === figure.identity ? figure.video : entry.videoSprite === entry.sprite ? entry.videoMotion : null;
         const key = video ? JSON.stringify([video.source.packId, video.source.bundleKey, video.source.hash, video.talk?.bundleKey, video.talk?.hash, video.rect]) : '';
         if (entry.videoKey !== key || entry.videoSprite !== entry.sprite) {
-            const old = entry.video; entry.video = null; entry.videoShown = false;
-            old?.destroy();
-            entry.video = key && entry.sprite ? figureVideos.attach(entry.sprite, video) : null;
+            const old = entry.video, shown = entry.videoShown, before = entry.videoMotion;
+            entry.video = null; entry.videoShown = false;
+            const leaving = old && entry.videoSprite !== entry.sprite ? entry.fading.find(item => item.sprite === entry.videoSprite) : null;
+            const into = leaving && shown && video && before?.outfit === video.outfit && !old.entering() ? before.into?.[video.image] : null;
+            if (leaving) leaving.video = old; else old?.destroy();
+            entry.video = key && entry.sprite ? figureVideos.attach(entry.sprite, into ? {...video, enter: into} : video) : null;
+            if (into && entry.video) leaving.held = entry.video;
             entry.videoKey = key; entry.videoSprite = entry.sprite;
+        }
+        entry.videoMotion = video;
+        const speaks = Boolean(figure.speaking && !desc.skipping);
+        const mouth = speaks ? layeredSpriteVoice('video:' + figure.spriteVoiceKey, figure.audio, true) : 'closed';
+        const talking = mouth !== 'initial' && mouth !== 'closed';
+        const moving = !entry.leaving && entry.container.visible && world.visible && !desc.reducedMotion && !desc.skipping;
+        for (const item of entry.fading) {
+            if (item.video) { item.video.update({on: moving, talking}); item.video.tick(dt); }
+            // A held picture stays whole until the transition into the new one covers it, then fades out over it.
+            if (!item.held) continue;
+            const entering = item.held.entering();
+            item.start = state.clock;
+            if (entering !== 'pending') { item.held = null; if (entering === 'on') item.ms = ENTER_SWITCH_MS; }
         }
         if (!entry.video) return;
         const tapped = Boolean(entry.tapTexture && entry.sprite.texture === entry.tapTexture.texture);
-        const talking = Boolean(figure.speaking && !desc.skipping);
-        const stillSpeaks = talking && Boolean(figure.spriteBundle) && !entry.video.talks();
-        entry.video.update({on: !entry.leaving && entry.container.visible && world.visible && !desc.reducedMotion && !desc.skipping && !tapped && !stillSpeaks, talking});
+        const stillSpeaks = speaks && Boolean(figure.spriteBundle) && !entry.video.talks();
+        entry.video.update({on: moving && !tapped && !stillSpeaks, talking});
         entry.videoShown = entry.video.tick(dt);
     }
     const GAL_NO_FIGURES = [];
@@ -8522,7 +8546,7 @@ function galCreateScene(host, options, own) {
                 entry.restHead=pose.restHead;entry.restBody=pose.restBody;entry.localHead=pose.localHead;
                 if(pose.resolved)entry.figureResolved=pose.resolved;
                 entry.fading=pose.remaining;
-                for(const item of pose.retired){item.asset.destroy();state.lastPrune=0;}
+                for(const item of pose.retired){item.video?.destroy();item.asset.destroy();state.lastPrune=0;}
             }
             tickContactShadow(entry,H);
         };
@@ -13168,6 +13192,16 @@ function stageWidgetThread({rows, ref, cursor, characters=[], visibleText='', re
     // The phone reads every turn the stage has loaded for it (it loads earlier turns as the reader scrolls up); other source
     // widgets keep their 20-turn window.
     const wanted=key(ref), turns=[...rows].filter(row=>row.turn<=cursor.turn).sort((a,b)=>b.turn-a.turn).slice(0,phone ? rows.length : 20), playerId=phone && directory?.playerId || null;
+    // A contact is named by the identity the director had when the line was marked: a speaker with no figure yet is only
+    // its source handle, the same person with a figure later is the figure's actor key. One person is one conversation, so a
+    // sealed mark's people are re-resolved against the figures the card has now (the only place a phone identity is derived).
+    const knownRows=phone ? characters.map(row=>({...row,actorKey:row.alias})) : [],canonical=new Map();
+    const canonicalId=id=>{
+        if (typeof id!=='string' || id===PHONE_PLAYER || id===playerId) return id;
+        if (!canonical.has(id)) {const found=figureResolution.resolveFigureName(knownRows,id);canonical.set(id,found.status==='resolved' && found.actorKey ? found.actorKey : id);}
+        return canonical.get(id);
+    };
+    const canonicalMark=mark=>!phone || !mark ? mark : {...mark,...(mark.contact!==undefined ? {contact:canonicalId(mark.contact)} : {}),...(mark.to!==undefined ? {to:canonicalId(mark.to)} : {}),...(mark.sender!==undefined ? {sender:canonicalId(mark.sender)} : {})};
     const candidates=[];
     for (const row of turns) {
         const record=row.record;
@@ -13176,7 +13210,7 @@ function stageWidgetThread({rows, ref, cursor, characters=[], visibleText='', re
         const marks=new Map(record.entries.filter(entry=>entry.at<=record.through).flatMap(entry=>entry.ops.flatMap(op=>{const mark=sourceMark(op,ref);return mark?[[entry.at,mark]]:[]})));
         const messages=new Map();
         for (const [i,line] of pages.entries()) {
-            const para=line.para || line.anchor?.para, mark=marks.get(para);
+            const para=line.para || line.anchor?.para, mark=canonicalMark(marks.get(para));
             if (!mark || !(line.kind === 'line' || phone && line.kind === 'narration')) continue;
             const current=row.turn === cursor.turn && i === cursor.page;
             const text=current ? visibleText : line.text;
@@ -17802,7 +17836,8 @@ function createStageFigurePose({resolve,flatLayout,actionAt,ease}) {
             place(current);
             const localHead=head,remaining=[],retired=[];
             for(const item of fading){
-                const progress=(now-item.start)/260;
+                // item.ms: a picture leaving over a transition into the next one fades quicker (scene tickFigureVideo).
+                const progress=(now-item.start)/(item.ms||260);
                 if(progress>=1){retired.push(item);continue;}
                 item.sprite.alpha=1-ease.inOutSine(progress);place(item.sprite);remaining.push(item);
             }
@@ -19037,9 +19072,17 @@ if(typeof module!=='undefined'&&typeof window==='undefined')module.exports={crea
 // as a child of the figure sprite over the still's rect, so every transform and filter of the figure applies to it as well.
 // - The still shows until the idle loop can play, whenever the stage says the motion is off (`on: false`), and for good when
 //   the idle loop cannot play (a decode error, no WebGL upload); the change is a short crossfade, never a gap.
-// - Speech: the talking loop starts from its first frame when the figure starts speaking and loops while it speaks; when the
-//   line ends it plays on to its last frame (the still's pose) and the idle loop takes over from its first frame. Without a
-//   playable talking loop the handle says so (`talks()`) and the stage shows the still's own mouths instead.
+// - Speech follows the voice, as the still's mouths do: the talking loop starts from its first frame when the figure's voice
+//   is heard and loops while it goes on (gaps between words shorter than VOICE_HOLD_MS count as speech); once the voice
+//   stops it plays on to its last frame (the still's pose) and the idle loop takes over from its first frame. No heard voice
+//   (voice off, muted, failed), no talking loop. Without a playable talking loop the handle says so (`talks()`) and the stage
+//   shows the still's own mouths instead.
+// - A change of expression may enter through a transition (motion.enter, a 视频 of the same kind that starts on the
+//   previous still's pose and ends on this one's): the handle claims the still at once (it does not draw, so the previous
+//   picture fading out on top is all that shows), waits up to ENTER_WAIT_MS for the clip, shows it whole under the
+//   previous picture's fade (entering() says when), plays it once and hands over to the idle loop - or to the talking loop
+//   when the voice is heard by then - from its first frame. A clip that does not come in time, fails, or a motion turned off
+//   meanwhile drops the transition: the still shows and the pictures crossfade as without one.
 // - Only a figure on stage plays: a video whose motion is off pauses once it has faded out, and the browser's hidden page
 //   pauses it too (forkForeground); a released figure releases its videos (elements, textures and the shared reads).
 // - A texture takes each decoded frame once (requestVideoFrameCallback; PIXI's own updates at 30 fps without it) and
@@ -19049,7 +19092,7 @@ if(typeof module!=='undefined'&&typeof window==='undefined')module.exports={crea
 function createStageFigureVideos({document, acquire, foreground}) {
 let disposed = false;
 const scopes = new Set();
-const FADE_MS = 240, SWITCH_MS = 150;
+const FADE_MS = 240, SWITCH_MS = 150, VOICE_HOLD_MS = 400, ENTER_WAIT_MS = 600;
 const VERTEX = `attribute vec2 aVertexPosition;attribute vec2 aTextureCoord;uniform mat3 projectionMatrix;uniform mat3 translationMatrix;uniform mat3 uTextureMatrix;varying vec2 vTextureCoord;
 void main(){gl_Position=vec4((projectionMatrix*translationMatrix*vec3(aVertexPosition,1.0)).xy,0.0,1.0);vTextureCoord=(uTextureMatrix*vec3(aTextureCoord,1.0)).xy;}`;
 // The colour of a point is the left half, its opacity the red of the right half; clamped half a texel from the seam.
@@ -19127,46 +19170,86 @@ function create({PIXI}) {
     }
     // sprite: the figure's PIXI sprite (its texture the still or the still's composed frame, anchor set);
     // motion: {source: the idle loop's 视频 projection, talk: the talking loop's or null, rect: [x, y, w, h] the still canvas
-    // px both pictures cover}.
+    // px both pictures cover, enter: {source, rect} the transition this picture enters through, or none}.
     function attach(sprite, motion) {
         if (closed) return null;
-        let on = false, talking = false, phase = 'idle', released = false, last = null;
-        const place = mesh => {
-            const [x, y, w, h] = motion.rect, ax = sprite.anchor.x * sprite.texture.width, ay = sprite.anchor.y * sprite.texture.height;
+        let on = false, talking = false, quiet = Infinity, released = false, last = null, waited = 0;
+        const placer = rect => mesh => {
+            const [x, y, w, h] = rect, ax = sprite.anchor.x * sprite.texture.width, ay = sprite.anchor.y * sprite.texture.height;
             mesh.position.set(x - ax, y - ay); mesh.scale.set(w, h);
         };
+        const place = placer(motion.rect);
         const idle = clip(sprite, motion.source, true, place);
         const talk = motion.talk ? clip(sprite, motion.talk, false, place) : null;
-        const clips = talk ? [idle, talk] : [idle];
-        // The still draws itself only while no video covers it fully.
+        const placeEnter = motion.enter ? placer(motion.enter.rect) : null;
+        const enter = motion.enter ? clip(sprite, motion.enter.source, false, placeEnter) : null;
+        const clips = [idle, talk, enter].filter(Boolean);
+        const placeAll = () => { for (const c of clips) if (c.mesh) (c === enter ? placeEnter : place)(c.mesh); };
+        let phase = enter ? 'enter' : 'idle';
+        // The still draws itself only while no video covers it fully, and not while a transition is awaited.
         const drawStill = sprite._render;
-        sprite._render = function (renderer) { if (!clips.some(c => c.mesh && c.mesh.visible && c.mix >= 1)) drawStill.call(this, renderer); };
+        sprite._render = function (renderer) { if (phase !== 'enter' && !clips.some(c => c.mesh && c.mesh.visible && c.mix >= 1)) drawStill.call(this, renderer); };
         const talks = () => talk?.status === 'ready';
+        // Leaves the transition: the clip stops and drops out of sight, the still is back.
+        const dropEnter = () => { phase = 'idle'; enter.stop(); enter.mix = 0; if (enter.mesh) enter.mesh.visible = false; };
         const handle = {
-            // on: the stage wants the motion now (on stage, not reduced motion, no tap still); talking: the figure speaks.
+            // on: the stage wants the motion now (on stage, not reduced motion, no tap still); talking: the figure's voice is
+            // heard this frame (its mouth would be open).
             update({on: nextOn, talking: nextTalking = false}) { on = Boolean(nextOn); talking = Boolean(nextTalking); },
             // Whether a talking loop can show this figure's speech; without one the stage turns the motion off to speak.
             talks,
-            // dt: ms since the last frame. Returns whether a video draws this frame.
+            // The transition this picture enters through: 'pending' while it is awaited (the still does not draw), 'on' once it
+            // covers the picture, null without one or once it is over or dropped.
+            entering: () => phase !== 'enter' ? null : enter.mix >= 1 ? 'on' : 'pending',
+            // dt: ms since the last frame. Returns whether a video draws this frame (or a transition holds the still back).
             tick(dt) {
                 if (released) return false;
-                if (idle.status === 'failed') { if (talk) { talk.stop(); talk.mix = 0; if (talk.mesh) talk.mesh.visible = false; } return false; }
+                quiet = talking ? 0 : quiet + Math.max(0, dt);
+                const speaking = quiet < VOICE_HOLD_MS;
+                if (sprite.texture !== last) { last = sprite.texture; placeAll(); }
+                if (phase === 'enter') {
+                    waited += Math.max(0, dt);
+                    if (!on || enter.status === 'failed' || enter.mix < 1 && waited > ENTER_WAIT_MS) dropEnter();
+                    else if (enter.status === 'ready' && enter.playing && enter.video.ended) {
+                        // Played out on this picture's pose: the loop that fits the voice now takes over from its first frame.
+                        phase = speaking && talks() ? 'talk' : 'idle';
+                        (phase === 'talk' ? talk : idle).start(true);
+                    } else if (enter.status === 'ready') {
+                        enter.start(false);
+                        // Shown whole at once: its first frame is the previous picture, which fades out over it.
+                        if (enter.playing && enter.video.readyState >= 2) { enter.mix = 1; enter.mesh.visible = true; enter.mesh.alpha = 1; }
+                    }
+                    if (phase === 'enter') return true;
+                }
+                if (idle.status === 'failed') {
+                    for (const c of clips) if (c !== idle) { c.stop(); c.mix = 0; if (c.mesh) c.mesh.visible = false; }
+                    return false;
+                }
                 if (phase === 'talk' && !talks()) phase = 'idle';
                 if (on && phase === 'idle' && talking && talks()) { phase = 'talk'; talk.start(true); }
                 if (phase === 'talk' && talk.video.ended) {
-                    if (talking && on) talk.start(true);
+                    if (speaking && on) talk.start(true);
                     else { phase = 'idle'; if (on) idle.start(true); }
                 }
                 if (!on && phase === 'talk' && talk.mix <= 0) phase = 'idle';
                 const active = phase === 'talk' ? talk : idle;
                 if (on) active.start(false);
-                // One clip handing over to the other crossfades quicker than the motion fading in over the still.
-                const ms = clips.some(c => c !== active && c.mix > 0) ? SWITCH_MS : FADE_MS;
-                for (const c of clips) c.fade(on && c === active, dt, ms);
-                if (sprite.texture !== last) { last = sprite.texture; for (const c of clips) if (c.mesh) place(c.mesh); }
+                // A hand-off between the clips fades the incoming one in over the outgoing one, which stays whole underneath
+                // until the incoming one covers it, so the still never shows between them; it is quicker than the motion
+                // fading in over the still.
+                const outgoing = clips.find(c => c !== active && c.mix > 0);
+                if (outgoing && active.mesh && outgoing.mesh) {
+                    const at = sprite.children.indexOf(outgoing.mesh);
+                    if (sprite.children.indexOf(active.mesh) < at) { sprite.removeChild(active.mesh); sprite.addChildAt(active.mesh, at); }
+                }
+                const ms = outgoing ? SWITCH_MS : FADE_MS;
+                for (const c of clips) {
+                    if (c === active) c.fade(on, dt, ms);
+                    else if (!(on && active.status === 'ready' && active.mix < 1 && c.mix > 0)) c.fade(false, dt, ms);
+                }
                 return clips.some(c => c.mix > 0);
             },
-            state: () => ({status: idle.status, talk: talk ? talk.status : null, phase, on, talking, mix: idle.mix, talkMix: talk ? talk.mix : 0,
+            state: () => ({status: idle.status, talk: talk ? talk.status : null, enter: enter ? enter.status : null, phase, on, talking, mix: idle.mix, talkMix: talk ? talk.mix : 0, enterMix: enter ? enter.mix : 0,
                 playing: idle.playing, time: idle.video.currentTime, size: [idle.video.videoWidth, idle.video.videoHeight]}),
             destroy() {
                 if (released) return;
@@ -30852,7 +30935,7 @@ function StagePackSection({ctx,ready,state}) {
 // encrypts) the card into a transfer file as a job (binding.exportCard: its progress is bytes done of the total and the
 // pack being written; the host is the one place it is counted), then the file is saved through binding.download with
 // its bytes. The progress sits above the buttons, never under the lists: percent, what is being done, time used and left.
-// 取消 (or closing the sheet) stops the host job or the save and removes the half-written file. When done the sheet says
+// 取消导出 stops the host job or the save and discards the unfinished write. When done the sheet says
 // where the file went; a failure says the step, the file and the system's reason (the host's sentence for packing and
 // encrypting, the browser's for saving), never a bare 「请重试」.
 // The one 导出 for every format: 导出格式 is a menu (DSH 人物卡 by default; what each carries is in its 「?」); a DSH
@@ -30879,6 +30962,27 @@ const dshCardFailure=(error,saving)=>DSHCARD_FAILURE[error?.code]||(error?.step?
     +'没写完的文件已删除；如果文件夹里留下了同名的 .crswap 文件，可以直接删掉。'
   :playerErrorText(error,{fallback:'导出时出错：'+String(error?.message||error)}));
 const dshCardClock=ms=>{const s=Math.max(0,Math.round(ms/1000));return Math.floor(s/60)+':'+String(s%60).padStart(2,'0');};
+// 导出为: 完整包, or an 更新包 on top of a release the card was exported as before (card-files.js listCardReleases): it
+// leaves out the pack files that release brought, and the player who has it updates the card with it (更新这张卡).
+// A file sent before releases were recorded becomes one through 「用以前发出的文件作基础…」 (only its pack lists are read).
+// 版本 is the card's character_version; after a release it suggests the next one (1.0 → 1.1), saved when exporting.
+const DSHCARD_BASE_FILE='#file';
+const DSHCARD_BASE_HELP='更新包只带这张卡和对方还没有的素材文件。对方要已经装过所选的那一版，在人物卡库用它更新这张卡。';
+const dshCardNextVersion=version=>{const match=/^(.*?)(\d+)(\D*)$/.exec(version);return match?match[1]+(Number(match[2])+1)+match[3]:version;};
+const dshCardReleaseLabel=release=>{const at=new Date(release.exportedAt);return '更新包，相对 '+(release.version?'v'+release.version:'上一版')+'（'+(at.getMonth()+1)+'-'+at.getDate()+(release.source==='file'?'，来自文件':'')+'）';};
+// an earlier export read back as a base: uploaded in pieces (the card-archive upload, any size), then only its lists read.
+async function dshCardUploadRelease(file){
+  const route='/api/dsh-tavern/card-upload',size=16*1024**2;let uploadId;
+  for(let offset=0;offset<file.size||offset===0;offset+=size){
+    const query=new URLSearchParams({purpose:'card-archive',size:String(file.size),offset:String(offset),...(uploadId?{uploadId}:{})});
+    const response=await fetch(route+'?'+query,{method:'POST',headers:{'Content-Type':'application/octet-stream'},body:file.slice(offset,offset+size)});
+    const reply=await response.json().catch(()=>null);
+    if(!reply?.ok)throw new Error(reply?.error||'上传失败（HTTP '+response.status+'）');
+    uploadId=reply.uploadId;
+    if(offset+size>=file.size)break;
+  }
+  return uploadId;
+}
 const DSHCARD_LONG=8;
 function dshCardBooks(binding) {
   const bound=binding?.binding;
@@ -30903,28 +31007,56 @@ function useDshCardJob(path){
 }
 function DshCardExportSheet({binding,path,cardName,hasImage,onClose}) {
   const state=useLoad(binding,async()=>{
-    const [card,rows,books]=await Promise.all([binding.rpc('getCardAssetBindings',{path,metadataOnly:true}),loadPackRows(binding),binding.rpc('getWorldBookBinding',{cardPath:path})]);
+    const [scope,rows,books,releases]=await Promise.all([binding.rpc('listCardExportPacks',{path}),loadPackRows(binding),binding.rpc('getWorldBookBinding',{cardPath:path}),binding.rpc('listCardReleases',{path})]);
     const byId=new Map(rows.filter(p=>!p.error).map(p=>[p.manifest.id,p]));
-    const packs=(card.extension?.assetBindings?.boundPackIds||[]).map(id=>byId.get(id)).filter(Boolean);
-    return {packs,books:dshCardBooks(books).map(book=>({...book,key:JSON.stringify(book.source)}))};
+    const packs=scope.packs.map(({id,title,required})=>{
+      const row=byId.get(id);
+      return {...row,manifest:row?.manifest||{id,name:title||'无法读取的素材包'},required};
+    });
+    return {packs,books:dshCardBooks(books).map(book=>({...book,key:JSON.stringify(book.source)})),version:releases.version,releases:releases.releases};
   },[path]);
-  const [chosen,setChosen]=React.useState(null),[leftBooks,setLeftBooks]=React.useState(()=>new Set());
+  const [leftPacks,setLeftPacks]=React.useState(()=>new Set()),[leftBooks,setLeftBooks]=React.useState(()=>new Set());
   const {work,problem,saved}=useDshCardJob(path);
   const say=view=>dshCardStart(path,{view:{...DSHCARD_IDLE,...view}});
   const [format,setFormat]=React.useState('dshcard'),[password,setPassword]=React.useState(''),[compress,setCompress]=React.useState(false);
+  const [base,setBase]=React.useState(''),[typedVersion,setVersion]=React.useState(null),[adding,setAdding]=React.useState(false),[estimate,setEstimate]=React.useState(null);
+  const baseFile=React.useRef(null);
   // a password typed is the encryption (主人 11-24): none, no encryption.
   const dsh=format==='dshcard',encrypt=dsh&&password.length>0,file=DSHCARD_FORMATS[format];
   // closing a finished export forgets it; one still running goes on (the top of DshCardExportSheet).
   const close=()=>{const current=dshCardJobs.get(path);if(current&&!current.view.work)dshCardJobs.delete(path);onClose();};
   const value=state.value,packs=value?.packs||[],books=value?.books||[];
   // every pack the card binds goes along unless unticked (主人 11-24); a widget-only one is chosen in the 模组 section and goes, without a switch.
-  const picked=chosen||new Set(packs.map(p=>p.manifest.id)),packIds=packs.map(p=>p.manifest.id).filter(id=>picked.has(id));
-  const switchable=packs.filter(p=>!stageWidgetOnlyPack(p)).map(p=>p.manifest.id);
-  const sizes=packs.map(stagePackBytes),total=sizes.reduce((sum,n,index)=>sum+(picked.has(packs[index].manifest.id)&&n||0),0);
-  const compressing=dsh&&compress&&packIds.length>0;
+  const picked=packs.filter(p=>!leftPacks.has(p.manifest.id));
+  const switchable=packs.filter(p=>!p.required&&!stageWidgetOnlyPack(p)).map(p=>p.manifest.id);
+  const sizes=packs.map(stagePackBytes),total=picked.reduce((sum,pack)=>sum+(stagePackBytes(pack)||0),0);
+  const compressing=dsh&&compress&&picked.length>0;
+  const releases=value?.releases||[],release=releases.find(r=>r.id===base)||null,updating=dsh&&!!release&&picked.length>0;
+  const savedVersion=value?.version||'',version=typedVersion??(releases[0]&&releases[0].version===savedVersion?dshCardNextVersion(savedVersion):savedVersion);
+  const pickedIds=picked.map(p=>p.manifest.id).join(',');
+  React.useEffect(()=>{
+    setEstimate(null);if(!updating)return;let live=true;
+    binding.rpc('estimateCardUpdate',{path,releaseId:base,packIds:pickedIds.split(',')}).then(next=>{if(live)setEstimate(next);},()=>{});
+    return()=>{live=false;};
+  },[updating,base,pickedIds]);
+  function chooseBase(next){
+    if(next===DSHCARD_BASE_FILE){baseFile.current?.click();return;}
+    setBase(next);const chosen=releases.find(r=>r.id===next);
+    // the same 压缩素材 as the base: otherwise every compressed file differs from what the player has.
+    if(chosen&&typeof chosen.compressed==='boolean')setCompress(chosen.compressed);
+  }
+  async function addBaseFile(file){
+    if(!file)return;setAdding(true);say({});
+    try{
+      const uploadId=await dshCardUploadRelease(file);
+      const {release:added}=await binding.rpc('addCardReleaseUpload',{path,uploadId,name:file.name,...(password?{password}:{})});
+      await state.reload();setBase(added.id);
+    }catch(error){say({problem:/TAVERN_CARD_PASSWORD_(REQUIRED|INVALID)/.test(error?.code||'')?'这个文件加了密码：先在「设置密码」填上它的密码，再选一次。':dshCardFailure(error)});}
+    finally{setAdding(false);}
+  }
   const toggle=(current,id)=>{const next=new Set(current);if(next.has(id))next.delete(id);else next.add(id);return next;};
-  const flipPack=id=>setChosen(toggle(picked,id)),flipBook=key=>setLeftBooks(current=>toggle(current,key));
-  const allPacks=switchable.every(id=>picked.has(id)),allBooks=leftBooks.size===0;
+  const flipPack=id=>setLeftPacks(current=>toggle(current,id)),flipBook=key=>setLeftBooks(current=>toggle(current,key));
+  const allPacks=leftPacks.size===0,allBooks=leftBooks.size===0;
   // `saved`: where the file went ({names, picked}), shown in place of the progress until the sheet is closed.
   const picking=React.useRef(false);
   function stop(){const current=dshCardJobs.get(path);if(!current?.controller||!current.view.work)return;current.cancelled=true;current.controller.abort();}
@@ -30932,9 +31064,8 @@ function DshCardExportSheet({binding,path,cardName,hasImage,onClose}) {
     if(work||picking.current||!value)return;
     say({});
     // the save-as dialog needs the click's activation, so it opens before anything is fetched; closing it is no error.
-    // Saving over an existing file empties it as the dialog closes (the browser's rule for a save dialog).
     let target=null;picking.current=true;
-    const name=(cardName||'人物卡')+(encrypt?'-加密':'');
+    const name=(cardName||'人物卡')+(dsh&&version?'-v'+version:'')+(updating?'-更新包':'')+(encrypt?'-加密':'');
     try{target=binding.pickSave?await binding.pickSave({name,description:file.description,extension:file.extension}):null;}
     catch(error){if(error?.name!=='AbortError')say({problem:'没能打开保存位置，请重试。'});return;}
     finally{picking.current=false;}
@@ -30945,26 +31076,29 @@ function DshCardExportSheet({binding,path,cardName,hasImage,onClose}) {
     // how the save ended goes to the host log too: the one record left once the page is gone.
     const tell=(outcome,total,reason)=>{if(saving)void binding.rpc?.('cardExportSaved',{outcome,filename,loaded,total,...(reason?{reason}:{})}).catch(()=>{});};
     try{
-      const worldBooks=books.filter(book=>!leftBooks.has(book.key)).map(book=>book.source);
+      const worldBooks=leftBooks.size?books.filter(book=>!leftBooks.has(book.key)).map(book=>book.source):undefined;
+      if(dsh&&version!==savedVersion)await binding.rpc('setCardVersion',{path,version});
       // the host's own count while a DSH card packs (and encrypts); polled, never guessed. JSON / PNG are small: the route
       // builds them as the file is fetched, so the save step is all there is.
       // 压缩素材 has its own bar; packing starts its clock again when it ends (packing and encrypting share one bar).
-      const result=dsh?await binding.exportCard({path,packIds,worldBooks,...(encrypt?{password}:{}),...(compressing?{compress:true}:{})},{signal:current.controller.signal,
+      const result=dsh?await binding.exportCard({path,...(leftPacks.size?{omitPackIds:[...leftPacks]}:{}),...(worldBooks?{worldBooks}:{}),...(encrypt?{password}:{}),...(compressing?{compress:true}:{}),...(updating?{baseRelease:base}:{})},{signal:current.controller.signal,
         onProgress:progress=>setWork(w=>w&&w.stage!=='save'?{...w,...progress,startedAt:w.startedAt,stageAt:w.stage==='compress'&&progress.stage!=='compress'?Date.now():w.stageAt}:w)})
-        :{downloadUrl:'/api/dsh-tavern/card-export?'+new URLSearchParams({path,format,worldBooks:JSON.stringify(worldBooks)}),filename:'人物卡'+file.extension,bytes:0};
+        :{downloadUrl:'/api/dsh-tavern/card-export?'+new URLSearchParams({path,format,...(worldBooks?{worldBooks:JSON.stringify(worldBooks)}:{})}),filename:'人物卡'+file.extension,bytes:0};
       if(current.cancelled)throw Object.assign(new Error('cancelled'),{name:'AbortError'});
       saving=true;filename=result.filename;const at=Date.now();
       setWork({stage:'save',done:0,total:result.bytes,pack:'',startedAt,stageAt:at});
       const done=await binding.download({url:result.downloadUrl,filename:result.filename,size:result.bytes},{target,name,signal:current.controller.signal,
         onProgress:next=>{loaded=next.loaded;setWork(w=>w&&{...w,done:next.loaded,total:next.total||result.bytes});}});
-      tell('saved',result.bytes);
+      tell(done.picked?'saved':'download-started',result.bytes);
       const shrunk=result.compressed;
-      put({saved:shrunk?{...done,said:done.said+' 素材从 '+stageBytesText(shrunk.beforeBytes)+' 压到 '+stageBytesText(shrunk.afterBytes)+'。'+(shrunk.ffmpeg?'':'没找到 ffmpeg，音频没有压缩。')}:done});
+      const update=result.update?'这是相对 '+(result.update.base?'v'+result.update.base:'上一版')+' 的更新包，省掉了对方已有的 '+result.update.omitted+' 个文件。':'';
+      const detail=!dsh?'':' 文件 '+stageBytesText(result.bytes)+'。'+update+(shrunk?'素材从 '+stageBytesText(shrunk.beforeBytes)+' 压到 '+stageBytesText(shrunk.afterBytes)+'。'+(shrunk.ffmpeg?'':'没找到 ffmpeg，音频没有压缩。'):'素材未压缩。');
+      put({saved:{...done,said:done.said+detail}});
     }catch(error){
       tell(current.cancelled?'cancelled':'failed',current.view.work?.total,current.cancelled?'':(error?.name?error.name+' ':'')+String(error?.message||error));
-      // the save itself takes back a half-written file; a failure before it leaves the empty file the dialog made.
-      if(!saving&&target?.file)await target.file.remove?.().catch(()=>{});
-      put(current.cancelled?{saved:{said:'已取消导出，没有留下文件。',cancelled:true}}:{problem:dshCardFailure(error,saving)});
+      // Never remove an existing export when the new one was not committed.
+      if(!saving&&target?.empty)await target.file.remove?.().catch(()=>{});
+      put(current.cancelled?{saved:{said:'已取消导出，没有保存新文件。',cancelled:true}}:{problem:dshCardFailure(error,saving)});
     }
     finally{put({work:null});}
   }
@@ -30975,15 +31109,20 @@ function DshCardExportSheet({binding,path,cardName,hasImage,onClose}) {
   const formats=Object.entries(DSHCARD_FORMATS).map(([key,f])=>({value:key,label:f.label,...(key==='png'&&hasImage===false?{disabled:true,title:'这张卡没有封面'}:{})}));
   const options=h('div',{className:'ap-dshcard-options'},
     h(InlineField,{kind:'menu',label:'导出格式',help:h(Help,{text:Object.values(DSHCARD_FORMATS).map(f=>h('span',{key:f.label},f.label+'：'+f.note+'。')),label:'导出格式 说明'}),value:format,options:formats,disabled:!!work,onCommit:setFormat,className:'ap-dshcard-field'}),
+    dsh&&h(InlineField,{kind:'text',label:'版本',value:version,placeholder:'例如 1.0',disabled:!!work,live:true,onCommit:setVersion,className:'ap-dshcard-field'}),
+    dsh&&packs.length>0&&h(InlineField,{kind:'menu',label:'导出为',help:h(Help,{text:DSHCARD_BASE_HELP,label:'导出为 说明'}),value:base,disabled:!!work||adding,onCommit:chooseBase,className:'ap-dshcard-field',
+      options:[{value:'',label:'完整包'},...releases.map(r=>({value:r.id,label:dshCardReleaseLabel(r)})),{value:DSHCARD_BASE_FILE,label:'用以前发出的文件作基础…'}],
+      trail:adding?h('span',{className:'ap-pack-size'},'正在读取文件…'):updating&&estimate?h('span',{className:'ap-pack-size'},estimate.bytes?'新素材约 '+stageBytesText(estimate.bytes):'素材没有变化'):null}),
+    dsh&&h('input',{ref:baseFile,type:'file',accept:'.dshcard',hidden:true,tabIndex:-1,'aria-hidden':true,onChange:e=>{const file=e.target.files?.[0];e.target.value='';void addBaseFile(file);}}),
     dsh&&h(InlineField,{kind:'text',secret:true,label:'设置密码',help:h(Help,{text:'填写密码时会加密角色卡后导出，导入时要输这个密码，忘了就打不开。留空时放弃加密。',label:'设置密码 说明'}),value:password,placeholder:'留空时放弃加密',disabled:!!work,live:true,trim:false,onCommit:setPassword,className:'ap-dshcard-field ap-dshcard-password'}),
-    dsh&&packIds.length>0&&h(SwitchRow,{label:'压缩素材',help:DSHCARD_COMPRESS_HELP,checked:compress,disabled:!!work,onChange:setCompress,
+    dsh&&picked.length>0&&h(SwitchRow,{label:'压缩素材',help:DSHCARD_COMPRESS_HELP,checked:compress,disabled:!!work,onChange:setCompress,
       status:!compress&&total>DSHCARD_IMPORT_LIMIT?h('span',{className:'ap-dshcard-warn',title:'所选素材超过导入上限 '+stageBytesText(DSHCARD_IMPORT_LIMIT)+'，对方可能导不进来'},'⚠ 超过导入上限，建议开启'):null}));
   const body=state.error?h(ErrorBox,{error:state.error,reload:state.reload}):!value?h(Loading,{shape:'rows',count:3,label:'正在读取素材包…'}):h(React.Fragment,null,
-    dsh&&packs.length>0&&group('packs','素材包',packs.length,'已选 '+packIds.length+'/'+packs.length+(total>0?' · '+stageBytesText(total):''),
+    dsh&&packs.length>0&&group('packs','素材包',packs.length,'已选 '+picked.length+'/'+packs.length+(total>0?' · '+stageBytesText(total):''),
       '勾选的素材包随卡导出，人物跟着所在的素材包走；没勾的留在本机，导出的卡也不再使用它。',
-      switchable.length>0&&allButton(allPacks,'素材包',()=>setChosen(new Set([...picked].filter(id=>!switchable.includes(id)).concat(allPacks?[]:switchable)))),
+      switchable.length>0&&allButton(allPacks,'素材包',()=>setLeftPacks(new Set(allPacks?switchable:[]))),
       h('ul',{className:'ap-dshcard-list','aria-label':'随卡素材包'},packs.map((pack,index)=>h('li',{key:pack.manifest.id,className:'ap-pack-row ap-dshcard-row'},
-        check(picked.has(pack.manifest.id),pack.manifest.name,stageWidgetOnlyPack(pack)?null:()=>flipPack(pack.manifest.id)),h('span',{className:'ap-dshcard-name',title:pack.manifest.name},pack.manifest.name),sizes[index]&&h('span',{className:'ap-pack-size'},stageBytesText(sizes[index])))))),
+        check(!leftPacks.has(pack.manifest.id),pack.manifest.name,switchable.includes(pack.manifest.id)?()=>flipPack(pack.manifest.id):null),h('span',{className:'ap-dshcard-name',title:pack.manifest.name},pack.manifest.name),sizes[index]&&h('span',{className:'ap-pack-size'},stageBytesText(sizes[index])))))),
     books.length>0&&group('books','世界书',books.length,'已选 '+(books.length-leftBooks.size)+'/'+books.length,'勾选的世界书合并进导出的卡；没勾的不带走。',
       allButton(allBooks,'世界书',()=>setLeftBooks(allBooks?new Set(books.map(book=>book.key)):new Set())),
       h('ul',{className:'ap-dshcard-list','aria-label':'随卡世界书'},books.map((book,index)=>h('li',{key:book.key,className:'ap-pack-row ap-dshcard-row'},
@@ -33075,12 +33214,12 @@ module.exports = {sourceDevice:views => views.phoneDevice, views:({options, view
 function createStagePhoneLayout({React, storage:localStorage, width, group:galConfigGroup, row:galConfigRow, slider:galConfigSlider, Switch:GalConfigSwitch, ResetButton, sections:STAGE_CONFIG_SECTIONS}) {
 let disposed = false;
 const viewportWidth=()=>width?.() ?? 1024;
-const PHONE_SIZE = Object.freeze({ min: 50, narrowMin: 70, max: 150, step: 5, default: 100 });
+const PHONE_SIZE = Object.freeze({ min: 50, narrowMin: 70, sliderMax: 150, step: 5, default: 100 });
 // The smallest size percent of a layout ("wide" / "narrow").
 function phoneModSizeMin(name) { return name === "narrow" ? PHONE_SIZE.narrowMin : PHONE_SIZE.min; }
 const phoneModPrefs = (function () {
     const KEY = "fork-phone-layout", listeners = new Set(); let cached = null;
-    const layout = (saved, name) => ({ size: Number.isFinite(saved?.size) ? Math.min(PHONE_SIZE.max, Math.max(phoneModSizeMin(name), Math.round(saved.size))) : PHONE_SIZE.default,
+    const layout = (saved, name) => ({ size: Number.isFinite(saved?.size) ? Math.max(phoneModSizeMin(name), Math.round(saved.size)) : PHONE_SIZE.default,
         place: Array.isArray(saved?.place) && saved.place.length === 2 && saved.place.every(n => Number.isFinite(n) && n >= 0 && n <= 1) ? saved.place : null });
     const normalize = saved => ({ unlocked: saved?.unlocked === true, wide: layout(saved?.wide, "wide"), narrow: layout(saved?.narrow, "narrow") });
     function get() {
@@ -33110,7 +33249,7 @@ function PhoneStageConfig() {
                 h(GalConfigSwitch, { label: "解锁手机位置", checked: prefs.unlocked, onChange: value => phoneModPrefs.set({ unlocked: value }) }),
                 layout.place ? h(ResetButton, { label: "恢复默认位置", onClick: () => phoneModPrefs.update(name, { place: null }) }) : null),
             "打开后在舞台上拖动手机移动，拖右下角、滚轮或双指缩放；也可以直接长按手机边框或顶部状态栏。松手几秒后或点手机外面即锁定；双击手机回到默认位置。", null, "toggle"),
-        galConfigRow("手机大小", galConfigSlider(["小", "大"], { min: phoneModSizeMin(name), max: PHONE_SIZE.max, step: PHONE_SIZE.step, value: size, label: "手机大小",
+        galConfigRow("手机大小", galConfigSlider(["小", "大"], { min: phoneModSizeMin(name), max: Math.max(PHONE_SIZE.sliderMax, size), step: PHONE_SIZE.step, value: size, label: "手机大小",
                 valueText: size + "%", output: size + "%", onChange: value => setDraft(value), onCommit: value => { setDraft(null); phoneModPrefs.update(name, { size: value }); } },
                 size === PHONE_SIZE.default ? null : { label: "恢复为 100%", onClick: () => { setDraft(null); phoneModPrefs.update(name, { size: PHONE_SIZE.default }); } }),
             "100% 是手机自动填满文本框上方空间的大小；缩小后可以一边读故事一边看手机。电脑和手机各自记住。"));
@@ -33153,7 +33292,7 @@ function useEffect(setup,deps) {
 // battery: no controls) enters adjust mode, the one `unlocked` state CONFIG's switch also sets: a short pulse and the outline,
 // a haptic tick on touch, and the same press goes on as a drag. App content (lists, messages, the call button) has no hit
 // area over it, so its own taps, scrolls and long presses are untouched. In adjust mode a cover takes the whole phone (the
-// apps rest): one pointer drags, two fingers pinch, the corner handle or the wheel (+ / - keys) resize within 50–150%, the
+// apps rest): one pointer drags, two fingers pinch, the corner handle or the wheel (+ / - keys) resize from 50% (narrow 70%) up to the stage edge, the
 // phone always clamped on stage. The wheel zooms wherever it lands on the stage (over the phone or the dimmed stage around
 // it, never the phone's content scroll while adjusting); each 5% step glides there. A gesture paints a translate/scale preview and stores once, on release (size, and the spot
 // where it was left). Letting go and doing nothing for idleMs, a press outside the phone or Esc locks it again and the outline
@@ -33215,10 +33354,10 @@ function usePhoneAdjust(item, owner, panel, menu) {
         const at = { transformOrigin: "0 0", translate: (from.x - to.x) + "px " + (from.y - to.y) + "px", scale: String(from.width / to.width) };
         animate(node,[at, { transformOrigin: "0 0", translate: "0px 0px", scale: "1" }], { duration: PHONE_ADJUST.glideMs, easing: "cubic-bezier(.2,.8,.2,1)" });
     }, [item.bounds?.x, item.bounds?.y, item.bounds?.width, item.bounds?.height]);
-    // A rect `scale` times `origin` about `anchor`, moved by (dx, dy): kept within the layout's min–150% of the band size and on stage.
+    // A rect `scale` times `origin` about `anchor`, moved by (dx, dy): kept at least the layout's minimum percent of the band size and as large as the stage allows (no other cap).
     const shape = (origin, scale, anchor, dx, dy) => {
         const v = live.current.owner.viewport, base = live.current.item.phoneBase, pad = STAGE_WIDGET_PLACE_PAD;
-        const max = Math.min(base.width * PHONE_SIZE.max / 100, v.width - 2 * pad, (v.height - 2 * pad) * origin.width / origin.height);
+        const max = Math.min(v.width - 2 * pad, (v.height - 2 * pad) * origin.width / origin.height);
         const s = Math.max(base.width * base.min / 100, Math.min(max, origin.width * scale)) / origin.width, width = origin.width * s, height = origin.height * s;
         const x = anchor.x - (anchor.x - origin.x) * s + dx, y = anchor.y - (anchor.y - origin.y) * s + dy;
         return { x: Math.min(v.x + v.width - pad - width, Math.max(v.x + pad, x)), y: Math.min(v.y + v.height - pad - height, Math.max(v.y + pad, y)), width, height };
@@ -33235,7 +33374,7 @@ function usePhoneAdjust(item, owner, panel, menu) {
         owner.resize(item.key, size, rect);
         return true;
     };
-    const sizeOf = rect => Math.min(PHONE_SIZE.max, Math.max(live.current.item.phoneBase.min, Math.round(100 * rect.width / live.current.item.phoneBase.width)));
+    const sizeOf = rect => Math.max(live.current.item.phoneBase.min, Math.round(100 * rect.width / live.current.item.phoneBase.width));
     const enter = g => {
         const { item, owner } = live.current;
         owner.adjust(true);
@@ -33318,7 +33457,8 @@ function usePhoneAdjust(item, owner, panel, menu) {
     const step = steps => {
         if(!alive())return;
         const { item } = live.current, base = item.phoneBase, b = item.bounds;
-        const size = Math.min(PHONE_SIZE.max, Math.max(base.min, Math.round((base.size + steps * PHONE_SIZE.step) / PHONE_SIZE.step) * PHONE_SIZE.step));
+        const v = live.current.owner.viewport, fit = Math.floor(100 * Math.min(v.width - 2 * STAGE_WIDGET_PLACE_PAD, (v.height - 2 * STAGE_WIDGET_PLACE_PAD) * b.width / b.height) / base.width);
+        const size = Math.min(Math.max(fit, base.size), Math.max(base.min, Math.round((base.size + steps * PHONE_SIZE.step) / PHONE_SIZE.step) * PHONE_SIZE.step));
         if (size !== base.size) glide.current = store(size, shape(b, base.width * size / 100 / b.width, { x: b.x + b.width / 2, y: b.y + b.height / 2 }, 0, 0)) ? { ...b } : null;
         arm();
     };

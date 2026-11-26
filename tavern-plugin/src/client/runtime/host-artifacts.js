@@ -47,7 +47,7 @@
 
 		function tavernStaticAssetUrl(value) {
 			const source = String(value || "");
-			return /^https:\/\//i.test(source) ? "/api/dsh-tavern/static-assets?url=" + encodeURIComponent(source) + (/\.[cm]?js(?:[?#]|$)/i.test(source) ? "&host=2" : "") : source;
+			return /^https:\/\//i.test(source) ? "/api/dsh-tavern/static-assets?url=" + encodeURIComponent(source) + (/\.[cm]?js(?:[?#]|$)/i.test(source) ? "&host=3" : "") : source;
 		}
 
 		function rewriteTavernStaticMarkup(value) {
@@ -75,7 +75,7 @@
 		function tavernStaticAssetShim() {
 			// Detached CSS assignments emit no observed attribute mutation. Scan added
 			// subtrees too, including descendants inserted through a DocumentFragment.
-			return '<script data-dsh-tavern-static-cache>(function(){if(window.__dshTavernStaticAssetUrl)return;function proxy(value){var source=String(value||"");return /^https:\\/\\//i.test(source)?"/api/dsh-tavern/static-assets?url="+encodeURIComponent(source)+(/\\.[cm]?js(?:[?#]|$)/i.test(source)?"&host=2":""):source;}function css(value){return String(value||"").replace(/url\\(\\s*(?:(["\\\'])(https:\\/\\/[^"\\\']+)\\1|(https:\\/\\/[^"\\\')\\s]+))\\s*\\)/gi,function(_,quote,quoted,bare){quote=quote||"";return "url("+quote+proxy(quoted||bare)+quote+")";});}window.__dshTavernStaticAssetUrl=proxy;function mirror(value){var m=/^https:\\/\\/raw\\.githubusercontent\\.com\\/([^\\/?#]+)\\/([^\\/?#]+)\\/([^\\/?#]+)\\/([^#]+)$/i.exec(String(value||""));return m&&m[3]!=="refs"?"https://cdn.jsdelivr.net/gh/"+m[1]+"/"+m[2]+"@"+m[3]+"/"+m[4]:"";}function watchMedia(node){if(!node||node.__dshTavernMirror)return;node.__dshTavernMirror=true;node.addEventListener("error",function(){var next=mirror(String(node.currentSrc||node.getAttribute("src")||""));if(next)node.src=next;});}var MediaType=window.HTMLMediaElement,mediaSrc=MediaType&&Object.getOwnPropertyDescriptor(MediaType.prototype,"src");if(mediaSrc&&mediaSrc.set&&mediaSrc.get){try{Object.defineProperty(MediaType.prototype,"src",{configurable:mediaSrc.configurable,enumerable:mediaSrc.enumerable,get:mediaSrc.get,set:function(value){if(mirror(value))watchMedia(this);return mediaSrc.set.call(this,value);}});}catch(e){}}var nativeSet=Element.prototype.setAttribute;Element.prototype.setAttribute=function(name,value){var key=String(name||"").toLowerCase(),tag=String(this.tagName||"").toLowerCase();if(key==="src"&&/^(video|audio)$/.test(tag)&&mirror(value))watchMedia(this);if(!(key==="src"&&/^(video|audio|source|iframe|frame)$/.test(tag))&&(key==="src"||key==="poster"||(key==="href"&&tag==="link"))&&/^https:\\/\\//i.test(String(value||"")))value=proxy(value);else if(key==="style")value=css(value);return nativeSet.call(this,name,value);};var nativeGet=Element.prototype.getAttribute,PROXY="/api/dsh-tavern/static-assets?url=";Element.prototype.getAttribute=function(name){var value=nativeGet.call(this,name);if(typeof value!=="string"||value.indexOf(PROXY)!==0)return value;var key=String(name||"").toLowerCase();if(key!=="src"&&key!=="poster"&&key!=="href")return value;var raw=value.slice(PROXY.length),amp=raw.indexOf("&");if(amp>=0)raw=raw.slice(0,amp);try{return decodeURIComponent(raw);}catch(e){return value;}};[["HTMLImageElement","src"],["HTMLScriptElement","src"],["HTMLVideoElement","poster"],["HTMLLinkElement","href"]].forEach(function(row){var Type=window[row[0]],descriptor=Type&&Object.getOwnPropertyDescriptor(Type.prototype,row[1]);if(!descriptor||!descriptor.set||!descriptor.get)return;try{Object.defineProperty(Type.prototype,row[1],{configurable:descriptor.configurable,enumerable:descriptor.enumerable,get:descriptor.get,set:function(value){return descriptor.set.call(this,proxy(value));}});}catch(e){}});if(window.CSSStyleDeclaration&&CSSStyleDeclaration.prototype.setProperty){var nativeProperty=CSSStyleDeclaration.prototype.setProperty;CSSStyleDeclaration.prototype.setProperty=function(name,value,priority){return nativeProperty.call(this,name,css(value),priority);};}function rewriteNode(node){if(!node||node.nodeType!==1)return;if(/^(video|audio)$/i.test(node.tagName)&&mirror(nativeGet.call(node,"src")))watchMedia(node);["src","poster"].forEach(function(name){if(name==="src"&&/^(video|audio|source|iframe|frame)$/i.test(node.tagName))return;var value=node.getAttribute&&nativeGet.call(node,name);if(/^https:\\/\\//i.test(String(value||"")))nativeSet.call(node,name,proxy(value));});if(String(node.tagName||"").toLowerCase()==="link"){var href=nativeGet.call(node,"href");if(/^https:\\/\\//i.test(String(href||"")))nativeSet.call(node,"href",proxy(href));}var style=node.getAttribute&&nativeGet.call(node,"style");if(style&&/https:\\/\\//i.test(style)){var next=css(style);if(next!==style)nativeSet.call(node,"style",next);}}new MutationObserver(function(records){records.forEach(function(record){if(record.type!=="childList"){rewriteNode(record.target);return;}Array.prototype.forEach.call(record.addedNodes,function(node){if(node.nodeType!==1)return;rewriteNode(node);Array.prototype.forEach.call(node.querySelectorAll("[src],[href],[poster],[style]"),rewriteNode);});});}).observe(document.documentElement,{subtree:true,childList:true,attributes:true,attributeFilter:["src","href","poster","style"]});})();<\/script>';
+			return '<script data-dsh-tavern-static-cache>(function(){if(window.__dshTavernStaticAssetUrl)return;function proxy(value,base){var source=typeof base==="string"?String(value):String(value||"");if(base&&source.indexOf("/api/dsh-tavern/")!==0&&/^(?:\\.{1,2}\\/|\\/)/.test(source))source=new URL(source,base).href;if(/^https:\\/\\//i.test(source))source="/api/dsh-tavern/static-assets?url="+encodeURIComponent(source)+(typeof base==="string"||/\\.[cm]?js(?:[?#]|$)/i.test(source)?"&host=3":"");return typeof base==="string"&&source.indexOf("/api/dsh-tavern/")===0?new URL(source,document.baseURI).href:source;}function css(value){return String(value||"").replace(/url\\(\\s*(?:(["\\\'])(https:\\/\\/[^"\\\']+)\\1|(https:\\/\\/[^"\\\')\\s]+))\\s*\\)/gi,function(_,quote,quoted,bare){quote=quote||"";return "url("+quote+proxy(quoted||bare)+quote+")";});}window.__dshTavernStaticAssetUrl=proxy;function mirror(value){var m=/^https:\\/\\/raw\\.githubusercontent\\.com\\/([^\\/?#]+)\\/([^\\/?#]+)\\/([^\\/?#]+)\\/([^#]+)$/i.exec(String(value||""));return m&&m[3]!=="refs"?"https://cdn.jsdelivr.net/gh/"+m[1]+"/"+m[2]+"@"+m[3]+"/"+m[4]:"";}function watchMedia(node){if(!node||node.__dshTavernMirror)return;node.__dshTavernMirror=true;node.addEventListener("error",function(){var next=mirror(String(node.currentSrc||node.getAttribute("src")||""));if(next)node.src=next;});}var MediaType=window.HTMLMediaElement,mediaSrc=MediaType&&Object.getOwnPropertyDescriptor(MediaType.prototype,"src");if(mediaSrc&&mediaSrc.set&&mediaSrc.get){try{Object.defineProperty(MediaType.prototype,"src",{configurable:mediaSrc.configurable,enumerable:mediaSrc.enumerable,get:mediaSrc.get,set:function(value){if(mirror(value))watchMedia(this);return mediaSrc.set.call(this,value);}});}catch(e){}}var nativeSet=Element.prototype.setAttribute;Element.prototype.setAttribute=function(name,value){var key=String(name||"").toLowerCase(),tag=String(this.tagName||"").toLowerCase();if(key==="src"&&/^(video|audio)$/.test(tag)&&mirror(value))watchMedia(this);if(!(key==="src"&&/^(video|audio|source|iframe|frame)$/.test(tag))&&(key==="src"||key==="poster"||(key==="href"&&tag==="link"))&&/^https:\\/\\//i.test(String(value||"")))value=proxy(value);else if(key==="style")value=css(value);return nativeSet.call(this,name,value);};var nativeGet=Element.prototype.getAttribute,PROXY="/api/dsh-tavern/static-assets?url=";Element.prototype.getAttribute=function(name){var value=nativeGet.call(this,name);if(typeof value!=="string"||value.indexOf(PROXY)!==0)return value;var key=String(name||"").toLowerCase();if(key!=="src"&&key!=="poster"&&key!=="href")return value;var raw=value.slice(PROXY.length),amp=raw.indexOf("&");if(amp>=0)raw=raw.slice(0,amp);try{return decodeURIComponent(raw);}catch(e){return value;}};[["HTMLImageElement","src"],["HTMLScriptElement","src"],["HTMLVideoElement","poster"],["HTMLLinkElement","href"]].forEach(function(row){var Type=window[row[0]],descriptor=Type&&Object.getOwnPropertyDescriptor(Type.prototype,row[1]);if(!descriptor||!descriptor.set||!descriptor.get)return;try{Object.defineProperty(Type.prototype,row[1],{configurable:descriptor.configurable,enumerable:descriptor.enumerable,get:descriptor.get,set:function(value){return descriptor.set.call(this,proxy(value));}});}catch(e){}});if(window.CSSStyleDeclaration&&CSSStyleDeclaration.prototype.setProperty){var nativeProperty=CSSStyleDeclaration.prototype.setProperty;CSSStyleDeclaration.prototype.setProperty=function(name,value,priority){return nativeProperty.call(this,name,css(value),priority);};}function rewriteNode(node){if(!node||node.nodeType!==1)return;if(/^(video|audio)$/i.test(node.tagName)&&mirror(nativeGet.call(node,"src")))watchMedia(node);["src","poster"].forEach(function(name){if(name==="src"&&/^(video|audio|source|iframe|frame)$/i.test(node.tagName))return;var value=node.getAttribute&&nativeGet.call(node,name);if(/^https:\\/\\//i.test(String(value||"")))nativeSet.call(node,name,proxy(value));});if(String(node.tagName||"").toLowerCase()==="link"){var href=nativeGet.call(node,"href");if(/^https:\\/\\//i.test(String(href||"")))nativeSet.call(node,"href",proxy(href));}var style=node.getAttribute&&nativeGet.call(node,"style");if(style&&/https:\\/\\//i.test(style)){var next=css(style);if(next!==style)nativeSet.call(node,"style",next);}}new MutationObserver(function(records){records.forEach(function(record){if(record.type!=="childList"){rewriteNode(record.target);return;}Array.prototype.forEach.call(record.addedNodes,function(node){if(node.nodeType!==1)return;rewriteNode(node);Array.prototype.forEach.call(node.querySelectorAll("[src],[href],[poster],[style]"),rewriteNode);});});}).observe(document.documentElement,{subtree:true,childList:true,attributes:true,attributeFilter:["src","href","poster","style"]});})();<\/script>';
 		}
 
 		function tavernIconDependencies() {
@@ -134,6 +134,7 @@
 		function createTavernHostArtifactScope(options) {
             const hostDocument = options && options.document;
             const sessionId = String(options && options.sessionId || "");
+            const legacyPhoneScriptIds = new Set(options?.legacyPhoneScriptIds || []);
             const roots = [hostDocument && hostDocument.head, hostDocument && hostDocument.body].filter(Boolean);
             const owned = new Map();
             const owners = hostDocument.__dshTavernArtifactOwners || (hostDocument.__dshTavernArtifactOwners = new WeakMap());
@@ -165,8 +166,33 @@
                 // Park each node once per hidden period. A card that puts its node
                 // back keeps it there (still hidden): taking it again would feed the
                 // card's own observer, and the two would never let the page idle.
-                for (const [node, previous] of owned) if (!previous.parked && node.parentNode === previous.root) {
+                for (const [node, previous] of owned) if (!previous.parked && parkingRoots.has(previous.root) && node.parentNode === previous.root) {
                     parkNode(node, previous);
+                }
+            }
+            function setArtifactVisible(node, previous, show) {
+                if (show === !previous.visibility) return;
+                const stylesheet = node.tagName === "STYLE" || node.tagName === "LINK";
+                const style = node.style;
+                if (!show) {
+                    previous.visibility = { disabled: node.disabled, hidden: node.hidden,
+                        display: style?.getPropertyValue?.("display") || "", priority: style?.getPropertyPriority?.("display") || "" };
+                    if (stylesheet) node.disabled = true;
+                    else if (previous.body) {
+                        node.hidden = true;
+                        // Docked nodes stay under the dock and can have an explicit CSS display.
+                        style?.setProperty?.("display", "none", "important");
+                    }
+                    return;
+                }
+                const original = previous.visibility;
+                previous.visibility = null;
+                if (stylesheet) node.disabled = original.disabled;
+                else if (previous.body) {
+                    node.hidden = original.hidden;
+                    if (style?.getPropertyValue?.("display") === "none" && style.getPropertyPriority?.("display") === "important") {
+                        style.setProperty("display", original.display, original.priority);
+                    }
                 }
             }
             function remember(node, root) {
@@ -175,26 +201,98 @@
                 if (owned.has(node) || owners.has(node) || node.hasAttribute?.("data-tavern-retained-frames")
                     || node.hasAttribute?.("data-dsh-tavern-text-colors")) return;
                 owners.set(node, identity);
+                created.add(node);
                 node.setAttribute?.("data-dsh-tavern-host-artifact", "");
                 if (sessionId && !node.getAttribute?.("data-dsh-tavern-card-app-session")) {
                     node.setAttribute?.("data-dsh-tavern-card-app-session", sessionId);
                 }
-                owned.set(node, { hidden: node.hidden, disabled: node.disabled, body: root === hostDocument.body,
-                    root: root, nextSibling: node.nextSibling, parked: false });
+                const previous = { body: root !== hostDocument.head,
+                    root: root, nextSibling: node.nextSibling, parked: false, visibility: null };
+                owned.set(node, previous);
+                if (!visible) setArtifactVisible(node, previous, false);
             }
-            let disposed = false, visible = true;
-            const created = new Set();
+            let disposed = false, visible = options?.visible !== false;
+            const created = new WeakSet();
+            function forget(node) {
+                const previous = owned.get(node);
+                setArtifactVisible(node, previous, true);
+                owned.delete(node);
+                owners.delete(node);
+                node.removeAttribute?.("data-dsh-tavern-host-artifact");
+            }
+            function collectLegacyArtifacts() {
+                if (!legacyPhoneScriptIds.size) return;
+                const prefixes = ["improved-phone-shadow-host-", "improved-phone-floating-button-"];
+                const candidates = new Set(hostDocument.querySelectorAll?.(TAVERN_CARD_PHONE_HOST + ", " + TAVERN_CARD_PHONE_BUTTON) || []);
+                for (const id of legacyPhoneScriptIds) for (const prefix of prefixes) {
+                    const node = hostDocument.getElementById?.(prefix + id);
+                    if (node) candidates.add(node);
+                }
+                for (const node of candidates) {
+                    const prefix = prefixes.find(value => node.id.startsWith(value));
+                    if (prefix && legacyPhoneScriptIds.has(node.id.slice(prefix.length))) rememberLegacy(node);
+                }
+                for (const id of ["auto-message-notification-container", "auto-message-notification-styles"]) {
+                    rememberLegacy(hostDocument.getElementById?.(id));
+                }
+            }
+            function rememberLegacy(node) {
+                if (!node?.parentNode) return;
+                const parentOwner = ownerOf(node.parentNode);
+                if (parentOwner && parentOwner !== identity) return;
+                const owner = node.getAttribute?.(TAVERN_CARD_PHONE_SESSION);
+                // An unmarked legacy node can only be claimed by the foreground card.
+                if (owner ? owner === sessionId : visible) remember(node, node.parentNode);
+            }
             function captureCreated() {
-                for (const node of created) if (roots.includes(node.parentNode)) remember(node, node.parentNode);
+                for (const root of roots) for (const node of root.childNodes) {
+                    if (created.has(node)) remember(node, root);
+                }
+                for (const [node, previous] of owned) {
+                    if (node.parentNode === previous.root || node.parentNode === parkingRoots.get(previous.root)) continue;
+                    if (roots.includes(node.parentNode)) {
+                        previous.root = node.parentNode;
+                        previous.body = node.parentNode === hostDocument.body;
+                        previous.parked = false;
+                    } else if (!node.isConnected || node.ownerDocument !== hostDocument) forget(node);
+                    // A dock can reparent a card node without changing who owns it.
+                }
+            }
+            // The root exposed to card scripts is a proxy. Cards may keep
+            // requesting the position an iframe already occupies on each load.
+            function placeFrames(root, nodes, before) {
+                if (disposed || !roots.includes(root) || !nodes.length || new Set(nodes).size !== nodes.length
+                    || nodes.some(node => node?.localName !== "iframe" || node.parentNode !== root)
+                    || (before !== null && before?.parentNode !== root)) return false;
+                if (typeof root.moveBefore !== "function") {
+                    return nodes.every((node, index) => node === before || node.nextSibling === (nodes[index + 1] || before));
+                }
+                // DOM insertion prepends by preserving order and treating an
+                // existing first child in this batch as part of the input.
+                while (before && nodes.includes(before)) before = before.nextSibling;
+                for (let index = nodes.length - 1; index >= 0; index--) {
+                    const node = nodes[index];
+                    if (node.nextSibling !== before) root.moveBefore(node, before);
+                    before = node;
+                }
+                return true;
+            }
+            function mutateRoots(targets, mutate) {
+                const before = targets.map(root => [root, new Set(root.childNodes)]);
+                try { return mutate(); }
+                finally {
+                    for (const [root, existing] of before) for (const node of Array.from(root.childNodes)) {
+                        if (!existing.has(node)) { if (disposed) node.remove(); else remember(node, root); }
+                    }
+                    if (!disposed) { captureCreated(); park(); }
+                }
             }
             if (host && host.MutationObserver) {
-                observer = new host.MutationObserver(function (changes) {
-                    for (const change of changes) for (const node of change.addedNodes) {
-                        if (created.has(node)) remember(node, change.target);
-                    }
+                observer = new host.MutationObserver(function () {
+                    captureCreated();
                     park();
                 });
-                for (const root of roots) observer.observe(root, { childList: true });
+                for (const root of [...roots, ...parkingRoots.values()]) observer.observe(root, { childList: true });
             }
             return Object.freeze({
                 trackNode: function (node) {
@@ -220,21 +318,23 @@
                     }
                     return null;
                 },
-                mutateRoot: function (root, mutate) {
-                    const before = new Set(root.childNodes);
-                    try { return mutate(); }
-                    finally {
-                        for (const node of Array.from(root.childNodes)) if (!before.has(node)) {
-                            if (disposed) node.remove(); else remember(node, root);
-                        }
-                        park();
-                    }
+                mutateRoot: function (root, method, args, mutate) {
+                    const many = method === "append" || method === "prepend";
+                    const before = method === "prepend" ? root.firstChild
+                        : method === "insertBefore" ? args[1] ?? null : null;
+                    const one = (method === "appendChild" && args.length > 0) || (method === "insertBefore" && args.length > 1);
+                    if ((many || one) && placeFrames(root, many ? args : [args[0]], before)) return one ? args[0] : undefined;
+                    return mutateRoots([root], mutate);
                 },
                 // Scope the mounting operation, not the whole asynchronous import.
                 // Other conversations and the app can render while that import waits.
                 bindJQuery: function (jquery) {
                     const wrappers = new WeakMap();
                     const mutations = new Set(["append", "prepend", "before", "after", "appendTo", "prependTo", "insertBefore", "insertAfter", "replaceWith", "replaceAll", "html"]);
+                    const removals = new Set(["remove", "detach", "empty"]);
+                    const insertions = new Set(["append", "prepend", "before", "after"]);
+                    const transfers = new Set(["appendTo", "prependTo", "insertBefore", "insertAfter"]);
+                    const hostNode = Symbol.for("dsh-tavern.hostNode");
                     function select(selector, context, result) {
                         result = result.filter(function () { const owner = ownerOf(this); return !owner || owner === identity; });
                         if (!parking || disposed) return result;
@@ -252,22 +352,28 @@
                             const method = target[key];
                             if (typeof method !== "function" || key === "constructor") return method;
                             return function () {
-                                const before = mutations.has(key) ? roots.map(root => ({ root, nodes: new Set(root.childNodes) })) : null;
-                                // Explicit removal must not resurrect a parked panel
-                                // when the conversation becomes visible again.
-                                if (key === "remove") {
-                                    const removed = arguments[0] ? target.filter(arguments[0]) : target;
-                                    for (const node of owned.keys()) if (removed.toArray().some(root => root === node || root.contains?.(node))) {
-                                        owned.delete(node); owners.delete(node);
+                                if (target.length === 1 && insertions.has(key)) {
+                                    const node = target[0];
+                                    const root = key === "append" || key === "prepend" ? node : node.parentNode;
+                                    const before = key === "prepend" ? root.firstChild
+                                        : key === "before" ? node : key === "after" ? node.nextSibling : null;
+                                    const nodes = Array.from(arguments).flatMap(value => value?.jquery ? value.toArray() : value);
+                                    if (placeFrames(root, nodes, before)) return proxy;
+                                }
+                                if (transfers.has(key) && target.length && target[0].localName === "iframe") {
+                                    const destination = jquery(arguments[0]?.[hostNode] || arguments[0]);
+                                    if (destination.length === 1) {
+                                        const node = destination[0];
+                                        const root = key === "appendTo" || key === "prependTo" ? node : node.parentNode;
+                                        const before = key === "prependTo" ? root.firstChild
+                                            : key === "insertBefore" ? node : key === "insertAfter" ? node.nextSibling : null;
+                                        const nodes = target.toArray();
+                                        if (placeFrames(root, nodes, before)) return wrap(target.pushStack(nodes));
                                     }
                                 }
-                                let result;
-                                try { result = method.apply(target, arguments); }
-                                finally {
-                                    if (before) for (const entry of before) for (const node of Array.from(entry.root.childNodes)) {
-                                        if (!entry.nodes.has(node)) { if (disposed) node.remove(); else remember(node, entry.root); }
-                                    }
-                                }
+                                const mutate = () => method.apply(target, arguments);
+                                let result = mutations.has(key) || removals.has(key)
+                                    ? mutateRoots(roots, mutate) : mutate();
                                 if (key === "find" && typeof arguments[0] === "string") result = select(arguments[0], target, result);
                                 return wrap(result);
                             };
@@ -284,17 +390,17 @@
                 setVisible: function (next) {
                     if (disposed || visible === next) return;
                     captureCreated();
+                    collectLegacyArtifacts();
                     visible = next;
                     for (const [node, previous] of owned) {
                         // Hidden nodes still match the fixed IDs used by card scripts
                         // to detect an existing panel. Remove inactive artifacts from
                         // the shared document so another conversation can initialize.
                         // Use native DOM removal: jQuery.remove() discards handlers.
-                        if (!next && node.parentNode === previous.root) {
+                        if (!next && parkingRoots.has(previous.root) && node.parentNode === previous.root) {
                             parkNode(node, previous);
                         }
-                        if (previous.body) node.hidden = next ? previous.hidden : true;
-                        else if (node.tagName === "STYLE" || node.tagName === "LINK") node.disabled = next ? previous.disabled : true;
+                        setArtifactVisible(node, previous, next);
                     }
                     if (next) for (const [node, previous] of Array.from(owned).reverse()) {
                         if (!previous.parked) continue;
@@ -308,14 +414,14 @@
                 dispose: function () {
                     if (disposed) return;
                     captureCreated();
+                    collectLegacyArtifacts();
                     disposed = true;
                     if (observer) observer.disconnect();
                     for (const node of owned.keys()) {
                         if (typeof node.remove === "function") node.remove();
                         else if (node.parentNode && typeof node.parentNode.removeChild === "function") node.parentNode.removeChild(node);
+                        forget(node);
                     }
-                    owned.clear();
-                    created.clear();
                 }
             });
         }
@@ -609,7 +715,7 @@
 				const prevMutating = mutating;
 				mutating = true;
 				try {
-					if (attached) restore();
+					if (attached) detach("restore");
 					attached = host;
 					attachedScriptId = resolvePhoneScriptId(host);
 					if (sessionId && host.setAttribute) host.setAttribute(TAVERN_CARD_PHONE_SESSION, sessionId);
@@ -618,7 +724,7 @@
 					originalStyle = host.getAttribute && host.getAttribute("style");
 					slot.appendChild(host);
 					ensureTavernCardIconFonts(hostDocument);
-					if (!installShadowDependencies(host)) { restore(); return false; }
+					if (!installShadowDependencies(host)) { detach("restore"); return false; }
 					if (host.hidden === true) host.hidden = false;
 					if (host.style && host.style.display === "none") host.style.display = "";
 					host.style.position = "relative";
@@ -642,7 +748,7 @@
 				}
 			}
 
-			function restore() {
+			function detach(destination) {
 				if (!attached) return;
 				const prevMutating = mutating;
 				mutating = true;
@@ -653,35 +759,21 @@
 					attachedScriptId = "";
 					expanded = false;
 					setSlotCollapsed(false);
-					if (originalStyle === null && host.removeAttribute) host.removeAttribute("style");
-					else if (host.setAttribute) host.setAttribute("style", originalStyle || "");
-					if (originalParent) {
-						if (originalNext && originalNext.parentNode === originalParent && typeof originalParent.insertBefore === "function") originalParent.insertBefore(host, originalNext);
-						else if (typeof originalParent.appendChild === "function") originalParent.appendChild(host);
+					// Runtime teardown may remove the host before our observer runs.
+					const placement = host.isConnected === false ? null : destination;
+					if (placement === "restore") {
+						if (originalStyle === null) host.removeAttribute("style");
+						else host.setAttribute("style", originalStyle);
+						if (originalParent) {
+							if (originalNext?.parentNode === originalParent) originalParent.insertBefore(host, originalNext);
+							else originalParent.appendChild(host);
+						}
+					} else if (placement === "park") {
+						const parking = ensureTavernCardAppParking(hostDocument);
+						if (parking) parking.appendChild(host);
+						else host.style.display = "none";
 					}
-					if (floatingButton) floatingButton.style.display = floatingDisplay;
-					originalParent = null; originalNext = null; originalStyle = null; floatingButton = null; floatingDisplay = null;
-					notify(false);
-				} finally {
-					mutating = prevMutating;
-				}
-			}
-
-			function park() {
-				if (!attached) return;
-				const prevMutating = mutating;
-				mutating = true;
-				try {
-					const host = attached;
-					clearShadowObserver();
-					attached = null;
-					attachedScriptId = "";
-					expanded = false;
-					setSlotCollapsed(false);
-					const parking = ensureTavernCardAppParking(hostDocument);
-					if (parking && typeof parking.appendChild === "function") parking.appendChild(host);
-					else host.style.display = "none";
-					if (floatingButton) floatingButton.style.display = "none";
+					if (floatingButton) floatingButton.style.display = placement === "park" ? "none" : floatingDisplay;
 					originalParent = null; originalNext = null; originalStyle = null; floatingButton = null; floatingDisplay = null;
 					notify(false);
 				} finally {
@@ -714,16 +806,8 @@
 			if (typeof Mutation === "function" && hostDocument.body) {
 				mutationObserver = new Mutation(function (mutations) {
 					if (mutating || disposed) return;
-					let lost = false;
-					if (attached && attached.isConnected === false) {
-						clearShadowObserver();
-						attached = null; attachedScriptId = ""; expanded = false; setSlotCollapsed(false);
-						originalParent = null; originalNext = null; originalStyle = null;
-						if (floatingButton) floatingButton.style.display = floatingDisplay;
-						floatingButton = null; floatingDisplay = null;
-						notify(false);
-						lost = true;
-					}
+					const lost = attached?.isConnected === false;
+					if (lost) detach();
 					if (!attached && (lost || !mutations || added(mutations))) scan();
 				});
 				mutationObserver.observe(hostDocument.body, { childList: true, subtree: true });
@@ -793,12 +877,7 @@
 				if (!active || disposed) return;
 				if (attached) {
 					if (attached.isConnected === false) {
-						clearShadowObserver();
-						attached = null; attachedScriptId = ""; expanded = false; setSlotCollapsed(false);
-						originalParent = null; originalNext = null; originalStyle = null;
-						if (floatingButton) floatingButton.style.display = floatingDisplay;
-						floatingButton = null; floatingDisplay = null;
-						notify(false);
+						detach();
 						scan();
 						return;
 					}
@@ -821,7 +900,7 @@
 					if (mutationObserver) mutationObserver.disconnect();
 					if (resizeObserver) resizeObserver.disconnect();
 					Array.from(candidateObservers.keys()).forEach(clearCandidateObserver);
-					park();
+					detach("park");
 					if (slot && slot.removeAttribute) slot.removeAttribute("data-dsh-tavern-card-app-dock-slot");
 				}
 			});

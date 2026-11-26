@@ -52,3 +52,33 @@ test('禁用资源不请求；并发准备共享请求且网络并发不超过�
   assert.deepEqual(warm, one)
   assert.equal(calls, 7)
 })
+
+test('脚本的固定备用入口允许缓存 16 MiB，超过上限仍报告错误', async () => {
+  const base = 'https://testingcf.jsdelivr.net/gh/example/phone'
+  const manifest = base + '@main/manifest.json'
+  const fallback = base + '@' + COMMIT + '/runtime.js'
+  const content = ' '.repeat(16 * 1024 * 1024)
+  const helperScripts = [{
+    name: '小手机', enabled: true,
+    content: `await fetch('${manifest}').catch(() => import('${fallback}'))`
+  }]
+  const pin = extra => createTavernRemoteAssetPinStore({
+    fetch: async url => {
+      if (url.startsWith('https://api.github.com/')) return { ok: true, json: async () => ({ sha: COMMIT }) }
+      if (url === fallback) return textResponse(content + extra)
+      assert.equal(url, base + '@' + COMMIT + '/manifest.json')
+      return textResponse('{}', 'application/json')
+    }
+  }).pinExtensions({ helperScripts })
+
+  const atLimit = await pin('')
+  assert.deepEqual(atLimit.diagnostics, [])
+  assert.equal(atLimit.helperScripts[0].enabled, true)
+  assert.match(atLimit.helperScripts[0].content, /import\('\/api\/dsh-tavern\/remote-assets\/[a-f0-9]{64}\/runtime\.js\?host=3'\)/)
+
+  const overLimit = await pin(' ')
+  assert.equal(overLimit.helperScripts[0].enabled, false)
+  assert.deepEqual(overLimit.diagnostics.map(({ url, message }) => [url, message]), [
+    [fallback, '固定入口内容超过 16 MiB 上限']
+  ])
+})

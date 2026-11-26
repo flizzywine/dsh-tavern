@@ -36,3 +36,42 @@ for(const width of [900,390]) for(const opening of [false,true]) test(`embedded 
   assert.equal(await page.locator('iframe').evaluate(node=>node.clientHeight),64)
  } finally {await browser.close()}
 })
+
+test('an absolutely centered opening keeps the viewport height its controls need', async () => {
+  let descriptor
+  vm.runInNewContext(await readFile('tavern-plugin/lib/client.js', 'utf8'), {
+    window: { __ModuleLoader__: { load(value) { descriptor = value } } }, console
+  })
+  const client = descriptor.factory(() => ({}))
+  const browser = await chromium.launch()
+  try {
+    const page = await browser.newPage({ viewport: { width: 950, height: 850 } })
+    await page.route('**/*', route => route.abort())
+    const content = `<style>
+      html,body { overflow: hidden; }
+      body { position: relative; height: 100vh; }
+      .screen { position: absolute; top: 50%; left: 50%; width: 90%; height: 80vh;
+        transform: translate(-50%, -50%); display: grid; place-content: center; }
+    </style><div class="screen"><h1>重塑仙缘</h1><button>开始</button></div>`
+    const doc = client.buildTavernFrameDocument({ content, token: 'centered-opening' })
+    await page.setContent('<iframe style="display:block;width:529px;height:48px;border:0"></iframe>')
+    await page.evaluate(doc => {
+      const frame = document.querySelector('iframe')
+      window.onmessage = event => {
+        if (event.source === frame.contentWindow && event.data.type === 'dsh-tavern-frame-height') {
+          frame.style.height = event.data.height + 'px'
+        }
+      }
+      frame.srcdoc = doc
+    }, doc)
+    const frame = page.frames()[1]
+    await frame.waitForFunction(() => document.body.getBoundingClientRect().height >= 850)
+    const bounds = await frame.locator('button').evaluate(button => {
+      const rect = button.getBoundingClientRect()
+      return { top: rect.top, bottom: rect.bottom, height: innerHeight }
+    })
+    assert.equal(bounds.height, 850)
+    assert.ok(bounds.top >= 0 && bounds.bottom <= bounds.height, JSON.stringify(bounds))
+    await frame.locator('button').click()
+  } finally { await browser.close() }
+})

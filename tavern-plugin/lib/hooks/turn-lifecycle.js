@@ -289,6 +289,7 @@ export function registerTurnLifecycleHooks({
     const outputToolCall = hasSubmission && typeof storyOutputToolCall === 'function' ? (await storyOutputToolCall()) === true : false
     const result = markTavernSectionsLiteral(prependSystemInstruction(appendStorySubmissionReminder(assembled, outputToolCall), chat ? runtimePrompt('system-append') : ''))
     if (deferWorldbook) foregroundStrategies.stageWorldbookSection(context, result.sections.find(section => section.name === VIRTUAL_WORLDBOOK_SECTION))
+    foregroundStrategies.recordSystemSections?.(agent.session.id, result.sections)
     const totalMs = Date.now() - startedAt
     if (totalMs >= 3000) {
       const breakdown = Object.entries(timings).filter(([, ms]) => ms >= 100).map(([k, ms]) => `${k}=${ms}ms`).join(' ')

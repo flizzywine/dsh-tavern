@@ -1,5 +1,7 @@
 import { bodyGenerationFailure } from './body-generation-failure.js'
 import { extractForegroundStoryChoices } from './candidate-generation.js'
+import { foregroundStyleReferenceEnabled } from './style-reference.js'
+import { stripStyleReferenceMarkup, STYLE_REFERENCE_TOOL_NAME } from './style-reference-protocol.cjs'
 import { createScopedMessages, isScopedMessages } from './scoped-messages.js'
 import { promptSection } from './prompt-section.js'
 import { captureChatHeader, chatStampPath } from './chat-persistence.js'
@@ -862,6 +864,9 @@ export function createTurnOrchestrator(options) {
       texts: Object.fromEntries((foregroundWorldBook.changedVirtualRefs || []).map(ref => [ref, foregroundWorldBook.virtualState.entries[ref]?.contextText ?? foregroundWorldBook.virtualState.entries[ref]?.text])),
       entries: Object.fromEntries((foregroundWorldBook.changedVirtualRefs || []).map(ref => [ref, foregroundWorldBook.virtualState.entries[ref]?.renderHash]))
     }
+    if (foregroundWorldBook?.variableConstantRefs?.length) {
+      source.worldBook.variableConstantRefs = foregroundWorldBook.variableConstantRefs
+    }
     source.worldBook.templateDiagnostics = Array.isArray(templateWorldBook && templateWorldBook.diagnostics) ? clone(templateWorldBook.diagnostics) : []
     const regeneration = (state, systemPromptText) => captureBodyRegenerationSource({ chat: state, card,
       worldbookPrefix: foregroundWorldBook?.prefixContext ?? templateWorldBook?.prefixContext, systemPromptText })
@@ -1127,7 +1132,7 @@ export function createTurnOrchestrator(options) {
       if (generated?.status !== 'ready' || generated.receipt?.text?.trim() !== rawAssistantText) throw new Error('本轮未取得有效的插件正文，不能保存或自动补记')
     }
     const extractedForegroundChoices = mode === 'story'
-      ? await (options.extractForegroundChoices || extractForegroundStoryChoices)(rawAssistantText, { card: { name: chat.cardName }, chat })
+      ? await (options.extractForegroundChoices || extractForegroundStoryChoices)(stripStyleReferenceMarkup(rawAssistantText), { card: { name: chat.cardName }, chat })
       : { proseText: rawAssistantText, choices: null, hadTag: false }
     const sourceText = str(extractedForegroundChoices.proseText).trim()
     let assistantText = sourceText
@@ -1523,7 +1528,7 @@ export function createTurnOrchestrator(options) {
     const names = mode === 'script'
       ? [...modTools, 'tavern_read_variables', 'skill', 'tavern_read_skill_reference', 'tavern_read_script', 'tavern_recall_history', ...WORLDBOOK_ACCESS_TOOLS, ...webTools, ...storyTools]
       : [...modTools, 'tavern_read_variables', 'skill', 'tavern_read_skill_reference', 'tavern_recall_history', ...WORLDBOOK_ACCESS_TOOLS, ...webTools, ...storyTools]
-    if (mode === 'story' && chat.backgroundTasks?.styleReference === true) names.push('style_reference_submit')
+    if (foregroundStyleReferenceEnabled(chat)) names.push(STYLE_REFERENCE_TOOL_NAME)
     const disabled = new Set(normalizeDisabledForegroundTools(chat.disabledForegroundTools))
     if (pluginGeneration && disabled.has(STORY_GENERATE_TOOL_NAME)) throw new Error('已选择插件生成正文，但本局禁用了正文生成工具')
     const visible = names.filter(name => !disabled.has(name))

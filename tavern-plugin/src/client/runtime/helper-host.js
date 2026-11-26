@@ -80,6 +80,13 @@
             layer.hidden = true;
             native.hidden = false;
             const slots = "[data-dsh-script-media]";
+            const controls = new Map();
+            const controlSelector = "button:is(.fork-voice-button, .fork-bubble-avatar-zoom, .fork-stage-enter-here)";
+            const controlAttribute = "data-dsh-script-control";
+            const controlCopies = "[" + controlAttribute + "]";
+            const voiceStateAttributes = ["aria-label", "aria-busy", "title", "disabled", "data-voice-state"];
+            const controlPrefix = view.crypto?.randomUUID?.() || Math.random().toString(36).slice(2);
+            let controlNumber = 0;
             // The copy gives scripts the prose and the media positions. Move each
             // live portal only after takeover, preserving its React state and handlers.
             function placeMedia() {
@@ -98,26 +105,70 @@
                     takenOver = true;
                     layer.hidden = false;
                     native.hidden = true;
+                    syncControls();
                 }
                 placeMedia();
             });
+            function activateControl(event) {
+                const copy = event.target.closest?.(controlCopies);
+                const source = copy && controls.get(copy.getAttribute(controlAttribute));
+                if (!source || !native.contains(source) || source.disabled || event.defaultPrevented) return;
+                // Route through the live renderer so React and the stage's delegated
+                // Markdown controls both receive the click. Keep the visible anchor for zoom.
+                const click = new view.MouseEvent("click", { bubbles: true, cancelable: true });
+                click.tavernVisibleControl = copy;
+                if (!source.dispatchEvent(click)) event.preventDefault();
+                event.stopPropagation();
+            }
+            function syncControls(changed) {
+                for (const copy of layer.querySelectorAll(controlCopies)) {
+                    const source = controls.get(copy.getAttribute(controlAttribute));
+                    if (!source) continue;
+                    if (!native.contains(source)) { copy.remove(); continue; }
+                    if (!source.matches(".fork-voice-button") || changed && !changed.has(source)) continue;
+                    for (const name of voiceStateAttributes) {
+                        const value = source.getAttribute(name);
+                        if (value === copy.getAttribute(name)) continue;
+                        if (value === null) copy.removeAttribute(name); else copy.setAttribute(name, value);
+                    }
+                    if (copy.innerHTML !== source.innerHTML) copy.replaceChildren(...Array.from(source.childNodes, node => node.cloneNode(true)));
+                }
+            }
             function rebuild() {
                 if (disposed) return;
-                if (takenOver) { placeMedia(); return; }
                 layer.replaceChildren.apply(layer, Array.from(native.childNodes).map(function (node) { return node.cloneNode(true); }));
                 for (const slot of layer.querySelectorAll(slots)) slot.replaceChildren();
+                controls.clear();
+                const copies = layer.querySelectorAll(controlSelector);
+                native.querySelectorAll(controlSelector).forEach(function (source, index) {
+                    const id = controlPrefix + ":" + ++controlNumber;
+                    controls.set(id, source);
+                    copies[index].setAttribute(controlAttribute, id);
+                });
                 // Our own copy is not a script edit.
                 layerObserver.takeRecords();
             }
-            const nativeObserver = new Observer(function () { rebuild(); });
+            const nativeObserver = new Observer(function (records) {
+                if (!takenOver) {
+                    if (records.some(record => record.type !== "attributes")) rebuild();
+                    return;
+                }
+                placeMedia();
+                const changed = new Set(records.map(function ({ target }) {
+                    return (target.nodeType === 1 ? target : target.parentElement)?.closest(controlSelector);
+                }));
+                syncControls(changed);
+            });
             rebuild();
+            layer.addEventListener("click", activateControl);
             layerObserver.observe(layer, { childList: true, subtree: true, characterData: true, attributes: true });
-            nativeObserver.observe(native, { childList: true, subtree: true, characterData: true });
+            nativeObserver.observe(native, { childList: true, subtree: true, characterData: true, attributeFilter: voiceStateAttributes });
             announceTavernMessageRendered(view, options.sessionId, options.messageId);
             return function () {
                 disposed = true;
                 layerObserver.disconnect();
                 nativeObserver.disconnect();
+                layer.removeEventListener("click", activateControl);
                 takenOver = false;
                 placeMedia();
                 layer.replaceChildren();
@@ -223,11 +274,17 @@
 			return release;
 		}
 
-		function releaseTavernHostJQueryHandlers(host, frameWindow) {
-            if (!host || !frameWindow || !frameWindow.Function) return;
+		function tavernHostJQueryScope(frameWindow) {
+            if (!frameWindow?.Function) return null;
+            return { document: frameWindow.document, Function: frameWindow.Function, jquery: frameWindow.jQuery,
+                sessionId: frameWindow.frameElement?.__dshTavernSessionId };
+        }
+
+		function releaseTavernHostJQueryHandlers(host, frameWindow, scope = tavernHostJQueryScope(frameWindow)) {
+            if (!host || !scope) return;
             // A trusted script can use either jQuery instance to bind live message
             // nodes. Each instance owns a separate event cache, so inspect both.
-            const registries = Array.from(new Set([host.jQuery, frameWindow.jQuery])).filter(function (jq) {
+            const registries = Array.from(new Set([host.jQuery, scope.jquery])).filter(function (jq) {
                 return jq && typeof jq.hasData === "function" && typeof jq._data === "function" && typeof jq.event?.remove === "function";
             });
             if (!registries.length) return;
@@ -239,8 +296,8 @@
                 for (const node of document.querySelectorAll?.('*') || []) targets.add(node);
             }
             addDocument(host, host.document);
-            addDocument(frameWindow, frameWindow.document);
-            const sessionId = frameWindow.frameElement?.__dshTavernSessionId;
+            addDocument(frameWindow, scope.document);
+            const sessionId = scope.sessionId;
             if (sessionId) for (const frame of host.document?.querySelectorAll?.('iframe.dsh-tavern-message-frame') || []) {
                 if (frame.__dshTavernSessionId !== sessionId) continue;
                 try {
@@ -257,13 +314,62 @@
                 const events = jq._data(target, 'events') || {};
                 for (const handlers of Object.values(events)) {
                     for (const entry of Array.from(handlers)) {
-                        if (entry.handler instanceof frameWindow.Function) {
+                        if (entry.handler instanceof scope.Function) {
                             jq.event.remove(target, entry.origType + (entry.namespace ? '.' + entry.namespace : ''), entry.handler, entry.selector);
                         }
                     }
                 }
             }
 		}
+
+        function createTavernCardFrameResources({ hostWindow, hostDocument, frame, sessionId, trustedCardMode, legacyPhoneScriptIds, storage, visible }) {
+            let artifacts, releaseStorage, releaseHostFacade, jqueryScope = null;
+            let disposed = false;
+            function openDocument() {
+                artifacts = trustedCardMode ? createTavernHostArtifactScope({
+                    document: hostDocument, sessionId, legacyPhoneScriptIds, visible
+                }) : null;
+                frame.__dshTavernHostArtifacts = artifacts;
+            }
+            function releaseDocument() {
+                const scope = jqueryScope;
+                const releaseHandlers = scope ? (() => releaseTavernHostJQueryHandlers(hostWindow, frame.contentWindow, scope)) : undefined;
+                const releases = [releaseHandlers, artifacts?.dispose, releaseHostFacade, releaseStorage];
+                artifacts = releaseHostFacade = releaseStorage = undefined;
+                jqueryScope = null;
+                for (const release of releases) {
+                    try { release?.(); }
+                    catch (error) { console.warn("人物卡脚本文档清理失败", error); }
+                }
+            }
+            openDocument();
+            frame.__dshTavernRegisterTrustedHost = function (frameWindow, release) {
+                releaseHostFacade = release;
+                jqueryScope = tavernHostJQueryScope(frameWindow);
+            };
+            return {
+                get disposed() { return disposed; },
+                mount(container) {
+                    container.appendChild(frame);
+                    releaseStorage = forkFrameStorage.register(frame, storage);
+                },
+                reload() {
+                    releaseDocument();
+                    openDocument();
+                    releaseStorage = forkFrameStorage.register(frame, storage);
+                },
+                setVisible(next) {
+                    visible = next;
+                    artifacts?.setVisible(next);
+                },
+                dispose() {
+                    if (disposed) return;
+                    disposed = true;
+                    releaseDocument();
+                    frame.remove();
+                }
+            };
+        }
 
 		// @include card-script-patches.js
         // The parent sends the latest complete context after iframe load. Keep
@@ -327,6 +433,7 @@
                 + 'applyVariableReceipt:' + applyTavernVariableReceipt.toString() + ','
 				+ 'createMessageReader:' + createTavernHelperMessageReader.toString() + ','
                 + 'createMessageWriter:' + createTavernHelperMessageWriter.toString() + ','
+                + 'createMessageCreator:' + createTavernHelperMessageCreator.toString() + ','
                 + 'installContext:' + installTavernHelperContext.toString() + ','
                 + 'isCurrentContext:' + isCurrentTavernHelperContext.toString() + ','
                 + 'installUtilities:' + installTavernHelperUtilities.toString() + ','
@@ -359,7 +466,7 @@
 				+ 'const scripts=' + JSON.stringify(modules).replace(/</g, "\\u003c") + ';\n'
 				+ 'const token=' + (deferred ? 'window.__dshTavernHelperDocumentToken' : JSON.stringify(metadata.token)) + ';\n'
 				+ 'try{'
-				+ (input && input.trustedCardMode ? 'const frame=window.frameElement;await frame.__dshTavernPrepareTrustedHost();const artifacts=frame.__dshTavernHostArtifacts;window.$=window.jQuery=artifacts?artifacts.bindJQuery(window.parent.jQuery):window.parent.jQuery;const installHostFacade=' + installTavernTrustedHostFacade.toString() + ';const releaseHostFacade=installHostFacade(window.parent,window);window.addEventListener("pagehide",releaseHostFacade,{once:true});window.addEventListener("unload",releaseHostFacade,{once:true});\n' : '')
+				+ (input && input.trustedCardMode ? 'const frame=window.frameElement,artifacts=frame.__dshTavernHostArtifacts;await frame.__dshTavernPrepareTrustedHost();if(window.frameElement!==frame||frame.__dshTavernHostArtifacts!==artifacts)throw new Error("人物卡脚本已关闭");window.$=window.jQuery=artifacts?artifacts.bindJQuery(window.parent.jQuery):window.parent.jQuery;const installHostFacade=' + installTavernTrustedHostFacade.toString() + ';const releaseHostFacade=installHostFacade(window.parent,window);frame.__dshTavernRegisterTrustedHost?.(window,releaseHostFacade);window.addEventListener("pagehide",releaseHostFacade,{once:true});window.addEventListener("unload",releaseHostFacade,{once:true});\n' : '')
 				+ 'const installComposer=' + installLegacyTavernComposer.toString() + ';await installComposer();\n'
                 + (input && input.trustedCardMode ? 'window.__dshTavernComposerWindow=(' + createTavernComposerWindow.toString() + ')(window);if(window.jQuery){window.$=window.jQuery=window.__dshTavernComposerWindow.jQuery;}\n' : '')
                 + 'const installNodeCompatibility=' + installTavernNodeCompatibility.toString() + ';installNodeCompatibility(window);\n'

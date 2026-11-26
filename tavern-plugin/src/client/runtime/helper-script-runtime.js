@@ -32,6 +32,7 @@
 			let eventSequence = 0;
 			let readinessKey = "";
 			let announcedReadinessKey = "";
+			let supersededOpening = null;
 			let suppressedCompactMutations = 0;
 			function clone(value) { return value === undefined ? undefined : JSON.parse(JSON.stringify(value)); }
 			function token() { return hostWindow.crypto && typeof hostWindow.crypto.randomUUID === "function" ? hostWindow.crypto.randomUUID() : String(Date.now()) + ":" + String(Math.random()); }
@@ -104,12 +105,14 @@
 				if (Array.from(records.values()).some(function (record) { return !record.loaded || record.reloading || (!record.subscriptionsReady && !record.initializationFailed); })) return;
 				announcedReadinessKey = readinessKey;
 				const readySessionId = activeSessionId;
+				const readyRecord = records.get("shared"), readyDocument = readyRecord.token;
+				const stillReady = () => records.get("shared") === readyRecord && readyRecord.token === readyDocument;
 				const refreshAfterSuppress = suppressedCompactMutations > 0;
 				suppressedCompactMutations = 0;
 				for (const record of records.values()) record.suppressCompactViewRefresh = false;
 				Promise.resolve(onReady(readySessionId))
-					.then(function () { announceMountedScriptLayers(readySessionId); })
-					.catch(function (error) { reportError("人物卡脚本初始化", error); });
+					.then(function () { if (stillReady()) announceMountedScriptLayers(readySessionId); })
+					.catch(function (error) { if (stillReady()) reportError("人物卡脚本初始化", error); });
 				if (readySessionId && refreshAfterSuppress) {
 					clearPendingMutation(readySessionId);
 					notifyMutation(readySessionId, "initialization-ready", null);
@@ -215,32 +218,6 @@
 				if (after.latestVariables !== before.latestVariables) return [{ name: "mag_variable_update_ended", args: [] }];
 				return [];
 			}
-			function removeExternalCardUiArtifacts(record) {
-				if (!record || !record.trustedCardMode || !hostDocument) return;
-				const candidates = typeof hostDocument.querySelectorAll === "function"
-					? Array.from(hostDocument.querySelectorAll('[id^="improved-phone-shadow-host-"], [id^="improved-phone-floating-button-"]'))
-					: [];
-				for (const scriptId of record.scripts.keys()) {
-					for (const prefix of ["improved-phone-shadow-host-", "improved-phone-floating-button-"]) {
-						const targetId = prefix + scriptId;
-						const matches = candidates.filter(function (item) { return item && item.id === targetId; });
-						const single = !matches.length && typeof hostDocument.getElementById === "function" ? hostDocument.getElementById(targetId) : null;
-						if (single) matches.push(single);
-						for (const node of matches) {
-							const ownerSessionId = node.getAttribute && node.getAttribute(TAVERN_CARD_PHONE_SESSION);
-							if (ownerSessionId && record.sessionId && ownerSessionId !== record.sessionId) continue;
-							if (typeof node.remove === "function") node.remove();
-						}
-					}
-				}
-				for (const id of ["auto-message-notification-container", "auto-message-notification-styles"]) {
-					const node = typeof hostDocument.getElementById === "function" ? hostDocument.getElementById(id) : null;
-					if (!node) continue;
-					const ownerSessionId = node.getAttribute && node.getAttribute(TAVERN_CARD_PHONE_SESSION);
-					if (ownerSessionId && record.sessionId && ownerSessionId !== record.sessionId) continue;
-					if (typeof node.remove === "function") node.remove();
-				}
-			}
 			function flushCompatibility(record) {
 				if (record.compatibilityTimer) hostWindow.clearTimeout(record.compatibilityTimer);
 				record.compatibilityTimer = null;
@@ -265,16 +242,6 @@
                 }
                 record.helperGenerations?.clear();
             }
-			function disposeRecordFrame(record) {
-				if (record.frameDisposed) return;
-				record.frameDisposed = true;
-				if (record.trustedCardMode) releaseTavernHostJQueryHandlers(hostWindow, record.frame.contentWindow);
-				if (record.releaseStorage) record.releaseStorage();
-				record.releaseStorage = null;
-				record.frame.remove();
-				if (record.hostArtifacts) record.hostArtifacts.dispose();
-				removeExternalCardUiArtifacts(record);
-			}
 			function removeRecord(id) {
 				const record = records.get(id);
 				if (!record) return;
@@ -290,7 +257,7 @@
 				}
 				if (record.initializationTimer) hostWindow.clearTimeout(record.initializationTimer);
 				clearCompanionDeadline(record);
-				disposeRecordFrame(record);
+				record.frameResources.dispose();
 				records.delete(id);
 				announcedReadinessKey = "";
 			}
@@ -310,7 +277,12 @@
 				const core = record && record.scripts.get("__dsh_official_mvu__");
 				return core && core.initializationFailed ? "MVU 模块加载失败：" + (core.initializationError || "初始化未完成") + "\n请刷新页面或重启酒馆后重试。" : record && record.mvuDataError || "";
 			}
+			function failedMvuCompanion(record) {
+				if (!record.scripts.has("__dsh_official_mvu__")) return undefined;
+				return Array.from(record.scripts.values()).find(script => script.requiredForMvu && script.initializationFailed);
+			}
             function mvuDataReady(record) {
+                if (failedMvuCompanion(record)) return false;
                 // A blank opening has no floor yet; MVU initializes it in the chat scope.
                 const initial = record.context?.chatVariables;
                 if (!record.context?.messages?.length) return initial?.stat_data !== undefined && initial?.schema !== undefined;
@@ -427,6 +399,7 @@
 				previous = null;
 				readinessKey = "";
 				announcedReadinessKey = "";
+				supersededOpening = null;
 				closedEventIds.clear();
 				closedEventOrder.length = 0;
 				onMvuLoadState(null);
@@ -464,7 +437,6 @@
 					compatibilityPending: new Map(),
 					compatibilityTail: Promise.resolve(),
 					compatibilityTimer: null,
-					hostArtifacts: trustedCardMode ? createTavernHostArtifactScope({ document: hostDocument, sessionId: sessionId }) : null,
 					frame: frame,
 					loaded: false,
 					context: context,
@@ -473,10 +445,13 @@
 					initializationFailed: false,
 					initializationTimer: null,
 					lastRuntimeError: "",
-					scripts: new Map(scripts.map(function (script) { return [String(script.id), { id: String(script.id), name: String(script.name || script.id), loaded: false, subscriptionsReady: false, initializationFailed: false }]; }))
+					scripts: new Map(scripts.map(function (script) { return [String(script.id), {
+						id: String(script.id), name: String(script.name || script.id), loaded: false,
+						subscriptionsReady: false, initializationFailed: false,
+						requiredForMvu: !viewer && findCardScriptPatch(String(script.content || ""))?.requiredForMvu === true
+					}]; }))
 				};
 				frame.__dshTavernSessionId = sessionId;
-                frame.__dshTavernHostArtifacts = record.hostArtifacts;
 				frame.title = "人物卡共享脚本沙箱";
 				if (trustedCardMode) {
 					// Keep the shared load and its callbacks alive when a card iframe is replaced.
@@ -486,15 +461,15 @@
 					};
 				} else frame.sandbox = "allow-scripts";
 				frame.referrerPolicy = "no-referrer";
-				record.storage = forkFrameStorage.capability({ sessionId: sessionId, cardPath: context.frameStorageScope && context.frameStorageScope.cardPath }, hostWindow); // owner-only storage grant
-				frame.srcdoc = buildTavernHelperScriptDocument({ frameStorage: record.storage, token: record.bootstrapToken, scripts: scripts, context: context, trustedCardMode: trustedCardMode, deferContext: true });
+				const storage = forkFrameStorage.capability({ sessionId: sessionId, cardPath: context.frameStorageScope && context.frameStorageScope.cardPath }, hostWindow); // owner-only storage grant
+				frame.srcdoc = buildTavernHelperScriptDocument({ frameStorage: storage, token: record.bootstrapToken, scripts: scripts, context: context, trustedCardMode: trustedCardMode, deferContext: true });
 				frame.addEventListener("load", function () {
 					if (records.get(record.id) === record && !record.loaded && !record.initializationTimer) armInitializationDeadline(record);
 				});
-				container.appendChild(frame);
-				record.releaseStorage = forkFrameStorage.register(frame, record.storage); // contentWindow exists only after insertion
+				record.frameResources = createTavernCardFrameResources({ hostWindow, hostDocument, frame, sessionId, trustedCardMode, storage,
+					legacyPhoneScriptIds: Array.from(record.scripts.keys()), visible: foreground });
+				record.frameResources.mount(container);
 				records.set(record.id, record);
-                if (record.hostArtifacts) record.hostArtifacts.setVisible(foreground);
 				return record;
 			}
 			function armInitializationDeadline(record) {
@@ -503,7 +478,7 @@
 				}, initializationTimeoutMs);
 			}
 			function activateDocument(record, documentToken) {
-				const frame = record.frame, reloaded = record.loaded;
+				const reloaded = record.loaded;
 				if (record.initializationTimer) hostWindow.clearTimeout(record.initializationTimer);
 				record.initializationTimer = null;
 				clearCompanionDeadline(record);
@@ -527,13 +502,7 @@
 						if (eventId.indexOf(mvuWorkEventPrefix) === 0) pending.reject(new Error("人物卡脚本沙箱已重新加载，事件未完成"));
 						else pending.resolve(clone(pending.envelope && pending.envelope.args || []));
 					}
-					if (record.hostArtifacts) {
-						record.hostArtifacts.dispose();
-						record.hostArtifacts = createTavernHostArtifactScope({ document: hostDocument, sessionId: record.sessionId });
-						frame.__dshTavernHostArtifacts = record.hostArtifacts;
-						record.hostArtifacts.setVisible(foreground);
-					}
-					removeExternalCardUiArtifacts(record);
+					record.frameResources.reload();
 					record.subscriptions.clear();
 					record.subscriptionsReady = false;
 					record.initializationFailed = false;
@@ -553,10 +522,6 @@
 				}
 				record.loaded = true;
 				for (const script of record.scripts.values()) script.loaded = true;
-				if (reloaded && record.storage) {
-					if (record.releaseStorage) record.releaseStorage();
-					record.releaseStorage = forkFrameStorage.register(frame, record.storage);
-				}
 				post(record, { type: "dsh-tavern-helper-context", context: record.context });
 				if (!record.initializationFailed) armInitializationDeadline(record);
 			}
@@ -580,7 +545,7 @@
 					record.reloading = true;
 					record.suppressCompactViewRefresh = false;
 					cancelRecordGenerations(record);
-					disposeRecordFrame(record);
+					record.frameResources.dispose();
 					// Keep settlement paused. A retry starts a fresh document, so the
 					// stalled script can never resume after the timeout.
 					record.mvuLoadState = { phase: "companion-timeout", canRetry: true, error: error };
@@ -624,13 +589,15 @@
 				const nextSessionId = String(sessionId || "");
 				if (activeSessionId && activeSessionId !== nextSessionId) clear();
 				activeSessionId = nextSessionId;
+				const source = view?.tavernHelper;
+				if (supersededOpening && (!source || (view.chatId === supersededOpening.chatId && source.lifecycleRevision < supersededOpening.lifecycleRevision))) return;
+				supersededOpening = null;
 				const scripts = scriptsForView(view);
 				const viewer = Boolean(view && view.tavernScriptRuntimeMode === "viewer");
 				const trustedCardMode = Boolean(view && view.tavernRuntimePolicy && view.tavernRuntimePolicy.trustedCardMode);
 				readinessKey = scripts.length === 0 ? "" : nextSessionId + "\n" + scripts.map(function (script) { return script.id + "\n" + script.content; }).join("\n---\n") + "\ntrusted=" + String(trustedCardMode) + "\nviewer=" + String(viewer);
 				if (scripts.length === 0) { clear(); activeSessionId = nextSessionId; return; }
                 let record = records.get("shared");
-                const source = view?.tavernHelper;
                 const sourceIndex = createSessionViewReader.indexApi;
                 const sourceChanges = record && source && record.sourceHelper
                     && view.chatId === record.context.chatId
@@ -660,7 +627,13 @@
 					? detectedEvents.filter(function (event) { return event.name === "GENERATION_STARTED" || event.name === "GENERATION_ENDED"; })
 					: detectedEvents;
 				const fingerprint = scripts.map(function (script) { return script.id + "\n" + script.content; }).join("\n---\n") + "\ntrusted=" + String(trustedCardMode) + "\nviewer=" + String(viewer) + "\ncard=" + String(context.frameStorageScope && context.frameStorageScope.cardPath || "");
-				if (record && record.fingerprint !== fingerprint) { removeRecord("shared"); record = null; }
+				const previousOpening = record?.sourceHelper?.openingHost;
+				const changedOpening = previousOpening && source?.openingHost && previousOpening.version !== source.openingHost.version
+					&& source.lifecycleRevision > record.sourceHelper.lifecycleRevision;
+				if (record && (record.fingerprint !== fingerprint || (changedOpening && officialOwner))) {
+					removeRecord("shared");
+					record = null;
+				}
 				if (!record) record = createRecord(nextSessionId, scripts, context, trustedCardMode, viewer);
 				else {
                     if (record.context.transaction && pendingEvents.has(record.context.transaction.eventId)
@@ -688,7 +661,7 @@
 				const data = event && event.data;
 				if (!data || !data.token) return;
 				const record = records.get("shared");
-				if (!record || record.frameDisposed || event.source !== record.frame.contentWindow) return;
+				if (!record || record.frameResources.disposed || event.source !== record.frame.contentWindow) return;
 				if (data.type === "dsh-tavern-helper-document") {
 					if (data.token === record.bootstrapToken && typeof data.documentToken === "string" && data.documentToken
 						&& record.token !== data.documentToken) activateDocument(record, data.documentToken);
@@ -767,8 +740,15 @@
 					syncCompanionDeadline(record);
 					if (data.ready === true) {
 						record.initializationFailed = Boolean(record.scripts.get("__dsh_official_mvu__")?.initializationFailed);
-						record.subscriptionsReady = !record.initializationFailed;
-						if (!record.initializationFailed) resolveError("人物卡共享脚本沙箱", record.startedAt);
+						const failedCompanion = !record.initializationFailed && failedMvuCompanion(record);
+						record.subscriptionsReady = !record.initializationFailed && !failedCompanion;
+						if (failedCompanion && record.mvuLoadState?.phase !== "companion-failed") {
+							const error = failedCompanion.name + "：" + (failedCompanion.initializationError || "初始化失败");
+							record.mvuLoadState = { phase: "companion-failed", canRetry: true, error: error };
+							recordMvuLoadDiagnostic(record, { phase: "companion-failed", failureStep: "companion-module", scriptId: failedCompanion.id, message: error });
+							onMvuLoadState(record.mvuLoadState);
+						}
+						if (record.subscriptionsReady) resolveError("人物卡共享脚本沙箱", record.startedAt);
 						settleInitialization(record);
 					}
 					syncMvuDataReadiness(record);
@@ -958,6 +938,7 @@
 					return;
 				}
 					let mutationArgs = Object.assign({}, data.args || {}, { apiCallOrigin: { scriptId: String(data.scriptId || ""), scriptName: String(record.scripts.get(String(data.scriptId || ""))?.name || ""), eventId: String(data.eventId || ""), requestId: String(data.requestId || "") } });
+					if (data.method === "createTavernHelperMessages") delete mutationArgs.dispatchCreatedMessages;
 					if (data.method === "updateTavernHelperPrompts" || data.method === "updateTavernHelperVariables" || data.method === "updateTavernHelperMessages" || data.method === "createTavernHelperMessages") {
 						mutationArgs = Object.assign({}, mutationArgs, {
 							eventId: String(data.eventId || ""),
@@ -1032,6 +1013,17 @@
 				}
 
 				rpcTask.then(function (result) {
+					const openingMvuWrite = data.scriptId === "__dsh_official_mvu__" && record.scripts.has(data.scriptId)
+						&& record.sourceHelper?.openingHost && (!data.eventId || writeOwner?.envelope.name === "CHAT_CHANGED");
+					if (data.method === "updateTavernHelperVariables" && openingMvuWrite && result?.stale && currentDocument()
+						&& result.context?.chatId === record.context.chatId && result.context.lifecycleRevision > mutationArgs.expectedLifecycleRevision) {
+						// The new opening has replaced the initialization's target. End the
+						// old sandbox and wait for the committed opening before running scripts again.
+						supersededOpening = { chatId: result.context.chatId, lifecycleRevision: result.context.lifecycleRevision };
+						removeRecord(record.id);
+						notifyMutation(record.sessionId, data.method, result);
+						return;
+					}
 					if (currentDocument() && result && !result.stale) {
 						const pending = pendingEvents.get(String(data.eventId || ""));
 						if (pending && pending.record === record) {
@@ -1055,12 +1047,12 @@
 			hostWindow.addEventListener("message", receive);
 			return Object.freeze({
 				sync: sync,
-                setForeground: function (value) { foreground = value; for (const record of records.values()) if (record.hostArtifacts) record.hostArtifacts.setVisible(value); },
+                setForeground: function (value) { foreground = value; for (const record of records.values()) record.frameResources.setVisible(value); },
 				emit: emit,
 				retryMvuLoad: function () {
 					const record = records.get("shared");
 					if (!record || !record.mvuLoadState || !record.mvuLoadState.canRetry) return false;
-						if (record.mvuLoadState.phase === "companion-timeout") {
+						if (["companion-timeout", "companion-failed"].includes(record.mvuLoadState.phase)) {
 							removeRecord(record.id);
 							const next = createRecord(record.sessionId, record.scriptInputs, record.context, record.trustedCardMode, false);
 							next.sourceHelper = record.sourceHelper;
@@ -1092,7 +1084,7 @@
                         lifecycleRevision:Number(baseline.lifecycleRevision)||0,messageCount:(baseline.messages||[]).length,
                         transaction:baseline.transaction,historyWindowVersion:baseline.historyAccess?1:undefined,complete:!baseline.messagesPending && (applyTavernVariableReceipt.indexApi.info(baseline.messages)?.complete ?? false)} : {workContextVersion:1,full:true};
                     return { contextBaseline:contextBaseline, sessionId: activeSessionId, documentToken: record && !record.reloading ? record.token : undefined,
-                        frameCount: record && !record.frameDisposed ? 1 : 0, scriptIds: scripts.map(function (script) { return script.id; }), scripts: scripts,
+                        frameCount: record && !record.frameResources.disposed ? 1 : 0, scriptIds: scripts.map(function (script) { return script.id; }), scripts: scripts,
                         ...(record && record.scripts.has("__dsh_official_mvu__") ? { mvuDataReady: mvuDataReady(record) } : {}),
                         ...(record && record.mvuLoadState ? { mvuLoadState: record.mvuLoadState } : {}),
                         ...(initializationError ? { initializationError: initializationError } : {}) };

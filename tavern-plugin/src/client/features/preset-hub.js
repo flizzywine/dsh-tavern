@@ -141,7 +141,7 @@
 					row("systemPrompts", "系统提示词", "对所有游戏生效",
 						h(InlineField, { kind: "menu", label: "系统提示词方案", hideLabel: true, value: s.promptSets.activeId, disabled: busy, onCommit: function (value) { void selectPromptSet(value); },
 							options: s.promptSets.sets.map(function (item) { return { value: item.id, label: item.name }; }) })),
-					row("userProfile", "长期偏好", "新游戏默认使用；每局可在本局设置中单独切换",
+					row("userProfile", "长期偏好", tavernUserProfileRemovalNotice,
 						h(InlineField, { kind: "menu", label: "新游戏默认长期偏好", hideLabel: true, value: s.defaultProfileId, disabled: busy, onCommit: function (value) { void selectProfile(value); },
 							options: [{ value: "", label: "不启用" }].concat(s.profiles.map(function (item) { return { value: item.id, label: item.name }; })) })),
 					row("cardPersonas", "卡片工作台性格", "卡片 Agent 使用；对所有卡片会话生效",

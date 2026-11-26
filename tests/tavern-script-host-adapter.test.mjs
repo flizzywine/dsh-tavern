@@ -57,6 +57,175 @@ function harness(chatValue = chat(), overrides = {}) {
   return { adapter, chat: chatValue, writes, events, worldbook }
 }
 
+test('message frames publish once and resume MVU on the existing floors after a failed send event', async () => {
+  let saved = chat(), appends = 0, publishes = 0, fail = true
+  saved.mvu.owner = 'official'
+  const events = []
+  const { adapter } = harness(saved, {
+    resolveChat: async () => structuredClone(saved),
+    writeChat: async value => { appends++; saved = value; return saved },
+    publishCreatedMessages: async () => { publishes++ },
+    scriptDispatch: { async dispatch(_sessionId, name, [id], context) {
+      assert.equal(name, 'MESSAGE_SENT')
+      assert.equal(context.messages[id].role, 'user')
+      events.push(id)
+      if (id === 3 && fail) return { handled: false, error: '试运行失败' }
+      await adapter.updateVariables('session-1', { type: 'message', message_id: id }, { stat_data: { ready: true } }, 2)
+      return { handled: true }
+    } }
+  })
+  const messages = [{ role: 'user', message: 'first' }, { role: 'assistant', message: 'note' }, { role: 'user', message: 'second' }]
+  const send = () => adapter.createMessages('session-1', messages, {}, 2, '', { operationId: 'create-id', dispatch: true })
+  const failed = await send()
+  assert.match(failed.completionError, /已保存.*试运行失败/)
+  fail = false
+  const receipts = await Promise.all([send(), send()])
+  assert.deepEqual(events, [1, 3, 3])
+  assert.equal(publishes, 1)
+  assert.equal(saved.messages.length, 4)
+  assert.equal(appends, 3, 'one message append and two MVU variable saves')
+  for (const receipt of receipts) {
+    assert.equal(receipt.completionError, undefined)
+    assert.equal(receipt.context.messages[3].variables.stat_data.ready, true)
+  }
+})
+
+for (const concurrent of ['plugin-data', 'new-opening']) {
+  test(`helper append reads the current chat after a concurrent ${concurrent} write`, async t => {
+    const host = await createHelperChatDataHost()
+    t.after(host.cleanup)
+    const initial = await host.persistence.read('audit')
+    async function saveConcurrentChange() {
+      await host.persistence.update('audit', chat => {
+        if (concurrent === 'plugin-data') chat.messages[0].tavernPluginData = { wiki: 'keep' }
+        else chat.tavernHelperLifecycleRevision += 1
+        return chat
+      })
+    }
+    const { adapter } = harness(initial, {
+      resolveChat: () => host.persistence.read('audit'), hasScripts: async () => true,
+      async updateChat(...args) { await saveConcurrentChange(); return host.persistence.update(...args) },
+      async writeChat(...args) { await saveConcurrentChange(); return host.persistence.write(...args) }
+    })
+    const result = await adapter.createMessages('audit', [{ role: 'assistant', message: '脚本补充' }], {}, 2)
+    const saved = await host.open().read('audit')
+    if (concurrent === 'plugin-data') {
+      assert.deepEqual(result.targets, [{ messageId: 1 }])
+      assert.equal(saved.messages[1].text, '脚本补充')
+      assert.deepEqual(saved.messages[0].tavernPluginData, { wiki: 'keep' })
+    } else {
+      assert.equal(result.stale, true)
+      assert.equal(result.context.lifecycleRevision, 3)
+      assert.equal(saved.messages.length, 1)
+    }
+  })
+}
+
+test('independent Helper appends get distinct floor IDs and publish each native message once', async t => {
+  const host = await createHelperChatDataHost()
+  t.after(host.cleanup)
+  const initial = await host.persistence.read('audit')
+  const published = []
+  let reads = 0, releaseReads
+  const bothRead = new Promise(resolve => { releaseReads = resolve })
+  const { adapter } = harness(initial, {
+    async resolveChat() {
+      const current = await host.persistence.read('audit')
+      if (++reads === 2) releaseReads()
+      await bothRead
+      return current
+    },
+    hasScripts: async () => true,
+    writeChat: (...args) => host.persistence.write(...args),
+    updateChat: (...args) => host.persistence.update(...args),
+    async publishCreatedMessages(saved, [{ messageId }]) { published.push({ messageId, text: saved.messages[messageId].text }) }
+  })
+  const append = text => adapter.createMessages('audit', [{ role: 'user', message: text }], {}, 2, '', { operationId: text })
+  const [a, b] = await Promise.all([append('第一条'), append('第二条')])
+  const saved = await host.open().read('audit')
+  assert.equal(saved.messages.length, 3)
+  assert.equal(saved.messages[a.targets[0].messageId].text, '第一条')
+  assert.equal(saved.messages[b.targets[0].messageId].text, '第二条')
+  assert.deepEqual((await append('第一条')).targets, a.targets)
+  assert.deepEqual(published, saved.messages.slice(1).map(({ text }, index) => ({ messageId: index + 1, text })))
+  assert.equal((await host.open().read('audit')).messages.length, 3)
+})
+
+for (const concurrent of ['plugin-data', 'same-field', 'next-opening']) {
+  test(`helper opening initialization reconciles concurrent ${concurrent}`, async t => {
+    const host = await createHelperChatDataHost()
+    t.after(host.cleanup)
+    const mvu = gold => ({ stat_data: { gold }, schema: {} })
+    const initial = await host.persistence.update('audit', chat => {
+      chat.mvu = { enabled: true, owner: 'official', openingInitialization: { version: 2, status: 'pending' } }
+      chat.messages[0].variables = [mvu(0)]
+      return chat
+    })
+    const { adapter } = harness(initial, {
+      resolveChat: () => host.persistence.read('audit'),
+      writeChat: (...args) => host.persistence.write(...args),
+      patchChat: (...args) => host.persistence.patch(...args),
+      async replyRegexScripts() {
+        await host.persistence.update('audit', latest => {
+          if (concurrent === 'same-field') latest.messages[0].variables = [mvu(9)]
+          else if (concurrent === 'next-opening') latest.tavernHelperLifecycleRevision += 1
+          else {
+            latest.messages[0].tavernPluginData = { wiki: { visited: true } }
+            latest.messages[0].displayRuntime = { frames: [] }
+            latest.tavernPluginMetadata = { wiki: { ready: true } }
+          }
+          return latest
+        })
+        return []
+      }
+    })
+    const update = adapter.updateMessages('audit', [{ message_id: 0, swipes_data: [mvu(30)] }], 2, 'host-event-3')
+    if (concurrent === 'same-field') {
+      await assert.rejects(update, { code: 'DSH_TAVERN_CHAT_CONFLICT' })
+    } else {
+      const result = await update
+      assert.equal(result.updated, concurrent !== 'next-opening')
+      if (concurrent === 'next-opening') assert.equal(result.stale, true)
+      else assert.equal(result.context.messages[0].variables.stat_data.gold, 30)
+    }
+    const saved = await host.open().read('audit')
+    assert.deepEqual(saved.messages[0].variables, [mvu(concurrent === 'plugin-data' ? 30 : concurrent === 'same-field' ? 9 : 0)])
+    if (concurrent === 'plugin-data') {
+      assert.deepEqual(saved.messages[0].tavernPluginData, { wiki: { visited: true } })
+      assert.deepEqual(saved.messages[0].displayRuntime, { frames: [] })
+      assert.deepEqual(saved.tavernPluginMetadata, { wiki: { ready: true } })
+      assert.equal(saved.mvu.openingInitialization.status, 'complete')
+    }
+  })
+}
+
+test('a helper message rewrite preserves plugin data and invalidates a late display capture', async t => {
+  const host = await createHelperChatDataHost()
+  t.after(host.cleanup)
+  const initial = await host.persistence.update('audit', chat => {
+    chat.mvu.enabled = true
+    return chat
+  })
+  const { adapter } = harness(initial, {
+    resolveChat: () => host.persistence.read('audit'),
+    writeChat: (...args) => host.persistence.write(...args),
+    patchChat: (...args) => host.persistence.patch(...args),
+    async replyRegexScripts() {
+      await host.persistence.update('audit', latest => {
+        latest.messages[0].tavernPluginData = { wiki: 'keep' }
+        latest.messages[0].displayRuntime = { frames: [] }
+        return latest
+      })
+      return []
+    }
+  })
+  await adapter.updateMessages('audit', [{ message_id: 0, message: '新的开场。' }], 2)
+  const saved = await host.open().read('audit')
+  assert.equal(saved.messages[0].text, '新的开场。')
+  assert.deepEqual(saved.messages[0].tavernPluginData, { wiki: 'keep' })
+  assert.equal(saved.messages[0].displayRuntime, undefined)
+})
+
 for (const sliced of [false, true]) test(`chat player identity is persisted atomically with variables: sliced=${sliced}`, async t => {
   const host = await createHelperChatDataHost()
   t.after(host.cleanup)

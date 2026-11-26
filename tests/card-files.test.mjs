@@ -1,11 +1,18 @@
-import { syntheticPack } from './fixtures/asset-packs/pack.mjs'
-import { createAssetPackService, openPackZip } from '../tavern-plugin/packages/dsh-asset-library/lib/pack-v2/service.js'
+import { png as fixturePng, syntheticPack } from './fixtures/asset-packs/pack.mjs'
+import { createAssetPackService, openPackZip, StoredFile } from '../tavern-plugin/packages/dsh-asset-library/lib/pack-v2/service.js'
 import assert from 'node:assert/strict'
-import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
+import { mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises'
+import { syntheticFixture } from './helpers/synthetic-link-fixture.mjs'
 import { dirname, join } from 'node:path'
 import test from 'node:test'
-import { createHash } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
+import { crc32 } from 'node:zlib'
+import { setTimeout as wait } from 'node:timers/promises'
+import { createCardHandlers } from '../tavern-plugin/lib/rpc/cards.js'
+import { createTransferExportStore } from '../tavern-plugin/lib/domain/transfer-store.js'
+import { createCardBundleAdapter } from '../tavern-plugin/packages/dsh-tavern-stage/lib/card-bundle.js'
+import { sealPack } from '../tavern-plugin/packages/dsh-asset-library/src/pack-v2/validation.js'
+import { exportDshCardSnapshot } from '../tavern-plugin/lib/domain/dsh-card-export.js'
 import { readCardArchive } from '../tavern-plugin/lib/domain/card-archive.js'
 import { openZipFile } from '../tavern-plugin/lib/domain/zip-file.js'
 import { createAssetPacks } from '../tavern-plugin/lib/domain/asset-packs.js'
@@ -25,9 +32,10 @@ async function exportedEntries(exported) {
   try { return readZipEntries(await readFile(exported.file)) } finally { await exported.dispose() }
 }
 
-async function library(t, extra = {}, { onLegacyBlobWrite } = {}) {
-  const root = await mkdtemp(join(tmpdir(), 'card-files-'))
-  t.after(() => rm(root, { recursive: true, force: true }))
+async function library(t, extra = {}, { onLegacyBlobWrite, withAssetLibrary = false } = {}) {
+  let service
+  t.after(() => service?.dispose())
+  const root = syntheticFixture(t, 'card-files-')
   const profileData = createProfileDataStore({ dataRoot: root })
   const fileResources = createFileResourceStore({ dataRoot: root })
   let serial = 0
@@ -42,7 +50,13 @@ async function library(t, extra = {}, { onLegacyBlobWrite } = {}) {
     return await fileResources.ensureCardWorkspace(cardPath, (working, payload) => cardPreparation.migrate({ working, payload }))
   }
   const cardSummaries = createCardSummaryCache({ absolute: cardPath => fileResources.absolute(cardPath), read: async cardPath => projectCardSummary(await readCardWorkspace(cardPath)) })
+  if (withAssetLibrary) {
+    const cardTransactions = createCardBundleAdapter({cardPreparation, authorizeTarget:async path => ({cardId:path}),
+      readWorkspace:readCardWorkspace, withCardLock:async (_path, task) => task()})
+    service = createAssetPackService({assetRoot:join(root, 'library'), cardTransactions})
+  }
   const files = createCardFiles({
+    ...(service ? {assetLibrary:() => service} : {}),
     exportRoot: join(root, "exports"),
     cardPreparation, fileResources, castAssets, assetPacks, cardSummaries, readCardWorkspace,
     worldBooks: { characterBookForCard: async () => undefined },
@@ -52,6 +66,87 @@ async function library(t, extra = {}, { onLegacyBlobWrite } = {}) {
   const bubbleSyncs = []
   return { root, files, fileResources, castAssets, bubbleSyncs, cardPreparation, readCardWorkspace, mediaStore, assetPacks }
 }
+
+// An on-disk 280 MiB asset pack. Ancillary PNG chunks make it cheap to build and remain ZIP-stored.
+async function largeExportFixture(root) {
+  const id = randomUUID(), files = new Map(), hashed = new Map(), blobs = {}, assets = []
+  const sample = fixturePng([36, 72, 104]), chunk = Buffer.alloc(7 * 1024 ** 2 + 12, 65)
+  chunk.writeUInt32BE(chunk.length - 12); chunk.write('tEXt', 4); chunk.write('fixture\0', 8)
+  for (let i = 0; i < 40; i++) {
+    chunk[16] = 65 + i
+    chunk.writeUInt32BE(crc32(chunk.subarray(4, -4)), chunk.length - 4)
+    const bytes = Buffer.concat([sample.subarray(0, -12), chunk, sample.subarray(-12)])
+    const hash = createHash('sha256').update(bytes).digest('hex'), file = join(root, hash + '.png')
+    await writeFile(file, bytes)
+    blobs[hash] = {ext:'png', mime:'image/png', size:bytes.length}
+    const member = 'media/' + hash + '.png'
+    files.set(member, new StoredFile(bytes.length, file))
+    hashed.set(member, hash)
+    assets.push({kind:'backgrounds', id:'bg-' + i, name:'Background ' + i, enabled:true, recall:{mode:'keyword', keywords:['fixture']}, directorNote:'', media:hash})
+  }
+  const manifest = {format:'dsh-asset-pack', schemaVersion:1, id, name:'Large fixture', description:'', credits:[], contentHash:'0'.repeat(64), assets, figures:[], sprites:{}, bundles:{}, blobs, files:[]}
+  await sealPack(manifest, files, undefined, hashed)
+  const file = join(root, 'fixture.dshcard')
+  await exportDshCardSnapshot({file, card:{data:{name:'Large round trip', tags:['dsh-agent-test'], extensions:{dsh_tavern:{schemaVersion:1, assetBindings:{boundPackIds:[id]}}}}}, packs:[{manifest, files}]})
+  return {file, id}
+}
+
+async function exportInventory(file) {
+  const zip = await openZipFile(file, {allowEncrypted:true})
+  try { return [...zip.entries.values()].map(({path, size}) => [path,size]).sort() } finally { await zip.close() }
+}
+
+test('a 280 MiB card takes the same files through direct, plain GUI and encrypted GUI export and native re-import', {timeout:150_000}, async t => {
+  const source = await library(t, {}, {withAssetLibrary:true})
+  const seed = await largeExportFixture(source.root)
+  const card = await source.files.importCardArchiveFile(seed.file, 'fixture.dshcard')
+  assert.equal(card.libraryNotices, undefined)
+  const transfer = createTransferExportStore({root:join(source.root,'transfer')})
+  try {
+    const handlers = createCardHandlers({...source.files, str:String, transferExports:transfer})
+    assert.deepEqual((await handlers.listCardExportPacks({path:card.path})).packs.map(pack => pack.id), [seed.id])
+    const direct = await source.files.exportCardFile(card.path)
+    const inventory = await exportInventory(direct.file)
+    assert.ok(direct.size > 256 * 1024 ** 2)
+    await direct.dispose()
+    for (const [progressId,password] of [['plain-large',undefined], ['locked-large','round-trip-test']]) {
+      await handlers.exportLibraryCard({path:card.path, progressId, password})
+      let progress
+      do {
+        await wait(50, undefined, {signal:t.signal})
+        progress = handlers.cardExportProgress({progressId}).progress
+      } while (!['done','failed'].includes(progress.stage))
+      assert.equal(progress.stage,'done',progress.error?.message)
+      const token = new URL(progress.result.downloadUrl, 'http://fixture').searchParams.get('token')
+      const artifact = await transfer.take(token)
+      assert.ok(artifact.bytes > 256 * 1024 ** 2)
+      assert.deepEqual(await exportInventory(artifact.file), inventory)
+      const target = await library(t, {}, {withAssetLibrary:true})
+      await target.files.previewCardArchiveFile(artifact.file, progress.result.filename, {password})
+      const restored = await target.files.importCardArchiveFile(artifact.file, progress.result.filename, {password, previewed:true})
+      assert.equal(restored.name, card.name)
+      assert.equal(restored.libraryNotices, undefined)
+      assert.deepEqual(restored.packs.map(({id, contentHash, files}) => [id,contentHash,files]), card.packs.map(({id,contentHash,files}) => [id,contentHash,files]))
+      const roundTrip = await target.files.exportCardFile(restored.path)
+      try { assert.deepEqual(await exportInventory(roundTrip.file), inventory) } finally { await roundTrip.dispose() }
+      await transfer.remove(token)
+    }
+  } finally { transfer.close() }
+})
+
+test('a world book mislabeled as card.json is rejected before attached packs are written', async t => {
+  const {root, files, fileResources} = await library(t, {
+    assetLibrary: () => ({ inspectImportFile: () => assert.fail('invalid card must not inspect packs') }),
+    assetPacks: { importFromZip: () => assert.fail('invalid card must not publish packs') }
+  })
+  const file = join(root, 'bad-card.dshcard')
+  await writeFile(file, writeZipEntries([
+    {path:'card.json', content:'{"entries":{}}'},
+    {path:'dsh.json', content:JSON.stringify({format:'dshcard', formatVersion:1, packs:[{id:randomUUID(), path:'assets/test/'}]})}
+  ]))
+  await assert.rejects(files.importCardArchiveFile(file, 'bad-card.dshcard'), /检测到世界书/)
+  assert.deepEqual(await fileResources.list('card'), [])
+})
 
 test('encrypted DSH imports authenticate before saving cards/plugins, and duplicates still require the password', async t => {
   const { root, files, fileResources, castAssets } = await library(t)
@@ -365,7 +460,7 @@ test('撤回 puts the card and the packs it replaced back; only the latest updat
 
 
 
-test('private installed card replacement uses an internal backup while public export stays denied', async t => {
+test('card replacement backs up bindings without embedding packs, even with legacy metadata', async t => {
   const {createAssetPackService} = await import('../tavern-plugin/packages/dsh-asset-library/src/pack-v2/service.js')
   const {createCardBundleAdapter} = await import('../tavern-plugin/packages/dsh-tavern-stage/lib/card-bundle.js')
   const {syntheticPack, PACK_ID} = await import('./fixtures/asset-packs/pack.mjs')
@@ -396,7 +491,7 @@ test('private installed card replacement uses an internal backup while public ex
   options = {assetRoot,cardTransactions:createCardBundleAdapter({cardPreparation:createCardPreparation(),authorizeTarget:async () => ({cardId:'fixture'}),readWorkspace:fileResources.readCard,withCardLock:async (_, task) => task()})}
   normal = createAssetPackService(options)
   t.after(() => normal.dispose())
-  await assert.rejects(files.exportCardFile(original.path), {code:'PRIVATE_ASSET_NOT_EXPORTABLE'})
+  assert.ok(await files.exportCardFile(original.path))
   const updated = await files.replaceCard(original.path, {payload:{kind:'text',name:'updated.json',text:JSON.stringify({...card,name:'Private updated'})}})
   assert.equal(updated.path, original.path)
   assert.equal((await fileResources.readCard(original.path)).raw.name, 'Private updated')
@@ -407,5 +502,5 @@ test('private installed card replacement uses an internal backup while public ex
     assert.deepEqual(backup.card.data.extensions.dsh_tavern.assetBindings.boundPackIds, [PACK_ID])
     assert.equal(backup.packs.length, 0)
   } finally { await zip.close() }
-  await assert.rejects(files.exportCardFile(original.path), {code:'PRIVATE_ASSET_NOT_EXPORTABLE'})
+  assert.ok(await files.exportCardFile(original.path))
 })

@@ -1,11 +1,11 @@
 {
-  "versionCode": 8,
-  "versionName": "1.0.0-beta.3",
-  "url": "https://github.com/flizzywine/dsh-tavern/releases/download/v3.4/dsh-tavern-beta-1.0.0-beta.3.apk",
-  "sha256": "3a188f3919e8df234351b9864614c058664b8774738e0ffdd32545ba1885343b",
-  "size": 466070959,
+  "versionCode": 9,
+  "versionName": "1.0.0-beta.4",
+  "url": "https://github.com/flizzywine/dsh-tavern/releases/download/v3.4/dsh-tavern-beta-1.0.0-beta.4.apk",
+  "sha256": "9b90ee1aa0ff4774f72ad2b28d1189f8d89b79538cae6f1c67e564b8d7f3e228",
+  "size": 466329007,
   "minVersionCode": 0,
   "signer": "7496a3a33d6e5bdc02127b7b970f8d7fbdfba5fe9c88cd3921dbde78b3a327f7",
-  "notes": "启动页新增局域网访问开关，开启后可在同局域网设备浏览器访问酒馆（含复制/分享链接与刷新地址）",
+  "notes": "启动页新增「高级」选项（救援存档、修复酒馆、完全重置）；修复 WebView 无法下载导出备份的问题，优化更新中与异常状态的按钮提示",
   "page": "https://github.com/flizzywine/dsh-tavern/releases/tag/v3.4"
 }

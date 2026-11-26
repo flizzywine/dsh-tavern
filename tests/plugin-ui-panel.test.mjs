@@ -29,7 +29,7 @@ test('插件面板：注册为当前游戏的侧栏页，卸载时移除；没�
   const disposeKeep = plugin.registerPanel({ id: 'sticky', title: '常驻', keepMounted: true, render: () => 'sticky' })
   assert.equal(tabs.get('tavern-plugin:memory-plugin:sticky').keepMounted, true, '显式声明 keepMounted: true 时透传保留')
   disposeKeep()
-  assert.equal(ui.service.apiVersion, 10)
+  assert.equal(ui.service.apiVersion, 11)
   const rendered = tab.component({ scope: { sessionId: 'game-1' } })
   assert.equal(rendered.type, 'Boundary')
   assert.equal(seen.length, 0, '渲染回调由边界内的子组件执行')
@@ -404,13 +404,13 @@ test('状态分节与正文视图：注册校验；正文视图拿到 Tavern 自
   })
   const choice = view.useTavernTurnView('game-1')
   assert.equal(choice.view.label, '气泡')
-  const tree = view.tavernTurnViewElement(choice.view, { gameId: 'game-1', turn: 3, settled: true, streaming: false, text: 't', lines: [] }, 'tavern-body')
+  const tree = view.tavernTurnViewElement(choice, { gameId: 'game-1', turn: 3, settled: true, streaming: false, text: 't', lines: [] }, 'tavern-body')
   assert.equal(tree.type, 'Boundary')
   const inner = tree.children[0]
   const result = inner.type(inner.props)
   assert.equal(result[0], 'wrapped')
   assert.equal(input.children.children[0], 'tavern-body', 'children 是 Tavern 自己的渲染')
-  const streaming = view.tavernTurnViewElement(choice.view, { settled: false }, 'tavern-body')
+  const streaming = view.tavernTurnViewElement(choice, { settled: false }, 'tavern-body')
   assert.equal(streaming.children[0].type(streaming.children[0].props).children[0], 'tavern-body', '返回 null 时用内置')
   assert.equal(view.tavernTurnViewElement(null, {}, 'tavern-body'), 'tavern-body')
 
@@ -422,6 +422,20 @@ test('状态分节与正文视图：注册校验；正文视图拿到 Tavern 自
   assert.equal(section.children[0].children[0], '当前场景')
   assert.equal(section.children[1], 'scene:game-1')
   assert.equal(hiddenBoundary.children[0].type(hiddenBoundary.children[0].props), null)
+
+  plugin.registerTurnView({ id: 'after', label: '附加内容', placement: 'after', render: value => {
+    assert.equal(value.children, null)
+    return '附加正文'
+  } })
+  choice.choose('dsh-tavern:builtin')
+  const builtin = view.useTavernTurnView('game-1')
+  assert.equal(builtin.view, null)
+  assert.deepEqual(Array.from(builtin.views, entry => entry.label), ['气泡'])
+  const appended = view.tavernTurnViewElement(builtin, { gameId: 'game-1', turn: 3, settled: true }, 'tavern-body')
+  const [body, after] = appended.children
+  assert.equal(body, 'tavern-body')
+  assert.equal(after.type, 'Boundary')
+  assert.equal(after.children[0].type(after.children[0].props), '附加正文')
 })
 
 test('消息按钮：when 拿得到这条消息的正文，可以只在合适的消息下显示', () => {

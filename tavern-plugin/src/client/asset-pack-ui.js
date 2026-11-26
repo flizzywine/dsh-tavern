@@ -942,13 +942,28 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
       packs.length>8&&h(PackSearchBox,{label:'搜索素材包',value:query,onChange:setQuery,className:'is-compact'}),
       list.length>0&&h('div',{className:'ap-target-list'},list.map(p=>h('button',{key:p.manifest.id,type:'button',role:'menuitem',className:'ap-menu-item',onClick:()=>{close();onPick({packId:p.manifest.id,name:p.manifest.name});}},p.manifest.name))));
   }
-  function EntryActionsMenu({packs,packId,busy,close,onCopy,remove,changeEnabled}) {
-    const [copying,setCopying]=React.useState(false);
-    if(copying)return h(PackTargetMenu,{packs,exclude:packId,close,onPick:onCopy});
+  // 复制到… / 移动到… open the same pack list; 移动 then asks once (MoveConfirm).
+  function EntryActionsMenu({packs,packId,busy,close,onCopy,onMove,remove,changeEnabled}) {
+    const [picking,setPicking]=React.useState(null);
+    if(picking)return h(PackTargetMenu,{packs,exclude:packId,close,onPick:picking==='move'?onMove:onCopy,createLabel:picking==='move'?'创建并移动':'创建并复制'});
     return h(React.Fragment,null,
       changeEnabled&&[true,false].map(enabled=>h(MenuItem,{key:String(enabled),disabled:busy,onClick:()=>{close();changeEnabled(enabled);}},enabled?'开启':'关闭')),
-      onCopy&&h(MenuItem,{disabled:busy,onClick:()=>setCopying(true)},'复制到…'),
-      (changeEnabled||onCopy)&&h('div',{className:'ap-menu-sep',role:'separator'}),remove(close));
+      onCopy&&h(MenuItem,{disabled:busy,onClick:()=>setPicking('copy')},'复制到…'),
+      onMove&&h(MenuItem,{disabled:busy,onClick:()=>setPicking('move')},'移动到…'),
+      (changeEnabled||onCopy||onMove)&&h('div',{className:'ap-menu-sep',role:'separator'}),remove(close));
+  }
+  // 移动到… asks once: what goes where, and — for the cards that use the source pack but not the target — whether to bind
+  // the target to them too (checked by default; unchecked, those cards and their saves no longer find the moved items).
+  function MoveConfirm({move,onClose}) {
+    const [bind,setBind]=React.useState(true);
+    const names=move.cards.map(card=>'「'+(card.name||card.path)+'」').join('、');
+    return h(ConfirmDialog,{title:'移动到「'+move.target.name+'」',confirmLabel:'移动',onClose,
+      body:(move.count>1?'这 '+move.count+' 项':'「'+move.label+'」')+'会从「'+move.source+'」搬到「'+move.target.name+'」，原包里不再有'+(move.count>1?'它们':'它')+'。旧存档照常显示。',
+      onConfirm:()=>{move.run(move.cards.length&&bind?move.cards:[]);}},
+      move.cards.length>0&&h('div',{className:'ap-move-bind'},
+        h('p',null,(move.cards.length>1?'这些卡':'这张卡')+'用着原包，但还没绑「'+move.target.name+'」：'),
+        h('button',{type:'button',role:'checkbox','aria-checked':bind,className:'ap-check-row',onClick:()=>setBind(v=>!v)},
+          h('span',{className:'ap-check-mark','aria-hidden':true},bind&&h(Glyph,{name:'check'})),h('span',null,'同时把「'+move.target.name+'」绑到'+names+(move.cards.length>1?' 这些卡上':' 卡上')))));
   }
   // Every still-image picker: explicit extensions, so the system file dialog lists them all; prepareImage decodes any of
   // them and re-encodes what the pack does not store (PNG / WebP) — a GIF becomes its first frame.
@@ -1246,9 +1261,9 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
       setSel(null);setDetail(false);stopSelect();setNotice({text:ids.length>1?'已删除 '+ids.length+' 项':k==='figures'?'已删除人物':'已删除'});onPacksChanged?.();
     });
     const removeEntry=(k,id)=>removeEntries(k,[id]),removeStyle=id=>removeEntries('directions',[id]);
-    const [confirm,setConfirm]=React.useState(null);
+    const [confirm,setConfirm]=React.useState(null),[moveAsk,setMoveAsk]=React.useState(null);
     // Right click or long press opens the single entry's actions.
-    const rowMenu=item=>close=>h(EntryActionsMenu,{packs:packs||[],packId,busy:work.busy,close,onCopy:target=>copyTo(target,item.id),
+    const rowMenu=item=>close=>h(EntryActionsMenu,{packs:packs||[],packId,busy:work.busy,close,onCopy:target=>copyTo(target,item.id),onMove:target=>moveTo(target,item.id),
       remove:current==='figures'?(done=>h(MenuItem,{danger:true,disabled:work.busy,onClick:()=>{done();
           askDelete(setConfirm,'asset-figure',{title:'删除人物「'+item.name+'」？',body:'从素材包「'+pack.manifest.name+'」中删除，所有使用此人物的卡都会受影响。',confirmLabel:'删除',danger:true},()=>removeEntries('figures',[item.id]));}},'删除人物…')):
         entryRemoveItem({asset:item,pack,remove:removeEntry,ask:setConfirm,onError:text=>setNotice({text})})});
@@ -1336,8 +1351,28 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
       } else result=await binding.service.copyItems({sourcePackId:packId,itemRefs,target:{newPackName:target.name}});
       stopSelect();setNotice({text:'已复制 '+ids.length+' 项到「'+target.name+'」',packId:result?.packId||target.packId});onPacksChanged?.();
     });
+    // 移动到…: moveItems keeps the items' ids (the stage finds them in whichever usable pack holds them). The cards that use
+    // this pack but not the target are offered the target's binding first, so their stories keep finding the items.
+    const moveTo=(target,only)=>work.task(async()=>{
+      const ids=only?[only]:pickedIds(),itemRefs=ids.map(id=>({kind:current,id}));
+      const global=binding.globalEnabledPackIds||[],using=async id=>(await binding.rpc('getAssetPackDependencies',{packId:id})).cards||[];
+      const inTarget=target.packId?new Set((await using(target.packId)).map(card=>card.path)):new Set();
+      const cards=target.packId&&global.includes(target.packId)?[]:(await using(packId)).filter(card=>!inTarget.has(card.path));
+      const first=packItems(pack,current).find(item=>item.id===ids[0]);
+      setMoveAsk({target,count:ids.length,label:first?.name||ids[0],source:pack.manifest.name,cards,run:bindTo=>work.task(async()=>{
+        const targetId=target.packId||(await binding.service.createPack({name:target.name,expectedRevision:null})).snapshot.manifest.id;
+        for(const card of bindTo){
+          const held=await binding.rpc('getCardAssetBindings',{path:card.path,metadataOnly:true}),bindings=held.extension.assetBindings;
+          if(!bindings.boundPackIds.includes(targetId))await binding.rpc('saveCardAssetBindings',{path:card.path,expectedRevision:held.revision,patch:{assetBindings:{...bindings,boundPackIds:[...bindings.boundPackIds,targetId]}}});
+        }
+        const fresh=id=>binding.service.getPackSnapshot({packId:id}).then(snapshot=>snapshot.revision);
+        const result=await binding.service.moveItems({sourcePackId:packId,sourceExpectedRevision:await fresh(packId),itemRefs,target:{packId:targetId,expectedRevision:await fresh(targetId)}});
+        stopSelect();setSel(null);setDetail(false);
+        setNotice({text:'已移动 '+ids.length+' 项到「'+target.name+'」'+(bindTo.length?'，并绑到 '+bindTo.length+' 张卡上':''),packId:result.packId});onPacksChanged?.();
+      })});
+    });
     // the figure page's ⋯ — 复制到… (copyItems) and 删除人物 (removeFigure, on the CAS queue).
-    const figureActions=id=>({packs:packs||[],packId,copy:target=>copyTo(target,id),
+    const figureActions=id=>({packs:packs||[],packId,copy:target=>copyTo(target,id),move:target=>moveTo(target,id),
       removeEmotion:emotionId=>enqueue(c=>binding.service.removeFigureEmotion({packId,expectedRevision:c.revision,figureId:id,emotionId})),
       // mark / unmark one outfit × 差分 as 「不需要（用默认图）」 on the CAS
       // queue. A conflict is not retried (the owner decides on what is current): the snapshot is reloaded and the error shown.
@@ -1415,7 +1450,7 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
       (needle||category||activeFilter!=='all')&&h('span',{className:'ap-select-scope'},'当前结果'),
       h(Button,{className:'ap-manage',disabled:work.busy,onClick:stopSelect},'取消'),
       h(Popover,{key:current,label:'批量操作',className:'ap-copy-anchor',float:true,trigger:({toggle:t,open})=>h(Button,{className:'ap-manage is-done','aria-label':'批量操作','aria-haspopup':'menu','aria-expanded':open,disabled:!pickedItems.length||work.busy,onClick:t},'操作',h(Glyph,{name:'chevDown'})),
-        content:closeMenu=>h(EntryActionsMenu,{packs:packs||[],packId,busy:work.busy,close:closeMenu,onCopy:stateless?null:copyTo,changeEnabled:stateless?null:changePickedEnabled,
+        content:closeMenu=>h(EntryActionsMenu,{packs:packs||[],packId,busy:work.busy,close:closeMenu,onCopy:stateless?null:copyTo,onMove:stateless?null:moveTo,changeEnabled:stateless?null:changePickedEnabled,
           remove:close=>h(MenuItem,{danger:true,onClick:()=>{close();askRemovePicked();}},'删除…')})}));
     const left=pack&&h('aside',{ref:leftRef,className:'ap-pack-left','data-selecting':selecting||undefined},
       h(PackKindNav,{manifest:pack.manifest,present,current,onSwitch:switchKind,newMenu:h(NewEntryMenu,{current,disabled:work.busy,onPick:k=>createBlankEntry(k)})}),
@@ -1462,7 +1497,7 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
       pack&&modelImport&&h(ModelImportSheet,{binding,pack,pending:modelImport.pending,fixed:modelImport.fixed,onClose:()=>setModelImport(null),onImport:importModelHere}),
       pack&&automaticReview&&h(AutomaticWriteReview,{binding,packId,onClose:()=>setAutomaticReview(false),onChanged:automaticChanged}),
       pack&&tagSheet&&h(TagIconsSheet,{binding,pack,save:saveTagIcons,upload:uploadTagIcon,onClose:()=>setTagSheet(false)}),
-      confirm&&h(ConfirmDialog,{...confirm,onClose:()=>setConfirm(null)}));
+      confirm&&h(ConfirmDialog,{...confirm,onClose:()=>setConfirm(null)}),moveAsk&&h(MoveConfirm,{move:moveAsk,onClose:()=>setMoveAsk(null)}));
   }
   // 素材包 ⋯ › 标签图标. An 物品 without its own picture shows the icon of its deepest
   // tag from the same pack (assetTags.icon); the icons travel with the pack. The strip is one chip per icon (picture · tag)

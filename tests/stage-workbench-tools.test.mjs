@@ -28,10 +28,10 @@ test('the stage registers its workbench tools for the card workbench only, each 
   const names=[...registered.keys()]
   assert.deepEqual(names.toSorted(),WORKBENCH_TOOL_NAMES.toSorted())
   for(const name of names) {assert.deepEqual(modes.get(name),['card']);assertSupportedJsonSchema(registered.get(name).parameters)}
-  // Compiled schemas stay small: at most 10 KiB per Skill, 25 KiB together, nothing before a Skill loads.
-  // stage-assets is the one 素材库 Skill (packs, figures, voice, generation, transfer): its tasks share one
-  // entry and its references load on demand, so it carries all seven asset tools (about 15 KiB) under 16 KiB.
-  const skillLimit=skill=>skill==='stage-assets'?16*1024:10*1024
+  // Compiled schemas stay small: 25 KiB together, nothing before a Skill loads. `stage` is the one stage Skill (setup,
+  // assets, voice, directing, mods, sharing): its references load on demand and it carries every stage tool, within the
+  // same 25 KiB; any other Skill stays under 10 KiB.
+  const skillLimit=skill=>skill==='stage'?25*1024:10*1024
   const size=name=>{const {description,parameters}=registered.get(name);return Buffer.byteLength(JSON.stringify({name,description,parameters}))+1}
   const visible=createSkillGatedTools({pluginSkills:name=>skills.get(name) || null})
   assert.deepEqual(visible(names,{id:'empty',events:[]}),[])

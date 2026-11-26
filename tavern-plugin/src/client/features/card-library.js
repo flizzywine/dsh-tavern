@@ -228,8 +228,7 @@ function WorldBookAddMenu({ choices, loading, disabled, onOpen, onPick, label = 
 					} });
 					setImportStatus(saved.said);
 				} catch (error) {
-					// the save takes back a half-written file; a failure before it leaves the empty file the dialog made.
-					if (!saving && target?.file) await target.file.remove?.().catch(function () {});
+					if (!saving && target?.empty) await target.file.remove?.().catch(function () {});
 					setError(error);
 				}
 				finally { progress.close(); setBusy(false); }
@@ -269,7 +268,7 @@ function WorldBookAddMenu({ choices, loading, disabled, onOpen, onPick, label = 
 			const visible = organization.visible;
 			// "@" quotes a card into the card workspace conversation; only there does it mean anything.
 			const mentionButton = sessionMode === "card" ? function (item) { return h("button", { type: "button", className: "dsh-tavern-card-mention", title: "在对话中引用", "aria-label": "在对话中引用：" + item.name, onClick: function (event) { event.stopPropagation(); props.appendMention(item.path, item.name); } }, "@"); } : null;
-			return h("div", { className: "dsh-tavern-library dsh-tavern-card-library", 'aria-busy': !!transferStatus },
+			return h("div", { className: "dsh-tavern-library dsh-tavern-card-library", 'aria-busy': !!transferStatus, ...tavernCardDropHandlers(importCardFiles) },
 				h("div", { className: "dsh-tavern-status-head" }, h("div", { className: "dsh-tavern-status-title" }, "人物卡库"),
 					h("div", { className: "dsh-tavern-library-head-actions" },
 						h(MobileCardImportButton, { inputRef: importInput, activateRef: mobileImport, batch: false, disabled: busy, onImported: async function (imported) { await refreshCards(); await loadCard(imported.path); notifyTavernDataChanged(["cards"], "cards"); } }),
@@ -558,13 +557,14 @@ function WorldBookAddMenu({ choices, loading, disabled, onOpen, onPick, label = 
 				extensionCount === 0 && mvuResources.length === 0 ? h("div", { className: "dsh-tavern-worldbook-empty" }, "这张人物卡没有可展示的扩展内容") : null
 			);
 			const selectableResources = availableResources.filter(function (item) { return !Array.isArray(item.boundCards) || item.boundCards.length === 0 || item.boundCards.some(function (boundCard) { return boundCard.path === cardPath; }); });
-			// 剧本 is one row: the bound script, or 未绑定; the menu binds another, imports one (and binds it) or unbinds.
+			// 剧本 is one row while a script is bound (its menu binds another, imports one and binds it, or 未绑定 unbinds); unbound it
+			// is the first dashed 「＋ 剧本」 chip, which opens the same menu.
 			const SCRIPT_IMPORT = "\u0000import";
-			const scriptOptions = [{ value: "", label: "未绑定" }]
+			const scriptOptions = (script ? [{ value: "", label: "未绑定" }] : [])
 				.concat(selectableResources.map(function (item) { return { value: item.path, label: item.title, note: item.path === (script && script.path) && script.chunkCount ? script.chunkCount + " 段" : undefined }; }))
 				.concat(script && !selectableResources.some(function (item) { return item.path === script.path; }) ? [{ value: script.path, label: script.title }] : [])
 				.concat([{ value: SCRIPT_IMPORT, label: "导入新剧本…" }]);
-			const scriptField = h(InlineField, { key: "script", kind: "menu", label: "剧本", value: script ? script.path : "", options: scriptOptions, disabled: scriptBusy, wide: true,
+			const scriptField = h(InlineField, { key: "script", kind: "menu", label: "剧本", value: script ? script.path : "", options: scriptOptions, disabled: scriptBusy, wide: true, hideEmpty: true,
 				help: h(HelpTip, { label: "剧本说明" }, "绑定后，新开的游玩按剧本分段推进；更换或解绑会影响用这张卡的剧本对话。"),
 				onCommit: function (value) {
 					if (value === SCRIPT_IMPORT) { if (scriptFileRef.current) scriptFileRef.current.click(); return; }
@@ -631,8 +631,9 @@ function WorldBookAddMenu({ choices, loading, disabled, onOpen, onPick, label = 
 				h("div", { className: "dsh-card-banner", "data-empty": coverUrl ? undefined : true }, coverUrl ? h("img", { className: "dsh-card-banner-bg", src: coverUrl, alt: "", "aria-hidden": true }) : null),
 				h("div", { className: "dsh-card-title-row" }, back, name, more),
 				h("div", { className: "dsh-card-hero" }, cover, h("div", { className: "dsh-card-side" }, props.organizationSettings, h("div", { className: "dsh-card-counts" }, counts))));
-			const textFields = [F("description", "角色描述"), F("personality", "性格"), F("scenario", "场景设定"), F("mes_example", "对话示例"),
-				F("system_prompt", "系统提示"), F("post_history_instructions", "历史后指令"), F("creator_notes", "创作者备注"), scriptField];
+			const cardTextFields = [F("description", "角色描述"), F("personality", "性格"), F("scenario", "场景设定"), F("mes_example", "对话示例"),
+				F("system_prompt", "系统提示"), F("post_history_instructions", "历史后指令"), F("creator_notes", "创作者备注")];
+			const textFields = script ? cardTextFields.concat([scriptField]) : [scriptField].concat(cardTextFields);
 			const greetings = [fold("first_mes", "开场白", String(card.first_mes || ""), function (v) { return commitField("first_mes", v); })].concat(alternates.map(alternateField),
 				[h(InlineField, { key: "alt-new-" + alternates.length, kind: "text", multiline: true, lines: true, wide: true, hideEmpty: true, label: "备选开场白", value: "",
 					onCommit: function (v) { if (v.trim()) return commitField("alternate_greetings", alternates.concat([v])); } })]);

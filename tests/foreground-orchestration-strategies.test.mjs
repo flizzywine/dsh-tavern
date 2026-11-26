@@ -6,8 +6,10 @@ import { sessionEvents } from '../tavern-plugin/lib/domain/session-events.js'
 import { dshFileToolNames } from '../tavern-plugin/lib/domain/turn-orchestration.js'
 import { createForegroundOrchestrationStrategies, createNativePlayOrchestrationStrategy } from "../tavern-plugin/lib/domain/foreground-orchestration-strategies.js"
 import { ensureSessionStablePrefix, sessionStablePrefixSections } from '../tavern-plugin/lib/domain/session-stable-prefix.js'
-import { ensureSessionSeedTrajectory } from '../tavern-plugin/lib/domain/session-seed-trajectory.js'
+import { pureWritingSystem } from '../tavern-plugin/lib/domain/pure-writing-request.js'
 import { createSkillGatedTools } from '../tavern-plugin/lib/domain/skill-gated-tools.js'
+import { foregroundStyleReferenceEnabled, foregroundStyleReferencePrompt, foregroundStyleReferenceTurnSection } from '../tavern-plugin/lib/domain/style-reference.js'
+import { STYLE_REFERENCE_TOOL_NAME } from '../tavern-plugin/lib/domain/style-reference-protocol.cjs'
 
 function userMessage(text) {
   return { role: 'user', content: [{ type: 'text', text }], source: { kind: 'user' } }
@@ -43,13 +45,94 @@ function strategies(overrides = {}) {
   return { value: createForegroundOrchestrationStrategies(options), calls, chats }
 }
 
+test('关闭文风联想后，发送与重复重写都清理历史提示和工具记录', async () => {
+  const style = { name: STYLE_REFERENCE_TOOL_NAME }
+  const other = { name: 'tavern_read_variables' }
+  const chat = { mode: 'story', backgroundTasks: { styleReference: true } }
+  const strategy = createNativePlayOrchestrationStrategy({
+    modeFor: async () => 'story', filterMessages: messages => messages, resolvePreset: async () => null,
+    visibleTools: async () => [other.name, ...(foregroundStyleReferenceEnabled(chat) ? [style.name] : [])],
+    controlledToolNames: new Set([style.name, other.name]),
+    styleReferencePrompt: value => foregroundStyleReferencePrompt(value, '选择范文', '借鉴笔调'),
+    prepareTurn: async ({ userText }) => ({ frame: { userInput: { projectedText: userText } } }),
+    appendFrame: ({ messages }) => ({ messages, receipt: {} }), recordFrame() {}
+  })
+  const reminder = foregroundStyleReferenceTurnSection(chat).text
+  const call = (id, name) => ({ type: 'tool-call', id, name, arguments: '{}' })
+  const result = (toolCallId, text) => ({ role: 'tool', toolCallId, content: [{ type: 'text', text }] })
+  const priorInput = userMessage('上一轮玩家输入')
+  const history = [
+    priorInput,
+    { ...pluginMessage('user', '保留设定\n\n' + reminder, 'dsh-tavern', 'foreground-frame'), id: 'frame',
+      source: { kind: 'plugin:dsh-tavern', form: 'foreground-frame', sections: [
+        { text: '保留设定', source: { stage: 'context-plan', sectionKind: 'card' } },
+        { text: reminder, source: { stage: 'plugin', plugin: 'dsh-tavern', name: 'style-reference' } }
+      ] } },
+    { role: 'assistant', id: 'mixed', content: [
+      { type: 'reasoning', text: '先用文风工具找范文' },
+      call('style', style.name), call('other', other.name)
+    ], source: { kind: 'model', replayState: { blocks: [{ type: 'reasoning' }, { type: 'tool-call' }, { type: 'tool-call' }] } } },
+    result('style', '旧范文正文'), result('other', '变量结果'),
+    { role: 'assistant', content: [
+      { type: 'reasoning', text: '读过 <foreground_style_reference> 的要求' },
+      { type: 'text', text: '<style_reference_submit">门开了。' }
+    ] }
+  ]
+  const saved = structuredClone(history)
+  const current = userMessage('继续')
+  const oldSystem = foregroundStyleReferencePrompt(chat, '选择范文', '借鉴笔调')
+  const assembly = () => strategy.assembleSystemPrompt({ tools: [style, other] }, { chat, sessionId: 'game' })
+  async function prepare(turn, incoming) {
+    const assembled = await assembly()
+    const step = await strategy.prepareStep({ sessionId: 'game', chat, payload: { turn, step: 1, messages: [incoming] }, decision: { messages: [incoming] } })
+    return { assembled, step }
+  }
+  const { assembled, step } = await prepare(2, current)
+  assert.deepEqual(assembled.tools, [style, other])
+  assert.ok(assembled.sections.some(section => section.text === oldSystem))
+  assert.equal(step.startsRequestSeries, true)
+
+  const oldRequest = {
+    sessionId: 'game', messages: history, system: oldSystem + '\n\n人物卡',
+    tools: [style, other], toolHistory: { tools: [style, other], updates: [] }
+  }
+  assert.equal(strategy.projectRequest(oldRequest), null, '开启时允许回放文风工具')
+  for (const turn of [3, 4, 5, 6]) {
+    // Either of the two controls can remove the tool.
+    chat.backgroundTasks.styleReference = turn === 3
+    chat.disabledForegroundTools = turn === 3 ? [style.name] : []
+    const reroll = turn > 3
+    const incoming = reroll ? pluginMessage('user', '改写这一轮', 'dsh-tavern-regen') : current
+    const off = await prepare(turn, incoming)
+    assert.deepEqual(off.assembled.tools, [other])
+    assert.equal(off.assembled.sections.some(section => section.name === 'tavern:foreground-style-reference'), false)
+    assert.equal(foregroundStyleReferenceTurnSection(chat), null)
+    assert.equal(off.step.startsRequestSeries, turn === 3 ? true : undefined)
+    const messages = [...history, current]
+    if (reroll) {
+      messages.push({ role: 'assistant', content: [{ type: 'text', text: '上一次尝试' }] }, ...off.step.messages,
+        { ...pluginMessage('user', reminder, 'dsh-tavern', 'foreground-frame'), id: 'cached-frame' })
+    }
+    const projected = strategy.projectRequest({ ...oldRequest, messages })
+    const wire = JSON.stringify(projected)
+    assert.doesNotMatch(wire, /style_reference|旧范文|先用文风工具|上一次尝试/)
+    assert.match(wire, /保留设定/)
+    assert.match(wire, /门开了/)
+    assert.ok(projected.messages.includes(history[4]), '同一批工具调用的其他结果原样保留')
+    assert.deepEqual(projected.messages.find(message => message.id === 'mixed').content, [call('other', other.name)])
+    assert.ok(!projected.messages.some(message => message.id === 'cached-frame'))
+    assert.deepEqual(projected.tools, [other])
+    assert.ok(!projected.toolHistory)
+  }
+  assert.deepEqual(history, saved)
+})
+
 test('游玩固定背景来自原生系统装配，预设前后段保持顺序，快照不重复发送', async () => {
   const session = Session.create('native')
   const savedPrefixes = new Map()
   const storage = { async read(id) { return savedPrefixes.get(id) }, async write(id, value) { savedPrefixes.set(id, value) } }
   let cardText = '人物卡固定基本信息\n常驻世界书'
   await ensureSessionStablePrefix(session, cardText, storage)
-  await ensureSessionSeedTrajectory(session)
   const run = strategies({ nativePlay: {
     async modeFor() { return 'story' },
     filterMessages(messages) { return messages },
@@ -83,7 +166,6 @@ test('游玩固定背景来自原生系统装配，预设前后段保持顺序�
     assert.equal(prepared.startsRequestSeries, turn === 2 ? true : undefined, '首次或预设前段变化时才开始新请求序列')
     const request = run.value.projectRequest({ sessionId: 'native', system, messages: modelMessages })
     assert.deepEqual(request.messages.map(message => message.role), ['user'])
-    assert.match(request.messages[0].content.map(block => block.text).join('\n'), /我们正在共同创作[\s\S]*开始。请从人物卡给定的开场继续。/)
     assert.equal(request.system, system, '系统提示原样保留，不再在请求边界拆分')
     assert.equal(request.messages.at(-1).role, 'user', '本轮指令和预设后段保持 user 语义')
     assert.match(request.messages.at(-1).content[0].text, /本轮动态指令\n\n预设后置指令$/)
@@ -421,3 +503,20 @@ test('ensureSessionStablePrefix：revision 递增但前缀正文未变化时不�
 })
 
 
+
+
+test('pure writing protects saved worldbook macros from host interpolation and includes the resolved constants', async () => {
+  const strategy = createNativePlayOrchestrationStrategy({})
+  const macro = '当前状态：{{get_message_variable::stat_data.game._context}}'
+  const assembly = await strategy.assembleSystemPrompt({ sections: [] }, { pureWriter: true,
+    fixedSystemSections: [{ name: 'tavern:constant-worldbook', text: macro }] })
+  assert.deepEqual(assembly.sections, [{ name: 'tavern:constant-worldbook', text: macro, interpolate: false }])
+
+  const frame = { contributions: [], source: {
+    worldBook: { messageVariableConstantRefs: ['current-state'] },
+    regenerationMaterials: { worldbookEntries: [
+      { ref: 'current-state', text: '当前状态：港口已开放' }, { ref: 'optional', text: '支线资料' }
+    ] }
+  } }
+  assert.equal(pureWritingSystem([], frame), '<lorebook_constant>\n当前状态：港口已开放\n</lorebook_constant>')
+})

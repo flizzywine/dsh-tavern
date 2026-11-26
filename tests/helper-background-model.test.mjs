@@ -27,3 +27,21 @@ test('MVU settings expose the usable host proxy without persisting its adapter c
     assert.equal(restored.额外模型解析配置.温度,0.7)
   } finally {w.close()}
 })
+
+test('only the official MVU core sees the host settlement mode override', () => {
+  const dom = new JSDOM('<body></body>')
+  let context = { mvuSettlement: 'host' }
+  const bridge = install({ window: dom.window, context: () => context })
+  try {
+    const saved = { 更新方式: '额外模型解析', 额外模型解析配置: { 温度: 0.5 } }
+    const publicSettings = bridge.projectMvuSettings(saved)
+    const officialSettings = bridge.projectMvuSettings(saved, true)
+    assert.equal(publicSettings.更新方式, '额外模型解析')
+    assert.equal(officialSettings.更新方式, '随AI输出')
+    const updated = { ...saved, 更新方式: '随AI输出' }
+    assert.equal(bridge.normalizeMvuSettings(updated, saved).更新方式, '随AI输出')
+    assert.equal(bridge.normalizeMvuSettings(updated, saved, true).更新方式, '额外模型解析')
+    context = { mvuSettlement: 'script' }
+    assert.equal(officialSettings.更新方式, '额外模型解析')
+  } finally { dom.window.close() }
+})

@@ -1,3 +1,4 @@
+import { resolveChatBackgroundModel } from '../domain/background-model-selection.js'
 import { redactMvuLoadError, sanitizeModuleFailure, sanitizeMvuLoadDiagnostic } from '../domain/mvu-diagnostics.js'
 import { saveSessionIds } from '../domain/save-upgrade.js'
 import { exportSessionDiagnostics } from '../domain/session-diagnostics.js'
@@ -10,9 +11,10 @@ import path from 'node:path'
 export function createMaintenanceHandlers(deps) {
   const { TAVERN_PACKAGE_VERSION, agentRegistry, applicationUpdater, attachPlayChatDebug,
     backgroundAgentRunner, chatForSession, chatHeaderForSession, compatibilityDiagnostics, ctx,
-    displayRuntimeCaptures, exportTavernLogs, hostCompatibility, modelRequestLog, mvuDiagnostics,
-    pluginApi, preparedSaveSessions, readChat, readChatCard, readSessionMap, saveUpgrade, sessionPatch,
-    sessionStateForSession, sessionStore, str, worldbookRecallLog } = deps
+    displayRuntimeCaptures, exportTavernLogs, hostCompatibility, llm, modelRequestLog, modelSelection,
+    mvuDiagnostics, pluginApi, preparedSaveSessions, readChat, readChatCard, readSessionMap,
+    readTavernSettings, saveUpgrade, sessionPatch, sessionStateForSession, sessionStore, str,
+    worldbookRecallLog } = deps
   const handlers = {
     async getSaveUpgrade(args, method) {
       const chatId = (await readSessionMap())[str(args?.sessionId)]
@@ -87,12 +89,57 @@ export function createMaintenanceHandlers(deps) {
       // A forked game has a parentSession too, but its requests are filed under its own chat.
       const own = background ? undefined : await sessionStateForSession(sessionId)
       const chat = own || await sessionStateForSession(background?.parentSessionId || session?.header?.parentSession || sessionId)
+      const requestedScope = args?.scope === 'background' || args?.scope === 'foreground' ? args.scope : ''
+      const effectiveScope = background ? 'background' : (requestedScope || 'foreground')
       const knownStatus = str(args?.knownStatus)
       const latestOptions = {
         ...(knownStatus ? { knownStatus } : {}),
-        ...(own ? { scope: 'foreground' } : {})
+        ...(background ? {} : (own || requestedScope ? { scope: effectiveScope } : {}))
       }
-      return { record: await modelRequestLog.latestForSession(sessionId, str(args?.knownId), chat?.id, Object.keys(latestOptions).length ? latestOptions : undefined) }
+      const record = await modelRequestLog.latestForSession(sessionId, str(args?.knownId), chat?.id, Object.keys(latestOptions).length ? latestOptions : undefined)
+      if (record?.unchanged && args?.includeMeta !== true) return { record }
+
+      const settings = typeof readTavernSettings === 'function' ? await readTavernSettings().catch(() => null) : null
+      const compactionPolicy = settings?.contextCompaction || null
+      const reqProvider = record && !record.unchanged ? (record.provider || record.request?.provider) : ''
+      const reqModel = record && !record.unchanged ? (record.model || record.request?.model) : ''
+      let route = (reqProvider && reqModel)
+        ? { provider: reqProvider, model: reqModel }
+        : null
+      if (!route && typeof modelSelection === 'function') {
+        const fgSelection = modelSelection(sessionId)
+        route = effectiveScope === 'background'
+          ? resolveChatBackgroundModel(chat, fgSelection, settings)
+          : fgSelection
+      }
+      const modelResolver = llm || ctx?.llm
+      let contextWindow = null
+      if (route?.provider && route?.model && typeof modelResolver?.resolveModelInfo === 'function') {
+        const info = await Promise.resolve(modelResolver.resolveModelInfo(route.provider, route.model)).catch(() => null)
+        const cw = Number(info?.context?.contextWindow)
+        if (Number.isFinite(cw) && cw > 0) contextWindow = cw
+      }
+      const entries = chat?.id && typeof modelRequestLog?.list === 'function'
+        ? await modelRequestLog.list(chat.id).catch(() => [])
+        : []
+      const hasBackground = record?.scope === 'background' || entries.some(item => item.scope === 'background')
+      const recentSeries = chat?.id && typeof modelRequestLog?.recentSeries === 'function'
+        ? await modelRequestLog.recentSeries(chat.id, {
+          scope: effectiveScope,
+          sessionId: effectiveScope === 'background' && !background ? '' : sessionId,
+          limit: 12
+        }).catch(() => [])
+        : []
+      return {
+        record,
+        meta: {
+          scope: effectiveScope,
+          contextWindow,
+          compactionPolicy,
+          hasBackground,
+          recentSeries
+        }
+      }
     },
     async exportTavernLogs(args) {
       return await exportTavernLogs(args && args.sessionId)

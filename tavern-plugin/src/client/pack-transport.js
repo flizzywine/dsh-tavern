@@ -11,7 +11,7 @@ async function pickExportTarget({name, many = false, description = 'ZIP 压缩�
     if (many ? typeof window.showDirectoryPicker !== 'function' : typeof window.showSaveFilePicker !== 'function') return null;
     if (many) return {folder:await window.showDirectoryPicker({id:'dsh-export', mode:'readwrite', startIn:'downloads'})};
     const file = await window.showSaveFilePicker({id:'dsh-export', startIn:'downloads', suggestedName:exportFileName(name) + extension, types:[{description, accept:{[type]:[extension]}}]});
-    return {file};
+    return {file, empty:(await file.getFile()).size === 0};
 }
 // saveExportFile(result, {target, name, onProgress, signal}) writes each archive of an export result ({download:{ticket}},
 // {url[, size]} of a GET that streams the file, or {bytes}) to the picked target, streamed to disk with onProgress({loaded,
@@ -44,15 +44,17 @@ async function saveExportFile(result, {target = null, name, onProgress, signal} 
         stall?.arm(() => 0, archive.size || 0);
         const response = await fetch(source(archive), {credentials:'same-origin', signal:stall?.signal || signal});
         if (!response.ok) { const text = await response.text().catch(() => ''); const code = response.headers.get('x-dsh-error-code'); throw Object.assign(new Error(text || 'HTTP ' + response.status), {status:response.status, ...(code ? {code} : {})}); }
-        // `size`: the host's own count of the file's bytes, for a response that lost its length on the way.
-        const total = lastTotal = Number(response.headers.get('content-length')) || archive.size || 0;
-        // at most ~8 progress reports a second: one per chunk re-renders the page thousands of times for a large file.
+        const declared = Number(response.headers.get('content-length')) || 0;
+        const total = lastTotal = archive.size || declared;
+        const wrongSize = size => new Error('下载的文件为 ' + size + ' 字节，应为 ' + total + ' 字节，未保存');
+        if (archive.size && declared && declared !== total) { await response.body.cancel(); throw wrongSize(declared); }
+        // Check the length before pipeTo can close (commit) the browser's temporary file.
         let loaded = 0, shown = 0;
         onProgress?.({loaded, total});
         stall?.arm(() => loaded, total);
         return response.body.pipeThrough(new TransformStream({
-            transform(chunk, out) { loaded += chunk.byteLength; stall?.arm(() => loaded, total); const now = performance.now(); if (now - shown > 120) { shown = now; onProgress?.({loaded, total}); } out.enqueue(chunk); },
-            flush() { stall?.done(); onProgress?.({loaded, total}); }}));
+            transform(chunk, out) { loaded += chunk.byteLength; if (total && loaded > total) throw wrongSize(loaded); stall?.arm(() => loaded, total); const now = performance.now(); if (now - shown > 120) { shown = now; onProgress?.({loaded, total}); } out.enqueue(chunk); },
+            flush() { stall?.done(); onProgress?.({loaded, total}); if (total && loaded !== total) throw wrongSize(loaded); }}));
     }
     // the save's own abort: the caller's signal, or the stall timer with its reason.
     function stallGuard() {
@@ -70,6 +72,8 @@ async function saveExportFile(result, {target = null, name, onProgress, signal} 
         if (target) {
             const handle = target.file || await target.folder.getFileHandle(filename, {create:true});
             const stall = archive.bytes ? null : stallGuard();
+            const empty = target.file ? target.empty : (await handle.getFile()).size === 0;
+            let committed = false;
             try {
                 for (let tries = 1; ; tries++) {
                     let writable;
@@ -79,6 +83,7 @@ async function saveExportFile(result, {target = null, name, onProgress, signal} 
                         const body = archive.bytes ? new Blob([archive.bytes]).stream() : (await open(archive, stall)).pipeThrough(batchWrites(SAVE_WRITE_BYTES));
                         // pipeTo commits the file (the .crswap is renamed) when the body ends and discards the write on failure.
                         await body.pipeTo(writable, {signal:stall?.signal || signal});
+                        committed = true;
                         break;
                     } catch (error) {
                         if (!writable && target.file && archives.length === 1 &&
@@ -98,7 +103,7 @@ async function saveExportFile(result, {target = null, name, onProgress, signal} 
                     continue;
                 }
             } catch (error) {
-                await handle.remove?.().catch(() => {});
+                if (empty || committed) await handle.remove?.().catch(() => {});
                 throw stall?.signal.aborted && !signal?.aborted ? stall.signal.reason : error;
             } finally { stall?.done(); }
         }
@@ -241,7 +246,7 @@ function createPackTransport({fetch: request = fetch, interval = 2000, subscribe
             return result;
         } finally { for (const ticket of tickets) void control('discardUpload',{ticket}).catch(() => {}); }
     }
-    const methods = ['listAutomaticWrites','reviewAutomaticWrite','undoAutomaticWrite','listPackSummaries','getPackSnapshot','createPack','patchPack','removePack','putBlob','removeBlob','putBundle','removeBundle','createFigure','patchFigure','removeFigure','removeFigureEmotion','setFigureEmotionFallback','createSimpleSprite','setFigureAvatarCrop','copyFigure','copyItems','resolveAssets','resolveFigures','inspectImport','applyImport','exportPack','exportPacks','exportCardBundle','inspectCardBundle','previewCardBundleDecisions','applyCardBundle','leaseMedia','leaseBundle',
+    const methods = ['listAutomaticWrites','reviewAutomaticWrite','undoAutomaticWrite','listPackSummaries','getPackSnapshot','createPack','patchPack','removePack','putBlob','removeBlob','putBundle','removeBundle','createFigure','patchFigure','removeFigure','removeFigureEmotion','setFigureEmotionFallback','createSimpleSprite','setFigureAvatarCrop','copyFigure','copyItems','moveItems','resolveAssets','resolveFigures','inspectImport','applyImport','exportPack','exportPacks','exportCardBundle','inspectCardBundle','previewCardBundleDecisions','applyCardBundle','leaseMedia','leaseBundle',
         // the figure voice page writes through the same carrier.
         'savePackVoice','saveFigureVoiceBinding','createAndAssignPackVoice','savePackVoiceVariant','deletePackVoiceVariant','listVoiceCatalogue','listVoiceTemplates','saveVoiceTemplate','deleteVoiceTemplate','assignVoiceTemplate','assignPackVoiceCopy','deletePackVoice',
         // same authenticated control port; offered by the UI only with 'url-install'.

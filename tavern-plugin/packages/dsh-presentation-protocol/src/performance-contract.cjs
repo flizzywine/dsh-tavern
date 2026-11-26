@@ -10,7 +10,6 @@ function validateStagePerformance(document) {
     // levels/overlays use the shared skin format, not another renderer.
     if(document.theme) validateStageSkin(document.theme);
     check(document.legacySkinId === undefined || document.legacySkinId === document.theme?.id,'Historical skin alias must match embedded theme');
-    check(!document.theme?.license?.privateUse || document.license.privateUse,'Private theme cannot be relabelled public');
     check(!Object.hasOwn(document.packs,'self'),'self is the owning pack, not an overridable alias');
     for (const id of Object.values(document.packs)) check(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(id),'Invalid performance pack UUID');
     check(!document.levels || Object.hasOwn(document.levels,String(document.levels.default)),'Default performance level must be declared');

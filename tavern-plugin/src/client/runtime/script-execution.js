@@ -543,10 +543,10 @@
 		function TavernMvuLoadRecovery(props) {
 			const state = props.state;
 			if (!state || state.phase === "ready") return null;
-			const companionTimeout = state.phase === "companion-timeout";
-			const failed = state.phase === "failed" || state.phase === "error" || companionTimeout;
+			const companionFailed = state.phase === "companion-failed" || state.phase === "companion-timeout";
+			const failed = state.phase === "failed" || state.phase === "error" || companionFailed;
 			let message;
-			if (companionTimeout) message = "配套脚本初始化超时，变量结算已暂停。可以重新加载人物卡脚本后继续。";
+			if (companionFailed) message = (state.phase === "companion-timeout" ? "配套脚本初始化超时" : "配套脚本初始化失败") + "，变量结算已暂停。可以重新加载人物卡脚本后继续。";
 			else if (state.phase === "failed") message = "MVU 下载失败，已自动重试两次。变量结算已暂停，重新加载成功后会自动继续。";
 			else if (state.phase === "error") message = "MVU 初始化失败，请刷新页面或重启酒馆。为避免重复修改变量，不自动重跑初始化。";
 			else if (state.phase === "evaluating") message = "正在初始化 MVU…";
@@ -554,5 +554,5 @@
 			return React.createElement("div", { role: failed ? "alert" : "status", style: { padding: "8px 12px", fontSize: "13px", maxWidth: "min(420px, 80vw)" } },
 				React.createElement("div", null, message),
 				failed && state.error ? React.createElement("div", { style: { color: "var(--fork-ink-2, inherit)", overflowWrap: "anywhere" } }, state.error) : null,
-				state.canRetry ? React.createElement("button", { type: "button", className: "dsh-tavern-btn", onClick: props.retry }, companionTimeout ? "重新加载人物卡脚本" : "重新加载 MVU") : null);
+				state.canRetry ? React.createElement("button", { type: "button", className: "dsh-tavern-btn", onClick: props.retry }, companionFailed ? "重新加载人物卡脚本" : "重新加载 MVU") : null);
 		}

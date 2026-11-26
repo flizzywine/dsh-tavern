@@ -303,6 +303,66 @@ function sandbox(options = {}) {
   return Object.assign(h, { runtime, frames, calls, mutations, errors, load, ready, message, respond(fn) { respond = fn } })
 }
 
+for (const refreshFirst of [false, true]) test(`换开场后重建 MVU，${refreshFirst ? '先收到新视图' : '先收到旧写入拒绝'}`, async t => {
+  const h = sandbox(), oldWrite = deferred()
+  t.after(() => h.runtime.dispose())
+  const opening = mvuView(), switched = mvuView()
+  opening.tavernHelper.openingHost = { version: 'first' }
+  switched.tavernHelper.openingHost = { version: 'second' }
+  switched.tavernHelper.lifecycleRevision = 2
+  switched.tavernHelper.messages[0].variables = {}
+  h.runtime.sync('A', opening)
+  const first = h.frames[0]
+  h.load(first)
+  h.message(first, 'dsh-tavern-helper-subscriptions', { ready: true, names: [], scripts: [
+    { id: '__dsh_official_mvu__', ready: true }, { id: 'script', ready: true }
+  ] })
+  assert.equal(h.runtime.inspect().mvuDataReady, true)
+  h.respond(method => method === 'updateTavernHelperVariables' ? oldWrite.promise : Promise.resolve({}))
+  h.message(first, 'dsh-tavern-helper-call', {
+    requestId: 'old-init', method: 'updateTavernHelperVariables', lifecycleRevision: 1,
+    scriptId: '__dsh_official_mvu__', args: { option: { type: 'chat' }, variables: { stat_data: { hp: 10 } } }
+  })
+  await tick()
+  assert.equal(h.calls.at(-1).args.expectedLifecycleRevision, 1)
+
+  if (refreshFirst) h.runtime.sync('A', switched)
+  oldWrite.resolve({ updated: false, stale: true, context: { chatId: opening.chatId, lifecycleRevision: 2 } })
+  await tick()
+  assert.equal(first.removed, true)
+  assert.equal(first.contentWindow.messages.some(message => message.requestId === 'old-init'), false)
+  if (!refreshFirst) {
+    assert.equal(h.mutations.length, 1, 'request the committed view after rejecting the old write')
+    h.runtime.sync('A', opening)
+    assert.equal(h.frames.length, 1, 'a cached view must not restart the old opening')
+    h.runtime.sync('A', switched)
+  }
+  assert.equal(h.frames.length, 2)
+  const next = h.frames[1]
+  h.load(next)
+  const nextContext = next.contentWindow.messages.find(message => message.type === 'dsh-tavern-helper-context').context
+  assert.equal(nextContext.lifecycleRevision, 2)
+  assert.deepEqual(nextContext.messages[0].variables, {})
+  assert.deepEqual(h.errors, [])
+})
+
+test('同一个开场中的变量写入冲突仍返回给脚本', async t => {
+  const h = sandbox(), opening = mvuView()
+  t.after(() => h.runtime.dispose())
+  opening.tavernHelper.openingHost = { version: 'first' }
+  h.runtime.sync('A', opening)
+  const frame = h.frames[0]
+  h.load(frame)
+  h.respond(async () => ({ updated: false, stale: true, context: { chatId: opening.chatId, lifecycleRevision: 1 } }))
+  h.message(frame, 'dsh-tavern-helper-call', {
+    requestId: 'conflict', method: 'updateTavernHelperVariables', lifecycleRevision: 1,
+    scriptId: '__dsh_official_mvu__', args: { option: { type: 'chat' }, variables: {} }
+  })
+  await tick()
+  assert.equal(frame.contentWindow.messages.find(message => message.requestId === 'conflict').result.stale, true)
+  assert.equal(h.runtime.inspect().frameCount, 1)
+})
+
 test('helper sandbox accepts nested worldbooks and legacy aliases without overwriting explicit null', () => {
   for (const nested of [undefined, null, { entries: [{ content: 'nested' }] }]) {
     const h = sandbox(), input = view()
@@ -408,6 +468,45 @@ test('MVU 配套脚本各自有初始化期限，超时后可重建沙箱并继�
   assert.equal(states.at(-1).phase, 'ready')
   assert.equal(h.client.tavernScriptRuntimeReady(h.runtime.inspect()), true)
   assert.equal(h.timers.size, 0)
+  h.runtime.dispose()
+})
+
+test('神豪终端启动完成前暂停 MVU，加载失败后可重试', () => {
+  const states = [], h = sandbox({ onMvuLoadState: state => states.push(copy(state)) })
+  const input = mvuView()
+  input.tavernHelperScripts.push({ id: 'terminal', name: '神豪终端', content: [
+    '// CJ_SHENGHAO_STABLE_LOADER',
+    ';(async()=>{',
+    'const config={projectId:"cj-shenghao-terminal-v2",mark:"CJ_SHENGHAO_TERMINAL_CORE"};',
+    'const loaded=await startTerminal(config),k=false;',
+    '!loaded&&!k&&F("error","下载失败")',
+    '})().catch(e=>{console.log("[神豪终端 加载器] "+e.message);try{toastr.error("终端加载器未能启动，请检查配置与网络。","神豪终端");}catch{}});'
+  ].join('\n') })
+  h.runtime.sync('A', input)
+  const first = h.frames[0]
+  assert.match(first.srcdoc, /;await \(async\(\)=>\{/)
+  assert.match(first.srcdoc, /if\(!loaded&&!k\)throw Error/)
+  h.load(first)
+  const coreReady = ['__dsh_official_mvu__', 'script'].map(id => ({ id, ready: true }))
+  function report(frame, terminal = null) {
+    h.message(frame, 'dsh-tavern-helper-subscriptions', {
+      ready: Boolean(terminal), scripts: terminal ? [...coreReady, { id: 'terminal', ...terminal }] : coreReady
+    })
+  }
+  report(first)
+  assert.equal(h.client.tavernScriptRuntimeReady(h.runtime.inspect()), false)
+  h.message(first, 'dsh-tavern-helper-script-runtime', { scriptId: 'terminal', message: '下载失败' })
+  report(first, { failed: true })
+  assert.equal(states.at(-1).phase, 'companion-failed')
+  assert.match(states.at(-1).error, /神豪终端.*下载失败/)
+  assert.equal(h.client.tavernScriptRuntimeReady(h.runtime.inspect()), false)
+  assert.equal(h.runtime.inspect().initializationError, undefined)
+  assert.equal(h.runtime.retryMvuLoad(), true)
+  const next = h.frames[1]
+  h.load(next)
+  report(next, { ready: true })
+  assert.equal(states.at(-1).phase, 'ready')
+  assert.equal(h.client.tavernScriptRuntimeReady(h.runtime.inspect()), true)
   h.runtime.dispose()
 })
 

@@ -120,6 +120,12 @@ function image(value) { return typeof value === 'string' && ((value.length <= MA
 function fullUrl(value) { return typeof value === 'string' && (FULL_URL.test(value) || ASSET_IMAGE.test(value)) ? value : '' }
 function cardKey(cardPath) { return createHash('sha256').update(String(cardPath || '')).digest('hex').slice(0, 24) }
 
+export function importedBubbleFormat(entry, cardPath) {
+  const owner = entry.rawEntry?.extensions?.dsh_tavern_helper_extra?.forkDialogueBubbles
+  return owner?.version === 1 && owner.cardKey && owner.cardKey !== cardKey(cardPath) && !owner.figure
+    && entry.enabled !== false && entry.constant === true
+}
+
 export function normalizeBubbleConfig(value) {
   const input = value && typeof value === 'object' ? value : {}
   const emotions = normalizeBubbleEmotions(input.emotions)

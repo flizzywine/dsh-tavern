@@ -19,7 +19,7 @@ async function inventory(root, prefix = '') {
   return rows.sort(([a], [b]) => a.localeCompare(b))
 }
 
-for (const kind of ['performance', 'music']) test(`private ${kind}: normal card and pack exports block it; explicit local backup is read-only`, async t => {
+for (const kind of ['performance', 'music']) test(`legacy privacy metadata on ${kind} does not block export; explicit local backup is read-only`, async t => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'private-card-'))
   t.after(() => fs.rm(root, {recursive:true, force:true}))
   const assetRoot = path.join(root, 'library'), pack = await syntheticPack()
@@ -44,12 +44,10 @@ for (const kind of ['performance', 'music']) test(`private ${kind}: normal card 
   const privateService = createAssetPackService({assetRoot,cardTransactions,privateExportFile:path.join(root,'private.dshcard')})
   t.after(async () => {await normal.dispose(); await privateService.dispose()})
   const input = {path:'cards/fixture.json',expectedRevision:(await cardTransactions.snapshot({path:'cards/fixture.json'})).revision}
-  const denied = {code:'PRIVATE_ASSET_NOT_EXPORTABLE'}
-  await assert.rejects(normal.withCardExport(input, () => {}), denied)
-  await assert.rejects(normal.withCardExport({...input,private:true,privateExportFile:'ignored'}, () => {}), denied)
   const packInput = {packId:PACK_ID,expectedRevision:'fixture-revision'}
-  await assert.rejects(normal.exportPack(packInput), denied)
-  await assert.rejects(normal.exportPack({...packInput,private:true,privateExportFile:path.join(root,'ignored.zip')}), denied)
+  assert.deepEqual(await normal.withCardExport(input, snapshot => snapshot.packs.map(pack => pack.manifest.id)), [PACK_ID])
+  assert.equal((await normal.exportPack(packInput)).contentHash, pack.manifest.contentHash)
+  assert.ok(await normal.exportCardBundle({...input,packIds:[PACK_ID]}))
   const before = await inventory(assetRoot)
   const exported = await privateService.exportPack(packInput)
   assert.equal(exported.output, path.join(root,'private.dshcard'))
@@ -60,6 +58,5 @@ for (const kind of ['performance', 'music']) test(`private ${kind}: normal card 
   const result = await privateService.withCardExport(input, snapshot => ({revision:snapshot.revision,ids:snapshot.packs.map(pack => pack.manifest.id)}))
   assert.deepEqual(result, {revision:input.expectedRevision,ids:[PACK_ID]})
   assert.deepEqual(await inventory(assetRoot), before)
-  await assert.rejects(privateService.exportCardBundle({...input,packIds:[PACK_ID]}), denied)
   await assert.rejects(privateService.exportCardBundle({...input,packIds:[OTHER_PACK_ID]}), {code:'UNBOUND_PACK'})
 })
