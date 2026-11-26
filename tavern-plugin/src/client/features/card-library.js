@@ -259,7 +259,7 @@ function WorldBookAddMenu({ choices, loading, disabled, onOpen, onPick, label = 
 				if (!card) return h("div", { className: "dsh-tavern-library dsh-tavern-card-library" }, h("div", { className: "dsh-tavern-status-head" }, h("button", { className: "dsh-tavern-btn", onClick: clearCard }, "← 返回人物卡库")), loading ? h(PanelLoading, { shape: "fields", label: "正在读取人物卡…" }) : error ? h("div", { className: "dsh-tavern-dock-error" }, error, h("button", { className: "dsh-tavern-btn", onClick: function () { loadCard(selectedPath); } }, "重新读取")) : h("div", { className: "dsh-tavern-empty" }, "人物卡读取失败", h("button", { className: "dsh-tavern-btn", onClick: function () { loadCard(selectedPath); } }, "重新读取")));
 				const listedCard = cards.find(item => item.path === selectedPath);
 				// The header: the name with ✎ (重命名), its tags and the card's ⋯ (TavernCardMenu, as on its tile, with the page's
-				// low-frequency actions: 导出, 管理存档, 引用 …); 开始游玩 is the ▶ on the cover.
+				// low-frequency actions: 导出, 管理存档, 引用 …); 开始游玩 is beside the cover.
 				const detailMenu = {
 					exportCard: dshExport.open ? openCardExport : null,
 					exportFormats: dshExport.open ? null : cardExportFormats(listedCard?.hasImage, exportCardFile, encryptCurrentCard),
@@ -617,13 +617,12 @@ function WorldBookAddMenu({ choices, loading, disabled, onOpen, onPick, label = 
 				worldBookCatalogWarning ? h("div", { className: "dsh-card-error" }, worldBookCatalogWarning) : null
 			);
 			const coverUrl = props.hasImage ? "/api/dsh-tavern/card-image?path=" + encodeURIComponent(cardPath) : "";
-			// The cover: a click shows it large; ▶ over it is 开始游玩 (the same entry as 游玩历史's 新建游戏).
 			const cover = h("div", { className: "dsh-card-cover-wrap" },
 				coverUrl
 					? h("button", { type: "button", className: "dsh-card-cover", "aria-label": "查看封面", title: "查看大图", onClick: function () { openImageViewer({ src: coverUrl, label: title }); } }, h("img", { src: coverUrl, alt: "", decoding: "async" }))
-					: h("span", { className: "dsh-card-cover is-empty", "aria-hidden": true }, h("span", null, title)),
-				h("button", { type: "button", className: "dsh-card-play", disabled: props.busy, "aria-label": "开始游玩", title: "开始游玩",
-					onClick: function () { window.dispatchEvent(new CustomEvent("dsh-tavern-play-card", { detail: { path: cardPath } })); } }, h(ui.Glyph, { name: "play" })));
+					: h("span", { className: "dsh-card-cover is-empty", "aria-hidden": true }, h("span", null, title)));
+			const play = h("button", { type: "button", className: "ap-primary dsh-card-play", disabled: props.busy,
+				onClick: function () { window.dispatchEvent(new CustomEvent("dsh-tavern-play-card", { detail: { path: cardPath } })); } }, h(ui.Glyph, { name: "play" }), "开始游玩");
 			const more = props.menu ? h(CardDetailMenuButton, { menu: props.menu, label: title, disabled: props.busy }) : null;
 			const back = props.onBack ? h("button", { type: "button", className: "ap-icon-button dsh-card-back", "aria-label": "返回人物卡库", title: "返回人物卡库", onClick: props.onBack }, h(ui.Glyph, { name: "back" })) : null;
 			const name = h("h2", { className: "dsh-card-name", title: cardPath.split("/").pop() }, h("span", { className: "dsh-card-name-text" }, title),
@@ -632,7 +631,7 @@ function WorldBookAddMenu({ choices, loading, disabled, onOpen, onPick, label = 
 			const head = h("header", { className: "dsh-card-head" },
 				h("div", { className: "dsh-card-banner", "data-empty": coverUrl ? undefined : true }, coverUrl ? h("img", { className: "dsh-card-banner-bg", src: coverUrl, alt: "", "aria-hidden": true }) : null),
 				h("div", { className: "dsh-card-title-row" }, back, name, more),
-				h("div", { className: "dsh-card-hero" }, cover, h("div", { className: "dsh-card-side" }, props.organizationSettings, h("div", { className: "dsh-card-counts" }, counts))));
+				h("div", { className: "dsh-card-hero" }, cover, h("div", { className: "dsh-card-side" }, play, props.organizationSettings, h("div", { className: "dsh-card-counts" }, counts))));
 			const cardTextFields = [F("description", "角色描述"), F("personality", "性格"), F("scenario", "场景设定"), F("mes_example", "对话示例"),
 				F("system_prompt", "系统提示"), F("post_history_instructions", "历史后指令"), F("creator_notes", "创作者备注")];
 			const textFields = script ? cardTextFields.concat([scriptField]) : [scriptField].concat(cardTextFields);
