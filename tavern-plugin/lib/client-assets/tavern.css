@@ -6141,7 +6141,7 @@ button.dsh-tavern-transfer-check:disabled { cursor: default; }
 
 /* ==== card detail (人物卡库 › one card) ====
    One flat page in the 舞台素材 language (.ap-ui), no box anywhere (R2): a header over the cover's blurred banner (‹ name ✎ ⋯;
-   the cover next to 开始游玩, the library tags and what the card carries), then StageSection headings —
+   the cover with ▶ 开始游玩 over it; the library tags as one quiet line; what the card carries), then StageSection headings —
    基本信息, 世界书 (one row per book; a click opens it in 世界书), 素材包, 开场白 — whose texts are folds: › label · first line, opened to
    read as prose and ✎ to edit (saved when left, R17). Low-frequency actions (导出, 管理存档, 删除 …) live in ⋯. */
 .dsh-card-detail-scroll { flex: 1 1 auto; }
@@ -6158,15 +6158,18 @@ button.dsh-tavern-transfer-check:disabled { cursor: default; }
 .ap-ui button.ap-icon-button.dsh-card-more { margin-left: auto; }
 .ap-ui .dsh-card-name { display: flex; align-items: center; gap: 2px; min-width: 0; margin: 0; font-size: var(--fork-fs-title); font-weight: 600; line-height: 1.35; }
 .dsh-card-name-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.dsh-card-hero { position: relative; display: grid; grid-template-columns: clamp(104px, 28%, 168px) minmax(0, 1fr); gap: 16px; align-items: end; margin-top: 12px; }
+.dsh-card-hero { position: relative; display: grid; grid-template-columns: clamp(120px, 30%, 192px) minmax(0, 1fr); gap: 16px; align-items: end; margin-top: 12px; }
 .dsh-card-cover-wrap { position: relative; aspect-ratio: 3 / 4; overflow: hidden; border-radius: var(--fork-radius-lg); box-shadow: 0 6px 20px color-mix(in srgb, #000 28%, transparent), 0 0 0 1px var(--fork-hairline); }
 .ap-ui button.dsh-card-cover, .dsh-card-cover { display: block; width: 100%; height: 100%; min-height: 0; padding: 0; border: 0; border-radius: 0; background: color-mix(in srgb, var(--fork-accent) 12%, var(--fork-surface)); cursor: zoom-in; }
 .dsh-card-cover > img { display: block; width: 100%; height: 100%; object-fit: cover; object-position: top center; }
 .dsh-card-cover.is-empty { display: grid; place-items: start center; padding: 14px 10px; color: var(--fork-ink); font-family: var(--dsh-tavern-font-display); font-size: var(--fork-fs-heading); font-weight: 500; line-height: 1.35; text-align: center; overflow-wrap: anywhere; cursor: default; }
+/* ▶ 开始游玩: a round glass button over the cover's centre. */
+body .ap-ui.dsh-card-detail button.dsh-card-play { position: absolute; top: 50%; left: 50%; display: grid; place-items: center; width: 52px; height: 52px; min-height: 0; padding: 0 0 0 3px; border: 0; border-radius: 50%; background: color-mix(in srgb, #000 55%, transparent); color: #fff; corner-shape: round; transform: translate(-50%, -50%); box-shadow: 0 0 0 1px color-mix(in srgb, #fff 35%, transparent); transition: background .15s, transform .15s; cursor: pointer; }
+body .ap-ui.dsh-card-detail button.dsh-card-play .ap-glyph { width: 22px; height: 22px; }
+body .ap-ui.dsh-card-detail button.dsh-card-play .ap-glyph path { fill: currentColor; }
+body .ap-ui.dsh-card-detail button.dsh-card-play:hover:not(:disabled) { background: color-mix(in srgb, var(--fork-accent) 88%, transparent); transform: translate(-50%, -50%) scale(1.06); }
+body .ap-ui.dsh-card-detail button.dsh-card-play:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
 .dsh-card-side { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; min-width: 0; padding-bottom: 2px; }
-.ap-ui.dsh-card-detail button.dsh-card-play { display: inline-flex; align-items: center; gap: 6px; min-height: 40px; margin-bottom: 4px; }
-.dsh-card-play .ap-glyph { width: 14px; height: 14px; }
-.dsh-card-play .ap-glyph path { fill: currentColor; }
 /* the library's own tags: one quiet line, · between them, that wraps at any count; a click edits them. */
 .dsh-card-detail .dsh-tavern-card-detail-tags { display: block; width: 100%; padding: 0; }
 body .ap-ui.dsh-card-detail button.dsh-tavern-card-tagline { display: inline-block; width: auto; max-width: 100%; min-height: 30px; margin-left: -6px; padding: 3px 6px; border: 0; border-radius: var(--fork-radius); background: none; color: var(--fork-ink-2); font: inherit; font-size: var(--fork-fs-body); line-height: 1.6; text-align: left; cursor: pointer; }
@@ -6221,7 +6224,7 @@ body .ap-ui.dsh-card-detail button.dsh-tavern-card-tagline { display: inline-blo
 @container (max-width: 560px) {
   .ap-ui.dsh-card-detail { padding: 0 12px 24px; }
   .dsh-card-banner { left: -12px; right: -12px; height: 150px; }
-  .dsh-card-hero { grid-template-columns: 104px minmax(0, 1fr); gap: 14px; }
+  .dsh-card-hero { grid-template-columns: 120px minmax(0, 1fr); gap: 14px; }
   .dsh-card-fold-row, .ap-ui.dsh-card-detail button.dsh-card-fold-head { min-height: 40px; }
 }
 

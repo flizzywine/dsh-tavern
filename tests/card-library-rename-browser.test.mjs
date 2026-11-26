@@ -96,7 +96,7 @@ test('重命名人物卡修改详情和列表里的展示名，保留文件路�
   assert.deepEqual(errors, [])
 })
 
-test('人物卡详情在宽屏和窄屏把开始游玩放在封面右侧，点击封面打开大图', async t => {
+test('人物卡详情在宽屏和窄屏放大封面，居中的播放按钮仍能开局', async t => {
   const card = { path: 'cards/example.json', name: '示例角色', hasImage: true, tags: [] }
   const coverImage = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jR1sAAAAASUVORK5CYII=', 'base64')
   const browser = await chromium.launch({ headless: true })
@@ -115,16 +115,20 @@ test('人物卡详情在宽屏和窄屏把开始游玩放在封面右侧，点�
   await openCardDetail(page, card.path)
   const cover = page.getByRole('button', { name: '查看封面', exact: true })
   const play = page.getByRole('button', { name: '开始游玩', exact: true })
+  const tags = page.getByRole('button', { name: '添加标签', exact: true })
   await cover.waitFor()
   await play.waitFor()
-  for (const width of [1100, 360]) {
+  await tags.waitFor()
+  for (const [width, coverWidth] of [[1100, 192], [520, 120], [320, 120]]) {
     await page.setViewportSize({ width, height: 850 })
-    const [coverBox, playBox] = await Promise.all([cover.boundingBox(), play.boundingBox()])
-    assert.ok(playBox.x >= coverBox.x + coverBox.width, `button is to the right of the cover at ${width}px`)
-    assert.ok(playBox.x + playBox.width <= width, `button fits on screen at ${width}px`)
-    assert.ok(playBox.y >= coverBox.y && playBox.y + playBox.height <= coverBox.y + coverBox.height, `button is beside the cover at ${width}px`)
+    const [coverBox, playBox, tagsBox] = await Promise.all([cover.boundingBox(), play.boundingBox(), tags.boundingBox()])
+    assert.equal(coverBox.width, coverWidth, `cover width at ${width}px`)
+    assert.equal(coverBox.height, coverWidth * 4 / 3, `cover keeps its aspect ratio at ${width}px`)
+    assert.ok(Math.abs(coverBox.x + coverBox.width / 2 - playBox.x - playBox.width / 2) < 1, `play button is horizontally centered at ${width}px`)
+    assert.ok(Math.abs(coverBox.y + coverBox.height / 2 - playBox.y - playBox.height / 2) < 1, `play button is vertically centered at ${width}px`)
+    assert.ok(tagsBox.x >= coverBox.x + coverBox.width && tagsBox.x + tagsBox.width <= width, `tags fit beside the cover at ${width}px`)
   }
-  await cover.click()
+  await cover.click({ position: { x: 12, y: 12 } })
   const viewer = page.getByRole('dialog', { name: '查看大图', exact: true })
   await viewer.waitFor()
   await viewer.getByRole('button', { name: '关闭', exact: true }).click()
