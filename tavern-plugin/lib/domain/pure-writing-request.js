@@ -11,7 +11,7 @@ export const WRITING_PREPARATION_REQUEST = 'writing-preparation'
 
 const KEEP_FIXED_SECTIONS = new Set(['tavern:user-preference', 'tavern:character-card', 'tavern:constant-worldbook'])
 const STORY_SECTIONS = new Set(['base', 'card', 'card-instruction', 'script', 'guide'])
-const { tavernIsWritingInjection, tavernWithoutPrivateWritingReceipts } = receipts
+const { tavernIsWritingInjection, tavernWithoutPrivateWritingReceipts, tavernWritingReceiptSections } = receipts
 
 export function pureWritingTools(tools) {
   return (tools || []).filter(tool => tool?.name === STORY_SUBMIT_TOOL_NAME)
@@ -56,7 +56,7 @@ export function pureWritingSystemSections(fixedSections, frame, back = []) {
   const variableConstants = new Set(frame.source?.worldBook?.variableConstantRefs ?? frame.source?.worldBook?.messageVariableConstantRefs ?? [])
   const worldbook = (frame.source?.regenerationMaterials?.worldbookEntries || [])
     .filter(entry => variableConstants.has(entry.ref)).map(entry => entry.text).join('\n\n')
-  if (worldbook) sections.push({ name: 'tavern:constant-worldbook', text: promptSection('lorebook_constant', worldbook) })
+  if (worldbook) sections.push({ name: 'tavern:constant-worldbook', text: promptSection('lorebook_constant', worldbook), writingPreparationTail: true })
   const cardSystem = frame.source?.card?.systemPromptText
   if (cardSystem) sections.push({ name: 'tavern:card-system-prompt', text: promptSection('card_system', cardSystem) })
   for (const item of frame.contributions) {
@@ -77,11 +77,35 @@ export function pureWritingSystem(fixedSections, frame, back = []) {
   return pureWritingSystemSections(fixedSections, frame, back).map(section => section.text).filter(Boolean).join('\n\n')
 }
 
-export function pureWritingContext(system, messages) {
+export function pureWritingContext(system, messages, sections) {
   const conversation = writingConversation(writingRequestMessages(messages || []))
   const inputAt = conversation.findLastIndex(message => message.role === 'user' && inputKind(message))
   if (inputAt < 0) throw new Error('纯净写作找不到本轮玩家输入')
-  return { system: stripWritingSystemReminders(system), messages: structuredClone(conversation.slice(0, inputAt + 1)) }
+  const context = { system: stripWritingSystemReminders(system), messages: structuredClone(conversation.slice(0, inputAt + 1)) }
+  if (sections) {
+    const arrangement = tail => stripWritingSystemReminders(sections.filter(section => Boolean(section.writingPreparationTail) === tail)
+      .map(section => section.text).filter(Boolean).join('\n\n'))
+    context.preparation = { system: arrangement(false), snapshot: arrangement(true) }
+  }
+  return context
+}
+
+function writingPreparationHistory(messages) {
+  return messages.map(message => {
+    if (!tavernIsWritingInjection(message)) return message
+    const content = message.content.map(block => {
+      if (block?.type !== 'text' || typeof block.text !== 'string') return block
+      const references = []
+      const kept = []
+      for (const { kind, text } of tavernWritingReceiptSections(block.text)) {
+        if (kind === '世界书' || kind === '剧情记忆') references.push(text.split(/\r?\n/, 1)[0])
+        else kept.push(text)
+      }
+      if (!references.length) return block
+      return { ...block, text: ['【已交接资料索引】\n需要原文时，按条目标题或剧情轮次查询。\n' + references.join('\n'), ...kept].join('\n\n') }
+    })
+    return { ...message, content }
+  })
 }
 
 export function projectWritingPreparationRequest(request, context) {
@@ -89,11 +113,15 @@ export function projectWritingPreparationRequest(request, context) {
   // already carries previous receipts, so replay only this task's native calls.
   const start = request.messages.findLastIndex(message => message.source?.kind === 'plugin:dsh-tavern'
     && message.source.form === 'writing-preparation-task')
-  const task = request.messages.slice(Math.max(0, start)).filter(message => message.role !== 'system')
-  const messages = structuredClone(context.messages)
+  const task = writingRequestMessages(request.messages.slice(Math.max(0, start)).filter(message => message.role !== 'system'))
+  const preparation = start >= 0 && task[0]?.role === 'user' && Array.isArray(task[0].content) && context.preparation
+  const messages = structuredClone(preparation ? writingPreparationHistory(context.messages) : context.messages)
+  if (preparation?.snapshot) {
+    const snapshot = promptSection('writing_current_worldbook', preparation.snapshot)
+    task[0] = { ...task[0], content: [...task[0].content, { type: 'text', text: snapshot }] }
+  }
   if (context.worldbookTitleHints) messages.push(context.worldbookTitleHints)
-  return { ...request, system: context.system,
-    messages: [...messages, ...writingRequestMessages(task)] }
+  return { ...request, system: preparation ? preparation.system : context.system, messages: [...messages, ...task] }
 }
 
 export function pureWritingInjection(frame, material) {

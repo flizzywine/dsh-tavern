@@ -396,7 +396,7 @@ export function createNativePlayOrchestrationStrategy(options) {
       const writingSections = pureWritingSystemSections(fixed, frame, snapshot?.back?.entries)
       recordSystemSections(sessionId, writingSections)
       const system = writingSections.map(section => section.text).filter(Boolean).join('\n\n')
-      stagedRequests.set(sessionId, { pureWriter, frame, system, chat: input.chat, session: payload.agent.session })
+      stagedRequests.set(sessionId, { pureWriter, frame, system, writingSections, chat: input.chat, session: payload.agent.session })
       return { kind: 'enter', messages: agentMessages, startsRequestSeries: true }
     }
     if (play) {
@@ -468,7 +468,7 @@ export function createNativePlayOrchestrationStrategy(options) {
     if (!staged?.pureWriter) throw new Error('本轮写作上下文已失效')
     const { frame } = staged
     const messages = projectLegacyOpeningSources(projectRegenerationRequestMessages(request.messages))
-    const context = pureWritingContext(staged.system, projectWithoutStyleReference({ messages }).messages)
+    const context = pureWritingContext(staged.system, projectWithoutStyleReference({ messages }).messages, staged.writingSections)
     if (!staged.preparation) {
       const { provider, model, reasoningEffort } = request
       const foregroundSelection = provider && model ? { provider, model, reasoningEffort } : undefined

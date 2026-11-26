@@ -4,7 +4,7 @@ import { pluginMember, pluginMemberId, pluginMemberPrefix } from './background-m
 import { assertToolParameterKeys } from './tool-schema-keys.js'
 
 const TOOL_NAME = /^[a-z][a-z0-9_]{2,47}$/
-const MAX_TOOL_RESULT = 20000
+export const MAX_PLUGIN_TASK_TOOL_RESULT = 20000
 const MAX_TASK_PROMPT = 100000
 const MAX_TASK_TOOLS = 8
 const MAX_TOOL_CALLS_PER_TASK = 16
@@ -86,7 +86,7 @@ export function createPluginTaskExecution({ runTask, currentKey, readLatestSettl
       if (++calls > callLimit) return { text: JSON.stringify({ ok: false, error: '工具调用次数已达上限，请直接给出结果' }) }
       try {
         const value = await bounded(tool.execute(structuredClone(args ?? {})), '插件工具 ' + name)
-        return { ok: true, text: (typeof value === 'string' ? value : JSON.stringify(value ?? { ok: true })).slice(0, MAX_TOOL_RESULT) }
+        return { ok: true, text: (typeof value === 'string' ? value : JSON.stringify(value ?? { ok: true })).slice(0, MAX_PLUGIN_TASK_TOOL_RESULT) }
       } catch (error) {
         recordError(game.sessionId, owner, '后台任务工具 ' + name, error)
         return { text: JSON.stringify({ ok: false, error: String(error?.message || error).slice(0, 500) }) }
