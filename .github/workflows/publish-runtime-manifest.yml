@@ -72,7 +72,7 @@ jobs:
           ln -s "$GITHUB_WORKSPACE/node_modules/react-dom" "$sidebar_root/node_modules/react-dom"
           export TAVERN_E2E_SIDEBAR="$TAVERN_E2E_RUNTIME/lib/node_modules/dsh-better-sidebar"
           ln -s "$sidebar_root/node_modules/dsh-better-sidebar" "$TAVERN_E2E_SIDEBAR"
-          git -C "$TAVERN_E2E_SIDEBAR" apply "$GITHUB_WORKSPACE/patches/dsh-better-sidebar@0.32.1.patch"
+          git -C "$TAVERN_E2E_SIDEBAR" apply "$GITHUB_WORKSPACE/patches/dsh-better-sidebar@0.33.0.patch"
           node tests/e2e/runtime-archive.mjs "$RUNNER_TEMP/runtime.zip" dsh-tavern-runtime.json
       - uses: actions/upload-artifact@v4
         if: failure()
