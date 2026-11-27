@@ -891,7 +891,7 @@ function GalStage(props) {
     // the veil was shown (so its leave uncovers the stage; a quick entry never showed it)
     // and the stage's reveal window (transitions.stage.enter plays on the box only then, not on every later box mount).
     const veilShown = React.useRef(false);
-    if (entryGate.phase === "loading" || entryGate.phase === "slow") veilShown.current = true;
+    if (["loading", "slow", "failed"].includes(entryGate.phase)) veilShown.current = true;
     const [stageEntering, setStageEntering] = React.useState(false);
     const revealed = entryGate.phase === "revealing" || entryGate.phase === "ready" || !entryGate.phase;
     React.useEffect(() => {
@@ -1031,6 +1031,9 @@ function GalStage(props) {
     // wheel stops it (the Ctrl hold effect below owns that for both), and that input is not also a page turn.
     const skippingRef = React.useRef(false);
     skippingRef.current = skipping;
+    // Leaving the stage silences it; the latest turn's lines still being synthesized finish into the cache, so the
+    // transcript's ▶ plays them at once (the session observation cancels whatever it no longer keeps).
+    React.useEffect(() => () => voicePlayer.stopPlayback(),[sessionId]);
     // Warm a small spoken opening even when its first page is narration; keep the existing two workers.
     const voiceWindow = skipping || backlog || awaiting ? [] : leasing ? pages.slice(page, page + 2).map(row => row.voice).filter(Boolean)
         : stageVoiceWindowFromIndex(sessionId,runtime.textIndex,turn,pages,page,config,entryGate.visible ? Infinity : 1);
@@ -1495,8 +1498,7 @@ function GalStage(props) {
     // data-reduced-motion mirrors CONFIG 「减少动态」 for CSS-only theme motion (the crt power-on/blink).
     const menuProps = leaving => Object.assign({ leaving, sessionId, useChat: props.choiceProps.useChat, Regenerate: props.Regenerate, waitLines, regenerate: menuRegenerate, historical: turn !== latestTurn, latestTurn,
         busy: regenerateBlocked, controls: homes.menu, auto, skipping: skipLatch, atEnd, touch: firstRun.touch,
-        letter: activeSkin?.art?.menu?.rows?.letter, titleLetter: activeSkin?.art?.menu?.title?.letter, glyphTiles: activeSkin?.art?.menu?.glyphTiles,
-        pages: readerPanel ? pageList.map(item => item.id === readerPanel.pageId ? {...item, label: '返回序章'} : item) : pageList }, menuActions);
+        letter: activeSkin?.art?.menu?.rows?.letter, titleLetter: activeSkin?.art?.menu?.title?.letter, glyphTiles: activeSkin?.art?.menu?.glyphTiles, pages: pageList }, menuActions);
     return h("div", { ref: rootRef, tabIndex: -1, className: "fork-gal-stage" + (film ? " is-film" : "") + (backlog ? " is-backlog" : "") + (configOpen ? " is-config" : "") + (menuOpen ? " is-menu" : "") + (hidden ? " is-ui-hidden" : "") + (takeover.up ? " is-takeover" : "") + (insertPicture ? " is-picture" : ""), "data-theme": theme, "data-card-page-menu": pageList.filter(declared => declared.menu).map(declared => declared.id).join(" ") || undefined, "data-entry": entryGate.phase, "data-entrance": entrance.stageAttr, "data-skin-buttons": homes.declared.join(" ") || undefined, "data-reduced-motion": reading.reducedMotion === true || undefined, "data-cg-visible": !!accepted.cg || cg.visible || undefined, "data-narration-layout": narrationLayout, "data-fk-device": device, "data-fk-quality": quality, "data-phone-open": sourceWidget.phoneOpen || undefined, "data-covered": scene.covered || undefined, "data-fk-context": "stage-" + theme, "data-hud": hud.state || undefined, "data-speaking": speaker ? "true" : "false", "data-fk-portrait-bust": bustAlias ? "" : undefined,
         // a square skin (its --gal-ui-radius, stage-skin-adapter.cjs, is 0): its engine widgets drop their soft shadows (theme.css)
         "data-fk-skin-square": activeSkin && (activeSkin.ui?.radius ?? activeSkin.textbox?.shape?.radius ?? 10) === 0 ? "" : undefined, "data-fork-stage-turn": turn, "data-fork-stage-para": para,
@@ -1635,7 +1637,8 @@ function GalStage(props) {
         // digits stay above it; the top bar, drawn buttons and panels stay above the plate (theme.css).
         ...stageHuds.elements,
         // The entry veil: it covers the whole stage until the gate is ready (gal-entry.js), never a notice over the scene.
-        h(GalEntryOverlay, {phase:entryGate.phase, progress:loadProgress, nameOf, loader:entryLoader, entrance:entrance.overlay}),
+        h(GalEntryOverlay, {phase:entryGate.phase, failure:entryGate.visible ? null : entryGate.failure, onExit:props.onExit,
+            progress:loadProgress, nameOf, loader:entryLoader, entrance:entrance.overlay}),
         entrance.element,
         // the mods' overlay parts (mod-clients.js; e.g. a live roll thrown above the box). live: the reader follows the
         // arrival with nothing over the stage and no skip; calm: only the CONFIG 减少动态 setting, not the OS one (ui-design

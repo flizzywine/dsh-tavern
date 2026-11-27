@@ -18249,6 +18249,50 @@ function installTavernReasoningStream() {
 // 包一层：这是启动路径上的顶层调用，任何异常都不该拖垮整个客户端 bundle。
 try { installTavernReasoningStream(); } catch (error) { /* 同步失败时按默认（开）处理。 */ }
 
+// 设置 › 高级 › 关闭回车键发送消息（tavern-settings.json 的 disableEnterSend，默认关闭）。
+// 开启后，在宿主输入框（[data-composer-card] 内的 contenteditable 或 textarea）按纯回车键只换行不发送：
+// 在 window capture 阶段 stopImmediatePropagation() 拦截到达宿主 Lexical/React 的 keydown，
+// 不调用 preventDefault()，让浏览器继续原生换行（Lexical 走 beforeinput -> insertParagraph -> insertLineBreak，
+// textarea 走原生插入换行符）。Shift/Ctrl/Cmd+Enter、IME 选词与斜杠/引用补全菜单打开时照常放行。
+let tavernDisableEnterSend = false;
+let tavernDisableEnterSendWatching = false;
+const TAVERN_COMPOSER_INPUT_SELECTOR = '[data-composer-input], textarea, [contenteditable="true"], [contenteditable=""]';
+const TAVERN_COMPOSER_MENU_SELECTOR = '[role="listbox"], [role="menu"]';
+
+function refreshTavernDisableEnterSend() {
+    rpc("getTavernSettings").then(function (result) {
+        tavernDisableEnterSend = Boolean(result && result.settings && result.settings.disableEnterSend === true);
+    }, function () { /* 读取失败沿用上一次值；首次失败保持默认关闭。 */ });
+}
+
+function onTavernDisableEnterSendKeyDown(event) {
+    if (!tavernDisableEnterSend || !event || event.defaultPrevented) return;
+    if (event.key !== "Enter") return;
+    if (event.shiftKey || event.ctrlKey || event.metaKey || event.altKey) return;
+    if (event.isComposing || event.keyCode === 229) return;
+    const target = event.target;
+    if (!target || typeof target.closest !== "function") return;
+    const input = target.closest(TAVERN_COMPOSER_INPUT_SELECTOR);
+    if (!input) return;
+    const card = input.closest("[data-composer-card]");
+    if (!card) return;
+    // 命令 / 引用补全菜单打开时，回车用于选中候选条目，不拦截。
+    if (card.querySelector(TAVERN_COMPOSER_MENU_SELECTOR)) return;
+    event.stopImmediatePropagation();
+}
+
+function installTavernDisableEnterSend() {
+    if (typeof window !== "undefined" && window.__dshTavernHeadless === true) return;
+    if (tavernDisableEnterSendWatching || typeof window === "undefined") return;
+    tavernDisableEnterSendWatching = true;
+    window.addEventListener("keydown", onTavernDisableEnterSendKeyDown, true);
+    window.addEventListener("dsh-tavern-settings-changed", refreshTavernDisableEnterSend);
+    refreshTavernDisableEnterSend();
+}
+
+// 顶层启动路径保护：异常不拖垮客户端 bundle。
+try { installTavernDisableEnterSend(); } catch (error) { /* 保持默认关闭。 */ }
+
 		// Play events: what the player does on this page (a choice picked, a page read, a voice
 		// replayed, an error shown), for plugins through tavernUi.onPlayEvent (docs/plugin-api.md).
 		// Counts and indices only: no story text crosses this interface. Listeners run after the
@@ -52800,6 +52844,7 @@ function installTavernScriptCardUpdate({ window: w, rpc, ask = askTavernScriptCa
                     group("高级", "",
                         card(sw("reasoningStreamOnly", "流式显示思维链", "思考内容在生成过程中自动铺开，本次思考写完立即收起；不改变宿主「工作步骤展示」的档位。关闭后宿主怎么显示就怎么显示。", true),
                             sw("longPressSendRegenerate", "长按 1 秒发送键重新生成", "按住输入框右侧的发送键 1 秒，直接重新生成本轮正文，不打开「重新生成正文」的意见面板；触发前松开或移开即取消。默认关闭。", false),
+                            sw("disableEnterSend", "关闭回车键发送消息", "开启后，在输入框按回车键只换行不发送，需要点击发送按钮（或按 Ctrl/Cmd + 回车）发送消息。默认关闭。", false),
                             sw("recentReplyFirst", "对话按最新回复排序", "关闭时左侧对话按创建时间固定排列（默认），打开或继续一个对话都不改变它的位置。打开后改成最近回复优先：只有生成出新回复的对话才会排到最前，单纯切换/打开对话不会把它顶上去，一行右侧的时间也换成最近回复时间。只改变列表顺序，不改动存档。", false),
                             h(PromptTemplateSettingsEntry),
                             h(ContextCompactionSettings)))

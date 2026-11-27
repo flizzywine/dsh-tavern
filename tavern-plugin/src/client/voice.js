@@ -21,8 +21,8 @@ const browserSpeechService = (function () {
     });
 })();
 const voicePlayer = createPackVoicePlayer({now: forkForeground.now, schedule: forkForeground.setInterval, cancel: forkForeground.clearInterval, getClient:pageTtsClient,
-    createSpeech:line => browserSpeechClip(line),
-    prepareAudio:(audio,blob,result) => {if(audio.browserSpeech)return;forkForeground.media(audio);forkStageAudio.prepareVoice(audio,blob,result.loudness);audio.preservesPitch=true;},
+    createSpeech:line => browserSpeechClip(line, false, line.background),
+    prepareAudio:(audio,blob,result,input) => {if(audio.browserSpeech)return;forkForeground.media(audio,false,{background:input.background===true});forkStageAudio.prepareVoice(audio,blob,result.loudness);audio.preservesPitch=true;},
     maskAudio:(audio,cover) => { if (!audio.browserSpeech) forkStageAudio.mask(audio,cover); },
     disposeAudio:audio => { if (!audio.browserSpeech) forkStageAudio.release(audio); },
     onAudio:audio => forkStageAudio.voice(Boolean(audio))});

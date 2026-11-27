@@ -101,6 +101,9 @@ const forkStageAudio = (function () {
     // which stay as they are; auditions are not stage sound. When it ends the others glide back in (BGM fades in).
     let solo = null;
     const held = record => solo !== null && solo !== record && !record.preview;
+    // While the app is behind, the mixer's context runs only for a background element (reading aloud, foreground.js):
+    // every other source is silent as if its context were suspended.
+    const behind = record => typeof forkForeground !== 'undefined' && !forkForeground.heard(record.node);
     // A running AudioContext keeps the device's audio hardware awake even in silence (a phone's battery). With nothing on the
     // mixer - no bound element playing, no buffer/stream source, no call, no recorder tap - it is suspended after a short
     // quiet; every source start resumes it first (ensure, or a bound element's play), so nothing is cut.
@@ -124,7 +127,7 @@ const forkStageAudio = (function () {
             if (typeof navigator !== "undefined" && navigator.audioSession) navigator.audioSession.type = "playback";
             context = new Constructor(); master = context.createGain(); master.gain.value = volume("master"); const foregroundGain = context.createGain(); master.connect(foregroundGain); foregroundGain.connect(context.destination);
             output = foregroundGain;
-            if (typeof forkForeground !== "undefined") forkForeground.context(context, foregroundGain);
+            if (typeof forkForeground !== "undefined") { forkForeground.context(context, foregroundGain); forkForeground.subscribeAudio(() => active.forEach(record => update(record))); }
             for (const layer of Object.keys(AUDIO_TARGETS)) {
                 const gain = context.createGain(), duck = context.createGain(), dip = dipOf(layer);
                 gain.gain.value = volume(layer); duck.gain.value = Math.pow(10, dip.db / 20);
@@ -187,7 +190,7 @@ const forkStageAudio = (function () {
             lufs: audioMeasurement(loudness) ? loudness.lufs : undefined, trackDb: trackGain > 0 ? 20 * Math.log10(trackGain) : undefined,
             trim: record.trim, duck: buses[record.layer] ? buses[record.layer].to : undefined, duration, position, error: extra.error });
     }
-    const sourceLevel = record => held(record) ? 0 : (voiceGains.get(record.node) ?? audioGain(record.layer, measured(record), record.gainDb)) * record.trim;
+    const sourceLevel = record => held(record) || behind(record) ? 0 : (voiceGains.get(record.node) ?? audioGain(record.layer, measured(record), record.gainDb)) * record.trim;
     const level = record => sourceLevel(record) * (record.covered ? COVER_GAIN : 1);
     // ---- covered words (a stage line's text marks: speech.cjs covered, pack-playback.cjs maskAudio) ----
     // While a bound voice plays inside a span of a cover still shut (shares of its length, COVER_PAD s either side) it is
@@ -373,7 +376,7 @@ const forkStageAudio = (function () {
                 const loudness = record.loudness || catalogue.get(record.url)?.loudness || (record.layer === "voice" ? AUDIO_VOICE : undefined);
                 // trackGain = loudness normalization x the entry's authored volume; effective adds envelope, layer, duck and master.
                 const trackGain = (voiceGains.get(record.node) ?? audioGain(record.layer, loudness, record.gainDb)) * record.trim;
-                const effective = held(record) ? 0 : trackGain * record.envelope * volume(record.layer) * duck(record.layer) * volume("master");
+                const effective = held(record) || behind(record) ? 0 : trackGain * record.envelope * volume(record.layer) * duck(record.layer) * volume("master");
                 const known = audioMeasurement(loudness);
                 return { layer: record.layer, content: record.content ? record.content.slice(0, 12) : null, measured: known ? { lufs: loudness.lufs, peak: loudness.peak } : null, trim: record.trim,
                     envelope: round(record.envelope, 4), trackGain: round(trackGain, 4), trackGainDb: trackGain > 0 ? round(20 * Math.log10(trackGain), 2) : null,

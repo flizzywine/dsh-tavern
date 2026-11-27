@@ -380,8 +380,8 @@ function createPackVoicePlayer({ getClient, createAudio = url => new Audio(url),
             if (descriptor.browser) {
                 if (!createSpeech) throw new Error('voice-unavailable');
                 // a line over covered words (input.maskedText) is read without them: no mixer reaches the system's speech
-                const audio = createSpeech({...descriptor.browser, text:input.maskedText ?? input.text, language:descriptor.language});
-                prepareAudio(audio, null, {});
+                const audio = createSpeech({...descriptor.browser, text:input.maskedText ?? input.text, language:descriptor.language, background:input.background === true});
+                prepareAudio(audio, null, {}, input);
                 const clip = {url:'', audio, size:0, key:null};
                 remember(key, clip);
                 return clip;
@@ -389,7 +389,7 @@ function createPackVoicePlayer({ getClient, createAudio = url => new Audio(url),
             // A line the host already synthesized (台词朗读 speechForLine) arrives as its audio URL.
             if (descriptor.url) {
                 const audio = createAudio(descriptor.url);
-                audio.preload = 'auto'; prepareAudio(audio, null, {loudness:descriptor.loudness}); audio.load?.();
+                audio.preload = 'auto'; prepareAudio(audio, null, {loudness:descriptor.loudness}, input); audio.load?.();
                 const clip = {url:'', audio, size:0, key:null};
                 remember(key, clip);
                 return clip;
@@ -399,7 +399,7 @@ function createPackVoicePlayer({ getClient, createAudio = url => new Audio(url),
                 if (abort.signal.aborted || epoch !== generation) return;
                 const audio = createAudio(live.url);
                 // The voice's known loudness (if any) levels the first play; the complete line brings its own.
-                audio.preload = 'auto'; prepareAudio(audio, null, live); audio.load?.();
+                audio.preload = 'auto'; prepareAudio(audio, null, live, input); audio.load?.();
                 stream = {url:live.url, audio, size:0, key:null};
                 remember(key, stream); playable(stream);
             }});
@@ -410,7 +410,7 @@ function createPackVoicePlayer({ getClient, createAudio = url => new Audio(url),
             let clip;
             try {
                 const audio = createAudio(url);
-                audio.preload = 'auto'; prepareAudio(audio, blob, result); audio.load?.();
+                audio.preload = 'auto'; prepareAudio(audio, blob, result, input); audio.load?.();
                 clip = {url, audio, size:blob.size, key:result.key};
             } catch (e) { urls.revokeObjectURL(url); throw e; }
             remember(key, clip);

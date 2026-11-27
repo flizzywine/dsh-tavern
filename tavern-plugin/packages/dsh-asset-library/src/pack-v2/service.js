@@ -188,19 +188,7 @@ export function createAssetPackService(options) {
   // A pack/set import keys its uploadHash on the whole archive (one hash per transfer); a card bundle reads none.
   async function archiveFile(file) {
     const archive = await localArchive(file), hash = createHash('sha256')
-    const handle = await open(file, 'r')
-    try {
-      const buffer = Buffer.allocUnsafe(256 * 1024)
-      let size = 0
-      for (;;) {
-        const {bytesRead} = await handle.read(buffer)
-        if (!bytesRead) break
-        size += bytesRead
-        check(size <= archive.size, '$.file', 'Archive size changed', 'INTEGRITY_MISMATCH')
-        hash.update(buffer.subarray(0, bytesRead))
-      }
-      check(size === archive.size, '$.file', 'Archive size changed', 'INTEGRITY_MISMATCH')
-    } finally { await handle.close() }
+    for await (const chunk of createReadStream(file)) hash.update(chunk)
     return {...archive, archiveSha256:hash.digest('hex')}
   }
   const blankManifest=(id,name,description)=>({format:'dsh-asset-pack',schemaVersion:1,id,name,...(description===undefined?{}:{description}),contentHash:'0'.repeat(64),assets:[],figures:[],sprites:{},bundles:{},blobs:{},files:[]})
@@ -548,10 +536,7 @@ export function createAssetPackService(options) {
   // An archive's documents are read into memory; its media blobs (by far most of a large pack) go to a spool on disk.
   // Resolves {files, spool}: the caller releases the spool once, after retaining it for each preview it keeps.
   async function readZipFile(file, archiveBytes, extraBytes, signal) {
-    return readZipEntries(await openZip(file, limits), archiveBytes, extraBytes, signal)
-  }
-  async function readZipEntries(zip, archiveBytes, extraBytes, signal) {
-    const files = new Map()
+    const zip = await openZip(file, limits), files = new Map()
     guardArchive(zip.entries)
     const held = zip.entries.reduce((sum, entry) => sum + (SPOOLED.test(entry.path) ? 0 : entry.size), 0)
     check(held + archiveBytes + ingressBytes + previewBytes + extraBytes + externalUsage() <= limits.spoolBytes, '$.bytes', 'Import spool budget exceeded', 'LIMIT_EXCEEDED')
@@ -1757,7 +1742,7 @@ export function createAssetPackService(options) {
         check(relative,'$.assetKey','Skin asset unavailable','ASSET_UNAVAILABLE')
         const file='bundles/'+content.bundleKey+'/'+path.posix.join(path.posix.dirname(content.entry),relative),descriptor=pack.manifest.files.find(row=>row.path===file)
         check(descriptor,'$.assetKey','Skin asset unavailable','ASSET_UNAVAILABLE')
-        const ext=path.posix.extname(file).slice(1),mime=ext==='svg'?'image/svg+xml':ext==='html'?'text/html':BLOB_MIME_TYPES[ext]
+        const ext=path.posix.extname(file).slice(1),mime=ext==='svg'?'image/svg+xml':ext==='html'?'text/html':ext==='css'?'text/css':BLOB_MIME_TYPES[ext]
         const bytes=await storage.read('packs/'+ref.packId+'/'+file,descriptor.size)
         check(bytes,'$.assetKey','Skin asset unavailable','ASSET_UNAVAILABLE')
         return {bytes,mime}

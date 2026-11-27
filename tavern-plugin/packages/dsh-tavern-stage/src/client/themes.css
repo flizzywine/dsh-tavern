@@ -1840,10 +1840,12 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
 .fork-gal-scene-hold:not(.is-resolved) { transition: none; }
 .fork-gal-scene-hold.is-resolved { opacity: 0; visibility: hidden; }
 /* First entry is atomic; resources/renderers still run behind an opacity-only veil. The veil and the scene are never shown
-   together (gal-entry.js): pending, loading and slow hide the whole stage, revealing cross-fades the ready scene in. */
+   together (admission.cjs): waiting and failure hide the stage, revealing cross-fades the ready scene in. */
 .fork-gal-stage[data-entry] > .fork-gal-scene-hold { display: none; }
 .fork-gal-stage[data-entry] > :not(.fork-gal-entry-overlay, .fork-gal-entrance) { transition: opacity .25s ease-out; }
 .fork-gal-stage:is([data-entry="pending"], [data-entry="loading"], [data-entry="slow"]) > :not(.fork-gal-entry-overlay, .fork-gal-entrance) { opacity: 0; pointer-events: none; transition: none; }
+.fork-gal-stage[data-entry="failed"] > :not(.fork-gal-entry-overlay, .fork-gal-entrance) { visibility: hidden; pointer-events: none; }
+.fork-gal-stage[data-entry="failed"].is-menu > .fork-gal-menu { visibility: visible; pointer-events: auto; }
 /* The veil reads at a glance: the stage's reading size (scales with the viewport, 15px on a phone), the
    hold's own ink, a spinner as tall as the label and bar together, and a bar sized in the same em. */
 .fork-gal-entry-overlay { position: absolute; inset: 0; z-index: 20; display: grid; grid-template-columns: 1fr auto auto 1fr; place-content: center; align-items: center; gap: .35em 0;
@@ -1851,6 +1853,12 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
   pointer-events: auto; transition: opacity .25s ease-out; }
 .fork-gal-entry-spinner { --fork-spinner-size: 1.05em; grid-column: 2; margin-right: .5em; }
 .fork-gal-entry-overlay > span:not(.fork-spinner), .fork-gal-entry-step { grid-column: 3; }
+.fork-gal-entry-overlay[data-load-error] { grid-template-columns: minmax(0, 1fr); justify-items: center; padding: 1em; text-align: center; }
+.fork-gal-entry-overlay[data-load-error] > span { grid-column: 1; }
+.fork-gal-entry-overlay[data-load-error] [aria-hidden] { color: var(--gal-ui-widget-warning); }
+.fork-gal-entry-overlay[data-load-error] > button { min-height: 36px; padding: 0 .5em; border: 0; background: none;
+  color: inherit; font: inherit; text-decoration: underline; text-underline-offset: .2em; cursor: pointer; }
+.fork-gal-entry-overlay[data-load-error] > button:focus-visible { outline: var(--gal-ui-focus); }
 /* The step line: the outgoing step fades out under the incoming one in the same cell; the item it
    works on (a figure · outfit) sits under it in the secondary hold ink, its row kept when empty so the bar never jumps. */
 .fork-gal-entry-step { display: grid; justify-items: start; white-space: nowrap; }
@@ -4287,7 +4295,8 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
   0% { transform: translateY(0); animation-timing-function: cubic-bezier(.3333, 0, .6667, 1); }
   21.8% { transform: translateY(calc(var(--art-rise) / var(--art-font) * 1em)); animation-timing-function: cubic-bezier(.3333, 0, .6667, 1); }
   41.8%, 100% { transform: translateY(0); } }
-@keyframes fork-art-lamp-blink { 0% { visibility: visible; } 51.6% { visibility: hidden; } }
+/* No 0% keyframe: the lamp is a pseudo-element of the box, and a forced `visible` would show it while the box itself is hidden (a CG seen alone). */
+@keyframes fork-art-lamp-blink { 51.6% { visibility: hidden; } }
 @keyframes fork-art-lamp-spin { from { rotate: 0deg; } to { rotate: -360deg; } }
 /* art on phones (skin-interface.md §13): the image box keeps fitting the width (--art-u), but its words keep the
    phone reading size (the classic box's 17px floor; the name 14px): the body text and the plate's name never shrink with
@@ -5845,6 +5854,8 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
    drawing and the placement change. Narrow stages keep the shared sheets in the skin's palette. art.voice draws every voice
    replay control (the backlog rows' and the box's) from the skin's images. */
 .fork-gal-backlog-bar { display: none; }
+/* latest false (nolatest): the original's log has no 跳到最新 control, at any width; the wheel and End still reach the end. */
+.fork-gal-stage[data-fk-skin-art-backlog~="nolatest"]:not(.is-film) .fork-gal-backlog-latest { display: none; }
 @media (min-width: 641px) {
   .fork-gal-stage[data-fk-skin-art-backlog]:not(.is-film) > .fork-gal-backlog,
   .fork-gal-stage[data-fk-skin-art-config]:not(.is-film) > .fork-gal-config { display: block; overflow: clip; }
@@ -5857,7 +5868,9 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
   .fork-gal-stage[data-fk-skin-art-config~="sheet"]:not(.is-film) > .fork-gal-config::before { content: ""; position: absolute; inset: 0;
     z-index: -1; width: auto; height: auto; aspect-ratio: auto; background: none; border-image: none 0 fill / 0 stretch;
     -webkit-mask: none; mask: none; animation: none; pointer-events: none; }
-  /* The 履历 sheet at its own aspect, contained in the game area, the panel ground round it (as the menu's sheet above). */
+  /* The 履历 sheet at its own aspect, contained in the game area, the panel ground round it (as the menu's sheet above).
+     ground false (noground): a log card over the scene - round the sheet the stage shows as through its clear parts (the
+     scene at art.backlog.dim), so a game area narrower than the window keeps the scene to the window's edges. */
   .fork-gal-stage[data-fk-skin-art-backlog~="sheet"]:not(.is-film) > .fork-gal-backlog::before { --sw: var(--art-backlog-sheet-w); --sh: var(--art-backlog-sheet-h);
     --su: min(calc(var(--art-screen-w) * var(--mu) / var(--sw)), calc(var(--art-screen) * var(--mu) / var(--sh)));
     content: ""; position: absolute; z-index: -1; inset: auto; left: calc(var(--gx) + (var(--art-screen-w) * var(--mu) - var(--sw) * var(--su)) / 2); top: calc(var(--gy) + (var(--art-screen) * var(--mu) - var(--sh) * var(--su)) / 2);
@@ -5891,6 +5904,7 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
   .fork-gal-stage[data-fk-skin-art-backlog~="untitled"]:not(.is-film) .fork-gal-backlog-title .fork-help-tip { display: none; }
   /* clip false (noclip): only the original's close; the export starts from a row (Shift-click, long press). */
   .fork-gal-stage[data-fk-skin-art-backlog~="noclip"]:not(.is-film) .fork-gal-backlog-clip { display: none; }
+  .fork-gal-stage[data-fk-skin-art-backlog~="noground"]:not(.is-film) > .fork-gal-backlog::before { box-shadow: none; }
   .fork-gal-stage[data-fk-skin-art-backlog~="close"]:not(.is-film) .fork-gal-backlog-close,
   .fork-gal-stage[data-fk-skin-art-config~="close"]:not(.is-film) .fork-gal-config-close { --c: var(--art-backlog-close-img); --cf: var(--art-backlog-close-focus); position: absolute; right: auto; bottom: auto; z-index: 2;
     left: calc(var(--gx) + var(--art-backlog-close-x) * var(--mu)); top: calc(var(--gy) + var(--art-backlog-close-y) * var(--mu)); width: calc(var(--art-backlog-close-w) * var(--mu)); height: calc(var(--art-backlog-close-h) * var(--mu));
@@ -5974,7 +5988,10 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
   .fork-gal-stage[data-fk-skin-art-backlog-parts~="bar"]:not(.is-film) .fork-gal-backlog-bar { position: absolute; display: block; left: calc(var(--gx) + var(--art-bl-bar-x) * var(--mu)); top: calc(var(--gy) + var(--art-bl-bar-y) * var(--mu));
     width: calc(var(--art-bl-bar-w) * var(--mu)); height: calc(var(--art-bl-bar-h) * var(--mu)); background: var(--art-bl-bar) 0 0 / 100% 100% no-repeat; }
   /* It takes the pointer only as part of the list's hover area (the current entry's highlight steps aside over it); no clicks of its own. */
-  .fork-gal-stage[data-fk-skin-art-backlog-parts~="bar"]:not(.is-film) .fork-gal-backlog-bar > b { position: absolute; left: 0; right: 0; top: calc((1 - var(--bl-thumb, 1)) * var(--bl-pos, 1) * 100%); height: calc(var(--bl-thumb, 1) * 100%);
+  /* The thumb is the visible share of the list, never shorter than a sixth of the track: a long history (older turns paged in)
+     would shrink it to a dot, while an original's log thumb stays a grippable bar. */
+  .fork-gal-stage[data-fk-skin-art-backlog-parts~="bar"]:not(.is-film) .fork-gal-backlog-bar > b { --t: max(calc(var(--bl-thumb, 1) * 100%), calc(100% / 6));
+    position: absolute; left: 0; right: 0; top: calc((100% - var(--t)) * var(--bl-pos, 1)); height: var(--t);
     background: var(--art-bl-thumb) 0 0 / 100% 100% no-repeat; }
   /* CONFIG: tabs as the original's tab images, the page rows in their rect, controls from the skin's images. */
   .fork-gal-stage[data-fk-skin-art-config]:not(.is-film) .fork-gal-config-sheet { position: absolute; inset: 0; display: block; width: auto; height: auto; max-width: none; max-height: none; margin: 0; padding: 0;
@@ -5985,15 +6002,15 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
     width: calc(var(--art-cf-page-w) * var(--mu)); height: calc(var(--art-cf-page-h) * var(--mu)); padding: 0 calc(var(--art-cf-row) * var(--mu)) 0 calc(var(--art-cf-row) * var(--mu)); margin-left: calc(-1 * var(--art-cf-row) * var(--mu));
     width: calc((var(--art-cf-page-w) + 2 * var(--art-cf-row)) * var(--mu)); font-size: calc(var(--art-config-font) * var(--mu)); }
   .fork-gal-stage[data-fk-skin-art-config]:not(.is-film) .fork-gal-config-group + .fork-gal-config-group { margin-top: calc(var(--art-cf-row) * var(--mu) * .25); }
-  .fork-gal-stage[data-fk-skin-art-config]:not(.is-film) .fork-gal-config-caption { margin: 0; padding: calc(var(--art-cf-row) * var(--mu) * .2) 0 0; border: 0 none; color: var(--gal-ui-ink-2); font-size: .7em; }
+  .fork-gal-stage[data-fk-skin-art-config]:not(.is-film) .fork-gal-config-caption { margin: 0; padding: calc(var(--art-cf-row) * var(--mu) * .2) 0 0; border: 0 none; color: var(--gal-ui-accent); font-size: 1.05em; font-weight: 700; letter-spacing: .12em; }
   .fork-gal-stage[data-fk-skin-art-config]:not(.is-film) .fork-gal-config-row { position: relative; grid-template-columns: minmax(0, 1fr) calc(var(--art-cf-control) * var(--mu)); column-gap: calc(var(--art-cf-row) * var(--mu) * .25);
     min-height: calc(var(--art-cf-row) * var(--mu)); padding: 0; }
   .fork-gal-stage[data-fk-skin-art-config-parts~="focus"]:not(.is-film) .fork-gal-config-row:is(:hover, :focus-within)::before { content: ""; position: absolute; z-index: -1; left: calc(-1 * var(--art-cf-row) * var(--mu)); right: calc(-1 * var(--art-cf-row) * var(--mu));
     top: 10%; bottom: 10%; background: var(--art-cf-focus) 0 0 / 100% 100% no-repeat; pointer-events: none; }
   .fork-gal-stage[data-fk-skin-art-config]:not(.is-film) .fork-gal-config-row { isolation: isolate; }
-  .fork-gal-stage[data-fk-skin-art-config]:not(.is-film) .fork-gal-config-label { font-size: 1em; letter-spacing: .06em; }
-  .fork-gal-stage[data-fk-skin-art-config]:not(.is-film) .fork-gal-config-control { font-size: .9em; }
-  .fork-gal-stage[data-fk-skin-art-config]:not(.is-film) .fork-gal-config .fork-gal-mix-label b { font-size: .9em; letter-spacing: .06em; }
+  .fork-gal-stage[data-fk-skin-art-config]:not(.is-film) .fork-gal-config-label { font-size: .82em; letter-spacing: .04em; }
+  .fork-gal-stage[data-fk-skin-art-config]:not(.is-film) .fork-gal-config-control { font-size: .78em; }
+  .fork-gal-stage[data-fk-skin-art-config]:not(.is-film) .fork-gal-config .fork-gal-mix-label b { font-size: .82em; letter-spacing: .04em; }
   .fork-gal-stage[data-fk-skin-art-config]:not(.is-film) .fork-gal-config .fork-gal-mix-value { color: inherit; font-size: .8em; }
   .fork-gal-stage[data-fk-skin-art-config-parts~="tabs"]:not(.is-film) .fork-gal-config-tabs { position: absolute; display: flex; flex-direction: column; gap: calc((var(--art-cf-tab-pitch) - var(--art-cf-tab-h)) * var(--mu));
     left: calc(var(--gx) + var(--art-cf-tab-x) * var(--mu)); top: calc(var(--gy) + var(--art-cf-tab-y) * var(--mu)); width: calc(var(--art-cf-tab-w) * var(--mu)); padding: 0; border: 0 none; background: none; }
@@ -7317,12 +7334,6 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
 
 
 
-/* .fork-roll's own tier mapping is the core theme's (a stage-less card's chat floor). */
-.fork-gal-backlog-roll[data-tier="critical"] { --roll-tier: var(--roll-critical); }
-.fork-gal-backlog-roll[data-tier="success"] { --roll-tier: var(--roll-success); }
-.fork-gal-backlog-roll[data-tier="costly"] { --roll-tier: var(--roll-costly); }
-.fork-gal-backlog-roll[data-tier="failure"] { --roll-tier: var(--roll-failure); }
-.fork-gal-backlog-roll[data-tier="fumble"] { --roll-tier: var(--roll-fumble); }
 /* Stage: on the text box's top edge, out of its flow (the box never moves or re-wraps); details open upward. */
 .fork-gal-stage .fork-gal-box > .fork-roll-list { position: absolute; right: var(--box-pad, 16px); bottom: calc(100% + 8px); z-index: 4; align-items: flex-end; width: max-content; max-width: min(72%, 460px); margin: 0; }
 /* The list's own box takes no clicks: a card hidden while its roll plays must not cover the result page beneath it. */
@@ -7341,6 +7352,22 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
   align-items: center; color: var(--gal-ui-ink); }
 .fork-gal-backlog-roll > .fork-icon { flex: none; width: max(16px, calc(var(--bl-body-fs) * .86)); height: max(16px, calc(var(--bl-body-fs) * .86)); }
 .fork-gal-stage.is-film .fork-gal-box > .fork-roll-list { display: none; }
+/* The stage's notice of what changed (mods/dice/client/check.js CheckNotices; owner 11-25): a classic galgame system notice -
+   one band per change slides in at the top left over the scene, holds and fades, in the skin's own surface, ink and fonts. */
+.fork-gal-stage > .fork-check-notices { position: absolute; left: 0; top: 9%; z-index: 6; display: flex; flex-direction: column; gap: 8px; pointer-events: none; }
+.fork-check-notices:empty { display: none; }
+.fork-check-notice-group { display: contents; }
+.fork-check-notice { display: flex; align-items: baseline; gap: .6em; width: max-content; max-width: min(72vw, 640px); padding: 8px 3.2em 8px 1.4em;
+  color: var(--gal-ui-ink); font-family: var(--gal-ui-font); font-size: var(--gal-ui-choice-size); text-shadow: var(--gal-ui-text-shadow);
+  background: linear-gradient(90deg, var(--gal-ui-surface) 0%, var(--gal-ui-surface) 62%, transparent 100%);
+  animation: fork-check-notice 5.2s ease-out calc(var(--notice-index) * .18s) both; }
+.fork-check-notice-who, .fork-check-notice.is-text .fork-check-notice-value { font-family: var(--gal-ui-title-font, var(--gal-ui-font)); font-size: calc(var(--gal-ui-choice-size) * 1.4); }
+.fork-check-notice-who { color: var(--gal-ui-accent); }
+.fork-check-notice-what { color: var(--gal-ui-ink-2); }
+.fork-check-notice.is-up .fork-check-notice-value { color: var(--gal-ui-accent); font-size: calc(var(--gal-ui-choice-size) * 1.2); }
+.fork-check-notice.is-down .fork-check-notice-value { color: var(--gal-ui-muted); font-size: calc(var(--gal-ui-choice-size) * 1.2); }
+@keyframes fork-check-notice { 0% { opacity: 0; transform: translateX(-24px); } 7% { opacity: 1; transform: none; } 85% { opacity: 1; transform: none; } 100% { opacity: 0; transform: none; } }
+.fork-gal-stage.is-film > .fork-check-notices { display: none; }
 @media (max-width: 720px) { .fork-gal-stage .fork-gal-box > .fork-roll-list { max-width: calc(100% - 2 * var(--box-pad, 16px)); } .fork-gal-stage .fork-gal-box > .fork-roll-list .fork-roll-head { min-height: 36px; } }
 /* The ledger card (dsh.dice option result.card: ledger; mods/dice/client/check.js CheckLedger): a ruled form - a head of
    cells (tags, title, id) over one row read as a sum: the dice that do not count (small, outlined) | the dice that counted

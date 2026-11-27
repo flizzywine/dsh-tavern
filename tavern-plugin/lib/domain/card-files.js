@@ -9,6 +9,7 @@ import { withoutPlayerChoices } from './card-export-settings.js'
 import { readCardArchive } from './card-archive.js'
 import { buildCharxContents, cardImport, cardImportFromCard, cardLibraryMaterial, pngCardTextChunk, pngWithTextChunks } from './card-assets.js'
 import { cardAssetExtensionPointer, validateCardAssetExtension } from './card-asset-bindings.js'
+import { rebaseCardEdits } from './card-update-merge.js'
 import { rawData } from './card-preparation.js'
 import { createCardImportIdentity } from './card-import-identity.js'
 import { normalizeResourcePath } from './file-resources.js'
@@ -223,7 +224,7 @@ export function createCardFiles({ cardPreparation, fileResources, castAssets, as
     }
     return notices
   }
-  async function importCardArchiveFile(file, name, { password, replacePath, pluginChoices, packDecisions, packBackups, acceptMissingPacks, previewed } = {}) {
+  async function importCardArchiveFile(file, name, { password, replacePath, pluginChoices, packDecisions, packBackups, keepEdits, acceptMissingPacks, previewed } = {}) {
     if (/\.(dshcard|charx)\.png$/i.test(name)) throw new Error('卡包请使用 .dshcard 文件')
     const label = archiveLabel(name)
     // The very same file again: open the card already imported from it (if still unchanged), and make sure
@@ -243,7 +244,7 @@ export function createCardFiles({ cardPreparation, fileResources, castAssets, as
       if (stage?.notices.length && !acceptMissingPacks) throw new Error(stage.notices.join('；'))
       const duplicate = existing && !replacePath
       // Validate the card before publishing any of its packs.
-      const prepared = duplicate ? null : prepareImportedCard(cardImportFromCard({ card: archive.card, resolve: archive.resolve, name }))
+      const prepared = duplicate ? null : prepareImportedCard(cardImportFromCard({ card: archive.card, resolve: archive.resolve, name }), keepEdits)
       if (stage) { preparedPacks.delete(file); clearTimeout(stage.timer) }
       const staged = stage || await inspectCardPacks(zip, archive.packs, archiveSha256)
       const libraryNotices = [...await installPacksInLibrary(staged, { packDecisions, packBackups }), ...await dependencyNotices(archive.dependencies)]
@@ -336,12 +337,15 @@ export function createCardFiles({ cardPreparation, fileResources, castAssets, as
   }
   // options.library: a card without packs of its own. With the asset library, the material it brings becomes one pack
   // of the library that the card binds; what the library has no place for stays the card's character material.
-  function prepareImportedCard({ payload, collected }) {
-    const workspace = cardPreparation.create({ kind: 'import', payload })
+  // options.keepEdits {base, local}: an update carries the player's changes onto the new file (rebaseCardEdits); the
+  // file itself is still stored as the card's original, so the next update compares against it.
+  function prepareImportedCard({ payload, collected }, keepEdits) {
+    let workspace = cardPreparation.create({ kind: 'import', payload })
+    if (keepEdits) workspace = cardPreparation.create({ kind: 'import', payload: { kind: 'text', name: 'card.json', text: JSON.stringify(rebaseCardEdits({ ...keepEdits, incoming: workspace.raw })) } })
     return { payload, collected, workspace }
   }
-  async function storeImportedCard(input, options = {}) {
-    return await storePreparedCard(prepareImportedCard(input), options)
+  async function storeImportedCard(input, { keepEdits, ...options } = {}) {
+    return await storePreparedCard(prepareImportedCard(input, keepEdits), options)
   }
   async function storePreparedCard({ payload, collected, workspace }, { library: toLibrary = true, ...importOptions } = {}) {
     const library = assetLibrary()
@@ -638,6 +642,8 @@ export function createCardFiles({ cardPreparation, fileResources, castAssets, as
       const plugins = material.plugins || []
       const choices = new Map(plugins.map(p => [p.name, p.enabled !== false]))
       const record = { cardPath: target, original: await fileResources.originalCardPayload(target), workspace, material, pluginChoices: [...choices], packs: [] }
+      // The card as the file it came from had it, and as it is now: what the player changed stays (rebaseCardEdits).
+      const keepEdits = { base: record.original ? cardPreparation.create({ kind: 'import', payload: record.original }).raw : undefined, local: workspace.raw }
       const root = updatesRoot(), updateId = path.basename(target, '.json') + '-' + Date.now() + '-' + randomUUID().slice(0, 8), dir = path.join(root, updateId)
       for (const earlier of await readdir(root, { withFileTypes: true }).catch(() => [])) {
         if (!earlier.isDirectory()) continue
@@ -652,8 +658,8 @@ export function createCardFiles({ cardPreparation, fileResources, castAssets, as
         await cardPlugins.disable({ cardPath: target, plugins })
         await castAssets.replaceManifest(target, null)
         const card = input.file
-          ? await importCardArchiveFile(input.file, input.name, { password: input.password, replacePath: target, pluginChoices: choices, packDecisions: input.packDecisions, acceptMissingPacks: input.acceptMissingPacks, previewed: input.previewed, packBackups: { dir: path.join(dir, 'packs'), list: record.packs } })
-          : await importCard(input.payload, { replacePath: target })
+          ? await importCardArchiveFile(input.file, input.name, { password: input.password, replacePath: target, pluginChoices: choices, packDecisions: input.packDecisions, acceptMissingPacks: input.acceptMissingPacks, previewed: input.previewed, packBackups: { dir: path.join(dir, 'packs'), list: record.packs }, keepEdits })
+          : await importCard(input.payload, { replacePath: target, keepEdits })
         // The card's own bubble settings maintain an entry of its world book (the archive import syncs it too).
         if (!input.file) await syncBubbles(target)
         await writeFile(path.join(dir, 'update.json'), JSON.stringify(record))

@@ -33,7 +33,7 @@ function useStageEntrance(store, entrance, loadGate) {
     const patch = React.useCallback(change => !disposed && setHeld(prev => ({...(prev.run === run ? prev : {...fresh}), ...change})), [run]);
     const [bright, setBright] = React.useState(0);
     useEffect(() => { if (!bright) return undefined; const timer = setTimeout(() => setBright(0), 1500); return () => clearTimeout(timer); }, [bright]);
-    const active = !disposed && !!run && !status.failed && !status.done;
+    const active = !disposed && !!run && !status.failed && !status.done && !loadGate.failure;
     // Loaded: the gate's reveal has begun; the entrance plays on to its cover.
     const ready = loadGate.visible || loadGate.phase === 'revealing';
     // Never a permanent black screen: no first frame, no cover after the load, no end after the cover, or a load still not
@@ -67,7 +67,7 @@ function useStageEntrance(store, entrance, loadGate) {
         const timer = setTimeout(() => {if(!disposed)setLate(true);}, ENTRANCE_LOADING_GRACE_MS);
         return () => clearTimeout(timer);
     }, [run, active, loading]);
-    const overlay = !run || late && !active ? null : {loadPhase: hidden ? loadGate.phase : 'ended', bright: hidden && !!bright};
+    const overlay = !run || loadGate.failure || late && !active ? null : {loadPhase: hidden ? loadGate.phase : 'ended', bright: hidden && !!bright};
     // end(): the run is over without playing on (a card's showOn page stands in for the entrance on that visit).
     return {gate, active, end: () => { if (active) patch({done: true}); }, stageAttr: active ? status.covered ? 'covered' : 'playing' : undefined, overlay,
         element: active ? React.createElement(StageEntrance, {key: 'entrance', run, ready, covered: status.covered, started: status.started, onEvent,
