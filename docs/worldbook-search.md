@@ -37,3 +37,5 @@
 ## 维护入口
 
 `tavern-plugin/lib/host/worldbook.js` 装配游玩世界书的前台投影、前缀恢复和 DSH 资料读取钩子。内置策略和插件策略由同一个投影模块处理，插件只返回非常驻静态条目的引用，预算、冷却、模板渲染和固定通道继续由酒馆处理。修改策略时可通过 `tests/worldbook-strategy-plugin.test.mjs` 同时验证插件接口与生产装配。
+
+`tavern-plugin/lib/domain/candidate-worldbook-preparation.js` 负责候选前缀的预热资格、缓存版本和投影失败后的重试。生产入口提供窄读接口，模块统一决定哪些会话可以预热，以及剧情和资源变更后何时重读。

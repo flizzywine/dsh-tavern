@@ -1,9 +1,37 @@
-import {copyJsonTree} from './copy-json-tree.js'
+import { copyJsonTree } from './copy-json-tree.js'
+
+const versionFields = ['id', 'sessionId', 'mode', 'requestMode', '_storageRevision', 'settleStatus', 'regenInProgress',
+  'cardDefinitionSnapshot.name', 'openingWorldbookSnapshot.version']
 
 // Candidate commands do not change the template environment. Everything else
 // invalidates conservatively; an unobserved storage revision always misses.
 const commandOnly = source => /^candidate\.mailbox\.|^background\.candidate\.(begin|bind|commit)$/.test(source || '')
-export function createCandidateWorldbookPreparation({version,prepare,onError,capacity=8,maxBytes=16*1024*1024}) {
+export function createCandidateWorldbookPreparation({
+  readHeader, readCandidateChat, readCard, resourceVersion, projectPrefix, onError, capacity = 8, maxBytes = 16 * 1024 * 1024
+}) {
+  async function version(sessionId) {
+    const [chat, globals, settings] = await Promise.all([
+      readHeader(sessionId, versionFields),
+      resourceVersion('prompt-template-variables.json'),
+      resourceVersion('tavern-extension-settings.json')
+    ])
+    if (!chat || !['story', 'script'].includes(chat.mode) || chat.requestMode === 'sillytavern' || chat.regenInProgress ||
+        ['pending', 'running'].includes(chat.settleStatus) || !chat.cardDefinitionSnapshot || chat.openingWorldbookSnapshot?.version !== 1) return null
+    // Switching models does not change the prepared worldbook prefix.
+    return { revision: chat._storageRevision, resources: JSON.stringify([globals, settings]) }
+  }
+
+  async function prepare(sessionId) {
+    const chat = await readCandidateChat(sessionId)
+    if (!chat) throw Error('当前会话没有绑定人物卡')
+    const result = await projectPrefix(chat, await readCard(chat))
+    // Keep a transient projection failure distinct from an empty worldbook.
+    if (result.diagnostics?.some(item => ['worldbook-read-failed', 'projection-failed'].includes(item.code))) {
+      throw Error('候选世界书准备失败，请查看模板诊断')
+    }
+    return result
+  }
+
   const entries=new Map()
   let disposed=false,bytes=0
   function remove(id){const entry=entries.get(id);if(entry){bytes-=entry.bytes||0;entries.delete(id)}}

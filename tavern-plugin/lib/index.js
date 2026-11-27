@@ -2941,32 +2941,13 @@ export async function apply(ctx) {
     return next()
   }, { prepend: true })
   ctx.on('agent/status', ({ agent, status }) => { if (status === 'idle') queueAutoCompaction(agent.session.id) })
-  const candidateContextReader = createCandidateContextReader({headerForSession:chatHeaderForSession,readWindow:chatPersistence.readWindow,readChat})
-  candidateWorldbookPreparation=createCandidateWorldbookPreparation({
-    async version(sessionId){
-      const [chat,globals,settings]=await Promise.all([
-        chatHeaderForSession(sessionId,['id','sessionId','mode','requestMode','_storageRevision','settleStatus','regenInProgress',
-          'cardDefinitionSnapshot.name','openingWorldbookSnapshot.version']),
-        profileData.version('prompt-template-variables.json'),profileData.version('tavern-extension-settings.json')
-      ])
-      if(!chat || !['story','script'].includes(chat.mode) || chat.requestMode==='sillytavern' || chat.regenInProgress || ['pending','running'].includes(chat.settleStatus)
-        || !chat.cardDefinitionSnapshot || chat.openingWorldbookSnapshot?.version!==1)return null
-      // The prepared value is the bound book's request prefix plus its constant
-      // entries. Nothing in it reads the model, so the selected model stays out
-      // of the dependency key: switching models must not throw the work away.
-      return {revision:chat._storageRevision,resources:JSON.stringify([globals,settings])}
-    },
-    async prepare(sessionId){
-      const chat=await candidateContextReader.worldbookForSession(sessionId)
-      if(!chat)throw Error('当前会话没有绑定人物卡')
-      const result=await playWorldbooks.projectPrefix(chat,await readChatCard(chat))
-      // A transient template failure is not a prepared empty worldbook.
-      if(result.diagnostics?.some(item=>['worldbook-read-failed','projection-failed'].includes(item.code)))throw Error('候选世界书准备失败，请查看模板诊断')
-      return result
-    },
-    onError:error=>console.warn('dsh-tavern: 候选上下文提前准备失败:',str(error.message||error))
+  const candidateContextReader = createCandidateContextReader({ headerForSession: chatHeaderForSession, readWindow: chatPersistence.readWindow, readChat })
+  candidateWorldbookPreparation = createCandidateWorldbookPreparation({
+    readHeader: chatHeaderForSession, readCandidateChat: candidateContextReader.worldbookForSession, readCard: readChatCard,
+    resourceVersion: profileData.version, projectPrefix: playWorldbooks.projectPrefix,
+    onError: error => console.warn('dsh-tavern: 候选上下文提前准备失败:', str(error.message || error))
   })
-  ctx.effect(()=>()=>candidateWorldbookPreparation.dispose())
+  ctx.effect(() => () => candidateWorldbookPreparation.dispose())
   const candidateGenerator = createCandidateGenerator({
     requestAnchor: contextHost.requestAnchor,
     expandedCandidates: readExpandedCandidates,
