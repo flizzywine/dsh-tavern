@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "b9a9820935271caa798aa0d1d741cb6965295800",
-  "releaseSequence": 2203,
+  "revision": "1617ef5600fec6d88db7c68592927b76c1670aa4",
+  "releaseSequence": 2204,
   "version": "3.4.0",
   "files": [
     {
@@ -1958,6 +1958,11 @@
       "path": "tavern-plugin/lib/domain/conversation-fork-point.js",
       "sha256": "6949e1bc95c9fcdccdd8a396e59da984d56f62412a9149a35838cbd6ee42ab8f",
       "size": 12999
+    },
+    {
+      "path": "tavern-plugin/lib/domain/conversation-fork-runtime.js",
+      "sha256": "e811434818b961ba9f9385ee8b73dfbd0690c69be925da5034822f9406bba5b1",
+      "size": 12312
     },
     {
       "path": "tavern-plugin/lib/domain/conversation-fork-targets.js",
@@ -4531,8 +4536,8 @@
     },
     {
       "path": "tavern-plugin/lib/index.js",
-      "sha256": "2e54a57d2d1b61fbdf431882b28d4f1ca027e1bd8e22abb0ccd6478f42b1e8ca",
-      "size": 322963
+      "sha256": "69e3a7d5cc2f8525d6dafe64bef6303fdc9da83063f77382a609775ae8ab14f5",
+      "size": 311960
     },
     {
       "path": "tavern-plugin/lib/metadata-backup.js",
@@ -4631,8 +4636,8 @@
     },
     {
       "path": "tavern-plugin/lib/rpc/conversations.js",
-      "sha256": "cbddcba456662020851ef4ca88d53f85b639e17f42dff7e9649cd54a588160f3",
-      "size": 4422
+      "sha256": "5209563abffab875f1429805cdf59756580b87abb464830f9f1e7a00c4bab29f",
+      "size": 3973
     },
     {
       "path": "tavern-plugin/lib/rpc/generation-stream-mode.js",
@@ -10356,9 +10361,9 @@
     }
   ],
   "archive": {
-    "commit": "a86283750f724f9b353110a119b9baa8b11c99f8",
+    "commit": "46cf6f18d4f89879632d17ef14ad223eaed81069",
     "path": "runtime.zip",
-    "sha256": "4c99ac2c54edfada9181659997c098b56ee8da8d7d2a568b97e0d8fcbca458cc",
-    "size": 18321368
+    "sha256": "cbc1338c42d512f6d5a86b79b04f6cf473664cccdf84f3650818b505de0965fa",
+    "size": 18322597
   }
 }
