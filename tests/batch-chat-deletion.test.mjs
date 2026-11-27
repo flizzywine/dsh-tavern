@@ -1,15 +1,12 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { createConversationDeletion } from '../tavern-plugin/lib/domain/conversation-deletion.js'
+import { createConversationDeletion, createConversationDeletionWorkflow } from '../tavern-plugin/lib/domain/conversation-deletion.js'
 import { createProfileDataStore } from '../tavern-plugin/lib/profile-data-store.js'
 import { createTavernConversationRegistry } from '../tavern-plugin/lib/domain/tavern-conversation-registry.js'
 
-const source = readFileSync(new URL('../tavern-plugin/lib/index.js', import.meta.url), 'utf8')
-const section = source.slice(source.indexOf('  async function stopChatForDeletion'), source.indexOf('  async function exportConversation'))
 async function temporaryStore(t) {
   const dataRoot = await mkdtemp(join(tmpdir(), 'tavern-chat-deletion-'))
   t.after(() => rm(dataRoot, { recursive: true, force: true }))
@@ -22,39 +19,58 @@ async function setup(t, { projection = true } = {}) {
   const deletedChatIds = new Set()
   const workers = new Map(['a', 'background'].map(id => [id, { cancel: () => events.push('cancel:' + id), whenIdle: async () => events.push('idle:' + id) }]))
   const gameFootprint = {
-    describe: async chat => ({ foregroundSessionId: chat.sessionId, items: [{ category: 'log', path: 'log-' + chat.id }, { category: 'subsession', sessionId: 'background', path: 'live' }, { category: 'subsession', sessionId: 'gone', path: 'gone-' + chat.id }] }),
+    async describeMany(chats, { ownsSession }) {
+      events.push('describe:' + chats.map(chat => chat.id).join(','))
+      const chat = chats[0]
+      assert.equal(await ownsSession('borrowed', chat), false)
+      assert.equal(await ownsSession('owned', chat), true)
+      return chats.map(chat => ({ foregroundSessionId: chat.sessionId, items: [
+        { category: 'log', path: 'log-' + chat.id },
+        { category: 'subsession', sessionId: 'background', path: 'live' },
+        { category: 'subsession', sessionId: 'gone', path: 'gone-' + chat.id },
+      ] }))
+    },
     removeLeftovers: async footprint => { events.push('cleanup:' + footprint.items.map(item => item.path).join(',')); return { failures: [] } },
     deferSessionDeletion: async items => { events.push('defer:' + items.map(item => item.path).join(',')) }
   }
   const backgroundAgentRunner = { releaseFor: async id => { events.push('release:' + id) } }
   // Deletion reads a header projection, not the whole save: a play save's preset
   // snapshot and foreground frames must never be materialized just to stop a session.
-  const chatPersistence = {
-    readSlice: async (id, indices, fields) => {
-      events.push('project:' + id + ':' + (fields || []).join(','))
-      if (!projection) return { chat: { id, sessionId: id, messages: [] } }
-      return { chat: { id, sessionId: id, backgroundConfigVersion: 1, conversationFeaturesVersion: 1, messages: [] } }
-    }
-  }
-  let cleanup
-  const conversationDeletion = createConversationDeletion({
-    store, deletedChatIds,
+  const api = createConversationDeletionWorkflow({
+    store, deletedChatIds, gameFootprint,
     removeCore: async id => {
       events.push('remove:' + id)
       if (id === 'bad') throw new Error('disk error')
       return { deleted: true }
     },
-    cleanup: (...args) => cleanup(...args)
+    chats: {
+      async read(id) { events.push('whole:' + id); return { id, sessionId: id } },
+      async readIndex() { events.push('index'); return { chats: [{ id: 'another-game', backgroundSessionId: 'borrowed' }] } },
+      async readSlice(id, indices, fields) {
+        assert.deepEqual(indices, [])
+        events.push('project:' + id + ':' + fields.join(','))
+        if (!projection) return { chat: { id, sessionId: id, messages: [] } }
+        return { chat: { id, sessionId: id, backgroundConfigVersion: 1, conversationFeaturesVersion: 1, messages: [] } }
+      },
+      inspect: () => ({ participants: { worker: { sessionId: 'background' } } }),
+    },
+    sessions: {
+      agents: workers,
+      async open(id) {
+        assert.equal(id, 'owned')
+        return { header: { parentSession: 'a' }, close: async () => { events.push('closed:' + id) } }
+      },
+      async cancelSettlement(id) { events.push('settlement:' + id) },
+      notifyRemoved: id => events.push('removed:' + id),
+      async release(id) {
+        events.push('forget:' + id)
+        await backgroundAgentRunner.releaseFor(id)
+        events.push('profile-remove:writing-preparation/' + id)
+      },
+    },
+    cleanupChatRecords: [async id => { events.push('media:' + id) }],
   })
-  const api = new Function('readChat', 'chatPersistence', 'str', 'storyTimeline', 'agentRegistry', 'cancelSettlement', 'conversationDeletion', 'deletedChatIds', 'gameFootprint', 'backgroundAgentRunner', 'deletedSessionIds', 'apiDiagnostics', 'pluginMedia', 'pluginData', 'pluginApi', 'displayRuntimeStore', 'sceneWorldbookArchive', 'profileData', 'writingPreparationBindingPath', section + '; return { deleteChats, cleanupDeletedChat };')(
-    async id => { events.push('whole:' + id); return { id, sessionId: id } }, chatPersistence, String,
-    { inspect: () => ({ participants: { worker: { sessionId: 'background' } } }) }, workers,
-    async id => { events.push('settlement:' + id) },
-    conversationDeletion, deletedChatIds, gameFootprint, backgroundAgentRunner, new Set(), { forget: async id => { events.push('forget:' + id) } },
-    { removeChat: async id => { events.push('media:' + id) } }, { removeChat: async () => {} }, { gameRemoved: id => events.push('removed:' + id) }, { remove: async () => {} }, { forgetChat: async () => {} },
-    { remove: async path => { events.push('profile-remove:' + path) } }, id => 'writing-preparation/' + id)
-  cleanup = api.cleanupDeletedChat
-  return { ...api, events, conversationDeletion }
+  return { ...api, events }
 }
 test('batch deletion stops foreground and background before removing, deduplicates, and continues after a failure', async t => {
   const api = await setup(t)
@@ -62,7 +78,11 @@ test('batch deletion stops foreground and background before removing, deduplicat
   assert.deepEqual(result.results, [{ chatId: 'a', ok: true }, { chatId: 'bad', ok: false, error: 'disk error' }, { chatId: 'c', ok: true }])
   assert.ok(api.events.indexOf('idle:a') < api.events.indexOf('remove:a'))
   assert.ok(api.events.indexOf('idle:background') < api.events.indexOf('remove:a'))
-  assert.deepEqual(await api.conversationDeletion.pendingIds(), ['bad'])
+  assert.ok(api.events.indexOf('idle:background') < api.events.indexOf('describe:a,bad,c'))
+  assert.equal(api.events.filter(event => event === 'index').length, 1)
+  assert.ok(api.events.includes('closed:owned'))
+  assert.deepEqual(await api.loadPending(), ['bad'])
+  assert.ok(!api.events.some(event => event.startsWith('whole:')), 'current saves only read the deletion header')
   // Leftovers go only after the save is removed; a session DSH still holds live stays archived.
   assert.ok(api.events.indexOf('remove:a') < api.events.indexOf('release:a'))
   assert.ok(api.events.includes('cleanup:log-a,gone-a'))
@@ -71,7 +91,18 @@ test('batch deletion stops foreground and background before removing, deduplicat
   assert.ok(api.events.includes('profile-remove:writing-preparation/a'), '清理写作准备绑定')
   assert.ok(api.events.includes('media:a') && api.events.includes('removed:a'), '清理插件媒体并通知插件')
   assert.ok(!api.events.includes('removed:bad'), '删除失败的局不通知')
+  assert.equal(api.isSessionDeleted('a'), true)
+  assert.equal(api.isSessionDeleted('bad'), false)
   assert.ok(!api.events.some(event => event.startsWith('cleanup:log-bad')))
+})
+
+test('prepare-only stops workers on legacy saves and leaves the deletion journal empty', async t => {
+  const api = await setup(t, { projection: false })
+  assert.deepEqual(await api.deleteChats(['a', 'a'], true), { results: [{ chatId: 'a', ok: true }] })
+  assert.equal(api.events.filter(event => event === 'whole:a').length, 1)
+  assert.ok(api.events.includes('idle:a'))
+  assert.ok(!api.events.includes('remove:a'))
+  assert.deepEqual(await api.loadPending(), [])
 })
 
 test('索引写入在删档后失败，重启后仍能清理映射和原存档的残留', async t => {
