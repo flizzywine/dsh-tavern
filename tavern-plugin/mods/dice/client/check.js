@@ -354,13 +354,55 @@ function useCheckPageFallback(callId) {
     return React.useSyncExternalStore(checkPageFallback.subscribe, () => checkPageFallback.get().has(callId), () => false);
 }
 
+// The stage's own notice of what changed, where neither the card nor the skin performs it (owner 11-25): a classic galgame
+// system notice - one band per change slides in at the stage's top left and fades, in the stage's own tokens. A number
+// tells who, what and by how much (「彩叶 好感 ▲ +3」), anything else what it is now (「剧情阶段 夏末花火」).
+function checkNotice(row) {
+    const label = row.label + (row.key ? "·" + row.key : ""), [what, who] = label.split("·");
+    if (typeof row.from === "number" && typeof row.to === "number") {
+        const delta = Math.round((row.to - row.from) * 1000) / 1000;
+        return { who: who || null, what, value: (delta < 0 ? "▼ −" : "▲ +") + Math.abs(delta), tone: delta < 0 ? "down" : "up" };
+    }
+    return { who: null, what: label, value: "to" in row ? checkValueText(row.to) : "移除", tone: "text" };
+}
+// The bands of every record on the page gather in one column at the stage's top left: each record portals its own into it.
+function checkNoticeColumn(stage) {
+    let column = stage.querySelector(":scope > .fork-check-notices");
+    if (!column) {
+        column = document.createElement("div");
+        column.className = "fork-check-notices";
+        column.setAttribute("role", "status");
+        stage.appendChild(column);
+    }
+    return column;
+}
+function CheckNotices(props) {
+    const h = React.createElement, record = props.record;
+    const [column, setColumn] = React.useState(null);
+    const anchor = React.useCallback(node => { const stage = node && node.closest(".fork-gal-stage"); setColumn(stage ? checkNoticeColumn(stage) : null); }, []);
+    // While its throw plays (show.js) the notice waits with its card.
+    const performing = useCheckPerforming(record.callId);
+    const rows = checkShown(record, record.changes || []);
+    if (!rows.length) return null;
+    const bands = h("div", { className: "fork-check-notice-group", "data-call": record.callId }, rows.map((row, i) => {
+        const notice = checkNotice(row);
+        return h("div", { key: i, className: "fork-check-notice is-" + notice.tone, style: { "--notice-index": i } },
+            notice.who ? h("span", { className: "fork-check-notice-who" }, notice.who) : null,
+            h("span", { className: "fork-check-notice-what" }, notice.what),
+            h("span", { className: "fork-check-notice-value" }, notice.value));
+    }));
+    return [h("span", { key: "anchor", ref: anchor, hidden: true }), column && !performing ? ReactDOM.createPortal(bands, column, "notices") : null];
+}
+
 function CheckRecord(props) {
     const h = React.createElement, record = props.record;
     // A ruling the card's page performs (page.js) has no card on the stage, unless the page could not play it.
     const fallback = useCheckPageFallback(record.callId);
     if (props.onStage && checkPaged(record) && !fallback) return null;
+    const ledger = Boolean(props.look && props.look.result && props.look.result.card === "ledger");
     if (record.action && record.status === "settled" && !record.dice) {
-        if (props.look && props.look.result && props.look.result.card === "ledger") return h(CheckNoteLedger, props);
+        if (ledger) return h(CheckNoteLedger, props);
+        if (props.onStage) return h(CheckNotices, { record });
         const note = checkNoteText(record);
         return note ? h("div", { className: "fork-check-note", "data-call": record.callId }, h(Icon, { name: "die", size: 14 }), h("span", null, note)) : null;
     }
@@ -402,7 +444,9 @@ function CheckCard(props) {
         !hidden && checkRollText(record) ? h("div", { className: "fork-check-line" }, checkRollText(record)) : null,
         headline && !ledger ? h("div", { className: "fork-check-line fork-check-headline" }, headline.label + " ", h("b", null, String(headline.value)), headline.target ? "　" + checkTargetText(headline.target) : null) : null,
         report && !(ledger && !record.dice) ? h("div", { className: "fork-check-line" }, report) : null,
-        changes.length ? h("div", { className: "fork-check-line" }, changes.map(checkChangeText).join("，")) : null,
+        // On the stage the plain card leaves what changed to the stage's notice (CheckNotices); the ledger lists it.
+        changes.length && (ledger || !props.onStage) ? h("div", { className: "fork-check-line" }, changes.map(checkChangeText).join("，")) : null,
+        changes.length && !ledger && props.onStage && record.status !== "awaiting" ? h(CheckNotices, { record }) : null,
         awaiting && props.answerable ? h(CheckButtons, { record, input: props.input, ledger: Boolean(props.look && props.look.result && props.look.result.card === "ledger"), onPick: setPicked, foldable: props.onStage }) : null,
 
         // A record whose choices the story asks for at the round's end (later) waits for that page.
