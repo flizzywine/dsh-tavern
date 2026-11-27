@@ -145,9 +145,7 @@ test('Windows system proxy becomes standard proxy variables', () => {
   assert.equal(env.HTTPS_PROXY, 'http://127.0.0.1:7890')
 })
 
-const [nodeMajor, nodeMinor] = process.versions.node.split('.').map(Number)
-// NODE_USE_ENV_PROXY exists since Node 22.21 / 24.0; older Node ignores it (curl and git still use the variables).
-test('downloads honour proxy variables through NODE_USE_ENV_PROXY', { skip: nodeMajor === 22 && nodeMinor < 21 }, async t => {
+test('downloads honour proxy variables through NODE_USE_ENV_PROXY', async t => {
   const directory = await mkdtemp(path.join(tmpdir(), 'download-proxy-'))
   t.after(() => rm(directory, { recursive: true, force: true }))
   const seen = []

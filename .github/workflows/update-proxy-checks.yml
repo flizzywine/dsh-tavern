@@ -58,18 +58,12 @@ permissions:
 
 jobs:
   update-proxy:
-    name: Update proxy / ${{ matrix.os }} / Node ${{ matrix.node }}
+    name: Update proxy / ${{ matrix.os }} / Node 24.12.0
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - os: windows-2025
-            node: 24.12.0
-          - os: ubuntu-22.04
-            node: 22.19.0
-          - os: macos-15
-            node: 24.12.0
+        os: [windows-2025, ubuntu-22.04, macos-15]
     steps:
       - uses: actions/checkout@v5
       - uses: pnpm/action-setup@v6
@@ -77,16 +71,11 @@ jobs:
           version: 11.8.0
       - uses: actions/setup-node@v5
         with:
-          node-version: ${{ matrix.node }}
+          node-version: 24.12.0
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - name: Check launcher downloads and updater proxy inheritance
         run: node --test tests/system-proxy.test.mjs tests/system-proxy-inheritance.test.mjs tests/application-update-proxy.test.mjs tests/profile-bridge-download.test.mjs
-      # Keep Node 22 proxy coverage, then run the full installer on the DSH runtime's supported Node.
-      - uses: actions/setup-node@v5
-        if: runner.os == 'Linux'
-        with:
-          node-version: 24.12.0
       - name: Check runtime downloads and staged updates
         run: node --test tests/download.test.mjs tests/staged-app-install.test.mjs tests/cdn-upgrade.test.mjs
       - name: Check Android source updates

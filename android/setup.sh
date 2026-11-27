@@ -7,6 +7,7 @@ DEFAULT_REPOSITORY="https://github.com/flizzywine/dsh-tavern.git"
 REPOSITORY="${DSH_TAVERN_REPOSITORY:-${DEFAULT_REPOSITORY}}"
 # Follows the main branch, same as install.sh.
 BRANCH="${DSH_TAVERN_BRANCH:-main}"
+MIN_NODE_VERSION='24.9.0'
 DEFAULT_TARBALL_URL="https://codeload.github.com/flizzywine/dsh-tavern/tar.gz/refs/heads/main"
 TARBALL_URL="${DSH_TAVERN_TARBALL_URL:-${DEFAULT_TARBALL_URL}}"
 # 运行清单与 CDN 源：优先使用校验过的整包，清单支持时也可按文件增量下载。
@@ -439,6 +440,14 @@ fi
 
 require_command bash
 require_command node
+if ! node -e '
+  const current = process.versions.node.split(".").map(Number)
+  for (const [index, required] of process.argv[1].split(".").map(Number).entries()) {
+    if (current[index] !== required) process.exit(current[index] > required ? 0 : 1)
+  }
+' "$MIN_NODE_VERSION" >/dev/null 2>&1; then
+  fail "Node.js 版本过低，安装需要 ${MIN_NODE_VERSION} 或更高版本（当前：$(node --version)）。"
+fi
 
 stage "准备酒馆源码"
 if [ ! -e "${APP_DIR}" ]; then

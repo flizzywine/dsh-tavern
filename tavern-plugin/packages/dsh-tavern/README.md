@@ -138,7 +138,7 @@
 
 ### 桌面版（Windows / macOS）
 
-先安装官方 [DeepSeek Harness](https://deepseek.com/harness/)，打开并完成初始设置。推荐使用 **0.2.2-rc.1 或更新的 0.2.x** DSH 内核。然后在下方 **任选一种** 安装方式。
+先安装官方 [DeepSeek Harness](https://deepseek.com/harness/)，打开并完成初始设置。推荐使用 **0.2.2-rc.5 或更新的 0.2.x** DSH 内核，宿主自带的 Node.js 须为 **24.9 或更新版本**。然后在下方 **任选一种** 安装方式。
 
 #### 方式一：手动安装（在 DSH 界面操作）
 
@@ -169,7 +169,7 @@ curl -fsSL 'https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@runtime-archive-ma
 
 ### DSH NEXT（Windows / macOS）
 
-先打开 DSH NEXT 完成初始设置。推荐使用内核为 **0.2.2-rc.1 或更新的 0.2.x** 的版本。酒馆安装在独立的 `tavern` Profile 中，NEXT 使用自己的 Profile 切换功能。
+先打开 DSH NEXT 完成初始设置。推荐使用内核为 **0.2.2-rc.5 或更新的 0.2.x**、宿主自带 Node.js **24.9 或更新版本**的版本。酒馆安装在独立的 `tavern` Profile 中，NEXT 使用自己的 Profile 切换功能。
 
 如果 NEXT 和官方桌面共用同一个 `DSH_HOME`，且官方桌面当前在酒馆中，请先在官方桌面的 **设置 → 酒馆启动器** 切回原版 DSH，再退出官方桌面。这样会恢复真实的 `profiles/desktop` 目录，NEXT 才能切回原版 Profile。
 

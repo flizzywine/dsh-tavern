@@ -78,7 +78,7 @@
   },
   "description": "DSH Tavern: standalone tavern Profile bundle",
   "engines": {
-    "node": ">=22.19.0"
+    "node": ">=24.9.0"
   },
   "repository": {
     "type": "git",

@@ -29,11 +29,13 @@ const modules = [
 const readModule = file => readFileSync(new URL(file, root), 'utf8').replaceAll('\r\n', '\n').replace(/\n+$/, '')
 // Each installer carries its own release version, so it never installs code older than itself
 // (a stale CDN manifest); bump package.json and rerun this script.
-const versions = [
-  { file: 'install.sh', pattern: /^(INSTALLER_VERSION=')[^']*(')$/m },
-  { file: 'install.ps1', pattern: /^(\$InstallerVersion = ')[^']*(')$/m },
+const versionFields = [
+  { file: 'install.sh', pattern: /^(INSTALLER_VERSION=')[^']*(')$/m, key: 'version' },
+  { file: 'install.ps1', pattern: /^(\$InstallerVersion = ')[^']*(')$/m, key: 'version' },
+  { file: 'install.sh', pattern: /^(MIN_NODE_VERSION=')[^']*(')$/m, key: 'minNodeVersion' },
+  { file: 'install.ps1', pattern: /^(\$MinNodeVersion = ')[^']*(')$/m, key: 'minNodeVersion' },
+  { file: 'android/setup.sh', pattern: /^(MIN_NODE_VERSION=')[^']*(')$/m, key: 'minNodeVersion' },
 ]
-const releaseVersion = () => JSON.parse(readFileSync(new URL('package.json', root), 'utf8')).version
 
 export function embedModule(source, pattern, moduleSource) {
   const text = source.replaceAll('\r\n', '\n')
@@ -55,14 +57,18 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
       else { writeFileSync(url, next); console.log(`updated ${file}: ${moduleFile}`) }
     }
   }
-  const version = releaseVersion()
-  for (const { file, pattern } of versions) {
+  const manifest = JSON.parse(readModule('package.json'))
+  const { minNodeVersion } = JSON.parse(readModule('config/dsh-compatibility.json'))
+  if (manifest.engines.node !== `>=${minNodeVersion}`) throw new Error('package.json 的 Node.js 版本要求与 DSH 兼容配置不一致')
+  const versions = { version: manifest.version, minNodeVersion }
+  for (const { file, pattern, key } of versionFields) {
+    const value = versions[key]
     const url = new URL(file, root)
     const current = readFileSync(url, 'utf8')
-    const next = embedModule(current, pattern, version)
+    const next = embedModule(current, pattern, value)
     if (next === current.replaceAll('\r\n', '\n')) continue
-    if (check) stale.push(`${file} (version ${version})`)
-    else { writeFileSync(url, next); console.log(`updated ${file}: version ${version}`) }
+    if (check) stale.push(`${file} (${key} ${value})`)
+    else { writeFileSync(url, next); console.log(`updated ${file}: ${key} ${value}`) }
   }
   if (stale.length) {
     console.error(`embedded modules are stale in: ${stale.join(', ')}. Run node bin/build-installer-scripts.mjs`)

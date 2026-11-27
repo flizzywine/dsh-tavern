@@ -2,7 +2,7 @@
 // Shared network downloads for the installers and Windows Desktop package management.
 // install.ps1 and install.sh embed this file verbatim because they run before any
 // code is downloaded: edit it here, then run `node bin/build-installer-scripts.mjs`.
-// Keep it dependency-free CommonJS for Node >= 22.19 (Desktop runs it under Electron).
+// Keep it dependency-free CommonJS for the standalone installers and Electron.
 //
 // Timeouts follow one rule: a transfer fails when no bytes arrive for `stallMs`
 // (slow but moving downloads keep going); `deadlineMs` is only a generous upper bound.

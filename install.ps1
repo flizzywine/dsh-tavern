@@ -12,6 +12,7 @@ $Repository = if ($env:DSH_TAVERN_REPOSITORY) { $env:DSH_TAVERN_REPOSITORY } els
 $RepositoryUrl = if ($env:DSH_TAVERN_GIT_URL) { $env:DSH_TAVERN_GIT_URL } else { "https://github.com/$Repository.git" }
 # This installer's release (package.json, written by bin/build-installer-scripts.mjs): never install older code.
 $InstallerVersion = '3.5.0'
+$MinNodeVersion = '24.9.0'
 $CdnMetadataUrl = if ($env:DSH_TAVERN_CDN_METADATA_URL) { $env:DSH_TAVERN_CDN_METADATA_URL } else { "https://cdn.jsdelivr.net/gh/$Repository@runtime-archive-main/dsh-tavern-runtime.json" }
 $CdnRootUrl = if ($env:DSH_TAVERN_CDN_ROOT_URL) { $env:DSH_TAVERN_CDN_ROOT_URL.TrimEnd('/') } else { "https://cdn.jsdelivr.net/gh/$Repository" }
 $DshRoot = if ($env:DSH_HOME) { $env:DSH_HOME }
@@ -391,7 +392,7 @@ $DownloadModuleSource = @'
 // Shared network downloads for the installers and Windows Desktop package management.
 // install.ps1 and install.sh embed this file verbatim because they run before any
 // code is downloaded: edit it here, then run `node bin/build-installer-scripts.mjs`.
-// Keep it dependency-free CommonJS for Node >= 22.19 (Desktop runs it under Electron).
+// Keep it dependency-free CommonJS for the standalone installers and Electron.
 //
 // Timeouts follow one rule: a transfer fails when no bytes arrive for `stallMs`
 // (slow but moving downloads keep going); `deadlineMs` is only a generous upper bound.
@@ -1653,13 +1654,13 @@ if (require.main === module) {
   }
   if (-not (Test-Command 'node')) {
     Start-Process 'https://nodejs.org/'
-    throw '未找到 Node.js。请安装 Node.js 22.19 或更高版本（DSH 0.2.2 起需要 24.9 或更高版本），然后重新运行本命令。'
+    throw "未找到 Node.js。请安装 Node.js $MinNodeVersion 或更高版本，然后重新运行本命令。"
   }
 
   $NodeVersionText = (& node --version).Trim()
   $NodeVersion = [version]$NodeVersionText.TrimStart('v')
-  if ($NodeVersion -lt [version]'22.19.0') {
-    throw "Node.js 版本过低，安装入口至少需要 22.19（DSH 0.2.2 起需要 24.9 或更高版本）（当前：$NodeVersionText）。"
+  if ($NodeVersion -lt [version]$MinNodeVersion) {
+    throw "Node.js 版本过低，安装需要 $MinNodeVersion 或更高版本（当前：$NodeVersionText）。"
   }
   # Reserve before installation markers, persistent PATH, logs or source writes.
   New-Item -ItemType Directory -Force -Path $TempDir | Out-Null

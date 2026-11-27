@@ -26,6 +26,7 @@ CDN_METADATA_URL=${DSH_TAVERN_CDN_METADATA_URL:-https://cdn.jsdelivr.net/gh/${RE
 CDN_ROOT_URL=${DSH_TAVERN_CDN_ROOT_URL:-https://cdn.jsdelivr.net/gh/${REPOSITORY}}
 # This installer's release (package.json, written by bin/build-installer-scripts.mjs): never install older code.
 INSTALLER_VERSION='3.5.0'
+MIN_NODE_VERSION='24.9.0'
 LEGACY_DSH_ROOT=${DSH_TAVERN_LEGACY_DSH_HOME:-${DSH_HOME:-${HOME}/.dsh}}
 DSH_ROOT=${DSH_HOME:-${HOME}/.dsh}
 if [ "${INSTALL_HOST}" = "next" ]; then DSH_ROOT=${DSH_HOME:-${DSH_DESKTOP_NEXT_HOME:-${HOME}/.dsh}}; fi
@@ -329,13 +330,18 @@ DSH_CHECK_LAUNCHER
 fi
 
 if ! command -v node >/dev/null 2>&1; then
-  echo "需要先安装 Node.js 22.19 或更高版本（DSH 0.2.2 起需要 24.9 或更高版本）：https://nodejs.org/" >&2
+  echo "需要先安装 Node.js ${MIN_NODE_VERSION} 或更高版本：https://nodejs.org/" >&2
   if command -v open >/dev/null 2>&1; then open https://nodejs.org/ >/dev/null 2>&1 || true; fi
   fail "未找到 Node.js。安装后重新运行本命令。"
 fi
 
-if ! node -e 'const [a,b]=process.versions.node.split(".").map(Number);process.exit(a>22||(a===22&&b>=19)?0:1)' >/dev/null 2>&1; then
-  fail "Node.js 版本过低，安装入口至少需要 22.19（DSH 0.2.2 起需要 24.9 或更高版本）（当前：$(node --version)）。"
+if ! node -e '
+  const current = process.versions.node.split(".").map(Number)
+  for (const [index, required] of process.argv[1].split(".").map(Number).entries()) {
+    if (current[index] !== required) process.exit(current[index] > required ? 0 : 1)
+  }
+' "$MIN_NODE_VERSION" >/dev/null 2>&1; then
+  fail "Node.js 版本过低，安装需要 ${MIN_NODE_VERSION} 或更高版本（当前：$(node --version)）。"
 fi
 
 # Claim the installation before creating markers, logs, source cache or profiles.
@@ -934,7 +940,7 @@ cat >"${TEMP_DIR}/download.cjs" <<'DSH_DOWNLOAD_MODULE'
 // Shared network downloads for the installers and Windows Desktop package management.
 // install.ps1 and install.sh embed this file verbatim because they run before any
 // code is downloaded: edit it here, then run `node bin/build-installer-scripts.mjs`.
-// Keep it dependency-free CommonJS for Node >= 22.19 (Desktop runs it under Electron).
+// Keep it dependency-free CommonJS for the standalone installers and Electron.
 //
 // Timeouts follow one rule: a transfer fails when no bytes arrive for `stallMs`
 // (slow but moving downloads keep going); `deadlineMs` is only a generous upper bound.
