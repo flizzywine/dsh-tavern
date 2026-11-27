@@ -1,11 +1,33 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createPlayWorldBook } from '../tavern-plugin/lib/domain/play-world-book.js'
+import { createServerTemplateRuntime } from '../tavern-plugin/lib/domain/server-template-runtime.js'
 import { UpstreamTemplateRuntime } from './fixtures/upstream-template-runtime.mjs'
 import { createWorldBookLibrary } from '../tavern-plugin/lib/domain/worldbook-library.js'
 import { createMvuSettlementModule, PROMPT_PROSE } from '../tavern-plugin/lib/domain/mvu-background-settlement.js'
 const runtime = await UpstreamTemplateRuntime.create()
-const rules = entries => createPlayWorldBook({ worldBooks: { bound: async () => ({ view: { entries } }) }, runtime: async () => runtime }).mvuUpdateRules
+const rules = entries => createPlayWorldBook({ worldBooks: { bound: async () => ({ view: { entries } }) }, readOnlyTemplateRuntime: async () => runtime }).mvuUpdateRules
+
+test('MVU rule templates share variables without persisting autosaves', async t => {
+  const chat = { sessionId: 'game', cardPath: 'rules.json', variables: {}, messages: [] }
+  const globals = { value: 'saved' }
+  const state = { sessionId: chat.sessionId, chatId: chat.sessionId, chat: [], chat_metadata: { variables: {} } }
+  const environment = { name1: 'Player', name2: 'Test', characters: [{ name: 'Test' }], dsh: {},
+    extension_settings: { variables: { global: globals }, EjsTemplate: { autosave_enabled: true } } }
+  const worker = createServerTemplateRuntime({ rpc: async method => {
+    assert.equal(method, 'getFullPromptTemplateState', 'MVU projection must never send an autosave to the host')
+    return structuredClone({ state, environment })
+  } })
+  t.after(() => worker.dispose())
+  const entries = [
+    { ref: 'controller', title: '[mvu_update] controller', position: 0, content: '<% setvar("value", "temporary", { scope: "global" }); await window.EjsTemplate.saveVariables(); %>' },
+    { ref: 'reader', title: '[mvu_update] reader', position: 1, content: '<%= getvar("value", { scope: "global" }) %>' }
+  ]
+  const play = createPlayWorldBook({ worldBooks: { bound: async () => ({ view: { entries } }) },
+    readOnlyTemplateRuntime: worker.forReadOnlyProjection, globalVariables: async () => globals })
+  assert.deepEqual(await play.mvuUpdateRules(chat, { name: 'Test' }), ['temporary'])
+  assert.deepEqual(globals, { value: 'saved' })
+})
 
 test('NPC registration uses the card identity and aliases, keeps ambiguity, and compresses the fallback', async () => {
   const common = '登记时以上述硬字段为准：身份不写姓名（卡头已有），简介不复述身份、不写本名；态度仍只填本轮私心好恶的个人偏置。气血最大值照上面的落点逐字抄；有 `$道`、`$天资` 或 `兵甲` 各行就连它一并照抄，没有则不写该项。'
@@ -56,7 +78,7 @@ test('MVU settlement keeps card rules alongside separately bound and global book
       globalSources: async () => globals ? [{ kind: 'standalone', path: 'global.json' }] : [],
       readText: async path => JSON.stringify({ entries: { 0: { uid: 0, comment: '[mvu_update]外部规则', content: path === 'global.json' ? '全局规则' : '绑定规则' } } }),
     } })
-  const render = createPlayWorldBook({ worldBooks, runtime: async () => runtime }).mvuUpdateRules
+  const render = createPlayWorldBook({ worldBooks, readOnlyTemplateRuntime: async () => runtime }).mvuUpdateRules
   const chat = { cardPath: 'cards/rules.json', messages: [] }
   const updateRules = await render(chat, card)
   assert.deepEqual(updateRules, [card.character_book.entries[0].content, '绑定规则', '全局规则'])

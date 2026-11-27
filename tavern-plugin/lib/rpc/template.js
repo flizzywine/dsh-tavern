@@ -38,7 +38,7 @@ export function createTemplateHandlers(deps) {
             const [globalVariables, { settings }] = await Promise.all([
               readPromptTemplateGlobalVariables(), tavernScriptHostAdapter.readGlobalPromptTemplateSettings()
             ])
-            return { runtime: fullTemplateRuntime.forSession(chat.sessionId, { readOnlyProjection: true }), globalVariables, settings }
+            return { runtime: fullTemplateRuntime.forReadOnlyProjection(chat.sessionId), globalVariables, settings }
           },
           presetRegexScripts: chat.runtimePresetSnapshot?.regexScripts || [], characterVariables: extensions?.variables || {} }) }
       }, args?.generationToken)

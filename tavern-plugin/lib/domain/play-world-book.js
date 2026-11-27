@@ -7,7 +7,7 @@ import { hasTavernHelperVariableMacro } from './tavern-helper-variable-macros.js
 import { projectMvuNpcRegistration } from './mvu-npc-registration.js'
 
 // The world book a game plays with, as the background and recall read it.
-export function createPlayWorldBook({ worldBooks, readChatCard, pluginApi, runtime, globalVariables = async () => ({}) }) {
+export function createPlayWorldBook({ worldBooks, readChatCard, pluginApi, readOnlyTemplateRuntime, globalVariables = async () => ({}) }) {
   async function mvuUpdateRules(chat, card, target) {
     const worldBook = await worldBooks.bound(chat.cardPath, card, chat)
     const cardEntries = card?.character_book?.entries && typeof card.character_book.entries === 'object'
@@ -31,7 +31,7 @@ export function createPlayWorldBook({ worldBooks, readChatCard, pluginApi, runti
     // Render only settlement rules in a read-only projection. Never run ordinary
     // worldbook controllers again or send failed templates to the model as code.
     const projected = await projectWorldBookTemplates({ worldBook, selectedEntries: entries,
-      mvuUpdateOnly: true, includeConstants: true, runtime: await runtime(chat.sessionId),
+      mvuUpdateOnly: true, includeConstants: true, runtime: await readOnlyTemplateRuntime(chat.sessionId),
       globalVariables: await globalVariables(), chat, card, messageVariables: target?.variables })
     if (projected.diagnostics.length) throw new Error('MVU 更新规则模板执行失败：' + projected.diagnostics.map(item => item.ref + ' (' + item.code + ')').join('、'))
     return projected.renderedEntries.map(entry => entry.text)

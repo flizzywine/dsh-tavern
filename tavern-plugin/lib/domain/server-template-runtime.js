@@ -164,20 +164,26 @@ export function createServerTemplateRuntime({ rpc, store, timeoutMs = 120000, id
     try { return await pending } finally { if (tails.get(sessionId) === pending) tails.delete(sessionId) }
   }
   return {
-    forSession: (sessionId, { readOnlyProjection = false } = {}) => ({
+    forSession: sessionId => ({
       historyContext: 'session',
       connect: () => invoke(sessionId, 'connect', {}, true),
       renderInput: (text, context = {}) => invoke(sessionId, 'input', { text, context }),
       prepareWorldbook: (entries, context = {}) => invoke(sessionId, 'worldbook', { entries, context }),
-      prepareWorldbookProjection: (entries, context = {}) => invoke(sessionId, 'worldbook', { entries, context }, true, readOnlyProjection),
+      prepareWorldbookProjection: (entries, context = {}) => invoke(sessionId, 'worldbook', { entries, context }, true),
       command: text => invoke(sessionId, 'command', { text }),
       render: (template, context = {}) => invoke(sessionId, 'render', { template, context }),
-      renderProjection: (template, context = {}) => invoke(sessionId, 'render', { template, context }, true, readOnlyProjection),
-      renderProjections: (items, context = {}) => invoke(sessionId, 'renderMany', { items, context }, true, readOnlyProjection),
+      renderProjection: (template, context = {}) => invoke(sessionId, 'render', { template, context }, true),
+      renderProjections: (items, context = {}) => invoke(sessionId, 'renderMany', { items, context }, true),
       renderMessages: (messages, context = {}) => invoke(sessionId, 'messages', { messages, context }),
       projectRequest: request => invoke(sessionId, 'request', { request }),
       projectRequestProjection: request => invoke(sessionId, 'request', { request }, true),
       initializeVariables: (entries, context = {}) => invoke(sessionId, 'initialize', { entries, context })
+    }),
+    forReadOnlyProjection: sessionId => ({
+      historyContext: 'session',
+      prepareWorldbook: (entries, context = {}) => invoke(sessionId, 'worldbook', { entries, context }, true, true),
+      render: (template, context = {}) => invoke(sessionId, 'render', { template, context }, true, true),
+      renderProjections: (items, context = {}) => invoke(sessionId, 'renderMany', { items, context }, true, true)
     }),
     synchronize: sessionId => invoke(sessionId, 'synchronize', {}, true),
     inspect: async sessionId => {

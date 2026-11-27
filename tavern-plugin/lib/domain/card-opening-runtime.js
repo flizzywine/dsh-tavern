@@ -29,7 +29,7 @@ export function createCardOpeningRuntime({
       ? await helperGenerationPreset('in_use', context.presetSnapshot) : presetSnapshot
     context.signal?.throwIfAborted()
     return generateHelper(config, { ...context, presetSnapshot, presetRegexScripts: activeSnapshot?.regexScripts || [],
-      loadWorldbookTemplates: async () => ({ runtime: fullTemplateRuntime.forSession(context.chat.sessionId, { readOnlyProjection: true }),
+      loadWorldbookTemplates: async () => ({ runtime: fullTemplateRuntime.forReadOnlyProjection(context.chat.sessionId),
         globalVariables: context.chat.macroState?.global, settings: context.templateSettings }),
       callModel: opts => callModel({ ...opts, background: true, signal: context.signal }) })
   }
