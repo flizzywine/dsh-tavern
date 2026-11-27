@@ -124,10 +124,11 @@ function createLiveTavernViewModule(options) {
 		listeners.forEach(function (listener) { listener(state); });
 	}
 	function createRefresh(record) {
+		let failures = 0;
 		return createSessionRefreshController({
 			now: options.now, schedule: scheduleTimer, cancel: cancelTimer, loadTimeoutMs,
 			onStart: function () {
-				if (record.state.view === null) publish(record, Object.assign({}, record.state, { phase: "loading", error: "" }));
+				if (record.state.phase === "idle") publish(record, { ...record.state, phase: "loading" });
 			},
 			load: function (scope) {
 				// startChat already projected this exact new chat. Consume that view through
@@ -140,6 +141,7 @@ function createLiveTavernViewModule(options) {
 				return options.load(record.id, { signal: scope.signal });
 			},
 			onResult: async function (result, scope) {
+				failures = 0;
 				let view = result && result.view ? result.view : null;
 				// 还没有会话 id 的时候没有任何东西可读：不建记录、不排重试。
 				// 以前这条路径会每 1.5 秒发一次 getSession，服务端 200 回一个空视图。
@@ -190,14 +192,15 @@ function createLiveTavernViewModule(options) {
 				if (idlePollIntervalMs > 0) return { delay: idlePollIntervalMs };
 			},
 			onError: function (error, scope) {
-				if (!scope.timedOut && isTerminalError(error)) {
-					publish(record, { phase: "unavailable", view: null, error: String(error && error.message || error || ""), updatedAt: record.state.updatedAt });
-					return null;
+				const terminal = !scope.timedOut && isTerminalError(error);
+				const retry = TAVERN_PROJECTION_RETRY_DELAYS_MS[failures++];
+				if (!terminal && retry !== undefined && record.state.phase !== "unavailable") {
+					publish(record, { ...record.state, phase: "retrying", error: "" });
+					return { retry: scope.timedOut ? Math.max(retry, timeoutRetryDelayMs) : retry };
 				}
-				publish(record, { phase: "retrying", view: record.state.view, error: scope.timedOut ? "" : String(error && error.message || error || ""), updatedAt: record.state.updatedAt });
-				return { retry: scope.timedOut && timeoutRetryDelayMs > 0
-					? timeoutRetryDelayMs
-					: (pollWhileBusy && shouldPoll(record.state.view) ? 300 : (idlePollIntervalMs > 0 ? Math.min(1500, idlePollIntervalMs) : 1500)) };
+				failures = 0;
+				publish(record, { ...record.state, phase: "unavailable", view: terminal ? null : record.state.view, error: String(error && error.message || error || "") });
+				return null;
 			}
 		});
 	}
@@ -342,7 +345,7 @@ function createLiveTavernViewModule(options) {
 			if (firstEagerSubscriber) record.refresh.request();
 			if (record.watchdog === null && (pollWhileBusy || idlePollIntervalMs > 0)) {
 				record.watchdog = startWatchdog(function () {
-					if (record.listeners.size > record.passiveListeners && ((pollWhileBusy && shouldPoll(record.state.view)) || idlePollIntervalMs > 0)) void record.refresh.refresh();
+					if (record.state.phase !== "unavailable" && record.listeners.size > record.passiveListeners && ((pollWhileBusy && shouldPoll(record.state.view)) || idlePollIntervalMs > 0)) void record.refresh.refresh();
 				}, watchdogIntervalMs);
 			}
 			return function () {

@@ -2773,7 +2773,9 @@ window.__ModuleLoader__.load({
 		// Two signals, one authority. `foreground` (presentation): the window is visible - a visible stage keeps animating
 		// while another app has the focus. `audible`: every sound - BGM, ambience,
 		// voice, SE, UI cues - plays only while DSH Tavern is also the focused app; leaving pauses media where it is and
-		// returning resumes it. A live phone call holds its audio (keepAudio) so the line is not cut.
+		// returning resumes it. A live phone call holds its audio (keepAudio) so the line is not cut. Reading the story aloud
+		// (a media element tracked with {background:true}) is the one other sound that goes on while the app is behind: its
+		// element keeps playing and the mixer's context runs for it, while every other source stays silent (stage-audio.js).
 		const FOREGROUND_BLUR_MS = 250;
 		function createForeground(host, doc) {
 		    const listeners = new Set(), audioListeners = new Set(), timers = new Map(), frames = new Map(), media = new Map(), contexts = new Set();
@@ -2824,6 +2826,7 @@ window.__ModuleLoader__.load({
 		        if (audible === value) return;
 		        audible = value;
 		        for (const record of media.values()) {
+		            if (record.background) continue;
 		            if (value) record.resume(); else record.freeze();
 		        }
 		        syncContexts();
@@ -2834,10 +2837,11 @@ window.__ModuleLoader__.load({
 		        set(Boolean(picker) || doc.visibilityState === 'visible');
 		        hear();
 		    }
-		    // Contexts run while audible or held; they are only touched when that changes (a held call never dips).
+		    // Contexts run while audible, held, or a background element plays; they are only touched when that changes (a held call never dips).
 		    let running = audible;
+		    const backgroundPlaying = () => { for (const record of media.values()) if (record.background) return true; return false; };
 		    function syncContexts() {
-		        const value = audible || holds.size > 0;
+		        const value = audible || holds.size > 0 || backgroundPlaying();
 		        if (running === value) return;
 		        running = value;
 		        for (const record of contexts) record.sync(value);
@@ -2881,11 +2885,11 @@ window.__ModuleLoader__.load({
 		    doc.addEventListener('visibilitychange', refresh);
 		    doc.addEventListener('click', pickerClick, true);
 		    if (!foreground) pauseAnimations();
-		    function trackMedia(node, graph = false) {
-		        if (node.__forkForeground) { node.__forkForeground.graph ||= graph; return node; }
+		    function trackMedia(node, graph = false, { background = false } = {}) {
+		        if (node.__forkForeground) { node.__forkForeground.graph ||= graph; node.__forkForeground.background ||= background; return node; }
 		        const play = node.play.bind(node), pause = node.pause.bind(node);
 		        const record = {
-		            graph, epoch: 0, fade: null, target: null,
+		            graph, background, epoch: 0, fade: null, target: null,
 		            settle() { if (this.fade !== null) { cancel(this.fade); this.fade = null; node.volume = this.target; } },
 		            freeze() { this.epoch++; this.settle(); pause(); },
 		            resume() {
@@ -2914,16 +2918,17 @@ window.__ModuleLoader__.load({
 		        node.play = function () {
 		            media.set(node, record);
 		            const epoch = record.epoch;
-		            return audible ? play().catch(error => {
+		            if (record.background) syncContexts();
+		            return audible || record.background ? play().catch(error => {
 		                // pause() rejects an in-flight native play promise. This is suspension, not an SFX/voice failure.
 		                if (epoch !== record.epoch && media.get(node) === record && error.name === 'AbortError') return;
 		                media.delete(node); throw error;
 		            }) : Promise.resolve();
 		        };
-		        node.pause = function () { record.settle(); media.delete(node); return pause(); };
-		        const done = () => { record.settle(); media.delete(node); };
+		        node.pause = function () { record.settle(); media.delete(node); syncContexts(); return pause(); };
+		        const done = () => { record.settle(); media.delete(node); syncContexts(); };
 		        node.addEventListener('ended', done); node.addEventListener('error', done);
-		        if (!node.paused) { media.set(node, record); if (!audible) record.freeze(); }
+		        if (!node.paused) { media.set(node, record); if (!audible && !record.background) record.freeze(); }
 		        return node;
 		    }
 		    function trackContext(context, gain) {
@@ -2959,6 +2964,8 @@ window.__ModuleLoader__.load({
 		        return () => { off(); app.ticker.update = update; app.renderer.render = render; };
 		    }
 		    return {
+		        // A source heard now: everything while audible, otherwise only a background element.
+		        heard: node => audible || Boolean(node?.__forkForeground?.background),
 		        state: () => ({ foreground, audible, held: holds.size, visibility: doc.visibilityState, focused: doc.hasFocus(), picker: Boolean(picker), timers: timers.size, frames: frames.size, media: media.size, contexts: contexts.size, audioContexts: [...contexts].map(record => record.context.state) }),
 		        isForeground: () => foreground, subscribe, now, refresh,
 		        // Sound policy: whether anything may sound now, and its changes (called once at once, like subscribe).
@@ -3921,7 +3928,7 @@ window.__ModuleLoader__.load({
 		    // list views read listPackSummaries (a few KB); a pack's full document is read per pack
 		    // and kept by revision, so reopening 舞台设置 / 素材库 asks only for packs that changed. Every snapshot that passes through
 		    // (reads and mutation results) refreshes its entry; the change feed drops an entry whose revision moved. Bounded LRU.
-		    const details = new Map(), DETAILS_MAX = 16;
+		    const details = new Map(), reading = new Map(), DETAILS_MAX = 16;
 		    function remember(snapshot) {
 		        const id = snapshot?.manifest?.id;
 		        if (typeof id !== 'string' || typeof snapshot.revision !== 'string') return snapshot;
@@ -4008,8 +4015,13 @@ window.__ModuleLoader__.load({
 		        'getStageSetupStatus','mergeStageSetupPack'];
 		    const service = {apiVersion:2, capabilities:['packs'], subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn); },
 		        releaseLease(ticket) { return control('releaseLease',{ticket}).catch(() => {}); },
-		        // The pack's full document at `revision` (a summary's): the kept copy when it is that revision, else one read.
-		        async packDetail({packId, revision}) { const known = details.get(packId); if (known && known.revision === revision) { remember(known); return known; } return call('getPackSnapshot',{packId}); }};
+		        // The pack's full document at `revision` (a summary's): the kept copy when it is that revision, else one read, which
+		        // every reader asking meanwhile shares (舞台设置's sections ask for the same packs as it draws).
+		        async packDetail({packId, revision}) {
+		            const known = details.get(packId); if (known && known.revision === revision) { remember(known); return known; }
+		            const key = packId + '@' + revision, pending = reading.get(key); if (pending) return pending;
+		            const read = call('getPackSnapshot',{packId}).finally(() => reading.delete(key)); reading.set(key, read); return read;
+		        }};
 		    for (const method of methods) service[method] = args => call(method,args);
 		    function acceptFeed(feed) {
 		        sequence = feed.sequence;
@@ -17127,10 +17139,11 @@ window.__ModuleLoader__.load({
 				listeners.forEach(function (listener) { listener(state); });
 			}
 			function createRefresh(record) {
+				let failures = 0;
 				return createSessionRefreshController({
 					now: options.now, schedule: scheduleTimer, cancel: cancelTimer, loadTimeoutMs,
 					onStart: function () {
-						if (record.state.view === null) publish(record, Object.assign({}, record.state, { phase: "loading", error: "" }));
+						if (record.state.phase === "idle") publish(record, { ...record.state, phase: "loading" });
 					},
 					load: function (scope) {
 						// startChat already projected this exact new chat. Consume that view through
@@ -17143,6 +17156,7 @@ window.__ModuleLoader__.load({
 						return options.load(record.id, { signal: scope.signal });
 					},
 					onResult: async function (result, scope) {
+						failures = 0;
 						let view = result && result.view ? result.view : null;
 						// 还没有会话 id 的时候没有任何东西可读：不建记录、不排重试。
 						// 以前这条路径会每 1.5 秒发一次 getSession，服务端 200 回一个空视图。
@@ -17193,14 +17207,15 @@ window.__ModuleLoader__.load({
 						if (idlePollIntervalMs > 0) return { delay: idlePollIntervalMs };
 					},
 					onError: function (error, scope) {
-						if (!scope.timedOut && isTerminalError(error)) {
-							publish(record, { phase: "unavailable", view: null, error: String(error && error.message || error || ""), updatedAt: record.state.updatedAt });
-							return null;
+						const terminal = !scope.timedOut && isTerminalError(error);
+						const retry = TAVERN_PROJECTION_RETRY_DELAYS_MS[failures++];
+						if (!terminal && retry !== undefined && record.state.phase !== "unavailable") {
+							publish(record, { ...record.state, phase: "retrying", error: "" });
+							return { retry: scope.timedOut ? Math.max(retry, timeoutRetryDelayMs) : retry };
 						}
-						publish(record, { phase: "retrying", view: record.state.view, error: scope.timedOut ? "" : String(error && error.message || error || ""), updatedAt: record.state.updatedAt });
-						return { retry: scope.timedOut && timeoutRetryDelayMs > 0
-							? timeoutRetryDelayMs
-							: (pollWhileBusy && shouldPoll(record.state.view) ? 300 : (idlePollIntervalMs > 0 ? Math.min(1500, idlePollIntervalMs) : 1500)) };
+						failures = 0;
+						publish(record, { ...record.state, phase: "unavailable", view: terminal ? null : record.state.view, error: String(error && error.message || error || "") });
+						return null;
 					}
 				});
 			}
@@ -17345,7 +17360,7 @@ window.__ModuleLoader__.load({
 					if (firstEagerSubscriber) record.refresh.request();
 					if (record.watchdog === null && (pollWhileBusy || idlePollIntervalMs > 0)) {
 						record.watchdog = startWatchdog(function () {
-							if (record.listeners.size > record.passiveListeners && ((pollWhileBusy && shouldPoll(record.state.view)) || idlePollIntervalMs > 0)) void record.refresh.refresh();
+							if (record.state.phase !== "unavailable" && record.listeners.size > record.passiveListeners && ((pollWhileBusy && shouldPoll(record.state.view)) || idlePollIntervalMs > 0)) void record.refresh.refresh();
 						}, watchdogIntervalMs);
 					}
 					return function () {
@@ -23362,6 +23377,8 @@ function tavernModelRefusalNotice(text) {
 		    let items = [];
 		    return {
 		        add(list, turn) { items = items.concat(list.map(value => ({ value, turn }))); },
+		        // Forget the held items gone(item {value, turn}) says are moot.
+		        drop(gone) { items = items.filter(item => !gone(item)); },
 		        take(place) {
 		            const due = items.filter(item => dicePlaceState(recordOf(item.value), place, item.turn) === "now");
 		            items = items.filter(item => !due.includes(item));
@@ -24986,13 +25003,55 @@ function tavernModelRefusalNotice(text) {
 		    return React.useSyncExternalStore(checkPageFallback.subscribe, () => checkPageFallback.get().has(callId), () => false);
 		}
 
+		// The stage's own notice of what changed, where neither the card nor the skin performs it (owner 11-25): a classic galgame
+		// system notice - one band per change slides in at the stage's top left and fades, in the stage's own tokens. A number
+		// tells who, what and by how much (「彩叶 好感 ▲ +3」), anything else what it is now (「剧情阶段 夏末花火」).
+		function checkNotice(row) {
+		    const label = row.label + (row.key ? "·" + row.key : ""), [what, who] = label.split("·");
+		    if (typeof row.from === "number" && typeof row.to === "number") {
+		        const delta = Math.round((row.to - row.from) * 1000) / 1000;
+		        return { who: who || null, what, value: (delta < 0 ? "▼ −" : "▲ +") + Math.abs(delta), tone: delta < 0 ? "down" : "up" };
+		    }
+		    return { who: null, what: label, value: "to" in row ? checkValueText(row.to) : "移除", tone: "text" };
+		}
+		// The bands of every record on the page gather in one column at the stage's top left: each record portals its own into it.
+		function checkNoticeColumn(stage) {
+		    let column = stage.querySelector(":scope > .fork-check-notices");
+		    if (!column) {
+		        column = document.createElement("div");
+		        column.className = "fork-check-notices";
+		        column.setAttribute("role", "status");
+		        stage.appendChild(column);
+		    }
+		    return column;
+		}
+		function CheckNotices(props) {
+		    const h = React.createElement, record = props.record;
+		    const [column, setColumn] = React.useState(null);
+		    const anchor = React.useCallback(node => { const stage = node && node.closest(".fork-gal-stage"); setColumn(stage ? checkNoticeColumn(stage) : null); }, []);
+		    // While its throw plays (show.js) the notice waits with its card.
+		    const performing = useCheckPerforming(record.callId);
+		    const rows = checkShown(record, record.changes || []);
+		    if (!rows.length) return null;
+		    const bands = h("div", { className: "fork-check-notice-group", "data-call": record.callId }, rows.map((row, i) => {
+		        const notice = checkNotice(row);
+		        return h("div", { key: i, className: "fork-check-notice is-" + notice.tone, style: { "--notice-index": i } },
+		            notice.who ? h("span", { className: "fork-check-notice-who" }, notice.who) : null,
+		            h("span", { className: "fork-check-notice-what" }, notice.what),
+		            h("span", { className: "fork-check-notice-value" }, notice.value));
+		    }));
+		    return [h("span", { key: "anchor", ref: anchor, hidden: true }), column && !performing ? ReactDOM.createPortal(bands, column, "notices") : null];
+		}
+
 		function CheckRecord(props) {
 		    const h = React.createElement, record = props.record;
 		    // A ruling the card's page performs (page.js) has no card on the stage, unless the page could not play it.
 		    const fallback = useCheckPageFallback(record.callId);
 		    if (props.onStage && checkPaged(record) && !fallback) return null;
+		    const ledger = Boolean(props.look && props.look.result && props.look.result.card === "ledger");
 		    if (record.action && record.status === "settled" && !record.dice) {
-		        if (props.look && props.look.result && props.look.result.card === "ledger") return h(CheckNoteLedger, props);
+		        if (ledger) return h(CheckNoteLedger, props);
+		        if (props.onStage) return h(CheckNotices, { record });
 		        const note = checkNoteText(record);
 		        return note ? h("div", { className: "fork-check-note", "data-call": record.callId }, h(Icon, { name: "die", size: 14 }), h("span", null, note)) : null;
 		    }
@@ -25034,7 +25093,9 @@ function tavernModelRefusalNotice(text) {
 		        !hidden && checkRollText(record) ? h("div", { className: "fork-check-line" }, checkRollText(record)) : null,
 		        headline && !ledger ? h("div", { className: "fork-check-line fork-check-headline" }, headline.label + " ", h("b", null, String(headline.value)), headline.target ? "　" + checkTargetText(headline.target) : null) : null,
 		        report && !(ledger && !record.dice) ? h("div", { className: "fork-check-line" }, report) : null,
-		        changes.length ? h("div", { className: "fork-check-line" }, changes.map(checkChangeText).join("，")) : null,
+		        // On the stage the plain card leaves what changed to the stage's notice (CheckNotices); the ledger lists it.
+		        changes.length && (ledger || !props.onStage) ? h("div", { className: "fork-check-line" }, changes.map(checkChangeText).join("，")) : null,
+		        changes.length && !ledger && props.onStage && record.status !== "awaiting" ? h(CheckNotices, { record }) : null,
 		        awaiting && props.answerable ? h(CheckButtons, { record, input: props.input, ledger: Boolean(props.look && props.look.result && props.look.result.card === "ledger"), onPick: setPicked, foldable: props.onStage }) : null,
 
 		        // A record whose choices the story asks for at the round's end (later) waits for that page.
@@ -25293,8 +25354,9 @@ function tavernModelRefusalNotice(text) {
 		    }
 		    return holds;
 		}
-		// The check show's sound (show.js), synthesized in code: no audio file, no pack entry. Pure: (stem, timeline) → PCM,
-		// the same samples on every machine, so the tests and the review render read the very sound the stage plays.
+		// The check show's sound (show.js): a procedural 16-beat skeleton on the show's own timeline (SHOW_T), mixed with the
+		// packaged retro brass/organ harmonic beds (check-show-bed.ogg / check-show-calm.ogg) when loaded, or falling back to
+		// pure procedural synthesis when offline. Pure: (stem, timeline, cast, rate, bed?) → PCM.
 		//
 		// The score follows the picture beat for beat (the times are the show's own timeline, SHOW_T):
 		//   open   the shutter closes (a rising hiss cut by a clack); each die is set down (a tick); each marked die is counted
@@ -25302,18 +25364,20 @@ function tavernModelRefusalNotice(text) {
 		//          ruled (a short rising stroke, each quicker); the figure is stamped (a low thud); then nothing.
 		//   bloom  a breath in, and the hit as the figure swallows the stage (a sub drop under a wide wash of air); each figure
 		//          of the frieze rings as it lights (the count's three tones an octave down, left, centre, right); each letter
-		//          lands (a drum, rising), the last on the downbeat with the whole chord: the open fifths the count promised
-		//          gain their major third, sung by a choir of formant voices over glitter.
+		//          lands (a drum, rising), the last on the downbeat with the whole chord: the retro brass/organ bed resolves on
+		//          the accent (or the synthesized formant choir in offline fallback) over shimmering dust.
 		//   exit   the air is drawn back in, and the result is filed on its card (a small tick).
 		//   calm   减少动态: nothing moves, so nothing strikes - the three tones, soft, and the chord held under the still.
 		// Everything rings in one small room (a Schroeder / Moorer reverb); the low end stays dry.
 
 		const SHOW_SOUND_RATE = 48000;
+		const SHOW_SOUND_ASSET_BASE = "/api/dsh-tavern/vendor/runtime-assets/gal-stage/";
+		const SHOW_SOUND_BEDS = Object.freeze({ bloom: "check-show-bed.ogg", calm: "check-show-calm.ogg" });
 		// The root: A (55 Hz and its octaves). Count tone j is 440 x (3/2)^j.
 		const SHOW_SOUND_ROOT = 55;
 		// The whole score's level as rendered (stems laid at their cues; BS.1770 integrated, sample peak in dBFS): the mixer
 		// gains the sfx bus from it (stage-audio-math.js audioGain). tests/fork-check-show-sound.test.mjs holds it to the render.
-		const SHOW_SOUND_LOUDNESS = Object.freeze({ v: 1, lufs: -15.2, peak: -1.0 });
+		const SHOW_SOUND_LOUDNESS = Object.freeze({ v: 1, lufs: -14.5, peak: -1.0 });
 		// Every stem is scaled by this, so the laid-out score peaks at SHOW_SOUND_LOUDNESS.peak.
 		const SHOW_SOUND_GAIN = 0.9;
 
@@ -25410,20 +25474,20 @@ function tavernModelRefusalNotice(text) {
 		        return out;
 		    }
 		    // A choir on one vowel (ah): three sawtooth voices a note, each a little off pitch and slowly wavering, spread
-		    // across the stereo field, through the vowel's five formants. notes: [[hz, level]]. → [left, right], unshaped.
+		    // across the stereo field, through the vowel's (a rounded oo / oh) formants, with a little breath of air. notes: [[hz, level]]. → [left, right], unshaped.
 		    function choir(seconds, notes, seed) {
 		        const next = random(seed), length = count(seconds), sides = [new Float32Array(length), new Float32Array(length)];
 		        for (const [hz, level] of notes) for (const cents of [-8, 0, 7]) {
-		            const pitch = hz * Math.pow(2, (cents + (next() - 0.5) * 5) / 1200), speed = 4.6 + next() * 1.2, lag = next() * TAU, pan = (next() - 0.5) * 1.5;
-		            const voice = saw(seconds, t => pitch * (1 + 0.004 * Math.min(1, t / 0.6) * Math.sin(TAU * speed * t + lag)), next());
+		            const pitch = hz * Math.pow(2, (cents + (next() - 0.5) * 5) / 1200), speed = 3.4 + next() * 1, lag = next() * TAU, pan = (next() - 0.5) * 1.5;
+		            const voice = saw(seconds, t => pitch * (1 + 0.0025 * Math.min(1, t / 0.6) * Math.sin(TAU * speed * t + lag)), next());
 		            const left = level * Math.cos((pan + 1) * Math.PI / 4), right = level * Math.sin((pan + 1) * Math.PI / 4);
 		            for (let i = 0; i < length; i++) { sides[0][i] += voice[i] * left; sides[1][i] += voice[i] * right; }
 		        }
 		        return sides.map(side => {
-		            const out = new Float32Array(length), body = biquad("lowpass", 520, 0.7);
-		            const formants = [[800, 80, 1], [1150, 90, 0.5], [2900, 120, 0.1], [3900, 130, 0.12], [4950, 140, 0.02]].map(([f, width, level]) => [biquad("bandpass", f, f / width), level]);
+		            const out = new Float32Array(length), body = biquad("lowpass", 480, 0.7), breath = biquad("bandpass", 2400, 1.1), air = noise(seconds, seed + "air" + sides.indexOf(side));
+		            const formants = [[420, 150, 0.9], [860, 180, 0.55], [2500, 320, 0.08], [3400, 420, 0.05]].map(([f, width, level]) => [biquad("bandpass", f, f / width), level]);
 		            for (let i = 0; i < length; i++) {
-		                let sum = 0.3 * body.run(side[i]);
+		                let sum = 0.55 * body.run(side[i]) + 0.035 * breath.run(air[i]);
 		                for (const [filter, level] of formants) sum += level * filter.run(side[i]);
 		                out[i] = sum;
 		            }
@@ -25474,8 +25538,8 @@ function tavernModelRefusalNotice(text) {
 		            }
 		            return out;
 		        }
-		        function done(roomLevel = 1, feedback = 0.86, damp = 0.3) {
-		            const wetL = room(sendL, 0, feedback, damp), wetR = room(sendR, 23, feedback, damp), edge = count(0.03);
+		        function done(roomLevel = 1, feedback = 0.86, damp = 0.3, fade = 0.03) {
+		            const wetL = filtered(room(sendL, 0, feedback, damp), "highpass", 200), wetR = filtered(room(sendR, 23, feedback, damp), "highpass", 200), edge = count(fade);
 		            for (let i = 0; i < length; i++) {
 		                // The room answers in both ears; a soft knee rounds what the sum pushes past -3 dBFS.
 		                const l = (left[i] + roomLevel * (wetL[i] * 0.8 + wetR[i] * 0.2)) * SHOW_SOUND_GAIN, r = (right[i] + roomLevel * (wetR[i] * 0.8 + wetL[i] * 0.2)) * SHOW_SOUND_GAIN;
@@ -25500,9 +25564,32 @@ function tavernModelRefusalNotice(text) {
 		    return calm ? [{ stem: "calm", at: 0 }] : [{ stem: "open", at: 0 }, { stem: "bloom", at: T.hit - T.breath }, { stem: "exit", at: T.end }];
 		}
 
+		// Mixes a pre-enveloped stereo harmonic bed ({ left, right, rate? }) onto a rendered stem at `offset` samples, scales
+		// by `trim`, and applies a gentle soft ceiling `ceil` (linear amplitude) so peaks stay clean without hard clipping.
+		function showSoundMixBed(base, bed, offset, rate, trim = 1, ceil = 0.85) {
+		    const outL = new Float32Array(base.left), outR = new Float32Array(base.right);
+		    const bedRate = bed.rate || rate, ratio = bedRate / rate;
+		    const bedLen = Math.floor(bed.left.length / ratio);
+		    const end = Math.min(outL.length, offset + bedLen);
+		    for (let i = Math.max(0, offset); i < end; i++) {
+		        const pos = (i - offset) * ratio, idx = Math.floor(pos), frac = pos - idx;
+		        const next = Math.min(idx + 1, bed.left.length - 1);
+		        outL[i] += bed.left[idx] + (bed.left[next] - bed.left[idx]) * frac;
+		        outR[i] += bed.right[idx] + (bed.right[next] - bed.right[idx]) * frac;
+		    }
+		    const thresh = ceil * 0.76, span = ceil - thresh;
+		    const limit = x => { const a = Math.abs(x); return a <= thresh ? x : Math.sign(x) * (thresh + span * Math.tanh((a - thresh) / span)); };
+		    for (let i = 0; i < outL.length; i++) {
+		        outL[i] = limit(outL[i] * trim);
+		        outR[i] = limit(outR[i] * trim);
+		    }
+		    return { left: outL, right: outR };
+		}
+
 		// One stem's PCM: { left, right } Float32Array at `rate`. T: the show's timeline (SHOW_T); cast: { dice, marked,
-		// corners, letters } counts of this record's composition.
-		function showSoundStem(name, T, cast, rate = SHOW_SOUND_RATE) {
+		// corners, letters } counts of this record's composition. bed: optional decoded harmonic bed ({ left, right, rate? })
+		// for "bloom" / "calm"; omitted falls back to pure procedural synthesis.
+		function showSoundStem(name, T, cast, rate = SHOW_SOUND_RATE, bed = null) {
 		    const S = showSynth(rate), s = ms => ms / 1000, fifth = j => 440 * Math.pow(1.5, Math.min(j, 3));
 		    if (name === "open") {
 		        const mix = S.stem(s(T.fill) + 1.3);
@@ -25519,12 +25606,13 @@ function tavernModelRefusalNotice(text) {
 		        }
 		        // The count: one chime a marked die, a fifth above the last.
 		        for (let j = 0; j < cast.marked; j++) mix.add(S.chime(fifth(j), 1.6, 0.42), s(T.count + j * T.countStep), 0.34, -0.25 + 0.25 * j, 0.55);
-		        // The edges ruled: a rising stroke each (pen on paper), the pitch a step higher every time.
+		        // The edges ruled: a rising stroke each (pen on paper, ending on the nib's dot), the pitch a step higher every time.
 		        for (let j = 0; j < cast.corners; j++) {
-		            const length = s(T.edgeDur), from = 700 * Math.pow(1.26, j);
-		            const stroke = S.shape(S.sweep(S.noise(length, "rule" + j), "bandpass", from, from * 3.2, 5), t => Math.min(1, t / 0.008) * Math.pow(1 - t / length, 0.6));
-		            mix.add(stroke, s(showEdgeAt(T, j)), 0.4, [-0.4, 0.4, 0][j % 3], 0.15);
-		            mix.add(S.shape(S.tone(length, t => from * 0.5 * (1 + 1.4 * t / length)), t => 0.5 * Math.min(1, t / 0.008) * (1 - t / length)), s(showEdgeAt(T, j)), 0.12, [-0.4, 0.4, 0][j % 3], 0.2);
+		            const length = s(T.edgeDur), from = 1200 * Math.pow(1.1, j);
+		            const stroke = S.shape(S.sweep(S.noise(length, "rule" + j), "bandpass", from, from * 2.2, 2.2), t => Math.min(1, t / 0.008) * Math.pow(1 - t / length, 0.6));
+		            mix.add(stroke, s(showEdgeAt(T, j)), 0.34, [-0.4, 0.4, 0][j % 3], 0.15);
+		            // The pen lifts: a short bright dot of the nib at the stroke's end.
+		            mix.add(S.shape(S.filtered(S.noise(0.02, "nib" + j), "bandpass", 3500, 2), t => Math.exp(-t / 0.002)), s(showEdgeAt(T, j)) + length - 0.004, 0.2, [-0.4, 0.4, 0][j % 3], 0.2);
 		        }
 		        // The stamp: the figure inked in one blow.
 		        mix.add(S.drop(0.5, 170, 58, 0.022, 0.13, 2.2), s(T.fill), 0.5, 0, 0.06);
@@ -25532,59 +25620,73 @@ function tavernModelRefusalNotice(text) {
 		        return mix.done(1, 0.8, 0.35);
 		    }
 		    if (name === "bloom") {
-		        const breath = s(T.breath), at = ms => breath + s(ms - T.hit), accent = at(T.accent), end = at(T.end), mix = S.stem(end + 2.6);
+		        const breath = s(T.breath), at = ms => breath + s(ms - T.hit), accent = at(T.accent), end = at(T.end), mix = S.stem(end + 1.4);
 		        // The breath in: air and the root's octave swelling out of the silence, cut by the hit.
 		        mix.add(S.shape(S.sweep(S.noise(breath, "breath"), "bandpass", 5200, 1400, 0.9), t => Math.exp((t - breath) / 0.075)), 0, 0.3, 0, 0.3);
-		        mix.add(S.shape(S.tone(breath, () => 220), t => Math.exp((t - breath) / 0.09)), 0, 0.12);
+		        mix.add(S.shape(S.tone(breath, () => 220), t => Math.exp((t - breath) / 0.09)), 0, bed ? 0.1 : 0.12);
 		        // The hit: the sub falls an octave and a half and stays; a knock a small speaker can say; a wide wash of air.
-		        mix.add(S.drop(2.6, 150, SHOW_SOUND_ROOT, 0.05, 0.55, 2.6), breath, 0.6);
-		        mix.add(S.drop(0.5, 330, 110, 0.03, 0.12, 2), breath, 0.3, 0, 0.08);
+		        mix.add(S.drop(bed ? 2.2 : 2.6, 150, SHOW_SOUND_ROOT, 0.05, bed ? 0.32 : 0.34, 2), breath, 0.44);
+		        mix.add(S.drop(0.5, 330, 110, 0.03, bed ? 0.11 : 0.12, 2), breath, bed ? 0.28 : 0.3, 0, 0.08);
 		        for (const [side, seed] of [[-1, "washL"], [1, "washR"]]) {
-		            const wash = S.shape(S.sweep(S.noise(2.2, seed), "lowpass", 7000, 260, 0.8, 0.5), t => Math.min(1, t / 0.004) * Math.exp(-t / 0.55));
-		            mix.add(wash, breath, 0.26, side * 0.9, 0.25);
+		            const wash = S.shape(S.sweep(S.noise(bed ? 1.8 : 2.2, seed), "lowpass", bed ? 6500 : 7000, 260, 0.8, 0.5), t => Math.min(1, t / 0.004) * Math.exp(-t / (bed ? 0.48 : 0.55)));
+		            mix.add(wash, breath, bed ? 0.24 : 0.26, side * 0.9, bed ? 0.22 : 0.25);
 		        }
-		        // The open fifths under everything from the hit (root, twelfth, and the ninth above it: 1 : 3 : 9), swelling
-		        // toward the accent.
-		        const hold = end - breath + 1.6, swell = t => Math.min(1, 0.25 + 0.75 * t / (accent - breath)) * Math.min(1, t / 0.25) * Math.min(1, Math.exp(-(t - (end - breath)) / 0.5));
-		        for (const [ratio, level] of [[2, 0.1], [3, 0.07], [9, 0.02]]) {
-		            const drone = S.filtered(S.saw(hold, t => SHOW_SOUND_ROOT * ratio * (1 + 0.0015 * Math.sin(S.TAU * 0.31 * t + ratio))), "lowpass", 900);
-		            mix.add(S.shape(drone, swell), breath, level, 0, 0.3);
+		        // Offline fallback: open fifths under everything from the hit, swelling toward the accent.
+		        if (!bed) {
+		            const hold = end - breath + 1.6, swell = t => Math.min(1, 0.25 + 0.75 * t / (accent - breath)) * Math.min(1, t / 0.25) * Math.min(1, Math.exp(-(t - (end - breath)) / 0.5));
+		            for (const [ratio, level] of [[2, 0.1], [3, 0.07], [9, 0.02]]) {
+		                const drone = S.filtered(S.saw(hold, t => SHOW_SOUND_ROOT * ratio * (1 + 0.0015 * Math.sin(S.TAU * 0.31 * t + ratio))), "lowpass", 900);
+		                mix.add(S.shape(drone, swell), breath, level, 0, 0.3);
+		            }
 		        }
 		        // The frieze: each figure rings as it lights - the count's tones an octave down, left to right.
 		        for (let k = 0; k < 3; k++) {
-		            mix.add(S.chime(fifth(k) / 2, 3.2, 1.25, 6), at(T.tri + k * T.triStep), 0.26, [-0.62, 0, 0.62][k], 0.7);
-		            mix.add(S.chime(fifth(k), 2, 0.6), at(T.tri + k * T.triStep), 0.1, [-0.62, 0, 0.62][k], 0.7);
+		            mix.add(S.chime(fifth(k) / 2, bed ? 2.8 : 3.2, bed ? 1.0 : 1.25, 6), at(T.tri + k * T.triStep), bed ? 0.24 : 0.26, [-0.62, 0, 0.62][k], bed ? 0.65 : 0.7);
+		            mix.add(S.chime(fifth(k), bed ? 1.8 : 2, bed ? 0.5 : 0.6), at(T.tri + k * T.triStep), bed ? 0.09 : 0.1, [-0.62, 0, 0.62][k], bed ? 0.65 : 0.7);
 		        }
 		        // The letters land: a drum each, climbing the chord; the last is the accent.
 		        const steps = [2, 2.5, 3, 4, 5, 6];
 		        for (let i = 0; i < cast.letters - 1; i++) {
 		            const when = at(showSlamAt(T, i, cast.letters)), pitch = SHOW_SOUND_ROOT * steps[Math.min(i, steps.length - 1)], pan = -0.3 + 0.6 * i / Math.max(1, cast.letters - 1);
-		            mix.add(S.drop(0.6, pitch * 2.2, pitch, 0.018, 0.16, 2), when, 0.42, pan, 0.18);
-		            mix.add(S.shape(S.filtered(S.noise(0.05, "slam" + i), "bandpass", 1900, 1.4), t => Math.exp(-t / 0.009)), when, 0.3, pan, 0.3);
+		            mix.add(S.drop(bed ? 0.55 : 0.6, pitch * 2.2, pitch, 0.018, 0.085, 2), when, 0.42, pan, 0.18);
+		            mix.add(S.shape(S.filtered(S.noise(0.05, "slam" + i), "bandpass", 2000, 1.4), t => Math.exp(-t / 0.009)), when, 0.4, pan, bed ? 0.28 : 0.3);
 		        }
-		        // The accent: the second sub, a crash of bright air, and the chord complete - the choir brings the third.
-		        mix.add(S.drop(2.8, 165, SHOW_SOUND_ROOT, 0.06, 0.7, 2.8), accent, 0.62);
-		        mix.add(S.drop(0.6, 440, 110, 0.03, 0.14, 2), accent, 0.3, 0, 0.1);
+		        // The accent: the second sub, a crisp punch and a crash of bright air; the harmonic bed (or fallback choir) brings the third.
+		        mix.add(S.drop(bed ? 2.6 : 2.8, 165, SHOW_SOUND_ROOT, 0.06, bed ? 0.65 : 0.68, bed ? 2.7 : 2.8), accent, bed ? 0.62 : 0.64);
+		        mix.add(S.drop(bed ? 0.55 : 0.6, 440, 110, 0.03, bed ? 0.13 : 0.14, 2), accent, 0.3, 0, 0.1);
 		        for (const [side, seed] of [[-1, "crashL"], [1, "crashR"]]) {
-		            mix.add(S.shape(S.filtered(S.noise(2.4, seed), "highpass", 3200), t => Math.min(1, t / 0.003) * Math.exp(-t / 0.6)), accent, 0.12, side * 0.85, 0.5);
+		            mix.add(S.shape(S.filtered(S.noise(bed ? 2.2 : 2.4, seed), "highpass", bed ? 3600 : 3200), t => Math.min(1, t / 0.003) * Math.exp(-t / (bed ? 0.55 : 0.6))), accent, bed ? 0.11 : 0.12, side * 0.85, bed ? 0.45 : 0.5);
+		        }
+		        if (bed) {
+		            // Subtle shimmering air dust behind the retro brass/organ bed.
+		            for (const [side, seed] of [[-1, "airL"], [1, "airR"]]) {
+		                const lag = side < 0 ? 0 : Math.PI, mist = S.filtered(S.filtered(S.noise(end - accent + 1.2, seed), "highpass", 5200), "lowpass", 10000);
+		                mix.add(S.shape(mist, t => Math.min(1, t / 0.6) * Math.exp(-Math.max(0, t - (end - accent)) / 0.35) * (0.65 + 0.35 * Math.sin(S.TAU * 0.8 * t + lag))), accent, 0.035, side * 0.8, 0.25);
+		            }
+		            return showSoundMixBed(mix.done(1, 0.88, 0.28, 0.6), bed, Math.round(breath * rate), rate, 0.84, 0.84);
 		        }
 		        const sung = end - accent + 2.2, voices = S.choir(sung, [[110, 0.8], [165, 0.7], [220, 0.9], [277.18, 0.75], [330, 0.8], [495, 0.6], [554.37, 0.5], [660, 0.35]], "choir");
 		        // It comes in under the blow and keeps growing until the field folds.
 		        const breathe = t => Math.pow(Math.min(1, t / 0.32), 1.5) * (0.72 + 0.28 * Math.min(1, t / (end - accent))) * Math.min(1, Math.exp(-(t - (end - accent)) / 0.55));
-		        mix.addStereo(voices.map(side => S.shape(side, breathe)), accent, 0.38, 0.6);
+		        mix.addStereo(voices.map(side => S.shape(side, breathe)), accent, 0.26, 0.6);
 		        // Glitter: the dust heard - short high tones of the chord, thick at the accent and thinning.
 		        const next = S.random("glitter"), tones = [1760, 1980, 2217.46, 2640, 3520, 3960, 4434.92, 5280];
 		        for (let t = at(T.tri); t < end + 0.5;) {
-		            const since = t - accent, density = since < 0 ? 7 + 14 * (t - at(T.tri)) / (accent - at(T.tri)) : 46 * Math.exp(-since / 1.3) + 6;
+		            const since = t - accent, density = since < 0 ? 7 + 14 * (t - at(T.tri)) / (accent - at(T.tri)) : 24 * Math.exp(-since / 1.3) + 6;
 		            t += -Math.log(1 - next()) / density;
-		            const hz = tones[Math.floor(next() * tones.length)], ring = 0.03 + next() * 0.11, level = 0.02 + 0.05 * next() * next();
-		            const ping = S.shape(S.tone(ring * 5, () => hz), x => Math.min(1, x / 0.002) * Math.exp(-x / ring));
+		            const hz = tones[Math.floor(next() * tones.length)], ring = 0.03 + next() * 0.11, level = 0.01 + 0.025 * next() * next();
+		            const ping = S.shape(S.tone(ring * 5, () => hz), x => Math.min(1, x / (0.012 + 0.013 * next())) * Math.exp(-x / ring));
 		            mix.add(ping, t, level * (t > end ? Math.max(0, 1 - (t - end) / 0.5) : 1), next() * 1.8 - 0.9, 0.6);
 		        }
-		        return mix.done(1, 0.88, 0.28);
+		        // Air in the dust: a faint high shimmer swaying from ear to ear, rising with the accent and ebbing with the field.
+		        for (const [side, seed] of [[-1, "airL"], [1, "airR"]]) {
+		            const lag = side < 0 ? 0 : Math.PI, mist = S.filtered(S.filtered(S.noise(end - accent + 1.4, seed), "highpass", 4500), "lowpass", 9000);
+		            mix.add(S.shape(mist, t => Math.min(1, t / 0.7) * Math.exp(-Math.max(0, t - (end - accent)) / 0.4) * (0.65 + 0.35 * Math.sin(S.TAU * 0.8 * t + lag))), accent, 0.05, side * 0.8, 0.3);
+		        }
+		        return mix.done(1, 0.88, 0.28, 0.6);
 		    }
 		    if (name === "exit") {
-		        const ebb = s(T.ebb), land = s(T.ebb + T.exit), mix = S.stem(land + 0.9);
+		        const ebb = s(T.ebb), land = s(T.ebb + T.exit), mix = S.stem(land + 0.8);
 		        // The air drawn back in as the field folds into the figure; the figure filed on its card.
 		        mix.add(S.shape(S.sweep(S.noise(ebb, "ebb"), "bandpass", 300, 3800, 1.2, 1.4), t => Math.pow(t / ebb, 1.8) * (t > ebb - 0.006 ? (ebb - t) / 0.006 : 1)), 0, 0.5, 0, 0.2);
 		        mix.add(S.drop(0.3, 210, 96, 0.015, 0.06, 1.6), ebb, 0.36, 0, 0.1);
@@ -25594,14 +25696,16 @@ function tavernModelRefusalNotice(text) {
 		        return mix.done(1, 0.8, 0.35);
 		    }
 		    // calm: the three tones, close together and soft, into the chord held under the still picture.
-		    const hold = s(T.calmIn + T.calmHold), mix = S.stem(hold + 2.4);
-		    for (let j = 0; j < 3; j++) mix.add(S.chime(fifth(j) / 2, 3, 1.1, 6), 0.06 + 0.13 * j, 0.26, -0.4 + 0.4 * j, 0.7);
+		    const hold = s(T.calmIn + T.calmHold), mix = S.stem(hold + 1.9);
+		    for (let j = 0; j < 3; j++) mix.add(S.chime(fifth(j) / 2, 3, 1.1, 6), 0.06 + 0.13 * j, bed ? 0.13 : 0.12, -0.4 + 0.4 * j, 0.7);
+		    if (bed) return showSoundMixBed(mix.done(1, 0.88, 0.28, 0.4), bed, Math.round(0.25 * rate), rate, 0.9, 0.5);
 		    const voices = S.choir(hold + 1.6, [[110, 0.8], [165, 0.7], [220, 0.9], [277.18, 0.75], [330, 0.8], [495, 0.6]], "calm");
-		    mix.addStereo(voices.map(side => S.shape(side, t => Math.pow(Math.min(1, t / 0.9), 1.5) * Math.min(1, Math.exp(-(t - hold) / 0.5)))), 0.3, 0.26, 0.6);
-		    return mix.done(1, 0.88, 0.28);
+		    mix.addStereo(voices.map(side => S.shape(side, t => Math.pow(Math.min(1, t / 0.9), 1.5) * Math.min(1, Math.exp(-(t - hold) / 0.5)))), 0.3, 0.18, 0.6);
+		    for (const [side, seed] of [[-1, "calmAirL"], [1, "calmAirR"]]) mix.add(S.shape(S.filtered(S.filtered(S.noise(hold + 1, seed), "highpass", 4500), "lowpass", 9000), t => Math.min(1, t / 0.9) * Math.min(1, Math.exp(-(t - hold) / 0.5))), 0.3, 0.05, side * 0.8, 0.3);
+		    return mix.done(1, 0.88, 0.28, 0.4);
 		}
 
-		if (typeof module !== "undefined" && typeof window === "undefined") module.exports = { SHOW_SOUND_RATE, SHOW_SOUND_LOUDNESS, SHOW_SOUND_GAIN, showSynth, showEdgeAt, showSlamAt, showSoundCues, showSoundStem };
+		if (typeof module !== "undefined" && typeof window === "undefined") module.exports = { SHOW_SOUND_RATE, SHOW_SOUND_ASSET_BASE, SHOW_SOUND_BEDS, SHOW_SOUND_LOUDNESS, SHOW_SOUND_GAIN, showSynth, showEdgeAt, showSlamAt, showSoundCues, showSoundMixBed, showSoundStem };
 		// The check show's picture (show.js plays it): one canvas, painted whole for any moment t, in three flat colours -
 		// office paper, ink, and the rules' mark colour (Triangle Agency: signal red). No gradient, no shadow, no glow: what
 		// carries it is the cut, the scale and the beat. After the rulebook's Triscendence spread: three triangles of glittering
@@ -25975,7 +26079,8 @@ function tavernModelRefusalNotice(text) {
 		// The stage performance a card's rules ask for on an outcome (outcomes[].show, check-engine.js CHECK_SHOWS; the record
 		// carries show: {effect, label}). One effect so far, `converge` (Triangle Agency's 三重升华): the picture
 		// is show-art.js (a canvas painted whole for any moment), its sound show-sound.js
-		// (synthesized in code, no audio file), both on one timeline (SHOW_T); this file is the player.
+		// (procedural 16-beat skeleton mixed with the packaged harmonic beds, with pure-code fallback), both on one timeline
+		// (SHOW_T); this file is the player.
 		//
 		// Once only, like the dice throw (throw.js): a record plays when it first appears in the chat snapshot while this stage
 		// is mounted, the reply runs and the reader follows live; the records already there when the stage mounts (reload,
@@ -26000,6 +26105,32 @@ function tavernModelRefusalNotice(text) {
 		        try { const record = JSON.parse(text); if (record && typeof record === "object") records.push(Object.assign({ callId }, record)); } catch (_) { /* not a record */ }
 		    }
 		    return records;
+		}
+
+		const showSoundBedCache = new Map();
+		function loadShowSoundBed(name) {
+		    const file = SHOW_SOUND_BEDS[name];
+		    if (!file || typeof fetch !== "function") return Promise.resolve(null);
+		    if (!showSoundBedCache.has(name)) {
+		        const task = fetch(SHOW_SOUND_ASSET_BASE + file).then(res => {
+		            const type = res.headers?.get?.("content-type") || "";
+		            return res.ok && !/text\/html/i.test(type) ? res.arrayBuffer() : null;
+		        }).catch(() => null);
+		        showSoundBedCache.set(name, task);
+		    }
+		    return showSoundBedCache.get(name);
+		}
+		async function decodeShowSoundBed(name, rate) {
+		    const raw = await loadShowSoundBed(name);
+		    if (!raw || !raw.byteLength) return null;
+		    const Offline = typeof OfflineAudioContext !== "undefined" ? OfflineAudioContext : (typeof webkitOfflineAudioContext !== "undefined" ? webkitOfflineAudioContext : null);
+		    if (!Offline) return null;
+		    try {
+		        const decoded = await new Offline(2, 1, rate).decodeAudioData(raw.slice(0));
+		        const left = new Float32Array(decoded.getChannelData(0));
+		        const right = new Float32Array(decoded.numberOfChannels > 1 ? decoded.getChannelData(1) : left);
+		        return { left, right, rate: decoded.sampleRate };
+		    } catch (_) { return null; }
 		}
 
 		// The show's sound for one performance: the stems rendered in a worker, each started on the mixer at its cue on the
@@ -26051,15 +26182,22 @@ function tavernModelRefusalNotice(text) {
 		        if (!audible) { if (route) close(false); if (stopped) end(); }
 		        else if (!route && !stopped) { open(); settle(); }
 		    }
-		    const source = ["const SHOW_SOUND_RATE=" + SHOW_SOUND_RATE, "const SHOW_SOUND_ROOT=" + SHOW_SOUND_ROOT, "const SHOW_SOUND_GAIN=" + SHOW_SOUND_GAIN, showSynth, showEdgeAt, showSlamAt, showSoundStem,
-		        "onmessage=({data})=>{for(const name of data.stems){const pcm=showSoundStem(name,data.T,data.cast,data.rate);postMessage({name,left:pcm.left,right:pcm.right},[pcm.left.buffer,pcm.right.buffer])}}"].join(";\n");
+		    const source = ["const SHOW_SOUND_RATE=" + SHOW_SOUND_RATE, "const SHOW_SOUND_ROOT=" + SHOW_SOUND_ROOT, "const SHOW_SOUND_GAIN=" + SHOW_SOUND_GAIN, showSynth, showEdgeAt, showSlamAt, showSoundMixBed, showSoundStem,
+		        "onmessage=({data})=>{for(const job of data.jobs){const pcm=showSoundStem(job.name,data.T,data.cast,data.rate,job.bed||null);postMessage({name:job.name,left:pcm.left,right:pcm.right},[pcm.left.buffer,pcm.right.buffer])}}"].join(";\n");
 		    const url = URL.createObjectURL(new Blob([source], { type: "text/javascript" })), worker = new Worker(url);
 		    worker.onmessage = ({ data }) => {
 		        stems.set(data.name, data);
 		        if (route) join(cues.find(cue => cue.stem === data.name));
 		        settle();
 		    };
-		    worker.postMessage({ stems: cues.map(cue => cue.stem), T: SHOW_T, cast: { dice: layout.dice.length, marked: layout.marked.length, corners: layout.corners, letters: layout.letters.length }, rate: SHOW_SOUND_RATE });
+		    const cast = { dice: layout.dice.length, marked: layout.marked.length, corners: layout.corners, letters: layout.letters.length };
+		    const post = (jobs, transfer = []) => { if (!over) worker.postMessage({ jobs, T: SHOW_T, cast, rate: SHOW_SOUND_RATE }, transfer); };
+		    if (calm) {
+		        decodeShowSoundBed("calm", SHOW_SOUND_RATE).then(bed => post([{ name: "calm", bed }], bed ? [bed.left.buffer, bed.right.buffer] : []));
+		    } else {
+		        post([{ name: "open", bed: null }]);
+		        decodeShowSoundBed("bloom", SHOW_SOUND_RATE).then(bed => post([{ name: "bloom", bed }, { name: "exit", bed: null }], bed ? [bed.left.buffer, bed.right.buffer] : []));
+		    }
 		    off = forkForeground.subscribeAudio(hear);
 		    return {
 		        // The picture is over: a cut silences what sounds; else it rings out, and a show unheard so far stays so.
@@ -26212,12 +26350,16 @@ function tavernModelRefusalNotice(text) {
 		        if (first) s.ids = new Set();
 		        const arrived = fresh.filter(record => record.show && !(record.of && s.shown.has(record.of)));
 		        for (const record of records) { s.ids.add(record.callId); if (record.show && record.id) s.shown.add(record.id); }
-		        const now = latest.current;
-		        if (!first && arrived.length && now.running) s.queue.add(arrived, Number(key.slice(0, key.indexOf("|"))));
+		        const now = latest.current, turn = Number(key.slice(0, key.indexOf("|")));
+		        if (!first && arrived.length && now.running) s.queue.add(arrived, turn);
+		        // A show whose place the reader passed while the stage was not live (skipping, the backlog, a menu or page open,
+		        // the box hidden) waits until it is live again, within its round: a newer round drops it.
+		        s.queue.drop(item => item.turn < turn);
+		        if (!now.live) return;
 		        const due = s.queue.take(now.place);
-		        if (!due.length || !now.live) return;
+		        if (!due.length) return;
 		        player.current.enqueue(due, now.calm === true);
-		    }, [key, props.sessionId, placeKey]);
+		    }, [key, props.sessionId, placeKey, props.live]);
 		    React.useEffect(() => { if (!props.live) player.current?.skip(); }, [props.live]);
 		    React.useEffect(() => { if (!props.veiled) player.current?.resume(); }, [props.veiled]);
 		    return h("div", { ref: layer, className: "fork-check-show", "aria-hidden": true, hidden: true }, h("canvas", { className: "fork-check-show-field" }));
@@ -27483,6 +27625,9 @@ function tavernModelRefusalNotice(text) {
 		    // which stay as they are; auditions are not stage sound. When it ends the others glide back in (BGM fades in).
 		    let solo = null;
 		    const held = record => solo !== null && solo !== record && !record.preview;
+		    // While the app is behind, the mixer's context runs only for a background element (reading aloud, foreground.js):
+		    // every other source is silent as if its context were suspended.
+		    const behind = record => typeof forkForeground !== 'undefined' && !forkForeground.heard(record.node);
 		    // A running AudioContext keeps the device's audio hardware awake even in silence (a phone's battery). With nothing on the
 		    // mixer - no bound element playing, no buffer/stream source, no call, no recorder tap - it is suspended after a short
 		    // quiet; every source start resumes it first (ensure, or a bound element's play), so nothing is cut.
@@ -27506,7 +27651,7 @@ function tavernModelRefusalNotice(text) {
 		            if (typeof navigator !== "undefined" && navigator.audioSession) navigator.audioSession.type = "playback";
 		            context = new Constructor(); master = context.createGain(); master.gain.value = volume("master"); const foregroundGain = context.createGain(); master.connect(foregroundGain); foregroundGain.connect(context.destination);
 		            output = foregroundGain;
-		            if (typeof forkForeground !== "undefined") forkForeground.context(context, foregroundGain);
+		            if (typeof forkForeground !== "undefined") { forkForeground.context(context, foregroundGain); forkForeground.subscribeAudio(() => active.forEach(record => update(record))); }
 		            for (const layer of Object.keys(AUDIO_TARGETS)) {
 		                const gain = context.createGain(), duck = context.createGain(), dip = dipOf(layer);
 		                gain.gain.value = volume(layer); duck.gain.value = Math.pow(10, dip.db / 20);
@@ -27569,7 +27714,7 @@ function tavernModelRefusalNotice(text) {
 		            lufs: audioMeasurement(loudness) ? loudness.lufs : undefined, trackDb: trackGain > 0 ? 20 * Math.log10(trackGain) : undefined,
 		            trim: record.trim, duck: buses[record.layer] ? buses[record.layer].to : undefined, duration, position, error: extra.error });
 		    }
-		    const sourceLevel = record => held(record) ? 0 : (voiceGains.get(record.node) ?? audioGain(record.layer, measured(record), record.gainDb)) * record.trim;
+		    const sourceLevel = record => held(record) || behind(record) ? 0 : (voiceGains.get(record.node) ?? audioGain(record.layer, measured(record), record.gainDb)) * record.trim;
 		    const level = record => sourceLevel(record) * (record.covered ? COVER_GAIN : 1);
 		    // ---- covered words (a stage line's text marks: speech.cjs covered, pack-playback.cjs maskAudio) ----
 		    // While a bound voice plays inside a span of a cover still shut (shares of its length, COVER_PAD s either side) it is
@@ -27755,7 +27900,7 @@ function tavernModelRefusalNotice(text) {
 		                const loudness = record.loudness || catalogue.get(record.url)?.loudness || (record.layer === "voice" ? AUDIO_VOICE : undefined);
 		                // trackGain = loudness normalization x the entry's authored volume; effective adds envelope, layer, duck and master.
 		                const trackGain = (voiceGains.get(record.node) ?? audioGain(record.layer, loudness, record.gainDb)) * record.trim;
-		                const effective = held(record) ? 0 : trackGain * record.envelope * volume(record.layer) * duck(record.layer) * volume("master");
+		                const effective = held(record) || behind(record) ? 0 : trackGain * record.envelope * volume(record.layer) * duck(record.layer) * volume("master");
 		                const known = audioMeasurement(loudness);
 		                return { layer: record.layer, content: record.content ? record.content.slice(0, 12) : null, measured: known ? { lufs: loudness.lufs, peak: loudness.peak } : null, trim: record.trim,
 		                    envelope: round(record.envelope, 4), trackGain: round(trackGain, 4), trackGainDb: trackGain > 0 ? round(20 * Math.log10(trackGain), 2) : null,
@@ -28457,7 +28602,7 @@ function tavernModelRefusalNotice(text) {
 		        const index = queue.findIndex(job => job.key === key);
 		        if (index > 0) queue.unshift(queue.splice(index, 1)[0]);
 		    }
-		    let bytes = 0, current = null, tail = null, client, unsubscribe, enabled = false, disposed = false, generation = 0;
+		    let bytes = 0, current = null, ended = null, tail = null, client, unsubscribe, enabled = false, disposed = false, generation = 0;
 		    const recordingSource = {};
 		    const available = service => !disposed && (service === recordingSource || enabled && service?.available());
 		    // Streamed clips replaced by their complete line while they still play; disposed once they stop.
@@ -28495,7 +28640,7 @@ function tavernModelRefusalNotice(text) {
 		    function cancelPending(keep = new Set()) {
 		        for (const [key, job] of pending) if (!keep.has(key)) { pending.delete(key); job.abort.abort(); }
 		    }
-		    function stop() { retire(false); cancelPending(); emit(); }
+		    function stop() { ended = null; retire(false); cancelPending(); emit(); }
 		    function invalidate() {
 		        generation++; failures.clear(); stop();
 		        for (const clip of clips.values()) { release(clip.audio); disposeAudio(clip.audio); clip.audio.src = ''; urls.revokeObjectURL(clip.url); }
@@ -28551,8 +28696,8 @@ function tavernModelRefusalNotice(text) {
 		            if (descriptor.browser) {
 		                if (!createSpeech) throw new Error('voice-unavailable');
 		                // a line over covered words (input.maskedText) is read without them: no mixer reaches the system's speech
-		                const audio = createSpeech({...descriptor.browser, text:input.maskedText ?? input.text, language:descriptor.language});
-		                prepareAudio(audio, null, {});
+		                const audio = createSpeech({...descriptor.browser, text:input.maskedText ?? input.text, language:descriptor.language, background:input.background === true});
+		                prepareAudio(audio, null, {}, input);
 		                const clip = {url:'', audio, size:0, key:null};
 		                remember(key, clip);
 		                return clip;
@@ -28560,7 +28705,7 @@ function tavernModelRefusalNotice(text) {
 		            // A line the host already synthesized (台词朗读 speechForLine) arrives as its audio URL.
 		            if (descriptor.url) {
 		                const audio = createAudio(descriptor.url);
-		                audio.preload = 'auto'; prepareAudio(audio, null, {loudness:descriptor.loudness}); audio.load?.();
+		                audio.preload = 'auto'; prepareAudio(audio, null, {loudness:descriptor.loudness}, input); audio.load?.();
 		                const clip = {url:'', audio, size:0, key:null};
 		                remember(key, clip);
 		                return clip;
@@ -28570,7 +28715,7 @@ function tavernModelRefusalNotice(text) {
 		                if (abort.signal.aborted || epoch !== generation) return;
 		                const audio = createAudio(live.url);
 		                // The voice's known loudness (if any) levels the first play; the complete line brings its own.
-		                audio.preload = 'auto'; prepareAudio(audio, null, live); audio.load?.();
+		                audio.preload = 'auto'; prepareAudio(audio, null, live, input); audio.load?.();
 		                stream = {url:live.url, audio, size:0, key:null};
 		                remember(key, stream); playable(stream);
 		            }});
@@ -28581,7 +28726,7 @@ function tavernModelRefusalNotice(text) {
 		            let clip;
 		            try {
 		                const audio = createAudio(url);
-		                audio.preload = 'auto'; prepareAudio(audio, blob, result); audio.load?.();
+		                audio.preload = 'auto'; prepareAudio(audio, blob, result, input); audio.load?.();
 		                clip = {url, audio, size:blob.size, key:result.key};
 		            } catch (e) { urls.revokeObjectURL(url); throw e; }
 		            remember(key, clip);
@@ -28611,7 +28756,14 @@ function tavernModelRefusalNotice(text) {
 		        get() { return current; },
 		        blocked() { return blocked; },
 		        getError(input) { return input ? failures.get(keyOf(input))?.code || null : null; }, stop, invalidate,
-		        stopPlayback() { retire(false); emit(); },
+		        hasEnded(input) { return ended !== null && ended.owner === input.owner && ended.id === input.id; },
+		        stopPlayback(owner) {
+		            const clear = ended && (owner === undefined || ended.owner === owner);
+		            const stop = owner === undefined || current?.owner === owner;
+		            if (clear) ended = null;
+		            if (stop) retire(false);
+		            if (clear || stop) emit();
+		        },
 		        setEnabled(value) { enabled = value === true; if (!enabled) stop(); },
 		        setRate(rate) { for (const clip of clips.values()) { clip.audio.preservesPitch = true; clip.audio.playbackRate = rate; } },
 		        cancelPrefetch(items = []) { const keep = new Set(items.map(keyOf)); if (current) keep.add(current.requestKey); cancelPending(keep); },
@@ -28626,6 +28778,7 @@ function tavernModelRefusalNotice(text) {
 		            const requestKey = keyOf(input), cached = clips.get(requestKey);
 		            if (input.automatic) { if (!canRetry(input)) return false; }
 		            else failures.delete(requestKey);
+		            ended = null;
 		            retire(input.handoff === true && cached?.audio !== current?.audio);
 		            const entry = { loading: true, audio: null, owner:input.owner, id:input.id, requestKey };
 		            current = entry; emit();
@@ -28642,7 +28795,11 @@ function tavernModelRefusalNotice(text) {
 		                // input.volume / input.rate: a caller's own level and speed for this line (有声书's panel); the stage leaves both.
 		                clip.audio.volume = input.volume ?? 1;
 		                if (input.rate) { clip.audio.preservesPitch = true; clip.audio.playbackRate = input.rate; }
-		                clip.audio.onended = () => { if (current === entry) { retire(false); emit(); } };
+		                clip.audio.onended = () => {
+		                    if (current !== entry) return;
+		                    ended = {owner:entry.owner, id:entry.id};
+		                    retire(false); emit();
+		                };
 		                clip.audio.onpause = clip.audio.onplay = emit;
 		                // covered words (input.masks, a stage line's text marks): the covers still shut as it starts; a clip covered
 		                // before and now played without them is heard as is again
@@ -28751,10 +28908,11 @@ function tavernModelRefusalNotice(text) {
 		    }
 		    return clip;
 		}
-		// The app's clip: master × voice volume (a preview: master only), paused while the app is in the background.
-		function browserSpeechClip(line, preview = false) {
+		// The app's clip: master × voice volume (a preview: master only), paused while the app is in the background -
+		// unless it is a background clip (reading the story aloud), which keeps speaking.
+		function browserSpeechClip(line, preview = false, background = false) {
 		    return createBrowserSpeechClip(line, { synth: window.speechSynthesis, Utterance: window.SpeechSynthesisUtterance,
-		        level: () => forkStageAudio.speechVolume(preview), subscribeAudio: typeof forkForeground === 'undefined' ? null : forkForeground.subscribeAudio });
+		        level: () => forkStageAudio.speechVolume(preview), subscribeAudio: background || typeof forkForeground === 'undefined' ? null : forkForeground.subscribeAudio });
 		}
 		// A speaking browser clip has no samples to analyse; the mouth follows a gentle syllable rhythm while it speaks.
 		function browserSpeechMouth(clip, now = Date.now) {
@@ -28783,8 +28941,8 @@ function tavernModelRefusalNotice(text) {
 		    });
 		})();
 		const voicePlayer = createPackVoicePlayer({now: forkForeground.now, schedule: forkForeground.setInterval, cancel: forkForeground.clearInterval, getClient:pageTtsClient,
-		    createSpeech:line => browserSpeechClip(line),
-		    prepareAudio:(audio,blob,result) => {if(audio.browserSpeech)return;forkForeground.media(audio);forkStageAudio.prepareVoice(audio,blob,result.loudness);audio.preservesPitch=true;},
+		    createSpeech:line => browserSpeechClip(line, false, line.background),
+		    prepareAudio:(audio,blob,result,input) => {if(audio.browserSpeech)return;forkForeground.media(audio,false,{background:input.background===true});forkStageAudio.prepareVoice(audio,blob,result.loudness);audio.preservesPitch=true;},
 		    maskAudio:(audio,cover) => { if (!audio.browserSpeech) forkStageAudio.mask(audio,cover); },
 		    disposeAudio:audio => { if (!audio.browserSpeech) forkStageAudio.release(audio); },
 		    onAudio:audio => forkStageAudio.voice(Boolean(audio))});
@@ -29932,32 +30090,6 @@ function tavernModelRefusalNotice(text) {
 		                props.enter || null)));
 		}
 
-		function TavernPluginDialogueBubbles({sessionId, owner, lines}) {
-		    const h = React.createElement;
-		    const segments = React.useMemo(() => lines.map(line => ({...line, kind: line.name ? 'bubble' : 'markdown'})), [lines]);
-		    const select = React.useMemo(() => bubbleMessageSelector(segments), [segments]);
-		    const config = useBubbles(sessionId, true, select)?.config;
-		    const held = React.useSyncExternalStore(voiceChannel.subscribe, voiceChannel.held);
-		    const activeStage = React.useSyncExternalStore(galActive.subscribe, galActive.get);
-		    const stageAvailable = React.useSyncExternalStore(galStageAvailable.subscribe, galStageAvailable.get);
-		    const canReplay = !held && activeStage !== sessionId && config?.voice?.enabled !== false;
-		    React.useSyncExternalStore(voicePlayer.subscribe, () => {
-		        const playing = voicePlayer.get();
-		        return playing?.owner === owner ? JSON.stringify([playing.id, playing.loading, playing.error, playing.audio?.paused]) : '';
-		    });
-		    React.useEffect(() => () => { if (voicePlayer.get()?.owner === owner) voicePlayer.stopPlayback(); }, [owner, canReplay]);
-		    return h('div', {className:'fork-bubbles'}, segments.map(segment => {
-		        const {id, recording, text} = segment;
-		        if (segment.kind !== 'bubble') return h('p', {key:id, className:'dsh-tavern-colored-markdown'}, text);
-		        const voice = recording && canReplay ? {id, owner, sessionId, recorded:true, player:voicePlayer.get(),
-		            click() { forkLipSync.wake(); void voicePlayer.playRecording(recording, {id, owner, cacheKey:JSON.stringify([owner, id, recording])}); }} : null;
-		        const enter = stageAvailable && segment.stageTarget
-		            ? h(StageEnterHere, {sessionId, target:segment.stageTarget}) : null;
-		        const row = h(BubbleRow, {key:id, sessionId, segment, config, voice, enter});
-		        return enter ? h(StageParagraph, {key:id}, row) : row;
-		    }));
-		}
-
 		// Drop-in for TavernColoredMarkdown on assistant prose.
 		// freeze the entire consumer, including Markdown and voice hooks.
 		function BubblePublication(props) {
@@ -30279,7 +30411,6 @@ function tavernModelRefusalNotice(text) {
 		    return run;
 		}
 		// 恢复默认: the host's default template and no extra request; the worldbook placement stays where the user put it.
-		function resetDialogueInjection(sessionId) { return saveDialogueInjection(sessionId, injection => ({ ...injection, template: '', extra: '' })); }
 		// The 对白格式 editor (BubblePromptEditor) over the session's dialogue data. Its 「角色 ↗」 shows the page's 素材包 (stage setup wizard: the 人物 section is gone).
 		function StageDialogueEditor({ sessionId, onClose }) {
 		    const data = useBubbles(sessionId, true), askConfirm = useTavernConfirm(sessionId);
@@ -31730,24 +31861,6 @@ function tavernModelRefusalNotice(text) {
 		    item.id = newEmotionId(list.map(entry => entry.id), random);
 		    return list.concat([item]);
 		}
-		// Characters that have an image (avatar variant or full-size) for this emotion.
-		function emotionUsers(config, id) {
-		    return ((config && config.characters) || []).filter(item => item && ((item.moods && item.moods[id]) || (item.full && item.full[id]))).map(characterLabel);
-		}
-		// Remove an emotion and the characters' images for it.
-		function emotionRemove(config, id) {
-		    const strip = map => { if (!map || !(id in map)) return map; const next = { ...map }; delete next[id]; return next; };
-		    return { ...config, emotions: customEmotions(config).filter(item => item.id !== id),
-		        characters: ((config && config.characters) || []).map(item => item && ((item.moods && id in item.moods) || (item.full && id in item.full)) ? { ...item, moods: strip(item.moods), full: strip(item.full) } : item) };
-		}
-
-		// 简单 → 自动演出: one switch for the director (automatic scene changes) and the music together.
-		function autoStageState(stage) {
-		    const director = Boolean(stage && stage.director === true), music = Boolean(stage && stage.music === true);
-		    return { on: director || music, partial: director !== music };
-		}
-		function autoStagePatch(on) { return { director: Boolean(on), music: Boolean(on) }; }
-
 		// The stage fields the settings panels write. The retired worldview and the derived protagonist are never
 		// sent back (characters carry offstage now); the old tag filters went with the asset-library sources.
 		// Sources always go out in the new shape.
@@ -32024,9 +32137,21 @@ function tavernModelRefusalNotice(text) {
 		        resetDialogue: () => resetDialogueInjection(sessionId)
 		    };
 		}
+		// The game's card as its session view names it (view.card): the page needs only the path to start reading, so it never
+		// waits for getDialogueBubbles (the chat, the bubble config and the foreground preview; the 提示词 section reads that
+		// itself). null while the view is still on its way; '' for a session without a card.
+		function useSessionCardField(sessionId, field) {
+		    const subscribe = React.useCallback(notify => sessionId ? liveTavernView.subscribe(sessionId, notify, [['card']]) : () => {}, [sessionId]);
+		    const read = React.useCallback(() => {
+		        if (!sessionId) return '';
+		        const state = liveTavernView.getSnapshot(sessionId);
+		        return state?.view ? String(state.view.card?.[field] || '') : state?.phase === 'unavailable' ? '' : null;
+		    }, [sessionId, field]);
+		    return React.useSyncExternalStore(subscribe, read, read);
+		}
 		function TavernStageTab(props) {
-		    const sessionId=props.scope?.sessionId || '',data=useBubbles(sessionId,true),prompts=React.useMemo(() => stagePrompts(sessionId),[sessionId]);
-		    return React.createElement(PackWorkbench,{key:sessionId,sessionId,page:'stage',cardPath:data?.cardPath,cardName:data?.cardName,loading:!data,prompts});
+		    const sessionId=props.scope?.sessionId || '',cardPath=useSessionCardField(sessionId,'path'),cardName=useSessionCardField(sessionId,'name'),prompts=React.useMemo(() => stagePrompts(sessionId),[sessionId]);
+		    return React.createElement(PackWorkbench,{key:sessionId,sessionId,page:'stage',cardPath:cardPath||undefined,cardName:cardName||undefined,loading:cardPath===null,prompts});
 		}
 		// One provider for the library tab body: client apply offers it at startup (so `dsh-asset-library`
 		// never waits for a play session), and the launcher below offers it again when the host starts there.
@@ -41484,7 +41609,7 @@ function tavernFloorHeightRecall(key, width) {
 						if (reply.skip) { if (reply.reason === "narration" || reply.reason === "empty") continue; return false; }
 						const text = reply.text || line.text;
 						const descriptor = reply.browser ? { available: true, browser: { voice: reply.voice || "", ...(reply.rate === undefined ? {} : { rate: reply.rate }) }, language: "zh-CN" } : { available: true, url: reply.url, loudness: reply.loudness };
-						const heard = await playClip(lease, descriptor, { owner: OWNER, id: String(index), text, mood: input.emotion || "neutral",
+						const heard = await playClip(lease, descriptor, { owner: OWNER, id: String(index), text, background: true, mood: input.emotion || "neutral",
 							cacheKey: JSON.stringify([OWNER, reply.browser ? "browser:" + (reply.voice || "") + ":" + (reply.rate || "") : reply.url, text]) });
 						if (!heard) return false;
 						heardAny = true;
@@ -49617,7 +49742,7 @@ function installTavernScriptCardUpdate({ window: w, rpc, ask = askTavernScriptCa
 		}
 
 		// The head of one card's group in 游玩历史: its click folds / unfolds the group; right click, Shift+F10 / the menu key or a
-		// touch long press opens the card's menu (useContextMenu). Items are entries that exist elsewhere:
+		// touch long press opens the card's menu (useContextMenu, ui-design 右键 / 长按菜单). Items are entries that exist elsewhere:
 		// the card list's 新开游玩, the group's own fold, and the 存档管理 filtered to this card.
 		function HistoryGroupHead({ group, expanded, busy, onToggle, onNewPlay, onManage, children }) {
 			const h = React.createElement;
@@ -62485,7 +62610,7 @@ const {GAL_LOOK_ID, GAL_LOOK_MS, GAL_LEAK_FROM, GAL_MOTE_KINDS, GAL_LUMA, galLoo
 		        transcriptOutfits:{rpc,signals:tavernSessionSignals},
 		        // what every stage feature (a mod's client/stage.cjs, features.cjs) may use: the host's RPC for its own requests
 		        features:{rpc},
-		        sourceWidgets:{storage:(()=>{try{return localStorage;}catch{return null;}})(),foreground:forkForeground,rpc,signals:tavernSessionSignals,characters:{character:bubbleCharacter,mood:bubbleMood,moods:bubbleMoodList,actor:stageActorCharacter,face:bubbleCardFace},avatarCache,phoneProtocol:tavernModClients.slot('source')[0]?.value.protocol,figureResolution,playerErrorText,fetch,createImageBitmap,
+		        sourceWidgets:{storage:(()=>{try{return localStorage;}catch{return null;}})(),foreground:forkForeground,rpc,signals:tavernSessionSignals,characters:{character:bubbleCharacter,mood:bubbleMood,moods:bubbleMoodList,actor:stageActorCharacter,face:bubbleCardFace},avatarCache,phoneProtocol:tavernModClients.slot('source')[0]?.value.protocol,figureResolution,playerErrorText,fetch,createImageBitmap,useModOptions,
 		            sandbox:{stopSfx:()=>stageWidgetMediaOwner?.stopSfx(),scroll:(id,...args)=>stageWidgetScrollTargets.get(id)?.wheel(...args),theme:root=>stageWidgetThemeOwners.get(root)}},
 		        modSurface:{timing:{validate:validateStagePerformanceTiming,overlaps:stagePerformanceRegionsOverlap},readItems:(id,turn)=>rpc('getStageItems',{turn},id)},
 		        performanceSurface:{fonts:tavernFonts,resolution:galResolution,subscribeResolution:galResolutionSubscribe,policy:{stageFlashAt,stageFlashDark,stageFlashGate,stageFlashSafe,stageSafety,stageEffectHex,stageEffectRgb}},
@@ -65973,15 +66098,16 @@ function createPlayInteractionPanels({ interactions, useCandidatePanel, useCandi
                 if (view?.characterDesignTask?.status === "done" && view.characterDesignTask.published?.length) notifyTavernDataChanged(["worldbooks", "cards"], "character-design");
             }, [props.sessionId, JSON.stringify(view?.characterDesignTask?.published || [])]);
 			const missingCard = isMissingTavernCardError(liveState.error);
+			const emptyView = ["no-session", "no-chat", "empty-view"].includes(liveState.error);
+			const readFailed = loadState === "unavailable" && !emptyView;
 			const debugTurns = view && Array.isArray(view.debugTurns) ? view.debugTurns : [];
 			const latestDebugTurn = Number(debugTurns[0] && debugTurns[0].turn) || 0;
 			React.useEffect(function () {
 				// no-session / no-chat / empty-view 是「这个对话还没有游戏」，不是读取失败：
 				// live view 重试耗尽后把原因留在 error 上，面板应显示空态提示，
 				// 不能把「出错了，请稍后再试」推进错误中心。
-				const emptyView = ["no-session", "no-chat", "empty-view"].includes(liveState.error);
 				setError(missingCard || emptyView ? "" : (liveState.error || ""));
-			}, [liveState.error, missingCard]);
+			}, [liveState.error, missingCard, emptyView]);
             const [resourceLinkBusy, setResourceLinkBusy] = React.useState(false);
             const [resourceLinkError, setResourceLinkError] = React.useState("");
             const [resourceBinding, setResourceBinding] = React.useState(null);
@@ -66108,8 +66234,8 @@ function createPlayInteractionPanels({ interactions, useCandidatePanel, useCandi
 			if (!view) return h("aside", { className: "dsh-tavern-status dsh-tavern-status-dashboard" },
 				h("div", { className: "dsh-tavern-status-head" }, h("div", { className: "dsh-tavern-status-title" }, "状态栏")),
 				h("div", { className: "dsh-tavern-status-body" },
-					h("div", { className: "dsh-tavern-status-empty" }, missingCard ? "人物卡已删除，酒馆状态不可用；已有对话仍可查看。" : (loadState === "retrying" ? "正在重新连接酒馆状态…" : (error || (loadState === "loading" ? "正在加载酒馆状态…" : "选择人物卡后，这里会显示持续状态。")))),
-					loadState === "retrying" || missingCard ? h("button", { className: "dsh-tavern-btn", onClick: function () { liveTavernView.invalidate(props.sessionId); } }, "重新加载") : null
+					h("div", { className: "dsh-tavern-status-empty" }, missingCard ? "人物卡已删除，酒馆状态不可用；已有对话仍可查看。" : (loadState === "retrying" ? "正在重新连接酒馆状态…" : (readFailed ? playerErrorText(liveState.error, { fallback: "酒馆状态读取失败，已停止自动重试。" }) : (error || (loadState === "loading" ? "正在加载酒馆状态…" : "选择人物卡后，这里会显示持续状态。"))))),
+					readFailed ? h("button", { type: "button", className: "dsh-tavern-btn", onClick: function () { liveTavernView.invalidate(props.sessionId); } }, "重新加载") : null
 				)
 			);
 			if (view.mode === "card") return null;
@@ -72729,7 +72855,10 @@ const skinBacklogRoll = value => skinBacklogRollProblem(value) === null;
 // omitted = the shared title centred at the top of the game area.
 // clip false: no 导出片段 button beside the close (an original whose log has only its close); the export still starts from a row
 // (Shift-click, long press). Omitted = the button beside the drawn close.
-const skinBacklog = skinObject({...skinArtScreen,title:value => value === false || skinArtPlaced(value),clip:value => value === false,list:skinRect,pitch:skinNumber(8,512),text:skinArray(skinNumber(0,8192),2,2),top:skinNumber(0,512),gap:skinNumber(0,512),
+// latest false: no 跳到最新 control (an original whose log has none); the wheel and End still reach the end. Omitted = the control.
+// ground false: no panel ground round the sheet - a log card over the scene, the stage showing round it as through its clear parts.
+// Omitted = the panel ground fills the window round the sheet.
+const skinBacklog = skinObject({...skinArtScreen,title:value => value === false || skinArtPlaced(value),clip:value => value === false,latest:value => value === false,ground:value => value === false,list:skinRect,pitch:skinNumber(8,512),text:skinArray(skinNumber(0,8192),2,2),top:skinNumber(0,512),gap:skinNumber(0,512),
     // name.letter ransom (C2): the name as glyph tiles (glyphTiles below); name.align end: the name's right edge on the text
     // column's left edge, a long name growing to the left.
     voice:skinBacklogVoice,name:skinObject({x:skinPx,y:skinPx,h:skinNumber(1,1024),font:skinNumber(8,512),head:skinNumber(0,1024),frame:skinArtPlaced,rule:skinArtPlaced,

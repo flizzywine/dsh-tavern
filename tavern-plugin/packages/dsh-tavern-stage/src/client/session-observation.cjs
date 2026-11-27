@@ -89,8 +89,8 @@ function createStageSessionObservation({owner,resources,resourceOwner,selection,
         own(() => media.music.activate(null));
         own(() => media.background.activate(null));
         own(() => media.ambience.activate(null));
-        // The BGM pause is the pause of every looping sound: the ambience holds while the player's pause is on.
-        own(media.music.subscribe(() => media.ambience.hold(media.music.get().loopsPaused)));
+        // The BGM's silence (the player's pause, or leaving the stage: away) is the silence of every looping sound: the ambience holds with it.
+        own(media.music.subscribe(() => media.ambience.hold(media.music.get().paused)));
         own(selection.list.subscribe(bgmSelect));
         const bgmKick = () => { if(!active())return; media.music.kick(); media.ambience.resume(); };
         document.addEventListener('pointerdown', bgmKick, true);

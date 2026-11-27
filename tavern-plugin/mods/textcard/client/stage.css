@@ -16,17 +16,17 @@
 .fork-tc[data-face="mono"] .fork-tc-code-main { font-family: var(--gal-tc-mono); }
 .fork-tc [data-tc-center] { will-change: translate; }
 .fork-tc-ln { display: block; }
-.fork-tc-foot { position: absolute; left: 0; right: 0; bottom: 4.5cqh; padding-left: .8em; font-size: 1.05cqw; font-weight: 400; letter-spacing: .8em; opacity: .85; }
-.fork-tc-reading { margin-top: 2.2cqh; padding-left: .5em; font-size: 1.3cqw; font-weight: 400; letter-spacing: .5em; }
+.fork-tc-foot { position: absolute; left: 0; right: 0; bottom: 4.5cqh; padding-left: .8em; font-size: max(var(--fork-fs-meta), 1.05cqw); font-weight: 400; letter-spacing: .8em; opacity: .85; }
+.fork-tc-reading { margin-top: 2.2cqh; padding-left: .5em; font-size: max(var(--fork-fs-meta), 1.3cqw); font-weight: 400; letter-spacing: .5em; }
 .fork-tc-reading.is-under { position: absolute; left: 0; right: 0; bottom: 18cqh; margin: 0; }
-.fork-tc-corner { position: absolute; top: 5cqh; right: 5cqw; font-size: 1.4cqw; letter-spacing: .3em; font-variant-numeric: tabular-nums; }
-.fork-tc-mark { margin-top: 3.4cqh; font-size: 1.1cqw; line-height: 1; }
-.fork-tc-code { margin-top: 2.4cqh; padding-left: .3em; font-size: 2cqw; letter-spacing: .3em; }
-.fork-tc-roman { margin-top: 2.2cqh; padding-left: .62em; font-size: 1.4cqw; font-weight: 400; letter-spacing: .62em; }
+.fork-tc-corner { position: absolute; top: 5cqh; right: 5cqw; font-size: max(var(--fork-fs-meta), 1.4cqw); letter-spacing: .3em; font-variant-numeric: tabular-nums; }
+.fork-tc-mark { margin-top: 3.4cqh; font-size: max(var(--fork-fs-meta), 1.1cqw); line-height: 1; }
+.fork-tc-code { margin-top: 2.4cqh; padding-left: .3em; font-size: max(var(--fork-fs-meta), 2cqw); letter-spacing: .3em; }
+.fork-tc-roman { margin-top: 2.2cqh; padding-left: .62em; font-size: max(var(--fork-fs-meta), 1.4cqw); font-weight: 400; letter-spacing: .62em; }
 
 /* #01 齣: a tiny vertical label in a sea of colour. */
-.fork-tc-punct-label { writing-mode: vertical-rl; text-orientation: upright; font-size: 2.6cqw; letter-spacing: .5em; }
-.fork-tc[data-layout="punct"] .fork-tc-reading { font-size: 1cqw; }
+.fork-tc-punct-label { writing-mode: vertical-rl; text-orientation: upright; font-size: max(var(--fork-fs-meta), 2.6cqw); letter-spacing: .5em; }
+.fork-tc[data-layout="punct"] .fork-tc-reading { font-size: max(var(--fork-fs-meta), 1cqw); }
 
 /* #02 章节 */
 .fork-tc-title-main { font-size: 4.8cqw; letter-spacing: .12em; }
@@ -36,8 +36,8 @@
 
 /* #03 人名 */
 .fork-tc-name { padding-left: .32em; font-size: 6cqw; font-weight: 700; letter-spacing: .32em; }
-.fork-tc-name-roman { margin-top: 3cqh; padding-left: .55em; font-family: var(--gal-tc-italic); font-size: 2cqw; font-style: italic; font-weight: 400; letter-spacing: .55em; }
-.fork-tc-name-sub { margin-top: 2.8cqh; padding-left: .5em; font-size: 1.3cqw; letter-spacing: .5em; }
+.fork-tc-name-roman { margin-top: 3cqh; padding-left: .55em; font-family: var(--gal-tc-italic); font-size: max(var(--fork-fs-meta), 2cqw); font-style: italic; font-weight: 400; letter-spacing: .55em; }
+.fork-tc-name-sub { margin-top: 2.8cqh; padding-left: .5em; font-size: max(var(--fork-fs-meta), 1.3cqw); letter-spacing: .5em; }
 .fork-tc-rule { position: absolute; left: 12cqw; right: 12cqw; height: 0; border-top: .18cqw solid currentColor; opacity: .75; }
 .fork-tc-rule.is-top { top: 9cqh; } .fork-tc-rule.is-bottom { bottom: 9cqh; }
 
@@ -57,8 +57,8 @@
 
 /* #07 长文: dense vertical columns filling the page. */
 .fork-tc-page-text { position: absolute; inset: 8cqh 8cqw 12cqh; writing-mode: vertical-rl; text-orientation: upright; overflow: hidden;
-  font-size: 1.9cqw; font-weight: 400; line-height: 1.75; letter-spacing: .08em; text-align: start; }
-.fork-tc-margin { position: absolute; top: 8cqh; left: 3cqw; writing-mode: vertical-rl; font-size: 1cqw; letter-spacing: .4em; opacity: .8; }
+  font-size: max(var(--fork-fs-body), 1.9cqw); font-weight: 400; line-height: 1.75; letter-spacing: .08em; text-align: start; }
+.fork-tc-margin { position: absolute; top: 8cqh; left: 3cqw; writing-mode: vertical-rl; font-size: max(var(--fork-fs-meta), 1cqw); letter-spacing: .4em; opacity: .8; }
 
 /* #08 字海: a big word over a dense repeat of a related word, slowly drifting. */
 .fork-tc-wall-fill { position: absolute; inset: -4cqh -2cqw; overflow: hidden; color: color-mix(in srgb, var(--tc-fg) 26%, var(--tc-bg)); font-size: 2.1cqw; line-height: 1.32; letter-spacing: .1em; word-break: break-all; text-align: start; }
@@ -79,7 +79,7 @@
 .fork-tc-part[data-slot="2"] { translate: -175% 10%; } .fork-tc-part[data-slot="3"] { translate: 75% 10%; }
 .fork-tc.is-converging .fork-tc-part { translate: -50% -50%; scale: .55; }
 .fork-tc-morph-final { font-size: 24cqw; font-weight: 700; line-height: 1; }
-.fork-tc-gloss { margin-top: 3cqh; padding-left: .4em; font-family: var(--gal-tc-italic); font-size: 2cqw; font-style: italic; letter-spacing: .4em; }
+.fork-tc-gloss { margin-top: 3cqh; padding-left: .4em; font-family: var(--gal-tc-italic); font-size: max(var(--fork-fs-meta), 2cqw); font-style: italic; letter-spacing: .4em; }
 
 /* #11/#13/#22 sequences and 快闪: one word per state, the layout varies by state. */
 .fork-tc-fl { position: absolute; font-weight: 700; line-height: 1; white-space: nowrap; }
@@ -99,13 +99,13 @@
 .fork-tc-bars { display: flex; align-items: flex-end; gap: .6cqw; height: 3cqh; margin-top: 3cqh; }
 .fork-tc-bars i { width: .5cqw; height: 25%; background: currentColor; }
 .fork-tc-bars i[data-h="1"] { height: 50%; } .fork-tc-bars i[data-h="2"] { height: 75%; } .fork-tc-bars i[data-h="3"] { height: 100%; width: 1.2cqw; }
-.fork-tc-code-sub { margin-top: 3cqh; padding-left: .3em; font-family: var(--tc-mincho, var(--gal-tc-mincho)); font-size: 1.8cqw; font-weight: 400; letter-spacing: .3em; }
+.fork-tc-code-sub { margin-top: 3cqh; padding-left: .3em; font-family: var(--tc-mincho, var(--gal-tc-mincho)); font-size: max(var(--fork-fs-meta), 1.8cqw); font-weight: 400; letter-spacing: .3em; }
 
 /* #15 图解: tree, calendar or grid laid out from a few values. */
 .fork-tc-diagram { display: flex; flex-direction: column; align-items: center; gap: 5cqh; }
 .fork-tc-dg-root { padding: .4em 1em; border: .2cqw solid currentColor; font-size: 3.4cqw; }
 .fork-tc-dg-items { position: relative; display: flex; gap: 3cqw; padding-top: 4cqh; border-top: .2cqw solid currentColor; }
-.fork-tc-dg-item { position: relative; padding: .3em .7em; border: .15cqw solid currentColor; font-size: 2.2cqw; }
+.fork-tc-dg-item { position: relative; padding: .3em .7em; border: .15cqw solid currentColor; font-size: max(var(--fork-fs-meta), 2.2cqw); }
 .fork-tc-dg-item::before { content: ""; position: absolute; left: 50%; bottom: 100%; height: 4cqh; border-left: .2cqw solid currentColor; pointer-events: none; }
 .fork-tc-diagram[data-kind="calendar"] .fork-tc-dg-root { border: 0; font-size: 18cqw; line-height: 1; font-variant-numeric: tabular-nums; }
 .fork-tc-diagram[data-kind="calendar"] .fork-tc-dg-items, .fork-tc-diagram[data-kind="grid"] .fork-tc-dg-items { padding-top: 0; border-top: 0; }
@@ -122,7 +122,7 @@
 @media (max-width: 720px) {
   .fork-tc-foot, .fork-tc-roman, .fork-tc-reading { letter-spacing: .4em; }
   .fork-tc[data-size="m"] .fork-tc-text { font-size: 5.6cqw; }
-  .fork-tc-page-text { inset: 6cqh 5cqw 10cqh; font-size: 2.6cqw; }
+  .fork-tc-page-text { inset: 6cqh 5cqw 10cqh; font-size: max(var(--fork-fs-body), 2.6cqw); }
 }
 
 /* Compound templates keep their complete semantic text; only repeat's short final word deliberately crops. */

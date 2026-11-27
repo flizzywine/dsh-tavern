@@ -148,6 +148,7 @@
    on a phone the picture sits between a top row (title, ✎ 🗑 ✕) and a bottom row (‹ 差分 构图 ›). Every group is one line. */
 .fork-cg-gallery { --cg-ink: #f4f5f9; --cg-ink-2: rgb(244 245 249 / .7); --cg-glass: rgb(12 14 24 / .52); --cg-glass-hover: rgb(255 255 255 / .2);
   --cg-card: #1b1e2c; --cg-card-line: rgb(255 255 255 / .1); --cg-card-hover: rgb(255 255 255 / .08); --cg-danger: #ff7b86; --cg-danger-ink: #2a0b10; --cg-tile: #171a26; --cg-base: #0b0d14;
+  --cg-sb: rgb(244 245 249 / 0); --cg-sb-on: rgb(244 245 249 / .45); --cg-sb-hold: rgb(244 245 249 / .72);
   position: absolute; inset: 0; z-index: 80; overflow: hidden; background: var(--cg-base); color: var(--cg-ink); font-family: var(--gal-ui-font); isolation: isolate; outline: none; }
 .fork-cg-gallery h2 { margin: 0; min-width: 0; overflow: hidden; font: 600 22px/1.3 var(--gal-ui-title-font, var(--gal-ui-font)); letter-spacing: .03em; white-space: nowrap; text-overflow: ellipsis; }
 .fork-cg-gallery button { font-family: inherit; }
@@ -173,7 +174,24 @@
 .fork-cg-grid-top { display: flex; flex: none; align-items: center; justify-content: space-between; gap: 16px; padding: 20px 24px 16px; }
 .fork-cg-grid-top .fork-cg-round { background: var(--cg-card-hover); }
 .fork-cg-grid-top .fork-cg-round:hover { background: var(--cg-glass-hover); }
+.fork-cg-grid-top h2 { flex: 1; }
+/* 全部 | 卡自带 | 自动生成: the viewer's 完整 | 特写 pair without icons, beside ✕. */
+.fork-cg-filter { display: flex; flex: none; gap: 2px; padding: 4px; border-radius: 22px; background: var(--cg-card-hover); }
+.fork-cg-filter > .fork-cg-compose-mode { padding: 0 14px; }
+/* 旧的在前 turns the 新的在前 bars upside down. */
+.fork-cg-round[data-k="sort"] > .fork-cg-icon { transition: transform .2s; }
+.fork-cg-round[data-order="oldest"] > .fork-cg-icon { transform: scaleY(-1); }
+.fork-cg-gallery-body { position: relative; display: flex; flex: 1; flex-direction: column; min-height: 0; }
 .fork-cg-gallery-scroll { display: flex; flex: 1; flex-direction: column; min-height: 0; overflow-y: auto; padding: 0 24px 24px; }
+/* the drawn scroll indicator (GalleryScrollbar): shown while the list scrolls, gone a moment after; under the pointer or grabbed it stays, wider.
+   A skin that styles 回想's own scrollbar (scrollbars.gallery) shows that one instead. */
+.fork-cg-scrollbar { position: absolute; top: 0; right: 2px; bottom: 12px; z-index: 5; display: none; width: 14px; touch-action: none; cursor: default; }
+.fork-cg-scrollbar[data-scrollable] { display: block; }
+.fork-cg-scrollbar > b { position: absolute; top: 0; right: 4px; width: 3px; height: var(--cg-sb-size, 32px); border-radius: 3px; background: var(--cg-sb); transform: translateY(var(--cg-sb-at, 0));
+  transition: background .6s, width .15s; }
+.fork-cg-scrollbar[data-moving] > b { background: var(--cg-sb-on); transition: background .12s, width .15s; }
+.fork-cg-scrollbar:is(:hover, [data-drag]) > b { width: 6px; background: var(--cg-sb-hold); }
+.fork-gal-stage[data-fk-scrollbars~="gallery"] .fork-cg-scrollbar { display: none; }
 .fork-cg-gallery-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(300px, 100%), 1fr)); gap: 8px; }
 .fork-cg-gallery-cell { position: relative; display: grid; place-items: center; aspect-ratio: 16 / 9; min-width: 0; min-height: 0; margin: 0; padding: 0; overflow: hidden; border: 0; border-radius: 10px;
   background: var(--cg-tile); box-shadow: none; color: var(--cg-ink-2); cursor: pointer; }
@@ -257,12 +275,15 @@
 .fork-cg-remove-error > .fork-cg-icon { width: 18px; height: 18px; color: var(--cg-danger); }
 .fork-cg-round[aria-busy] { opacity: .5; cursor: progress; }
 @keyframes fork-cg-pop { from { opacity: 0; transform: translateY(-4px) scale(.97); } }
-.fork-gal-stage[data-reduced-motion] :is(.fork-cg-viewer-ui, .fork-cg-round, .fork-cg-compose-mode, .fork-cg-variant, .fork-cg-cell-title, .fork-cg-gallery-cell .fork-cg-gallery-picture, .fork-cg-remove-error) { transition: none; animation: none; }
+.fork-gal-stage[data-reduced-motion] :is(.fork-cg-viewer-ui, .fork-cg-round, .fork-cg-round > .fork-cg-icon, .fork-cg-compose-mode, .fork-cg-variant, .fork-cg-scrollbar > b, .fork-cg-cell-title, .fork-cg-gallery-cell .fork-cg-gallery-picture, .fork-cg-remove-error) { transition: none; animation: none; }
 @media (max-width: 600px) {
   .fork-cg-gallery h2 { font-size: 17px; }
   .fork-cg-round { width: 40px; height: 40px; }
-  .fork-cg-grid-top { padding: 12px 12px 10px 16px; }
+  .fork-cg-grid-top { gap: 10px; padding: 12px 12px 10px 16px; }
+  .fork-cg-filter > .fork-cg-compose-mode { padding: 0 10px; font-size: 13px; }
   .fork-cg-gallery-scroll { padding: 0 8px 8px; }
+  .fork-cg-scrollbar { right: 0; width: 10px; }
+  .fork-cg-scrollbar > b { right: 2px; }
   .fork-cg-gallery-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
   .fork-cg-gallery-cell { border-radius: 8px; }
   .fork-cg-cell-title { padding: 18px 8px 6px; font-size: 12px; }
@@ -2490,6 +2511,11 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
 /* Items: a label in the title face (one ladder step over the body); the highlight (pointer or keyboard) is the active surface,
    the gem and an accent bar; keyboard focus adds the theme's focus ring. */
 .fork-gal-menu-list { display: grid; gap: calc(var(--gal-cfg-gap) / 4); }
+/* a short window or many card pages: the list scrolls inside the panel instead of being clipped (drawn menus set their own fit) */
+.fork-gal-menu { grid-template-rows: minmax(0, 100%); }
+.fork-gal-menu-panel:not(.fork-gal-confirm) { grid-template-rows: auto minmax(0, 1fr); }
+.fork-gal-menu-list { min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: none; }
+.fork-gal-menu-list::-webkit-scrollbar { display: none; }
 /* a drawn menu's scroll indicators (art.menu capacity), shown only by those menus */
 .fork-gal-menu-more { display: none; }
 .fork-gal-stage .fork-gal-menu-item { position: relative; display: grid; grid-template-columns: var(--gal-cfg-t0) auto minmax(0, 1fr) auto; align-items: center; column-gap: var(--gal-cfg-gap); box-sizing: border-box; width: 100%; min-height: var(--gal-cfg-hit); margin: 0; padding: calc(var(--gal-cfg-gap) / 2) calc(var(--gal-cfg-gap) * 1.5) calc(var(--gal-cfg-gap) / 2) var(--gal-cfg-gap);
@@ -4743,7 +4769,12 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
      under the row; the tag keeps its paint, no longer straddling the top edge, and a long name stops short of the four
      44px controls (ellipsis) */
   .fork-gal-stage[data-theme][data-fk-skin][data-fk-skin-art][data-fk-skin-art-name][data-fk-skin-art-name-narrow="level"][data-fk-skin-controls-place][data-fk-skin-controls-narrow="top"]:not(.is-film) :is(.fork-gal-box.fork-gal-box, .fork-gal-box.fork-gal-box[data-speaker-side][data-speaker-side]) .fork-gal-name {
-    top: 22px; max-width: calc(100% - 4 * 44px - 1.6em); }
+    top: 22px; }
+  /* the plate stops short of the control row on the box's top edge (quickMenu.narrow top / edge): the row is n controls of 44 px (+ 4 px padding) at the phone bodies' aspect (--art-qc-n, --art-qc-aspect); a plate the skin does not set as a level tag keeps to the left of it too */
+  .fork-gal-stage[data-theme][data-fk-skin][data-fk-skin-art][data-fk-skin-art-name][data-fk-skin-controls-place]:is([data-fk-skin-controls-narrow="edge"], [data-fk-skin-controls-narrow="top"]):not([data-fk-skin-art-name-narrow="under"]):not(.is-film) :is(.fork-gal-box.fork-gal-box, .fork-gal-box.fork-gal-box[data-speaker-side][data-speaker-side]) .fork-gal-name {
+    min-width: 0; max-width: calc(100% - var(--art-qc-n, 4) * (44px * var(--art-qc-aspect, 1) + 4px) - 12px - 1.6em); }
+  .fork-gal-stage[data-theme][data-fk-skin][data-fk-skin-art][data-fk-skin-art-name][data-fk-skin-controls-place]:is([data-fk-skin-controls-narrow="edge"], [data-fk-skin-controls-narrow="top"]):not([data-fk-skin-art-name-narrow]):not(.is-film) :is(.fork-gal-box.fork-gal-box, .fork-gal-box.fork-gal-box[data-speaker-side][data-speaker-side]) .fork-gal-name {
+    left: .8em; right: auto; }
   .fork-gal-stage[data-theme][data-fk-skin][data-fk-skin-art][data-fk-skin-art-name][data-fk-skin-art-name-narrow="level"][data-fk-skin-controls-place][data-fk-skin-controls-narrow="top"]:not(.is-film) .fork-gal-box.fork-gal-box .fork-gal-name b {
     display: inline-block; vertical-align: bottom; max-width: 100%; overflow: hidden; white-space: nowrap; }
 }

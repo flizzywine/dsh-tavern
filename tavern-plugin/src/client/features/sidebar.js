@@ -66,7 +66,7 @@
 		}
 
 		// The head of one card's group in 游玩历史: its click folds / unfolds the group; right click, Shift+F10 / the menu key or a
-		// touch long press opens the card's menu (useContextMenu). Items are entries that exist elsewhere:
+		// touch long press opens the card's menu (useContextMenu, ui-design 右键 / 长按菜单). Items are entries that exist elsewhere:
 		// the card list's 新开游玩, the group's own fold, and the 存档管理 filtered to this card.
 		function HistoryGroupHead({ group, expanded, busy, onToggle, onNewPlay, onManage, children }) {
 			const h = React.createElement;

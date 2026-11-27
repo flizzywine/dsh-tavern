@@ -74,7 +74,7 @@ function stageVoiceWindowFromIndex(sessionId,index,turn,pages,page,config,limit 
     return handles;
 }
 
-function stop(sessionId){if(!closed && player?.get()?.owner===sessionId+':stage')player.stopPlayback();}
+function stop(sessionId){if(!closed)player?.stopPlayback(sessionId+':stage');}
 return {handle:stageVoiceHandle,window:stageVoiceWindowFromIndex,available:()=>!closed&&available(),subscribe,allowed,
     retain:handles=>{if(!closed)player.cancelPrefetch(handles);},stop,stopPlayback:stop,
     dispose(){closed=true;}};
