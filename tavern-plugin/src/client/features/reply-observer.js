@@ -121,7 +121,24 @@
 							h('button', { disabled: pending || snapshot.busy || snapshot.cursor + 1 >= snapshot.length, onClick: function () { act({ op: 'seek', cursor: snapshot.cursor + 1 }); } }, '撤销回退'));
 					};
 				}, []);
-				const renderProps = snapshot ? { gameId: sessionId, data: snapshot.data, foreground: props.pageHost ? false : snapshot.foreground, page: !!props.pageHost, revision: snapshot.revision, paused: paused, error: error, resume: function () { setError(''); setPaused(false); }, busy: pending || snapshot.busy, advance: function (input) { return act({ op: 'advance', input: input }); } } : null;
+				// Avatar({name, size}): a player's face as the chat shows that name (gameFaceUrl), else a stand-in silhouette; on the stage
+				// the lease HUD hands the game the stage's own Avatar instead.
+				const Avatar = React.useMemo(function () {
+					return function TavernGameFace(faceProps) {
+						const name = String(faceProps.name || ''), size = Math.max(12, Number(faceProps.size) || 34);
+						const [url, setUrl] = React.useState(null);
+						React.useEffect(function () {
+							let live = true;
+							setUrl(null);
+							if (name) gameFaceUrl(sessionId, name).then(function (value) { if (live) setUrl(value); });
+							return function () { live = false; };
+						}, [name]);
+						return h('span', { className: 'dsh-tavern-game-face', 'data-face': url ? 'image' : 'placeholder', style: { '--face-size': size + 'px' } },
+							url ? h('img', { src: url, alt: '' })
+								: h('svg', { viewBox: '0 0 64 64' }, h('circle', { cx: 32, cy: 25, r: 12 }), h('path', { d: 'M9 64c0-15 10-24 23-24s23 9 23 24z' })));
+					};
+				}, [sessionId]);
+				const renderProps = snapshot ? { gameId: sessionId, data: snapshot.data, Avatar: Avatar, foreground: props.pageHost ? false : snapshot.foreground, page: !!props.pageHost, revision: snapshot.revision, paused: paused, error: error, resume: function () { setError(''); setPaused(false); }, busy: pending || snapshot.busy, advance: function (input) { return act({ op: 'advance', input: input }); } } : null;
 				// presentation 'stage': while a stage consumer is attached, the page host lends the game the
 				// stage as one in-memory lease and renders no page; scene null releases it (story returns).
 				const stageView = props.pageHost && snapshot ? tavernUiExtensions.gameModeView(snapshot.key) : null;

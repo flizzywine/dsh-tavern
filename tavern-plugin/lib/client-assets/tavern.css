@@ -6476,3 +6476,6 @@ body .ap-ui.dsh-card-detail button.dsh-tavern-card-tagline { display: inline-blo
   .dsh-wbd-entry > .dsh-wbd-editor { padding-left: 14px; margin-left: 8px; }
   .dsh-wbd-fields > .fork-inline-field, .dsh-wbd-fields[data-columns="2"] > .fork-inline-field { --fork-inline-label-w: 5.5em; }
 }
+/* The game page's player face (reply-observer.js Avatar): the chat's face, or a silhouette for a name with none. */
+.dsh-tavern-game-face { display: inline-grid; place-items: center; width: var(--face-size); height: var(--face-size); border-radius: 50%; overflow: hidden; background: var(--fork-surface-2); color: var(--fork-ink-3); }
+.dsh-tavern-game-face img, .dsh-tavern-game-face svg { width: 100%; height: 100%; object-fit: cover; fill: currentColor; }

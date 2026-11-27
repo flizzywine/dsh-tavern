@@ -14,11 +14,8 @@ function bubbleCardFace(config, name, sessionId) {
 // A card shows its face in a photo window well above transcript avatar size (a badge photo is ~130 CSS px wide, cover-fitted),
 // and the frame cannot resample: the face is cut at 256 CSS px (x devicePixelRatio) so it stays sharp when scaled to the window.
 const BUBBLE_FRAME_FACE_PX = 256;
-async function bubbleCardFaceBlobs(sessionId, names) {
-    const data = bubbleStore.get(sessionId) || await rpc("getDialogueBubbles", { sessionId: sessionId }, sessionId);
-    const faces = await Promise.all([...new Set(names)].map(async name => {
-        const face = bubbleCardFace(data?.config, name, sessionId);
-        if (!face) return null;
+// One face (an avatar-cache descriptor of this session) cut at px CSS px: a session Blob URL, or null when it cannot be leased.
+async function bubbleFaceUrl(sessionId, face, px) {
         if (avatarCache.sessionId === null) avatarCache.select(sessionId);
         avatarCache.revision(face.ref.packId, face.revision);
         // the stage client is up but its session has no resource authority yet: the face waits for it
@@ -27,19 +24,63 @@ async function bubbleCardFaceBlobs(sessionId, names) {
             const stop = session.subscribe(() => { if (session.getSnapshot().source) { stop(); resolve(); } });
         });
         const source = session?.getSnapshot().source, authority = source ? JSON.stringify([source.sessionId,source.authorityEpoch]) : null;
-        let url = avatarCache.get(face,BUBBLE_FRAME_FACE_PX);
+        let url = avatarCache.get(face,px);
         if (!url && !(stageSessions.resourceOwner && !authority)) {
             const pool = bubbleMediaPool.retain(), {sessionId: _session, ...descriptor} = face;
             try {
                 const pin = await pool.owner.acquire(descriptor, authority);
-                try { url = await avatarCache.prepare(face,pin.handle.url,BUBBLE_FRAME_FACE_PX); } finally { pin.release(); }
+                try { url = await avatarCache.prepare(face,pin.handle.url,px); } finally { pin.release(); }
             } catch (_) { /* an unleasable face is left out, as the transcript leaves its avatar empty */ } finally { pool.release(); }
         }
         // a face that could not be cut at this size still shows as the transcript's smaller one
-        url = url || avatarCache.ready(face);
+        return url || avatarCache.ready(face) || null;
+}
+async function bubbleCardFaceBlobs(sessionId, names) {
+    const data = bubbleStore.get(sessionId) || await rpc("getDialogueBubbles", { sessionId: sessionId }, sessionId);
+    const faces = await Promise.all([...new Set(names)].map(async name => {
+        const face = bubbleCardFace(data?.config, name, sessionId);
+        const url = face && await bubbleFaceUrl(sessionId, face, BUBBLE_FRAME_FACE_PX);
         return url ? {name, blob: await (await fetch(url)).blob()} : null;
     }));
     return faces.filter(Boolean);}
+// A game page's faces (the page host's Avatar for a gameMode view, reply-observer.js): a name of the card's cast by its
+// transcript face, as above; a name the cast does not know by the library figure a game lease lends it
+// (getStageLeasePresentation: the shared resolver, one figure only). The names asked for in one tick go as one request.
+// → the face's session Blob URL, or null (the page shows the initial).
+const GAME_FACE_PX = 96;
+const gameFaceBatches = new Map();
+async function gameFaceUrls(sessionId, names) {
+    const data = bubbleStore.get(sessionId) || await rpc("getDialogueBubbles", { sessionId: sessionId }, sessionId);
+    const faces = new Map(), unknown = [];
+    for (const name of names) {
+        const face = bubbleCardFace(data?.config, name, sessionId);
+        if (face) faces.set(name, face); else unknown.push(name);
+    }
+    if (unknown.length) {
+        const result = await rpc("getStageLeasePresentation", { sessionId: sessionId, actors: [], names: unknown }, sessionId);
+        const value = result?.status === "ready" ? result.value : null;
+        for (const row of value?.lent || []) {
+            const figure = value.avatars.find(item => item.alias === row.alias);
+            if (figure?.avatarUrl) faces.set(row.name, {...figure.avatarUrl, outfitKey: figure.avatarOutfitKey || figure.outfitKey, stateId: figure.avatarStateId || figure.state?.id, sessionId});
+        }
+    }
+    return new Map(await Promise.all([...faces].map(async ([name, face]) => [name, await bubbleFaceUrl(sessionId, face, GAME_FACE_PX)])));
+}
+function gameFaceUrl(sessionId, name) {
+    return new Promise(resolve => {
+        let batch = gameFaceBatches.get(sessionId);
+        if (!batch) {
+            batch = new Map();
+            gameFaceBatches.set(sessionId, batch);
+            setTimeout(() => {
+                gameFaceBatches.delete(sessionId);
+                const settle = urls => { for (const [name, waiting] of batch) for (const done of waiting) done(urls.get(name) || null); };
+                gameFaceUrls(sessionId, [...batch.keys()]).then(settle, () => settle(new Map()));
+            }, 0);
+        }
+        batch.set(name, [...(batch.get(name) || []), resolve]);
+    });
+}
 // A chat card frame's media (its window.DshCardAssets.asset, frame-document.js), as a stage card page's DshCardPage.asset:
 // {kind, id, variant?, file?, size?} → an image of the card's own bound packs, located by the stage's one lookup
 // (locateCardPageAsset, in binding order). The frame shows it at size CSS px (default 256) and cannot resample, so the
