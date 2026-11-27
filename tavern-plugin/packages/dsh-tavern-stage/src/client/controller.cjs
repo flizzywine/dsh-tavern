@@ -749,7 +749,10 @@ function GalStage(props) {
             if (reading.skipTitlePage === true && cardPages.pages.some(page => page.showOn && !page.initial)) jumpLatest();
             return;
         }
-        setHidden(false); setOpenPage(id); setEntryCardPage(id); entrance.end();
+        setHidden(false);
+        if (named && asked.reader) openStageReader(asked.reader, id);
+        else { setOpenPage(id); setEntryCardPage(id); }
+        entrance.end();
     // a layout effect: the page is open in the same paint its declarations arrive in, never a frame of the stage before it
     }, [cardPages, stageVisit, sessionId, reading.skipTitlePage]);
     const narrow = useGalNarrow(); // the one stage breakpoint, 640px
